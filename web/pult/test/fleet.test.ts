@@ -93,13 +93,13 @@ describe("эталоны пульта: аккаунты и слоты", () => {
       result: {
         accounts:
           f.machine === "laptop"
-            ? { y0902: { email: "y0902@x.io", plan: "max", login: "ok", lent: null, limits: { five_hour: { utilization: 0.04, resetsAt: T(16, 20), at: T(14, 40), src: "poll" } } } }
+            ? { y0902: { email: "y0902@x.io", plan: "max", login: "ok", links: [], limits: { five_hour: { utilization: 0.04, resetsAt: T(16, 20), at: T(14, 40), src: "poll" } } } }
             : {
                 y0902: {
                   email: "y0902@x.io",
                   plan: "max",
                   login: "ok",
-                  lent: null,
+                  links: [],
                   limits: { five_hour: { utilization: 0.09, resetsAt: T(16, 20), at: T(14, 55), src: "event" }, seven_day: { utilization: 0.66, resetsAt: T(20, 0), at: T(14, 58), src: "laptop" } },
                 },
               },
@@ -142,6 +142,43 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     expect(t2.$('[data-slot="laptop:main"]')!.textContent).toContain("В запасе нет вошедшего ниже порога — слот прежний");
     expect(t2.$('[data-slot="laptop:main"] [data-current]')!.textContent).toBe("в слоте: y0902");
     expect(t2.relay.sent("slot.swap")).toHaveLength(1);
+  });
+
+  it("268 · один аккаунт в двух слотах: «в слотах main, bot» и «Сессии main/bot»; в слоте — «сейчас и в слоте bot»; удаление меняет его в обоих слотах по очереди", async () => {
+    const relay = fleetRelay();
+    const both = { main: ["infirex", "y0902"], bot: ["infirex", "y0902"] };
+    const current: Record<string, string> = { main: "infirex", bot: "infirex" };
+    relay.handlers["machine.slots"] = (f) => ({
+      ok: true,
+      result: { slots: f.machine === "laptop" ? Object.fromEntries(Object.entries(both).map(([n, o]) => [n, { account: current[n], order: o, wait: null, sessions: [`${n}-s@laptop`] }])) : {} },
+    });
+    relay.handlers["machine.accounts"] = (f) => ({
+      ok: true,
+      result: { accounts: f.machine === "laptop" ? { infirex: { login: "ok", links: ["/s/main", "/s/bot"], limits: {} }, y0902: { login: "ok", links: [], limits: {} } } : {} },
+    });
+    relay.handlers["slot.swap"] = (f) => ((current[f.slot as string] = "y0902"), { ok: true, result: { from: "infirex", to: "y0902" } });
+    relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "y0902" } });
+    relay.handlers["machine.account_remove"] = () => ({ ok: true, result: { wiped: true } });
+    const t = await pult({ relay });
+    await t.go("#accounts?view=slots");
+    await flush(10);
+    expect(t.$('[data-slot="laptop:main"] [data-current]')!.textContent).toBe("в слоте: infirex · сейчас и в слоте bot");
+    expect(t.$('[data-slot="laptop:bot"] [data-current]')!.textContent).toBe("в слоте: infirex · сейчас и в слоте main");
+    await t.go("#accounts?view=accounts");
+    await flush(10);
+    const row = t.$$('[data-machine="laptop"]').find((x) => x.textContent!.startsWith("laptop") && x.textContent!.includes("в слотах"))!;
+    expect(row.textContent).toContain("в слотах main, bot");
+    expect(t.$$("[data-sess]").map((b) => b.textContent)).toEqual(["Сессии main (1)…", "Сессии bot (1)…"]);
+    await t.click(t.btn(row, "Удалить…"));
+    expect(t.$('[data-dlg="rm"]')!.textContent).toContain("infirex сейчас в слотах main, bot");
+    await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
+    await flush(10);
+    expect(relay.sent("slot.swap").map((f) => f.slot)).toEqual(["main", "bot"]);
+    expect(relay.sent("slot.set").map((f) => [f.slot, f.order])).toEqual([
+      ["main", ["y0902"]],
+      ["bot", ["y0902"]],
+    ]);
+    expect(relay.sent("machine.account_remove")).toEqual([expect.objectContaining({ machine: "laptop", account: "infirex" })]);
   });
 
   it("194 · подмену делает Host: до roster запросов нет; сменился account — один machine.slots и один machine.accounts к laptop; «в слоте: y0902»; в чате site — «⇄ аккаунт: infirex → y0902»", async () => {

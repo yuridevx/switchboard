@@ -1,14 +1,13 @@
 // Эталоны и стыки модуля slots на стенде Host: поддельные SDK, relay, keeper и часы;
-// accounts — настоящий, с временной папкой. Номер эталона — номер теста.
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+// accounts — настоящий, с временной папкой; ссылки слотов — настоящие. Номер эталона — номер теста.
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import accountsManifest from "../../accounts/module.json" with { type: "json" };
-import { make as makeAccounts } from "../../accounts/src/accounts.ts";
+import { linkSlot, make as makeAccounts } from "../../accounts/src/accounts.ts";
 import manifest from "../module.json" with { type: "json" };
 import { CONTINUE, make } from "../src/slots.ts";
 
@@ -32,15 +31,16 @@ afterEach(async () => {
 });
 
 type Win = { utilization: number; resetsAt: number; at?: number; src?: string };
-type AccSpec = { lent?: string; login?: "ok" | "none"; limits?: Record<string, Win> };
+/** in — слоты, где аккаунт стоит сейчас (ссылка слота ведёт на его папку). */
+type AccSpec = { in?: string | string[]; login?: "ok" | "none"; limits?: Record<string, Win> };
 const accDir = (n: string) => join(home, "accounts", n);
 const slotDir = (n: string) => join(home, "slots", n);
-const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const now = () => Math.floor(Date.now() / 1000);
 const read = (d: string) => readFileSync(join(d, CRED), "utf8");
+const isLink = (p: string) => existsSync(p) && lstatSync(p).isSymbolicLink();
 
 /**
- * Машина: аккаунты (вход — файлом в папке аккаунта или слота), порядок слотов и слоты сессий.
+ * Машина: аккаунты (вход — файлом в папке аккаунта, слоты — ссылки на неё), порядок слотов и слоты сессий.
  * Сессии из списка поднимаются Host по resume.
  */
 async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<string, string[]>; sessions?: Record<string, { slot: string | null; cut?: string }> }) {
@@ -48,16 +48,14 @@ async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<stri
   mkdirSync(store, { recursive: true });
   const recs: Record<string, unknown> = {};
   for (const [n, a] of Object.entries(o.accounts)) {
-    const where = a.lent ? slotDir(a.lent) : accDir(n);
     mkdirSync(accDir(n), { recursive: true });
-    mkdirSync(where, { recursive: true });
-    if ((a.login ?? "ok") === "ok") writeFileSync(join(where, CRED), JSON.stringify({ claudeAiOauth: { accessToken: `tok-${n}` } }));
-    const lent = a.lent ? slotDir(a.lent) : null;
+    if ((a.login ?? "ok") === "ok") writeFileSync(join(accDir(n), CRED), JSON.stringify({ claudeAiOauth: { accessToken: `tok-${n}` } }));
+    const links = (a.in === undefined ? [] : [a.in].flat()).map(slotDir);
+    for (const l of links) linkSlot(l, accDir(n));
     recs[n] = {
       login: a.login ?? "ok",
-      lent,
+      links,
       limits: Object.fromEntries(Object.entries(a.limits ?? {}).map(([w, v]) => [w, { at: now() - 30, src: "event", ...v }])),
-      ...(lent && existsSync(join(lent, CRED)) ? { given: sha(readFileSync(join(lent, CRED))) } : {}),
     };
   }
   writeFileSync(join(store, "host-accounts.json"), JSON.stringify({ machine: recs }));
@@ -97,7 +95,7 @@ describe("эталоны slots", () => {
   it("16 · у порога 95 % — один account.place, обе сессии на y0902 без перезапуска, ledger.add slot.swapped", async () => {
     const R = now() + 3600;
     await bench({
-      accounts: { infirex: { lent: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R + 600 } } }, work3: {} },
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R + 600 } } }, work3: {} },
       slots: { main: ["infirex", "y0902", "work3"] },
       sessions: { "site@laptop": { slot: "main" }, "wiki@laptop": { slot: "main" } },
     });
@@ -106,9 +104,12 @@ describe("эталоны slots", () => {
     st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.95, resetsAt: R }));
     await until(() => swaps().length === 1);
     expect(places()).toHaveLength(1);
-    expect(places()[0]).toMatchObject({ account: "y0902", dir: slotDir("main"), returned: "infirex" });
+    expect(places()[0]).toMatchObject({ account: "y0902", dir: slotDir("main"), from: "infirex" });
+    expect(isLink(slotDir("main"))).toBe(true);
     expect(read(slotDir("main"))).toContain("tok-y0902");
+    // входы не двигаются: оба дома
     expect(read(accDir("infirex"))).toContain("tok-infirex");
+    expect(read(accDir("y0902"))).toContain("tok-y0902");
     expect(swaps()[0]).toMatchObject({ to: "ledger", ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902 · 5 ч 95 %" });
     for (const cs of ["site@laptop", "wiki@laptop"]) {
       expect(st!.sdk.of(cs)).toHaveLength(1); // тот же процесс
@@ -123,7 +124,7 @@ describe("эталоны slots", () => {
   it("88 · поздний ответ infirex после подмены: account.usage infirex, слот остаётся на y0902", async () => {
     const R = now() + 3600;
     await bench({
-      accounts: { infirex: { limits: { five_hour: { utilization: 0.95, resetsAt: R } } }, y0902: { lent: "main", limits: { five_hour: { utilization: 0.05, resetsAt: R + 3600 } } } },
+      accounts: { infirex: { limits: { five_hour: { utilization: 0.95, resetsAt: R } } }, y0902: { in: "main", limits: { five_hour: { utilization: 0.05, resetsAt: R + 3600 } } } },
       slots: { main: ["infirex", "y0902"] },
       sessions: { "site@laptop": { slot: "main" }, "wiki@laptop": { slot: "main" } },
     });
@@ -133,7 +134,7 @@ describe("эталоны slots", () => {
       const x = await accounts();
       return x.infirex.limits.five_hour.utilization === 0.96 ? x : null;
     });
-    expect(a.y0902.lent).toBe(slotDir("main"));
+    expect(a.y0902.links).toEqual([slotDir("main")]);
     expect(places()).toHaveLength(0);
     expect(swaps()).toHaveLength(0);
   });
@@ -143,7 +144,7 @@ describe("эталоны slots", () => {
     const Y = t + 1800;
     await bench({
       accounts: {
-        y0902: { lent: "main", limits: { five_hour: { utilization: 0.96, resetsAt: Y } } },
+        y0902: { in: "main", limits: { five_hour: { utilization: 0.96, resetsAt: Y } } },
         infirex: { limits: { five_hour: { utilization: 0.97, resetsAt: t + 12600 } } },
         work3: { limits: { seven_day: { utilization: 0.98, resetsAt: t + 86400 } } },
       },
@@ -160,26 +161,53 @@ describe("эталоны slots", () => {
     expect(r.result.slots.main).toMatchObject({ account: "y0902", wait: Y, sessions: ["site@laptop"] });
   });
 
-  it("166 · claude обновил вход в слоте — при подмене файл слота уходит infirex байт в байт, refreshed", async () => {
+  it("166 · claude обновил вход через ссылку слота — новый токен сразу в папке infirex; подмена ничего не переносит", async () => {
     const R = now() + 3600;
     await bench({
-      accounts: { infirex: { lent: "main", limits: { five_hour: { utilization: 0.5, resetsAt: R } } }, y0902: {} },
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.5, resetsAt: R } } }, y0902: {} },
       slots: { main: ["infirex", "y0902"] },
       sessions: { "site@laptop": { slot: "main" } },
     });
+    // claude пишет вход как в опыте 1 ноя: временный файл рядом и rename — через ссылку слота
     const fresh = '{"claudeAiOauth":{"accessToken":"tok-infirex-refreshed","expiresAt":2}}';
-    writeFileSync(join(slotDir("main"), CRED), fresh);
+    writeFileSync(join(slotDir("main"), `${CRED}.tmp.5d666bc0`), fresh);
+    const { renameSync } = await import("node:fs");
+    renameSync(join(slotDir("main"), `${CRED}.tmp.5d666bc0`), join(slotDir("main"), CRED));
+    expect(readFileSync(join(accDir("infirex"), CRED), "utf8")).toBe(fresh);
     st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.95, resetsAt: R }));
     await until(() => swaps().length === 1);
     expect(readFileSync(join(accDir("infirex"), CRED), "utf8")).toBe(fresh);
     expect(read(slotDir("main"))).toContain("tok-y0902");
-    expect(st!.journal().some((l) => l.why === "infirex: claude обновил вход в слоте")).toBe(true);
+    expect(isLink(slotDir("main"))).toBe(true);
+  });
+
+  it("267 · один аккаунт в двух слотах: порог в main меняет только main; bot — своим событием; y0902 встаёт в оба", async () => {
+    const R = now() + 3600;
+    await bench({
+      accounts: { infirex: { in: ["main", "bot"], limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R + 600 } } } },
+      slots: { main: ["infirex", "y0902"], bot: ["infirex", "y0902"] },
+      sessions: { "site@laptop": { slot: "main" }, "poe@laptop": { slot: "bot" } },
+    });
+    let r = await ask({ type: "machine.slots" });
+    expect(r.result.slots.main.account).toBe("infirex");
+    expect(r.result.slots.bot.account).toBe("infirex");
+    st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.95, resetsAt: R }));
+    await until(() => swaps().length === 1);
+    r = await ask({ type: "machine.slots" });
+    expect(r.result.slots.main.account).toBe("y0902");
+    expect(r.result.slots.bot.account).toBe("infirex");
+    expect(read(slotDir("bot"))).toContain("tok-infirex");
+    st!.proc("poe@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.96, resetsAt: R }));
+    await until(() => swaps().length === 2);
+    expect(swaps().map((x) => x.text)).toEqual(["слот main: infirex → y0902 · 5 ч 95 %", "слот bot: infirex → y0902 · 5 ч 96 %"]);
+    expect((await accounts()).y0902.links).toEqual([slotDir("main"), slotDir("bot")]);
+    expect(read(slotDir("bot"))).toContain("tok-y0902");
   });
 
   it("167 · отказ модели: подмена сразу, «Продолжай» только оборванной site после result", async () => {
     const R = now() + 3600;
     await bench({
-      accounts: { infirex: { lent: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R } } } },
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R } } } },
       slots: { main: ["infirex", "y0902"] },
       sessions: { "site@laptop": { slot: "main" }, "wiki@laptop": { slot: "main" } },
     });
@@ -202,7 +230,7 @@ describe("эталоны slots", () => {
     const R = now() + 3600;
     await bench({
       accounts: {
-        infirex: { lent: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } },
+        infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } },
         y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R + 60 } } },
         work3: { limits: { five_hour: { utilization: 0.5, resetsAt: R + 120 } } },
       },
@@ -229,7 +257,7 @@ describe("эталоны slots", () => {
     const t = now();
     await bench({
       accounts: {
-        infirex: { lent: "main", limits: { five_hour: { utilization: 1, resetsAt: t + 12600 } } },
+        infirex: { in: "main", limits: { five_hour: { utilization: 1, resetsAt: t + 12600 } } },
         y0902: { limits: { five_hour: { utilization: 0.97, resetsAt: t + 60 } } },
         work3: { limits: { seven_day: { utilization: 0.98, resetsAt: t + 86400 } } },
       },
@@ -251,7 +279,7 @@ describe("эталоны slots", () => {
     const R = now() + 3600;
     await bench({
       accounts: {
-        infirex: { lent: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } },
+        infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } },
         work3: { limits: { seven_day: { utilization: 0.98, resetsAt: R + 86400 } } },
         corp: { login: "none" },
         y0902: { limits: { five_hour: { utilization: 0.1, resetsAt: R } } },
@@ -270,18 +298,21 @@ describe("эталоны slots", () => {
     expect(read(slotDir("main"))).toContain("tok-y0902");
   });
 
-  it("169 · новый слот: аккаунты порядка заняты другими слотами — no_reserve, слот не создан (живой прогон 31 окт.)", async () => {
+  it("169 · новый слот: аккаунт уже стоит в main — встаёт и в s2; в порядке нет вошедших — no_reserve, слот не создан (живой прогон 31 окт.)", async () => {
     await bench({
-      accounts: { infirex: { lent: "main" }, y0902: {} },
+      accounts: { infirex: { in: "main" }, corp: { login: "none" } },
       slots: { main: ["infirex"] },
       sessions: {},
     });
-    const r = await ask({ type: "slot.set", slot: "s2", order: ["infirex"] });
+    const ok = await ask({ type: "slot.set", slot: "s2", order: ["infirex"] });
+    expect(ok).toMatchObject({ ok: true, result: { account: "infirex" } });
+    expect(read(slotDir("s2"))).toContain("tok-infirex");
+    expect((await accounts()).infirex.links).toEqual([slotDir("main"), slotDir("s2")]);
+    const r = await ask({ type: "slot.set", slot: "s3", order: ["corp"] });
     expect(r).toMatchObject({ ok: false, error: "no_reserve" });
     const slots = await ask({ type: "machine.slots" });
-    expect(Object.keys(slots.result.slots)).toEqual(["main"]);
-    const ok = await ask({ type: "slot.set", slot: "s2", order: ["infirex", "y0902"] });
-    expect(ok).toMatchObject({ ok: true, result: { account: "y0902" } });
+    expect(Object.keys(slots.result.slots).sort()).toEqual(["main", "s2"]);
+    expect(existsSync(slotDir("s3"))).toBe(false);
   });
 
   it("170 · сессия без слота: ключа нет, лимиты не в accounts; slot.set с default — no_account", async () => {
@@ -316,19 +347,20 @@ describe("slots: ветки и стыки", () => {
     expect((await ask({ type: "session.slot", callsign: "site@laptop", slot: "nope" })).error).toBe("no_slot");
   });
 
-  it("slot.set с пустым порядком: есть сессии — has_sessions; без сессий — вход домой, слот удалён", async () => {
-    await bench({ accounts: { y0902: { lent: "bot" } }, slots: { bot: ["y0902"] }, sessions: { "site@laptop": { slot: "bot" } } });
+  it("slot.set с пустым порядком: есть сессии — has_sessions; без сессий — ссылка снята, вход дома, слот удалён", async () => {
+    await bench({ accounts: { y0902: { in: "bot" } }, slots: { bot: ["y0902"] }, sessions: { "site@laptop": { slot: "bot" } } });
     expect(await ask({ type: "slot.set", slot: "bot", order: [] })).toMatchObject({ ok: false, error: "has_sessions" });
     await st!.session("probe", "site@laptop")!.remove();
     const r = await ask({ type: "slot.set", slot: "bot", order: [] });
     expect(r.result).toEqual({ account: null });
     expect(read(accDir("y0902"))).toContain("tok-y0902");
-    expect(existsSync(join(slotDir("bot"), CRED))).toBe(false);
+    expect(existsSync(slotDir("bot"))).toBe(false);
+    expect((await accounts()).y0902.links).toEqual([]);
     expect((await ask({ type: "machine.slots" })).result.slots).toEqual({});
   });
 
   it("slot.swap «Сменить сейчас» — by в журнале флота; no_slot у незнакомого слота", async () => {
-    await bench({ accounts: { infirex: { lent: "main" }, y0902: {}, work3: {} }, slots: { main: ["infirex", "y0902", "work3"] } });
+    await bench({ accounts: { infirex: { in: "main" }, y0902: {}, work3: {} }, slots: { main: ["infirex", "y0902", "work3"] } });
     const r = await ask({ type: "slot.swap", slot: "main", account: "work3" });
     expect(r.result).toEqual({ from: "infirex", to: "work3" });
     expect(swaps()[0]).toMatchObject({ by: "panel-desk", text: "слот main: infirex → work3 · вручную" });
@@ -338,7 +370,7 @@ describe("slots: ветки и стыки", () => {
   it("accounts отказал в подмене — слот прежний, строка журнала со словом", async () => {
     const R = now() + 3600;
     await bench({
-      accounts: { infirex: { lent: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: {} },
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: {} },
       slots: { main: ["infirex", "y0902"] },
       sessions: { "site@laptop": { slot: "main" } },
     });

@@ -1,7 +1,7 @@
 {
   "name": "host-slots",
   "type": "sdk",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "provides": {
     "machine.slots": 1,
     "slot.set": 1,
@@ -13,7 +13,7 @@
   "uses": {
     "host.module@host": 1,
     "machine.accounts@host-accounts": 1,
-    "account.place@host-accounts": 1,
+    "account.place@host-accounts": 2,
     "account.usage@host-accounts": 1,
     "ledger.add@ledger": 1
   },

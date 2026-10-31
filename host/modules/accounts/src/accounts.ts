@@ -1,32 +1,38 @@
 // Модуль accounts: аккаунты Claude на машине. У каждого аккаунта своя папка Claude (CLAUDE_CONFIG_DIR):
-// вход, почта, тариф. Вход аккаунта живёт ровно в одном месте — в своей папке или в слоте (lent).
+// вход, почта, тариф. Вход всегда лежит в своей папке; слот — ссылка на неё (junction на Windows, symlink на Linux).
+// Поэтому один аккаунт стоит хоть в нескольких слотах, а токен, обновлённый claude, сразу ложится домой.
+// Ссылку перевешивает только accounts — под блокировкой обновления входа claude (.oauth_refresh.lock в папке входа):
+// claude держит её на время обновления (опыт 1 ноя: ~0,7 с), свежую чужую ждёт, поэтому подмена не рвёт обновление.
 // С claude говорит короткими процессами без сессии (host.probe) и командой claude auth status (host.cli).
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { refuse } from "@switchboard/host";
 import type { Frame, Host, Module, Probe } from "@switchboard/host";
 
 /** Окно лимита: доля 0…1, час сброса и откуда значение (event — поток слота, poll — свой опрос, иначе имя машины). */
 export type Window = { utilization: number; resetsAt: number; at: number; src: string };
 
-/** Запись аккаунта в хранилище. given — отпечаток входа, выданного в слот: по нему видно, обновил ли claude токен. */
+/** Запись аккаунта в хранилище. links — папки слотов, чьи ссылки ведут на папку аккаунта. */
 export type Account = {
   login: "ok" | "none" | "pending";
-  lent: string | null;
+  links: string[];
   email?: string;
   plan?: string;
   checked?: number;
   limits: Record<string, Window>;
   err?: string;
-  given?: string;
 };
 
 export type Accounts = Record<string, Account>;
 
 /** Файл входа claude в папке Claude (или в CLAUDE_SECURESTORAGE_CONFIG_DIR). */
 export const CREDENTIALS = ".credentials.json";
+/** Блокировка обновления входа claude — папка рядом с файлом входа (mkdir). */
+export const REFRESH_LOCK = ".oauth_refresh.lock";
+/** Сколько ждать, пока claude обновляет вход: свою блокировку он держит меньше секунды. */
+export const LOCK_WAIT_MS = 10_000;
 const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 const NAME = /^[A-Za-z0-9_-]+$/;
 /** Проверка входа — раз в 2 мин, как в claude-fleet. */
@@ -34,13 +40,69 @@ export const CHECK_MS = 120_000;
 
 export const switchboardHome = () => process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
 const sec = () => Math.floor(Date.now() / 1000);
-const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const lstat = (p: string): Stats | null => {
+  try {
+    return lstatSync(p);
+  } catch {
+    return null;
+  }
+};
 
-/** Записать файл целиком: временный рядом и rename — в папке всегда целый вход. */
-function put(file: string, data: Buffer): void {
-  const tmp = `${file}.tmp`;
-  writeFileSync(tmp, data);
-  renameSync(tmp, file);
+/** Убрать ссылку слота или пустую папку на её месте. Не рекурсивно: папка аккаунта за ссылкой не трогается. */
+export function unlinkSlot(p: string): void {
+  const st = lstat(p);
+  if (!st) return;
+  if (st.isSymbolicLink()) {
+    try {
+      unlinkSync(p);
+    } catch {
+      rmdirSync(p); // junction на Windows
+    }
+  } else if (st.isDirectory()) {
+    try {
+      rmdirSync(p);
+    } catch {
+      throw refuse("slot_dir_busy", `${p}: на месте ссылки слота папка с файлами`);
+    }
+  } else unlinkSync(p);
+}
+
+/** Ссылка слота на папку: Linux — symlink во временное имя и rename (атомарно); Windows — junction заново (rename поверх — EPERM). */
+export function linkSlot(slot: string, target: string): void {
+  mkdirSync(dirname(slot), { recursive: true });
+  if (process.platform === "win32") {
+    unlinkSlot(slot);
+    symlinkSync(target, slot, "junction");
+    return;
+  }
+  if (!lstat(slot)?.isSymbolicLink()) unlinkSlot(slot);
+  const tmp = `${slot}.link`;
+  unlinkSlot(tmp);
+  symlinkSync(target, tmp);
+  renameSync(tmp, slot);
+}
+
+/** fn под блокировкой обновления входа в папке dir. Держит её claude дольше LOCK_WAIT_MS — refresh_locked. */
+async function locked<T>(dir: string | null, fn: () => T): Promise<T> {
+  if (!dir) return fn();
+  const lock = join(dir, REFRESH_LOCK);
+  const end = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      if (Date.now() >= end) throw refuse("refresh_locked", `${dir}: claude обновляет вход дольше ${LOCK_WAIT_MS / 1000} с`);
+      await sleep(100);
+    }
+  }
+  try {
+    return fn();
+  } finally {
+    rmdirSync(lock);
+  }
 }
 
 export function make(): Module {
@@ -52,12 +114,7 @@ export function make(): Module {
   const store = () => host.store<Accounts>();
   const all = (): Accounts => store().get() ?? {};
   const dirOf = (name: string) => join(switchboardHome(), "accounts", name);
-  /** Где сейчас лежит вход аккаунта. */
-  const fileOf = (name: string, a: Account) => join(a.lent ?? dirOf(name), CREDENTIALS);
-  const env = (name: string, a?: Account): Record<string, string> => ({
-    CLAUDE_CONFIG_DIR: dirOf(name),
-    ...(a?.lent ? { CLAUDE_SECURESTORAGE_CONFIG_DIR: a.lent } : {}),
-  });
+  const env = (name: string): Record<string, string> => ({ CLAUDE_CONFIG_DIR: dirOf(name) });
   const save = (name: string, fn: (a: Account | undefined) => Account | undefined) =>
     store().update((cur = {}) => {
       const next = fn(cur[name]);
@@ -78,8 +135,8 @@ export function make(): Module {
   }
 
   /** claude auth status с папкой аккаунта: вошёл ли. */
-  async function loggedIn(name: string, a: Account): Promise<boolean> {
-    const r = await host.cli(["auth", "status"], { env: env(name, a) });
+  async function loggedIn(name: string): Promise<boolean> {
+    const r = await host.cli(["auth", "status"], { env: env(name) });
     if (r.code !== 0) return false;
     try {
       return (JSON.parse(r.out) as { loggedIn?: boolean }).loggedIn !== false;
@@ -92,7 +149,7 @@ export function make(): Module {
   async function check(): Promise<void> {
     for (const [name, a] of Object.entries(all())) {
       if (a.login === "pending") continue;
-      const ok = await loggedIn(name, a);
+      const ok = await loggedIn(name);
       const now = sec();
       save(name, (cur) => cur && { ...cur, login: cur.login === "pending" ? "pending" : ok ? "ok" : "none", checked: now });
       if (!ok && a.login === "ok") host.log({ kind: "stop", ev: "login_lost", account: name, why: `${name}: вход пропал` });
@@ -115,8 +172,8 @@ export function make(): Module {
   }
 
   /** Опрос лимитов коротким claude с папкой аккаунта. Не ответил — прежние окна и err. */
-  async function poll(name: string, a: Account): Promise<void> {
-    const p = host.probe({ env: env(name, a) });
+  async function poll(name: string): Promise<void> {
+    const p = host.probe({ env: env(name) });
     try {
       const r = (await p.sdk(USAGE, { skipBehaviors: true })) as {
         subscription_type?: string | null;
@@ -142,12 +199,31 @@ export function make(): Module {
     }
   }
 
-  /** Запись наружу: окно, чей сброс прошёл, — 0 %. given — своё, наружу не идёт. */
+  /** Запись наружу: окно, чей сброс прошёл, — 0 %. */
   function view(a: Account, now: number) {
-    const { given: _g, ...rest } = a;
     const limits: Record<string, Window> = {};
     for (const [w, v] of Object.entries(a.limits ?? {})) limits[w] = v.resetsAt && v.resetsAt <= now ? { ...v, utilization: 0 } : v;
-    return { ...rest, limits };
+    return { ...a, limits };
+  }
+
+  /** Прежний формат: вход переносился в папку слота (lent). Вернуть его домой и повесить ссылку. */
+  function migrate(): void {
+    for (const [name, a] of Object.entries(all()) as Array<[string, Account & { lent?: string | null; given?: string }]>) {
+      if (Array.isArray(a.links)) continue;
+      const links: string[] = [];
+      if (a.lent) {
+        const f = join(a.lent, CREDENTIALS);
+        mkdirSync(dirOf(name), { recursive: true });
+        if (existsSync(f)) renameSync(f, join(dirOf(name), CREDENTIALS));
+        linkSlot(a.lent, dirOf(name));
+        links.push(resolve(a.lent));
+      }
+      save(name, (cur) => {
+        const { lent: _l, given: _g, ...rest } = cur as Account & { lent?: unknown; given?: unknown };
+        return { ...rest, links };
+      });
+      host.log({ ev: "migrate", account: name, why: `${name}: вход дома${links.length ? `, ссылка ${links[0]}` : ""}` });
+    }
   }
 
   const requests: Module["requests"] = {
@@ -158,7 +234,7 @@ export function make(): Module {
         for (const [name, a] of Object.entries(all())) {
           if (a.login !== "ok") continue;
           const fresh = Math.max(0, ...Object.values(a.limits ?? {}).map((w) => w.at));
-          if (now - fresh > maxAge) await poll(name, a); // один опрос за раз
+          if (now - fresh > maxAge) await poll(name); // один опрос за раз
         }
       }
       const now = sec();
@@ -172,8 +248,7 @@ export function make(): Module {
       if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_frame", "имя аккаунта — латиница, цифры, - и _");
       closeLogin(name); // повтор закрывает прежний процесс входа
       mkdirSync(dirOf(name), { recursive: true });
-      const a = all()[name];
-      const p = host.probe({ env: env(name, a) });
+      const p = host.probe({ env: env(name) });
       logins.set(name, { p, state: null });
       let r: { manualUrl?: string };
       try {
@@ -184,7 +259,7 @@ export function make(): Module {
       }
       const url = r.manualUrl ?? "";
       logins.set(name, { p, state: new URL(url, "https://claude.ai").searchParams.get("state") });
-      save(name, (cur) => ({ ...(cur ?? { lent: null, limits: {} }), login: "pending" }));
+      save(name, (cur) => ({ ...(cur ?? { links: [], limits: {} }), login: "pending" }));
       host.log({ ev: "login", account: name, why: `${name}: вход начат` });
       return { url };
     },
@@ -209,16 +284,13 @@ export function make(): Module {
       let acc = r?.account;
       if (!acc?.email) acc = ((await l.p.sdk("accountInfo")) as typeof acc) ?? acc;
       closeLogin(name);
-      const a = all()[name];
-      const ok = a ? await loggedIn(name, a) : false;
-      const given = a?.lent && existsSync(join(a.lent, CREDENTIALS)) ? sha(readFileSync(join(a.lent, CREDENTIALS))) : undefined;
+      const ok = all()[name] ? await loggedIn(name) : false;
       save(name, (cur) => ({
-        ...(cur ?? { lent: null, limits: {} }),
+        ...(cur ?? { links: [], limits: {} }),
         login: ok ? "ok" : "none",
         checked: sec(),
         ...(acc?.email ? { email: acc.email } : {}),
         ...(acc?.subscriptionType ? { plan: acc.subscriptionType } : {}),
-        ...(given ? { given } : {}),
       }));
       host.log({ ev: "login", account: name, why: ok ? `${name}: вошёл` : `${name}: claude принял код, но auth status — не вошёл` });
       return { email: acc?.email ?? null, plan: acc?.subscriptionType ?? null };
@@ -226,7 +298,7 @@ export function make(): Module {
 
     "machine.account_remove"(f) {
       const [name, a] = need(f);
-      if (a.lent) throw refuse("in_slot", `${name}: вход в ${a.lent} — сначала его сменит slots`);
+      if (a.links.length) throw refuse("in_slot", `${name}: стоит в ${a.links.join(", ")} — сначала его сменит slots`);
       closeLogin(name);
       // только своя папка аккаунта; claude auth logout не зовём — он чистит общие настройки
       rmSync(dirOf(name), { recursive: true, force: true });
@@ -242,49 +314,25 @@ export function make(): Module {
       return undefined;
     },
 
-    "account.place"(f) {
-      const [name, a] = need(f);
-      if (a.login !== "ok") throw refuse("not_logged_in", `${name}: входа нет`);
-      const target = typeof f.dir === "string" ? resolve(f.dir) : null;
-      if (target === (a.lent ?? null)) return { refreshed: false };
-      if (target && a.lent) throw refuse("in_slot", `${name}: вход уже в ${a.lent}`);
-      const src = fileOf(name, a);
-      if (!existsSync(src)) throw refuse("not_logged_in", `${name}: файла входа нет в ${src}`);
-
-      if (target === null) {
-        // вход домой — переносом: в слоте он не остаётся
-        const data = readFileSync(src);
-        const refreshed = !!a.given && sha(data) !== a.given;
-        put(join(dirOf(name), CREDENTIALS), data);
-        unlinkSync(src);
-        save(name, (cur) => cur && { ...cur, lent: null, given: undefined });
-        if (refreshed) host.log({ ev: "refreshed", account: name, why: `${name}: claude обновил вход в слоте` });
-        return { refreshed };
+    async "account.place"(f) {
+      const dir = typeof f.dir === "string" && f.dir ? resolve(f.dir) : null;
+      if (!dir) throw refuse("bad_frame", "account.place: нет dir");
+      const name = typeof f.account === "string" ? f.account : null;
+      if (name !== null) {
+        const a = all()[name];
+        if (!a) throw refuse("no_account", `аккаунта ${name} на машине нет`);
+        if (a.login !== "ok" || !existsSync(join(dirOf(name), CREDENTIALS))) throw refuse("not_logged_in", `${name}: входа нет`);
       }
-
-      const result: { returned?: string; refreshed: boolean } = { refreshed: false };
-      const prev = Object.entries(all()).find(([, x]) => x.lent && resolve(x.lent) === target);
-      const slotFile = join(target, CREDENTIALS);
-      if (prev) {
-        const [pn, pa] = prev;
-        if (existsSync(slotFile)) {
-          // прежний вход — копией своему аккаунту: claude мог обновить его токен
-          const data = readFileSync(slotFile);
-          result.refreshed = !!pa.given && sha(data) !== pa.given;
-          mkdirSync(dirOf(pn), { recursive: true });
-          put(join(dirOf(pn), CREDENTIALS), data);
-        }
-        save(pn, (cur) => cur && { ...cur, lent: null, given: undefined });
-        result.returned = pn;
-        if (result.refreshed) host.log({ ev: "refreshed", account: pn, why: `${pn}: claude обновил вход в слоте` });
-      }
-      const data = readFileSync(src);
-      mkdirSync(target, { recursive: true });
-      put(slotFile, data);
-      unlinkSync(src);
-      save(name, (cur) => cur && { ...cur, lent: target, given: sha(data) });
-      host.log({ ev: "place", account: name, dir: target, ...(result.returned ? { returned: result.returned } : {}) });
-      return result;
+      const from = Object.entries(all()).find(([, x]) => x.links.includes(dir))?.[0] ?? null;
+      if (from === name) return { from };
+      // claude сессий слота обновляет вход в папке прежнего аккаунта — перевешиваем, пока она не занята
+      await locked(from ? dirOf(from) : null, () => (name ? linkSlot(dir, dirOf(name)) : unlinkSlot(dir)));
+      store().update((cur = {}) => {
+        for (const [n, x] of Object.entries(cur)) cur[n] = { ...x, links: [...x.links.filter((d) => d !== dir), ...(n === name ? [dir] : [])] };
+        return cur;
+      });
+      host.log({ ev: "place", account: name, dir, from });
+      return { from };
     },
   };
 
@@ -292,6 +340,7 @@ export function make(): Module {
     requests,
     start(h) {
       host = h;
+      migrate();
       // процесс входа умер вместе с прежним Host
       for (const [name, a] of Object.entries(all())) if (a.login === "pending") save(name, (cur) => cur && { ...cur, login: "none" });
       timer = setInterval(() => void check().catch((e) => host.log({ kind: "refuse", ev: "check", why: (e as Error).message })), CHECK_MS);
@@ -303,4 +352,3 @@ export function make(): Module {
     },
   };
 }
-

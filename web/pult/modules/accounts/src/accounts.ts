@@ -5,7 +5,7 @@ import { h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHand
 import { machineOf } from "@switchboard/protocol";
 
 type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
-type Account = { login: "ok" | "none" | "pending"; lent?: string | null; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
+type Account = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
 type Slot = { account: string | null; order: string[]; wait: number | null; sessions: string[] };
 type Login = { machine: string; account: string; phase: "wait" | "url" | "code" | "ok" | "bad" | "err"; url?: string; email?: string; plan?: string; err?: string };
 type Dlg = null | { kind: "new"; machine: string; name: string; err: string } | { kind: "sess"; machine: string; slot: string } | { kind: "rm"; machine: string; account: string };
@@ -36,6 +36,8 @@ const WORDS: Record<string, string> = {
   bad_code: "Код не принят — вход закрыт",
   not_started: "Вход прервался: Host перезапускался",
   not_logged_in: "У аккаунта нет входа",
+  refresh_locked: "Claude сейчас обновляет вход этого аккаунта — повторите через минуту",
+  slot_dir_busy: "На месте слота на машине папка с файлами — разберите её",
 };
 const say = (w: string) => WORDS[w] ?? w;
 const own = (w: Window) => w.src === "event" || w.src === "poll";
@@ -232,15 +234,26 @@ export function createAccounts(): AppModule {
       await loadSlots(m);
       note(`move:${m}`, out.join(" · "), "ok");
     }
+    /** Слоты машины, где аккаунт стоит сейчас: один аккаунт может стоять в нескольких. */
+    function slotsOf(m: string, account: string): string[] {
+      return Object.entries(slots.get(m) ?? {})
+        .filter(([, s]) => s.account === account)
+        .map(([n]) => n);
+    }
+    /** Пометка «сейчас и в слоте …» — аккаунт стоит и в других слотах машины, лимит у них общий. */
+    function shared(m: string, account: string, except: string): HTMLElement | null {
+      const other = slotsOf(m, account).filter((n) => n !== except);
+      return other.length ? h("span", { class: "sb-note", "data-shared": other.join(",") }, ` · сейчас и в ${other.length > 1 ? "слотах" : "слоте"} ${other.join(", ")}`) : null;
+    }
     async function remove(m: string, account: string, pickNext: string) {
       const k = `rm:${m}:${account}`;
       const list = slots.get(m) ?? {};
-      const inSlot = Object.entries(list).find(([, s]) => s.account === account)?.[0];
       // пульт складывает шаги сам — запросы по контракту, каждый после ответа предыдущего
-      if (inSlot) {
+      for (const inSlot of slotsOf(m, account)) {
         note(k, `слот ${inSlot}: смена аккаунта…`);
-        const r = await app.request<{ from: string; to: string }>("slot.swap", { machine: m, slot: inSlot, ...(pickNext ? { account: pickNext } : {}) });
-        if (!r.ok) return note(k, say(r.error), "bad");
+        const next = pickNext && list[inSlot].order.includes(pickNext) ? pickNext : "";
+        const r = await app.request<{ from: string; to: string }>("slot.swap", { machine: m, slot: inSlot, ...(next ? { account: next } : {}) });
+        if (!r.ok) return note(k, `слот ${inSlot}: ${say(r.error)}`, "bad");
       }
       for (const [name, s] of Object.entries(list)) {
         if (!s.order.includes(account)) continue;
@@ -292,18 +305,20 @@ export function createAccounts(): AppModule {
 
     function machineRow(m: string, name: string, a: Account): HTMLElement {
       const list = slots.get(m) ?? {};
-      const inSlot = Object.entries(list).find(([, s]) => s.account === name)?.[0];
+      const inSlots = slotsOf(m, name);
       const reserve = Object.entries(list).find(([, s]) => s.account !== name && s.order.includes(name))?.[0];
       const st = a.login === "ok" ? "вошёл" : a.login === "pending" ? "вход идёт" : "нет входа";
       return h(
         "div",
         { class: "ac-m", "data-machine": m },
         h("b", null, m),
-        h("span", null, h("span", { class: `sb-note ${a.login === "ok" ? "ok" : "wait"}` }, st), " ", inSlot ? `в слоте ${inSlot}` : reserve ? `запас ${reserve}` : ""),
+        h("span", null, h("span", { class: `sb-note ${a.login === "ok" ? "ok" : "wait"}` }, st), " ", inSlots.length ? `${inSlots.length > 1 ? "в слотах" : "в слоте"} ${inSlots.join(", ")}` : reserve ? `запас ${reserve}` : ""),
         h(
           "span",
           { class: "sb-opts" },
-          inSlot && can(m, "slot.swap") ? h("button", { class: "sb-b", onclick: () => ((dlg = { kind: "sess", machine: m, slot: inSlot }), draw()) }, `Сессии (${list[inSlot].sessions.length})…`) : null,
+          can(m, "slot.swap")
+            ? inSlots.map((sl) => h("button", { class: "sb-b", "data-sess": sl, onclick: () => ((dlg = { kind: "sess", machine: m, slot: sl }), draw()) }, `Сессии${inSlots.length > 1 ? ` ${sl}` : ""} (${list[sl].sessions.length})…`))
+            : null,
           a.login !== "ok" && can(m, "machine.login") ? h("button", { class: "sb-b pri", onclick: () => void login(m, name) }, "Войти") : null,
           can(m, "machine.account_remove") ? h("button", { class: "sb-b", onclick: () => ((dlg = { kind: "rm", machine: m, account: name }), draw()) }, "Удалить…") : null,
         ),
@@ -367,24 +382,31 @@ export function createAccounts(): AppModule {
 
     function drawRm(m: string, account: string): HTMLElement {
       const list = slots.get(m) ?? {};
-      const inSlot = Object.entries(list).find(([, s]) => s.account === account);
-      const pick = inSlot
-        ? (h("select", { class: "sb-in", "data-f": "next" }, h("option", { value: "" }, "следующего по порядку — выберет Host"), inSlot[1].order.filter((x) => x !== account).map((x) => h("option", { value: x }, x))) as HTMLSelectElement)
+      const inSlots = slotsOf(m, account);
+      const others = [...new Set(inSlots.flatMap((sl) => list[sl].order.filter((x) => x !== account)))];
+      const pick = inSlots.length
+        ? (h("select", { class: "sb-in", "data-f": "next" }, h("option", { value: "" }, "следующего по порядку — выберет Host"), others.map((x) => h("option", { value: x }, x))) as HTMLSelectElement)
         : null;
+      const sess = inSlots.flatMap((sl) => list[sl].sessions.map((c) => c.split("@")[0]));
       return h(
         "section",
         { class: "sb-sec dlg", "data-dlg": "rm" },
         h("h4", { class: "sb-h4" }, `Удалить ${account} с ${m}`),
-        inSlot
-          ? h("div", null, h("b", null, `${account} сейчас в слоте ${inSlot[0]}`), h("div", { class: "sb-note" }, `Сначала слот сменит аккаунт — ${inSlot[1].sessions.map((c) => c.split("@")[0]).join(", ") || "его сессии"} продолжат на нём, — потом ${account} уйдёт из порядка слота и удалится.`))
+        inSlots.length
+          ? h(
+              "div",
+              null,
+              h("b", null, `${account} сейчас ${inSlots.length > 1 ? "в слотах" : "в слоте"} ${inSlots.join(", ")}`),
+              h("div", { class: "sb-note" }, `Сначала ${inSlots.length > 1 ? "каждый слот сменит" : "слот сменит"} аккаунт — ${sess.join(", ") || "сессии слота"} продолжат на новом, — потом ${account} уйдёт из порядка слотов и удалится.`),
+            )
           : null,
-        pick ? h("div", { class: "sb-row" }, h("span", null, `Кого положить в слот ${inSlot![0]}`), pick) : null,
+        pick ? h("div", { class: "sb-row" }, h("span", null, `Кого положить в ${inSlots.length > 1 ? "слоты" : `слот ${inSlots[0]}`}`), pick) : null,
         h("div", { class: "sb-note" }, `Стирается только папка ${account} на ${m}. Вход машины и другие аккаунты не трогаются.`),
         h(
           "div",
           { class: "sb-opts" },
           h("button", { class: "sb-b", onclick: () => ((dlg = null), draw()) }, "Отмена"),
-          h("button", { class: "sb-b bad", onclick: () => void remove(m, account, pick?.value ?? "") }, inSlot ? "Сменить и удалить" : "Удалить"),
+          h("button", { class: "sb-b bad", onclick: () => void remove(m, account, pick?.value ?? "") }, inSlots.length ? "Сменить и удалить" : "Удалить"),
         ),
       );
     }
@@ -416,7 +438,13 @@ export function createAccounts(): AppModule {
               ? h("div", { class: "sb-sec wait" }, h("b", null, `Слот ${name} ждёт сброса · ${hhmm(s.wait * 1000)}`), h("span", { class: "sb-note" }, "Все аккаунты слота у порога. Сессии работают, пока модель не откажет; в час сброса Host сам положит аккаунт и скажет оборванным ходам «Продолжай»."))
               : null,
             h("div", { class: "ac-hd" }, h("b", null, `Слот ${name}`), h("span", { class: "sb-note" }, `${s.sessions.length} ${plural(s.sessions.length, "сессия", "сессии", "сессий")}${s.sessions.length ? ": " + s.sessions.map((c) => c.split("@")[0]).join(", ") : ""}`)),
-            h("div", { "data-current": s.account ?? "" }, h("span", { class: "sb-note" }, "в слоте: "), h("b", { class: "sb-m" }, s.account ?? "—")),
+            h(
+              "div",
+              { "data-current": s.account ?? "" },
+              h("span", { class: "sb-note" }, "в слоте: "),
+              h("b", { class: "sb-m" }, s.account ?? "—"),
+              ...(s.account ? [shared(m, s.account, name)] : []),
+            ),
             windows(s.account ? a[s.account] : undefined),
             h("h4", { class: "sb-h4" }, "Запас — по порядку"),
             s.order.map((x, i) =>
@@ -425,6 +453,7 @@ export function createAccounts(): AppModule {
                 { class: "ac-ord" },
                 h("b", null, x),
                 h("span", { class: "sb-note" }, Object.entries(a[x]?.limits ?? {}).map(([k, w]) => `${WIN[k] ?? k} ${Math.round(w.utilization * 100)} %`).join(" · ")),
+                shared(m, x, name),
                 h("button", { class: "sb-b", "aria-label": `${x} выше`, disabled: i === 0, onclick: () => move(i, -1) }, "↑"),
                 h("button", { class: "sb-b", "aria-label": `${x} ниже`, disabled: i === s.order.length - 1, onclick: () => move(i, 1) }, "↓"),
                 x !== s.account ? h("button", { class: "sb-b", "aria-label": `убрать ${x}`, onclick: () => void setOrder(m, name, s.order.filter((y) => y !== x)) }, "✕") : null,

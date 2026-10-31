@@ -90,24 +90,42 @@ check("разговор цел после смены аккаунта", /кит/
 
 // Remote Control: ссылка у сессий слотов
 check("Remote Control: у сессий слотов ссылка claude.ai/code", [S1, S2].every((cs) => /https:\/\/claude\.ai\/code\//.test(JSON.stringify(rec(cs)?.remote ?? ""))), { [S1]: rec(S1)?.remote, [S2]: rec(S2)?.remote });
-// слот, где нет свободного вошедшего аккаунта, не создаётся
-const busy = await req({ type: "slot.set", machine, slot: "s4", order: [A] });
-check("slot.set с аккаунтом, занятым другим слотом, — no_reserve", !busy.ok && busy.error === "no_reserve", busy.error ?? busy.result);
+// один аккаунт — в двух слотах: слот — ссылка на папку аккаунта, s4 берёт A, хотя A уже стоит в s1
+const S3 = `sc@${machine}`;
+await req({ type: "session.remove", callsign: S3 });
+const sh = await req({ type: "slot.set", machine, slot: "s4", order: [A] });
+check("slot.set s4 с аккаунтом, уже стоящим в s1, — встаёт и в s4", sh.ok && sh.result?.account === A, sh.error ?? sh.result);
+const linksA = ((await req({ type: "machine.accounts", machine })).result?.accounts?.[A]?.links ?? []) as string[];
+check(`accounts: у ${A} ссылки слотов s1 и s4`, linksA.length === 2 && linksA.some((x) => /s1$/.test(x)) && linksA.some((x) => /s4$/.test(x)), linksA);
+const o3 = await req({ type: "session.open", machine, name: "sc", dir: "~", model: "claude-haiku-4-5", slot: "s4" });
+check(`session.open ${S3} в слоте s4`, o3.ok, o3.ok ? undefined : o3.error);
+await idle(S3);
+check(`ход в s4 на общем аккаунте ${A}`, /ок/i.test(await turn(S3, "Ответь: ок.")) && rec(S3)?.account === A, rec(S3)?.account);
+
+// горячая подмена живого слота: s2 (сессии sa и sb на B) → A посреди разговора; процессы не перезапускаются
+const hs = await req({ type: "slot.swap", machine, slot: "s2", account: A });
+check(`slot.swap s2: ${B} → ${A}`, hs.ok && hs.result?.from === B && hs.result?.to === A, hs.error ?? hs.result);
+check(`roster: ${S2} на ${A} сразу после подмены`, await wait(() => rec(S2)?.account === A, 30000), rec(S2)?.account);
+check(`горячая подмена: разговор ${S2} продолжается на ${A}`, /ёж/i.test(await turn(S2, "Какое слово я просил запомнить? Одним словом.")));
+const slotsNow = (await req({ type: "machine.slots", machine })).result?.slots ?? {};
+check(`${A} сейчас в трёх слотах: s1, s2, s4`, ["s1", "s2", "s4"].every((s) => slotsNow[s]?.account === A), Object.fromEntries(Object.entries(slotsNow).map(([k, v]: [string, any]) => [k, v.account])));
 
 // слот, где все аккаунты за порогом: ждёт сброса
 const w = await req({ type: "slot.set", machine, slot: "s3", order: [SPENT] });
 const slots = await req({ type: "machine.slots", machine });
 check("слот только с исчерпанным аккаунтом — отказ или ожидание сброса", !w.ok || !!slots.result?.slots?.s3?.wait, w.ok ? slots.result?.slots?.s3 : w.error);
 
-// аккаунт, занятый слотом, не удаляется
-const rm = await req({ type: "machine.account_remove", machine, account: B });
+// аккаунт, стоящий в слотах, не удаляется (A — в s1, s2 и s4)
+const rm = await req({ type: "machine.account_remove", machine, account: A });
 check("machine.account_remove аккаунта в слоте — отказ in_slot", !rm.ok && rm.error === "in_slot", rm.error ?? rm.result);
 
 // уборка
-for (const cs of [S1, S2]) await req({ type: "session.remove", callsign: cs });
+for (const cs of [S1, S2, S3]) await req({ type: "session.remove", callsign: cs });
 for (const slot of ["s1", "s2", "s3", "s4"]) await req({ type: "slot.set", machine, slot, order: [] });
 const after = await req({ type: "machine.slots", machine });
-check("уборка: временные слоты удалены", !["s1", "s2", "s3"].some((s) => after.result?.slots?.[s]), Object.keys(after.result?.slots ?? {}));
+check("уборка: временные слоты удалены", !["s1", "s2", "s3", "s4"].some((s) => after.result?.slots?.[s]), Object.keys(after.result?.slots ?? {}));
+const accsAfter = (await req({ type: "machine.accounts", machine })).result?.accounts ?? {};
+check("уборка: ссылки слотов сняты, входы аккаунтов на месте", [A, B, SPENT].every((n) => accsAfter[n]?.links?.length === 0 && accsAfter[n]?.login === "ok"), Object.fromEntries([A, B, SPENT].map((n) => [n, [accsAfter[n]?.login, accsAfter[n]?.links]])));
 l.close(1000, "done");
 console.log(fails.length ? `slots: ${fails.length} провалов` : "slots: ok");
 process.exit(fails.length ? 1 : 0);

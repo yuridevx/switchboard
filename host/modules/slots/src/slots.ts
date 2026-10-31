@@ -1,8 +1,8 @@
-// Модуль slots: горячая подмена аккаунта при лимитах. Слот — папка входа на машине по имени (main, bot);
+// Модуль slots: горячая подмена аккаунта при лимитах. Слот — ссылка по имени (main, bot) на папку аккаунта;
 // сессии слота получают её в CLAUDE_SECURESTORAGE_CONFIG_DIR и читают вход перед каждым вызовом модели.
-// Аккаунт слота у порога — slots просит accounts положить в слот вход следующего из запаса; процессы не трогаются.
+// Аккаунт слота у порога — slots просит accounts перевесить ссылку на следующего из запаса; процессы не трогаются.
+// Один аккаунт может стоять в нескольких слотах: лимит у них общий, каждый слот меняет его по своим событиям.
 // Своего о входах и окнах slots не хранит: кто в слоте и окна — записи accounts (кэш в памяти — их копия).
-import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { refuse } from "@switchboard/host";
@@ -10,7 +10,7 @@ import type { Host, Module, SDKMessage, Session, SessionState } from "@switchboa
 
 /** Запись аккаунта, как её отдаёт machine.accounts. */
 type Win = { utilization: number; resetsAt: number; at?: number; src?: string };
-type Acc = { login: string; lent: string | null; limits: Record<string, Win> };
+type Acc = { login: string; links: string[]; limits: Record<string, Win> };
 
 /** Раздел машины: порядок аккаунтов каждого слота и слоты сессий, ещё не открытых. */
 type Machine = { slots: Record<string, string[]>; pending?: Record<string, string | null> };
@@ -52,7 +52,7 @@ export function make(): Module {
   /** Кто сейчас в папке слота — по записям accounts. */
   const whoIn = (slot: string): string | null => {
     const d = resolve(slotDir(slot));
-    return Object.entries(accs).find(([, a]) => a.lent && resolve(a.lent) === d)?.[0] ?? null;
+    return Object.entries(accs).find(([, a]) => (a.links ?? []).some((l) => resolve(l) === d))?.[0] ?? null;
   };
   const sessionsIn = (slot: string): Session[] =>
     host
@@ -66,13 +66,13 @@ export function make(): Module {
     else host.log({ kind: "refuse", ev: "accounts", word: r.error, why: `machine.accounts: ${r.error}` });
   }
 
-  /** Следующий по порядку слота: вошёл, не в другом слоте, ниже порога. */
+  /** Следующий по порядку слота: вошёл и ниже порога (может стоять и в другом слоте). */
   function candidate(slot: string, now: number): string | null {
     const cur = whoIn(slot);
     for (const name of order()[slot] ?? []) {
       if (name === cur) continue;
       const a = accs[name];
-      if (!a || a.login !== "ok" || a.lent || over(a, now)) continue;
+      if (!a || a.login !== "ok" || over(a, now)) continue;
       return name;
     }
     return null;
@@ -84,7 +84,7 @@ export function make(): Module {
     const cur = whoIn(slot);
     if (!cur || !over(accs[cur], now) || candidate(slot, now)) return null;
     const times = [cur, ...(order()[slot] ?? [])]
-      .filter((n) => accs[n]?.login === "ok" && (n === cur || !accs[n].lent))
+      .filter((n) => accs[n]?.login === "ok")
       .map((n) => usableAt(accs[n], now))
       .filter((t) => t > now);
     return times.length ? Math.min(...times) : null;
@@ -107,11 +107,10 @@ export function make(): Module {
     return p;
   }
 
-  /** Положить в слот вход аккаунта to через accounts. Ответ — прежний аккаунт или отказ словом. */
+  /** Перевесить ссылку слота на аккаунт to через accounts. Ответ — прежний аккаунт или отказ словом. */
   async function place(slot: string, to: string, why: string, by?: string): Promise<{ ok: true; from: string | null } | { ok: false; error: string }> {
     const from = whoIn(slot);
-    mkdirSync(slotDir(slot), { recursive: true });
-    const r = await host.request("account.place", { v: 1, account: to, dir: slotDir(slot) });
+    const r = await host.request("account.place", { v: 2, dir: slotDir(slot), account: to });
     if (!r.ok) {
       host.log({ kind: "refuse", ev: "slot.swap", word: r.error, slot, why: `${slot}: accounts отказал в подмене ${from ?? "—"} → ${to}: ${r.error}` });
       return r;
@@ -262,8 +261,8 @@ export function make(): Module {
           if (sessionsIn(slot).length) throw refuse("has_sessions", `в слоте ${slot} есть сессии`);
           const cur = whoIn(slot);
           if (cur) {
-            const r = await host.request("account.place", { v: 1, account: cur, dir: null });
-            if (!r.ok) throw refuse(r.error, `${cur}: вход домой — ${r.error}`);
+            const r = await host.request("account.place", { v: 2, dir: slotDir(slot), account: null });
+            if (!r.ok) throw refuse(r.error, `${cur}: снять ссылку слота — ${r.error}`);
             await refresh();
           }
           mstore().update((m) => {
@@ -276,10 +275,10 @@ export function make(): Module {
         }
         let cur = whoIn(slot);
         if (!cur) {
-          // новый слот берёт первый вошедший аккаунт порядка, не занятый другим слотом; такого нет — слота нет:
+          // новый слот берёт первый вошедший аккаунт порядка (хоть и стоящий в другом слоте); такого нет — слота нет:
           // сессии в слоте без входа шли бы «Not logged in» (живой прогон 31 окт.)
-          const first = list.find((n) => accs[n]?.login === "ok" && !accs[n].lent);
-          if (!first) throw refuse("no_reserve", `${slot}: в порядке нет вошедшего аккаунта, свободного от других слотов`);
+          const first = list.find((n) => accs[n]?.login === "ok");
+          if (!first) throw refuse("no_reserve", `${slot}: в порядке нет вошедшего аккаунта`);
           mstore().update((m) => ({ ...m, slots: { ...(m?.slots ?? {}), [slot]: list } }));
           const r = await place(slot, first, "новый слот");
           if (!r.ok) {
@@ -353,7 +352,7 @@ export function make(): Module {
       }
       const slot = slotOf(s);
       if (!slot) return undefined;
-      mkdirSync(slotDir(slot), { recursive: true });
+      // папку не создаём: на её месте — ссылка accounts; слота без аккаунта не бывает (slot.set)
       return { env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: slotDir(slot) } };
     },
     on: {
