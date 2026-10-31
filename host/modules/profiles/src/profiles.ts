@@ -1,7 +1,8 @@
 // Модуль profiles: профиль сессии — папка в git-репозитории: CLAUDE.md (добавка к промпту), profile.yaml
-// (модель и усилие) и memory/ (память, пишет только claude). У каждого профиля свой путь памяти —
-// settings.autoMemoryDirectory. Память профилей profiles сводит между машинами сам: только папки memory/,
-// сетевой git — с токеном приложения GitHub от Worker github, токен — в окружении git, не в аргументах.
+// (модель и усилие), memory/ (память, пишет только claude) и skills/ (скилы профиля). У каждого профиля свой путь
+// памяти — settings.autoMemoryDirectory; папка профиля — локальный плагин SDK, скилы в сессии — «<папка>:<скил>».
+// Память и скилы профилей profiles сводит между машинами сам: только папки memory/ и skills/, сетевой git — с токеном
+// приложения GitHub от Worker github, токен — в окружении git, не в аргументах.
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -24,6 +25,11 @@ type Machine = { repos?: Record<string, RepoState>; pending?: Record<string, str
 type Mine = { profile: string | null };
 type Config = { repos?: string[] };
 
+/** Папки профиля, которые сводятся между машинами, — со своим словом в коммите. */
+export const SYNCED = [
+  ["memory", "память"],
+  ["skills", "скилы"],
+] as const;
 /** Синхронизация раз в минуту. */
 export const SYNC_MS = 60_000;
 /** Окружение каждого git: без вопросов человеку — под Host окна ввода нет. */
@@ -83,6 +89,11 @@ export function make(deps: { git?: Git } = {}): Module {
     return existsSync(join(d, "CLAUDE.md")) || existsSync(join(d, "profile.yaml")) ? d : null;
   }
   const memoryOf = (dir: string) => join(dir, "memory");
+  /** Путь внутри папки dir. */
+  const inside = (dir: string, path: string) => {
+    const rel = relative(resolve(dir), resolve(path));
+    return !!rel && !rel.startsWith("..") && !rel.startsWith(sep) && !/^[A-Za-z]:/.test(rel);
+  };
 
   /** Профили клона: папки первого уровня с CLAUDE.md или profile.yaml. */
   function profilesOf(repo: string): string[] {
@@ -130,7 +141,7 @@ export function make(deps: { git?: Git } = {}): Module {
     host.log({ kind: "stop", ev: "sync", repo, word: st.state, why: `${repo}: ${st.op} — ${st.error ?? (st.files ?? []).join(", ")}` });
   }
 
-  /** Одна синхронизация: memory/ в коммит, токен, pull --no-rebase, push. */
+  /** Одна синхронизация: memory/ и skills/ — каждая своим коммитом, токен, pull --no-rebase, push. */
   async function syncOnce(repo: string): Promise<void> {
     const dir = cloneDir(repo);
     if (!existsSync(join(dir, ".git"))) {
@@ -143,16 +154,17 @@ export function make(deps: { git?: Git } = {}): Module {
       host.log({ ev: "sync", repo, why: `${repo}: клон` });
       return;
     }
-    const mem = profilesOf(repo)
-      .map((p) => `${p}/memory`)
-      .filter((m) => existsSync(join(dir, m)));
-    if (mem.length) {
-      const add = await run(repo, ["add", "--", ...mem]);
+    for (const [sub, word] of SYNCED) {
+      const dirs = profilesOf(repo)
+        .map((p) => `${p}/${sub}`)
+        .filter((m) => existsSync(join(dir, m)));
+      if (!dirs.length) continue;
+      const add = await run(repo, ["add", "--", ...dirs]);
       if (add.code !== 0) return fail(repo, { state: "error", op: "git add", error: add.out.trim() });
       const diff = await run(repo, ["diff", "--cached", "--quiet"]);
       if (diff.code !== 0) {
         const at = new Date().toTimeString().slice(0, 5);
-        const c = await run(repo, ["commit", "-m", `память: ${host.machine} ${at}`]);
+        const c = await run(repo, ["commit", "-m", `${word}: ${host.machine} ${at}`]);
         if (c.code !== 0) return fail(repo, { state: "error", op: "git commit", error: c.out.trim() });
       }
     }
@@ -184,16 +196,13 @@ export function make(deps: { git?: Git } = {}): Module {
     return tail;
   }
 
-  /** Хук PostToolUse: запись в memory/ профиля — синхронизация в очередь, ответ сразу. */
+  /** Хук PostToolUse: запись в memory/ или skills/ профиля — синхронизация в очередь, ответ сразу. */
   function postTool(id: string) {
     return async (input: unknown) => {
       const path = ((input as { tool_input?: { file_path?: string } })?.tool_input?.file_path ?? "") as string;
       const dir = dirOf(id);
       const p = splitId(id);
-      if (dir && p && path) {
-        const rel = relative(resolve(memoryOf(dir)), resolve(path));
-        if (rel && !rel.startsWith("..") && !rel.startsWith(sep) && !/^[A-Za-z]:/.test(rel)) void sync(p.repo);
-      }
+      if (dir && p && path && SYNCED.some(([sub]) => inside(join(dir, sub), path))) void sync(p.repo);
       return {};
     };
   }
@@ -226,6 +235,9 @@ export function make(deps: { git?: Git } = {}): Module {
     return {
       ...(existsSync(md) ? { append: readFileSync(md, "utf8") } : {}),
       settings,
+      // папка профиля — плагин: скилы из skills/; хуки профиля в проекте видят, что профиль ведёт Switchboard
+      plugins: [{ type: "local", path: dir }],
+      env: { SWITCHBOARD_PROFILE: id },
       hooks: {
         PostToolUse: [{ matcher: "Write|Edit|MultiEdit", hooks: [postTool(id)] }],
         SessionStart: [{ hooks: [nudge(id, "SessionStart")] }],

@@ -160,6 +160,7 @@
     <span><b>CLAUDE.md</b> добавка к системному промпту</span>
     <span><b>profile.yaml</b> model, effort, max_effort, fallback_model</span>
     <span><b>memory/</b> память профиля — пишет только claude</span>
+    <span class="chg" data-chg="host-profiles-head-skills"><b>skills/</b> скилы профиля — в сессии как <code>ops:&lt;скил&gt;</code></span>
     <span><b>состояние</b> ok · error · conflict</span>
   </div>
   <p class="hint">Аккаунт и слот сессии — <a href="#host-accounts">accounts</a> и <a href="#host-slots">slots</a>; открытие сессии — <a href="#host-manage">manage</a>; как ядро складывает вклады — <a href="#host">ядро</a>.</p>
@@ -223,7 +224,7 @@ fallback_model: [sonnet]</pre></div>
 <section class="chg" data-chg="host-profiles-sync">
   <div class="shead">
     <h2>Память профилей между машинами</h2>
-    <p>Раз в минуту, по записи в память и по команде profiles забирает и отправляет память: только папки <code>memory/</code>, без вопросов человеку<span class="chg" data-chg="host-profiles-sync-token">, с токеном github на эту синхронизацию</span>. Не вышло — состояние профиля, и модель с этим профилем получает задание свести память. Три случая по шагам.</p>
+    <p>Раз в минуту, по записи в память и по команде profiles забирает и отправляет память: только папки <code>memory/</code><span class="chg" data-chg="host-profiles-sync-skills"> и <code>skills/</code> — каждую своим коммитом, «память» и «скилы»</span>, без вопросов человеку<span class="chg" data-chg="host-profiles-sync-token">, с токеном github на эту синхронизацию</span>. Не вышло — состояние профиля, и модель с этим профилем получает задание свести память. Три случая по шагам.</p>
   </div>
   <div class="card pr-sync">
     <div class="pr-cases" id="host-profiles-cases" role="group" aria-label="Случай"></div>
@@ -303,8 +304,8 @@ git -c credential.interactive=never pull --no-rebase --no-edit</pre></div>
     <div class="pr-col claude">
       <span class="lbl">Claude · через ядро</span>
       <dl class="pr-dl">
-        <dt>хуки</dt><dd><code>PostToolUse</code> с <code>Write|Edit|MultiEdit</code>: путь в <code>memory/</code> профиля — синхронизация; <code>SessionStart</code>, <code>UserPromptSubmit</code>: состояние профиля не <code>ok</code> — <code>additionalContext</code> с заданием</dd>
-        <dt>в query()</dt><dd><code>systemPrompt.append</code> ← CLAUDE.md; <code>settings</code> ← profile.yaml и папка: <code>model</code>, <code>effortLevel</code>, <code>maxEffortLevel</code>, <code>fallbackModel</code>, <code>autoMemoryDirectory</code></dd>
+        <dt>хуки</dt><dd><code>PostToolUse</code> с <code>Write|Edit|MultiEdit</code>: путь в <code>memory/</code><span class="chg" data-chg="host-profiles-io-hook"> или <code>skills/</code></span> профиля — синхронизация; <code>SessionStart</code>, <code>UserPromptSubmit</code>: состояние профиля не <code>ok</code> — <code>additionalContext</code> с заданием</dd>
+        <dt>в query()</dt><dd><code>systemPrompt.append</code> ← CLAUDE.md; <code>settings</code> ← profile.yaml и папка: <code>model</code>, <code>effortLevel</code>, <code>maxEffortLevel</code>, <code>fallbackModel</code>, <code>autoMemoryDirectory</code><span class="chg" data-chg="host-profiles-io-plugin">; <code>plugins</code> ← папка профиля как локальный плагин: скилы из <code>skills/</code> — <code>ops:&lt;скил&gt;</code>; <code>env.SWITCHBOARD_PROFILE</code> ← id профиля — по нему хуки профиля в проекте видят, что профиль ведёт Switchboard</span></dd>
         <dt>сообщения SDK</dt><dd class="no">—</dd>
         <dt>canUseTool · методы</dt><dd class="no">—</dd>
       </dl>
@@ -455,6 +456,10 @@ git -c credential.interactive=never pull --no-rebase --no-edit</pre></div>
       <div class="et-in">Синхронизация team/profiles; поддельный github отвечает на <code>github.token</code> словом <code>not_installed</code>. Затем сообщение получает site (профиль ops). Потом github выдаёт токен.</div>
       <div class="et-out">Сетевых вызовов git нет; в <code>machine.profiles</code> — <code>state: "error"</code>, <code>op: "github.token"</code>, <code>error: "not_installed"</code>; в roster site — <code>profile.state: "error"</code>. <code>UserPromptSubmit</code> site отвечает <code>additionalContext</code> с заданием спросить человека. Следующая синхронизация с токеном — <code>ok</code>, хук отвечает <code>{}</code>.<br><button type="button" class="pr-etl" data-go="noaccess">показать по шагам</button></div>
       <div class="et-src">чьё: код claude-fleet — нет приложения у владельца репозитория — токена нет, git без вопросов человеку; пока состояние профиля не <code>ok</code>, хуки дают модели задание; устав — «Система ловит, агент чинит».</div></div>
+    <div class="et chg" id="host-profiles-et-264" data-chg="host-profiles-et-264"><div class="et-n">264</div>
+      <div class="et-in">В папке ops — <code>skills/deploy/SKILL.md</code>. Открываются site (профиль ops) и wiki (без профиля); модель site правит <code>Edit</code> файл <code>…/ops/skills/deploy/SKILL.md</code>.</div>
+      <div class="et-out">У site в <code>query()</code> — <code>plugins: [{ type: "local", path: "…/ops" }]</code> и <code>env.SWITCHBOARD_PROFILE: "team/profiles/ops"</code>; у wiki — ни того, ни другого. После правки git: <code>add -- ops/memory writer/memory</code>, <code>commit</code> «память: laptop 14:02», <code>add -- ops/skills</code>, <code>commit</code> «скилы: laptop 14:02», <code>pull --no-rebase --no-edit</code>, <code>push</code>.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — репозиторий профилей home-plab/claude-profiles совместим с профилями; код его хука — коммитит <code>memory/</code> и <code>skills/</code> отдельными коммитами; факт — опыт 22: папка без манифеста плагина, отданная в <code>plugins</code> SDK 0.3.311, даёт скил <code>ops:owl-word</code>, модель им пользуется.</div></div>
   </div>
 </section>
 

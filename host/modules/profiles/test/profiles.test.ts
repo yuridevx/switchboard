@@ -230,6 +230,37 @@ describe("эталоны profiles", () => {
     expect(await st!.proc("site@laptop").hook("UserPromptSubmit", { prompt: "x" })).toEqual([{}]);
     expect(g.cmds()).toContain("push");
   });
+
+  it("264 · скилы профиля: папка профиля — плагин SDK, SWITCHBOARD_PROFILE в окружении; запись в skills/ — коммит «скилы» после «память»", async () => {
+    repo();
+    mkdirSync(join(clone(), "ops", "skills", "deploy"), { recursive: true });
+    writeFileSync(join(clone(), "ops", "skills", "deploy", "SKILL.md"), "---\nname: deploy\ndescription: Выкладка.\n---\n");
+    const g = fakeGit();
+    const { mod } = await bench({ git: g.git });
+    github(st!, () => TOKEN);
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    await st!.open("wiki@laptop");
+    const o = st!.query("site@laptop").options as Record<string, any>;
+    expect(o.plugins).toEqual([{ type: "local", path: join(clone(), "ops") }]);
+    expect(o.env.SWITCHBOARD_PROFILE).toBe(OPS);
+    const w = st!.query("wiki@laptop").options as Record<string, any>;
+    expect(w.plugins).toBeUndefined();
+    expect(w.env.SWITCHBOARD_PROFILE).toBeUndefined();
+    await st!.proc("site@laptop").hook("PostToolUse", { tool_name: "Edit", tool_input: { file_path: join(clone(), "ops", "skills", "deploy", "SKILL.md") } });
+    await until(() => g.cmds().includes("push"));
+    expect(g.cmds()).toEqual([
+      "add -- ops/memory writer/memory",
+      "diff --cached --quiet",
+      expect.stringMatching(/^commit -m память: laptop \d\d:\d\d$/),
+      "add -- ops/skills",
+      "diff --cached --quiet",
+      expect.stringMatching(/^commit -m скилы: laptop \d\d:\d\d$/),
+      "pull --no-rebase --no-edit",
+      "push",
+      "log -1 --format=%s",
+    ]);
+  });
 });
 
 describe("profiles: ветки и стыки", () => {
