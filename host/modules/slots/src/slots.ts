@@ -117,6 +117,8 @@ export function make(): Module {
       return r;
     }
     await refresh();
+    // поле account в roster — сразу, а не со следующим событием сессии (живой прогон 31 окт.)
+    for (const x of sessionsIn(slot)) x.refresh();
     const text = `слот ${slot}: ${from ?? "—"} → ${to} · ${why}`;
     host.log({ ev: "slot.swapped", slot, from, to, why: text });
     const sent = host.emit({ type: "ledger.add", to: "ledger", v: 1, ev: "slot.swapped", machine: host.machine, text, ...(by ? { by } : {}) });
@@ -200,8 +202,11 @@ export function make(): Module {
       host.log({ ev: "late", slot, callsign: s.info.callsign, why: `${slot}: поздний ответ ${late}` });
       return;
     }
-    if (rejected) void swap(slot, cur, "отказ");
-    else if (u >= limitOf(type)) void swap(slot, cur, `${winName(type)} ${pct(u)}`);
+    if (rejected) {
+      // отказал именно этот аккаунт: ошибка хода придёт уже после подмены — виновник записан здесь
+      s.store<Mine>().update((x) => ({ slot, ...x, cut: x?.cut || cur }));
+      void swap(slot, cur, "отказ");
+    } else if (u >= limitOf(type)) void swap(slot, cur, `${winName(type)} ${pct(u)}`);
   }
 
   function onEvent(s: Session, msg: SDKMessage): void {
@@ -211,7 +216,9 @@ export function make(): Module {
     if (m.type === "rate_limit_event") return onLimit(s, slot, (m.rate_limit_info ?? {}) as Record<string, unknown>);
     if (m.type === "assistant" && m.error === "rate_limit") {
       // ход оборван лимитом: «Продолжай» — после result и подмены
-      s.store<Mine>().update((x) => ({ slot, ...x, cut: whoIn(slot) ?? "" }));
+      // виновник — отказавший в событии лимита, если оно было; иначе тот, кто в слоте сейчас
+      // (живой прогон 31 окт.: ошибка пришла после подмены third → main и увела слот ещё и с main)
+      s.store<Mine>().update((x) => ({ slot, ...x, cut: x?.cut || (whoIn(slot) ?? "") }));
       return;
     }
     if (m.type === "result") {

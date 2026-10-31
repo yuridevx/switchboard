@@ -198,6 +198,32 @@ describe("эталоны slots", () => {
     expect(places()).toHaveLength(1);
   });
 
+  it("167 · отказ: событие лимита, подмена, затем ошибка хода и result — подмена одна, виновник — отказавший (живой прогон 31 окт.)", async () => {
+    const R = now() + 3600;
+    await bench({
+      accounts: {
+        infirex: { lent: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } },
+        y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R + 60 } } },
+        work3: { limits: { five_hour: { utilization: 0.5, resetsAt: R + 120 } } },
+      },
+      slots: { main: ["infirex", "y0902", "work3"] },
+      sessions: { "site@laptop": { slot: "main" } },
+    });
+    const p = st!.proc("site@laptop");
+    p.send(msg.state("running"));
+    p.send(limit({ status: "rejected", rateLimitType: "five_hour", resetsAt: R }));
+    await until(() => swaps().length === 1);
+    // ошибка хода и итог приходят уже после подмены на y0902
+    p.send({ ...msg.assistant("You've hit your limit"), error: "rate_limit" });
+    p.send(msg.result({ subtype: "error_during_execution", is_error: true }));
+    p.send(msg.state("idle"));
+    await until(() => p.inputs.length === 1);
+    expect(swaps().map((x) => x.text)).toEqual(["слот main: infirex → y0902 · отказ"]);
+    // roster узнал новый аккаунт сразу после подмены, без нового события сессии
+    expect(st!.relay.frames("session.state").some((f) => f.callsign === "site@laptop" && f.account === "y0902")).toBe(true);
+    expect(JSON.stringify(p.inputs[0].message.content)).toContain(CONTINUE);
+  });
+
   it("168 · слот ждёт сброса: в час сброса — y0902 в слот, wait снят, «Продолжай» оборванной site", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.now() });
     const t = now();
