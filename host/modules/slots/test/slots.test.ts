@@ -43,7 +43,7 @@ const isLink = (p: string) => existsSync(p) && lstatSync(p).isSymbolicLink();
  * Машина: аккаунты (вход — файлом в папке аккаунта, слоты — ссылки на неё), порядок слотов и слоты сессий.
  * Сессии из списка поднимаются Host по resume.
  */
-async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<string, string[]>; sessions?: Record<string, { slot: string | null; cut?: string }> }) {
+async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<string, string[]>; sessions?: Record<string, { slot: string | null; cut?: string }>; releases?: Record<string, ReturnType<typeof stand.release>> }) {
   const store = join(home, "store");
   mkdirSync(store, { recursive: true });
   const recs: Record<string, unknown> = {};
@@ -63,6 +63,7 @@ async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<stri
   const acc = { ...(accountsManifest as Manifest), calls: (accountsManifest as Manifest).calls!.filter((c) => c !== USAGE) };
   st = await standHost({
     home,
+    releases: o.releases,
     sessions: Object.keys(o.sessions ?? {}).map((callsign) => ({ callsign })),
     modules: [
       { manifest: acc, module: makeAccounts() },
@@ -328,6 +329,33 @@ describe("эталоны slots", () => {
     expect(r).toMatchObject({ ok: false, error: "no_account" });
     expect((await ask({ type: "machine.slots" })).result.slots).toEqual({});
     expect(existsSync(slotDir("bot"))).toBe(false);
+  });
+});
+
+describe("slots: перезагрузка вместе с accounts", () => {
+  it("270 · выпуск меняет accounts и slots: slots.start зовёт новый accounts, ready 1.4.1, слот и сессия работают дальше (живой прогон 1 ноя)", async () => {
+    const R = now() + 3600;
+    const acc = { ...(accountsManifest as Manifest), calls: (accountsManifest as Manifest).calls!.filter((c) => c !== USAGE) };
+    const next = stand.release("1.4.1", [
+      { manifest: { ...acc, version: "2.0.1" }, module: makeAccounts() },
+      { manifest: { ...(manifest as Manifest), version: "3.0.1" }, module: make() },
+      module("probe", {}, { uses: { "machine.accounts@host-accounts": 1 } }),
+    ]);
+    await bench({
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R } } } },
+      slots: { main: ["infirex", "y0902"] },
+      sessions: { "site@laptop": { slot: "main" } },
+      releases: { "/r/1.4.1": next },
+    });
+    const r = await Promise.race([st!.host("probe").reload("/r/1.4.1"), new Promise((res) => setTimeout(() => res("завис"), 3000))]);
+    expect(r).toMatchObject({ ok: true, result: { modules: { "host-accounts": [expect.any(String), "2.0.1"], "host-slots": [expect.any(String), "3.0.1"] } } });
+    expect(st!.keeper.readies.at(-1)).toBe("1.4.1");
+    // новая версия slots знает, кто в слоте, и меняет его по порогу
+    expect((await ask({ type: "machine.slots" })).result.slots.main.account).toBe("infirex");
+    st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.95, resetsAt: R }));
+    await until(() => swaps().length === 1);
+    expect(read(slotDir("main"))).toContain("tok-y0902");
+    expect(st!.sdk.of("site@laptop")).toHaveLength(1);
   });
 });
 
