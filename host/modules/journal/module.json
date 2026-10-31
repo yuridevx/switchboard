@@ -1,0 +1,11 @@
+{
+  "name": "host-journal",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": { "machine.journal": 1 },
+  "uses": {
+    "host.module@host": 1
+  },
+  "calls": [],
+  "config": {}
+}

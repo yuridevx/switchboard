@@ -1,0 +1,17 @@
+{
+  "name": "host-watch",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {
+    "session.watch": 1,
+    "session.unwatch": 1,
+    "session.watchers": 1,
+    "session.events": 1
+  },
+  "uses": {
+    "host.module@host": 1,
+    "roster@relay": 1
+  },
+  "calls": [],
+  "config": {}
+}

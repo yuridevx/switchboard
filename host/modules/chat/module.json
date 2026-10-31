@@ -1,0 +1,15 @@
+{
+  "name": "host-chat",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {
+    "session.prompt": 1,
+    "session.history": 1,
+    "session.files": 1
+  },
+  "uses": {
+    "host.module@host": 1
+  },
+  "calls": ["getSessionMessages"],
+  "config": {}
+}

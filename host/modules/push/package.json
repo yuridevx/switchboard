@@ -1,0 +1,14 @@
+{
+  "name": "@switchboard/host-push",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./contract.ts" },
+  "scripts": {
+    "test": "cd ../../.. && vitest run host/modules/push"
+  },
+  "dependencies": {
+    "@switchboard/host": "1.0.0",
+    "@switchboard/protocol": "1.0.0"
+  }
+}
