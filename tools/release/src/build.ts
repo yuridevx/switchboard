@@ -8,6 +8,7 @@
 //   packages/<имя>/          модули и пакеты, которые они импортируют
 // npm ci связывает пакеты в node_modules/@switchboard ссылками на packages/: настоящий путь файлов — вне node_modules,
 // поэтому Node снимает типы с .ts сам, без сборки в .js.
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { sha256hex, shaLine, VERSION_RE } from "./format.ts";
@@ -144,16 +145,22 @@ export async function build(o: BuildOptions): Promise<Built> {
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, data, mode ? { mode } : {});
   };
+  // отпечаток ядра: его файлы без modules.json (набор модулей меняется перезагрузкой, ядро — только новым Host)
+  const coreHash = createHash("sha256");
+  let coreVersion = "";
   for (const { name, dir: src } of pkgs) {
     const base = `packages/${name.slice("@switchboard/".length)}`;
     for (const f of packageFiles(src)) {
       if (f === "package.json") continue;
-      put(`${base}/${f}`, readFileSync(join(src, f)));
+      const data = readFileSync(join(src, f));
+      if (name === "@switchboard/host" && f !== "modules.json") coreHash.update(f + "\0").update(data);
+      if (name === "@switchboard/host" && f === "module.json") coreVersion = (JSON.parse(data.toString("utf8")) as { version: string }).version;
+      put(`${base}/${f}`, data);
     }
     const pj = releasePackageJson(JSON.parse(readFileSync(join(src, "package.json"), "utf8")));
     put(`${base}/package.json`, Buffer.from(JSON.stringify(pj, null, 2) + "\n"));
   }
-  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version }) + "\n"));
+  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version, core: `${coreVersion}+${coreHash.digest("hex").slice(0, 12)}` }) + "\n"));
   put("package.json", Buffer.from(JSON.stringify({ name: "switchboard-host-release", version: o.version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n"));
   put("host", Buffer.from(ENTRY), 0o755);
 

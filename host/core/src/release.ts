@@ -37,7 +37,7 @@ export async function loadRelease(base: string): Promise<Release> {
   const req = createRequire(join(base, "noop.js"));
   const coreDir = realpathSync(packageDir(req.resolve("@switchboard/host"), "@switchboard/host"));
   const core = readJson(join(coreDir, "module.json")) as Manifest;
-  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string }) : {};
+  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string; core?: string }) : {};
   const coreReq = createRequire(join(coreDir, "noop.js"));
   const sdkDir = packageDir(coreReq.resolve("@anthropic-ai/claude-agent-sdk"), "@anthropic-ai/claude-agent-sdk");
   const sdk = readJson(join(sdkDir, "package.json")).version as string;
@@ -50,7 +50,8 @@ export async function loadRelease(base: string): Promise<Release> {
     const module = ((await import(pathToFileURL(entry).href)) as { default: Module }).default;
     modules.push({ manifest, module, dir });
   }
-  return { version: rel.version ?? core.version, core: core.version, sdk, modules, dir: coreDir };
+  // ядро узнаётся по отпечатку содержимого из release.json: правка ядра без новой версии — тоже новое ядро
+  return { version: rel.version ?? core.version, core: rel.core ?? core.version, sdk, modules, dir: coreDir };
 }
 
 /** Путь к исполняемому claude из пакета SDK для этой платформы. */

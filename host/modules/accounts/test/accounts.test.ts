@@ -36,10 +36,7 @@ afterEach(async () => {
 
 type ProbeLog = { env: Record<string, string | undefined>; calls: Array<{ name: string; args: unknown[] }> };
 
-/**
- * Стенд с настоящим accounts. Пока ядро не знает метод usage_EXPERIMENTAL… (calls.ts SDK 0.3.311),
- * манифест идёт в гейт без него, а после старта метод возвращается в calls модуля — как будто ядро его знает.
- */
+/** Стенд с настоящим accounts. */
 async function bench(o: {
   accounts?: Accounts;
   status?: (env: Record<string, string | undefined>) => { code: number; out: string };
@@ -49,12 +46,10 @@ async function bench(o: {
     mkdirSync(join(home, "store"), { recursive: true });
     writeFileSync(join(home, "store", "host-accounts.json"), JSON.stringify({ machine: o.accounts }));
   }
-  const m = { ...(manifest as Manifest), calls: (manifest as Manifest).calls!.filter((c) => c !== USAGE) };
   st = await standHost({
     home,
-    modules: [{ manifest: m, module: make() }, module("host-slots", {}, { uses: { "account.place@host-accounts": 1, "account.usage@host-accounts": 1 } })],
+    modules: [{ manifest: manifest as Manifest, module: make() }, module("host-slots", {}, { uses: { "account.place@host-accounts": 1, "account.usage@host-accounts": 1 } })],
   });
-  st.kernel.byName.get("host-accounts")!.manifest.calls!.push(USAGE);
   const probes: ProbeLog[] = [];
   const cli: Array<{ args: string[]; env: Record<string, string | undefined> }> = [];
   const orig = st.sdk.query;

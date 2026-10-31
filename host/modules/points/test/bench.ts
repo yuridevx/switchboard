@@ -178,10 +178,7 @@ export type Bench = {
   home: string;
 };
 
-/**
- * Стенд points. Ядро сейчас отдаёт модулю из ответа ok:false только error — а реестру нужны поля ответа
- * (missing и creds, owner): пока ядро их не пропускает, стенд передаёт ответ points целиком, как будет после правки ядра.
- */
+/** Стенд points: настоящее ядро, поддельный реестр Worker points и manage. */
 export async function bench(o: {
   home: string;
   machine?: string;
@@ -224,13 +221,6 @@ export async function bench(o: {
       { manifest: manifest as Manifest, module: make({ git: o.git, fetch: reg.fetch }) },
     ],
   });
-  const k = st.kernel as unknown as { request: (m: unknown, n: string, p: Record<string, unknown>) => Promise<unknown>; relay: { request(f: Frame): Promise<Frame> } | null };
-  const orig = k.request.bind(k);
-  k.request = async (m, name, payload) => {
-    if (!name.startsWith("points.") || !k.relay) return orig(m, name, payload);
-    const { type: _t, id: _i, to: _to, from: _f, ...rest } = await k.relay.request({ ...payload, type: name });
-    return rest;
-  };
   await st.start();
   return { st, reg, manage, remote, home: o.home };
 }
