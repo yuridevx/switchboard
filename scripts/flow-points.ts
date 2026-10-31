@@ -27,6 +27,7 @@ try {
   const fleet = await req({ type: "points.list", to: "points" });
   const sid = (fleet.sessions as Array<{ sid: string; callsign?: string }>).find((x) => x.callsign === from)?.sid;
   if (!sid) throw new Error("points.list: нет сессии " + from);
+  await l.request({ type: "session.remove", v: 1, callsign: `copy@${toMachine}` }); // копия прошлого прогона, если есть
   const raised = await req({ type: "points.raise", machine: toMachine, sid, point: saved.point, copy: true, dir: "~/sb-copy", name: "copy", files: "point" });
   copy = raised.callsign as string;
   await wait(`${copy} idle`, () => state(copy) === "idle", 120000);

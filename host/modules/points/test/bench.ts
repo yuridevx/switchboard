@@ -130,7 +130,10 @@ export class FakeRegistry {
 
 export type ManageCall = { type: string; [k: string]: unknown };
 
-/** Поддельный manage этой машины: открывает и поднимает сессии через ядро; fork — claude пишет новый разговор под новым sid. */
+/**
+ * Поддельный manage этой машины: открывает и поднимает сессии через ядро. fork — новый sid; файл нового разговора
+ * claude пишет только на первом ходу (факт живого прогона 31 окт.) — подделка его не пишет, тест кладёт сам: forkWrite().
+ */
 export function fakeManage(calls: ManageCall[], o: { failOpen?: string } = {}): Module {
   return {
     requests: {
@@ -139,11 +142,6 @@ export function fakeManage(calls: ManageCall[], o: { failOpen?: string } = {}): 
         if (o.failOpen) throw refuse(o.failOpen);
         const callsign = `${f.name}@${host.machine}`;
         const s = await host.open({ callsign, cwd: f.dir as string, resume: f.resume as string, fork: f.fork === true, point: f.point as number });
-        if (f.fork) {
-          const proj = projectDir(f.dir as string);
-          const src = join(proj, `${f.resume}.jsonl`);
-          if (existsSync(src)) copyFileSync(src, join(proj, `${s.info.session_id}.jsonl`));
-        }
         return { callsign, session_id: s.info.session_id };
       },
       async "session.start"(f, { host }) {
@@ -233,4 +231,10 @@ export function tmpHome(): string {
   const home = mkdtempSync(join(tmpdir(), "sb-points-"));
   mkdirSync(join(home, "claude", "projects"), { recursive: true });
   return home;
+}
+
+/** claude записал файл копии на первом ходу: разговор базы под новым sid. */
+export function forkWrite(dir: string, from: string, to: string): void {
+  const proj = projectDir(dir);
+  copyFileSync(join(proj, `${from}.jsonl`), join(proj, `${to}.jsonl`));
 }

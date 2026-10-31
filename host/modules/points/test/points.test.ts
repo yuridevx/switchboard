@@ -170,16 +170,25 @@ describe("эталоны points", () => {
     expect(b.remote).toEqual([expect.objectContaining({ type: "session.start", callsign: "site@laptop" })]);
   });
 
-  it("215 · копия: open с fork и point; исходный файл в папке копии удалён; точка под новым sid с base 318", async () => {
+  it("215 · копия: open с fork и point; исходный файл в папке копии удалён; точка под новым sid с base 318 — на первом конце хода", async () => {
     b = await bench({ home, machine: "pc" });
     b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(8) });
     const dir = join(home, "Projects", "site-copy");
     const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, copy: true, dir });
     expect(r.ok).toBe(true);
+    // файла копии ещё нет — точки подъёма в ответе нет, она снимется на первом конце хода
+    expect(r.result.point).toBeNull();
+    expect(puts("raise")).toHaveLength(0);
     expect(b.manage[0]).toMatchObject({ type: "session.open", resume: SID, fork: true, point: 318, name: "site-copy" });
     const s = b.st.session("host-points", "site-copy@pc")!;
     expect(s.info.session_id).not.toBe(SID);
     expect(existsSync(fileOf(dir, SID))).toBe(false);
+    // первый ход: claude пишет файл нового разговора, ход кончается
+    writeFileSync(fileOf(dir, s.info.session_id), conv(9));
+    b.st.proc("site-copy@pc").send(msg.state("running"));
+    await until(() => s.state === "busy");
+    b.st.proc("site-copy@pc").send(msg.state("idle"));
+    await until(() => puts("raise").length === 1);
     const raise = puts("raise");
     expect(raise).toHaveLength(1);
     expect(raise[0]).toMatchObject({ sid: s.info.session_id, base: 318 });
@@ -318,8 +327,15 @@ describe("эталоны points", () => {
     expect(b.manage.find((m) => m.type === "session.open")).toMatchObject({ resume: sid, fork: true, point, dir, name: "site2" });
     const c = b.st.session("host-points", "site2@laptop")!;
     expect(c.info.cwd).toBe(dir);
-    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site2@laptop"]).toEqual({ r2: true });
+    // точка подъёма копии — на первом конце хода, когда claude записал файл нового разговора
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site2@laptop"]).toEqual({ r2: true, base: point });
+    writeFileSync(fileOf(dir, c.info.session_id), conv(11));
+    b.st.proc("site2@laptop").send(msg.state("running"));
+    await until(() => c.state === "busy");
+    b.st.proc("site2@laptop").send(msg.state("idle"));
+    await until(() => puts("raise").length === 1);
     expect(puts("raise")[0]).toMatchObject({ sid: c.info.session_id, base: point });
+    await until(() => JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site2@laptop"].base === undefined);
     await ask({ type: "session.remove", callsign: "site@laptop" });
     expect(b.st.kernel.sessions.has("site@laptop")).toBe(false);
     expect(b.st.kernel.sessions.has("site2@laptop")).toBe(true);

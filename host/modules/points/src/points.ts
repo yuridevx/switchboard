@@ -19,7 +19,8 @@ import type { Creds, Fetch } from "./r2.ts";
 export const GAP_MS = 2 * 60_000;
 export const LONG_MS = 10 * 60_000;
 
-type Mine = { r2?: true };
+/** r2 — пометка «в R2»; base — копия ждёт первого конца хода, чтобы снять точку подъёма с этой базой */
+type Mine = { r2?: true; base?: number };
 type Why = "rule" | "save" | "start" | "raise" | "yield";
 type Out = { point: number; same: boolean } | { error: string };
 /** Строка точки из points.get. */
@@ -181,7 +182,12 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
   /** Повод правила: модуль останавливается — новых точек не начинать. */
   function rule(s: Session, why: Why = "rule"): void {
     if (stopping || !marked(s)) return;
-    void snap(s, why);
+    const base = s.store<Mine>().get()?.base;
+    if (base === undefined) return void snap(s, why);
+    // копия: claude пишет файл нового разговора на первом ходу — тогда и точка подъёма с базой
+    void snap(s, "raise", { base }).then((out) => {
+      if (!("error" in out)) s.store<Mine>().set({ r2: true });
+    });
   }
 
   /** Правило точек по состоянию хода. */
@@ -393,6 +399,13 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       if (copy && s.info.session_id !== sid) {
         const src = join(proj, `${sid}.jsonl`);
         if (existsSync(src)) unlinkSync(src);
+      }
+      // копия с fork: файл нового разговора claude пишет только на первом ходу (живой прогон 31 окт.: no_file) —
+      // точка подъёма снимется на первом конце хода, с базой из раздела сессии
+      if (copy && !existsSync(join(proj, `${s.info.session_id}.jsonl`))) {
+        s.store<Mine>().set({ r2: true, base: point });
+        host.log({ ev: "raise", callsign, sid, point, copy, why: `${callsign}: копия из точки ${point}; точка подъёма — на первом конце хода` });
+        return { callsign, point: null, folder: mode === "keep" ? "keep" : chk.folder, branch };
       }
       const out = await snap(s, "raise", { base: point, ...(copy ? {} : { expect: owner }), ...(fr.by ? { by: fr.by } : {}) });
       if ("error" in out) {
