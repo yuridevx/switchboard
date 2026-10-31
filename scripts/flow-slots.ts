@@ -40,6 +40,12 @@ await wait(() => l.state === "open", 15000);
 const S1 = `sa@${machine}`;
 const S2 = `sb@${machine}`;
 for (const cs of [S1, S2]) await req({ type: "session.remove", callsign: cs });
+// освободить аккаунты от слотов прошлых прогонов (FLOW_CLEAR — слоты через запятую): их сессии и сами слоты
+for (const slot of (process.env.FLOW_CLEAR ?? "").split(",").filter(Boolean)) {
+  const all = await req({ type: "machine.slots", machine });
+  for (const cs of all.result?.slots?.[slot]?.sessions ?? []) await req({ type: "session.remove", callsign: cs });
+  await req({ type: "slot.set", machine, slot, order: [] });
+}
 
 // два слота — два аккаунта
 check("slot.set s1 → " + A, (await req({ type: "slot.set", machine, slot: "s1", order: [A] })).result?.account === A);
@@ -81,7 +87,10 @@ check("после переноса сессия на аккаунте " + B, rec
 check("разговор цел после смены аккаунта", /кит/i.test(await turn(S1, "Какое слово я просил запомнить? Одним словом.")));
 
 // Remote Control: ссылка у сессий слотов
-check("Remote Control: у сессий есть ссылка claude.ai", [S1, S2].every((cs) => /claude\.ai/.test(JSON.stringify(rec(cs)?.remote ?? ""))), { [S1]: rec(S1)?.remote, [S2]: rec(S2)?.remote });
+check("Remote Control: у сессий слотов ссылка claude.ai/code", [S1, S2].every((cs) => /https:\/\/claude\.ai\/code\//.test(JSON.stringify(rec(cs)?.remote ?? ""))), { [S1]: rec(S1)?.remote, [S2]: rec(S2)?.remote });
+// слот, где нет свободного вошедшего аккаунта, не создаётся
+const busy = await req({ type: "slot.set", machine, slot: "s4", order: [A] });
+check("slot.set с аккаунтом, занятым другим слотом, — no_reserve", !busy.ok && busy.error === "no_reserve", busy.error ?? busy.result);
 
 // слот, где все аккаунты за порогом: ждёт сброса
 const w = await req({ type: "slot.set", machine, slot: "s3", order: [SPENT] });
@@ -94,7 +103,7 @@ check("machine.account_remove аккаунта в слоте — отказ in_s
 
 // уборка
 for (const cs of [S1, S2]) await req({ type: "session.remove", callsign: cs });
-for (const slot of ["s1", "s2", "s3"]) await req({ type: "slot.set", machine, slot, order: [] });
+for (const slot of ["s1", "s2", "s3", "s4"]) await req({ type: "slot.set", machine, slot, order: [] });
 const after = await req({ type: "machine.slots", machine });
 check("уборка: временные слоты удалены", !["s1", "s2", "s3"].some((s) => after.result?.slots?.[s]), Object.keys(after.result?.slots ?? {}));
 l.close(1000, "done");
