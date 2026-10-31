@@ -1,0 +1,14 @@
+// gate: без адреса в интернете — достижим только по привязке GATE из relay.
+// FLEET_SECRET — секрет Worker: <секрет из хранилища> | wrangler secret put FLEET_SECRET
+{
+  "name": "switchboard-gate",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    // номера отозванных ключей role.name.kid; отзыв — выпуск gate, затем relay
+    "REVOKED": []
+  },
+  "observability": { "enabled": true }
+}

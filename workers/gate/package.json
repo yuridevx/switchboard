@@ -1,0 +1,20 @@
+{
+  "name": "@switchboard/gate",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./contract.ts"
+  },
+  "bin": {
+    "switchboard-invite": "./invite.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "invite": "node invite.ts"
+  },
+  "dependencies": {
+    "qrcode-terminal": "0.12.0"
+  }
+}

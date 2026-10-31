@@ -1,0 +1,19 @@
+// relay в тестах: тот же код, участники — поддельные Worker из vitest.config.ts.
+{
+  "name": "switchboard",
+  "main": "../src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": { "bindings": [{ "name": "FLEET", "class_name": "Fleet" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Fleet"] }],
+  "services": [
+    { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
+    { "binding": "PUSH", "service": "switchboard-push", "entrypoint": "Participant" },
+    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" },
+    { "binding": "AUDIT", "service": "switchboard-audit", "entrypoint": "Participant" },
+    { "binding": "ECHO", "service": "switchboard-echo", "entrypoint": "Participant" }
+  ],
+  "vars": {
+    "PROTO": [1],
+    "PARTICIPANTS": { "push": "PUSH", "ledger": "LEDGER", "audit": "AUDIT", "echo": "ECHO" }
+  }
+}

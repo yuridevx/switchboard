@@ -8,8 +8,8 @@ describe("protocol: конверт кадра", () => {
   });
 
   it.each(["не json", "[]", "null", '{"id":"1"}', '{"type":""}', '{"type":"a","id":5}', '{"type":"a","v":"1"}'])(
-    "отказывает bad_frame: %s",
-    (t) => expect(parseFrame(t)).toEqual({ error: "bad_frame" }),
+    "не кадр — null: %s",
+    (t) => expect(parseFrame(t)).toBeNull(),
   );
 
   it("reply: ok и отказ словом", () => {

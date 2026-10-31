@@ -1,0 +1,28 @@
+// relay: публичный wss на switchboard.<subdomain>.workers.dev; секретов нет, на диск не пишет.
+// Новый участник — привязка в services и строка «имя → привязка» в PARTICIPANTS; код relay не меняется.
+// Выпуск — сначала участник, затем relay.
+{
+  "name": "switchboard",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "workers_dev": true,
+  "preview_urls": false,
+  "durable_objects": {
+    "bindings": [{ "name": "FLEET", "class_name": "Fleet" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Fleet"] }],
+  "services": [
+    { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
+    { "binding": "PUSH", "service": "switchboard-push", "entrypoint": "Participant" },
+    { "binding": "POINTS", "service": "switchboard-points", "entrypoint": "Participant" },
+    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" },
+    { "binding": "GITHUB", "service": "switchboard-github", "entrypoint": "Participant" }
+  ],
+  "vars": {
+    // версии контракта relay, которые он принимает в hello
+    "PROTO": [1],
+    // участник рации → имя его привязки
+    "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB" }
+  },
+  "observability": { "enabled": true }
+}

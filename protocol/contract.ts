@@ -25,19 +25,19 @@ export type Reply =
 /** Слово отказа общего конверта: кадр не JSON или нет type. */
 export const BAD_FRAME = "bad_frame";
 
-/** Разобрать текст кадра. Не JSON, не объект или нет строки type — bad_frame. */
-export function parseFrame(text: string): Frame | { error: typeof BAD_FRAME } {
+/** Разобрать текст кадра. Не JSON, не объект или нет строки type — null: кадр не по конверту, отказ словом bad_frame. */
+export function parseFrame(text: string): Frame | null {
   let x: unknown;
   try {
     x = JSON.parse(text);
   } catch {
-    return { error: BAD_FRAME };
+    return null;
   }
-  if (!x || typeof x !== "object" || Array.isArray(x)) return { error: BAD_FRAME };
+  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
   const f = x as Record<string, unknown>;
-  if (typeof f.type !== "string" || !f.type) return { error: BAD_FRAME };
-  if (f.id !== undefined && typeof f.id !== "string") return { error: BAD_FRAME };
-  if (f.v !== undefined && typeof f.v !== "number") return { error: BAD_FRAME };
+  if (typeof f.type !== "string" || !f.type) return null;
+  if (f.id !== undefined && typeof f.id !== "string") return null;
+  if (f.v !== undefined && typeof f.v !== "number") return null;
   return f as Frame;
 }
 

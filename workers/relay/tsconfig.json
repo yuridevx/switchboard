@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["es2023", "esnext.disposable"],
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
+  },
+  "include": ["contract.ts", "src", "test/*.test.ts", "test/peer.ts", "test/env.d.ts"],
+  "exclude": ["test/link*.test.ts"]
+}
