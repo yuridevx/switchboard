@@ -15,8 +15,10 @@
 | `workers/<имя>/` | **Worker-модули** | Каждый — отдельный Cloudflare Worker, деплоится и падает сам по себе. `workers/relay/` — **Relay**, транслятор рации: Durable Object флота, roster, маршрут, доставка по `to`; на диск не пишет. `workers/gate/` — ключи участников. `workers/push/` — веб-пуши (разложение — слово пользователя 31 окт.). `workers/points/` — реестр точек сессий в R2, `workers/ledger/` — журнал флота, `workers/github/` — токены приложения GitHub. |
 | `os/<имя>/` | **приложения для ОС** | `os/keeper/` — **Keeper**, Go, служба ОС: держит процессы claude и запускает Host. Без логики. |
 | `host/` | **приложение Claude SDK** | **Host**, Node + Claude Agent SDK, один на машину: ядро `host/core/` и модули `host/modules/<имя>/`. Единственная точка к сессиям. |
-| `web/<имя>/` | **веб-приложения** | Каждое собирается и деплоится само. `web/phone/` — телефон, `web/pult/` — пульт: два приложения с разным фокусом и общими компонентами (слово пользователя 31 окт.). |
+| `web/<имя>/` | **веб-приложения** | Каждое собирается и деплоится само. `web/phone/` — телефон, `web/pult/` — пульт (свои экраны — `web/pult/modules/`): два приложения с разным фокусом и общими компонентами (слово пользователя 31 окт.) — пакетами `web/packages/<core\|board\|card\|chat\|ask\|alerts>/`. |
 | `protocol/` | | Общий конверт кадра: `type`, `id`, `reply`. Модулей не знает. |
+| `tools/` | | `manifest-gate` — гейт манифестов (`npm run gate`); `release` — выпуск Host в R2 (`switchboard release`) и первая установка машины (`switchboard install`, ключ машины — stdin). |
+| `scripts/` | | Выпуск Worker-модулей (`deploy-workers.mjs`), живые флоу и эталоны выложенного флота (`flow-*.ts`, `live-etalons.ts`, `smoke-relay.ts`). Секреты — из `~/.switchboard-dev` или env, не из репо. |
 | `docs/` | | Дизайн и опыты. |
 
 Имена: callsign `site@laptop`, machine `laptop`, fleet `home`, slot `main`, attachment — карточка соединения в Relay, module — функция Host, контракт — публичный вход модуля.

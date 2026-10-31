@@ -1,6 +1,6 @@
 // Эталоны, которые проверяются только на выложенном тестовом флоте (не на живом флоте пользователя):
 //   144 — секреты и адреса шести Worker; 136 и 145 — выпуск push и gate не рвёт соединения relay;
-//   117 — отзыв ключа: после выпуска gate соединение живо, после выпуска relay hello закрыт revoked.
+//   117 — отзыв ключа выпуском gate: соединение закрыто при ближайшем старте объекта флота, новый hello — revoked.
 // Токен деплоя и секрет флота — из ~/.switchboard-dev (SWITCHBOARD_DEV_DIR), как у deploy-workers.mjs.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -79,11 +79,17 @@ const kid = revokedKey.split(".").slice(0, 3).join(".");
 wrangler("gate", ["deploy", "--var", `REVOKED:${JSON.stringify([kid])}`]);
 await new Promise((r) => setTimeout(r, 3000));
 check("117 · после выпуска gate с отзывом соединение живо", victim.state === "open", victim.state);
-wrangler("relay", ["deploy"]);
+// объект флота засыпает между кадрами; ping отвечает Cloudflare без пробуждения. Пауза — и кадр его будит:
+// при старте объект перепроверяет отозванные ключи открытых соединений
+await new Promise((r) => setTimeout(r, 30000));
+await host.request({ type: "push.key", v: 1, to: "push" });
 const closed = await until(() => victim.state === "stopped", 30000);
-check("117 · после выпуска relay hello отозванного ключа закрыт", closed, victim.state);
-const back = await until(() => host.state === "open" && (host.roster?.machines.some((m) => m.machine === "etalon") ?? false), 30000);
-check("117 · Host вошёл заново", back);
+check("117 · объект флота стартовал — соединение отозванного ключа закрыто", closed, victim.state);
+check("117 · Host и клиенты на связи", host.state === "open" && phone.state === "open", { host: host.state, phone: phone.state });
+const again = link({ url, key: revokedKey });
+await until(() => again.state !== "connecting", 15000);
+check("117 · новый hello отозванным ключом не пускают", again.state === "stopped", again.state);
+again.close();
 // вернуть gate без отзыва
 wrangler("gate", ["deploy"]);
 
