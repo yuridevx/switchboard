@@ -1,5 +1,5 @@
 // Живой сценарий: управление сессией, чат и лента, машина и журнал, отказы протокола и краевые входы.
-// env: FLOW_CLIENT_KEY, FLOW_MACHINE, FLOW_DIR (папка проекта на машине, от ~), FLOW_HOST_KEY (ключ машины для отказов протокола).
+// env: FLOW_CLIENT_KEY, FLOW_MACHINE, FLOW_DIR (папка проекта на машине, от ~), FLOW_HOST_KEY (пробный ключ машины для отказов протокола — не ключ живой машины: relay заменит её соединение, replaced).
 import { link, type Roster } from "@switchboard/relay";
 
 const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
@@ -179,7 +179,8 @@ check("не кадр до hello — закрыто bad_frame", c3.some((c) => c.
 raw.close();
 
 // --- уборка ---
-check("session.remove", (await req({ type: "session.remove", callsign: CS })).ok);
+const rm = await req({ type: "session.remove", callsign: CS });
+check("session.remove", rm.ok, rm.error ?? rm.result);
 await wait(() => !rec(CS), 15000);
 check("roster: сессии нет после remove", !rec(CS));
 l.close(1000, "done");
