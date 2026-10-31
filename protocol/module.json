@@ -1,0 +1,8 @@
+{
+  "name": "protocol",
+  "type": "protocol",
+  "version": "1.0.0",
+  "provides": {},
+  "uses": {},
+  "config": {}
+}

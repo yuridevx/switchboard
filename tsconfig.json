@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": ["protocol", "tools", "host"],
+  "exclude": ["**/node_modules", "**/dist"]
+}
