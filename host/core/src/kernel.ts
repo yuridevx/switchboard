@@ -559,8 +559,8 @@ export class Kernel {
 
     if (owner === "keeper") {
       const { v: _v, ...rest } = payload;
-      const r = await this.keeper.send({ op: name, ...rest });
-      return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error ?? "keeper" };
+      const { op: _op, ...r } = await this.keeper.send({ op: name, ...rest });
+      return r.ok ? { ok: true, result: r.result } : { ...r, ok: false, error: r.error ?? "keeper" };
     }
     const local = this.byName.has(owner) && (target === null || target === this.machine) && !(payload.to && typeof payload.to !== "string");
     if (local) {
@@ -571,8 +571,9 @@ export class Kernel {
     if (!this.relay) return { ok: false, error: "disconnected" };
     const frame: Frame = { ...payload, type: name };
     if (!this.byName.has(owner) && payload.to === undefined && payload.callsign === undefined && payload.machine === undefined) frame.to = owner;
-    const r = await this.relay.request(frame);
-    return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error };
+    // отказ несёт все поля reply владельца (missing, owner, creds…), без конверта
+    const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame)) as Frame & Reply;
+    return r as Result;
   }
 
   /** host.emit: кадр без ответа; type — свой или из uses. Связи нет — disconnected, очереди нет. */

@@ -257,6 +257,40 @@ describe("договор модуля на стенде", () => {
     await until(() => st.states("site@laptop").at(-1)?.remote === "https://claude.ai/code/session_x");
   });
 
+  it("регрессия: отказ Worker-модуля через relay несёт все поля reply без конверта; отказ keeper — без op", async () => {
+    let host!: Host;
+    const pts = module("host-points", { start: (h) => void (host = h) }, { uses: { "points.put@points": 1, "upgrade@keeper": 1 } });
+    const st = await stand({ modules: [pts] });
+    const put = host.request("points.put", { v: 1, callsign: "site@laptop", seq: 3 });
+    await until(() => st.relay.frames("points.put").length === 1);
+    const f = st.relay.frames("points.put")[0];
+    st.relay.deliver({ type: "reply", id: f.id, from: "points", to: "@laptop", ok: false, error: "not_owner", owner: "pc", missing: [1, 2] });
+    expect(await put).toEqual({ ok: false, error: "not_owner", owner: "pc", missing: [1, 2] });
+    const ok = host.request("points.put", { v: 1, callsign: "site@laptop", seq: 4 });
+    await until(() => st.relay.frames("points.put").length === 2);
+    st.relay.deliver({ type: "reply", id: st.relay.frames("points.put")[1].id, from: "points", ok: true, result: { seq: 4 } });
+    expect(await ok).toEqual({ ok: true, result: { seq: 4 } });
+  });
+
+  it("регрессия: calls — все методы Query SDK 0.3.311, включая usage_EXPERIMENTAL…; стенд их записывает", async () => {
+    const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
+    const { readFileSync: rf } = await import("node:fs");
+    const { createRequire } = await import("node:module");
+    const d = rf(join(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"), "..", "sdk.d.ts"), "utf8");
+    const q = d.slice(d.indexOf("export declare interface Query extends"));
+    const methods = [...q.slice(0, q.search(/\r?\n\}/)).matchAll(/^    ([a-zA-Z_]+)\(/gm)].map((m) => m[1]);
+    const { CORE_ONLY, QUERY_METHODS } = await import("../src/calls.ts");
+    expect(methods).toContain(USAGE);
+    expect(methods.filter((m) => !QUERY_METHODS.has(m) && !CORE_ONLY.has(m))).toEqual([]);
+    const acc = module("host-accounts", {}, { calls: [USAGE, "claudeOAuthWaitForCompletion", "claudeAuthenticate"] });
+    const st = await stand({ modules: [acc] });
+    expect(st.startError).toBeNull();
+    const p = st.host("host-accounts").probe({ env: {} });
+    await p.sdk(USAGE);
+    await p.sdk("claudeOAuthWaitForCompletion");
+    expect(st.sdk.queries.at(-1)!.calls.map((c) => c.name)).toEqual([USAGE, "claudeOAuthWaitForCompletion"]);
+  });
+
   it("кадры: владельцу по type; roster — в on.frame тем, у кого roster@relay в uses", async () => {
     const got: string[] = [];
     const fleet = module("host-fleet", { frames: { message: (f) => void got.push(`message ${f.text}`) }, on: { frame: (f) => void got.push(`fleet ${f.type}`) } }, { uses: { "roster@relay": 1 } });
@@ -315,7 +349,8 @@ describe("договор модуля на стенде", () => {
       mcpServers: { fleet: { type: "sdk", name: "fleet" } },
       systemPrompt: { type: "preset", preset: "claude_code", append: "Твой callsign — site@laptop." },
     });
-    expect(o.env).toMatchObject({ CLAUDE_SECURESTORAGE_CONFIG_DIR: "/slots/main", DISABLE_UPDATES: "1" });
+    // без CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS SDK не шлёт session_state_changed — состояние сессии в roster стоит (живой прогон 31 окт.)
+    expect(o.env).toMatchObject({ CLAUDE_SECURESTORAGE_CONFIG_DIR: "/slots/main", DISABLE_UPDATES: "1", CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1" });
     expect(o.sessionId).toBe(st.kernel.sessions.get("site@laptop")!.rec.session_id);
 
     const dup = module("host-dup", { session: () => ({ env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: "/x" } }) });

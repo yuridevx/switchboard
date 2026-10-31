@@ -27,6 +27,7 @@ export const QUERY_METHODS = new Set([
   "readMcpResource",
   "stopTask",
   "backgroundTasks",
+  "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
   // исключение устава: в типах SDK их нет
   "enableRemoteControl",
   "claudeAuthenticate",

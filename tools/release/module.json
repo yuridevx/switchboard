@@ -2,8 +2,13 @@
   "name": "release",
   "type": "tool",
   "version": "1.0.0",
-  "provides": { "release.format": 1 },
-  "uses": {},
+  "provides": {
+    "release.format": 1
+  },
+  "uses": {
+    "hello@relay": 1,
+    "points.creds@points": 1
+  },
   "config": {
     "R2_ACCESS_KEY_ID": "secret",
     "R2_SECRET_ACCESS_KEY": "secret",

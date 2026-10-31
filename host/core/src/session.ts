@@ -146,7 +146,8 @@ export class Sess {
       cwd: this.rec.cwd,
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
-      env: { ...process.env, ...env, DISABLE_UPDATES: "1" },
+      // состояние сессии — только из session_state_changed; SDK шлёт его лишь с этим ключом
+      env: { ...process.env, ...env, DISABLE_UPDATES: "1", CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1" },
       systemPrompt: { type: "preset", preset: "claude_code", ...(appends.length ? { append: appends.join("\n\n") } : {}) },
       mcpServers: mcpServers as Options["mcpServers"],
       hooks,

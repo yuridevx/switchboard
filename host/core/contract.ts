@@ -148,8 +148,11 @@ export interface Module {
 
 // ───────────────────────── что ядро даёт модулю ─────────────────────────
 
-/** Ответ запроса: как reply, без конверта. disconnected — связь оборвалась, ответа не было. */
-export type Result = { ok: true; result?: unknown } | { ok: false; error: string };
+/**
+ * Ответ запроса: как reply, без конверта (type, id, to, from). Отказ несёт и прочие поля reply владельца —
+ * например owner у not_owner. disconnected — связь оборвалась, ответа не было.
+ */
+export type Result = { ok: true; result?: unknown; [field: string]: unknown } | { ok: false; error: string; [field: string]: unknown };
 
 /** Раздел хранилища модуля. Запись сразу: временный файл и rename, файл всегда целый JSON. */
 export interface Store<T = unknown> {

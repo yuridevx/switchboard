@@ -16,6 +16,7 @@ import { RELEASES_BUCKET } from "./src/format.ts";
 import { assertNew, dirBucket, publish, s3Bucket } from "./src/publish.ts";
 import type { Bucket } from "./src/publish.ts";
 import { runNode, runNpm } from "./src/run.ts";
+import { install, installArgs } from "./src/install.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -47,7 +48,17 @@ export function bucketOf(a: Args, env: Record<string, string | undefined>): Buck
 
 const exec: Exec = (cmd, args, cwd) => (cmd === "npm" ? runNpm(args, cwd) : runNode(args, cwd));
 
+async function stdin(): Promise<string> {
+  const parts: Buffer[] = [];
+  for await (const c of process.stdin) parts.push(c as Buffer);
+  return Buffer.concat(parts).toString("utf8").trim();
+}
+
 export async function main(argv: string[], env: Record<string, string | undefined>, x: Exec = exec): Promise<number> {
+  if (argv[0] === "install") {
+    await install(installArgs(argv.slice(1), await stdin()));
+    return 0;
+  }
   const a = parseArgs(argv);
   const bucket = bucketOf(a, env);
   if (bucket) await assertNew(bucket, a.version);
