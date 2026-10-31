@@ -1,0 +1,15 @@
+{
+  "name": "@switchboard/host-remote",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./contract.ts"
+  },
+  "scripts": {
+    "test": "cd ../../.. && vitest run host/modules/remote"
+  },
+  "dependencies": {
+    "@switchboard/host": "1.0.0"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "host-remote",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": { "remote": 1 },
+  "uses": {
+    "host.module@host": 1,
+    "machine.slots@host-slots": 1
+  },
+  "calls": ["enableRemoteControl"],
+  "config": {}
+}

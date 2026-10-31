@@ -1,0 +1,16 @@
+{
+  "name": "host-machine",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {
+    "machine.dirs": 1,
+    "machine.mkdir": 1,
+    "machine.state": 1
+  },
+  "uses": {
+    "host.module@host": 1,
+    "list@keeper": 1
+  },
+  "calls": [],
+  "config": {}
+}

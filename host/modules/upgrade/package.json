@@ -1,0 +1,16 @@
+{
+  "name": "@switchboard/host-upgrade",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./contract.ts"
+  },
+  "scripts": {
+    "test": "cd ../../.. && vitest run host/modules/upgrade"
+  },
+  "dependencies": {
+    "@switchboard/host": "1.0.0",
+    "@switchboard/release": "1.0.0"
+  }
+}

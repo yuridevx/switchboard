@@ -1,0 +1,43 @@
+{
+  "name": "host-manage",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {
+    "session.open": 1,
+    "session.update": 1,
+    "session.call": 1,
+    "session.spec": 1,
+    "session.stop": 1,
+    "session.start": 1,
+    "session.remove": 1,
+    "model": 1,
+    "effort": 1,
+    "session.opened": 1,
+    "session.removed": 1
+  },
+  "uses": {
+    "host.module@host": 1,
+    "session.slot@host-slots": 1,
+    "session.profile@host-profiles": 1,
+    "ledger.add@ledger": 1
+  },
+  "calls": [
+    "setModel",
+    "applyFlagSettings",
+    "interrupt",
+    "getContextUsage",
+    "supportedCommands",
+    "supportedModels",
+    "supportedAgents",
+    "mcpServerStatus",
+    "toggleMcpServer",
+    "reconnectMcpServer",
+    "rewindFiles",
+    "stopTask",
+    "backgroundTasks",
+    "reloadPlugins",
+    "renameSession",
+    "getSessionInfo"
+  ],
+  "config": {}
+}
