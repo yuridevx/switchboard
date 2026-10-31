@@ -274,16 +274,24 @@ export function make(): Module {
           host.log({ ev: "slot.set", slot, why: `слот ${slot} удалён` });
           return { account: null };
         }
-        mstore().update((m) => ({ ...m, slots: { ...(m?.slots ?? {}), [slot]: list } }));
         let cur = whoIn(slot);
         if (!cur) {
-          // новый слот берёт первый вошедший аккаунт порядка
+          // новый слот берёт первый вошедший аккаунт порядка, не занятый другим слотом; такого нет — слота нет:
+          // сессии в слоте без входа шли бы «Not logged in» (живой прогон 31 окт.)
           const first = list.find((n) => accs[n]?.login === "ok" && !accs[n].lent);
-          if (first) {
-            const r = await place(slot, first, "новый слот");
-            if (r.ok) cur = first;
+          if (!first) throw refuse("no_reserve", `${slot}: в порядке нет вошедшего аккаунта, свободного от других слотов`);
+          mstore().update((m) => ({ ...m, slots: { ...(m?.slots ?? {}), [slot]: list } }));
+          const r = await place(slot, first, "новый слот");
+          if (!r.ok) {
+            mstore().update((m) => {
+              const slots = { ...(m?.slots ?? {}) };
+              delete slots[slot];
+              return { ...m, slots };
+            });
+            throw refuse(r.error, `${slot}: ${first} не встал в слот — ${r.error}`);
           }
-        }
+          cur = first;
+        } else mstore().update((m) => ({ ...m, slots: { ...(m?.slots ?? {}), [slot]: list } }));
         host.log({ ev: "slot.set", slot, order: list });
         arm(slot);
         return { account: cur };

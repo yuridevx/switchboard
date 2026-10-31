@@ -270,6 +270,20 @@ describe("эталоны slots", () => {
     expect(read(slotDir("main"))).toContain("tok-y0902");
   });
 
+  it("169 · новый слот: аккаунты порядка заняты другими слотами — no_reserve, слот не создан (живой прогон 31 окт.)", async () => {
+    await bench({
+      accounts: { infirex: { lent: "main" }, y0902: {} },
+      slots: { main: ["infirex"] },
+      sessions: {},
+    });
+    const r = await ask({ type: "slot.set", slot: "s2", order: ["infirex"] });
+    expect(r).toMatchObject({ ok: false, error: "no_reserve" });
+    const slots = await ask({ type: "machine.slots" });
+    expect(Object.keys(slots.result.slots)).toEqual(["main"]);
+    const ok = await ask({ type: "slot.set", slot: "s2", order: ["infirex", "y0902"] });
+    expect(ok).toMatchObject({ ok: true, result: { account: "y0902" } });
+  });
+
   it("170 · сессия без слота: ключа нет, лимиты не в accounts; slot.set с default — no_account", async () => {
     await bench({ accounts: { y0902: {} }, slots: {} });
     await st!.open("wiki@laptop");
