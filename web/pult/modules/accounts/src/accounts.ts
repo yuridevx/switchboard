@@ -75,8 +75,11 @@ export function createAccounts(): AppModule {
   }
 
   /** Открыли экран: каждой машине — machine.accounts { max_age: 120 } и machine.slots; затем расход почты — её машинам. */
+  /** первый ответ machine.accounts ещё не пришёл: опрос лимитов занимает секунды — экран пишет «загружаю», а не «нет» */
+  let loaded = false;
   async function loadAll() {
     await Promise.all([...machines("machine.accounts").map((m) => loadAccounts(m, 120)), ...machines("machine.slots").map((m) => loadSlots(m))]);
+    loaded = true;
     redraw();
     await forward();
   }
@@ -283,7 +286,7 @@ export function createAccounts(): AppModule {
         );
       });
       box.append(h("div", { class: "ac-cards" }, cards));
-      if (!groups.size) box.append(h("div", { class: "sb-note" }, "Аккаунтов нет — «+ Новый аккаунт»."));
+      if (!groups.size) box.append(h("div", { class: "sb-note" }, loaded ? "Аккаунтов нет — «+ Новый аккаунт»." : "Загружаю аккаунты машин…"));
       box.append(h("div", { class: "sb-note" }, "Одна карточка — одна почта со всех машин. Окна — запись Host одной машины; свежее из всех источников выбирает он сам."));
     }
 

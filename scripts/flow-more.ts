@@ -110,7 +110,7 @@ check("session.profile неизвестного профиля — no_profile", 
 await req({ type: "session.remove", callsign: PF });
 
 // --- журнал флота ---
-const led = await req({ type: "ledger.read", to: "ledger", limit: 100 });
+const led = await req({ type: "ledger.read", to: "ledger", limit: 1000 });
 const evs = new Set((led.result?.events ?? []).map((e: any) => e.ev));
 check("журнал флота: открытие, удаление, перенос, подмена слота, обновление", ["session.opened", "session.removed", "session.moved", "slot.swapped", "machine.upgraded"].every((e) => evs.has(e)), [...evs]);
 const flt = await req({ type: "ledger.read", to: "ledger", limit: 20, machine: M2 });
