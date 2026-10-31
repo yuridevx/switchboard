@@ -194,6 +194,23 @@ describe("договор модуля на стенде", () => {
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
   });
 
+  it("регрессия: запрос модуля о сессии, которой нет, — сбой владельца даёт module_error, модуль на машине не выключен (живой прогон 31 окт.)", async () => {
+    let host!: Host;
+    const manage = module("host-manage", {
+      requests: {
+        "session.spec": (req, ctx) => ({ dir: ctx.host.session(req.callsign as string)!.info.cwd }),
+        "session.remove": () => ({ removed: true }),
+      },
+    });
+    const points = module("host-points", { start: (h) => void (host = h) }, { uses: { "session.spec@host-manage": 1, "session.remove@host-manage": 1 } });
+    const st = await stand({ modules: [manage, points] });
+    await st.open("site@laptop");
+    expect(await host.request("session.spec", { v: 1, callsign: "gone@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+    expect(await host.request("session.spec", { v: 1, callsign: "site@laptop" })).toMatchObject({ ok: true });
+    expect(await st.relay.request({ type: "session.remove", v: 1, callsign: "site@laptop" })).toMatchObject({ ok: true });
+  });
+
   it("регрессия: renameSession живой сессии — метод query с её session_id; остановленной — функция SDK с папкой", async () => {
     const m = module("host-manage", {}, { calls: ["renameSession"] });
     const st = await stand({ modules: [m] });

@@ -27,7 +27,9 @@ const wait = async (ok: () => boolean | Promise<boolean>, ms: number) => {
 const idle = (cs: string, ms = 180000) => wait(() => rec(cs)?.state === "idle", ms);
 const lastText = async (cs: string) => {
   const h = await req({ type: "session.history", callsign: cs, before: null, limit: 8 });
-  return ((JSON.stringify(h).match(/"text":"([^"]{1,120})"/g) ?? []).slice(-1)[0] ?? "").slice(8, -1);
+  // последний текст ассистента целиком: длинный ответ не обрезается
+  const texts = JSON.stringify(h).match(/"text":"(?:[^"\\]|\\.)*"/g) ?? [];
+  return (texts.slice(-1)[0] ?? "").slice(8, -1);
 };
 async function turn(cs: string, text: string) {
   await req({ type: "session.prompt", callsign: cs, text });

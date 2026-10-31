@@ -8,7 +8,7 @@ import { fail, isReply, machineOf, ok } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
 import type { Link, LinkState, WsCtor } from "@switchboard/relay";
-import { isRefusal } from "./refusal.ts";
+import { isRefusal, refuse } from "./refusal.ts";
 import type {
   Host,
   LogRecord,
@@ -500,8 +500,24 @@ export class Kernel {
         return fail(f.id, "offline");
       }
     }
+    // запрос о сессии, которой нет (модуль этой машины спросил про только что убранную): сбой владельца — отказ
+    // module_error с причиной в журнале, а не выключение модуля на всей машине (живой прогон 31 окт.: session.spec
+    // про убранную сессию выключил host-manage на машине до перезапуска Host)
+    const orphan = typeof f.callsign === "string" && !s;
+    const run = (m: Module, mod: Mod) => {
+      const call = () => m.requests![f.type](f, this.ctx(mod, from ?? f.from));
+      if (!orphan) return call();
+      return Promise.resolve()
+        .then(call)
+        .catch((e: unknown) => {
+          if (isRefusal(e)) throw e;
+          const stack = e instanceof Error && e.stack ? e.stack : String(e);
+          this.log("core", { kind: "refuse", ev: "request", word: MODULE_ERROR, id: f.id, module: owner.name, why: `${f.type} о сессии ${f.callsign}, которой нет: ${stack}` });
+          throw refuse(MODULE_ERROR, `${f.type}: сессии ${f.callsign} нет`);
+        });
+    };
     try {
-      const r = await this.invoke(owner.name, `requests.${f.type}`, s, (m, mod) => m.requests![f.type](f, this.ctx(mod, from ?? f.from)), () => SKIP);
+      const r = await this.invoke(owner.name, `requests.${f.type}`, s, run, () => SKIP);
       if (r === SKIP) {
         this.log("core", { kind: "refuse", ev: "request", word: MODULE_ERROR, id: f.id, from: f.from, module: owner.name, why: `${f.type}: модуль ${owner.name} выключен${s ? " в " + s.callsign : ""}` });
         return fail(f.id, MODULE_ERROR);
