@@ -1,0 +1,21 @@
+{
+  "name": "host-accounts",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {
+    "machine.accounts": 1,
+    "machine.login": 1,
+    "machine.login_code": 1,
+    "machine.account_remove": 1,
+    "account.usage": 1,
+    "account.place": 1
+  },
+  "uses": { "host.module@host": 1 },
+  "calls": [
+    "claudeAuthenticate",
+    "claudeOAuthCallback",
+    "accountInfo",
+    "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET"
+  ],
+  "config": {}
+}

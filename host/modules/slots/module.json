@@ -1,0 +1,22 @@
+{
+  "name": "host-slots",
+  "type": "sdk",
+  "version": "2.0.0",
+  "provides": {
+    "machine.slots": 1,
+    "slot.set": 1,
+    "slot.swap": 1,
+    "session.slot": 1,
+    "slot": 1,
+    "account": 1
+  },
+  "uses": {
+    "host.module@host": 1,
+    "machine.accounts@host-accounts": 1,
+    "account.place@host-accounts": 1,
+    "account.usage@host-accounts": 1,
+    "ledger.add@ledger": 1
+  },
+  "calls": [],
+  "config": {}
+}

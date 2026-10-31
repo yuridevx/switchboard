@@ -1,0 +1,14 @@
+{
+  "name": "@switchboard/host-slots",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./contract.ts" },
+  "scripts": {
+    "test": "cd ../../.. && vitest run host/modules/slots"
+  },
+  "dependencies": {
+    "@switchboard/host": "1.0.0",
+    "@switchboard/protocol": "1.0.0"
+  }
+}
