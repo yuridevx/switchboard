@@ -69,3 +69,12 @@ jobs:
       - run: npm ci
       - name: Worker-модули
         run: node scripts/deploy-workers.mjs
+      - name: телефон
+        run: npm run deploy -w @switchboard/phone
+      - name: выпуск Host в R2
+        # машины берут его командой machine.upgrade; номер — 1.1.<номер прогона>
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: node tools/release/cli.ts release 1.1.${{ github.run_number }}
