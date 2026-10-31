@@ -804,7 +804,7 @@ subscribe({ applicationServerKey: key })
           <div class="ph-ph"><h3>Нет связи и отказы</h3><span class="ph-mod">ядро</span></div>
           <div class="chips"><button type="button" class="chip" data-set="drop">обрыв связи</button><button type="button" class="chip" data-set="machine">машина не на связи</button><button type="button" class="chip" data-set="revoked">ключ отозван</button><button type="button" class="chip" data-set="version">версия</button><button type="button" class="chip" data-set="module">ошибка модуля</button></div>
           <div data-only="drop" class="ph-panel">
-            <p>Связь с relay оборвалась: сеть телефона или выпуск relay. Ждущий запрос сразу получает <code>disconnected</code>; пузырь помечен «не подтверждено» и сам не переотправляется. Пока экран виден, ядро переподключается с растущей паузой; «Сейчас» — сразу.</p>
+            <p>Связь с relay оборвалась: сеть телефона или <span class="chg" data-chg="phone-drop-abort">чистый перезапуск relay после ошибки в его коде</span>. Ждущий запрос сразу получает <code>disconnected</code>; пузырь помечен «не подтверждено» и сам не переотправляется. Пока экран виден, ядро переподключается с растущей паузой; «Сейчас» — сразу.</p>
             <ul class="ph-fr">
               <li class="loc"><code>disconnected</code><i>ядро приложения</i><span>каждому ждущему запросу, без таймера</span></li>
               <li><code>hello</code> → <code>roster</code><i><a href="#relay">relay</a></i><span>после переподключения; открытый экран заново шлёт <code>session.watch</code> и <code>session.history</code></span></li>
@@ -818,7 +818,7 @@ subscribe({ applicationServerKey: key })
             </ul>
           </div>
           <div data-only="revoked" class="ph-panel">
-            <p>Номер ключа в списке отозванных: relay закрыл <code>hello</code> словом <code>revoked</code>. Это конец: повторных hello нет, экран ждёт новый QR. <code>gate_unavailable</code> — не отказ ключа: ключ просто не проверить сейчас, приложение переподключается с паузой, как при обрыве.</p>
+            <p>Номер ключа в списке отозванных: relay закрыл <code>hello</code> словом <code>revoked</code><span class="chg" data-chg="phone-revoked-open"> — или открытое соединение на старте объекта флота, если ключ отозвали, пока телефон был на связи</span>. Это конец: повторных hello нет, экран ждёт новый QR. <code>gate_unavailable</code> — не отказ ключа: ключ просто не проверить сейчас, приложение переподключается с паузой, как при обрыве.</p>
             <ul class="ph-fr"><li><code>hello</code> → закрыто <code>revoked</code><i><a href="#relay">relay</a></i><span>то же для <code>bad_key</code> — подпись не сходится</span></li></ul>
           </div>
           <div data-only="version" class="ph-panel">
@@ -1040,7 +1040,7 @@ Host push: phone нет на связи → дальше пушем</pre></div>
     <div class="ph-tblw"><table class="tbl">
       <tr><th>сбой</th><th>что делает приложение</th><th>что теряется</th></tr>
       <tr><td>обрыв связи с relay</td><td>ждущим запросам — <code>disconnected</code> сразу; переподключение с растущей паузой, пока экран виден</td><td>ответ на ждущий запрос: пузырь «не подтверждено» — после hello чат ищет его uuid в истории</td></tr>
-      <tr><td>relay перезапущен</td><td>то же: выпуск или отзыв ключа рвёт все соединения, приложение шлёт hello заново</td><td>то же</td></tr>
+      <tr><td>relay перезапущен</td><td><span class="chg" data-chg="phone-branch-abort">то же: чистый перезапуск после ошибки в коде relay рвёт все соединения, приложение шлёт hello заново. Выпуск relay соединений не рвёт</span></td><td>то же</td></tr>
       <tr class="chg" data-chg="phone-branch-gate"><td>отказ hello <code>gate_unavailable</code></td><td>то же, что обрыв: пауза растёт, пока экран виден, и снова hello</td><td>ничего</td></tr>
       <tr><td>машина не на связи</td><td>её сессии — серые из последнего roster; отправка — <code>offline</code></td><td>ничего: черновик цел</td></tr>
       <tr class="chg" data-chg="phone-branch-host"><td>Host машины перезапущен</td><td>лента идёт дальше с seq 1 — экран берёт <code>session.history</code>; вопрос приходит заново тем же id</td><td>ничего</td></tr>

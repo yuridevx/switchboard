@@ -141,7 +141,7 @@
 <header class="vhead chg" data-chg="gate-head">
   <span class="pill acc kind">Worker-модуль</span>
   <h1>gate</h1>
-  <p class="lead">Проверка ключей флота. Worker без адреса в интернете: его зовёт только relay, по привязке, один раз на каждое новое соединение. Ответ — кто это: роль, имя и номер ключа. Секрет флота и список отозванных ключей есть только у gate. Ключи выдаёт его инструмент <code>switchboard invite</code>.</p>
+  <p class="lead">Проверка ключей флота. Worker без адреса в интернете: его зовёт только relay, по привязке, один раз на каждое новое соединение <span class="chg" data-chg="gate-head-start">и на каждом старте объекта флота — про ключи открытых соединений</span>. Ответ — кто это: роль, имя и номер ключа. Секрет флота и список отозванных ключей есть только у gate. Ключи выдаёт его инструмент <code>switchboard invite</code>.</p>
   <div class="names">
     <span><b>ключ</b> role.name.kid.sig — одна строка</span>
     <span><b>kid</b> короткий случайный номер ключа</span>
@@ -186,8 +186,8 @@
 <!-- ===== API ===== -->
 <section class="chg" data-chg="gate-api">
   <div class="shead">
-    <h2>API: verify(key)</h2>
-    <p>Один метод на входе <code>Gate</code>. Отказ — значением со словом; исключение значит «gate не ответил», и relay закрывает <code>hello</code> своим словом.</p>
+    <h2>API: verify(key) и revoked(ids)</h2>
+    <p><span class="chg" data-chg="gate-api-two">Два метода</span> на входе <code>Gate</code>. Отказ — значением со словом; исключение значит «gate не ответил», и relay закрывает <code>hello</code> своим словом.</p>
   </div>
   <div class="card gt-pad">
     <div class="gt-sig">verify(<b>key</b>: string) → { role, name, kid } | { error: "bad_key" | "revoked" }</div>
@@ -197,6 +197,15 @@
       <div class="gt-out bad"><code>revoked</code><span>номер в списке отозванных</span></div>
       <div class="gt-out ex"><code>исключение</code><span>relay закрывает <code>hello</code>: <code>gate_unavailable</code></span></div>
     </div>
+  </div>
+  <div class="card gt-pad chg" data-chg="gate-api-revoked">
+    <div class="gt-sig">revoked(<b>ids</b>: string[]) → string[]</div>
+    <div class="gt-outs">
+      <div class="gt-out ok"><code>[ ]</code><span>ни один номер не отозван — соединения живут</span></div>
+      <div class="gt-out bad"><code>[ "client.phone.k2a9" ]</code><span>эти номера в <code>REVOKED</code> — relay закрывает их соединения: <code>revoked</code></span></div>
+      <div class="gt-out ex"><code>исключение</code><span>соединения живут, строка в журнале relay; проверит следующий старт</span></div>
+    </div>
+    <p>relay зовёт на каждом старте объекта флота — выгрузка и пробуждение, выпуск, чистый перезапуск — с номерами <code>role.name.kid</code> всех открытых соединений. Подписи не нужны: ключи этих соединений уже проверены на <code>hello</code>.</p>
   </div>
   <div class="card gt-pad chg" data-chg="gate-api-steps">
     <div class="gt-hd"><h3>Проверка по шагам</h3><span class="muted" style="font-size:13px">выберите ключ</span></div>
@@ -299,7 +308,7 @@
 <section class="chg" data-chg="gate-revoke">
   <div class="shead">
     <h2>Отзыв ключа</h2>
-    <p>gate проверяет ключ только на <code>hello</code>. Поэтому отзыв — два выпуска: gate узнаёт номер, выпуск relay заставляет всех войти заново. Пройдите по шагам.</p>
+    <p class="chg" data-chg="gate-revoke-one">Отзыв — один выпуск gate. Новый <code>hello</code> с отозванным ключом отказан сразу, а открытые соединения relay сверяет на каждом старте объекта флота вызовом <code>revoked</code>. Выпуск relay соединений не рвёт. Пройдите по шагам.</p>
   </div>
   <div class="card gt-two">
     <figure class="gt-fig">
@@ -308,7 +317,7 @@
         <span id="gate-rsteps" class="gt-tg" role="group" aria-label="Шаги"></span>
         <button type="button" class="primary" id="gate-rnext">Дальше →</button>
       </div>
-      <svg class="gt-svg" id="gate-rsvg" viewBox="0 0 400 206" role="img" aria-label="Четыре соединения relay: Host laptop, Host pc, panel-desk и телефон; gate со списком отозванных. По шагам: номер телефона отозван, выпуск gate соединений не рвёт, выпуск relay рвёт все, при новом hello телефон получает revoked">
+      <svg class="gt-svg" id="gate-rsvg" viewBox="0 0 400 206" role="img" aria-label="Четыре соединения relay: Host laptop, Host pc, panel-desk и телефон; gate со списком отозванных. По шагам: номер телефона отозван, выпуск gate соединений не рвёт, на старте объекта флота relay спрашивает gate.revoked и закрывает соединение телефона, новый hello телефона получает revoked">
         <defs><marker id="gate-rm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path class="arh on" d="M0 0L10 5L0 10z"/></marker></defs>
         <rect class="bx" data-c="0" x="8" y="10" width="112" height="34" rx="8"/><text class="t-n" x="64" y="31" text-anchor="middle">Host laptop</text>
         <rect class="bx" data-c="1" x="8" y="58" width="112" height="34" rx="8"/><text class="t-n" x="64" y="79" text-anchor="middle">Host pc</text>
@@ -335,7 +344,7 @@
       <div class="gt-stt" id="gate-rtitle"></div>
       <div class="codebox"><pre class="gt-pre" id="gate-rcmd"></pre></div>
       <p id="gate-rtext"></p>
-      <p class="gt-cap">Сменить <code>FLEET_SECRET</code> — отозвать все ключи сразу: новый секрет в gate, выпуск gate и relay, <code>invite</code> каждому заново.</p>
+      <p class="gt-cap chg" data-chg="gate-revoke-secret">Сменить <code>FLEET_SECRET</code>: новые <code>hello</code> со старыми ключами получают <code>bad_key</code>, <code>invite</code> каждому заново. Открытые соединения живут до своего переподключения — <code>revoked</code> сверяет только номера.</p>
     </div>
   </div>
 </section>
@@ -352,7 +361,7 @@
         <thead><tr><th>что случилось</th><th>что делает gate</th><th>что видят остальные</th></tr></thead>
         <tbody>
           <tr><td>ключ чужой или не того вида</td><td><code>{ error: "bad_key" }</code>, строка в журнале: имя ключа, если читается</td><td>relay закрывает <code>hello</code>: <code>bad_key</code></td></tr>
-          <tr><td>номер в <code>REVOKED</code></td><td><code>{ error: "revoked" }</code>, строка в журнале</td><td>relay закрывает <code>hello</code>: <code>revoked</code></td></tr>
+          <tr><td>номер в <code>REVOKED</code></td><td><code>{ error: "revoked" }</code>, строка в журнале</td><td>relay закрывает <code>hello</code>: <code>revoked</code>; <span class="chg" data-chg="gate-fail-revoked-start">открытое соединение с этим номером — на ближайшем старте объекта флота, по ответу <code>revoked</code></span></td></tr>
           <tr><td>нет <code>FLEET_SECRET</code>, ошибка в коде</td><td>исключение, строка в журнале с причиной</td><td>relay закрывает <code>hello</code>: <code>gate_unavailable</code>; подключившийся повторяет с паузой; агент чинит по журналу</td></tr>
           <tr><td>выпуск gate</td><td>новая версия отвечает на следующий вызов</td><td>соединения relay целы</td></tr>
           <tr><td>Cloudflare остановил экземпляр посреди вызова</td><td>—</td><td>этот <code>hello</code> — <code>gate_unavailable</code>, повтор с паузой</td></tr>
@@ -402,10 +411,10 @@
       <div class="et-in">Секрет теста в stdin: <code>switchboard invite host laptop</code>.</div>
       <div class="et-out">В stdout — одна строка <code>host.laptop.&lt;kid&gt;.&lt;sig&gt;</code>; <code>verify</code> её с тем же секретом даёт <code>{ host, laptop, kid }</code>; в аргументах процесса секрета нет.</div>
       <div class="et-src">чьё: устав — «Секреты передавать через stdin, никогда через argv».</div></div>
-    <div class="et" id="gate-et-117"><div class="et-n">117</div>
-      <div class="et-in">Телефон с ключом <code>client.phone.k2a9</code> на связи. Номер вписан в <code>REVOKED</code>, выпущен gate; затем выпущен relay.</div>
-      <div class="et-out">После выпуска gate телефон на связи, ни одно соединение не закрыто. После выпуска relay его <code>hello</code> закрыт словом <code>revoked</code>; Host и panel-desk вошли заново.</div>
-      <div class="et-src">чьё: устав — «Каждый — отдельный Cloudflare Worker, деплоится и падает сам по себе»; факт — выпуск перезапускает объект флота и рвёт все веб-сокеты (Cloudflare).</div></div>
+    <div class="et chg" id="gate-et-117" data-chg="gate-et-117-start"><div class="et-n">117</div>
+      <div class="et-in">Телефон <code>client.phone.k8e1</code> на связи; номер отозван выпуском gate; объект флота стартовал — был выгружен, его разбудил кадр.</div>
+      <div class="et-out">Соединение телефона закрыто словом <code>revoked</code>, Host и пульт на связи; новый <code>hello</code> с этим ключом — <code>revoked</code>. gate не ответил на проверку при старте — соединения живут, строка в журнале.</div>
+      <div class="et-src">чьё: факт живого прогона 31 окт. — выпуск relay веб-сокеты не рвёт; устав — «Система ловит, агент чинит».</div></div>
     <div class="et" id="gate-et-118"><div class="et-n">118</div>
       <div class="et-in">У gate не задан <code>FLEET_SECRET</code>; Host laptop на связи; телефон шлёт <code>hello</code>.</div>
       <div class="et-out"><code>verify</code> бросает исключение с причиной; relay закрывает <code>hello</code> телефона словом <code>gate_unavailable</code>; Host laptop на связи; в журнале gate — «FLEET_SECRET не задан».</div>
@@ -518,16 +527,16 @@
       cap:"Соединения relay; справа — gate и его список отозванных."},
     {t:"Номер в REVOKED, выпуск gate", lines:["up","up","up","up"], boxes:["","","",""], rv:"v1", gv:"v2", list:"[ phone.k2a9 ]", call:false, x:false,
       cmd:"// gate · wrangler.jsonc\n\"REVOKED\": [ \"client.phone.k2a9\" ]\n\n$ wrangler deploy        # в workers/gate",
-      text:"Новая версия gate знает номер. Соединения relay целы — и телефон тоже: ключ проверяется только на hello.",
+      text:"Новая версия gate знает номер: новый hello с этим ключом получит revoked сразу. Открытые соединения relay целы — и телефон тоже.",
       cap:"Выпуск gate не трогает relay: телефон ещё на связи."},
-    {t:"Выпуск relay", lines:["down","down","down","down"], boxes:["dim","dim","dim","dim"], rv:"v2", gv:"v2", list:"[ phone.k2a9 ]", call:false, x:false,
-      cmd:"$ wrangler deploy        # в workers/relay",
-      text:"Cloudflare перезапускает объект флота и рвёт все соединения. Каждая сторона переподключается с растущей паузой.",
-      cap:"Все соединения закрыты выпуском relay."},
-    {t:"hello заново", lines:["up","up","up","bad"], boxes:["okx","okx","okx","badx"], rv:"v2", gv:"v2", list:"[ phone.k2a9 ]", call:true, x:true,
-      cmd:"hello host.laptop.k7f3      → ok\nhello host.pc.m3d1          → ok\nhello client.panel-desk…  → ok\nhello client.phone.k2a9     → close 1008 revoked",
-      text:"На каждый hello relay зовёт verify. Три ключа проходят, телефон получает revoked. Новый ключ телефону — invite client phone --qr.",
-      cap:"Отозванный ключ не проходит hello; остальные вошли."}
+    {t:"Старт объекта флота", lines:["up","up","up","bad"], boxes:["okx","okx","okx","badx"], rv:"v1", gv:"v2", list:"[ phone.k2a9 ]", call:true, x:true,
+      cmd:"# объект спал; кадр от Host pc его разбудил\nawait env.GATE.revoked([ \"host.laptop.k7f3\",\n  \"host.pc.m3d1\", \"client.panel-desk.k3f1\",\n  \"client.phone.k2a9\" ])\n→ [ \"client.phone.k2a9\" ]\n\nтелефон: close 1008 revoked · roster → всем",
+      text:"Между кадрами объект флота спит, следующий кадр его будит — обычно через секунды. На старте relay спрашивает revoked про все открытые соединения и закрывает отозванное. Остальные на связи без нового hello. gate не ответил — соединения живут, строка в журнале; проверит следующий старт.",
+      cap:"Закрыто только соединение телефона; relay не выпускали."},
+    {t:"Новый hello телефона", lines:["up","up","up","bad"], boxes:["","","","badx"], rv:"v1", gv:"v2", list:"[ phone.k2a9 ]", call:true, x:true,
+      cmd:"hello client.phone.k2a9  → verify → revoked\nclose 1008 revoked\n\n$ switchboard invite client phone --qr\n  → client.phone.k8e1.…",
+      text:"Потерянный телефон пробует войти снова: verify отвечает revoked, relay закрывает hello. Новому телефону — ключ с новым номером по QR.",
+      cap:"Отозванный ключ не проходит hello."}
   ];
   const rsvg = $("#gate-rsvg"), rstepsEl = $("#gate-rsteps"), rtitle = $("#gate-rtitle"), rcmd = $("#gate-rcmd"), rtext = $("#gate-rtext"), rcap = $("#gate-rcap");
   const rBtns = []; let rCur = 0;

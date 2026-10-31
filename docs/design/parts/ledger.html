@@ -417,7 +417,8 @@ ctx.abort("restore");                                 // старт — уже �
     <div class="lg-tblw lg-txt"><table class="tbl">
       <tr><th>что случилось</th><th>что делает ledger</th><th>что видят остальные</th></tr>
       <tr><td>выпуск ledger</td><td>Cloudflare перезапускает объект; первый roster сверяется с последними записями машин</td><td>кадр <code>ledger.add</code> в этот миг — строка <code>offline</code> в журнале relay; запись не повторяется</td></tr>
-      <tr><td>выпуск relay</td><td>соединения машин рвутся — <code>machine.left</code>, через секунды <code>machine.back</code></td><td>в журнале флота видно, что связь прерывалась на N с</td></tr>
+      <tr class="chg" data-chg="ledger-fail-relay"><td>выпуск relay</td><td>ничего: соединения живут, <code>since</code> машин прежний — roster после старта объекта ledger сверяет и не пишет</td><td>ничего</td></tr>
+      <tr class="chg" data-chg="ledger-fail-abort"><td>чистый перезапуск relay: ошибка в его коде</td><td>соединения машин рвутся — <code>machine.left</code>, через секунды <code>machine.back</code></td><td>в журнале флота видно, что связь прерывалась на N с</td></tr>
       <tr><td>кадр не по контракту</td><td>не пишет; строка в Workers Logs: слово, <code>from</code>, <code>ev</code></td><td>пишущий ответа не ждёт</td></tr>
       <tr><td>ошибка в коде ledger</td><td>исключение, строка в Workers Logs с причиной</td><td>relay: отправителю запроса — <code>offline</code></td></tr>
       <tr><td>данные испорчены выпуском</td><td>—</td><td>агент возвращает базу на миг до выпуска — PITR</td></tr>
@@ -596,7 +597,7 @@ ctx.abort("restore");                                 // старт — уже �
     {at:20, tt:"14:20 · docs@pc занят — roster сменился, машины те же", rin:"pc      since 14:00  docs@pc · busy", rec:[], new:false},
     {at:44, tt:"14:44 · laptop снова в roster", rin:"laptop  since 14:44  site@laptop, wiki@laptop\npc      since 14:00  docs@pc", rec:[["machine.back", "laptop вернулась · не было 42 мин"]], new:true},
     {at:50, tt:"14:50 · выпуск ledger: объект перезапущен, первый roster", rin:"laptop  since 14:44  …\npc      since 14:00  …\n// последние записи: laptop back, pc back", rec:[], new:false},
-    {at:58, tt:"14:58 · выпуск relay: pc переподключился первым, через 3 с — laptop", rin:"pc      since 14:58:01\n… через 3 с\nlaptop  since 14:58:04\npc      since 14:58:01", rec:[["machine.left", "laptop пропала · была на связи с 14:44"], ["machine.back", "laptop вернулась · не было 3 с"]], new:true}
+    {at:58, tt:"14:58 · relay перезапущен после ошибки в коде: pc переподключился первым, через 3 с — laptop", rin:"pc      since 14:58:01\n… через 3 с\nlaptop  since 14:58:04\npc      since 14:58:01", rec:[["machine.left", "laptop пропала · была на связи с 14:44"], ["machine.back", "laptop вернулась · не было 3 с"]], new:true}
   ];
   const rsvg = $("rsvg"), rsteps = $("rsteps");
   let rcur = 0;

@@ -587,10 +587,10 @@ await env.PUSH.hello()
       <div class="eco-chh"><span class="eco-n">3</span><h3>relay → gate</h3></div>
       <div class="eco-wire"><span class="eco-end">relay</span><span class="eco-line"><i>привязка GATE · RPC</i><span class="eco-bar"></span><b>gate.verify</b></span><span class="eco-end">gate</span></div>
       <dl class="eco-dl">
-        <dt>начинает</dt><dd>relay — на каждый <code>hello</code>, до первого кадра соединения. Единственный прямой вызов не кадром: до проверки ключа кадров нет</dd>
+        <dt>начинает</dt><dd>relay — на каждый <code>hello</code>, до первого кадра соединения. Прямой вызов, не кадр: до проверки ключа кадров нет. <span class="chg" data-chg="eco-ch-rg-start">И при каждом старте объекта флота — про ключи всех открытых соединений</span></dd>
         <dt class="k">доверие</dt><dd>привязка в конфиге relay. У gate нет публичного адреса — снаружи до него не дойти</dd>
-        <dt>вызов</dt><dd><code>verify(ключ)</code> → <code>{ role, name, kid }</code> или <code>{ error: "bad_key" | "revoked" }</code>; исключение — «gate не ответил»</dd>
-        <dt>не ответил</dt><dd>соединение закрыто словом <code>gate_unavailable</code>, строка в журнале relay; участник переподключается с растущей паузой</dd>
+        <dt>вызов</dt><dd><code>verify(ключ)</code> → <code>{ role, name, kid }</code> или <code>{ error: "bad_key" | "revoked" }</code>; исключение — «gate не ответил». <span class="chg" data-chg="eco-ch-rg-revoked"><code>revoked([ "client.phone.k2a9", … ])</code> → отозванные из них; подписи не нужны</span></dd>
+        <dt>не ответил</dt><dd>соединение закрыто словом <code>gate_unavailable</code>, строка в журнале relay; участник переподключается с растущей паузой. <span class="chg" data-chg="eco-ch-rg-recheck">На проверке при старте — соединения живут, строка в журнале; проверит следующий старт</span></dd>
       </dl>
     </article>
     <article class="card eco-cable w3" id="eco-ch-rp">
@@ -903,15 +903,16 @@ await env.PUSH.hello()
           <li><b>Выдача</b> — <code>switchboard invite</code>, инструмент из пакета gate: секрет флота читает из stdin, ключ печатает в stdout для следующей команды. В аргументах команды секретов нет.</li>
         </ol>
       </div>
-      <div class="card eco-pad chg" data-chg="eco-trust-revoke-gate">
-        <h3>Отзыв — выпуск gate, затем relay</h3>
+      <div class="card eco-pad chg" data-chg="eco-trust-revoke-one">
+        <h3>Отзыв — один выпуск gate</h3>
         <ol class="eco-steps">
           <li>Номер ключа — в список <code>REVOKED</code> в настройках gate; список не секрет и лежит рядом с кодом gate</li>
-          <li>Выпуск gate: новые <code>hello</code> проверяет новая версия. Открытые соединения живут — их ключи проверены раньше</li>
-          <li>Выпуск relay: объект флота перезапущен, Cloudflare рвёт все соединения; все шлют <code>hello</code>, relay зовёт <code>gate.verify</code></li>
-          <li class="bad">Старый ключ получает <code>revoked</code> и закрытое соединение</li>
+          <li>Выпуск gate: новый <code>hello</code> с этим ключом сразу получает <code>revoked</code></li>
+          <li>Объект флота стартует — обычно через секунды: между кадрами он спит, следующий кадр его будит. relay спрашивает <code>gate.revoked</code> про ключи всех открытых соединений</li>
+          <li class="bad">Соединение отозванного ключа закрыто словом <code>revoked</code>; остальные живут</li>
         </ol>
-        <p>Сменить <code>FLEET_SECRET</code> — отозвать все ключи сразу: выпуск gate с новым секретом, затем relay.</p>
+        <p>gate не ответил на проверку — соединения живут, строка в журнале; проверит следующий старт. Выпуск relay соединений не рвёт.</p>
+        <p>Сменить <code>FLEET_SECRET</code>: новые <code>hello</code> со старыми ключами получают <code>bad_key</code>; открытые соединения живут до своего переподключения — проверка при старте сверяет только номера.</p>
       </div>
     </div>
   </div>
@@ -925,7 +926,7 @@ await env.PUSH.hello()
       <tr><td><code>client.panel-desk.…</code></td><td>пульт · одно устройство</td><td>хранилище браузера</td><td>ссылка: адрес пульта, ключ после <code>#</code> — сервер его не видит; пульт сохраняет ключ и убирает его из адреса</td></tr>
       <tr><td><code>client.&lt;скрипт&gt;.…</code></td><td>скрипт</td><td>хранилище секретов владельца</td><td>stdin или переменная окружения</td></tr>
       <tr><td><code>FLEET_SECRET</code></td><td>gate</td><td>секрет Worker gate; у владельца — его хранилище секретов</td><td><code>wrangler secret put</code> из stdin</td></tr>
-      <tr><td><code>REVOKED</code></td><td>gate</td><td>настройки Worker gate, рядом с кодом; не секрет</td><td>выпуск gate, затем relay</td></tr>
+      <tr><td><code>REVOKED</code></td><td>gate</td><td>настройки Worker gate, рядом с кодом; не секрет</td><td><span class="chg" data-chg="eco-key-revoked-one">выпуск gate</span></td></tr>
       <tr><td><code>VAPID_PRIVATE</code></td><td>push</td><td>секрет Worker push; открытую половину приложения берут запросом <code>push.key</code></td><td><code>wrangler secret put</code> из stdin; смена — приложения подписываются заново</td></tr>
       <tr><td><code>R2_TOKEN</code></td><td>points</td><td>секрет Worker points; им points выдаёт временные ключи R2 — <span class="chg" data-chg="eco-key-r2-rel">на блоки точек и на чтение выпусков Host (<code>points.creds</code>); второго держателя ключей R2 нет</span></td><td><code>wrangler secret put</code> из stdin</td></tr>
       <tr class="chg" data-chg="eco-trust-row-gh"><td>ключи приложения GitHub</td><td>github</td><td>хранилище его объекта; в секретах Worker их нет</td><td>кладёт сам github, когда владелец создаёт приложение с пульта</td></tr>
@@ -955,7 +956,7 @@ await env.PUSH.hello()
       <div><b>пульт</b><span>Всё API. Открывает сессии, ведёт чат, меняет модели и аккаунты, переносит сессии.</span></div>
       <div><b>скрипт</b><span>Всё API. Обычно roster и задачи сессиям с ожиданием ответа.</span></div>
     </div>
-    <p>Урезать права телефона нечем: сообщение сессии в режиме «разрешено всё» — уже любая команда на машине. Защита — свой ключ у каждого устройства и отзыв за два выпуска.</p>
+    <p>Урезать права телефона нечем: сообщение сессии в режиме «разрешено всё» — уже любая команда на машине. Защита — свой ключ у каждого устройства и <span class="chg" data-chg="eco-rights-revoke">отзыв одним выпуском gate</span>.</p>
   </div>
 </section>
 
@@ -1088,7 +1089,9 @@ await env.PUSH.hello()
     <div class="eco-tblw"><table class="tbl">
       <tr><th>сбой</th><th>кто поднимает</th><th>что теряется</th><th>основание</th></tr>
       <tr><td>оборвалась связь Host с relay</td><td>Host: переподключение, <code>hello</code></td><td>ждущие ответа запросы — <code>disconnected</code> у отправителя; сообщения на эту машину на время обрыва — <code>offline</code></td><td>при сборке</td></tr>
-      <tr><td>relay перезапущен: выпуск relay, отзыв ключа, <code>ctx.abort</code></td><td>все: переподключение, <code>hello</code>; roster — из новых attachments и <code>hello()</code> Worker-модулей</td><td>то же, у всех сразу</td><td>Cloudflare: выпуск перезапускает объект и рвёт соединения</td></tr>
+      <tr><td><span class="chg" data-chg="eco-fail-abort">relay перезапущен: ошибка в коде relay, <code>ctx.abort</code></span></td><td>все: переподключение, <code>hello</code>; roster — из новых attachments и <code>hello()</code> Worker-модулей</td><td>то же, у всех сразу</td><td><span class="chg" data-chg="eco-fail-abort-why">Cloudflare: <code>ctx.abort</code> закрывает соединения объекта</span></td></tr>
+      <tr class="chg" data-chg="eco-fail-relay-deploy"><td>выпуск relay</td><td>никто: соединения открыты. Объект флота стартует на новом коде: <code>hello()</code> Worker-модулей, проверка отозванных ключей у gate, roster — всем</td><td>ничего. gate не ответил на проверку — соединения живут, строка в журнале; проверит следующий старт</td><td>живой прогон 31 окт.: выпуск relay веб-сокеты не рвёт, <code>since</code> машин прежний</td></tr>
+      <tr class="chg" data-chg="eco-fail-revoke"><td>отзыв ключа</td><td>relay на старте объекта: <code>gate.revoked</code> про открытые соединения, отозванное закрыто словом <code>revoked</code></td><td>соединение отозванного ключа; остальные живут</td><td>при сборке</td></tr>
       <tr><td>gate не ответил на проверку ключа</td><td>участник: переподключение с растущей паузой; relay закрыл соединение словом <code>gate_unavailable</code>, строка в журнале</td><td>вход этого участника, пока gate не ответит; остальные соединения живут — их ключи проверены раньше</td><td>при сборке</td></tr>
       <tr><td>Worker-участник не ответил на <code>frame</code>: push, points, ledger, github</td><td>никто: отправителю — <code>offline</code>, строка в журнале relay и у отправителя</td><td>это уведомление, эта точка, эта запись журнала или этот токен; повторит следующий повод</td><td>при сборке</td></tr>
       <tr><td>выпуск gate, push, points, ledger, github или веб-приложения</td><td>никто: Cloudflare переключает версию, соединения relay открыты</td><td>ничего; вызов в момент выпуска — как «не ответил»</td><td>Cloudflare: выпуск перезапускает только объекты своего Worker</td></tr>
@@ -1192,10 +1195,10 @@ await env.PUSH.hello()
       <div class="et-in">relay получает <code>hello</code> с ключом <code>host.laptop.k7f3</code>, подписанным другим секретом, и зовёт <code>gate.verify</code>.</div>
       <div class="et-out">gate отвечает <code>bad_key</code>; relay закрывает соединение с этой причиной; в журнале relay — имя ключа; ни один кадр этого соединения не дошёл до Host и клиентов; roster не изменился.</div>
       <div class="et-src">чьё: устав, слово пользователя — «Система ловит, агент чинит»: останавливает, отказывает, пишет в журнал с причиной.</div></div>
-    <div class="et" id="eco-et-31"><div class="et-n">31</div>
-      <div class="et-in">Телефон с ключом <code>client.phone.k2a9</code> на связи. Номер вписан в <code>REVOKED</code> у gate; выпущен gate, затем relay.</div>
-      <div class="et-out">После выпуска gate соединение телефона ещё открыто. Выпуск relay закрыл все соединения; новый <code>hello</code> телефона закрыт с <code>revoked</code>; Host и пульт вернулись в roster после <code>hello</code>; ключ <code>client.phone.k8e1</code> проходит.<br><button type="button" class="eco-tomap" data-sc="revoke">показать на карте</button></div>
-      <div class="et-src">чьё: факт — документация Cloudflare: выпуск новой версии Worker перезапускает его Durable Object и рвёт все WebSocket.</div></div>
+    <div class="et chg" id="eco-et-31" data-chg="eco-et-31-start"><div class="et-n">31</div>
+      <div class="et-in">Телефон с ключом <code>client.phone.k2a9</code>, Host и пульт на связи. Номер вписан в <code>REVOKED</code> у gate, выпущен gate; затем объект флота стартовал — был выгружен, его разбудил кадр.</div>
+      <div class="et-out">После выпуска gate соединение телефона ещё открыто. На старте объекта relay спросил <code>gate.revoked</code> про все открытые соединения: телефон закрыт словом <code>revoked</code>, Host и пульт на связи без нового <code>hello</code>; новый <code>hello</code> телефона — <code>revoked</code>; ключ <code>client.phone.k8e1</code> проходит. gate не ответил на проверку — соединения живут, строка в журнале.<br><button type="button" class="eco-tomap" data-sc="revoke">показать на карте</button></div>
+      <div class="et-src">чьё: факт живого прогона 31 окт. — выпуск relay веб-сокеты не рвёт; устав — «Система ловит, агент чинит».</div></div>
     <div class="et" id="eco-et-32"><div class="et-n">32</div>
       <div class="et-in">Телефон шлёт <code>message</code> для poe-bot@pc с <code>from: "site@laptop"</code>, затем тот же кадр без <code>from</code>.</div>
       <div class="et-out">Первый — <code>reply ok:false, error: bad_from</code>, до Host не дошёл, строка в журнале relay. Второй — Host машины pc получил <code>from: "phone"</code>.<br><button type="button" class="eco-tomap" data-sc="from">показать на карте</button></div>
@@ -1613,7 +1616,7 @@ await env.PUSH.hello()
     "kp>hc":[[4],"Ответы, выход процесса, просьба остановиться.",`{ "op": "exited", "id": "site", "code": 1 }\n{ "op": "stop", "reason": "upgrade" }`],
     "rl>mh":[[1],"Свои кадры relay — владельцам в Host.",`roster → host-fleet, host-push, host-watch`],
     "rl>hc":[[1],"Ответы relay и отказы.",`{ "type": "reply", "id": "m-91",\n  "ok": false, "error": "offline" }`],
-    "rl>gt":[[3],"Привязка — единственный прямой вызов не кадром: на каждый hello, до первого кадра соединения.",`await env.GATE.verify("host.laptop.k7f3.Jx9…")\n→ { role: "host", name: "laptop", kid: "k7f3" }`],
+    "rl>gt":[[3],"Привязка — прямой вызов не кадром: verify на каждый hello, до первого кадра соединения; revoked — на старте объекта флота, про открытые соединения.",`await env.GATE.verify("host.laptop.k7f3.Jx9…")\n→ { role: "host", name: "laptop", kid: "k7f3" }\nawait env.GATE.revoked([ "host.laptop.k7f3", "client.phone.k2a9" ])\n→ [ "client.phone.k2a9" ]`],
     "rl>pw":[[3],"Привязка: кадр с to: \"push\" — в общий метод frame участника, как есть. Участнику с roster@relay в uses — и roster: так ledger видит, что машина пропала.",`await env.PUSH.frame({ "type": "push.send",\n  "id": "p-4", "from": "@laptop", … })`],
     "rl>ph":[[1],"Кадры клиенту по его соединению.",`{ "type": "roster", … }`],
     "rl>cf":[[1],"Кадры клиенту по его соединению.",`{ "type": "roster", … }`],
@@ -1670,10 +1673,10 @@ await env.PUSH.hello()
   const CX = {
     relay:{k:"Worker-модуль", t:"relay", v:"relay", own:"соединения и attachments, hello, roster из живых соединений, доставка по адресу, from, offline",
       con:"hello, roster, session.state; frame — вход Worker-участников; roster — и участникам с roster@relay в uses", sec:"нет", addr:"публичный: switchboard.<subdomain>.workers.dev",
-      no:"функций других Worker, уведомлений и подписок, подписи ключей — её считает gate", rel:"выпуск relay рвёт все соединения — все шлют hello заново"},
+      no:"функций других Worker, уведомлений и подписок, подписи ключей — её считает gate", rel:"выпуск relay соединений не рвёт: объект стартует на новом коде, снова спрашивает hello() участников и gate.revoked про открытые соединения"},
     gate:{k:"Worker-модуль", t:"gate", v:"gate", own:"проверка ключа, список отозванных, выдача ключей",
-      con:"verify(ключ) → { role, name, kid } или { error: bad_key | revoked }; инструмент switchboard invite", sec:"FLEET_SECRET; REVOKED — номера, не секрет", addr:"нет — только привязка GATE у relay",
-      no:"соединений, roster, кадров", rel:"соединения relay не рвёт; новые hello проверяет новая версия"},
+      con:"verify(ключ) → { role, name, kid } или { error: bad_key | revoked }; revoked(номера) → отозванные из них; инструмент switchboard invite", sec:"FLEET_SECRET; REVOKED — номера, не секрет", addr:"нет — только привязка GATE у relay",
+      no:"соединений, roster, кадров", rel:"соединения relay не рвёт; новые hello проверяет новая версия, открытые — на следующем старте объекта флота"},
     push:{k:"Worker-модуль", t:"push", v:"push", own:"веб-пуш: подпись VAPID, шифрование тела по протоколу, подписки клиентов",
       con:"push.key, push.subscribe, push.send — кадрами с to: push", sec:"VAPID_PRIVATE; открытый ключ — запросом push.key", addr:"нет — только привязка push у relay",
       no:"кто на связи — пуш решает модуль push Host; roster; ключей рации", rel:"подписки — в SQLite объекта; соединения relay не рвёт; вызов в момент выпуска — как «не ответил»"},
@@ -1869,7 +1872,7 @@ await env.PUSH.hello()
         cap:"Host открывает wss к relay и первым кадром шлёт <code>hello</code>: ключ машины, callsign её сессий и <code>contract</code> — имена и версии из <code>provides</code> всех своих модулей.",
         seeT:"кадр Host", see:`{ "type": "hello", "proto": 1,\n  "key": "host.laptop.k7f3.Jx9…",\n  "sdk": "0.3.311",\n  "contract": { "session.open": 1,\n    "session.history": 2, "answer": 1, … },\n  "sessions": [\n    { "callsign": "site@laptop", "state": "idle" },\n    { "callsign": "profiles@laptop", "state": "idle" } ] }`},
       {st:{c1:"online",relay:"roster: 6"}, hot:["relay","gate"], paths:[["relay","gate"]], ch:["rg"], key:"FLEET_SECRET — только у gate", log:"relay → gate.verify: ключ принят",
-        cap:"relay секрета флота не знает: он зовёт <code>gate.verify</code> по привязке — единственный прямой вызов не кадром. gate считает подпись, сверяет список отозванных и отдаёт роль и имя. relay кладёт в attachment машину и её callsign — все вида <code>*@laptop</code>.",
+        cap:"relay секрета флота не знает: он зовёт <code>gate.verify</code> по привязке — прямой вызов не кадром. gate считает подпись, сверяет список отозванных и отдаёт роль и имя. relay кладёт в attachment машину и её callsign — все вида <code>*@laptop</code>.",
         seeT:"вызов по привязке", see:`await env.GATE.verify("host.laptop.k7f3.Jx9…")\n→ { role: "host", name: "laptop",\n    kid: "k7f3" }`},
       {hot:["relay","c2","phone","fleet"], paths:[["relay","c2"],["relay","phone"],["relay","fleet"]], ch:["hr","pr","fr"], key:"соединения уже проверены", log:"relay разослал roster",
         cap:"relay собирает roster из attachments живых соединений и ответов <code>hello()</code> Worker-модулей и рассылает всем на связи. В roster — контракт каждого участника: клиент видит, с какой версией говорить.",
@@ -1936,15 +1939,12 @@ await env.PUSH.hello()
     ]},
     {id:"revoke", name:"Отзыв ключа", init:{}, steps:[
       {t:"0 с", hot:["gate"], ch:[], key:"REVOKED — номера ключей, не секрет", log:"номер ключа телефона — в REVOKED у gate, выпуск gate",
-        cap:"Телефон потерян. Номер его ключа вписывают в список отозванных в настройках gate и выпускают gate. Соединения relay при этом живут: ключ открытого соединения проверен раньше.",
+        cap:"Телефон потерян. Номер его ключа вписывают в список отозванных в настройках gate и выпускают gate. Новый <code>hello</code> с этим ключом получит <code>revoked</code> сразу; открытые соединения пока живут.",
         seeT:"настройки gate", see:`[vars]\nREVOKED = "client.phone.k2a9"\n\n$ wrangler deploy        # gate\nсоединения relay — открыты`},
-      {st:{c1:"reconnecting",c2:"reconnecting",fleet:"reconnecting",phone:"closed",relay:"restarted · roster: 0"}, hot:["relay"], ch:[], key:"—", log:"выпуск relay перезапустил объект — все соединения закрыты",
-        cap:"Затем выпускают relay. Новая версия перезапускает объект флота, и Cloudflare закрывает все соединения. Сохранять нечего: на диске relay ничего нет. У отправителей ждущие ответа запросы сразу получают <code>disconnected</code>.",
-        seeT:"Cloudflare", see:`$ wrangler deploy        # relay\nвыпуск перезапускает Durable Object\nи рвёт все WebSocket\n\nждущие ответа запросы → disconnected (у себя)`},
-      {st:{c1:"online",c2:"online",fleet:"open",phone:"closed",relay:"roster: 6"}, hot:["c1","c2","fleet","relay","gate"], paths:[["c1","relay","gate"],["c2","relay"],["fleet","relay"]], ch:["hr","fr","rg"], key:"каждый ключ gate проверяет заново", log:"все переподключились: hello → gate.verify — roster собран",
-        cap:"Host и пульт переподключаются и шлют <code>hello</code>; relay проверяет каждый ключ у gate. Roster собран заново.",
-        seeT:"gate.verify", see:`host.laptop.k7f3          → принят\nhost.pc.k1b3              → принят\nclient.panel-desk.k3f1    → принят`},
-      {st:{phone:"revoked",relay:"roster: 6"}, hot:["phone","relay","gate"], paths:[{via:["phone","relay","gate"],bad:true}], ch:["pr","rg"], key:"client.phone.k2a9 — отозван", log:"gate: revoked — соединение закрыто",
+      {t:"секунды", st:{phone:"revoked",relay:"started · roster: 6"}, hot:["relay","gate","phone"], paths:[["relay","gate"],{via:["relay","phone"],bad:true}], ch:["rg","pr"], key:"client.phone.k2a9 — отозван", log:"старт объекта: gate.revoked — телефон закрыт словом revoked",
+        cap:"Между кадрами объект флота спит; следующий кадр его будит. На старте relay спрашивает <code>gate.revoked</code> про ключи всех открытых соединений и закрывает отозванное словом <code>revoked</code>. Host и пульт на связи — без нового <code>hello</code>. gate не ответил — соединения живут, строка в журнале; проверит следующий старт.",
+        seeT:"старт объекта", see:`gate.revoked([ "host.laptop.k7f3",\n  "host.pc.k1b3", "client.panel-desk.k3f1",\n  "client.phone.k2a9" ])\n→ [ "client.phone.k2a9" ]\n\nтелефон: close 1008 revoked\nroster → всем`},
+      {hot:["phone","relay","gate"], paths:[{via:["phone","relay","gate"],bad:true}], ch:["pr","rg"], key:"client.phone.k2a9 — отозван", log:"новый hello телефона: gate.verify — revoked",
         cap:"Кто-то открыл приложение на потерянном телефоне: gate отвечает <code>revoked</code>, relay закрывает соединение этим словом. Новый телефон получает ключ с новым номером по QR.",
         seeT:"relay", see:`gate.verify("client.phone.k2a9…") → revoked\nсоединение закрыто: revoked\n\n$ switchboard invite client phone --qr\n  → client.phone.k8e1.…`}
     ]},
@@ -2098,9 +2098,9 @@ await env.PUSH.hello()
       ["keeper", "выход. На старте Host поднимает сессии из своего списка по <code>resume</code>", "keep"]]},
     {k:"relay", s:[
       ["владелец", "выпускает relay: <code>wrangler deploy</code> или смена его настроек", ""],
-      ["Cloudflare", "перезапускает объект флота и закрывает все соединения; сохранять нечего — на диске ничего", ""],
-      ["Host, клиенты", "ждущие ответа запросы — <code>disconnected</code>; переподключение и <code>hello</code>, ключ — снова через gate", ""],
-      ["relay", "roster собран из новых attachments и <code>hello()</code> Worker-модулей", "keep"]]},
+      ["Cloudflare", "переключает версию; соединения и их attachments открыты — сохранять нечего, на диске ничего", "keep"],
+      ["relay", "объект стартует на новом коде: <code>hello()</code> Worker-модулей, <code>gate.revoked</code> про открытые соединения — отозванное закрыто словом <code>revoked</code>", ""],
+      ["relay", "roster — из тех же attachments и ответов <code>hello()</code>, всем", "keep"]]},
     {k:"gate · push · github", s:[
       ["владелец", "выпускает gate, push или github: <code>wrangler deploy</code> или смена секрета", ""],
       ["Cloudflare", "переключает версию; объект флота relay не трогает — соединения открыты", "keep"],

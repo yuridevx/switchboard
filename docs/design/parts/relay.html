@@ -526,15 +526,20 @@
         <rect class="act" x="194" y="122" width="12" height="22" rx="3"/><text class="t-s" x="190" y="137" text-anchor="end">proto, callsign, размер</text>
         <path class="ms on" d="M200 160H60" marker-end="url(#relay-hm)"/><text class="t-m" x="126" y="154" text-anchor="middle">roster</text>
       </svg>
-      <figcaption>Сплошная стрелка — кадр, пунктир — прямой вызов по привязке. До проверки ключа кадров у соединения нет, поэтому здесь вызов, а не кадр. Это единственный такой вызов в рации.</figcaption>
+      <figcaption>Сплошная стрелка — кадр, пунктир — прямой вызов по привязке. До проверки ключа кадров у соединения нет, поэтому здесь вызов, а не кадр. <span class="chg" data-chg="relay-hello-gate-two">Второй вызов к gate — <code>revoked</code> на старте объекта флота, про ключи открытых соединений.</span></figcaption>
     </figure>
     <div class="rl-pad">
       <h3>Что relay берёт у gate</h3>
-      <p>Только ответ: роль, имя и номер ключа. Секрета флота и списка отозванных у relay нет — их видит один gate. Ключи выдаёт инструмент gate <code>switchboard invite</code>, отзывает — запись номера в настройку gate и выпуск gate и relay.</p>
+      <p>Только ответ: роль, имя и номер ключа. Секрета флота и списка отозванных у relay нет — их видит один gate. Ключи выдаёт инструмент gate <code>switchboard invite</code>, отзывает — запись номера в настройку gate и <span class="chg" data-chg="relay-hello-revoke">выпуск gate. Новый <code>hello</code> с этим ключом отказан сразу; открытые соединения relay сверяет на каждом старте объекта — выгрузка и пробуждение, выпуск, чистый перезапуск</span>.</p>
       <div class="codebox"><pre class="rl-pre">const r = await env.GATE.verify(hello.key)
 // { role: "host", name: "laptop", kid: "k7f3" }
 // { error: "revoked" }   → close 1008 revoked
-// исключение             → close 1008 gate_unavailable</pre></div>
+// исключение             → close 1008 gate_unavailable
+
+// старт объекта, после hello() участников:
+const gone = await env.GATE.revoked(ids)   // role.name.kid открытых
+// [ "client.phone.k2a9" ] → close 1008 revoked, roster — всем
+// исключение             → соединения живут, строка в журнале</pre></div>
     </div>
   </div>
 </section>
@@ -569,7 +574,7 @@
         <path class="ms rpc" style="stroke-opacity:1" d="M112 46H184" marker-end="url(#relay-rm2)"/><text class="t-m sm" x="150" y="40" text-anchor="middle">verify(key)</text>
         <text class="t-y" x="150" y="84" text-anchor="middle">до hello кадров нет — значит вызов</text>
       </svg>
-      <ul><li>только к контракту вызываемого</li><li>в рации один такой вызов: <code>gate.verify</code></li></ul>
+      <ul><li>только к контракту вызываемого</li><li class="chg" data-chg="relay-rv-gate">в рации такие вызовы — только к gate: <code>verify</code> на <code>hello</code> и <code>revoked</code> на старте объекта</li></ul>
     </div>
   </div>
 
@@ -639,7 +644,7 @@
     <ol class="rl-new">
       <li><b>Новый участник</b> — своя папка <code>workers/&lt;имя&gt;/</code> с входом <code>Participant</code>: <code>hello()</code> и <code>frame(кадр)</code>, и привязка <code>RELAY</code> со своим именем в <code>props</code>.</li>
       <li><b>В конфиге relay</b> — привязка к нему и строка «имя → привязка» в <code>PARTICIPANTS</code>. Код relay не меняется.</li>
-      <li><b>Выпуск</b> — участник, затем relay. Выпуск relay переподключает всех, и новый участник уже в roster.</li>
+      <li class="chg" data-chg="relay-new-deploy"><b>Выпуск</b> — участник, затем relay. Соединения живут; объект стартует на новом коде, спрашивает <code>hello()</code> участников — и новый участник уже в roster.</li>
     </ol>
     <p class="rl-cap">Имя участника задаёт его собственная привязка: relay читает <code>this.ctx.props.name</code> и ставит его в <code>from</code>. Свой <code>from</code> участник не пишет — чужое имя в нём даёт <code>bad_from</code>.</p>
   </div>
@@ -691,15 +696,15 @@
 <section class="chg" data-chg="relay-fail">
   <div class="shead">
     <h2>Сбои и остановка</h2>
-    <p>Поднимаются только ожидаемые ветки. Всё прочее — чистый перезапуск объекта. Остановкой Worker-модулей управляет Cloudflare: для relay это выпуск, после него каждый шлёт <code>hello</code> заново. Сохранять relay нечего.</p>
+    <p>Поднимаются только ожидаемые ветки. Всё прочее — чистый перезапуск объекта. Остановкой Worker-модулей управляет Cloudflare. <span class="chg" data-chg="relay-fail-deploy">Выпуск relay соединений не рвёт: объект стартует на новом коде. Рвёт их чистый перезапуск — тогда каждый шлёт <code>hello</code> заново.</span> Сохранять relay нечего.</p>
   </div>
   <div class="card rl-pad">
     <div class="rl-tblw">
       <table class="tbl">
         <thead><tr><th>что случилось</th><th>что делает relay</th><th>что видят остальные</th></tr></thead>
         <tbody>
-          <tr><td>объект уснул</td><td>ничего: соединения и карточки держит Cloudflare; проснувшись, снова зовёт <code>hello()</code> участников</td><td>ничего</td></tr>
-          <tr><td>выпуск relay</td><td>ничего: Cloudflare перезапускает объект и рвёт соединения</td><td>все переподключаются, <code>hello</code>; свои ждущие запросы — <code>disconnected</code></td></tr>
+          <tr><td>объект уснул</td><td>ничего: соединения и карточки держит Cloudflare; проснувшись, снова зовёт <code>hello()</code> участников <span class="chg" data-chg="relay-fail-sleep-revoked">и <code>gate.revoked</code> про открытые соединения</span></td><td>ничего</td></tr>
+          <tr class="chg" data-chg="relay-fail-row-deploy"><td>выпуск relay</td><td>соединения и карточки живут; объект стартует на новом коде: <code>hello()</code> участников, <code>gate.revoked</code>, roster — всем</td><td>ничего: <code>since</code> машин прежний</td></tr>
           <tr><td>выпуск gate или push</td><td>ничего: соединения relay целы</td><td>ничего; следующий вызов идёт в новую версию</td></tr>
           <tr><td>gate не ответил на <code>verify</code></td><td>закрывает этот <code>hello</code>: 1008, <code>gate_unavailable</code>; строка в журнале</td><td>подключившийся повторяет с растущей паузой; уже подключённые не замечают</td></tr>
           <tr><td>участник не принял <code>frame</code></td><td>отправителю — <code>offline</code>, строка в журнале с причиной</td><td>отправитель — слово; соединения целы</td></tr>
@@ -707,9 +712,10 @@
           <tr><td>Host ушёл: обрыв, обновление</td><td>его сессии — из roster, roster — всем</td><td>новые кадры к машине — <code>offline</code>; ждущие ответа от неё — <code>disconnected</code> у отправителя</td></tr>
           <tr><td>Host вернулся, старое соединение полуоткрыто</td><td>новый <code>hello</code> машины закрывает прежнее: 1000, <code>replaced</code></td><td>в roster новое <code>since</code> машины</td></tr>
           <tr><td>клиент ушёл</td><td>roster без него — всем</td><td>Host по roster снимает его зрителей; пуш телефону решает модуль push Host</td></tr>
-          <tr><td>отзыв ключа</td><td>ничего сам: выпуск gate, затем выпуск relay</td><td>все переподключаются; отозванный получает <code>revoked</code></td></tr>
+          <tr class="chg" data-chg="relay-fail-row-revoke"><td>отзыв ключа — выпуск gate</td><td>на ближайшем старте объекта: <code>gate.revoked</code> про открытые соединения, отозванное — 1008, <code>revoked</code>; roster — всем. Новый <code>hello</code> с этим ключом — <code>revoked</code> сразу</td><td>отозванный закрыт; остальные не замечают</td></tr>
+          <tr class="chg" data-chg="relay-fail-row-revfail"><td>gate не ответил на <code>revoked</code></td><td>соединения живут, строка в журнале <code>gate_unavailable</code>; проверит следующий старт</td><td>ничего</td></tr>
           <tr><td>кадр не по контракту</td><td>отказ словом, строка в журнале</td><td>отправитель — слово</td></tr>
-          <tr><td>неожиданная ошибка в коде relay</td><td>строка в журнале с причиной, <code>ctx.abort(причина)</code></td><td>как при выпуске relay</td></tr>
+          <tr><td>неожиданная ошибка в коде relay</td><td>строка в журнале с причиной, <code>ctx.abort(причина)</code></td><td><span class="chg" data-chg="relay-fail-abort">Cloudflare закрывает все соединения: все переподключаются, <code>hello</code>; свои ждущие запросы — <code>disconnected</code></span></td></tr>
         </tbody>
       </table>
     </div>
@@ -737,6 +743,7 @@
         <li><code>webSocketMessage · webSocketClose</code><span>кадр пришёл, соединение ушло</span></li>
         <li><code>ctx.setWebSocketAutoResponse()</code><span><code>ping</code> → <code>pong</code> без пробуждения —</span></li>
         <li><code>env.GATE.verify(key)</code><span>проверка ключа на каждом <code>hello</code></span></li>
+        <li class="chg" data-chg="relay-cf-revoked"><code>env.GATE.revoked(ids)</code><span>отозванные среди открытых — на каждом старте объекта</span></li>
         <li><code>env[PARTICIPANTS[имя]]</code><span><code>hello()</code> и <code>frame()</code> участника</span></li>
         <li><code>class Radio extends WorkerEntrypoint</code><span>вход участников; имя — <code>this.ctx.props.name</code></span></li>
         <li><code>ctx.abort(reason)</code><span>чистый перезапуск объекта</span></li>
@@ -892,11 +899,11 @@
       ["из relay","<code>roster</code>, <code>reply</code>"],
       ["закрылось","roster без скрипта — всем"]]},
     5: {t:"relay → gate", rows:[
-      ["начинает","relay, на каждый <code>hello</code>"],
+      ["начинает","relay, на каждый <code>hello</code> и на каждом старте объекта — про открытые соединения"],
       ["транспорт","привязка <code>GATE</code>, вход <code>Gate</code>: вызов метода внутри Cloudflare. Адреса в интернете у gate нет"],
-      ["вызов","<code>verify(key)</code> → <code>{ role, name, kid }</code> или <code>{ error: \"bad_key\" | \"revoked\" }</code>","k"],
-      ["почему не кадр","до проверки ключа у соединения кадров нет — это единственный прямой вызов в рации"],
-      ["отказ","исключение или нет ответа — <code>hello</code> закрыт словом <code>gate_unavailable</code>; подключившийся повторит с паузой"]]},
+      ["вызов","<code>verify(key)</code> → <code>{ role, name, kid }</code> или <code>{ error: \"bad_key\" | \"revoked\" }</code>; <code>revoked(ids)</code> → отозванные из номеров <code>role.name.kid</code>","k"],
+      ["почему не кадр","до проверки ключа у соединения кадров нет; у gate нет соединения с relay — оба вызова прямые"],
+      ["отказ","исключение или нет ответа на <code>verify</code> — <code>hello</code> закрыт словом <code>gate_unavailable</code>; подключившийся повторит с паузой. На <code>revoked</code> — соединения живут, строка в журнале"]]},
     6: {t:"relay ⇄ участник push", rows:[
       ["начинает","обе стороны: relay — кадром к участнику, участник — своим кадром или ответом"],
       ["relay → push","привязка из <code>PARTICIPANTS</code>: <code>hello()</code> при старте объекта, <code>frame(кадр)</code> для кадров с <code>to: \"push\"</code>"],
@@ -947,7 +954,7 @@
     {g:"привязка", n:"Radio.frame", dir:"участник → relay", when:"свой кадр или ответ участника",
       does:"<code>from</code> = <code>this.ctx.props.name</code> из привязки участника; дальше — как кадр из соединения. Возвращает слово отказа или ничего.",
       ex:'// push, привязка RELAY с props { name: "push" }\nconst w = await env.RELAY.frame({\n  type: "reply", id: "s-4", to: "@laptop",\n  ok: true, result: { cut: false } })\n// undefined — передан\n// "offline"  — адресата нет на связи\n// "bad_from" — в кадре чужой from'},
-    {g:"привязка", n:"hello()", dir:"relay → участник", when:"при старте объекта: выпуск relay, пробуждение, чистый перезапуск",
+    {g:"привязка", n:"hello()", dir:"relay → участник", when:"при старте объекта: выпуск relay, пробуждение, чистый перезапуск; после ответов — <code>gate.revoked</code> про открытые соединения",
       does:"ответ — контракт участника: имена и версии; и <code>uses</code>, если участнику нужен roster. Держит в памяти объекта и кладёт в <code>roster.workers</code>. С <code>roster@relay</code> в <code>uses</code> участник получает каждый <code>roster</code> своим <code>frame</code>, как соединение. Не ответил — участника нет в roster, строка в журнале.",
       ex:'const c = await env.PUSH.hello()\n// { "contract": { "push.key": 1, "push.send": 1,\n//                 "push.subscribe": 1 } }\nawait env.LEDGER.hello()\n// { "contract": { "ledger.add": 1, … },\n//   "uses": { "roster@relay": 1 } }'},
     {g:"привязка", n:"frame(кадр)", dir:"relay → участник", when:"кадр с <code>to</code> = имя участника",
@@ -1172,20 +1179,20 @@
       cap:"Кадров нет — Cloudflare выгружает объект. Соединения открыты, карточки лежат у Cloudflare вместе с ними. Память объекта — и ответ push — ушла вместе с ним.",
       log:["<b>14:11</b> тишина", "объект выгружен; соединений: 4"]},
     {t:"Кадр от pc", open:"LPFCW", hot:"P", pBusy:true, mem:["live","объект создан заново", "roster из 4 карточек и hello() push — тот же, что до сна"],
-      cap:"Первый же кадр поднимает объект. Он читает карточки соединений, снова спрашивает hello() у участников и знает всё, что знал до сна.",
-      log:["<b>14:20</b> worker push · push.key 1, push.send 1, push.subscribe 1", "<b>14:20</b> session.state poe-bot@pc busy", "roster → 4 соединения, 1 участник"]},
+      cap:"Первый же кадр поднимает объект. Он читает карточки соединений, снова спрашивает hello() у участников и gate.revoked про ключи открытых соединений — и знает всё, что знал до сна.",
+      log:["<b>14:20</b> worker push · push.key 1, push.send 1, push.subscribe 1", "<b>14:20</b> gate.revoked · 4 номера → отозванных нет", "<b>14:20</b> session.state poe-bot@pc busy", "roster → 4 соединения, 1 участник"]},
     {t:"Host pc ушёл", open:"LFCW", pBusy:true, mem:["live","roster", "3 сессии, 2 клиента, 1 участник"],
       cap:"Карточка ушла вместе с соединением. Кадр к *@pc теперь — offline сразу; кто ждал ответа от pc, получает disconnected у себя, увидев roster.",
       log:["<b>14:31</b> close host.pc", "roster → 3 соединения", "<b>14:32</b> offline panel-desk → poe-bot@pc"]},
     {t:"Выпуск push", open:"LFCW", hot:"W", mem:["live","roster", "не изменился"],
       cap:"Выпуск другого Worker-модуля relay не касается: соединения целы, roster не разослан. Следующий кадр к push уйдёт в новую версию.",
       log:["<b>14:35</b> wrangler deploy · switchboard-push", "соединений: 3 — ни одно не закрыто"]},
-    {t:"Выпуск relay", open:"", wGone:"объект перезапущен", mem:["sleep","объект перезапущен выпуском", "сохранять было нечего"],
-      cap:"Выпуск relay перезапускает объект и рвёт все соединения. Каждая сторона переподключается с растущей паузой.",
-      log:["<b>14:40</b> wrangler deploy · switchboard-relay", "Cloudflare: все соединения закрыты"]},
-    {t:"hello заново", open:"LPFCW", mem:["live","roster", "6 сессий, 2 клиента, 1 участник — из новых карточек"],
-      cap:"Каждый прислал hello, gate проверил ключи, push ответил на hello() — roster собран заново.",
-      log:["<b>14:40</b> worker push · push.key 1, push.send 1, push.subscribe 1", "<b>14:40</b> hello host.laptop", "<b>14:40</b> hello host.pc", "<b>14:41</b> hello client.panel-desk", "<b>14:41</b> hello client.phone"]}
+    {t:"Выпуск relay", open:"LFCW", mem:["live","объект стартовал на новом коде", "roster из тех же 3 карточек"],
+      cap:"Выпуск relay соединений не рвёт: карточки у Cloudflare, since машин прежний. Объект стартует на новом коде — как после сна: hello() участников, gate.revoked про открытые ключи, roster всем.",
+      log:["<b>14:40</b> wrangler deploy · switchboard-relay", "соединений: 3 — ни одно не закрыто", "<b>14:40</b> worker push · push.key 1, push.send 1, push.subscribe 1", "<b>14:40</b> gate.revoked · 3 номера → отозванных нет", "roster → 3 соединения, 1 участник"]},
+    {t:"Ключ телефона отозван", open:"LCW", mem:["live","roster", "3 сессии, 1 клиент, 1 участник"],
+      cap:"Номер телефона вписан в REVOKED, выпущен gate. Объект уснул, следующий кадр его разбудил: на старте gate.revoked вернул номер телефона — соединение закрыто словом revoked, карточка ушла вместе с ним. Новый hello с этим ключом — тоже revoked.",
+      log:["<b>14:50</b> wrangler deploy · switchboard-gate · REVOKED client.phone.k2a9", "<b>14:52</b> gate.revoked · 3 номера → client.phone.k2a9", "revoked client.phone.k2a9 · закрыт при старте объекта", "roster → 2 соединения, 1 участник"]}
   ];
   const socksEl = $("#relay-socks"), memEl = $("#relay-rmem"), rcap = $("#relay-rcap"), rlog = $("#relay-rlog"), rtitle = $("#relay-rtitle"), rstepsEl = $("#relay-rsteps");
   const rBtns = []; let rCur = 0;
