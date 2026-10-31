@@ -449,11 +449,15 @@ func TestEt38_ServiceStop_Graceful(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("keeper не вышел")
 	}
-	for _, p := range []int{sitePid, grand, profPid, e.host.Pid} {
-		if alive(p) {
-			t.Fatalf("процесс %d жив после остановки", p)
+	// SIGKILL группе асинхронен: процесс умирает чуть позже выхода keeper (CI Ubuntu 31 окт.)
+	eventually(t, "после остановки не осталось процессов", func() bool {
+		for _, p := range []int{sitePid, grand, profPid, e.host.Pid} {
+			if alive(p) {
+				return false
+			}
 		}
-	}
+		return true
+	})
 	js := e.journal()
 	left := records(js, map[string]any{"ev": "kill_left"})
 	if len(left) != 1 || fmt.Sprint(left[0]["ids"]) != "[site]" {
