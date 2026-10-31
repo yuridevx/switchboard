@@ -206,6 +206,48 @@ describe("перезагрузка модулей в живом Host", () => {
     expect(await answer).toEqual({ behavior: "allow", updatedInput: { questions: [], answers: { "Цвет?": "Синий" } } });
     expect(asked).toEqual(["1.0.0 toolu_xd4WEnP8", "1.1.0 toolu_xd4WEnP8"]);
   });
+
+  it("269 · перезагружаются оба: start слотов ждёт accounts — идёт новой версии, перезагрузка доходит до ready; запрос снаружи ждёт окна (живой прогон 1 ноя)", async () => {
+    const log: string[] = [];
+    let go!: () => void;
+    const held = new Promise<void>((r) => (go = r));
+    const acc = (v: string) =>
+      module(
+        "host-accounts",
+        {
+          async start() {
+            log.push(`accounts start ${v}`);
+            if (v === "2.0.0") await held; // окно держится, пока внешний запрос не встанет в него
+          },
+          requests: { "machine.accounts": () => ({ v }) },
+        },
+        { version: v },
+      );
+    const slots = (v: string) =>
+      module(
+        "host-slots",
+        {
+          async start(h: Host) {
+            const r = await h.request("machine.accounts", { v: 1 });
+            log.push(`slots start ${v} ← accounts ${JSON.stringify(r)}`);
+          },
+          requests: { "machine.slots": () => ({ v }) },
+        },
+        { version: v, uses: { "machine.accounts@host-accounts": 1 } },
+      );
+    const st = await stand({ modules: [acc("1.0.0"), slots("2.0.0")], releases: { "/r/1.4.1": release("1.4.1", [acc("2.0.0"), slots("3.0.0")]) } });
+    log.length = 0;
+    const reloading = st.host("host-accounts").reload("/r/1.4.1");
+    // запрос снаружи, пока окно открыто, — ждёт и идёт новой версии
+    await until(() => log.includes("accounts start 2.0.0"));
+    const outside = st.relay.request({ type: "machine.slots", v: 1, machine: "laptop" });
+    go();
+    const r = await Promise.race([reloading, new Promise((res) => setTimeout(() => res("завис"), 2000))]);
+    expect(r).toMatchObject({ ok: true, result: { modules: { "host-accounts": ["1.0.0", "2.0.0"], "host-slots": ["2.0.0", "3.0.0"] } } });
+    expect(log).toEqual(["accounts start 2.0.0", 'slots start 3.0.0 ← accounts {"ok":true,"result":{"v":"2.0.0"}}']);
+    expect(await outside).toMatchObject({ ok: true, result: { v: "3.0.0" } });
+    expect(st.keeper.readies.at(-1)).toBe("1.4.1");
+  });
 });
 
 describe("эталоны экосистемы, которые держит ядро", () => {

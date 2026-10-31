@@ -261,10 +261,15 @@ export class Kernel {
   /**
    * Вызов модуля. Ошибка не идёт дальше: модуль выключается в сессии s (или на машине), onFail даёт замену.
    * Refusal — отказ словом, его ловит вызывающий. Во время перезагрузки модуля вызов ждёт и идёт новой версии.
+   * Вызов самого перезагружаемого модуля (его start/stop) не ждёт: окно откроется только после всех start,
+   * и start, ждущий соседа по перезагрузке, ждал бы вечно (живой прогон 1 ноя: slots.start → machine.accounts).
+   * Он идёт новой версии сразу — как при старте Host по порядку списка.
    */
   invoke<T>(name: string, where: string, s: Sess | null, fn: (m: Module, mod: Mod) => T | Promise<T>, onFail: (e: unknown) => T): T | Promise<T> {
     const wait = this.reloading.get(name);
-    return wait ? wait.then(() => this.call(name, where, s, fn, onFail)) : this.call(name, where, s, fn, onFail);
+    const caller = this.als.getStore()?.mod;
+    if (!wait || (caller && this.reloading.has(caller))) return this.call(name, where, s, fn, onFail);
+    return wait.then(() => this.call(name, where, s, fn, onFail));
   }
 
   /** Вызов модуля в ловушке мимо окна перезагрузки — его зовёт сама перезагрузка. */

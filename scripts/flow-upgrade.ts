@@ -16,13 +16,17 @@ try {
   const r = await l.request({ type: "machine.upgrade", v: 1, machine, version: process.env.FLOW_VERSION ?? "latest" });
   console.log("machine.upgrade:", JSON.stringify(r).slice(0, 300));
   if (!r.ok) process.exit(1);
-  await wait("новый hello машины", () => {
-    const m = l.roster?.machines.find((x) => x.machine === machine);
-    return !!m && m.since !== before;
-  }, 240000);
-  const st = await l.request({ type: "machine.state", v: 1, machine });
+  const res = (r as { result?: { to?: string; restart?: boolean } }).result ?? {};
+  // те же ядро и SDK — модули перезагружены в живом Host, соединение то же; иначе keeper подменяет Host — новый hello
+  if (res.restart !== false)
+    await wait("новый hello машины", () => {
+      const m = l.roster?.machines.find((x) => x.machine === machine);
+      return !!m && m.since !== before;
+    }, 240000);
+  const st = (await l.request({ type: "machine.state", v: 1, machine })) as { ok: boolean; result?: { host?: string } };
   console.log("machine.state:", JSON.stringify(st).slice(0, 400));
-  console.log("upgrade: ok");
+  if (st.result?.host !== res.to) throw new Error(`на машине Host ${st.result?.host}, ждали ${res.to}`);
+  console.log(`upgrade: ok · ${res.restart === false ? "модули перезагружены в живом Host" : "Host подменён keeper"}`);
 } catch (e) {
   console.log("upgrade: FAIL ·", (e as Error).message);
   process.exitCode = 1;
