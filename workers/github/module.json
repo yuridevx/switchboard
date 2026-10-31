@@ -1,0 +1,11 @@
+{
+  "name": "github",
+  "type": "worker",
+  "version": "1.0.0",
+  "provides": { "github.app": 1, "github.setup": 1, "github.token": 1 },
+  "uses": { "frame@relay": 1 },
+  "config": {
+    "RELAY": "binding",
+    "APP": "binding"
+  }
+}

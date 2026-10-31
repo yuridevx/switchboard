@@ -1,0 +1,16 @@
+// Worker push: участник рации без адреса в интернете. Секрет VAPID_PRIVATE — wrangler secret put из stdin.
+{
+  "name": "switchboard-push",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "services": [
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "push" } }
+  ],
+  "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Subs"] }],
+  "vars": { "VAPID_SUB": "https://switchboard.yuridevx1608.workers.dev" }
+}

@@ -1,0 +1,15 @@
+// Worker ledger: журнал флота, участник рации без адреса в интернете. Секретов нет.
+{
+  "name": "switchboard-ledger",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "services": [
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "ledger" } }
+  ],
+  "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }]
+}

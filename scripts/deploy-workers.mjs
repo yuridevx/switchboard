@@ -1,0 +1,64 @@
+// Выпуск Worker-модулей: сначала участники и gate, потом relay (его привязки смотрят на них).
+// Токен деплоя и секреты — из переменных окружения (так в GitHub Actions), иначе из файлов env вне репо
+// (SWITCHBOARD_DEV_DIR, по умолчанию ~/.switchboard-dev). Секреты уходят в wrangler только через stdin.
+// Запуск: node scripts/deploy-workers.mjs [модуль…]   без списка — все.
+import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const dev = process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev");
+const FILES = ["cf-deploy.env", "fleet-secrets.env", "r2-points.env"];
+
+const fromFiles = {};
+for (const f of FILES) {
+  const p = join(dev, f);
+  if (!existsSync(p)) continue;
+  for (const line of readFileSync(p, "utf8").split(/\r?\n/)) {
+    const i = line.indexOf("=");
+    if (i > 0) fromFiles[line.slice(0, i)] ??= line.slice(i + 1);
+  }
+}
+const val = (k) => process.env[k] || fromFiles[k];
+
+// модуль → секреты, которые кладутся в него
+const SECRETS = { gate: ["FLEET_SECRET"], push: ["VAPID_PRIVATE"], points: ["R2_TOKEN"] };
+const ORDER = ["gate", "push", "points", "ledger", "github", "relay"];
+const want = process.argv.slice(2);
+const list = want.length ? ORDER.filter((m) => want.includes(m)) : ORDER;
+
+const wrangler = join(root, "node_modules", "wrangler", "bin", "wrangler.js");
+const base = { ...process.env, CLOUDFLARE_API_TOKEN: val("CLOUDFLARE_API_TOKEN"), CLOUDFLARE_ACCOUNT_ID: val("CLOUDFLARE_ACCOUNT_ID") };
+if (!base.CLOUDFLARE_API_TOKEN || !base.CLOUDFLARE_ACCOUNT_ID) {
+  console.error("deploy: нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
+  process.exit(1);
+}
+
+function run(cwd, args, input) {
+  const r = spawnSync(process.execPath, [wrangler, ...args], { cwd, env: base, input, stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"] });
+  if (r.status !== 0) {
+    console.error(`deploy: wrangler ${args.join(" ")} в workers/${cwd.split(/[\\/]/).pop()} — выход ${r.status}`);
+    process.exit(1);
+  }
+}
+
+for (const m of list) {
+  const cwd = join(root, "workers", m);
+  if (!existsSync(cwd)) {
+    console.error(`deploy: нет workers/${m}`);
+    process.exit(1);
+  }
+  console.log(`\n=== ${m} ===`);
+  run(cwd, ["deploy"]);
+  for (const k of SECRETS[m] ?? []) {
+    const v = val(k);
+    if (!v) {
+      console.error(`deploy: нет секрета ${k}`);
+      process.exit(1);
+    }
+    run(cwd, ["secret", "put", k], v);
+  }
+}
+console.log("\ndeploy: ok · " + list.join(", "));

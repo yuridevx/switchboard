@@ -1,0 +1,13 @@
+{
+  "name": "push",
+  "type": "worker",
+  "version": "1.0.0",
+  "provides": { "push.key": 1, "push.send": 1, "push.subscribe": 1 },
+  "uses": { "frame@relay": 1 },
+  "config": {
+    "VAPID_PRIVATE": "secret",
+    "VAPID_SUB": "var",
+    "RELAY": "binding",
+    "SUBS": "binding"
+  }
+}

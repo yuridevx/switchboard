@@ -1,0 +1,16 @@
+// Worker github: приложение GitHub флота, участник рации без адреса в интернете.
+// Секретов Worker нет: ключ приложения github кладёт в хранилище своего объекта при настройке с пульта.
+{
+  "name": "switchboard-github",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "services": [
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "github" } }
+  ],
+  "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["App"] }]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "keeper",
+  "type": "os",
+  "version": "0.4.0",
+  "provides": { "spawn": 1, "attach": 1, "list": 1, "kill": 1, "upgrade": 1, "stop": 1 },
+  "uses": {},
+  "config": {}
+}
