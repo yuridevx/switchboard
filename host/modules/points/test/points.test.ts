@@ -245,6 +245,32 @@ describe("эталоны points", () => {
     b = null;
   });
 
+  it("217 · связь с relay приходит позже подъёма сессий: точка старта ждёт первого roster, затем not_owner — yield (живой прогон 31 окт.)", async () => {
+    const keeper = await new stand.FakeKeeper().listen();
+    const cwd = join(home, "work", "site");
+    write(cwd, SID, conv(9));
+    mkdirSync(join(home, "store"), { recursive: true });
+    writeFileSync(join(home, "store", "host-points.json"), JSON.stringify({ sessions: { "site@laptop": { r2: true } } }));
+    const reg = new FakeRegistry();
+    reg.seed(317, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    reg.sessions.set(SID, { owner: "pc", head: 318 });
+    b = await bench({ home, keeper, reg, holdRoster: true, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
+    await new Promise((r) => setTimeout(r, 300));
+    // связи нет — точки старта нет
+    expect(puts("start")).toHaveLength(0);
+    b.st.relay.releaseRoster();
+    await until(() => puts("yield").length === 1, 3000);
+    expect(puts("start")[0].result).toBe("not_owner");
+    await until(() => b!.manage.some((m) => m.type === "session.remove"));
+    await new Promise((r) => setTimeout(r, 300));
+    // отданная сессия при закрытии точки не снимает: второго yield и запросов про убранную сессию нет
+    expect(puts("yield")).toHaveLength(1);
+    expect(b.st.journal().some((l) => l.word === "module_error")).toBe(false);
+    await b.st.close();
+    await keeper.close();
+    b = null;
+  });
+
   it("218 · сессия без пометки: ходы, закрытие, перезапуск — ни одного put; points.save — not_r2; поля r2 нет", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.UTC(2026, 9, 31, 14, 0) });
     b = await bench({ home });

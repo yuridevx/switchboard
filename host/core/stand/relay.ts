@@ -70,6 +70,9 @@ export class FakeRelay {
   refuse: string[] = [];
   /** отвечать pong на ping */
   pongs = true;
+  /** придержать roster после hello: связь с relay «ещё не готова», как при живом старте Host; отдать — releaseRoster() */
+  holdRoster = false;
+  private held: Array<() => void> = [];
   /** время hello машины: since в roster */
   since = 1730296931000;
   private seq = 0;
@@ -87,6 +90,12 @@ export class FakeRelay {
   get current(): FakeWs | undefined {
     const c = this.conns.at(-1);
     return c && c.readyState === 1 ? c : undefined;
+  }
+
+  /** отдать придержанные roster */
+  releaseRoster(): void {
+    this.holdRoster = false;
+    for (const g of this.held.splice(0)) g();
   }
 
   connect(ws: FakeWs): void {
@@ -113,7 +122,9 @@ export class FakeRelay {
       this.hellos.push(f);
       this.sent.push(f);
       this.since++;
-      ws.deliver(JSON.stringify(this.roster(f)));
+      const give = () => ws.deliver(JSON.stringify(this.roster(f)));
+      if (this.holdRoster) this.held.push(give);
+      else give();
       return;
     }
     this.sent.push(f);

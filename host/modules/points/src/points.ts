@@ -63,6 +63,10 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
   const quiet = new Set<string>();
   /** сессии, чью точку старта Host уже сняли */
   const seen = new Set<string>();
+  /** точки старта Host ждут связи с relay: до первого roster points.put получил бы disconnected */
+  const startPending = new Set<string>();
+  /** roster от relay уже приходил — связь есть, точку старта можно снимать сразу */
+  let linked = false;
 
   const L = (cs: string) => {
     let x = live.get(cs);
@@ -143,7 +147,11 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         const owner = extra(r).owner;
         host.log({ kind: "note", ev: "yield", callsign, why: `${callsign}: сессией владеет ${String(owner)} — отдаю` });
         r = await put({ ...frame, why: "yield" }, sc.refs);
+        // отданная сессия закрывается: точки на её закрытие нет — иначе второй not_owner и второй yield про уже
+        // убранную сессию (живой прогон 31 окт.: этот повтор уронил host-manage на машине)
+        quiet.add(callsign);
         const rm = await host.request("session.remove", { v: 1, callsign });
+        quiet.delete(callsign);
         if (!rm.ok) host.log({ kind: "refuse", ev: "session.remove", word: rm.error, callsign });
         if (!r.ok) return { error: r.error };
         return { point: (r.result as { id: number }).id, same: !!(r.result as { same?: boolean }).same };
@@ -436,7 +444,20 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         const cs = s.info.callsign;
         if (seen.has(cs)) return;
         seen.add(cs);
-        if (s.info.start === "attach" || s.info.start === "resume") rule(s, "start");
+        // старт Host: связи с relay ещё нет — точка на первом roster (живой прогон 31 окт.: точка старта получала
+        // disconnected, и вернувшаяся после пожара машина не узнавала, что сессия уже у другой)
+        if (s.info.start !== "attach" && s.info.start !== "resume") return;
+        if (linked) rule(s, "start");
+        else startPending.add(cs);
+      },
+      frame(f) {
+        if (f.type !== "roster") return;
+        linked = true;
+        for (const cs of [...startPending]) {
+          startPending.delete(cs);
+          const s = host.session(cs);
+          if (s) rule(s, "start");
+        }
       },
       close(s) {
         const cs = s.info.callsign;

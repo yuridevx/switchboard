@@ -186,6 +186,8 @@ export async function bench(o: {
   keeper?: stand.FakeKeeper;
   /** реестр, заполненный до старта Host */
   reg?: FakeRegistry;
+  /** roster после hello придержан — связь с relay приходит позже подъёма сессий */
+  holdRoster?: boolean;
 }): Promise<Bench> {
   const reg = o.reg ?? new FakeRegistry();
   const manage: ManageCall[] = [];
@@ -193,6 +195,7 @@ export async function bench(o: {
   const machine = o.machine ?? "laptop";
   // ответы Worker points и manage соседних машин — с первого кадра, ещё до старта Host
   const relay = new stand.FakeRelay();
+  relay.holdRoster = !!o.holdRoster;
   const recv = relay.receive.bind(relay);
   relay.receive = (ws, text) => {
     recv(ws, text);
