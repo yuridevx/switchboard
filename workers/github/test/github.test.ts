@@ -52,7 +52,7 @@ function fakeGithub(routes: Record<string, [number, unknown]>) {
     calls.push(call);
     expect(url.origin).toBe("https://api.github.com");
     expect(req.headers.get("user-agent")).toBeTruthy();
-    const r = routes[`${call.method} ${url.pathname}`];
+    const r = routes[`${call.method} ${call.path}`] ?? routes[`${call.method} ${url.pathname}`];
     if (!r) return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
     return new Response(JSON.stringify(r[1]), { status: r[0] });
   });
@@ -211,6 +211,25 @@ describe("github: приложение есть, отказы", () => {
     const [r] = await s.frame({ type: "github.app", id: "a-3", to: "github", from: "panel", redirect: "https://pult.example/" });
     expect(r.result).toEqual({ app: { id: 1047113, slug: "switchboard-team", owner: "team" }, repos: ["team/profiles", "team/profiles"], install: INSTALL });
     expect(calls.filter((c) => c.path.startsWith("/installation/")).map((c) => c.auth)).toEqual(["token t11", "token t12"]);
+  });
+
+  it("github.app: репозиториев больше страницы — все страницы", async () => {
+    const s = fresh();
+    await seed(s);
+    const page1 = Array.from({ length: 100 }, (_, i) => ({ full_name: `team/r${String(i).padStart(3, "0")}` }));
+    const calls = fakeGithub({
+      "GET /app/installations": [200, [{ id: 11 }]],
+      "POST /app/installations/11/access_tokens": [201, { token: "t11" }],
+      "GET /installation/repositories?per_page=100&page=1": [200, { repositories: page1 }],
+      "GET /installation/repositories?per_page=100&page=2": [200, { repositories: [{ full_name: "team/switchboard" }] }],
+    });
+    const [r] = await s.frame({ type: "github.app", id: "a-4", to: "github", from: "panel", redirect: "https://pult.example/" });
+    expect((r.result as { repos: string[] }).repos).toHaveLength(101);
+    expect((r.result as { repos: string[] }).repos).toContain("team/switchboard");
+    expect(calls.filter((c) => c.path.startsWith("/installation/")).map((c) => c.path)).toEqual([
+      "/installation/repositories?per_page=100&page=1",
+      "/installation/repositories?per_page=100&page=2",
+    ]);
   });
 
   it("GitHub ответил 500 — github_failed; статус и текст в журнале, токена в журнале нет", async () => {

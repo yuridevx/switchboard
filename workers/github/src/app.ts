@@ -126,21 +126,30 @@ export function form(redirect: string, org?: string) {
   };
 }
 
-/** Репозитории всех установок: токен установки на чтение метаданных → её репозитории. Первая страница по 100. */
+/** Репозитории всех установок: токен установки на чтение метаданных → её репозитории, все страницы. */
 async function repos(app: Stored): Promise<string[]> {
   const jwt = await appJwt(app.id, app.pem, Date.now());
-  const r = await gh("/app/installations?per_page=100", {}, `Bearer ${jwt}`);
-  if (r.status !== 200) throw new Failed(r.status, await r.text());
   const out: string[] = [];
-  for (const inst of (await r.json()) as Array<{ id: number }>) {
+  for (const inst of await pages<{ id: number }>("/app/installations", `Bearer ${jwt}`, (b) => b as Array<{ id: number }>)) {
     const t = await gh(`/app/installations/${inst.id}/access_tokens`, { method: "POST", body: JSON.stringify({ permissions: { metadata: "read" } }) }, `Bearer ${jwt}`);
     if (t.status !== 201) throw new Failed(t.status, await t.text());
     const { token } = (await t.json()) as { token: string };
-    const l = await gh("/installation/repositories?per_page=100", {}, `token ${token}`);
-    if (l.status !== 200) throw new Failed(l.status, await l.text());
-    for (const repo of ((await l.json()) as { repositories: Array<{ full_name: string }> }).repositories) out.push(repo.full_name);
+    const list = await pages("/installation/repositories", `token ${token}`, (b) => (b as { repositories: Array<{ full_name: string }> }).repositories);
+    for (const repo of list) out.push(repo.full_name);
   }
   return out.sort();
+}
+
+/** Список GitHub по страницам по 100, пока страница не короче. */
+async function pages<T>(path: string, auth: string, items: (body: unknown) => T[]): Promise<T[]> {
+  const out: T[] = [];
+  for (let page = 1; ; page++) {
+    const r = await gh(`${path}?per_page=100&page=${page}`, {}, auth);
+    if (r.status !== 200) throw new Failed(r.status, await r.text());
+    const got = items(await r.json());
+    out.push(...got);
+    if (got.length < 100) return out;
+  }
 }
 
 /** Запрос к API GitHub. Нет ответа (сеть) — Failed со статусом 0. */
