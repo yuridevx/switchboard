@@ -121,6 +121,8 @@ export interface App {
   provides(machine: string): Record<string, number> | null;
   /** Последний roster; ядро держит его в памяти. */
   roster(): Roster | null;
+  /** Экран на весь экран сейчас и его параметры (в широком виде — правая часть); до первого roster — null. */
+  current(): { screen: string; params: Params } | null;
   /** Связь сейчас. */
   link(): ConnState;
   /** Метка другого модуля из uses: app.mark("asked", "profiles@laptop"). Выключенный владелец — undefined. */
@@ -150,6 +152,13 @@ export type StartOptions = {
   parts: AppPart[];
   /** узкий (телефон) или широкий (пульт) вид */
   wide?: boolean;
+  /**
+   * Широкий вид: экран → экран-список, рядом с которым он открывается (карточка — справа от списка сессий).
+   * Пока открыт такой экран, список стоит слева в месте с классом sb-master; открыт сам список — на весь экран.
+   */
+  beside?: Record<string, string>;
+  /** Имя приложения в колонке разделов широкого вида: «Пульт». */
+  brand?: string;
   /** хранилище; по умолчанию IndexedDB «switchboard» */
   store?: Store;
   /** конструктор WebSocket для link; по умолчанию глобальный */

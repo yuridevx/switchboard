@@ -1,0 +1,20 @@
+{
+  "name": "pult-accounts",
+  "type": "web",
+  "version": "1.0.0",
+  "provides": { "accounts": 1, "logins": 1 },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "machine.accounts@host-accounts": 1,
+    "machine.login@host-accounts": 1,
+    "machine.login_code@host-accounts": 1,
+    "machine.account_remove@host-accounts": 1,
+    "account.usage@host-accounts": 1,
+    "machine.slots@host-slots": 1,
+    "slot.set@host-slots": 1,
+    "slot.swap@host-slots": 1,
+    "session.slot@host-slots": 1
+  },
+  "config": {}
+}

@@ -1,6 +1,6 @@
 // Стенд: приложение на странице happy-dom с поддельным relay и хранилищем в памяти.
 import type { Roster } from "@switchboard/relay";
-import { memoryStore, startApp, type AppPart } from "../contract.ts";
+import { memoryStore, startApp, type AppPart, type StartOptions } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, KEY } from "./relay.ts";
 
 export type StandOptions = {
@@ -13,6 +13,8 @@ export type StandOptions = {
   standalone?: boolean;
   wide?: boolean;
   pauseMs?: number;
+  /** прочие опции запуска приложения (beside, brand) */
+  options?: Partial<StartOptions>;
 };
 
 /** Поднять приложение на стенде: страница, relay, хранилище; дождаться первого roster. */
@@ -31,6 +33,7 @@ export async function stand(parts: AppPart[], o: StandOptions = {}) {
     platform: { ios: !!o.ios, standalone: !!o.standalone },
     pauseMs: o.pauseMs ?? 5,
     wide: o.wide,
+    ...o.options,
   });
   await run.ready;
   await flush();

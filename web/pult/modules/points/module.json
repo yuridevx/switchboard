@@ -1,0 +1,21 @@
+{
+  "name": "pult-points",
+  "type": "web",
+  "version": "1.0.0",
+  "provides": { "points": 1, "session.points": 1, "fire": 1 },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "points.list@points": 1,
+    "points.get@points": 1,
+    "points.delete@points": 1,
+    "points.save@host-points": 1,
+    "session.r2@host-points": 1,
+    "session.remove@host-manage": 1,
+    "points.raise@host-points": 1,
+    "machine.slots@host-slots": 1,
+    "ledger.read@ledger": 1,
+    "card@web-card": 1
+  },
+  "config": {}
+}

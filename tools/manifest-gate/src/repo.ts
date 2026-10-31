@@ -9,7 +9,7 @@ const statSync = (p: string) => fs().statSync(p);
 const relative = (a: string, b: string) => path().relative(a, b);
 import type { Manifest } from "./check.ts";
 
-const GROUPS = ["protocol", "tools/*", "workers/*", "os/*", "host/core", "host/modules/*", "web/packages/*", "web/phone", "web/pult"];
+const GROUPS = ["protocol", "tools/*", "workers/*", "os/*", "host/core", "host/modules/*", "web/packages/*", "web/phone", "web/pult", "web/pult/modules/*"];
 const SRC = /\.(ts|tsx|mts|js|mjs)$/;
 const SKIP = new Set(["node_modules", "dist", ".wrangler", "test", "tests", "stand"]);
 const IMPORT = /(?:from\s*|import\s*\(\s*|import\s+)["'](@switchboard\/[^"']+)["']/g;

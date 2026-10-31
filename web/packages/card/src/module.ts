@@ -1,7 +1,11 @@
 // web-card — карточка сессии: шапка из roster, вкладки «Чат» (экран chat в месте карточки)
 // и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
+// Широкий вид (пульт) — src/wide.ts: плашка состояния, «Настройки», «Журнал машины» и вкладки выпуска.
 import { h, sessionLine, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
+import { mountWide, WIDE_CSS, type CardTab } from "./wide.ts";
+
+export type { CardTab };
 
 const CSS = `
 .card-tabs{flex:none;display:flex;gap:4px;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--line2)}
@@ -15,10 +19,11 @@ const CSS = `
 `;
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createCard(): AppModule {
+export function createCard(o: { tabs?: CardTab[] } = {}): AppModule {
   let app: App;
 
   function mountCard(el: HTMLElement, params: Record<string, string>): ScreenHandle {
+    if (app.wide) return mountWide(app, el, params, o.tabs ?? []);
     const callsign = params.callsign ?? "";
     let tab: "chat" | "info" = params.tab === "info" ? "info" : "chat";
     let inner: ScreenHandle | undefined;
@@ -53,7 +58,7 @@ export function createCard(): AppModule {
             ["усилие", s.effort],
             ["слот", (s.slot as { name?: string } | undefined)?.name],
             ["аккаунт", s.account],
-            ["профиль", s.profile],
+            ["профиль", (s.profile as { id?: string } | null | undefined)?.id],
             ["сбой", s.failed ? Object.entries(s.failed as Record<string, string>).map(([k, v]) => `${k}: ${v}`).join("; ") : undefined],
           ]
         : [["состояние", `${machineOf(callsign)} не на связи`]];
@@ -107,7 +112,7 @@ export function createCard(): AppModule {
 
   return {
     screens: { card: { label: "Карточка", mount: mountCard } },
-    css: CSS,
+    css: CSS + WIDE_CSS,
     start(a) {
       app = a;
     },

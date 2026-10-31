@@ -22,7 +22,7 @@ import type {
 } from "./types.ts";
 
 type Mod = { m: Manifest; mod: AppModule; app: App; failed: string | null };
-type Mount = { owner: Mod; name: string; def: Screen; el: HTMLElement; handle: ScreenHandle; page: boolean };
+type Mount = { owner: Mod; name: string; def: Screen; el: HTMLElement; handle: ScreenHandle; page: boolean; master?: boolean };
 
 /** Ключ флота клиента в адресе: #client.<имя>.<kid>.<подпись>. */
 const KEY_RE = /^client\.[^.]+\.[^.]+\..+/;
@@ -49,6 +49,8 @@ export function startApp(o: StartOptions): Running {
   const platform = o.platform ?? detectPlatform(win);
   const firstPause = o.pauseMs ?? 1_000;
   const wide = !!o.wide;
+  /** Команда выдачи ключа: телефону — QR, компьютеру — ссылка. */
+  const invite = (n: string) => `switchboard invite client ${n} ${wide ? "--url" : "--qr"}`;
 
   const mods: Mod[] = [];
   const frameOwner = new Map<string, Mod>();
@@ -69,6 +71,7 @@ export function startApp(o: StartOptions): Running {
   let fresh = false;
   let hidden = false;
   let routed = "";
+  let current: { screen: string; params: Params } | null = null;
   let depth = 0;
   let life: Promise<void> = Promise.resolve();
   let tick: ReturnType<typeof setInterval> | undefined;
@@ -217,6 +220,7 @@ export function startApp(o: StartOptions): Running {
       back,
       provides,
       roster: () => roster,
+      current: () => (current ? { screen: current.screen, params: { ...current.params } } : null),
       link: () => conn,
       mark: (n, ...args) => {
         if (!usesRef(x, n) && !x.mod.marks?.[n]) {
@@ -312,12 +316,32 @@ export function startApp(o: StartOptions): Running {
     if (stopped || !roster) return;
     const { screen, params } = parseHash();
     routed = win.location.hash;
-    for (const mt of mounts.filter((x) => x.page)) unmount(mt);
-    view.textContent = "";
+    current = { screen, params };
     const el = h("div", { class: "sb-screen", "data-screen": screen, style: "display:flex;flex-direction:column;flex:1;min-height:0" });
-    view.append(el);
+    // широкий вид: экран рядом со списком — список слева остаётся, меняется только правая часть
+    const masterName = wide ? o.beside?.[screen] : undefined;
+    const old = mounts.find((x) => x.master);
+    if (masterName && screenOwner.has(masterName)) {
+      for (const mt of mounts.filter((x) => x.page)) unmount(mt);
+      let right = view.querySelector<HTMLElement>(":scope > .sb-split > .sb-detail");
+      if (!old || old.name !== masterName || !right) {
+        if (old) unmount(old);
+        view.textContent = "";
+        const left = h("div", { class: "sb-master", "data-screen": masterName });
+        right = h("div", { class: "sb-detail" });
+        view.append(h("div", { class: "sb-split" }, left, right));
+        const mt = mount(masterName, {}, left, false);
+        if (mt) mt.master = true;
+      }
+      right.textContent = "";
+      right.append(el);
+    } else {
+      for (const mt of mounts.filter((x) => x.page || x.master)) unmount(mt);
+      view.textContent = "";
+      view.append(el);
+    }
     mount(screen, params, el, true);
-    top.hidden = !screenOwner.get(screen)?.def.nav;
+    top.hidden = !screenOwner.get(screen)?.def.nav && !masterName;
     drawChrome();
   }
 
@@ -330,6 +354,7 @@ export function startApp(o: StartOptions): Running {
   function drawChrome() {
     if (stopped || !roster) return;
     const page = mounts.find((x) => x.page);
+    const master = mounts.find((x) => x.master);
     const def = page?.def;
     const hd = (page && page.handle.head && call(page.owner, `экране ${page.name}`, () => page.handle.head!())) || { title: def?.nav ?? def?.label ?? "" };
     let pill = hd.pill ?? (def?.nav ? { text: "на связи", tone: "ok" as const } : undefined);
@@ -353,14 +378,24 @@ export function startApp(o: StartOptions): Running {
       const count = s.def.mark && !s.owner.failed ? call(s.owner, `метке ${s.def.mark}`, () => s.owner.mod.marks![s.def.mark!]()) : undefined;
       return h(
         "button",
-        { "aria-current": page?.name === n ? "page" : null, onclick: () => (page?.name === n ? null : go(n, {})) },
+        { "aria-current": page?.name === n || master?.name === n ? "page" : null, "data-screen": n, onclick: () => (page?.name === n ? null : go(n, {})) },
         s.def.nav!,
         typeof count === "number" && count > 0 ? h("span", { class: "sb-badge wait" }, count) : null,
       );
     });
     navcol.textContent = "";
     navrow.textContent = "";
-    if (wide) navcol.append(...items);
+    if (wide) {
+      // колонка разделов: имя приложения и связь, разделы, машины на связи, имя этого устройства
+      const cp = conn === "open" ? { text: "на связи", tone: "ok" } : conn === "closed" ? { text: "нет связи", tone: "bad" } : { text: "подключаюсь", tone: "wait" };
+      navcol.append(
+        h("div", { class: "sb-brand" }, h("div", { class: "sb-logo" }, "S"), h("b", null, o.brand ?? "Switchboard"), h("span", { class: `sb-pill conn ${cp.tone}`, title: cp.text, "aria-label": cp.text })),
+        ...items,
+        h("div", { class: "sb-ncap" }, "машины"),
+        ...(roster?.machines ?? []).map((m) => h("div", { class: "sb-nm", "data-nm": m.machine }, h("span", { class: "sb-dot idle" }), m.machine)),
+        h("div", { class: "sb-me" }, keyId(key).split(".").slice(1).join(" · ")),
+      );
+    }
     else if (items.length > 1) navrow.append(...items);
     navrow.hidden = wide || items.length < 2;
     drawOff();
@@ -372,7 +407,7 @@ export function startApp(o: StartOptions): Running {
     const s = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
     off.textContent = "";
     off.append(
-      h("span", null, s > 0 ? `Нет связи с relay · снова через ${s} с` : "Нет связи с relay · подключаюсь"),
+      h("span", null, `Нет связи с relay${wide && rosterAt ? ` · данные на ${hhmm(rosterAt)}` : ""}${s > 0 ? ` · снова через ${s} с` : " · подключаюсь"}`),
       h("button", { onclick: reconnectNow }, "Сейчас"),
     );
   }
@@ -479,15 +514,15 @@ export function startApp(o: StartOptions): Running {
 
   function refused(why: string) {
     const kid = keyId(key);
-    const cmd = h("code", { class: "sb-cmd" }, `switchboard invite client ${name} --qr`);
+    const cmd = h("code", { class: "sb-cmd" }, invite(name));
     if (why === "revoked" || why === "bad_key") {
       return stopWith(
         why,
         h("div", { class: "sb-ring bad" }, "×"),
         h("div", { class: "sb-big" }, why === "revoked" ? "Ключ отозван" : "Ключ не принят"),
-        h("p", null, `${kid} ${why === "revoked" ? "больше не принимают" : "не принят: подпись не сходится"}. Новый ключ — QR с любой машины флота:`),
+        h("p", null, `${kid} ${why === "revoked" ? "больше не принимают" : "не принят: подпись не сходится"}. Новый ключ — ${wide ? "ссылкой с машины владельца" : "QR с любой машины флота"}:`),
         cmd,
-        h("p", null, "Наведите камеру на новый QR. Само приложение больше не подключается."),
+        h("p", null, wide ? "Откройте новую ссылку в этом браузере. Само приложение больше не подключается." : "Наведите камеру на новый QR. Само приложение больше не подключается."),
       );
     }
     if (why === "contract_mismatch") {
@@ -584,7 +619,7 @@ export function startApp(o: StartOptions): Running {
     key = fromHash ?? (await store.get<string>("key")) ?? "";
     if (!key) {
       // ключ не доехал (iPhone: адрес с ключом не дошёл до экрана «Домой») — вставить вручную
-      const input = h("input", { class: "sb-keyin", type: "text", placeholder: "client.phone.… или адрес с #", "aria-label": "Ключ флота" }) as HTMLInputElement;
+      const input = h("input", { class: "sb-keyin", type: "text", placeholder: wide ? "client.<имя>.… или адрес с #" : "client.phone.… или адрес с #", "aria-label": "Ключ флота" }) as HTMLInputElement;
       const why = h("p", { role: "alert" });
       const save = async () => {
         const v = decodeURIComponent(input.value.trim().replace(/^.*#/, ""));
@@ -596,9 +631,9 @@ export function startApp(o: StartOptions): Running {
         "no_key",
         h("div", { class: "sb-logo xl" }, "S"),
         h("div", { class: "sb-big" }, "Нужен ключ флота"),
-        h("p", null, "Вход — только ключом флота. Напечатайте QR на любой машине флота и наведите на него камеру:"),
-        h("code", { class: "sb-cmd" }, "switchboard invite client phone --qr"),
-        h("p", null, "Или вставьте ключ из QR:"),
+        h("p", null, wide ? "Вход — только ключом флота. Выдайте ссылку на машине владельца и откройте её в этом браузере:" : "Вход — только ключом флота. Напечатайте QR на любой машине флота и наведите на него камеру:"),
+        h("code", { class: "sb-cmd" }, invite(wide ? "<имя>" : "phone")),
+        h("p", null, wide ? "Или вставьте ключ из ссылки:" : "Или вставьте ключ из QR:"),
         input,
         h("button", { class: "sb-cta", onclick: () => void save() }, "Сохранить ключ"),
         why,

@@ -71,6 +71,8 @@ jobs:
         run: node scripts/deploy-workers.mjs
       - name: телефон
         run: npm run deploy -w @switchboard/phone
+      - name: пульт
+        run: npm run deploy -w @switchboard/pult
       - name: выпуск Host в R2
         # машины берут его командой machine.upgrade; номер — 1.1.<номер прогона>
         env:

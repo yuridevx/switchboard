@@ -10,6 +10,9 @@
 // Отказ relay revoked / bad_key / contract_mismatch — экран с причиной, без переподключений;
 // обрыв и gate_unavailable — полоса «Нет связи», переподключение с растущей паузой, пока экран виден.
 // Ушли с экрана: начатые запросы доводятся до reply, stop() модулей в обратном порядке, close(1000).
+// Широкий вид (пульт, wide: true): колонка разделов с машинами на связи и именем устройства, без шапки;
+// beside: { card: "board" } — экран открывается справа от списка, список остаётся слева в месте sb-master;
+// app.current() — экран и параметры справа (строку списка подсвечивает сам список).
 //
 // Модуль — default export его contract.ts, объект AppModule:
 //   export default {
@@ -49,5 +52,5 @@ export { appGate, CORE } from "./src/gate.ts";
 /** Хранилище разделов: IndexedDB (страница и обработчик пушей) и в памяти (стенд). */
 export { idbStore, memoryStore } from "./src/store.ts";
 /** Мелочи вида: построитель элементов, подписи состояний сессии, время, склонение. */
-export { h, stateLabel, sessionLine, hhmm, duration, plural } from "./src/ui.ts";
+export { h, add, stateLabel, sessionLine, hhmm, duration, plural } from "./src/ui.ts";
 export type { Tone } from "./src/ui.ts";

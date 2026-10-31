@@ -1,0 +1,19 @@
+{
+  "name": "pult-open",
+  "type": "web",
+  "version": "1.0.0",
+  "provides": { "open": 1 },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "machine.slots@host-slots": 1,
+    "machine.accounts@host-accounts": 1,
+    "machine.profiles@host-profiles": 1,
+    "machine.dirs@host-machine": 1,
+    "machine.mkdir@host-machine": 1,
+    "session.open@host-manage": 1,
+    "session.r2@host-points": 1,
+    "card@web-card": 1
+  },
+  "config": {}
+}

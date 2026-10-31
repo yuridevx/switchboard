@@ -23,6 +23,12 @@ export function h(tag: string, attrs?: Attrs | null, ...kids: Array<Child | Chil
   return el;
 }
 
+/** Дописать детей в элемент: null, undefined и false пропускаются, массивы раскрываются. */
+export function add(el: HTMLElement, ...kids: Array<Child | Child[]>): HTMLElement {
+  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) el.append(k instanceof Node ? k : String(k));
+  return el;
+}
+
 /** Тон метки: цвет пилюли и точки строки. */
 export type Tone = "ok" | "wait" | "bad" | "busy" | "";
 

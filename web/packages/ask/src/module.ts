@@ -104,6 +104,8 @@ function onAnswered(f: Frame) {
 }
 
 function onRoster(ro: Roster) {
+  // широкий вид (пульт) спрашивает question.list при открытии чата сессии, а не по roster
+  if (app.wide) return;
   for (const s of ro.sessions) if (s.state === "waiting" && !waitingOf(s.callsign).length) void list(s.callsign);
 }
 
