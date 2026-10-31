@@ -121,7 +121,7 @@ describe("эталоны slots", () => {
   });
 
   it("88 · поздний ответ infirex после подмены: account.usage infirex, слот остаётся на y0902", async () => {
-    const R = 1793475000;
+    const R = now() + 3600;
     await bench({
       accounts: { infirex: { limits: { five_hour: { utilization: 0.95, resetsAt: R } } }, y0902: { lent: "main", limits: { five_hour: { utilization: 0.05, resetsAt: R + 3600 } } } },
       slots: { main: ["infirex", "y0902"] },
