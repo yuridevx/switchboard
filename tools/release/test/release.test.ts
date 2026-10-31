@@ -154,7 +154,10 @@ describe("сборка выпуска", () => {
     const corePj = JSON.parse(readFileSync(join(b.dir, "packages", "host", "package.json"), "utf8"));
     expect(corePj.dependencies).toEqual({ "@anthropic-ai/claude-agent-sdk": "0.3.311" });
     expect(corePj.scripts).toBeUndefined();
-    expect(JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8"))).toEqual({ version: "1.4.1", core: expect.stringMatching(/^\d+\.\d+\.\d+\+[0-9a-f]{12}$/) });
+    expect(JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8"))).toEqual({ version: "1.4.1", core: expect.stringMatching(/^\d+\.\d+\.\d+\+[0-9a-f]{12}$/), modules: expect.any(Object) });
+    // отпечатки модулей: перезагрузка на ходу сравнивает их, а не номера версий (живой прогон 31 окт.)
+    const rel = JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8")) as { modules: Record<string, string> };
+    for (const v of Object.values(rel.modules)) expect(v).toMatch(/^\d+\.\d+\.\d+\+[0-9a-f]{12}$/);
     expect(readFileSync(join(out, "1.4.1.sha256"), "utf8")).toBe(shaLine(sha256hex(b.tgz), "1.4.1"));
   });
 

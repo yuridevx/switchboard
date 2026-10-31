@@ -145,22 +145,26 @@ export async function build(o: BuildOptions): Promise<Built> {
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, data, mode ? { mode } : {});
   };
-  // отпечаток ядра: его файлы без modules.json (набор модулей меняется перезагрузкой, ядро — только новым Host)
-  const coreHash = createHash("sha256");
-  let coreVersion = "";
+  // отпечатки «версия+хэш файлов»: ядро — без modules.json (набор модулей меняется перезагрузкой, ядро — только
+  // новым Host); модули — целиком. Host сравнивает отпечатки, а не номера: правка без новой версии тоже видна.
+  const prints: Record<string, string> = {};
   for (const { name, dir: src } of pkgs) {
     const base = `packages/${name.slice("@switchboard/".length)}`;
+    const hash = createHash("sha256");
+    let version = "";
     for (const f of packageFiles(src)) {
       if (f === "package.json") continue;
       const data = readFileSync(join(src, f));
-      if (name === "@switchboard/host" && f !== "modules.json") coreHash.update(f + "\0").update(data);
-      if (name === "@switchboard/host" && f === "module.json") coreVersion = (JSON.parse(data.toString("utf8")) as { version: string }).version;
+      if (!(name === "@switchboard/host" && f === "modules.json")) hash.update(f + "\0").update(data);
+      if (f === "module.json") version = (JSON.parse(data.toString("utf8")) as { version: string }).version;
       put(`${base}/${f}`, data);
     }
+    if (version) prints[name.slice("@switchboard/".length)] = `${version}+${hash.digest("hex").slice(0, 12)}`;
     const pj = releasePackageJson(JSON.parse(readFileSync(join(src, "package.json"), "utf8")));
     put(`${base}/package.json`, Buffer.from(JSON.stringify(pj, null, 2) + "\n"));
   }
-  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version, core: `${coreVersion}+${coreHash.digest("hex").slice(0, 12)}` }) + "\n"));
+  const { host: core, ...modules } = prints;
+  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version, core, modules }) + "\n"));
   put("package.json", Buffer.from(JSON.stringify({ name: "switchboard-host-release", version: o.version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n"));
   put("host", Buffer.from(ENTRY), 0o755);
 

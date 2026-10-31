@@ -37,7 +37,7 @@ export async function loadRelease(base: string): Promise<Release> {
   const req = createRequire(join(base, "noop.js"));
   const coreDir = realpathSync(packageDir(req.resolve("@switchboard/host"), "@switchboard/host"));
   const core = readJson(join(coreDir, "module.json")) as Manifest;
-  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string; core?: string }) : {};
+  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string; core?: string; modules?: Record<string, string> }) : {};
   const coreReq = createRequire(join(coreDir, "noop.js"));
   const sdkDir = packageDir(coreReq.resolve("@anthropic-ai/claude-agent-sdk"), "@anthropic-ai/claude-agent-sdk");
   const sdk = readJson(join(sdkDir, "package.json")).version as string;
@@ -47,6 +47,8 @@ export async function loadRelease(base: string): Promise<Release> {
     const entry = realpathSync(coreReq.resolve(`@switchboard/${name}`));
     const dir = dirname(entry);
     const manifest = readJson(join(dir, "module.json")) as Manifest;
+    // версия модуля в выпуске — отпечаток «версия+хэш»: перезагрузка видит правку кода и без новой версии
+    if (rel.modules?.[manifest.name]) manifest.version = rel.modules[manifest.name];
     const module = ((await import(pathToFileURL(entry).href)) as { default: Module }).default;
     modules.push({ manifest, module, dir });
   }
