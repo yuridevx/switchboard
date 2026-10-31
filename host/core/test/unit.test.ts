@@ -495,9 +495,10 @@ describe("договор модуля на стенде", () => {
     await st.open("site@laptop");
     st.keeper.failInitNext = 2;
     void s0!.restart();
-    await until(() => st.sdk.of("site@laptop").length === 2);
+    const spawned = (n: number) => () => st.keeper.ops.filter((o) => o.id === "site@laptop" && o.op === "spawn").length === n && !!st.keeper.procs.get("site@laptop")?.alive;
+    await until(spawned(2));
     st.proc("site@laptop").exit(1, "No conversation found");
-    await until(() => st.sdk.of("site@laptop").length === 3);
+    await until(spawned(3));
     st.proc("site@laptop").exit(1, "No conversation found");
     await until(() => st.kernel.sessions.get("site@laptop")!.state === "failed");
     await new Promise((r) => setTimeout(r, 30));
