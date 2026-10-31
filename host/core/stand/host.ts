@@ -96,7 +96,7 @@ export type Stand = {
   /** строки журнала Host */
   journal(): Array<Record<string, any>>;
   /** кадры session.state сессии */
-  states(callsign: string): Frame[];
+  states(callsign: string): Array<Record<string, any>>;
   /** штатная остановка Host и поддельного keeper */
   close(): Promise<void>;
   /** Host убит: сокеты keeper и relay закрыты без штатной остановки, процессы живут у keeper */

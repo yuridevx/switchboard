@@ -8,7 +8,7 @@ import { fail, isReply, machineOf, ok } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
 import type { Link, LinkState, WsCtor } from "@switchboard/relay";
-import { Refusal } from "./refusal.ts";
+import { isRefusal } from "./refusal.ts";
 import type {
   Host,
   LogRecord,
@@ -189,12 +189,13 @@ export class Kernel {
       await this.keeper.kill(p.id, true);
     }
     // вклады всех сессий — до запуска: два владельца у имени — Host не стартует
-    const parts = new Map<Sess, ReturnType<Sess["collectParts"]>>();
+    const parts = new Map<Sess, Awaited<ReturnType<Sess["collectParts"]>>>();
     const conflicts: string[] = [];
     for (const s of this.sessions.values()) {
       if (s.rec.stopped) continue;
+      s.prepare(alive.has(s.callsign) ? "attach" : "resume");
       try {
-        parts.set(s, s.collectParts());
+        parts.set(s, await s.collectParts());
       } catch (e) {
         conflicts.push((e as Error).message);
       }
@@ -273,7 +274,7 @@ export class Kernel {
       if (!cur) return onFail(new Error(`${name} снят`));
       if (this.isDown(cur, s)) return onFail(new Error(MODULE_ERROR));
       const failed = (e: unknown): T => {
-        if (e instanceof Refusal) throw e;
+        if (isRefusal(e)) throw e;
         this.disable(cur, s, where, e);
         return onFail(e);
       };
@@ -492,7 +493,9 @@ export class Kernel {
     let s: Sess | null = null;
     if (typeof f.callsign === "string") {
       s = this.sessions.get(f.callsign) ?? null;
-      if (!s) {
+      // сессии ещё нет: запрос модуля этой машины (manage спрашивает slots до host.open) — решает модуль-владелец;
+      // запрос клиента через relay — offline, адресата нет
+      if (!s && (from === undefined || machineOf(f.callsign) !== this.machine)) {
         this.log("core", { kind: "refuse", ev: "request", word: "offline", id: f.id, from: f.from, why: `${f.type}: сессии ${f.callsign} нет на машине` });
         return fail(f.id, "offline");
       }
@@ -505,8 +508,9 @@ export class Kernel {
       }
       return ok(f.id, r);
     } catch (e) {
-      const word = (e as Refusal).word;
-      this.log(owner.name, { kind: "refuse", ev: "request", word, id: f.id, from: f.from, why: (e as Refusal).why ?? `${f.type}: ${word}` });
+      if (!isRefusal(e)) throw e;
+      const word = e.word;
+      this.log(owner.name, { kind: "refuse", ev: "request", word, id: f.id, from: f.from, why: e.why ?? `${f.type}: ${word}` });
       return fail(f.id, word);
     }
   }
@@ -603,6 +607,8 @@ export class Kernel {
   /** s.sdk: метод query() или функция SDK сессии — только имя из calls модуля. */
   async sessionSdk(m: Mod, s: Sess, name: string, args: unknown[]): Promise<unknown> {
     if (!(m.manifest.calls ?? []).includes(name)) this.violation(m, s, `${name} нет в calls`);
+    // у живой сессии заголовок меняет её query: и в файле разговора, и в claude.ai
+    if (name === "renameSession" && s.q) return (s.q as unknown as { renameSession: (t: unknown, id: string) => Promise<unknown> }).renameSession(args[0], s.rec.session_id);
     const at = SESSION_FUNCTIONS[name];
     if (at !== undefined) {
       const a: unknown[] = [s.rec.session_id, ...args];
@@ -627,9 +633,11 @@ export class Kernel {
       stopped: false,
     };
     const s = new Sess(this, rec);
+    const kind = spec.point !== undefined ? "point" : spec.resume ? "resume" : "spawn";
+    s.prepare(kind, spec.point);
     let parts;
     try {
-      parts = s.collectParts();
+      parts = await s.collectParts();
     } catch (e) {
       this.log("core", { kind: "stop", ev: "open", callsign: spec.callsign, why: (e as Error).message });
       throw e;
@@ -637,8 +645,6 @@ export class Kernel {
     this.sessions.set(rec.callsign, s);
     this.saveCore();
     this.log("core", { ev: "open", callsign: rec.callsign, cwd: rec.cwd });
-    const kind = spec.point !== undefined ? "point" : spec.resume ? "resume" : "spawn";
-    s.point = spec.point;
     await s.launch(kind, { parts, first: spec.resume ? { resume: spec.resume, fork: spec.fork } : { fresh: true } });
     return s;
   }

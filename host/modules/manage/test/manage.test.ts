@@ -147,11 +147,11 @@ describe("эталоны manage", () => {
     expect(st.session("host-manage", "docs@laptop")!.store().get()).toBeUndefined();
   });
 
-  it.fails("237 · заголовок живой site — метод renameSession живого query (ждёт правки ядра: s.sdk зовёт функцию SDK и у живой)", async () => {
+  it("237 · заголовок живой site — метод renameSession живого query", async () => {
     const { st } = await laptop();
     await st.open("site@laptop");
     await req(st, { type: "session.update", callsign: "site@laptop", title: "Сайт" });
-    expect(st.query("site@laptop").calls).toContainEqual({ name: "renameSession", args: ["Сайт"] });
+    expect(st.query("site@laptop").calls).toContainEqual({ name: "renameSession", args: ["Сайт", expect.any(String)] });
   });
 });
 

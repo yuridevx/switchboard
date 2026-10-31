@@ -66,7 +66,14 @@ export class Sess {
   // ───────────── запуск ─────────────
 
   /** Вклады модулей в query(). Два владельца у сервера MCP, ключа env, settings или опции — исключение. */
-  collectParts(): Parts {
+  /** Вид старта до сборки вкладов: session() модуля уже видит s.info.start и point. */
+  prepare(kind: StartKind, point?: number): void {
+    this.startKind = kind;
+    if (kind === "point") this.point = point;
+    this.launchSeq = ++this.k.seq;
+  }
+
+  async collectParts(): Promise<Parts> {
     const parts: Parts = new Map();
     const owners = new Map<string, string>();
     const claim = (label: string, who: string) => {
@@ -76,8 +83,8 @@ export class Sess {
     };
     for (const m of this.k.mods) {
       if (!m.module.session || this.k.isDown(m, this)) continue;
-      const p = this.k.invoke(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined) as QueryPart | undefined;
-      if (!p || typeof (p as unknown as Promise<unknown>).then === "function") continue;
+      const p = (await this.k.invoke(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined)) as QueryPart | undefined;
+      if (!p) continue;
       const bad = Object.keys(p).find((key) => CORE_OPTIONS.has(key));
       if (bad) {
         this.k.disable(m, this, "session", new Error(`опция ${bad} — её держит ядро`));
@@ -161,9 +168,8 @@ export class Sess {
    */
   async launch(kind: StartKind, o: { parts?: Parts; first?: First } = {}): Promise<void> {
     const k = this.k;
-    this.startKind = kind;
+    this.prepare(kind, kind === "point" ? this.point : undefined);
     this.ready = false;
-    this.launchSeq = ++k.seq;
     this.setState("starting");
     this.push();
     const attach = kind === "attach";
@@ -173,7 +179,7 @@ export class Sess {
     }
     let parts: Parts;
     try {
-      parts = o.parts ?? this.collectParts();
+      parts = o.parts ?? (await this.collectParts());
     } catch (e) {
       this.reasons.push((e as Error).message);
       this.fail();
@@ -383,8 +389,8 @@ export class Sess {
     for (const n of changed) now.delete(n);
     for (const m of k.mods) {
       if (!changed.has(m.name) || !m.module.session) continue;
-      const p = k.call(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined) as QueryPart | undefined;
-      if (p && typeof (p as unknown as Promise<unknown>).then !== "function") now.set(m.name, p);
+      const p = (await k.call(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined)) as QueryPart | undefined;
+      if (p) now.set(m.name, p);
     }
     const mcp = (ps: Parts, only?: Set<string>) => {
       const all: Record<string, unknown> = {};
@@ -503,6 +509,7 @@ export class Sess {
       start: (o) => s.start(o),
       remove: () => s.remove(),
       store: <T>() => k.stores.session<T>(m.name, s.callsign) as Store<T>,
+      refresh: () => s.push(),
     };
     this.facades.set(m, f);
     return f;

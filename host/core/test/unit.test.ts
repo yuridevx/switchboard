@@ -174,15 +174,87 @@ describe("договор модуля на стенде", () => {
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
   });
 
-  it("запрос без callsign падает — модуль выключен на машине, failed во всех сессиях; сессии нет — offline; имени нет — unknown_request", async () => {
+  it("запрос без callsign падает — модуль выключен на машине, failed во всех сессиях; имени нет — unknown_request", async () => {
     const m = module("host-x", { requests: { "x.do": () => { throw new Error("бах"); } } });
     const st = await stand({ modules: [m] });
     await st.open("site@laptop");
     await st.open("wiki@laptop");
     expect(await st.relay.request({ type: "x.do", v: 1, machine: "laptop" })).toMatchObject({ error: "module_error" });
     for (const cs of ["site@laptop", "wiki@laptop"]) await until(() => (st.states(cs).at(-1)?.failed as Record<string, string>)?.["host-x"]);
-    expect(await st.relay.request({ type: "x.do", v: 1, callsign: "nope@laptop" })).toMatchObject({ error: "offline" });
     expect(await st.relay.request({ type: "y.do", v: 1 })).toMatchObject({ error: "unknown_request" });
+  });
+
+  it("регрессия: запрос модуля этой машины с callsign ещё не открытой сессии доставляется владельцу; от клиента через relay — offline", async () => {
+    let host!: Host;
+    const slots = module("host-slots", { requests: { "session.slot": (req, ctx) => ({ cs: req.callsign, live: !!ctx.host.session(req.callsign as string) }) } });
+    const manage = module("host-manage", { start: (h) => void (host = h) }, { uses: { "session.slot@host-slots": 1 } });
+    const st = await stand({ modules: [slots, manage] });
+    expect(await host.request("session.slot", { v: 1, callsign: "board@laptop", slot: "main" })).toEqual({ ok: true, result: { cs: "board@laptop", live: false } });
+    expect(await st.relay.request({ type: "session.slot", v: 1, callsign: "board@laptop" })).toMatchObject({ ok: false, error: "offline" });
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+
+  it("регрессия: renameSession живой сессии — метод query с её session_id; остановленной — функция SDK с папкой", async () => {
+    const m = module("host-manage", {}, { calls: ["renameSession"] });
+    const st = await stand({ modules: [m] });
+    await st.open("site@laptop");
+    const s = st.session("host-manage", "site@laptop")!;
+    await s.sdk("renameSession", "Сайт");
+    expect(st.query("site@laptop").calls.at(-1)).toEqual({ name: "renameSession", args: ["Сайт", s.info.session_id] });
+    expect(st.sdk.fnCalls).toEqual([]);
+    await s.stop();
+    await s.sdk("renameSession", "Старый");
+    expect(st.sdk.fnCalls).toEqual([{ name: "renameSession", args: [s.info.session_id, "Старый", { dir: s.info.cwd }] }]);
+  });
+
+  it("регрессия: session() уже видит вид старта и point — host.open spawn и point, старт Host attach и resume, s.start resume; асинхронный session()", async () => {
+    const seen: string[] = [];
+    const remote = module("host-remote", {
+      session: async (s) => {
+        await new Promise((r) => setTimeout(r, 1));
+        seen.push(`${s.info.callsign} ${s.info.start}${s.info.point !== undefined ? " " + s.info.point : ""}`);
+        return { append: `start ${s.info.start}` };
+      },
+    });
+    const { FakeKeeper } = await import("../stand/index.ts");
+    const k = await new FakeKeeper().listen();
+    const st = await stand({ keeper: k, modules: [remote] });
+    await st.open("site@laptop");
+    await st.kernel.open({ callsign: "back@laptop", cwd: st.home, resume: "sid-back", point: 318 });
+    const s = st.session("host-remote", "site@laptop")!;
+    await s.stop();
+    await s.start();
+    expect(seen).toEqual(["site@laptop spawn", "back@laptop point 318", "site@laptop resume"]);
+    expect((st.query("back@laptop").options.systemPrompt as { append: string }).append).toBe("start point");
+    st.crash();
+    k.procs.get("back@laptop")!.exit(1, "умер без Host");
+    seen.length = 0;
+    const st2 = await stand({ keeper: k, home: st.home, modules: [remote] });
+    expect(seen.sort()).toEqual(["back@laptop resume", "site@laptop attach"]);
+    await st2.close();
+    await k.close();
+  });
+
+  it("регрессия: отказ словом из другой копии пакета (после host.reload) — по метке, не ошибка модуля", async () => {
+    const foreign = Object.assign(new Error("already_answered"), { word: "already_answered", [Symbol.for("switchboard.refusal")]: true });
+    const q = module("host-questions", { requests: { answer: () => { throw foreign; } } });
+    const st = await stand({ modules: [q] });
+    expect(await st.relay.request({ type: "answer", v: 1 })).toMatchObject({ ok: false, error: "already_answered" });
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+
+  it("регрессия: s.refresh() — поле вне событий SDK уходит в session.state сразу", async () => {
+    let url: string | null = null;
+    let sess!: import("../contract.ts").Session;
+    const remote = module("host-remote", { fields: { remote: () => url }, on: { open: (s) => void (sess = s) } });
+    const st = await stand({ modules: [remote] });
+    await st.open("site@laptop");
+    const before = st.states("site@laptop").length;
+    url = "https://claude.ai/code/session_x";
+    sess.refresh();
+    sess.refresh();
+    expect(st.states("site@laptop").length).toBe(before + 1);
+    await until(() => st.states("site@laptop").at(-1)?.remote === "https://claude.ai/code/session_x");
   });
 
   it("кадры: владельцу по type; roster — в on.frame тем, у кого roster@relay в uses", async () => {
@@ -215,12 +287,8 @@ describe("договор модуля на стенде", () => {
     const s = st.session("host-manage", "site@laptop")!;
     await s.sdk("getContextUsage");
     expect(st.query("site@laptop").calls.at(-1)).toEqual({ name: "getContextUsage", args: [] });
-    await s.sdk("renameSession", "Сайт");
     await s.sdk("getSessionMessages", { limit: 5 });
-    expect(st.sdk.fnCalls).toEqual([
-      { name: "renameSession", args: [s.info.session_id, "Сайт", { dir: s.info.cwd }] },
-      { name: "getSessionMessages", args: [s.info.session_id, { dir: s.info.cwd, limit: 5 }] },
-    ]);
+    expect(st.sdk.fnCalls).toEqual([{ name: "getSessionMessages", args: [s.info.session_id, { dir: s.info.cwd, limit: 5 }] }]);
     const host = st.host("host-manage");
     const p = host.probe({ env: { CLAUDE_CONFIG_DIR: "/acc/y0902" } });
     await p.sdk("claudeAuthenticate", true);

@@ -122,8 +122,8 @@ export interface Module {
   frames?: Record<string, (frame: Frame, ctx: Ctx) => void | Promise<void>>;
   /** Поля записи сессии в roster — имена из provides. Ядро собирает их после каждого сообщения SDK. */
   fields?: Record<string, (s: Session) => unknown>;
-  /** Вклад в query() сессии; зовётся на каждом старте процесса сессии. */
-  session?: (s: Session) => QueryPart | undefined;
+  /** Вклад в query() сессии; зовётся на каждом старте процесса сессии, s.info.start уже выставлен. Может быть асинхронным. */
+  session?: (s: Session) => QueryPart | undefined | Promise<QueryPart | undefined>;
   /** Решение по инструменту из canUseTool; у инструмента один владелец. Владельца нет — AskUserQuestion: deny unknown_request, прочее — allow. */
   decide?: Record<string, (s: Session, input: Record<string, unknown>, opts: DecideOpts) => PermissionResult | Promise<PermissionResult>>;
   /** Формы MCP (onElicitation); один владелец на Host. */
@@ -199,6 +199,8 @@ export interface Session {
   remove(): Promise<void>;
   /** Свой раздел хранилища для этой сессии. */
   store<T = unknown>(): Store<T>;
+  /** Пересобрать поля сессии у владельцев и, если запись изменилась, послать session.state — для поля, которое меняется вне событий SDK. */
+  refresh(): void;
 }
 
 export type OpenSpec = {
@@ -268,7 +270,7 @@ export interface Host {
 
 // ───────────────────────── отказ словом ─────────────────────────
 
-export { Refusal, refuse } from "./src/refusal.ts";
+export { Refusal, refuse, isRefusal, REFUSAL } from "./src/refusal.ts";
 
 // ───────────────────────── стенд ─────────────────────────
 
