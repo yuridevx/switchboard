@@ -96,6 +96,34 @@ describe("эталоны relay", () => {
     expect([a, b, panel].every((p) => p.closed === null)).toBe(true);
   });
 
+  it("117 · ключ отозван после входа: до старта объекта соединение живо; объект стартовал — закрыто revoked, остальные на связи", async () => {
+    const a = await laptop();
+    const phone = await hello("client", "phone", {}, "k8e1");
+    const panel = await hello("client", "panel-desk");
+    // выпуск gate с отзывом: соединение телефона живо — выпуск relay его не рвёт (факт живого прогона 31 окт.)
+    await env.GATE.revokeLater(["client.phone.k8e1"]);
+    expect(phone.closed).toBeNull();
+    // объект флота стартует заново (выгружен; разбудил кадр) — перепроверка отозванных
+    await evictDurableObject(fleet());
+    a.send({ type: "session.state", callsign: "site@laptop", state: "idle", slot: "main", account: "y0902" });
+    expect(await phone.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
+    expect(logHas("revoked client.phone.k8e1 · закрыт при старте объекта")).toBe(true);
+    const r = await panel.roster();
+    expect(r.clients).not.toContain("phone");
+    expect([a, panel].every((p) => p.closed === null)).toBe(true);
+  });
+
+  it("117 · gate не ответил на проверку при старте — соединения живут, строка в журнале", async () => {
+    const phone = await hello("client", "phone", {}, "k8e1");
+    await env.GATE.setMode("throw");
+    await evictDurableObject(fleet());
+    const panel = await hello("client", "panel-desk").catch(() => null);
+    await env.GATE.setMode("real");
+    expect(phone.closed).toBeNull();
+    expect(logHas("gate_unavailable · проверка отозванных при старте")).toBe(true);
+    void panel;
+  });
+
   it("6 · session.open с machine и незнакомый relay budget.set с callsign — только Host laptop, поле в поле плюс from; машины нет — offline", async () => {
     const a = await laptop();
     const b = await pc();

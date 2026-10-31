@@ -4,12 +4,22 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 
 const calls = [];
 let mode = "real";
+// номера, отозванные «новым выпуском gate» после входа соединения
+let revokedLater = [];
 
 export class Gate extends WorkerEntrypoint {
   async verify(key) {
     calls.push(key);
     if (mode === "throw") throw new Error("gate сломан");
     return (mode === "nosecret" ? this.env.NOSECRET : this.env.REAL).verify(key);
+  }
+  async revoked(ids) {
+    if (mode === "throw") throw new Error("gate сломан");
+    const real = await this.env.REAL.revoked(ids);
+    return [...new Set([...real, ...ids.filter((id) => revokedLater.includes(id))])];
+  }
+  revokeLater(ids) {
+    revokedLater = ids;
   }
   setMode(m) {
     mode = m;
@@ -19,6 +29,7 @@ export class Gate extends WorkerEntrypoint {
   }
   clear() {
     calls.length = 0;
+    revokedLater = [];
   }
 }
 

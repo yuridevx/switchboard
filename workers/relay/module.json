@@ -3,7 +3,7 @@
   "type": "worker",
   "version": "1.0.0",
   "provides": { "hello": 1, "roster": 1, "session.state": 1, "frame": 1 },
-  "uses": { "gate.verify@gate": 1 },
+  "uses": { "gate.verify@gate": 1, "gate.revoked@gate": 1 },
   "config": {
     "GATE": "binding",
     "PUSH": "binding",

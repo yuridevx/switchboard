@@ -14,6 +14,11 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
   verify(key: string): Promise<VerifyResult> {
     return verifyKey(key, this.env.FLEET_SECRET, this.env.REVOKED ?? [], (line) => console.log(line));
   }
+
+  async revoked(ids: string[]): Promise<string[]> {
+    const list = this.env.REVOKED ?? [];
+    return ids.filter((id) => list.includes(id));
+  }
 }
 
 // HTTP-входа нет: workers_dev и preview_urls выключены, маршрутов нет.

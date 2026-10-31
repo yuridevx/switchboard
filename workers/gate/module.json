@@ -2,7 +2,7 @@
   "name": "gate",
   "type": "worker",
   "version": "1.0.0",
-  "provides": { "gate.verify": 1 },
+  "provides": { "gate.verify": 1, "gate.revoked": 1 },
   "uses": {},
   "config": { "FLEET_SECRET": "secret", "REVOKED": "var" }
 }

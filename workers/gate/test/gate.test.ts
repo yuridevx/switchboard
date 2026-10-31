@@ -35,6 +35,11 @@ describe("эталоны gate", () => {
     expect(logs).toEqual(["revoked client.phone.k2a9", "ok client.phone.k8e1"]);
   });
 
+  it("117 · revoked: из номеров открытых соединений — только отозванные; подписи не нужны", async () => {
+    expect(await gate.revoked(["client.phone.k2a9", "client.phone.k8e1", "host.laptop.k7f3"])).toEqual(["client.phone.k2a9"]);
+    expect(await gate.revoked([])).toEqual([]);
+  });
+
   it("114 · ключ не того вида — bad_key без исключения, HMAC не считался", async () => {
     const imp = vi.spyOn(crypto.subtle, "importKey");
     expect(await gate.verify("laptop-key")).toEqual({ error: "bad_key" });

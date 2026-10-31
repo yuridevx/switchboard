@@ -58,7 +58,7 @@ export class Fleet extends DurableObject<Env> {
     super(ctx, env);
     // ping → pong отвечает Cloudflare, объект не просыпается
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
-    this.ready = this.helloParticipants();
+    this.ready = this.helloParticipants().then(() => this.recheck());
   }
 
   async fetch(): Promise<Response> {
@@ -365,6 +365,30 @@ export class Fleet extends DurableObject<Env> {
         }
       }),
     );
+  }
+
+  /**
+   * Старт объекта: отозванные ключи открытых соединений — закрыть словом revoked. Выпуск relay спящие
+   * веб-сокеты не рвёт (факт живого прогона 31 окт.), поэтому отзыв проверяется здесь, а не только в hello.
+   * gate не ответил — соединения живут, строка в журнале: проверит следующий старт.
+   */
+  private async recheck(): Promise<void> {
+    const open = this.live().map((ws) => ({ ws, card: cardOf(ws)! }));
+    if (!open.length) return;
+    let gone: string[];
+    try {
+      gone = await call(this.env.GATE.revoked(open.map((o) => `${o.card.role}.${o.card.name}.${o.card.kid}`)));
+    } catch (e) {
+      return log(`gate_unavailable · проверка отозванных при старте: ${e}`);
+    }
+    if (!gone.length) return;
+    for (const o of open) {
+      const id = `${o.card.role}.${o.card.name}.${o.card.kid}`;
+      if (!gone.includes(id)) continue;
+      log(`revoked ${id} · закрыт при старте объекта`);
+      o.ws.close(1008, "revoked");
+    }
+    await this.broadcast();
   }
 
   /** Ошибка в коде relay: строка в журнале и чистый перезапуск объекта. */
