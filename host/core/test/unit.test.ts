@@ -468,4 +468,39 @@ describe("договор модуля на стенде", () => {
     await until(() => st.states("site@laptop").at(-1)?.count === 2);
     expect(st.states("site@laptop").length).toBe(before + 2);
   });
+
+  it("перезапуск до первого хода: файла разговора нет — тот же id заново, а не resume; копия — снова копией", async () => {
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const sid = site.info.session_id;
+    st.sdk.noFile.add(sid);
+    await site.restart();
+    const q2 = st.query("site@laptop");
+    expect(q2.options.sessionId).toBe(sid);
+    expect(q2.options.resume).toBeUndefined();
+    expect(st.journal().filter((l) => l.ev === "launch" && l.callsign === "site@laptop").map((l) => l.start)).toEqual(["spawn", "spawn"]);
+    st.sdk.noFile.delete(sid);
+    await site.restart();
+    expect(st.query("site@laptop").options.resume).toBe(sid);
+
+    const copy = await st.kernel.open({ callsign: "copy@laptop", cwd: st.home, resume: "orig-0001", fork: true });
+    st.sdk.noFile.add(copy.rec.session_id);
+    await copy.restart();
+    expect(st.query("copy@laptop").options).toMatchObject({ resume: "orig-0001", forkSession: true, sessionId: copy.rec.session_id });
+  });
+
+  it("restart модуля без ожидания: процесс не поднялся — сессия ведёт свой сбой, Host не падает", async () => {
+    let s0: Parameters<NonNullable<Module["session"]>>[0] | null = null;
+    const st = await stand({ modules: [module("host-prof", { session: (s) => void (s0 ??= s) })] });
+    await st.open("site@laptop");
+    st.keeper.failInitNext = 2;
+    void s0!.restart();
+    await until(() => st.sdk.of("site@laptop").length === 2);
+    st.proc("site@laptop").exit(1, "No conversation found");
+    await until(() => st.sdk.of("site@laptop").length === 3);
+    st.proc("site@laptop").exit(1, "No conversation found");
+    await until(() => st.kernel.sessions.get("site@laptop")!.state === "failed");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(st.exits).toEqual([]);
+  });
 });

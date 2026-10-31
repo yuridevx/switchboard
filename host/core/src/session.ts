@@ -179,16 +179,20 @@ export class Sess {
       k.saveCore();
     }
     let parts: Parts;
+    let first = o.first;
     try {
       parts = o.parts ?? (await this.collectParts());
+      // файл разговора claude пишет на первом ходе: до него resume поднимать нечего — запуск с тем же id заново
+      if (kind === "resume" && !first && !(await k.deps.sdk.functions.getSessionInfo(this.rec.session_id, { dir: this.rec.cwd })))
+        first = this.rec.fork ? { resume: this.rec.fork, fork: true } : { fresh: true };
     } catch (e) {
       this.reasons.push((e as Error).message);
       this.fail();
       throw e;
     }
-    const q = k.deps.sdk.query({ prompt: this.queue.stream(), options: this.options(parts, attach, o.first) });
+    const q = k.deps.sdk.query({ prompt: this.queue.stream(), options: this.options(parts, attach, first) });
     this.q = q;
-    k.log("core", { ev: "launch", callsign: this.callsign, start: kind, sdk: this.rec.sdk, session_id: this.rec.session_id });
+    k.log("core", { ev: "launch", callsign: this.callsign, start: first?.fresh ? "spawn" : first?.fork ? "fork" : kind, sdk: this.rec.sdk, session_id: this.rec.session_id });
     void this.pump(q);
     try {
       await q.initializationResult();
@@ -505,10 +509,11 @@ export class Sess {
         });
       },
       sdk: (name, ...args) => handled(k.sessionSdk(m, s, name, args)),
-      restart: () => s.restart(),
-      stop: () => s.stop(),
-      start: (o) => s.start(o),
-      remove: () => s.remove(),
+      // сбой запуска ведёт сама сессия (exited → resume → failed): отказ промиса модуль может не ждать
+      restart: () => handled(s.restart()),
+      stop: () => handled(s.stop()),
+      start: (o) => handled(s.start(o)),
+      remove: () => handled(s.remove()),
       store: <T>() => k.stores.session<T>(m.name, s.callsign) as Store<T>,
       refresh: () => s.push(),
     };

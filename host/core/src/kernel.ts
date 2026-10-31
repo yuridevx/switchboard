@@ -648,6 +648,7 @@ export class Kernel {
       session_id: spec.resume && !spec.fork ? spec.resume : fresh,
       sdk: this.sdkVersion,
       stopped: false,
+      ...(spec.resume && spec.fork ? { fork: spec.resume } : {}),
     };
     const s = new Sess(this, rec);
     const kind = spec.point !== undefined ? "point" : spec.resume ? "resume" : "spawn";
