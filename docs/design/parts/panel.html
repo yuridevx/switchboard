@@ -1,0 +1,1486 @@
+<style>
+  /* Пульт: сессии и чат. Витрина экранов пульта (компьютер и узко) с переключателем экранов и состояний; под ней — кадры экрана.
+     Ниже — карта возможностей Пульта claude-fleet, ядро и модули, вход, где живёт серверное Пульта, пробелы контрактов, сбои, эталоны.
+     Цвета — только токены общего листа. */
+  [data-view="panel"] [hidden]{display:none!important}
+  [data-view="panel"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="panel"] .et{padding:0}
+  [data-view="panel"] .et.chg{box-shadow:-6px 0 0 -3px var(--chg)}
+  [data-view="panel"] .et.chg.read{box-shadow:-6px 0 0 -4px var(--read)}
+  [data-view="panel"] .et.chg::before{display:none}
+  [data-view="panel"] .pn-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="panel"] .pn-pad>p{font-size:14px;color:var(--muted);max-width:72ch}
+  [data-view="panel"] pre.pn-pre{white-space:pre;word-break:normal}
+  [data-view="panel"] .pn-gapm{display:inline-block;font:600 10.5px/1.3 var(--mono);border:1px dashed var(--wait);color:var(--wait);border-radius:6px;padding:1px 6px;white-space:nowrap}
+
+  /* ===== переключатели и сцена ===== */
+  [data-view="panel"] .pn-shot{overflow:hidden}
+  [data-view="panel"] .pn-ctl{display:flex;flex-wrap:wrap;gap:12px 22px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  [data-view="panel"] .pn-cg{display:flex;flex-direction:column;gap:6px;min-width:0}
+  [data-view="panel"] .pn-stage{padding:16px;background:var(--surface2);border-bottom:1px solid var(--line)}
+  [data-view="panel"] .pn-fit{position:relative;width:100%;overflow:hidden;height:640px}
+  [data-view="panel"] .pn-dev{position:absolute;left:0;top:0;transform-origin:0 0;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;box-shadow:var(--shadow);overflow:hidden;width:1040px}
+  [data-view="panel"] .pn-dev.narrow{width:380px;border-radius:40px;padding:9px;background:var(--surface2);box-shadow:var(--shadow),inset 0 0 0 3px var(--surface)}
+  [data-view="panel"] .pn-chrome{display:flex;align-items:center;gap:6px;padding:9px 12px;border-bottom:1px solid var(--line2);background:var(--surface2)}
+  [data-view="panel"] .pn-chrome i{width:10px;height:10px;border-radius:50%;background:var(--line);flex:none}
+  [data-view="panel"] .pn-url{margin-left:8px;flex:1;min-width:0;font:500 11.5px var(--mono);color:var(--muted);background:var(--surface);border:1px solid var(--line2);
+    border-radius:7px;padding:4px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-url b{color:var(--ink);font-weight:600}
+  [data-view="panel"] .pn-dev.narrow .pn-chrome{border-radius:31px 31px 0 0;padding:12px 18px 8px;border-bottom:0}
+  [data-view="panel"] .pn-dev.narrow .pn-chrome i{display:none}
+  [data-view="panel"] .pn-dev.narrow .pn-url{margin-left:0;text-align:center;font-size:10.5px}
+
+  /* ===== приложение ===== */
+  [data-view="panel"] .pn-app{position:relative;display:grid;grid-template-columns:152px minmax(0,1fr);height:600px;font:13px/1.4 var(--body);color:var(--ink);background:var(--bg);overflow:hidden}
+  [data-view="panel"] .pn-dev.narrow .pn-app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;height:650px;border-radius:0 0 31px 31px}
+  [data-view="panel"] .pn-app code{font:500 11px var(--mono)}
+  [data-view="panel"] .pn-rail{background:var(--surface);border-right:1px solid var(--line2);display:flex;flex-direction:column;padding:12px 8px;gap:2px;min-width:0}
+  [data-view="panel"] .pn-dev.narrow .pn-rail{display:none}
+  [data-view="panel"] .pn-brand{display:flex;align-items:center;gap:8px;font:600 14px var(--body);padding:2px 6px 10px}
+  [data-view="panel"] .pn-logo{width:24px;height:24px;border-radius:7px;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 12px/1 var(--disp);flex:none}
+  [data-view="panel"] .pn-nav{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;color:var(--ink);text-decoration:none;font-size:12.5px;border:0;background:none;width:100%;text-align:left;cursor:pointer;font-weight:500}
+  [data-view="panel"] .pn-nav:hover{background:var(--surface2)}
+  [data-view="panel"] .pn-nav.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
+  [data-view="panel"] .pn-nav.new{border:1px dashed var(--line);margin-bottom:6px;color:var(--accent);font-weight:600}
+  [data-view="panel"] .pn-n{margin-left:auto;font:700 10px/16px var(--mono);min-width:16px;padding:0 5px;border-radius:999px;background:var(--wait);color:var(--surface);text-align:center}
+  [data-view="panel"] .pn-n.bad{background:var(--bad)}
+  [data-view="panel"] .pn-rcap{margin-top:auto;font:600 9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:0 8px 4px}
+  [data-view="panel"] .pn-rm{display:flex;align-items:center;gap:6px;padding:2px 8px;font:500 11.5px var(--mono)}
+  [data-view="panel"] .pn-me{font:500 10.5px var(--mono);color:var(--muted);padding:7px 8px 0;border-top:1px solid var(--line2);margin-top:6px}
+  [data-view="panel"] .pn-d{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}
+  [data-view="panel"] .pn-d.ok{background:var(--ok)}
+  [data-view="panel"] .pn-d.busy{background:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+  [data-view="panel"] .pn-d.wait{background:var(--wait);box-shadow:0 0 0 3px var(--wait-weak)}
+  [data-view="panel"] .pn-d.bad{background:var(--bad)}
+  [data-view="panel"] .pn-d.stop{background:transparent;border:1.5px solid var(--muted)}
+  [data-view="panel"] .pn-main{display:flex;flex-direction:column;min-width:0;min-height:0}
+  [data-view="panel"] .pn-banner{flex:none;display:flex;gap:8px;align-items:center;padding:6px 12px;background:var(--wait-weak);color:var(--wait);font-size:12px;border-bottom:1px solid var(--line2)}
+  [data-view="panel"] .pn-banner span{flex:1;min-width:0}
+  [data-view="panel"] .pn-board{flex:1;min-height:0;display:grid;grid-template-columns:272px minmax(0,1fr)}
+  [data-view="panel"] .pn-dev.narrow .pn-board{grid-template-columns:minmax(0,1fr)}
+  [data-view="panel"] .pn-dev.narrow .pn-app[data-pane="detail"] .pn-list,
+  [data-view="panel"] .pn-dev.narrow .pn-app[data-pane="list"] .pn-detail{display:none}
+
+  /* кнопки внутри экрана */
+  [data-view="panel"] .pn-b{font:600 11.5px/1.2 var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:7px;padding:5px 9px;cursor:pointer;white-space:nowrap}
+  [data-view="panel"] .pn-b.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="panel"] .pn-b.bad{color:var(--bad);border-color:var(--bad);background:transparent}
+  [data-view="panel"] .pn-b.dash{border-style:dashed;color:var(--muted);background:transparent}
+  [data-view="panel"] .pn-b[disabled]{opacity:.45;cursor:default}
+
+  /* список */
+  [data-view="panel"] .pn-list{border-right:1px solid var(--line2);background:var(--surface);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+  [data-view="panel"] .pn-lh{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 12px 8px}
+  [data-view="panel"] .pn-lh b{font:600 15px var(--body)}
+  [data-view="panel"] .pn-search{margin:0 12px;border:1px solid var(--line);border-radius:8px;padding:5px 9px;color:var(--muted);font-size:11.5px;background:var(--bg);white-space:nowrap;overflow:hidden}
+  [data-view="panel"] .pn-seg{display:flex;gap:2px;margin:8px 12px 2px;padding:2px;background:var(--surface2);border-radius:8px}
+  [data-view="panel"] .pn-seg span{flex:1;text-align:center;font-size:11px;padding:4px 4px;border-radius:6px;color:var(--muted);white-space:nowrap}
+  [data-view="panel"] .pn-seg span.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow)}
+  [data-view="panel"] .pn-seg i{font-style:normal;font:700 10px var(--mono);margin-left:3px;color:var(--wait)}
+  [data-view="panel"] .pn-groups{flex:1;min-height:0;overflow:hidden;padding:0 8px 8px}
+  [data-view="panel"] .pn-gh{display:flex;justify-content:space-between;font:600 9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:9px 6px 3px}
+  [data-view="panel"] .pn-gh.need{color:var(--wait)}
+  [data-view="panel"] .pn-row{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:1px 8px;align-items:center;padding:6px 8px;border-radius:9px;width:100%;text-align:left;
+    border:1px solid transparent;background:transparent;font:inherit;color:inherit}
+  [data-view="panel"] button.pn-row{cursor:pointer}
+  [data-view="panel"] button.pn-row:hover{border-color:var(--line)}
+  [data-view="panel"] .pn-row[aria-current="true"]{background:var(--accent-weak);border-color:transparent}
+  [data-view="panel"] .pn-row b{font:600 12px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-row .t{font:600 10.5px var(--body);white-space:nowrap;color:var(--muted)}
+  [data-view="panel"] .pn-row .t.wait{color:var(--wait)} [data-view="panel"] .pn-row .t.bad{color:var(--bad)}
+  [data-view="panel"] .pn-row .t.busy{color:var(--accent)} [data-view="panel"] .pn-row .t.ok{color:var(--ok)}
+  [data-view="panel"] .pn-row .m{grid-column:2 / 4;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-row .m.ask{color:var(--ink)}
+  [data-view="panel"] .pn-app.gone .pn-row[data-m="pc"]{opacity:.42}
+  [data-view="panel"] .pn-app.gone .pn-rm[data-m="pc"] .pn-d{background:var(--bad)}
+  [data-view="panel"] .pn-app[data-scr="list"][data-st="need"] .pn-grp:not(.need){display:none}
+  [data-view="panel"] .pn-app.gone .pn-gone-pc{opacity:.42}
+  [data-view="panel"] .pn-app[data-scr="list"][data-st="need"] .pn-seg span[data-only-need]{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:var(--shadow)}
+  [data-view="panel"] .pn-fh{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="panel"] .pn-app[data-scr="list"][data-st="need"] .pn-seg span.all{background:none;box-shadow:none;font-weight:400;color:var(--muted)}
+
+  /* правая часть */
+  [data-view="panel"] .pn-detail{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;position:relative}
+  [data-view="panel"] .pn-sum{padding:16px;display:flex;flex-direction:column;gap:12px}
+  [data-view="panel"] .pn-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  [data-view="panel"] .pn-dev.narrow .pn-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
+  [data-view="panel"] .pn-tile{background:var(--surface);border:1px solid var(--line2);border-radius:10px;padding:9px 12px;display:flex;flex-direction:column;gap:2px}
+  [data-view="panel"] .pn-tile b{font:700 22px/1.1 var(--disp)}
+  [data-view="panel"] .pn-tile span{font-size:11.5px;color:var(--muted);display:flex;align-items:center;gap:6px}
+  [data-view="panel"] .pn-panel{background:var(--surface);border:1px solid var(--line2);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+  [data-view="panel"] .pn-h4{margin:0;font:600 9.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  [data-view="panel"] .pn-lim{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) 34px;gap:8px;align-items:center;font-size:11.5px}
+  [data-view="panel"] .pn-lim span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-lim em{font:600 11px var(--mono);font-style:normal;text-align:right}
+  [data-view="panel"] .pn-bar{height:6px;border-radius:3px;background:var(--surface2);overflow:hidden;display:block}
+  [data-view="panel"] .pn-bar i{display:block;height:100%;background:var(--ok)}
+  [data-view="panel"] .pn-bar.warn i{background:var(--wait)}
+  [data-view="panel"] .pn-hint{font-size:11px;color:var(--muted)}
+  [data-view="panel"] .pn-off{opacity:.42}
+
+  /* карточка сессии */
+  [data-view="panel"] .pn-cardx{display:flex;flex-direction:column;min-height:0;flex:1}
+  [data-view="panel"] .pn-ch{display:flex;align-items:flex-start;gap:10px;padding:10px 14px 8px;background:var(--surface);border-bottom:1px solid var(--line2)}
+  [data-view="panel"] .pn-back{display:none;font:500 24px/1 var(--body);color:var(--accent);margin-top:-2px}
+  [data-view="panel"] .pn-dev.narrow .pn-back{display:block}
+  [data-view="panel"] .pn-cht{flex:1;min-width:0}
+  [data-view="panel"] .pn-cht>b{font:600 15px var(--mono);margin-right:6px}
+  [data-view="panel"] .pn-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+  [data-view="panel"] .pn-chip{font:500 10.5px/1.3 var(--mono);background:var(--surface2);border:1px solid var(--line2);border-radius:999px;padding:2px 7px;white-space:nowrap;color:var(--muted)}
+  [data-view="panel"] .pn-chip.warn{color:var(--wait);border-color:var(--wait)}
+  [data-view="panel"] .pn-st{font:600 10.5px/1.3 var(--mono);padding:2px 7px;border-radius:999px;white-space:nowrap;vertical-align:2px;background:var(--surface2);color:var(--muted)}
+  [data-view="panel"] .pn-st.busy{background:var(--accent-weak);color:var(--accent)}
+  [data-view="panel"] .pn-st.wait{background:var(--wait-weak);color:var(--wait)}
+  [data-view="panel"] .pn-st.ok{background:var(--ok-weak);color:var(--ok)}
+  [data-view="panel"] .pn-st.bad{background:var(--bad-weak);color:var(--bad)}
+  [data-view="panel"] .pn-acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+  [data-view="panel"] .pn-tabs{display:flex;gap:2px;padding:0 10px;background:var(--surface);border-bottom:1px solid var(--line2);overflow:hidden}
+  [data-view="panel"] .pn-tab{font:600 12px var(--body);padding:7px 9px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);cursor:pointer;border-radius:0;white-space:nowrap}
+  [data-view="panel"] .pn-tab:hover{color:var(--ink)}
+  [data-view="panel"] .pn-tab.on{color:var(--ink);border-bottom-color:var(--accent)}
+  [data-view="panel"] .pn-tab.fl{font-weight:500}
+  [data-view="panel"] .pn-att{margin:10px 14px 0;border-radius:10px;padding:8px 12px;display:flex;gap:8px 10px;align-items:center;flex-wrap:wrap;font-size:12px}
+  [data-view="panel"] .pn-att.wait{background:var(--wait-weak);color:var(--wait)}
+  [data-view="panel"] .pn-att.bad{background:var(--bad-weak);color:var(--bad)}
+  [data-view="panel"] .pn-att.stop{background:var(--surface2);color:var(--muted);border:1px solid var(--line2)}
+  [data-view="panel"] .pn-att p{flex:1;min-width:150px;color:var(--ink);font-size:12px}
+  [data-view="panel"] .pn-att p b{display:block;font-weight:600}
+  [data-view="panel"] .pn-att.wait p b{color:var(--wait)} [data-view="panel"] .pn-att.bad p b{color:var(--bad)}
+
+  /* чат */
+  [data-view="panel"] .pn-chat{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+  [data-view="panel"] .pn-ctop{display:flex;justify-content:flex-end;gap:6px;padding:6px 14px 0}
+  [data-view="panel"] .pn-ctop span{font:500 10.5px var(--mono);color:var(--muted);border:1px solid var(--line2);border-radius:999px;padding:2px 8px;background:var(--surface)}
+  [data-view="panel"] .pn-ctop span.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  [data-view="panel"] .pn-feed{flex:1;min-height:0;overflow:hidden;padding:6px 16px 8px;display:flex;flex-direction:column;gap:7px;justify-content:flex-end}
+  [data-view="panel"] .pn-day{align-self:center;font:600 9.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="panel"] .pn-mine{align-self:flex-end;max-width:72%;background:var(--accent);color:var(--on-accent);padding:7px 11px;border-radius:14px 14px 4px 14px;font-size:12.5px}
+  [data-view="panel"] .pn-mine small{display:flex;gap:8px;justify-content:flex-end;font:500 10px var(--mono);opacity:.85;margin-top:3px}
+  [data-view="panel"] .pn-mine.qd{background:var(--surface);color:var(--ink);border:1.5px solid var(--accent)}
+  [data-view="panel"] .pn-mine.qd small{color:var(--accent);opacity:1}
+  [data-view="panel"] .pn-mine.lost{background:var(--surface);color:var(--ink);border:1.5px dashed var(--wait)}
+  [data-view="panel"] .pn-mine.lost small{color:var(--wait);opacity:1;justify-content:flex-start}
+  [data-view="panel"] .pn-mine.from small{justify-content:space-between}
+  [data-view="panel"] .pn-rw{align-self:flex-end;font:500 10.5px var(--mono);color:var(--muted);margin-top:-4px;background:none;border:0;padding:0;cursor:pointer}
+  [data-view="panel"] .pn-rw:hover{color:var(--accent)}
+  [data-view="panel"] .pn-rwbox{align-self:flex-end;max-width:72%;background:var(--surface);border:1.5px solid var(--accent);border-radius:10px;padding:8px 10px;font-size:11.5px;display:flex;flex-direction:column;gap:6px}
+  [data-view="panel"] .pn-rwbox div{display:flex;gap:6px;justify-content:flex-end}
+  [data-view="panel"] .pn-ai{font-size:12.5px;max-width:86%}
+  [data-view="panel"] .pn-tool{display:flex;align-items:center;gap:8px;font:500 11.5px var(--mono);background:var(--surface);border:1px solid var(--line2);border-radius:8px;padding:5px 9px;max-width:86%;min-width:0}
+  [data-view="panel"] .pn-tool b{color:var(--accent);flex:none}
+  [data-view="panel"] .pn-tool span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  [data-view="panel"] .pn-tool em{font-style:normal;color:var(--ok);font-weight:600;flex:none}
+  [data-view="panel"] .pn-tool.run{border-color:var(--accent)}
+  [data-view="panel"] .pn-tool.run em{color:var(--accent)}
+  [data-view="panel"] .pn-tool .pn-b{padding:2px 7px;font-size:10.5px}
+  [data-view="panel"] .pn-diff{font:500 10.5px/1.5 var(--mono);background:var(--surface);border:1px solid var(--line2);border-radius:8px;padding:4px 9px;max-width:86%;margin-top:-4px}
+  [data-view="panel"] .pn-diff .del{color:var(--bad)} [data-view="panel"] .pn-diff .add{color:var(--ok)}
+  [data-view="panel"] .pn-steps{font:500 11px var(--mono);color:var(--muted);border:1px dashed var(--line);border-radius:8px;padding:5px 9px;max-width:86%}
+  [data-view="panel"] .pn-res{font:500 10.5px var(--mono);color:var(--muted);text-align:center;border-top:1px dashed var(--line);padding-top:6px}
+  [data-view="panel"] .pn-docks{padding:0 16px;display:flex;flex-direction:column;gap:5px}
+  [data-view="panel"] .pn-dock{display:flex;align-items:center;gap:8px;border:1px solid var(--line2);background:var(--surface);border-radius:8px;padding:4px 6px 4px 10px;font-size:11.5px;min-width:0}
+  [data-view="panel"] .pn-dock b{font-weight:600;flex:none}
+  [data-view="panel"] .pn-dock span{color:var(--muted);flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  [data-view="panel"] .pn-dock .pn-b{padding:2px 7px;font-size:10.5px}
+  [data-view="panel"] .pn-waitbar{display:flex;align-items:center;gap:8px;border:1px solid var(--wait);background:var(--wait-weak);color:var(--wait);border-radius:8px;padding:6px 10px;font-size:11.5px;font-weight:600}
+  [data-view="panel"] .pn-comp{margin:7px 16px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);padding:7px 10px;display:flex;flex-direction:column;gap:5px;position:relative}
+  [data-view="panel"] .pn-comp.off{opacity:.5}
+  [data-view="panel"] .pn-inp{font-size:12.5px;color:var(--muted);min-height:18px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-inp.typed{color:var(--ink)}
+  [data-view="panel"] .pn-inp mark{background:var(--accent-weak);color:var(--accent);border-radius:4px;padding:0 3px}
+  [data-view="panel"] .pn-ctools{display:flex;align-items:center;gap:10px;font:500 10.5px var(--mono);color:var(--muted)}
+  [data-view="panel"] .pn-send{margin-left:auto;width:26px;height:26px;border-radius:50%;background:var(--accent);color:var(--on-accent);display:grid;place-items:center;font:700 14px/1 var(--body);flex:none}
+  [data-view="panel"] .pn-pop{position:absolute;left:10px;bottom:100%;margin-bottom:6px;background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);padding:4px;min-width:230px;font:500 11.5px var(--mono);z-index:2}
+  [data-view="panel"] .pn-pop div{padding:5px 8px;border-radius:6px}
+  [data-view="panel"] .pn-pop div.on{background:var(--accent-weak);color:var(--accent)}
+  [data-view="panel"] .pn-pop small{display:block;font:500 9.5px var(--mono);color:var(--muted);padding:2px 8px 4px}
+  [data-view="panel"] .pn-modoff{margin:16px;border-radius:12px;background:var(--bad-weak);color:var(--bad);padding:12px 14px;font-size:12px;display:flex;flex-direction:column;gap:6px}
+  [data-view="panel"] .pn-modoff span{color:var(--ink)}
+
+  /* вопрос */
+  [data-view="panel"] .pn-q{border:1.5px solid var(--wait);border-radius:12px;background:var(--surface);padding:9px 12px;display:flex;flex-direction:column;gap:6px;max-width:560px;align-self:flex-start;width:86%}
+  [data-view="panel"] .pn-q.done{border-color:var(--line)}
+  [data-view="panel"] .pn-qh{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  [data-view="panel"] .pn-qchip{font:600 10.5px var(--mono);background:var(--wait-weak);color:var(--wait);padding:3px 7px;border-radius:6px}
+  [data-view="panel"] .pn-qn{font:500 10.5px var(--mono);color:var(--muted)}
+  [data-view="panel"] .pn-qt{font:600 14px/1.3 var(--body)}
+  [data-view="panel"] .pn-opts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+  [data-view="panel"] .pn-dev.narrow .pn-opts{grid-template-columns:minmax(0,1fr)}
+  [data-view="panel"] .pn-opt{display:grid;grid-template-columns:12px minmax(0,1fr);gap:8px;align-items:start;text-align:left;padding:7px 9px;border:1.5px solid var(--line);border-radius:10px;background:var(--bg);font:inherit;color:inherit;cursor:pointer}
+  [data-view="panel"] .pn-opt::before{content:"";width:9px;height:9px;border-radius:50%;border:2px solid var(--muted);margin-top:3px}
+  [data-view="panel"] .pn-opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-weak)}
+  [data-view="panel"] .pn-opt[aria-pressed="true"]::before{border-color:var(--accent);background:var(--accent)}
+  [data-view="panel"] .pn-opt b{display:block;font-size:12.5px}
+  [data-view="panel"] .pn-opt small{display:block;font-size:11px;color:var(--muted);line-height:1.35}
+  [data-view="panel"] .pn-opt.own{border-style:dashed;background:transparent;grid-column:1 / -1}
+  [data-view="panel"] .pn-q.done .pn-opt{opacity:.45;pointer-events:none}
+  [data-view="panel"] .pn-qf{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;font-size:10.5px;color:var(--muted)}
+  [data-view="panel"] .pn-okc,[data-view="panel"] .pn-waitc{border-radius:9px;padding:7px 10px;font-size:11.5px}
+  [data-view="panel"] .pn-okc{background:var(--ok-weak);color:var(--ok)}
+  [data-view="panel"] .pn-waitc{background:var(--wait-weak);color:var(--wait)}
+  [data-view="panel"] .pn-field{display:grid;grid-template-columns:76px minmax(0,1fr);gap:8px;align-items:center;font-size:11.5px}
+  [data-view="panel"] .pn-in{border:1px solid var(--line);border-radius:7px;padding:4px 8px;background:var(--bg);font:500 11.5px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-in.ph{color:var(--muted)}
+
+  /* настройки */
+  [data-view="panel"] .pn-set{flex:1;min-height:0;overflow:hidden;padding:10px 14px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;align-content:start}
+  [data-view="panel"] .pn-dev.narrow .pn-set{grid-template-columns:minmax(0,1fr)}
+  [data-view="panel"] .pn-kv{display:grid;grid-template-columns:72px minmax(0,1fr) auto;gap:6px;align-items:center;font-size:11.5px}
+  [data-view="panel"] .pn-kv>span:first-child{color:var(--muted)}
+  [data-view="panel"] .pn-segs{display:flex;gap:2px;flex-wrap:wrap}
+  [data-view="panel"] .pn-segs span{font:500 10.5px var(--mono);border:1px solid var(--line2);border-radius:6px;padding:1px 5px;background:var(--surface)}
+  [data-view="panel"] .pn-segs span.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  [data-view="panel"] .pn-sel{border:1px solid var(--line);border-radius:7px;padding:3px 8px;font:500 11px var(--mono);background:var(--bg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-sel.gap{border-style:dashed;border-color:var(--wait);color:var(--wait);background:transparent}
+  [data-view="panel"] .pn-stack{display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--surface2)}
+  [data-view="panel"] .pn-stack i{display:block;height:100%}
+  [data-view="panel"] .pn-mcp{display:grid;grid-template-columns:10px minmax(0,1fr) auto;gap:8px;align-items:center;font:500 11px var(--mono)}
+  [data-view="panel"] .pn-mcp .pn-b{padding:2px 6px;font-size:10.5px}
+  [data-view="panel"] .pn-btns{display:flex;gap:6px;flex-wrap:wrap}
+  [data-view="panel"] .pn-toast{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:var(--ink);color:var(--bg);font-size:11.5px;padding:7px 12px;border-radius:9px;box-shadow:var(--shadow);white-space:nowrap;z-index:5;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-toast.bad{background:var(--bad);color:var(--surface)}
+
+  /* журнал */
+  [data-view="panel"] .pn-log{flex:1;min-height:0;padding:10px 14px;display:flex;flex-direction:column;gap:5px;overflow:hidden}
+  [data-view="panel"] .pn-lf{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:3px}
+  [data-view="panel"] .pn-lf span{font:500 10.5px var(--mono);border:1px solid var(--line2);border-radius:999px;padding:2px 8px;background:var(--surface);color:var(--muted)}
+  [data-view="panel"] .pn-lf span.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+  [data-view="panel"] .pn-lr{display:grid;grid-template-columns:62px 44px 104px minmax(0,1fr);gap:8px;font:500 10.5px/1.45 var(--mono);padding:5px 8px;border-radius:7px;background:var(--surface);border:1px solid var(--line2)}
+  [data-view="panel"] .pn-dev.narrow .pn-lr{grid-template-columns:52px 40px minmax(0,1fr)}
+  [data-view="panel"] .pn-dev.narrow .pn-lr .w{grid-column:1 / -1}
+  [data-view="panel"] .pn-lr .k{font-weight:700}
+  [data-view="panel"] .pn-lr .k.stop{color:var(--bad)} [data-view="panel"] .pn-lr .k.note{color:var(--muted)} [data-view="panel"] .pn-lr .k.refuse{color:var(--wait)}
+  [data-view="panel"] .pn-lr .w{color:var(--muted);min-width:0}
+  [data-view="panel"] .pn-lr .w b{color:var(--ink);font-weight:600}
+  [data-view="panel"] .pn-lr.more{grid-template-columns:minmax(0,1fr);text-align:center;color:var(--accent);background:transparent;border-style:dashed}
+
+  /* галерея */
+  [data-view="panel"] .pn-gal{padding:12px 14px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;overflow:hidden;align-content:start;flex:1;min-height:0}
+  [data-view="panel"] .pn-dev.narrow .pn-gal{grid-template-columns:minmax(0,1fr)}
+  [data-view="panel"] .pn-gc{margin:0;background:var(--surface);border:1px solid var(--line2);border-radius:10px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  [data-view="panel"] .pn-gc figcaption{font-size:10.5px;color:var(--muted);line-height:1.35}
+  [data-view="panel"] .pn-gc figcaption b{color:var(--ink);font-weight:600;display:block;font-size:11.5px}
+  [data-view="panel"] .pn-gc .pn-mine,[data-view="panel"] .pn-gc .pn-tool,[data-view="panel"] .pn-gc .pn-ai{max-width:100%}
+  [data-view="panel"] .pn-peer{align-self:flex-start;border:1.5px solid var(--accent);border-radius:12px 12px 12px 4px;padding:6px 10px;font-size:12px;background:var(--surface)}
+  [data-view="panel"] .pn-peer i{display:block;font:600 10px var(--mono);font-style:normal;color:var(--accent)}
+  [data-view="panel"] .pn-sys{font:500 10.5px var(--mono);color:var(--muted);text-align:center;border:1px dashed var(--line);border-radius:7px;padding:4px 8px}
+  [data-view="panel"] .pn-sys.bad{color:var(--bad);border-color:var(--bad)}
+  [data-view="panel"] .pn-sys.acc{color:var(--accent);border-color:var(--accent)}
+
+  /* стоп-экраны, диалог, нижняя полоса */
+  [data-view="panel"] .pn-stop{position:absolute;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:24px;z-index:6}
+  [data-view="panel"] .pn-stop b{font:600 17px var(--body)}
+  [data-view="panel"] .pn-stop p{font-size:12.5px;color:var(--muted);max-width:44ch}
+  [data-view="panel"] .pn-stop .pn-ic{width:46px;height:46px;border-radius:50%;background:var(--bad-weak);color:var(--bad);display:grid;place-items:center;font:700 22px/1 var(--body)}
+  [data-view="panel"] .pn-stop code{font:500 11px var(--mono);background:var(--surface);border:1px solid var(--line2);border-radius:6px;padding:3px 7px}
+  [data-view="panel"] .pn-modal{position:absolute;inset:0;background:rgba(8,12,16,.38);display:grid;place-items:center;z-index:4}
+  [data-view="panel"] .pn-dev.narrow .pn-modal{background:var(--bg);place-items:stretch}
+  [data-view="panel"] .pn-dlg{width:540px;max-width:calc(100% - 24px);background:var(--surface);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;display:flex;flex-direction:column;gap:8px;font-size:12px}
+  [data-view="panel"] .pn-dev.narrow .pn-dlg{width:auto;max-width:none;border-radius:0;box-shadow:none;overflow:hidden}
+  [data-view="panel"] .pn-dlg>b{font:600 15px var(--body)}
+  [data-view="panel"] .pn-fr{display:grid;grid-template-columns:66px minmax(0,1fr);gap:8px;align-items:center}
+  [data-view="panel"] .pn-fr>span:first-child{color:var(--muted);font-size:11.5px}
+  [data-view="panel"] .pn-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:6px}
+  [data-view="panel"] .pn-dev.narrow .pn-two{grid-template-columns:minmax(0,1fr)}
+  [data-view="panel"] .pn-slot{display:flex;align-items:center;gap:8px;border:1.5px solid var(--line);border-radius:9px;padding:5px 9px;font-size:11.5px;min-width:0}
+  [data-view="panel"] .pn-slot.on{border-color:var(--accent);background:var(--accent-weak)}
+  [data-view="panel"] .pn-slot b{font:600 11.5px var(--mono)}
+  [data-view="panel"] .pn-slot span{color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-fb{border:1px solid var(--line2);border-radius:9px;background:var(--surface2);padding:8px;display:flex;flex-direction:column;gap:6px}
+  [data-view="panel"] .pn-fbt{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font:500 11px var(--mono)}
+  [data-view="panel"] .pn-fbt b{flex:1;min-width:0}
+  [data-view="panel"] .pn-fl{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+  [data-view="panel"] .pn-fl span{font:500 11px var(--mono);padding:4px 7px;border-radius:6px;background:var(--surface);border:1px solid var(--line2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel"] .pn-fl span.on{border-color:var(--accent);color:var(--accent)}
+  [data-view="panel"] .pn-err{color:var(--bad);font-size:11px}
+  [data-view="panel"] .pn-dlgf{display:flex;justify-content:flex-end;gap:6px;margin-top:2px}
+  [data-view="panel"] .pn-bot{display:none}
+  [data-view="panel"] .pn-dev.narrow .pn-bot{display:flex;justify-content:space-around;padding:7px 4px 16px;border-top:1px solid var(--line2);background:var(--surface)}
+  [data-view="panel"] .pn-bot span{display:flex;flex-direction:column;align-items:center;gap:2px;font:500 10px var(--body);color:var(--muted);position:relative}
+  [data-view="panel"] .pn-bot span.on{color:var(--accent);font-weight:600}
+  [data-view="panel"] .pn-bot i{width:18px;height:3px;border-radius:2px;background:currentColor;opacity:.6}
+  [data-view="panel"] .pn-bot em{position:absolute;top:-6px;right:-10px;font:700 9px/14px var(--mono);font-style:normal;min-width:14px;padding:0 4px;border-radius:999px;background:var(--wait);color:var(--surface)}
+
+  /* ===== кадры экрана ===== */
+  [data-view="panel"] .pn-io{padding:16px;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);gap:18px}
+  @media (max-width:780px){[data-view="panel"] .pn-io{grid-template-columns:minmax(0,1fr)}}
+  [data-view="panel"] .pn-io>div{display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="panel"] .pn-ioh{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  [data-view="panel"] .pn-ioh h3{font-size:15.5px}
+  [data-view="panel"] .pn-iot{font-size:14px;color:var(--muted)}
+  [data-view="panel"] .pn-frl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+  [data-view="panel"] .pn-frl li{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);gap:2px 10px;font-size:13px;padding:6px 9px;border-radius:9px;background:var(--surface2);border:1px solid var(--line2)}
+  [data-view="panel"] .pn-frl li.gap{border:1px dashed var(--wait);background:transparent}
+  [data-view="panel"] .pn-frl code{font:600 12px var(--mono)}
+  [data-view="panel"] .pn-frl i{font:500 11.5px var(--mono);font-style:normal;text-align:right;color:var(--muted)}
+  [data-view="panel"] .pn-frl span{grid-column:1 / -1;color:var(--muted);font-size:12.5px}
+  [data-view="panel"] .pn-dir{display:flex;gap:6px;align-items:center}
+  [data-view="panel"] .pn-dir::before{font:700 13px var(--mono);color:var(--accent)}
+  [data-view="panel"] .pn-dir.out::before{content:"→"}
+  [data-view="panel"] .pn-dir.in::before{content:"←";color:var(--ok)}
+
+  /* ===== карта возможностей ===== */
+  [data-view="panel"] .pn-sbar{display:flex;height:30px;border-radius:9px;overflow:hidden;border:1px solid var(--line)}
+  [data-view="panel"] .pn-sbar button{border:0;border-radius:0;padding:0 6px;font:700 13px var(--mono);display:flex;align-items:center;justify-content:center;min-width:30px;white-space:nowrap;overflow:hidden}
+  [data-view="panel"] .pn-sbar button[aria-pressed="true"]{outline:3px solid var(--ink);outline-offset:-3px}
+  [data-view="panel"] .s-ok{background:var(--ok-weak);color:var(--ok)}
+  [data-view="panel"] .s-gap{background:var(--wait-weak);color:var(--wait)}
+  [data-view="panel"] .s-no{background:var(--bad-weak);color:var(--bad)}
+  [data-view="panel"] .s-fl{background:var(--surface2);color:var(--muted)}
+  [data-view="panel"] .pn-leg{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted)}
+  [data-view="panel"] .pn-leg i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+  [data-view="panel"] .pn-fm{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+  [data-view="panel"] .pn-fmh,[data-view="panel"] .pn-fmr{display:grid;grid-template-columns:42px minmax(0,1.25fr) minmax(0,.7fr) minmax(0,1.6fr) 132px;gap:10px;padding:7px 12px;align-items:start}
+  [data-view="panel"] .pn-fmh{font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);background:var(--surface2);border-bottom:1px solid var(--line)}
+  [data-view="panel"] .pn-fmr{border-bottom:1px solid var(--line2);font-size:13px}
+  [data-view="panel"] .pn-fmr:last-child{border-bottom:0}
+  [data-view="panel"] .pn-fmg{padding:8px 12px 4px;font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:var(--surface);border-bottom:1px solid var(--line2)}
+  [data-view="panel"] .pn-fmr .v{font:600 11.5px var(--mono);color:var(--muted)}
+  [data-view="panel"] .pn-fmr .fr{font:500 12px var(--mono);color:var(--muted);word-break:break-word}
+  [data-view="panel"] .pn-fmr .fr b{color:var(--ink);font-weight:600}
+  [data-view="panel"] .pn-fmr .nt{display:block;font:400 12px var(--body);color:var(--muted);margin-top:2px}
+  [data-view="panel"] .pn-fmr .sc{font:600 11.5px var(--body);padding:3px 8px;border-radius:7px;background:var(--surface2);text-align:left}
+  [data-view="panel"] .pn-fmr .sc.none{border:0;background:none;color:var(--muted);font-weight:500;cursor:default;padding-left:0}
+  [data-view="panel"] .pn-fmr .pill{justify-self:start}
+  @media (max-width:760px){
+    [data-view="panel"] .pn-fmh{display:none}
+    [data-view="panel"] .pn-fmr{grid-template-columns:38px minmax(0,1fr) auto;gap:4px 10px}
+    [data-view="panel"] .pn-fmr>.c3{grid-column:2 / -1}
+    [data-view="panel"] .pn-fmr>.c4{grid-column:2 / -1}
+    [data-view="panel"] .pn-fmr>.c5{grid-column:3;grid-row:1}
+  }
+
+  /* ===== ядро и модули ===== */
+  [data-view="panel"] .pn-arch{display:grid;grid-template-columns:minmax(0,1.25fr) 120px minmax(0,1fr);gap:14px;align-items:stretch}
+  @media (max-width:780px){[data-view="panel"] .pn-arch{grid-template-columns:minmax(0,1fr)}}
+  [data-view="panel"] .pn-zone{border:1.5px dashed var(--line);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="panel"] .pn-zone>.lbl{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  [data-view="panel"] .pn-core{border:2px solid var(--accent);border-radius:10px;background:var(--accent-weak);padding:8px 10px;display:flex;flex-direction:column;gap:6px}
+  [data-view="panel"] .pn-core b{font:600 13px var(--mono)}
+  [data-view="panel"] .pn-core div{display:flex;flex-wrap:wrap;gap:4px}
+  [data-view="panel"] .pn-core div span{font-size:11.5px;background:var(--surface);border-radius:6px;padding:2px 7px}
+  [data-view="panel"] .pn-mgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  [data-view="panel"] .pn-mb{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;padding:7px 9px;background:var(--surface2);border-radius:10px;min-width:0}
+  [data-view="panel"] .pn-mb code{font-weight:600;font-size:12.5px}
+  [data-view="panel"] .pn-mb span{font-weight:500;font-size:11.5px;color:var(--muted);line-height:1.3}
+  [data-view="panel"] .pn-mb.ext{border:1px dashed var(--line);background:var(--surface);text-decoration:none;color:var(--ink)}
+  [data-view="panel"] .pn-mb.shared{box-shadow:inset 3px 0 0 var(--ok)}
+  [data-view="panel"] .pn-mb[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="panel"] .pn-mb[aria-pressed="true"] span{color:var(--on-accent)}
+  [data-view="panel"] .pn-relay{border:2px solid var(--line);border-radius:12px;background:var(--surface2);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:10px;text-align:center;font-size:12px;color:var(--muted)}
+  [data-view="panel"] .pn-relay b{font:600 13px var(--mono);color:var(--ink)}
+  [data-view="panel"] .pn-relay i{font-style:normal;font:700 16px var(--mono);color:var(--accent)}
+  [data-view="panel"] .pn-hm{display:flex;flex-direction:column;gap:5px}
+  [data-view="panel"] .pn-hm a{display:flex;justify-content:space-between;gap:8px;align-items:baseline;text-decoration:none;color:var(--ink);border:1px solid var(--line2);border-radius:9px;padding:5px 9px;background:var(--surface);font-size:12px}
+  [data-view="panel"] .pn-hm a code{font-weight:600;font-size:12px}
+  [data-view="panel"] .pn-hm a span{color:var(--muted);font-size:11.5px;text-align:right}
+  [data-view="panel"] .pn-hm a.on{border-color:var(--accent);background:var(--accent-weak)}
+  [data-view="panel"] .pn-hm a.dim{opacity:.38}
+  [data-view="panel"] .pn-mdet{border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0;background:var(--surface)}
+  [data-view="panel"] .pn-gv{display:flex;flex-direction:column;gap:5px}
+  [data-view="panel"] .pn-gv div{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+  [data-view="panel"] .pn-gv .gt{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent);min-width:10ch}
+  [data-view="panel"] .pn-gv .gx{font-size:13px;min-width:0;flex:1}
+  [data-view="panel"] .pn-routes{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:6px}
+  [data-view="panel"] .pn-routes div{display:flex;flex-direction:column;gap:1px;border:1px solid var(--line2);border-radius:9px;padding:6px 10px;background:var(--surface);min-width:0}
+  [data-view="panel"] .pn-routes code{font:600 12px var(--mono);word-break:break-all}
+  [data-view="panel"] .pn-routes span{font-size:12px;color:var(--muted)}
+  [data-view="panel"] .pn-routes div.fl{border-style:dashed}
+
+  /* ===== вход ===== */
+  [data-view="panel"] .pn-flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  @media (max-width:780px){[data-view="panel"] .pn-flow{grid-template-columns:minmax(0,1fr)}}
+  [data-view="panel"] .pn-step{border:1px solid var(--line2);border-radius:10px;padding:9px 11px;background:var(--surface2);display:flex;flex-direction:column;gap:4px;min-width:0}
+  [data-view="panel"] .pn-step b{font:700 12px var(--mono);color:var(--accent)}
+  [data-view="panel"] .pn-step span{font-size:13px}
+  [data-view="panel"] .pn-step code{font-size:11.5px;word-break:break-all}
+  [data-view="panel"] .pn-scroll{overflow-x:auto}
+  [data-view="panel"] .pn-tbl{border-collapse:collapse;font-size:12.5px;width:100%;min-width:520px}
+  [data-view="panel"] .pn-tbl th,[data-view="panel"] .pn-tbl td{padding:5px 10px;border-bottom:1px solid var(--line2);text-align:left;vertical-align:top}
+  [data-view="panel"] .pn-tbl th{font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="panel"] .pn-tbl td code{font-size:11.5px}
+  [data-view="panel"] .var svg{width:100%;height:auto;display:block}
+  [data-view="panel"] .pn-v .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="panel"] .pn-v .bx.hi{stroke:var(--accent);stroke-width:2}
+  [data-view="panel"] .pn-v .bx.am{fill:var(--wait-weak);stroke:var(--wait)}
+  [data-view="panel"] .pn-v .tx{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="panel"] .pn-v .lt{fill:var(--muted);font:500 10px var(--body)}
+  [data-view="panel"] .pn-v .ln{stroke:var(--accent);stroke-width:2;fill:none}
+  [data-view="panel"] .pn-v .ln.dim{stroke:var(--muted);stroke-dasharray:4 4}
+
+  /* ===== где живёт ===== */
+  [data-view="panel"] .pn-where{display:flex;flex-direction:column;gap:6px}
+  [data-view="panel"] .pn-wr{display:grid;grid-template-columns:minmax(0,1fr) 22px minmax(0,1.3fr) 108px;gap:8px;align-items:center;padding:7px 10px;border:1px solid var(--line2);border-radius:10px;background:var(--surface);font-size:13px}
+  [data-view="panel"] .pn-wr>i{font-style:normal;color:var(--accent);font-weight:700;text-align:center}
+  [data-view="panel"] .pn-wr .own{font:600 11.5px var(--mono);color:var(--accent)}
+  [data-view="panel"] .pn-wr .own a{text-decoration:none}
+  [data-view="panel"] .pn-wr small{display:block;color:var(--muted);font-size:12px}
+  @media (max-width:640px){
+    [data-view="panel"] .pn-wr{grid-template-columns:minmax(0,1fr) auto}
+    [data-view="panel"] .pn-wr>i{display:none}
+    [data-view="panel"] .pn-wr>div:nth-child(3){grid-column:1 / -1;grid-row:2}
+  }
+  [data-view="panel"] .pn-keep{display:flex;gap:8px;flex-wrap:wrap;align-items:center;font-size:13px}
+  [data-view="panel"] .pn-keep span{border:1.5px solid var(--ok);border-radius:9px;padding:4px 10px;background:var(--ok-weak);color:var(--ok);font-weight:600}
+
+  /* ===== пробелы контрактов ===== */
+  [data-view="panel"] .pn-gaps{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}
+  [data-view="panel"] .pn-gp{border:1.5px dashed var(--wait);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:6px;background:var(--surface);min-width:0}
+  [data-view="panel"] .pn-gp b{font-size:14px}
+  [data-view="panel"] .pn-gp p{font-size:13px;color:var(--muted)}
+  [data-view="panel"] .pn-gp .to{font:600 12px var(--mono);color:var(--ink);word-break:break-word}
+  [data-view="panel"] .pn-gp .to a{font-weight:600}
+  [data-view="panel"] .pn-nos{display:flex;flex-direction:column;gap:5px}
+  [data-view="panel"] .pn-nos div{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr);gap:10px;font-size:13px;padding:6px 10px;border-radius:9px;background:var(--surface2)}
+  [data-view="panel"] .pn-nos div b{font-weight:600}
+  [data-view="panel"] .pn-nos div span{color:var(--muted)}
+  @media (max-width:640px){[data-view="panel"] .pn-nos div{grid-template-columns:minmax(0,1fr)}}
+  [data-view="panel"] .pn-ftbl td:first-child{white-space:nowrap}
+</style>
+
+<header class="vhead chg" data-chg="panel-head">
+  <span class="pill acc kind">веб-приложение</span>
+  <h1>Пульт: сессии и чат</h1>
+  <p class="lead">Пульт — веб-приложение владельца флота для компьютера: управлять флотом. Все сессии Claude Code на всех машинах, новая сессия, чат с любой из них, её вопросы, настройки и журнал. Это отдельное приложение со своим выпуском и адресом; <a href="#phone">телефон</a> — второе, с другим фокусом. Общие пакеты обоих — ядро, список, карточка, чат, вопрос, уведомления — описаны в виде <a href="#phone">каркас и телефон</a>; здесь — как они стоят в пульте и свой модуль новой сессии. Своего сервера у пульта нет: страница говорит только с relay — по wss и ключом флота этого компьютера; каждое действие исполняет модуль Host на машине сессии, каждое число приходит из roster или из ответа модуля. Аккаунты, машины, точки и журнал флота — вид <a href="#panel-fleet">пульт: флот</a>.</p>
+  <div class="names">
+    <span><b>panel-desk</b> имя компьютера с пультом во флоте: одно устройство — один ключ</span>
+    <span><b>client.panel-desk.k3f1</b> ключ флота этого компьютера — единственный вход; из ссылки, в хранилище браузера</span>
+    <span><b>roster</b> от relay: машины с их contract, сессии с полями модулей, клиенты</span>
+    <span><b>callsign</b> адрес сессии: site@laptop</span>
+    <span><b>web-*</b> общие пакеты с телефоном — описаны в <a href="#phone">каркасе</a></span>
+    <span><b>switchboard-pult</b> адрес пульта: свой Worker со статикой, папка <code>web/pult/</code></span>
+  </div>
+</header>
+
+<!-- ===== ЭКРАНЫ ===== -->
+<section class="chg" data-chg="panel-screens">
+  <div class="shead">
+    <h2>Экраны</h2>
+    <p>Флот home: машины laptop и pc, шесть сессий, 14:52. Выберите экран и состояние; нажимайте внутри окна — строки списка, вкладки, варианты ответа. «Узко» — тот же пульт в узком окне браузера. Под окном — что экран шлёт и получает; всё идёт через relay.</p>
+  </div>
+  <div class="card pn-shot">
+    <div class="pn-ctl">
+      <div class="pn-cg"><span class="lbl">экран</span><div class="chips" data-pn="scrs">
+        <button type="button" class="chip" data-scr="list">Сессии</button>
+        <button type="button" class="chip" data-scr="new">Новая сессия</button>
+        <button type="button" class="chip" data-scr="chat">Чат</button>
+        <button type="button" class="chip" data-scr="ask">Вопрос</button>
+        <button type="button" class="chip" data-scr="set">Настройки</button>
+        <button type="button" class="chip" data-scr="log">Журнал машины</button>
+        <button type="button" class="chip" data-scr="gal">Галерея карточек</button>
+        <button type="button" class="chip" data-scr="off">Связь и отказы</button>
+      </div></div>
+      <div class="pn-cg"><span class="lbl">состояние</span><div class="chips" data-pn="sts"></div></div>
+      <div class="pn-cg"><span class="lbl">ширина</span><div class="chips" data-pn="ws">
+        <button type="button" class="chip" data-w="wide">Компьютер</button>
+        <button type="button" class="chip" data-w="narrow">Узко</button>
+      </div></div>
+    </div>
+
+    <div class="pn-stage"><div class="pn-fit" data-pn="fit">
+      <div class="pn-dev" data-pn="dev">
+        <div class="pn-chrome"><i></i><i></i><i></i><span class="pn-url" data-pn="url">switchboard-pult.…workers.dev/<b>#sessions</b></span></div>
+        <div class="pn-app" data-pn="app" data-scr="list" data-st="all" data-pane="list">
+
+          <!-- колонка разделов -->
+          <aside class="pn-rail">
+            <div class="pn-brand"><span class="pn-logo">S</span>Пульт</div>
+            <button type="button" class="pn-nav new" data-go="new">＋ Новая сессия</button>
+            <button type="button" class="pn-nav on" data-go="list">Сессии<span class="pn-n">2</span></button>
+            <a class="pn-nav" href="#panel-fleet">Точки<span class="pn-n bad">2</span></a>
+            <a class="pn-nav" href="#panel-fleet">Аккаунты<span class="pn-n">1</span></a>
+            <a class="pn-nav" href="#panel-fleet">Машины</a>
+            <a class="pn-nav" href="#panel-fleet">Журнал флота</a>
+            <span class="pn-rcap">машины</span>
+            <span class="pn-rm" data-m="laptop"><i class="pn-d ok"></i>laptop</span>
+            <span class="pn-rm" data-m="pc"><i class="pn-d ok"></i>pc</span>
+            <span class="pn-me">panel-desk · k3f1</span>
+          </aside>
+
+          <div class="pn-main">
+            <div class="pn-banner" data-v="off.net"><span>Нет связи с relay · данные на 14:54 · снова через 4 с</span><button type="button" class="pn-b">Сейчас</button></div>
+            <div class="pn-banner" data-v="off.gone"><span>pc не на связи с 14:53 — её сессии серые, отправка им — отказ</span></div>
+            <div class="pn-board">
+
+              <!-- список сессий -->
+              <div class="pn-list">
+                <div class="pn-lh"><b>Сессии</b><button type="button" class="pn-b pri" data-go="new">＋ Новая</button></div>
+                <div class="pn-search">⌕ позывной, машина, слот, профиль…</div>
+                <div class="pn-seg"><span class="on all">Все <i>6</i></span><span data-only-need>Нужны вы <i>2</i></span><span>Отвечают <i>2</i></span></div>
+                <div class="pn-groups">
+                  <div class="pn-grp need">
+                    <div class="pn-gh need"><span>нужны вы</span><span>2</span></div>
+                    <button type="button" class="pn-row" data-cs="profiles" data-m="laptop" data-go="ask"><i class="pn-d wait"></i><b>profiles@laptop</b><span class="t wait">ждёт ответа</span><span class="m ask">? Какую базу мигрировать первой?</span></button>
+                    <button type="button" class="pn-row" data-cs="api" data-m="pc" data-go="set.failed"><i class="pn-d bad"></i><b>api@pc</b><span class="t bad">не поднялась</span><span class="m">pc · main · y0902 · sonnet · medium</span></button>
+                  </div>
+                  <div class="pn-grp">
+                    <div class="pn-gh"><span>в работе</span><span>2</span></div>
+                    <button type="button" class="pn-row" data-cs="site" data-m="laptop" data-go="chat"><i class="pn-d busy"></i><b>site@laptop</b><span class="t busy">отвечает</span><span class="m">laptop · main · infirex · opus · high · ops</span></button>
+                    <div class="pn-row" data-cs="poe" data-m="pc"><i class="pn-d busy"></i><b>poe-bot@pc</b><span class="t busy">отвечает</span><span class="m">pc · main · y0902 · sonnet · medium</span></div>
+                  </div>
+                  <div class="pn-grp">
+                    <div class="pn-gh"><span>свободны</span><span>1</span></div>
+                    <div class="pn-row" data-cs="wiki" data-m="laptop"><i class="pn-d ok"></i><b>wiki@laptop</b><span class="t ok">свободна</span><span class="m">laptop · bot · work3 · haiku · low · writer</span></div>
+                  </div>
+                  <div class="pn-grp">
+                    <div class="pn-gh"><span>остановлены</span><span>1</span></div>
+                    <button type="button" class="pn-row" data-cs="docs" data-m="pc" data-go="set.stopped"><i class="pn-d stop"></i><b>docs@pc</b><span class="t">остановлена</span><span class="m">pc · main · y0902 · sonnet</span></button>
+                    <div class="pn-row" data-cs="board" data-m="laptop" data-v="new.opened"><i class="pn-d busy"></i><b>board@laptop</b><span class="t busy">запускается</span><span class="m">laptop · main · infirex · ops</span></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- правая часть -->
+              <div class="pn-detail">
+
+                <!-- сводка -->
+                <div class="pn-sum" data-v="list new off.gone">
+                  <div class="pn-tiles">
+                    <div class="pn-tile"><b>2</b><span><i class="pn-d wait"></i>нужны вы</span></div>
+                    <div class="pn-tile"><b>2</b><span><i class="pn-d busy"></i>отвечают</span></div>
+                    <div class="pn-tile"><b>1</b><span><i class="pn-d ok"></i>свободны</span></div>
+                    <div class="pn-tile"><b>1</b><span><i class="pn-d stop"></i>остановлены</span></div>
+                  </div>
+                  <div class="pn-panel">
+                    <span class="pn-h4">слоты · поля slot и account из roster</span>
+                    <div class="pn-lim"><span>laptop · main · infirex</span><span class="pn-hint">site, profiles</span><em>2</em></div>
+                    <div class="pn-lim"><span>laptop · bot · work3</span><span class="pn-hint">wiki</span><em>1</em></div>
+                    <div class="pn-lim pn-gone-pc"><span>pc · main · y0902</span><span class="pn-hint">api, poe-bot, docs</span><em>3</em></div>
+                    <span class="pn-hint">лимиты аккаунтов — один экран на весь пульт: раздел <a href="#panel-fleet">Аккаунты</a></span>
+                  </div>
+                  <p class="pn-hint" style="text-align:center">Выберите сессию в списке.</p>
+                </div>
+
+                <!-- карточка сессии -->
+                <div class="pn-cardx" data-v="chat ask set log off.net off.mod">
+                  <div class="pn-ch">
+                    <span class="pn-back">‹</span>
+                    <!-- шапки по сессии -->
+                    <div class="pn-cht" data-v="chat set.run set.model off.net off.mod"><b>site@laptop</b><span class="pn-st busy">отвечает</span>
+                      <div class="pn-meta"><span class="pn-chip">laptop</span><span class="pn-chip">main · infirex</span><span class="pn-chip">opus · high</span><span class="pn-chip">ops</span><span class="pn-chip warn" title="machine.accounts — с 70 %">5 ч 82 %</span></div></div>
+                    <div class="pn-cht" data-v="ask"><b>profiles@laptop</b><span class="pn-st wait">ждёт ответа</span>
+                      <div class="pn-meta"><span class="pn-chip">laptop</span><span class="pn-chip">main · infirex</span><span class="pn-chip">sonnet · high</span><span class="pn-chip warn" title="machine.accounts — с 70 %">5 ч 82 %</span></div></div>
+                    <div class="pn-cht" data-v="set.failed log"><b>api@pc</b><span class="pn-st bad">не поднялась</span>
+                      <div class="pn-meta"><span class="pn-chip">pc</span><span class="pn-chip">main · y0902</span><span class="pn-chip">sonnet · medium</span></div></div>
+                    <div class="pn-cht" data-v="set.stopped"><b>docs@pc</b><span class="pn-st">остановлена</span>
+                      <div class="pn-meta"><span class="pn-chip">pc</span><span class="pn-chip">main · y0902</span><span class="pn-chip">sonnet</span></div></div>
+                    <div class="pn-acts">
+                      <span class="pn-b" title="поле roster remote.url — модуль remote">В claude.ai ↗</span>
+                      <button type="button" class="pn-b" data-v="chat set.run set.model off.net off.mod">■ Прервать</button>
+                    </div>
+                  </div>
+                  <div class="pn-tabs">
+                    <button type="button" class="pn-tab" data-tabgo="chat">Чат</button>
+                    <a class="pn-tab fl" href="#panel-fleet">Точки</a>
+                    <button type="button" class="pn-tab" data-tabgo="set">Настройки</button>
+                    <button type="button" class="pn-tab" data-tabgo="log">Журнал машины</button>
+                  </div>
+
+                  <!-- что от вас нужно -->
+                  <div class="pn-att bad" data-v="set.failed"><p><b>Не поднялась: процесс дважды вышел до готовности</b>Третьего запуска нет. Причина — в журнале машины pc.</p><button type="button" class="pn-b pri">Поднять</button><button type="button" class="pn-b" data-go="log">Почему →</button></div>
+                  <div class="pn-att wait" data-v="ask.open ask.form"><p><b>Задаёт вопрос: какую базу мигрировать первой?</b>Ответьте в чате ниже или в claude.ai — первый ответ выигрывает.</p><span class="pn-b">Ответить в claude.ai ↗</span></div>
+                  <div class="pn-att stop" data-v="set.stopped"><p><b>Остановлена в 12:10</b>Разговор цел: «Поднять» продолжит его по resume.</p><button type="button" class="pn-b pri">Поднять</button></div>
+
+                  <!-- чат -->
+                  <div class="pn-chat" data-v="chat ask off.net off.mod">
+                    <div class="pn-ctop" data-v="chat off.net"><span data-v="chat.turn chat.at chat.queue chat.lost chat.rewind off.net">фокус</span><span class="on" data-v="chat.focus">фокус</span><span>выгрузить .md</span></div>
+
+                    <!-- лента site -->
+                    <div class="pn-feed" data-v="chat off.net">
+                      <span class="pn-day">сегодня</span>
+                      <div class="pn-mine">Почини сборку на CI — падает с утра<small>14:40 · ✓✓</small></div>
+                      <button type="button" class="pn-rw" data-v="chat.turn chat.at chat.queue chat.lost" data-go="chat.rewind">↶ откатить файлы</button>
+                      <div class="pn-rwbox" data-v="chat.rewind">Откатить файлы к этому сообщению?<span class="pn-hint">проба: 2 файла · +4 −1 · команды Bash не откатываются</span><div><button type="button" class="pn-b" data-go="chat.turn">Отмена</button><button type="button" class="pn-b pri">Откатить</button></div></div>
+                      <p class="pn-ai" data-v="chat.turn chat.at chat.queue chat.lost chat.rewind off.net">Смотрю лог CI. Падает <code>test/worker.test.ts</code>: таймаут 5 с на холодном старте.</p>
+                      <div class="pn-tool" data-v="chat.turn chat.at chat.queue chat.lost chat.rewind off.net"><b>Read</b><span>test/worker.test.ts</span><em>✓</em></div>
+                      <div class="pn-tool" data-v="chat.turn chat.at chat.queue chat.lost chat.rewind off.net"><b>Edit</b><span>src/worker.ts · +4 −1</span><em>✓</em></div>
+                      <div class="pn-diff" data-v="chat.turn chat.rewind"><span class="del">−   testTimeout: 5000,</span><br><span class="add">+   testTimeout: 15000,</span></div>
+                      <div class="pn-tool run" data-v="chat.turn chat.at chat.queue chat.lost chat.rewind off.net"><b>Bash</b><span>npm test</span><em>идёт 18 с</em><button type="button" class="pn-b">В фон</button></div>
+                      <p class="pn-ai" data-v="chat.turn chat.at chat.queue chat.lost chat.rewind off.net">Тесты идут: 41 из 58.</p>
+                      <div class="pn-steps" data-v="chat.focus">4 шага · Read · Edit · Bash ×2 — развернуть</div>
+                      <p class="pn-ai" data-v="chat.focus">Сборка зелёная. Причина — холодный кэш на CI: поднял таймаут до 15 с и прогрел кэш в шаге установки.</p>
+                      <div class="pn-res" data-v="chat.focus">ход закончен · 2 мин 14 с · 6 шагов · $0,41 · контекст 21 %</div>
+                      <div class="pn-mine qd" data-v="chat.queue">И обнови README по итогам<small>в очереди · ✓</small></div>
+                      <div class="pn-mine lost" data-v="chat.lost off.net">Задеплой на стенд<small>не подтверждено · отправить ещё раз</small></div>
+                    </div>
+
+                    <!-- лента profiles с вопросом -->
+                    <div class="pn-feed" data-v="ask">
+                      <span class="pn-day">сегодня</span>
+                      <div class="pn-mine from">Сведи миграции профилей и прогони на базе<small><span>с phone</span><span>14:31 · ✓✓</span></small></div>
+                      <div class="pn-tool"><b>Read</b><span>migrations/ · 3 файла</span><em>✓</em></div>
+                      <p class="pn-ai">Миграции сведены: 3 файла, конфликтов нет. Перед прогоном нужно выбрать базу.</p>
+                      <!-- вопрос: модуль ask -->
+                      <div class="pn-q" data-v="ask.open ask.mine ask.other" data-pn="q">
+                        <div class="pn-qh"><span class="pn-qchip">База</span><span class="pn-qn">вопрос 1 из 1 · 14:49</span></div>
+                        <div class="pn-qt">Какую базу мигрировать первой?</div>
+                        <div class="pn-opts">
+                          <button type="button" class="pn-opt" data-opt="прод" aria-pressed="false"><span><b>прод</b><small>Боевая база, 2,1 млн строк. Окно — ночью, с 02:00.</small></span></button>
+                          <button type="button" class="pn-opt" data-opt="стенд" aria-pressed="true"><span><b>стенд</b><small>Копия недельной давности. Можно сразу.</small></span></button>
+                          <button type="button" class="pn-opt own" aria-pressed="false"><span><b>Свой ответ</b><small>текстом</small></span></button>
+                        </div>
+                        <div class="pn-qf" data-v="ask.open"><span>Вопрос видят: phone, panel-desk</span><button type="button" class="pn-b pri" data-go="ask.mine">Ответить</button></div>
+                        <div class="pn-okc" data-v="ask.mine">Ответ «стенд» принят — profiles@laptop продолжила работу.</div>
+                        <div class="pn-waitc" data-v="ask.other">Уже ответили с phone: «прод». Первый ответ выигрывает — ваш не отправлен.</div>
+                      </div>
+                      <div class="pn-q" data-v="ask.form">
+                        <div class="pn-qh"><span class="pn-qchip">форма · jira</span><span class="pn-qn">MCP-сервер просит данные</span></div>
+                        <div class="pn-qt">Данные для новой задачи</div>
+                        <div class="pn-field"><span>project</span><span class="pn-in">WEB</span></div>
+                        <div class="pn-field"><span>summary</span><span class="pn-in">Миграция профилей на стенде</span></div>
+                        <div class="pn-qf"><span>поля — по JSON-схеме сервера</span><span class="pn-btns"><button type="button" class="pn-b">Отклонить</button><button type="button" class="pn-b pri">Отправить</button></span></div>
+                      </div>
+                    </div>
+
+                    <!-- модуль упал -->
+                    <div class="pn-modoff" data-v="off.mod"><b>Чат выключен до перезагрузки страницы</b><span>Модуль chat упал на кадре <code>session.events</code>: TypeError: event.message.content is undefined. Список, вопросы и настройки работают.</span></div>
+
+                    <!-- над вводом -->
+                    <div class="pn-docks" data-v="chat.turn chat.at chat.queue ask.open">
+                      <div class="pn-dock" data-v="chat.turn chat.at chat.queue"><b>В фоне</b><span>идёт 1 · npm run e2e · 1 мин 03 с</span><button type="button" class="pn-b">■ Стоп</button></div>
+                      <div class="pn-dock" data-v="chat.turn chat.at chat.queue"><b>Задачи</b><span>2 из 4 · Прогоняю тесты</span></div>
+                      <div class="pn-waitbar" data-v="ask.open">✋ Claude ждёт вашего ответа — к вопросу ↑</div>
+                    </div>
+                    <div class="pn-comp" data-v="chat ask off.net">
+                      <div class="pn-pop" data-v="chat.at"><small>файлы папки · session.files</small><div class="on">src/worker.ts</div><div>test/worker.test.ts</div><small>«/» — команды · session.call supportedCommands</small></div>
+                      <div class="pn-inp" data-v="chat.turn chat.queue chat.lost chat.rewind off.net">В очередь site@laptop — Claude возьмёт на границе шага</div>
+                      <div class="pn-inp typed" data-v="chat.at">Сравни с <mark>@wor</mark></div>
+                      <div class="pn-inp" data-v="chat.focus">Сообщение site@laptop — Enter; Shift+Enter — строка</div>
+                      <div class="pn-inp" data-v="ask">Сообщение profiles@laptop</div>
+                      <div class="pn-ctools"><span>＋ файл</span><span>@ файл</span><span>/ команда</span><span class="pn-send">↑</span></div>
+                    </div>
+                  </div>
+
+                  <!-- настройки -->
+                  <div class="pn-set" data-v="set">
+                    <div class="pn-panel">
+                      <span class="pn-h4">модель и ответ · session.update</span>
+                      <div class="pn-kv"><span>модель</span><span class="pn-segs"><span class="on" data-v="set.run">opus</span><span data-v="set.model set.failed set.stopped">opus</span><span data-v="set.run">sonnet</span><span class="on" data-v="set.model set.failed set.stopped">sonnet</span><span>haiku</span><span>fable</span></span><span></span></div>
+                      <div class="pn-kv"><span>усилие</span><span class="pn-segs"><span>low</span><span class="on" data-v="set.model set.failed set.stopped">medium</span><span data-v="set.run">medium</span><span class="on" data-v="set.run">high</span><span data-v="set.model set.failed set.stopped">high</span><span>xhigh</span><span>max</span></span><span></span></div>
+                      <div class="pn-kv"><span>быстрый</span><span class="pn-segs"><span class="on">выкл</span><span>вкл</span></span><span></span></div>
+                      <div class="pn-kv"><span>стиль</span><span class="pn-sel">default</span><span></span></div>
+                      <div class="pn-kv"><span>заголовок</span><span class="pn-sel" data-v="set.run set.model">Сайт: сборка CI</span><span class="pn-sel" data-v="set.failed">api</span><span class="pn-sel" data-v="set.stopped">docs</span><span class="pn-hint">в claude.ai</span></div>
+                      <div class="pn-btns"><button type="button" class="pn-b pri" data-go="set.model">Применить</button></div>
+                    </div>
+                    <div class="pn-panel">
+                      <span class="pn-h4">где работает</span>
+                      <div class="pn-kv"><span>слот</span><span class="pn-sel" data-v="set.run set.model">main · infirex</span><span class="pn-sel" data-v="set.failed set.stopped">main · y0902</span><span class="pn-hint">session.slot</span></div>
+                      <div class="pn-kv"><span>профиль</span><span class="pn-sel" data-v="set.run set.model">team/profiles/ops</span><span class="pn-sel" data-v="set.failed set.stopped">без профиля</span><span class="pn-hint">session.profile</span></div>
+                      <div class="pn-kv"><span>папка</span><span class="pn-sel" data-v="set.run set.model">~/Projects/site</span><span class="pn-sel" data-v="set.failed">~/Projects/api</span><span class="pn-sel" data-v="set.stopped">~/Projects/docs</span><span class="pn-hint">session.spec</span></div>
+                      <div class="pn-kv"><span>позывной</span><span class="pn-sel" data-v="set.run set.model">site@laptop</span><span class="pn-sel" data-v="set.failed">api@pc</span><span class="pn-sel" data-v="set.stopped">docs@pc</span><span class="pn-hint">не меняется</span></div>
+                    </div>
+                    <div class="pn-panel">
+                      <span class="pn-h4">сведения · session.call</span>
+                      <div class="pn-kv"><span>контекст</span><span class="pn-stack"><i style="width:4%;background:var(--muted)"></i><i style="width:6%;background:var(--accent)"></i><i style="width:2%;background:var(--wait)"></i><i style="width:9%;background:var(--ok)"></i></span><span class="pn-hint">21 %</span></div>
+                      <div class="pn-mcp"><i class="pn-d ok"></i><span>fleet · подключён</span><button type="button" class="pn-b">выкл</button></div>
+                      <div class="pn-mcp"><i class="pn-d wait"></i><span>github · нужен вход</span><button type="button" class="pn-b">переподключить</button></div>
+                      <div class="pn-kv"><span>субагенты</span><span class="pn-hint">Explore · Plan · general-purpose</span><span></span></div>
+                    </div>
+                    <div class="pn-panel">
+                      <span class="pn-h4">управление</span>
+                      <div class="pn-btns" data-v="set.run set.model"><button type="button" class="pn-b">■ Прервать</button><button type="button" class="pn-b">Стоп</button><button type="button" class="pn-b bad">Забыть…</button></div>
+                      <div class="pn-btns" data-v="set.failed set.stopped"><button type="button" class="pn-b pri">Поднять</button><button type="button" class="pn-b bad">Забыть…</button></div>
+                      <span class="pn-hint">Стоп — после текущей команды, разговор цел. Забыть — сессия уходит из списка; если она была в R2, её точки остаются в «Точках» как «только в R2».</span>
+                    </div>
+                  </div>
+                  <div class="pn-toast" data-v="set.model">модель и усилие — сразу, ход не прерван · стиль — сразу</div>
+
+                  <!-- журнал сессии: экран модуля journal раздела «флот» -->
+                  <div class="pn-log" data-v="log">
+                    <div class="pn-lf"><span>все</span><span class="on">stop</span><span>refuse</span><span>note</span><span class="on">api@pc ✕</span><span>pc · сегодня</span></div>
+                    <div class="pn-lr"><span>13:58:02</span><span class="k note">note</span><span>host · core</span><span class="w">spawn api@pc · <b>~/Projects/api</b></span></div>
+                    <div class="pn-lr"><span>13:58:03</span><span class="k stop">stop</span><span>keeper</span><span class="w">claude вышел, код 1 · <b>ENOENT: chdir ~/Projects/api</b></span></div>
+                    <div class="pn-lr"><span>13:58:03</span><span class="k stop">stop</span><span>host · journal</span><span class="w">sdk.result · <b>cwd_unavailable</b></span></div>
+                    <div class="pn-lr"><span>13:58:04</span><span class="k note">note</span><span>host · core</span><span class="w">resume api@pc</span></div>
+                    <div class="pn-lr"><span>13:58:05</span><span class="k stop">stop</span><span>host · core</span><span class="w">failed · <b>второй сбой до initialize — третьего запуска нет</b></span></div>
+                    <div class="pn-lr more" data-v="log.more">ещё раньше · since = 13:58:02</div>
+                    <span class="pn-hint">Записи host и keeper машины pc с этим позывным — как в файлах. «Журнал флота» в колонке — другой: журнал флота, раздел «флот».</span>
+                  </div>
+                </div>
+
+                <!-- галерея карточек -->
+                <div class="pn-gal" data-v="gal">
+                  <figure class="pn-gc"><div class="pn-mine">Почини сборку<small>14:40 · ✓✓</small></div><figcaption><b>Ваше сообщение</b>✓ — reply ok на session.prompt; ✓✓ — этот uuid пришёл в ленте</figcaption></figure>
+                  <figure class="pn-gc"><p class="pn-ai">Сборка зелёная. Поднял таймаут до 15 с.</p><figcaption><b>Ответ Claude</b>assistant · text — markdown, «копировать»</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-tool run"><b>Bash</b><span>npm test</span><em>18 с</em></div><figcaption><b>Команда идёт</b>assistant · tool_use и tool_progress — секунды</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-diff" style="margin:0"><span class="del">− testTimeout: 5000,</span><br><span class="add">+ testTimeout: 15000,</span></div><figcaption><b>Правка с diff</b>tool_use Edit и его tool_result</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-tool"><b>Task</b><span>Explore · ищет тесты CI</span><em>3 шага</em></div><figcaption><b>Субагент</b>system task_started · task_progress</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-res">ход · 2 мин 14 с · 6 шагов · $0,41</div><figcaption><b>Итог хода</b>result · success: время, шаги, стоимость</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-sys">контекст сжат · 182 К → 41 К</div><figcaption><b>Сжатие</b>system compact_boundary</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-sys acc">слот main: infirex → y0902 · тот же ход</div><figcaption><b>Подмена аккаунта</b>в roster сменилось поле account (slots)</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-peer"><i>сессия Claude · poe-bot@pc</i>Станция собрана. Прогони эталоны?</div><figcaption><b>Сообщение другой сессии</b>ввод с тегом fleet-message (fleet)</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-sys">повтор запроса к API · 2 из 10 · 529</div><figcaption><b>Повтор API</b>system api_retry</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-sys bad">ход оборвался: rate_limit · сброс в 16:20</div><figcaption><b>Ход с ошибкой</b>result · error_*</figcaption></figure>
+                  <figure class="pn-gc"><div class="pn-steps">Подсказка: «Закоммить правку» — Tab</div><figcaption><b>Подсказка следующего</b>prompt_suggestion — после result <span class="pn-gapm">опция query()</span></figcaption></figure>
+                </div>
+
+              </div>
+            </div>
+          </div>
+
+          <!-- нижняя полоса на узком -->
+          <nav class="pn-bot" aria-label="Разделы пульта">
+            <span class="on">Сессии<em>2</em><i></i></span><span>Точки<i></i></span><span>Аккаунты<i></i></span><span>Машины<i></i></span><span>Журнал флота<i></i></span>
+          </nav>
+
+          <!-- новая сессия: модуль open -->
+          <div class="pn-modal" data-v="new.form new.browse new.taken">
+            <div class="pn-dlg">
+              <b>Новая сессия</b>
+              <div class="pn-fr"><span>машина</span><span class="pn-segs"><span class="on">laptop</span><span>pc</span></span></div>
+              <div class="pn-fr"><span>слот</span><div class="pn-two">
+                <div class="pn-slot on"><b>main</b><span>infirex · 2 сессии · 5 ч 82 %</span></div>
+                <div class="pn-slot"><b>bot</b><span>work3 · 1 сессия · 5 ч 4 %</span></div>
+              </div></div>
+              <div class="pn-fr"><span>профиль</span><span class="pn-sel">team/profiles/ops · opus · high</span></div>
+              <div class="pn-fr"><span>папка</span><span class="pn-btns" style="flex-wrap:nowrap"><span class="pn-in" style="flex:1">~/Projects/switchboard</span><button type="button" class="pn-b" data-go="new.browse">Обзор</button></span></div>
+              <div class="pn-fb" data-v="new.browse">
+                <div class="pn-fbt"><b>~/Projects</b><button type="button" class="pn-b">~ Домой</button><button type="button" class="pn-b">↑ Вверх</button><span>☐ скрытые</span></div>
+                <div class="pn-fl"><span>api</span><span>poe2</span><span>profiles</span><span>site</span><span class="on">switchboard</span><span>wiki</span></div>
+                <div class="pn-btns" style="justify-content:space-between"><span class="pn-gapm">создать папку — machine.mkdir</span><button type="button" class="pn-b pri" data-go="new.form">Выбрать эту папку</button></div>
+              </div>
+              <div class="pn-fr"><span>имя</span><span class="pn-btns" style="flex-wrap:nowrap"><span class="pn-in" style="flex:1" data-v="new.form new.browse">board</span><span class="pn-in" style="flex:1;border-color:var(--bad)" data-v="new.taken">site</span><span class="pn-hint" data-v="new.form new.browse">→ board@laptop</span></span></div>
+              <div class="pn-err" data-v="new.taken">name_taken — на laptop уже есть site@laptop</div>
+              <div class="pn-fr"><span>модель</span><span class="pn-segs"><span class="on">по профилю</span><span>opus</span><span>sonnet</span><span>haiku</span><span>fable</span></span></div>
+              <div class="pn-fr"><span>усилие</span><span class="pn-segs"><span class="on">по профилю</span><span>low</span><span>medium</span><span>high</span><span>xhigh</span><span>max</span></span></div>
+              <div class="pn-fr chg" data-chg="panel-new-r2"><span>в R2</span><span class="pn-btns"><span class="pn-segs" style="flex:none"><span class="on">выкл</span><span>вкл</span></span><span class="pn-hint">точки и перенос — только у сессий в R2; включить можно и потом, во вкладке «Точки»</span></span></div>
+              <div class="pn-dlgf"><button type="button" class="pn-b" data-go="list">Отмена</button><button type="button" class="pn-b pri" data-go="new.opened">Открыть сессию</button></div>
+            </div>
+          </div>
+          <div class="pn-toast" data-v="new.opened">board@laptop открывается — экран чата сессии</div>
+          <div class="pn-toast bad" data-v="off.gone">poe-bot@pc: не доставлено — pc не на связи. Черновик цел.</div>
+
+          <!-- стоп-экраны ядра -->
+          <div class="pn-stop" data-v="off.key"><span class="pn-ic">✕</span><b>Ключ отозван</b><p>relay закрыл hello словом <code>revoked</code>: ключ client.panel-desk.k3f1 больше не принимают. Пульт не переподключается. Новый ключ — ссылкой с машины владельца:</p><code>switchboard invite client panel-desk --url</code></div>
+          <div class="pn-stop" data-v="off.ver"><span class="pn-ic">!</span><b>Пульт устарел</b><p>У страницы proto 1, у relay — 2: hello закрыт словом <code>contract_mismatch</code>. Версию пульт не подбирает — перезагрузка возьмёт последний выпуск с адреса пульта.</p><button type="button" class="pn-b pri">Перезагрузить</button></div>
+        </div>
+      </div>
+    </div></div>
+
+    <div class="pn-io">
+      <div>
+        <div class="pn-ioh"><h3 data-pn="iot">Сессии</h3><span class="pill acc" data-pn="iom">модуль board</span></div>
+        <p class="pn-iot" data-pn="iox"></p>
+        <div><span class="lbl pn-dir out">шлёт</span><ul class="pn-frl" data-pn="out"></ul></div>
+        <div><span class="lbl pn-dir in">получает</span><ul class="pn-frl" data-pn="in"></ul></div>
+      </div>
+      <div>
+        <span class="lbl">кадры этого состояния</span>
+        <div class="codebox"><pre class="pn-pre" data-pn="code"></pre></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КАРТА ВОЗМОЖНОСТЕЙ ===== -->
+<section class="chg" data-chg="panel-map">
+  <div class="shead">
+    <h2>Возможности Пульта claude-fleet — чем закрыта каждая</h2>
+    <p>Строка — возможность Пульта про вход, сессии, чат, claude.ai и API. Справа — экран пульта, модуль, который её исполняет, и кадр. Нажмите полосу — останутся строки одного вида; нажмите экран — он откроется в витрине выше.</p>
+  </div>
+  <div class="card pn-pad">
+    <div class="pn-sbar" data-pn="sbar" role="group" aria-label="Фильтр по статусу"></div>
+    <div class="pn-leg" data-pn="leg"></div>
+    <div class="pn-fm" data-pn="fm"></div>
+  </div>
+</section>
+
+<!-- ===== ЯДРО И МОДУЛИ ===== -->
+<section class="chg" data-chg="panel-mods">
+  <div class="shead">
+    <h2>Пульт внутри: общие пакеты и свои</h2>
+    <p>Выпуск пульта — шесть общих с телефоном пакетов (описаны один раз, в <a href="#phone">каркасе</a>) и свои: новая сессия здесь, разделы флота — в виде <a href="#panel-fleet">флот</a>. Своего состояния о флоте у пульта нет — только последний roster в памяти, черновики и ключ. Нажмите модуль: справа загорятся модули Host, которых он зовёт.</p>
+  </div>
+  <div class="card pn-pad">
+    <div class="pn-arch">
+      <div class="pn-zone">
+        <span class="lbl"><span>браузер · switchboard-pult · web/pult</span><span>выпуск закрепляет версии</span></span>
+        <div class="pn-core">
+          <b>web-core · ядро — общий пакет, описан в <a href="#phone">каркасе</a></b>
+          <div><span>связь, запросы, маршрут</span><span>экраны, места, навигация</span><span>хранилище и гейт</span></div>
+        </div>
+        <div class="pn-mgrid">
+          <button type="button" class="pn-mb shared" data-mod="board"><code>web-board</code><span>список · общий с телефоном</span></button>
+          <button type="button" class="pn-mb" data-mod="open"><code>pult-open</code><span>новая сессия · свой пакет</span></button>
+          <button type="button" class="pn-mb shared" data-mod="card"><code>web-card</code><span>карточка · общая с телефоном</span></button>
+          <button type="button" class="pn-mb shared" data-mod="chat"><code>web-chat</code><span>лента и ввод · общий с телефоном</span></button>
+          <button type="button" class="pn-mb shared" data-mod="ask"><code>web-ask</code><span>вопрос · общий с телефоном</span></button>
+          <button type="button" class="pn-mb" data-mod="core"><code>web-core</code><span>ядро · общее</span></button>
+          <a class="pn-mb ext" href="#panel-fleet"><code>pult-accounts</code><span>раздел «флот»</span></a>
+          <a class="pn-mb ext" href="#panel-fleet"><code>pult-machines</code><span>раздел «флот»</span></a>
+          <a class="pn-mb ext" href="#panel-fleet"><code>pult-points · journal</code><span>раздел «флот»</span></a>
+        </div>
+      </div>
+      <div class="pn-relay"><i>⇄</i><b>relay</b>wss · ключ в hello<br>везёт кадры по callsign, machine, to<i>⇄</i></div>
+      <div class="pn-zone">
+        <span class="lbl"><span>Host машины сессии</span><span>модули</span></span>
+        <div class="pn-hm" data-pn="hm">
+          <a href="#host-manage" data-h="manage"><code>manage</code><span>session.open · update · call · spec · stop · start · remove</span></a>
+          <a href="#host-chat" data-h="chat"><code>chat</code><span>session.prompt · history · files</span></a>
+          <a href="#host-watch" data-h="watch"><code>watch</code><span>session.watch · unwatch · events</span></a>
+          <a href="#host-questions" data-h="questions"><code>questions</code><span>question · answered · answer · question.list</span></a>
+          <a href="#host-slots" data-h="slots"><code>slots</code><span>machine.slots · session.slot · поля slot, account</span></a>
+          <a href="#host-accounts" data-h="accounts"><code>accounts</code><span>machine.accounts — лимиты</span></a>
+          <a href="#host-profiles" data-h="profiles"><code>profiles</code><span>machine.profiles · session.profile · поле profile</span></a>
+          <a href="#host-remote" data-h="remote"><code>remote</code><span>поле remote: ссылка в claude.ai</span></a>
+          <a href="#host-machine" data-h="machine"><code>machine</code><span>machine.dirs · machine.mkdir</span></a>
+          <a href="#host-journal" data-h="journal"><code>journal</code><span>machine.journal — вкладка «Журнал машины»</span></a>
+          <a href="#host" data-h="core"><code>ядро Host</code><span>поля state, failed · contract в hello</span></a>
+          <a href="#relay" data-h="relay"><code>relay</code><span>roster</span></a>
+        </div>
+      </div>
+    </div>
+    <div class="pn-mdet" data-pn="mdet"></div>
+    <span class="lbl">адреса экранов — после #, страница одна</span>
+    <div class="pn-routes">
+      <div><code>#sessions</code><span>список и сводка · board</span></div>
+      <div><code>#sessions/new</code><span>новая сессия · open</span></div>
+      <div><code>#sessions/site@laptop/chat</code><span>карточка и чат · card + chat</span></div>
+      <div><code>#sessions/site@laptop/set</code><span>настройки · card</span></div>
+      <div><code>#sessions/site@laptop/log</code><span>журнал машины по сессии · card</span></div>
+      <div class="fl"><code>#sessions/site@laptop/points</code><span>точки сессии · экран session.points раздела «флот»</span></div>
+      <div class="fl"><code>#points · #accounts · #machines · #journal</code><span>раздел «флот»</span></div>
+      <div><code>#gallery</code><span>галерея карточек · chat</span></div>
+    </div>
+    <p class="muted" style="font-size:13.5px">Где живёт: Worker <code>switchboard-pult</code> только отдаёт статику — страница, модули, обработчик пушей; выпуск и адрес — свои, не телефона. В сборке — только адрес relay: открытый ключ VAPID страница берёт у <a href="#push">push</a> запросом <code>push.key</code>; ключа флота и секретов в сборке нет. Выпуск пульта не трогает ни relay, ни Host, ни телефон: незнакомую машине возможность пульт видит по её <code>contract</code> в roster и кнопку не показывает.</p>
+  </div>
+</section>
+
+<!-- ===== ВХОД ===== -->
+<section class="chg" data-chg="panel-entry">
+  <div class="shead">
+    <h2>Вход: только ключ флота</h2>
+    <p>Пульт входит во флот, как телефон и Host: ключом флота в первом кадре hello. Другого входа нет — ни Cloudflare Access, ни почты перед страницей (слово пользователя 31 окт.). Ключ выдаёт владелец на своей машине, у каждого устройства свой; на сервер пульта он не попадает — часть адреса после # браузер не отправляет. Скрипты входят так же, своим ключом, и шлют те же кадры.</p>
+  </div>
+  <div class="card pn-pad">
+    <div class="pn-flow">
+      <div class="pn-step"><b>1 · выдать</b><span>на машине владельца, секрет флота — через stdin</span><code>switchboard invite client panel-desk --url</code></div>
+      <div class="pn-step"><b>2 · открыть</b><span>ссылка с ключом после #</span><code>https://switchboard-pult.…/#client.panel-desk.k3f1.Qa7…</code></div>
+      <div class="pn-step"><b>3 · сохранить</b><span>ядро кладёт ключ в своё хранилище и убирает его из адреса и истории</span></div>
+      <div class="pn-step"><b>4 · hello</b><span>relay зовёт gate.verify → roster. Отказ revoked или bad_key — экран с причиной, без повторов</span></div>
+    </div>
+    <div class="grid2">
+      <div class="pn-panel" style="padding:12px 14px">
+        <span class="lbl">скрипт: отправить и дождаться ответа</span>
+        <div class="codebox"><pre class="pn-pre">// ключ — из stdin или переменной окружения
+const ws = new WebSocket(RELAY_URL);
+ws.onopen = () => {
+  ws.send(JSON.stringify({ type: "hello", proto: 1, key }));
+  ws.send(JSON.stringify({ type: "message", id: "m-1", v: 1,
+    to: "site@laptop", text: "Прогони эталоны", wait: true }));
+};
+// ← { "type": "reply", "id": "m-1", "ok": true,
+//     "result": { "text": "Эталоны: 13 из 13." } }</pre></div>
+        <p class="pn-hint" style="font-size:12.5px">message с wait — контракт модуля fleet: ответ после конца хода, который взял сообщение.</p>
+      </div>
+      <div class="pn-panel" style="padding:12px 14px">
+        <span class="lbl">API Пульта claude-fleet → кадр</span>
+        <div class="pn-scroll"><table class="pn-tbl pn-ftbl">
+          <tr><th>Пульт, HTTP</th><th>у нас, кадр</th></tr>
+          <tr><td><code>GET /api/state</code></td><td><code>roster</code> после hello</td></tr>
+          <tr><td><code>POST /api/sessions</code></td><td><code>session.open</code></td></tr>
+          <tr><td><code>…/send {wait:'idle'}</code></td><td><code>message {wait:true}</code></td></tr>
+          <tr><td><code>…/last</code></td><td><code>session.history {limit}</code></td></tr>
+          <tr><td><code>…/rename · model · effort</code></td><td><code>session.update</code></td></tr>
+          <tr><td><code>…/stop · restart</code></td><td><code>session.stop · session.start</code></td></tr>
+          <tr><td><code>…/interrupt</code></td><td><code>session.call interrupt</code></td></tr>
+          <tr><td><code>…/forget</code></td><td><code>session.remove</code></td></tr>
+          <tr><td><code>…/history · answer</code></td><td><code>session.history · answer</code></td></tr>
+          <tr><td><code>/api/hosts/:h/dirs</code></td><td><code>machine.dirs</code></td></tr>
+        </table></div>
+        <p class="pn-hint" style="font-size:12.5px">Сессию называют позывным: имя уникально на машине (name_taken), машина — в адресе.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ГДЕ ЖИВЁТ СЕРВЕРНОЕ ===== -->
+<section class="chg" data-chg="panel-where">
+  <div class="shead">
+    <h2>Что Пульт держал на сервере — где это у нас</h2>
+    <p>У Пульта claude-fleet был Durable Object со снимком флота, лентой событий и мостом чата. У нас каждое из этого — у своего владельца; пульт только спрашивает и показывает.</p>
+  </div>
+  <div class="card pn-pad">
+    <div class="pn-where">
+      <div class="pn-wr"><div>Снимок донесений: компьютеры и сессии</div><i>→</i><div><span class="own"><a href="#relay">relay</a></span> roster из соединений<small>поля сессии — от владельцев: state — ядро Host, model и effort — manage, slot и account — slots, profile — profiles, remote — remote</small></div><span class="pill ok">не хранится</span></div>
+      <div class="pn-wr"><div>Желание сессии: папка, модель, аккаунт, профиль</div><i>→</i><div><span class="own"><a href="#host-manage">manage</a></span> спецификация сессии<small>слот — у slots, профиль — у profiles</small></div><span class="pill acc">хранилище Host</span></div>
+      <div class="pn-wr"><div>«Что от вас нужно»: ждёт, падает по кругу</div><i>→</i><div><span class="own"><a href="#host">ядро Host</a></span> state waiting, failed<small>сам вопрос — <a href="#host-questions">questions</a>: question.list</small></div><span class="pill ok">не хранится</span></div>
+      <div class="pn-wr"><div>Ждущие вопросы и кому ушли</div><i>→</i><div><span class="own"><a href="#host-questions">questions</a></span> адресаты; вопрос держит процесс claude</div><span class="pill acc">хранилище Host</span></div>
+      <div class="pn-wr"><div>Лента событий флота</div><i>→</i><div><span class="own"><a href="#ledger">ledger</a></span> журнал флота · ledger.read<small>экран «Журнал» раздела «флот»</small></div><span class="pill acc">хранилище ledger</span></div>
+      <div class="pn-wr"><div>Хвост журнала сессии</div><i>→</i><div><span class="own"><a href="#host-journal">journal</a></span> файлы машины · machine.journal с позывным<small>журнал relay — Workers Logs</small></div><span class="pill acc">файлы машины</span></div>
+      <div class="pn-wr"><div>Мост чата: chat_in, chat_out</div><i>→</i><div><span class="own"><a href="#host-watch">watch</a> · <a href="#host-chat">chat</a></span> session.events зрителям; session.prompt во ввод</div><span class="pill ok">не хранится</span></div>
+      <div class="pn-wr"><div>История разговора по запросу</div><i>→</i><div><span class="own"><a href="#host-chat">chat</a></span> файл сессии claude · session.history</div><span class="pill acc">файл claude</span></div>
+      <div class="pn-wr"><div>Входы, аккаунты, слой лимитов</div><i>→</i><div><span class="own"><a href="#host-accounts">accounts</a> · <a href="#host-slots">slots</a></span> machine.accounts · раздел <a href="#panel-fleet">«Аккаунты»</a><small>в карточке и новой сессии — тот же ответ, без пересчёта</small></div><span class="pill acc">хранилище Host</span></div>
+      <div class="pn-wr"><div>Точки, ветки, действия</div><i>→</i><div><span class="own"><a href="#points">points</a></span> раздел <a href="#panel-fleet">«Точки»</a><small>только у сессий в R2; отмены нет — удаление сразу</small></div><span class="pill s-fl">флот</span></div>
+      <div class="pn-wr"><div>Ссылка Remote Control</div><i>→</i><div><span class="own"><a href="#host-remote">remote</a></span> поле roster remote</div><span class="pill ok">не хранится</span></div>
+      <div class="pn-wr"><div>Кто нажал: почта из Access</div><i>→</i><div><span class="own"><a href="#relay">relay</a></span> from — имя ключа флота: panel-desk, phone</div><span class="pill ok">не хранится</span></div>
+    </div>
+    <div class="pn-keep"><span class="lbl">в браузере пульта</span><span>ключ флота</span><span>черновики по сессии</span><span>выбор «фокус»</span><span>последний roster — только в памяти</span></div>
+  </div>
+</section>
+
+<!-- ===== ЧЕГО НЕТ В КОНТРАКТАХ ===== -->
+<section class="chg" data-chg="panel-gaps">
+  <div class="shead">
+    <h2>Что пульту дают владельцы сверх API Пульта claude-fleet</h2>
+    <p>Четыре возможности Пульта claude-fleet закрыты у владельцев понятий: два имени, один открытый метод, один вклад в query(). Ниже — что не переносим и почему.</p>
+  </div>
+  <div class="pn-gaps">
+    <div class="pn-gp"><b>Папка и заголовок сессии</b><p>Карточка показывает, где работает сессия. Добавку к промпту даёт профиль — её видно в профиле, не в сессии.</p><span class="to">→ <a href="#host-manage">manage</a>: session.spec — папка у ядра, модель и усилие у manage, заголовок из файла разговора</span></div>
+    <div class="pn-gp"><b>Новая папка для сессии</b><p>Пульт создавал папку новой сессии. session.open без папки — bad_spec, и это верно: опечатка не должна создавать папок.</p><span class="to">→ <a href="#host-machine">machine</a>: machine.mkdir — явное «создать», отказ словом</span></div>
+    <div class="pn-gp"><b>Перечитать скиллы</b><p>«/» после правки скиллов. Метод reloadPlugins есть в типах Agent SDK, но не в открытом списке session.call.</p><span class="to">→ <a href="#host-manage">manage</a>: reloadPlugins — в открытые методы session.call</span></div>
+    <div class="pn-gp"><b>Подсказка следующего сообщения</b><p>Таблетка над вводом, Tab. SDK шлёт prompt_suggestion после result, если в query() включено promptSuggestions; лента его уже везёт.</p><span class="to">→ <a href="#host-chat">chat</a>: вклад в query() promptSuggestions: true</span></div>
+  </div>
+  <div class="card pn-pad">
+    <span class="lbl">не переносим</span>
+    <div class="pn-nos">
+      <div><b>Снять из очереди · вопрос сбоку /btw · вывод фоновой задачи</b><span>cancel_async_message, side_question, get_task_output — подвиды протокола без метода в Agent SDK; свой ввод в процесс не пишем</span></div>
+      <div><b>Вход MCP-сервера · «Claude» · выгрузка средствами claude</b><span>mcp_authenticate, get_status, export_conversation нет в типах SDK. Выгрузка разговора — из session.history на странице</span></div>
+      <div><b>Разрешения, план, режим разрешений, диалог отказа модели</b><span>режим «разрешено всё» у ядра Host: в canUseTool приходит только вопрос человеку, диалогов claude не шлёт</span></div>
+      <div><b>Правила разрешений и хуки в сведениях</b><span>правил нет — режим «разрешено всё»; хуки — вклады модулей Host, их видно в манифестах</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="panel-ets">
+  <div class="shead">
+    <h2>Эталоны пульта</h2>
+    <p>Стенд — страница в браузере без экрана с поддельным relay: на вход — кадры, на выходе — экран и отправленные кадры. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et chg" id="panel-et-180" data-chg="panel-et-180"><div class="et-n">180</div>
+      <div class="et-in">roster: profiles@laptop waiting, api@pc failed, site@laptop и poe-bot@pc busy, wiki@laptop idle, docs@pc stopped.</div>
+      <div class="et-out">Группы по порядку: «нужны вы» — profiles, api; «в работе» — site, poe-bot; «свободны» — wiki; «остановлены» — docs. Счётчик раздела — 2. Кроме hello пульт ничего не отправил.</div>
+      <div class="et-src">чьё: код claude-fleet — Sessions.tsx, группы «Нужны вы / В работе / Свободны / Остановлены» и счётчик «нужны вы»; устав — «Roster — из attachments живых соединений».</div></div>
+    <div class="et chg" id="panel-et-181" data-chg="panel-et-181"><div class="et-n">181</div>
+      <div class="et-in">«Новая»: машина laptop, слот main, профиль team/profiles/ops, «Обзор» — ~/Projects → switchboard, имя board, «Открыть». Второй прогон — имя site.</div>
+      <div class="et-out">Один session.open с machine: laptop, name: board, dir: ~/Projects/switchboard, slot: main, profile; reply с callsign board@laptop → экран чата board@laptop. pc не на связи — её в выборе нет. Второй — reply name_taken под полем имени, окно не закрыто.</div>
+      <div class="et-src">чьё: код claude-fleet — NewSession.tsx: компьютер только на связи, «Открыть сессию» → переход в чат; устав — «ошибки — словами».</div></div>
+    <div class="et chg" id="panel-et-182" data-chg="panel-et-182"><div class="et-n">182</div>
+      <div class="et-in">Открыт чат site@laptop. Пришли session.events seq 41 и 42 и ответ session.history; одно сообщение есть в обоих с тем же uuid. Затем пришёл seq 44.</div>
+      <div class="et-out">Порядок отправки: session.watch, потом session.history. Сообщение с общим uuid в ленте одно. На seq 44 — снова session.history, лента без дыр и без двойников.</div>
+      <div class="et-src">чьё: код claude-fleet — conn.ts: «повторы истории и потока — по uuid»; факт — опыт 17: лента и история через Host.</div></div>
+    <div class="et chg" id="panel-et-183" data-chg="panel-et-183"><div class="et-n">183</div>
+      <div class="et-in">site@laptop busy. Отправлено «И обнови README» с uuid 9c4d…; reply ok. Второе сообщение отправлено, и связь оборвалась до reply.</div>
+      <div class="et-out">Первое — «в очереди · ✓», после его uuid в ленте — ✓✓. Второе — «не подтверждено»; после hello пульт ищет его uuid в session.history: нашёл — ✓✓ без повтора, нет — кнопка «ещё раз» шлёт тот же uuid. Само ничего не переотправлено.</div>
+      <div class="et-src">чьё: код claude-fleet — «оборвался поток до эха — „не дошло“, „ещё раз“ (тем же uuid)»; устав — «В систему не встраиваются самопочинка… обходные пути».</div></div>
+    <div class="et chg" id="panel-et-184" data-chg="panel-et-184"><div class="et-n">184</div>
+      <div class="et-in">question от profiles@laptop с to: phone и panel-desk. Пульт отвечает «стенд». Второй прогон: раньше пришёл answered с by: phone и «прод».</div>
+      <div class="et-out">Первый — answer с id вопроса и answers, reply ok → «Ответ принят», варианты погашены. Второй — answer не отправлен; карточка «Уже ответили с phone: прод»; полоса «ждёт ответа» снята.</div>
+      <div class="et-src">чьё: устав — «AskUserQuestion … получает тот, кто дал задачу, и зрители сессии; первый ответ выигрывает»; факт — опыт 17.</div></div>
+    <div class="et chg" id="panel-et-185" data-chg="panel-et-185"><div class="et-n">185</div>
+      <div class="et-in">site@laptop посреди хода. В настройках: sonnet, medium — «Применить». Затем меняют профиль.</div>
+      <div class="et-out">Один session.update с model и effort; reply now: model, effort → «сразу, ход не прерван». Новые значения в шапке — из следующего roster, не из формы. Профиль — session.profile, reply restart: true → «после конца хода».</div>
+      <div class="et-src">чьё: код claude-fleet — SessionDetail.tsx: тост «Меняем модель…», идущий ответ дожидается; факт — Agent SDK 0.3.311: setModel меняет модель следующих ответов, applyFlagSettings применяет настройки посреди сессии.</div></div>
+    <div class="et chg" id="panel-et-186" data-chg="panel-et-186"><div class="et-n">186</div>
+      <div class="et-in">roster: api@pc state failed. Нажаты «Почему», затем «Поднять».</div>
+      <div class="et-out">Плашка «Не поднялась» с двумя кнопками. «Почему» — вкладка «Журнал машины»: machine.journal с machine: pc и callsign: api@pc. «Поднять» — session.start. Причину и фазу пульт не вычисляет: только state из roster и записи журнала.</div>
+      <div class="et-src">чьё: код claude-fleet — плашка «Падает по кругу — перезапуски остановлены» с «Перезапуск»; устав — «Система ловит, агент чинит».</div></div>
+    <div class="et chg" id="panel-et-187" data-chg="panel-et-187"><div class="et-n">187</div>
+      <div class="et-in">Открыт чат site, ждёт reply на session.prompt; relay закрыл соединение. Второй прогон: вкладку закрывают.</div>
+      <div class="et-out">Ждущий — disconnected сразу; полоса «нет связи»; hello с паузой 1, 2, 4 с; после roster — session.watch и session.history. Второй: новых запросов нет, session.unwatch для site, close(1000).</div>
+      <div class="et-src">чьё: устав — ветка «соединение оборвалось → клиенты переподключаются»; слово пользователя 30 окт. — «приложение отказоустойчиво и имеет graceful shutdown».</div></div>
+    <div class="et chg" id="panel-et-188" data-chg="panel-et-188"><div class="et-n">188</div>
+      <div class="et-in">В roster у pc в contract нет session.files и session.call; у laptop есть. Открыты чаты poe-bot@pc и site@laptop, набрано «@».</div>
+      <div class="et-out">У poe-bot нет подсказки файлов, списка «/», сведений и «Прервать»; эти запросы к pc не отправлены. У site — всё, session.files ушёл.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — в hello Host сообщает контракты модулей, клиенты проверяют возможности по roster.</div></div>
+    <div class="et chg" id="panel-et-189" data-chg="panel-et-189"><div class="et-n">189</div>
+      <div class="et-in">Открыт адрес с #client.panel-desk.k3f1.Qa7…; ключа в хранилище нет. Второй прогон: relay закрывает hello словом revoked.</div>
+      <div class="et-out">Ключ — в хранилище, из адреса и истории убран; hello с ним; в запросах к адресу пульта ключа нет. Второй — экран «Ключ отозван» с командой выдачи; повторных hello нет.</div>
+      <div class="et-src">чьё: факт — часть адреса после # браузер на сервер не отправляет (RFC 3986); устав — «Система ловит, агент чинит»; слово пользователя 31 окт. — вход в пульт только ключом флота, без Cloudflare Access.</div></div>
+    <div class="et chg" id="panel-et-260" data-chg="panel-et-260"><div class="et-n">260</div>
+      <div class="et-in">«Новая»: laptop, слот main, папка ~/Projects/switchboard, имя board; переключатель «в R2» не трогали — «Открыть». Второй прогон: «в R2» — вкл.</div>
+      <div class="et-out">Первый — один session.open, session.r2 не отправлен; в диалоге «в R2» стоит «выкл». Второй — тот же session.open, после reply с callsign board@laptop — session.r2 { callsign: "board@laptop", on: true }. Поля r2 в session.open нет ни в одном прогоне.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — «пометка „в R2“ у новой сессии — выключена по умолчанию»; «не все сессии нужны в R2. Мы должны помечать сессию как R2, чтобы она трекалась».</div></div>
+  </div>
+</section>
+
+<script>
+(function(){
+  const root = document.querySelector('[data-view="panel"]');
+  if (!root) return;
+  const $ = (s) => root.querySelector(s);
+  const $$ = (s) => Array.from(root.querySelectorAll(s));
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+
+  /* ===== экраны и состояния ===== */
+  const SCR = {
+    list: { st: [["all", "все"], ["need", "фильтр «нужны вы»"]], pane: "list", url: "#sessions" },
+    new:  { st: [["form", "заполнение"], ["browse", "обзор папок"], ["taken", "имя занято"], ["opened", "открывается"]], pane: "list", url: "#sessions/new" },
+    chat: { st: [["turn", "идёт ход"], ["at", "ввод «@»"], ["queue", "в очереди"], ["lost", "не дошло"], ["rewind", "откат файлов"], ["focus", "фокус"]], pane: "detail", url: "#sessions/site@laptop/chat", cs: "site" },
+    ask:  { st: [["open", "ждёт ответа"], ["mine", "ответ принят"], ["other", "уже ответили"], ["form", "форма MCP"]], pane: "detail", url: "#sessions/profiles@laptop/chat", cs: "profiles" },
+    set:  { st: [["run", "site — работает"], ["model", "смена модели"], ["failed", "api — не поднялась"], ["stopped", "docs — остановлена"]], pane: "detail", url: "#sessions/site@laptop/set", cs: "site" },
+    log:  { st: [["all", "записи stop"], ["more", "есть раньше"]], pane: "detail", url: "#sessions/api@pc/log", cs: "api" },
+    gal:  { st: [["all", "все карточки"]], pane: "detail", url: "#gallery" },
+    off:  { st: [["net", "нет связи"], ["gone", "машина ушла"], ["key", "ключ отозван"], ["ver", "версия"], ["mod", "модуль упал"]], pane: "detail", url: "#sessions/site@laptop/chat", cs: "site" },
+  };
+  const CS_OF = { "set.failed": "api", "set.stopped": "docs", "off.gone": "", "new.opened": "board" };
+  const URL_OF = { "set.failed": "#sessions/api@pc/set", "set.stopped": "#sessions/docs@pc/set", "off.gone": "#sessions", "off.key": "#sessions", "off.ver": "#sessions" };
+  const PANE_OF = { "off.gone": "list", "new.opened": "list" };
+
+  /* ===== что экран шлёт и получает ===== */
+  const V = { "host-points": "#host-points", relay: "#relay", gate: "#gate", core: "#host", manage: "#host-manage", chat: "#host-chat", watch: "#host-watch", questions: "#host-questions",
+    machine: "#host-machine", journal: "#host-journal", slots: "#host-slots", accounts: "#host-accounts", profiles: "#host-profiles", fleet: "#host-fleet", remote: "#host-remote" };
+  const IO = {
+    list: { t: "Сессии", m: "модуль board",
+      x: "Список и сводка — только из roster: другого источника у них нет. Группа «нужны вы» — state waiting и failed; строка вопроса — метка asked модуля ask, если пульт среди адресатов вопроса. Лимиты аккаунтов здесь не повторяются — они в разделе «Аккаунты».",
+      out: [],
+      in: [["roster", "relay", "сразу после hello и при каждом изменении: машины с contract, сессии с полями модулей, клиенты"],
+           ["question", "questions", "метка asked: текст вопроса в строке"]],
+      code: {
+        all: `← { "type": "roster",
+    "machines": [
+      { "machine": "laptop", "contract": { "session.open": 1,
+          "session.prompt": 1, "session.watch": 1, "answer": 1, … } },
+      { "machine": "pc", "contract": { … } } ],
+    "sessions": [
+      { "callsign": "profiles@laptop", "state": "waiting",
+        "model": "sonnet", "effort": "high",
+        "slot": { "name": "main", "wait": null },
+        "account": "infirex", "profile": null,
+        "remote": { "url": "https://claude.ai/code/session_01Pf…" } },
+      { "callsign": "api@pc", "state": "failed", … },
+      { "callsign": "site@laptop", "state": "busy",
+        "profile": { "id": "team/profiles/ops", "state": "ok" }, … },
+      … ],
+    "clients": [ "phone", "panel-desk" ] }`,
+        need: `// фильтр — на странице, запросов нет
+// «нужны вы» = state ∈ { waiting, failed }
+← roster — тот же, что для «все»` } },
+    new: { t: "Новая сессия", m: "модуль pult-open",
+      x: "Машина — только из roster, у которой session.open в contract. Слоты, профили и лимиты аккаунтов — у их владельцев на этой машине; папки — machine.dirs по шагу; «Вверх», «Домой», скрытые — на странице. Одна кнопка — один session.open: manage сам отдаёт slot и profile их владельцам. «В R2» выключено; включили — после reply ещё session.r2 машине новой сессии: пометку держит host-points, manage о ней не знает.",
+      out: [["machine.slots", "slots", "слоты машины, их аккаунты и сессии"], ["machine.accounts", "accounts", "лимиты аккаунтов — подсказка у слота"], ["machine.profiles", "profiles", "профили и модель по умолчанию"],
+            ["machine.dirs", "machine", "подпапки — на каждый шаг обзора"], ["session.open", "manage", "машине; ответ — callsign"], ["machine.mkdir", "machine", "создать папку"], ["session.r2", "host-points", "только если «в R2» вкл — после reply session.open"]],
+      in: [["reply", "владелец запроса", "на каждый запрос с id"], ["roster", "relay", "машины на связи; новая сессия: starting → idle"]],
+      code: {
+        form: `→ { "type": "machine.slots", "id": "o-1", "v": 1, "machine": "laptop" }
+← { "type": "reply", "id": "o-1", "ok": true, "result": { "slots": {
+      "main": { "account": "infirex", "sessions": [ "site@laptop", "profiles@laptop" ] },
+      "bot":  { "account": "work3",   "sessions": [ "wiki@laptop" ] } } } }
+→ { "type": "machine.profiles", "id": "o-2", "v": 1, "machine": "laptop" }`,
+        browse: `→ { "type": "machine.dirs", "id": "o-4", "v": 1,
+    "machine": "laptop", "path": "~/Projects" }
+← { "type": "reply", "id": "o-4", "ok": true, "result": {
+      "path": "~/Projects",
+      "dirs": [ "api", "poe2", "profiles", "site", "switchboard", "wiki" ] } }`,
+        taken: `→ { "type": "session.open", "id": "o-5", "v": 1, "machine": "laptop",
+    "name": "site", "dir": "~/Projects/switchboard", "slot": "main",
+    "profile": "team/profiles/ops" }
+← { "type": "reply", "id": "o-5", "ok": false, "error": "name_taken" }`,
+        opened: `→ { "type": "session.open", "id": "o-6", "v": 1, "machine": "laptop",
+    "name": "board", "dir": "~/Projects/switchboard", "slot": "main",
+    "profile": "team/profiles/ops" }
+← { "type": "reply", "id": "o-6", "ok": true,
+    "result": { "callsign": "board@laptop" } }
+→ { "type": "session.r2", "id": "o-7", "v": 1,
+    "callsign": "board@laptop", "on": true }   // только если «в R2» вкл
+← roster: board@laptop · starting` } },
+    chat: { t: "Чат", m: "модули card и chat",
+      x: "Карточка — шапка из roster, вкладки и «Прервать». Чат — зритель сессии: сначала session.watch, потом session.history, склейка по uuid; seq не следующий — снова история. Ввод — session.prompt с uuid от страницы; в занятую сессию сообщение встаёт в очередь ввода Host.",
+      out: [["session.watch", "watch", "при открытии; после каждого hello — заново"], ["session.history", "chat", "разговор до открытия и после разрыва seq"],
+            ["session.prompt", "chat", "текст и вложения, uuid ставит страница"], ["session.files", "chat", "подсказка «@»"],
+            ["session.call", "manage", "supportedCommands, interrupt, rewindFiles, stopTask, backgroundTasks"], ["session.unwatch", "watch", "при уходе с чата"]],
+      in: [["session.events", "watch", "пачки сообщений SDK раз в 100 мс; рисует по type"], ["roster", "relay", "шапка: state, model, effort, slot, account; remote.url — «В claude.ai»"], ["machine.accounts", "accounts", "лимит аккаунта сессии в шапке — с 70 %"], ["reply", "владелец", "✓ — reply ok на session.prompt"]],
+      code: {
+        turn: `→ { "type": "session.watch", "id": "w-7", "v": 1, "callsign": "site@laptop" }
+→ { "type": "session.history", "id": "h-7", "v": 1,
+    "callsign": "site@laptop", "before": null, "limit": 50 }
+← { "type": "session.events", "from": "site@laptop",
+    "to": [ "panel-desk" ], "seq": 42, "events": [
+      { "type": "assistant", "message": { "content": [
+        { "type": "tool_use", "name": "Bash", "input": { "command": "npm test" } } ] } },
+      { "type": "tool_progress", "tool_name": "Bash", "elapsed_time_seconds": 18 } ] }
+→ { "type": "session.call", "id": "k-2", "v": 1, "callsign": "site@laptop",
+    "method": "backgroundTasks", "args": [ "toolu_01Bx…" ] }   // «В фон»`,
+        at: `→ { "type": "session.files", "id": "f-2", "v": 1,
+    "callsign": "site@laptop", "query": "wor", "limit": 20 }
+← { "type": "reply", "id": "f-2", "ok": true,
+    "result": [ "src/worker.ts", "test/worker.test.ts" ] }
+// «/» — список из session.call supportedCommands, один раз на чат`,
+        queue: `→ { "type": "session.prompt", "id": "p-3", "v": 1,
+    "callsign": "site@laptop", "uuid": "9c4d…",
+    "text": "И обнови README по итогам" }
+← { "type": "reply", "id": "p-3", "ok": true, "result": { "uuid": "9c4d…" } }   // ✓
+← session.events: { "type": "user", "uuid": "9c4d…", … }                      // ✓✓
+// снять из очереди — нет: cancel_async_message без метода в SDK`,
+        lost: `→ { "type": "session.prompt", "id": "p-4", … "uuid": "a17e…",
+    "text": "Задеплой на стенд" }
+← disconnected            // ядро пульта: связь оборвалась, reply не будет
+… hello → roster
+→ session.watch, затем session.history — ищем uuid "a17e…"
+// нашёлся — ✓✓; нет — «отправить ещё раз» тем же uuid`,
+        rewind: `→ { "type": "session.call", "id": "k-5", "v": 1, "callsign": "site@laptop",
+    "method": "rewindFiles", "args": [ "5b1e…", { "dryRun": true } ] }
+← { "type": "reply", "id": "k-5", "ok": true, "result": {
+      "canRewind": true, "filesChanged": [ "src/worker.ts", "vitest.config.ts" ],
+      "insertions": 4, "deletions": 1 } }
+// «Откатить» — тот же вызов без dryRun`,
+        focus: `// фокус — вид на странице, кадров нет:
+// сообщение, сводка шагов и итоговый ответ;
+// вопросы, ошибки, итог хода и сжатие видны всегда` } },
+    ask: { t: "Вопрос", m: "модуль web-ask · общий с телефоном",
+      x: "Вопрос получают тот, кто дал задачу, и зрители сессии — пульт здесь зритель. Первый ответ выигрывает. Пришёл после открытия чата — question.list; карточка встаёт в ленту, над вводом — полоса «ждёт ответа». Своей копии ждущих вопросов пульт не хранит.",
+      out: [["question.list", "questions", "при открытии чата и после hello"], ["answer", "questions", "id вопроса и ответы: текст вопроса → вариант"]],
+      in: [["question", "questions", "вид ask, form или url"], ["answered", "questions", "кто и что ответил или cancelled"], ["reply", "questions", "ok или already_answered"]],
+      code: {
+        open: `← { "type": "question", "from": "profiles@laptop",
+    "to": [ "phone", "panel-desk" ], "question": "toolu_01Hq…", "kind": "ask",
+    "questions": [ { "question": "Какую базу мигрировать первой?",
+      "header": "База", "multiSelect": false,
+      "options": [ { "label": "прод", "description": "Боевая база, 2,1 млн строк…" },
+                   { "label": "стенд", "description": "Копия недельной давности…" } ] } ] }`,
+        mine: `→ { "type": "answer", "id": "a-2", "v": 1,
+    "callsign": "profiles@laptop", "question": "toolu_01Hq…",
+    "answers": { "Какую базу мигрировать первой?": "стенд" } }
+← { "type": "reply", "id": "a-2", "ok": true }
+← { "type": "answered", "from": "profiles@laptop", "question": "toolu_01Hq…",
+    "by": "panel-desk", "answers": { … "стенд" } }`,
+        other: `← { "type": "answered", "from": "profiles@laptop",
+    "to": [ "phone", "panel-desk" ], "question": "toolu_01Hq…",
+    "by": "phone", "answers": { "Какую базу мигрировать первой?": "прод" } }
+// answer пульт не шлёт; пришёл бы раньше — reply already_answered`,
+        form: `← { "type": "question", "from": "profiles@laptop", "to": [ "panel-desk" ],
+    "question": "req-7f2c…", "kind": "form", "server": "jira",
+    "message": "Данные для новой задачи",
+    "schema": { "type": "object", "properties": {
+      "project": { "type": "string" }, "summary": { "type": "string" } } } }
+→ { "type": "answer", "id": "a-3", "v": 1, "callsign": "profiles@laptop",
+    "question": "req-7f2c…", "content": { "project": "WEB", "summary": "…" } }` } },
+    set: { t: "Настройки", m: "модуль card",
+      x: "Всё, что меняет сессию, — здесь и только здесь, каждое поле у своего владельца: модель, усилие, стиль и заголовок — manage, слот — slots, профиль — profiles. Что в итоге — пульт берёт из следующего roster, а не из формы. Сведения — открытые методы session.call. Папку живой сессии не меняют: смена папки — копия в новую папку и «Забыть» прежнюю, во вкладке «Точки» у сессий в R2.",
+      out: [["session.update", "manage", "model, effort, fast, style, title — ответ now"], ["session.slot", "slots", "перенос между ходами"], ["session.profile", "profiles", "смена профиля между ходами"],
+            ["session.call", "manage", "getContextUsage, mcpServerStatus, toggleMcpServer, reconnectMcpServer, supportedAgents, interrupt"],
+            ["session.stop · start · remove", "manage", "Стоп, Поднять, Забыть"], ["session.spec", "manage", "папка и заголовок"]],
+      in: [["roster", "relay", "state и поля после изменения"], ["reply", "владелец", "now у manage; restart у slots и profiles; ok"]],
+      code: {
+        run: `→ { "type": "session.call", "id": "k-6", "v": 1, "callsign": "site@laptop",
+    "method": "getContextUsage", "args": [] }
+← { "type": "reply", "id": "k-6", "ok": true, "result": {
+      "totalTokens": 41210, "maxTokens": 200000, "percentage": 21,
+      "categories": [ … ] } }
+→ { "type": "session.call", "id": "k-7", "v": 1, "callsign": "site@laptop",
+    "method": "mcpServerStatus", "args": [] }`,
+        model: `→ { "type": "session.update", "id": "c-8", "v": 1,
+    "callsign": "site@laptop", "model": "sonnet", "effort": "medium" }
+← { "type": "reply", "id": "c-8", "ok": true,
+    "result": { "now": [ "model", "effort" ] } }
+← roster: site@laptop · model "sonnet" · effort "medium"`,
+        failed: `→ { "type": "session.start", "id": "c-9", "v": 1, "callsign": "api@pc" }
+← { "type": "reply", "id": "c-9", "ok": true }
+// «Почему →» — вкладка «Журнал машины»: machine.journal с callsign`,
+        stopped: `→ { "type": "session.start", "id": "c-10", "v": 1, "callsign": "docs@pc" }
+← { "type": "reply", "id": "c-10", "ok": true }
+← roster: docs@pc · starting → idle — тот же разговор по resume` } },
+    log: { t: "Журнал машины", m: "модуль card",
+      x: "Вкладка карточки: журнал части — сбои и переходы, по которым агент чинит. Записи host и keeper машины сессии с её позывным, старые первыми. Журнал флота — кто что сделал с машинами и сессиями — другой экран, раздел «флот».",
+      out: [["machine.journal", "journal", "machine, callsign, kind, since, limit"]],
+      in: [["reply", "journal", "records и more"]],
+      code: {
+        all: `→ { "type": "machine.journal", "id": "j-2", "v": 1, "machine": "pc",
+    "callsign": "api@pc", "since": "2026-10-31T00:00:00.000Z",
+    "kind": [ "stop", "note" ], "limit": 50 }
+← { "type": "reply", "id": "j-2", "ok": true, "result": {
+      "records": [
+        { "t": "…13:58:03.902Z", "part": "host", "who": "journal",
+          "callsign": "api@pc", "kind": "stop", "ev": "sdk.result",
+          "word": "cwd_unavailable", "why": "…" }, … ],
+      "more": false } }`,
+        more: `← { … "result": { "records": [ … ], "more": true } }
+→ { "type": "machine.journal", "id": "j-3", "v": 1, "machine": "pc",
+    "callsign": "api@pc", "since": "<t последней записи>", "limit": 50 }` } },
+    gal: { t: "Галерея карточек", m: "модуль chat",
+      x: "Каждая карточка ленты на сообщении той же формы, что приходит от SDK, с подписью «когда появляется». Кнопки живые; соединение поддельное — тот же вход модуля chat, что у стенда эталонов.",
+      out: [], in: [],
+      code: { all: `// #gallery — экран модуля chat на образцах сообщений SDK:
+// { "type": "assistant", … }, { "type": "result", "subtype": "success", … },
+// { "type": "system", "subtype": "compact_boundary", … }, …
+// кадров нет` } },
+    off: { t: "Связь и отказы", m: "ядро web-core",
+      x: "Все ветки ведёт общее ядро — те же, что у телефона. Ждущие запросы получают disconnected сразу; переподключение — с паузой, пока страница видна. Отказ ключа или версии — конец, экран с причиной.",
+      out: [["hello", "relay", "ключ и proto; после обрыва — снова"]],
+      in: [["roster", "relay", "после hello; без машины — её сессии серые"], ["закрытие 1008", "relay", "revoked, bad_key, contract_mismatch — стоп; gate_unavailable — как обрыв"], ["reply offline", "relay", "адресата нет на связи"]],
+      code: {
+        net: `// соединение закрылось
+ждущие: p-4 → disconnected
+пауза 1 с → hello → закрыто
+пауза 2 с → hello → { "type": "roster", … }
+→ session.watch site@laptop · session.history`,
+        gone: `← roster без machine "pc"
+→ { "type": "session.prompt", "id": "p-9", "v": 1,
+    "callsign": "poe-bot@pc", "uuid": "c2f0…", "text": "Катим" }
+← { "type": "reply", "id": "p-9", "ok": false, "error": "offline" }`,
+        key: `→ { "type": "hello", "proto": 1, "key": "client.panel-desk.k3f1.Qa7…" }
+← close 1008 "revoked"
+// повторов hello нет`,
+        ver: `→ { "type": "hello", "proto": 1, "key": "…" }
+← close 1008 "contract_mismatch"     // у relay proto 2`,
+        mod: `// модуль chat бросил ошибку на кадре session.events
+ядро: chat выключен до перезагрузки; на его месте — причина
+board, card, web-ask получают свои кадры как обычно` } },
+  };
+
+  /* ===== состояние витрины ===== */
+  const app = $('[data-pn="app"]'), dev = $('[data-pn="dev"]'), fit = $('[data-pn="fit"]');
+  let scr = "list", st = "all", w = "";
+
+  function apply(){
+    const key = scr + "." + st;
+    app.dataset.scr = scr; app.dataset.st = st;
+    app.dataset.pane = PANE_OF[key] || SCR[scr].pane;
+    app.classList.toggle("gone", key === "off.gone");
+    $$("[data-v]").forEach((n) => {
+      const t = n.dataset.v.split(" ");
+      n.hidden = !(t.includes(scr) || t.includes(key));
+    });
+    $$('[data-pn="scrs"] [data-scr]').forEach((b) => b.setAttribute("aria-pressed", b.dataset.scr === scr ? "true" : "false"));
+    const sts = $('[data-pn="sts"]'); sts.textContent = "";
+    SCR[scr].st.forEach(([id, label]) => {
+      const b = el("button", "chip", label); b.type = "button"; b.dataset.st = id;
+      b.setAttribute("aria-pressed", id === st ? "true" : "false");
+      b.addEventListener("click", () => { st = id; apply(); });
+      sts.appendChild(b);
+    });
+    const cs = key in CS_OF ? CS_OF[key] : (SCR[scr].cs || "");
+    $$(".pn-row[data-cs]").forEach((r) => r.setAttribute("aria-current", r.dataset.cs === cs ? "true" : "false"));
+    const tab = { chat: "chat", ask: "chat", set: "set", log: "log", off: "chat" }[scr];
+    $$(".pn-tab[data-tabgo]").forEach((t) => t.classList.toggle("on", t.dataset.tabgo === tab));
+    $$(".pn-nav[data-go]").forEach((n) => { if (!n.classList.contains("new")) n.classList.toggle("on", scr !== "new" && scr !== "gal"); });
+    const u = URL_OF[key] || SCR[scr].url;
+    const ub = $('[data-pn="url"]'); ub.textContent = "switchboard-pult.…workers.dev/";
+    ub.appendChild(el("b", null, u));
+    renderIO();
+    fitDev();
+  }
+
+  function renderIO(){
+    const d = IO[scr];
+    $('[data-pn="iot"]').textContent = d.t;
+    $('[data-pn="iom"]').textContent = d.m;
+    $('[data-pn="iox"]').textContent = d.x;
+    const fill = (sel, list) => {
+      const ul = $(sel); ul.textContent = "";
+      if (!list.length) { const li = el("li", null); li.appendChild(el("span", null, "— ничего")); ul.appendChild(li); return; }
+      list.forEach(([name, owner, note, gap]) => {
+        const li = el("li", gap ? "gap" : null);
+        li.appendChild(el("code", null, name));
+        const i = el("i"); const href = V[owner];
+        if (href) { const a = el("a", null, owner); a.href = href; i.appendChild(a); } else i.textContent = owner;
+        li.appendChild(i);
+        const s = el("span", null, note); li.appendChild(s);
+        if (gap) { s.appendChild(document.createTextNode(" ")); s.appendChild(el("span", "pn-gapm", "нет в контракте " + owner)); }
+        ul.appendChild(li);
+      });
+    };
+    fill('[data-pn="out"]', d.out); fill('[data-pn="in"]', d.in);
+    $('[data-pn="code"]').textContent = d.code[st] || d.code[Object.keys(d.code)[0]];
+  }
+
+  function fitDev(){
+    const cw = fit.clientWidth;
+    if (!cw) return;
+    if (!w) w = cw < 640 ? "narrow" : "wide";
+    dev.classList.toggle("narrow", w === "narrow");
+    $$('[data-pn="ws"] [data-w]').forEach((b) => b.setAttribute("aria-pressed", b.dataset.w === w ? "true" : "false"));
+    const lw = w === "narrow" ? 380 : 1040;
+    const s = Math.min(1, cw / lw);
+    const off = Math.max(0, (cw - lw * s) / 2);
+    dev.style.transform = "translate(" + off + "px,0) scale(" + s + ")";
+    fit.style.height = Math.ceil(dev.offsetHeight * s) + "px";
+  }
+
+  function go(target){
+    const [a, b] = target.split(".");
+    scr = a; st = b || SCR[a].st[0][0];
+    apply();
+  }
+  $$('[data-pn="scrs"] [data-scr]').forEach((b) => b.addEventListener("click", () => go(b.dataset.scr)));
+  $$('[data-pn="ws"] [data-w]').forEach((b) => b.addEventListener("click", () => { w = b.dataset.w; fitDev(); }));
+  app.addEventListener("click", (e) => {
+    const t = e.target.closest("[data-go],[data-tabgo],[data-opt]");
+    if (!t || !app.contains(t)) return;
+    if (t.dataset.opt) {
+      if (st !== "open") return;
+      $$(".pn-opt[data-opt]").forEach((o) => o.setAttribute("aria-pressed", o === t ? "true" : "false"));
+      return;
+    }
+    if (t.dataset.tabgo) { go(t.dataset.tabgo === "set" && scr === "set" ? "set." + st : t.dataset.tabgo); return; }
+    go(t.dataset.go);
+  });
+
+  /* ===== карта возможностей ===== */
+  const ST = { ok: ["есть", "ok"], gap: ["нет в контракте", "wait"], no: ["не переносим", "bad"], fl: ["флот", ""] };
+  const FM = [
+    ["А · вход и каркас", [
+      ["В1", "Вход на страницу", "off.key", "gate · relay", "hello { key } → roster", "ok", "только ключ флота, у каждого устройства свой; без Access — слово пользователя 31 окт."],
+      ["В2", "Разделы и счётчики, тосты", "list", "web-core · relay", "roster", "ok", "«нужны вы» — state waiting и failed"],
+      ["В2", "«Нет связи», данные на ЧЧ:ММ", "off.net", "web-core", "disconnected · hello", "ok"]]],
+    ["Б · сессии", [
+      ["В3", "Группы, фильтры, поиск", "list.need", "relay · ядро Host", "roster: state, model, effort, slot, account, profile", "ok", "поиск — по позывному, машине, слоту, аккаунту, профилю"],
+      ["В3", "Текст вопроса в строке", "list", "questions", "question → метка asked", "ok", "если пульт среди адресатов; иначе «ждёт ответа»"],
+      ["В4", "Сводка: плитки по фазам, слоты", "list", "ядро Host · slots", "roster: state, slot, account", "ok"],
+      ["В4", "Лимиты каждого аккаунта", "", "accounts", "machine.accounts — раздел «Аккаунты»", "fl", "один экран лимитов на весь пульт"],
+      ["В5", "Машина, слот, профиль, лимит аккаунта слота", "new.form", "slots · profiles · accounts", "machine.slots · machine.profiles · machine.accounts", "ok"],
+      ["В5", "Открыть сессию: папка, имя, модель, усилие", "new.opened", "manage", "session.open", "ok", "поле profile — по контракту profiles; в примере manage его нет"],
+      ["В6", "Обзор папок машины", "new.browse", "machine", "machine.dirs", "ok", "«вверх», «домой», скрытые — на странице; корень диска — полным путём"],
+      ["В5", "Новая папка создаётся", "new.browse", "machine", "machine.mkdir", "ok", "session.open без папки — bad_spec"],
+      ["В7", "Шапка карточки", "chat", "ядро Host · manage · slots · profiles", "roster", "ok"],
+      ["В7", "Папка сессии", "set.run", "manage", "session.spec", "ok", "смена — копия в новую папку и «Забыть» прежнюю (слово пользователя 31 окт.): вкладка «Точки», раздел «флот»"],
+      ["В8", "Ждёт ответа → к вопросу", "ask.open", "ядро Host · questions", "roster waiting · question.list", "ok"],
+      ["В8", "Не поднялась → поднять, почему", "set.failed", "ядро Host · manage · journal", "roster failed · session.start · machine.journal", "ok"],
+      ["В8", "Нет на машине, только в R2", "", "points", "раздел «Точки»", "fl"],
+      ["В9", "Фазы сессии", "list", "ядро Host", "state: starting · idle · busy · waiting · stopping · stopped · failed", "ok", "своих фаз пульт не считает"],
+      ["В10", "Переименование", "set.run", "manage", "session.update { name }", "ok", "заголовок в claude.ai и истории; позывной не меняется"],
+      ["В11", "Модель и усилие на лету", "set.model", "manage", "session.update → now", "ok", "список моделей — один, на странице: opus, sonnet, haiku, fable"],
+      ["В11", "Слот и профиль на лету", "set.run", "slots · profiles", "session.slot · session.profile", "ok", "между ходами"],
+      ["В12", "Перезапуск", "set.stopped", "manage", "session.stop · session.start", "ok", "«Поднять» у остановленной и не поднявшейся"],
+      ["В13", "Стоп", "set.run", "manage", "session.stop", "ok"],
+      ["В14", "Забыть", "set.run", "manage", "session.remove", "ok", "точки сессии в R2 — раздел «Точки», «только в R2»"],
+      ["В15", "Журнал сессии", "log", "journal", "machine.journal { callsign }", "ok", "вкладка «Журнал машины»; факты флота — журнал флота, раздел «флот»"],
+      ["В16", "Прервать", "chat", "manage", "session.call interrupt", "ok"]]],
+    ["В · чат", [
+      ["В17", "Лента вживую", "chat", "watch", "session.watch · session.events · session.unwatch", "ok"],
+      ["В17", "Разговор до открытия", "chat", "chat", "session.history", "ok", "склейка с лентой по uuid"],
+      ["В17", "«Claude работает», «сжимаю контекст»", "chat", "ядро Host · watch", "state busy · system status", "ok"],
+      ["В17", "Переподключение и дочитывание", "off.net", "web-core · watch · chat", "hello → session.watch + session.history", "ok"],
+      ["В18", "Отправка, ✓ и ✓✓", "chat.queue", "chat", "session.prompt { uuid }", "ok"],
+      ["В18", "В занятую — в очередь", "chat.queue", "chat · ядро Host", "session.prompt → очередь ввода", "ok"],
+      ["В18", "Снять из очереди", "chat.queue", "—", "cancel_async_message", "no", "нет метода в Agent SDK"],
+      ["В18", "«Не дошло · ещё раз»", "chat.lost", "chat", "session.history по uuid → session.prompt тем же uuid", "ok"],
+      ["В18", "Картинки и документы", "chat", "chat", "session.prompt attachments", "ok"],
+      ["В18", "«@» — файлы папки", "chat.at", "chat", "session.files", "ok"],
+      ["В18", "«/» — команды", "chat.at", "manage", "session.call supportedCommands", "ok"],
+      ["В18", "Перечитать скиллы", "chat.at", "manage", "session.call reloadPlugins", "ok", "метод в открытом списке session.call"],
+      ["В18", "Подсказка следующего сообщения", "gal", "chat · watch", "prompt_suggestion", "ok", "опция query() promptSuggestions — вклад chat"],
+      ["В18", "Вопрос сбоку /btw", "", "—", "side_question", "no", "нет метода в Agent SDK"],
+      ["В19", "Вопрос Claude", "ask.open", "questions", "question · answer · answered · question.list", "ok"],
+      ["В19", "Форма или ссылка MCP-сервера", "ask.form", "questions", "question kind form · url → answer", "ok"],
+      ["В19", "Разрешения, план, диалог отказа", "", "ядро Host", "—", "no", "режим «разрешено всё»: приходит только вопрос человеку"],
+      ["В22", "Режим разрешений в меню", "", "ядро Host", "—", "no", "режим держит ядро Host"],
+      ["В20", "Фоновые задачи: стоп, в фон", "chat.turn", "watch · manage", "system task_* · session.call stopTask, backgroundTasks", "ok"],
+      ["В20", "Вывод фоновой задачи", "chat.turn", "—", "get_task_output", "no", "нет метода в Agent SDK"],
+      ["В20", "Задачи Claude: 2 из 4", "chat.turn", "watch", "TodoWrite в assistant", "ok"],
+      ["В21", "Откат файлов к сообщению", "chat.rewind", "manage", "session.call rewindFiles { dryRun }", "ok"],
+      ["В22", "Шапка и меню чата", "chat", "ядро Host · slots", "roster", "ok", "меню — те же «Настройки», одно место"],
+      ["В22", "Лимит в шапке с 70 %", "chat", "accounts", "machine.accounts", "ok"],
+      ["В23", "Фокус", "chat.focus", "пульт", "—", "ok", "вид на странице"],
+      ["В24", "Контекст по частям", "set.run", "manage", "session.call getContextUsage", "ok"],
+      ["В24", "MCP-серверы: вкл, выкл, переподключить", "set.run", "manage", "session.call mcpServerStatus · toggleMcpServer · reconnectMcpServer", "ok"],
+      ["В24", "Вход MCP-сервера", "", "—", "mcp_authenticate", "no", "нет в типах SDK"],
+      ["В24", "Быстрый режим и стиль", "set.run", "manage", "session.update { fast, style }", "ok"],
+      ["В24", "Субагенты", "set.run", "manage", "session.call supportedAgents", "ok"],
+      ["В24", "Правила, хуки, «Claude»", "", "—", "list_permission_rules · get_hooks_listing · get_status", "no", "правил нет в «разрешено всё»; хуки — вклады модулей; get_status нет в типах"],
+      ["В24", "Выгрузка разговора", "chat", "chat", "session.history → файл .md", "ok", "без export_conversation"],
+      ["В24", "Расход хода", "chat.focus", "watch", "result total_cost_usd", "ok"],
+      ["В25", "Карточки ленты", "gal", "watch · chat", "session.events · session.history", "ok"],
+      ["В25", "Сообщение другой сессии", "gal", "fleet", "ввод с fleet-message", "ok"],
+      ["В26", "Галерея карточек", "gal", "пульт", "—", "ok"]]],
+    ["Г · claude.ai", [
+      ["В27", "«В claude.ai», «Ответить в claude.ai»", "ask.open", "remote", "поле roster remote { url | error }", "ok", "нет url — на месте кнопки причина claude"],
+      ["В27", "Заголовок в claude.ai", "set.run", "manage", "session.update { name }", "ok"]]],
+    ["И · API и скрипты", [
+      ["В54", "API со своим ключом", "", "relay · gate", "client.<скрипт>: те же кадры", "ok", "вместо служебного токена Access"],
+      ["В55", "Отправить и дождаться ответа", "", "fleet", "message { wait: true } → reply text", "ok"],
+      ["В55", "Последний ответ", "", "chat", "session.history { limit }", "ok"]]],
+  ];
+  const SCR_NAME = { list: "Сессии", new: "Новая сессия", chat: "Чат", ask: "Вопрос", set: "Настройки", log: "Журнал машины", gal: "Галерея", off: "Связь" };
+  let fmFilter = "";
+  function renderMap(){
+    const counts = { ok: 0, gap: 0, no: 0, fl: 0 }; let total = 0;
+    FM.forEach(([, rows]) => rows.forEach((r) => { counts[r[5]]++; total++; }));
+    const bar = $('[data-pn="sbar"]'); bar.textContent = "";
+    [["ok", "s-ok"], ["gap", "s-gap"], ["no", "s-no"], ["fl", "s-fl"]].forEach(([k, cls]) => {
+      const b = el("button", cls, String(counts[k])); b.type = "button";
+      b.style.flex = String(Math.max(counts[k], 4));
+      b.setAttribute("aria-label", ST[k][0] + ": " + counts[k]);
+      b.setAttribute("aria-pressed", fmFilter === k ? "true" : "false");
+      b.title = counts[k] + " из " + total;
+      b.addEventListener("click", () => { fmFilter = fmFilter === k ? "" : k; renderMap(); });
+      bar.appendChild(b);
+    });
+    const leg = $('[data-pn="leg"]'); leg.textContent = "";
+    [["ok", "s-ok", "есть в контракте модуля"], ["gap", "s-gap", "нет в контракте — предложение владельцу"], ["no", "s-no", "не переносим — причина в строке"], ["fl", "s-fl", "раздел «флот»"]].forEach(([k, cls, t]) => {
+      const sp = el("span"); sp.appendChild(el("i", cls)); sp.appendChild(document.createTextNode(counts[k] + " — " + t)); leg.appendChild(sp); });
+    leg.appendChild(el("span", null, "всего " + total));
+    const box = $('[data-pn="fm"]'); box.textContent = "";
+    const h = el("div", "pn-fmh"); ["№", "возможность", "экран", "модуль · кадр", "статус"].forEach((t) => h.appendChild(el("span", null, t))); box.appendChild(h);
+    FM.forEach(([g, rows]) => {
+      const shown = rows.filter((r) => !fmFilter || r[5] === fmFilter);
+      if (!shown.length) return;
+      box.appendChild(el("div", "pn-fmg", g + " · " + shown.length));
+      shown.forEach(([n, name, target, owner, frames, s, note]) => {
+        const r = el("div", "pn-fmr");
+        r.appendChild(el("span", "v", n));
+        const c2 = el("span", null, name); if (note) c2.appendChild(el("span", "nt", note)); r.appendChild(c2);
+        let c3;
+        if (target) {
+          c3 = el("button", "sc c3", SCR_NAME[target.split(".")[0]]); c3.type = "button";
+          c3.addEventListener("click", () => { go(target); $('[data-chg="panel-screens"]').scrollIntoView && $('[data-chg="panel-screens"]').scrollIntoView({ block: "start" }); });
+        } else c3 = el("span", "sc none c3", "—");
+        r.appendChild(c3);
+        const c4 = el("span", "fr c4"); c4.appendChild(el("b", null, owner)); c4.appendChild(document.createTextNode(" · " + frames)); r.appendChild(c4);
+        const p = el("span", "pill c5 " + ST[s][1], ST[s][0]); if (s === "fl") p.classList.add("s-fl"); r.appendChild(p);
+        box.appendChild(r);
+      });
+    });
+  }
+
+  /* ===== модули пульта ===== */
+  const MODS = {
+    core: { t: "web-core — ядро, общий пакет", hs: ["relay"], shared: true,
+      give: [["в пульте", "навигация — колонка разделов слева; экран в месте другого модуля — чат в карточке, вопрос над вводом"],
+        ["хранилище", "раздел key — ключ флота этого компьютера"]] },
+    board: { t: "web-board — список сессий, общий пакет", hs: ["relay", "core", "slots", "profiles", "questions"], shared: true,
+      give: [["в пульте", "широкий вид: группы «нужны вы, в работе, свободны, остановлены», поиск, сводка слотов"], ["метка", "need — счётчик раздела «Сессии»"]] },
+    open: { t: "pult-open — новая сессия, свой пакет пульта", hs: ["relay", "slots", "accounts", "profiles", "machine", "manage"],
+      give: [["экран", "open: #sessions/new, nav «＋ Новая сессия»"], ["запросы", "machine.slots, machine.accounts, machine.profiles, machine.dirs, machine.mkdir, session.open — если они в contract машины"],
+        ["лимит", "machine.accounts — как прислал accounts, без пересчёта"],
+        ["в R2", "переключатель выключен; включили — после reply session.open ещё session.r2 { on: true } машине новой сессии"],
+        ["переход", "card нового callsign после reply"]],
+      code: `// web/pult/modules/open/module.json
+{ "name": "pult-open", "type": "web", "version": "1.0.0",
+  "provides": { "open": 1 },
+  "uses": { "roster@relay": 1,
+    "machine.slots@host-slots": 1, "machine.accounts@host-accounts": 1,
+    "machine.profiles@host-profiles": 1, "machine.dirs@host-machine": 1,
+    "machine.mkdir@host-machine": 1,
+    "session.open@host-manage": 1, "session.r2@host-points": 1,
+    "card@web-card": 1 } }`,
+      note: "Манифест — module.json пакета; наружу пакет отдаёт только contract.ts. Зависимости — только вниз: open → card → chat → ask; кругов нет." },
+    card: { t: "web-card — карточка сессии, общий пакет", hs: ["relay", "core", "manage", "slots", "accounts", "profiles", "remote", "journal"], shared: true,
+      give: [["в пульте", "вкладки Чат · Точки · Настройки · Журнал машины; вкладку «Точки» кладёт в место карточки модуль точек пульта — там же пометка «в R2» и смена папки"]] },
+    chat: { t: "web-chat — лента и ввод, общий пакет", hs: ["watch", "chat", "manage", "fleet"], shared: true,
+      give: [["в пульте", "фокус, «@» и «/», «В фон», откат файлов, выгрузка .md, галерея #gallery"]] },
+    ask: { t: "web-ask — вопрос сессии, общий пакет", hs: ["questions"], shared: true,
+      give: [["в пульте", "место над вводом чата и полоса «ждёт ответа»; форма и ссылка MCP-сервера"]] },
+  };
+  const mdet = $('[data-pn="mdet"]');
+  function renderMod(k){
+    const m = MODS[k];
+    $$(".pn-mb[data-mod]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mod === k ? "true" : "false"));
+    $$('[data-pn="hm"] [data-h]').forEach((a) => { const on = m.hs.includes(a.dataset.h); a.classList.toggle("on", on); a.classList.toggle("dim", !on); });
+    mdet.textContent = "";
+    mdet.appendChild(el("h3", null, m.t));
+    const gv = el("div", "pn-gv");
+    m.give.forEach(([a, b]) => { const r = el("div"); r.appendChild(el("span", "gt", a)); r.appendChild(el("span", "gx", b)); gv.appendChild(r); });
+    mdet.appendChild(gv);
+    if (m.shared) {
+      const p = el("p", "muted", "Общий пакет телефона и пульта: манифест, контракт и зависимости описаны один раз — в виде ");
+      const a = el("a", null, "каркас и телефон"); a.href = "#phone"; p.appendChild(a); p.appendChild(document.createTextNode(". Здесь — только как он стоит в пульте."));
+      mdet.appendChild(p);
+      return;
+    }
+    const cb = el("div", "codebox"); cb.appendChild(el("pre", "pn-pre", m.code)); mdet.appendChild(cb);
+    mdet.appendChild(el("p", "muted", m.note));
+  }
+  $$(".pn-mb[data-mod]").forEach((b) => b.addEventListener("click", () => renderMod(b.dataset.mod)));
+
+  /* ===== старт и перерисовка ===== */
+  renderMap();
+  renderMod("open");
+  apply();
+  document.addEventListener("view:show", (e) => { if (e.detail === "panel") fitDev(); });
+  window.addEventListener("resize", fitDev);
+})();
+</script>

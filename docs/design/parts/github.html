@@ -1,0 +1,583 @@
+<style>
+  /* github — приложение GitHub флота. API по исходам, каналы (Cloudflare и GitHub), по шагам: настройка, токен для git, отказ;
+     хранилище, сбои, эталоны, источники. Акцент — путь и выбранное; янтарь — ключ приложения; зелёный — выдано; красный — отказ. */
+  [data-view="github"] .et{padding:0}
+  [data-view="github"] figure{margin:0}
+  [data-view="github"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="github"] code{overflow-wrap:anywhere}
+  [data-view="github"] .gh-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="github"] .gh-pad>p,[data-view="github"] .gh-cap{font-size:13.5px;color:var(--muted)}
+  [data-view="github"] .gh-hd{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="github"] .gh-hd h3{font-size:15.5px}
+  [data-view="github"] .gh-n{display:inline-grid;place-items:center;min-width:21px;height:21px;padding:0 5px;border-radius:999px;
+    background:var(--accent);color:var(--on-accent);font:700 11px/1 var(--mono);flex:none}
+  [data-view="github"] .gh-two{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="github"] .gh-two{grid-template-columns:minmax(0,1fr)}}
+  [data-view="github"] .gh-two>*{min-width:0}
+  [data-view="github"] .gh-fig{padding:14px 12px;background:var(--surface2);display:flex;flex-direction:column;gap:8px}
+  [data-view="github"] .gh-fig figcaption{font-size:12.5px;color:var(--muted);max-width:62ch}
+  [data-view="github"] pre.gh-pre{white-space:pre;word-break:normal}
+  [data-view="github"] .gh-dl{display:grid;grid-template-columns:7.4em minmax(0,1fr);gap:7px 12px;margin:0;font-size:13.5px}
+  [data-view="github"] .gh-dl dt{font:600 10.5px/1.9 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  [data-view="github"] .gh-dl dt.k{color:var(--wait)}
+  [data-view="github"] .gh-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  @media (max-width:440px){[data-view="github"] .gh-dl{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="github"] .gh-dl dd{margin-bottom:6px}}
+  [data-view="github"] .gh-not{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:baseline;font-size:13.5px}
+  [data-view="github"] .gh-not b{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--bad);margin-right:2px}
+  [data-view="github"] .gh-not span{background:var(--surface);border:1px dashed var(--line);border-radius:999px;padding:3px 10px;color:var(--muted)}
+
+  /* API */
+  [data-view="github"] .gh-ops{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="github"] .gh-ops button{display:flex;flex-direction:column;align-items:flex-start;gap:1px;text-align:left;padding:6px 11px;background:var(--surface2);border-radius:10px}
+  [data-view="github"] .gh-ops button code{font:600 13px var(--mono)}
+  [data-view="github"] .gh-ops button span{font:500 11px var(--body);color:var(--muted)}
+  [data-view="github"] .gh-ops button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="github"] .gh-ops button[aria-pressed="true"] span{color:var(--on-accent)}
+  [data-view="github"] .gh-api{display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:16px;align-items:start}
+  @media (max-width:820px){[data-view="github"] .gh-api{grid-template-columns:minmax(0,1fr)}}
+  [data-view="github"] .gh-api>div{display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="github"] .gh-json{font-size:12px}
+  [data-view="github"] .gh-json .r{color:var(--accent);font-weight:600}
+  [data-view="github"] .gh-json .o{color:var(--muted)}
+  [data-view="github"] .gh-json .s{color:var(--ok);font-weight:600}
+  [data-view="github"] .gh-json .x{color:var(--bad);font-weight:600}
+  [data-view="github"] .gh-outs{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="github"] .gh-outs button{font-size:12px;padding:5px 10px;border-radius:999px;background:var(--surface2)}
+  [data-view="github"] .gh-outs button.bad{color:var(--bad)}
+  [data-view="github"] .gh-outs button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+  [data-view="github"] .gh-tblw{overflow-x:auto}
+  [data-view="github"] .gh-tblw .tbl{width:100%;min-width:560px}
+  [data-view="github"] .gh-tblw .tbl td,[data-view="github"] .gh-tblw .tbl th{text-align:left;vertical-align:top;padding:7px 10px}
+  [data-view="github"] .gh-tblw .tbl th{font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  [data-view="github"] .gh-tblw .tbl td code.w{color:var(--bad);font-weight:600;white-space:nowrap;overflow-wrap:normal}
+
+  /* рисунки */
+  [data-view="github"] svg.gh-svg{display:block;width:100%;height:auto;max-width:440px;margin-inline:auto}
+  [data-view="github"] .gh-svg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="github"] .gh-svg .bx.ext{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="github"] .gh-svg .bx.me{fill:var(--accent-weak);stroke:var(--accent);stroke-opacity:.55}
+  [data-view="github"] .gh-svg .bx.lit{stroke:var(--accent);stroke-width:2.2;stroke-opacity:1}
+  [data-view="github"] .gh-svg .zone{fill:var(--surface2);fill-opacity:.6;stroke:var(--line)}
+  [data-view="github"] .gh-svg .kc{fill:var(--surface);stroke:var(--wait);stroke-width:1.2}
+  [data-view="github"] .gh-svg .t-l{fill:var(--muted);font:600 10.5px var(--mono);letter-spacing:.08em}
+  [data-view="github"] .gh-svg .t-n{fill:var(--ink);font:600 12.5px var(--mono)}
+  [data-view="github"] .gh-svg .t-b{fill:var(--ink);font:600 13.5px var(--disp)}
+  [data-view="github"] .gh-svg .t-s{fill:var(--muted);font:500 11px var(--body)}
+  [data-view="github"] .gh-svg .t-y{fill:var(--muted);font:500 10px var(--body)}
+  [data-view="github"] .gh-svg .t-k{fill:var(--wait);font:600 10px var(--mono)}
+  [data-view="github"] .gh-svg .ed{stroke:var(--muted);stroke-opacity:.55;stroke-width:2;fill:none}
+  [data-view="github"] .gh-svg .ed.on{stroke:var(--accent);stroke-opacity:1;stroke-width:3}
+  [data-view="github"] .gh-svg .ed.dim{stroke-dasharray:4 4;stroke-opacity:.4}
+  [data-view="github"] .gh-svg .arh{fill:var(--muted)}
+  [data-view="github"] .gh-svg .arh.on{fill:var(--accent)}
+  [data-view="github"] .gh-svg .bdg{cursor:pointer;outline:none}
+  [data-view="github"] .gh-svg .bdg circle{fill:var(--surface);stroke:var(--accent);stroke-width:1.6}
+  [data-view="github"] .gh-svg .bdg text{fill:var(--accent);font:700 11px var(--mono)}
+  [data-view="github"] .gh-svg .bdg:hover circle,[data-view="github"] .gh-svg .bdg:focus-visible circle{stroke-width:2.8}
+  [data-view="github"] .gh-svg .bdg.sel circle{fill:var(--accent)}
+  [data-view="github"] .gh-svg .bdg.sel text{fill:var(--on-accent)}
+
+  /* по шагам: диаграмма последовательности */
+  [data-view="github"] .gh-cases{display:flex;flex-wrap:wrap;gap:6px;padding:12px;border-bottom:1px solid var(--line)}
+  [data-view="github"] .gh-cases button{border-radius:999px;padding:7px 12px;font-size:13px;background:var(--surface2)}
+  [data-view="github"] .gh-cases button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="github"] .gh-seq .lh{fill:var(--surface);stroke:var(--line);stroke-width:1.4}
+  [data-view="github"] .gh-seq .lh.me{fill:var(--accent-weak);stroke:var(--accent)}
+  [data-view="github"] .gh-seq .lh.ext{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="github"] .gh-seq .lt{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="github"] .gh-seq .ls{fill:var(--muted);font:500 9.5px var(--body)}
+  [data-view="github"] .gh-seq .ll{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 4}
+  [data-view="github"] .gh-seq .m{stroke:var(--ink);stroke-opacity:.6;stroke-width:1.6;fill:none}
+  [data-view="github"] .gh-seq .ml{fill:var(--ink);font:500 10.5px var(--mono);paint-order:stroke;stroke:var(--surface2);stroke-width:4px;stroke-linejoin:round}
+  [data-view="github"] .gh-seq .nt{fill:var(--surface);stroke:var(--line);stroke-width:1.3}
+  [data-view="github"] .gh-seq .ntt{fill:var(--ink);font:600 10.5px var(--body)}
+  [data-view="github"] .gh-seq .no{fill:var(--muted);font:500 10px var(--mono)}
+  [data-view="github"] .gh-seq .st.on .m{stroke:var(--accent);stroke-opacity:1;stroke-width:2.6}
+  [data-view="github"] .gh-seq .st.on .ml,[data-view="github"] .gh-seq .st.on .ntt{fill:var(--accent);font-weight:600}
+  [data-view="github"] .gh-seq .st.on .nt{stroke:var(--accent);stroke-width:2}
+  [data-view="github"] .gh-seq .st.bad .m{stroke:var(--bad);stroke-opacity:1}
+  [data-view="github"] .gh-seq .st.bad .ml,[data-view="github"] .gh-seq .st.bad .ntt{fill:var(--bad)}
+  [data-view="github"] .gh-seq .st.bad .nt{stroke:var(--bad)}
+  [data-view="github"] .gh-seq .st.fut{opacity:.3}
+  [data-view="github"] .gh-seq .hit{fill:transparent;cursor:pointer}
+  [data-view="github"] .gh-seq .hit:hover{fill:var(--accent-weak);fill-opacity:.35}
+  [data-view="github"] .gh-seq .ah{fill:var(--muted)}
+  [data-view="github"] .gh-seq .ah.on{fill:var(--accent)}
+  [data-view="github"] .gh-seq .ah.bad{fill:var(--bad)}
+  [data-view="github"] .gh-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto}
+
+  /* хранилище и источники */
+  [data-view="github"] .facts{grid-template-columns:repeat(3,minmax(0,1fr))}
+  @media (max-width:720px){[data-view="github"] .facts{grid-template-columns:minmax(0,1fr)}}
+  [data-view="github"] .gh-src{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="github"] .gh-src li{display:grid;grid-template-columns:minmax(0,15em) minmax(0,1fr);gap:4px 12px;padding:7px 10px;border-radius:9px;background:var(--surface2)}
+  @media (max-width:560px){[data-view="github"] .gh-src li{grid-template-columns:minmax(0,1fr)}}
+  [data-view="github"] .gh-src span{color:var(--muted)}
+  [data-view="github"] .et-out code,[data-view="github"] .et-in code{overflow-wrap:anywhere}
+</style>
+
+<header class="vhead chg" data-chg="github-head">
+  <span class="pill acc kind">Worker-модуль</span>
+  <h1>github</h1>
+  <p class="lead">Приложение GitHub флота. github держит ключ приложения и по запросу выдаёт участнику рации короткий токен установки: на час и на один репозиторий. С этим токеном машина делает <code>git pull</code> и <code>push</code>, не держа своего ключа к GitHub. Первый потребитель — модуль Host <a href="#host-profiles">profiles</a>: память профилей. Другие возможности приложения GitHub добавляются новыми запросами сюда же. Участник рации с адресом <code>github</code>, со своим хранилищем — Durable Object. Адреса в интернете у него нет: приложение создаётся с пульта.</p>
+  <div class="names">
+    <span><b>приложение GitHub</b> учётная запись GitHub со своими правами; одно на флот</span>
+    <span><b>установка</b> приложение, допущенное владельцем к его репозиториям</span>
+    <span><b>токен установки</b> ключ git и API GitHub на час, только к одному репозиторию</span>
+    <span><b>ключ приложения</b> закрытый ключ RSA: им подписан JWT для API GitHub</span>
+    <span><b>manifest</b> готовые настройки приложения: GitHub принимает их формой</span>
+  </div>
+  <p class="gh-not"><b>Не делает</b><span>сам в git не ходит</span><span>токенов не хранит</span><span>не знает профилей и папок машин</span><span>вебхуков не принимает</span><span>адреса в интернете не имеет</span></p>
+  <p class="hint"><span class="kbd">A</span> прочитал блок · <span class="kbd">Z</span> снять · наведите на блок и нажмите клавишу</p>
+</header>
+
+<!-- ===== API ===== -->
+<section class="chg" data-chg="github-api">
+  <div class="shead">
+    <h2>API github</h2>
+    <p>Три запроса рации и вход участника. Запрос — кадр с <code>to: "github"</code>; ответ — <code>reply</code> через relay. Кто спрашивает, github знает по <code>from</code>, который ставит relay. Выберите запрос и исход.</p>
+  </div>
+  <div class="card gh-pad">
+    <div class="gh-ops" id="github-ops" role="group" aria-label="Запросы github"></div>
+    <div class="gh-api">
+      <div>
+        <div class="gh-hd" id="github-op-head"></div>
+        <dl class="gh-dl" id="github-op-dl"></dl>
+      </div>
+      <div>
+        <span class="lbl">запрос</span>
+        <div class="codebox"><pre class="gh-pre gh-json" id="github-op-req"></pre></div>
+        <span class="lbl">ответ</span>
+        <div class="gh-outs" id="github-op-outs" role="group" aria-label="Исход"></div>
+        <div class="codebox"><pre class="gh-pre gh-json" id="github-op-rep"></pre></div>
+        <p class="gh-cap" id="github-op-why"></p>
+      </div>
+    </div>
+  </div>
+  <div class="card gh-pad chg" data-chg="github-api-words">
+    <h3>Слова отказа github</h3>
+    <div class="gh-tblw">
+      <table class="tbl">
+        <thead><tr><th>слово</th><th>когда</th><th>что в ответе</th></tr></thead>
+        <tbody>
+          <tr><td><code class="w">no_app</code></td><td>приложения ещё нет: <code>github.setup</code> не делали</td><td>только слово</td></tr>
+          <tr><td><code class="w">not_installed</code></td><td>приложение не допущено к этому репозиторию: GitHub ответил 404 на поиск установки</td><td><code>install</code> — ссылка установки приложения</td></tr>
+          <tr><td><code class="w">app_exists</code></td><td><code>github.setup</code>, когда приложение уже есть, без <code>replace: true</code></td><td><code>app</code> — какое есть</td></tr>
+          <tr><td><code class="w">github_failed</code></td><td>GitHub ответил ошибкой: нет сети, 5xx, ключ приложения отозван, код настройки использован или старше часа</td><td>только слово; статус и текст GitHub — в журнале github</td></tr>
+          <tr><td><code class="w">bad_frame</code></td><td>кадр не по контракту: <code>repo</code> не вида <code>владелец/имя</code>, нет <code>code</code> или <code>redirect</code></td><td>только слово; причина — в журнале github</td></tr>
+          <tr><td><code class="w">offline</code></td><td>слово relay: github не принял <code>frame</code></td><td>только слово</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КАНАЛЫ ===== -->
+<section class="chg" data-chg="github-ch">
+  <div class="shead">
+    <h2>Каналы github</h2>
+    <p>С relay — по двум привязкам, как у любого Worker-участника. Наружу — только к API GitHub. Байты git идут мимо github: машина ходит в GitHub сама, с токеном из ответа. Нажмите номер.</p>
+  </div>
+  <div class="card gh-two">
+    <figure class="gh-fig">
+      <svg class="gh-svg" id="github-ch-svg" viewBox="0 0 400 300" role="img" aria-label="Машины и пульт говорят с relay по веб-сокету. relay передаёт кадры github по привязке, github отвечает по своей привязке. github ходит в API GitHub с JWT приложения. Машина делает git pull и push в github.com сама, с токеном установки">
+        <defs>
+          <marker id="github-m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path class="arh" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="github-m-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path class="arh on" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="bx" data-on="4" x="16" y="8" width="170" height="40" rx="9"/>
+        <text class="t-n" x="101" y="25" text-anchor="middle">Host · машины</text><text class="t-s" x="101" y="40" text-anchor="middle">модуль profiles · git</text>
+        <rect class="bx" x="214" y="8" width="170" height="40" rx="9"/>
+        <text class="t-n" x="299" y="25" text-anchor="middle">пульт</text><text class="t-s" x="299" y="40" text-anchor="middle">клиент рации</text>
+        <path class="ed dim" d="M110 48V76" marker-end="url(#github-m)"/><text class="t-y" x="116" y="66">wss</text>
+        <path class="ed dim" d="M250 48L150 76" marker-end="url(#github-m)"/><text class="t-y" x="210" y="70">wss</text>
+
+        <rect class="zone" x="4" y="58" width="392" height="150" rx="14"/>
+        <text class="t-l" x="40" y="200">CLOUDFLARE</text>
+        <rect class="bx" data-on="1 2" x="40" y="78" width="126" height="64" rx="10"/>
+        <text class="t-b" x="103" y="102" text-anchor="middle">relay</text><text class="t-y" x="103" y="120" text-anchor="middle">github → GITHUB</text><text class="t-y" x="103" y="133" text-anchor="middle">from ← props.name</text>
+        <rect class="bx me" data-on="1 2 3" x="234" y="78" width="150" height="64" rx="10"/>
+        <text class="t-b" x="309" y="98" text-anchor="middle">github</text><text class="t-s" x="309" y="113" text-anchor="middle">Durable Object</text>
+        <rect class="kc" x="252" y="120" width="114" height="16" rx="4"/><text class="t-k" x="309" y="132" text-anchor="middle">ключ приложения</text>
+
+        <rect class="zone" x="4" y="222" width="392" height="72" rx="14"/>
+        <text class="t-l" x="14" y="286">GITHUB</text>
+        <rect class="bx ext" data-on="4" x="16" y="232" width="150" height="40" rx="9"/>
+        <text class="t-n" x="91" y="249" text-anchor="middle">github.com</text><text class="t-y" x="91" y="264" text-anchor="middle">git по HTTPS</text>
+        <rect class="bx ext" data-on="3" x="234" y="232" width="150" height="40" rx="9"/>
+        <text class="t-n" x="309" y="249" text-anchor="middle">api.github.com</text><text class="t-y" x="309" y="264" text-anchor="middle">JWT → токен установки</text>
+
+        <path class="ed" data-ch="1" d="M166 98H230" marker-end="url(#github-m)"/>
+        <path class="ed" data-ch="2" d="M234 124H170" marker-end="url(#github-m)"/>
+        <path class="ed" data-ch="3" d="M309 142V228" marker-end="url(#github-m)"/>
+        <path class="ed" data-ch="4" d="M26 48V228" marker-end="url(#github-m)"/>
+        <g class="bdg" data-ch="1" tabindex="0" role="button" aria-label="Канал 1: relay → github"><circle cx="200" cy="98" r="9"/><text x="200" y="102" text-anchor="middle">1</text></g>
+        <g class="bdg" data-ch="2" tabindex="0" role="button" aria-label="Канал 2: github → relay"><circle cx="200" cy="124" r="9"/><text x="200" y="128" text-anchor="middle">2</text></g>
+        <g class="bdg" data-ch="3" tabindex="0" role="button" aria-label="Канал 3: github → API GitHub"><circle cx="309" cy="176" r="9"/><text x="309" y="180" text-anchor="middle">3</text></g>
+        <g class="bdg" data-ch="4" tabindex="0" role="button" aria-label="Канал 4: машина → github.com"><circle cx="26" cy="150" r="9"/><text x="26" y="154" text-anchor="middle">4</text></g>
+      </svg>
+      <figcaption>Стрелка — кто начинает. 1, 2 — привязки внутри Cloudflare; 3 — HTTPS к API GitHub; 4 — git по HTTPS прямо с машины. Пунктир — веб-сокеты relay. Янтарное — секрет github. Браузер пульта ходит на github.com только при настройке — это в шагах ниже.</figcaption>
+    </figure>
+    <div class="gh-pad" id="github-ch-det" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- ===== ПО ШАГАМ ===== -->
+<section class="chg" data-chg="github-steps">
+  <div class="shead">
+    <h2>По шагам</h2>
+    <p>Настройка — один раз на флот, с пульта: GitHub создаёт приложение по manifest и возвращает браузер на адрес пульта с одноразовым кодом; github меняет код на ключ приложения. Дальше машина берёт токен перед каждым сетевым git. Три случая.</p>
+  </div>
+  <div class="card" style="overflow:hidden">
+    <div class="gh-cases" id="github-cases" role="group" aria-label="Случай"></div>
+    <div class="gh-two">
+      <figure class="gh-fig"><svg class="gh-svg gh-seq" id="github-ssvg" viewBox="0 0 400 300" role="img" aria-label="Диаграмма последовательности выбранного случая: кто кому что шлёт по шагам"></svg></figure>
+      <div class="gh-pad">
+        <span class="tstamp" id="github-sn"></span>
+        <p class="cap" id="github-scap" aria-live="polite"></p>
+        <span class="lbl" id="github-sjl"></span>
+        <div class="codebox"><pre class="gh-pre" id="github-sjs"></pre></div>
+        <div class="gh-nav">
+          <button type="button" id="github-sprev">← назад</button>
+          <button type="button" class="primary" id="github-snext">далее →</button>
+          <button type="button" id="github-setl" hidden>эталон</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ХРАНИЛИЩЕ ===== -->
+<section class="chg" data-chg="github-store">
+  <div class="shead">
+    <h2>Что github помнит</h2>
+    <p>Одна запись — приложение. Её кладёт <code>github.setup</code>, и только github её читает: в ответы, кадры и журнал ключи не попадают. В Workers secrets ничего нет: ключ появляется при настройке, человек его не видит и не переносит.</p>
+  </div>
+  <div class="grid2">
+    <div class="card gh-pad">
+      <span class="lbl">хранилище Durable Object · ключ app</span>
+      <div class="codebox"><pre class="gh-pre">{ "id": 1047113,
+  "slug": "switchboard-team",
+  "owner": "team",
+  "pem": "-----BEGIN RSA PRIVATE KEY-----…",
+  "at": 1793457720000, "by": "panel" }</pre></div>
+      <p>Токенов, установок и списка репозиториев github не хранит: токен живёт час у того, кто его взял, а установки и репозитории github спрашивает у GitHub на каждый запрос. Второго места для того, что знает GitHub, нет.</p>
+      <p><code>client_secret</code> и <code>webhook_secret</code> из ответа GitHub не сохраняются: входа через GitHub и вебхуков у флота нет. Понадобятся — их выпускают заново в настройках приложения на GitHub.</p>
+    </div>
+    <div class="facts chg" data-chg="github-facts">
+      <div class="fact"><b>1 ч</b><span>живёт токен установки; после — 401, нужен новый (документация GitHub)</span></div>
+      <div class="fact"><b>10 мин</b><span>предел срока JWT приложения: github подписывает новый на каждый запрос</span></div>
+      <div class="fact"><b>0</b><span>токенов в хранилище github: выдал — забыл</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СБОИ ===== -->
+<section class="chg" data-chg="github-fail">
+  <div class="shead">
+    <h2>Сбои и остановка</h2>
+    <p>Всё, что github знает, лежит в хранилище объекта и переживает любой перезапуск. Остановкой управляет Cloudflare: для машины это <code>offline</code> на один запрос; синхронизация профилей повторит его в свой следующий раз.</p>
+  </div>
+  <div class="card gh-pad">
+    <div class="gh-tblw">
+      <table class="tbl">
+        <thead><tr><th>сбой</th><th>кто поднимает</th><th>что теряется</th></tr></thead>
+        <tbody>
+          <tr><td>выпуск github, Cloudflare перезапустил объект</td><td>Cloudflare; приложение — из хранилища</td><td>ответ на запрос, который шёл в эту секунду</td></tr>
+          <tr><td>GitHub недоступен или отвечает 5xx</td><td>агент по журналу github</td><td>синхронизация этого раза: у профиля <code>error</code></td></tr>
+          <tr><td>приложение не допущено к репозиторию</td><td>человек: установка по ссылке <code>install</code></td><td>синхронизация до установки</td></tr>
+          <tr><td>приложение удалено или ключ отозван в GitHub</td><td>человек с пульта: <code>github.setup</code> с <code>replace: true</code></td><td>токены до новой настройки</td></tr>
+          <tr><td>ошибка в коде github</td><td>агент по журналу; relay отвечает <code>offline</code></td><td>запрос</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Журнал github — Workers Logs, одна строка JSON в общем формате журналов: <code>part: "github"</code>, запрос, <code>from</code>, слово и причина; статус и текст GitHub — при <code>github_failed</code>. Токенов и ключей в журнале нет.</p>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="github-et">
+  <div class="shead">
+    <h2>Эталоны github</h2>
+    <p>Каждый проверяет github на своём входе: relay и GitHub — поддельные, часы заданы. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="github-et-240"><div class="et-n">240</div>
+      <div class="et-in">Приложение есть: <code>id: 1047113</code>. От @laptop — <code>github.token { repo: "team/profiles" }</code>. Поддельный GitHub: установка 58203311.</div>
+      <div class="et-out">Поддельный GitHub получил <code>GET /repos/team/profiles/installation</code> с JWT, где <code>iss: "1047113"</code>, затем <code>POST /app/installations/58203311/access_tokens</code> с <code>repositories: ["profiles"]</code>, <code>permissions: { contents: "write" }</code>. Ответ — <code>ok</code> с <code>token</code> и <code>expires_at</code> ровно из ответа GitHub. Хранилище не изменилось.</div>
+      <div class="et-src">чьё: код claude-fleet — <code>POST /api/github/token {repo}</code> → <code>{token, expires_at}</code>, токен установки по JWT приложения; факт — документация GitHub: токен установки ограничивается <code>repositories</code> и <code>permissions</code> и живёт час.</div></div>
+    <div class="et" id="github-et-241"><div class="et-n">241</div>
+      <div class="et-in">Хранилище пусто. От @laptop — <code>github.token { repo: "team/profiles" }</code>.</div>
+      <div class="et-out"><code>reply ok: false, error: no_app</code>; поддельный GitHub не вызван ни разу; строка журнала со словом и <code>from</code>.</div>
+      <div class="et-src">чьё: код claude-fleet — «приложение GitHub ещё не создано» до настройки.</div></div>
+    <div class="et" id="github-et-242"><div class="et-n">242</div>
+      <div class="et-in">Приложение есть; поддельный GitHub отвечает 404 на <code>GET /repos/team/wiki/installation</code>. От @pc — <code>github.token { repo: "team/wiki" }</code>.</div>
+      <div class="et-out"><code>error: not_installed</code>, <code>install: "https://github.com/apps/switchboard-team/installations/new"</code>; запроса токена не было.</div>
+      <div class="et-src">чьё: код claude-fleet — «приложение не установлено у owner» — отказ, токена нет.</div></div>
+    <div class="et" id="github-et-243"><div class="et-n">243</div>
+      <div class="et-in">Хранилище пусто. От panel — <code>github.app { org: "team", redirect: "https://pult.example/" }</code>; второй прогон — без <code>org</code>.</div>
+      <div class="et-out"><code>app: null</code>; <code>form.action</code> — <code>https://github.com/organizations/team/settings/apps/new</code>, во втором — <code>https://github.com/settings/apps/new</code>. В <code>manifest</code>: <code>public: false</code>, <code>redirect_url</code> и <code>setup_url</code> — адрес из запроса, <code>default_permissions</code> — <code>contents: "write"</code>, <code>metadata: "read"</code>; <code>hook_attributes.active: false</code>, <code>default_events: []</code>.<br><button type="button" data-go="setup">показать по шагам</button></div>
+      <div class="et-src">чьё: код claude-fleet — manifest приложения флота: содержимое репозиториев на запись, без вебхуков, закрытое; факт — документация GitHub: адреса формы manifest для личного аккаунта и для организации.</div></div>
+    <div class="et" id="github-et-244"><div class="et-n">244</div>
+      <div class="et-in">Хранилище пусто. От panel — <code>github.setup { code: "c0de…" }</code>; поддельный GitHub на <code>POST /app-manifests/c0de…/conversions</code> отдаёт приложение с <code>pem</code>, <code>client_secret</code>, <code>webhook_secret</code>. Затем тот же запрос ещё раз, затем — с <code>replace: true</code>.</div>
+      <div class="et-out">Первый — <code>ok</code> с <code>app { id, slug, owner }</code> и <code>install</code>; в хранилище — запись <code>app</code>; в ответе и журнале нет ни <code>pem</code>, ни секретов. Второй — <code>app_exists</code>, хранилище то же. Третий — запись заменена.</div>
+      <div class="et-src">чьё: код claude-fleet — возврат GitHub с кодом меняется на ключи приложения, они сохраняются, человек уходит на установку; факт — документация GitHub: <code>conversions</code> отдаёт <code>pem</code>, <code>client_secret</code>, <code>webhook_secret</code>.</div></div>
+    <div class="et" id="github-et-245"><div class="et-n">245</div>
+      <div class="et-in">relay зовёт <code>hello()</code> у github.</div>
+      <div class="et-out"><code>{ contract: { "github.app": 1, "github.setup": 1, "github.token": 1 } }</code> — ровно то, что github обслуживает.</div>
+      <div class="et-src">чьё: устав — «части пользуются друг другом только через контракт»; слово пользователя 31 окт. — в hello каждый участник сообщает контракт.</div></div>
+    <div class="et" id="github-et-246"><div class="et-n">246</div>
+      <div class="et-in">Тестовый флот развёрнут, приложение настроено. Списки секретов и адресов Worker github; затем новый выпуск github и <code>github.token</code> от @laptop.</div>
+      <div class="et-out">Workers secrets у github нет; <code>workers_dev</code> и <code>preview_urls</code> выключены, маршрутов нет. После выпуска токен выдан без новой настройки: приложение — из хранилища объекта.</div>
+      <div class="et-src">чьё: код claude-fleet — ключи приложения хранятся в объекте, а не в секретах воркера; факт — документация Cloudflare: хранилище Durable Object переживает выпуск, Worker без маршрутов и <code>workers_dev</code> снаружи недоступен.</div></div>
+  </div>
+</section>
+
+<!-- ===== ИСТОЧНИКИ ===== -->
+<section class="chg" data-chg="github-src">
+  <div class="shead">
+    <h2>На чём стоит</h2>
+    <p>Всё, что github делает с GitHub, — документированный API приложений GitHub. В claude-fleet то же делал Пульт: та же форма manifest, тот же обмен кода и тот же токен по запросу машины.</p>
+  </div>
+  <div class="card gh-pad">
+    <ul class="gh-src">
+      <li><a href="https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest" target="_blank" rel="noopener">Registering a GitHub App from a manifest</a><span>форма manifest, адреса для аккаунта и организации, возврат с <code>code</code>, весь путь — за час</span></li>
+      <li><a href="https://docs.github.com/en/rest/apps/apps#create-a-github-app-from-a-manifest" target="_blank" rel="noopener">REST: create a GitHub App from a manifest</a><span><code>POST /app-manifests/{code}/conversions</code> → <code>id</code>, <code>slug</code>, <code>pem</code>, <code>client_secret</code>, <code>webhook_secret</code></span></li>
+      <li><a href="https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-json-web-token-jwt-for-a-github-app" target="_blank" rel="noopener">Generating a JWT for a GitHub App</a><span>RS256 ключом приложения, <code>iss</code> — id приложения, срок не больше 10 минут</span></li>
+      <li><a href="https://docs.github.com/en/rest/apps/apps#get-a-repository-installation-for-the-authenticated-app" target="_blank" rel="noopener">REST: get a repository installation</a><span><code>GET /repos/{owner}/{repo}/installation</code> с JWT</span></li>
+      <li><a href="https://docs.github.com/en/rest/apps/apps#create-an-installation-access-token-for-an-app" target="_blank" rel="noopener">REST: create an installation access token</a><span><code>POST /app/installations/{id}/access_tokens</code>; <code>repositories</code>, <code>permissions</code>; токен живёт час</span></li>
+      <li><a href="https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/authenticating-as-a-github-app-installation" target="_blank" rel="noopener">Authenticating as an installation</a><span>git по HTTPS с токеном: пользователь <code>x-access-token</code>, пароль — токен</span></li>
+      <li><a href="https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/rate-limits-for-github-apps" target="_blank" rel="noopener">Rate limits for GitHub Apps</a><span>пределы запросов приложения и установок</span></li>
+      <li><b>claude-fleet · Пульт</b><span>приложение GitHub флота: страница с формой manifest, возврат с кодом, ключи — в хранилище объекта, <code>POST /api/github/token {repo}</code> для git Смотрителей</span></li>
+    </ul>
+  </div>
+</section>
+
+<script>
+/* ===== github: API по исходам, каналы, по шагам (настройка, токен, отказ) ===== */
+(function(){
+  const V = "github";
+  const root = document.querySelector('[data-view="' + V + '"]');
+  if (!root) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = s => root.querySelector(s);
+  function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function el(tag, attrs, parent, text){ const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; if (parent) parent.appendChild(n); return n; }
+  function press(list, cur){ list.forEach(b => b.setAttribute("aria-pressed", b === cur ? "true" : "false")); }
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  function json(fields){ return fields.map((x, i) => (i ? "  " : "{ ") + '<span class="' + x[2] + '">"' + esc(x[0]) + '": ' + esc(x[1]) + "</span>").join(",\n") + " }"; }
+  function dl(box, rows){ box.textContent = ""; rows.forEach(r => { const dd = h("dd"); dd.innerHTML = r[1]; box.append(h("dt", r[2] || null, r[0]), dd); }); }
+  function flash(n){ if (!n) return; if (n.scrollIntoView) n.scrollIntoView({block: "center"}); n.style.outline = "2px solid var(--accent)"; n.style.outlineOffset = "3px"; setTimeout(() => { n.style.outline = ""; }, 1600); }
+
+  // ---------- API ----------
+  const PULT = "https://pult.example/";
+  const INSTALL = '"https://github.com/apps/switchboard-team/installations/new"';
+  const R = (id, to) => [["type",'"reply"',"s"],["id",'"' + id + '"',"s"],["to",'"' + to + '"',"s"],["from",'"github"',"s"]];
+  const OPS = [
+    {n:"github.token", sub:"токен для git", who:"модуль Host profiles",
+      rows:[["кто зовёт","машина — перед сетевым git репозитория профилей: <code>clone</code>, <code>pull</code>, <code>push</code>. Любой участник рации может спросить"],
+            ["делает","JWT ключом приложения → <code>GET /repos/{owner}/{repo}/installation</code> → <code>POST /app/installations/{id}/access_tokens</code> с <code>repositories: [имя]</code> и <code>permissions: { contents: \"write\" }</code>"],
+            ["даёт","<code>token</code> и <code>expires_at</code> — через час; github его не запоминает"],
+            ["git","машина кладёт токен в заголовок <code>Authorization</code> через окружение git — не в аргументы команды и не в адрес репозитория"]],
+      req:[["type",'"github.token"',"r"],["id",'"t-9"',"r"],["v","1","r"],["to",'"github"',"o"],["from",'"@laptop"',"o"],["repo",'"team/profiles"',"r"]],
+      outs:[
+        {l:"ok", rep:R("t-9","@laptop").concat([["ok","true","s"],["result",'{ "token": "ghs_…",\n    "expires_at": "2026-10-31T13:02:11Z" }',"s"]]), why:"Токен — только к team/profiles и только на содержимое. Эталон 240."},
+        {l:"not_installed", bad:true, rep:R("t-9","@laptop").concat([["ok","false","s"],["error",'"not_installed"',"x"],["install",INSTALL,"x"]]), why:"Приложение не допущено к репозиторию. Профиль машины краснеет, модель получает задание спросить человека; человек ставит приложение по ссылке. Эталон 242."},
+        {l:"no_app", bad:true, rep:R("t-9","@laptop").concat([["ok","false","s"],["error",'"no_app"',"x"]]), why:"Приложение ещё не создано: настройка — с пульта. Эталон 241."},
+        {l:"github_failed", bad:true, rep:R("t-9","@laptop").concat([["ok","false","s"],["error",'"github_failed"',"x"]]), why:"GitHub ответил ошибкой. Статус и текст — в журнале github; машина попробует в следующую синхронизацию."}
+      ]},
+    {n:"github.app", sub:"что есть и как создать", who:"пульт",
+      rows:[["кто зовёт","пульт — экран приложения GitHub"],
+            ["есть","<code>slug</code>, владелец, репозитории всех установок и ссылка установки на новые репозитории"],
+            ["нет","форма для GitHub: адрес <code>action</code> и <code>manifest</code>; браузер пульта отправляет её сам"],
+            ["manifest","закрытое приложение; права — <code>contents: write</code> и обязательное <code>metadata: read</code>; вебхуки выключены; <code>redirect_url</code> и <code>setup_url</code> — адрес пульта из запроса"],
+            ["org","есть — приложение организации; нет — личного аккаунта того, кто подтвердит форму"]],
+      req:[["type",'"github.app"',"r"],["id",'"a-1"',"r"],["v","1","r"],["to",'"github"',"o"],["from",'"panel"',"o"],["org",'"team"',"o"],["redirect",'"' + PULT + '"',"r"]],
+      outs:[
+        {l:"нет приложения", rep:R("a-1","panel").concat([["ok","true","s"],["result",'{ "app": null, "form": {\n    "action": "https://github.com/organizations/team/settings/apps/new",\n    "manifest": { "name": "Switchboard team", "url": "' + PULT + '",\n      "public": false,\n      "redirect_url": "' + PULT + '", "setup_url": "' + PULT + '",\n      "hook_attributes": { "url": "' + PULT + '", "active": false },\n      "default_permissions": { "contents": "write", "metadata": "read" },\n      "default_events": [] } } }',"s"]]), why:"Пульт рисует кнопку «Создать приложение GitHub»: форма POST на action с полем manifest. Эталон 243."},
+        {l:"есть", rep:R("a-1","panel").concat([["ok","true","s"],["result",'{ "app": { "id": 1047113, "slug": "switchboard-team",\n      "owner": "team" },\n    "repos": [ "team/profiles" ],\n    "install": ' + INSTALL + ' }',"s"]]), why:"repos github спрашивает у GitHub на каждый запрос: GET /app/installations, затем репозитории каждой установки."},
+        {l:"github_failed", bad:true, rep:R("a-1","panel").concat([["ok","false","s"],["error",'"github_failed"',"x"]]), why:"Ключ приложения отозван или GitHub недоступен — причина в журнале github."}
+      ]},
+    {n:"github.setup", sub:"код → приложение", who:"пульт",
+      rows:[["кто зовёт","пульт — GitHub вернул браузер на адрес пульта с <code>code</code>, и человек нажал «Сохранить приложение»"],
+            ["делает","<code>POST /app-manifests/{code}/conversions</code> — без ключа: код одноразовый и живёт час; ответ GitHub — в хранилище"],
+            ["даёт","приложение и ссылку установки; ключей приложения — нет ни в ответе, ни в журнале","k"],
+            ["replace","приложение уже есть — <code>app_exists</code>; <code>replace: true</code> заменяет его, например после отзыва ключа"]],
+      req:[["type",'"github.setup"',"r"],["id",'"s-1"',"r"],["v","1","r"],["to",'"github"',"o"],["from",'"panel"',"o"],["code",'"c0de…"',"r"],["replace","false","o"]],
+      outs:[
+        {l:"ok", rep:R("s-1","panel").concat([["ok","true","s"],["result",'{ "app": { "id": 1047113, "slug": "switchboard-team",\n      "owner": "team" },\n    "install": ' + INSTALL + ' }',"s"]]), why:"Пульт открывает install: человек выбирает репозитории, GitHub возвращает его на setup_url. Эталон 244."},
+        {l:"app_exists", bad:true, rep:R("s-1","panel").concat([["ok","false","s"],["error",'"app_exists"',"x"],["app",'{ "id": 1047113, "slug": "switchboard-team" }',"x"]]), why:"Приложение уже есть; заменить — тот же запрос с replace: true."},
+        {l:"github_failed", bad:true, rep:R("s-1","panel").concat([["ok","false","s"],["error",'"github_failed"',"x"]]), why:"Код уже использован или старше часа — GitHub отвечает 404. Настройку начинают заново."}
+      ]},
+    {n:"hello() · frame()", sub:"вход участника", who:"relay",
+      rows:[["вход","<code>class Participant extends WorkerEntrypoint</code>, привязка <code>GITHUB</code> и строка <code>github</code> в <code>PARTICIPANTS</code> конфига relay"],
+            ["hello()","контракт: имена и версии — relay кладёт его в <code>roster.workers</code>"],
+            ["frame(кадр)","кадры с <code>to: \"github\"</code>; всё — в один Durable Object <code>App</code>; ответ github шлёт сам через <code>env.RELAY.frame</code>"]],
+      reqText:"// relay → github\nawait env.GITHUB.hello()\nawait env.GITHUB.frame({ type: \"github.token\", from: \"@laptop\", … })\n\n// github → relay, привязка RELAY с props { name: \"github\" }\nawait env.RELAY.frame({ type: \"reply\", id: \"t-9\", to: \"@laptop\", … })",
+      outs:[{l:"hello()", repText:'{ "contract": { "github.app": 1, "github.setup": 1,\n    "github.token": 1 } }', why:"Эталон 245."}]}
+  ];
+  const opsEl = $("#github-ops"), headEl = $("#github-op-head"), dlEl = $("#github-op-dl"), reqEl = $("#github-op-req"), outsEl = $("#github-op-outs"), repEl = $("#github-op-rep"), whyEl = $("#github-op-why");
+  const opBtns = []; let outBtns = [];
+  function renderOut(op, j){
+    press(outBtns, outBtns[j]);
+    const o = op.outs[j];
+    if (o.repText) repEl.textContent = o.repText; else repEl.innerHTML = json(o.rep);
+    whyEl.textContent = o.why;
+  }
+  function renderOp(i){
+    const op = OPS[i];
+    press(opBtns, opBtns[i]);
+    headEl.textContent = "";
+    headEl.append(h("h3", null, op.n), h("span", "pill acc", "зовёт: " + op.who));
+    dl(dlEl, op.rows);
+    if (op.reqText) reqEl.textContent = op.reqText; else reqEl.innerHTML = json(op.req);
+    outsEl.textContent = ""; outBtns = [];
+    op.outs.forEach((o, j) => { const b = h("button", o.bad ? "bad" : null, o.l); b.type = "button"; b.addEventListener("click", () => renderOut(op, j)); outBtns.push(b); outsEl.appendChild(b); });
+    renderOut(op, 0);
+  }
+  OPS.forEach((op, i) => { const b = h("button"); b.type = "button"; b.append(h("code", null, op.n), h("span", null, op.sub)); b.addEventListener("click", () => renderOp(i)); opBtns.push(b); opsEl.appendChild(b); });
+  renderOp(0);
+
+  // ---------- каналы ----------
+  const CH = {
+    1: {t:"relay → github", rows:[
+      ["начинает","relay: при старте объекта флота — <code>hello()</code>; кадр с <code>to: \"github\"</code> — <code>frame(кадр)</code>"],
+      ["транспорт","привязка <code>GITHUB</code> и строка <code>github</code> в <code>PARTICIPANTS</code> конфига relay; код relay не меняется"],
+      ["идёт","запросы машин и пульта как есть, плюс <code>from</code>"],
+      ["отказ","исключение или нет ответа — relay отвечает отправителю <code>offline</code>"]]},
+    2: {t:"github → relay", rows:[
+      ["начинает","github: ответ на запрос"],
+      ["транспорт","привязка <code>RELAY</code>, вход <code>Radio</code>, метод <code>frame(кадр)</code>"],
+      ["from","<code>github</code> — из <code>props { name: \"github\" }</code>; ставит relay","k"],
+      ["идёт","только <code>reply</code> тому, кто спросил; сам никому не пишет"]]},
+    3: {t:"github → API GitHub", rows:[
+      ["начинает","github: на каждый запрос, кроме <code>hello()</code>"],
+      ["ключ","JWT RS256 ключом приложения: <code>iss</code> — id приложения, срок — 9 минут; подписывается заново на каждый запрос","k"],
+      ["зовёт","<code>GET /repos/{owner}/{repo}/installation</code>, <code>POST /app/installations/{id}/access_tokens</code> — токен; <code>GET /app/installations</code> и <code>GET /installation/repositories</code> — для <code>github.app</code>; <code>POST /app-manifests/{code}/conversions</code> — без ключа"],
+      ["транспорт","<code>fetch</code> на <code>https://api.github.com</code>, заголовки <code>accept: application/vnd.github+json</code> и <code>user-agent</code>"]]},
+    4: {t:"машина → github.com", rows:[
+      ["начинает","модуль Host profiles: <code>clone</code>, <code>pull</code>, <code>push</code> репозитория профилей"],
+      ["адрес","<code>https://github.com/team/profiles.git</code> — HTTPS, не SSH"],
+      ["ключ","токен из <code>github.token</code>; заголовок <code>Authorization: basic</code> от <code>x-access-token:&lt;токен&gt;</code> — переменными <code>GIT_CONFIG_COUNT</code>, <code>GIT_CONFIG_KEY_0</code>, <code>GIT_CONFIG_VALUE_0</code>, не в аргументах","k"],
+      ["без вопросов","<code>GIT_TERMINAL_PROMPT=0</code>, <code>credential.interactive=never</code>: окна ввода под Host нет"],
+      ["мимо github","байты git идут прямо между машиной и GitHub"]]}
+  };
+  const chSvg = $("#github-ch-svg"), chDet = $("#github-ch-det");
+  function chSelect(n){
+    n = String(n);
+    chSvg.querySelectorAll(".bdg").forEach(b => b.classList.toggle("sel", b.dataset.ch === n));
+    chSvg.querySelectorAll(".ed[data-ch]").forEach(e => { const on = e.dataset.ch === n; e.classList.toggle("on", on); e.setAttribute("marker-end", on ? "url(#github-m-on)" : "url(#github-m)"); });
+    chSvg.querySelectorAll("[data-on]").forEach(b => b.classList.toggle("lit", b.dataset.on.split(" ").includes(n)));
+    const c = CH[n];
+    chDet.textContent = "";
+    const hd = h("div", "gh-hd"); hd.append(h("span", "gh-n", n), h("h3", null, c.t)); chDet.appendChild(hd);
+    const d = h("dl", "gh-dl"); dl(d, c.rows); chDet.appendChild(d);
+  }
+  chSvg.querySelectorAll(".bdg").forEach(b => {
+    b.addEventListener("click", () => chSelect(b.dataset.ch));
+    b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); chSelect(b.dataset.ch); } });
+  });
+  chSelect(3);
+
+  // ---------- по шагам ----------
+  const CASES = [
+    {id:"setup", name:"Настройка приложения", et:243,
+      lanes:[["hu","человек","браузер"],["pu","пульт","клиент рации"],["gw","github","Worker","me"],["gh","GitHub","github.com · API","ext"]],
+      steps:[
+        {a:"hu", b:"pu", l:"«Создать приложение»", jl:"пульт", cap:"На экране приложения GitHub человек вводит организацию team и жмёт «Создать приложение GitHub».", js:"организация: team\n[ Создать приложение GitHub ]"},
+        {a:"pu", b:"gw", l:"github.app", jl:"кадр через relay", cap:"Пульт спрашивает, есть ли приложение, и передаёт свой адрес — туда GitHub вернёт браузер.", js:'{ "type": "github.app", "id": "a-1", "v": 1,\n  "to": "github", "org": "team",\n  "redirect": "' + PULT + '" }'},
+        {a:"gw", b:"pu", l:"app: null · form", jl:"reply", cap:"Приложения нет — github отдаёт форму: куда отправить и manifest с правами. Права и адреса решает github, пульт их не знает.", js:'{ "app": null, "form": {\n  "action": "https://github.com/organizations/team/settings/apps/new",\n  "manifest": { "name": "Switchboard team",\n    "default_permissions": { "contents": "write",\n                             "metadata": "read" },\n    "hook_attributes": { …, "active": false }, … } } }'},
+        {a:"pu", b:"gh", l:"POST форма manifest", jl:"браузер", cap:"Браузер пульта отправляет форму на GitHub: обычный POST с полем manifest. Через relay это не идёт.", js:'POST https://github.com/organizations/team/settings/apps/new\nmanifest={"name":"Switchboard team",…}'},
+        {a:"hu", b:"gh", l:"«Create GitHub App»", jl:"GitHub", cap:"GitHub показывает приложение с правами из manifest; человек подтверждает создание.", js:"Create GitHub App for team\n  Repository contents: Read and write\n  Metadata: Read-only"},
+        {a:"gh", b:"pu", l:"redirect ?code=…", jl:"браузер", cap:"GitHub возвращает браузер на адрес пульта с одноразовым кодом. Код живёт час; ключа в нём нет.", js:"302 → " + PULT + "?code=c0de…"},
+        {a:"pu", b:"gw", l:"github.setup { code }", jl:"кадр через relay", cap:"Пульт показывает «Сохранить приложение»; по нажатию шлёт код github. Сам пульт код не меняет и ключей не видит.", js:'{ "type": "github.setup", "id": "s-1", "v": 1,\n  "to": "github", "code": "c0de…" }'},
+        {a:"gw", b:"gh", l:"conversions", jl:"API GitHub", cap:"github меняет код на приложение: id, slug, владелец и закрытый ключ — в хранилище объекта.", js:"POST https://api.github.com/app-manifests/c0de…/conversions\n← 201 { \"id\": 1047113, \"slug\": \"switchboard-team\",\n       \"owner\": { \"login\": \"team\" },\n       \"pem\": \"-----BEGIN RSA PRIVATE KEY-----…\", … }"},
+        {a:"gw", b:"pu", l:"app · install", jl:"reply", cap:"Ответ — приложение и ссылка установки; ключа приложения в ответе нет.", js:'{ "app": { "id": 1047113, "slug": "switchboard-team",\n           "owner": "team" },\n  "install": ' + INSTALL + ' }'},
+        {a:"hu", b:"gh", l:"установка: team/profiles", jl:"GitHub", cap:"Пульт открывает install; человек допускает приложение к репозиторию профилей. GitHub возвращает его на setup_url — на пульт.", js:"Install Switchboard team\n  ○ All repositories\n  ● Only select repositories: team/profiles\n[ Install ]"}
+      ]},
+    {id:"token", name:"Токен для git", et:240,
+      lanes:[["pf","profiles","Host laptop"],["gw","github","Worker","me"],["api","API GitHub","api.github.com","ext"],["git","github.com","git","ext"]],
+      steps:[
+        {a:"pf", b:"gw", l:"github.token", jl:"кадр через relay", cap:"Пора синхронизировать память профилей. Перед сетевым git profiles просит токен на репозиторий.", js:'{ "type": "github.token", "id": "t-9", "v": 1,\n  "to": "github", "repo": "team/profiles" }'},
+        {a:"gw", b:"gw", l:"JWT ключом приложения", jl:"github", cap:"github подписывает JWT ключом из хранилища: iss — id приложения, срок — 9 минут.", js:'{ "alg": "RS256" } . { "iss": "1047113",\n  "iat": 1793457660, "exp": 1793458200 } . подпись'},
+        {a:"gw", b:"api", l:"GET …/installation", jl:"API GitHub", cap:"Какая установка у этого репозитория.", js:"GET /repos/team/profiles/installation\nauthorization: Bearer <JWT>\n← 200 { \"id\": 58203311, \"account\": { \"login\": \"team\" }, … }"},
+        {a:"gw", b:"api", l:"POST access_tokens", jl:"API GitHub", cap:"Токен установки — только к этому репозиторию и только на содержимое.", js:'POST /app/installations/58203311/access_tokens\n{ "repositories": [ "profiles" ],\n  "permissions": { "contents": "write" } }\n← 201 { "token": "ghs_…", "expires_at": "2026-10-31T13:02:11Z" }'},
+        {a:"gw", b:"pf", l:"token · expires_at", jl:"reply", cap:"github отдаёт токен и сразу его забывает.", js:'{ "ok": true, "result": { "token": "ghs_…",\n  "expires_at": "2026-10-31T13:02:11Z" } }'},
+        {a:"pf", b:"git", l:"pull · push", jl:"git, окружение", cap:"git идёт в GitHub прямо с машины. Токен — в заголовке через окружение git: в аргументах команды и в адресе его нет.", js:"GIT_TERMINAL_PROMPT=0\nGIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=http.https://github.com/.extraHeader\nGIT_CONFIG_VALUE_0=Authorization: basic eC1hY2Nlc3MtdG9rZW46…\ngit -c credential.interactive=never pull --no-rebase --no-edit\ngit -c credential.interactive=never push"}
+      ]},
+    {id:"noinst", name:"Не установлено", et:242,
+      lanes:[["pf","profiles","Host pc"],["gw","github","Worker","me"],["api","API GitHub","api.github.com","ext"],["hu","человек","пульт · GitHub"]],
+      steps:[
+        {a:"pf", b:"gw", l:"github.token", jl:"кадр через relay", cap:"Машина pc просит токен на team/wiki — к нему приложение не допущено.", js:'{ "type": "github.token", "id": "t-3", "v": 1,\n  "to": "github", "repo": "team/wiki" }'},
+        {a:"gw", b:"api", l:"GET …/installation → 404", bad:true, jl:"API GitHub", cap:"Установки у репозитория нет.", js:"GET /repos/team/wiki/installation\n← 404 { \"message\": \"Not Found\" }"},
+        {a:"gw", b:"pf", l:"not_installed · install", bad:true, jl:"reply", cap:"Отказ словом и ссылка установки. Токена нет, git в сеть не идёт.", js:'{ "ok": false, "error": "not_installed",\n  "install": ' + INSTALL + ' }'},
+        {a:"pf", b:"hu", l:"error → вопрос", jl:"profiles", cap:"У профиля — error с op github.token; модель профиля получает задание спросить человека. Человек ставит приложение на team/wiki — следующая синхронизация пройдёт.", js:'"team/wiki": { "state": "error", "op": "github.token",\n  "error": "not_installed" }'}
+      ]}
+  ];
+  const ssvg = $("#github-ssvg"), caseBox = $("#github-cases");
+  let ci = 0, si = 0;
+  const LX = [50, 150, 250, 350];
+  function markers(svg){
+    const d = el("defs", {}, svg);
+    [["", "ah"], ["-on", "ah on"], ["-bad", "ah bad"]].forEach(([s, c]) => {
+      const m = el("marker", {id: V + "-sq" + s, viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto"}, d);
+      el("path", {class: c, d: "M0 0L10 5L0 10z"}, m);
+    });
+  }
+  const cbtns = CASES.map((c, i) => {
+    const b = h("button", null, c.name); b.type = "button";
+    b.addEventListener("click", () => { ci = i; si = 0; drawSeq(); });
+    caseBox.appendChild(b); return b;
+  });
+  function drawSeq(){
+    const c = CASES[ci];
+    const X = {}; c.lanes.forEach((ln, i) => X[ln[0]] = LX[i]);
+    const H = 62 + c.steps.length * 34 + 8;
+    ssvg.setAttribute("viewBox", "0 0 400 " + H);
+    ssvg.textContent = "";
+    markers(ssvg);
+    c.lanes.forEach(([k, n, s, cl]) => {
+      const x = X[k];
+      el("line", {class: "ll", x1: x, y1: 44, x2: x, y2: H - 4}, ssvg);
+      el("rect", {class: "lh" + (cl ? " " + cl : ""), x: x - 47, y: 4, width: 94, height: 38, rx: 8}, ssvg);
+      el("text", {class: "lt", x, y: 20, "text-anchor": "middle"}, ssvg, n);
+      el("text", {class: "ls", x, y: 34, "text-anchor": "middle"}, ssvg, s);
+    });
+    c.steps.forEach((st, i) => {
+      const y = 66 + i * 34;
+      const g = el("g", {class: "st" + (i === si ? " on" : i > si ? " fut" : "") + (st.bad ? " bad" : "")}, ssvg);
+      el("text", {class: "no", x: 2, y: y + 4}, g, String(i + 1));
+      if (st.a === st.b){
+        const w = st.l.length * 6.3 + 20, x = Math.min(Math.max(12, X[st.a] - w / 2), 396 - w);
+        el("rect", {class: "nt", x, y: y - 11, width: w, height: 22, rx: 11}, g);
+        el("text", {class: "ntt", x: x + w / 2, y: y + 4, "text-anchor": "middle"}, g, st.l);
+      } else {
+        const a = X[st.a], b = X[st.b], dir = b > a ? 1 : -1;
+        const mk = st.bad ? "-bad" : i === si ? "-on" : "";
+        el("line", {class: "m", x1: a + dir * 3, y1: y + 4, x2: b - dir * 5, y2: y + 4, "marker-end": "url(#" + V + "-sq" + mk + ")"}, g);
+        el("text", {class: "ml", x: (a + b) / 2, y: y - 3, "text-anchor": "middle"}, g, st.l);
+      }
+      const hit = el("rect", {class: "hit", x: 0, y: y - 17, width: 400, height: 34}, ssvg);
+      hit.addEventListener("click", () => { si = i; drawSeq(); });
+    });
+    const s = c.steps[si];
+    press(cbtns, cbtns[ci]);
+    $("#github-sn").textContent = "шаг " + (si + 1) + " из " + c.steps.length;
+    $("#github-scap").textContent = s.cap;
+    $("#github-sjl").textContent = s.jl;
+    $("#github-sjs").textContent = s.js;
+    $("#github-sprev").disabled = si === 0;
+    $("#github-snext").disabled = si === c.steps.length - 1;
+    const etl = $("#github-setl"); etl.hidden = !c.et; if (c.et) etl.textContent = "эталон " + c.et;
+  }
+  $("#github-sprev").addEventListener("click", () => { if (si > 0){ si--; drawSeq(); } });
+  $("#github-snext").addEventListener("click", () => { if (si < CASES[ci].steps.length - 1){ si++; drawSeq(); } });
+  $("#github-setl").addEventListener("click", () => flash($("#github-et-" + CASES[ci].et)));
+  drawSeq();
+
+  root.querySelectorAll("[data-go]").forEach(b => b.addEventListener("click", () => {
+    ci = CASES.findIndex(c => c.id === b.dataset.go); si = 0; drawSeq(); flash(ssvg.closest(".card"));
+  }));
+  document.addEventListener("view:show", e => { if (e.detail === V) drawSeq(); });
+})();
+</script>

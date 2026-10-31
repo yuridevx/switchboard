@@ -1,0 +1,731 @@
+<style>
+  /* upgrade: дорожки по шагам (Host старый и новый, keeper, три сессии) с переключателем «та же / новая версия SDK»;
+     цвет полосы сессии — версия SDK её процесса: 0.3.311 — акцент, 0.3.312 — --ok; ожидание ответа — --wait; отказ — --bad. */
+  [data-view="host-upgrade"] .et{padding:0}
+  [data-view="host-upgrade"] .et-in code,[data-view="host-upgrade"] .et-out code{overflow-wrap:anywhere}
+  [data-view="host-upgrade"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="host-upgrade"] .hu-ctx{font-size:14px;color:var(--muted);max-width:70ch}
+  [data-view="host-upgrade"] .hu-ctx b{color:var(--ink);font-weight:600}
+  [data-view="host-upgrade"] .hu-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:820px){[data-view="host-upgrade"] .hu-two{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-upgrade"] .hu-two>*{min-width:0}
+  [data-view="host-upgrade"] .hu-pad{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-upgrade"] .hu-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="host-upgrade"] .hu-pad h3{font-size:15.5px}
+  [data-view="host-upgrade"] .hu-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="host-upgrade"] pre.hu-pre{white-space:pre;word-break:normal}
+
+  /* ===== дорожки ===== */
+  [data-view="host-upgrade"] .hu-run{overflow:hidden;box-shadow:var(--shadow)}
+  [data-view="host-upgrade"] .hu-mode{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+  [data-view="host-upgrade"] .hu-mode button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-upgrade"] .hu-mode .lbl{margin-right:4px}
+  [data-view="host-upgrade"] .hu-scroll{overflow-x:auto;background:var(--surface2);padding:8px 6px}
+  [data-view="host-upgrade"] svg.hu-lanes{display:block;width:100%;min-width:600px;height:auto}
+  [data-view="host-upgrade"] .hu-lanes .hd{fill:var(--muted);font:600 10px var(--mono)}
+  [data-view="host-upgrade"] .hu-lanes .hd.on{fill:var(--accent)}
+  [data-view="host-upgrade"] .hu-lanes .cur{fill:var(--accent-weak);opacity:.7}
+  [data-view="host-upgrade"] .hu-lanes .grid{stroke:var(--line2);stroke-width:1}
+  [data-view="host-upgrade"] .hu-lanes .ln{fill:var(--ink);font:600 12px var(--mono)}
+  [data-view="host-upgrade"] .hu-lanes .sep{fill:var(--muted);font:600 10px var(--mono);letter-spacing:.1em}
+  [data-view="host-upgrade"] .hu-lanes .sg{stroke-width:1.5}
+  [data-view="host-upgrade"] .hu-lanes .sg.run{fill:var(--surface);stroke:var(--accent)}
+  [data-view="host-upgrade"] .hu-lanes .sg.stopping{fill:var(--wait-weak);stroke:var(--wait)}
+  [data-view="host-upgrade"] .hu-lanes .sg.keep{fill:var(--surface);stroke:var(--line)}
+  [data-view="host-upgrade"] .hu-lanes .sg.ghost{fill:none;stroke:var(--muted);stroke-dasharray:4 3}
+  [data-view="host-upgrade"] .hu-lanes .sg.v0{fill:var(--accent-weak);stroke:var(--accent);stroke-width:2}
+  [data-view="host-upgrade"] .hu-lanes .sg.v0i{fill:var(--accent-weak);stroke:var(--accent);stroke-width:1;stroke-opacity:.5}
+  [data-view="host-upgrade"] .hu-lanes .sg.v1{fill:var(--ok-weak);stroke:var(--ok);stroke-width:1}
+  [data-view="host-upgrade"] .hu-lanes .sg.wait{fill:var(--wait-weak);stroke:var(--wait);stroke-dasharray:5 3}
+  [data-view="host-upgrade"] .hu-lanes .sg.msg{fill:var(--accent);stroke:var(--accent)}
+  [data-view="host-upgrade"] .hu-lanes .sg.msgw{fill:var(--wait);stroke:var(--wait)}
+  [data-view="host-upgrade"] .hu-lanes .st{fill:var(--ink);font:500 11px var(--body)}
+  [data-view="host-upgrade"] .hu-lanes .st.m{fill:var(--on-accent);font:600 10.5px var(--mono)}
+  [data-view="host-upgrade"] .hu-lanes .st.mono{font:600 11px var(--mono)}
+  [data-view="host-upgrade"] .hu-lanes .rs circle{fill:var(--surface);stroke:var(--ok);stroke-width:2}
+  [data-view="host-upgrade"] .hu-lanes .rs text{fill:var(--ok);font:700 12px var(--mono)}
+  [data-view="host-upgrade"] .hu-lanes .fut{opacity:.28}
+  [data-view="host-upgrade"] .hu-side{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:18px;padding:16px;border-top:1px solid var(--line)}
+  @media (max-width:720px){[data-view="host-upgrade"] .hu-side{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-upgrade"] .hu-side>div{min-width:0;display:flex;flex-direction:column;gap:8px}
+  [data-view="host-upgrade"] .hu-st{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  [data-view="host-upgrade"] .hu-st b{font:600 17px var(--disp)}
+  [data-view="host-upgrade"] .hu-st span{font:600 12px var(--mono);color:var(--accent)}
+  [data-view="host-upgrade"] .hu-cap{font-size:15px}
+  [data-view="host-upgrade"] .hu-ctrl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line)}
+  [data-view="host-upgrade"] .hu-dots{display:flex;gap:4px;flex-wrap:wrap}
+  [data-view="host-upgrade"] .hu-dots button{width:30px;height:30px;padding:0;border-radius:50%;font:600 12px var(--mono)}
+  [data-view="host-upgrade"] .hu-dots button[aria-current="step"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-upgrade"] .hu-lgd{display:flex;flex-wrap:wrap;gap:6px 16px;padding:0 16px 14px;font-size:12.5px;color:var(--muted)}
+  [data-view="host-upgrade"] .hu-lgd i{display:inline-block;width:18px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px;border:1.5px solid}
+  [data-view="host-upgrade"] .hu-lgd .a{background:var(--accent-weak);border-color:var(--accent)}
+  [data-view="host-upgrade"] .hu-lgd .o{background:var(--ok-weak);border-color:var(--ok)}
+  [data-view="host-upgrade"] .hu-lgd .w{background:var(--wait-weak);border-color:var(--wait);border-style:dashed}
+  [data-view="host-upgrade"] .hu-lgd .g{background:transparent;border-color:var(--muted);border-style:dashed}
+
+  /* ===== вход и выход модуля ===== */
+  [data-view="host-upgrade"] .hu-io{display:grid;grid-template-columns:minmax(0,1fr) 92px minmax(0,1fr);overflow:hidden}
+  @media (max-width:720px){[data-view="host-upgrade"] .hu-io{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-upgrade"] .hu-io-col{padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  [data-view="host-upgrade"] .hu-io-mid{background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;
+    font:700 15px var(--disp);writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.04em;padding:12px 0}
+  @media (max-width:720px){[data-view="host-upgrade"] .hu-io-mid{writing-mode:horizontal-tb;transform:none;padding:8px}}
+  [data-view="host-upgrade"] .hu-r{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line2);font-size:13px}
+  [data-view="host-upgrade"] .hu-r:last-child{border-bottom:0}
+  [data-view="host-upgrade"] .hu-r>b{font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-upgrade"] .hu-r>span{min-width:0;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;gap:4px;align-items:baseline}
+  [data-view="host-upgrade"] .hu-r code{font:600 12px var(--mono);background:var(--accent-weak);color:var(--accent);border-radius:6px;padding:2px 6px}
+  [data-view="host-upgrade"] .hu-r.none>span{color:var(--muted)}
+  @media (max-width:420px){[data-view="host-upgrade"] .hu-r{grid-template-columns:minmax(0,1fr);gap:2px}}
+  [data-view="host-upgrade"] .hu-uses{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="host-upgrade"] .hu-uses li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:7px 10px;border-radius:9px;background:var(--surface2)}
+  [data-view="host-upgrade"] .hu-uses code{font-weight:600}
+  [data-view="host-upgrade"] .hu-uses span{color:var(--muted)}
+  [data-view="host-upgrade"] .hu-words{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13.5px}
+  [data-view="host-upgrade"] .hu-words code{font-weight:600;color:var(--bad)}
+
+  /* ===== проверки и отказы ===== */
+  [data-view="host-upgrade"] .hu-fig{margin:0;padding:14px 12px;background:var(--surface2);display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host-upgrade"] .hu-fig figcaption{font-size:12.5px;color:var(--muted)}
+  [data-view="host-upgrade"] svg.hu-svg{display:block;width:100%;height:auto;max-width:420px;margin-inline:auto}
+  [data-view="host-upgrade"] .hu-svg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="host-upgrade"] .hu-svg .bx.q{fill:var(--surface);stroke:var(--muted);stroke-dasharray:4 3}
+  [data-view="host-upgrade"] .hu-svg .bx.go{fill:var(--accent-weak);stroke:var(--accent);stroke-width:2}
+  [data-view="host-upgrade"] .hu-svg .bx.ok{fill:var(--ok-weak);stroke:var(--ok)}
+  [data-view="host-upgrade"] .hu-svg .bx.bad{fill:var(--bad-weak);stroke:var(--bad)}
+  [data-view="host-upgrade"] .hu-svg .bx.wt{fill:var(--wait-weak);stroke:var(--wait)}
+  [data-view="host-upgrade"] .hu-svg .tn{fill:var(--ink);font:600 11.5px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .ts{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="host-upgrade"] .hu-svg .tb{fill:var(--bad);font:600 11.5px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .tw{fill:var(--wait);font:600 11px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .ty{fill:var(--ok);font:600 10.5px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .tr{fill:var(--bad);font:600 10.5px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .ed{stroke:var(--muted);stroke-width:1.6;fill:none}
+  [data-view="host-upgrade"] .hu-svg .ed.ok{stroke:var(--ok)}
+  [data-view="host-upgrade"] .hu-svg .ed.bad{stroke:var(--bad)}
+  [data-view="host-upgrade"] .hu-svg .ah{fill:var(--muted)}
+  [data-view="host-upgrade"] .hu-svg .ah.ok{fill:var(--ok)}
+  [data-view="host-upgrade"] .hu-svg .ah.bad{fill:var(--bad)}
+
+  /* ===== папки версий ===== */
+  [data-view="host-upgrade"] .hu-tree{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font:500 13px var(--mono)}
+  [data-view="host-upgrade"] .hu-tree li{display:grid;grid-template-columns:minmax(0,9em) auto minmax(0,1fr);gap:10px;align-items:center;padding:9px 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface)}
+  @media (max-width:480px){[data-view="host-upgrade"] .hu-tree li{grid-template-columns:minmax(0,1fr) auto}[data-view="host-upgrade"] .hu-tree li span:last-child{grid-column:1 / -1}}
+  [data-view="host-upgrade"] .hu-tree li.cur{border:2px solid var(--accent);background:var(--accent-weak)}
+  [data-view="host-upgrade"] .hu-tree li.busy{border-style:dashed}
+  [data-view="host-upgrade"] .hu-tree li.gone{opacity:.45;text-decoration:line-through}
+  [data-view="host-upgrade"] .hu-tree b{font-weight:600}
+  [data-view="host-upgrade"] .hu-tree span:last-child{font:500 12.5px var(--body);color:var(--muted)}
+  [data-view="host-upgrade"] .hu-mb{font:600 12px var(--mono);font-variant-numeric:tabular-nums;color:var(--muted);white-space:nowrap}
+  [data-view="host-upgrade"] .facts{grid-template-columns:repeat(3,minmax(0,1fr))}
+  @media (max-width:720px){[data-view="host-upgrade"] .facts{grid-template-columns:minmax(0,1fr)}}
+
+  /* ===== выпуски в R2: каналы по номерам ===== */
+  [data-view="host-upgrade"] .hu-rel{display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-upgrade"] .hu-rel{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-upgrade"] .hu-rel>*{min-width:0}
+  [data-view="host-upgrade"] .hu-svg .bx.ext{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="host-upgrade"] .hu-svg .bx.lit{stroke:var(--accent);stroke-width:2.2}
+  [data-view="host-upgrade"] .hu-svg .zone{fill:var(--surface2);fill-opacity:.6;stroke:var(--line)}
+  [data-view="host-upgrade"] .hu-svg .tl{fill:var(--muted);font:600 10px var(--mono);letter-spacing:.08em}
+  [data-view="host-upgrade"] .hu-svg .tf{fill:var(--ink);font:500 10.5px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .tk{fill:var(--wait);font:600 10px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .kc{fill:var(--surface);stroke:var(--wait);stroke-width:1.2}
+  [data-view="host-upgrade"] .hu-svg .ed.dim{stroke-dasharray:4 4}
+  [data-view="host-upgrade"] .hu-svg .ed.on{stroke:var(--accent);stroke-width:3}
+  [data-view="host-upgrade"] .hu-svg .ah.on{fill:var(--accent)}
+  [data-view="host-upgrade"] .hu-svg .bdg{cursor:pointer;outline:none}
+  [data-view="host-upgrade"] .hu-svg .bdg circle{fill:var(--surface);stroke:var(--accent);stroke-width:1.6}
+  [data-view="host-upgrade"] .hu-svg .bdg text{fill:var(--accent);font:700 11px var(--mono)}
+  [data-view="host-upgrade"] .hu-svg .bdg:hover circle,[data-view="host-upgrade"] .hu-svg .bdg:focus-visible circle{stroke-width:2.8}
+  [data-view="host-upgrade"] .hu-svg .bdg.sel circle{fill:var(--accent)}
+  [data-view="host-upgrade"] .hu-svg .bdg.sel text{fill:var(--on-accent)}
+  [data-view="host-upgrade"] svg.hu-svg.wide{max-width:440px}
+  [data-view="host-upgrade"] .hu-n{display:inline-grid;place-items:center;min-width:21px;height:21px;padding:0 5px;border-radius:999px;
+    background:var(--accent);color:var(--on-accent);font:700 11px/1 var(--mono);flex:none}
+  [data-view="host-upgrade"] .hu-dl{display:grid;grid-template-columns:7.4em minmax(0,1fr);gap:7px 12px;margin:0;font-size:13.5px}
+  [data-view="host-upgrade"] .hu-dl dt{font:600 10.5px/1.9 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-upgrade"] .hu-dl dt.k{color:var(--wait)}
+  [data-view="host-upgrade"] .hu-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  @media (max-width:440px){[data-view="host-upgrade"] .hu-dl{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-upgrade"] .hu-dl dd{margin-bottom:6px}}
+</style>
+
+<header class="vhead chg" data-chg="host-upgrade-head">
+  <span class="pill acc kind">модуль приложения Claude SDK</span>
+  <h1>upgrade</h1>
+  <p class="lead">Ставит на машину новую версию Host <span class="chg" data-chg="host-upgrade-head-r2">из выпусков в хранилище R2: скачивает её, сверяет хэш, проверяет, не пуская в работу. Поменялись только модули — ядро перезагружает их в живом Host. Иначе upgrade</span> просит keeper подменить работающий Host. Если версия Claude Agent SDK та же, сессии не замечают обновления: начатый ход доходит до конца. Если новая — каждая сессия переходит на неё между ходами, разговор сохраняется.</p>
+  <p class="hu-ctx"><b>Контекст в одну строку.</b> Host — программа на машине, через которую идут все сессии Claude Code; процессы claude держит служба ОС keeper, поэтому Host можно остановить и запустить заново, не останавливая сессий. Внутри Host лежит SDK закреплённой версии, а внутри SDK — свой бинарник claude.</p>
+</header>
+
+<!-- ===== ВЫПУСКИ В R2 ===== -->
+<section class="chg" data-chg="host-upgrade-rel">
+  <div class="shead">
+    <h2>Откуда берётся выпуск</h2>
+    <p>Слово пользователя 31 окт.: «кто-то деплоит релизы на S3, будь то локальный агент или GH-релиз». Выпуск Host кладут в хранилище Cloudflare R2 — с машины разработчика или из GitHub, одним и тем же инструментом. Машина берёт его оттуда сама, по временному ключу на чтение. Нажмите номер.</p>
+  </div>
+  <div class="card hu-rel">
+    <figure class="hu-fig">
+      <svg class="hu-svg wide" id="host-upgrade-rel-svg" viewBox="0 0 400 286" role="img" aria-label="Локальный агент и выпуск GitHub кладут выпуск в бакет R2 switchboard-releases. Модуль upgrade на машине берёт у points временный ключ на чтение, скачивает из R2 хэш и архив, ставит зависимости из реестра npm">
+        <defs>
+          <marker id="host-upgrade-rm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-upgrade-rm-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path class="ah on" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="bx" data-on="1" x="8" y="8" width="180" height="42" rx="9"/>
+        <text class="tn" x="98" y="26" text-anchor="middle">локальный агент</text><text class="ts" x="98" y="42" text-anchor="middle">switchboard release</text>
+        <rect class="bx" data-on="2" x="212" y="8" width="180" height="42" rx="9"/>
+        <text class="tn" x="302" y="26" text-anchor="middle">выпуск GitHub</text><text class="ts" x="302" y="42" text-anchor="middle">Actions · release.yml</text>
+
+        <rect class="bx go" data-on="1 2 4" x="8" y="76" width="162" height="104" rx="10"/>
+        <text class="tn" x="89" y="94" text-anchor="middle">R2</text><text class="ts" x="89" y="108" text-anchor="middle">switchboard-releases</text>
+        <text class="tf" x="20" y="130">host/latest</text>
+        <text class="tf" x="20" y="148">host/1.4.1.tgz</text>
+        <text class="tf" x="20" y="166">host/1.4.1.sha256</text>
+
+        <rect class="bx" data-on="3" x="214" y="76" width="178" height="44" rx="9"/>
+        <text class="tn" x="303" y="93" text-anchor="middle">points</text>
+        <rect class="kc" x="268" y="100" width="70" height="14" rx="4"/><text class="tk" x="303" y="111" text-anchor="middle">R2_TOKEN</text>
+
+        <rect class="bx" data-on="3 4 5" x="214" y="146" width="178" height="58" rx="10"/>
+        <text class="tn" x="303" y="168" text-anchor="middle">Host · upgrade</text><text class="ts" x="303" y="186" text-anchor="middle">~/.switchboard/host/1.4.1/</text>
+
+        <rect class="bx ext" data-on="5" x="214" y="234" width="178" height="44" rx="9"/>
+        <text class="tn" x="303" y="252" text-anchor="middle">реестр npm</text><text class="ts" x="303" y="268" text-anchor="middle">зависимости по lockfile</text>
+
+        <path class="ed" data-ch="1" d="M98 50V72" marker-end="url(#host-upgrade-rm)"/>
+        <path class="ed" data-ch="2" d="M302 50V62H140V72" marker-end="url(#host-upgrade-rm)"/>
+        <path class="ed dim" data-ch="3" d="M303 146V124" marker-end="url(#host-upgrade-rm)" marker-start="url(#host-upgrade-rm)"/>
+        <path class="ed" data-ch="4" d="M214 168H174" marker-end="url(#host-upgrade-rm)"/>
+        <path class="ed" data-ch="5" d="M303 204V230" marker-end="url(#host-upgrade-rm)"/>
+        <g class="bdg" data-ch="1" tabindex="0" role="button" aria-label="Канал 1: локальный агент → R2"><circle cx="98" cy="61" r="9"/><text x="98" y="65" text-anchor="middle">1</text></g>
+        <g class="bdg" data-ch="2" tabindex="0" role="button" aria-label="Канал 2: выпуск GitHub → R2"><circle cx="230" cy="62" r="9"/><text x="230" y="66" text-anchor="middle">2</text></g>
+        <g class="bdg" data-ch="3" tabindex="0" role="button" aria-label="Канал 3: upgrade ⇄ points — временный ключ"><circle cx="330" cy="134" r="9"/><text x="330" y="138" text-anchor="middle">3</text></g>
+        <g class="bdg" data-ch="4" tabindex="0" role="button" aria-label="Канал 4: upgrade ← R2 — хэш и архив"><circle cx="194" cy="168" r="9"/><text x="194" y="172" text-anchor="middle">4</text></g>
+        <g class="bdg" data-ch="5" tabindex="0" role="button" aria-label="Канал 5: npm ci ← реестр npm"><circle cx="330" cy="218" r="9"/><text x="330" y="222" text-anchor="middle">5</text></g>
+      </svg>
+      <figcaption>Стрелка — куда идут байты. 1, 2 — запись выпуска, 4, 5 — чтение на машине; 3 — кадр через relay: ключ на чтение. Янтарное — секрет points: машины и выкладчики его не видят.</figcaption>
+    </figure>
+    <div class="hu-pad" id="host-upgrade-rel-det" aria-live="polite"></div>
+  </div>
+  <div class="hu-two">
+    <div class="card hu-pad">
+      <h3>Что лежит в R2</h3>
+      <div class="codebox"><pre class="hu-pre">switchboard-releases/       бакет выпусков
+  host/latest               1.4.1
+  host/1.4.1.tgz            выпуск: код ядра и модулей,
+                            package.json, package-lock.json
+  host/1.4.1.sha256         9f2c41…e07a  1.4.1.tgz
+  host/1.4.0.tgz
+  host/1.4.0.sha256</pre></div>
+      <p>Выпуск — один архив на все ОС: ядро и пакеты модулей с их манифестами, без зависимостей. Пакеты модулей лежат внутри выпуска — отдельного «выпуска модуля» нет: модуль приходит новым выпуском Host. <code>latest</code> — последний выложенный; его пишут последним, после архива и хэша. Версия выпускается один раз: есть <code>host/&lt;v&gt;.sha256</code> — <code>switchboard release</code> отказывает.</p>
+    </div>
+    <div class="card hu-pad">
+      <h3>Как машина проверяет</h3>
+      <ul class="hu-uses">
+        <li><b>хэш архива</b><span>SHA-256 скачанного архива равен строке из <code>.sha256</code>: архив пришёл целиком и тот самый</span></li>
+        <li><b>npm ci</b><span>хэш каждой зависимости, SDK тоже, — по <code>package-lock.json</code> из архива</span></li>
+        <li><b>host --check</b><span>версия в пакете равна запрошенной; гейт ядра: у имени один владелец, всё из <code>uses</code> есть той же версии</span></li>
+      </ul>
+      <p>Подписи и шифрования нет: в первом выпуске шифрование вырезано целиком (слово пользователя 31 окт.). Писать в бакет могут только выкладчики — по входу wrangler или секрету репозитория; машины только читают, ключом на час.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ОБНОВЛЕНИЕ ПО ШАГАМ ===== -->
+<section class="chg" data-chg="host-upgrade-run">
+  <div class="shead">
+    <h2>Обновление по шагам</h2>
+    <p>Машина laptop, Host 1.4.0 → 1.4.1. Три сессии: site выполняет 25-секундную команду, profiles простаивает, wiki ждёт ответа на вопрос. Выберите, что поменялось в 1.4.1, и пройдите шаги: цвет полосы — версия SDK, которой запущен процесс сессии.</p>
+  </div>
+  <div class="card hu-run">
+    <div class="hu-mode chg" data-chg="host-upgrade-run-modes" role="group" aria-label="Что поменялось в новой версии Host">
+      <span class="lbl">в 1.4.1</span>
+      <button type="button" id="host-upgrade-same" aria-pressed="true">ядро, SDK тот же</button>
+      <button type="button" id="host-upgrade-new" aria-pressed="false">ядро и SDK 0.3.312</button>
+      <button type="button" id="host-upgrade-mods" aria-pressed="false">только модуль profiles</button>
+    </div>
+    <div class="hu-scroll"><svg class="hu-lanes" id="host-upgrade-svg" viewBox="0 0 640 290" role="img" aria-label="Дорожки обновления: panel-desk, Host 1.4.0, keeper, Host 1.4.1 и сессии site, profiles, wiki по восьми шагам"></svg></div>
+    <div class="hu-lgd">
+      <span><i class="a"></i>процесс SDK 0.3.311</span>
+      <span><i class="o"></i>процесс SDK 0.3.312</span>
+      <span><i class="w"></i>ждёт ответа человека</span>
+      <span><i class="g"></i>отдельный процесс проверки</span>
+      <span>↻ перезапуск сессии по <code>resume</code></span>
+    </div>
+    <div class="hu-side">
+      <div><div class="hu-st"><b id="host-upgrade-k"></b><span id="host-upgrade-t"></span></div><p class="hu-cap" id="host-upgrade-cap"></p></div>
+      <div><span class="lbl" id="host-upgrade-codet"></span><div class="codebox"><pre class="hu-pre" id="host-upgrade-code"></pre></div></div>
+    </div>
+    <div class="hu-ctrl">
+      <button type="button" id="host-upgrade-prev">← Назад</button>
+      <button type="button" class="primary" id="host-upgrade-next">Дальше →</button>
+      <div class="hu-dots" id="host-upgrade-dots" role="group" aria-label="Шаги"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЧТО СЛУШАЕТ И ЧТО ДАЁТ ===== -->
+<section class="chg" data-chg="host-upgrade-io">
+  <div class="shead">
+    <h2>Что слушает и что даёт</h2>
+    <p>Модуль почти не касается Claude: он узнаёт, каким SDK запущен процесс сессии, и просит ядро перезапустить сессию между ходами. Всё остальное делают ядро и keeper<span class="chg" data-chg="host-upgrade-io-r2">; байты выпуска — R2 и npm</span>.</p>
+  </div>
+  <div class="card hu-io">
+    <div class="hu-io-col">
+      <span class="lbl">слушает в Claude и ядре</span>
+      <div class="hu-r"><b>события ядра</b><span><code>on.open(s)</code> сессию поднял этот Host: spawn, attach или resume — повод для уборки папок</span></div>
+      <div class="hu-r"><b>методы query</b><span><code>close()</code><code>query({ resume })</code> — не сам: SDK сессии другой — перезапускает ядро</span></div>
+      <div class="hu-r none"><b>сообщения SDK</b><span>—</span></div>
+      <div class="hu-r none"><b>хуки</b><span>—</span></div>
+      <div class="hu-r none"><b>canUseTool</b><span>— ждущий вопрос после attach SDK отдаёт заново сам</span></div>
+    </div>
+    <div class="hu-io-mid">upgrade</div>
+    <div class="hu-io-col">
+      <span class="lbl">даёт наружу</span>
+      <div class="hu-r"><b>запросы</b><span><code>machine.upgrade</code></span></div>
+      <div class="hu-r"><b>кадры</b><span><code>ledger.add</code> — <code>machine.upgraded</code> в журнал флота</span></div>
+      <div class="hu-r none"><b>поля roster</b><span>— версия SDK сессии — поле ядра <code>sdk</code></span></div>
+      <div class="hu-r none"><b>инструменты MCP</b><span>—</span></div>
+      <div class="hu-r none"><b>ключи env</b><span>—</span></div>
+      <div class="hu-r none"><b>хранилище</b><span>— на диске только папки версий</span></div>
+      <div class="hu-r chg" data-chg="host-upgrade-io-tool"><b>инструмент</b><span><code>switchboard release</code> — выкладка выпуска в R2: формат выпуска пишет и читает один пакет</span></div>
+    </div>
+  </div>
+  <div class="hu-two">
+    <div class="card hu-pad chg" data-chg="host-upgrade-uses">
+      <h3>Чем пользуется</h3>
+      <ul class="hu-uses">
+        <li class="chg" data-chg="host-upgrade-uses-creds"><code>host.request("points.creds", { v: 1 })</code><span><a href="#points">points</a> через relay: временный ключ R2 на чтение бакета выпусков, на час</span></li>
+        <li class="chg" data-chg="host-upgrade-uses-s3"><code>S3 GET</code> · <code>npm ci</code><span>скачать хэш и архив из R2 по ключу; поставить зависимости по lockfile</span></li>
+        <li class="chg" data-chg="host-upgrade-uses-reload"><code>host.reload(dir)</code><span>ядро: поставить скачанный выпуск в живом Host. Само сверяет ядро и SDK с работающими, проходит гейт и решает, какие модули перезагрузить; ответ — <code>{ from, to, modules, later }</code> и <code>ready</code> keeper, или слово <code>core_changed</code>, <code>check_failed</code>, <code>module_error</code></span></li>
+        <li><code>host --check</code><span>ядро: гейт новой версии отдельным процессом, без relay, keeper и claude; <span class="chg" data-chg="host-upgrade-uses-check">только после <code>core_changed</code></span></span></li>
+        <li><code>host.request("upgrade", { v: 1, version })</code><span>ядро → keeper: остановить Host штатно и запустить эту версию</span></li>
+        <li><code>s.info.sdk</code> · <code>host.sdk</code><span>ядро: SDK, которым запущен процесс сессии, и SDK этого Host — у всех сессий свой, значит старую папку можно убрать</span></li>
+        <li><code>host.version</code> · <code>host.log(record)</code><span>ядро: своя версия; шаги и отказы — в журнал машины</span></li>
+        <li class="chg" data-chg="host-upgrade-uses-ledger"><code>host.emit({ type: "ledger.add", to: "ledger", ev: "machine.upgraded", … })</code><span>после ответа keeper на <code>upgrade</code> или ответа <code>host.reload</code>: версия с → на и <code>by</code> — <code>from</code> запроса; в журнал машины эта строка не дублируется</span></li>
+      </ul>
+      <p><code>uses: { "upgrade@keeper": 1, "ledger.add@ledger": 1, <span class="chg" data-chg="host-upgrade-uses-line">"points.creds@points": 1</span> }</code> — операция keeper, журнал флота и ключ R2; гейт сверяет операцию с <code>proto</code> keeper. Сессии между ходами при другой версии SDK перезапускает ядро нового Host, не upgrade.</p>
+    </div>
+    <div class="card hu-pad chg" data-chg="host-upgrade-why">
+      <h3>На чём стоит</h3>
+      <ul class="hu-uses">
+        <li><b>опыт 15</b><span>новый Host сделал <code>attach</code> посреди 25-с команды — тот же ход дошёл до конца, сессия та же, без <code>resume</code></span></li>
+        <li><b>опыт 20</b><span>ждущий вопрос после смены Host снова пришёл в <code>canUseTool</code> с тем же <code>toolUseID</code></span></li>
+        <li><b>опыт 14</b><span>процесс claude умер — разговор цел по <code>resume</code>, оборванный ход потерян. Поэтому посреди хода процесс не трогаем</span></li>
+        <li><b>SDK 0.3.311</b><span><code>reinitialize()</code> отдаёт ждущие <code>can_use_tool</code> заново; методы описывают поведение со старыми CLI — новый SDK ведёт старый процесс до перезапуска <span class="pill wait">при сборке</span></span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КОНТРАКТ ===== -->
+<section class="chg" data-chg="host-upgrade-api">
+  <div class="shead">
+    <h2>Запрос</h2>
+    <p class="chg" data-chg="host-upgrade-api-ver">Версия — точная или <code>"latest"</code>: тогда модуль читает <code>host/latest</code> в R2. <span class="chg" data-chg="host-upgrade-api-dry"><code>dryRun: true</code> — только ответить <code>{ from, to }</code>: какая версия работает и какая встанет; архив не скачивается, <code>already_current</code> не отвечается — так пульт узнаёт, есть ли новая.</span> Сам модуль ничего не ищет и не обновляется — только по запросу. Ответ: если Host заменяется — до его остановки, пока он на связи; если перезагружаются только модули — после перезагрузки.</p>
+  </div>
+  <div class="hu-two">
+    <div class="card hu-pad">
+      <div class="hu-head"><h3><code>machine.upgrade</code></h3><span class="pill acc">v 1</span></div>
+      <div class="codebox chg" data-chg="host-upgrade-api-code"><pre class="hu-pre">{ "type": "machine.upgrade", "id": "u-4", "v": 1,
+  "machine": "laptop", "version": "latest" }
+
+← { "type": "reply", "id": "u-4", "ok": true,
+    "result": { "from": "1.4.0", "to": "1.4.1",
+      "sdk": { "from": "0.3.311",
+               "to": "0.3.312" },
+      "restart": true } }
+
+  только модули:
+      "restart": false,
+      "modules": [ "host-profiles" ]</pre></div>
+      <div class="codebox chg" data-chg="host-upgrade-api-dryrun"><pre class="hu-pre">{ "type": "machine.upgrade", "id": "u-3", "v": 1,
+  "machine": "pc", "version": "latest", "dryRun": true }
+← { "ok": true, "result": { "from": "1.4.0", "to": "1.4.1" } }</pre></div>
+      <p>Назад — тот же запрос с прежней версией: отдельного отката нет. <code>restart</code> — заменяется ли процесс Host; сессии от этого не останавливаются.</p>
+    </div>
+    <div class="card hu-pad">
+      <h3>Слова отказа</h3>
+      <ul class="hu-words">
+        <li><code>bad_frame</code> — нет <code style="color:inherit">version</code> или она не вида 1.4.1 и не <code style="color:inherit">latest</code></li>
+        <li><code>already_current</code> — эта версия уже работает; ничего не скачано</li>
+        <li><code>upgrade_running</code> — идёт другое обновление этой машины</li>
+        <li class="chg" data-chg="host-upgrade-api-norel"><code>no_release</code> — в R2 нет <code style="color:inherit">host/&lt;версия&gt;.sha256</code>; ничего не скачано</li>
+        <li class="chg" data-chg="host-upgrade-api-dl"><code>download_failed</code> — ключ R2 не выдан, скачивание оборвалось, хэш архива не сошёлся или npm ci не прошёл; причина — в журнале; папка убрана</li>
+        <li><code>check_failed</code> — новая версия не прошла проверку; причина из проверки — в журнале; keeper не тронут</li>
+        <li class="chg" data-chg="host-upgrade-api-moderr"><code>module_error</code> — от ядра: новая версия модуля упала в <code style="color:inherit">start()</code>; модуль выключен на машине, в roster <code style="color:inherit">failed</code>, <code style="color:inherit">ready</code> не послан</li>
+        <li><code>shutting_down</code> — от ядра: Host останавливается; начатое скачивание оборвано, папка убрана</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ПРОВЕРКИ И ОТКАЗЫ ===== -->
+<section class="chg" data-chg="host-upgrade-gate">
+  <div class="shead">
+    <h2>Что проверяется и где отказ</h2>
+    <p>До просьбы к keeper работающий Host и сессии не тронуты: любой отказ здесь оставляет машину как была. После неё — только ожидаемые ветки.</p>
+  </div>
+  <div class="hu-two">
+    <figure class="card hu-fig chg" data-chg="host-upgrade-gate-fig">
+      <svg class="hu-svg" viewBox="0 0 400 466" role="img" aria-label="Путь обновления: уже работает — already_current; идёт другое — upgrade_running; скачать из R2 — no_release или download_failed; host.reload — ядро само сверяет ядро и SDK: те же — гейт и перезагрузка модулей, ответ; другие — core_changed, проверка host --check, ответ и просьба keeper; новый Host не дошёл до готовности дважды — стоп">
+        <defs>
+          <marker id="host-upgrade-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-upgrade-ar-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah ok" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-upgrade-ar-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah bad" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="bx go" x="10" y="6" width="226" height="34" rx="9"/>
+        <text class="tn" x="123" y="28" text-anchor="middle">machine.upgrade 1.4.1</text>
+        <path class="ed" d="M123 40V54" marker-end="url(#host-upgrade-ar)"/>
+
+        <rect class="bx q" x="10" y="56" width="226" height="34" rx="9"/>
+        <text class="tn" x="123" y="78" text-anchor="middle">1.4.1 уже работает?</text>
+        <path class="ed bad" d="M236 73H262" marker-end="url(#host-upgrade-ar-bad)"/><text class="tr" x="248" y="68" text-anchor="middle">да</text>
+        <rect class="bx bad" x="264" y="58" width="128" height="30" rx="8"/><text class="tb" x="328" y="78" text-anchor="middle">already_current</text>
+        <path class="ed ok" d="M123 90V104" marker-end="url(#host-upgrade-ar-ok)"/>
+
+        <rect class="bx q" x="10" y="106" width="226" height="34" rx="9"/>
+        <text class="tn" x="123" y="128" text-anchor="middle">идёт другое обновление?</text>
+        <path class="ed bad" d="M236 123H262" marker-end="url(#host-upgrade-ar-bad)"/><text class="tr" x="248" y="118" text-anchor="middle">да</text>
+        <rect class="bx bad" x="264" y="108" width="128" height="30" rx="8"/><text class="tb" x="328" y="128" text-anchor="middle">upgrade_running</text>
+        <path class="ed ok" d="M123 140V154" marker-end="url(#host-upgrade-ar-ok)"/>
+
+        <rect class="bx" x="10" y="156" width="226" height="40" rx="9"/>
+        <text class="tn" x="123" y="173" text-anchor="middle">скачать из R2 · npm ci</text>
+        <text class="ts" x="123" y="188" text-anchor="middle">хэш архива; зависимости по lockfile</text>
+        <path class="ed bad" d="M236 176H262" marker-end="url(#host-upgrade-ar-bad)"/>
+        <rect class="bx bad" x="264" y="156" width="128" height="40" rx="8"/><text class="tb" x="328" y="173" text-anchor="middle">no_release</text><text class="tb" x="328" y="189" text-anchor="middle">download_failed</text>
+        <path class="ed ok" d="M123 196V210" marker-end="url(#host-upgrade-ar-ok)"/>
+
+        <g class="chg" data-chg="host-upgrade-gate-reload">
+        <rect class="bx q" x="10" y="212" width="226" height="40" rx="9"/>
+        <text class="tn" x="123" y="229" text-anchor="middle">host.reload: ядро и SDK те же?</text>
+        <text class="ts" x="123" y="244" text-anchor="middle">решает ядро — сверкой с работающим</text>
+        <path class="ed ok" d="M236 232H262" marker-end="url(#host-upgrade-ar-ok)"/><text class="ty" x="248" y="226" text-anchor="middle">да</text>
+        <rect class="bx ok" x="264" y="206" width="128" height="52" rx="8"/>
+        <text class="tn" x="328" y="225" text-anchor="middle">гейт и модули</text>
+        <text class="ts" x="328" y="240" text-anchor="middle">в живом Host</text>
+        <text class="ts" x="328" y="253" text-anchor="middle">ready · reply</text>
+        <path class="ed ok" d="M384 258V444H240" marker-end="url(#host-upgrade-ar-ok)"/>
+        <path class="ed" d="M123 252V266" marker-end="url(#host-upgrade-ar)"/><text class="ts" x="132" y="262">нет: core_changed</text>
+
+        <rect class="bx" x="10" y="268" width="226" height="40" rx="9"/>
+        <text class="tn" x="123" y="285" text-anchor="middle">проверить: host --check</text>
+        <text class="ts" x="123" y="300" text-anchor="middle">версия, SDK, гейт: владельцы, uses</text>
+        <path class="ed bad" d="M236 288H262" marker-end="url(#host-upgrade-ar-bad)"/>
+        <rect class="bx bad" x="264" y="273" width="112" height="30" rx="8"/><text class="tb" x="320" y="293" text-anchor="middle">check_failed</text>
+        <path class="ed ok" d="M123 308V322" marker-end="url(#host-upgrade-ar-ok)"/>
+        </g>
+
+        <rect class="bx go" x="10" y="324" width="226" height="40" rx="9"/>
+        <text class="tn" x="123" y="341" text-anchor="middle">reply ok → keeper: upgrade</text>
+        <text class="ts" x="123" y="356" text-anchor="middle">старый Host останавливается штатно</text>
+        <path class="ed" d="M123 364V378" marker-end="url(#host-upgrade-ar)"/>
+
+        <rect class="bx q" x="10" y="380" width="226" height="34" rx="9"/>
+        <text class="tn" x="123" y="402" text-anchor="middle">новый Host готов?</text>
+        <path class="ed bad" d="M236 397H262" marker-end="url(#host-upgrade-ar-bad)"/><text class="tr" x="248" y="392" text-anchor="middle">нет</text>
+        <rect class="bx wt" x="264" y="374" width="104" height="48" rx="8"/>
+        <text class="tw" x="316" y="391" text-anchor="middle">ещё раз;</text>
+        <text class="tw" x="316" y="404" text-anchor="middle">второй сбой —</text>
+        <text class="tw" x="316" y="417" text-anchor="middle">стоп, failed</text>
+        <path class="ed ok" d="M123 414V428" marker-end="url(#host-upgrade-ar-ok)"/>
+
+        <rect class="bx ok" x="10" y="430" width="226" height="28" rx="8"/>
+        <text class="tn" x="123" y="448" text-anchor="middle">работает · уборка папок</text>
+      </svg>
+      <figcaption>Готовность — новый Host прошёл свой гейт и поднял сессии. Повторный сбой до неё — общий вопрос экосистемы. <span class="chg" data-chg="host-upgrade-gate-cap">Перезагрузку или новый Host выбирает ядро в <code>host.reload</code>; upgrade это правило не считает. Перезагрузка: гейт нового набора не прошёл — <code>check_failed</code>, ничего не остановлено; новый модуль упал в <code>start()</code> — <code>module_error</code>: модуль выключен на машине, <code>failed</code> в roster, <code>ready</code> не послан — перезапуск Host поднимет прежний выпуск.</span></figcaption>
+    </figure>
+    <div class="card hu-pad chg" data-chg="host-upgrade-check">
+      <h3>Проверка — отдельным процессом</h3>
+      <div class="codebox chg" data-chg="host-upgrade-check-core"><pre class="hu-pre">$ node ~/.switchboard/host/1.5.0/host --check
+{ "ok": true, "version": "1.5.0",
+  "sdk": "0.3.312", "proto": 1 }
+
+$ node ~/.switchboard/host/1.4.2/host --check
+{ "ok": false, "version": "1.4.2",
+  "why": "session.cost — два владельца:
+          cost и dup" }</pre></div>
+      <ul class="hu-uses">
+        <li><b>Что делает</b><span>собирает модули и проходит гейт ядра: у имени один владелец, всё из <code>uses</code> есть той же версии; сверяет версию в пакете с запрошенной</span></li>
+        <li class="chg" data-chg="host-upgrade-check-cmp"><b>Когда</b><span>только после <code>core_changed</code> от <code>host.reload</code>: в выпуске другое ядро или SDK, его ставит новый Host через keeper. Выпуск с тем же ядром и SDK проходит тот же гейт внутри <code>host.reload</code> — второй проверки нет</span></li>
+        <li><b>Чего не делает</b><span>не подключается к relay и keeper, не открывает хранилище, не запускает claude</span></li>
+        <li><b>proto</b><span>канал Host ↔ relay меняется в два выпуска: сначала relay со старой и новой версией, потом Host. Проверка версию только сообщает</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ПАПКИ ВЕРСИЙ ===== -->
+<section class="chg" data-chg="host-upgrade-disk">
+  <div class="shead">
+    <h2>Папки версий</h2>
+    <p>Каждая версия — своя папка: в ней код Host и SDK с собственным бинарником claude. Процесс сессии запущен из папки того Host, что его запустил, — поэтому папка живёт, пока из неё работает claude.</p>
+  </div>
+  <div class="hu-two">
+    <div class="card hu-pad">
+      <span class="lbl">~/.switchboard/host/ — после обновления с той же версией SDK</span>
+      <ul class="hu-tree">
+        <li class="gone"><b>1.3.9/</b><span class="hu-mb">≈ 300 МБ</span><span>удалена: из неё ничего не запущено</span></li>
+        <li class="busy"><b>1.4.0/</b><span class="hu-mb">≈ 300 МБ</span><span>занята: из неё работают claude site, profiles и wiki</span></li>
+        <li class="cur"><b>1.4.1/</b><span class="hu-mb">≈ 300 МБ</span><span>текущая — её помнит keeper и запускает при старте</span></li>
+      </ul>
+      <p>Уборка — при старте Host и после каждого перезапуска сессии с другой версией SDK: удаляются папки всех версий, кроме текущей. Сначала — бинарник claude: на Windows ОС не даёт удалить запущенный файл, и папка остаётся целой до следующей уборки. На Linux удаляется сразу, процесс работает дальше.</p>
+      <p class="chg" data-chg="host-upgrade-disk-reload">После перезагрузки модулей уборки нет: ядро по-прежнему работает из прежней папки. Она уходит при следующем старте Host — keeper запустит уже новую.</p>
+    </div>
+    <div class="facts chg" data-chg="host-upgrade-facts">
+      <div class="fact"><b>298 870 432</b><span>байт — бинарник claude 2.1.311 для win32-x64 внутри SDK 0.3.311: основная часть папки версии</span></div>
+      <div class="fact"><b>0</b><span>остановленных сессий при той же версии SDK: новый Host подключается к живым процессам (опыт 15)</span></div>
+      <div class="fact"><b>0</b><span>оборванных ходов при новой версии SDK: перезапуск только между ходами</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="host-upgrade-et">
+  <div class="shead">
+    <h2>Эталоны upgrade</h2>
+    <p>На стенде Host: поддельные SDK, relay, keeper и часы; <span class="chg" data-chg="host-upgrade-et-stand">points и R2 — поддельные: ключ и выпуски из местной папки.</span> Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="host-upgrade-et-92"><div class="et-n">92</div>
+      <div class="et-in">Host 1.4.0 с SDK 0.3.311; site посреди 25-секундной команды. panel-desk шлёт <code>machine.upgrade</code> с <code>version: "1.4.1"</code>; в 1.4.1 <span class="chg" data-chg="host-upgrade-et-92-core">ядро другое,</span> SDK тот же.</div>
+      <div class="et-out"><span class="chg" data-chg="host-upgrade-et-92-r2">Один <code>points.creds</code>; из поддельного R2 прочитаны <code>host/1.4.1.sha256</code> и <code>host/1.4.1.tgz</code>, хэш сошёлся; <code>host.reload</code> ответил <code>core_changed</code>, затем один <code>host --check</code>.</span> <code>reply ok</code> с <code>from: "1.4.0", to: "1.4.1"</code>, одинаковыми <code>sdk</code> и <code>restart: true</code> — до остановки Host. keeper получил одну просьбу <code>upgrade</code>. Процесс site — тот же pid; новый Host сделал <code>attach</code>; команда доработала, ход дошёл до конца. <code>s.restart</code> не вызван ни разу.</div>
+      <div class="et-src">чьё: устав — «Обновление Host при той же версии SDK сессий не останавливает»; опыт 15.</div></div>
+    <div class="et" id="host-upgrade-et-93"><div class="et-n">93</div>
+      <div class="et-in">То же, но в 1.4.1 SDK 0.3.312. profiles простаивает, site посреди хода, wiki ждёт ответа на вопрос; ответ приходит через 30 секунд после смены Host.</div>
+      <div class="et-out">После <code>attach</code> profiles перезапущена сразу; site — после <code>result</code> своего хода; wiki — после ответа и конца хода. Ни один ход не оборван; у всех трёх тот же <code>session_id</code>; в roster у всех <code>sdk: "0.3.312"</code>; ответ на вопрос wiki дошёл до модели.</div>
+      <div class="et-src">чьё: слово пользователя 30 окт. — «рековерить только основные ожидаемые ветки флоу, остальное — перезапустить начисто компонент или процесс»; опыт 14 — разговор цел по resume; опыт 20 — вопрос переживает смену Host.</div></div>
+    <div class="et" id="host-upgrade-et-94"><div class="et-n">94</div>
+      <div class="et-in"><code>machine.upgrade</code> с <code>version: "1.4.2"</code>; в 1.4.2 модули cost и dup оба объявили запрос <code>session.cost</code>.</div>
+      <div class="et-out"><code>reply ok:false, error: check_failed</code>; в журнале Host — «1.4.2: session.cost — два владельца: cost и dup»; keeper просьбы не получил; Host 1.4.0 работает, сессии не тронуты; папки 1.4.2 нет.</div>
+      <div class="et-src">чьё: опыт 19 — два владельца, Host не стартует; устав — «Система ловит, агент чинит».</div></div>
+    <div class="et" id="host-upgrade-et-95"><div class="et-n">95</div>
+      <div class="et-in">Работает Host 1.4.1. Приходит <code>machine.upgrade</code> с <code>"1.4.1"</code>; затем с <code>"1.4.2"</code> и, пока 1.4.2 скачивается, — с <code>"1.4.3"</code>.</div>
+      <div class="et-out">Первый — <code>already_current</code>, ничего не скачано. Третий — <code>upgrade_running</code>. keeper получил ровно одну просьбу — для 1.4.2. В журнале — две строки <code>refuse</code> со словом и версией.</div>
+      <div class="et-src">чьё: устав — «Код системы только обнаруживает ошибку и не пускает её дальше: останавливает, отказывает, пишет в журнал с причиной»; «ошибки — словами».</div></div>
+    <div class="et chg" id="host-upgrade-et-248" data-chg="host-upgrade-et-248"><div class="et-n">248</div>
+      <div class="et-in">Host 1.4.0: ядро 1.4.0, SDK 0.3.311, host-profiles 1.0.0; site посреди 25-секундной команды. <code>machine.upgrade</code> с <code>"1.4.1"</code>; в 1.4.1 ядро и SDK те же, host-profiles 1.0.1.</div>
+      <div class="et-out"><code>host.reload</code> вызван один раз с папкой 1.4.1; ядро перезагрузило только host-profiles; <code>host --check</code> не запускался; keeper не получил <code>upgrade</code>, получил <code>ready</code> с <code>version: "1.4.1"</code>. <code>reply ok</code> с <code>restart: false, modules: ["host-profiles"]</code>. pid Host и pid site те же; ход site дошёл до конца; хук <code>PostToolUse</code> отвечает host-profiles 1.0.1. Папка 1.4.0 не удалена.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. о модулях Host — «в идеале сделать для них хот-релоад»; устав — «Обновление Host при той же версии SDK сессий не останавливает».</div></div>
+    <div class="et chg" id="host-upgrade-et-258" data-chg="host-upgrade-et-258"><div class="et-n">258</div>
+      <div class="et-in">Работает 1.4.0. В поддельном R2 <code>host/latest</code> — 1.4.1. <code>machine.upgrade { version: "latest", dryRun: true }</code>; затем то же с <code>"1.4.0"</code>.</div>
+      <div class="et-out">Первый — <code>reply ok { from: "1.4.0", to: "1.4.1" }</code>: один <code>points.creds</code>, прочитаны <code>host/latest</code> и <code>host/1.4.1.sha256</code>, архив не запрашивался, папки 1.4.1 нет, ни ядро, ни keeper не звались. Второй — <code>{ from: "1.4.0", to: "1.4.0" }</code>, не <code>already_current</code>.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — «кто-то деплоит релизы на S3, будь то локальный агент или GH-релиз»: машины берут новую версию оттуда; код claude-fleet — «Обновить до X» только у отстающего компьютера.</div></div>
+    <div class="et chg" id="host-upgrade-et-249" data-chg="host-upgrade-et-249"><div class="et-n">249</div>
+      <div class="et-in">Работает 1.4.0. В поддельном R2: <code>host/latest</code> — 1.4.1; у 1.4.1 строка <code>.sha256</code> не от этого архива; 1.4.9 нет. Три запроса по очереди: <code>"latest"</code>, <code>"1.4.9"</code>, и снова <code>"latest"</code> после того, как в R2 положили верный хэш.</div>
+      <div class="et-out">Первый — <code>download_failed</code>; в журнале — оба хэша; папки 1.4.1 нет; keeper не тронут. Второй — <code>no_release</code>, архив не запрашивался. Третий — <code>ok</code> с <code>to: "1.4.1"</code>.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — «кто-то деплоит релизы на S3, будь то локальный агент или GH-релиз»; устав — «система ловит, агент чинит: останавливает, отказывает, пишет в журнал с причиной»; «ошибки — словами».</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== upgrade: выпуски в R2 по каналам; дорожки обновления по шагам — ядро, ядро и SDK, только модули ===== */
+(function(){
+  const root = document.querySelector('[data-view="host-upgrade"]');
+  if (!root) return;
+  const $ = s => root.querySelector(s);
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent){ const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function tx(parent, x, y, cls, s, anchor){ const t = el("text", {x, y, "class":cls}, parent); if (anchor) t.setAttribute("text-anchor", anchor); t.textContent = s; return t; }
+  function hh(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+  /* ---------- выпуски в R2: каналы по номерам ---------- */
+  const CH = {
+    1: {t:"локальный агент → R2", rows:[
+      ["начинает","человек или агент на машине разработчика: <code>npx switchboard release</code>"],
+      ["делает","сборка монорепо → <code>host --check</code> собранного → архив и его SHA-256 → есть <code>host/&lt;v&gt;.sha256</code> — отказ: версия выпускается один раз → кладёт <code>.tgz</code>, <code>.sha256</code>, последним — <code>latest</code>"],
+      ["транспорт","<code>wrangler r2 object put --remote switchboard-releases/host/1.4.1.tgz --file …</code>"],
+      ["ключ","вход wrangler разработчика — тот же, которым он выпускает Worker-модули","k"]]},
+    2: {t:"выпуск GitHub → R2", rows:[
+      ["начинает","выпуск GitHub с тегом <code>host-v1.4.1</code> → <code>.github/workflows/release.yml</code>"],
+      ["делает","тот же <code>switchboard release</code>: один инструмент на оба пути, формат выпуска — у одного пакета"],
+      ["ключ","секрет репозитория <code>CLOUDFLARE_API_TOKEN</code> — запись в бакет выпусков","k"]]},
+    3: {t:"upgrade ⇄ points", rows:[
+      ["начинает","upgrade, перед скачиванием: кадр <code>points.creds</code> через relay"],
+      ["ответ","<code>creds</code> — <code>accessKeyId</code>, <code>secretAccessKey</code>, <code>sessionToken</code>, <code>endpoint</code>, <code>bucket: \"switchboard-releases\"</code>, <code>exp</code>: только чтение, на час"],
+      ["кто выдаёт","<a href=\"#points\">points</a> — у него уже есть выдача временных ключей R2 для точек; второго выдавальщика нет"],
+      ["отказ","<code>r2_failed</code> или <code>offline</code> — upgrade отвечает <code>download_failed</code>"]]},
+    4: {t:"upgrade ← R2", rows:[
+      ["транспорт","S3 GET по HTTPS прямо в R2, ключом из шага 3"],
+      ["читает","<code>host/latest</code> — если просили <code>\"latest\"</code>; <code>host/1.4.1.sha256</code>; <code>host/1.4.1.tgz</code>"],
+      ["проверяет","SHA-256 архива равен строке из <code>.sha256</code>; нет — <code>download_failed</code>, папка убрана. Нет <code>.sha256</code> — <code>no_release</code>"],
+      ["кладёт","распаковывает в <code>~/.switchboard/host/1.4.1/</code> рядом с работающей версией"]]},
+    5: {t:"npm ci ← реестр npm", rows:[
+      ["делает","<code>npm ci</code> в новой папке: зависимости из <code>package-lock.json</code>, хэш каждого пакета"],
+      ["SDK","Agent SDK с бинарником claude ≈ 300 МБ; той же версии — из кэша npm на машине, без сети"],
+      ["отказ","не прошёл — <code>download_failed</code>, вывод npm — в журнале, папка убрана"]]}
+  };
+  const relSvg = $("#host-upgrade-rel-svg"), relDet = $("#host-upgrade-rel-det");
+  function relSelect(n){
+    n = String(n);
+    relSvg.querySelectorAll(".bdg").forEach(b => b.classList.toggle("sel", b.dataset.ch === n));
+    relSvg.querySelectorAll(".ed[data-ch]").forEach(e => {
+      const on = e.dataset.ch === n; e.classList.toggle("on", on);
+      const m = on ? "url(#host-upgrade-rm-on)" : "url(#host-upgrade-rm)";
+      e.setAttribute("marker-end", m); if (e.hasAttribute("marker-start")) e.setAttribute("marker-start", m);
+    });
+    relSvg.querySelectorAll("[data-on]").forEach(b => b.classList.toggle("lit", b.dataset.on.split(" ").includes(n)));
+    const c = CH[n];
+    relDet.textContent = "";
+    const hd = hh("div", "hu-head"); hd.append(hh("span", "hu-n", n), hh("h3", null, c.t)); relDet.appendChild(hd);
+    const d = hh("dl", "hu-dl");
+    c.rows.forEach(r => { const dd = hh("dd"); dd.innerHTML = r[1]; d.append(hh("dt", r[2] || null, r[0]), dd); });
+    relDet.appendChild(d);
+  }
+  relSvg.querySelectorAll(".bdg").forEach(b => {
+    b.addEventListener("click", () => relSelect(b.dataset.ch));
+    b.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); relSelect(b.dataset.ch); } });
+  });
+  relSelect(4);
+
+  /* ---------- дорожки обновления ---------- */
+  const X0 = 112, W = 64.5, LH = 24;
+  const X = u => X0 + u * W;
+  const LANES = [["cl","panel-desk",30],["h0","Host 1.4.0",62],["kp","keeper",94],["h1","Host 1.4.1",126],
+    ["site","site",178],["prof","profiles",212],["wiki","wiki",246]];
+  const LY = {}; LANES.forEach(l => LY[l[0]] = l[2]);
+  const HEADS = {
+    swap: ["запрос","скачать","проверить","ответ","остановка","новый Host","сессии","уборка"],
+    mods: ["запрос","скачать","проверить","модули","ответ","keeper.json","сессии","уборка"]
+  };
+  const head = m => m === "mods" ? HEADS.mods : HEADS.swap;
+
+  // полосы: [дорожка, начало, конец, вид, подпись]; вид "rs" — перезапуск сессии в точке
+  const SWAP = [
+    ["cl",0.08,0.92,"msg","запрос"],["cl",3.08,3.92,"msg","ответ"],
+    ["h0",0,4,"run","1.4.0 · работает"],["h0",4,5,"stopping","штатно"],
+    ["kp",0,8,"keep","держит процессы claude"],["kp",4.08,4.92,"msg","upgrade"],["kp",5.08,5.92,"msg","старт"],
+    ["h1",1,3,"ghost","R2 · --check"],["h1",5,8,"run","1.4.1 · attach"],["h1",7.08,7.92,"msg","уборка"],
+    ["wiki",5.08,5.92,"msgw","вопрос"]
+  ];
+  const MODS = [
+    ["cl",0.08,0.92,"msg","запрос"],["cl",4.08,4.92,"msg","ответ"],
+    ["h0",0,3,"run","1.4.0 · работает"],["h0",3,3.92,"run",""],["h0",3.92,8,"run","ядро 1.4.0 · модули 1.4.1"],["h0",3.08,3.92,"msg","reload"],
+    ["kp",0,8,"keep","держит процессы claude"],["kp",5.08,5.92,"msg","ready"],
+    ["h1",1,3,"ghost","R2 · скачать"]
+  ];
+  const MODE = {
+    same: [
+      ["site",0,6.55,"v0","команда · ход идёт"],["site",6.55,8,"v0i","ход закончен"],
+      ["prof",0,8,"v0i","простой"],
+      ["wiki",0,5.08,"wait","ждёт ответа"],["wiki",5.92,6.62,"wait",""],["wiki",6.62,8,"v0","ответ · ход"]
+    ],
+    new: [
+      ["site",0,6.55,"v0","команда · ход идёт"],["site",6.55,6.55,"rs"],["site",6.66,8,"v1","0.3.312"],
+      ["prof",0,6.12,"v0i","простой"],["prof",6.12,6.12,"rs"],["prof",6.23,8,"v1","0.3.312"],
+      ["wiki",0,5.08,"wait","ждёт ответа"],["wiki",5.92,6.62,"wait",""],["wiki",6.62,6.84,"v0",""],["wiki",6.86,6.86,"rs"],["wiki",6.97,8,"v1","0.3.312"]
+    ],
+    mods: [
+      ["site",0,6.55,"v0","команда · ход идёт"],["site",6.55,8,"v0i","ход закончен"],
+      ["prof",0,8,"v0i","простой"],
+      ["wiki",0,6.62,"wait","ждёт ответа"],["wiki",6.62,8,"v0","ответ · ход"]
+    ]
+  };
+
+  const REQ = '{ "type": "machine.upgrade", "id": "u-4", "v": 1,\n  "machine": "laptop", "version": "1.4.1" }';
+  const DL = m => 'points.creds → ключ R2 на чтение, на час\nGET switchboard-releases/host/1.4.1.sha256\nGET switchboard-releases/host/1.4.1.tgz\n  SHA-256 9f2c41…e07a — сошёлся\n→ ~/.switchboard/host/1.4.1/\nnpm ci\n  @anthropic-ai/claude-agent-sdk ' + (m === "new" ? "0.3.312 — новая" : "0.3.311 — та же, из кэша npm") + '\n  хэши по lockfile — сошлись';
+  const DLCAP = "upgrade берёт у points временный ключ R2 на чтение выпусков и кладёт 1.4.1 рядом с работающей версией: сначала хэш, потом архив. Хэш сошёлся — распаковка и npm ci: зависимости по lockfile, SDK — ровно той версии, что закреплена в 1.4.1.";
+  const STEPS = [
+    {t:"0 с", ct:"кадр", cap:() => "Пульт просит обновить Host машины laptop до 1.4.1. relay везёт кадр Host этой машины как есть; ядро отдаёт его модулю upgrade.",
+      code:() => REQ},
+    {t:"+1 с", ct:"Host 1.4.0 · upgrade", cap:() => DLCAP, code:m => DL(m)},
+    {t:"+40 с", ct:"ядро · отдельный процесс", cap:() => "upgrade просит ядро поставить выпуск в живом Host. Ядро сверяет: ядро в 1.4.1 другое — перезагрузкой не поставить, ответ core_changed, ничего не тронуто. Тогда новая версия запускается отдельным процессом в режиме проверки: собирает модули и проходит гейт ядра. К relay и keeper не подключается, хранилище не открывает. Host меняется целиком, через keeper.",
+      code:m => 'host.reload("~/.switchboard/host/1.4.1")\n← core_changed: ядро 1.4.0 ≠ 1.4.1\n$ node ~/.switchboard/host/1.4.1/host --check\n{ "ok": true, "version": "1.4.1",\n  "sdk": "' + (m === "new" ? "0.3.312" : "0.3.311") + '", "proto": 1 }'},
+    {t:"+41 с", ct:"кадр", cap:m => "Проверка пройдена — клиент получает ответ сейчас, пока Host на связи: дальше связь машины с relay на секунды пропадёт. " + (m === "new" ? "SDK новый — клиент знает, что сессии перейдут на него между ходами." : "SDK тот же — сессии обновления не заметят."),
+      code:m => '← { "type": "reply", "id": "u-4", "ok": true,\n    "result": { "from": "1.4.0", "to": "1.4.1",\n      "sdk": { "from": "0.3.311",\n               "to": "' + (m === "new" ? "0.3.312" : "0.3.311") + '" },\n      "restart": true } }'},
+    {t:"+42 с", ct:"Host ↔ keeper", cap:() => "upgrade просит keeper заменить Host. keeper шлёт Host stop с причиной upgrade, и тот останавливается штатно: новые запросы получают shutting_down, модули дописывают хранилище, close() у сессий не зовётся — он завершил бы процессы claude.",
+      code:() => 'Host → { "op": "upgrade", "version": "1.4.1" }\nkeeper → { "op": "stop", "reason": "upgrade" }\nHost:  новые запросы → shutting_down\n       stop() модулей → хранилище записано\n       relay → close(1001) · выход 0\n       процессы claude живы у keeper'},
+    {t:"+45 с", ct:"Host 1.4.1 ↔ keeper", cap:() => "keeper запускает 1.4.1 и пишет ей во ввод тот же порт и ключ. Новый Host делает attach к каждому живому процессу и повторяет initialize: вопрос wiki снова приходит в canUseTool с тем же toolUseID. Потом ready с версией — keeper.json → 1.4.1 — и hello: машина снова в roster.",
+      code:() => '{ "key": "c1d9…", "proto": 1, "op": "attach", "id": "site" }\n{ … "op": "attach", "id": "profiles" }\n{ … "op": "attach", "id": "wiki" }\ninitialize нового query() → canUseTool: AskUserQuestion\n  toolUseID …xd4WEnP8 — тот же\nkeeper ← { "op": "ready", "version": "1.4.1" }\nrelay ← hello · roster: снова 3 сессии'},
+    {t:"+46…80 с", ct:"Host 1.4.1 · upgrade", cap:m => m === "new"
+        ? "Процессы запущены SDK 0.3.311, у Host — 0.3.312. Ядро нового Host перезапускает каждую сессию между ходами: profiles простаивает — сразу; site — когда придёт result её хода; wiki — после ответа на вопрос и конца хода. Перезапуск — close() и query({ resume }): тот же разговор, новый процесс claude."
+        : "Версия SDK та же — делать нечего. Команда site доработала у нового Host, ход дошёл до конца; ответ на вопрос wiki пришёл с телефона и дошёл до модели. Ни одна сессия не перезапускалась.",
+      code:m => m === "new"
+        ? 'ядро, profiles: sdk 0.3.311 ≠ 0.3.312\n  → restart — простаивает: сразу\nядро, site: то же → ждёт result\nядро, wiki: то же → ждёт ответа и result\n\n+46 с  profiles  close() → query({ resume }) ↻\n+70 с  site      result → close() → resume ↻\n+75 с  wiki      ответ → ход → result\n+80 с  wiki      close() → resume ↻\nsystem/init: claude_code_version 2.1.312'
+        : 'on.open(site):     s.info.sdk 0.3.311 = 0.3.311\non.open(profiles): = · on.open(wiki): =\n  → ничего\n\n+70 с  site  результат: «долгая команда закончилась»\n             ход дошёл до конца\n+75 с  wiki  answer → canUseTool → ход'},
+    {t:"после", ct:"~/.switchboard/host/", cap:m => m === "new"
+        ? "После перезапуска wiki ни один claude не запущен из папки 1.4.0 — уборка её удалила. Осталась одна версия — текущая."
+        : "Уборка при старте 1.4.1: папка 1.4.0 занята — из неё запущены все три процесса claude. На Windows ОС не даёт удалить запущенный файл, папка остаётся до следующей уборки; на Linux удаляется сразу.",
+      code:m => m === "new"
+        ? '~/.switchboard/host/\n  1.4.0/   удалена после перезапуска wiki\n  1.4.1/   текущая — её помнит keeper'
+        : '~/.switchboard/host/\n  1.4.0/   занята: claude site, profiles, wiki\n  1.4.1/   текущая — её помнит keeper'}
+  ];
+  const STEPS_MODS = [
+    STEPS[0],
+    {t:"+1 с", ct:"Host 1.4.0 · upgrade", cap:() => DLCAP, code:() => DL("same")},
+    {t:"+40 с", ct:"Host 1.4.0 · ядро", cap:() => "upgrade просит ядро поставить выпуск в живом Host. Ядро сверяет его с работающим: ядро и SDK те же, другой только пакет host-profiles. Значит, Host останавливать не нужно; отдельная проверка --check тоже не нужна — гейт идёт внутри host.reload.",
+      code:() => 'host.reload("~/.switchboard/host/1.4.1")\n  ядро 1.4.0 = 1.4.0 · SDK 0.3.311 = 0.3.311\n  host-profiles 1.0.0 → 1.0.1'},
+    {t:"+41 с", ct:"Host 1.4.0 · ядро", cap:() => "Перезагрузка модуля. Ядро проходит гейт по новому набору, зовёт stop() старого модуля и start() нового; запросы, кадры и хуки идут новому. Процесс Host тот же, связь с relay не рвётся.",
+      code:() => '  гейт нового набора: владельцы, uses — пройден\n  host-profiles 1.0.0  stop()  → хранилище записано\n  host-profiles 1.0.1  start() → поднял своё из хранилища\n  контракт тот же — hello не нужен'},
+    {t:"+41 с", ct:"кадр", cap:() => "Ответ — после перезагрузки: Host всё время на связи. restart: false — процесс Host не менялся.",
+      code:() => '← { "type": "reply", "id": "u-4", "ok": true,\n    "result": { "from": "1.4.0", "to": "1.4.1",\n      "sdk": { "from": "0.3.311", "to": "0.3.311" },\n      "restart": false,\n      "modules": [ "host-profiles" ] } }'},
+    {t:"+41 с", ct:"Host ↔ keeper", cap:() => "Ядро шлёт keeper ready с новой версией; keeper пишет её в keeper.json. Перезапустится Host — keeper запустит папку 1.4.1, и модули будут те же.",
+      code:() => 'Host → { "op": "ready", "version": "1.4.1" }\nkeeper → { "op": "reply", "ok": true }\nkeeper.json: { "host": "1.4.1" }'},
+    {t:"+42…75 с", ct:"сессии", cap:() => "Ни одна сессия не перезапускалась: команда site доработала, ответ wiki дошёл до модели. Хуки profiles отвечает уже новый модуль; его вклад в query() — добавку к промпту и settings — сессии получат при следующем старте.",
+      code:() => 'site     ход дошёл до конца — тот же процесс\nprofiles простаивает\nwiki     answer → canUseTool → ход\nPostToolUse → host-profiles 1.0.1'},
+    {t:"после", ct:"~/.switchboard/host/", cap:() => "Уборки нет: ядро работает из папки 1.4.0. Она уйдёт при следующем старте Host — keeper запустит уже 1.4.1.",
+      code:() => '~/.switchboard/host/\n  1.4.0/   ядро работает отсюда\n  1.4.1/   текущая — её помнит keeper'}
+  ];
+  const stepsOf = m => m === "mods" ? STEPS_MODS : STEPS;
+
+  const svg = $("#host-upgrade-svg");
+  let mode = "same", st = 0;
+
+  function draw(){
+    svg.textContent = "";
+    const cur = st + 1, HEAD = head(mode);
+    el("rect", {x:X(st), y:22, width:W, height:262, "class":"cur"}, svg);
+    for (let i = 0; i <= 8; i++) el("line", {x1:X(i), y1:22, x2:X(i), y2:284, "class":"grid"}, svg);
+    HEAD.forEach((s, i) => {
+      tx(svg, X(i + 0.5), 9, "hd" + (i === st ? " on" : ""), String(i + 1), "middle");
+      tx(svg, X(i + 0.5), 19, "hd" + (i === st ? " on" : ""), s, "middle");
+    });
+    LANES.forEach(([id, name, y]) => tx(svg, 8, y + 16, "ln", name));
+    tx(svg, 8, 173, "sep", "СЕССИИ");
+    el("line", {x1:8, y1:160, x2:X(8), y2:160, "class":"grid"}, svg);
+    (mode === "mods" ? MODS : SWAP).concat(MODE[mode]).forEach(([lane, a, b, kind, label]) => {
+      const y = LY[lane], fut = a >= cur ? " fut" : "";
+      if (kind === "rs"){
+        const g = el("g", {"class":"rs" + fut}, svg);
+        el("circle", {cx:X(a), cy:y + LH / 2, r:9}, g);
+        tx(g, X(a), y + LH / 2 + 4, "", "↻", "middle");
+        return;
+      }
+      const small = kind === "msg" || kind === "msgw";
+      el("rect", {x:X(a), y:small ? y + 3 : y, width:Math.max(2, X(b) - X(a)), height:small ? LH - 6 : LH, rx:small ? 9 : 6, "class":"sg " + kind + fut}, svg);
+      if (label){
+        const cls = small ? "st m" : (/^\d/.test(label) ? "st mono" : "st");
+        tx(svg, small ? X((a + b) / 2) : X(a) + 6, y + 16, cls + fut, label, small ? "middle" : null);
+      }
+    });
+  }
+
+  const dots = $("#host-upgrade-dots"), dotBtns = [];
+  STEPS.forEach((s, i) => {
+    const b = document.createElement("button"); b.type = "button"; b.textContent = String(i + 1);
+    b.addEventListener("click", () => { st = i; render(); });
+    dots.appendChild(b); dotBtns.push(b);
+  });
+  function render(){
+    const s = stepsOf(mode)[st], HEAD = head(mode);
+    $("#host-upgrade-k").textContent = (st + 1) + " · " + HEAD[st].charAt(0).toUpperCase() + HEAD[st].slice(1);
+    $("#host-upgrade-t").textContent = s.t;
+    $("#host-upgrade-cap").textContent = s.cap(mode);
+    $("#host-upgrade-codet").textContent = s.ct;
+    $("#host-upgrade-code").textContent = s.code(mode);
+    $("#host-upgrade-prev").disabled = st === 0;
+    $("#host-upgrade-next").disabled = st === STEPS.length - 1;
+    dotBtns.forEach((b, i) => { b.setAttribute("aria-label", "шаг " + (i + 1) + ": " + HEAD[i]); if (i === st) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current"); });
+    draw();
+  }
+  function setMode(m){
+    mode = m;
+    ["same", "new", "mods"].forEach(k => $("#host-upgrade-" + k).setAttribute("aria-pressed", m === k ? "true" : "false"));
+    render();
+  }
+  ["same", "new", "mods"].forEach(k => $("#host-upgrade-" + k).addEventListener("click", () => setMode(k)));
+  $("#host-upgrade-prev").addEventListener("click", () => { if (st > 0){ st--; render(); } });
+  $("#host-upgrade-next").addEventListener("click", () => { if (st < STEPS.length - 1){ st++; render(); } });
+  st = 6; setMode("new");
+})();
+</script>

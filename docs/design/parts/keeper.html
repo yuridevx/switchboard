@@ -1,0 +1,962 @@
+<style>
+  /* keeper: три схемы «кто держит трубы», справочник API по действиям, удержание процесса по шагам,
+     жизнь Host как граф состояний, штатная остановка как диаграмма последовательности, служба ОС, эталоны.
+     Живой поток — акцент, ключ — янтарный (--wait), умер или отказ — --bad, жив — --ok. */
+  [data-view="keeper"] .et{padding:0}
+  [data-view="keeper"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="keeper"] .kp-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="keeper"] .kp-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="keeper"] .kp-pad h3{font-size:15.5px}
+  [data-view="keeper"] .kp-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="keeper"] .kp-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  @media (max-width:760px){[data-view="keeper"] .kp-two{grid-template-columns:minmax(0,1fr)}}
+  [data-view="keeper"] .kp-two>*{min-width:0}
+  [data-view="keeper"] .kp-fig{margin:0;padding:14px 12px;background:var(--surface2);display:flex;flex-direction:column;gap:8px;justify-content:center;min-width:0}
+  [data-view="keeper"] .kp-fig figcaption{font-size:12.5px;color:var(--muted);max-width:60ch}
+  [data-view="keeper"] svg.kp-svg{display:block;width:100%;height:auto;max-width:460px;margin-inline:auto}
+  [data-view="keeper"] .kp-not{font-size:13.5px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px 8px;align-items:baseline}
+  [data-view="keeper"] .kp-not b{color:var(--ink);font-weight:600}
+  [data-view="keeper"] .kp-not span{border:1px dashed var(--line);border-radius:999px;padding:3px 10px;font-size:12.5px}
+
+  /* ===== общий словарь SVG ===== */
+  [data-view="keeper"] .kp-svg .nb{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="keeper"] .kp-svg .nb.hot{stroke:var(--accent);stroke-width:2.4}
+  [data-view="keeper"] .kp-svg .nb.kb{fill:var(--accent-weak);stroke:var(--accent);stroke-opacity:.55}
+  [data-view="keeper"] .kp-svg .nb.kb.hot{stroke-opacity:1}
+  [data-view="keeper"] .kp-svg .nb.dead{fill:var(--bad-weak);stroke:var(--bad);stroke-dasharray:5 4}
+  [data-view="keeper"] .kp-svg .nb.off{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="keeper"] .kp-svg .nb.okb{fill:var(--ok-weak);stroke:var(--ok)}
+  [data-view="keeper"] .kp-svg .nb.badb{fill:var(--bad-weak);stroke:var(--bad);stroke-width:2.2}
+  [data-view="keeper"] .kp-svg .nb.disk{fill:var(--surface2);stroke:var(--line)}
+  [data-view="keeper"] .kp-svg .nb.disk.hot{fill:var(--ok-weak);stroke:var(--ok);stroke-width:2.2}
+  [data-view="keeper"] .kp-svg .nb.dim{opacity:.45}
+  [data-view="keeper"] .kp-svg .t{fill:var(--ink);font:600 13px var(--mono)}
+  [data-view="keeper"] .kp-svg .t.dim{fill:var(--muted)}
+  [data-view="keeper"] .kp-svg .s{fill:var(--muted);font:500 11px var(--body)}
+  [data-view="keeper"] .kp-svg .s.ok{fill:var(--ok);font-weight:600}
+  [data-view="keeper"] .kp-svg .s.bad{fill:var(--bad);font-weight:600}
+  [data-view="keeper"] .kp-svg .s.on{fill:var(--accent);font-weight:600}
+  [data-view="keeper"] .kp-svg .s.k{fill:var(--wait);font-weight:600}
+  [data-view="keeper"] .kp-svg .l{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="keeper"] .kp-svg .l.on{fill:var(--accent);font-weight:600}
+  [data-view="keeper"] .kp-svg .l.k{fill:var(--wait);font-weight:600}
+  [data-view="keeper"] .kp-svg .l.bad{fill:var(--bad);font-weight:600}
+  [data-view="keeper"] .kp-svg .l.ok{fill:var(--ok);font-weight:600}
+  [data-view="keeper"] .kp-svg .e{stroke:var(--muted);stroke-opacity:.5;stroke-width:2;fill:none}
+  [data-view="keeper"] .kp-svg .e.on{stroke:var(--accent);stroke-opacity:1;stroke-width:3}
+  [data-view="keeper"] .kp-svg .e.ok{stroke:var(--ok);stroke-opacity:1;stroke-width:2.6}
+  [data-view="keeper"] .kp-svg .e.bad{stroke:var(--bad);stroke-opacity:1;stroke-width:2.4;stroke-dasharray:6 4}
+  [data-view="keeper"] .kp-svg .e.k{stroke:var(--wait);stroke-opacity:1;stroke-width:2.2;stroke-dasharray:6 4}
+  [data-view="keeper"] .kp-svg .e.off{stroke:var(--line);stroke-opacity:1;stroke-dasharray:4 4}
+  [data-view="keeper"] .kp-svg .e.dash{stroke-dasharray:5 4}
+  [data-view="keeper"] .kp-svg .e.thick{stroke-width:3.4}
+  [data-view="keeper"] .kp-svg .arh{fill:var(--muted)}
+  [data-view="keeper"] .kp-svg .arh.on{fill:var(--accent)}
+  [data-view="keeper"] .kp-svg .arh.bad{fill:var(--bad)}
+  [data-view="keeper"] .kp-svg .arh.ok{fill:var(--ok)}
+  [data-view="keeper"] .kp-svg .arh.k{fill:var(--wait)}
+  [data-view="keeper"] .kp-svg .pk{fill:var(--accent);stroke:var(--surface);stroke-width:1.5}
+  [data-view="keeper"] .kp-svg .bufbox{fill:var(--surface);stroke:var(--accent);stroke-opacity:.5;stroke-width:1.2}
+  [data-view="keeper"] .kp-svg .buffill{fill:var(--accent);fill-opacity:.3}
+  [data-view="keeper"] .kp-svg .bufline{stroke:var(--accent);stroke-width:2}
+
+  /* ===== кто держит трубы ===== */
+  [data-view="keeper"] .kp-why-top{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+  [data-view="keeper"] .kp-why-top .tabs{padding:0}
+  [data-view="keeper"] .kp-vars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+  @media (max-width:820px){[data-view="keeper"] .kp-vars{grid-template-columns:minmax(0,1fr)}}
+  [data-view="keeper"] .kp-var{padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="keeper"] .kp-var.pick{border:2px solid var(--accent)}
+  [data-view="keeper"] .kp-var h3{font-size:15px}
+  [data-view="keeper"] .kp-var svg.kp-svg{max-width:300px;background:var(--surface2);border-radius:10px}
+  [data-view="keeper"] .kp-verdict{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;font-size:13.5px}
+  [data-view="keeper"] .kp-proof{font:12px/1.55 var(--mono);color:var(--muted);background:var(--surface2);border-radius:8px;padding:8px 10px;white-space:pre-wrap;word-break:break-word}
+  [data-view="keeper"] .kp-src{font:600 11px var(--mono);color:var(--muted);letter-spacing:.04em}
+
+  /* ===== API ===== */
+  [data-view="keeper"] .kp-api{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.25fr);overflow:hidden}
+  @media (max-width:820px){[data-view="keeper"] .kp-api{grid-template-columns:minmax(0,1fr)}}
+  [data-view="keeper"] .kp-api>*{min-width:0}
+  [data-view="keeper"] .kp-ops{display:flex;flex-direction:column;gap:12px}
+  [data-view="keeper"] .kp-og{display:flex;flex-direction:column;gap:6px}
+  [data-view="keeper"] .kp-og .chips{gap:6px}
+  [data-view="keeper"] .kp-og .chip{font:600 12.5px var(--mono)}
+  [data-view="keeper"] .kp-og .chip.ev{border-style:dashed}
+  [data-view="keeper"] .kp-og .chip.k{border-color:var(--wait);color:var(--wait)}
+  [data-view="keeper"] .kp-og .chip.k[aria-pressed="true"]{background:var(--wait);color:var(--on-accent);border-color:var(--wait)}
+  [data-view="keeper"] .kp-det{border-left:1px solid var(--line)}
+  @media (max-width:820px){[data-view="keeper"] .kp-det{border-left:0;border-top:1px solid var(--line)}}
+  [data-view="keeper"] .kp-det h3 code{font-size:16px}
+  [data-view="keeper"] .kp-wire{font:12px/1.6 var(--mono)}
+  [data-view="keeper"] .kp-wire span{display:block;padding-left:2.2ch;text-indent:-2.2ch}
+  [data-view="keeper"] .kp-wire .o{color:var(--accent)}
+  [data-view="keeper"] .kp-wire .i{color:var(--ok)}
+  [data-view="keeper"] .kp-wire .b{color:var(--muted)}
+  [data-view="keeper"] .kp-wire .k{color:var(--wait)}
+  [data-view="keeper"] .kp-dir{display:flex;gap:14px;flex-wrap:wrap;font:500 11.5px var(--mono);color:var(--muted)}
+  [data-view="keeper"] .kp-dir b{font-weight:600}
+  [data-view="keeper"] .kp-does{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="keeper"] .kp-errs{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="keeper"] .kp-words{display:grid;grid-template-columns:minmax(0,13ch) minmax(0,1fr);gap:6px 14px;margin:0;font-size:13.5px}
+  [data-view="keeper"] .kp-words dt{font:600 12.5px var(--mono);color:var(--bad)}
+  [data-view="keeper"] .kp-words dd{margin:0}
+  @media (max-width:520px){[data-view="keeper"] .kp-words{grid-template-columns:minmax(0,1fr)}[data-view="keeper"] .kp-words dd{margin-bottom:6px}}
+
+  /* ===== шаги ===== */
+  [data-view="keeper"] .kp-ctrl{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 16px;border-top:1px solid var(--line)}
+  [data-view="keeper"] .kp-ctrl input[type=range]{flex:1;min-width:110px;accent-color:var(--accent)}
+  [data-view="keeper"] .kp-cnt{font:600 12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+  [data-view="keeper"] .kp-step .cap{min-height:4.2em}
+  [data-view="keeper"] .log li{cursor:pointer}
+  [data-view="keeper"] .log li:hover{color:var(--ink)}
+  [data-view="keeper"] .kp-life .tabs{border-bottom:1px solid var(--line)}
+  [data-view="keeper"] .kp-ls{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;counter-reset:ls}
+  [data-view="keeper"] .kp-ls li{display:grid;grid-template-columns:1.6em minmax(0,1fr);gap:8px;font-size:13px;color:var(--muted);padding:5px 8px;border-radius:8px;cursor:pointer;counter-increment:ls}
+  [data-view="keeper"] .kp-ls li::before{content:counter(ls);font:600 11.5px/1.6 var(--mono);color:var(--muted)}
+  [data-view="keeper"] .kp-ls li.now{background:var(--accent-weak);color:var(--ink)}
+  [data-view="keeper"] .kp-ls li.now::before{color:var(--accent)}
+  [data-view="keeper"] .kp-ls code{font-size:12px}
+
+  /* ===== что переживают ===== */
+  [data-view="keeper"] .kp-tblw{overflow-x:auto}
+  [data-view="keeper"] .kp-tbl{width:100%;min-width:640px}
+  [data-view="keeper"] .kp-tbl th,[data-view="keeper"] .kp-tbl td{text-align:left;vertical-align:top;padding:8px 10px}
+  [data-view="keeper"] .kp-tbl th{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="keeper"] .kp-tbl td:first-child{font-weight:600}
+  [data-view="keeper"] .kp-tbl .pill{white-space:normal;line-height:1.25}
+
+  /* ===== остановка ===== */
+  [data-view="keeper"] .kp-seqw{overflow-x:auto;padding:12px 8px;background:var(--surface2)}
+  [data-view="keeper"] svg.kp-seq{display:block;width:100%;min-width:340px;max-width:520px;height:auto;margin-inline:auto}
+  [data-view="keeper"] .kp-seq .t{font-size:12px}
+  [data-view="keeper"] .kp-seq .l{paint-order:stroke;stroke:var(--surface2);stroke-width:3px;stroke-linejoin:round}
+  [data-view="keeper"] .kp-seq .life{stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 4}
+  [data-view="keeper"] .kp-seq .note{fill:var(--surface);stroke:var(--line2);stroke-width:1}
+  [data-view="keeper"] .kp-seq .note.ok{fill:var(--ok-weak);stroke:var(--ok);stroke-opacity:.5}
+  [data-view="keeper"] .kp-seq .note.bad{fill:var(--bad-weak);stroke:var(--bad);stroke-opacity:.5}
+  [data-view="keeper"] .kp-seq .nt{fill:var(--ink);font:500 10.5px var(--body)}
+  [data-view="keeper"] .kp-rules{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+
+  /* ===== ОС ===== */
+  [data-view="keeper"] .kp-os{padding:14px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="keeper"] .kp-os h3{font:600 17px var(--disp)}
+  [data-view="keeper"] .kp-dl{display:grid;grid-template-columns:minmax(0,7.5em) minmax(0,1fr);gap:7px 10px;margin:0;font-size:13.5px}
+  [data-view="keeper"] .kp-dl dt{font:600 10.5px/1.7 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="keeper"] .kp-dl dd{margin:0;min-width:0}
+  [data-view="keeper"] pre.kp-pre{white-space:pre;word-break:normal}
+</style>
+
+<header class="vhead chg" data-chg="keeper-head">
+  <span class="pill acc kind">приложение для ОС</span>
+  <h1>keeper</h1>
+  <p class="lead">Служба ОС на каждой машине, без логики. Она держит процессы claude, по одному на сессию, и их ввод-вывод, а ещё запускает Host. Host — программа на Node с Claude Agent SDK, которая ведёт все сессии машины. Пока процесс живёт у keeper, Host можно обновить или уронить посреди хода: новый Host подключается к тому же процессу, и ход доходит до конца.</p>
+  <div class="names">
+    <span><b>Host</b> ведёт сессии машины через SDK</span>
+    <span><b>claude</b> процесс одной сессии</span>
+    <span><b>канал управления</b> один на Host</span>
+    <span><b>канал процесса</b> один на каждый claude</span>
+    <span><b>ключ keeper</b> новый на каждый старт, только в памяти</span>
+    <span class="chg" data-chg="keeper-head-ready"><b>ready</b> Host этой версии готов: после старта или после перезагрузки модулей</span>
+  </div>
+  <p class="kp-not"><b>Не делает:</b><span>не разбирает stream-json</span><span>не знает relay, сессий и аккаунтов</span><span>не решает, что запускать</span><span>не перезапускает claude</span><span>не откатывает версии</span></p>
+  <p class="hint"><span class="kbd">A</span> прочитал блок · <span class="kbd">Z</span> снять · наведите на блок и нажмите клавишу</p>
+</header>
+
+<!-- ===== ЗАЧЕМ ===== -->
+<section class="chg" data-chg="keeper-why">
+  <div class="shead">
+    <h2>Кто держит трубы</h2>
+    <p>Процесс claude живёт, пока кто-то держит его ввод и читает вывод. Три способа и что с ними бывает, когда Host умирает посреди долгой команды.</p>
+  </div>
+  <div class="kp-why-top">
+    <div class="tabs" role="tablist" aria-label="Состояние Host" id="keeper-why-tabs">
+      <button class="tab" role="tab" type="button" data-k="0" aria-selected="false">Host жив</button>
+      <button class="tab" role="tab" type="button" data-k="1" aria-selected="true">Host убит посреди команды</button>
+    </div>
+    <span class="kp-src">три опыта, Agent SDK 0.3.311, 27–28 окт.</span>
+  </div>
+  <div class="kp-vars">
+    <article class="card kp-var chg" data-chg="keeper-why-host" data-v="host">
+      <h3>Host держит трубы сам</h3>
+      <svg class="kp-svg" id="keeper-why-svg-host" viewBox="0 0 240 236" role="img" aria-label="SDK запускает claude сам: Host умер — процесс claude умер с ним"></svg>
+      <div class="kp-verdict" id="keeper-why-v-host"></div>
+      <pre class="kp-proof" id="keeper-why-p-host"></pre>
+      <span class="kp-src" id="keeper-why-s-host"></span>
+    </article>
+    <article class="card kp-var chg" data-chg="keeper-why-fifo" data-v="fifo">
+      <h3>Каналы ОС</h3>
+      <svg class="kp-svg" id="keeper-why-svg-fifo" viewBox="0 0 240 236" role="img" aria-label="Ввод и вывод claude на именованных каналах: на Linux новый Host открывает те же каналы, на Windows так нельзя"></svg>
+      <div class="kp-verdict" id="keeper-why-v-fifo"></div>
+      <pre class="kp-proof" id="keeper-why-p-fifo"></pre>
+      <span class="kp-src" id="keeper-why-s-fifo"></span>
+    </article>
+    <article class="card kp-var pick chg" data-chg="keeper-why-keeper" data-v="keeper">
+      <div class="kp-head"><h3>keeper</h3><span class="pill acc">выбрано</span></div>
+      <svg class="kp-svg" id="keeper-why-svg-keeper" viewBox="0 0 240 236" role="img" aria-label="Трубы держит keeper: Host умер — процесс жив, новый Host подключается к нему, ход доходит до конца"></svg>
+      <div class="kp-verdict" id="keeper-why-v-keeper"></div>
+      <pre class="kp-proof" id="keeper-why-p-keeper"></pre>
+      <span class="kp-src" id="keeper-why-s-keeper"></span>
+    </article>
+  </div>
+</section>
+
+<!-- ===== API ===== -->
+<section class="chg" data-chg="keeper-api">
+  <div class="shead">
+    <h2>API: соединение управления и соединения процессов</h2>
+    <p>Host подключается к keeper по TCP на 127.0.0.1: одно соединение управления и по одному на каждый процесс claude. Первая строка каждого — ключ, версия протокола и действие; дальше — строки JSON или сырые байты.</p>
+  </div>
+
+  <figure class="card kp-fig chg" data-chg="keeper-api-wires" style="background:var(--surface)">
+    <svg class="kp-svg" viewBox="0 0 380 228" role="img" aria-label="Служба ОС запускает keeper; keeper запускает Host и пишет ему во ввод порт и ключ; Host держит с keeper одно соединение управления и по соединению на каждый процесс claude; keeper держит stdio каждого claude">
+      <defs>
+        <marker id="keeper-api-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="arh" d="M0 0L10 5L0 10z"/></marker>
+        <marker id="keeper-api-ar-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="arh on" d="M0 0L10 5L0 10z"/></marker>
+        <marker id="keeper-api-ar-k" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" markerUnits="userSpaceOnUse" orient="auto-start-reverse"><path class="arh k" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <rect class="nb off" x="8" y="8" width="112" height="34" rx="9"/>
+      <text class="t" x="64" y="30" text-anchor="middle">служба ОС</text>
+      <path class="e" d="M120 25C176 25 206 32 206 60" marker-end="url(#keeper-api-ar)"/>
+      <text class="l" x="214" y="44">запускает</text>
+
+      <rect class="nb kb hot" x="156" y="62" width="100" height="108" rx="10"/>
+      <text class="t" x="206" y="104" text-anchor="middle">keeper</text>
+      <text class="s" x="206" y="122" text-anchor="middle">127.0.0.1</text>
+      <text class="s" x="206" y="137" text-anchor="middle">порт от ОС</text>
+
+      <rect class="nb hot" x="8" y="78" width="88" height="76" rx="10"/>
+      <text class="t" x="52" y="112" text-anchor="middle">Host</text>
+      <text class="s" x="52" y="129" text-anchor="middle">ядро · SDK</text>
+
+      <path class="e on thick" d="M98 90H154" marker-start="url(#keeper-api-ar-on)" marker-end="url(#keeper-api-ar-on)"/>
+      <text class="l on" x="126" y="84" text-anchor="middle">управление</text>
+      <path class="e" d="M96 112H154"/>
+      <path class="e" d="M96 122H154"/>
+      <path class="e" d="M96 132H154"/>
+      <text class="l" x="126" y="148" text-anchor="middle">процессы</text>
+
+      <rect class="nb" x="300" y="52" width="72" height="32" rx="8"/>
+      <text class="t" x="336" y="73" text-anchor="middle">site</text>
+      <rect class="nb" x="300" y="100" width="72" height="32" rx="8"/>
+      <text class="t" x="336" y="121" text-anchor="middle">profiles</text>
+      <rect class="nb" x="300" y="148" width="72" height="32" rx="8"/>
+      <text class="t" x="336" y="169" text-anchor="middle">wiki</text>
+      <path class="e" d="M256 68H298"/>
+      <path class="e" d="M256 116H298"/>
+      <path class="e" d="M256 164H298"/>
+      <text class="l" x="277" y="60" text-anchor="middle">stdio</text>
+      <text class="l" x="336" y="196" text-anchor="middle">процессы claude</text>
+
+      <path class="e k" d="M182 170C182 204 52 204 52 158" marker-end="url(#keeper-api-ar-k)"/>
+      <text class="l k" x="118" y="218" text-anchor="middle">запуск Host · ввод { keeper, key }</text>
+    </svg>
+    <figcaption>Байты процесса keeper гонит между каналом процесса и stdio claude, не разбирая. Ключ и порт идут во ввод Host при запуске — не в аргументы и не в файлы.</figcaption>
+  </figure>
+
+  <div class="card kp-api chg" data-chg="keeper-api-ops">
+    <div class="kp-pad">
+      <div class="kp-dir"><span><b style="color:var(--accent)">→</b> Host → keeper</span><span><b style="color:var(--ok)">←</b> keeper → Host</span><span><b>⇄</b> байты</span></div>
+      <div class="kp-ops" id="keeper-ops"></div>
+    </div>
+    <div class="kp-pad kp-det">
+      <div class="kp-head"><h3><code id="keeper-op-name"></code></h3><span class="pill acc" id="keeper-op-ch"></span></div>
+      <div class="codebox"><pre class="kp-wire" id="keeper-op-wire"></pre></div>
+      <ul class="kp-does" id="keeper-op-does"></ul>
+      <div class="kp-errs" id="keeper-op-errs"></div>
+    </div>
+  </div>
+
+  <div class="card kp-pad chg" data-chg="keeper-api-words">
+    <div class="kp-head"><h3>Слова отказа keeper</h3><span class="muted" style="font-size:13px">ответ — <code>{ "op": "reply", "ok": false, "error": слово }</code>; подробность — строкой в журнале keeper</span></div>
+    <dl class="kp-words">
+      <dt>bad_key</dt><dd>первая строка без ключа или с чужим — соединение закрыто, ничего не запущено</dd>
+      <dt>contract_mismatch</dt><dd><code>proto</code> не из списка keeper — закрыто, обе версии в журнале; подбора версии нет</dd>
+      <dt>unknown_op</dt><dd>незнакомое действие — отказ; первая строка — ещё и закрыто</dd>
+      <dt>unknown_id</dt><dd><code>attach</code> или <code>kill</code> к процессу, которого у keeper нет</dd>
+      <dt>in_use</dt><dd>второе соединение управления; <code>attach</code> к процессу, у которого уже есть Host; <code>spawn</code> с id живого процесса</dd>
+      <dt>spawn_failed</dt><dd>процесс не запустился — причина ОС в журнале</dd>
+      <dt>unknown_version</dt><dd><code>upgrade</code> к версии, папки которой нет — старый Host не тронут</dd>
+    </dl>
+  </div>
+</section>
+
+<!-- ===== УДЕРЖАНИЕ ===== -->
+<section class="chg" data-chg="keeper-hold">
+  <div class="shead">
+    <h2>Процесс на удержании</h2>
+    <p>Опыт по шагам: Host убит посреди 25-секундной команды, новый подключается к тому же процессу. Последний шаг — по протоколу.</p>
+  </div>
+  <div class="card kp-step">
+    <div class="kp-two">
+      <figure class="kp-fig">
+        <svg class="kp-svg" id="keeper-hold-svg" viewBox="0 0 360 196" role="img" aria-label="Host, keeper с накопленным выводом и процесс claude на текущем шаге опыта"></svg>
+      </figure>
+      <div class="kp-pad">
+        <div class="kp-head"><span class="tstamp" id="keeper-hold-t"></span><span class="pill ok" id="keeper-hold-src"></span></div>
+        <p class="cap" id="keeper-hold-cap"></p>
+        <div class="codebox"><pre class="kp-wire" id="keeper-hold-wire"></pre></div>
+      </div>
+    </div>
+    <div class="kp-ctrl">
+      <button type="button" id="keeper-hold-prev">← назад</button>
+      <input type="range" id="keeper-hold-range" min="0" max="6" value="0" aria-label="Шаг опыта">
+      <button type="button" class="primary" id="keeper-hold-next">дальше →</button>
+      <span class="kp-cnt" id="keeper-hold-n"></span>
+    </div>
+    <ol class="log" id="keeper-hold-log"></ol>
+  </div>
+</section>
+
+<!-- ===== HOST ===== -->
+<section class="chg" data-chg="keeper-host">
+  <div class="shead">
+    <h2>Запуск, подъём и обновление Host</h2>
+    <p>keeper запускает Host и запускает снова после выхода. Готовность Host — его <code>ready</code>: гейт модулей пройден, сессии подняты. Выберите случай.</p>
+  </div>
+  <div class="card kp-life kp-step">
+    <div class="tabs" role="tablist" aria-label="Случай" id="keeper-life-tabs"></div>
+    <div class="kp-two">
+      <figure class="kp-fig">
+        <svg class="kp-svg" id="keeper-life-svg" viewBox="0 0 380 332" role="img" aria-label="Граф состояний Host у keeper: запуск, до ready, работает, выход; второй выход до ready подряд — стоп; keeper.json меняется после ready новой версии"></svg>
+      </figure>
+      <div class="kp-pad">
+        <div class="kp-head"><span class="tstamp" id="keeper-life-t"></span><span id="keeper-life-pill"></span></div>
+        <p class="cap" id="keeper-life-cap"></p>
+        <ol class="kp-ls" id="keeper-life-steps"></ol>
+      </div>
+    </div>
+    <div class="kp-ctrl">
+      <button type="button" id="keeper-life-prev">← назад</button>
+      <button type="button" class="primary" id="keeper-life-next">дальше →</button>
+      <span class="kp-cnt" id="keeper-life-n"></span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЧТО ПЕРЕЖИВАЮТ ===== -->
+<section class="chg" data-chg="keeper-survive">
+  <div class="shead">
+    <h2>Что переживают сессии</h2>
+    <p>Ожидаемые ветки, где участвует keeper: сбой → кто поднимает → что теряется. Всё прочее — чистый перезапуск: Host — выход, keeper запускает снова; claude — сессия заново по <code>resume</code>.</p>
+  </div>
+  <div class="card kp-tblw">
+    <table class="tbl kp-tbl">
+      <tr><th>сбой</th><th>кто поднимает</th><th>процессы claude</th><th>идущий ход</th><th>основание</th></tr>
+      <tr><td>Host упал</td><td>keeper сразу запускает Host с тем же ключом; новый — <code>attach</code></td><td><span class="pill ok">живы, вывод копится</span></td><td><span class="pill ok">продолжается</span></td><td>опыты 15, 20</td></tr>
+      <tr><td>новая версия Host, та же версия SDK</td><td>keeper: <code>upgrade</code> → новый Host → <code>attach</code></td><td><span class="pill ok">живы</span></td><td><span class="pill ok">продолжается</span></td><td>опыт 15</td></tr>
+      <tr class="chg" data-chg="keeper-survive-reload"><td>новая версия Host, поменялись только модули</td><td>ядро Host перезагружает модули само; keeper — только keeper.json по <code>ready</code></td><td><span class="pill ok">живы</span></td><td><span class="pill ok">продолжается</span></td><td>слово пользователя 31 окт.</td></tr>
+      <tr><td>новая версия Host, новая версия SDK</td><td>Host: между ходами <code>kill</code> и <code>spawn</code> по <code>resume</code></td><td><span class="pill acc">заменяются между ходами</span></td><td><span class="pill ok">дожидается конца</span></td><td>опыт 14</td></tr>
+      <tr><td>процесс claude умер</td><td>keeper шлёт <code>exited</code>; Host — <code>spawn</code> по <code>resume</code></td><td><span class="pill acc">этот — новый</span></td><td><span class="pill bad">обрывается</span></td><td>опыт 14</td></tr>
+      <tr><td>Host дважды вышел до <code>ready</code></td><td>никто: keeper стоит, причина в журнале; чинит агент или человек</td><td><span class="pill ok">живы, ждут</span></td><td><span class="pill wait">стоит до починки</span></td><td></td></tr>
+      <tr><td>keeper упал или обновлён</td><td>служба ОС → keeper → Host → <code>spawn</code> по <code>resume</code></td><td><span class="pill bad">завершены с keeper</span></td><td><span class="pill bad">обрывается</span></td><td>опыт 14</td></tr>
+      <tr><td>перезагрузка машины</td><td>штатная остановка; после старта — то же</td><td><span class="pill bad">завершены штатно</span></td><td><span class="pill bad">прерван</span></td><td>опыт 14</td></tr>
+    </table>
+  </div>
+</section>
+
+<!-- ===== ОСТАНОВКА ===== -->
+<section class="chg" data-chg="keeper-stop">
+  <div class="shead">
+    <h2>Штатная остановка</h2>
+    <p>Обновление Host оставляет процессы claude жить у keeper. Остановка службы завершает их штатно: сначала сессии, потом Host, потом keeper.</p>
+  </div>
+  <div class="card" style="overflow:hidden">
+    <div class="tabs" role="tablist" aria-label="Какая остановка" id="keeper-stop-tabs">
+      <button class="tab" role="tab" type="button" data-k="up" aria-selected="true">обновление Host</button>
+      <button class="tab" role="tab" type="button" data-k="mach" aria-selected="false">остановка службы</button>
+    </div>
+    <div class="kp-seqw"><svg class="kp-svg kp-seq" id="keeper-stop-svg" viewBox="0 0 360 400" role="img" aria-label="Диаграмма последовательности штатной остановки"></svg></div>
+    <div class="kp-pad"><ul class="kp-rules" id="keeper-stop-rules"></ul></div>
+  </div>
+</section>
+
+<!-- ===== ОС ===== -->
+<section class="chg" data-chg="keeper-os">
+  <div class="shead">
+    <h2>Служба ОС и сироты</h2>
+    <p>Один исполняемый файл на Go, служба под пользователем. Умирает keeper — с ним всё дерево: Host, процессы claude и их потомки.</p>
+  </div>
+  <div class="grid3">
+    <article class="card kp-os chg" data-chg="keeper-os-win">
+      <div class="kp-head"><h3>Windows</h3></div>
+      <dl class="kp-dl">
+        <dt>запуск</dt><dd>служба Windows под учётной записью пользователя: стартует с системой, без входа <span class="chg" data-chg="keeper-os-win-word">(слово пользователя 31 окт.); пароль Windows установщик берёт один раз, через stdin, и отдаёт диспетчеру служб</span></dd>
+        <dt>упал</dt><dd>восстановление службы — запустить снова</dd>
+        <dt>сирот нет</dt><dd>у каждого процесса — своё задание с <code>KILL_ON_JOB_CLOSE</code>; keeper умер — ОС закрывает задания</dd>
+        <dt>force</dt><dd><code>TerminateJobObject</code> — процесс и потомки</dd>
+      </dl>
+    </article>
+    <article class="card kp-os chg" data-chg="keeper-os-linux">
+      <div class="kp-head"><h3>Linux</h3></div>
+      <dl class="kp-dl">
+        <dt>запуск</dt><dd><code>systemd --user</code> и linger: стартует без входа</dd>
+        <dt>упал</dt><dd><code>Restart=always</code></dd>
+        <dt>сирот нет</dt><dd>systemd завершает всю cgroup службы; у claude ещё <code>PDEATHSIG</code></dd>
+        <dt>force</dt><dd>своя группа процессов — <code>SIGKILL</code> группе</dd>
+      </dl>
+    </article>
+    <article class="card kp-os chg" data-chg="keeper-os-mac">
+      <div class="kp-head"><h3>macOS</h3></div>
+      <dl class="kp-dl">
+        <dt>запуск</dt><dd>не в первой сборке: мака во флоте нет (слово пользователя 31 окт.)</dd>
+        <dt>почему</dt><dd><code>PDEATHSIG</code> нет; как не оставить сирот, проверяет отдельный опыт, когда в флоте появится такая машина</dd>
+      </dl>
+    </article>
+  </div>
+  <div class="grid2">
+    <div class="card kp-pad chg" data-chg="keeper-os-disk">
+      <div class="kp-head"><h3>На диске</h3><span class="muted" style="font-size:13px">всё — в <code>~/.switchboard</code></span></div>
+      <div class="codebox"><pre class="kp-pre">~/.switchboard/
+├─ keeper.json
+│    { "node": "…", "host": "1.4.0" }
+├─ journal/
+│    keeper-&lt;дата UTC&gt;.jsonl   журнал keeper
+└─ host/
+   ├─ 1.4.0/    запущена сейчас
+   └─ 1.4.1/    положил модуль
+                обновления Host</pre></div>
+      <ul class="kp-does">
+        <li><code>node</code> пишет установщик; <code>host</code> — установщик, потом keeper: <span class="chg" data-chg="keeper-os-disk-ready">версию из каждого <code>ready</code>, если её папка есть.</span></li>
+        <li class="chg" data-chg="keeper-os-disk-rel">Папку версии кладёт модуль Host upgrade — из выпуска в R2; keeper ничего не скачивает.</li>
+        <li>Ключ машины для relay лежит рядом, его читает Host. keeper его не открывает.</li>
+      </ul>
+    </div>
+    <div class="card kp-pad chg" data-chg="keeper-os-log">
+      <div class="kp-head"><h3>Журнал keeper</h3><span class="pill acc">пример</span></div>
+      <div class="codebox"><pre class="kp-pre">{"t":"2026-10-30T10:02:11Z","part":"keeper",
+ "machine":"laptop","who":"keeper","kind":"note",
+ "ev":"host_start","host":"1.4.0","pid":41220}
+{"t":"…T10:02:13Z", … "kind":"note","ev":"spawn","id":"site","pid":34768}
+{"t":"…T10:02:14Z", … "kind":"note","ev":"host_ready","host":"1.4.0"}
+{"t":"…T10:40:05Z", … "kind":"stop","ev":"host_exit","code":1,
+ "why":"Host вышел с кодом 1: TypeError: …"}
+{"t":"…T10:40:06Z", … "kind":"note","ev":"attach","id":"site","buffered":18233}
+{"t":"…T11:15:30Z", … "kind":"refuse","ev":"first_line","word":"bad_key",
+ "why":"ключ не совпал · op spawn"}</pre></div>
+      <p>Строка JSON на событие, в общем формате журнала машины: запуски и выходы Host с кодом и stderr, <code>spawn</code>, <code>attach</code>, <code>exited</code>, stderr процессов claude, каждый отказ со словом. Файл читает и модуль journal Host — для запроса <a href="#host-journal">machine.journal</a>.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="keeper-et">
+  <div class="shead">
+    <h2>Эталоны keeper</h2>
+    <p>Каждый проверяет keeper на зафиксированном входе; вместо Host — тест, говорящий протоколом, вместо claude — процесс-заглушка. Номер эталона — номер теста. Ключ на порту и остановка службы — эталоны 38 и 39 в <a href="#eco">связях и доверии</a>.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="keeper-et-20"><div class="et-n">20</div>
+      <div class="et-in">Host отключился посреди команды сессии site: соединение канала процесса закрыто.</div>
+      <div class="et-out">Процесс site жив, его ввод не закрыт. Вывод копится в памяти keeper и целиком, по порядку, отдаётся следующему <code>attach</code> — раньше живого потока.</div>
+      <div class="et-src">чьё: опыт 15 — новый Host подключился к тому же процессу, тот же ход дошёл до конца.</div></div>
+    <div class="et" id="keeper-et-21"><div class="et-n">21</div>
+      <div class="et-in">Процесс keeper убит; сессия site выполняет команду Bash, profiles простаивает.</div>
+      <div class="et-out">Host, оба процесса claude и их потомки завершились вместе с keeper. Служба ОС подняла keeper, keeper — Host; Host поднял обе сессии по <code>resume</code>, оборванный ход site потерян.</div>
+      <div class="et-src">чьё: слово пользователя 30 окт. — «остальное — перезапустить начисто компонент или процесс»; опыт 14 — разговор цел по resume.</div></div>
+    <div class="et" id="keeper-et-50"><div class="et-n">50</div>
+      <div class="et-in">Host полузакрывает канал процесса site. Потом второй Host делает <code>attach</code> и убит без закрытия соединения.</div>
+      <div class="et-out">Процесс site жив оба раза и конца ввода не получил; <code>list</code> — <code>attached: false</code>, <code>buffered</code> растёт; в журнале keeper — два отключения.</div>
+      <div class="et-src">чьё: опыт 15 — «полузакрытие или обрыв от контроллера процесс не трогает»; устав — «обновление Host при той же версии SDK сессий не останавливает».</div></div>
+    <div class="et" id="keeper-et-51"><div class="et-n">51</div>
+      <div class="et-in">wiki простаивает; Host шлёт <code>{ "op": "kill", "id": "wiki" }</code>.</div>
+      <div class="et-out">keeper закрыл ввод wiki, claude вышел сам с кодом 0. Host получил весь вывод, затем канал процесса закрыт, затем <code>exited</code> с <code>code: 0, signal: null</code>; в <code>list</code> wiki нет.</div>
+      <div class="et-src">чьё: факт — типы Agent SDK 0.3.311: <code>close()</code> сначала закрывает ввод процесса и ждёт около 2 с, только потом завершает его.</div></div>
+    <div class="et" id="keeper-et-52"><div class="et-n">52</div>
+      <div class="et-in">wiki выполняет в Bash <code>sleep 600</code>; Host шлёт <code>kill</code> с <code>force: true</code>.</div>
+      <div class="et-out">claude и <code>sleep</code> завершены сразу — от дерева процесса не осталось ни одного; <code>exited</code> с <code>signal</code>.</div>
+      <div class="et-src">чьё: факт — типы Agent SDK 0.3.311: <code>kill(signal)</code> у SpawnedProcess зовётся после ожидания конца ввода; слово пользователя 30 окт. — «перезапустить начисто компонент или процесс».</div></div>
+    <div class="et" id="keeper-et-53"><div class="et-n">53</div>
+      <div class="et-in">Процесс site убит снаружи при подключённом Host.</div>
+      <div class="et-out">keeper отдал остаток вывода, закрыл канал процесса и прислал <code>exited</code> с кодом, сигналом и последней строкой stderr; весь stderr — в журнале keeper. Процесс keeper не перезапускает.</div>
+      <div class="et-src">чьё: устав — «система ловит, агент чинит»: без самопочинки; опыт 14 — Host поднимает сессию по resume.</div></div>
+    <div class="et" id="keeper-et-54"><div class="et-n">54</div>
+      <div class="et-in">Host нет на связи; процесс wiki вышел с кодом 1. Потом Host открыл канал управления.</div>
+      <div class="et-out">Сразу после ответа на <code>control</code> — <code>exited</code> wiki с кодом 1; в <code>list</code> wiki нет; её накопленный вывод никому не отдан.</div>
+      <div class="et-src">чьё: устав — «система ловит… пишет в журнал с причиной»: выход процесса не теряется.</div></div>
+    <div class="et" id="keeper-et-55"><div class="et-n">55</div>
+      <div class="et-in">К site уже подключён Host. Приходят <code>attach</code> site, <code>spawn</code> site и второе соединение управления.</div>
+      <div class="et-out">Все три — <code>reply ok: false, error: in_use</code> и закрыты; первое соединение и процесс site не тронуты; второго процесса нет.</div>
+      <div class="et-src">чьё: устав — «система ловит, агент чинит: останавливает, отказывает, пишет в журнал с причиной».</div></div>
+    <div class="et" id="keeper-et-56"><div class="et-n">56</div>
+      <div class="et-in">Host после <code>ready</code> упал с кодом 1; процессы site и profiles живы.</div>
+      <div class="et-out">В журнале keeper — код и stderr Host. Новый Host той же версии запущен сразу, во вводе — та же строка <code>{ keeper, key }</code>; он сделал <code>attach</code> к обоим; ни один процесс не перезапущен.</div>
+      <div class="et-src">чьё: опыты 15, 20; слово пользователя 30 окт. — «рековерить только основные ожидаемые ветки флоу».</div></div>
+    <div class="et" id="keeper-et-57"><div class="et-n">57</div>
+      <div class="et-in">После <code>upgrade</code> Host 1.4.1 два раза подряд выходит с кодом 1 до <code>ready</code>.</div>
+      <div class="et-out">keeper запускал 1.4.1 ровно два раза, третьего запуска нет; журнал: «host 1.4.1: два выхода до ready — не запускаю»; процессы claude живы; в keeper.json — <code>host: "1.4.0"</code>.</div>
+      <div class="et-src">чьё: слово пользователя 30 окт. — «остальное — перезапустить начисто»; устав — «в систему не встраиваются самопочинка, автоподбор, обходные пути и запасные режимы».</div></div>
+    <div class="et" id="keeper-et-58"><div class="et-n">58</div>
+      <div class="et-in"><code>upgrade</code> к 1.4.1 — папка версии есть; потом <code>upgrade</code> к 9.9.9 — папки нет.</div>
+      <div class="et-out">Первый: <code>reply ok</code>, <code>stop</code> с <code>upgrade</code>, старый Host вышел с 0, новый — с той же строкой во вводе, <code>attach</code>, <code>ready</code> <span class="chg" data-chg="keeper-et-58-ver">с <code>version: "1.4.1"</code></span>, keeper.json → 1.4.1; ни один процесс не перезапущен. Второй: <code>unknown_version</code>, <code>stop</code> не отправлен.</div>
+      <div class="et-src">чьё: устав — «обновление Host при той же версии SDK сессий не останавливает»; опыт 15.</div></div>
+    <div class="et" id="keeper-et-59"><div class="et-n">59</div>
+      <div class="et-in">Первая строка соединения — верный ключ и <code>proto: 2</code>; keeper знает только 1.</div>
+      <div class="et-out"><code>reply ok: false, error: contract_mismatch</code>, соединение закрыто; в журнале keeper — обе версии; процесс не запущен.</div>
+      <div class="et-src">чьё: устав — «в систему не встраиваются самопочинка, автоподбор…».</div></div>
+    <div class="et chg" id="keeper-et-247" data-chg="keeper-et-247"><div class="et-n">247</div>
+      <div class="et-in">Host 1.4.0 после <code>ready</code> работает; процессы site и profiles живы; папка 1.4.1 есть. Host шлёт <code>{ "op": "ready", "version": "1.4.1" }</code>, потом <code>{ "op": "ready", "version": "9.9.9" }</code>.</div>
+      <div class="et-out">Первый: <code>reply ok</code>, keeper.json → <code>host: "1.4.1"</code>; <code>stop</code> не отправлен, Host не перезапущен, процессы не тронуты. Второй: <code>unknown_version</code>, keeper.json — по-прежнему 1.4.1. После убийства Host keeper запускает папку 1.4.1.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. о модулях Host — «в идеале сделать для них хот-релоад»; устав — «Keeper без логики»; «система ловит… отказывает».</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== keeper: трубы, справочник API, удержание по шагам, жизнь Host, остановка ===== */
+(function(){
+  const root = document.querySelector('[data-view="keeper"]');
+  if (!root) return;
+  const $ = (s) => root.querySelector(s);
+  const NS = "http://www.w3.org/2000/svg";
+  function S(tag, a, txt){
+    const e = document.createElementNS(NS, tag);
+    for (const k in a) if (a[k] != null) e.setAttribute(k, a[k]);
+    if (txt != null) e.textContent = txt;
+    return e;
+  }
+  function H(tag, cls, txt){ const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+  function clear(n){ while (n.lastChild) n.removeChild(n.lastChild); }
+  // стрелки: у каждой картинки свой префикс id
+  function defs(svg, pre){
+    const d = S("defs", {});
+    ["", "on", "bad", "ok", "k"].forEach(c => {
+      const m = S("marker", {id: pre + (c ? "-" + c : ""), viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 9, markerHeight: 9, markerUnits: "userSpaceOnUse", orient: "auto-start-reverse"});
+      m.appendChild(S("path", {class: "arh " + c, d: "M0 0L10 5L0 10z"}));
+      d.appendChild(m);
+    });
+    svg.appendChild(d);
+  }
+  function mk(cls){ for (const c of ["on", "bad", "ok", "k"]) if ((" " + cls + " ").includes(" " + c + " ")) return "-" + c; return ""; }
+  function box(svg, x, y, w, h, cls, t, s, scls){
+    svg.appendChild(S("rect", {class: "nb " + (cls || ""), x, y, width: w, height: h, rx: 9}));
+    svg.appendChild(S("text", {class: "t" + ((cls || "").includes("dim") ? " dim" : ""), x: x + w / 2, y: s ? y + h / 2 - 3 : y + h / 2 + 4.5, "text-anchor": "middle"}, t));
+    if (s) svg.appendChild(S("text", {class: "s " + (scls || ""), x: x + w / 2, y: y + h / 2 + 13, "text-anchor": "middle"}, s));
+  }
+  function edge(svg, pre, d, cls, opt){
+    const p = S("path", {class: "e " + (cls || ""), d});
+    if (!opt || opt.end !== false) p.setAttribute("marker-end", "url(#" + pre + mk(cls || "") + ")");
+    if (opt && opt.start) p.setAttribute("marker-start", "url(#" + pre + mk(cls || "") + ")");
+    svg.appendChild(p);
+  }
+  function lab(svg, x, y, t, cls, anchor){ svg.appendChild(S("text", {class: "l " + (cls || ""), x, y, "text-anchor": anchor || "middle"}, t)); }
+  // строки провода: → Host → keeper, ← keeper → Host, ⇄ байты, · пояснение
+  function wire(pre, lines){
+    clear(pre);
+    lines.forEach(([d, t]) => {
+      const cls = d === "→" ? "o" : d === "←" ? "i" : d === "k" ? "k" : "b";
+      const mark = d === "k" ? "←" : d;
+      pre.appendChild(H("span", cls, mark + " " + t));
+    });
+  }
+  function selTabs(box, key){ box.querySelectorAll("[role=tab]").forEach(b => b.setAttribute("aria-selected", b.dataset.k === key ? "true" : "false")); }
+
+  /* ===== 1. Кто держит трубы ===== */
+  const WHY = {
+    host: {
+      alive: {v: ["acc", "ход идёт", "трубы — у процесса Host"], p: "query() → SDK запускает claude\nввод и вывод — трубы\nпроцесса Host", s: "обычный запуск SDK"},
+      dead: {v: ["bad", "процесс умер", "разговор цел по resume, ход потерян"], p: "Host убит посреди 40-с команды\n→ процесса claude нет через 3 с\n\nновый Host, resume:\n«Секретное слово — КАШТАН,\nа вывода node long.mjs я не\nвидел: вызов Bash прервался»", s: "опыт 14"}
+    },
+    fifo: {
+      alive: {v: ["acc", "ход идёт", "claude на именованных каналах"], p: "setsid claude\n  0<>in.fifo 1<>out.fifo\nканалы открыты на чтение\nи запись — конца ввода нет", s: "Linux, WSL"},
+      dead: {v: ["wait", "Linux — жив · Windows — нельзя", ""], p: "7,1 с  Host a убит посреди\n       20-с команды\n12,2 с Host b открыл те же\n       каналы → «готово»\n60,4 с Host c → сразу 356 КБ\n       при буфере канала 64 КБ\n\nWindows: FIFO нет, а именованный\nканал переподключает только\nего владелец, не claude", s: "опыт 18"}
+    },
+    keeper: {
+      alive: {v: ["acc", "ход идёт", "Host говорит с keeper по TCP"], p: "Host → keeper: spawn site\nkeeper запускает claude,\nдержит трубы и гонит байты,\nне разбирая", s: "прообраз — 40 строк"},
+      dead: {v: ["ok", "жив на всех ОС", "тот же ход дошёл до конца"], p: "1,1 с  запуск claude, pid 34768\n16,2 с Host убит посреди\n       25-с команды; процесс\n       жив, вывод копится\n19,3 с новый Host: attach\n       «долгая команда\n        закончилась»\n       сессия 8380f18f — та же,\n       без resume", s: "опыт 15"}
+    }
+  };
+  function drawWhy(v, dead){
+    const svg = $("#keeper-why-svg-" + v), pre = "keeper-why-" + v + "-ar";
+    clear(svg); defs(svg, pre);
+    const cmd = {host: "Bash · 40 с", fifo: "Bash · 20 с", keeper: "Bash · 25 с"}[v];
+    const hostA = dead ? [6, 10, 110, 44] : [60, 10, 120, 44];
+    if (v === "host"){
+      box(svg, 60, 10, 120, 44, dead ? "dead" : "hot", "Host", dead ? "убит" : "node · SDK", dead ? "bad" : "");
+      edge(svg, pre, "M110 54V178", dead ? "bad" : "on");
+      edge(svg, pre, "M130 178V56", dead ? "bad" : "on");
+      lab(svg, 102, 120, "stdin", dead ? "bad" : "on", "end");
+      lab(svg, 138, 120, "stdout", dead ? "bad" : "on", "start");
+      box(svg, 60, 180, 120, 44, dead ? "dead" : "", "claude", dead ? "нет через 3 с" : cmd, dead ? "bad" : "");
+      return;
+    }
+    if (dead){
+      box(svg, hostA[0], hostA[1], hostA[2], hostA[3], "dead", "Host a", "убит", "bad");
+      box(svg, 124, 10, 110, 44, "hot", "Host b", v === "fifo" ? "открыл каналы" : "attach site", "on");
+    } else box(svg, hostA[0], hostA[1], hostA[2], hostA[3], "hot", "Host", v === "fifo" ? "открыл каналы" : "node · SDK");
+    if (v === "fifo"){
+      box(svg, 14, 94, 100, 34, "", "in.fifo");
+      box(svg, 126, 94, 100, 34, "", "out.fifo");
+      if (dead){
+        edge(svg, pre, "M61 54L66 92", "off", {end: false});
+        edge(svg, pre, "M150 54L90 92", "on");
+        edge(svg, pre, "M196 94L200 56", "on");
+      } else {
+        edge(svg, pre, "M100 54L70 92", "on");
+        edge(svg, pre, "M170 92L140 56", "on");
+      }
+      edge(svg, pre, "M70 128L100 178", "on");
+      edge(svg, pre, "M140 178L170 130", "on");
+      box(svg, 60, 180, 120, 44, dead ? "okb" : "", "claude", dead ? "жив на Linux" : cmd, dead ? "ok" : "");
+      return;
+    }
+    box(svg, 40, 90, 160, 50, "kb" + (dead ? " hot" : ""), "keeper", dead ? "вывод копится → отдаёт" : "держит трубы", dead ? "on" : "");
+    if (dead){
+      edge(svg, pre, "M61 54L92 88", "off", {end: false});
+      edge(svg, pre, "M162 54L150 88", "on");
+      edge(svg, pre, "M176 88L192 56", "on");
+      lab(svg, 196, 78, "TCP", "on", "start");
+    } else {
+      edge(svg, pre, "M110 54V88", "on");
+      edge(svg, pre, "M130 88V56", "on");
+      lab(svg, 138, 76, "TCP", "on", "start");
+    }
+    edge(svg, pre, "M110 140V178", "on");
+    edge(svg, pre, "M130 178V142", "on");
+    lab(svg, 138, 164, "stdio", "on", "start");
+    box(svg, 60, 180, 120, 44, dead ? "okb" : "", "claude", dead ? "ход идёт дальше" : cmd, dead ? "ok" : "");
+  }
+  function showWhy(dead){
+    for (const v of ["host", "fifo", "keeper"]){
+      drawWhy(v, dead);
+      const d = WHY[v][dead ? "dead" : "alive"];
+      const vEl = $("#keeper-why-v-" + v); clear(vEl);
+      vEl.appendChild(H("span", "pill " + d.v[0], d.v[1]));
+      if (d.v[2]) vEl.appendChild(H("span", "", d.v[2]));
+      $("#keeper-why-p-" + v).textContent = d.p;
+      $("#keeper-why-s-" + v).textContent = d.s;
+    }
+    selTabs($("#keeper-why-tabs"), dead ? "1" : "0");
+  }
+  $("#keeper-why-tabs").addEventListener("click", e => { const b = e.target.closest("[role=tab]"); if (b) showWhy(b.dataset.k === "1"); });
+  showWhy(true);
+
+  /* ===== 2. Справочник API ===== */
+  const OPS = {
+    hand: {name: "ввод Host", ch: "при запуске Host", cls: "k",
+      wire: [["k", '{ "keeper": "127.0.0.1:51734", "key": "c1d9…" }'], ["·", "одна строка во ввод запускаемого Host, затем ввод закрыт"]],
+      does: ["Порт выбирает ОС при старте keeper; ключ — 32 случайных байта. Оба живут только в памяти и одинаковы для каждого Host до перезапуска keeper.", "В аргументах команды и в файлах их нет. Другой пользователь ОС может подключиться к порту, но без ключа его закроют."],
+      errs: []},
+    control: {name: "control", ch: "соединение управления",
+      wire: [["→", '{ "key": "c1d9…", "proto": 1, "op": "control" }'], ["←", '{ "op": "reply", "ok": true, "result": { "keeper": "1.0.0" } }'], ["←", '{ "op": "exited", "id": "wiki", … }   вышедшие без Host'], ["·", "дальше — по строке JSON в обе стороны"]],
+      does: ["Одно на keeper, его держит ядро Host. На каждый запрос — один reply, в том порядке, в каком шли запросы; exited и stop приходят между ответами.", "Сначала keeper отдаёт exited процессов, вышедших, пока Host не было.", "Соединение закрылось — keeper ничего не останавливает и ждёт следующего."],
+      errs: ["bad_key", "contract_mismatch", "in_use"]},
+    list: {name: "list", ch: "соединение управления",
+      wire: [["→", '{ "op": "list" }'], ["←", '{ "op": "reply", "ok": true, "result": { "processes": ['], ["←", '  { "id": "site", "pid": 34768, "attached": false, "buffered": 18233 },'], ["←", '  { "id": "profiles", "pid": 35102, "attached": false, "buffered": 0 } ] } }']],
+      does: ["Живые процессы: id, pid, подключён ли канал процесса и сколько байт вывода ждёт.", "По списку новый Host сам решает: attach к живому процессу или spawn по resume."],
+      errs: []},
+    kill: {name: "kill", ch: "соединение управления",
+      wire: [["→", '{ "op": "kill", "id": "wiki" }'], ["←", '{ "op": "reply", "ok": true }'], ["·", "keeper закрыл ввод wiki — claude завершается сам"], ["←", '{ "op": "exited", "id": "wiki", "pid": 35990, "code": 0, "signal": null, "stderr": "" }'], ["→", '{ "op": "kill", "id": "wiki", "force": true }   процесс и потомки — сразу']],
+      does: ["Без force — конец ввода, как у SDK при close(); с force — процесс и все его потомки завершаются сразу.", "В Host это адаптер SpawnedProcess: stdin.end() → kill; kill(signal), который SDK зовёт после ~2 с ожидания, → kill с force."],
+      errs: ["unknown_id"]},
+    upgrade: {name: "upgrade", ch: "соединение управления",
+      wire: [["→", '{ "op": "upgrade", "version": "1.4.1" }'], ["←", '{ "op": "reply", "ok": true }'], ["←", '{ "op": "stop", "reason": "upgrade" }'], ["·", "Host выходит с кодом 0 → keeper запускает ~/.switchboard/host/1.4.1/"], ["→", '{ "op": "ready", "version": "1.4.1" }   от нового Host → keeper.json: host 1.4.1']],
+      does: ["Версию скачал из выпуска в R2 и проверил Host; keeper только проверяет, что её папка есть.", "Старый Host останавливается штатно, процессы claude остаются у keeper; новый получает тот же порт и ключ.", "Новая версия попадает в keeper.json только с ready.", "Если в новой версии поменялись только модули, upgrade не зовётся: ядро перезагружает их само и шлёт ready с новой версией."],
+      errs: ["unknown_version"]},
+    ready: {name: "ready", ch: "соединение управления",
+      wire: [["→", '{ "op": "ready", "version": "1.4.1" }'], ["←", '{ "op": "reply", "ok": true }'], ["·", "keeper.json: host 1.4.1"]],
+      does: ["Host этой версии готов: после старта — гейт модулей пройден и сессии подняты; после перезагрузки модулей — новые модули работают в том же процессе.", "keeper пишет version в keeper.json — её он запустит после перезапуска. Папки версии нет — unknown_version, keeper.json прежний.", "До первого ready выход Host — сбой запуска: первый раз keeper запускает снова, второй подряд — больше не запускает.", "После ready выход Host — обычный сбой: запуск сразу."],
+      errs: ["unknown_version"]},
+    exited: {name: "exited", ch: "событие keeper", ev: true,
+      wire: [["←", '{ "op": "exited", "id": "site", "pid": 34768, "code": 1, "signal": null,'], ["←", '  "stderr": "последняя строка stderr" }']],
+      does: ["Процесс вышел сам или по kill. keeper отдал весь его вывод, закрыл канал процесса и забыл процесс.", "Host нет на связи — exited ждёт в памяти до следующего соединения управления; вывод вышедшего процесса не хранится: Host поднимет сессию по resume.", "Весь stderr процесса — в журнале keeper. Сам keeper процесс заново не запускает."],
+      errs: []},
+    stop: {name: "stop", ch: "событие keeper", ev: true,
+      wire: [["←", '{ "op": "stop", "reason": "upgrade" }'], ["←", '{ "op": "stop", "reason": "machine" }']],
+      does: ["upgrade — Host доводит начатые запросы, дописывает своё и выходит с кодом 0, процессы claude не трогая.", "machine — то же, но сначала Host завершает каждую сессию: interrupt → result → close.", "keeper ждёт выхода Host без своего таймера."],
+      errs: []},
+    spawn: {name: "spawn", ch: "соединение процесса",
+      wire: [["→", '{ "key": "c1d9…", "proto": 1, "op": "spawn", "id": "site",'], ["→", '  "command": "…/claude", "args": [ … ], "cwd": "~/Projects/site", "env": { … } }'], ["←", '{ "op": "reply", "ok": true, "result": { "pid": 34768 } }'], ["⇄", "байты: ввод сессии → claude, вывод claude → Host"]],
+      does: ["command, args, cwd и env — ровно те, что SDK передал в spawnClaudeCodeProcess. keeper ничего не добавляет и не решает.", "Процесс получает своё задание (Windows) или группу (Linux) — для kill с force; его stderr идёт в журнал keeper."],
+      errs: ["in_use", "spawn_failed"]},
+    attach: {name: "attach", ch: "соединение процесса",
+      wire: [["→", '{ "key": "c1d9…", "proto": 1, "op": "attach", "id": "site" }'], ["←", '{ "op": "reply", "ok": true, "result": { "pid": 34768, "buffered": 18233 } }'], ["←", "18 233 байт накопленного вывода, затем живой поток"], ["⇄", "байты в обе стороны"]],
+      does: ["Конец соединения — выход Host, обрыв, полузакрытие — процесс не трогает: ввод открыт, вывод снова копится.", "То, что ушло в соединение умершего Host и не было прочитано, для Host потеряно. Обрывок строки SDK пропускает как не-JSON; ждущие вопросы и хуки возвращает повторный initialize (опыт 20)."],
+      errs: ["unknown_id", "in_use"]}
+  };
+  const GROUPS = [
+    ["при запуске Host", ["hand"]],
+    ["соединение управления · Host →", ["control", "list", "kill", "upgrade", "ready"]],
+    ["соединение управления · → Host", ["exited", "stop"]],
+    ["соединение процесса · Host →", ["spawn", "attach"]]
+  ];
+  const opsBox = $("#keeper-ops");
+  GROUPS.forEach(([g, list]) => {
+    const div = H("div", "kp-og");
+    div.appendChild(H("span", "lbl", g));
+    const chips = H("div", "chips");
+    list.forEach(k => {
+      const o = OPS[k];
+      const b = H("button", "chip" + (o.ev ? " ev" : "") + (o.cls === "k" ? " k" : ""));
+      b.type = "button"; b.dataset.op = k; b.setAttribute("aria-pressed", "false");
+      b.textContent = o.name;
+      chips.appendChild(b);
+    });
+    div.appendChild(chips);
+    opsBox.appendChild(div);
+  });
+  function showOp(k){
+    const o = OPS[k];
+    opsBox.querySelectorAll("[data-op]").forEach(b => b.setAttribute("aria-pressed", b.dataset.op === k ? "true" : "false"));
+    $("#keeper-op-name").textContent = o.name;
+    const ch = $("#keeper-op-ch"); ch.textContent = o.ch; ch.className = "pill " + (o.cls === "k" ? "wait" : o.ev ? "ok" : "acc");
+    wire($("#keeper-op-wire"), o.wire);
+    const ul = $("#keeper-op-does"); clear(ul); o.does.forEach(t => ul.appendChild(H("li", "", t)));
+    const er = $("#keeper-op-errs"); clear(er);
+    if (o.errs.length){ er.appendChild(H("span", "lbl", "отказ")); o.errs.forEach(w => er.appendChild(H("span", "pill bad", w))); }
+  }
+  opsBox.addEventListener("click", e => { const b = e.target.closest("[data-op]"); if (b) showOp(b.dataset.op); });
+  showOp("spawn");
+
+  /* ===== 3. Процесс на удержании (опыт 15) ===== */
+  const HOLD = [
+    {t: "0 с", src: "опыт 15", host: ["Host a", "spawn site", "hot"], hk: "on", kc: "on", buf: 0, keep: "запускает", bl: "пусто", cl: ["claude", "запуск", ""],
+      cap: "Host открывает соединение процесса: первая строка — ключ, proto и spawn с командой от SDK. keeper запускает claude и отвечает pid.",
+      w: [["→", '{ "key": "c1d9…", "proto": 1, "op": "spawn", "id": "site", … }'], ["←", '{ "op": "reply", "ok": true, "result": { "pid": 34768 } }']], log: "spawn site"},
+    {t: "1,1 с", src: "опыт 15", host: ["Host a", "ход идёт", "hot"], hk: "on", kc: "on", buf: 0, flow: true, keep: "гонит байты", bl: "пусто", cl: ["claude", "pid 34768", ""],
+      cap: "Дальше по соединению идут только байты: ввод сессии — в claude, вывод — в Host. Слово «ЯСЕНЬ» запомнено, началась команда node long.mjs на 25 с.",
+      w: [["⇄", "stream-json: initialize, «Запомни слово ЯСЕНЬ», ответ"], ["⇄", "«Выполни в Bash: node long.mjs» → Bash"]], log: "байты в обе стороны"},
+    {t: "16,2 с", src: "опыт 15", host: ["Host a", "убит", "dead"], hk: "bad", kc: "on", buf: 0.08, keep: "Host отключён", bl: "копится", cl: ["claude", "Bash · 25 с", ""],
+      cap: "Host убит посреди 25-секундной команды. Соединение закрылось; keeper не трогает ни процесс, ни его ввод.",
+      w: [["·", "keeper: соединение site закрыто — процесс жив, вывод копится"]], log: "Host убит"},
+    {t: "16–19 с", src: "опыт 15", host: ["нет Host", "", "off"], hk: "off", kc: "on", buf: 0.6, keep: "на удержании", bl: "копится", cl: ["claude", "Bash идёт", ""],
+      cap: "Команда идёт дальше, claude пишет вывод. keeper складывает его в память и держит, пока не подключится Host. claude разрыва не замечает.",
+      w: [["→", '{ "op": "list" }'], ["←", '… { "id": "site", "pid": 34768, "attached": false, "buffered": … }']], log: "вывод на удержании"},
+    {t: "19,3 с", src: "опыт 15", host: ["Host b", "attach site", "hot"], hk: "on", kc: "on", buf: 0.25, flow: true, keep: "отдаёт вывод", bl: "отдаёт", cl: ["claude", "pid 34768", ""],
+      cap: "Новый Host делает attach: сначала ответ, затем всё накопленное, затем живой поток. SDK повторяет initialize — ждущие вопросы приходят снова с тем же toolUseID (опыт 20).",
+      w: [["→", '{ "key": "c1d9…", "proto": 1, "op": "attach", "id": "site" }'], ["←", '{ "op": "reply", "ok": true, "result": { "pid": 34768, "buffered": … } }'], ["←", "накопленный вывод, затем живой поток"]], log: "attach site"},
+    {t: "дальше", src: "опыт 15", host: ["Host b", "тот же ход", "hot"], hk: "on", kc: "on", buf: 0, flow: true, keep: "гонит байты", bl: "пусто", cl: ["claude", "ход окончен", "ok"],
+      cap: "Тот же ход дошёл до конца: результат «долгая команда закончилась». Сессия 8380f18f — та же, resume не понадобился; на «Какое слово?» — «ЯСЕНЬ».",
+      w: [["←", "РЕЗУЛЬТАТ: «долгая команда закончилась»"], ["←", "«ЯСЕНЬ»"]], log: "тот же ход дошёл"},
+    {t: "потом", src: "протокол", host: ["Host b", "kill site", "hot"], hk: "on", kc: "bad", buf: 0, keep: "закрыл ввод", bl: "пусто", cl: ["claude", "вышел · код 0", "dim"],
+      cap: "kill закрывает ввод процесса — claude завершается сам. keeper отдаёт остаток вывода, закрывает соединение процесса и шлёт exited.",
+      w: [["→", '{ "op": "kill", "id": "site" }'], ["←", '{ "op": "reply", "ok": true }'], ["←", '{ "op": "exited", "id": "site", "code": 0, "signal": null, "stderr": "" }']], log: "kill → exited"}
+  ];
+  let hi = 0;
+  const holdLog = $("#keeper-hold-log");
+  HOLD.forEach((s, i) => {
+    const li = H("li"); li.dataset.i = i;
+    const b = H("b", "", s.t); li.appendChild(b); li.appendChild(document.createTextNode(" " + s.log));
+    holdLog.appendChild(li);
+  });
+  function drawHold(s){
+    const svg = $("#keeper-hold-svg"), pre = "keeper-hold-ar";
+    clear(svg); defs(svg, pre);
+    const hc = s.host[2];
+    box(svg, 4, 22, 92, 58, hc, s.host[0] || "—", s.host[1], hc === "dead" ? "bad" : hc === "hot" ? "on" : "");
+    // keeper с буфером вывода
+    svg.appendChild(S("rect", {class: "nb kb hot", x: 136, y: 6, width: 92, height: 184, rx: 10}));
+    svg.appendChild(S("text", {class: "t", x: 182, y: 28, "text-anchor": "middle"}, "keeper"));
+    svg.appendChild(S("text", {class: "s on", x: 182, y: 44, "text-anchor": "middle"}, s.keep));
+    svg.appendChild(S("text", {class: "s", x: 182, y: 66, "text-anchor": "middle"}, "вывод в памяти"));
+    svg.appendChild(S("rect", {class: "bufbox", x: 152, y: 74, width: 60, height: 92, rx: 5}));
+    const hgt = Math.round(92 * s.buf);
+    if (hgt > 0){
+      svg.appendChild(S("rect", {class: "buffill", x: 152, y: 166 - hgt, width: 60, height: hgt, rx: 4}));
+      svg.appendChild(S("line", {class: "bufline", x1: 154, x2: 210, y1: 166 - hgt, y2: 166 - hgt}));
+    }
+    svg.appendChild(S("text", {class: "s", x: 182, y: 182, "text-anchor": "middle"}, s.bl));
+    box(svg, 268, 22, 88, 58, s.cl[2] === "ok" ? "okb" : s.cl[2] === "dim" ? "off" : "", s.cl[0], s.cl[1], s.cl[2] === "ok" ? "ok" : "");
+    // соединение процесса Host ↔ keeper и stdio keeper ↔ claude
+    edge(svg, pre, "M96 42H134", s.hk);
+    edge(svg, pre, "M136 60H98", s.hk);
+    lab(svg, 116, 98, "TCP", s.hk === "on" ? "on" : s.hk === "bad" ? "bad" : "", "middle");
+    edge(svg, pre, "M228 42H266", s.kc);
+    edge(svg, pre, "M268 60H230", s.kc === "bad" ? "off" : s.kc);
+    lab(svg, 248, 98, "stdio", s.kc === "on" ? "on" : s.kc === "bad" ? "bad" : "", "middle");
+    if (s.kc === "bad") lab(svg, 248, 112, "ввод закрыт", "bad", "middle");
+    if (s.flow){ [106, 120].forEach(x => svg.appendChild(S("circle", {class: "pk", cx: x, cy: 60, r: 4}))); [240, 254].forEach(x => svg.appendChild(S("circle", {class: "pk", cx: x, cy: 60, r: 4}))); }
+  }
+  function showHold(i){
+    hi = Math.max(0, Math.min(HOLD.length - 1, i));
+    const s = HOLD[hi];
+    drawHold(s);
+    $("#keeper-hold-t").textContent = s.t;
+    const src = $("#keeper-hold-src"); src.textContent = s.src; src.className = "pill " + (s.src === "протокол" ? "acc" : "ok");
+    $("#keeper-hold-cap").textContent = s.cap;
+    wire($("#keeper-hold-wire"), s.w);
+    $("#keeper-hold-range").value = String(hi);
+    $("#keeper-hold-n").textContent = "шаг " + (hi + 1) + " из " + HOLD.length;
+    holdLog.querySelectorAll("li").forEach((li, k) => li.classList.toggle("now", k === hi));
+  }
+  $("#keeper-hold-range").max = String(HOLD.length - 1);
+  $("#keeper-hold-prev").addEventListener("click", () => showHold(hi - 1));
+  $("#keeper-hold-next").addEventListener("click", () => showHold(hi + 1));
+  $("#keeper-hold-range").addEventListener("input", e => showHold(+e.target.value));
+  holdLog.addEventListener("click", e => { const li = e.target.closest("li"); if (li) showHold(+li.dataset.i); });
+  showHold(0);
+
+  /* ===== 4. Жизнь Host у keeper ===== */
+  const N = {K: [8, 8, 152, 46], L: [8, 92, 152, 46], P: [8, 176, 152, 46], R: [8, 260, 152, 46], F: [214, 8, 158, 46], X: [214, 210, 158, 46], J: [214, 280, 158, 44]};
+  const E = {
+    KL: ["M84 54V90", [92, 76, "запуск · ввод { keeper, key }", "start"]],
+    LP: ["M84 138V174", [92, 160, "Host стартует", "start"]],
+    PR: ["M84 222V258", [92, 244, "ready", "start"]],
+    PX: ["M160 206L212 226", null],
+    RX: ["M160 276L212 248", null],
+    XL: ["M246 210C246 152 214 115 162 115", [256, 166, "снова,", "start"], [256, 179, "тот же ключ", "start"]],
+    XF: ["M364 210V56", [356, 112, "2-й подряд", "end"], [356, 125, "до ready", "end"]],
+    RJ: ["M160 292L212 300", null]
+  };
+  const CASES = [
+    {k: "start", tab: "старт машины", steps: [
+      {n: ["K"], e: [], v: "1.4.0", j: "1.4.0", t: "служба ОС", cap: "Служба ОС запускает keeper. Он слушает 127.0.0.1 на порту, который выбрала ОС, и создаёт случайный ключ; оба — только в памяти.", s: "keeper: порт и ключ"},
+      {n: ["K", "L", "J"], e: ["KL"], v: "1.4.0", j: "1.4.0", t: "запуск", cap: "keeper берёт версию из keeper.json и запускает Host; во ввод — одна строка с портом и ключом.", s: "запуск Host 1.4.0"},
+      {n: ["L", "P"], e: ["LP"], v: "1.4.0", j: "1.4.0", t: "до ready", cap: "Host проходит гейт модулей, открывает соединение управления, делает list. Процессов нет — сессии из своего списка Host поднимает через spawn по resume.", s: "control · list · spawn"},
+      {n: ["P", "R"], e: ["PR"], v: "1.4.0", j: "1.4.0", t: "ready", cap: "Host шлёт ready со своей версией. С этого момента его выход — обычный сбой, после которого keeper сразу запускает его снова.", s: "ready 1.4.0"}
+    ]},
+    {k: "crash", tab: "Host упал", steps: [
+      {n: ["R"], e: [], v: "1.4.0", j: "1.4.0", t: "работает", cap: "Host работает; процессы site и profiles у keeper, соединения процессов подключены.", s: "работает"},
+      {n: ["R", "X"], e: ["RX"], bad: ["X"], v: "1.4.0", j: "1.4.0", t: "выход · код 1", cap: "Host упал с кодом 1. keeper пишет в журнал код и stderr Host. Процессы живы, их вывод копится.", s: "выход после ready"},
+      {n: ["X", "L"], e: ["XL"], v: "1.4.0", j: "1.4.0", t: "сразу", cap: "keeper сразу запускает ту же версию с той же строкой во вводе — тем же портом и ключом.", s: "запуск снова"},
+      {n: ["L", "P", "R"], e: ["LP", "PR"], v: "1.4.0", j: "1.4.0", t: "ready", cap: "Новый Host: list → attach к site и profiles → ready. Ни один процесс не перезапущен, ждущие вопросы вернулись (опыты 15, 20).", s: "attach · ready"}
+    ]},
+    {k: "up", tab: "обновление", steps: [
+      {n: ["R"], e: [], v: "1.4.0", j: "1.4.0", t: "upgrade 1.4.1", cap: "Модуль обновления Host скачал и проверил 1.4.1 в ~/.switchboard/host/1.4.1/ и шлёт keeper upgrade. Папка есть — reply ok.", s: "upgrade 1.4.1"},
+      {n: ["R", "X"], e: ["RX"], v: "1.4.0", j: "1.4.0", t: "stop · upgrade", cap: "keeper шлёт stop с причиной upgrade. Host доводит начатые запросы, дописывает своё и выходит с кодом 0, процессов claude не трогая.", s: "stop → выход 0"},
+      {n: ["X", "L"], e: ["XL"], v: "1.4.1", j: "1.4.0", t: "запуск 1.4.1", cap: "keeper запускает 1.4.1 с той же строкой во вводе.", s: "запуск 1.4.1"},
+      {n: ["L", "P", "R"], e: ["LP", "PR"], v: "1.4.1", j: "1.4.0", t: "ready", cap: "Новый Host делает attach к живым процессам и шлёт ready с версией 1.4.1. Ход, шедший во время обновления, продолжается (опыт 15).", s: "attach · ready 1.4.1"},
+      {n: ["R", "J"], e: ["RJ"], v: "1.4.1", j: "1.4.1", jhot: true, t: "keeper.json", cap: "Только по ready keeper пишет версию из него в keeper.json — её он запустит после перезагрузки.", s: "keeper.json → 1.4.1"}
+    ]},
+    {k: "mods", tab: "только модули", steps: [
+      {n: ["R"], e: [], v: "1.4.0", j: "1.4.0", t: "модули 1.4.1", cap: "Модуль обновления Host скачал выпуск 1.4.1: ядро и SDK те же, поменялся только модуль profiles. upgrade keeper не зовёт: ядро перезагружает profiles в живом Host.", s: "ядро: перезагрузка модуля"},
+      {n: ["R", "J"], e: ["RJ"], v: "1.4.0", j: "1.4.1", jhot: true, t: "ready 1.4.1", cap: "Ядро шлёт ready с версией 1.4.1 — keeper пишет её в keeper.json. Процесс Host тот же, ни один claude не тронут; после перезапуска keeper запустит папку 1.4.1.", s: "ready 1.4.1 → keeper.json"}
+    ]},
+    {k: "fail", tab: "не дошёл до ready", steps: [
+      {n: ["X", "L"], e: ["XL"], v: "1.4.1", j: "1.4.0", t: "запуск 1.4.1", cap: "После upgrade старый Host вышел штатно, keeper запускает 1.4.1.", s: "запуск 1.4.1"},
+      {n: ["L", "P", "X"], e: ["LP", "PX"], bad: ["X"], v: "1.4.1", j: "1.4.0", t: "выход до ready · 1", cap: "1.4.1 не проходит гейт и выходит с кодом 1 до ready. Первый такой выход — keeper запускает снова.", s: "выход до ready · 1-й"},
+      {n: ["X", "L", "P"], e: ["XL", "LP", "PX"], bad: ["X"], v: "1.4.1", j: "1.4.0", t: "выход до ready · 2", cap: "Второй выход до ready подряд.", s: "выход до ready · 2-й"},
+      {n: ["X", "F"], e: ["XF"], bad: ["X", "F"], v: "1.4.1", j: "1.4.0", t: "стоп", cap: "keeper больше не запускает Host и пишет причину в журнал. Процессы claude живы; машина пропала из roster; в keeper.json по-прежнему 1.4.0.", s: "стоп · журнал"},
+      {n: ["F", "J"], e: [], bad: ["F"], v: "1.4.0", j: "1.4.0", t: "чинит агент", cap: "Чинит агент или человек. Чистый перезапуск службы: keeper стартует 1.4.0 из keeper.json, Host поднимает сессии по resume; идущие ходы обрываются.", s: "перезапуск службы → 1.4.0"}
+    ]}
+  ];
+  let ck = 0, cs = 0;
+  const lifeTabs = $("#keeper-life-tabs");
+  CASES.forEach((c, i) => {
+    const b = H("button", "tab", c.tab); b.type = "button"; b.setAttribute("role", "tab"); b.dataset.k = String(i);
+    lifeTabs.appendChild(b);
+  });
+  function drawLife(st){
+    const svg = $("#keeper-life-svg"), pre = "keeper-life-ar";
+    clear(svg); defs(svg, pre);
+    for (const k in E){
+      const on = st.e.includes(k);
+      const bad = on && (k === "XF" || (k === "PX" && (st.bad || []).includes("X")) || (k === "RX" && (st.bad || []).includes("X")));
+      const cls = on ? (bad ? "bad" : k === "KL" ? "k" : "on") : "";
+      edge(svg, pre, E[k][0], cls);
+      for (const L of E[k].slice(1)) if (L) lab(svg, L[0], L[1], L[2], on ? (bad ? "bad" : k === "KL" ? "k" : "on") : "", L[3]);
+    }
+    const txt = {
+      K: ["keeper", "порт 51734 · ключ c1d9…"],
+      L: ["запуск Host " + st.v, "ввод: { keeper, key }"],
+      P: ["до ready", "гейт · control · attach"],
+      R: ["работает", "после ready"],
+      F: ["стоп", "Host не запускается"],
+      X: ["Host вышел", "код и stderr → журнал"],
+      J: ["keeper.json", 'host: "' + st.j + '"']
+    };
+    for (const k in N){
+      const [x, y, w, h] = N[k];
+      const on = st.n.includes(k), bad = (st.bad || []).includes(k);
+      let cls = k === "K" ? "kb" : k === "J" ? "disk" : "";
+      if (on) cls += bad ? " badb" : " hot";
+      if (k === "J" && on && !st.jhot) cls = "disk";
+      if (!on) cls += " dim";
+      box(svg, x, y, w, h, cls, txt[k][0], txt[k][1], bad ? "bad" : (on && k === "J" && st.jhot ? "ok" : ""));
+    }
+  }
+  function showLife(c, s){
+    ck = c; const C = CASES[ck];
+    cs = Math.max(0, Math.min(C.steps.length - 1, s));
+    const st = C.steps[cs];
+    selTabs(lifeTabs, String(ck));
+    drawLife(st);
+    $("#keeper-life-t").textContent = st.t;
+    const p = $("#keeper-life-pill"); clear(p);
+    $("#keeper-life-cap").textContent = st.cap;
+    const ol = $("#keeper-life-steps"); clear(ol);
+    C.steps.forEach((x, i) => { const li = H("li", i === cs ? "now" : "", x.s); li.dataset.i = i; ol.appendChild(li); });
+    $("#keeper-life-n").textContent = "шаг " + (cs + 1) + " из " + C.steps.length;
+  }
+  lifeTabs.addEventListener("click", e => { const b = e.target.closest("[role=tab]"); if (b) showLife(+b.dataset.k, 0); });
+  $("#keeper-life-steps").addEventListener("click", e => { const li = e.target.closest("li"); if (li) showLife(ck, +li.dataset.i); });
+  $("#keeper-life-prev").addEventListener("click", () => showLife(ck, cs - 1));
+  $("#keeper-life-next").addEventListener("click", () => {
+    if (cs < CASES[ck].steps.length - 1) showLife(ck, cs + 1);
+    else showLife((ck + 1) % CASES.length, 0);
+  });
+  showLife(2, 0);
+
+  /* ===== 5. Штатная остановка: диаграмма последовательности ===== */
+  const LX = {"ОС": 38, keeper: 108, Host: 180, site: 254, profiles: 324, claude: 289};
+  const HEAD = [["ОС", "служба"], ["keeper", ""], ["Host", ""], ["site", "занята"], ["profiles", "ждёт"]];
+  const SEQ = {
+    up: {rows: [
+      ["m", "Host", "keeper", "upgrade 1.4.1", "on"],
+      ["m", "keeper", "Host", "stop · upgrade", "on"],
+      ["n", "Host", "новые запросы → shutting_down", ""],
+      ["n", "Host", "stop() модулей · relay close(1001)", ""],
+      ["n", "Host", "close() у сессий не зовёт", "ok"],
+      ["m", "Host", "keeper", "выход 0", "dash"],
+      ["n", "claude", "живы · вывод копится у keeper", "ok"],
+      ["m", "keeper", "Host", "запуск 1.4.1 · { keeper, key }", "k"],
+      ["m", "Host", "keeper", "attach site · attach profiles", "on"],
+      ["m", "Host", "keeper", "ready 1.4.1", "on"],
+      ["n", "keeper", "keeper.json → 1.4.1", "ok"]
+    ], rules: [
+      "Host не зовёт close() у query: тот закрыл бы ввод процесса, и claude завершился бы.",
+      "Начатые запросы доводятся до reply, новые получают shutting_down.",
+      "keeper ждёт выхода Host без своего таймера; новый Host получает тот же порт и ключ."
+    ]},
+    mach: {rows: [
+      ["m", "ОС", "keeper", "стоп службы", ""],
+      ["m", "keeper", "Host", "stop · machine", "on"],
+      ["n", "Host", "новые запросы → shutting_down", ""],
+      ["m", "Host", "site", "interrupt()", ""],
+      ["m", "site", "Host", "result", ""],
+      ["m", "Host", "keeper", "kill site", ""],
+      ["m", "keeper", "site", "ввод закрыт", "bad"],
+      ["m", "keeper", "Host", "exited site · 0", ""],
+      ["m", "Host", "keeper", "kill profiles", ""],
+      ["m", "keeper", "Host", "exited profiles · 0", ""],
+      ["n", "Host", "stop() модулей · relay close(1001)", ""],
+      ["m", "Host", "keeper", "выход 0", "dash"],
+      ["n", "keeper", "остаток — задание или группа", "bad"],
+      ["m", "keeper", "ОС", "выход", ""]
+    ], rules: [
+      "Сессия завершается штатно: interrupt → result → close. close() SDK закрывает ввод — keeper получает kill без force.",
+      "interrupt и result идут байтами через соединение процесса; keeper их не разбирает.",
+      "Что осталось после выхода Host, keeper завершает целиком: своё задание у процесса на Windows, группа на Linux. Таймер — только у ОС."
+    ]}
+  };
+  function drawSeq(k){
+    const svg = $("#keeper-stop-svg"), pre = "keeper-stop-ar";
+    const rows = SEQ[k].rows, top = 62, step = 25;
+    const Ht = top + rows.length * step + 6;
+    svg.setAttribute("viewBox", "0 0 360 " + Ht);
+    clear(svg); defs(svg, pre);
+    HEAD.forEach(([n, sub]) => {
+      const x = LX[n];
+      svg.appendChild(S("line", {class: "life", x1: x, x2: x, y1: 44, y2: Ht - 4}));
+      box(svg, x - 32, 6, 64, 36, n === "keeper" ? "kb hot" : n === "site" || n === "profiles" ? "" : "", n, sub || null);
+    });
+    rows.forEach((r, i) => {
+      const y = top + i * step;
+      if (r[0] === "m"){
+        const x1 = LX[r[1]], x2 = LX[r[2]], dir = x2 > x1 ? 1 : -1;
+        const cls = r[4] === "dash" ? "dash" : r[4];
+        edge(svg, pre, "M" + (x1 + dir * 3) + " " + y + "H" + (x2 - dir * 5), cls);
+        lab(svg, (x1 + x2) / 2, y - 5, r[3], r[4] === "dash" ? "" : r[4], "middle");
+      } else {
+        const x = LX[r[1]], w = Math.round(r[2].length * 5.9 + 16);
+        const rx = Math.max(4, Math.min(356 - w, x - w / 2));
+        svg.appendChild(S("rect", {class: "note " + (r[3] || ""), x: rx, y: y - 13, width: w, height: 18, rx: 6}));
+        svg.appendChild(S("text", {class: "nt", x: rx + w / 2, y: y, "text-anchor": "middle"}, r[2]));
+      }
+    });
+    const ul = $("#keeper-stop-rules"); clear(ul);
+    SEQ[k].rules.forEach(t => ul.appendChild(H("li", "", t)));
+    selTabs($("#keeper-stop-tabs"), k);
+  }
+  $("#keeper-stop-tabs").addEventListener("click", e => { const b = e.target.closest("[role=tab]"); if (b) drawSeq(b.dataset.k); });
+  drawSeq("up");
+})();
+</script>

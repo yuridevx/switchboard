@@ -1,0 +1,1520 @@
+<style>
+  /* Пульт · флот: витрина экранов в окне браузера (широкое и узкое — по ширине окна, container query),
+     переключатель экранов и состояний, ниже — что экран шлёт и получает. Дальше — модули экранов, карта
+     возможностей, эталоны. Цвета — только токены общего листа. */
+  [data-view="panel-fleet"] [hidden]{display:none!important}
+  [data-view="panel-fleet"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="panel-fleet"] .et{padding:0}
+  [data-view="panel-fleet"] .et.chg{box-shadow:-6px 0 0 -3px var(--chg)}
+  [data-view="panel-fleet"] .et.chg.read{box-shadow:-6px 0 0 -4px var(--read)}
+  [data-view="panel-fleet"] .et.chg::before{display:none}
+  [data-view="panel-fleet"] .pf-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="panel-fleet"] .pf-pad>p{font-size:14px;color:var(--muted);max-width:72ch}
+  [data-view="panel-fleet"] .pf-h3{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-h3 h3{font-size:15.5px}
+  [data-view="panel-fleet"] pre.pf-pre{white-space:pre;word-break:normal;overflow-x:auto}
+  [data-view="panel-fleet"] .pf-shell{font-size:13.5px;color:var(--muted)}
+
+  /* ===== переключатель ===== */
+  [data-view="panel-fleet"] .pf-card{overflow:hidden}
+  [data-view="panel-fleet"] .pf-tabs{display:flex;flex-wrap:wrap;gap:12px 22px;padding:14px 16px;border-bottom:1px solid var(--line)}
+  [data-view="panel-fleet"] .pf-tg{display:flex;flex-direction:column;gap:6px;min-width:0}
+  [data-view="panel-fleet"] .pf-ctl{display:flex;gap:8px 14px;align-items:center;flex-wrap:wrap;padding:10px 16px;border-bottom:1px solid var(--line2);background:var(--surface2)}
+  [data-view="panel-fleet"] .pf-ctl .chips{flex:1;min-width:0}
+  [data-view="panel-fleet"] .pf-steps{display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:1;min-width:0}
+  [data-view="panel-fleet"] .pf-steps b{font:600 12px var(--mono);color:var(--accent)}
+  [data-view="panel-fleet"] .pf-steps span{font-size:13px;flex:1;min-width:12ch}
+  @media (max-width:560px){ [data-view="panel-fleet"] .pf-steps span{order:3;flex-basis:100%} [data-view="panel-fleet"] .pf-steps #panel-fleet-next{margin-left:auto} [data-view="panel-fleet"] .pf-fr li{grid-template-columns:1.4em minmax(0,1fr)} [data-view="panel-fleet"] .pf-fr li>span{grid-column:2} }
+  [data-view="panel-fleet"] .pf-wbtn{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;flex:none}
+  [data-view="panel-fleet"] .pf-wbtn button{border:0;border-radius:0;padding:6px 10px;font-size:12px;background:var(--surface)}
+  [data-view="panel-fleet"] .pf-wbtn button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+  [data-view="panel-fleet"] .pf-stage{padding:18px 14px;background:var(--surface2)}
+
+  /* ===== окно браузера; ширина окна решает раскладку экрана ===== */
+  [data-view="panel-fleet"] .pf-win{container-type:inline-size;margin:0 auto;width:100%;max-width:980px;border:1px solid var(--line);border-radius:14px;
+    overflow:hidden;background:var(--bg);box-shadow:var(--shadow);transition:max-width .25s}
+  [data-view="panel-fleet"] .pf-win.nar{max-width:390px}
+  [data-view="panel-fleet"] .pf-tb{display:flex;align-items:center;gap:7px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line2);font:500 11.5px var(--mono);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-tb i{width:9px;height:9px;border-radius:50%;background:var(--line);flex:none}
+  [data-view="panel-fleet"] .pf-url{flex:1;min-width:0;background:var(--surface2);border-radius:7px;padding:3px 9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  [data-view="panel-fleet"] .pf-tb .pf-conn{flex:none}
+  [data-view="panel-fleet"] .pf-app{display:grid;grid-template-columns:132px minmax(0,1fr);min-height:540px;position:relative}
+  [data-view="panel-fleet"] .pf-rail{border-right:1px dashed var(--line);padding:10px 6px;display:flex;flex-direction:column;gap:2px;font-size:12.5px;background:var(--surface)}
+  [data-view="panel-fleet"] .pf-rail span{display:flex;justify-content:space-between;align-items:center;gap:4px;padding:6px 8px;border-radius:8px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-rail span.on{background:var(--accent-weak);color:var(--accent);font-weight:600}
+  [data-view="panel-fleet"] .pf-rail b{font:600 10px/17px var(--mono);min-width:17px;padding:0 4px;text-align:center;border-radius:999px;background:var(--wait-weak);color:var(--wait)}
+  [data-view="panel-fleet"] .pf-rail b.bad{background:var(--bad-weak);color:var(--bad)}
+  [data-view="panel-fleet"] .pf-rail small{margin-top:auto;font:500 10px/1.3 var(--mono);color:var(--muted);padding:6px 8px;opacity:.8}
+  [data-view="panel-fleet"] .pf-page{padding:16px 18px 22px;display:flex;flex-direction:column;gap:12px;min-width:0;font-size:13.5px;line-height:1.45}
+  @container (max-width:560px){
+    [data-view="panel-fleet"] .pf-app{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto;min-height:620px}
+    [data-view="panel-fleet"] .pf-rail{order:2;flex-direction:row;border-right:0;border-top:1px dashed var(--line);padding:5px 4px;justify-content:space-around;font-size:10.5px}
+    [data-view="panel-fleet"] .pf-rail span{flex-direction:column;padding:4px 5px;gap:2px}
+    [data-view="panel-fleet"] .pf-rail small{display:none}
+    [data-view="panel-fleet"] .pf-page{padding:12px 12px 16px}
+    [data-view="panel-fleet"] .pf-two{grid-template-columns:minmax(0,1fr)!important}
+    [data-view="panel-fleet"] .pf-hide-n{display:none!important}
+    [data-view="panel-fleet"] .pf-dlg{padding:0!important;align-items:end!important}
+    [data-view="panel-fleet"] .pf-dbox{border-radius:16px 16px 0 0!important;max-height:100%}
+    [data-view="panel-fleet"] .pf-tl .w{display:none}
+  }
+
+  /* ===== элементы экранов ===== */
+  [data-view="panel-fleet"] .pf-ph{display:flex;align-items:center;gap:8px 10px;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-ph h4{font:600 19px/1.2 var(--disp);margin:0}
+  [data-view="panel-fleet"] .pf-sp{flex:1}
+  [data-view="panel-fleet"] .pf-btn{font:600 12.5px/1.2 var(--body);padding:6px 11px;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+    white-space:nowrap;display:inline-flex;gap:5px;align-items:center}
+  [data-view="panel-fleet"] .pf-btn.sm{padding:4px 8px;font-size:12px}
+  [data-view="panel-fleet"] .pf-btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="panel-fleet"] .pf-btn.dan{color:var(--bad);border-color:var(--bad)}
+  [data-view="panel-fleet"] .pf-btn.danS{background:var(--bad);border-color:var(--bad);color:var(--surface)}
+  [data-view="panel-fleet"] .pf-btn.gh{border-color:transparent;background:transparent;color:var(--accent);padding-inline:4px}
+  [data-view="panel-fleet"] .pf-btn.dis{opacity:.42}
+  [data-view="panel-fleet"] .pf-btn.hot{box-shadow:0 0 0 3px var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px}
+  [data-view="panel-fleet"] .pf-c{background:var(--surface);border:1px solid var(--line2);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="panel-fleet"] .pf-c.off{background:var(--surface2);border-style:dashed}
+  [data-view="panel-fleet"] .pf-c.hot{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-ch{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap;min-width:0}
+  [data-view="panel-fleet"] .pf-ch b{font:600 13.5px var(--mono);min-width:0;overflow:hidden;text-overflow:ellipsis}
+  [data-view="panel-fleet"] .pf-m{font-size:12px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-mono{font-family:var(--mono)}
+  [data-view="panel-fleet"] .pf-st{font:600 10.5px/1 var(--mono);padding:4px 7px;border-radius:999px;white-space:nowrap;display:inline-flex;gap:5px;align-items:center;background:var(--surface2);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-st.ok{background:var(--ok-weak);color:var(--ok)}
+  [data-view="panel-fleet"] .pf-st.wait{background:var(--wait-weak);color:var(--wait)}
+  [data-view="panel-fleet"] .pf-st.bad{background:var(--bad-weak);color:var(--bad)}
+  [data-view="panel-fleet"] .pf-st.acc{background:var(--accent-weak);color:var(--accent)}
+  [data-view="panel-fleet"] .pf-conn{display:inline-flex;align-items:center;gap:5px;font:600 10.5px/1 var(--mono);padding:4px 8px;border-radius:999px;background:var(--ok-weak);color:var(--ok)}
+  [data-view="panel-fleet"] .pf-conn::before{content:"";width:7px;height:7px;border-radius:50%;background:currentColor}
+  [data-view="panel-fleet"] .pf-conn.bad{background:var(--bad-weak);color:var(--bad)}
+  [data-view="panel-fleet"] .pf-lim{display:grid;grid-template-columns:5.2ch minmax(0,1fr) auto;gap:8px;align-items:center;font-size:12px}
+  [data-view="panel-fleet"] .pf-lim>span:first-child{color:var(--muted)}
+  [data-view="panel-fleet"] .pf-lim>span:last-child{font:500 11.5px var(--mono);white-space:nowrap}
+  [data-view="panel-fleet"] .pf-bar{height:7px;border-radius:4px;background:var(--line2);overflow:hidden;display:block}
+  [data-view="panel-fleet"] .pf-bar i{display:block;height:100%;border-radius:4px;background:var(--accent);transition:width .35s}
+  [data-view="panel-fleet"] .pf-bar i.w{background:var(--wait)} [data-view="panel-fleet"] .pf-bar i.b{background:var(--bad)}
+  [data-view="panel-fleet"] .pf-src{display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-ml{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line2);padding-top:8px}
+  [data-view="panel-fleet"] .pf-ml li{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-ml li>b{font:600 12.5px var(--mono);min-width:6ch}
+  [data-view="panel-fleet"] .pf-ml li .pf-btn{margin-left:auto}
+  [data-view="panel-fleet"] .pf-ml li .pf-btn+.pf-btn{margin-left:0}
+  [data-view="panel-fleet"] .pf-note{border-radius:10px;padding:10px 12px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line2)}
+  [data-view="panel-fleet"] .pf-note.bad{background:var(--bad-weak);border-color:transparent}
+  [data-view="panel-fleet"] .pf-note.wait{background:var(--wait-weak);border-color:transparent}
+  [data-view="panel-fleet"] .pf-note.ok{background:var(--ok-weak);border-color:transparent}
+  [data-view="panel-fleet"] .pf-note.acc{background:var(--accent-weak);border-color:transparent}
+  [data-view="panel-fleet"] .pf-note .tx{flex:1;min-width:16ch;display:flex;flex-direction:column;gap:2px;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-note .tx b{font-size:13px}
+  [data-view="panel-fleet"] .pf-note.bad .tx b{color:var(--bad)} [data-view="panel-fleet"] .pf-note.wait .tx b{color:var(--wait)} [data-view="panel-fleet"] .pf-note.ok .tx b{color:var(--ok)} [data-view="panel-fleet"] .pf-note.acc .tx b{color:var(--accent)}
+  [data-view="panel-fleet"] .pf-hint{font-size:11.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-okt{color:var(--ok)} [data-view="panel-fleet"] .pf-badt{color:var(--bad)} [data-view="panel-fleet"] .pf-wt{color:var(--wait)}
+  [data-view="panel-fleet"] .pf-sec{font:600 10.5px/1.3 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+  [data-view="panel-fleet"] .pf-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  [data-view="panel-fleet"] .pf-chips{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="panel-fleet"] .pf-res{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:10px;border:1px solid var(--line2);background:var(--surface);min-width:0}
+  [data-view="panel-fleet"] .pf-chips>.pf-res{flex:1 1 140px}
+  [data-view="panel-fleet"] .pf-res b{font:600 12.5px var(--mono)}
+  [data-view="panel-fleet"] .pf-res span{font-size:11.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-res.in{border-color:var(--accent);background:var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-res.add{border-style:dashed;align-items:center;justify-content:center;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-res .g{font:600 11px var(--mono);color:var(--muted);cursor:grab}
+  [data-view="panel-fleet"] .pf-chk{display:flex;align-items:center;gap:7px;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-chk i{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--line);flex:none;display:grid;place-items:center;font:700 10px/1 var(--body);font-style:normal;color:var(--on-accent)}
+  [data-view="panel-fleet"] .pf-chk i.on{background:var(--accent);border-color:var(--accent)}
+  [data-view="panel-fleet"] .pf-chk i.on::after{content:"✓"}
+  [data-view="panel-fleet"] .pf-rad{display:flex;flex-direction:column;gap:6px}
+  [data-view="panel-fleet"] .pf-rad>div{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line2);border-radius:10px;padding:8px 10px;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-rad>div.on{border-color:var(--accent);background:var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-rad>div.no{opacity:.5}
+  [data-view="panel-fleet"] .pf-rad i{width:14px;height:14px;border-radius:50%;border:1.5px solid var(--line);flex:none;margin-top:2px}
+  [data-view="panel-fleet"] .pf-rad .on i{border:4px solid var(--accent)}
+  [data-view="panel-fleet"] .pf-rad b{display:block}
+  [data-view="panel-fleet"] .pf-menu{border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--shadow);display:flex;flex-direction:column;padding:4px;min-width:0}
+  [data-view="panel-fleet"] .pf-menu span{display:flex;gap:8px;justify-content:space-between;padding:6px 8px;border-radius:7px;font-size:12.5px;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-menu span.on{background:var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-menu em{font:500 11px var(--mono);color:var(--muted);font-style:normal}
+
+  /* диалог поверх страницы */
+  [data-view="panel-fleet"] .pf-dlg{position:absolute;inset:0;background:rgba(14,19,24,.38);display:flex;align-items:flex-start;justify-content:center;padding:28px 16px;z-index:2}
+  [data-view="panel-fleet"] .pf-dbox{background:var(--surface);border-radius:14px;max-width:560px;width:100%;padding:14px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;font-size:13px}
+  [data-view="panel-fleet"] .pf-dbox h5{font:600 15px/1.3 var(--body);margin:0}
+  [data-view="panel-fleet"] .pf-f{display:flex;flex-direction:column;gap:4px;min-width:0}
+  [data-view="panel-fleet"] .pf-f>label{font:600 11.5px var(--body);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-in{border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:var(--bg);font:500 12.5px var(--mono);min-height:31px;display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;white-space:nowrap}
+  [data-view="panel-fleet"] .pf-in.bad{border-color:var(--bad)}
+  [data-view="panel-fleet"] .pf-in.ph{color:var(--muted)}
+  [data-view="panel-fleet"] .pf-in .car{width:1.5px;height:15px;background:var(--accent);animation:pf-blink 1s steps(1) infinite}
+  @keyframes pf-blink{50%{opacity:0}}
+  [data-view="panel-fleet"] .pf-ff{display:flex;gap:8px;justify-content:flex-end;align-items:center;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-ff .why{margin-right:auto;font-size:11.5px;color:var(--bad)}
+  [data-view="panel-fleet"] .pf-ol{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:8px;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-enc{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;font:500 11.5px var(--mono)}
+  [data-view="panel-fleet"] .pf-enc>span{border:1px dashed var(--line);border-radius:8px;padding:6px 8px;background:var(--surface2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  [data-view="panel-fleet"] .pf-enc>i{font-style:normal;color:var(--accent);font-weight:600}
+  [data-view="panel-fleet"] .pf-chat{border:1px solid var(--line2);border-radius:12px;background:var(--surface);padding:10px;display:flex;flex-direction:column;gap:6px;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-swl{align-self:center;font:600 11px var(--mono);color:var(--accent);background:var(--accent-weak);border-radius:999px;padding:4px 10px}
+  [data-view="panel-fleet"] .pf-prog{display:flex;gap:4px}
+  [data-view="panel-fleet"] .pf-prog i{flex:1;height:6px;border-radius:3px;background:var(--line2)}
+  [data-view="panel-fleet"] .pf-prog i.ok{background:var(--ok)} [data-view="panel-fleet"] .pf-prog i.run{background:var(--accent)} [data-view="panel-fleet"] .pf-prog i.bad{background:var(--bad)}
+
+  /* списки и строки */
+  [data-view="panel-fleet"] .pf-rows{display:flex;flex-direction:column;border:1px solid var(--line2);border-radius:12px;background:var(--surface);overflow:hidden}
+  [data-view="panel-fleet"] .pf-row{display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap;padding:9px 12px;border-top:1px solid var(--line2);font-size:12.5px;min-width:0}
+  [data-view="panel-fleet"] .pf-row:first-child{border-top:0}
+  [data-view="panel-fleet"] .pf-row .n{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1 1 180px}
+  [data-view="panel-fleet"] .pf-row .n b{font:600 12.5px var(--mono)}
+  [data-view="panel-fleet"] .pf-row .n span{font-size:11.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-row.hot{background:var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-row.gone{opacity:.45;text-decoration:line-through}
+  [data-view="panel-fleet"] .pf-dot{width:8px;height:8px;border-radius:50%;flex:none;background:var(--muted)}
+  [data-view="panel-fleet"] .pf-dot.ok{background:var(--ok)} [data-view="panel-fleet"] .pf-dot.wait{background:var(--wait)} [data-view="panel-fleet"] .pf-dot.bad{background:var(--bad)} [data-view="panel-fleet"] .pf-dot.acc{background:var(--accent)}
+  [data-view="panel-fleet"] .pf-sum{display:flex;gap:6px 10px;align-items:center;flex-wrap:wrap;background:var(--surface);border:1px solid var(--line2);border-radius:12px;padding:10px 12px;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-sum>b{font:600 15px var(--mono)}
+  [data-view="panel-fleet"] .pf-foot{display:flex;gap:6px 16px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);border-top:1px solid var(--line2);padding-top:10px}
+  [data-view="panel-fleet"] .pf-cost{display:flex;gap:8px;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-cost div{flex:1 1 90px;border-radius:10px;background:var(--wait-weak);padding:8px 10px;display:flex;flex-direction:column}
+  [data-view="panel-fleet"] .pf-cost b{font:600 16px var(--mono);color:var(--wait)}
+  [data-view="panel-fleet"] .pf-cost span{font-size:11.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 12px;font-size:12.5px;margin:0}
+  [data-view="panel-fleet"] .pf-kv dt{color:var(--muted)} [data-view="panel-fleet"] .pf-kv dd{margin:0;min-width:0}
+  [data-view="panel-fleet"] .pf-msg{border-radius:10px;background:var(--surface2);padding:6px 9px;font-size:12px}
+  [data-view="panel-fleet"] .pf-msg b{font-size:11px;color:var(--muted);display:block}
+  [data-view="panel-fleet"] .pf-msg.u{background:var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:10px;align-items:start}
+  @container (max-width:560px){ [data-view="panel-fleet"] .pf-split{grid-template-columns:minmax(0,1fr)} }
+  [data-view="panel-fleet"] .pf-prow{display:grid;grid-template-columns:4.6ch 10px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;font-size:12px}
+  [data-view="panel-fleet"] .pf-prow.on{background:var(--accent-weak)}
+  [data-view="panel-fleet"] .pf-prow .t{font:500 11.5px var(--mono);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-prow .s{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  [data-view="panel-fleet"] .pf-prow .d{font:500 11px var(--mono);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-gap{font-size:11px;color:var(--muted);padding:2px 8px 2px 36px}
+  [data-view="panel-fleet"] .pf-day{font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:4px 8px}
+  [data-view="panel-fleet"] svg.pf-tl{display:block;width:100%;height:auto}
+  [data-view="panel-fleet"] .pf-tl .ax{stroke:var(--line);stroke-width:1.5}
+  [data-view="panel-fleet"] .pf-tl .tk{fill:var(--muted);font:500 10px var(--mono)}
+  [data-view="panel-fleet"] .pf-tl .pk{fill:var(--surface);stroke:var(--accent);stroke-width:1.5}
+  [data-view="panel-fleet"] .pf-tl .pk.th{stroke:var(--muted);stroke-dasharray:2 2}
+  [data-view="panel-fleet"] .pf-tl .pk.on{fill:var(--accent);stroke-width:3}
+  [data-view="panel-fleet"] .pf-tl .br{fill:none;stroke:var(--wait);stroke-width:1.8;stroke-dasharray:4 3}
+  [data-view="panel-fleet"] .pf-tl .bd{fill:var(--wait)}
+  [data-view="panel-fleet"] .pf-tl .lb{fill:var(--wait);font:600 10px var(--body)}
+  [data-view="panel-fleet"] .pf-seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  [data-view="panel-fleet"] .pf-seg span{padding:4px 9px;font-size:11.5px}
+  [data-view="panel-fleet"] .pf-seg span.on{background:var(--accent);color:var(--on-accent)}
+  [data-view="panel-fleet"] .pf-jl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="panel-fleet"] .pf-jl li{display:grid;grid-template-columns:5ch 10px minmax(0,1fr) auto;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--line2);font-size:12.5px}
+  [data-view="panel-fleet"] .pf-jl time{font:500 11.5px var(--mono);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-jl .w{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+  [data-view="panel-fleet"] .pf-jl .w span{font:500 10.5px var(--mono);background:var(--surface2);border-radius:999px;padding:2px 7px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-jl .w a{font:500 10.5px var(--mono);background:var(--accent-weak);border-radius:999px;padding:2px 7px;text-decoration:none}
+  @container (max-width:560px){ [data-view="panel-fleet"] .pf-jl li{grid-template-columns:5ch 10px minmax(0,1fr)} [data-view="panel-fleet"] .pf-jl .w{grid-column:3;justify-content:flex-start} }
+
+  /* ===== что экран шлёт и получает ===== */
+  [data-view="panel-fleet"] .pf-io{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:16px;border-top:1px solid var(--line)}
+  @media (max-width:760px){ [data-view="panel-fleet"] .pf-io{grid-template-columns:minmax(0,1fr)} }
+  [data-view="panel-fleet"] .pf-io>div{display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="panel-fleet"] .pf-iohead{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-iohead h3{font-size:15px}
+  [data-view="panel-fleet"] .pf-mod{font:600 11px var(--mono);padding:3px 8px;border-radius:999px;background:var(--ok-weak);color:var(--ok)}
+  [data-view="panel-fleet"] .pf-iotx{font-size:13.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-fr{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  [data-view="panel-fleet"] .pf-fr li{display:grid;grid-template-columns:1.4em minmax(0,auto) minmax(0,1fr);gap:2px 8px;align-items:baseline;font-size:12.5px}
+  [data-view="panel-fleet"] .pf-fr li>em{font:600 12px var(--mono);font-style:normal;color:var(--accent)}
+  [data-view="panel-fleet"] .pf-fr li>em.in{color:var(--ok)}
+  [data-view="panel-fleet"] .pf-fr li>em.no{color:var(--bad)}
+  [data-view="panel-fleet"] .pf-fr li code{font-weight:600;word-break:break-word}
+  [data-view="panel-fleet"] .pf-fr li code small{font-weight:500;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-fr li>span{color:var(--muted);min-width:0}
+  [data-view="panel-fleet"] .pf-fr li.hot code{background:var(--accent-weak);border-radius:4px;padding:0 3px}
+  [data-view="panel-fleet"] .pf-gapl{border-left:3px solid var(--wait);padding-left:10px;font-size:12.5px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-gapl b{color:var(--wait)}
+
+  /* ===== карта возможностей ===== */
+  [data-view="panel-fleet"] .pf-cnt{display:flex;gap:10px;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-cnt div{flex:1 1 120px;border-radius:10px;padding:10px 12px;display:flex;flex-direction:column}
+  [data-view="panel-fleet"] .pf-cnt b{font:600 22px var(--mono)}
+  [data-view="panel-fleet"] .pf-cnt span{font-size:12px;color:var(--muted)}
+  [data-view="panel-fleet"] .pf-cnt .ok{background:var(--ok-weak)} [data-view="panel-fleet"] .pf-cnt .ok b{color:var(--ok)}
+  [data-view="panel-fleet"] .pf-cnt .wait{background:var(--wait-weak)} [data-view="panel-fleet"] .pf-cnt .wait b{color:var(--wait)}
+  [data-view="panel-fleet"] .pf-cnt .bad{background:var(--bad-weak)} [data-view="panel-fleet"] .pf-cnt .bad b{color:var(--bad)}
+  [data-view="panel-fleet"] .pf-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+  [data-view="panel-fleet"] .pf-tile{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:left;padding:7px 9px;border-radius:9px;font:500 12px/1.3 var(--body);border:1px solid var(--line2);background:var(--surface);border-left-width:4px}
+  [data-view="panel-fleet"] .pf-tile code{font:600 11px var(--mono);color:var(--muted)}
+  [data-view="panel-fleet"] .pf-tile.ok{border-left-color:var(--ok)} [data-view="panel-fleet"] .pf-tile.wait{border-left-color:var(--wait)} [data-view="panel-fleet"] .pf-tile.bad{border-left-color:var(--bad)}
+  [data-view="panel-fleet"] .pf-tile[aria-pressed="true"]{background:var(--accent-weak);border-color:var(--accent)}
+  [data-view="panel-fleet"] .pf-grp{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);grid-column:1/-1;margin-top:6px}
+  [data-view="panel-fleet"] .pf-det{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--surface);min-height:7em}
+  [data-view="panel-fleet"] .pf-det .kv{display:grid;grid-template-columns:10ch minmax(0,1fr);gap:4px 10px;font-size:13px}
+  [data-view="panel-fleet"] .pf-det .kv span:nth-child(odd){color:var(--muted)}
+  [data-view="panel-fleet"] .pf-det code{font-size:12px}
+  [data-view="panel-fleet"] .pf-gaps{display:flex;flex-direction:column;gap:10px}
+  [data-view="panel-fleet"] .pf-gap2{border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+  [data-view="panel-fleet"] .pf-gap2 .h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  [data-view="panel-fleet"] .pf-gap2 p{font-size:13.5px;color:var(--muted)}
+
+  /* модули экранов */
+  [data-view="panel-fleet"] .pf-mgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:16px;align-items:start}
+  @media (max-width:760px){ [data-view="panel-fleet"] .pf-mgrid{grid-template-columns:minmax(0,1fr)} }
+  [data-view="panel-fleet"] .pf-mbtns{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="panel-fleet"] .pf-mapsvg{display:block;width:100%;height:auto}
+  [data-view="panel-fleet"] .pf-mapsvg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="panel-fleet"] .pf-mapsvg .bx.m{fill:var(--ok-weak);stroke:var(--ok);stroke-opacity:.5}
+  [data-view="panel-fleet"] .pf-mapsvg .bx.c{fill:var(--accent-weak);stroke:var(--accent);stroke-opacity:.5}
+  [data-view="panel-fleet"] .pf-mapsvg .bx.on{stroke:var(--accent);stroke-width:2.5;stroke-opacity:1}
+  [data-view="panel-fleet"] .pf-mapsvg .tb{fill:var(--ink);font:600 12px var(--mono)}
+  [data-view="panel-fleet"] .pf-mapsvg .ts{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="panel-fleet"] .pf-mapsvg .e{stroke:var(--line);stroke-width:1.5;fill:none}
+  [data-view="panel-fleet"] .pf-mapsvg .e.on{stroke:var(--accent);stroke-width:2.4}
+  [data-view="panel-fleet"] .pf-mapsvg .ah{fill:var(--line)} [data-view="panel-fleet"] .pf-mapsvg .ah.on{fill:var(--accent)}
+  [data-view="panel-fleet"] .pf-mapsvg g[data-pm]{cursor:pointer}
+  [data-view="panel-fleet"] .pf-mapsvg .dim{opacity:.35}
+</style>
+
+
+<header class="vhead chg" data-chg="panel-fleet-head">
+  <span class="pill acc kind">веб-приложение</span>
+  <h1>Пульт: флот</h1>
+  <p class="lead">Пульт — веб-приложение владельца флота для компьютера; у телефона своё приложение с другим фокусом. Этот раздел — всё, что не про одну сессию: аккаунты Claude и их лимиты, слоты с горячей подменой аккаунта, машины и их обновление, точки сессий — перенос, копия, откат и «пожар», журнал флота. Сам пульт ничего не решает и ничего не считает за модули: каждая кнопка — один запрос владельцу через relay, каждая цифра — из его ответа или из roster. Шифрования в первом релизе нет: код входа и точки идут по TLS.</p>
+  <div class="names">
+    <span><b>аккаунт</b> имя на машине: y0902, corp; узнаётся по почте на всех машинах</span>
+    <span><b>слот</b> папка входа на машине: main; сессии слота делят его аккаунт</span>
+    <span><b>запас</b> аккаунты слота по порядку</span>
+    <span><b>точка</b> сохранённое состояние сессии; из неё сессию поднимают на любой машине</span>
+    <span><b>в R2</b> пометка сессии: точки, перенос, копия, откат, смена папки и «пожар» — только у помеченных; у новой выключена</span>
+    <span><b>ветка</b> то, что ушло из линии сессии, — не теряется</span>
+    <span><b>roster</b> от relay: машины на связи с их contract, сессии, клиенты</span>
+  </div>
+  <p class="pf-shell">Ядро и общие с телефоном пакеты — в виде <a href="#phone">каркас и телефон</a>; колонка разделов, сессии и чат — в виде <a href="#panel">пульт: сессии и чат</a>; здесь — только экраны флота.</p>
+</header>
+
+
+<!-- ===== ЭКРАНЫ ===== -->
+<section class="chg" data-chg="panel-fleet-screens">
+  <div class="shead">
+    <h2>Экраны</h2>
+    <p>Флот home: машины laptop и pc на связи, mac пропал ночью. Выберите экран, затем состояние или шаг. «Узко» — тот же экран на телефоне. Под окном — что экран шлёт и получает; всё идёт через relay.</p>
+  </div>
+  <div class="card pf-card" id="panel-fleet-scr">
+    <div class="pf-tabs">
+      <div class="pf-tg"><span class="lbl">аккаунты</span><div class="chips">
+        <button type="button" class="chip" data-shot-btn="acc">Аккаунты</button>
+        <button type="button" class="chip" data-shot-btn="login">Вход по шагам</button>
+        <button type="button" class="chip" data-shot-btn="slot">Слот: подмена по шагам</button>
+      </div></div>
+      <div class="pf-tg"><span class="lbl">машины</span><div class="chips">
+        <button type="button" class="chip" data-shot-btn="mach">Машины</button>
+      </div></div>
+      <div class="pf-tg"><span class="lbl">точки</span><div class="chips">
+        <button type="button" class="chip" data-shot-btn="r2">Пометка «в R2»</button>
+        <button type="button" class="chip" data-shot-btn="pts">Обзор точек</button>
+        <button type="button" class="chip" data-shot-btn="ses">Точки сессии</button>
+        <button type="button" class="chip" data-shot-btn="move">Перенос по шагам</button>
+        <button type="button" class="chip" data-shot-btn="fire">«Пожар» по шагам</button>
+      </div></div>
+      <div class="pf-tg"><span class="lbl">журнал</span><div class="chips">
+        <button type="button" class="chip" data-shot-btn="jr">Журнал флота</button>
+      </div></div>
+    </div>
+    <div class="pf-ctl">
+      <div class="chips" id="panel-fleet-states" role="group" aria-label="Состояние экрана"></div>
+      <div class="pf-steps" id="panel-fleet-steps" hidden>
+        <button type="button" id="panel-fleet-prev">← назад</button>
+        <b id="panel-fleet-stepn">1 / 5</b><span id="panel-fleet-stept"></span>
+        <button type="button" class="primary" id="panel-fleet-next">дальше →</button>
+      </div>
+      <div class="pf-wbtn" role="group" aria-label="Ширина окна"><button type="button" data-w="wide" aria-pressed="true">Компьютер</button><button type="button" data-w="nar" aria-pressed="false">Узко</button></div>
+    </div>
+    <div class="pf-stage">
+
+    <!-- ===== Аккаунты ===== -->
+    <div class="pf-shot" data-shot="acc" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#accounts</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span>Точки<b class="bad">2</b></span><span class="on">Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Аккаунты</h4><span class="pf-sp"></span><span class="pf-btn pri">+ Новый аккаунт</span></div>
+        <div class="pf-note acc"><div class="tx"><b>Вход: corp на laptop</b><span>Откройте страницу входа и вставьте код — шаги на экране «Вход по шагам».</span></div><span class="pf-btn sm">Продолжить</span></div>
+        <div class="pf-cards">
+          <article class="pf-c">
+            <div class="pf-ch"><b>y0902@…</b><span class="pf-st acc">max</span><span class="pf-sp"></span><span class="pf-m">5 сессий</span></div>
+            <div class="pf-lim"><span>5 ч</span><span class="pf-bar"><i style="width:9%"></i></span><span>9 % · до 16:20</span></div>
+            <div class="pf-lim"><span>неделя</span><span class="pf-bar"><i style="width:61%"></i></span><span>61 % · до чт</span></div>
+            <div class="pf-src">по ответу сессии · laptop · сейчас</div>
+            <ul class="pf-ml">
+              <li><b>laptop</b><span class="pf-st ok">вошёл</span><span class="pf-st acc">в слоте main</span><span class="pf-btn sm" data-st-go="sess">Сессии (3)…</span><span class="pf-btn sm gh" data-st-go="rm">Удалить…</span></li>
+              <li><b>pc</b><span class="pf-st ok">вошёл</span><span class="pf-st acc">в слоте main</span><span class="pf-btn sm">Сессии (2)…</span><span class="pf-btn sm gh">Удалить…</span></li>
+            </ul>
+          </article>
+          <article class="pf-c">
+            <div class="pf-ch"><b>infirex@…</b><span class="pf-st acc">max</span><span class="pf-sp"></span><span class="pf-m">0 сессий</span></div>
+            <div class="pf-lim"><span>5 ч</span><span class="pf-bar"><i style="width:95%"></i></span><span>95 % · до 19:30</span></div>
+            <div class="pf-lim"><span>неделя</span><span class="pf-bar"><i style="width:72%"></i></span><span>72 % · до пт</span></div>
+            <div class="pf-src">спросили claude · pc · 2 мин назад <span class="pf-btn sm gh">↻ Обновить</span></div>
+            <ul class="pf-ml">
+              <li><b>laptop</b><span class="pf-st ok">вошёл</span><span class="pf-st">запас main</span><span class="pf-btn sm gh">Удалить…</span></li>
+              <li><b>pc</b><span class="pf-st ok">вошёл</span><span class="pf-st">запас main</span><span class="pf-btn sm gh">Удалить…</span></li>
+            </ul>
+          </article>
+          <article class="pf-c">
+            <div class="pf-ch"><b>work3@…</b><span class="pf-st acc">pro</span><span class="pf-sp"></span><span class="pf-m">0 сессий</span></div>
+            <div class="pf-lim"><span>5 ч</span><span class="pf-bar"><i style="width:12%"></i></span><span>12 % · до 18:05</span></div>
+            <div class="pf-lim"><span>неделя</span><span class="pf-bar"><i style="width:97%"></i></span><span>97 % · до чт</span></div>
+            <div class="pf-src">по ответу сессии · laptop · 3 ч назад</div>
+            <ul class="pf-ml"><li><b>laptop</b><span class="pf-st ok">вошёл</span><span class="pf-st">запас main</span><span class="pf-btn sm gh">Удалить…</span></li></ul>
+          </article>
+          <article class="pf-c">
+            <div class="pf-ch"><b>corp</b><span class="pf-m">почта — после входа</span></div>
+            <ul class="pf-ml"><li><b>laptop</b><span class="pf-st wait">вход идёт</span><span class="pf-btn sm">Войти</span></li></ul>
+          </article>
+        </div>
+        <p class="pf-hint">Одна карточка — одна почта со всех машин. Окна — запись Host одной машины; свежее из всех источников выбирает он сам.</p>
+
+        <div class="pf-dlg" data-st="sess"><div class="pf-dbox">
+          <h5>Сессии слота main на laptop · сейчас y0902</h5>
+          <div class="pf-rad">
+            <div class="on"><i></i><span><b>Сменить аккаунт всему слоту</b><span class="pf-hint">site, wiki, profiles продолжат тот же ход на новом аккаунте — без перезапуска</span>
+              <span class="pf-menu" style="margin-top:6px"><span class="on">следующий по порядку <em>выберет Host</em></span><span>infirex <em>5 ч 95 % · до 19:30</em></span><span>work3 <em>неделя 97 % · до чт</em></span></span></span></div>
+            <div><i></i><span><b>Перевести выбранные в другой слот</b><span class="pf-hint">сессия переходит между ходами: закрыть и поднять с тем же разговором</span>
+              <span class="pf-chips" style="margin-top:6px"><span class="pf-chk"><i class="on"></i>site · отвечает</span><span class="pf-chk"><i></i>wiki</span><span class="pf-chk"><i></i>profiles</span></span>
+              <span class="pf-in" style="margin-top:6px">bot ▾ <span class="pf-m">· без слота — вход машины</span></span></span></div>
+          </div>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn pri">Сменить сейчас</span></div>
+        </div></div>
+
+        <div class="pf-dlg" data-st="rm"><div class="pf-dbox">
+          <h5>Удалить y0902 с laptop</h5>
+          <div class="pf-note wait"><div class="tx"><b>y0902 сейчас в слоте main</b><span>Удалить можно аккаунт в своей папке. Сначала слот сменит аккаунт — site, wiki и profiles продолжат на нём, — потом y0902 уйдёт из порядка слота и удалится.</span></div></div>
+          <div class="pf-f"><label>Кого положить в слот main</label><span class="pf-in">следующего по порядку — выберет Host ▾</span></div>
+          <span class="pf-hint">Стирается только папка y0902 на laptop. Вход машины и другие аккаунты не трогаются; на pc y0902 остаётся.</span>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn danS">Сменить и удалить</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+    <!-- ===== Вход по шагам ===== -->
+    <div class="pf-shot" data-shot="login" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#accounts</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span>Точки<b class="bad">2</b></span><span class="on">Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Аккаунты</h4><span class="pf-sp"></span><span class="pf-btn pri">+ Новый аккаунт</span></div>
+        <article class="pf-c" data-st="wait url code ok bad" style="max-width:560px">
+          <div class="pf-ch"><b>Вход: corp на laptop</b><span class="pf-sp"></span><span class="pf-btn sm gh">Скрыть</span></div>
+          <div data-st="wait" class="pf-m">Host laptop запускает вход…</div>
+          <ol class="pf-ol" data-st="url code">
+            <li><a href="#panel-fleet-scr" onclick="return false">Откройте страницу входа ↗</a> и войдите в нужный аккаунт Claude.</li>
+            <li><div class="pf-f"><label>Код со страницы</label>
+              <div style="display:flex;gap:6px"><span class="pf-in" style="flex:1" data-st="url"><span class="car"></span></span><span class="pf-in" style="flex:1" data-st="code">Xk2p…#Qm9w…</span><span class="pf-btn pri">Отправить</span></div>
+              <span class="pf-hint">Код уходит по TLS через relay только машине laptop; пульт его не хранит.</span></div></li>
+          </ol>
+          <div data-st="code" class="pf-m">Код отправлен laptop — ждём ответа claude…</div>
+          <div data-st="ok" class="pf-note ok"><div class="tx"><b>Вошёл: corp@… · max</b><span>Вход — в папке corp на laptop. Вход машины и ваш Claude Code не тронуты.</span></div><span class="pf-btn sm">В запас слота…</span></div>
+          <div data-st="bad" class="pf-note bad"><div class="tx"><b>Код не принят — вход закрыт</b><span>claude ответил «Request failed with status code 400». Код одноразовый: нужен новый вход.</span></div><span class="pf-btn sm pri">Войти заново</span></div>
+        </article>
+        <div class="pf-dlg" data-st="form"><div class="pf-dbox" style="max-width:420px">
+          <h5>Новый аккаунт</h5>
+          <div class="pf-f"><label>Машина</label><span class="pf-in">laptop ▾</span></div>
+          <div class="pf-f"><label>Имя на машине</label><span class="pf-in">corp<span class="car"></span></span><span class="pf-hint">латиница, цифры, - и _; из имени — своя папка Claude на laptop. Почту скажет вход.</span></div>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn pri hot">Войти</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+    <!-- ===== Слот: подмена по шагам ===== -->
+    <div class="pf-shot" data-shot="slot" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#accounts/slots</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span>Точки<b class="bad">2</b></span><span class="on">Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Слоты</h4><span class="pf-m">laptop</span><span class="pf-sp"></span><span class="pf-btn">+ Новый слот</span></div>
+        <div class="pf-note wait" data-st="wait"><div class="tx"><b>Слот main ждёт сброса · 16:20</b><span>Все аккаунты слота у порога. Сессии работают, пока модель не откажет; в час сброса Host сам положит аккаунт и скажет оборванным ходам «Продолжай».</span></div><span class="pf-btn sm">+ Войти ещё аккаунтом</span></div>
+        <article class="pf-c">
+          <div class="pf-ch"><b>Слот main</b><span class="pf-m">3 сессии: site, wiki, profiles</span><span class="pf-sp"></span><span class="pf-btn sm gh pf-hide-n">почему сменился — в «Журнале»</span></div>
+          <div class="pf-res in">
+            <div class="pf-ch"><b data-st="pre">в слоте: infirex</b><b data-st="swap manual">в слоте: y0902</b><b data-st="done wait">в слоте: work3</b></div>
+            <div class="pf-lim" data-st="pre"><span>5 ч</span><span class="pf-bar"><i style="width:91%"></i></span><span>91 % · до 19:30</span></div>
+            <div class="pf-lim" data-st="swap manual"><span>5 ч</span><span class="pf-bar"><i style="width:9%"></i></span><span>9 % · до 16:20</span></div>
+            <div class="pf-lim" data-st="done"><span>неделя</span><span class="pf-bar"><i style="width:97%"></i></span><span>97 % · до чт</span></div>
+            <div class="pf-lim" data-st="wait"><span>неделя</span><span class="pf-bar"><i style="width:98%"></i></span><span>98 % · до чт</span></div>
+          </div>
+          <div class="pf-sec">Запас — по порядку, перетащить</div>
+          <div class="pf-chips">
+            <div class="pf-res" data-st="pre"><b><span class="g">⠿</span> y0902</b><span>5 ч 9 % · до 16:20</span></div>
+            <div class="pf-res" data-st="swap manual done wait"><b><span class="g">⠿</span> infirex</b><span data-st="swap manual done">5 ч 95 % · до 19:30</span><span data-st="wait">5 ч 97 % · до 19:30</span></div>
+            <div class="pf-res" data-st="pre swap manual"><b><span class="g">⠿</span> work3</b><span>неделя 97 % · до чт</span></div>
+            <div class="pf-res" data-st="done wait"><b><span class="g">⠿</span> y0902</b><span data-st="done">5 ч 9 % · до 16:20</span><span data-st="wait">5 ч 96 % · до 16:20</span></div>
+            <div class="pf-res add">+ аккаунт в запас</div>
+          </div>
+          <div class="pf-ch">
+            <span class="pf-hint">у порога Host меняет сам; окна — от accounts</span><span class="pf-sp"></span>
+            <span class="pf-btn" data-st="pre swap done wait">Сменить сейчас ▾</span><span class="pf-btn hot" data-st="manual">Сменить сейчас ▾</span>
+          </div>
+          <div class="pf-menu" data-st="manual" style="align-self:flex-end;max-width:300px;width:100%">
+            <span>следующего по порядку <em>выберет Host</em></span>
+            <span>infirex <em>5 ч 95 % · до 19:30</em></span>
+            <span class="on">work3 <em>неделя 97 % · до чт</em></span>
+          </div>
+        </article>
+        <div class="pf-c pf-hide-n"><div class="pf-ch"><b>Слот main · pc</b><span class="pf-m">в слоте y0902 · 2 сессии · запас: infirex</span></div></div>
+        <div class="pf-sec">в чате сессии site — экран раздела «сессии и чат»</div>
+        <div class="pf-chat">
+          <div class="pf-msg">Тесты идут: 41 из 58…</div>
+          <span class="pf-swl" data-st="swap manual done wait">⇄ аккаунт: infirex → y0902</span>
+          <div class="pf-msg" data-st="swap manual done wait">58 из 58 — сборка зелёная.</div>
+          <span class="pf-swl" data-st="done wait">⇄ аккаунт: y0902 → work3</span>
+        </div>
+      </div></div></div>
+    </div>
+
+
+    <!-- ===== Машины ===== -->
+    <div class="pf-shot" data-shot="mach" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#machines</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span>Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span class="on">Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Машины</h4><span class="pf-m">новейший выпуск Host в R2: <span class="pf-mono">1.4.1</span></span></div>
+        <div class="pf-cards">
+          <article class="pf-c">
+            <div class="pf-ch"><b>laptop</b><span class="pf-conn">на связи</span><span class="pf-sp"></span><span class="pf-m">с 09:12</span></div>
+            <dl class="pf-kv"><dt>система</dt><dd>Windows x64 · 10.0.26300</dd><dt>Host</dt><dd class="pf-mono">1.4.1 · SDK 0.3.311</dd><dt>сессии</dt><dd>4 · процессов у keeper: 4</dd></dl>
+            <div class="pf-chips"><span class="pf-m">профили</span><span class="pf-st ok">team/profiles</span></div>
+            <div class="pf-ch"><span class="pf-btn sm">+ Аккаунт</span><span class="pf-btn sm">Синхронизировать профили</span></div>
+          </article>
+          <article class="pf-c" data-st="list upd">
+            <div class="pf-ch"><b>pc</b><span class="pf-conn">на связи</span><span class="pf-sp"></span><span class="pf-m">с 11:40</span></div>
+            <dl class="pf-kv"><dt>система</dt><dd>Linux x64 · 6.8.0</dd><dt>Host</dt><dd class="pf-mono"><span class="pf-wt">1.4.0</span> · SDK 0.3.311</dd><dt>сессии</dt><dd>2 · процессов у keeper: 2</dd></dl>
+            <div class="pf-chips"><span class="pf-st wait">есть новая версия · 1.4.1</span><span class="pf-m">профили</span><span class="pf-st bad">team/profiles · conflict</span></div>
+            <div class="pf-note bad"><div class="tx"><b>team/profiles: память не сведена</b><span>git pull: CONFLICT в ops/memory/testing.md. Сессии профиля ops получат задание свести.</span></div></div>
+            <div class="pf-ch"><span class="pf-btn sm pri">Обновить до 1.4.1</span><span class="pf-btn sm">+ Аккаунт</span><span class="pf-btn sm">Синхронизировать профили</span></div>
+          </article>
+          <article class="pf-c off" data-st="upd2">
+            <div class="pf-ch"><b>pc</b><span class="pf-conn bad">нет в roster</span><span class="pf-sp"></span><span class="pf-m">с 14:51</span></div>
+            <div class="pf-note acc"><div class="tx"><b>Обновление 1.4.0 → 1.4.1</b><span>SDK тот же — 0.3.311: keeper подменяет Host, процессы claude живут, начатые ходы доходят. Машина вернётся в roster сама.</span></div></div>
+          </article>
+          <article class="pf-c hot" data-st="upd3">
+            <div class="pf-ch"><b>pc</b><span class="pf-conn">на связи</span><span class="pf-sp"></span><span class="pf-m">с 14:52</span></div>
+            <dl class="pf-kv"><dt>система</dt><dd>Linux x64 · 6.8.0</dd><dt>Host</dt><dd class="pf-mono">1.4.1 · SDK 0.3.311</dd><dt>сессии</dt><dd>2 · те же процессы</dd></dl>
+            <div class="pf-note ok"><div class="tx"><b>pc: 1.4.0 → 1.4.1</b><span>Сессии не останавливались.</span></div></div>
+          </article>
+          <p class="pf-hint" style="grid-column:1/-1">Список — машины из roster. Пропавшая машина с сессиями — красной плашкой в «Точках»; когда ушла и вернулась — в «Журнале».</p>
+        </div>
+        <div class="pf-dlg" data-st="upd"><div class="pf-dbox" style="max-width:440px">
+          <h5>Обновить Host на pc</h5>
+          <div class="pf-note acc"><div class="tx"><b>1.4.0 → 1.4.1</b><span>новейший выпуск в R2 — его выложил локальный агент или выпуск GitHub; машина берёт его оттуда сама</span></div></div>
+          <span class="pf-hint">SDK та же — сессии не заметят обновления. SDK новая — каждая сессия перейдёт на неё между ходами, разговор сохранится.</span>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn pri hot">Обновить</span></div>
+        </div></div>
+
+      </div></div></div>
+    </div>
+
+
+    <!-- ===== Обзор точек ===== -->
+    <div class="pf-shot" data-shot="pts" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#points</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span class="on">Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Точки</h4><span class="pf-m pf-hide-n">сохранённые состояния сессий — из них сессию поднимают на любой машине</span></div>
+        <div class="pf-note bad"><div class="tx"><b>mac не на связи с 03:12 · 2 сессии ждут на последних точках</b><span>Что mac допишет после точек, вернётся веткой, если он появится.</span></div><span class="pf-btn pri">Перенести на другую машину…</span></div>
+        <div class="pf-sum"><b>5</b><span>сессий в R2 из 8 на машинах</span><span class="pf-st bad">2 на mac — нет связи</span><span class="pf-m">· 2 только в R2</span></div>
+        <div class="pf-sec">Последняя точка — давнее всех сверху</div>
+        <div class="pf-rows">
+          <div class="pf-row"><span class="n"><b>poe-bot@pc</b><span>в R2 с 14:30 · точек ещё нет</span></span><span class="pf-btn sm">Сохранить сейчас</span></div>
+          <div class="pf-row"><span class="n"><b>bot@laptop</b><span>2 ч 40 мин назад · №17</span></span><span class="pf-btn sm">Сохранить сейчас</span></div>
+          <div class="pf-row"><span class="n"><b>site@laptop</b><span>3 мин назад · №41</span></span><span class="pf-m">ещё 3 — моложе</span></div>
+        </div>
+        <p class="pf-hint">docs@pc, api@pc и wiki@laptop не в R2 — точек и переноса у них нет; включить — вкладка «Точки» сессии.</p>
+        <div class="pf-sec">Только в R2 · <span data-st="list del">2</span><span data-st="del2">1</span></div>
+        <div class="pf-ch"><span class="pf-in ph" style="flex:1;max-width:320px">⌕ имя, папка или месяц…</span><span class="pf-m">новые сверху</span></div>
+        <div class="pf-rows">
+          <div class="pf-row" data-st="list del"><span class="n"><b>old-bot</b><span>~/Projects/bot · последняя точка 2 сен.</span></span><span class="pf-btn sm gh">Удалить…</span><span class="pf-btn sm">Перенести на машину…</span></div>
+          <div class="pf-row"><span class="n"><b>scratch</b><span>~/tmp/scratch · последняя точка 14 авг.</span></span><span class="pf-btn sm gh">Удалить…</span><span class="pf-btn sm">Перенести на машину…</span></div>
+        </div>
+        <div class="pf-note ok" data-st="del2"><div class="tx"><b>old-bot удалена — 57 точек</b><span>Запись — в «Журнале» флота.</span></div></div>
+        <div class="pf-foot"><span>В R2 412 МБ</span><span>уборка сегодня 04:00 — удалено 18 описей, 240 файлов</span></div>
+
+        <div class="pf-dlg" data-st="del"><div class="pf-dbox" style="max-width:460px">
+          <h5>Удалить точки «old-bot» насовсем</h5>
+          <span class="chg" data-chg="panel-fleet-del-now">Строки точек и блоки без ссылок уйдут из R2 сразу, в том же запросе; блоки, нужные копиям, останутся. Отменить нельзя — отмены у удаления нет.</span>
+          <div class="pf-f"><label>Введите имя сессии: old-bot</label><span class="pf-in">old-bot<span class="car"></span></span></div>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn danS hot">Удалить насовсем</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+    <!-- ===== Пометка «в R2» ===== -->
+    <div class="pf-shot chg" data-chg="panel-fleet-r2" data-shot="r2" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#sessions/wiki@laptop/points</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span class="on">Сессии</span><span>Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4 class="pf-mono" style="font:600 16px var(--mono)">wiki@laptop</h4><span class="pf-st ok">свободна</span><span class="pf-sp"></span><span class="pf-seg"><span>Чат</span><span class="on">Точки</span><span class="pf-hide-n">Настройки</span></span></div>
+        <article class="pf-c" data-st="off gone" style="max-width:560px">
+          <div class="pf-ch"><b>wiki@laptop не в R2</b></div>
+          <span data-st="off">Точек нет: перенос, копия, откат, смена папки и «пожар» — только у сессий в R2.</span>
+          <span data-st="gone">12 точек удалено из R2 — сразу, без отмены. Сессия на laptop работает дальше, без точек.</span>
+          <span class="pf-chk"><i></i>Хранить в R2</span>
+          <span class="pf-hint">Включите — Host сразу положит первую точку.</span>
+        </article>
+        <article class="pf-c" data-st="on unmark" style="max-width:560px">
+          <div class="pf-ch"><b>wiki@laptop в R2</b><span class="pf-sp"></span><span class="pf-btn sm">Сохранить точку</span></div>
+          <span data-st="on">Первая точка — №1, только что; дальше Host кладёт их сам.</span>
+          <span class="pf-chk"><i class="on"></i>Хранить в R2</span>
+          <span class="pf-hint">Снять — точки сессии удалятся из R2 сразу, без отмены.</span>
+        </article>
+        <div class="pf-dlg" data-st="unmark"><div class="pf-dbox" style="max-width:460px">
+          <h5>Убрать wiki@laptop из R2</h5>
+          <span>12 точек и ветки сессии удалятся из R2 сразу; отменить нельзя. Сессия на laptop продолжит работу — без точек и переноса.</span>
+          <div class="pf-f"><label>Введите имя сессии: wiki</label><span class="pf-in">wiki<span class="car"></span></span></div>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn danS hot">Убрать из R2</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+    <!-- ===== Точки сессии ===== -->
+    <div class="pf-shot" data-shot="ses" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#sessions/site@laptop/points</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span class="on">Сессии</span><span>Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4 class="pf-mono" style="font:600 16px var(--mono)">site@laptop</h4><span class="pf-st acc">отвечает</span><span class="pf-sp"></span><span class="pf-seg"><span>Чат</span><span class="on">Точки</span><span class="pf-hide-n">Настройки</span></span></div>
+        <div class="pf-note"><div class="tx"><b>Точка 3 мин назад · №41 · 2,4 МБ</b><span>сохраняются: в разговоре новое и ответ кончился — Host кладёт точку сам</span></div><span class="pf-btn sm">Сохранить точку</span><span class="pf-btn sm">Перенести…</span><span class="pf-btn sm">Скопировать…</span><span class="pf-btn sm chg" data-chg="panel-fleet-dir-btn">Сменить папку…</span></div>
+        <div class="pf-note wait"><div class="tx"><b>Ветка · состояние до отката в 08:15</b><span>7 сообщений, которых нет в сессии · хранится до 31 окт. 2027</span></div><span class="pf-btn sm">Посмотреть ветку</span></div>
+        <div class="pf-c">
+          <div class="pf-ch"><b style="font-family:var(--body)">Сегодня, 31 окт.</b><span class="pf-sp"></span><span class="pf-seg"><span class="on">День</span><span>Месяц</span><span>Год</span></span></div>
+          <svg class="pf-tl" viewBox="0 0 640 86" role="img" aria-label="Точки сессии за день: десять точек, выбрана одна, от утренней точки отходит ветка">
+            <line class="ax" x1="20" y1="34" x2="620" y2="34"/>
+            <g class="tk"><text x="20" y="56">00:00</text><text class="w" x="170" y="56" text-anchor="middle">06:00</text><text x="320" y="56" text-anchor="middle">12:00</text><text class="w" x="470" y="56" text-anchor="middle">18:00</text><text x="620" y="56" text-anchor="end">24:00</text></g>
+            <path class="br" d="M187 34 C187 64 200 70 222 72"/><circle class="bd" cx="203" cy="66" r="3.5"/><circle class="bd" cx="224" cy="72" r="4.5"/><text class="lb" x="232" y="76">ветка: до отката</text>
+            <circle class="pk" cx="174" cy="34" r="4"/><circle class="pk" cx="187" cy="34" r="4.5"/><circle class="pk" cx="228" cy="34" r="4.5"/><circle class="pk" cx="258" cy="34" r="4"/>
+            <circle class="pk" cx="270" cy="34" r="4.5" data-st="day branch"/><circle class="pk on" cx="270" cy="34" r="7" data-st="card rb rb2"/>
+            <circle class="pk" cx="296" cy="34" r="4.5"/><circle class="pk" cx="324" cy="34" r="4.5"/>
+            <circle class="pk on" cx="390" cy="34" r="7" data-st="day branch"/><circle class="pk" cx="390" cy="34" r="4.5" data-st="card rb rb2"/>
+          </svg>
+          <div class="pf-src">кружок — точка линии · ниже — ветка · срок каждой точки — в её карточке, его считает реестр</div>
+        </div>
+        <div class="pf-split">
+          <div class="pf-c" style="gap:2px">
+            <div class="pf-day">сегодня</div>
+            <div class="pf-prow" data-st="card rb rb2"><span class="t">14:49</span><span class="pf-dot acc"></span><span class="s">«поправь таймаут в CI и прогрей кэш»</span><span class="d">+4</span></div>
+            <div class="pf-prow on" data-st="day branch"><span class="t">14:49</span><span class="pf-dot acc"></span><span class="s">«поправь таймаут в CI и прогрей кэш»</span><span class="d">+4</span></div>
+            <div class="pf-prow"><span class="t">12:10</span><span class="pf-dot acc"></span><span class="s">«почему падает сборка с утра?»</span><span class="d">+9</span></div>
+            <div class="pf-prow"><span class="t">11:03</span><span class="pf-dot acc"></span><span class="s">«добавь кэш npm в CI»</span><span class="d">+5</span></div>
+            <div class="pf-prow on" data-st="card rb rb2"><span class="t">10:00</span><span class="pf-dot acc"></span><span class="s">«обнови зависимости и прогони тесты»</span><span class="d">+9</span></div>
+            <div class="pf-prow" data-st="day branch"><span class="t">10:00</span><span class="pf-dot acc"></span><span class="s">«обнови зависимости и прогони тесты»</span><span class="d">+9</span></div>
+            <div class="pf-prow"><span class="t">08:20</span><span class="pf-dot acc"></span><span class="s">«после отката: начни с чистого lockfile»</span><span class="d">+3</span></div>
+            <div class="pf-gap">откат в 08:15 — две точки ушли веткой</div>
+            <div class="pf-prow"><span class="t">06:40</span><span class="pf-dot acc"></span><span class="s">«утренний прогон»</span><span class="d">+3</span></div>
+            <span class="pf-hint" style="padding:4px 8px">первые слова отдаёт машина по запросу — пульт их не хранит</span>
+          </div>
+          <div class="pf-c">
+            <div class="pf-sec" style="margin:0" data-st="day branch">точка 10 из 10 · последняя</div><div class="pf-sec" style="margin:0" data-st="card rb rb2">точка 7 из 10</div>
+            <b data-st="day branch">сегодня 14:49</b><b data-st="card rb rb2">сегодня 10:00</b>
+            <dl class="pf-kv">
+              <dt>почему</dt><dd>ответ кончился</dd>
+              <dt>разговор</dt><dd data-st="day branch">212 сообщений · +4</dd><dd data-st="card rb rb2">194 сообщения · +9</dd>
+              <dt>с машины</dt><dd>laptop · поколение 3</dd>
+              <dt>папка</dt><dd data-st="day branch">git: 2 файла не закоммичено · main</dd><dd data-st="card rb rb2">git: чисто · main</dd>
+              <dt>срок</dt><dd data-st="day branch">последняя — хранится, пока есть сессия</dd><dd data-st="card rb rb2">хранится до 31 окт. 2027</dd>
+            </dl>
+            <div class="pf-msg u"><b>Вы</b>обнови зависимости и прогони тесты</div>
+            <span class="pf-btn sm gh" style="align-self:flex-start">Последние сообщения</span>
+            <div class="pf-ch"><span class="pf-btn sm">Скопировать из этой точки…</span><span class="pf-btn sm dan" data-st="card rb rb2">Откатить к этой точке…</span></div>
+          </div>
+        </div>
+
+        <div class="pf-dlg" data-st="branch"><div class="pf-dbox">
+          <h5>Ветка · состояние до отката в 08:15</h5>
+          <svg class="pf-tl" viewBox="0 0 520 100" role="img" aria-label="Сессия и ветка расходятся от точки 10:00: в сессии плюс 18 сообщений, в ветке плюс 6">
+            <line class="ax" x1="20" y1="36" x2="500" y2="36"/><circle class="pk on" cx="190" cy="36" r="6"/>
+            <text class="tk" x="190" y="20" text-anchor="middle">развилка · 06:40</text><text class="tk" x="496" y="26" text-anchor="end">сессия +33</text>
+            <path class="br" d="M190 36 C220 80 250 84 300 84 L460 84"/><circle class="bd" cx="462" cy="84" r="5"/><text class="lb" x="452" y="74" text-anchor="end">ветка +7</text>
+          </svg>
+          <span>Так сессия выглядела перед откатом к 06:40. Папка в ветке: git, 1 файл не закоммичен.</span>
+          <div class="pf-rad">
+            <div class="on"><i></i><span><b>Скопировать из ветки…</b><span class="pf-hint">новая сессия с разговором и файлами ветки; эта не меняется</span></span></div>
+            <div class="no"><i></i><span><b>Продолжить веткой</b><span class="pf-hint">нельзя: в сессии после развилки 33 сообщения</span></span></div>
+          </div>
+          <span class="pf-hint">Ветка хранится год от своей последней точки — срок считает реестр точек. Ничего не делать — тоже решение.</span>
+          <div class="pf-ff"><span class="pf-btn gh">Закрыть</span></div>
+        </div></div>
+        <div class="pf-dlg" data-st="rb rb2"><div class="pf-dbox">
+          <h5>Откатить site@laptop к сегодня 10:00</h5>
+          <div class="pf-cost"><div><b>3 точки</b><span>после выбранной</span></div><div><b>4 ч 49 мин</b><span>разговора</span></div><div><b>18</b><span>сообщений</span></div></div>
+          <span>Нынешнее сначала сохранится веткой <b>«до отката»</b> — из неё можно скопировать или продолжить ею.</span>
+          <div class="pf-f"><label>Папка ~/Projects/site — сейчас: 2 файла не закоммичено, после точки 1 коммит</label>
+            <div class="pf-rad">
+              <div><i></i><span><b>Оставить как есть</b><span class="pf-hint">код и коммиты нынешние, разговор — как в точке</span></span></div>
+              <div class="on"><i></i><span><b>Вернуть к папке точки — на новой ветке git</b><span class="pf-hint">rollback-1031-1452 с коммита точки; main и поздний коммит не тронуты</span></span></div>
+            </div></div>
+          <span class="pf-chk"><i></i>прервать идущий ответ и откатить сразу (иначе — после конца ответа)</span>
+          <div class="pf-note wait chg" data-chg="panel-fleet-rb-remote" data-st="rb"><div class="tx"><b>Привязка к claude.ai снимется</b><span>После отката в claude.ai — новая сессия без прежней истории, кнопка «В claude.ai» поведёт на неё. Прежняя сессия в claude.ai останется как была.</span></div></div>
+          <div class="pf-note acc" data-st="rb2"><div class="tx"><b>Откат: точка со стопом записана — нынешнее станет веткой «до отката»</b><span>Теперь laptop поднимает сессию из точки 10:00 без привязки к claude.ai; новая ссылка придёт в roster. Итог — в «Журнале» флота.</span></div></div>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn danS">Откатить к 10:00</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+    <!-- ===== Перенос по шагам ===== -->
+    <div class="pf-shot" data-shot="move" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#sessions/site@laptop/points</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span class="on">Сессии</span><span>Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4 class="pf-mono" style="font:600 16px var(--mono)" data-st="dlg chk hold raise copy dir">site@laptop</h4><h4 class="pf-mono" style="font:600 16px var(--mono)" data-st="done">site@pc</h4>
+          <span class="pf-st acc" data-st="dlg chk copy dir">отвечает</span><span class="pf-st wait" data-st="hold">ждёт конца ответа</span><span class="pf-st wait" data-st="raise">переносится</span><span class="pf-st ok" data-st="done">простаивает</span></div>
+        <div class="pf-note acc" data-st="hold raise"><div class="tx"><b>Перенос site на pc</b>
+          <div class="pf-prog" style="margin:4px 0"><i class="ok"></i><i class="run" data-st="hold"></i><i class="ok" data-st="raise"></i><i data-st="hold"></i><i class="run" data-st="raise"></i><i></i></div>
+          <span data-st="hold">шаг 1 · laptop: дождаться конца ответа → стоп → точка №42</span><span data-st="raise">шаг 2 · pc собирает разговор из точки №42 и открывает сессию; laptop её отпускает</span></div></div>
+        <div class="pf-note ok" data-st="done"><div class="tx"><b>site перенесена на pc</b><span>Та же сессия и разговор; теперь site@pc. laptop её отпустил. Папка: правки точки применены (2 файла).</span></div></div>
+        <div class="pf-c pf-hide-n" data-st="hold raise done"><div class="pf-ch"><b>что делает кто</b></div>
+          <div class="pf-kv" style="grid-template-columns:auto minmax(0,1fr)"><span class="pf-m">пульт</span><span>два запроса по шагам: точка со стопом, подъём</span><span class="pf-m">laptop</span><span>останавливает сессию, снимает точку</span><span class="pf-m">pc</span><span>проверяет папку, поднимает из точки, говорит реестру «хозяин — pc»</span></div></div>
+
+        <div class="pf-dlg" data-st="dlg chk copy"><div class="pf-dbox">
+          <h5 data-st="dlg chk">Перенести site@laptop</h5><h5 data-st="copy">Скопировать site@laptop</h5>
+          <div class="pf-two">
+            <div class="pf-f"><label>Машина</label><span class="pf-in">pc ▾</span><span class="pf-hint">на связи; laptop — тоже можно</span></div>
+            <div class="pf-f"><label>Из точки</label><span class="pf-in ph" data-st="dlg chk">сейчас — сохранится свежая</span><span class="pf-in" data-st="copy">сегодня 10:00 · №38</span></div>
+          </div>
+          <div class="pf-two">
+            <div class="pf-f"><label>Слот на pc</label><span class="pf-in">main · y0902 ▾</span><span class="pf-hint">тот же аккаунт, что был</span></div>
+            <div class="pf-f"><label>Папка на pc</label><span class="pf-in" data-st="dlg">~/Projects/site</span><span class="pf-in" data-st="chk">~/Projects/site</span><span class="pf-in" data-st="copy">~/Projects/site-copy</span></div>
+          </div>
+          <span class="pf-hint" data-st="dlg">тот же репозиторий, своих правок нет — правки точки применятся</span>
+          <span class="pf-hint pf-wt" data-st="chk">тот же репозиторий, но в нём свои правки (3 файла): правки точки НЕ применятся, ваши файлы останутся · <a href="#panel-fleet-scr" onclick="return false">в новую папку ~/Projects/site-2</a></span>
+          <span class="pf-hint" data-st="copy">нет на pc — будет клон репозитория и правки точки поверх</span>
+          <div class="pf-f" data-st="copy"><label>Имя копии</label><span class="pf-in">site-copy</span></div>
+          <div class="pf-f"><label data-st="dlg chk">Вернётся</label><label data-st="copy">В копию попадёт</label>
+            <ul class="pf-ol" style="padding-left:16px;gap:2px"><li data-st="dlg chk">разговор: всё до сейчас (свежая точка)</li><li data-st="copy">разговор: 194 сообщения — до точки 10:00</li><li>файлы субагентов и большие выводы</li><li data-st="dlg copy">папка: git, 2 файла не закоммичено · main</li><li data-st="chk" class="pf-wt">папка: останется как на pc (3 своих файла)</li></ul></div>
+          <span class="pf-chk" data-st="dlg chk"><i></i>прервать ответ и перенести сразу</span>
+          <span class="pf-hint" data-st="dlg chk">Сначала laptop остановит сессию и снимет точку, потом pc поднимет её. Сорвётся подъём — сессия снова пойдёт на laptop.</span>
+          <span class="pf-hint" data-st="copy">Исходная сессия не меняется. У копии своё имя и своя сессия в claude.ai.</span>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn pri" data-st="dlg chk">Перенести на pc</span><span class="pf-btn pri" data-st="copy">Скопировать на pc</span></div>
+        </div></div>
+        <div class="pf-dlg chg" data-chg="panel-fleet-dir-dlg" data-st="dir"><div class="pf-dbox">
+          <h5>Сменить папку site@laptop</h5>
+          <div class="pf-two">
+            <div class="pf-f"><label>Машина</label><span class="pf-in">laptop — та же</span></div>
+            <div class="pf-f"><label>Новая папка</label><span class="pf-in">~/Projects/site-v2</span><span class="pf-hint">папка — как есть: правки точки не применяются</span></div>
+          </div>
+          <div class="pf-f"><label>Имя</label><span class="pf-in">site-v2</span><span class="pf-hint">→ site-v2@laptop</span></div>
+          <ol class="pf-ol" style="padding-left:16px;gap:2px"><li>laptop кладёт свежую точку и останавливает site</li><li>из неё поднимается копия в новой папке — тот же разговор</li><li>«Забыть» site@laptop: уходит из списка, её точки остаются в R2</li></ol>
+          <span class="pf-hint">Папку живой сессии не меняют: claude держит её с запуска. Не поднялась копия — «Забыть» не шлётся, site@laptop остаётся остановленной.</span>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn pri">Скопировать и забыть</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+    <!-- ===== «Пожар» по шагам ===== -->
+    <div class="pf-shot" data-shot="fire" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#points</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span class="on">Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span>Машины</span><span>Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Точки</h4></div>
+        <div class="pf-note bad" data-st="banner dlg"><div class="tx"><b>mac не на связи с 03:12 · 2 сессии ждут на последних точках</b><span>Что mac допишет после точек, вернётся веткой, если он появится.</span></div><span class="pf-btn pri hot">Перенести на другую машину…</span></div>
+        <div class="pf-note acc" data-st="run"><div class="tx"><b>Перенос с mac на laptop: 1 из 2 готовы — не закрывайте страницу</b>
+          <div class="pf-prog" style="margin:4px 0"><i class="ok"></i><i class="run"></i></div><span>notes — готова · scrape — поднимается…</span></div></div>
+        <div class="pf-note ok" data-st="done back"><div class="tx"><b>Перенос с mac на laptop: 2 из 2 готовы</b>
+          <div class="pf-prog" style="margin:4px 0"><i class="ok"></i><i class="ok"></i></div><span>notes@laptop · scrape@laptop</span></div></div>
+        <div class="pf-note acc" data-st="back"><div class="tx"><b>mac вернулся в 09:41 и отдал notes</b><span>6 сообщений, дописанных после точки, — веткой; она видна во вкладке «Точки» сессии notes@laptop.</span></div><span class="pf-btn sm">Точки notes</span></div>
+        <div class="pf-sum" data-st="banner dlg run"><b>8</b><span>сессий на машинах</span><span class="pf-st bad">2 на mac — нет связи</span></div>
+        <div class="pf-sum" data-st="done back"><b>8</b><span>сессий на машинах</span><span class="pf-st ok">все на связи</span></div>
+
+        <div class="pf-dlg" data-st="dlg"><div class="pf-dbox">
+          <h5>Перенести сессии mac на другую машину</h5>
+          <div class="pf-f"><label>Куда</label><span class="pf-in">laptop ▾</span><span class="pf-hint">на связи</span></div>
+          <div class="pf-c" style="padding:10px">
+            <span class="pf-chk"><i class="on"></i><b class="pf-mono">notes</b></span>
+            <span class="pf-hint">точка 03:05 · связь пропала 03:12 · <b class="pf-wt">шёл ответ</b> — дописанное после точки вернётся веткой · папка: git чисто</span>
+            <div class="pf-two"><div class="pf-f"><label>Слот на laptop</label><span class="pf-in">main · y0902 ▾</span></div><div class="pf-f"><label>Папка на laptop</label><span class="pf-in">~/notes</span><span class="pf-hint">нет на laptop — будет клон и правки точки поверх</span></div></div>
+          </div>
+          <div class="pf-c" style="padding:10px">
+            <span class="pf-chk"><i class="on"></i><b class="pf-mono">scrape</b></span>
+            <span class="pf-hint">точка 02:50 · после точки разговор не менялся · папка: git, 1 файл не закоммичено</span>
+            <div class="pf-two"><div class="pf-f"><label>Слот на laptop</label><span class="pf-in">main · y0902 ▾</span><span class="pf-hint">infirex@… на laptop нет в слоте — другой аккаунт продолжит тот же разговор в своих лимитах</span></div><div class="pf-f"><label>Папка на laptop</label><span class="pf-in">~/Projects/site</span><span class="pf-hint pf-wt">здесь же site — в этой папке будут 2 сессии</span></div></div>
+          </div>
+          <span class="pf-hint">tmp@mac не в R2 — точек нет, переносить нечего: она вернётся вместе с mac.</span>
+          <span class="pf-hint">Каждая поднимется из своей последней точки, по одной, пока страница открыта. Закроете — оставшиеся ждут на точках, плашка останется.</span>
+          <div class="pf-ff"><span class="pf-btn gh">Отмена</span><span class="pf-btn pri">Перенести 2 из 2 на laptop</span></div>
+        </div></div>
+      </div></div></div>
+    </div>
+
+
+    <!-- ===== Журнал флота ===== -->
+    <div class="pf-shot" data-shot="jr" hidden>
+      <div class="pf-win"><div class="pf-tb"><i></i><i></i><i></i><span class="pf-url">switchboard-pult.…workers.dev/#journal</span><span class="pf-conn">relay</span></div>
+        <div class="pf-app"><nav class="pf-rail" aria-label="Разделы пульта (каркас — вид «пульт: сессии и чат»)"><span>Сессии</span><span>Точки<b class="bad">2</b></span><span>Аккаунты<b>1</b></span><span>Машины</span><span class="on">Журнал флота</span><small>каркас — #panel</small></nav>
+        <div class="pf-page">
+        <div class="pf-ph"><h4>Журнал флота</h4><span class="pf-sp"></span><span class="pf-in ph" style="min-width:150px" data-st="ev more mach">⌕ поиск по записям</span><span class="pf-in" data-st="ev more">все машины ▾</span><span class="pf-in" data-st="mach">mac ▾</span></div>
+        <div class="pf-sec" data-st="ev more mach">Сегодня</div>
+        <ol class="pf-jl" data-st="ev more mach">
+          <li data-st="ev more"><time>14:58</time><span class="pf-dot wait"></span><span>old-bot удалена · 57 точек · by panel</span><span class="w"><span>points</span></span></li>
+          <li data-st="ev more"><time>14:52</time><span class="pf-dot ok"></span><span>pc: Host 1.4.0 → 1.4.1 · by panel</span><span class="w"><span>pc</span></span></li>
+          <li data-st="ev more"><time>14:52</time><span class="pf-dot ok"></span><span>pc вернулась · не было 1 мин</span><span class="w"><span>pc</span></span></li>
+          <li data-st="ev more"><time>14:51</time><span class="pf-dot bad"></span><span>pc пропала · была на связи с 11:40</span><span class="w"><span>pc</span></span></li>
+          <li data-st="ev more"><time>14:40</time><span class="pf-dot acc"></span><span>слот main: y0902 → work3 · by panel</span><span class="w"><span>laptop</span></span></li>
+          <li data-st="ev more"><time>14:32</time><span class="pf-dot acc"></span><span>слот main: infirex → y0902 · 5 ч 95 %</span><span class="w"><span>laptop</span></span></li>
+          <li data-st="ev more mach"><time>09:41</time><span class="pf-dot ok"></span><span>mac вернулась · не было 6 ч 29 мин</span><span class="w"><span>mac</span></span></li>
+          <li data-st="ev more mach"><time>09:20</time><span class="pf-dot acc"></span><span>notes: mac → laptop · из точки 03:05 · by panel</span><span class="w"><a href="#panel-fleet-scr" onclick="return false">notes@laptop</a></span></li>
+          <li data-st="ev more"><time>08:16</time><span class="pf-dot acc"></span><span>откатана к 06:40 · by panel</span><span class="w"><a href="#panel-fleet-scr" onclick="return false">site@laptop</a></span></li>
+          <li data-st="ev more mach"><time>03:12</time><span class="pf-dot bad"></span><span>mac пропала · была на связи с 08:30 вчера</span><span class="w"><span>mac</span></span></li>
+        </ol>
+        <div class="pf-sec" data-st="more">Вчера</div>
+        <ol class="pf-jl" data-st="more">
+          <li><time>18:11</time><span class="pf-dot acc"></span><span>wiki@laptop создана · ~/Projects/wiki · слот main · by panel</span><span class="w"><span>laptop</span></span></li>
+          <li><time>08:30</time><span class="pf-dot ok"></span><span>mac вернулась · не было 9 ч</span><span class="w"><span>mac</span></span></li>
+        </ol>
+        <span class="pf-btn" style="align-self:center" data-st="ev mach">Раньше</span>
+        <div data-st="log" class="pf-ch"><span class="pf-st acc">site@laptop</span><span class="pf-seg"><span>флот</span><span class="on">машина laptop</span></span><span class="pf-m">сбои и отказы — из файлов Host и keeper</span></div>
+        <ol class="pf-jl" data-st="log">
+          <li><time>14:41</time><span class="pf-dot bad"></span><span>stop · sdk.result · error_during_execution — API Error 529 после 3 повторов</span><span class="w"><span>journal</span></span></li>
+          <li><time>14:40</time><span class="pf-dot wait"></span><span>note · sdk.api_retry · попытка 3 из 10, 529</span><span class="w"><span>journal</span></span></li>
+          <li><time>14:32</time><span class="pf-dot acc"></span><span>note · slots · main: все аккаунты у порога — жду сброса 16:20</span><span class="w"><span>slots</span></span></li>
+          <li><time>09:12</time><span class="pf-dot ok"></span><span>note · attach · Host 1.4.1 подключился к живому процессу</span><span class="w"><span>core</span></span></li>
+        </ol>
+        <p class="pf-hint" data-st="ev more mach">Текст записи пишет модуль, который это сделал; пульт показывает как есть. Сбои частей — не здесь, а в журнале машины.</p>
+      </div></div></div>
+    </div>
+
+    </div><!-- /pf-stage -->
+    <div class="pf-io" id="panel-fleet-io">
+      <div>
+        <div class="pf-iohead"><h3 id="panel-fleet-io-t"></h3><span class="pf-mod" id="panel-fleet-io-m"></span></div>
+        <p class="pf-iotx" id="panel-fleet-io-x"></p>
+        <span class="lbl">шлёт → владельцу, через relay</span><ul class="pf-fr" id="panel-fleet-io-s"></ul>
+        <span class="lbl">получает</span><ul class="pf-fr" id="panel-fleet-io-r"></ul>
+        <span class="lbl">отказ словом → что на экране</span><ul class="pf-fr" id="panel-fleet-io-e"></ul>
+      </div>
+      <div>
+        <span class="lbl">кадр этого шага</span>
+        <div class="codebox"><pre class="pf-pre" id="panel-fleet-io-c"></pre></div>
+        <div class="pf-gapl" id="panel-fleet-io-g" hidden></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===== МОДУЛИ ЭКРАНОВ ===== -->
+<section class="chg" data-chg="panel-fleet-mods">
+  <div class="shead">
+    <h2>Модули экранов</h2>
+    <p>Четыре своих пакета пульта (<code>web/pult/modules/</code>, телефону не нужны), по одному на раздел. Каждый — манифест <code>module.json</code>: что даёт (экран) и чьими контрактами пользуется. Своих данных модули не хранят: открыли экран — спросили владельца. Стрелки идут только от пульта к владельцам, обратно — ни одной: круга нет. Нажмите модуль.</p>
+  </div>
+  <div class="card pf-pad">
+    <div class="pf-mgrid" id="panel-fleet-mgrid">
+      <svg class="pf-mapsvg" viewBox="0 0 360 304" role="img" aria-label="В середине — четыре модуля экранов пульта; слева — модули Host, справа — Worker-модули; стрелки только от пульта к владельцам контрактов">
+        <defs><marker id="panel-fleet-ar" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="panel-fleet-ar2" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path class="ah on" d="M0 0L10 5L0 10z"/></marker></defs>
+        <text class="ts" x="4" y="13">модули Host</text><text class="ts" x="134" y="13">пульт</text><text class="ts" x="264" y="13">Worker-модули</text>
+        <g class="edges">
+          <path class="e" data-e="acc" d="M134 60 C114 60 116 39 98 39" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="acc" d="M134 60 C114 60 116 77 98 77" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="mach" d="M134 120 C114 120 116 115 98 115" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="mach" d="M134 120 C114 120 116 153 98 153" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="mach" d="M134 120 C114 120 116 191 98 191" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="pts" d="M134 180 C114 180 116 77 98 77" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="pts" d="M134 180 C114 180 116 229 98 229" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="pts" d="M226 180 C246 180 244 166 262 166" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="pts" d="M226 180 C246 180 244 244 262 244" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="jr" d="M134 240 C114 240 116 267 98 267" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="jr" d="M226 240 C246 240 244 244 262 244" marker-end="url(#panel-fleet-ar)"/>
+          <path class="e" data-e="mach" d="M206 103 V79" stroke-dasharray="4 3" marker-end="url(#panel-fleet-ar)"/>
+        </g>
+        <g><rect class="bx" x="4" y="24" width="92" height="30" rx="7"/><text class="tb" x="50" y="43" text-anchor="middle">accounts</text></g>
+        <g><rect class="bx" x="4" y="62" width="92" height="30" rx="7"/><text class="tb" x="50" y="81" text-anchor="middle">slots</text></g>
+        <g><rect class="bx" x="4" y="100" width="92" height="30" rx="7"/><text class="tb" x="50" y="119" text-anchor="middle">machine</text></g>
+        <g><rect class="bx" x="4" y="138" width="92" height="30" rx="7"/><text class="tb" x="50" y="157" text-anchor="middle">upgrade</text></g>
+        <g><rect class="bx" x="4" y="176" width="92" height="30" rx="7"/><text class="tb" x="50" y="195" text-anchor="middle">profiles</text></g>
+        <g><rect class="bx" x="4" y="214" width="92" height="30" rx="7"/><text class="tb" x="50" y="233" text-anchor="middle">points</text></g>
+        <g><rect class="bx" x="4" y="252" width="92" height="30" rx="7"/><text class="tb" x="50" y="271" text-anchor="middle">journal</text></g>
+        <g data-pm="acc"><rect class="bx m" x="134" y="43" width="92" height="34" rx="8"/><text class="tb" x="180" y="64" text-anchor="middle">accounts</text></g>
+        <g data-pm="mach"><rect class="bx m" x="134" y="103" width="92" height="34" rx="8"/><text class="tb" x="180" y="124" text-anchor="middle">machines</text></g>
+        <g data-pm="pts"><rect class="bx m" x="134" y="163" width="92" height="34" rx="8"/><text class="tb" x="180" y="184" text-anchor="middle">points</text></g>
+        <g data-pm="jr"><rect class="bx m" x="134" y="223" width="92" height="34" rx="8"/><text class="tb" x="180" y="244" text-anchor="middle">journal</text></g>
+        <g><rect class="bx c" x="264" y="24" width="92" height="32" rx="8"/><text class="tb" x="310" y="44" text-anchor="middle">relay</text></g>
+        <g><rect class="bx" x="264" y="150" width="92" height="32" rx="8"/><text class="tb" x="310" y="170" text-anchor="middle">points</text></g>
+        <g><rect class="bx" x="264" y="228" width="92" height="32" rx="8"/><text class="tb" x="310" y="248" text-anchor="middle">ledger</text></g>
+        <text class="ts" x="264" y="70">roster и доставка —</text><text class="ts" x="264" y="83">все кадры пульта</text>
+        <text class="ts" x="134" y="290">пунктир — переход на экран</text><text class="ts" x="134" y="302">другого модуля пульта</text>
+      </svg>
+      <div class="pf-det" id="panel-fleet-mdet"></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===== КАРТА ВОЗМОЖНОСТЕЙ ===== -->
+<section class="chg" data-chg="panel-fleet-map">
+  <div class="shead">
+    <h2>Что из Пульта claude-fleet закрыто</h2>
+    <p>Каждая возможность разделов «Аккаунты», «Компьютеры», «Точки», «Журнал» и слоты аккаунтов — плитка. Цвет — закрыта ли она экраном и контрактом исполнителя. Нажмите плитку: экран, исполнитель, что не так.</p>
+  </div>
+  <div class="card pf-pad">
+    <div class="pf-cnt" id="panel-fleet-cnt"></div>
+    <div class="pf-mgrid">
+      <div class="pf-grid" id="panel-fleet-tiles" role="group" aria-label="Возможности Пульта"></div>
+      <div class="pf-det" id="panel-fleet-tdet"></div>
+    </div>
+  </div>
+  <div class="pf-gaps chg" data-chg="panel-fleet-gaps" id="panel-fleet-gaps"></div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="panel-fleet-ets">
+  <div class="shead">
+    <h2>Эталоны</h2>
+    <p>Стенд пульта: поддельный relay с заданным roster и ответами владельцев, браузер — настоящий. Каждый эталон проверяет экраны на зафиксированном входе. Номер эталона — номер теста; «показать» открывает этот случай в витрине.</p>
+  </div>
+  <div class="ets" id="panel-fleet-etlist"></div>
+</section>
+
+<script>
+/* ===== Пульт · флот: витрина экранов, модули, карта, эталоны ===== */
+(function(){
+  const root = document.querySelector('[data-view="panel-fleet"]');
+  if (!root) return;
+  const $ = (s, el) => (el || root).querySelector(s);
+  const $$ = (s, el) => [...(el || root).querySelectorAll(s)];
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  /* ---- экраны: состояния (chips) или шаги (назад/дальше) ---- */
+  const SHOTS = {
+    acc:   { steps: false, st: [["list", "список"], ["sess", "Сессии слота…"], ["rm", "Удалить аккаунт из слота"]] },
+    login: { steps: true,  st: [["form", "«Новый аккаунт»: машина и имя → «Войти»"], ["wait", "Host запускает вход"], ["url", "Пришла ссылка входа"], ["code", "Код отправлен машине"], ["ok", "Вошёл: почта и тариф"], ["bad", "Иначе: код не принят"]] },
+    slot:  { steps: true,  st: [["pre", "Слот main работает на infirex"], ["swap", "Host сам подменил вход — в roster y0902"], ["manual", "«Сменить сейчас» — выбрали work3"], ["done", "Слот на work3, строка в чате"], ["wait", "Позже: все у порога — слот ждёт сброса"]] },
+    mach:  { steps: false, st: [["list", "список"], ["upd", "Обновить pc"], ["upd2", "pc перезапускается"], ["upd3", "pc на 1.4.1"]] },
+    r2:    { steps: false, st: [["off", "не в R2"], ["on", "включили"], ["unmark", "снять пометку"], ["gone", "снята — точки удалены"]] },
+    pts:   { steps: false, st: [["list", "обзор"], ["del", "Удалить «только в R2»"], ["del2", "Удалено"]] },
+    ses:   { steps: false, st: [["day", "день"], ["card", "прошлая точка"], ["branch", "ветка"], ["rb", "откат"], ["rb2", "откат идёт"]] },
+    move:  { steps: true,  st: [["dlg", "Диалог: машина, слот, папка — папка проверена"], ["chk", "Если в папке на pc свои правки"], ["hold", "laptop дожидается конца ответа, кладёт свежую точку"], ["raise", "pc поднимает сессию из точки"], ["done", "Готово: site@pc"], ["copy", "Копия — тот же диалог"], ["dir", "Смена папки — копия на laptop и «Забыть»"]] },
+    fire:  { steps: true,  st: [["banner", "mac пропал: красная плашка"], ["dlg", "Куда и как — по каждой сессии"], ["run", "Идёт 1 из 2 — страницу можно закрыть"], ["done", "Готово: 2 из 2"], ["back", "mac вернулся: дописанное — веткой"]] },
+    jr:    { steps: false, st: [["ev", "сегодня"], ["more", "«Раньше»"], ["mach", "только mac"], ["log", "журнал сессии site@laptop"]] }
+  };
+  let shot = "acc", si = 0;
+  const shotEls = $$(".pf-shot");
+  const stBox = $("#panel-fleet-states"), stepBox = $("#panel-fleet-steps");
+
+  function paint(){
+    const S = SHOTS[shot], state = S.st[si][0];
+    shotEls.forEach((el) => { el.hidden = el.dataset.shot !== shot; });
+    $$("[data-shot-btn]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.shotBtn === shot)));
+    const cur = shotEls.find((el) => el.dataset.shot === shot);
+    if (cur) $$("[data-st]", cur).forEach((el) => { el.hidden = !el.dataset.st.split(" ").includes(state); });
+    // диалог выше страницы — окно растёт под него, без прокрутки внутри
+    if (cur){ const app = $(".pf-app", cur), box = $$(".pf-dlg", cur).find((d) => !d.hidden); app.style.minHeight = box ? (box.firstElementChild.offsetHeight + 64) + "px" : ""; }
+    stBox.hidden = S.steps; stepBox.hidden = !S.steps;
+    if (S.steps){
+      $("#panel-fleet-stepn").textContent = (si + 1) + " / " + S.st.length;
+      $("#panel-fleet-stept").textContent = S.st[si][1];
+      $("#panel-fleet-prev").disabled = si === 0;
+      $("#panel-fleet-next").disabled = si === S.st.length - 1;
+    } else {
+      stBox.innerHTML = S.st.map(([k, t], i) => `<button type="button" class="chip" data-si="${i}" aria-pressed="${i === si}">${esc(t)}</button>`).join("");
+    }
+    paintIO(state);
+  }
+  root.addEventListener("click", (e) => {
+    const b = e.target.closest("[data-shot-btn]");
+    if (b){ shot = b.dataset.shotBtn; si = 0; paint(); return; }
+    const s = e.target.closest("[data-si]");
+    if (s){ si = +s.dataset.si; paint(); return; }
+    const g = e.target.closest("[data-st-go]");
+    if (g){ const i = SHOTS[shot].st.findIndex(([k]) => k === g.dataset.stGo); if (i >= 0){ si = i; paint(); } return; }
+    const w = e.target.closest("[data-w]");
+    if (w && w.closest(".pf-wbtn")){
+      $$(".pf-wbtn [data-w]").forEach((x) => x.setAttribute("aria-pressed", String(x === w)));
+      $$(".pf-win").forEach((x) => x.classList.toggle("nar", w.dataset.w === "nar"));
+      setTimeout(paint, 300);
+      return;
+    }
+    const sh = e.target.closest("[data-show]");
+    if (sh){ const [a, k] = sh.dataset.show.split(":"); shot = a; si = Math.max(0, SHOTS[a].st.findIndex(([x]) => x === k)); paint(); const c = $("#panel-fleet-scr"); if (c && c.scrollIntoView) c.scrollIntoView({ behavior: "smooth", block: "start" }); }
+  });
+  $("#panel-fleet-prev").addEventListener("click", () => { if (si > 0){ si--; paint(); } });
+  $("#panel-fleet-next").addEventListener("click", () => { if (si < SHOTS[shot].st.length - 1){ si++; paint(); } });
+
+
+  /* ---- что экран шлёт и получает: [имя, владелец, что, состояния, где горит] ---- */
+  const IO = {
+    acc: { t: "Аккаунты", m: "pult-accounts",
+      x: "Одна карточка — одна почта со всех машин. Окна и тариф — запись Host одной машины; кто в каком слоте — от slots. Пульт окна не сводит: расход почты с одной машины он пересылает другим её машинам, а свежее выбирает их Host.",
+      s: [["machine.accounts", "host-accounts", "каждой машине, у которой имя в contract: max_age 120 — устаревшие Host опросит сам", "list"],
+          ["account.usage", "host-accounts", "окна, что машина видела сама (event, poll), — другим машинам с той же почтой", "list"],
+          ["machine.slots", "host-slots", "кто в каком слоте и сессии слота", "list sess"],
+          ["slot.swap", "host-slots", "сменить аккаунт всему слоту; без account — следующего выберет Host", "sess rm"],
+          ["session.slot", "host-slots", "перевести выбранные сессии в другой слот или без слота", "sess"],
+          ["slot.set", "host-slots", "порядок слота без удаляемого аккаунта", "rm"],
+          ["machine.account_remove", "host-accounts", "удалить папку аккаунта на машине", "rm"]],
+      r: [["roster", "relay", "машины и их contract; у сессий — slot и account"],
+          ["reply", "", "на каждый запрос: result или слово ошибки"]],
+      e: [["in_slot", "удаление аккаунта, чей вход в слоте, — «Сначала сменить в слоте», кнопка «Сменить и удалить»"],
+          ["no_reserve", "«В запасе нет вошедшего ниже порога» — слот прежний"],
+          ["no_account", "аккаунта уже нет — карточка перечитывается"]],
+      c: { list: `{ "type": "machine.accounts", "id": "a-1", "v": 1,
+  "machine": "laptop", "max_age": 120 }
+← { "type": "reply", "id": "a-1", "ok": true,
+  "result": { "accounts": {
+    "y0902": { "email": "y0902@…", "plan": "max",
+      "login": "ok", "lent": "~/.switchboard/slots/main",
+      "limits": { "five_hour": { "utilization": 0.09,
+        "resetsAt": 1793463600, "at": 1793458680,
+        "src": "event" }, … } },
+    "corp": { "login": "pending" }, … } } }
+
+// почта y0902@… есть и на pc — окна laptop туда:
+{ "type": "account.usage", "id": "u-2", "v": 1,
+  "machine": "pc", "account": "y0902",
+  "src": "laptop", "at": 1793458680,
+  "windows": { "five_hour": { … } } }`,
+        sess: `{ "type": "slot.swap", "id": "s-3", "v": 1,
+  "machine": "laptop", "slot": "main" }
+← { "ok": true, "result": {
+    "from": "y0902", "to": "work3" } }
+
+// или по одной — между ходами:
+{ "type": "session.slot", "id": "s-5", "v": 1,
+  "callsign": "site@laptop", "slot": "bot" }
+← { "ok": true, "result": { "restart": true } }`,
+        rm: `// пульт складывает шаги сам — три запроса по контракту
+{ "type": "slot.swap", "id": "s-7", "v": 1,
+  "machine": "laptop", "slot": "main" }
+← { "ok": true, "result": { "from": "y0902", "to": "work3" } }
+{ "type": "slot.set", "id": "s-8", "v": 1,
+  "machine": "laptop", "slot": "main",
+  "order": [ "infirex", "work3" ] }
+← { "ok": true, "result": { "account": "work3" } }
+{ "type": "machine.account_remove", "id": "r-1", "v": 1,
+  "machine": "laptop", "account": "y0902" }
+← { "ok": true, "result": { "wiped": true } }` } },
+
+    login: { t: "Вход аккаунта", m: "pult-accounts",
+      x: "Новый аккаунт и повторный вход — один путь: «Войти» с именем. Новое имя — новая папка Claude на машине. Код со страницы входа уходит по TLS через relay только этой машине; пульт его не хранит. Шифрования кода в первом релизе нет.",
+      s: [["machine.login", "host-accounts", "машина и имя; ответ — ссылка входа", "form wait"],
+          ["machine.login_code", "host-accounts", "код со страницы входа", "code ok bad"]],
+      r: [["reply", "", "url — на шаге ссылки", "url"],
+          ["reply", "", "email и plan — вошёл", "ok"]],
+      e: [["bad_code", "«Код не принят — вход закрыт», кнопка «Войти заново»"],
+          ["not_started", "«Вход прервался: Host перезапускался» — «Войти заново»"]],
+      c: { form: `{ "type": "machine.login", "id": "l-1", "v": 1,
+  "machine": "laptop", "account": "corp" }`,
+        wait: `{ "type": "machine.login", "id": "l-1", "v": 1,
+  "machine": "laptop", "account": "corp" }
+// ждём reply: Host запускает короткий claude
+// со своей папкой аккаунта corp`,
+        url: `← { "type": "reply", "id": "l-1", "ok": true,
+  "result": {
+    "url": "https://claude.ai/oauth/authorize?…" } }`,
+        code: `{ "type": "machine.login_code", "id": "l-2", "v": 1,
+  "machine": "laptop", "account": "corp",
+  "code": "Xk2p…#Qm9w…" }
+// по TLS до relay и от relay до машины; в хранилище страницы кода нет`,
+        ok: `← { "type": "reply", "id": "l-2", "ok": true,
+  "result": { "email": "corp@…", "plan": "max" } }`,
+        bad: `← { "type": "reply", "id": "l-2", "ok": false,
+  "error": "bad_code" }` },
+      g: "<b>Нет в контракте host-accounts:</b> отмены идущего входа. «Скрыть» убирает карточку только с экрана; процесс входа живёт до следующего «Войти» этого аккаунта или до перезапуска Host. Отдельный запрос не предлагаю — брошенный вход ничего не держит." },
+
+    slot: { t: "Слот: подмена", m: "pult-accounts",
+      x: "Подмену делает Host сам — пульт её только видит: в roster у сессий слота меняется account, и экран перечитывает слот и окна. Кто следующий — решает slots: первый пункт «Сменить сейчас» — «следующего по порядку» без имени. Порог пульт не знает и не рисует.",
+      s: [["machine.slots", "host-slots", "при открытии и когда в roster сменился account: аккаунт в слоте, порядок, wait, сессии", "pre swap done"],
+          ["machine.accounts", "host-accounts", "окна аккаунтов слота", "pre swap done"],
+          ["slot.swap", "host-slots", "«Сменить сейчас»: выбранный аккаунт или без него", "manual"],
+          ["slot.set", "host-slots", "перетащили запас; пустой порядок — удалить слот без сессий", ""]],
+      r: [["roster", "relay", "поля сессий slot и account — ход подмены без запросов", "swap done wait"],
+          ["reply", "", "from и to — на «Сменить сейчас»", "manual"]],
+      e: [["no_reserve", "«В запасе нет вошедшего ниже порога» — слот прежний"],
+          ["has_sessions", "«В слоте есть сессии» — сначала перевести их"],
+          ["no_account", "«Такого аккаунта нет на машине»"]],
+      c: { pre: `{ "type": "machine.slots", "id": "s-1", "v": 1,
+  "machine": "laptop" }
+← { "ok": true, "result": { "slots": { "main": {
+    "account": "infirex",
+    "order": [ "infirex", "y0902", "work3" ],
+    "wait": null,
+    "sessions": [ "site@laptop", "wiki@laptop",
+                  "profiles@laptop" ] } } } }`,
+        swap: `// roster: тот же процесс, тот же ход
+{ "callsign": "site@laptop",
+  "slot": { "name": "main", "wait": null },
+  "account": "y0902" }
+// account сменился → чат рисует строку подмены,
+// экран слотов перечитывает machine.slots и окна`,
+        manual: `{ "type": "slot.swap", "id": "s-3", "v": 1,
+  "machine": "laptop", "slot": "main",
+  "account": "work3" }
+← { "ok": true, "result": {
+    "from": "y0902", "to": "work3" } }`,
+        done: `// roster: у site, wiki, profiles
+"account": "work3"`,
+        wait: `// roster: все аккаунты у порога
+{ "callsign": "site@laptop",
+  "slot": { "name": "main", "wait": 1793463600 },
+  "account": "work3" }` } },
+
+    mach: { t: "Машины", m: "pult-machines",
+      x: "Машина на связи — та, что в roster. Версии, система и процессы — machine.state; профили — machine.profiles. Новые версии Host лежат выпусками в R2 — их выкладывает локальный агент или выпуск GitHub. Есть ли новая, отвечает сама машина: machine.upgrade с dryRun; пульт версию не выбирает и не сравнивает. Аккаунты машины — в «Аккаунтах», здесь их нет.",
+      s: [["machine.state", "host-machine", "каждой машине из roster при открытии экрана", "list upd3"],
+          ["machine.upgrade", "host-upgrade", "version: \"latest\", dryRun: true — при открытии: from и to, ничего не скачано; to ≠ from — «есть новая версия»", "list"],
+          ["github.app", "github", "при открытии: есть ли приложение GitHub флота; нет — «Создать приложение GitHub»: форма manifest на github.com", "list"],
+          ["github.setup", "github", "GitHub вернул страницу с code — по кнопке «Сохранить приложение»; ответ даёт ссылку установки на репозитории", "list"],
+          ["machine.profiles", "host-profiles", "состояние репозиториев профилей при открытии; «Синхронизировать» — с sync: true, ответ после неё", "list"],
+          ["machine.upgrade", "host-upgrade", "«Обновить» — version: \"latest\": до новейшего выпуска в R2; ответ — до перезапуска Host или после перезагрузки модулей", "upd"]],
+      r: [["roster", "relay", "машины на связи: since и contract; ушла — нет в roster", "list upd2 upd3"],
+          ["reply", "", "from, to, sdk — на обновление", "upd"]],
+      e: [["already_current", "«pc уже на 1.4.1»"],
+          ["upgrade_running", "«На pc уже идёт обновление»"],
+          ["check_failed", "«Новая версия не прошла проверку» — причина в журнале машины; pc работает на прежней"],
+          ["download_failed", "«Выпуск не скачался из R2» — причина в журнале машины"],
+          ["module_error", "«Новая версия модуля не поднялась» — модуль выключен на машине, причина в журнале"],
+          ["not_installed", "у профиля, от github.token: «Приложение GitHub не допущено к репозиторию» — ссылка install из github.app"]],
+      c: { list: `{ "type": "machine.state", "id": "m-1", "v": 1,
+  "machine": "pc" }
+← { "ok": true, "result": {
+    "host": "1.4.0", "sdk": "0.3.311",
+    "os": { "platform": "linux", "arch": "x64",
+            "release": "6.8.0" },
+    "started": "2026-10-31T11:40:02.000Z",
+    "processes": [ { "id": "poe-bot", "pid": 3120 },
+                   { "id": "docs", "pid": 3188 } ] } }
+{ "type": "machine.upgrade", "id": "m-2", "v": 1,
+  "machine": "pc", "version": "latest", "dryRun": true }
+← { "ok": true, "result": { "from": "1.4.0", "to": "1.4.1" } }
+// to ≠ from → «есть новая версия · 1.4.1»
+{ "type": "github.app", "id": "g-1", "v": 1, "to": "github",
+  "org": "team", "redirect": "https://pult.example/" }
+← { "ok": true, "result": { "app": { "slug": "switchboard-team" },
+    "repos": [ "team/profiles" ] } }`,
+        upd: `{ "type": "machine.upgrade", "id": "u-4", "v": 1,
+  "machine": "pc", "version": "latest" }   // новейший выпуск в R2
+← { "ok": true, "result": {
+    "from": "1.4.0", "to": "1.4.1",
+    "sdk": { "from": "0.3.311", "to": "0.3.311" } } }`,
+        upd2: `// relay → всем: roster без машины pc
+// Host pc остановлен штатно; keeper поднимает 1.4.1`,
+        upd3: `// новый hello pc — снова в roster, since новый;
+// machine.state → "host": "1.4.1", те же pid` } },
+
+    pts: { t: "Обзор точек", m: "pult-points",
+      x: "Всё — из points.list реестра: сессии в R2 с головой и хозяином, место в R2, итог уборки. Сессий без пометки «в R2» здесь нет — точек у них нет. Своих порогов «давно», «сохраняется» у пульта нет — он показывает время последней точки. «Только в R2» и «нет связи» — по roster: машина хозяина в roster, а сессии нет — только в R2; машины нет — пожар. Удаление — сразу, без отмены.",
+      s: [["points.list", "points", "без sid — обзор флота, при открытии экрана", "list"],
+          ["points.save", "host-points", "«Сохранить сейчас» — машине сессии", "list"],
+          ["points.delete", "points", "после ввода имени; только сессии без машины в roster; сразу, без отмены", "del"],
+          ["ledger.read", "ledger", "когда машина ушла: последний machine.left этой машины", "list"]],
+      r: [["roster", "relay", "какие машины и сессии на связи"],
+          ["reply", "", "на каждый запрос: result или слово"]],
+      e: [["waiting", "«Сессия ждёт ответа человека» — точка после ответа"]],
+      c: { list: `{ "type": "points.list", "id": "l-1", "v": 1,
+  "to": "points" }
+← { "ok": true, "result": {
+    "sessions": [ { "sid": "9f03e1c2-…",
+        "callsign": "old-bot@laptop", "dir": "~/Projects/bot",
+        "owner": "laptop", "head": { "id": 212, "at": … },
+        "points": 57, "branches": 0 }, … ],
+    "r2": { "bytes": 432013312, "blocks": 2410 },
+    "sweep": { "at": …, "blocks": 240, "bytes": 31457280 } } }
+// old-bot@laptop нет в roster, laptop есть → «только в R2»`,
+        del: `{ "type": "points.delete", "id": "d-1", "v": 1,
+  "to": "points", "sid": "9f03e1c2-…" }
+← { "ok": true, "result": { "points": 57 } }`,
+        del2: `// реестр пишет в журнал флота:
+{ "type": "ledger.add", "to": "ledger",
+  "ev": "session.deleted", "by": "panel",
+  "text": "old-bot удалена · 57 точек" }` } },
+
+    r2: { t: "Пометка «в R2»", m: "pult-points",
+      x: "Не все сессии нужны в R2: пометка включает точки, перенос, копию, откат и «пожар». У новой сессии выключена. Пометку держит host-points машины сессии, в roster — поле r2. Снять — точки сессии удаляются из R2 сразу, без отмены: один запрос, удаляет host-points через реестр; пульт points.delete не шлёт.",
+      s: [["session.r2", "host-points", "on: true — «Хранить в R2»", "on"],
+          ["session.r2", "host-points", "on: false — после ввода имени сессии", "unmark gone"]],
+      r: [["roster", "relay", "поле r2 у сессии: есть — в R2, нет — не в R2", "off on gone"],
+          ["reply", "", "on: true — point: первая точка; on: false — deleted: сколько точек удалено", "on gone"]],
+      e: [["waiting", "«Сессия ждёт ответа человека» — снять после ответа"]],
+      c: { off: `// roster: { "callsign": "wiki@laptop", "state": "idle", … }
+// поля r2 нет — вкладка «Точки»: «не в R2»; points.list не шлётся`,
+        on: `{ "type": "session.r2", "id": "t-1", "v": 1,
+  "callsign": "wiki@laptop", "on": true }
+← { "ok": true, "result": { "point": 1 } }
+← roster: wiki@laptop · "r2": {}`,
+        unmark: `// кнопка «Убрать из R2» — после ввода «wiki»
+{ "type": "session.r2", "id": "t-2", "v": 1,
+  "callsign": "wiki@laptop", "on": false }`,
+        gone: `← { "ok": true, "result": { "deleted": 12 } }
+← roster: wiki@laptop — поля r2 нет` } },
+
+    ses: { t: "Точки сессии", m: "pult-points",
+      x: "Вкладка «Точки» в экране сессии в R2. Линия, ветки и срок каждой точки отдаёт реестр готовыми — правило хранения пульт не знает. Первые слова — поле last точек из points.get реестра: машина для этого не нужна. Откат — два шага на машине сессии: точка со стопом, потом подъём из выбранной. Привязку к claude.ai при откате снимает Host — пульт видит в roster новую ссылку.",
+      s: [["points.list", "points", "с sid — точки сессии: line, until, why, msgs, git", "day card branch"],
+          ["points.get", "points", "ids точек на экране — поле last: первые слова и последние обмены", "day card"],
+          ["points.save", "host-points", "«Сохранить точку»; для отката — со stop", "rb rb2"],
+          ["points.raise", "host-points", "откат — на той же машине из выбранной точки, files keep или point; «Продолжить веткой» — из конца ветки", "rb2"]],
+      r: [["reply", "", "points.save → { point, same }; points.raise → { callsign, point, folder, branch }"],
+          ["roster", "relay", "после отката — новая remote.url: привязка к claude.ai снята", "rb2"]],
+      e: [["waiting", "«Сессия ждёт ответа человека» — откатить после ответа или с «прервать»"],
+          ["bad_dir", "«Правки точки сюда не встанут» — выбрать «оставить как есть»"],
+          ["bad_point", "«Точка не открылась» — причина в журнале машины"]],
+      c: { day: `{ "type": "points.list", "id": "l-2", "v": 1,
+  "to": "points", "sid": "42bc5ad4-…" }
+← { "ok": true, "result": { "owner": "laptop", "head": 41,
+    "points": [
+      { "id": 41, "at": …, "machine": "laptop", "why": "rule",
+        "base": 40, "msgs": 212, "git": { "state": "dirty",
+        "files": 2 }, "line": true, "until": null },
+      { "id": 33, "at": …, "why": "rule", "base": 31,
+        "line": false, "until": 1824993120000 }, … ] } }`,
+        card: `{ "type": "points.get", "id": "e-1", "v": 1,
+  "to": "points", "ids": [ 38, 39, 40, 41 ] }
+← { "ok": true, "result": { "owner": "laptop", "points": [
+    { "id": 38, "msgs": 194, "last": [ [ "обнови зависимости…",
+                                        "Обновил 14 пакетов…" ] ] },
+    … ] } }   // клиенту — без ключа R2`,
+        branch: `// ветка — точки с "line": false; почему — why
+// её первой точки: откат на той же машине → «до отката»`,
+        rb: `{ "type": "points.save", "id": "s-4", "v": 1,
+  "callsign": "site@laptop", "stop": true }
+← { "ok": true, "result": { "point": 42, "same": false } }`,
+        rb2: `{ "type": "points.raise", "id": "r-4", "v": 1,
+  "machine": "laptop", "sid": "42bc5ad4-…",
+  "point": 38, "dir": "~/Projects/site", "files": "point" }
+← { "ok": true, "result": { "callsign": "site@laptop",
+    "point": 43, "folder": "same",
+    "branch": "points-1031-1452" } }
+// 39…42 — теперь ветка «до отката»
+← roster: site@laptop · "remote": { "url": "…session_02Qx…" }
+// привязка к claude.ai снята — ссылка новая` } },
+
+    move: { t: "Перенос и копия", m: "pult-points",
+      x: "Ведёт страница, шагами: проверка папки (raise с dryRun) → точка со стопом на исходной → подъём на целевой. Закроете страницу между шагами — сессия останется остановленной на исходной, видна в roster; «Перенести» снова начнёт с той же точки. Копия — один подъём с copy: true, исходная не трогается. Смена папки — то же на той же машине: точка со стопом, копия в новую папку, после её ответа — session.remove прежней.",
+      s: [["points.raise", "host-points", "dryRun: true — что будет с папкой; под полем папки во всех диалогах", "dlg chk"],
+          ["machine.slots", "host-slots", "слоты целевой машины для выбора", "dlg"],
+          ["points.save", "host-points", "stop: true — исходной машине: конец хода, стоп, точка", "hold dir"],
+          ["points.raise", "host-points", "целевой машине: из этой точки; хозяина в реестре она меняет сама", "raise copy dir"],
+          ["session.remove", "host-manage", "смена папки: «Забыть» прежнюю — только после ответа копии", "dir"]],
+      r: [["reply", "", "folder: same, ahead, dirty, shared, empty, nogit, other — проверка папки", "dlg chk"],
+          ["roster", "relay", "site@laptop ушла, site@pc пришла", "done"]],
+      e: [["waiting", "«site ждёт ответа человека» — перенести после ответа или с «прервать»"],
+          ["bad_dir", "«Другой репозиторий — выберите другую папку»: кнопка недоступна"],
+          ["not_owner", "«Сессию уже подняли на другой машине»"],
+          ["open_failed", "«Не поднялась на pc — снова идёт на laptop»"]],
+      c: { dlg: `{ "type": "points.raise", "id": "r-0", "v": 1,
+  "machine": "pc", "sid": "42bc5ad4-…",
+  "dir": "~/Projects/site", "files": "point",
+  "dryRun": true }
+← { "ok": true, "result": { "folder": "same",
+    "branch": "main", "sessions": [] } }`,
+        chk: `← { "ok": true, "result": { "folder": "dirty",
+    "files": 3, "branch": "main", "sessions": [] } }`,
+        hold: `{ "type": "points.save", "id": "s-1", "v": 1,
+  "callsign": "site@laptop", "stop": true }
+← { "ok": true, "result": { "point": 42, "same": false } }`,
+        raise: `{ "type": "points.raise", "id": "r-1", "v": 1,
+  "machine": "pc", "sid": "42bc5ad4-…", "point": 42,
+  "dir": "~/Projects/site", "slot": "main",
+  "files": "point" }`,
+        done: `← { "ok": true, "result": { "callsign": "site@pc",
+    "point": 43, "folder": "same",
+    "branch": "points-1031-1453" } }`,
+        copy: `{ "type": "points.raise", "id": "r-2", "v": 1,
+  "machine": "pc", "sid": "42bc5ad4-…", "point": 38,
+  "copy": true, "name": "site-copy",
+  "dir": "~/Projects/site-copy", "slot": "main",
+  "files": "point" }
+← { "ok": true, "result": { "callsign": "site-copy@pc",
+    "point": 1, "folder": "empty", … } }`,
+        dir: `// смена папки — три запроса по контракту, по одному
+{ "type": "points.save", "id": "s-6", "v": 1,
+  "callsign": "site@laptop", "stop": true }
+← { "ok": true, "result": { "point": 42, "same": false } }
+{ "type": "points.raise", "id": "r-7", "v": 1,
+  "machine": "laptop", "sid": "42bc5ad4-…", "point": 42,
+  "copy": true, "name": "site-v2",
+  "dir": "~/Projects/site-v2", "files": "keep" }
+← { "ok": true, "result": { "callsign": "site-v2@laptop", … } }
+{ "type": "session.remove", "id": "c-13", "v": 1,
+  "callsign": "site@laptop" }` } },
+
+    fire: { t: "«Пожар»", m: "pult-points",
+      x: "Машины нет в roster, а реестр держит её сессии хозяином — плашка. Когда ушла — последняя запись machine.left в журнале флота. Перенос — по одному points.raise из последней точки, следующий после ответа на предыдущий, пока страница открыта. Вернувшаяся машина сама отдаёт сессии: дописанное — веткой.",
+      s: [["points.list", "points", "сессии с хозяином mac", "banner"],
+          ["ledger.read", "ledger", "machine: mac, limit: 1 — когда ушла", "banner"],
+          ["points.raise", "host-points", "dryRun — папка каждой сессии на laptop", "dlg"],
+          ["machine.slots", "host-slots", "слоты laptop", "dlg"],
+          ["points.raise", "host-points", "по одной: notes, затем scrape", "run done"]],
+      r: [["roster", "relay", "notes@laptop, scrape@laptop; позже — mac", "done back"]],
+      e: [["not_owner", "«Сессию уже подняли» — строка «готова на …»"],
+          ["open_failed", "строка сессии «не поднялась» — остальные идут дальше"]],
+      c: { banner: `{ "type": "ledger.read", "id": "j-4", "v": 1,
+  "to": "ledger", "machine": "mac", "limit": 1 }
+← { "ok": true, "result": { "records": [ { "id": 812,
+    "t": 1793416320000, "ev": "machine.left",
+    "from": "ledger", "machine": "mac",
+    "text": "mac пропала · была на связи с 08:30" } ],
+    "more": true } }`,
+        dlg: `{ "type": "points.raise", "id": "r-5", "v": 1,
+  "machine": "laptop", "sid": "77ae…", "dir": "~/notes",
+  "files": "point", "dryRun": true }
+← { "ok": true, "result": { "folder": "empty" } }`,
+        run: `{ "type": "points.raise", "id": "r-6", "v": 1,
+  "machine": "laptop", "sid": "77ae…",
+  "dir": "~/notes", "slot": "main", "files": "point" }
+← { "ok": true, "result": { "callsign": "notes@laptop",
+    "point": 88, "folder": "empty" } }
+// затем — то же для scrape`,
+        done: `// roster: notes@laptop, scrape@laptop`,
+        back: `// mac вернулся: его Host получил not_owner,
+// дописанное отдал точкой why: "yield" — веткой,
+// свою сессию убрал. Пульт ничего не слал.` } },
+
+    jr: { t: "Журнал флота", m: "pult-journal",
+      x: "Записи ledger: что случилось с машинами и сессиями, кто записал и по чьей команде. Пульт показывает текст как есть; пока экран открыт — на каждом roster дочитывает новые. Вкладка «Журнал» сессии — тот же экран с позывным: сбои и отказы из файлов машины.",
+      s: [["ledger.read", "ledger", "при открытии: limit 50; «Раньше» — before; машина — machine", "ev more mach"],
+          ["ledger.read", "ledger", "на каждом roster: after — последний id", "ev"],
+          ["machine.journal", "host-journal", "журнал сессии: callsign, since, limit", "log"]],
+      r: [["roster", "relay", "повод дочитать журнал — отдельного канала нет", "ev"]],
+      e: [["bad_frame", "ошибка пульта — в консоли страницы и в журнале машины"]],
+      c: { ev: `{ "type": "ledger.read", "id": "j-1", "v": 1,
+  "to": "ledger", "limit": 50 }
+← { "ok": true, "result": { "records": [
+    { "id": 905, "t": …, "ev": "slot.swapped",
+      "from": "@laptop", "by": "panel",
+      "machine": "laptop",
+      "text": "слот main: y0902 → work3" }, … ],
+    "more": true } }`,
+        more: `{ "type": "ledger.read", "id": "j-2", "v": 1,
+  "to": "ledger", "before": 856, "limit": 50 }`,
+        mach: `{ "type": "ledger.read", "id": "j-3", "v": 1,
+  "to": "ledger", "machine": "mac", "limit": 50 }`,
+        log: `{ "type": "machine.journal", "id": "j-5", "v": 1,
+  "machine": "laptop", "callsign": "site@laptop",
+  "since": "2026-10-31T00:00:00.000Z", "limit": 200 }
+← { "ok": true, "result": { "records": [ … ],
+    "more": false } }` } }
+  };
+
+
+  /* ---- модули экранов ---- */
+  const MODS = {
+    acc: { n: "pult-accounts", t: "аккаунты, вход, слоты",
+      give: [["экран", "accounts — карточки почт, вход по шагам, слоты"], ["метка раздела", "идущие входы: login: pending в machine.accounts"], ["хранит", "ничего: открыли экран — спросили владельцев"]],
+      code: `// web/pult/modules/accounts/module.json
+{ "name": "pult-accounts", "type": "web",
+  "version": "1.0.0",
+  "provides": { "accounts": 1 },
+  "uses": { "roster@relay": 1,
+    "machine.accounts@host-accounts": 1,
+    "machine.login@host-accounts": 1,
+    "machine.login_code@host-accounts": 1,
+    "machine.account_remove@host-accounts": 1,
+    "account.usage@host-accounts": 1,
+    "machine.slots@host-slots": 1,
+    "slot.set@host-slots": 1,
+    "slot.swap@host-slots": 1,
+    "session.slot@host-slots": 1 } }` },
+    mach: { n: "pult-machines", t: "машины флота",
+      give: [["экран", "machines — машины из roster: система, Host, SDK, процессы, профили"], ["переход", "«+ Аккаунт» — экран accounts с машиной"], ["хранит", "ничего; машин без связи не помнит — их история в журнале"]],
+      code: `// web/pult/modules/machines/module.json
+{ "name": "pult-machines", "type": "web",
+  "version": "1.0.0",
+  "provides": { "machines": 1 },
+  "uses": { "roster@relay": 1,
+    "machine.state@host-machine": 1,
+    "machine.upgrade@host-upgrade": 1,
+    "machine.profiles@host-profiles": 1,
+    "github.app@github": 1,
+    "github.setup@github": 1,
+    "accounts@pult-accounts": 1 } }` },
+    pts: { n: "pult-points", t: "точки, перенос, откат, «пожар»",
+      give: [["экраны", "points — обзор; session.points — вкладка «Точки» в экране сессии раздела «сессии и чат»"], ["хранит", "ничего: срок точки, состояние и ход переноса — от points"], ["пометка", "«Хранить в R2» во вкладке «Точки» — session.r2 у host-points; без пометки вкладка показывает только переключатель"], ["смена папки", "points.save со стопом → points.raise с copy в новую папку → session.remove прежней"]],
+      code: `%PTMAN%` },
+    jr: { n: "pult-journal", t: "журнал флота",
+      give: [["экран", "journal — записи ledger по дням, фильтр машины, поиск по загруженным"], ["живое", "пока экран открыт — на каждом roster дочитать after = последний id"], ["место", "вкладка «Журнал» карточки сессии — тот же экран с callsign: machine.journal машины"]],
+      code: `// web/pult/modules/journal/module.json
+{ "name": "pult-journal", "type": "web",
+  "version": "1.0.0",
+  "provides": { "journal": 1 },
+  "uses": { "roster@relay": 1,
+    "ledger.read@ledger": 1,
+    "machine.journal@host-journal": 1 } }` }
+  };
+  const mDet = $("#panel-fleet-mdet");
+  function paintMod(k){
+    const d = MODS[k];
+    $$("[data-pm]").forEach((g) => { const r = g.querySelector("rect"); if (r) r.classList.toggle("on", g.dataset.pm === k); });
+    $$(".pf-mapsvg [data-e]").forEach((p) => {
+      const on = p.dataset.e === k;
+      p.classList.toggle("on", on);
+      p.classList.toggle("dim", !on);
+      p.setAttribute("marker-end", on ? "url(#panel-fleet-ar2)" : "url(#panel-fleet-ar)");
+    });
+    mDet.innerHTML = `<div class="pf-h3"><h3>${esc(d.n)}</h3><span class="pf-m">${esc(d.t)}</span></div>
+      <div class="pf-mbtns">${Object.entries(MODS).map(([x, m]) => `<button type="button" class="chip" data-pmb="${x}" aria-pressed="${x === k}">${esc(m.n)}</button>`).join("")}</div>
+      <div class="kv">${d.give.map(([a, b]) => `<span>${esc(a)}</span><span>${esc(b)}</span>`).join("")}</div>
+      <div class="codebox"><pre class="pf-pre">${esc(fill(d.code))}</pre></div>`;
+  }
+  root.addEventListener("click", (e) => {
+    const g = e.target.closest("[data-pm]"); if (g){ paintMod(g.dataset.pm); return; }
+    const b = e.target.closest("[data-pmb]"); if (b) paintMod(b.dataset.pmb);
+  });
+
+  /* ---- карта возможностей: [код, что, экран, исполнитель, статус, заметка, показать] ---- */
+  const ST = { ok: "закрыто", wait: "нет в контракте", cut: "снято дизайном", bad: "не закрыто" };
+  const MAP = [
+    ["Д. Аккаунты, вход, лимиты"],
+    ["В28", "Раздел «Аккаунты»", "Аккаунты", "machine.accounts @host-accounts · machine.slots @host-slots", "ok", "карточка на почту со всех машин; по машинам — вошёл, слот, «Войти», «Сессии…», «Удалить…»", "acc:list"],
+    ["В29", "Новый аккаунт", "Вход по шагам, шаг 1", "machine.login @host-accounts", "ok", "новое имя — новая папка; отдельного «добавить» нет", "login:form"],
+    ["В30", "Вход по ссылке и коду", "Вход по шагам", "machine.login · machine.login_code @host-accounts", "ok", "код идёт по TLS через relay, без шифрования в браузере — шифрования в первом релизе нет (слово пользователя 31 окт.); отмены входа в контракте нет — «Скрыть» только с экрана", "login:code"],
+    ["В31", "Проверка входа", "Аккаунты", "host-accounts: claude auth status раз в 2 мин → login", "ok", "по кнопке не проверяется — хватает 2 мин", "acc:list"],
+    ["В32", "Лимиты по почте со всех машин", "Аккаунты", "machine.accounts { max_age } · account.usage @host-accounts", "ok", "пульт не сводит окна: пересылает расход почты её машинам, свежее выбирает Host", "acc:list"],
+    ["В33", "Сменить аккаунт пачке сессий", "Аккаунты → «Сессии слота…»", "slot.swap · session.slot @host-slots", "ok", "пакетов переносов нет: смена аккаунта — подмена в слоте", "acc:sess"],
+    ["В34", "Удалить аккаунт с машины", "Аккаунты → «Удалить…»", "slot.swap · slot.set @host-slots · machine.account_remove @host-accounts", "ok", "аккаунт в слоте — сначала смена в слоте, потом удаление", "acc:rm"],
+    ["Слоты аккаунтов"],
+    ["С1", "Слот: кто в нём, сессии", "Слот", "machine.slots @host-slots", "ok", "", "slot:pre"],
+    ["С2", "Запас по порядку, перетащить", "Слот", "slot.set @host-slots", "ok", "", "slot:pre"],
+    ["С3", "Порог и подмена сама", "Слот — видно по roster", "host-slots сам; поля roster slot, account", "ok", "пульт порога не знает и не рисует", "slot:swap"],
+    ["С4", "«Сменить сейчас»", "Слот", "slot.swap @host-slots", "ok", "без имени — следующего выбирает Host", "slot:manual"],
+    ["С5", "Строка подмены в чате", "чат — раздел «сессии и чат»", "roster account", "ok", "рисует экран чата по смене account", "slot:done"],
+    ["С6", "Все у порога — ждёт сброса", "Слот", "roster slot.wait", "ok", "", "slot:wait"],
+    ["Е. Компьютеры"],
+    ["В35", "Раздел «Компьютеры»", "Машины", "roster · machine.state @host-machine", "ok", "аккаунты машины — в «Аккаунтах», не здесь", "mach:list"],
+    ["В36", "Связь машины", "Машины · «Пожар» · Журнал флота", "roster @relay · machine.left / back @ledger", "ok", "на связи — roster; когда ушла и вернулась — ledger", "jr:mach"],
+    ["В37", "Обновление Host", "Машины → «Обновить до»", "machine.upgrade { version: latest, dryRun } @host-upgrade · github.app · github.setup @github", "ok", "новая версия — из выпусков в R2, их выкладывает локальный агент или выпуск GitHub (слово пользователя 31 окт.); «есть новая версия» — ответ машины", "mach:upd"],
+    ["В38", "Профили и синхронизация памяти", "Машины", "machine.profiles { sync } @host-profiles", "ok", "", "mach:list"],
+    ["В39", "Ключ флота на машину", "—", "—", "cut", "шифрования точек в первом релизе нет — ключа нет (слово пользователя 31 окт.)", ""],
+    ["В40", "Убрать отключённую машину", "—", "—", "cut", "список машин — roster: убирать нечего; история — в журнале", ""],
+    ["Ж. Точки"],
+    ["В41", "Последняя точка, «Сохранить точку»", "Точки сессии", "%PT1%", "ok", "только у сессий в R2; пометка — вкладка «Точки», у новой выключена", "ses:day"],
+    ["В42", "Вкладка «Точки» сессии", "Точки сессии", "%PT2%", "ok", "срок «хранится до» и линия — от реестра; правила хранения пульт не знает", "ses:card"],
+    ["В43", "Перенести сессию", "Перенос по шагам", "%PT3%", "ok", "ведёт страница: точка со стопом, затем подъём", "move:hold"],
+    ["В44", "Скопировать сессию", "Перенос, шаг «Копия»", "%PT3%", "ok", "", "move:copy"],
+    ["В45", "Проверка папки на целевой машине", "Перенос — под полем папки", "%PT4%", "ok", "", "move:chk"],
+    ["В46", "Откат к точке", "Точки сессии → «Откат»", "%PT5%", "ok", "привязка к claude.ai снимается, как в claude-fleet (слово пользователя 31 окт.)", "ses:rb"],
+    ["В47", "Ветки", "Точки сессии → «Ветка»", "%PT6%", "ok", "ветка — точки с line: false; «Решу потом» и «Выбросить» сняты: ветка уходит по правилу хранения", "ses:branch"],
+    ["В48", "Обзор точек", "Обзор точек", "%PT7%", "ok", "время последней точки — от реестра; только сессии в R2", "pts:list"],
+    ["В49", "«Только в R2» и удаление", "Обзор → «Удалить…»", "%PT8%", "ok", "сразу, без отмены (слово пользователя 31 окт.); импорта из claude-fleet нет — флот чистый", "pts:del"],
+    ["В50", "«Пожар»", "«Пожар» по шагам", "%PT9%", "ok", "ведёт страница, по одной; когда машина ушла — ledger", "fire:dlg"],
+    ["В51", "Проверка ключа с листа", "—", "—", "cut", "ключа и листа восстановления нет: шифрования в первом релизе нет (слово пользователя 31 окт.)", ""],
+    ["З. Журнал"],
+    ["В52", "Журнал флота", "Журнал", "ledger.read @ledger", "ok", "текст пишет модуль-владелец события", "jr:ev"],
+    ["В53", "Действия с отменой", "Журнал флота", "ledger.read @ledger", "cut", "отменять нечего: удаление — сразу (слово пользователя 31 окт.), перенос и откат ведёт страница; что было — в журнале", "jr:ev"]
+  ];
+  const tiles = $("#panel-fleet-tiles"), tdet = $("#panel-fleet-tdet");
+  const rows = MAP.filter((r) => r.length > 1);
+  const cnt = {}; rows.forEach((r) => { cnt[r[4]] = (cnt[r[4]] || 0) + 1; });
+  $("#panel-fleet-cnt").innerHTML = [["ok", "ok"], ["wait", "wait"], ["cut", ""], ["bad", "bad"]].filter(([k]) => cnt[k]).map(([k, c]) => `<div class="${c}"><b>${cnt[k]}</b><span>${ST[k]} · из ${rows.length}</span></div>`).join("");
+  tiles.innerHTML = MAP.map((r, i) => r.length === 1 ? `<span class="pf-grp">${esc(r[0])}</span>`
+    : `<button type="button" class="pf-tile ${r[4] === "cut" ? "" : r[4]}" data-tile="${i}" aria-pressed="false"><code>${r[0]}</code>${esc(r[1])}</button>`).join("");
+  function paintTile(i){
+    const r = MAP[i];
+    $$("[data-tile]").forEach((b) => b.setAttribute("aria-pressed", String(+b.dataset.tile === i)));
+    tdet.innerHTML = `<div class="pf-h3"><h3>${r[0]} · ${esc(r[1])}</h3><span class="pill ${r[4] === "ok" ? "ok" : r[4] === "wait" ? "wait" : r[4] === "bad" ? "bad" : "acc"}">${ST[r[4]]}</span></div>
+      <div class="kv"><span>экран</span><span>${esc(r[2])}</span><span>исполнитель</span><span><code>${esc(fill(r[3]))}</code></span>${r[5] ? `<span>заметка</span><span>${esc(r[5])}</span>` : ""}</div>
+      ${r[6] ? `<button type="button" data-show="${r[6]}" style="align-self:flex-start">показать экран</button>` : ""}`;
+  }
+  tiles.addEventListener("click", (e) => { const b = e.target.closest("[data-tile]"); if (b) paintTile(+b.dataset.tile); });
+
+
+  /* ---- точки: имена контрактов points и host-points ---- */
+  const PT = {
+    PT1: "points.save @host-points · points.list { sid } @points",
+    PT2: "points.list { sid } · points.get { ids } @points",
+    PT3: "points.save { stop } · points.raise @host-points",
+    PT4: "points.raise { dryRun } @host-points",
+    PT5: "points.save { stop } · points.raise { files } @host-points",
+    PT6: "points.list — line @points · points.raise @host-points",
+    PT7: "points.list @points",
+    PT8: "points.delete @points",
+    PT9: "points.list @points · points.raise @host-points · ledger.read @ledger",
+    PT11: "—",
+    PTMAN: `// web/pult/modules/points/module.json
+{ "name": "pult-points", "type": "web",
+  "version": "1.0.0",
+  "provides": { "points": 1 },
+  "uses": { "roster@relay": 1,
+    "points.list@points": 1,
+    "points.get@points": 1,
+    "points.delete@points": 1,
+    "points.save@host-points": 1,
+    "session.r2@host-points": 1,
+    "session.remove@host-manage": 1,
+    "points.raise@host-points": 1,
+    "machine.slots@host-slots": 1,
+    "ledger.read@ledger": 1,
+    "card@web-card": 1 } }
+// экран points: #points — обзор; с callsign —
+// вкладка «Точки» в карточке сессии (app.open в место):
+// стрелка от points к карточке, не наоборот`,
+    ET196: "1 · <code>points.raise</code> к pc с <code>dryRun: true</code> → «тот же репозиторий, своих правок нет». 2 · <code>points.save { callsign: \"site@laptop\", stop: true }</code> → <code>{ point: 42 }</code>. 3 · <code>points.raise</code> к pc с <code>point: 42</code>, <code>slot: \"main\"</code>, <code>files: \"point\"</code> → <code>{ callsign: \"site@pc\" }</code> → «site перенесена на pc». Вкладку закрыли после шага 2: site@laptop в roster остановлена; новое «Перенести» начинает с <code>points.save</code>, тот отвечает <code>same</code> — та же точка 42.",
+    ET197: "Плашка «mac не на связи с 03:12 · 2 сессии ждут на последних точках». «Перенести 2 из 2 на laptop»: по <code>dryRun</code> на каждую; затем <code>points.raise</code> для notes, и только после его ответа — для scrape; <code>points.save</code> не шлётся — mac нет. Ход — «1 из 2», потом «2 из 2». Ответ <code>open_failed</code> по одной сессии — строка «не поднялась», вторая идёт дальше."
+  };
+  function fill(s){ return String(s).replace(/%(\w+)%/g, (m, k) => (k in PT ? PT[k] : m)); }
+
+
+  /* ---- эталоны: [номер, вход, должно, чьё, показать] ---- */
+  const ETS = [
+    [190, "Нет аккаунта corp на laptop. «Новый аккаунт» → laptop, corp → «Войти»; ответ <code>machine.login</code> — <code>url</code>. В поле вставлен код <code>Xk2p…#Qm9w…</code> → «Отправить».",
+      "Один <code>machine.login_code { machine: \"laptop\", account: \"corp\", code: \"Xk2p…#Qm9w…\" }</code> — код как есть, без шифра. Кода нет ни в одном разделе хранилища страницы; после ответа поле пустое. Ответ <code>{ email, plan }</code> → «Вошёл: corp@… · max».",
+      "чьё: слово пользователя 31 окт. — вход по ссылке и коду с пульта, как в claude-fleet; «в первом релизе вообще вырежем всё шифрование» — нет шифрования кода входа в браузере.", "login:code"],
+    [191, "Тот же вход; на <code>machine.login_code</code> поддельный relay отвечает <code>bad_code</code>.",
+      "Карточка «Код не принят — вход закрыт» с кнопкой «Войти заново»; второго <code>machine.login_code</code> пульт не шлёт; поле кода пустое. «Войти заново» — новый <code>machine.login</code>.",
+      "чьё: код claude-fleet — «Не вышло: …» без повтора; устав — «Система ловит, агент чинит»: отказ словом, без самопочинки.", "login:bad"],
+    [192, "y0902@… вошёл на laptop и pc. <code>machine.accounts</code>: у laptop five_hour <code>0.04</code> от 14:40 (<code>src: \"poll\"</code>), у pc — <code>0.09</code> от 14:55 (<code>src: \"event\"</code>) и seven_day <code>0.66</code> от 14:58 (<code>src: \"laptop\"</code>). Открыт экран «Аккаунты».",
+      "Каждой машине — <code>machine.accounts { max_age: 120 }</code>. <code>account.usage</code>: к laptop — окна pc с <code>src: \"pc\"</code> и только своими наблюдениями (five_hour 0.09); к pc — five_hour 0.04 с <code>src: \"laptop\"</code>. Окно с <code>src</code> — имя машины — дальше не пересылается. Своего сравнения «что свежее» в коде пульта нет: в карточке — запись одной машины, как пришла.",
+      "чьё: код claude-fleet — лимиты аккаунта по подписи со всех компьютеров; слово пользователя 31 окт. — «выбирает Host, пульт подсказывает расход тех же аккаунтов на других машинах».", "acc:list"],
+    [193, "Слот main на laptop: в слоте y0902, запас infirex и work3. «Сменить сейчас» → «следующего по порядку». Второй прогон: на тот же запрос поддельный relay отвечает <code>no_reserve</code>.",
+      "<code>slot.swap { machine: \"laptop\", slot: \"main\" }</code> без <code>account</code>; ответ <code>{ from, to }</code> → в карточке слота <code>to</code>. Во втором — «В запасе нет вошедшего ниже порога», слот на экране прежний, повторного запроса нет.",
+      "чьё: слово пользователя 31 окт. — слоты по дизайну claude-fleet: «Сменить сейчас», «следующий выбирает Смотритель сам»; устав — ошибки словами.", "slot:manual"],
+    [194, "Экран «Слоты» открыт; запросов в полёте нет. Приходит roster: у site, wiki и profiles <code>account</code> было <code>infirex</code>, стало <code>y0902</code>.",
+      "До roster пульт не послал ни одного запроса о подмене. После — один <code>machine.slots</code> и один <code>machine.accounts</code> к laptop; в карточке — «в слоте: y0902»; в чате site — строка «⇄ аккаунт: infirex → y0902». Порога в коде пульта нет.",
+      "чьё: дизайн слотов claude-fleet, раздел «На Пульте» (слово пользователя 31 окт.: слоты — по нему): карточка слота и строка подмены в чате; подмену делает машина, пульт подсказывает.", "slot:swap"],
+    [195, "В roster laptop и pc. На <code>machine.upgrade { version: \"latest\", dryRun: true }</code> laptop отвечает <code>{ from: \"1.4.1\", to: \"1.4.1\" }</code>, pc — <code>{ from: \"1.4.0\", to: \"1.4.1\" }</code>. Открыт «Машины»; на pc «Обновить до 1.4.1». Второй прогон: ответ <code>check_failed</code>.",
+      "У pc — «есть новая версия · 1.4.1», у laptop — нет. Уходит <code>machine.upgrade { machine: \"pc\", version: \"latest\" }</code>; поля версии в диалоге нет. Ответ <code>{ from, to, sdk }</code>; pc ушла из roster — карточка «обновляется»; вернулась — <code>machine.state</code>: 1.4.1. Во втором — «Новая версия не прошла проверку», pc на 1.4.0, повтора нет.",
+      "чьё: слово пользователя 31 окт. — новые версии Host — выпуски в R2, их выкладывает локальный агент или выпуск GitHub, машины берут оттуда; код claude-fleet — «Обновить до X» только у отстающего компьютера и итог «H: A → B»; устав — обновление Host при той же версии SDK сессий не останавливает.", "mach:upd"],
+    [196, "site@laptop отвечает. «Перенести…» → pc, слот main, папка <code>~/Projects/site</code>; проверка папки — «тот же репозиторий, своих правок нет» → «Перенести на pc». После первого ответа вкладку закрывают и открывают снова.",
+      "%ET196%",
+      "чьё: код claude-fleet — перенос: свежая точка на исходном, подъём на целевом, «Сорвётся — сессия останется на исходном»; проверка папки на целевом до кнопки.", "move:dlg"],
+    [197, "mac нет в roster с 03:12 (<code>machine.left</code> в ledger); у реестра точек головы notes и scrape — с callsign <code>@mac</code>. Открыт «Точки».",
+      "%ET197%",
+      "чьё: код claude-fleet — пожар: компьютер пропал, его сессии ждут на последних точках, «Перенести k из N», ход — баннером; вернувшийся компьютер отдаёт сессии, дописанное — веткой.", "fire:dlg"],
+    [198, "«Только в R2»: old-bot (голова — callsign машины из roster, самой сессии в roster нет). «Удалить…»; введено «old-bo», потом «old-bot».",
+      "С «old-bo» кнопка недоступна, запросов нет. С «old-bot» — <code>points.delete { sid }</code>; ответ <code>{ points: 57 }</code> → строка пропала, «old-bot удалена — 57 точек». Сессии в roster пульт удалять не предлагает.",
+      "чьё: код claude-fleet — удаление «только в R2» только после ввода имени сессии; живую сессию оттуда не удаляют.", "pts:del"],
+    [262, "В roster у wiki@laptop поля r2 нет; открыта вкладка «Точки». Нажато «Хранить в R2». Второй прогон: у wiki <code>r2: {}</code>; галочку сняли, введено «wik», потом «wiki».",
+      "Первый: экран «не в R2», <code>points.list</code> и <code>points.get</code> не отправлены, кнопок переноса, копии, отката и смены папки нет; затем один <code>session.r2 { callsign: \"wiki@laptop\", on: true }</code>, ответ <code>{ point: 1 }</code>. Второй: с «wik» кнопка «Убрать из R2» недоступна, запросов нет; с «wiki» — <code>session.r2 { on: false }</code>, ответ <code>{ deleted: 12 }</code> → «12 точек удалено»; <code>points.delete</code> пульт не шлёт, отмены нет.",
+      "чьё: слово пользователя 31 окт. — «не все сессии нужны в R2. Мы должны помечать сессию как R2, чтобы она трекалась»; «удаление из R2 — сразу»; код claude-fleet — удаление только после ввода имени сессии.", "r2:unmark"],
+    [261, "site@laptop в R2, папка ~/Projects/site. Вкладка «Точки» → «Сменить папку…» → ~/Projects/site-v2, имя site-v2 → «Скопировать и забыть». Второй прогон: на <code>points.raise</code> поддельный relay отвечает <code>open_failed</code>.",
+      "По одному, каждый после ответа предыдущего: <code>points.save { callsign: \"site@laptop\", stop: true }</code> → <code>points.raise { machine: \"laptop\", point: 42, copy: true, name: \"site-v2\", dir: \"~/Projects/site-v2\", files: \"keep\" }</code> → после ответа с callsign site-v2@laptop — <code>session.remove</code> для site@laptop. Во втором — «Копия не поднялась», <code>session.remove</code> не отправлен, site@laptop в roster остановлена.",
+      "чьё: слово пользователя 31 окт. — «смена папки сессии — копия + „Забыть“»; устав — «Система ловит, агент чинит»: отказ словом, без обходных путей.", "move:dir"],
+    [263, "site@laptop в R2, в roster <code>remote.url</code> — …session_01Pf…. Откат к точке 10:00 на той же машине и аккаунте → «Откатить к 10:00».",
+      "В диалоге — «Привязка к claude.ai снимется». Уходят <code>points.save { stop: true }</code>, затем <code>points.raise</code> с точкой 38. После ответа в roster у site <code>remote.url</code> — …session_02Qx…, кнопка «В claude.ai» ведёт на неё. Пульт сам привязку не трогает и модуль remote не зовёт.",
+      "чьё: слово пользователя 31 окт. — «откат к точке на той же машине и аккаунте — снимать привязку claude.ai, как во флите»; код claude-fleet — откат: «привязка claude.ai снята».", "ses:rb"]
+  ];
+  $("#panel-fleet-etlist").innerHTML = ETS.map(([n, i, o, s, sh]) => `<div class="et chg" id="panel-fleet-et-${n}" data-chg="panel-fleet-et-${n}"><div class="et-n">${n}</div><div class="et-in">${i}</div><div class="et-out">${fill(o)}<br><button type="button" data-show="${sh}" style="margin-top:6px">показать</button></div><div class="et-src">${s}</div></div>`).join("");
+
+  /* ---- чего нет в контрактах ---- */
+  const GAPS = [
+    ["host-accounts", "отмены идущего входа нет", "Не нужна: «Скрыть» убирает карточку с экрана, процесс входа закроется следующим «Войти» этого аккаунта или перезапуском Host. Брошенный вход ничего не держит."],
+  ];
+  $("#panel-fleet-gaps").innerHTML = `<div class="shead"><h3>Чего нет в контрактах</h3></div>` + GAPS.map(([o, w, t]) => `<div class="pf-gap2"><div class="h"><span class="pill wait">${esc(o)}</span><b>${esc(w)}</b></div><p>${t}</p></div>`).join("");
+
+
+  function paintIO(state){
+    const d = IO[shot];
+    if (!d) return;
+    $("#panel-fleet-io-t").textContent = d.t;
+    $("#panel-fleet-io-m").textContent = "модуль " + d.m;
+    $("#panel-fleet-io-x").textContent = d.x;
+    const li = (arr, dir) => arr.map(([n, o, w, sts]) => {
+      const hot = sts && sts.split(" ").includes(state);
+      return `<li class="${hot ? "hot" : ""}"><em class="${dir === "←" ? "in" : ""}">${dir}</em><code>${esc(fill(n))}${o ? ` <small>@${esc(fill(o))}</small>` : ""}</code><span>${esc(fill(w))}</span></li>`;
+    }).join("");
+    $("#panel-fleet-io-s").innerHTML = li(d.s, "→");
+    $("#panel-fleet-io-r").innerHTML = li(d.r, "←");
+    $("#panel-fleet-io-e").innerHTML = d.e.map(([w, t]) => `<li><em class="no">×</em><code>${esc(w)}</code><span>${esc(t)}</span></li>`).join("");
+    const code = d.c[state] || d.c[Object.keys(d.c)[0]];
+    $("#panel-fleet-io-c").textContent = fill(code);
+    const g = $("#panel-fleet-io-g");
+    g.hidden = !d.g; g.innerHTML = d.g || "";
+  }
+
+  paint();
+  paintMod("acc");
+  paintTile(MAP.findIndex((r) => r[0] === "В30"));
+  document.addEventListener("view:show", (e) => { if (e.detail === "panel-fleet") paint(); });
+})();
+</script>

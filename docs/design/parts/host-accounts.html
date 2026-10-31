@@ -1,0 +1,810 @@
+<style>
+  /* accounts: своя папка и одно место (папки по переключателю), вход по ссылке и коду (последовательность по шагам),
+     жизнь аккаунта (состояния и запросы), лимиты (три источника → запись), разъёмы, контракт, сбои, эталоны.
+     Вход — акцент, код входа — --wait (секрет), отказ — --bad, «не трогаем» — --ok. */
+  [data-view="host-accounts"] .et{padding:0}
+  [data-view="host-accounts"] .et code{overflow-wrap:anywhere}
+  [data-view="host-accounts"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="host-accounts"] .ha-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="host-accounts"] .ha-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="host-accounts"] pre.ha-pre{white-space:pre;word-break:normal}
+  [data-view="host-accounts"] svg.ha-svg{display:block;width:100%;height:auto;max-width:460px;margin-inline:auto}
+  [data-view="host-accounts"] .ha-flash{outline:2px solid var(--accent);outline-offset:3px;border-radius:12px}
+  [data-view="host-accounts"] .ha-chips{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="host-accounts"] .ha-chips button{border-radius:999px;padding:6px 12px;font-size:12.5px;background:var(--surface2)}
+  [data-view="host-accounts"] .ha-chips button code{font-size:12px}
+  [data-view="host-accounts"] .ha-chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-accounts"] .ha-etl{font-size:12.5px;padding:5px 10px}
+
+  /* общие куски SVG */
+  [data-view="host-accounts"] .ha-svg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="host-accounts"] .ha-svg .bx.on{stroke:var(--accent);stroke-width:2.4}
+  [data-view="host-accounts"] .ha-svg .bx.ghost{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="host-accounts"] .ha-svg .bx.keep{fill:var(--ok-weak);stroke:var(--ok)}
+  [data-view="host-accounts"] .ha-svg .fl{fill:var(--surface2);stroke:var(--line2);stroke-width:1.2}
+  [data-view="host-accounts"] .ha-svg .fl.login{fill:var(--accent-weak);stroke:var(--accent);stroke-width:1.6}
+  [data-view="host-accounts"] .ha-svg .fl.gone{fill:none;stroke:var(--line);stroke-dasharray:4 4}
+  [data-view="host-accounts"] .ha-svg .tn{fill:var(--ink);font:600 12.5px var(--mono)}
+  [data-view="host-accounts"] .ha-svg .tf{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="host-accounts"] .ha-svg .tf.acc{fill:var(--accent)}
+  [data-view="host-accounts"] .ha-svg .tf.mut{fill:var(--muted);font-weight:500}
+  [data-view="host-accounts"] .ha-svg .ts{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="host-accounts"] .ha-svg .ts.r{text-anchor:end}
+  [data-view="host-accounts"] .ha-svg .tk{fill:var(--ok);font:600 10.5px var(--mono)}
+  [data-view="host-accounts"] .ha-svg .ed{stroke:var(--muted);stroke-opacity:.5;stroke-width:1.8;fill:none}
+  [data-view="host-accounts"] .ha-svg .ed.on{stroke:var(--accent);stroke-opacity:1;stroke-width:2.6}
+  [data-view="host-accounts"] .ha-svg .ed.bad{stroke:var(--bad);stroke-opacity:1;stroke-dasharray:5 4}
+  [data-view="host-accounts"] .ha-svg .ah{fill:var(--muted);fill-opacity:.6}
+  [data-view="host-accounts"] .ha-svg .ah.on{fill:var(--accent);fill-opacity:1}
+  [data-view="host-accounts"] .ha-svg .ah.key{fill:var(--wait);fill-opacity:1}
+  [data-view="host-accounts"] .ha-svg .ah.bad{fill:var(--bad);fill-opacity:1}
+  [data-view="host-accounts"] .ha-svg .el{fill:var(--muted);font:500 10.5px var(--mono);paint-order:stroke;stroke:var(--surface2);stroke-width:4px;stroke-linejoin:round}
+  [data-view="host-accounts"] .ha-svg .el.on{fill:var(--accent);font-weight:600}
+
+  /* своя папка */
+  [data-view="host-accounts"] .ha-why .qsvg .bad{stroke:var(--bad);stroke-width:2}
+  [data-view="host-accounts"] .ha-why .qsvg .badt{fill:var(--bad);font:600 10.5px var(--body)}
+  [data-view="host-accounts"] .ha-why .qsvg .okt{fill:var(--ok);font:600 10.5px var(--body)}
+  [data-view="host-accounts"] .ha-why .qsvg .bx.ok{stroke:var(--ok);fill:var(--ok-weak)}
+  [data-view="host-accounts"] .ha-dirs{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-accounts"] .ha-dirs{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-accounts"] .ha-dirs>*{min-width:0}
+  [data-view="host-accounts"] .ha-fig{background:var(--surface2);padding:12px 8px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+  @media (max-width:820px){[data-view="host-accounts"] .ha-fig{border-right:0;border-bottom:1px solid var(--line)}}
+  [data-view="host-accounts"] .ha-fig .ha-chips{justify-content:center}
+  [data-view="host-accounts"] .ha-side{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-accounts"] .ha-side .cap{font-size:14.5px;min-height:0}
+  [data-view="host-accounts"] .ha-rules{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+  [data-view="host-accounts"] .ha-rules li{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border-radius:10px;background:var(--surface2);font-size:13.5px}
+  [data-view="host-accounts"] .ha-rules b{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+
+  /* вход по шагам */
+  [data-view="host-accounts"] .ha-login{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-accounts"] .ha-login{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-accounts"] .ha-login>*{min-width:0}
+  [data-view="host-accounts"] .ha-seq .lh{fill:var(--surface);stroke:var(--line);stroke-width:1.4}
+  [data-view="host-accounts"] .ha-seq .lh.me{fill:var(--accent-weak);stroke:var(--accent)}
+  [data-view="host-accounts"] .ha-seq .lh.ext{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="host-accounts"] .ha-seq .lt{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="host-accounts"] .ha-seq .ll{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 4}
+  [data-view="host-accounts"] .ha-seq .m{stroke:var(--ink);stroke-opacity:.6;stroke-width:1.6;fill:none}
+  [data-view="host-accounts"] .ha-seq .ml{fill:var(--ink);font:500 10.5px var(--mono);paint-order:stroke;stroke:var(--surface2);stroke-width:4px;stroke-linejoin:round}
+  [data-view="host-accounts"] .ha-seq .nt{fill:var(--surface);stroke:var(--wait);stroke-width:1.2}
+  [data-view="host-accounts"] .ha-seq .ntt{fill:var(--wait);font:600 10.5px var(--body)}
+  [data-view="host-accounts"] .ha-seq .no{fill:var(--muted);font:500 10px var(--mono)}
+  [data-view="host-accounts"] .ha-seq .st.key .m{stroke:var(--wait);stroke-opacity:1}
+  [data-view="host-accounts"] .ha-seq .st.key .ml{fill:var(--wait)}
+  [data-view="host-accounts"] .ha-seq .st.on .m{stroke:var(--accent);stroke-opacity:1;stroke-width:2.6}
+  [data-view="host-accounts"] .ha-seq .st.on .ml{fill:var(--accent);font-weight:600}
+  [data-view="host-accounts"] .ha-seq .st.on.key .m{stroke:var(--wait)}
+  [data-view="host-accounts"] .ha-seq .st.on.key .ml{fill:var(--wait)}
+  [data-view="host-accounts"] .ha-seq .st.on .nt{stroke-width:2.2}
+  [data-view="host-accounts"] .ha-seq .st.fut{opacity:.3}
+  [data-view="host-accounts"] .ha-seq .hit{fill:transparent;cursor:pointer}
+  [data-view="host-accounts"] .ha-seq .hit:hover{fill:var(--accent-weak);fill-opacity:.35}
+  [data-view="host-accounts"] .ha-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto}
+  [data-view="host-accounts"] .ha-notes{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+
+  /* жизнь аккаунта */
+  [data-view="host-accounts"] .ha-life{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:860px){[data-view="host-accounts"] .ha-life{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-accounts"] .ha-life>*{min-width:0}
+  [data-view="host-accounts"] .ha-st .sn{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="host-accounts"] .ha-st .sn.ghost{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="host-accounts"] .ha-st .sn.bad{stroke:var(--bad)}
+  [data-view="host-accounts"] .ha-st g.on .sn{stroke:var(--accent);stroke-width:2.4;fill:var(--accent-weak)}
+  [data-view="host-accounts"] .ha-st .snt{fill:var(--ink);font:600 12px var(--mono)}
+  [data-view="host-accounts"] .ha-st .sns{fill:var(--muted);font:500 10px var(--body)}
+  [data-view="host-accounts"] .ha-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host-accounts"] .ha-steps li{display:grid;grid-template-columns:6.2em minmax(0,1fr);gap:10px;padding:7px 0 7px 10px;border-left:3px solid var(--line);font-size:13.5px}
+  [data-view="host-accounts"] .ha-steps li.c{border-left-color:var(--muted)}
+  [data-view="host-accounts"] .ha-steps li.a{border-left-color:var(--accent)}
+  [data-view="host-accounts"] .ha-steps li.x{border-left-color:var(--bad)}
+  [data-view="host-accounts"] .ha-steps b{font:600 11.5px var(--mono);color:var(--muted);padding-top:1px}
+  [data-view="host-accounts"] .ha-steps span{min-width:0;overflow-wrap:anywhere}
+  @media (max-width:420px){[data-view="host-accounts"] .ha-steps li{grid-template-columns:minmax(0,1fr);gap:2px}}
+
+  /* лимиты */
+  [data-view="host-accounts"] .ha-lim{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-accounts"] .ha-lim{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-accounts"] .ha-lim>*{min-width:0}
+  [data-view="host-accounts"] .ha-acc{border:1.5px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--surface)}
+  [data-view="host-accounts"] .ha-acc .hd{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font:600 13px var(--mono)}
+  [data-view="host-accounts"] .ha-acc .hd span{font:500 12px var(--body);color:var(--muted)}
+  [data-view="host-accounts"] .ha-bar{display:grid;grid-template-columns:5.6em minmax(0,1fr) 7.6em;gap:8px;align-items:center;font-size:12px}
+  [data-view="host-accounts"] .ha-bar>span:first-child{font:600 11px var(--mono);color:var(--muted)}
+  [data-view="host-accounts"] .ha-bar>span:last-child{font:500 11.5px var(--mono);text-align:right}
+  [data-view="host-accounts"] .ha-bar .tr{height:8px;border-radius:4px;background:var(--line2);position:relative;overflow:hidden}
+  [data-view="host-accounts"] .ha-bar .tr i{position:absolute;inset:0 auto 0 0;background:var(--ok);border-radius:4px}
+  [data-view="host-accounts"] .ha-bar .tr i.w{background:var(--wait)}
+  [data-view="host-accounts"] .ha-bar.new>span:last-child{color:var(--accent);font-weight:600}
+  [data-view="host-accounts"] .ha-src{font:500 11.5px var(--mono);color:var(--muted)}
+
+  /* разъёмы */
+  [data-view="host-accounts"] .ha-io{display:grid;grid-template-columns:minmax(0,1fr) 9.5em minmax(0,1fr);overflow:hidden}
+  [data-view="host-accounts"] .ha-io .ha-col{padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-accounts"] .ha-io .ha-col.claude{background:var(--surface2)}
+  [data-view="host-accounts"] .ha-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:14px 8px;background:var(--accent-weak);border-inline:1px solid var(--line)}
+  [data-view="host-accounts"] .ha-mid b{font:700 17px var(--disp);color:var(--accent)}
+  [data-view="host-accounts"] .ha-mid span{font:500 11.5px var(--mono);color:var(--muted);text-align:center}
+  [data-view="host-accounts"] .ha-dl{display:grid;grid-template-columns:8.6em minmax(0,1fr);gap:7px 10px;margin:0;font-size:13px}
+  [data-view="host-accounts"] .ha-dl dt{font:600 10.5px/1.9 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-accounts"] .ha-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  [data-view="host-accounts"] .ha-dl dd.no{color:var(--muted)}
+  [data-view="host-accounts"] .ha-dl code{font-weight:600}
+  [data-view="host-accounts"] .ha-dl .ex{display:inline-block;font:600 10px var(--mono);color:var(--wait);background:var(--wait-weak);border-radius:6px;padding:1px 6px;margin-left:2px}
+  @media (max-width:760px){
+    [data-view="host-accounts"] .ha-io{grid-template-columns:minmax(0,1fr)}
+    [data-view="host-accounts"] .ha-mid{flex-direction:row;border-inline:0;border-block:1px solid var(--line);padding:10px}
+  }
+  @media (max-width:420px){[data-view="host-accounts"] .ha-dl{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-accounts"] .ha-dl dd{margin-bottom:6px}}
+  [data-view="host-accounts"] .ha-uses{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  @media (max-width:640px){[data-view="host-accounts"] .ha-uses{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-accounts"] .ha-uses li{background:var(--surface2);border-radius:9px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:2px;min-width:0}
+  [data-view="host-accounts"] .ha-uses code{font-weight:600;overflow-wrap:anywhere}
+  [data-view="host-accounts"] .ha-uses span{color:var(--muted)}
+
+  /* контракт и сбои */
+  [data-view="host-accounts"] .ha-api{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  @media (max-width:820px){[data-view="host-accounts"] .ha-api{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-accounts"] .ha-api>div{display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host-accounts"] .ha-api h3{font:600 13.5px var(--mono)}
+  [data-view="host-accounts"] .ha-api p{font-size:13px;color:var(--muted)}
+  [data-view="host-accounts"] .ha-words{display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="host-accounts"] .ha-words code{font-weight:600;color:var(--bad)}
+  [data-view="host-accounts"] .ha-br{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host-accounts"] .ha-br li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,.7fr);gap:12px;padding:8px 0 8px 12px;border-left:3px solid var(--line);font-size:13.5px}
+  [data-view="host-accounts"] .ha-br li.st{border-left-color:var(--bad)}
+  [data-view="host-accounts"] .ha-br li.ok{border-left-color:var(--ok)}
+  [data-view="host-accounts"] .ha-br li.hd{border-left-color:transparent;font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding-block:2px}
+  [data-view="host-accounts"] .ha-br b{font-weight:600}
+  [data-view="host-accounts"] .ha-br span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host-accounts"] .ha-br i{font-style:normal;color:var(--muted)}
+  @media (max-width:560px){[data-view="host-accounts"] .ha-br li{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-accounts"] .ha-br li.hd{display:none}}
+  [data-view="host-accounts"] .ha-stop{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding-top:12px;border-top:1px solid var(--line)}
+</style>
+
+<header class="vhead chg" data-chg="host-accounts-head">
+  <span class="pill acc kind">модуль приложения Claude SDK</span>
+  <h1>accounts</h1>
+  <p class="lead">Аккаунты Claude на машине. Host — программа на каждой машине, через которую идут все сессии Claude Code; accounts — его модуль. С пульта или телефона он впускает ещё один аккаунт по ссылке и коду, проверяет вход, знает почту, тариф и лимиты, удаляет аккаунт. У каждого аккаунта своя папка Claude, поэтому вход, почта и опрос лимитов не смешиваются через общие настройки машины. Аккаунт живёт ровно в одном месте: в своей папке или в слоте.</p>
+  <div class="names">
+    <span><b>аккаунт</b> имя на машине: y0902, corp</span>
+    <span><b>папка аккаунта</b> своя папка Claude: почта, тариф, вход</span>
+    <span><b>вход</b> файл, который claude перечитывает перед вызовом модели</span>
+    <span><b>слот</b> папка входа, в которой работают сессии</span>
+    <span><b>окно</b> five_hour, seven_day: доля и час сброса</span>
+  </div>
+  <p class="hint">Где аккаунт работает и как меняется у живых сессий — <a href="#host-slots">slots</a>; профиль сессии — <a href="#host-profiles">profiles</a>.</p>
+</header>
+
+<!-- ===== СВОЯ ПАПКА И ОДНО МЕСТО ===== -->
+<section class="chg" data-chg="host-accounts-dir">
+  <div class="shead">
+    <h2>Своя папка — и вход в одном месте</h2>
+    <p>Всё, что accounts делает с аккаунтом, — вход, проверка, опрос лимитов — идёт короткими процессами claude с папкой этого аккаунта. Папка Claude машины — вход вашего Claude Code в терминале и редакторе — не трогается.</p>
+  </div>
+  <div class="vars ha-why">
+    <div class="var"><span class="t">Общая папка Claude машины</span>
+      <svg class="qsvg" viewBox="0 0 300 116" role="img" aria-label="Аккаунты infirex, y0902 и ваш Claude Code пишут почту в один файл ~/.claude.json: там почта последнего входа">
+        <rect class="bx" x="6" y="8" width="96" height="26" rx="6"/><text class="tx" x="54" y="25" text-anchor="middle">infirex</text>
+        <rect class="bx" x="6" y="45" width="96" height="26" rx="6"/><text class="tx" x="54" y="62" text-anchor="middle">y0902</text>
+        <rect class="bx" x="6" y="82" width="96" height="26" rx="6"/><text class="tx" x="54" y="99" text-anchor="middle">ваш claude</text>
+        <path class="ln dim" d="M102 21C136 21 140 46 168 46M102 58H168M102 95C136 95 140 70 168 70"/>
+        <rect class="bx bad" x="168" y="28" width="126" height="58" rx="8"/>
+        <text class="tx" x="231" y="48" text-anchor="middle">~/.claude.json</text>
+        <text class="badt" x="231" y="64" text-anchor="middle">почта — того,</text>
+        <text class="badt" x="231" y="78" text-anchor="middle">кто вошёл последним</text>
+      </svg>
+      <ul><li>вход аккаунта переписывает почту всей машины — и у вашего Claude Code</li><li>опрос лимитов y0902 отвечает по профилю, записанному последним: в claude-fleet так приходили лимиты чужого аккаунта (живое 30 окт.)</li></ul></div>
+    <div class="var rec"><span class="t">Своя папка у каждого аккаунта</span>
+      <svg class="qsvg" viewBox="0 0 300 116" role="img" aria-label="infirex и y0902 пишут в свои папки accounts/infirex и accounts/y0902; ~/.claude машины не трогается">
+        <rect class="bx" x="6" y="8" width="96" height="26" rx="6"/><text class="tx" x="54" y="25" text-anchor="middle">infirex</text>
+        <rect class="bx" x="6" y="45" width="96" height="26" rx="6"/><text class="tx" x="54" y="62" text-anchor="middle">y0902</text>
+        <rect class="bx" x="6" y="82" width="96" height="26" rx="6"/><text class="tx" x="54" y="99" text-anchor="middle">ваш claude</text>
+        <path class="ln" d="M102 21H160M102 58H160"/><path class="ln dim" d="M102 95H160"/>
+        <rect class="bx hi" x="160" y="8" width="134" height="26" rx="6"/><text class="tx" x="227" y="25" text-anchor="middle">accounts/infirex</text>
+        <rect class="bx hi" x="160" y="45" width="134" height="26" rx="6"/><text class="tx" x="227" y="62" text-anchor="middle">accounts/y0902</text>
+        <rect class="bx ok" x="160" y="82" width="134" height="26" rx="6"/><text class="okt" x="227" y="99" text-anchor="middle">~/.claude — свой</text>
+      </svg>
+      <ul><li>почта, тариф и вход — в папке аккаунта, его спрашивают своей папкой</li><li>папка — по документации Claude Code: <code>CLAUDE_CONFIG_DIR</code>, «своя папка — свои настройки и вход claude.ai»</li></ul></div>
+  </div>
+  <div class="card ha-dirs">
+    <div class="ha-fig">
+      <svg class="ha-svg" id="host-accounts-dirs" viewBox="0 0 400 262" role="img" aria-label="Папка аккаунта infirex, папка слота main и папка Claude машины; файл входа лежит либо в папке аккаунта, либо в слоте"></svg>
+      <div class="ha-chips" id="host-accounts-where" role="group" aria-label="Где вход infirex"></div>
+    </div>
+    <div class="ha-side" aria-live="polite">
+      <p class="cap" id="host-accounts-dcap"></p>
+      <span class="lbl">окружение процессов accounts для infirex</span>
+      <div class="codebox"><pre class="ha-pre" id="host-accounts-denv"></pre></div>
+      <ul class="ha-rules">
+        <li><b>одно место</b><span>Вход аккаунта — в его папке или в слоте, не в двух сразу: две копии одного входа ломают друг друга, когда claude обновляет токен.</span></li>
+        <li><b>вход машины — не аккаунт</b><span>Вход по умолчанию в <code>~/.claude</code> accounts не трогает и в слот не отдаёт: нужен он в слоте — «Войти ещё аккаунтом».</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ВХОД ===== -->
+<section class="chg" data-chg="host-accounts-login">
+  <div class="shead">
+    <h2>Войти ещё аккаунтом</h2>
+    <p>С пульта или телефона, без терминала на машине. Ссылку даёт claude, <span class="chg" data-chg="host-accounts-login-tls">код со страницы входа уходит запросом по TLS через relay — шифрования поверх TLS в первом выпуске нет</span>. Пройдите по шагам или нажмите строку схемы.</p>
+  </div>
+  <div class="card ha-login">
+    <div class="ha-fig"><svg class="ha-svg ha-seq" id="host-accounts-seq" viewBox="0 0 400 400" role="img" aria-label="Последовательность входа: machine.login, короткий claude с папкой аккаунта, ссылка, код со страницы claude.ai, machine.login_code по TLS, вход в папке аккаунта"></svg></div>
+    <div class="ha-side">
+      <span class="tstamp" id="host-accounts-sn"></span>
+      <p class="cap" id="host-accounts-scap" aria-live="polite"></p>
+      <span class="lbl" id="host-accounts-sjl"></span>
+      <div class="codebox"><pre class="ha-pre" id="host-accounts-sjs"></pre></div>
+      <div class="ha-nav">
+        <button type="button" id="host-accounts-sprev">← назад</button>
+        <button type="button" class="primary" id="host-accounts-snext">далее →</button>
+        <button type="button" class="ha-etl" data-et="160">эталон 160</button>
+      </div>
+    </div>
+  </div>
+  <div class="card ha-pad">
+    <ul class="ha-notes">
+      <li><b>Методы входа</b> <code>claudeAuthenticate</code> и <code>claudeOAuthCallback</code> есть в коде Agent SDK 0.3.311, в его типах — нет. Вход — исключение из «только документированные интерфейсы»: управление аккаунтами как в claude-fleet, решение пользователя 31 окт.</li>
+      <li><b>Токен не годится.</b> <code>claude setup-token</code> даёт токен только для запросов к модели, а Remote Control требует полный вход — поэтому вход по ссылке и коду.</li>
+      <li class="chg" data-chg="host-accounts-code-secret"><b>Код — секрет.</b> Он только в теле <code>machine.login_code</code>: по TLS от браузера до relay и от relay до Host; relay держит его в памяти и не пишет на диск. Не в аргументах процессов и не в журнале.</li>
+      <li><b>Повтор.</b> Второй <code>machine.login</code> того же аккаунта закрывает первый процесс входа. Брошенный вход живёт до него или до перезапуска Host.</li>
+      <li><b>Вход ложится туда, где живёт аккаунт:</b> новый — в его папку; аккаунт в слоте, у которого вход пропал, — сразу в слот.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ===== ЖИЗНЬ АККАУНТА ===== -->
+<section class="chg" data-chg="host-accounts-life">
+  <div class="shead">
+    <h2>Жизнь аккаунта</h2>
+    <p>Пять состояний и что их меняет. Выберите запрос — загорится переход, справа шаги: кто зовёт и что делает accounts.</p>
+  </div>
+  <div class="card ha-life">
+    <div class="ha-fig">
+      <svg class="ha-svg ha-st" id="host-accounts-st" viewBox="0 0 400 244" role="img" aria-label="Состояния аккаунта: нет, вход идёт, в запасе, в слоте, не вошёл; переходы по запросам machine.login, machine.login_code, account.place, проверке входа и удалению"></svg>
+      <div class="ha-chips" id="host-accounts-reqs" role="group" aria-label="Запросы" style="justify-content:center"></div>
+    </div>
+    <div class="ha-side" aria-live="polite">
+      <h3 id="host-accounts-lt"></h3>
+      <ol class="ha-steps" id="host-accounts-lsteps"></ol>
+      <div class="codebox"><pre class="ha-pre" id="host-accounts-ljs"></pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЛИМИТЫ ===== -->
+<section class="chg" data-chg="host-accounts-limits">
+  <div class="shead">
+    <h2>Лимиты аккаунта</h2>
+    <p>Лимиты сообщает только сам claude. accounts сводит их в одну запись аккаунта из трёх источников; каждое окно — из самого свежего. Нажмите источник — придёт новое значение.</p>
+  </div>
+  <div class="card ha-lim">
+    <div class="ha-fig">
+      <svg class="ha-svg" id="host-accounts-lsvg" viewBox="0 0 400 214" role="img" aria-label="Три источника лимитов: поток сессий слота через slots, опрос короткого claude с папкой аккаунта, другие машины через пульт; все сходятся в запись аккаунта"></svg>
+      <div class="ha-chips" id="host-accounts-lsrc" role="group" aria-label="Источник" style="justify-content:center"></div>
+    </div>
+    <div class="ha-side" aria-live="polite">
+      <div class="ha-acc" id="host-accounts-card"></div>
+      <p class="cap" id="host-accounts-lcap" style="font-size:14px"></p>
+      <span class="lbl" id="host-accounts-lin"></span>
+      <div class="codebox"><pre class="ha-pre" id="host-accounts-ljson"></pre></div>
+    </div>
+  </div>
+  <div class="facts">
+    <div class="fact"><b>по запросу</b><span>опрос без таймера: <code>machine.accounts</code> с <code>max_age</code>, когда открывают «Аккаунты»</span></div>
+    <div class="fact"><b>1</b><span>опрос аккаунта за раз; свежее <code>max_age</code> — не спрашивает</span></div>
+    <div class="fact"><b>0 %</b><span>у окна, чей сброс уже прошёл</span></div>
+    <div class="fact"><b>своя папка</b><span>опрос идёт с папкой аккаунта, не через живые сессии</span></div>
+  </div>
+</section>
+
+<!-- ===== РАЗЪЁМЫ ===== -->
+<section class="chg" data-chg="host-accounts-io">
+  <div class="shead">
+    <h2>С чем accounts работает</h2>
+    <p>Модуль машины, а не сессии: сообщений сессий он не читает. С claude говорит короткими процессами без сессии — через ядро. Жёлтая метка — вне документации Claude Code, по исключению для аккаунтов.</p>
+  </div>
+  <div class="card ha-io">
+    <div class="ha-col claude">
+      <span class="lbl">Claude · через ядро</span>
+      <dl class="ha-dl">
+        <dt>короткий query()</dt><dd><code>claudeAuthenticate</code>, <code>claudeOAuthCallback</code><span class="ex">нет в типах SDK</span>; <code>usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors })</code><span class="ex">экспериментальный</span>; <code>accountInfo()</code> — почта и тариф</dd>
+        <dt>Claude Code</dt><dd><code>claude auth status</code> раз в 2 мин — <code>loggedIn</code> и код выхода</dd>
+        <dt>env</dt><dd><code>CLAUDE_CONFIG_DIR</code> — папка аккаунта; <code>CLAUDE_SECURESTORAGE_CONFIG_DIR</code> — слот, пока аккаунт в нём<span class="ex">нет в документации</span></dd>
+        <dt>сообщения SDK</dt><dd class="no">— лимиты из потока сессий приносит slots запросом <code>account.usage</code></dd>
+        <dt>хуки · canUseTool</dt><dd class="no">—</dd>
+      </dl>
+    </div>
+    <div class="ha-mid"><b>accounts</b><span>один на машину</span></div>
+    <div class="ha-col">
+      <span class="lbl">наружу · через relay</span>
+      <dl class="ha-dl">
+        <dt>пульт, телефон</dt><dd><code>machine.accounts</code>, <code>machine.login</code>, <code>machine.login_code</code>, <code>machine.account_remove</code>, <code>account.usage</code></dd>
+        <dt>модулю slots</dt><dd><code>account.place</code>, <code>account.usage</code></dd>
+        <dt>поля roster</dt><dd class="no">— состояние аккаунтов — в <code>machine.accounts</code></dd>
+        <dt>кадры · MCP</dt><dd class="no">—</dd>
+        <dt>слова ошибок</dt><dd><code>no_account</code>, <code>not_started</code>, <code>bad_code</code>, <code>not_logged_in</code>, <code>in_slot</code></dd>
+      </dl>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card ha-pad">
+      <span class="lbl">чем пользуется у ядра</span>
+      <ul class="ha-uses">
+        <li><code>host.probe({ env })</code><span>короткий claude той же версии без сессии: не в roster, не у keeper; методы — из своих <code>calls</code></span></li>
+        <li><code>host.cli(args, { env })</code><span>команда Claude Code той же версии: <code>auth status</code></span></li>
+        <li><code>host.store()</code><span>записи аккаунтов: почта, тариф, где вход, лимиты</span></li>
+        <li><code>host.log()</code><span>вход, проверка, отказ — строкой в журнал машины</span></li>
+        <li><code>stop()</code><span>закрыть процессы входа и опроса, снять таймер проверки</span></li>
+      </ul>
+    </div>
+    <div class="card ha-pad">
+      <span class="lbl">манифест</span>
+      <div class="codebox"><pre class="ha-pre">// host/modules/accounts/module.json
+{ "name": "host-accounts", "type": "sdk",
+  "version": "1.0.0",
+  "provides": { "machine.accounts": 1,
+    "machine.login": 1, "machine.login_code": 1,
+    "machine.account_remove": 1,
+    "account.usage": 1, "account.place": 1 },
+  "uses": {},
+  "calls": [ "claudeAuthenticate",
+    "claudeOAuthCallback", "accountInfo",
+    "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET" ],
+  "config": {} }</pre></div>
+      <div class="codebox"><pre class="ha-pre">~/.switchboard/
+  accounts/y0902/   своя папка Claude аккаунта
+  store/host-accounts.json   записи аккаунтов</pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КОНТРАКТ ===== -->
+<section class="chg" data-chg="host-accounts-api">
+  <div class="shead">
+    <h2>Контракт</h2>
+    <p>Версия контракта — 1. Запросы адресованы машине (<code>machine</code>). <code>account.place</code> зовёт только slots — это его подмена.</p>
+  </div>
+  <div class="ha-api">
+    <div class="card ha-pad">
+      <h3>machine.accounts</h3>
+      <div class="codebox"><pre class="ha-pre">{ "type": "machine.accounts", "id": "a-1",
+  "v": 1, "machine": "laptop",
+  "max_age": 120 }
+← { "ok": true, "result": { "accounts": {
+  "infirex": { "email": "infirex@…",
+    "plan": "max", "login": "ok",
+    "lent": "~/.switchboard/slots/main",
+    "checked": 1793457000,
+    "limits": {
+      "five_hour": { "utilization": 0.95,
+        "resetsAt": 1793475000,
+        "at": 1793457120, "src": "event" },
+      "seven_day": { "utilization": 0.72, … } } },
+  "y0902": { "login": "ok", "lent": null, … },
+  "corp": { "login": "pending" } } } }</pre></div>
+      <p><code>login</code>: <code>ok</code>, <code>none</code> — вход пропал, <code>pending</code> — вход идёт. <code>lent</code> — папка, куда отдан вход; <code>null</code> — он в папке аккаунта. <code>max_age</code> — сначала опросить лимиты тех, чьи данные старше; без него — что есть. Окна — в именах SDK: <code>utilization</code>, <code>resetsAt</code>.</p>
+    </div>
+    <div class="card ha-pad chg" data-chg="host-accounts-api-login">
+      <h3>machine.login · machine.login_code</h3>
+      <div class="codebox"><pre class="ha-pre">{ "type": "machine.login", "id": "l-1",
+  "v": 1, "machine": "laptop",
+  "account": "corp" }
+← { "ok": true, "result": {
+    "url": "https://claude.ai/oauth/authorize?…" } }
+
+{ "type": "machine.login_code", "id": "l-2",
+  "v": 1, "machine": "laptop",
+  "account": "corp",
+  "code": "Xk2pL…#Qm9vY…" }
+← { "ok": true, "result": {
+    "email": "corp@…", "plan": "max" } }</pre></div>
+      <p>Имя аккаунта на машине — латиница, цифры, <code>-</code> и <code>_</code>. Новое имя — новая папка.</p>
+    </div>
+    <div class="card ha-pad">
+      <h3>account.usage</h3>
+      <div class="codebox"><pre class="ha-pre">{ "type": "account.usage", "id": "u-2",
+  "v": 1, "machine": "laptop",
+  "account": "y0902", "src": "pc",
+  "at": 1793458680, "windows": {
+    "seven_day": { "utilization": 0.66,
+      "resetsAt": 1793869200 } } }
+← { "ok": true }</pre></div>
+      <p>Наблюдение за окнами аккаунта. Шлёт slots — с каждым событием лимита в слоте, <code>src: "event"</code> — и пульт: расход того же аккаунта на другой машине, по почте, <code>src</code> — имя той машины. Свой опрос accounts пишет с <code>src: "poll"</code>. <span class="chg" data-chg="host-accounts-usage-src">Пульт пересылает дальше только наблюдения самой машины — <code>src: "event"</code> или <code>"poll"</code>; наблюдение с именем машины в <code>src</code> дальше не идёт, и две вкладки не гоняют одно окно по кругу.</span></p>
+    </div>
+    <div class="card ha-pad">
+      <h3>account.place · machine.account_remove</h3>
+      <div class="codebox"><pre class="ha-pre">{ "type": "account.place", "v": 1,
+  "account": "y0902",
+  "dir": "~/.switchboard/slots/main" }
+← { "ok": true, "result": {
+    "returned": "infirex",
+    "refreshed": true } }
+
+{ "type": "account.place", "v": 1,
+  "account": "y0902", "dir": null }
+← { "ok": true,
+    "result": { "refreshed": false } }
+
+{ "type": "machine.account_remove", "id": "r-1",
+  "v": 1, "machine": "laptop",
+  "account": "corp" }
+← { "ok": true, "result": { "wiped": true } }</pre></div>
+      <p>Положить вход аккаунта в <code>dir</code>. Там уже чужой вход — сначала он копией уходит своему аккаунту (<code>returned</code>), потом новый ложится заменой файла: в папке всегда целый вход. <code>dir: null</code> — вход домой, переносом. <code>refreshed</code> — claude успел обновить токен. Удаляется только своя папка аккаунта.</p>
+    </div>
+  </div>
+  <div class="card ha-pad">
+    <div class="ha-words">
+      <span class="lbl">слова ошибок</span>
+      <span><code>no_account</code> — такого аккаунта на машине нет</span>
+      <span><code>not_started</code> — <code>machine.login_code</code> без идущего входа этого аккаунта: Host перезапускался или вход начат заново</span>
+      <span><code>bad_code</code> — claude не принял код; процесс входа закрыт, вход — заново</span>
+      <span><code>not_logged_in</code> — <code>account.place</code> аккаунта, у которого нет входа</span>
+      <span><code>in_slot</code> — вход аккаунта отдан в другую папку: класть его ещё куда-то и удалять нельзя</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СБОИ ===== -->
+<section class="chg" data-chg="host-accounts-fail">
+  <div class="shead">
+    <h2>Сбои и остановка</h2>
+    <p>accounts ловит и пишет в журнал. Повторов входа, подбора аккаунтов и самопочинки нет.</p>
+  </div>
+  <div class="card ha-pad">
+    <ul class="ha-br">
+      <li class="hd"><span>сбой</span><span>что видно</span><span>кто поднимает</span></li>
+      <li class="st"><b>Неверный код</b><span>claude отвечает «Request failed with status code 400» — <code>bad_code</code>, процесс входа закрыт</span><i>человек: «Войти» заново</i></li>
+      <li class="st"><b>Host перезапущен посреди входа</b><span>процесс входа умер вместе с Host; <code>machine.login_code</code> — <code>not_started</code>; запись — <code>login: "none"</code></span><i>человек: «Войти» заново</i></li>
+      <li class="st"><b>Вход пропал</b><span><code>claude auth status</code> — не вошёл: <code>login: "none"</code>, строка журнала; slots этот аккаунт в слот не берёт</span><i>человек: «Войти»</i></li>
+      <li class="st"><b>Опрос лимитов не ответил</b><span>прежние окна и <code>err</code> с причиной в записи, строка журнала</span><i>агент по журналу</i></li>
+      <li class="ok"><b>Host перезапущен</b><span>записи аккаунтов, где вход и лимиты — из хранилища; вход — в файлах, его держит claude</span><i>keeper</i></li>
+      <li class="st"><b>Раздел не записался</b><span>ошибка модуля: в roster машины — <code>failed</code>, в журнале — путь и ошибка ОС</span><i>агент по журналу</i></li>
+    </ul>
+    <div class="ha-stop"><span class="pill acc">stop()</span><span>Закрыть процессы входа и опроса, снять таймер проверки. Записи уже на диске: каждая пишется сразу.</span></div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="host-accounts-et">
+  <div class="shead">
+    <h2>Эталоны accounts</h2>
+    <p>Стенд Host: поддельные SDK, relay, keeper и часы; короткий claude и <code>claude auth status</code> — поддельные, отвечают по своему окружению. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="host-accounts-et-160"><div class="et-n">160</div>
+      <div class="et-in">Аккаунта corp на laptop нет. Клиент: <code>machine.login { account: "corp" }</code>, затем <code>machine.login_code</code> с кодом <code>"Xk2…#Qm9…"</code>.</div>
+      <div class="et-out">Короткий claude с <code>CLAUDE_CONFIG_DIR=~/.switchboard/accounts/corp</code>: <code>claudeAuthenticate(true)</code> → ответ <code>{ url }</code>; <code>claudeOAuthCallback("Xk2…", "Qm9…")</code> → ответ <code>{ email, plan }</code>. Вход — в папке corp; <code>~/.claude.json</code> машины байт в байт прежний; кода нет ни в аргументах процессов, ни в журнале.<br><button type="button" class="ha-etl" data-go="login">показать по шагам</button></div>
+      <div class="et-src">чьё: решение пользователя 31 окт. — «такой же подход к аккаунт-менеджменту»: вход по ссылке и коду с пульта; слово пользователя 31 окт. — «в первом релизе вообще вырежем всё шифрование»; чьё: код claude-fleet — вход через <code>claude_authenticate</code> и <code>claude_oauth_callback</code>.</div></div>
+    <div class="et" id="host-accounts-et-161"><div class="et-n">161</div>
+      <div class="et-in">infirex в слоте main, его сессии работают, опрос infirex был 10 с назад; опрос y0902 — 10 мин назад. Поддельный claude отвечает на опрос лимитов по своему <code>CLAUDE_CONFIG_DIR</code>: infirex — 0.83, y0902 — 0.04. Клиент: <code>machine.accounts { max_age: 120 }</code>.</div>
+      <div class="et-out">Один короткий claude — с <code>CLAUDE_CONFIG_DIR=~/.switchboard/accounts/y0902</code>; в ответе у y0902 <code>five_hour</code> — <code>utilization: 0.04, src: "poll"</code>. infirex не опрошен; в процессы сессий запрос не уходит.</div>
+      <div class="et-src">чьё: факт — claude-fleet, живое 30 окт. (hz-win11): опрос лимитов claude отвечает по профилю из общей <code>.claude.json</code>, а не по токену, — опрос одного аккаунта отдавал лимиты другого; слово пользователя 31 окт. — «для каждого профиля нужен свой путь».</div></div>
+    <div class="et" id="host-accounts-et-162"><div class="et-n">162</div>
+      <div class="et-in">y0902 в запасе, corp в слоте bot. Часы: +2 мин. <code>claude auth status</code>: у y0902 — <code>loggedIn: true</code>, у corp — выход 1.</div>
+      <div class="et-out">Два запуска: y0902 — с <code>CLAUDE_CONFIG_DIR</code> его папки; corp — с папкой corp и <code>CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.switchboard/slots/bot</code>. В <code>machine.accounts</code> corp — <code>login: "none"</code>; строка журнала «corp: вход пропал»; файлы входа не тронуты.<br><button type="button" class="ha-etl" data-go="check">показать переход</button></div>
+      <div class="et-src">чьё: решение пользователя 31 окт. — опрос входа <code>claude auth status</code>, как в claude-fleet; чьё: код claude-fleet — раз в 2 мин, с папкой входа аккаунта.</div></div>
+    <div class="et" id="host-accounts-et-163"><div class="et-n">163</div>
+      <div class="et-in">В <code>slots/main</code> — вход infirex; y0902 в запасе. slots: <code>account.place { account: "y0902", dir: "…/slots/main" }</code>, затем то же с <code>dir: "…/slots/bot"</code>.</div>
+      <div class="et-out">После первого: вход infirex — в папке infirex, в <code>slots/main</code> — вход y0902, в папке y0902 входа нет; в <code>machine.accounts</code> у y0902 <code>lent: "…/slots/main"</code>, у infirex <code>lent: null</code>; ответ — <code>returned: "infirex"</code>. Второй — <code>in_slot</code>, файлы не тронуты.<br><button type="button" class="ha-etl" data-go="lend">показать переход</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — слоты по дизайну claude-fleet: «аккаунт живёт ровно в одном месте: в своей папке или в слоте».</div></div>
+    <div class="et" id="host-accounts-et-164"><div class="et-n">164</div>
+      <div class="et-in">corp в запасе, infirex в слоте main. Клиент: <code>machine.account_remove { account: "corp" }</code>, затем то же для infirex.</div>
+      <div class="et-out">Папка <code>accounts/corp</code> удалена, corp пропал из <code>machine.accounts</code>. infirex — <code>in_slot</code>, ничего не удалено. <code>~/.claude</code> и папки других аккаунтов не тронуты; <code>claude auth logout</code> не вызывается.<br><button type="button" class="ha-etl" data-go="remove">показать переход</button></div>
+      <div class="et-src">чьё: код claude-fleet — стирается только своя папка аккаунта, <code>logout</code> не зовётся: он чистит общие настройки; устав — файлы входа и общий <code>~/.claude.json</code> без спроса не трогаешь.</div></div>
+    <div class="et" id="host-accounts-et-165"><div class="et-n">165</div>
+      <div class="et-in">Запись y0902: <code>five_hour</code> 0.04 от 14:40. <code>account.usage</code> от slots: <code>five_hour</code> 0.09 от 14:55. От пульта, <code>src: "pc"</code>: <code>five_hour</code> 0.06 от 14:50 и <code>seven_day</code> 0.66 от 14:58. Потом часы — 16:21; сброс <code>five_hour</code> — 16:20.</div>
+      <div class="et-out">После обоих: <code>five_hour</code> 0.09 (14:55), <code>seven_day</code> 0.66 (pc). В 16:21 <code>machine.accounts</code> отдаёт <code>five_hour</code> с <code>utilization: 0</code>: сброс прошёл.<br><button type="button" class="ha-etl" data-go="limits">показать по шагам</button></div>
+      <div class="et-src">чьё: код claude-fleet — каждое окно из самого свежего источника; окно, чей сброс прошёл, — 0 %; слово пользователя 31 окт. — выбирает Host, пульт подсказывает расход аккаунтов на других машинах.</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== accounts: папки, вход по шагам, жизнь аккаунта, лимиты ===== */
+(function(){
+  const V = "host-accounts";
+  const root = document.querySelector('[data-view="' + V + '"]');
+  if (!root) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = (id) => root.querySelector("#" + V + "-" + id);
+  function S(tag, attrs, parent, text){
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function h(tag, cls, text){ const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function markers(svg, pfx, kinds){
+    const defs = S("defs", {}, svg);
+    kinds.forEach((k) => {
+      const m = S("marker", { id: pfx + (k ? "-" + k : ""), viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
+      S("path", { class: "ah" + (k ? " " + k : ""), d: "M0 0L10 5L0 10z" }, m);
+    });
+  }
+  function chips(box, opts, get, set){
+    const bs = opts.map(([k, html]) => {
+      const b = h("button"); b.type = "button"; b.innerHTML = html;
+      b.addEventListener("click", () => { set(k); sync(); });
+      box.appendChild(b); return [k, b];
+    });
+    function sync(){ bs.forEach(([k, b]) => b.setAttribute("aria-pressed", get(k) ? "true" : "false")); }
+    sync();
+    return { sync };
+  }
+  function flash(el){
+    if (!el) return;
+    const smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (el.scrollIntoView) el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+    el.classList.add("ha-flash"); setTimeout(() => el.classList.remove("ha-flash"), 1600);
+  }
+
+  /* ---------- 1. папки: где лежит вход ---------- */
+  let lent = false;
+  const dirs = $("dirs");
+  function fileRow(g, x, y, name, note, cls){
+    S("rect", { class: "fl" + (cls ? " " + cls : ""), x, y, width: 168, height: 28, rx: 7 }, g);
+    S("text", { class: "tf" + (cls === "login" ? " acc" : cls === "gone" ? " mut" : ""), x: x + 10, y: y + 18 }, g, name);
+    S("text", { class: "ts r", x: x + 160, y: y + 18 }, g, note);
+  }
+  function drawDirs(){
+    dirs.textContent = "";
+    markers(dirs, V + "-da", ["on"]);
+    // папка аккаунта
+    S("rect", { class: "bx" + (lent ? "" : " on"), x: 6, y: 8, width: 188, height: 154, rx: 12 }, dirs);
+    S("text", { class: "tn", x: 16, y: 29 }, dirs, "accounts/infirex/");
+    S("text", { class: "ts", x: 16, y: 45 }, dirs, "своя папка Claude аккаунта");
+    fileRow(dirs, 16, 56, ".claude.json", "почта · тариф");
+    fileRow(dirs, 16, 90, "settings.json", "настройки");
+    fileRow(dirs, 16, 124, lent ? "вход — в слоте" : ".credentials.json", lent ? "" : "вход", lent ? "gone" : "login");
+    // папка слота
+    S("rect", { class: "bx" + (lent ? " on" : ""), x: 206, y: 8, width: 188, height: 154, rx: 12 }, dirs);
+    S("text", { class: "tn", x: 216, y: 29 }, dirs, "slots/main/");
+    S("text", { class: "ts", x: 216, y: 45 }, dirs, "папка входа слота · slots");
+    S("text", { class: "ts", x: 216, y: 74 }, dirs, "сессии слота читают вход");
+    S("text", { class: "ts", x: 216, y: 89 }, dirs, "перед каждым вызовом модели");
+    S("text", { class: "ts", x: 216, y: 114 }, dirs, lent ? "сейчас вход infirex" : "сейчас вход y0902");
+    fileRow(dirs, 216, 124, ".credentials.json", "", "login");
+    // перенос
+    const d = lent ? "M186 138H214" : "M214 146H186";
+    S("path", { class: "ed on", d, "marker-end": "url(#" + V + "-da-on)" }, dirs);
+    S("text", { class: "el on", x: 200, y: 175, "text-anchor": "middle" }, dirs, "account.place");
+    // папка машины
+    S("rect", { class: "bx keep", x: 6, y: 182, width: 388, height: 72, rx: 12 }, dirs);
+    S("text", { class: "tn", x: 16, y: 203 }, dirs, "~/.claude/ · папка Claude машины");
+    S("text", { class: "ts", x: 16, y: 222 }, dirs, "вход по умолчанию — ваш Claude Code");
+    S("text", { class: "ts", x: 16, y: 238 }, dirs, "в терминале и редакторе; разговоры сессий");
+    S("text", { class: "tk", x: 384, y: 203, "text-anchor": "end" }, dirs, "accounts не трогает");
+    $("dcap").innerHTML = lent
+      ? "infirex в слоте main: его вход лежит в папке слота, и все сессии слота работают на нём. В папке аккаунта входа нет — остались почта, тариф и настройки. Вход вернётся в папку, когда slots положит в слот другой аккаунт: <code>account.place</code> сначала отдаёт прежний вход его аккаунту."
+      : "infirex в запасе: вход в его папке, им никто не работает. Почта и тариф всегда в папке аккаунта — их пишет claude при входе. В слоте main сейчас другой аккаунт.";
+    $("denv").textContent = lent
+      ? "CLAUDE_CONFIG_DIR=\n  ~/.switchboard/accounts/infirex\nCLAUDE_SECURESTORAGE_CONFIG_DIR=\n  ~/.switchboard/slots/main\n# вход — там, где он сейчас"
+      : "CLAUDE_CONFIG_DIR=\n  ~/.switchboard/accounts/infirex\n# вход, почта, тариф — в одной папке";
+  }
+  const gWhere = chips($("where"), [["0", "infirex в запасе"], ["1", "infirex в слоте main"]], (k) => String(+lent) === k, (k) => { lent = k === "1"; drawDirs(); });
+  drawDirs();
+
+  /* ---------- 2. вход по шагам ---------- */
+  const LANES = [["браузер", "ext"], ["accounts", "me"], ["claude", ""], ["claude.ai", "ext"]], LX = [50, 150, 250, 350];
+  const STEPS = [
+    { k: "m", a: 0, b: 1, l: "machine.login · corp", c: "on", jl: "запрос клиента",
+      cap: "Пульт или телефон: «Войти ещё аккаунтом» на laptop, имя на машине — corp. relay везёт запрос машине как есть.",
+      js: '{ "type": "machine.login", "id": "l-1",\n  "v": 1, "machine": "laptop",\n  "account": "corp" }' },
+    { k: "m", a: 1, b: 2, l: "query() · папка corp", c: "", jl: "через ядро",
+      cap: "accounts создаёт папку аккаунта и через ядро поднимает короткий claude без сессии: его нет в roster, keeper его не держит. Папка Claude — своя у аккаунта: вход и почта лягут туда.",
+      js: 'host.probe({ env: {\n  CLAUDE_CONFIG_DIR: "~/.switchboard/accounts/corp" } })' },
+    { k: "m", a: 1, b: 2, l: "claudeAuthenticate", c: "", jl: "метод SDK",
+      cap: "Метод SDK начинает вход в claude.ai. Он есть в коде Agent SDK 0.3.311, в его типах — нет; вход — исключение устава, как в claude-fleet.",
+      js: 'p.sdk("claudeAuthenticate", true)   // loginWithClaudeAi' },
+    { k: "m", a: 2, b: 1, l: "manualUrl", c: "", jl: "ответ claude",
+      cap: "claude отдаёт ссылку для входа без браузера на машине: по ней страница входа покажет код.",
+      js: '{ "manualUrl": "https://claude.ai/oauth/authorize?code=true&…&state=Qm9…",\n  "automaticUrl": "http://localhost:…" }' },
+    { k: "m", a: 1, b: 0, l: "reply · url", c: "on", jl: "ответ клиенту",
+      cap: "Клиент получает ссылку. Процесс входа живёт и ждёт код.",
+      js: '{ "type": "reply", "id": "l-1", "ok": true,\n  "result": { "url": "https://claude.ai/oauth/authorize?…" } }' },
+    { k: "m", a: 0, b: 3, l: "вход на claude.ai", c: "", jl: "человек",
+      cap: "Человек открывает ссылку и входит нужным аккаунтом — в любом браузере, хоть на телефоне.",
+      js: "claude.ai → войти аккаунтом corp → «Authorize»" },
+    { k: "m", a: 3, b: 0, l: "код#состояние", c: "key", jl: "страница входа",
+      cap: "Страница показывает код вида код#состояние. Это секрет: с ним можно закончить вход.",
+      js: "Xk2pL…#Qm9vY…" },
+    { k: "m", a: 0, b: 1, l: "machine.login_code · code", c: "key", jl: "запрос клиента",
+      cap: "Код уходит запросом machine.login_code — по TLS до relay и от relay до Host; relay держит его только в памяти. Пока процесс входа жив, accounts ждёт код; Host перезапускался — <code>not_started</code>, вход заново.",
+      js: '{ "type": "machine.login_code", "id": "l-2", "v": 1,\n  "machine": "laptop", "account": "corp",\n  "code": "Xk2pL…#Qm9vY…" }' },
+    { k: "m", a: 1, b: 2, l: "claudeOAuthCallback", c: "key", jl: "метод SDK",
+      cap: "accounts отдаёт код тому же процессу входа. Код не попадает ни в аргументы, ни в журнал. Без # в коде состояние берётся из ссылки.",
+      js: 'p.sdk("claudeOAuthCallback", "Xk2pL…", "Qm9vY…")' },
+    { k: "m", a: 2, b: 1, l: "account · вход в папке", c: "", jl: "ответ claude",
+      cap: "claude закончил вход: файл входа, почта и тариф — в папке corp. accounts закрывает процесс и сразу проверяет вход той же папкой.",
+      js: '{ "account": { "email": "corp@…",\n  "subscriptionType": "max" } }\n\nclaude auth status   # CLAUDE_CONFIG_DIR=…/accounts/corp\n→ { "loggedIn": true, … }   выход 0' },
+    { k: "m", a: 1, b: 0, l: "reply · email, plan", c: "on", jl: "ответ клиенту",
+      cap: "corp в запасе: вошёл, вход в своей папке. В слот его кладёт slots, когда пульт поставит его в запас слота.",
+      js: '{ "type": "reply", "id": "l-2", "ok": true,\n  "result": { "email": "corp@…", "plan": "max" } }' }
+  ];
+  const seq = $("seq");
+  let si = 0;
+  function drawSeq(){
+    const H = 60 + STEPS.length * 27 + 6;
+    seq.setAttribute("viewBox", "0 0 400 " + H);
+    seq.textContent = "";
+    markers(seq, V + "-sq", ["", "on", "key"]);
+    LANES.forEach(([l, c], i) => {
+      S("line", { class: "ll", x1: LX[i], y1: 34, x2: LX[i], y2: H - 4 }, seq);
+      S("rect", { class: "lh" + (c ? " " + c : ""), x: LX[i] - 46, y: 6, width: 92, height: 26, rx: 7 }, seq);
+      S("text", { class: "lt", x: LX[i], y: 23, "text-anchor": "middle" }, seq, l);
+    });
+    STEPS.forEach((st, i) => {
+      const y = 58 + i * 27;
+      const g = S("g", { class: "st" + (st.c === "key" ? " key" : "") + (i === si ? " on" : i > si ? " fut" : "") }, seq);
+      S("text", { class: "no", x: 4, y: y + 3 }, g, String(i + 1));
+      if (st.k === "n"){
+        const w = st.l.length * 6.2 + 18, x = Math.max(14, LX[st.a] - w / 2);
+        S("rect", { class: "nt", x, y: y - 12, width: w, height: 20, rx: 10 }, g);
+        S("text", { class: "ntt", x: x + w / 2, y: y + 2, "text-anchor": "middle" }, g, st.l);
+      } else {
+        const a = LX[st.a], b = LX[st.b], dir = b > a ? 1 : -1;
+        const mk = i === si ? (st.c === "key" ? "-key" : "-on") : (st.c === "key" ? "-key" : "");
+        S("line", { class: "m", x1: a + dir * 3, y1: y + 2, x2: b - dir * 5, y2: y + 2, "marker-end": "url(#" + V + "-sq" + mk + ")" }, g);
+        S("text", { class: "ml", x: (a + b) / 2, y: y - 4, "text-anchor": "middle" }, g, st.l);
+      }
+      const hit = S("rect", { class: "hit", x: 0, y: y - 15, width: 400, height: 27 }, seq);
+      hit.addEventListener("click", () => { si = i; drawSeq(); });
+    });
+    const s = STEPS[si];
+    $("sn").textContent = "шаг " + (si + 1) + " из " + STEPS.length;
+    $("scap").innerHTML = s.cap;
+    $("sjl").textContent = s.jl;
+    $("sjs").textContent = s.js;
+    $("sprev").disabled = si === 0;
+    $("snext").disabled = si === STEPS.length - 1;
+  }
+  $("sprev").addEventListener("click", () => { if (si > 0){ si--; drawSeq(); } });
+  $("snext").addEventListener("click", () => { if (si < STEPS.length - 1){ si++; drawSeq(); } });
+  drawSeq();
+
+  /* ---------- 3. жизнь аккаунта ---------- */
+  const st = $("st");
+  const NODES = {
+    none: { x: 8, y: 18, w: 92, t: "нет", s: "", cls: "ghost" },
+    pend: { x: 152, y: 18, w: 104, t: "вход идёт", s: "login: pending" },
+    res:  { x: 30, y: 116, w: 128, t: "в запасе", s: "вошёл · вход в папке" },
+    slot: { x: 242, y: 116, w: 128, t: "в слоте", s: "вошёл · вход в слоте" },
+    lost: { x: 146, y: 198, w: 116, t: "не вошёл", s: "login: none", cls: "bad" }
+  };
+  const EDGES = {
+    login:  { d: "M100 34H150", lx: 125, ly: 27 },
+    code:   { d: "M178 52L120 114", lx: 162, ly: 90, a: "start" },
+    lend:   { d: "M158 128H240", lx: 199, ly: 121 },
+    ret:    { d: "M242 146H160", lx: 201, ly: 160 },
+    lost1:  { d: "M94 150L148 204", lx: 104, ly: 190, a: "end" },
+    lost2:  { d: "M306 150L262 204", lx: 300, ly: 190 },
+    relog:  { d: "M262 214H388V34H258", lx: 384, ly: 110, a: "end" },
+    remove: { d: "M48 116V54", lx: 54, ly: 88, a: "start" }
+  };
+  const ELAB = { login: "login", code: "login_code", lend: "place", ret: "place", lost1: "status", lost2: "status", relog: "login", remove: "remove" };
+  const REQ = [
+    { k: "login", n: "machine.login", e: ["login", "relog"], on: ["pend"], t: "machine.login — начать вход",
+      steps: [["c", "клиент", "«Войти ещё аккаунтом» или «Войти» у аккаунта, чей вход пропал"], ["a", "accounts", "папка аккаунта есть или создана; короткий claude с ней, <code>claudeAuthenticate</code>"], ["a", "accounts", "ответ — ссылка; запись — <code>login: \"pending\"</code>"]],
+      js: '{ "type": "machine.login", "v": 1,\n  "machine": "laptop", "account": "corp" }\n← { "url": "https://claude.ai/oauth/…" }' },
+    { k: "code", n: "machine.login_code", e: ["code"], on: ["res"], t: "machine.login_code — закончить вход",
+      steps: [["c", "клиент", "код со страницы входа"], ["a", "accounts", "<code>claudeOAuthCallback</code> тому же процессу"], ["a", "accounts", "вход и почта в папке аккаунта; <code>claude auth status</code> — вошёл; запись — <code>login: \"ok\", lent: null</code>"]],
+      js: '{ "type": "machine.login_code", "v": 1,\n  "account": "corp", "code": "Xk2pL…#Qm9vY…" }\n← { "email": "corp@…", "plan": "max" }' },
+    { k: "lend", n: "account.place · в слот", e: ["lend", "ret"], on: ["slot", "res"], t: "account.place — вход в слот",
+      steps: [["c", "slots", "в слот main — y0902: старт слота, подмена или «Сменить сейчас»"], ["a", "accounts", "y0902 вошёл и не в другой папке? иначе <code>not_logged_in</code> или <code>in_slot</code>"], ["a", "accounts", "в слоте уже вход infirex — сверка с выданным: новее — claude обновил токен, строка журнала; копия — в папку infirex"], ["a", "accounts", "вход y0902 — заменой файла: в слоте всегда целый вход"], ["a", "accounts", "записи — у y0902 <code>lent</code>: папка слота, у infirex <code>lent: null</code>"]],
+      js: '{ "type": "account.place", "v": 1, "account": "y0902",\n  "dir": "~/.switchboard/slots/main" }\n← { "ok": true, "result": {\n    "returned": "infirex", "refreshed": true } }\nжурнал · infirex: claude обновил вход в слоте' },
+    { k: "ret", n: "account.place · домой", e: ["ret"], on: ["res"], t: "account.place — вход назад в папку",
+      steps: [["c", "slots", "слот удаляют — вход его аккаунта домой"], ["a", "accounts", "сверка с выданным; файл — переносом в папку аккаунта: в слоте он не остаётся"], ["a", "accounts", "запись — <code>lent: null</code>"]],
+      js: '{ "type": "account.place", "v": 1, "account": "infirex",\n  "dir": null }\n← { "ok": true, "result": { "refreshed": false } }' },
+    { k: "check", n: "проверка входа", e: ["lost1", "lost2"], on: ["lost"], t: "Проверка входа — раз в 2 мин",
+      steps: [["a", "accounts", "у каждого аккаунта — <code>claude auth status</code> с его папкой; в слоте — и с папкой слота"], ["a", "accounts", "выход 1 или <code>loggedIn: false</code> — <code>login: \"none\"</code>, строка журнала"], ["c", "slots", "аккаунт без входа в слот не берёт"], ["c", "человек", "«Войти» — <code>machine.login</code>; вход ляжет туда, где живёт аккаунт"]],
+      js: 'claude auth status\n  CLAUDE_CONFIG_DIR=~/.switchboard/accounts/corp\n  CLAUDE_SECURESTORAGE_CONFIG_DIR=~/.switchboard/slots/bot\n→ выход 1\nжурнал · corp: вход пропал' },
+    { k: "remove", n: "machine.account_remove", e: ["remove"], on: ["none"], t: "machine.account_remove — удалить",
+      steps: [["c", "клиент", "«Удалить» у аккаунта на этой машине"], ["x", "accounts", "аккаунт в слоте — <code>in_slot</code>: сначала его сменит slots"], ["a", "accounts", "стереть только папку аккаунта; <code>claude auth logout</code> не звать — он чистит общие настройки"], ["a", "accounts", "запись удалена; ответ <code>wiped: true</code>"]],
+      js: '{ "type": "machine.account_remove", "v": 1,\n  "machine": "laptop", "account": "corp" }\n← { "wiped": true }\n\n… "account": "infirex" }   // в слоте main\n← { "ok": false, "error": "in_slot" }' }
+  ];
+  let ri = 0;
+  function drawLife(){
+    st.textContent = "";
+    markers(st, V + "-la", ["", "on"]);
+    const r = REQ[ri];
+    for (const k in EDGES){
+      const e = EDGES[k], on = r.e.includes(k);
+      S("path", { class: "ed" + (on ? " on" : ""), d: e.d, "marker-end": "url(#" + V + "-la" + (on ? "-on" : "") + ")" }, st);
+      S("text", { class: "el" + (on ? " on" : ""), x: e.lx, y: e.ly, "text-anchor": e.a || "middle" }, st, ELAB[k]);
+    }
+    for (const k in NODES){
+      const n = NODES[k];
+      const g = S("g", { class: r.on.includes(k) ? "on" : "" }, st);
+      S("rect", { class: "sn" + (n.cls ? " " + n.cls : ""), x: n.x, y: n.y, width: n.w, height: n.s ? 36 : 32, rx: 10 }, g);
+      S("text", { class: "snt", x: n.x + n.w / 2, y: n.y + (n.s ? 16 : 21), "text-anchor": "middle" }, g, n.t);
+      if (n.s) S("text", { class: "sns", x: n.x + n.w / 2, y: n.y + 29, "text-anchor": "middle" }, g, n.s);
+    }
+    $("lt").textContent = r.t;
+    const ol = $("lsteps"); ol.textContent = "";
+    r.steps.forEach(([c, who, what]) => { const li = h("li", c); li.appendChild(h("b", null, who)); const sp = h("span"); sp.innerHTML = what; li.appendChild(sp); ol.appendChild(li); });
+    $("ljs").textContent = r.js;
+    gReq.sync();
+  }
+  const gReq = chips($("reqs"), REQ.map((r, i) => [String(i), "<code>" + r.n + "</code>"]), (k) => String(ri) === k, (k) => { ri = +k; drawLife(); });
+  drawLife();
+
+  /* ---------- 4. лимиты: три источника → запись ---------- */
+  const lsvg = $("lsvg");
+  const SRC = [
+    { k: "ev", x: 4, t: "поток слота", s: "rate_limit_event", via: "account.usage", who: "slots" },
+    { k: "pl", x: 138, t: "опрос", s: "короткий claude", via: "usage_EXPERIMENTAL…", who: "machine.accounts" },
+    { k: "pc", x: 272, t: "другие машины", s: "та же почта", via: "account.usage", who: "пульт" }
+  ];
+  const LSTEPS = {
+    base: { rec: { five_hour: [0.04, "14:40", "event"], seven_day: [0.61, "14:30", "poll"] }, clock: "14:40", lin: "запись y0902",
+      cap: "y0902 сейчас в слоте main: его окна приходят из потока сессий слота. Опрос был в 14:30.", js: null, fresh: [] },
+    ev: { rec: { five_hour: [0.09, "14:55", "event"], seven_day: [0.61, "14:30", "poll"] }, clock: "14:55", lin: "slots → accounts",
+      cap: "В потоке сессии слота — событие лимита. slots знает, чей аккаунт в слоте, и отдаёт окно accounts. Оно свежее прежнего — заменяет его.",
+      js: '// rate_limit_event сессии site@laptop\n{ "status": "allowed", "rateLimitType": "five_hour",\n  "utilization": 0.09, "resetsAt": 1793463600 }\n\nhost.request("account.usage", { v: 1,\n  account: "y0902", src: "event", at: 14:55,\n  windows: { five_hour: {\n    utilization: 0.09, resetsAt: 1793463600 } } })', fresh: ["five_hour"] },
+    pl: { rec: { five_hour: [0.09, "14:55", "event"], seven_day: [0.62, "14:56", "poll"] }, clock: "14:56", lin: "machine.accounts · max_age → короткий claude",
+      cap: "Пульт открыл «Аккаунты»: <code>machine.accounts</code> с <code>max_age: 120</code>, опрос y0902 старше. Короткий claude с папкой y0902 отвечает окнами и тарифом. five_hour в опросе — от 14:50, старше события: остаётся событие.",
+      js: 'host.probe({ env: {\n  CLAUDE_CONFIG_DIR: "~/.switchboard/accounts/y0902",\n  CLAUDE_SECURESTORAGE_CONFIG_DIR: "~/.switchboard/slots/main" } })\np.sdk("usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",\n      { skipBehaviors: true })\n→ limits: [ { kind: "session", percent: 8, … },\n            { kind: "weekly_all", percent: 62, … } ]', fresh: ["seven_day"] },
+    pc: { rec: { five_hour: [0.09, "14:55", "event"], seven_day: [0.66, "14:58", "pc"] }, clock: "14:58", lin: "пульт → accounts",
+      cap: "Тот же аккаунт работает и на машине pc. Пульт сводит аккаунты флота по почте и подсказывает: на pc недельное окно уже 66 %.",
+      js: '{ "type": "account.usage", "v": 1,\n  "machine": "laptop", "account": "y0902",\n  "src": "pc", "at": 1793458680,\n  "windows": { "seven_day": {\n    "utilization": 0.66,\n    "resetsAt": 1793869200 } } }', fresh: ["seven_day"] },
+    rs: { rec: { five_hour: [0, "16:21", "сброс"], seven_day: [0.66, "14:58", "pc"] }, clock: "16:21", lin: "machine.accounts",
+      cap: "16:21 — сброс окна five_hour (16:20) прошёл: окно отдаётся с 0 %, хотя новых данных нет. Так slots видит, что аккаунт снова годится.",
+      js: '"five_hour": { "utilization": 0,\n  "resetsAt": 1793463600,\n  "at": 1793459700, "src": "event" }\n// сброс прошёл', fresh: ["five_hour"] }
+  };
+  let lk = "base";
+  function drawLim(){
+    lsvg.textContent = "";
+    markers(lsvg, V + "-lm", ["", "on"]);
+    SRC.forEach((s) => {
+      const on = s.k === lk;
+      S("rect", { class: "bx" + (on ? " on" : ""), x: s.x, y: 6, width: 124, height: 50, rx: 9 }, lsvg);
+      S("text", { class: "tf", x: s.x + 62, y: 26, "text-anchor": "middle" }, lsvg, s.t);
+      S("text", { class: "ts", x: s.x + 62, y: 43, "text-anchor": "middle" }, lsvg, s.s);
+      const cx = s.x + 62, tx = 200 + (cx - 200) * 0.45;
+      S("path", { class: "ed" + (on ? " on" : ""), d: "M" + cx + " 56C" + cx + " 92 " + tx + " 96 " + tx + " 126", "marker-end": "url(#" + V + "-lm" + (on ? "-on" : "") + ")" }, lsvg);
+      S("text", { class: "el" + (on ? " on" : ""), x: cx, y: 82, "text-anchor": "middle" }, lsvg, s.who);
+    });
+    S("rect", { class: "bx" + (lk === "rs" ? " on" : ""), x: 64, y: 128, width: 272, height: 78, rx: 11 }, lsvg);
+    S("text", { class: "tn", x: 200, y: 150, "text-anchor": "middle" }, lsvg, "запись y0902");
+    S("text", { class: "ts", x: 200, y: 168, "text-anchor": "middle" }, lsvg, "каждое окно — из самого свежего");
+    S("text", { class: "ts", x: 200, y: 184, "text-anchor": "middle" }, lsvg, "сброс прошёл — 0 %");
+    S("text", { class: "tf mut", x: 200, y: 200, "text-anchor": "middle" }, lsvg, "часы " + LSTEPS[lk].clock);
+    const L = LSTEPS[lk];
+    const card = $("card"); card.textContent = "";
+    const hd = h("div", "hd"); hd.appendChild(h("b", null, "y0902 · max")); hd.appendChild(h("span", null, "в слоте main · y0902@…")); card.appendChild(hd);
+    [["five_hour", "5 ч", "до 16:20", 0.95], ["seven_day", "неделя", "до 5 нояб.", 0.98]].forEach(([w, lab, rs, lim]) => {
+      const [p, at, src] = L.rec[w];
+      const row = h("div", "ha-bar" + (L.fresh.includes(w) ? " new" : ""));
+      row.appendChild(h("span", null, lab));
+      const tr = h("span", "tr"); const fill = h("i", p >= 0.8 ? "w" : null); fill.style.width = Math.max(2, p * 100) + "%"; tr.appendChild(fill); row.appendChild(tr);
+      row.appendChild(h("span", null, Math.round(p * 100) + " % · " + at));
+      card.appendChild(row);
+      card.appendChild(h("span", "ha-src", "   " + rs + " · источник: " + src));
+    });
+    $("lcap").innerHTML = L.cap;
+    $("lin").textContent = L.js ? L.lin : "запись в machine.accounts";
+    $("ljson").textContent = L.js || '"y0902": { "plan": "max",\n  "lent": "~/.switchboard/slots/main",\n  "limits": {\n    "five_hour": { "utilization": 0.04,\n      "resetsAt": 1793463600,\n      "at": …14:40, "src": "event" },\n    "seven_day": { "utilization": 0.61,\n      "resetsAt": 1793869200,\n      "at": …14:30, "src": "poll" } } }';
+    gSrc.sync();
+  }
+  const gSrc = chips($("lsrc"), [["base", "было"], ["ev", "поток слота"], ["pl", "опрос"], ["pc", "другая машина"], ["rs", "прошло до 16:21"]], (k) => lk === k, (k) => { lk = k; drawLim(); });
+  drawLim();
+
+  /* ---------- эталоны → картинки ---------- */
+  root.querySelectorAll(".ha-etl[data-et]").forEach((b) => b.addEventListener("click", () => flash($("et-" + b.dataset.et))));
+  const GO = {
+    login: () => { si = 0; drawSeq(); return seq.closest(".card"); },
+    check: () => { ri = REQ.findIndex((r) => r.k === "check"); drawLife(); return st.closest(".card"); },
+    lend: () => { ri = REQ.findIndex((r) => r.k === "lend"); drawLife(); return st.closest(".card"); },
+    remove: () => { ri = REQ.findIndex((r) => r.k === "remove"); drawLife(); return st.closest(".card"); },
+    limits: () => { lk = "ev"; drawLim(); return lsvg.closest(".card"); }
+  };
+  root.querySelectorAll(".ha-etl[data-go]").forEach((b) => b.addEventListener("click", () => flash(GO[b.dataset.go]())));
+
+  document.addEventListener("view:show", (e) => { if (e.detail === V){ drawDirs(); drawSeq(); drawLife(); drawLim(); } });
+})();
+</script>

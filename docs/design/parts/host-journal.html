@@ -1,0 +1,572 @@
+<style>
+  /* journal: петля «система ловит, агент чинит»; запись по полям; просмотрщик журнала по случаям (как интерфейс);
+     куда пишет каждая часть; что берётся из Claude SDK; как читают. stop — --bad, refuse — --wait, note — нейтральный. */
+  [data-view="host-journal"] .et{padding:0}
+  [data-view="host-journal"] .et-in code,[data-view="host-journal"] .et-out code{overflow-wrap:anywhere}
+  [data-view="host-journal"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="host-journal"] .hj-ctx{font-size:14px;color:var(--muted);max-width:70ch}
+  [data-view="host-journal"] .hj-ctx b{color:var(--ink);font-weight:600}
+  [data-view="host-journal"] .hj-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:820px){[data-view="host-journal"] .hj-two{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-journal"] .hj-two>*{min-width:0}
+  [data-view="host-journal"] .hj-pad{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-journal"] .hj-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="host-journal"] .hj-pad h3{font-size:15.5px}
+  [data-view="host-journal"] .hj-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="host-journal"] pre.hj-pre{white-space:pre;word-break:normal}
+  [data-view="host-journal"] .hj-k{display:inline-flex;align-items:center;font:600 11px/1 var(--mono);padding:4px 7px;border-radius:6px;white-space:nowrap}
+  [data-view="host-journal"] .hj-k.stop{background:var(--bad-weak);color:var(--bad)}
+  [data-view="host-journal"] .hj-k.refuse{background:var(--wait-weak);color:var(--wait)}
+  [data-view="host-journal"] .hj-k.note{background:var(--surface2);color:var(--muted);border:1px solid var(--line2)}
+
+  /* ===== петля ===== */
+  [data-view="host-journal"] .hj-fig{margin:0;padding:14px 12px;background:var(--surface2);display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host-journal"] .hj-fig figcaption{font-size:12.5px;color:var(--muted)}
+  [data-view="host-journal"] svg.hj-svg{display:block;width:100%;height:auto;max-width:440px;margin-inline:auto}
+  [data-view="host-journal"] .hj-svg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="host-journal"] .hj-svg .bx.sys{fill:var(--surface);stroke:var(--bad);stroke-width:1.8}
+  [data-view="host-journal"] .hj-svg .bx.ag{fill:var(--accent-weak);stroke:var(--accent);stroke-width:1.8}
+  [data-view="host-journal"] .hj-svg .bx.st{fill:var(--surface2);stroke:var(--line)}
+  [data-view="host-journal"] .hj-svg .bx.zone{fill:none;stroke:var(--muted);stroke-dasharray:6 5;stroke-width:1.2}
+  [data-view="host-journal"] .hj-svg .bx.me{fill:var(--accent-weak);stroke:var(--accent);stroke-width:2}
+  [data-view="host-journal"] .hj-svg .bx.core{fill:var(--accent-weak);stroke:var(--line)}
+  [data-view="host-journal"] .hj-svg .tn{fill:var(--ink);font:600 12px var(--mono)}
+  [data-view="host-journal"] .hj-svg .tm{fill:var(--accent);font:600 11.5px var(--mono)}
+  [data-view="host-journal"] .hj-svg .ts{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="host-journal"] .hj-svg .tz{fill:var(--muted);font:600 10px var(--mono);letter-spacing:.1em}
+  [data-view="host-journal"] .hj-svg .tl{fill:var(--accent);font:600 10.5px var(--mono)}
+  [data-view="host-journal"] .hj-svg .ed{stroke:var(--muted);stroke-width:1.6;fill:none}
+  [data-view="host-journal"] .hj-svg .ed.on{stroke:var(--accent);stroke-width:2}
+  [data-view="host-journal"] .hj-svg .ed.rd{stroke:var(--accent);stroke-dasharray:4 3}
+  [data-view="host-journal"] .hj-svg .ah{fill:var(--muted)}
+  [data-view="host-journal"] .hj-svg .ah.on{fill:var(--accent)}
+  [data-view="host-journal"] .hj-kinds{display:flex;flex-direction:column;gap:10px}
+  [data-view="host-journal"] .hj-kind{display:grid;grid-template-columns:5.6em minmax(0,1fr);gap:10px;align-items:start;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:var(--surface)}
+  [data-view="host-journal"] .hj-kind p{font-size:13.5px}
+  [data-view="host-journal"] .hj-kind p b{font-weight:600}
+  [data-view="host-journal"] .hj-no{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+  [data-view="host-journal"] .hj-no s{font:500 12.5px var(--mono);padding:3px 8px;border-radius:999px;border:1px dashed var(--line);color:var(--muted)}
+
+  /* ===== запись по полям ===== */
+  [data-view="host-journal"] .hj-dl{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:6px 12px;margin:0;font-size:13.5px}
+  [data-view="host-journal"] .hj-dl dt{font:600 12px/1.7 var(--mono);color:var(--accent)}
+  [data-view="host-journal"] .hj-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  [data-view="host-journal"] .hj-dl dd code{font-weight:600}
+
+  /* ===== просмотрщик журнала ===== */
+  [data-view="host-journal"] .hj-view{overflow:hidden;box-shadow:var(--shadow)}
+  [data-view="host-journal"] .hj-tabs{display:flex;flex-wrap:wrap;gap:6px;padding:12px}
+  [data-view="host-journal"] .hj-tabs button{border-radius:999px;padding:7px 12px;font-size:13px;background:var(--surface2)}
+  [data-view="host-journal"] .hj-tabs button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-journal"] .hj-sum{padding:0 16px 12px;font-size:14.5px;max-width:80ch}
+  [data-view="host-journal"] .hj-app{border-top:1px solid var(--line);background:var(--surface2);padding:14px;display:flex;flex-direction:column;gap:10px}
+  [data-view="host-journal"] .hj-win{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  [data-view="host-journal"] .hj-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line2)}
+  [data-view="host-journal"] .hj-bar b{font:600 13.5px var(--body);margin-right:auto}
+  [data-view="host-journal"] .hj-flt{display:flex;flex-wrap:wrap;gap:4px}
+  [data-view="host-journal"] .hj-flt button{padding:4px 9px;font:600 11.5px var(--mono);border-radius:7px}
+  [data-view="host-journal"] .hj-flt button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+  [data-view="host-journal"] .hj-recs{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host-journal"] .hj-rec{display:grid;grid-template-columns:7.6em 4.6em 5.4em minmax(0,1fr);gap:4px 10px;padding:9px 12px;border-bottom:1px solid var(--line2);align-items:baseline;font-size:13px}
+  [data-view="host-journal"] .hj-rec:last-child{border-bottom:0}
+  [data-view="host-journal"] .hj-rec.stop{box-shadow:inset 3px 0 0 var(--bad)}
+  [data-view="host-journal"] .hj-rec.refuse{box-shadow:inset 3px 0 0 var(--wait)}
+  [data-view="host-journal"] .hj-rec time{font:500 12px var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+  [data-view="host-journal"] .hj-part{font:600 11.5px var(--mono)}
+  [data-view="host-journal"] .hj-part.relay{color:var(--accent)}
+  [data-view="host-journal"] .hj-part.keeper{color:var(--ok)}
+  [data-view="host-journal"] .hj-part.host{color:var(--ink)}
+  [data-view="host-journal"] .hj-body{min-width:0;display:flex;flex-direction:column;gap:3px}
+  [data-view="host-journal"] .hj-top{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline}
+  [data-view="host-journal"] .hj-top code{font:600 12px var(--mono)}
+  [data-view="host-journal"] .hj-top .w{color:var(--bad)}
+  [data-view="host-journal"] .hj-top .cs{color:var(--muted);font-weight:500}
+  [data-view="host-journal"] .hj-why{overflow-wrap:anywhere}
+  [data-view="host-journal"] .hj-file{font:500 11px var(--mono);color:var(--muted)}
+  @media (max-width:560px){
+    [data-view="host-journal"] .hj-rec{grid-template-columns:auto auto minmax(0,1fr)}
+    [data-view="host-journal"] .hj-rec .hj-body{grid-column:1 / -1}
+  }
+  [data-view="host-journal"] .hj-empty{padding:16px 12px;font-size:13.5px;color:var(--muted)}
+  [data-view="host-journal"] .hj-raw{display:flex;align-items:center;gap:8px;font-size:13px}
+  [data-view="host-journal"] .hj-raw input{accent-color:var(--accent)}
+  [data-view="host-journal"] .hj-rawbox{overflow-x:auto}
+  [data-view="host-journal"] .hj-rawbox pre{white-space:pre;word-break:normal;font-size:11.5px}
+
+  /* ===== таблица частей ===== */
+  [data-view="host-journal"] .hj-tblw{overflow-x:auto}
+  [data-view="host-journal"] .hj-tblw .tbl{width:100%;min-width:640px}
+  [data-view="host-journal"] .hj-tblw .tbl td,[data-view="host-journal"] .hj-tblw .tbl th{text-align:left;vertical-align:top;padding:8px 10px}
+  [data-view="host-journal"] .hj-tblw .tbl th{font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-journal"] .hj-tblw .tbl td:first-child{font:600 12.5px var(--mono);white-space:nowrap}
+  [data-view="host-journal"] .hj-tblw .tbl td code{font-size:12px}
+
+  /* ===== вход и выход модуля ===== */
+  [data-view="host-journal"] .hj-io{display:grid;grid-template-columns:minmax(0,1fr) 92px minmax(0,1fr);overflow:hidden}
+  @media (max-width:720px){[data-view="host-journal"] .hj-io{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-journal"] .hj-io-col{padding:14px 16px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  [data-view="host-journal"] .hj-io-mid{background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;
+    font:700 15px var(--disp);writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.04em;padding:12px 0}
+  @media (max-width:720px){[data-view="host-journal"] .hj-io-mid{writing-mode:horizontal-tb;transform:none;padding:8px}}
+  [data-view="host-journal"] .hj-r{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:8px;align-items:baseline;padding:5px 0;border-bottom:1px solid var(--line2);font-size:13px}
+  [data-view="host-journal"] .hj-r:last-child{border-bottom:0}
+  [data-view="host-journal"] .hj-r>b{font:600 10.5px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-journal"] .hj-r>span{min-width:0;overflow-wrap:anywhere;display:flex;flex-wrap:wrap;gap:4px;align-items:baseline}
+  [data-view="host-journal"] .hj-r code{font:600 12px var(--mono);background:var(--accent-weak);color:var(--accent);border-radius:6px;padding:2px 6px}
+  [data-view="host-journal"] .hj-r.none>span{color:var(--muted)}
+  @media (max-width:420px){[data-view="host-journal"] .hj-r{grid-template-columns:minmax(0,1fr);gap:2px}}
+  [data-view="host-journal"] .hj-map{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host-journal"] .hj-map li{display:grid;grid-template-columns:minmax(0,1.1fr) auto minmax(0,1fr);gap:10px;align-items:baseline;padding:8px 0;border-bottom:1px solid var(--line2);font-size:13px}
+  [data-view="host-journal"] .hj-map li:last-child{border-bottom:0}
+  [data-view="host-journal"] .hj-map code{font-weight:600;overflow-wrap:anywhere}
+  [data-view="host-journal"] .hj-map span:last-child{color:var(--muted);min-width:0;overflow-wrap:anywhere}
+  @media (max-width:480px){[data-view="host-journal"] .hj-map li{grid-template-columns:minmax(0,1fr) auto}[data-view="host-journal"] .hj-map li span:last-child{grid-column:1 / -1}}
+  [data-view="host-journal"] .hj-uses{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="host-journal"] .hj-uses li{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:7px 10px;border-radius:9px;background:var(--surface2)}
+  [data-view="host-journal"] .hj-uses code{font-weight:600}
+  [data-view="host-journal"] .hj-uses span{color:var(--muted)}
+  [data-view="host-journal"] .hj-words{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13.5px}
+  [data-view="host-journal"] .hj-words code{font-weight:600;color:var(--bad)}
+  [data-view="host-journal"] .hj-read{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  @media (max-width:900px){[data-view="host-journal"] .hj-read{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-journal"] .hj-read>*{min-width:0}
+</style>
+
+<header class="vhead chg" data-chg="host-journal-head">
+  <span class="pill acc kind">модуль приложения Claude SDK</span>
+  <h1>journal</h1>
+  <p class="lead">Журнал — то, по чему агент замечает и чинит сбои. Система сама ничего не чинит: она останавливает, отказывает и пишет, почему. Каждая часть пишет свой журнал в одном формате; модуль journal добавляет то, что Claude SDK сообщает о сбоях сессий, и отдаёт журнал машины по запросу.</p>
+  <p class="hj-ctx"><b>Контекст в одну строку.</b> Части системы: relay — сервис в Cloudflare, через который машины, телефон и пульт обмениваются кадрами; на каждой машине — служба keeper, держащая процессы claude, и Host — программа с Claude Agent SDK, через которую идут все сессии.</p>
+</header>
+
+<!-- ===== ПЕТЛЯ ===== -->
+<section class="chg" data-chg="host-journal-loop">
+  <div class="shead">
+    <h2>Система ловит, агент чинит</h2>
+    <p>Код системы только замечает ошибку и не пускает её дальше. Всё остальное — дело агента, и начинается оно с журнала.</p>
+  </div>
+  <div class="hj-two">
+    <figure class="card hj-fig">
+      <svg class="hj-svg" viewBox="0 0 400 236" role="img" aria-label="Петля: часть ловит и пишет строку журнала; агент видит сигнал, читает журнал, чинит в своём слое и выпускает исправление; после выпуска в журнале — запись о готовности">
+        <defs>
+          <marker id="host-journal-ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-journal-ar-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah on" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <text class="tz" x="6" y="12">СИСТЕМА</text>
+        <text class="tz" x="394" y="12" text-anchor="end">АГЕНТ</text>
+        <rect class="bx sys" x="6" y="20" width="120" height="66" rx="10"/>
+        <text class="tn" x="66" y="42" text-anchor="middle">ловит</text>
+        <text class="ts" x="66" y="59" text-anchor="middle">останавливает,</text>
+        <text class="ts" x="66" y="74" text-anchor="middle">отказывает</text>
+        <rect class="bx sys" x="140" y="20" width="120" height="66" rx="10"/>
+        <text class="tn" x="200" y="42" text-anchor="middle">пишет строку</text>
+        <text class="ts" x="200" y="59" text-anchor="middle">kind · word</text>
+        <text class="ts" x="200" y="74" text-anchor="middle">why — словами</text>
+        <rect class="bx ag" x="274" y="20" width="120" height="66" rx="10"/>
+        <text class="tn" x="334" y="42" text-anchor="middle">видит сигнал</text>
+        <text class="ts" x="334" y="59" text-anchor="middle">failed в roster,</text>
+        <text class="ts" x="334" y="74" text-anchor="middle">отказ в ответе</text>
+        <rect class="bx ag" x="274" y="150" width="120" height="66" rx="10"/>
+        <text class="tn" x="334" y="172" text-anchor="middle">читает журнал</text>
+        <text class="ts" x="334" y="189" text-anchor="middle">файл на машине,</text>
+        <text class="ts" x="334" y="204" text-anchor="middle">machine.journal</text>
+        <rect class="bx ag" x="140" y="150" width="120" height="66" rx="10"/>
+        <text class="tn" x="200" y="172" text-anchor="middle">чинит</text>
+        <text class="ts" x="200" y="189" text-anchor="middle">в своём слое:</text>
+        <text class="ts" x="200" y="204" text-anchor="middle">код, ключ, версия</text>
+        <rect class="bx ag" x="6" y="150" width="120" height="66" rx="10"/>
+        <text class="tn" x="66" y="172" text-anchor="middle">выпускает</text>
+        <text class="ts" x="66" y="189" text-anchor="middle">machine.upgrade,</text>
+        <text class="ts" x="66" y="204" text-anchor="middle">wrangler deploy</text>
+        <path class="ed" d="M126 53H138" marker-end="url(#host-journal-ar)"/>
+        <path class="ed" d="M260 53H272" marker-end="url(#host-journal-ar)"/>
+        <path class="ed on" d="M334 86V148" marker-end="url(#host-journal-ar-on)"/>
+        <path class="ed on" d="M274 183H262" marker-end="url(#host-journal-ar-on)"/>
+        <path class="ed on" d="M140 183H128" marker-end="url(#host-journal-ar-on)"/>
+        <path class="ed on" d="M66 150V88" marker-end="url(#host-journal-ar-on)"/>
+        <text class="tl" x="74" y="124">note: готов</text>
+      </svg>
+      <figcaption>Верхний ряд — код системы, нижний — работа агента. Сигнал видит человек или агент; причину — только журнал.</figcaption>
+    </figure>
+    <div class="card hj-pad chg" data-chg="host-journal-kinds">
+      <h3>Три вида записи — по уставу</h3>
+      <div class="hj-kinds">
+        <div class="hj-kind"><span class="hj-k stop">stop</span><p><b>Остановлено.</b> Часть или функция встала: модуль выключен в сессии, Host не прошёл гейт, ход оборван ошибкой API. Агенту — первым делом.</p></div>
+        <div class="hj-kind"><span class="hj-k refuse">refuse</span><p><b>Отказано.</b> Кадр или запрос отклонён словом: чужой ключ, версия не та, нет такой папки. Чинят того, кто прислал.</p></div>
+        <div class="hj-kind"><span class="hj-k note">note</span><p><b>Событие.</b> Обычный переход: старт, attach, обновление, повтор запроса к API. По ним видно, что было до сбоя.</p></div>
+      </div>
+      <div class="hj-no"><span>Чего система не делает:</span><s>самопочинка</s><s>автоподбор</s><s>обходной путь</s><s>запасной режим</s></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЗАПИСЬ ===== -->
+<section class="chg" data-chg="host-journal-record">
+  <div class="shead">
+    <h2>Одна запись — одна строка JSON</h2>
+    <p>Формат один у всех частей. Слово ошибки — для поиска, причина — для понимания: в ней имена, версии и значения, по-русски.</p>
+  </div>
+  <div class="hj-two">
+    <div class="card hj-pad">
+      <div class="codebox"><pre class="hj-pre">{ "t": "2026-10-30T14:02:11.204Z",
+  "part": "host", "machine": "laptop",
+  "who": "core",
+  "callsign": "site@laptop",
+  "kind": "stop",
+  "ev": "module_failed",
+  "word": "module_error",
+  "why": "budget: on.event(result) — TypeError:
+    Cannot read properties of undefined
+    (reading 'limit'); модуль выключен
+    в сессии",
+  "module": "budget" }</pre></div>
+      <p>В файле — одной строкой; здесь перенесено для чтения.</p>
+    </div>
+    <div class="card hj-pad">
+      <dl class="hj-dl">
+        <dt>t</dt><dd>время UTC до миллисекунды; новый файл — каждый день UTC</dd>
+        <dt>part</dt><dd><code>relay</code>, <code>keeper</code> или <code>host</code></dd>
+        <dt>machine</dt><dd>машина; у relay нет</dd>
+        <dt>who</dt><dd>кто внутри части: <code>core</code> или имя модуля</dd>
+        <dt>callsign</dt><dd>сессия, если запись про неё</dd>
+        <dt>kind</dt><dd><code>stop</code>, <code>refuse</code> или <code>note</code></dd>
+        <dt>ev</dt><dd>что случилось: <code>module_failed</code>, <code>request</code>, <code>hello</code>, <code>host_exit</code>, <code>sdk.result</code>…</dd>
+        <dt>word</dt><dd>слово ошибки из контракта — то же, что ушло в <code>reply</code>; у <code>note</code> нет</dd>
+        <dt>why</dt><dd>причина словами — обязательна у <code>stop</code> и <code>refuse</code></dd>
+        <dt>…</dt><dd>поля случая: <code>id</code>, <code>type</code>, <code>from</code>, <code>code</code>. Незнакомое поле читатель пропускает</dd>
+      </dl>
+      <p>Не пишется: подпись ключа — только его имя и номер; ключ keeper; адрес подписки пушей; текст сообщений сессий — он и так в файле разговора.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ПРОСМОТРЩИК ===== -->
+<section class="chg" data-chg="host-journal-cases">
+  <div class="shead">
+    <h2>Что пишут части — по случаям</h2>
+    <p>Выберите случай: ниже — строки, которые оставили relay, keeper и Host, по времени и с файлом, где они лежат. Так журнал машины выглядит у клиента, который его читает.</p>
+  </div>
+  <div class="card hj-view">
+    <div class="hj-tabs" id="host-journal-tabs" role="group" aria-label="Случаи"></div>
+    <p class="hj-sum" id="host-journal-sum"></p>
+    <div class="hj-app">
+      <div class="hj-win" role="group" aria-label="Интерфейс клиента: журнал машины laptop">
+        <div class="hj-bar"><b>Журнал · laptop и relay</b>
+          <div class="hj-flt" id="host-journal-flt" role="group" aria-label="Вид записи"></div></div>
+        <ul class="hj-recs" id="host-journal-recs" aria-live="polite"></ul>
+      </div>
+      <label class="hj-raw" for="host-journal-raw"><input type="checkbox" id="host-journal-raw"> строки как в файле</label>
+      <div class="codebox hj-rawbox" id="host-journal-rawbox" hidden><pre id="host-journal-rawpre"></pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КТО КУДА ПИШЕТ ===== -->
+<section class="chg" data-chg="host-journal-parts">
+  <div class="shead">
+    <h2>Кто куда пишет</h2>
+    <p>Каждая часть пишет там, где живёт: relay на диск не пишет и отдаёт строки журналу Cloudflare; keeper и Host — в файлы своей машины. Пишет только та часть, что поймала сбой.</p>
+  </div>
+  <div class="hj-two">
+    <figure class="card hj-fig">
+      <svg class="hj-svg" viewBox="0 0 400 304" role="img" aria-label="relay пишет в Workers Logs Cloudflare; на машине keeper пишет в свой файл, ядро Host — в свой; модуль journal читает оба файла и отдаёт их по запросу machine.journal">
+        <defs>
+          <marker id="host-journal-pa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-journal-pa-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah on" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="bx zone" x="4" y="4" width="392" height="82" rx="12"/>
+        <text class="tz" x="14" y="20">CLOUDFLARE</text>
+        <rect class="bx" x="16" y="30" width="170" height="44" rx="9"/>
+        <text class="tn" x="101" y="50" text-anchor="middle">relay</text>
+        <text class="ts" x="101" y="66" text-anchor="middle">console.log(JSON)</text>
+        <path class="ed" d="M186 52H228" marker-end="url(#host-journal-pa)"/>
+        <rect class="bx st" x="230" y="30" width="156" height="44" rx="9"/>
+        <text class="tn" x="308" y="50" text-anchor="middle">Workers Logs</text>
+        <text class="ts" x="308" y="66" text-anchor="middle">wrangler tail · панель</text>
+
+        <rect class="bx zone" x="4" y="98" width="392" height="202" rx="12"/>
+        <text class="tz" x="14" y="114">МАШИНА LAPTOP</text>
+        <text class="ts" x="308" y="114" text-anchor="middle">~/.switchboard/journal/</text>
+        <rect class="bx" x="16" y="124" width="170" height="36" rx="9"/>
+        <text class="tn" x="101" y="147" text-anchor="middle">keeper</text>
+        <path class="ed" d="M186 142H228" marker-end="url(#host-journal-pa)"/>
+        <rect class="bx st" x="230" y="124" width="156" height="36" rx="9"/>
+        <text class="tn" x="308" y="147" text-anchor="middle">keeper-&lt;дата&gt;.jsonl</text>
+
+        <rect class="bx" x="16" y="172" width="170" height="118" rx="10"/>
+        <text class="tn" x="28" y="190">Host</text>
+        <rect class="bx core" x="26" y="198" width="150" height="28" rx="7"/>
+        <text class="tn" x="101" y="217" text-anchor="middle">ядро · host.log</text>
+        <rect class="bx" x="26" y="246" width="66" height="24" rx="6"/>
+        <text class="ts" x="59" y="262" text-anchor="middle" style="fill:var(--ink)">модули</text>
+        <rect class="bx me" x="100" y="246" width="76" height="24" rx="6"/>
+        <text class="tm" x="138" y="262" text-anchor="middle">journal</text>
+        <path class="ed" d="M59 246V228" marker-end="url(#host-journal-pa)"/>
+        <path class="ed" d="M126 246V228" marker-end="url(#host-journal-pa)"/>
+        <text class="ts" x="101" y="284" text-anchor="middle">пишут только через ядро</text>
+        <path class="ed" d="M176 212H228" marker-end="url(#host-journal-pa)"/>
+        <rect class="bx st" x="230" y="194" width="156" height="36" rx="9"/>
+        <text class="tn" x="308" y="217" text-anchor="middle">host-&lt;дата&gt;.jsonl</text>
+
+        <path class="ed rd" d="M300 160V182Q300 190 292 190H262Q254 190 254 198V250H178" marker-end="url(#host-journal-pa-on)"/>
+        <path class="ed rd" d="M330 230V258H178" marker-end="url(#host-journal-pa-on)"/>
+        <text class="tl" x="290" y="276" text-anchor="middle">читает → machine.journal</text>
+      </svg>
+      <figcaption>Сплошная стрелка — пишет, пунктир — читает. Файлы keeper модуль journal читает с диска: с самим keeper он не говорит.</figcaption>
+    </figure>
+    <div class="card hj-pad chg" data-chg="host-journal-write">
+      <h3>Как пишется</h3>
+      <ul class="hj-uses">
+        <li><code>host.log(record)</code><span>ядро дописывает одну строку сразу, без буфера: упал Host — всё записанное уже на диске</span></li>
+        <li><b>Ядро пишет само</b><span>свои записи не идут через модуль journal: гейт не пройден — строка есть, хотя модули ещё не стартовали</span></li>
+        <li><b>stderr Host</b><span>его хвост keeper кладёт в свою запись, когда Host вышел: стек падения не теряется</span></li>
+        <li><b>Объём</b><span>файлы не удаляются; сколько пишет флот за день — замер при сборке, решение по нему потом</span></li>
+        <li><b>stop() модуля</b><span>сохранять нечего: каждая строка уже записана</span></li>
+      </ul>
+    </div>
+  </div>
+  <div class="card hj-pad chg" data-chg="host-journal-table">
+    <h3>Что пишет каждая часть</h3>
+    <div class="hj-tblw"><table class="tbl">
+      <tr><th>часть</th><th>куда</th><th><span class="hj-k stop">stop</span></th><th><span class="hj-k refuse">refuse</span></th><th><span class="hj-k note">note</span></th></tr>
+      <tr><td>relay</td><td>Workers Logs</td><td><code>ctx.abort(причина)</code> — объект сброшен</td><td><code>bad_frame</code>, <code>bad_key</code>, <code>revoked</code>, <code>bad_from</code>, <code>offline</code>, <code>contract_mismatch</code> — с именем ключа</td><td><code>hello</code> принят, соединение закрыто с кодом, участник ответил на <code>hello()</code></td></tr>
+      <tr><td>keeper</td><td>keeper-&lt;дата&gt;</td><td>Host вышел не по просьбе — код и хвост stderr; второй сбой Host до готовности; процесс claude вышел не по просьбе — id, код, хвост stderr</td><td><code>bad_key</code>, <code>contract_mismatch</code> в первой строке соединения</td><td>старт и стоп службы, Host запущен, <code>spawn</code>, <code>attach</code>, <code>kill</code>, <code>upgrade</code></td></tr>
+      <tr><td>Host · ядро</td><td>host-&lt;дата&gt;</td><td>гейт не пройден; модуль упал — модуль, сессия, ошибка; relay закрыл соединение словом <code>bad_key</code>, <code>revoked</code>, <code>contract_mismatch</code> или <code>replaced</code> — переподключения нет</td><td><code>unknown_request</code>, <code>contract_mismatch</code>, <code>module_error</code>, <code>shutting_down</code></td><td>старт: версия, SDK, proto, модули; готов; relay на связи; сессия: spawn, attach, resume, close; штатная остановка с причиной</td></tr>
+      <tr><td>Host · journal</td><td>host-&lt;дата&gt;</td><td>ход оборван ошибкой; MCP-сервер или плагин не поднялся; лимит аккаунта; вход аккаунта</td><td>отказ инструменту — <code>permission_denied</code></td><td>первый <code>system/init</code> процесса, повтор запроса к API, предупреждения</td></tr>
+      <tr><td>Host · модули</td><td>host-&lt;дата&gt;</td><td>—</td><td>свои слова: <code>not_found</code> у machine, <code>check_failed</code> у upgrade, <code>already_answered</code> у questions</td><td>шаги, которые нужны агенту: slots ждёт сброса, upgrade перезапустил сессию между ходами</td></tr>
+      <tr class="chg" data-chg="host-journal-table-wk"><td>gate, push, points, ledger</td><td>Workers Logs</td><td>исключение в коде — причина</td><td>свои слова отказа с <code>from</code></td><td>—</td></tr>
+      <tr><td>телефон, пульт</td><td>—</td><td colspan="3">ошибки показывают человеку; их отклонённые кадры видны в журнале relay</td></tr>
+    </table></div>
+    <p class="chg" data-chg="host-journal-table-ledger"><b>Одно событие — одно место.</b> Сбой и отказ части — сюда. Факт о машине или сессии, который должен пережить машину или касается двух машин, — подмена аккаунта в слоте, открытие и удаление сессии, перенос, обновление Host — пишет в <a href="#ledger">журнал флота</a> тот модуль, что это сделал; в журнал машины он второй строкой не идёт.</p>
+  </div>
+</section>
+
+<!-- ===== CLAUDE SDK ===== -->
+<section class="chg" data-chg="host-journal-sdk">
+  <div class="shead">
+    <h2>Что слушает в Claude и что даёт</h2>
+    <p>Модуль читает сообщения SDK каждой сессии и записывает только то, что говорит о сбое или нужно, чтобы его понять. Разговор он не дублирует: его пишет сам Claude Code в файл разговора.</p>
+  </div>
+  <div class="card hj-io">
+    <div class="hj-io-col">
+      <span class="lbl">слушает в Claude и ядре</span>
+      <div class="hj-r"><b>события ядра</b><span><code>on.event(s, e)</code> каждое сообщение SDK сессии</span></div>
+      <div class="hj-r"><b>сообщения SDK</b><span><code>system/init</code><code>result</code><code>system/api_retry</code><code>rate_limit_event</code><code>auth_status</code><code>system/status</code><code>system/permission_denied</code><code>system/worker_shutting_down</code><code>system/informational</code></span></div>
+      <div class="hj-r none"><b>хуки</b><span>—</span></div>
+      <div class="hj-r none"><b>canUseTool</b><span>—</span></div>
+      <div class="hj-r none"><b>методы query</b><span>—</span></div>
+    </div>
+    <div class="hj-io-mid">journal</div>
+    <div class="hj-io-col">
+      <span class="lbl">даёт наружу</span>
+      <div class="hj-r"><b>запросы</b><span><code>machine.journal</code></span></div>
+      <div class="hj-r"><b>ключи env</b><span><code>CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1</code></span></div>
+      <div class="hj-r none"><b>кадры</b><span>—</span></div>
+      <div class="hj-r none"><b>поля roster</b><span>—</span></div>
+      <div class="hj-r none"><b>инструменты MCP</b><span>— агент на машине читает файл сам</span></div>
+      <div class="hj-r none"><b>хранилище</b><span>— читает папку журнала</span></div>
+    </div>
+  </div>
+  <div class="hj-two">
+    <div class="card hj-pad chg" data-chg="host-journal-sdkmap">
+      <h3>Сообщение SDK → запись</h3>
+      <ul class="hj-map">
+        <li><code>system/init</code><span class="hj-k note">note</span><span>первое после spawn, attach или resume: claude_code_version, model, cwd, permissionMode</span></li>
+        <li><code>system/init</code> · failed<span class="hj-k stop">stop</span><span>mcp_servers со status «failed», plugin_errors — что не поднялось</span></li>
+        <li><code>result</code> · error_*<span class="hj-k stop">stop</span><span>слово — startup_failure_reason, иначе subtype; причина — первая строка errors</span></li>
+        <li><code>system/api_retry</code><span class="hj-k note">note</span><span>attempt из max_retries, error_status, retry_delay_ms</span></li>
+        <li><code>rate_limit_event</code> · rejected<span class="hj-k stop">stop</span><span>rateLimitType, resetsAt</span></li>
+        <li><code>auth_status</code> · error<span class="hj-k stop">stop</span><span>error — вход аккаунта не удался</span></li>
+        <li><code>system/status</code> · failed<span class="hj-k stop">stop</span><span>compact_result «failed» — compact_error</span></li>
+        <li><code>system/permission_denied</code><span class="hj-k refuse">refuse</span><span>tool_name, decision_reason_type, причина</span></li>
+        <li><code>system/worker_shutting_down</code><span class="hj-k note">note</span><span>reason</span></li>
+        <li><code>system/informational</code> · warning<span class="hj-k note">note</span><span>content</span></li>
+      </ul>
+      <p>Остальное — assistant, stream_event, успешный result — в файле разговора, журнал их не повторяет.</p>
+    </div>
+    <div class="card hj-pad chg" data-chg="host-journal-env">
+      <div class="hj-head"><h3>Ключ env — вклад в каждую сессию</h3><span class="pill acc">факт: SDK 0.3.311</span></div>
+      <div class="codebox"><pre class="hj-pre">session: (s) =&gt; ({ env: {
+  CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1" } })
+
+// папки сессии нет — процесс не стартовал:
+{ "type": "result",
+  "subtype": "error_during_execution",
+  "startup_failure_reason": "cwd_unavailable",
+  "errors": [ "…" ] }
+→ stop · sdk.result · word: cwd_unavailable</pre></div>
+      <ul class="hj-uses">
+        <li><b>Без ключа</b><span>известный сбой старта claude виден только в stderr процесса</span></li>
+        <li><b>stderr</b><span>SDK получает от keeper только ввод и вывод процесса; stderr остаётся у keeper — его хвост в записи keeper о выходе</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КАК ЧИТАЮТ ===== -->
+<section class="chg" data-chg="host-journal-read">
+  <div class="shead">
+    <h2>Как читают</h2>
+    <p>Три места — три способа. Сессия агента на машине читает файлы сама; с другой машины журнал приходит запросом; журнал relay — у Cloudflare.</p>
+  </div>
+  <div class="hj-read">
+    <div class="card hj-pad">
+      <h3>На машине</h3>
+      <div class="codebox"><pre class="hj-pre">$ grep '"kind":"stop"' \
+    ~/.switchboard/journal/host-2026-10-30.jsonl
+$ tail -f \
+    ~/.switchboard/journal/keeper-2026-10-30.jsonl</pre></div>
+      <p>Агент в сессии на этой машине — Bash или Read. Ничего не нужно, кроме файлов.</p>
+    </div>
+    <div class="card hj-pad chg" data-chg="host-journal-api">
+      <div class="hj-head"><h3><code>machine.journal</code></h3><span class="pill acc">v 1</span></div>
+      <div class="codebox"><pre class="hj-pre">{ "type": "machine.journal", "id": "j-2",
+  "v": 1, "machine": "laptop",
+  "since": "2026-10-30T14:00:00.000Z",
+  "kind": [ "stop", "refuse" ],
+  "callsign": "site@laptop",
+  "limit": 200 }
+
+← { "type": "reply", "id": "j-2", "ok": true,
+    "result": { "records": [ … ],
+                "more": false } }</pre></div>
+      <ul class="hj-words">
+        <li>Записи host и keeper этой машины после <b>since</b>, старые первыми; <b>kind</b> и <b>callsign</b> — по желанию.</li>
+        <li><b>limit</b> выбирает клиент; <b>more: true</b> — следующий запрос с since = t последней записи.</li>
+        <li class="chg" data-chg="host-journal-word-bf1"><code>bad_frame</code> — нет limit или since не время</li>
+      </ul>
+    </div>
+    <div class="card hj-pad">
+      <h3>relay</h3>
+      <div class="codebox"><pre class="hj-pre">$ wrangler tail switchboard --format json</pre></div>
+      <p>Поток строк вживую. За прошедшее — Workers Logs в панели Cloudflare: включаются в настройках Worker (observability), срок хранения — по тарифу. Своего хранилища у relay нет.</p>
+    </div>
+  </div>
+  <div class="card hj-pad chg" data-chg="host-journal-uses">
+    <h3>Чем пользуется</h3>
+    <ul class="hj-uses">
+      <li><code>on.event(s, e)</code><span>ядро: сообщения SDK каждой сессии</span></li>
+      <li><code>session(s)</code><span>ядро: вклад в <code>query()</code> — ключ env</span></li>
+      <li><code>host.log(record)</code><span>ядро: запись строки</span></li>
+      <li><code>~/.switchboard/journal/*.jsonl</code><span>Node: чтение файлов host и keeper для <code>machine.journal</code></span></li>
+    </ul>
+    <p>Чужих запросов не зовёт — <code>uses</code> пуст. Ошибка модуля в сессии — ядро выключает его там; записи ядра идут дальше, они через модуль не проходят.</p>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="host-journal-et">
+  <div class="shead">
+    <h2>Эталоны journal</h2>
+    <p>На стенде Host: поддельные SDK, relay, keeper и часы; журнал — во временной папке. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="host-journal-et-96"><div class="et-n">96</div>
+      <div class="et-in">Модуль budget бросает ошибку на каждом событии хода site@laptop — десять событий подряд.</div>
+      <div class="et-out">В файле host за день — ровно одна запись <code>kind: "stop"</code>, <code>ev: "module_failed"</code>, <code>module: "budget"</code>, <code>callsign: "site@laptop"</code>, <code>word: "module_error"</code> и текстом ошибки в <code>why</code>. Дальше budget в этой сессии не вызывается и записей не добавляет; ход дошёл до конца.</div>
+      <div class="et-src">чьё: устав — «Ошибку модуля ловит ядро: модуль выключается в этой сессии, roster показывает failed»; «пишет в журнал с причиной»; опыт 19 — ошибка модуля не мешает ходу.</div></div>
+    <div class="et" id="host-journal-et-97"><div class="et-n">97</div>
+      <div class="et-in">panel-desk шлёт <code>session.history</code> с <code>v: 1</code> и <code>id: "h-3"</code>; у модуля chat контракт версии 2.</div>
+      <div class="et-out"><code>reply ok:false, error: contract_mismatch</code>. В журнале Host — запись <code>kind: "refuse"</code>, <code>who: "core"</code>, то же слово, <code>from: "panel-desk"</code>, <code>id: "h-3"</code> и <code>why</code> с обеими версиями: «запрошена v1, у chat v2». В журнале relay — ничего: кадр он вёз как есть.</div>
+      <div class="et-src">чьё: устав — «Код системы только обнаруживает ошибку и не пускает её дальше: останавливает, отказывает, пишет в журнал с причиной»; «Relay не знает модулей».</div></div>
+    <div class="et" id="host-journal-et-98"><div class="et-n">98</div>
+      <div class="et-in">SDK сессии site шлёт три <code>system/api_retry</code> с <code>error_status: 529</code>, затем <code>result</code> с <code>subtype: "error_during_execution"</code>. У wiki папку удалили, и <code>resume</code> закончился <code>result</code> с <code>startup_failure_reason: "cwd_unavailable"</code>.</div>
+      <div class="et-out">У site — три записи <code>note</code>, <code>ev: "sdk.api_retry"</code> с попыткой и статусом, и одна <code>stop</code>, <code>ev: "sdk.result"</code>, слово <code>error_during_execution</code>, в <code>why</code> — первая строка <code>errors</code>. У wiki — <code>stop</code> со словом <code>cwd_unavailable</code>.</div>
+      <div class="et-src">чьё: факт — типы Agent SDK 0.3.311: SDKAPIRetryMessage, SDKResultError с errors и startup_failure_reason при CLAUDE_CODE_STARTUP_FAILURE_RESULTS; устав — «пишет в журнал с причиной».</div></div>
+    <div class="et" id="host-journal-et-99"><div class="et-n">99</div>
+      <div class="et-in">На laptop после 14:00 в файле host — четыре записи, одна <code>stop</code>; в файле keeper — две, одна <code>stop</code>: Host вышел с кодом 1. Клиент шлёт <code>machine.journal</code> с <code>since</code> 14:00, <code>kind: ["stop"]</code>, <code>limit: 50</code>, затем то же с <code>limit: 1</code>.</div>
+      <div class="et-out">Первый ответ — две записи, keeper и host, по времени, <code>more: false</code>. Второй — одна, ранняя, и <code>more: true</code>; запрос с <code>since</code> = её <code>t</code> отдаёт вторую. Файлы не изменились.</div>
+      <div class="et-src">чьё: устав — «Если что-то сломается, агент заметит это по журналу и починит».</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== journal: просмотрщик журнала по случаям — строки relay, keeper и Host ===== */
+(function(){
+  const root = document.querySelector('[data-view="host-journal"]');
+  if (!root) return;
+  const $ = s => root.querySelector(s);
+  function h(tag, cls, text){ const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  const FILE = {relay:"Workers Logs", keeper:"keeper-2026-10-30.jsonl", host:"host-2026-10-30.jsonl"};
+
+  // [время, часть, кто, вид, ev, слово, callsign, причина, поля случая]
+  const CASES = [
+    {k:"Модуль упал", sum:"Модуль budget бросил ошибку на событии хода. Ядро выключило его в этой сессии — stop; его запрос потом получает module_error — refuse. Агент читает why, чинит модуль и выпускает новую версию Host.", r:[
+      ["14:02:11.204","host","core","stop","module_failed","module_error","site@laptop","budget: on.event(result) — TypeError: Cannot read properties of undefined (reading 'limit'); модуль выключен в сессии",{module:"budget"}],
+      ["14:02:40.517","host","core","refuse","request","module_error","site@laptop","budget.set от panel-desk: модуль budget выключен в этой сессии",{id:"b-2",type:"budget.set",from:"panel-desk"}],
+      ["14:31:05.090","host","upgrade","note","upgrade",null,null,"1.4.1 → 1.4.2: проверка пройдена, SDK тот же; прошу keeper",{}],
+      ["14:31:05.322","keeper","keeper","note","upgrade",null,null,"Host 1.4.1 → 1.4.2",{}],
+      ["14:31:08.871","host","core","note","start",null,null,"1.4.2 · SDK 0.3.311 · proto 1; attach: site, profiles",{}]]},
+    {k:"Версия не та", sum:"relay кадр не разбирает и ничего не пишет — везёт как есть. Отказывает Host: версии запроса и владельца — обе в why. Чинят клиента: пульт выпускают под версию 2.", r:[
+      ["15:10:02.441","host","core","refuse","request","contract_mismatch","site@laptop","session.history от panel-desk: запрошена v1, у chat v2",{id:"h-3",type:"session.history",from:"panel-desk"}]]},
+    {k:"Проверка не прошла", sum:"Новая версия не прошла гейт в отдельном процессе. Работающий Host и сессии не тронуты; причина — из вывода проверки.", r:[
+      ["16:00:12.003","host","upgrade","note","upgrade",null,null,"1.4.2: скачана, npm ci — хэши по lockfile сошлись",{}],
+      ["16:00:51.778","host","upgrade","refuse","request","check_failed",null,"1.4.2: session.cost — два владельца: cost и dup; keeper не тронут, работает 1.4.1",{id:"u-7",type:"machine.upgrade",from:"panel-desk"}]]},
+    {k:"Host упал", sum:"Стек падения Host уходит в его stderr — хвост keeper кладёт в свою запись. relay видит только закрытое соединение. Второй сбой до готовности — стоп: процессы claude живы, дальше чинит агент.", r:[
+      ["17:20:00.115","keeper","keeper","stop","host_exit",null,null,"Host 1.4.2 вышел с кодом 1: TypeError: s.store is not a function at modules/budget/index.ts:14",{code:1}],
+      ["17:20:00.902","relay","relay","note","closed",null,null,"host.laptop.k7f3: соединение закрыто, 1006",{}],
+      ["17:20:01.130","keeper","keeper","note","host_start",null,null,"Host 1.4.2, второй запуск",{}],
+      ["17:20:02.020","keeper","keeper","stop","host_exit",null,null,"Host 1.4.2 вышел с кодом 1 до готовности: TypeError: s.store is not a function …",{code:1}],
+      ["17:20:02.021","keeper","keeper","stop","host_failed",null,null,"второй сбой до готовности — Host не запускаю; процессы claude site, profiles живы",{}]]},
+    {k:"API перегружен", sum:"Повторы запроса к API делает сам Claude Code — journal только записывает их. Ход, оборванный ошибкой, — stop со словом из result.", r:[
+      ["18:05:10.200","host","journal","note","sdk.api_retry",null,"site@laptop","попытка 1 из 10: 529, пауза 2 с",{attempt:1,error_status:529}],
+      ["18:05:12.410","host","journal","note","sdk.api_retry",null,"site@laptop","попытка 2 из 10: 529, пауза 4 с",{attempt:2,error_status:529}],
+      ["18:05:16.630","host","journal","note","sdk.api_retry",null,"site@laptop","попытка 3 из 10: 529, пауза 8 с",{attempt:3,error_status:529}],
+      ["18:06:30.004","host","journal","stop","sdk.result","error_during_execution","site@laptop","ход остановлен: API Error: 529 Overloaded",{}]]},
+    {k:"Чужой ключ", sum:"Отказывает relay — и пишет в журнал Cloudflare с именем ключа, без подписи. Host видит слово в закрытии соединения, не переподключается и пишет stop: причина есть на обеих сторонах.", r:[
+      ["19:00:00.501","relay","relay","refuse","hello","bad_key",null,"host.laptop.k7f3: подпись не сошлась; соединение закрыто",{key:"host.laptop.k7f3"}],
+      ["19:00:00.610","host","core","stop","relay_closed","bad_key",null,"relay закрыл hello: bad_key; не переподключаюсь — нужен новый ключ",{}]]},
+    {k:"Обновление", sum:"Обычная работа — только note. По ним видно, что было до сбоя, если он случится.", r:[
+      ["20:00:00.010","host","upgrade","note","upgrade",null,null,"1.4.0 → 1.4.1: SDK 0.3.311 → 0.3.312; проверка пройдена",{}],
+      ["20:00:00.240","keeper","keeper","note","upgrade",null,null,"Host 1.4.0 → 1.4.1",{}],
+      ["20:00:00.250","host","core","note","stop",null,null,"штатная остановка: upgrade",{}],
+      ["20:00:00.900","relay","relay","note","closed",null,null,"host.laptop.k7f3: 1001",{}],
+      ["20:00:03.100","host","core","note","start",null,null,"1.4.1 · SDK 0.3.312 · proto 1; attach: site, profiles, wiki",{}],
+      ["20:00:03.800","relay","relay","note","hello",null,null,"host.laptop.k7f3: proto 1, сессий 3",{}],
+      ["20:00:04.020","host","upgrade","note","restart",null,"profiles@laptop","процесс SDK 0.3.311, у Host 0.3.312 — перезапуск между ходами",{}],
+      ["20:00:05.300","host","journal","note","sdk.init",null,"profiles@laptop","claude 2.1.312 · opus · ~/Projects/profiles · bypassPermissions",{}]]}
+  ];
+  const KINDS = ["все","stop","refuse","note"];
+
+  const tabs = $("#host-journal-tabs"), flt = $("#host-journal-flt"), recs = $("#host-journal-recs"), sum = $("#host-journal-sum");
+  const raw = $("#host-journal-raw"), rawbox = $("#host-journal-rawbox"), rawpre = $("#host-journal-rawpre");
+  let cur = 0, kind = "все";
+  const tBtns = [], kBtns = [];
+
+  function line(r){
+    const [t, part, who, k, ev, word, cs, why, extra] = r;
+    const o = {t:"2026-10-30T" + t + "Z", part};
+    if (part !== "relay") o.machine = "laptop";
+    o.who = who; if (cs) o.callsign = cs;
+    o.kind = k; o.ev = ev; if (word) o.word = word; o.why = why;
+    Object.assign(o, extra || {});
+    return JSON.stringify(o);
+  }
+  function render(){
+    const c = CASES[cur];
+    sum.textContent = c.sum;
+    tBtns.forEach((b, i) => b.setAttribute("aria-pressed", i === cur ? "true" : "false"));
+    kBtns.forEach(b => b.setAttribute("aria-pressed", b.dataset.k === kind ? "true" : "false"));
+    const rows = c.r.filter(r => kind === "все" || r[3] === kind);
+    recs.textContent = "";
+    if (!rows.length) recs.appendChild(h("li", "hj-empty", "Записей такого вида в этом случае нет."));
+    rows.forEach(r => {
+      const [t, part, who, k, ev, word, cs, why] = r;
+      const li = h("li", "hj-rec " + k);
+      li.append(h("time", null, t), h("span", "hj-part " + part, part), h("span", "hj-k " + k, k));
+      const body = h("div", "hj-body"), top = h("div", "hj-top");
+      top.append(h("code", null, who + " · " + ev));
+      if (word) top.append(h("code", "w", word));
+      if (cs) top.append(h("code", "cs", cs));
+      body.append(top, h("span", "hj-why", why), h("span", "hj-file", FILE[part]));
+      li.appendChild(body); recs.appendChild(li);
+    });
+    rawpre.textContent = rows.map(line).join("\n");
+    rawbox.hidden = !raw.checked;
+  }
+  CASES.forEach((c, i) => { const b = h("button", null, c.k); b.type = "button"; b.addEventListener("click", () => { cur = i; render(); }); tBtns.push(b); tabs.appendChild(b); });
+  KINDS.forEach(k => { const b = h("button", null, k); b.type = "button"; b.dataset.k = k; b.addEventListener("click", () => { kind = k; render(); }); kBtns.push(b); flt.appendChild(b); });
+  raw.addEventListener("change", render);
+  render();
+})();
+</script>

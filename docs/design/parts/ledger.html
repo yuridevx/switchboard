@@ -1,0 +1,707 @@
+<style>
+  /* ledger — журнал флота. Граница «журнал части / журнал флота / данные владельца», каналы, API, кто что пишет,
+     машина пропала по шагам из roster, хранение и PITR, чтение, сбои, эталоны.
+     Акцент — путь записи; зелёный — записано; янтарь — у владельца; красный — отказ или второе место. */
+  [data-view="ledger"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="ledger"] .lg-not{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+  [data-view="ledger"] .lg-not b{color:var(--ink);font-weight:600;margin-right:2px}
+  [data-view="ledger"] .lg-not span{font:500 12.5px var(--body);padding:3px 8px;border-radius:999px;border:1px dashed var(--line);color:var(--muted)}
+  [data-view="ledger"] .lg-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:820px){[data-view="ledger"] .lg-two{grid-template-columns:minmax(0,1fr)}}
+  [data-view="ledger"] .lg-two>*{min-width:0}
+  [data-view="ledger"] .lg-pad{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="ledger"] .lg-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="ledger"] .lg-pad h3{font-size:15.5px}
+  [data-view="ledger"] .lg-hd{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="ledger"] pre.lg-pre{white-space:pre;word-break:normal}
+  [data-view="ledger"] .lg-fig{margin:0;padding:14px 12px;background:var(--surface2);display:flex;flex-direction:column;gap:8px;min-width:0;border-radius:14px}
+  [data-view="ledger"] .lg-fig figcaption{font-size:12.5px;color:var(--muted)}
+  [data-view="ledger"] .lg-chips{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="ledger"] .lg-chips button{padding:6px 10px;font-size:12.5px;border-radius:999px;background:var(--surface2);text-align:left}
+  [data-view="ledger"] .lg-chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="ledger"] .lg-tblw{overflow-x:auto}
+  [data-view="ledger"] .lg-tblw .tbl{width:100%;min-width:600px}
+  [data-view="ledger"] .lg-tblw .tbl td,[data-view="ledger"] .lg-tblw .tbl th{text-align:left;vertical-align:top;padding:8px 10px}
+  [data-view="ledger"] .lg-tblw .tbl th{font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  [data-view="ledger"] .lg-tblw .tbl td:first-child{font:600 12.5px var(--mono);white-space:nowrap}
+  [data-view="ledger"] .lg-tblw .tbl code{font-size:12px}
+  [data-view="ledger"] .lg-tblw .tbl tr.own td{background:var(--accent-weak)}
+  [data-view="ledger"] .lg-txt .tbl td:first-child{font:600 13px var(--body);white-space:normal}
+  [data-view="ledger"] code.w{color:var(--bad);font-weight:600}
+
+  /* ===== рисунки ===== */
+  [data-view="ledger"] svg.lg-svg{display:block;width:100%;height:auto;max-width:460px;margin-inline:auto}
+  [data-view="ledger"] .lg-svg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="ledger"] .lg-svg .bx.me{fill:var(--accent-weak);stroke:var(--accent);stroke-width:2}
+  [data-view="ledger"] .lg-svg .bx.st{fill:var(--surface2);stroke:var(--line)}
+  [data-view="ledger"] .lg-svg .bx.ext{fill:var(--surface2);stroke:var(--line);stroke-dasharray:4 4}
+  [data-view="ledger"] .lg-svg .bx.on{stroke:var(--accent);stroke-width:2.4}
+  [data-view="ledger"] .lg-svg .bx.okb{fill:var(--ok-weak);stroke:var(--ok);stroke-width:2}
+  [data-view="ledger"] .lg-svg .bx.wb{fill:var(--wait-weak);stroke:var(--wait);stroke-width:2}
+  [data-view="ledger"] .lg-svg .bx.dim{opacity:.45}
+  [data-view="ledger"] .lg-svg .zone{fill:none;stroke:var(--muted);stroke-dasharray:6 5;stroke-width:1.2}
+  [data-view="ledger"] .lg-svg .tn{fill:var(--ink);font:600 12px var(--mono)}
+  [data-view="ledger"] .lg-svg .tb{fill:var(--ink);font:700 13px var(--disp)}
+  [data-view="ledger"] .lg-svg .ts{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="ledger"] .lg-svg .tz{fill:var(--muted);font:600 10px var(--mono);letter-spacing:.1em}
+  [data-view="ledger"] .lg-svg .tm{fill:var(--accent);font:600 10.5px var(--mono)}
+  [data-view="ledger"] .lg-svg .tok{fill:var(--ok);font:600 10.5px var(--mono)}
+  [data-view="ledger"] .lg-svg .tw{fill:var(--wait);font:600 10.5px var(--mono)}
+  [data-view="ledger"] .lg-svg .tbad{fill:var(--bad);font:600 10.5px var(--mono)}
+  [data-view="ledger"] .lg-svg .ed{stroke:var(--muted);stroke-width:1.5;fill:none}
+  [data-view="ledger"] .lg-svg .ed.dash{stroke-dasharray:5 4}
+  [data-view="ledger"] .lg-svg .ed.on{stroke:var(--accent);stroke-width:2.4}
+  [data-view="ledger"] .lg-svg .ed.bad{stroke:var(--bad);stroke-width:2}
+  [data-view="ledger"] .lg-svg .ed.dim{opacity:.3}
+  [data-view="ledger"] .lg-svg .ah{fill:var(--muted)}
+  [data-view="ledger"] .lg-svg .ah.on{fill:var(--accent)}
+  [data-view="ledger"] .lg-svg .ah.bad{fill:var(--bad)}
+  [data-view="ledger"] .lg-svg .bdg circle{fill:var(--surface);stroke:var(--accent);stroke-width:1.6;cursor:pointer}
+  [data-view="ledger"] .lg-svg .bdg text{fill:var(--accent);font:700 10.5px var(--mono);pointer-events:none}
+  [data-view="ledger"] .lg-svg .bdg.on circle{fill:var(--accent)}
+  [data-view="ledger"] .lg-svg .bdg.on text{fill:var(--on-accent)}
+  [data-view="ledger"] .lg-svg .bdg:focus-visible{outline:none}
+  [data-view="ledger"] .lg-svg .bdg:focus-visible circle{stroke-width:3}
+  [data-view="ledger"] .lg-svg .bar{fill:var(--ok)}
+  [data-view="ledger"] .lg-svg .bar.off{fill:var(--line)}
+  [data-view="ledger"] .lg-svg .mk{fill:var(--accent);stroke:var(--surface);stroke-width:2}
+  [data-view="ledger"] .lg-svg .mk.bad{fill:var(--bad)}
+  [data-view="ledger"] .lg-svg .ax{stroke:var(--line);stroke-width:1.2}
+  [data-view="ledger"] .lg-svg .now{stroke:var(--accent);stroke-width:1.6;stroke-dasharray:3 3}
+
+  /* ===== граница ===== */
+  [data-view="ledger"] .lg-why{display:grid;grid-template-columns:7.5em minmax(0,1fr);gap:6px 12px;margin:0;font-size:13.5px}
+  [data-view="ledger"] .lg-why dt{font:600 11px/1.8 var(--mono);color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+  [data-view="ledger"] .lg-why dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  @media (max-width:440px){[data-view="ledger"] .lg-why{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="ledger"] .lg-why dd{margin-bottom:6px}}
+  [data-view="ledger"] .lg-rule{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="ledger"] .lg-rule li{display:grid;grid-template-columns:1.6em minmax(0,1fr);gap:8px;padding:8px 10px;border-radius:10px;background:var(--surface2)}
+  [data-view="ledger"] .lg-rule li>b{font:700 12px var(--mono);color:var(--accent)}
+
+  /* ===== каналы ===== */
+  [data-view="ledger"] .lg-chdet{display:flex;flex-direction:column;gap:8px}
+  [data-view="ledger"] .lg-chdet h3{font-size:15px}
+  [data-view="ledger"] .lg-dl{display:grid;grid-template-columns:6.5em minmax(0,1fr);gap:5px 12px;margin:0;font-size:13.5px}
+  [data-view="ledger"] .lg-dl dt{font:600 11px/1.8 var(--mono);color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+  [data-view="ledger"] .lg-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+
+  /* ===== API ===== */
+  [data-view="ledger"] .lg-ops{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="ledger"] .lg-ops button{border-radius:999px;padding:7px 12px;font:600 12.5px var(--mono);background:var(--surface2)}
+  [data-view="ledger"] .lg-ops button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="ledger"] .lg-api{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px}
+  @media (max-width:820px){[data-view="ledger"] .lg-api{grid-template-columns:minmax(0,1fr)}}
+  [data-view="ledger"] .lg-api>div{display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="ledger"] .lg-cap{font-size:13px;color:var(--muted)}
+
+  /* ===== шаги roster ===== */
+  [data-view="ledger"] .lg-steps{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  [data-view="ledger"] .lg-steps button{padding:6px 10px;font:600 12px var(--mono);border-radius:8px}
+  [data-view="ledger"] .lg-steps button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="ledger"] .lg-stt{font-size:14.5px}
+  [data-view="ledger"] .lg-rec{border-radius:10px;padding:10px 12px;font-size:13.5px;border:1px solid var(--line2);background:var(--surface2)}
+  [data-view="ledger"] .lg-rec.new{border-color:var(--ok);background:var(--ok-weak)}
+  [data-view="ledger"] .lg-rec b{font:600 12px var(--mono)}
+
+  /* ===== хранение ===== */
+  [data-view="ledger"] .lg-meter{display:flex;flex-direction:column;gap:6px}
+  [data-view="ledger"] .lg-track{position:relative;height:22px;border-radius:7px;background:var(--surface2);border:1px solid var(--line2);overflow:hidden}
+  [data-view="ledger"] .lg-fill{position:absolute;left:0;top:0;bottom:0;background:var(--accent);min-width:3px}
+  [data-view="ledger"] .lg-meter-l{display:flex;justify-content:space-between;gap:10px;font:500 12px var(--mono);color:var(--muted);flex-wrap:wrap}
+  [data-view="ledger"] .lg-ctl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px}
+  [data-view="ledger"] .lg-ctl input[type=range]{flex:1;min-width:140px;accent-color:var(--accent)}
+  [data-view="ledger"] .lg-ctl output{font:600 13px var(--mono);min-width:7ch}
+  [data-view="ledger"] .lg-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+  @media (max-width:860px){[data-view="ledger"] .lg-facts{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+  @media (max-width:440px){[data-view="ledger"] .lg-facts{grid-template-columns:minmax(0,1fr)}}
+  [data-view="ledger"] .lg-facts .fact a{font-size:12px}
+
+  /* ===== чтение: окно пульта ===== */
+  [data-view="ledger"] .lg-win{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  [data-view="ledger"] .lg-bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line2)}
+  [data-view="ledger"] .lg-bar b{font:600 13.5px var(--body);margin-right:auto}
+  [data-view="ledger"] .lg-bar input{font:500 13px var(--body);padding:6px 9px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--ink);min-width:0;width:11em}
+  [data-view="ledger"] .lg-flt{display:flex;flex-wrap:wrap;gap:4px}
+  [data-view="ledger"] .lg-flt button{padding:4px 9px;font:600 11.5px var(--mono);border-radius:7px}
+  [data-view="ledger"] .lg-flt button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--surface)}
+  [data-view="ledger"] .lg-day{font:600 11px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:8px 12px 2px}
+  [data-view="ledger"] .lg-rows{list-style:none;margin:0;padding:0}
+  [data-view="ledger"] .lg-row{display:grid;grid-template-columns:3.4em 8.6em minmax(0,1fr);gap:4px 10px;padding:8px 12px;border-bottom:1px solid var(--line2);font-size:13px;align-items:baseline}
+  [data-view="ledger"] .lg-row:last-child{border-bottom:0}
+  [data-view="ledger"] .lg-row time{font:500 12px var(--mono);color:var(--muted)}
+  [data-view="ledger"] .lg-row code{font:600 11.5px var(--mono);color:var(--accent);overflow-wrap:anywhere}
+  [data-view="ledger"] .lg-row .by{color:var(--muted);font-size:12px}
+  [data-view="ledger"] .lg-row.m code{color:var(--wait)}
+  @media (max-width:520px){[data-view="ledger"] .lg-row{grid-template-columns:3.4em minmax(0,1fr)}[data-view="ledger"] .lg-row>span{grid-column:1 / -1}}
+  [data-view="ledger"] .lg-empty{padding:14px 12px;font-size:13.5px;color:var(--muted)}
+  [data-view="ledger"] .lg-read{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  @media (max-width:900px){[data-view="ledger"] .lg-read{grid-template-columns:minmax(0,1fr)}}
+  [data-view="ledger"] .lg-read>*{min-width:0}
+</style>
+
+<header class="vhead chg" data-chg="ledger-head">
+  <span class="pill acc kind">Worker-модуль</span>
+  <h1>ledger</h1>
+  <p class="lead">Журнал флота: что случилось с машинами и сессиями, когда и по чьей команде. Участник рации с адресом <code>ledger</code>: модули пишут в него кадром <code>ledger.add</code>, пульт и агенты читают запросом <code>ledger.read</code>, а пропажу и возвращение машин он отмечает сам — по roster от relay. Хранит записи в своём Durable Object с SQLite; резервную копию держит Cloudflare.</p>
+  <div class="names">
+    <span><b>запись</b> одна строка: время, что случилось, о ком, кто записал</span>
+    <span><b>ev</b> что случилось: <code>machine.left</code>, <code>slot.swapped</code>…</span>
+    <span><b>from</b> кто записал — ставит relay</span>
+    <span><b>by</b> по чьей команде — со слов пишущего</span>
+    <span><b>roster</b> кто сейчас на связи — у relay</span>
+  </div>
+  <p class="lg-not"><b>Не делает</b><span>сбоев частей — это журнал машины</span><span>отмены и её сроков</span><span>текста разговоров</span><span>своих резервных копий</span><span>удаления записей</span></p>
+  <p class="hint"><span class="kbd">A</span> прочитал блок · <span class="kbd">Z</span> снять · наведите на блок и нажмите клавишу</p>
+</header>
+
+<!-- ===== ГРАНИЦА ===== -->
+<section class="chg" data-chg="ledger-border">
+  <div class="shead">
+    <h2>Одно событие — одно место</h2>
+    <p>Во флоте три места, где остаётся след. Журнал части — сбои, по нему агент чинит. Журнал флота — факты о машинах и сессиях, которые переживают машину или касаются нескольких. Данные модуля — у его владельца, журнал их не копирует. Выберите событие.</p>
+  </div>
+  <div class="card lg-pad">
+    <div class="lg-chips" id="ledger-bev" role="group" aria-label="Событие"></div>
+    <div class="lg-two">
+      <figure class="lg-fig">
+        <svg class="lg-svg" id="ledger-bsvg" viewBox="0 0 400 236" role="img" aria-label="Событие и три места: журнал части, журнал флота, данные владельца; стрелка ведёт в одно из них"></svg>
+        <figcaption>Стрелка — куда событие пишется. Второго места у него нет: копия в другом месте — дубликат.</figcaption>
+      </figure>
+      <div class="lg-pad" style="padding:0">
+        <dl class="lg-why" id="ledger-bwhy" aria-live="polite"></dl>
+        <ol class="lg-rule">
+          <li><b>1</b><span>Сбой или отказ части — в журнал этой части: файл на машине, у Worker — Workers Logs.</span></li>
+          <li><b>2</b><span>Факт о машине или сессии, который должен пережить машину или касается двух машин, — в журнал флота.</span></li>
+          <li><b>3</b><span>То, что модуль хранит как свои данные, — только у него: точки, лимиты, вход.</span></li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КАНАЛЫ ===== -->
+<section class="chg" data-chg="ledger-ch">
+  <div class="shead">
+    <h2>Каналы ledger</h2>
+    <p>Адреса в интернете у ledger нет: всё идёт через relay по привязке, как у push. Пишут и читают кадрами рации; хранилище — свой Durable Object. Нажмите номер.</p>
+  </div>
+  <div class="card lg-two" style="padding:12px">
+    <figure class="lg-fig">
+      <svg class="lg-svg" id="ledger-chsvg" viewBox="0 0 400 300" role="img" aria-label="Модули Host, points и пульт говорят с relay; relay передаёт ledger кадры и roster по привязке; ledger отвечает по своей привязке; записи — в SQLite своего объекта; Cloudflare хранит историю базы 30 дней">
+        <defs>
+          <marker id="ledger-cm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="ledger-cm-on" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path class="ah on" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="bx" x="6" y="8" width="150" height="44" rx="9"/>
+        <text class="tn" x="81" y="26" text-anchor="middle">Host · модули</text><text class="ts" x="81" y="42" text-anchor="middle">manage, slots, upgrade</text>
+        <rect class="bx" x="244" y="8" width="150" height="44" rx="9"/>
+        <text class="tn" x="319" y="26" text-anchor="middle">пульт · агент</text><text class="ts" x="319" y="42" text-anchor="middle">читают журнал</text>
+        <path class="ed dash" d="M110 52V102" marker-end="url(#ledger-cm)"/><text class="ts" x="117" y="76">wss</text>
+        <path class="ed dash" d="M319 52V70Q319 78 311 78H150Q142 78 142 86V102" marker-end="url(#ledger-cm)"/><text class="ts" x="236" y="72" text-anchor="middle">wss</text>
+
+        <rect class="zone" x="2" y="84" width="396" height="210" rx="14"/>
+        <text class="tz" x="12" y="100">CLOUDFLARE</text>
+        <rect class="bx" data-on="1 2" x="14" y="106" width="150" height="70" rx="10"/>
+        <text class="tb" x="89" y="130" text-anchor="middle">relay</text>
+        <text class="ts" x="89" y="147" text-anchor="middle">PARTICIPANTS:</text>
+        <text class="tm" x="89" y="162" text-anchor="middle">ledger → LEDGER</text>
+        <rect class="bx me" data-on="1 2 3" x="236" y="106" width="150" height="70" rx="10"/>
+        <text class="tb" x="311" y="130" text-anchor="middle">ledger</text>
+        <text class="ts" x="311" y="147" text-anchor="middle">участник «ledger»</text>
+        <text class="ts" x="311" y="162" text-anchor="middle">секретов нет</text>
+        <rect class="bx" x="14" y="214" width="150" height="40" rx="9"/>
+        <text class="tn" x="89" y="231" text-anchor="middle">points</text><text class="ts" x="89" y="246" text-anchor="middle">участник · пишет</text>
+        <path class="ed dash" d="M89 214V180" marker-end="url(#ledger-cm)"/><text class="ts" x="96" y="200">frame</text>
+        <rect class="bx st" data-on="3 4" x="236" y="214" width="150" height="40" rx="9"/>
+        <text class="tn" x="311" y="231" text-anchor="middle">SQLite объекта</text><text class="ts" x="311" y="246" text-anchor="middle">idFromName(fleet)</text>
+        <text class="ts" x="311" y="284" text-anchor="middle">история базы — 30 дней</text>
+
+        <path class="ed" data-ch="1" d="M164 128H232" marker-end="url(#ledger-cm)"/>
+        <path class="ed" data-ch="2" d="M236 160H168" marker-end="url(#ledger-cm)"/>
+        <path class="ed" data-ch="3" d="M311 176V210" marker-end="url(#ledger-cm)"/>
+        <path class="ed dash" data-ch="4" d="M311 272V258" marker-end="url(#ledger-cm)"/>
+        <g class="bdg" data-ch="1" tabindex="0" role="button" aria-label="Канал 1: relay → ledger"><circle cx="198" cy="128" r="9"/><text x="198" y="132" text-anchor="middle">1</text></g>
+        <g class="bdg" data-ch="2" tabindex="0" role="button" aria-label="Канал 2: ledger → relay"><circle cx="200" cy="160" r="9"/><text x="200" y="164" text-anchor="middle">2</text></g>
+        <g class="bdg" data-ch="3" tabindex="0" role="button" aria-label="Канал 3: ledger → SQLite"><circle cx="328" cy="194" r="9"/><text x="328" y="198" text-anchor="middle">3</text></g>
+        <g class="bdg" data-ch="4" tabindex="0" role="button" aria-label="Канал 4: Cloudflare хранит историю базы"><circle cx="352" cy="266" r="9"/><text x="352" y="270" text-anchor="middle">4</text></g>
+      </svg>
+      <figcaption>Сплошная — привязка или вызов внутри Cloudflare, пунктир — кадры рации. Стрелка — кто начинает.</figcaption>
+    </figure>
+    <div class="lg-pad lg-chdet" id="ledger-chdet" aria-live="polite"></div>
+  </div>
+</section>
+
+<!-- ===== API ===== -->
+<section class="chg" data-chg="ledger-api">
+  <div class="shead">
+    <h2>API ledger</h2>
+    <p>Кадр записи, запрос чтения и вход roster. Кадр — с <code>to: "ledger"</code>, ответ на запрос — <code>reply</code> через relay. Выберите имя.</p>
+  </div>
+  <div class="card lg-pad">
+    <div class="lg-ops" id="ledger-ops" role="group" aria-label="Имена ledger"></div>
+    <div class="lg-api">
+      <div>
+        <div class="lg-hd" id="ledger-op-hd"></div>
+        <dl class="lg-dl" id="ledger-op-dl"></dl>
+      </div>
+      <div>
+        <span class="lbl">пришло</span>
+        <div class="codebox"><pre class="lg-pre" id="ledger-op-in"></pre></div>
+        <span class="lbl">ушло</span>
+        <div class="codebox"><pre class="lg-pre" id="ledger-op-out"></pre></div>
+        <p class="lg-cap" id="ledger-op-cap"></p>
+      </div>
+    </div>
+  </div>
+  <div class="lg-two">
+    <div class="card lg-pad chg" data-chg="ledger-api-rec">
+      <h3>Запись — по полям</h3>
+      <dl class="lg-dl">
+        <dt>id</dt><dd>номер по порядку записи; по нему читают «после» и «до»</dd>
+        <dt>t</dt><dd>часы ledger в миг записи, мс UTC — одни часы на весь флот</dd>
+        <dt>ev</dt><dd>что случилось — имя из контракта пишущего; у имени один владелец во всём монорепо</dd>
+        <dt>from</dt><dd>кто записал — адрес, который поставил relay: <code>@laptop</code>, <code>points</code></dd>
+        <dt>by</dt><dd>по чьей команде — <code>from</code> исходного запроса: <code>panel</code>, <code>site@laptop</code>; у решений модуля нет</dd>
+        <dt>machine</dt><dd>о какой машине; у записи сессии — её машина</dd>
+        <dt>callsign</dt><dd>о какой сессии</dd>
+        <dt>text</dt><dd>что случилось словами — пишет владелец <code>ev</code>; пульт показывает как есть</dd>
+      </dl>
+      <p>Имена <code>t</code>, <code>ev</code>, <code>machine</code>, <code>callsign</code> — те же и в том же смысле, что в журнале машины.</p>
+    </div>
+    <div class="card lg-pad chg" data-chg="ledger-api-words">
+      <h3>Слова отказа</h3>
+      <div class="lg-tblw"><table class="tbl" style="min-width:0">
+        <tr><th>слово</th><th>когда</th></tr>
+        <tr><td><code class="w">bad_frame</code></td><td><code>ledger.add</code> без <code>ev</code> или <code>text</code>; <code>machine.left</code> или <code>machine.back</code> не от самого ledger; <code>ledger.read</code> без <code>limit</code></td></tr>
+        <tr><td><code class="w">offline</code></td><td>слово relay: ledger не принял <code>frame</code> — выпуск или ошибка в его коде</td></tr>
+      </table></div>
+      <p>У <code>ledger.add</code> нет <code>id</code>: ответа нет, отказ — строкой в Workers Logs ledger с <code>from</code>; не доставленный relay кадр — строкой <code>offline</code> в журнале relay. Повторов никто не делает.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КТО ЧТО ПИШЕТ ===== -->
+<section class="chg" data-chg="ledger-kinds">
+  <div class="shead">
+    <h2>Кто что пишет</h2>
+    <p>Каждое <code>ev</code> пишет один модуль — тот, кто это сделал. Имя события лежит в его контракте; ledger видов не знает и только кладёт запись. Подсвечено своё.</p>
+  </div>
+  <div class="card lg-pad">
+    <div class="lg-tblw"><table class="tbl">
+      <tr><th>ev</th><th>пишет</th><th>когда</th><th>text — пример</th></tr>
+      <tr class="own"><td>machine.left</td><td>ledger</td><td>машины нет в новом roster</td><td>laptop пропала · была на связи с 14:00</td></tr>
+      <tr class="own"><td>machine.back</td><td>ledger</td><td>машина снова в roster</td><td>laptop вернулась · не было 42 мин</td></tr>
+      <tr><td>session.opened</td><td><a href="#host-manage">manage</a></td><td>сессия создана</td><td>site@laptop создана · ~/Projects/site · слот main · by panel</td></tr>
+      <tr><td>session.removed</td><td><a href="#host-manage">manage</a></td><td>сессия убрана с машины</td><td>wiki@pc забыта · by panel</td></tr>
+      <tr><td>slot.swapped</td><td><a href="#host-slots">slots</a></td><td>в слоте другой аккаунт</td><td>laptop · слот main: infirex → y0902 · 5 ч 95 %</td></tr>
+      <tr><td>machine.upgraded</td><td><a href="#host-upgrade">upgrade</a></td><td>Host машины сменил версию</td><td>laptop: Host 1.5.0 → 1.6.0 · by panel</td></tr>
+      <tr><td>session.moved</td><td><a href="#points">points</a></td><td>сессия поднята на другой машине</td><td>site: laptop → pc · из точки 14:02 · by panel</td></tr>
+      <tr><td>session.copied</td><td><a href="#points">points</a></td><td>из точки сделана копия</td><td>site → site-2@pc · из точки 14:02</td></tr>
+      <tr><td>session.rolled_back</td><td><a href="#points">points</a></td><td>откат к точке</td><td>site@laptop откатана к 12:30</td></tr>
+      <tr class="chg" data-chg="ledger-ev-deleted"><td>session.deleted</td><td><a href="#points">points</a></td><td>точки сессии удалены из R2: сессия «только в R2» удалена или с живой сессии сняли пометку «в R2»; отмены нет</td><td>old-bot удалена · by panel<br>wiki убрана из R2 · 12 точек · by panel</td></tr>
+    </table></div>
+    <p>Не пишутся: точки — их история у points; лимиты — у accounts и в roster; вход, сбои процессов и модулей — журнал машины; текст разговоров — файл разговора.</p>
+  </div>
+</section>
+
+<!-- ===== МАШИНА ПРОПАЛА ===== -->
+<section class="chg" data-chg="ledger-roster">
+  <div class="shead">
+    <h2>Машина пропала и вернулась — по шагам</h2>
+    <p>Свою пропажу машина записать не может, а relay на диск не пишет. Поэтому ledger получает roster, как любое соединение, и сравнивает машины в нём со своими последними записями. Отдельной копии roster он не держит.</p>
+  </div>
+  <div class="card lg-two" style="padding:12px">
+    <figure class="lg-fig">
+      <div class="lg-steps" id="ledger-rsteps" role="group" aria-label="Шаг"></div>
+      <svg class="lg-svg" id="ledger-rsvg" viewBox="0 0 400 150" role="img" aria-label="Линия времени: laptop и pc на связи и без связи, отметки записей ledger"></svg>
+      <figcaption>Зелёная полоса — машина в roster. Синяя отметка — запись ledger, красная — машина пропала.</figcaption>
+    </figure>
+    <div class="lg-pad" style="padding:4px">
+      <p class="lg-stt" id="ledger-rtt" aria-live="polite"></p>
+      <span class="lbl">roster от relay — машины</span>
+      <div class="codebox"><pre class="lg-pre" id="ledger-rin"></pre></div>
+      <span class="lbl">ledger записал</span>
+      <div class="lg-rec" id="ledger-rout"></div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===== ХРАНЕНИЕ ===== -->
+<section class="chg" data-chg="ledger-store">
+  <div class="shead">
+    <h2>Хранение и резервная копия</h2>
+    <p>Одна таблица в SQLite своего объекта. Записи не удаляются — то же правило, что у журнала машины: сначала замер, чистка потом и по нему. Резервную копию делает Cloudflare: база объекта восстанавливается на любой миг последних 30 дней.</p>
+  </div>
+  <div class="lg-two">
+    <div class="card lg-pad">
+      <span class="lbl">таблица</span>
+      <div class="codebox"><pre class="lg-pre">CREATE TABLE events (
+  id       INTEGER PRIMARY KEY AUTOINCREMENT,
+  t        INTEGER NOT NULL,   -- мс UTC, часы ledger
+  ev       TEXT NOT NULL,
+  "from"   TEXT NOT NULL,
+  by       TEXT,
+  machine  TEXT,
+  callsign TEXT,
+  text     TEXT NOT NULL );
+CREATE INDEX events_m ON events(machine, id);
+CREATE INDEX events_c ON events(callsign, id);</pre></div>
+      <p>Других таблиц нет: кто был на связи, ledger узнаёт из своих последних <code>machine.left</code> и <code>machine.back</code>.</p>
+    </div>
+    <div class="card lg-pad">
+      <div class="lg-hd"><h3>Сколько займёт</h3><span class="pill acc">расчёт</span></div>
+      <div class="lg-ctl">
+        <label for="ledger-sday">записей в сутки</label>
+        <input type="range" id="ledger-sday" min="10" max="2000" step="10" value="100">
+        <output id="ledger-sday-o" for="ledger-sday">100</output>
+      </div>
+      <div class="lg-meter">
+        <div class="lg-track" aria-hidden="true"><div class="lg-fill" id="ledger-sfill"></div></div>
+        <div class="lg-meter-l"><span id="ledger-syear"></span><span>5 ГБ — весь бесплатный аккаунт</span></div>
+      </div>
+      <p id="ledger-sverd"></p>
+      <p>Запись ≈ 300 Б: время, имя, два адреса и строка текста. Флот из трёх машин — порядка сотни записей в сутки: пропажи и возвраты машин, сессии, подмены, переносы. Точное число — замер при сборке.</p>
+    </div>
+  </div>
+  <div class="card lg-pad chg" data-chg="ledger-pitr">
+    <div class="lg-hd"><h3>Восстановление — платформой</h3><span class="pill ok">факт: Cloudflare</span></div>
+    <div class="codebox"><pre class="lg-pre">// разовый выпуск ledger, когда базу нужно вернуть на миг t
+const b = await ctx.storage.getBookmarkForTime(t);   // t — в пределах 30 дней
+await ctx.storage.onNextSessionRestoreBookmark(b);   // база вернётся при следующем старте
+ctx.abort("restore");                                 // старт — уже с базой на миг t
+// затем — обычный выпуск без этих строк</pre></div>
+    <p>Своего запроса восстановления в контракте нет: это редкий ремонт, его делает агент выпуском. Восстанавливается вся база объекта; повторное восстановление на закладку «до» отменяет первое.</p>
+    <div class="lg-facts">
+      <div class="fact"><b>30 дней</b><span>на любой миг этого срока восстанавливается база SQLite объекта</span><a href="https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/" target="_blank" rel="noopener">Cloudflare · PITR</a></div>
+      <div class="fact"><b>10 ГБ</b><span>база одного объекта на платном тарифе</span><a href="https://developers.cloudflare.com/durable-objects/platform/limits/" target="_blank" rel="noopener">Cloudflare · пределы</a></div>
+      <div class="fact"><b>5 ГБ</b><span>все объекты бесплатного аккаунта вместе</span><a href="https://developers.cloudflare.com/durable-objects/platform/limits/" target="_blank" rel="noopener">Cloudflare · пределы</a></div>
+      <div class="fact"><b>2 МБ</b><span>одна строка таблицы — запись в 300 Б далеко от предела</span><a href="https://developers.cloudflare.com/durable-objects/platform/limits/" target="_blank" rel="noopener">Cloudflare · пределы</a></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КАК ЧИТАЮТ ===== -->
+<section class="chg" data-chg="ledger-read">
+  <div class="shead">
+    <h2>Как читают</h2>
+    <p>Один запрос — <code>ledger.read</code>. Пульт строит из него экран «Журнал»: по дням, фильтр машины, поиск. Свежие записи он дочитывает на каждом roster, пока экран открыт: нового канала для журнала нет. Попробуйте фильтр.</p>
+  </div>
+  <div class="lg-two">
+    <div class="lg-win" role="group" aria-label="Интерфейс клиента: журнал флота на пульте">
+      <div class="lg-bar"><b>Журнал флота</b>
+        <div class="lg-flt" id="ledger-vm" role="group" aria-label="Машина"></div>
+        <input type="search" id="ledger-vq" placeholder="поиск" aria-label="Поиск по тексту">
+      </div>
+      <div id="ledger-vrows" aria-live="polite"></div>
+    </div>
+    <div class="card lg-pad">
+      <span class="lbl">запрос пульта</span>
+      <div class="codebox"><pre class="lg-pre" id="ledger-vreq"></pre></div>
+      <ul class="how">
+        <li><b>Пульт</b> — <code>ledger.read</code> при открытии экрана, потом <code>after</code> = последний <code>id</code> на каждом roster; в полёте не больше одного запроса.</li>
+        <li><b>Агент</b> — тот же запрос скриптом рации со своим ключом: «что было с laptop этой ночью».</li>
+        <li><b>Сбои самого ledger</b> — не в таблице, а в Workers Logs, как у relay и push: <code>wrangler tail</code>.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СБОИ ===== -->
+<section class="chg" data-chg="ledger-fail">
+  <div class="shead">
+    <h2>Сбои и остановка</h2>
+    <p>Остановкой управляет Cloudflare. Всё, что ledger знает, — в SQLite; память он не копит, поэтому перезапуск ничего не теряет, кроме кадров, пришедших в этот миг.</p>
+  </div>
+  <div class="card lg-pad">
+    <div class="lg-tblw lg-txt"><table class="tbl">
+      <tr><th>что случилось</th><th>что делает ledger</th><th>что видят остальные</th></tr>
+      <tr><td>выпуск ledger</td><td>Cloudflare перезапускает объект; первый roster сверяется с последними записями машин</td><td>кадр <code>ledger.add</code> в этот миг — строка <code>offline</code> в журнале relay; запись не повторяется</td></tr>
+      <tr><td>выпуск relay</td><td>соединения машин рвутся — <code>machine.left</code>, через секунды <code>machine.back</code></td><td>в журнале флота видно, что связь прерывалась на N с</td></tr>
+      <tr><td>кадр не по контракту</td><td>не пишет; строка в Workers Logs: слово, <code>from</code>, <code>ev</code></td><td>пишущий ответа не ждёт</td></tr>
+      <tr><td>ошибка в коде ledger</td><td>исключение, строка в Workers Logs с причиной</td><td>relay: отправителю запроса — <code>offline</code></td></tr>
+      <tr><td>данные испорчены выпуском</td><td>—</td><td>агент возвращает базу на миг до выпуска — PITR</td></tr>
+    </table></div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="ledger-et">
+  <div class="shead">
+    <h2>Эталоны ledger</h2>
+    <p>Каждый проверяет ledger на зафиксированном входе: relay поддельный, его roster и кадры заданы в тесте, часы — поддельные, база — пустой SQLite. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="ledger-et-220"><div class="et-n">220</div>
+      <div class="et-in">Записей нет. Часы 14:00 — roster: laptop (site@laptop, wiki@laptop), pc (docs@pc). 14:02 — roster: pc. 14:44 — roster: laptop с <code>since</code> 14:44, pc.</div>
+      <div class="et-out">Три записи: <code>machine.back</code> laptop и pc в 14:00; <code>machine.left</code> laptop в 14:02; <code>machine.back</code> laptop в 14:44 — «не было 42 мин». У всех <code>from: "ledger"</code>.</div>
+      <div class="et-src">чьё: код claude-fleet — события host_up и host_down в журнале Пульта; устав — «Relay не пишет на диск».</div></div>
+    <div class="et" id="ledger-et-221"><div class="et-n">221</div>
+      <div class="et-in">В базе последние записи машин: laptop — <code>machine.back</code>, pc — <code>machine.back</code>. Объект перезапущен. Первый roster: laptop, pc.</div>
+      <div class="et-out">Новых записей нет. Кроме таблицы <code>events</code>, у ledger нет ни таблиц, ни ключей хранилища.</div>
+      <div class="et-src">чьё: устав — «Чистый перезапуск… начинает с хранилища».</div></div>
+    <div class="et" id="ledger-et-222"><div class="et-n">222</div>
+      <div class="et-in">Кадр без <code>id</code> от <code>@laptop</code>: <code>ledger.add { ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902" }</code>. Затем <code>ledger.read { machine: "laptop", limit: 1 }</code>.</div>
+      <div class="et-out">Ответа на кадр нет. В ответе чтения — эта запись: <code>from: "@laptop"</code>, <code>t</code> — часы ledger, <code>by</code> нет.</div>
+      <div class="et-src">чьё: код claude-fleet — лента событий с компьютером и <code>by</code>, журнал по дням с фильтром компьютера.</div></div>
+    <div class="et" id="ledger-et-223"><div class="et-n">223</div>
+      <div class="et-in"><code>ledger.add</code> от <code>@pc</code> без <code>text</code>; затем <code>ledger.add { ev: "machine.left", machine: "laptop", text: "…" }</code> от <code>@pc</code>.</div>
+      <div class="et-out">Записей нет. В Workers Logs — две строки <code>bad_frame</code> с <code>from: "@pc"</code> и причиной словами.</div>
+      <div class="et-src">чьё: устав — «Система ловит, агент чинит»; «У каждого понятия один владелец».</div></div>
+    <div class="et" id="ledger-et-224"><div class="et-n">224</div>
+      <div class="et-in">В базе записи с <code>id</code> 1…5. <code>ledger.read { id: "r-1", before: 5, limit: 2 }</code>, затем <code>{ id: "r-2", after: 3, limit: 10 }</code>.</div>
+      <div class="et-out">r-1: записи 4 и 3, новые сначала, <code>more: true</code>. r-2: записи 5 и 4, <code>more: false</code>.</div>
+      <div class="et-src">чьё: код claude-fleet — журнал «последние сначала» с догрузкой.</div></div>
+    <div class="et" id="ledger-et-225"><div class="et-n">225</div>
+      <div class="et-in">От <code>points</code>: <code>session.deleted</code> про old-bot, затем <code>session.deleted</code> про wiki — с неё сняли пометку «в R2». Часы +14 дней.</div>
+      <div class="et-out">Две записи с одним <code>ev</code> и ничего больше: у ledger нет будильника, запросов к points и признака «удалена».</div>
+      <div class="et-src"><span class="chg" data-chg="ledger-et-225-src">чьё: слово пользователя 31 окт. — «удаление из R2 — сразу»: отмены нет, событию «удалено» нечего ждать; устав — «У каждого понятия один владелец»: точки — данные points.</span></div></div>
+    <div class="et" id="ledger-et-226"><div class="et-n">226</div>
+      <div class="et-in">relay зовёт <code>hello()</code> у ledger.</div>
+      <div class="et-out"><code>{ contract: { "ledger.add": 1, "ledger.read": 1, "machine.left": 1, "machine.back": 1 }, uses: { "roster@relay": 1 } }</code>.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — «они тоже должны быть модульными»; устав — «Части… пользуются друг другом только через контракт».</div></div>
+  </div>
+</section>
+
+<script>
+(function(){
+  const root = document.querySelector('[data-view="ledger"]');
+  if (!root) return;
+  const $ = (id) => root.querySelector("#ledger-" + id);
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent, text){
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function esc(s){ return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+  function press(group, btn){ group.querySelectorAll("button").forEach(b => b.setAttribute("aria-pressed", b === btn ? "true" : "false")); }
+
+  /* ---------- граница: одно событие — одно место ---------- */
+  const BIN = [
+    {x:8, n:"журнал части", s:"файл · Workers Logs"},
+    {x:140, n:"журнал флота", s:"ledger · SQLite"},
+    {x:272, n:"данные владельца", s:"points, accounts…"}
+  ];
+  const EVS = [
+    {t:"laptop пропала из roster", b:1, w:"ledger сам — по roster", y:"Машина не запишет свою пропажу, relay на диск не пишет. Факт должен пережить машину."},
+    {t:"site@laptop создана", b:1, w:"manage", y:"Сессия появилась во флоте по чьей-то команде — это видно с пульта и после пропажи машины."},
+    {t:"site перенесена laptop → pc", b:1, w:"points", y:"Касается двух машин: ни один журнал машины не видит его целиком."},
+    {t:"слот main: infirex → y0902", b:1, w:"slots", y:"Аккаунт общий для флота: смену видят все, и после пропажи машины тоже. В журнал машины не дублируется."},
+    {t:"Host laptop 1.5.0 → 1.6.0", b:1, w:"upgrade", y:"Итог выпуска для флота: с какой на какую и по чьей команде. Шаги выпуска — в журнале машины."},
+    {t:"old-bot удалена", b:1, w:"points", y:"Запись — что было и по чьей команде. Сами строки точек — данные points; удаление сразу, отмены нет. Снятие пометки «в R2» пишется тем же событием."},
+    {t:"процесс claude вышел не по просьбе", b:0, w:"keeper", y:"Сбой части. Его чинят по журналу машины: код выхода, хвост stderr."},
+    {t:"модуль budget упал в site@laptop", b:0, w:"ядро Host", y:"Сбой модуля — stop в журнале машины, failed в roster."},
+    {t:"relay закрыл соединение: 1006", b:0, w:"relay", y:"Техника соединения — Workers Logs relay. Для флота это станет machine.left у ledger, если ушла машина."},
+    {t:"точка №41 сохранена", b:2, w:"points", y:"История точек — данные points. Копия в журнале была бы вторым местом."},
+    {t:"лимит 5 ч — 95 %", b:2, w:"accounts · slots", y:"Окна лимитов — данные accounts; сейчас — поле limit в roster."}
+  ];
+  const bsvg = $("bsvg"), bev = $("bev"), bwhy = $("bwhy");
+  let bcur = 0;
+  EVS.forEach((e, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = e.t; b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.addEventListener("click", () => { bcur = i; press(bev, b); drawBorder(); });
+    bev.appendChild(b);
+  });
+  function drawBorder(){
+    const e = EVS[bcur];
+    bsvg.textContent = "";
+    const d = el("defs", {}, bsvg);
+    const m = el("marker", {id:"ledger-bm", viewBox:"0 0 10 10", refX:"9", refY:"5", markerWidth:"7", markerHeight:"7", orient:"auto"}, d);
+    el("path", {"class":"ah on", d:"M0 0L10 5L0 10z"}, m);
+    el("rect", {"class":"bx on", x:70, y:8, width:260, height:46, rx:10}, bsvg);
+    el("text", {"class":"tn", x:200, y:28, "text-anchor":"middle"}, bsvg, e.t.length > 34 ? e.t.slice(0, 33) + "…" : e.t);
+    el("text", {"class":"ts", x:200, y:45, "text-anchor":"middle"}, bsvg, "пишет: " + e.w);
+    BIN.forEach((b, i) => {
+      const on = i === e.b;
+      const cx = b.x + 60;
+      const p = el("path", {"class":"ed" + (on ? " on" : " dim"), d: cx === 200 ? "M200 54V146" : "M200 54V98H" + cx + "V146"}, bsvg);
+      if (on) p.setAttribute("marker-end", "url(#ledger-bm)");
+      el("rect", {"class":"bx" + (on ? (i === 1 ? " me" : i === 2 ? " wb" : " on") : " dim"), x:b.x, y:150, width:120, height:56, rx:10}, bsvg);
+      el("text", {"class":"tn", x:cx, y:173, "text-anchor":"middle"}, bsvg, b.n);
+      el("text", {"class":"ts", x:cx, y:191, "text-anchor":"middle"}, bsvg, b.s);
+      if (on) el("text", {"class":"tok", x:cx, y:226, "text-anchor":"middle"}, bsvg, "сюда — и только сюда");
+    });
+    bwhy.innerHTML = "<dt>куда</dt><dd><b>" + esc(BIN[e.b].n) + "</b></dd><dt>кто пишет</dt><dd>" + esc(e.w) + "</dd><dt>почему</dt><dd>" + esc(e.y) + "</dd>";
+  }
+
+  /* ---------- каналы ---------- */
+  const CH = {
+    1: {h:"1 · relay → ledger", by:"привязка LEDGER в конфиге relay: <code>env.LEDGER.frame(кадр)</code>", what:"кадры с <code>to: \"ledger\"</code> — <code>ledger.add</code>, <code>ledger.read</code> — и <code>roster</code>: он у ledger в <code>uses</code>", who:"начинает relay; <code>from</code> ставит relay", fail:"ledger не принял — отправителю запроса <code>offline</code>, строка в журнале relay"},
+    2: {h:"2 · ledger → relay", by:"привязка RELAY с <code>props { name: \"ledger\" }</code>: <code>env.RELAY.frame(reply)</code>", what:"<code>reply</code> на <code>ledger.read</code>; своих кадров без запроса ledger не шлёт", who:"начинает ledger", fail:"адресат ушёл — relay пишет <code>offline</code> в свой журнал"},
+    3: {h:"3 · ledger → SQLite", by:"<code>ctx.storage.sql.exec</code> внутри своего объекта <code>idFromName(fleet)</code>", what:"<code>INSERT</code> записи; <code>SELECT</code> для чтения и для последних записей машин", who:"только ledger; чужой код в базу не ходит", fail:"исключение — строка в Workers Logs, отправителю — <code>offline</code>"},
+    4: {h:"4 · Cloudflare → SQLite", by:"платформа: история изменений базы объекта", what:"восстановление базы на любой миг последних 30 дней — <code>getBookmarkForTime</code>, <code>onNextSessionRestoreBookmark</code>", who:"агент разовым выпуском ledger", fail:"—"}
+  };
+  const chsvg = $("chsvg"), chdet = $("chdet");
+  let chcur = 1;
+  function drawCh(){
+    const c = CH[chcur];
+    chsvg.querySelectorAll("[data-ch]").forEach(n => {
+      const on = n.dataset.ch === String(chcur);
+      if (n.tagName.toLowerCase() === "path"){ n.classList.toggle("on", on); n.setAttribute("marker-end", on ? "url(#ledger-cm-on)" : "url(#ledger-cm)"); }
+      else n.classList.toggle("on", on);
+    });
+    chsvg.querySelectorAll("[data-on]").forEach(n => n.classList.toggle("on", n.dataset.on.split(" ").includes(String(chcur))));
+    chdet.innerHTML = "<h3>" + c.h + "</h3><dl class=\"lg-dl\"><dt>чем</dt><dd>" + c.by + "</dd><dt>что идёт</dt><dd>" + c.what + "</dd><dt>кто</dt><dd>" + c.who + "</dd><dt>обрыв</dt><dd>" + c.fail + "</dd></dl>";
+  }
+  chsvg.querySelectorAll(".bdg").forEach(g => {
+    const go = () => { chcur = +g.dataset.ch; drawCh(); };
+    g.addEventListener("click", go);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); go(); } });
+  });
+
+  /* ---------- API ---------- */
+  const OPS = [
+    {n:"ledger.add", k:"кадр без id",
+     dl:[["кто шлёт","модуль, который сделал то, о чём запись: <code>host.emit</code> на Host, <code>RELAY.frame</code> у Worker"],["поля","<code>ev</code>, <code>text</code> — обязательно; <code>machine</code>, <code>callsign</code>, <code>by</code> — если есть"],["ответ","нет: запись — не часть дела пишущего; отказ — строка в Workers Logs"]],
+     inp:'{ "type": "ledger.add", "v": 1, "to": "ledger",\n  "from": "@laptop",          // ставит relay\n  "ev": "slot.swapped",\n  "machine": "laptop",\n  "text": "слот main: infirex → y0902 · 5 ч 95 %" }',
+     out:'INSERT INTO events (t, ev, "from", machine, text)\n  VALUES (1793460120412, \'slot.swapped\', \'@laptop\',\n          \'laptop\', \'слот main: infirex → y0902 · 5 ч 95 %\')\n→ id 418',
+     cap:"Решение о подмене принял slots, он и пишет. by нет: команды не было, решил модуль."},
+    {n:"ledger.read", k:"запрос",
+     dl:[["кто шлёт","пульт, агент скриптом рации — любой участник с ключом"],["поля","<code>limit</code> — обязательно; <code>before</code> или <code>after</code> — id; фильтры <code>machine</code>, <code>callsign</code>, <code>q</code> — подстрока текста"],["ответ","записи, новые сначала, и <code>more</code> — есть ли ещё в ту сторону"]],
+     inp:'{ "type": "ledger.read", "id": "r-7", "v": 1, "to": "ledger",\n  "from": "panel",\n  "machine": "laptop", "limit": 2 }',
+     out:'{ "type": "reply", "id": "r-7", "to": "panel", "ok": true,\n  "result": { "more": true, "events": [\n    { "id": 418, "t": 1793460120412, "ev": "slot.swapped",\n      "from": "@laptop", "machine": "laptop",\n      "text": "слот main: infirex → y0902 · 5 ч 95 %" },\n    { "id": 415, "t": 1793459880101, "ev": "machine.back",\n      "from": "ledger", "machine": "laptop",\n      "text": "laptop вернулась · не было 42 мин" } ] } }',
+     cap:"Фильтр machine берёт и записи сессий этой машины: у них machine — машина сессии."},
+    {n:"roster", k:"вход от relay",
+     dl:[["кто шлёт","relay — участнику, у которого <code>roster@relay</code> в <code>uses</code> ответа <code>hello()</code>"],["что берёт","только имена машин и их <code>since</code>; сессии и клиентов не читает"],["ответ","нет; запись — если машина появилась или пропала относительно последних записей ledger"]],
+     inp:'{ "type": "roster",\n  "machines": [\n    { "machine": "pc", "since": 1793455200000,\n      "sessions": [ { "callsign": "docs@pc", … } ] } ],\n  "clients": [ … ] }\n// последние записи ledger: laptop — machine.back, pc — machine.back',
+     out:'INSERT … ev = \'machine.left\', "from" = \'ledger\',\n  machine = \'laptop\',\n  text = \'laptop пропала · была на связи с 14:00\'',
+     cap:"Кто был на связи, ledger берёт из своих последних machine.left и machine.back — запросом к SQLite. Копии roster в памяти нет, поэтому перезапуск не даёт ложных записей."}
+  ];
+  const opsG = $("ops");
+  let opcur = 0;
+  OPS.forEach((o, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = o.n; b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.addEventListener("click", () => { opcur = i; press(opsG, b); drawOp(); });
+    opsG.appendChild(b);
+  });
+  function drawOp(){
+    const o = OPS[opcur];
+    $("op-hd").innerHTML = "<h3><code>" + o.n + "</code></h3><span class=\"pill acc\">" + o.k + "</span>";
+    $("op-dl").innerHTML = o.dl.map(r => "<dt>" + r[0] + "</dt><dd>" + r[1] + "</dd>").join("");
+    $("op-in").textContent = o.inp;
+    $("op-out").textContent = o.out;
+    $("op-cap").textContent = o.cap;
+  }
+
+  /* ---------- машина пропала по шагам ---------- */
+  // время в минутах от 14:00; on: интервалы на связи
+  const RS = [
+    {at:0, tt:"14:00 · первый roster после пустой базы", rin:"laptop  since 14:00  site@laptop, wiki@laptop\npc      since 14:00  docs@pc", rec:[["machine.back", "laptop на связи"], ["machine.back", "pc на связи"]], new:true},
+    {at:2, tt:"14:02 · laptop нет в roster", rin:"pc      since 14:00  docs@pc", rec:[["machine.left", "laptop пропала · была на связи с 14:00"]], new:true, bad:true},
+    {at:20, tt:"14:20 · docs@pc занят — roster сменился, машины те же", rin:"pc      since 14:00  docs@pc · busy", rec:[], new:false},
+    {at:44, tt:"14:44 · laptop снова в roster", rin:"laptop  since 14:44  site@laptop, wiki@laptop\npc      since 14:00  docs@pc", rec:[["machine.back", "laptop вернулась · не было 42 мин"]], new:true},
+    {at:50, tt:"14:50 · выпуск ledger: объект перезапущен, первый roster", rin:"laptop  since 14:44  …\npc      since 14:00  …\n// последние записи: laptop back, pc back", rec:[], new:false},
+    {at:58, tt:"14:58 · выпуск relay: pc переподключился первым, через 3 с — laptop", rin:"pc      since 14:58:01\n… через 3 с\nlaptop  since 14:58:04\npc      since 14:58:01", rec:[["machine.left", "laptop пропала · была на связи с 14:44"], ["machine.back", "laptop вернулась · не было 3 с"]], new:true}
+  ];
+  const rsvg = $("rsvg"), rsteps = $("rsteps");
+  let rcur = 0;
+  RS.forEach((s, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = String(i + 1); b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.setAttribute("aria-label", "Шаг " + (i + 1) + ": " + s.tt);
+    b.addEventListener("click", () => { rcur = i; press(rsteps, b); drawRoster(); });
+    rsteps.appendChild(b);
+  });
+  const X0 = 64, X1 = 388, TMAX = 62;
+  const xt = (m) => X0 + (X1 - X0) * m / TMAX;
+  function drawRoster(){
+    const s = RS[rcur];
+    rsvg.textContent = "";
+    el("line", {"class":"ax", x1:X0, y1:126, x2:X1, y2:126}, rsvg);
+    [0, 15, 30, 45, 60].forEach(m => {
+      el("line", {"class":"ax", x1:xt(m), y1:122, x2:xt(m), y2:130}, rsvg);
+      el("text", {"class":"ts", x:xt(m), y:144, "text-anchor":"middle"}, rsvg, m === 60 ? "15:00" : "14:" + String(m).padStart(2, "0"));
+    });
+    const lanes = [
+      {n:"laptop", y:30, on:[[0, 2], [44, 58], [58.05, 62]]},
+      {n:"pc", y:78, on:[[0, 58], [58.02, 62]]}
+    ];
+    const now = s.at;
+    lanes.forEach(l => {
+      el("text", {"class":"tn", x:6, y:l.y + 14}, rsvg, l.n);
+      el("rect", {"class":"bar off", x:X0, y:l.y + 4, width:X1 - X0, height:14, rx:4}, rsvg);
+      l.on.forEach(iv => {
+        const a = Math.min(iv[0], now), b = Math.min(iv[1], now);
+        if (b > a) el("rect", {"class":"bar", x:xt(a), y:l.y + 4, width:Math.max(2, xt(b) - xt(a)), height:14, rx:4}, rsvg);
+      });
+    });
+    el("line", {"class":"now", x1:xt(now), y1:16, x2:xt(now), y2:126}, rsvg);
+    // отметки записей до текущего шага
+    for (let i = 0; i <= rcur; i++){
+      const st = RS[i];
+      st.rec.forEach((r) => {
+        const lane = r[1].startsWith("pc") ? 78 : 30;
+        const cls = r[0] === "machine.left" ? "mk bad" : "mk";
+        el("circle", {"class":cls, cx:xt(st.at) + (r[0] === "machine.back" && st.at === 58 ? 5 : 0), cy:lane - 4, r:5}, rsvg);
+      });
+    }
+    $("rtt").textContent = s.tt;
+    $("rin").textContent = s.rin;
+    const out = $("rout");
+    out.classList.toggle("new", s.new);
+    out.innerHTML = s.rec.length ? s.rec.map(r => "<div><b>" + r[0] + "</b> · " + esc(r[1]) + "</div>").join("") : "<div>ничего: машины в roster те же, что в последних записях</div>";
+  }
+
+  /* ---------- сколько займёт ---------- */
+  const sday = $("sday");
+  function drawStore(){
+    const n = +sday.value;
+    $("sday-o").textContent = String(n);
+    const year = n * 300 * 365;                // байт в год
+    const mb = year / 1e6;
+    const share = year / 5e9;
+    $("sfill").style.width = Math.max(share * 100, 0.4) + "%";
+    $("syear").textContent = (mb < 10 ? mb.toFixed(1) : Math.round(mb)) + " МБ в год";
+    const years = 5e9 / year;
+    $("sverd").innerHTML = "Бесплатных 5 ГБ хватит на <b>" + (years >= 100 ? Math.round(years) : years.toFixed(1)) + " лет</b> записей — срок хранения ставить не на что. Чистка — когда замер покажет иное.";
+  }
+  sday.addEventListener("input", drawStore);
+
+  /* ---------- окно пульта ---------- */
+  const ROWS = [
+    {id:421, d:"31 окт.", t:"15:10", ev:"session.moved", m:"pc", x:"site: laptop → pc · из точки 14:02", by:"panel"},
+    {id:418, d:"31 окт.", t:"15:02", ev:"slot.swapped", m:"laptop", x:"слот main: infirex → y0902 · 5 ч 95 %"},
+    {id:415, d:"31 окт.", t:"14:44", ev:"machine.back", m:"laptop", x:"laptop вернулась · не было 42 мин"},
+    {id:412, d:"31 окт.", t:"14:02", ev:"machine.left", m:"laptop", x:"laptop пропала · была на связи с 08:12"},
+    {id:409, d:"31 окт.", t:"11:20", ev:"machine.upgraded", m:"pc", x:"pc: Host 1.5.0 → 1.6.0", by:"panel"},
+    {id:401, d:"30 окт.", t:"22:41", ev:"session.deleted", m:"laptop", x:"old-bot удалена", by:"panel"},
+    {id:398, d:"30 окт.", t:"18:05", ev:"session.opened", m:"laptop", x:"site@laptop создана · ~/Projects/site · слот main", by:"site@pc"}
+  ];
+  const vm = $("vm"), vq = $("vq");
+  let vmach = "";
+  ["", "laptop", "pc"].forEach((m, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = m || "все"; b.setAttribute("aria-pressed", i === 0 ? "true" : "false");
+    b.addEventListener("click", () => { vmach = m; press(vm, b); drawView(); });
+    vm.appendChild(b);
+  });
+  vq.addEventListener("input", drawView);
+  function drawView(){
+    const q = vq.value.trim().toLowerCase();
+    const req = {type:"ledger.read", id:"r-9", v:1, to:"ledger"};
+    if (vmach) req.machine = vmach;
+    if (q) req.q = q;
+    req.limit = 50;
+    $("vreq").textContent = JSON.stringify(req, null, 2);
+    const rows = ROWS.filter(r => (!vmach || r.m === vmach) && (!q || r.x.toLowerCase().includes(q)));
+    const box = $("vrows");
+    if (!rows.length){ box.innerHTML = "<div class=\"lg-empty\">Записей нет — ответ <code>{ events: [], more: false }</code>.</div>"; return; }
+    let html = "", day = "";
+    rows.forEach(r => {
+      if (r.d !== day){ if (day) html += "</ul>"; day = r.d; html += "<div class=\"lg-day\">" + day + "</div><ul class=\"lg-rows\">"; }
+      const own = r.ev.startsWith("machine.left") || r.ev.startsWith("machine.back");
+      html += "<li class=\"lg-row" + (own ? " m" : "") + "\"><time>" + r.t + "</time><code>" + r.ev + "</code><span>" + esc(r.x) + (r.by ? " <span class=\"by\">· by " + esc(r.by) + "</span>" : "") + "</span></li>";
+    });
+    box.innerHTML = html + "</ul>";
+  }
+
+  function drawAll(){ drawBorder(); drawCh(); drawOp(); drawRoster(); drawStore(); drawView(); }
+  document.addEventListener("view:show", (e) => { if (e.detail === "ledger") drawAll(); });
+  drawAll();
+})();
+</script>

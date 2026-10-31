@@ -1,0 +1,862 @@
+<style>
+  /* slots: слот, запас и сессии (рисунок), подмена за секунду по шагам (аккаунты → слот → сессии), прогон слота с тремя аккаунтами,
+     пробы 27 окт. по шагам, решения рисунками, разъёмы, контракт, сбои, эталоны.
+     Аккаунт у порога — --wait, с запасом — --ok, выбранное и вход — акцент, отказ — --bad. */
+  [data-view="host-slots"] .et{padding:0}
+  [data-view="host-slots"] .et code{overflow-wrap:anywhere}
+  [data-view="host-slots"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="host-slots"] .hs-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="host-slots"] .hs-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="host-slots"] pre.hs-pre{white-space:pre;word-break:normal}
+  [data-view="host-slots"] svg.hs-svg{display:block;width:100%;height:auto;max-width:470px;margin-inline:auto}
+  [data-view="host-slots"] .hs-flash{outline:2px solid var(--accent);outline-offset:3px;border-radius:12px}
+  [data-view="host-slots"] .hs-etl{font-size:12.5px;padding:5px 10px}
+  [data-view="host-slots"] .hs-chips{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="host-slots"] .hs-chips button{border-radius:999px;padding:6px 12px;font-size:12.5px;background:var(--surface2)}
+  [data-view="host-slots"] .hs-chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-slots"] .hs-chips button.bad{color:var(--bad)}
+
+  /* общие куски SVG */
+  [data-view="host-slots"] .hs-svg .band{fill:var(--surface);stroke:var(--line2)}
+  [data-view="host-slots"] .hs-svg .bl{fill:var(--muted);font:600 10px var(--mono);letter-spacing:.08em}
+  [data-view="host-slots"] .hs-svg .card{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="host-slots"] .hs-svg .card.on{stroke:var(--accent);stroke-width:2.4}
+  [data-view="host-slots"] .hs-svg .card.mod{fill:var(--accent-weak);stroke:var(--accent);stroke-opacity:.45}
+  [data-view="host-slots"] .hs-svg .card.mod.on{stroke-opacity:1;stroke-width:2.4}
+  [data-view="host-slots"] .hs-svg .nm{fill:var(--ink);font:600 12.5px var(--mono)}
+  [data-view="host-slots"] .hs-svg .sm{fill:var(--muted);font:500 10.5px var(--mono)}
+  [data-view="host-slots"] .hs-svg .sm.warn{fill:var(--wait);font-weight:600}
+  [data-view="host-slots"] .hs-svg .sm.okk{fill:var(--ok);font-weight:600}
+  [data-view="host-slots"] .hs-svg .sm.acc{fill:var(--accent);font-weight:600}
+  [data-view="host-slots"] .hs-svg .sm.end{text-anchor:end}
+  [data-view="host-slots"] .hs-svg .trk{fill:var(--line2)}
+  [data-view="host-slots"] .hs-svg .fil{fill:var(--ok)}
+  [data-view="host-slots"] .hs-svg .fil.warn{fill:var(--wait)}
+  [data-view="host-slots"] .hs-svg .tick{stroke:var(--ink);stroke-opacity:.55;stroke-width:1.4}
+  [data-view="host-slots"] .hs-svg .fold{fill:var(--accent-weak);stroke:var(--accent);stroke-width:1.5}
+  [data-view="host-slots"] .hs-svg .ft{fill:var(--accent);font:600 12.5px var(--mono)}
+  [data-view="host-slots"] .hs-svg .ed{stroke:var(--muted);stroke-opacity:.45;stroke-width:1.8;fill:none}
+  [data-view="host-slots"] .hs-svg .ed.on{stroke:var(--accent);stroke-opacity:1;stroke-width:2.8}
+  [data-view="host-slots"] .hs-svg .ed.dash{stroke-dasharray:5 4}
+  [data-view="host-slots"] .hs-svg .ed.back.on{stroke:var(--wait)}
+  [data-view="host-slots"] .hs-svg .ah{fill:var(--muted);fill-opacity:.55}
+  [data-view="host-slots"] .hs-svg .ah.on{fill:var(--accent);fill-opacity:1}
+  [data-view="host-slots"] .hs-svg .ah.back{fill:var(--wait);fill-opacity:1}
+  [data-view="host-slots"] .hs-svg .el{fill:var(--muted);font:500 10.5px var(--body);paint-order:stroke;stroke:var(--surface);stroke-width:4px;stroke-linejoin:round}
+  [data-view="host-slots"] .hs-svg .el.on{fill:var(--accent);font-weight:600}
+  [data-view="host-slots"] .hs-svg .el.back{fill:var(--wait);font-weight:600}
+  [data-view="host-slots"] .hs-svg .co{fill:var(--wait-weak);stroke:var(--wait);stroke-width:1.2}
+  [data-view="host-slots"] .hs-svg .cot{fill:var(--wait);font:600 10.5px var(--mono)}
+
+  /* слот, запас и сессии */
+  [data-view="host-slots"] .hs-idea{padding:12px 8px;background:var(--surface2)}
+  [data-view="host-slots"] .hs-idea .el{stroke:var(--surface2)}
+  [data-view="host-slots"] .hs-svg .cap2{fill:var(--muted);font:500 11px var(--body)}
+  [data-view="host-slots"] .hs-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  @media (max-width:760px){[data-view="host-slots"] .hs-cards{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-cards>div{padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13.5px}
+  [data-view="host-slots"] .hs-cards b{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+
+  /* подмена по шагам */
+  [data-view="host-slots"] .hs-swap{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-slots"] .hs-swap{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-swap>*{min-width:0}
+  [data-view="host-slots"] .hs-fig{background:var(--surface2);padding:12px 8px;border-right:1px solid var(--line)}
+  @media (max-width:820px){[data-view="host-slots"] .hs-fig{border-right:0;border-bottom:1px solid var(--line)}}
+  [data-view="host-slots"] .hs-side{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-slots"] .hs-side .cap{font-size:14.5px;min-height:0}
+  [data-view="host-slots"] .hs-dots{display:flex;gap:6px;align-items:center}
+  [data-view="host-slots"] .hs-dots i{width:8px;height:8px;border-radius:50%;background:var(--line)}
+  [data-view="host-slots"] .hs-dots i.on{background:var(--accent)}
+  [data-view="host-slots"] .hs-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto}
+  [data-view="host-slots"] .hs-lines{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  @media (max-width:640px){[data-view="host-slots"] .hs-lines{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-lines>div{padding:10px 14px;display:flex;flex-direction:column;gap:4px;min-width:0}
+  [data-view="host-slots"] .hs-lines code{font-size:12.5px;overflow-wrap:anywhere}
+
+  /* прогон */
+  [data-view="host-slots"] .hs-sim{overflow:hidden}
+  [data-view="host-slots"] .hs-simctl{display:flex;flex-wrap:wrap;gap:6px;padding:12px;border-bottom:1px solid var(--line)}
+  [data-view="host-slots"] .hs-simgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0}
+  @media (max-width:820px){[data-view="host-slots"] .hs-simgrid{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-simgrid>div{padding:14px;display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host-slots"] .hs-simgrid>div:first-child{background:var(--surface2);border-right:1px solid var(--line)}
+  @media (max-width:820px){[data-view="host-slots"] .hs-simgrid>div:first-child{border-right:0;border-bottom:1px solid var(--line)}}
+  [data-view="host-slots"] .hs-slotst{font:600 13px var(--mono);padding:8px 10px;border-radius:9px;background:var(--accent-weak);color:var(--accent)}
+  [data-view="host-slots"] .hs-slotst.wait{background:var(--wait-weak);color:var(--wait)}
+  [data-view="host-slots"] .hs-acc{border:1.5px solid var(--line);border-radius:11px;padding:8px 10px;display:flex;flex-direction:column;gap:5px;background:var(--surface)}
+  [data-view="host-slots"] .hs-acc.seat{border-color:var(--accent);border-width:2.4px}
+  [data-view="host-slots"] .hs-acc.out{opacity:.62}
+  [data-view="host-slots"] .hs-acc .hd{display:flex;justify-content:space-between;gap:8px;font:600 13px var(--mono)}
+  [data-view="host-slots"] .hs-acc .hd span{font:500 12px var(--body);color:var(--muted)}
+  [data-view="host-slots"] .hs-acc.seat .hd span{color:var(--accent);font-weight:600}
+  [data-view="host-slots"] .hs-bar{display:grid;grid-template-columns:4.4em minmax(0,1fr) 3.4em;gap:8px;align-items:center;font:500 11.5px var(--mono)}
+  [data-view="host-slots"] .hs-bar>span:first-child{color:var(--muted)}
+  [data-view="host-slots"] .hs-bar>span:last-child{text-align:right}
+  [data-view="host-slots"] .hs-bar .tr{height:8px;border-radius:4px;background:var(--line2);position:relative;overflow:visible}
+  [data-view="host-slots"] .hs-bar .tr i{position:absolute;inset:0 auto 0 0;background:var(--ok);border-radius:4px}
+  [data-view="host-slots"] .hs-bar .tr i.w{background:var(--wait)}
+  [data-view="host-slots"] .hs-bar .tr i.b{background:var(--bad)}
+  [data-view="host-slots"] .hs-bar .tr u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.5}
+  [data-view="host-slots"] .hs-chat{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+  [data-view="host-slots"] .hs-chath{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);background:var(--surface2);flex-wrap:wrap}
+  [data-view="host-slots"] .hs-chath b{font:600 13px var(--mono)}
+  [data-view="host-slots"] .hs-chatb{list-style:none;margin:0;padding:8px 12px;display:flex;flex-direction:column;gap:6px;min-height:10.5em;font-size:13px}
+  [data-view="host-slots"] .hs-chatb li{padding:5px 9px;border-radius:9px;background:var(--surface2);align-self:flex-start;max-width:100%;overflow-wrap:anywhere}
+  [data-view="host-slots"] .hs-chatb li.sw{align-self:stretch;background:var(--accent-weak);color:var(--accent);font:600 12px var(--mono);text-align:center}
+  [data-view="host-slots"] .hs-chatb li.bd{align-self:stretch;background:var(--bad-weak);color:var(--bad);font:600 12px var(--mono)}
+  [data-view="host-slots"] .hs-chatb li.wt{align-self:stretch;background:var(--wait-weak);color:var(--wait);font:600 12px var(--mono)}
+  [data-view="host-slots"] .hs-chatb li.me{align-self:flex-end;background:var(--accent);color:var(--on-accent)}
+  [data-view="host-slots"] .hs-log{list-style:none;margin:0;padding:8px 10px;border:1px solid var(--line2);border-radius:10px;background:var(--surface2);font:12px/1.6 var(--mono);color:var(--muted);max-height:12em;overflow:auto;display:flex;flex-direction:column}
+  [data-view="host-slots"] .hs-log li.sw{color:var(--accent);font-weight:600}
+  [data-view="host-slots"] .hs-log li.bd{color:var(--bad)}
+  [data-view="host-slots"] .hs-log li.wn{color:var(--wait)}
+
+  /* пробы */
+  [data-view="host-slots"] .hs-proof{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-slots"] .hs-proof{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-proof>*{min-width:0}
+  [data-view="host-slots"] .hs-tl{list-style:none;margin:0;padding:10px 0;display:flex;flex-direction:column;background:var(--surface2);border-right:1px solid var(--line)}
+  @media (max-width:820px){[data-view="host-slots"] .hs-tl{border-right:0;border-bottom:1px solid var(--line)}}
+  [data-view="host-slots"] .hs-tl li{display:grid;grid-template-columns:5.4em minmax(0,1fr) auto;gap:8px;align-items:baseline;padding:5px 14px;font-size:13px;cursor:pointer;opacity:.45;border-left:3px solid transparent}
+  [data-view="host-slots"] .hs-tl li.done{opacity:1}
+  [data-view="host-slots"] .hs-tl li.cur{background:var(--accent-weak);border-left-color:var(--accent)}
+  [data-view="host-slots"] .hs-tl li.sw b{color:var(--wait)}
+  [data-view="host-slots"] .hs-tl li span:first-child{font:500 11.5px var(--mono);color:var(--muted)}
+  [data-view="host-slots"] .hs-tl i{font:600 10.5px var(--mono);font-style:normal;border-radius:6px;padding:1px 6px}
+  [data-view="host-slots"] .hs-tl i.a{background:var(--wait-weak);color:var(--wait)}
+  [data-view="host-slots"] .hs-tl i.b{background:var(--ok-weak);color:var(--ok)}
+  [data-view="host-slots"] .hs-verd{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+  @media (max-width:820px){[data-view="host-slots"] .hs-verd{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+  @media (max-width:520px){[data-view="host-slots"] .hs-verd{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-verd>div{padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13.5px}
+  [data-view="host-slots"] .hs-verd b{font-weight:600}
+  [data-view="host-slots"] .hs-verd .pill{align-self:flex-start}
+
+  /* решения */
+  [data-view="host-slots"] .hs-dec{display:flex;flex-direction:column;gap:12px}
+  [data-view="host-slots"] .hs-d{padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+  [data-view="host-slots"] .hs-d h3{font-size:15px}
+  [data-view="host-slots"] .hs-alts{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+  @media (max-width:560px){[data-view="host-slots"] .hs-alts{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-alt{border:1px solid var(--line);border-radius:11px;padding:8px 10px;display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px;color:var(--muted)}
+  [data-view="host-slots"] .hs-alt.rec{border:2px solid var(--accent);background:var(--accent-weak);color:var(--ink)}
+  [data-view="host-slots"] .hs-alt svg{display:block;width:100%;height:auto;max-width:300px}
+  [data-view="host-slots"] .dq .b{fill:var(--surface);stroke:var(--line);stroke-width:1.4}
+  [data-view="host-slots"] .dq .b.acc{fill:var(--accent-weak);stroke:var(--accent)}
+  [data-view="host-slots"] .dq .b.src{fill:var(--wait-weak);stroke:var(--wait)}
+  [data-view="host-slots"] .dq .l{fill:none;stroke-width:4}
+  [data-view="host-slots"] .dq .l.src{stroke:var(--wait)}
+  [data-view="host-slots"] .dq .l.acc{stroke:var(--accent)}
+  [data-view="host-slots"] .dq .k{fill:none;stroke:var(--accent);stroke-width:1.6}
+  [data-view="host-slots"] .dq .k.bad{stroke:var(--bad);stroke-dasharray:4 3;stroke-width:2}
+  [data-view="host-slots"] .dq .x{stroke:var(--bad);stroke-width:2.5}
+  [data-view="host-slots"] .dq .t{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="host-slots"] .dq .t.m{fill:var(--muted);font:500 10.5px var(--body)}
+  [data-view="host-slots"] .dq .t.a{fill:var(--accent);font:600 10.5px var(--body)}
+  [data-view="host-slots"] .dq .t.r{fill:var(--bad);font:600 10.5px var(--body)}
+  [data-view="host-slots"] .dq .tr{fill:var(--line2)}
+  [data-view="host-slots"] .dq .fw{fill:var(--wait)}
+  [data-view="host-slots"] .dq .fb{fill:var(--bad)}
+  [data-view="host-slots"] .dq .dot{fill:var(--wait)}
+
+  /* разъёмы */
+  [data-view="host-slots"] .hs-io{display:grid;grid-template-columns:minmax(0,1fr) 9.5em minmax(0,1fr);overflow:hidden}
+  [data-view="host-slots"] .hs-io .hs-col{padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-slots"] .hs-io .hs-col.claude{background:var(--surface2)}
+  [data-view="host-slots"] .hs-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:14px 8px;background:var(--accent-weak);border-inline:1px solid var(--line)}
+  [data-view="host-slots"] .hs-mid b{font:700 17px var(--disp);color:var(--accent)}
+  [data-view="host-slots"] .hs-mid span{font:500 11.5px var(--mono);color:var(--muted);text-align:center}
+  [data-view="host-slots"] .hs-dl{display:grid;grid-template-columns:8.6em minmax(0,1fr);gap:7px 10px;margin:0;font-size:13px}
+  [data-view="host-slots"] .hs-dl dt{font:600 10.5px/1.9 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-slots"] .hs-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  [data-view="host-slots"] .hs-dl dd.no{color:var(--muted)}
+  [data-view="host-slots"] .hs-dl code{font-weight:600}
+  [data-view="host-slots"] .hs-dl .ex{display:inline-block;font:600 10px var(--mono);color:var(--wait);background:var(--wait-weak);border-radius:6px;padding:1px 6px;margin-left:2px}
+  @media (max-width:760px){
+    [data-view="host-slots"] .hs-io{grid-template-columns:minmax(0,1fr)}
+    [data-view="host-slots"] .hs-mid{flex-direction:row;border-inline:0;border-block:1px solid var(--line);padding:10px}
+  }
+  @media (max-width:420px){[data-view="host-slots"] .hs-dl{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-slots"] .hs-dl dd{margin-bottom:6px}}
+  [data-view="host-slots"] .hs-uses{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  @media (max-width:640px){[data-view="host-slots"] .hs-uses{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-uses li{background:var(--surface2);border-radius:9px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:2px;min-width:0}
+  [data-view="host-slots"] .hs-uses li.ext{background:var(--accent-weak)}
+  [data-view="host-slots"] .hs-uses code{font-weight:600;overflow-wrap:anywhere}
+  [data-view="host-slots"] .hs-uses span{color:var(--muted)}
+
+  /* контракт, сбои */
+  [data-view="host-slots"] .hs-api{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  @media (max-width:820px){[data-view="host-slots"] .hs-api{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-slots"] .hs-api>div{display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host-slots"] .hs-api h3{font:600 13.5px var(--mono)}
+  [data-view="host-slots"] .hs-api p{font-size:13px;color:var(--muted)}
+  [data-view="host-slots"] .hs-words{display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="host-slots"] .hs-words code{font-weight:600;color:var(--bad)}
+  [data-view="host-slots"] .hs-br{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host-slots"] .hs-br li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,.7fr);gap:12px;padding:8px 0 8px 12px;border-left:3px solid var(--line);font-size:13.5px}
+  [data-view="host-slots"] .hs-br li.st{border-left-color:var(--bad)}
+  [data-view="host-slots"] .hs-br li.ok{border-left-color:var(--ok)}
+  [data-view="host-slots"] .hs-br li.hd{border-left-color:transparent;font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding-block:2px}
+  [data-view="host-slots"] .hs-br b{font-weight:600}
+  [data-view="host-slots"] .hs-br span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host-slots"] .hs-br i{font-style:normal;color:var(--muted)}
+  @media (max-width:560px){[data-view="host-slots"] .hs-br li{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-slots"] .hs-br li.hd{display:none}}
+  [data-view="host-slots"] .hs-stop{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding-top:12px;border-top:1px solid var(--line)}
+  [data-view="host-slots"] .var .codebox{padding:8px 10px}
+</style>
+
+<header class="vhead chg" data-chg="host-slots-head">
+  <span class="pill acc kind">модуль приложения Claude SDK</span>
+  <h1>slots</h1>
+  <p class="lead">Горячая подмена аккаунта при лимитах. Host — программа на каждой машине, через которую идут все сессии Claude Code; slots — его модуль. Слот — папка входа на машине по имени: main, bot. Сессии работают в слоте, а не на аккаунте. Аккаунт слота подошёл к порогу — slots просит accounts положить в папку слота вход следующего аккаунта из запаса, и следующий вызов модели всех сессий слота идёт уже на нём: тот же процесс, тот же ход, без перезапуска.</p>
+  <div class="names">
+    <span><b>слот</b> main — папка входа, общая для своих сессий</span>
+    <span><b>запас</b> аккаунты слота по порядку</span>
+    <span><b>порог</b> 95 % за 5 ч, 98 % за неделю</span>
+    <span><b>подмена</b> вход следующего — в папку слота</span>
+    <span><b>окно</b> rateLimitType и resetsAt — у каждого аккаунта своё</span>
+  </div>
+  <p class="hint">Вход аккаунтов, их папки и лимиты — <a href="#host-accounts">accounts</a>; из чего собирается запуск сессии — <a href="#host-profiles">profiles</a>.</p>
+</header>
+
+<!-- ===== СЛОТ, ЗАПАС И СЕССИИ ===== -->
+<section class="chg" data-chg="host-slots-idea">
+  <div class="shead">
+    <h2>Слот, запас и сессии</h2>
+    <p>У слота main три аккаунта. Один сидит в слоте — на нём работают все сессии слота; остальные ждут в запасе по порядку.</p>
+  </div>
+  <div class="card hs-idea">
+    <svg class="hs-svg" viewBox="0 0 400 300" role="img" aria-label="Аккаунты infirex в слоте у порога, y0902 запас 1 с запасом, work3 запас 2 у недельного порога; слот main; три сессии работают через слот">
+      <defs>
+        <marker id="host-slots-ia" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah on" d="M0 0L10 5L0 10z"/></marker>
+        <marker id="host-slots-im" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L10 5L0 10z"/></marker>
+      </defs>
+      <text class="bl" x="6" y="12">АККАУНТЫ СЛОТА · ПО ПОРЯДКУ</text>
+      <rect class="card on" x="4" y="20" width="126" height="70" rx="9"/>
+      <text class="nm" x="14" y="39">infirex</text><text class="sm acc end" x="122" y="39">в слоте</text>
+      <rect class="trk" x="14" y="50" width="106" height="7" rx="3.5"/><rect class="fil warn" x="14" y="50" width="101" height="7" rx="3.5"/><line class="tick" x1="114.7" y1="46" x2="114.7" y2="61"/>
+      <text class="sm warn" x="14" y="78">5 ч 95 % — порог</text>
+      <rect class="card" x="137" y="20" width="126" height="70" rx="9"/>
+      <text class="nm" x="147" y="39">y0902</text><text class="sm end" x="255" y="39">запас 1</text>
+      <rect class="trk" x="147" y="50" width="106" height="7" rx="3.5"/><rect class="fil" x="147" y="50" width="5" height="7" rx="2.5"/><line class="tick" x1="247.7" y1="46" x2="247.7" y2="61"/>
+      <text class="sm okk" x="147" y="78">5 ч 4 % — запас</text>
+      <rect class="card" x="270" y="20" width="126" height="70" rx="9"/>
+      <text class="nm" x="280" y="39">work3</text><text class="sm end" x="388" y="39">запас 2</text>
+      <rect class="trk" x="280" y="50" width="106" height="7" rx="3.5"/><rect class="fil warn" x="280" y="50" width="103" height="7" rx="3.5"/><line class="tick" x1="383.9" y1="46" x2="383.9" y2="61"/>
+      <text class="sm warn" x="280" y="78">нед. 97 % — мимо</text>
+      <path class="ed on" d="M67 90C67 112 120 116 146 128" marker-end="url(#host-slots-ia)"/>
+      <path class="ed dash" d="M200 90V124" marker-end="url(#host-slots-im)"/>
+      <text class="el" x="206" y="110">следующий</text>
+      <rect class="fold" x="110" y="128" width="180" height="58" rx="10"/>
+      <text class="ft" x="200" y="148" text-anchor="middle">слот main</text>
+      <text class="sm" x="200" y="164" text-anchor="middle">вход infirex · slots/main</text>
+      <text class="sm" x="200" y="179" text-anchor="middle">порог 95 % · 98 %</text>
+      <path class="ed on" d="M160 186L80 226" marker-end="url(#host-slots-ia)"/>
+      <path class="ed on" d="M200 186V224" marker-end="url(#host-slots-ia)"/>
+      <path class="ed on" d="M240 186L320 226" marker-end="url(#host-slots-ia)"/>
+      <rect class="card" x="4" y="228" width="126" height="46" rx="9"/><text class="nm" x="14" y="246">site@laptop</text><text class="sm" x="14" y="263">отвечает</text>
+      <rect class="card" x="137" y="228" width="126" height="46" rx="9"/><text class="nm" x="147" y="246">wiki@laptop</text><text class="sm" x="147" y="263">свободна</text>
+      <rect class="card" x="270" y="228" width="126" height="46" rx="9"/><text class="nm" x="280" y="246">bot@laptop</text><text class="sm" x="280" y="263">ждёт ответа</text>
+      <text class="cap2" x="200" y="292" text-anchor="middle">сессии читают вход из папки слота — аккаунт меняется под ними</text>
+    </svg>
+  </div>
+  <div class="hs-cards">
+    <div class="card"><b>одно место</b><span>Аккаунт живёт в своей папке или в слоте, не в двух сразу. Вход переносит <a href="#host-accounts">accounts</a>, slots только решает, кого и когда.</span></div>
+    <div class="card"><b>сессии делят слот</b><span>Все сессии слота переходят на новый аккаунт вместе: лимит общий у аккаунта, держать половину сессий на исчерпанном незачем.</span></div>
+    <div class="card"><b>без слота — вход машины</b><span>Сессия, открытая без слота, работает на входе машины по умолчанию, как Claude Code в терминале. Подмены у неё нет; в запас этот вход не берётся.</span></div>
+  </div>
+</section>
+
+<!-- ===== ПОДМЕНА ЗА СЕКУНДУ ===== -->
+<section class="chg" data-chg="host-slots-swap">
+  <div class="shead">
+    <h2>Подмена за секунду</h2>
+    <p>Две сессии в слоте main, у infirex кончается окно в пять часов. Пройдите по шагам: что slots видит в потоке, что просит у accounts и что читает claude.</p>
+  </div>
+  <div class="card hs-swap">
+    <div class="hs-fig">
+      <svg class="hs-svg" id="host-slots-svg" viewBox="0 0 420 312" role="img" aria-label="Аккаунты infirex и y0902, модуль slots, папка слота main и две сессии; на каждом шаге — что куда переносится"></svg>
+    </div>
+    <div class="hs-side" aria-live="polite">
+      <div class="hs-dots" id="host-slots-dots" aria-hidden="true"></div>
+      <span class="tstamp" id="host-slots-st"></span>
+      <p class="cap" id="host-slots-cap"></p>
+      <span class="lbl" id="host-slots-jl"></span>
+      <div class="codebox"><pre class="hs-pre" id="host-slots-js"></pre></div>
+      <div class="hs-nav">
+        <button type="button" id="host-slots-prev">← назад</button>
+        <button type="button" class="primary" id="host-slots-next">далее →</button>
+        <button type="button" class="hs-etl" id="host-slots-etl" hidden>эталон</button>
+      </div>
+    </div>
+  </div>
+  <div class="hs-lines">
+    <div class="card"><span class="lbl">в журнале флота · <a href="#ledger">ledger</a></span><code>slot.swapped · laptop · слот main: infirex → y0902 · 5 ч 95 %</code></div>
+    <div class="card"><span class="lbl">в чате сессии — рисует клиент по roster</span><code>⇄ аккаунт: infirex → y0902 (5 ч 95 %)</code></div>
+  </div>
+</section>
+
+<!-- ===== ПРОГОН ===== -->
+<section class="chg" data-chg="host-slots-sim">
+  <div class="shead">
+    <h2>Прогон: слот с тремя аккаунтами</h2>
+    <p>Порог — 95 % за 5 ч или 98 % за неделю. Следующий — первый по порядку запаса ниже порога. Отказ модели — подмена сразу и «Продолжай» оборванному ходу. Все у порога — слот ждёт ближайшего сброса и продолжает сам. Данные примерные.</p>
+  </div>
+  <div class="card hs-sim">
+    <div class="hs-simctl hs-chips" id="host-slots-simctl" role="group" aria-label="Действия"></div>
+    <div class="hs-simgrid">
+      <div>
+        <div class="hs-slotst" id="host-slots-sstate" aria-live="polite"></div>
+        <div id="host-slots-saccs" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div>
+        <div class="hs-chat">
+          <div class="hs-chath"><b>site@laptop</b><span class="pill acc" id="host-slots-spill"></span></div>
+          <ol class="hs-chatb" id="host-slots-schat" aria-live="polite"></ol>
+        </div>
+        <span class="lbl">журнал Host</span>
+        <ol class="hs-log" id="host-slots-slog"></ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ПРОБЫ ===== -->
+<section class="chg" data-chg="host-slots-proof">
+  <div class="shead">
+    <h2>Пробы 27 окт.</h2>
+    <p>Настоящий процесс claude 2.1.310 в режиме stream-json, папка входа — слот, два аккаунта Max одной машины; пробы ставил claude-fleet. Шагайте по журналу второй пробы. Под Agent SDK их повторяет первый шаг сборки.</p>
+  </div>
+  <div class="card hs-proof">
+    <ol class="hs-tl" id="host-slots-tl"></ol>
+    <div class="hs-side" aria-live="polite">
+      <span class="tstamp" id="host-slots-tn"></span>
+      <h3 id="host-slots-tw"></h3>
+      <p class="cap" id="host-slots-to"></p>
+      <div class="hs-nav">
+        <button type="button" id="host-slots-tprev">← назад</button>
+        <button type="button" class="primary" id="host-slots-tnext">далее →</button>
+      </div>
+    </div>
+  </div>
+  <div class="hs-verd">
+    <div class="card"><span class="pill ok">работает</span><b>Между сообщениями</b><span>Заменили вход в слоте — следующий ответ и опрос лимитов уже от y0902: 5 ч 9 % → 4 %, неделя 72 % → 61 %, другой час сброса. Цифры сверены с каждым аккаунтом.</span></div>
+    <div class="card"><span class="pill ok">работает</span><b>Посреди хода</b><span>Заменили, пока шла первая из трёх команд. Второй вызов модели того же хода — y0902; ход дошёл до «DONE» без ошибок.</span></div>
+    <div class="card"><span class="pill ok">работает</span><b>Remote Control</b><span>Через 30 с после замены сообщение из claude.ai дошло, ответ — «APPLE». Сессия claude.ai остаётся у infirex: y0902 её не видит.</span></div>
+    <div class="card"><span class="pill wait">учесть</span><b>Перезапуск после подмены</b><span>Процесс поднят заново с y0902 в слоте: разговор цел, но claude.ai — новая сессия без истории. Это забота модуля Remote Control: кто в слоте, он узнаёт из <code>machine.slots</code>.</span></div>
+    <div class="card"><span class="pill wait">учесть</span><b>Чья почта у claude</b><span>claude и после замены называет себя infirex: почту он берёт из папки Claude машины. Кто в слоте — показывает roster со слов slots.</span></div>
+    <div class="card"><span class="pill bad">не проверено</span><b>Настоящее исчерпание</b><span>Лимит до конца не тратили. Сигналы — по типам SDK: событие <code>rejected</code> и ошибка <code>rate_limit</code>. Проверка — первым настоящим исчерпанием на живом флоте.</span></div>
+    <div class="card"><span class="pill bad">не проверено</span><b>Обновление токена в слоте</b><span>За пробы токены не обновлялись. Проверка — подменить токен на почти истёкший: обновлённый файл должен вернуться в папку аккаунта.</span></div>
+    <div class="card"><span class="pill bad">не проверено</span><b>Под Agent SDK</b><span>Пробы шли без SDK. SDK запускает тот же claude с тем же окружением — первый шаг сборки повторяет обе пробы через <code>query()</code>.</span></div>
+    <div class="card"><span class="pill bad">не проверено</span><b>macOS</b><span>Там вход лежит в Связке ключей, а не в файле: подмена файлом не подходит. Пробы — на файле входа.</span></div>
+  </div>
+</section>
+
+<!-- ===== РЕШЕНИЯ ===== -->
+<section class="chg" data-chg="host-slots-dec">
+  <div class="shead">
+    <h2>Решения</h2>
+    <p>Пять развилок дизайна слотов. Выбранное — в рамке.</p>
+  </div>
+  <div class="hs-dec">
+    <div class="card hs-d">
+      <h3>Как менять аккаунт у живой сессии</h3>
+      <div class="hs-alts">
+        <div class="hs-alt"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><path class="l src" d="M10 34H98"/><path class="x" d="M100 22L114 46M114 22L100 46"/><path class="l acc" d="M126 34H230"/><text class="t m" x="54" y="62" text-anchor="middle">infirex</text><text class="t m" x="178" y="62" text-anchor="middle">новый процесс</text><text class="t r" x="120" y="80" text-anchor="middle">ответ оборван</text></svg>Перезапуск процесса с другим аккаунтом. Ответ обрывается, claude.ai — новая сессия.</div>
+        <div class="hs-alt rec"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><path class="l src" d="M10 34H120"/><path class="l acc" d="M120 34H230"/><circle class="dot" cx="120" cy="34" r="7"/><text class="t m" x="65" y="60" text-anchor="middle">infirex</text><text class="t a" x="176" y="60" text-anchor="middle">y0902</text><text class="t a" x="120" y="80" text-anchor="middle">тот же процесс, тот же ход</text></svg>Заменить файл входа в папке слота. Проверено пробами.</div>
+      </div>
+    </div>
+    <div class="card hs-d">
+      <h3>Чей слот</h3>
+      <div class="hs-alts">
+        <div class="hs-alt"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="b src" x="14" y="10" width="60" height="24" rx="5"/><rect class="b src" x="90" y="10" width="60" height="24" rx="5"/><rect class="b src" x="166" y="10" width="60" height="24" rx="5"/><rect class="b" x="14" y="52" width="60" height="22" rx="5"/><rect class="b" x="90" y="52" width="60" height="22" rx="5"/><rect class="b" x="166" y="52" width="60" height="22" rx="5"/><path class="k" d="M44 34V52M120 34V52M196 34V52"/></svg>Свой слот у каждой сессии. Запас одного аккаунта делят слоты — нужен общий учёт.</div>
+        <div class="hs-alt rec"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="b acc" x="60" y="8" width="120" height="28" rx="6"/><text class="t" x="120" y="27" text-anchor="middle">слот main</text><rect class="b" x="14" y="56" width="60" height="22" rx="5"/><rect class="b" x="90" y="56" width="60" height="22" rx="5"/><rect class="b" x="166" y="56" width="60" height="22" rx="5"/><path class="k" d="M100 36L44 56M120 36V56M140 36L196 56"/></svg>Слот — на машине, по имени; сессии его делят. Слотов может быть несколько: main, bot.</div>
+      </div>
+    </div>
+    <div class="card hs-d">
+      <h3>Когда менять</h3>
+      <div class="hs-alts">
+        <div class="hs-alt"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="tr" x="14" y="24" width="212" height="12" rx="6"/><rect class="fb" x="14" y="24" width="212" height="12" rx="6"/><text class="t r" x="120" y="58" text-anchor="middle">100 % — ход оборван отказом</text><text class="t m" x="120" y="76" text-anchor="middle">потом «продолжай»</text></svg>Только при отказе. Ход рвётся, его продолжают сообщением.</div>
+        <div class="hs-alt rec"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="tr" x="14" y="24" width="212" height="12" rx="6"/><rect class="fw" x="14" y="24" width="200" height="12" rx="6"/><path class="k" d="M215 16V44" style="stroke-width:2.4"/><text class="t a" x="211" y="12" text-anchor="end">95 %</text><text class="t a" x="120" y="58" text-anchor="middle">заранее, между вызовами модели</text><text class="t m" x="120" y="76" text-anchor="middle">отказ всё же пришёл — сразу</text></svg>У порога заранее; при отказе — подмена сразу и «Продолжай».</div>
+      </div>
+    </div>
+    <div class="card hs-d">
+      <h3>Вход машины по умолчанию — в запас?</h3>
+      <div class="hs-alts">
+        <div class="hs-alt"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="b src" x="14" y="16" width="90" height="38" rx="6"/><text class="t" x="59" y="39" text-anchor="middle">ваш claude</text><rect class="b acc" x="136" y="16" width="90" height="38" rx="6"/><text class="t" x="181" y="39" text-anchor="middle">слот</text><path class="k bad" d="M104 35H136"/><text class="t r" x="120" y="76" text-anchor="middle">один вход в двух местах</text></svg>Можно. Кто первым обновит токен, выкинет из входа второго — например, ваш Claude Code в редакторе.</div>
+        <div class="hs-alt rec"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="b src" x="14" y="16" width="90" height="38" rx="6"/><text class="t" x="59" y="39" text-anchor="middle">ваш claude</text><rect class="b acc" x="136" y="16" width="90" height="38" rx="6"/><text class="t" x="181" y="32" text-anchor="middle">слот: входы</text><text class="t" x="181" y="47" text-anchor="middle">с пульта</text><text class="t a" x="120" y="76" text-anchor="middle">каждый вход — в одном месте</text></svg>Нельзя. В запас — только аккаунты, вошедшие с пульта в свою папку.</div>
+      </div>
+    </div>
+    <div class="card hs-d">
+      <h3>Кто выбирает следующий аккаунт</h3>
+      <div class="hs-alts">
+        <div class="hs-alt"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="b acc" x="14" y="18" width="80" height="36" rx="6"/><text class="t" x="54" y="41" text-anchor="middle">пульт</text><rect class="b src" x="146" y="18" width="80" height="36" rx="6"/><text class="t" x="186" y="41" text-anchor="middle">Host</text><path class="k bad" d="M94 36H146"/><text class="t r" x="120" y="76" text-anchor="middle">нет связи — нет подмены</text></svg>Пульт: видит лимиты всего флота, но без связи подмены не будет.</div>
+        <div class="hs-alt rec"><svg class="dq" viewBox="0 0 240 86" aria-hidden="true"><rect class="b acc" x="14" y="18" width="80" height="36" rx="6"/><text class="t" x="54" y="41" text-anchor="middle">пульт</text><rect class="b src" x="146" y="18" width="80" height="36" rx="6" style="stroke-width:2.4"/><text class="t" x="186" y="41" text-anchor="middle">Host</text><path class="k" d="M94 36H144" style="stroke-dasharray:4 3"/><text class="t m" x="120" y="76" text-anchor="middle">расход на других машинах — подсказкой</text></svg>Host на машине, сам и сразу. Пульт подсказывает расход тех же аккаунтов на других машинах.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== РАЗЪЁМЫ ===== -->
+<section class="chg" data-chg="host-slots-io">
+  <div class="shead">
+    <h2>С чем slots работает</h2>
+    <p>Из потока сессии slots читает два сообщения — о лимите и об ошибке лимита. В процесс даёт одну переменную окружения — папку слота. Своего о входах и окнах он не хранит: где чей вход и окна аккаунтов — записи accounts. Жёлтая метка — вне документации Claude Code, по исключению для аккаунтов.</p>
+  </div>
+  <div class="card hs-io">
+    <div class="hs-col claude">
+      <span class="lbl">Claude · через ядро</span>
+      <dl class="hs-dl">
+        <dt>сообщения SDK</dt><dd><code>rate_limit_event</code> → <code>rate_limit_info</code>: <code>status</code>, <code>rateLimitType</code>, <code>utilization</code>, <code>resetsAt</code> — порог и окно аккаунта; <code>assistant</code> с <code>error: "rate_limit"</code> — ход оборван лимитом</dd>
+        <dt>в query()</dt><dd><code>env.CLAUDE_SECURESTORAGE_CONFIG_DIR</code> — папка слота<span class="ex">нет в документации</span>; без слота — ключа нет</dd>
+        <dt>ввод</dt><dd><code>s.input("Продолжай")</code> — сессии, чей ход оборван лимитом, после подмены или сброса</dd>
+        <dt>хуки · canUseTool</dt><dd class="no">—</dd>
+        <dt>методы query</dt><dd class="no">—</dd>
+      </dl>
+    </div>
+    <div class="hs-mid"><b>slots</b><span>один на машину,<br>слоты общие</span></div>
+    <div class="hs-col">
+      <span class="lbl">наружу · через relay</span>
+      <dl class="hs-dl">
+        <dt>запросы</dt><dd><code>machine.slots</code>, <code>slot.set</code>, <code>slot.swap</code>, <code>session.slot</code></dd>
+        <dt>поля roster</dt><dd><code>slot</code>, <code>account</code></dd>
+        <dt>кадры</dt><dd><code>ledger.add</code> с <code>ev: "slot.swapped"</code> — подмена в журнал флота; строку в чате клиент рисует по roster</dd>
+        <dt>MCP</dt><dd class="no">—</dd>
+        <dt>слова ошибок</dt><dd><code>no_slot</code>, <code>no_account</code>, <code>no_reserve</code>, <code>has_sessions</code></dd>
+      </dl>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card hs-pad">
+      <span class="lbl">чем пользуется</span>
+      <ul class="hs-uses">
+        <li class="ext"><code>account.place</code><span>у <a href="#host-accounts">accounts</a>: вход — в слот; прежний — домой</span></li>
+        <li class="ext"><code>machine.accounts · account.usage</code><span>у accounts: кто вошёл, где чей вход, окна; окна из потока — ему же</span></li>
+        <li><code>on.event(s, e)</code><span><code>rate_limit_event</code> и <code>assistant</code> с ошибкой</span></li>
+        <li><code>session(s)</code><span>в <code>query()</code>: папка слота в <code>env</code></span></li>
+        <li><code>fields</code><span><code>slot</code>, <code>account</code> в roster</span></li>
+        <li><code>s.input · s.restart</code><span>«Продолжай»; <code>session.slot</code> у живой сессии — между ходами</span></li>
+        <li><code>s.store() · host.store()</code><span>слот сессии и «ход оборван лимитом»; порядок аккаунтов каждого слота</span></li>
+        <li class="ext"><code>host.emit(ledger.add)</code><span>у <a href="#ledger">ledger</a>: подмена — в журнал флота, <code>by</code> — если «Сменить сейчас»</span></li>
+        <li><code>host.log() · stop()</code><span>отказы и ожидание сброса — в журнал машины; снять таймеры</span></li>
+      </ul>
+    </div>
+    <div class="card hs-pad">
+      <span class="lbl">манифест</span>
+      <div class="codebox"><pre class="hs-pre">// host/modules/slots/module.json
+{ "name": "host-slots", "type": "sdk",
+  "version": "2.0.0",
+  "provides": { "machine.slots": 1,
+    "slot.set": 1, "slot.swap": 1,
+    "session.slot": 1,
+    "slot": 1, "account": 1 },
+  "uses": {
+    "machine.accounts@host-accounts": 1,
+    "account.place@host-accounts": 1,
+    "account.usage@host-accounts": 1,
+    "ledger.add@ledger": 1 },
+  "calls": [], "config": {} }</pre></div>
+      <div class="codebox"><pre class="hs-pre">~/.switchboard/
+  slots/main/   вход того, кто в слоте
+  slots/bot/
+  store/host-slots.json   порядок аккаунтов
+                          каждого слота</pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КОНТРАКТ ===== -->
+<section class="chg" data-chg="host-slots-api">
+  <div class="shead">
+    <h2>Контракт</h2>
+    <p>Версия контракта — 1. Запросы слотов адресованы машине (<code>machine</code>), <code>session.slot</code> — сессии. <code>session.slot</code> зовёт и <a href="#host-manage">manage</a> — на открытии сессии, до её старта.</p>
+  </div>
+  <div class="hs-api">
+    <div class="card hs-pad">
+      <h3>machine.slots</h3>
+      <div class="codebox"><pre class="hs-pre">{ "type": "machine.slots", "id": "s-1",
+  "v": 1, "machine": "laptop" }
+← { "ok": true, "result": { "slots": {
+  "main": { "account": "y0902",
+    "order": [ "infirex", "y0902", "work3" ],
+    "wait": null,
+    "sessions": [ "site@laptop",
+                  "wiki@laptop" ] } } } }</pre></div>
+      <p><code>account</code> — чей вход сейчас в папке слота, по записям accounts. <code>wait</code> — час сброса, которого слот ждёт: все аккаунты у порога; считается по окнам accounts, не хранится. Когда и почему была подмена — в журнале.</p>
+    </div>
+    <div class="card hs-pad">
+      <h3>slot.set · slot.swap</h3>
+      <div class="codebox"><pre class="hs-pre">{ "type": "slot.set", "id": "s-2", "v": 1,
+  "machine": "laptop", "slot": "bot",
+  "order": [ "corp", "y0902" ] }
+← { "ok": true, "result": { "account": "corp" } }
+
+{ "type": "slot.swap", "id": "s-3", "v": 1,
+  "machine": "laptop", "slot": "main",
+  "account": "work3" }        // без — следующий
+← { "ok": true, "result": {
+    "from": "y0902", "to": "work3" } }
+
+{ "type": "slot.set", "id": "s-4", "v": 1,
+  "machine": "laptop", "slot": "bot",
+  "order": [] }
+← { "ok": false, "error": "has_sessions" }</pre></div>
+      <p>Новый слот берёт первый вошедший аккаунт порядка. «Сменить сейчас» — <code>slot.swap</code>. Пустой порядок удаляет слот без сессий: вход уходит домой.</p>
+    </div>
+    <div class="card hs-pad">
+      <h3>session.slot</h3>
+      <div class="codebox"><pre class="hs-pre">{ "type": "session.slot", "id": "s-5",
+  "v": 1, "callsign": "site@laptop",
+  "slot": "bot" }
+← { "ok": true,
+    "result": { "restart": true } }</pre></div>
+      <p>Живая сессия переходит в другой слот между ходами — <code>close()</code> и resume. Разговоры у слотов общие, поэтому resume работает в любом слоте. Сессия ещё не открыта — слот запомнен, <code>restart: false</code>. <code>slot: null</code> — вход машины.</p>
+    </div>
+    <div class="card hs-pad">
+      <h3>поля roster</h3>
+      <div class="codebox"><pre class="hs-pre">{ "callsign": "site@laptop",
+  "slot": { "name": "main", "wait": null },
+  "account": "y0902" }</pre></div>
+      <p>Сменился <code>account</code> — клиент рисует строку подмены в чате. Лимиты аккаунта — в <code>machine.accounts</code>: у них один владелец.</p>
+    </div>
+  </div>
+  <div class="card hs-pad">
+    <div class="hs-words">
+      <span class="lbl">слова ошибок</span>
+      <span><code>no_slot</code> — такого слота на машине нет</span>
+      <span><code>no_account</code> — в порядке слота имя, которого нет в accounts; вход машины по умолчанию тоже не аккаунт</span>
+      <span><code>no_reserve</code> — «Сменить сейчас», а в запасе нет вошедшего аккаунта ниже порога</span>
+      <span><code>has_sessions</code> — пустой порядок у слота, в котором есть сессии</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СБОИ ===== -->
+<section class="chg" data-chg="host-slots-fail">
+  <div class="shead">
+    <h2>Сбои и остановка</h2>
+    <p>Ожидаемые ветки слота — порог, отказ, все у порога — slots ведёт сам. Остальное ловит и пишет в журнал; самопочинки и подбора аккаунтов вне порядка слота нет.</p>
+  </div>
+  <div class="card hs-pad">
+    <ul class="hs-br">
+      <li class="hd"><span>сбой</span><span>что видно</span><span>кто поднимает</span></li>
+      <li class="ok"><b>Аккаунт слота у порога</b><span>подмена на следующего по порядку; строка в журнале и в чате</span><i>slots</i></li>
+      <li class="ok"><b>Отказ: <code>rejected</code></b><span>подмена сразу; сессии, чей ход оборван, — «Продолжай» после <code>result</code></span><i>slots</i></li>
+      <li class="ok"><b>Все аккаунты у порога</b><span>подмены нет; <code>slot.wait</code> — час ближайшего сброса; сессии работают, пока модель не откажет</span><i>slots: в час сброса — подмена и «Продолжай»</i></li>
+      <li class="ok"><b>claude обновил вход в слоте</b><span>при подмене файл слота уходит своему аккаунту — <code>returned</code>, <code>refreshed: true</code> и строка журнала</span><i>accounts</i></li>
+      <li class="st"><b>Запасной без входа</b><span>пропущен при выборе; в <code>machine.accounts</code> — <code>login: "none"</code></span><i>человек: «Войти»</i></li>
+      <li class="st"><b>ledger не на связи</b><span>кадр <code>ledger.add</code> пропал, подмена прошла; строка в журнале машины</span><i>агент по журналу</i></li>
+      <li class="st"><b>accounts отказал в подмене</b><span>слот прежний, строка журнала со словом ошибки; сессии на прежнем аккаунте</span><i>агент по журналу</i></li>
+      <li class="ok"><b>Host перезапущен</b><span>порядок слотов — из хранилища, кто в слоте и окна — из <code>machine.accounts</code>; ожидание сброса и его таймер считаются заново</span><i>keeper</i></li>
+      <li class="st"><b>Ошибка модуля</b><span>ядро выключает slots в этой сессии, в roster <code>failed</code>; сессия работает на том входе, что лежит в слоте</span><i>агент по журналу</i></li>
+    </ul>
+    <div class="hs-stop"><span class="pill acc">stop()</span><span>Снять таймеры сброса. Дописывать нечего: решения пишутся сразу, а вход в слоте — живой вход своего аккаунта и остаётся на месте.</span></div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="host-slots-et">
+  <div class="shead">
+    <h2>Эталоны slots</h2>
+    <p>Стенд Host: поддельные SDK, relay, keeper и часы; accounts — настоящий, с временной папкой. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="host-slots-et-16"><div class="et-n">16</div>
+      <div class="et-in">Слот main: в слоте infirex, порядок — infirex, y0902 (<code>five_hour 0.04</code>), work3. site и wiki в слоте, обе заняты. В потоке site — <code>rate_limit_event</code> с <code>status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.95</code>.</div>
+      <div class="et-out">Один <code>account.place { account: "y0902" }</code> с папкой слота main; ответ — <code>returned: "infirex"</code>. Следующий вызов модели обеих сессий — на y0902; ходы не оборваны, процессы те же. В roster <code>account: "y0902"</code>; кадр <code>ledger.add</code> с <code>ev: "slot.swapped"</code>.<br><button type="button" class="hs-etl" data-go="5">показать по шагам</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — слоты по дизайну claude-fleet: порог 95 % за 5 ч, подмена файла входа в папке слота посреди хода; факт — пробы 27 окт.: claude перечитывает вход перед каждым вызовом модели, ход дошёл до конца на новом аккаунте.</div></div>
+    <div class="et" id="host-slots-et-88"><div class="et-n">88</div>
+      <div class="et-in">Слот main только что сменил infirex на y0902; в записи infirex у accounts окно <code>five_hour</code> — с <code>resetsAt: 1793475000</code>. Вызов wiki, ушедший до подмены, отвечает: <code>rate_limit_event</code> с <code>allowed_warning</code>, <code>utilization: 0.96</code> и тем же <code>resetsAt</code>.</div>
+      <div class="et-out"><code>account.usage</code> для infirex с 0.96; <code>account.place</code> не зовётся — слот main остаётся на y0902; в журнале — «main: поздний ответ infirex».<br><button type="button" class="hs-etl" data-go="6">показать по шагам</button></div>
+      <div class="et-src">чьё: факт — Agent SDK 0.3.311: в <code>rate_limit_event</code> нет имени аккаунта, есть <code>rateLimitType</code> и <code>resetsAt</code>; факт — пробы 27 окт.: вход читается перед вызовом модели, вызов, ушедший до подмены, идёт на прежнем входе.</div></div>
+    <div class="et" id="host-slots-et-89"><div class="et-n">89</div>
+      <div class="et-in">Слот main: в слоте y0902 (<code>five_hour 0.96</code>, сброс 16:20), запас — infirex (<code>five_hour 0.97</code>, сброс 19:30) и work3 (<code>seven_day 0.98</code>). Приходит ещё одно событие y0902: <code>five_hour 0.97</code>.</div>
+      <div class="et-out">Подмены нет, <code>account.place</code> не зовётся. В roster сессий слота — <code>slot.wait: 1793463600</code>; в журнале — «main: все аккаунты у порога — жду сброса 16:20»; сессии работают на y0902.<br><button type="button" class="hs-etl" data-sim="burn">показать в прогоне</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — по дизайну слотов claude-fleet: «все исчерпаны — ждать ближайшего сброса»; устав — «Система ловит, агент чинит»: без подбора аккаунтов вне запаса.</div></div>
+    <div class="et" id="host-slots-et-166"><div class="et-n">166</div>
+      <div class="et-in">В слоте main — infirex; пока он там, поддельный claude переписал файл входа слота: обновил токен. Затем порог — подмена на y0902.</div>
+      <div class="et-out"><code>account.place</code> отвечает <code>returned: "infirex", refreshed: true</code>; в папке infirex — переписанный claude файл байт в байт; в слоте — вход y0902; в журнале — «infirex: claude обновил вход в слоте».<br><button type="button" class="hs-etl" data-go="3">показать по шагам</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — по дизайну слотов claude-fleet: «claude сам обновляет токен и пишет его в папку слота; перед заменой файл слота сверяется … уходит назад в папку прежнего аккаунта».</div></div>
+    <div class="et" id="host-slots-et-167"><div class="et-n">167</div>
+      <div class="et-in">Слот main: в слоте infirex (последнее событие — <code>0.90</code>), в запасе y0902 (<code>0.04</code>). Тяжёлый ход site: <code>assistant</code> с <code>error: "rate_limit"</code>, <code>rate_limit_event</code> со <code>status: "rejected"</code>, <code>result</code> с ошибкой. wiki в это время свободна.</div>
+      <div class="et-out">Подмена на y0902 сразу. После <code>result</code> — <code>s.input("Продолжай")</code> в site; wiki ввода не получает. Кадр <code>ledger.add</code> — «слот main: infirex → y0902 · отказ».<br><button type="button" class="hs-etl" data-sim="reject">показать в прогоне</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — по дизайну claude-fleet: «отказ — сразу подмена и „продолжай“»; факт — Agent SDK 0.3.311: ошибка <code>rate_limit</code> у <code>assistant</code>, <code>status: "rejected"</code> у события лимита.</div></div>
+    <div class="et" id="host-slots-et-168"><div class="et-n">168</div>
+      <div class="et-in">Слот main ждёт сброса: в слоте infirex (отказ, сброс 19:30), запас — y0902 (сброс 16:20) и work3 (<code>seven_day 0.98</code>). Ход site оборван отказом. Часы — 16:20.</div>
+      <div class="et-out"><code>account.place</code> для y0902 — infirex вернулся домой; <code>slot.wait</code> снят; в site — «Продолжай»; в журнале — «main: сброс y0902 — продолжаю».<br><button type="button" class="hs-etl" data-sim="reset">показать в прогоне</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — по дизайну claude-fleet: все исчерпаны — «ждать ближайшего сброса», «слот ждёт и сам продолжает после сброса».</div></div>
+    <div class="et" id="host-slots-et-169"><div class="et-n">169</div>
+      <div class="et-in">Слот main: в слоте infirex; дальше по порядку — work3 (<code>seven_day 0.98</code>), corp (<code>login: "none"</code>), y0902 (<code>five_hour 0.10</code>). Порог infirex.</div>
+      <div class="et-out">work3 и corp пропущены, <code>account.place</code> — для y0902. Отдельно: <code>slot.swap</code> без аккаунта, когда ниже порога никого, — <code>no_reserve</code>, слот прежний.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — по дизайну claude-fleet: запас по порядку, порог 98 % за неделю; запасной без входа пропускается.</div></div>
+    <div class="et" id="host-slots-et-170"><div class="et-n">170</div>
+      <div class="et-in">manage открывает сессию без слота. Потом клиент: <code>slot.set { slot: "bot", order: ["default"] }</code> — аккаунта default в accounts нет.</div>
+      <div class="et-out">В <code>env</code> сессии нет <code>CLAUDE_SECURESTORAGE_CONFIG_DIR</code>; её события лимита не уходят в <code>account.usage</code>, подмен нет. <code>slot.set</code> — <code>no_account</code>, слот bot не создан.</div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — по дизайну claude-fleet: «вход компьютера по умолчанию в запас нельзя: в запас — только аккаунты, вошедшие с пульта в свою папку».</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== slots: подмена по шагам, прогон слота, пробы ===== */
+(function(){
+  const V = "host-slots";
+  const root = document.querySelector('[data-view="' + V + '"]');
+  if (!root) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = (id) => root.querySelector("#" + V + "-" + id);
+  function S(tag, attrs, parent, text){
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function h(tag, cls, text){ const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function flash(el){
+    if (!el) return;
+    const smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (el.scrollIntoView) el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+    el.classList.add("hs-flash"); setTimeout(() => el.classList.remove("hs-flash"), 1600);
+  }
+
+  /* ---------- подмена по шагам ---------- */
+  const STEPS = [
+    { t: "работа", a: [0.62, ""], b: [0.04, "запас 1"], slot: "infirex", on: ["rd"], mod: ["следит за", "rate_limit_event"], co: null, run: ["вызов · infirex", "вызов · infirex"],
+      cap: "Обе сессии в слоте main на аккаунте infirex. Перед каждым вызовом модели claude читает вход из папки слота.",
+      jl: "поля roster site@laptop", js: '{ "slot": { "name": "main", "wait": null },\n  "account": "infirex" }' },
+    { t: "порог", a: [0.95, "порог"], b: [0.04, "запас 1"], slot: "infirex", on: [], mod: ["порог 95 %", "следующий: y0902"], hot: true, co: [0, "rate_limit_event · 0,95"], run: ["вызов · infirex", "вызов · infirex"],
+      cap: "В потоке site — событие лимита: окно five_hour у 95 %. slots отдаёт окно accounts — запись infirex. Следующий по порядку, вошедший и ниже порога, — y0902: это slots видит в machine.accounts.",
+      jl: "поток site@laptop → accounts", js: '{ "type": "rate_limit_event",\n  "rate_limit_info": {\n    "status": "allowed_warning",\n    "rateLimitType": "five_hour",\n    "utilization": 0.95,\n    "resetsAt": 1793475000 } }\n\nhost.request("account.usage", { v: 1,\n  account: "infirex", src: "event", … })' },
+    { t: "account.place · y0902", a: [0.95, "порог"], b: [0.04, "запас 1"], slot: "infirex", on: ["ret"], mod: ["account.place", "y0902"], hot: true, co: null, run: ["busy · ход идёт", "busy · ход идёт"], et: 166,
+      cap: "Один запрос к accounts: положить в слот вход y0902. В слоте лежит вход infirex, и claude мог обновить его токен. accounts сверяет файл с выданным и сначала копирует его в папку infirex — она получает самый свежий вход.",
+      jl: "slots → accounts", js: 'host.request("account.place", { v: 1,\n  account: "y0902",\n  dir: "~/.switchboard/slots/main" })' },
+    { t: "вход y0902 — заменой", a: [0.95, ""], b: [0.04, "в слоте"], slot: "y0902", on: ["lend"], mod: ["вернулся", "infirex"], hot: true, co: null, run: ["busy · ход идёт", "busy · ход идёт"],
+      cap: "Потом вход y0902 ложится в папку слота заменой файла: в слоте всегда целый вход. Процессы сессий никто не трогает.",
+      jl: "ответ accounts · журнал флота", js: '← { "ok": true, "result": {\n    "returned": "infirex", "refreshed": true } }\n\nhost.emit({ type: "ledger.add", to: "ledger",\n  ev: "slot.swapped", machine: "laptop",\n  text: "слот main: infirex → y0902 · 5 ч 95 %" })' },
+    { t: "следующий вызов модели", a: [0.95, ""], b: [0.04, "в слоте"], slot: "y0902", on: ["rd"], mod: ["слот main", "y0902"], co: null, run: ["вызов · y0902", "вызов · y0902"], et: 16,
+      cap: "Следующий вызов модели обеих сессий читает уже вход y0902. Тот же процесс, тот же ход. В roster — новый аккаунт; клиент рисует строку подмены в чате.",
+      jl: "поля roster site@laptop", js: '{ "slot": { "name": "main", "wait": null },\n  "account": "y0902" }' },
+    { t: "поздний ответ", a: [0.96, ""], b: [0.05, "в слоте"], slot: "y0902", on: [], mod: ["окно infirex", "слот — y0902"], hot: true, co: [1, "окно infirex · 19:30"], run: ["вызов · y0902", "ответ · infirex"], et: 88,
+      cap: "Вызов wiki, ушедший до подмены, отвечает со старым входом: событие лимита с окном infirex. Имени аккаунта в нём нет, но тип и час сброса совпали с окном в записи infirex у accounts — значение уходит infirex, слот второй раз не меняется.",
+      jl: "поток wiki@laptop → accounts", js: '{ "type": "rate_limit_event",\n  "rate_limit_info": { "status": "allowed_warning",\n    "rateLimitType": "five_hour", "utilization": 0.96,\n    "resetsAt": 1793475000 } }   // окно infirex\n\nhost.request("account.usage", { v: 1,\n  account: "infirex", src: "event", … })' }
+  ];
+  const svg = $("svg"), dots = $("dots");
+  let cur = 0;
+  STEPS.forEach(() => dots.appendChild(h("i")));
+  function markers(s, pfx, kinds){
+    const defs = S("defs", {}, s);
+    kinds.forEach((k) => {
+      const m = S("marker", { id: pfx + (k ? "-" + k : ""), viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
+      S("path", { class: "ah" + (k ? " " + k : ""), d: "M0 0L10 5L0 10z" }, m);
+    });
+  }
+  function acct(x, name, u, note, sel){
+    S("rect", { class: "card" + (sel ? " on" : ""), x, y: 30, width: 180, height: 64, rx: 10 }, svg);
+    S("text", { class: "nm", x: x + 12, y: 50 }, svg, name);
+    S("text", { class: "sm end", x: x + 168, y: 50 }, svg, "five_hour");
+    S("rect", { class: "trk", x: x + 12, y: 60, width: 156, height: 8, rx: 4 }, svg);
+    const warn = u >= 0.95;
+    S("rect", { class: "fil" + (warn ? " warn" : ""), x: x + 12, y: 60, width: Math.max(4, 156 * u), height: 8, rx: 4 }, svg);
+    S("line", { class: "tick", x1: x + 12 + 156 * 0.95, y1: 56, x2: x + 12 + 156 * 0.95, y2: 72 }, svg);
+    S("text", { class: "sm" + (warn ? " warn" : " okk"), x: x + 12, y: 86 }, svg, String(u).replace(".", ",") + (note ? " · " + note : ""));
+  }
+  function drawSwap(){
+    const s = STEPS[cur];
+    svg.textContent = "";
+    markers(svg, V + "-a", ["", "on", "back"]);
+    S("rect", { class: "band", x: 4, y: 6, width: 412, height: 96, rx: 10 }, svg);
+    S("text", { class: "bl", x: 14, y: 21 }, svg, "АККАУНТЫ");
+    S("text", { class: "bl", x: 406, y: 21, "text-anchor": "end" }, svg, "~/.switchboard/accounts");
+    S("rect", { class: "band", x: 4, y: 110, width: 412, height: 92, rx: 10 }, svg);
+    S("text", { class: "bl", x: 406, y: 196, "text-anchor": "end" }, svg, "СЛОТ · slots/main");
+    S("rect", { class: "band", x: 4, y: 210, width: 412, height: 98, rx: 10 }, svg);
+    S("text", { class: "bl", x: 406, y: 303, "text-anchor": "end" }, svg, "СЕССИИ · ПРОЦЕССЫ CLAUDE");
+    const E = [["ret", "M206 140L130 96", "back"], ["lend", "M314 94L268 138", ""], ["rd", "M222 172L120 226", ""], ["rd", "M262 172L300 226", ""]];
+    E.forEach(([k, d, kind]) => {
+      const on = s.on.includes(k);
+      S("path", { class: "ed" + (kind ? " " + kind : "") + (on ? " on" : ""), d, "marker-end": "url(#" + V + "-a" + (on ? (kind === "back" ? "-back" : "-on") : "") + ")" }, svg);
+    });
+    if (s.on.includes("ret")) S("text", { class: "el back", x: 176, y: 116, "text-anchor": "end" }, svg, "назад · свежий");
+    if (s.on.includes("lend")) S("text", { class: "el on", x: 300, y: 124 }, svg, "вход y0902");
+    if (s.on.includes("rd")) S("text", { class: "el on", x: 242, y: 214, "text-anchor": "middle" }, svg, "читают вход");
+    acct(16, "infirex", s.a[0], s.a[1] || (s.slot === "infirex" ? "в слоте" : "запас"), s.slot === "infirex");
+    acct(224, "y0902", s.b[0], s.b[1], s.slot === "y0902");
+    // модуль slots и папка слота
+    S("rect", { class: "card mod" + (s.hot ? " on" : ""), x: 14, y: 122, width: 112, height: 64, rx: 10 }, svg);
+    S("text", { class: "nm", x: 70, y: 142, "text-anchor": "middle" }, svg, "slots");
+    S("text", { class: "sm" + (s.hot ? " acc" : ""), x: 70, y: 159, "text-anchor": "middle" }, svg, s.mod[0]);
+    S("text", { class: "sm" + (s.hot ? " acc" : ""), x: 70, y: 174, "text-anchor": "middle" }, svg, s.mod[1]);
+    S("rect", { class: "fold", x: 160, y: 140, width: 164, height: 32, rx: 8 }, svg);
+    S("text", { class: "ft", x: 242, y: 161, "text-anchor": "middle" }, svg, "main · вход " + s.slot);
+    [["site@laptop", 30], ["wiki@laptop", 230]].forEach(([n, x], i) => {
+      S("rect", { class: "card", x, y: 226, width: 160, height: 44, rx: 9 }, svg);
+      S("text", { class: "nm", x: x + 12, y: 244 }, svg, n);
+      S("text", { class: "sm" + (s.run[i].includes("infirex") && s.slot === "y0902" ? " warn" : ""), x: x + 12, y: 261 }, svg, s.run[i]);
+    });
+    if (s.co){
+      const x = s.co[0] === 0 ? 30 : 230, w = s.co[1].length * 6.4 + 18;
+      S("rect", { class: "co", x, y: 275, width: w, height: 19, rx: 9.5 }, svg);
+      S("text", { class: "cot", x: x + w / 2, y: 288, "text-anchor": "middle" }, svg, s.co[1]);
+    }
+    $("st").textContent = (cur + 1) + " / " + STEPS.length + " · " + s.t;
+    $("cap").textContent = s.cap;
+    $("jl").textContent = s.jl;
+    $("js").textContent = s.js;
+    dots.querySelectorAll("i").forEach((d, i) => d.classList.toggle("on", i === cur));
+    $("prev").disabled = cur === 0;
+    $("next").disabled = cur === STEPS.length - 1;
+    const etl = $("etl"); etl.hidden = !s.et; if (s.et) etl.textContent = "эталон " + s.et;
+  }
+  $("prev").addEventListener("click", () => { if (cur > 0){ cur--; drawSwap(); } });
+  $("next").addEventListener("click", () => { if (cur < STEPS.length - 1){ cur++; drawSwap(); } });
+  $("etl").addEventListener("click", () => flash($("et-" + STEPS[cur].et)));
+  drawSwap();
+
+  /* ---------- прогон: слот с тремя аккаунтами ---------- */
+  const INIT = () => [
+    { n: "infirex", h: 83, w: 72, r: 19 * 60 + 30 },
+    { n: "y0902", h: 4, w: 61, r: 16 * 60 + 20 },
+    { n: "work3", h: 40, w: 97, r: 17 * 60 + 5 }
+  ];
+  let A, seat, wait, cut, clock, log, chat;
+  function tm(m){ const x = ((m % 1440) + 1440) % 1440, hh = Math.floor(x / 60), mm = x % 60; return (hh < 10 ? "0" : "") + hh + ":" + (mm < 10 ? "0" : "") + mm; }
+  function over(a){ return a.h >= 95 || a.w >= 98; }
+  function add(cls, t){ log.unshift([cls, tm(clock) + "  " + t]); if (log.length > 40) log.pop(); }
+  function say(cls, t){ chat.push([cls, t]); if (chat.length > 7) chat.shift(); }
+  function nextIdx(){ for (let i = 0; i < A.length; i++) if (i !== seat && !over(A[i])) return i; return -1; }
+  function soonest(){ let b = 0; A.forEach((a, i) => { if (a.r < A[b].r) b = i; }); return b; }
+  function why(a){ return a.h >= 95 ? "5 ч " + Math.min(a.h, 100) + " %" : "неделя " + a.w + " %"; }
+  function swap(reason){
+    const b = nextIdx();
+    if (b < 0){
+      if (!wait){ wait = true; const s = A[soonest()]; add("wn", "main: все аккаунты у порога — жду сброса " + tm(s.r) + " (" + s.n + ")"); say("wt", "слот ждёт сброса до " + tm(s.r)); }
+      return false;
+    }
+    add("sw", "подмена · main · " + A[seat].n + " → " + A[b].n + " · " + reason + " · 3 сессии");
+    say("sw", "⇄ аккаунт: " + A[seat].n + " → " + A[b].n + " (" + reason + ")");
+    seat = b; wait = false;
+    return true;
+  }
+  function cont(){ if (cut){ add("", "site ← «Продолжай»"); say("me", "Продолжай · от slots"); cut = false; } }
+  function reset(){
+    A = INIT(); seat = 0; wait = false; cut = false; clock = 14 * 60 + 20; log = []; chat = [["", "Проверь миграции и поправь тесты."]];
+  }
+  function reject(){
+    const a = A[seat];
+    add("bd", "отказ: rejected · " + a.n + " — ход site оборван"); say("bd", "лимит: «You've hit your limit»"); cut = true;
+    if (swap("отказ")) cont();
+  }
+  const ACT = {
+    turn(){
+      clock += 7;
+      const a = A[seat];
+      if (wait && a.h >= 100){ add("bd", "site: отказ — аккаунта ниже порога нет"); say("bd", "лимит: «You've hit your limit» · ждёт сброса"); cut = true; return; }
+      a.h = Math.min(100, a.h + 6); a.w = Math.min(100, a.w + 1);
+      if (a.h >= 100) return reject();
+      add("", "ход · " + a.n + " · 5 ч " + a.h + " % · нед. " + a.w + " %"); say("", "ответ · " + a.n);
+      if (over(a) && !wait) swap(why(a));
+    },
+    reject(){ clock += 3; A[seat].h = 100; reject(); },
+    now(){ clock += 1; if (!swap("вручную")) add("wn", "slot.swap: no_reserve — ниже порога никого"); },
+    burn(){
+      clock += 30; A.forEach((a) => { a.h = 100; });
+      add("bd", "все аккаунты на 100 % за 5 ч"); add("bd", "отказ: rejected · " + A[seat].n + " — ход site оборван"); say("bd", "лимит: «You've hit your limit»"); cut = true;
+      swap("отказ");
+    },
+    reset5(){
+      const s = soonest(); clock = Math.max(clock, A[s].r);
+      A.forEach((a) => { if (a.r <= clock) a.h = 0; });
+      add("", "сброс окна 5 ч · " + A.filter((a) => a.h === 0).map((a) => a.n).join(", "));
+      if (wait){
+        wait = false;
+        if (s !== seat){ add("sw", "подмена · main · " + A[seat].n + " → " + A[s].n + " · сброс"); say("sw", "⇄ аккаунт: " + A[seat].n + " → " + A[s].n + " (сброс)"); seat = s; }
+        add("sw", "main: сброс " + A[s].n + " — продолжаю");
+      }
+      cont();
+      A.forEach((a) => { if (a.h === 0) a.r += 300; });
+    }
+  };
+  const BTN = [["turn", "Ход ответа (+6 %)"], ["reject", "Отказ модели", "bad"], ["now", "Сменить сейчас"], ["burn", "Исчерпать всех", "bad"], ["reset5", "Дождаться сброса"], ["init", "Сначала"]];
+  const ctl = $("simctl");
+  BTN.forEach(([k, t, c]) => {
+    const b = h("button", c || null, t); b.type = "button";
+    b.addEventListener("click", () => { if (k === "init") reset(); else ACT[k](); drawSim(); });
+    ctl.appendChild(b);
+  });
+  function bar(lab, v, lim){
+    const row = h("div", "hs-bar");
+    row.appendChild(h("span", null, lab));
+    const tr = h("span", "tr"); const f = h("i", v >= 100 ? "b" : v >= lim ? "w" : null); f.style.width = Math.min(100, Math.max(2, v)) + "%"; tr.appendChild(f);
+    const u = h("u"); u.style.left = lim + "%"; tr.appendChild(u);
+    row.appendChild(tr); row.appendChild(h("span", null, v + " %"));
+    return row;
+  }
+  function drawSim(){
+    const box = $("saccs"); box.textContent = "";
+    A.forEach((a, i) => {
+      const st = i === seat ? "в слоте" : over(a) ? "у порога — мимо" : "запас";
+      const c = h("div", "hs-acc" + (i === seat ? " seat" : "") + (i !== seat && over(a) ? " out" : ""));
+      const hd = h("div", "hd"); hd.appendChild(h("b", null, a.n)); hd.appendChild(h("span", null, st + " · сброс " + tm(a.r))); c.appendChild(hd);
+      c.appendChild(bar("5 ч", a.h, 95)); c.appendChild(bar("неделя", a.w, 98));
+      box.appendChild(c);
+    });
+    const s = $("sstate");
+    s.className = "hs-slotst" + (wait ? " wait" : "");
+    s.textContent = wait ? "main ждёт сброса до " + tm(A[soonest()].r) + " · раньше всех — " + A[soonest()].n : "main: " + A[seat].n + " · 3 сессии";
+    $("spill").textContent = "main · " + A[seat].n;
+    const cb = $("schat"); cb.textContent = "";
+    chat.forEach(([c, t]) => cb.appendChild(h("li", c || null, t)));
+    const lg = $("slog"); lg.textContent = "";
+    if (!log.length) lg.appendChild(h("li", null, tm(clock) + "  нажмите «Ход ответа»"));
+    log.forEach(([c, t]) => lg.appendChild(h("li", c || null, t)));
+  }
+  reset(); drawSim();
+  const PRE = {
+    burn(){ reset(); seat = 1; A[0].h = 97; A[1].h = 91; A[2].w = 98; add("", "в слоте y0902 · 5 ч 91 %; infirex 97 %; work3 неделя 98 %"); ACT.turn(); },
+    reject(){ reset(); A[0].h = 90; add("", "infirex 90 % — тяжёлый ход, модель отказала"); ACT.reject(); },
+    reset(){ reset(); ACT.burn(); ACT.reset5(); }
+  };
+  root.querySelectorAll(".hs-etl[data-sim]").forEach((b) => b.addEventListener("click", () => { PRE[b.dataset.sim](); drawSim(); flash($("sstate").closest(".card")); }));
+  root.querySelectorAll(".hs-etl[data-go]").forEach((b) => b.addEventListener("click", () => { cur = +b.dataset.go - 1; drawSwap(); flash(svg.closest(".card")); }));
+
+  /* ---------- пробы 27 окт. ---------- */
+  const T = [
+    ["0,6 с", "Процесс claude поднят, в слоте infirex", "Ответ на подключение: claude называет себя infirex.", "a"],
+    ["1,3 с", "Remote Control: сессия claude.ai …jaiN", "Сессия claude.ai создана у infirex.", "a"],
+    ["3,1 с", "«Запомни кодовое слово APPLE» → «ok»", "Событие лимита: 5 ч 9 %, неделя 72 % — цифры infirex.", "a"],
+    ["6,9 с", "Ход из трёх команд: первая пошла", "Каждая команда — отдельный вызов модели.", "a"],
+    ["6,9 с", "Подмена: в слоте y0902", "Файл входа в папке слота заменён. Процесс не трогали.", "sw"],
+    ["14,3 с", "Вторая команда", "Событие лимита: 5 ч 4 %, неделя 61 % — это уже y0902, посреди того же хода.", "b"],
+    ["27,1 с", "«DONE» — ход завершён", "Ни ошибки, ни повтора: ход прошёл через подмену.", "b"],
+    ["59,6 с", "Сообщение из claude.ai", "Отправлено входом infirex в сессию claude.ai через 30 с после подмены — дошло.", "b"],
+    ["61,5 с", "Ответ «APPLE»", "Разговор помнит всё, что было до подмены.", "b"],
+    ["84,9 с", "y0902 ищет сессию claude.ai — 404", "Сессия claude.ai остаётся у infirex, пока процесс жив.", "b"],
+    ["перезапуск", "Процесс заново, в слоте y0902", "Разговор цел («APPLE»), но claude.ai — новая сессия без истории. Привязку снимает модуль remote.", "sw"]
+  ];
+  let ti = 0;
+  const tl = $("tl");
+  function drawProof(){
+    tl.textContent = "";
+    T.forEach((r, i) => {
+      const li = h("li", (i <= ti ? "done " : "") + (i === ti ? "cur " : "") + (r[3] === "sw" ? "sw" : ""));
+      li.appendChild(h("span", null, r[0]));
+      li.appendChild(h("b", null, r[1]));
+      li.appendChild(r[3] === "a" ? h("i", "a", "infirex") : r[3] === "b" ? h("i", "b", "y0902") : h("i", null, ""));
+      li.addEventListener("click", () => { ti = i; drawProof(); });
+      tl.appendChild(li);
+    });
+    const r = T[ti];
+    $("tn").textContent = "шаг " + (ti + 1) + " из " + T.length + " · " + r[0];
+    $("tw").textContent = r[1];
+    $("to").textContent = r[2];
+    $("tprev").disabled = ti === 0;
+    $("tnext").disabled = ti === T.length - 1;
+  }
+  $("tprev").addEventListener("click", () => { if (ti > 0){ ti--; drawProof(); } });
+  $("tnext").addEventListener("click", () => { if (ti < T.length - 1){ ti++; drawProof(); } });
+  drawProof();
+
+  document.addEventListener("view:show", (e) => { if (e.detail === V){ drawSwap(); drawSim(); drawProof(); } });
+})();
+</script>

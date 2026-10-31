@@ -1,0 +1,1556 @@
+<style>
+  /* Ядро Host: анатомия со случаями по шагам, query() по вкладам, поток SDK, жизнь сессии, договор, гейт, ловушка ошибок,
+     хранилище, соединения, штатная остановка, почему SDK, новый модуль, опыты, эталоны.
+     Ядро — акцент, вклады модулей — --ok, keeper — --wait, отказ — --bad. */
+  [data-view="host"] .et{padding:0}
+  [data-view="host"] .et code{overflow-wrap:anywhere}
+  [data-view="host"] .shead a,[data-view="host"] .hs-pad a{color:var(--accent);text-underline-offset:2px}
+  [data-view="host"] pre.hs-pre{white-space:pre;word-break:normal}
+  [data-view="host"] .hs-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="host"] .hs-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="host"] .hs-pad h3{font-size:15.5px}
+  [data-view="host"] .hs-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  [data-view="host"] .hs-two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:820px){[data-view="host"] .hs-two{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-two>*{min-width:0}
+  [data-view="host"] .hs-scroll{overflow-x:auto;background:var(--surface2);border-radius:10px;padding:8px}
+  [data-view="host"] figure{margin:0;display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host"] figcaption{font-size:12.5px;color:var(--muted);max-width:68ch}
+  [data-view="host"] .hs-rules{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:7px;font-size:14px}
+  [data-view="host"] .hs-rules b{font-weight:600}
+  [data-view="host"] .hs-rules code,[data-view="host"] .hs-pad p code{overflow-wrap:anywhere}
+
+  /* ===== рисунки ===== */
+  [data-view="host"] svg.hs-svg{display:block;width:100%;height:auto}
+  [data-view="host"] svg.hs-anat{min-width:560px}
+  [data-view="host"] svg.hs-life{min-width:520px}
+  [data-view="host"] .hs-svg .t-b{fill:var(--ink);font:600 14px var(--disp)}
+  [data-view="host"] .hs-svg .t-n{fill:var(--ink);font:600 12.5px var(--mono)}
+  [data-view="host"] .hs-svg .t-s{fill:var(--muted);font:500 11px var(--body)}
+  [data-view="host"] .hs-svg .t-l{fill:var(--muted);font:600 10.5px var(--mono);letter-spacing:.08em}
+  [data-view="host"] .hs-svg .t-l.acc{fill:var(--accent)}
+  [data-view="host"] .hs-svg .t-k{fill:var(--wait);font:600 12px var(--mono)}
+  [data-view="host"] .hs-svg .t-ok{fill:var(--ok);font:600 11px var(--mono)}
+  [data-view="host"] .hs-svg .t-bad{fill:var(--bad);font:600 11px var(--mono)}
+  [data-view="host"] .hs-svg .hs-corebox{fill:var(--accent-weak);fill-opacity:.55;stroke:var(--accent);stroke-opacity:.4;stroke-width:1.4}
+  [data-view="host"] .hs-svg .hs-region{fill:var(--surface);fill-opacity:.55;stroke:var(--line);stroke-dasharray:5 4}
+  [data-view="host"] .hs-svg .hs-e{fill:none;stroke:var(--line);stroke-width:2}
+  [data-view="host"] .hs-svg .hs-e.on{stroke:var(--accent);stroke-width:3}
+  [data-view="host"] .hs-svg .hs-e.bad{stroke:var(--bad);stroke-width:3}
+  [data-view="host"] .hs-svg .hs-e.okl{stroke:var(--ok);stroke-width:2.4}
+  [data-view="host"] .hs-svg .hs-ah{fill:var(--accent)}
+  [data-view="host"] .hs-svg .hs-ah.bad{fill:var(--bad)}
+  [data-view="host"] .hs-svg .hs-ah.mut{fill:var(--line)}
+  [data-view="host"] .hs-svg .hs-ah.ok{fill:var(--ok)}
+  [data-view="host"] .hs-svg .hs-n rect{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:stroke .15s,fill .15s}
+  [data-view="host"] .hs-svg .hs-n.ex rect{stroke-dasharray:5 4}
+  [data-view="host"] .hs-svg .hs-n.ext rect{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="host"] .hs-svg .hs-n.kp rect{fill:var(--wait-weak);stroke:var(--wait);stroke-opacity:.6}
+  [data-view="host"] .hs-svg .hs-n.mod rect{fill:var(--ok-weak);stroke:var(--ok);stroke-opacity:.55}
+  [data-view="host"] .hs-svg .hs-n.hot rect{stroke:var(--accent);stroke-width:2.6;stroke-opacity:1}
+  [data-view="host"] .hs-svg .hs-n.off rect{fill:var(--bad-weak);stroke:var(--bad);stroke-width:2;stroke-dasharray:4 3}
+  [data-view="host"] .hs-svg .hs-n.off text{fill:var(--bad)}
+  [data-view="host"] .hs-svg .hs-st rect{fill:var(--surface);stroke:var(--line);stroke-width:1.6}
+  [data-view="host"] .hs-svg .hs-st.hot rect{stroke:var(--accent);stroke-width:2.6;fill:var(--accent-weak)}
+  [data-view="host"] .hs-svg .hs-st.badst rect{stroke:var(--bad)}
+  [data-view="host"] .hs-svg .hs-st.badst.hot rect{fill:var(--bad-weak)}
+  [data-view="host"] .hs-svg .hs-lab{fill:var(--muted);font:500 11px var(--mono)}
+  [data-view="host"] .hs-svg .hs-lab.on{fill:var(--accent);font-weight:600}
+
+  /* ===== что проходит через ядро ===== */
+  [data-view="host"] .hs-flow{overflow:hidden}
+  [data-view="host"] .hs-flow .hs-scroll{border-radius:0;border-block:1px solid var(--line)}
+  [data-view="host"] .hs-fside{padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px}
+  [data-view="host"] .hs-steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host"] .hs-steps li{display:grid;grid-template-columns:1.8em minmax(0,13ch) minmax(0,1fr);gap:10px;padding:9px 10px;
+    border-left:3px solid var(--line2);border-radius:0 8px 8px 0;cursor:pointer}
+  [data-view="host"] .hs-steps li:hover{background:var(--surface2)}
+  [data-view="host"] .hs-steps li:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+  [data-view="host"] .hs-steps li.now{border-left-color:var(--accent);background:var(--accent-weak)}
+  [data-view="host"] .hs-steps .no{font:700 12px/1.5 var(--mono);color:var(--muted)}
+  [data-view="host"] .hs-steps li.now .no{color:var(--accent)}
+  [data-view="host"] .hs-steps .who{font:600 12px/1.5 var(--mono)}
+  [data-view="host"] .hs-steps .tx{font-size:13.5px;display:flex;flex-direction:column;gap:6px;min-width:0}
+  [data-view="host"] .hs-steps pre{font-size:11.5px;background:var(--surface);border:1px solid var(--line2);border-radius:8px;
+    padding:6px 9px;overflow-x:auto;white-space:pre;word-break:normal}
+  @media (max-width:560px){[data-view="host"] .hs-steps li{grid-template-columns:1.8em minmax(0,1fr)}[data-view="host"] .hs-steps .tx{grid-column:2}}
+  [data-view="host"] .hs-ctrl{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  [data-view="host"] .hs-ctrl span{font:600 12px var(--mono);color:var(--muted)}
+  [data-view="host"] button:disabled{opacity:.45;cursor:default}
+
+  /* ===== query() ===== */
+  [data-view="host"] .hs-opts{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host"] .hs-opts li{display:grid;grid-template-columns:minmax(0,14.5ch) 5.4em minmax(0,1fr);gap:10px;align-items:baseline;
+    padding:7px 0;border-top:1px solid var(--line2);font-size:13px}
+  [data-view="host"] .hs-opts li:first-child{border-top:0}
+  [data-view="host"] .hs-opts code{font-weight:600;font-size:12.5px;overflow-wrap:anywhere}
+  [data-view="host"] .hs-opts li>span:last-child{min-width:0;overflow-wrap:anywhere}
+  [data-view="host"] .hs-src{font:600 10.5px/1 var(--mono);padding:4px 7px;border-radius:999px;justify-self:start;white-space:nowrap}
+  [data-view="host"] .hs-src.core{background:var(--accent-weak);color:var(--accent)}
+  [data-view="host"] .hs-src.mod{background:var(--ok-weak);color:var(--ok)}
+  @media (max-width:480px){[data-view="host"] .hs-opts li{grid-template-columns:minmax(0,1fr) auto}[data-view="host"] .hs-opts li>span:last-child{grid-column:1 / -1}}
+  [data-view="host"] .hs-lg{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);align-items:center}
+
+  [data-view="host"] .hs-turn{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host"] .hs-turn li{display:grid;grid-template-columns:12px minmax(0,1.3fr) minmax(0,1fr) minmax(0,.75fr);gap:10px;padding:7px 0;
+    align-items:baseline;font-size:13px;border-top:1px solid var(--line2)}
+  [data-view="host"] .hs-turn li>span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host"] .hs-turn li i{width:10px;height:10px;border-radius:50%;background:var(--line);align-self:center}
+  [data-view="host"] .hs-turn li.core i{background:var(--accent)}
+  [data-view="host"] .hs-turn li.cb i{background:var(--wait);border-radius:2px}
+  [data-view="host"] .hs-turn code{font-weight:600;font-size:12px}
+  [data-view="host"] .hs-turn .m{color:var(--muted)}
+  [data-view="host"] .hs-turn li.hd{font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);border-top:0;padding-top:0}
+  @media (max-width:560px){[data-view="host"] .hs-turn li{grid-template-columns:12px minmax(0,1fr);gap:2px 10px}[data-view="host"] .hs-turn li>span{grid-column:2}[data-view="host"] .hs-turn li.hd{display:none}}
+  [data-view="host"] .hs-waf{display:grid;grid-template-columns:repeat(13,minmax(0,1fr));gap:4px;max-width:400px}
+  [data-view="host"] .hs-waf span{aspect-ratio:1;max-width:100%;border-radius:4px;background:var(--surface2);border:1px solid var(--line)}
+  [data-view="host"] .hs-waf span.core{background:var(--accent);border-color:var(--accent)}
+  [data-view="host"] .hs-waf span:focus-visible,[data-view="host"] .hs-waf span.sel{outline:2px solid var(--ink);outline-offset:1px}
+  [data-view="host"] .hs-wafcap{font:500 12.5px var(--mono);color:var(--muted);min-height:1.6em;overflow-wrap:anywhere}
+  [data-view="host"] .hs-wafcap b{color:var(--ink)}
+  [data-view="host"] .hs-meth{display:flex;flex-direction:column;gap:10px}
+  [data-view="host"] .hs-meth>div{display:grid;grid-template-columns:9.5em minmax(0,1fr);gap:8px;align-items:start}
+  @media (max-width:480px){[data-view="host"] .hs-meth>div{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-meth .ops code.no{color:var(--bad);border-color:var(--bad-weak);text-decoration:line-through}
+  [data-view="host"] .hs-meth .ops code.core{color:var(--accent);border-color:var(--accent-weak)}
+
+  /* ===== жизнь сессии ===== */
+  [data-view="host"] .hs-life-card{overflow:hidden}
+  [data-view="host"] .hs-life-card .hs-scroll{border-radius:0;border-block:1px solid var(--line)}
+  [data-view="host"] .hs-lose{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:13.5px}
+
+  /* ===== пакеты: дерево монорепо, манифест → код ===== */
+  [data-view="host"] svg.hs-tree{max-width:470px;margin-inline:auto}
+  [data-view="host"] .hs-svg .t-p{fill:var(--muted);font:500 11px var(--mono)}
+  [data-view="host"] .hs-svg .t-c{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="host"] .hs-svg .t-v{fill:var(--accent)}
+  [data-view="host"] .hs-svg .hs-chip rect{fill:var(--surface);stroke:var(--line);stroke-width:1.3}
+  [data-view="host"] .hs-svg .hs-chip.core rect{fill:var(--accent-weak);stroke:var(--accent)}
+  [data-view="host"] .hs-svg .hs-chip.mod rect{fill:var(--ok-weak);stroke:var(--ok);stroke-opacity:.6}
+  [data-view="host"] .hs-svg .hs-chip.kp rect{fill:var(--wait-weak);stroke:var(--wait);stroke-opacity:.6}
+  [data-view="host"] .hs-map{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  [data-view="host"] .hs-map li{display:grid;grid-template-columns:minmax(0,1fr) 1.2em minmax(0,1.3fr);gap:6px;align-items:baseline;
+    padding:5px 9px;border-radius:8px;background:var(--surface2);font-size:12.5px}
+  [data-view="host"] .hs-map li>b{font-weight:500;color:var(--muted);min-width:0}
+  [data-view="host"] .hs-map li>i{font-style:normal;color:var(--muted);text-align:center}
+  [data-view="host"] .hs-map code{font-size:12px;overflow-wrap:anywhere;min-width:0}
+  [data-view="host"] .hs-map li>code:last-child{color:var(--ok);font-weight:600}
+  [data-view="host"] .q .vars .var ul code{overflow-wrap:anywhere}
+  [data-view="host"] .hs-map li>b code{color:var(--ink);font-weight:600}
+  [data-view="host"] .et.chg{box-shadow:-6px 0 0 -3px var(--chg)}
+  [data-view="host"] .et.chg.read{box-shadow:-6px 0 0 -4px var(--read)}
+  [data-view="host"] .et.chg::before{display:none}
+
+  /* ===== договор и гейт ===== */
+  [data-view="host"] .hs-gate{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:16px;align-items:start}
+  @media (max-width:720px){[data-view="host"] .hs-gate{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-gate>*{min-width:0}
+  [data-view="host"] .hs-gcol{display:flex;flex-direction:column;gap:8px}
+  [data-view="host"] .hs-mchips{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="host"] .hs-mchip{font:600 12px var(--mono);padding:5px 9px;border-radius:8px;background:var(--surface2);border:1px solid var(--line2)}
+  [data-view="host"] .hs-gtog{display:flex;flex-direction:column;gap:6px}
+  [data-view="host"] .hs-gtog button{text-align:left;display:grid;grid-template-columns:16px minmax(0,1fr);gap:8px;align-items:baseline;font-weight:500;font-size:13px}
+  [data-view="host"] .hs-gtog button::before{content:"";width:12px;height:12px;border-radius:3px;border:1.5px solid var(--muted);align-self:center}
+  [data-view="host"] .hs-gtog button[aria-pressed="true"]{background:var(--accent-weak);border-color:var(--accent)}
+  [data-view="host"] .hs-gtog button[aria-pressed="true"]::before{background:var(--accent);border-color:var(--accent)}
+  [data-view="host"] .hs-gtog code{font-weight:600}
+  [data-view="host"] .hs-gres{border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px;border:2px solid var(--ok);background:var(--ok-weak)}
+  [data-view="host"] .hs-gres.bad{border-color:var(--bad);background:var(--bad-weak)}
+  [data-view="host"] .hs-gres .verdict{font:600 16px var(--disp);color:var(--ok)}
+  [data-view="host"] .hs-gres.bad .verdict{color:var(--bad)}
+  [data-view="host"] .hs-gres ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+  [data-view="host"] .hs-jl{font:500 12px/1.55 var(--mono);overflow-wrap:anywhere}
+  [data-view="host"] .hs-gres .owners li{border-bottom-color:var(--line)}
+
+  /* ===== ловушка ошибок ===== */
+  [data-view="host"] .hs-chain{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:13px}
+  [data-view="host"] .hs-chain span{padding:6px 10px;border-radius:9px;background:var(--surface2);border:1px solid var(--line2)}
+  [data-view="host"] .hs-chain span.bad{background:var(--bad-weak);border-color:transparent;color:var(--bad);font-weight:600}
+  [data-view="host"] .hs-chain i{font-style:normal;color:var(--muted);font-weight:600}
+  [data-view="host"] .hs-trap{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  @media (max-width:720px){[data-view="host"] .hs-trap{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-trap>div{display:grid;grid-template-columns:minmax(0,10ch) minmax(0,1fr);gap:10px;align-items:baseline;
+    padding:9px 12px;border-radius:10px;background:var(--surface2);font-size:13px}
+  [data-view="host"] .hs-trap b{font:600 12px var(--mono);color:var(--bad)}
+  [data-view="host"] .hs-trap span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host"] .hs-trap>div.host{background:var(--bad-weak)}
+
+  /* ===== соединения ===== */
+  [data-view="host"] .hs-start{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;counter-reset:s}
+  [data-view="host"] .hs-start li{counter-increment:s;display:grid;grid-template-columns:1.8em minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line2);font-size:13.5px}
+  [data-view="host"] .hs-start li:first-child{border-top:0}
+  [data-view="host"] .hs-start li::before{content:counter(s);font:700 14px/1.4 var(--disp);color:var(--accent)}
+  [data-view="host"] .hs-start li>span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host"] .hs-back{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font:600 12px var(--mono)}
+  [data-view="host"] .hs-back span{padding:5px 9px;border-radius:999px;background:var(--surface2);border:1px solid var(--line2)}
+  [data-view="host"] .hs-back span.bad{background:var(--bad-weak);color:var(--bad);border-color:transparent}
+  [data-view="host"] .hs-back span.ok{background:var(--ok-weak);color:var(--ok);border-color:transparent}
+  [data-view="host"] .hs-back i{font-style:normal;color:var(--muted)}
+
+  /* ===== остановка ===== */
+  [data-view="host"] .hs-lanes{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host"] .hs-lanes li{display:grid;grid-template-columns:8.5em minmax(0,1fr);gap:10px;padding:9px 0 9px 12px;border-left:3px solid var(--line);font-size:13.5px}
+  [data-view="host"] .hs-lanes li.save{border-left-color:var(--ok)}
+  [data-view="host"] .hs-lanes li.keep{border-left-color:var(--accent)}
+  [data-view="host"] .hs-lanes li.cut{border-left-color:var(--bad)}
+  [data-view="host"] .hs-lanes li b{font:600 11.5px/1.6 var(--mono);color:var(--muted)}
+  [data-view="host"] .hs-lanes li span{min-width:0;overflow-wrap:anywhere}
+  @media (max-width:440px){[data-view="host"] .hs-lanes li{grid-template-columns:minmax(0,1fr);gap:2px}}
+  [data-view="host"] .hs-lgd{display:flex;flex-wrap:wrap;gap:12px;font-size:12.5px;color:var(--muted)}
+  [data-view="host"] .hs-lgd i{display:inline-block;width:3px;height:12px;margin-right:6px;vertical-align:-1px}
+
+  /* ===== опыты ===== */
+  [data-view="host"] .hs-proofs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+  @media (max-width:820px){[data-view="host"] .hs-proofs{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-proofs>*{min-width:0}
+  [data-view="host"] .hs-proofs .wide{grid-column:1 / -1}
+  [data-view="host"] .hs-tr{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host"] .hs-tr li{display:grid;grid-template-columns:4.6em 12px minmax(0,1fr);gap:8px;align-items:baseline;font-size:13px;padding:3px 0;position:relative}
+  [data-view="host"] .hs-tr li b{font:600 12px var(--mono);color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+  [data-view="host"] .hs-tr li i{width:9px;height:9px;border-radius:50%;background:var(--accent);align-self:center;box-shadow:0 0 0 3px var(--accent-weak)}
+  [data-view="host"] .hs-tr li i.bad{background:var(--bad);box-shadow:0 0 0 3px var(--bad-weak)}
+  [data-view="host"] .hs-tr li i.ok{background:var(--ok);box-shadow:0 0 0 3px var(--ok-weak)}
+  [data-view="host"] .hs-tr li span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host"] .hs-tr code{font-size:12px}
+  [data-view="host"] .hs-res{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px;font-size:13px}
+  [data-view="host"] .hs-res li{display:grid;grid-template-columns:7.5em minmax(0,1fr);gap:8px;align-items:baseline}
+  [data-view="host"] .hs-res li b{font:600 12px var(--mono)}
+  [data-view="host"] .hs-res li span{min-width:0;overflow-wrap:anywhere}
+  @media (max-width:440px){[data-view="host"] .hs-res li{grid-template-columns:minmax(0,1fr);gap:0}}
+  [data-view="host"] .hs-svg .b-cl{fill:var(--line)}
+  [data-view="host"] .hs-svg .b-h{fill:var(--accent)}
+  [data-view="host"] .hs-svg .b-v{fill:var(--ink);font:600 11.5px var(--mono)}
+  [data-view="host"] .facts{grid-template-columns:repeat(4,minmax(0,1fr))}
+  @media (max-width:720px){[data-view="host"] .facts{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}}
+  [data-view="host"] .facts.f3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  @media (max-width:480px){[data-view="host"] .facts.f3{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-steps.static li{cursor:default}
+  [data-view="host"] .hs-steps.static li:hover{background:none}
+  [data-view="host"] .vhead a{color:var(--accent);text-underline-offset:2px}
+
+  /* ===== перезагрузка модуля ===== */
+  [data-view="host"] .hs-rl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);align-items:start}
+  @media (max-width:820px){[data-view="host"] .hs-rl{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host"] .hs-rl>*{min-width:0}
+  [data-view="host"] .hs-rlfig{padding:14px 16px;border-right:1px solid var(--line)}
+  @media (max-width:820px){[data-view="host"] .hs-rlfig{border-right:0;border-bottom:1px solid var(--line)}}
+  [data-view="host"] svg.hs-rlsvg{max-width:420px;margin-inline:auto}
+  [data-view="host"] .hs-svg .hs-n.cr rect{fill:var(--accent-weak);stroke:var(--accent);stroke-opacity:.5}
+  [data-view="host"] .hs-svg .hs-n.no:not(.off) rect{fill:var(--surface2);stroke-dasharray:4 3}
+  [data-view="host"] .hs-svg .hs-n.hot.cr rect,[data-view="host"] .hs-svg .hs-n.hot.mod rect,[data-view="host"] .hs-svg .hs-n.hot.kp rect{stroke:var(--accent);stroke-width:2.6;stroke-opacity:1}
+  [data-view="host"] .hs-svg .hs-elab{fill:var(--muted);font:500 10.5px var(--mono)}
+  [data-view="host"] .hs-opts.rl li{grid-template-columns:minmax(0,15ch) 6.4em minmax(0,1fr)}
+  @media (max-width:480px){[data-view="host"] .hs-opts.rl li{grid-template-columns:minmax(0,1fr) auto}}
+  [data-view="host"] .hs-src.now{background:var(--ok-weak);color:var(--ok)}
+  [data-view="host"] .hs-src.next{background:var(--wait-weak);color:var(--wait)}
+</style>
+
+<header class="vhead chg" data-chg="host-head">
+  <span class="pill acc kind">приложение Claude SDK</span>
+  <h1>Ядро Host</h1>
+  <p class="lead">Host — процесс Node с Claude Agent SDK, один на машину. Только он говорит с сессиями Claude Code: на каждую сессию — один <code>query()</code>, а процессы claude держит keeper. Ядро не знает ни одной функции. Оно ведёт сессии, держит соединения с keeper и relay, собирает вклады модулей и следит, чтобы у каждого имени был один владелец. Всё, что видят люди и сессии, делают модули — каждый в своём пакете монорепо, со своей версией и манифестом. <span class="chg" data-chg="host-head-reload">Новый выпуск модулей ядро ставит в живом Host — без перезапуска Host и сессий.</span></p>
+  <div class="names">
+    <span><b>query()</b> одна сессия Claude Code в SDK</span>
+    <span><b>модуль</b> функция Host: fleet, questions, watch…</span>
+    <span><b>пакет</b> папка монорепо со своей версией: модуль cost — пакет host-cost</span>
+    <span><b>манифест</b> module.json: что пакет даёт (provides) и чем пользуется (uses)</span>
+    <span><b>вклад</b> что модуль отдаёт ядру: запрос, поле, хук</span>
+    <span><b>владелец</b> единственный пакет у имени</span>
+    <span class="chg" data-chg="host-head-release"><b>выпуск</b> Host в R2: ядро, модули и SDK точных версий</span>
+    <span><b>keeper</b> служба ОС: держит процессы claude</span>
+    <span><b>relay</b> Worker в Cloudflare: roster и доставка по адресу</span>
+  </div>
+  <p class="hint">Вклады модулей — в их частях: <a href="#host-fleet">fleet</a> · <a href="#host-questions">questions</a> · <a href="#host-watch">watch</a> · <a href="#host-chat">chat</a> · <a href="#host-manage">manage</a> · <a href="#host-slots">slots</a> · <a href="#host-accounts">accounts</a> · <a href="#host-profiles">profiles</a> · <a href="#host-points">points</a> · <a href="#host-remote">remote</a> · <a href="#host-machine">machine</a> · <a href="#host-upgrade">upgrade</a> · <a href="#host-push">push</a> · <a href="#host-journal">journal</a>. Worker-модули — <a href="#relay">relay</a>, <a href="#gate">gate</a>, <a href="#push">push</a>, <a href="#points">points</a>, <a href="#ledger">ledger</a>, <span class="chg" data-chg="host-head-github"><a href="#github">github</a></span>; каналы и ключи — <a href="#eco">экосистема</a>.</p>
+</header>
+
+<!-- ===== ЧТО ПРОХОДИТ ЧЕРЕЗ ЯДРО ===== -->
+<section class="chg" data-chg="host-flow">
+  <div class="shead">
+    <h2>Что проходит через ядро</h2>
+    <p>Шесть случаев по шагам. Ядро находит владельца и передаёт ему; само ничего не решает.</p>
+  </div>
+  <div class="card hs-flow">
+    <div class="tabs" id="host-flow-tabs" role="tablist" aria-label="Случаи"></div>
+    <div class="hs-scroll">
+      <svg id="host-anat" class="hs-svg hs-anat" viewBox="0 0 640 432" role="img" aria-label="Устройство Host: соединения с relay и keeper, реестр владельцев, хранилище, сессии по query() на каждую; модули справа; процессы claude держит keeper">
+        <defs>
+          <marker id="host-ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-ah-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah bad" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="hs-corebox" x="12" y="74" width="408" height="244" rx="14"/>
+        <text class="t-l acc" x="24" y="94">ЯДРО</text>
+        <rect class="hs-region" x="40" y="170" width="368" height="136" rx="10"/>
+        <text class="t-l" x="52" y="188">СЕССИИ · ПО QUERY() НА КАЖДУЮ</text>
+        <text class="t-l" x="448" y="94">МОДУЛИ</text>
+        <g>
+          <path class="hs-e" d="M72 54V106"/><path class="hs-e" d="M100 54V106"/>
+          <path class="hs-e" d="M148 128H160"/>
+          <path class="hs-e" d="M30 150V332"/>
+          <path class="hs-e" d="M120 294V384"/><path class="hs-e" d="M150 294V384"/>
+          <path class="hs-e" d="M298 294V384"/><path class="hs-e" d="M328 294V384"/>
+          <text class="t-s" x="108" y="78">wss</text>
+          <text class="t-s" x="160" y="378">stream-json</text>
+        </g>
+        <g id="host-anat-hot"></g>
+        <g class="hs-n" data-n="relay"><rect x="24" y="14" width="124" height="40" rx="9"/><text class="t-b" x="36" y="33">relay</text><text class="t-s" x="36" y="47">Worker · кадры</text></g>
+        <g class="hs-n" data-n="conn"><rect x="24" y="106" width="124" height="44" rx="8"/><text class="t-n" x="34" y="125">соединения</text><text class="t-s" x="34" y="141">relay · keeper</text></g>
+        <g class="hs-n" data-n="reg"><rect x="160" y="106" width="124" height="44" rx="8"/><text class="t-n" x="170" y="125">реестр</text><text class="t-s" x="170" y="141">владельцы · гейт</text></g>
+        <g class="hs-n" data-n="store"><rect x="296" y="106" width="112" height="44" rx="8"/><text class="t-n" x="306" y="125">хранилище</text><text class="t-s" x="306" y="141">разделы модулей</text></g>
+        <g class="hs-n" data-n="q1"><rect x="52" y="196" width="166" height="98" rx="9"/>
+          <text class="t-b" x="64" y="217">query()</text><text class="t-n" x="64" y="235">site@laptop</text>
+          <text class="t-s" x="64" y="255">↓ очередь ввода</text><text class="t-s" x="64" y="270">↑ сообщения SDK</text><text class="t-s" x="64" y="285">canUseTool · хуки</text></g>
+        <g class="hs-n" data-n="q2"><rect x="230" y="196" width="166" height="98" rx="9"/>
+          <text class="t-b" x="242" y="217">query()</text><text class="t-n" x="242" y="235">wiki@laptop</text>
+          <text class="t-s" x="242" y="255">↓ очередь ввода</text><text class="t-s" x="242" y="270">↑ сообщения SDK</text><text class="t-s" x="242" y="285">canUseTool · хуки</text></g>
+        <g class="hs-n kp" data-n="kp"><rect x="12" y="332" width="408" height="32" rx="8"/><text class="t-k" x="216" y="352" text-anchor="middle">keeper · держит процессы claude и их трубы</text></g>
+        <g class="hs-n ext" data-n="c1"><rect x="52" y="384" width="166" height="36" rx="8"/><text class="t-n" x="135" y="406" text-anchor="middle">claude · site</text></g>
+        <g class="hs-n ext" data-n="c2"><rect x="230" y="384" width="166" height="36" rx="8"/><text class="t-n" x="313" y="406" text-anchor="middle">claude · wiki</text></g>
+        <g class="hs-n mod" data-n="m:fleet"><rect x="448" y="104" width="180" height="26" rx="7"/><text class="t-n" x="460" y="121">fleet</text><text class="t-s" x="616" y="121" text-anchor="end">переписка</text></g>
+        <g class="hs-n mod" data-n="m:questions"><rect x="448" y="138" width="180" height="26" rx="7"/><text class="t-n" x="460" y="155">questions</text><text class="t-s" x="616" y="155" text-anchor="end">вопросы</text></g>
+        <g class="hs-n mod" data-n="m:watch"><rect x="448" y="172" width="180" height="26" rx="7"/><text class="t-n" x="460" y="189">watch</text><text class="t-s" x="616" y="189" text-anchor="end">зрители</text></g>
+        <g class="hs-n mod" data-n="m:chat"><rect x="448" y="206" width="180" height="26" rx="7"/><text class="t-n" x="460" y="223">chat</text><text class="t-s" x="616" y="223" text-anchor="end">чат</text></g>
+        <g class="hs-n mod" data-n="m:journal"><rect x="448" y="240" width="180" height="26" rx="7"/><text class="t-n" x="460" y="257">journal</text><text class="t-s" x="616" y="257" text-anchor="end">журнал</text></g>
+        <g class="hs-n mod ex" data-n="m:cost"><rect x="448" y="274" width="180" height="26" rx="7"/><text class="t-n" x="460" y="291">cost</text><text class="t-s" x="616" y="291" text-anchor="end">пример · расход</text></g>
+        <g class="hs-n mod ex" data-n="m:guard"><rect x="448" y="308" width="180" height="26" rx="7"/><text class="t-n" x="460" y="325">guard</text><text class="t-s" x="616" y="325" text-anchor="end">пример · запреты</text></g>
+        <g class="hs-n mod ex" data-n="m:buggy"><rect x="448" y="342" width="180" height="26" rx="7"/><text class="t-n" x="460" y="359">buggy</text><text class="t-s" x="616" y="359" text-anchor="end">пример · с ошибкой</text></g>
+      </svg>
+    </div>
+    <div class="hs-fside">
+      <ol class="hs-steps" id="host-flow-steps" aria-live="polite"></ol>
+      <div class="hs-ctrl"><button type="button" id="host-flow-prev">← назад</button><button type="button" class="primary" id="host-flow-next">дальше →</button><span id="host-flow-n"></span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ОДНА СЕССИЯ — ОДИН QUERY() ===== -->
+<section class="chg" data-chg="host-query">
+  <div class="shead">
+    <h2>Одна сессия — один <code>query()</code></h2>
+    <p>Ядро собирает параметры <code>query()</code> из своих и из вкладов модулей, отдаёт SDK очередь ввода и читает поток сообщений. Свой протокол stdin не пишется: в процесс claude пишет только SDK.</p>
+  </div>
+  <div class="hs-two">
+    <div class="card hs-pad chg" data-chg="host-query-opts">
+      <div class="hs-head"><h3>Что ядро кладёт в <code>query()</code></h3></div>
+      <div class="hs-lg"><span class="hs-src core">ядро</span>своё <span class="hs-src mod">модули</span>вклады — у имени один владелец</div>
+      <ul class="hs-opts">
+        <li><code>prompt: input()</code><span class="hs-src core">ядро</span><span>очередь ввода сессии — асинхронный генератор</span></li>
+        <li><code>cwd</code><span class="hs-src core">ядро</span><span>из списка сессий</span></li>
+        <li><code>resume</code><span class="hs-src core">ядро</span><span><code>session_id</code> — после смерти процесса, перезагрузки, новой версии SDK</span></li>
+        <li><code>permissionMode</code><span class="hs-src core">ядро</span><span><code>"bypassPermissions"</code> и <code>allowDangerouslySkipPermissions</code> — «разрешено всё»</span></li>
+        <li><code>spawnClaudeCodeProcess</code><span class="hs-src core">ядро</span><span>канал процесса keeper: <code>spawn</code> или <code>attach</code></span></li>
+        <li><code>env</code><span class="hs-src core">ядро</span><span><code>DISABLE_UPDATES=1</code>: claude меняется только вместе с SDK</span></li>
+        <li><code>env</code><span class="hs-src mod">модули</span><span>свои ключи, например папка входа слота</span></li>
+        <li><code>systemPrompt</code><span class="hs-src mod">модули</span><span>preset <code>claude_code</code> и <code>append</code> модулей: «твой callsign — site@laptop»</span></li>
+        <li><code>mcpServers</code><span class="hs-src mod">модули</span><span><code>createSdkMcpServer</code> внутри процесса Host</span></li>
+        <li><code>hooks</code><span class="hs-src mod">модули</span><span>списки по событию: <code>PreToolUse</code>, <code>Stop</code>… владельца нет, складываются. <span class="chg" data-chg="host-query-hooks-wrap">В <code>query()</code> — обёртки ядра: они зовут хук нынешней версии модуля</span></span></li>
+        <li><code>canUseTool</code><span class="hs-src mod">модули</span><span><code>decide</code> владельца инструмента; владельца нет — <code>AskUserQuestion</code>: <code>deny</code> с <code>unknown_request</code>, прочее — <code>allow</code> по режиму «разрешено всё» и строка в журнале</span></li>
+        <li><code>onElicitation</code><span class="hs-src mod">модули</span><span><code>elicit</code> владельца — формы MCP</span></li>
+        <li><code>settings</code><span class="hs-src mod">модули</span><span>флаги настроек, у ключа один владелец</span></li>
+        <li><code>model · effort · title</code><span class="hs-src mod">модули</span><span>и прочие опции: <code>includePartialMessages</code>, <code>enableFileCheckpointing</code>…; у опции один владелец</span></li>
+      </ul>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-query-input">
+      <h3>Очередь ввода</h3>
+      <figure>
+        <svg class="hs-svg" viewBox="0 0 380 244" role="img" aria-label="Модули кладут текст в очередь ввода сессии; генератор отдаёт SDK сообщения user с приоритетом; очередь живёт в ядре и переходит в новый query при resume">
+          <defs><marker id="host-ah-q" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah" d="M0 0L10 5L0 10z"/></marker></defs>
+          <g class="hs-n mod"><rect x="8" y="8" width="108" height="30" rx="7"/><text class="t-n" x="62" y="28" text-anchor="middle">fleet</text></g>
+          <g class="hs-n mod"><rect x="136" y="8" width="108" height="30" rx="7"/><text class="t-n" x="190" y="28" text-anchor="middle">chat</text></g>
+          <g class="hs-n mod ex"><rect x="264" y="8" width="108" height="30" rx="7"/><text class="t-n" x="318" y="28" text-anchor="middle">schedule</text></g>
+          <path class="hs-e on" d="M62 38V64H170V78" marker-end="url(#host-ah-q)"/>
+          <path class="hs-e on" d="M190 38V78" marker-end="url(#host-ah-q)"/>
+          <path class="hs-e on" d="M318 38V64H210V78" marker-end="url(#host-ah-q)"/>
+          <text class="t-s" x="196" y="56">s.input(…)</text>
+          <rect class="hs-corebox" x="20" y="80" width="340" height="64" rx="11"/>
+          <text class="t-l acc" x="32" y="97">ОЧЕРЕДЬ ВВОДА · ЯДРО</text>
+          <g class="hs-n"><rect x="32" y="106" width="96" height="28" rx="6"/><text class="t-s" x="80" y="124" text-anchor="middle">poe-bot · next</text></g>
+          <g class="hs-n"><rect x="140" y="106" width="96" height="28" rx="6"/><text class="t-s" x="188" y="124" text-anchor="middle">phone · next</text></g>
+          <g class="hs-n ex"><rect x="248" y="106" width="96" height="28" rx="6"/><text class="t-s" x="296" y="124" text-anchor="middle">свободно</text></g>
+          <path class="hs-e on" d="M190 144V172" marker-end="url(#host-ah-q)"/>
+          <text class="t-s" x="198" y="163">yield</text>
+          <g class="hs-n hot"><rect x="60" y="174" width="260" height="58" rx="9"/>
+            <text class="t-n" x="190" y="194" text-anchor="middle">{ type: "user", priority: "next",</text>
+            <text class="t-n" x="190" y="210" text-anchor="middle">parent_tool_use_id: null,</text>
+            <text class="t-n" x="190" y="225" text-anchor="middle">message: { role, content } }</text></g>
+        </svg>
+        <figcaption>Сообщение SDK — <code>SDKUserMessage</code>; <code>priority</code> (<code>now</code>, <code>next</code>, <code>later</code>) ядро передаёт как есть. Отправителя ядро запоминает в <code>s.info.from</code> — кому потом задать вопрос. Очередь живёт в ядре: при <code>resume</code> новый <code>query()</code> берёт ту же очередь.</figcaption>
+      </figure>
+    </div>
+  </div>
+
+  <div class="card hs-pad chg" data-chg="host-query-stream">
+    <div class="hs-head"><h3>Один ход глазами ядра</h3></div>
+    <ul class="hs-turn">
+      <li class="hd"><i></i><span>сообщение SDK</span><span>ядро</span><span>модулям</span></li>
+      <li class="core"><i></i><span><code>system/init</code></span><span><code>session_id</code> — в список сессий: по нему <code>resume</code></span><span class="m">всем с <code>on.event</code></span></li>
+      <li class="core"><i></i><span><code>system/session_state_changed</code> · <code>running</code></span><span>state <code>busy</code> → <code>session.state</code> в relay</span><span class="m">всем</span></li>
+      <li><i></i><span><code>assistant</code></span><span class="m">—</span><span class="m">watch, journal; с <code>error: "rate_limit"</code> — и slots</span></li>
+      <li class="cb"><i></i><span><code>canUseTool("AskUserQuestion")</code></span><span>вызов, не сообщение: <code>decide</code> владельца</span><span class="m">questions</span></li>
+      <li class="core"><i></i><span><code>system/session_state_changed</code> · <code>requires_action</code></span><span>state <code>waiting</code></span><span class="m">всем</span></li>
+      <li><i></i><span><code>user</code> · tool_result</span><span class="m">—</span><span class="m">watch, journal</span></li>
+      <li><i></i><span><code>rate_limit_event</code></span><span class="m">—</span><span class="m">slots</span></li>
+      <li class="core"><i></i><span><code>result</code> · <code>success</code></span><span>конец хода: его ждут <code>stop</code> и <code>restart</code></span><span class="m">cost: <code>total_cost_usd</code></span></li>
+      <li class="core"><i></i><span><code>system/session_state_changed</code> · <code>idle</code></span><span>state <code>idle</code> → <code>session.state</code></span><span class="m">всем</span></li>
+    </ul>
+    <div class="hs-two">
+      <figure>
+        <div class="hs-waf" id="host-waf" role="list" aria-label="39 видов сообщений SDK; ядро читает 3"></div>
+        <div class="hs-wafcap" id="host-wafcap"><b>39</b> видов сообщений SDK 0.3.311 · ядро читает <b>3</b>, остальные — модулям как есть</div>
+      </figure>
+      <ol class="hs-rules">
+        <li><b>Каждое сообщение — всем модулям</b> с <code>on.event</code>, по порядку списка, в той же сессии.</li>
+        <li><b>Состояние — только из SDK:</b> <code>session_state_changed</code> — сигнал конца хода по документации SDK. Ядро не угадывает его по другим сообщениям.</li>
+        <li><b>Поля roster</b> ядро собирает у владельцев после каждого сообщения; изменились — <code>session.state</code> в relay.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card hs-pad chg" data-chg="host-query-calls">
+    <h3>Методы <code>query</code></h3>
+    <div class="hs-meth">
+      <div><span class="lbl">ядро само</span><div class="ops"><code class="core">close()</code><code class="core">initializationResult()</code><code class="core">interrupt()</code></div></div>
+      <div><span class="lbl">модулям — из calls</span><div class="ops"><code>interrupt</code><code>setModel</code><code>applyFlagSettings</code><code>setMaxThinkingTokens</code><code>getContextUsage</code><code>supportedCommands</code><code>supportedModels</code><code>supportedAgents</code><code>mcpServerStatus</code><code>toggleMcpServer</code><code>reconnectMcpServer</code><code>rewindFiles</code><code>stopTask</code><code>backgroundTasks</code></div></div>
+      <div><span class="lbl">функции SDK сессии — тоже из calls</span><div class="ops"><code>getSessionMessages</code><code>renameSession</code></div></div>
+      <div><span class="lbl">в calls нельзя</span><div class="ops"><code class="no">close</code><code class="no">streamInput</code><code class="no">setMcpServers</code><code class="no">reinitialize</code></div></div>
+    </div>
+    <p>Модуль зовёт метод через <code>s.sdk("getContextUsage")</code>, функцию SDK сессии — так же: ядро подставляет id сессии и её папку. Имени нет в его <code>calls</code> — ошибка модуля. <code>close()</code> завершает процесс claude, поэтому его зовёт только ядро: при остановке сессии и при <code>restart</code>. <span class="chg" data-chg="host-query-calls-mcp">Ввод — очередь ядра. Серверы MCP приходят из вкладов, и меняет их только ядро — <code>setMcpServers</code> при перезагрузке модуля.</span> Повторный <code>initialize</code> не нужен: после перезапуска Host новый <code>query()</code> шлёт его сам.</p>
+  </div>
+</section>
+
+<!-- ===== ЖИЗНЬ СЕССИИ ===== -->
+<section class="chg" data-chg="host-life">
+  <div class="shead">
+    <h2>Жизнь сессии</h2>
+    <p>Состояния, которые ядро показывает в roster, и ветки, которые оно поднимает само. Неожиданный сбой сессии — чистый перезапуск по <code>resume</code>; второй до готовности — <code>failed</code>, причина в журнале.</p>
+  </div>
+  <div class="card hs-life-card">
+    <div class="tabs" id="host-life-tabs" role="tablist" aria-label="Случаи жизни сессии"></div>
+    <div class="hs-scroll">
+      <svg id="host-life-svg" class="hs-svg hs-life" viewBox="0 0 600 292" role="img" aria-label="Состояния сессии: starting, idle, busy, waiting, stopping, stopped, failed и переходы между ними по событиям SDK">
+        <defs>
+          <marker id="host-ah-l" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="hs-ah mut" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-ah-lon" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path class="hs-ah" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <g id="host-life-edges">
+          <path class="hs-e" data-e="st-id" d="M148 150H236"/>
+          <path class="hs-e" data-e="id-bu" d="M362 144H450"/>
+          <path class="hs-e" data-e="bu-id" d="M452 158H364"/>
+          <path class="hs-e" data-e="bu-wa" d="M504 170V238"/>
+          <path class="hs-e" data-e="wa-bu" d="M524 240V172"/>
+          <path class="hs-e" data-e="id-sp" d="M300 170V238"/>
+          <path class="hs-e" data-e="sp-sd" d="M238 260H150"/>
+          <path class="hs-e" data-e="sd-st" d="M86 240V172"/>
+          <path class="hs-e" data-e="st-fa" d="M86 130V62"/>
+          <path class="hs-e" data-e="id-st" d="M252 132C228 104 160 104 138 130"/>
+          <path class="hs-e" data-e="bu-st" d="M488 130C472 58 172 58 122 128"/>
+          <path class="hs-e" data-e="st-bu" d="M134 170C170 216 430 216 466 172"/>
+        </g>
+        <g id="host-life-labs">
+          <text class="hs-lab" data-e="st-id" x="192" y="143" text-anchor="middle">initialize</text>
+          <text class="hs-lab" data-e="id-bu" x="406" y="137" text-anchor="middle">running</text>
+          <text class="hs-lab" data-e="bu-id" x="408" y="174" text-anchor="middle">idle</text>
+          <text class="hs-lab" data-e="bu-wa" x="498" y="230" text-anchor="end">requires_action</text>
+          <text class="hs-lab" data-e="wa-bu" x="530" y="209">ответ</text>
+          <text class="hs-lab" data-e="id-sp" x="306" y="232">stop</text>
+          <text class="hs-lab" data-e="sp-sd" x="194" y="253" text-anchor="middle">close()</text>
+          <text class="hs-lab" data-e="sd-st" x="92" y="209">start · resume</text>
+          <text class="hs-lab" data-e="st-fa" x="80" y="100" text-anchor="end">второй сбой</text>
+          <text class="hs-lab" data-e="id-st" x="195" y="125" text-anchor="middle">restart</text>
+          <text class="hs-lab" data-e="bu-st" x="300" y="70" text-anchor="middle">процесс умер · resume</text>
+          <text class="hs-lab" data-e="st-bu" x="292" y="227" text-anchor="end">attach посреди хода</text>
+        </g>
+        <g class="hs-st badst" data-n="failed"><rect x="24" y="20" width="124" height="40" rx="20"/><text class="t-n" x="86" y="45" text-anchor="middle">failed</text></g>
+        <g class="hs-st" data-n="starting"><rect x="24" y="130" width="124" height="40" rx="20"/><text class="t-n" x="86" y="155" text-anchor="middle">starting</text></g>
+        <g class="hs-st" data-n="idle"><rect x="238" y="130" width="124" height="40" rx="20"/><text class="t-n" x="300" y="155" text-anchor="middle">idle</text></g>
+        <g class="hs-st" data-n="busy"><rect x="452" y="130" width="124" height="40" rx="20"/><text class="t-n" x="514" y="155" text-anchor="middle">busy</text></g>
+        <g class="hs-st" data-n="stopped"><rect x="24" y="240" width="124" height="40" rx="20"/><text class="t-n" x="86" y="265" text-anchor="middle">stopped</text></g>
+        <g class="hs-st" data-n="stopping"><rect x="238" y="240" width="124" height="40" rx="20"/><text class="t-n" x="300" y="265" text-anchor="middle">stopping</text></g>
+        <g class="hs-st" data-n="waiting"><rect x="452" y="240" width="124" height="40" rx="20"/><text class="t-n" x="514" y="265" text-anchor="middle">waiting</text></g>
+      </svg>
+    </div>
+    <div class="hs-fside">
+      <ol class="hs-steps static" id="host-life-steps"></ol>
+      <div class="hs-lose" id="host-life-lose"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== МОДУЛЬ — ПАКЕТ МОНОРЕПО ===== -->
+<section class="chg" data-chg="host-pkg">
+  <div class="shead">
+    <h2>Модуль — пакет монорепо</h2>
+    <p>Каждая часть Switchboard — пакет со своей версией и манифестом: Worker-модули, модули Host, модули приложения телефона. Host — ядро и список пакетов-модулей; выпуск Host закрепляет их версии. <span class="chg" data-chg="host-pkg-r2">Выпуски лежат в R2: их выкладывает локальный агент или выпуск GitHub, машины берут оттуда.</span> Чужим пакетом модуль пользуется только через контракт, который объявил в манифесте.</p>
+  </div>
+  <div class="hs-two">
+    <figure class="card hs-pad chg" data-chg="host-pkg-tree">
+      <svg class="hs-svg hs-tree" viewBox="0 0 360 356" role="img" aria-label="Монорепо: пакеты protocol, Worker-модули relay, gate, push, приложение телефона из ядра и модулей, keeper, ядро Host и десять модулей Host. Выпуск Host 1.5.0 закрепляет версии ядра, модулей и Agent SDK">
+        <defs><marker id="host-ah-t" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah" d="M0 0L10 5L0 10z"/></marker></defs>
+        <text class="t-l" x="10" y="14">МОНОРЕПО · NPM WORKSPACES</text>
+        <rect class="hs-region" x="4" y="22" width="352" height="190" rx="12"/>
+        <text class="t-p" x="14" y="47">protocol/</text>
+        <g class="hs-chip"><rect x="106" y="32" width="66" height="22" rx="6"/><text class="t-c" x="139" y="47" text-anchor="middle">protocol</text></g>
+        <text class="t-s" x="180" y="47">конверт кадра</text>
+        <text class="t-p" x="14" y="75">workers/</text>
+        <g class="hs-chip"><rect x="106" y="60" width="46" height="22" rx="6"/><text class="t-c" x="129" y="75" text-anchor="middle">relay</text></g>
+        <g class="hs-chip"><rect x="158" y="60" width="40" height="22" rx="6"/><text class="t-c" x="178" y="75" text-anchor="middle">gate</text></g>
+        <g class="hs-chip"><rect x="204" y="60" width="40" height="22" rx="6"/><text class="t-c" x="224" y="75" text-anchor="middle">push</text></g>
+        <text class="t-s" x="252" y="75">Worker-модули</text>
+        <text class="t-p" x="14" y="103">web/phone/</text>
+        <g class="hs-chip"><rect x="106" y="88" width="40" height="22" rx="6"/><text class="t-c" x="126" y="103" text-anchor="middle">core</text></g>
+        <g class="hs-chip"><rect x="152" y="88" width="46" height="22" rx="6"/><text class="t-c" x="175" y="103" text-anchor="middle">board</text></g>
+        <g class="hs-chip"><rect x="204" y="88" width="40" height="22" rx="6"/><text class="t-c" x="224" y="103" text-anchor="middle">feed</text></g>
+        <g class="hs-chip"><rect x="250" y="88" width="32" height="22" rx="6"/><text class="t-c" x="266" y="103" text-anchor="middle">ask</text></g>
+        <g class="hs-chip"><rect x="288" y="88" width="52" height="22" rx="6"/><text class="t-c" x="314" y="103" text-anchor="middle">alerts</text></g>
+        <text class="t-p" x="14" y="131">os/keeper/</text>
+        <g class="hs-chip kp"><rect x="106" y="116" width="52" height="22" rx="6"/><text class="t-c" x="132" y="131" text-anchor="middle">keeper</text></g>
+        <text class="t-s" x="166" y="131">Go · служба ОС</text>
+        <rect class="hs-corebox" x="8" y="146" width="344" height="60" rx="9"/>
+        <text class="t-p" x="14" y="167">host/core/</text>
+        <g class="hs-chip core"><rect x="106" y="152" width="46" height="22" rx="6"/><text class="t-c" x="129" y="167" text-anchor="middle">host</text></g>
+        <text class="t-s" x="160" y="167">ядро и выпуск Host</text>
+        <text class="t-p" x="14" y="195">host/modules/</text>
+        <g class="hs-chip mod"><rect x="106" y="180" width="46" height="22" rx="6"/><text class="t-c" x="129" y="195" text-anchor="middle">fleet</text></g>
+        <g class="hs-chip mod"><rect x="158" y="180" width="72" height="22" rx="6"/><text class="t-c" x="194" y="195" text-anchor="middle">questions</text></g>
+        <g class="hs-chip mod"><rect x="236" y="180" width="40" height="22" rx="6"/><text class="t-c" x="256" y="195" text-anchor="middle">push</text></g>
+        <g class="hs-chip mod"><rect x="282" y="180" width="30" height="22" rx="6"/><text class="t-c" x="297" y="195" text-anchor="middle">+11</text></g>
+        <path class="hs-e on" d="M180 206V230" marker-end="url(#host-ah-t)"/>
+        <text class="t-s" x="188" y="223">закрепляет версии</text>
+        <rect class="hs-corebox" x="8" y="232" width="344" height="118" rx="11"/>
+        <text class="t-b" x="20" y="254">выпуск Host 1.5.0 · R2</text>
+        <text class="t-s" x="20" y="270">ядро + список модулей: порядок списка — порядок старта</text>
+        <text class="t-c" x="20" y="292">host <tspan class="t-v">1.5.0</tspan></text>
+        <text class="t-c" x="20" y="308">host-fleet <tspan class="t-v">1.2.0</tspan></text>
+        <text class="t-c" x="20" y="324">host-questions <tspan class="t-v">1.1.0</tspan></text>
+        <text class="t-c" x="20" y="340">host-push <tspan class="t-v">2.0.1</tspan></text>
+        <text class="t-c" x="196" y="292">host-watch <tspan class="t-v">1.1.0</tspan></text>
+        <text class="t-c" x="196" y="308">host-chat <tspan class="t-v">1.4.0</tspan></text>
+        <text class="t-c" x="196" y="324">… ещё 9 модулей</text>
+        <text class="t-c" x="196" y="340">Agent SDK <tspan class="t-v">0.3.311</tspan></text>
+      </svg>
+      <figcaption>Каждая часть — свой пакет: манифест <code>module.json</code>, вход <code>contract.ts</code> и код. Модуль Host обновляется новым выпуском Host, который закрепляет точные версии ядра, модулей и Agent SDK. <span class="chg" data-chg="host-pkg-tree-reload">Другие в выпуске только модули — ядро ставит его перезагрузкой модулей в живом Host; другое ядро или SDK — keeper запускает новый Host.</span> Версии — пример.</figcaption>
+    </figure>
+    <div class="card hs-pad chg" data-chg="host-pkg-man">
+      <span class="lbl">манифест пакета модуля</span>
+      <div class="codebox"><pre class="hs-pre">// host/modules/questions/module.json
+{ "name": "host-questions",
+  "type": "sdk",               // модуль Host
+  "version": "1.1.0",
+  "provides": {                // имя → v
+    "answer": 1, "question.list": 1,
+    "question": 1, "answered": 1 },
+  "uses": {                    // имя@владелец → v
+    "session.watchers@host-watch": 1,
+    "notify@host-push": 1 },
+  "calls": [],                 // методы query
+  "config": {} }               // схема раздела host.json
+
+// package.json: "exports": "./contract.ts"
+      <span class="lbl">манифест → код модуля</span>
+      <ul class="hs-map">
+        <li><b><code>provides</code> · запрос</b><i>→</i><code>requests.answer</code></li>
+        <li><b><code>provides</code> · кадр</b><i>→</i><code>frames.question</code></li>
+        <li><b><code>provides</code> · поле roster</b><i>→</i><code>fields.cost</code></li>
+        <li><b><code>uses</code></b><i>→</i><code>host.request("notify", { v: 1, … })</code></li>
+        <li><b><code>calls</code></b><i>→</i><code>s.sdk("getContextUsage")</code></li>
+        <li><b><code>config</code></b><i>→</i><code>host.config()</code></li>
+      </ul>
+      <p>Наружу пакет отдаёт один вход — <code>contract.ts</code>: объект модуля для ядра и типы своих имён. Чужой пакет берёт только типы — и только у владельца из своего <code>uses</code>. Вклады внутри Host — <code>decide</code>, <code>elicit</code>, <code>session()</code>, хуки — в манифест не идут: их владельцев ядро сверяет при старте.</p>
+    </div>
+  </div>
+
+  <div class="card hs-pad chg" data-chg="host-gate">
+    <div class="hs-head"><h3>Гейт: сборка монорепо и старт Host</h3><span class="pill acc">попробуйте</span></div>
+    <p>Гейт проверяет устройство кода, а не текст: грузит каждый пакет, сверяет его код с манифестом, затем имена всех пакетов монорепо. Нарушение — сборка падает. При старте Host тот же гейт идёт по его списку модулей и соединениям: нарушение — Host не стартует, сессии у keeper не тронуты.</p>
+    <div class="hs-gate">
+      <div class="hs-gcol">
+        <span class="lbl">пакеты в списке Host</span>
+        <div class="hs-mchips"><span class="hs-mchip">host-fleet</span><span class="hs-mchip">host-questions</span><span class="hs-mchip">host-watch</span><span class="hs-mchip">host-chat</span><span class="hs-mchip">host-push</span><span class="hs-mchip" id="host-gate-cost">host-cost · session.cost v1</span></div>
+        <span class="lbl">Worker-модули монорепо</span>
+        <div class="hs-mchips"><span class="hs-mchip">relay</span><span class="hs-mchip">gate</span><span class="hs-mchip">push</span></div>
+        <span class="lbl">поменять</span>
+        <div class="hs-gtog" id="host-gate-tog"></div>
+      </div>
+      <div class="hs-gres" id="host-gate-res" aria-live="polite"></div>
+    </div>
+    <ol class="hs-rules">
+      <li><b>Один владелец у имени</b> во всём монорепо: у запроса, кадра, поля roster — в Host, Worker-модулях и приложениях. Внутри Host — ещё у MCP-сервера, ключа <code>env</code> и <code>settings</code>, опции <code>query()</code>, решения по инструменту. Хуки и <code>append</code> владельца не имеют — складываются списком.</li>
+      <li><b>Код равен манифесту:</b> обработчики <code>requests</code>, <code>frames</code>, <code>fields</code> — ровно имена из <code>provides</code>; в <code>calls</code> — только методы <code>query</code> закреплённого SDK и не те, что держит ядро. Методы есть в коде SDK — входа аккаунта и Remote Control в его типах нет, это исключение устава.</li>
+      <li><b>Каждое <code>uses</code> есть в <code>provides</code></b> названного владельца, той же версии <code>v</code>.</li>
+      <li><b>Импорт — только вход пакета из <code>uses</code>.</b> Внутренности чужого пакета — сборка падает.</li>
+      <li><b>Старт Host:</b> тот же гейт по списку модулей; имя Worker-модуля из <code>uses</code> идёт через relay — relay есть в <code>host.json</code>.</li>
+    </ol>
+  </div>
+
+  <div class="card hs-pad chg" data-chg="host-pkg-find">
+    <div class="hs-head"><h3>Что умеет машина — видно в roster</h3></div>
+    <div class="hs-two">
+      <div class="codebox"><pre class="hs-pre">// Host → relay: contract — provides всех модулей
+{ "type": "hello", "proto": 1,
+  "key": "host.laptop.k7f3.Jx9…",
+  "sdk": "0.3.311",
+  "contract": { "message": 1, "answer": 1,
+    "question.list": 1, "session.watch": 1,
+    "session.cost": 1, "notify": 1, … },
+  "sessions": [ … ] }
+
+// relay → всем: roster, как прислал Host
+"machines": [
+  { "machine": "laptop", "contract": { … } },
+  { "machine": "pc", "contract": { "message": 1,
+      "answer": 1, … } } ]   // без session.cost</pre></div>
+      <ol class="hs-rules">
+        <li><b>Ядро собирает <code>provides</code></b> всех модулей в поле <code>contract</code> в <code>hello</code> — имена с версией <code>v</code>.</li>
+        <li><b>relay кладёт их в roster</b> машины как есть и не читает.</li>
+        <li><b>Клиент проверяет возможность по roster:</b> у pc нет <code>session.cost</code> — у её сессий нет кнопки «расход», запрос не шлётся. Версия не та — так же.</li>
+        <li><b>Новая функция — новая строка</b> в <code>provides</code>: relay не меняется, а клиент, который о ней не знает, её пропускает.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="card q chg" data-chg="host-pkg-proc">
+    <div class="hs-head"><h3>Модуль работает в процессе Host</h3></div>
+    <div class="vars">
+      <div class="var rec"><span class="t">Пакет монорепо, код — в процессе Host</span>
+        <svg class="qsvg" viewBox="0 0 300 92" role="img" aria-label="Один процесс Host: ядро и модули fleet, questions, push; вызовы модулей — внутри процесса">
+          <rect class="bx hi" x="6" y="6" width="288" height="80" rx="10"/><text class="tx" x="18" y="24">процесс Host</text>
+          <rect class="bx" x="18" y="36" width="64" height="38" rx="7"/><text class="tx" x="50" y="59" text-anchor="middle">ядро</text>
+          <rect class="bx" x="96" y="36" width="56" height="38" rx="7"/><text class="tx" x="124" y="59" text-anchor="middle">fleet</text>
+          <rect class="bx" x="158" y="36" width="72" height="38" rx="7"/><text class="tx" x="194" y="59" text-anchor="middle">questions</text>
+          <rect class="bx" x="236" y="36" width="48" height="38" rx="7"/><text class="tx" x="260" y="59" text-anchor="middle">push</text>
+        </svg>
+        <ul><li>один Node с SDK на машину: 72 МБ и +1 МБ на сессию (опыт 16)</li><li>вызов модуля — вызов функции; ошибку ловит ядро, модуль выключается в сессии (опыт 19)</li><li>хуки и <code>canUseTool</code> SDK зовёт внутри процесса</li><li class="chg" data-chg="host-pkg-proc-rl1">перезагрузка — новый import из папки выпуска; прежний код остаётся в памяти до перезапуска Host (опыт 21)</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ДОГОВОР МОДУЛЯ ===== -->
+<section class="chg" data-chg="host-contract">
+  <div class="shead">
+    <h2>Договор модуля: код</h2>
+    <p>Код модуля — объект с вкладами; что из них контракт, объявляет манифест. Ядро собирает вклады при старте, а модулю даёт свои услуги. Модули не знают друг друга: чужим пользуются только через ядро и только тем, что объявили в <code>uses</code>.</p>
+  </div>
+  <div class="hs-two">
+    <div class="card hs-pad chg" data-chg="host-contract-module">
+      <span class="lbl">что модуль отдаёт ядру</span>
+      <div class="codebox"><pre class="hs-pre">interface Module {
+  // имя, версия, provides, uses, calls,
+  // config — в манифесте пакета
+
+  // контракт: ровно имена provides
+  requests?: { [type]: (req, ctx) =&gt; Json }; // → reply
+  frames?:   { [type]: (frame, ctx) =&gt; void };
+  fields?:   { [name]: (s) =&gt; Json };  // поле в roster
+
+  // вклады внутри Host — у имени один владелец
+  session?:  (s) =&gt; QueryPart;         // в query()
+  decide?:   { [tool]: (s, input) =&gt; PermissionResult };
+  elicit?:   (s, request) =&gt; ElicitationResult;
+
+  on?: { event?(s, msg); state?(s, state);
+         frame?(f); open?(s); close?(s) };
+  start?(host);              // поднять своё
+  stop?();                   // снять таймеры, дописать
+}
+QueryPart = { mcpServers, env, append, settings, hooks,
+              …опции query(): model, effort… }
+ctx       = { host, from, signal }</pre></div>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-contract-core">
+      <span class="lbl">что ядро даёт модулю</span>
+      <div class="codebox"><pre class="hs-pre">const s = host.session("site@laptop");
+s.input(content, { from, priority, uuid, origin })
+                             // ввод: текст или блоки
+s.sdk("getContextUsage")     // имя из своих calls
+s.restart()                  // после result: resume
+s.stop()   s.start({ point }) // interrupt → close · resume
+s.remove()                   // stop и убрать из списка
+s.state                      // idle | busy | waiting…
+s.info                       // callsign, session_id,
+                             // cwd, model, sdk, from,
+                             // start: spawn | resume |
+                             //        attach | point
+s.store()                    // свой раздел сессии
+
+host.request(name, { v, … }) // имя из uses или своё
+host.emit(frame)             // кадр без ответа: to
+host.open(spec)              // новая сессия; spec.point
+host.sessions()              // сессии машины: callsign, cwd, state
+host.store()                 // свой раздел машины
+host.config()                // свой раздел host.json
+host.log(record)             // строка в журнал машины
+host.probe({ env })          // короткий claude без сессии:
+                             // p.sdk(имя из calls), p.close()
+host.cli(args, { env })      // команда claude той же версии
+                             // → { code, out }
+host.reload(dir)             // выпуск в живом Host:
+                             // → { from, to, modules, later }
+host.version   host.sdk      // версия Host и его SDK</pre></div>
+      <ol class="hs-rules">
+        <li><b><code>s</code> и <code>host</code> у каждого модуля свои.</b> Ядро знает, кто зовёт: <code>store()</code> открывает только свой раздел, <code>host.request</code> — только имена из <code>uses</code> манифеста и свои, <code>s.sdk</code> — только имена из <code>calls</code>. Иначе — ошибка модуля.</li>
+        <li><b>Имена ядра модулю не взять:</b> у сессии <code>callsign</code>, <code>state</code>, <code>failed</code>, <code>sdk</code>; <code>hello</code> собирает только ядро.</li>
+        <li class="chg" data-chg="host-contract-release"><b>Модуль ставится выпуском Host</b> — на старте Host или перезагрузкой в живом Host: порядок старта — порядок списка, остановки — обратный.</li>
+        <li class="chg" data-chg="host-contract-start"><b><code>s.info.start</code> — каким был старт процесса:</b> <code>spawn</code>, <code>resume</code> или <code>attach</code>. Его знает только ядро (по <code>list</code> keeper); модулю он нужен до старта: в файл разговора живого процесса писать нельзя. <span class="chg" data-chg="host-contract-point"><code>point</code> — <code>resume</code> по разговору, который положили из точки: так старт отмечает тот, кто поднимает, номером точки — <code>s.start({ point: 318 })</code> или <code>host.open({ …, point: 318 })</code>; поле <code>point</code> то же, что в запросах manage.</span></li>
+        <li class="chg" data-chg="host-contract-probe"><b><code>host.probe</code> и <code>host.cli</code> — claude без сессии.</b> Тот же закреплённый claude, что у сессий, со своим <code>env</code>: вход и опрос аккаунта. Не в roster, не у keeper, умирает с Host; методы — только из <code>calls</code> модуля.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЛОВУШКА ОШИБОК ===== -->
+<section class="chg" data-chg="host-trap">
+  <div class="shead">
+    <h2>Ловушка ошибок модуля</h2>
+    <p>Каждый вызов модуля ядро оборачивает. Ошибка не идёт дальше: модуль выключается в этой сессии, остальные работают. Самопочинки нет — чинит агент по журналу.</p>
+  </div>
+  <div class="card hs-pad chg" data-chg="host-trap-card">
+    <div class="hs-chain"><span class="bad">buggy бросил ошибку</span><i>→</i><span>выключен в site@laptop</span><i>→</i><span><code>failed: { "host-buggy": причина }</code> в roster</span><i>→</i><span>журнал: стек и сообщение SDK</span><i>→</i><span class="chg" data-chg="host-trap-fix">агент чинит: новый выпуск → перезагрузка модуля</span></div>
+    <div class="hs-trap">
+      <div><b>requests</b><span><code>reply ok:false, error: module_error</code></span></div>
+      <div><b>frames</b><span>кадр дальше не идёт, строка в журнале</span></div>
+      <div><b>on.*</b><span>следующие модули получают сообщение как обычно</span></div>
+      <div><b>session()</b><span><code>query()</code> собран без вкладов модуля</span></div>
+      <div><b>hooks</b><span>хук отвечает <code>{}</code> — как будто его нет; другие хуки события вызваны</span></div>
+      <div><b>decide</b><span><code>{ behavior: "deny", message: "module_error" }</code> — модель идёт дальше</span></div>
+      <div><b>elicit</b><span><code>{ action: "decline" }</code></span></div>
+      <div><b>fields · hello</b><span>поле не отдаётся</span></div>
+      <div class="host chg" data-chg="host-trap-start"><b>start()</b><span>модуль выключен на всей машине, <code>failed</code> в roster каждой сессии — на старте Host и при перезагрузке одинаково; Host работает дальше</span></div>
+      <div class="host"><b>stop()</b><span>строка в журнале, остановка идёт дальше</span></div>
+    </div>
+    <p>Вызов без сессии — запрос с <code>machine</code> — выключает модуль на всей машине. Выключенный модуль остаётся выключенным <span class="chg" data-chg="host-trap-until">до перезапуска Host или перезагрузки — чинит агент новым выпуском</span>; в других сессиях он работает (опыт 19).</p>
+  </div>
+</section>
+
+<!-- ===== ХРАНИЛИЩЕ ===== -->
+<section class="chg" data-chg="host-store">
+  <div class="shead">
+    <h2>Хранилище</h2>
+    <p>Всё долгое во флоте лежит на машинах, у Host: relay на диск не пишет. У каждого раздела один владелец — модуль с тем же именем.</p>
+  </div>
+  <div class="hs-two">
+    <div class="card hs-pad chg" data-chg="host-store-tree">
+      <div class="codebox"><pre class="hs-pre">~/.switchboard/
+  host.json     соединения, машина, настройки
+  host.key      ключ машины: читает только
+                пользователь ОС
+  store/
+    core.json   сессии ядра: callsign, session_id,
+                cwd, sdk, stopped
+    host-cost.json  { "site@laptop":
+                      { "usd": 0.012, "turns": 1 } }
+    <span class="chg" data-chg="host-store-slots">host-slots.json { "main": [ "y0902", "infirex" ] }</span>
+    …               раздел на пакет модуля</pre></div>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-store-rules">
+      <ol class="hs-rules">
+        <li><b><code>s.store()</code></b> — раздел модуля для этой сессии, <b><code>host.store()</code></b> — для машины. Чужие разделы не видны. <span class="chg" data-chg="host-store-remove"><code>s.remove()</code> стирает разделы этой сессии у всех модулей: настройка сессии — слот, профиль, пометка «в R2» — уходит вместе с сессией, второго места у неё нет.</span></li>
+        <li><b>Запись сразу:</b> <code>set</code> и <code>update</code> пишут файл — временный и <code>rename</code>. Файл всегда целый JSON.</li>
+        <li><b><code>start(host)</code></b> поднимает своё после перезапуска Host; <b><code>stop()</code></b> дописывает то, что модуль держит в памяти.</li>
+        <li><b>Ждущие вопросы хранить не нужно:</b> после перезапуска Host их отдаёт SDK с тем же <code>toolUseID</code> (опыт 20).</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СОЕДИНЕНИЯ ===== -->
+<section class="chg" data-chg="host-links">
+  <div class="shead">
+    <h2>Соединения: keeper и Worker-модули</h2>
+    <p>Ядро открывает соединения из списка в <code>host.json</code> — сейчас это один relay; имена Worker-модулей модуль объявляет в <code>uses</code> манифеста. Модуль сокетов не держит: всё через ядро. <span class="chg" data-chg="host-links-link">Связь с relay — <code>hello</code>, пауза переподключения, ждущие запросы по <code>id</code> и <code>disconnected</code>, когда машина адресата ушла из roster, — один клиент <code>link</code> из пакета relay: его же зовут ядро веб-приложений и скрипты. Правило отправителя живёт в одном коде.</span> Устройство самих каналов — в частях <a href="#relay">relay</a> и <a href="#keeper">keeper</a>.</p>
+  </div>
+  <div class="hs-two">
+    <div class="card hs-pad chg" data-chg="host-links-config">
+      <span class="lbl">список соединений и ключи</span>
+      <div class="codebox"><pre class="hs-pre">// ~/.switchboard/host.json
+{ "machine": "laptop",
+  "workers": {
+    "relay": {
+      "url": "wss://switchboard-relay.&lt;subdomain&gt;.workers.dev",
+      "key": "~/.switchboard/host.key" } },
+  "modules": { "host-slots": { … } } }  // host.config()
+
+// манифест модуля
+"uses": { "roster@relay": 1,        // имя Worker-модуля:
+          "push.send@push": 1 }     // через relay, to: "push"
+
+// первая строка stdin от keeper
+{ "keeper": "127.0.0.1:51873",
+  "key": "…" }                      // адрес и ключ</pre></div>
+      <p>Ключ keeper приходит во ввод запускаемого Host — не в аргументы и не в файл. В списке один relay: gate и push Host достаёт через него — адресом <code>to</code>. Имя Worker-модуля в <code>uses</code>, а relay нет в списке — Host не стартует.</p>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-links-start">
+      <span class="lbl">старт Host</span>
+      <ol class="hs-start">
+        <li><span>Строка keeper из stdin: порт и ключ.</span></li>
+        <li><span>Гейт: код равен манифесту, один владелец, <code>uses</code> и версии. Не прошёл — выход с причиной.</span></li>
+        <li><span><code>start(host)</code> модулей по порядку списка.</span></li>
+        <li><span>keeper: соединение управления, <code>list</code> → живые процессы.</span></li>
+        <li><span>Сессии из списка: процесс жив и SDK тот же — <code>attach</code>; жив, SDK другой — <code>attach</code> и <code>restart</code>; процесса нет — <code>resume</code>; <code>stopped</code> — остаётся. Процесс, которого нет в списке, — <code>kill</code> и строка в журнале.</span></li>
+        <li><span>Каждый Worker из списка: wss и <code>hello</code> с <code>contract</code> — <code>provides</code> модулей — и сессиями.</span></li>
+        <li><span>Готов: у каждой сессии ответ <code>initialize</code> или <code>failed</code> — <code>ready</code> в keeper.</span></li>
+      </ol>
+      <p><code>host --check</code> — тот же гейт отдельным процессом, без relay, keeper, хранилища и claude: печатает <span class="chg" data-chg="host-check-out"><code>{ ok, version, sdk, proto }</code> или <code>{ ok: false, why }</code>. Так модуль upgrade проверяет скачанную версию, когда <code>host.reload</code> ответил <code>core_changed</code>: выпуск с тем же ядром и SDK проходит гейт внутри <code>host.reload</code>, второй раз его не гоняют.</span></p>
+    </div>
+  </div>
+
+  <div class="card hs-pad chg" data-chg="host-links-route">
+    <h3>Куда уходит вызов модуля</h3>
+    <figure>
+      <div class="hs-scroll" style="background:transparent;padding:0">
+        <svg class="hs-svg" viewBox="0 0 600 214" role="img" aria-label="Вызов модуля: владелец на этой машине — вызов в процессе; другая машина, to или имя Worker — через relay; list и upgrade — через keeper" style="min-width:480px">
+          <defs><marker id="host-ah-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah" d="M0 0L10 5L0 10z"/></marker></defs>
+          <g class="hs-n mod"><rect x="8" y="78" width="142" height="58" rx="9"/><text class="t-n" x="79" y="102" text-anchor="middle">модуль</text><text class="t-s" x="79" y="120" text-anchor="middle">host.request · host.emit</text></g>
+          <path class="hs-e on" d="M150 96C200 96 220 34 280 34H404" marker-end="url(#host-ah-r)"/>
+          <path class="hs-e on" d="M150 107H404" marker-end="url(#host-ah-r)"/>
+          <path class="hs-e on" d="M150 118C200 118 220 180 280 180H404" marker-end="url(#host-ah-r)"/>
+          <text class="t-s" x="176" y="26">владелец имени — модуль этой машины</text>
+          <text class="t-s" x="176" y="99">другая машина, to, имя Worker-модуля</text>
+          <text class="t-s" x="176" y="198">имя keeper: list · upgrade</text>
+          <g class="hs-n"><rect x="406" y="12" width="186" height="44" rx="9"/><text class="t-n" x="420" y="31">модуль-владелец</text><text class="t-s" x="420" y="47">вызов в процессе, проверка v</text></g>
+          <g class="hs-n"><rect x="406" y="85" width="186" height="44" rx="9"/><text class="t-n" x="420" y="104">relay</text><text class="t-s" x="420" y="120">кадр с id → reply</text></g>
+          <g class="hs-n kp"><rect x="406" y="158" width="186" height="44" rx="9"/><text class="t-n" x="420" y="177">keeper</text><text class="t-s" x="420" y="193">соединение управления</text></g>
+        </svg>
+      </div>
+      <figcaption>Обратно: кадр из relay — владельцу по <code>type</code>; кадр самого relay — <code>roster</code> — в <code>on.frame</code> модулям, у которых он в <code>uses</code>. Имя другого Worker-модуля, например <code>push.send@push</code>, уходит в relay с <code>to: "push"</code>; ответ — <code>reply</code> или <code>offline</code>. <code>list</code> и <code>upgrade</code> у keeper модуль зовёт через <code>host.request</code>, если они в его <code>uses</code>; <code>spawn</code>, <code>attach</code>, <code>kill</code> зовёт только ядро.</figcaption>
+    </figure>
+  </div>
+
+  <div class="hs-two">
+    <div class="card hs-pad chg" data-chg="host-links-keeper">
+      <span class="lbl">канал процесса keeper в SDK</span>
+      <div class="codebox"><pre class="hs-pre">spawnClaudeCodeProcess({ command, args, cwd, env }) =&gt;
+  // TCP 127.0.0.1:port, первая строка:
+  { key, proto: 1, op: "spawn", id: "site@laptop",
+    command, args, cwd, env }
+  // после перезапуска Host:
+  { key, proto: 1, op: "attach", id: "site@laptop" }
+  // дальше — байты stream-json в обе стороны
+
+stdin.end()  → { op: "kill", id }  по управлению
+kill(signal) → { op: "kill", id, force: true }
+               // SDK зовёт его через ~2 с
+выход Host   → сокет закрыт, kill не послан</pre></div>
+      <p>Так <code>close()</code> завершает процесс claude, а выход Host — нет: keeper держит процесс и копит вывод (опыт 15). Из keeper приходят <code>exited</code> с кодом и хвостом stderr и <code>stop</code> с причиной.</p>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-links-drop">
+      <span class="lbl">обрыв связи с Worker</span>
+      <div class="hs-back"><span class="bad">обрыв</span><i>→</i><span>ждущие — disconnected</span><i>→</i><span>1 с</span><i>→</i><span>2 с</span><i>→</i><span>4 с…</span><i>→</i><span class="ok">hello</span></div>
+      <div class="codebox"><pre class="hs-pre">{ "type": "hello", "proto": 1,
+  "key": "host.laptop.k7f3.Jx9…",
+  "sdk": "0.3.311",
+  "contract": { "message": 1, "answer": 1,
+    "session.cost": 1, "notify": 1, … },
+  "sessions": [
+    { "callsign": "site@laptop", "state": "busy",
+      "cost": { "usd": 0.012, "turns": 1 } } ] }</pre></div>
+      <ol class="hs-rules">
+        <li><b>Ждущий ответа запрос</b> получает <code>disconnected</code> сразу, без таймера; <code>host.emit</code> во время обрыва — тоже. Очереди кадров нет.</li>
+        <li><b>Пауза растёт вдвое</b> и сбрасывается после <code>hello</code>. Сессии всё это время работают.</li>
+        <li class="chg" data-chg="host-links-gate"><b>Отказ <code>gate_unavailable</code></b> — relay не смог проверить ключ: та же ветка, что обрыв, — пауза и снова <code>hello</code>. <code>bad_key</code>, <code>revoked</code>, <code>contract_mismatch</code> — Host не переподключается, строка <code>stop</code> в журнале.</li>
+        <li><b><code>close 1000 replaced</code></b> — машину вытеснил новый <code>hello</code>: Host не переподключается, строка <code>stop</code> в журнале.</li>
+        <li><b>Машина адресата ушла из <code>roster</code></b> или сменила <code>since</code> — ждущий её ответа запрос тоже сразу получает <code>disconnected</code>.</li>
+        <li><b><code>ping</code></b> с периодом по замерам; нет <code>pong</code> — закрыть и переподключиться.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ШТАТНАЯ ОСТАНОВКА ===== -->
+<section class="chg" data-chg="host-stop">
+  <div class="shead">
+    <h2>Штатная остановка Host</h2>
+    <p>Остановку начинает keeper кадром <code>stop</code> с причиной. Обновление оставляет процессы claude живыми, остановка машины закрывает их так, чтобы разговоры поднялись по <code>resume</code>.</p>
+  </div>
+  <div class="card hs-pad chg" data-chg="host-stop-steps">
+    <div class="tabs" id="host-stop-tabs" role="tablist" aria-label="Причина остановки" style="padding:0"></div>
+    <ol class="hs-lanes" id="host-stop-list"></ol>
+    <div class="hs-lgd"><span><i style="background:var(--ok)"></i>сохраняет</span><span><i style="background:var(--accent)"></i>оставляет жить</span><span><i style="background:var(--bad)"></i>отказывает</span><span><i style="background:var(--line)"></i>прочее</span></div>
+  </div>
+</section>
+
+<!-- ===== ПЕРЕЗАГРУЗКА МОДУЛЯ ===== -->
+<section class="chg" data-chg="host-reload">
+  <div class="shead">
+    <h2>Перезагрузка модуля в живом Host</h2>
+    <p>Новый выпуск, в котором другие только пакеты модулей, ядро ставит без перезапуска Host и сессий: старая версия модуля штатно останавливается, новая поднимается из того же хранилища. Процессы claude, разговоры и начатые ходы не прерываются (опыт 21). Другое ядро или SDK — новый Host через keeper; сессии и тогда живут — по <code>attach</code>.</p>
+  </div>
+  <div class="card hs-flow chg" data-chg="host-reload-steps">
+    <div class="tabs" id="host-reload-tabs" role="tablist" aria-label="Случаи перезагрузки"></div>
+    <div class="hs-rl">
+      <div class="hs-rlfig">
+        <svg id="host-reload-svg" class="hs-svg hs-rlsvg" viewBox="0 0 400 520" role="img" aria-label="Перезагрузка модуля: выпуск из R2 скачан в папку версии; ядро сверяет ядро и SDK — другие: core_changed, новый Host через keeper; гейт по списку выпуска — не прошёл: check_failed; окно — вызовы модуля ждут; stop старой версии; start новой — ошибка: module_error; вклады в живые query; ждавшие вызовы и hello; keeper запоминает выпуск">
+          <defs>
+            <marker id="host-ah-rl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="host-ah-rlb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah bad" d="M0 0L10 5L0 10z"/></marker>
+            <marker id="host-ah-rlm" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto"><path class="hs-ah mut" d="M0 0L10 5L0 10z"/></marker>
+          </defs>
+          <g>
+            <path class="hs-e" data-e="e-dl" d="M126 40V50" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-rl" d="M126 88V98" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-same" d="M126 136V146" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-gate" d="M126 182V192" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-hold" d="M126 228V238" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-stop" d="M126 276V286" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-start" d="M126 324V334" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-live" d="M126 372V382" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-hello" d="M126 420V430" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="e-ready" d="M126 468V478" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="x-core" d="M244 165H254" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="x-gate" d="M244 211H254" marker-end="url(#host-ah-rlm)"/>
+            <path class="hs-e" data-e="x-start" d="M244 354H254" marker-end="url(#host-ah-rlm)"/>
+            <text class="hs-elab" x="134" y="190">да</text>
+            <text class="hs-elab" x="134" y="236">прошёл</text>
+          </g>
+          <g class="hs-n ext" data-n="r2"><rect x="8" y="4" width="236" height="36" rx="9"/><text class="t-n" x="20" y="19">выпуск 1.4.1 · R2</text><text class="t-s" x="20" y="33">кладёт агент или выпуск GitHub</text></g>
+          <g class="hs-n mod" data-n="dl"><rect x="8" y="52" width="236" height="36" rx="9"/><text class="t-n" x="20" y="67">upgrade · папка версии</text><text class="t-s" x="20" y="81">~/.switchboard/host/1.4.1</text></g>
+          <g class="hs-n cr" data-n="rl"><rect x="8" y="100" width="236" height="36" rx="9"/><text class="t-n" x="20" y="115">ядро · host.reload(dir)</text><text class="t-s" x="20" y="129">сверка с тем, что работает</text></g>
+          <g class="hs-n" data-n="same"><rect x="8" y="148" width="236" height="34" rx="17"/><text class="t-n" x="126" y="169" text-anchor="middle">ядро и SDK те же?</text><text class="hs-elab" x="232" y="169" text-anchor="end">нет</text></g>
+          <g class="hs-n" data-n="gate"><rect x="8" y="194" width="236" height="34" rx="17"/><text class="t-n" x="118" y="215" text-anchor="middle">гейт по списку выпуска</text><text class="hs-elab" x="232" y="215" text-anchor="end">нет</text></g>
+          <g class="hs-n cr" data-n="hold"><rect x="8" y="240" width="236" height="36" rx="9"/><text class="t-n" x="20" y="255">окно: вызовы cost ждут</text><text class="t-s" x="20" y="269">запросы, кадры, сообщения SDK, хуки</text></g>
+          <g class="hs-n mod" data-n="stop"><rect x="8" y="288" width="236" height="36" rx="9"/><text class="t-n" x="20" y="303">stop() · cost 1.0.0</text><text class="t-s" x="20" y="317">своё — в хранилище</text></g>
+          <g class="hs-n mod" data-n="start"><rect x="8" y="336" width="236" height="36" rx="9"/><text class="t-n" x="20" y="351">start(host) · cost 1.1.0</text><text class="t-s" x="20" y="365">своё — из хранилища</text></g>
+          <g class="hs-n" data-n="live"><rect x="8" y="384" width="236" height="36" rx="9"/><text class="t-n" x="20" y="399">вклады → живые query()</text><text class="t-s" x="20" y="413">хуки, MCP, settings — сразу</text></g>
+          <g class="hs-n cr" data-n="hello"><rect x="8" y="432" width="236" height="36" rx="9"/><text class="t-n" x="20" y="447">ждавшие вызовы → 1.1.0</text><text class="t-s" x="20" y="461">provides другие — новый hello</text></g>
+          <g class="hs-n kp" data-n="ready"><rect x="8" y="480" width="236" height="36" rx="9"/><text class="t-n" x="20" y="495">keeper · ready 1.4.1</text><text class="t-s" x="20" y="509">выпуск стал текущим</text></g>
+          <g class="hs-n kp" data-n="n-core"><rect x="256" y="147" width="140" height="36" rx="9"/><text class="t-n" x="266" y="162">core_changed</text><text class="t-s" x="266" y="176">keeper: новый Host</text></g>
+          <g class="hs-n no" data-n="n-gate"><rect x="256" y="193" width="140" height="36" rx="9"/><text class="t-n" x="266" y="208">check_failed</text><text class="t-s" x="266" y="222">ничего не тронуто</text></g>
+          <g class="hs-n no" data-n="n-start"><rect x="256" y="336" width="140" height="36" rx="9"/><text class="t-n" x="266" y="351">module_error</text><text class="t-s" x="266" y="365">cost выключен</text></g>
+        </svg>
+      </div>
+      <div class="hs-fside">
+        <ol class="hs-steps" id="host-reload-steps" aria-live="polite"></ol>
+        <div class="hs-ctrl"><button type="button" id="host-reload-prev">← назад</button><button type="button" class="primary" id="host-reload-next">дальше →</button><span id="host-reload-n"></span></div>
+      </div>
+    </div>
+  </div>
+
+    <div class="card hs-pad chg" data-chg="host-reload-parts">
+      <div class="hs-head"><h3>Вклады в живые сессии</h3></div>
+      <div class="hs-lg"><span class="hs-src now">сразу</span>в живом <code>query()</code> <span class="hs-src next">со старта</span>со следующего старта сессии</div>
+      <ul class="hs-opts rl">
+        <li><code>код модуля</code><span class="hs-src now">сразу</span><span><code>requests</code>, <code>frames</code>, <code>fields</code>, <code>on.*</code> — ядро зовёт новую версию</span></li>
+        <li><code>decide · elicit</code><span class="hs-src now">сразу</span><span><code>canUseTool</code> и <code>onElicitation</code> в <code>query()</code> — функции ядра: владельца ищут на каждом вызове</span></li>
+        <li><span><code>hooks</code> · тела</span><span class="hs-src now">сразу</span><span>в <code>query()</code> — обёртки ядра; зовут хук нынешней версии (опыт 21)</span></li>
+        <li><code>mcpServers</code><span class="hs-src now">сразу</span><span><code>setMcpServers</code> — без серверов модуля, затем с новыми: сервер того же имени один вызов не заменяет. Вызов инструмента модуля, начатый до замены, обрывается: модель получает ошибку «Connection closed» и идёт дальше (опыт 21)</span></li>
+        <li><code>settings</code><span class="hs-src now">сразу</span><span><code>applyFlagSettings</code> — разница ключей модуля; снятый ключ — <code>null</code></span></li>
+        <li><code>model · effort</code><span class="hs-src now">сразу</span><span><code>setModel</code>, <code>applyFlagSettings({ effortLevel })</code></span></li>
+        <li><span><code>hooks</code> · новое событие</span><span class="hs-src next">со старта</span><span>набор событий и <code>matcher</code> SDK отдаёт claude один раз — в <code>initialize</code> (код SDK 0.3.311, опыт 21)</span></li>
+        <li><code>append</code><span class="hs-src next">со старта</span><span>часть <code>initialize</code>; метода нет</span></li>
+        <li><code>env</code><span class="hs-src next">со старта</span><span>окружение процесса claude</span></li>
+        <li><code>прочие опции</code><span class="hs-src next">со старта</span><span><code>includePartialMessages</code>, <code>enableFileCheckpointing</code>…: метода нет</span></li>
+      </ul>
+      <p>«Со старта» — со следующего старта процесса сессии: <code>resume</code> после сбоя, <code>session.start</code>, новая версия SDK. Ради этого ядро сессию не перезапускает: такие сессии — в ответе <code>later</code> и строкой в журнале. Новая версия модуля работает и с прежними <code>env</code> и <code>append</code> до этого старта. Методы — по типам SDK 0.3.311: <code>setMcpServers</code>, <code>applyFlagSettings</code>, <code>setModel</code> есть у <code>query</code>; у <code>append</code>, <code>env</code> и набора хуков метода нет.</p>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-reload-rules">
+      <div class="hs-head"><h3>Правила перезагрузки</h3></div>
+      <ol class="hs-rules">
+        <li><b>Единица — выпуск.</b> Модуль приходит выпуском Host из R2, а не сам по себе: гейт проверяет список выпуска целиком. Пакеты, чьи <code>uses</code> поменялись вместе, перезагружаются вместе — старт по порядку списка, остановка в обратном.</li>
+        <li><b>Перезагрузить или перезапустить — решает ядро:</b> ядро и SDK в выпуске те же — перезагрузка; другие — <code>core_changed</code>, и <a href="#host-upgrade">upgrade</a> идёт к keeper. Зовёт <code>host.reload</code> только upgrade.</li>
+        <li><b>Окно:</b> вызовы модуля — запросы, кадры, сообщения SDK, хуки, <code>decide</code> — ждут в ядре и идут новой версии по порядку, как вывод процесса ждёт у keeper, пока Host перезапускается. Сообщения хода модуль не теряет. Начатые <code>decide</code> и <code>elicit</code> старой версии — те, что ждут человека, — ядро отдаёт новой заново с тем же <code>toolUseID</code>, как SDK после перезапуска Host (опыт 20).</li>
+        <li><b>Новой версии сессии видны как после перезапуска Host:</b> <code>start(host)</code>, затем <code>on.open(s)</code> у каждой живой сессии с <code>s.info.start</code> — <code>attach</code>. Отдельного события «перезагрузка» нет.</li>
+        <li><b><code>provides</code> другие — новый <code>hello</code>,</b> как на старте: в roster новый <code>contract</code>, ждущие ответа этой машины запросы — <code>disconnected</code>. Те же — соединение с relay не трогается.</li>
+        <li><b>Без отката.</b> <code>start()</code> новой версии бросил — модуль выключен на машине, <code>failed</code> в roster, причина в журнале; прежняя версия не поднимается. keeper не получил <code>ready</code> — перезапуск Host поднимет прежний выпуск.</li>
+        <li><b>Выключенный модуль</b> после перезагрузки снова работает во всех сессиях: новая версия стартует начисто.</li>
+        <li><b>Старый код остаётся в памяти</b> до перезапуска Host: модуль ES в Node не выгружается. Ядро работает из папки, с которой стартовало, — её не убирают, пока Host жив.</li>
+      </ol>
+    </div>
+</section>
+
+<!-- ===== ПОЧЕМУ SDK ===== -->
+<section class="chg" data-chg="host-sdk">
+  <div class="shead">
+    <h2>Почему SDK, а не свой stdin</h2>
+    <p>Протокол между SDK и процессом claude — внутренний договор. За год он менялся почти каждую неделю; SDK везёт с собой ровно ту версию claude, под которую написан.</p>
+  </div>
+  <div class="card hs-pad chg" data-chg="host-sdk-chart">
+    <h3>Записи журнала SDK о протоколе, по месяцам</h3>
+    <div class="legend"><span><i style="background:var(--c-add)"></i>добавления — новые поля, кадры, возможности</span><span><i style="background:var(--c-brk)"></i>меняют поведение для своего клиента stdin</span><span>над столбцом: всего · из них меняют поведение</span></div>
+    <div class="chart-wrap" id="host-ch-wrap"><svg class="bars" id="host-ch" viewBox="0 0 720 230" role="img" aria-label="Изменения протокола SDK по месяцам: от 0 до 37 в месяц, всплеск в сентябре 2026" style="display:block;width:100%;min-width:520px;height:auto"></svg><div class="tip" id="host-ch-tip" hidden></div></div>
+    <details><summary>Таблица</summary><div style="padding:0 14px 12px;overflow-x:auto"><table class="tbl" id="host-ch-tbl"></table></div></details>
+    <p class="muted" style="font-size:13px">27 окт. 2025 — 26 окт. 2026 · 133 записи о протоколе, из них ≈ 8 меняют поведение · журнал изменений SDK, отбор по словам о проводе, ломающие просмотрены вручную.</p>
+  </div>
+  <div class="facts chg" data-chg="host-sdk-facts">
+    <div class="fact"><b>284</b><span>выпуска SDK за год — раз в 1,2 дня</span></div>
+    <div class="fact"><b>0.3.311 = 2.1.311</b><span>SDK везёт claude того же номера в своём пакете</span></div>
+    <div class="fact"><b>DISABLE_UPDATES</b><span>в окружении сессий: claude меняется только вместе с SDK</span></div>
+    <div class="fact"><b>точная версия</b><span>SDK закреплён; новая — после прогона эталонов</span></div>
+  </div>
+</section>
+
+<!-- ===== НОВЫЙ МОДУЛЬ ===== -->
+<section class="chg" data-chg="host-add">
+  <div class="shead">
+    <h2>Новый модуль за четыре шага</h2>
+    <p>Пример — расход сессий: поле в roster и запрос. Ядро, relay и пульт не меняются: relay пересылает запрос по <code>callsign</code>, поле едет в roster как есть, а пульт видит в <code>contract</code> машины, что запрос есть.</p>
+  </div>
+  <div class="card hs-pad chg" data-chg="host-add-cost">
+    <div class="hs-two">
+      <div class="codebox"><pre class="hs-pre">// host/modules/cost/module.json
+{ "name": "host-cost", "type": "sdk",
+  "version": "1.0.0",
+  "provides": { "session.cost": 1, "cost": 1 },
+  "uses": {}, "calls": [], "config": {} }
+
+// host/modules/cost/contract.ts
+export default {
+  fields: {
+    cost: (s) =&gt; s.store().get() ?? { usd: 0, turns: 0 },
+  },
+  on: {
+    event(s, m) {
+      if (m.type !== "result") return;
+      s.store().update((c = { usd: 0, turns: 0 }) =&gt; ({
+        usd: c.usd + m.total_cost_usd,
+        turns: c.turns + 1 }));
+    },
+  },
+  requests: {
+    "session.cost": (req, { host }) =&gt;
+      host.session(req.callsign).store().get(),
+  },
+} satisfies Module;</pre></div>
+      <ol class="hs-start">
+        <li><span><b>Пакет <code>host/modules/cost</code></b>: <code>module.json</code>, <code>contract.ts</code>, код и тест.</span></li>
+        <li><span><b>Строка в списке модулей Host</b> и версия пакета в его зависимостях — место в порядке старта.</span></li>
+        <li><span><b>Эталоны на стенде:</b> поддельный SDK шлёт <code>result</code> — в <code>session.state</code> появилось поле <code>cost</code>, <code>session.cost</code> отвечает тем же; гейт монорепо: код равен манифесту, у <code>session.cost</code> и поля <code>cost</code> один владелец.</span></li>
+        <li class="chg" data-chg="host-add-reload"><span><b>Новый выпуск Host</b> с <code>host-cost 1.0.0</code> — в R2. Ядро и SDK те же, поэтому ядро ставит его перезагрузкой: cost стартует в живом Host, в <code>hello</code> появляется <code>session.cost</code>; ни Host, ни сессии не перезапускаются.</span></li>
+      </ol>
+    </div>
+    <p>Такой модуль прогнан в опыте 19: поле <code>cost { usd: 0,012, turns: 1 }</code> в roster и тот же ответ на <code>session.cost</code>.</p>
+  </div>
+</section>
+
+<!-- ===== ОПЫТЫ ===== -->
+<section class="chg" data-chg="host-proof">
+  <div class="shead">
+    <h2>Опыты</h2>
+    <p>Agent SDK 0.3.311 и Claude Code 2.1.310–2.1.311 под Windows и Linux, 27–28 октября<span class="chg" data-chg="host-proof-date21"> и 31 октября — опыт 21</span>, модель Haiku 5.5. Вместо relay — передача внутри стенда.</p>
+  </div>
+  <div class="hs-proofs">
+    <div class="card hs-pad chg" data-chg="host-proof-12">
+      <div class="hs-head"><h3>Сообщение во ввод SDK будит сессию</h3><span class="pill ok">опыт 12</span></div>
+      <ul class="hs-tr">
+        <li><b>51,2 с</b><i></i><span>сообщение в очередь ввода простаивающей сессии</span></li>
+        <li><b>52,5 с</b><i class="ok"></i><span>ход начался — через 1,3 с</span></li>
+      </ul>
+      <ul class="hs-tr">
+        <li><b>28,0 с</b><i></i><span><code>canUseTool</code>: запрос на Bash</span></li>
+        <li><b>31,0 с</b><i class="ok"></i><span>ответ «да» из кода — команда выполнилась, ход дошёл до конца</span></li>
+      </ul>
+      <p>Поле <code>origin</code> модель не увидела: «не знаю, кто прислал». Поэтому отправитель идёт в тексте.</p>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-proof-13">
+      <div class="hs-head"><h3>Две сессии в одном Host</h3><span class="pill ok">опыт 13</span></div>
+      <ul class="hs-tr">
+        <li><b>3,0 с</b><i></i><span>человек → api@laptop: «спроси docs@laptop, сколько будет 17*3»</span></li>
+        <li><b>6,6 с</b><i></i><span>api@laptop → docs@laptop: «Сколько будет 17*3?»</span></li>
+        <li><b>13,0 с</b><i></i><span>docs@laptop → api@laptop: «17*3 = 51»</span></li>
+        <li><b>14,5 с</b><i class="ok"></i><span>api@laptop: «17*3 = 51»</span></li>
+      </ul>
+      <p>Два <code>query()</code> в одном процессе Node, у каждого свой процесс claude, своя папка и свой инструмент MCP. Режим «разрешено всё».</p>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-proof-15">
+      <div class="hs-head"><h3>Host убит посреди команды — новый делает attach</h3><span class="pill ok">опыт 15</span></div>
+      <ul class="hs-tr">
+        <li><b>1,1 с</b><i></i><span>keeper: запуск claude, pid 34768</span></li>
+        <li><b>16,2 с</b><i class="bad"></i><span>Host убит посреди 25-секундной команды; процесс жив, вывод копится</span></li>
+        <li><b>19,3 с</b><i></i><span>новый Host: <code>attach</code>, тот же процесс</span></li>
+        <li><b>итог</b><i class="ok"></i><span>результат «долгая команда закончилась», тот же ход до конца, сессия 8380f18f — та же, без <code>resume</code></span></li>
+      </ul>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-proof-20">
+      <div class="hs-head"><h3>Вопрос переживает перезапуск Host</h3><span class="pill ok">опыт 20</span></div>
+      <ul class="hs-tr">
+        <li><b>3,8 с</b><i></i><span>Host a: <code>AskUserQuestion</code> в <code>canUseTool</code>, toolUseID …xd4WEnP8</span></li>
+        <li><b>4,8 с</b><i class="bad"></i><span>Host a умер, вопрос без ответа; процесс жив у keeper</span></li>
+        <li><b>8,0 с</b><i></i><span>Host b: <code>attach</code> → тот же вопрос в <code>canUseTool</code>, тот же toolUseID</span></li>
+        <li><b>9,0 с</b><i class="ok"></i><span>ответ «Синий» → помощник: «Синий.»</span></li>
+      </ul>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-proof-17">
+      <div class="hs-head"><h3>Чат — только через Host</h3><span class="pill ok">опыт 17</span></div>
+      <ul class="hs-tr">
+        <li><b>1,0 с</b><i></i><span><code>getContextUsage</code>, <code>supportedCommands</code> → 71, <code>supportedModels</code> → 13 — методы <code>query</code>; <code>close</code> → <code>unknown_method</code></span></li>
+        <li><b>5,7 с</b><i></i><span><code>AskUserQuestion</code> → <code>canUseTool</code> → вопрос чату и телефону</span></li>
+        <li><b>7,3 с</b><i class="ok"></i><span>чат ответил «Синий» — первым</span></li>
+        <li><b>8,8 с</b><i class="bad"></i><span>телефон: «Красный» → <code>already_answered</code></span></li>
+      </ul>
+      <p>44 сообщения SDK за два хода ушли 8 кадрами. В режиме <code>bypassPermissions</code> обычные инструменты в <code>canUseTool</code> не приходят, вопрос человеку — приходит.</p>
+    </div>
+    <div class="card hs-pad chg" data-chg="host-proof-19">
+      <div class="hs-head"><h3>Ядро и модули на SDK</h3><span class="pill ok">опыт 19</span></div>
+      <ul class="hs-res">
+        <li><b>старт</b><span>cost и dup оба с <code>session.cost</code> → «два владельца», Host не стартует</span></li>
+        <li><b>fleet</b><span>MCP-сервер из вклада → ping: «ПОНГ-19»</span></li>
+        <li><b>guard</b><span>хук <code>PreToolUse</code> из вклада → <code>rm -rf</code> запрещён в режиме «разрешено всё»</span></li>
+        <li><b>questions</b><span><code>canUseTool</code> → кадр клиенту → ответ «Да» дошёл до модели</span></li>
+        <li><b>cost</b><span>поле <code>{ usd: 0,012, turns: 1 }</code>; <code>session.cost</code> → то же</span></li>
+        <li><b>buggy</b><span>падал на каждом сообщении хода — 10 раз; следующий модуль получил текст, ход дошёл до конца</span></li>
+        <li><b>чужой</b><span><code>session.nope</code> → <code>unknown_request</code></span></li>
+      </ul>
+      <p>Прообраз ядра — 90 строк, модули — от 3 до 15 строк.</p>
+    </div>
+    <div class="card hs-pad chg wide" data-chg="host-proof-21">
+      <div class="hs-head"><h3>Модуль перезагружен в живой сессии</h3><span class="pill ok">опыт 21</span></div>
+      <div class="hs-two">
+        <ul class="hs-tr">
+          <li><b>5,3 с</b><i></i><span>fleet 1: <code>ping</code> → «ПОНГ-1»; хук <code>PreToolUse</code> версии 1</span></li>
+          <li><b>8,0 с</b><i></i><span>новая версия fleet — из другой папки, со своей копией SDK: <code>setMcpServers({})</code> → <code>removed: ["fleet"]</code>, затем с новым fleet → <code>added: ["fleet"]</code>; 155 мс</span></li>
+          <li><b>10,4 с</b><i class="ok"></i><span>fleet 2: <code>ping</code> → «ПОНГ-2»; хук <code>PreToolUse</code> — уже версии 2</span></li>
+          <li><b>12,8 с</b><i class="ok"></i><span>новый инструмент <code>version</code> → «fleet 2»: модель его видит</span></li>
+        </ul>
+        <ul class="hs-res">
+          <li><b>тот же</b><span>процесс claude и разговор 98004be1; ход не прерывался</span></li>
+          <li><b>не вызван</b><span>новый хук <code>PostToolUse</code>: его нет в <code>initialize</code> этого <code>query()</code></span></li>
+          <li><b>не заменён</b><span>прогоном раньше: один <code>setMcpServers</code> с сервером того же имени → <code>added: [], removed: []</code>, ping ответил версией 1</span></li>
+          <li><b>оборван</b><span>третий прогон: перезагрузка посреди 6-секундного вызова инструмента — <code>tool_result</code> «Connection closed», <code>is_error</code>; ход дошёл до <code>result</code></span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="card hs-pad chg wide" data-chg="host-proof-16">
+      <div class="hs-head"><h3>Сколько памяти стоит один Host на машину</h3><span class="pill ok">опыт 16 · замер</span></div>
+      <div class="hs-two">
+        <figure>
+          <svg class="hs-svg" viewBox="0 0 520 112" role="img" aria-label="Десять сессий: один Host — 2331 МБ, на 4 процента больше самих процессов claude; свой Host у каждой — 2970 МБ, на 32 процента больше">
+            <text class="t-s" x="0" y="20">один Host</text>
+            <text class="t-s" x="0" y="66">Host у каждой</text>
+            <rect class="b-cl" x="96" y="8" width="225" height="22" rx="3"/><rect class="b-h" x="322" y="8" width="8.1" height="22" rx="2"/>
+            <text class="b-v" x="338" y="18">2 331 МБ</text><text class="t-s" x="338" y="31">+4 %</text>
+            <rect class="b-cl" x="96" y="54" width="225" height="22" rx="3"/><rect class="b-h" x="322" y="54" width="72" height="22" rx="2"/>
+            <text class="b-v" x="402" y="64">2 970 МБ</text><text class="t-s" x="402" y="77">+32 %</text>
+            <text class="t-s" x="96" y="102">10 процессов claude по 225 МБ</text>
+            <rect class="b-h" x="300" y="93" width="10" height="10" rx="2"/><text class="t-s" x="315" y="102">Host</text>
+          </svg>
+          <figcaption>Десять сессий, шкала общая. Серое — процессы claude, синее — Host.</figcaption>
+        </figure>
+        <div class="facts f3">
+          <div class="fact"><b>72 МБ</b><span>Node с Agent SDK — один на машину</span></div>
+          <div class="fact"><b>+1 МБ</b><span>на каждую следующую сессию в том же Host</span></div>
+          <div class="fact"><b>225 МБ</b><span>процесс claude одной сессии</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="host-et">
+  <div class="shead">
+    <h2>Эталоны ядра</h2>
+    <p>Каждый проверяет ядро на стенде — поддельные SDK, relay, keeper и часы — на зафиксированном входе. Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="host-et-17"><div class="et-n">17</div><div class="et-in">Процесс site жив у keeper посреди 25-секундной команды; Host только что запущен с той же версией SDK.</div><div class="et-out">keeper <code>list</code> → <code>attach</code>; новый <code>query()</code> шлёт <code>initialize</code>; накопленный вывод дочитан, результат команды получен, тот же ход дошёл до <code>result</code>. <code>resume</code> не вызывался, <code>session_id</code> тот же.</div><div class="et-src">чьё: опыт 15; устав — «Обновление Host при той же версии SDK сессий не останавливает».</div></div>
+    <div class="et" id="host-et-18"><div class="et-n">18</div><div class="et-in">Модули cost и dup оба объявили запрос <code>session.cost</code>.</div><div class="et-out">Host не стартует; журнал — «session.cost: два владельца — cost и dup»; сессии не тронуты, процессы claude живы у keeper.</div><div class="et-src">чьё: опыт 19; устав — «У каждого понятия один владелец… двое — Host не стартует».</div></div>
+    <div class="et" id="host-et-19"><div class="et-n">19</div><div class="et-in">Модуль buggy бросает ошибку в <code>on.event</code> на сообщении <code>assistant</code> в сессии site.</div><div class="et-out">buggy выключен в site@laptop; <code>session.state</code> с <code>failed: { buggy: причина }</code>; остальные модули получили это и все следующие сообщения; ход дошёл до <code>result</code>; запрос к buggy по site — <code>module_error</code>; в wiki buggy работает.</div><div class="et-src">чьё: опыт 19 — ошибка модуля не мешает ходу; устав — «Ошибку модуля ловит ядро: модуль выключается в этой сессии, roster показывает failed».</div></div>
+    <div class="et" id="host-et-60"><div class="et-n">60</div><div class="et-in">Поддельный SDK шлёт для site <code>session_state_changed</code>: <code>running</code>, <code>requires_action</code>, <code>running</code>; затем <code>result</code> и <code>idle</code>.</div><div class="et-out">В relay ровно четыре <code>session.state</code>: <code>busy</code>, <code>waiting</code>, <code>busy</code>, <code>idle</code>. <code>result</code> сам состояние не меняет.</div><div class="et-src">чьё: факт — типы SDK 0.3.311: <code>system/session_state_changed</code> с state <code>idle | running | requires_action</code>; <code>idle</code> — «authoritative turn-over signal».</div></div>
+    <div class="et" id="host-et-61"><div class="et-n">61</div><div class="et-in">questions выключен в site после ошибки; модель вызывает <code>AskUserQuestion</code>. Вторая проба — Host без модуля questions.</div><div class="et-out"><code>canUseTool</code> отвечает <code>deny</code> с <code>module_error</code>, во второй пробе — с <code>unknown_request</code>. Ответ за человека не выбран; строка в журнале; ход идёт дальше.</div><div class="et-src">чьё: устав — «AskUserQuestion не решается автоматически»; «Система ловит, агент чинит».</div></div>
+    <div class="et" id="host-et-62"><div class="et-n">62</div><div class="et-in">Хук <code>PreToolUse</code> модуля guard бросает ошибку на вызове Bash в site; у модуля audit на то же событие свой хук.</div><div class="et-out">Хук guard отвечает <code>{}</code>; хук audit вызван; guard выключен в site, в roster — <code>failed</code>; ход идёт.</div><div class="et-src">чьё: устав — «Ошибку модуля ловит ядро: модуль выключается в этой сессии».</div></div>
+    <div class="et" id="host-et-63"><div class="et-n">63</div><div class="et-in">keeper шлёт <code>exited { id: "site@laptop", code: 1, stderr }</code> посреди хода.</div><div class="et-out">state <code>starting</code>; <code>query({ resume: session_id })</code> через <code>spawn</code>; ответ <code>initialize</code> → <code>idle</code>. Разговор цел, оборванный ход потерян; код и хвост stderr — в журнале; wiki не тронута.</div><div class="et-src">чьё: опыт 14 — разговор цел по resume; слово пользователя 30 окт. — «рековерить только основные ожидаемые ветки флоу».</div></div>
+    <div class="et" id="host-et-64"><div class="et-n">64</div><div class="et-in">После <code>exited</code> site поднимается по <code>resume</code>; новый процесс выходит до ответа <code>initialize</code>.</div><div class="et-out">state <code>failed</code>; третьего запуска нет; в журнале обе причины; <code>session.start</code> поднимает сессию заново.</div><div class="et-src">чьё: слово пользователя 30 окт. — «остальное — перезапустить начисто компонент или процесс»; устав — «в систему не встраиваются самопочинка, автоподбор, обходные пути и запасные режимы»: второй сбой подряд — стоп.</div></div>
+    <div class="et" id="host-et-65"><div class="et-n">65</div><div class="et-in">cost записал <code>{ usd: 0.012, turns: 1 }</code> для site; процесс Host убит; keeper запускает новый.</div><div class="et-out">После <code>start()</code> поле <code>cost</code> в <code>hello</code> то же; <code>session.cost</code> отвечает тем же; файл раздела — целый JSON.</div><div class="et-src">чьё: устав — «После перезапуска Host модуль поднимает своё из хранилища».</div></div>
+    <div class="et" id="host-et-66"><div class="et-n">66</div><div class="et-in">Модуль budget без <code>uses</code> в сессии site зовёт <code>host.request("session.history", …)</code>; в wiki — <code>s.sdk("setModel")</code>, которого нет в его <code>calls</code>.</div><div class="et-out">Обработчик chat не вызван, метод SDK не вызван; budget выключен в обеих сессиях с причинами «session.history нет в uses» и «setModel нет в calls».</div><div class="et-src">чьё: устав — «Модули не знают друг друга; SDK, Keeper и Relay — только через ядро».</div></div>
+    <div class="et" id="host-et-67"><div class="et-n">67</div><div class="et-in">keeper шлёт <code>stop { reason: "machine" }</code>; site выполняет команду, wiki простаивает; следом приходит <code>session.prompt</code>.</div><div class="et-out"><code>session.prompt</code> — <code>shutting_down</code>; site: <code>interrupt()</code> → <code>result</code> → <code>close()</code>; wiki: <code>close()</code>; journal записал <code>result</code> site до своего <code>stop()</code>; <code>stop()</code> модулей в обратном порядке; <code>close(1001)</code>; выход 0. После старта обе подняты по <code>resume</code>.</div><div class="et-src">чьё: слово пользователя 30 окт. — «приложение отказоустойчиво и имеет graceful shutdown».</div></div>
+    <div class="et" id="host-et-68"><div class="et-n">68</div><div class="et-in">fleet ждёт ответа на <code>host.request("message", { v: 1, to: "poe-bot@pc" })</code>; соединение с relay обрывается.</div><div class="et-out">Запрос сразу получает <code>disconnected</code>, без таймера. Host переподключается с паузой 1, 2, 4 с; новый <code>hello</code> — те же сессии с полями и тот же <code>contract</code>; ходы сессий не прерывались.</div><div class="et-src">чьё: слово пользователя 30 окт. — «рековерить только основные ожидаемые ветки флоу»; устав — «Relay не пишет на диск. Roster — из attachments живых соединений».</div></div>
+    <div class="et" id="host-et-69"><div class="et-n">69</div><div class="et-in">Стартует Host с другой версией SDK; site запущена прежним Host и идёт ход, wiki простаивает.</div><div class="et-out">Обе — <code>attach</code>; wiki сразу <code>close()</code> и <code>query({ resume })</code>, site — после <code>result</code>. Разговоры целы, ход site дошёл до конца; оба процесса claude — новой версии.</div><div class="et-src">чьё: устав — «версия SDK закреплена точно», «Обновление Host при той же версии SDK сессий не останавливает»; опыт 14 — resume сохраняет разговор.</div></div>
+    <div class="et chg" id="host-et-150" data-chg="host-et-150"><div class="et-n">150</div><div class="et-in">Гейт монорепо, три прогона: пакет <code>host-dup</code> тоже даёт <code>session.cost</code>; пакет <code>host-stats</code> объявил <code>uses: { "session.tokens@host-cost": 1 }</code>; пакет <code>host-peek</code> импортирует <code>host-cost/src/store.ts</code>.</div><div class="et-out">Сборка падает каждый раз, причина — строкой гейта: «session.cost: два владельца — host-cost и host-dup»; «host-stats: uses session.tokens@host-cost — у host-cost нет session.tokens»; «host-peek: импорт мимо входа пакета». Выпуск Host не собран.</div><div class="et-src">чьё: устав — «Гейт: импорт мимо контракта или без объявленной зависимости — сборка падает», «У каждого понятия один владелец»; слово пользователя 31 окт. — «архитектуру модуляризировать».</div></div>
+    <div class="et chg" id="host-et-151" data-chg="host-et-151"><div class="et-n">151</div><div class="et-in">Выпуск Host со списком <code>host-fleet</code>, <code>host-questions</code>, <code>host-cost</code>; затем выпуск без <code>host-cost</code>.</div><div class="et-out">В первом <code>hello</code> <code>contract</code> — объединение <code>provides</code> манифестов списка с их версиями: есть <code>session.cost: 1</code> и поле <code>cost</code>. После второго выпуска в <code>hello</code> нет <code>session.cost</code>; запрос <code>session.cost</code> к этой машине — <code>unknown_request</code>.</div><div class="et-src">чьё: устав — «Relay не знает модулей… Новая функция Host — без правки Relay»; слово пользователя 31 окт. — «Worker-модули общаются модульно».</div></div>
+    <div class="et chg" id="host-et-152" data-chg="host-et-152"><div class="et-n">152</div><div class="et-in">relay закрывает <code>hello</code> Host словом <code>gate_unavailable</code> два раза подряд, третий <code>hello</code> принят. Второй прогон: <code>bad_key</code>.</div><div class="et-out">Переподключение с паузой 1 с, 2 с; третий <code>hello</code> — те же сессии и <code>contract</code>; ходы сессий не прерывались, строки <code>stop</code> нет. На <code>bad_key</code> — переподключений нет, строка <code>stop</code> с причиной в журнале.</div><div class="et-src">чьё: устав — ветка Worker-модулей «соединение оборвалось → клиенты переподключаются»; «Система ловит, агент чинит».</div></div>
+    <div class="et chg" id="host-et-252" data-chg="host-et-252"><div class="et-n">252</div><div class="et-in">Работает выпуск 1.4.0: ядро 1.0.3, SDK 0.3.311, <code>host-cost 1.0.0</code>; в site идёт ход. upgrade зовёт <code>host.reload</code> с папкой 1.4.1, где другой только <code>host-cost 1.1.0</code>; пока идёт перезагрузка, SDK отдаёт <code>result</code> хода site.</div><div class="et-out">cost 1.0.0: <code>stop()</code>; cost 1.1.0: <code>start(host)</code>, затем <code>on.open(site)</code> с <code>s.info.start</code> — <code>attach</code>. <code>result</code> получила версия 1.1.0 после <code>start</code>; поле <code>cost</code> в <code>session.state</code> — с этим ходом. Процесс site — тот же pid, <code>session_id</code> тот же; <code>kill</code>, <code>resume</code> и новый <code>query()</code> не вызывались; соединение с relay не переоткрывалось; keeper получил <code>ready { version: "1.4.1" }</code>.</div><div class="et-src">слово пользователя 31 окт. — «в идеале сделать для них хот-релоад»: модуль перезагружается в живом Host без перезапуска Host и сессий; опыт 21.</div></div>
+    <div class="et chg" id="host-et-253" data-chg="host-et-253"><div class="et-n">253</div><div class="et-in">fleet 1.2.0 → 1.3.0. В 1.3.0 у сервера MCP fleet новый инструмент <code>version</code>, у хука <code>PreToolUse</code> другое тело, новый хук <code>PostToolUse</code> и другая строка <code>append</code>. site простаивает.</div><div class="et-out">У site два вызова <code>setMcpServers</code>: без fleet, затем с новым fleet. Следующий ход: модель видит <code>version</code>, <code>PreToolUse</code> отвечает телом 1.3.0, <code>PostToolUse</code> не вызван. Ответ — <code>later: ["site@laptop"]</code>, строка журнала «fleet 1.3.0: PostToolUse, append — со следующего старта site». После <code>s.restart()</code> <code>PostToolUse</code> вызывается.</div><div class="et-src">опыт 21; факт — код SDK 0.3.311: набор хуков уходит в <code>initialize</code> один раз; типы SDK 0.3.311: у <code>append</code> и <code>env</code> нет метода живой сессии.</div></div>
+    <div class="et chg" id="host-et-254" data-chg="host-et-254"><div class="et-n">254</div><div class="et-in"><code>host.reload</code> с папкой выпуска 1.5.0, где ядро 1.1.0. Второй прогон — выпуск 1.4.2: <code>host-cost</code> и <code>host-dup</code> оба дают <code>session.cost</code>.</div><div class="et-out">Первый — <code>core_changed</code>: ни один модуль не остановлен, вызовы не ждали. Второй — <code>check_failed</code> с причиной «session.cost: два владельца — host-cost и host-dup»; cost 1.1.0 работает; <code>ready</code> keeper не получил. Оба — строкой в журнале.</div><div class="et-src">чьё: устав — «Код системы только обнаруживает ошибку и не пускает её дальше: останавливает, отказывает, пишет в журнал с причиной»; опыт 19.</div></div>
+    <div class="et chg" id="host-et-255" data-chg="host-et-255"><div class="et-n">255</div><div class="et-in"><code>start(host)</code> у <code>host-cost 1.1.0</code> бросает ошибку; в окне ждал запрос <code>session.cost</code> от panel-desk.</div><div class="et-out">cost выключен на машине: в <code>session.state</code> каждой сессии <code>failed: { "host-cost": … }</code>; ждавший запрос — <code>module_error</code>; cost 1.0.0 не поднят; <code>ready</code> keeper не получил; ходы сессий идут. После перезапуска Host — выпуск 1.4.0.</div><div class="et-src">чьё: устав — «Ошибку модуля ловит ядро»; «В систему не встраиваются самопочинка, автоподбор, обходные пути и запасные режимы».</div></div>
+    <div class="et chg" id="host-et-256" data-chg="host-et-256"><div class="et-n">256</div><div class="et-in">В выпуске 1.4.1 <code>host-cost</code> даёт ещё запрос <code>session.cost.reset: 1</code>. Во время перезагрузки fleet ждёт ответа на запрос к poe-bot@pc.</div><div class="et-out">После <code>start</code> ядро закрывает соединение с relay и шлёт новый <code>hello</code>: в <code>contract</code> есть <code>session.cost.reset</code>; запрос fleet получает <code>disconnected</code>. Процессы claude и ходы не тронуты. Выпуск без новых <code>provides</code> (эталон 252) соединение не переоткрывает.</div><div class="et-src">чьё: устав — «Relay не знает модулей… Новая функция Host — без правки Relay»; «Roster — из attachments живых соединений».</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== Ядро Host: случаи по шагам, поток SDK, жизнь сессии, гейт, остановка, график SDK ===== */
+(function(){
+  const root = document.querySelector('[data-view="host"]');
+  if (!root) return;
+  const $ = s => root.querySelector(s);
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, parent){ const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; }
+  function h(tag, cls, html){ const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+  const dOf = pts => pts.map((p, i) => (i ? "L" : "M") + p[0] + " " + p[1]).join(" ");
+  function tabs(box, names, onPick){
+    const btns = names.map((n, i) => {
+      const b = h("button", "tab"); b.type = "button"; b.setAttribute("role", "tab"); b.textContent = n;
+      b.addEventListener("click", () => onPick(i)); box.appendChild(b); return b;
+    });
+    return i => btns.forEach((b, j) => b.setAttribute("aria-selected", j === i ? "true" : "false"));
+  }
+  function stepList(ol, steps, onPick){
+    ol.textContent = "";
+    steps.forEach((st, i) => {
+      const li = h("li"); if (onPick) li.tabIndex = 0;
+      li.appendChild(h("span", "no", String(i + 1)));
+      const who = h("span", "who"); who.textContent = st.who; li.appendChild(who);
+      const tx = h("div", "tx"); tx.appendChild(h("span", "", st.t));
+      if (st.code){ const pre = h("pre"); pre.textContent = st.code; tx.appendChild(pre); }
+      li.appendChild(tx);
+      if (onPick){
+        li.addEventListener("click", () => onPick(i));
+        li.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); onPick(i); } });
+      }
+      ol.appendChild(li);
+    });
+  }
+
+  // ---------- что проходит через ядро ----------
+  const MODS = ["fleet","questions","watch","chat","journal","cost","guard","buggy"];
+  const MY = m => 104 + MODS.indexOf(m) * 34 + 13;
+  function route(k){
+    const [base, m] = k.split(":"), y = m ? MY(m) : 0;
+    switch (base){
+      case "in": return [[72,54],[72,106]];
+      case "out": return [[100,106],[100,54]];
+      case "conn-reg": return [[148,122],[160,122]];
+      case "reg-conn": return [[160,138],[148,138]];
+      case "reg>m": return [[222,150],[222,162],[434,162],[434,y],[448,y]];
+      case "m>store": return [[448,y],[440,y],[440,98],[352,98],[352,106]];
+      case "m>conn": return [[448,y],[428,y],[428,90],[124,90],[124,106]];
+      case "m>q1": return [[448,y],[434,y],[434,162],[150,162],[150,196]];
+      case "q1>m": return [[150,196],[150,162],[434,162],[434,y],[448,y]];
+      case "q1>cl": return [[120,294],[120,384]];
+      case "cl>q1": return [[150,384],[150,294]];
+      case "q1>reg": return [[200,196],[200,150]];
+      case "q1>conn": return [[100,196],[100,150]];
+    }
+    return [];
+  }
+  const FAN = ["fleet","questions","watch","chat","journal","cost","guard"].map(m => "q1>m:" + m);
+  const FLOW = [
+    {k:"запрос клиента", steps:[
+      {who:"relay → ядро", t:"Пульт спросил расход сессии. Relay видит <code>callsign</code> и пересылает кадр Host этой машины как есть.",
+        code:'{ "type": "session.cost", "id": "c-7", "v": 1,\n  "callsign": "site@laptop", "from": "panel-desk" }', hot:["relay","conn"], e:["in"]},
+      {who:"ядро · реестр", t:"У <code>session.cost</code> один владелец — cost, версия 1 совпала. Владельца нет — <code>unknown_request</code>, версия другая — <code>contract_mismatch</code>.", hot:["conn","reg"], e:["conn-reg"]},
+      {who:"ядро → cost", t:"Ядро зовёт обработчик владельца и даёт ему его собственный <code>host</code>, отправителя и сигнал остановки.",
+        code:'requests["session.cost"](req, { host, from: "panel-desk", signal })', hot:["reg","m:cost"], e:["reg>m:cost"]},
+      {who:"cost → хранилище", t:"Модуль читает свой раздел для этой сессии. Чужие разделы ему не видны.",
+        code:'host.session("site@laptop").store().get()', hot:["m:cost","store"], e:["m>store:cost"]},
+      {who:"ядро → relay", t:"Ответ — <code>reply</code> с тем же <code>id</code> и <code>to</code> = <code>from</code> запроса: relay запросов не помнит. Обработчик бросил бы ошибку — <code>module_error</code>.",
+        code:'{ "type": "reply", "id": "c-7", "to": "panel-desk",\n  "ok": true, "result": { "usd": 0.012, "turns": 1 } }', hot:["conn","relay"], e:["reg-conn","out"]}]},
+    {k:"сообщение во ввод", steps:[
+      {who:"relay → ядро", t:"Сессия poe-bot@pc пишет site@laptop. Кадр <code>message</code> едет по адресу <code>to</code>.",
+        code:'{ "type": "message", "to": "site@laptop",\n  "from": "poe-bot@pc", "text": "Собери отчёт" }', hot:["relay","conn"], e:["in"]},
+      {who:"ядро → fleet", t:"Владелец кадра <code>message</code> — fleet.", hot:["reg","m:fleet"], e:["conn-reg","reg>m:fleet"]},
+      {who:"fleet → сессия", t:"fleet оборачивает текст с отправителем и кладёт в очередь ввода: имя модель видит в тексте.",
+        code:'s.input(\'<fleet-message from="poe-bot@pc">Собери отчёт</fleet-message>\',\n  { from: "poe-bot@pc", priority: "next" })', hot:["m:fleet","q1"], e:["m>q1:fleet"]},
+      {who:"очередь → SDK", t:"Очередь — асинхронный генератор в <code>query({ prompt })</code>. Он отдаёт SDK сообщение <code>user</code>.",
+        code:'{ type: "user", parent_tool_use_id: null, priority: "next",\n  message: { role: "user", content: "<fleet-message …" } }', hot:["q1"], e:[]},
+      {who:"SDK → claude", t:"SDK пишет в трубу процесса, которую держит keeper. Сессия простаивала — ход начался через 1,3 с (опыт 12).", hot:["q1","kp","c1"], e:["q1>cl"]}]},
+    {k:"сообщение SDK", steps:[
+      {who:"claude → SDK", t:"Ход закончился. <code>query</code> отдаёт сообщение <code>result</code>.",
+        code:'{ type: "result", subtype: "success", num_turns: 3,\n  total_cost_usd: 0.012, session_id: "8380f18f-…" }', hot:["c1","kp","q1"], e:["cl>q1"]},
+      {who:"ядро → модули", t:"Каждое сообщение SDK — всем модулям с <code>on.event</code>, по порядку списка: cost прибавляет расход, journal пишет строку, watch шлёт зрителям.",
+        code:"for (const m of modules) m.on?.event?.(s, msg)", hot:["q1","m:fleet","m:questions","m:watch","m:chat","m:journal","m:cost","m:guard"], e:FAN},
+      {who:"SDK → ядро", t:"Следом — смена состояния. Ядро меняет state сессии только по ней.",
+        code:'{ type: "system", subtype: "session_state_changed", state: "idle" }', hot:["c1","q1"], e:["cl>q1"]},
+      {who:"ядро → relay", t:"Состояние или поля изменились — <code>session.state</code>. Поле <code>cost</code> ядро взяло у владельца.",
+        code:'{ "type": "session.state", "callsign": "site@laptop",\n  "state": "idle", "cost": { "usd": 0.012, "turns": 1 } }', hot:["conn","relay"], e:["q1>conn","out"]}]},
+    {k:"вопрос человеку", steps:[
+      {who:"claude → SDK", t:"Модель вызвала <code>AskUserQuestion</code>. В режиме «разрешено всё» в <code>canUseTool</code> приходят только вопросы человеку (опыт 17).",
+        code:'canUseTool("AskUserQuestion", { questions },\n  { toolUseID: "toolu_…xd4WEnP8", signal })', hot:["c1","q1"], e:["cl>q1"]},
+      {who:"ядро · реестр", t:"Решение по инструменту — у владельца: <code>decide.AskUserQuestion</code> модуля questions. SDK шлёт <code>requires_action</code> — state <code>waiting</code>.", hot:["q1","reg","m:questions"], e:["q1>reg","reg>m:questions"]},
+      {who:"questions → relay", t:"Вопрос — тому, кто дал задачу, и зрителям; id вопроса — <code>toolUseID</code>. Кого нет на связи, достанет пуш: текст уведомления questions отдаёт модулю push запросом <code>notify</code>, а push решает по roster.",
+        code:'host.emit({ type: "question", question: "toolu_…xd4WEnP8",\n  to: ["phone", "panel-desk"], questions: [ … ] })\nhost.request("notify", { v: 1, clients: ["phone", "panel-desk"], … })', hot:["m:questions","conn","relay"], e:["m>conn:questions","out"]},
+      {who:"relay → questions", t:"Пришёл <code>answer</code>. Первый ответ выигрывает, остальным — <code>already_answered</code>.",
+        code:'{ "type": "answer", "id": "a-1", "v": 1, "callsign": "site@laptop",\n  "question": "toolu_…xd4WEnP8", "answers": { "Цвет?": "Синий" } }', hot:["relay","conn","m:questions"], e:["in","conn-reg","reg>m:questions"]},
+      {who:"questions → claude", t:"Обещание <code>decide</code> разрешается, SDK отдаёт ответ модели. Перезапустись Host раньше — новый SDK получил бы тот же вопрос с тем же <code>toolUseID</code> (опыт 20).",
+        code:'{ behavior: "allow",\n  updatedInput: { questions, answers: { "Цвет?": "Синий" } } }', hot:["m:questions","q1","c1"], e:["m>q1:questions","q1>cl"]}]},
+    {k:"хук", steps:[
+      {who:"claude → SDK", t:"Модель хочет выполнить <code>rm -rf ./build</code>. Хуки модулей ядро вложило в <code>query()</code> списком по событию.",
+        code:'hooks: { PreToolUse: [ { matcher: "Bash", hooks: [guard] } ] }', hot:["c1","q1"], e:["cl>q1"]},
+      {who:"SDK → guard", t:"SDK зовёт хук внутри процесса Host — без своих процессов и без файлов настроек.",
+        code:'guard({ hook_event_name: "PreToolUse", tool_name: "Bash",\n  tool_input: { command: "rm -rf ./build" } }, toolUseID)', hot:["q1","m:guard"], e:["q1>m:guard"]},
+      {who:"guard → claude", t:"Хук отказывает; модель получает причину и идёт дальше (опыт 19).",
+        code:'{ hookSpecificOutput: { hookEventName: "PreToolUse",\n  permissionDecision: "deny",\n  permissionDecisionReason: "rm запрещён на этой машине" } }', hot:["m:guard","q1","c1"], e:["m>q1:guard","q1>cl"]}]},
+    {k:"ошибка модуля", steps:[
+      {who:"SDK → модули", t:"Сообщение <code>assistant</code> идёт всем модулям. buggy бросает ошибку.",
+        code:"TypeError: Cannot read properties of undefined · buggy.on.event", hot:["q1","m:fleet","m:watch","m:journal"], bad:["m:buggy"], e:FAN.concat(["q1>m:buggy"]), badE:["q1>m:buggy"]},
+      {who:"ядро ловит", t:"buggy выключен в site@laptop; причина — в журнале и в roster. Остальные модули получили сообщение, ход идёт.",
+        code:'{ "type": "session.state", "callsign": "site@laptop",\n  "state": "busy", "failed": { "host-buggy": "TypeError · on.event" } }', hot:["conn","relay"], off:["m:buggy"], e:["q1>conn","out"]},
+      {who:"запрос к buggy", t:"Запрос к buggy по этой сессии — <code>module_error</code> сразу. В wiki buggy работает. Чинит агент: журнал → правка → новая версия Host.",
+        code:'{ "type": "reply", "id": "b-2", "to": "panel-desk",\n  "ok": false, "error": "module_error" }', hot:["relay","conn","reg"], off:["m:buggy"], e:["in","conn-reg","reg-conn","out"]}]}
+  ];
+  const anat = $("#host-anat"), hot = $("#host-anat-hot");
+  const fSteps = $("#host-flow-steps"), fN = $("#host-flow-n"), fPrev = $("#host-flow-prev"), fNext = $("#host-flow-next");
+  let fc = 0, fs = 0;
+  function drawFlow(){
+    const c = FLOW[fc], st = c.steps[fs];
+    anat.querySelectorAll(".hs-n").forEach(n => n.classList.remove("hot", "off"));
+    hot.textContent = "";
+    const mark = (ids, cls) => (ids || []).forEach(id => { const n = anat.querySelector('[data-n="' + id + '"]'); if (n) n.classList.add(cls); });
+    mark(st.hot, "hot"); mark(st.off, "off"); mark(st.bad, "off");
+    (st.e || []).forEach(k => {
+      const bad = (st.badE || []).includes(k);
+      el("path", {d: dOf(route(k)), "class": "hs-e " + (bad ? "bad" : "on"), "marker-end": "url(#host-ah" + (bad ? "-bad" : "") + ")"}, hot);
+    });
+    fSteps.querySelectorAll("li").forEach((li, i) => { li.classList.toggle("now", i === fs); if (i === fs) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current"); });
+    fN.textContent = "шаг " + (fs + 1) + " из " + c.steps.length;
+    fPrev.disabled = fs === 0; fNext.disabled = fs === c.steps.length - 1;
+  }
+  const flowSel = tabs($("#host-flow-tabs"), FLOW.map(f => f.k), i => pickFlow(i));
+  function pickFlow(i){ fc = i; fs = 0; flowSel(i); stepList(fSteps, FLOW[i].steps, j => { fs = j; drawFlow(); }); drawFlow(); }
+  fPrev.addEventListener("click", () => { if (fs > 0){ fs--; drawFlow(); } });
+  fNext.addEventListener("click", () => { if (fs < FLOW[fc].steps.length - 1){ fs++; drawFlow(); } });
+  pickFlow(0);
+
+  // ---------- 39 видов сообщений SDK ----------
+  const KINDS = ["assistant","user","user · replay","result","system/init","stream_event","system/compact_boundary","system/status","system/api_retry",
+    "system/control_request_progress","system/model_refusal_fallback","system/model_refusal_no_fallback","system/local_command_output",
+    "system/hook_started","system/hook_progress","system/hook_response","system/plugin_install","tool_progress","auth_status",
+    "system/task_notification","system/task_started","system/task_updated","system/task_progress","system/background_tasks_changed",
+    "system/thinking_tokens","system/session_state_changed","system/worker_shutting_down","system/commands_changed","system/notification",
+    "system/files_persisted","tool_use_summary","system/memory_recall","rate_limit_event","system/elicitation_complete",
+    "system/permission_denied","prompt_suggestion","system/mirror_error","system/informational","conversation_reset"];
+  const CORE = {"system/init":"session_id → список сессий", "result":"конец хода", "system/session_state_changed":"state сессии"};
+  const waf = $("#host-waf"), wafCap = $("#host-wafcap"), wafRest = wafCap.innerHTML;
+  KINDS.forEach(k => {
+    const sq = h("span", CORE[k] ? "core" : ""); sq.tabIndex = 0; sq.setAttribute("role", "listitem"); sq.setAttribute("aria-label", k);
+    const show = () => { waf.querySelectorAll(".sel").forEach(x => x.classList.remove("sel")); sq.classList.add("sel");
+      wafCap.innerHTML = "<b>" + k + "</b> — " + (CORE[k] ? "читает ядро: " + CORE[k] + "; и модулям" : "модулям как есть"); };
+    sq.addEventListener("pointerenter", show); sq.addEventListener("focus", show); sq.addEventListener("click", show);
+    waf.appendChild(sq);
+  });
+  waf.addEventListener("pointerleave", () => { waf.querySelectorAll(".sel").forEach(x => x.classList.remove("sel")); wafCap.innerHTML = wafRest; });
+
+  // ---------- жизнь сессии ----------
+  const LIFE = [
+    {k:"новая сессия", n:["starting","idle"], e:["st-id"], lose:"ничего", steps:[
+      {who:"manage → ядро", t:"Новая сессия попадает в список сессий ядра.", code:'host.open({ callsign: "site@laptop", cwd: "~/Projects/site", model })'},
+      {who:"ядро → keeper", t:"<code>spawnClaudeCodeProcess</code> открывает канал процесса.", code:'{ key, proto: 1, op: "spawn", id: "site@laptop", command, args, cwd, env }'},
+      {who:"ядро → SDK", t:"SDK шлёт <code>initialize</code> в новый процесс.", code:"const q = query({ prompt: input(), options })"},
+      {who:"SDK → ядро", t:"Ответ <code>initialize</code> — сессия готова: <code>idle</code>, <code>session.state</code> в relay.", code:"await q.initializationResult()"}]},
+    {k:"Host перезапущен", n:["starting","busy"], e:["st-bu"], lose:"ничего (опыты 15, 20)", steps:[
+      {who:"ядро → keeper", t:"Какие процессы живы.", code:'{ op: "list" } ← { processes: [ { id: "site@laptop", pid: 34768 } ] }'},
+      {who:"ядро", t:"В списке сессий записан SDK, которым процесс запущен; тот же — <code>attach</code>.", code:'{ key, proto: 1, op: "attach", id: "site@laptop" }'},
+      {who:"SDK → claude", t:"Новый <code>query()</code> шлёт <code>initialize</code>; ждущие разрешения приходят в <code>canUseTool</code> заново с тем же <code>toolUseID</code>.", code:"initializationResult().pending_permission_requests"},
+      {who:"keeper → SDK", t:"Накопленный без Host вывод дочитан; тот же ход идёт дальше — <code>busy</code> или <code>waiting</code>."}]},
+    {k:"процесс claude умер", n:["busy","starting","idle"], e:["bu-st","st-id"], lose:"оборванный ход (опыт 14)", steps:[
+      {who:"keeper → ядро", t:"Процесс вышел; код и хвост stderr — в журнал.", code:'{ op: "exited", id: "site@laptop", code: 1, stderr: "…" }'},
+      {who:"ядро", t:"state <code>starting</code>; та же очередь ввода, новый процесс.", code:"query({ prompt: input(), options: { …, resume: session_id } })"},
+      {who:"SDK → ядро", t:"Ответ <code>initialize</code> — <code>idle</code>. Разговор цел, вывод оборванного вызова не записан."}]},
+    {k:"новая версия SDK", n:["starting","busy","idle"], e:["st-bu","bu-id","id-st","st-id"], lose:"ничего: ход дожидается конца", steps:[
+      {who:"ядро", t:"Процесс запущен прежним SDK — всё равно <code>attach</code>, чтобы ход дошёл до конца.", code:'{ key, proto: 1, op: "attach", id: "site@laptop" }'},
+      {who:"SDK → ядро", t:"Ход дошёл до <code>result</code>.", code:'{ type: "result", subtype: "success", … }'},
+      {who:"ядро", t:"<code>restart</code>: <code>close()</code> — обёртка шлёт keeper <code>kill</code>; затем <code>resume</code> с claude новой версии.", code:"q.close(); query({ …, resume: session_id })"},
+      {who:"SDK → ядро", t:"Ответ <code>initialize</code> — <code>idle</code>; простаивающие сессии перезапускаются сразу. Проверяется эталоном 69."}]},
+    {k:"остановка сессии", n:["busy","idle","stopping","stopped"], e:["bu-id","id-sp","sp-sd"], lose:"ничего: разговор цел для resume", steps:[
+      {who:"manage → ядро", t:"Идёт ход — прервать и дождаться конца.", code:'s.stop() → q.interrupt() → { type: "result" }'},
+      {who:"ядро", t:"state <code>stopping</code>; SDK закрывает ввод, обёртка шлёт keeper <code>kill</code>.", code:"q.close()"},
+      {who:"keeper → ядро", t:"<code>exited</code> — state <code>stopped</code>; запись в списке сессий остаётся.", code:'{ op: "exited", id: "site@laptop", code: 0 }'},
+      {who:"manage → ядро", t:"<code>session.start</code> поднимает тот же разговор.", code:"s.start() → query({ …, resume: session_id })"}]},
+    {k:"повторный сбой", n:["busy","starting","failed"], e:["bu-st","st-fa"], lose:"сессия стоит до session.start", rec:true, steps:[
+      {who:"keeper → ядро", t:"Процесс умер — один <code>resume</code>, как в ветке выше.", code:'{ op: "exited", id: "site@laptop", code: 1 }'},
+      {who:"keeper → ядро", t:"Новый процесс вышел до ответа <code>initialize</code> — второй сбой до готовности.", code:'{ op: "exited", id: "site@laptop", code: 1 }'},
+      {who:"ядро", t:"state <code>failed</code>; в журнале обе причины; третьего запуска нет. Чинит агент: журнал → причина → <code>session.start</code>."}]}
+  ];
+  const lSvg = $("#host-life-svg"), lSteps = $("#host-life-steps"), lLose = $("#host-life-lose");
+  const lifeSel = tabs($("#host-life-tabs"), LIFE.map(x => x.k), i => pickLife(i));
+  function pickLife(i){
+    const c = LIFE[i]; lifeSel(i);
+    lSvg.querySelectorAll(".hs-st").forEach(g => g.classList.toggle("hot", c.n.includes(g.dataset.n)));
+    lSvg.querySelectorAll("path.hs-e").forEach(p => { const on = c.e.includes(p.dataset.e); p.classList.toggle("on", on); p.setAttribute("marker-end", on ? "url(#host-ah-lon)" : "url(#host-ah-l)"); });
+    lSvg.querySelectorAll(".hs-lab").forEach(t => t.classList.toggle("on", c.e.includes(t.dataset.e)));
+    stepList(lSteps, c.steps, null);
+    lLose.innerHTML = '<span class="lbl">теряется</span><span class="pill ' + (c.lose.startsWith("ничего") ? "ok" : "wait") + '">' + c.lose + "</span>"
+      + (c.rec ? '<span class="muted">правило экосистемы: один чистый перезапуск, второй сбой — стоп</span>' : "");
+  }
+  pickLife(0);
+
+  // ---------- гейт: манифесты пакетов монорепо и старт Host ----------
+  // пакет: provides — имя → v; uses — "имя@владелец" → v; hooks — без владельца; imp — импорт внутренностей чужого пакета
+  const PKG = {
+    "relay":{worker:true, provides:{"hello":1,"roster":1,"session.state":1,"frame":1}},
+    "gate":{worker:true, provides:{}},
+    "push":{worker:true, provides:{"push.key":1,"push.send":1,"push.subscribe":1}},
+    "host-fleet":{provides:{"message":1}, uses:{"roster@relay":1,"answer@host-questions":1,"notify@host-push":1}},
+    "host-questions":{provides:{"answer":1,"question.list":1,"question":1,"answered":1}, uses:{"session.watchers@host-watch":1,"notify@host-push":1}},
+    "host-watch":{provides:{"session.watch":1,"session.unwatch":1,"session.watchers":1,"session.events":1}, uses:{"roster@relay":1}},
+    "host-chat":{provides:{"session.prompt":1,"session.history":1,"session.files":1}},
+    "host-push":{provides:{"notify":1}, uses:{"roster@relay":1,"push.send@push":1}},
+    "host-cost":{provides:{"session.cost":1,"cost":1}},
+    "host-dup":{provides:{"session.cost":1}},
+    "host-budget":{provides:{"budget.set":1}, uses:{"session.cost@host-cost":1}},
+    "host-thief":{provides:{"roster":1}},
+    "host-stats":{provides:{"stats":1}, uses:{"session.tokens@host-cost":1}},
+    "host-peek":{provides:{"peek":1}, imp:"host-cost/src/store.ts"},
+    "host-guard":{provides:{}, hooks:["PreToolUse"]},
+    "host-audit":{provides:{}, hooks:["PreToolUse"]}
+  };
+  const TOG = [
+    {id:"dup", t:"<code>host-dup</code> — тоже даёт <code>session.cost</code>", on:false},
+    {id:"budget", t:"<code>host-budget</code> — uses <code>session.cost@host-cost</code> v1", on:false},
+    {id:"cost2", t:"<code>host-cost</code> — <code>session.cost</code> версии 2", on:false},
+    {id:"thief", t:"<code>host-thief</code> — даёт кадр <code>roster</code>", on:false},
+    {id:"stats", t:"<code>host-stats</code> — uses <code>session.tokens@host-cost</code>", on:false},
+    {id:"peek", t:"<code>host-peek</code> — импортирует <code>host-cost/src/store.ts</code>", on:false},
+    {id:"hooks", t:"<code>host-guard</code> и <code>host-audit</code> — оба с хуком <code>PreToolUse</code>", on:false},
+    {id:"relay", t:"relay в списке соединений <code>host.json</code>", on:true}
+  ];
+  const gTog = $("#host-gate-tog"), gRes = $("#host-gate-res"), gCost = $("#host-gate-cost");
+  TOG.forEach(t => {
+    const b = h("button", "", "<span>" + t.t + "</span>"); b.type = "button"; b.setAttribute("aria-pressed", t.on ? "true" : "false");
+    b.addEventListener("click", () => { t.on = !t.on; b.setAttribute("aria-pressed", t.on ? "true" : "false"); gate(); });
+    gTog.appendChild(b);
+  });
+  function gate(){
+    const on = id => TOG.find(t => t.id === id).on;
+    const list = ["relay","gate","push","host-fleet","host-questions","host-watch","host-chat","host-push","host-cost"];
+    ["dup","budget","thief","stats","peek"].forEach(k => { if (on(k)) list.push("host-" + k); });
+    if (on("hooks")) list.push("host-guard", "host-audit");
+    const ver = (p, n) => (p === "host-cost" && n === "session.cost" && on("cost2")) ? 2 : PKG[p].provides[n];
+    gCost.textContent = "host-cost · session.cost v" + ver("host-cost", "session.cost");
+    const owners = new Map(), build = [], start = [];
+    // 1. один владелец у имени во всём монорепо
+    list.forEach(p => Object.keys(PKG[p].provides).forEach(n => {
+      if (owners.has(n)) build.push(n + ": два владельца — " + owners.get(n) + " и " + p);
+      else owners.set(n, p);
+    }));
+    // 2. каждое uses есть в provides названного владельца той же версии
+    list.forEach(p => Object.entries(PKG[p].uses || {}).forEach(([key, v]) => {
+      const [n, o] = key.split("@");
+      if (!PKG[o] || !list.includes(o) || ver(o, n) == null) { build.push(p + ": uses " + key + " — у " + o + " нет " + n + " в provides"); return; }
+      if (ver(o, n) !== v) build.push(p + ": uses " + n + " v" + v + " — у " + o + " v" + ver(o, n));
+      // старт Host: имя Worker-модуля идёт через relay
+      if (PKG[o].worker && !on("relay")) start.push(p + ": " + key + " — relay нет в host.json");
+    }));
+    // 3. импорт — только вход пакета
+    list.forEach(p => { if (PKG[p].imp) build.push(p + ": импорт " + PKG[p].imp + " — мимо входа пакета"); });
+    gRes.textContent = ""; gRes.classList.toggle("bad", build.length + start.length > 0);
+    if (build.length || start.length){
+      gRes.appendChild(h("div", "verdict", build.length ? "Сборка падает" : "Host не стартует"));
+      const ul = h("ul"); build.concat(start).forEach(e => { const li = h("li", "hs-jl"); li.textContent = (build.includes(e) ? "гейт · " : "журнал · ") + e; ul.appendChild(li); }); gRes.appendChild(ul);
+      gRes.appendChild(h("p", "", build.length
+        ? "Выпуск не собирается: ни один Host не получит эти пакеты. Чинит агент по строке гейта."
+        : "Сессии не тронуты: процессы claude живы у keeper. Чинит агент; новый выпуск проходит гейт заново."));
+    } else {
+      gRes.appendChild(h("div", "verdict", "Сборка проходит, Host стартует"));
+      const ul = h("ul", "owners"), used = new Set();
+      list.forEach(p => Object.keys(PKG[p].uses || {}).forEach(k => used.add(k.split("@")[0])));
+      owners.forEach((p, n) => { if (PKG[p].worker && !used.has(n)) return;
+        const li = h("li"); li.appendChild(h("span", "own-v", "<code>" + n + "</code> v" + ver(p, n))); li.appendChild(h("span", "own-m", p)); ul.appendChild(li); });
+      if (on("hooks")){ const li = h("li"); li.appendChild(h("span", "own-v", "хук · <code>PreToolUse</code> — без владельца, списком")); li.appendChild(h("span", "own-m", "host-guard, host-audit")); ul.appendChild(li); }
+      gRes.appendChild(ul);
+    }
+  }
+  gate();
+
+  // ---------- штатная остановка ----------
+  const STOP = [
+    {k:"обновление Host", s:[
+      ["keeper → ядро", '<code>{ "op": "stop", "reason": "upgrade" }</code> по соединению управления', ""],
+      ["запросы", "новые запросы и кадры — <code>shutting_down</code>; начатые обработчики доводятся до <code>reply</code>; у ждущих чужого хода срабатывает <code>signal</code>", "cut"],
+      ["модули", "<code>stop()</code> в обратном порядке списка: таймеры сняты, хранилище дописано", "save"],
+      ["сессии", "<code>close()</code> не зовётся: он завершил бы процесс claude. Ждущие <code>canUseTool</code> остаются у процесса", "keep"],
+      ["связь", "<code>close(1001)</code> к relay; сокеты процессов закрыты без <code>kill</code> — keeper копит вывод", "keep"],
+      ["процесс", "выход с кодом 0. keeper запускает новую версию, та делает <code>attach</code> (опыт 15)", "keep"]]},
+    {k:"остановка машины", s:[
+      ["keeper → ядро", '<code>{ "op": "stop", "reason": "machine" }</code>', ""],
+      ["запросы", "новые — <code>shutting_down</code>; начатые доводятся до <code>reply</code>", "cut"],
+      ["сессии", "идёт ход — <code>interrupt()</code> и ждём <code>result</code>; затем у каждой <code>close()</code>. Разговор цел для <code>resume</code>", "save"],
+      ["модули", "<code>stop()</code> в обратном порядке — после последних <code>result</code>: журнал их уже записал", "save"],
+      ["связь", "<code>close(1001)</code> к relay", ""],
+      ["процесс", "выход с кодом 0; keeper завершает оставшееся и выходит сам", ""]]}
+  ];
+  const sList = $("#host-stop-list");
+  const stopSel = tabs($("#host-stop-tabs"), STOP.map(x => x.k), i => pickStop(i));
+  function pickStop(i){
+    stopSel(i); sList.textContent = "";
+    STOP[i].s.forEach(([who, html, cls]) => { const li = h("li", cls); const b = h("b"); b.textContent = who; li.appendChild(b); li.appendChild(h("span", "", html)); sList.appendChild(li); });
+  }
+  pickStop(0);
+
+  // ---------- график: записи журнала SDK о протоколе по месяцам ----------
+  const MONTHS = [["ноя 25",1,0],["дек 25",0,0],["янв 26",2,0],["фев 26",4,0],["мар 26",16,1],["апр 26",7,0],["май 26",5,1],["июн 26",14,0],["июл 26",17,1],["авг 26",13,0],["сен 26",37,3],["окт 26",17,2]];
+  const ch = $("#host-ch"), tip = $("#host-ch-tip"), wrap = $("#host-ch-wrap");
+  const CW = 720, CHH = 230, PL = 34, PR = 10, PT = 18, PB = 30, MAX = 40;
+  const y = v => PT + (1 - v / MAX) * (CHH - PT - PB);
+  const txt = (x, yy, cls, s, anchor) => { const t = el("text", {x, y: yy, "class": cls, "text-anchor": anchor || "middle"}, ch); t.textContent = s; return t; };
+  [0,10,20,30,40].forEach(v => { el("line", {x1: PL, x2: CW - PR, y1: y(v), y2: y(v), "class": "grid"}, ch); txt(PL - 6, y(v) + 4, "ax", String(v), "end"); });
+  const bw = (CW - PL - PR) / MONTHS.length;
+  MONTHS.forEach(([m, tot, brk], i) => {
+    const x0 = PL + i * bw + bw * 0.2, w = bw * 0.6, add = tot - brk;
+    const g = el("g", {"class": "col"}, ch);
+    // добавления снизу, меняющие поведение сверху; 2 px зазор между сегментами
+    if (add > 0) el("rect", {x: x0, y: y(add), width: w, height: Math.max(1, y(0) - y(add)), rx: 2, "class": "add"}, g);
+    if (brk > 0) el("rect", {x: x0, y: y(tot), width: w, height: Math.max(3, y(add) - y(tot) - 2), rx: 2, "class": "brk"}, g);
+    if (brk > 0 || tot === 37) txt(x0 + w / 2, y(tot) - 5, "val", brk ? tot + " · " + brk : String(tot));
+    txt(x0 + w / 2, CHH - 10, "ax", m);
+    const hit = el("rect", {x: PL + i * bw, y: PT, width: bw, height: CHH - PT - PB, "class": "hit"}, ch);
+    const show = ev => {
+      tip.hidden = false;
+      tip.textContent = m + ": " + tot + " записей о протоколе" + (brk ? ", из них " + brk + " меняют поведение" : "");
+      const r = wrap.getBoundingClientRect(), px = (ev.clientX || 0) - r.left + wrap.scrollLeft;
+      tip.style.left = Math.max(0, Math.min(px + 12, wrap.scrollWidth - 260)) + "px"; tip.style.top = "8px";
+    };
+    hit.addEventListener("pointermove", show); hit.addEventListener("pointerenter", show);
+    hit.addEventListener("pointerleave", () => { tip.hidden = true; });
+  });
+  const tbl = $("#host-ch-tbl");
+  const hr = document.createElement("tr"); ["месяц","всего о протоколе","меняют поведение"].forEach(t => { const th = document.createElement("th"); th.textContent = t; hr.appendChild(th); });
+  tbl.appendChild(hr);
+  MONTHS.forEach(r => { const tr = document.createElement("tr"); r.forEach(v => { const td = document.createElement("td"); td.textContent = String(v); tr.appendChild(td); }); tbl.appendChild(tr); });
+
+  // ---------- перезагрузка модуля ----------
+  const RL = [
+    {k:"новая версия модуля", steps:[
+      {who:"R2 → upgrade", t:"Выпуск 1.4.1 выложил в R2 локальный агент или выпуск GitHub: ядро, пакеты модулей и SDK точных версий. upgrade скачал его в папку версии.",
+        code:"~/.switchboard/host/1.4.1/\n  host 1.0.3 · host-cost 1.1.0 · … · SDK 0.3.311", hot:["r2","dl"], e:["e-dl"]},
+      {who:"upgrade → ядро", t:"Поставить выпуск без перезапуска Host.", code:'host.reload("~/.switchboard/host/1.4.1")', hot:["dl","rl"], e:["e-rl"]},
+      {who:"ядро · сверка", t:"Ядро и SDK в выпуске те же, что работают. Другой только пакет <code>host-cost</code>.",
+        code:"host 1.0.3 = 1.0.3 · SDK 0.3.311 = 0.3.311\nhost-cost 1.0.0 → 1.1.0", hot:["rl","same"], e:["e-same"]},
+      {who:"ядро · гейт", t:"Новый пакет — новым import из папки выпуска; тот же гейт, что на старте Host: код равен манифесту, у имени один владелец, <code>uses</code> той же версии. Старая версия пока работает.",
+        code:'import("~/.switchboard/host/1.4.1/node_modules/host-cost/contract.ts")', hot:["same","gate"], e:["e-gate"]},
+      {who:"ядро · окно", t:"Вызовы cost ждут в ядре. Старая версия останавливается штатно: начатое доводит, своё дописывает.",
+        code:"cost@1.0.0.stop()   // хранилище дописано", hot:["hold","stop"], e:["e-hold","e-stop"]},
+      {who:"ядро → cost 1.1.0", t:"Новая версия поднимает своё из того же раздела хранилища. Живые сессии ей видны как после перезапуска Host.",
+        code:"cost@1.1.0.start(host)\nfor (const s of live) on.open(s)   // s.info.start: attach", hot:["start"], e:["e-start"]},
+      {who:"ядро → query()", t:"Вклады новой версии — в живые сессии: тела хуков, <code>decide</code>, <code>elicit</code> — сразу; серверы MCP — двумя вызовами; settings — разницей ключей. <code>env</code>, <code>append</code>, новые события хуков — со следующего старта.",
+        code:"q.setMcpServers(без серверов cost)\nq.setMcpServers(все, cost — новые)\nq.applyFlagSettings(разница ключей cost)", hot:["live"], e:["e-live"]},
+      {who:"ядро → relay", t:"Ждавшие вызовы идут версии 1.1.0 по порядку. <code>provides</code> другие — новый <code>hello</code> с новым <code>contract</code>; те же — соединение не трогается.",
+        code:'{ "type": "hello", …, "contract": { …, "session.cost": 1 } }', hot:["hello"], e:["e-hello"]},
+      {who:"ядро → keeper", t:"Выпуск стал текущим: перезапуск Host поднимет 1.4.1. upgrade получает ответ: что сменилось и каким сессиям часть вкладов придёт со старта.",
+        code:'{ "op": "ready", "version": "1.4.1" }\n← { from: "1.4.0", to: "1.4.1",\n    modules: { "host-cost": ["1.0.0", "1.1.0"] },\n    later: [] }', hot:["ready"], e:["e-ready"]}]},
+    {k:"ядро или SDK другие", steps:[
+      {who:"upgrade → ядро", t:"Выпуск 1.5.0 из R2 скачан; upgrade просит поставить его без перезапуска.", code:'host.reload("~/.switchboard/host/1.5.0")', hot:["r2","dl","rl"], e:["e-dl","e-rl"]},
+      {who:"ядро · сверка", t:"В выпуске другое ядро. Модули грузятся в работающее ядро — перезагрузкой такой выпуск не поставить. Ни один модуль не тронут.",
+        code:'host 1.0.3 ≠ 1.1.0\n← { ok: false, error: "core_changed" }', hot:["same","n-core"], e:["e-same","x-core"]},
+      {who:"upgrade → keeper", t:"Путь нового Host: keeper штатно останавливает Host и запускает 1.5.0; новый Host делает <code>attach</code> к живым процессам — сессии не останавливаются.",
+        code:'{ "op": "upgrade", "version": "1.5.0" }', hot:["n-core"], e:["x-core"]}]},
+    {k:"гейт не прошёл", steps:[
+      {who:"ядро · сверка", t:"Выпуск 1.4.2: ядро и SDK те же — дальше гейт.", hot:["rl","same"], e:["e-rl","e-same"]},
+      {who:"ядро · гейт", t:"<code>host-cost</code> и <code>host-dup</code> оба дают <code>session.cost</code>. Отказ — до остановки чего-либо: cost 1.1.0 работает дальше.",
+        code:'← { ok: false, error: "check_failed",\n    why: "session.cost: два владельца — host-cost и host-dup" }', hot:["gate"], bad:["n-gate","x-gate"], e:["e-gate"]},
+      {who:"журнал", t:"Причина — строкой в журнал машины. keeper не тронут: текущим остаётся 1.4.1. Чинит агент новым выпуском.", bad:["n-gate"]}]},
+    {k:"start() бросил ошибку", steps:[
+      {who:"ядро · окно", t:"Гейт пройден; вызовы cost ждут; cost 1.0.0 остановлен, своё дописал.", hot:["gate","hold","stop"], e:["e-gate","e-hold","e-stop"]},
+      {who:"cost 1.1.0", t:"<code>start(host)</code> бросил ошибку. Ядро выключает cost на машине: <code>failed</code> у всех сессий в roster, стек — в журнале. Прежняя версия не поднимается: отката нет.",
+        code:'{ "type": "session.state", "callsign": "site@laptop",\n  "failed": { "host-cost": "start: TypeError …" } }', hot:["start"], bad:["n-start","x-start"], e:["e-start"]},
+      {who:"ждавшие вызовы", t:"Запросы, ждавшие в окне, получают <code>module_error</code>; кадры и сообщения SDK для cost — строкой в журнал. Остальные модули и ходы сессий идут дальше.",
+        code:'{ "type": "reply", "id": "c-9", "to": "panel-desk",\n  "ok": false, "error": "module_error" }', bad:["n-start"]},
+      {who:"keeper", t:"<code>ready</code> с новой версией не послан: перезапуск Host поднимет прежний выпуск 1.4.0. Чинит агент: журнал → правка → новый выпуск → перезагрузка.", bad:["ready"]}]}
+  ];
+  const rSvg = $("#host-reload-svg"), rSteps = $("#host-reload-steps"), rN = $("#host-reload-n"), rPrev = $("#host-reload-prev"), rNext = $("#host-reload-next");
+  let rc = 0, rs = 0;
+  function drawReload(){
+    const st = RL[rc].steps[rs], hot = st.hot || [], bad = st.bad || [], on = st.e || [];
+    rSvg.querySelectorAll(".hs-n").forEach(n => { n.classList.toggle("hot", hot.includes(n.dataset.n)); n.classList.toggle("off", bad.includes(n.dataset.n)); });
+    rSvg.querySelectorAll("path.hs-e").forEach(p => {
+      const b = bad.includes(p.dataset.e), o = !b && on.includes(p.dataset.e);
+      p.classList.toggle("bad", b); p.classList.toggle("on", o);
+      p.setAttribute("marker-end", "url(#host-ah-rl" + (b ? "b" : o ? "" : "m") + ")");
+    });
+    rSteps.querySelectorAll("li").forEach((li, i) => { li.classList.toggle("now", i === rs); if (i === rs) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current"); });
+    rN.textContent = "шаг " + (rs + 1) + " из " + RL[rc].steps.length;
+    rPrev.disabled = rs === 0; rNext.disabled = rs === RL[rc].steps.length - 1;
+  }
+  const reloadSel = tabs($("#host-reload-tabs"), RL.map(x => x.k), i => pickReload(i));
+  function pickReload(i){ rc = i; rs = 0; reloadSel(i); stepList(rSteps, RL[i].steps, j => { rs = j; drawReload(); }); drawReload(); }
+  rPrev.addEventListener("click", () => { if (rs > 0){ rs--; drawReload(); } });
+  rNext.addEventListener("click", () => { if (rs < RL[rc].steps.length - 1){ rs++; drawReload(); } });
+  pickReload(0);
+})();
+</script>

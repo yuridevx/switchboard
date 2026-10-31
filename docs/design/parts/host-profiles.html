@@ -1,0 +1,748 @@
+<style>
+  /* profiles: из чего собирается запуск (источники → опции query() по переключателям), свой путь памяти (рисунок),
+     синхронизация памяти по шагам (модель · profiles · клон · github · GitHub), доступ к git токеном github, разъёмы, контракт, сбои, эталоны.
+     profiles — --ok, slots — --wait, manage и ядро — акцент, конфликт и отказ — --bad. */
+  [data-view="host-profiles"] .et{padding:0}
+  [data-view="host-profiles"] .et code{overflow-wrap:anywhere}
+  [data-view="host-profiles"] a{color:var(--accent);text-underline-offset:2px}
+  [data-view="host-profiles"] .pr-pad{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+  [data-view="host-profiles"] .pr-pad>p{font-size:14px;color:var(--muted)}
+  [data-view="host-profiles"] pre.pr-pre{white-space:pre;word-break:normal}
+  [data-view="host-profiles"] svg.pr-svg{display:block;width:100%;height:auto;max-width:470px;margin-inline:auto}
+  [data-view="host-profiles"] .pr-flash{outline:2px solid var(--accent);outline-offset:3px;border-radius:12px}
+  [data-view="host-profiles"] .pr-etl{font-size:12.5px;padding:5px 10px}
+  [data-view="host-profiles"] .pr-chips{display:flex;flex-wrap:wrap;gap:6px}
+  [data-view="host-profiles"] .pr-chips button{border-radius:999px;padding:6px 12px;font-size:12.5px;background:var(--surface2)}
+  [data-view="host-profiles"] .pr-chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-profiles"] .pr-grps{display:flex;flex-wrap:wrap;gap:10px 18px;justify-content:center}
+  [data-view="host-profiles"] .pr-grp{display:flex;flex-direction:column;gap:6px;min-width:0;align-items:center}
+
+  /* общие куски SVG */
+  [data-view="host-profiles"] .pr-svg .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+  [data-view="host-profiles"] .pr-svg .bx.ghost{fill:var(--surface2);stroke-dasharray:5 4;stroke-opacity:.8}
+  [data-view="host-profiles"] .pr-svg .bx.core{stroke:var(--accent);stroke-opacity:.6}
+  [data-view="host-profiles"] .pr-svg .bx.mg{stroke:var(--accent)}
+  [data-view="host-profiles"] .pr-svg .bx.pf{stroke:var(--ok);fill:var(--ok-weak)}
+  [data-view="host-profiles"] .pr-svg .bx.sl{stroke:var(--wait);fill:var(--wait-weak)}
+  [data-view="host-profiles"] .pr-svg .bx.bad{stroke:var(--bad);fill:var(--bad-weak)}
+  [data-view="host-profiles"] .pr-svg .fl{fill:var(--surface);stroke:var(--ok);stroke-width:1.1}
+  [data-view="host-profiles"] .pr-svg .tn{fill:var(--ink);font:600 11.5px var(--mono)}
+  [data-view="host-profiles"] .pr-svg .tn.mut{fill:var(--muted)}
+  [data-view="host-profiles"] .pr-svg .tf{fill:var(--ink);font:600 10.5px var(--mono)}
+  [data-view="host-profiles"] .pr-svg .ts{fill:var(--muted);font:500 10px var(--body)}
+  [data-view="host-profiles"] .pr-svg .ts.bad{fill:var(--bad);font-weight:600}
+  [data-view="host-profiles"] .pr-svg .ts.okk{fill:var(--ok);font-weight:600}
+  [data-view="host-profiles"] .pr-svg .ed{fill:none;stroke-width:1.9}
+  [data-view="host-profiles"] .pr-svg .ed.core,[data-view="host-profiles"] .pr-svg .ed.mg{stroke:var(--accent)}
+  [data-view="host-profiles"] .pr-svg .ed.pf{stroke:var(--ok)}
+  [data-view="host-profiles"] .pr-svg .ed.sl{stroke:var(--wait)}
+  [data-view="host-profiles"] .pr-svg .ed.bad{stroke:var(--bad)}
+  [data-view="host-profiles"] .pr-svg .ed.dash{stroke-dasharray:5 4}
+  [data-view="host-profiles"] .pr-svg .ed.off{stroke:var(--line);stroke-dasharray:3 4}
+  [data-view="host-profiles"] .pr-svg .ah{fill:var(--muted)}
+  [data-view="host-profiles"] .pr-svg .ah.core,[data-view="host-profiles"] .pr-svg .ah.mg{fill:var(--accent)}
+  [data-view="host-profiles"] .pr-svg .ah.pf{fill:var(--ok)}
+  [data-view="host-profiles"] .pr-svg .ah.sl{fill:var(--wait)}
+  [data-view="host-profiles"] .pr-svg .ah.bad{fill:var(--bad)}
+  [data-view="host-profiles"] .pr-svg .ah.off{fill:var(--line)}
+
+  /* из чего собирается запуск */
+  [data-view="host-profiles"] .pr-launch{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:880px){[data-view="host-profiles"] .pr-launch{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-profiles"] .pr-launch>*{min-width:0}
+  [data-view="host-profiles"] .pr-fig{background:var(--surface2);padding:12px 8px;border-right:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+  @media (max-width:880px){[data-view="host-profiles"] .pr-fig{border-right:0;border-bottom:1px solid var(--line)}}
+  [data-view="host-profiles"] .pr-side{padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-profiles"] .pr-side .cap{font-size:14.5px;min-height:0}
+  [data-view="host-profiles"] .pr-q{list-style:none;margin:0;padding:10px 12px;background:var(--surface2);border:1px solid var(--line2);border-radius:10px;display:flex;flex-direction:column;gap:3px}
+  [data-view="host-profiles"] .pr-q li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:baseline}
+  [data-view="host-profiles"] .pr-q code{font:12px/1.5 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+  [data-view="host-profiles"] .pr-q li.off code{color:var(--muted);text-decoration:line-through;text-decoration-color:var(--line)}
+  [data-view="host-profiles"] .pr-q .own{font:600 10px var(--mono);border-radius:6px;padding:1px 6px;white-space:nowrap}
+  [data-view="host-profiles"] .own.core,[data-view="host-profiles"] .own.manage{background:var(--accent-weak);color:var(--accent)}
+  [data-view="host-profiles"] .own.profiles{background:var(--ok-weak);color:var(--ok)}
+  [data-view="host-profiles"] .own.slots{background:var(--wait-weak);color:var(--wait)}
+  [data-view="host-profiles"] .own.fleet{background:var(--surface);color:var(--muted);border:1px solid var(--line)}
+  [data-view="host-profiles"] .pr-lgd{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12.5px;color:var(--muted);justify-content:center}
+  [data-view="host-profiles"] .pr-lgd i{display:inline-block;width:18px;height:0;border-top:2.4px solid var(--ok);vertical-align:middle;margin-right:5px}
+  [data-view="host-profiles"] .pr-lgd i.d{border-top-style:dashed;border-top-color:var(--accent)}
+  [data-view="host-profiles"] .pr-lgd i.s{border-top-color:var(--wait)}
+  [data-view="host-profiles"] .pr-lgd i.c{border-top-color:var(--accent)}
+
+  /* свой путь */
+  [data-view="host-profiles"] .pr-path{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);overflow:hidden}
+  @media (max-width:820px){[data-view="host-profiles"] .pr-path{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-profiles"] .pr-path>*{min-width:0}
+
+  /* синхронизация по шагам */
+  [data-view="host-profiles"] .pr-sync{overflow:hidden}
+  [data-view="host-profiles"] .pr-cases{display:flex;flex-wrap:wrap;gap:6px;padding:12px;border-bottom:1px solid var(--line)}
+  [data-view="host-profiles"] .pr-cases button{border-radius:999px;padding:7px 12px;font-size:13px;background:var(--surface2)}
+  [data-view="host-profiles"] .pr-cases button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+  [data-view="host-profiles"] .pr-stage{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr)}
+  @media (max-width:880px){[data-view="host-profiles"] .pr-stage{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-profiles"] .pr-stage>*{min-width:0}
+  [data-view="host-profiles"] .pr-seq .lh{fill:var(--surface);stroke:var(--line);stroke-width:1.4}
+  [data-view="host-profiles"] .pr-seq .lh.me{fill:var(--ok-weak);stroke:var(--ok)}
+  [data-view="host-profiles"] .pr-seq .lh.ext{fill:var(--surface2);stroke-dasharray:5 4}
+  [data-view="host-profiles"] .pr-seq .lt{fill:var(--ink);font:600 11px var(--mono)}
+  [data-view="host-profiles"] .pr-seq .ls{fill:var(--muted);font:500 9.5px var(--body)}
+  [data-view="host-profiles"] .pr-seq .ll{stroke:var(--line);stroke-width:1.2;stroke-dasharray:3 4}
+  [data-view="host-profiles"] .pr-seq .m{stroke:var(--ink);stroke-opacity:.6;stroke-width:1.6;fill:none}
+  [data-view="host-profiles"] .pr-seq .ml{fill:var(--ink);font:500 10.5px var(--mono);paint-order:stroke;stroke:var(--surface2);stroke-width:4px;stroke-linejoin:round}
+  [data-view="host-profiles"] .pr-seq .nt{fill:var(--surface);stroke:var(--line);stroke-width:1.3}
+  [data-view="host-profiles"] .pr-seq .ntt{fill:var(--ink);font:600 10.5px var(--body)}
+  [data-view="host-profiles"] .pr-seq .no{fill:var(--muted);font:500 10px var(--mono)}
+  [data-view="host-profiles"] .pr-seq .st.on .m{stroke:var(--accent);stroke-opacity:1;stroke-width:2.6}
+  [data-view="host-profiles"] .pr-seq .st.on .ml,[data-view="host-profiles"] .pr-seq .st.on .ntt{fill:var(--accent);font-weight:600}
+  [data-view="host-profiles"] .pr-seq .st.on .nt{stroke:var(--accent);stroke-width:2}
+  [data-view="host-profiles"] .pr-seq .st.bad .m{stroke:var(--bad);stroke-opacity:1}
+  [data-view="host-profiles"] .pr-seq .st.bad .ml,[data-view="host-profiles"] .pr-seq .st.bad .ntt{fill:var(--bad)}
+  [data-view="host-profiles"] .pr-seq .st.bad .nt{stroke:var(--bad)}
+  [data-view="host-profiles"] .pr-seq .st.fut{opacity:.3}
+  [data-view="host-profiles"] .pr-seq .hit{fill:transparent;cursor:pointer}
+  [data-view="host-profiles"] .pr-seq .hit:hover{fill:var(--accent-weak);fill-opacity:.35}
+  [data-view="host-profiles"] .pr-seq .ah.on{fill:var(--accent)}
+  [data-view="host-profiles"] .pr-nav{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:auto}
+
+  /* разъёмы */
+  [data-view="host-profiles"] .pr-io{display:grid;grid-template-columns:minmax(0,1fr) 9.5em minmax(0,1fr);overflow:hidden}
+  [data-view="host-profiles"] .pr-io .pr-col{padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+  [data-view="host-profiles"] .pr-io .pr-col.claude{background:var(--surface2)}
+  [data-view="host-profiles"] .pr-mid{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:14px 8px;background:var(--ok-weak);border-inline:1px solid var(--line)}
+  [data-view="host-profiles"] .pr-mid b{font:700 17px var(--disp);color:var(--ok)}
+  [data-view="host-profiles"] .pr-mid span{font:500 11.5px var(--mono);color:var(--muted);text-align:center}
+  [data-view="host-profiles"] .pr-dl{display:grid;grid-template-columns:8.6em minmax(0,1fr);gap:7px 10px;margin:0;font-size:13px}
+  [data-view="host-profiles"] .pr-dl dt{font:600 10.5px/1.9 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  [data-view="host-profiles"] .pr-dl dd{margin:0;min-width:0;overflow-wrap:anywhere}
+  [data-view="host-profiles"] .pr-dl dd.no{color:var(--muted)}
+  [data-view="host-profiles"] .pr-dl code{font-weight:600}
+  @media (max-width:760px){
+    [data-view="host-profiles"] .pr-io{grid-template-columns:minmax(0,1fr)}
+    [data-view="host-profiles"] .pr-mid{flex-direction:row;border-inline:0;border-block:1px solid var(--line);padding:10px}
+  }
+  @media (max-width:420px){[data-view="host-profiles"] .pr-dl{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-profiles"] .pr-dl dd{margin-bottom:6px}}
+  [data-view="host-profiles"] .pr-uses{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  @media (max-width:640px){[data-view="host-profiles"] .pr-uses{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-profiles"] .pr-uses li{background:var(--surface2);border-radius:9px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:2px;min-width:0}
+  [data-view="host-profiles"] .pr-uses li.ext{background:var(--accent-weak)}
+  [data-view="host-profiles"] .pr-uses code{font-weight:600;overflow-wrap:anywhere}
+  [data-view="host-profiles"] .pr-uses span{color:var(--muted)}
+
+  /* контракт, сбои */
+  [data-view="host-profiles"] .pr-api{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  @media (max-width:820px){[data-view="host-profiles"] .pr-api{grid-template-columns:minmax(0,1fr)}}
+  [data-view="host-profiles"] .pr-api>div{display:flex;flex-direction:column;gap:8px;min-width:0}
+  [data-view="host-profiles"] .pr-api h3{font:600 13.5px var(--mono)}
+  [data-view="host-profiles"] .pr-api p{font-size:13px;color:var(--muted)}
+  [data-view="host-profiles"] .pr-words{display:flex;flex-direction:column;gap:6px;font-size:13.5px}
+  [data-view="host-profiles"] .pr-words code{font-weight:600;color:var(--bad)}
+  [data-view="host-profiles"] .pr-br{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+  [data-view="host-profiles"] .pr-br li{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.4fr) minmax(0,.7fr);gap:12px;padding:8px 0 8px 12px;border-left:3px solid var(--line);font-size:13.5px}
+  [data-view="host-profiles"] .pr-br li.st{border-left-color:var(--bad)}
+  [data-view="host-profiles"] .pr-br li.ok{border-left-color:var(--ok)}
+  [data-view="host-profiles"] .pr-br li.hd{border-left-color:transparent;font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding-block:2px}
+  [data-view="host-profiles"] .pr-br b{font-weight:600}
+  [data-view="host-profiles"] .pr-br span{min-width:0;overflow-wrap:anywhere}
+  [data-view="host-profiles"] .pr-br i{font-style:normal;color:var(--muted)}
+  @media (max-width:560px){[data-view="host-profiles"] .pr-br li{grid-template-columns:minmax(0,1fr);gap:2px}[data-view="host-profiles"] .pr-br li.hd{display:none}}
+  [data-view="host-profiles"] .pr-stop{display:flex;gap:10px;align-items:flex-start;font-size:14px;padding-top:12px;border-top:1px solid var(--line)}
+  [data-view="host-profiles"] .var .codebox{padding:8px 10px}
+  [data-view="host-profiles"] .qsvg .bx.ok{stroke:var(--ok);fill:var(--ok-weak)}
+</style>
+
+<header class="vhead chg" data-chg="host-profiles-head">
+  <span class="pill acc kind">модуль приложения Claude SDK</span>
+  <h1>profiles</h1>
+  <p class="lead">Профиль сессии — своя папка: CLAUDE.md, profile.yaml и память. Host — программа на каждой машине, через которую идут все сессии Claude Code; profiles — его модуль. Сессия с профилем получает добавку к системному промпту из CLAUDE.md, модель и усилие по умолчанию и свою папку памяти — у каждого профиля свой путь. Профили лежат в git-репозитории; их память profiles сводит между машинами сам, <span class="chg" data-chg="host-profiles-head-git">с коротким токеном приложения GitHub флота — от Worker-модуля <a href="#github">github</a>.</span></p>
+  <div class="names">
+    <span><b>профиль</b> team/profiles/ops — папка в репозитории</span>
+    <span><b>CLAUDE.md</b> добавка к системному промпту</span>
+    <span><b>profile.yaml</b> model, effort, max_effort, fallback_model</span>
+    <span><b>memory/</b> память профиля — пишет только claude</span>
+    <span><b>состояние</b> ok · error · conflict</span>
+  </div>
+  <p class="hint">Аккаунт и слот сессии — <a href="#host-accounts">accounts</a> и <a href="#host-slots">slots</a>; открытие сессии — <a href="#host-manage">manage</a>; как ядро складывает вклады — <a href="#host">ядро</a>.</p>
+</header>
+
+<!-- ===== ИЗ ЧЕГО СОБИРАЕТСЯ ЗАПУСК ===== -->
+<section class="chg" data-chg="host-profiles-launch">
+  <div class="shead">
+    <h2>Из чего собирается запуск</h2>
+    <p>Один <code>query()</code> на сессию ядро собирает из вкладов модулей; у каждого ключа один владелец. Слева — откуда приходит каждая часть, справа — что получилось. Переключайте профиль, слот и модель в запросе.</p>
+  </div>
+  <div class="card pr-launch">
+    <div class="pr-fig">
+      <svg class="pr-svg" id="host-profiles-lsvg" viewBox="0 0 400 306" role="img" aria-label="Источники: запрос session.open, папка профиля ops с CLAUDE.md, profile.yaml и memory, слот main, ядро; стрелки к опциям query(): model, systemPrompt.append, settings профиля, autoMemoryDirectory, hooks, папка слота в env, cwd и resume"></svg>
+      <div class="pr-grps" id="host-profiles-tog"></div>
+      <div class="pr-lgd"><span><i></i>profiles</span><span><i class="s"></i>slots</span><span><i class="c"></i>manage · ядро</span></div>
+    </div>
+    <div class="pr-side" aria-live="polite">
+      <p class="cap" id="host-profiles-lcap"></p>
+      <span class="lbl">query() сессии site@laptop</span>
+      <ol class="pr-q" id="host-profiles-lq"></ol>
+      <button type="button" class="pr-etl" data-et="172" style="align-self:flex-start">эталон 172</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СВОЙ ПУТЬ ===== -->
+<section class="chg" data-chg="host-profiles-path">
+  <div class="shead">
+    <h2>У каждого профиля свой путь</h2>
+    <p>Без своей папки Claude Code держит память по папке проекта. Две сессии в одном проекте с разными профилями писали бы в одну память. Переключите — увидите, куда уходят записи.</p>
+  </div>
+  <div class="card pr-path">
+    <div class="pr-fig">
+      <svg class="pr-svg" id="host-profiles-psvg" viewBox="0 0 400 226" role="img" aria-label="Две сессии в папке ~/Projects/site с профилями ops и writer; память — в своих папках профилей или в общей папке проекта"></svg>
+      <div class="pr-chips" id="host-profiles-pmode" role="group" aria-label="Папка памяти" style="justify-content:center"></div>
+    </div>
+    <div class="pr-side">
+      <p class="cap" id="host-profiles-pcap" aria-live="polite"></p>
+      <span class="lbl">папка профилей на машине</span>
+      <div class="codebox"><pre class="pr-pre">~/.switchboard/profiles/
+  team__profiles/   клон team/profiles
+    ops/
+      CLAUDE.md     добавка к промпту
+      profile.yaml  модель и усилие
+      memory/       память — пишет claude
+    writer/
+      CLAUDE.md
+      memory/</pre></div>
+      <span class="lbl">profile.yaml</span>
+      <div class="codebox"><pre class="pr-pre">model: opus
+effort: high
+max_effort: xhigh
+fallback_model: [sonnet]</pre></div>
+      <p class="muted" style="font-size:13px">Документация Claude Code, настройка <code>autoMemoryDirectory</code>: «по умолчанию <code>~/.claude/projects/&lt;папка&gt;/memory/</code>»; в настройках проекта не принимается — profiles отдаёт её в <code>settings</code> запуска.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СИНХРОНИЗАЦИЯ ===== -->
+<section class="chg" data-chg="host-profiles-sync">
+  <div class="shead">
+    <h2>Память профилей между машинами</h2>
+    <p>Раз в минуту, по записи в память и по команде profiles забирает и отправляет память: только папки <code>memory/</code>, без вопросов человеку<span class="chg" data-chg="host-profiles-sync-token">, с токеном github на эту синхронизацию</span>. Не вышло — состояние профиля, и модель с этим профилем получает задание свести память. Три случая по шагам.</p>
+  </div>
+  <div class="card pr-sync">
+    <div class="pr-cases" id="host-profiles-cases" role="group" aria-label="Случай"></div>
+    <div class="pr-stage">
+      <div class="pr-fig"><svg class="pr-svg pr-seq" id="host-profiles-ssvg" viewBox="0 0 400 300" role="img" aria-label="Схема по шагам: модель, profiles, клон репозитория, Worker github, GitHub"></svg></div>
+      <div class="pr-side">
+        <span class="tstamp" id="host-profiles-sn"></span>
+        <p class="cap" id="host-profiles-scap" aria-live="polite"></p>
+        <span class="lbl" id="host-profiles-sjl"></span>
+        <div class="codebox"><pre class="pr-pre" id="host-profiles-sjs"></pre></div>
+        <div class="pr-nav">
+          <button type="button" id="host-profiles-sprev">← назад</button>
+          <button type="button" class="primary" id="host-profiles-snext">далее →</button>
+          <button type="button" class="pr-etl" id="host-profiles-setl" hidden>эталон</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== ДОСТУП К GIT ===== -->
+<section class="chg" data-chg="host-profiles-git">
+  <div class="shead">
+    <h2>Доступ к git — токен приложения GitHub</h2>
+    <p>Слово пользователя 31 окт.: доступ profiles к git — токен приложения GitHub флота. Своего ключа к GitHub у машины нет: перед каждой синхронизацией profiles просит у <a href="#github">github</a> токен на репозиторий, на час, и отдаёт его git через окружение.</p>
+  </div>
+  <div class="card pr-path">
+    <div class="pr-fig">
+      <svg class="pr-svg" viewBox="0 0 400 156" role="img" aria-label="profiles просит у Worker github токен на репозиторий через relay; github с ключом приложения получает токен у API GitHub; git на машине ходит в github.com с этим токеном в заголовке">
+        <defs>
+          <marker id="host-profiles-ga-pf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah pf" d="M0 0L10 5L0 10z"/></marker>
+          <marker id="host-profiles-ga-c" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path class="ah core" d="M0 0L10 5L0 10z"/></marker>
+        </defs>
+        <rect class="bx pf" x="8" y="30" width="96" height="96" rx="10"/>
+        <text class="tn" x="56" y="74" text-anchor="middle">profiles</text><text class="ts" x="56" y="90" text-anchor="middle">Host машины</text>
+        <rect class="bx core" x="152" y="14" width="100" height="48" rx="9"/>
+        <text class="tn" x="202" y="34" text-anchor="middle">github</text><text class="ts" x="202" y="50" text-anchor="middle">ключ приложения</text>
+        <rect class="bx ghost" x="296" y="14" width="96" height="48" rx="9"/>
+        <text class="tn" x="344" y="34" text-anchor="middle">API GitHub</text><text class="ts" x="344" y="50" text-anchor="middle">JWT → токен</text>
+        <rect class="bx ghost" x="296" y="94" width="96" height="48" rx="9"/>
+        <text class="tn" x="344" y="114" text-anchor="middle">github.com</text><text class="ts" x="344" y="130" text-anchor="middle">team/profiles</text>
+        <path class="ed core" d="M104 34H148" marker-end="url(#host-profiles-ga-c)"/>
+        <text class="ts" x="126" y="26" text-anchor="middle">1 токен?</text>
+        <path class="ed core" d="M252 38H292" marker-end="url(#host-profiles-ga-c)"/>
+        <text class="ts" x="272" y="30" text-anchor="middle">2</text>
+        <path class="ed core dash" d="M152 56H108" marker-end="url(#host-profiles-ga-c)"/>
+        <text class="ts" x="128" y="70" text-anchor="middle">3 на час</text>
+        <path class="ed pf" d="M104 118H292" marker-end="url(#host-profiles-ga-pf)"/>
+        <text class="ts" x="198" y="110" text-anchor="middle">4 pull · push · токен в заголовке</text>
+      </svg>
+    </div>
+    <div class="pr-side">
+      <ul class="pr-uses" style="grid-template-columns:minmax(0,1fr)">
+        <li><code>1 · github.token { repo }</code><span>кадр через relay: один на синхронизацию, перед первым сетевым git — <code>clone</code>, <code>pull</code>, <code>push</code></span></li>
+        <li><code>2 · JWT → access_tokens</code><span>github с ключом приложения просит у GitHub токен: только этот репозиторий, только содержимое</span></li>
+        <li><code>3 · { token, expires_at }</code><span>токен на час; profiles держит его до конца синхронизации и не хранит</span></li>
+        <li><code>4 · git по HTTPS</code><span>заголовок <code>Authorization</code> — переменными окружения git, не в аргументах и не в адресе репозитория</span></li>
+      </ul>
+      <span class="lbl">окружение сетевого git</span>
+      <div class="codebox"><pre class="pr-pre">GIT_TERMINAL_PROMPT=0  GCM_INTERACTIVE=never
+GIT_CONFIG_COUNT=1
+GIT_CONFIG_KEY_0=http.https://github.com/.extraHeader
+GIT_CONFIG_VALUE_0=Authorization: basic &lt;base64 x-access-token:токен&gt;
+git -c credential.interactive=never pull --no-rebase --no-edit</pre></div>
+      <p class="muted" style="font-size:13px">Клон — по адресу <code>https://github.com/team/profiles.git</code>. Отказ github (<code>no_app</code>, <code>not_installed</code>, <code>github_failed</code>) — состояние <code>error</code> с <code>op: "github.token"</code>; git в сеть не идёт. Документация git: <code>GIT_CONFIG_COUNT</code>, <code>GIT_CONFIG_KEY_&lt;n&gt;</code>, <code>GIT_CONFIG_VALUE_&lt;n&gt;</code> добавляют настройку процессу git.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===== РАЗЪЁМЫ ===== -->
+<section class="chg" data-chg="host-profiles-io">
+  <div class="shead">
+    <h2>С чем profiles работает</h2>
+    <p>Сообщений сессии profiles не читает. Он кладёт свою часть в <code>query()</code> и слушает три хука Claude Code — их SDK зовёт в процессе Host.</p>
+  </div>
+  <div class="card pr-io">
+    <div class="pr-col claude">
+      <span class="lbl">Claude · через ядро</span>
+      <dl class="pr-dl">
+        <dt>хуки</dt><dd><code>PostToolUse</code> с <code>Write|Edit|MultiEdit</code>: путь в <code>memory/</code> профиля — синхронизация; <code>SessionStart</code>, <code>UserPromptSubmit</code>: состояние профиля не <code>ok</code> — <code>additionalContext</code> с заданием</dd>
+        <dt>в query()</dt><dd><code>systemPrompt.append</code> ← CLAUDE.md; <code>settings</code> ← profile.yaml и папка: <code>model</code>, <code>effortLevel</code>, <code>maxEffortLevel</code>, <code>fallbackModel</code>, <code>autoMemoryDirectory</code></dd>
+        <dt>сообщения SDK</dt><dd class="no">—</dd>
+        <dt>canUseTool · методы</dt><dd class="no">—</dd>
+      </dl>
+    </div>
+    <div class="pr-mid"><b>profiles</b><span>один на машину</span></div>
+    <div class="pr-col">
+      <span class="lbl">наружу · через relay</span>
+      <dl class="pr-dl">
+        <dt>запросы</dt><dd><code>session.profile</code>, <code>machine.profiles</code></dd>
+        <dt>поля roster</dt><dd><code>profile</code> — id и состояние</dd>
+        <dt>кадры · MCP</dt><dd class="no">—</dd>
+        <dt>слова ошибок</dt><dd><code>no_profile</code></dd>
+      </dl>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card pr-pad">
+      <span class="lbl">чем пользуется</span>
+      <ul class="pr-uses">
+        <li><code>session(s)</code><span>часть <code>query()</code>: append, settings, хуки</span></li>
+        <li><code>fields</code><span><code>profile</code> в roster</span></li>
+        <li><code>s.store()</code><span>профиль сессии — переживает перезапуск Host</span></li>
+        <li><code>host.store()</code><span>состояние каждого репозитория профилей</span></li>
+        <li><code>host.config()</code><span>список репозиториев профилей машины</span></li>
+        <li><code>host.log() · stop()</code><span>синхронизация и сбой — в журнал; снять таймер</span></li>
+        <li class="ext"><code>session.profile</code> ← <a href="#host-manage">manage</a><span>зовёт на открытии сессии, как <code>session.slot</code>; хранит профиль сессии только profiles</span></li>
+        <li class="ext chg" data-chg="host-profiles-uses-gh"><code>github.token</code> ← <a href="#github">github</a><span>токен на репозиторий перед сетевым git; кадр через ядро и relay</span></li>
+        <li><code>git</code><span>программа ОС, не Claude; по HTTPS с токеном из окружения</span></li>
+      </ul>
+    </div>
+    <div class="card pr-pad">
+      <span class="lbl">манифест</span>
+      <div class="codebox"><pre class="pr-pre">// host/modules/profiles/module.json
+{ "name": "host-profiles", "type": "sdk",
+  "version": "1.0.0",
+  "provides": { "session.profile": 1,
+    "machine.profiles": 1,
+    "profile": 1 },
+  "uses": { "github.token@github": 1 },
+  "calls": [],
+  "config": { "repos": "string[]" } }
+
+// ~/.switchboard/host.json
+"modules": { "host-profiles": {
+  "repos": [ "team/profiles" ] } }</pre></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== КОНТРАКТ ===== -->
+<section class="chg" data-chg="host-profiles-api">
+  <div class="shead">
+    <h2>Контракт</h2>
+    <p>Версия контракта — 1. <code>session.profile</code> адресован сессии, остальные — машине. Профиль — <code>владелец/репозиторий/папка</code>.</p>
+  </div>
+  <div class="pr-api">
+    <div class="card pr-pad">
+      <h3>session.profile</h3>
+      <div class="codebox"><pre class="pr-pre">{ "type": "session.profile", "id": "p-1",
+  "v": 1, "callsign": "site@laptop",
+  "profile": "team/profiles/ops" }
+← { "ok": true,
+    "result": { "restart": false } }</pre></div>
+      <p>Модель и усилие профиля в ответе не нужны: они уходят в <code>settings</code> запуска, а выбор клиента главнее — так решает Claude Code. Сессия ещё не открыта — профиль запомнен, <code>restart: false</code>. Живая сессия меняет профиль между ходами — <code>close()</code> и resume. <code>profile: null</code> — без профиля.</p>
+    </div>
+    <div class="card pr-pad">
+      <h3>machine.profiles</h3>
+      <div class="codebox"><pre class="pr-pre">{ "type": "machine.profiles", "id": "p-2",
+  "v": 1, "machine": "laptop",
+  "sync": true }
+← { "ok": true, "result": {
+  "profiles": { "team/profiles/ops": {
+      "model": "opus", "effort": "high",
+      "sessions": [ "site@laptop" ] },
+    "team/profiles/writer": { … } },
+  "repos": { "team/profiles": {
+      "state": "conflict",
+      "op": "git pull --no-rebase",
+      "files": [ "ops/memory/testing.md" ],
+      "since": 1793457720,
+      "error": "CONFLICT (content) …" } } } }</pre></div>
+      <p><code>sync: true</code> — сначала синхронизировать, потом ответить: кнопка «Синхронизировать профили». Идёт другая синхронизация — ответ после неё.</p>
+    </div>
+    <div class="card pr-pad">
+      <h3>поле roster</h3>
+      <div class="codebox"><pre class="pr-pre">{ "callsign": "site@laptop",
+  "profile": { "id": "team/profiles/ops",
+               "state": "conflict" } }</pre></div>
+      <p>Красный профиль на пульте — «память не сведена, сессии получат задание».</p>
+    </div>
+  </div>
+  <div class="card pr-pad">
+    <div class="pr-words">
+      <span class="lbl">слова ошибок</span>
+      <span><code>no_profile</code> — в клонах нет папки профиля с CLAUDE.md или profile.yaml</span>
+    </div>
+  </div>
+</section>
+
+<!-- ===== СБОИ ===== -->
+<section class="chg" data-chg="host-profiles-fail">
+  <div class="shead">
+    <h2>Сбои и остановка</h2>
+    <p>profiles ловит и пишет: в состояние профиля и в журнал. Память он не правит и конфликты не разрешает — это задание модели.</p>
+  </div>
+  <div class="card pr-pad">
+    <ul class="pr-br">
+      <li class="hd"><span>сбой</span><span>что видно</span><span>кто поднимает</span></li>
+      <li class="st"><b>Конфликт при pull</b><span>состояние <code>conflict</code> с файлами; сессии профиля получают задание свести память</span><i>модель</i></li>
+      <li class="st chg" data-chg="host-profiles-fail-gh"><b>github отказал или нет сети</b><span>состояние <code>error</code> с шагом и словом — <code>no_app</code>, <code>not_installed</code>, <code>github_failed</code> или ошибка git; задание модели — «без человека не решить — спроси»</span><i>человек через модель</i></li>
+      <li class="st"><b>Профиля нет в клоне</b><span>сессия стартует без его части; в roster — <code>state: "error"</code>, строка журнала с причиной</span><i>человек: выбрать профиль</i></li>
+      <li class="ok"><b>CLAUDE.md пришёл новый</b><span>действует со следующего старта сессии: <code>systemPrompt</code> задаётся в <code>query()</code></span><i>—</i></li>
+      <li class="ok"><b>Host перезапущен</b><span>профили сессий и состояние репозиториев — из хранилища; таймер синхронизации — заново</span><i>keeper</i></li>
+      <li class="st"><b>Ошибка модуля</b><span>ядро выключает profiles в этой сессии: <code>query()</code> без его части, в roster <code>failed</code></span><i>агент по журналу</i></li>
+    </ul>
+    <div class="pr-stop"><span class="pill acc">stop()</span><span>Новую синхронизацию не начинать, идущую — довести. Не успела — git прерывается вместе с Host; следующая синхронизация начинает сначала, недоделанное слияние git покажет как <code>error</code>.</span></div>
+  </div>
+</section>
+
+<!-- ===== ЭТАЛОНЫ ===== -->
+<section class="chg" data-chg="host-profiles-et">
+  <div class="shead">
+    <h2>Эталоны profiles</h2>
+    <p>Стенд Host: поддельные SDK, relay, keeper и часы; git — поддельный, пишет свои вызовы с окружением; <span class="chg" data-chg="host-profiles-et-gh">github — поддельный участник рации.</span> Номер эталона — номер теста.</p>
+  </div>
+  <div class="ets">
+    <div class="et" id="host-profiles-et-172"><div class="et-n">172</div>
+      <div class="et-in">manage открывает site с <code>profile: "team/profiles/ops"</code>, модели в запросе нет. В папке ops — CLAUDE.md «Ты ведёшь эксплуатацию.» и profile.yaml <code>{ model: opus, effort: high, max_effort: xhigh, fallback_model: [sonnet] }</code>. Второй прогон — в запросе <code>model: "sonnet"</code>.</div>
+      <div class="et-out"><code>session.profile</code> отвечает <code>{ restart: false }</code>. Часть <code>query()</code> от profiles: <code>append</code> — текст CLAUDE.md; <code>settings</code> — <code>model: "opus"</code>, <code>effortLevel: "high"</code>, <code>maxEffortLevel: "xhigh"</code>, <code>fallbackModel: ["sonnet"]</code>, <code>autoMemoryDirectory</code> — <code>~/.switchboard/profiles/team__profiles/ops/memory</code>. Опции <code>model</code> нет; во втором прогоне — <code>model: "sonnet"</code> от manage, часть profiles та же.<br><button type="button" class="pr-etl" data-go="launch">показать на рисунке</button></div>
+      <div class="et-src">чьё: код claude-fleet — профиль даёт добавку к системному промпту, <code>autoMemoryDirectory</code>, <code>fallbackModel</code>, <code>maxEffortLevel</code>, модель и усилие; модель — выбор сессии, потом профиль; факт — документация Claude Code: модель, заданная при запуске, главнее <code>model</code> из настроек.</div></div>
+    <div class="et" id="host-profiles-et-173"><div class="et-n">173</div>
+      <div class="et-in">Две сессии в папке <code>~/Projects/site</code>: site с профилем ops, review с профилем writer.</div>
+      <div class="et-out"><code>settings.autoMemoryDirectory</code> у site — <code>…/ops/memory</code>, у review — <code>…/writer/memory</code>: пути разные, и ни один не в <code>~/.claude/projects</code>.<br><button type="button" class="pr-etl" data-go="path">показать на рисунке</button></div>
+      <div class="et-src">чьё: слово пользователя 31 окт. — «для каждого профиля нужен свой путь»; факт — документация Claude Code: <code>autoMemoryDirectory</code> по умолчанию — <code>~/.claude/projects/&lt;папка&gt;/memory/</code>, одна на папку проекта.</div></div>
+    <div class="et" id="host-profiles-et-174"><div class="et-n">174</div>
+      <div class="et-in">Модель site (профиль ops) пишет <code>Write</code> в <code>…/ops/memory/testing.md</code>. Отдельно: часы +1 мин без записей.</div>
+      <div class="et-out">Хук <code>PostToolUse</code> отвечает <code>{}</code> сразу. Затем git: <code>add -- ops/memory writer/memory</code> (только <code>memory/</code>, без <code>-A</code>), <code>commit</code> «память: laptop 14:02»; <span class="chg" data-chg="host-profiles-et-174-gh">один кадр <code>github.token { repo: "team/profiles" }</code> к поддельному github;</span> <code>pull --no-rebase --no-edit</code>, <code>push</code>; у каждого вызова — <code>GIT_TERMINAL_PROMPT=0</code> и <code>credential.interactive=never</code>; <span class="chg" data-chg="host-profiles-et-174-env">у <code>pull</code> и <code>push</code> токен — в <code>GIT_CONFIG_VALUE_0</code> окружения, в аргументах git его нет.</span> Состояние — <code>ok</code>. По часам — те же вызовы без <code>commit</code>.<br><button type="button" class="pr-etl" data-go="write">показать по шагам</button></div>
+      <div class="et-src">чьё: код claude-fleet — синхронизация памяти: по записи в память и раз в минуту, только папки <code>memory/</code>, <code>pull --no-rebase</code>, без вопросов человеку, сетевой git — с коротким токеном приложения GitHub; слово пользователя 31 окт. — доступ profiles к git — токен приложения GitHub; устав — <code>git add -A</code> запрещён, секреты — никогда через argv.</div></div>
+    <div class="et" id="host-profiles-et-175"><div class="et-n">175</div>
+      <div class="et-in"><code>pull</code> даёт конфликт в <code>ops/memory/testing.md</code>. Затем сообщение получают site (профиль ops) и wiki (без профиля). Потом следующая синхронизация проходит.</div>
+      <div class="et-out">В <code>machine.profiles</code> — <code>state: "conflict"</code>, <code>op</code>, <code>files</code>; в roster site — <code>profile.state: "conflict"</code>. <code>UserPromptSubmit</code> site отвечает <code>additionalContext</code> с заданием свести память; у wiki хука profiles нет. После успешной синхронизации — <code>ok</code>, хук site отвечает <code>{}</code>.<br><button type="button" class="pr-etl" data-go="conflict">показать по шагам</button></div>
+      <div class="et-src">чьё: код claude-fleet — пока состояние профиля не <code>ok</code>, хуки <code>SessionStart</code> и <code>UserPromptSubmit</code> дают модели задание свести память; устав — «Система ловит, агент чинит».</div></div>
+    <div class="et" id="host-profiles-et-176"><div class="et-n">176</div>
+      <div class="et-in">site работает с профилем ops; синхронизация приносит новый CLAUDE.md ops. Потом ядро перезапускает site по <code>s.restart()</code>.</div>
+      <div class="et-out">До перезапуска <code>query()</code> site не пересобирается и <code>restart</code> никто не зовёт; после — <code>append</code> с новым текстом.</div>
+      <div class="et-src">чьё: факт — Agent SDK 0.3.311: <code>systemPrompt</code> задаётся опцией <code>query()</code> при старте сессии.</div></div>
+    <div class="et chg" id="host-profiles-et-177" data-chg="host-profiles-et-177"><div class="et-n">177</div>
+      <div class="et-in">Синхронизация team/profiles; поддельный github отвечает на <code>github.token</code> словом <code>not_installed</code>. Затем сообщение получает site (профиль ops). Потом github выдаёт токен.</div>
+      <div class="et-out">Сетевых вызовов git нет; в <code>machine.profiles</code> — <code>state: "error"</code>, <code>op: "github.token"</code>, <code>error: "not_installed"</code>; в roster site — <code>profile.state: "error"</code>. <code>UserPromptSubmit</code> site отвечает <code>additionalContext</code> с заданием спросить человека. Следующая синхронизация с токеном — <code>ok</code>, хук отвечает <code>{}</code>.<br><button type="button" class="pr-etl" data-go="noaccess">показать по шагам</button></div>
+      <div class="et-src">чьё: код claude-fleet — нет приложения у владельца репозитория — токена нет, git без вопросов человеку; пока состояние профиля не <code>ok</code>, хуки дают модели задание; устав — «Система ловит, агент чинит».</div></div>
+  </div>
+</section>
+
+<script>
+/* ===== profiles: из чего собирается запуск, свой путь памяти, синхронизация по шагам ===== */
+(function(){
+  const V = "host-profiles";
+  const root = document.querySelector('[data-view="' + V + '"]');
+  if (!root) return;
+  const NS = "http://www.w3.org/2000/svg";
+  const $ = (id) => root.querySelector("#" + V + "-" + id);
+  function S(tag, attrs, parent, text){
+    const n = document.createElementNS(NS, tag);
+    for (const k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    if (parent) parent.appendChild(n);
+    return n;
+  }
+  function h(tag, cls, text){ const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; }
+  function markers(svg, pfx, kinds){
+    const defs = S("defs", {}, svg);
+    kinds.forEach((k) => {
+      const m = S("marker", { id: pfx + (k ? "-" + k : ""), viewBox: "0 0 10 10", refX: 9, refY: 5, markerWidth: 7, markerHeight: 7, orient: "auto-start-reverse" }, defs);
+      S("path", { class: "ah" + (k ? " " + k : ""), d: "M0 0L10 5L0 10z" }, m);
+    });
+  }
+  function chips(box, opts, get, set){
+    const bs = opts.map(([k, t]) => {
+      const b = h("button", null, t); b.type = "button";
+      b.addEventListener("click", () => { set(k); sync(); });
+      box.appendChild(b); return [k, b];
+    });
+    function sync(){ bs.forEach(([k, b]) => b.setAttribute("aria-pressed", get(k) ? "true" : "false")); }
+    sync();
+    return { sync };
+  }
+  function flash(el){
+    if (!el) return;
+    const smooth = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    if (el.scrollIntoView) el.scrollIntoView({ behavior: smooth ? "smooth" : "auto", block: "center" });
+    el.classList.add("pr-flash"); setTimeout(() => el.classList.remove("pr-flash"), 1600);
+  }
+
+  /* ---------- 1. из чего собирается запуск ---------- */
+  const L = { prof: true, slot: true, model: false };
+  const lsvg = $("lsvg");
+  function box(x, y, w, hh, cls, t, s, ts){
+    S("rect", { class: "bx " + cls, x, y, width: w, height: hh, rx: 9 }, lsvg);
+    S("text", { class: "tn" + (cls.includes("ghost") ? " mut" : ""), x: x + 10, y: y + 18 }, lsvg, t);
+    if (s) S("text", { class: "ts" + (ts ? " " + ts : ""), x: x + 10, y: y + 32 }, lsvg, s);
+  }
+  function edge(d, k){ S("path", { class: "ed " + k, d, "marker-end": "url(#" + V + "-lm-" + k.split(" ")[0] + ")" }, lsvg); }
+  function drawLaunch(){
+    lsvg.textContent = "";
+    markers(lsvg, V + "-lm", ["core", "mg", "pf", "sl", "off"]);
+    // источники
+    box(4, 6, 150, 52, "mg", "session.open", L.model ? "manage · модель: sonnet" : "manage · модели нет");
+    S("rect", { class: "bx " + (L.prof ? "pf" : "ghost"), x: 4, y: 70, width: 150, height: 118, rx: 9 }, lsvg);
+    S("text", { class: "tn" + (L.prof ? "" : " mut"), x: 14, y: 88 }, lsvg, L.prof ? "профиль ops" : "без профиля");
+    S("text", { class: "ts", x: 14, y: 102 }, lsvg, "profiles · папка профиля");
+    if (L.prof) [["CLAUDE.md", 112], ["profile.yaml", 138], ["memory/", 164]].forEach(([t, y]) => {
+      S("rect", { class: "fl", x: 14, y, width: 130, height: 20, rx: 5 }, lsvg);
+      S("text", { class: "tf", x: 22, y: y + 14 }, lsvg, t);
+    });
+    box(4, 200, 150, 38, L.slot ? "sl" : "ghost", L.slot ? "слот main" : "без слота", L.slot ? "slots · вход слота" : "вход машины");
+    box(4, 250, 150, 40, "core", "ядро", "сессия, режим, resume");
+    // опции query()
+    const P = L.prof ? "pf" : "ghost";
+    const O = [
+      ["model", L.model ? "manage · выбор клиента" : "не задана", 6, L.model ? "mg" : "ghost"],
+      ["systemPrompt.append", L.prof ? "CLAUDE.md + части других" : "части других модулей", 43, P],
+      ["settings.model", L.prof ? "effortLevel · из profile.yaml" : "умолчание машины", 80, P],
+      ["maxEffortLevel", L.prof ? "fallbackModel · settings" : "—", 117, P],
+      ["autoMemoryDirectory", L.prof ? "settings · ops/memory" : "по папке проекта", 154, P],
+      ["hooks", L.prof ? "три хука Claude Code" : "хуков profiles нет", 191, P],
+      ["env · вход", L.slot ? "CLAUDE_SECURESTORAGE_…" : "ключа нет", 228, L.slot ? "sl" : "ghost"],
+      ["cwd · resume · режим", "DISABLE_UPDATES=1", 265, "core"]
+    ];
+    O.forEach(([t, s, y, c]) => box(244, y, 152, 34, c, t, s));
+    // связи
+    edge("M154 26C200 26 200 23 242 23", L.model ? "mg" : "off");
+    if (L.prof){
+      edge("M144 122C196 122 196 60 242 60", "pf");
+      edge("M144 146C200 146 200 97 242 97", "pf");
+      edge("M144 150C200 150 200 134 242 134", "pf");
+      edge("M144 174C200 174 200 171 242 171", "pf");
+      edge("M154 184C204 184 200 208 242 208", "pf");
+    }
+    if (L.slot) edge("M154 219C200 219 200 245 242 245", "sl");
+    edge("M154 270C200 270 200 282 242 282", "core");
+    // пояснение и код
+    let cap = L.prof ? "Профиль ops даёт свою часть: текст CLAUDE.md — в append; модель, усилие, потолок усилия и запасную модель — в settings; папку memory/ — в autoMemoryDirectory; три хука. " : "Без профиля profiles ничего не кладёт: память — по папке проекта, хуков нет. ";
+    cap += L.model ? "Клиент выбрал модель — опция model. Она главнее settings.model: так решает сам Claude Code — модель запуска перекрывает модель из настроек. " : (L.prof ? "Модели в запросе нет — работает settings.model профиля; manage её не копирует. " : "");
+    cap += L.slot ? "Слот main даёт одну переменную — папку входа." : "Без слота — вход машины по умолчанию, ключа в env нет.";
+    $("lcap").textContent = cap;
+    const Q = [
+      ["prompt: input()", "core", "ядро"],
+      ['cwd: "~/Projects/site"', "core", "ядро"],
+      ['resume: "8380f18f…"', "core", "ядро"],
+      ['permissionMode: "bypassPermissions"', "core", "ядро"],
+      ['model: "sonnet"', "manage", "manage", !L.model],
+      ['systemPrompt: { preset: "claude_code",', "core", "ядро"],
+      ["  append: [ CLAUDE.md профиля ops ]", "profiles", "profiles", !L.prof],
+      ["  append: [ «твой callsign — site@laptop» ] }", "fleet", "fleet"],
+      ['settings.model: "opus"', "profiles", "profiles", !L.prof],
+      ['settings.effortLevel: "high"', "profiles", "profiles", !L.prof],
+      ['settings.maxEffortLevel: "xhigh"', "profiles", "profiles", !L.prof],
+      ['settings.fallbackModel: [ "sonnet" ]', "profiles", "profiles", !L.prof],
+      ['settings.autoMemoryDirectory:\n  "…/team__profiles/ops/memory"', "profiles", "profiles", !L.prof],
+      ["hooks: PostToolUse · SessionStart ·\n  UserPromptSubmit", "profiles", "profiles", !L.prof],
+      ['env.DISABLE_UPDATES: "1"', "core", "ядро"],
+      ['env.CLAUDE_SECURESTORAGE_CONFIG_DIR:\n  "~/.switchboard/slots/main"', "slots", "slots", !L.slot]
+    ];
+    const ol = $("lq"); ol.textContent = "";
+    Q.forEach(([c, k, t, off]) => { const li = h("li", off ? "off" : null); li.appendChild(h("code", null, c)); li.appendChild(h("span", "own " + k, off ? "—" : t)); ol.appendChild(li); });
+    lsync.forEach((f) => f());
+  }
+  const lsync = [];
+  const tog = $("tog");
+  [["prof", "профиль", [["1", "ops"], ["0", "нет"]]], ["slot", "слот", [["1", "main"], ["0", "нет"]]], ["model", "модель в запросе", [["1", "sonnet"], ["0", "нет"]]]].forEach(([k, lab, opts]) => {
+    const g = h("div", "pr-grp"); g.appendChild(h("span", "lbl", lab));
+    const c = h("div", "pr-chips"); g.appendChild(c); tog.appendChild(g);
+    lsync.push(chips(c, opts, (v) => String(+L[k]) === v, (v) => { L[k] = v === "1"; drawLaunch(); }).sync);
+  });
+  drawLaunch();
+
+  /* ---------- 2. свой путь памяти ---------- */
+  let own = true;
+  const psvg = $("psvg");
+  function drawPath(){
+    psvg.textContent = "";
+    markers(psvg, V + "-pm", ["pf", "bad", "off"]);
+    S("rect", { class: "bx core", x: 116, y: 4, width: 168, height: 30, rx: 8 }, psvg);
+    S("text", { class: "tn", x: 200, y: 24, "text-anchor": "middle" }, psvg, "~/Projects/site");
+    S("path", { class: "ed off", d: "M160 34L100 54M240 34L300 54" }, psvg);
+    [["site@laptop", "профиль ops", 6], ["review@laptop", "профиль writer", 206]].forEach(([n, p, x]) => {
+      S("rect", { class: "bx", x, y: 54, width: 188, height: 44, rx: 9 }, psvg);
+      S("text", { class: "tn", x: x + 12, y: 73 }, psvg, n);
+      S("text", { class: "ts okk", x: x + 12, y: 89 }, psvg, p + " · пишет память");
+    });
+    if (own){
+      [["ops/memory/", 6], ["writer/memory/", 206]].forEach(([t, x]) => {
+        S("path", { class: "ed pf", d: "M" + (x + 94) + " 98V150", "marker-end": "url(#" + V + "-pm-pf)" }, psvg);
+        S("rect", { class: "bx pf", x, y: 152, width: 188, height: 50, rx: 9 }, psvg);
+        S("text", { class: "tn", x: x + 12, y: 172 }, psvg, t);
+        S("text", { class: "ts", x: x + 12, y: 189 }, psvg, "в папке профиля · в git");
+      });
+      S("text", { class: "ts okk", x: 200, y: 220, "text-anchor": "middle" }, psvg, "autoMemoryDirectory — у каждого профиля своя");
+    } else {
+      S("path", { class: "ed bad", d: "M100 98C100 128 170 130 180 150", "marker-end": "url(#" + V + "-pm-bad)" }, psvg);
+      S("path", { class: "ed bad", d: "M300 98C300 128 230 130 220 150", "marker-end": "url(#" + V + "-pm-bad)" }, psvg);
+      S("rect", { class: "bx bad", x: 40, y: 152, width: 320, height: 50, rx: 9 }, psvg);
+      S("text", { class: "tn", x: 200, y: 172, "text-anchor": "middle" }, psvg, "~/.claude/projects/…site/memory/");
+      S("text", { class: "ts bad", x: 200, y: 189, "text-anchor": "middle" }, psvg, "одна на папку проекта — профили вперемешку");
+      S("text", { class: "ts bad", x: 200, y: 220, "text-anchor": "middle" }, psvg, "и не в git: на другую машину не уедет");
+    }
+    $("pcap").textContent = own
+      ? "profiles задаёт autoMemoryDirectory — папку memory/ своего профиля. Заметки ops и writer не смешиваются, лежат в репозитории профилей и уезжают на другие машины."
+      : "Без autoMemoryDirectory Claude Code пишет память в папку по пути проекта. Обе сессии в ~/Projects/site пишут в одну память, и её не видит синхронизация профилей.";
+  }
+  const pm = chips($("pmode"), [["1", "своя папка профиля"], ["0", "по умолчанию"]], (k) => String(+own) === k, (k) => { own = k === "1"; drawPath(); });
+  drawPath();
+
+  /* ---------- 3. синхронизация по шагам ---------- */
+  const LN = { md: ["модель", "site · ops", "ext"], pf: ["profiles", "Host laptop", "me"], cl: ["клон", "на машине"], gw: ["github", "Worker", "ext"], gh: ["GitHub", "team/profiles", "ext"] };
+  const LX = { md: 40, pf: 120, cl: 200, gw: 280, gh: 360 };
+  const TOKEN = '{ "type": "github.token", "to": "github",\n  "repo": "team/profiles" }\n← { "token": "ghs_…",\n    "expires_at": "2026-10-31T13:02:11Z" }';
+  const GITENV = "GIT_TERMINAL_PROMPT=0  GCM_INTERACTIVE=never\nGIT_CONFIG_COUNT=1\nGIT_CONFIG_KEY_0=http.https://github.com/.extraHeader\nGIT_CONFIG_VALUE_0=Authorization: basic <токен>\ngit -c credential.interactive=never \\\n    -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60";
+  const CASES = [
+    { id: "write", name: "Запись в память", et: 174, steps: [
+      { a: "md", b: "cl", l: "Write · ops/memory/…", jl: "вызов инструмента",
+        cap: "Модель site записала заметку в память своего профиля: claude пишет её в autoMemoryDirectory.",
+        js: '{ "type": "tool_use", "name": "Write",\n  "input": { "file_path":\n    "~/.switchboard/profiles/team__profiles/ops/memory/testing.md",\n    "content": "Тесты гонять через pnpm test --run" } }' },
+      { a: "md", b: "pf", l: "PostToolUse", jl: "хук в процессе Host",
+        cap: "SDK зовёт хук PostToolUse в процессе Host. Путь внутри memory/ профиля — синхронизация в очередь. Хук сразу отвечает пустым ответом: модель ничего не ждёт.",
+        js: '// hooks.PostToolUse, matcher "Write|Edit|MultiEdit"\n{ "hook_event_name": "PostToolUse", "tool_name": "Write",\n  "tool_input": { "file_path": "…/ops/memory/testing.md" } }\n← {}' },
+      { a: "pf", b: "cl", l: "add memory/ · commit", jl: "git в клоне",
+        cap: "В коммит идут только папки memory/ профилей — никогда -A. Сообщение — машина и время.",
+        js: 'git add -- ops/memory writer/memory\ngit diff --cached --quiet || \\\n  git commit -m "память: laptop 14:02"' },
+      { a: "pf", b: "gw", l: "github.token", jl: "кадр через relay",
+        cap: "Перед сетью — токен на team/profiles у Worker github: на час, только этот репозиторий. Один на синхронизацию.",
+        js: TOKEN },
+      { a: "pf", b: "gh", l: "pull --no-rebase", jl: "git, сеть",
+        cap: "Забрать записи других машин слиянием. Токен — в заголовке через окружение git; git — без вопросов человеку: под Host окна ввода нет.",
+        js: GITENV + '\n    pull --no-rebase --no-edit' },
+      { a: "pf", b: "gh", l: "push", jl: "git, сеть", cap: "Отправить своё.", js: GITENV + "\n    push" },
+      { a: "pf", b: "pf", l: "состояние ok", jl: "machine.profiles",
+        cap: "Состояние репозитория — ok. Раз в минуту то же без записи: забрать чужое, отправить своё.",
+        js: '"repos": { "team/profiles": { "state": "ok",\n  "last": "память: laptop 14:02" } }' }
+    ]},
+    { id: "conflict", name: "Конфликт", et: 175, steps: [
+      { a: "pf", b: "gh", l: "pull → конфликт", bad: true, jl: "git, сеть",
+        cap: "Машина pc записала в тот же файл памяти. Слияние не сошлось.",
+        js: 'git pull --no-rebase --no-edit\nCONFLICT (content): Merge conflict in ops/memory/testing.md\nAutomatic merge failed; fix conflicts and then commit.' },
+      { a: "pf", b: "pf", l: "состояние conflict", bad: true, jl: "machine.profiles · roster",
+        cap: "profiles ничего не правит: пишет состояние с командой и файлами. В roster сессий профиля — красный профиль.",
+        js: '"team/profiles": { "state": "conflict",\n  "op": "git pull --no-rebase",\n  "files": [ "ops/memory/testing.md" ],\n  "since": 1793457720 }' },
+      { a: "md", b: "pf", l: "UserPromptSubmit", jl: "хук в процессе Host",
+        cap: "Сессия с профилем ops получает сообщение — SDK зовёт хук UserPromptSubmit.",
+        js: '{ "hook_event_name": "UserPromptSubmit",\n  "prompt": "Поправь тесты миграций" }' },
+      { a: "pf", b: "md", l: "additionalContext", jl: "ответ хука",
+        cap: "Хук отвечает заданием: что случилось, цель, где. То же — в SessionStart новой сессии профиля и после записи в память.",
+        js: '{ "hookSpecificOutput": {\n  "hookEventName": "UserPromptSubmit",\n  "additionalContext": "Память профиля ops не сведена:\n   git pull — конфликт в ops/memory/testing.md\n   (клон ~/.switchboard/profiles/team__profiles).\n   Сведи обе версии, закоммить и отправь.\n   Без человека не решить — спроси." } }' },
+      { a: "md", b: "cl", l: "свести · commit", jl: "Bash модели",
+        cap: "Модель сводит обе версии заметки и коммитит слияние своим инструментом Bash.",
+        js: 'git -C ~/.switchboard/profiles/team__profiles \\\n  add ops/memory/testing.md\ngit commit --no-edit' },
+      { a: "pf", b: "gh", l: "pull · push → ok", jl: "следующая синхронизация",
+        cap: "Следующая синхронизация проходит: состояние ok, хуки снова отвечают пустым.",
+        js: '"team/profiles": { "state": "ok",\n  "last": "Merge … ops/memory" }' }
+    ]},
+    { id: "noaccess", name: "Нет доступа", et: 177, steps: [
+      { a: "pf", b: "gw", l: "github.token → not_installed", bad: true, jl: "кадр через relay",
+        cap: "Приложение GitHub флота не допущено к team/profiles — github отказывает словом. Без токена git в сеть не идёт и пароль не спрашивает.",
+        js: '{ "type": "github.token", "repo": "team/profiles" }\n← { "ok": false, "error": "not_installed",\n    "install": "https://github.com/apps/switchboard-team/installations/new" }' },
+      { a: "pf", b: "pf", l: "состояние error", bad: true, jl: "machine.profiles",
+        cap: "Состояние error с шагом и словом; строка в журнале. Так же — no_app, github_failed и обрыв сети у pull или push.",
+        js: '"team/profiles": { "state": "error", "op": "github.token",\n  "error": "not_installed" }' },
+      { a: "pf", b: "md", l: "SessionStart · задание", jl: "ответ хука",
+        cap: "Модель профиля получает задание; приложение она сама не установит — задание велит спросить человека.",
+        js: '"additionalContext": "Память профиля ops не отправлена:\n  приложение GitHub флота не допущено к team/profiles.\n  Без человека не решить — спроси."' },
+      { a: "md", b: "md", l: "вопрос человеку", jl: "AskUserQuestion",
+        cap: "Модель спрашивает человека — вопрос уходит тому, кто дал задачу, и зрителям сессии. Приложение установлено — следующая синхронизация вернёт ok.",
+        js: 'AskUserQuestion: «Приложение GitHub флота не допущено к team/profiles —\nпамять профиля ops не уходит. Установить его на репозиторий?»' }
+    ]}
+  ];
+  const ssvg = $("ssvg"), caseBox = $("cases");
+  let ci = 0, si = 0;
+  const cbtns = CASES.map((c, i) => {
+    const b = h("button", null, c.name); b.type = "button";
+    b.addEventListener("click", () => { ci = i; si = 0; drawSync(); });
+    caseBox.appendChild(b); return b;
+  });
+  function drawSync(){
+    const c = CASES[ci];
+    const H = 62 + c.steps.length * 34 + 8;
+    ssvg.setAttribute("viewBox", "0 0 400 " + H);
+    ssvg.textContent = "";
+    markers(ssvg, V + "-sq", ["", "on", "bad"]);
+    Object.keys(LN).forEach((k) => {
+      const [n, s, cl] = LN[k], x = LX[k];
+      S("line", { class: "ll", x1: x, y1: 44, x2: x, y2: H - 4 }, ssvg);
+      S("rect", { class: "lh" + (cl ? " " + cl : ""), x: x - 37, y: 4, width: 74, height: 38, rx: 8 }, ssvg);
+      S("text", { class: "lt", x, y: 20, "text-anchor": "middle" }, ssvg, n);
+      S("text", { class: "ls", x, y: 34, "text-anchor": "middle" }, ssvg, s);
+    });
+    c.steps.forEach((st, i) => {
+      const y = 66 + i * 34;
+      const g = S("g", { class: "st" + (i === si ? " on" : i > si ? " fut" : "") + (st.bad ? " bad" : "") }, ssvg);
+      S("text", { class: "no", x: 2, y: y + 4 }, g, String(i + 1));
+      if (st.a === st.b){
+        const w = st.l.length * 6.3 + 20, x = Math.min(Math.max(12, LX[st.a] - w / 2), 396 - w);
+        S("rect", { class: "nt", x, y: y - 11, width: w, height: 22, rx: 11 }, g);
+        S("text", { class: "ntt", x: x + w / 2, y: y + 4, "text-anchor": "middle" }, g, st.l);
+      } else {
+        const a = LX[st.a], b = LX[st.b], dir = b > a ? 1 : -1;
+        const mk = st.bad ? "-bad" : i === si ? "-on" : "";
+        S("line", { class: "m", x1: a + dir * 3, y1: y + 4, x2: b - dir * 5, y2: y + 4, "marker-end": "url(#" + V + "-sq" + mk + ")" }, g);
+        S("text", { class: "ml", x: (a + b) / 2, y: y - 3, "text-anchor": "middle" }, g, st.l);
+      }
+      const hit = S("rect", { class: "hit", x: 0, y: y - 17, width: 400, height: 34 }, ssvg);
+      hit.addEventListener("click", () => { si = i; drawSync(); });
+    });
+    const s = c.steps[si];
+    cbtns.forEach((b, i) => b.setAttribute("aria-pressed", i === ci ? "true" : "false"));
+    $("sn").textContent = "шаг " + (si + 1) + " из " + c.steps.length;
+    $("scap").textContent = s.cap;
+    $("sjl").textContent = s.jl;
+    $("sjs").textContent = s.js;
+    $("sprev").disabled = si === 0;
+    $("snext").disabled = si === c.steps.length - 1;
+    const etl = $("setl"); etl.hidden = !c.et; if (c.et) etl.textContent = "эталон " + c.et;
+  }
+  $("sprev").addEventListener("click", () => { if (si > 0){ si--; drawSync(); } });
+  $("snext").addEventListener("click", () => { if (si < CASES[ci].steps.length - 1){ si++; drawSync(); } });
+  $("setl").addEventListener("click", () => flash($("et-" + CASES[ci].et)));
+  drawSync();
+
+  /* ---------- эталоны → картинки ---------- */
+  root.querySelectorAll(".pr-etl[data-et]").forEach((b) => b.addEventListener("click", () => flash($("et-" + b.dataset.et))));
+  const GO = {
+    launch: () => { L.prof = true; L.slot = true; L.model = false; drawLaunch(); return lsvg.closest(".card"); },
+    path: () => { own = true; drawPath(); pm.sync(); return psvg.closest(".card"); },
+    write: () => { ci = 0; si = 0; drawSync(); return ssvg.closest(".card"); },
+    conflict: () => { ci = 1; si = 0; drawSync(); return ssvg.closest(".card"); },
+    noaccess: () => { ci = 2; si = 0; drawSync(); return ssvg.closest(".card"); }
+  };
+  root.querySelectorAll(".pr-etl[data-go]").forEach((b) => b.addEventListener("click", () => flash(GO[b.dataset.go]())));
+
+  document.addEventListener("view:show", (e) => { if (e.detail === V){ drawLaunch(); drawPath(); drawSync(); } });
+})();
+</script>
