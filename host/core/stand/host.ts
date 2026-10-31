@@ -1,0 +1,229 @@
+// Стенд Host: настоящее ядро на поддельных SDK, relay, keeper и часах. Хранилище и журнал — во временной папке.
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { Frame } from "@switchboard/protocol";
+import type { Host, Manifest, Module, Session } from "../contract.ts";
+import { Kernel, Mod, StartError } from "../src/kernel.ts";
+import type { HostConfig } from "../src/kernel.ts";
+import type { ModuleEntry, Release } from "../src/release.ts";
+import type { CoreRecord } from "../src/store.ts";
+import { FakeClock } from "./clock.ts";
+import { FakeKeeper } from "./keeper.ts";
+import type { FakeProc } from "./keeper.ts";
+import { FakeRelay } from "./relay.ts";
+import { FakeSdk } from "./sdk.ts";
+import type { FakeQuery } from "./sdk.ts";
+
+export const CORE: Manifest = {
+  name: "host",
+  type: "sdk-core",
+  version: "1.0.0",
+  provides: { "host.module": 1 },
+  uses: { "manifest.check@manifest-gate": 1, "hello@relay": 1, "session.state@relay": 1 },
+  config: {},
+};
+
+/**
+ * Модуль для стенда: манифест собирается из объекта — provides из requests, frames и fields (версия 1)
+ * плюс extra.provides; uses, calls, version — из extra.
+ */
+export function module(name: string, mod: Module, extra: Partial<Manifest> = {}): ModuleEntry {
+  const provides: Record<string, number> = {};
+  for (const n of [...Object.keys(mod.requests ?? {}), ...Object.keys(mod.frames ?? {}), ...Object.keys(mod.fields ?? {})]) provides[n] = 1;
+  return {
+    manifest: {
+      name,
+      type: "sdk",
+      version: extra.version ?? "1.0.0",
+      provides: { ...provides, ...(extra.provides ?? {}) },
+      uses: extra.uses ?? {},
+      calls: extra.calls ?? [],
+      config: extra.config ?? {},
+    },
+    module: mod,
+  };
+}
+
+/** Выпуск для host.reload на стенде. */
+export function release(version: string, modules: ModuleEntry[], o: { core?: string; sdk?: string } = {}): Release {
+  return { version, core: o.core ?? CORE.version, sdk: o.sdk ?? "0.3.311", modules };
+}
+
+export type StandOptions = {
+  modules?: ModuleEntry[];
+  machine?: string;
+  /** relay в host.json; по умолчанию есть */
+  relay?: boolean;
+  /** core.json до старта: сессии прежнего Host */
+  sessions?: Array<Partial<CoreRecord> & { callsign: string }>;
+  /** папка ~/.switchboard — та же между перезапусками Host */
+  home?: string;
+  /** keeper — тот же между перезапусками Host */
+  keeper?: FakeKeeper;
+  relayStand?: FakeRelay;
+  sdkVersion?: string;
+  version?: string;
+  /** выпуски для host.reload: папка → выпуск */
+  releases?: Record<string, Release>;
+  config?: Partial<HostConfig>;
+  /** стартовать сразу; по умолчанию да */
+  start?: boolean;
+};
+
+export type Stand = {
+  kernel: Kernel;
+  sdk: FakeSdk;
+  keeper: FakeKeeper;
+  relay: FakeRelay;
+  clock: FakeClock;
+  home: string;
+  /** коды выхода процесса Host */
+  exits: number[];
+  /** ошибка старта, если Host не стартовал */
+  startError: StartError | null;
+  start(): Promise<void>;
+  /** host модуля, как его видит модуль */
+  host(module: string): Host;
+  /** сессия глазами модуля */
+  session(module: string, callsign: string): Session | undefined;
+  /** host.open от имени модуля */
+  open(callsign: string, o?: { module?: string; cwd?: string }): Promise<Session>;
+  /** процесс сессии у keeper */
+  proc(callsign: string): FakeProc;
+  /** нынешний query() сессии */
+  query(callsign: string): FakeQuery;
+  /** строки журнала Host */
+  journal(): Array<Record<string, any>>;
+  /** кадры session.state сессии */
+  states(callsign: string): Frame[];
+  /** штатная остановка Host и поддельного keeper */
+  close(): Promise<void>;
+  /** Host убит: сокеты keeper и relay закрыты без штатной остановки, процессы живут у keeper */
+  crash(): void;
+};
+
+const realSetTimeout = globalThis.setTimeout;
+
+/** Дождаться условия: опрос по настоящим часам (поддельные таймеры vitest его не останавливают). */
+export async function until<T>(fn: () => T | undefined | null | false, ms = 3000): Promise<T> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const v = fn();
+    if (v) return v;
+    if (Date.now() > end) throw new Error(`не дождались: ${fn.toString().slice(0, 160)}`);
+    await new Promise((r) => realSetTimeout(r, 5));
+  }
+}
+
+/** Собрать стенд и запустить Host. */
+export async function standHost(o: StandOptions = {}): Promise<Stand> {
+  const machine = o.machine ?? "laptop";
+  const home = o.home ?? mkdtempSync(join(tmpdir(), "switchboard-stand-"));
+  mkdirSync(join(home, "store"), { recursive: true });
+  if (o.sessions) {
+    const list: CoreRecord[] = o.sessions.map((s) => ({
+      session_id: `sid-${s.callsign.split("@")[0]}`,
+      cwd: join(home, "work", s.callsign.split("@")[0]),
+      sdk: o.sdkVersion ?? "0.3.311",
+      stopped: false,
+      ...s,
+    }));
+    writeFileSync(join(home, "store", "core.json"), JSON.stringify({ sessions: list }));
+  }
+  const keeper = o.keeper ?? (await new FakeKeeper().listen());
+  const relay = o.relayStand ?? new FakeRelay();
+  const sdk = new FakeSdk(o.sdkVersion ?? "0.3.311");
+  const clock = new FakeClock();
+  const exits: number[] = [];
+  let crashed = false;
+  const config: HostConfig = {
+    machine,
+    ...(o.relay === false ? {} : { workers: { relay: { url: "wss://relay.stand" } } }),
+    ...(o.config ?? {}),
+  };
+  const kernel = new Kernel({
+    home,
+    config,
+    core: CORE,
+    release: { version: o.version ?? "1.4.0", core: CORE.version, sdk: sdk.version, modules: o.modules ?? [] },
+    sdk,
+    keeper: keeper.addr,
+    relayKey: `host.${machine}.k7f3.stand`,
+    WebSocket: relay.WebSocket,
+    clock,
+    loadRelease: async (dir) => {
+      const r = o.releases?.[dir];
+      if (!r) throw new Error(`выпуска ${dir} нет`);
+      return r;
+    },
+    exit: (code) => exits.push(code),
+    pauseMs: 1000,
+  });
+  // свой модуль стенда вне списка: тест видит сессию так же, как модуль
+  const standMod = new Mod({ name: "stand", type: "sdk", version: "0.0.0", provides: {}, uses: {}, config: {} }, {}, 0);
+  const st: Stand = {
+    kernel,
+    sdk,
+    keeper,
+    relay,
+    clock,
+    home,
+    exits,
+    startError: null,
+    async start() {
+      try {
+        await kernel.start();
+      } catch (e) {
+        if (!(e instanceof StartError)) throw e;
+        st.startError = e;
+      }
+    },
+    host(name) {
+      const m = kernel.byName.get(name);
+      if (!m) throw new Error(`модуля ${name} нет`);
+      return kernel.hostFacade(m);
+    },
+    session(name, callsign) {
+      return st.host(name).session(callsign);
+    },
+    async open(callsign, oo = {}) {
+      const s = await kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", callsign.split("@")[0]) });
+      const m = oo.module ? kernel.byName.get(oo.module) : undefined;
+      return s.facade(m ?? standMod);
+    },
+    proc(callsign) {
+      const p = keeper.procs.get(callsign);
+      if (!p) throw new Error(`процесса ${callsign} нет у keeper`);
+      return p;
+    },
+    query(callsign) {
+      const q = sdk.last(callsign);
+      if (!q) throw new Error(`query() сессии ${callsign} нет`);
+      return q;
+    },
+    journal() {
+      const dir = join(home, "journal");
+      if (!existsSync(dir)) return [];
+      return readdirSync(dir)
+        .filter((f) => f.startsWith("host-"))
+        .flatMap((f) => readFileSync(join(dir, f), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)));
+    },
+    states(callsign) {
+      return relay.frames("session.state").filter((f) => f.callsign === callsign);
+    },
+    crash() {
+      crashed = true;
+      kernel.keeper.close();
+      kernel.relay?.close(1000, "killed");
+    },
+    async close() {
+      if (crashed) return;
+      if (!kernel.shutting) await kernel.shutdown("upgrade");
+      else await kernel.shutting;
+      if (!o.keeper) await keeper.close();
+    },
+  };
+  if (o.start !== false) await st.start();
+  return st;
+}

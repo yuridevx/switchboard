@@ -2,7 +2,7 @@
 // Токен деплоя и секреты — из переменных окружения (так в GitHub Actions), иначе из файлов env вне репо
 // (SWITCHBOARD_DEV_DIR, по умолчанию ~/.switchboard-dev). Секреты уходят в wrangler только через stdin.
 // Запуск: node scripts/deploy-workers.mjs [модуль…]   без списка — все.
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -41,6 +41,39 @@ function run(cwd, args, input) {
   if (r.status !== 0) {
     console.error(`deploy: wrangler ${args.join(" ")} в workers/${cwd.split(/[\\/]/).pop()} — выход ${r.status}`);
     process.exit(1);
+  }
+}
+
+// Первый выпуск флота: участники привязаны к relay, relay — к участникам; Cloudflare не пускает привязку
+// к несуществующему Worker. Если relay ещё нет — сначала он выходит с одной привязкой GATE и без участников.
+async function relayExists() {
+  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${base.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/switchboard/settings`, {
+    headers: { Authorization: `Bearer ${base.CLOUDFLARE_API_TOKEN}` },
+  });
+  if (r.status === 404) return false;
+  if (!r.ok) {
+    console.error(`deploy: не узнал, есть ли relay — HTTP ${r.status}`);
+    process.exit(1);
+  }
+  return true;
+}
+if (list.some((m) => m !== "gate" && m !== "relay") && !(await relayExists())) {
+  const dir = join(root, "workers", "relay");
+  const conf = JSON.parse(
+    readFileSync(join(dir, "wrangler.jsonc"), "utf8")
+      .split("\n")
+      .filter((l) => !/^\s*\/\//.test(l))
+      .join("\n"),
+  );
+  conf.services = conf.services.filter((s) => s.binding === "GATE");
+  conf.vars.PARTICIPANTS = {};
+  const boot = join(dir, "wrangler.bootstrap.json");
+  writeFileSync(boot, JSON.stringify(conf, null, 2));
+  console.log("\n=== relay (первый выпуск, без участников) ===");
+  try {
+    run(dir, ["deploy", "--config", "wrangler.bootstrap.json"]);
+  } finally {
+    rmSync(boot, { force: true });
   }
 }
 

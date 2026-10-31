@@ -65,6 +65,7 @@ export function check(mods: Manifest[]): string[] {
       }
       if (o.name === m.name) continue;
       if (!allowed.has(o.name)) errors.push(`модуль ${m.name}: импорт ${spec} — ${o.name} нет в uses`);
+      else if (spec !== pkg) errors.push(`модуль ${m.name}: импорт ${spec} — мимо контракта ${pkg}`);
     }
   }
 

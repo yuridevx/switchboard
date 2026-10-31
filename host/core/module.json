@@ -1,0 +1,14 @@
+{
+  "name": "host",
+  "type": "sdk-core",
+  "version": "1.0.0",
+  "provides": {
+    "host.module": 1
+  },
+  "uses": {
+    "manifest.check@manifest-gate": 1,
+    "hello@relay": 1,
+    "session.state@relay": 1
+  },
+  "config": {}
+}

@@ -34,6 +34,11 @@ describe("гейт манифестов", () => {
     expect(e).toEqual(["модуль watch: импорт @switchboard/host-push — host-push нет в uses"]);
   });
 
+  it("глубокий импорт мимо контракта при объявленном uses", () => {
+    const e = check([m("host-push", { provides: { notify: 1 } }), m("watch", { uses: { "notify@host-push": 1 }, imports: ["@switchboard/host-push/src/send.ts"] })]);
+    expect(e).toEqual(["модуль watch: импорт @switchboard/host-push/src/send.ts — мимо контракта @switchboard/host-push"]);
+  });
+
   it("секрет в двух модулях и повтор имени модуля", () => {
     const e = check([m("gate", { config: { FLEET_SECRET: "secret" } }), m("relay", { config: { FLEET_SECRET: "secret" } }), m("relay")]);
     expect(e).toContain("секрет FLEET_SECRET: в config двух модулей — gate и relay");
