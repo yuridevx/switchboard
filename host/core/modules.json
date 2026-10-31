@@ -1,1 +1,16 @@
-[]
+[
+  "host-watch",
+  "host-push",
+  "host-questions",
+  "host-fleet",
+  "host-chat",
+  "host-journal",
+  "host-accounts",
+  "host-slots",
+  "host-profiles",
+  "host-manage",
+  "host-points",
+  "host-machine",
+  "host-upgrade",
+  "host-remote"
+]

@@ -1,5 +1,12 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative } from "node:path";
+// node:fs и node:path берутся при вызове: контракт гейта грузится и в браузере (check), а loadRepo — только в Node
+const fs = () => process.getBuiltinModule("node:fs") as typeof import("node:fs");
+const path = () => process.getBuiltinModule("node:path") as typeof import("node:path");
+const join = (...p: string[]) => path().join(...p);
+const existsSync = (p: string) => fs().existsSync(p);
+const readdirSync = ((p: string, o?: unknown) => fs().readdirSync(p, o as never)) as typeof import("node:fs").readdirSync;
+const readFileSync = (p: string, e: "utf8") => fs().readFileSync(p, e);
+const statSync = (p: string) => fs().statSync(p);
+const relative = (a: string, b: string) => path().relative(a, b);
 import type { Manifest } from "./check.ts";
 
 const GROUPS = ["protocol", "tools/*", "workers/*", "os/*", "host/core", "host/modules/*", "web/packages/*", "web/phone", "web/pult"];
