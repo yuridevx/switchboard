@@ -1,0 +1,26 @@
+// Стили экрана вопроса: карточка вопроса, варианты, «Свой ответ».
+export const CSS = `
+.ask-q{background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:9px}
+.ask-qh{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ask-chip{font:600 12px/1 var(--mono);background:var(--wait-weak);color:var(--wait);padding:5px 8px;border-radius:6px}
+.ask-qn{font:500 12px var(--mono);color:var(--muted)}
+.ask-qt{font:600 17px/1.3 var(--body)}
+.ask-opts{display:flex;flex-direction:column;gap:7px}
+.ask-opt{display:grid;grid-template-columns:16px minmax(0,1fr);gap:10px;align-items:start;text-align:left;width:100%;padding:11px 12px;
+  border-radius:12px;border:1.5px solid var(--line);background:var(--bg)}
+.ask-opt::before{content:"";width:12px;height:12px;border-radius:50%;border:2px solid var(--muted);margin-top:3px}
+.ask-opt.multi::before{border-radius:3px}
+.ask-opt[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-weak)}
+.ask-opt[aria-pressed="true"]::before{border-color:var(--accent);background:var(--accent)}
+.ask-opt b{display:block;font:600 15px/1.3 var(--body)}
+.ask-opt span span{display:block;font-size:13px;color:var(--muted);line-height:1.35}
+.ask-opt.own{border-style:dashed;background:transparent}
+.ask-opt[disabled]{opacity:.45;cursor:default}
+.ask-own{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;color:var(--ink);background:var(--bg)}
+.ask-field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+.ask-field small{font-size:12px}
+.ask-url{font:500 13px var(--mono);color:var(--accent);word-break:break-all}
+.ask-decline{width:100%;background:none;border:1px solid var(--line);border-radius:12px;padding:10px;font:600 14px var(--body)}
+.ask-hint{font-size:12.5px;color:var(--muted);text-align:center;margin-top:auto;padding:6px 0 12px}
+.ask-empty{color:var(--muted);text-align:center;padding:40px 12px}
+`;

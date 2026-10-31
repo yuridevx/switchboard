@@ -1,0 +1,18 @@
+{
+  "name": "web-chat",
+  "type": "web",
+  "version": "1.0.0",
+  "provides": { "chat": 1, "unread": 1 },
+  "uses": {
+    "app@web-core": 1,
+    "session.watch@host-watch": 1,
+    "session.unwatch@host-watch": 1,
+    "session.events@host-watch": 1,
+    "session.history@host-chat": 1,
+    "session.prompt@host-chat": 1,
+    "message@host-fleet": 1,
+    "ask@web-ask": 1,
+    "asked@web-ask": 1
+  },
+  "config": {}
+}

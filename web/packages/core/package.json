@@ -1,0 +1,16 @@
+{
+  "name": "@switchboard/web-core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./contract.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "6.2.6"
+  }
+}

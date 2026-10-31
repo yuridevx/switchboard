@@ -1,0 +1,15 @@
+{
+  "name": "phone",
+  "type": "web-app",
+  "version": "1.0.0",
+  "provides": {},
+  "uses": {
+    "app@web-core": 1,
+    "board@web-board": 1,
+    "card@web-card": 1,
+    "chat@web-chat": 1,
+    "ask@web-ask": 1,
+    "alerts@web-alerts": 1
+  },
+  "config": { "RELAY_URL": "var" }
+}

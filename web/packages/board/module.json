@@ -1,0 +1,15 @@
+{
+  "name": "web-board",
+  "type": "web",
+  "version": "1.0.0",
+  "provides": { "board": 1, "need": 1 },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "asked@web-ask": 1,
+    "ask@web-ask": 1,
+    "unread@web-chat": 1,
+    "card@web-card": 1
+  },
+  "config": {}
+}
