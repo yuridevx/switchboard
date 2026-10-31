@@ -1,0 +1,71 @@
+# Проверка на каждый пуш и PR; выкладка — только из main после зелёных проверок.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: гейт манифестов
+        run: npm run gate
+      - name: typecheck
+        run: npx tsc -p tsconfig.json
+      - name: тесты Node (protocol, tools, host)
+        run: npx vitest run
+      - name: тесты пакетов (Worker-модули, веб)
+        run: npm run test --workspaces --if-present
+
+  keeper:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: os/keeper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: os/keeper/go.mod
+          cache-dependency-path: os/keeper/go.sum
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [test, keeper]
+    runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      FLEET_SECRET: ${{ secrets.FLEET_SECRET }}
+      VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
+      R2_TOKEN: ${{ secrets.R2_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Worker-модули
+        run: node scripts/deploy-workers.mjs
