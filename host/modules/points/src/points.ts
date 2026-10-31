@@ -2,6 +2,7 @@
 // Точка — байты файла разговора, файлов рядом и снимка git блоками по 1 МиБ в R2 плюс строка в реестре
 // Worker points. Решения — у реестра (хозяин сессии, какие блоки уже есть), байты — у машины.
 // Своего у модуля — пометка «в R2» в разделе сессии: { r2: true }.
+import { expandDir } from "./dir.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -325,7 +326,8 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       const point = fr.point;
       if (!sid || typeof point !== "number") throw refuse("bad_point", "нужны sid и номер точки");
       const copy = fr.copy === true;
-      const dir = resolve(String(fr.dir ?? ""));
+      // «~/папка» с пульта — от домашней папки машины (живой прогон 31 окт.: resolve давал путь от папки выпуска Host)
+      const dir = expandDir(String(fr.dir ?? ""));
       const g = await host.request("points.get", { v: 1, to: "points", ids: [point] });
       if (!g.ok) throw refuse(g.error, `points.get ${point}: ${g.error}`);
       const res = g.result as { owner: string | null; points: Row[]; creds: Creds };
