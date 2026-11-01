@@ -1,6 +1,6 @@
 // Интеграция на стенде: ядро, поддельные держатели по TCP, поддельный SDK и relay.
 import { afterEach, describe, expect, it } from "vitest";
-import { msg, module, standHost, turn, until } from "../stand/index.ts";
+import { FakeHolders, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
 import type { Module } from "../contract.ts";
 
@@ -44,4 +44,32 @@ describe("стенд: новая сессия и ход", () => {
     st.proc("site@laptop").send(msg.init(s.info.session_id, "claude-opus-5"));
     await until(() => s.info.model === "claude-opus-5");
   });
+
+describe("стенд: отправитель ввода", () => {
+  it("отправитель последнего ввода — в записи сессии: после перезапуска Host s.info.from тот же", async () => {
+    const holders = new FakeHolders();
+    st = await standHost({ machine: "win", holders });
+    const s = await st.open("disk-full-1@win");
+    s.input("Свободно 2%", { from: "phone~owner@example.com" });
+    expect(s.info.from).toBe("phone~owner@example.com");
+    const { home } = st;
+    await st.close();
+    st = await standHost({ machine: "win", home, holders });
+    const again = await until(() => st!.kernel.sessions.get("disk-full-1@win"));
+    await until(() => again.state === "idle");
+    expect(again.rec.from).toBe("phone~owner@example.com");
+    await st.close();
+    st = null;
+    await holders.close();
+  });
+
+  it("запрос модуля этой машины: отправитель — from запроса, иначе машина", async () => {
+    const seen: Array<string | undefined> = [];
+    const owner: Module = { requests: { who: (_f, ctx) => void seen.push(ctx.from) } };
+    st = await standHost({ machine: "win", modules: [module("host-owner", owner, { provides: { who: 1 } })] });
+    await st.host("host-owner").request("who", { v: 1, from: "lead@win" });
+    await st.host("host-owner").request("who", { v: 1 });
+    expect(seen).toEqual(["lead@win", "@win"]);
+  });
+});
 });

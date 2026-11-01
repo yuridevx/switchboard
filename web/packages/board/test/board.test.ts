@@ -63,4 +63,21 @@ describe("список сессий", () => {
     expect(t.$$(".board-mach").map((x) => x.textContent)).toEqual(["нужны вы1", "в работе1", "свободны1", "остановлены1"]);
     expect(t.$(".sb-navcol button")!.textContent).toBe("Сессии1");
   });
+
+  it("дочь под родителем: отступ и порядок дерева; родитель на другой машине — его позывной в строке; сессия инцидента — значок типа", async () => {
+    const r = homeRoster();
+    r.sessions = [
+      { callsign: "lead@laptop", state: "idle", model: "opus" },
+      { callsign: "disk-full-1@laptop", state: "busy", parent: "@laptop", incident: { type: "disk-full", key: "C:" } },
+      { callsign: "docs@laptop", state: "busy", parent: "lead@laptop" },
+      { callsign: "fix-auth@pc", state: "busy", parent: "lead@laptop", model: "sonnet" },
+    ];
+    const t = await stand(parts(), { roster: r });
+    expect(t.$$(".board-row").map((x) => x.getAttribute("data-callsign"))).toEqual(["lead@laptop", "docs@laptop", "disk-full-1@laptop", "fix-auth@pc"]);
+    expect(t.$('[data-callsign="docs@laptop"]')!.className).toBe("board-row kid");
+    expect(t.$('[data-callsign="docs@laptop"]')!.getAttribute("style")).toBe("margin-left:18px");
+    expect(t.$('[data-callsign="lead@laptop"]')!.className).toBe("board-row");
+    expect(t.$('[data-callsign="disk-full-1@laptop"] .board-inc')!.textContent).toBe("disk-full");
+    expect(t.$('[data-callsign="fix-auth@pc"] .board-rt span')!.textContent).toBe("↳ lead@laptop · sonnet");
+  });
 });

@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { fail, isReply, machineOf, ok, serviceAddress } from "@switchboard/protocol";
+import { fail, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
 import type { Link, LinkState, WsCtor } from "@switchboard/relay";
@@ -561,7 +561,9 @@ export class Kernel {
     const local = this.byName.has(owner) && (target === null || target === this.machine) && !(payload.to && typeof payload.to !== "string");
     if (local) {
       const id = `${this.idPrefix}-${++this.reqSeq}`;
-      const r = await this.handleRequest({ ...payload, type: name, id } as Frame & { id: string }, `@${this.machine}`);
+      // отправитель — как через relay: from запроса, иначе машина; владелец видит его в ctx.from и не выбирает сам
+      const from = kindOf(payload.from) ? (payload.from as string) : `@${this.machine}`;
+      const r = await this.handleRequest({ ...payload, type: name, id, from } as Frame & { id: string }, from);
       return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error };
     }
     if (!this.relay) return { ok: false, error: "disconnected" };

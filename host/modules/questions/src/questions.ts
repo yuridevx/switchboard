@@ -142,7 +142,7 @@ export function make(): Module {
         if (closed.has(id)) throw refuse("already_answered", `${id}: на вопрос уже ответили`);
         const p = pending.get(id);
         if (!p || p.s.info.callsign !== req.callsign) throw refuse("unknown_question", `${String(id)}: ждущего вопроса ${String(req.callsign)} с таким id этот Host не знает`);
-        const by = typeof req.from === "string" ? req.from : (ctx.from ?? "");
+        const by = ctx.from ?? "";
         if (p.kind === "ask") {
           if (!isStrMap(req.answers)) throw refuse("bad_frame", "answer: answers — «текст вопроса → ответ»");
           close(id, { by, answers: req.answers });

@@ -92,19 +92,18 @@ describe("эталоны fleet", () => {
     expect(st.relay.frames("message")).toHaveLength(1);
   });
 
-  it("71 · stop upgrade посреди хода, взятого по message с wait: новый message — shutting_down; скрипт — disconnected; ввод не тронут; новый Host не кладёт сообщение заново", async () => {
+  it("71 · stop upgrade посреди хода, взятого по message: новый message — shutting_down; ввод не тронут; новый Host не кладёт сообщение заново", async () => {
     const k = new FakeHolders();
     keepers.push(k);
     const a = await bench({ machine: "pc", holders: k });
     await a.st.open("poe-bot@pc");
     const p = a.st.proc("poe-bot@pc");
-    const waiting = a.st.relay.request({ type: "message", v: 1, from: "deploy", to: "poe-bot@pc", text: "Прогони эталоны", wait: true });
+    expect(await a.st.relay.request({ type: "message", v: 1, from: "deploy", to: "poe-bot@pc", text: "Прогони эталоны" })).toMatchObject({ ok: true });
     await until(() => p.inputs.length === 1);
     p.send(msg.state("running"));
     void a.st.kernel.shutdown("upgrade");
     const late = await a.st.relay.request({ type: "message", v: 1, from: "deploy", to: "poe-bot@pc", text: "ещё" });
     expect(late).toMatchObject({ ok: false, error: "shutting_down" });
-    expect(await waiting).toMatchObject({ ok: false, error: "disconnected" });
     await a.st.close();
     stands.splice(stands.indexOf(a.st), 1);
     expect(p.interrupts).toBe(0);
@@ -119,34 +118,7 @@ describe("эталоны fleet", () => {
   });
 });
 
-describe("fleet: wait, инструменты и вклад", () => {
-  it("wait: reply после конца хода с текстом result — по user_message_uuids", async () => {
-    const { st } = await bench();
-    await st.open("profiles@laptop");
-    const r = st.relay.request({ type: "message", v: 1, from: "deploy", to: "profiles@laptop", text: "Сведи память профилей", wait: true });
-    const p = st.proc("profiles@laptop");
-    await until(() => p.inputs.length === 1);
-    const uuid = p.inputs[0].uuid as string;
-    expect(uuid).toBeTruthy();
-    turn(p, "другой ход", { user_message_uuids: ["чужой"] });
-    turn(p, "свёл", { user_message_uuids: [uuid], result: "Свёл: 3 файла, конфликтов нет." });
-    expect(await r).toMatchObject({ ok: true, result: { text: "Свёл: 3 файла, конфликтов нет." } });
-  });
-
-  it("wait: ход кончился ошибкой — turn_failed; процесс умер — turn_failed", async () => {
-    const { st } = await bench();
-    await st.open("profiles@laptop");
-    const p = st.proc("profiles@laptop");
-    const r1 = st.relay.request({ type: "message", v: 1, from: "deploy", to: "profiles@laptop", text: "раз", wait: true });
-    await until(() => p.inputs.length === 1);
-    p.send(msg.result({ subtype: "error_during_execution", is_error: true, user_message_uuids: [p.inputs[0].uuid] }));
-    expect(await r1).toMatchObject({ ok: false, error: "turn_failed" });
-    const r2 = st.relay.request({ type: "message", v: 1, from: "deploy", to: "profiles@laptop", text: "два", wait: true });
-    await until(() => p.inputs.length === 2);
-    p.exit(1, "упал");
-    expect(await r2).toMatchObject({ ok: false, error: "turn_failed" });
-  });
-
+describe("fleet: инструменты и вклад", () => {
   it("message сессии, которой нет, — offline; остановленной — offline", async () => {
     const { st } = await bench();
     const s = await st.open("site@laptop");
@@ -163,8 +135,8 @@ describe("fleet: wait, инструменты и вклад", () => {
     expect(JSON.parse(r.content[0].text)).toEqual({
       me: "site@laptop",
       sessions: [
-        { callsign: "poe-bot@pc", state: "busy" },
-        { callsign: "profiles@laptop", state: "idle" },
+        { callsign: "poe-bot@pc", state: "busy", parent: null, model: null },
+        { callsign: "profiles@laptop", state: "idle", parent: null, model: null },
       ],
       clients: ["phone~owner@example.com", "panel-desk~owner@example.com"],
     });
@@ -191,13 +163,13 @@ describe("fleet: wait, инструменты и вклад", () => {
     expect(answers[0]).toMatchObject({ type: "answer", v: 1, callsign: "profiles@laptop", question: "toolu_01Hq", from: "site@laptop", answers: { "Какую базу мигрировать первой?": "стенд" } });
   });
 
-  it("вклад в query(): сервер MCP fleet с тремя инструментами, позывной в системном промпте, межсессионная переписка Claude Code выключена", async () => {
+  it("вклад в query(): сервер MCP fleet с семью инструментами, позывной в системном промпте, межсессионная переписка Claude Code выключена", async () => {
     const { st } = await bench();
     await st.open("site@laptop");
     const o = st.query("site@laptop").options as { mcpServers: Record<string, { type: string; name: string }>; systemPrompt: { append?: string }; env: Record<string, string> };
     expect(o.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
     expect(o.systemPrompt.append).toContain("Ты во флоте как site@laptop");
     expect(o.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
-    expect(make().tools("x@y").map((t) => t.name)).toEqual(["list", "send", "answer"]);
+    expect(make().tools("x@y").map((t) => t.name)).toEqual(["list", "send", "answer", "open", "history", "update", "remove"]);
   });
 });

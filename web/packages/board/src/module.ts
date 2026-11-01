@@ -1,8 +1,9 @@
 // web-board — список сессий всех машин из roster: состояние и одна строка — модель и слот,
 // вопрос (метка asked модуля ask) или последнее сообщение (метка unread модуля chat).
+// Дочь — под родителем (поле parent), сессия инцидента — со значком типа (поле incident).
 // Машины, ушедшие при открытом приложении, — серыми из последнего roster, который видел список.
 import { add, h, hhmm, plural, sessionLine, stateLabel, type App, type AppModule, type Roster, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
-import { machineOf } from "@switchboard/protocol";
+import { kindOf, machineOf } from "@switchboard/protocol";
 
 const CSS = `
 .board{gap:7px}
@@ -60,6 +61,7 @@ const CSS = `
 .board-slot span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .board-slot em{font:600 12px var(--mono);font-style:normal;text-align:right}
 .board-pick{color:var(--muted);text-align:center;padding:30px 0}
+.board-inc{font:600 10.5px var(--mono);font-style:normal;color:var(--wait);background:var(--wait-weak);border-radius:6px;padding:1px 6px;margin-left:6px;letter-spacing:0}
 @media (max-width:760px){.board-wide{grid-template-columns:minmax(0,1fr)}.board-sum{display:none}}
 `;
 
@@ -93,6 +95,37 @@ const profileOf = (s: SessionRecord) => (s.profile as { id?: string } | null | u
 const wideLine = (s: SessionRecord) =>
   [machineOf(s.callsign), slotOf(s), s.account, s.model, s.effort, profileOf(s)?.split("/").at(-1)].filter((x) => typeof x === "string" && x).join(" · ");
 
+/** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */
+const parentOf = (s: SessionRecord) => (typeof s.parent === "string" && kindOf(s.parent) === "session" && s.parent !== s.callsign ? s.parent : null);
+const incidentOf = (s: SessionRecord) => (s.incident as { type?: string } | null | undefined)?.type;
+
+/** Порядок дерева: дочь сразу под родителем, глубина — отступ; родителя нет в списке — дочь в корне. */
+export function tree(list: SessionRecord[]): Array<[SessionRecord, number]> {
+  const here = new Set(list.map((s) => s.callsign));
+  const kids = new Map<string, SessionRecord[]>();
+  const roots: SessionRecord[] = [];
+  for (const s of list) {
+    const p = parentOf(s);
+    if (p && here.has(p)) kids.set(p, [...(kids.get(p) ?? []), s]);
+    else roots.push(s);
+  }
+  const out: Array<[SessionRecord, number]> = [];
+  const seen = new Set<string>();
+  const walk = (s: SessionRecord, d: number) => {
+    if (seen.has(s.callsign)) return;
+    seen.add(s.callsign);
+    out.push([s, d]);
+    for (const k of kids.get(s.callsign) ?? []) walk(k, d + 1);
+  };
+  for (const s of roots) walk(s, 0);
+  // родители по кругу — в корень
+  for (const s of list) walk(s, 0);
+  return out;
+}
+
+/** Позывной строки и значок типа инцидента. */
+const title = (s: SessionRecord) => h("b", null, s.callsign, incidentOf(s) ? h("i", { class: "board-inc" }, incidentOf(s)!) : null);
+
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createBoard(): AppModule {
   let app: App;
@@ -113,7 +146,7 @@ export function createBoard(): AppModule {
 
   const need = () => (app?.roster()?.sessions ?? []).filter((s) => s.state === "waiting" || s.state === "failed").length;
 
-  function row(s: SessionRecord, off: boolean): HTMLElement {
+  function row(s: SessionRecord, off: boolean, depth = 0): HTMLElement {
     const st = stateLabel(s.state);
     const asked = off ? undefined : (app.mark("asked", s.callsign) as string | undefined);
     const unread = off ? undefined : (app.mark("unread", s.callsign) as { count: number; text: string } | undefined);
@@ -123,6 +156,8 @@ export function createBoard(): AppModule {
     else if (unread?.text) line = unread.text;
     else if (s.state === "stopped") line = "остановлена";
     else if (s.state === "failed" && s.failed) line = Object.entries(s.failed as Record<string, string>).map(([k, v]) => `${k}: ${v}`).join("; ");
+    // родитель не над строкой (на другой машине) — его позывной в строке
+    if (!off && !depth && parentOf(s)) line = `↳ ${parentOf(s)} · ${line}`;
     const right = asked
       ? h("span", { class: "sb-badge wait", "aria-label": "ждёт ответа" }, "?")
       : unread
@@ -133,28 +168,35 @@ export function createBoard(): AppModule {
     return h(
       "button",
       {
-        class: "board-row" + (off ? " off" : ""),
+        class: "board-row" + (off ? " off" : "") + (depth ? " kid" : ""),
         "data-callsign": s.callsign,
+        style: depth ? `margin-left:${depth * 18}px` : null,
         onclick: () => (asked ? app.open("ask", { callsign: s.callsign }) : app.open("card", { callsign: s.callsign })),
       },
       h("span", { class: `sb-dot ${off ? "" : st.dot}` }),
-      h("span", { class: "board-rt" }, h("b", null, s.callsign), h("span", null, line)),
+      h("span", { class: "board-rt" }, title(s), h("span", null, line)),
       right,
     );
   }
 
   /** Строка широкого вида: позывной, состояние, вопрос или машина · слот · аккаунт · модель. */
-  function wideRow(s: SessionRecord, off: boolean): HTMLElement {
+  function wideRow(s: SessionRecord, off: boolean, depth = 0): HTMLElement {
     const [label, tone] = off ? ["не на связи", ""] : (WIDE[String(s.state)] ?? [String(s.state ?? "—"), ""]);
     const asked = off ? undefined : (app.mark("asked", s.callsign) as string | undefined);
     const sel = app.current()?.params.callsign === s.callsign;
     return h(
       "button",
-      { class: "board-wr" + (off ? " off" : ""), "data-callsign": s.callsign, "aria-current": sel ? "true" : "false", onclick: () => app.open("card", { callsign: s.callsign }) },
+      {
+        class: "board-wr" + (off ? " off" : "") + (depth ? " kid" : ""),
+        "data-callsign": s.callsign,
+        "aria-current": sel ? "true" : "false",
+        style: depth ? `margin-left:${depth * 14}px` : null,
+        onclick: () => app.open("card", { callsign: s.callsign }),
+      },
       h("span", { class: `sb-dot ${off ? "" : stateLabel(s.state).dot}` }),
-      h("b", null, s.callsign),
+      title(s),
       h("span", { class: `t ${tone}` }, label),
-      h("span", { class: "m" + (asked ? " ask" : "") }, asked ? `? ${asked}` : wideLine(s)),
+      h("span", { class: "m" + (asked ? " ask" : "") }, asked ? `? ${asked}` : !depth && parentOf(s) ? `↳ ${parentOf(s)} · ${wideLine(s)}` : wideLine(s)),
     );
   }
 
@@ -194,7 +236,7 @@ export function createBoard(): AppModule {
         const list = all.filter(fit).filter(pass);
         if (!list.length) continue;
         groups.append(h("div", { class: "board-mach board-gh" + (title === "нужны вы" ? " need" : "") }, title, h("em", null, String(list.length))));
-        for (const s of list) groups.append(wideRow(s, false));
+        for (const [s, d] of tree(list)) groups.append(wideRow(s, false, d));
       }
       for (const [m, g] of gone) {
         const list = g.sessions.filter(hit);
@@ -243,7 +285,7 @@ export function createBoard(): AppModule {
       for (const m of r.machines) {
         const list = r.sessions.filter((s) => machineOf(s.callsign) === m.machine);
         body.append(h("div", { class: "board-mach" }, m.machine, h("em", null, `${list.length} ${plural(list.length, "сессия", "сессии", "сессий")}`)));
-        for (const s of list) body.append(row(s, false));
+        for (const [s, d] of tree(list)) body.append(row(s, false, d));
       }
       for (const [m, g] of gone) {
         body.append(h("div", { class: "board-mach off" }, m, h("em", null, `не на связи с ${hhmm(g.at)}`)));

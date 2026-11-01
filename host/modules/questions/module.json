@@ -1,7 +1,7 @@
 {
   "name": "host-questions",
   "type": "sdk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "provides": {
     "answer": 1,
     "question.list": 1,

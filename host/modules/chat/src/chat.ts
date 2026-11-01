@@ -68,7 +68,7 @@ export function make(): Module {
         if (STOPPED.has(s.state)) throw refuse("stopped", `${s.info.callsign}: сессия ${s.state} — поднимает session.start`);
         const c = content(text, attachments);
         const uuid = typeof req.uuid === "string" ? req.uuid : randomUUID();
-        const from = typeof req.from === "string" ? req.from : ctx.from;
+        const from = ctx.from;
         s.input(c, { from, priority: "next", uuid, origin: { kind: "human" } });
         return { uuid };
       },

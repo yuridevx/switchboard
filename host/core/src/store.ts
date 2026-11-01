@@ -19,6 +19,8 @@ export type CoreRecord = {
   fork?: string;
   /** последнее состояние: после attach посреди хода ядро показывает его до следующего сигнала SDK */
   state?: SessionState;
+  /** отправитель последнего ввода: кому вопрос сессии и после перезапуска Host */
+  from?: string;
 };
 
 const clone = <T>(v: T): T => (v === undefined ? v : structuredClone(v));

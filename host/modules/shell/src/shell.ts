@@ -204,7 +204,8 @@ export function make() {
     const sp = start(dir, shell as ShellName, path, script, stdin ?? "");
     const r: Run = {
       id,
-      from: typeof req.from === "string" ? req.from : null,
+      // отправитель — от Host или relay
+      from: ctx.from ?? null,
       background,
       dir,
       stdout: sp.stdout,

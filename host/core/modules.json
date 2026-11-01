@@ -13,5 +13,6 @@
   "host-machine",
   "host-remote",
   "host-parts",
-  "host-shell"
+  "host-shell",
+  "host-incidents"
 ]

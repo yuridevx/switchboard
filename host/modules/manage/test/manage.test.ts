@@ -116,7 +116,8 @@ describe("эталоны manage", () => {
     expect(part).toMatchObject({ enableFileCheckpointing: true, title: "board" });
     expect(part.model).toBeUndefined();
     expect(part.effort).toBeUndefined();
-    expect(stores.get("board@laptop")).toBeUndefined(); // в разделе manage нет ни папки, ни профиля, ни слота
+    // в разделе manage — только родитель: ни папки, ни профиля, ни слота
+    expect(stores.get("board@laptop")).toEqual({ parent: "panel-desk~owner@example.com" });
     expect(log[4][1]).toMatchObject({ type: "ledger.add", to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", machine: "laptop", callsign: "board@laptop" });
     const spec = await mod.requests!["session.spec"]({ type: "session.spec", id: "k-6", v: 1, callsign: "board@laptop" }, ctx);
     expect(spec).toEqual({ dir, model: null, effort: null, title: "board" });
@@ -166,7 +167,7 @@ describe("manage", () => {
     expect(st.journal().find((l) => l.word === "bad_spec" && String(l.why).includes("effort"))).toBeTruthy();
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p", color: "red", model: "opus", fast: true })).toMatchObject({ ok: true });
     expect(st.query("x@laptop").options).toMatchObject({ model: "opus", settings: { fastMode: true } });
-    expect(st.session("host-manage", "x@laptop")!.store().get()).toEqual({ model: "opus", fast: true });
+    expect(st.session("host-manage", "x@laptop")!.store().get()).toEqual({ model: "opus", fast: true, parent: "panel-desk~owner@example.com" });
   });
 
   it("open: процесс вышел до initialize — open_failed, повтора нет", async () => {
@@ -225,5 +226,38 @@ describe("manage", () => {
     expect(st.kernel.sessions.has("wiki@laptop")).toBe(false);
     expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "panel-desk~owner@example.com" });
     expect(await req(st, { type: "session.spec", callsign: "wiki@laptop" })).toMatchObject({ ok: false, error: "offline" });
+  });
+
+  it("open с number: к имени первый свободный номер — disk-full-1, затем disk-full-2; два сразу — разные; убранный номер снова свободен", async () => {
+    const { st, home } = await laptop();
+    const dir = join(home, "ops");
+    mkdirSync(dir);
+    const open = () => req(st, { type: "session.open", machine: "laptop", name: "disk-full", number: true, dir });
+    expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-1@laptop" } });
+    expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-2@laptop" } });
+    const both = await Promise.all([open(), open()]);
+    expect(both.map((r) => (r.result as { callsign: string }).callsign).sort()).toEqual(["disk-full-3@laptop", "disk-full-4@laptop"]);
+    await req(st, { type: "session.remove", callsign: "disk-full-1@laptop" });
+    expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-1@laptop" } });
+    expect(st.query("disk-full-2@laptop").options.title).toBe("disk-full-2");
+  });
+
+  it("remove с after_turn посреди хода: ход не прерван, сессия убрана после его конца; ledger — от того, кто просил; простаивающая — сразу", async () => {
+    const { st } = await laptop();
+    const s = await st.open("wiki@laptop");
+    const p = st.proc("wiki@laptop");
+    p.send(stand.msg.state("running"));
+    await stand.until(() => s.state === "busy");
+    expect(await req(st, { type: "session.remove", callsign: "wiki@laptop", after_turn: true, from: "lead@laptop" })).toMatchObject({ ok: true, result: { after_turn: true } });
+    expect(p.interrupts).toBe(0);
+    expect(st.kernel.sessions.has("wiki@laptop")).toBe(true);
+    p.send(stand.msg.result());
+    p.send(stand.msg.state("idle"));
+    await stand.until(() => !st.kernel.sessions.has("wiki@laptop"));
+    expect(p.interrupts).toBe(0);
+    expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "lead@laptop" });
+    await st.open("docs@laptop");
+    expect(await req(st, { type: "session.remove", callsign: "docs@laptop", after_turn: true })).toMatchObject({ ok: true });
+    expect(st.kernel.sessions.has("docs@laptop")).toBe(false);
   });
 });

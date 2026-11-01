@@ -1,11 +1,13 @@
 // Контракт модуля Host manage v1: сессии по запросу.
-//   session.open { machine, name, dir, profile?, slot?, model?, effort?, fast?, style?, thinking?, resume?, fork?, point? }
-//     → { callsign, session_id }; профиль и слот — их владельцам до старта
+//   session.open { machine, name, number?, dir, profile?, slot?, model?, effort?, fast?, style?, thinking?, resume?, fork?, point? }
+//     → { callsign, session_id }; number: true — к имени первый свободный номер на машине (disk-full-1);
+//     родитель — отправитель запроса (поле parent); профиль и слот — их владельцам до старта
 //   session.update { callsign, model?, effort?, fast?, style?, thinking?, title? } → { now: [что подействовало сразу] }
 //   session.call { callsign, method, args? } → ответ метода SDK как есть; только методы из OPEN
 //   session.spec { callsign } → { dir, model, effort, title }
-//   session.stop · session.start { point? } · session.remove { callsign } → ok
-//   поля roster: model, effort; в журнал флота — ledger.add session.opened, session.removed
+//   session.stop · session.start { point? } · session.remove { callsign, after_turn? } → ok;
+//     after_turn: true посреди хода — убрать после его конца: { after_turn: true }
+//   поля roster: model, effort, parent; в журнал флота — ledger.add session.opened, session.removed
 // Слова: unknown_method, name_taken, bad_spec, open_failed, stopped, sdk_error.
 import { manage } from "./src/manage.ts";
 

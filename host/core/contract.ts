@@ -175,7 +175,7 @@ export type SessionInfo = {
   model: string | null;
   /** версия SDK, которой запущен процесс сессии */
   sdk: string;
-  /** отправитель последнего ввода: кому потом задать вопрос */
+  /** отправитель последнего ввода: кому потом задать вопрос; хранится в записи сессии — переживает перезапуск Host */
   from: string | null;
   /** каким был старт процесса сессии */
   start: StartKind;
@@ -257,6 +257,7 @@ export interface Host {
    * Владелец — модуль этой машины: вызов в процессе; иначе — relay
    * (другая машина по callsign/machine/to или Worker-модуль: to = имя владельца).
    * Имени нет в uses — ошибка модуля.
+   * Отправитель — payload.from (адрес), иначе @машина: владелец видит его в ctx.from, как у запроса через relay.
    */
   request(name: string, payload: Record<string, unknown>): Promise<Result>;
   /** Кадр без ответа в relay (type — из своих provides или uses). Обрыв — disconnected; очереди нет; больше предела кадра — too_large. */

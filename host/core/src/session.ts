@@ -33,7 +33,6 @@ export class Sess {
   startKind: StartKind = "spawn";
   point: number | undefined;
   model: string | null = null;
-  from: string | null = null;
   /** модули, выключенные в этой сессии: имя → причина */
   failed = new Map<string, string>();
   /** вклады модулей нынешнего query() */
@@ -425,7 +424,7 @@ export class Sess {
           cwd: s.rec.cwd,
           model: s.model,
           sdk: s.rec.sdk,
-          from: s.from,
+          from: s.rec.from ?? null,
           start,
           ...(start === "point" && s.point !== undefined ? { point: s.point } : {}),
         };
@@ -434,7 +433,11 @@ export class Sess {
         return s.state;
       },
       input(content, o = {}) {
-        if (o.from !== undefined) s.from = o.from;
+        // отправитель последнего ввода — в записи сессии: вопрос после перезапуска Host уходит тому же адресату
+        if (o.from !== undefined && o.from !== s.rec.from) {
+          s.rec.from = o.from;
+          k.saveCore();
+        }
         s.queue.push({
           type: "user",
           message: { role: "user", content },
