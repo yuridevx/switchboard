@@ -10,5 +10,11 @@
     // номера отозванных ключей role.name.kid; отзыв — выпуск gate, затем relay
     "REVOKED": []
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // прод — switchboard-gate-prod со своим FLEET_SECRET: ключи теста в прод не входят
+  "env": {
+    "prod": {
+      "vars": { "REVOKED": [] }
+    }
+  }
 }

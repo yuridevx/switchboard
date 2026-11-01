@@ -11,5 +11,13 @@
     { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "ledger" } }
   ],
   "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }]
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }],
+  "env": {
+    "prod": {
+      "services": [
+        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Radio", "props": { "name": "ledger" } }
+      ],
+      "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] }
+    }
+  }
 }

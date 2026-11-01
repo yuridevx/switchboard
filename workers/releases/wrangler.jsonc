@@ -29,5 +29,29 @@
       "phone": "switchboard-phone",
       "pult": "switchboard-pult"
     }
+  },
+  // прод: свои stable и планы машин; архивы частей машины — тот же бакет выпусков (CI грузит их один раз)
+  "env": {
+    "prod": {
+      "services": [
+        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Radio", "props": { "name": "releases" } }
+      ],
+      "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
+      "durable_objects": { "bindings": [{ "name": "RELEASES", "class_name": "Releases" }] },
+      "vars": {
+        "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
+        "CLOUD": {
+          "relay": "switchboard-prod",
+          "gate": "switchboard-gate-prod",
+          "push": "switchboard-push-prod",
+          "points": "switchboard-points-prod",
+          "ledger": "switchboard-ledger-prod",
+          "github": "switchboard-github-prod",
+          "releases": "switchboard-releases-prod",
+          "phone": "switchboard-phone-prod",
+          "pult": "switchboard-pult-prod"
+        }
+      }
+    }
   }
 }
