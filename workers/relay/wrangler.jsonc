@@ -27,5 +27,28 @@
     // владелец флота: ключи клиентов пока выданы ему — адрес устройства phone~<email>
     "OWNER": "yuridevx@gmail.com"
   },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // прод: тот же код, свои Worker-модули с суффиксом -prod, адрес wss://relay.pfarm.app (wrangler --env prod)
+  "env": {
+    "prod": {
+      "workers_dev": false,
+      "routes": [{ "pattern": "relay.pfarm.app", "custom_domain": true }],
+      "durable_objects": {
+        "bindings": [{ "name": "FLEET", "class_name": "Fleet" }]
+      },
+      "services": [
+        { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
+        { "binding": "PUSH", "service": "switchboard-push-prod", "entrypoint": "Participant" },
+        { "binding": "POINTS", "service": "switchboard-points-prod", "entrypoint": "Participant" },
+        { "binding": "LEDGER", "service": "switchboard-ledger-prod", "entrypoint": "Participant" },
+        { "binding": "GITHUB", "service": "switchboard-github-prod", "entrypoint": "Participant" },
+        { "binding": "RELEASES", "service": "switchboard-releases-prod", "entrypoint": "Participant" }
+      ],
+      "vars": {
+        "PROTO": [1],
+        "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" },
+        "OWNER": "yuridevx@gmail.com"
+      }
+    }
+  }
 }

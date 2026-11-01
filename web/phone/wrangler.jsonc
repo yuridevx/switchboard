@@ -7,5 +7,12 @@
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application"
+  },
+  // прод — https://phone.pfarm.app; сборка с RELAY_URL=wss://relay.pfarm.app
+  "env": {
+    "prod": {
+      "workers_dev": false,
+      "routes": [{ "pattern": "phone.pfarm.app", "custom_domain": true }]
+    }
   }
 }

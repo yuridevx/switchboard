@@ -91,6 +91,8 @@ jobs:
       - run: npm ci
       - name: Worker-модули, телефон и пульт — версии с меткой 1.1.<прогон>
         run: node scripts/deploy-workers.mjs --upload 1.1.${{ github.run_number }}
+      - name: то же в прод (pfarm.app) — Worker'ы -prod; архивы машины общие
+        run: node scripts/deploy-workers.mjs --upload 1.1.${{ github.run_number }} --env prod
       - name: Host в R2
         run: node tools/release/cli.ts release host 1.1.${{ github.run_number }}
       - name: keeper в R2 — когда поднят его номер
