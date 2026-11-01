@@ -5,5 +5,4 @@
 // Слова: bad_attachment — у типа вложения нет блока; stopped — сессия остановлена (поднимает session.start).
 import { make } from "./src/chat.ts";
 
-export type { Attachment } from "./src/chat.ts";
 export default make();

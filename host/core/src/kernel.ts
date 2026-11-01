@@ -409,8 +409,9 @@ export class Kernel {
     this.connectRelay();
   }
 
-  send(f: Frame): boolean {
-    return this.relay?.send(f) ?? false;
+  /** Кадр в relay; связи нет — disconnected, больше предела кадра — too_large (слово ставит клиент рации). */
+  send(f: Frame): Result {
+    return this.relay?.send(f) ?? { ok: false, error: "disconnected" };
   }
 
   private reply(f: Frame, r: Reply): void {
@@ -572,11 +573,11 @@ export class Kernel {
     return r as Result;
   }
 
-  /** host.emit: кадр без ответа; type — свой или из uses. Связи нет — disconnected, очереди нет. */
+  /** host.emit: кадр без ответа; type — свой или из uses. Связи нет — disconnected, очереди нет; больше предела кадра — too_large. */
   emit(m: Mod, f: Frame): Result {
     const known = m.manifest.provides?.[f.type] !== undefined || Object.keys(m.manifest.uses ?? {}).some((r) => nameOf(r) === f.type);
     if (!known) this.violation(m, this.callerSession(m), `${f.type} нет в provides и uses`);
-    return this.send(f) ? { ok: true } : { ok: false, error: "disconnected" };
+    return this.send(f);
   }
 
   private probe(m: Mod, env?: Record<string, string>): Probe {

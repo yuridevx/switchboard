@@ -25,6 +25,19 @@ export type Reply =
 /** Слово отказа общего конверта: кадр не JSON или нет type. */
 export const BAD_FRAME = "bad_frame";
 
+/** Предел кадра в байтах UTF-8: входящее сообщение WebSocket в Durable Object Cloudflare — до 32 МиБ. */
+export const MAX_FRAME = 32 * 1024 * 1024;
+
+/** Слово отказа: кадр больше MAX_FRAME не отправлен; рядом — bytes. */
+export const TOO_LARGE = "too_large";
+
+/** Байты UTF-8 текста кадра, если он больше MAX_FRAME, иначе null. Текст до MAX_FRAME / 3 знаков заведомо в пределе — без подсчёта. */
+export function oversize(text: string): number | null {
+  if (text.length * 3 <= MAX_FRAME) return null;
+  const bytes = new TextEncoder().encode(text).length;
+  return bytes > MAX_FRAME ? bytes : null;
+}
+
 /** Разобрать текст кадра. Не JSON, не объект или нет строки type — null: кадр не по конверту, отказ словом bad_frame. */
 export function parseFrame(text: string): Frame | null {
   let x: unknown;

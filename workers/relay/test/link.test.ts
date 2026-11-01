@@ -1,5 +1,6 @@
 // Клиент link на поддельном WebSocket: hello, запросы, правило отправителя по roster, ping, переподключение.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_FRAME } from "@switchboard/protocol";
 import { link, PROTO, type LinkState, type WsLike } from "../contract.ts";
 
 type L = Record<string, Array<(ev: any) => void>>;
@@ -122,12 +123,34 @@ describe("link · запросы", () => {
     expect(await p).toEqual({ type: "reply", id: "c-7", ok: false, error: "offline" });
   });
 
-  it("связи нет — запрос сразу disconnected, send — false; очереди нет", async () => {
+  it("связи нет — запрос и send сразу disconnected; очереди нет", async () => {
     const { l, ws } = start();
     ws.open();
     expect(await l.request({ type: "message", to: "site@laptop" })).toMatchObject({ ok: false, error: "disconnected" });
-    expect(l.send({ type: "question", to: "phone" })).toBe(false);
+    expect(l.send({ type: "question", to: "phone" })).toEqual({ ok: false, error: "disconnected" });
     expect(ws.sent.length).toBe(1); // только hello
+  });
+
+  it("279 · кадр больше 32 МиБ: запрос не ушёл — ждущему too_large с байтами; ответ заменён отказом too_large тому же адресату; прочий кадр не ушёл — отправителю too_large с байтами; соединение живо", async () => {
+    const { l, ws, states } = opened();
+    const big = "я".repeat(17 * 1024 * 1024); // 34 МиБ в UTF-8
+    const r = await l.request({ type: "shell.run", machine: "pc", script: big });
+    expect(r).toMatchObject({ type: "reply", ok: false, error: "too_large" });
+    expect((r as unknown as { bytes: number }).bytes).toBeGreaterThan(MAX_FRAME);
+    expect(ws.sent.length).toBe(1); // только hello
+    expect(l.send({ type: "reply", id: "q1", ok: true, result: { stdout: big }, to: "site@pc" })).toEqual({ ok: true });
+    const sent = ws.json();
+    expect(sent).toMatchObject({ type: "reply", id: "q1", ok: false, error: "too_large", to: "site@pc" });
+    expect(sent.bytes).toBeGreaterThan(MAX_FRAME);
+    expect(sent).not.toHaveProperty("result");
+    expect(l.send({ type: "note", to: "site@pc", text: big })).toMatchObject({ ok: false, error: "too_large", bytes: expect.any(Number) });
+    expect(ws.sent.length).toBe(2);
+    expect(l.state).toBe("open");
+    expect(states).toEqual([["open", undefined]]);
+    // в пределе — как прежде
+    const small = l.request({ type: "message", to: "poe-bot@pc", text: "hi" });
+    ws.recv({ type: "reply", id: ws.json().id, ok: true });
+    expect(await small).toMatchObject({ ok: true });
   });
 
   it("обрыв — ждущие запросы сразу disconnected, без таймера", async () => {

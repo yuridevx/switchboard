@@ -1,6 +1,6 @@
 // Клиент link: соединение с relay по wss. Им пользуются ядро Host, веб-приложения и скрипты.
 // Работает в Node 24 (глобальный WebSocket) и в браузере; в тестах WebSocket подставляется.
-import { fail, isReply, kindOf, machineOf, parseFrame, serviceAddress } from "@switchboard/protocol";
+import { fail, isReply, kindOf, machineOf, oversize, parseFrame, serviceAddress, TOO_LARGE } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
 
@@ -64,10 +64,14 @@ export interface Link {
    * связи нет — сразу disconnected; связь оборвалась, пока ждали, — disconnected;
    * адресат (машина callsign/machine/to "@m" или имя клиента/участника в to) ушёл из roster
    * или его машина сменила since — disconnected. Таймера нет.
+   * Кадр больше MAX_FRAME не уходит: сразу too_large { bytes } — relay порвал бы соединение всей машины.
    */
   request(f: Frame): Promise<Reply>;
-  /** Кадр без ожидания ответа. false — связи нет, кадр не ушёл (очереди нет). */
-  send(f: Frame): boolean;
+  /**
+   * Кадр без ожидания ответа; очереди нет. Связи нет — disconnected, кадр не ушёл.
+   * Больше MAX_FRAME: ответ заменяется отказом too_large { bytes } тому же адресату и уходит; прочий кадр не уходит — too_large { bytes }.
+   */
+  send(f: Frame): { ok: true } | { ok: false; error: "disconnected" | "too_large"; bytes?: number };
   /**
    * Штатная остановка: ждущие — disconnected, сокет закрыт с кодом и причиной, переподключений нет.
    * Браузер и Node принимают только код 1000 или 3000–4999.
@@ -255,15 +259,24 @@ export function link(o: LinkOptions): Link {
         since: target && "machine" in target ? sinceOf(roster, target.machine) : undefined,
         present: !!target && "name" in target && hasName(roster, target.name),
       };
+      const text = JSON.stringify({ ...f, id });
+      const bytes = oversize(text);
+      if (bytes !== null) return Promise.resolve(Object.assign(fail(id, TOO_LARGE), { bytes }));
       return new Promise<Reply>((resolve) => {
         pending.set(id, { ...p, resolve });
-        sock.send(JSON.stringify({ ...f, id }));
+        sock.send(text);
       });
     },
-    send(f: Frame): boolean {
-      if (state !== "open" || !ws) return false;
-      ws.send(JSON.stringify(f));
-      return true;
+    send(f: Frame) {
+      if (state !== "open" || !ws) return { ok: false, error: "disconnected" } as const;
+      let text = JSON.stringify(f);
+      const bytes = oversize(text);
+      if (bytes !== null) {
+        if (!isReply(f)) return { ok: false, error: TOO_LARGE, bytes } as const;
+        text = JSON.stringify({ ...fail(f.id, TOO_LARGE), bytes, ...(f.to !== undefined ? { to: f.to } : {}) });
+      }
+      ws.send(text);
+      return { ok: true } as const;
     },
     close(code = 1000, reason = "closing") {
       const sock = ws;

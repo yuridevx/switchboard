@@ -1,0 +1,17 @@
+{
+  "name": "host-shell",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {
+    "shell.run": 1,
+    "shell.wait": 1,
+    "shell.kill": 1,
+    "shell.info": 1
+  },
+  "uses": {
+    "host.module@host": 1,
+    "message@host-fleet": 1
+  },
+  "calls": [],
+  "config": {}
+}

@@ -5,22 +5,18 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
-import type { Frame, Host, Module, SDKUserMessage, Session } from "@switchboard/host";
-import { refuse } from "@switchboard/host";
-
-export type Attachment = { name: string; media_type: string; data: string };
+import type { Attachment, Frame, Host, Module, SDKUserMessage, Session } from "@switchboard/host";
+import { IMAGE_TYPES, refuse } from "@switchboard/host";
 
 type Content = Exclude<SDKUserMessage["message"]["content"], string>;
 type Block = Content[number];
-
-const IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 /**
  * Вложение → блок сообщения. data — base64 у всех типов (клиент шлёт файл как есть);
  * text/plain раскрывается в текст документа. Блока для типа нет — null.
  */
 export function block(a: Attachment): Block | null {
-  if (IMAGES.has(a.media_type)) return { type: "image", source: { type: "base64", media_type: a.media_type, data: a.data } } as Block;
+  if (IMAGE_TYPES.has(a.media_type)) return { type: "image", source: { type: "base64", media_type: a.media_type, data: a.data } } as Block;
   if (a.media_type === "application/pdf") return { type: "document", source: { type: "base64", media_type: "application/pdf", data: a.data } } as Block;
   if (a.media_type === "text/plain") return { type: "document", source: { type: "text", media_type: "text/plain", data: Buffer.from(a.data, "base64").toString("utf8") } } as Block;
   return null;

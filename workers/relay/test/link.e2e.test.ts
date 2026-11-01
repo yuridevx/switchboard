@@ -85,7 +85,7 @@ describe("link · насквозь через relay и gate", () => {
     const p = panel.l.request({ type: "session.history", callsign: "site@laptop" });
     const req = await until(() => hostFrames.find((f) => f.type === "session.history"));
     expect(req.from).toBe(dev("panel-desk"));
-    expect(host.l.send({ type: "reply", id: req.id!, to: req.from, ok: true, result: { turns: 3 } })).toBe(true);
+    expect(host.l.send({ type: "reply", id: req.id!, to: req.from, ok: true, result: { turns: 3 } })).toEqual({ ok: true });
     expect(await p).toMatchObject({ ok: true, result: { turns: 3 }, from: "@laptop" });
 
     // адресата нет — offline от relay

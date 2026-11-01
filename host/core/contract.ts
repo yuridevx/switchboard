@@ -39,6 +39,12 @@ export type {
 /** Версия договора модуля: имя host.module в provides ядра. */
 export const MODULE_CONTRACT = 1;
 
+/** Типы файлов, которые модель видит картинкой — блок image во вводе и в ответе инструмента MCP. Один список для модулей. */
+export const IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Файл в кадре: имя, тип, данные base64 — вложение человека сессии и файл, который вернул скрипт. Одна форма для модулей. */
+export type Attachment = { name: string; media_type: string; data: string };
+
 // ───────────────────────── манифест ─────────────────────────
 
 /**
@@ -253,7 +259,7 @@ export interface Host {
    * Имени нет в uses — ошибка модуля.
    */
   request(name: string, payload: Record<string, unknown>): Promise<Result>;
-  /** Кадр без ответа в relay (type — из своих provides или uses). Обрыв — disconnected; очереди нет. */
+  /** Кадр без ответа в relay (type — из своих provides или uses). Обрыв — disconnected; очереди нет; больше предела кадра — too_large. */
   emit(frame: Frame): Result;
   /** Свой раздел машины. */
   store<T = unknown>(): Store<T>;

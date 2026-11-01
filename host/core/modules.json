@@ -12,5 +12,6 @@
   "host-points",
   "host-machine",
   "host-remote",
-  "host-parts"
+  "host-parts",
+  "host-shell"
 ]
