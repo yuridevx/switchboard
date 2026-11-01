@@ -65,6 +65,7 @@ type holder struct {
 	buf     []byte
 	exit    *exitInfoJSON // процесс вышел и всё прочитано
 	forced  bool
+	osStop  bool // ввод закрыт по сигналу остановки от ОС
 	lastErr string
 	outMu   sync.Mutex // порядок записи в соединение
 	done    chan struct{}
@@ -287,7 +288,7 @@ func (h *holder) pump(outR, errR *os.File) {
 	h.osh.release()
 	h.mu.Lock()
 	code, sig := exitInfo(h.cmd.ProcessState, h.forced)
-	h.exit = &exitInfoJSON{Code: code, Signal: sig, Stderr: h.lastErr}
+	h.exit = &exitInfoJSON{Code: code, Signal: sig, Stderr: h.lastErr, OSStop: h.osStop}
 	c := h.conn
 	h.mu.Unlock()
 	h.j.note("held_exit", "id", h.id, "pid", h.cmd.Process.Pid, "code", code, "signal", sig, "stderr", h.lastErr)
@@ -346,9 +347,12 @@ func (h *holder) serve() int {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
 	go func() {
-		// остановка от ОС: закрыть ввод процессу и ждать его выхода
+		// остановка от ОС: закрыть ввод процессу и ждать его выхода; хозяин узнает из выхода, что это не падение
 		<-sig
 		h.j.note("hold_signal", "id", h.id)
+		h.mu.Lock()
+		h.osStop = true
+		h.mu.Unlock()
 		h.input(nil, true)
 	}()
 	go func() {
