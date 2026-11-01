@@ -47,7 +47,9 @@ try {
   const r = client.roster as Roster;
   check("roster: машина smoke", !!r?.machines.some((m) => m.machine === "smoke"), r?.machines.map((m) => m.machine));
   check("roster: сессия probe@smoke", !!r?.sessions.some((s) => s.callsign === "probe@smoke"));
-  check("roster: клиент smoke-cli", !!r?.clients.includes("smoke-cli"), r?.clients);
+  // клиент в roster — адрес устройства: имя из ключа client.<имя>.… и email владельца флота
+  const me = clientKey!.split(".")[1];
+  check(`roster: клиент ${me}~владелец`, !!r?.clients.some((c) => c.startsWith(`${me}~`) && c.length > me.length + 1), r?.clients);
   const workers = (r?.workers ?? []).map((w) => w.name).sort();
   check("roster: участники push, points, ledger, github", ["github", "ledger", "points", "push"].every((n) => workers.includes(n)), workers);
 

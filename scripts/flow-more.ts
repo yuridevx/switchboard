@@ -1,6 +1,7 @@
 // Живой сценарий: пуш вопроса, когда давшего задачу нет на связи; перенос и откат точек; профили без репозиториев;
 // журнал флота; сообщение несуществующим адресатам.
-// env: FLOW_CLIENT_KEY, FLOW_PUSH_KEY (ключ клиента с подпиской на пуши), FLOW_FROM_MACHINE, FLOW_TO_MACHINE, FLOW_DIR.
+// env: FLOW_CLIENT_KEY, FLOW_PUSH_KEY (ключ клиента пушей — сценарий сам подписывает его), FLOW_FROM_MACHINE, FLOW_TO_MACHINE, FLOW_DIR.
+import { createECDH, randomBytes } from "node:crypto";
 import { link, type Roster } from "@switchboard/relay";
 
 const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
@@ -45,6 +46,11 @@ await state(NQ, "idle");
 const phone = link({ url, key: process.env.FLOW_PUSH_KEY! });
 await wait(() => phone.state === "open", 15000);
 const phoneName = process.env.FLOW_PUSH_KEY!.split(".")[1];
+// подписка «телефона» под его адресом устройства: endpoint httpbin принимает пуш, телефона нет — путь проходит весь
+const ecdh = createECDH("prime256v1");
+ecdh.generateKeys();
+const sub = { endpoint: "https://httpbin.org/status/201", keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } };
+check("push.subscribe клиента пушей", (await req({ type: "push.subscribe", to: ".push", sub }, phone)).ok);
 await req({ type: "session.prompt", callsign: NQ, text: "Спроси меня инструментом AskUserQuestion: «Чай или кофе?» с вариантами «чай» и «кофе». Получив ответ, напиши его одним словом." }, phone);
 phone.close(1000, "away");
 await wait(async () => (await req({ type: "question.list", callsign: NQ })).result?.length > 0, 120000);
