@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { make, wrap } from "../src/fleet.ts";
+import { make, task, wrap } from "../src/fleet.ts";
 import { manage } from "../../manage/src/manage.ts";
 import { make as makePush } from "../../push/src/push.ts";
 import { make as makeQuestions } from "../../questions/src/questions.ts";
@@ -84,7 +84,8 @@ describe("эталоны: сессия ведёт другие сессии", ()
     await until(() => field("docs@win", "parent") === "lead@win");
     expect(st.relay.frames("ledger.add").find((f) => f.ev === "session.opened")).toMatchObject({ by: "lead@win", callsign: "docs@win" });
     await until(() => st.proc("docs@win").inputs.length === 1);
-    expect(st.proc("docs@win").inputs[0].message.content).toBe(wrap("lead@win", "Обнови README"));
+    // задача от родителя — с подсказкой: итог хода уйдёт ему сам (живой прогон 1 нояб.: без неё дочь отвечала fleet.send)
+    expect(st.proc("docs@win").inputs[0].message.content).toBe(task("lead@win", "Обнови README"));
   });
 
   it("298 · remove другой сессии — сессия убрана из списка и roster; в журнале флота session.removed от lead", async () => {
