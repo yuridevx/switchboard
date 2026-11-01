@@ -151,7 +151,7 @@ func readSecretLine(in *bufio.Reader) (string, error) {
 }
 
 // placeSelf — файл keeper на постоянное место ~/.switchboard/keeper(.exe): его запускают служба или задача,
-// самообновление ставит новый файл туда же. Прежний файл на месте переименовывается: запущенный не удалить.
+// самообновление ставит новый файл туда же. Прежний файл на месте уходит в .old с новым именем: запущенный не удалить.
 func placeSelf() (string, error) {
 	home, err := homeDir()
 	if err != nil {
@@ -167,12 +167,5 @@ func placeSelf() (string, error) {
 	if errA == nil && errB == nil && os.SameFile(a, b) {
 		return dst, nil
 	}
-	if errB == nil {
-		old := dst + ".prev.old"
-		os.Remove(old)
-		if err := os.Rename(dst, old); err != nil {
-			return "", fmt.Errorf("прежний файл keeper занят: %w", err)
-		}
-	}
-	return dst, copyFile(exe, dst)
+	return dst, replaceFile(exe, dst, fmt.Sprintf("%s.prev.%d.old", dst, os.Getpid()))
 }

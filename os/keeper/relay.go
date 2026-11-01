@@ -242,6 +242,16 @@ func (r *radio) answer(req frameMsg, result any, word string) {
 	r.send(f)
 }
 
+// drop — закрыть соединение с причиной: run переподключится обычной дорогой.
+func (r *radio) drop(why string) {
+	r.mu.Lock()
+	ws := r.ws
+	r.mu.Unlock()
+	if ws != nil {
+		ws.Close(websocket.StatusGoingAway, why)
+	}
+}
+
 func (r *radio) close() {
 	r.cancel()
 	r.mu.Lock()

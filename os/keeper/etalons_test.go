@@ -3,6 +3,9 @@ package main
 // Эталоны keeper — исполнителя плана, и держателя. Источники свойств — дизайн «Выпуски флота» (слово пользователя
 // 1 нояб.: состояние машины спускается сверху, keeper исполняет и отвечает состояние, держатели) и замеры 1 нояб.
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -47,7 +50,7 @@ func TestEtBadHashKeepsOld(t *testing.T) {
 	pid := partOf(k, "capture").Pid
 	bad := s.links.part("capture", "1.4.0", appFiles(""), on)
 	bad["sha256"] = strings.Repeat("0", 64)
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{bad}})
+	s.relay.push(planMsg(2, bad))
 	waitFor(t, "download_failed", func() bool { return strings.Contains(partOf(k, "capture").Error, "download_failed") })
 	p := partOf(k, "capture")
 	if p.State != "running" || p.Pid != pid || p.Version != "1.3.2" {
@@ -56,6 +59,8 @@ func TestEtBadHashKeepsOld(t *testing.T) {
 	if exists(versionDir(s.home, "capture", "1.4.0")) {
 		t.Fatal("папка битой версии осталась")
 	}
+	// выкладка не доехала — это видно и в журнале флота
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed win: capture 1.4.0 — download_failed") })
 }
 
 // Смена версии без наложения: новая стартует после выхода старой; part.updated; предыдущая папка остаётся.
@@ -64,7 +69,7 @@ func TestEtVersionSwitchNoOverlap(t *testing.T) {
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	k := s.start()
 	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{s.links.part("capture", "1.4.0", appFiles(""), on)}})
+	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
 	waitFor(t, "1.4.0 running", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Version == "1.4.0" })
 	waitFor(t, "part.updated", func() bool {
 		for _, e := range s.relay.ledgerEvs() {
@@ -106,14 +111,14 @@ func TestEtStubbornForce(t *testing.T) {
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
 	off := s.links.part("capture", "1.3.2", appFiles("stubborn"), map[string]any{"on": false})
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{off}})
+	s.relay.push(planMsg(2, off))
 	waitFor(t, "stopping", func() bool { return partOf(k, "capture").State == "stopping" })
 	time.Sleep(time.Second)
 	if partOf(k, "capture").State != "stopping" {
 		t.Fatal("stopping держится без таймера")
 	}
 	off["force"] = true
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 3, "parts": []any{off}})
+	s.relay.push(planMsg(3, off))
 	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
 }
 
@@ -137,16 +142,16 @@ func TestEtOneRestartThenFailed(t *testing.T) {
 	})
 	// та же запись части с новой rev — keeper failed не трогает: решает тот, кто правит план
 	same := s.links.part("capture", "1.3.2", appFiles(""), on)
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{same}})
+	s.relay.push(planMsg(2, same))
 	time.Sleep(700 * time.Millisecond)
 	if partOf(k, "capture").State != "failed" {
 		t.Fatal("failed поднят без правки плана")
 	}
 	// on: false, затем on: true — чистый перезапуск
 	off := s.links.part("capture", "1.3.2", appFiles(""), map[string]any{"on": false})
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 3, "parts": []any{off}})
+	s.relay.push(planMsg(3, off))
 	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 4, "parts": []any{same}})
+	s.relay.push(planMsg(4, same))
 	waitFor(t, "running снова", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 0 })
 }
 
@@ -269,9 +274,9 @@ func TestEtEnvChangeRestarts(t *testing.T) {
 		withEnv[kk] = v
 	}
 	withEnv["env"] = map[string]string{"SITE": "lab"}
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{withEnv}})
+	s.relay.push(planMsg(2, withEnv))
 	waitFor(t, "перезапуск с новым окружением", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Pid != 0 && p.Pid != pid })
-	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 3, "parts": []any{withEnv}})
+	s.relay.push(planMsg(3, withEnv))
 	time.Sleep(500 * time.Millisecond)
 	if p := partOf(k, "capture"); p.Restarts != 0 || p.State != "running" {
 		t.Fatalf("тот же план с новой rev тронул часть: %+v", p)
@@ -289,13 +294,11 @@ func TestEtSelfUpdate(t *testing.T) {
 	app := s.links.part("capture", "1.3.2", appFiles(""), on)
 	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
 	s.relay.setPlan(plan1(1, app, kp))
-	k, err := Start(s.home, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
 	exited := make(chan int, 1)
-	k.self = func() (string, error) { return target, nil }
-	k.exit = func(code int) { exited <- code }
+	s.startWith(func(k *Keeper) {
+		k.self = func() (string, error) { return target, nil }
+		k.exit = func(code int) { exited <- code }
+	})
 	select {
 	case code := <-exited:
 		if code != 3 {
@@ -308,8 +311,8 @@ func TestEtSelfUpdate(t *testing.T) {
 	if len(b) != len(bin) {
 		t.Fatal("файл keeper не подменён")
 	}
-	if !exists(target + "." + keeperVersion + ".old") {
-		t.Fatal("старый файл не переименован")
+	if ms, _ := filepath.Glob(target + "." + keeperVersion + ".*.old"); len(ms) != 1 {
+		t.Fatalf("старый файл не переименован: %v", ms)
 	}
 	if f := readHoldFiles(s.home); len(f) != 1 || !alive(f[0].Pid) {
 		t.Fatal("держатель приложения не пережил подмену keeper")
@@ -324,12 +327,13 @@ func TestEtSelfUpdateCheckFailed(t *testing.T) {
 	t.Setenv("KEEPER_TEST_VERSION", "1.0.0")
 	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
 	s.relay.setPlan(plan1(1, kp))
-	k := s.start()
-	exited := false
-	k.exit = func(int) { exited = true }
+	exited := make(chan int, 1)
+	k := s.startWith(func(k *Keeper) { k.exit = func(c int) { exited <- c } })
 	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
-	if exited {
+	select {
+	case <-exited:
 		t.Fatal("keeper вышел после check_failed")
+	default:
 	}
 }
 
@@ -337,6 +341,12 @@ func TestEtSelfUpdateCheckFailed(t *testing.T) {
 
 // Держатель копит вывод без хозяина и отдаёт его хозяину; второй хозяин вытесняет первого; чужой ключ — bad_key.
 func TestEtHolderBufferAndOwner(t *testing.T) {
+	// байты кадра — образец замороженного протокола; тот же образец проверяет Host
+	var gb bytes.Buffer
+	writeFrame(&gb, frAuth, []byte("key"))
+	if gb.String() != "a\x00\x00\x00\x03key" {
+		t.Fatalf("кадр %q", gb.String())
+	}
 	home := t.TempDir()
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
@@ -448,5 +458,326 @@ func TestSetupInVersionDir(t *testing.T) {
 	d, _ := os.Stat(dir)
 	if a == nil || d == nil || !os.SameFile(a, d) {
 		t.Fatalf("setup шёл в %q, а версия в %q", got, dir)
+	}
+}
+
+/* ===== заморозка 1.0.0: ветки, которые закрепил харденинг ===== */
+
+// Замороженный keeper не исполняет того, чего не знает: чужое поле части или v≠1 у кадра — отказ contract_mismatch,
+// части не тронуты; чужое поле app.json — отказ этой части.
+func TestEtPlanContractMismatch(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1))
+	k := s.start()
+	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
+	extra := s.links.part("capture", "1.0.0", appFiles(""), on)
+	extra["args"] = []string{"--x"}
+	s.relay.push(planMsg(2, extra))
+	v2 := planMsg(3, s.links.part("capture", "1.0.0", appFiles(""), on))
+	v2["v"] = 2
+	s.relay.push(v2)
+	waitFor(t, "два отказа", func() bool { return strings.Count(readJournal(s.home), `"word":"contract_mismatch"`) == 2 })
+	if k.state().Rev != 1 || partOf(k, "capture").State != "" {
+		t.Fatalf("план не v1 исполнен: %+v", k.state())
+	}
+	app := appFiles("")
+	app["app.json"] = `{"run":["x"],"user":"admin"}`
+	s.relay.push(planMsg(4, s.links.part("capture", "1.0.0", app, on)))
+	waitFor(t, "часть с чужим app.json — failed", func() bool {
+		p := partOf(k, "capture")
+		return p.State == "failed" && strings.Contains(p.Error, "contract_mismatch")
+	})
+}
+
+// План старше исполняемого не исполняется — строка refuse old_rev; та же rev при переподключении — без строки.
+func TestEtPlanOldRev(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(5))
+	k := s.start()
+	waitFor(t, "rev 5", func() bool { return k.state().Rev == 5 })
+	s.relay.drop()
+	waitFor(t, "вопрос после переподключения", func() bool { return s.relay.planAsks() == 2 })
+	time.Sleep(500 * time.Millisecond)
+	s.relay.push(planMsg(3, s.links.part("capture", "1.0.0", appFiles(""), on)))
+	waitFor(t, "old_rev", func() bool { return journalHas(s.home, `"word":"old_rev"`) })
+	if n := strings.Count(readJournal(s.home), `"word":"old_rev"`); n != 1 || k.state().Rev != 5 || partOf(k, "capture").State != "" {
+		t.Fatalf("строк old_rev %d, rev %d", n, k.state().Rev)
+	}
+}
+
+// Битый plan.json — строка stop с причиной; keeper живёт и берёт план у «выпусков».
+func TestEtBrokenPlanFile(t *testing.T) {
+	s := newStand(t)
+	os.WriteFile(planPath(s.home), []byte("{битый"), 0o600)
+	s.relay.setPlan(plan1(2, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	if r := journalLine(s.home, `"ev":"plan","why":"plan.json`); r == nil || r["kind"] != "stop" {
+		t.Fatalf("строка о битом plan.json: %v", r)
+	}
+	waitFor(t, "план от «выпусков»", func() bool { return partOf(k, "capture").State == "running" })
+}
+
+// Старая версия упала, пока ставится новая: работает один экземпляр новой версии, перезапусков 0
+// (ревью 1 нояб.: было два экземпляра).
+func TestEtCrashDuringInstall(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	old := partOf(k, "capture").Pid
+	self, _ := os.Executable()
+	app := appFiles("")
+	b, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "slowsetup"}})
+	app["app.json"] = string(b)
+	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", app, on)))
+	waitFor(t, "setup идёт", func() bool { return exists(filepath.Join(versionDir(s.home, "capture", "1.4.0"), "setup-started")) })
+	killPid(t, old)
+	waitFor(t, "1.4.0 running", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Version == "1.4.0" })
+	time.Sleep(time.Second) // выход старой версии разобран
+	starts := strings.Count(readJournal(s.home), `"ev":"part_start","version":"1.4.0"`)
+	if p := partOf(k, "capture"); starts != 1 || p.Restarts != 0 || p.State != "running" {
+		t.Fatalf("стартов 1.4.0: %d, %+v", starts, p)
+	}
+}
+
+// Упрямая часть останавливается — keeper ждёт её со всем остальным: упавшая другая часть ждёт в exited;
+// force по первой пускает перезапуск второй (дизайн: план исполняется после выхода).
+func TestEtStubbornHoldsRestartUntilForce(t *testing.T) {
+	s := newStand(t)
+	a := s.links.part("capture", "1.3.2", appFiles("stubborn"), on)
+	b := s.links.part("probe", "1.0.0", appFiles(""), on)
+	s.relay.setPlan(plan1(1, a, b))
+	k := s.start()
+	waitFor(t, "обе running", func() bool { return partOf(k, "capture").State == "running" && partOf(k, "probe").State == "running" })
+	off := s.links.part("capture", "1.3.2", appFiles("stubborn"), map[string]any{"on": false})
+	s.relay.push(planMsg(2, off, b))
+	waitFor(t, "capture stopping", func() bool { return partOf(k, "capture").State == "stopping" })
+	killPid(t, partOf(k, "probe").Pid)
+	waitFor(t, "probe exited", func() bool { return partOf(k, "probe").State == "exited" })
+	off["force"] = true
+	s.relay.push(planMsg(3, off, b))
+	waitFor(t, "probe перезапущена", func() bool { p := partOf(k, "probe"); return p.State == "running" && p.Restarts == 1 })
+	if st := partOf(k, "capture").State; st != "stopped" {
+		t.Fatalf("capture %s", st)
+	}
+}
+
+// Сбой установки части, которая ещё не работает: failed и part.failed в журнале флота.
+func TestEtInstallFailedToLedger(t *testing.T) {
+	s := newStand(t)
+	bad := s.links.part("capture", "1.0.0", appFiles(""), on)
+	bad["sha256"] = strings.Repeat("0", 64)
+	s.relay.setPlan(plan1(1, bad))
+	k := s.start()
+	waitFor(t, "failed", func() bool { p := partOf(k, "capture"); return p.State == "failed" && strings.Contains(p.Error, "download_failed") })
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed win: capture 1.0.0 — download_failed") })
+}
+
+// Часть убрана из плана: остановлена штатно и снята из keeper.state, папки версий убраны, data/ осталась.
+func TestEtPartRemoved(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	keep := filepath.Join(partDir(s.home, "capture"), "data", "keep")
+	os.WriteFile(keep, []byte("1"), 0o600)
+	s.relay.push(planMsg(2))
+	waitFor(t, "снята", func() bool { return len(k.state().Parts) == 0 })
+	if exists(versionDir(s.home, "capture", "1.3.2")) || !exists(keep) {
+		t.Fatal("версия осталась или data/ убрана")
+	}
+	if !journalHas(s.home, `"line":"bye"`) {
+		t.Fatal("часть не остановлена закрытием ввода")
+	}
+}
+
+// Приложение получает от keeper окружение машины и окружение из плана.
+func TestEtPartEnv(t *testing.T) {
+	s := newStand(t)
+	p := s.links.part("capture", "1.3.2", appFiles("env"), on)
+	p["env"] = map[string]string{"SITE": "lab"}
+	s.relay.setPlan(plan1(1, p))
+	s.start()
+	waitFor(t, "строка env", func() bool { return journalHas(s.home, `"line":"env `) })
+	line, _ := journalLine(s.home, `"line":"env `)["line"].(string)
+	self, _ := os.Executable()
+	data := filepath.Join(partDir(s.home, "capture"), "data")
+	for _, want := range []string{"SWITCHBOARD_MACHINE=win", "SWITCHBOARD_VERSION=1.3.2", "SWITCHBOARD_DATA=" + data,
+		"SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY=" + s.relay.url(), "SITE=lab"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("нет %s в %q", want, line)
+		}
+	}
+}
+
+// Архив со ссылкой внутри — отказ установки download_failed: в архиве части только файлы и папки.
+func TestEtArchiveLinkRefused(t *testing.T) {
+	s := newStand(t)
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	b, _ := json.Marshal(map[string]any{"run": []string{"x"}})
+	tw.WriteHeader(&tar.Header{Name: "app.json", Mode: 0o644, Size: int64(len(b)), Typeflag: tar.TypeReg})
+	tw.Write(b)
+	tw.WriteHeader(&tar.Header{Name: "link", Linkname: "app.json", Typeflag: tar.TypeSymlink})
+	tw.Close()
+	zw.Close()
+	s.relay.setPlan(plan1(1, s.links.partTgz("capture", "1.0.0", buf.Bytes(), on)))
+	k := s.start()
+	waitFor(t, "download_failed", func() bool {
+		p := partOf(k, "capture")
+		return p.State == "failed" && strings.Contains(p.Error, "download_failed") && strings.Contains(p.Error, "только файлы и папки")
+	})
+}
+
+// Процесс не читает ввод: 256 КБ ввода и «убей» — процесс снят, хозяин получил выход SIGKILL
+// (опыт 1 нояб. на 0.5.6: от 8 КБ процесс жив через 8 с).
+func TestEtHolderKillBehindInput(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "d", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app", "deaf"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := dialHolder(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	go func() {
+		chunk := make([]byte, 32*1024)
+		for i := 0; i < 8; i++ {
+			if c.send(frInput, chunk) != nil {
+				return
+			}
+		}
+		c.kill()
+	}()
+	x, err := c.read(func([]byte) {})
+	d := time.Since(start)
+	if err != nil || x == nil || x.Signal == nil || *x.Signal != "SIGKILL" {
+		t.Fatalf("выход %+v %v", x, err)
+	}
+	t.Logf("снят через %v", d)
+	if d > 2*time.Second {
+		t.Fatalf("снят через %v", d)
+	}
+	waitFor(t, "процесс снят", func() bool { return !alive(f.Pid) })
+}
+
+// После подмены себя версии keeper на диске — новая и та, с которой ушли (машины 1 нояб.: 6 версий, 77 МБ).
+func TestEtSelfUpdateCleansVersions(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	target := filepath.Join(t.TempDir(), exeName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	for _, v := range []string{"0.0.1", keeperVersion} {
+		os.MkdirAll(versionDir(s.home, "keeper", v), 0o700)
+	}
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
+	exited := make(chan int, 1)
+	s.startWith(func(k *Keeper) {
+		k.self = func() (string, error) { return target, nil }
+		k.exit = func(code int) { exited <- code }
+	})
+	select {
+	case <-exited:
+	case <-time.After(30 * time.Second):
+		t.Fatal("keeper не подменил себя")
+	}
+	es, _ := os.ReadDir(partDir(s.home, "keeper"))
+	var got []string
+	for _, e := range es {
+		got = append(got, e.Name())
+	}
+	if strings.Join(got, " ") != keeperVersion+" 9.9.9" {
+		t.Fatalf("версии keeper: %v", got)
+	}
+}
+
+// Прежний файл keeper с тем же именем ещё занят (откат и новая выкладка, держатель прошлой эпохи) — подмена себя
+// проходит (ревью 1 нояб.: Access is denied на Windows).
+func TestEtSelfUpdateOldNameBusy(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	target := filepath.Join(t.TempDir(), exeName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	busy := target + "." + keeperVersion + ".old"
+	os.WriteFile(busy, []byte("epoch 1"), 0o755)
+	h, err := os.Open(busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
+	exited := make(chan int, 1)
+	s.startWith(func(k *Keeper) {
+		k.self = func() (string, error) { return target, nil }
+		k.exit = func(code int) { exited <- code }
+	})
+	select {
+	case <-exited:
+	case <-time.After(30 * time.Second):
+		t.Fatal("keeper не подменил себя")
+	}
+	if b, _ := os.ReadFile(target); len(b) != len(bin) {
+		t.Fatal("файл keeper не подменён")
+	}
+}
+
+// Откат после неудачной подмены: план с работающей версией keeper снимает failed keeper из keeper.state.
+func TestEtKeeperRollbackClearsFailed(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "0.0.0-wrong")
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
+	k := s.start()
+	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
+	s.relay.push(planMsg(2, s.links.part("keeper", keeperVersion, files{"x": "x"}, nil)))
+	waitFor(t, "failed снят", func() bool { return partOf(k, "keeper").State == "" })
+}
+
+// failed живёт до перезапуска keeper: новый keeper снова запускает часть и даёт ей один перезапуск
+// (решение плана заморозки 1 нояб., чьё: код).
+func TestEtFailedUntilKeeperRestart(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
+	k.Stop()
+	k2 := s.start()
+	waitFor(t, "снова running", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Restarts == 0 })
+}
+
+// Обрыв связи с relay — keeper переподключается и спрашивает план снова.
+func TestEtRelayDropReasks(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1))
+	s.start()
+	waitFor(t, "первый вопрос", func() bool { return s.relay.planAsks() == 1 })
+	s.relay.drop()
+	waitFor(t, "вопрос после переподключения", func() bool { return s.relay.planAsks() == 2 })
+}
+
+// «Выпуски» не ответили на вопрос о плане — keeper закрывает соединение, переподключается и спрашивает снова.
+func TestEtPlanNoAnswerReconnects(t *testing.T) {
+	s := newStand(t)
+	s.relay.setSilent(1)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.startWith(func(k *Keeper) { k.planWait = 500 * time.Millisecond })
+	waitFor(t, "план со второго вопроса", func() bool { return partOf(k, "capture").State == "running" })
+	if s.relay.planAsks() < 2 || !journalHas(s.home, `"word":"timeout"`) {
+		t.Fatalf("вопросов %d", s.relay.planAsks())
 	}
 }

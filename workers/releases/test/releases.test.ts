@@ -237,4 +237,20 @@ describe("эталоны releases", () => {
     const sent = await env.RELAY_LOG.take();
     expect(sent.map((x) => [x.name, x.frame.type, x.frame.to])).toEqual([["releases", "reply", ".keeper@box"]]);
   });
+
+  it("13 · план keeper — ровно поля v1: keeper заморожен с 1.0.0 и отказывает плану с чужим полем", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("capture", "1.4.0");
+    await inR2("keeper", "0.5.0");
+    await req(s, "~x", "releases.deploy", { part: "keeper" });
+    await req(s, "~x", "releases.set", { machine: "win", part: "capture", pin: "1.4.0", env: { SITE: "lab" } });
+    const frame = plans(await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: false, force: true }))[0];
+    expect(Object.keys(frame).sort()).toEqual(["parts", "rev", "to", "type", "v"]);
+    const answer = await result(req(s, ".keeper@win", "releases.plan"));
+    expect(Object.keys(answer).sort()).toEqual(["parts", "rev"]);
+    const v1 = ["env", "force", "on", "part", "sha256", "url", "version"];
+    for (const p of [...(frame.parts as Array<Record<string, unknown>>), ...answer.parts]) expect(Object.keys(p).every((k) => v1.includes(k))).toBe(true);
+    expect(Object.keys(answer.parts.find((p: { part: string }) => p.part === "capture")).sort()).toEqual(v1);
+  });
 });

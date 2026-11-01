@@ -40,19 +40,36 @@ func TestMain(m *testing.M) {
 			wd, _ := os.Getwd()
 			os.WriteFile("setup-dir", []byte(wd), 0o644)
 			return
+		case "slowsetup":
+			// долгий setup, как npm ci у Host: метка начала — стенду, чтобы уронить прежнюю версию посреди установки
+			os.WriteFile("setup-started", nil, 0o644)
+			time.Sleep(2 * time.Second)
+			return
 		}
 	}
 	os.Setenv("KEEPER_TEST_CHILD", "1")
 	os.Exit(m.Run())
 }
 
-// fakeApp — приложение: строка о старте, ввод закрыт — «bye» и выход 0; stubborn — конец ввода не слушает.
+// fakeApp — приложение: строка о старте, ввод закрыт — «bye» и выход 0; stubborn — конец ввода не слушает;
+// deaf — ввод не читает вовсе (завис); env — строка со своим окружением от keeper.
 func fakeApp(args []string) {
 	mode := ""
 	if len(args) > 0 {
 		mode = args[0]
 	}
 	fmt.Printf("app %s start pid %d\n", os.Getenv("SWITCHBOARD_VERSION"), os.Getpid())
+	if mode == "deaf" {
+		time.Sleep(2 * time.Minute)
+		return
+	}
+	if mode == "env" {
+		var kv []string
+		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_RELAY", "SITE"} {
+			kv = append(kv, n+"="+os.Getenv(n))
+		}
+		fmt.Println("env " + strings.Join(kv, " "))
+	}
 	fmt.Fprintln(os.Stderr, "app: stderr line")
 	br := bufio.NewReader(os.Stdin)
 	for {
@@ -77,6 +94,8 @@ type fakeRelay struct {
 	ledger []map[string]any
 	reply  map[string]chan map[string]any
 	opened chan struct{}
+	asks   int // вопросов releases.plan
+	silent int // столько первых вопросов остаются без ответа — «выпуски» молчат
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
@@ -117,7 +136,12 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 			case "releases.plan":
 				r.mu.Lock()
 				p := r.plan
+				r.asks++
+				quiet := r.asks <= r.silent
 				r.mu.Unlock()
+				if quiet {
+					continue
+				}
 				out, _ := json.Marshal(map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": p})
 				ws.Write(ctx, websocket.MessageText, out)
 			case "ledger.add":
@@ -172,6 +196,38 @@ func (r *fakeRelay) ask(f map[string]any) map[string]any {
 		r.t.Fatalf("keeper не ответил на %v", f["type"])
 		return nil
 	}
+}
+
+// setSilent — первые n вопросов о плане остаются без ответа.
+func (r *fakeRelay) setSilent(n int) {
+	r.mu.Lock()
+	r.silent = n
+	r.mu.Unlock()
+}
+
+// planAsks — сколько раз keeper спросил план.
+func (r *fakeRelay) planAsks() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.asks
+}
+
+// drop — relay оборвал соединение keeper.
+func (r *fakeRelay) drop() {
+	r.mu.Lock()
+	ws := r.ws
+	r.mu.Unlock()
+	ws.CloseNow()
+}
+
+// ledgerHas — в журнале флота есть строка ev text, начинающаяся с prefix.
+func (r *fakeRelay) ledgerHas(prefix string) bool {
+	for _, e := range r.ledgerEvs() {
+		if strings.HasPrefix(e, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *fakeRelay) ledgerEvs() []string {
@@ -229,7 +285,11 @@ func newLinks(t *testing.T) *links {
 
 // part — архив части в ссылках и запись плана для неё.
 func (l *links) part(name, version string, fs files, extra map[string]any) map[string]any {
-	b := tgz(fs)
+	return l.partTgz(name, version, tgz(fs), extra)
+}
+
+// partTgz — то же с готовым архивом.
+func (l *links) partTgz(name, version string, b []byte, extra map[string]any) map[string]any {
 	path := "/" + name + "/" + version + ".tgz"
 	l.mu.Lock()
 	l.m[path] = b
@@ -273,12 +333,19 @@ func newStand(t *testing.T) *stand {
 }
 
 // start — keeper; подмена себя не выходит из процесса теста.
-func (s *stand) start() *Keeper {
-	k, err := Start(s.home, nil)
+func (s *stand) start() *Keeper { return s.startWith(nil) }
+
+// startWith — keeper с подменами стенда, поставленными до того, как пошли его горутины.
+func (s *stand) startWith(set func(k *Keeper)) *Keeper {
+	k, err := newKeeper(s.home, nil)
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	k.exit = func(code int) { k.exitCode = code }
+	k.exit = func(int) {}
+	if set != nil {
+		set(k)
+	}
+	k.run()
 	s.t.Cleanup(k.Stop)
 	return k
 }
@@ -338,6 +405,13 @@ func journalHas(home, s string) bool {
 		}
 	}
 	return false
+}
+
+// planMsg — кадр releases.plan в том виде, в каком его шлют «выпуски» через relay: конверт v1, from ставит relay.
+func planMsg(rev int, parts ...map[string]any) map[string]any {
+	f := plan1(rev, parts...)
+	f["type"], f["v"], f["to"], f["from"] = "releases.plan", 1, ".keeper@win", ".releases"
+	return f
 }
 
 func plan1(rev int, parts ...map[string]any) map[string]any {

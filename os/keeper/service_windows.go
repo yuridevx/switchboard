@@ -65,6 +65,10 @@ func install(args []string) error {
 	if err != nil {
 		return err
 	}
+	// второй вид установки поверх первого — два keeper на одних держателях: отказ до правки файлов
+	if installed() {
+		return fmt.Errorf("keeper уже стоит службой или задачей %s — сначала keeper uninstall", serviceName)
+	}
 	in := bufio.NewReader(os.Stdin)
 	if err := prepareConf(f, in); err != nil {
 		return err
@@ -117,12 +121,20 @@ func install(args []string) error {
 	return s.Start()
 }
 
+// installed — служба или задача keeper уже есть.
+func installed() bool {
+	return exec.Command("sc.exe", "query", serviceName).Run() == nil || exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil
+}
+
 func uninstall() error {
-	if out, err := exec.Command("schtasks", "/Query", "/TN", serviceName).CombinedOutput(); err == nil {
+	if exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil {
+		// задача снята — запущенный по ней keeper остановлен тоже, иначе он жил бы рядом со следующей установкой
+		if out, err := exec.Command("schtasks", "/End", "/TN", serviceName).CombinedOutput(); err != nil {
+			return fmt.Errorf("schtasks /End: %v: %s", err, out)
+		}
 		if out, err := exec.Command("schtasks", "/Delete", "/TN", serviceName, "/F").CombinedOutput(); err != nil {
 			return fmt.Errorf("schtasks /Delete: %v: %s", err, out)
 		}
-		_ = out
 		return nil
 	}
 	m, err := mgr.Connect()

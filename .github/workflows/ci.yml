@@ -46,6 +46,18 @@ jobs:
           cache-dependency-path: os/keeper/go.sum
       - run: go vet ./...
       - run: go test -count=1 ./...
+      # keeper заморожен: уязвимость Go или зависимости на его пути роняет сборку — повод пересобрать
+      - name: уязвимости
+        if: runner.os == 'Linux'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+      - name: гонки
+        if: runner.os == 'Linux'
+        run: go test -race -count=1 ./...
+      - name: сборка выпуска дважды — один хэш
+        if: runner.os == 'Linux'
+        run: |
+          b() { GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false -ldflags "-s -w -buildid=" -o "$1" .; }
+          b /tmp/k1.exe && go clean -cache && b /tmp/k2.exe && cmp /tmp/k1.exe /tmp/k2.exe
 
   upload:
     # загрузка без выкладки: stable двигают «выпуски» (releases.deploy) по слову человека или агента
