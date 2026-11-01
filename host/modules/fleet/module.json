@@ -11,6 +11,7 @@
     "session.open@host-manage": 1,
     "session.update@host-manage": 1,
     "session.remove@host-manage": 1,
+    "parent@host-manage": 1,
     "session.history@host-chat": 1
   },
   "calls": [],

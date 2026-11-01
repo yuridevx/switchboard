@@ -71,5 +71,20 @@ describe("стенд: отправитель ввода", () => {
     await st.host("host-owner").request("who", { v: 1 });
     expect(seen).toEqual(["lead@win", "@win"]);
   });
+
+  it("s.field: поле сессии этой машины от владельца — без relay; имени нет в uses — модуль выключен в сессии", async () => {
+    let got: unknown;
+    const owner: Module = { fields: { parent: () => "lead@win" } };
+    const reader: Module = { on: { open: (s) => void (got = s.field("parent")) } };
+    const stranger: Module = { on: { open: (s) => void s.field("parent") } };
+    st = await standHost({
+      machine: "win",
+      modules: [module("host-owner", owner), module("host-reader", reader, { uses: { "parent@host-owner": 1 } }), module("host-stranger", stranger)],
+    });
+    await st.open("docs@win");
+    expect(got).toBe("lead@win");
+    await until(() => st!.states("docs@win").at(-1)?.failed?.["host-stranger"]);
+    expect(st.states("docs@win").at(-1)!.failed["host-stranger"]).toContain("parent нет в uses");
+  });
 });
 });

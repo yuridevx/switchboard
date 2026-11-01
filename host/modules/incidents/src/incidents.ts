@@ -117,11 +117,9 @@ export function make(): Module {
 
   return {
     session(s) {
-      // первый старт новой сессии: ключ — из открывающего обращения; раздел — заново, без следа прежней с тем же именем
+      // первый старт новой сессии: тип и ключ — из открывающего обращения (раздел прежней с тем же именем ядро стёрло при remove)
       if (s.info.start === "spawn") {
-        let found: Mine | undefined;
-        for (const [type, m] of opening) if (s.info.callsign.startsWith(`${type}-`) && /^\d+@/.test(s.info.callsign.slice(type.length + 1))) found = m;
-        s.store<Mine>().set(found);
+        for (const [type, m] of opening) if (s.info.callsign.startsWith(`${type}-`) && /^\d+@/.test(s.info.callsign.slice(type.length + 1))) s.store<Mine>().set(m);
       }
       const m = mine(s);
       return m ? { append: rule(m.type, m.key, cfg().to) } : undefined;

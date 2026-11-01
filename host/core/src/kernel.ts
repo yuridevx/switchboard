@@ -575,6 +575,15 @@ export class Kernel {
     return r as Result;
   }
 
+  /** s.field: поле записи сессии этой машины у владельца — имя из своих provides или uses, как у запроса. */
+  sessionField(m: Mod, s: Sess, name: string): unknown {
+    const own = m.manifest.provides?.[name] !== undefined;
+    const ref = Object.keys(m.manifest.uses ?? {}).find((r) => nameOf(r) === name);
+    if (!own && !ref) this.violation(m, s, `${name} нет в uses`);
+    const owner = this.byName.get(own ? m.name : ownerOf(ref!));
+    return owner?.module.fields?.[name] ? s.field(owner, name) : undefined;
+  }
+
   /** host.emit: кадр без ответа; type — свой или из uses. Связи нет — disconnected, очереди нет; больше предела кадра — too_large. */
   emit(m: Mod, f: Frame): Result {
     const known = m.manifest.provides?.[f.type] !== undefined || Object.keys(m.manifest.uses ?? {}).some((r) => nameOf(r) === f.type);

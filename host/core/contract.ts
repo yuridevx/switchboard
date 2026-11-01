@@ -208,6 +208,11 @@ export interface Session {
   remove(): Promise<void>;
   /** Свой раздел хранилища для этой сессии. */
   store<T = unknown>(): Store<T>;
+  /**
+   * Поле этой сессии в roster от модуля-владельца — то же значение, что уйдёт в session.state, без пути через relay.
+   * Имя — из своих provides или uses (поле@владелец), иначе ошибка модуля; владелец выключен — undefined.
+   */
+  field(name: string): unknown;
   /** Пересобрать поля сессии у владельцев и, если запись изменилась, послать session.state — для поля, которое меняется вне событий SDK. */
   refresh(): void;
 }

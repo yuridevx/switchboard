@@ -2,13 +2,13 @@
 // Каждой сессии — сервер MCP fleet: list, send, answer, open, history, update, remove; открыть, прочитать, сменить модель
 // и закрыть — запросы manage и chat, fleet их только зовёт. Чужое сообщение — запрос message: текст с отправителем
 // ложится во ввод с priority "next" (простаивающая просыпается, занятая читает на границе шага). Адресата нет — отказ сразу.
-// Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent в roster), и это сессия, —
+// Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent от manage этой машины), и это сессия, —
 // текст result уходит родителю тем же message. Хранить нечего.
 import { randomUUID } from "node:crypto";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { Ctx, Frame, Host, Module, Result, SDKMessage } from "@switchboard/host";
+import type { Ctx, Frame, Host, Module, Result, SDKMessage, Session } from "@switchboard/host";
 import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
@@ -56,10 +56,8 @@ export function lines(messages: Entry[]): string {
 
 export function make() {
   let host: Host;
-  /** последний roster: для fleet.list и родителя сессии */
+  /** последний roster: для fleet.list */
   let roster: Roster | null = null;
-
-  const parentOf = (cs: string) => roster?.sessions?.find((x) => x.callsign === cs)?.parent;
 
   /** Инструменты сервера MCP одной сессии: отправитель — сама сессия, в аргументах его нет. */
   function tools(me: string): SdkMcpToolDefinition<any>[] {
@@ -154,23 +152,28 @@ export function make() {
     ];
   }
 
-  /** Сообщение во ввод сессии этой машины; отправитель — от Host или relay. */
+  /**
+   * Сообщение во ввод сессии этой машины; отправитель — от Host или relay. report: true — итог хода дочери:
+   * отправитель последнего ввода у адресата прежний — вопрос родителя уходит тому, кто дал ему задачу, а не дочери.
+   */
   function message(req: Frame, ctx: Ctx): void {
     const to = req.to;
     if (typeof to !== "string" || typeof req.text !== "string") throw refuse("bad_frame", "message: нужны to — callsign и text");
     const s = host.session(to);
     if (!s || s.state === "stopped" || s.state === "failed") throw refuse("offline", `${to}: ${s ? `сессия ${s.state}` : "сессии нет на машине"}`);
     const from = ctx.from ?? "";
-    s.input(wrap(from, req.text), { from, priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
+    s.input(wrap(from, req.text), { ...(req.report === true ? {} : { from }), priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
   }
 
-  /** Конец хода: последний ввод от родителя-сессии — итог ему тем же message. */
-  function report(me: string, from: string | null, m: SDKMessage): void {
-    const parent = parentOf(me);
-    if (!parent || kindOf(parent) !== "session" || from !== parent) return;
+  /** Конец хода: последний ввод от родителя-сессии — итог ему тем же message. Родитель — поле manage этой машины: relay не нужен. */
+  function report(s: Session, m: SDKMessage): void {
+    const me = s.info.callsign;
+    const from = s.info.from;
+    const parent = s.field("parent");
+    if (typeof parent !== "string" || kindOf(parent) !== "session" || from !== parent) return;
     const r = m as { subtype: string; is_error?: boolean; result?: string };
     const body = r.subtype === "success" && !r.is_error ? (r.result ?? "") : `ход кончился: ${r.subtype}`;
-    void host.request("message", { v: 1, to: parent, text: body, from: me }).then((x) => {
+    void host.request("message", { v: 1, to: parent, text: body, report: true, from: me }).then((x) => {
       if (!x.ok) host.log({ kind: "note", ev: "report", word: x.error, callsign: me, why: `итог хода родителю ${parent} не доставлен: ${x.error}` });
     });
   }
@@ -186,7 +189,7 @@ export function make() {
     requests: { message },
     on: {
       event(s, m) {
-        if (m.type === "result") report(s.info.callsign, s.info.from, m);
+        if (m.type === "result") report(s, m);
       },
       frame(f) {
         if (f.type === "roster") roster = f as Roster;

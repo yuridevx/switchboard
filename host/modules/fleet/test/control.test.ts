@@ -10,23 +10,30 @@ import manifest from "../module.json" with { type: "json" };
 import { make, wrap } from "../src/fleet.ts";
 import { manage } from "../../manage/src/manage.ts";
 
-const { module, msg, standHost, turn, until } = stand;
+const { FakeHolders, FakeRelay, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
 const manageManifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "manage", "module.json"), "utf8")) as Manifest;
 
 const stands: Stand[] = [];
+const keepers: stand.FakeHolders[] = [];
 afterEach(async () => {
   for (const s of stands.splice(0)) await s.close();
+  for (const k of keepers.splice(0)) await k.close();
 });
 
-/** Host с fleet и настоящим manage; dir — папка для session.open. */
-async function bench(machine = "win") {
+/** Host с fleet и настоящим manage; dir — папка для session.open; home и holders — для перезапуска Host; holdRoster — relay ещё не прислал roster. */
+async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHolders; holdRoster?: boolean } = {}) {
   const f = make();
   const dir = mkdtempSync(join(tmpdir(), "switchboard-fleet-"));
   const slots = module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
   const profiles = module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
+  const relay = new FakeRelay();
+  relay.holdRoster = !!o.holdRoster;
   const st = await standHost({
     machine,
+    home: o.home,
+    holders: o.holders,
+    relayStand: relay,
     modules: [slots, profiles, { manifest: manageManifest, module: manage({ home: dir }) }, { manifest: manifest as Manifest, module: f.module }],
   });
   stands.push(st);
@@ -134,25 +141,48 @@ describe("эталоны: сессия ведёт другие сессии", ()
     expect(r.clients).toEqual(["phone~owner@example.com"]);
   });
 
-  it("311 · дочь кончила ход, последний ввод — от родителя-сессии: родителю message от дочери с текстом result; дочь send не звала", async () => {
+  it("311 · дочь кончила ход, последний ввод — от родителя-сессии: родителю message от дочери с текстом result; дочь send не звала; родитель — от manage этой машины, roster не нужен; отправитель ввода родителя прежний — его вопрос уходит человеку", async () => {
     const { st, call, dir } = await bench();
     await st.open("lead@win");
+    st.session("host-fleet", "lead@win")!.input("Наведи порядок в документации", { from: "phone~owner@example.com" });
     await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
-    roster(st, [{ callsign: "lead@win" }, { callsign: "docs@win", parent: "lead@win" }]);
     const kid = st.proc("docs@win");
     await until(() => kid.inputs.length === 1);
     turn(kid, "работаю", { result: "README обновлён: раздел установки" });
     const lead = st.proc("lead@win");
+    await until(() => lead.inputs.length === 2);
+    expect(lead.inputs[1]).toMatchObject({ priority: "next", message: { content: wrap("docs@win", "README обновлён: раздел установки") } });
+    expect(st.session("host-fleet", "lead@win")!.info.from).toBe("phone~owner@example.com");
+  });
+
+  it("313 · Host дочери перезапустился посреди хода: ход дошёл у держателя, итог — родителю сразу после подключения, без roster", async () => {
+    const k = new FakeHolders();
+    keepers.push(k);
+    const a = await bench("win", { holders: k });
+    await a.st.open("lead@win");
+    await a.call("lead@win", "open", { name: "docs", dir: a.dir, text: "Обнови README" });
+    const kid = k.procs.get("docs@win")!;
+    await until(() => kid.inputs.length === 1);
+    kid.send(msg.state("running"));
+    await until(() => a.st.kernel.sessions.get("docs@win")?.state === "busy");
+    await a.st.close();
+    stands.splice(stands.indexOf(a.st), 1);
+    // ход кончился, пока Host нет: держатель копит вывод и отдаёт новому Host при подключении
+    await until(() => kid.sock === null);
+    kid.send(msg.assistant("работаю"));
+    kid.send(msg.result({ result: "README обновлён" }));
+    kid.send(msg.state("idle"));
+    // relay нового Host ещё не прислал roster: родитель — только от manage этой машины
+    await bench("win", { holders: k, home: a.st.home, holdRoster: true });
+    const lead = k.procs.get("lead@win")!;
     await until(() => lead.inputs.length === 1);
-    expect(lead.inputs[0]).toMatchObject({ priority: "next", message: { content: wrap("docs@win", "README обновлён: раздел установки") } });
-    expect(st.session("host-fleet", "lead@win")!.info.from).toBe("docs@win");
+    expect(lead.inputs[0]).toMatchObject({ priority: "next", message: { content: wrap("docs@win", "README обновлён") } });
   });
 
   it("312 · ход дочери начал человек — родителю ничего", async () => {
     const { st, call, dir } = await bench();
     await st.open("lead@win");
     await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
-    roster(st, [{ callsign: "lead@win" }, { callsign: "docs@win", parent: "lead@win" }]);
     const kid = st.proc("docs@win");
     await until(() => kid.inputs.length === 1);
     st.session("host-fleet", "docs@win")!.input("Добавь тест на logout", { from: "phone~owner@example.com" });
