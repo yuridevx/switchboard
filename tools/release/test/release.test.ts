@@ -126,7 +126,9 @@ describe("загрузка", () => {
   });
 
   it("архив keeper: два файла по ОС, режим исполнения, тот же вывод go — тот же хэш; go не собрал — исключение", async () => {
+    const seen: string[][] = [];
     const go: GoExec = async (args, _cwd, env) => {
+      seen.push(args);
       const out = args[args.indexOf("-o") + 1];
       mkdirSync(join(out, ".."), { recursive: true });
       writeFileSync(out, `keeper ${env.GOOS}/${env.GOARCH}`);
@@ -139,6 +141,8 @@ describe("загрузка", () => {
       ["windows-amd64/keeper.exe", "keeper windows/amd64", 0o755],
     ]);
     expect((await buildKeeper(root, go)).sha).toBe(a.sha);
+    // без сведений git: иначе ревизия коммита в файле меняет хэш при неизменном коде
+    expect(seen.every((x) => x.includes("-buildvcs=false") && x.includes("-trimpath"))).toBe(true);
     await expect(buildKeeper(root, async () => ({ code: 1, out: "syntax error" }))).rejects.toThrow("go build windows/amd64: syntax error");
   });
 });
