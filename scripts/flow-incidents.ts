@@ -1,7 +1,9 @@
 // Живая проверка инцидентов на тестовом флоте: POST на 127.0.0.1 машины A (отсюда) и машины B (curl внутри WSL).
 // POST отвечает 202 с id сразу; обращение — в разговоре сессии инцидента (id в теге <incident>). Два POST одного ключа —
 // одна сессия; сессию закрыли — третий POST открывает новую; чужой тип — 400 unknown_type.
-// FLOW_STOP=1 — на машине B POST и сразу перезапуск Host через «выпуски»: обращение в разговоре после перезапуска.
+// Сессия может закрыть себя сама (правило модуля «решено — fleet.remove»): закрыта — кем угодно.
+// FLOW_STOP=1 — на машине B POST нового ключа и сразу перезапуск Host через «выпуски»: открытие сессии ещё идёт,
+// когда Host останавливается; обращение — в разговоре сессии после перезапуска.
 // Каждая строка — ok или FAIL; в конце — число ok и FAIL.
 // Настройка машин: host.json, раздел host-incidents — порт и тип FLOW_TYPE с папкой (профиль не нужен).
 // env: FLOW_CLIENT_KEY (client.*), FLOW_A (win), FLOW_B (wsl), FLOW_PORT_A (7717), FLOW_PORT_B (7718),
@@ -38,7 +40,8 @@ const rec = (cs: string) => (l.roster as Roster | null)?.sessions.find((s) => s.
 const ofKey = (key: string) => ((l.roster as Roster | null)?.sessions ?? []).filter((s) => s.incident?.type === type && s.incident?.key === key).map((s) => s.callsign as string);
 const rq = async (t: string, f: Record<string, unknown>) => (await l.request({ type: t, v: 1, ...f })) as { ok: boolean; error?: string; result?: unknown };
 /** обращение с этим id — в разговоре сессии */
-const got = (cs: string, id: unknown) => until(async () => JSON.stringify(await rq("session.history", { callsign: cs, before: null, limit: 30 })).includes(String(id)), 180000);
+const talk = async (cs: string) => JSON.stringify(await rq("session.history", { callsign: cs, before: null, limit: 30 }));
+const got = (cs: string, id: unknown) => until(async () => (await talk(cs)).includes(String(id)), 180000);
 
 /** POST /incident на машине: A — отсюда, B — curl внутри WSL (там свой 127.0.0.1). */
 async function post(machine: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -73,23 +76,26 @@ try {
     check(`${m}: первое обращение в разговоре сессии`, await got(cs, one.body.id));
     const two = await post(m, { type, key, text });
     check(`${m}: второй POST того же ключа — в разговоре той же сессии`, two.status === 202 && (await got(cs, two.body.id)) && ofKey(key).length === 1, { two, sessions: ofKey(key) });
-    await until(() => rec(cs)?.state === "idle", 120000);
-    const rm = await rq("session.remove", { callsign: cs });
-    check(`${m}: сессия закрыта`, rm.ok && (await until(() => !rec(cs), 60000)), rm);
+    await until(() => !rec(cs) || rec(cs)?.state === "idle", 120000);
+    const self = !rec(cs);
+    const rm = self ? { ok: true } : await rq("session.remove", { callsign: cs });
+    check(`${m}: сессия закрыта (${self ? "сама, по правилу «решено»" : "сценарием"})`, rm.ok && (await until(() => !rec(cs), 60000)), rm);
     const three = await post(m, { type, key, text });
     const again = (await until(() => ofKey(key).length === 1, 120000)) ? ofKey(key)[0] : undefined;
-    check(`${m}: POST после закрытия — новая сессия, обращение в её разговоре`, three.status === 202 && !!again && (await got(again, three.body.id)), { three, again });
+    const fresh = !!again && (await got(again, three.body.id)) && !(await talk(again)).includes(String(one.body.id));
+    check(`${m}: POST после закрытия — новая сессия: в её разговоре третье обращение, первого нет`, three.status === 202 && fresh, { three, again });
     const bad = await post(m, { type: `нет-${mark}`, text });
     check(`${m}: чужой тип — 400 unknown_type`, bad.status === 400 && bad.body.error === "unknown_type", bad);
     if (process.env.FLOW_STOP === "1" && m === B) {
-      const four = await post(m, { type, key, text });
+      const key2 = `${key}-stop`;
+      const four = await post(m, { type, key: key2, text });
       const off = await rq("releases.set", { to: ".releases", machine: B, part: "host", on: false });
       const gone = await until(() => !l.roster?.machines.some((x: { machine: string }) => x.machine === B), 120000);
       const on = await rq("releases.set", { to: ".releases", machine: B, part: "host", on: true });
       const back = await until(() => !!l.roster?.machines.some((x: { machine: string }) => x.machine === B), 120000);
       check(`${m}: POST и сразу перезапуск Host — Host снова на связи`, four.status === 202 && off.ok && gone && on.ok && back, { four, off, on, gone, back });
-      const after = (await until(() => ofKey(key).length >= 1, 120000)) ? ofKey(key)[0] : undefined;
-      check(`${m}: обращение до перезапуска — в разговоре сессии после него`, !!after && (await got(after, four.body.id)), { after, sessions: ofKey(key) });
+      const after = (await until(() => ofKey(key2).length >= 1, 120000)) ? ofKey(key2)[0] : undefined;
+      check(`${m}: обращение до перезапуска — в разговоре сессии после него`, !!after && (await got(after, four.body.id)), { after, sessions: ofKey(key2) });
     }
   }
 } catch (e) {
