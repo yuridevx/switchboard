@@ -41,12 +41,15 @@ async function post(machine: string, body: Record<string, unknown>): Promise<{ s
     const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     return { status: r.status, body: (await r.json()) as Record<string, unknown> };
   }
-  const r = spawnSync("wsl.exe", ["-d", distro, "--", "curl", "-s", "-w", "\n%{http_code}", "-H", "content-type: application/json", "-d", JSON.stringify(body), url], {
+  // wsl.exe склеивает аргументы в строку для bash: тело — через stdin, в аргументах ни пробелов, ни переводов строки
+  const r = spawnSync("wsl.exe", ["-d", distro, "--", "curl", "-s", "-w", "HTTP%{http_code}", "-H", "content-type:application/json", "--data-binary", "@-", url], {
     encoding: "utf8",
+    input: JSON.stringify(body),
     env: { ...process.env, MSYS_NO_PATHCONV: "1" },
   });
-  const [text, code] = r.stdout.trimEnd().split(/\n(?=\d+$)/);
-  return { status: Number(code), body: JSON.parse(text) as Record<string, unknown> };
+  const at = r.stdout.lastIndexOf("HTTP");
+  if (at < 0) throw new Error(`curl на ${machine}: ${r.stderr.trim() || "пустой ответ"}`);
+  return { status: Number(r.stdout.slice(at + 4)), body: JSON.parse(r.stdout.slice(0, at)) as Record<string, unknown> };
 }
 
 try {
