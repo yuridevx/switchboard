@@ -400,3 +400,23 @@ func TestNpmNextToNode(t *testing.T) {
 		t.Fatalf("без node в keeper.json — npm как есть: %v", got)
 	}
 }
+
+// setup — в папке версии, а не во временной: npm на Windows связывает пакеты workspaces ссылками с полным путём,
+// после переименования временной папки Host не находил свои пакеты (живой прогон 1 нояб., win: ERR_MODULE_NOT_FOUND).
+func TestSetupInVersionDir(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	app := appFiles("")
+	b, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "setup"}})
+	app["app.json"] = string(b)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", app, on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	dir := versionDir(s.home, "capture", "1.3.2")
+	got, _ := os.ReadFile(filepath.Join(dir, "setup-dir"))
+	a, _ := os.Stat(string(got))
+	d, _ := os.Stat(dir)
+	if a == nil || d == nil || !os.SameFile(a, d) {
+		t.Fatalf("setup шёл в %q, а версия в %q", got, dir)
+	}
+}

@@ -35,6 +35,11 @@ func TestMain(m *testing.M) {
 		case "version":
 			fmt.Println(os.Getenv("KEEPER_TEST_VERSION"))
 			return
+		case "setup":
+			// как npm на Windows: записать полный путь своей папки — ссылки workspaces держат его
+			wd, _ := os.Getwd()
+			os.WriteFile("setup-dir", []byte(wd), 0o644)
+			return
 		}
 	}
 	os.Setenv("KEEPER_TEST_CHILD", "1")

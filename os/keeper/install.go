@@ -82,14 +82,22 @@ func (k *Keeper) install(pp planPart) (string, error) {
 		os.RemoveAll(tmp)
 		return "", fmt.Errorf("download_failed: распаковка: %v", err)
 	}
-	if a, err := readApp(tmp); err == nil && len(a.Setup) > 0 {
-		cmd := exec.Command(k.command(a.Setup, tmp)[0], k.command(a.Setup, tmp)[1:]...)
-		cmd.Dir = tmp
+	os.RemoveAll(dir)
+	if err := os.Rename(tmp, dir); err != nil {
+		os.RemoveAll(tmp)
+		return "", err
+	}
+	// setup — уже в папке версии: npm на Windows связывает пакеты workspaces ссылками с полным путём,
+	// после переименования папки они вели бы в никуда. Версия готова, когда записана метка.
+	if a, err := readApp(dir); err == nil && len(a.Setup) > 0 {
+		c := k.command(a.Setup, dir)
+		cmd := exec.Command(c[0], c[1:]...)
+		cmd.Dir = dir
 		cmd.Env = os.Environ()
 		setProcAttr(cmd)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			os.RemoveAll(tmp)
+			os.RemoveAll(dir)
 			s := strings.TrimSpace(string(out))
 			if len(s) > 2000 {
 				s = s[len(s)-2000:]
@@ -97,13 +105,8 @@ func (k *Keeper) install(pp planPart) (string, error) {
 			return "", fmt.Errorf("setup_failed: %v: %s", err, s)
 		}
 	}
-	if err := os.WriteFile(stampPath(tmp), []byte(pp.Sha256+"\n"), 0o600); err != nil {
-		os.RemoveAll(tmp)
-		return "", err
-	}
-	os.RemoveAll(dir)
-	if err := os.Rename(tmp, dir); err != nil {
-		os.RemoveAll(tmp)
+	if err := os.WriteFile(stampPath(dir), []byte(pp.Sha256+"\n"), 0o600); err != nil {
+		os.RemoveAll(dir)
 		return "", err
 	}
 	k.j.note("installed", "part", pp.Part, "version", pp.Version, "bytes", len(body))
