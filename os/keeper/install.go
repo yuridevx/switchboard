@@ -205,6 +205,8 @@ func (k *Keeper) selfUpdate(pp planPart) {
 		fail("подмена: " + err.Error())
 		return
 	}
+	// свои папки версий — новая и та, с которой уходим: прежний файл для отката лежит рядом
+	k.cleanupVersions("keeper", pp.Version, keeperVersion)
 	k.j.note("self_update", "from", keeperVersion, "to", pp.Version, "why", "файл подменён — выход, ОС поднимет новый")
 	k.ledger("part.updated", fmt.Sprintf("keeper %s → %s", keeperVersion, pp.Version))
 	// остановку ждёт цикл, в котором мы сейчас: своей горутиной; выход процесса — по Done у того, кто запустил

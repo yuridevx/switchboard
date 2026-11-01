@@ -48,6 +48,7 @@ type radio struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	done    chan struct{}
+	cb      sync.WaitGroup // onOpen и onFrame — своими горутинами; close ждёт и их
 }
 
 func newRadio(url, key string) *radio {
@@ -156,7 +157,7 @@ func (r *radio) session() (opened bool, why string) {
 				r.onState(true, "")
 			}
 			if r.onOpen != nil {
-				go r.onOpen()
+				r.callback(r.onOpen)
 			}
 		}
 		if f.str("type") == "reply" {
@@ -176,9 +177,18 @@ func (r *radio) session() (opened bool, why string) {
 			continue
 		}
 		if r.onFrame != nil {
-			go r.onFrame(f)
+			r.callback(func() { r.onFrame(f) })
 		}
 	}
+}
+
+// callback — колбэк своей горутиной: чтение кадров его не ждёт, close — ждёт.
+func (r *radio) callback(f func()) {
+	r.cb.Add(1)
+	go func() {
+		defer r.cb.Done()
+		f()
+	}()
 }
 
 // send — кадр без ответа; нет связи — errDisconnected.
@@ -261,6 +271,7 @@ func (r *radio) close() {
 		ws.Close(websocket.StatusNormalClosure, "keeper stop")
 	}
 	<-r.done
+	r.cb.Wait()
 }
 
 func newID() string {

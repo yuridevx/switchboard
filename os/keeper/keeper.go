@@ -83,16 +83,15 @@ type Keeper struct {
 	radio               *radio
 
 	mu    sync.Mutex
-	plan  plan // исполняемый
+	plan  plan  // исполняемый
+	next  *plan // пришедший и ещё не исполненный: из двух остаётся с большей rev
 	parts map[string]*part
 
-	// переходы частей делает один цикл: план из очереди и разбор частей, вышедших сами
-	qmu     sync.Mutex // забрать прежний план из очереди и положить новый — одним шагом
-	pending chan plan
-	wake    chan struct{}
-	quit    chan struct{}  // остановка: нового не берём
-	wg      sync.WaitGroup // цикл и читатели частей: остановка ждёт, пока они допишут журнал
-	done    chan struct{}
+	// переходы частей делает один цикл: сначала новый план, затем части, вышедшие сами
+	wake     chan struct{}  // пришёл план или часть вышла сама
+	quit     chan struct{}  // остановка: нового не берём
+	wg       sync.WaitGroup // цикл и читатели частей: остановка ждёт, пока они допишут журнал
+	done     chan struct{}
 	stopOnce sync.Once
 
 	// для стенда: свой файл (подмена себя), ожидание ответа на вопрос о плане
@@ -121,7 +120,7 @@ func newKeeper(home string, echo io.Writer) (*Keeper, error) {
 		return nil, err
 	}
 	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), node: confStr(conf, "node"), j: j, parts: map[string]*part{},
-		pending: make(chan plan, 1), wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{}),
+		wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{}),
 		self: os.Executable, planWait: 30 * time.Second}
 	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
 	if b, err := os.ReadFile(planPath(home)); err == nil {
@@ -141,8 +140,6 @@ func (k *Keeper) run() {
 	if self, err := k.self(); err == nil {
 		cleanupOldSelf(self)
 	}
-	// свои папки версий — кроме той, что работает: предыдущую на старте не узнать, откат keeper — скачивание по плану
-	k.cleanupVersions("keeper", keeperVersion, "")
 	k.adopt()
 	k.wg.Add(1)
 	go k.loop()
@@ -353,20 +350,23 @@ func (k *Keeper) queue(pl plan) {
 			c.kill()
 		}
 	}
-	// очередь — один план: забрать прежний и положить новый одним шагом; принимает только цикл — запись не ждёт
-	k.qmu.Lock()
-	defer k.qmu.Unlock()
-	select {
-	case old := <-k.pending:
-		if old.Rev > pl.Rev {
-			pl = old
-		}
-	default:
+	k.mu.Lock()
+	if k.next == nil || pl.Rev > k.next.Rev {
+		k.next = &pl
 	}
-	k.pending <- pl
+	k.mu.Unlock()
+	k.nudge()
 }
 
-// loop — единственный исполнитель переходов частей: план из очереди и разбор частей, вышедших сами.
+// nudge — разбудить цикл: пришёл план или часть вышла сама.
+func (k *Keeper) nudge() {
+	select {
+	case k.wake <- struct{}{}:
+	default:
+	}
+}
+
+// loop — единственный исполнитель переходов частей: сначала новый план, затем части, вышедшие сами.
 func (k *Keeper) loop() {
 	defer k.wg.Done()
 	first := true
@@ -375,22 +375,25 @@ func (k *Keeper) loop() {
 		case <-k.quit:
 			return
 		case <-k.wake:
-			k.restartExited()
-		case pl := <-k.pending:
-			k.mu.Lock()
-			cur := k.plan.Rev
-			k.mu.Unlock()
-			// сохранённый план исполняется на старте; дальше — только новее исполняемого. Та же rev — переподключение,
-			// меньшая — «выпуски» потеряли счёт: такой план не исполняется, строка в журнале
-			if !first && pl.Rev <= cur {
-				if pl.Rev < cur {
-					k.j.refuse("plan", "old_rev", fmt.Sprintf("план rev %d старше исполняемого rev %d", pl.Rev, cur))
-				}
-				continue
-			}
-			first = false
-			k.apply(pl)
 		}
+		if k.quitting() {
+			return
+		}
+		k.mu.Lock()
+		pl, cur := k.next, k.plan.Rev
+		k.next = nil
+		k.mu.Unlock()
+		// сохранённый план исполняется на старте; дальше — только новее исполняемого. Та же rev — переподключение,
+		// меньшая — «выпуски» потеряли счёт: такой план не исполняется, строка в журнале
+		switch {
+		case pl == nil:
+		case first || pl.Rev > cur:
+			first = false
+			k.apply(*pl)
+		case pl.Rev < cur:
+			k.j.refuse("plan", "old_rev", fmt.Sprintf("план rev %d старше исполняемого rev %d", pl.Rev, cur))
+		}
+		k.restartExited()
 	}
 }
 
@@ -464,7 +467,7 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 	exited := p.state == "exited"
 	k.mu.Unlock()
 	if exited {
-		return // вышедшую сами цикл разберёт следующим шагом — по этому же плану
+		return // вышедшую сама цикл разберёт сразу после плана — по этому же плану
 	}
 	// failed остаётся failed, пока запись части в плане не поменялась: решает тот, кто правит план
 	if failed && had && samePart(pp, prev) {
@@ -501,11 +504,15 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 		k.ledger("part.failed", fmt.Sprintf("%s %s — %s", pp.Part, pp.Version, err.Error()))
 		return
 	}
-	if running {
-		k.stopPart(p, false)
-	}
+	// остановка keeper, пока шла установка: работающая версия живёт дальше, переход — у следующего keeper
 	if k.quitting() {
 		return
+	}
+	if running {
+		k.stopPart(p, false)
+		if k.quitting() {
+			return
+		}
 	}
 	k.mu.Lock()
 	p.restarts, p.err = 0, ""
@@ -705,10 +712,7 @@ func (k *Keeper) exitedPart(p *part, ch chan struct{}, x exitInfoJSON) {
 		return
 	}
 	k.j.stop("part_exit", fmt.Sprintf("%s %s вышла сама: %s", p.name, version, words), "part", p.name, "version", version)
-	select {
-	case k.wake <- struct{}{}:
-	default:
-	}
+	k.nudge()
 }
 
 // restartExited — части, вышедшие сами, по нынешнему плану: один перезапуск, второй раз — failed;

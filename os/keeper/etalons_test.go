@@ -657,23 +657,58 @@ func TestEtHolderKillBehindInput(t *testing.T) {
 	waitFor(t, "процесс снят", func() bool { return !alive(f.Pid) })
 }
 
-// На старте keeper убирает свои папки версий, кроме той, что работает (машины 1 нояб.: 6 версий, 77 МБ);
-// откат keeper — скачивание по ссылке из плана.
-func TestEtKeeperVersionsCleanedOnStart(t *testing.T) {
+// После подмены себя версии keeper на диске — новая и та, с которой ушли: прежний файл для отката лежит рядом
+// (машины 1 нояб.: 6 версий, 77 МБ).
+func TestEtSelfUpdateCleansVersions(t *testing.T) {
 	s := newStand(t)
-	for _, v := range []string{"0.5.1", "0.5.6", keeperVersion} {
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	target := filepath.Join(t.TempDir(), exeName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	for _, v := range []string{"0.0.1", keeperVersion} {
 		os.MkdirAll(versionDir(s.home, "keeper", v), 0o700)
 	}
-	s.relay.setPlan(plan1(1))
-	s.start()
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
+	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
+	select {
+	case <-k.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("keeper не подменил себя")
+	}
 	es, _ := os.ReadDir(partDir(s.home, "keeper"))
 	var got []string
 	for _, e := range es {
 		got = append(got, e.Name())
 	}
-	if strings.Join(got, " ") != keeperVersion {
+	if strings.Join(got, " ") != keeperVersion+" 9.9.9" {
 		t.Fatalf("версии keeper: %v", got)
 	}
+}
+
+// Остановка keeper, пока ставится новая версия: работающая живёт дальше с тем же pid, переход — у следующего keeper
+// (ревью архитектора 1 нояб.: цикл доводил установку и гасил прежнюю версию).
+func TestEtStopDuringInstallKeepsRunning(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	self, _ := os.Executable()
+	app := appFiles("")
+	b, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "slowsetup"}})
+	app["app.json"] = string(b)
+	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", app, on)))
+	waitFor(t, "setup идёт", func() bool { return exists(filepath.Join(versionDir(s.home, "capture", "1.4.0"), "setup-started")) })
+	k.Stop()
+	if !alive(pid) || journalHas(s.home, `"line":"bye"`) {
+		t.Fatal("работающая версия остановлена вместе с keeper")
+	}
+	k2 := s.start()
+	waitFor(t, "переход у следующего keeper", func() bool {
+		p := partOf(k2, "capture")
+		return p.State == "running" && p.Version == "1.4.0" && p.Restarts == 0
+	})
 }
 
 // Прежний файл keeper с тем же именем ещё занят (откат и новая выкладка, держатель прошлой эпохи) — подмена себя
