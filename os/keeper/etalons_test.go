@@ -656,8 +656,10 @@ func TestEtPartRemoved(t *testing.T) {
 	os.WriteFile(keep, []byte("1"), 0o600)
 	s.relay.push(planMsg(2))
 	waitFor(t, "снята", func() bool { return len(k.state().Parts) == 0 })
-	if exists(versionDir(s.home, "capture", "1.3.2")) || !exists(keep) {
-		t.Fatal("версия осталась или data/ убрана")
+	// папки версий keeper убирает после того, как снял часть из keeper.state
+	waitFor(t, "папка версии убрана", func() bool { return !exists(versionDir(s.home, "capture", "1.3.2")) })
+	if !exists(keep) {
+		t.Fatal("data/ убрана")
 	}
 	if !journalHas(s.home, `"line":"bye"`) {
 		t.Fatal("часть не остановлена закрытием ввода")
