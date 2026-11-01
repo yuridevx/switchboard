@@ -15,7 +15,7 @@
 | `host/` | **приложение Claude SDK** | **Host**, Node + Claude Agent SDK, один на машину: ядро `host/core/` и модули `host/modules/<имя>/`. Единственная точка к сессиям. |
 | `web/<имя>/` | **веб-приложения** | Каждое собирается и деплоится само. `web/phone/` — телефон, `web/pult/` — пульт (свои экраны — `web/pult/modules/`): два приложения с разным фокусом и общими компонентами (слово пользователя 31 окт.) — пакетами `web/packages/<core\|board\|card\|chat\|ask\|alerts>/`. |
 | `protocol/` | | Общий конверт кадра: `type`, `id`, `reply`. Модулей не знает. |
-| `tools/` | | `manifest-gate` — гейт манифестов (`npm run gate`); `release` — формат выпуска частей машины: CI собирает и загружает Host и keeper в R2 (`switchboard release host <номер>` и `switchboard release keeper`); машину ставит сам keeper (`keeper install`, ключ машины — stdin). |
+| `tools/` | | `manifest-gate` — гейт манифестов (`npm run gate`); `release` — формат выпуска частей машины: CI собирает и загружает Host и keeper в R2 (`switchboard release host <номер>` и `switchboard release keeper`); машину ставит сам keeper (`keeper install`, ключ машины — stdin); `send` — сообщение в сессию от служб компьютера (тревоги, сторожа) ключом клиента, без зависимостей. |
 | `scripts/` | | Выпуск Worker-модулей (`deploy-workers.mjs`), живые флоу и эталоны выложенного флота (`flow-*.ts`, `live-etalons.ts`, `smoke-relay.ts`). Секреты — из `~/.switchboard-dev` или env, не из репо. |
 
 Имена: callsign `site@laptop`, machine `laptop`, fleet `home`, slot `main`, attachment — карточка соединения в Relay, module — функция Host, контракт — публичный вход модуля.
