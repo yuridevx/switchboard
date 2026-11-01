@@ -63,7 +63,9 @@ check("session.update: плохое усилие — bad_spec", !badUp.ok && bad
 const w = await req({ type: "session.watch", callsign: CS });
 check("session.watch", w.ok, w.error);
 const ws = await req({ type: "session.watchers", callsign: CS });
-check("session.watchers: клиент в списке", ws.ok && JSON.stringify(ws.result).includes("flow-sess"), ws.result);
+// имя клиента — из своего ключа role.name.kid.sig
+const me = String(process.env.FLOW_CLIENT_KEY).split(".")[1];
+check(`session.watchers: клиент ${me} в списке`, ws.ok && JSON.stringify(ws.result).includes(me), ws.result);
 await req({ type: "session.prompt", callsign: CS, text: "Ответь одним словом: сколько дней в неделе?" });
 await state(CS, "busy", 60000);
 await state(CS, "idle");

@@ -33,8 +33,13 @@ const turn = async (cs: string, text: string) => {
 
 await wait(() => l.state === "open", 15000);
 if (!rec(CS)?.r2) await req({ type: "session.r2", callsign: CS, on: true });
+const headOf = async () => ((await req({ type: "points.list", to: "points" })).result.sessions as any[]).find((s) => s.callsign === CS);
+const before = (await headOf())?.head?.id;
 console.log("до пожара:", await turn(CS, "Повтори дословно одно слово: «уголь». Ничего не сохраняй в память."));
-const sid = ((await req({ type: "points.list", to: "points" })).result.sessions as any[]).find((s) => s.callsign === CS)?.sid;
+// точка после хода — не раньше 2 мин после прошлой (правило точек): пожар теряет только то, что после последней точки,
+// поэтому машину гасим, когда ход «уголь» уже в точке
+check("ход «уголь» лёг в точку", await wait(async () => ((await headOf())?.head?.id ?? 0) > (before ?? 0), 180000), { before, now: (await headOf())?.head?.id });
+const sid = (await headOf())?.sid;
 check("у помеченной сессии есть точки в R2", !!sid);
 
 execSync(process.env.FIRE_STOP!, { stdio: "inherit" });
