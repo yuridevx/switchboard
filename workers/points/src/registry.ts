@@ -71,7 +71,7 @@ export class Registry extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + DAY);
   }
 
-  /** Кадр с to: "points" → reply тому, кто спросил, и ledger.add для журнала флота. */
+  /** Кадр с to: ".points" → reply тому, кто спросил, и ledger.add для журнала флота. */
   async frame(f: Frame): Promise<Frame[]> {
     const from = f.from ?? "";
     const machine = from ? machineOf(from) : null;
@@ -116,10 +116,6 @@ export class Registry extends DurableObject<Env> {
           if (typeof f.sid !== "string" || !f.sid) throw new Refusal("bad_frame", "нет sid");
           const r = await this.remove(f.sid, machine, typeof f.by === "string" ? f.by : from);
           return r.event ? [...answer(ok(id, r.result)), r.event as unknown as Frame] : answer(ok(id, r.result));
-        }
-        case "points.creds": {
-          if (!machine) throw new Refusal("bad_frame", "ключ на выпуски — только машине");
-          return answer(ok(id, { creds: await tempCreds(this.env, this.env.RELEASES_BUCKET, "object-read-only") }));
         }
       }
     } catch (e) {
@@ -390,7 +386,7 @@ function name(callsign: string | null | undefined, sid: string): string {
 }
 
 function ledger(ev: string, text: string, machine?: string, callsign?: string, by?: string): LedgerAdd {
-  const f: LedgerAdd = { type: "ledger.add", v: 1, to: "ledger", ev, text };
+  const f: LedgerAdd = { type: "ledger.add", v: 1, to: ".ledger", ev, text };
   if (machine) f.machine = machine;
   if (callsign) f.callsign = callsign;
   if (by) f.by = by;

@@ -5,16 +5,15 @@ import type { Manifest } from "../contract.ts";
 import { CORE_ONLY, isCallable } from "./calls.ts";
 import type { ModuleEntry } from "./release.ts";
 
-/** Имена keeper по первой строке протокола keeper proto 1. Модулям можно list и upgrade, остальное зовёт ядро. */
+/** Имена keeper машины: он участник рации (.keeper@машина), модуль зовёт его через relay. */
 export const KEEPER: Manifest = {
   name: "keeper",
   type: "os",
   version: "1.0.0",
-  provides: { spawn: 1, attach: 1, list: 1, kill: 1, upgrade: 1, stop: 1 },
+  provides: { "keeper.state": 1 },
   uses: {},
   config: {},
 };
-const KEEPER_FOR_MODULES = new Set(["list", "upgrade"]);
 
 /** Поля записи сессии, которые держит ядро. */
 export const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk"]);
@@ -24,7 +23,7 @@ export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
 
 /**
  * Гейт набора модулей Host. Пустой список — набор годен.
- * Имя из uses, чей владелец не модуль Host, не ядро и не keeper, — имя Worker-модуля: идёт через relay.
+ * Имя из uses, чей владелец не модуль Host и не ядро, — имя keeper машины или Worker-модуля: идёт через relay.
  */
 export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): string[] {
   const errors: string[] = [];
@@ -36,8 +35,7 @@ export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): st
     for (const [ref, v] of Object.entries(m.uses ?? {})) {
       const o = ownerOf(ref);
       if (local.has(o)) uses[ref] = v;
-      else if (!relay) errors.push(`${m.name}: ${ref} — relay нет в host.json`);
-      if (o === KEEPER.name && !KEEPER_FOR_MODULES.has(nameOf(ref))) errors.push(`${m.name}: ${ref} — эту операцию keeper зовёт только ядро`);
+      if ((!local.has(o) || o === KEEPER.name) && !relay) errors.push(`${m.name}: ${ref} — нет relay (SWITCHBOARD_RELAY)`);
     }
     manifests.push({ ...m, provides: m.provides ?? {}, uses, config: m.config ?? {} });
   }

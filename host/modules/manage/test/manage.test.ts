@@ -104,7 +104,7 @@ describe("эталоны manage", () => {
         return s;
       },
     } as unknown as Host;
-    const ctx: Ctx = { host, from: "panel-desk", signal: new AbortController().signal };
+    const ctx: Ctx = { host, from: "panel-desk~owner@example.com", signal: new AbortController().signal };
     const dir = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
     const r = await mod.requests!["session.open"]({ type: "session.open", id: "c-7", v: 1, machine: "laptop", name: "board", dir, profile: "team/profiles/ops", slot: "main" }, ctx);
     expect(r).toEqual({ callsign: "board@laptop", session_id: "42bc5ad4" });
@@ -117,7 +117,7 @@ describe("эталоны manage", () => {
     expect(part.model).toBeUndefined();
     expect(part.effort).toBeUndefined();
     expect(stores.get("board@laptop")).toBeUndefined(); // в разделе manage нет ни папки, ни профиля, ни слота
-    expect(log[4][1]).toMatchObject({ type: "ledger.add", to: "ledger", ev: "session.opened", by: "panel-desk", machine: "laptop", callsign: "board@laptop" });
+    expect(log[4][1]).toMatchObject({ type: "ledger.add", to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", machine: "laptop", callsign: "board@laptop" });
     const spec = await mod.requests!["session.spec"]({ type: "session.spec", id: "k-6", v: 1, callsign: "board@laptop" }, ctx);
     expect(spec).toEqual({ dir, model: null, effort: null, title: "board" });
   });
@@ -131,7 +131,7 @@ describe("эталоны manage", () => {
     expect(q.options).toMatchObject({ cwd: join(home, "Projects", "switchboard"), title: "board", enableFileCheckpointing: true });
     expect(q.options.model).toBeUndefined();
     expect(st.relay.frames("ledger.add")).toEqual([
-      expect.objectContaining({ to: "ledger", ev: "session.opened", by: "panel-desk", callsign: "board@laptop", text: "board@laptop создана · ~/Projects/switchboard" }),
+      expect.objectContaining({ to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", callsign: "board@laptop", text: "board@laptop создана · ~/Projects/switchboard" }),
     ]);
     const spec = await req(st, { type: "session.spec", callsign: "board@laptop" });
     expect(spec).toMatchObject({ ok: true, result: { dir: "~/Projects/switchboard", model: null, effort: null } });
@@ -172,9 +172,9 @@ describe("manage", () => {
   it("open: процесс вышел до initialize — open_failed, повтора нет", async () => {
     const { st, home } = await laptop();
     mkdirSync(join(home, "p"));
-    st.keeper.failInitNext = 1;
+    st.holders.failInitNext = 1;
     const pr = req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p" });
-    await stand.until(() => st.keeper.procs.get("x@laptop"));
+    await stand.until(() => st.holders.procs.get("x@laptop"));
     st.proc("x@laptop").exit(1, "нет входа");
     expect(await pr).toMatchObject({ ok: false, error: "open_failed" });
   });
@@ -223,7 +223,7 @@ describe("manage", () => {
     await req(st, { type: "session.update", callsign: "wiki@laptop", model: "opus" });
     expect(await req(st, { type: "session.remove", callsign: "wiki@laptop" })).toMatchObject({ ok: true });
     expect(st.kernel.sessions.has("wiki@laptop")).toBe(false);
-    expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "panel-desk" });
+    expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "panel-desk~owner@example.com" });
     expect(await req(st, { type: "session.spec", callsign: "wiki@laptop" })).toMatchObject({ ok: false, error: "offline" });
   });
 });

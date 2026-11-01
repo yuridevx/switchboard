@@ -221,7 +221,7 @@ describe("маршрут и запросы", () => {
     expect(await s.app.request("answer", { callsign: "poe-bot@pc" })).toEqual({ ok: false, error: "unknown_request" });
     expect(relay.sent("answer")).toHaveLength(0);
     expect(await s.app.request("push.key")).toEqual({ ok: true, result: { key: "BEl6" } });
-    expect(relay.sent("push.key")[0]).toMatchObject({ type: "push.key", v: 1, to: "push" });
+    expect(relay.sent("push.key")[0]).toMatchObject({ type: "push.key", v: 1, to: ".push" });
   });
 
   it("запрос к имени не из uses — ошибка модуля", async () => {

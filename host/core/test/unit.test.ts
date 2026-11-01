@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { refuse } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
-import { parseKeeperLine } from "../src/keeper.ts";
 import { InputQueue } from "../src/queue.ts";
 import { gate } from "../src/registry.ts";
 import { loadRelease } from "../src/release.ts";
@@ -67,7 +66,7 @@ describe("очередь ввода", () => {
 
 describe("гейт старта Host", () => {
   const e = (name: string, mod: Module, extra: Parameters<typeof module>[2] = {}) => module(name, mod, extra);
-  it("обработчик не из provides, имя ядра в fields, calls мимо SDK и метод ядра, два decide, keeper spawn, Worker без relay", () => {
+  it("обработчик не из provides, имя ядра в fields, calls мимо SDK и метод ядра, два decide, keeper и Worker без relay, имени у keeper нет", () => {
     const bad = e("host-a", { requests: { x: () => 1 } }, { provides: {} });
     bad.manifest.provides = {};
     const errors = gate(
@@ -78,14 +77,17 @@ describe("гейт старта Host", () => {
         e("host-c", {}, { calls: ["getContextUsage", "close", "nope"] }),
         e("host-q1", { decide: { AskUserQuestion: () => ({ behavior: "allow" }) } }),
         e("host-q2", { decide: { AskUserQuestion: () => ({ behavior: "allow" }) } }),
-        e("host-k", {}, { uses: { "spawn@keeper": 1, "list@keeper": 1 } }),
+        e("host-k", {}, { uses: { "keeper.state@keeper": 1 } }),
+        e("host-k2", {}, { uses: { "spawn@keeper": 1 } }),
         e("host-p", {}, { uses: { "push.send@push": 1 } }),
       ],
       false,
     );
     expect(errors).toEqual([
-      "host-k: spawn@keeper — эту операцию keeper зовёт только ядро",
-      "host-p: push.send@push — relay нет в host.json",
+      "host-k: keeper.state@keeper — нет relay (SWITCHBOARD_RELAY)",
+      "host-k2: spawn@keeper — нет relay (SWITCHBOARD_RELAY)",
+      "host-p: push.send@push — нет relay (SWITCHBOARD_RELAY)",
+      "модуль host-k2: uses spawn@keeper — keeper не отдаёт spawn",
       "host-a: requests.x — нет в provides",
       "host-b: поле state — имя ядра",
       "host-c: calls close — метод держит ядро",
@@ -94,12 +96,12 @@ describe("гейт старта Host", () => {
     ]);
   });
 
-  it("годный набор: Worker-имя через relay, keeper list и upgrade, uses между модулями той же версии", () => {
+  it("годный набор: Worker-имя и keeper.state через relay, uses между модулями той же версии", () => {
     const errors = gate(
       CORE,
       [
         e("host-watch", { requests: { "session.watchers": () => [] } }),
-        e("host-questions", {}, { uses: { "session.watchers@host-watch": 1, "roster@relay": 1, "upgrade@keeper": 1, "list@keeper": 1, "host.module@host": 1 }, calls: ["enableRemoteControl", "getSessionMessages"] }),
+        e("host-questions", {}, { uses: { "session.watchers@host-watch": 1, "roster@relay": 1, "keeper.state@keeper": 1, "host.module@host": 1 }, calls: ["enableRemoteControl", "getSessionMessages"] }),
       ],
       true,
     );
@@ -107,12 +109,7 @@ describe("гейт старта Host", () => {
   });
 });
 
-describe("keeper и выпуск", () => {
-  it("строка keeper из ввода Host", () => {
-    expect(parseKeeperLine('{"keeper":"127.0.0.1:51873","key":"c1d9"}')).toEqual({ host: "127.0.0.1", port: 51873, key: "c1d9" });
-    expect(() => parseKeeperLine('{"keeper":"127.0.0.1:1"}')).toThrow();
-  });
-
+describe("выпуск", () => {
   it("выпуск монорепо: ядро, SDK 0.3.311 и список модулей", async () => {
     const r = await loadRelease(join(import.meta.dirname, ".."));
     expect(r).toMatchObject({ core: "1.0.0", sdk: "0.3.311", version: "1.0.0" });
@@ -133,22 +130,27 @@ describe("keeper и выпуск", () => {
 });
 
 describe("договор модуля на стенде", () => {
-  it("host.request: своё имя и имя модуля этой машины — в процессе; keeper list; Worker-модуль — в relay с to; другая машина — по callsign", async () => {
+  it("host.request: своё имя и имя модуля этой машины — в процессе; keeper машины — через relay на .keeper@машина; Worker-модуль — в relay с to; другая машина — по callsign", async () => {
     let host!: Host;
     const watch = module("host-watch", { requests: { "session.watchers": (req, ctx) => ({ from: ctx.from, cs: req.callsign }) } });
     const q = module("host-questions", { start: (h) => void (host = h), requests: { answer: () => "own" } }, {
-      uses: { "session.watchers@host-watch": 1, "list@keeper": 1, "push.send@push": 1, "session.watchers@host-watch2": 1 },
+      uses: { "session.watchers@host-watch": 1, "keeper.state@keeper": 1, "push.send@push": 1, "session.watchers@host-watch2": 1 },
     });
-    q.manifest.uses = { "session.watchers@host-watch": 1, "list@keeper": 1, "push.send@push": 1 };
+    q.manifest.uses = { "session.watchers@host-watch": 1, "keeper.state@keeper": 1, "push.send@push": 1 };
     const st = await stand({ modules: [watch, q] });
     await st.open("site@laptop");
     expect(await host.request("session.watchers", { v: 1, callsign: "site@laptop" })).toEqual({ ok: true, result: { from: "@laptop", cs: "site@laptop" } });
     expect(await host.request("answer", { v: 1 })).toEqual({ ok: true, result: "own" });
-    expect(await host.request("list", { v: 1 })).toMatchObject({ ok: true, result: { processes: [{ id: "site@laptop" }] } });
-    const push = host.request("push.send", { v: 1, clients: ["phone"] });
+    const ks = host.request("keeper.state", { v: 1, to: ".keeper@laptop" });
+    await until(() => st.relay.frames("keeper.state").length === 1);
+    const kf = st.relay.frames("keeper.state")[0];
+    expect(kf).toMatchObject({ type: "keeper.state", to: ".keeper@laptop" });
+    st.relay.deliver({ type: "reply", id: kf.id, ok: true, result: { keeper: "0.5.0" } });
+    expect(await ks).toEqual({ ok: true, result: { keeper: "0.5.0" } });
+    const push = host.request("push.send", { v: 1, clients: ["phone~owner@example.com"] });
     await until(() => st.relay.frames("push.send").length === 1);
     const f = st.relay.frames("push.send")[0];
-    expect(f).toMatchObject({ type: "push.send", v: 1, to: "push" });
+    expect(f).toMatchObject({ type: "push.send", v: 1, to: ".push" });
     st.relay.deliver({ type: "reply", id: f.id, ok: false, error: "offline" });
     expect(await push).toEqual({ ok: false, error: "offline" });
     const remote = host.request("session.watchers", { v: 1, callsign: "api@pc" });
@@ -233,9 +235,9 @@ describe("договор модуля на стенде", () => {
         return { append: `start ${s.info.start}` };
       },
     });
-    const { FakeKeeper } = await import("../stand/index.ts");
-    const k = await new FakeKeeper().listen();
-    const st = await stand({ keeper: k, modules: [remote] });
+    const { FakeHolders } = await import("../stand/index.ts");
+    const k = new FakeHolders();
+    const st = await stand({ holders: k, modules: [remote] });
     await st.open("site@laptop");
     await st.kernel.open({ callsign: "back@laptop", cwd: st.home, resume: "sid-back", point: 318 });
     const s = st.session("host-remote", "site@laptop")!;
@@ -246,7 +248,7 @@ describe("договор модуля на стенде", () => {
     st.crash();
     k.procs.get("back@laptop")!.exit(1, "умер без Host");
     seen.length = 0;
-    const st2 = await stand({ keeper: k, home: st.home, modules: [remote] });
+    const st2 = await stand({ holders: k, home: st.home, modules: [remote] });
     expect(seen.sort()).toEqual(["back@laptop resume", "site@laptop attach"]);
     await st2.close();
     await k.close();
@@ -274,9 +276,9 @@ describe("договор модуля на стенде", () => {
     await until(() => st.states("site@laptop").at(-1)?.remote === "https://claude.ai/code/session_x");
   });
 
-  it("регрессия: отказ Worker-модуля через relay несёт все поля reply без конверта; отказ keeper — без op", async () => {
+  it("регрессия: отказ Worker-модуля через relay несёт все поля reply без конверта", async () => {
     let host!: Host;
-    const pts = module("host-points", { start: (h) => void (host = h) }, { uses: { "points.put@points": 1, "upgrade@keeper": 1 } });
+    const pts = module("host-points", { start: (h) => void (host = h) }, { uses: { "points.put@points": 1 } });
     const st = await stand({ modules: [pts] });
     const put = host.request("points.put", { v: 1, callsign: "site@laptop", seq: 3 });
     await until(() => st.relay.frames("points.put").length === 1);
@@ -324,7 +326,7 @@ describe("договор модуля на стенде", () => {
     let host!: Host;
     const q = module("host-questions", { start: (h) => void (host = h) }, { provides: { question: 1 } });
     const st = await stand({ modules: [q] });
-    expect(host.emit({ type: "question", to: ["phone"], question: "toolu_1" })).toEqual({ ok: true });
+    expect(host.emit({ type: "question", to: ["phone~owner@example.com"], question: "toolu_1" })).toEqual({ ok: true });
     await until(() => st.relay.frames("question").length === 1);
     expect(() => host.emit({ type: "message", to: "x@pc" })).toThrow("message нет в provides и uses");
     const st2 = await stand({ modules: [q], relay: false });
@@ -393,7 +395,7 @@ describe("договор модуля на стенде", () => {
     await s.stop();
     expect(s.state).toBe("stopped");
     expect(st.kernel.sessions.get("site@laptop")!.rec.stopped).toBe(true);
-    expect(st.keeper.procs.has("site@laptop")).toBe(false);
+    expect(st.holders.procs.has("site@laptop")).toBe(false);
     await s.start({ point: 318 });
     expect(s.info).toMatchObject({ start: "point", point: 318 });
     expect(st.query("site@laptop").options.resume).toBe(s.info.session_id);
@@ -445,10 +447,10 @@ describe("договор модуля на стенде", () => {
   });
 
   it("процесс, которого нет в списке сессий, — kill и строка в журнале", async () => {
-    const { FakeKeeper } = await import("../stand/index.ts");
-    const k = await new FakeKeeper().listen();
-    const orphan = k.addProcess("ghost@laptop");
-    const st = await stand({ keeper: k, modules: [] });
+    const { FakeHolders } = await import("../stand/index.ts");
+    const k = new FakeHolders();
+    const orphan = await k.addProcess("ghost@laptop");
+    const st = await stand({ holders: k, modules: [] });
     expect(orphan.alive).toBe(false);
     expect(st.journal().some((l) => l.ev === "orphan_kill" && l.callsign === "ghost@laptop")).toBe(true);
     await st.close();
@@ -493,9 +495,9 @@ describe("договор модуля на стенде", () => {
     let s0: Parameters<NonNullable<Module["session"]>>[0] | null = null;
     const st = await stand({ modules: [module("host-prof", { session: (s) => void (s0 ??= s) })] });
     await st.open("site@laptop");
-    st.keeper.failInitNext = 2;
+    st.holders.failInitNext = 2;
     void s0!.restart();
-    const spawned = (n: number) => () => st.keeper.ops.filter((o) => o.id === "site@laptop" && o.op === "spawn").length === n && !!st.keeper.procs.get("site@laptop")?.alive;
+    const spawned = (n: number) => () => st.holders.ops.filter((o) => o.id === "site@laptop" && o.op === "spawn").length === n && !!st.holders.procs.get("site@laptop")?.alive;
     await until(spawned(2));
     st.proc("site@laptop").exit(1, "No conversation found");
     await until(spawned(3));

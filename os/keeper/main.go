@@ -2,7 +2,7 @@
 // отвечает keeper.state, подменяет себя по плану.
 //
 //	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
-//	keeper install        — ключ keeper (keeper.<машина>…) — первой строкой stdin; флаги --machine, --relay;
+//	keeper install        — ключ машины (host.<машина>…) — первой строкой stdin; флаги --machine, --relay;
 //	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача
 //	                        «при входе пользователя» с повтором раз в минуту; Linux — systemd --user с linger
 //	keeper uninstall      — убрать службу или задачу
@@ -102,7 +102,7 @@ func parseInstall(args []string) (installFlags, error) {
 	return f, fs.Parse(args)
 }
 
-// prepareConf — keeper.json (node, машина, relay, путь ключа) и ключ keeper из первой строки stdin.
+// prepareConf — keeper.json (node, машина, relay) и ключ машины machine.key из первой строки stdin: им входят Host и keeper.
 func prepareConf(f installFlags, in *bufio.Reader) error {
 	home, err := homeDir()
 	if err != nil {
@@ -131,18 +131,18 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	delete(m, "host")
 	key, err := readSecretLine(in)
 	if err != nil {
-		return fmt.Errorf("ключ keeper — первой строкой stdin: %w", err)
+		return fmt.Errorf("ключ машины — первой строкой stdin: %w", err)
 	}
-	if !strings.HasPrefix(key, "keeper.") {
-		return fmt.Errorf("ключ не роли keeper")
+	if !strings.HasPrefix(key, "host.") {
+		return fmt.Errorf("ключ не машины: нужен host.<машина>…")
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(home, "keeper.key"), []byte(key+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, "machine.key"), []byte(key+"\n"), 0o600); err != nil {
 		return err
 	}
-	m["key"] = filepath.Join(home, "keeper.key")
+	delete(m, "key")
 	if confStr(m, "relay") == "" {
 		fmt.Fprintln(os.Stderr, "install: в keeper.json нет relay — keeper будет исполнять сохранённый план без связи (--relay)")
 	}
@@ -156,4 +156,31 @@ func readSecretLine(in *bufio.Reader) (string, error) {
 		return "", fmt.Errorf("нет строки в stdin: %w", err)
 	}
 	return strings.TrimRight(s, "\r\n"), nil
+}
+
+// placeSelf — файл keeper на постоянное место ~/.switchboard/keeper(.exe): его запускают служба или задача,
+// самообновление ставит новый файл туда же. Прежний файл на месте переименовывается: запущенный не удалить.
+func placeSelf() (string, error) {
+	home, err := homeDir()
+	if err != nil {
+		return "", err
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	dst := filepath.Join(home, exeName("keeper"))
+	a, errA := os.Stat(exe)
+	b, errB := os.Stat(dst)
+	if errA == nil && errB == nil && os.SameFile(a, b) {
+		return dst, nil
+	}
+	if errB == nil {
+		old := dst + ".prev.old"
+		os.Remove(old)
+		if err := os.Rename(dst, old); err != nil {
+			return "", fmt.Errorf("прежний файл keeper занят: %w", err)
+		}
+	}
+	return dst, copyFile(exe, dst)
 }

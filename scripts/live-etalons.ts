@@ -65,7 +65,7 @@ wrangler("gate", ["deploy"]);
 await new Promise((r) => setTimeout(r, 3000));
 const same = host.state === "open" && phone.state === "open" && host.roster?.machines.find((m) => m.machine === "etalon")?.since === since;
 check("136 · 145 · выпуск push и gate: соединения relay живы, roster не разослан заново", same && rosters === 0, { host: host.state, phone: phone.state, rosters });
-const k = await phone.request({ type: "push.key", v: 1, to: "push" });
+const k = await phone.request({ type: "push.key", v: 1, to: ".push" });
 check("145 · следующий push.send/push.key — у новой версии push", k.ok === true);
 const fresh = link({ url, key: invite("client", "etalon-new") });
 check("145 · следующий hello проверен новой версией gate", await opened(fresh));
@@ -82,7 +82,7 @@ check("117 · после выпуска gate с отзывом соединен�
 // объект флота засыпает между кадрами; ping отвечает Cloudflare без пробуждения. Пауза — и кадр его будит:
 // при старте объект перепроверяет отозванные ключи открытых соединений
 await new Promise((r) => setTimeout(r, 30000));
-await host.request({ type: "push.key", v: 1, to: "push" });
+await host.request({ type: "push.key", v: 1, to: ".push" });
 const closed = await until(() => victim.state === "stopped", 30000);
 check("117 · объект флота стартовал — соединение отозванного ключа закрыто", closed, victim.state);
 check("117 · Host и клиенты на связи", host.state === "open" && phone.state === "open", { host: host.state, phone: phone.state });

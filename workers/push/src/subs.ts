@@ -19,7 +19,7 @@ export class Subs extends DurableObject<Env> {
     );
   }
 
-  /** Кадр с to: "push" → кадры, которые push шлёт в ответ (reply тому, кто спросил). */
+  /** Кадр с to: ".push" → кадры, которые push шлёт в ответ (reply тому, кто спросил). */
   async frame(f: Frame): Promise<Frame[]> {
     const from = f.from ?? "";
     const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);

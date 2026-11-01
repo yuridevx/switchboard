@@ -33,7 +33,7 @@ const turn = async (cs: string, text: string) => {
 
 await wait(() => l.state === "open", 15000);
 if (!rec(CS)?.r2) await req({ type: "session.r2", callsign: CS, on: true });
-const headOf = async () => ((await req({ type: "points.list", to: "points" })).result.sessions as any[]).find((s) => s.callsign === CS);
+const headOf = async () => ((await req({ type: "points.list", to: ".points" })).result.sessions as any[]).find((s) => s.callsign === CS);
 const before = (await headOf())?.head?.id;
 console.log("до пожара:", await turn(CS, "Повтори дословно одно слово: «уголь». Ничего не сохраняй в память."));
 // точка после хода — не раньше 2 мин после прошлой (правило точек): пожар теряет только то, что после последней точки,
@@ -47,14 +47,14 @@ check(`машина ${DEAD} ушла из roster`, await wait(() => !roster()?.m
 const off = await req({ type: "session.prompt", callsign: CS, text: "x" });
 check("сессия умершей машины — offline", !off.ok && off.error === "offline", off.error);
 
-const list = await req({ type: "points.list", to: "points", sid });
+const list = await req({ type: "points.list", to: ".points", sid });
 const head = list.result.head as number;
 const fire = await req({ type: "points.raise", machine: TO, sid, point: head, dir: process.env.FLOW_DIR, name: "fire", files: "point" });
 check("пожар: сессия поднята на другой машине из последней точки", fire.ok, fire.result ?? fire.error);
 const NEW = fire.result?.callsign as string;
 await wait(() => rec(NEW)?.state === "idle", 120000);
 check("разговор цел на новой машине", /уголь/i.test(await turn(NEW, "Какое слово ты повторял последним? Одним словом.")));
-const owner = ((await req({ type: "points.list", to: "points" })).result.sessions as any[]).find((s) => s.sid === sid)?.owner;
+const owner = ((await req({ type: "points.list", to: ".points" })).result.sessions as any[]).find((s) => s.sid === sid)?.owner;
 check("хозяин в реестре — новая машина", owner === TO, owner);
 
 execSync(process.env.FIRE_START!, { stdio: "inherit" });

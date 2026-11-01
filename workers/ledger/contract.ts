@@ -13,7 +13,7 @@ export const USES = { "roster@relay": 1 } as const;
 export type LedgerAdd = {
   type: "ledger.add";
   v?: 1;
-  to: "ledger";
+  to: ".ledger";
   ev: string;
   text: string;
   by?: string;
@@ -26,7 +26,7 @@ export type LedgerRead = {
   type: "ledger.read";
   id: string;
   v?: 1;
-  to: "ledger";
+  to: ".ledger";
   limit: number;
   before?: number;
   after?: number;

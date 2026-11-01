@@ -33,9 +33,11 @@ export class Peer {
   }
 
   /** Новое соединение, hello и первый roster. */
-  static async hello(role: "host" | "client", name: string, extra: F = {}, kid?: string): Promise<Peer> {
+  static async hello(role: "host" | "keeper" | "client", name: string, extra: F = {}, kid?: string): Promise<Peer> {
     const p = await Peer.open();
-    p.send({ type: "hello", proto: 1, key: await key(role, name, kid), ...extra });
+    // keeper входит ключом машины и называет себя part
+    const k = role === "keeper" ? await key("host", name, kid) : await key(role, name, kid);
+    p.send({ type: "hello", proto: 1, key: k, ...(role === "keeper" ? { part: "keeper" } : {}), ...extra });
     // первый roster остаётся в очереди: его читает roster()
     await p.until(() => p.frames.find((f) => f.type === "roster"), 3000, "roster после hello");
     return p;

@@ -1,7 +1,7 @@
-// Контракт points: реестр точек сессий с пометкой «в R2» и временные ключи R2.
-// Запросы — кадры с to: "points", ответ — reply через relay. Байтов точек points не видит.
+// Контракт points: реестр точек сессий с пометкой «в R2» и временные ключи R2 на блоки точек.
+// Запросы — кадры с to: ".points", ответ — reply через relay. Байтов точек points не видит.
 
-export const CONTRACT = { "points.put": 1, "points.get": 1, "points.list": 1, "points.delete": 1, "points.creds": 1 } as const;
+export const CONTRACT = { "points.put": 1, "points.get": 1, "points.list": 1, "points.delete": 1 } as const;
 
 /** Файл точки: путь относительно папки проектов Claude, размер и отпечатки блоков (SHA-256, hex) по порядку. */
 export type PointFile = { p: string; size: number; b: string[] };
@@ -18,7 +18,7 @@ export type PointsPut = {
   type: "points.put";
   id: string;
   v?: 1;
-  to: "points";
+  to: ".points";
   sid: string;
   why: Why;
   files: PointFile[];
@@ -66,11 +66,11 @@ export type Point = {
 };
 
 /** points.get — строки точек целиком и хозяин; машине — ещё ключ R2 на чтение f/. */
-export type PointsGet = { type: "points.get"; id: string; v?: 1; to: "points"; ids: number[] };
+export type PointsGet = { type: "points.get"; id: string; v?: 1; to: ".points"; ids: number[] };
 export type PointsGetResult = { owner: string; points: Point[]; creds?: Creds };
 
 /** points.list — без sid: обзор флота; с sid: точки сессии, line и until считает points. */
-export type PointsList = { type: "points.list"; id: string; v?: 1; to: "points"; sid?: string };
+export type PointsList = { type: "points.list"; id: string; v?: 1; to: ".points"; sid?: string };
 export type ListedPoint = Omit<Point, "files" | "spec" | "last" | "sid"> & { line: boolean; until: number | null };
 export type PointsListSession = { owner: string | null; head: number | null; points: ListedPoint[] };
 export type PointsListFleet = {
@@ -80,12 +80,8 @@ export type PointsListFleet = {
 };
 
 /** points.delete — стереть точки сессии и сразу убрать из R2 её блоки без ссылок. Отмены нет. */
-export type PointsDelete = { type: "points.delete"; id: string; v?: 1; to: "points"; sid: string; by?: string };
+export type PointsDelete = { type: "points.delete"; id: string; v?: 1; to: ".points"; sid: string; by?: string };
 export type PointsDeleteResult = { points: number; blocks: number; bytes: number };
-
-/** points.creds — ключ R2 на чтение бакета выпусков Host, на час. Только машине. */
-export type PointsCreds = { type: "points.creds"; id: string; v?: 1; to: "points" };
-export type PointsCredsResult = { creds: Creds };
 
 /**
  * Слова отказа points. missing несёт missing (каких блоков нет) и creds на запись f/;

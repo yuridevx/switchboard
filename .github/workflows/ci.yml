@@ -1,4 +1,4 @@
-# Проверка на каждый пуш и PR; выкладка — только из main после зелёных проверок.
+# Проверка на каждый пуш и PR; из main после зелёных проверок — загрузка версий без выкладки.
 name: ci
 
 on:
@@ -47,36 +47,34 @@ jobs:
       - run: go vet ./...
       - run: go test -count=1 ./...
 
-  deploy:
+  upload:
+    # загрузка без выкладки: stable двигают «выпуски» (releases.deploy) по слову человека или агента
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [test, keeper]
     runs-on: ubuntu-latest
     concurrency:
-      group: deploy
+      group: upload
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      FLEET_SECRET: ${{ secrets.FLEET_SECRET }}
-      VAPID_PRIVATE: ${{ secrets.VAPID_PRIVATE }}
-      R2_TOKEN: ${{ secrets.R2_TOKEN }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: os/keeper/go.mod
+          cache-dependency-path: os/keeper/go.sum
       - run: npm ci
-      - name: Worker-модули
-        run: node scripts/deploy-workers.mjs
-      - name: телефон
-        run: npm run deploy -w @switchboard/phone
-      - name: пульт
-        run: npm run deploy -w @switchboard/pult
-      - name: выпуск Host в R2
-        # машины берут его командой machine.upgrade; номер — 1.1.<номер прогона>
-        env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
-        run: node tools/release/cli.ts release 1.1.${{ github.run_number }}
+      - name: Worker-модули, телефон и пульт — версии с меткой 1.1.<прогон>
+        run: node scripts/deploy-workers.mjs --upload 1.1.${{ github.run_number }}
+      - name: Host в R2
+        run: node tools/release/cli.ts release host 1.1.${{ github.run_number }}
+      - name: keeper в R2 — когда поднят его номер
+        run: node tools/release/cli.ts release keeper

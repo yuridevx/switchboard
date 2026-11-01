@@ -142,7 +142,7 @@ export class FakeRelay {
       type: "roster",
       machines: [{ machine, since: this.since, proto: 1, sdk: hello.sdk, contract: hello.contract }, ...(extra.machines ?? [])],
       sessions: (hello.sessions as object[]) ?? [],
-      clients: extra.clients ?? ["phone", "panel-desk"],
+      clients: extra.clients ?? ["phone~owner@example.com", "panel-desk~owner@example.com"],
       workers: [],
     };
   }
@@ -156,7 +156,7 @@ export class FakeRelay {
   request(f: Omit<Frame, "id"> & { id?: string }): Promise<Frame> {
     const id = f.id ?? `t-${++this.seq}`;
     const p = new Promise<Frame>((r) => this.waits.set(id, r));
-    this.deliver({ from: "panel-desk", ...f, id } as Frame);
+    this.deliver({ from: "panel-desk~owner@example.com", ...f, id } as Frame);
     return p;
   }
 

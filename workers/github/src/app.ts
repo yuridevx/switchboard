@@ -28,7 +28,7 @@ const REPO = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9_.-]+$/;
 const CODE = /^[A-Za-z0-9_-]+$/;
 
 export class App extends DurableObject<Env> {
-  /** Кадр с to: "github" → кадры, которые github шлёт в ответ. */
+  /** Кадр с to: ".github" → кадры, которые github шлёт в ответ. */
   async frame(f: Frame): Promise<Frame[]> {
     const from = f.from ?? "";
     const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);

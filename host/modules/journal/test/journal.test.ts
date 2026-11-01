@@ -63,7 +63,7 @@ describe("эталоны journal", () => {
     const r = await s.relay.request({ type: "session.history", id: "h-3", v: 1, callsign: "site@laptop", before: null, limit: 50 });
     expect(r).toMatchObject({ ok: false, error: "contract_mismatch" });
     const l = s.journal().find((x) => x.word === "contract_mismatch");
-    expect(l).toMatchObject({ kind: "refuse", who: "core", from: "panel-desk", id: "h-3" });
+    expect(l).toMatchObject({ kind: "refuse", who: "core", from: "panel-desk~owner@example.com", id: "h-3" });
     expect(l!.why).toContain("запрошена v1, у host-chat v2");
   });
 
@@ -86,7 +86,7 @@ describe("эталоны journal", () => {
     expect(mine(s).find((l) => l.callsign === "wiki@laptop")).toMatchObject({ kind: "stop", ev: "sdk.result", word: "cwd_unavailable" });
   });
 
-  it("99 · machine.journal: since 14:00, kind stop — keeper и host по времени; limit 1 — ранняя и more, since = её t — вторая; файлы не изменились", async () => {
+  it("99 · machine.journal: since 14:00, kind stop — keeper, приложение и host по времени; part — одна часть; limit 1 — ранняя и more, since = её t — вторая; файлы не изменились", async () => {
     const home = mkdtempSync(join(tmpdir(), "switchboard-journal-"));
     const dir = join(home, "journal");
     mkdirSync(dir);
@@ -101,6 +101,7 @@ describe("эталоны journal", () => {
     const keeper = [
       JSON.stringify({ t: "2026-10-30T14:00:30.000Z", part: "keeper", machine: "laptop", who: "keeper", kind: "stop", ev: "host_exit", code: 1, why: "Host вышел с кодом 1" }),
       JSON.stringify({ t: "2026-10-30T14:00:31.000Z", part: "keeper", machine: "laptop", who: "keeper", kind: "note", ev: "host_start" }),
+      JSON.stringify({ t: "2026-10-30T14:00:40.000Z", part: "capture", machine: "laptop", who: "keeper", kind: "stop", ev: "part_exit", why: "capture 1.4.0 вышла сама: код 3" }),
     ];
     writeFileSync(join(dir, "host-2026-10-30.jsonl"), host.join("\n") + "\n");
     writeFileSync(join(dir, "keeper-2026-10-30.jsonl"), keeper.join("\n") + "\n");
@@ -112,14 +113,20 @@ describe("эталоны journal", () => {
     expect(a).toMatchObject({ ok: true, result: { more: false } });
     expect((a.result as { records: Array<{ ev: string; part: string }> }).records.map((r) => [r.part, r.ev])).toEqual([
       ["keeper", "host_exit"],
+      ["capture", "part_exit"],
       ["host", "module_failed"],
     ]);
+    // part — строки одной части: приложения, keeper или Host
+    const only = async (part: string) => ((await ask({ since: "2026-10-30T14:00:00.000Z", limit: 50, part })).result as { records: Array<{ ev: string }> }).records.map((r) => r.ev);
+    expect(await only("capture")).toEqual(["part_exit"]);
+    expect(await only("keeper")).toEqual(["host_exit"]);
+    expect(await only("host")).toEqual(["module_failed"]);
     const b = await ask({ since: "2026-10-30T14:00:00.000Z", limit: 1 });
     const br = b.result as { records: Array<{ t: string; ev: string }>; more: boolean };
     expect(br.records.map((r) => r.ev)).toEqual(["host_exit"]);
     expect(br.more).toBe(true);
     const c = await ask({ since: br.records[0].t, limit: 1 });
-    expect((c.result as { records: Array<{ ev: string }>; more: boolean })).toMatchObject({ records: [{ ev: "module_failed" }], more: false });
+    expect((c.result as { records: Array<{ ev: string }>; more: boolean })).toMatchObject({ records: [{ ev: "part_exit" }], more: true });
     expect(readFileSync(join(dir, "host-2026-10-30.jsonl"), "utf8") + readFileSync(join(dir, "keeper-2026-10-30.jsonl"), "utf8")).toBe(before);
     expect(await ask({ since: "вчера", limit: 5 })).toMatchObject({ ok: false, error: "bad_frame" });
     expect(await ask({ since: "2026-10-30T14:00:00.000Z" })).toMatchObject({ ok: false, error: "bad_frame" });

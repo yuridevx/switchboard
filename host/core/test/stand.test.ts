@@ -1,4 +1,4 @@
-// Интеграция на стенде: ядро, поддельный keeper по TCP, поддельный SDK и relay.
+// Интеграция на стенде: ядро, поддельные держатели по TCP, поддельный SDK и relay.
 import { afterEach, describe, expect, it } from "vitest";
 import { msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
@@ -11,17 +11,16 @@ afterEach(async () => {
 });
 
 describe("стенд: новая сессия и ход", () => {
-  it("host.open: spawn у keeper, initialize, idle; hello и session.state в relay", async () => {
+  it("host.open: spawn держателя, initialize, idle; hello и session.state в relay", async () => {
     const seen: string[] = [];
     const watch: Module = { on: { event: (_s, m) => void seen.push(m.type) } };
     st = await standHost({ modules: [module("host-watch", watch)] });
-    expect(st.keeper.readies).toEqual(["1.4.0"]);
     const s = await st.open("site@laptop");
     expect(s.state).toBe("idle");
     expect(s.info.start).toBe("spawn");
     const p = st.proc("site@laptop");
     expect(p.env.DISABLE_UPDATES).toBe("1");
-    expect(st.keeper.ops.some((o) => o.op === "spawn" && o.id === "site@laptop")).toBe(true);
+    expect(st.holders.ops.some((o) => o.op === "spawn" && o.id === "site@laptop")).toBe(true);
     expect(st.relay.hellos[0]).toMatchObject({ type: "hello", proto: 1, sdk: "0.3.311", key: "host.laptop.k7f3.stand" });
     turn(p);
     await until(() => s.state === "idle" && seen.includes("result"));

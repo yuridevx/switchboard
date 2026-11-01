@@ -54,10 +54,10 @@ try {
   const echo = await client.request({ type: "smoke.echo", v: 1, machine: "smoke", text: "привет" });
   check("запрос клиента → Host машины и ответ", echo.ok === true && (echo as { result?: { echo?: string } }).result?.echo === "привет", echo);
 
-  const key = await client.request({ type: "push.key", v: 1, to: "push" });
+  const key = await client.request({ type: "push.key", v: 1, to: ".push" });
   check("push.key у Worker push", key.ok === true && typeof (key as { result?: { key?: string } }).result?.key === "string", key);
 
-  const led = await client.request({ type: "ledger.read", v: 1, to: "ledger", limit: 20 });
+  const led = await client.request({ type: "ledger.read", v: 1, to: ".ledger", limit: 20 });
   check("ledger.read у Worker ledger", led.ok === true, led.ok ? (led as { result?: { events?: Array<{ ev: string; machine?: string }> } }).result?.events?.map((e) => `${e.ev}:${e.machine}`) : led);
 
   const off = await client.request({ type: "smoke.echo", v: 1, machine: "nobody", text: "x" });

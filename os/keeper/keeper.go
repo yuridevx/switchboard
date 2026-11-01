@@ -115,7 +115,7 @@ func Start(home string, echo io.Writer) (*Keeper, error) {
 	k.adopt()
 	go k.applyLoop()
 	k.queue(k.plan)
-	if url, key := confStr(conf, "relay"), readKey(home, confStr(conf, "key")); url != "" && key != "" {
+	if url, key := confStr(conf, "relay"), readKey(home); url != "" && key != "" {
 		k.radio = newRadio(url, key)
 		k.radio.onOpen = k.askPlan
 		k.radio.onFrame = k.frame
@@ -128,23 +128,16 @@ func Start(home string, echo io.Writer) (*Keeper, error) {
 		}
 		go k.radio.run()
 	} else {
-		j.stop("relay", "в keeper.json нет relay или ключа keeper — исполняю сохранённый план без связи")
+		j.stop("relay", "в keeper.json нет relay или нет machine.key — исполняю сохранённый план без связи")
 	}
 	return k, nil
 }
 
 func planPath(home string) string { return filepath.Join(home, "plan.json") }
 
-func readKey(home, p string) string {
-	if p == "" {
-		p = filepath.Join(home, "keeper.key")
-	}
-	if strings.HasPrefix(p, "~/") {
-		if u, err := os.UserHomeDir(); err == nil {
-			p = filepath.Join(u, p[2:])
-		}
-	}
-	b, err := os.ReadFile(p)
+// readKey — ключ машины ~/.switchboard/machine.key: им входят и Host, и keeper (keeper — с part в hello).
+func readKey(home string) string {
+	b, err := os.ReadFile(filepath.Join(home, "machine.key"))
 	if err != nil {
 		return ""
 	}
@@ -476,6 +469,8 @@ func (k *Keeper) startPart(p *part, pp planPart, dir string) error {
 		"SWITCHBOARD_HOLDER="+self,
 		"SWITCHBOARD_PART="+pp.Part,
 		"SWITCHBOARD_VERSION="+pp.Version,
+		"SWITCHBOARD_DATA="+data,
+		"SWITCHBOARD_HOME="+k.home,
 	)
 	if conf, _ := readConf(k.home); confStr(conf, "relay") != "" {
 		env = append(env, "SWITCHBOARD_RELAY="+confStr(conf, "relay"))

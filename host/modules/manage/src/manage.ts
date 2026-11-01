@@ -77,7 +77,7 @@ export function manage(o: ManageOptions = {}): Module {
   }
 
   function ledger(host: Host, ev: string, text: string, ctx: Ctx, callsign: string): void {
-    const r = host.emit({ type: "ledger.add", to: "ledger", v: 1, ev, text, ...(ctx.from ? { by: ctx.from } : {}), machine: host.machine, callsign });
+    const r = host.emit({ type: "ledger.add", to: ".ledger", v: 1, ev, text, ...(ctx.from ? { by: ctx.from } : {}), machine: host.machine, callsign });
     if (!r.ok) host.log({ kind: "note", ev: "ledger", word: r.error, callsign, why: `${ev} не записан в журнал флота: ${r.error}` });
   }
 

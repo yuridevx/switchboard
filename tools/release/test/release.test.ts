@@ -9,7 +9,9 @@ import { entries, pack, parseSha, s3, sha256hex, shaLine, sign, unpack } from ".
 import type { Fetch } from "../contract.ts";
 import { build, closure, packageFiles } from "../src/build.ts";
 import type { Exec } from "../src/build.ts";
-import { dirBucket, publish, s3Bucket } from "../src/publish.ts";
+import { buildKeeper } from "../src/keeper.ts";
+import type { GoExec } from "../src/keeper.ts";
+import { dirBucket, s3Bucket, upload } from "../src/publish.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
 const tmp = () => mkdtempSync(join(tmpdir(), "switchboard-release-"));
@@ -82,41 +84,62 @@ describe("подпись S3", () => {
   });
 });
 
-describe("выкладка", () => {
-  it("архив, хэш, последним latest; та же версия второй раз — отказ, ничего не перезаписано", async () => {
+describe("загрузка", () => {
+  it("архив, затем хэш в <часть>/<версия>; тот же номер с тем же хэшем — пропуск, с другим — «подними номер», ничего не перезаписано", async () => {
     const d = tmp();
     const b = dirBucket(d);
     const tgz = Buffer.from("архив");
-    expect(await publish(b, "1.4.1", tgz, sha256hex(tgz))).toEqual(["host/1.4.1.tgz", "host/1.4.1.sha256", "host/latest"]);
-    expect(readFileSync(join(d, "host", "latest"), "utf8")).toBe("1.4.1\n");
-    expect(parseSha(readFileSync(join(d, "host", "1.4.1.sha256"), "utf8"))).toBe(sha256hex(tgz));
-    await expect(publish(b, "1.4.1", Buffer.from("другой"), "0".repeat(64))).rejects.toThrow("версия выпускается один раз");
-    expect(readFileSync(join(d, "host", "1.4.1.tgz"), "utf8")).toBe("архив");
+    expect(await upload(b, "keeper", "0.5.0", tgz, sha256hex(tgz))).toBe("uploaded");
+    expect(parseSha(readFileSync(join(d, "keeper", "0.5.0.sha256"), "utf8"))).toBe(sha256hex(tgz));
+    expect(await upload(b, "keeper", "0.5.0", tgz, sha256hex(tgz))).toBe("same");
+    await expect(upload(b, "keeper", "0.5.0", Buffer.from("другой"), sha256hex("другой"))).rejects.toThrow("подними номер keeper");
+    expect(readFileSync(join(d, "keeper", "0.5.0.tgz"), "utf8")).toBe("архив");
+    expect(existsSync(join(d, "host", "latest"))).toBe(false);
   });
 
-  it("R2: HEAD 404 — можно, PUT по порядку; HEAD 200 — отказ до PUT", async () => {
+  it("R2: GET хэша 404 — PUT архива, затем хэша; хэш есть — без PUT", async () => {
     const calls: string[] = [];
-    let have = false;
+    let have: string | null = null;
     const f: Fetch = async (url, init) => {
       calls.push(`${init.method} ${url.split("switchboard-releases/")[1]}`);
-      return { status: init.method === "HEAD" ? (have ? 200 : 404) : 200, arrayBuffer: async () => new ArrayBuffer(0) };
+      const body = init.method === "GET" && have ? Buffer.from(have) : Buffer.alloc(0);
+      return { status: init.method === "GET" ? (have ? 200 : 404) : 200, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) as ArrayBuffer };
     };
     const b = s3Bucket({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f);
-    await publish(b, "1.4.1", Buffer.from("t"), sha256hex("t"));
-    expect(calls).toEqual(["HEAD host/1.4.1.sha256", "PUT host/1.4.1.tgz", "PUT host/1.4.1.sha256", "PUT host/latest"]);
-    have = true;
+    await upload(b, "host", "1.1.58", Buffer.from("t"), sha256hex("t"));
+    expect(calls).toEqual(["GET host/1.1.58.sha256", "PUT host/1.1.58.tgz", "PUT host/1.1.58.sha256"]);
+    have = shaLine(sha256hex("t"), "1.1.58");
     calls.length = 0;
-    await expect(publish(b, "1.4.1", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("уже есть");
-    expect(calls).toEqual(["HEAD host/1.4.1.sha256"]);
+    expect(await upload(b, "host", "1.1.58", Buffer.from("t"), sha256hex("t"))).toBe("same");
+    expect(calls).toEqual(["GET host/1.1.58.sha256"]);
   });
 
-  it("аргументы: версия, --out, --dry-run, --to; ключ R2 только из окружения", () => {
-    expect(parseArgs(["release", "1.4.1", "--dry-run"])).toMatchObject({ version: "1.4.1", dryRun: true });
-    expect(() => parseArgs(["release"])).toThrow("вызов");
-    expect(() => parseArgs(["release", "1.4.1", "--dry-run", "--to", "x"])).toThrow();
-    expect(bucketOf(parseArgs(["release", "1.4.1", "--dry-run"]), {})).toBeNull();
-    expect(() => bucketOf(parseArgs(["release", "1.4.1"]), {})).toThrow("R2_ACCESS_KEY_ID");
-    expect(bucketOf(parseArgs(["release", "1.4.1"]), { R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_ENDPOINT: "https://x" })?.where).toBe("https://x/switchboard-releases");
+  it("аргументы: host с номером, keeper без; --out, --dry-run, --to; ключ R2 только из окружения", () => {
+    expect(parseArgs(["release", "host", "1.4.1", "--dry-run"])).toMatchObject({ part: "host", version: "1.4.1", dryRun: true });
+    expect(parseArgs(["release", "keeper", "--to", "x"])).toMatchObject({ part: "keeper", dryRun: false });
+    expect(() => parseArgs(["release", "host"])).toThrow("вызов");
+    expect(() => parseArgs(["release", "1.4.1"])).toThrow("вызов");
+    expect(() => parseArgs(["release", "host", "1.4.1", "--dry-run", "--to", "x"])).toThrow();
+    expect(bucketOf(parseArgs(["release", "host", "1.4.1", "--dry-run"]), {})).toBeNull();
+    expect(() => bucketOf(parseArgs(["release", "keeper"]), {})).toThrow("R2_ACCESS_KEY_ID");
+    expect(bucketOf(parseArgs(["release", "keeper"]), { R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_ENDPOINT: "https://x" })?.where).toBe("https://x/switchboard-releases");
+  });
+
+  it("архив keeper: два файла по ОС, режим исполнения, тот же вывод go — тот же хэш; go не собрал — исключение", async () => {
+    const go: GoExec = async (args, _cwd, env) => {
+      const out = args[args.indexOf("-o") + 1];
+      mkdirSync(join(out, ".."), { recursive: true });
+      writeFileSync(out, `keeper ${env.GOOS}/${env.GOARCH}`);
+      return { code: 0, out: "" };
+    };
+    const a = await buildKeeper(root, go);
+    expect(a.version).toBe(JSON.parse(readFileSync(join(root, "os", "keeper", "module.json"), "utf8")).version);
+    expect(entries(a.tgz).filter((e) => e.data).map((e) => [e.path, e.data!.toString(), e.mode])).toEqual([
+      ["linux-amd64/keeper", "keeper linux/amd64", 0o755],
+      ["windows-amd64/keeper.exe", "keeper windows/amd64", 0o755],
+    ]);
+    expect((await buildKeeper(root, go)).sha).toBe(a.sha);
+    await expect(buildKeeper(root, async () => ({ code: 1, out: "syntax error" }))).rejects.toThrow("go build windows/amd64: syntax error");
   });
 });
 
@@ -154,10 +177,10 @@ describe("сборка выпуска", () => {
     const corePj = JSON.parse(readFileSync(join(b.dir, "packages", "host", "package.json"), "utf8"));
     expect(corePj.dependencies).toEqual({ "@anthropic-ai/claude-agent-sdk": "0.3.311" });
     expect(corePj.scripts).toBeUndefined();
-    expect(JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8"))).toEqual({ version: "1.4.1", core: expect.stringMatching(/^\d+\.\d+\.\d+\+[0-9a-f]{12}$/), modules: expect.any(Object) });
-    // отпечатки модулей: перезагрузка на ходу сравнивает их, а не номера версий (живой прогон 31 окт.)
-    const rel = JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8")) as { modules: Record<string, string> };
-    for (const v of Object.values(rel.modules)) expect(v).toMatch(/^\d+\.\d+\.\d+\+[0-9a-f]{12}$/);
+    expect(JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8"))).toEqual({ version: "1.4.1" });
+    // Host — часть машины, как приложение: keeper ставит его по app.json
+    expect(JSON.parse(readFileSync(join(b.dir, "app.json"), "utf8"))).toEqual({ run: ["node", "host"], setup: ["npm", "ci", "--omit=dev"], detach_children: true });
+    expect(paths).toContain("app.json");
     expect(readFileSync(join(out, "1.4.1.sha256"), "utf8")).toBe(shaLine(sha256hex(b.tgz), "1.4.1"));
   });
 

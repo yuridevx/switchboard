@@ -120,7 +120,7 @@ export function make(): Module {
     for (const x of sessionsIn(slot)) x.refresh();
     const text = `слот ${slot}: ${from ?? "—"} → ${to} · ${why}`;
     host.log({ ev: "slot.swapped", slot, from, to, why: text });
-    const sent = host.emit({ type: "ledger.add", to: "ledger", v: 1, ev: "slot.swapped", machine: host.machine, text, ...(by ? { by } : {}) });
+    const sent = host.emit({ type: "ledger.add", to: ".ledger", v: 1, ev: "slot.swapped", machine: host.machine, text, ...(by ? { by } : {}) });
     if (!sent.ok) host.log({ kind: "refuse", ev: "ledger.add", word: sent.error, why: `ledger.add не ушёл: ${sent.error}` });
     return { ok: true, from };
   }

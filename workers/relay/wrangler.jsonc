@@ -16,13 +16,16 @@
     { "binding": "PUSH", "service": "switchboard-push", "entrypoint": "Participant" },
     { "binding": "POINTS", "service": "switchboard-points", "entrypoint": "Participant" },
     { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" },
-    { "binding": "GITHUB", "service": "switchboard-github", "entrypoint": "Participant" }
+    { "binding": "GITHUB", "service": "switchboard-github", "entrypoint": "Participant" },
+    { "binding": "RELEASES", "service": "switchboard-releases", "entrypoint": "Participant" }
   ],
   "vars": {
     // версии контракта relay, которые он принимает в hello
     "PROTO": [1],
     // участник рации → имя его привязки
-    "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB" }
+    "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" },
+    // владелец флота: ключи клиентов пока выданы ему — адрес устройства phone~<email>
+    "OWNER": "yuridevx@gmail.com"
   },
   "observability": { "enabled": true }
 }

@@ -88,7 +88,7 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		}
 		var hello map[string]any
 		json.Unmarshal(b, &hello)
-		if hello["type"] != "hello" || !strings.HasPrefix(fmt.Sprint(hello["key"]), "keeper.") {
+		if hello["type"] != "hello" || !strings.HasPrefix(fmt.Sprint(hello["key"]), "host.") || hello["part"] != "keeper" {
 			ws.Close(1008, "bad_key")
 			return
 		}
@@ -260,8 +260,8 @@ type stand struct {
 func newStand(t *testing.T) *stand {
 	home := t.TempDir()
 	s := &stand{t: t, home: home, relay: newFakeRelay(t), links: newLinks(t)}
-	os.WriteFile(filepath.Join(home, "keeper.key"), []byte("keeper.win.ab12.sig\n"), 0o600)
-	writeConf(home, map[string]any{"machine": "win", "relay": s.relay.url(), "key": filepath.Join(home, "keeper.key")})
+	os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.ab12.sig\n"), 0o600)
+	writeConf(home, map[string]any{"machine": "win", "relay": s.relay.url()})
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	return s

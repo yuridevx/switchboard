@@ -1,7 +1,7 @@
 // Объект флота: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
 // На диск не пишет: всё о флоте — в карточках живых соединений и в ответах hello() участников.
 import { DurableObject } from "cloudflare:workers";
-import { fail, machineOf, parseFrame } from "@switchboard/protocol";
+import { fail, kindOf, machineOf, parseFrame } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
 import type { GateApi, VerifyResult } from "@switchboard/gate";
 import type { Participant, ParticipantHello, RelayWord, Roster, SessionRecord } from "../contract.ts";
@@ -13,6 +13,8 @@ export type Env = {
   PROTO: number[];
   /** имя участника → имя его привязки */
   PARTICIPANTS: Record<string, string>;
+  /** email владельца флота: клиентские ключи пока выданы ему — адрес устройства устройство~email */
+  OWNER: string;
 };
 
 /** Один объект на флот. */
@@ -34,7 +36,9 @@ type HostCard = {
   sessions: SessionRecord[];
 };
 type ClientCard = { role: "client"; name: string; kid: string; since: number; proto: number };
-type Card = HostCard | ClientCard;
+/** часть машины (keeper): входит ключом машины с part в hello; в roster не входит, адрес .part@машина */
+type KeeperCard = { role: "keeper"; name: string; kid: string; since: number; proto: number };
+type Card = HostCard | ClientCard | KeeperCard;
 type Sender = { ws: WebSocket; card: Card } | { worker: string };
 
 const log = (line: string) => console.log(line);
@@ -45,7 +49,6 @@ const cardOf = (ws: WebSocket) => ws.deserializeAttachment() as Card | null;
 const keyId = (key: string) => key.split(".").slice(0, 3).join(".").slice(0, 80);
 /** callsign сессии этой машины: site@laptop; голый @laptop — не сессия. */
 const ownCallsign = (cs: unknown, machine: string) => typeof cs === "string" && cs.indexOf("@") > 0 && machineOf(cs) === machine;
-const who = (s: Sender) => ("worker" in s ? s.worker : s.card.role === "host" ? `@${s.card.name}` : s.card.name);
 
 export class Fleet extends DurableObject<Env> {
   /** участники, ответившие на hello(); память объекта — спрашиваются заново на каждом старте */
@@ -157,7 +160,9 @@ export class Fleet extends DurableObject<Env> {
     }
     let card: Card;
     const since = Date.now();
-    if (r.role === "host") {
+    if (r.role === "host" && f.part === "keeper") {
+      card = { role: "keeper", name: r.name, kid: r.kid, since, proto: f.proto };
+    } else if (r.role === "host") {
       const sessions = f.sessions ?? [];
       if (!Array.isArray(sessions) || !sessions.every((s) => isObj(s) && ownCallsign(s.callsign, r.name))) {
         log(`bad_from ${id} · в hello callsign не машины ${r.name}`);
@@ -181,17 +186,18 @@ export class Fleet extends DurableObject<Env> {
       log(`bad_frame ${id} · карточка ${size} байт · предел ${CARD_LIMIT}`);
       return ws.close(1008, "bad_frame");
     }
-    if (card.role === "host") {
+    if (card.role === "host" || card.role === "keeper") {
       for (const s of this.live()) {
         const c = cardOf(s)!;
-        if (s !== ws && c.role === "host" && c.name === card.name) {
-          log(`replaced host.${c.name}.${c.kid}`);
+        if (s !== ws && c.role === card.role && c.name === card.name) {
+          log(`replaced ${c.role}.${c.name}.${c.kid}`);
           s.close(1000, "replaced");
         }
       }
     }
     ws.serializeAttachment(card);
     log(`hello ${id} · proto ${card.proto}${card.role === "host" ? ` · ${card.sessions.length} сессий` : ""}`);
+    // keeper в roster не входит, но roster ему уходит, как всем: так он узнаёт, что hello принят
     await this.broadcast();
   }
 
@@ -199,23 +205,23 @@ export class Fleet extends DurableObject<Env> {
 
   private async route(s: Sender, f: Frame): Promise<RelayWord | undefined> {
     const refuse = (word: RelayWord, why: string): RelayWord => {
-      log(`${word} ${who(s)} · ${f.type}${why ? " · " + why : ""}`);
+      log(`${word} ${this.who(s)} · ${f.type}${why ? " · " + why : ""}`);
       return word;
     };
 
-    // from: клиент не пишет; Host — только *@своя машина; участник — только своё имя
+    // from ставит relay по ключу или привязке: участник — .имя, keeper — .keeper@машина, клиент — устройство~email;
+    // Host — сама машина или сессия этой машины
     let from: string;
-    if ("worker" in s) {
-      if (f.from !== undefined && f.from !== s.worker) return refuse("bad_from", `from=${String(f.from)}`);
-      from = s.worker;
-    } else if (s.card.role === "client") {
-      if (f.from !== undefined) return refuse("bad_from", `from=${String(f.from)}`);
-      from = s.card.name;
+    if ("worker" in s || s.card.role !== "host") {
+      const own = this.who(s);
+      if (f.from !== undefined && f.from !== own) return refuse("bad_from", `from=${String(f.from)}`);
+      from = own;
     } else {
-      if (f.from !== undefined && (typeof f.from !== "string" || machineOf(f.from) !== s.card.name)) {
+      const k = kindOf(f.from);
+      if (f.from !== undefined && (!(k === "session" || k === "machine") || machineOf(f.from as string) !== s.card.name)) {
         return refuse("bad_from", `from=${String(f.from)}`);
       }
-      from = f.from ?? `@${s.card.name}`;
+      from = (f.from as string | undefined) ?? `@${s.card.name}`;
     }
 
     if (OWN.has(f.type)) {
@@ -227,9 +233,9 @@ export class Fleet extends DurableObject<Env> {
     if (f.to !== undefined) {
       const list = Array.isArray(f.to) ? f.to : [f.to];
       if (Array.isArray(f.to) && f.id !== undefined) return refuse("bad_frame", "to списком у кадра с id");
-      if (!list.length || !list.every((a) => typeof a === "string" && a)) return refuse("bad_frame", "to не адрес");
+      if (!list.length || !list.every((a) => kindOf(a) !== null)) return refuse("bad_frame", `to не адрес: ${JSON.stringify(f.to)}`);
       let n = 0;
-      for (const a of list) n += await this.deliver(a, out, who(s));
+      for (const a of list) n += await this.deliver(a, out, this.who(s));
       return n ? undefined : refuse("offline", `→ ${list.join(",")}`);
     }
     const m = typeof f.callsign === "string" ? machineOf(f.callsign) : typeof f.machine === "string" ? f.machine : undefined;
@@ -260,33 +266,76 @@ export class Fleet extends DurableObject<Env> {
     return undefined;
   }
 
-  /** Доставить по одному адресу; ответ — сколько получателей. */
+  /** Доставить по одному адресу по его виду; ответ — сколько получателей. */
   private async deliver(a: string, out: Frame, sender: string): Promise<number> {
     const text = JSON.stringify(out);
-    if (a.includes("@")) {
-      const m = machineOf(a);
-      const host = m ? this.hostOf(m) : undefined;
-      if (!host) return 0;
-      // callsign — только если он есть в карточке машины; @машина — сама машина
-      if (!a.startsWith("@") && !(cardOf(host) as HostCard).sessions.some((x) => x.callsign === a)) return 0;
-      host.send(text);
-      return 1;
-    }
-    let n = 0;
-    for (const s of this.live()) {
-      const c = cardOf(s)!;
-      if (c.role === "client" && c.name === a) {
-        s.send(text);
-        n++;
+    switch (kindOf(a)) {
+      case "machine":
+      case "session": {
+        const m = machineOf(a);
+        const host = m ? this.hostOf(m) : undefined;
+        if (!host) return 0;
+        // callsign — только если он есть в карточке машины; @машина — сама машина
+        if (!a.startsWith("@") && !(cardOf(host) as HostCard).sessions.some((x) => x.callsign === a)) return 0;
+        host.send(text);
+        return 1;
       }
+      case "part": {
+        const m = machineOf(a);
+        const name = a.slice(1, a.indexOf("@"));
+        const ws = this.live().find((x) => {
+          const c = cardOf(x)!;
+          return c.role === name && c.name === m;
+        });
+        if (!ws) return 0;
+        ws.send(text);
+        return 1;
+      }
+      case "device":
+      case "user": {
+        let n = 0;
+        for (const ws of this.live()) {
+          const c = cardOf(ws)!;
+          if (c.role !== "client") continue;
+          const addr = this.clientAddress(c.name);
+          if (addr === a || (a.startsWith("~") && addr.endsWith(a))) {
+            ws.send(text);
+            n++;
+          }
+        }
+        return n;
+      }
+      case "service": {
+        const name = a.slice(1);
+        if (!this.workers.has(name)) return 0;
+        try {
+          await call(this.participant(name).frame(out));
+          return 1;
+        } catch (e) {
+          log(`offline ${sender} → ${a} · ${out.type} · frame: ${e}`);
+          return 0;
+        }
+      }
+      default:
+        return 0;
     }
-    if (n || !this.workers.has(a)) return n;
-    try {
-      await call(this.participant(a).frame(out));
-      return 1;
-    } catch (e) {
-      log(`offline ${sender} → ${a} · ${out.type} · frame: ${e}`);
-      return 0;
+  }
+
+  /** Адрес устройства клиента: ключи клиентов пока выданы владельцу флота. */
+  private clientAddress(name: string): string {
+    return `${name}~${this.env.OWNER}`;
+  }
+
+  /** Адрес отправителя — по ключу или привязке. */
+  private who(s: Sender): string {
+    if ("worker" in s) return `.${s.worker}`;
+    switch (s.card.role) {
+      case "host":
+        return `@${s.card.name}`;
+      case "keeper":
+        return `.keeper@${s.card.name}`;
+      default:
+        return this.clientAddress(s.card.name);
     }
   }
 
@@ -311,7 +360,7 @@ export class Fleet extends DurableObject<Env> {
       if (c.role === "host") {
         r.machines.push({ machine: c.name, since: c.since, proto: c.proto, sdk: c.sdk, contract: c.contract });
         r.sessions.push(...c.sessions);
-      } else if (!r.clients.includes(c.name)) r.clients.push(c.name);
+      } else if (c.role === "client" && !r.clients.includes(this.clientAddress(c.name))) r.clients.push(this.clientAddress(c.name));
     }
     for (const [name, h] of this.workers) r.workers.push({ name, contract: h.contract });
     return r;

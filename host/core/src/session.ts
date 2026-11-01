@@ -1,9 +1,9 @@
-// Сессия в ядре: один query() Agent SDK, очередь ввода, жизнь процесса у keeper, вклады модулей.
+// Сессия в ядре: один query() Agent SDK, очередь ввода, процесс у своего держателя, вклады модулей.
 // Состояние — только из SDK (session_state_changed). Неожиданный выход процесса — один resume;
 // второй сбой до готовности — failed, причина в журнале.
 import type { HookCallbackMatcher, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryPart, Session, SessionState, StartKind, Store } from "../contract.ts";
-import type { Exited, KeeperProcess } from "./keeper.ts";
+import type { Exited, HeldProcess } from "./holders.ts";
 import { handled } from "./kernel.ts";
 import type { Kernel, Mod } from "./kernel.ts";
 import { InputQueue } from "./queue.ts";
@@ -29,7 +29,7 @@ export class Sess {
   state: SessionState = "starting";
   queue = new InputQueue();
   q: Query | null = null;
-  proc: KeeperProcess | null = null;
+  proc: HeldProcess | null = null;
   startKind: StartKind = "spawn";
   point: number | undefined;
   model: string | null = null;
@@ -51,7 +51,6 @@ export class Sess {
   private exitWaiters: Array<() => void> = [];
   private settleWaiters: Array<() => void> = [];
   private lastSent = "";
-  private lastFields = new Map<string, unknown>();
   private facades = new Map<Mod, Session>();
 
   constructor(k: Kernel, rec: CoreRecord) {
@@ -155,7 +154,7 @@ export class Sess {
       canUseTool: (tool, input, o) => this.k.canUseTool(this, tool, input, o as Record<string, unknown>),
       onElicitation: (req, o) => this.k.elicit(this, req, o),
       spawnClaudeCodeProcess: (o) => {
-        const p = this.k.keeper.channel(attachOnce ? "attach" : "spawn", this.callsign, o);
+        const p = this.k.holders.channel(attachOnce ? "attach" : "spawn", this.callsign, o);
         attachOnce = false;
         this.proc = p;
         return p;
@@ -164,8 +163,8 @@ export class Sess {
   }
 
   /**
-   * Поднять процесс сессии: spawn нового, resume разговора, attach к живому у keeper.
-   * Ответ — после initialize; процесс умер до него — исключение (ветку сбоя ведёт exited от keeper).
+   * Поднять процесс сессии: spawn нового, resume разговора, attach к живому у держателя.
+   * Ответ — после initialize; процесс умер до него — исключение (ветку сбоя ведёт exited от держателя).
    */
   async launch(kind: StartKind, o: { parts?: Parts; first?: First } = {}): Promise<void> {
     const k = this.k;
@@ -215,7 +214,7 @@ export class Sess {
     try {
       for await (const m of q) this.onMessage(m);
     } catch {
-      // конец потока: причину даст exited от keeper
+      // конец потока: причину даст exited от держателя
     }
   }
 
@@ -239,7 +238,7 @@ export class Sess {
     this.push();
   }
 
-  /** exited от keeper: наш close — ожидаемо; иначе сбой — один resume, второй до готовности — failed. */
+  /** exited от держателя: наш close — ожидаемо; иначе сбой — один resume, второй до готовности — failed. */
   onExited(e: Exited): void {
     const why = `код ${e.code}${e.signal ? `, сигнал ${e.signal}` : ""}${e.stderr ? `: ${e.stderr}` : ""}`;
     const waiters = this.exitWaiters.splice(0);
@@ -266,7 +265,7 @@ export class Sess {
     });
   }
 
-  /** Ждать, пока сессия поднимется или встанет: для ready keeper. */
+  /** Ждать, пока сессия поднимется или встанет. */
   settled(): Promise<void> {
     if (this.state !== "starting") return Promise.resolve();
     return new Promise((r) => this.settleWaiters.push(r));
@@ -370,63 +369,9 @@ export class Sess {
     this.k.log("core", { ev: "remove", callsign: this.callsign });
   }
 
-  /** Штатная остановка Host. machine — interrupt → result → close(); upgrade — процесс остаётся у keeper. */
-  async shutdown(machine: boolean): Promise<void> {
-    if (!this.q) return;
-    this.closing = "shutdown";
-    if (!machine) return;
-    await this.interruptTurn();
-    await this.closeQuery();
-  }
-
-  // ───────────── перезагрузка модуля ─────────────
-
-  /**
-   * Вклады новых версий модулей — в живой query(): серверы MCP двумя вызовами setMcpServers,
-   * settings — разницей ключей, model и effort — методами. Ответ — что придёт со следующего старта.
-   */
-  async applyParts(changed: Set<string>): Promise<string[]> {
-    const q = this.q!;
-    const k = this.k;
-    const later: string[] = [];
-    const before = this.parts;
-    const now: Parts = new Map(before);
-    for (const n of changed) now.delete(n);
-    for (const m of k.mods) {
-      if (!changed.has(m.name) || !m.module.session) continue;
-      const p = (await k.call(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined)) as QueryPart | undefined;
-      if (p) now.set(m.name, p);
-    }
-    const mcp = (ps: Parts, only?: Set<string>) => {
-      const all: Record<string, unknown> = {};
-      for (const [n, p] of ps) if (!only || !only.has(n)) Object.assign(all, p.mcpServers ?? {});
-      return all;
-    };
-    const touchedMcp = [...changed].some((n) => Object.keys(before.get(n)?.mcpServers ?? {}).length || Object.keys(now.get(n)?.mcpServers ?? {}).length);
-    // смена вкладов — сразу: обёртки хуков, decide и elicit уже смотрят на нынешние вклады
-    this.parts = now;
-    if (touchedMcp) {
-      await q.setMcpServers(mcp(before, changed) as never);
-      await q.setMcpServers(mcp(now) as never);
-    }
-    const flags: Record<string, unknown> = {};
-    for (const n of changed) {
-      const a = before.get(n) ?? {};
-      const b = now.get(n) ?? {};
-      for (const key of Object.keys(a.settings ?? {})) if (!(key in (b.settings ?? {}))) flags[key] = null;
-      for (const [key, v] of Object.entries(b.settings ?? {})) if (JSON.stringify(a.settings?.[key]) !== JSON.stringify(v)) flags[key] = v;
-      if (a.model !== b.model) await q.setModel(b.model as string | undefined);
-      if (a.effort !== b.effort) flags.effortLevel = b.effort ?? null;
-      if (JSON.stringify(a.env ?? {}) !== JSON.stringify(b.env ?? {})) later.push(`${n}: env`);
-      if ((a.append ?? "") !== (b.append ?? "")) later.push(`${n}: append`);
-      for (const ev of Object.keys(b.hooks ?? {})) if (!this.hookEvents.has(ev)) later.push(`${n}: ${ev}`);
-      for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
-        if (PART_KEYS.has(key) || key === "model" || key === "effort") continue;
-        if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) later.push(`${n}: ${key}`);
-      }
-    }
-    if (Object.keys(flags).length) await q.applyFlagSettings(flags as never);
-    return later;
+  /** Штатная остановка Host: процесс остаётся у своего держателя, новый Host подключится к нему. */
+  shutdown(): void {
+    if (this.q) this.closing = "shutdown";
   }
 
   // ───────────── roster ─────────────
@@ -437,16 +382,9 @@ export class Sess {
     const r: Record<string, unknown> = { callsign: this.callsign, state: this.state, sdk: this.rec.sdk };
     for (const m of k.mods) {
       for (const name of Object.keys(m.module.fields ?? {})) {
-        if (k.reloading.has(m.name)) {
-          if (this.lastFields.has(name)) r[name] = this.lastFields.get(name);
-          continue;
-        }
         if (k.isDown(m, this)) continue;
         const v = k.invoke(m.name, `fields.${name}`, this, (x, mod) => x.fields![name](this.facade(mod)), () => undefined);
-        if (v !== undefined && typeof (v as Promise<unknown>)?.then !== "function") {
-          r[name] = v;
-          this.lastFields.set(name, v);
-        }
+        if (v !== undefined && typeof (v as Promise<unknown>)?.then !== "function") r[name] = v;
       }
     }
     const failed: Record<string, string> = {};

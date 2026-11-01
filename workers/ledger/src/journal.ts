@@ -27,7 +27,7 @@ export class Journal extends DurableObject<Env> {
     sql.exec("CREATE INDEX IF NOT EXISTS events_c ON events(callsign, id)");
   }
 
-  /** Кадр с to: "ledger" или roster от relay → кадры, которые ledger шлёт в ответ. */
+  /** Кадр с to: ".ledger" или roster от relay → кадры, которые ledger шлёт в ответ. */
   async frame(f: Frame): Promise<Frame[]> {
     const from = f.from ?? "";
     const refuse = (word: string, why: string): Frame[] => {

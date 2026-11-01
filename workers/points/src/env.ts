@@ -15,8 +15,6 @@ export interface Env {
   R2_PARENT_KEY_ID: string;
   /** бакет блоков точек */
   POINTS_BUCKET: string;
-  /** бакет выпусков Host — ключ на чтение по points.creds */
-  RELEASES_BUCKET: string;
   /** привязка к бакету точек — только чтобы проверять и удалять блоки */
   BUCKET: R2Bucket;
   /** своя привязка к relay: вход Radio, props { name: "points" } */

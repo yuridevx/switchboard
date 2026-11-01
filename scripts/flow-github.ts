@@ -12,7 +12,7 @@ const check = (n: string, ok: boolean, d?: unknown) => {
   if (!ok) fails.push(n);
 };
 for (let i = 0; l.state !== "open" && i < 150; i++) await new Promise((r) => setTimeout(r, 100));
-const req = (f: Record<string, unknown>) => l.request({ v: 1, to: "github", ...f } as never) as Promise<{ ok: boolean; result?: any; error?: string }>;
+const req = (f: Record<string, unknown>) => l.request({ v: 1, to: ".github", ...f } as never) as Promise<{ ok: boolean; result?: any; error?: string }>;
 const PULT = "https://switchboard-pult.yuridevx1608.workers.dev/";
 const BAD_CODE = "0000000000000000000000000000000000000000";
 

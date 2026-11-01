@@ -126,7 +126,7 @@ export function make(deps: { git?: Git } = {}): Module {
 
   /** Токен приложения GitHub на репозиторий — заголовок http через окружение git. */
   async function token(repo: string): Promise<Record<string, string> | { error: string }> {
-    const r = await host.request("github.token", { v: 1, to: "github", repo });
+    const r = await host.request("github.token", { v: 1, repo });
     if (!r.ok) return { error: r.error };
     const t = (r.result as { token: string }).token;
     return {

@@ -2,6 +2,10 @@
 // gate — настоящий, по привязке; участники push, ledger, audit, echo — поддельные Worker.
 import { SELF, abortAllDurableObjects, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const OWNER = "owner@example.com";
+/** адрес устройства владельца флота: ключи клиентов выданы ему */
+const dev = (n: string) => `${n}~${OWNER}`;
 import { Peer, eventually, fleet, key, wait } from "./peer.ts";
 
 type F = Record<string, any>;
@@ -9,7 +13,7 @@ let logs: string[] = [];
 let peers: Peer[] = [];
 
 const sessions = (m: string, names: string[], extra: F = {}) => names.map((n) => ({ callsign: `${n}@${m}`, state: "idle", slot: "main", ...extra }));
-async function hello(role: "host" | "client", name: string, extra: F = {}, kid?: string) {
+async function hello(role: "host" | "keeper" | "client", name: string, extra: F = {}, kid?: string) {
   const p = await Peer.hello(role, name, extra, kid);
   peers.push(p);
   return p;
@@ -109,7 +113,7 @@ describe("эталоны relay", () => {
     expect(await phone.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
     expect(logHas("revoked client.phone.k8e1 · закрыт при старте объекта")).toBe(true);
     const r = await panel.roster();
-    expect(r.clients).not.toContain("phone");
+    expect(r.clients).not.toContain(dev("phone"));
     expect([a, panel].every((p) => p.closed === null)).toBe(true);
   });
 
@@ -132,8 +136,8 @@ describe("эталоны relay", () => {
     const budget = { type: "budget.set", id: "b-1", v: 1, callsign: "site@laptop", limit_usd: 20 };
     panel.send(open);
     panel.send(budget);
-    expect(await a.next((f) => f.type === "session.open")).toEqual({ ...open, from: "panel-desk" });
-    expect(await a.next((f) => f.type === "budget.set")).toEqual({ ...budget, from: "panel-desk" });
+    expect(await a.next((f) => f.type === "session.open")).toEqual({ ...open, from: dev("panel-desk") });
+    expect(await a.next((f) => f.type === "budget.set")).toEqual({ ...budget, from: dev("panel-desk") });
     expect(await b.quiet()).toEqual([]);
     panel.send({ type: "session.open", id: "c-7", machine: "nas" });
     expect(await panel.next((f) => f.type === "reply")).toMatchObject({ id: "c-7", ok: false, error: "offline" });
@@ -149,11 +153,11 @@ describe("эталоны relay", () => {
     for (const p of [a, phone]) {
       const r = await eventually(async () => {
         const x = await p.roster();
-        return x.clients.includes("panel-desk") ? undefined : x;
+        return x.clients.includes(dev("panel-desk")) ? undefined : x;
       });
-      expect(r.clients).toEqual(["phone"]);
+      expect(r.clients).toEqual([dev("phone")]);
     }
-    a.send({ type: "question", to: ["panel-desk"], question: "q-1" });
+    a.send({ type: "question", to: [dev("panel-desk")], question: "q-1" });
     expect(await a.quiet()).toEqual([]);
     expect(await phone.quiet()).toEqual([]);
   });
@@ -164,10 +168,10 @@ describe("эталоны relay", () => {
     const panel2 = await hello("client", "panel-desk");
     const phone = await hello("client", "phone");
     panel.send({ type: "session.history", id: "h-3", callsign: "site@laptop" });
-    expect(await a.next((f) => f.type === "session.history")).toMatchObject({ id: "h-3", from: "panel-desk" });
+    expect(await a.next((f) => f.type === "session.history")).toMatchObject({ id: "h-3", from: dev("panel-desk") });
     await evictDurableObject(fleet());
-    a.send({ type: "reply", id: "h-3", to: "panel-desk", ok: true, result: { turns: [] } });
-    const want = { type: "reply", id: "h-3", to: "panel-desk", ok: true, result: { turns: [] }, from: "@laptop" };
+    a.send({ type: "reply", id: "h-3", to: dev("panel-desk"), ok: true, result: { turns: [] } });
+    const want = { type: "reply", id: "h-3", to: dev("panel-desk"), ok: true, result: { turns: [] }, from: "@laptop" };
     expect(await panel.next((f) => f.type === "reply")).toEqual(want);
     expect(await panel2.next((f) => f.type === "reply")).toEqual(want);
     expect(await phone.quiet()).toEqual([]);
@@ -187,7 +191,7 @@ describe("эталоны relay", () => {
     expect(r2.machines.length).toBe(1);
     expect(callsigns(r2)).toEqual(["profiles@laptop", "site@laptop", "wiki@laptop"]);
     panel.send({ type: "message", to: "site@laptop", text: "hi" });
-    expect(await fresh.next((f) => f.type === "message")).toMatchObject({ from: "panel-desk" });
+    expect(await fresh.next((f) => f.type === "message")).toMatchObject({ from: dev("panel-desk") });
   });
 
   it("44 · обработчик кадра бросает исключение: журнал с причиной и типом, ctx.abort, все соединения закрыты; после hello roster тот же", async () => {
@@ -199,7 +203,7 @@ describe("эталоны relay", () => {
         throw new TypeError("сбой в коде relay");
       };
     });
-    a.send({ type: "message", to: "panel-desk" });
+    a.send({ type: "message", to: dev("panel-desk") });
     await a.waitClose();
     await panel.waitClose();
     expect(logs.find((l) => l.startsWith("abort"))).toMatch(/сбой в коде relay[\s\S]*webSocketMessage\(message\)/);
@@ -213,7 +217,7 @@ describe("эталоны relay", () => {
     const a = await laptop();
     const phone = await hello("client", "phone");
     const panel = await hello("client", "panel-desk");
-    const q = { type: "question", from: "profiles@laptop", to: ["phone", "panel-desk"], callsign: "profiles@laptop", question: "q-4", options: ["да", "нет"] };
+    const q = { type: "question", from: "profiles@laptop", to: [dev("phone"), dev("panel-desk")], callsign: "profiles@laptop", question: "q-4", options: ["да", "нет"] };
     a.send(q);
     expect(await phone.next((f) => f.type === "question")).toEqual(q);
     expect(await panel.next((f) => f.type === "question")).toEqual(q);
@@ -247,7 +251,7 @@ describe("эталоны relay", () => {
   it("130 · push.send с to push — PUSH.frame один раз, поле в поле плюс from @laptop; больше никто не получил", async () => {
     const a = await laptop();
     const phone = await hello("client", "phone");
-    const f = { type: "push.send", id: "s-4", to: "push", push: { to: "phone", type: "question", notify: { title: "?" } } };
+    const f = { type: "push.send", id: "s-4", to: ".push", push: { to: "phone", type: "question", notify: { title: "?" } } };
     a.send(f);
     const got = await eventually(async () => {
       const r = await env.PUSH.received();
@@ -263,10 +267,10 @@ describe("эталоны relay", () => {
   it("131 · участник отвечает через Radio.frame: from из props; кадр с чужим from — bad_from, строка в журнале", async () => {
     const a = await laptop();
     expect(await env.PUSH.send({ type: "reply", id: "s-4", to: "@laptop", ok: true, result: { cut: false } })).toBeUndefined();
-    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "s-4", to: "@laptop", ok: true, result: { cut: false }, from: "push" });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "s-4", to: "@laptop", ok: true, result: { cut: false }, from: ".push" });
     expect(await env.PUSH.send({ type: "message", from: "phone", to: "@laptop" })).toBe("bad_from");
     expect(await a.quiet()).toEqual([]);
-    expect(logHas("bad_from push · message")).toBe(true);
+    expect(logHas("bad_from .push · message")).toBe(true);
   });
 
   it("132 · GATE.verify бросает: телефон закрыт 1008 gate_unavailable, причина в журнале; Host на связи, roster не изменился", async () => {
@@ -280,7 +284,7 @@ describe("эталоны relay", () => {
     expect(logs.find((l) => l.startsWith("gate client.phone.k8e1"))).toMatch(/gate_unavailable · .*gate сломан/);
     expect(logs.join("\n")).not.toContain((await key("client", "phone", "k8e1")).split(".")[3]);
     expect(await a.quiet()).toEqual([]);
-    expect(a.frames.filter((f) => f.clients?.includes("phone"))).toEqual([]);
+    expect(a.frames.filter((f) => f.clients?.includes(dev("phone")))).toEqual([]);
     expect(a.closed ?? b.closed).toBeNull();
   });
 
@@ -304,15 +308,15 @@ describe("эталоны relay", () => {
     const a = await laptop();
     const phone = await hello("client", "phone");
     await env.PUSH.setMode("frame_fail");
-    a.send({ type: "push.send", id: "s-5", to: "push", push: {} });
+    a.send({ type: "push.send", id: "s-5", to: ".push", push: {} });
     expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "s-5", ok: false, error: "offline" });
-    expect(logs.find((l) => l.includes("→ push · push.send · frame:"))).toMatch(/frame сломан/);
+    expect(logs.find((l) => l.includes("→ .push · push.send · frame:"))).toMatch(/frame сломан/);
     expect(a.closed ?? phone.closed).toBeNull();
   });
 
   it("137 · message m-6 для phone, соединений phone нет — offline; ни одного вызова push", async () => {
     const a = await laptop();
-    a.send({ type: "message", id: "m-6", to: "phone", text: "hi" });
+    a.send({ type: "message", id: "m-6", to: dev("phone"), text: "hi" });
     expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-6", ok: false, error: "offline" });
     expect(await env.PUSH.received()).toEqual([]);
   });
@@ -321,12 +325,12 @@ describe("эталоны relay", () => {
     const a = await laptop();
     const r = await a.roster();
     expect(r.workers).toContainEqual({ name: "audit", contract: { "audit.log": 1 } });
-    a.send({ type: "audit.log", to: "audit", what: "x" });
+    a.send({ type: "audit.log", to: ".audit", what: "x" });
     const got = await eventually(async () => {
       const x = await env.AUDIT.received();
       return x.length ? x : undefined;
     });
-    expect(got).toEqual([{ type: "audit.log", to: "audit", what: "x", from: "@laptop" }]);
+    expect(got).toEqual([{ type: "audit.log", to: ".audit", what: "x", from: "@laptop" }]);
   });
 
   it("139 · LEDGER.hello() с uses roster@relay: после hello pc roster ушёл всем и одним вызовом LEDGER.frame; PUSH.frame не вызван", async () => {
@@ -348,7 +352,7 @@ describe("эталоны экосистемы · relay", () => {
     const phone = await hello("client", "phone");
     const x = await open();
     x.send({ type: "hello", proto: 1, key: await key("host", "laptop", "k7f3", "чужой секрет"), sessions: sessions("laptop", ["site"]) });
-    x.send({ type: "message", to: "phone", text: "hi" });
+    x.send({ type: "message", to: dev("phone"), text: "hi" });
     expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
     expect(logs).toContain("bad_key host.laptop.k7f3");
     expect(await phone.quiet()).toEqual([]);
@@ -366,7 +370,7 @@ describe("эталоны экосистемы · relay", () => {
     const panel2 = await hello("client", "panel-desk");
     await hello("client", "phone", {}, "k8e1");
     const r = await panel2.roster();
-    expect(r.clients.sort()).toEqual(["panel-desk", "phone"]);
+    expect(r.clients.sort()).toEqual([dev("panel-desk"), dev("phone")]);
     expect(r.machines.map((m: F) => m.machine)).toEqual(["laptop"]);
   });
 
@@ -376,9 +380,9 @@ describe("эталоны экосистемы · relay", () => {
     phone.send({ type: "message", id: "m-8", from: "site@laptop", to: "poe-bot@pc", text: "…" });
     expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-8", ok: false, error: "bad_from" });
     expect(await b.quiet()).toEqual([]);
-    expect(logHas("bad_from phone · message · from=site@laptop")).toBe(true);
+    expect(logHas("bad_from phone~owner@example.com · message · from=site@laptop")).toBe(true);
     phone.send({ type: "message", id: "m-9", to: "poe-bot@pc", text: "…" });
-    expect(await b.next((f) => f.type === "message")).toMatchObject({ id: "m-9", from: "phone" });
+    expect(await b.next((f) => f.type === "message")).toMatchObject({ id: "m-9", from: dev("phone") });
   });
 
   it("33 · Host laptop с from poe-bot@pc — bad_from; hello ключом laptop с сессией wiki@pc — закрыт bad_from, wiki@pc нет в roster", async () => {
@@ -430,16 +434,16 @@ describe("эталоны экосистемы · relay", () => {
   it("146 · участник echo из конфига: в roster с echo.ping v1; кадр дошёл через frame с from; reply вернулся с from echo", async () => {
     const a = await laptop();
     expect((await a.roster()).workers).toContainEqual({ name: "echo", contract: { "echo.ping": 1 } });
-    a.send({ type: "echo.ping", id: "e-1", to: "echo" });
-    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "e-1", to: "@laptop", ok: true, result: { pong: "echo" }, from: "echo" });
-    expect(await env.ECHO.received()).toEqual([{ type: "echo.ping", id: "e-1", to: "echo", from: "@laptop" }]);
+    a.send({ type: "echo.ping", id: "e-1", to: ".echo" });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "e-1", to: "@laptop", ok: true, result: { pong: "echo" }, from: ".echo" });
+    expect(await env.ECHO.received()).toEqual([{ type: "echo.ping", id: "e-1", to: ".echo", from: "@laptop" }]);
   });
 
   it("147 · push.send от host-push: поле push дошло без изменений, в журнале relay его содержимого нет", async () => {
     await laptop();
     const a = peers[0];
     const push = { to: "phone", type: "question", from: "profiles@laptop", notify: { title: "Вопрос от profiles", body: "тело-вопроса-147" } };
-    a.send({ type: "push.send", to: "push", from: "profiles@laptop", push });
+    a.send({ type: "push.send", to: ".push", from: "profiles@laptop", push });
     const got = await eventually(async () => {
       const x = await env.PUSH.received();
       return x.length ? x : undefined;
@@ -456,7 +460,7 @@ describe("эталоны экосистемы · relay", () => {
     const r = await a.roster();
     expect(r.workers.map((w: F) => w.name)).not.toContain("push");
     expect(logs.find((l) => l.startsWith("worker push"))).toMatch(/hello: .*hello сломан/);
-    a.send({ type: "push.send", id: "s-9", to: "push" });
+    a.send({ type: "push.send", id: "s-9", to: ".push" });
     expect(await a.next((f) => f.type === "reply")).toMatchObject({ id: "s-9", error: "offline" });
   });
 });
@@ -480,7 +484,7 @@ describe("relay · разбор кадра", () => {
 
   it("to списком у кадра с id; нет адреса; имя relay чужим кадром — bad_frame", async () => {
     const a = await laptop();
-    a.send({ type: "question", id: "q-1", to: ["phone", "panel-desk"] });
+    a.send({ type: "question", id: "q-1", to: [dev("phone"), dev("panel-desk")] });
     expect(await a.next((f) => f.id === "q-1")).toMatchObject({ error: "bad_frame" });
     a.send({ type: "message", id: "q-2" });
     expect(await a.next((f) => f.id === "q-2")).toMatchObject({ error: "bad_frame" });
@@ -526,9 +530,63 @@ describe("relay · разбор кадра", () => {
     const a = await laptop();
     const p1 = await hello("client", "phone");
     const p2 = await hello("client", "phone");
-    expect((await p2.roster()).clients).toEqual(["phone"]);
-    a.send({ type: "question", to: "phone", q: 1 });
+    expect((await p2.roster()).clients).toEqual([dev("phone")]);
+    a.send({ type: "question", to: dev("phone"), q: 1 });
     await p1.next((f) => f.type === "question");
     await p2.next((f) => f.type === "question");
+  });
+});
+
+describe("адреса и keeper машины", () => {
+  it("keeper входит своим ключом: в roster его нет, roster он получает; кадр на .keeper@laptop — только ему, from Host — @laptop", async () => {
+    const a = await laptop();
+    const k = await hello("keeper", "laptop");
+    const r = await a.roster();
+    expect(r.machines.map((m: F) => m.machine)).toEqual(["laptop"]);
+    expect(r.clients).toEqual([]);
+    const phone = await hello("client", "phone");
+    phone.send({ type: "keeper.state", id: "k-1", to: ".keeper@laptop" });
+    expect(await k.next((f) => f.type === "keeper.state")).toEqual({ type: "keeper.state", id: "k-1", to: ".keeper@laptop", from: dev("phone") });
+    expect(a.frames.find((f) => f.type === "keeper.state")).toBeUndefined();
+    k.send({ type: "reply", id: "k-1", to: dev("phone"), ok: true, result: { keeper: "1.1.60" } });
+    expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "k-1", to: dev("phone"), ok: true, result: { keeper: "1.1.60" }, from: ".keeper@laptop" });
+  });
+
+  it("keeper машины, которой нет на связи — offline; второй keeper той же машины вытесняет первого словом replaced", async () => {
+    const a = await laptop();
+    a.send({ type: "keeper.state", id: "k-2", to: ".keeper@pc" });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "k-2", ok: false, error: "offline" });
+    const k1 = await hello("keeper", "pc");
+    const k2 = await hello("keeper", "pc");
+    await k1.until(() => k1.closed, 3000, "закрыт");
+    expect(k1.closed).toEqual({ code: 1000, reason: "replaced" });
+    a.send({ type: "keeper.state", id: "k-3", to: ".keeper@pc" });
+    expect(await k2.next((f) => f.type === "keeper.state")).toMatchObject({ id: "k-3", from: "@laptop" });
+  });
+
+  it("Host не пишет от имени keeper или чужой машины; keeper — только от себя", async () => {
+    const a = await laptop();
+    const k = await hello("keeper", "laptop");
+    const phone = await hello("client", "phone");
+    a.send({ type: "message", id: "m-1", from: ".keeper@laptop", to: dev("phone") });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-1", ok: false, error: "bad_from" });
+    k.send({ type: "message", id: "m-2", from: "@laptop", to: dev("phone") });
+    expect(await k.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-2", ok: false, error: "bad_from" });
+    k.send({ type: "ledger.add", to: ".ledger", ev: "part.updated", text: "x" });
+    const adds = async () => (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add");
+    await eventually(async () => (await adds()).length === 1);
+    expect((await adds())[0].from).toBe(".keeper@laptop");
+    expect(phone.frames.find((f) => f.type === "message")).toBeUndefined();
+  });
+
+  it("~email — все устройства пользователя; голое имя — не адрес: bad_frame", async () => {
+    const a = await laptop();
+    const p1 = await hello("client", "phone");
+    const p2 = await hello("client", "panel-desk");
+    a.send({ type: "message", to: "~" + OWNER, text: "всем" });
+    await p1.next((f) => f.type === "message");
+    await p2.next((f) => f.type === "message");
+    a.send({ type: "message", id: "m-3", to: "phone", text: "голое" });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-3", ok: false, error: "bad_frame" });
   });
 });

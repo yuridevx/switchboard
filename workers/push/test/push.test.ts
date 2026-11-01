@@ -18,7 +18,7 @@ async function frame(f: Frame) {
 }
 
 async function subscribe(client: string, u: Ua, endpoint: string) {
-  const out = await frame({ type: "push.subscribe", id: "u-" + client, to: "push", from: client, sub: sub(u, endpoint) });
+  const out = await frame({ type: "push.subscribe", id: "u-" + client, to: ".push", from: client, sub: sub(u, endpoint) });
   expect(out).toEqual([{ type: "reply", id: "u-" + client, ok: true, to: client }]);
 }
 
@@ -35,7 +35,7 @@ const send = (id: string, to: string, notify: Record<string, unknown> = NOTIFY):
   type: "push.send",
   id,
   v: 1,
-  to: "push",
+  to: ".push",
   from: "@laptop",
   push: { to, type: "question", from: "profiles@laptop", notify },
 });
@@ -161,7 +161,7 @@ describe("эталоны push", () => {
   });
 
   it("124 · push.key — несжатая точка P-256 из x и y JWK; настройки VAPID_PUBLIC нет", async () => {
-    const out = await frame({ type: "push.key", id: "k-1", to: "push", from: "phone" });
+    const out = await frame({ type: "push.key", id: "k-1", to: ".push", from: "phone" });
     const key = unb64u((out[0] as unknown as { result: { key: string } }).result.key);
     expect(key.length).toBe(65);
     expect(key[0]).toBe(4);
@@ -177,7 +177,7 @@ describe("push: отказы и стык с relay", () => {
     const tab = await ua();
     await subscribe("tab", tab, "https://web.push.apple.com/tab");
     const log = journal();
-    const out = await frame({ type: "push.subscribe", id: "u-2", to: "push", from: "tab", sub: { endpoint: "https://x.example/1" } });
+    const out = await frame({ type: "push.subscribe", id: "u-2", to: ".push", from: "tab", sub: { endpoint: "https://x.example/1" } });
     expect(out).toEqual([{ type: "reply", id: "u-2", ok: false, error: "bad_frame", to: "tab" }]);
     expect((await table()).find((r) => r.client === "tab")?.endpoint).toBe("https://web.push.apple.com/tab");
     expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why: "в подписке нет ключей", from: "tab" }));
@@ -190,8 +190,8 @@ describe("push: отказы и стык с relay", () => {
   });
 
   it("push.send без push — bad_frame; чужое имя — unknown_request; другая версия — contract_mismatch", async () => {
-    expect(await frame({ type: "push.send", id: "b-1", to: "push", from: "@pc" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
-    expect(await frame({ type: "push.drop", id: "b-2", to: "push", from: "@pc" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
+    expect(await frame({ type: "push.send", id: "b-1", to: ".push", from: "@pc" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+    expect(await frame({ type: "push.drop", id: "b-2", to: ".push", from: "@pc" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
     expect(await frame({ ...send("b-3", "phone"), v: 2 })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
   });
 
@@ -207,11 +207,11 @@ describe("push: отказы и стык с relay", () => {
   it("relay отказал ответу push словом — строка в журнале push", async () => {
     await env.RELAY_LOG.answer("offline");
     const log = journal();
-    await relay.frame({ type: "push.key", id: "k-9", to: "push", from: "phone-gone" });
+    await relay.frame({ type: "push.key", id: "k-9", to: ".push", from: "phone-gone" });
     expect(log).toContainEqual(expect.objectContaining({ part: "push", ev: "relay", word: "offline", to: "phone-gone" }));
   });
 
   it("кадр без id — push отвечать некому, кадров в relay нет", async () => {
-    expect(await frame({ type: "push.key", to: "push", from: "phone" })).toEqual([]);
+    expect(await frame({ type: "push.key", to: ".push", from: "phone" })).toEqual([]);
   });
 });

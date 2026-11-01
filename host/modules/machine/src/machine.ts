@@ -1,6 +1,6 @@
-// Модуль machine: папки машины и её состояние. Событий Claude не слушает, сессий не трогает, хранить нечего.
+// Модуль machine: папки машины. Что стоит и работает на машине, отвечает keeper.state. Событий Claude не слушает, хранить нечего.
 import { mkdirSync, readdirSync } from "node:fs";
-import { arch, homedir, platform, release } from "node:os";
+import { homedir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import { refuse } from "@switchboard/host";
 import type { Ctx, Frame, Module } from "@switchboard/host";
@@ -51,18 +51,6 @@ export function machine(o: MachineOptions = {}): Module {
         } catch (e) {
           return osWord(e, `machine.mkdir «${given}» от ${ctx.from ?? "?"}`, { EEXIST: "exists", ENOENT: "not_found", ENOTDIR: "not_found", EACCES: "no_access", EPERM: "no_access" });
         }
-      },
-      async "machine.state"(_req, { host }) {
-        const r = await host.request("list", { v: 1 });
-        if (!r.ok) throw new Error(`keeper list: ${r.error}`);
-        return {
-          host: host.version,
-          sdk: host.sdk,
-          node: process.version,
-          os: { platform: platform(), arch: arch(), release: release() },
-          started: new Date(Date.now() - process.uptime() * 1000).toISOString(),
-          processes: (r.result as { processes?: unknown[] } | undefined)?.processes ?? [],
-        };
       },
     },
   };

@@ -1,0 +1,36 @@
+// Worker releases («выпуски»): каталог частей, stable, планы машин; участник рации без адреса в интернете.
+// Секреты CLOUDFLARE_API_TOKEN (выкладка версий Worker'ов) и R2_LINK_KEY_ID / R2_LINK_SECRET
+// (подпись ссылок на архивы) — wrangler secret put из stdin.
+{
+  "name": "switchboard-releases",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true },
+  "services": [
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "releases" } }
+  ],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
+  "durable_objects": { "bindings": [{ "name": "RELEASES", "class_name": "Releases" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Releases"] }],
+  "vars": {
+    "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
+    "RELEASES_BUCKET": "switchboard-releases",
+    // части Cloudflare: имя части → имя Worker'а
+    "CLOUD": {
+      "relay": "switchboard",
+      "gate": "switchboard-gate",
+      "push": "switchboard-push",
+      "points": "switchboard-points",
+      "ledger": "switchboard-ledger",
+      "github": "switchboard-github",
+      "releases": "switchboard-releases",
+      "phone": "switchboard-phone",
+      "pult": "switchboard-pult"
+    },
+    // части машины из сборки: deploy * выкладывает их вместе с частями Cloudflare
+    "BUILD": ["host", "keeper"]
+  }
+}

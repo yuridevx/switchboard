@@ -129,7 +129,6 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       const sp = await host.request("session.spec", { v: 1, callsign });
       const frame: Record<string, unknown> = {
         v: 1,
-        to: "points",
         sid,
         why,
         files: sc.files,
@@ -304,7 +303,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         if ("error" in out) throw refuse(out.error, `${s.info.callsign}: первая точка не снята`);
         return { point: out.point };
       }
-      const r = await host.request("points.delete", { v: 1, to: "points", sid: s.info.session_id, ...(ctx.from ? { by: ctx.from } : {}) });
+      const r = await host.request("points.delete", { v: 1, sid: s.info.session_id, ...(ctx.from ? { by: ctx.from } : {}) });
       if (!r.ok) throw refuse(r.error, `${s.info.callsign}: points.delete — пометка стоит`);
       s.store<Mine>().set(undefined);
       clear(s.info.callsign);
@@ -342,7 +341,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       const copy = fr.copy === true;
       // «~/папка» с пульта — от домашней папки машины (живой прогон 31 окт.: resolve давал путь от папки выпуска Host)
       const dir = expandDir(String(fr.dir ?? ""));
-      const g = await host.request("points.get", { v: 1, to: "points", ids: [point] });
+      const g = await host.request("points.get", { v: 1, ids: [point] });
       if (!g.ok) throw refuse(g.error, `points.get ${point}: ${g.error}`);
       const res = g.result as { owner: string | null; points: Row[]; creds: Creds };
       const row = res.points[0];

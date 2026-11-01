@@ -63,7 +63,6 @@ async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<stri
   const acc = { ...(accountsManifest as Manifest), calls: (accountsManifest as Manifest).calls!.filter((c) => c !== USAGE) };
   st = await standHost({
     home,
-    releases: o.releases,
     sessions: Object.keys(o.sessions ?? {}).map((callsign) => ({ callsign })),
     modules: [
       { manifest: acc, module: makeAccounts() },
@@ -111,7 +110,7 @@ describe("эталоны slots", () => {
     // входы не двигаются: оба дома
     expect(read(accDir("infirex"))).toContain("tok-infirex");
     expect(read(accDir("y0902"))).toContain("tok-y0902");
-    expect(swaps()[0]).toMatchObject({ to: "ledger", ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902 · 5 ч 95 %" });
+    expect(swaps()[0]).toMatchObject({ to: ".ledger", ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902 · 5 ч 95 %" });
     for (const cs of ["site@laptop", "wiki@laptop"]) {
       expect(st!.sdk.of(cs)).toHaveLength(1); // тот же процесс
       expect(st!.proc(cs).interrupts).toBe(0); // ход не оборван
@@ -332,33 +331,6 @@ describe("эталоны slots", () => {
   });
 });
 
-describe("slots: перезагрузка вместе с accounts", () => {
-  it("270 · выпуск меняет accounts и slots: slots.start зовёт новый accounts, ready 1.4.1, слот и сессия работают дальше (живой прогон 1 ноя)", async () => {
-    const R = now() + 3600;
-    const acc = { ...(accountsManifest as Manifest), calls: (accountsManifest as Manifest).calls!.filter((c) => c !== USAGE) };
-    const next = stand.release("1.4.1", [
-      { manifest: { ...acc, version: "2.0.1" }, module: makeAccounts() },
-      { manifest: { ...(manifest as Manifest), version: "3.0.1" }, module: make() },
-      module("probe", {}, { uses: { "machine.accounts@host-accounts": 1 } }),
-    ]);
-    await bench({
-      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: { limits: { five_hour: { utilization: 0.04, resetsAt: R } } } },
-      slots: { main: ["infirex", "y0902"] },
-      sessions: { "site@laptop": { slot: "main" } },
-      releases: { "/r/1.4.1": next },
-    });
-    const r = await Promise.race([st!.host("probe").reload("/r/1.4.1"), new Promise((res) => setTimeout(() => res("завис"), 3000))]);
-    expect(r).toMatchObject({ ok: true, result: { modules: { "host-accounts": [expect.any(String), "2.0.1"], "host-slots": [expect.any(String), "3.0.1"] } } });
-    expect(st!.keeper.readies.at(-1)).toBe("1.4.1");
-    // новая версия slots знает, кто в слоте, и меняет его по порогу
-    expect((await ask({ type: "machine.slots" })).result.slots.main.account).toBe("infirex");
-    st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.95, resetsAt: R }));
-    await until(() => swaps().length === 1);
-    expect(read(slotDir("main"))).toContain("tok-y0902");
-    expect(st!.sdk.of("site@laptop")).toHaveLength(1);
-  });
-});
-
 describe("slots: ветки и стыки", () => {
   it("slot.set — новый слот берёт первый вошедший; session.slot живой сессии — restart с папкой слота", async () => {
     await bench({ accounts: { corp: { login: "none" }, y0902: {} }, slots: {} });
@@ -391,7 +363,7 @@ describe("slots: ветки и стыки", () => {
     await bench({ accounts: { infirex: { in: "main" }, y0902: {}, work3: {} }, slots: { main: ["infirex", "y0902", "work3"] } });
     const r = await ask({ type: "slot.swap", slot: "main", account: "work3" });
     expect(r.result).toEqual({ from: "infirex", to: "work3" });
-    expect(swaps()[0]).toMatchObject({ by: "panel-desk", text: "слот main: infirex → work3 · вручную" });
+    expect(swaps()[0]).toMatchObject({ by: "panel-desk~owner@example.com", text: "слот main: infirex → work3 · вручную" });
     expect((await ask({ type: "slot.swap", slot: "x" })).error).toBe("no_slot");
   });
 

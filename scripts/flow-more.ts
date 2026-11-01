@@ -1,5 +1,5 @@
 // Живой сценарий: пуш вопроса, когда давшего задачу нет на связи; перенос и откат точек; профили без репозиториев;
-// журнал флота; края обновления; сообщение несуществующим адресатам.
+// журнал флота; сообщение несуществующим адресатам.
 // env: FLOW_CLIENT_KEY, FLOW_PUSH_KEY (ключ клиента с подпиской на пуши), FLOW_FROM_MACHINE, FLOW_TO_MACHINE, FLOW_DIR.
 import { link, type Roster } from "@switchboard/relay";
 
@@ -75,7 +75,7 @@ const p1 = mark.result.point as number;
 await turn(PM, "Повтори дословно одно слово: «волна». Ничего не сохраняй в память.");
 const sv = await req({ type: "points.save", callsign: PM, stop: true });
 check("points.save со стопом", sv.ok && rec(PM)?.state === "stopped", sv.result ?? sv.error);
-const fleet = await req({ type: "points.list", to: "points" });
+const fleet = await req({ type: "points.list", to: ".points" });
 const sid = (fleet.result.sessions as any[]).find((s) => s.callsign === PM)?.sid;
 const dry = await req({ type: "points.raise", machine: M2, sid, point: sv.result.point, dir: "~/sb-move", dryRun: true });
 check("points.raise dryRun на другой машине", dry.ok, dry.result ?? dry.error);
@@ -85,7 +85,7 @@ const moved = mv.result?.callsign as string;
 await wait(() => !rec(PM) && rec(moved)?.state === "idle", 120000);
 check("на прежней машине сессии нет, на новой — есть", !rec(PM) && !!rec(moved), { old: rec(PM)?.state, new: rec(moved)?.state });
 check("после переноса разговор цел", /волна|маяк/i.test(await turn(moved, "Какие слова ты повторял в этом разговоре? Через запятую.")));
-const own = await req({ type: "points.list", to: "points" });
+const own = await req({ type: "points.list", to: ".points" });
 check("хозяин сессии в реестре — новая машина", (own.result.sessions as any[]).find((s) => s.sid === sid)?.owner === M2, (own.result.sessions as any[]).find((s) => s.sid === sid));
 // откат на той же машине к первой точке (файлы папки не трогаем)
 await req({ type: "points.save", callsign: moved, stop: true });
@@ -110,27 +110,18 @@ check("session.profile неизвестного профиля — no_profile", 
 await req({ type: "session.remove", callsign: PF });
 
 // --- журнал флота ---
-const led = await req({ type: "ledger.read", to: "ledger", limit: 1000 });
+const led = await req({ type: "ledger.read", to: ".ledger", limit: 1000 });
 const evs = new Set((led.result?.events ?? []).map((e: any) => e.ev));
-check("журнал флота: открытие, удаление, перенос, подмена слота, обновление", ["session.opened", "session.removed", "session.moved", "slot.swapped", "machine.upgraded"].every((e) => evs.has(e)), [...evs]);
-const flt = await req({ type: "ledger.read", to: "ledger", limit: 20, machine: M2 });
+check("журнал флота: открытие, удаление, перенос, подмена слота", ["session.opened", "session.removed", "session.moved", "slot.swapped"].every((e) => evs.has(e)), [...evs]);
+const flt = await req({ type: "ledger.read", to: ".ledger", limit: 20, machine: M2 });
 check("ledger.read с фильтром машины", flt.ok && (flt.result.events as any[]).every((e) => e.machine === M2), flt.ok ? flt.result.events.length : flt.error);
-
-// --- края обновления ---
-const nr = await req({ type: "machine.upgrade", machine: M1, version: "9.9.9" });
-check("обновление до несуществующей версии — no_release", !nr.ok && nr.error === "no_release", nr.error);
-const cur = (await req({ type: "machine.state", machine: M1 })).result.host;
-const ac = await req({ type: "machine.upgrade", machine: M1, version: cur });
-check("обновление до той же версии — already_current", !ac.ok && ac.error === "already_current", ac.error);
-const bv = await req({ type: "machine.upgrade", machine: M1, version: "latest; rm -rf" });
-check("версия не того вида — bad_frame", !bv.ok && bv.error === "bad_frame", bv.error);
 
 // --- сообщения несуществующим адресатам ---
 const m1 = await req({ type: "message", to: `nosuch@${M1}`, text: "x" });
 check("message сессии, которой нет на машине — отказ словом", !m1.ok, m1.error);
 const m2 = await req({ type: "message", to: "nosuch@gone", text: "x" });
 check("message на машину не на связи — offline", !m2.ok && m2.error === "offline", m2.error);
-const m3 = await req({ type: "message", to: "no-such-client", text: "x" });
+const m3 = await req({ type: "message", to: "no-such-client~owner@example.com", text: "x" });
 check("message клиенту не на связи — offline", !m3.ok && m3.error === "offline", m3.error);
 
 l.close(1000, "done");

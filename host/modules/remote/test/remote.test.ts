@@ -12,7 +12,7 @@ const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "module
 const proto = stand.FakeQuery.prototype as unknown as Record<string, unknown>;
 const original = proto.enableRemoteControl;
 const stands: stand.Stand[] = [];
-const keepers: stand.FakeKeeper[] = [];
+const keepers: stand.FakeHolders[] = [];
 
 /** Ответ поддельного query на enableRemoteControl: n — номер вызова. */
 let rc: (n: number) => unknown;
@@ -44,11 +44,11 @@ function slots(w: World): ReturnType<typeof stand.module> {
   });
 }
 
-async function make(o: { machine?: string; keeper?: stand.FakeKeeper; home?: string; world?: World; extra?: Module } = {}) {
+async function make(o: { machine?: string; holders?: stand.FakeHolders; home?: string; world?: World; extra?: Module } = {}) {
   const w = o.world ?? { who: { main: "infirex" }, asked: 0, claudeDir: mkdtempSync(join(tmpdir(), "switchboard-claude-")) };
   const mods = [slots(w), { manifest, module: remote({ claudeDir: w.claudeDir }) }];
   if (o.extra) mods.push(stand.module("host-printer", o.extra));
-  const st = await stand.standHost({ machine: o.machine, keeper: o.keeper, home: o.home, modules: mods });
+  const st = await stand.standHost({ machine: o.machine, holders: o.holders, home: o.home, modules: mods });
   stands.push(st);
   return { st, w };
 }
@@ -122,9 +122,9 @@ describe("эталоны remote", () => {
   });
 
   it("233 · подмена при живом процессе, Host перезапущен — attach: файл не тронут, включение, url прежний, account infirex", async () => {
-    const k = await new stand.FakeKeeper().listen();
+    const k = new stand.FakeHolders();
     keepers.push(k);
-    const { st, w } = await make({ keeper: k });
+    const { st, w } = await make({ holders: k });
     const s = await st.open("site@laptop");
     await stand.until(() => rec(st, "site@laptop"));
     const f = transcript(w, s.info.session_id, "session_01Jai");
@@ -132,7 +132,7 @@ describe("эталоны remote", () => {
     w.who.main = "y0902";
     st.crash();
     rc = () => ({ session_url: "https://claude.ai/code/session_01Jai", bridge_session_id: "session_01Jai" });
-    const { st: st2 } = await make({ keeper: k, home: st.home, world: w });
+    const { st: st2 } = await make({ holders: k, home: st.home, world: w });
     await stand.until(() => rcOf(st2, "site@laptop").length === 1 && st2.journal().some((l) => l.ev === "remote" && l.callsign === "site@laptop"));
     expect(st2.session("host-remote", "site@laptop")!.info.start).toBe("attach");
     expect(readFileSync(f)).toEqual(before);

@@ -130,8 +130,8 @@ const again = await req({ type: "machine.mkdir", machine, path: nd });
 check("machine.mkdir той же — exists", !again.ok && again.error === "exists", again.error);
 const nf = await req({ type: "machine.dirs", machine, path: "~/нет-" + Date.now() });
 check("machine.dirs папки нет — not_found", !nf.ok && nf.error === "not_found", nf.error);
-const mst = await req({ type: "machine.state", machine });
-check("machine.state: процессы keeper", mst.ok && mst.result.processes.some((p: any) => p.id === CS), mst.ok ? mst.result.processes.map((p: any) => p.id) : mst.error);
+const ks = await req({ type: "keeper.state", to: `.keeper@${machine}` });
+check("keeper.state: Host машины работает", ks.ok && ks.result.parts.some((p: any) => p.part === "host" && p.state === "running"), ks.ok ? ks.result.parts : ks.error);
 
 // --- журнал машины ---
 const j = await req({ type: "machine.journal", machine, since: t0, limit: 200 });

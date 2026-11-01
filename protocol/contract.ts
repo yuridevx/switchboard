@@ -7,7 +7,7 @@ export type Frame = {
   id?: string;
   /** версия имени у запроса */
   v?: number;
-  /** адрес: сессия site@laptop, машина @laptop, клиент phone, Worker-модуль push */
+  /** адрес: сессия site@laptop, машина @laptop, часть машины .keeper@laptop, служба .push, пользователь ~email, устройство phone~email */
   to?: string | string[];
   /** Host машины этой сессии */
   callsign?: string;
@@ -53,10 +53,46 @@ export function fail(id: string, error: string): Reply {
   return { type: "reply", id, ok: false, error };
 }
 
-/** Адрес сессии site@laptop → машина laptop; адрес машины @laptop → laptop; иначе — null. */
-export function machineOf(address: string): string | null {
-  const i = address.indexOf("@");
-  if (i < 0) return null;
-  const m = address.slice(i + 1);
-  return m ? m : null;
+/**
+ * Вид адреса по его форме:
+ *   .имя            служба флота (Worker-модуль): .relay, .releases
+ *   .имя@машина     системная часть машины: .keeper@win
+ *   @машина         сама машина — её Host: @win
+ *   имя@машина      сессия: site@win
+ *   ~email          пользователь: ~yuri@example.com
+ *   устройство~email  устройство пользователя: phone~yuri@example.com
+ * Точка в начале — системное имя; тильда — человек, справа от неё email как есть. Голое имя — не адрес.
+ */
+export type AddressKind = "service" | "part" | "machine" | "session" | "user" | "device";
+
+export function kindOf(address: unknown): AddressKind | null {
+  if (typeof address !== "string" || !address) return null;
+  const t = address.indexOf("~");
+  if (t >= 0) {
+    if (t === address.length - 1) return null;
+    return t === 0 ? "user" : "device";
+  }
+  const at = address.indexOf("@");
+  if (address.startsWith(".")) {
+    if (address.length < 2 || at === 1) return null;
+    return at < 0 ? "service" : at === address.length - 1 ? null : "part";
+  }
+  if (at < 0 || at === address.length - 1) return null;
+  return at === 0 ? "machine" : "session";
 }
+
+/** Машина адреса: site@laptop, @laptop, .keeper@laptop → laptop; служба и люди — null. */
+export function machineOf(address: string): string | null {
+  const k = kindOf(address);
+  if (k !== "machine" && k !== "session" && k !== "part") return null;
+  return address.slice(address.indexOf("@") + 1);
+}
+
+/** Пользователь адреса: ~yuri@example.com, phone~yuri@example.com → yuri@example.com; иначе — null. */
+export function userOf(address: string): string | null {
+  const k = kindOf(address);
+  return k === "user" || k === "device" ? address.slice(address.indexOf("~") + 1) : null;
+}
+
+/** Адрес службы флота по имени Worker-модуля: points → .points. */
+export const serviceAddress = (name: string) => `.${name}`;

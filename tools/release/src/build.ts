@@ -1,6 +1,7 @@
 // Сборка выпуска Host из монорепо: ядро и модули из host/core/modules.json, с пакетами, которые они импортируют.
 //
-// Папка выпуска — маленький монорепо npm, его и запускает keeper как node <папка версии>/host:
+// Папка выпуска — маленький монорепо npm; keeper ставит его как любое приложение по app.json:
+//   app.json                 run: node host; setup: npm ci --omit=dev; detach_children — держатели сессий переживают Host
 //   host                     вход: импортирует packages/host/main.ts
 //   package.json             workspaces: packages/*
 //   package-lock.json        зависимости (SDK и его пакеты) — npm ci на машине
@@ -8,7 +9,6 @@
 //   packages/<имя>/          модули и пакеты, которые они импортируют
 // npm ci связывает пакеты в node_modules/@switchboard ссылками на packages/: настоящий путь файлов — вне node_modules,
 // поэтому Node снимает типы с .ts сам, без сборки в .js.
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { sha256hex, shaLine, VERSION_RE } from "./format.ts";
@@ -118,7 +118,10 @@ export function closure(root: string): Array<{ name: string; dir: string }> {
   return [...seen].map(([name, dir]) => ({ name, dir }));
 }
 
-const ENTRY = `// Вход выпуска Host: keeper запускает node <папка версии>/host.
+/** app.json Host: часть машины, как любое приложение. */
+export const APP = { run: ["node", "host"], setup: ["npm", "ci", "--omit=dev"], detach_children: true };
+
+const ENTRY = `// Вход выпуска Host: keeper запускает node host в папке версии.
 import "./packages/host/main.ts";
 `;
 
@@ -145,26 +148,14 @@ export async function build(o: BuildOptions): Promise<Built> {
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, data, mode ? { mode } : {});
   };
-  // отпечатки «версия+хэш файлов»: ядро — без modules.json (набор модулей меняется перезагрузкой, ядро — только
-  // новым Host); модули — целиком. Host сравнивает отпечатки, а не номера: правка без новой версии тоже видна.
-  const prints: Record<string, string> = {};
   for (const { name, dir: src } of pkgs) {
     const base = `packages/${name.slice("@switchboard/".length)}`;
-    const hash = createHash("sha256");
-    let version = "";
-    for (const f of packageFiles(src)) {
-      if (f === "package.json") continue;
-      const data = readFileSync(join(src, f));
-      if (!(name === "@switchboard/host" && f === "modules.json")) hash.update(f + "\0").update(data);
-      if (f === "module.json") version = (JSON.parse(data.toString("utf8")) as { version: string }).version;
-      put(`${base}/${f}`, data);
-    }
-    if (version) prints[name.slice("@switchboard/".length)] = `${version}+${hash.digest("hex").slice(0, 12)}`;
+    for (const f of packageFiles(src)) if (f !== "package.json") put(`${base}/${f}`, readFileSync(join(src, f)));
     const pj = releasePackageJson(JSON.parse(readFileSync(join(src, "package.json"), "utf8")));
     put(`${base}/package.json`, Buffer.from(JSON.stringify(pj, null, 2) + "\n"));
   }
-  const { host: core, ...modules } = prints;
-  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version, core, modules }) + "\n"));
+  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version }) + "\n"));
+  put("app.json", Buffer.from(JSON.stringify(APP) + "\n"));
   put("package.json", Buffer.from(JSON.stringify({ name: "switchboard-host-release", version: o.version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n"));
   put("host", Buffer.from(ENTRY), 0o755);
 

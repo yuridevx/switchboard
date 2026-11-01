@@ -266,8 +266,8 @@ describe("эталоны телефона", () => {
     r.machines.push({ machine: "mac", since: 2, proto: 1, contract: r.machines[0].contract });
     relay.setRoster(r);
     await flush();
-    expect(relay.got.filter((f) => f.to === "push").map((f) => f.type)).toEqual(["push.key", "push.subscribe"]);
-    const toMachines = relay.got.filter((f) => f.to !== "push");
+    expect(relay.got.filter((f) => f.to === ".push").map((f) => f.type)).toEqual(["push.key", "push.subscribe"]);
+    const toMachines = relay.got.filter((f) => f.to !== ".push");
     expect(toMachines.every((f) => !f.type.startsWith("push") && !("sub" in f))).toBe(true);
     expect(JSON.stringify(store.data)).not.toContain("endpoint");
     expect(t.$(".al-card")).toBeNull();

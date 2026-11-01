@@ -6,6 +6,10 @@ import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sign } from "../../gate/src/key.ts";
 import { link, type Link, type LinkState } from "../contract.ts";
+
+const OWNER = "owner@example.com";
+/** адрес устройства владельца флота: ключи клиентов выданы ему */
+const dev = (n: string) => `${n}~${OWNER}`;
 import type { Frame } from "@switchboard/protocol";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -27,7 +31,7 @@ beforeAll(async () => {
         compatibilityDate: "2026-08-01",
         durableObjects: { FLEET: { className: "Fleet", useSQLite: true } },
         serviceBindings: { GATE: { name: "switchboard-gate", entrypoint: "Gate" } },
-        bindings: { PROTO: [1], PARTICIPANTS: {} },
+        bindings: { PROTO: [1], PARTICIPANTS: {}, OWNER: "owner@example.com" },
       },
       {
         name: "switchboard-gate",
@@ -80,7 +84,7 @@ describe("link · насквозь через relay и gate", () => {
     // запрос → Host → ответ по from
     const p = panel.l.request({ type: "session.history", callsign: "site@laptop" });
     const req = await until(() => hostFrames.find((f) => f.type === "session.history"));
-    expect(req.from).toBe("panel-desk");
+    expect(req.from).toBe(dev("panel-desk"));
     expect(host.l.send({ type: "reply", id: req.id!, to: req.from, ok: true, result: { turns: 3 } })).toBe(true);
     expect(await p).toMatchObject({ ok: true, result: { turns: 3 }, from: "@laptop" });
 

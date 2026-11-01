@@ -164,7 +164,7 @@ export function startApp(o: StartOptions): Running {
     const owner = ownerOf(ref);
     const f: Frame = { ...body, type: n, v };
     const worker = roster?.workers.find((w) => w.name === owner);
-    if (worker) f.to = owner;
+    if (worker) f.to = `.${owner}`;
     const machine = typeof body.callsign === "string" ? machineOf(body.callsign) : typeof body.machine === "string" ? body.machine : null;
     const contract = worker ? worker.contract : machine ? provides(machine) : null;
     if (contract) {

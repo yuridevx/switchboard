@@ -86,9 +86,9 @@ describe("эталоны ledger", () => {
   it("222 · ledger.add без id от @laptop: ответа нет; ledger.read отдаёт запись с from @laptop, t — часы ledger, без by", async () => {
     const j = fresh();
     clock(at("15:02"));
-    const out = await j.frame({ type: "ledger.add", v: 1, to: "ledger", from: "@laptop", ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902" });
+    const out = await j.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "@laptop", ev: "slot.swapped", machine: "laptop", text: "слот main: infirex → y0902" });
     expect(out).toEqual([]);
-    const [reply] = await j.frame({ type: "ledger.read", id: "r-7", to: "ledger", from: "panel", machine: "laptop", limit: 1 });
+    const [reply] = await j.frame({ type: "ledger.read", id: "r-7", to: ".ledger", from: "panel", machine: "laptop", limit: 1 });
     expect(reply).toEqual({
       type: "reply",
       id: "r-7",
@@ -101,8 +101,8 @@ describe("эталоны ledger", () => {
   it("223 · ledger.add без text и machine.left не от ledger — записей нет, две строки bad_frame с from @pc", async () => {
     const j = fresh();
     const log = journal();
-    await j.frame({ type: "ledger.add", to: "ledger", from: "@pc", ev: "slot.swapped" });
-    await j.frame({ type: "ledger.add", to: "ledger", from: "@pc", ev: "machine.left", machine: "laptop", text: "…" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "slot.swapped" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "machine.left", machine: "laptop", text: "…" });
     expect(await all(j)).toEqual([]);
     const bad = log.filter((l) => l.word === "bad_frame");
     expect(bad).toHaveLength(2);
@@ -111,9 +111,9 @@ describe("эталоны ledger", () => {
 
   it("224 · before 5 limit 2 → 4, 3 и more: true; after 3 limit 10 → 5, 4 и more: false", async () => {
     const j = fresh();
-    for (let i = 1; i <= 5; i++) await j.frame({ type: "ledger.add", to: "ledger", from: "@pc", ev: "session.opened", text: `s${i}` });
-    const [r1] = await j.frame({ type: "ledger.read", id: "r-1", to: "ledger", from: "panel", before: 5, limit: 2 });
-    const [r2] = await j.frame({ type: "ledger.read", id: "r-2", to: "ledger", from: "panel", after: 3, limit: 10 });
+    for (let i = 1; i <= 5; i++) await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "session.opened", text: `s${i}` });
+    const [r1] = await j.frame({ type: "ledger.read", id: "r-1", to: ".ledger", from: "panel", before: 5, limit: 2 });
+    const [r2] = await j.frame({ type: "ledger.read", id: "r-2", to: ".ledger", from: "panel", after: 3, limit: 10 });
     const ids = (r: Frame) => (r.result as { events: Array<{ id: number }> }).events.map((e) => e.id);
     expect([ids(r1), (r1.result as { more: boolean }).more]).toEqual([[4, 3], true]);
     expect([ids(r2), (r2.result as { more: boolean }).more]).toEqual([[5, 4], false]);
@@ -122,8 +122,8 @@ describe("эталоны ledger", () => {
   it("225 · два session.deleted от points; через 14 дней — те же две записи, будильника нет", async () => {
     const j = fresh();
     clock(at("22:41", "2026-10-30"));
-    await j.frame({ type: "ledger.add", to: "ledger", from: "points", ev: "session.deleted", machine: "laptop", by: "panel", text: "old-bot удалена" });
-    await j.frame({ type: "ledger.add", to: "ledger", from: "points", ev: "session.deleted", callsign: "wiki@pc", by: "panel", text: "wiki убрана из R2 · 12 точек" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "points", ev: "session.deleted", machine: "laptop", by: "panel", text: "old-bot удалена" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "points", ev: "session.deleted", callsign: "wiki@pc", by: "panel", text: "wiki убрана из R2 · 12 точек" });
     clock(at("22:41", "2026-11-13"));
     await j.frame(roster());
     const rows = await all(j);
@@ -145,11 +145,11 @@ describe("эталоны ledger", () => {
 describe("ledger: чтение, отказы и стык с relay", () => {
   it("фильтры machine, callsign, q; запись сессии берёт machine из callsign", async () => {
     const j = fresh();
-    await j.frame({ type: "ledger.add", to: "ledger", from: "@laptop", ev: "session.opened", callsign: "site@laptop", text: "site@laptop создана" });
-    await j.frame({ type: "ledger.add", to: "ledger", from: "@pc", ev: "session.opened", callsign: "docs@pc", text: "docs@pc создана" });
-    await j.frame({ type: "ledger.add", to: "ledger", from: "@pc", ev: "machine.upgraded", machine: "pc", text: "pc: Host 1.5.0 → 1.6.0" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "@laptop", ev: "session.opened", callsign: "site@laptop", text: "site@laptop создана" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "session.opened", callsign: "docs@pc", text: "docs@pc создана" });
+    await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "machine.upgraded", machine: "pc", text: "pc: Host 1.5.0 → 1.6.0" });
     const read = async (q: Record<string, unknown>) => {
-      const [r] = await j.frame({ type: "ledger.read", id: "r", to: "ledger", from: "panel", limit: 10, ...q });
+      const [r] = await j.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel", limit: 10, ...q });
       return (r.result as { events: Array<{ text: string }> }).events.map((e) => e.text);
     };
     expect(await read({ machine: "laptop" })).toEqual(["site@laptop создана"]);
@@ -161,9 +161,9 @@ describe("ledger: чтение, отказы и стык с relay", () => {
 
   it("ledger.read без limit — bad_frame; чужое имя — unknown_request; другая версия — contract_mismatch", async () => {
     const j = fresh();
-    expect(await j.frame({ type: "ledger.read", id: "r", to: "ledger", from: "panel" })).toMatchObject([{ ok: false, error: "bad_frame", to: "panel" }]);
-    expect(await j.frame({ type: "ledger.drop", id: "r", to: "ledger", from: "panel" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
-    expect(await j.frame({ type: "ledger.read", id: "r", v: 2, to: "ledger", from: "panel", limit: 1 })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
+    expect(await j.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel" })).toMatchObject([{ ok: false, error: "bad_frame", to: "panel" }]);
+    expect(await j.frame({ type: "ledger.drop", id: "r", to: ".ledger", from: "panel" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
+    expect(await j.frame({ type: "ledger.read", id: "r", v: 2, to: ".ledger", from: "panel", limit: 1 })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
   });
 
   it("roster не от relay (с from участника) — bad_frame, записей нет", async () => {
@@ -189,7 +189,7 @@ describe("ledger: чтение, отказы и стык с relay", () => {
   it("через вход участника: roster без from пишет запись, ledger.read отвечает через RELAY с props ledger", async () => {
     clock(at("09:00", "2026-11-01"));
     await relay.frame(roster("int-machine"));
-    await relay.frame({ type: "ledger.read", id: "r-int", to: "ledger", from: "panel", machine: "int-machine", limit: 5 });
+    await relay.frame({ type: "ledger.read", id: "r-int", to: ".ledger", from: "panel", machine: "int-machine", limit: 5 });
     const sent = await env.RELAY_LOG.take();
     expect(sent).toHaveLength(1);
     expect(sent[0].name).toBe("ledger");

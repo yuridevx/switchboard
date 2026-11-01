@@ -1,4 +1,4 @@
-// Вход участника рации github: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: "github".
+// Вход участника рации github: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: ".github".
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Frame } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";

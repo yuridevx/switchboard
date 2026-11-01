@@ -1,6 +1,7 @@
 // Модуль push: пуш клиенту, которого нет на связи. Решение — по последнему roster;
 // подписки, ключ VAPID и шифрование — у Worker-модуля push. Своего хранилища нет.
 import type { Frame, Host, Module } from "@switchboard/host";
+import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
 /** Что показать: заголовок, текст, кнопки и tag. Пишет модуль, чей кадр идёт человеку. */
@@ -29,8 +30,8 @@ export function make(): Module {
       return { pushed: [] };
     }
     const online = new Set(roster.clients ?? []);
-    // клиент — имя без @: сессиям и машинам пушей нет
-    const away = clients.filter((c): c is string => typeof c === "string" && !c.includes("@") && !online.has(c));
+    // пуш — только устройствам людей: сессиям и машинам пушей нет
+    const away = clients.filter((c): c is string => kindOf(c) === "device" && !online.has(c));
     if (!away.length) return { pushed: [] };
     const worker = roster.workers?.find((w) => w.name === "push");
     if (worker?.contract?.["push.send"] !== SEND_V) {

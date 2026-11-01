@@ -1,4 +1,4 @@
-// Стенд Host: настоящее ядро на поддельных SDK, relay, keeper и часах. Хранилище и журнал — во временной папке.
+// Стенд Host: настоящее ядро на поддельных SDK, relay, держателях и часах. Хранилище и журнал — во временной папке.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,8 +9,8 @@ import type { HostConfig } from "../src/kernel.ts";
 import type { ModuleEntry, Release } from "../src/release.ts";
 import type { CoreRecord } from "../src/store.ts";
 import { FakeClock } from "./clock.ts";
-import { FakeKeeper } from "./keeper.ts";
-import type { FakeProc } from "./keeper.ts";
+import { FakeHolders } from "./holders.ts";
+import type { FakeProc } from "./holders.ts";
 import { FakeRelay } from "./relay.ts";
 import { FakeSdk } from "./sdk.ts";
 import type { FakeQuery } from "./sdk.ts";
@@ -59,13 +59,11 @@ export type StandOptions = {
   sessions?: Array<Partial<CoreRecord> & { callsign: string }>;
   /** папка ~/.switchboard — та же между перезапусками Host */
   home?: string;
-  /** keeper — тот же между перезапусками Host */
-  keeper?: FakeKeeper;
+  /** держатели — те же между перезапусками Host */
+  holders?: FakeHolders;
   relayStand?: FakeRelay;
   sdkVersion?: string;
   version?: string;
-  /** выпуски для host.reload: папка → выпуск */
-  releases?: Record<string, Release>;
   config?: Partial<HostConfig>;
   /** стартовать сразу; по умолчанию да */
   start?: boolean;
@@ -74,7 +72,7 @@ export type StandOptions = {
 export type Stand = {
   kernel: Kernel;
   sdk: FakeSdk;
-  keeper: FakeKeeper;
+  holders: FakeHolders;
   relay: FakeRelay;
   clock: FakeClock;
   home: string;
@@ -89,7 +87,7 @@ export type Stand = {
   session(module: string, callsign: string): Session | undefined;
   /** host.open от имени модуля */
   open(callsign: string, o?: { module?: string; cwd?: string }): Promise<Session>;
-  /** процесс сессии у keeper */
+  /** процесс сессии у держателя */
   proc(callsign: string): FakeProc;
   /** нынешний query() сессии */
   query(callsign: string): FakeQuery;
@@ -97,9 +95,9 @@ export type Stand = {
   journal(): Array<Record<string, any>>;
   /** кадры session.state сессии */
   states(callsign: string): Array<Record<string, any>>;
-  /** штатная остановка Host и поддельного keeper */
+  /** штатная остановка Host и поддельных держателей */
   close(): Promise<void>;
-  /** Host убит: сокеты keeper и relay закрыты без штатной остановки, процессы живут у keeper */
+  /** Host убит: соединения с держателями и relay закрыты без штатной остановки, процессы живут у держателей */
   crash(): void;
 };
 
@@ -131,7 +129,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     }));
     writeFileSync(join(home, "store", "core.json"), JSON.stringify({ sessions: list }));
   }
-  const keeper = o.keeper ?? (await new FakeKeeper().listen());
+  const holders = o.holders ?? new FakeHolders();
   const relay = o.relayStand ?? new FakeRelay();
   const sdk = new FakeSdk(o.sdkVersion ?? "0.3.311");
   const clock = new FakeClock();
@@ -148,15 +146,10 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     core: CORE,
     release: { version: o.version ?? "1.4.0", core: CORE.version, sdk: sdk.version, modules: o.modules ?? [] },
     sdk,
-    keeper: keeper.addr,
+    holders,
     relayKey: `host.${machine}.k7f3.stand`,
     WebSocket: relay.WebSocket,
     clock,
-    loadRelease: async (dir) => {
-      const r = o.releases?.[dir];
-      if (!r) throw new Error(`выпуска ${dir} нет`);
-      return r;
-    },
     exit: (code) => exits.push(code),
     pauseMs: 1000,
   });
@@ -165,7 +158,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
   const st: Stand = {
     kernel,
     sdk,
-    keeper,
+    holders,
     relay,
     clock,
     home,
@@ -193,8 +186,8 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
       return s.facade(m ?? standMod);
     },
     proc(callsign) {
-      const p = keeper.procs.get(callsign);
-      if (!p) throw new Error(`процесса ${callsign} нет у keeper`);
+      const p = holders.procs.get(callsign);
+      if (!p) throw new Error(`процесса ${callsign} нет у держателей`);
       return p;
     },
     query(callsign) {
@@ -214,14 +207,14 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     },
     crash() {
       crashed = true;
-      kernel.keeper.close();
+      kernel.holders.close();
       kernel.relay?.close(1000, "killed");
     },
     async close() {
       if (crashed) return;
       if (!kernel.shutting) await kernel.shutdown("upgrade");
       else await kernel.shutting;
-      if (!o.keeper) await keeper.close();
+      if (!o.holders) await holders.close();
     },
   };
   if (o.start !== false) await st.start();

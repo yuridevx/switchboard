@@ -222,7 +222,7 @@ describe("эталоны points", () => {
   });
 
   it("217 · старт Host: дописано без связи, реестр not_owner { owner: pc } — точка yield и session.remove у себя", async () => {
-    const keeper = await new stand.FakeKeeper().listen();
+    const keeper = new stand.FakeHolders();
     const cwd = join(home, "work", "site");
     write(cwd, SID, conv(9));
     mkdirSync(join(home, "store"), { recursive: true });
@@ -230,7 +230,7 @@ describe("эталоны points", () => {
     const reg = new FakeRegistry();
     reg.seed(317, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
     reg.sessions.set(SID, { owner: "pc", head: 318 });
-    b = await bench({ home, keeper, reg, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
+    b = await bench({ home, holders: keeper, reg, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
     await until(() => puts("yield").length === 1, 3000).catch((e) => {
       console.log(JSON.stringify(b!.reg.puts.map((x) => [x.why, x.result])), JSON.stringify(b!.st.journal().slice(-15)));
       throw e;
@@ -246,7 +246,7 @@ describe("эталоны points", () => {
   });
 
   it("217 · связь с relay приходит позже подъёма сессий: точка старта ждёт первого roster, затем not_owner — yield (живой прогон 31 окт.)", async () => {
-    const keeper = await new stand.FakeKeeper().listen();
+    const keeper = new stand.FakeHolders();
     const cwd = join(home, "work", "site");
     write(cwd, SID, conv(9));
     mkdirSync(join(home, "store"), { recursive: true });
@@ -254,7 +254,7 @@ describe("эталоны points", () => {
     const reg = new FakeRegistry();
     reg.seed(317, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
     reg.sessions.set(SID, { owner: "pc", head: 318 });
-    b = await bench({ home, keeper, reg, holdRoster: true, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
+    b = await bench({ home, holders: keeper, reg, holdRoster: true, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
     await new Promise((r) => setTimeout(r, 300));
     // связи нет — точки старта нет
     expect(puts("start")).toHaveLength(0);
@@ -331,7 +331,7 @@ describe("эталоны points", () => {
     expect(last("site@laptop").r2).toEqual({});
     const off = await ask({ type: "session.r2", callsign: "site@laptop", on: false });
     expect(off.result.deleted).toBeGreaterThan(0);
-    expect(b.reg.deletes[0]).toMatchObject({ sid: s.info.session_id, to: "points", by: "panel-desk" });
+    expect(b.reg.deletes[0]).toMatchObject({ sid: s.info.session_id, to: ".points", by: "panel-desk~owner@example.com" });
     expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions?.["site@laptop"]).toBeUndefined();
     const n = b.reg.puts.length;
     vi.advanceTimersByTime(GAP_MS + 1000);

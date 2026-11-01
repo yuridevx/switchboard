@@ -208,48 +208,38 @@ describe("эталоны пульта: аккаунты и слоты", () => {
 });
 
 describe("эталоны пульта: машины", () => {
-  async function machines(upgrade: { ok: true; result: unknown } | { ok: false; error: string }) {
+  async function machines() {
     const relay = fleetRelay();
-    let host: Record<string, string> = { laptop: "1.4.1", pc: "1.4.0" };
-    relay.handlers["machine.state"] = (f) => ({ ok: true, result: { host: host[String(f.machine)], sdk: "0.3.311", os: { platform: f.machine === "pc" ? "linux" : "win32", arch: "x64", release: "6.8.0" }, processes: [{ id: "a", pid: 1 }] } });
-    relay.handlers["machine.upgrade"] = (f) => (f.dryRun ? { ok: true, result: { from: host[String(f.machine)], to: "1.4.1" } } : upgrade);
+    let host: Record<string, { version: string; state: string; error?: string }> = { laptop: { version: "1.1.58", state: "running" }, pc: { version: "1.1.58", state: "running" } };
+    relay.handlers["keeper.state"] = (f) => {
+      const m = String(f.to).split("@")[1];
+      return {
+        ok: true,
+        result: { keeper: "0.5.0", rev: 44, os: m === "pc" ? "linux 6.8.0 amd64" : "windows 10.0.26300 amd64", parts: [{ part: "host", ...host[m], pid: 7731, restarts: 0 }, { part: "capture", version: "1.3.2", state: "running", pid: 9120, restarts: 0 }] },
+      };
+    };
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "team/profiles": { state: "ok" } } } });
     relay.handlers["github.app"] = () => ({ ok: true, result: { app: { slug: "switchboard-team", id: 1, owner: "team" }, repos: ["team/profiles"], install: "https://github.com/apps/switchboard-team/installations/new" } });
     const t = await pult({ relay });
     await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
     await flush(10);
-    return { t, relay, setHost: (m: string, v: string) => (host = { ...host, [m]: v }) };
+    return { t, relay, setHost: (m: string, v: { version: string; state: string; error?: string }) => (host = { ...host, [m]: v }) };
   }
 
-  it("195 · «есть новая версия» — только у pc по ответу dryRun; «Обновить» — machine.upgrade { version: latest } без поля версии; pc ушла — «обновляется», вернулась — machine.state 1.4.1; check_failed — словами, без повтора", async () => {
-    const { t, relay, setHost } = await machines({ ok: true, result: { from: "1.4.0", to: "1.4.1", sdk: { from: "0.3.311", to: "0.3.311" }, restart: true } });
-    expect(relay.sent("machine.upgrade").map((f) => [f.machine, f.version, f.dryRun])).toEqual([
-      ["laptop", "latest", true],
-      ["pc", "latest", true],
-    ]);
-    expect(t.$('[data-machine="pc"] [data-newer]')!.textContent).toBe("есть новая версия · 1.4.1");
-    expect(t.$('[data-machine="laptop"] [data-newer]')).toBeNull();
-    await t.click(t.btn(t.$('[data-machine="pc"]'), "Обновить до 1.4.1"));
-    await t.click(t.btn(t.$('[data-dlg="upgrade"]'), "Обновить"));
-    expect(relay.sent("machine.upgrade").at(-1)).toEqual({ type: "machine.upgrade", id: expect.any(String), v: 1, machine: "pc", version: "latest" });
+  it("195 · машины: keeper.state от .keeper@машина — части с версиями и состоянием; failed — причиной; кнопки обновления нет; машина вернулась — keeper.state заново", async () => {
+    const { t, relay, setHost } = await machines();
+    expect(relay.sent("keeper.state").map((f) => f.to)).toEqual([".keeper@laptop", ".keeper@pc"]);
+    expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("0.5.0 · план rev 44");
+    expect(t.$('[data-machine="pc"] [data-part="host"]')!.textContent).toBe("1.1.58 · running · pid 7731");
+    expect(t.$('[data-machine="pc"] [data-part="capture"]')!.textContent).toBe("1.3.2 · running · pid 9120");
+    expect(t.$('[data-machine="pc"]')!.textContent).not.toContain("Обновить");
+    setHost("pc", { version: "1.1.59", state: "failed", error: "второе падение: код 1" });
     const r = fleetRoster();
-    relay.setRoster({ ...r, machines: r.machines.filter((m) => m.machine !== "pc") });
-    await flush();
-    expect(t.$('[data-machine="pc"] [data-upg]')!.textContent).toContain("pc обновляется: 1.4.0 → 1.4.1");
-    setHost("pc", "1.4.1");
-    const states = relay.sent("machine.state").length;
     relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: m.since + 60_000 } : m)) });
     await flush(10);
-    expect(relay.sent("machine.state").length).toBe(states + 1);
-    expect(t.$('[data-machine="pc"] [data-host]')!.textContent).toBe("1.4.1 · SDK 0.3.311");
-    expect(t.$('[data-machine="pc"] [data-upg="done"]')!.textContent).toContain("pc: 1.4.0 → 1.4.1Сессии не останавливались.");
-
-    const m2 = await machines({ ok: false, error: "check_failed" });
-    await m2.t.click(m2.t.btn(m2.t.$('[data-machine="pc"]'), "Обновить до 1.4.1"));
-    await m2.t.click(m2.t.btn(m2.t.$('[data-dlg="upgrade"]'), "Обновить"));
-    expect(m2.t.$('[data-machine="pc"]')!.textContent).toContain("Новая версия не прошла проверку");
-    expect(m2.t.$('[data-machine="pc"] [data-host]')!.textContent).toBe("1.4.0 · SDK 0.3.311");
-    expect(m2.relay.sent("machine.upgrade").filter((f) => !f.dryRun)).toHaveLength(1);
+    expect(relay.sent("keeper.state").map((f) => f.to)).toEqual([".keeper@laptop", ".keeper@pc", ".keeper@pc"]);
+    const host = t.$('[data-machine="pc"] [data-part="host"]')!;
+    expect([host.textContent, host.getAttribute("data-state"), host.className]).toEqual(["1.1.59 · failed · pid 7731 · второе падение: код 1", "failed", "bad"]);
   });
 });
 
@@ -304,7 +294,7 @@ describe("эталоны пульта: точки", () => {
     const t = await pult({ relay });
     await t.click(t.$('.sb-navcol button[data-screen="points"]'));
     await flush(10);
-    expect(relay.sent("ledger.read")).toEqual([expect.objectContaining({ to: "ledger", machine: "mac", limit: 1 })]);
+    expect(relay.sent("ledger.read")).toEqual([expect.objectContaining({ to: ".ledger", machine: "mac", limit: 1 })]);
     const d = new Date(left);
     const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     expect(t.$('[data-fire="mac"] b')!.textContent).toBe(`mac не на связи с ${hm} · 2 сессии ждут на последних точках`);
@@ -350,7 +340,7 @@ describe("эталоны пульта: точки", () => {
     expect(relay.got.length).toBe(before);
     await t.type(t.$('[data-f="del:9f03"]'), "old-bot");
     await t.click(t.$('[data-act="delete"]'));
-    expect(relay.sent("points.delete")).toEqual([expect.objectContaining({ to: "points", sid: "9f03" })]);
+    expect(relay.sent("points.delete")).toEqual([expect.objectContaining({ to: ".points", sid: "9f03" })]);
     await flush(10);
     expect(t.$('[data-sid="9f03"]')).toBeNull();
     expect(t.$("[data-only]")!.textContent).toContain("old-bot удалена — 57 точек");

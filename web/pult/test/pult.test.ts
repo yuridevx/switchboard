@@ -227,7 +227,7 @@ describe("журнал флота и машины", () => {
           : { ok: true, result: { events: [{ id: 905, t: t0, ev: "machine.left", from: "ledger", machine: "pc", text: "pc пропала · была на связи с 11:40" }], more: true } };
     const t = await pult({ relay });
     await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
-    expect(relay.sent("ledger.read")[0]).toMatchObject({ to: "ledger", limit: 50 });
+    expect(relay.sent("ledger.read")[0]).toMatchObject({ to: ".ledger", limit: 50 });
     relay.setRoster(fleetRoster());
     await flush(10);
     expect(relay.sent("ledger.read")[1]).toMatchObject({ after: 905, limit: 50 });
@@ -246,17 +246,16 @@ describe("журнал флота и машины", () => {
   it("«+ Аккаунт» у машины — экран аккаунтов с формой входа на этой машине; GitHub вернул code — github.setup", async () => {
     const relay = fleetRelay();
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
-    relay.handlers["machine.state"] = () => ({ ok: true, result: { host: "1.4.1", sdk: "0.3.311", os: { platform: "linux", arch: "x64" }, processes: [] } });
-    relay.handlers["machine.upgrade"] = () => ({ ok: true, result: { from: "1.4.1", to: "1.4.1" } });
+    relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "0.5.0", rev: 1, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", restarts: 0 }] } });
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "team/profiles": { state: "conflict", op: "git pull", files: ["ops/memory/testing.md"] } } } });
     relay.handlers["github.app"] = () => ({ ok: true, result: { app: null, form: { action: "https://github.com/settings/apps/new", manifest: { name: "switchboard" } } } });
     relay.handlers["github.setup"] = () => ({ ok: true, result: { app: { slug: "switchboard-team" }, install: "https://github.com/apps/switchboard-team/installations/new" } });
     const t = await pult({ relay, url: "/?code=c0de#machines" });
     await flush(10);
     expect(t.$('section[data-machine="pc"]')!.textContent).toContain("team/profiles: память не сведена");
-    expect(relay.sent("github.app")[0]).toMatchObject({ to: "github", redirect: expect.stringMatching(/^http/) });
+    expect(relay.sent("github.app")[0]).toMatchObject({ to: ".github", redirect: expect.stringMatching(/^http/) });
     await t.click(t.btn(null, "Сохранить приложение"));
-    expect(relay.sent("github.setup")).toEqual([expect.objectContaining({ to: "github", code: "c0de" })]);
+    expect(relay.sent("github.setup")).toEqual([expect.objectContaining({ to: ".github", code: "c0de" })]);
     expect(location.search).toBe("");
     expect(t.$("[data-github] a")!.getAttribute("href")).toBe("https://github.com/apps/switchboard-team/installations/new");
     await t.click(t.btn(t.$('section[data-machine="pc"]'), "+ Аккаунт"));

@@ -48,7 +48,7 @@ describe("эталоны chat", () => {
     const p = s.proc("site@laptop");
     await until(() => p.inputs.length === 1);
     expect(p.inputs[0]).toMatchObject({ type: "user", priority: "next", uuid: "9c4d", origin: { kind: "human" }, message: { role: "user", content: "Почини сборку" } });
-    expect(sess.info.from).toBe("panel-desk");
+    expect(sess.info.from).toBe("panel-desk~owner@example.com");
     turn(p, "Смотрю, что падает.");
     await until(() => sess.state === "idle" && s.states("site@laptop").some((f) => f.state === "busy"));
 

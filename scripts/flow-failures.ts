@@ -3,6 +3,9 @@
 // ждущий вопрос переживает перезапуск Host; ждущий запрос получает disconnected, когда Host уходит.
 // env: FLOW_CLIENT_KEY, FLOW_MACHINE, FLOW_DIR.
 import { execSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { link, type Roster } from "@switchboard/relay";
 
 const machine = process.env.FLOW_MACHINE!;
@@ -35,9 +38,13 @@ const text = async (cs: string) => {
   const texts = JSON.stringify(h).match(/"text":"(?:[^"\\]|\\.)*"/g) ?? [];
   return (texts.slice(-1)[0] ?? "").slice(8, -1);
 };
-const claudePid = async (cs: string) => ((await req({ type: "machine.state", machine })).result?.processes ?? []).find((p: any) => p.id === cs)?.pid as number | undefined;
+// pid процесса claude — из файла его держателя на этой машине
+const claudePid = async (cs: string) => {
+  const f = join(process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard"), "procs", `${cs}.json`);
+  return existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")).pid as number) : undefined;
+};
 const hostPid = () =>
-  Number(execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*\\.switchboard\\host\\*' -and $_.CommandLine -notlike '*sbkeeper*' } | Select-Object -First 1).ProcessId"`).toString().trim());
+  Number(execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*\\.switchboard\\parts\\host\\*' -and $_.CommandLine -notlike '*sbkeeper*' } | Select-Object -First 1).ProcessId"`).toString().trim());
 const kill = (pid: number) => execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
 
 await wait(() => l.state === "open", 15000);

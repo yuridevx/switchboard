@@ -24,7 +24,7 @@ try {
   await req({ type: "session.r2", callsign: from, on: true });
   const saved = await req({ type: "points.save", callsign: from });
   // sid сессии — из обзора флота у points, как у пульта
-  const fleet = await req({ type: "points.list", to: "points" });
+  const fleet = await req({ type: "points.list", to: ".points" });
   const sid = (fleet.sessions as Array<{ sid: string; callsign?: string }>).find((x) => x.callsign === from)?.sid;
   if (!sid) throw new Error("points.list: нет сессии " + from);
   await l.request({ type: "session.remove", v: 1, callsign: `copy@${toMachine}` }); // копия прошлого прогона, если есть

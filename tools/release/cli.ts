@@ -1,11 +1,15 @@
 #!/usr/bin/env node
-// switchboard release <версия> [--out <папка>] [--dry-run | --to <папка>]
+// switchboard release host <версия> [--out <папка>] [--dry-run | --to <папка>]
+// switchboard release keeper [--dry-run | --to <папка>]
 //
-// Собирает выпуск Host из монорепо (ядро и модули host/core/modules.json), проверяет его host --check
-// и выкладывает в бакет R2 switchboard-releases: host/<версия>.tgz, host/<версия>.sha256, последним host/latest.
-//   --out <папка>   куда собрать папку выпуска, .tgz и .sha256; по умолчанию dist/release в корне монорепо
-//   --dry-run       только собрать и проверить, никуда не выкладывать
-//   --to <папка>    выложить в местную папку той же раскладки, что бакет (поддельный R2 для проверок)
+// Собирает часть машины из монорепо и загружает её в бакет R2 switchboard-releases: <часть>/<версия>.tgz,
+// затем <часть>/<версия>.sha256. Не выкладывает: stable двигает «выпуски» (releases.deploy).
+//   host     ядро и модули host/core/modules.json, проверка host --check; номер — аргументом (CI: 1.1.<прогон>)
+//   keeper   файлы для Windows и Linux одним архивом; номер — из os/keeper/module.json. Номер уже загружен
+//            с тем же хэшем — пропуск; с другим — отказ «подними номер keeper»
+//   --out <папка>   куда собрать папку выпуска Host, .tgz и .sha256; по умолчанию dist/release в корне монорепо
+//   --dry-run       только собрать, никуда не загружать
+//   --to <папка>    загрузить в местную папку той же раскладки, что бакет (поддельный R2 для проверок)
 // Ключ R2 на запись — из окружения: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT (https://<аккаунт>.r2.cloudflarestorage.com).
 import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -13,19 +17,26 @@ import { fileURLToPath } from "node:url";
 import { build } from "./src/build.ts";
 import type { Exec } from "./src/build.ts";
 import { RELEASES_BUCKET } from "./src/format.ts";
-import { assertNew, dirBucket, publish, s3Bucket } from "./src/publish.ts";
+import { buildKeeper, runGo } from "./src/keeper.ts";
+import type { GoExec } from "./src/keeper.ts";
+import { dirBucket, s3Bucket, upload } from "./src/publish.ts";
 import type { Bucket } from "./src/publish.ts";
 import { runNode, runNpm } from "./src/run.ts";
-import { install, installArgs } from "./src/install.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-export type Args = { version: string; out: string; dryRun: boolean; to?: string };
+export type Args = { part: "host" | "keeper"; version?: string; out: string; dryRun: boolean; to?: string };
+
+const USAGE = "вызов: switchboard release host <версия> | keeper [--out <папка>] [--dry-run | --to <папка>]";
 
 export function parseArgs(argv: string[]): Args {
-  const [cmd, version, ...rest] = argv;
-  if (cmd !== "release" || !version) throw new Error("вызов: switchboard release <версия> [--out <папка>] [--dry-run | --to <папка>]");
-  const a: Args = { version, out: join(root, "dist", "release"), dryRun: false };
+  const [cmd, part, ...rest] = argv;
+  if (cmd !== "release" || (part !== "host" && part !== "keeper")) throw new Error(USAGE);
+  const a: Args = { part, out: join(root, "dist", "release"), dryRun: false };
+  if (part === "host") {
+    a.version = rest.shift();
+    if (!a.version || a.version.startsWith("--")) throw new Error(USAGE);
+  }
   for (let i = 0; i < rest.length; i++) {
     const k = rest[i];
     if (k === "--dry-run") a.dryRun = true;
@@ -48,29 +59,26 @@ export function bucketOf(a: Args, env: Record<string, string | undefined>): Buck
 
 const exec: Exec = (cmd, args, cwd) => (cmd === "npm" ? runNpm(args, cwd) : runNode(args, cwd));
 
-async function stdin(): Promise<string> {
-  const parts: Buffer[] = [];
-  for await (const c of process.stdin) parts.push(c as Buffer);
-  return Buffer.concat(parts).toString("utf8").trim();
-}
-
-export async function main(argv: string[], env: Record<string, string | undefined>, x: Exec = exec): Promise<number> {
-  if (argv[0] === "install") {
-    await install(installArgs(argv.slice(1), await stdin()));
-    return 0;
-  }
+export async function main(argv: string[], env: Record<string, string | undefined>, x: Exec = exec, go: GoExec = runGo): Promise<number> {
   const a = parseArgs(argv);
   const bucket = bucketOf(a, env);
-  if (bucket) await assertNew(bucket, a.version);
-  const b = await build({ root, version: a.version, out: a.out, exec: x });
-  console.log(`собран ${a.version}: ${b.packages.length} пакетов · SDK ${b.check.sdk} · ${b.tgz.length} байт · sha256 ${b.sha}`);
-  console.log(`  ${join(a.out, a.version + ".tgz")}`);
+  let version: string;
+  let tgz: Buffer;
+  let sha: string;
+  if (a.part === "host") {
+    const b = await build({ root, version: a.version!, out: a.out, exec: x });
+    ({ version, tgz, sha } = b);
+    console.log(`собран host ${version}: ${b.packages.length} пакетов · SDK ${b.check.sdk} · ${tgz.length} байт · sha256 ${sha}`);
+  } else {
+    ({ version, tgz, sha } = await buildKeeper(root, go));
+    console.log(`собран keeper ${version}: ${tgz.length} байт · sha256 ${sha}`);
+  }
   if (!bucket) {
-    console.log("--dry-run: никуда не выложено");
+    console.log("--dry-run: никуда не загружено");
     return 0;
   }
-  const keys = await publish(bucket, a.version, b.tgz, b.sha);
-  console.log(`выложено в ${bucket.where}: ${keys.join(", ")}`);
+  const r = await upload(bucket, a.part, version, tgz, sha);
+  console.log(r === "same" ? `${a.part} ${version} уже загружен с тем же хэшем — пропуск` : `загружено в ${bucket.where}: ${a.part}/${version}.tgz, .sha256`);
   return 0;
 }
 

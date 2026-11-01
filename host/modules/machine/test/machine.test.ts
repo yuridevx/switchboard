@@ -1,4 +1,4 @@
-// Эталоны machine на стенде Host: поддельные relay и keeper, папки — во временной папке. Номер эталона — номер теста.
+// Эталоны machine на стенде Host: поддельные relay и держатели, папки — во временной папке. Номер эталона — номер теста.
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,7 +31,7 @@ describe("эталоны machine", () => {
     const { st } = await pc();
     const r = await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~/Projects" });
     expect(r).toMatchObject({ type: "reply", ok: true, result: { path: "~/Projects", dirs: ["poe2", "site", "switchboard", "wiki"] } });
-    expect(st.keeper.ops.map((o) => o.op)).toEqual(["control", "list", "ready"]);
+    expect(st.holders.ops).toEqual([]);
     expect(st.kernel.sessions.size).toBe(0);
   });
 
@@ -43,7 +43,7 @@ describe("эталоны machine", () => {
     expect(lines.map((l) => l.word)).toEqual(["not_found", "bad_frame"]);
     expect(lines[0].why).toContain("~/Projets");
     expect(lines[1].why).toContain("«Projects»");
-    expect(lines[0].why).toContain("panel-desk");
+    expect(lines[0].why).toContain("panel-desk~owner@example.com");
     expect(readdirSync(home)).toEqual(["Projects"]);
   });
 
@@ -59,16 +59,6 @@ describe("эталоны machine", () => {
 });
 
 describe("machine", () => {
-  it("machine.state: версии Host и SDK, Node, ОС, время старта; процессы — ответ keeper list как есть", async () => {
-    const { st } = await pc();
-    st.keeper.addProcess("poe-bot@pc");
-    const r = await st.relay.request({ type: "machine.state", v: 1, machine: "pc" });
-    expect(r).toMatchObject({ ok: true, result: { host: "1.4.0", sdk: "0.3.311", node: process.version, os: { platform: process.platform, arch: process.arch } } });
-    const res = r.result as { started: string; processes: Array<Record<string, unknown>> };
-    expect(Date.parse(res.started)).toBeLessThanOrEqual(Date.now());
-    expect(res.processes).toEqual([{ id: "poe-bot@pc", pid: st.keeper.procs.get("poe-bot@pc")!.pid, attached: false, buffered: 0 }]);
-  });
-
   it("полный путь и ~ без хвоста; папка на точку отдаётся — прятать решает клиент", async () => {
     const { st, home } = await pc();
     mkdirSync(join(home, ".claude"));

@@ -1,5 +1,5 @@
-// Ядро Host: модули, сессии, связь с keeper и relay, реестр владельцев, ловушка ошибок,
-// штатная остановка и перезагрузка модулей на ходу. Само ничего не решает: находит владельца и передаёт ему.
+// Ядро Host: модули, сессии, держатели процессов claude, связь с relay, реестр владельцев, ловушка ошибок,
+// штатная остановка. Само ничего не решает: находит владельца и передаёт ему.
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -16,7 +16,6 @@ import type {
   Module,
   OpenSpec,
   Probe,
-  ReloadResult,
   Result,
   Session,
   Store,
@@ -26,8 +25,8 @@ import type { Clock } from "./clock.ts";
 import { realClock } from "./clock.ts";
 import { journal } from "./journal.ts";
 import type { Journal } from "./journal.ts";
-import { KeeperClient } from "./keeper.ts";
-import type { Exited, KeeperAddr } from "./keeper.ts";
+import { HolderClient } from "./holders.ts";
+import type { Exited, HolderApi } from "./holders.ts";
 import { InputQueue } from "./queue.ts";
 import { gate, nameOf, ownerOf } from "./registry.ts";
 import type { Release } from "./release.ts";
@@ -35,10 +34,10 @@ import { Sess } from "./session.ts";
 import { Stores } from "./store.ts";
 import type { CoreRecord } from "./store.ts";
 
-/** ~/.switchboard/host.json */
+/** Конфиг Host: машина и relay — из окружения keeper, разделы модулей — ~/.switchboard/host.json */
 export type HostConfig = {
   machine: string;
-  workers?: { relay?: { url: string; key?: string } };
+  workers?: { relay?: { url: string } };
   /** разделы модулей: host.config() */
   modules?: Record<string, unknown>;
 };
@@ -60,12 +59,12 @@ export type Deps = {
   core: Manifest;
   release: Release;
   sdk: SdkApi;
-  keeper: KeeperAddr;
+  /** держатели процессов claude: файл keeper в режиме hold */
+  holders: HolderApi;
   /** ключ машины для relay */
   relayKey?: string;
   WebSocket?: WsCtor;
   clock?: Clock;
-  loadRelease?: (dir: string) => Promise<Release>;
   /** выход процесса Host после штатной остановки */
   exit?: (code: number) => void;
   /** период ping и первая пауза переподключения link */
@@ -117,7 +116,7 @@ export class Kernel {
   readonly clock: Clock;
   readonly stores: Stores;
   readonly journal: Journal;
-  readonly keeper: KeeperClient;
+  readonly holders: HolderClient;
   readonly als = new AsyncLocalStorage<{ mod: string; sess: Sess | null }>();
   readonly sessions = new Map<string, Sess>();
   readonly abort = new AbortController();
@@ -128,15 +127,12 @@ export class Kernel {
   frameOwner = new Map<string, Mod>();
   decideOwner = new Map<string, string>();
   elicitOwner: string | null = null;
-  /** окно перезагрузки: вызовы модуля ждут здесь и идут новой версии по порядку */
-  reloading = new Map<string, Promise<void>>();
   relay: Link | null = null;
   seq = 0;
   shutting: Promise<void> | null = null;
   private inflight = new Set<Promise<unknown>>();
   private probes = new Set<Query>();
   private hostFacades = new Map<Mod, Host>();
-  private reloadChain: Promise<unknown> = Promise.resolve();
   private reqSeq = 0;
   private readonly idPrefix = randomUUID().slice(0, 8);
 
@@ -147,10 +143,7 @@ export class Kernel {
     this.release = deps.release;
     this.stores = new Stores(join(deps.home, "store"));
     this.journal = journal(join(deps.home, "journal"), this.machine, this.clock);
-    this.keeper = new KeeperClient(deps.keeper, {
-      exited: (e) => this.onExited(e),
-      stop: (reason) => void this.shutdown(reason),
-    });
+    this.holders = new HolderClient(deps.holders, { exited: (e) => this.onExited(e) });
   }
 
   get version(): string {
@@ -166,7 +159,7 @@ export class Kernel {
 
   // ───────────── старт ─────────────
 
-  /** Старт Host по шагам дизайна. Гейт не прошёл — StartError, сессии у keeper не тронуты. */
+  /** Старт Host по шагам дизайна. Гейт не прошёл — StartError, сессии у держателей не тронуты. */
   async start(): Promise<void> {
     const relayOn = !!this.deps.config.workers?.relay;
     const errors = gate(this.deps.core, this.release.modules, relayOn);
@@ -179,14 +172,13 @@ export class Kernel {
     this.log("core", { ev: "host_start", version: this.version, sdk: this.sdkVersion, modules: this.mods.map((m) => `${m.name} ${m.manifest.version}`) });
     for (const m of this.mods) await this.startModule(m);
 
-    await this.keeper.connect();
-    const procs = await this.keeper.list();
+    const procs = this.holders.list();
     for (const rec of this.stores.core()) this.sessions.set(rec.callsign, new Sess(this, rec));
     const alive = new Set(procs.map((p) => p.id));
     for (const p of procs) {
       if (this.sessions.has(p.id)) continue;
       this.log("core", { kind: "stop", ev: "orphan_kill", callsign: p.id, why: `процесс ${p.id} (pid ${p.pid}) не в списке сессий — kill` });
-      await this.keeper.kill(p.id, true);
+      await this.holders.kill(p.id);
     }
     // вклады всех сессий — до запуска: два владельца у имени — Host не стартует
     const parts = new Map<Sess, Awaited<ReturnType<Sess["collectParts"]>>>();
@@ -202,7 +194,7 @@ export class Kernel {
     }
     if (conflicts.length) {
       for (const e of conflicts) this.log("core", { kind: "stop", ev: "gate", word: "check_failed", why: e });
-      this.keeper.close();
+      this.holders.close();
       throw new StartError(conflicts);
     }
     for (const s of this.sessions.values()) {
@@ -212,8 +204,7 @@ export class Kernel {
     this.connectRelay();
     await Promise.all([...this.sessions.values()].map((s) => s.settled()));
     if (this.shutting) return;
-    const r = await this.keeper.send({ op: "ready", version: this.version });
-    this.log("core", { ev: "ready", version: this.version, ...(r.ok ? {} : { word: r.error }) });
+    this.log("core", { ev: "ready", version: this.version });
   }
 
   private async startModule(m: Mod): Promise<boolean> {
@@ -260,19 +251,13 @@ export class Kernel {
 
   /**
    * Вызов модуля. Ошибка не идёт дальше: модуль выключается в сессии s (или на машине), onFail даёт замену.
-   * Refusal — отказ словом, его ловит вызывающий. Во время перезагрузки модуля вызов ждёт и идёт новой версии.
-   * Вызов самого перезагружаемого модуля (его start/stop) не ждёт: окно откроется только после всех start,
-   * и start, ждущий соседа по перезагрузке, ждал бы вечно (живой прогон 1 ноя: slots.start → machine.accounts).
-   * Он идёт новой версии сразу — как при старте Host по порядку списка.
+   * Refusal — отказ словом, его ловит вызывающий.
    */
   invoke<T>(name: string, where: string, s: Sess | null, fn: (m: Module, mod: Mod) => T | Promise<T>, onFail: (e: unknown) => T): T | Promise<T> {
-    const wait = this.reloading.get(name);
-    const caller = this.als.getStore()?.mod;
-    if (!wait || (caller && this.reloading.has(caller))) return this.call(name, where, s, fn, onFail);
-    return wait.then(() => this.call(name, where, s, fn, onFail));
+    return this.call(name, where, s, fn, onFail);
   }
 
-  /** Вызов модуля в ловушке мимо окна перезагрузки — его зовёт сама перезагрузка. */
+  /** Вызов модуля в ловушке. */
   call<T>(name: string, where: string, s: Sess | null, fn: (m: Module, mod: Mod) => T | Promise<T>, onFail: (e: unknown) => T): T | Promise<T> {
     {
       const cur = this.byName.get(name);
@@ -385,7 +370,7 @@ export class Kernel {
     });
   }
 
-  // ───────────── keeper ─────────────
+  // ───────────── держатели ─────────────
 
   private onExited(e: Exited): void {
     this.sessions.get(e.id)?.onExited(e);
@@ -562,13 +547,12 @@ export class Kernel {
       log: (rec) => k.log(m.name, rec),
       probe: (o) => k.probe(m, o?.env),
       cli: (args, o) => k.deps.sdk.cli(args, { ...process.env, ...(o?.env ?? {}), DISABLE_UPDATES: "1" }, o?.input),
-      reload: (dir) => k.reload(dir),
     };
     this.hostFacades.set(m, h);
     return h;
   }
 
-  /** host.request: имя из uses или своё; владелец — модуль этой машины, keeper или relay. */
+  /** host.request: имя из uses или своё; владелец — модуль этой машины или через relay: другая машина, часть машины, служба. */
   async request(m: Mod, name: string, payload: Record<string, unknown>): Promise<Result> {
     const caller = this.callerSession(m);
     const own = m.manifest.provides?.[name] !== undefined;
@@ -578,11 +562,6 @@ export class Kernel {
     const address = (payload.callsign ?? payload.machine ?? payload.to) as unknown;
     const target = typeof payload.machine === "string" ? payload.machine : typeof address === "string" ? machineOf(address) : null;
 
-    if (owner === "keeper") {
-      const { v: _v, ...rest } = payload;
-      const { op: _op, ...r } = await this.keeper.send({ op: name, ...rest });
-      return r.ok ? { ok: true, result: r.result } : { ...r, ok: false, error: r.error ?? "keeper" };
-    }
     const local = this.byName.has(owner) && (target === null || target === this.machine) && !(payload.to && typeof payload.to !== "string");
     if (local) {
       const id = `${this.idPrefix}-${++this.reqSeq}`;
@@ -591,7 +570,8 @@ export class Kernel {
     }
     if (!this.relay) return { ok: false, error: "disconnected" };
     const frame: Frame = { ...payload, type: name };
-    if (!this.byName.has(owner) && payload.to === undefined && payload.callsign === undefined && payload.machine === undefined) frame.to = owner;
+    // служба флота — .имя, даже если в запросе есть поля machine или callsign; keeper машины адресуется явно: .keeper@машина
+    if (!this.byName.has(owner) && owner !== "keeper" && payload.to === undefined) frame.to = `.${owner}`;
     // отказ несёт все поля reply владельца (missing, owner, creds…), без конверта
     const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame)) as Frame & Reply;
     return r as Result;
@@ -672,103 +652,7 @@ export class Kernel {
     return s;
   }
 
-  // ───────────── перезагрузка модулей ─────────────
-
-  reload(dir: string): Promise<ReloadResult> {
-    const p = this.reloadChain.then(() => this.doReload(dir));
-    this.reloadChain = p.catch(() => {});
-    return p;
-  }
-
-  private async doReload(dir: string): Promise<ReloadResult> {
-    const load = this.deps.loadRelease;
-    let rel: Release;
-    try {
-      if (!load) throw new Error("загрузчик выпусков не задан");
-      rel = await load(dir);
-    } catch (e) {
-      const why = `${dir}: ${(e as Error).message}`;
-      this.log("core", { kind: "refuse", ev: "reload", word: "check_failed", why });
-      return { ok: false, error: "check_failed", why };
-    }
-    if (rel.core !== this.release.core || rel.sdk !== this.release.sdk) {
-      const why = `ядро ${this.release.core} → ${rel.core}, SDK ${this.release.sdk} → ${rel.sdk}`;
-      this.log("core", { kind: "refuse", ev: "reload", word: "core_changed", why: `${rel.version}: ${why} — нужен новый Host через keeper` });
-      return { ok: false, error: "core_changed", why };
-    }
-    const errors = gate(this.deps.core, rel.modules, !!this.deps.config.workers?.relay);
-    if (errors.length) {
-      const why = errors.join("; ");
-      this.log("core", { kind: "refuse", ev: "reload", word: "check_failed", why: `${rel.version}: ${why}` });
-      return { ok: false, error: "check_failed", why };
-    }
-    const from = this.version;
-    const old = new Map(this.mods.map((m) => [m.name, m]));
-    const next = new Map(rel.modules.map((e) => [e.manifest.name, e]));
-    const changed = new Set<string>();
-    for (const [n, m] of old) if (next.get(n)?.manifest.version !== m.manifest.version) changed.add(n);
-    for (const n of next.keys()) if (!old.has(n)) changed.add(n);
-    const modules: Record<string, [string | null, string | null]> = {};
-    for (const n of changed) modules[n] = [old.get(n)?.manifest.version ?? null, next.get(n)?.manifest.version ?? null];
-    const provBefore = JSON.stringify(this.contract());
-
-    // окно: вызовы перезагружаемых модулей ждут в ядре
-    let open!: () => void;
-    const window = new Promise<void>((r) => (open = r));
-    for (const n of changed) this.reloading.set(n, window);
-    // прежние версии — штатная остановка, в обратном порядке списка
-    for (const m of [...this.mods].reverse()) {
-      if (!changed.has(m.name) || !m.module.stop) continue;
-      await this.callDirect(m, "stop", () => m.module.stop!());
-    }
-    this.mods = rel.modules.map((e) => (changed.has(e.manifest.name) ? new Mod(e.manifest, e.module, ++this.seq) : old.get(e.manifest.name)!));
-    this.byName = new Map(this.mods.map((m) => [m.name, m]));
-    for (const s of this.sessions.values()) for (const n of changed) s.failed.delete(n);
-    this.index();
-    this.release = { ...rel, dir: this.release.dir };
-    // новые версии поднимают своё из того же хранилища, по порядку списка
-    const failedStart: string[] = [];
-    for (const m of this.mods) {
-      if (!changed.has(m.name) || !m.module.start) continue;
-      const okStart = await this.callDirect(m, "start", () => m.module.start!(this.hostFacade(m)));
-      if (!okStart) failedStart.push(m.name);
-    }
-    // вклады — в живые сессии
-    const later: string[] = [];
-    for (const s of this.sessions.values()) {
-      if (!s.q) continue;
-      const rest = await s.applyParts(changed);
-      if (rest.length) {
-        later.push(s.callsign);
-        this.log("core", { ev: "reload_later", callsign: s.callsign, why: `${rest.join(", ")} — со следующего старта ${s.callsign}` });
-      }
-    }
-    // новые версии видят живые сессии как после перезапуска Host: start, затем on.open
-    for (const m of this.mods) {
-      if (!changed.has(m.name) || !m.module.on?.open) continue;
-      for (const s of this.sessions.values()) if (s.q && s.ready) this.call(m.name, "on.open", s, (x, mod) => x.on!.open!(s.facade(mod)), () => undefined);
-    }
-    // окно закрыто: ждавшие вызовы идут новой версии по порядку
-    for (const n of changed) this.reloading.delete(n);
-    open();
-    // ждущие человека decide и elicit прежней версии — новой заново, с тем же toolUseID
-    for (const s of this.sessions.values()) for (const p of [...s.pending]) if (changed.has(p.mod)) p.run();
-    if (JSON.stringify(this.contract()) !== provBefore) this.rehello();
-    // ждавшие вызовы уже у новой версии — поля с их следами
-    await new Promise((r) => setImmediate(r));
-    for (const s of this.sessions.values()) s.push();
-
-    if (failedStart.length) {
-      const why = failedStart.map((n) => `${n}: ${this.byName.get(n)?.down}`).join("; ");
-      this.log("core", { kind: "stop", ev: "reload", word: MODULE_ERROR, why: `${rel.version}: ${why}; ready не послан` });
-      return { ok: false, error: "module_error", why };
-    }
-    const r = await this.keeper.send({ op: "ready", version: rel.version });
-    this.log("core", { ev: "reload", from, to: rel.version, modules, later, ...(r.ok ? {} : { word: r.error }) });
-    return { ok: true, result: { from, to: rel.version, modules, later } };
-  }
-
-  /** start()/stop() версии модуля мимо окна перезагрузки — сама перезагрузка их и зовёт. */
+  /** start()/stop() модуля при остановке Host. */
   private async callDirect(m: Mod, where: "start" | "stop", fn: () => unknown): Promise<boolean> {
     try {
       await this.als.run({ mod: m.name, sess: null }, fn);
@@ -782,8 +666,8 @@ export class Kernel {
   // ───────────── штатная остановка ─────────────
 
   /**
-   * upgrade: новые запросы — shutting_down, начатые доводятся, stop() модулей, процессы claude живут у keeper.
-   * machine: то же, но сначала каждая сессия — interrupt → result → close().
+   * Ввод Host закрыт (keeper меняет версию) или сигнал ОС: новые запросы — shutting_down, начатые доводятся,
+   * stop() модулей; процессы claude живут у своих держателей, новый Host подключится к ним.
    */
   shutdown(reason: string): Promise<void> {
     if (this.shutting) return this.shutting;
@@ -791,15 +675,14 @@ export class Kernel {
       this.log("core", { ev: "shutdown", why: `остановка: ${reason}` });
       this.abort.abort();
       await Promise.allSettled([...this.inflight]);
-      if (reason === "machine") await Promise.all([...this.sessions.values()].map((s) => s.shutdown(true)));
-      else for (const s of this.sessions.values()) void s.shutdown(false);
+      for (const s of this.sessions.values()) s.shutdown();
       for (const m of [...this.mods].reverse()) {
         if (!m.module.stop || m.down) continue;
         await this.callDirect(m, "stop", () => m.module.stop!());
       }
       for (const q of this.probes) q.close();
       this.relay?.close(1000, "shutting_down");
-      this.keeper.close();
+      this.holders.close();
       this.log("core", { ev: "exit", why: `выход 0 · ${reason}` });
       this.deps.exit?.(0);
     })();

@@ -11,6 +11,7 @@ declare namespace Cloudflare {
     GATE: import("@switchboard/gate").GateApi & { setMode(m: string): Promise<void>; calls(): Promise<string[]>; clear(): Promise<void> };
     PROTO: number[];
     PARTICIPANTS: Record<string, string>;
+    OWNER: string;
     PUSH: Ctl;
     LEDGER: Ctl;
     AUDIT: Ctl;

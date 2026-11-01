@@ -183,7 +183,7 @@ export async function bench(o: {
   git?: Git;
   failOpen?: string;
   sessions?: Array<{ callsign: string; session_id?: string; cwd?: string }>;
-  keeper?: stand.FakeKeeper;
+  holders?: stand.FakeHolders;
   /** реестр, заполненный до старта Host */
   reg?: FakeRegistry;
   /** roster после hello придержан — связь с relay приходит позже подъёма сессий */
@@ -214,7 +214,7 @@ export async function bench(o: {
     home: o.home,
     machine,
     sessions: o.sessions,
-    keeper: o.keeper,
+    holders: o.holders,
     relayStand: relay,
     start: false,
     modules: [

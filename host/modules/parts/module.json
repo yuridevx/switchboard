@@ -1,0 +1,17 @@
+{
+  "name": "host-parts",
+  "type": "sdk",
+  "version": "1.0.0",
+  "provides": {},
+  "uses": {
+    "host.module@host": 1,
+    "releases.list@releases": 1,
+    "releases.upload@releases": 1,
+    "releases.deploy@releases": 1,
+    "releases.set@releases": 1,
+    "keeper.state@keeper": 1,
+    "machine.journal@host-journal": 1
+  },
+  "calls": [],
+  "config": {}
+}

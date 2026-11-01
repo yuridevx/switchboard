@@ -1,13 +1,12 @@
-// pult-machines — машины флота из roster: система и версии, профили, обновление Host, приложение GitHub.
-// Каждая цифра — ответ машины или roster; новую версию выбирает машина (machine.upgrade, version: "latest").
+// pult-machines — машины флота из roster: части машины по ответу её keeper (keeper.state), профили, приложение GitHub.
+// Каждая цифра — ответ keeper, машины или roster. Машина следует плану «выпусков»: своей кнопки обновления нет.
 import { add, h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
-type State = { host?: string; sdk?: string; os?: { platform?: string; arch?: string; release?: string }; started?: string; processes?: unknown[] };
-type Dry = { from: string; to: string };
+type Part = { part: string; version?: string; pin?: string; state?: string; pid?: number; restarts?: number; error?: string };
+type State = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
 type Repo = { state: "ok" | "error" | "conflict"; op?: string; files?: string[]; error?: string; since?: number };
 type Profiles = { profiles: Record<string, unknown>; repos: Record<string, Repo> };
-type Upg = { from: string; to: string; sdk?: { from: string; to: string }; phase: "sent" | "gone" | "done"; goneAt?: number };
 type Gh = { app: { slug: string; id?: number; owner?: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: Record<string, unknown> } };
 
 const CSS = `
@@ -17,18 +16,12 @@ const CSS = `
 .mc-kv{display:grid;grid-template-columns:90px minmax(0,1fr);gap:4px 10px;font-size:13px}
 .mc-kv span:nth-child(odd){color:var(--muted)}
 .mc-kv span:nth-child(even){font-family:var(--mono);font-size:12.5px}
+.mc-kv span.bad{color:var(--bad)}
 `;
 
-const OS: Record<string, string> = { win32: "Windows", linux: "Linux", darwin: "macOS" };
-/** Слова отказа upgrade → строка на экране. */
-function say(w: string, m: string, to?: string): string {
+/** Слова отказа → строка на экране. */
+function say(w: string): string {
   const t: Record<string, string> = {
-    already_current: `${m} уже на ${to ?? "новейшем выпуске"}`,
-    upgrade_running: `На ${m} уже идёт обновление`,
-    check_failed: `Новая версия не прошла проверку — причина в журнале машины; ${m} работает на прежней`,
-    download_failed: "Выпуск не скачался из R2 — причина в журнале машины",
-    module_error: "Новая версия модуля не поднялась — модуль выключен на машине, причина в журнале",
-    no_release: "В R2 нет выпуска Host",
     not_installed: "Приложение GitHub не допущено к репозиторию",
     app_exists: "Приложение GitHub флота уже есть",
   };
@@ -39,10 +32,10 @@ function say(w: string, m: string, to?: string): string {
 export function createMachines(): AppModule {
   let app: App;
   const states = new Map<string, State | { error: string }>();
-  const dry = new Map<string, Dry | { error: string }>();
   const profs = new Map<string, Profiles>();
-  const upg = new Map<string, Upg>();
   const notes = new Map<string, { text: string; tone: string }>();
+  /** since машины в последнем roster: вернулась — keeper спрашиваем заново */
+  const seen = new Map<string, number>();
   let gh: Gh | { error: string } | null = null;
   let ghCode = "";
   const screens = new Set<() => void>();
@@ -56,8 +49,8 @@ export function createMachines(): AppModule {
 
   async function load(m: string) {
     const jobs: Array<Promise<void>> = [];
-    if (can(m, "machine.state")) jobs.push(app.request<State>("machine.state", { machine: m }).then((r) => void states.set(m, r.ok ? r.result : { error: r.error })));
-    if (can(m, "machine.upgrade")) jobs.push(app.request<Dry>("machine.upgrade", { machine: m, version: "latest", dryRun: true }).then((r) => void dry.set(m, r.ok ? r.result : { error: r.error })));
+    // keeper машины отвечает сам, даже когда Host мёртв
+    jobs.push(app.request<State>("keeper.state", { to: `.keeper@${m}` }).then((r) => void states.set(m, r.ok ? r.result : { error: r.error })));
     if (can(m, "machine.profiles")) jobs.push(app.request<Profiles>("machine.profiles", { machine: m }).then((r) => void (r.ok && profs.set(m, r.result))));
     await Promise.all(jobs);
     redraw();
@@ -70,26 +63,12 @@ export function createMachines(): AppModule {
     redraw();
   }
 
-  /** Машина обновляется: ушла из roster — «обновляется»; вернулась (новое since) — снова machine.state. */
   function onRoster(r: Roster) {
-    const on = new Map(r.machines.map((m) => [m.machine, m.since]));
-    for (const [m, u] of upg) {
-      if (u.phase === "sent" && !on.has(m)) Object.assign(u, { phase: "gone", goneAt: Date.now() });
-      else if (u.phase === "gone" && on.has(m)) {
-        u.phase = "done";
-        void load(m);
-      }
+    for (const m of r.machines) {
+      if (seen.has(m.machine) && seen.get(m.machine) !== m.since) void load(m.machine);
+      seen.set(m.machine, m.since);
     }
     redraw();
-  }
-
-  async function upgrade(m: string) {
-    note(`upg:${m}`, "Отправляю…");
-    const r = await app.request<{ from: string; to: string; sdk?: { from: string; to: string } }>("machine.upgrade", { machine: m, version: "latest" });
-    const d = dry.get(m);
-    if (!r.ok) return note(`upg:${m}`, say(r.error, m, d && "to" in d ? d.to : undefined), "bad");
-    upg.set(m, { ...r.result, phase: app.provides(m) ? "sent" : "gone", goneAt: app.provides(m) ? undefined : Date.now() });
-    note(`upg:${m}`, "");
   }
 
   async function sync(m: string) {
@@ -103,7 +82,7 @@ export function createMachines(): AppModule {
   async function setup() {
     note("gh", "Сохраняю приложение…");
     const r = await app.request<{ app: { slug: string }; install: string }>("github.setup", { code: ghCode });
-    if (!r.ok) return note("gh", say(r.error, ""), "bad");
+    if (!r.ok) return note("gh", say(r.error), "bad");
     ghCode = "";
     history.replaceState(null, "", location.pathname + location.hash);
     gh = { app: r.result.app, install: r.result.install, repos: [] };
@@ -114,7 +93,7 @@ export function createMachines(): AppModule {
     let form = gh && "form" in gh ? gh.form : undefined;
     if (org) {
       const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname, org });
-      if (!r.ok) return note("gh", say(r.error, ""), "bad");
+      if (!r.ok) return note("gh", say(r.error), "bad");
       form = r.result.form;
     }
     if (!form) return;
@@ -127,49 +106,42 @@ export function createMachines(): AppModule {
   function mount(el: HTMLElement): ScreenHandle {
     const box = h("div", { class: "sb-page" });
     el.append(box);
-    let dlg = "";
     let org = "";
 
     function card(m: string): HTMLElement {
       const rm = app.roster()?.machines.find((x) => x.machine === m);
       const st = states.get(m);
-      const d = dry.get(m);
-      const u = upg.get(m);
       const pr = profs.get(m);
       const n = (app.roster()?.sessions ?? []).filter((s) => machineOf(s.callsign) === m).length;
       const ok = st && !("error" in st) ? st : null;
-      const newer = d && !("error" in d) && d.to !== d.from ? d : null;
-      const sameSdk = !u?.sdk || u.sdk.from === u.sdk.to;
       return h(
         "section",
         { class: "sb-sec", "data-machine": m },
-        h("div", { class: "mc-hd" }, h("b", null, m), rm ? h("span", { class: "sb-pill ok conn" }, "на связи") : h("span", { class: "sb-pill bad" }, "нет в roster"), h("span", { class: "sb-note" }, rm ? `с ${hhmm(rm.since)}` : u?.goneAt ? `с ${hhmm(u.goneAt)}` : "")),
-        u?.phase === "sent" || u?.phase === "gone"
-          ? h(
-              "div",
-              { class: "sb-sec wait", "data-upg": u.phase },
-              h("b", null, u.phase === "gone" ? `${m} обновляется: ${u.from} → ${u.to}` : `Обновление ${u.from} → ${u.to}`),
-              h("span", { class: "sb-note" }, sameSdk ? `SDK тот же — ${u.sdk?.to ?? "?"}: keeper подменяет Host, процессы claude живут, начатые ходы доходят. Машина вернётся в roster сама.` : "SDK новая — каждая сессия перейдёт на неё между ходами, разговор сохранится."),
-            )
-          : null,
-        u?.phase === "done" ? h("div", { class: "sb-sec ok", "data-upg": "done" }, h("b", null, `${m}: ${u.from} → ${u.to}`), h("span", { class: "sb-note" }, sameSdk ? "Сессии не останавливались." : "Сессии перешли на новую SDK между ходами.")) : null,
+        h("div", { class: "mc-hd" }, h("b", null, m), rm ? h("span", { class: "sb-pill ok conn" }, "на связи") : h("span", { class: "sb-pill bad" }, "нет в roster"), h("span", { class: "sb-note" }, rm ? `с ${hhmm(rm.since)}` : "")),
         ok
           ? h(
               "div",
               { class: "mc-kv" },
               h("span", null, "система"),
-              h("span", null, [OS[ok.os?.platform ?? ""] ?? ok.os?.platform, ok.os?.arch].filter(Boolean).join(" ") + (ok.os?.release ? ` · ${ok.os.release}` : "")),
-              h("span", null, "Host"),
-              h("span", { "data-host": ok.host ?? "" }, `${ok.host ?? "?"} · SDK ${ok.sdk ?? "?"}`),
+              h("span", null, ok.os ?? "?"),
+              h("span", null, "keeper"),
+              h("span", { "data-keeper": ok.keeper ?? "" }, `${ok.keeper ?? "?"} · план rev ${ok.rev ?? 0}`),
               h("span", null, "сессии"),
-              h("span", null, `${n} · процессов у keeper: ${ok.processes?.length ?? 0}`),
+              h("span", null, String(n)),
+              ...(ok.parts ?? []).flatMap((p) => [
+                h("span", null, p.part),
+                h(
+                  "span",
+                  { "data-part": p.part, "data-state": p.state ?? "", class: p.state === "failed" ? "bad" : "" },
+                  [p.version, p.pin ? "закреплена" : "", p.state, p.pid ? `pid ${p.pid}` : "", p.error ?? ""].filter(Boolean).join(" · "),
+                ),
+              ]),
             )
           : st && "error" in st
-            ? h("div", { class: "sb-note bad" }, `machine.state: ${st.error}`)
+            ? h("div", { class: "sb-note bad" }, `keeper.state: ${st.error}`)
             : rm
               ? h("div", { class: "sb-note" }, "…")
               : null,
-        newer && rm && u?.phase !== "sent" ? h("div", { class: "sb-note wait", "data-newer": newer.to }, `есть новая версия · ${newer.to}`) : null,
         pr
           ? h(
               "div",
@@ -188,24 +160,11 @@ export function createMachines(): AppModule {
               h("span", { class: "sb-note" }, s.state === "conflict" ? `${s.op ?? "git pull"}: CONFLICT в ${(s.files ?? []).join(", ")}. Сессии профиля получат задание свести.` : (s.error ?? "")),
             ),
           ),
-        dlg === m && newer
-          ? h(
-              "div",
-              { class: "sb-sec dlg", "data-dlg": "upgrade" },
-              h("h4", { class: "sb-h4" }, `Обновить Host на ${m}`),
-              h("b", null, `${newer.from} → ${newer.to}`),
-              h("span", { class: "sb-note" }, "новейший выпуск в R2 — его выложил локальный агент или выпуск GitHub; машина берёт его оттуда сама"),
-              h("span", { class: "sb-note" }, "SDK та же — сессии не заметят обновления. SDK новая — каждая сессия перейдёт на неё между ходами, разговор сохранится."),
-              h("div", { class: "sb-opts" }, h("button", { class: "sb-b", onclick: () => ((dlg = ""), draw()) }, "Отмена"), h("button", { class: "sb-b pri", onclick: () => ((dlg = ""), void upgrade(m)) }, "Обновить")),
-            )
-          : null,
-        notes.get(`upg:${m}`)?.text ? h("div", { class: `sb-note ${notes.get(`upg:${m}`)!.tone}`, role: "status" }, notes.get(`upg:${m}`)!.text) : null,
         notes.get(`sync:${m}`)?.text ? h("div", { class: `sb-note ${notes.get(`sync:${m}`)!.tone}` }, notes.get(`sync:${m}`)!.text) : null,
         rm
           ? h(
               "div",
               { class: "sb-opts" },
-              newer && can(m, "machine.upgrade") && u?.phase !== "sent" ? h("button", { class: "sb-b pri", onclick: () => ((dlg = m), draw()) }, `Обновить до ${newer.to}`) : null,
               can(m, "machine.login") ? h("button", { class: "sb-b", onclick: () => app.open("accounts", { machine: m }) }, "+ Аккаунт") : null,
               can(m, "machine.profiles") ? h("button", { class: "sb-b", onclick: () => void sync(m) }, "Синхронизировать профили") : null,
             )
@@ -235,12 +194,10 @@ export function createMachines(): AppModule {
       const keep = document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : undefined;
       box.textContent = "";
       const on = (app.roster()?.machines ?? []).map((m) => m.machine);
-      const gone = [...upg.keys()].filter((m) => !on.includes(m));
-      const latest = [...dry.values()].filter((d): d is Dry => !("error" in d)).map((d) => d.to).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))[0];
       add(
         box,
-        h("div", { class: "sb-ph" }, h("h2", null, "Машины"), latest ? h("span", { class: "sb-note" }, `новейший выпуск Host в R2: ${latest}`) : null),
-        h("div", { class: "mc-cards" }, [...on, ...gone].map(card)),
+        h("div", { class: "sb-ph" }, h("h2", null, "Машины"), h("span", { class: "sb-note" }, "версии частей задаёт план «выпусков» — инструменты parts в любой сессии")),
+        h("div", { class: "mc-cards" }, on.map(card)),
         ghSection(),
         h("div", { class: "sb-note" }, `${on.length} ${plural(on.length, "машина", "машины", "машин")} на связи. Список — машины из roster; когда машина ушла и вернулась — в «Журнале флота».`),
       );

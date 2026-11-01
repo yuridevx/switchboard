@@ -33,6 +33,7 @@ export type SessionRecord = { callsign: string; state?: string | null; [field: s
 /**
  * hello — первый кадр соединения. key — ключ флота role.name.kid.sig.
  * Host шлёт ещё sdk, contract (provides модулей) и sessions; клиент — только key и proto.
+ * keeper машины входит ключом машины и шлёт part: "keeper" — его адрес .keeper@машина, в roster его нет.
  */
 export type HelloFrame = {
   type: "hello";
@@ -41,6 +42,8 @@ export type HelloFrame = {
   sdk?: string;
   contract?: Record<string, number>;
   sessions?: SessionRecord[];
+  /** часть машины, которая входит ключом машины: keeper */
+  part?: "keeper";
 };
 
 /**

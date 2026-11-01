@@ -1,4 +1,4 @@
-// Вход участника рации push: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: "push".
+// Вход участника рации push: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: ".push".
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Frame } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";

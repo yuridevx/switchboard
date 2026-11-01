@@ -1,6 +1,6 @@
 // Клиент link: соединение с relay по wss. Им пользуются ядро Host, веб-приложения и скрипты.
 // Работает в Node 24 (глобальный WebSocket) и в браузере; в тестах WebSocket подставляется.
-import { fail, isReply, machineOf, parseFrame } from "@switchboard/protocol";
+import { fail, isReply, kindOf, machineOf, parseFrame } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
 
@@ -81,8 +81,17 @@ type Pending = { resolve: (r: Reply) => void; target: Target; since?: number; pr
 /** Адресат запроса, чей уход из roster означает: ответа не будет. */
 function targetOf(f: Frame): Target {
   if (typeof f.to === "string") {
-    const m = machineOf(f.to);
-    return m ? { machine: m } : { name: f.to };
+    switch (kindOf(f.to)) {
+      case "machine":
+      case "session":
+        return { machine: machineOf(f.to)! };
+      case "service":
+      case "device":
+        return { name: f.to };
+      default:
+        // часть машины и пользователь в roster не видны: ответ или offline даст relay
+        return null;
+    }
   }
   if (f.to !== undefined) return null;
   if (typeof f.callsign === "string") {
@@ -98,7 +107,7 @@ function sinceOf(r: Roster | null, machine: string): number | undefined {
 }
 
 function hasName(r: Roster | null, name: string): boolean {
-  return !!r && (r.clients.includes(name) || r.workers.some((w) => w.name === name));
+  return !!r && (r.clients.includes(name) || r.workers.some((w) => `.${w.name}` === name));
 }
 
 /** Открыть связь с relay. Подключается сразу; дальше живёт сама до close() или отказа relay. */

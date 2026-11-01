@@ -11,6 +11,6 @@
   "host-manage",
   "host-points",
   "host-machine",
-  "host-upgrade",
-  "host-remote"
+  "host-remote",
+  "host-parts"
 ]

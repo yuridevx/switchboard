@@ -1,8 +1,10 @@
-// Точка входа Host. Запускает keeper: первая строка ввода — { keeper, key } (адрес и ключ — не в аргументах и не в файле).
-// Конфиг — ~/.switchboard/host.json (папка — SWITCHBOARD_HOME), ключ машины для relay — файл из host.json или SWITCHBOARD_KEY.
+// Точка входа Host — часть машины, её запускает keeper. Ввод закрылся или сигнал ОС — штатный выход,
+// процессы claude остаются у своих держателей. От keeper — окружение: SWITCHBOARD_MACHINE, SWITCHBOARD_RELAY,
+// SWITCHBOARD_HOLDER (файл держателя), SWITCHBOARD_HOME. Ключ машины — ~/.switchboard/machine.key;
+// разделы модулей — ~/.switchboard/host.json { "modules": {…} }, файла нет — модули без настроек.
 // node main.ts --check — гейт выпуска отдельным процессом, без relay, keeper, хранилища и claude.
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -11,31 +13,13 @@ import { PROTO } from "@switchboard/relay";
 import type { Manifest } from "./contract.ts";
 import { Kernel, StartError } from "./src/kernel.ts";
 import type { HostConfig, SdkApi } from "./src/kernel.ts";
-import { parseKeeperLine } from "./src/keeper.ts";
+import { realHolders } from "./src/holders.ts";
 import { gate } from "./src/registry.ts";
 import { claudePath, loadRelease } from "./src/release.ts";
 
 const coreDir = dirname(fileURLToPath(import.meta.url));
 const core = JSON.parse(readFileSync(join(coreDir, "module.json"), "utf8")) as Manifest;
 const home = process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
-const tilde = (p: string) => (p.startsWith("~/") ? join(homedir(), p.slice(2)) : p);
-
-/** Первая строка ввода. */
-function firstLine(): Promise<string> {
-  return new Promise((res, rej) => {
-    let buf = "";
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (d: string) => {
-      buf += d;
-      const i = buf.indexOf("\n");
-      if (i >= 0) {
-        process.stdin.pause();
-        res(buf.slice(0, i));
-      }
-    });
-    process.stdin.on("end", () => (buf ? res(buf) : rej(new Error("ввод закрыт без строки keeper"))));
-  });
-}
 
 async function check(): Promise<number> {
   try {
@@ -69,10 +53,17 @@ function cli(bin: string | undefined): SdkApi["cli"] {
 
 async function main(): Promise<number> {
   if (process.argv.includes("--check")) return check();
-  const keeper = parseKeeperLine(await firstLine());
-  const config = JSON.parse(readFileSync(join(home, "host.json"), "utf8")) as HostConfig;
-  const relay = config.workers?.relay;
-  const relayKey = process.env.SWITCHBOARD_KEY ?? (relay?.key ? readFileSync(tilde(relay.key), "utf8").trim() : undefined);
+  const machine = process.env.SWITCHBOARD_MACHINE;
+  if (!machine) {
+    console.error("host: нет SWITCHBOARD_MACHINE — Host запускает keeper");
+    return 1;
+  }
+  const file = join(home, "host.json");
+  const modules = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { modules?: Record<string, unknown> }).modules : undefined;
+  const url = process.env.SWITCHBOARD_RELAY;
+  const config: HostConfig = { machine, workers: url ? { relay: { url } } : undefined, modules };
+  const keyFile = join(home, "machine.key");
+  const relayKey = existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim() : undefined;
   const release = await loadRelease(coreDir);
   const functions: SdkApi["functions"] = {};
   for (const [n, f] of Object.entries(sdk)) if (typeof f === "function") functions[n] = f as (...a: unknown[]) => Promise<unknown>;
@@ -82,14 +73,16 @@ async function main(): Promise<number> {
     core,
     release,
     sdk: { query: sdk.query, functions, cli: cli(claudePath(coreDir)) },
-    keeper,
+    holders: realHolders(home, process.env.SWITCHBOARD_HOLDER),
     relayKey,
-    loadRelease,
     exit: (code) => process.exit(code),
   });
-  // сигнал ОС — как обновление: процессы claude остаются у keeper
-  process.on("SIGTERM", () => void k.shutdown("upgrade"));
-  process.on("SIGINT", () => void k.shutdown("upgrade"));
+  // ввод закрыт или сигнал ОС — штатный выход: процессы claude остаются у своих держателей
+  process.stdin.on("end", () => void k.shutdown("ввод закрыт"));
+  process.stdin.on("error", () => void k.shutdown("ввод закрыт"));
+  process.stdin.resume();
+  process.on("SIGTERM", () => void k.shutdown("SIGTERM"));
+  process.on("SIGINT", () => void k.shutdown("SIGINT"));
   try {
     await k.start();
   } catch (e) {

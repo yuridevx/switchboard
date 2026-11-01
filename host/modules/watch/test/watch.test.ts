@@ -6,11 +6,11 @@ import type { Frame, Manifest, Module } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, WINDOW_MS } from "../src/watch.ts";
 
-const { FakeKeeper, module, msg, standHost, turn, until } = stand;
+const { FakeHolders, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
 
 const stands: Stand[] = [];
-const keepers: stand.FakeKeeper[] = [];
+const keepers: stand.FakeHolders[] = [];
 afterEach(async () => {
   vi.useRealTimers();
   for (const s of stands.splice(0)) await s.close();
@@ -46,7 +46,7 @@ describe("эталоны watch", () => {
     vi.advanceTimersByTime(WINDOW_MS * 5);
     expect(events(st)).toHaveLength(0);
 
-    expect(await watch(st, "session.watch", "panel-desk")).toMatchObject({ ok: true });
+    expect(await watch(st, "session.watch", "panel-desk~owner@example.com")).toMatchObject({ ok: true });
     turn(p, "раз");
     await until(() => seen.length === 8);
     vi.advanceTimersByTime(WINDOW_MS - 1);
@@ -63,14 +63,14 @@ describe("эталоны watch", () => {
     vi.advanceTimersByTime(WINDOW_MS);
     const fr = events(st);
     expect(fr.map((f) => f.seq)).toEqual([1, 2, 3]);
-    for (const f of fr) expect(f).toMatchObject({ type: "session.events", v: 1, from: "site@laptop", to: ["panel-desk"] });
+    for (const f of fr) expect(f).toMatchObject({ type: "session.events", v: 1, from: "site@laptop", to: ["panel-desk~owner@example.com"] });
     expect(fr.map((f) => (f.events as Array<{ type: string }>).map((e) => e.type))).toEqual([
       ["system", "assistant", "result", "system"],
       ["system", "assistant"],
       ["result"],
     ]);
 
-    expect(await watch(st, "session.unwatch", "panel-desk")).toMatchObject({ ok: true });
+    expect(await watch(st, "session.unwatch", "panel-desk~owner@example.com")).toMatchObject({ ok: true });
     turn(p, "после");
     await until(() => seen.length === 15);
     vi.advanceTimersByTime(WINDOW_MS * 5);
@@ -81,18 +81,18 @@ describe("эталоны watch", () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { st, seen } = await bench();
     const s = await st.open("site@laptop");
-    await watch(st, "session.watch", "panel-desk");
-    await watch(st, "session.watch", "phone");
+    await watch(st, "session.watch", "panel-desk~owner@example.com");
+    await watch(st, "session.watch", "phone~owner@example.com");
     const store = () => st.session("host-watch", "site@laptop")!.store<string[]>().get();
-    expect(store()).toEqual(["panel-desk", "phone"]);
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone"], workers: [] });
+    expect(store()).toEqual(["panel-desk~owner@example.com", "phone~owner@example.com"]);
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] });
     await until(() => store()?.length === 1);
-    expect(store()).toEqual(["phone"]);
+    expect(store()).toEqual(["phone~owner@example.com"]);
     const p = st.proc("site@laptop");
     turn(p);
     await until(() => seen.length === 4);
     vi.advanceTimersByTime(WINDOW_MS);
-    expect(events(st).map((f) => f.to)).toEqual([["phone"]]);
+    expect(events(st).map((f) => f.to)).toEqual([["phone~owner@example.com"]]);
     // открытая пачка, потом уходит phone
     p.send(msg.state("running"));
     await until(() => seen.length === 5);
@@ -104,11 +104,11 @@ describe("эталоны watch", () => {
   });
 
   it("81 · Host убит посреди хода, новый сделал attach: кадры panel-desk без нового watch, seq снова с 1", async () => {
-    const k = await new FakeKeeper().listen();
+    const k = new FakeHolders();
     keepers.push(k);
-    const a = await bench({ keeper: k });
+    const a = await bench({ holders: k });
     await a.st.open("site@laptop");
-    await watch(a.st, "session.watch", "panel-desk");
+    await watch(a.st, "session.watch", "panel-desk~owner@example.com");
     const p = a.st.proc("site@laptop");
     p.send(msg.state("running"));
     p.send(msg.assistant("шаг 1"));
@@ -119,10 +119,10 @@ describe("эталоны watch", () => {
     p.send(msg.assistant("шаг 2"));
     p.send(msg.result());
     p.send(msg.state("idle"));
-    const b = await bench({ keeper: k, home: a.st.home });
+    const b = await bench({ holders: k, home: a.st.home });
     await until(() => b.seen.includes("result"));
     const fr = await until(() => events(b.st)[0]);
-    expect(fr).toMatchObject({ to: ["panel-desk"], seq: 1, from: "site@laptop" });
+    expect(fr).toMatchObject({ to: ["panel-desk~owner@example.com"], seq: 1, from: "site@laptop" });
     const got = events(b.st).flatMap((f) => (f.events as Array<{ type: string }>).map((e) => e.type));
     expect(got).toEqual(["assistant", "result", "system"]);
     expect(b.st.relay.frames("session.watch")).toHaveLength(0);
@@ -133,16 +133,16 @@ describe("эталоны watch", () => {
     const q = module("host-questions", {}, { uses: { "session.watchers@host-watch": 1 } });
     const { st } = await bench({ modules: [q] });
     await st.open("site@laptop");
-    await watch(st, "session.watch", "panel-desk");
-    await watch(st, "session.watch", "phone");
-    await watch(st, "session.unwatch", "phone");
+    await watch(st, "session.watch", "panel-desk~owner@example.com");
+    await watch(st, "session.watch", "phone~owner@example.com");
+    await watch(st, "session.unwatch", "phone~owner@example.com");
     const h = st.host("host-questions");
     asked.push(await h.request("session.watchers", { v: 1, callsign: "site@laptop" }));
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone"], workers: [] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] });
     await until(() => st.session("host-watch", "site@laptop")!.store<string[]>().get()?.length === 0);
     asked.push(await h.request("session.watchers", { v: 1, callsign: "site@laptop" }));
     expect(asked).toEqual([
-      { ok: true, result: ["panel-desk"] },
+      { ok: true, result: ["panel-desk~owner@example.com"] },
       { ok: true, result: [] },
     ]);
   });
@@ -158,17 +158,17 @@ describe("watch: стыки", () => {
   it("повтор watch от того же зрителя ничего не меняет; сессии нет — offline от ядра", async () => {
     const { st } = await bench();
     await st.open("site@laptop");
-    await watch(st, "session.watch", "phone");
-    await watch(st, "session.watch", "phone");
-    expect(st.session("host-watch", "site@laptop")!.store<string[]>().get()).toEqual(["phone"]);
-    expect(await watch(st, "session.watch", "phone", "wiki@laptop")).toMatchObject({ ok: false, error: "offline" });
+    await watch(st, "session.watch", "phone~owner@example.com");
+    await watch(st, "session.watch", "phone~owner@example.com");
+    expect(st.session("host-watch", "site@laptop")!.store<string[]>().get()).toEqual(["phone~owner@example.com"]);
+    expect(await watch(st, "session.watch", "phone~owner@example.com", "wiki@laptop")).toMatchObject({ ok: false, error: "offline" });
   });
 
   it("штатная остановка досылает открытую пачку", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { st, seen } = await bench();
     await st.open("site@laptop");
-    await watch(st, "session.watch", "panel-desk");
+    await watch(st, "session.watch", "panel-desk~owner@example.com");
     st.proc("site@laptop").send(msg.state("running"));
     await until(() => seen.length === 1);
     await st.close();

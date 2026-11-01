@@ -2,7 +2,7 @@
 //
 // Модуль Host — пакет монорепо (host/modules/<имя>/) с module.json и contract.ts,
 // чей default export — объект Module. Ядро ничего не знает о функциях: оно ведёт сессии
-// (по одному query() Claude Agent SDK на сессию), держит соединения с keeper и relay,
+// (по одному query() Claude Agent SDK на сессию) с процессами у держателей, держит соединение с relay,
 // собирает вклады модулей и следит, чтобы у каждого имени был один владелец.
 //
 // Что модуль отдаёт ядру — интерфейс Module. Что ядро даёт модулю — Host и Session:
@@ -44,7 +44,7 @@ export const MODULE_CONTRACT = 1;
 /**
  * module.json модуля Host.
  * provides — имена, которыми модуль владеет: запросы, кадры (и входящие, и те, что он шлёт), поля roster.
- * uses — "имя@владелец": версия; владелец — модуль Host, keeper (list, upgrade) или Worker-модуль (через relay).
+ * uses — "имя@владелец": версия; владелец — модуль Host, keeper машины (через relay, to .keeper@машина) или Worker-модуль (через relay).
  * calls — методы query() и функции SDK сессии, которые модуль зовёт через s.sdk / p.sdk.
  * config — схема своего раздела host.json (host.config()).
  */
@@ -219,7 +219,7 @@ export type OpenSpec = {
 
 export type SessionSummary = { callsign: string; cwd: string; state: SessionState };
 
-/** Короткий claude без сессии: тот же закреплённый claude, свой env. Не в roster, не у keeper. */
+/** Короткий claude без сессии: тот же закреплённый claude, свой env. Не в roster, не у держателя. */
 export interface Probe {
   sdk(name: string, ...args: unknown[]): Promise<unknown>;
   close(): void;
@@ -235,10 +235,6 @@ export type LogRecord = {
   [k: string]: unknown;
 };
 
-export type ReloadResult =
-  | { ok: true; result: { from: string; to: string; modules: Record<string, [string | null, string | null]>; later: string[] } }
-  | { ok: false; error: "core_changed" | "check_failed" | "module_error"; why?: string };
-
 export interface Host {
   readonly machine: string;
   /** версия выпуска Host */
@@ -252,7 +248,7 @@ export interface Host {
   open(spec: OpenSpec): Promise<Session>;
   /**
    * Запрос по имени из своего uses или своего provides; payload — поля кадра с v.
-   * Владелец — модуль этой машины: вызов в процессе; keeper (list, upgrade); иначе — relay
+   * Владелец — модуль этой машины: вызов в процессе; иначе — relay
    * (другая машина по callsign/machine/to или Worker-модуль: to = имя владельца).
    * Имени нет в uses — ошибка модуля.
    */
@@ -267,8 +263,6 @@ export interface Host {
   probe(opts?: { env?: Record<string, string> }): Probe;
   /** Команда claude той же версии; secrets — только через env. */
   cli(args: string[], opts?: { env?: Record<string, string>; input?: string }): Promise<{ code: number | null; out: string }>;
-  /** Выпуск в живом Host: модули с тем же ядром и SDK перезагружаются без перезапуска Host и сессий. */
-  reload(dir: string): Promise<ReloadResult>;
 }
 
 // ───────────────────────── отказ словом ─────────────────────────
@@ -277,5 +271,5 @@ export { Refusal, refuse, isRefusal, REFUSAL } from "./src/refusal.ts";
 
 // ───────────────────────── стенд ─────────────────────────
 
-/** Стенд для тестов модулей: поддельные SDK, relay, keeper и часы. */
+/** Стенд для тестов модулей: поддельные SDK, relay, держатели и часы. */
 export * as stand from "./stand/index.ts";

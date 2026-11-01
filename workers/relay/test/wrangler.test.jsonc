@@ -14,6 +14,7 @@
   ],
   "vars": {
     "PROTO": [1],
-    "PARTICIPANTS": { "push": "PUSH", "ledger": "LEDGER", "audit": "AUDIT", "echo": "ECHO" }
+    "PARTICIPANTS": { "push": "PUSH", "ledger": "LEDGER", "audit": "AUDIT", "echo": "ECHO" },
+    "OWNER": "owner@example.com"
   }
 }

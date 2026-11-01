@@ -6,19 +6,19 @@ import type { Frame, Manifest, Module } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, wrap } from "../src/fleet.ts";
 
-const { FakeKeeper, module, msg, standHost, turn, until } = stand;
+const { FakeHolders, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
 
 const stands: Stand[] = [];
-const keepers: stand.FakeKeeper[] = [];
+const keepers: stand.FakeHolders[] = [];
 afterEach(async () => {
   for (const s of stands.splice(0)) await s.close();
   for (const k of keepers.splice(0)) await k.close();
 });
 
-async function bench(o: { machine?: string; keeper?: stand.FakeKeeper; home?: string; extra?: ReturnType<typeof module>[] } = {}) {
+async function bench(o: { machine?: string; holders?: stand.FakeHolders; home?: string; extra?: ReturnType<typeof module>[] } = {}) {
   const f = make();
-  const st = await standHost({ machine: o.machine, keeper: o.keeper, home: o.home, modules: [{ manifest: manifest as Manifest, module: f.module }, ...(o.extra ?? [])] });
+  const st = await standHost({ machine: o.machine, holders: o.holders, home: o.home, modules: [{ manifest: manifest as Manifest, module: f.module }, ...(o.extra ?? [])] });
   stands.push(st);
   /** Вызов инструмента MCP сессии me. */
   const call = async (me: string, name: string, args: Record<string, unknown>) => {
@@ -93,9 +93,9 @@ describe("эталоны fleet", () => {
   });
 
   it("71 · stop upgrade посреди хода, взятого по message с wait: новый message — shutting_down; скрипт — disconnected; ввод не тронут; новый Host не кладёт сообщение заново", async () => {
-    const k = await new FakeKeeper().listen();
+    const k = new FakeHolders();
     keepers.push(k);
-    const a = await bench({ machine: "pc", keeper: k });
+    const a = await bench({ machine: "pc", holders: k });
     await a.st.open("poe-bot@pc");
     const p = a.st.proc("poe-bot@pc");
     const waiting = a.st.relay.request({ type: "message", v: 1, from: "deploy", to: "poe-bot@pc", text: "Прогони эталоны", wait: true });
@@ -112,7 +112,7 @@ describe("эталоны fleet", () => {
     // ход дошёл до конца у keeper
     p.send(msg.result({ user_message_uuids: [p.inputs[0].uuid] }));
     p.send(msg.state("idle"));
-    const b = await bench({ machine: "pc", keeper: k, home: a.st.home });
+    const b = await bench({ machine: "pc", holders: k, home: a.st.home });
     await until(() => b.st.session("host-fleet", "poe-bot@pc")?.state === "idle");
     await new Promise((r) => setTimeout(r, 30));
     expect(p.inputs).toHaveLength(1);
@@ -157,7 +157,7 @@ describe("fleet: wait, инструменты и вклад", () => {
 
   it("fleet.list — выжимка последнего roster; до roster — disconnected", async () => {
     const { st: s2, call } = await bench();
-    s2.relay.deliver({ type: "roster", machines: [], sessions: [{ callsign: "poe-bot@pc", state: "busy", cost: 1 }, { callsign: "profiles@laptop", state: "idle" }], clients: ["phone", "panel-desk"], workers: [] });
+    s2.relay.deliver({ type: "roster", machines: [], sessions: [{ callsign: "poe-bot@pc", state: "busy", cost: 1 }, { callsign: "profiles@laptop", state: "idle" }], clients: ["phone~owner@example.com", "panel-desk~owner@example.com"], workers: [] });
     await new Promise((r) => setTimeout(r, 10));
     const r = await call("site@laptop", "list", {});
     expect(JSON.parse(r.content[0].text)).toEqual({
@@ -166,7 +166,7 @@ describe("fleet: wait, инструменты и вклад", () => {
         { callsign: "poe-bot@pc", state: "busy" },
         { callsign: "profiles@laptop", state: "idle" },
       ],
-      clients: ["phone", "panel-desk"],
+      clients: ["phone~owner@example.com", "panel-desk~owner@example.com"],
     });
     const fresh = make();
     await fresh.module.start!({} as never);
@@ -182,10 +182,10 @@ describe("fleet: wait, инструменты и вклад", () => {
     const { st, call } = await bench({ extra: [push, module("host-questions", questions)] });
     await st.open("site@laptop");
     await st.open("profiles@laptop");
-    expect(await call("site@laptop", "send", { to: "phone", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: phone" }] });
-    expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "phone", text: "Готово" }]);
+    expect(await call("site@laptop", "send", { to: "phone~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: phone~owner@example.com" }] });
+    expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "phone~owner@example.com", text: "Готово" }]);
     await until(() => notifies.length === 1);
-    expect(notifies[0]).toMatchObject({ v: 1, clients: ["phone"], frame: { type: "message", from: "site@laptop", notify: { title: "site@laptop", body: "Готово" } } });
+    expect(notifies[0]).toMatchObject({ v: 1, clients: ["phone~owner@example.com"], frame: { type: "message", from: "site@laptop", notify: { title: "site@laptop", body: "Готово" } } });
     const a = await call("site@laptop", "answer", { to: "profiles@laptop", question: "toolu_01Hq", answers: { "Какую базу мигрировать первой?": "стенд" } });
     expect(a.content[0].text).toBe("принято");
     expect(answers[0]).toMatchObject({ type: "answer", v: 1, callsign: "profiles@laptop", question: "toolu_01Hq", from: "site@laptop", answers: { "Какую базу мигрировать первой?": "стенд" } });

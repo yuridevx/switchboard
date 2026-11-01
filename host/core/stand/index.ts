@@ -1,4 +1,4 @@
-// Стенд Host для тестов ядра и модулей: поддельные SDK, relay, keeper и часы вокруг настоящего ядра.
+// Стенд Host для тестов ядра и модулей: поддельные SDK, relay, держатели и часы вокруг настоящего ядра.
 //
 //   import { stand } from "@switchboard/host";
 //   const st = await stand.standHost({ modules: [stand.module("host-cost", cost)] });
@@ -7,12 +7,12 @@
 //   const r = await st.relay.request({ type: "session.cost", v: 1, callsign: "site@laptop" });
 //   await st.close();
 export { FakeClock } from "./clock.ts";
-export { FakeKeeper, FakeProc } from "./keeper.ts";
+export { FakeHolders, FakeProc } from "./holders.ts";
 export { FakeRelay } from "./relay.ts";
 export { FakeQuery, FakeSdk } from "./sdk.ts";
 export { CORE, module, release, standHost, until } from "./host.ts";
 export type { Stand, StandOptions } from "./host.ts";
-import type { FakeProc } from "./keeper.ts";
+import type { FakeProc } from "./holders.ts";
 
 let uuid = 0;
 const u = () => `00000000-0000-4000-8000-${String(++uuid).padStart(12, "0")}`;

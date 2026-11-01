@@ -35,8 +35,8 @@ describe("полоса «Включить уведомления»", () => {
     expect(t.$(".al-card")!.textContent).toBe("Включить уведомленияСессии достучатся, когда приложение закрыто.Включить");
     await t.click(t.button("Включить"));
     expect(br.calls).toEqual(["register sw.js", "requestPermission", `subscribe ${b64url(key).length}`]);
-    expect(relay.sent("push.key")[0]).toMatchObject({ v: 1, to: "push" });
-    expect(relay.sent("push.subscribe")[0]).toMatchObject({ v: 1, to: "push", sub: { endpoint: "https://web.push.apple.com/QF3" } });
+    expect(relay.sent("push.key")[0]).toMatchObject({ v: 1, to: ".push" });
+    expect(relay.sent("push.subscribe")[0]).toMatchObject({ v: 1, to: ".push", sub: { endpoint: "https://web.push.apple.com/QF3" } });
     expect(t.$(".al-card")).toBeNull();
   });
 

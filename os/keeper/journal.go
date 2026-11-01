@@ -25,13 +25,24 @@ func newJournal(dir, machine string, echo io.Writer) *Journal {
 	return &Journal{dir: dir, machine: machine, echo: echo, now: time.Now, who: "keeper"}
 }
 
-// write — одна запись; kv — пары «поле, значение» в порядке записи.
+// write — одна запись; kv — пары «поле, значение» в порядке записи. Пара "part" — строка о части машины:
+// её имя встаёт в поле part записи вместо keeper.
 func (j *Journal) write(kind, ev string, kv ...any) {
 	t := j.now().UTC()
+	part := any("keeper")
+	rest := make([]any, 0, len(kv))
+	for i := 0; i+1 < len(kv); i += 2 {
+		if kv[i] == "part" {
+			part = kv[i+1]
+			continue
+		}
+		rest = append(rest, kv[i], kv[i+1])
+	}
+	kv = rest
 	var b bytes.Buffer
 	b.WriteByte('{')
 	field(&b, "t", t.Format("2006-01-02T15:04:05.000Z"), true)
-	field(&b, "part", "keeper", false)
+	field(&b, "part", part, false)
 	field(&b, "machine", j.machine, false)
 	field(&b, "who", j.who, false)
 	field(&b, "kind", kind, false)

@@ -6,6 +6,7 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Ctx, Frame, Host, Module, Result } from "@switchboard/host";
+import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
 type Roster = { sessions?: Array<{ callsign: string; state?: string | null }>; clients?: string[] };
@@ -48,10 +49,10 @@ export function make() {
       }),
       tool(
         "send",
-        "Написать сессии флота (callsign имя@машина) или клиенту (phone, panel-desk). Ответа адресата не ждёт.",
-        { to: z.string().describe("callsign сессии или имя клиента"), text: z.string().describe("текст сообщения") },
+        "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email. Ответа адресата не ждёт.",
+        { to: z.string().describe("callsign сессии, ~email человека или устройство~email"), text: z.string().describe("текст сообщения") },
         async ({ to, text: body }) => {
-          if (to.includes("@")) {
+          if (kindOf(to) === "session") {
             const r = await host.request("message", { v: 1, to, text: body, from: me });
             return r.ok ? text(`доставлено: ${to}`) : failed(to, r);
           }

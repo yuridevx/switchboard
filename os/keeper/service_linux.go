@@ -49,7 +49,7 @@ func install(args []string) error {
 	if err := prepareConf(f, bufio.NewReader(os.Stdin)); err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	exe, err := placeSelf()
 	if err != nil {
 		return err
 	}

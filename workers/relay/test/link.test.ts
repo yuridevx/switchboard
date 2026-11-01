@@ -44,7 +44,7 @@ class FakeWs implements WsLike {
   }
 }
 
-const roster = (machines: Array<[string, number]> = [["laptop", 1], ["pc", 1]], clients = ["phone"], workers = ["push"]) => ({
+const roster = (machines: Array<[string, number]> = [["laptop", 1], ["pc", 1]], clients = ["phone~owner@example.com"], workers = ["push"]) => ({
   type: "roster",
   machines: machines.map(([machine, since]) => ({ machine, since, proto: 1 })),
   sessions: [],
@@ -167,8 +167,8 @@ describe("link · правило отправителя по roster", () => {
 
   it("клиент или участник ушёл из roster — disconnected; @машина — по машине", async () => {
     const { l, ws } = opened();
-    const toPhone = l.request({ type: "message", to: "phone" });
-    const toPush = l.request({ type: "push.send", to: "push" });
+    const toPhone = l.request({ type: "message", to: "phone~owner@example.com" });
+    const toPush = l.request({ type: "push.send", to: ".push" });
     const toMachine = l.request({ type: "machine.dirs", to: "@laptop" });
     ws.recv(roster([["pc", 1]], [], []));
     expect(await toPhone).toMatchObject({ error: "disconnected" });

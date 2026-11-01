@@ -1,17 +1,18 @@
 {
   "name": "pult-machines",
   "type": "web",
-  "version": "1.0.0",
-  "provides": { "machines": 1 },
+  "version": "2.0.0",
+  "provides": {
+    "machines": 1
+  },
   "uses": {
     "app@web-core": 1,
     "roster@relay": 1,
-    "machine.state@host-machine": 1,
-    "machine.upgrade@host-upgrade": 1,
     "machine.profiles@host-profiles": 1,
     "github.app@github": 1,
     "github.setup@github": 1,
-    "accounts@pult-accounts": 1
+    "accounts@pult-accounts": 1,
+    "keeper.state@keeper": 1
   },
   "config": {}
 }

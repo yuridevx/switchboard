@@ -54,23 +54,23 @@ async function answerSend(s: Stand, n: number, r: { ok: true; result?: unknown }
 describe("эталоны push", () => {
   it("153 · phone нет в roster: ровно один push.send с to push и полями кадра; panel-desk ничего; pushed: [phone]", async () => {
     const s = await bench();
-    roster(s, ["panel-desk"]);
-    const p = s.host("host-questions").request("notify", { v: 1, clients: ["phone", "panel-desk"], frame: question });
+    roster(s, ["panel-desk~owner@example.com"]);
+    const p = s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com", "panel-desk~owner@example.com"], frame: question });
     const f = await answerSend(s, 0, { ok: true, result: { cut: false } });
-    expect(await p).toEqual({ ok: true, result: { pushed: ["phone"] } });
+    expect(await p).toEqual({ ok: true, result: { pushed: ["phone~owner@example.com"] } });
     expect(s.relay.frames("push.send")).toHaveLength(1);
     const { id: _id, ...rest } = f;
-    expect(rest).toEqual({ type: "push.send", v: 1, to: "push", push: { to: "phone", type: "question", from: "profiles@laptop", notify: question.notify } });
+    expect(rest).toEqual({ type: "push.send", v: 1, to: ".push", push: { to: "phone~owner@example.com", type: "question", from: "profiles@laptop", notify: question.notify } });
   });
 
   it("154 · gone: строка в журнале, pushed пуст; следующий notify снова шлёт push.send; на диск ничего", async () => {
     const s = await bench();
     roster(s, []);
-    const call = () => s.host("host-questions").request("notify", { v: 1, clients: ["phone"], frame: question });
+    const call = () => s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"], frame: question });
     const p1 = call();
     await answerSend(s, 0, { ok: false, error: "gone" });
     expect(await p1).toEqual({ ok: true, result: { pushed: [] } });
-    expect(s.journal().filter((l) => l.who === "host-push" && l.word === "gone").map((l) => l.why)).toEqual(["phone: подписки нет — question без пуша"]);
+    expect(s.journal().filter((l) => l.who === "host-push" && l.word === "gone").map((l) => l.why)).toEqual(["phone~owner@example.com: подписки нет — question без пуша"]);
     const p2 = call();
     await answerSend(s, 1, { ok: false, error: "gone" });
     expect(await p2).toEqual({ ok: true, result: { pushed: [] } });
@@ -80,8 +80,8 @@ describe("эталоны push", () => {
 
   it("155 · phone на связи: push.send не отправлен, pushed пуст", async () => {
     const s = await bench();
-    roster(s, ["phone"]);
-    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone"], frame: question });
+    roster(s, ["phone~owner@example.com"]);
+    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"], frame: question });
     expect(r).toEqual({ ok: true, result: { pushed: [] } });
     expect(s.relay.frames("push.send")).toHaveLength(0);
   });
@@ -91,7 +91,7 @@ describe("эталоны экосистемы о push", () => {
   it("148 · push.send получает offline: pushed пуст, отказ в журнале Host, повтора нет", async () => {
     const s = await bench();
     roster(s, []);
-    const p = s.host("host-questions").request("notify", { v: 1, clients: ["phone"], frame: question });
+    const p = s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"], frame: question });
     await answerSend(s, 0, { ok: false, error: "offline" });
     expect(await p).toEqual({ ok: true, result: { pushed: [] } });
     expect(s.journal().some((l) => l.who === "host-push" && l.kind === "stop" && l.word === "offline")).toBe(true);
@@ -101,7 +101,7 @@ describe("эталоны экосистемы о push", () => {
   it("149 · в roster нет участника push: кадр не шлётся, строка «push.send v1 — нет в roster»", async () => {
     const s = await bench();
     roster(s, [], []);
-    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone"], frame: question });
+    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"], frame: question });
     expect(r).toEqual({ ok: true, result: { pushed: [] } });
     expect(s.relay.frames("push.send")).toHaveLength(0);
     expect(s.journal().some((l) => l.who === "host-push" && String(l.why).startsWith("push.send v1 — нет в roster"))).toBe(true);
@@ -119,7 +119,7 @@ describe("push: юнит", () => {
 
   it("notify без frame — bad_frame", async () => {
     const s = await bench();
-    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone"] });
+    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"] });
     expect(r).toEqual({ ok: false, error: "bad_frame" });
   });
 
@@ -127,7 +127,7 @@ describe("push: юнит", () => {
     const mod = make();
     const logs: unknown[] = [];
     await mod.start!({ log: (r: unknown) => logs.push(r) } as never);
-    const r = await mod.requests!.notify({ type: "notify", clients: ["phone"], frame: question }, {} as never);
+    const r = await mod.requests!.notify({ type: "notify", clients: ["phone~owner@example.com"], frame: question }, {} as never);
     expect(r).toEqual({ pushed: [] });
     expect(logs).toHaveLength(1);
   });

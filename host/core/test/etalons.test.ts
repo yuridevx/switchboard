@@ -1,21 +1,21 @@
-// Эталоны ядра Host на стенде: поддельные SDK, relay, keeper и часы. Номер эталона — номер теста.
+// Эталоны ядра Host на стенде: поддельные SDK, relay, держатели и часы. Номер эталона — номер теста.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { check } from "@switchboard/manifest-gate";
-import { FakeKeeper, msg, module, standHost, turn, until } from "../stand/index.ts";
+import { FakeHolders, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
 import type { Host, Module } from "../contract.ts";
 
 const stands: Stand[] = [];
-const keepers: FakeKeeper[] = [];
+const keepers: FakeHolders[] = [];
 async function stand(o: Parameters<typeof standHost>[0] = {}): Promise<Stand> {
   const st = await standHost(o);
   stands.push(st);
   return st;
 }
-async function keeper(): Promise<FakeKeeper> {
-  const k = await new FakeKeeper().listen();
+async function keeper(): Promise<FakeHolders> {
+  const k = new FakeHolders();
   keepers.push(k);
   return k;
 }
@@ -46,14 +46,14 @@ const lines = (st: Stand, ev?: string) => st.journal().filter((l) => !ev || l.ev
 describe("эталоны ядра Host", () => {
   it("17 · Host запущен заново посреди команды: attach, накопленный вывод дочитан, тот же ход дошёл до result", async () => {
     const k = await keeper();
-    const p = k.addProcess("site@laptop");
+    const p = await k.addProcess("site@laptop");
     // вывод, накопленный без Host: команда закончилась, ход дошёл до конца
     p.send({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "долгая команда закончилась" }] }, parent_tool_use_id: null });
     p.send(msg.result());
     p.send(msg.state("idle"));
     const got: string[] = [];
     const st = await stand({
-      keeper: k,
+      holders: k,
       sessions: [{ callsign: "site@laptop", session_id: "8380f18f", state: "busy" }],
       modules: [module("host-watch", { on: { event: (_s, m) => void got.push(m.type) } })],
     });
@@ -70,9 +70,9 @@ describe("эталоны ядра Host", () => {
 
   it("18 · два владельца session.cost — Host не стартует, сессии не тронуты", async () => {
     const k = await keeper();
-    const p = k.addProcess("site@laptop");
+    const p = await k.addProcess("site@laptop");
     const dup = module("host-dup", { requests: { "session.cost": () => 0 } });
-    const st = await stand({ keeper: k, sessions: [{ callsign: "site@laptop" }], modules: [cost(), dup] });
+    const st = await stand({ holders: k, sessions: [{ callsign: "site@laptop" }], modules: [cost(), dup] });
     expect(st.startError?.reasons).toContain("session.cost: два владельца — host-cost и host-dup");
     expect(lines(st, "gate").map((l) => l.why)).toContain("session.cost: два владельца — host-cost и host-dup");
     expect(k.ops).toEqual([]); // к keeper Host не подключался
@@ -182,7 +182,7 @@ describe("эталоны ядра Host", () => {
     expect(st.states("site@laptop").map((f) => f.state)).toContain("starting");
     const q2 = st.query("site@laptop");
     expect(q2.options.resume).toBe(sid);
-    expect(st.keeper.ops.filter((o) => o.id === "site@laptop").map((o) => o.op)).toEqual(["spawn", "spawn"]);
+    expect(st.holders.ops.filter((o) => o.id === "site@laptop").map((o) => o.op)).toEqual(["spawn", "attach", "spawn", "attach"]);
     expect(lines(st, "session_exited")[0].why).toContain("код 1: Error: boom");
     expect(st.sdk.of("wiki@laptop")).toHaveLength(1);
     expect(site.info.start).toBe("resume");
@@ -191,9 +191,9 @@ describe("эталоны ядра Host", () => {
   it("64 · второй сбой до готовности: failed, третьего запуска нет, обе причины в журнале; session.start поднимает", async () => {
     const st = await stand({ modules: [] });
     const site = await st.open("site@laptop");
-    st.keeper.failInitNext = 1;
+    st.holders.failInitNext = 1;
     st.proc("site@laptop").exit(1, "первый");
-    await until(() => st.sdk.of("site@laptop").length === 2 && st.keeper.procs.get("site@laptop")?.initializes === 1);
+    await until(() => st.sdk.of("site@laptop").length === 2 && st.holders.procs.get("site@laptop")?.initializes === 1);
     st.proc("site@laptop").exit(1, "второй");
     await until(() => site.state === "failed");
     await new Promise((r) => setTimeout(r, 30));
@@ -209,12 +209,12 @@ describe("эталоны ядра Host", () => {
 
   it("65 · cost записал расход; Host убит; новый Host после start() отдаёт то же поле и ответ; файл — целый JSON", async () => {
     const k = await keeper();
-    const st = await stand({ keeper: k, modules: [cost()] });
+    const st = await stand({ holders: k, modules: [cost()] });
     await st.open("site@laptop");
     turn(st.proc("site@laptop"));
     await until(() => (st.states("site@laptop").at(-1)?.cost as { turns: number })?.turns === 1);
     st.crash();
-    const st2 = await stand({ keeper: k, home: st.home, modules: [cost()] });
+    const st2 = await stand({ holders: k, home: st.home, modules: [cost()] });
     expect((st2.relay.hellos[0].sessions as Array<Record<string, unknown>>)[0]).toMatchObject({ callsign: "site@laptop", cost: { usd: 0.012, turns: 1 } });
     expect(await st2.relay.request({ type: "session.cost", v: 1, callsign: "site@laptop" })).toMatchObject({ ok: true, result: { usd: 0.012, turns: 1 } });
     const file = JSON.parse(readFileSync(join(st.home, "store", "host-cost.json"), "utf8"));
@@ -248,43 +248,32 @@ describe("эталоны ядра Host", () => {
     expect(whys).toContain("wiki@laptop: host-budget: договор — Error: setModel нет в calls");
   });
 
-  it("67 · stop machine: session.prompt — shutting_down; site interrupt → result → close, wiki close; stop() модулей обратным порядком после result; выход 0; затем resume", async () => {
+  it("67 · ввод Host закрыт (keeper меняет версию): session.prompt — shutting_down; stop() модулей обратным порядком; выход 0; процессы claude живут у держателей; новый Host подключается к ним", async () => {
     const k = await keeper();
     const order: string[] = [];
-    const journalM = module("host-journal", {
-      on: { event: (s, m) => void (m.type === "result" && order.push(`result ${s.info.callsign}`)) },
-      stop: () => void order.push("stop journal"),
-    });
+    const journalM = module("host-journal", { stop: () => void order.push("stop journal") });
     const prompt = vi.fn();
     const chat = module("host-chat", { requests: { "session.prompt": prompt }, stop: () => void order.push("stop chat") });
-    const st = await stand({ keeper: k, modules: [journalM, chat] });
+    const st = await stand({ holders: k, modules: [journalM, chat] });
     await st.open("site@laptop");
     await st.open("wiki@laptop");
     const p = st.proc("site@laptop");
     p.send(msg.state("running"));
     await until(() => st.session("host-chat", "site@laptop")!.state === "busy");
-    p.busy = false; // ход на interrupt тест закончит сам
-    k.stop("machine");
-    await until(() => p.interrupts === 1);
+    const down = st.kernel.shutdown("ввод закрыт");
     const r = await st.relay.request({ type: "session.prompt", v: 1, callsign: "wiki@laptop", text: "x" });
     expect(r).toMatchObject({ ok: false, error: "shutting_down" });
-    p.send(msg.result({ subtype: "error_during_execution" }));
-    p.send(msg.state("idle"));
-    await st.kernel.shutting;
+    await down;
     expect(prompt).not.toHaveBeenCalled();
-    expect(p.interrupts).toBe(1);
-    expect(st.query("site@laptop").calls.map((c) => c.name)).toEqual(["interrupt", "close"]);
-    expect(st.query("wiki@laptop").calls.map((c) => c.name)).toEqual(["close"]);
-    expect(order).toEqual(["result site@laptop", "stop chat", "stop journal"]);
+    expect(p.interrupts).toBe(0);
+    expect(order).toEqual(["stop chat", "stop journal"]);
     expect(st.relay.clientCloses.at(-1)).toEqual({ code: 1000, reason: "shutting_down" });
     expect(st.exits).toEqual([0]);
-    expect(k.procs.size).toBe(0);
-    const st2 = await stand({ keeper: k, home: st.home, modules: [] });
-    expect(st2.sdk.queries).toHaveLength(2);
-    for (const cs of ["site@laptop", "wiki@laptop"]) {
-      expect(st2.query(cs).options.resume).toBeTruthy();
-      expect(st2.kernel.sessions.get(cs)!.startKind).toBe("resume");
-    }
+    expect([...k.procs.values()].every((x) => x.alive)).toBe(true);
+    expect(k.ops.filter((o) => o.op === "kill" || o.op === "close_input")).toEqual([]);
+    const st2 = await stand({ holders: k, home: st.home, modules: [] });
+    for (const cs of ["site@laptop", "wiki@laptop"]) expect(st2.kernel.sessions.get(cs)!.startKind).toBe("attach");
+    expect(st2.kernel.sessions.get("site@laptop")!.state).toBe("busy");
   });
 
   it("68 · обрыв relay: ждущий запрос сразу disconnected; паузы 1, 2, 4 с; новый hello — те же сессии и contract; ходы не прерывались", async () => {
@@ -319,11 +308,11 @@ describe("эталоны ядра Host", () => {
 
   it("69 · Host с другой версией SDK: обе attach; wiki сразу close и resume, site — после result; обе на новой версии", async () => {
     const k = await keeper();
-    const site = k.addProcess("site@laptop");
-    const wiki = k.addProcess("wiki@laptop");
+    const site = await k.addProcess("site@laptop");
+    const wiki = await k.addProcess("wiki@laptop");
     site.busy = true;
     const st = await stand({
-      keeper: k,
+      holders: k,
       sdkVersion: "0.3.312",
       sessions: [
         { callsign: "site@laptop", sdk: "0.3.311", state: "busy" },
@@ -338,7 +327,7 @@ describe("эталоны ядра Host", () => {
     site.send(msg.state("idle"));
     await until(() => st.sdk.of("site@laptop").length === 2 && st.kernel.sessions.get("site@laptop")!.state === "idle");
     for (const cs of ["site@laptop", "wiki@laptop"]) {
-      expect(k.ops.filter((o) => o.id === cs).map((o) => o.op)).toEqual(["attach", "kill", "spawn"]);
+      expect(k.ops.filter((o) => o.id === cs).map((o) => o.op)).toEqual(["attach", "close_input", "spawn", "attach"]);
       expect(st.kernel.sessions.get(cs)!.rec.sdk).toBe("0.3.312");
       expect(st.query(cs).options.resume).toBe(`sid-${cs.split("@")[0]}`);
     }

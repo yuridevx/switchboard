@@ -151,7 +151,7 @@ describe("эталоны profiles", () => {
     await until(() => g.cmds().includes("push"));
     expect(g.cmds()).toEqual(["add -- ops/memory writer/memory", "diff --cached --quiet", expect.stringMatching(/^commit -m память: laptop \d\d:\d\d$/), "pull --no-rebase --no-edit", "push", "log -1 --format=%s"]);
     expect(seen).toHaveLength(1);
-    expect(seen[0]).toMatchObject({ to: "github", repo: "team/profiles" });
+    expect(seen[0]).toMatchObject({ to: ".github", repo: "team/profiles" });
     for (const c of g.calls) {
       expect(c.env.GIT_TERMINAL_PROMPT).toBe("0");
       expect(c.args.slice(0, 2)).toEqual(["-c", "credential.interactive=never"]);

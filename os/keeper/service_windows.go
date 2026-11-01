@@ -76,7 +76,7 @@ func install(args []string) error {
 	if err != nil {
 		return err
 	}
-	exe, err := os.Executable()
+	exe, err := placeSelf()
 	if err != nil {
 		return err
 	}

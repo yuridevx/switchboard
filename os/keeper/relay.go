@@ -1,6 +1,7 @@
 package main
 
-// Связь keeper с рацией: вебсокет к relay ключом keeper.<машина>, hello, запросы с id и reply, кадры.
+// Связь keeper с рацией: вебсокет к relay ключом машины и part: "keeper" в hello — адрес .keeper@машина;
+// запросы с id и reply, кадры.
 // Тот же протокол и те же паузы, что у клиента relay в Host: ping раз в 30 с, нет pong к следующему —
 // соединение мёртвое; переподключение с паузой от 1 с, вдвое до 60 с.
 import (
@@ -88,7 +89,7 @@ func (r *radio) session() (opened bool, why string) {
 		return false, "dial: " + err.Error()
 	}
 	ws.SetReadLimit(16 << 20)
-	hello, _ := json.Marshal(map[string]any{"type": "hello", "key": r.key, "proto": relayProto})
+	hello, _ := json.Marshal(map[string]any{"type": "hello", "key": r.key, "proto": relayProto, "part": "keeper"})
 	if err := ws.Write(r.ctx, websocket.MessageText, hello); err != nil {
 		ws.CloseNow()
 		return false, "hello: " + err.Error()

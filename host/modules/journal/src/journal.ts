@@ -73,8 +73,9 @@ export function records(m: SDKMessage, first: boolean): LogRecord[] {
 
 type JournalRecord = { t: string; kind?: string; callsign?: string; [k: string]: unknown };
 
-/** Записи host и keeper машины после since, старые первыми; kind и callsign — по желанию. */
-export function read(dir: string, q: { since: string; kind?: string[]; callsign?: string; limit: number }): { records: JournalRecord[]; more: boolean } {
+/** Записи host и keeper машины после since, старые первыми; kind, callsign и part — по желанию.
+ * part — чья строка: host — Host, keeper — сам keeper, имя приложения — его старты, выходы и вывод. */
+export function read(dir: string, q: { since: string; kind?: string[]; callsign?: string; part?: string; limit: number }): { records: JournalRecord[]; more: boolean } {
   const day = q.since.slice(0, 10);
   const files = existsSync(dir) ? readdirSync(dir).filter((f) => /^(host|keeper)-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f) && f.slice(-16, -6) >= day) : [];
   const all: JournalRecord[] = [];
@@ -85,6 +86,7 @@ export function read(dir: string, q: { since: string; kind?: string[]; callsign?
       if (r.t <= q.since) continue;
       if (q.kind && !q.kind.includes(r.kind ?? "note")) continue;
       if (q.callsign !== undefined && r.callsign !== q.callsign) continue;
+      if (q.part !== undefined && r.part !== q.part) continue;
       all.push(r);
     }
   }
@@ -106,11 +108,13 @@ export function make(): Module {
         const limit = req.limit;
         const kind = req.kind;
         const callsign = req.callsign;
+        const part = req.part;
         if (typeof limit !== "number" || limit < 1) throw refuse("bad_frame", "machine.journal: нет limit");
         if (typeof since !== "string" || Number.isNaN(Date.parse(since))) throw refuse("bad_frame", `machine.journal: since не время — ${String(since)}`);
         if (kind !== undefined && !(Array.isArray(kind) && kind.every((k) => typeof k === "string"))) throw refuse("bad_frame", "machine.journal: kind — список слов");
         if (callsign !== undefined && typeof callsign !== "string") throw refuse("bad_frame", "machine.journal: callsign — строка");
-        return read(journalDir(), { since: new Date(since).toISOString(), kind: kind as string[] | undefined, callsign, limit });
+        if (part !== undefined && typeof part !== "string") throw refuse("bad_frame", "machine.journal: part — строка");
+        return read(journalDir(), { since: new Date(since).toISOString(), kind: kind as string[] | undefined, callsign, part, limit });
       },
     },
     on: {

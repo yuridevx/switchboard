@@ -1,4 +1,4 @@
-// Вход участника рации ledger: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: "ledger" и roster (у ledger roster@relay в uses).
+// Вход участника рации ledger: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: ".ledger" и roster (у ledger roster@relay в uses).
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Frame } from "@switchboard/protocol";
 import { CONTRACT, USES } from "../contract.ts";

@@ -45,7 +45,7 @@ const logonTaskXML = `<?xml version="1.0" encoding="UTF-16"?>
 `
 
 func installLogonTask() error {
-	exe, err := os.Executable()
+	exe, err := placeSelf()
 	if err != nil {
 		return err
 	}

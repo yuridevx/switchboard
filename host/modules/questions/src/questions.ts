@@ -3,6 +3,7 @@
 // пока decide не вернулся, ход стоит. В хранилище — только кому ушёл вопрос: после перезапуска Host SDK вернёт
 // тот же toolUseID, и вопрос уйдёт тем же адресатам. Модуль никогда не отвечает за человека.
 import type { DecideOpts, ElicitationRequest, ElicitationResult, Frame, Host, Module, PermissionResult, Session } from "@switchboard/host";
+import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
 export type Kind = "ask" | "form" | "url";
@@ -29,7 +30,7 @@ type Pending = {
 /** Раздел сессии: id вопроса → кому ушёл. Только ждущие AskUserQuestion. */
 type Sent = Record<string, string[]>;
 
-const isClient = (a: string) => !a.includes("@");
+const isClient = (a: string) => kindOf(a) === "device" || kindOf(a) === "user";
 const isStrMap = (x: unknown): x is Record<string, string> => !!x && typeof x === "object" && !Array.isArray(x) && Object.values(x).every((v) => typeof v === "string");
 
 /** Текст вопроса во ввод сессии, давшей задачу: она ответит инструментом fleet.answer. */
@@ -57,7 +58,7 @@ export function make(): Module {
     if (!w.ok) host.log({ kind: "stop", ev: "question", word: w.error, callsign: cs, why: `session.watchers: ${w.error} — вопрос уходит без зрителей` });
     const viewers = w.ok && Array.isArray(w.result) ? (w.result as string[]) : [];
     const to: string[] = [];
-    for (const a of [s.info.from, ...viewers]) if (a && !a.startsWith("@") && a !== cs && !to.includes(a)) to.push(a);
+    for (const a of [s.info.from, ...viewers]) if (a && (isClient(a) || kindOf(a) === "session") && a !== cs && !to.includes(a)) to.push(a);
     return to;
   }
 
@@ -167,7 +168,7 @@ export function make(): Module {
         }
         const to = Array.isArray(f.to) ? f.to : [f.to];
         for (const a of to) {
-          const s = typeof a === "string" && a.includes("@") ? host.session(a) : undefined;
+          const s = kindOf(a) === "session" ? host.session(a as string) : undefined;
           if (!s) continue;
           s.input(questionText(f.from, String(f.question), (f.questions ?? []) as AskItem[]), { from: f.from, priority: "next", origin: { kind: "peer", from: f.from, name: f.from } });
         }
