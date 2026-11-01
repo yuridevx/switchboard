@@ -5,7 +5,7 @@
 //   <часть>/<версия>.tgz      архив части: у Host — папка выпуска с app.json, у keeper — windows-amd64/keeper.exe и linux-amd64/keeper
 //   <часть>/<версия>.sha256   «<sha256 архива>  <версия>.tgz»; пишется вторым — версия готова
 export { parseSha, RELEASES_BUCKET, shaKey, shaLine, tgzKey, VERSION_RE } from "./src/format.ts";
-export { presign, LINK_TTL } from "./src/presign.ts";
+export { presign } from "./src/presign.ts";
 export type { LinkKey } from "./src/presign.ts";
 export { sha256hex } from "./src/hash.ts";
 export { pack, packDir } from "./src/tar.ts";

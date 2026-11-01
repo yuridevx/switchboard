@@ -69,8 +69,8 @@ describe("упаковка папки и ссылки", () => {
 });
 
 describe("подпись S3", () => {
-  it("пример AWS «GET Object»: та же подпись", () => {
-    const auth = sign({
+  it("пример AWS «GET Object»: та же подпись", async () => {
+    const auth = await sign({
       method: "GET",
       path: "/test.txt",
       headers: {
