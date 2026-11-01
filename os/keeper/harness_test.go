@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -45,6 +46,10 @@ func TestMain(m *testing.M) {
 			os.WriteFile("setup-started", nil, 0o644)
 			time.Sleep(2 * time.Second)
 			return
+		case "badsetup":
+			// setup упал, как npm ci без пакета
+			fmt.Fprintln(os.Stderr, "npm ERR! нет пакета")
+			os.Exit(1)
 		}
 	}
 	os.Setenv("KEEPER_TEST_CHILD", "1")
@@ -52,7 +57,8 @@ func TestMain(m *testing.M) {
 }
 
 // fakeApp — приложение: строка о старте, ввод закрыт — «bye» и выход 0; stubborn — конец ввода не слушает;
-// deaf — ввод не читает вовсе (завис); env — строка со своим окружением от keeper; chatty — строки без пауз.
+// deaf — ввод не читает вовсе (завис); env — строка со своим окружением от keeper; chatty — строки без пауз;
+// echo — отвечает на каждую строку ввода; parent — запускает потомка, который держит трубу вывода.
 func fakeApp(args []string) {
 	mode := ""
 	if len(args) > 0 {
@@ -62,6 +68,15 @@ func fakeApp(args []string) {
 	if mode == "deaf" {
 		time.Sleep(2 * time.Minute)
 		return
+	}
+	if mode == "parent" {
+		self, _ := os.Executable()
+		ch := exec.Command(self, "app", "deaf")
+		ch.Stdout = os.Stdout
+		ch.Env = os.Environ()
+		if err := ch.Start(); err == nil {
+			fmt.Printf("child %d\n", ch.Process.Pid)
+		}
 	}
 	if mode == "chatty" {
 		go func() {
@@ -80,7 +95,11 @@ func fakeApp(args []string) {
 	fmt.Fprintln(os.Stderr, "app: stderr line")
 	br := bufio.NewReader(os.Stdin)
 	for {
-		if _, err := br.ReadString('\n'); err != nil {
+		l, err := br.ReadString('\n')
+		if mode == "echo" && l != "" {
+			fmt.Print("echo " + l)
+		}
+		if err != nil {
 			break
 		}
 	}
@@ -101,8 +120,10 @@ type fakeRelay struct {
 	ledger []map[string]any
 	reply  map[string]chan map[string]any
 	opened chan struct{}
-	asks   int // вопросов releases.plan
-	silent int // столько первых вопросов остаются без ответа — «выпуски» молчат
+	asks   int              // вопросов releases.plan
+	silent int              // столько первых вопросов остаются без ответа — «выпуски» молчат
+	asked  []map[string]any // вопросы releases.plan как пришли
+	refuse string           // не пусто — «выпуски» отвечают на вопрос отказом с этим словом
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
@@ -144,12 +165,17 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 				r.mu.Lock()
 				p := r.plan
 				r.asks++
+				r.asked = append(r.asked, f)
 				quiet := r.asks <= r.silent
+				word := r.refuse
 				r.mu.Unlock()
 				if quiet {
 					continue
 				}
 				out, _ := json.Marshal(map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": p})
+				if word != "" {
+					out, _ = json.Marshal(map[string]any{"type": "reply", "id": f["id"], "ok": false, "error": word})
+				}
 				ws.Write(ctx, websocket.MessageText, out)
 			case "ledger.add":
 				r.mu.Lock()
@@ -217,6 +243,23 @@ func (r *fakeRelay) planAsks() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.asks
+}
+
+// firstAsk — первый вопрос releases.plan, как пришёл.
+func (r *fakeRelay) firstAsk() map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.asked) == 0 {
+		return nil
+	}
+	return r.asked[0]
+}
+
+// setRefuse — «выпуски» отвечают на вопрос о плане отказом word.
+func (r *fakeRelay) setRefuse(word string) {
+	r.mu.Lock()
+	r.refuse = word
+	r.mu.Unlock()
 }
 
 // drop — relay оборвал соединение keeper.
@@ -288,6 +331,13 @@ func newLinks(t *testing.T) *links {
 	}))
 	t.Cleanup(l.srv.Close)
 	return l
+}
+
+// expire — ссылки истекли: архивов по ним больше нет (ссылка в плане живёт час).
+func (l *links) expire() {
+	l.mu.Lock()
+	l.m = map[string][]byte{}
+	l.mu.Unlock()
 }
 
 // part — архив части в ссылках и запись плана для неё.
