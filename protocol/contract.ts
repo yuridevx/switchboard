@@ -101,5 +101,10 @@ export function machineOf(address: string): string | null {
   return address.slice(address.indexOf("@") + 1);
 }
 
+/** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
+export function reaches(to: string, device: string): boolean {
+  return to === device || (kindOf(to) === "user" && kindOf(device) === "device" && device.endsWith(to));
+}
+
 /** Адрес службы флота по имени Worker-модуля: points → .points. */
 export const serviceAddress = (name: string) => `.${name}`;

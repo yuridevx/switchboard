@@ -1,4 +1,4 @@
-// Живой сценарий: пуш вопроса, когда давшего задачу нет на связи; перенос и откат точек; профили без репозиториев;
+// Живой сценарий: пуш вопроса, когда давшего задачу нет на связи; пуш человеку ~email; перенос и откат точек; профили без репозиториев;
 // журнал флота; сообщение несуществующим адресатам.
 // env: FLOW_CLIENT_KEY, FLOW_PUSH_KEY (ключ клиента пушей — сценарий сам подписывает его), FLOW_FROM_MACHINE, FLOW_TO_MACHINE, FLOW_DIR.
 import { createECDH, randomBytes } from "node:crypto";
@@ -66,6 +66,20 @@ const ql = await req({ type: "question.list", callsign: NQ });
 const q = ql.result[0];
 await req({ type: "answer", callsign: NQ, question: q.question, answers: { [q.questions[0].question]: "чай" } });
 check("ответ с другого устройства принят, модель его получила", (await state(NQ, "idle")) && /чай/i.test(await text(NQ)), await text(NQ));
+
+// --- пуш человеку ~email: сессия пишет адресу человека, проверочное устройство не на связи (слово пользователя 2 нояб. «пушить всем») ---
+const email = (l.roster as Roster | null)?.clients.find((c) => c.includes("~"))?.split("~")[1] ?? "";
+const t1 = new Date().toISOString();
+await turn(NQ, `Отправь инструментом fleet send человеку: to — ~${email}, text — «Switchboard: проверка пуша на ~email». Больше ничего не делай.`);
+const hs = JSON.stringify(await req({ type: "session.history", callsign: NQ, before: null, limit: 20 }));
+check("fleet.send на ~email — отправлено", hs.includes(`отправлено: ~${email}`), hs.slice(-300));
+await new Promise((r) => setTimeout(r, 5000));
+const je = await req({ type: "machine.journal", machine: M1, since: t1, limit: 500 });
+const pushE = (je.result?.records ?? []).filter((r: any) => r.who === "host-push");
+check("host-push: пуш на ~email без отказа (в журнале нет «без пуша»)", je.ok && !pushE.some((r: any) => /без пуша/.test(r.why ?? "")), pushE.map((r: any) => r.why));
+// служба пушей вживую: адрес человека доходит до проверочного устройства; iphone — в skip, реального пуша нет
+const pe = await req({ type: "push.send", to: ".push", push: { to: `~${email}`, skip: [`iphone~${email}`], type: "message", from: NQ, notify: { title: NQ, body: "Switchboard: проверка пуша на ~email" } } });
+check("push.send на ~email со skip — ok (пуш ушёл проверочному устройству)", pe.ok, pe.error ?? pe.result);
 await req({ type: "session.remove", callsign: NQ });
 
 // --- перенос сессии между машинами и откат ---

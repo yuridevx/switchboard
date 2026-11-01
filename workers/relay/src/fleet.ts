@@ -1,7 +1,7 @@
 // Объект флота: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
 // На диск не пишет: всё о флоте — в карточках живых соединений и в ответах hello() участников.
 import { DurableObject } from "cloudflare:workers";
-import { fail, kindOf, machineOf, parseFrame, serviceAddress } from "@switchboard/protocol";
+import { fail, kindOf, machineOf, parseFrame, reaches, serviceAddress } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
 import type { GateApi, VerifyResult } from "@switchboard/gate";
 import type { Participant, ParticipantHello, RelayWord, Roster, SessionRecord } from "../contract.ts";
@@ -307,7 +307,7 @@ export class Fleet extends DurableObject<Env> {
           const c = cardOf(ws)!;
           if (c.role !== "client") continue;
           const addr = this.clientAddress(c.name);
-          if (addr === a || (a.startsWith("~") && addr.endsWith(a))) {
+          if (reaches(a, addr)) {
             ws.send(text);
             n++;
           }

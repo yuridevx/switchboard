@@ -227,6 +227,7 @@ describe("push: отказы и стык с relay", () => {
       { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { type: "question", notify: {} } },
       { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", notify: {} } },
       { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", type: "question" } },
+      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", skip: "pult", type: "question", notify: {} } },
       send("b-1", "phone2018", { title: "x".repeat(5000) }),
     ];
     for (const f of bad) expect(await frame(f)).toMatchObject([{ id: "b-1", ok: false, error: "bad_frame" }]);
@@ -256,6 +257,47 @@ describe("push: отказы и стык с relay", () => {
     const log = journal();
     await relay.frame({ type: "push.key", id: "k-9", to: ".push", from: "phone-gone" });
     expect(log).toContainEqual(expect.objectContaining({ part: "push", ev: "relay", word: "offline", to: "phone-gone" }));
+  });
+
+  it("2083 · адрес человека: пуш каждой его подписке, кроме skip; ответ ok", async () => {
+    // источник: слово пользователя 2 нояб. «пушить всем» — сообщение на ~email пушем доходит до каждого подписанного устройства не на связи
+    const [pult, phone, laptop, other] = await Promise.all([ua(), ua(), ua(), ua()]);
+    await subscribe("pult~yuri2083@example.com", pult, "https://push.example/2083-pult");
+    await subscribe("phone~yuri2083@example.com", phone, "https://push.example/2083-phone");
+    await subscribe("laptop~yuri2083@example.com", laptop, "https://push.example/2083-laptop");
+    await subscribe("phone~anna2083@example.com", other, "https://push.example/2083-anna");
+    const svc = fakeService(201);
+    const f = send("s-2083", "~yuri2083@example.com");
+    const out = await frame({ ...f, push: { ...(f.push as object), skip: ["pult~yuri2083@example.com"] } });
+    expect(svc.posts.map((p) => p.url).sort()).toEqual(["https://push.example/2083-laptop", "https://push.example/2083-phone"]);
+    expect(out).toEqual([{ type: "reply", id: "s-2083", ok: true, result: { cut: false }, to: "@laptop" }]);
+  });
+
+  it("2084 · адрес человека без его подписок или все его подписки в skip — gone, чужому устройству пуша нет", async () => {
+    // источник: чьё: код (отказ gone, когда подписки нет); слово пользователя «пуш уходит только устройству не на связи»
+    await subscribe("phone~anna2084@example.com", await ua(), "https://push.example/2084-anna");
+    await subscribe("pult~olga2084@example.com", await ua(), "https://push.example/2084-olga");
+    const svc = fakeService(201);
+    expect(await frame(send("s-2084", "~yuri2084@example.com"))).toMatchObject([{ id: "s-2084", ok: false, error: "gone" }]);
+    const f = send("s-2084b", "~olga2084@example.com");
+    expect(await frame({ ...f, push: { ...(f.push as object), skip: ["pult~olga2084@example.com"] } })).toMatchObject([{ id: "s-2084b", ok: false, error: "gone" }]);
+    expect(svc.posts).toHaveLength(0);
+  });
+
+  it("2086 · адрес человека: исход по каждому устройству — строка журнала на каждое; ok, если ушёл хоть одному; иначе push_failed", async () => {
+    // источник: слово пользователя 2 нояб. «пушить всем»; чьё: код (404/410 — строка подписки удаляется; push_failed — отказ службы)
+    await subscribe("phone~yuri2086@example.com", await ua(), "https://push.example/2086-phone");
+    await subscribe("tab~yuri2086@example.com", await ua(), "https://push.example/2086-tab");
+    const statuses: Record<string, number> = { "https://push.example/2086-phone": 201, "https://push.example/2086-tab": 410 };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => new Response(null, { status: statuses[new Request(input).url] }));
+    const log = journal();
+    expect(await frame(send("s-2086", "~yuri2086@example.com"))).toEqual([{ type: "reply", id: "s-2086", ok: true, result: { cut: false }, to: "@laptop" }]);
+    expect(log).toContainEqual(expect.objectContaining({ ev: "sent", client: "phone~yuri2086@example.com", status: 201 }));
+    expect(log).toContainEqual(expect.objectContaining({ word: "gone", client: "tab~yuri2086@example.com", status: 410 }));
+    expect((await table()).some((r) => r.client === "tab~yuri2086@example.com")).toBe(false);
+    // осталась одна подписка, служба отказала — push_failed
+    statuses["https://push.example/2086-phone"] = 503;
+    expect(await frame(send("s-2086b", "~yuri2086@example.com"))).toMatchObject([{ id: "s-2086b", ok: false, error: "push_failed" }]);
   });
 
   it("кадр без id — push отвечать некому, кадров в relay нет", async () => {

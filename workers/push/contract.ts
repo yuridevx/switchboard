@@ -22,14 +22,15 @@ export type Subscription = { endpoint: string; keys: { p256dh: string; auth: str
 export type PushSubscribe = { type: "push.subscribe"; id: string; to: ".push"; sub: Subscription };
 
 /**
- * push.send — пуш клиенту push.to. Внутри уведомления — type, from и notify.
- * Ответ: { cut } — укорачивал ли push notify.body, чтобы тело влезло в 4 096 Б.
+ * push.send — пуш подпискам, до которых доходит push.to: адрес устройства — ему, адрес человека ~email — каждому его устройству,
+ * кроме skip (устройства на связи). Внутри уведомления — type, from и notify; строка журнала на каждое устройство.
+ * Ответ: { cut } — укорачивал ли push notify.body, чтобы тело влезло в 4 096 Б; ok — пуш ушёл хотя бы одному.
  */
 export type PushSend = {
   type: "push.send";
   id: string;
   to: ".push";
-  push: { to: string; type: string; from?: string; notify: Notify };
+  push: { to: string; skip?: string[]; type: string; from?: string; notify: Notify };
 };
 export type PushSendResult = { cut: boolean };
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fail, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, serviceAddress } from "./contract.ts";
+import { fail, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -56,6 +56,14 @@ describe("protocol: конверт кадра", () => {
     expect(machineOf(".points")).toBeNull();
     expect(serviceAddress("ledger")).toBe(".ledger");
     expect(kindOf(serviceAddress("ledger"))).toBe("service");
+  });
+
+  it("2085 · адрес человека доходит до его устройств и только до них; адрес устройства — только до него самого", () => {
+    // источник: чьё: код (доставка рации на ~email — устройствам x~email)
+    expect(reaches("~yuri@example.com", "phone~yuri@example.com")).toBe(true);
+    expect(reaches("phone~yuri@example.com", "phone~yuri@example.com")).toBe(true);
+    expect(reaches("~yuri@example.com", "phone~anna@example.com")).toBe(false);
+    expect(reaches("phone~yuri@example.com", "pult~yuri@example.com")).toBe(false);
   });
 
   it("2005 · голое имя и обрубки — не адрес", () => {

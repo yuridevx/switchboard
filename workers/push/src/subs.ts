@@ -1,6 +1,6 @@
 // Объект подписок push: одна строка на клиента в SQLite; push.key, push.subscribe, push.send.
 import { DurableObject } from "cloudflare:workers";
-import { fail, ok, type Frame } from "@switchboard/protocol";
+import { fail, kindOf, ok, reaches, type Frame } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
@@ -60,47 +60,66 @@ export class Subs extends DurableObject<Env> {
       }
 
       case "push.send": {
-        const p = f.push as { to?: unknown; type?: unknown; from?: unknown; notify?: unknown } | undefined;
+        const p = f.push as { to?: unknown; skip?: unknown; type?: unknown; from?: unknown; notify?: unknown } | undefined;
         if (!p || typeof p !== "object" || typeof p.to !== "string" || typeof p.type !== "string" || !p.notify || typeof p.notify !== "object")
           return refuse("bad_frame", "в push нужны to, type и notify");
-        const row = sql.exec<Row>("SELECT * FROM subs WHERE client = ?", p.to).toArray()[0];
-        if (!row) return refuse("gone", "подписки нет", { client: p.to, type: p.type });
-        const msg = { type: p.type, from: typeof p.from === "string" ? p.from : undefined, notify: p.notify as Record<string, unknown> };
+        const skip = p.skip ?? [];
+        if (!Array.isArray(skip) || !skip.every((s) => typeof s === "string")) return refuse("bad_frame", "skip — список адресов устройств");
+        const to = p.to;
+        const type = p.type;
+        // кому пушить: подписки, до которых доходит to (адрес человека — все его устройства), кроме skip
+        const rows =
+          kindOf(to) === "user"
+            ? sql.exec<Row>("SELECT * FROM subs").toArray().filter((r) => reaches(to, r.client) && !skip.includes(r.client))
+            : sql.exec<Row>("SELECT * FROM subs WHERE client = ?", to).toArray();
+        if (!rows.length) return refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
+        const msg = { type, from: typeof p.from === "string" ? p.from : undefined, notify: p.notify as Record<string, unknown> };
         const body = fit(msg);
-        if (!body) return refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: p.to, type: p.type });
-        const cipher = await encrypt(body.bytes, unb64u(row.p256dh), unb64u(row.auth));
+        if (!body) return refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
         const jwk = JSON.parse(this.env.VAPID_PRIVATE) as JsonWebKey;
-        const jwt = await vapidJwt(jwk, row.endpoint, this.env.VAPID_SUB, Date.now());
-        const host = new URL(row.endpoint).host;
-        let status: number;
-        try {
-          const res = await fetch(row.endpoint, {
-            method: "POST",
-            headers: {
-              authorization: `vapid t=${jwt}, k=${publicKey(jwk)}`,
-              "content-encoding": "aes128gcm",
-              "content-type": "application/octet-stream",
-              ttl: String(TTL),
-              urgency: "high",
-            },
-            body: cipher,
-          });
-          status = res.status;
-          await res.body?.cancel();
-        } catch (e) {
-          return refuse("push_failed", `служба не ответила: ${String(e)}`, { client: p.to, type: p.type, host });
-        }
-        const what = { client: p.to, type: p.type, status, host };
-        if (status === 201) {
-          log({ kind: "note", ev: "sent", from, ...what, bytes: cipher.length, cut: body.cut });
-          return answer(ok(f.id ?? "", { cut: body.cut }));
-        }
-        if (status === 404 || status === 410) {
-          // подписки больше нет; строку, которую клиент успел заменить, не трогаем
-          sql.exec("DELETE FROM subs WHERE client = ? AND endpoint = ?", p.to, row.endpoint);
-          return refuse("gone", `служба ответила ${status}: подписки нет, строка удалена`, what);
-        }
-        return refuse("push_failed", `служба ответила ${status}`, what);
+        // строка журнала на каждое устройство; ответ ok — пуш ушёл хотя бы одному
+        const words = await Promise.all(
+          rows.map(async (row): Promise<string> => {
+            const cipher = await encrypt(body.bytes, unb64u(row.p256dh), unb64u(row.auth));
+            const jwt = await vapidJwt(jwk, row.endpoint, this.env.VAPID_SUB, Date.now());
+            const host = new URL(row.endpoint).host;
+            const say = (word: string, why: string, extra: Record<string, unknown>) => {
+              log({ kind: "refuse", ev: f.type, word, why, from, ...extra });
+              return word;
+            };
+            let status: number;
+            try {
+              const res = await fetch(row.endpoint, {
+                method: "POST",
+                headers: {
+                  authorization: `vapid t=${jwt}, k=${publicKey(jwk)}`,
+                  "content-encoding": "aes128gcm",
+                  "content-type": "application/octet-stream",
+                  ttl: String(TTL),
+                  urgency: "high",
+                },
+                body: cipher,
+              });
+              status = res.status;
+              await res.body?.cancel();
+            } catch (e) {
+              return say("push_failed", `служба не ответила: ${String(e)}`, { client: row.client, type, host });
+            }
+            const what = { client: row.client, type, status, host };
+            if (status === 201) {
+              log({ kind: "note", ev: "sent", from, ...what, bytes: cipher.length, cut: body.cut });
+              return "sent";
+            }
+            if (status === 404 || status === 410) {
+              // подписки больше нет; строку, которую клиент успел заменить, не трогаем
+              sql.exec("DELETE FROM subs WHERE client = ? AND endpoint = ?", row.client, row.endpoint);
+              return say("gone", `служба ответила ${status}: подписки нет, строка удалена`, what);
+            }
+            return say("push_failed", `служба ответила ${status}`, what);
+          }),
+        );
+        if (words.includes("sent")) return answer(ok(f.id ?? "", { cut: body.cut }));
+        return f.id ? answer(fail(f.id, words.includes("push_failed") ? "push_failed" : "gone")) : [];
       }
     }
     return refuse("unknown_request", `push не обслуживает ${f.type}`);

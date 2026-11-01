@@ -1,7 +1,7 @@
-// Модуль push: пуш клиенту, которого нет на связи. Решение — по последнему roster;
+// Модуль push: пуш клиенту, которого нет на связи, и каждому устройству человека ~email не на связи. Решение — по последнему roster;
 // подписки, ключ VAPID и шифрование — у Worker-модуля push. Своего хранилища нет.
 import type { Frame, Host, Module } from "@switchboard/host";
-import { kindOf } from "@switchboard/protocol";
+import { kindOf, reaches } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
 /** Что показать: заголовок, текст, кнопки и tag. Пишет модуль, чей кадр идёт человеку. */
@@ -29,9 +29,10 @@ export function make(): Module {
       host.log({ ev: "notify", why: `${frame.type} → ${clients.join(", ")}: roster ещё не пришёл — пуша нет` });
       return { pushed: [] };
     }
-    const online = new Set(roster.clients ?? []);
-    // пуш — только устройствам людей: сессиям и машинам пушей нет
-    const away = clients.filter((c): c is string => kindOf(c) === "device" && !online.has(c));
+    const online = roster.clients ?? [];
+    // пуш — только людям и их устройствам: сессиям и машинам пушей нет; устройство на связи — без пуша,
+    // адрес человека — один запрос, его устройства на связи — в skip
+    const away = clients.filter((c): c is string => kindOf(c) === "user" || (kindOf(c) === "device" && !online.includes(c)));
     if (!away.length) return { pushed: [] };
     const worker = roster.workers?.find((w) => w.name === "push");
     if (worker?.contract?.["push.send"] !== SEND_V) {
@@ -40,7 +41,8 @@ export function make(): Module {
     }
     const sent = await Promise.all(
       away.map(async (to) => {
-        const push = { to, type: frame.type, ...(frame.from !== undefined ? { from: frame.from } : {}), notify: frame.notify };
+        const skip = kindOf(to) === "user" ? online.filter((c) => reaches(to, c)) : [];
+        const push = { to, ...(skip.length ? { skip } : {}), type: frame.type, ...(frame.from !== undefined ? { from: frame.from } : {}), notify: frame.notify };
         const r = await host.request("push.send", { v: SEND_V, push });
         if (r.ok) return to;
         if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${to}: подписки нет — ${frame.type} без пуша` });

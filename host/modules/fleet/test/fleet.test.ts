@@ -191,14 +191,15 @@ describe("fleet: инструменты и вклад", () => {
 });
 
 describe("fleet: покрытие плана host-modules", () => {
-  it("3024 · fleet.send человеку ~email — кадр message его адресу, «отправлено»; push.send не уходит (пуш только устройствам)", async () => {
-    // источник: чьё: код (fleet.ts:75, :82-86; push.ts:33-34)
+  it("3024 · fleet.send человеку ~email — кадр message его адресу, «отправлено»; один push.send его адресу (пуш всем его устройствам не на связи)", async () => {
+    // источник: чьё: код (fleet.ts:75, :82-86); слово пользователя 2 нояб. «пушить всем»
     const { st, call } = await bench({ extra: [{ manifest: pushManifest as Manifest, module: makePush() }] });
     st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
     await st.open("site@laptop");
     expect(await call("site@laptop", "send", { to: "~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: ~owner@example.com" }] });
     expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "~owner@example.com", text: "Готово" }]);
     await new Promise((r) => setTimeout(r, 20));
-    expect(st.relay.frames("push.send")).toHaveLength(0);
+    expect(st.relay.frames("push.send").map((f) => (f.push as { to: string; skip?: unknown }))).toEqual([expect.objectContaining({ to: "~owner@example.com" })]);
+    expect((st.relay.frames("push.send")[0].push as { skip?: unknown }).skip).toBeUndefined();
   });
 });

@@ -151,12 +151,14 @@ describe("push: покрытие плана host-modules", () => {
     expect(line!.kind).not.toBe("stop");
   });
 
-  it("3013 · адрес человека ~email — пуша нет (только устройствам)", async () => {
-    // источник: чьё: код (push.ts:33-34 «пуш — только устройствам людей»)
+  it("3013 · адрес человека ~email — один push.send с skip = его устройства на связи; чужое устройство не в skip", async () => {
+    // источник: слово пользователя 2 нояб. «пушить всем» — сообщение на ~email пушем доходит до каждого подписанного устройства не на связи
     const s = await bench();
-    roster(s, []);
-    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["~owner@example.com"], frame: question });
-    expect(r).toEqual({ ok: true, result: { pushed: [] } });
-    expect(s.relay.frames("push.send")).toHaveLength(0);
+    roster(s, ["pult~owner@example.com", "phone~anna@example.com"]);
+    const p = s.host("host-questions").request("notify", { v: 1, clients: ["~owner@example.com"], frame: question });
+    const f = await answerSend(s, 0, { ok: true, result: { cut: false } });
+    expect(f.push).toEqual({ to: "~owner@example.com", skip: ["pult~owner@example.com"], type: "question", from: "profiles@laptop", notify: question.notify });
+    expect(await p).toEqual({ ok: true, result: { pushed: ["~owner@example.com"] } });
+    expect(s.relay.frames("push.send")).toHaveLength(1);
   });
 });
