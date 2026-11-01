@@ -169,7 +169,8 @@ export function make() {
       r.state === "stopped"
         ? `run ${r.id} на ${m} остановлен: Host ${m} перезапускается, итог не сохранён`
         : `run ${r.id} на ${m} кончился: ${stateText(r)} · ${dur(r.ended! - r.started)}. Итог — mcp__shell__wait {"machine":"${m}","run":"${r.id}","timeout":0}`;
-    const p = host.request("message", { v: 1, to: r.from, text: body }).then((x) => {
+    // уведомление, не новая задача: отправитель последнего ввода у сессии прежний
+    const p = host.request("message", { v: 1, to: r.from, text: body, report: true }).then((x) => {
       if (!x.ok) host.log({ kind: "refuse", ev: "run_message", word: x.error, run: r.id, to: r.from, why: `сообщение о конце run ${r.id} не доставлено: ${x.error}` });
     });
     sending.add(p);

@@ -170,7 +170,8 @@ export function make(): Module {
         for (const a of to) {
           const s = kindOf(a) === "session" ? host.session(a as string) : undefined;
           if (!s) continue;
-          s.input(questionText(f.from, String(f.question), (f.questions ?? []) as AskItem[]), { from: f.from, priority: "next", origin: { kind: "peer", from: f.from, name: f.from } });
+          // вопрос дочери — не новая задача: отправитель последнего ввода родителя прежний, его вопросы — тому, кто дал ему задачу
+          s.input(questionText(f.from, String(f.question), (f.questions ?? []) as AskItem[]), { priority: "next", origin: { kind: "peer", from: f.from, name: f.from } });
         }
       },
       // сессии закрытый вопрос не нужен: её fleet.answer уже получил ответ

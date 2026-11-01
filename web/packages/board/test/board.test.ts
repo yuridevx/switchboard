@@ -64,7 +64,8 @@ describe("список сессий", () => {
     expect(t.$(".sb-navcol button")!.textContent).toBe("Сессии1");
   });
 
-  it("дочь под родителем: отступ и порядок дерева; родитель на другой машине — его позывной в строке; сессия инцидента — значок типа", async () => {
+  it("дочь под родителем — и с другой машины: отступ и порядок дерева в группе машины корня; сессия инцидента — значок типа", async () => {
+    // источник: принятый дизайн — «Пульт и телефон рисуют это дерево по полю parent» (lead@win ├ fix-auth@wsl); инциденты — со значком типа
     const r = homeRoster();
     r.sessions = [
       { callsign: "lead@laptop", state: "idle", model: "opus" },
@@ -73,12 +74,14 @@ describe("список сессий", () => {
       { callsign: "fix-auth@pc", state: "busy", parent: "lead@laptop", model: "sonnet" },
     ];
     const t = await stand(parts(), { roster: r });
-    expect(t.$$(".board-row").map((x) => x.getAttribute("data-callsign"))).toEqual(["lead@laptop", "docs@laptop", "disk-full-1@laptop", "fix-auth@pc"]);
+    expect(t.$$(".board-row").map((x) => x.getAttribute("data-callsign"))).toEqual(["lead@laptop", "docs@laptop", "fix-auth@pc", "disk-full-1@laptop"]);
+    expect(t.$$(".board-mach").map((x) => x.textContent)).toEqual(["laptop3 сессии", "pc1 сессия"]);
     expect(t.$('[data-callsign="docs@laptop"]')!.className).toBe("board-row kid");
     expect(t.$('[data-callsign="docs@laptop"]')!.getAttribute("style")).toBe("margin-left:18px");
     expect(t.$('[data-callsign="lead@laptop"]')!.className).toBe("board-row");
     expect(t.$('[data-callsign="disk-full-1@laptop"] .board-inc')!.textContent).toBe("disk-full");
-    expect(t.$('[data-callsign="fix-auth@pc"] .board-rt span')!.textContent).toBe("↳ lead@laptop · sonnet");
+    expect(t.$('[data-callsign="fix-auth@pc"]')!.className).toBe("board-row kid");
+    expect(t.$('[data-callsign="fix-auth@pc"] .board-rt span')!.textContent).toBe("sonnet");
   });
 
   it("343 · пульт, широкий вид: дочь под родителем в своей группе; дочь в другой группе — в корне со строкой «↳ родитель»; значок типа у инцидента", async () => {

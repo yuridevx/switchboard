@@ -258,14 +258,15 @@ describe("эталоны incidents: ожидаемые ветки", () => {
     await until(() => st.states("docs@win").at(-1)?.failed?.["host-incidents"]);
   });
 
-  it("342 · штатная остановка с обращением в полёте: начатый POST доведён — 200 new: true; новый POST — соединение отклонено", async () => {
-    // источник: принятый дизайн, ожидаемые ветки — «Host останавливается — Новые POST не принимаются, начатые доводятся, HTTP закрывается»;
-    // устав — «По сигналу: не принимает новое → доводит или отдаёт текущее»
-    const { st, post } = await bench();
-    st.holders.failInitNext = 1;
+  it("342 · штатная остановка с обращением в полёте: начатый POST отдан словом shutting_down, новый — соединение отклонено; повтор после перезапуска — в ту же сессию", async () => {
+    // источник: устав — «По сигналу: не принимает новое → доводит или отдаёт текущее»; вход модулей при остановке закрыт — чьё: код (эталон 318)
+    const k = new FakeHolders();
+    keepers.push(k);
+    const { st, post, port } = await bench({ holders: k });
+    k.failInitNext = 1;
     const started = post({ type: "disk-full", key: "C:", text: "Свободно 2%" }).catch((e: Error) => ({ status: 0, body: { error: e.message } }));
     // обращение в полёте: процесс сессии поднят, initialize ещё без ответа
-    const p = await until(() => st.holders.procs.get("disk-full-1@win"));
+    const p = await until(() => k.procs.get("disk-full-1@win"));
     await until(() => p.initializes === 1);
     const down = st.close();
     stands.splice(stands.indexOf(st), 1);
@@ -275,8 +276,12 @@ describe("эталоны incidents: ожидаемые ветки", () => {
     const w = p as unknown as { failInit: boolean; write: (x: unknown) => void };
     w.failInit = false;
     w.write({ $: "initialized" });
-    expect(await started).toEqual({ status: 200, body: { callsign: "disk-full-1@win", new: true } });
+    expect(await started).toEqual({ status: 400, body: { error: "shutting_down" } });
     await down;
     expect(st.exits).toEqual([0]);
+    const again = await bench({ holders: k, home: st.home, port });
+    await until(() => again.st.kernel.sessions.get("disk-full-1@win")?.state === "idle");
+    expect(await again.post({ type: "disk-full", key: "C:", text: "Свободно 2%" })).toEqual({ status: 200, body: { callsign: "disk-full-1@win", new: false } });
+    await until(() => k.procs.get("disk-full-1@win")!.inputs.length === 1);
   });
 });

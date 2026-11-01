@@ -282,10 +282,17 @@ export function createBoard(): AppModule {
       const r = app.roster();
       body.textContent = "";
       if (!r) return;
+      // дерево всего флота: дочь — под родителем, даже с другой машины; ветка — в группе машины своего корня
+      const groups = new Map<string, Array<[SessionRecord, number]>>();
+      let root = "";
+      for (const [s, d] of tree(r.sessions)) {
+        if (!d) root = machineOf(s.callsign) ?? "";
+        groups.set(root, [...(groups.get(root) ?? []), [s, d]]);
+      }
       for (const m of r.machines) {
-        const list = r.sessions.filter((s) => machineOf(s.callsign) === m.machine);
-        body.append(h("div", { class: "board-mach" }, m.machine, h("em", null, `${list.length} ${plural(list.length, "сессия", "сессии", "сессий")}`)));
-        for (const [s, d] of tree(list)) body.append(row(s, false, d));
+        const n = r.sessions.filter((s) => machineOf(s.callsign) === m.machine).length;
+        body.append(h("div", { class: "board-mach" }, m.machine, h("em", null, `${n} ${plural(n, "сессия", "сессии", "сессий")}`)));
+        for (const [s, d] of groups.get(m.machine) ?? []) body.append(row(s, false, d));
       }
       for (const [m, g] of gone) {
         body.append(h("div", { class: "board-mach off" }, m, h("em", null, `не на связи с ${hhmm(g.at)}`)));
