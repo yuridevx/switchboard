@@ -510,3 +510,11 @@ describe("profiles: покрытие плана host-modules", () => {
     expect(g.cmds()).toEqual([`clone https://github.com/team/profiles.git ${clone()}`]);
   });
 });
+
+describe("profiles: покрытие плана host-modules — живое на стенде", () => {
+  it("3104 · machine.profiles без репозиториев в host.json — пустые profiles и repos", async () => {
+    // источник: чьё: код (profiles.ts:79, :273-291)
+    st = await standHost({ home, modules: [{ manifest: manifest as Manifest, module: make({ git: fakeGit().git }) }] });
+    expect(await ask({ type: "machine.profiles" })).toMatchObject({ ok: true, result: { profiles: {}, repos: {} } });
+  });
+});
