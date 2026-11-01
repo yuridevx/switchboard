@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 // homeDir — ~/.switchboard или SWITCHBOARD_HOME.
@@ -21,7 +20,7 @@ func homeDir() (string, error) {
 	return filepath.Join(u, ".switchboard"), nil
 }
 
-// keeper.json: { "node": "…", "host": "1.4.0" } и, если задано установщиком, "machine".
+// keeper.json: { "node": "…", "machine": "win", "relay": "wss://…", "key": "путь к ключу keeper" }.
 // Незнакомые поля сохраняются как есть.
 func confPath(home string) string { return filepath.Join(home, "keeper.json") }
 
@@ -61,24 +60,3 @@ func writeConf(home string, m map[string]any) error {
 	return os.Rename(tmp, confPath(home))
 }
 
-// setConf — поменять одно поле keeper.json.
-func setConf(home, k, v string) error {
-	m, err := readConf(home)
-	if err != nil {
-		return err
-	}
-	m[k] = v
-	return writeConf(home, m)
-}
-
-// hostDir — папка версии Host: ~/.switchboard/host/<версия>/.
-func hostDir(home, v string) string { return filepath.Join(home, "host", v) }
-
-// versionExists — папка версии есть; версия — одно имя, без путей.
-func versionExists(home, v string) bool {
-	if v == "" || v == "." || v == ".." || strings.ContainsAny(v, `/\`) {
-		return false
-	}
-	st, err := os.Stat(hostDir(home, v))
-	return err == nil && st.IsDir()
-}

@@ -1,536 +1,366 @@
 package main
 
-// Эталоны keeper из дизайна: номер эталона — номер теста.
-
+// Эталоны keeper — исполнителя плана, и держателя. Источники свойств — дизайн «Выпуски флота» (слово пользователя
+// 1 нояб.: состояние машины спускается сверху, keeper исполняет и отвечает состояние, держатели) и замеры 1 нояб.
 import (
-	"fmt"
-	"net"
-	"strconv"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// 20 · Host отключился посреди команды site: процесс жив, ввод не закрыт; вывод копится
-// и целиком, по порядку отдаётся следующему attach раньше живого потока.
-func TestEt20_HostDetachedMidCommand_OutputHeldAndReplayed(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	site, pid := e.spawn(e.host, "site")
-	site.raw("ticks 120 10ms")
-	for i := 1; i <= 5; i++ {
-		if s := site.readLine(); s != "tick "+strconv.Itoa(i) {
-			t.Fatalf("ждали tick %d, пришло %q", i, s)
-		}
-	}
-	site.c.Close() // Host отключился посреди команды
+var on = map[string]any{"on": true}
 
-	var buffered int
-	eventually(t, "вывод копится без Host", func() bool {
-		l := ctl.list()
-		if len(l) != 1 || l[0]["attached"] != false {
-			return false
-		}
-		buffered = num(l[0], "buffered")
-		return buffered > 0
-	})
-
-	a, res := e.attach(e.host, "site")
-	if num(res, "pid") != pid || num(res, "buffered") < buffered {
-		t.Fatalf("attach: %v, ждали pid %d и buffered ≥ %d", res, pid, buffered)
+// Поставить по плану: архив скачан по ссылке, хэш сверен, держатель запускает run из app.json в папке data/.
+func TestEtPlanInstallAndRun(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "capture running", func() bool { return partOf(k, "capture").State == "running" })
+	p := partOf(k, "capture")
+	if p.Version != "1.3.2" || p.Pid == 0 {
+		t.Fatalf("state %+v", p)
 	}
-	// накопленное и живой поток — по порядку, без пропусков, до конца команды
-	got := a.until("ticks done")
-	if len(got) == 0 {
-		t.Fatal("после attach нет вывода")
+	if !exists(filepath.Join(s.home, "parts", "capture", "data")) || !exists(filepath.Join(s.home, "parts", "capture", "1.3.2", "release.sha256")) {
+		t.Fatal("нет папки версии или data/")
 	}
-	prev := -1
-	for _, s := range got {
-		n, err := strconv.Atoi(strings.TrimPrefix(s, "tick "))
-		if err != nil {
-			t.Fatalf("лишняя строка %q", s)
-		}
-		if prev >= 0 && n != prev+1 {
-			t.Fatalf("порядок нарушен: %d после %d", n, prev)
-		}
-		prev = n
-	}
-	if prev != 120 {
-		t.Fatalf("последний tick %d, ждали 120", prev)
-	}
-	// ввод не закрыт: процесс отвечает
-	a.raw("echo alive")
-	if s := a.readLine(); s != "alive" {
-		t.Fatalf("ждали alive, пришло %q", s)
-	}
-	if !alive(pid) {
-		t.Fatal("процесс site умер")
+	waitFor(t, "вывод в журнале", func() bool { return journalHas(s.home, `"line":"app 1.3.2 start`) })
+	waitFor(t, "stderr держателя в журнале", func() bool { return journalHas(s.home, `app: stderr line`) })
+	if _, err := os.Stat(planPath(s.home)); err != nil {
+		t.Fatal("план не сохранён на диск")
 	}
 }
 
-// 50 · Host полузакрывает канал site; второй Host делает attach и убит без закрытия соединения.
-// Процесс жив оба раза, конца ввода не получил; list — attached: false, buffered растёт; два отключения.
-func TestEt50_HalfCloseAndKilledHost_ProcessUntouched(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	ctl.call(map[string]any{"op": "ready", "version": "1.4.0"})
-	site, pid := e.spawn(e.host, "site")
-	site.raw("ticks 400 10ms")
-	site.readLine()
-	site.c.(*net.TCPConn).CloseWrite() // полузакрытие от Host
+// Хэш не сошёлся: download_failed в keeper.state, прежняя версия работает.
+func TestEtBadHashKeepsOld(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	bad := s.links.part("capture", "1.4.0", appFiles(""), on)
+	bad["sha256"] = strings.Repeat("0", 64)
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{bad}})
+	waitFor(t, "download_failed", func() bool { return strings.Contains(partOf(k, "capture").Error, "download_failed") })
+	p := partOf(k, "capture")
+	if p.State != "running" || p.Pid != pid || p.Version != "1.3.2" {
+		t.Fatalf("прежняя версия тронута: %+v", p)
+	}
+	if exists(versionDir(s.home, "capture", "1.4.0")) {
+		t.Fatal("папка битой версии осталась")
+	}
+}
 
-	eventually(t, "attached: false после полузакрытия", func() bool {
-		l := ctl.list()
-		return len(l) == 1 && l[0]["attached"] == false
-	})
-	// второй Host: attach и убит без закрытия соединения
-	e.host.exit(1, "")
-	h2 := e.h.next(t)
-	ctl2 := e.control(h2)
-	ctl2.call(map[string]any{"op": "ready", "version": "1.4.0"})
-	a2, _ := e.attach(h2, "site")
-	a2.readLine()
-	killPid(t, h2.Pid)
-
-	h3 := e.h.next(t)
-	ctl3 := e.control(h3)
-	var b1 int
-	eventually(t, "attached: false после убитого Host", func() bool {
-		l := ctl3.list()
-		if len(l) != 1 || l[0]["attached"] != false {
-			return false
+// Смена версии без наложения: новая стартует после выхода старой; part.updated; предыдущая папка остаётся.
+func TestEtVersionSwitchNoOverlap(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{s.links.part("capture", "1.4.0", appFiles(""), on)}})
+	waitFor(t, "1.4.0 running", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Version == "1.4.0" })
+	waitFor(t, "part.updated", func() bool {
+		for _, e := range s.relay.ledgerEvs() {
+			if strings.HasPrefix(e, "part.updated win: capture 1.3.2 → 1.4.0") {
+				return true
+			}
 		}
-		b1 = num(l[0], "buffered")
-		return b1 > 0
+		return false
 	})
-	eventually(t, "buffered растёт", func() bool { return num(ctl3.list()[0], "buffered") > b1 })
-	if !alive(pid) {
-		t.Fatal("процесс site умер")
+	// старая вышла сама после закрытого ввода («bye») раньше, чем стартовала новая
+	waitFor(t, "строка старта 1.4.0", func() bool { return journalHas(s.home, `"line":"app 1.4.0 start`) })
+	b := readJournal(s.home)
+	bye, start := strings.Index(b, `"line":"bye"`), strings.Index(b, `"line":"app 1.4.0 start`)
+	if bye < 0 || start < 0 || bye > start {
+		t.Fatalf("наложение версий: bye=%d start=%d", bye, start)
 	}
-	// конца ввода не было: процесс по-прежнему читает ввод
-	a3, _ := e.attach(h3, "site")
-	a3.raw("echo still")
-	for _, s := range a3.until("still") {
-		if s == "bye" {
-			t.Fatal("процесс получил конец ввода")
+	if !exists(versionDir(s.home, "capture", "1.3.2")) {
+		t.Fatal("предыдущая версия убрана — отката без скачивания не будет")
+	}
+}
+
+// Плохой план не от .releases не исполняется.
+func TestEtPlanOnlyFromReleases(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1))
+	k := s.start()
+	<-s.relay.opened
+	s.relay.push(map[string]any{"type": "releases.plan", "from": "phone~x@y", "rev": 5, "parts": []any{s.links.part("capture", "1.0.0", appFiles(""), on)}})
+	time.Sleep(500 * time.Millisecond)
+	if partOf(k, "capture").State != "" {
+		t.Fatal("план не от .releases исполнен")
+	}
+}
+
+// Не выходит по закрытию ввода: stopping без таймера; force — держатель убивает дерево.
+func TestEtStubbornForce(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles("stubborn"), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	off := s.links.part("capture", "1.3.2", appFiles("stubborn"), map[string]any{"on": false})
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{off}})
+	waitFor(t, "stopping", func() bool { return partOf(k, "capture").State == "stopping" })
+	time.Sleep(time.Second)
+	if partOf(k, "capture").State != "stopping" {
+		t.Fatal("stopping держится без таймера")
+	}
+	off["force"] = true
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 3, "parts": []any{off}})
+	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+}
+
+// Одно падение — один перезапуск; второе — failed и part.failed; та же запись плана failed не трогает.
+func TestEtOneRestartThenFailed(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
+	waitFor(t, "part.failed", func() bool {
+		for _, e := range s.relay.ledgerEvs() {
+			if strings.HasPrefix(e, "part.failed win: capture 1.3.2") {
+				return true
+			}
 		}
-	}
-	js := e.journal()
-	if n := len(records(js, map[string]any{"ev": "detach", "id": "site"})); n != 2 {
-		t.Fatalf("отключений в журнале %d, ждали 2", n)
-	}
-	if n := len(records(js, map[string]any{"ev": "stderr", "id": "site", "line": "claude: stdin closed"})); n != 0 {
-		t.Fatal("в stderr site — конец ввода")
-	}
-}
-
-// 51 · kill без force у простаивающей wiki: ввод закрыт, claude вышел сам с 0; Host получил весь вывод,
-// канал закрыт, затем exited code 0, signal null; в list wiki нет.
-func TestEt51_KillClosesInput_ExitedCode0(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	wiki, _ := e.spawn(e.host, "wiki")
-	r := ctl.call(map[string]any{"op": "kill", "id": "wiki"})
-	if r["ok"] != true {
-		t.Fatalf("kill: %v", r)
-	}
-	if rest := wiki.eof(); rest != "bye\n" && rest != "bye\r\n" {
-		t.Fatalf("остаток вывода %q, ждали bye", rest)
-	}
-	ev := ctl.event("exited")
-	if ev["id"] != "wiki" || ev["code"] != float64(0) || ev["signal"] != nil || ev["stderr"] != "claude: stdin closed" {
-		t.Fatalf("exited: %v", ev)
-	}
-	if l := ctl.list(); len(l) != 0 {
-		t.Fatalf("list: %v", l)
-	}
-}
-
-// 52 · wiki в sleep 600, kill с force: claude и sleep завершены сразу; exited с signal.
-func TestEt52_KillForce_TreeGone(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	wiki, pid := e.spawn(e.host, "wiki")
-	wiki.raw("child")
-	grand := childPid(t, wiki.readLine())
-	wiki.raw("sleep 600s")
-	start := time.Now()
-	if r := ctl.call(map[string]any{"op": "kill", "id": "wiki", "force": true}); r["ok"] != true {
-		t.Fatalf("kill: %v", r)
-	}
-	ev := ctl.event("exited")
-	if ev["id"] != "wiki" || ev["signal"] != "SIGKILL" || ev["code"] != nil {
-		t.Fatalf("exited: %v", ev)
-	}
-	if d := time.Since(start); d > 3*time.Second {
-		t.Fatalf("exited через %v", d)
-	}
-	eventually(t, "от дерева wiki ничего не осталось", func() bool { return !alive(pid) && !alive(grand) })
-}
-
-// 53 · site убит снаружи при подключённом Host: остаток вывода, канал закрыт, exited с кодом, сигналом
-// и последней строкой stderr; весь stderr — в журнале; keeper процесс не перезапускает.
-func TestEt53_KilledOutside_ExitedWithStderr(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	site, pid := e.spawn(e.host, "site")
-	site.raw("stderr warn one")
-	site.raw("echo x")
-	if s := site.readLine(); s != "x" {
-		t.Fatalf("ждали x, пришло %q", s)
-	}
-	eventually(t, "stderr в журнале", func() bool {
-		return len(records(e.journal(), map[string]any{"ev": "stderr", "id": "site", "line": "warn one"})) == 1
+		return false
 	})
+	// та же запись части с новой rev — keeper failed не трогает: решает тот, кто правит план
+	same := s.links.part("capture", "1.3.2", appFiles(""), on)
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{same}})
+	time.Sleep(700 * time.Millisecond)
+	if partOf(k, "capture").State != "failed" {
+		t.Fatal("failed поднят без правки плана")
+	}
+	// on: false, затем on: true — чистый перезапуск
+	off := s.links.part("capture", "1.3.2", appFiles(""), map[string]any{"on": false})
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 3, "parts": []any{off}})
+	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 4, "parts": []any{same}})
+	waitFor(t, "running снова", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 0 })
+}
+
+// Перезагрузка без связи: keeper исполняет сохранённый план.
+func TestEtSavedPlanWithoutRelay(t *testing.T) {
+	s := newStand(t)
+	pl := plan1(7, s.links.part("capture", "1.3.2", appFiles(""), on))
+	b, _ := json.Marshal(pl)
+	os.WriteFile(planPath(s.home), b, 0o600)
+	writeConf(s.home, map[string]any{"machine": "win"}) // relay нет
+	k := s.start()
+	waitFor(t, "running без связи", func() bool { return partOf(k, "capture").State == "running" })
+	if k.state().Rev != 7 {
+		t.Fatal("rev сохранённого плана")
+	}
+}
+
+// Перезапуск keeper не трогает процессы: новый keeper подключается к держателю, pid тот же, вывод дочитан.
+func TestEtKeeperRestartAdopts(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	k.Stop()
+	k2 := s.start()
+	waitFor(t, "подключился", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Pid == pid })
+	if partOf(k2, "capture").Version != "1.3.2" {
+		t.Fatal("версия держателя потеряна")
+	}
+}
+
+// Выход без keeper — одно падение: держатель хранит код выхода, новый keeper получает его и поднимает часть.
+func TestEtExitWithoutKeeper(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	k.Stop()
 	killPid(t, pid)
-	site.eof()
-	ev := ctl.event("exited")
-	if ev["id"] != "site" || ev["stderr"] != "warn one" || (ev["code"] == nil && ev["signal"] == nil) {
-		t.Fatalf("exited: %v", ev)
+	time.Sleep(300 * time.Millisecond)
+	k2 := s.start()
+	waitFor(t, "один перезапуск", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Restarts == 1 && p.Pid != pid })
+}
+
+// keeper отвечает состояние сам, без Host.
+func TestEtKeeperState(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(3, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	r := s.relay.ask(map[string]any{"type": "keeper.state", "to": ".keeper@win"})
+	if r["ok"] != true {
+		t.Fatalf("ответ %v", r)
 	}
-	if l := ctl.list(); len(l) != 0 {
-		t.Fatalf("процесс перезапущен: %v", l)
+	res := r["result"].(map[string]any)
+	if res["keeper"] != keeperVersion || res["rev"].(float64) != 3 || res["os"] == "" {
+		t.Fatalf("ответ %v", res)
 	}
-	js := e.journal()
-	if len(records(js, map[string]any{"ev": "stderr", "id": "site", "line": "claude: start"})) != 1 {
-		t.Fatal("в журнале нет всего stderr")
+	ps := res["parts"].([]any)
+	if len(ps) != 1 || ps[0].(map[string]any)["state"] != "running" {
+		t.Fatalf("части %v", ps)
 	}
-	st := records(js, map[string]any{"ev": "exited", "id": "site", "kind": "stop"})
-	if len(st) != 1 || !strings.Contains(fmt.Sprint(st[0]["why"]), "не по просьбе") {
-		t.Fatalf("запись stop о выходе: %v", st)
+	if r["to"] != "~test" {
+		t.Fatal("ответ не тому, кто спросил")
 	}
 }
 
-// 54 · Host нет на связи, wiki вышла с кодом 1; Host открыл управление — сразу после ответа exited wiki;
-// в list wiki нет; накопленный вывод никому не отдан.
-func TestEt54_ExitedWhileNoHost_DeliveredOnControl(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	wiki, _ := e.spawn(e.host, "wiki")
-	wiki.raw("sleep 300ms")
-	wiki.raw("exit 1")
-	ctl.c.Close()
-	wiki.c.Close()
-	eventually(t, "wiki вышла", func() bool {
-		return len(records(e.journal(), map[string]any{"ev": "exited", "id": "wiki"})) == 1
-	})
-	cl := e.host.first(t, "control", nil)
-	if r := cl.read(); r["op"] != "reply" || r["ok"] != true {
-		t.Fatalf("control: %v", r)
+// Ничей держатель убит: часть не из плана — на старте kill.
+func TestEtOrphanHolderKilled(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	f, err := spawnHolder(s.home, holdSpec{ID: "old", Owner: "keeper", Env: os.Environ(), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	ev := cl.read()
-	if ev["op"] != "exited" || ev["id"] != "wiki" || ev["code"] != float64(1) || ev["stderr"] != "fatal: exit 1" {
-		t.Fatalf("сразу после ответа ждали exited wiki, пришло %v", ev)
-	}
-	if l := cl.list(); len(l) != 0 {
-		t.Fatalf("list: %v", l)
-	}
-	a := e.host.first(t, "attach", map[string]any{"id": "wiki"})
-	if r := a.read(); r["error"] != "unknown_id" {
-		t.Fatalf("attach вышедшей: %v", r)
+	s.relay.setPlan(plan1(1))
+	s.start()
+	waitFor(t, "ничей убит", func() bool { return !exists(holdPath(s.home, "old")) })
+	waitFor(t, "процесс ничьего держателя умер", func() bool { return !alive(f.Pid) })
+	if alive(f.Pid) {
+		t.Fatal("процесс ничьего держателя жив")
 	}
 }
 
-// 55 · к site подключён Host; attach site, spawn site и второе управление — in_use и закрыты;
-// первое соединение и процесс не тронуты; второго процесса нет.
-func TestEt55_InUse(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	site, pid := e.spawn(e.host, "site")
-	for _, cl := range []*client{
-		e.host.first(t, "attach", map[string]any{"id": "site"}),
-		e.host.first(t, "spawn", map[string]any{"id": "site", "command": e.exe, "args": []string{"claude"}}),
-		e.host.first(t, "control", nil),
-	} {
-		if r := cl.read(); r["ok"] != false || r["error"] != "in_use" {
-			t.Fatalf("ждали in_use, пришло %v", r)
-		}
-		cl.eof()
+// Держатели Host keeper не трогает.
+func TestEtHostHoldersUntouched(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	f, err := spawnHolder(s.home, holdSpec{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	site.raw("echo same")
-	if s := site.readLine(); s != "same" {
-		t.Fatalf("первое соединение: %q", s)
-	}
-	l := ctl.list()
-	if len(l) != 1 || num(l[0], "pid") != pid {
-		t.Fatalf("list: %v", l)
+	s.relay.setPlan(plan1(1))
+	s.start()
+	time.Sleep(700 * time.Millisecond)
+	if !exists(holdPath(s.home, "site@win")) || !alive(f.Pid) {
+		t.Fatal("держатель Host тронут")
 	}
 }
 
-// 56 · Host после ready упал с кодом 1: код и stderr в журнале; новый Host той же версии сразу,
-// во вводе — та же строка; attach к обоим; ни один процесс не перезапущен.
-func TestEt56_HostCrashAfterReady_RestartedSameLine(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	ctl.call(map[string]any{"op": "ready", "version": "1.4.0"})
-	_, sitePid := e.spawn(e.host, "site")
-	_, profPid := e.spawn(e.host, "profiles")
-	e.host.exit(1, "TypeError: boom")
-	h2 := e.h.next(t)
-	if h2.Version != "1.4.0" || h2.Stdin != e.host.Stdin {
-		t.Fatalf("новый Host %s, ввод %q — ждали 1.4.0 и %q", h2.Version, h2.Stdin, e.host.Stdin)
+// Самообновление: новый файл ответил своей версией → подмена своего файла и выход; держатели живут.
+func TestEtSelfUpdate(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	target := filepath.Join(t.TempDir(), exeName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	app := s.links.part("capture", "1.3.2", appFiles(""), on)
+	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
+	s.relay.setPlan(plan1(1, app, kp))
+	k, err := Start(s.home, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	st := records(e.journal(), map[string]any{"ev": "host_exit", "kind": "stop", "code": 1})
-	if len(st) != 1 || !strings.Contains(fmt.Sprint(st[0]["why"]), "TypeError: boom") {
-		t.Fatalf("журнал выхода Host: %v", st)
-	}
-	e.control(h2)
-	for id, pid := range map[string]int{"site": sitePid, "profiles": profPid} {
-		a, res := e.attach(h2, id)
-		if num(res, "pid") != pid {
-			t.Fatalf("%s: pid %d, был %d", id, num(res, "pid"), pid)
-		}
-		a.raw("echo " + id)
-		if s := a.readLine(); s != id {
-			t.Fatalf("%s ответил %q", id, s)
-		}
-	}
-}
-
-// 57 · после upgrade Host 1.4.1 дважды подряд выходит с кодом 1 до ready: ровно два запуска,
-// причина в журнале; процессы живы; keeper.json — 1.4.0.
-func TestEt57_TwoExitsBeforeReady_Stop(t *testing.T) {
-	e := newEnv(t, "1.4.1")
-	ctl := e.control(e.host)
-	ctl.call(map[string]any{"op": "ready", "version": "1.4.0"})
-	_, pid := e.spawn(e.host, "site")
-	if r := ctl.call(map[string]any{"op": "upgrade", "version": "1.4.1"}); r["ok"] != true {
-		t.Fatalf("upgrade: %v", r)
-	}
-	ctl.event("stop")
-	e.host.exit(0, "")
-	for i := 0; i < 2; i++ {
-		h := e.h.next(t)
-		if h.Version != "1.4.1" {
-			t.Fatalf("запущен %s", h.Version)
-		}
-		h.exit(1, "gate: два владельца")
-	}
-	e.h.none(t, 1500*time.Millisecond)
-	js := e.journal()
-	if n := len(records(js, map[string]any{"ev": "host_start", "host": "1.4.1"})); n != 2 {
-		t.Fatalf("запусков 1.4.1: %d", n)
-	}
-	f := records(js, map[string]any{"ev": "host_failed", "kind": "stop"})
-	if len(f) != 1 || !strings.HasPrefix(fmt.Sprint(f[0]["why"]), "host 1.4.1: два выхода до ready — не запускаю") {
-		t.Fatalf("журнал: %v", f)
-	}
-	if !alive(pid) {
-		t.Fatal("процесс site умер")
-	}
-	if m, _ := readConf(e.home); m["host"] != "1.4.0" {
-		t.Fatalf("keeper.json: %v", m)
-	}
-}
-
-// 58 · upgrade к 1.4.1 — папка есть: ok, stop upgrade, новый Host с той же строкой, attach, ready 1.4.1,
-// keeper.json → 1.4.1, процессы те же. upgrade к 9.9.9 — unknown_version, stop не отправлен.
-func TestEt58_Upgrade(t *testing.T) {
-	e := newEnv(t, "1.4.1")
-	ctl := e.control(e.host)
-	ctl.call(map[string]any{"op": "ready", "version": "1.4.0"})
-	_, pid := e.spawn(e.host, "site")
-	if r := ctl.call(map[string]any{"op": "upgrade", "version": "1.4.1"}); r["ok"] != true {
-		t.Fatalf("upgrade: %v", r)
-	}
-	if s := ctl.read(); s["op"] != "stop" || s["reason"] != "upgrade" {
-		t.Fatalf("ждали stop upgrade: %v", s)
-	}
-	e.host.exit(0, "")
-	h2 := e.h.next(t)
-	if h2.Version != "1.4.1" || h2.Stdin != e.host.Stdin {
-		t.Fatalf("новый Host %s, ввод %q", h2.Version, h2.Stdin)
-	}
-	ctl2 := e.control(h2)
-	if _, res := e.attach(h2, "site"); num(res, "pid") != pid {
-		t.Fatalf("site перезапущен: %v", res)
-	}
-	if r := ctl2.call(map[string]any{"op": "ready", "version": "1.4.1"}); r["ok"] != true {
-		t.Fatalf("ready: %v", r)
-	}
-	if m, _ := readConf(e.home); m["host"] != "1.4.1" {
-		t.Fatalf("keeper.json: %v", m)
-	}
-	if r := ctl2.call(map[string]any{"op": "upgrade", "version": "9.9.9"}); r["error"] != "unknown_version" {
-		t.Fatalf("upgrade 9.9.9: %v", r)
-	}
-	// stop не отправлен: следующая строка — ответ на list
-	ctl2.send(map[string]any{"op": "list"})
-	if r := ctl2.read(); r["op"] != "reply" {
-		t.Fatalf("после unknown_version пришло %v", r)
-	}
-}
-
-// 59 · первая строка с верным ключом и proto 2: contract_mismatch, закрыто; в журнале обе версии.
-func TestEt59_ProtoMismatch(t *testing.T) {
-	e := newEnv(t)
-	cl := e.host.dial(t)
-	cl.send(map[string]any{"key": e.host.key, "proto": 2, "op": "spawn", "id": "site", "command": e.exe, "args": []string{"claude"}})
-	if r := cl.read(); r["ok"] != false || r["error"] != "contract_mismatch" {
-		t.Fatalf("ответ: %v", r)
-	}
-	cl.eof()
-	r := records(e.journal(), map[string]any{"kind": "refuse", "word": "contract_mismatch", "proto": 2, "keeper_proto": 1})
-	if len(r) != 1 {
-		t.Fatalf("журнал: %v", e.journal())
-	}
-	if l := e.control(e.host).list(); len(l) != 0 {
-		t.Fatalf("процесс запущен: %v", l)
-	}
-}
-
-// 247 · ready с новой версией после перезагрузки модулей: keeper.json → 1.4.1 без stop и перезапуска;
-// ready 9.9.9 — unknown_version; после убийства Host keeper запускает 1.4.1.
-func TestEt247_ReadyNewVersion_NoRestart(t *testing.T) {
-	e := newEnv(t, "1.4.1")
-	ctl := e.control(e.host)
-	ctl.call(map[string]any{"op": "ready", "version": "1.4.0"})
-	_, sitePid := e.spawn(e.host, "site")
-	_, profPid := e.spawn(e.host, "profiles")
-	if r := ctl.call(map[string]any{"op": "ready", "version": "1.4.1"}); r["ok"] != true {
-		t.Fatalf("ready 1.4.1: %v", r)
-	}
-	if m, _ := readConf(e.home); m["host"] != "1.4.1" {
-		t.Fatalf("keeper.json: %v", m)
-	}
-	if r := ctl.call(map[string]any{"op": "ready", "version": "9.9.9"}); r["error"] != "unknown_version" {
-		t.Fatalf("ready 9.9.9: %v", r)
-	}
-	ctl.send(map[string]any{"op": "list"})
-	if r := ctl.read(); r["op"] != "reply" {
-		t.Fatalf("stop отправлен: %v", r)
-	}
-	e.h.none(t, 300*time.Millisecond)
-	if m, _ := readConf(e.home); m["host"] != "1.4.1" {
-		t.Fatalf("keeper.json после 9.9.9: %v", m)
-	}
-	killPid(t, e.host.Pid)
-	h2 := e.h.next(t)
-	if h2.Version != "1.4.1" {
-		t.Fatalf("после убийства запущен %s", h2.Version)
-	}
-	l := e.control(h2).list()
-	if len(l) != 2 || num(l[0], "pid") != profPid || num(l[1], "pid") != sitePid {
-		t.Fatalf("процессы тронуты: %v", l)
-	}
-}
-
-// 38 (экосистема) · служба ОС останавливает keeper; site занята, profiles простаивает.
-// Host получил stop machine, закрыл сессии и вышел; keeper завершил оставшиеся процессы и вышел;
-// процессов claude не осталось. После старта процессов нет — Host поднимет сессии по resume.
-func TestEt38_ServiceStop_Graceful(t *testing.T) {
-	e := newEnv(t)
-	ctl := e.control(e.host)
-	site, sitePid := e.spawn(e.host, "site")
-	site.raw("child")
-	grand := childPid(t, site.readLine())
-	site.raw("sleep 60s")
-	prof, profPid := e.spawn(e.host, "profiles")
-
-	stopped := make(chan struct{})
-	go func() {
-		e.k.Stop()
-		close(stopped)
-	}()
-	if s := ctl.event("stop"); s["reason"] != "machine" {
-		t.Fatalf("stop: %v", s)
-	}
-	// Host закрывает простаивающую сессию штатно, занятая не успела — Host выходит
-	if r := ctl.call(map[string]any{"op": "kill", "id": "profiles"}); r["ok"] != true {
-		t.Fatalf("kill: %v", r)
-	}
-	prof.eof()
-	if ev := ctl.event("exited"); ev["id"] != "profiles" || ev["code"] != float64(0) {
-		t.Fatalf("exited: %v", ev)
-	}
-	e.host.exit(0, "")
+	exited := make(chan int, 1)
+	k.self = func() (string, error) { return target, nil }
+	k.exit = func(code int) { exited <- code }
 	select {
-	case <-stopped:
-	case <-time.After(15 * time.Second):
-		t.Fatal("keeper не вышел")
-	}
-	// SIGKILL группе асинхронен: процесс умирает чуть позже выхода keeper (CI Ubuntu 31 окт.)
-	eventually(t, "после остановки не осталось процессов", func() bool {
-		for _, p := range []int{sitePid, grand, profPid, e.host.Pid} {
-			if alive(p) {
-				return false
-			}
+	case code := <-exited:
+		if code != 3 {
+			t.Fatalf("код выхода %d", code)
 		}
-		return true
-	})
-	js := e.journal()
-	left := records(js, map[string]any{"ev": "kill_left"})
-	if len(left) != 1 || fmt.Sprint(left[0]["ids"]) != "[site]" {
-		t.Fatalf("завершены keeper: %v", left)
+	case <-time.After(30 * time.Second):
+		t.Fatal("keeper не подменил себя")
 	}
-	if len(records(js, map[string]any{"ev": "keeper_exit"})) != 1 {
-		t.Fatal("нет keeper_exit")
+	b, _ := os.ReadFile(target)
+	if len(b) != len(bin) {
+		t.Fatal("файл keeper не подменён")
 	}
-	// служба ОС подняла keeper снова: новый ключ, процессов нет
-	e2 := &env{t: t, home: e.home, exe: e.exe, h: e.h}
-	e2.start()
-	h2 := e.h.next(t)
-	if h2.key == e.host.key {
-		t.Fatal("ключ не сменился")
+	if !exists(target + "." + keeperVersion + ".old") {
+		t.Fatal("старый файл не переименован")
 	}
-	if l := e2.control(h2).list(); len(l) != 0 {
-		t.Fatalf("после старта: %v", l)
+	if f := readHoldFiles(s.home); len(f) != 1 || !alive(f[0].Pid) {
+		t.Fatal("держатель приложения не пережил подмену keeper")
 	}
 }
 
-// 39 (экосистема) · локальный процесс шлёт spawn без ключа, затем с чужим: оба закрыты сразу,
-// процесс не запущен, в журнале два отказа bad_key.
-func TestEt39_NoKeyRefused(t *testing.T) {
-	e := newEnv(t)
-	for _, first := range []map[string]any{
-		{"op": "spawn", "id": "x", "command": e.exe, "args": []string{"claude"}},
-		{"key": strings.Repeat("0", 64), "proto": 1, "op": "spawn", "id": "x", "command": e.exe, "args": []string{"claude"}},
-	} {
-		cl := dialTo(t, e.k.Addr())
-		cl.send(first)
-		if r := cl.read(); r["ok"] != false || r["error"] != "bad_key" {
-			t.Fatalf("ответ: %v", r)
-		}
-		cl.eof()
-	}
-	if n := len(records(e.journal(), map[string]any{"kind": "refuse", "word": "bad_key"})); n != 2 {
-		t.Fatalf("отказов bad_key в журнале: %d", n)
-	}
-	if l := e.control(e.host).list(); len(l) != 0 {
-		t.Fatalf("процесс запущен: %v", l)
+// Новый файл keeper не тот: check_failed, keeper не выходит.
+func TestEtSelfUpdateCheckFailed(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "1.0.0")
+	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
+	s.relay.setPlan(plan1(1, kp))
+	k := s.start()
+	exited := false
+	k.exit = func(int) { exited = true }
+	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
+	if exited {
+		t.Fatal("keeper вышел после check_failed")
 	}
 }
 
-// 21 · процесс keeper убит; site выполняет команду с потомком, profiles простаивает.
-// Host, оба процесса claude и их потомки завершились вместе с keeper. Служба ОС подняла keeper,
-// keeper — Host: процессов нет, Host поднимет сессии по resume.
-func TestEt21_KeeperKilled_TreeGone(t *testing.T) {
-	e := prepare(t)
-	keeperPid := startKeeperProc(t, e.home)
-	h := e.h.next(t)
-	e.control(h)
-	site, sitePid := e.spawn(h, "site")
-	site.raw("child")
-	grand := childPid(t, site.readLine())
-	site.raw("sleep 60s")
-	_, profPid := e.spawn(h, "profiles")
+/* ===== держатель ===== */
 
-	killPid(t, keeperPid)
-	eventually(t, "Host, claude и потомки завершились с keeper", func() bool {
-		for _, p := range []int{h.Pid, sitePid, profPid, grand} {
-			if alive(p) {
-				return false
-			}
-		}
-		return true
-	})
-	// служба ОС подняла keeper
-	e.start()
-	h2 := e.h.next(t)
-	if h2.key == h.key {
-		t.Fatal("ключ не сменился")
+// Держатель копит вывод без хозяина и отдаёт его хозяину; второй хозяин — in_use; чужой ключ — bad_key.
+func TestEtHolderBufferAndOwner(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "x", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if l := e.control(h2).list(); len(l) != 0 {
-		t.Fatalf("после перезапуска: %v", l)
+	time.Sleep(500 * time.Millisecond)
+	c, hh, err := dialHolder(f)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if hh.Buffered == 0 || hh.Pid != f.Pid {
+		t.Fatalf("hello %+v", hh)
+	}
+	if _, _, err := dialHolder(f); err == nil || !strings.Contains(err.Error(), "in_use") {
+		t.Fatalf("второй хозяин: %v", err)
+	}
+	bad := f
+	bad.Key = "nope"
+	if _, _, err := dialHolder(bad); err == nil || !strings.Contains(err.Error(), "bad_key") {
+		t.Fatalf("чужой ключ: %v", err)
+	}
+	var out strings.Builder
+	c.closeInput()
+	x, err := c.read(func(b []byte) { out.Write(b) })
+	if err != nil || x == nil || x.Code == nil || *x.Code != 0 {
+		t.Fatalf("выход %v %v", x, err)
+	}
+	if !strings.Contains(out.String(), "app 1 start") || !strings.Contains(out.String(), "bye") {
+		t.Fatalf("вывод %q", out.String())
+	}
+	waitFor(t, "файл держателя убран", func() bool { return !exists(holdPath(home, "x")) })
+}
+
+// Умер держатель — умер процесс: ничьих процессов не бывает.
+func TestEtHolderDiesChildDies(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "y", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hf holdFile
+	b, _ := os.ReadFile(holdPath(home, "y"))
+	json.Unmarshal(b, &hf)
+	killPid(t, hf.Holder)
+	waitFor(t, "процесс умер с держателем", func() bool { return !alive(f.Pid) })
+}
+
+func readJournal(home string) string {
+	ms, _ := filepath.Glob(filepath.Join(home, "journal", "keeper-*.jsonl"))
+	var s strings.Builder
+	for _, m := range ms {
+		b, _ := os.ReadFile(m)
+		s.Write(b)
+	}
+	return s.String()
 }

@@ -1,9 +1,13 @@
-// keeper — служба ОС Switchboard без логики: держит процессы claude, запускает и обновляет Host.
+// keeper — служба ОС Switchboard: исполнитель плана машины. Держит части машины (Host и приложения) через держатели,
+// отвечает keeper.state, подменяет себя по плану.
 //
-//	keeper run        — в консоли (отладка); Ctrl+C — штатная остановка
-//	keeper install    — служба: Windows — служба под пользователем (пароль — одной строкой в stdin),
-//	                    Linux — systemd --user с linger; флаги --host <версия>, --machine <имя>
-//	keeper uninstall  — убрать службу
+//	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
+//	keeper install        — ключ keeper (keeper.<машина>…) — первой строкой stdin; флаги --machine, --relay;
+//	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача
+//	                        «при входе пользователя» с повтором раз в минуту; Linux — systemd --user с linger
+//	keeper uninstall      — убрать службу или задачу
+//	keeper hold …         — режим держателя (запускают keeper и Host)
+//	keeper version        — версия
 package main
 
 import (
@@ -31,7 +35,9 @@ func main() {
 	}
 	switch cmd {
 	case "run":
-		os.Exit(runConsole())
+		os.Exit(runConsole(os.Args[2:]))
+	case "hold":
+		os.Exit(runHold(os.Args[2:]))
 	case "install":
 		if err := install(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "install:", err)
@@ -45,17 +51,25 @@ func main() {
 	case "version":
 		fmt.Println(keeperVersion)
 	default:
-		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run | install [--host <версия>] [--machine <имя>] | uninstall | version")
+		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--machine <имя>] [--relay <wss>] [--logon] | uninstall | hold … | version")
 		os.Exit(2)
 	}
 }
 
 // runConsole — keeper в консоли; SIGINT или SIGTERM — штатная остановка.
-func runConsole() int {
+func runConsole(args []string) int {
+	for _, a := range args {
+		if a == "--hide" {
+			hideConsole()
+		}
+	}
 	home, err := homeDir()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "keeper:", err)
 		return 1
+	}
+	if self, err := os.Executable(); err == nil {
+		cleanupOldSelf(self)
 	}
 	k, err := Start(home, os.Stderr)
 	if err != nil {
@@ -69,18 +83,27 @@ func runConsole() int {
 		k.Stop()
 		return 0
 	case <-k.Done():
-		return 1
+		return k.exitCode
 	}
 }
 
-// prepareConf — установщик пишет в keeper.json node (если его нет), версию Host и имя машины.
-func prepareConf(args []string) error {
+// installFlags — флаги установки.
+type installFlags struct {
+	machine, relay string
+	logon          bool
+}
+
+func parseInstall(args []string) (installFlags, error) {
+	var f installFlags
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	host := fs.String("host", "", "версия Host из ~/.switchboard/host/")
-	machine := fs.String("machine", "", "имя машины для журнала")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
+	fs.StringVar(&f.machine, "machine", "", "имя машины")
+	fs.StringVar(&f.relay, "relay", "", "адрес relay (wss://…)")
+	fs.BoolVar(&f.logon, "logon", false, "Windows: задача «при входе пользователя» вместо службы")
+	return f, fs.Parse(args)
+}
+
+// prepareConf — keeper.json (node, машина, relay, путь ключа) и ключ keeper из первой строки stdin.
+func prepareConf(f installFlags, in *bufio.Reader) error {
 	home, err := homeDir()
 	if err != nil {
 		return err
@@ -99,21 +122,36 @@ func prepareConf(args []string) error {
 		}
 		m["node"] = node
 	}
-	if *host != "" {
-		m["host"] = *host
+	if f.machine != "" {
+		m["machine"] = f.machine
 	}
-	if *machine != "" {
-		m["machine"] = *machine
+	if f.relay != "" {
+		m["relay"] = f.relay
 	}
-	if confStr(m, "host") == "" {
-		fmt.Fprintln(os.Stderr, "install: в keeper.json нет версии Host — keeper не запустит Host, пока её нет (--host)")
+	delete(m, "host")
+	key, err := readSecretLine(in)
+	if err != nil {
+		return fmt.Errorf("ключ keeper — первой строкой stdin: %w", err)
+	}
+	if !strings.HasPrefix(key, "keeper.") {
+		return fmt.Errorf("ключ не роли keeper")
+	}
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(home, "keeper.key"), []byte(key+"\n"), 0o600); err != nil {
+		return err
+	}
+	m["key"] = filepath.Join(home, "keeper.key")
+	if confStr(m, "relay") == "" {
+		fmt.Fprintln(os.Stderr, "install: в keeper.json нет relay — keeper будет исполнять сохранённый план без связи (--relay)")
 	}
 	return writeConf(home, m)
 }
 
-// readSecretLine — одна строка из stdin (пароль): не из аргументов.
-func readSecretLine() (string, error) {
-	s, err := bufio.NewReader(os.Stdin).ReadString('\n')
+// readSecretLine — одна строка из stdin: не из аргументов.
+func readSecretLine(in *bufio.Reader) (string, error) {
+	s, err := in.ReadString('\n')
 	if err != nil && s == "" {
 		return "", fmt.Errorf("нет строки в stdin: %w", err)
 	}

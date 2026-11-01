@@ -2,18 +2,28 @@
 
 package main
 
-import "golang.org/x/sys/windows"
+import (
+	"testing"
 
-// alive — процесс с этим pid ещё работает.
+	"golang.org/x/sys/windows"
+)
+
 func alive(pid int) bool {
-	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
+	h, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION|windows.SYNCHRONIZE, false, uint32(pid))
 	if err != nil {
 		return false
 	}
 	defer windows.CloseHandle(h)
-	var code uint32
-	if windows.GetExitCodeProcess(h, &code) != nil {
-		return false
+	ev, _ := windows.WaitForSingleObject(h, 0)
+	return ev == uint32(windows.WAIT_TIMEOUT)
+}
+
+func killPid(t *testing.T, pid int) {
+	t.Helper()
+	h, err := windows.OpenProcess(windows.PROCESS_TERMINATE, false, uint32(pid))
+	if err != nil {
+		t.Fatalf("kill %d: %v", pid, err)
 	}
-	return code == 259 // STILL_ACTIVE
+	defer windows.CloseHandle(h)
+	windows.TerminateProcess(h, 3)
 }

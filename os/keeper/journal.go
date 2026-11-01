@@ -17,11 +17,12 @@ type Journal struct {
 	dir     string
 	machine string
 	echo    io.Writer // консольный режим: копия строки в stderr
+	who     string    // кто пишет: keeper или holder
 	now     func() time.Time
 }
 
 func newJournal(dir, machine string, echo io.Writer) *Journal {
-	return &Journal{dir: dir, machine: machine, echo: echo, now: time.Now}
+	return &Journal{dir: dir, machine: machine, echo: echo, now: time.Now, who: "keeper"}
 }
 
 // write — одна запись; kv — пары «поле, значение» в порядке записи.
@@ -32,7 +33,7 @@ func (j *Journal) write(kind, ev string, kv ...any) {
 	field(&b, "t", t.Format("2006-01-02T15:04:05.000Z"), true)
 	field(&b, "part", "keeper", false)
 	field(&b, "machine", j.machine, false)
-	field(&b, "who", "keeper", false)
+	field(&b, "who", j.who, false)
 	field(&b, "kind", kind, false)
 	field(&b, "ev", ev, false)
 	for i := 0; i+1 < len(kv); i += 2 {

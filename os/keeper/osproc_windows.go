@@ -21,16 +21,25 @@ type osHandle struct {
 
 // setProcAttr — своя группа консоли: Ctrl+C в консоли keeper не доходит до детей.
 func setProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
 }
 
-func afterStart(p *os.Process) (*osHandle, error) {
+// setHolderAttr — держатель: своя группа, без окна, без задания хозяина — переживает хозяина.
+func setHolderAttr(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
+}
+
+// afterStart — процесс в своё задание «закрыл — убей»; detach — дети процесса из задания выходят тихо.
+func afterStart(p *os.Process, detach bool) (*osHandle, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
 	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+	if detach {
+		info.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK
+	}
 	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
 		windows.CloseHandle(job)

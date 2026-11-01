@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,16 +13,17 @@ import (
 
 func isService() bool { return false }
 func runService()     {}
+func hideConsole()    {}
 
-// Linux: systemd --user и linger — стартует без входа. Restart=always поднимает упавший keeper;
-// KillMode=mixed: stop шлёт SIGTERM только keeper (штатная остановка), остаток cgroup — SIGKILL.
+// Linux: systemd --user и linger — стартует без входа. Restart=always поднимает вышедший keeper (и после подмены себя);
+// KillMode=process: остановка и перезапуск трогают только keeper — держатели и их процессы живут (замер 1 нояб.).
 const unitText = `[Unit]
 Description=Switchboard keeper
 
 [Service]
 ExecStart="%s" run
 Restart=always
-KillMode=mixed
+KillMode=process
 
 [Install]
 WantedBy=default.target
@@ -40,7 +42,11 @@ func unitPath() (string, error) {
 }
 
 func install(args []string) error {
-	if err := prepareConf(args); err != nil {
+	f, err := parseInstall(args)
+	if err != nil {
+		return err
+	}
+	if err := prepareConf(f, bufio.NewReader(os.Stdin)); err != nil {
 		return err
 	}
 	exe, err := os.Executable()

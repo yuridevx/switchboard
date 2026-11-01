@@ -22,7 +22,13 @@ func setProcAttr(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 }
 
-func afterStart(p *os.Process) (*osHandle, error) { return &osHandle{pgid: p.Pid}, nil }
+// afterStart — группа процесса; detach на Linux не нужен: дети держателей Host уходят в свою сессию сами.
+func afterStart(p *os.Process, detach bool) (*osHandle, error) { return &osHandle{pgid: p.Pid}, nil }
+
+// setHolderAttr — держатель: своя сессия, без «родитель умер — умри» — переживает хозяина.
+func setHolderAttr(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+}
 
 // killTree — SIGKILL всей группе процесса.
 func (o *osHandle) killTree() {

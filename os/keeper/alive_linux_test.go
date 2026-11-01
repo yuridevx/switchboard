@@ -4,17 +4,33 @@ package main
 
 import (
 	"os"
-	"strconv"
 	"strings"
+	"syscall"
+	"testing"
 )
 
-// alive — процесс с этим pid ещё работает (зомби — уже нет).
+// alive — процесс жив и не зомби.
 func alive(pid int) bool {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
+	if syscall.Kill(pid, 0) != nil {
 		return false
 	}
-	s := string(b)
-	i := strings.LastIndexByte(s, ')')
-	return i < 0 || i+2 >= len(s) || s[i+2] != 'Z'
+	b, err := os.ReadFile("/proc/" + itoa(pid) + "/stat")
+	return err == nil && !strings.Contains(string(b), ") Z ")
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	s := ""
+	for n > 0 {
+		s = string(rune('0'+n%10)) + s
+		n /= 10
+	}
+	return s
+}
+
+func killPid(t *testing.T, pid int) {
+	t.Helper()
+	syscall.Kill(pid, syscall.SIGKILL)
 }

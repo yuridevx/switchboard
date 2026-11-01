@@ -1,38 +1,39 @@
 package main
 
-// Стенд keeper: настоящий сервер на 127.0.0.1, вместо Host — подставной процесс,
-// вместо claude — процесс-заглушка. Оба — этот же тестовый бинарь в другой роли.
-
+// Стенд keeper: настоящие keeper и держатели на временной папке, поддельный relay (вебсокет), поддельные ссылки
+// на архивы. Приложение, держатель и новый файл keeper — этот же тестовый бинарь в другой роли.
 import (
+	"archive/tar"
 	"bufio"
+	"bytes"
+	"compress/gzip"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 func TestMain(m *testing.M) {
 	if os.Getenv("KEEPER_TEST_CHILD") == "1" && len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "claude":
-			fakeClaude()
+		case "hold":
+			os.Exit(runHold(os.Args[2:]))
+		case "app":
+			fakeApp(os.Args[2:])
 			return
-		case "sleeper":
-			time.Sleep(10 * time.Minute)
-			return
-		case "keeper-proc":
-			os.Exit(runConsole())
-		}
-		if filepath.Base(os.Args[1]) == "host" {
-			fakeHost(os.Args[1])
+		case "version":
+			fmt.Println(os.Getenv("KEEPER_TEST_VERSION"))
 			return
 		}
 	}
@@ -40,486 +41,298 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-/* ===== роли дочерних процессов ===== */
-
-// fakeClaude — заглушка claude: команды строками в stdin, конец ввода — «bye» и выход 0.
-func fakeClaude() {
-	fmt.Fprintln(os.Stderr, "claude: start")
-	var wmu sync.Mutex
-	out := func(s string) {
-		wmu.Lock()
-		os.Stdout.WriteString(s + "\n")
-		wmu.Unlock()
+// fakeApp — приложение: строка о старте, ввод закрыт — «bye» и выход 0; stubborn — конец ввода не слушает.
+func fakeApp(args []string) {
+	mode := ""
+	if len(args) > 0 {
+		mode = args[0]
 	}
-	sc := bufio.NewScanner(os.Stdin)
-	for sc.Scan() {
-		f := strings.Fields(sc.Text())
-		if len(f) == 0 {
-			continue
-		}
-		switch f[0] {
-		case "echo":
-			out(strings.Join(f[1:], " "))
-		case "sleep": // команда Bash посреди хода
-			d, _ := time.ParseDuration(f[1])
-			time.Sleep(d)
-			out("slept " + f[1])
-		case "ticks": // долгий поток вывода
-			n, _ := strconv.Atoi(f[1])
-			d, _ := time.ParseDuration(f[2])
-			go func() {
-				for i := 1; i <= n; i++ {
-					out(fmt.Sprintf("tick %d", i))
-					time.Sleep(d)
-				}
-				out("ticks done")
-			}()
-		case "child": // потомок, как процесс Bash
-			c := exec.Command(os.Args[0], "sleeper")
-			c.Start()
-			out(fmt.Sprintf("child %d", c.Process.Pid))
-		case "env":
-			v, ok := os.LookupEnv(f[1])
-			if !ok {
-				v = "<unset>"
-			}
-			out("env " + f[1] + "=" + v)
-		case "stderr":
-			fmt.Fprintln(os.Stderr, strings.Join(f[1:], " "))
-		case "exit":
-			fmt.Fprintln(os.Stderr, "fatal: exit "+f[1])
-			code, _ := strconv.Atoi(f[1])
-			os.Exit(code)
+	fmt.Printf("app %s start pid %d\n", os.Getenv("SWITCHBOARD_VERSION"), os.Getpid())
+	fmt.Fprintln(os.Stderr, "app: stderr line")
+	br := bufio.NewReader(os.Stdin)
+	for {
+		if _, err := br.ReadString('\n'); err != nil {
+			break
 		}
 	}
-	out("bye")
-	fmt.Fprintln(os.Stderr, "claude: stdin closed")
+	if mode == "stubborn" {
+		time.Sleep(10 * time.Minute)
+	}
+	fmt.Println("bye")
 }
 
-// fakeHost — подставной Host: строку из stdin отдаёт стенду, держит соединения с keeper
-// туннелем (умер Host — умерли его соединения) и выходит по команде стенда.
-func fakeHost(entry string) {
-	dir := filepath.Dir(entry)
-	in, _ := bufio.NewReader(os.Stdin).ReadString('\n')
-	var hand struct{ Keeper, Key string }
-	json.Unmarshal([]byte(in), &hand)
-	addr, err := os.ReadFile(filepath.Join(dir, "harness"))
-	if err != nil {
-		os.Exit(3)
-	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		os.Exit(3)
-	}
-	hc, err := net.Dial("tcp", strings.TrimSpace(string(addr)))
-	if err != nil {
-		os.Exit(3)
-	}
-	hc.Write(line(map[string]any{"version": filepath.Base(dir), "stdin": strings.TrimSpace(in), "tunnel": ln.Addr().String(), "pid": os.Getpid()}))
-	go func() {
+/* ===== поддельный relay ===== */
+
+type fakeRelay struct {
+	t      *testing.T
+	srv    *httptest.Server
+	mu     sync.Mutex
+	plan   map[string]any
+	ws     *websocket.Conn
+	ledger []map[string]any
+	reply  map[string]chan map[string]any
+	opened chan struct{}
+}
+
+func newFakeRelay(t *testing.T) *fakeRelay {
+	r := &fakeRelay{t: t, reply: map[string]chan map[string]any{}, opened: make(chan struct{}, 10)}
+	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ws, err := websocket.Accept(w, req, nil)
+		if err != nil {
+			return
+		}
+		ctx := context.Background()
+		_, b, err := ws.Read(ctx)
+		if err != nil {
+			return
+		}
+		var hello map[string]any
+		json.Unmarshal(b, &hello)
+		if hello["type"] != "hello" || !strings.HasPrefix(fmt.Sprint(hello["key"]), "keeper.") {
+			ws.Close(1008, "bad_key")
+			return
+		}
+		r.mu.Lock()
+		r.ws = ws
+		r.mu.Unlock()
+		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster","machines":[],"sessions":[],"clients":[],"workers":[]}`))
+		r.opened <- struct{}{}
 		for {
-			c, err := ln.Accept()
+			_, b, err := ws.Read(ctx)
 			if err != nil {
 				return
 			}
-			go tunnel(c, hand.Keeper)
-		}
-	}()
-	dec := json.NewDecoder(hc)
-	var cmd struct {
-		Exit   int
-		Stderr string
-	}
-	if dec.Decode(&cmd) != nil {
-		os.Exit(0)
-	}
-	if cmd.Stderr != "" {
-		fmt.Fprintln(os.Stderr, cmd.Stderr)
-	}
-	os.Exit(cmd.Exit)
-}
-
-func tunnel(c net.Conn, addr string) {
-	k, err := net.Dial("tcp", addr)
-	if err != nil {
-		c.Close()
-		return
-	}
-	go func() {
-		io.Copy(k, c)
-		k.(*net.TCPConn).CloseWrite()
-	}()
-	io.Copy(c, k)
-	c.(*net.TCPConn).CloseWrite()
-}
-
-/* ===== стенд ===== */
-
-type harness struct {
-	ln    net.Listener
-	hosts chan *fakeHostH
-	mu    sync.Mutex
-	all   []*fakeHostH
-}
-
-type fakeHostH struct {
-	Version string
-	Stdin   string
-	Tunnel  string
-	Pid     int
-	c       net.Conn
-	key     string
-	addr    string
-}
-
-func newHarness(t *testing.T) *harness {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	h := &harness{ln: ln, hosts: make(chan *fakeHostH, 16)}
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			b, err := bufio.NewReader(c).ReadBytes('\n')
-			if err != nil {
-				c.Close()
+			if string(b) == "ping" {
+				ws.Write(ctx, websocket.MessageText, []byte("pong"))
 				continue
 			}
-			f := &fakeHostH{c: c}
-			json.Unmarshal(b, f)
-			var hand struct{ Keeper, Key string }
-			json.Unmarshal([]byte(f.Stdin), &hand)
-			f.key, f.addr = hand.Key, hand.Keeper
-			h.mu.Lock()
-			h.all = append(h.all, f)
-			h.mu.Unlock()
-			h.hosts <- f
+			var f map[string]any
+			json.Unmarshal(b, &f)
+			switch f["type"] {
+			case "releases.plan":
+				r.mu.Lock()
+				p := r.plan
+				r.mu.Unlock()
+				out, _ := json.Marshal(map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": p})
+				ws.Write(ctx, websocket.MessageText, out)
+			case "ledger.add":
+				r.mu.Lock()
+				r.ledger = append(r.ledger, f)
+				r.mu.Unlock()
+			case "reply":
+				r.mu.Lock()
+				c := r.reply[fmt.Sprint(f["id"])]
+				r.mu.Unlock()
+				if c != nil {
+					c <- f
+				}
+			}
 		}
-	}()
-	t.Cleanup(func() { ln.Close() })
-	return h
+	}))
+	t.Cleanup(r.srv.Close)
+	return r
 }
 
-// next — следующий запущенный keeper Host.
-func (h *harness) next(t *testing.T) *fakeHostH {
-	t.Helper()
+func (r *fakeRelay) url() string { return "ws" + strings.TrimPrefix(r.srv.URL, "http") }
+
+func (r *fakeRelay) setPlan(p map[string]any) {
+	r.mu.Lock()
+	r.plan = p
+	r.mu.Unlock()
+}
+
+// push — кадр keeper от имени from.
+func (r *fakeRelay) push(f map[string]any) {
+	r.mu.Lock()
+	ws := r.ws
+	r.mu.Unlock()
+	b, _ := json.Marshal(f)
+	ws.Write(context.Background(), websocket.MessageText, b)
+}
+
+// ask — запрос keeper и его ответ.
+func (r *fakeRelay) ask(f map[string]any) map[string]any {
+	id := newID()
+	c := make(chan map[string]any, 1)
+	r.mu.Lock()
+	r.reply[id] = c
+	r.mu.Unlock()
+	f["id"] = id
+	f["from"] = "~test"
+	r.push(f)
 	select {
-	case f := <-h.hosts:
-		return f
-	case <-time.After(15 * time.Second):
-		t.Fatal("keeper не запустил Host")
+	case x := <-c:
+		return x
+	case <-time.After(10 * time.Second):
+		r.t.Fatalf("keeper не ответил на %v", f["type"])
 		return nil
 	}
 }
 
-// none — новый Host не запущен за d.
-func (h *harness) none(t *testing.T, d time.Duration) {
-	t.Helper()
-	select {
-	case f := <-h.hosts:
-		t.Fatalf("лишний запуск Host %s pid %d", f.Version, f.Pid)
-	case <-time.After(d):
+func (r *fakeRelay) ledgerEvs() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []string
+	for _, f := range r.ledger {
+		out = append(out, fmt.Sprint(f["ev"], " ", f["text"]))
 	}
+	return out
 }
 
-func (h *harness) exitAll() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, f := range h.all {
-		f.c.Write([]byte(`{"exit":0}` + "\n"))
+/* ===== архивы и ссылки ===== */
+
+type files map[string]string
+
+func tgz(fs files) []byte {
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(zw)
+	for name, body := range fs {
+		mode := int64(0o644)
+		if strings.HasSuffix(name, ".exe") || strings.Contains(name, "/keeper") {
+			mode = 0o755
+		}
+		tw.WriteHeader(&tar.Header{Name: name, Mode: mode, Size: int64(len(body)), Typeflag: tar.TypeReg})
+		tw.Write([]byte(body))
 	}
+	tw.Close()
+	zw.Close()
+	return buf.Bytes()
 }
 
-// exit — Host выходит с кодом, перед этим строка в stderr.
-func (f *fakeHostH) exit(code int, stderr string) {
-	f.c.Write(line(map[string]any{"exit": code, "stderr": stderr}))
+type links struct {
+	srv *httptest.Server
+	mu  sync.Mutex
+	m   map[string][]byte
 }
 
-type env struct {
-	t    *testing.T
-	home string
-	exe  string
-	h    *harness
-	k    *Keeper
-	host *fakeHostH
-}
-
-// newEnv — ~/.switchboard во временной папке: keeper.json с Host 1.4.0, папки версий, keeper запущен.
-func newEnv(t *testing.T, extra ...string) *env {
-	e := prepare(t, extra...)
-	e.start()
-	e.host = e.h.next(t)
-	return e
-}
-
-func prepare(t *testing.T, extra ...string) *env {
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatal(err)
-	}
-	e := &env{t: t, home: t.TempDir(), exe: exe, h: newHarness(t)}
-	for _, v := range append([]string{"1.4.0"}, extra...) {
-		d := hostDir(e.home, v)
-		os.MkdirAll(d, 0o700)
-		os.WriteFile(filepath.Join(d, "harness"), []byte(e.h.ln.Addr().String()), 0o600)
-	}
-	if err := writeConf(e.home, map[string]any{"node": exe, "host": "1.4.0", "machine": "laptop"}); err != nil {
-		t.Fatal(err)
-	}
-	return e
-}
-
-func (e *env) start() {
-	k, err := Start(e.home, nil)
-	if err != nil {
-		e.t.Fatal(err)
-	}
-	e.k = k
-	e.t.Cleanup(func() { e.close(k) })
-}
-
-// close — штатная остановка; Host-заглушки выходят по команде стенда.
-func (e *env) close(k *Keeper) {
-	done := make(chan struct{})
-	go func() {
-		k.Stop()
-		close(done)
-	}()
-	deadline := time.After(20 * time.Second)
-	for {
-		select {
-		case <-done:
+func newLinks(t *testing.T) *links {
+	l := &links{m: map[string][]byte{}}
+	l.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l.mu.Lock()
+		b, ok := l.m[r.URL.Path]
+		l.mu.Unlock()
+		if !ok {
+			w.WriteHeader(404)
 			return
-		case <-deadline:
-			e.t.Error("keeper не остановился за 20 с")
+		}
+		w.Write(b)
+	}))
+	t.Cleanup(l.srv.Close)
+	return l
+}
+
+// part — архив части в ссылках и запись плана для неё.
+func (l *links) part(name, version string, fs files, extra map[string]any) map[string]any {
+	b := tgz(fs)
+	path := "/" + name + "/" + version + ".tgz"
+	l.mu.Lock()
+	l.m[path] = b
+	l.mu.Unlock()
+	sum := sha256.Sum256(b)
+	p := map[string]any{"part": name, "version": version, "sha256": hex.EncodeToString(sum[:]), "url": l.srv.URL + path}
+	for k, v := range extra {
+		p[k] = v
+	}
+	return p
+}
+
+// appFiles — app.json приложения: этот тестовый бинарь в роли app.
+func appFiles(mode string) files {
+	self, _ := os.Executable()
+	run := []string{self, "app"}
+	if mode != "" {
+		run = append(run, mode)
+	}
+	b, _ := json.Marshal(map[string]any{"run": run})
+	return files{"app.json": string(b)}
+}
+
+/* ===== keeper на стенде ===== */
+
+type stand struct {
+	t     *testing.T
+	home  string
+	relay *fakeRelay
+	links *links
+}
+
+func newStand(t *testing.T) *stand {
+	home := t.TempDir()
+	s := &stand{t: t, home: home, relay: newFakeRelay(t), links: newLinks(t)}
+	os.WriteFile(filepath.Join(home, "keeper.key"), []byte("keeper.win.ab12.sig\n"), 0o600)
+	writeConf(home, map[string]any{"machine": "win", "relay": s.relay.url(), "key": filepath.Join(home, "keeper.key")})
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	return s
+}
+
+// start — keeper; подмена себя не выходит из процесса теста.
+func (s *stand) start() *Keeper {
+	k, err := Start(s.home, nil)
+	if err != nil {
+		s.t.Fatal(err)
+	}
+	k.exit = func(code int) { k.exitCode = code }
+	s.t.Cleanup(k.Stop)
+	return k
+}
+
+func killHolders(home string) {
+	var pids []int
+	for _, f := range readHoldFiles(home) {
+		if c, _, err := dialHolder(f); err == nil {
+			c.kill()
+			c.read(func([]byte) {})
+			c.Close()
+		}
+		pids = append(pids, f.Holder)
+	}
+	// держатель дописывает журнал перед выходом: ждать, пока уйдёт, иначе папку не удалить
+	end := time.Now().Add(10 * time.Second)
+	for _, p := range pids {
+		for alive(p) && time.Now().Before(end) {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+}
+
+func waitFor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	end := time.Now().Add(20 * time.Second)
+	for time.Now().Before(end) {
+		if cond() {
 			return
-		case <-time.After(200 * time.Millisecond):
-			e.h.exitAll()
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("не дождался: %s", what)
+}
+
+func partOf(k *Keeper, name string) partState {
+	for _, p := range k.state().Parts {
+		if p.Part == name {
+			return p
 		}
 	}
+	return partState{}
 }
 
-/* ===== клиент протокола ===== */
-
-type client struct {
-	t  *testing.T
-	c  net.Conn
-	br *bufio.Reader
-}
-
-func dialTo(t *testing.T, addr string) *client {
-	t.Helper()
-	c, err := net.Dial("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { c.Close() })
-	return &client{t: t, c: c, br: bufio.NewReader(c)}
-}
-
-func (cl *client) send(v any) { cl.c.Write(line(v)) }
-func (cl *client) raw(s string) {
-	cl.c.Write([]byte(s + "\n"))
-}
-
-// readLine — строка вывода или JSON; ждёт до 10 с.
-func (cl *client) readLine() string {
-	cl.t.Helper()
-	cl.c.SetReadDeadline(time.Now().Add(10 * time.Second))
-	s, err := cl.br.ReadString('\n')
-	if err != nil {
-		cl.t.Fatalf("чтение: %v (прочитано %q)", err, s)
-	}
-	return strings.TrimRight(s, "\r\n")
-}
-
-func (cl *client) read() map[string]any {
-	cl.t.Helper()
-	s := cl.readLine()
-	m := map[string]any{}
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		cl.t.Fatalf("не JSON: %q", s)
-	}
-	return m
-}
-
-// until — читать строки, пока не придёт want; вернуть прочитанные до неё.
-func (cl *client) until(want string) []string {
-	cl.t.Helper()
-	var got []string
-	for {
-		s := cl.readLine()
-		if s == want {
-			return got
-		}
-		got = append(got, s)
-	}
-}
-
-// eof — дочитать до конца соединения; вернуть остаток.
-func (cl *client) eof() string {
-	cl.t.Helper()
-	cl.c.SetReadDeadline(time.Now().Add(10 * time.Second))
-	b, err := io.ReadAll(cl.br)
-	if err != nil {
-		cl.t.Fatalf("ждали конец соединения: %v (прочитано %q)", err, b)
-	}
-	return string(b)
-}
-
-func (f *fakeHostH) dial(t *testing.T) *client { return dialTo(t, f.Tunnel) }
-
-// first — первая строка с ключом этого Host.
-func (f *fakeHostH) first(t *testing.T, op string, kv map[string]any) *client {
-	cl := f.dial(t)
-	m := map[string]any{"key": f.key, "proto": 1, "op": op}
-	for k, v := range kv {
-		m[k] = v
-	}
-	cl.send(m)
-	return cl
-}
-
-func (e *env) control(f *fakeHostH) *client {
-	e.t.Helper()
-	cl := f.first(e.t, "control", nil)
-	r := cl.read()
-	if r["ok"] != true {
-		e.t.Fatalf("control: %v", r)
-	}
-	return cl
-}
-
-func (e *env) spawn(f *fakeHostH, id string) (*client, int) {
-	e.t.Helper()
-	cl := f.first(e.t, "spawn", map[string]any{"id": id, "command": e.exe, "args": []string{"claude"}})
-	r := cl.read()
-	if r["ok"] != true {
-		e.t.Fatalf("spawn %s: %v", id, r)
-	}
-	return cl, num(r["result"], "pid")
-}
-
-func (e *env) attach(f *fakeHostH, id string) (*client, map[string]any) {
-	e.t.Helper()
-	cl := f.first(e.t, "attach", map[string]any{"id": id})
-	r := cl.read()
-	if r["ok"] != true {
-		e.t.Fatalf("attach %s: %v", id, r)
-	}
-	return cl, r["result"].(map[string]any)
-}
-
-// call — запрос по управлению; пропускает exited до ответа.
-func (cl *client) call(v any) map[string]any {
-	cl.t.Helper()
-	cl.send(v)
-	for {
-		r := cl.read()
-		if r["op"] == "reply" {
-			return r
+func journalHas(home, s string) bool {
+	ms, _ := filepath.Glob(filepath.Join(home, "journal", "*.jsonl"))
+	for _, m := range ms {
+		b, _ := os.ReadFile(m)
+		if strings.Contains(string(b), s) {
+			return true
 		}
 	}
+	return false
 }
 
-func (cl *client) list() []map[string]any {
-	cl.t.Helper()
-	r := cl.call(map[string]any{"op": "list"})
-	out := []map[string]any{}
-	for _, p := range r["result"].(map[string]any)["processes"].([]any) {
-		out = append(out, p.(map[string]any))
+func plan1(rev int, parts ...map[string]any) map[string]any {
+	ps := []any{}
+	for _, p := range parts {
+		ps = append(ps, p)
 	}
-	return out
-}
-
-// event — следующее событие op (exited, stop), ответы пропускаются.
-func (cl *client) event(op string) map[string]any {
-	cl.t.Helper()
-	for {
-		r := cl.read()
-		if r["op"] == op {
-			return r
-		}
-	}
-}
-
-func num(v any, k string) int {
-	m, _ := v.(map[string]any)
-	f, _ := m[k].(float64)
-	return int(f)
-}
-
-/* ===== журнал и ожидания ===== */
-
-func (e *env) journal() []map[string]any {
-	return readJournal(e.t, e.home)
-}
-
-func readJournal(t *testing.T, home string) []map[string]any {
-	var out []map[string]any
-	files, _ := filepath.Glob(filepath.Join(home, "journal", "keeper-*.jsonl"))
-	for _, f := range files {
-		b, _ := os.ReadFile(f)
-		for _, s := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-			if s == "" {
-				continue
-			}
-			m := map[string]any{}
-			if err := json.Unmarshal([]byte(s), &m); err != nil {
-				t.Fatalf("строка журнала не JSON: %q", s)
-			}
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// records — записи журнала с этими полями.
-func records(js []map[string]any, match map[string]any) []map[string]any {
-	var out []map[string]any
-next:
-	for _, r := range js {
-		for k, v := range match {
-			if fmt.Sprint(r[k]) != fmt.Sprint(v) {
-				continue next
-			}
-		}
-		out = append(out, r)
-	}
-	return out
-}
-
-func eventually(t *testing.T, what string, f func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
-	for !f() {
-		if time.Now().After(deadline) {
-			t.Fatalf("не дождались: %s", what)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-}
-
-func killPid(t *testing.T, pid int) {
-	t.Helper()
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := p.Kill(); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func childPid(t *testing.T, s string) int {
-	t.Helper()
-	var pid int
-	if _, err := fmt.Sscanf(s, "child %d", &pid); err != nil {
-		t.Fatalf("ждали «child <pid>», пришло %q", s)
-	}
-	return pid
+	return map[string]any{"rev": rev, "parts": ps}
 }

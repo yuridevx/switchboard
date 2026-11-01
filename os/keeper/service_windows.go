@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
+	"os/exec"
 	"os"
 	"time"
 	"unsafe"
@@ -59,10 +61,18 @@ func (handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.Stat
 // install — служба под учётной записью текущего пользователя: стартует с системой, без входа.
 // Пароль Windows — одной строкой из stdin; его получает только диспетчер служб.
 func install(args []string) error {
-	if err := prepareConf(args); err != nil {
+	f, err := parseInstall(args)
+	if err != nil {
 		return err
 	}
-	pw, err := readSecretLine()
+	in := bufio.NewReader(os.Stdin)
+	if err := prepareConf(f, in); err != nil {
+		return err
+	}
+	if f.logon {
+		return installLogonTask()
+	}
+	pw, err := readSecretLine(in)
 	if err != nil {
 		return err
 	}
@@ -88,7 +98,7 @@ func install(args []string) error {
 	defer m.Disconnect()
 	s, err := m.CreateService(serviceName, exe, mgr.Config{
 		DisplayName:      "Switchboard keeper",
-		Description:      "Держит процессы claude, запускает и обновляет Host Switchboard.",
+		Description:      "Исполняет план машины Switchboard: держит Host и приложения через держатели.",
 		StartType:        mgr.StartAutomatic,
 		ServiceStartName: dom + `\` + acc,
 		Password:         pw,
@@ -108,6 +118,13 @@ func install(args []string) error {
 }
 
 func uninstall() error {
+	if out, err := exec.Command("schtasks", "/Query", "/TN", serviceName).CombinedOutput(); err == nil {
+		if out, err := exec.Command("schtasks", "/Delete", "/TN", serviceName, "/F").CombinedOutput(); err != nil {
+			return fmt.Errorf("schtasks /Delete: %v: %s", err, out)
+		}
+		_ = out
+		return nil
+	}
 	m, err := mgr.Connect()
 	if err != nil {
 		return err

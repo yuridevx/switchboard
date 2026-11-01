@@ -1,575 +1,689 @@
 package main
 
+// keeper — исполнитель плана машины. План спускается сверху («выпуски»): какие части стоят на машине, какой версии,
+// включены ли, их окружение. keeper сам ничего не решает: скачивает, сверяет, распаковывает, переключает части,
+// держит каждую через держатель, отвечает keeper.state, пишет строки part.updated и part.failed в журнал флота,
+// подменяет себя. Последний план хранит на диске и исполняет его и без связи.
 import (
-	"bufio"
-	"crypto/rand"
-	"crypto/subtle"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed module.json
 var manifest []byte
 
-// keeperVersion — версия из module.json: один источник.
+// keeperVersion — версия keeper: при сборке выпуска её ставит -ldflags "-X main.buildVersion=…", иначе — module.json.
 var keeperVersion = func() string {
+	if buildVersion != "" {
+		return buildVersion
+	}
 	var m struct{ Version string }
 	json.Unmarshal(manifest, &m)
 	return m.Version
 }()
 
-// proto — версия протокола keeper в первой строке соединения. Другой нет.
-const proto = 1
+var buildVersion string
 
-// Keeper — служба без логики: держит процессы claude, запускает и обновляет Host.
+// planPart — часть в плане машины: stable уже раскрыт в версию, ссылка на архив живёт час.
+type planPart struct {
+	Part    string            `json:"part"`
+	Version string            `json:"version"`
+	Sha256  string            `json:"sha256"`
+	URL     string            `json:"url"`
+	On      *bool             `json:"on,omitempty"`
+	Force   bool              `json:"force,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+func (p planPart) on() bool { return p.On == nil || *p.On }
+
+type plan struct {
+	Rev   int        `json:"rev"`
+	Parts []planPart `json:"parts"`
+}
+
+func (pl *plan) find(name string) (planPart, bool) {
+	for _, p := range pl.Parts {
+		if p.Part == name {
+			return p, true
+		}
+	}
+	return planPart{}, false
+}
+
+// part — часть машины под держателем.
+type part struct {
+	name     string
+	version  string // версия запущенного процесса или стоящая, если не запущен
+	conn     *heldConn
+	pid      int
+	state    string // running, stopping, stopped, failed
+	restarts int
+	err      string
+	stopReq  bool          // выход просил keeper
+	exited   chan struct{} // закрыт, когда процесс вышел
+}
+
 type Keeper struct {
-	home string
-	j    *Journal
-	key  string
-	ln   net.Listener
+	home, machine, node string
+	j                   *Journal
+	radio               *radio
 
-	mu        sync.Mutex
-	procs     map[string]*proc
-	control   *control
-	queued    [][]byte // exited, пока Host нет на связи
-	host      *hostRun // работающий Host или nil
-	version   string   // версия Host, которую запускать
-	ready     bool     // текущий Host прислал ready
-	early     int      // выходы Host до ready подряд
-	upgradeTo string   // версия после штатного выхода по upgrade
-	stopping  bool
-	stopOnCtl bool // stop machine — как только Host откроет управление
-
-	procWG   sync.WaitGroup
-	stopOnce sync.Once
+	mu       sync.Mutex
+	plan     plan // исполняемый
+	parts    map[string]*part
+	applyMu  sync.Mutex
+	pending  chan plan
+	stopping bool
 	done     chan struct{}
+	stopOnce sync.Once
+	exitCode int
+
+	// для стенда: свой файл (подмена себя) и выход процесса после подмены
+	self func() (string, error)
+	exit func(code int)
 }
 
-// hostRun — один запуск Host.
-type hostRun struct {
-	version string
-	cmd     *exec.Cmd
-	osh     *osHandle
-	lastErr string
-	exited  chan struct{}
-}
-
-// control — соединение управления; запись — под своим замком.
-type control struct {
-	c   net.Conn
-	wmu sync.Mutex
-}
-
-func (ctl *control) send(b []byte) {
-	ctl.wmu.Lock()
-	ctl.c.Write(b)
-	ctl.wmu.Unlock()
-}
-
-// first — первая строка соединения: ключ, версия протокола, действие и поля spawn/attach.
-type first struct {
-	Key     string            `json:"key"`
-	Proto   int               `json:"proto"`
-	Op      string            `json:"op"`
-	ID      string            `json:"id"`
-	Command string            `json:"command"`
-	Args    []string          `json:"args"`
-	Cwd     string            `json:"cwd"`
-	Env     map[string]string `json:"env"`
-}
-
-type reply struct {
-	Op     string `json:"op"`
-	OK     bool   `json:"ok"`
-	Result any    `json:"result,omitempty"`
-	Error  string `json:"error,omitempty"`
-}
-
-func line(v any) []byte {
-	b, _ := json.Marshal(v)
-	return append(b, '\n')
-}
-
-func okLine(result any) []byte { return line(reply{Op: "reply", OK: true, Result: result}) }
-func failLine(word string) []byte {
-	return line(reply{Op: "reply", OK: false, Error: word})
-}
-
-// Start — слушать 127.0.0.1 на порту от ОС, новый ключ, запуск Host из keeper.json.
+// Start — конфиг, журнал, сохранённый план, держатели с прошлой жизни, связь с рацией.
 func Start(home string, echo io.Writer) (*Keeper, error) {
-	conf, confErr := readConf(home)
+	conf, err := readConf(home)
 	machine := confStr(conf, "machine")
 	if machine == "" {
 		hn, _ := os.Hostname()
 		machine = strings.ToLower(hn)
 	}
 	j := newJournal(filepath.Join(home, "journal"), machine, echo)
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return nil, err
-	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		j.stop("keeper_start", "порт не открыт: "+err.Error())
+		j.stop("keeper_start", "keeper.json не прочитан: "+err.Error())
 		return nil, err
 	}
-	k := &Keeper{
-		home:  home,
-		j:     j,
-		key:   hex.EncodeToString(raw),
-		ln:    ln,
-		procs: map[string]*proc{},
-		done:  make(chan struct{}),
+	k := &Keeper{home: home, machine: machine, node: confStr(conf, "node"), j: j, parts: map[string]*part{},
+		pending: make(chan plan, 1), done: make(chan struct{}), self: os.Executable, exit: os.Exit}
+	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
+	if b, err := os.ReadFile(planPath(home)); err == nil {
+		json.Unmarshal(b, &k.plan)
 	}
-	j.note("keeper_start", "keeper", keeperVersion, "port", ln.Addr().(*net.TCPAddr).Port, "pid", os.Getpid())
-	if confErr != nil {
-		j.stop("host_failed", "keeper.json не прочитан: "+confErr.Error()+" — Host не запускаю")
+	k.adopt()
+	go k.applyLoop()
+	k.queue(k.plan)
+	if url, key := confStr(conf, "relay"), readKey(home, confStr(conf, "key")); url != "" && key != "" {
+		k.radio = newRadio(url, key)
+		k.radio.onOpen = k.askPlan
+		k.radio.onFrame = k.frame
+		k.radio.onState = func(open bool, why string) {
+			if open {
+				k.j.note("relay_open")
+			} else if why != "" {
+				k.j.note("relay_closed", "why", why)
+			}
+		}
+		go k.radio.run()
+	} else {
+		j.stop("relay", "в keeper.json нет relay или ключа keeper — исполняю сохранённый план без связи")
 	}
-	go k.acceptLoop()
-	k.mu.Lock()
-	if confErr == nil {
-		k.version = confStr(conf, "host")
-		k.launch()
-	}
-	k.mu.Unlock()
 	return k, nil
 }
 
-// Addr — адрес порта keeper.
-func (k *Keeper) Addr() string { return k.ln.Addr().String() }
+func planPath(home string) string { return filepath.Join(home, "plan.json") }
+
+func readKey(home, p string) string {
+	if p == "" {
+		p = filepath.Join(home, "keeper.key")
+	}
+	if strings.HasPrefix(p, "~/") {
+		if u, err := os.UserHomeDir(); err == nil {
+			p = filepath.Join(u, p[2:])
+		}
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func osName() string { return runtime.GOOS + " " + runtime.GOARCH }
 
 // Done — закрыт, когда keeper остановился.
 func (k *Keeper) Done() <-chan struct{} { return k.done }
 
-// Stop — штатная остановка: stop machine Host и ждать его выхода (без своего таймера),
-// затем завершить оставшиеся процессы целиком и выйти.
+// Stop — штатная остановка keeper: связь закрыта, держатели и их процессы живут дальше.
 func (k *Keeper) Stop() {
-	k.stopOnce.Do(func() { go k.shutdown() })
+	k.stopOnce.Do(func() {
+		k.mu.Lock()
+		k.stopping = true
+		k.mu.Unlock()
+		if k.radio != nil {
+			k.radio.close()
+		}
+		k.mu.Lock()
+		for _, p := range k.parts {
+			if p.conn != nil {
+				p.conn.Close()
+			}
+		}
+		k.mu.Unlock()
+		k.j.note("keeper_exit")
+		close(k.done)
+	})
 	<-k.done
 }
 
-func (k *Keeper) shutdown() {
-	k.mu.Lock()
-	k.stopping = true
-	run, ctl := k.host, k.control
-	if run != nil && ctl == nil {
-		k.stopOnCtl = true
+/* ===== рация ===== */
+
+// askPlan — при каждом подключении: вопрос о плане машины.
+func (k *Keeper) askPlan() {
+	r := k.radio.request(frameMsg{"type": "releases.plan", "v": 1, "to": ".releases"}, 30*time.Second)
+	if !r.OK {
+		k.j.refuse("plan", r.Error, "releases.plan не ответил: "+r.Error)
+		return
 	}
-	k.mu.Unlock()
-	k.j.note("keeper_stop")
-	if run != nil {
-		if ctl != nil {
-			ctl.send(line(map[string]string{"op": "stop", "reason": "machine"}))
-		}
-		<-run.exited
+	var pl plan
+	if err := json.Unmarshal(r.Result, &pl); err != nil {
+		k.j.stop("plan", "ответ releases.plan не план: "+err.Error())
+		return
 	}
-	k.ln.Close()
-	k.mu.Lock()
-	left := []string{}
-	for _, p := range k.procs {
-		left = append(left, p.id)
-		p.kill(true)
-	}
-	if k.control != nil {
-		k.control.c.Close()
-		k.control = nil
-	}
-	k.mu.Unlock()
-	if len(left) > 0 {
-		sort.Strings(left)
-		k.j.note("kill_left", "ids", left)
-	}
-	k.procWG.Wait()
-	k.j.note("keeper_exit")
-	close(k.done)
+	k.queue(pl)
 }
 
-func (k *Keeper) acceptLoop() {
+// frame — кадр рации: план от «выпусков» или запрос keeper.state.
+func (k *Keeper) frame(f frameMsg) {
+	switch f.str("type") {
+	case "releases.plan":
+		if f.str("from") != ".releases" {
+			k.j.refuse("plan", "bad_from", "план не от .releases: "+f.str("from"))
+			return
+		}
+		b, _ := json.Marshal(f)
+		var pl plan
+		json.Unmarshal(b, &pl)
+		k.queue(pl)
+	case "keeper.state":
+		k.radio.answer(f, k.state(), "")
+	default:
+		if f.str("id") != "" {
+			k.radio.answer(f, nil, "unknown_request")
+		}
+	}
+}
+
+// ledger — строка в журнал флота; нет связи — только в журнал машины.
+func (k *Keeper) ledger(ev, text string) {
+	if k.radio == nil {
+		return
+	}
+	if err := k.radio.send(frameMsg{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}); err != nil {
+		k.j.note("ledger", "ev", ev, "why", "нет связи: "+text)
+	}
+}
+
+/* ===== состояние ===== */
+
+type partState struct {
+	Part     string `json:"part"`
+	Version  string `json:"version,omitempty"`
+	State    string `json:"state"`
+	Pid      int    `json:"pid,omitempty"`
+	Restarts int    `json:"restarts"`
+	Error    string `json:"error,omitempty"`
+}
+
+type keeperState struct {
+	Keeper string      `json:"keeper"`
+	Rev    int         `json:"rev"`
+	OS     string      `json:"os"`
+	Parts  []partState `json:"parts"`
+}
+
+// state — ответ keeper.state: только о частях своего плана.
+func (k *Keeper) state() keeperState {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	s := keeperState{Keeper: keeperVersion, Rev: k.plan.Rev, OS: osName(), Parts: []partState{}}
+	names := make([]string, 0, len(k.parts))
+	for n := range k.parts {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		p := k.parts[n]
+		s.Parts = append(s.Parts, partState{Part: n, Version: p.version, State: p.state, Pid: p.pid, Restarts: p.restarts, Error: p.err})
+	}
+	return s
+}
+
+/* ===== исполнение плана ===== */
+
+// queue — план на исполнение: из ожидающих берётся с большей rev; меньшая или та же rev — пропуск.
+func (k *Keeper) queue(pl plan) {
+	// force — сразу, мимо очереди: прежняя правка может ждать выхода упрямой части без таймера
+	for _, pp := range pl.Parts {
+		if !pp.Force || pp.on() {
+			continue
+		}
+		k.mu.Lock()
+		p := k.parts[pp.Part]
+		var c *heldConn
+		if p != nil && p.state == "stopping" {
+			c = p.conn
+		}
+		k.mu.Unlock()
+		if c != nil {
+			k.j.note("force", "part", pp.Part)
+			c.kill()
+		}
+	}
+	select {
+	case old := <-k.pending:
+		if old.Rev > pl.Rev {
+			pl = old
+		}
+	default:
+	}
+	k.pending <- pl
+}
+
+func (k *Keeper) applyLoop() {
+	first := true
 	for {
-		c, err := k.ln.Accept()
-		if err != nil {
+		select {
+		case <-k.done:
+			return
+		case pl := <-k.pending:
 			k.mu.Lock()
-			stopping := k.stopping
+			cur := k.plan.Rev
 			k.mu.Unlock()
-			if !stopping {
-				k.j.stop("accept", "порт keeper закрыт: "+err.Error())
-				k.stopOnce.Do(func() { go k.shutdown() })
+			// сохранённый план исполняется на старте; дальше — только новее исполняемого
+			if !first && pl.Rev <= cur {
+				continue
 			}
-			return
-		}
-		go k.serve(c)
-	}
-}
-
-/* ===== запуск Host ===== */
-
-// launch — запустить Host версии k.version; k.mu взят.
-func (k *Keeper) launch() {
-	for {
-		v := k.version
-		if v == "" {
-			k.j.stop("host_failed", "в keeper.json нет версии Host — не запускаю")
-			return
-		}
-		if !versionExists(k.home, v) {
-			k.j.stop("host_failed", "папки Host "+v+" нет — не запускаю", "host", v)
-			return
-		}
-		err := k.startHost(v)
-		if err == nil {
-			return
-		}
-		// не запустился — как выход до ready
-		if !k.exitBeforeReady(v, "Host "+v+" не запустился: "+err.Error(), nil) {
-			return
+			first = false
+			k.apply(pl)
 		}
 	}
 }
 
-func (k *Keeper) startHost(v string) error {
-	conf, err := readConf(k.home)
+func (k *Keeper) apply(pl plan) {
+	k.applyMu.Lock()
+	defer k.applyMu.Unlock()
+	k.mu.Lock()
+	old := k.plan
+	k.plan = pl
+	k.mu.Unlock()
+	if b, err := json.MarshalIndent(pl, "", "  "); err == nil {
+		tmp := planPath(k.home) + ".tmp"
+		if os.WriteFile(tmp, append(b, '\n'), 0o600) == nil {
+			os.Rename(tmp, planPath(k.home))
+		}
+	}
+	k.j.note("plan", "rev", pl.Rev, "parts", len(pl.Parts))
+	var self *planPart
+	for i := range pl.Parts {
+		p := pl.Parts[i]
+		if p.Part == "keeper" {
+			self = &pl.Parts[i]
+			continue
+		}
+		prev, had := old.find(p.Part)
+		k.applyPart(p, prev, had)
+	}
+	// части, которых нет в плане: остановить и снять, data/ остаётся
+	k.mu.Lock()
+	var gone []string
+	for n := range k.parts {
+		if _, ok := pl.find(n); !ok {
+			gone = append(gone, n)
+		}
+	}
+	k.mu.Unlock()
+	for _, n := range gone {
+		k.removePart(n)
+	}
+	// keeper — последним: подмена себя кончается выходом
+	if self != nil && self.Version != "" && self.Version != keeperVersion {
+		k.selfUpdate(*self)
+	}
+}
+
+func (k *Keeper) partOf(name string) *part {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	p := k.parts[name]
+	if p == nil {
+		p = &part{name: name, state: "stopped"}
+		k.parts[name] = p
+	}
+	return p
+}
+
+func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
+	p := k.partOf(pp.Part)
+	k.mu.Lock()
+	running := p.conn != nil && p.state != "stopped" && p.state != "failed"
+	runVer := p.version
+	failed := p.state == "failed"
+	exited := p.state == "exited"
+	k.mu.Unlock()
+	if exited {
+		return // выход разбирает его обработчик
+	}
+	// failed остаётся failed, пока запись части в плане не поменялась: решает тот, кто правит план
+	if failed && had && samePart(pp, prev) {
+		return
+	}
+	if !pp.on() {
+		if running {
+			k.stopPart(p, pp.Force)
+		}
+		k.mu.Lock()
+		p.state, p.restarts, p.err = "stopped", 0, ""
+		k.mu.Unlock()
+		return
+	}
+	if running && runVer == pp.Version && !pp.Force {
+		return
+	}
+	dir, err := k.install(pp)
+	if err != nil {
+		k.mu.Lock()
+		p.err = err.Error()
+		if !running {
+			p.state = "failed"
+		}
+		k.mu.Unlock()
+		k.j.stop("install", err.Error(), "part", pp.Part, "version", pp.Version)
+		return
+	}
+	if running {
+		k.stopPart(p, pp.Force)
+	}
+	k.mu.Lock()
+	p.restarts, p.err = 0, ""
+	k.mu.Unlock()
+	if err := k.startPart(p, pp, dir); err != nil {
+		k.failPart(p, pp.Version, "запуск: "+err.Error())
+		return
+	}
+	if running && runVer != pp.Version {
+		k.j.note("part_updated", "part", pp.Part, "from", runVer, "to", pp.Version)
+		k.ledger("part.updated", fmt.Sprintf("%s: %s %s → %s", k.machine, pp.Part, runVer, pp.Version))
+	}
+	k.cleanupVersions(pp.Part, pp.Version, runVer)
+}
+
+// stopPart — закрыть ввод и ждать выхода без таймера; force — убить дерево сразу.
+func (k *Keeper) stopPart(p *part, force bool) {
+	k.mu.Lock()
+	c, ch := p.conn, p.exited
+	p.stopReq = true
+	p.state = "stopping"
+	k.mu.Unlock()
+	if c == nil {
+		return
+	}
+	if force {
+		c.kill()
+	} else {
+		c.closeInput()
+	}
+	if ch != nil {
+		<-ch
+	}
+}
+
+func (k *Keeper) removePart(name string) {
+	k.mu.Lock()
+	p := k.parts[name]
+	k.mu.Unlock()
+	if p == nil {
+		return
+	}
+	k.stopPart(p, false)
+	k.mu.Lock()
+	delete(k.parts, name)
+	k.mu.Unlock()
+	es, _ := os.ReadDir(partDir(k.home, name))
+	for _, e := range es {
+		if e.IsDir() && e.Name() != "data" {
+			os.RemoveAll(filepath.Join(partDir(k.home, name), e.Name()))
+		}
+	}
+	k.j.note("part_removed", "part", name)
+}
+
+// startPart — держатель с командой из app.json; вывод — строками в журнал машины.
+func (k *Keeper) startPart(p *part, pp planPart, dir string) error {
+	app, err := readApp(dir)
 	if err != nil {
 		return err
 	}
-	node := confStr(conf, "node")
-	if node == "" {
-		return fmt.Errorf("в keeper.json нет node")
+	data := filepath.Join(partDir(k.home, pp.Part), "data")
+	if err := os.MkdirAll(data, 0o700); err != nil {
+		return err
 	}
-	dir := hostDir(k.home, v)
-	cmd := exec.Command(node, filepath.Join(dir, "host"))
-	cmd.Dir = dir
-	inR, inW, err := os.Pipe()
+	self, _ := k.self()
+	env := append(os.Environ(),
+		"SWITCHBOARD_MACHINE="+k.machine,
+		"SWITCHBOARD_HOLDER="+self,
+		"SWITCHBOARD_PART="+pp.Part,
+		"SWITCHBOARD_VERSION="+pp.Version,
+	)
+	if conf, _ := readConf(k.home); confStr(conf, "relay") != "" {
+		env = append(env, "SWITCHBOARD_RELAY="+confStr(conf, "relay"))
+	}
+	for kk, v := range pp.Env {
+		env = append(env, kk+"="+v)
+	}
+	f, err := spawnHolder(k.home, holdSpec{ID: pp.Part, Owner: "keeper", Tag: pp.Version, Cwd: data, Env: env, Detach: app.DetachChildren, Cmd: k.command(app.Run, dir)})
 	if err != nil {
 		return err
 	}
-	errR, errW, err := os.Pipe()
+	c, hh, err := dialHolder(f)
 	if err != nil {
-		inR.Close()
-		inW.Close()
 		return err
 	}
-	cmd.Stdin, cmd.Stderr = inR, errW
-	setProcAttr(cmd)
-	err = cmd.Start()
-	inR.Close()
-	errW.Close()
-	if err != nil {
-		inW.Close()
-		errR.Close()
-		return err
-	}
-	osh, err := afterStart(cmd.Process)
-	if err != nil {
-		cmd.Process.Kill()
-		cmd.Wait()
-		inW.Close()
-		errR.Close()
-		return err
-	}
-	// порт и ключ — одной строкой во ввод Host, затем ввод закрыт
-	inW.Write(line(map[string]string{"keeper": k.Addr(), "key": k.key}))
-	inW.Close()
-	run := &hostRun{version: v, cmd: cmd, osh: osh, exited: make(chan struct{})}
-	k.host = run
-	k.j.note("host_start", "host", v, "pid", cmd.Process.Pid)
-	go k.watchHost(run, errR)
+	k.attach(p, c, hh.Pid, pp.Version)
+	k.j.note("part_start", "part", pp.Part, "version", pp.Version, "pid", hh.Pid)
 	return nil
 }
 
-func (k *Keeper) watchHost(run *hostRun, errR *os.File) {
-	errDone := make(chan struct{})
-	go func() {
-		readLines(errR, func(s string) {
-			k.j.note("host_stderr", "host", run.version, "line", s)
-			if strings.TrimSpace(s) != "" {
-				run.lastErr = s
-			}
-		})
-		close(errDone)
-	}()
-	run.cmd.Wait()
-	run.osh.killTree() // потомки Host умирают с ним
-	<-errDone
-	errR.Close()
-	run.osh.release()
-	k.hostExited(run)
-}
-
-func (k *Keeper) hostExited(run *hostRun) {
-	code := run.cmd.ProcessState.ExitCode()
-	k.mu.Lock()
-	defer close(run.exited)
-	defer k.mu.Unlock()
-	k.host = nil
-	// соединение управления принадлежало вышедшему Host
-	if k.control != nil {
-		k.control.c.Close()
-		k.control = nil
-	}
-	why := fmt.Sprintf("Host %s вышел с кодом %d", run.version, code)
-	if run.lastErr != "" {
-		why += ": " + run.lastErr
-	}
-	switch {
-	case k.stopping:
-		k.j.note("host_exit", "host", run.version, "code", code)
-	case k.upgradeTo != "":
-		k.j.note("host_exit", "host", run.version, "code", code, "upgrade", k.upgradeTo)
-		k.version, k.upgradeTo = k.upgradeTo, ""
-		k.ready, k.early = false, 0
-		k.launch()
-	case k.ready:
-		k.j.stop("host_exit", why, "host", run.version, "code", code, "stderr", run.lastErr)
-		k.ready, k.early = false, 0
-		k.launch()
-	default:
-		if k.exitBeforeReady(run.version, why+" до ready", &code) {
-			k.launch()
+// command — run из app.json: node — Node из keeper.json, пути — от папки версии.
+func (k *Keeper) command(run []string, dir string) []string {
+	out := make([]string, len(run))
+	for i, a := range run {
+		switch {
+		case i == 0 && a == "node" && k.node != "":
+			out[i] = k.node
+		case !filepath.IsAbs(a) && exists(filepath.Join(dir, a)):
+			out[i] = filepath.Join(dir, a)
+		default:
+			out[i] = a
 		}
-	}
-}
-
-// exitBeforeReady — выход Host до ready; true — запустить снова. Второй подряд — стоп.
-func (k *Keeper) exitBeforeReady(v, why string, code *int) bool {
-	k.early++
-	kv := []any{"host", v}
-	if code != nil {
-		kv = append(kv, "code", *code)
-	}
-	k.j.stop("host_exit", why, kv...)
-	if k.early < 2 {
-		return true
-	}
-	ids := make([]string, 0, len(k.procs))
-	for id := range k.procs {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-	alive := "процессов claude нет"
-	if len(ids) > 0 {
-		alive = "процессы claude живы: " + strings.Join(ids, ", ")
-	}
-	k.j.stop("host_failed", "host "+v+": два выхода до ready — не запускаю; "+alive, "host", v)
-	return false
-}
-
-/* ===== соединения ===== */
-
-func (k *Keeper) serve(c net.Conn) {
-	br := bufio.NewReader(c)
-	b, err := br.ReadBytes('\n')
-	if err != nil && len(b) == 0 {
-		c.Close()
-		return
-	}
-	var h first
-	if json.Unmarshal(b, &h) != nil {
-		k.refuse(c, "first_line", "bad_key", "первая строка — не JSON")
-		return
-	}
-	if h.Key == "" {
-		k.refuse(c, "first_line", "bad_key", "нет ключа · op "+h.Op)
-		return
-	}
-	if subtle.ConstantTimeCompare([]byte(h.Key), []byte(k.key)) != 1 {
-		k.refuse(c, "first_line", "bad_key", "ключ не совпал · op "+h.Op)
-		return
-	}
-	if h.Proto != proto {
-		k.refuse(c, "first_line", "contract_mismatch",
-			fmt.Sprintf("proto %d — keeper знает %d", h.Proto, proto), "proto", h.Proto, "keeper_proto", proto)
-		return
-	}
-	switch h.Op {
-	case "control":
-		k.serveControl(c, br)
-	case "spawn":
-		k.serveSpawn(c, br, h)
-	case "attach":
-		k.serveAttach(c, br, h.ID)
-	default:
-		k.refuse(c, "first_line", "unknown_op", "первая строка: op «"+h.Op+"»")
-	}
-}
-
-// refuse — ответ со словом, строка в журнале, соединение закрыто.
-func (k *Keeper) refuse(c net.Conn, ev, word, why string, kv ...any) {
-	c.Write(failLine(word))
-	k.j.refuse(ev, word, why, kv...)
-	c.Close()
-}
-
-func (k *Keeper) serveControl(c net.Conn, br *bufio.Reader) {
-	ctl := &control{c: c}
-	ctl.wmu.Lock()
-	k.mu.Lock()
-	if k.control != nil {
-		k.mu.Unlock()
-		ctl.wmu.Unlock()
-		k.refuse(c, "control", "in_use", "второе соединение управления")
-		return
-	}
-	k.control = ctl
-	q := k.queued
-	k.queued = nil
-	stopNow := k.stopOnCtl
-	k.stopOnCtl = false
-	k.mu.Unlock()
-	// ответ, затем exited вышедших без Host, затем stop, если остановка уже идёт
-	c.Write(okLine(map[string]string{"keeper": keeperVersion}))
-	for _, ev := range q {
-		c.Write(ev)
-	}
-	if stopNow {
-		c.Write(line(map[string]string{"op": "stop", "reason": "machine"}))
-	}
-	ctl.wmu.Unlock()
-	k.j.note("control", "queued", len(q))
-
-	for {
-		b, err := br.ReadBytes('\n')
-		if len(strings.TrimSpace(string(b))) > 0 {
-			k.request(ctl, b)
-		}
-		if err != nil {
-			break
-		}
-	}
-	k.mu.Lock()
-	mine := k.control == ctl
-	if mine {
-		k.control = nil
-	}
-	k.mu.Unlock()
-	c.Close()
-	if mine {
-		k.j.note("control_closed")
-	}
-}
-
-// request — запрос по соединению управления; ответы — по порядку запросов.
-func (k *Keeper) request(ctl *control, b []byte) {
-	var r struct {
-		Op      string `json:"op"`
-		ID      string `json:"id"`
-		Force   bool   `json:"force"`
-		Version string `json:"version"`
-	}
-	if json.Unmarshal(b, &r) != nil {
-		ctl.send(failLine("bad_frame"))
-		k.j.refuse("request", "bad_frame", "строка управления — не JSON")
-		return
-	}
-	switch r.Op {
-	case "list":
-		ctl.send(okLine(map[string]any{"processes": k.list()}))
-	case "kill":
-		k.mu.Lock()
-		p := k.procs[r.ID]
-		k.mu.Unlock()
-		if p == nil || p.gone() {
-			ctl.send(failLine("unknown_id"))
-			k.j.refuse("kill", "unknown_id", "kill: процесса «"+r.ID+"» нет", "id", r.ID)
-			return
-		}
-		p.kill(r.Force)
-		k.j.note("kill", "id", r.ID, "force", r.Force)
-		ctl.send(okLine(nil))
-	case "upgrade":
-		if !versionExists(k.home, r.Version) {
-			ctl.send(failLine("unknown_version"))
-			k.j.refuse("upgrade", "unknown_version", "upgrade: папки Host «"+r.Version+"» нет — Host не тронут", "host", r.Version)
-			return
-		}
-		k.mu.Lock()
-		from := k.version
-		if k.host != nil {
-			from = k.host.version
-		}
-		k.upgradeTo = r.Version
-		k.mu.Unlock()
-		k.j.note("upgrade", "why", "Host "+from+" → "+r.Version, "from", from, "to", r.Version)
-		ctl.send(okLine(nil))
-		ctl.send(line(map[string]string{"op": "stop", "reason": "upgrade"}))
-	case "ready":
-		if !versionExists(k.home, r.Version) {
-			ctl.send(failLine("unknown_version"))
-			k.j.refuse("ready", "unknown_version", "ready: папки Host «"+r.Version+"» нет — keeper.json прежний", "host", r.Version)
-			return
-		}
-		if err := setConf(k.home, "host", r.Version); err != nil {
-			ctl.send(failLine("write_failed"))
-			k.j.stop("ready", "keeper.json не записан: "+err.Error(), "host", r.Version)
-			return
-		}
-		k.mu.Lock()
-		k.version, k.ready, k.early = r.Version, true, 0
-		k.mu.Unlock()
-		k.j.note("host_ready", "host", r.Version)
-		ctl.send(okLine(nil))
-	default:
-		ctl.send(failLine("unknown_op"))
-		k.j.refuse("request", "unknown_op", "управление: op «"+r.Op+"»")
-	}
-}
-
-type listItem struct {
-	ID       string `json:"id"`
-	Pid      int    `json:"pid"`
-	Attached bool   `json:"attached"`
-	Buffered int    `json:"buffered"`
-}
-
-func (k *Keeper) list() []listItem {
-	k.mu.Lock()
-	ps := make([]*proc, 0, len(k.procs))
-	for _, p := range k.procs {
-		ps = append(ps, p)
-	}
-	k.mu.Unlock()
-	sort.Slice(ps, func(a, b int) bool { return ps[a].id < ps[b].id })
-	out := make([]listItem, 0, len(ps))
-	for _, p := range ps {
-		p.mu.Lock()
-		out = append(out, listItem{ID: p.id, Pid: p.pid, Attached: p.conn != nil, Buffered: len(p.buf)})
-		p.mu.Unlock()
 	}
 	return out
 }
 
-// exited — событие на соединение управления; без Host — ждёт в памяти.
-func (k *Keeper) exited(b []byte) {
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// attach — часть ведёт держатель c: читать его кадры до выхода процесса.
+func (k *Keeper) attach(p *part, c *heldConn, pid int, version string) {
+	ch := make(chan struct{})
 	k.mu.Lock()
-	ctl := k.control
-	if ctl == nil {
-		k.queued = append(k.queued, b)
-	}
+	p.conn, p.pid, p.version, p.state, p.stopReq, p.exited = c, pid, version, "running", false, ch
 	k.mu.Unlock()
-	if ctl != nil {
-		ctl.send(b)
+	go func() {
+		var line []byte
+		x, err := c.read(func(b []byte) {
+			line = append(line, b...)
+			for {
+				i := indexByte(line, '\n')
+				if i < 0 {
+					break
+				}
+				k.j.note("out", "part", p.name, "line", strings.TrimRight(string(line[:i]), "\r"))
+				line = line[i+1:]
+			}
+		})
+		c.Close()
+		k.mu.Lock()
+		stopping := k.stopping
+		k.mu.Unlock()
+		if stopping && x == nil {
+			return // keeper останавливается: держатель живёт дальше
+		}
+		if x == nil {
+			x = &exitInfoJSON{Stderr: "связь с держателем оборвалась: " + errText(err)}
+		}
+		k.exitedPart(p, ch, *x)
+	}()
+}
+
+func indexByte(b []byte, c byte) int {
+	for i, x := range b {
+		if x == c {
+			return i
+		}
+	}
+	return -1
+}
+
+func errText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+// exitedPart — процесс части вышел. По просьбе — stopped; сам — один перезапуск, второй раз — failed.
+func (k *Keeper) exitedPart(p *part, ch chan struct{}, x exitInfoJSON) {
+	k.mu.Lock()
+	if p.exited != ch {
+		k.mu.Unlock()
+		return
+	}
+	p.conn, p.pid, p.exited = nil, 0, nil
+	asked := p.stopReq
+	if asked {
+		p.state = "stopped"
+	} else {
+		// выход разбирает этот обработчик: исполнение плана часть не трогает
+		p.state = "exited"
+	}
+	restarts := p.restarts
+	version := p.version
+	stopping := k.stopping
+	k.mu.Unlock()
+	close(ch)
+	words := exitWords(x.Code, x.Signal, x.Stderr)
+	if asked || stopping {
+		k.j.note("part_exit", "part", p.name, "version", version, "why", words)
+		return
+	}
+	k.j.stop("part_exit", fmt.Sprintf("%s %s вышла сама: %s", p.name, version, words), "part", p.name, "version", version)
+	// под тем же замком, что исполнение плана: второго экземпляра не бывает; план — нынешний
+	k.applyMu.Lock()
+	defer k.applyMu.Unlock()
+	k.mu.Lock()
+	pp, ok := k.plan.find(p.name)
+	k.mu.Unlock()
+	if !ok || !pp.on() {
+		k.mu.Lock()
+		p.state = "stopped"
+		k.mu.Unlock()
+		return
+	}
+	if restarts > 0 {
+		k.failPart(p, version, "второе падение: "+words)
+		return
+	}
+	k.mu.Lock()
+	p.restarts = 1
+	k.mu.Unlock()
+	dir, err := k.install(pp)
+	if err == nil {
+		err = k.startPart(p, pp, dir)
+	}
+	if err != nil {
+		k.failPart(p, pp.Version, "перезапуск: "+err.Error())
 	}
 }
 
-// readLines — построчно до конца; хвост без перевода строки — тоже строка.
-func readLines(r io.Reader, f func(string)) {
-	br := bufio.NewReader(r)
-	for {
-		s, err := br.ReadString('\n')
+func (k *Keeper) failPart(p *part, version, why string) {
+	k.mu.Lock()
+	p.state, p.err, p.version = "failed", why, version
+	k.mu.Unlock()
+	k.j.stop("part_failed", p.name+" "+version+": "+why, "part", p.name, "version", version)
+	k.ledger("part.failed", fmt.Sprintf("%s: %s %s — %s", k.machine, p.name, version, why))
+}
+
+func exitWords(code *int, sig *string, lastErr string) string {
+	s := ""
+	switch {
+	case sig != nil:
+		s = "сигнал " + *sig
+	case code != nil:
+		s = fmt.Sprintf("код %d", *code)
+	}
+	if lastErr != "" {
 		if s != "" {
-			f(strings.TrimRight(s, "\r\n"))
+			s += ", "
 		}
+		s += lastErr
+	}
+	return s
+}
+
+// adopt — на старте: держатели keeper с прошлой жизни. Есть в плане — подключиться, нет — убить.
+func (k *Keeper) adopt() {
+	for _, f := range readHoldFiles(k.home) {
+		if f.Owner != "keeper" {
+			continue
+		}
+		c, hh, err := dialHolder(f)
 		if err != nil {
-			return
+			k.j.note("adopt", "id", f.ID, "why", "держатель не отвечает — файл убран: "+err.Error())
+			os.Remove(holdPath(k.home, f.ID))
+			continue
+		}
+		pp, ok := k.plan.find(f.ID)
+		if !ok || f.ID == "keeper" {
+			k.j.note("orphan_kill", "id", f.ID, "why", "части нет в плане")
+			c.kill()
+			go func() { c.read(func([]byte) {}); c.Close() }()
+			continue
+		}
+		p := k.partOf(pp.Part)
+		k.attach(p, c, hh.Pid, f.Tag)
+		k.j.note("adopt", "id", f.ID, "pid", hh.Pid, "version", f.Tag, "buffered", hh.Buffered)
+	}
+}
+
+// cleanupVersions — папки версий части, кроме текущей и предыдущей; занятую ОС не даёт удалить — остаётся до следующей.
+func (k *Keeper) cleanupVersions(name, cur, prev string) {
+	es, _ := os.ReadDir(partDir(k.home, name))
+	for _, e := range es {
+		n := e.Name()
+		if !e.IsDir() || n == "data" || n == cur || n == prev {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(partDir(k.home, name), n)); err != nil {
+			k.j.note("cleanup", "part", name, "version", n, "why", "занята: "+err.Error())
 		}
 	}
+}
+
+// samePart — запись части в плане та же (ссылка не в счёт: она живёт час).
+func samePart(a, b planPart) bool {
+	ea, _ := json.Marshal(a.Env)
+	eb, _ := json.Marshal(b.Env)
+	return a.Version == b.Version && a.Sha256 == b.Sha256 && a.on() == b.on() && a.Force == b.Force && string(ea) == string(eb)
 }
