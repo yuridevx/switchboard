@@ -5,6 +5,8 @@ package main
 // Вид установки «при входе пользователя» — для машин с оконными приложениями: служба живёт в сессии 0 без рабочего
 // стола. Задача планировщика запускает keeper в сессии пользователя и повторяет запуск раз в минуту без второго
 // экземпляра: вышедший keeper (сбой или подмена себя) поднимается на следующей минуте (замер 1 нояб.).
+// Повтор висит на двух триггерах: «при регистрации» — с установки, «при входе» — после перезагрузки. Только у входа
+// повтор не шёл до первого входа: keeper после подмены себя не поднимался (живой прогон 1 нояб., win).
 import (
 	"fmt"
 	"os"
@@ -20,6 +22,10 @@ const logonTaskXML = `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Switchboard keeper: исполняет план машины в сессии пользователя.</Description></RegistrationInfo>
   <Triggers>
+    <RegistrationTrigger>
+      <Enabled>true</Enabled>
+      <Repetition><Interval>PT1M</Interval><StopAtDurationEnd>false</StopAtDurationEnd></Repetition>
+    </RegistrationTrigger>
     <LogonTrigger>
       <Enabled>true</Enabled>
       <UserId>%[1]s</UserId>
