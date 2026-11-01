@@ -39,9 +39,6 @@ export type {
 /** Версия договора модуля: имя host.module в provides ядра. */
 export const MODULE_CONTRACT = 1;
 
-/** Типы файлов, которые модель видит картинкой — блок image во вводе и в ответе инструмента MCP. Один список для модулей. */
-export const IMAGE_TYPES: ReadonlySet<string> = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
-
 /** Файл в кадре: имя, тип, данные base64 — вложение человека сессии и файл, который вернул скрипт. Одна форма для модулей. */
 export type Attachment = { name: string; media_type: string; data: string };
 
@@ -145,6 +142,8 @@ export interface Module {
     open?(s: Session): void;
     /** query() сессии закрыт: stop, remove, сбой процесса, restart */
     close?(s: Session): void;
+    /** Host поднял сессии из хранилища и запустил их процессы: с этого шага модуль зовёт запросы к сессиям. Раз за старт Host. */
+    ready?(): void;
   };
   /** Поднять своё из хранилища. Порядок старта — порядок списка модулей. */
   start?(host: Host): void | Promise<void>;
@@ -280,6 +279,14 @@ export interface Host {
 // ───────────────────────── отказ словом ─────────────────────────
 
 export { Refusal, refuse, isRefusal, REFUSAL } from "./src/refusal.ts";
+
+// ───────────────────────── ввод сессии ─────────────────────────
+
+/**
+ * content: текст и вложения → содержимое сообщения user: без вложений — строка, иначе блоки; блока для типа нет — отказ bad_attachment.
+ * IMAGE_TYPES: типы файлов, которые модель видит картинкой — блок image во вводе и в ответе инструмента MCP.
+ */
+export { content, IMAGE_TYPES } from "./src/content.ts";
 
 // ───────────────────────── стенд ─────────────────────────
 

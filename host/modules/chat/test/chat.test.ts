@@ -4,10 +4,10 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { stand } from "@switchboard/host";
+import { content, stand } from "@switchboard/host";
 import type { Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { content, make } from "../src/chat.ts";
+import { make } from "../src/chat.ts";
 
 const { standHost, turn, until } = stand;
 type Stand = stand.Stand;

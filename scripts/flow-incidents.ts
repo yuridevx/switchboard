@@ -1,9 +1,11 @@
 // Живая проверка инцидентов на тестовом флоте: POST на 127.0.0.1 машины A (отсюда) и машины B (curl внутри WSL).
-// Два POST одного ключа — одна сессия; сессию закрыли — третий POST открывает новую; чужой тип — 400 unknown_type.
+// POST отвечает 202 с id сразу; обращение — в разговоре сессии инцидента (id в теге <incident>). Два POST одного ключа —
+// одна сессия; сессию закрыли — третий POST открывает новую; чужой тип — 400 unknown_type.
+// FLOW_STOP=1 — на машине B POST и сразу перезапуск Host через «выпуски»: обращение в разговоре после перезапуска.
 // Каждая строка — ok или FAIL; в конце — число ok и FAIL.
 // Настройка машин: host.json, раздел host-incidents — порт и тип FLOW_TYPE с папкой (профиль не нужен).
 // env: FLOW_CLIENT_KEY (client.*), FLOW_A (win), FLOW_B (wsl), FLOW_PORT_A (7717), FLOW_PORT_B (7718),
-//      FLOW_TYPE (flow), FLOW_WSL (дистрибутив машины B, Ubuntu-24.04).
+//      FLOW_TYPE (flow), FLOW_WSL (дистрибутив машины B, Ubuntu-24.04), FLOW_STOP=1.
 import { spawnSync } from "node:child_process";
 import { link } from "@switchboard/relay";
 
@@ -32,7 +34,11 @@ const until = async (ok: () => Promise<boolean> | boolean, ms: number) => {
 };
 type Roster = { sessions: Array<Record<string, any>> };
 const rec = (cs: string) => (l.roster as Roster | null)?.sessions.find((s) => s.callsign === cs);
-const opened: string[] = [];
+/** сессии инцидента с этим ключом в roster */
+const ofKey = (key: string) => ((l.roster as Roster | null)?.sessions ?? []).filter((s) => s.incident?.type === type && s.incident?.key === key).map((s) => s.callsign as string);
+const rq = async (t: string, f: Record<string, unknown>) => (await l.request({ type: t, v: 1, ...f })) as { ok: boolean; error?: string; result?: unknown };
+/** обращение с этим id — в разговоре сессии */
+const got = (cs: string, id: unknown) => until(async () => JSON.stringify(await rq("session.history", { callsign: cs, before: null, limit: 30 })).includes(String(id)), 180000);
 
 /** POST /incident на машине: A — отсюда, B — curl внутри WSL (там свой 127.0.0.1). */
 async function post(machine: string, body: Record<string, unknown>): Promise<{ status: number; body: Record<string, unknown> }> {
@@ -57,25 +63,39 @@ try {
   for (const m of [A, B]) {
     const key = `${mark}-${m}`;
     const text = "Это проверка связи: ничего не делай, ответь одним словом «ок».";
+    const t0 = Date.now();
     const one = await post(m, { type, key, text });
-    const cs = one.body.callsign as string;
-    if (cs) opened.push(cs);
-    check(`${m}: первый POST — новая сессия`, one.status === 200 && one.body.new === true && cs?.endsWith(`@${m}`), one);
+    const ms = Date.now() - t0;
+    check(`${m}: POST — 202 с id сразу`, one.status === 202 && typeof one.body.id === "string", { ...one, ms });
+    const found = await until(() => ofKey(key).length === 1, 120000);
+    const cs = ofKey(key)[0];
+    check(`${m}: сессия инцидента в roster с полем incident`, found && cs?.endsWith(`@${m}`), cs);
+    check(`${m}: первое обращение в разговоре сессии`, await got(cs, one.body.id));
     const two = await post(m, { type, key, text });
-    check(`${m}: второй POST того же ключа — та же сессия`, two.status === 200 && two.body.new === false && two.body.callsign === cs, two);
-    check(`${m}: поле incident в roster`, await until(() => rec(cs)?.incident?.key === key, 60000), rec(cs)?.incident);
-    const rm = (await l.request({ type: "session.remove", v: 1, callsign: cs })) as { ok: boolean };
+    check(`${m}: второй POST того же ключа — в разговоре той же сессии`, two.status === 202 && (await got(cs, two.body.id)) && ofKey(key).length === 1, { two, sessions: ofKey(key) });
+    await until(() => rec(cs)?.state === "idle", 120000);
+    const rm = await rq("session.remove", { callsign: cs });
     check(`${m}: сессия закрыта`, rm.ok && (await until(() => !rec(cs), 60000)), rm);
     const three = await post(m, { type, key, text });
-    if (three.body.callsign) opened.push(three.body.callsign as string);
-    check(`${m}: POST после закрытия — новая сессия`, three.status === 200 && three.body.new === true, three);
+    const again = (await until(() => ofKey(key).length === 1, 120000)) ? ofKey(key)[0] : undefined;
+    check(`${m}: POST после закрытия — новая сессия, обращение в её разговоре`, three.status === 202 && !!again && (await got(again, three.body.id)), { three, again });
     const bad = await post(m, { type: `нет-${mark}`, text });
     check(`${m}: чужой тип — 400 unknown_type`, bad.status === 400 && bad.body.error === "unknown_type", bad);
+    if (process.env.FLOW_STOP === "1" && m === B) {
+      const four = await post(m, { type, key, text });
+      const off = await rq("releases.set", { to: ".releases", machine: B, part: "host", on: false });
+      const gone = await until(() => !l.roster?.machines.some((x: { machine: string }) => x.machine === B), 120000);
+      const on = await rq("releases.set", { to: ".releases", machine: B, part: "host", on: true });
+      const back = await until(() => !!l.roster?.machines.some((x: { machine: string }) => x.machine === B), 120000);
+      check(`${m}: POST и сразу перезапуск Host — Host снова на связи`, four.status === 202 && off.ok && gone && on.ok && back, { four, off, on, gone, back });
+      const after = (await until(() => ofKey(key).length >= 1, 120000)) ? ofKey(key)[0] : undefined;
+      check(`${m}: обращение до перезапуска — в разговоре сессии после него`, !!after && (await got(after, four.body.id)), { after, sessions: ofKey(key) });
+    }
   }
 } catch (e) {
   check("сценарий", false, (e as Error).message);
 } finally {
-  for (const cs of opened) if (rec(cs)) await l.request({ type: "session.remove", v: 1, callsign: cs });
+  for (const s of (l.roster as Roster | null)?.sessions ?? []) if (String(s.incident?.key ?? "").startsWith(mark)) await rq("session.remove", { callsign: s.callsign });
   console.log(`итого: ${oks} ok, ${fails.length} FAIL${fails.length ? " — " + fails.join("; ") : ""}`);
   process.exitCode = fails.length ? 1 : 0;
   l.close(1000, "done");

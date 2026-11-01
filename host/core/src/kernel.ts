@@ -205,6 +205,9 @@ export class Kernel {
     await Promise.all([...this.sessions.values()].map((s) => s.settled()));
     if (this.shutting) return;
     this.log("core", { ev: "ready", version: this.version });
+    for (const m of this.mods) {
+      if (m.module.on?.ready) this.call(m.name, "on.ready", null, (x) => x.on!.ready!(), () => undefined);
+    }
   }
 
   private async startModule(m: Mod): Promise<boolean> {
