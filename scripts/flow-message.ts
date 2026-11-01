@@ -28,9 +28,8 @@ try {
   console.log("prompt:", p.ok ? "ok" : JSON.stringify(p));
   await wait(`сообщение у ${to}`, async () => (await history(to)).includes(mark), 180000);
   console.log(`message: ok · ${to} получила «${mark}» от ${from}`);
-  // в тексте запроса меток ответа нет: они складываются только в ответе модели
-  const yes = mark + "-ЕСТЬ";
-  const no = mark + "-НЕТ";
+  // ответ модели «<метка> - НЕТ|ЕСТЬ» — только знак конца хода; свойство — нет вызова ListAgents в истории
+  const answered = new RegExp(`${mark}\\s*[-–—]\\s*(НЕТ|ЕСТЬ)`);
   await l.request({
     type: "session.prompt",
     v: 1,
@@ -38,9 +37,9 @@ try {
     text: `Вызови инструмент ListAgents. Ответь одной строкой: «${mark}», дефис и заглавными НЕТ, если такого инструмента у тебя нет, или ЕСТЬ, если вызов прошёл.`,
   });
   let h = "";
-  await wait(`ответ ${from} про ListAgents`, async () => (h = await history(from)).includes(yes) || h.includes(no), 180000);
-  if (h.includes(yes)) throw new Error(`у ${from} есть ListAgents`);
-  console.log(`list-agents: ok · у ${from} нет ListAgents`);
+  await wait(`ответ ${from} про ListAgents`, async () => answered.test((h = await history(from))), 180000);
+  if (h.includes(`"name":"ListAgents"`)) throw new Error(`у ${from} есть ListAgents: модель его вызвала`);
+  console.log(`list-agents: ok · у ${from} нет ListAgents (ответ ${h.match(answered)![1]})`);
 } catch (e) {
   console.log("message: FAIL ·", (e as Error).message);
   console.log("история отправителя:", (await history(from)).slice(-800));
