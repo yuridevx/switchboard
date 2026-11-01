@@ -33,6 +33,13 @@ const rq = async (type: string, f: Record<string, unknown>) => (await l.request(
 type Roster = { sessions: Array<Record<string, any>> };
 const rec = (cs: string) => (l.roster as Roster | null)?.sessions.find((s) => s.callsign === cs);
 const history = async (cs: string) => JSON.stringify(await rq("session.history", { callsign: cs, before: null, limit: 40 }));
+type Entry = { type?: string; message?: { content?: string | Array<{ type?: string; text?: string }> } };
+/** Тексты ввода сессии: строка или текстовые блоки сообщений user. */
+const inputs = async (cs: string) => {
+  const r = await rq("session.history", { callsign: cs, before: null, limit: 40 });
+  const list = ((r.result as { messages?: Entry[] } | undefined)?.messages ?? []).filter((m) => m.type === "user");
+  return list.flatMap((m) => (typeof m.message?.content === "string" ? [m.message.content] : (m.message?.content ?? []).filter((b) => b.type === "text").map((b) => b.text ?? "")));
+};
 
 try {
   check("связь", await until(() => l.state === "open", 15000));
@@ -44,7 +51,8 @@ try {
     text: `Вызови инструмент fleet open: name «nestkid${mark}», machine «${B}», dir «${dir}», model «${model}», text «Ответь одной строкой: ${mark}-готово». Больше ничего не делай.`,
   });
   check(`дочь ${kid} в roster с parent ${lead}`, await until(() => rec(kid)?.parent === lead, 180000), rec(kid));
-  check("итог хода дочери — у родителя сам", await until(async () => (await history(lead)).includes(`fleet-message from=\\"${kid}\\"`) && (await history(lead)).includes(`${mark}-готово`), 240000));
+  // метка есть и в задании родителю — итог ищется только внутри сообщения от дочери
+  check("итог хода дочери — у родителя сам", await until(async () => (await inputs(lead)).some((t) => t.startsWith(`<fleet-message from="${kid}">`) && t.includes(`${mark}-готово`)), 240000));
   check("дочь send не звала", !(await history(kid)).includes("mcp__fleet__send"));
   await rq("session.prompt", { callsign: lead, text: `Закрой сессию ${kid} инструментом fleet remove. Больше ничего не делай.` });
   check("remove — дочь ушла из roster", await until(() => !rec(kid), 180000), rec(kid));

@@ -80,4 +80,24 @@ describe("список сессий", () => {
     expect(t.$('[data-callsign="disk-full-1@laptop"] .board-inc')!.textContent).toBe("disk-full");
     expect(t.$('[data-callsign="fix-auth@pc"] .board-rt span')!.textContent).toBe("↳ lead@laptop · sonnet");
   });
+
+  it("343 · пульт, широкий вид: дочь под родителем в своей группе; дочь в другой группе — в корне со строкой «↳ родитель»; значок типа у инцидента", async () => {
+    // источник: принятый дизайн — «Пульт и телефон рисуют это дерево по полю parent; инциденты — со значком типа»;
+    // дочь в другой группе — в корне со строкой «↳ родитель», отступ и класс kid — чьё: код
+    const r = homeRoster();
+    r.sessions = [
+      { callsign: "lead@laptop", state: "busy", model: "opus" },
+      { callsign: "disk-full-1@laptop", state: "busy", parent: "@laptop", incident: { type: "disk-full", key: "C:" } },
+      { callsign: "docs@laptop", state: "busy", parent: "lead@laptop" },
+      { callsign: "fix-auth@pc", state: "idle", parent: "lead@laptop", model: "sonnet" },
+    ];
+    const t = await stand(parts(), { wide: true, roster: r });
+    expect(t.$$(".board-wr").map((x) => x.getAttribute("data-callsign"))).toEqual(["lead@laptop", "docs@laptop", "disk-full-1@laptop", "fix-auth@pc"]);
+    expect(t.$('[data-callsign="docs@laptop"]')!.className).toBe("board-wr kid");
+    expect(t.$('[data-callsign="docs@laptop"]')!.getAttribute("style")).toBe("margin-left:14px");
+    expect(t.$('[data-callsign="lead@laptop"]')!.className).toBe("board-wr");
+    expect(t.$('[data-callsign="fix-auth@pc"]')!.className).toBe("board-wr");
+    expect(t.$('[data-callsign="fix-auth@pc"] .m')!.textContent).toBe("↳ lead@laptop · pc · sonnet");
+    expect(t.$('[data-callsign="disk-full-1@laptop"] .board-inc')!.textContent).toBe("disk-full");
+  });
 });

@@ -9,10 +9,14 @@ import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, wrap } from "../src/fleet.ts";
 import { manage } from "../../manage/src/manage.ts";
+import { make as makePush } from "../../push/src/push.ts";
+import { make as makeQuestions } from "../../questions/src/questions.ts";
+import { make as makeWatch } from "../../watch/src/watch.ts";
 
 const { FakeHolders, FakeRelay, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
-const manageManifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", "manage", "module.json"), "utf8")) as Manifest;
+const json = (name: string) => JSON.parse(readFileSync(join(import.meta.dirname, "..", "..", name, "module.json"), "utf8")) as Manifest;
+const manageManifest = json("manage");
 
 const stands: Stand[] = [];
 const keepers: stand.FakeHolders[] = [];
@@ -21,20 +25,27 @@ afterEach(async () => {
   for (const k of keepers.splice(0)) await k.close();
 });
 
-/** Host с fleet и настоящим manage; dir — папка для session.open; home и holders — для перезапуска Host; holdRoster — relay ещё не прислал roster. */
-async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHolders; holdRoster?: boolean } = {}) {
+/** Host с fleet и настоящим manage; dir — папка для session.open; home и holders — для перезапуска Host; holdRoster — relay ещё не прислал roster; withQuestions — настоящие questions, watch и push. */
+async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHolders; holdRoster?: boolean; withQuestions?: boolean } = {}) {
   const f = make();
   const dir = mkdtempSync(join(tmpdir(), "switchboard-fleet-"));
   const slots = module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
   const profiles = module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
   const relay = new FakeRelay();
   relay.holdRoster = !!o.holdRoster;
+  const ask = o.withQuestions
+    ? [
+        { manifest: json("watch"), module: makeWatch() },
+        { manifest: json("push"), module: makePush() },
+        { manifest: json("questions"), module: makeQuestions() },
+      ]
+    : [];
   const st = await standHost({
     machine,
     home: o.home,
     holders: o.holders,
     relayStand: relay,
-    modules: [slots, profiles, { manifest: manageManifest, module: manage({ home: dir }) }, { manifest: manifest as Manifest, module: f.module }],
+    modules: [slots, profiles, ...ask, { manifest: manageManifest, module: manage({ home: dir }) }, { manifest: manifest as Manifest, module: f.module }],
   });
   stands.push(st);
   const call = async (me: string, name: string, args: Record<string, unknown>) => {
@@ -47,7 +58,7 @@ async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHo
 }
 
 /** roster от relay с родителями сессий — fleet берёт родителя отсюда. */
-function roster(st: Stand, sessions: Array<{ callsign: string; parent?: string }>) {
+function roster(st: Stand, sessions: Array<{ callsign: string; parent?: string; [k: string]: unknown }>) {
   st.relay.deliver({ type: "roster", machines: [], sessions: sessions.map((s) => ({ state: "idle", ...s })), clients: ["phone~owner@example.com"], workers: [] } as Frame);
 }
 
@@ -131,9 +142,10 @@ describe("эталоны: сессия ведёт другие сессии", ()
 
   it("302 · list — сессии флота с родителем, моделью и состоянием; клиенты", async () => {
     const { st, call } = await bench();
-    roster(st, [{ callsign: "lead@win" }, { callsign: "fix-auth@wsl", parent: "lead@win" }]);
+    roster(st, [{ callsign: "lead@win", cost: 1 }, { callsign: "fix-auth@wsl", parent: "lead@win" }]);
     await new Promise((r) => setTimeout(r, 10));
     const r = JSON.parse((await call("lead@win", "list", {})).content[0].text);
+    expect(r.me).toBe("lead@win");
     expect(r.sessions).toEqual([
       { callsign: "lead@win", state: "idle", parent: null, model: null },
       { callsign: "fix-auth@wsl", state: "idle", parent: "lead@win", model: null },
@@ -189,5 +201,152 @@ describe("эталоны: сессия ведёт другие сессии", ()
     turn(kid, "работаю", { result: "тест добавлен" });
     await new Promise((r) => setTimeout(r, 30));
     expect(st.proc("lead@win").inputs).toHaveLength(0);
+  });
+});
+
+/** Ответ relay на запрос type, ушедший с этого Host. */
+async function replyTo(st: Stand, type: string, r: Record<string, unknown>, i = 0) {
+  const f = await until(() => st.relay.frames(type)[i]);
+  st.relay.deliver({ type: "reply", id: f.id as string, ...r } as Frame);
+  return f;
+}
+
+describe("эталоны: сессия ведёт другие сессии — отказы и ветки итога", () => {
+  it("326 · open, history, remove: машины нет на связи — модели «Не доставлено … (offline)»; после отказа open задача не уходит", async () => {
+    // источник: принятый дизайн, ожидаемые ветки — «Адресата нет на связи: send, open, history — Отказ offline словом в ответе инструмента… Повторов нет»
+    const { st, call } = await bench();
+    await st.open("lead@win");
+    const o = call("lead@win", "open", { name: "fix-auth", machine: "wsl", dir: "~/app", text: "Почини вход" });
+    await replyTo(st, "session.open", { ok: false, error: "offline" });
+    expect(await o).toEqual({ content: [{ type: "text", text: "Не доставлено: fix-auth@wsl не на связи (offline)" }], isError: true });
+    const h = call("lead@win", "history", { callsign: "fix-auth@wsl" });
+    await replyTo(st, "session.history", { ok: false, error: "offline" });
+    expect((await h).content[0].text).toBe("Не доставлено: fix-auth@wsl не на связи (offline)");
+    const r = call("lead@win", "remove", { callsign: "fix-auth@wsl" });
+    await replyTo(st, "session.remove", { ok: false, error: "offline" });
+    expect((await r).content[0].text).toBe("Не доставлено: fix-auth@wsl не на связи (offline)");
+    expect(st.relay.frames("message")).toHaveLength(0);
+  });
+
+  it("327 · open: имя занято — модели «Не выполнено: docs@win — name_taken»; задача не уходит, новой сессии нет", async () => {
+    // источник: устав — ошибки словами; слово — чьё: код (manage), текст — чьё: код (fleet)
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    await until(() => st.proc("docs@win").inputs.length === 1);
+    const r = await call("lead@win", "open", { name: "docs", dir, text: "Ещё раз" });
+    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — name_taken" }], isError: true });
+    await new Promise((x) => setTimeout(x, 20));
+    expect(st.proc("docs@win").inputs).toHaveLength(1);
+    expect([...st.kernel.sessions.keys()].sort()).toEqual(["docs@win", "lead@win"]);
+  });
+
+  it("328 · update: усилие не того вида — модели «Не выполнено: docs@win — bad_spec»; SDK дочери не вызван", async () => {
+    // источник: устав — ошибки словами; слово — чьё: код (manage), текст — чьё: код (fleet)
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "x" });
+    const r = await call("lead@win", "update", { callsign: "docs@win", effort: "huge" });
+    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — bad_spec" }], isError: true });
+    expect(st.query("docs@win").calls.filter((c) => c.name === "applyFlagSettings" || c.name === "setModel")).toEqual([]);
+  });
+
+  it("329 · дочь закрыла себя в ходе, начатом родителем, — итог всё равно у родителя, затем дочь убрана", async () => {
+    // источник: принятый дизайн, remove — «без позывного — себя, после конца этого хода: ход не обрывается, ответ успевает уйти»
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README и закройся" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    kid.send(msg.state("running"));
+    await until(() => st.kernel.sessions.get("docs@win")!.state === "busy");
+    expect((await call("docs@win", "remove", {})).content[0].text).toBe("закроюсь после этого хода");
+    kid.send(msg.result({ result: "Готово, закрываюсь" }));
+    kid.send(msg.state("idle"));
+    const lead = st.proc("lead@win");
+    await until(() => lead.inputs.length === 1);
+    expect(lead.inputs[0]).toMatchObject({ message: { content: wrap("docs@win", "Готово, закрываюсь") } });
+    await until(() => !st.kernel.sessions.has("docs@win"));
+  });
+
+  it("330 · ход дочери, начатый родителем, кончился ошибкой — родителю «ход кончился: error_during_execution»", async () => {
+    // источник: чьё: код (fleet: итог хода не success — слово сбоя)
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    kid.send(msg.state("running"));
+    kid.send(msg.result({ subtype: "error_during_execution", is_error: true }));
+    kid.send(msg.state("idle"));
+    const lead = st.proc("lead@win");
+    await until(() => lead.inputs.length === 1);
+    expect(lead.inputs[0].message.content).toBe(wrap("docs@win", "ход кончился: error_during_execution"));
+  });
+
+  it("331 · процесс дочери умер посреди хода — один resume, итога нет: родителю ничего", async () => {
+    // источник: принятый дизайн, ожидаемые ветки — «Процесс дочери умер посреди хода — Host: один resume… Ход потерян, итога нет»
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    kid.send(msg.state("running"));
+    await until(() => st.kernel.sessions.get("docs@win")!.state === "busy");
+    kid.exit(1, "умер");
+    await until(() => st.sdk.of("docs@win").length === 2 && st.kernel.sessions.get("docs@win")!.state === "idle");
+    await new Promise((r) => setTimeout(r, 30));
+    expect(st.proc("lead@win").inputs).toHaveLength(0);
+  });
+
+  it("332 · родителя нет на связи, когда пришёл итог, — строка журнала report со словом offline на машине дочери, повторов нет", async () => {
+    // источник: принятый дизайн, ожидаемые ветки — «Родителя нет на связи, когда пришёл итог — Отказ offline, строка в журнале машины дочери»
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    expect(await st.relay.request({ type: "session.remove", v: 1, callsign: "lead@win" })).toMatchObject({ ok: true });
+    turn(kid, "работаю", { result: "README обновлён" });
+    const line = await until(() => st.journal().find((l) => l.ev === "report"));
+    expect(line).toMatchObject({ kind: "note", word: "offline", callsign: "docs@win" });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(st.journal().filter((l) => l.ev === "report")).toHaveLength(1);
+  });
+
+  it("333 · родитель отвечает на вопрос дочери своей машины: вопрос во вводе родителя тегом fleet-question; ответ fleet.answer — у модели дочери; answered от родителя", async () => {
+    // источник: принятый дизайн, инструменты модели — «answer — ответ на вопрос дочери»; устав — первый ответ выигрывает
+    const { st, call, dir } = await bench("win", { withQuestions: true });
+    await st.open("lead@win");
+    st.session("host-fleet", "lead@win")!.input("Наведи порядок в документации", { from: "phone~owner@example.com" });
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    const asked = kid.ask("AskUserQuestion", { questions: [{ question: "Какой README?" }] }, "toolu_k1");
+    const q = await until(() => st.relay.frames("question")[0]);
+    expect(q).toMatchObject({ from: "docs@win", to: ["lead@win"], question: "toolu_k1" });
+    st.relay.deliver(q);
+    const lead = st.proc("lead@win");
+    await until(() => lead.inputs.length === 2);
+    expect(lead.inputs[1].message.content).toContain('<fleet-question from="docs@win" question="toolu_k1">');
+    expect((await call("lead@win", "answer", { to: "docs@win", question: "toolu_k1", answers: { "Какой README?": "корневой" } })).content[0].text).toBe("принято");
+    expect(await asked).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Какой README?": "корневой" } } });
+    expect(st.relay.frames("answered")).toEqual([expect.objectContaining({ from: "docs@win", question: "toolu_k1", by: "lead@win" })]);
+  });
+
+  it("334 · вопрос дочери уже закрыт ответом человека — fleet.answer родителя: «Не выполнено: docs@win — already_answered»; у модели дочери ответ человека", async () => {
+    // источник: устав — первый ответ выигрывает; слово — чьё: код (questions), текст — чьё: код (fleet)
+    const { st, call, dir } = await bench("win", { withQuestions: true });
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    const asked = kid.ask("AskUserQuestion", { questions: [{ question: "Какой README?" }] }, "toolu_k2");
+    await until(() => st.relay.frames("question")[0]);
+    expect(await st.relay.request({ type: "answer", v: 1, callsign: "docs@win", question: "toolu_k2", answers: { "Какой README?": "в docs" }, from: "phone~owner@example.com" })).toMatchObject({ ok: true });
+    const r = await call("lead@win", "answer", { to: "docs@win", question: "toolu_k2", answers: { "Какой README?": "корневой" } });
+    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — already_answered" }], isError: true });
+    expect(await asked).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Какой README?": "в docs" } } });
+    expect(st.relay.frames("answered")).toEqual([expect.objectContaining({ question: "toolu_k2", by: "phone~owner@example.com" })]);
   });
 });

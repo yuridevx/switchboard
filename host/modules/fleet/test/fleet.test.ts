@@ -2,9 +2,11 @@
 // Инструменты MCP зовутся как их зовёт SDK — обработчиком tool() сервера сессии.
 import { afterEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
-import type { Frame, Manifest, Module } from "@switchboard/host";
+import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, wrap } from "../src/fleet.ts";
+import pushManifest from "../../push/module.json" with { type: "json" };
+import { make as makePush } from "../../push/src/push.ts";
 
 const { FakeHolders, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
@@ -127,40 +129,54 @@ describe("fleet: инструменты и вклад", () => {
     expect(await st.relay.request({ type: "message", v: 1, from: "deploy", to: "site@laptop", text: "x" })).toMatchObject({ ok: false, error: "offline" });
   });
 
-  it("fleet.list — выжимка последнего roster; до roster — disconnected", async () => {
-    const { st: s2, call } = await bench();
-    s2.relay.deliver({ type: "roster", machines: [], sessions: [{ callsign: "poe-bot@pc", state: "busy", cost: 1 }, { callsign: "profiles@laptop", state: "idle" }], clients: ["phone~owner@example.com", "panel-desk~owner@example.com"], workers: [] });
-    await new Promise((r) => setTimeout(r, 10));
-    const r = await call("site@laptop", "list", {});
-    expect(JSON.parse(r.content[0].text)).toEqual({
-      me: "site@laptop",
-      sessions: [
-        { callsign: "poe-bot@pc", state: "busy", parent: null, model: null },
-        { callsign: "profiles@laptop", state: "idle", parent: null, model: null },
-      ],
-      clients: ["phone~owner@example.com", "panel-desk~owner@example.com"],
-    });
+  it("fleet.list до первого roster — ошибка инструмента со словом disconnected", async () => {
+    // выжимку roster закрепляет эталон 302; здесь — только ветка «roster ещё не пришёл»
     const fresh = make();
     await fresh.module.start!({} as never);
     const off = await fresh.tools("site@laptop").find((t) => t.name === "list")!.handler({}, {});
-    expect(off).toMatchObject({ isError: true });
+    expect(off).toEqual({ content: [{ type: "text", text: "Нет связи с relay (disconnected): список сессий неизвестен" }], isError: true });
   });
 
-  it("fleet.send клиенту: кадр message без id и notify модулю push; fleet.answer — запрос answer модулю questions", async () => {
-    const notifies: Frame[] = [];
-    const answers: Frame[] = [];
-    const push = module("host-push", { requests: { notify: (req) => (notifies.push(req), { pushed: [] }) } });
-    const questions: Module = { requests: { answer: (req) => void answers.push(req) } };
-    const { st, call } = await bench({ extra: [push, module("host-questions", questions)] });
+  it("fleet.send человеку: кадр message без id; телефона нет на связи — пуш запросом push.send с заголовком отправителя", async () => {
+    // источник: устав — «достают до телефона»; принятый дизайн — «send — сессии или человеку»; текст ответа — чьё: код
+    const { st, call } = await bench({ extra: [{ manifest: pushManifest as Manifest, module: makePush() }] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
     await st.open("site@laptop");
-    await st.open("profiles@laptop");
     expect(await call("site@laptop", "send", { to: "phone~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: phone~owner@example.com" }] });
     expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "phone~owner@example.com", text: "Готово" }]);
-    await until(() => notifies.length === 1);
-    expect(notifies[0]).toMatchObject({ v: 1, clients: ["phone~owner@example.com"], frame: { type: "message", from: "site@laptop", notify: { title: "site@laptop", body: "Готово" } } });
-    const a = await call("site@laptop", "answer", { to: "profiles@laptop", question: "toolu_01Hq", answers: { "Какую базу мигрировать первой?": "стенд" } });
-    expect(a.content[0].text).toBe("принято");
-    expect(answers[0]).toMatchObject({ type: "answer", v: 1, callsign: "profiles@laptop", question: "toolu_01Hq", from: "site@laptop", answers: { "Какую базу мигрировать первой?": "стенд" } });
+    const push = await until(() => st.relay.frames("push.send")[0]);
+    expect(push).toMatchObject({ v: 1, to: ".push", push: { to: "phone~owner@example.com", type: "message", from: "site@laptop", notify: { title: "site@laptop", body: "Готово" } } });
+  });
+
+  it("fleet.answer на вопрос сессии другой машины — запрос answer через relay от отвечающей сессии; модели — «принято»", async () => {
+    // источник: устав — AskUserQuestion получает тот, кто дал задачу; первый ответ выигрывает
+    const { st, call } = await bench();
+    await st.open("site@laptop");
+    const pending = call("site@laptop", "answer", { to: "profiles@pc", question: "toolu_01Hq", answers: { "Какую базу мигрировать первой?": "стенд" } });
+    const a = await until(() => st.relay.frames("answer")[0]);
+    expect(a).toMatchObject({ type: "answer", v: 1, callsign: "profiles@pc", question: "toolu_01Hq", from: "site@laptop", answers: { "Какую базу мигрировать первой?": "стенд" } });
+    st.relay.deliver({ type: "reply", id: a.id as string, ok: true } as Frame);
+    expect((await pending).content[0].text).toBe("принято");
+  });
+
+  it("335 · fleet.send: связи с relay нет — модели «Доставка не подтверждена: нет связи с relay (disconnected)»", async () => {
+    // источник: устав — соединение с Worker-модулем оборвалось — клиенты переподключаются; ошибки словами; текст — чьё: код
+    const { st, call } = await bench();
+    await st.open("site@laptop");
+    st.relay.drop();
+    await until(() => st.kernel.relay?.state !== "open");
+    const r = await call("site@laptop", "send", { to: "wiki@pc", text: "x" });
+    expect(r).toEqual({ content: [{ type: "text", text: "Доставка не подтверждена: нет связи с relay (disconnected)" }], isError: true });
+  });
+
+  it("336 · message: вход отклонён — без text: bad_frame, причина в журнале; ввод не тронут", async () => {
+    // источник: устав — ошибки словами; слово bad_frame — чьё: код
+    const { st } = await bench({ machine: "pc" });
+    await st.open("poe-bot@pc");
+    expect(await st.relay.request({ type: "message", v: 1, from: "site@laptop", to: "poe-bot@pc" })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(st.journal().some((l) => l.ev === "request" && l.word === "bad_frame")).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(st.proc("poe-bot@pc").inputs).toHaveLength(0);
   });
 
   it("вклад в query(): сервер MCP fleet с семью инструментами, позывной в системном промпте, межсессионная переписка Claude Code выключена", async () => {
