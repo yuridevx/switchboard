@@ -191,12 +191,13 @@ describe("fleet: wait, инструменты и вклад", () => {
     expect(answers[0]).toMatchObject({ type: "answer", v: 1, callsign: "profiles@laptop", question: "toolu_01Hq", from: "site@laptop", answers: { "Какую базу мигрировать первой?": "стенд" } });
   });
 
-  it("вклад в query(): сервер MCP fleet с тремя инструментами и позывной в системном промпте", async () => {
+  it("вклад в query(): сервер MCP fleet с тремя инструментами, позывной в системном промпте, межсессионная переписка Claude Code выключена", async () => {
     const { st } = await bench();
     await st.open("site@laptop");
-    const o = st.query("site@laptop").options as { mcpServers: Record<string, { type: string; name: string }>; systemPrompt: { append?: string } };
+    const o = st.query("site@laptop").options as { mcpServers: Record<string, { type: string; name: string }>; systemPrompt: { append?: string }; env: Record<string, string> };
     expect(o.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
     expect(o.systemPrompt.append).toContain("Ты во флоте как site@laptop");
+    expect(o.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
     expect(make().tools("x@y").map((t) => t.name)).toEqual(["list", "send", "answer"]);
   });
 });

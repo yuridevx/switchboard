@@ -110,6 +110,9 @@ export function make() {
     session: (s) => ({
       mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.2.0", tools: tools(s.info.callsign) }) },
       append: prompt(s.info.callsign),
+      // переписка между сессиями — только через fleet: рубильник Claude Code убирает ListAgents и доставку
+      // SendMessage чужим сессиям в обе стороны; SendMessage своим субагентам остаётся (исключение устава, слово 1 нояб.)
+      env: { CLAUDE_CODE_HARBOR_KITE: "0" },
     }),
     requests: { message },
     on: {
