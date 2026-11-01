@@ -179,7 +179,7 @@ describe("сборка выпуска", () => {
     expect(corePj.scripts).toBeUndefined();
     expect(JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8"))).toEqual({ version: "1.4.1" });
     // Host — часть машины, как приложение: keeper ставит его по app.json
-    expect(JSON.parse(readFileSync(join(b.dir, "app.json"), "utf8"))).toEqual({ run: ["node", "host"], setup: ["npm", "ci", "--omit=dev"], detach_children: true });
+    expect(JSON.parse(readFileSync(join(b.dir, "app.json"), "utf8"))).toEqual({ run: ["node", "host"], setup: ["npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], detach_children: true });
     expect(paths).toContain("app.json");
     expect(readFileSync(join(out, "1.4.1.sha256"), "utf8")).toBe(shaLine(sha256hex(b.tgz), "1.4.1"));
   });

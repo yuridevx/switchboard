@@ -491,20 +491,37 @@ func (k *Keeper) startPart(p *part, pp planPart, dir string) error {
 	return nil
 }
 
-// command — run из app.json: node — Node из keeper.json, пути — от папки версии.
+// command — run или setup из app.json: node — Node из keeper.json, npm — npm-cli.js рядом с ним под тем же Node
+// (на Windows npm — это npm.cmd, а у службы может не быть PATH); пути — от папки версии.
 func (k *Keeper) command(run []string, dir string) []string {
-	out := make([]string, len(run))
+	out := make([]string, 0, len(run)+1)
 	for i, a := range run {
 		switch {
 		case i == 0 && a == "node" && k.node != "":
-			out[i] = k.node
+			out = append(out, k.node)
+		case i == 0 && a == "npm" && npmCli(k.node) != "":
+			out = append(out, k.node, npmCli(k.node))
 		case !filepath.IsAbs(a) && exists(filepath.Join(dir, a)):
-			out[i] = filepath.Join(dir, a)
+			out = append(out, filepath.Join(dir, a))
 		default:
-			out[i] = a
+			out = append(out, a)
 		}
 	}
 	return out
+}
+
+// npmCli — npm-cli.js рядом с Node: Windows — <папка node>/node_modules/npm, Linux — <папка node>/../lib/node_modules/npm.
+func npmCli(node string) string {
+	if node == "" {
+		return ""
+	}
+	d := filepath.Dir(node)
+	for _, p := range []string{filepath.Join(d, "node_modules", "npm", "bin", "npm-cli.js"), filepath.Join(d, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js")} {
+		if exists(p) {
+			return p
+		}
+	}
+	return ""
 }
 
 func exists(p string) bool { _, err := os.Stat(p); return err == nil }

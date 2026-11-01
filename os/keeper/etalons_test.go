@@ -381,3 +381,22 @@ func readJournal(home string) string {
 	}
 	return s.String()
 }
+
+// npm из app.json — npm-cli.js рядом с Node из keeper.json под тем же Node: на Windows npm — это npm.cmd,
+// а у службы может не быть PATH (чьё: дизайн «npm — npm рядом с ним»).
+func TestNpmNextToNode(t *testing.T) {
+	d := t.TempDir()
+	node := filepath.Join(d, exeName("node"))
+	cli := filepath.Join(d, "node_modules", "npm", "bin", "npm-cli.js")
+	os.MkdirAll(filepath.Dir(cli), 0o755)
+	os.WriteFile(node, nil, 0o755)
+	os.WriteFile(cli, nil, 0o644)
+	k := &Keeper{node: node}
+	got := k.command([]string{"npm", "ci", "--omit=dev"}, d)
+	if strings.Join(got, "|") != strings.Join([]string{node, cli, "ci", "--omit=dev"}, "|") {
+		t.Fatalf("команда %v", got)
+	}
+	if got := (&Keeper{}).command([]string{"npm", "ci"}, d); got[0] != "npm" {
+		t.Fatalf("без node в keeper.json — npm как есть: %v", got)
+	}
+}

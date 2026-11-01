@@ -119,7 +119,7 @@ export function closure(root: string): Array<{ name: string; dir: string }> {
 }
 
 /** app.json Host: часть машины, как любое приложение. */
-export const APP = { run: ["node", "host"], setup: ["npm", "ci", "--omit=dev"], detach_children: true };
+export const APP = { run: ["node", "host"], setup: ["npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], detach_children: true };
 
 const ENTRY = `// Вход выпуска Host: keeper запускает node host в папке версии.
 import "./packages/host/main.ts";
