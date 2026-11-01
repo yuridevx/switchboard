@@ -4,13 +4,14 @@ package main
 // выполнить setup из app.json, отметить папку хэшем архива. Самообновление keeper — той же дорогой.
 import (
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -37,8 +38,8 @@ func readApp(dir string) (app, error) {
 	if err != nil {
 		return a, fmt.Errorf("no_app_json: %v", err)
 	}
-	if err := json.Unmarshal(b, &a); err != nil {
-		return a, fmt.Errorf("app.json: %v", err)
+	if err := strictJSON(b, &a); err != nil {
+		return a, fmt.Errorf("contract_mismatch: app.json: %v", err)
 	}
 	if len(a.Run) == 0 {
 		return a, errors.New("app.json без run")
@@ -113,9 +114,9 @@ func (k *Keeper) install(pp planPart) (string, error) {
 	return dir, nil
 }
 
-// untgz — распаковать tgz в папку; пути только внутрь неё.
+// untgz — распаковать tgz в папку; пути только внутрь неё, записи — только файлы и папки.
 func untgz(b []byte, dir string) error {
-	zr, err := gzip.NewReader(strings.NewReader(string(b)))
+	zr, err := gzip.NewReader(bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -155,6 +156,8 @@ func untgz(b []byte, dir string) error {
 				return err
 			}
 			f.Close()
+		default:
+			return fmt.Errorf("запись %s вида %q — в архиве части только файлы и папки", h.Name, h.Typeflag)
 		}
 	}
 }
@@ -176,58 +179,58 @@ func osArch() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
 }
 
-// selfUpdate — новый файл ответил своей версией → подменить свой файл и выйти; ОС поднимет новый.
-// Держатели и их процессы живут дальше: новый keeper подключится к ним.
+// selfUpdate — новый файл ответил своей версией → подменить свой файл и остановиться; ОС поднимет новый.
+// Держатели и их процессы живут дальше: новый keeper подключится к ним. Сбой — keeper failed, как у любой части.
 func (k *Keeper) selfUpdate(pp planPart) {
+	fail := func(why string) { k.failPart(k.partOf("keeper"), pp.Version, why) }
 	dir, err := k.install(pp)
 	if err != nil {
-		k.j.stop("self_update", err.Error(), "to", pp.Version)
-		k.keeperFailed(pp.Version, err.Error())
+		fail(err.Error())
 		return
 	}
 	bin := keeperBinary(dir)
 	out, err := exec.Command(bin, "version").Output()
 	if got := strings.TrimSpace(string(out)); err != nil || got != pp.Version {
-		why := fmt.Sprintf("check_failed: новый файл ответил «%s» (%v), а в плане %s", got, err, pp.Version)
-		k.j.stop("self_update", why, "to", pp.Version)
-		k.keeperFailed(pp.Version, why)
+		fail(fmt.Sprintf("check_failed: новый файл ответил «%s» (%v), а в плане %s", got, err, pp.Version))
 		return
 	}
 	self, err := k.self()
 	if err != nil {
-		k.keeperFailed(pp.Version, err.Error())
+		fail(err.Error())
 		return
 	}
-	// запущенный файл можно переименовать, но не удалить: держатели держат его, пока живы
-	old := self + "." + keeperVersion + ".old"
-	os.Remove(old)
-	if err := os.Rename(self, old); err != nil {
-		k.keeperFailed(pp.Version, "подмена: "+err.Error())
+	// прежний файл держат держатели, пока живы, — иногда днями: имя у него каждый раз новое
+	old := fmt.Sprintf("%s.%s.%d.old", self, keeperVersion, os.Getpid())
+	if err := replaceFile(bin, self, old); err != nil {
+		fail("подмена: " + err.Error())
 		return
 	}
-	if err := copyFile(bin, self); err != nil {
-		os.Rename(old, self)
-		k.keeperFailed(pp.Version, "подмена: "+err.Error())
-		return
-	}
+	// свои папки версий — новая и та, с которой уходим: прежний файл для отката лежит рядом
+	k.cleanupVersions("keeper", pp.Version, keeperVersion)
 	k.j.note("self_update", "from", keeperVersion, "to", pp.Version, "why", "файл подменён — выход, ОС поднимет новый")
-	k.ledger("part.updated", fmt.Sprintf("%s: keeper %s → %s", k.machine, keeperVersion, pp.Version))
-	go func() {
-		k.Stop()
-		k.exit(3)
-	}()
+	k.ledger("part.updated", fmt.Sprintf("keeper %s → %s", keeperVersion, pp.Version))
+	// остановку ждёт цикл, в котором мы сейчас: своей горутиной; выход процесса — по Done у того, кто запустил
+	go k.Stop()
 }
 
-func (k *Keeper) keeperFailed(version, why string) {
-	k.mu.Lock()
-	p := k.parts["keeper"]
-	if p == nil {
-		p = &part{name: "keeper"}
-		k.parts["keeper"] = p
+// replaceFile — src на место dst целиком, как все записи keeper: копия рядом, прежний dst — в old
+// (запущенный файл можно переименовать, но не удалить), копия — на место. Не вышло — dst прежний.
+func replaceFile(src, dst, old string) error {
+	tmp := dst + ".new"
+	if err := copyFile(src, tmp); err != nil {
+		os.Remove(tmp)
+		return err
 	}
-	p.state, p.version, p.err = "failed", version, why
-	k.mu.Unlock()
-	k.ledger("part.failed", fmt.Sprintf("%s: keeper %s — %s", k.machine, version, why))
+	if err := os.Rename(dst, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Rename(old, dst)
+		os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func copyFile(src, dst string) error {

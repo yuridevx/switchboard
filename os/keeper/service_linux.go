@@ -15,14 +15,17 @@ func isService() bool { return false }
 func runService()     {}
 func hideConsole()    {}
 
-// Linux: systemd --user и linger — стартует без входа. Restart=always поднимает вышедший keeper (и после подмены себя);
+// Linux: systemd --user и linger — стартует без входа. Restart=always поднимает вышедший keeper (и после подмены себя)
+// раз в секунду без предела, как служба Windows: по умолчанию systemd сдаётся после 5 запусков за 10 с (wsl 1 нояб.).
 // KillMode=process: остановка и перезапуск трогают только keeper — держатели и их процессы живут (замер 1 нояб.).
 const unitText = `[Unit]
 Description=Switchboard keeper
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart="%s" run
 Restart=always
+RestartSec=1
 KillMode=process
 
 [Install]

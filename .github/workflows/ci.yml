@@ -45,7 +45,24 @@ jobs:
           go-version-file: os/keeper/go.mod
           cache-dependency-path: os/keeper/go.sum
       - run: go vet ./...
-      - run: go test -count=1 ./...
+      # на Linux — с детектором гонок
+      - run: go test -count=1 ${{ runner.os == 'Linux' && '-race' || '' }} ./...
+      # keeper заморожен: уязвимость Go или зависимости на его пути роняет сборку — повод пересобрать
+      - name: уязвимости
+        if: runner.os == 'Linux'
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - uses: actions/setup-node@v4
+        if: runner.os == 'Linux'
+        with:
+          node-version: 24
+      - name: архив выпуска собран дважды — один хэш
+        if: runner.os == 'Linux'
+        working-directory: .
+        run: |
+          a=$(node tools/release/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
+          (cd os/keeper && go clean -cache)
+          b=$(node tools/release/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
+          echo "$a · $b"; [ -n "$a" ] && [ "$a" = "$b" ]
 
   upload:
     # загрузка без выкладки: stable двигают «выпуски» (releases.deploy) по слову человека или агента

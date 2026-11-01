@@ -44,7 +44,7 @@ func confStr(m map[string]any, k string) string {
 	return s
 }
 
-// writeConf — временный файл и rename: keeper.json всегда целый.
+// writeConf — keeper.json всегда целый.
 func writeConf(home string, m map[string]any) error {
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
@@ -53,10 +53,15 @@ func writeConf(home string, m map[string]any) error {
 	if err != nil {
 		return err
 	}
-	tmp := confPath(home) + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+	return writeFileAtomic(confPath(home), append(b, '\n'))
+}
+
+// writeFileAtomic — временный файл и rename: файл keeper на диске всегда целый — прежний или новый.
+func writeFileAtomic(p string, b []byte) error {
+	tmp := p + ".tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, confPath(home))
+	return os.Rename(tmp, p)
 }
 

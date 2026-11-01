@@ -68,6 +68,12 @@ type holder struct {
 	lastErr string
 	outMu   sync.Mutex // порядок записи в соединение
 	done    chan struct{}
+
+	// ввод процесса: очередь и свой писатель — кадры хозяина читаются, даже когда процесс не читает ввод
+	inMu   sync.Mutex
+	inQ    [][]byte
+	inEnd  bool // «закрой ввод» — после очереди
+	inWake chan struct{}
 }
 
 // runHold — вход режима держателя; код выхода держателя.
@@ -160,7 +166,8 @@ func startHolder(home, id, owner, tag, cwd string, detach bool, cmdline []string
 		ln.Close()
 		return nil, err
 	}
-	h := &holder{id: id, owner: owner, home: home, j: j, key: hex.EncodeToString(raw), ln: ln, cmd: cmd, osh: osh, stdin: inW, done: make(chan struct{})}
+	h := &holder{id: id, owner: owner, home: home, j: j, key: hex.EncodeToString(raw), ln: ln, cmd: cmd, osh: osh, stdin: inW,
+		done: make(chan struct{}), inWake: make(chan struct{}, 1)}
 	f := holdFile{ID: id, Owner: owner, Pid: cmd.Process.Pid, Holder: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Key: h.key, Tag: tag}
 	if err := writeHoldFile(home, f); err != nil {
 		osh.killTree()
@@ -170,7 +177,49 @@ func startHolder(home, id, owner, tag, cwd string, detach bool, cmdline []string
 	}
 	j.note("hold", "id", id, "owner", owner, "pid", cmd.Process.Pid, "cmd", cmdline)
 	go h.pump(outR, errR)
+	go h.writeInput()
 	return h, nil
+}
+
+// input — ввод процесса в очередь; end — «закрой ввод» после всего, что в очереди.
+func (h *holder) input(b []byte, end bool) {
+	h.inMu.Lock()
+	if b != nil {
+		h.inQ = append(h.inQ, b)
+	}
+	if end {
+		h.inEnd = true
+	}
+	h.inMu.Unlock()
+	select {
+	case h.inWake <- struct{}{}:
+	default:
+	}
+}
+
+// writeInput — писатель трубы ввода: процесс не читает ввод — ждёт только он, не цикл кадров хозяина.
+func (h *holder) writeInput() {
+	for {
+		h.inMu.Lock()
+		q, end := h.inQ, h.inEnd
+		h.inQ = nil
+		h.inMu.Unlock()
+		for _, b := range q {
+			h.stdin.Write(b) // ошибка — процесс ушёл, остальное писать некуда
+		}
+		if len(q) > 0 {
+			continue
+		}
+		if end {
+			h.stdin.Close()
+			return
+		}
+		select {
+		case <-h.inWake:
+		case <-h.done:
+			return
+		}
+	}
 }
 
 func writeHoldFile(home string, f holdFile) error {
@@ -178,12 +227,7 @@ func writeHoldFile(home string, f holdFile) error {
 		return err
 	}
 	b, _ := json.MarshalIndent(f, "", "  ")
-	p := holdPath(home, f.ID)
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return writeFileAtomic(holdPath(home, f.ID), append(b, '\n'))
 }
 
 // readHoldFiles — файлы держателей; битый файл пропускается.
@@ -305,7 +349,7 @@ func (h *holder) serve() int {
 		// остановка от ОС: закрыть ввод процессу и ждать его выхода
 		<-sig
 		h.j.note("hold_signal", "id", h.id)
-		h.stdin.Close()
+		h.input(nil, true)
 	}()
 	go func() {
 		for {
@@ -368,7 +412,8 @@ func (h *holder) accept(c net.Conn) {
 	h.readOwner(c)
 }
 
-// readOwner — кадры хозяина: ввод, закрыть ввод, убить. Ушёл хозяин — процесс живёт, вывод копится.
+// readOwner — кадры хозяина: ввод и «закрой ввод» — в очередь ввода, «убей» — сразу.
+// Ушёл хозяин — процесс живёт, вывод копится.
 func (h *holder) readOwner(c net.Conn) {
 	br := bufio.NewReader(c)
 	for {
@@ -378,9 +423,9 @@ func (h *holder) readOwner(c net.Conn) {
 		}
 		switch t {
 		case frInput:
-			h.stdin.Write(b)
+			h.input(b, false)
 		case frClose:
-			h.stdin.Close()
+			h.input(nil, true)
 		case frKill:
 			h.mu.Lock()
 			h.forced = true
@@ -461,7 +506,6 @@ func spawnHolder(home string, s holdSpec) (holdFile, error) {
 type heldConn struct {
 	c   net.Conn
 	wmu sync.Mutex
-	Pid int
 }
 
 var errRefused = errors.New("держатель отказал")
@@ -487,7 +531,7 @@ func dialHolder(f holdFile) (*heldConn, holderHello, error) {
 	}
 	var hh holderHello
 	json.Unmarshal(b, &hh)
-	return &heldConn{c: c, Pid: hh.Pid}, hh, nil
+	return &heldConn{c: c}, hh, nil
 }
 
 func (hc *heldConn) send(t byte, data []byte) error {

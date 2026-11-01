@@ -65,6 +65,10 @@ func install(args []string) error {
 	if err != nil {
 		return err
 	}
+	// второй вид установки поверх первого — два keeper на одних держателях: отказ до правки файлов
+	if installed() {
+		return fmt.Errorf("keeper уже стоит службой или задачей %s — сначала keeper uninstall", serviceName)
+	}
 	in := bufio.NewReader(os.Stdin)
 	if err := prepareConf(f, in); err != nil {
 		return err
@@ -117,12 +121,32 @@ func install(args []string) error {
 	return s.Start()
 }
 
+// installed — служба или задача keeper уже есть. Служба — запросом без прав администратора: --logon ставит не админ.
+func installed() bool {
+	m, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err == nil {
+		defer windows.CloseServiceHandle(m)
+		name, _ := windows.UTF16PtrFromString(serviceName)
+		if s, err := windows.OpenService(m, name, windows.SERVICE_QUERY_STATUS); err == nil {
+			windows.CloseServiceHandle(s)
+			return true
+		}
+	}
+	return taskInstalled()
+}
+
+// taskInstalled — задача «при входе» keeper есть.
+func taskInstalled() bool { return exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil }
+
 func uninstall() error {
-	if out, err := exec.Command("schtasks", "/Query", "/TN", serviceName).CombinedOutput(); err == nil {
+	if taskInstalled() {
+		// задача снята — запущенный по ней keeper остановлен тоже, иначе он жил бы рядом со следующей установкой
+		if out, err := exec.Command("schtasks", "/End", "/TN", serviceName).CombinedOutput(); err != nil {
+			return fmt.Errorf("schtasks /End: %v: %s", err, out)
+		}
 		if out, err := exec.Command("schtasks", "/Delete", "/TN", serviceName, "/F").CombinedOutput(); err != nil {
 			return fmt.Errorf("schtasks /Delete: %v: %s", err, out)
 		}
-		_ = out
 		return nil
 	}
 	m, err := mgr.Connect()
