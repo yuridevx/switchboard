@@ -106,6 +106,10 @@ try {
 
   const files = `echo ${GREEN} | base64 -d > "$SB_OUT/chart.png"; echo '{"ok":true}' > "$SB_OUT/data.json"; { echo '%PDF-1.4'; head -c 16 /dev/zero; } > "$SB_OUT/report.pdf"; echo built`;
   const f = await run(B, { shell: "bash", script: files, background: false });
+  // картинку для сессии кладёт сценарий: длинную однообразную строку base64 модель перепечатывает с пропусками
+  // (haiku теряла повторы «CoH0…» — PNG выходил битым, 1 нояб.); модель только копирует файл
+  await run(B, { shell: "bash", script: `echo ${GREEN} | base64 -d > "$HOME/.sb-flow-chart.png"`, background: false });
+  const sessionFiles = `cp "$HOME/.sb-flow-chart.png" "$SB_OUT/chart.png"; echo '{"ok":true}' > "$SB_OUT/data.json"; { echo '%PDF-1.4'; head -c 16 /dev/zero; } > "$SB_OUT/report.pdf"; echo built`;
   check(`bash на ${B}: файлы $SB_OUT с типами`, f.snap?.state === "exit" && JSON.stringify(f.snap.files?.map((x) => x.media_type)) === '["image/png","application/json","application/pdf"]', f.snap ? { state: f.snap.state, files: f.snap.files?.map((x) => x.name) } : f);
 
   const psScript = [
@@ -158,7 +162,7 @@ try {
   await idle(90000);
 
   await prompt(
-    `Вызови инструмент mcp__shell__run: machine "${B}", shell "bash", background false, script: ${JSON.stringify(files)}. ` +
+    `Вызови инструмент mcp__shell__run: machine "${B}", shell "bash", background false, script: ${JSON.stringify(sessionFiles)}. ` +
       "Потом одной строкой ответь: какого цвета картинка chart.png и полный путь к файлу report.pdf из ответа инструмента.",
   );
   await idle(240000);
