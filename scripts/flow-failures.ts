@@ -1,6 +1,7 @@
 // Живые ветки сбоев на машине Windows (процессы убиваются по pid): claude умер — один resume; умер снова до
-// готовности — failed и session.start; Host упал посреди хода — keeper поднимает Host, attach, ход доходит;
-// ждущий вопрос переживает перезапуск Host; ждущий запрос получает disconnected, когда Host уходит.
+// готовности — failed и session.start; Host упал посреди хода — keeper поднимает Host один раз, Host подключается
+// к держателям, ход доходит; второе падение Host — failed в keeper.state, агент поднимает его чистым перезапуском
+// через план; ждущий вопрос переживает перезапуск Host; ждущий запрос получает disconnected, когда Host уходит.
 // env: FLOW_CLIENT_KEY, FLOW_MACHINE, FLOW_DIR.
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -47,6 +48,15 @@ const hostPid = () =>
   Number(execSync(`powershell -NoProfile -Command "(Get-CimInstance Win32_Process -Filter \\"Name='node.exe'\\" | Where-Object { $_.CommandLine -like '*\\.switchboard\\parts\\host\\*' -and $_.CommandLine -notlike '*sbkeeper*' } | Select-Object -First 1).ProcessId"`).toString().trim());
 const kill = (pid: number) => execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
 
+const hostPart = async () => ((await req({ type: "keeper.state", to: `.keeper@${machine}` })).result?.parts ?? []).find((p: any) => p.part === "host");
+/** Чистый перезапуск Host агентом: план on: false, затем on: true; ждать новый hello машины. */
+async function cleanRestart(): Promise<boolean> {
+  const b = since();
+  await req({ type: "releases.set", to: ".releases", machine, part: "host", on: false });
+  await req({ type: "releases.set", to: ".releases", machine, part: "host", on: true });
+  return wait(() => !!since() && since() !== b, 120000);
+}
+
 await wait(() => l.state === "open", 15000);
 const CS = `fx@${machine}`;
 await req({ type: "session.remove", callsign: CS });
@@ -86,6 +96,13 @@ kill(hp);
 check("Host упал — машина вернулась с новым hello", await wait(() => !!since() && since() !== before, 60000));
 check("ход, начатый до падения Host, дошёл до конца", (await state(CS, "idle", 180000)) && /конец/i.test(await text(CS)), await text(CS));
 
+// 3b. второе падение Host — failed в keeper.state с причиной; агент поднимает чистым перезапуском
+await state(CS, "idle", 60000);
+kill(hostPid());
+check("второе падение Host — failed в keeper.state", await wait(async () => (await hostPart())?.state === "failed", 60000), await hostPart());
+check("агент: set host on: false → on: true — Host снова на связи", await cleanRestart(), await hostPart());
+await state(CS, "idle", 120000);
+
 // 4. ждущий вопрос переживает перезапуск Host
 questions.length = 0;
 await req({ type: "session.prompt", callsign: CS, text: "Спроси меня инструментом AskUserQuestion: «Какой цвет?» с вариантами «красный» и «синий». Получив ответ, напиши его одним словом." });
@@ -108,7 +125,10 @@ const pending = req({ type: "session.call", callsign: CS, method: "supportedMode
 kill(hostPid());
 const r = await pending;
 check("запрос к уходящей машине — ответ или disconnected, без зависания", r.ok || r.error === "disconnected", r.ok ? "ok" : r.error);
-await wait(() => rec(CS)?.state === "idle", 180000);
+// это второе падение после чистого перезапуска — Host failed; агент поднимает его
+await wait(async () => (await hostPart())?.state === "failed", 60000);
+check("Host поднят после второго падения", await cleanRestart(), await hostPart());
+check("ход после перезапусков дошёл", await wait(() => rec(CS)?.state === "idle", 180000), rec(CS)?.state);
 
 await req({ type: "session.remove", callsign: CS });
 l.close(1000, "done");
