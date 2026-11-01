@@ -1,6 +1,6 @@
 // Эталоны и стыки модуля chat на стенде Host: поддельные SDK, relay, keeper и часы.
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -120,9 +120,11 @@ describe("chat: юнит и стыки", () => {
   it("остановленная сессия — stopped, ввод не тронут", async () => {
     const s = await bench();
     const sess = await s.open("site@laptop");
+    const p = s.proc("site@laptop");
     await sess.stop();
     const r = await s.relay.request({ type: "session.prompt", v: 1, callsign: "site@laptop", text: "привет" });
     expect(r).toMatchObject({ ok: false, error: "stopped" });
+    expect(p.inputs).toHaveLength(0);
   });
 
   it("история страницами: before и more", async () => {
@@ -152,5 +154,90 @@ describe("chat: юнит и стыки", () => {
     const s = await bench();
     await s.open("site@laptop");
     expect(s.query("site@laptop").options).toMatchObject({ promptSuggestions: true });
+  });
+});
+
+describe("chat: покрытие плана host-modules", () => {
+  it("3001 · session.prompt: text не строка — bad_frame; во ввод ничего, chat жив", async () => {
+    // источник: чьё: код (chat.ts:41)
+    const s = await bench();
+    await s.open("site@laptop");
+    const p = s.proc("site@laptop");
+    expect(await s.relay.request({ type: "session.prompt", v: 1, callsign: "site@laptop", text: 5 })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await s.relay.request({ type: "session.prompt", v: 1, callsign: "site@laptop", text: "x" })).toMatchObject({ ok: true });
+    await until(() => p.inputs.length === 1);
+    expect(p.inputs).toHaveLength(1);
+  });
+
+  it("3002 · session.prompt занятой сессии: ответ сразу, ввод с priority next", async () => {
+    // источник: чьё: код (chat.ts:46)
+    const s = await bench();
+    const sess = await s.open("site@laptop");
+    const p = s.proc("site@laptop");
+    p.send(stand.msg.state("running"));
+    await until(() => sess.state === "busy");
+    const r = await s.relay.request({ type: "session.prompt", v: 1, callsign: "site@laptop", text: "ещё" });
+    expect(r).toMatchObject({ ok: true });
+    await until(() => p.inputs.length === 1);
+    expect(p.inputs[0]).toMatchObject({ priority: "next", message: { content: "ещё" } });
+  });
+
+  it("3003 · session.prompt сессии failed — stopped; после session.start ввод проходит", async () => {
+    // источник: чьё: код (chat.ts:27, :42; chat/contract.ts:5 «поднимает session.start»)
+    const s = await bench();
+    const sess = await s.open("site@laptop");
+    s.holders.failInitNext = 1;
+    s.proc("site@laptop").exit(1, "первый");
+    await until(() => s.sdk.of("site@laptop").length === 2 && s.holders.procs.get("site@laptop")?.initializes === 1);
+    s.proc("site@laptop").exit(1, "второй");
+    await until(() => sess.state === "failed");
+    expect(await s.relay.request({ type: "session.prompt", v: 1, callsign: "site@laptop", text: "x" })).toMatchObject({ ok: false, error: "stopped" });
+    await sess.start();
+    expect(await s.relay.request({ type: "session.prompt", v: 1, callsign: "site@laptop", text: "x" })).toMatchObject({ ok: true });
+    await until(() => s.proc("site@laptop").inputs.length === 1);
+  });
+
+  it("3004 · session.history: новая сессия — пустая страница; остановленной — читается", async () => {
+    // источник: чьё: код (chat.ts:49-61; getSessionMessages — функция SDK по файлу, процесс не нужен)
+    const s = await bench();
+    const sess = await s.open("site@laptop");
+    s.sdk.functions = { getSessionMessages: async () => [] };
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 5 })).toMatchObject({ ok: true, result: { messages: [], more: false } });
+    await sess.stop();
+    const rec = [{ type: "user", uuid: "u1" }];
+    s.sdk.functions = { getSessionMessages: async () => rec };
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 5 })).toMatchObject({ ok: true, result: { messages: rec, more: false } });
+  });
+
+  it("3005 · session.history: SDK не прочёл разговор — module_error, chat выключен в сессии, roster failed", async () => {
+    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен, в roster failed»)
+    const s = await bench();
+    await s.open("site@laptop");
+    s.sdk.functions = { getSessionMessages: async () => { throw new Error("файл разговора не читается"); } };
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 5 })).toMatchObject({ ok: false, error: "module_error" });
+    await until(() => s.states("site@laptop").at(-1)?.failed?.["host-chat"]);
+    expect(s.journal().some((l) => l.ev === "module_failed" && l.module === "host-chat")).toBe(true);
+  });
+
+  it("3006 · session.files: без limit — bad_frame", async () => {
+    // источник: чьё: код (chat.ts:67)
+    const s = await bench();
+    await s.open("site@laptop", { cwd: folder(false) });
+    expect(await s.relay.request({ type: "session.files", v: 1, callsign: "site@laptop", query: "a" })).toMatchObject({ ok: false, error: "bad_frame" });
+  });
+
+  it("3007 · session.files: обход папки не в git упал — module_error, chat выключен в сессии, Host жив", async () => {
+    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен, в roster failed»; «система ловит … не пускает дальше»)
+    const s = await bench();
+    const gone = folder(false);
+    await s.open("site@laptop", { cwd: gone });
+    await s.open("wiki@laptop", { cwd: folder(true) });
+    rmSync(gone, { recursive: true, force: true });
+    const r = await s.relay.request({ type: "session.files", v: 1, callsign: "site@laptop", query: "", limit: 5 });
+    expect(r).toMatchObject({ ok: false, error: "module_error" });
+    expect(s.journal().find((l) => l.ev === "module_failed" && l.module === "host-chat")).toMatchObject({ kind: "stop", callsign: "site@laptop" });
+    s.proc("site@laptop").send(stand.msg.state("idle"));
+    await until(() => s.states("site@laptop").at(-1)?.failed?.["host-chat"]);
+    expect(await s.relay.request({ type: "session.files", v: 1, callsign: "wiki@laptop", query: "worker", limit: 5 })).toMatchObject({ ok: true });
   });
 });

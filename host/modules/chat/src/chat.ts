@@ -14,12 +14,16 @@ function listFiles(cwd: string): Promise<string[]> {
     execFile("git", ["-C", cwd, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, out) => {
       if (!err) return resolve(out.split("\0").filter(Boolean));
       if ((err as { code?: unknown }).code !== 128) return reject(err);
-      // не репозиторий git: .gitignore тут ничего не скрывает
-      const all = readdirSync(cwd, { recursive: true, withFileTypes: true })
-        .filter((e) => e.isFile())
-        .map((e) => relative(cwd, join(e.parentPath, e.name)).split("\\").join("/"))
-        .filter((p) => p !== ".git" && !p.startsWith(".git/"));
-      resolve(all);
+      // не репозиторий git: .gitignore тут ничего не скрывает; сбой обхода — в отказ промиса, к ловушке ядра
+      try {
+        const all = readdirSync(cwd, { recursive: true, withFileTypes: true })
+          .filter((e) => e.isFile())
+          .map((e) => relative(cwd, join(e.parentPath, e.name)).split("\\").join("/"))
+          .filter((p) => p !== ".git" && !p.startsWith(".git/"));
+        resolve(all);
+      } catch (e) {
+        reject(e);
+      }
     });
   });
 }

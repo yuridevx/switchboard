@@ -77,3 +77,41 @@ export async function pult(o: { relay?: FakeRelay; roster?: Roster; url?: string
 }
 
 export { flush };
+
+/** sid сессии site@laptop в реестре точек стенда. */
+export const SID = "42bc5ad4";
+
+/** site@laptop в R2 с линией точек; ответы реестра и host-points. */
+export function pointsRelay(over: (r: Roster) => void = () => {}) {
+  const r = fleetRoster();
+  Object.assign(r.sessions[2], { r2: {} });
+  over(r);
+  const relay = fleetRelay(r);
+  const at = (hh: number, mm: number) => Date.UTC(2026, 9, 31, hh, mm);
+  relay.handlers["points.list"] = (f) =>
+    f.sid
+      ? {
+          ok: true,
+          result: {
+            owner: "laptop",
+            head: 41,
+            points: [
+              { id: 41, at: at(14, 49), machine: "laptop", why: "rule", base: 40, dir: "~/Projects/site", msgs: 212, git: { state: "dirty", files: 2, branch: "main" }, line: true, until: null },
+              { id: 38, at: at(10, 0), machine: "laptop", why: "rule", base: 37, dir: "~/Projects/site", msgs: 194, git: { state: "clean", branch: "main" }, line: true, until: 1824993120000 },
+              { id: 33, at: at(8, 15), machine: "laptop", why: "rule", base: 31, dir: "~/Projects/site", line: false, until: 1824993120000 },
+            ],
+          },
+        }
+      : {
+          ok: true,
+          result: {
+            sessions: [{ sid: SID, callsign: "site@laptop", dir: "~/Projects/site", owner: "laptop", head: { id: 41, at: at(14, 49) }, points: 41, branches: 1 }],
+            r2: { bytes: 432013312, blocks: 2410 },
+            sweep: null,
+          },
+        };
+  relay.handlers["points.get"] = (f) => ({ ok: true, result: { owner: "laptop", points: (f.ids as number[]).map((id) => ({ id, last: [["обнови зависимости и прогони тесты", "Обновил 14 пакетов"]] })) } });
+  relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
+  return relay;
+}
+

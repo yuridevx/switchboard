@@ -367,3 +367,89 @@ describe("accounts: ветки и стыки", () => {
     expect(r.result.accounts.y0902.err).toBe("нет сети");
   });
 });
+
+describe("accounts: покрытие плана host-modules", () => {
+  it("3049 · machine.login: имя не по форме — bad_frame; claudeAuthenticate отказал — login_failed, процесс входа закрыт", async () => {
+    // источник: чьё: код (accounts.ts:248, :256-259)
+    await bench();
+    expect(await ask({ type: "machine.login", account: "a b" })).toMatchObject({ ok: false, error: "bad_frame" });
+    const orig = st!.sdk.query;
+    st!.sdk.query = (p) => {
+      const q = orig(p) as unknown as Record<string, unknown>;
+      q.claudeAuthenticate = async () => {
+        throw new Error("нет сети");
+      };
+      return q as never;
+    };
+    expect(await ask({ type: "machine.login", account: "corp" })).toMatchObject({ ok: false, error: "login_failed" });
+    expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
+  });
+
+  it("3050 · login_code: в ответе callback нет почты — почта и тариф из accountInfo", async () => {
+    // источник: чьё: код (accounts.ts:284-285)
+    await bench();
+    await ask({ type: "machine.login", account: "corp" });
+    const q = st!.sdk.queries.find((x) => !x.options.spawnClaudeCodeProcess) as unknown as Record<string, unknown>;
+    q.claudeOAuthCallback = async () => {
+      cred(accDir("corp"), "corp");
+      return {};
+    };
+    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: true, result: { email: "corp@x", plan: "max" } });
+    expect((await ask({ type: "machine.accounts" })).result.accounts.corp).toMatchObject({ login: "ok", email: "corp@x", plan: "max" });
+  });
+
+  it("3051 · login_code: claude принял код, но auth status — не вошёл: login none, строка журнала", async () => {
+    // источник: чьё: код (accounts.ts:287-295)
+    await bench({ status: () => ({ code: 1, out: '{"loggedIn":false}' }) });
+    await ask({ type: "machine.login", account: "corp" });
+    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: true });
+    expect((await ask({ type: "machine.accounts" })).result.accounts.corp.login).toBe("none");
+    expect(st!.journal().some((l) => l.why === "corp: claude принял код, но auth status — не вошёл")).toBe(true);
+  });
+
+  it("3052 · удалить аккаунт посреди входа — процесс входа закрыт, папки и записи нет", async () => {
+    // источник: чьё: код (accounts.ts:302-305)
+    await bench();
+    await ask({ type: "machine.login", account: "corp" });
+    expect(await ask({ type: "machine.account_remove", account: "corp" })).toMatchObject({ ok: true, result: { wiped: true } });
+    expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
+    expect(existsSync(accDir("corp"))).toBe(false);
+    expect((await ask({ type: "machine.accounts" })).result.accounts.corp).toBeUndefined();
+  });
+
+  it("3053 · account.usage неизвестного аккаунта — no_account", async () => {
+    // источник: чьё: код (accounts.ts:128, :311)
+    await bench();
+    expect(await st!.host("host-slots").request("account.usage", { v: 1, account: "ghost", src: "event", windows: {} })).toEqual({ ok: false, error: "no_account" });
+  });
+
+  it("3054 · проверка входа упала — причина в журнале, следующая проверка идёт", async () => {
+    // источник: чьё: код (accounts.ts:346)
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let n = 0;
+    cred(accDir("corp"), "corp");
+    const { cli } = await bench({
+      accounts: { corp: acc() },
+      status: () => {
+        if (++n === 1) throw new Error("claude не запустился");
+        return { code: 0, out: '{"loggedIn":true}' };
+      },
+    });
+    vi.advanceTimersByTime(CHECK_MS);
+    await until(() => st!.journal().some((l) => l.ev === "check" && l.kind === "refuse"));
+    vi.advanceTimersByTime(CHECK_MS);
+    await until(() => cli.length === 2);
+    await until(async () => (await ask({ type: "machine.accounts" })).result.accounts.corp.checked);
+  });
+
+  it("3055 · штатная остановка закрывает процесс входа", async () => {
+    // источник: слово пользователя (устав, graceful shutdown: «закрывает соединения … выходит»)
+    await bench();
+    await ask({ type: "machine.login", account: "corp" });
+    const s = st!;
+    st = null;
+    await s.close();
+    expect(s.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
+    expect(s.exits).toEqual([0]);
+  });
+});

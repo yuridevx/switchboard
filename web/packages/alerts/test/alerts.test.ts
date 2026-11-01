@@ -38,6 +38,15 @@ describe("полоса «Включить уведомления»", () => {
     expect(relay.sent("push.key")[0]).toMatchObject({ v: 1, to: ".push" });
     expect(relay.sent("push.subscribe")[0]).toMatchObject({ v: 1, to: ".push", sub: { endpoint: "https://web.push.apple.com/QF3" } });
     expect(t.$(".al-card")).toBeNull();
+    expect(t.$(".sb-toast")!.textContent).toBe("Уведомления включены: сессии достучатся, когда приложение закрыто.");
+    // новая машина в roster: машинам подписка не уходит, в хранилище страницы подписки нет
+    const r = homeRoster();
+    r.machines.push({ machine: "mac", since: 2, proto: 1, contract: r.machines[0].contract });
+    relay.setRoster(r);
+    await flush();
+    expect(relay.got.filter((f) => f.to === ".push").map((f) => f.type)).toEqual(["push.key", "push.subscribe"]);
+    expect(relay.got.filter((f) => f.to !== ".push").every((f) => !f.type.startsWith("push") && !("sub" in f))).toBe(true);
+    expect(JSON.stringify(t.store.data)).not.toContain("endpoint");
   });
 
   it("отказ push.key — «Не вышло: слово», кнопка «Ещё раз»", async () => {

@@ -1,0 +1,515 @@
+// Флоу пульта по плану цикла тестов (web): аккаунты и вход, слоты, удаление аккаунта, машины, приложение GitHub, журнал флота.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Roster } from "@switchboard/web-core";
+import { fleetRelay, fleetRoster, flush, HOST, pult } from "./stand.ts";
+
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+afterEach(() => vi.restoreAllMocks());
+
+type P = Awaited<ReturnType<typeof pult>>;
+type Ans = { ok: true; result?: unknown } | { ok: false; error: string };
+
+/** Аккаунты и слоты машин: accounts[m], slots[m] — ответы владельцев. */
+function fleetAccounts(accounts: Record<string, unknown>, slots: Record<string, unknown> = {}, r = fleetRoster()) {
+  const relay = fleetRelay(r);
+  relay.handlers["machine.accounts"] = (f) => (accounts[String(f.machine)] as Ans | undefined) ?? { ok: true, result: { accounts: {} } };
+  relay.handlers["machine.slots"] = (f) => ({ ok: true, result: { slots: slots[String(f.machine)] ?? {} } });
+  return relay;
+}
+
+async function accountsScreen(relay = fleetAccounts({}), url?: string) {
+  const t = await pult({ relay, url });
+  if (!url) await t.click(t.$('.sb-navcol button[data-screen="accounts"]'));
+  await flush(10);
+  return t;
+}
+
+const ok = (accounts: Record<string, unknown>) => ({ ok: true as const, result: { accounts } });
+
+describe("аккаунты", () => {
+  it("4131 · до первого ответа — «Загружаю аккаунты машин…», без аккаунтов — «Аккаунтов нет»", async () => {
+    const relay = fleetAccounts({});
+    relay.handlers["machine.accounts"] = () => undefined;
+    const t = await accountsScreen(relay);
+    expect(t.text()).toContain("Загружаю аккаунты машин…");
+    for (const f of relay.sent("machine.accounts")) relay.reply(f.id!, { ok: true, result: { accounts: {} } });
+    await flush(10);
+    expect(t.text()).toContain("Аккаунтов нет — «+ Новый аккаунт».");
+  });
+
+  it("4132 · счётчик раздела «Аккаунты» — входы в процессе", async () => {
+    const t = await accountsScreen(fleetAccounts({ pc: ok({ corp: { login: "pending" }, main: { login: "ok", email: "a@x.io" } }) }));
+    expect(t.$('.sb-navcol button[data-screen="accounts"]')!.textContent).toBe("Аккаунты1");
+  });
+
+  it("4133 · отказ machine.accounts машины — слово с её именем, другие машины на месте", async () => {
+    const t = await accountsScreen(fleetAccounts({ pc: { ok: false, error: "offline" }, laptop: ok({ work: { login: "ok", email: "a@x.io" } }) }));
+    expect(t.$('[data-account="a@x.io"] [data-machine="laptop"]')).not.toBeNull();
+    expect(t.text()).toContain("pc · machine.accounts: offline");
+    expect(t.text()).not.toContain("Аккаунтов нет");
+  });
+
+  it("4134 · подмена при закрытом экране — machine.slots и machine.accounts не шлются", async () => {
+    const relay = fleetAccounts({});
+    const t = await pult({ relay });
+    const r = fleetRoster();
+    r.sessions[0].account = "yurianrun";
+    relay.setRoster(r);
+    await flush();
+    expect(relay.sent("machine.slots")).toHaveLength(0);
+    expect(relay.sent("machine.accounts")).toHaveLength(0);
+    void t;
+  });
+
+  it("4135 · сессия впервые в roster или без account — перечитываний нет", async () => {
+    const relay = fleetAccounts({});
+    await accountsScreen(relay);
+    const n = relay.got.length;
+    const r = fleetRoster();
+    r.sessions.push({ callsign: "c@pc", state: "idle", account: "work" });
+    relay.setRoster(r);
+    await flush();
+    const r2 = fleetRoster();
+    r2.sessions.push({ callsign: "c@pc", state: "idle" });
+    relay.setRoster(r2);
+    await flush();
+    expect(relay.got.slice(n).filter((f) => f.type === "machine.slots" || f.type === "machine.accounts")).toEqual([]);
+  });
+});
+
+describe("вход аккаунта", () => {
+  /** Форма «Новый аккаунт» на laptop с именем name. */
+  async function newAccount(t: P, name: string) {
+    await t.click(t.btn(null, "+ Новый аккаунт"));
+    await t.click(t.btn(t.$(".sb-sec.dlg"), "laptop"));
+    await t.type(t.$('[data-f="account"]'), name);
+    await t.click(t.btn(t.$(".sb-sec.dlg"), "Войти"));
+  }
+
+  it("4136 · имя аккаунта не по форме — строка, machine.login нет", async () => {
+    const relay = fleetAccounts({});
+    const t = await accountsScreen(relay);
+    await newAccount(t, "my corp");
+    expect(t.$(".sb-sec.dlg")!.textContent).toContain("имя — латиница, цифры, - и _");
+    expect(relay.sent("machine.login")).toHaveLength(0);
+  });
+
+  it("4137 · отказ machine.login — карточка со словом и «Войти заново»", async () => {
+    const relay = fleetAccounts({});
+    relay.handlers["machine.login"] = () => ({ ok: false, error: "slot_dir_busy" });
+    const t = await accountsScreen(relay);
+    await newAccount(t, "corp");
+    const card = t.$('[data-login="laptop:corp"]')!;
+    expect(card.textContent).toContain("На месте слота на машине папка с файлами — разберите её");
+    expect(card.textContent).toContain("слово: slot_dir_busy");
+    relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/x" } });
+    await t.click(t.btn(card, "Войти заново"));
+    expect(relay.sent("machine.login")).toHaveLength(2);
+  });
+
+  it("4138 · пустой код — machine.login_code нет", async () => {
+    const relay = fleetAccounts({});
+    relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/x" } });
+    const t = await accountsScreen(relay);
+    await newAccount(t, "corp");
+    await t.type(t.$('[data-f="code"]'), "  ");
+    await t.click(t.btn(t.$('[data-login="laptop:corp"]'), "Отправить"));
+    expect(relay.sent("machine.login_code")).toHaveLength(0);
+    expect(t.$<HTMLInputElement>('[data-f="code"]')!.disabled).toBe(false);
+  });
+
+  it("4139 · «Войти» у аккаунта без входа — machine.login, карточка «Вход: old на pc»", async () => {
+    const relay = fleetAccounts({ pc: ok({ old: { login: "none" }, corp: { login: "ok", email: "c@x.io" } }) });
+    relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/x" } });
+    const t = await accountsScreen(relay);
+    const oldRow = t.$('[data-account="name:old"] [data-machine="pc"]')!;
+    expect(oldRow.textContent).toContain("нет входа");
+    expect(t.btn(t.$('[data-account="c@x.io"]'), "Войти")).toBeNull();
+    await t.click(t.btn(oldRow, "Войти"));
+    expect(relay.sent("machine.login")).toEqual([expect.objectContaining({ machine: "pc", account: "old" })]);
+    expect(t.$('[data-login="pc:old"]')!.textContent).toContain("Вход: old на pc");
+  });
+
+  it("4140 · Host перезапустился во время входа — слово, код не повторяется, «Войти заново» — новый вход", async () => {
+    for (const [answer, text] of [
+      [undefined, "слово: disconnected"],
+      [{ ok: false, error: "not_started" }, "Вход прервался: Host перезапускался"],
+    ] as const) {
+      const relay = fleetAccounts({});
+      relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/x" } });
+      relay.handlers["machine.login_code"] = () => answer;
+      const t = await accountsScreen(relay);
+      await newAccount(t, "corp");
+      await t.type(t.$('[data-f="code"]'), "CODE");
+      await t.click(t.btn(t.$('[data-login="laptop:corp"]'), "Отправить"));
+      if (!answer) {
+        relay.drop();
+        await flush(10);
+      }
+      expect(t.$('[data-login="laptop:corp"]')!.textContent).toContain(text);
+      expect(relay.sent("machine.login_code")).toHaveLength(1);
+      await new Promise((r) => setTimeout(r, 30));
+      await flush(10);
+      await t.click(t.btn(t.$('[data-login="laptop:corp"]'), "Войти заново"));
+      expect(relay.sent("machine.login")).toHaveLength(2);
+      expect(relay.sent("machine.login_code")).toHaveLength(1);
+    }
+  });
+});
+
+describe("слоты", () => {
+  const SLOTS = {
+    laptop: {
+      main: { account: "a", order: ["a", "b"], wait: null, sessions: ["site@laptop", "profiles@laptop"] },
+      bot: { account: "x", order: ["x"], wait: null, sessions: [] },
+    },
+  };
+  const ACC = { laptop: ok({ a: { login: "ok" }, b: { login: "ok" }, c: { login: "ok" }, x: { login: "ok" } }) };
+
+  async function slotsView(relay = fleetAccounts(ACC, SLOTS)) {
+    const t = await accountsScreen(relay, "/#accounts?view=slots&machine=laptop");
+    return t;
+  }
+
+  it("4141 · порядок запаса, запас, «убрать», пустой слот, новый слот — slot.set и machine.slots заново", async () => {
+    const relay = fleetAccounts(ACC, SLOTS);
+    relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "a" } });
+    const t = await slotsView(relay);
+    const main = () => t.$('[data-slot="laptop:main"]')!;
+    await t.click(main().querySelector('[aria-label="b выше"]'));
+    expect(relay.sent("slot.set").at(-1)).toMatchObject({ machine: "laptop", slot: "main", order: ["b", "a"] });
+    const add = main().querySelector<HTMLSelectElement>('[data-f="add:main"]')!;
+    add.value = "c";
+    add.dispatchEvent(new Event("change"));
+    await flush();
+    expect(relay.sent("slot.set").at(-1)).toMatchObject({ order: ["a", "b", "c"] });
+    await t.click(main().querySelector('[aria-label="убрать b"]'));
+    expect(relay.sent("slot.set").at(-1)).toMatchObject({ order: ["a"] });
+    await t.click(t.btn(t.$('[data-slot="laptop:bot"]'), "Удалить слот"));
+    expect(relay.sent("slot.set").at(-1)).toMatchObject({ slot: "bot", order: [] });
+    expect(t.text()).toContain("слот bot удалён");
+    await t.type(t.$('[data-f="newslot"]'), "night");
+    await t.click(t.btn(null, "Создать"));
+    expect(relay.sent("slot.set").at(-1)).toMatchObject({ slot: "night", order: ["a"] });
+    expect(relay.sent("machine.slots").length).toBeGreaterThanOrEqual(6);
+  });
+
+  it("4142 · перевод выбранных сессий — session.slot по одной, строка итогов, machine.slots заново", async () => {
+    const relay = fleetAccounts(ACC, SLOTS);
+    relay.handlers["session.slot"] = (f) => ({ ok: true, result: { restart: f.callsign === "site@laptop" } });
+    const t = await accountsScreen(relay);
+    await t.click(t.$('[data-account="name:a"] [data-sess="main"]'));
+    const dlg = t.$('[data-dlg="sess"]')!;
+    for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) c.checked = true;
+    const target = dlg.querySelector<HTMLSelectElement>('[data-f="target"]')!;
+    target.value = "bot";
+    const slots = relay.sent("machine.slots").length;
+    await t.click(t.btn(dlg, "Перевести"));
+    expect(relay.sent("session.slot").map((f) => [f.callsign, f.slot])).toEqual([
+      ["site@laptop", "bot"],
+      ["profiles@laptop", "bot"],
+    ]);
+    expect(t.$('[data-dlg="sess"]')!.textContent).toContain("site@laptop: перейдёт между ходами · profiles@laptop: перешла");
+    expect(relay.sent("machine.slots").length).toBe(slots + 1);
+  });
+
+  it("4143 · отказы slots словами: has_sessions; перевод — у отказавшей сессии слово, вторая переведена", async () => {
+    const relay = fleetAccounts(ACC, { laptop: { main: { ...SLOTS.laptop.main }, bot: { account: "x", order: ["x"], wait: null, sessions: [] } } });
+    relay.handlers["slot.set"] = () => ({ ok: false, error: "has_sessions" });
+    relay.handlers["session.slot"] = (f) => (f.callsign === "site@laptop" ? { ok: false, error: "no_slot" } : { ok: true, result: { restart: false } });
+    const t = await slotsView(relay);
+    await t.click(t.btn(t.$('[data-slot="laptop:bot"]'), "Удалить слот"));
+    expect(t.$('[data-slot="laptop:bot"]')!.textContent).toContain("В слоте есть сессии — сначала переведите их");
+    await t.click(t.btn(t.$(".sb-page .sb-ph"), "Аккаунты"));
+    await t.click(t.$('[data-account="name:a"] [data-sess="main"]'));
+    const dlg = t.$('[data-dlg="sess"]')!;
+    for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) c.checked = true;
+    await t.click(t.btn(dlg, "Перевести"));
+    expect(relay.sent("session.slot")).toHaveLength(2);
+    expect(t.$('[data-dlg="sess"]')!.textContent).toContain("site@laptop: Такого слота нет · profiles@laptop: перешла");
+  });
+
+  it("4144 · вид «Слоты» из адреса; слот ждёт сброса — время и пояснение; «Удалить слот» нет", async () => {
+    const wait = Math.floor(Date.UTC(2026, 10, 2, 5, 0) / 1000);
+    const relay = fleetAccounts(ACC, { pc: { main: { account: "a", order: ["a", "b"], wait, sessions: ["api@pc"] } } });
+    const t = await accountsScreen(relay, "/#accounts?view=slots&machine=pc");
+    expect(t.$(".sb-ph h2")!.textContent).toBe("Слоты");
+    const main = t.$('[data-slot="pc:main"]')!;
+    expect(main.textContent).toMatch(/Слот main ждёт сброса · \d\d:\d\d/);
+    expect(main.textContent).toContain("в час сброса Host сам положит аккаунт");
+    expect(t.btn(main, "Удалить слот")).toBeNull();
+  });
+
+  it("4145 · нет машин со слотами — «Нет машин со слотами на связи.», machine.slots нет", async () => {
+    const r = fleetRoster();
+    for (const m of r.machines) {
+      m.contract = { ...HOST };
+      delete m.contract["machine.slots"];
+    }
+    const relay = fleetAccounts({}, {}, r);
+    const t = await accountsScreen(relay, "/#accounts?view=slots");
+    expect(t.text()).toContain("Нет машин со слотами на связи.");
+    expect(relay.sent("machine.slots")).toHaveLength(0);
+  });
+});
+
+describe("удаление аккаунта", () => {
+  const SL = { laptop: { main: { account: "a", order: ["a", "b", "c"], wait: null, sessions: ["site@laptop"] } } };
+  const AC = { laptop: ok({ a: { login: "ok", email: "a@x.io" }, b: { login: "ok" }, c: { login: "ok" }, old: { login: "ok", email: "o@x.io" } }) };
+  const rm = async (t: P, acc: string, email: string) => {
+    await t.click(t.btn(t.$(`[data-account="${email}"] [data-machine="laptop"]`), "Удалить…"));
+  };
+
+  it("4146 · аккаунт не в слотах — сразу machine.account_remove, «удалён с laptop»", async () => {
+    const relay = fleetAccounts(AC, SL);
+    relay.handlers["machine.account_remove"] = () => ({ ok: true, result: { wiped: true } });
+    const t = await accountsScreen(relay);
+    await rm(t, "old", "o@x.io");
+    await t.click(t.btn(t.$('[data-dlg="rm"]'), "Удалить"));
+    expect(relay.got.filter((f) => ["slot.swap", "slot.set", "machine.account_remove"].includes(f.type)).map((f) => f.type)).toEqual(["machine.account_remove"]);
+    expect(relay.sent("machine.account_remove")[0]).toMatchObject({ machine: "laptop", account: "old" });
+    expect(t.text()).toContain("old удалён с laptop");
+  });
+
+  it("4147 · шаг отказал — дальше не идёт: slot.swap no_reserve, slot.set и удаления нет", async () => {
+    const relay = fleetAccounts(AC, SL);
+    relay.handlers["slot.swap"] = () => ({ ok: false, error: "no_reserve" });
+    const t = await accountsScreen(relay);
+    await rm(t, "a", "a@x.io");
+    await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
+    expect(t.text()).toContain("слот main: В запасе нет вошедшего ниже порога — слот прежний");
+    expect(relay.sent("slot.set")).toHaveLength(0);
+    expect(relay.sent("machine.account_remove")).toHaveLength(0);
+  });
+
+  it("4148 · выбран, кого положить в слот, — slot.swap с account", async () => {
+    const relay = fleetAccounts(AC, SL);
+    relay.handlers["slot.swap"] = () => ({ ok: true, result: { from: "a", to: "c" } });
+    relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "c" } });
+    relay.handlers["machine.account_remove"] = () => ({ ok: true, result: { wiped: true } });
+    const t = await accountsScreen(relay);
+    await rm(t, "a", "a@x.io");
+    const next = t.$<HTMLSelectElement>('[data-dlg="rm"] [data-f="next"]')!;
+    next.value = "c";
+    await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
+    expect(relay.sent("slot.swap")[0]).toMatchObject({ machine: "laptop", slot: "main", account: "c" });
+    expect(relay.sent("slot.set")[0]).toMatchObject({ slot: "main", order: ["b", "c"] });
+    expect(relay.sent("machine.account_remove")[0]).toMatchObject({ account: "a" });
+  });
+
+  it("4149 · удаление отказало — слово, диалог открыт; отказ slot.set — удаления нет", async () => {
+    const relay = fleetAccounts(AC, SL);
+    relay.handlers["machine.account_remove"] = () => ({ ok: false, error: "in_slot" });
+    const t = await accountsScreen(relay);
+    await rm(t, "old", "o@x.io");
+    const accs = relay.sent("machine.accounts").length;
+    await t.click(t.btn(t.$('[data-dlg="rm"]'), "Удалить"));
+    expect(t.text()).toContain("Аккаунт в слоте — сначала смените его в слоте");
+    expect(t.$('[data-dlg="rm"]')).not.toBeNull();
+    expect(relay.sent("machine.accounts")).toHaveLength(accs);
+
+    const relay2 = fleetAccounts(AC, { laptop: { main: { account: "a", order: ["a"], wait: null, sessions: [] }, bot: { account: "x", order: ["x", "old"], wait: null, sessions: [] } } });
+    relay2.handlers["slot.set"] = () => ({ ok: false, error: "no_slot" });
+    const t2 = await accountsScreen(relay2);
+    await rm(t2, "old", "o@x.io");
+    await t2.click(t2.btn(t2.$('[data-dlg="rm"]'), "Удалить"));
+    expect(t2.text()).toContain("slot.set bot: Такого слота нет");
+    expect(relay2.sent("machine.account_remove")).toHaveLength(0);
+  });
+});
+
+/** Ответы keeper, профилей и GitHub для экрана «Машины». */
+function machinesRelay(r: Roster = fleetRoster()) {
+  const relay = fleetRelay(r);
+  relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "1.0.1", rev: 7, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", pid: 1 }] } });
+  relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "org/p": { state: "ok" } } } });
+  relay.handlers["github.app"] = () => ({ ok: true, result: { app: { slug: "sb-app" }, repos: ["org/p"], install: "https://github.com/apps/sb-app/installations/new" } });
+  return relay;
+}
+
+async function machines(relay = machinesRelay(), url?: string) {
+  const t = await pult({ relay, url });
+  if (!url) await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
+  await flush(10);
+  return t;
+}
+
+describe("машины", () => {
+  it("4150 · keeper не ответил — «keeper.state: слово» в карточке машины", async () => {
+    const relay = machinesRelay();
+    relay.handlers["keeper.state"] = (f) => (f.to === ".keeper@pc" ? { ok: false, error: "offline" } : { ok: true, result: { keeper: "1.0.1", parts: [] } });
+    const t = await machines(relay);
+    expect(t.$('[data-machine="pc"]')!.textContent).toContain("keeper.state: offline");
+    expect(t.$('[data-machine="laptop"]')!.textContent).not.toContain("keeper.state:");
+  });
+
+  it("4151 · «Синхронизировать профили» — machine.profiles { sync }, «сведены»; отказ — слово", async () => {
+    const relay = machinesRelay();
+    const t = await machines(relay);
+    await t.click(t.btn(t.$('[data-machine="pc"]'), "Синхронизировать профили"));
+    expect(relay.sent("machine.profiles").at(-1)).toMatchObject({ machine: "pc", sync: true });
+    expect(t.$('[data-machine="pc"]')!.textContent).toContain("профили сведены с репозиториями");
+    relay.handlers["machine.profiles"] = () => ({ ok: false, error: "no_app" });
+    await t.click(t.btn(t.$('[data-machine="pc"]'), "Синхронизировать профили"));
+    expect(t.$('[data-machine="pc"]')!.textContent).toContain("machine.profiles: no_app");
+  });
+
+  it("4152 · машина ушла из roster — её карточки нет, «1 машина на связи», кадров к ней нет", async () => {
+    const relay = machinesRelay();
+    const t = await machines(relay);
+    const n = relay.got.length;
+    const r = fleetRoster();
+    r.machines = r.machines.filter((m) => m.machine !== "pc");
+    relay.setRoster(r);
+    await flush(10);
+    expect(t.$('[data-machine="pc"]')).toBeNull();
+    expect(t.text()).toContain("1 машина на связи");
+    expect(relay.got.slice(n).filter((f) => f.to === ".keeper@pc" || f.machine === "pc")).toEqual([]);
+  });
+
+  it("4153 · машина впервые в roster при открытом экране — keeper.state и профили, а не «…»", async () => {
+    const r = fleetRoster();
+    r.machines = r.machines.filter((m) => m.machine !== "pc");
+    const relay = machinesRelay(r);
+    const t = await machines(relay);
+    relay.setRoster(fleetRoster());
+    await flush(10);
+    expect(relay.sent("keeper.state").map((f) => f.to)).toContain(".keeper@pc");
+    expect(relay.sent("machine.profiles").map((f) => f.machine)).toContain("pc");
+    expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("1.0.1 · план rev 7");
+  });
+});
+
+describe("приложение GitHub флота", () => {
+  it("4154 · приложение есть — slug, репозитории, «Установить на репозитории ↗»; запрос — к Worker github", async () => {
+    const relay = machinesRelay();
+    const t = await machines(relay);
+    expect(relay.sent("github.app")[0]).toMatchObject({ to: ".github", redirect: expect.stringMatching(/^http/) });
+    const gh = t.$("[data-github]")!;
+    expect(gh.textContent).toContain("sb-app · репозитории: org/p");
+    expect(gh.querySelector("a")!.getAttribute("href")).toBe("https://github.com/apps/sb-app/installations/new");
+  });
+
+  it("4155 · github нет в roster — раздела нет, github.app не шлётся", async () => {
+    const r = fleetRoster();
+    r.workers = r.workers.filter((w) => w.name !== "github");
+    const relay = machinesRelay(r);
+    const t = await machines(relay);
+    expect(t.$("[data-github]")).toBeNull();
+    expect(relay.sent("github.app")).toHaveLength(0);
+  });
+
+  it("4156 · приложения нет — форма manifest уходит POST на github.com; с организацией — форма из её ответа", async () => {
+    const relay = machinesRelay();
+    relay.handlers["github.app"] = (f) => ({ ok: true, result: { app: null, form: { action: f.org ? `https://github.com/organizations/${f.org}/settings/apps/new` : "https://github.com/settings/apps/new", manifest: { name: "sb" } } } });
+    const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
+    const t = await machines(relay);
+    await t.click(t.btn(t.$("[data-github]"), "Создать приложение GitHub"));
+    const forms = () => [...document.body.querySelectorAll<HTMLFormElement>("form[method=post]")];
+    expect(forms().at(-1)!.action).toBe("https://github.com/settings/apps/new");
+    expect(forms().at(-1)!.querySelector<HTMLInputElement>('input[name="manifest"]')!.value).toBe('{"name":"sb"}');
+    await t.type(t.$('[data-f="org"]'), "home-plab");
+    await t.click(t.btn(t.$("[data-github]"), "Создать приложение GitHub"));
+    expect(relay.sent("github.app").at(-1)).toMatchObject({ org: "home-plab" });
+    expect(forms().at(-1)!.action).toBe("https://github.com/organizations/home-plab/settings/apps/new");
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it("4157 · отказ github.app — «github.app: слово»; отказ github.app с организацией — форма не уходит", async () => {
+    const relay = machinesRelay();
+    relay.handlers["github.app"] = () => ({ ok: false, error: "no_secret" });
+    const t = await machines(relay);
+    expect(t.$("[data-github]")!.textContent).toContain("github.app: no_secret");
+    const relay2 = machinesRelay();
+    relay2.handlers["github.app"] = (f) => (f.org ? { ok: false, error: "no_org" } : { ok: true, result: { app: null, form: { action: "https://github.com/settings/apps/new", manifest: {} } } });
+    const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
+    const t2 = await machines(relay2);
+    await t2.type(t2.$('[data-f="org"]'), "nope");
+    await t2.click(t2.btn(t2.$("[data-github]"), "Создать приложение GitHub"));
+    expect(t2.$("[data-github]")!.textContent).toContain("no_org");
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("4158 · github.setup отказал — «Приложение GitHub флота уже есть»", async () => {
+    history.replaceState(null, "", "/?code=abc");
+    try {
+      const relay = machinesRelay();
+      relay.handlers["github.setup"] = () => ({ ok: false, error: "app_exists" });
+      const t = await machines(relay, "/?code=abc#machines");
+      await t.click(t.btn(t.$("[data-github]"), "Сохранить приложение"));
+      expect(relay.sent("github.setup")[0]).toMatchObject({ code: "abc" });
+      expect(t.$("[data-github]")!.textContent).toContain("Приложение GitHub флота уже есть");
+    } finally {
+      history.replaceState(null, "", "/");
+    }
+  });
+});
+
+describe("журнал флота", () => {
+  const day = 86_400_000;
+  const evs = () => {
+    const now = Date.now();
+    return [
+      { id: 3, t: now, ev: "session.opened", from: "laptop", by: "panel-desk", callsign: "a@laptop", text: "открыта a@laptop" },
+      { id: 2, t: now - day, ev: "machine.left", from: ".relay", machine: "pc", text: "pc ушла" },
+      { id: 1, t: now - 7 * day, ev: "points.deleted", from: ".points", text: "удалены точки old" },
+    ];
+  };
+
+  async function journal(relay = fleetRelay()) {
+    const t = await pult({ relay });
+    await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
+    await flush(10);
+    return t;
+  }
+
+  it("4159 · записи новые сверху по дням — «Сегодня», «Вчера», дата; текст как прислал ledger, «by»", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: false } });
+    const t = await journal(relay);
+    expect(relay.sent("ledger.read")[0]).toMatchObject({ to: ".ledger", limit: 50 });
+    const days = t.$$(".jr-day").map((x) => x.textContent);
+    expect(days.slice(0, 2)).toEqual(["Сегодня", "Вчера"]);
+    expect(days).toHaveLength(3);
+    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["3", "2", "1"]);
+    expect(t.$('.jr-r[data-id="3"]')!.textContent).toContain("открыта a@laptop · by panel-desk");
+    expect(t.$('.jr-r[data-id="3"] em')!.textContent).toBe("a@laptop");
+  });
+
+  it("4160 · отказ ledger.read — «ledger.read: слово»", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: false, error: "unknown_request" });
+    const t = await journal(relay);
+    expect(t.text()).toContain("ledger.read: unknown_request");
+  });
+
+  it("4161 · экран закрыт или чтение идёт — roster не шлёт ledger.read", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => undefined;
+    const t = await journal(relay);
+    relay.setRoster(fleetRoster());
+    await flush();
+    expect(relay.sent("ledger.read")).toHaveLength(1);
+    await t.click(t.$('.sb-navcol button[data-screen="board"]'));
+    relay.reply(relay.sent("ledger.read")[0].id!, { ok: true, result: { events: [], more: false } });
+    relay.setRoster(fleetRoster());
+    await flush();
+    expect(relay.sent("ledger.read")).toHaveLength(1);
+  });
+
+  it("4162 · первое чтение отказало — следующий roster читает всё заново, строка отказа снята", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: false, error: "disconnected" });
+    const t = await journal(relay);
+    expect(t.text()).toContain("ledger.read: disconnected");
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs().slice(0, 2), more: false } });
+    relay.setRoster(fleetRoster());
+    await flush();
+    expect(relay.sent("ledger.read").at(-1)).not.toHaveProperty("after");
+    expect(t.text()).not.toContain("ledger.read: disconnected");
+    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["3", "2"]);
+  });
+});

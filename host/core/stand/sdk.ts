@@ -149,7 +149,7 @@ export class FakeSdk {
   readonly fnCalls: Array<{ name: string; args: unknown[] }> = [];
   /** разговоры без файла: claude ещё не прошёл первый ход */
   readonly noFile = new Set<string>();
-  readonly cliCalls: Array<{ args: string[]; env: Record<string, string | undefined> }> = [];
+  readonly cliCalls: Array<{ args: string[]; env: Record<string, string | undefined>; input?: string }> = [];
 
   constructor(version = "0.3.311") {
     this.version = version;
@@ -169,8 +169,8 @@ export class FakeSdk {
     },
   });
 
-  cli = async (args: string[], env: Record<string, string | undefined>) => {
-    this.cliCalls.push({ args, env });
+  cli = async (args: string[], env: Record<string, string | undefined>, input?: string) => {
+    this.cliCalls.push({ args, env, ...(input !== undefined ? { input } : {}) });
     return { code: 0, out: "" };
   };
 

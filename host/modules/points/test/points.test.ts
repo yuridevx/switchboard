@@ -468,3 +468,209 @@ describe("points: ветки и стыки", () => {
     expect(headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AK\/20261031\/auto\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signature=[0-9a-f]{64}$/);
   });
 });
+
+describe("points: покрытие плана host-modules", () => {
+  it("3082 · пометка без файла разговора — отказ no_file, поле r2 { error, at }", async () => {
+    // источник: чьё: код (points.ts:115, :176-178, :303)
+    b = await bench({ home });
+    await b.st.open("site@laptop", { module: "host-points" });
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "no_file" });
+    b.st.proc("site@laptop").send(msg.state("idle"));
+    await until(() => (last("site@laptop").r2 as { error?: string })?.error === "no_file");
+    expect(b.st.journal().some((l) => l.ev === "point" && l.kind === "refuse" && l.word === "no_file")).toBe(true);
+  });
+
+  it("3083 · отказ словом: сессии нет — offline; points.delete отказал — пометка стоит", async () => {
+    // источник: чьё: код (points.ts:299, :307, :317)
+    b = await bench({ home });
+    expect(await ask({ type: "session.r2", callsign: "nope@laptop", on: true })).toMatchObject({ ok: false, error: "offline" });
+    expect(await ask({ type: "points.save", callsign: "nope@laptop" })).toMatchObject({ ok: false, error: "offline" });
+    await marked();
+    const orig = b.reg.handle.bind(b.reg);
+    b.reg.handle = (f, m) => (f.type === "points.delete" ? { ok: false, error: "not_owner" } : orig(f, m));
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: false })).toMatchObject({ ok: false, error: "not_owner" });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toMatchObject({ r2: true });
+  });
+
+  it("3084 · points.save без изменений — same: true", async () => {
+    // источник: чьё: код (points/contract.ts:2; points.ts:159-160)
+    b = await bench({ home });
+    await marked();
+    const a = await ask({ type: "points.save", callsign: "site@laptop" });
+    const c = await ask({ type: "points.save", callsign: "site@laptop" });
+    expect(c.result).toEqual({ point: a.result.point, same: true });
+  });
+
+  it("3085 · R2 не принял блок — r2_failed, поле r2 { error }", async () => {
+    // источник: чьё: код (points.ts:100-104)
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    write(s.info.cwd, s.info.session_id, conv(4));
+    b.reg.r2 = new (class extends Map<string, Buffer> {
+      set(): this {
+        throw new Error("R2 недоступен");
+      }
+    })();
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "r2_failed" });
+    expect(b.st.journal().some((l) => l.ev === "r2" && l.word === "r2_failed")).toBe(true);
+    b.st.proc("site@laptop").send(msg.state("idle"));
+    await until(() => (last("site@laptop").r2 as { error?: string })?.error === "r2_failed");
+  });
+
+  it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {
+    // источник: чьё: код (points.ts:322-331)
+    b = await bench({ home });
+    const s = await marked();
+    const p = b.st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => s.state === "busy");
+    const r = await ask({ type: "points.save", callsign: "site@laptop", stop: true, interrupt: true });
+    expect(r.ok).toBe(true);
+    expect(p.interrupts).toBe(1);
+    expect(s.state).toBe("stopped");
+    expect(puts("save").length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("3087 · session.stop отказал — отказ его словом, точки нет", async () => {
+    // источник: чьё: код (points.ts:325-329)
+    b = await bench({ home, failStop: "shutting_down" });
+    await marked();
+    const n = puts().length;
+    expect(await ask({ type: "points.save", callsign: "site@laptop", stop: true })).toMatchObject({ ok: false, error: "shutting_down" });
+    expect(puts().length).toBe(n);
+  });
+
+  it("3088 · подъём: нет номера или точка чужой сессии — bad_point; files point в другой репозиторий — bad_dir; ничего не изменилось", async () => {
+    // источник: чьё: код (points.ts:340, :348, :359)
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) }, { git: { state: "clean", files: 0, unpushed: 0, url: "https://github.com/me/site.git", branch: "main", commit: "abc" } });
+    const dir = join(home, "Projects", "other");
+    mkdirSync(dir, { recursive: true });
+    git(dir, "init", "-q");
+    git(dir, "remote", "add", "origin", "https://github.com/me/other.git");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, dir })).toMatchObject({ ok: false, error: "bad_point" });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: "другой", point: 318, dir })).toMatchObject({ ok: false, error: "bad_point" });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "bad_dir" });
+    expect(existsSync(fileOf(dir, SID))).toBe(false);
+    expect(b.manage).toEqual([]);
+  });
+
+  it("3089 · точка подъёма: сессию уже подняли в другом месте — not_owner, поднятая убрана", async () => {
+    // источник: чьё: код (points.ts:418-423)
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    b.reg.refuseNext = { error: "not_owner", owner: "wsl" };
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir: join(home, "Projects", "site") });
+    expect(r).toMatchObject({ ok: false, error: "not_owner" });
+    expect(b.manage.map((m) => m.type)).toEqual(["session.open", "session.remove"]);
+    expect(b.st.kernel.sessions.has("site@pc")).toBe(false);
+  });
+
+  it("3090 · реестр не отдал точку — его слово, ничего не изменилось", async () => {
+    // источник: чьё: код (points.ts:344-345)
+    b = await bench({ home, machine: "pc" });
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 999, dir })).toMatchObject({ ok: false, error: "no_point" });
+    expect(b.manage).toEqual([]);
+    expect(existsSync(fileOf(dir, SID))).toBe(false);
+  });
+
+  it("3091 · прежний хозяин недоступен — подъём удался, отказ remove в журнале", async () => {
+    // источник: чьё: код (points.ts:425-428)
+    b = await bench({ home, machine: "pc", remoteReply: (f) => (f.type === "session.remove" ? { ok: false, error: "offline" } : undefined) });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir: join(home, "Projects", "site") });
+    expect(r.ok).toBe(true);
+    expect(b.st.journal().some((l) => l.ev === "session.remove" && l.word === "offline" && l.callsign === "site@laptop")).toBe(true);
+  });
+
+  it("3092 · R2 не отдал блок посреди подъёма — ошибка модуля, points выключен на машине", async () => {
+    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен»); чьё: код (points.ts:262 — сбой R2 GET дальше как есть)
+    b = await bench({ home, machine: "pc" });
+    const row = b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    b.reg.r2.delete(`f/${row.files[0].b[0]}`);
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir })).toMatchObject({ ok: false, error: "module_error" });
+    expect(existsSync(fileOf(dir, SID))).toBe(false);
+    expect(b.st.journal().some((l) => l.ev === "module_failed" && l.module === "host-points")).toBe(true);
+  });
+
+  it("3093 · точка старта — одна на сессию; новой сессии точка старта не нужна", async () => {
+    // источник: чьё: код (points.ts:441-450)
+    const keeper = new stand.FakeHolders();
+    const cwd = join(home, "work", "site");
+    write(cwd, SID, conv(9));
+    mkdirSync(join(home, "store"), { recursive: true });
+    writeFileSync(join(home, "store", "host-points.json"), JSON.stringify({ sessions: { "site@laptop": { r2: true } } }));
+    b = await bench({ home, holders: keeper, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
+    await until(() => puts("start").length === 1);
+    const s = b.st.session("host-points", "site@laptop")!;
+    await s.stop();
+    await s.start();
+    const fresh = await b.st.open("new@laptop", { module: "host-points" });
+    write(fresh.info.cwd, fresh.info.session_id, conv(2));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(puts("start")).toHaveLength(1);
+    await b.st.close();
+    await keeper.close();
+    b = null;
+  });
+
+  it("3094 · закрытие помеченной — точка", async () => {
+    // источник: чьё: код (points.ts:461-468)
+    b = await bench({ home });
+    const s = await marked();
+    const n = puts("rule").length;
+    await s.stop();
+    await until(() => puts("rule").length === n + 1);
+  });
+
+  it("3095 · процесс claude умер — точка дописанного на закрытии, после resume точки старта нет", async () => {
+    // источник: слово пользователя (устав: «процесс claude умер — один resume»); чьё: код (points.ts:444, :461-468)
+    b = await bench({ home });
+    const s = await marked();
+    const n = puts("rule").length;
+    appendFileSync(fileOf(s.info.cwd, s.info.session_id), line(99));
+    b.st.proc("site@laptop").exit(1, "упал");
+    await until(() => b!.st.sdk.of("site@laptop").length === 2 && s.state === "idle");
+    await until(() => puts("rule").length === n + 1);
+    expect(puts("start")).toHaveLength(0);
+  });
+
+  it("3096 · штатная остановка доводит начатую точку, новых нет", async () => {
+    // источник: слово пользователя (устав, graceful shutdown: «не принимает новое → доводит текущее»)
+    b = await bench({ home });
+    const s = await marked();
+    // следующий points.put придержан
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const orig = b.st.relay.receive.bind(b.st.relay);
+    let held = false;
+    b.st.relay.receive = (ws, text) => {
+      if (!held && text !== "ping" && (JSON.parse(text) as Frame).type === "points.put") {
+        held = true;
+        void gate.then(() => orig(ws, text));
+        return;
+      }
+      orig(ws, text);
+    };
+    appendFileSync(fileOf(s.info.cwd, s.info.session_id), line(42));
+    const save = ask({ type: "points.save", callsign: "site@laptop" });
+    await until(() => held);
+    const st = b.st;
+    const b0 = b;
+    const before = b.reg.puts.length;
+    let closed = false;
+    const c = st.close().then(() => (closed = true));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(closed).toBe(false);
+    release();
+    await c;
+    b = null;
+    expect(st.exits).toEqual([0]);
+    expect((await save).ok).toBe(true);
+    // после начала остановки — только начатая точка (её повтор после missing — та же точка), новых поводов нет
+    expect(b0.reg.puts.slice(before).every((p) => p.why === "save")).toBe(true);
+    expect(b0.reg.puts.slice(before).some((p) => p.result === "ok")).toBe(true);
+  });
+});

@@ -91,6 +91,8 @@ function folderText(c: Check, m: string): string {
 export function createPoints(): AppModule & { tab: CardTab } {
   let app: App;
   let fleet: Fleet | null = null;
+  /** слово отказа последнего points.list реестра */
+  let fleetRefused = "";
   const lines = new Map<string, Line>();
   const full = new Map<number, Full>();
   const left = new Map<string, number>();
@@ -108,6 +110,7 @@ export function createPoints(): AppModule & { tab: CardTab } {
   async function loadFleet() {
     const r = await app.request<Fleet>("points.list", {});
     if (r.ok) fleet = r.result;
+    fleetRefused = r.ok ? "" : r.error;
     // «пожар»: машины хозяина нет в roster — когда ушла, скажет журнал флота
     const on = online();
     const fire = new Set((fleet?.sessions ?? []).filter((s) => !on.has(s.owner)).map((s) => s.owner));
@@ -121,10 +124,11 @@ export function createPoints(): AppModule & { tab: CardTab } {
     redraw();
   }
 
-  async function slotsOf(m: string): Promise<string[]> {
+  /** Слоты машины; отказ — словом проверки: без него подъём ушёл бы без слота, на вход машины. */
+  async function slotsOf(m: string): Promise<string[] | { error: string }> {
     if (!can(m, "machine.slots")) return [];
     const r = await app.request<{ slots: Record<string, unknown> }>("machine.slots", { machine: m });
-    return r.ok ? Object.keys(r.result.slots ?? {}) : [];
+    return r.ok ? Object.keys(r.result.slots ?? {}) : { error: `machine.slots: ${r.error}` };
   }
 
   async function dry(m: string, sid: string, point: number, dir: string): Promise<Check | { error: string }> {
@@ -180,7 +184,13 @@ export function createPoints(): AppModule & { tab: CardTab } {
     async function fireTarget(target: string) {
       if (!fire) return;
       fire.target = target;
-      fire.slots = await slotsOf(target);
+      const sl = await slotsOf(target);
+      if (!Array.isArray(sl)) {
+        fire.slots = [];
+        for (const r of fire.rows) r.check = sl;
+        return draw();
+      }
+      fire.slots = sl;
       for (const r of fire.rows) r.slot = fire.slots[0] ?? "";
       draw();
       await Promise.all(fire.rows.map(async (r) => (r.check = await dry(target, r.s.sid, r.s.head.id, r.dir))));
@@ -223,9 +233,10 @@ export function createPoints(): AppModule & { tab: CardTab } {
     async function moveTarget(target: string) {
       if (!move) return;
       move.target = target;
-      move.slots = await slotsOf(target);
+      const sl = await slotsOf(target);
+      move.slots = Array.isArray(sl) ? sl : [];
       move.slot = move.slots[0] ?? "";
-      move.check = await dry(target, move.s.sid, move.s.head.id, move.dir);
+      move.check = Array.isArray(sl) ? await dry(target, move.s.sid, move.s.head.id, move.dir) : sl;
       draw();
     }
 
@@ -233,8 +244,9 @@ export function createPoints(): AppModule & { tab: CardTab } {
       const keep = document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : undefined;
       box.textContent = "";
       box.append(h("div", { class: "sb-ph" }, h("h2", null, "Точки"), h("span", { class: "sb-note" }, "сохранённые состояния сессий — из них сессию поднимают на любой машине")));
+      if (fleetRefused) box.append(h("div", { class: "sb-note bad", role: "alert" }, `points.list: ${fleetRefused}`));
       if (!fleet) {
-        box.append(h("div", { class: "sb-note" }, "…"));
+        if (!fleetRefused) box.append(h("div", { class: "sb-note" }, "…"));
         return;
       }
       const on = online();
@@ -418,6 +430,8 @@ export function createPoints(): AppModule & { tab: CardTab } {
     let unmark: string | null = null;
     let dlg: Dlg | null = null;
     let loaded = false;
+    /** слово отказа реестра: линии (points.list) или первых слов (points.get) */
+    let refused = "";
     let wasR2 = !!r2Of(session());
 
     function session() {
@@ -433,11 +447,13 @@ export function createPoints(): AppModule & { tab: CardTab } {
       if (!sid) return draw();
       const r = await app.request<Line>("points.list", { sid });
       if (r.ok) lines.set(sid, r.result);
+      refused = r.ok ? "" : `points.list: ${r.error}`;
       // первые слова — поле last точек на экране; машина для этого не нужна
       const ids = (r.ok ? r.result.points : []).slice(0, 12).map((p) => p.id).filter((id) => !full.has(id));
       if (ids.length) {
         const g = await app.request<{ points: Full[] }>("points.get", { ids });
         if (g.ok) for (const p of g.result.points) full.set(p.id, p);
+        else refused = `points.get: ${g.error}`;
       }
       draw();
     }
@@ -489,12 +505,19 @@ export function createPoints(): AppModule & { tab: CardTab } {
     async function target_(m: string) {
       if (!dlg) return;
       dlg.target = m;
-      dlg.slots = await slotsOf(m);
+      const sl = await slotsOf(m);
+      if (!Array.isArray(sl)) {
+        dlg.slots = null;
+        dlg.check = sl;
+        return draw();
+      }
+      dlg.slots = sl;
       dlg.slot = dlg.slots.includes(String((session()?.slot as { name?: string } | undefined)?.name)) ? String((session()?.slot as { name?: string }).name) : (dlg.slots[0] ?? "");
       await check();
     }
     async function check() {
-      if (!dlg || (dlg.kind !== "move" && dlg.kind !== "copy")) return draw();
+      // слоты цели не пришли — проверка остаётся отказом, подъём недоступен
+      if (!dlg || (dlg.kind !== "move" && dlg.kind !== "copy") || dlg.slots === null) return draw();
       const head = line()?.head;
       const point = dlg.from === "fresh" ? head : dlg.from;
       dlg.check = typeof point === "number" ? await dry(dlg.target, sid, point, dlg.dir) : { error: "bad_point" };
@@ -644,7 +667,7 @@ export function createPoints(): AppModule & { tab: CardTab } {
           h(
             "div",
             { class: "sb-ph" },
-            h("b", null, head ? `Точка ${ago(head.at)} · №${head.id}${head.bytes ? ` · ${(head.bytes / 1048576).toFixed(1).replace(".", ",")} МБ` : ""}` : sid ? "…" : "Точек ещё нет"),
+            h("b", null, head ? `Точка ${ago(head.at)} · №${head.id}${head.bytes ? ` · ${(head.bytes / 1048576).toFixed(1).replace(".", ",")} МБ` : ""}` : refused || (sid ? "…" : "Точек ещё нет")),
             can(machine, "points.save") ? h("button", { class: "sb-b", onclick: () => void saveNow() }, "Сохранить точку") : null,
             can(machine, "points.raise") || raisers().length ? h("button", { class: "sb-b", disabled: !head, onclick: () => void open("move") }, "Перенести…") : null,
             raisers().length ? h("button", { class: "sb-b", disabled: !head, onclick: () => void open("copy") }, "Скопировать…") : null,
@@ -652,6 +675,7 @@ export function createPoints(): AppModule & { tab: CardTab } {
           ),
           h("span", { class: "sb-note" }, "сохраняются сами: в разговоре новое и ответ кончился — Host кладёт точку сам"),
           r2.error ? h("div", { class: "sb-note bad" }, `последняя точка не удалась: ${r2.error}`) : null,
+          refused && head ? h("div", { class: "sb-note bad", role: "alert" }, refused) : null,
           noteEl,
         ),
       );

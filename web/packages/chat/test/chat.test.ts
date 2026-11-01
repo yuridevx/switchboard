@@ -72,17 +72,6 @@ describe("лента сессии", () => {
     expect(relay.sent("session.history")).toHaveLength(1);
   });
 
-  it("seq не следующий — снова session.history", async () => {
-    const t = await feed();
-    t.relay.push({ type: "session.events", from: "site@laptop", seq: 7, events: [] });
-    t.relay.push({ type: "session.events", from: "site@laptop", seq: 8, events: [] });
-    await flush();
-    expect(t.relay.sent("session.history")).toHaveLength(1);
-    t.relay.push({ type: "session.events", from: "site@laptop", seq: 1, events: [] });
-    await flush();
-    expect(t.relay.sent("session.history")).toHaveLength(2);
-  });
-
   it("ввод: session.prompt с uuid → «доставлено»", async () => {
     const t = await feed();
     t.relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });

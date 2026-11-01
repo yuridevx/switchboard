@@ -132,3 +132,31 @@ describe("push: юнит", () => {
     expect(logs).toHaveLength(1);
   });
 });
+
+describe("push: покрытие плана host-modules", () => {
+  it("3012 · одному устройству пуш ушёл, другому подписки нет — pushed только первый", async () => {
+    // источник: чьё: код (push.ts:41-51)
+    const s = await bench();
+    roster(s, []);
+    const r = s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com", "tablet~owner@example.com"], frame: question });
+    const a = await until(() => s.relay.frames("push.send")[0]);
+    const b = await until(() => s.relay.frames("push.send")[1]);
+    const ok = (a.push as { to: string }).to === "phone~owner@example.com" ? a : b;
+    const gone = ok === a ? b : a;
+    s.relay.deliver({ type: "reply", id: ok.id as string, from: "push", ok: true } as Frame);
+    s.relay.deliver({ type: "reply", id: gone.id as string, from: "push", ok: false, error: "gone" } as Frame);
+    expect(await r).toEqual({ ok: true, result: { pushed: ["phone~owner@example.com"] } });
+    const line = s.journal().find((l) => l.ev === "push.send" && l.word === "gone");
+    expect(line).toBeDefined();
+    expect(line!.kind).not.toBe("stop");
+  });
+
+  it("3013 · адрес человека ~email — пуша нет (только устройствам)", async () => {
+    // источник: чьё: код (push.ts:33-34 «пуш — только устройствам людей»)
+    const s = await bench();
+    roster(s, []);
+    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["~owner@example.com"], frame: question });
+    expect(r).toEqual({ ok: true, result: { pushed: [] } });
+    expect(s.relay.frames("push.send")).toHaveLength(0);
+  });
+});

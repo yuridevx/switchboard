@@ -7,7 +7,8 @@ package main
 // Запускает процесс с трубами ввода-вывода в своём задании ОС «закрыл — убей» (умер держатель — умер процесс),
 // слушает 127.0.0.1 на порту от ОС, пишет о себе ~/.switchboard/procs/<id>.json (адрес, ключ, pid, хозяин) и одной
 // строкой то же — в свой stdout, после чего stdout закрывает. Подключается к нему только хозяин, по ключу.
-// Пока хозяина нет — копит вывод и код выхода. Процесс вышел и выход отдан хозяину — файл убран, держатель вышел.
+// Пока хозяина нет — копит вывод и код выхода. Процесс вышел, выход отдан хозяину и хозяин закрыл соединение — файл
+// убран, держатель вышел.
 // Ошибки процесса (stderr) — строками в журнал машины.
 import (
 	"bufio"
@@ -67,8 +68,11 @@ type holder struct {
 	forced  bool
 	osStop  bool // ввод закрыт по сигналу остановки от ОС
 	lastErr string
+	exitTo  net.Conn   // хозяин, которому отдан выход: держатель выходит, когда он закрыл соединение
 	outMu   sync.Mutex // порядок записи в соединение
 	done    chan struct{}
+	// выход держателя — один раз: его зовут и конец чтения хозяина, и отданный выход
+	finishOnce sync.Once
 
 	// ввод процесса: очередь и свой писатель — кадры хозяина читаются, даже когда процесс не читает ввод
 	inMu   sync.Mutex
@@ -320,7 +324,8 @@ func (h *holder) deliver(chunk []byte) {
 	}
 }
 
-// sendExit — выход отдан хозяину: файл убран, держатель выходит.
+// sendExit — выход отдан хозяину: держатель закрывает свою сторону (FIN после кадра выхода) и выходит, когда хозяин
+// закрыл свою, — выход процесса с открытым соединением Windows обрывает сбросом, и непрочитанное хозяином пропадает.
 func (h *holder) sendExit(c net.Conn) {
 	h.outMu.Lock()
 	err := writeJSONFrame(c, frExit, h.exit)
@@ -328,18 +333,25 @@ func (h *holder) sendExit(c net.Conn) {
 	if err != nil {
 		return // хозяин ушёл — отдадим следующему
 	}
-	h.finish()
+	h.mu.Lock()
+	h.exitTo = c
+	gone := h.conn != c // хозяин уже ушёл, его кадры дочитаны
+	h.mu.Unlock()
+	if tc, ok := c.(*net.TCPConn); ok {
+		tc.CloseWrite()
+	}
+	if gone {
+		c.Close()
+		h.finish()
+	}
 }
 
 func (h *holder) finish() {
-	select {
-	case <-h.done:
-		return
-	default:
-	}
-	os.Remove(holdPath(h.home, h.id))
-	close(h.done)
-	h.ln.Close()
+	h.finishOnce.Do(func() {
+		os.Remove(holdPath(h.home, h.id))
+		close(h.done)
+		h.ln.Close()
+	})
 }
 
 // serve — принимать хозяина, пока процесс не вышел и выход не отдан.
@@ -411,13 +423,12 @@ func (h *holder) accept(c net.Conn) {
 	h.j.note("held_attach", "id", h.id, "buffered", len(buf))
 	if exited {
 		h.sendExit(c)
-		return
 	}
 	h.readOwner(c)
 }
 
 // readOwner — кадры хозяина: ввод и «закрой ввод» — в очередь ввода, «убей» — сразу.
-// Ушёл хозяин — процесс живёт, вывод копится.
+// Ушёл хозяин — процесс живёт, вывод копится; ушёл хозяин, получивший выход, — держатель выходит.
 func (h *holder) readOwner(c net.Conn) {
 	br := bufio.NewReader(c)
 	for {
@@ -441,8 +452,12 @@ func (h *holder) readOwner(c net.Conn) {
 	if h.conn == c {
 		h.conn = nil
 	}
+	sent := h.exitTo == c
 	h.mu.Unlock()
 	c.Close()
+	if sent {
+		h.finish()
+	}
 }
 
 /* ===== хозяин: запуск держателя и связь с ним ===== */

@@ -1,6 +1,7 @@
 // Выпуск Host: ядро, список модулей и Agent SDK точных версий.
 // Пакеты находятся обычным разрешением Node от папки выпуска: @switchboard/host — ядро,
 // его modules.json — список модулей по порядку старта, @switchboard/<имя> — пакет модуля.
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -47,6 +48,21 @@ export async function loadRelease(base: string): Promise<Release> {
     modules.push({ manifest, module });
   }
   return { version: rel.version ?? core.version, sdk, modules };
+}
+
+/** Команда claude из пакета SDK: ввод — stdin, вывод — stdout и stderr вместе. claude нет — code null со словами. */
+export function claudeCli(bin: string | undefined) {
+  return (args: string[], env: Record<string, string | undefined>, input?: string): Promise<{ code: number | null; out: string }> =>
+    new Promise((res) => {
+      if (!bin) return res({ code: null, out: "claude не найден в пакете SDK" });
+      const p = spawn(bin, args, { env, windowsHide: true });
+      let out = "";
+      p.stdout.on("data", (d) => (out += d));
+      p.stderr.on("data", (d) => (out += d));
+      p.on("error", (e) => res({ code: null, out: e.message }));
+      p.on("close", (code) => res({ code, out }));
+      p.stdin.end(input ?? "");
+    });
 }
 
 /** Путь к исполняемому claude из пакета SDK для этой платформы. */

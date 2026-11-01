@@ -40,6 +40,8 @@ export function createOpen(): AppModule {
     let slots: Slots | null = null;
     let accounts: Accounts | null = null;
     let profiles: Profiles | null = null;
+    /** имя запроса → слово отказа владельца выбранной машины */
+    let refused: Record<string, string> = {};
     let slot = "";
     let profile = "";
     let dir = "~/";
@@ -53,15 +55,22 @@ export function createOpen(): AppModule {
     let sending = false;
 
     const can = (n: string) => app.provides(machine)?.[n] !== undefined;
+    /** отказ владельца — словом на месте ответа */
+    const refuse = (m: string, n: string, r: { ok: boolean; error?: string }) => {
+      if (!r.ok && m === machine) refused[n] = String(r.error);
+    };
+    const refusal = (n: string) => (refused[n] ? h("span", { class: "sb-note bad", role: "alert" }, `${n}: ${refused[n]}`) : null);
 
     async function loadMachine() {
       slots = accounts = profiles = null;
+      refused = {};
       slot = profile = "";
       const m = machine;
       const jobs: Array<Promise<void>> = [];
       if (can("machine.slots"))
         jobs.push(
           app.request<{ slots: Slots }>("machine.slots", { machine: m }).then((r) => {
+            refuse(m, "machine.slots", r);
             if (r.ok && m === machine) {
               slots = r.result.slots ?? {};
               slot ||= Object.keys(slots)[0] ?? "";
@@ -71,12 +80,14 @@ export function createOpen(): AppModule {
       if (can("machine.accounts"))
         jobs.push(
           app.request<{ accounts: Accounts }>("machine.accounts", { machine: m }).then((r) => {
+            refuse(m, "machine.accounts", r);
             if (r.ok && m === machine) accounts = r.result.accounts ?? {};
           }),
         );
       if (can("machine.profiles"))
         jobs.push(
           app.request<{ profiles: Profiles }>("machine.profiles", { machine: m }).then((r) => {
+            refuse(m, "machine.profiles", r);
             if (r.ok && m === machine) profiles = r.result.profiles ?? {};
           }),
         );
@@ -178,7 +189,9 @@ export function createOpen(): AppModule {
                 h(
                   "div",
                   { class: "sb-opts" },
-                  slots === null ? h("span", { class: "sb-note" }, "…") : null,
+                  slots === null && !refused["machine.slots"] ? h("span", { class: "sb-note" }, "…") : null,
+                  refusal("machine.slots"),
+                  refusal("machine.accounts"),
                   Object.entries(slots ?? {}).map(([n, sl]) =>
                     h(
                       "button",
@@ -203,6 +216,7 @@ export function createOpen(): AppModule {
                     h("button", { class: "sb-b", "aria-pressed": profile === id ? "true" : "false", "data-profile": id, onclick: () => ((profile = id), draw()) }, id, h("span", { class: "sb-note" }, [p.model, p.effort].filter(Boolean).join(" · "))),
                   ),
                   h("button", { class: "sb-b", "aria-pressed": profile === "" ? "true" : "false", onclick: () => ((profile = ""), draw()) }, "без профиля"),
+                  refusal("machine.profiles"),
                 ),
               )
             : null,

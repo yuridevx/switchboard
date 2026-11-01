@@ -127,3 +127,55 @@ describe("эталоны parts", () => {
     expect(st.relay.sent.filter((f) => f.type === "machine.journal").map(({ id: _i, since: _s, ...f }) => f)).toEqual([{ type: "machine.journal", v: 1, machine: "win", part: "host", limit: 5 }]);
   });
 });
+
+describe("parts: покрытие плана host-modules", () => {
+  it("3073 · list: «выпуски» отказали — текст ошибки, keeper не спрашивали", async () => {
+    // источник: чьё: код (parts.ts:19, :35)
+    const { st, call } = await bench((f) => (f.type === "releases.list" ? { ok: false, error: "no_access" } : undefined));
+    const r = await call("list", {});
+    expect([r.isError, r.text]).toEqual([true, "releases.list: no_access"]);
+    expect(st.relay.sent.filter((f) => f.type === "keeper.state")).toEqual([]);
+  });
+
+  it("3074 · upload: releases.upload отказал; R2 ответил 403 — текст ошибки", async () => {
+    // источник: чьё: код (parts.ts:61, :69-70)
+    const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
+    writeFileSync(join(dir, "app.json"), "{}");
+    let refuse = true;
+    const { call } = await bench((f) => (f.type === "releases.upload" ? (refuse ? { ok: false, error: "exists" } : { ok: true, result: { tgz: "https://r2.test/a.tgz?s", sha256: "https://r2.test/a.sha256?s" } }) : undefined));
+    const a = await call("upload", { part: "capture", version: "1.4.0", dir: "." }, dir);
+    expect([a.isError, a.text]).toEqual([true, "releases.upload: exists"]);
+    refuse = false;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 403 }));
+    const b = await call("upload", { part: "capture", version: "1.4.1", dir: "." }, dir);
+    expect([b.isError, b.text]).toEqual([true, "upload_failed: R2 ответил 403 на /a.tgz"]);
+  });
+
+  it("3075 · deploy: без версии — edge, отказ — текст ошибки; set: pin null уходит как есть", async () => {
+    // источник: чьё: код (parts.ts:79-82, :96-99)
+    const { st, call } = await bench((f) => {
+      if (f.type === "releases.deploy") return { ok: false, error: "no_version" };
+      if (f.type === "releases.set") return { ok: true, result: { machine: "wsl", rev: 46 } };
+    });
+    const d = await call("deploy", { part: "*" });
+    expect([d.isError, d.text]).toEqual([true, "releases.deploy: no_version"]);
+    await call("set", { machine: "wsl", part: "host", pin: null });
+    expect(st.relay.sent.filter((f) => f.id).map(({ id: _i, ...f }) => f)).toEqual([
+      { type: "releases.deploy", v: 1, to: ".releases", part: "*" },
+      { type: "releases.set", v: 1, to: ".releases", machine: "wsl", part: "host", pin: null },
+    ]);
+  });
+
+  it("3076 · log: по умолчанию — последний час и 50 строк; Host машины мёртв — текст ошибки", async () => {
+    // источник: чьё: код (parts.ts:107-112)
+    const { st, call } = await bench((f) => (f.type === "machine.journal" ? { ok: false, error: "offline" } : undefined));
+    const before = Date.now();
+    const r = await call("log", { machine: "win", part: "host" });
+    expect([r.isError, r.text]).toEqual([true, "machine.journal: offline"]);
+    const q = st.relay.frames("machine.journal")[0];
+    expect(q).toMatchObject({ machine: "win", part: "host", limit: 50 });
+    const since = Date.parse(q.since as string);
+    expect(before - since).toBeGreaterThanOrEqual(3600_000 - 1000);
+    expect(before - since).toBeLessThanOrEqual(3600_000 + 1000);
+  });
+});

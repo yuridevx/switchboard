@@ -9,6 +9,7 @@ import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, task, wrap } from "../src/fleet.ts";
 import { manage } from "../../manage/src/manage.ts";
+import { make as makeChat } from "../../chat/src/chat.ts";
 import { make as makePush } from "../../push/src/push.ts";
 import { make as makeQuestions } from "../../questions/src/questions.ts";
 import { make as makeWatch } from "../../watch/src/watch.ts";
@@ -349,5 +350,54 @@ describe("эталоны: сессия ведёт другие сессии — 
     expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — already_answered" }], isError: true });
     expect(await asked).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Какой README?": "в docs" } } });
     expect(st.relay.frames("answered")).toEqual([expect.objectContaining({ question: "toolu_k2", by: "phone~owner@example.com" })]);
+  });
+});
+
+describe("fleet: покрытие плана host-modules — управление", () => {
+  it("3025 · open: сессия открыта, задача не доставлена — модели «открыта: …, но задача не доставлена — offline»", async () => {
+    // источник: чьё: код (fleet.ts:121)
+    const { st, call } = await bench();
+    await st.open("lead@win");
+    const o = call("lead@win", "open", { name: "fix", machine: "wsl", dir: "~/app", text: "Почини" });
+    await replyTo(st, "session.open", { ok: true, result: { callsign: "fix@wsl", session_id: "s1" } });
+    await replyTo(st, "message", { ok: false, error: "offline" });
+    expect(await o).toEqual({ content: [{ type: "text", text: "открыта: fix@wsl, но задача не доставлена — offline" }], isError: true });
+  });
+
+  it("3026 · history и remove сессии, которой нет на этой машине, — module_error текстом; chat и manage живы", async () => {
+    // источник: чьё: код (kernel.ts:492-506 «сбой владельца — отказ module_error, а не выключение модуля»; fleet.ts:39)
+    const f = make();
+    const dir = mkdtempSync(join(tmpdir(), "switchboard-fleet-"));
+    const st = await standHost({
+      machine: "win",
+      modules: [
+        module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }),
+        module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }),
+        { manifest: json("chat"), module: makeChat() },
+        { manifest: manageManifest, module: manage({ home: dir }) },
+        { manifest: manifest as Manifest, module: f.module },
+      ],
+    });
+    stands.push(st);
+    const call = async (me: string, name: string, args: Record<string, unknown>) =>
+      (await f.tools(me).find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }>; isError?: boolean };
+    await st.open("lead@win");
+    await st.open("docs@win");
+    expect(await call("lead@win", "history", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не выполнено: nope@win — module_error" }], isError: true });
+    expect(await call("lead@win", "remove", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не выполнено: nope@win — module_error" }], isError: true });
+    st.sdk.functions = { getSessionMessages: async () => [{ type: "user", uuid: "u1", message: { content: "привет" } }] };
+    expect((await call("lead@win", "history", { callsign: "docs@win" })).content[0].text).toBe("user: привет");
+    expect((await call("lead@win", "remove", { callsign: "docs@win" })).content[0].text).toBe("закрыта: docs@win");
+  });
+
+  it("3027 · update остановленной — «сразу: —»; модель — со следующего старта", async () => {
+    // источник: чьё: код (fleet.ts:140; manage.ts:207)
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "x" });
+    await st.session("host-fleet", "docs@win")!.stop();
+    expect((await call("lead@win", "update", { callsign: "docs@win", model: "sonnet" })).content[0].text).toBe("сразу: —");
+    expect(await st.relay.request({ type: "session.start", v: 1, callsign: "docs@win" })).toMatchObject({ ok: true });
+    expect(st.query("docs@win").options).toMatchObject({ model: "sonnet" });
   });
 });

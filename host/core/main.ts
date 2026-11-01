@@ -3,7 +3,6 @@
 // SWITCHBOARD_HOLDER (файл держателя), SWITCHBOARD_HOME. Ключ машины — ~/.switchboard/machine.key;
 // разделы модулей — ~/.switchboard/host.json { "modules": {…} }, файла нет — модули без настроек.
 // node main.ts --check — гейт выпуска отдельным процессом, без relay, keeper, хранилища и claude.
-import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -15,7 +14,7 @@ import { Kernel, StartError } from "./src/kernel.ts";
 import type { HostConfig, SdkApi } from "./src/kernel.ts";
 import { realHolders } from "./src/holders.ts";
 import { gate } from "./src/registry.ts";
-import { claudePath, loadRelease } from "./src/release.ts";
+import { claudeCli, claudePath, loadRelease } from "./src/release.ts";
 
 const coreDir = dirname(fileURLToPath(import.meta.url));
 const core = JSON.parse(readFileSync(join(coreDir, "module.json"), "utf8")) as Manifest;
@@ -35,20 +34,6 @@ async function check(): Promise<number> {
     console.log(JSON.stringify({ ok: false, why: (e as Error).message }));
     return 1;
   }
-}
-
-function cli(bin: string | undefined): SdkApi["cli"] {
-  return (args, env, input) =>
-    new Promise((res) => {
-      if (!bin) return res({ code: null, out: "claude не найден в пакете SDK" });
-      const p = spawn(bin, args, { env, windowsHide: true });
-      let out = "";
-      p.stdout.on("data", (d) => (out += d));
-      p.stderr.on("data", (d) => (out += d));
-      p.on("error", (e) => res({ code: null, out: e.message }));
-      p.on("close", (code) => res({ code, out }));
-      p.stdin.end(input ?? "");
-    });
 }
 
 async function main(): Promise<number> {
@@ -72,7 +57,7 @@ async function main(): Promise<number> {
     config,
     core,
     release,
-    sdk: { query: sdk.query, functions, cli: cli(claudePath(coreDir)) },
+    sdk: { query: sdk.query, functions, cli: claudeCli(claudePath(coreDir)) },
     holders: realHolders(home, process.env.SWITCHBOARD_HOLDER),
     relayKey,
     exit: (code) => process.exit(code),

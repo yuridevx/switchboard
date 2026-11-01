@@ -1,8 +1,18 @@
-import { env } from "cloudflare:test";
+import { createExecutionContext, env } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { presign, sha256hex, shaLine } from "@switchboard/release";
+import { sha256hex, shaLine } from "@switchboard/release";
+import { Participant } from "../src/index.ts";
+
+/** Строки журнала releases, которые попали в console.log. */
+function journal() {
+  const lines: Array<Record<string, unknown>> = [];
+  vi.spyOn(console, "log").mockImplementation((s: unknown) => {
+    lines.push(JSON.parse(String(s)));
+  });
+  return lines;
+}
 
 const participant = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
 type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
@@ -58,16 +68,6 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны releases", () => {
-  it("1 · подпись ссылки — пример AWS: GET test.txt на сутки", async () => {
-    const url = await presign(
-      { accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "us-east-1" },
-      { method: "GET", host: "examplebucket.s3.amazonaws.com", path: "/test.txt", now: new Date("2013-05-24T00:00:00Z"), expires: 86400 },
-    );
-    expect(url).toBe(
-      "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404",
-    );
-  });
-
   it("2 · первый вопрос keeper: план пустой — keeper и host за stable, ссылка на час, машина в списке", async () => {
     const s = fresh();
     fakeCf(NONE);
@@ -89,6 +89,9 @@ describe("эталоны releases", () => {
     const s = fresh();
     expect(await req(s, "@win", "releases.plan")).toEqual([{ type: "reply", id: "r", ok: false, error: "bad_frame", to: "@win" }]);
     expect((await req(s, ".host@win", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect((await req(s, "panel~o", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    fakeCf(NONE);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
   });
 
   it("4 · вся сборка одним вызовом: части сборки на свою edge, план на .keeper@ каждой машины, приложение не тронуто", async () => {
@@ -151,6 +154,8 @@ describe("эталоны releases", () => {
     expect(out[0].result).toEqual({ parts: { relay: { from: "1.1.60", to: "1.1.58" } } });
     expect(deploys).toEqual([{ script: "switchboard", tag: "1.1.58" }]);
     expect(plans(out)).toEqual([]);
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => [f.ev, f.text, f.by])).toEqual([["part.deployed", "relay 1.1.60 → 1.1.58", "~x"]]);
+    expect((await result(req(s, "~x", "releases.list", { part: "relay" }))).rev).toBe(0);
   });
 
   it("6 · закреплённая не следует за stable: pin 1.3.2 у pc2, deploy capture 1.4.0 — план pc2 не меняется", async () => {
@@ -160,8 +165,13 @@ describe("эталоны releases", () => {
     await req(s, "~x", "releases.deploy", { part: "capture", version: "1.3.2" });
     await req(s, "~x", "releases.set", { machine: "pc2", part: "capture", pin: "1.3.2" });
     await req(s, "~x", "releases.set", { machine: "win", part: "capture" });
+    // у laptop capture в плане нет — план ему не уходит
+    await req(s, ".keeper@laptop", "releases.plan");
+    const rev = (await result(req(s, "~x", "releases.list", { part: "capture" }))).rev;
     const out = await req(s, "~x", "releases.deploy", { part: "capture", version: "1.4.0" });
-    expect(plans(out).map((f) => f.to)).toEqual([".keeper@win"]);
+    expect(out[0].result).toEqual({ parts: { capture: { from: "1.3.2", to: "1.4.0" } } });
+    expect(plans(out).map((f) => [f.to, f.rev])).toEqual([[".keeper@win", rev + 1]]);
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["capture 1.3.2 → 1.4.0"]);
     expect((await result(req(s, ".keeper@pc2", "releases.plan"))).parts.map((x: any) => x.version)).toEqual(["1.3.2"]);
   });
 
@@ -185,6 +195,10 @@ describe("эталоны releases", () => {
     expect(u.sha256).toMatch(/\/capture\/1\.5\.0\.sha256\?/);
     expect((await req(s, "~x", "releases.upload", { part: "capture", version: "1.5" }))[0]).toMatchObject({ error: "bad_version" });
     expect((await req(s, "~x", "releases.upload", { part: "relay", version: "1.5.0" }))[0]).toMatchObject({ error: "bad_frame" });
+    expect((await req(s, "~x", "releases.upload", { part: "Cap ture", version: "1.5.0" }))[0]).toMatchObject({ error: "bad_frame" });
+    // архив без хэша — версия всё равно занята
+    await env.BUCKET.put("capture/1.6.0.tgz", "half");
+    expect((await req(s, "~x", "releases.upload", { part: "capture", version: "1.6.0" }))[0]).toMatchObject({ ok: false, error: "version_exists" });
   });
 
   it("9 · set: выключить силой, окружение, снять; у keeper только pin; уже так — ok с прежней rev", async () => {
@@ -212,6 +226,8 @@ describe("эталоны releases", () => {
     fakeCf({ ...NONE, relay: { tags: ["1.1.58", "1.1.60"], live: "1.1.58" } });
     await inR2("host", "1.1.57", "1.1.58");
     await inR2("capture", "1.4.0", "1.10.0");
+    // 1.1.59 без хэша — не готова и в edge не идёт
+    await env.BUCKET.put("host/1.1.59.tgz", "half");
     await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.57" });
     await req(s, "~x", "releases.set", { machine: "pc2", part: "capture", pin: "1.4.0" });
     const l = await result(req(s, "~x", "releases.list"));
@@ -223,19 +239,196 @@ describe("эталоны releases", () => {
     expect(Object.keys((await result(req(s, "~x", "releases.list", { part: "host" }))).parts)).toEqual(["host"]);
   });
 
-  it("11 · Cloudflare отказал — cf_failed; неизвестный запрос — unknown_request; нет версии — no_release", async () => {
+  it("11 · нет версии — no_release: у части машины нет версии или хэша, у Worker'а нет метки; stable и rev не меняются", async () => {
     const s = fresh();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, { status: 403 }));
-    expect((await req(s, "~x", "releases.deploy", { part: "relay" }))[0]).toMatchObject({ ok: false, error: "cf_failed" });
-    expect((await req(s, "~x", "releases.nope"))[0]).toMatchObject({ ok: false, error: "unknown_request" });
+    fakeCf(NONE);
+    await inR2("host", "1.1.57");
+    await req(s, "~x", "releases.deploy", { part: "host" });
     expect((await req(s, "~x", "releases.deploy", { part: "host", version: "9.9.9" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    expect((await req(s, "~x", "releases.deploy", { part: "push", version: "9.9.9" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    expect((await req(s, "~x", "releases.deploy", { part: "push" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    const l = await result(req(s, "~x", "releases.list", { part: "host" }));
+    expect([l.parts.host.stable, l.rev]).toEqual(["1.1.57", 1]);
   });
 
-  it("12 · участник: hello — контракт; ответ и план keeper уходят через свою привязку RELAY", async () => {
+  it("12 · участник: hello — контракт; ответ, затем ledger.add и план keeper уходят через свою привязку RELAY по порядку", async () => {
     expect(await participant.hello()).toEqual({ contract: { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1 } });
     await participant.frame({ type: "releases.plan", id: "q", to: ".releases", from: ".keeper@box" });
     const sent = await env.RELAY_LOG.take();
     expect(sent.map((x) => [x.name, x.frame.type, x.frame.to])).toEqual([["releases", "reply", ".keeper@box"]]);
+    fakeCf(NONE);
+    await inR2("host", "7.7.7");
+    await participant.frame({ type: "releases.deploy", id: "d1", to: ".releases", from: "panel~o", part: "host", version: "7.7.7" });
+    const out = await env.RELAY_LOG.take();
+    expect(out.map((x) => [x.frame.type, x.frame.to])).toEqual([
+      ["reply", "panel~o"],
+      ["ledger.add", ".ledger"],
+      ["releases.plan", ".keeper@box"],
+    ]);
+  });
+
+  it("2030 · вход отклонён: чужое имя — unknown_request, другая версия — contract_mismatch, без id — только строка, reply — note", async () => {
+    const s = fresh();
+    const log = journal();
+    expect((await req(s, "~x", "releases.nope"))[0]).toMatchObject({ ok: false, error: "unknown_request", to: "~x" });
+    expect((await req(s, "~x", "releases.list", { v: 2 }))[0]).toMatchObject({ ok: false, error: "contract_mismatch" });
+    expect(await s.frame({ type: "releases.list", to: ".releases", from: "~x" })).toEqual([]);
+    expect(await s.frame({ type: "reply", id: "x", ok: true, to: ".releases", from: "~x" })).toEqual([]);
+    expect(log.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
+      ["refuse", "unknown_request"],
+      ["refuse", "contract_mismatch"],
+      ["refuse", "bad_frame"],
+      ["note", "reply"],
+    ]);
+  });
+
+  it("2031 · объект выпусков бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
+    const log = journal();
+    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой выпусков")) }) };
+    const p = new Participant(createExecutionContext(), { ...env, RELEASES: broken } as never);
+    await expect(p.frame({ type: "releases.list", id: "l", to: ".releases", from: "~x" })).rejects.toThrow("сбой выпусков");
+    expect(log).toContainEqual(expect.objectContaining({ part: "releases", kind: "stop", ev: "releases.list", from: "~x" }));
+    expect(await env.RELAY_LOG.take()).toEqual([]);
+  });
+
+  it("2032 · relay не принял план keeper'у — строка refuse, ответ ушёл, вызов не бросает", async () => {
+    fakeCf(NONE);
+    await inR2("host", "7.7.8");
+    await participant.frame({ type: "releases.plan", id: "q", to: ".releases", from: ".keeper@gone" });
+    await env.RELAY_LOG.take();
+    const log = journal();
+    await env.RELAY_LOG.answer("offline");
+    try {
+      await participant.frame({ type: "releases.set", id: "s", to: ".releases", from: "~x", machine: "gone", part: "host", on: false });
+    } finally {
+      await env.RELAY_LOG.answer();
+    }
+    expect((await env.RELAY_LOG.take()).map((x) => x.frame.type)).toEqual(["reply", "releases.plan"]);
+    expect(log).toContainEqual(expect.objectContaining({ part: "releases", ev: "relay", word: "offline", to: ".keeper@gone", type: "releases.plan" }));
+  });
+
+  it("2034 · версия без хэша — не в плане, строка stop", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("keeper", "1.0.1");
+    await inR2("host", "1.1.59");
+    await req(s, "~x", "releases.deploy", { part: "keeper" });
+    await req(s, "~x", "releases.deploy", { part: "host" });
+    // stable host остаётся 1.1.59, а его хэш пропал: версия не готова
+    await env.BUCKET.delete("host/1.1.59.sha256");
+    const log = journal();
+    const p = await result(req(s, ".keeper@win", "releases.plan"));
+    expect(p.parts.map((x: any) => x.part)).toEqual(["keeper"]);
+    expect(log).toContainEqual(expect.objectContaining({ kind: "stop", ev: "releases.plan", machine: "win", why: "у host 1.1.59 нет хэша в R2 — часть не в плане" }));
+  });
+
+  it("2035 · флот без stable — пустой план без строки stop", async () => {
+    const s = fresh();
+    const log = journal();
+    expect(await result(req(s, ".keeper@win", "releases.plan"))).toEqual({ rev: 0, parts: [] });
+    expect(log.filter((l) => l.kind === "stop")).toEqual([]);
+  });
+
+  it("2036 · list: API Cloudflare не ответил — cf_failed, статус и errors в журнале, без токена", async () => {
+    const s = fresh();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, { status: 403 }));
+    const log = journal();
+    expect(await req(s, "~x", "releases.list")).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" }]);
+    expect(log).toContainEqual(expect.objectContaining({ ev: "releases.list", word: "cf_failed", status: 403 }));
+    expect(JSON.stringify(log)).not.toContain("test-token");
+  });
+
+  it("2037 · Cloudflare отказал посреди «*» — cf_failed, stable частей машины и rev прежние, планов нет", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("keeper", "1.0.1");
+    await inR2("host", "1.1.58", "1.1.59");
+    await req(s, "~x", "releases.deploy", { part: "keeper" });
+    await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.58" });
+    await req(s, ".keeper@win", "releases.plan");
+    const okCf = fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
+    void okCf;
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new Request(input, init).url.includes("/switchboard-push/") ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
+    );
+    const out = await req(s, "~x", "releases.deploy", { part: "*" });
+    expect(out).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" }]);
+    vi.restoreAllMocks();
+    fakeCf(NONE);
+    const l = await result(req(s, "~x", "releases.list", { part: "host" }));
+    expect([l.parts.host.stable, l.rev]).toEqual(["1.1.58", 2]);
+  });
+
+  it("2039 · deploy части сборки: stable, rev, план машинам за stable, ledger.add с by; повтор — без перемен", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.58", "1.1.59");
+    await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.58" });
+    await req(s, ".keeper@laptop", "releases.plan");
+    await req(s, ".keeper@pc", "releases.plan");
+    await req(s, "~x", "releases.set", { machine: "wsl", part: "host", pin: "1.1.58" });
+    const rev = (await result(req(s, "~x", "releases.list", { part: "host" }))).rev;
+    const out = await req(s, "panel~o", "releases.deploy", { part: "host" });
+    expect(out[0].result).toEqual({ parts: { host: { from: "1.1.58", to: "1.1.59" } } });
+    expect(plans(out).map((f) => [f.to, f.rev, f.v])).toEqual([
+      [".keeper@laptop", rev + 1, 1],
+      [".keeper@pc", rev + 1, 1],
+    ]);
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => [f.ev, f.text, f.by])).toEqual([["part.deployed", "host 1.1.58 → 1.1.59", "panel~o"]]);
+    const again = await req(s, "panel~o", "releases.deploy", { part: "host" });
+    expect(again).toEqual([{ type: "reply", id: "r", ok: true, result: { parts: { host: { from: "1.1.59", to: "1.1.59" } } }, to: "panel~o" }]);
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).rev).toBe(rev + 1);
+  });
+
+  it("2040 · deploy: вход отклонён — part не имя, версия не три числа, у «*» версии нет", async () => {
+    const s = fresh();
+    expect((await req(s, "~x", "releases.deploy", { part: "Ho st" }))[0]).toMatchObject({ error: "bad_frame" });
+    expect((await req(s, "~x", "releases.deploy", {}))[0]).toMatchObject({ error: "bad_frame" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host", version: "1.5" }))[0]).toMatchObject({ error: "bad_version" });
+    expect((await req(s, "~x", "releases.deploy", { part: "*", version: "1.1.1" }))[0]).toMatchObject({ error: "bad_frame" });
+  });
+
+  it("2041 · set: Host выключен силой и снова за stable; уже за stable — ok без плана; часть за stable — пустая запись; keeper закреплён и снят", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.58");
+    await inR2("keeper", "1.0.0", "1.0.1");
+    await inR2("app", "1.0.0");
+    for (const part of ["host", "keeper", "app"]) await req(s, "~x", "releases.deploy", { part });
+    await req(s, ".keeper@laptop", "releases.plan");
+    let rev = (await result(req(s, "~x", "releases.list", { part: "host" }))).rev;
+    const off = await req(s, "~x", "releases.set", { machine: "laptop", part: "host", on: false, force: true });
+    expect(off[0].result).toEqual({ machine: "laptop", rev: ++rev });
+    expect(brief(plans(off)[0]).parts.find((p) => p.part === "host")).toEqual({ part: "host", version: "1.1.58", on: false, force: true });
+    const on = await req(s, "~x", "releases.set", { machine: "laptop", part: "host", on: true });
+    expect(on[0].result).toEqual({ machine: "laptop", rev: ++rev });
+    expect(brief(plans(on)[0]).parts.find((p) => p.part === "host")).toEqual({ part: "host", version: "1.1.58" });
+    const noop = await req(s, "~x", "releases.set", { machine: "laptop", part: "host", pin: null, on: true });
+    expect(noop).toEqual([{ type: "reply", id: "r", ok: true, result: { machine: "laptop", rev }, to: "~x" }]);
+    const app = await req(s, "~x", "releases.set", { machine: "laptop", part: "app" });
+    expect(app[0].result).toEqual({ machine: "laptop", rev: ++rev });
+    expect(brief(plans(app)[0]).parts.find((p) => p.part === "app")).toEqual({ part: "app", version: "1.0.0" });
+    expect((await result(req(s, "~x", "releases.list", { part: "app" }))).machines).toEqual([{ machine: "laptop", plan: { app: {} } }]);
+    const pin = await req(s, "~x", "releases.set", { machine: "laptop", part: "keeper", pin: "1.0.0" });
+    expect(brief(plans(pin)[0]).parts[0]).toEqual({ part: "keeper", version: "1.0.0" });
+    const unpin = await req(s, "~x", "releases.set", { machine: "laptop", part: "keeper", pin: null });
+    expect(brief(plans(unpin)[0]).parts[0]).toEqual({ part: "keeper", version: "1.0.1" });
+    expect((await result(req(s, "~x", "releases.list", { part: "keeper" }))).machines).toEqual([{ machine: "laptop", plan: {} }]);
+  });
+
+  it("2042 · set: вход отклонён — machine и part не имена, часть Cloudflare, pin не три числа, env не строки", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("app", "1.0.0");
+    await req(s, "~x", "releases.deploy", { part: "app" });
+    const bad = async (f: Record<string, unknown>) => (await req(s, "~x", "releases.set", f))[0];
+    expect(await bad({ machine: "Win 1", part: "app" })).toMatchObject({ error: "bad_frame" });
+    expect(await bad({ machine: "win", part: "A pp" })).toMatchObject({ error: "bad_frame" });
+    expect(await bad({ machine: "win", part: "relay", on: false })).toMatchObject({ error: "bad_frame" });
+    expect(await bad({ machine: "win", part: "app", pin: "1.0" })).toMatchObject({ error: "bad_version" });
+    expect(await bad({ machine: "win", part: "app", env: { A: 1 } })).toMatchObject({ error: "bad_frame" });
+    expect((await result(req(s, "~x", "releases.list", { part: "app" }))).machines).toEqual([]);
   });
 
   it("13 · план keeper — ровно поля v1: keeper заморожен с 1.0.0 и отказывает плану с чужим полем", async () => {

@@ -301,3 +301,82 @@ describe("эталоны questions: вложенные сессии", () => {
     expect(st.proc("lead@win").inputs).toHaveLength(0);
   });
 });
+
+describe("questions: покрытие плана host-modules", () => {
+  it("3018 · вопрос сессии-родителю другой машины — кадр ей, пуша нет", async () => {
+    // источник: чьё: код (questions.ts:61, :65-67 — пуш только клиентам)
+    const { st, notifies } = await bench();
+    const s = await st.open(CS);
+    s.input("задача", { from: "lead@other" });
+    void st.proc(CS).ask("AskUserQuestion", ASK, "toolu_par");
+    const q = await until(() => questions(st)[0]);
+    expect(q.to).toEqual(["lead@other"]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(notifies).toHaveLength(0);
+  });
+
+  it("3019 · watch не ответил — вопрос давшему задачу, строка журнала stop со словом", async () => {
+    // источник: чьё: код (questions.ts:57-59); устав «система ловит … пишет в журнал»
+    const watch = module("host-watch", { requests: { "session.watchers": () => { throw new Error("watch упал"); } } });
+    const push = module("host-push", { requests: { notify: () => ({ pushed: [] }) } });
+    const st = await standHost({ modules: [watch, push, { manifest: manifest as Manifest, module: make() }] });
+    stands.push(st);
+    const s = await st.open(CS);
+    s.input("задача", { from: "phone~owner@example.com" });
+    void st.proc(CS).ask("AskUserQuestion", ASK, "toolu_w");
+    const q = await until(() => questions(st)[0]);
+    expect(q.to).toEqual(["phone~owner@example.com"]);
+    expect(st.journal().find((l) => l.ev === "question" && l.kind === "stop")).toMatchObject({ word: "module_error", callsign: CS });
+  });
+
+  it("3020 · адресатов нет — кадра нет, вопрос ждёт в question.list", async () => {
+    // источник: чьё: код (questions.ts:97-99)
+    const { st } = await bench();
+    const s = await st.open(CS);
+    s.input("задача", { from: "@laptop" });
+    void st.proc(CS).ask("AskUserQuestion", ASK, "toolu_none");
+    const line = await until(() => st.journal().find((l) => l.ev === "question" && l.question === "toolu_none"));
+    expect(line.why).toContain("адресатов нет");
+    expect(questions(st)).toHaveLength(0);
+    expect(await st.relay.request({ type: "question.list", v: 1, callsign: CS })).toMatchObject({ ok: true, result: [{ question: "toolu_none", kind: "ask" }] });
+  });
+
+  it("3021 · несколько вопросов или multiSelect — пуш без кнопок", async () => {
+    // источник: чьё: код (questions.ts:75-81)
+    const { st, notifies } = await bench();
+    const s = await st.open(CS);
+    s.input("задача", { from: "phone~owner@example.com" });
+    void st.proc(CS).ask("AskUserQuestion", { questions: [ASK.questions[0], { question: "Ещё?", options: [{ label: "да" }] }] }, "toolu_two");
+    await until(() => notifies.length === 1);
+    expect((notifies[0].frame as { notify: Record<string, unknown> }).notify).not.toHaveProperty("actions");
+    void st.proc(CS).ask("AskUserQuestion", { questions: [{ ...ASK.questions[0], multiSelect: true }] }, "toolu_multi");
+    await until(() => notifies.length === 2);
+    expect((notifies[1].frame as { notify: Record<string, unknown> }).notify).not.toHaveProperty("actions");
+  });
+
+  it("3022 · форма-ссылка — kind url; ответ decline — в SDK", async () => {
+    // источник: чьё: код (questions.ts:133-137)
+    const { st } = await bench();
+    const s = await st.open(CS);
+    s.input("Войди", { from: "phone~owner@example.com" });
+    const r = st.proc(CS).elicit({ serverName: "github", message: "Войти", mode: "url", url: "https://github.com/login" });
+    const q = await until(() => questions(st)[0]);
+    expect(q).toMatchObject({ kind: "url", server: "github", url: "https://github.com/login" });
+    expect(await answer(st, "phone~owner@example.com", { question: q.question, action: "decline" })).toMatchObject({ ok: true });
+    expect(await r).toEqual({ action: "decline" });
+  });
+
+  it("3023 · форма: ход прервали — cancel, answered cancelled", async () => {
+    // источник: чьё: код (questions.ts:136)
+    const mod = make();
+    const { st } = await bench({ mod });
+    const s = await st.open(CS);
+    s.input("задача", { from: "phone~owner@example.com" });
+    const ac = new AbortController();
+    const r = mod.elicit!(st.session("host-questions", CS)!, { serverName: "jira", message: "Данные", mode: "form", requestedSchema: {} } as never, { signal: ac.signal, requestId: "el_c" });
+    await until(() => questions(st)[0]);
+    ac.abort();
+    expect(await r).toEqual({ action: "cancel" });
+    expect(answered(st)[0]).toMatchObject({ question: "el_c", cancelled: true });
+  });
+});

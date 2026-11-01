@@ -44,10 +44,29 @@ describe("invite", () => {
     expect(a).not.toBe(b);
   });
 
-  it("пустой stdin — отказ; неверная роль — подсказка", () => {
-    expect(run(["host", "laptop"], "").status).toBe(1);
-    const r = run(["admin", "laptop"], SECRET);
-    expect(r.status).toBe(2);
-    expect(r.stderr).toContain("использование");
+  it("2008 · вход отклонён: подсказка и код выхода, ключа в stdout нет", () => {
+    // чьё: код (invite.ts:19-31, key.ts:43); слово пользователя «Секреты передавать через stdin, никогда через argv»
+    for (const args of [["admin", "laptop"], ["host"], ["host", "laptop", "--zip", "x"], ["client", "phone", "--url"]]) {
+      const r = run(args, SECRET);
+      expect(r.status, args.join(" ")).toBe(2);
+      expect(r.stderr).toContain("использование");
+      expect(r.stdout).toBe("");
+    }
+    const empty = run(["host", "laptop"], "");
+    expect(empty.status).toBe(1);
+    expect(empty.stderr).toContain("секрет флота не пришёл в stdin");
+    expect(empty.stdout).toBe("");
+    const bad = run(["host", "lap.top"], SECRET);
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain("ключ host.lap.top");
+    expect(bad.stdout).toBe("");
+  });
+
+  it("2009 · перевод строки в конце stdin не входит в секрет", async () => {
+    for (const tail of ["\n", "\r\n"]) {
+      const r = run(["client", "phone"], SECRET + tail);
+      expect(r.status).toBe(0);
+      expect(await verifyKey(r.stdout.trim(), SECRET, [], () => {})).toMatchObject({ role: "client", name: "phone" });
+    }
   });
 });

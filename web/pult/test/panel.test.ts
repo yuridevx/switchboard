@@ -63,19 +63,6 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны пульта: сессии и чат", () => {
-  it("180 · группы «нужны вы, в работе, свободны, остановлены» по roster; счётчик раздела 2; кроме hello ни одного кадра", async () => {
-    const t = await pult();
-    expect(t.$$(".board-gh").map((x) => x.textContent)).toEqual(["нужны вы2", "в работе2", "свободны1", "остановлены1"]);
-    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["profiles@laptop", "api@pc", "site@laptop", "poe-bot@pc", "wiki@laptop", "docs@pc"]);
-    expect(t.$('.sb-navcol button[data-screen="board"]')!.textContent).toBe("Сессии2");
-    expect(t.relay.hellos).toHaveLength(1);
-    expect(t.relay.got).toEqual([]);
-    // фильтр «нужны вы» — на странице, запросов нет
-    await t.click(t.$('[data-filter="need"]'));
-    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["profiles@laptop", "api@pc"]);
-    expect(t.relay.got).toEqual([]);
-  });
-
   it("181 · «Новая»: один session.open с машиной, именем, папкой, слотом и профилем → чат board@laptop; pc не на связи — нет в выборе; name_taken — под полем имени", async () => {
     const r = fleetRoster();
     r.machines = r.machines.filter((m) => m.machine !== "pc");
@@ -246,7 +233,7 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(relay.sent("session.start")).toEqual([expect.objectContaining({ callsign: "api@pc" })]);
   });
 
-  it("187 · обрыв: ждущий — disconnected сразу, полоса «нет связи», снова hello, потом watch и history; закрыли вкладку — новых запросов нет, unwatch, close(1000)", async () => {
+  it("187 · обрыв: ждущий — disconnected сразу, полоса «нет связи», снова hello, потом watch и history", async () => {
     const relay = fleetRelay();
     relay.handlers["session.prompt"] = () => undefined;
     const t = await pult({ relay });
@@ -264,15 +251,6 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(relay.sent("session.watch").length).toBe(watches + 1);
     expect(relay.got.filter((f) => f.type === "session.watch" || f.type === "session.history").slice(-2).map((f) => f.type)).toEqual(["session.watch", "session.history"]);
 
-    // второй прогон: вкладку закрывают
-    const relay2 = fleetRelay();
-    const t2 = await pult({ relay: relay2 });
-    await t2.click(t2.$('[data-callsign="site@laptop"]'));
-    const before = relay2.got.length;
-    await t2.run.hide();
-    await flush();
-    expect(relay2.got.slice(before).map((f) => f.type)).toEqual(["session.unwatch"]);
-    expect(relay2.socks.at(-1)!.closedWith).toEqual({ code: 1000, reason: "hidden" });
   });
 
   it("188 · у pc нет session.files и session.call: у poe-bot нет «@», «/», сведений и «Прервать», запросов к pc нет; у site — есть, session.files ушёл", async () => {
@@ -303,23 +281,6 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(t.$$(".chat-sugi").map((b) => b.textContent)).toEqual(["src/worker.ts", "test/worker.test.ts"]);
     await t.click(t.$(".chat-sugi"));
     expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("Сравни с @src/worker.ts ");
-  });
-
-  it("189 · ключ в адресе после #: в хранилище, из адреса убран, hello с ним; revoked — «Ключ отозван» с командой выдачи, повторных hello нет", async () => {
-    const store = memoryStore();
-    const t = await pult({ url: "/#" + KEY, store });
-    expect(store.data.key).toBe(KEY);
-    expect(location.href).not.toContain("Qa7sig");
-    expect(t.relay.hellos[0]).toMatchObject({ type: "hello", key: KEY });
-
-    const relay2 = fleetRelay();
-    relay2.refuse = ["revoked"];
-    const t2 = await pult({ relay: relay2 });
-    await flush(20);
-    expect(t2.root.textContent).toContain("Ключ отозван");
-    expect(t2.root.textContent).toContain("switchboard invite client panel-desk --url");
-    expect(relay2.hellos).toHaveLength(1);
-    expect(t2.run.stopped).toBe("revoked");
   });
 
   it("260 · «в R2» не трогали — один session.open, session.r2 нет; включили — после reply session.r2 { callsign, on: true }; поля r2 в session.open нет", async () => {

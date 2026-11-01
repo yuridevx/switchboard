@@ -71,10 +71,12 @@ describe("эталоны ядра Host", () => {
   it("18 · два владельца session.cost — Host не стартует, сессии не тронуты", async () => {
     const k = await keeper();
     const p = await k.addProcess("site@laptop");
-    const dup = module("host-dup", { requests: { "session.cost": () => 0 } });
+    const started = vi.fn();
+    const dup = module("host-dup", { requests: { "session.cost": () => 0 }, start: started });
     const st = await stand({ holders: k, sessions: [{ callsign: "site@laptop" }], modules: [cost(), dup] });
     expect(st.startError?.reasons).toContain("session.cost: два владельца — host-cost и host-dup");
-    expect(lines(st, "gate").map((l) => l.why)).toContain("session.cost: два владельца — host-cost и host-dup");
+    expect(lines(st, "gate").find((l) => l.why === "session.cost: два владельца — host-cost и host-dup")).toMatchObject({ kind: "stop", word: "check_failed" });
+    expect(started).not.toHaveBeenCalled();
     expect(k.ops).toEqual([]); // к keeper Host не подключался
     expect(p.alive).toBe(true);
     expect(st.relay.conns).toHaveLength(0);
@@ -139,6 +141,16 @@ describe("эталоны ядра Host", () => {
     await until(() => lines(st, "module_failed").length === 1);
     const r1 = await p.ask("AskUserQuestion", { questions: [{ question: "Цвет?", options: [{ label: "Синий" }, { label: "Красный" }] }] });
     expect(r1).toEqual({ behavior: "deny", message: "module_error" });
+    expect(lines(st, "decide")[0]).toMatchObject({ kind: "refuse", word: "module_error", module: "host-questions" });
+
+    // решение владельца бросило: deny module_error, владелец выключен в сессии один раз
+    const thrower = module("host-questions", { decide: { AskUserQuestion: () => { throw new Error("решение упало"); } } });
+    const st3 = await stand({ modules: [thrower] });
+    await st3.open("site@laptop");
+    for (let i = 0; i < 2; i++) expect(await st3.proc("site@laptop").ask("AskUserQuestion", { questions: [] })).toEqual({ behavior: "deny", message: "module_error" });
+    expect(lines(st3, "module_failed")).toHaveLength(1);
+    expect(lines(st3, "decide").filter((l) => l.word === "module_error")).toHaveLength(2);
+    await until(() => st3.states("site@laptop").at(-1)?.failed?.["host-questions"]);
 
     const st2 = await stand({ modules: [] });
     await st2.open("site@laptop");
@@ -147,6 +159,7 @@ describe("эталоны ядра Host", () => {
     expect(lines(st2, "decide")[0]).toMatchObject({ kind: "refuse", word: "unknown_request" });
     // прочие инструменты — по режиму «разрешено всё», строкой в журнале
     expect(await st2.proc("site@laptop").ask("Bash", { command: "ls" })).toEqual({ behavior: "allow", updatedInput: { command: "ls" } });
+    expect(lines(st2, "allow")[0]).toMatchObject({ tool: "Bash", callsign: "site@laptop" });
   });
 
   it("62 · хук guard бросил: отвечает {}, хук audit вызван, guard выключен в site, ход идёт", async () => {
@@ -169,8 +182,9 @@ describe("эталоны ядра Host", () => {
     await until(() => st.session("host-audit", "site@laptop")!.state === "idle" && st.states("site@laptop").some((f) => f.state === "busy"));
   });
 
-  it("63 · exited посреди хода: starting → resume через spawn → idle; код и stderr в журнале; wiki не тронута", async () => {
-    const st = await stand({ modules: [] });
+  it("63 · exited посреди хода: starting → resume через spawn → idle; код и stderr в журнале; on.close модулей; wiki не тронута", async () => {
+    const closed: string[] = [];
+    const st = await stand({ modules: [module("host-watch", { on: { close: (s) => void closed.push(s.info.callsign) } })] });
     const site = await st.open("site@laptop");
     await st.open("wiki@laptop");
     const sid = site.info.session_id;
@@ -184,11 +198,12 @@ describe("эталоны ядра Host", () => {
     expect(q2.options.resume).toBe(sid);
     expect(st.holders.ops.filter((o) => o.id === "site@laptop").map((o) => o.op)).toEqual(["spawn", "attach", "spawn", "attach"]);
     expect(lines(st, "session_exited")[0].why).toContain("код 1: Error: boom");
+    expect(closed).toEqual(["site@laptop"]);
     expect(st.sdk.of("wiki@laptop")).toHaveLength(1);
     expect(site.info.start).toBe("resume");
   });
 
-  it("64 · второй сбой до готовности: failed, третьего запуска нет, обе причины в журнале; session.start поднимает", async () => {
+  it("64 · второй сбой до готовности: failed, третьего запуска нет, обе причины в журнале; session.start поднимает, счётчик сбоев сброшен", async () => {
     const st = await stand({ modules: [] });
     const site = await st.open("site@laptop");
     st.holders.failInitNext = 1;
@@ -205,6 +220,10 @@ describe("эталоны ядра Host", () => {
     await site.start();
     expect(site.state).toBe("idle");
     expect(st.sdk.of("site@laptop")).toHaveLength(3);
+    // после start сбой — снова первый: resume, а не failed
+    st.proc("site@laptop").exit(1, "третий");
+    await until(() => st.sdk.of("site@laptop").length === 4 && site.state === "idle");
+    expect(lines(st, "session_failed")).toHaveLength(1);
   });
 
   it("65 · cost записал расход; Host убит; новый Host после start() отдаёт то же поле и ответ; файл — целый JSON", async () => {
@@ -268,6 +287,8 @@ describe("эталоны ядра Host", () => {
     expect(p.interrupts).toBe(0);
     expect(order).toEqual(["stop chat", "stop journal"]);
     expect(st.relay.clientCloses.at(-1)).toEqual({ code: 1000, reason: "shutting_down" });
+    expect(lines(st, "relay_stopped")).toEqual([]);
+    expect(lines(st).filter((l) => l.ev === "shutdown" || l.ev === "exit").map((l) => l.ev)).toEqual(["shutdown", "exit"]);
     expect(st.exits).toEqual([0]);
     expect([...k.procs.values()].every((x) => x.alive)).toBe(true);
     expect(k.ops.filter((o) => o.op === "kill" || o.op === "close_input")).toEqual([]);
@@ -276,34 +297,26 @@ describe("эталоны ядра Host", () => {
     expect(st2.kernel.sessions.get("site@laptop")!.state).toBe("busy");
   });
 
-  it("68 · обрыв relay: ждущий запрос сразу disconnected; паузы 1, 2, 4 с; новый hello — те же сессии и contract; ходы не прерывались", async () => {
+  // паузы переподключения и их рост — клиент рации (охват relay); здесь — то, что видно со стороны ядра
+  it("68 · обрыв relay: ждущий запрос сразу disconnected; переподключение; новый hello — те же сессии и contract; ходы не прерывались; строк stop нет", async () => {
     let host!: Host;
     const fleet = module("host-fleet", { start: (h) => void (host = h), frames: { message: () => {} } });
-    const st = await stand({ modules: [fleet, cost()] });
+    const st = await stand({ modules: [fleet, cost()], pauseMs: 5 });
     await st.open("site@laptop");
     const pid = st.proc("site@laptop").pid;
     const hello1 = st.relay.hellos[0];
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const waiting = host.request("message", { v: 1, to: "poe-bot@pc", text: "привет" });
     await until(() => st.relay.frames("message").length === 1);
-    st.relay.refuse = ["gate_unavailable", "gate_unavailable"];
     st.relay.drop(1006);
     expect(await waiting).toEqual({ ok: false, error: "disconnected" });
-    const conns = () => st.relay.conns.length;
-    for (const pause of [1000, 2000, 4000]) {
-      const before = conns();
-      vi.advanceTimersByTime(pause - 1);
-      await new Promise((r) => setImmediate(r));
-      expect(conns()).toBe(before);
-      vi.advanceTimersByTime(1);
-      await until(() => conns() === before + 1);
-      await until(() => st.relay.hellos.length === conns());
-    }
+    await until(() => st.relay.hellos.length === 2 && lines(st, "hello").length === 2);
     const hello = st.relay.hellos.at(-1)!;
     expect(hello.contract).toEqual(hello1.contract);
     expect((hello.sessions as object[]).map((s) => (s as { callsign: string }).callsign)).toEqual(["site@laptop"]);
     expect(st.proc("site@laptop").pid).toBe(pid);
     expect(st.sdk.of("site@laptop")).toHaveLength(1);
+    expect(lines(st).filter((l) => l.ev === "hello" || l.ev === "relay_closed").map((l) => l.ev)).toEqual(["hello", "relay_closed", "hello"]);
+    expect(lines(st).filter((l) => l.kind === "stop")).toEqual([]);
   });
 
   it("69 · Host с другой версией SDK: обе attach; wiki сразу close и resume, site — после result; обе на новой версии", async () => {
@@ -343,30 +356,23 @@ describe("эталоны ядра Host", () => {
     expect(check([base, m("host-peek", { peek: 1 }, {}, ["@switchboard/host-cost/src/store.ts"])]).join()).toContain("модуль host-peek: импорт @switchboard/host-cost/src/store.ts");
   });
 
-  it("152 · hello закрыт gate_unavailable дважды: паузы 1 с и 2 с, третий принят, строки stop нет; bad_key — без переподключений, stop в журнале", async () => {
-    const st = await stand({ modules: [cost()], start: false });
+  it("152 · hello закрыт gate_unavailable дважды — переподключение, третий принят, строк stop нет; bad_key — без переподключений, stop в журнале, сессии работают", async () => {
+    const st = await stand({ modules: [cost()], start: false, pauseMs: 5 });
     st.relay.refuse = ["gate_unavailable", "gate_unavailable"];
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
-    const started = st.start();
-    await until(() => st.relay.hellos.length === 1);
-    vi.advanceTimersByTime(1000);
-    await until(() => st.relay.hellos.length === 2);
-    vi.advanceTimersByTime(1999);
-    await new Promise((r) => setImmediate(r));
-    expect(st.relay.hellos).toHaveLength(2);
-    vi.advanceTimersByTime(1);
-    await until(() => st.relay.hellos.length === 3);
-    await started;
+    await st.start();
+    await until(() => st.relay.hellos.length === 3 && lines(st, "hello").length === 1);
     expect(lines(st).filter((l) => l.kind === "stop")).toEqual([]);
     expect(st.relay.hellos[2].contract).toEqual(st.relay.hellos[0].contract);
 
-    const st2 = await stand({ modules: [cost()], start: false });
+    const st2 = await stand({ modules: [cost()], start: false, pauseMs: 5 });
     st2.relay.refuse = ["bad_key"];
     await st2.start();
     await until(() => lines(st2, "relay_stopped").length === 1);
-    vi.advanceTimersByTime(60_000);
-    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, 100));
     expect(st2.relay.conns).toHaveLength(1);
     expect(lines(st2, "relay_stopped")[0]).toMatchObject({ kind: "stop", word: "bad_key" });
+    await st2.open("site@laptop");
+    turn(st2.proc("site@laptop"));
+    await until(() => st2.session("host-cost", "site@laptop")!.store<{ turns: number }>().get()?.turns === 1);
   });
 });

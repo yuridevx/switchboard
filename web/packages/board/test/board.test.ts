@@ -56,12 +56,25 @@ describe("список сессий", () => {
     await t.click(t.$('[data-callsign="site@laptop"]'));
     expect(location.hash).toBe("#card?callsign=site%40laptop");
     expect(t.$(".card-tabs")).not.toBeNull();
+    // сессия спрашивает — строка ведёт к экрану вопроса
+    t.relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    t.relay.push({ type: "question", from: "profiles@laptop", question: "q1", kind: "ask", questions: [{ question: "База?", options: [{ label: "a" }, { label: "b" }] }] });
+    t.button("‹")!.click();
+    await flush();
+    await t.click(t.$('[data-callsign="profiles@laptop"]'));
+    expect(location.hash).toBe("#ask?callsign=profiles%40laptop");
   });
 
   it("широкий вид: группы «нужны вы, в работе, свободны, остановлены», счётчик раздела need", async () => {
     const t = await stand(parts(), { wide: true });
     expect(t.$$(".board-mach").map((x) => x.textContent)).toEqual(["нужны вы1", "в работе1", "свободны1", "остановлены1"]);
+    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["profiles@laptop", "site@laptop", "poe-bot@pc", "wiki@pc"]);
     expect(t.$(".sb-navcol button")!.textContent).toBe("Сессии1");
+    expect(t.$$(".board-seg button").map((x) => x.textContent)).toEqual(["Все4", "Нужны вы1", "Отвечают1"]);
+    expect(t.$$(".board-tile b").map((x) => x.textContent)).toEqual(["1", "1", "1", "1"]);
+    expect(t.$(".board-slot")!.textContent).toBe("laptop · main · y0902site1");
+    // кроме hello — ни одного кадра
+    expect(t.relay.got.filter((f) => f.type !== "question.list")).toEqual([]);
   });
 
   it("дочь под родителем — и с другой машины: отступ и порядок дерева в группе машины корня; сессия инцидента — значок типа", async () => {

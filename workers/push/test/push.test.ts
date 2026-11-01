@@ -1,7 +1,8 @@
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { createExecutionContext, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
+import { Participant } from "../src/index.ts";
 import { b64u, unb64u } from "../src/webpush.ts";
 import { decrypt, fakeService, journal, sub, ua, type Ua } from "./helpers.ts";
 
@@ -53,11 +54,13 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны push", () => {
-  it("5 · push.send доставлен по подписке phone: тело расшифровывается ключами телефона, ok cut: false", async () => {
+  it("5 · 123 · push.send доставлен по подписке phone: aes128gcm, TTL, vapid t=…, k=…; тело расшифровывается ключами телефона, ok cut: false; текста в журнале нет", async () => {
     const phone = await ua();
     await subscribe("phone", phone, "https://web.push.apple.com/QK2s-5");
     const before = (await table()).find((r) => r.client === "phone");
     const svc = fakeService(201);
+    const log = journal();
+    const now = Date.now();
     const out = await frame(send("s-4", "phone"));
     expect(svc.posts).toHaveLength(1);
     expect(svc.posts[0].url).toBe("https://web.push.apple.com/QK2s-5");
@@ -65,6 +68,27 @@ describe("эталоны push", () => {
     expect(shown).toEqual({ type: "question", from: "profiles@laptop", notify: NOTIFY });
     expect(out).toEqual([{ type: "reply", id: "s-4", ok: true, result: { cut: false }, to: "@laptop" }]);
     expect((await table()).find((r) => r.client === "phone")).toEqual(before);
+    // заголовки службе: aes128gcm, TTL сутки, срочность, VAPID — JWT проверяется открытым ключом, aud — origin, срок ≤ суток
+    const h = svc.posts[0].headers;
+    expect(h.get("content-encoding")).toBe("aes128gcm");
+    expect(h.get("ttl")).toBe("86400");
+    expect(h.get("urgency")).toBe("high");
+    const m = /^vapid t=([^,]+), k=(.+)$/.exec(h.get("authorization") ?? "");
+    expect(m).not.toBeNull();
+    const [jwt, k] = [m![1], m![2]];
+    const [head, body, sig] = jwt.split(".");
+    const pub = await crypto.subtle.importKey("raw", unb64u(k), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
+    expect(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, unb64u(sig), new TextEncoder().encode(`${head}.${body}`))).toBe(true);
+    expect(JSON.parse(new TextDecoder().decode(unb64u(head)))).toEqual({ typ: "JWT", alg: "ES256" });
+    const claims = JSON.parse(new TextDecoder().decode(unb64u(body)));
+    expect(claims.aud).toBe("https://web.push.apple.com");
+    expect(claims.exp * 1000 - now).toBeLessThanOrEqual(86400 * 1000);
+    expect(claims.exp * 1000).toBeGreaterThan(now);
+    // журнал: строка sent, без текста уведомления и ключей подписки
+    expect(log).toContainEqual(expect.objectContaining({ part: "push", kind: "note", ev: "sent", client: "phone", status: 201 }));
+    const text = JSON.stringify(log);
+    expect(text).not.toContain(NOTIFY.body);
+    expect(text).not.toContain(phone.auth);
   });
 
   it("42 · подписка переживает перезапуск объекта push: пуш уходит по подписке, записанной до выпуска", async () => {
@@ -104,9 +128,12 @@ describe("эталоны push", () => {
     expect(out).toEqual([{ type: "reply", id: "s-5", ok: true, result: { cut: true }, to: "@laptop" }]);
   });
 
-  it("120 · подписка — по from: новая подписка phone заменяет свою строку, panel-desk пишет свою", async () => {
+  it("120 · подписка — по from: новая подписка phone заменяет свою строку, panel-desk пишет свою; в журнале хост без ключей", async () => {
     const phone = await ua();
+    const log = journal();
     await subscribe("phone120", phone, "https://web.push.apple.com/first");
+    expect(log).toContainEqual(expect.objectContaining({ part: "push", ev: "subscribe", client: "phone120", host: "web.push.apple.com" }));
+    expect(JSON.stringify(log)).not.toContain(phone.p256dh);
     const svc = fakeService(201);
     await frame(send("s-120", "phone120"));
     expect(svc.posts[0].url).toBe("https://web.push.apple.com/first");
@@ -136,30 +163,6 @@ describe("эталоны push", () => {
     expect(await relay.hello()).toEqual({ contract: { "push.key": 1, "push.send": 1, "push.subscribe": 1 } });
   });
 
-  it("123 · POST службе: aes128gcm, TTL, vapid t=…, k=…; JWT проверяется открытым ключом, aud — origin, срок ≤ суток", async () => {
-    const phone = await ua();
-    await subscribe("phone123", phone, "https://push.example/sub/123");
-    const svc = fakeService(201);
-    const now = Date.now();
-    await frame(send("s-123", "phone123"));
-    const h = svc.posts[0].headers;
-    expect(h.get("content-encoding")).toBe("aes128gcm");
-    expect(h.get("ttl")).toBe("86400");
-    const m = /^vapid t=([^,]+), k=(.+)$/.exec(h.get("authorization") ?? "");
-    expect(m).not.toBeNull();
-    const [jwt, k] = [m![1], m![2]];
-    const [head, body, sig] = jwt.split(".");
-    const pub = await crypto.subtle.importKey("raw", unb64u(k), { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]);
-    const good = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, pub, unb64u(sig), new TextEncoder().encode(`${head}.${body}`));
-    expect(good).toBe(true);
-    expect(JSON.parse(new TextDecoder().decode(unb64u(head)))).toEqual({ typ: "JWT", alg: "ES256" });
-    const claims = JSON.parse(new TextDecoder().decode(unb64u(body)));
-    expect(claims.aud).toBe("https://push.example");
-    expect(claims.exp * 1000 - now).toBeLessThanOrEqual(86400 * 1000);
-    expect(claims.exp * 1000).toBeGreaterThan(now);
-    expect(JSON.parse(await decrypt(svc.posts[0].body, open(phone))).type).toBe("question");
-  });
-
   it("124 · push.key — несжатая точка P-256 из x и y JWK; настройки VAPID_PUBLIC нет", async () => {
     const out = await frame({ type: "push.key", id: "k-1", to: ".push", from: "phone" });
     const key = unb64u((out[0] as unknown as { result: { key: string } }).result.key);
@@ -173,14 +176,28 @@ describe("эталоны push", () => {
 });
 
 describe("push: отказы и стык с relay", () => {
-  it("подписка без ключей — bad_frame, прежняя строка клиента не тронута, причина в журнале", async () => {
+  it("2019 · подписка не по контракту — bad_frame, прежняя строка клиента не тронута, причина в журнале", async () => {
     const tab = await ua();
     await subscribe("tab", tab, "https://web.push.apple.com/tab");
     const log = journal();
-    const out = await frame({ type: "push.subscribe", id: "u-2", to: ".push", from: "tab", sub: { endpoint: "https://x.example/1" } });
-    expect(out).toEqual([{ type: "reply", id: "u-2", ok: false, error: "bad_frame", to: "tab" }]);
+    const good = sub(tab, "https://x.example/1");
+    const bad: Array<[unknown, string]> = [
+      [undefined, "нет sub"],
+      [{ ...good, endpoint: "http://x.example/1" }, "в подписке нет https-адреса"],
+      [{ endpoint: "https://x.example/1" }, "в подписке нет ключей"],
+      [{ ...good, keys: { ...good.keys, p256dh: b64u(new Uint8Array(33)) } }, "p256dh — не точка P-256 в 65 Б"],
+      [{ ...good, keys: { ...good.keys, auth: b64u(new Uint8Array(8)) } }, "auth — не 16 Б"],
+      [{ ...good, keys: { ...good.keys, auth: "!!!" } }, "ключи подписки — не base64url"],
+    ];
+    for (const [s, why] of bad) {
+      const out = await frame({ type: "push.subscribe", id: "u-2", to: ".push", from: "tab", sub: s });
+      expect(out, why).toEqual([{ type: "reply", id: "u-2", ok: false, error: "bad_frame", to: "tab" }]);
+      expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why, from: "tab" }));
+    }
     expect((await table()).find((r) => r.client === "tab")?.endpoint).toBe("https://web.push.apple.com/tab");
-    expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why: "в подписке нет ключей", from: "tab" }));
+    // без from — имя клиента некому поставить
+    await relay.frame({ type: "push.subscribe", id: "u-3", to: ".push", sub: good });
+    expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why: "нет from — имя клиента ставит relay" }));
   });
 
   it("у клиента нет подписки — gone, службу не зовёт", async () => {
@@ -189,10 +206,40 @@ describe("push: отказы и стык с relay", () => {
     expect(svc.posts).toHaveLength(0);
   });
 
-  it("push.send без push — bad_frame; чужое имя — unknown_request; другая версия — contract_mismatch", async () => {
-    expect(await frame({ type: "push.send", id: "b-1", to: ".push", from: "@pc" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
-    expect(await frame({ type: "push.drop", id: "b-2", to: ".push", from: "@pc" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
-    expect(await frame({ ...send("b-3", "phone"), v: 2 })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
+  it("2016 · вход отклонён: чужое имя — unknown_request, другая версия — contract_mismatch, reply — только строка note", async () => {
+    const log = journal();
+    expect(await frame({ type: "push.drop", id: "b-2", to: ".push", from: "@pc" })).toEqual([{ type: "reply", id: "b-2", ok: false, error: "unknown_request", to: "@pc" }]);
+    expect(await frame({ ...send("b-3", "phone"), v: 2 })).toEqual([{ type: "reply", id: "b-3", ok: false, error: "contract_mismatch", to: "@laptop" }]);
+    expect(await frame({ type: "reply", id: "x", ok: true, to: ".push", from: "@pc" })).toEqual([]);
+    expect(log.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
+      ["refuse", "unknown_request"],
+      ["refuse", "contract_mismatch"],
+      ["note", "reply"],
+    ]);
+  });
+
+  it("2018 · push.send не по контракту или не влезает и без body — bad_frame, службу не зовёт", async () => {
+    const phone = await ua();
+    await subscribe("phone2018", phone, "https://push.example/2018");
+    const svc = fakeService(201);
+    const bad: Frame[] = [
+      { type: "push.send", id: "b-1", to: ".push", from: "@pc" },
+      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { type: "question", notify: {} } },
+      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", notify: {} } },
+      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", type: "question" } },
+      send("b-1", "phone2018", { title: "x".repeat(5000) }),
+    ];
+    for (const f of bad) expect(await frame(f)).toMatchObject([{ id: "b-1", ok: false, error: "bad_frame" }]);
+    expect(svc.posts).toHaveLength(0);
+  });
+
+  it("2017 · объект подписок бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
+    const log = journal();
+    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой подписок")) }) };
+    const p = new Participant(createExecutionContext(), { ...env, SUBS: broken } as never);
+    await expect(p.frame({ type: "push.key", id: "k", to: ".push", from: "phone" })).rejects.toThrow("сбой подписок");
+    expect(log).toContainEqual(expect.objectContaining({ part: "push", kind: "stop", ev: "push.key", from: "phone", why: "Error: сбой подписок" }));
+    expect(await env.RELAY_LOG.take()).toEqual([]);
   });
 
   it("служба не ответила (сеть) — push_failed с причиной в журнале", async () => {

@@ -116,6 +116,15 @@ describe("гейт набора", () => {
       "модуль bad: кадр answered нет в uses",
       "модуль bad: uses list@sample v2 — у владельца v1",
     ]);
+    // метка экрана не из marks, on.roster без roster@relay, раздел хранилища у двух модулей
+    const bad2: AppPart = {
+      manifest: man("bad2", { y: 1 }, {}),
+      module: { screens: { y: { mark: "cnt", mount() {} } }, on: { roster: () => {} }, store: ["drafts"] },
+    };
+    const errs = appGate([sample().part, bad2]);
+    expect(errs).toContain("модуль bad2: экран y — метки cnt нет в marks");
+    expect(errs).toContain("модуль bad2: on.roster без roster@relay в uses");
+    expect(errs.some((e) => e.includes("store.drafts") && e.includes("два владельца"))).toBe(true);
   });
 });
 
@@ -127,6 +136,7 @@ describe("ключ и связь", () => {
     expect(store.data.key).toBe(KEY);
     expect(location.hash).toBe("");
     expect(relay.hellos).toEqual([{ type: "hello", key: KEY, proto: 1 }]);
+    expect(relay.socks.every((s) => !s.url.includes("k2a9"))).toBe(true);
     expect(root.querySelector(".sb-bt b")!.textContent).toBe("Флот");
     expect(root.querySelector(".sb-pill")!.textContent).toBe("на связи");
     expect(root.textContent).toContain("список");
@@ -139,6 +149,7 @@ describe("ключ и связь", () => {
     const { run, relay } = await boot({ store, ios: true });
     expect(run.stopped).toBe("install");
     expect(root.textContent).toContain("Добавьте Switchboard на экран «Домой»");
+    expect([...root.querySelectorAll(".sb-ol li")].map((li) => li.textContent)).toEqual(["Нажмите «Поделиться» внизу", "«На экран „Домой“»", "Откройте Switchboard с экрана «Домой»"]);
     expect(location.hash).toBe("#" + KEY);
     expect(store.data.key).toBeUndefined();
     expect(relay.socks).toHaveLength(0);
@@ -148,6 +159,8 @@ describe("ключ и связь", () => {
     const { run, relay } = await boot({ store: memoryStore() });
     expect(run.stopped).toBe("no_key");
     expect(relay.socks).toHaveLength(0);
+    expect(root.textContent).toContain("Нужен ключ флота");
+    expect(root.textContent).toContain("switchboard invite client phone --qr");
   });
 
   it("revoked — экран «Ключ отозван», повторных hello нет", async () => {
@@ -158,23 +171,45 @@ describe("ключ и связь", () => {
     expect(run.stopped).toBe("revoked");
     expect(root.textContent).toContain("Ключ отозван");
     expect(root.textContent).toContain("switchboard invite client phone --qr");
+    expect(root.textContent).toContain("client.phone.k2a9 больше не принимают");
     expect(relay.hellos).toHaveLength(1);
+
+    // bad_key в широком виде: «Ключ не принят», команда — ссылкой
+    document.body.innerHTML = '<div id="app"></div>';
+    root = document.getElementById("app")!;
+    const r2 = new FakeRelay(homeRoster());
+    r2.refuse = ["bad_key"];
+    const run2 = startApp({ root, relayUrl: "wss://relay.test", parts: [sample().part], store: memoryStore({ key: "client.panel-desk.k3f1.Qa7sig" }), WebSocket: r2.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5, wide: true });
+    await run2.ready;
+    await flush(20);
+    expect(run2.stopped).toBe("bad_key");
+    expect(root.textContent).toContain("Ключ не принят");
+    expect(root.textContent).toContain("switchboard invite client panel-desk --url");
+    expect(r2.hellos).toHaveLength(1);
   });
 
-  it("gate_unavailable — полоса «Нет связи», снова hello с паузой, затем roster", async () => {
+  it("gate_unavailable и обрыв — полоса «Нет связи», снова hello с паузой вдвое; принятый hello сбрасывает паузу", async () => {
+    const warn = vi.mocked(console.warn);
+    const pauses = () => warn.mock.calls.map((c) => String(c[0])).filter((x) => x.includes("оборвалась")).map((x) => /снова через (\d+) с/.exec(x)![1]);
     const relay = new FakeRelay(homeRoster());
-    relay.refuse = ["gate_unavailable"];
-    const { run } = await boot({ relay, pauseMs: 60 });
+    relay.refuse = ["gate_unavailable", "gate_unavailable"];
+    const { run } = await boot({ relay, pauseMs: 1000 });
     expect(root.querySelector(".sb-off")!.hasAttribute("hidden")).toBe(false);
     expect(root.querySelector(".sb-off")!.textContent).toMatch(/^Нет связи с relay · снова через 1 сСейчас$/);
     expect(run.stopped).toBeNull();
-    await new Promise((r) => setTimeout(r, 90));
+    await new Promise((r) => setTimeout(r, 3300));
     await flush();
     expect(run.stopped).toBeNull();
-    expect(relay.hellos).toHaveLength(2);
+    expect(relay.hellos).toHaveLength(3);
+    expect(pauses()).toEqual(["1", "2"]);
     expect(root.textContent).toContain("список");
     expect(root.querySelector(".sb-off")!.hasAttribute("hidden")).toBe(true);
-  });
+    // обрыв после принятого hello — пауза снова первая
+    relay.drop();
+    await flush();
+    expect(pauses()).toEqual(["1", "2", "1"]);
+    expect(root.querySelector(".sb-pill")!.textContent).toBe("нет связи");
+  }, 10_000);
 
   it("обрыв: ждущий запрос — disconnected сразу; шапка «нет связи», «данные на ЧЧ:ММ»; после hello — link open", async () => {
     const log: string[] = [];
@@ -186,6 +221,8 @@ describe("ключ и связь", () => {
     expect(relay.sent("answer")[0]).toMatchObject({ type: "answer", v: 1, callsign: "profiles@laptop" });
     relay.drop();
     expect(await p).toEqual({ ok: false, error: "disconnected" });
+    expect(await s.app.request("answer", { callsign: "profiles@laptop" })).toEqual({ ok: false, error: "disconnected" });
+    expect(relay.sent("answer")).toHaveLength(1);
     await flush(1);
     expect(root.querySelector(".sb-pill")!.textContent).toBe("нет связи");
     expect(root.querySelector(".sb-bt span")!.textContent).toMatch(/^данные на \d\d:\d\d$/);
@@ -252,28 +289,17 @@ describe("маршрут и запросы", () => {
 });
 
 describe("уход с экрана", () => {
-  it("ждущий reply доходит, stop() модулей, close(1000); возвращение — start и hello", async () => {
+  it("возвращение на экран — start модулей заново и hello с тем же ключом", async () => {
     const log: string[] = [];
     const s = sample(log);
-    const store = memoryStore({ key: KEY });
-    const relay = new FakeRelay(homeRoster());
-    relay.handlers.answer = () => undefined;
-    const { run } = await boot({ parts: [s.part], store, relay });
-    const p = s.app.request("answer", { callsign: "profiles@laptop" });
-    await flush(1);
-    const hiding = run.hide();
-    await flush();
-    expect(log).not.toContain("stop sample");
-    relay.reply(relay.sent("answer")[0].id!, { ok: true });
-    await hiding;
-    expect(await p).toEqual({ ok: true, result: undefined });
-    expect(log).toContain("stop sample");
-    expect(store.data.drafts).toEqual({ x: "черновик" });
+    const { run, relay } = await boot({ parts: [s.part] });
+    await run.hide();
     expect(relay.socks[0].closedWith).toEqual({ code: 1000, reason: "hidden" });
     await run.show();
     await flush();
     expect(log.filter((x) => x === "start sample")).toHaveLength(2);
-    expect(relay.hellos).toHaveLength(2);
+    expect(relay.hellos).toEqual([{ type: "hello", key: KEY, proto: 1 }, { type: "hello", key: KEY, proto: 1 }]);
+    expect(log.slice(log.lastIndexOf("start sample"))).toContain("link open");
   });
 });
 

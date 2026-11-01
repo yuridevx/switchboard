@@ -63,6 +63,8 @@ export type StandOptions = {
   config?: Partial<HostConfig>;
   /** стартовать сразу; по умолчанию да */
   start?: boolean;
+  /** первая пауза переподключения клиента рации; по умолчанию 1 с */
+  pauseMs?: number;
 };
 
 export type Stand = {
@@ -147,7 +149,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     WebSocket: relay.WebSocket,
     clock,
     exit: (code) => exits.push(code),
-    pauseMs: 1000,
+    pauseMs: o.pauseMs ?? 1000,
   });
   // свой модуль стенда вне списка: тест видит сессию так же, как модуль
   const standMod = new Mod({ name: "stand", type: "sdk", version: "0.0.0", provides: {}, uses: {}, config: {} }, {}, 0);

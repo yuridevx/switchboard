@@ -1,7 +1,8 @@
-import { env, runInDurableObject } from "cloudflare:test";
+import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
+import { Participant } from "../src/index.ts";
 import type { Registry } from "../src/registry.ts";
 
 const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
@@ -11,7 +12,9 @@ let n = 0;
 const fresh = () => env.REGISTRY.get(env.REGISTRY.idFromName(`t-${++n}-${Math.random()}`)) as unknown as Stub;
 
 const DAY = 86_400_000;
-const T0 = Date.UTC(2026, 9, 31, 20, 0);
+// часы теста — в будущем: будильник объекта ставится от поддельного Date.now(), а срабатывает по настоящим часам;
+// T0 в прошлом — будильники срабатывают сразу и по кругу, уборка идёт посреди тестов, рантайм не затихает
+const T0 = Date.UTC(2030, 9, 31, 20, 0);
 const clock = (t: number) => vi.setSystemTime(t);
 
 /** Поддельный API Cloudflare: выдаёт временный ключ и записывает тела запросов. */
@@ -24,6 +27,13 @@ function fakeCf(status = 200) {
     return Response.json({ success: true, result: { accessKeyId: "AK", secretAccessKey: "SK", sessionToken: "ST" } });
   });
   return calls;
+}
+
+/** Строки журнала points, которые попали в console.log. */
+function journal() {
+  const lines: Array<Record<string, unknown>> = [];
+  vi.spyOn(console, "log").mockImplementation((x: unknown) => void lines.push(JSON.parse(String(x))));
+  return lines;
 }
 
 /** Блоки, уже лежащие в R2. */
@@ -75,7 +85,10 @@ describe("эталоны points", () => {
     const s = fresh();
     await inR2("201a1");
     await line(s, "@pc", "s201", 2, ["201a1"]);
-    const out = await put(s, "@laptop", "s201", file(["201a1"], 99));
+    // блока 201zz в R2 нет: хозяин проверяется до похода в R2 — ключа на запись не просим
+    const api = fakeCf();
+    const out = await put(s, "@laptop", "s201", file(["201a1", "201ff"], 99));
+    expect(api).toHaveLength(0);
     expect(out).toEqual([{ type: "reply", id: "p", ok: false, error: "not_owner", owner: "pc", to: "@laptop" }]);
     expect(await count(s, "SELECT COUNT(*) AS n FROM points")).toBe(2);
     expect(await sessionRow(s, "s201")).toEqual({ owner: "pc", head: 2 });
@@ -96,7 +109,8 @@ describe("эталоны points", () => {
     await inR2("202b7");
     const second = await put(s, "@laptop", "s202", file(["202a1", "202b7"]));
     expect(second[0]).toMatchObject({ ok: true, result: { id: 2 } });
-    expect(await count(s, "SELECT COUNT(*) AS n FROM blocks WHERE hash = ?", "202b7")).toBe(1);
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    expect((l.result as { r2: { blocks: number } }).r2.blocks).toBe(2);
   });
 
   it("203 · голова 7, точка хозяина с теми же файлами — ok { id: 7, same: true }, новой строки нет", async () => {
@@ -203,6 +217,7 @@ describe("эталоны points", () => {
     expect(await count(s, "SELECT COUNT(*) AS n FROM points WHERE id = 2")).toBe(0);
     expect(await count(s, "SELECT COUNT(*) AS n FROM blocks WHERE hash = '207c4'")).toBe(0);
     expect([await env.BUCKET.head("f/207a1"), await env.BUCKET.head("f/207b7"), await env.BUCKET.head("f/207c4")].map((o) => !!o)).toEqual([true, true, false]);
+    expect(await sweep(s)).toEqual({ points: 0, blocks: 0, bytes: 0 });
 
     const empty = fresh();
     for (let i = 0; i < 500; i++) await env.BUCKET.put(`f/207ff${i.toString(16).padStart(4, "0")}`, "x");
@@ -298,16 +313,182 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     });
   });
 
-  it("points.delete от машины, которая не хозяин, — not_owner; файлы точки не по контракту — bad_frame", async () => {
+  it("2070 · points.delete: машина не хозяин — not_owner; нет sid — bad_frame; точки целы", async () => {
     const s = fresh();
     await inR2("304a1");
     await put(s, "@laptop", "s304", file(["304a1"]));
     expect(await s.frame({ type: "points.delete", id: "d", to: ".points", from: "@mac", sid: "s304" })).toEqual([
       { type: "reply", id: "d", ok: false, error: "not_owner", owner: "laptop", to: "@mac" },
     ]);
-    expect(await put(s, "@laptop", "s304", [{ p: "x", size: 1, b: ["../etc"] }])).toMatchObject([{ ok: false, error: "bad_frame" }]);
-    expect(await put(s, "panel", "s304", file(["304a1"]))).toMatchObject([{ ok: false, error: "bad_frame" }]);
-    expect(await s.frame({ type: "points.drop", id: "d", to: ".points", from: "panel" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
+    expect(await s.frame({ type: "points.delete", id: "d", to: ".points", from: "@laptop" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s304" });
+    expect((l.result as { points: unknown[] }).points).toHaveLength(1);
+  });
+
+  it("2064 · points.put не по контракту — bad_frame, точек не прибавилось", async () => {
+    const s = fresh();
+    await inR2("2064a", "2064b");
+    await put(s, "@laptop", "s2064", file(["2064a"]));
+    await put(s, "@laptop", "s2064o", file(["2064b"]));
+    const other = ((await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2064o" }))[0].result as { points: Array<{ id: number }> }).points[0];
+    const bad: Array<[string, Record<string, unknown>, unknown?]> = [
+      ["panel", {}],
+      ["@laptop", { sid: "" }],
+      ["@laptop", { why: "zzz" }],
+      ["@laptop", {}, []],
+      ["@laptop", {}, [{ p: "x", size: 1, b: ["../etc"] }]],
+      ["@laptop", {}, [{ p: "x", b: ["2064a"] }]],
+      ["@laptop", { base: 1.5 }],
+      ["@laptop", { why: "raise", expect: "laptop" }],
+      ["@laptop", { why: "raise", base: other.id, expect: "laptop" }],
+    ];
+    for (const [from, extra, files] of bad) {
+      expect(await put(s, from, "s2064", files ?? file(["2064a"], 7), extra), JSON.stringify(extra)).toMatchObject([{ ok: false, error: "bad_frame" }]);
+    }
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2064" });
+    expect((l.result as { points: unknown[] }).points).toHaveLength(1);
+  });
+
+  it("2058 · вход отклонён: чужое имя — unknown_request, другая версия — contract_mismatch, без id — только строка, reply — note", async () => {
+    const s = fresh();
+    const lines = journal();
+    expect(await s.frame({ type: "points.drop", id: "d", to: ".points", from: "panel" })).toEqual([{ type: "reply", id: "d", ok: false, error: "unknown_request", to: "panel" }]);
+    expect(await s.frame({ type: "points.list", id: "d", v: 2, to: ".points", from: "panel" })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
+    expect(await s.frame({ type: "points.list", to: ".points", from: "panel" })).toEqual([]);
+    expect(await s.frame({ type: "reply", id: "x", ok: true, to: ".points", from: "panel" })).toEqual([]);
+    expect(lines.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
+      ["refuse", "unknown_request"],
+      ["refuse", "contract_mismatch"],
+      ["refuse", "bad_frame"],
+      ["note", "reply"],
+    ]);
+  });
+
+  it("2059 · объект реестра бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
+    const lines = journal();
+    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой реестра")) }) };
+    const p = new Participant(createExecutionContext(), { ...env, REGISTRY: broken } as never);
+    await expect(p.frame({ type: "points.list", id: "l", to: ".points", from: "panel" })).rejects.toThrow("сбой реестра");
+    expect(lines).toContainEqual(expect.objectContaining({ part: "points", kind: "stop", ev: "points.list", from: "panel" }));
+    expect(await env.RELAY_LOG.take()).toEqual([]);
+  });
+
+  it("2060 · relay не принял кадр (ledger не на связи) — ответ ушёл, строка refuse, вызов не бросает", async () => {
+    await inR2("2060a");
+    await relay.frame({ type: "points.put", id: "p-1", to: ".points", from: "@laptop", sid: "s2060", why: "rule", files: file(["2060a"]), callsign: "x@laptop" });
+    await env.RELAY_LOG.take();
+    const lines = journal();
+    await env.RELAY_LOG.answer("offline");
+    await relay.frame({ type: "points.delete", id: "d-1", to: ".points", from: "panel", sid: "s2060" });
+    const sent = await env.RELAY_LOG.take();
+    expect(sent.map((x) => x.frame.type)).toEqual(["reply", "ledger.add"]);
+    expect(lines).toContainEqual(expect.objectContaining({ part: "points", ev: "relay", word: "offline", to: ".ledger", type: "ledger.add" }));
+  });
+
+  it("2061 · копия — новый sid с base из другой сессии: хозяин — машина копии, исходная цела, session.copied", async () => {
+    const s = fresh();
+    await inR2("2061a");
+    const [p1] = await line(s, "@laptop", "s2061", 1, ["2061a"]);
+    const out = await put(s, "@pc", "s2061c", file(["2061a"], 5), { base: p1, callsign: "copy@pc" });
+    expect(out[0]).toMatchObject({ ok: true, to: "@pc" });
+    expect(out[1]).toEqual({ type: "ledger.add", v: 1, to: ".ledger", ev: "session.copied", text: `site → copy@pc · из точки ${p1}`, machine: "pc", callsign: "copy@pc" });
+    const [c] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2061c" });
+    const r = c.result as { owner: string; head: number; points: Array<{ id: number; base: number }> };
+    expect(r.owner).toBe("pc");
+    expect(r.points).toEqual([expect.objectContaining({ id: r.head, base: p1 })]);
+    const [o] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2061" });
+    expect(o.result).toMatchObject({ owner: "laptop", head: p1 });
+  });
+
+  it("2062 · основы нет — no_point с номером", async () => {
+    const s = fresh();
+    await inR2("2062a");
+    await line(s, "@laptop", "s2062", 1, ["2062a"]);
+    expect(await put(s, "@pc", "s2062c", file(["2062a"]), { base: 99 })).toEqual([{ type: "reply", id: "p", ok: false, error: "no_point", ids: [99], to: "@pc" }]);
+    expect(await put(s, "@pc", "s2062", file(["2062a"]), { why: "raise", base: 99, expect: "laptop" })).toMatchObject([{ ok: false, error: "no_point", ids: [99] }]);
+  });
+
+  it("2063 · points.put: API Cloudflare не выдал ключ — r2_failed, точки нет, ключей в журнале нет", async () => {
+    const s = fresh();
+    fakeCf(403);
+    const lines = journal();
+    expect(await put(s, "@laptop", "s2063", file(["2063ff"]))).toEqual([{ type: "reply", id: "p", ok: false, error: "r2_failed", to: "@laptop" }]);
+    expect(lines).toContainEqual(expect.objectContaining({ part: "points", ev: "points.put", word: "r2_failed", status: 403 }));
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2063" });
+    expect(l.result).toEqual({ owner: null, head: null, points: [] });
+  });
+
+  it("2065 · подъём хозяином от своей головы — точка без события", async () => {
+    const s = fresh();
+    await inR2("2065a");
+    const ids = await line(s, "@laptop", "s2065", 2, ["2065a"]);
+    const out = await put(s, "@laptop", "s2065", file(["2065a"], 2), { why: "raise", base: ids[1], expect: "laptop" });
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ ok: true });
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2065" });
+    const r = l.result as { owner: string; head: number; points: Array<{ id: number; base: number }> };
+    expect([r.owner, r.points.find((x) => x.id === r.head)?.base]).toEqual(["laptop", ids[1]]);
+  });
+
+  it("2066 · прежний хозяин вернулся без нового — same, пустой ветки нет", async () => {
+    const s = fresh();
+    await inR2("2066a");
+    const ids = await line(s, "@laptop", "s2066", 2, ["2066a"]);
+    await put(s, "@pc", "s2066", file(["2066a"], 2), { why: "raise", base: ids[1], expect: "laptop" });
+    type L = { owner: string; head: number; points: unknown[] };
+    const before = (await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2066" }))[0].result as L;
+    const y = await put(s, "@laptop", "s2066", file(["2066a"], 2), { why: "yield" });
+    expect(y).toEqual([{ type: "reply", id: "p", ok: true, result: { id: ids[1], same: true }, to: "@laptop" }]);
+    const after = (await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2066" }))[0].result as L;
+    expect([after.owner, after.head, after.points.length]).toEqual([before.owner, before.head, before.points.length]);
+  });
+
+  it("2067 · points.get: ids не непустой список целых — bad_frame", async () => {
+    const s = fresh();
+    for (const ids of [undefined, [], ["a"], [1.5]]) {
+      expect(await s.frame({ type: "points.get", id: "g", to: ".points", from: "panel", ids })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+    }
+  });
+
+  it("2068 · points.list сессии, которой нет, — пустой ответ", async () => {
+    const s = fresh();
+    expect(await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "zz" })).toEqual([
+      { type: "reply", id: "l", ok: true, result: { owner: null, head: null, points: [] }, to: "panel" },
+    ]);
+  });
+
+  it("2069 · points.delete сессии, которой нет, — нули без события", async () => {
+    const s = fresh();
+    expect(await s.frame({ type: "points.delete", id: "d", to: ".points", from: "panel", sid: "zz" })).toEqual([
+      { type: "reply", id: "d", ok: true, result: { points: 0, blocks: 0, bytes: 0 }, to: "panel" },
+    ]);
+  });
+
+  it("2071 · сессия без новых точек год уходит целиком: из обзора и её блоки из R2", async () => {
+    const s = fresh();
+    await inR2("2071a", "2071b");
+    await put(s, "@laptop", "s2071", file(["2071a"]));
+    clock(T0 + 366 * DAY);
+    await put(s, "@laptop", "s2071n", file(["2071b"]));
+    await sweep(s);
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    expect((l.result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["s2071n"]);
+    expect([!!(await env.BUCKET.head("f/2071a")), !!(await env.BUCKET.head("f/2071b"))]).toEqual([false, true]);
+  });
+
+  it("2072 · будильник уборки: ставится на сутки при первом старте, не сдвигается; срабатывание убирает и ставит снова", async () => {
+    const s = fresh();
+    await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    const alarm = () => runInDurableObject(s, (_o, st) => st.storage.getAlarm());
+    expect(await alarm()).toBe(T0 + DAY);
+    clock(T0 + 3600_000);
+    await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    expect(await alarm()).toBe(T0 + DAY);
+    clock(T0 + DAY);
+    expect(await runDurableObjectAlarm(s)).toBe(true);
+    expect(await alarm()).toBe(T0 + 2 * DAY);
+    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    expect((l.result as { sweep: { at: number } }).sweep.at).toBe(T0 + DAY);
   });
 
   it("через вход участника: reply и ledger.add уходят в relay по привязке с именем points", async () => {

@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +31,11 @@ func TestMain(m *testing.M) {
 		switch os.Args[1] {
 		case "hold":
 			os.Exit(runHold(os.Args[2:]))
+		case "keeper":
+			// настоящий вход файла keeper: аргументы — как у него
+			os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
+			main()
+			return
 		case "app":
 			fakeApp(os.Args[2:])
 			return
@@ -78,6 +84,14 @@ func fakeApp(args []string) {
 			fmt.Printf("child %d\n", ch.Process.Pid)
 		}
 	}
+	if mode == "host" {
+		// как Host: держатель сессии запускает сама часть, он переживает её смену версии
+		self, _ := os.Executable()
+		home, _ := homeDir()
+		if f, err := spawnHolder(home, holdSpec{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}}); err == nil {
+			fmt.Printf("session %d\n", f.Pid)
+		}
+	}
 	if mode == "chatty" {
 		go func() {
 			for i := 0; ; i++ {
@@ -124,6 +138,8 @@ type fakeRelay struct {
 	silent int              // столько первых вопросов остаются без ответа — «выпуски» молчат
 	asked  []map[string]any // вопросы releases.plan как пришли
 	refuse string           // не пусто — «выпуски» отвечают на вопрос отказом с этим словом
+	hello  map[string]any   // последний hello keeper
+	opens  int              // принятых hello
 }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
@@ -146,6 +162,8 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		}
 		r.mu.Lock()
 		r.ws = ws
+		r.hello = hello
+		r.opens++
 		r.mu.Unlock()
 		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster","machines":[],"sessions":[],"clients":[],"workers":[]}`))
 		r.opened <- struct{}{}
@@ -492,4 +510,39 @@ func journalLine(home, s string) map[string]any {
 		}
 	}
 	return nil
+}
+
+// seen — что relay видел от keeper: последний hello и сколько hello принято.
+func (r *fakeRelay) seen() (map[string]any, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.hello, r.opens
+}
+
+// ledgerCount — строк журнала флота ev text, начинающихся с prefix.
+func (r *fakeRelay) ledgerCount(prefix string) int {
+	n := 0
+	for _, e := range r.ledgerEvs() {
+		if strings.HasPrefix(e, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+// runKeeper — этот тестовый бинарь в роли файла keeper: настоящий main с args, SWITCHBOARD_HOME — home, stdin — in.
+func runKeeper(t *testing.T, home, in string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	self, _ := os.Executable()
+	cmd := exec.Command(self, append([]string{"keeper"}, args...)...)
+	cmd.Env = append(os.Environ(), "SWITCHBOARD_HOME="+home)
+	cmd.Stdin = strings.NewReader(in)
+	var o, e strings.Builder
+	cmd.Stdout, cmd.Stderr = &o, &e
+	err := cmd.Run()
+	var xe *exec.ExitError
+	if err != nil && !errors.As(err, &xe) {
+		t.Fatalf("keeper %v: %v", args, err)
+	}
+	return cmd.ProcessState.ExitCode(), o.String(), e.String()
 }

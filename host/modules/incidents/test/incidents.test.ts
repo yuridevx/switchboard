@@ -73,13 +73,14 @@ const said = (p: stand.FakeProc, i = 0) => {
 };
 
 /** Host win: incidents с типами disk-full, build-red, nodir (папки нет), noprof (профиля нет). */
-async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number } = {}) {
+async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number; start?: boolean } = {}) {
   const port = o.port ?? (await freePort());
   const work = mkdtempSync(join(tmpdir(), "switchboard-incidents-"));
   const st = await standHost({
     machine: "win",
     home: o.home,
     holders: o.holders,
+    ...(o.start === false ? { start: false } : {}),
     config: {
       modules: {
         "host-incidents": {
@@ -397,5 +398,96 @@ describe("эталоны incidents: ожидаемые ветки", () => {
     await until(() => b.disk().length === 0);
     await new Promise((r) => setTimeout(r, 30));
     expect(p.inputs).toHaveLength(1);
+  });
+});
+
+describe("incidents: покрытие плана host-modules", () => {
+  it("3098 · сбой модуля при приёме — 500 module_error, причина в журнале", async () => {
+    // источник: чьё: код (incidents/contract.ts:4; incidents.ts:210-213)
+    const { st, post } = await bench();
+    // раздел машины не пишется: на месте его файла — папка
+    mkdirSync(join(st.home, "store", "host-incidents.json", "x"), { recursive: true });
+    const r = await post({ type: "disk-full", key: "C:", text: "x" });
+    expect(r).toEqual({ status: 500, body: { error: "module_error" } });
+    expect(st.journal().some((l) => l.ev === "incident" && l.kind === "stop" && l.word === "module_error")).toBe(true);
+  });
+
+  it("3099 · без ключа и с вложением — тег без key, блок картинки, поле incident без ключа", async () => {
+    // источник: чьё: код (incidents.ts:30-31, :155, :162-169)
+    const { st, post } = await bench();
+    const r = await post({ type: "build-red", text: "упал", attachments: [PNG] });
+    const id = r.body.id as string;
+    const p = await until(() => st.holders.procs.get("build-red-1@win"));
+    await until(() => p.inputs.length === 1);
+    expect(p.inputs[0].message.content).toEqual([
+      { type: "text", text: wrap("build-red", undefined, "упал", id) },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: PNG.data } },
+    ]);
+    expect(said(p)).not.toContain("key=");
+    await until(() => st.states("build-red-1@win").at(-1)?.incident);
+    expect(st.states("build-red-1@win").at(-1)!.incident).toEqual({ type: "build-red" });
+  });
+
+  it("3100 · POST до ready — 202 сразу, доставка на ready", async () => {
+    // источник: чьё: код (incidents.ts:42-43, :111, :192-195)
+    const k = new FakeHolders();
+    keepers.push(k);
+    const a = await bench({ holders: k });
+    await a.post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await until(() => k.procs.get("disk-full-1@win"));
+    await until(() => p.inputs.length === 1);
+    take(p);
+    await until(() => a.disk().length === 0);
+    await a.st.close();
+    stands.splice(stands.indexOf(a.st), 1);
+    // процесс умер без Host: новый Host поднимет сессию по resume, а новый процесс не ответит на initialize — ready ждёт
+    p.exit(1, "упал");
+    k.failInitNext = 1;
+    const b = await bench({ holders: k, home: a.st.home, port: a.port, start: false });
+    const starting = b.st.start();
+    const q = await until(() => [...k.procs.values()].find((x) => x !== p && x.id === "disk-full-1@win"));
+    const r = await b.post({ type: "disk-full", key: "D:", text: "Свободно 4%" });
+    expect(r.status).toBe(202);
+    await new Promise((x) => setTimeout(x, 30));
+    expect(b.st.kernel.sessions.has("disk-full-2@win")).toBe(false);
+    const w = q as unknown as { failInit: boolean; write: (x: unknown) => void };
+    w.failInit = false;
+    w.write({ $: "initialized" });
+    await starting;
+    const d = await until(() => k.procs.get("disk-full-2@win"));
+    await until(() => d.inputs.length === 1);
+    expect(d.inputs[0].uuid).toBe(r.body.id);
+  });
+
+  it("3101 · остановленная сессия — не цель доставки: тот же ключ открывает новую", async () => {
+    // источник: чьё: код (incidents.ts:57-60)
+    const { st, post } = await bench();
+    await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await until(() => st.holders.procs.get("disk-full-1@win"));
+    await until(() => p.inputs.length === 1);
+    take(p);
+    expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "disk-full-1@win" })).toMatchObject({ ok: true });
+    await post({ type: "disk-full", key: "C:", text: "Свободно 1%" });
+    const q = await until(() => st.holders.procs.get("disk-full-2@win"));
+    await until(() => q.inputs.length === 1);
+    expect(said(q)).toContain("Свободно 1%");
+  });
+
+  it("3102 · обычная сессия с именем, похожим на тип, — без правила и поля incident", async () => {
+    // источник: чьё: код (incidents.ts:164-168)
+    const { st, options } = await bench();
+    await st.open("disk-full-x@win");
+    expect(options("disk-full-x@win").systemPrompt.append ?? "").not.toContain("Ты отрабатываешь инцидент");
+    expect(st.states("disk-full-x@win").every((f) => !("incident" in f))).toBe(true);
+  });
+
+  it("3103 · port не задан — сервера нет, модуль работает", async () => {
+    // источник: чьё: код (incidents.ts:200-201)
+    const st = await standHost({ machine: "win", config: { modules: { "host-incidents": { types: { x: { dir: tmpdir() } } } } }, modules: [{ manifest: manifest as Manifest, module: make() }] });
+    stands.push(st);
+    expect(st.startError).toBeNull();
+    expect(st.journal().some((l) => l.ev === "incident_listen")).toBe(false);
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+    await st.open("a@win");
   });
 });

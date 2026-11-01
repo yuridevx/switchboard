@@ -81,6 +81,11 @@ describe("раскладка широкого вида", () => {
     expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["wiki@laptop"]);
     await t.type(t.$(".board-q"), "y0902");
     expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["api@pc", "poe-bot@pc", "docs@pc"]);
+    // фильтр «нужны вы» поверх поиска
+    await t.click(t.$('[data-filter="need"]'));
+    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["api@pc"]);
+    await t.type(t.$(".board-q"), "");
+    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["profiles@laptop", "api@pc"]);
     expect(t.relay.got).toEqual([]);
   });
 

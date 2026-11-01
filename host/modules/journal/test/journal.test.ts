@@ -175,3 +175,24 @@ describe("journal: юнит и стыки", () => {
     expect(one({ type: "assistant", message: {} })).toEqual([]);
   });
 });
+
+describe("journal: покрытие плана host-modules", () => {
+  it("3014 · machine.journal: callsign — строки одной сессии; журнала ещё нет — пусто", async () => {
+    // источник: чьё: код (journal/contract.ts:2; journal.ts:80, :88)
+    const home = mkdtempSync(join(tmpdir(), "switchboard-journal-"));
+    process.env.SWITCHBOARD_HOME = home;
+    const s = await bench();
+    const ask = (o: object) => s.relay.request({ type: "machine.journal", v: 1, machine: "laptop", ...o });
+    // папки журнала у стенда своя; здесь — SWITCHBOARD_HOME без журнала
+    expect(await ask({ since: "2026-10-30T00:00:00.000Z", limit: 5 })).toMatchObject({ ok: true, result: { records: [], more: false } });
+    const dir = join(home, "journal");
+    mkdirSync(dir);
+    const L = (o: object) => JSON.stringify({ part: "host", machine: "laptop", who: "core", kind: "note", ...o });
+    writeFileSync(join(dir, "host-2026-10-30.jsonl"), [L({ t: "2026-10-30T10:00:00.000Z", ev: "a", callsign: "site@laptop" }), L({ t: "2026-10-30T10:01:00.000Z", ev: "b", callsign: "wiki@laptop" })].join("\n") + "\n");
+    // фильтр callsign: ядро понимает callsign как адрес сессии — сессия должна быть на машине
+    await s.open("site@laptop");
+    const r = await ask({ since: "2026-10-30T00:00:00.000Z", limit: 5, callsign: "site@laptop" });
+    expect(r).toMatchObject({ ok: true });
+    expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toEqual(["a"]);
+  });
+});

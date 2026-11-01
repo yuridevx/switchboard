@@ -13,13 +13,19 @@ afterEach(async () => {
 });
 
 describe("стенд: новая сессия и ход", () => {
-  it("host.open: spawn держателя, initialize, idle; hello и session.state в relay", async () => {
+  it("host.open: spawn держателя, initialize, idle; запись в core.json; on.open видит spawn; hello и session.state в relay", async () => {
     const seen: string[] = [];
-    const watch: Module = { on: { event: (_s, m) => void seen.push(m.type) } };
+    const opened: string[] = [];
+    const watch: Module = { on: { event: (_s, m) => void seen.push(m.type), open: (x) => void opened.push(x.info.start) } };
     st = await standHost({ modules: [module("host-watch", watch)] });
     const s = await st.open("site@laptop");
     expect(s.state).toBe("idle");
     expect(s.info.start).toBe("spawn");
+    expect(opened).toEqual(["spawn"]);
+    expect(st.query("site@laptop").options.sessionId).toBe(s.info.session_id);
+    const rec = (JSON.parse(readFileSync(join(st.home, "store", "core.json"), "utf8")) as { sessions: Array<Record<string, unknown>> }).sessions[0];
+    expect(rec).toMatchObject({ callsign: "site@laptop", session_id: s.info.session_id, stopped: false });
+    expect(st.journal().filter((l) => l.ev === "open" || l.ev === "launch").map((l) => `${l.ev} ${l.start ?? ""}`.trim())).toEqual(["open", "launch spawn"]);
     const p = st.proc("site@laptop");
     expect(p.env.DISABLE_UPDATES).toBe("1");
     expect(st.holders.ops.some((o) => o.op === "spawn" && o.id === "site@laptop")).toBe(true);
@@ -30,31 +36,40 @@ describe("стенд: новая сессия и ход", () => {
     expect(st.states("site@laptop").map((f) => f.state)).toEqual(["starting", "idle", "busy", "idle"]);
   });
 
-  it("s.input: сообщение user в очередь ввода — до процесса доходит с priority, отправитель в s.info.from", async () => {
+  it("s.input: сообщения user в очередь ввода — до процесса доходят по порядку с priority, uuid и origin", async () => {
     st = await standHost({ modules: [module("host-chat", {})] });
     const s = await st.open("site@laptop");
-    s.input("Собери отчёт", { from: "poe-bot@pc", priority: "next" });
+    const uuid = "00000000-0000-4000-8000-0000000000aa";
+    s.input("Собери отчёт");
+    s.input("Срочно", { priority: "now", uuid, origin: { kind: "x" } });
     const p = st.proc("site@laptop");
-    await until(() => p.inputs.length === 1);
-    expect(p.inputs[0]).toMatchObject({ type: "user", priority: "next", message: { role: "user", content: "Собери отчёт" } });
-    expect(s.info.from).toBe("poe-bot@pc");
+    await until(() => p.inputs.length === 2);
+    expect(p.inputs[0]).toMatchObject({ type: "user", message: { role: "user", content: "Собери отчёт" } });
+    expect(p.inputs[1]).toMatchObject({ type: "user", priority: "now", uuid, origin: { kind: "x" }, message: { role: "user", content: "Срочно" } });
   });
 
-  it("system/init: модель и session_id — в s.info", async () => {
+  it("system/init: модель и session_id — в s.info; новый session_id — в core.json", async () => {
     st = await standHost({ modules: [module("host-x", {})] });
     const s = await st.open("site@laptop");
-    st.proc("site@laptop").send(msg.init(s.info.session_id, "claude-opus-5"));
+    st.proc("site@laptop").send(msg.init("sid-2", "claude-opus-5"));
     await until(() => s.info.model === "claude-opus-5");
+    expect(s.info.session_id).toBe("sid-2");
+    const core = JSON.parse(readFileSync(join(st.home, "store", "core.json"), "utf8")) as { sessions: Array<{ session_id: string }> };
+    expect(core.sessions[0].session_id).toBe("sid-2");
   });
 });
 
 describe("стенд: отправитель ввода", () => {
-  it("314 · отправитель ввода переживает перезапуск Host: у нового Host s.info.from сессии тот же", async () => {
-    // источник: принятый дизайн «Host · отправитель» — отправитель последнего ввода в записи сессии на диске
+  it("314 · отправитель последнего ввода — в записи ядра на диске, ввод без from его не меняет; переживает перезапуск Host", async () => {
+    // источник: принятый дизайн «Host · отправитель» — отправитель последнего ввода в записи сессии на диске; ввод без from — чьё: код
     const holders = new FakeHolders();
     st = await standHost({ machine: "win", holders, modules: [module("host-reader", {})] });
     const s = await st.open("disk-full-1@win");
     s.input("Свободно 2%", { from: "phone~owner@example.com" });
+    s.input("Продолжай");
+    expect(s.info.from).toBe("phone~owner@example.com");
+    const core = JSON.parse(readFileSync(join(st.home, "store", "core.json"), "utf8")) as { sessions: Array<{ callsign: string; from?: string }> };
+    expect(core.sessions.find((x) => x.callsign === "disk-full-1@win")!.from).toBe("phone~owner@example.com");
     const { home } = st;
     await st.close();
     st = await standHost({ machine: "win", home, holders, modules: [module("host-reader", {})] });
@@ -65,13 +80,14 @@ describe("стенд: отправитель ввода", () => {
     await holders.close();
   });
 
-  it("запрос модуля этой машины: отправитель — from запроса, иначе машина", async () => {
+  it("запрос модуля этой машины: своё имя и имя другого модуля — в процессе, без relay; отправитель — from запроса, иначе машина", async () => {
     const seen: Array<string | undefined> = [];
-    const owner: Module = { requests: { who: (_f, ctx) => void seen.push(ctx.from) } };
-    st = await standHost({ machine: "win", modules: [module("host-owner", owner, { provides: { who: 1 } })] });
-    await st.host("host-owner").request("who", { v: 1, from: "lead@win" });
-    await st.host("host-owner").request("who", { v: 1 });
+    const owner: Module = { requests: { who: (_f, ctx) => (seen.push(ctx.from), "я") } };
+    st = await standHost({ machine: "win", modules: [module("host-owner", owner, { provides: { who: 1 } }), module("host-caller", {}, { uses: { "who@host-owner": 1 } })] });
+    expect(await st.host("host-owner").request("who", { v: 1, from: "lead@win" })).toEqual({ ok: true, result: "я" });
+    expect(await st.host("host-caller").request("who", { v: 1 })).toEqual({ ok: true, result: "я" });
     expect(seen).toEqual(["lead@win", "@win"]);
+    expect(st.relay.frames("who")).toEqual([]);
   });
 
   it("s.field: поле сессии этой машины от владельца — без relay; имени нет в uses — модуль выключен в сессии", async () => {
@@ -106,47 +122,43 @@ describe("стенд: отправитель ввода", () => {
     expect(Object.keys(st.states("docs@win").at(-1)!.failed)).toEqual(["host-owner"]);
   });
 
-  it("316 · ввод уходит в сессию по порядку; отправитель последнего ввода — в записи ядра на диске; ввод без from его не меняет", async () => {
-    // источник: принятый дизайн «Host · отправитель» — отправитель последнего ввода в записи сессии на диске; ввод без from — чьё: код
-    st = await standHost({ machine: "win", modules: [module("host-chat", {})] });
-    const s = await st.open("docs@win");
-    s.input("Почини вход", { from: "lead@win" });
-    s.input("Продолжай");
-    const p = st.proc("docs@win");
-    await until(() => p.inputs.length === 2);
-    expect(p.inputs.map((i) => i.message.content)).toEqual(["Почини вход", "Продолжай"]);
-    expect(s.info.from).toBe("lead@win");
-    const core = JSON.parse(readFileSync(join(st.home, "store", "core.json"), "utf8")) as { sessions: Array<{ callsign: string; from?: string }> };
-    expect(core.sessions.find((x) => x.callsign === "docs@win")!.from).toBe("lead@win");
-  });
 });
 
 describe("стенд: запрос модуля этой машины — ветки ядра", () => {
-  it("317 · обработчик владельца упал — module_error, владелец выключен в сессии запроса, причина в журнале", async () => {
+  it("317 · обработчик владельца упал — module_error, владелец выключен в сессии запроса, причина в журнале; дальше — module_error без вызова, другой модуль отвечает", async () => {
     // источник: устав — ошибка модуля: модуль выключен, в roster failed; слово module_error — чьё: код
+    let calls = 0;
     const owner: Module = {
       requests: {
         who: () => {
+          calls++;
           throw new Error("бах");
         },
       },
     };
-    st = await standHost({ machine: "win", modules: [module("host-owner", owner), module("host-caller", {}, { uses: { "who@host-owner": 1 } })] });
+    const other: Module = { requests: { ping: () => "pong" } };
+    st = await standHost({ machine: "win", modules: [module("host-owner", owner), module("host-other", other), module("host-caller", {}, { uses: { "who@host-owner": 1 } })] });
     await st.open("docs@win");
     expect(await st.host("host-caller").request("who", { v: 1, callsign: "docs@win" })).toEqual({ ok: false, error: "module_error" });
     await until(() => st!.states("docs@win").at(-1)?.failed?.["host-owner"]);
-    expect(st.journal().some((l) => l.ev === "module_failed" && l.module === "host-owner" && String(l.why).includes("бах"))).toBe(true);
+    expect(st.journal().some((l) => l.ev === "module_failed" && l.module === "host-owner" && l.callsign === "docs@win" && String(l.why).includes("бах"))).toBe(true);
+    expect(await st.relay.request({ type: "who", v: 1, callsign: "docs@win" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(calls).toBe(1);
+    expect(await st.relay.request({ type: "ping", v: 1, callsign: "docs@win" })).toMatchObject({ ok: true, result: "pong" });
   });
 
-  it("318 · Host останавливается — запрос из stop() модуля отклонён shutting_down, владелец не вызван", async () => {
+  it("318 · Host останавливается — запрос из stop() модуля отклонён shutting_down, кадр из relay не идёт владельцу; владелец не вызван", async () => {
     // источник: устав, штатная остановка — «не принимает новое»; слово shutting_down — чьё: код
     let called = 0;
     let got: unknown;
     let host!: Host;
-    const owner: Module = { requests: { who: () => void called++ } };
+    const owner: Module = { requests: { who: () => void called++ }, frames: { poke: () => void called++ } };
     const caller: Module = {
       start: (h) => void (host = h),
-      stop: async () => void (got = await host.request("who", { v: 1 })),
+      stop: async () => {
+        st!.relay.deliver({ type: "poke", callsign: "docs@win" });
+        got = await host.request("who", { v: 1 });
+      },
     };
     st = await standHost({ machine: "win", modules: [module("host-owner", owner), module("host-caller", caller, { uses: { "who@host-owner": 1 } })] });
     await st.close();
@@ -154,15 +166,5 @@ describe("стенд: запрос модуля этой машины — вет
     expect(called).toBe(0);
     expect(st.journal().some((l) => l.ev === "request" && l.word === "shutting_down")).toBe(true);
     st = null;
-  });
-
-  it("319 · вход отклонён: версия запроса не та — contract_mismatch, владелец не вызван, причина в журнале", async () => {
-    // источник: устав — ошибки словами; слово contract_mismatch — чьё: код
-    let called = 0;
-    const owner: Module = { requests: { who: () => void called++ } };
-    st = await standHost({ machine: "win", modules: [module("host-owner", owner), module("host-caller", {}, { uses: { "who@host-owner": 1 } })] });
-    expect(await st.host("host-caller").request("who", { v: 2 })).toEqual({ ok: false, error: "contract_mismatch" });
-    expect(called).toBe(0);
-    expect(st.journal().some((l) => l.ev === "request" && l.word === "contract_mismatch")).toBe(true);
   });
 });

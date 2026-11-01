@@ -189,3 +189,16 @@ describe("fleet: инструменты и вклад", () => {
     expect(make().tools("x@y").map((t) => t.name)).toEqual(["list", "send", "answer", "open", "history", "update", "remove"]);
   });
 });
+
+describe("fleet: покрытие плана host-modules", () => {
+  it("3024 · fleet.send человеку ~email — кадр message его адресу, «отправлено»; push.send не уходит (пуш только устройствам)", async () => {
+    // источник: чьё: код (fleet.ts:75, :82-86; push.ts:33-34)
+    const { st, call } = await bench({ extra: [{ manifest: pushManifest as Manifest, module: makePush() }] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
+    await st.open("site@laptop");
+    expect(await call("site@laptop", "send", { to: "~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: ~owner@example.com" }] });
+    expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "~owner@example.com", text: "Готово" }]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(st.relay.frames("push.send")).toHaveLength(0);
+  });
+});

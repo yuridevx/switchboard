@@ -1,7 +1,8 @@
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { createExecutionContext, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
+import { Participant } from "../src/index.ts";
 import { span } from "../src/journal.ts";
 
 const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
@@ -47,6 +48,9 @@ describe("эталоны ledger", () => {
   it("220 · по roster: machine.back в 14:00, machine.left laptop в 14:02, machine.back laptop в 14:44 «не было 42 мин»", async () => {
     const j = fresh();
     clock(at("14:00"));
+    await j.frame(roster("laptop", "pc"));
+    clock(at("14:01"));
+    // тот же roster ещё раз — новых записей нет
     await j.frame(roster("laptop", "pc"));
     clock(at("14:02"));
     await j.frame(roster("pc"));
@@ -98,14 +102,18 @@ describe("эталоны ledger", () => {
     });
   });
 
-  it("223 · ledger.add без text и machine.left не от ledger — записей нет, две строки bad_frame с from @pc", async () => {
+  it("223 · ledger.add без text, без ev и machine.left не от ledger — записей нет, строки bad_frame с from @pc; с id — reply bad_frame", async () => {
     const j = fresh();
     const log = journal();
-    await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "slot.swapped" });
-    await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "machine.left", machine: "laptop", text: "…" });
+    expect(await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "slot.swapped" })).toEqual([]);
+    expect(await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", text: "без ev" })).toEqual([]);
+    expect(await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "machine.left", machine: "laptop", text: "…" })).toEqual([]);
+    expect(await j.frame({ type: "ledger.add", id: "a-1", to: ".ledger", from: "@pc", ev: "machine.back", text: "…" })).toMatchObject([
+      { type: "reply", id: "a-1", ok: false, error: "bad_frame", to: "@pc" },
+    ]);
     expect(await all(j)).toEqual([]);
     const bad = log.filter((l) => l.word === "bad_frame");
-    expect(bad).toHaveLength(2);
+    expect(bad).toHaveLength(4);
     expect(bad.every((l) => l.from === "@pc" && l.part === "ledger" && typeof l.why === "string" && l.why)).toBe(true);
   });
 
@@ -159,11 +167,28 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     expect(await read({})).toHaveLength(3);
   });
 
-  it("ledger.read без limit — bad_frame; чужое имя — unknown_request; другая версия — contract_mismatch", async () => {
+  it("2011 · вход отклонён: чужое имя — unknown_request, другая версия — contract_mismatch, reply — только строка note", async () => {
     const j = fresh();
-    expect(await j.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel" })).toMatchObject([{ ok: false, error: "bad_frame", to: "panel" }]);
-    expect(await j.frame({ type: "ledger.drop", id: "r", to: ".ledger", from: "panel" })).toMatchObject([{ ok: false, error: "unknown_request" }]);
-    expect(await j.frame({ type: "ledger.read", id: "r", v: 2, to: ".ledger", from: "panel", limit: 1 })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
+    const log = journal();
+    expect(await j.frame({ type: "ledger.drop", id: "r", to: ".ledger", from: "panel" })).toMatchObject([{ ok: false, error: "unknown_request", to: "panel" }]);
+    expect(await j.frame({ type: "ledger.read", id: "r", v: 2, to: ".ledger", from: "panel", limit: 1 })).toMatchObject([{ ok: false, error: "contract_mismatch", to: "panel" }]);
+    expect(await j.frame({ type: "reply", id: "x", ok: true, to: ".ledger", from: "panel" })).toEqual([]);
+    expect(log.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
+      ["refuse", "unknown_request"],
+      ["refuse", "contract_mismatch"],
+      ["note", "reply"],
+    ]);
+    expect(await all(j)).toEqual([]);
+  });
+
+  it("2014 · ledger.read: без id — только строка; limit не целое ≥ 1 — bad_frame", async () => {
+    const j = fresh();
+    const log = journal();
+    expect(await j.frame({ type: "ledger.read", to: ".ledger", from: "panel", limit: 5 })).toEqual([]);
+    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", word: "bad_frame", from: "panel" }));
+    for (const limit of [undefined, 0, "5", 1.5]) {
+      expect(await j.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel", limit })).toMatchObject([{ id: "r", ok: false, error: "bad_frame", to: "panel" }]);
+    }
   });
 
   it("roster не от relay (с from участника) — bad_frame, записей нет", async () => {
@@ -174,27 +199,44 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", from: "panel" }));
   });
 
-  it("выпуск relay: машина ушла и вернулась через 3 с — left и back «не было 3 с»", async () => {
+  it("2015 · новый Host вытеснил прежний: roster с той же машиной и новым since — журнал без left", async () => {
+    // источник: слово пользователя «часть машины, включая Host, умерла — один перезапуск»; чьё: код (journal.ts:97-100)
     const j = fresh();
-    clock(at("14:44"));
-    await j.frame(roster("laptop", "pc"));
-    clock(at("14:58") + 1000);
-    await j.frame(roster("pc"));
-    clock(at("14:58") + 4000);
-    await j.frame(roster("pc", "laptop"));
-    const rows = await all(j);
-    expect(rows.slice(2).map((r) => r.text)).toEqual(["laptop пропала · была на связи с 14:44", "laptop вернулась · не было 3 с"]);
+    clock(at("14:00"));
+    await j.frame(roster(["laptop", 1]));
+    clock(at("14:05"));
+    await j.frame(roster(["laptop", 2]));
+    expect((await all(j)).map((r) => [r.ev, r.machine])).toEqual([["machine.back", "laptop"]]);
   });
 
-  it("через вход участника: roster без from пишет запись, ledger.read отвечает через RELAY с props ledger", async () => {
+  it("2010 · через вход участника: ответ только на ledger.read — через RELAY с props ledger; на roster и ledger.add кадров нет", async () => {
     clock(at("09:00", "2026-11-01"));
     await relay.frame(roster("int-machine"));
+    await relay.frame({ type: "ledger.add", to: ".ledger", from: "@int-machine", ev: "session.opened", machine: "int-machine", text: "s" });
+    expect(await env.RELAY_LOG.take()).toEqual([]);
     await relay.frame({ type: "ledger.read", id: "r-int", to: ".ledger", from: "panel", machine: "int-machine", limit: 5 });
     const sent = await env.RELAY_LOG.take();
     expect(sent).toHaveLength(1);
     expect(sent[0].name).toBe("ledger");
     expect(sent[0].frame).toMatchObject({ type: "reply", id: "r-int", to: "panel", ok: true });
-    expect((sent[0].frame.result as { events: Array<{ text: string }> }).events.map((e) => e.text)).toEqual(["int-machine на связи"]);
+    expect((sent[0].frame.result as { events: Array<{ text: string }> }).events.map((e) => e.text)).toEqual(["s", "int-machine на связи"]);
+  });
+
+  it("2012 · объект журнала бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
+    const log = journal();
+    // сбой в коде объекта журнала: пространство объектов, чей frame бросает
+    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой журнала")) }) };
+    const p = new Participant(createExecutionContext(), { ...env, JOURNAL: broken } as never);
+    await expect(p.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel", limit: 1 })).rejects.toThrow("сбой журнала");
+    expect(log).toContainEqual(expect.objectContaining({ part: "ledger", kind: "stop", ev: "ledger.read", from: "panel", why: "Error: сбой журнала" }));
+    expect(await env.RELAY_LOG.take()).toEqual([]);
+  });
+
+  it("2013 · relay не принял ответ — строка refuse, вызов участника не бросает", async () => {
+    const log = journal();
+    await env.RELAY_LOG.answer("offline");
+    await relay.frame({ type: "ledger.read", id: "r-off", to: ".ledger", from: "panel", limit: 1 });
+    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "relay", word: "offline", to: "panel", type: "reply" }));
   });
 
   it("span: секунды, минуты, часы, дни", () => {

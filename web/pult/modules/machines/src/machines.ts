@@ -51,7 +51,14 @@ export function createMachines(): AppModule {
     const jobs: Array<Promise<void>> = [];
     // keeper машины отвечает сам, даже когда Host мёртв
     jobs.push(app.request<State>("keeper.state", { to: `.keeper@${m}` }).then((r) => void states.set(m, r.ok ? r.result : { error: r.error })));
-    if (can(m, "machine.profiles")) jobs.push(app.request<Profiles>("machine.profiles", { machine: m }).then((r) => void (r.ok && profs.set(m, r.result))));
+    if (can(m, "machine.profiles"))
+      jobs.push(
+        app.request<Profiles>("machine.profiles", { machine: m }).then((r) => {
+          if (r.ok) profs.set(m, r.result);
+          // отказ — словом в карточке машины
+          note(`profiles:${m}`, r.ok ? "" : `machine.profiles: ${r.error}`, "bad");
+        }),
+      );
     await Promise.all(jobs);
     redraw();
   }
@@ -65,7 +72,8 @@ export function createMachines(): AppModule {
 
   function onRoster(r: Roster) {
     for (const m of r.machines) {
-      if (seen.has(m.machine) && seen.get(m.machine) !== m.since) void load(m.machine);
+      // вернулась (since другой) или впервые появилась при открытом экране — спросить её keeper и профили
+      if (seen.has(m.machine) ? seen.get(m.machine) !== m.since : screens.size > 0) void load(m.machine);
       seen.set(m.machine, m.since);
     }
     redraw();
@@ -160,6 +168,7 @@ export function createMachines(): AppModule {
               h("span", { class: "sb-note" }, s.state === "conflict" ? `${s.op ?? "git pull"}: CONFLICT в ${(s.files ?? []).join(", ")}. Сессии профиля получат задание свести.` : (s.error ?? "")),
             ),
           ),
+        notes.get(`profiles:${m}`)?.text ? h("div", { class: "sb-note bad", role: "alert" }, notes.get(`profiles:${m}`)!.text) : null,
         notes.get(`sync:${m}`)?.text ? h("div", { class: `sb-note ${notes.get(`sync:${m}`)!.tone}` }, notes.get(`sync:${m}`)!.text) : null,
         rm
           ? h(

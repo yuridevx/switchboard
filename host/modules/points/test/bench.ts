@@ -134,7 +134,7 @@ export type ManageCall = { type: string; [k: string]: unknown };
  * Поддельный manage этой машины: открывает и поднимает сессии через ядро. fork — новый sid; файл нового разговора
  * claude пишет только на первом ходу (факт живого прогона 31 окт.) — подделка его не пишет, тест кладёт сам: forkWrite().
  */
-export function fakeManage(calls: ManageCall[], o: { failOpen?: string } = {}): Module {
+export function fakeManage(calls: ManageCall[], o: { failOpen?: string; failStop?: string } = {}): Module {
   return {
     requests: {
       async "session.open"(f, { host }) {
@@ -151,6 +151,7 @@ export function fakeManage(calls: ManageCall[], o: { failOpen?: string } = {}): 
       },
       async "session.stop"(f, { host }) {
         calls.push({ ...f });
+        if (o.failStop) throw refuse(o.failStop);
         await host.session(f.callsign as string)!.stop();
         return undefined;
       },
@@ -182,6 +183,10 @@ export async function bench(o: {
   machine?: string;
   git?: Git;
   failOpen?: string;
+  /** manage этой машины отказывает в session.stop этим словом */
+  failStop?: string;
+  /** ответ manage соседних машин; нет ответа — ok */
+  remoteReply?: (f: Frame) => Record<string, unknown> | undefined;
   sessions?: Array<{ callsign: string; session_id?: string; cwd?: string }>;
   holders?: stand.FakeHolders;
   /** реестр, заполненный до старта Host */
@@ -206,7 +211,7 @@ export async function bench(o: {
     if (f.type.startsWith("points.")) r = reg.handle(f, machine);
     else {
       remote.push(f);
-      r = { ok: true };
+      r = o.remoteReply?.(f) ?? { ok: true };
     }
     queueMicrotask(() => relay.deliver({ type: "reply", id: f.id as string, from: f.to ?? "x", ...r } as Frame));
   };
@@ -218,7 +223,7 @@ export async function bench(o: {
     relayStand: relay,
     start: false,
     modules: [
-      { manifest: fakeManageManifest(), module: fakeManage(manage, { failOpen: o.failOpen }) },
+      { manifest: fakeManageManifest(), module: fakeManage(manage, { failOpen: o.failOpen, failStop: o.failStop }) },
       { manifest: manifest as Manifest, module: make({ git: o.git, fetch: reg.fetch }) },
     ],
   });

@@ -64,7 +64,9 @@ describe("упаковка папки и ссылки", () => {
       { accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "us-east-1" },
       { method: "GET", host: "examplebucket.s3.amazonaws.com", path: "/test.txt", now: new Date("2013-05-24T00:00:00Z"), expires: 86400 },
     );
-    expect(url).toMatch(/X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404$/);
+    expect(url).toBe(
+      "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host&X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404",
+    );
   });
 });
 
@@ -136,12 +138,14 @@ describe("загрузка", () => {
     expect(calls).toEqual(["GET host/1.1.58.sha256"]);
   });
 
-  it("аргументы: host с номером, keeper без; --out, --dry-run, --to; ключ R2 только из окружения", () => {
+  it("2077 · аргументы: host с номером, keeper без; --out, --dry-run, --to; незнакомый — отказ; ключ R2 только из окружения", () => {
     expect(parseArgs(["release", "host", "1.4.1", "--dry-run"])).toMatchObject({ part: "host", version: "1.4.1", dryRun: true });
     expect(parseArgs(["release", "keeper", "--to", "x"])).toMatchObject({ part: "keeper", dryRun: false });
     expect(() => parseArgs(["release", "host"])).toThrow("вызов");
     expect(() => parseArgs(["release", "1.4.1"])).toThrow("вызов");
     expect(() => parseArgs(["release", "host", "1.4.1", "--dry-run", "--to", "x"])).toThrow();
+    expect(() => parseArgs(["release", "host", "1.4.1", "--zip"])).toThrow("незнакомый аргумент: --zip");
+    expect(() => parseArgs(["release", "host", "--dry-run"])).toThrow("вызов");
     expect(bucketOf(parseArgs(["release", "host", "1.4.1", "--dry-run"]), {})).toBeNull();
     expect(() => bucketOf(parseArgs(["release", "keeper"]), {})).toThrow("R2_ACCESS_KEY_ID");
     expect(bucketOf(parseArgs(["release", "keeper"]), { R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_ENDPOINT: "https://x" })?.where).toBe("https://x/switchboard-releases");
@@ -166,6 +170,21 @@ describe("загрузка", () => {
     // без сведений git: иначе ревизия коммита в файле меняет хэш при неизменном коде
     expect(seen.every((x) => x.includes("-buildvcs=false") && x.includes("-trimpath"))).toBe(true);
     await expect(buildKeeper(root, async () => ({ code: 1, out: "syntax error" }))).rejects.toThrow("go build windows/amd64: syntax error");
+  });
+});
+
+describe("загрузка: отказ R2", () => {
+  it("2078 · R2 отказал на архиве — исключение со статусом, хэш не пишется: версия не готова", async () => {
+    const calls: string[] = [];
+    const f: Fetch = async (url, init) => {
+      calls.push(`${init.method} ${url.split("switchboard-releases/")[1]}`);
+      const status = init.method === "GET" ? 404 : 500;
+      const body = Buffer.from("InternalError");
+      return { status, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) as ArrayBuffer };
+    };
+    const b = s3Bucket({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f);
+    await expect(upload(b, "host", "1.1.60", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("PUT host/1.1.60.tgz: 500 InternalError");
+    expect(calls).toEqual(["GET host/1.1.60.sha256", "PUT host/1.1.60.tgz"]);
   });
 });
 
@@ -210,8 +229,11 @@ describe("сборка выпуска", () => {
     expect(readFileSync(join(out, "1.4.1.sha256"), "utf8")).toBe(shaLine(sha256hex(b.tgz), "1.4.1"));
   });
 
-  it("host --check не прошёл или версия не та — исключение с причиной, архива нет", async () => {
+  it("2076 · npm или host --check не прошли, версия не та — исключение с причиной, архива нет", async () => {
     const out = tmp();
+    const npmFails = (step: string): Exec => async (cmd, args) => ({ code: cmd === "npm" && args[0] === step ? 1 : 0, out: cmd === "npm" && args[0] === step ? `npm ${step} упал` : "" });
+    await expect(build({ root, version: "1.4.2", out, exec: npmFails("install") })).rejects.toThrow("npm install --package-lock-only: npm install упал");
+    await expect(build({ root, version: "1.4.2", out, exec: npmFails("ci") })).rejects.toThrow("npm ci: npm ci упал");
     const exec = (check: string): Exec => async (cmd) => ({ code: cmd === "node" ? 1 : 0, out: cmd === "node" ? check : "" });
     await expect(build({ root, version: "1.4.2", out, exec: exec('{ "ok": false, "why": "session.cost: два владельца — cost и dup" }') })).rejects.toThrow("два владельца");
     await expect(build({ root, version: "1.4.2", out, exec: exec('{ "ok": true, "version": "1.4.0" }') })).rejects.toThrow("версия 1.4.0");

@@ -177,3 +177,65 @@ describe("watch: стыки", () => {
     expect((events(st)[0] as Frame).events).toHaveLength(1);
   });
 });
+
+describe("watch: покрытие плана host-modules", () => {
+  it("3008 · watch и unwatch без from — bad_frame; зрителей нет", async () => {
+    // источник: чьё: код (watch.ts:26)
+    const { st } = await bench();
+    await st.open("site@laptop");
+    expect(await st.relay.request({ type: "session.watch", v: 1, callsign: "site@laptop", from: undefined })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await st.relay.request({ type: "session.unwatch", v: 1, callsign: "site@laptop", from: undefined })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(st.session("host-watch", "site@laptop")!.store<string[]>().get() ?? []).toEqual([]);
+  });
+
+  it("3009 · из двух зрителей снят один — лента только оставшемуся", async () => {
+    // источник: чьё: код (watch/contract.ts:2; watch.ts:53-57)
+    const { st, seen } = await bench();
+    await st.open("site@laptop");
+    await watch(st, "session.watch", "panel-desk~owner@example.com");
+    await watch(st, "session.watch", "phone~owner@example.com");
+    await watch(st, "session.unwatch", "phone~owner@example.com");
+    turn(st.proc("site@laptop"));
+    await until(() => seen.length === 4);
+    const fr = await until(() => events(st)[0]);
+    expect(fr.to).toEqual(["panel-desk~owner@example.com"]);
+  });
+
+  it("3010 · нет связи — пачка пропадает; после связи seq с разрывом", async () => {
+    // источник: чьё: код (watch.ts:40-41 «связи нет — кадр пропал: очереди нет, клиент добирает историей по разрыву seq»)
+    const { st, seen } = await bench({ pauseMs: WINDOW_MS * 4 });
+    await st.open("site@laptop");
+    await watch(st, "session.watch", "panel-desk~owner@example.com");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => events(st).length === 1);
+    st.relay.drop();
+    await until(() => st.kernel.relay?.state !== "open");
+    p.send(msg.assistant("без связи"));
+    await until(() => seen.length === 2);
+    await new Promise((r) => setTimeout(r, WINDOW_MS * 2));
+    await until(() => st.kernel.relay?.state === "open");
+    p.send(msg.result());
+    const fr = await until(() => events(st)[1]);
+    expect(events(st)).toHaveLength(2);
+    expect(fr.seq).toBe(3);
+    expect((fr.events as Array<{ type: string }>).map((e) => e.type)).toEqual(["result"]);
+  });
+
+  it("3011 · две сессии — свои пачки и свои seq", async () => {
+    // источник: чьё: код (watch.ts:17-20 — seq и окна по callsign)
+    const { st, seen } = await bench();
+    await st.open("site@laptop");
+    await st.open("wiki@laptop");
+    await watch(st, "session.watch", "panel-desk~owner@example.com", "site@laptop");
+    await watch(st, "session.watch", "phone~owner@example.com", "wiki@laptop");
+    turn(st.proc("site@laptop"));
+    turn(st.proc("wiki@laptop"));
+    await until(() => seen.length === 8);
+    await until(() => events(st).length === 2);
+    const byFrom = Object.fromEntries(events(st).map((f) => [f.from, f]));
+    expect(byFrom["site@laptop"]).toMatchObject({ seq: 1, to: ["panel-desk~owner@example.com"] });
+    expect(byFrom["wiki@laptop"]).toMatchObject({ seq: 1, to: ["phone~owner@example.com"] });
+    expect((byFrom["site@laptop"].events as unknown[]).length).toBe(4);
+  });
+});

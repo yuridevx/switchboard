@@ -40,6 +40,8 @@ const need = new Set<string>();
 const listed = new Set<string>();
 /** позывной → идёт загрузка списка */
 const loading = new Set<string>();
+/** позывной → слово отказа последнего question.list */
+const refused = new Map<string, string>();
 
 function upsert(callsign: string, f: Frame | Record<string, unknown>, to: string[] = []) {
   const id = String(f.question);
@@ -70,12 +72,17 @@ async function list(callsign: string, force = false) {
   const r = await app.request<Array<Record<string, unknown>>>("question.list", { callsign });
   loading.delete(callsign);
   if (r.ok) {
+    refused.delete(callsign);
     need.delete(callsign);
     const ids = new Set(r.result.map((q) => String(q.question)));
     // ждущие, которых Host больше не знает, — на них уже ответили
     for (const w of waitingOf(callsign)) if (!ids.has(w.id)) recs.delete(w.id);
     for (const q of r.result) upsert(callsign, q);
-  } else listed.delete(callsign);
+  } else {
+    // отказ — словом на экране вопроса, а не «нет ждущих вопросов»
+    refused.set(callsign, r.error);
+    listed.delete(callsign);
+  }
   app.changed();
 }
 
@@ -134,7 +141,11 @@ function mountAsk(el: HTMLElement, params: Record<string, string>) {
   const ownOn = new Set<string>();
   const formVals: Record<string, unknown> = {};
 
-  const current = (): Rec | undefined => (shown && recs.get(shown)) || waitingOf(callsign)[0];
+  // показанный вопрос держится, пока он ждёт ответа; закрыт — следующий ждущий, нет его — итог показанного
+  const current = (): Rec | undefined => {
+    const s = shown ? recs.get(shown) : undefined;
+    return s && (s.status === "waiting" || s.status === "sending" || s.status === "error") ? s : (waitingOf(callsign)[0] ?? s);
+  };
 
   function answersOf(r: Rec): Record<string, string> | null {
     const out: Record<string, string> = {};
@@ -292,7 +303,11 @@ function mountAsk(el: HTMLElement, params: Record<string, string>) {
         h(
           "div",
           { class: "sb-pad" },
-          h("div", { class: "ask-empty" }, loading.has(callsign) ? "Загружаю вопросы…" : `У ${callsign} нет ждущих вопросов.`),
+          h(
+            "div",
+            { class: "ask-empty" },
+            loading.has(callsign) ? "Загружаю вопросы…" : refused.has(callsign) ? `question.list: ${refused.get(callsign)}` : `У ${callsign} нет ждущих вопросов.`,
+          ),
         ),
       );
       return;

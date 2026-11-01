@@ -47,6 +47,8 @@ const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 
 const cardOf = (ws: WebSocket) => ws.deserializeAttachment() as Card | null;
 /** role.name.kid ключа — без подписи: подпись в журнал не попадает. */
 const keyId = (key: string) => key.split(".").slice(0, 3).join(".").slice(0, 80);
+/** Номер ключа соединения role.name.kid: keeper входит ключом машины — его ключ host.<машина>.<kid>. */
+const keyOf = (c: Card) => `${c.role === "keeper" ? "host" : c.role}.${c.name}.${c.kid}`;
 /** callsign сессии этой машины: site@laptop; голый @laptop — не сессия. */
 const ownCallsign = (cs: unknown, machine: string) => typeof cs === "string" && cs.indexOf("@") > 0 && machineOf(cs) === machine;
 
@@ -434,13 +436,13 @@ export class Fleet extends DurableObject<Env> {
     if (!open.length) return;
     let gone: string[];
     try {
-      gone = await call(this.env.GATE.revoked(open.map((o) => `${o.card.role}.${o.card.name}.${o.card.kid}`)));
+      gone = await call(this.env.GATE.revoked(open.map((o) => keyOf(o.card))));
     } catch (e) {
       return log(`gate_unavailable · проверка отозванных при старте: ${e}`);
     }
     if (!gone.length) return;
     for (const o of open) {
-      const id = `${o.card.role}.${o.card.name}.${o.card.kid}`;
+      const id = keyOf(o.card);
       if (!gone.includes(id)) continue;
       log(`revoked ${id} · закрыт при старте объекта`);
       o.ws.close(1008, "revoked");

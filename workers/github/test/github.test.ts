@@ -1,10 +1,11 @@
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { createExecutionContext, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import wrangler from "../wrangler.jsonc?raw";
 import manifest from "../module.json" with { type: "json" };
 import type { Stored } from "../src/app.ts";
+import { Participant } from "../src/index.ts";
 import { pkcs8 } from "../src/jwt.ts";
 
 const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
@@ -90,7 +91,9 @@ describe("эталоны github", () => {
       "GET /repos/team/profiles/installation": [200, { id: 58203311, account: { login: "team" } }],
       "POST /app/installations/58203311/access_tokens": [201, { token: "ghs_test", expires_at: "2026-10-31T13:02:11Z" }],
     });
+    const log = journal();
     const out = await s.frame({ type: "github.token", id: "t-9", v: 1, to: ".github", from: "@laptop", repo: "team/profiles" });
+    expect(log.join("\n")).not.toContain("ghs_test");
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["GET /repos/team/profiles/installation", "POST /app/installations/58203311/access_tokens"]);
     const jwt = await verifyJwt(calls[0].auth);
     expect(jwt.good).toBe(true);
@@ -173,6 +176,12 @@ describe("эталоны github", () => {
     expect((await stored(s))?.id).toBe(2000001);
     const said = JSON.stringify([first, second, third]) + log.join("\n");
     for (const secret of ["BEGIN RSA", "cs_SECRET", "wh_SECRET"]) expect(said).not.toContain(secret);
+    // строка журнала github.setup с from; вторая — replaced
+    const notes = log.map((l) => JSON.parse(l)).filter((l) => l.ev === "github.setup" && l.kind === "note");
+    expect(notes.map((l) => [l.from, l.app, l.replaced])).toEqual([
+      ["panel", 1047113, false],
+      ["panel", 2000001, true],
+    ]);
   });
 
   it("245 · hello() — ровно три запроса github", async () => {
@@ -199,18 +208,49 @@ describe("эталоны github", () => {
 });
 
 describe("github: приложение есть, отказы", () => {
-  it("github.app с приложением: репозитории всех установок и ссылка установки", async () => {
+  it("2026 · github.app с приложением: репозитории всех установок по алфавиту и ссылка установки; токены установок — только metadata: read; ключа нет ни в ответе, ни в журнале", async () => {
     const s = fresh();
     await seed(s);
     const calls = fakeGithub({
       "GET /app/installations": [200, [{ id: 11 }, { id: 12 }]],
       "POST /app/installations/11/access_tokens": [201, { token: "t11" }],
       "POST /app/installations/12/access_tokens": [201, { token: "t12" }],
-      "GET /installation/repositories": [200, { repositories: [{ full_name: "team/profiles" }] }],
+      "GET /installation/repositories": [200, { repositories: [{ full_name: "team/zeta" }, { full_name: "team/alpha" }] }],
     });
+    const log = journal();
     const [r] = await s.frame({ type: "github.app", id: "a-3", to: ".github", from: "panel", redirect: "https://pult.example/" });
-    expect(r.result).toEqual({ app: { id: 1047113, slug: "switchboard-team", owner: "team" }, repos: ["team/profiles", "team/profiles"], install: INSTALL });
+    expect(r.result).toEqual({
+      app: { id: 1047113, slug: "switchboard-team", owner: "team" },
+      repos: ["team/alpha", "team/alpha", "team/zeta", "team/zeta"],
+      install: INSTALL,
+    });
     expect(calls.filter((c) => c.path.startsWith("/installation/")).map((c) => c.auth)).toEqual(["token t11", "token t12"]);
+    expect(calls.filter((c) => c.path.endsWith("/access_tokens")).map((c) => c.body)).toEqual([{ permissions: { metadata: "read" } }, { permissions: { metadata: "read" } }]);
+    expect(JSON.stringify(r) + log.join("\n")).not.toContain("PRIVATE KEY");
+  });
+
+  it("2027 · github.app: GitHub ответил не тем — github_failed со статусом в журнале", async () => {
+    const s = fresh();
+    await seed(s);
+    fakeGithub({ "GET /app/installations": [500, { message: "boom" }] });
+    const log = journal();
+    expect(await s.frame({ type: "github.app", id: "a-5", to: ".github", from: "panel", redirect: "https://pult.example/" })).toEqual([
+      { type: "reply", id: "a-5", ok: false, error: "github_failed", to: "panel" },
+    ]);
+    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ ev: "github.app", word: "github_failed", status: 500 }));
+  });
+
+  it("2028 · github.setup: GitHub не обменял code — github_failed, прежнее приложение цело", async () => {
+    const s = fresh();
+    await seed(s);
+    const calls = fakeGithub({});
+    const log = journal();
+    expect(await s.frame({ type: "github.setup", id: "s-9", to: ".github", from: "panel", code: "bad0", replace: true })).toEqual([
+      { type: "reply", id: "s-9", ok: false, error: "github_failed", to: "panel" },
+    ]);
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(["POST /app-manifests/bad0/conversions"]);
+    expect(await stored(s)).toEqual(APP());
+    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ ev: "github.setup", word: "github_failed", status: 404 }));
   });
 
   it("github.app: репозиториев больше страницы — все страницы", async () => {
@@ -232,7 +272,7 @@ describe("github: приложение есть, отказы", () => {
     ]);
   });
 
-  it("GitHub ответил 500 — github_failed; статус и текст в журнале, токена в журнале нет", async () => {
+  it("2029 · github.token: GitHub ответил 500 на установку или 422 на токен — github_failed; статус и текст в журнале", async () => {
     const s = fresh();
     await seed(s);
     fakeGithub({ "GET /repos/team/profiles/installation": [500, { message: "boom" }] });
@@ -241,6 +281,15 @@ describe("github: приложение есть, отказы", () => {
       { ok: false, error: "github_failed" },
     ]);
     expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ word: "github_failed", status: 500, text: '{"message":"boom"}' }));
+    vi.mocked(fetch).mockRestore();
+    fakeGithub({
+      "GET /repos/team/profiles/installation": [200, { id: 7 }],
+      "POST /app/installations/7/access_tokens": [422, { message: "no" }],
+    });
+    expect(await s.frame({ type: "github.token", id: "t-7", to: ".github", from: "@laptop", repo: "team/profiles" })).toMatchObject([
+      { ok: false, error: "github_failed" },
+    ]);
+    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ word: "github_failed", status: 422 }));
   });
 
   it("сети нет — github_failed с причиной", async () => {
@@ -252,15 +301,65 @@ describe("github: приложение есть, отказы", () => {
     ]);
   });
 
-  it("repo не вида владелец/имя, нет code или redirect — bad_frame; чужое имя — unknown_request", async () => {
+  it("2023 · github.token: repo не вида владелец/имя — bad_frame, GitHub не вызван", async () => {
+    const s = fresh();
+    await seed(s);
+    const calls = fakeGithub({});
+    for (const repo of ["../etc", "team/x/y", "x", "a/..", "a/.", undefined]) {
+      expect((await s.frame({ type: "github.token", id: "b", to: ".github", from: "@pc", repo }))[0], String(repo)).toMatchObject({ error: "bad_frame" });
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("2021 · github.app: нет redirect или org не имя — bad_frame, GitHub не вызван", async () => {
     const s = fresh();
     const calls = fakeGithub({});
-    const bad = async (f: Frame) => (await s.frame({ to: ".github", from: "panel", id: "b", ...f }))[0];
-    expect(await bad({ type: "github.token", repo: "../etc" })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ type: "github.token", repo: "team/x/y" })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ type: "github.setup" })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ type: "github.app" })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ type: "github.secrets" })).toMatchObject({ error: "unknown_request" });
+    for (const f of [{}, { redirect: "ftp://x" }, { redirect: "https://p/", org: "a b" }, { redirect: "https://p/", org: 5 }]) {
+      expect((await s.frame({ type: "github.app", id: "b", to: ".github", from: "panel", ...f }))[0]).toMatchObject({ error: "bad_frame" });
+    }
     expect(calls).toHaveLength(0);
+  });
+
+  it("2022 · github.setup: нет code или code не из [A-Za-z0-9_-] — bad_frame, GitHub не вызван", async () => {
+    const s = fresh();
+    const calls = fakeGithub({});
+    for (const code of [undefined, "../x", "a b"]) {
+      expect((await s.frame({ type: "github.setup", id: "b", to: ".github", from: "panel", code }))[0]).toMatchObject({ error: "bad_frame" });
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("2020 · вход отклонён: чужое имя — unknown_request, другая версия — contract_mismatch, без id — только строка, reply — note", async () => {
+    const s = fresh();
+    const calls = fakeGithub({});
+    const log = journal();
+    expect(await s.frame({ type: "github.secrets", id: "b", to: ".github", from: "panel" })).toMatchObject([{ error: "unknown_request", to: "panel" }]);
+    expect(await s.frame({ type: "github.app", id: "b", v: 2, to: ".github", from: "panel", redirect: "https://p/" })).toMatchObject([{ error: "contract_mismatch" }]);
+    expect(await s.frame({ type: "github.app", to: ".github", from: "panel", redirect: "https://p/" })).toEqual([]);
+    expect(await s.frame({ type: "reply", id: "x", ok: true, to: ".github", from: "panel" })).toEqual([]);
+    expect(log.map((l) => JSON.parse(l)).map((l) => [l.kind, l.word ?? l.ev])).toEqual([
+      ["refuse", "unknown_request"],
+      ["refuse", "contract_mismatch"],
+      ["refuse", "bad_frame"],
+      ["note", "reply"],
+    ]);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("2024 · объект приложения бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
+    const log = journal();
+    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой приложения")) }) };
+    const p = new Participant(createExecutionContext(), { ...env, APP: broken } as never);
+    await expect(p.frame({ type: "github.token", id: "t", to: ".github", from: "@pc", repo: "a/b" })).rejects.toThrow("сбой приложения");
+    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ part: "github", kind: "stop", ev: "github.token", from: "@pc" }));
+    expect(await env.RELAY_LOG.take()).toEqual([]);
+  });
+
+  it("2025 · relay не принял ответ — строка refuse, вызов участника не бросает", async () => {
+    await env.RELAY_LOG.answer("offline");
+    fakeGithub({ "GET /app/installations": [200, []] });
+    const log = journal();
+    await relay.frame({ type: "github.app", id: "a-off", to: ".github", from: "panel-gone", redirect: "https://p/" });
+    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ part: "github", ev: "relay", word: "offline", to: "panel-gone", type: "reply" }));
   });
 });

@@ -85,7 +85,7 @@ afterEach(() => {
 
 describe("link · hello", () => {
   it("первым кадром — hello с ключом, proto и полями hello(); open — после первого roster", () => {
-    const { l, ws, states } = start({ hello: () => ({ sdk: "0.3.311", contract: { message: 1 }, sessions: [{ callsign: "site@laptop" }] }) });
+    const { l, ws, states, frames } = start({ hello: () => ({ sdk: "0.3.311", contract: { message: 1 }, sessions: [{ callsign: "site@laptop" }] }) });
     expect(l.state).toBe("connecting");
     ws.open();
     expect(ws.json(0)).toEqual({ type: "hello", key: "client.panel-desk.k3f1.sig", proto: PROTO, sdk: "0.3.311", contract: { message: 1 }, sessions: [{ callsign: "site@laptop" }] });
@@ -94,11 +94,19 @@ describe("link · hello", () => {
     expect(l.state).toBe("open");
     expect(l.roster?.machines.map((m) => m.machine)).toEqual(["laptop", "pc"]);
     expect(states).toEqual([["open", undefined]]);
+    // roster уходит и в onFrame — модулям, у кого он в uses
+    expect(frames.map((f) => f.type)).toEqual(["roster"]);
   });
 
-  it("roster уходит и в onFrame — модулям, у кого он в uses", () => {
-    const { frames } = opened();
-    expect(frames.map((f) => f.type)).toEqual(["roster"]);
+  it("2053 · нет WebSocket — исключение при вызове", () => {
+    const g = globalThis as unknown as { WebSocket?: unknown };
+    const saved = g.WebSocket;
+    delete g.WebSocket;
+    try {
+      expect(() => link({ url: "wss://relay.test", key: "k" })).toThrow("link: нет WebSocket — передайте options.WebSocket");
+    } finally {
+      g.WebSocket = saved;
+    }
   });
 });
 
@@ -188,15 +196,34 @@ describe("link · правило отправителя по roster", () => {
     expect(await p).toMatchObject({ ok: false, error: "disconnected" });
   });
 
-  it("клиент или участник ушёл из roster — disconnected; @машина — по машине", async () => {
+  it("2054 · клиент или участник ушёл из roster — disconnected; @машина — по машине; часть машины и пользователь по roster не снимаются", async () => {
     const { l, ws } = opened();
     const toPhone = l.request({ type: "message", to: "phone~owner@example.com" });
     const toPush = l.request({ type: "push.send", to: ".push" });
     const toMachine = l.request({ type: "machine.dirs", to: "@laptop" });
+    const toKeeper = l.request({ type: "keeper.state", to: ".keeper@laptop" });
+    const toUser = l.request({ type: "message", to: "~owner@example.com" });
+    let settled = 0;
+    void toKeeper.then(() => settled++);
+    void toUser.then(() => settled++);
     ws.recv(roster([["pc", 1]], [], []));
     expect(await toPhone).toMatchObject({ error: "disconnected" });
     expect(await toPush).toMatchObject({ error: "disconnected" });
     expect(await toMachine).toMatchObject({ error: "disconnected" });
+    await Promise.resolve();
+    expect(settled).toBe(0);
+    ws.recv({ type: "reply", id: JSON.parse(ws.sent[4]).id, ok: true });
+    expect(await toKeeper).toMatchObject({ ok: true });
+  });
+
+  it("2055 · входящий запрос и кадр с to — в onFrame; отвечает send с to = from", () => {
+    const { l, ws, frames } = opened();
+    const req = { type: "session.history", id: "h-3", callsign: "site@laptop", from: "panel~o" };
+    ws.recv(req);
+    ws.recv({ type: "question", to: "panel~o", question: "q" });
+    expect(frames.filter((f) => f.type !== "roster")).toEqual([req, { type: "question", to: "panel~o", question: "q" }]);
+    expect(l.send({ type: "reply", id: "h-3", to: "panel~o", ok: true, result: { turns: [] } })).toEqual({ ok: true });
+    expect(ws.json()).toEqual({ type: "reply", id: "h-3", to: "panel~o", ok: true, result: { turns: [] } });
   });
 });
 
@@ -231,6 +258,7 @@ describe("link · переподключение", () => {
     [1008, "revoked"],
     [1008, "contract_mismatch"],
     [1008, "bad_from"],
+    [1008, "bad_frame"],
     [1000, "replaced"],
   ])("закрытие %i %s — stopped с причиной, без переподключения", (code, reason) => {
     const { l, ws, states } = opened();
@@ -281,5 +309,16 @@ describe("link · штатная остановка", () => {
     vi.advanceTimersByTime(120_000);
     expect(FakeWs.all.length).toBe(1);
     expect(states.at(-1)).toEqual(["stopped", "shutting_down"]);
+    expect(await l.request({ type: "message", to: "site@laptop" })).toMatchObject({ error: "disconnected" });
+  });
+
+  it("2057 · close во время паузы переподключения — новых сокетов нет", () => {
+    const { l, ws } = opened();
+    ws.drop(1006);
+    expect(l.state).toBe("closed");
+    l.close();
+    vi.advanceTimersByTime(120_000);
+    expect(FakeWs.all.length).toBe(1);
+    expect(l.state).toBe("stopped");
   });
 });

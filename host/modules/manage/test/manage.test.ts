@@ -183,6 +183,10 @@ describe("manage", () => {
     st.proc("x@laptop").exit(1, "нет входа");
     expect(await pr).toMatchObject({ ok: false, error: "open_failed" });
     expect(st.journal().some((l) => l.ev === "request" && l.word === "open_failed" && String(l.why).includes("x@laptop"))).toBe(true);
+    // запись сессии остаётся у ядра (её ведёт ветка устава «один resume, второй сбой — failed»); журнал флота не пишется
+    expect(st.kernel.sessions.has("x@laptop")).toBe(true);
+    expect(st.relay.frames("ledger.add").filter((f) => f.ev === "session.opened")).toHaveLength(0);
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p" })).toMatchObject({ ok: false, error: "name_taken" });
   });
 
   it("call: interrupt — ответ SDK; остановленной — stopped; ошибка SDK — sdk_error, модуль работает", async () => {
@@ -196,6 +200,7 @@ describe("manage", () => {
     };
     expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "toggleMcpServer", args: ["github", false] })).toMatchObject({ ok: false, error: "sdk_error" });
     expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "supportedModels" })).toMatchObject({ ok: true });
+    expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "interrupt", args: "x" })).toMatchObject({ ok: false, error: "bad_spec" });
     await st.kernel.sessions.get("site@laptop")!.stop();
     expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "supportedModels" })).toMatchObject({ ok: false, error: "stopped" });
   });
@@ -367,5 +372,97 @@ describe("эталоны manage: ядро управления сессиями"
     expect(st.journal().some((l) => l.word === "sdk_error" && String(l.why).includes("модели нет"))).toBe(true);
     expect(st.states("docs@laptop").every((f) => !f.failed)).toBe(true);
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+});
+
+describe("manage: покрытие плана host-modules", () => {
+  it("3028 · open с resume — session_id прежний, старт resume; с fork — новый разговор от прежнего", async () => {
+    // источник: чьё: код (manage.ts:179-185; host/core/contract.ts OpenSpec)
+    const { st } = await laptop();
+    const sid = "11111111-2222-4333-8444-555555555555";
+    const r = await req(st, { type: "session.open", machine: "laptop", name: "r", dir: "~", resume: sid });
+    expect(r).toMatchObject({ ok: true, result: { callsign: "r@laptop", session_id: sid } });
+    expect(st.session("host-manage", "r@laptop")!.info.start).toBe("resume");
+    expect(st.query("r@laptop").options.resume).toBe(sid);
+    const f = await req(st, { type: "session.open", machine: "laptop", name: "f", dir: "~", resume: sid, fork: true });
+    expect(f).toMatchObject({ ok: true, result: { callsign: "f@laptop" } });
+    expect((f.result as { session_id: string }).session_id).not.toBe(sid);
+    expect(st.query("f@laptop").options).toMatchObject({ resume: sid, forkSession: true });
+  });
+
+  it("3030 · session.spec: SDK отказал — sdk_error, manage жив", async () => {
+    // источник: чьё: код (manage.ts:78-85)
+    const { st } = await laptop();
+    await st.open("site@laptop");
+    st.sdk.functions = { getSessionInfo: async () => { throw new Error("файла нет"); } };
+    expect(await req(st, { type: "session.spec", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "sdk_error" });
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+
+  it("3031 · session.start поднимает сессию failed", async () => {
+    // источник: слово пользователя (устав: «второй сбой до готовности — failed», дальше решает агент)
+    const { st } = await laptop();
+    const s = await st.open("site@laptop");
+    st.holders.failInitNext = 1;
+    st.proc("site@laptop").exit(1, "первый");
+    await stand.until(() => st.sdk.of("site@laptop").length === 2 && st.holders.procs.get("site@laptop")?.initializes === 1);
+    st.proc("site@laptop").exit(1, "второй");
+    await stand.until(() => s.state === "failed");
+    expect(await req(st, { type: "session.start", callsign: "site@laptop" })).toMatchObject({ ok: true });
+    expect(s.state).toBe("idle");
+  });
+
+  it("3032 · session.start: не поднялась — open_failed; point не число — bad_spec", async () => {
+    // источник: чьё: код (manage/contract.ts:11; manage.ts:247, :250-252)
+    const { st } = await laptop();
+    const s = await st.open("site@laptop");
+    await s.stop();
+    expect(await req(st, { type: "session.start", callsign: "site@laptop", point: "3" })).toMatchObject({ ok: false, error: "bad_spec" });
+    st.holders.failInitNext = 1;
+    const pr = req(st, { type: "session.start", callsign: "site@laptop" });
+    await stand.until(() => st.sdk.of("site@laptop").length === 2);
+    st.proc("site@laptop").exit(1, "нет входа");
+    expect(await pr).toMatchObject({ ok: false, error: "open_failed" });
+  });
+
+  it("3033 · session.start из точки — старт point с номером", async () => {
+    // источник: чьё: код (manage.ts:249; host/core/contract.ts SessionInfo.point)
+    const seen: Array<[string, number | undefined]> = [];
+    const spy = stand.module("host-spy", { on: { open: (s) => void seen.push([s.info.start, s.info.point]) } });
+    const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
+    const st = await stand.standHost({ modules: [stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }), stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }), { manifest, module: manage({ home }) }, spy] });
+    stands.push(st);
+    const s = await st.open("site@laptop");
+    await s.stop();
+    expect(await req(st, { type: "session.start", callsign: "site@laptop", point: 3 })).toMatchObject({ ok: true });
+    expect(seen.at(-1)).toEqual(["point", 3]);
+  });
+
+  it("3034 · выбор клиента в query(): модель, усилие, флаги, контрольные точки, хук; заголовок — только в первом", async () => {
+    // источник: чьё: код (manage.ts:113-131, :56-60)
+    const { st, home } = await laptop();
+    mkdirSync(join(home, "p"));
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "site", dir: "~/p", model: "m", effort: "high", fast: true, style: "s", thinking: true })).toMatchObject({ ok: true });
+    const first = st.query("site@laptop").options as Record<string, any>;
+    expect(first).toMatchObject({ model: "m", effort: "high", enableFileCheckpointing: true, title: "site", settings: { fastMode: true, outputStyle: "s", alwaysThinkingEnabled: true } });
+    expect(first.settings.effortLevel).toBeUndefined();
+    expect(first.hooks?.PostModelSwitch).toBeDefined();
+    const s = st.session("host-manage", "site@laptop")!;
+    await s.stop();
+    await s.start();
+    const again = st.query("site@laptop").options as Record<string, any>;
+    expect(again).toMatchObject({ model: "m", effort: "high", enableFileCheckpointing: true });
+    expect(again.title).toBeUndefined();
+  });
+
+  it("3035 · PostModelSwitch без requested_model — выбор модели снят, следующий старт без model", async () => {
+    // источник: чьё: код (manage.ts:105-107)
+    const { st } = await laptop();
+    const s = await st.open("site@laptop");
+    s.store().set({ model: "opus" });
+    await st.proc("site@laptop").hook("PostModelSwitch", { requested_model: null, source: "command" });
+    await s.stop();
+    await s.start();
+    expect(st.query("site@laptop").options.model).toBeUndefined();
   });
 });

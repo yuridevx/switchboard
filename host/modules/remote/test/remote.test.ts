@@ -1,5 +1,5 @@
 // Эталоны remote на стенде Host: поддельные SDK, relay, keeper и часы. Поддельный query отвечает на enableRemoteControl,
-// поддельный slots — на machine.slots; файл разговора — во временной папке Claude. Номер эталона — номер теста.
+// поддельный slots — поле account (кто в слоте сессии); файл разговора — во временной папке Claude. Номер эталона — номер теста.
 import { appendFileSync, chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -31,21 +31,14 @@ afterEach(async () => {
   for (const k of keepers.splice(0)) await k.close();
 });
 
-type World = { who: Record<string, string>; asked: number; claudeDir: string };
-/** Поддельный slots: в слоте main — who.main; сессии — все, что спрашивали. */
+type World = { who: Record<string, string>; claudeDir: string };
+/** Поддельный slots: все сессии — в слоте main, в нём who.main. */
 function slots(w: World): ReturnType<typeof stand.module> {
-  return stand.module("host-slots", {
-    requests: {
-      "machine.slots": (_f, { host }) => {
-        w.asked++;
-        return { slots: { main: { account: w.who.main, order: ["infirex", "y0902"], wait: null, sessions: host.sessions().map((s) => s.callsign) } } };
-      },
-    },
-  });
+  return stand.module("host-slots", { fields: { account: () => w.who.main } });
 }
 
 async function make(o: { machine?: string; holders?: stand.FakeHolders; home?: string; world?: World; extra?: Module } = {}) {
-  const w = o.world ?? { who: { main: "infirex" }, asked: 0, claudeDir: mkdtempSync(join(tmpdir(), "switchboard-claude-")) };
+  const w = o.world ?? { who: { main: "infirex" }, claudeDir: mkdtempSync(join(tmpdir(), "switchboard-claude-")) };
   const mods = [slots(w), { manifest, module: remote({ claudeDir: w.claudeDir }) }];
   if (o.extra) mods.push(stand.module("host-printer", o.extra));
   const st = await stand.standHost({ machine: o.machine, holders: o.holders, home: o.home, modules: mods });
@@ -76,12 +69,6 @@ const rec = (st: stand.Stand, cs: string) => st.session("host-remote", cs)!.stor
 const field = (st: stand.Stand, cs: string) => st.kernel.sessions.get(cs)!.record().remote;
 const unbinds = (st: stand.Stand) => st.journal().filter((l) => l.ev === "unbind");
 
-/** Конец хода: slots спрошен заново. */
-async function turnAndAsk(st: stand.Stand, cs: string, w: World) {
-  const before = w.asked;
-  stand.turn(st.proc(cs));
-  await stand.until(() => w.asked > before);
-}
 
 describe("эталоны remote", () => {
   it("230 · новая сессия: один enableRemoteControl(true) без имени; в roster url; в разделе bridge и infirex; файл не тронут", async () => {
@@ -112,7 +99,6 @@ describe("эталоны remote", () => {
     await stand.until(() => rec(st, "site@laptop"));
     const f = transcript(w, s.info.session_id, "session_01Jai");
     w.who.main = "y0902";
-    await turnAndAsk(st, "site@laptop", w);
     await s.restart();
     const lines = readFileSync(f, "utf8").trim().split("\n");
     expect(JSON.parse(lines.at(-1)!)).toEqual({ type: "bridge-session", sessionId: s.info.session_id, bridgeSessionId: "", lastSequenceNum: 0 });
@@ -178,7 +164,6 @@ describe("эталоны remote", () => {
     await stand.until(() => rec(st, "site@laptop"));
     const f = transcript(w, s.info.session_id, "session_01Jai");
     w.who.main = "y0902";
-    await turnAndAsk(st, "site@laptop", w);
     chmodSync(f, 0o444);
     try {
       st.proc("site@laptop").exit(1, "упал");
@@ -230,9 +215,96 @@ describe("remote", () => {
     expect(unbinds(st).at(-1)?.why).toBe("привязка снята: записи нет · session_02Jai");
   });
 
-  it("slots не ответил на старте Host — модуль выключен на машине, причина в журнале", async () => {
-    const st = await stand.standHost({ modules: [stand.module("host-slots", { requests: { "machine.slots": () => { throw new Error("сломался"); } } }), { manifest, module: remote({ claudeDir: tmpdir() }) }] });
+});
+
+/** Поддельный slots, который ломается по команде: поле account бросает — ядро выключает slots в сессии. */
+function flaky(w: World) {
+  let broken = false;
+  const mod = stand.module("host-slots", {
+    fields: {
+      account: () => {
+        if (broken) throw new Error("slots упал");
+        return w.who.main;
+      },
+    },
+  });
+  return { mod, breakNow: () => void (broken = true) };
+}
+
+const remoteFailed = (st: stand.Stand) => st.journal().some((l) => l.ev === "module_failed" && l.module === "host-remote");
+
+describe("remote: покрытие плана host-modules", () => {
+  it("3068 · slots выключен при открытии — мост всё равно включён, remote жив", async () => {
+    // источник: host/core/contract.ts:119 «отказ словом … не ошибка модуля»; находка бэклога (module_failed host-remote на отказе machine.slots)
+    const w: World = { who: { main: "infirex" }, claudeDir: mkdtempSync(join(tmpdir(), "switchboard-claude-")) };
+    const f = flaky(w);
+    const st = await stand.standHost({ modules: [f.mod, { manifest, module: remote({ claudeDir: w.claudeDir }) }] });
     stands.push(st);
-    expect(st.journal().some((l) => l.ev === "module_failed" && l.module === "host-remote")).toBe(true);
+    f.breakNow();
+    await st.open("site@laptop");
+    await stand.until(() => rcOf(st, "site@laptop").length === 1 || remoteFailed(st));
+    expect(remoteFailed(st)).toBe(false);
+    expect(rcOf(st, "site@laptop")).toHaveLength(1);
+  });
+
+  it("3069 · остановка Host, пока сессия идёт в idle: отказ shutting_down — не ошибка модуля", async () => {
+    // источник: факт (журнал wsl 1 нояб. 19:46:24.879: module_failed host-remote «machine.slots: shutting_down»); host/core/contract.ts:119
+    const { st } = await make();
+    const s = await st.open("site@laptop");
+    await stand.until(() => rec(st, "site@laptop"));
+    const p = st.proc("site@laptop");
+    p.send(stand.msg.state("running"));
+    await stand.until(() => s.state === "busy");
+    const done = st.kernel.shutdown("тест");
+    p.send(stand.msg.result());
+    p.send(stand.msg.state("idle"));
+    await done;
+    await new Promise((r) => setTimeout(r, 20));
+    expect(remoteFailed(st)).toBe(false);
+    expect(st.journal().filter((l) => l.callsign === "site@laptop").every((l) => !(l.ev === "module_failed"))).toBe(true);
+  });
+
+  it("3070 · slots выключен, процесс закрыт и поднят — remote не выключен", async () => {
+    // источник: host/core/contract.ts:119 «отказ словом … не ошибка модуля»; находка бэклога
+    const w: World = { who: { main: "infirex" }, claudeDir: mkdtempSync(join(tmpdir(), "switchboard-claude-")) };
+    const f = flaky(w);
+    const st = await stand.standHost({ modules: [f.mod, { manifest, module: remote({ claudeDir: w.claudeDir }) }] });
+    stands.push(st);
+    const s = await st.open("site@laptop");
+    await stand.until(() => rec(st, "site@laptop"));
+    f.breakNow();
+    await s.stop();
+    await s.start();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(remoteFailed(st)).toBe(false);
+    expect(st.states("site@laptop").at(-1)?.failed?.["host-remote"]).toBeUndefined();
+  });
+
+  it("3071 · смена слота и перезапуск процесса без хода — решение по свежему слоту", async () => {
+    // источник: чьё: код (remote.ts:5-8 — снимать, если в слоте сессии сейчас не тот аккаунт)
+    const { st, w } = await make();
+    const s = await st.open("site@laptop");
+    await stand.until(() => rec(st, "site@laptop"));
+    const f = transcript(w, s.info.session_id, "session_01Jai");
+    w.who.main = "y0902";
+    await s.restart();
+    await stand.until(() => unbinds(st).length === 1);
+    expect(lastBridge(f)?.bridgeSessionId).toBe("");
+    expect(unbinds(st)[0].why).toBe("привязка снята: infirex → y0902 · session_01Jai");
+  });
+
+  it("3072 · перезапуск Host без живого процесса — первое решение о привязке по нынешнему слоту", async () => {
+    // источник: чьё: код (remote.ts:5-8 — снимать, если в слоте сессии сейчас не тот аккаунт)
+    const { st, w } = await make();
+    const s = await st.open("site@laptop");
+    await stand.until(() => rec(st, "site@laptop")?.account === "infirex");
+    const f = transcript(w, s.info.session_id, "session_01Jai");
+    await st.close();
+    stands.splice(stands.indexOf(st), 1);
+    w.who.main = "y0902";
+    const { st: st2 } = await make({ home: st.home, world: w });
+    await stand.until(() => st2.kernel.sessions.get("site@laptop")?.state === "idle");
+    expect(lastBridge(f)?.bridgeSessionId).toBe("");
+    expect(unbinds(st2).map((l) => l.why)).toEqual(["привязка снята: infirex → y0902 · session_01Jai"]);
   });
 });

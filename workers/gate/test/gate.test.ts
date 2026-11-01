@@ -2,7 +2,7 @@
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GateApi } from "../contract.ts";
-import { parseKey, sign, verifyKey } from "../src/key.ts";
+import { sign, verifyKey } from "../src/key.ts";
 import config from "../wrangler.jsonc?raw";
 
 const SECRET = "test-secret";
@@ -27,6 +27,11 @@ describe("эталоны gate", () => {
     expect(await gate.verify(key)).toEqual({ error: "bad_key" });
     expect(logs).toEqual(["bad_key host.laptop.k7f3 · подпись не сошлась"]);
     expect(logs.join("\n")).not.toContain(key.split(".")[3]);
+    // подпись привязана к role.name.kid: та же подпись под другой ролью или номером, не base64url — bad_key
+    const sig = (await sign(SECRET, "client", "phone", "k8e1")).split(".")[3];
+    expect(await gate.verify(`host.phone.k8e1.${sig}`)).toEqual({ error: "bad_key" });
+    expect(await gate.verify(`client.phone.k8e2.${sig}`)).toEqual({ error: "bad_key" });
+    expect(await gate.verify("client.phone.k8e1.QUJD")).toEqual({ error: "bad_key" });
   });
 
   it("113 · отозванный client.phone.k2a9 — revoked; новый ключ k8e1 тем же секретом проходит", async () => {
@@ -45,6 +50,9 @@ describe("эталоны gate", () => {
     expect(await gate.verify("laptop-key")).toEqual({ error: "bad_key" });
     expect(await gate.verify("admin.laptop.k7f3.Jx9w")).toEqual({ error: "bad_key" });
     expect(await gate.verify(undefined as unknown as string)).toEqual({ error: "bad_key" });
+    for (const k of ["host.laptop.k7f3", "host.lap.top.k7f3.sig", "host..k7f3.sig", "host.lap@top.k7f3.sig", "guest.x.y.z", 42]) {
+      expect(await gate.verify(k as string)).toEqual({ error: "bad_key" });
+    }
     expect(imp).not.toHaveBeenCalled();
   });
 
@@ -64,23 +72,11 @@ describe("эталоны gate", () => {
   });
 });
 
-describe("ключ", () => {
-  it("вид ключа: четыре части, роль host или client, знаки A-Z a-z 0-9 _ -", () => {
-    expect(parseKey("host.laptop.k7f3.sig")).toMatchObject({ role: "host", name: "laptop", kid: "k7f3", id: "host.laptop.k7f3" });
-    expect(parseKey("client.panel-desk.k3f1.a_b-c")).not.toBeNull();
-    for (const k of ["host.laptop.k7f3", "host.lap.top.k7f3.sig", "host..k7f3.sig", "host.lap@top.k7f3.sig", "guest.x.y.z", 42]) {
-      expect(parseKey(k)).toBeNull();
-    }
-  });
-
-  it("подпись привязана к role.name.kid: та же подпись под другим именем или номером — bad_key", async () => {
-    const sig = (await sign(SECRET, "client", "phone", "k8e1")).split(".")[3];
-    expect(await gate.verify(`host.phone.k8e1.${sig}`)).toEqual({ error: "bad_key" });
-    expect(await gate.verify(`client.phone.k8e2.${sig}`)).toEqual({ error: "bad_key" });
-    expect(await gate.verify(`client.phone.k8e1.QUJD`)).toEqual({ error: "bad_key" });
-  });
-
-  it("sign отказывает в недопустимом имени", async () => {
-    await expect(sign(SECRET, "host", "lap.top", "k7f3")).rejects.toThrow();
+describe("HTTP gate", () => {
+  it("2006 · любой HTTP-запрос к gate — 404 без тела", async () => {
+    // чьё: код (gate/contract.ts:1 «Вход Gate без публичного адреса — его зовёт только relay по привязке GATE»)
+    const r = await (exports as unknown as { default: { fetch(req: Request): Promise<Response> } }).default.fetch(new Request("https://gate/"));
+    expect(r.status).toBe(404);
+    expect(await r.text()).toBe("");
   });
 });

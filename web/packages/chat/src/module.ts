@@ -32,6 +32,8 @@ type Conv = {
   watching: boolean;
   /** машина не отдаёт ленту (нет session.watch в её contract) */
   noFeed: boolean;
+  /** отказ session.watch или session.history — словом в ленте */
+  refused?: string;
   unread: number;
   lastIn?: string;
   mounted: number;
@@ -111,8 +113,12 @@ export function createChat(): AppModule {
   async function history(callsign: string) {
     if (!has(callsign, "session.history")) return;
     const r = await app.request<{ messages: SdkMsg[] }>("session.history", { callsign, before: null, limit: 50 });
-    if (!r.ok) return;
     const c = conv(callsign);
+    if (!r.ok) {
+      c.refused ??= `session.history: ${r.error}`;
+      return void app.changed();
+    }
+    if (c.refused?.startsWith("session.history")) c.refused = undefined;
     // история — сначала, затем то, чего в ней нет (живые пачки, переписка, свои пузыри)
     const old = c.items;
     const next: Item[] = [];
@@ -143,6 +149,7 @@ export function createChat(): AppModule {
     c.noFeed = !!app.provides(m) && !has(callsign, "session.watch");
     if (has(callsign, "session.watch")) {
       const r = await app.request("session.watch", { callsign });
+      c.refused = r.ok ? undefined : `session.watch: ${r.error}`;
       if (r.ok) {
         c.watching = true;
         c.fresh = true;
@@ -544,7 +551,8 @@ export function createChat(): AppModule {
           }
         }
       }
-      if (!c.items.length && !c.noFeed) feed.append(h("div", { class: "chat-note" }, "Сообщений пока нет"));
+      if (c.refused) feed.append(h("div", { class: "chat-note", role: "alert" }, c.refused));
+      else if (!c.items.length && !c.noFeed) feed.append(h("div", { class: "chat-note" }, "Сообщений пока нет"));
       if (near || feed.dataset.drawn !== "1") feed.scrollTop = feed.scrollHeight;
       feed.dataset.drawn = "1";
       // полоса над вводом: задачи Claude и подсказка следующего сообщения

@@ -150,5 +150,18 @@ describe("вопрос сессии", () => {
     inp.dispatchEvent(new Event("input"));
     await t.click(t.button("Отправить"));
     expect(t.relay.sent("answer")[0]).toMatchObject({ question: "toolu_01Hx", action: "accept", content: { project: "WEB" } });
+
+    // вторая форма — «Отклонить»; форма со ссылкой — «Перешёл»
+    const t2 = await opened({ kind: "form", questions: undefined, message: "Данные", schema: { type: "object", properties: { project: { type: "string" } } } });
+    t2.relay.handlers.answer = () => ({ ok: true });
+    await t2.click(t2.button("Отклонить"));
+    expect(t2.relay.sent("answer")[0]).toMatchObject({ question: "toolu_01Hx", action: "decline" });
+    expect(t2.relay.sent("answer")[0]).not.toHaveProperty("content");
+    const t3 = await opened({ kind: "form", questions: undefined, message: "Войдите в GitHub", url: "https://github.com/login/device" });
+    t3.relay.handlers.answer = () => ({ ok: true });
+    expect(t3.$<HTMLAnchorElement>(".ask-url")!.href).toBe("https://github.com/login/device");
+    await t3.click(t3.button("Перешёл"));
+    expect(t3.relay.sent("answer")[0]).toMatchObject({ action: "accept" });
+    expect(t3.relay.sent("answer")[0]).not.toHaveProperty("content");
   });
 });

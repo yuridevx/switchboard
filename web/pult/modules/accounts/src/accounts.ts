@@ -58,6 +58,8 @@ export function createAccounts(): AppModule {
   const slots = new Map<string, Record<string, Slot>>();
   const logins = new Map<string, Login>();
   const prevAccount = new Map<string, string>();
+  /** «машина · запрос» → слово отказа владельца при загрузке */
+  const refused = new Map<string, string>();
   const screens = new Set<{ draw(): void }>();
 
   const can = (m: string, n: string) => app.provides(m)?.[n] !== undefined;
@@ -70,11 +72,19 @@ export function createAccounts(): AppModule {
   async function loadAccounts(m: string, maxAge?: number) {
     const r = await app.request<{ accounts: Record<string, Account> }>("machine.accounts", { machine: m, ...(maxAge ? { max_age: maxAge } : {}) });
     if (r.ok) accs.set(m, r.result.accounts ?? {});
+    refusal(m, "machine.accounts", r);
   }
   async function loadSlots(m: string) {
     const r = await app.request<{ slots: Record<string, Slot> }>("machine.slots", { machine: m });
     if (r.ok) slots.set(m, r.result.slots ?? {});
+    refusal(m, "machine.slots", r);
   }
+  /** Отказ владельца — словом на экране, а не «аккаунтов нет»; ответ снимает его. */
+  function refusal(m: string, n: string, r: { ok: boolean; error?: string }) {
+    if (r.ok) refused.delete(`${m} · ${n}`);
+    else refused.set(`${m} · ${n}`, String(r.error));
+  }
+  const refusals = (n: string) => [...refused].filter(([k]) => k.endsWith(n)).map(([k, w]) => h("div", { class: "sb-note bad", role: "alert", "data-refused": k }, `${k}: ${w}`));
 
   /** Открыли экран: каждой машине — machine.accounts { max_age: 120 } и machine.slots; затем расход почты — её машинам. */
   /** первый ответ machine.accounts ещё не пришёл: опрос лимитов занимает секунды — экран пишет «загружаю», а не «нет» */
@@ -299,7 +309,8 @@ export function createAccounts(): AppModule {
         );
       });
       box.append(h("div", { class: "ac-cards" }, cards));
-      if (!groups.size) box.append(h("div", { class: "sb-note" }, loaded ? "Аккаунтов нет — «+ Новый аккаунт»." : "Загружаю аккаунты машин…"));
+      box.append(...refusals("machine.accounts"));
+      if (!groups.size && !refusals("machine.accounts").length) box.append(h("div", { class: "sb-note" }, loaded ? "Аккаунтов нет — «+ Новый аккаунт»." : "Загружаю аккаунты машин…"));
       box.append(h("div", { class: "sb-note" }, "Одна карточка — одна почта со всех машин. Окна — запись Host одной машины; свежее из всех источников выбирает он сам."));
     }
 
@@ -418,6 +429,7 @@ export function createAccounts(): AppModule {
       const m = slotMachine;
       const list = slots.get(m) ?? {};
       const a = accs.get(m) ?? {};
+      box.append(...refusals("machine.slots").filter((x) => x.dataset.refused === `${m} · machine.slots`));
       for (const [name, s] of Object.entries(list)) {
         const pick = h("select", { class: "sb-in", "data-f": `now:${name}` }, h("option", { value: "" }, "следующего по порядку — выберет Host"), s.order.filter((x) => x !== s.account).map((x) => h("option", { value: x }, x))) as HTMLSelectElement;
         const free = Object.keys(a).filter((x) => !s.order.includes(x) && a[x].login === "ok");

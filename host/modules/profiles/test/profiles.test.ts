@@ -1,6 +1,6 @@
 // Эталоны и стыки модуля profiles на стенде Host: поддельные SDK, relay, keeper и часы;
 // git — поддельный, пишет свои вызовы с окружением; github — поддельный участник рации. Номер эталона — номер теста.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -299,5 +299,214 @@ describe("profiles: ветки и стыки", () => {
 
   it("profile.yaml: строки и списки", () => {
     expect(parseYaml("model: opus\nfallback_model: [sonnet, haiku]\n# x\neffort: 'high'")).toEqual({ model: "opus", fallback_model: ["sonnet", "haiku"], effort: "high" });
+  });
+});
+
+/** Поддельный git с ручками: fail — команда и её ответ, hold — команда ждёт release(). */
+function gitWith(o: { fail?: Record<string, { code: number; out: string } | "throw">; hold?: string } = {}) {
+  const g = fakeGit();
+  g.o.dirty = false;
+  let release: () => void = () => {};
+  const held = new Promise<void>((r) => (release = r));
+  const git: Git = async (args, x) => {
+    const a = args.filter((v, i) => !(v === "-c" || args[i - 1] === "-c"));
+    const f = o.fail?.[a[0]];
+    if (f === "throw") throw new Error(`git ${a[0]} упал`);
+    if (f) {
+      g.calls.push({ args, env: x.env, cwd: x.cwd });
+      return f;
+    }
+    if (o.hold === a[0]) {
+      g.calls.push({ args, env: x.env, cwd: x.cwd });
+      await held;
+      return { code: 0, out: "" };
+    }
+    return g.git(args, x);
+  };
+  return { ...g, git, release };
+}
+
+describe("profiles: покрытие плана host-modules", () => {
+  it("3056 · session.profile: тот же профиль — без перезапуска; null — профиль снят, restart без части", async () => {
+    // источник: чьё: код (profiles.ts:250-257, :263)
+    repo();
+    const { mod } = await bench({ git: fakeGit().git });
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: OPS })).result).toEqual({ restart: false });
+    expect(st!.sdk.of("site@laptop")).toHaveLength(1);
+    expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: null })).result).toEqual({ restart: true });
+    await until(() => st!.sdk.of("site@laptop").length === 2);
+    expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBeUndefined();
+    await until(() => last("site@laptop").profile === undefined);
+  });
+
+  it("3057 · session.profile остановленной — без перезапуска, профиль со следующего старта", async () => {
+    // источник: чьё: код (profiles.ts:253-254)
+    repo();
+    await bench({ git: fakeGit().git });
+    const s = await st!.open("site@laptop");
+    await s.stop();
+    expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: OPS })).result).toEqual({ restart: false });
+    await s.start();
+    expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
+  });
+
+  it("3058 · session.profile занятой ходом — ответ сразу, перезапуск после хода", async () => {
+    // источник: чьё: код (profiles.ts:249; host/core: restart ждёт result)
+    repo();
+    await bench({ git: fakeGit().git });
+    const s = await st!.open("site@laptop");
+    const p = st!.proc("site@laptop");
+    p.send(stand.msg.state("running"));
+    await until(() => s.state === "busy");
+    expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: OPS })).result).toEqual({ restart: true });
+    expect(st!.sdk.of("site@laptop")).toHaveLength(1);
+    expect(p.interrupts).toBe(0);
+    p.send(stand.msg.result());
+    p.send(stand.msg.state("idle"));
+    await until(() => st!.sdk.of("site@laptop").length === 2);
+    expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
+  });
+
+  it("3059 · профиль неоткрытой сессии переживает перезапуск Host", async () => {
+    // источник: слово пользователя (устав: «после перезапуска Host модуль поднимает своё из хранилища»)
+    repo();
+    const a = await bench({ git: fakeGit().git });
+    await preOpen(a.mod, "n@laptop", OPS);
+    await st!.close();
+    st = null;
+    await bench({ git: fakeGit().git });
+    await st!.open("n@laptop");
+    expect(st!.proc("n@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
+  });
+
+  it("3060 · machine.profiles: профиль без profile.yaml — null; sync с отказом токена — ответ с причиной, не отказ", async () => {
+    // источник: чьё: код (profiles.ts:273-291, :149)
+    repo();
+    rmSync(join(clone(), ".git"), { recursive: true });
+    await bench({ git: fakeGit().git });
+    github(st!, () => ({ ok: false, error: "not_installed" }));
+    const r = await ask({ type: "machine.profiles", sync: true });
+    expect(r.ok).toBe(true);
+    expect(r.result.profiles["team/profiles/writer"]).toEqual({ model: null, effort: null, sessions: [] });
+    expect(r.result.repos["team/profiles"]).toMatchObject({ state: "error", op: "github.token", error: "not_installed" });
+  });
+
+  it("3061 · git упал на шаге — state error с этим шагом; push отказал — error", async () => {
+    // источник: чьё: код (profiles.ts:152, :163, :168, :180, :183, :194)
+    const cases: Array<[string, Record<string, { code: number; out: string } | "throw">, boolean]> = [
+      ["git clone", { clone: { code: 128, out: "fatal: нет доступа" } }, false],
+      ["git add", { add: { code: 1, out: "add упал" } }, true],
+      ["git pull --no-rebase", { pull: { code: 1, out: "fatal: сеть" } }, true],
+      ["git push", { push: { code: 1, out: "rejected" } }, true],
+      ["sync", { add: "throw" }, true],
+    ];
+    for (const [op, fail, hasClone] of cases) {
+      home = mkdtempSync(join(tmpdir(), "sb-profiles-"));
+      process.env.SWITCHBOARD_HOME = home;
+      if (hasClone) repo();
+      await bench({ git: gitWith({ fail }).git });
+      github(st!, () => TOKEN);
+      const r = await ask({ type: "machine.profiles", sync: true });
+      expect(r.result.repos["team/profiles"], op).toMatchObject({ state: "error", op });
+      expect(st!.journal().some((l) => l.ev === "sync" && l.kind === "stop" && l.word === "error"), op).toBe(true);
+      await st!.close();
+      st = null;
+    }
+  });
+
+  it("3062 · запись посреди идущей синхронизации — следующая после неё, не вперемешку", async () => {
+    // источник: чьё: код (profiles.ts:75, :190-197)
+    repo();
+    const g = gitWith({ hold: "push" });
+    const { mod } = await bench({ git: g.git });
+    github(st!, () => TOKEN);
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    const write = (f: string) => st!.proc("site@laptop").hook("PostToolUse", { tool_name: "Write", tool_input: { file_path: join(clone(), "ops", "memory", f) } });
+    expect(await write("a.md")).toEqual([{}]);
+    await until(() => g.cmds().includes("push"));
+    expect(await write("b.md")).toEqual([{}]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(g.cmds().filter((c) => c.startsWith("add"))).toHaveLength(1);
+    g.release();
+    await until(() => g.cmds().filter((c) => c.startsWith("add")).length === 2);
+    const c = g.cmds();
+    expect(c.indexOf("push")).toBeLessThan(c.lastIndexOf("add -- ops/memory writer/memory"));
+  });
+
+  it("3063 · профиля нет в клоне — задание модели в SessionStart", async () => {
+    // источник: чьё: код (profiles.ts:116)
+    repo();
+    const { mod } = await bench({ git: fakeGit().git });
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    rmSync(join(clone(), "ops"), { recursive: true });
+    const out = (await st!.proc("site@laptop").hook("SessionStart", {})) as Array<{ hookSpecificOutput: { additionalContext: string } }>;
+    expect(out[0].hookSpecificOutput.additionalContext).toContain(`Профиля ${OPS} нет в клоне`);
+  });
+
+  it("3064 · папки профиля нет при старте — сессия без части, поле state error, строка stop no_profile", async () => {
+    // источник: чьё: код (profiles.ts:222-225, :298); устав «система ловит … пишет в журнал»
+    repo();
+    const { mod } = await bench({ git: fakeGit().git });
+    await preOpen(mod, "site@laptop", OPS);
+    const s = await st!.open("site@laptop");
+    rmSync(join(clone(), "ops"), { recursive: true });
+    await s.stop();
+    await s.start();
+    expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBeUndefined();
+    expect(st!.journal().some((l) => l.ev === "profile" && l.kind === "stop" && l.word === "no_profile")).toBe(true);
+    s.input("x");
+    stand.turn(st!.proc("site@laptop"));
+    await until(() => last("site@laptop").profile?.state === "error");
+  });
+
+  it("3065 · после перезапуска Host — профиль сессии из хранилища", async () => {
+    // источник: слово пользователя (устав: «после перезапуска Host модуль поднимает своё из хранилища»)
+    repo();
+    const a = await bench({ git: fakeGit().git });
+    await preOpen(a.mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    await st!.close();
+    st = null;
+    await bench({ git: fakeGit().git });
+    await until(() => st!.kernel.sessions.get("site@laptop")?.state === "idle");
+    expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
+  });
+
+  it("3066 · штатная остановка доводит идущую синхронизацию, новую не начинает", async () => {
+    // источник: слово пользователя (устав, graceful shutdown: «не принимает новое → доводит текущее»)
+    repo();
+    const g = gitWith({ hold: "push" });
+    const { mod } = await bench({ git: g.git });
+    github(st!, () => TOKEN);
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    const write = (f: string) => st!.proc("site@laptop").hook("PostToolUse", { tool_name: "Write", tool_input: { file_path: join(clone(), "ops", "memory", f) } });
+    await write("a.md");
+    await until(() => g.cmds().includes("push"));
+    await write("b.md");
+    const s = st!;
+    st = null;
+    let closed = false;
+    const c = s.close().then(() => (closed = true));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(closed).toBe(false);
+    g.release();
+    await c;
+    expect(g.cmds().filter((x) => x.startsWith("add"))).toHaveLength(1);
+  });
+
+  it("3067 · таймер раз в минуту — синхронизация каждого репозитория", async () => {
+    // источник: чьё: код (profiles.ts:34, :316-318)
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const g = fakeGit();
+    await bench({ git: g.git });
+    github(st!, () => TOKEN);
+    vi.advanceTimersByTime(SYNC_MS);
+    await until(() => g.cmds().length === 1);
+    expect(g.cmds()).toEqual([`clone https://github.com/team/profiles.git ${clone()}`]);
   });
 });

@@ -1,5 +1,5 @@
 // Эталоны machine на стенде Host: поддельные relay и держатели, папки — во временной папке. Номер эталона — номер теста.
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -39,8 +39,9 @@ describe("эталоны machine", () => {
     const { st, home } = await pc();
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~/Projets" })).toMatchObject({ ok: false, error: "not_found" });
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "Projects" })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc" })).toMatchObject({ ok: false, error: "bad_frame" });
     const lines = refusals(st);
-    expect(lines.map((l) => l.word)).toEqual(["not_found", "bad_frame"]);
+    expect(lines.map((l) => l.word)).toEqual(["not_found", "bad_frame", "bad_frame"]);
     expect(lines[0].why).toContain("~/Projets");
     expect(lines[1].why).toContain("«Projects»");
     expect(lines[0].why).toContain("panel-desk~owner@example.com");
@@ -67,9 +68,47 @@ describe("machine", () => {
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: full })).toMatchObject({ ok: true, result: { path: full } });
   });
 
-  it("путь — файл: not_found; без пути — bad_frame", async () => {
+  it("путь — файл: not_found", async () => {
     const { st } = await pc();
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~/Projects/todo.txt" })).toMatchObject({ ok: false, error: "not_found" });
-    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc" })).toMatchObject({ ok: false, error: "bad_frame" });
+  });
+});
+
+/** Папка без доступа: chmod 000 на Linux. На Windows своей такой не сделать, а системные не трогаем; под root доступ есть всегда — null. */
+function locked(home: string): string | null {
+  if (process.platform === "win32" || process.getuid?.() === 0) return null;
+  const p = join(home, "locked");
+  mkdirSync(p);
+  chmodSync(p, 0);
+  return p;
+}
+
+describe("machine: покрытие плана host-modules", () => {
+  it("3015 · нет доступа — no_access у dirs и mkdir; модуль жив", async (t) => {
+    // источник: чьё: код (machine/contract.ts:4; machine.ts:42, :52)
+    const { st, home } = await pc();
+    const p = locked(home);
+    if (!p) return t.skip();
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: p })).toMatchObject({ ok: false, error: "no_access" });
+    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: join(p, "x") })).toMatchObject({ ok: false, error: "no_access" });
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~" })).toMatchObject({ ok: true });
+  });
+
+  it("3016 · dirs: незнакомая ошибка ОС — ошибка модуля, machine выключен на машине", async () => {
+    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен»); host/core/contract.ts — вызов без сессии выключает модуль на машине
+    const { st } = await pc();
+    // путь с нулевым байтом: ОС его не примет, слова для кода ошибки у модуля нет
+    const bad = "~/a\u0000b";
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: bad })).toMatchObject({ ok: false, error: "module_error" });
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(st.journal().some((l) => l.ev === "module_failed" && l.module === "host-machine")).toBe(true);
+  });
+
+  it("3017 · mkdir: незнакомая ошибка ОС — ошибка модуля, machine выключен на машине", async () => {
+    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен»)
+    const { st } = await pc();
+    const bad = "~/a\u0000b";
+    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: bad })).toMatchObject({ ok: false, error: "module_error" });
+    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: "~/ok" })).toMatchObject({ ok: false, error: "module_error" });
   });
 });

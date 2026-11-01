@@ -1,6 +1,7 @@
 // Эталоны модуля shell на стенде Host: поддельные SDK и relay, шеллы настоящие — bash (Git Bash на Windows),
 // PowerShell где есть. Вторая машина — второй стенд: кадры между поддельными relay ходят по machine и to, как в рации.
-import { existsSync, mkdtempSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -372,5 +373,85 @@ describe("shell", () => {
     await st.open("site@laptop");
     const servers = st.query("site@laptop").options.mcpServers as Record<string, { name?: string }>;
     expect(Object.keys(servers)).toContain("shell");
+  });
+});
+
+describe("shell: покрытие плана host-modules", { timeout: 30_000 }, () => {
+  it("3077 · ждущий run и wait того же запуска — итог обоим в момент конца", async () => {
+    // источник: чьё: код (shell.ts:2-3 «в момент конца итог получают все ждущие»)
+    const { req } = await machine("laptop");
+    const run = rid(3077);
+    const sync = req("shell.run", { run, shell: "bash", script: "sleep 1; echo done", background: false });
+    await until(() => existsSync(runDir(run)));
+    const w = await req("shell.wait", { run, timeout: 10 });
+    const s = await sync;
+    expect(w.result).toMatchObject({ state: "exit", code: 0, stdout: "done\n" });
+    expect(s.result).toMatchObject({ state: "exit", code: 0, stdout: "done\n" });
+  });
+
+  // на Windows spawn неисполняемого файла бросает EFTYPE синхронно — это не ветка «шелл не стартовал», а ловушка ядра
+  it.skipIf(win)("3078 · шелл не стартовал — итог exit без кода, строка run_error (Linux)", async () => {
+    // источник: чьё: код (shell.ts:242-246)
+    const dir = mkdtempSync(join(tmpdir(), "sb-3078-"));
+    const fake = join(dir, "bash");
+    writeFileSync(fake, "не шелл");
+    const saved = { path: process.env.PATH };
+    process.env.PATH = dir;
+    try {
+      const { st, req } = await machine("laptop");
+      const run = rid(3078);
+      const r = await req("shell.run", { run, shell: "bash", script: "echo x", background: false });
+      expect(r.result).toMatchObject({ state: "exit", code: null });
+      expect(st.journal().some((l) => l.ev === "run_error" && l.run === run)).toBe(true);
+    } finally {
+      process.env.PATH = saved.path;
+    }
+  });
+
+  it("3079 · остановка Host, владелец фонового на этой же машине — отказ shutting_down в журнале", async () => {
+    // источник: чьё: код (shell.ts:173-175; host/core kernel.ts:461-463 — локальный запрос при остановке — shutting_down)
+    const { st, tool } = await machine("laptop");
+    await st.open("site@laptop");
+    const bg = await tool("site@laptop", "run", { machine: "laptop", shell: "bash", script: "sleep 30", background: true, timeout: 60 });
+    const run = /run (\w+)/.exec(bg.content[0].text!)![1];
+    stands.splice(stands.indexOf(st), 1);
+    await st.close();
+    expect(st.journal().find((l) => l.ev === "run_message" && l.run === run)).toMatchObject({ kind: "refuse", word: "shutting_down" });
+  });
+
+  it.skipIf(!win)("3080 · через сутки папку держит процесс — итог забыт, причина run_forget в журнале (Windows)", async () => {
+    // источник: чьё: код (shell.ts:139-148)
+    const { st, req } = await machine("laptop");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const run = rid(3080);
+    await req("shell.run", { run, shell: "bash", script: "echo held", background: false });
+    // файл stdout держит другой процесс без права удаления — как процесс, который скрипт пустил в фон
+    const file = join(runDir(run), "stdout").split("\\").join("/");
+    const holder = spawn("powershell.exe", ["-NoProfile", "-Command", `$f=[IO.File]::Open('${file}','Open','Read','None'); 'open'; Start-Sleep 20`], { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    await new Promise<void>((r) => holder.stdout!.once("data", () => r()));
+    try {
+      vi.advanceTimersByTime(TTL_MS);
+      expect(await req("shell.wait", { run, timeout: 0 })).toMatchObject({ ok: false, error: "no_run" });
+      expect(st.journal().some((l) => l.ev === "run_forget" && l.run === run)).toBe(true);
+    } finally {
+      holder.kill();
+      await new Promise((r) => holder.once("exit", r));
+      rmSync(runDir(run), { recursive: true, force: true });
+    }
+  });
+
+  it("3081 · info: на машине нет модуля shell — текст модели unknown_request", async () => {
+    // источник: чьё: код (shell.ts:111)
+    const { st, tool } = await machine("win");
+    const recv = st.relay.receive.bind(st.relay);
+    st.relay.receive = (ws, text) => {
+      recv(ws, text);
+      if (text === "ping") return;
+      const f = JSON.parse(text) as Frame;
+      if (f.type === "shell.info") queueMicrotask(() => st.relay.deliver({ type: "reply", id: f.id as string, ok: false, error: "unknown_request" } as Frame));
+    };
+    await st.open("site@win");
+    const r = await tool("site@win", "info", { machine: "pc" });
+    expect(r).toEqual({ content: [{ type: "text", text: "unknown_request: на машине pc нет модуля shell" }], isError: true });
   });
 });
