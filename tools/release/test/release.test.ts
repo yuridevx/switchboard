@@ -5,8 +5,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { bucketOf, parseArgs } from "../cli.ts";
-import { entries, pack, parseSha, s3, sha256hex, shaLine, sign, unpack } from "../contract.ts";
-import type { Fetch } from "../contract.ts";
+import { pack, packDir, parseSha, presign, sha256hex, shaLine } from "../contract.ts";
+import { s3, sign } from "../src/s3.ts";
+import type { Fetch } from "../src/s3.ts";
+import { entries } from "../src/tar.ts";
 import { build, closure, packageFiles } from "../src/build.ts";
 import type { Exec } from "../src/build.ts";
 import { buildKeeper } from "../src/keeper.ts";
@@ -24,18 +26,18 @@ describe("архив выпуска", () => {
       { path: "packages/host/release.json", data: Buffer.from('{"version":"1.4.1"}') },
       { path: long, data: Buffer.alloc(1300, 7) },
     ]);
-    const d = tmp();
-    expect(unpack(tgz, d)).toBe(3);
-    expect(readFileSync(join(d, "packages", "host", "release.json"), "utf8")).toBe('{"version":"1.4.1"}');
-    expect(readFileSync(join(d, ...long.split("/")))).toEqual(Buffer.alloc(1300, 7));
+    const files = new Map(entries(tgz).filter((e) => e.data).map((e) => [e.path, e.data!]));
+    expect(files.size).toBe(3);
+    expect(files.get("packages/host/release.json")!.toString()).toBe('{"version":"1.4.1"}');
+    expect(files.get(long)).toEqual(Buffer.alloc(1300, 7));
     expect(entries(tgz).find((e) => e.path === "host")?.mode).toBe(0o755);
     // одно и то же содержимое — один и тот же архив: хэш выпуска воспроизводим
     expect(sha256hex(pack([{ path: "a", data: Buffer.from("x") }]))).toBe(sha256hex(pack([{ path: "a", data: Buffer.from("x") }])));
   });
 
-  it("путь вне папки в архиве — исключение, ничего не записано вне папки", () => {
+  it("путь вне папки в архиве — исключение", () => {
     const tgz = pack([{ path: "../evil", data: Buffer.from("x") }]);
-    expect(() => unpack(tgz, tmp())).toThrow("путь вне архива");
+    expect(() => entries(tgz)).toThrow("путь вне архива");
   });
 
   it("строка .sha256 как у sha256sum; не того вида — null", () => {
@@ -43,6 +45,26 @@ describe("архив выпуска", () => {
     expect(shaLine(h, "1.4.1")).toBe(`${h}  1.4.1.tgz\n`);
     expect(parseSha(shaLine(h, "1.4.1"))).toBe(h);
     expect(parseSha("nope")).toBeNull();
+  });
+});
+
+describe("упаковка папки и ссылки", () => {
+  it("packDir: все файлы папки с путями от неё, тот же набор — тот же архив", () => {
+    const d = tmp();
+    mkdirSync(join(d, "lib"));
+    writeFileSync(join(d, "app.json"), '{"run":["node","main.js"]}');
+    writeFileSync(join(d, "lib", "x.js"), "1");
+    const a = packDir(d);
+    expect(entries(a).filter((e) => e.data).map((e) => e.path)).toEqual(["app.json", "lib/x.js"]);
+    expect(sha256hex(packDir(d))).toBe(sha256hex(a));
+  });
+
+  it("presign — пример AWS: GET test.txt на сутки", async () => {
+    const url = await presign(
+      { accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "us-east-1" },
+      { method: "GET", host: "examplebucket.s3.amazonaws.com", path: "/test.txt", now: new Date("2013-05-24T00:00:00Z"), expires: 86400 },
+    );
+    expect(url).toMatch(/X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404$/);
   });
 });
 
@@ -67,19 +89,19 @@ describe("подпись S3", () => {
     );
   });
 
-  it("клиент: path-style адрес, временный ключ заголовком, тело PUT подписано своим хэшем", async () => {
+  it("клиент: path-style адрес, тело PUT подписано своим хэшем", async () => {
     const seen: Array<{ url: string; method: string; headers: Record<string, string> }> = [];
     const f: Fetch = async (url, init) => {
       seen.push({ url, method: init.method, headers: init.headers });
       return { status: 200, arrayBuffer: async () => new TextEncoder().encode("1.4.1\n").buffer as ArrayBuffer };
     };
-    const c = s3({ accessKeyId: "AK", secretAccessKey: "SK", sessionToken: "ST", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f, () => new Date(Date.UTC(2026, 9, 31, 12)));
+    const c = s3({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f, () => new Date(Date.UTC(2026, 9, 31, 12)));
     const r = await c.get("host/latest");
     expect(r.body.toString()).toBe("1.4.1\n");
     await c.put("host/1.4.1.tgz", Buffer.from("tgz"));
     expect(seen[0].url).toBe("https://acc0.r2.cloudflarestorage.com/switchboard-releases/host/latest");
-    expect(seen[0].headers).toMatchObject({ "x-amz-date": "20261031T120000Z", "x-amz-content-sha256": "UNSIGNED-PAYLOAD", "x-amz-security-token": "ST" });
-    expect(seen[0].headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AK\/20261031\/auto\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signature=[0-9a-f]{64}$/);
+    expect(seen[0].headers).toMatchObject({ "x-amz-date": "20261031T120000Z", "x-amz-content-sha256": "UNSIGNED-PAYLOAD" });
+    expect(seen[0].headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AK\/20261031\/auto\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/);
     expect(seen[1].headers["x-amz-content-sha256"]).toBe(sha256hex("tgz"));
   });
 });

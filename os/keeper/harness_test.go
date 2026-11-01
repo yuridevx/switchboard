@@ -266,7 +266,7 @@ func newStand(t *testing.T) *stand {
 	home := t.TempDir()
 	s := &stand{t: t, home: home, relay: newFakeRelay(t), links: newLinks(t)}
 	os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.ab12.sig\n"), 0o600)
-	writeConf(home, map[string]any{"machine": "win", "relay": s.relay.url()})
+	writeConf(home, map[string]any{"relay": s.relay.url()})
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	return s
@@ -346,4 +346,20 @@ func plan1(rev int, parts ...map[string]any) map[string]any {
 		ps = append(ps, p)
 	}
 	return map[string]any{"rev": rev, "parts": ps}
+}
+
+// journalLine — первая строка журнала с подстрокой s, разобранная.
+func journalLine(home, s string) map[string]any {
+	ms, _ := filepath.Glob(filepath.Join(home, "journal", "*.jsonl"))
+	for _, m := range ms {
+		b, _ := os.ReadFile(m)
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.Contains(l, s) {
+				var r map[string]any
+				json.Unmarshal([]byte(l), &r)
+				return r
+			}
+		}
+	}
+	return nil
 }

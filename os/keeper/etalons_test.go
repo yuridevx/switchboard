@@ -29,6 +29,10 @@ func TestEtPlanInstallAndRun(t *testing.T) {
 	}
 	waitFor(t, "вывод в журнале", func() bool { return journalHas(s.home, `"line":"app 1.3.2 start`) })
 	waitFor(t, "stderr держателя в журнале", func() bool { return journalHas(s.home, `app: stderr line`) })
+	// строки держателя части — под её именем: их отдаёт log по части (ревью архитектора 1 нояб.)
+	if r := journalLine(s.home, `app: stderr line`); r["part"] != "capture" || r["who"] != "holder" {
+		t.Fatalf("строка stderr %v", r)
+	}
 	if _, err := os.Stat(planPath(s.home)); err != nil {
 		t.Fatal("план не сохранён на диск")
 	}
@@ -152,7 +156,7 @@ func TestEtSavedPlanWithoutRelay(t *testing.T) {
 	pl := plan1(7, s.links.part("capture", "1.3.2", appFiles(""), on))
 	b, _ := json.Marshal(pl)
 	os.WriteFile(planPath(s.home), b, 0o600)
-	writeConf(s.home, map[string]any{"machine": "win"}) // relay нет
+	writeConf(s.home, map[string]any{}) // relay нет
 	k := s.start()
 	waitFor(t, "running без связи", func() bool { return partOf(k, "capture").State == "running" })
 	if k.state().Rev != 7 {
@@ -245,6 +249,32 @@ func TestEtHostHoldersUntouched(t *testing.T) {
 	time.Sleep(700 * time.Millisecond)
 	if !exists(holdPath(s.home, "site@win")) || !alive(f.Pid) {
 		t.Fatal("держатель Host тронут")
+	}
+	// строки держателя сессии — под host и с callsign: их находит отбор по сессии
+	if r := journalLine(s.home, "\"ev\":\"hold\""); r["part"] != "host" || r["callsign"] != "site@win" {
+		t.Fatalf("строка держателя сессии %v", r)
+	}
+}
+
+// Новое окружение части в плане при той же версии — перезапуск с ним (ревью архитектора 1 нояб.).
+func TestEtEnvChangeRestarts(t *testing.T) {
+	s := newStand(t)
+	part := s.links.part("capture", "1.3.2", appFiles(""), on)
+	s.relay.setPlan(plan1(1, part))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	withEnv := map[string]any{}
+	for kk, v := range part {
+		withEnv[kk] = v
+	}
+	withEnv["env"] = map[string]string{"SITE": "lab"}
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 2, "parts": []any{withEnv}})
+	waitFor(t, "перезапуск с новым окружением", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Pid != 0 && p.Pid != pid })
+	s.relay.push(map[string]any{"type": "releases.plan", "from": ".releases", "rev": 3, "parts": []any{withEnv}})
+	time.Sleep(500 * time.Millisecond)
+	if p := partOf(k, "capture"); p.Restarts != 0 || p.State != "running" {
+		t.Fatalf("тот же план с новой rev тронул часть: %+v", p)
 	}
 }
 

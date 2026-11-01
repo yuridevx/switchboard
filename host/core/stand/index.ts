@@ -10,7 +10,7 @@ export { FakeClock } from "./clock.ts";
 export { FakeHolders, FakeProc } from "./holders.ts";
 export { FakeRelay } from "./relay.ts";
 export { FakeQuery, FakeSdk } from "./sdk.ts";
-export { CORE, module, release, standHost, until } from "./host.ts";
+export { CORE, module, standHost, until } from "./host.ts";
 export type { Stand, StandOptions } from "./host.ts";
 import type { FakeProc } from "./holders.ts";
 

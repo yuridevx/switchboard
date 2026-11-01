@@ -43,7 +43,7 @@ const isLink = (p: string) => existsSync(p) && lstatSync(p).isSymbolicLink();
  * Машина: аккаунты (вход — файлом в папке аккаунта, слоты — ссылки на неё), порядок слотов и слоты сессий.
  * Сессии из списка поднимаются Host по resume.
  */
-async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<string, string[]>; sessions?: Record<string, { slot: string | null; cut?: string }>; releases?: Record<string, ReturnType<typeof stand.release>> }) {
+async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<string, string[]>; sessions?: Record<string, { slot: string | null; cut?: string }> }) {
   const store = join(home, "store");
   mkdirSync(store, { recursive: true });
   const recs: Record<string, unknown> = {};

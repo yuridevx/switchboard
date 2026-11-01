@@ -1,11 +1,10 @@
 // S3 API R2 без внешних пакетов: подпись AWS Signature V4 на node:crypto, адрес path-style <endpoint>/<bucket>/<key>.
 import { createHash, createHmac } from "node:crypto";
 
-/** Ключ S3: постоянный выкладчика или временный от points (sessionToken — заголовком X-Amz-Security-Token). */
+/** Ключ S3 выкладчика. */
 export type S3Creds = {
   accessKeyId: string;
   secretAccessKey: string;
-  sessionToken?: string;
   endpoint: string;
   bucket: string;
   /** у R2 — auto */
@@ -63,7 +62,6 @@ export function s3(c: S3Creds, f: Fetch = fetch as unknown as Fetch, now: () => 
     const amzDate = now().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
     const payloadHash = body ? hex(body) : "UNSIGNED-PAYLOAD";
     const headers: Record<string, string> = { host: base.host, "x-amz-date": amzDate, "x-amz-content-sha256": payloadHash };
-    if (c.sessionToken) headers["x-amz-security-token"] = c.sessionToken;
     headers.authorization = sign({ method, path, headers, payloadHash, accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey, region: c.region ?? "auto" });
     const { host: _host, ...send } = headers;
     const r = await f(`${base.protocol}//${base.host}${path}`, { method, headers: send, ...(body ? { body } : {}), ...(signal ? { signal } : {}) });

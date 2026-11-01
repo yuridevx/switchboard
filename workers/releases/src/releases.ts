@@ -8,11 +8,10 @@ import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type P
 import { CfFailed, deploy, deployed, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
-import { presign } from "./sign.ts";
+import { parseSha, presign, RELEASES_BUCKET, shaKey, tgzKey, VERSION_RE as VERSION } from "@switchboard/release";
 
-const VERSION = /^\d+\.\d+\.\d+$/;
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
-/** части каждой машины: без записи в плане — за stable */
+/** части каждой машины: без записи в плане — за stable; они же — части машины из сборки для deploy * */
 const DEFAULT = ["keeper", "host"];
 
 /** Порядок номеров: 1.1.10 новее 1.1.9. */
@@ -126,9 +125,8 @@ export class Releases extends DurableObject<Env> {
 
   /** Хэш готовой версии части машины: .sha256 лежит — версия загружена целиком. */
   private async sha(part: string, version: string): Promise<string | null> {
-    const o = await this.env.BUCKET.get(`${part}/${version}.sha256`);
-    if (!o) return null;
-    return (await o.text()).trim().split(/\s+/)[0] || null;
+    const o = await this.env.BUCKET.get(shaKey(part, version));
+    return o ? parseSha(await o.text()) : null;
   }
 
   /** Готовые версии части машины. */
@@ -139,7 +137,7 @@ export class Releases extends DurableObject<Env> {
       const r = await this.env.BUCKET.list({ prefix: `${part}/`, cursor });
       for (const o of r.objects) {
         const v = o.key.slice(part.length + 1).replace(/\.sha256$/, "");
-        if (o.key.endsWith(".sha256") && VERSION.test(v)) out.push(v);
+        if (o.key === shaKey(part, v) && VERSION.test(v)) out.push(v);
       }
       cursor = r.truncated ? r.cursor : undefined;
     } while (cursor);
@@ -161,7 +159,7 @@ export class Releases extends DurableObject<Env> {
   private link(method: "GET" | "PUT", key: string): Promise<string> {
     return presign(
       { accessKeyId: this.env.R2_LINK_KEY_ID, secretAccessKey: this.env.R2_LINK_SECRET },
-      { method, host: `${this.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`, path: `/${this.env.RELEASES_BUCKET}/${key}`, now: new Date() },
+      { method, host: `${this.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`, path: `/${RELEASES_BUCKET}/${key}`, now: new Date() },
     );
   }
 
@@ -180,7 +178,7 @@ export class Releases extends DurableObject<Env> {
         log({ kind: "stop", ev: "releases.plan", why: `у ${p} ${version} нет хэша в R2 — часть не в плане`, machine: m });
         continue;
       }
-      const pp: PlanPart = { part: p, version, sha256, url: await this.link("GET", `${p}/${version}.tgz`) };
+      const pp: PlanPart = { part: p, version, sha256, url: await this.link("GET", tgzKey(p, version)) };
       if (e.on !== undefined) pp.on = e.on;
       if (e.force) pp.force = true;
       if (e.env) pp.env = e.env;
@@ -217,9 +215,9 @@ export class Releases extends DurableObject<Env> {
     if (typeof part !== "string" || !NAME.test(part)) throw new Refusal("bad_frame", "part — имя части");
     if (this.env.CLOUD[part]) throw new Refusal("bad_frame", `${part} — часть Cloudflare: её версии загружает wrangler`);
     if (typeof version !== "string" || !VERSION.test(version)) throw new Refusal("bad_version", "версия — три числа");
-    if ((await this.env.BUCKET.head(`${part}/${version}.tgz`)) || (await this.env.BUCKET.head(`${part}/${version}.sha256`)))
+    if ((await this.env.BUCKET.head(tgzKey(part, version))) || (await this.env.BUCKET.head(shaKey(part, version))))
       throw new Refusal("version_exists", `${part} ${version} уже загружена — версия загружается один раз`);
-    return { tgz: await this.link("PUT", `${part}/${version}.tgz`), sha256: await this.link("PUT", `${part}/${version}.sha256`) };
+    return { tgz: await this.link("PUT", tgzKey(part, version)), sha256: await this.link("PUT", shaKey(part, version)) };
   }
 
   /** stable частей на версию: машины — у себя и планы keeper'ам, Cloudflare — выкладкой версии. */
@@ -230,10 +228,11 @@ export class Releases extends DurableObject<Env> {
     if (part === "*" && f.version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
     // relay — последним: его выкладка рвёт соединения флота
     const cloudOrder = Object.keys(this.env.CLOUD).sort((a, b) => Number(a === "relay") - Number(b === "relay"));
-    const targets = part === "*" ? [...this.env.BUILD, ...cloudOrder] : [part];
+    const targets = part === "*" ? [...DEFAULT, ...cloudOrder] : [part];
     const result: Deployed = { parts: {} };
     const out: Frame[] = [];
-    const moved: string[] = [];
+    // stable частей машины пишется после цикла: отказ Cloudflare посреди «*» не оставляет stable без rev и планов
+    const moved = new Map<string, string>();
     for (const p of targets) {
       const want = part === "*" ? undefined : (f.version as string | undefined);
       let from: string | null;
@@ -252,19 +251,17 @@ export class Releases extends DurableObject<Env> {
         if (!t || !(await this.sha(p, t))) throw new Refusal("no_release", `у ${p} нет версии ${t ?? ""}`.trim());
         to = t;
         from = this.stableOf(p);
-        if (from !== to) {
-          this.ctx.storage.sql.exec("INSERT INTO stable (part, version) VALUES (?, ?) ON CONFLICT(part) DO UPDATE SET version = excluded.version", p, to);
-          moved.push(p);
-        }
+        if (from !== to) moved.set(p, to);
       }
       result.parts[p] = { from, to };
       if (from !== to) out.push(ledger(`${p} ${from ?? "—"} → ${to}`, by));
     }
-    if (moved.length) {
+    if (moved.size) {
+      for (const [p, to] of moved) this.ctx.storage.sql.exec("INSERT INTO stable (part, version) VALUES (?, ?) ON CONFLICT(part) DO UPDATE SET version = excluded.version", p, to);
       this.bump();
       // план меняется у машин, где часть идёт за stable: она в плане без pin или своя для каждой машины
       for (const [m, plan] of this.plans())
-        if (moved.some((p) => (plan[p] ? !plan[p].pin : DEFAULT.includes(p)))) out.push(await this.planFrame(m));
+        if ([...moved.keys()].some((p) => (plan[p] ? !plan[p].pin : DEFAULT.includes(p)))) out.push(await this.planFrame(m));
     }
     return { result, out };
   }

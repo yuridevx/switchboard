@@ -14,11 +14,8 @@ export interface Env {
   R2_LINK_KEY_ID: string;
   R2_LINK_SECRET: string;
   CF_ACCOUNT_ID: string;
-  RELEASES_BUCKET: string;
   /** части Cloudflare: имя части → имя Worker'а */
   CLOUD: Record<string, string>;
-  /** части машины из сборки — их выкладывает deploy * */
-  BUILD: string[];
   /** привязка к бакету выпусков: список и хэши архивов */
   BUCKET: R2Bucket;
   /** своя привязка к relay: вход Radio, props { name: "releases" } */

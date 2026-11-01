@@ -6,7 +6,7 @@ import type { Frame } from "@switchboard/protocol";
 import type { Host, Manifest, Module, Session } from "../contract.ts";
 import { Kernel, Mod, StartError } from "../src/kernel.ts";
 import type { HostConfig } from "../src/kernel.ts";
-import type { ModuleEntry, Release } from "../src/release.ts";
+import type { ModuleEntry } from "../src/release.ts";
 import type { CoreRecord } from "../src/store.ts";
 import { FakeClock } from "./clock.ts";
 import { FakeHolders } from "./holders.ts";
@@ -46,10 +46,6 @@ export function module(name: string, mod: Module, extra: Partial<Manifest> = {})
 }
 
 /** Выпуск для host.reload на стенде. */
-export function release(version: string, modules: ModuleEntry[], o: { core?: string; sdk?: string } = {}): Release {
-  return { version, core: o.core ?? CORE.version, sdk: o.sdk ?? "0.3.311", modules };
-}
-
 export type StandOptions = {
   modules?: ModuleEntry[];
   machine?: string;
@@ -144,7 +140,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     home,
     config,
     core: CORE,
-    release: { version: o.version ?? "1.4.0", core: CORE.version, sdk: sdk.version, modules: o.modules ?? [] },
+    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [] },
     sdk,
     holders,
     relayKey: `host.${machine}.k7f3.stand`,

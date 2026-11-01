@@ -88,11 +88,5 @@ export function machineOf(address: string): string | null {
   return address.slice(address.indexOf("@") + 1);
 }
 
-/** Пользователь адреса: ~yuri@example.com, phone~yuri@example.com → yuri@example.com; иначе — null. */
-export function userOf(address: string): string | null {
-  const k = kindOf(address);
-  return k === "user" || k === "device" ? address.slice(address.indexOf("~") + 1) : null;
-}
-
 /** Адрес службы флота по имени Worker-модуля: points → .points. */
 export const serviceAddress = (name: string) => `.${name}`;

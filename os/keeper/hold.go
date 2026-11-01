@@ -32,15 +32,13 @@ import (
 
 // holdFile — файл держателя в procs/.
 type holdFile struct {
-	ID      string   `json:"id"`
-	Owner   string   `json:"owner"`
-	Pid     int      `json:"pid"`
-	Holder  int      `json:"holder"`
-	Port    int      `json:"port"`
-	Key     string   `json:"key"`
-	Tag     string   `json:"tag,omitempty"`
-	Cmd     []string `json:"cmd"`
-	Started int64    `json:"started"`
+	ID     string `json:"id"`
+	Owner  string `json:"owner"`
+	Pid    int    `json:"pid"`
+	Holder int    `json:"holder"`
+	Port   int    `json:"port"`
+	Key    string `json:"key"`
+	Tag    string `json:"tag,omitempty"`
 }
 
 func procsDir(home string) string { return filepath.Join(home, "procs") }
@@ -93,9 +91,14 @@ func runHold(args []string) int {
 		fmt.Fprintln(os.Stderr, "hold:", err)
 		return 1
 	}
-	conf, _ := readConf(home)
-	j := newJournal(filepath.Join(home, "journal"), confStr(conf, "machine"), nil)
+	j := newJournal(filepath.Join(home, "journal"), machineOf(readKey(home)), nil)
 	j.who = "holder"
+	// строки держателя — под тем, чей процесс он держит: часть машины или сессия Host
+	if *owner == "keeper" {
+		j.part = *id
+	} else {
+		j.part, j.callsign = "host", *id
+	}
 	h, err := startHolder(home, *id, *owner, *tag, *cwd, *detach, cmdline, j)
 	if err != nil {
 		j.stop("hold_failed", "держатель «"+*id+"» не запустил процесс: "+err.Error(), "id", *id)
@@ -158,7 +161,7 @@ func startHolder(home, id, owner, tag, cwd string, detach bool, cmdline []string
 		return nil, err
 	}
 	h := &holder{id: id, owner: owner, home: home, j: j, key: hex.EncodeToString(raw), ln: ln, cmd: cmd, osh: osh, stdin: inW, done: make(chan struct{})}
-	f := holdFile{ID: id, Owner: owner, Pid: cmd.Process.Pid, Holder: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Key: h.key, Tag: tag, Cmd: cmdline, Started: time.Now().UnixMilli()}
+	f := holdFile{ID: id, Owner: owner, Pid: cmd.Process.Pid, Holder: os.Getpid(), Port: ln.Addr().(*net.TCPAddr).Port, Key: h.key, Tag: tag}
 	if err := writeHoldFile(home, f); err != nil {
 		osh.killTree()
 		cmd.Wait()
@@ -451,7 +454,7 @@ func spawnHolder(home string, s holdSpec) (holdFile, error) {
 	if err := json.Unmarshal([]byte(line), &r); err != nil {
 		return holdFile{}, fmt.Errorf("строка держателя: %v", err)
 	}
-	return holdFile{ID: s.ID, Owner: s.Owner, Tag: s.Tag, Pid: r.Pid, Port: r.Port, Key: r.Key, Cmd: s.Cmd}, nil
+	return holdFile{ID: s.ID, Owner: s.Owner, Tag: s.Tag, Pid: r.Pid, Port: r.Port, Key: r.Key}, nil
 }
 
 // heldConn — соединение хозяина с держателем.

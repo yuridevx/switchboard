@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { fail, isReply, machineOf, ok } from "@switchboard/protocol";
+import { fail, isReply, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
 import type { Link, LinkState, WsCtor } from "@switchboard/relay";
@@ -210,7 +210,7 @@ export class Kernel {
   private async startModule(m: Mod): Promise<boolean> {
     if (!m.module.start) return true;
     let okStart = true;
-    await this.invoke(m.name, "start", null, (x) => x.start!(this.hostFacade(m)), () => {
+    await this.call(m.name, "start", null, (x) => x.start!(this.hostFacade(m)), () => {
       okStart = false;
     });
     return okStart;
@@ -250,14 +250,9 @@ export class Kernel {
   }
 
   /**
-   * Вызов модуля. Ошибка не идёт дальше: модуль выключается в сессии s (или на машине), onFail даёт замену.
+   * Вызов модуля в ловушке. Ошибка не идёт дальше: модуль выключается в сессии s (или на машине), onFail даёт замену.
    * Refusal — отказ словом, его ловит вызывающий.
    */
-  invoke<T>(name: string, where: string, s: Sess | null, fn: (m: Module, mod: Mod) => T | Promise<T>, onFail: (e: unknown) => T): T | Promise<T> {
-    return this.call(name, where, s, fn, onFail);
-  }
-
-  /** Вызов модуля в ловушке. */
   call<T>(name: string, where: string, s: Sess | null, fn: (m: Module, mod: Mod) => T | Promise<T>, onFail: (e: unknown) => T): T | Promise<T> {
     {
       const cur = this.byName.get(name);
@@ -363,7 +358,7 @@ export class Kernel {
           s.pending.delete(p);
           resolve(r);
         };
-        Promise.resolve(this.invoke(owner, where, s, fn, onFail)).then(done, () => done(onFail()));
+        Promise.resolve(this.call(owner, where, s, fn, onFail)).then(done, () => done(onFail()));
       };
       s.pending.add(p);
       p.run();
@@ -435,14 +430,14 @@ export class Kernel {
     if (owner) {
       if (this.shutting) return;
       const s = this.frameSession(f);
-      void this.invoke(owner.name, `frames.${f.type}`, s, (m, mod) => m.frames![f.type](f, this.ctx(mod, f.from)), () => undefined);
+      void this.call(owner.name, `frames.${f.type}`, s, (m, mod) => m.frames![f.type](f, this.ctx(mod, f.from)), () => undefined);
       return;
     }
     let got = false;
     for (const m of this.mods) {
       if (!m.module.on?.frame || !Object.keys(m.manifest.uses ?? {}).some((r) => nameOf(r) === f.type)) continue;
       got = true;
-      void this.invoke(m.name, "on.frame", null, (x) => x.on!.frame!(f), () => undefined);
+      void this.call(m.name, "on.frame", null, (x) => x.on!.frame!(f), () => undefined);
     }
     if (!got) this.log("core", { kind: "refuse", ev: "frame", word: "unknown_request", why: `кадр ${f.type}: владельца нет` });
   }
@@ -507,7 +502,7 @@ export class Kernel {
         });
     };
     try {
-      const r = await this.invoke(owner.name, `requests.${f.type}`, s, run, () => SKIP);
+      const r = await this.call(owner.name, `requests.${f.type}`, s, run, () => SKIP);
       if (r === SKIP) {
         this.log("core", { kind: "refuse", ev: "request", word: MODULE_ERROR, id: f.id, from: f.from, module: owner.name, why: `${f.type}: модуль ${owner.name} выключен${s ? " в " + s.callsign : ""}` });
         return fail(f.id, MODULE_ERROR);
@@ -570,8 +565,8 @@ export class Kernel {
     }
     if (!this.relay) return { ok: false, error: "disconnected" };
     const frame: Frame = { ...payload, type: name };
-    // служба флота — .имя, даже если в запросе есть поля machine или callsign; keeper машины адресуется явно: .keeper@машина
-    if (!this.byName.has(owner) && owner !== "keeper" && payload.to === undefined) frame.to = `.${owner}`;
+    // участник рации — .имя, даже если в запросе есть поля machine или callsign; keeper машины адресуется явно: .keeper@машина
+    if (!this.byName.has(owner) && payload.to === undefined) frame.to = serviceAddress(owner);
     // отказ несёт все поля reply владельца (missing, owner, creds…), без конверта
     const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame)) as Frame & Reply;
     return r as Result;
@@ -652,17 +647,6 @@ export class Kernel {
     return s;
   }
 
-  /** start()/stop() модуля при остановке Host. */
-  private async callDirect(m: Mod, where: "start" | "stop", fn: () => unknown): Promise<boolean> {
-    try {
-      await this.als.run({ mod: m.name, sess: null }, fn);
-      return true;
-    } catch (e) {
-      this.disable(m, null, where, e);
-      return false;
-    }
-  }
-
   // ───────────── штатная остановка ─────────────
 
   /**
@@ -678,7 +662,7 @@ export class Kernel {
       for (const s of this.sessions.values()) s.shutdown();
       for (const m of [...this.mods].reverse()) {
         if (!m.module.stop || m.down) continue;
-        await this.callDirect(m, "stop", () => m.module.stop!());
+        await this.call(m.name, "stop", null, (x) => x.stop!(), () => undefined);
       }
       for (const q of this.probes) q.close();
       this.relay?.close(1000, "shutting_down");

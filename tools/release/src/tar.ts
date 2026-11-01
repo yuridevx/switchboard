@@ -1,6 +1,6 @@
 // Архив выпуска: tar (ustar) в gzip. Только файлы и папки — ссылок и особых записей в выпуске нет.
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, isAbsolute, join } from "node:path";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join, relative, sep } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 export type TarFile = { path: string; data: Buffer; mode?: number };
@@ -92,17 +92,16 @@ export function entries(tgz: Buffer): Array<{ path: string; data: Buffer | null;
   return out;
 }
 
-/** Распаковать tgz в папку dir. */
-export function unpack(tgz: Buffer, dir: string): number {
-  let n = 0;
-  for (const e of entries(tgz)) {
-    const p = join(dir, ...e.path.replace(/\/$/, "").split("/"));
-    if (e.data === null) mkdirSync(p, { recursive: true });
-    else {
-      mkdirSync(dirname(p), { recursive: true });
-      writeFileSync(p, e.data, { mode: e.mode });
-      n++;
+/** Архив всей папки: файлы с путями от неё; исполняемые — с режимом 755. Папка приложения для загрузки из сессии. */
+export function packDir(dir: string): Buffer {
+  const files: TarFile[] = [];
+  const walk = (d: string) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.isFile()) files.push({ path: relative(dir, p).split(sep).join("/"), data: readFileSync(p), mode: statSync(p).mode & 0o111 ? 0o755 : 0o644 });
     }
-  }
-  return n;
+  };
+  walk(dir);
+  return pack(files);
 }

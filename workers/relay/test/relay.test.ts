@@ -579,6 +579,37 @@ describe("адреса и keeper машины", () => {
     expect(phone.frames.find((f) => f.type === "message")).toBeUndefined();
   });
 
+  it("keeper: roster — только ему и один, при входе; его вход и уход флоту roster не рассылают, смены сессий keeper не получает", async () => {
+    const a = await laptop();
+    const phone = await hello("client", "phone");
+    // очереди roster пусты до входа keeper; кадры дальше считаем, не забирая
+    await a.roster();
+    await phone.roster();
+    const rosters = (p: { frames: F[] }) => p.frames.filter((f) => f.type === "roster").length;
+    const k = await hello("keeper", "laptop");
+    expect(rosters(k)).toBe(1);
+    const has = (p: { frames: F[] }, state: string) => p.frames.find((f) => f.type === "roster" && f.sessions.some((x: F) => x.callsign === "site@laptop" && x.state === state));
+    a.send({ type: "session.state", callsign: "site@laptop", state: "busy", slot: "main" });
+    await phone.until(() => has(phone, "busy"), 3000, "roster busy");
+    k.close();
+    a.send({ type: "session.state", callsign: "site@laptop", state: "idle", slot: "main" });
+    await phone.until(() => has(phone, "idle"), 3000, "roster idle");
+    await a.until(() => has(a, "idle"), 3000, "roster idle у Host");
+    // каждому — ровно две рассылки от смен сессии, ни одной от входа и ухода keeper
+    expect([rosters(a), rosters(phone), rosters(k)]).toEqual([2, 2, 1]);
+  });
+
+  it("часть машины в адресе — только keeper: .host@laptop — offline; hello ключом машины с part не keeper — bad_frame", async () => {
+    const a = await laptop();
+    const phone = await hello("client", "phone");
+    phone.send({ type: "keeper.state", id: "h-1", to: ".host@laptop" });
+    expect(await phone.next((f) => f.type === "reply")).toMatchObject({ id: "h-1", ok: false, error: "offline" });
+    const p = await open();
+    p.send({ type: "hello", key: await key("host", "laptop"), proto: 1, part: "capture" });
+    expect(await p.waitClose()).toEqual({ code: 1008, reason: "bad_frame" });
+    expect(a.closed).toBeFalsy();
+  });
+
   it("~email — все устройства пользователя; голое имя — не адрес: bad_frame", async () => {
     const a = await laptop();
     const p1 = await hello("client", "phone");

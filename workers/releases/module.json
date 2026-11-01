@@ -2,16 +2,24 @@
   "name": "releases",
   "type": "worker",
   "version": "1.0.0",
-  "provides": { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1 },
-  "uses": { "frame@relay": 1, "ledger.add@ledger": 1 },
+  "provides": {
+    "releases.plan": 1,
+    "releases.list": 1,
+    "releases.upload": 1,
+    "releases.deploy": 1,
+    "releases.set": 1
+  },
+  "uses": {
+    "frame@relay": 1,
+    "ledger.add@ledger": 1,
+    "release.format@release": 1
+  },
   "config": {
     "CLOUDFLARE_API_TOKEN": "secret",
     "R2_LINK_KEY_ID": "secret",
     "R2_LINK_SECRET": "secret",
     "CF_ACCOUNT_ID": "var",
-    "RELEASES_BUCKET": "var",
     "CLOUD": "var",
-    "BUILD": "var",
     "BUCKET": "binding",
     "RELAY": "binding",
     "RELEASES": "binding"

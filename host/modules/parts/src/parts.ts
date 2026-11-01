@@ -1,14 +1,13 @@
 // Модуль parts: сервер MCP parts в каждой сессии — выпуски флота из разговора. Пять инструментов на все части:
 // list, upload, deploy, set, log. Зовёт «выпуски», keeper'ов машин и журнал машины; больше ничего. Хранить нечего.
 // Ответы не ждут выхода процессов: итог видно в list и журнале флота.
-import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Host, Module, Result } from "@switchboard/host";
+import { packDir, sha256hex, shaLine } from "@switchboard/release";
 
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 type PlanEntry = { pin?: string };
@@ -18,19 +17,6 @@ type KeeperState = { keeper: string; rev: number; os: string; parts: Array<{ par
 const text = (t: string, isError = false): Text => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
 const json = (x: unknown) => text(JSON.stringify(x, null, 2));
 const failed = (what: string, r: Result & { ok: false }) => text(`${what}: ${r.error}`, true);
-
-/** Архив папки приложения: tar в gzip из самой папки — вывод в stdout, путей с дисками в командной строке нет. */
-function pack(dir: string): Promise<Buffer> {
-  return new Promise((res, rej) => {
-    const p = spawn("tar", ["-czf", "-", "."], { cwd: dir, windowsHide: true });
-    const out: Buffer[] = [];
-    let err = "";
-    p.stdout.on("data", (d: Buffer) => out.push(d));
-    p.stderr.on("data", (d: Buffer) => (err += d));
-    p.on("error", rej);
-    p.on("close", (code) => (code === 0 ? res(Buffer.concat(out)) : rej(new Error(`tar вышел с кодом ${code}: ${err.trim()}`))));
-  });
-}
 
 export function make() {
   let host: Host;
@@ -74,11 +60,11 @@ export function make() {
           const r = await ask("releases.upload", { part, version });
           if (!r.ok) return failed("releases.upload", r);
           const links = r.result as { tgz: string; sha256: string };
-          const data = await pack(root);
-          const sha256 = createHash("sha256").update(data).digest("hex");
+          const data = packDir(root);
+          const sha256 = sha256hex(data);
           for (const [url, body] of [
             [links.tgz, data],
-            [links.sha256, Buffer.from(`${sha256}  ${version}.tgz\n`)],
+            [links.sha256, Buffer.from(shaLine(sha256, version))],
           ] as const) {
             const put = await fetch(url, { method: "PUT", body: new Uint8Array(body) });
             if (!put.ok) return text(`upload_failed: R2 ответил ${put.status} на ${new URL(url).pathname}`, true);

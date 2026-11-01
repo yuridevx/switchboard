@@ -7,7 +7,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sha256hex } from "./format.ts";
+import { sha256hex } from "./hash.ts";
 import type { RunResult } from "./run.ts";
 import { pack } from "./tar.ts";
 

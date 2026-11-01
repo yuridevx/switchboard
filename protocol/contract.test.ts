@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fail, isReply, kindOf, machineOf, ok, parseFrame, userOf } from "./contract.ts";
+import { fail, isReply, kindOf, machineOf, ok, parseFrame, serviceAddress } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("разбирает кадр с type и полями владельца", () => {
@@ -38,8 +38,7 @@ describe("protocol: конверт кадра", () => {
     expect(kindOf("~yuri@example.com")).toBe("user");
     expect(kindOf("phone~yuri@example.com")).toBe("device");
     for (const bad of ["phone", "", ".", "x@", "~", "a~", ".@w", ".k@", 5]) expect(kindOf(bad)).toBeNull();
-    expect(userOf("phone~yuri@example.com")).toBe("yuri@example.com");
-    expect(userOf("~yuri@example.com")).toBe("yuri@example.com");
-    expect(userOf("site@win")).toBeNull();
+    expect(serviceAddress("ledger")).toBe(".ledger");
+    expect(kindOf(serviceAddress("ledger"))).toBe("service");
   });
 });

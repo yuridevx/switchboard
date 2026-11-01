@@ -2,7 +2,7 @@
 // отвечает keeper.state, подменяет себя по плану.
 //
 //	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
-//	keeper install        — ключ машины (host.<машина>…) — первой строкой stdin; флаги --machine, --relay;
+//	keeper install        — ключ машины (host.<машина>…, из него и имя машины) — первой строкой stdin; флаг --relay;
 //	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача
 //	                        «при входе пользователя» с повтором раз в минуту; Linux — systemd --user с linger
 //	keeper uninstall      — убрать службу или задачу
@@ -51,7 +51,7 @@ func main() {
 	case "version":
 		fmt.Println(keeperVersion)
 	default:
-		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--machine <имя>] [--relay <wss>] [--logon] | uninstall | hold … | version")
+		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--relay <wss>] [--logon] | uninstall | hold … | version")
 		os.Exit(2)
 	}
 }
@@ -89,20 +89,20 @@ func runConsole(args []string) int {
 
 // installFlags — флаги установки.
 type installFlags struct {
-	machine, relay string
-	logon          bool
+	relay string
+	logon bool
 }
 
 func parseInstall(args []string) (installFlags, error) {
 	var f installFlags
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	fs.StringVar(&f.machine, "machine", "", "имя машины")
 	fs.StringVar(&f.relay, "relay", "", "адрес relay (wss://…)")
 	fs.BoolVar(&f.logon, "logon", false, "Windows: задача «при входе пользователя» вместо службы")
 	return f, fs.Parse(args)
 }
 
-// prepareConf — keeper.json (node, машина, relay) и ключ машины machine.key из первой строки stdin: им входят Host и keeper.
+// prepareConf — keeper.json (node, relay) и ключ машины machine.key из первой строки stdin: им входят Host и keeper,
+// из него же — имя машины.
 func prepareConf(f installFlags, in *bufio.Reader) error {
 	home, err := homeDir()
 	if err != nil {
@@ -122,13 +122,9 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 		}
 		m["node"] = node
 	}
-	if f.machine != "" {
-		m["machine"] = f.machine
-	}
 	if f.relay != "" {
 		m["relay"] = f.relay
 	}
-	delete(m, "host")
 	key, err := readSecretLine(in)
 	if err != nil {
 		return fmt.Errorf("ключ машины — первой строкой stdin: %w", err)
@@ -142,7 +138,6 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	if err := os.WriteFile(filepath.Join(home, "machine.key"), []byte(key+"\n"), 0o600); err != nil {
 		return err
 	}
-	delete(m, "key")
 	if confStr(m, "relay") == "" {
 		fmt.Fprintln(os.Stderr, "install: в keeper.json нет relay — keeper будет исполнять сохранённый план без связи (--relay)")
 	}

@@ -7,18 +7,14 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Manifest, Module } from "../contract.ts";
 
-export type ModuleEntry = { manifest: Manifest; module: Module; dir?: string };
+export type ModuleEntry = { manifest: Manifest; module: Module };
 
 export type Release = {
   /** версия выпуска: release.json папки ядра, иначе версия ядра */
   version: string;
-  /** версия ядра — module.json пакета @switchboard/host */
-  core: string;
   /** версия Agent SDK */
   sdk: string;
   modules: ModuleEntry[];
-  /** папка ядра выпуска */
-  dir?: string;
 };
 
 const readJson = (f: string) => JSON.parse(readFileSync(f, "utf8"));
@@ -37,7 +33,7 @@ export async function loadRelease(base: string): Promise<Release> {
   const req = createRequire(join(base, "noop.js"));
   const coreDir = realpathSync(packageDir(req.resolve("@switchboard/host"), "@switchboard/host"));
   const core = readJson(join(coreDir, "module.json")) as Manifest;
-  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string; core?: string; modules?: Record<string, string> }) : {};
+  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string }) : {};
   const coreReq = createRequire(join(coreDir, "noop.js"));
   const sdkDir = packageDir(coreReq.resolve("@anthropic-ai/claude-agent-sdk"), "@anthropic-ai/claude-agent-sdk");
   const sdk = readJson(join(sdkDir, "package.json")).version as string;
@@ -47,13 +43,10 @@ export async function loadRelease(base: string): Promise<Release> {
     const entry = realpathSync(coreReq.resolve(`@switchboard/${name}`));
     const dir = dirname(entry);
     const manifest = readJson(join(dir, "module.json")) as Manifest;
-    // версия модуля в выпуске — отпечаток «версия+хэш»: перезагрузка видит правку кода и без новой версии
-    if (rel.modules?.[manifest.name]) manifest.version = rel.modules[manifest.name];
     const module = ((await import(pathToFileURL(entry).href)) as { default: Module }).default;
-    modules.push({ manifest, module, dir });
+    modules.push({ manifest, module });
   }
-  // ядро узнаётся по отпечатку содержимого из release.json: правка ядра без новой версии — тоже новое ядро
-  return { version: rel.version ?? core.version, core: rel.core ?? core.version, sdk, modules, dir: coreDir };
+  return { version: rel.version ?? core.version, sdk, modules };
 }
 
 /** Путь к исполняемому claude из пакета SDK для этой платформы. */

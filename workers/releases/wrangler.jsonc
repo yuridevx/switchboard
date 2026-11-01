@@ -17,7 +17,6 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Releases"] }],
   "vars": {
     "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
-    "RELEASES_BUCKET": "switchboard-releases",
     // части Cloudflare: имя части → имя Worker'а
     "CLOUD": {
       "relay": "switchboard",
@@ -29,8 +28,6 @@
       "releases": "switchboard-releases",
       "phone": "switchboard-phone",
       "pult": "switchboard-pult"
-    },
-    // части машины из сборки: deploy * выкладывает их вместе с частями Cloudflare
-    "BUILD": ["host", "keeper"]
+    }
   }
 }

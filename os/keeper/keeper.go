@@ -75,6 +75,7 @@ type part struct {
 
 type Keeper struct {
 	home, machine, node string
+	relay               string // адрес relay из keeper.json; части получают его в окружении
 	j                   *Journal
 	radio               *radio
 
@@ -96,17 +97,14 @@ type Keeper struct {
 // Start — конфиг, журнал, сохранённый план, держатели с прошлой жизни, связь с рацией.
 func Start(home string, echo io.Writer) (*Keeper, error) {
 	conf, err := readConf(home)
-	machine := confStr(conf, "machine")
-	if machine == "" {
-		hn, _ := os.Hostname()
-		machine = strings.ToLower(hn)
-	}
+	key := readKey(home)
+	machine := machineOf(key)
 	j := newJournal(filepath.Join(home, "journal"), machine, echo)
 	if err != nil {
 		j.stop("keeper_start", "keeper.json не прочитан: "+err.Error())
 		return nil, err
 	}
-	k := &Keeper{home: home, machine: machine, node: confStr(conf, "node"), j: j, parts: map[string]*part{},
+	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), node: confStr(conf, "node"), j: j, parts: map[string]*part{},
 		pending: make(chan plan, 1), done: make(chan struct{}), self: os.Executable, exit: os.Exit}
 	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
 	if b, err := os.ReadFile(planPath(home)); err == nil {
@@ -115,8 +113,8 @@ func Start(home string, echo io.Writer) (*Keeper, error) {
 	k.adopt()
 	go k.applyLoop()
 	k.queue(k.plan)
-	if url, key := confStr(conf, "relay"), readKey(home); url != "" && key != "" {
-		k.radio = newRadio(url, key)
+	if k.relay != "" && machine != "" {
+		k.radio = newRadio(k.relay, key)
 		k.radio.onOpen = k.askPlan
 		k.radio.onFrame = k.frame
 		k.radio.onState = func(open bool, why string) {
@@ -142,6 +140,14 @@ func readKey(home string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(b))
+}
+
+// machineOf — имя машины из её ключа host.<машина>.…: одно место, где оно записано. Ключа нет — "".
+func machineOf(key string) string {
+	if p := strings.Split(key, "."); len(p) > 2 && p[0] == "host" {
+		return p[1]
+	}
+	return ""
 }
 
 func osName() string { return runtime.GOOS + " " + runtime.GOARCH }
@@ -382,7 +388,8 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 		k.mu.Unlock()
 		return
 	}
-	if running && runVer == pp.Version && !pp.Force {
+	// работает та же версия с тем же окружением — делать нечего; новое окружение — перезапуск с ним
+	if running && runVer == pp.Version && had && sameEnv(pp, prev) {
 		return
 	}
 	dir, err := k.install(pp)
@@ -397,7 +404,7 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 		return
 	}
 	if running {
-		k.stopPart(p, pp.Force)
+		k.stopPart(p, false)
 	}
 	k.mu.Lock()
 	p.restarts, p.err = 0, ""
@@ -467,13 +474,11 @@ func (k *Keeper) startPart(p *part, pp planPart, dir string) error {
 	env := append(os.Environ(),
 		"SWITCHBOARD_MACHINE="+k.machine,
 		"SWITCHBOARD_HOLDER="+self,
-		"SWITCHBOARD_PART="+pp.Part,
 		"SWITCHBOARD_VERSION="+pp.Version,
 		"SWITCHBOARD_DATA="+data,
-		"SWITCHBOARD_HOME="+k.home,
 	)
-	if conf, _ := readConf(k.home); confStr(conf, "relay") != "" {
-		env = append(env, "SWITCHBOARD_RELAY="+confStr(conf, "relay"))
+	if k.relay != "" {
+		env = append(env, "SWITCHBOARD_RELAY="+k.relay)
 	}
 	for kk, v := range pp.Env {
 		env = append(env, kk+"="+v)
@@ -695,7 +700,12 @@ func (k *Keeper) cleanupVersions(name, cur, prev string) {
 
 // samePart — запись части в плане та же (ссылка не в счёт: она живёт час).
 func samePart(a, b planPart) bool {
+	return a.Version == b.Version && a.Sha256 == b.Sha256 && a.on() == b.on() && a.Force == b.Force && sameEnv(a, b)
+}
+
+// sameEnv — окружение части в плане то же.
+func sameEnv(a, b planPart) bool {
 	ea, _ := json.Marshal(a.Env)
 	eb, _ := json.Marshal(b.Env)
-	return a.Version == b.Version && a.Sha256 == b.Sha256 && a.on() == b.on() && a.Force == b.Force && string(ea) == string(eb)
+	return string(ea) == string(eb)
 }

@@ -3,7 +3,7 @@
 import { add, h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
-type Part = { part: string; version?: string; pin?: string; state?: string; pid?: number; restarts?: number; error?: string };
+type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 type State = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
 type Repo = { state: "ok" | "error" | "conflict"; op?: string; files?: string[]; error?: string; since?: number };
 type Profiles = { profiles: Record<string, unknown>; repos: Record<string, Repo> };
@@ -133,7 +133,7 @@ export function createMachines(): AppModule {
                 h(
                   "span",
                   { "data-part": p.part, "data-state": p.state ?? "", class: p.state === "failed" ? "bad" : "" },
-                  [p.version, p.pin ? "закреплена" : "", p.state, p.pid ? `pid ${p.pid}` : "", p.error ?? ""].filter(Boolean).join(" · "),
+                  [p.version, p.state, p.pid ? `pid ${p.pid}` : "", p.error ?? ""].filter(Boolean).join(" · "),
                 ),
               ]),
             )

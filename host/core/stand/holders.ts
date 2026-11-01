@@ -219,7 +219,6 @@ export class FakeHolders implements HolderApi {
   async spawn(s: { id: string; cwd?: string; env?: Record<string, string | undefined>; command: string; args: string[] }): Promise<HoldFile> {
     this.spawns.push(s);
     this.ops.push({ op: "spawn", id: s.id });
-    if (this.procs.get(s.id)?.alive) throw new Error(`in_use: ${s.id}`);
     const p = await new FakeProc(this, s.id, ++this.pids, s).listen();
     if (this.failInitNext > 0) {
       this.failInitNext--;

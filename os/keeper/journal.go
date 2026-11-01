@@ -18,18 +18,24 @@ type Journal struct {
 	machine string
 	echo    io.Writer // консольный режим: копия строки в stderr
 	who     string    // кто пишет: keeper или holder
-	now     func() time.Time
+	// чьи строки: keeper — свои; держатель части — имя части; держатель сессии — host и callsign сессии
+	part     string
+	callsign string
+	now      func() time.Time
 }
 
 func newJournal(dir, machine string, echo io.Writer) *Journal {
-	return &Journal{dir: dir, machine: machine, echo: echo, now: time.Now, who: "keeper"}
+	return &Journal{dir: dir, machine: machine, echo: echo, now: time.Now, who: "keeper", part: "keeper"}
 }
 
 // write — одна запись; kv — пары «поле, значение» в порядке записи. Пара "part" — строка о части машины:
-// её имя встаёт в поле part записи вместо keeper.
+// её имя встаёт в поле part записи вместо своей.
 func (j *Journal) write(kind, ev string, kv ...any) {
 	t := j.now().UTC()
-	part := any("keeper")
+	part := any(j.part)
+	if j.callsign != "" {
+		kv = append([]any{"callsign", j.callsign}, kv...)
+	}
 	rest := make([]any, 0, len(kv))
 	for i := 0; i+1 < len(kv); i += 2 {
 		if kv[i] == "part" {

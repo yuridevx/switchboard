@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { presign } from "../src/sign.ts";
+import { presign, sha256hex, shaLine } from "@switchboard/release";
 
 const participant = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
 type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
@@ -35,8 +35,8 @@ function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
 /** Готовая версия части машины в R2: архив и хэш. */
 async function inR2(part: string, ...vs: string[]) {
   for (const v of vs) {
-    await env.BUCKET.put(`${part}/${v}.tgz`, "tgz");
-    await env.BUCKET.put(`${part}/${v}.sha256`, `${part}${v.replaceAll(".", "")}  ${v}.tgz\n`);
+    await env.BUCKET.put(`${part}/${v}.tgz`, `${part} ${v}`);
+    await env.BUCKET.put(`${part}/${v}.sha256`, shaLine(sha256hex(`${part} ${v}`), v));
   }
 }
 
@@ -78,8 +78,8 @@ describe("эталоны releases", () => {
     const p = await result(req(s, ".keeper@win", "releases.plan"));
     expect(p.rev).toBe(2);
     expect(p.parts.map((x: any) => [x.part, x.version, x.sha256])).toEqual([
-      ["keeper", "0.5.0", "keeper050"],
-      ["host", "1.1.57", "host1157"],
+      ["keeper", "0.5.0", sha256hex("keeper 0.5.0")],
+      ["host", "1.1.57", sha256hex("host 1.1.57")],
     ]);
     expect(p.parts[1].url).toMatch(/^https:\/\/acc0\.r2\.cloudflarestorage\.com\/switchboard-releases\/host\/1\.1\.57\.tgz\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AK%2F\d{8}%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=\d{8}T\d{6}Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=[0-9a-f]{64}$/);
     expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
@@ -123,6 +123,24 @@ describe("эталоны releases", () => {
       ["part.deployed", "relay 1.1.57 → 1.1.58", "~yuri"],
     ]);
     expect(deploys).toEqual([{ script: "switchboard", tag: "1.1.58" }]);
+  });
+
+  it("4b · Cloudflare отказал посреди «*»: stable частей машины прежний; повтор с исправным Cloudflare — план keeper с новой rev", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.57", "1.1.58");
+    await inR2("keeper", "0.5.0");
+    await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.57" });
+    await req(s, "~x", "releases.deploy", { part: "keeper" });
+    await req(s, ".keeper@win", "releases.plan");
+    // у gate версия есть, у github — нет: отказ на второй части Cloudflare
+    fakeCf({ ...NONE, gate: { tags: ["1.1.58"], live: "1.1.57" } });
+    expect((await req(s, "~x", "releases.deploy", { part: "*" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host.stable).toBe("1.1.57");
+    fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
+    const out = await req(s, "~x", "releases.deploy", { part: "*" });
+    expect((out[0].result as any).parts.host).toEqual({ from: "1.1.57", to: "1.1.58" });
+    expect(plans(out).map(brief)).toEqual([{ to: ".keeper@win", rev: 3, parts: [{ part: "keeper", version: "0.5.0" }, { part: "host", version: "1.1.58" }] }]);
   });
 
   it("5 · откат Worker одним вызовом: одна выкладка в Cloudflare, планы машин не меняются", async () => {

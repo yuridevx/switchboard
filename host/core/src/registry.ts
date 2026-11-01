@@ -5,16 +5,6 @@ import type { Manifest } from "../contract.ts";
 import { CORE_ONLY, isCallable } from "./calls.ts";
 import type { ModuleEntry } from "./release.ts";
 
-/** Имена keeper машины: он участник рации (.keeper@машина), модуль зовёт его через relay. */
-export const KEEPER: Manifest = {
-  name: "keeper",
-  type: "os",
-  version: "1.0.0",
-  provides: { "keeper.state": 1 },
-  uses: {},
-  config: {},
-};
-
 /** Поля записи сессии, которые держит ядро. */
 export const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk"]);
 
@@ -23,19 +13,19 @@ export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
 
 /**
  * Гейт набора модулей Host. Пустой список — набор годен.
- * Имя из uses, чей владелец не модуль Host и не ядро, — имя keeper машины или Worker-модуля: идёт через relay.
+ * Имя из uses, чей владелец не модуль Host и не ядро, — имя участника рации (Worker-модуля или keeper машины): идёт через relay.
  */
 export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): string[] {
   const errors: string[] = [];
-  const local = new Set([core.name, KEEPER.name, ...entries.map((e) => e.manifest.name)]);
+  const local = new Set([core.name, ...entries.map((e) => e.manifest.name)]);
   // uses ядра сверяет гейт монорепо: его владельцы — вне процесса Host
-  const manifests: Manifest[] = [{ ...core, uses: {} }, KEEPER];
+  const manifests: Manifest[] = [{ ...core, uses: {} }];
   for (const { manifest: m } of entries) {
     const uses: Record<string, number> = {};
     for (const [ref, v] of Object.entries(m.uses ?? {})) {
       const o = ownerOf(ref);
       if (local.has(o)) uses[ref] = v;
-      if ((!local.has(o) || o === KEEPER.name) && !relay) errors.push(`${m.name}: ${ref} — нет relay (SWITCHBOARD_RELAY)`);
+      if (!local.has(o) && !relay) errors.push(`${m.name}: ${ref} — нет relay (SWITCHBOARD_RELAY)`);
     }
     manifests.push({ ...m, provides: m.provides ?? {}, uses, config: m.config ?? {} });
   }

@@ -14,7 +14,7 @@ import { PassThrough, Writable } from "node:stream";
 import type { SpawnedProcess, SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
 /** Файл держателя. */
-export type HoldFile = { id: string; owner: string; pid: number; holder?: number; port: number; key: string; tag?: string };
+export type HoldFile = { id: string; owner: string; pid: number; port: number; key: string; tag?: string };
 
 /** Процесс у держателя: для старта Host. */
 export type ProcInfo = { id: string; pid: number };
@@ -54,7 +54,7 @@ export function realHolders(home: string, bin: string | undefined): HolderApi {
             p.stdout.destroy();
             p.stderr.destroy();
             p.unref();
-            resolve({ id: s.id, owner: "host", pid: x.pid, holder: p.pid, port: x.port, key: x.key });
+            resolve({ id: s.id, owner: "host", pid: x.pid, port: x.port, key: x.key });
           } catch (e) {
             reject(new Error(`строка держателя: ${(e as Error).message}`));
           }

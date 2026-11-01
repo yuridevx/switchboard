@@ -66,7 +66,7 @@ describe("очередь ввода", () => {
 
 describe("гейт старта Host", () => {
   const e = (name: string, mod: Module, extra: Parameters<typeof module>[2] = {}) => module(name, mod, extra);
-  it("обработчик не из provides, имя ядра в fields, calls мимо SDK и метод ядра, два decide, keeper и Worker без relay, имени у keeper нет", () => {
+  it("обработчик не из provides, имя ядра в fields, calls мимо SDK и метод ядра, два decide, keeper и Worker без relay (имена keeper сверяет гейт монорепо по его module.json)", () => {
     const bad = e("host-a", { requests: { x: () => 1 } }, { provides: {} });
     bad.manifest.provides = {};
     const errors = gate(
@@ -87,7 +87,6 @@ describe("гейт старта Host", () => {
       "host-k: keeper.state@keeper — нет relay (SWITCHBOARD_RELAY)",
       "host-k2: spawn@keeper — нет relay (SWITCHBOARD_RELAY)",
       "host-p: push.send@push — нет relay (SWITCHBOARD_RELAY)",
-      "модуль host-k2: uses spawn@keeper — keeper не отдаёт spawn",
       "host-a: requests.x — нет в provides",
       "host-b: поле state — имя ядра",
       "host-c: calls close — метод держит ядро",
@@ -112,7 +111,7 @@ describe("гейт старта Host", () => {
 describe("выпуск", () => {
   it("выпуск монорепо: ядро, SDK 0.3.311 и список модулей", async () => {
     const r = await loadRelease(join(import.meta.dirname, ".."));
-    expect(r).toMatchObject({ core: "1.0.0", sdk: "0.3.311", version: "1.0.0" });
+    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.0.0" });
     expect(Array.isArray(r.modules)).toBe(true);
   });
 

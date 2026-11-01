@@ -1,6 +1,5 @@
 // Формат выпуска частей машины в бакете switchboard-releases: <часть>/<версия>.tgz и <часть>/<версия>.sha256
 // (строка как у sha256sum). Версия готова, когда лежит .sha256: он пишется вторым.
-import { createHash } from "node:crypto";
 
 export const RELEASES_BUCKET = "switchboard-releases";
 
@@ -9,8 +8,6 @@ export const VERSION_RE = /^\d+\.\d+\.\d+$/;
 
 export const tgzKey = (part: string, v: string) => `${part}/${v}.tgz`;
 export const shaKey = (part: string, v: string) => `${part}/${v}.sha256`;
-
-export const sha256hex = (b: Buffer | string) => createHash("sha256").update(b).digest("hex");
 
 /** Строка .sha256: «<hex>  <версия>.tgz». */
 export const shaLine = (hex: string, v: string) => `${hex}  ${v}.tgz\n`;

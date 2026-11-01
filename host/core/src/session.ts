@@ -39,7 +39,6 @@ export class Sess {
   /** вклады модулей нынешнего query() */
   parts: Parts = new Map();
   /** события хуков, которые SDK получил в initialize этого query() */
-  hookEvents = new Set<string>();
   ready = false;
   crashes = 0;
   launchSeq = 0;
@@ -82,7 +81,7 @@ export class Sess {
     };
     for (const m of this.k.mods) {
       if (!m.module.session || this.k.isDown(m, this)) continue;
-      const p = (await this.k.invoke(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined)) as QueryPart | undefined;
+      const p = (await this.k.call(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined)) as QueryPart | undefined;
       if (!p) continue;
       const bad = Object.keys(p).find((key) => CORE_OPTIONS.has(key));
       if (bad) {
@@ -102,7 +101,7 @@ export class Sess {
   private hook(mod: string, ev: string, i: number, j: number) {
     return (input: unknown, toolUseID: string | undefined, o: { signal: AbortSignal }) =>
       Promise.resolve(
-        this.k.invoke(mod, `hooks.${ev}`, this, () => {
+        this.k.call(mod, `hooks.${ev}`, this, () => {
           const h = (this.parts.get(mod)?.hooks as Record<string, HookCallbackMatcher[]> | undefined)?.[ev]?.[i]?.hooks[j];
           return h ? h(input as never, toolUseID, o) : {};
         }, () => ({})),
@@ -133,7 +132,6 @@ export class Sess {
       for (const [key, v] of Object.entries(p)) if (!PART_KEYS.has(key) && v !== undefined) extra[key] = v;
     }
     this.parts = parts;
-    this.hookEvents = new Set(Object.keys(hooks));
     let attachOnce = attach;
     const start: Record<string, unknown> = {};
     if (first?.fresh) start.sessionId = this.rec.session_id;
@@ -204,7 +202,7 @@ export class Sess {
     this.reasons = [];
     if (this.state === "starting") this.setState(attach && this.rec.state && LIVE.has(this.rec.state) ? this.rec.state : "idle");
     for (const m of k.mods) {
-      if (m.module.on?.open) k.invoke(m.name, "on.open", this, (x, mod) => x.on!.open!(this.facade(mod)), () => undefined);
+      if (m.module.on?.open) k.call(m.name, "on.open", this, (x, mod) => x.on!.open!(this.facade(mod)), () => undefined);
     }
     // процесс запущен прежним SDK: ход доходит до конца, затем resume с claude новой версии
     if (attach && this.rec.sdk !== k.sdkVersion) void this.restart().catch(() => {});
@@ -232,7 +230,7 @@ export class Sess {
       if (st && (LIVE.has(this.state) || this.state === "starting")) this.setState(st);
     }
     for (const mod of k.mods) {
-      if (mod.module.on?.event) k.invoke(mod.name, "on.event", this, (x, cur) => x.on!.event!(this.facade(cur), m), () => undefined);
+      if (mod.module.on?.event) k.call(mod.name, "on.event", this, (x, cur) => x.on!.event!(this.facade(cur), m), () => undefined);
     }
     if (m.type === "result") for (const w of this.resultWaiters.splice(0)) w();
     this.push();
@@ -284,14 +282,14 @@ export class Sess {
     }
     if (st !== "starting") for (const w of this.settleWaiters.splice(0)) w();
     for (const m of this.k.mods) {
-      if (m.module.on?.state) this.k.invoke(m.name, "on.state", this, (x, mod) => x.on!.state!(this.facade(mod), st), () => undefined);
+      if (m.module.on?.state) this.k.call(m.name, "on.state", this, (x, mod) => x.on!.state!(this.facade(mod), st), () => undefined);
     }
     this.push();
   }
 
   private emitClose(): void {
     for (const m of this.k.mods) {
-      if (m.module.on?.close) this.k.invoke(m.name, "on.close", this, (x, mod) => x.on!.close!(this.facade(mod)), () => undefined);
+      if (m.module.on?.close) this.k.call(m.name, "on.close", this, (x, mod) => x.on!.close!(this.facade(mod)), () => undefined);
     }
   }
 
@@ -383,7 +381,7 @@ export class Sess {
     for (const m of k.mods) {
       for (const name of Object.keys(m.module.fields ?? {})) {
         if (k.isDown(m, this)) continue;
-        const v = k.invoke(m.name, `fields.${name}`, this, (x, mod) => x.fields![name](this.facade(mod)), () => undefined);
+        const v = k.call(m.name, `fields.${name}`, this, (x, mod) => x.fields![name](this.facade(mod)), () => undefined);
         if (v !== undefined && typeof (v as Promise<unknown>)?.then !== "function") r[name] = v;
       }
     }

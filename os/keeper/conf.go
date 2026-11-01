@@ -20,7 +20,7 @@ func homeDir() (string, error) {
 	return filepath.Join(u, ".switchboard"), nil
 }
 
-// keeper.json: { "node": "…", "machine": "win", "relay": "wss://…" }; ключ машины — machine.key рядом.
+// keeper.json: { "node": "…", "relay": "wss://…" }; ключ машины — machine.key рядом, имя машины — в ключе.
 // Незнакомые поля сохраняются как есть.
 func confPath(home string) string { return filepath.Join(home, "keeper.json") }
 
