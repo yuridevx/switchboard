@@ -1,7 +1,8 @@
 module switchboard/keeper
 
-go 1.25.0
+go 1.27.3
 
-require golang.org/x/sys v0.47.0
-
-require github.com/coder/websocket v1.8.13
+require (
+	github.com/coder/websocket v1.8.15
+	golang.org/x/sys v0.49.0
+)

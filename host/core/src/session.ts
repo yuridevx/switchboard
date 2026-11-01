@@ -33,7 +33,6 @@ export class Sess {
   startKind: StartKind = "spawn";
   point: number | undefined;
   model: string | null = null;
-  from: string | null = null;
   /** модули, выключенные в этой сессии: имя → причина */
   failed = new Map<string, string>();
   /** вклады модулей нынешнего query() */
@@ -380,9 +379,8 @@ export class Sess {
     const r: Record<string, unknown> = { callsign: this.callsign, state: this.state, sdk: this.rec.sdk };
     for (const m of k.mods) {
       for (const name of Object.keys(m.module.fields ?? {})) {
-        if (k.isDown(m, this)) continue;
-        const v = k.call(m.name, `fields.${name}`, this, (x, mod) => x.fields![name](this.facade(mod)), () => undefined);
-        if (v !== undefined && typeof (v as Promise<unknown>)?.then !== "function") r[name] = v;
+        const v = this.field(m, name);
+        if (v !== undefined) r[name] = v;
       }
     }
     const failed: Record<string, string> = {};
@@ -390,6 +388,13 @@ export class Sess {
     for (const [n, why] of this.failed) failed[n] = why;
     if (Object.keys(failed).length) r.failed = failed;
     return r;
+  }
+
+  /** Поле модуля m в записи сессии: модуль выключен или поле не вышло — undefined. */
+  field(m: Mod, name: string): unknown {
+    if (this.k.isDown(m, this)) return undefined;
+    const v = this.k.call(m.name, `fields.${name}`, this, (x, mod) => x.fields![name](this.facade(mod)), () => undefined);
+    return typeof (v as Promise<unknown>)?.then === "function" ? undefined : v;
   }
 
   helloRecord(): Record<string, unknown> {
@@ -425,7 +430,7 @@ export class Sess {
           cwd: s.rec.cwd,
           model: s.model,
           sdk: s.rec.sdk,
-          from: s.from,
+          from: s.rec.from ?? null,
           start,
           ...(start === "point" && s.point !== undefined ? { point: s.point } : {}),
         };
@@ -434,7 +439,11 @@ export class Sess {
         return s.state;
       },
       input(content, o = {}) {
-        if (o.from !== undefined) s.from = o.from;
+        // отправитель последнего ввода — в записи сессии: вопрос после перезапуска Host уходит тому же адресату
+        if (o.from !== undefined && o.from !== s.rec.from) {
+          s.rec.from = o.from;
+          k.saveCore();
+        }
         s.queue.push({
           type: "user",
           message: { role: "user", content },
@@ -451,6 +460,7 @@ export class Sess {
       start: (o) => handled(s.start(o)),
       remove: () => handled(s.remove()),
       store: <T>() => k.stores.session<T>(m.name, s.callsign) as Store<T>,
+      field: (name) => k.sessionField(m, s, name),
       refresh: () => s.push(),
     };
     this.facades.set(m, f);

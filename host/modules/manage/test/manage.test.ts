@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Ctx, Frame, Host, Manifest, OpenSpec, QueryPart, Session, SessionState } from "@switchboard/host";
 import { manage } from "../src/manage.ts";
+import profilesManifest from "../../profiles/module.json" with { type: "json" };
+import { make as makeProfiles } from "../../profiles/src/profiles.ts";
 
 const manifest = JSON.parse(readFileSync(join(import.meta.dirname, "..", "module.json"), "utf8")) as Manifest;
 const stands: stand.Stand[] = [];
@@ -116,7 +118,8 @@ describe("эталоны manage", () => {
     expect(part).toMatchObject({ enableFileCheckpointing: true, title: "board" });
     expect(part.model).toBeUndefined();
     expect(part.effort).toBeUndefined();
-    expect(stores.get("board@laptop")).toBeUndefined(); // в разделе manage нет ни папки, ни профиля, ни слота
+    // в разделе manage — только родитель: ни папки, ни профиля, ни слота
+    expect(stores.get("board@laptop")).toEqual({ parent: "panel-desk~owner@example.com" });
     expect(log[4][1]).toMatchObject({ type: "ledger.add", to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", machine: "laptop", callsign: "board@laptop" });
     const spec = await mod.requests!["session.spec"]({ type: "session.spec", id: "k-6", v: 1, callsign: "board@laptop" }, ctx);
     expect(spec).toEqual({ dir, model: null, effort: null, title: "board" });
@@ -136,6 +139,8 @@ describe("эталоны manage", () => {
     const spec = await req(st, { type: "session.spec", callsign: "board@laptop" });
     expect(spec).toMatchObject({ ok: true, result: { dir: "~/Projects/switchboard", model: null, effort: null } });
     expect(st.sdk.fnCalls.find((c) => c.name === "getSessionInfo")?.args[0]).toBe((r.result as { session_id: string }).session_id);
+    // родитель — отправитель запроса (принятый дизайн: «session.open запоминает отправителя запроса… Поле roster parent»)
+    await stand.until(() => st.states("board@laptop").at(-1)?.parent === "panel-desk~owner@example.com");
   });
 
   it("237 · заголовок остановленной docs — функция SDK renameSession; раздел manage заголовка не хранит", async () => {
@@ -166,7 +171,7 @@ describe("manage", () => {
     expect(st.journal().find((l) => l.word === "bad_spec" && String(l.why).includes("effort"))).toBeTruthy();
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p", color: "red", model: "opus", fast: true })).toMatchObject({ ok: true });
     expect(st.query("x@laptop").options).toMatchObject({ model: "opus", settings: { fastMode: true } });
-    expect(st.session("host-manage", "x@laptop")!.store().get()).toEqual({ model: "opus", fast: true });
+    expect(st.session("host-manage", "x@laptop")!.store().get()).toEqual({ model: "opus", fast: true, parent: "panel-desk~owner@example.com" });
   });
 
   it("open: процесс вышел до initialize — open_failed, повтора нет", async () => {
@@ -177,6 +182,7 @@ describe("manage", () => {
     await stand.until(() => st.holders.procs.get("x@laptop"));
     st.proc("x@laptop").exit(1, "нет входа");
     expect(await pr).toMatchObject({ ok: false, error: "open_failed" });
+    expect(st.journal().some((l) => l.ev === "request" && l.word === "open_failed" && String(l.why).includes("x@laptop"))).toBe(true);
   });
 
   it("call: interrupt — ответ SDK; остановленной — stopped; ошибка SDK — sdk_error, модуль работает", async () => {
@@ -225,5 +231,141 @@ describe("manage", () => {
     expect(st.kernel.sessions.has("wiki@laptop")).toBe(false);
     expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "panel-desk~owner@example.com" });
     expect(await req(st, { type: "session.spec", callsign: "wiki@laptop" })).toMatchObject({ ok: false, error: "offline" });
+  });
+
+  it("open с number: к имени первый свободный номер — disk-full-1, затем disk-full-2; два сразу — разные; убранный номер снова свободен", async () => {
+    const { st, home } = await laptop();
+    const dir = join(home, "ops");
+    mkdirSync(dir);
+    const open = () => req(st, { type: "session.open", machine: "laptop", name: "disk-full", number: true, dir });
+    expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-1@laptop" } });
+    expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-2@laptop" } });
+    const both = await Promise.all([open(), open()]);
+    expect(both.map((r) => (r.result as { callsign: string }).callsign).sort()).toEqual(["disk-full-3@laptop", "disk-full-4@laptop"]);
+    await req(st, { type: "session.remove", callsign: "disk-full-1@laptop" });
+    expect(await open()).toMatchObject({ ok: true, result: { callsign: "disk-full-1@laptop" } });
+    expect(st.query("disk-full-2@laptop").options.title).toBe("disk-full-2");
+  });
+
+  it("remove с after_turn посреди хода: ход не прерван, сессия убрана после его конца; ledger — от того, кто просил; простаивающая — сразу", async () => {
+    const { st } = await laptop();
+    const s = await st.open("wiki@laptop");
+    const p = st.proc("wiki@laptop");
+    p.send(stand.msg.state("running"));
+    await stand.until(() => s.state === "busy");
+    expect(await req(st, { type: "session.remove", callsign: "wiki@laptop", after_turn: true, from: "lead@laptop" })).toMatchObject({ ok: true, result: { after_turn: true } });
+    expect(p.interrupts).toBe(0);
+    expect(st.kernel.sessions.has("wiki@laptop")).toBe(true);
+    p.send(stand.msg.result());
+    p.send(stand.msg.state("idle"));
+    await stand.until(() => !st.kernel.sessions.has("wiki@laptop"));
+    expect(p.interrupts).toBe(0);
+    expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "lead@laptop" });
+    await st.open("docs@laptop");
+    expect(await req(st, { type: "session.remove", callsign: "docs@laptop", after_turn: true })).toMatchObject({ ok: true });
+    expect(st.kernel.sessions.has("docs@laptop")).toBe(false);
+  });
+});
+
+describe("эталоны manage: ядро управления сессиями", () => {
+  it("320 · open: профиля нет — no_profile, причина в журнале, сессии нет; тот же запрос без профиля — имя свободно", async () => {
+    // источник: принятый дизайн, ожидаемые ветки — «Нет папки или профиля типа — … no_profile, причина в журнале; сессии нет»; имя свободно — чьё: код
+    const saved = process.env.SWITCHBOARD_HOME;
+    process.env.SWITCHBOARD_HOME = mkdtempSync(join(tmpdir(), "switchboard-manage-sb-"));
+    try {
+      const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
+      const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+      const st = await stand.standHost({ modules: [slots, { manifest: profilesManifest as Manifest, module: makeProfiles({ git: async () => ({ code: 0, out: "" }) }) }, { manifest, module: manage({ home }) }] });
+      stands.push(st);
+      expect(await req(st, { type: "session.open", machine: "laptop", name: "board", dir: "~", profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile" });
+      expect(st.journal().some((l) => l.ev === "request" && l.word === "no_profile" && String(l.why).includes("board@laptop"))).toBe(true);
+      expect(st.kernel.sessions.has("board@laptop")).toBe(false);
+      expect(await req(st, { type: "session.open", machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop" } });
+    } finally {
+      if (saved === undefined) delete process.env.SWITCHBOARD_HOME;
+      else process.env.SWITCHBOARD_HOME = saved;
+    }
+  });
+
+  it("321 · журнала флота нет на связи: open и remove модуля этой машины — исполнены, заметка ledger disconnected в журнале Host", async () => {
+    // источник: устав — соединение с Worker-модулем оборвалось; заметка без очереди — чьё: код (Host.emit: «Обрыв — disconnected; очереди нет»)
+    const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
+    const caller = stand.module("host-caller", {}, { uses: { "session.open@host-manage": 1, "session.remove@host-manage": 1 } });
+    const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+    const profiles = stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
+    const st = await stand.standHost({ modules: [slots, profiles, { manifest, module: manage({ home }) }, caller] });
+    stands.push(st);
+    // связь с relay оборвалась; переподключение — по поддельным часам, они стоят
+    st.relay.drop();
+    await stand.until(() => st.kernel.relay?.state !== "open");
+    const h = st.host("host-caller");
+    expect(await h.request("session.open", { v: 1, machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop" } });
+    expect(await h.request("session.remove", { v: 1, callsign: "board@laptop" })).toEqual({ ok: true, result: undefined });
+    expect(st.kernel.sessions.has("board@laptop")).toBe(false);
+    const notes = st.journal().filter((l) => l.ev === "ledger" && l.word === "disconnected");
+    expect(notes.map((l) => String(l.why).split(" ")[0])).toEqual(["session.opened", "session.removed"]);
+  });
+
+  it("322 · remove after_turn посреди хода, Host перезапущен, ход кончился у держателя — новый Host убирает сессию после хода; session.removed в журнале флота", async () => {
+    // источник: устав — после перезапуска Host модуль поднимает своё из хранилища; принятый дизайн — «убрать после конца идущего хода»
+    const k = new stand.FakeHolders();
+    const work = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
+    const host = (home?: string) =>
+      stand.standHost({
+        home,
+        holders: k,
+        modules: [stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }), stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }), { manifest, module: manage({ home: work }) }],
+      });
+    try {
+      const a = await host();
+      const s = await a.open("wiki@laptop");
+      const p = k.procs.get("wiki@laptop")!;
+      p.send(stand.msg.state("running"));
+      await stand.until(() => s.state === "busy");
+      expect(await req(a, { type: "session.remove", callsign: "wiki@laptop", after_turn: true })).toMatchObject({ ok: true, result: { after_turn: true } });
+      await a.close();
+      await stand.until(() => p.sock === null);
+      p.send(stand.msg.result({ result: "готово" }));
+      p.send(stand.msg.state("idle"));
+      const b = await host(a.home);
+      stands.push(b);
+      await stand.until(() => !b.kernel.sessions.has("wiki@laptop"));
+      expect(p.interrupts).toBe(0);
+      expect(b.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "panel-desk~owner@example.com" });
+    } finally {
+      for (const st of stands.splice(0)) await st.close();
+      await k.close();
+    }
+  });
+
+  it("323 · вход отклонён: remove с after_turn не true — bad_spec, сессия на месте", async () => {
+    // источник: устав — ошибки словами; слово bad_spec — чьё: код (контракт manage)
+    const { st } = await laptop();
+    await st.open("wiki@laptop");
+    expect(await req(st, { type: "session.remove", callsign: "wiki@laptop", after_turn: "yes" })).toMatchObject({ ok: false, error: "bad_spec" });
+    expect(st.kernel.sessions.has("wiki@laptop")).toBe(true);
+  });
+
+  it("324 · вход отклонён: update с усилием не того вида — bad_spec, причина в журнале; SDK не вызван, в roster усилия нет", async () => {
+    // источник: устав — ошибки словами; слово bad_spec — чьё: код (контракт manage)
+    const { st } = await laptop();
+    await st.open("docs@laptop");
+    expect(await req(st, { type: "session.update", callsign: "docs@laptop", effort: "turbo" })).toMatchObject({ ok: false, error: "bad_spec" });
+    expect(st.journal().some((l) => l.word === "bad_spec" && String(l.why).includes("effort"))).toBe(true);
+    expect(st.query("docs@laptop").calls).toEqual([]);
+    expect(st.states("docs@laptop").at(-1)!.effort).toBeUndefined();
+  });
+
+  it("325 · update: SDK отказал setModel — sdk_error, причина в журнале; manage не выключен", async () => {
+    // источник: устав — ошибки словами; «отказ SDK — слово sdk_error, причина в журнале; модуль не выключается» — чьё: код
+    const { st } = await laptop();
+    await st.open("docs@laptop");
+    (st.query("docs@laptop") as unknown as Record<string, unknown>).setModel = async () => {
+      throw new Error("модели нет");
+    };
+    expect(await req(st, { type: "session.update", callsign: "docs@laptop", model: "sonnet" })).toMatchObject({ ok: false, error: "sdk_error" });
+    expect(st.journal().some((l) => l.word === "sdk_error" && String(l.why).includes("модели нет"))).toBe(true);
+    expect(st.states("docs@laptop").every((f) => !f.failed)).toBe(true);
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
   });
 });

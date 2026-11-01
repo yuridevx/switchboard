@@ -1,15 +1,19 @@
-// Модуль fleet: переписка сессий по позывным. Каждой сессии — сервер MCP fleet с инструментами list, send, answer;
-// чужое сообщение — запрос message: текст с отправителем ложится во ввод с priority "next" (простаивающая
-// просыпается, занятая читает на границе шага). Адресата нет — отказ сразу, без очереди. Хранить нечего.
+// Модуль fleet: сессии флота видят друг друга, пишут, открывают и ведут других — как в десктоп-приложении Claude.
+// Каждой сессии — сервер MCP fleet: list, send, answer, open, history, update, remove; открыть, прочитать, сменить модель
+// и закрыть — запросы manage и chat, fleet их только зовёт. Чужое сообщение — запрос message: текст с отправителем
+// ложится во ввод с priority "next" (простаивающая просыпается, занятая читает на границе шага). Адресата нет — отказ сразу.
+// Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent от manage этой машины), и это сессия, —
+// текст result уходит родителю тем же message. Хранить нечего.
 import { randomUUID } from "node:crypto";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { Ctx, Frame, Host, Module, Result } from "@switchboard/host";
+import type { Ctx, Frame, Host, Module, Result, SDKMessage, Session } from "@switchboard/host";
 import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
-type Roster = { sessions?: Array<{ callsign: string; state?: string | null }>; clients?: string[] };
+type RosterSession = { callsign: string; state?: string | null; parent?: string; model?: string };
+type Roster = { sessions?: RosterSession[]; clients?: string[] };
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
 const text = (t: string, isError = false): Text => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
@@ -17,34 +21,53 @@ const text = (t: string, isError = false): Text => ({ content: [{ type: "text", 
 /** Что видит модель адресата: отправитель в тексте — поле origin модель не видит (опыт 12). */
 export const wrap = (from: string, body: string) => `<fleet-message from="${from}">\n${body}\n</fleet-message>`;
 
-/** Строка в системный промпт: модель знает свой позывной (опыт 13). */
+/** Задача от родителя: подсказка рядом с ней — строку системного промпта модель пропускает и отвечает fleet.send (живой прогон 1 нояб.). */
+export const task = (from: string, body: string) => `${wrap(from, body)}\n(Задача от родителя ${from}: итог этого хода уйдёт ему сам — fleet.send ему не нужен.)`;
+
+/** Строка в системный промпт: модель знает свой позывной (опыт 13) и как вести другие сессии. */
 export const prompt = (me: string) =>
-  `Ты во флоте как ${me}. Кто на связи — инструмент fleet.list, написать сессии или клиенту — fleet.send ` +
-  `(ответа не ждёт: адресат ответит своим fleet.send). Сообщения флота приходят во ввод тегом <fleet-message from="…">; ` +
-  `вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer.`;
+  `Ты во флоте как ${me}. Кто на связи — fleet.list; написать сессии или человеку — fleet.send. ` +
+  `Открыть сессию с задачей — fleet.open: она твоя дочь, итог каждого её хода, начатого тобой, придёт сам тегом <fleet-message from="…">. ` +
+  `Что делала сессия — fleet.history; модель, усилие, заголовок — fleet.update; закрыть — fleet.remove (без callsign — себя, после этого хода). ` +
+  `Сообщения флота приходят во ввод тегом <fleet-message from="…">; вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer. ` +
+  `Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно.`;
 
 /** Отказ словом — текстом для модели. */
 function failed(to: string, r: Result & { ok: false }): Text {
   if (r.error === "offline") return text(`Не доставлено: ${to} не на связи (offline)`, true);
   if (r.error === "disconnected") return text(`Доставка не подтверждена: нет связи с relay (disconnected)`, true);
-  return text(`Не доставлено: ${to} — ${r.error}`, true);
+  return text(`Не выполнено: ${to} — ${r.error}`, true);
 }
 
-type Wait = { callsign: string; ok: (r: { text: string }) => void; no: (e: Error) => void };
+type Block = { type?: string; text?: string; name?: string };
+type Entry = { type?: string; message?: { content?: string | Block[] } };
+
+/** Записи разговора — строками для модели: ввод, ответы, вызванные инструменты. */
+export function lines(messages: Entry[]): string {
+  const out: string[] = [];
+  for (const m of messages) {
+    if (m.type !== "user" && m.type !== "assistant") continue;
+    const c = m.message?.content;
+    const blocks: Block[] = typeof c === "string" ? [{ type: "text", text: c }] : (c ?? []);
+    for (const b of blocks) {
+      if (b.type === "text" && b.text) out.push(`${m.type}: ${b.text}`);
+      else if (b.type === "tool_use" && b.name) out.push(`tool: ${b.name}`);
+    }
+  }
+  return out.join("\n") || "записей нет";
+}
 
 export function make() {
   let host: Host;
   /** последний roster: для fleet.list */
   let roster: Roster | null = null;
-  /** message с wait: uuid ввода → ждущий ответа отправитель */
-  const waits = new Map<string, Wait>();
 
   /** Инструменты сервера MCP одной сессии: отправитель — сама сессия, в аргументах его нет. */
   function tools(me: string): SdkMcpToolDefinition<any>[] {
     return [
-      tool("list", "Кто на связи: сессии флота с состояниями и клиенты (телефон, пульт).", {}, async () => {
+      tool("list", "Кто на связи: сессии флота с состоянием, родителем и моделью; клиенты (телефон, пульт).", {}, async () => {
         if (!roster) return text("Нет связи с relay (disconnected): список сессий неизвестен", true);
-        const sessions = (roster.sessions ?? []).map((s) => ({ callsign: s.callsign, state: s.state ?? null }));
+        const sessions = (roster.sessions ?? []).map((s) => ({ callsign: s.callsign, state: s.state ?? null, parent: s.parent ?? null, model: s.model ?? null }));
         return text(JSON.stringify({ me, sessions, clients: roster.clients ?? [] }));
       }),
       tool(
@@ -76,40 +99,92 @@ export function make() {
           return r.ok ? text("принято") : failed(to, r);
         },
       ),
+      tool(
+        "open",
+        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам.",
+        {
+          name: z.string().describe("имя сессии: буквы, цифры, . _ -"),
+          dir: z.string().describe("папка: от ~ или полный путь"),
+          text: z.string().describe("задача — первое сообщение сессии"),
+          machine: z.string().optional().describe("машина; по умолчанию — твоя"),
+          profile: z.string().optional().describe("профиль сессии"),
+          model: z.string().optional(),
+          effort: z.string().optional(),
+        },
+        async ({ name, dir, text: body, machine, profile, model, effort }) => {
+          const where = machine ?? host.machine;
+          const opt = { ...(profile ? { profile } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+          const o = await host.request("session.open", { v: 1, machine: where, name, dir, ...opt, from: me });
+          if (!o.ok) return failed(`${name}@${where}`, o);
+          const cs = (o.result as { callsign: string }).callsign;
+          const m = await host.request("message", { v: 1, to: cs, text: body, from: me });
+          return m.ok ? text(`открыта: ${cs}; задача во вводе, итог хода придёт сам`) : text(`открыта: ${cs}, но задача не доставлена — ${m.error}`, true);
+        },
+      ),
+      tool(
+        "history",
+        "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.",
+        { callsign: z.string(), limit: z.number().int().min(1).optional().describe("сколько записей; по умолчанию 20") },
+        async ({ callsign, limit }) => {
+          const r = await host.request("session.history", { v: 1, callsign, limit: limit ?? 20, before: null, from: me });
+          if (!r.ok) return failed(callsign, r);
+          return text(lines((r.result as { messages: Entry[] }).messages));
+        },
+      ),
+      tool(
+        "update",
+        "Сменить сессии модель, усилие или заголовок. Живой сессии модель и усилие — сразу.",
+        { callsign: z.string(), model: z.string().optional(), effort: z.string().optional(), title: z.string().optional() },
+        async ({ callsign, model, effort, title }) => {
+          const r = await host.request("session.update", { v: 1, callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
+          return r.ok ? text(`сразу: ${((r.result as { now: string[] }).now ?? []).join(", ") || "—"}`) : failed(callsign, r);
+        },
+      ),
+      tool(
+        "remove",
+        "Закрыть сессию: она забыта, разговор остаётся на диске машины. Другую — сразу; без callsign — себя, после этого хода.",
+        { callsign: z.string().optional() },
+        async ({ callsign }) => {
+          const target = callsign ?? me;
+          const self = target === me;
+          const r = await host.request("session.remove", { v: 1, callsign: target, ...(self ? { after_turn: true } : {}), from: me });
+          if (!r.ok) return failed(target, r);
+          return text(self ? "закроюсь после этого хода" : `закрыта: ${target}`);
+        },
+      ),
     ];
   }
 
-  /** Сообщение во ввод сессии этой машины. С wait — ответ после конца хода, взявшего сообщение. */
-  function message(req: Frame, ctx: Ctx): Promise<{ text: string }> | undefined {
+  /**
+   * Сообщение во ввод сессии этой машины; отправитель — от Host или relay. report: true — итог хода дочери:
+   * отправитель последнего ввода у адресата прежний — вопрос родителя уходит тому, кто дал ему задачу, а не дочери.
+   */
+  function message(req: Frame, ctx: Ctx): void {
     const to = req.to;
     if (typeof to !== "string" || typeof req.text !== "string") throw refuse("bad_frame", "message: нужны to — callsign и text");
     const s = host.session(to);
     if (!s || s.state === "stopped" || s.state === "failed") throw refuse("offline", `${to}: ${s ? `сессия ${s.state}` : "сессии нет на машине"}`);
-    const from = typeof req.from === "string" ? req.from : (ctx.from ?? "");
-    const uuid = randomUUID();
-    let done: Promise<{ text: string }> | undefined;
-    if (req.wait === true) {
-      done = new Promise((ok, no) => {
-        waits.set(uuid, { callsign: to, ok, no });
-        // Host останавливается: отправитель узнаёт сразу, ход идёт дальше у keeper
-        ctx.signal.addEventListener("abort", () => settle(uuid, refuse("disconnected", `${to}: Host останавливается — ответа после хода не будет`)), { once: true });
-      });
-    }
-    s.input(wrap(from, req.text), { from, priority: "next", uuid, origin: { kind: "peer", from, name: from } });
-    return done;
+    const from = ctx.from ?? "";
+    const fromParent = req.report !== true && !!from && s.field("parent") === from;
+    s.input(fromParent ? task(from, req.text) : wrap(from, req.text), { ...(req.report === true ? {} : { from }), priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
   }
 
-  function settle(uuid: string, r: { text: string } | Error): void {
-    const w = waits.get(uuid);
-    if (!w) return;
-    waits.delete(uuid);
-    if (r instanceof Error) w.no(r);
-    else w.ok(r);
+  /** Конец хода: последний ввод от родителя-сессии — итог ему тем же message. Родитель — поле manage этой машины: relay не нужен. */
+  function report(s: Session, m: SDKMessage): void {
+    const me = s.info.callsign;
+    const from = s.info.from;
+    const parent = s.field("parent");
+    if (typeof parent !== "string" || kindOf(parent) !== "session" || from !== parent) return;
+    const r = m as { subtype: string; is_error?: boolean; result?: string };
+    const body = r.subtype === "success" && !r.is_error ? (r.result ?? "") : `ход кончился: ${r.subtype}`;
+    void host.request("message", { v: 1, to: parent, text: body, report: true, from: me }).then((x) => {
+      if (!x.ok) host.log({ kind: "note", ev: "report", word: x.error, callsign: me, why: `итог хода родителю ${parent} не доставлен: ${x.error}` });
+    });
   }
 
   const mod: Module = {
     session: (s) => ({
-      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.2.0", tools: tools(s.info.callsign) }) },
+      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.3.0", tools: tools(s.info.callsign) }) },
       append: prompt(s.info.callsign),
       // переписка между сессиями — только через fleet: рубильник Claude Code убирает ListAgents и доставку
       // SendMessage чужим сессиям в обе стороны; SendMessage своим субагентам остаётся (исключение устава, слово 1 нояб.)
@@ -117,20 +192,8 @@ export function make() {
     }),
     requests: { message },
     on: {
-      // конец хода: ждущим wait — текст result или turn_failed
       event(s, m) {
-        if (m.type !== "result" || !waits.size) return;
-        const r = m as { subtype: string; is_error?: boolean; result?: string; user_message_uuids?: string[]; user_message_uuid?: string };
-        const took = r.user_message_uuids ?? (r.user_message_uuid ? [r.user_message_uuid] : []);
-        for (const uuid of took) {
-          if (waits.get(uuid)?.callsign !== s.info.callsign) continue;
-          if (r.subtype === "success" && !r.is_error) settle(uuid, { text: r.result ?? "" });
-          else settle(uuid, refuse("turn_failed", `${s.info.callsign}: ход с сообщением кончился ${r.subtype}`));
-        }
-      },
-      // процесс ушёл: оборванный ход потерян
-      close(s) {
-        for (const [uuid, w] of waits) if (w.callsign === s.info.callsign) settle(uuid, refuse("turn_failed", `${s.info.callsign}: процесс закрыт посреди хода`));
+        if (m.type === "result") report(s, m);
       },
       frame(f) {
         if (f.type === "roster") roster = f as Roster;
@@ -139,10 +202,8 @@ export function make() {
     start(h) {
       host = h;
     },
-    // хранить нечего; ждущих wait уже отпустил сигнал остановки Host
-    stop() {
-      waits.clear();
-    },
+    // хранить и снимать нечего
+    stop() {},
   };
   return { module: mod, tools };
 }

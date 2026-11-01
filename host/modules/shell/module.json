@@ -1,7 +1,7 @@
 {
   "name": "host-shell",
   "type": "sdk",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "provides": {
     "shell.run": 1,
     "shell.wait": 1,

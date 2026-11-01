@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { fail, isReply, machineOf, ok, serviceAddress } from "@switchboard/protocol";
+import { fail, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
 import type { Link, LinkState, WsCtor } from "@switchboard/relay";
@@ -561,7 +561,9 @@ export class Kernel {
     const local = this.byName.has(owner) && (target === null || target === this.machine) && !(payload.to && typeof payload.to !== "string");
     if (local) {
       const id = `${this.idPrefix}-${++this.reqSeq}`;
-      const r = await this.handleRequest({ ...payload, type: name, id } as Frame & { id: string }, `@${this.machine}`);
+      // отправитель — как через relay: from запроса, иначе машина; владелец видит его в ctx.from и не выбирает сам
+      const from = kindOf(payload.from) ? (payload.from as string) : `@${this.machine}`;
+      const r = await this.handleRequest({ ...payload, type: name, id, from } as Frame & { id: string }, from);
       return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error };
     }
     if (!this.relay) return { ok: false, error: "disconnected" };
@@ -571,6 +573,15 @@ export class Kernel {
     // отказ несёт все поля reply владельца (missing, owner, creds…), без конверта
     const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame)) as Frame & Reply;
     return r as Result;
+  }
+
+  /** s.field: поле записи сессии этой машины у владельца — имя из своих provides или uses, как у запроса. */
+  sessionField(m: Mod, s: Sess, name: string): unknown {
+    const own = m.manifest.provides?.[name] !== undefined;
+    const ref = Object.keys(m.manifest.uses ?? {}).find((r) => nameOf(r) === name);
+    if (!own && !ref) this.violation(m, s, `${name} нет в uses`);
+    const owner = this.byName.get(own ? m.name : ownerOf(ref!));
+    return owner?.module.fields?.[name] ? s.field(owner, name) : undefined;
   }
 
   /** host.emit: кадр без ответа; type — свой или из uses. Связи нет — disconnected, очереди нет; больше предела кадра — too_large. */

@@ -21,11 +21,10 @@ export function make(): Module {
 
   const viewers = (s: Session) => s.store<string[]>().get() ?? [];
 
-  /** Зритель — from запроса: relay ставит его клиенту; модуль этой машины кладёт свой. */
+  /** Зритель — отправитель запроса: клиенту его ставит relay, модулю этой машины — Host. */
   function viewer(req: Frame, from?: string): string {
-    const v = typeof req.from === "string" ? req.from : from;
-    if (!v) throw refuse("bad_frame", `${req.type}: нет from`);
-    return v;
+    if (!from) throw refuse("bad_frame", `${req.type}: нет from`);
+    return from;
   }
 
   function flush(callsign: string): void {

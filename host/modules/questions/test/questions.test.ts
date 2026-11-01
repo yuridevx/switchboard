@@ -7,6 +7,8 @@ import manifest from "../module.json" with { type: "json" };
 import watchManifest from "../../watch/module.json" with { type: "json" };
 import { make as makeWatch } from "../../watch/src/watch.ts";
 import { make } from "../src/questions.ts";
+import pushManifest from "../../push/module.json" with { type: "json" };
+import { make as makePush } from "../../push/src/push.ts";
 
 const { FakeHolders, module, standHost, until } = stand;
 type Stand = stand.Stand;
@@ -259,5 +261,43 @@ describe("questions: стыки и юнит", () => {
     st.session("host-questions", CS)!.store().set({ toolu_old: ["phone~owner@example.com"] });
     stand.turn(st.proc(CS));
     await until(() => st.session("host-questions", CS)!.store().get() === undefined);
+  });
+});
+
+/** Host win с настоящими watch, push и questions: вопрос дочери родителю на одной машине. */
+async function nest() {
+  const st = await standHost({
+    machine: "win",
+    modules: [{ manifest: watchManifest as Manifest, module: makeWatch() }, { manifest: pushManifest as Manifest, module: makePush() }, { manifest: manifest as Manifest, module: make() }],
+  });
+  stands.push(st);
+  return st;
+}
+
+describe("эталоны questions: вложенные сессии", () => {
+  it("337 · вопрос дочери во вводе родителя не меняет адресата вопросов родителя: следующий вопрос родителя — тому, кто дал ему задачу", async () => {
+    // источник: устав — AskUserQuestion получает тот, кто дал задачу; слово пользователя «контроль вложенных как в десктопе»
+    // (проход архитектора по ядру сессий: «вопрос родителя уходит тому, кто дал ему задачу, а не дочери»)
+    const st = await nest();
+    const lead = await st.open("lead@win");
+    lead.input("Наведи порядок в документации", { from: "phone~owner@example.com" });
+    st.relay.deliver({ type: "question", from: "docs@win", to: ["lead@win"], question: "toolu_k1", kind: "ask", questions: [{ question: "Какой README?" }] });
+    const p = st.proc("lead@win");
+    await until(() => p.inputs.length === 2);
+    expect(p.inputs[1].message.content).toContain('<fleet-question from="docs@win" question="toolu_k1">');
+    void p.ask("AskUserQuestion", { questions: [{ question: "Можно пушить в main?" }] }, "toolu_l1");
+    const q = await until(() => questions(st)[0]);
+    expect(q).toMatchObject({ from: "lead@win", question: "toolu_l1", to: ["phone~owner@example.com"] });
+  });
+
+  it("338 · форма MCP дочери — во ввод родителя не кладётся; строка журнала questions с причиной", async () => {
+    // источник: чьё: код (questions: форма и ссылка — только человеку)
+    const st = await nest();
+    await st.open("lead@win");
+    st.relay.deliver({ type: "question", from: "docs@win", to: ["lead@win"], question: "elic_1", kind: "form", server: "github", message: "Войти в GitHub", schema: {} });
+    const line = await until(() => st.journal().find((l) => l.ev === "question" && String(l.why).includes("elic_1")));
+    expect(line.why).toContain("вид form — только человеку, во ввод сессии не кладётся");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(st.proc("lead@win").inputs).toHaveLength(0);
   });
 });

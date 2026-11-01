@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MAX_FRAME } from "@switchboard/protocol";
 import { refuse } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
+import { frame, frames } from "../src/holders.ts";
 import { InputQueue } from "../src/queue.ts";
 import { gate } from "../src/registry.ts";
 import { loadRelease } from "../src/release.ts";
@@ -46,6 +47,19 @@ describe("хранилище", () => {
     s.machine<{ a: number }>("m").set({ a: 1 });
     s.machine<{ a: number }>("m").get()!.a = 5;
     expect(s.machine("m").get()).toEqual({ a: 1 });
+  });
+});
+
+describe("протокол держателя", () => {
+  it("байты кадра — образец замороженного протокола keeper: тот же образец проверяет keeper", () => {
+    expect(frame("a", "key").toString("latin1")).toBe("a\x00\x00\x00\x03key");
+    const got: Array<[string, string]> = [];
+    const feed = frames((t, d) => got.push([t, d.toString("utf8")]));
+    // кадр выхода держателя приходит кусками
+    const x = Buffer.from('x\x00\x00\x00\x25{"code":0,"signal":null,"stderr":"e"}', "latin1");
+    feed(x.subarray(0, 3));
+    feed(x.subarray(3));
+    expect(got).toEqual([["x", '{"code":0,"signal":null,"stderr":"e"}']]);
   });
 });
 

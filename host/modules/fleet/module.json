@@ -1,13 +1,18 @@
 {
   "name": "host-fleet",
   "type": "sdk",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "provides": { "message": 1 },
   "uses": {
     "host.module@host": 1,
     "roster@relay": 1,
     "answer@host-questions": 1,
-    "notify@host-push": 1
+    "notify@host-push": 1,
+    "session.open@host-manage": 1,
+    "session.update@host-manage": 1,
+    "session.remove@host-manage": 1,
+    "parent@host-manage": 1,
+    "session.history@host-chat": 1
   },
   "calls": [],
   "config": {}
