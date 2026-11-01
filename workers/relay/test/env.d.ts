@@ -8,7 +8,7 @@ type Ctl = {
 declare namespace Cloudflare {
   interface Env {
     FLEET: DurableObjectNamespace<import("../src/fleet.ts").Fleet>;
-    GATE: import("@switchboard/gate").GateApi & { setMode(m: string): Promise<void>; calls(): Promise<string[]>; clear(): Promise<void> };
+    GATE: import("@switchboard/gate").GateApi & { setMode(m: string): Promise<void>; calls(): Promise<string[]>; clear(): Promise<void>; revokeLater(ids: string[]): Promise<void> };
     PROTO: number[];
     PARTICIPANTS: Record<string, string>;
     OWNER: string;
