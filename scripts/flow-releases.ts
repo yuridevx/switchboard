@@ -70,7 +70,8 @@ try {
 
   // --- тестовое приложение ---
   const P = "sbprobe";
-  const n = Math.floor(Date.now() / 60000) % 100000;
+  // номер — от секунд: два прогона подряд (на разных машинах) не сталкиваются на version_exists
+  const n = Math.floor(Date.now() / 1000) % 10000000;
   const v1 = `0.1.${n * 2}`;
   const v2 = `0.1.${n * 2 + 1}`;
   check(`upload ${P} ${v1}`, (await upload(P, v1, app(false))).ok);
