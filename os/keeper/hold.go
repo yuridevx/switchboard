@@ -328,12 +328,11 @@ func (h *holder) accept(c net.Conn) {
 	}
 	h.outMu.Lock()
 	h.mu.Lock()
-	if h.conn != nil {
-		h.mu.Unlock()
-		h.outMu.Unlock()
-		writeFrame(c, frError, []byte("in_use"))
-		c.Close()
-		return
+	// новый хозяин вытесняет прежнего: прежний мог уйти, а держатель ещё не заметил обрыва (быстрый перезапуск keeper)
+	if old := h.conn; old != nil {
+		h.conn = nil
+		old.Close()
+		h.j.note("held_replaced", "id", h.id)
 	}
 	buf := h.buf
 	h.buf, h.conn = nil, c

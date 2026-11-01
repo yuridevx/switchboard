@@ -79,10 +79,8 @@ export class FakeProc {
             sock.end(frame("e", "bad_key"));
             return;
           }
-          if (this.sock && !this.sock.destroyed) {
-            sock.end(frame("e", "in_use"));
-            return;
-          }
+          // новый хозяин вытесняет прежнего
+          if (this.sock && !this.sock.destroyed) this.sock.destroy();
           authed = true;
           this.holders.ops.push({ op: "attach", id: this.id, buffered: this.buffered });
           this.sock = sock;

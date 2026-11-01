@@ -4,6 +4,7 @@ package main
 // 1 нояб.: состояние машины спускается сверху, keeper исполняет и отвечает состояние, держатели) и замеры 1 нояб.
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -185,7 +186,10 @@ func TestEtExitWithoutKeeper(t *testing.T) {
 	killPid(t, pid)
 	time.Sleep(300 * time.Millisecond)
 	k2 := s.start()
-	waitFor(t, "один перезапуск", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Restarts == 1 && p.Pid != pid })
+	waitFor(t, "один перезапуск", func() bool {
+		p := partOf(k2, "capture")
+		return p.State == "running" && p.Restarts == 1 && p.Pid != pid
+	})
 }
 
 // keeper отвечает состояние сам, без Host.
@@ -301,7 +305,7 @@ func TestEtSelfUpdateCheckFailed(t *testing.T) {
 
 /* ===== держатель ===== */
 
-// Держатель копит вывод без хозяина и отдаёт его хозяину; второй хозяин — in_use; чужой ключ — bad_key.
+// Держатель копит вывод без хозяина и отдаёт его хозяину; второй хозяин вытесняет первого; чужой ключ — bad_key.
 func TestEtHolderBufferAndOwner(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SWITCHBOARD_HOME", home)
@@ -319,8 +323,21 @@ func TestEtHolderBufferAndOwner(t *testing.T) {
 	if hh.Buffered == 0 || hh.Pid != f.Pid {
 		t.Fatalf("hello %+v", hh)
 	}
-	if _, _, err := dialHolder(f); err == nil || !strings.Contains(err.Error(), "in_use") {
+	var first strings.Builder
+	firstDone := make(chan error, 1)
+	go func() {
+		x, err := c.read(func(b []byte) { first.Write(b) })
+		if x != nil {
+			err = fmt.Errorf("прежнему хозяину отдан выход %+v", x)
+		}
+		firstDone <- err
+	}()
+	c, _, err = dialHolder(f)
+	if err != nil {
 		t.Fatalf("второй хозяин: %v", err)
+	}
+	if err := <-firstDone; err == nil || !strings.Contains(first.String(), "app 1 start") {
+		t.Fatalf("прежний хозяин не вытеснен или без накопленного: %v %q", err, first.String())
 	}
 	bad := f
 	bad.Key = "nope"
@@ -333,7 +350,7 @@ func TestEtHolderBufferAndOwner(t *testing.T) {
 	if err != nil || x == nil || x.Code == nil || *x.Code != 0 {
 		t.Fatalf("выход %v %v", x, err)
 	}
-	if !strings.Contains(out.String(), "app 1 start") || !strings.Contains(out.String(), "bye") {
+	if !strings.Contains(out.String(), "bye") {
 		t.Fatalf("вывод %q", out.String())
 	}
 	waitFor(t, "файл держателя убран", func() bool { return !exists(holdPath(home, "x")) })

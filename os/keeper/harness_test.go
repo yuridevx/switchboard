@@ -286,6 +286,12 @@ func killHolders(home string) {
 			c.read(func([]byte) {})
 			c.Close()
 		}
+		// держатель, к которому не подключиться, — уборка теста убивает по pid
+		for _, p := range []int{f.Pid, f.Holder} {
+			if pr, err := os.FindProcess(p); err == nil && alive(p) {
+				pr.Kill()
+			}
+		}
 		pids = append(pids, f.Holder)
 	}
 	// держатель дописывает журнал перед выходом: ждать, пока уйдёт, иначе папку не удалить

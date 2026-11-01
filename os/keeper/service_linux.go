@@ -69,7 +69,9 @@ func install(args []string) error {
 	}
 	for _, c := range [][]string{
 		{"systemctl", "--user", "daemon-reload"},
-		{"systemctl", "--user", "enable", "--now", serviceName + ".service"},
+		{"systemctl", "--user", "enable", serviceName + ".service"},
+		// установка поверх работающей службы — перезапуск с новым юнитом и файлом; держатели живут (KillMode=process)
+		{"systemctl", "--user", "restart", serviceName + ".service"},
 		{"loginctl", "enable-linger", u.Username},
 	} {
 		if out, err := exec.Command(c[0], c[1:]...).CombinedOutput(); err != nil {
