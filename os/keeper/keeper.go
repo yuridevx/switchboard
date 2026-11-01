@@ -110,6 +110,10 @@ func Start(home string, echo io.Writer) (*Keeper, error) {
 	if b, err := os.ReadFile(planPath(home)); err == nil {
 		json.Unmarshal(b, &k.plan)
 	}
+	// прежние файлы keeper после подмены себя — на любом старте: консоль, служба, юнит
+	if self, err := k.self(); err == nil {
+		cleanupOldSelf(self)
+	}
 	k.adopt()
 	go k.applyLoop()
 	k.queue(k.plan)

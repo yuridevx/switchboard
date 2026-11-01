@@ -35,10 +35,6 @@ func (handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.Stat
 	if err != nil {
 		return true, 1
 	}
-	// прежние файлы keeper после подмены себя — как в консольном запуске
-	if self, err := os.Executable(); err == nil {
-		cleanupOldSelf(self)
-	}
 	k, err := Start(home, nil)
 	if err != nil {
 		return true, 1

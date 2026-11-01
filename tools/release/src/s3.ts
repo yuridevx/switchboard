@@ -1,6 +1,6 @@
 // S3 API R2 без внешних пакетов: подпись AWS Signature V4 (общая с ссылками «выпусков»), адрес path-style <endpoint>/<bucket>/<key>.
 import { sha256hex } from "./hash.ts";
-import { enc, signature } from "./presign.ts";
+import { amzDate, enc, signature } from "./presign.ts";
 
 /** Ключ S3 выкладчика. */
 export type S3Creds = {
@@ -49,9 +49,9 @@ export function s3(c: S3Creds, f: Fetch = fetch as unknown as Fetch, now: () => 
   const base = new URL(c.endpoint);
   const call = async (method: "GET" | "HEAD" | "PUT", key: string, body?: Buffer, signal?: AbortSignal): Promise<S3Result> => {
     const path = `${base.pathname.replace(/\/$/, "")}/${enc(c.bucket)}/${key.split("/").map(enc).join("/")}`;
-    const amzDate = now().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const amz = amzDate(now());
     const payloadHash = body ? sha256hex(body) : "UNSIGNED-PAYLOAD";
-    const headers: Record<string, string> = { host: base.host, "x-amz-date": amzDate, "x-amz-content-sha256": payloadHash };
+    const headers: Record<string, string> = { host: base.host, "x-amz-date": amz, "x-amz-content-sha256": payloadHash };
     headers.authorization = await sign({ method, path, headers, payloadHash, accessKeyId: c.accessKeyId, secretAccessKey: c.secretAccessKey, region: c.region ?? "auto" });
     const { host: _host, ...send } = headers;
     const r = await f(`${base.protocol}//${base.host}${path}`, { method, headers: send, ...(body ? { body } : {}), ...(signal ? { signal } : {}) });

@@ -68,9 +68,6 @@ func runConsole(args []string) int {
 		fmt.Fprintln(os.Stderr, "keeper:", err)
 		return 1
 	}
-	if self, err := os.Executable(); err == nil {
-		cleanupOldSelf(self)
-	}
 	k, err := Start(home, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "keeper:", err)
