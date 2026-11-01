@@ -689,16 +689,22 @@ func errText(err error) string {
 	return err.Error()
 }
 
-// exitedPart — процесс части вышел. По просьбе — stopped; сам — exited с причиной, разбирает цикл.
+// exitedPart — процесс части вышел. По просьбе keeper или по остановке ОС — stopped; сам — exited с причиной,
+// разбирает цикл.
 func (k *Keeper) exitedPart(p *part, ch chan struct{}, x exitInfoJSON) {
 	words := exitWords(x.Code, x.Signal, x.Stderr)
+	if x.OSStop {
+		words = "остановка ОС: " + words
+	}
 	k.mu.Lock()
 	if p.exited != ch {
 		k.mu.Unlock()
 		return
 	}
 	p.conn, p.pid, p.exited = nil, 0, nil
-	asked := p.stopReq
+	// ОС останавливается раньше, чем об этом узнаёт служба keeper (win11-2 1 нояб.: держатель на 5 с раньше):
+	// такой выход — не падение, перезапуска нет
+	asked := p.stopReq || x.OSStop
 	if asked {
 		p.state = "stopped"
 	} else {

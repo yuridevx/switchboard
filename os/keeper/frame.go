@@ -4,8 +4,9 @@ package main
 // Соединение TCP на 127.0.0.1; в обе стороны — кадры [тип 1 байт][длина 4 байта, big-endian][данные].
 //
 //	хозяин → держатель: 'a' ключ (первым кадром), 'i' байты ввода, 'c' закрыть ввод, 'k' убить дерево процесса
-//	держатель → хозяин: 'h' {"pid","buffered"} (ответ на ключ), 'o' байты вывода, 'x' {"code","signal","stderr"} (процесс вышел),
-//	                    'e' слово отказа (bad_key) — затем соединение закрыто; новый хозяин вытесняет прежнего
+//	держатель → хозяин: 'h' {"pid","buffered"} (ответ на ключ), 'o' байты вывода, 'x' {"code","signal","stderr","os_stop"?}
+//	                    (процесс вышел; os_stop — после сигнала остановки от ОС), 'e' слово отказа (bad_key) — затем
+//	                    соединение закрыто; новый хозяин вытесняет прежнего
 import (
 	"encoding/binary"
 	"encoding/json"
@@ -60,6 +61,7 @@ func readFrame(r io.Reader) (byte, []byte, error) {
 // exitInfoJSON — код выхода процесса в кадре 'x'.
 type exitInfoJSON struct {
 	Code   *int    `json:"code"`
+	OSStop bool    `json:"os_stop,omitempty"` // держатель закрыл ввод по сигналу остановки от ОС — выход не падение
 	Signal *string `json:"signal"`
 	Stderr string  `json:"stderr"`
 }
