@@ -121,13 +121,25 @@ func install(args []string) error {
 	return s.Start()
 }
 
-// installed — служба или задача keeper уже есть.
+// installed — служба или задача keeper уже есть. Служба — запросом без прав администратора: --logon ставит не админ.
 func installed() bool {
-	return exec.Command("sc.exe", "query", serviceName).Run() == nil || exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil
+	m, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
+	if err == nil {
+		defer windows.CloseServiceHandle(m)
+		name, _ := windows.UTF16PtrFromString(serviceName)
+		if s, err := windows.OpenService(m, name, windows.SERVICE_QUERY_STATUS); err == nil {
+			windows.CloseServiceHandle(s)
+			return true
+		}
+	}
+	return taskInstalled()
 }
 
+// taskInstalled — задача «при входе» keeper есть.
+func taskInstalled() bool { return exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil }
+
 func uninstall() error {
-	if exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil {
+	if taskInstalled() {
 		// задача снята — запущенный по ней keeper остановлен тоже, иначе он жил бы рядом со следующей установкой
 		if out, err := exec.Command("schtasks", "/End", "/TN", serviceName).CombinedOutput(); err != nil {
 			return fmt.Errorf("schtasks /End: %v: %s", err, out)

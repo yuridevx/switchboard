@@ -227,12 +227,7 @@ func writeHoldFile(home string, f holdFile) error {
 		return err
 	}
 	b, _ := json.MarshalIndent(f, "", "  ")
-	p := holdPath(home, f.ID)
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return writeFileAtomic(holdPath(home, f.ID), append(b, '\n'))
 }
 
 // readHoldFiles — файлы держателей; битый файл пропускается.
@@ -511,7 +506,6 @@ func spawnHolder(home string, s holdSpec) (holdFile, error) {
 type heldConn struct {
 	c   net.Conn
 	wmu sync.Mutex
-	Pid int
 }
 
 var errRefused = errors.New("держатель отказал")
@@ -537,7 +531,7 @@ func dialHolder(f holdFile) (*heldConn, holderHello, error) {
 	}
 	var hh holderHello
 	json.Unmarshal(b, &hh)
-	return &heldConn{c: c, Pid: hh.Pid}, hh, nil
+	return &heldConn{c: c}, hh, nil
 }
 
 func (hc *heldConn) send(t byte, data []byte) error {

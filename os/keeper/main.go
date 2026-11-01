@@ -80,7 +80,8 @@ func runConsole(args []string) int {
 		k.Stop()
 		return 0
 	case <-k.Done():
-		return k.exitCode
+		// keeper остановился сам — только после подмены себя: ОС поднимет новый файл
+		return 3
 	}
 }
 

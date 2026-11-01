@@ -60,7 +60,16 @@ func TestEtBadHashKeepsOld(t *testing.T) {
 		t.Fatal("папка битой версии осталась")
 	}
 	// выкладка не доехала — это видно и в журнале флота
-	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed win: capture 1.4.0 — download_failed") })
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.4.0 — download_failed") })
+	// app.json новой версии с чужим полем — версия негодна до остановки прежней (ревью архитектора 1 нояб.)
+	app := appFiles("")
+	app["app.json"] = `{"run":["x"],"user":"admin"}`
+	s.relay.push(planMsg(3, s.links.part("capture", "1.5.0", app, on)))
+	waitFor(t, "contract_mismatch", func() bool { return strings.Contains(partOf(k, "capture").Error, "contract_mismatch") })
+	if p := partOf(k, "capture"); p.State != "running" || p.Pid != pid || p.Version != "1.3.2" {
+		t.Fatalf("прежняя версия остановлена ради негодной: %+v", p)
+	}
+	waitFor(t, "part.failed 1.5.0", func() bool { return s.relay.ledgerHas("part.failed capture 1.5.0 — contract_mismatch") })
 }
 
 // Смена версии без наложения: новая стартует после выхода старой; part.updated; предыдущая папка остаётся.
@@ -71,14 +80,7 @@ func TestEtVersionSwitchNoOverlap(t *testing.T) {
 	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
 	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
 	waitFor(t, "1.4.0 running", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Version == "1.4.0" })
-	waitFor(t, "part.updated", func() bool {
-		for _, e := range s.relay.ledgerEvs() {
-			if strings.HasPrefix(e, "part.updated win: capture 1.3.2 → 1.4.0") {
-				return true
-			}
-		}
-		return false
-	})
+	waitFor(t, "part.updated", func() bool { return s.relay.ledgerHas("part.updated capture 1.3.2 → 1.4.0") })
 	// старая вышла сама после закрытого ввода («bye») раньше, чем стартовала новая
 	waitFor(t, "строка старта 1.4.0", func() bool { return journalHas(s.home, `"line":"app 1.4.0 start`) })
 	b := readJournal(s.home)
@@ -132,14 +134,7 @@ func TestEtOneRestartThenFailed(t *testing.T) {
 	waitFor(t, "перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 })
 	killPid(t, partOf(k, "capture").Pid)
 	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
-	waitFor(t, "part.failed", func() bool {
-		for _, e := range s.relay.ledgerEvs() {
-			if strings.HasPrefix(e, "part.failed win: capture 1.3.2") {
-				return true
-			}
-		}
-		return false
-	})
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.3.2") })
 	// та же запись части с новой rev — keeper failed не трогает: решает тот, кто правит план
 	same := s.links.part("capture", "1.3.2", appFiles(""), on)
 	s.relay.push(planMsg(2, same))
@@ -294,16 +289,9 @@ func TestEtSelfUpdate(t *testing.T) {
 	app := s.links.part("capture", "1.3.2", appFiles(""), on)
 	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
 	s.relay.setPlan(plan1(1, app, kp))
-	exited := make(chan int, 1)
-	s.startWith(func(k *Keeper) {
-		k.self = func() (string, error) { return target, nil }
-		k.exit = func(code int) { exited <- code }
-	})
+	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
 	select {
-	case code := <-exited:
-		if code != 3 {
-			t.Fatalf("код выхода %d", code)
-		}
+	case <-k.Done():
 	case <-time.After(30 * time.Second):
 		t.Fatal("keeper не подменил себя")
 	}
@@ -327,13 +315,15 @@ func TestEtSelfUpdateCheckFailed(t *testing.T) {
 	t.Setenv("KEEPER_TEST_VERSION", "1.0.0")
 	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
 	s.relay.setPlan(plan1(1, kp))
-	exited := make(chan int, 1)
-	k := s.startWith(func(k *Keeper) { k.exit = func(c int) { exited <- c } })
+	k := s.start()
 	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
 	select {
-	case <-exited:
-		t.Fatal("keeper вышел после check_failed")
+	case <-k.Done():
+		t.Fatal("keeper остановился после check_failed")
 	default:
+	}
+	if !journalHas(s.home, `"ev":"part_failed","why":"keeper 9.9.9: check_failed`) {
+		t.Fatal("сбой подмены не в журнале машины")
 	}
 }
 
@@ -570,7 +560,7 @@ func TestEtInstallFailedToLedger(t *testing.T) {
 	s.relay.setPlan(plan1(1, bad))
 	k := s.start()
 	waitFor(t, "failed", func() bool { p := partOf(k, "capture"); return p.State == "failed" && strings.Contains(p.Error, "download_failed") })
-	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed win: capture 1.0.0 — download_failed") })
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.0.0 — download_failed") })
 }
 
 // Часть убрана из плана: остановлена штатно и снята из keeper.state, папки версий убраны, data/ осталась.
@@ -667,34 +657,21 @@ func TestEtHolderKillBehindInput(t *testing.T) {
 	waitFor(t, "процесс снят", func() bool { return !alive(f.Pid) })
 }
 
-// После подмены себя версии keeper на диске — новая и та, с которой ушли (машины 1 нояб.: 6 версий, 77 МБ).
-func TestEtSelfUpdateCleansVersions(t *testing.T) {
+// На старте keeper убирает свои папки версий, кроме той, что работает (машины 1 нояб.: 6 версий, 77 МБ);
+// откат keeper — скачивание по ссылке из плана.
+func TestEtKeeperVersionsCleanedOnStart(t *testing.T) {
 	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
-	os.WriteFile(target, []byte("old"), 0o755)
-	for _, v := range []string{"0.0.1", keeperVersion} {
+	for _, v := range []string{"0.5.1", "0.5.6", keeperVersion} {
 		os.MkdirAll(versionDir(s.home, "keeper", v), 0o700)
 	}
-	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
-	exited := make(chan int, 1)
-	s.startWith(func(k *Keeper) {
-		k.self = func() (string, error) { return target, nil }
-		k.exit = func(code int) { exited <- code }
-	})
-	select {
-	case <-exited:
-	case <-time.After(30 * time.Second):
-		t.Fatal("keeper не подменил себя")
-	}
+	s.relay.setPlan(plan1(1))
+	s.start()
 	es, _ := os.ReadDir(partDir(s.home, "keeper"))
 	var got []string
 	for _, e := range es {
 		got = append(got, e.Name())
 	}
-	if strings.Join(got, " ") != keeperVersion+" 9.9.9" {
+	if strings.Join(got, " ") != keeperVersion {
 		t.Fatalf("версии keeper: %v", got)
 	}
 }
@@ -716,18 +693,35 @@ func TestEtSelfUpdateOldNameBusy(t *testing.T) {
 	}
 	defer h.Close()
 	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
-	exited := make(chan int, 1)
-	s.startWith(func(k *Keeper) {
-		k.self = func() (string, error) { return target, nil }
-		k.exit = func(code int) { exited <- code }
-	})
+	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
 	select {
-	case <-exited:
+	case <-k.Done():
 	case <-time.After(30 * time.Second):
 		t.Fatal("keeper не подменил себя")
 	}
 	if b, _ := os.ReadFile(target); len(b) != len(bin) {
 		t.Fatal("файл keeper не подменён")
+	}
+}
+
+// Штатная остановка: keeper дописал своё — keeper_exit последняя его строка в журнале, после Stop он не пишет
+// (находка пользователя 1 нояб.: CI на ubuntu — «journal: directory not empty» при уборке после Stop).
+func TestEtStopLastLine(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles("chatty"), on)))
+	k := s.start()
+	waitFor(t, "вывод идёт", func() bool { return journalHas(s.home, `"line":"tick 20"`) })
+	k.Stop()
+	time.Sleep(300 * time.Millisecond)
+	var last map[string]any
+	for _, l := range strings.Split(readJournal(s.home), "\n") {
+		var r map[string]any
+		if json.Unmarshal([]byte(l), &r) == nil && r["who"] == "keeper" {
+			last = r
+		}
+	}
+	if last["ev"] != "keeper_exit" {
+		t.Fatalf("последняя строка keeper после остановки: %v", last)
 	}
 }
 

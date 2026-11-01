@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 }
 
 // fakeApp — приложение: строка о старте, ввод закрыт — «bye» и выход 0; stubborn — конец ввода не слушает;
-// deaf — ввод не читает вовсе (завис); env — строка со своим окружением от keeper.
+// deaf — ввод не читает вовсе (завис); env — строка со своим окружением от keeper; chatty — строки без пауз.
 func fakeApp(args []string) {
 	mode := ""
 	if len(args) > 0 {
@@ -62,6 +62,13 @@ func fakeApp(args []string) {
 	if mode == "deaf" {
 		time.Sleep(2 * time.Minute)
 		return
+	}
+	if mode == "chatty" {
+		go func() {
+			for i := 0; ; i++ {
+				fmt.Printf("tick %d\n", i)
+			}
+		}()
 	}
 	if mode == "env" {
 		var kv []string
@@ -341,7 +348,6 @@ func (s *stand) startWith(set func(k *Keeper)) *Keeper {
 	if err != nil {
 		s.t.Fatal(err)
 	}
-	k.exit = func(int) {}
 	if set != nil {
 		set(k)
 	}
