@@ -1,5 +1,6 @@
 // Живая проверка модуля shell на тестовом флоте. Запросы программ — прямо к Host машин A и B; сессия haiku на A
-// зовёт инструменты MCP shell: картинка в разговоре, Esc посреди ждущего запуска, фоновый с сообщением о конце, kill.
+// зовёт инструменты MCP shell: картинка в разговоре, Esc посреди ждущего запуска, фоновый с сообщением о конце,
+// Esc посреди wait фонового, kill.
 // Каждая строка — ok или FAIL; в конце — число ok и FAIL.
 // env: FLOW_CLIENT_KEY (client.*), FLOW_A (машина сессии и этого скрипта, по умолчанию win), FLOW_B (вторая, wsl),
 //      FLOW_DIR (папка сессии на A), FLOW_MODEL (claude-haiku-4-5), FLOW_STOP=1 — в конце остановить Host B
@@ -103,7 +104,7 @@ try {
     check(`info ${m}: шеллы с версиями`, r.ok && !!sh.bash?.version, r.ok ? sh : r);
   }
 
-  const files = `echo ${GREEN} | base64 -d > "$SB_OUT/chart.png"; echo '{"ok":true}' > "$SB_OUT/data.json"; printf '%%PDF-1.4\\n\\x00\\x01' > "$SB_OUT/report.pdf"; echo built`;
+  const files = `echo ${GREEN} | base64 -d > "$SB_OUT/chart.png"; echo '{"ok":true}' > "$SB_OUT/data.json"; { echo '%PDF-1.4'; head -c 16 /dev/zero; } > "$SB_OUT/report.pdf"; echo built`;
   const f = await run(B, { shell: "bash", script: files, background: false });
   check(`bash на ${B}: файлы $SB_OUT с типами`, f.snap?.state === "exit" && JSON.stringify(f.snap.files?.map((x) => x.media_type)) === '["image/png","application/json","application/pdf"]', f.snap ? { state: f.snap.state, files: f.snap.files?.map((x) => x.name) } : f);
 
@@ -117,7 +118,9 @@ try {
   ].join("\n");
   const ps = await run(A, { shell: "powershell", script: psScript, background: false, timeout: 60 });
   check(`powershell на ${A}: кириллица в stdout`, ps.snap?.stdout.startsWith("привет") === true, ps.snap ? ps.snap.stdout.slice(0, 40) : ps);
-  check(`powershell на ${A}: снимок экрана в $SB_OUT`, !!ps.snap?.files?.some((x) => x.name === "screen.png" && x.media_type === "image/png"), ps.snap ? { files: ps.snap.files?.map((x) => x.name), stderr: ps.snap.stderr.slice(0, 300) } : ps);
+  // снимок экрана — не свойство модуля: у Host, работающего службой Windows, рабочего стола нет (сессия 0); строка-наблюдение
+  const shot = !!ps.snap?.files?.some((x) => x.name === "screen.png") && !/CopyFromScreen/.test(ps.snap?.stderr ?? "");
+  console.log(`note снимок экрана на ${A}: ${shot ? "снят" : "недоступен — " + (ps.snap?.stderr.split("\n")[0] ?? ps.error)}`);
 
   const tId = rid();
   const t0 = Date.now();
@@ -186,6 +189,22 @@ try {
   check("фоновый из сессии: сообщение флота о конце пришло", ended, fleetMsgs(h).slice(-1));
   const same = await until(async () => /итоги одинаковы|итоги разные/i.test(said((h = await history()))), 240000);
   check("после сообщения: два wait, итоги одинаковы", same && /итоги одинаковы/i.test(said(h)) && toolUses(h, "mcp__shell__wait").length >= 3, said(h).slice(-200));
+  await idle(120000);
+
+  // Esc посреди wait фонового: обрывается только ожидание — скрипт дорабатывает, о конце приходит сообщение exit 0
+  h = await history();
+  const msgs0 = fleetMsgs(h).length;
+  const waits0 = toolUses(h, "mcp__shell__wait").length;
+  await prompt(
+    `Вызови mcp__shell__run: machine "${B}", shell "bash", background true, timeout 120, script "sleep 25; echo fin". ` +
+      "Сразу после ответа вызови mcp__shell__wait с этим run и timeout 600 и дождись ответа.",
+  );
+  const inWait = await until(async () => toolUses((h = await history()), "mcp__shell__wait").length > waits0, 120000);
+  await sleep(3000);
+  const intrW = await rq("session.call", { callsign: cs, method: "interrupt" });
+  check("Esc посреди wait фонового: ход прерван", inWait && intrW.ok, intrW);
+  const finW = await until(async () => fleetMsgs((h = await history())).slice(msgs0).some((x) => x.includes("кончился: exit 0")), 120000);
+  check("Esc в wait: скрипт доработал — сообщение «exit 0», не killed", finW && !fleetMsgs(h).slice(msgs0).some((x) => x.includes("killed")), fleetMsgs(h).slice(msgs0));
   await idle(120000);
 
   await prompt(`Вызови mcp__shell__run: machine "${B}", shell "bash", background true, timeout 600, script "sleep 300". Сразу после ответа погаси этот запуск инструментом mcp__shell__kill.`);

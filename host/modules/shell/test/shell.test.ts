@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
-import { machineOf } from "@switchboard/protocol";
+import { machineOf, MAX_FRAME } from "@switchboard/protocol";
 import fleetManifest from "../../fleet/module.json" with { type: "json" };
 import { make as makeFleet } from "../../fleet/src/fleet.ts";
 import manifest from "../module.json" with { type: "json" };
@@ -76,9 +76,9 @@ describe("эталоны shell", { timeout: 30_000 }, () => {
     expect(Date.now() - t0).toBeLessThan(2500);
     expect(r).toMatchObject({ ok: true, result: { state: "exit", code: 3, stdout: "hi\n", stderr: "err\n", files: [] } });
     const j = st.journal().filter((x) => x.run === run);
-    expect(j.find((x) => x.ev === "run_start")).toMatchObject({ shell: "bash", background: false, timeout: 120, line: "echo hi; echo err >&2; sleep 3 & exit 3" });
+    expect(j.find((x) => x.ev === "run_start")).toMatchObject({ from: "panel-desk~owner@example.com", shell: "bash", background: false, timeout: 120, line: "echo hi; echo err >&2; sleep 3 & exit 3" });
     expect(typeof j.find((x) => x.ev === "run_start")!.pid).toBe("number");
-    expect(j.find((x) => x.ev === "run_end")).toMatchObject({ state: "exit", code: 3, bytes: { stdout: 3, stderr: 4 } });
+    expect(j.find((x) => x.ev === "run_end")).toMatchObject({ state: "exit", code: 3, ms: expect.any(Number), bytes: { stdout: 3, stderr: 4 } });
   });
 
   it("272 · stdin «абв» — в stdout; read без stdin кончается сразу, не висит", async () => {
@@ -221,9 +221,15 @@ describe("эталоны shell", { timeout: 30_000 }, () => {
   it("284 · wait 0 посреди запуска, который печатает строку в секунду: сразу running, stdout с уже напечатанными строками, файлов нет", async () => {
     const { req } = await machine("laptop");
     const run = rid(284);
-    await req("shell.run", { run, shell: "bash", script: "for i in 1 2 3 4 5; do echo line$i; sleep 1; done", background: true, timeout: 30 });
+    let t0 = Date.now();
+    // фоновый: снимок running сразу после старта, без кода и файлов
+    const started = await req("shell.run", { run, shell: "bash", script: "for i in 1 2 3 4 5; do echo line$i; sleep 1; done", background: true, timeout: 30 });
+    expect(Date.now() - t0).toBeLessThan(1500);
+    expect(started.result).toMatchObject({ state: "running" });
+    expect(started.result).not.toHaveProperty("code");
+    expect(started.result).not.toHaveProperty("files");
     await new Promise((res) => setTimeout(res, 2500));
-    const t0 = Date.now();
+    t0 = Date.now();
     const w = await req("shell.wait", { run, timeout: 0 });
     expect(Date.now() - t0).toBeLessThan(500);
     expect(w.result).toMatchObject({ state: "running" });
@@ -278,6 +284,85 @@ describe("эталоны shell", { timeout: 30_000 }, () => {
     vi.advanceTimersByTime(TTL_MS);
     expect(await req("shell.wait", { run, timeout: 0 })).toMatchObject({ ok: false, error: "no_run" });
     expect(existsSync(runDir(run))).toBe(false);
+  });
+
+  // источник: принятый дизайн — вход wait «"timeout": 60 } // обязательно: секунды ожидания; 0 — сразу»
+  it("288 · wait без timeout — bad_frame; запуск идёт как шёл", async () => {
+    const { req } = await machine("laptop");
+    const run = rid(288);
+    await req("shell.run", { run, shell: "bash", script: "sleep 30", background: true, timeout: 60 });
+    expect(await req("shell.wait", { run })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect((await req("shell.wait", { run, timeout: 0 })).result!.state).toBe("running");
+    await req("shell.kill", { run });
+  });
+
+  // источник: принятый дизайн — shell.kill «← { "ok": true } // убит или уже кончился»
+  it("289 · kill кончившегося запуска — ok, итог прежний", async () => {
+    const { req } = await machine("laptop");
+    const run = rid(289);
+    await req("shell.run", { run, shell: "bash", script: "echo kept", background: false });
+    expect(await req("shell.kill", { run })).toMatchObject({ ok: true });
+    expect((await req("shell.wait", { run, timeout: 0 })).result).toMatchObject({ state: "exit", code: 0, stdout: "kept\n" });
+  });
+
+  // источник: принятый дизайн — «Владелец — программа: сообщения нет, message доставляет только сессиям; конец видно по wait»
+  it("290 · фоновый программы: в конце сообщения нет — ни запроса message, ни строки отказа; итог отдаёт wait", async () => {
+    const { st, req } = await machine("laptop");
+    const run = rid(290);
+    await req("shell.run", { run, shell: "bash", script: "echo bg", background: true, timeout: 30 });
+    expect((await req("shell.wait", { run, timeout: 10 })).result).toMatchObject({ state: "exit", code: 0, stdout: "bg\n" });
+    await new Promise((res) => setTimeout(res, 300));
+    expect(st.journal().filter((x) => x.ev === "run_message")).toEqual([]);
+    expect(st.relay.frames("message")).toEqual([]);
+  });
+
+  // источник: принятый дизайн — «Не доставилось — строка в журнале»; «итог ждёт wait сутки»
+  it("291 · сообщение о конце фонового не доставлено — сессии владельца нет: строка отказа run_message в журнале; итог отдаёт wait", async () => {
+    const { st, req } = await machine("laptop");
+    const run = rid(291);
+    await req("shell.run", { run, from: "ghost@laptop", shell: "bash", script: "echo bg", background: true, timeout: 30 });
+    expect(await until(() => st.journal().find((x) => x.ev === "run_message" && x.run === run))).toMatchObject({ kind: "refuse", word: "offline", to: "ghost@laptop" });
+    expect((await req("shell.wait", { run, timeout: 0 })).result).toMatchObject({ state: "exit", code: 0, stdout: "bg\n" });
+  });
+
+  // источник: факт Cloudflare — сообщение WebSocket в Durable Object до 32 МиБ; принятый дизайн, сценарий «Вывод не влез»
+  it("292 · вывод больше кадра рации: модели — too_large с размером ответа; в журнале цели — конец с кодом и байтами; связь цели жива", async () => {
+    const { a, b } = await pair();
+    const r = await a.tool("site@win", "run", { machine: "wsl", shell: "bash", script: "yes | head -c 34000000", background: false });
+    expect(r.isError).toBe(true);
+    const bytes = Number(/^too_large: ответ (\d+) байт больше кадра рации \(32 МиБ\)/.exec(r.content[0].text!)?.[1]);
+    expect(bytes).toBeGreaterThan(MAX_FRAME);
+    const run = String(a.st.relay.frames("shell.run").at(-1)!.run);
+    expect(b.st.journal().find((x) => x.ev === "run_end" && x.run === run)).toMatchObject({ state: "exit", code: 0, bytes: { stdout: 34_000_000 } });
+    expect((await a.tool("site@win", "info", { machine: "wsl" })).isError).toBeUndefined();
+  });
+
+  // источник: принятый дизайн — tools: «offline — машины нет на связи»; «no_run — запуска нет»
+  it("294 · отказ словом — текстом для модели: info машины не на связи — offline; wait неизвестного run — no_run", async () => {
+    const { a } = await pair();
+    const info = a.tool("site@win", "info", { machine: "mac" });
+    // relay: машины mac нет — отказ offline
+    const f = await until(() => a.st.relay.frames("shell.info").find((x) => x.machine === "mac"));
+    a.st.relay.deliver({ type: "reply", id: f.id!, ok: false, error: "offline" });
+    expect(await info).toEqual({ content: [{ type: "text", text: "offline: машины mac нет на связи" }], isError: true });
+    expect(await a.tool("site@win", "wait", { machine: "wsl", run: "nope", timeout: 0 })).toMatchObject({ isError: true, content: [{ text: expect.stringMatching(/^no_run: /) }] });
+  });
+
+  // источник: принятый дизайн, сценарий «Host wsl упал» — «Клиент рации отпускает ждущих, когда машина-адресат ушла. Своего таймера нет. … после подъёма Host — no_run»
+  it("295 · Host цели упал посреди ждущего run: модели сразу disconnected текстом; поднятый Host цели — no_run", async () => {
+    const { a, b } = await pair();
+    const roster = (machines: string[]) => ({ type: "roster", machines: machines.map((machine) => ({ machine, since: 1 })), sessions: [], clients: [], workers: [] });
+    a.st.relay.deliver(roster(["win", "wsl"]));
+    const call = a.tool("site@win", "run", { machine: "wsl", shell: "bash", script: "sleep 3", background: false });
+    const run = String((await until(() => a.st.relay.frames("shell.run").at(-1))).run);
+    await until(() => b.st.journal().some((x) => x.ev === "run_start" && x.run === run));
+    b.st.crash();
+    const t0 = Date.now();
+    a.st.relay.deliver(roster(["win"]));
+    expect(await call).toEqual({ content: [{ type: "text", text: "disconnected: связь с машиной wsl оборвалась, пока ход ждал; если её Host жив — итог отдаст wait по run" }], isError: true });
+    expect(Date.now() - t0).toBeLessThan(1000);
+    const up = await machine("wsl");
+    expect(await up.req("shell.wait", { run, timeout: 0 })).toMatchObject({ ok: false, error: "no_run" });
   });
 });
 

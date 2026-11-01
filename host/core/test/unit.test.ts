@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { MAX_FRAME } from "@switchboard/protocol";
 import { refuse } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
 import { InputQueue } from "../src/queue.ts";
@@ -330,6 +331,19 @@ describe("договор модуля на стенде", () => {
     expect(() => host.emit({ type: "message", to: "x@pc" })).toThrow("message нет в provides и uses");
     const st2 = await stand({ modules: [q], relay: false });
     expect(st2.host("host-questions").emit({ type: "question" })).toEqual({ ok: false, error: "disconnected" });
+  });
+
+  // чьё: код — контракт Host.emit «больше предела кадра — too_large»; факт Cloudflare: сообщение WebSocket в Durable Object до 32 МиБ
+  it("293 · host.emit кадра больше 32 МиБ — too_large с байтами; кадр не ушёл, связь жива", async () => {
+    let host!: Host;
+    const q = module("host-questions", { start: (h) => void (host = h) }, { provides: { question: 1 } });
+    const st = await stand({ modules: [q] });
+    const r = host.emit({ type: "question", to: ["phone~owner@example.com"], question: "я".repeat(17 * 1024 * 1024) });
+    expect(r).toMatchObject({ ok: false, error: "too_large" });
+    expect(r.bytes).toBeGreaterThan(MAX_FRAME);
+    expect(st.relay.frames("question")).toEqual([]);
+    expect(host.emit({ type: "question", to: ["phone~owner@example.com"], question: "toolu_1" })).toEqual({ ok: true });
+    await until(() => st.relay.frames("question").length === 1);
   });
 
   it("s.sdk: метод query и функция SDK сессии с её id и папкой; host.probe и host.cli", async () => {
