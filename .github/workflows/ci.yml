@@ -50,7 +50,7 @@ jobs:
       # keeper заморожен: уязвимость Go или зависимости на его пути роняет сборку — повод пересобрать
       - name: уязвимости
         if: runner.os == 'Linux'
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.1.4 ./...
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
       - uses: actions/setup-node@v4
         if: runner.os == 'Linux'
         with:
