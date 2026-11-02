@@ -39,12 +39,19 @@ describe("карточка сессии", () => {
     expect(t.relay.sent("session.watch")[0]).toMatchObject({ callsign: "site@laptop" });
   });
 
-  it("«Сведения»: поля roster; «Остановить» — session.stop, отказ — словом", async () => {
-    const t = await card("site@laptop");
+  it("«Ещё»: поля roster; модель и усилие — session.update; «Остановить» — session.stop, отказ — словом", async () => {
+    const r = homeRoster();
+    r.machines[0].contract = { ...r.machines[0].contract, "session.update": 1 };
+    const t = await card("site@laptop", r);
     t.relay.handlers["session.stop"] = () => ({ ok: false, error: "stopping" });
-    await t.click(t.button("Сведения"));
+    await t.click(t.button("Ещё"));
     expect(t.relay.sent("session.unwatch")).toHaveLength(1);
-    expect(t.$(".card-info")!.textContent).toBe("состояниеработаетмодельopusусилиеhighслотmainаккаунтy0902");
+    expect(t.$(".card-info")!.textContent).toBe("состояниеработаетпапка~/Projects/switchboardслотmainаккаунтy0902");
+    // прототип «Пульт и телефон»: модель и усилие меняются из сессии и на телефоне
+    t.relay.handlers["session.update"] = () => ({ ok: true });
+    expect(t.$('[data-pick="model"] [aria-pressed="true"]')!.textContent).toBe("opus");
+    await t.click(t.$('[data-pick="effort"] button'));
+    expect(t.relay.sent("session.update")[0]).toMatchObject({ callsign: "site@laptop", effort: "low" });
     await t.click(t.button("Остановить"));
     expect(t.relay.sent("session.stop")[0]).toMatchObject({ v: 1, callsign: "site@laptop" });
     expect(t.text()).toContain("session.stop: stopping");
@@ -52,12 +59,12 @@ describe("карточка сессии", () => {
 
   it("остановленная — «Поднять»; нет session.start в contract машины — кнопки нет", async () => {
     const t = await card("wiki@pc");
-    await t.click(t.button("Сведения"));
+    await t.click(t.button("Ещё"));
     expect(t.button("Поднять")).not.toBeNull();
     const r = homeRoster();
     delete r.machines[1].contract!["session.start"];
     const t2 = await card("wiki@pc", r);
-    await t2.click(t2.button("Сведения"));
+    await t2.click(t2.button("Ещё"));
     expect(t2.button("Поднять")).toBeNull();
   });
 });

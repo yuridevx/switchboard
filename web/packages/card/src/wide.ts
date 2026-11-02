@@ -78,8 +78,8 @@ const LABEL: Record<string, [string, string]> = {
   stopped: ["остановлена", "stop"],
 };
 /** Модели, когда SDK машины не спросить (сессия не живая). */
-const MODELS = ["opus", "sonnet", "haiku", "fable"];
-const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
+export const MODELS = ["opus", "sonnet", "haiku", "fable"];
+export const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
 const effName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ?? String(e ?? "");
 const LIVE = new Set(["idle", "busy", "waiting"]);
 /** Окна лимитов аккаунта → подпись. */

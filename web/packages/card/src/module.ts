@@ -4,9 +4,10 @@
 // «Сведения сбоку» — выбор устройства, раздел хранилища info.
 import { h, sessionLine, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { mountWide, WIDE_CSS } from "./wide.ts";
+import { EFFORTS, MODELS, mountWide, WIDE_CSS } from "./wide.ts";
 
 const CSS = `
+.card-pick{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px}
 .card-tabs{flex:none;display:flex;gap:4px;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--line2)}
 .card-tabs button{border:0;background:transparent;border-radius:9px;padding:7px 12px;font:600 14px var(--body);color:var(--muted)}
 .card-tabs button[aria-selected="true"]{background:var(--accent-weak);color:var(--accent)}
@@ -47,6 +48,17 @@ export function createCard(): AppModule {
       return !!m && app.provides(m)?.[name] !== undefined;
     };
 
+    /** модель и усилие — session.update; отказ — словом ниже */
+    async function update(body: Record<string, string>) {
+      busy = "session.update";
+      error = "";
+      draw();
+      const r = await app.request("session.update", { callsign, ...body });
+      busy = "";
+      if (!r.ok) error = `session.update: ${r.error}`;
+      draw();
+    }
+
     async function act(name: "session.stop" | "session.start") {
       busy = name;
       error = "";
@@ -62,8 +74,7 @@ export function createCard(): AppModule {
       const rows: Array<[string, unknown]> = s
         ? [
             ["состояние", stateLabel(s.state).text],
-            ["модель", s.model],
-            ["усилие", s.effort],
+            ["папка", s.dir],
             ["слот", (s.slot as { name?: string } | undefined)?.name],
             ["аккаунт", s.account],
             ["профиль", (s.profile as { id?: string } | null | undefined)?.id],
@@ -76,6 +87,19 @@ export function createCard(): AppModule {
         "div",
         { class: "sb-pad" },
         h("dl", { class: "card-info" }, rows.filter(([, v]) => v !== undefined && v !== null && v !== "").flatMap(([k, v]) => [h("dt", null, k), h("dd", null, String(v))])),
+        s && can("session.update")
+          ? h(
+              "div",
+              { class: "card-pick" },
+              h("div", { class: "sb-opts", "data-pick": "model" }, MODELS.map((m) => h("button", { class: "sb-b", "aria-pressed": s.model === m ? "true" : "false", disabled: !!busy, onclick: () => void update({ model: m }) }, m))),
+              h("div", { class: "sb-opts", "data-pick": "effort" }, EFFORTS.map(([k, l]) => h("button", { class: "sb-b", "aria-pressed": s.effort === k ? "true" : "false", disabled: !!busy, onclick: () => void update({ effort: k }) }, l))),
+            )
+          : null,
+        // пункты места card.menu: «Закрепить в «Моём»» (web-board), «Новая задача рядом» (pult-open)
+        app
+          .placed("card.menu")
+          .filter((x) => x.show({ callsign }))
+          .map((x) => h("button", { class: "card-act", "data-screen": x.screen, onclick: () => app.open(x.screen, { from: callsign }) }, x.label)),
         remote ? h("a", { class: "card-act", href: remote, target: "_blank", rel: "noopener" }, "Открыть в claude.ai") : null,
         s && !stopped && can("session.stop") ? h("button", { class: "card-act", disabled: !!busy, onclick: () => act("session.stop") }, busy === "session.stop" ? "Останавливаю…" : "Остановить") : null,
         s && stopped && can("session.start") ? h("button", { class: "card-act", disabled: !!busy, onclick: () => act("session.start") }, busy === "session.start" ? "Поднимаю…" : "Поднять") : null,
@@ -90,7 +114,7 @@ export function createCard(): AppModule {
         .placed("card.tab")
         .filter((t) => t.show({ callsign }))
         .map((t): [string, string] => [t.screen, t.label]),
-      ["info", "Сведения"],
+      ["info", "Ещё"],
     ];
 
     function drawTabs() {
