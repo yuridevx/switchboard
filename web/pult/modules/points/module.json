@@ -1,7 +1,7 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "into": ["pult"],
   "provides": { "points": 1, "session.points": 1, "fire": 1 },
   "uses": {
