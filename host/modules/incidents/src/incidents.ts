@@ -75,7 +75,7 @@ export function make(): Module {
       if (!callsign) {
         opening.set(a.type, { type: a.type, ...(a.key !== undefined ? { key: a.key } : {}) });
         try {
-          const r = await host.request("session.open", { v: 1, name: a.type, number: true, dir: t.dir, ...(t.profile ? { profile: t.profile } : {}) });
+          const r = await host.request("session.open", { name: a.type, number: true, dir: t.dir, ...(t.profile ? { profile: t.profile } : {}) });
           if (!r.ok) throw refuse(r.error, `${a.type}: session.open — ${r.error}`);
           callsign = (r.result as { callsign: string }).callsign;
         } finally {
@@ -84,7 +84,7 @@ export function make(): Module {
         host.log({ ev: "incident_open", callsign, type: a.type, ...(a.key !== undefined ? { key: a.key } : {}), why: `инцидент ${a.type}${a.key !== undefined ? ` · ${a.key}` : ""} — новая сессия` });
       }
       const to = cfg().to;
-      const p = await host.request("session.prompt", { v: 1, callsign, uuid: a.id, text: wrap(a.type, a.key, a.text, a.id), attachments: a.attachments, ...(to ? { from: to } : {}) });
+      const p = await host.request("session.prompt", { callsign, uuid: a.id, text: wrap(a.type, a.key, a.text, a.id), attachments: a.attachments, ...(to ? { from: to } : {}) });
       if (!p.ok) throw refuse(p.error, `${callsign}: session.prompt — ${p.error}`);
       appeals().update((cur = []) => cur.map((x) => (x.id === id ? { ...x, callsign } : x)));
     } catch (e) {

@@ -5,7 +5,6 @@
 // приложения GitHub от Worker github, токен — в окружении git, не в аргументах.
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join, relative, resolve, sep } from "node:path";
 import { refuse } from "@switchboard/host";
 import type { Host, Module, QueryPart, Session } from "@switchboard/host";
@@ -35,8 +34,6 @@ export const SYNC_MS = 60_000;
 /** Окружение каждого git: без вопросов человеку — под Host окна ввода нет. */
 export const QUIET = { GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
 
-export const switchboardHome = () => process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
-export const cloneDir = (repo: string) => join(switchboardHome(), "profiles", repo.replace("/", "__"));
 
 /** Настоящий git ОС. */
 export const realGit: Git = (args, o) =>
@@ -70,6 +67,8 @@ export function splitId(id: string): { repo: string; folder: string } | null {
 export function make(deps: { git?: Git } = {}): Module {
   const git = deps.git ?? realGit;
   let host: Host;
+  /** клон репозитория профилей — в папке данных Host */
+  const cloneDir = (repo: string) => join(host.dataDir, "profiles", repo.replace("/", "__"));
   let timer: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
   /** синхронизации репозитория идут по одной */
@@ -121,12 +120,12 @@ export function make(deps: { git?: Git } = {}): Module {
   }
 
   async function run(repo: string, args: string[], extra: Record<string, string> = {}): Promise<{ code: number; out: string }> {
-    return git(["-c", "credential.interactive=never", ...args], { cwd: existsSync(cloneDir(repo)) ? cloneDir(repo) : switchboardHome(), env: { ...QUIET, ...extra } });
+    return git(["-c", "credential.interactive=never", ...args], { cwd: existsSync(cloneDir(repo)) ? cloneDir(repo) : host.dataDir, env: { ...QUIET, ...extra } });
   }
 
   /** Токен приложения GitHub на репозиторий — заголовок http через окружение git. */
   async function token(repo: string): Promise<Record<string, string> | { error: string }> {
-    const r = await host.request("github.token", { v: 1, repo });
+    const r = await host.request("github.token", { repo });
     if (!r.ok) return { error: r.error };
     const t = (r.result as { token: string }).token;
     return {
@@ -147,8 +146,8 @@ export function make(deps: { git?: Git } = {}): Module {
     if (!existsSync(join(dir, ".git"))) {
       const env = await token(repo);
       if ("error" in env) return fail(repo, { state: "error", op: "github.token", error: env.error });
-      mkdirSync(join(switchboardHome(), "profiles"), { recursive: true });
-      const r = await git(["-c", "credential.interactive=never", "clone", `https://github.com/${repo}.git`, dir], { cwd: join(switchboardHome(), "profiles"), env: { ...QUIET, ...env } });
+      mkdirSync(join(host.dataDir, "profiles"), { recursive: true });
+      const r = await git(["-c", "credential.interactive=never", "clone", `https://github.com/${repo}.git`, dir], { cwd: join(host.dataDir, "profiles"), env: { ...QUIET, ...env } });
       if (r.code !== 0) return fail(repo, { state: "error", op: "git clone", error: r.out.trim().split("\n").pop() });
       setState(repo, { state: "ok", last: "clone" });
       host.log({ ev: "sync", repo, why: `${repo}: клон` });

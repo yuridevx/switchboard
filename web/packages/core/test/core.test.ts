@@ -249,14 +249,10 @@ describe("маршрут и запросы", () => {
     expect(log).not.toContain("question y@pc");
   });
 
-  it("возможности по roster: имени нет в contract машины — unknown_request без кадра; Worker-модулю — to: push", async () => {
-    const r = homeRoster();
-    r.machines[1].contract = { message: 1 };
-    const relay = new FakeRelay(r);
+  it("Worker-модулю — to: .push и v из uses; имя и версию проверяет получатель", async () => {
+    const relay = new FakeRelay(homeRoster());
     relay.handlers["push.key"] = () => ({ ok: true, result: { key: "BEl6" } });
     const { s } = await boot({ relay });
-    expect(await s.app.request("answer", { callsign: "poe-bot@pc" })).toEqual({ ok: false, error: "unknown_request" });
-    expect(relay.sent("answer")).toHaveLength(0);
     expect(await s.app.request("push.key")).toEqual({ ok: true, result: { key: "BEl6" } });
     expect(relay.sent("push.key")[0]).toMatchObject({ type: "push.key", v: 1, to: ".push" });
   });

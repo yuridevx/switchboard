@@ -1,8 +1,7 @@
 // Модуль machine: папки машины. Что стоит и работает на машине, отвечает keeper.state. Событий Claude не слушает, хранить нечего.
 import { mkdirSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
-import { refuse } from "@switchboard/host";
+import { clientPath, refuse } from "@switchboard/host";
 import type { Ctx, Frame, Module } from "@switchboard/host";
 
 export type MachineOptions = { home?: string };
@@ -12,10 +11,9 @@ function resolvePath(req: Frame, ctx: Ctx, home: string): { given: string; path:
   const given = req.path;
   const who = `${req.type} «${String(given)}» от ${ctx.from ?? "?"}`;
   if (typeof given !== "string" || !given) throw refuse("bad_frame", `${who}: нет пути`);
-  if (given === "~") return { given, path: home };
-  if (given.startsWith("~/")) return { given, path: join(home, ...given.slice(2).split("/")) };
-  if (isAbsolute(given)) return { given, path: given };
-  throw refuse("bad_frame", `${who}: путь не от ~ и не полный`);
+  const path = clientPath(given, home);
+  if (!path) throw refuse("bad_frame", `${who}: путь не от ~ и не полный`);
+  return { given, path };
 }
 
 /** Слово отказа по коду ошибки ОС; незнакомая ошибка — дальше, это ошибка модуля. */

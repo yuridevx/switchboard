@@ -21,7 +21,7 @@ const failed = (what: string, r: Result & { ok: false }) => text(`${what}: ${r.e
 export function make() {
   let host: Host;
 
-  const ask = (name: string, payload: Record<string, unknown>) => host.request(name, { v: 1, ...payload });
+  const ask = (name: string, payload: Record<string, unknown>) => host.request(name, { ...payload });
 
   /** Инструменты сервера MCP одной сессии: папка upload — от рабочей папки сессии. */
   function tools(cwd: string): SdkMcpToolDefinition<any>[] {
@@ -108,7 +108,7 @@ export function make() {
           limit: z.number().int().positive().optional().describe("сколько строк, по умолчанию 50"),
         },
         async ({ machine, part, since, limit }) => {
-          const r = await ask("machine.journal", { v: 2, machine, part, since: since ?? new Date(Date.now() - 3600_000).toISOString(), limit: limit ?? 50 });
+          const r = await ask("machine.journal", { machine, part, since: since ?? new Date(Date.now() - 3600_000).toISOString(), limit: limit ?? 50 });
           return r.ok ? json(r.result) : failed("machine.journal", r);
         },
       ),

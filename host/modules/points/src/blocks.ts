@@ -3,8 +3,8 @@
 // Своего списка «что уже в R2» нет: отпечатки считаются каждый раз заново, что есть в R2 — знает реестр.
 import { createHash } from "node:crypto";
 import { existsSync, openSync, readdirSync, readFileSync, readSync, closeSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { claudeDir } from "@switchboard/host";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
 
 export const BLOCK = 1 << 20;
@@ -15,10 +15,8 @@ export type PointFile = { p: string; size: number; b: string[] };
 export type Ref = { file: string; off: number; len: number };
 export type Scan = { files: PointFile[]; refs: Map<string, Ref>; bytes: number };
 
-/** Папка Claude Code машины: CLAUDE_CONFIG_DIR или ~/.claude. */
-export const claudeHome = () => process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
 /** Папка проекта рабочей папки: так её называет Claude Code — каждый знак не буква и не цифра — «-». */
-export const projectDir = (cwd: string) => join(claudeHome(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+export const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 
 export const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 export const pack = (b: Buffer) => zstdCompressSync(b);

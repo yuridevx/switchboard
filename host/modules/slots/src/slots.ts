@@ -3,7 +3,6 @@
 // Аккаунт слота у порога — slots просит accounts перевесить ссылку на следующего из запаса; процессы не трогаются.
 // Один аккаунт может стоять в нескольких слотах: лимит у них общий, каждый слот меняет его по своим событиям.
 // Своего о входах и окнах slots не хранит: кто в слоте и окна — записи accounts (кэш в памяти — их копия).
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { refuse } from "@switchboard/host";
 import type { Host, Module, SDKMessage, Session, SessionState } from "@switchboard/host";
@@ -21,8 +20,6 @@ type Mine = { slot: string | null; cut?: string };
 export const limitOf = (w: string) => (w === "five_hour" ? 0.95 : 0.98);
 export const CONTINUE = "Продолжай";
 
-export const switchboardHome = () => process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
-export const slotDir = (slot: string) => join(switchboardHome(), "slots", slot);
 const sec = () => Math.floor(Date.now() / 1000);
 const hhmm = (t: number) => new Date(t * 1000).toTimeString().slice(0, 5);
 const pct = (u: number) => `${Math.round(u * 100)} %`;
@@ -38,6 +35,8 @@ const usableAt = (a: Acc | undefined, now: number) => Math.max(0, ...overWindows
 
 export function make(): Module {
   let host: Host;
+  /** папка слота — в папке данных Host */
+  const slotDir = (slot: string) => join(host.dataDir, "slots", slot);
   /** копия записей accounts: fields roster читаются синхронно */
   let accs: Record<string, Acc> = {};
   /** подмены слота идут по одной */
@@ -61,7 +60,7 @@ export function make(): Module {
       .filter((s): s is Session => !!s && slotOf(s) === slot);
 
   async function refresh(): Promise<void> {
-    const r = await host.request("machine.accounts", { v: 1 });
+    const r = await host.request("machine.accounts", {});
     if (r.ok) accs = ((r.result as { accounts?: Record<string, Acc> })?.accounts ?? {}) as Record<string, Acc>;
     else host.log({ kind: "refuse", ev: "accounts", word: r.error, why: `machine.accounts: ${r.error}` });
   }
@@ -110,7 +109,7 @@ export function make(): Module {
   /** Перевесить ссылку слота на аккаунт to через accounts. Ответ — прежний аккаунт или отказ словом. */
   async function place(slot: string, to: string, why: string, by?: string): Promise<{ ok: true; from: string | null } | { ok: false; error: string }> {
     const from = whoIn(slot);
-    const r = await host.request("account.place", { v: 2, dir: slotDir(slot), account: to });
+    const r = await host.request("account.place", { dir: slotDir(slot), account: to });
     if (!r.ok) {
       host.log({ kind: "refuse", ev: "slot.swap", word: r.error, slot, why: `${slot}: accounts отказал в подмене ${from ?? "—"} → ${to}: ${r.error}` });
       return r;
@@ -120,7 +119,7 @@ export function make(): Module {
     for (const x of sessionsIn(slot)) x.refresh();
     const text = `слот ${slot}: ${from ?? "—"} → ${to} · ${why}`;
     host.log({ ev: "slot.swapped", slot, from, to, why: text });
-    const sent = host.emit({ type: "ledger.add", to: ".ledger", v: 1, ev: "slot.swapped", machine: host.machine, text, ...(by ? { by } : {}) });
+    const sent = host.emit({ type: "ledger.add", to: ".ledger", ev: "slot.swapped", machine: host.machine, text, ...(by ? { by } : {}) });
     if (!sent.ok) host.log({ kind: "refuse", ev: "ledger.add", word: sent.error, why: `ledger.add не ушёл: ${sent.error}` });
     return { ok: true, from };
   }
@@ -194,7 +193,7 @@ export function make(): Module {
     const at = sec();
     const w = { utilization: u, resetsAt };
     accs[account] = { ...accs[account], limits: { ...accs[account]?.limits, [type]: { ...w, at, src: "event" } } };
-    void host.request("account.usage", { v: 1, account, src: "event", at, windows: { [type]: w } }).then((r) => {
+    void host.request("account.usage", { account, src: "event", at, windows: { [type]: w } }).then((r) => {
       if (!r.ok) host.log({ kind: "refuse", ev: "account.usage", word: r.error, why: `${account}: ${r.error}` });
     });
     if (late) {
@@ -261,7 +260,7 @@ export function make(): Module {
           if (sessionsIn(slot).length) throw refuse("has_sessions", `в слоте ${slot} есть сессии`);
           const cur = whoIn(slot);
           if (cur) {
-            const r = await host.request("account.place", { v: 2, dir: slotDir(slot), account: null });
+            const r = await host.request("account.place", { dir: slotDir(slot), account: null });
             if (!r.ok) throw refuse(r.error, `${cur}: снять ссылку слота — ${r.error}`);
             await refresh();
           }

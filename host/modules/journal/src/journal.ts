@@ -1,15 +1,12 @@
 // Модуль journal: что Claude SDK сообщает о сбоях сессий — строками журнала машины; журнал машины по запросу.
 // Разговор не дублирует: его пишет сам Claude Code в файл разговора. Своего хранилища нет — читает папку журнала.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Host, LogRecord, Module, SDKMessage } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
 
-/** Папка журнала машины — та же, что у ядра: SWITCHBOARD_HOME или ~/.switchboard. */
-export function journalDir(): string {
-  return join(process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard"), "journal");
-}
+/** Папка журнала машины — та же, что у ядра: journal в папке данных Host. */
+export const journalDir = (dataDir: string) => join(dataDir, "journal");
 
 const firstLine = (s: unknown) => String(s ?? "").split("\n")[0];
 
@@ -115,7 +112,7 @@ export function make(): Module {
         if (kind !== undefined && !(Array.isArray(kind) && kind.every((k) => typeof k === "string"))) throw refuse("bad_frame", "machine.journal: kind — список слов");
         if (session !== undefined && typeof session !== "string") throw refuse("bad_frame", "machine.journal: session — строка");
         if (part !== undefined && typeof part !== "string") throw refuse("bad_frame", "machine.journal: part — строка");
-        return read(journalDir(), { since: new Date(since).toISOString(), kind: kind as string[] | undefined, session, part, limit });
+        return read(journalDir(host.dataDir), { since: new Date(since).toISOString(), kind: kind as string[] | undefined, session, part, limit });
       },
     },
     on: {

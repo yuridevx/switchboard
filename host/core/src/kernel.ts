@@ -4,10 +4,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { fail, hostOf, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
+import { accepts, fail, hostOf, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
-import type { Link, LinkState, WsCtor } from "@switchboard/relay";
+import type { Link, LinkState, Roster, WsCtor } from "@switchboard/relay";
 import { isRefusal, refuse } from "./refusal.ts";
 import type {
   Host,
@@ -121,6 +121,8 @@ export class Kernel {
   mods: Mod[] = [];
   byName = new Map<string, Mod>();
   reqOwner = new Map<string, Mod>();
+  /** последний roster от relay — модули берут его через host.roster() */
+  private lastRoster: Roster | null = null;
   frameOwner = new Map<string, Mod>();
   decideOwner = new Map<string, string>();
   elicitOwner: string | null = null;
@@ -414,7 +416,9 @@ export class Kernel {
       void this.call(owner.name, `frames.${f.type}`, s, (m, mod) => m.frames![f.type](f, this.ctx(mod, f.from)), () => undefined);
       return;
     }
-    let got = false;
+    // roster держит ядро; модули, которым он нужен событием, получают его как кадр
+    if (f.type === "roster") this.lastRoster = f as Roster;
+    let got = f.type === "roster";
     for (const m of this.mods) {
       if (!m.module.on?.frame || !Object.keys(m.manifest.uses ?? {}).some((r) => nameOf(r) === f.type)) continue;
       got = true;
@@ -439,22 +443,12 @@ export class Kernel {
       this.log("core", { kind: "refuse", ev: "request", word: "shutting_down", id: f.id, type: f.type, from: f.from });
       return fail(f.id, "shutting_down");
     }
+    // имя обслуживается и версия совпадает — одно правило с участниками рации
     const owner = this.reqOwner.get(f.type);
-    if (!owner) {
-      this.log("core", { kind: "refuse", ev: "request", word: "unknown_request", id: f.id, from: f.from, why: `${f.type}: владельца нет` });
-      return fail(f.id, "unknown_request");
-    }
-    const v = owner.manifest.provides[f.type];
-    if (f.v !== v) {
-      this.log("core", {
-        kind: "refuse",
-        ev: "request",
-        word: "contract_mismatch",
-        id: f.id,
-        from: f.from,
-        why: `${f.type} — запрошена v${f.v ?? "—"}, у ${owner.name} v${v}`,
-      });
-      return fail(f.id, "contract_mismatch");
+    const bad = accepts(f, owner ? { [f.type]: owner.manifest.provides[f.type] } : {});
+    if (bad || !owner) {
+      this.log("core", { kind: "refuse", ev: "request", word: bad!.word, id: f.id, from: f.from, why: owner ? `${bad!.why} (${owner.name})` : bad!.why });
+      return fail(f.id, bad!.word);
     }
     let s: Sess | null = null;
     if (typeof f.callsign === "string") {
@@ -504,6 +498,9 @@ export class Kernel {
     if (h) return h;
     const k = this;
     h = {
+      get dataDir() {
+        return k.deps.home;
+      },
       get machine() {
         return k.machine;
       },
@@ -523,6 +520,7 @@ export class Kernel {
       log: (rec) => k.log(m.name, rec),
       probe: (o) => k.probe(m, o?.env),
       cli: (args, o) => k.deps.sdk.cli(args, { ...process.env, ...(o?.env ?? {}), DISABLE_UPDATES: "1" }, o?.input),
+      roster: () => k.lastRoster,
     };
     this.hostFacades.set(m, h);
     return h;
@@ -535,6 +533,8 @@ export class Kernel {
     const ref = Object.keys(m.manifest.uses ?? {}).find((r) => nameOf(r) === name);
     if (!own && !ref) this.violation(m, caller, `${name} нет в uses`);
     const owner = own ? m.name : ownerOf(ref!);
+    // версия — из своих provides или uses модуля, если вызов её не назвал
+    if (payload.v === undefined) payload = { ...payload, v: own ? m.manifest.provides![name] : m.manifest.uses![ref!] };
     const target = hostOf(payload) ?? null;
 
     const local = this.byName.has(owner) && (target === null || target === this.machine) && !(payload.to && typeof payload.to !== "string");
@@ -567,6 +567,9 @@ export class Kernel {
   emit(m: Mod, f: Frame): Result {
     const known = m.manifest.provides?.[f.type] !== undefined || Object.keys(m.manifest.uses ?? {}).some((r) => nameOf(r) === f.type);
     if (!known) this.violation(m, this.callerSession(m), `${f.type} нет в provides и uses`);
+    const ref = Object.keys(m.manifest.uses ?? {}).find((r) => nameOf(r) === f.type);
+    // версия — как у request: из provides или uses, если кадр её не назвал
+    if (f.v === undefined) f = { ...f, v: m.manifest.provides?.[f.type] ?? m.manifest.uses![ref!] };
     return this.send(f);
   }
 

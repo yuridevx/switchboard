@@ -5,7 +5,6 @@
   "provides": { "message": 1 },
   "uses": {
     "host.module@host": 1,
-    "roster@relay": 1,
     "answer@host-questions": 1,
     "notify@host-push": 1,
     "session.open@host-manage": 1,

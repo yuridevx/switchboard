@@ -5,7 +5,6 @@
   "provides": { "notify": 1 },
   "uses": {
     "host.module@host": 1,
-    "roster@relay": 1,
     "push.send@push": 1
   },
   "calls": [],

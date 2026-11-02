@@ -8,9 +8,9 @@
 // Кто в слоте сессии — поле account владельца слотов (host-slots), читается в момент решения; своей копии нет.
 // После initialize (on.open): enableRemoteControl(true) без имени — заголовок в claude.ai остаётся именем сессии.
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Host, Module, Session } from "@switchboard/host";
+import { claudeDir } from "@switchboard/host";
 
 /** Раздел сессии: ссылка, мост и аккаунт, под которым мост включился. */
 export type RemoteRecord = { url?: string; bridge?: string; account?: string | null };
@@ -48,7 +48,7 @@ export function lastBridge(file: string): Bridge | null {
 }
 
 export function remote(o: RemoteOptions = {}): Module {
-  const claudeDir = () => o.claudeDir ?? process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+  const claudeHome = () => o.claudeDir ?? claudeDir();
   let host!: Host;
   /** отказ claude во включении — до следующего старта процесса */
   const errors = new Map<string, string>();
@@ -60,7 +60,7 @@ export function remote(o: RemoteOptions = {}): Module {
   function unbind(s: Session): void {
     const { start, callsign, session_id } = s.info;
     if (start !== "resume" && start !== "point") return;
-    const file = transcriptOf(claudeDir(), session_id);
+    const file = transcriptOf(claudeHome(), session_id);
     if (!file) return;
     const b = lastBridge(file);
     if (!b?.bridgeSessionId) return;

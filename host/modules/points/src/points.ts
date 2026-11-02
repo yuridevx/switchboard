@@ -2,13 +2,12 @@
 // Точка — байты файла разговора, файлов рядом и снимка git блоками по 1 МиБ в R2 плюс строка в реестре
 // Worker points. Решения — у реестра (хозяин сессии, какие блоки уже есть), байты — у машины.
 // Своего у модуля — пометка «в R2» в разделе сессии: { r2: true }.
-import { expandDir } from "./dir.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { refuse } from "@switchboard/host";
+import { claudeDir, clientPath, refuse } from "@switchboard/host";
 import type { Host, Module, Result, Session, SessionState } from "@switchboard/host";
-import { blocksOf, claudeHome, pack, projectDir, readRef, scan, sha256, unpack } from "./blocks.ts";
+import { blocksOf, pack, projectDir, readRef, scan, sha256, unpack } from "./blocks.ts";
 import type { PointFile, Ref } from "./blocks.ts";
 import { apply, BUNDLE, folderOf, realGit, snapshot } from "./git.ts";
 import type { Git, GitSummary } from "./git.ts";
@@ -126,9 +125,8 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       } catch (e) {
         host.log({ kind: "note", ev: "messages", callsign, why: (e as Error).message });
       }
-      const sp = await host.request("session.spec", { v: 1, callsign });
+      const sp = await host.request("session.spec", { callsign });
       const frame: Record<string, unknown> = {
-        v: 1,
         sid,
         why,
         files: sc.files,
@@ -149,7 +147,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         // отданная сессия закрывается: точки на её закрытие нет — иначе второй not_owner и второй yield про уже
         // убранную сессию (живой прогон 31 окт.: этот повтор уронил host-manage на машине)
         quiet.add(callsign);
-        const rm = await host.request("session.remove", { v: 1, callsign });
+        const rm = await host.request("session.remove", { callsign });
         quiet.delete(callsign);
         if (!rm.ok) host.log({ kind: "refuse", ev: "session.remove", word: rm.error, callsign });
         if (!r.ok) return { error: r.error };
@@ -284,7 +282,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
 
   /** Другие копии файла разговора sid в папке проектов — в сторону: Claude Code ищет его по всем папкам. */
   function asideOthers(sid: string, proj: string): void {
-    const root = join(claudeHome(), "projects");
+    const root = join(claudeDir(), "projects");
     if (!existsSync(root)) return;
     for (const d of readdirSync(root)) {
       const dir = join(root, d);
@@ -304,7 +302,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         if ("error" in out) throw refuse(out.error, `${s.info.callsign}: первая точка не снята`);
         return { point: out.point };
       }
-      const r = await host.request("points.delete", { v: 1, sid: s.info.session_id, ...(ctx.from ? { by: ctx.from } : {}) });
+      const r = await host.request("points.delete", { sid: s.info.session_id, ...(ctx.from ? { by: ctx.from } : {}) });
       if (!r.ok) throw refuse(r.error, `${s.info.callsign}: points.delete — пометка стоит`);
       s.store<Mine>().set(undefined);
       clear(s.info.callsign);
@@ -323,7 +321,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         // дождаться конца хода; interrupt — ядро прервёт ход само в session.stop
         if (s.state === "busy" && fr.interrupt !== true) await new Promise<void>((r) => (L(cs).idle ??= []).push(r));
         quiet.add(cs);
-        const st = await host.request("session.stop", { v: 1, callsign: cs });
+        const st = await host.request("session.stop", { callsign: cs });
         if (!st.ok) {
           quiet.delete(cs);
           throw refuse(st.error, `${cs}: session.stop — ${st.error}`);
@@ -341,8 +339,9 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       if (!sid || typeof point !== "number") throw refuse("bad_point", "нужны sid и номер точки");
       const copy = fr.copy === true;
       // «~/папка» с пульта — от домашней папки машины (живой прогон 31 окт.: resolve давал путь от папки выпуска Host)
-      const dir = expandDir(String(fr.dir ?? ""));
-      const g = await host.request("points.get", { v: 1, ids: [point] });
+      const dir = clientPath(String(fr.dir ?? ""));
+      if (!dir) throw refuse("bad_dir", `${String(fr.dir)}: папка не от ~ и не полная`);
+      const g = await host.request("points.get", { ids: [point] });
       if (!g.ok) throw refuse(g.error, `points.get ${point}: ${g.error}`);
       const res = g.result as { owner: string | null; points: Row[]; creds: Creds };
       const row = res.points[0];
@@ -377,10 +376,9 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       let opened: Result;
       if (here) {
         callsign = here.info.callsign;
-        opened = await host.request("session.start", { v: 1, callsign, point });
+        opened = await host.request("session.start", { callsign, point });
       } else {
         opened = await host.request("session.open", {
-          v: 1,
           machine: host.machine,
           name,
           dir,
@@ -395,7 +393,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       if (!opened.ok) {
         // подъём сорвался: хозяин прежний — его сессия идёт снова
         if (!copy && owner !== host.machine && row.callsign) {
-          const back = await host.request("session.start", { v: 1, callsign: row.callsign });
+          const back = await host.request("session.start", { callsign: row.callsign });
           if (!back.ok) host.log({ kind: "refuse", ev: "session.start", word: back.error, callsign: row.callsign });
         }
         throw refuse(opened.error, `подъём ${sid} из ${point}: ${opened.error}`);
@@ -419,12 +417,12 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       if ("error" in out) {
         if (out.error === "not_owner") {
           // сессию уже подняли в другом месте: своя — убрать
-          await host.request("session.remove", { v: 1, callsign });
+          await host.request("session.remove", { callsign });
         }
         throw refuse(out.error, `${callsign}: точка подъёма — ${out.error}`);
       }
       if (!copy && owner !== host.machine && row.callsign) {
-        const rm = await host.request("session.remove", { v: 1, callsign: row.callsign });
+        const rm = await host.request("session.remove", { callsign: row.callsign });
         if (!rm.ok) host.log({ kind: "refuse", ev: "session.remove", word: rm.error, callsign: row.callsign, why: `${row.callsign}: ${rm.error} — прежний хозяин отдаст сессию сам` });
       }
       host.log({ ev: "raise", callsign, sid, point, copy, why: `${callsign}: поднята из точки ${point}` });

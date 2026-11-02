@@ -59,13 +59,12 @@ export function lines(messages: Entry[]): string {
 
 export function make() {
   let host: Host;
-  /** последний roster: для fleet.list */
-  let roster: Roster | null = null;
 
   /** Инструменты сервера MCP одной сессии: отправитель — сама сессия, в аргументах его нет. */
   function tools(me: string): SdkMcpToolDefinition<any>[] {
     return [
       tool("list", "Кто на связи: сессии флота с состоянием, родителем и моделью; клиенты (телефон, пульт).", {}, async () => {
+        const roster = host.roster() as Roster | null;
         if (!roster) return text("Нет связи с relay (disconnected): список сессий неизвестен", true);
         const sessions = (roster.sessions ?? []).map((s) => ({ callsign: s.callsign, state: s.state ?? null, parent: s.parent ?? null, model: s.model ?? null }));
         return text(JSON.stringify({ me, sessions, clients: roster.clients ?? [] }));
@@ -76,13 +75,13 @@ export function make() {
         { to: z.string().describe("callsign сессии, ~email человека или устройство~email"), text: z.string().describe("текст сообщения") },
         async ({ to, text: body }) => {
           if (kindOf(to) === "session") {
-            const r = await host.request("message", { v: 1, to, text: body, from: me });
+            const r = await host.request("message", { to, text: body, from: me });
             return r.ok ? text(`доставлено: ${to}`) : failed(to, r);
           }
           // клиенту — кадр без подтверждения; кого нет на связи, достанет пушем модуль push
           const r = host.emit({ type: "message", from: me, to, text: body });
           if (!r.ok) return failed(to, r);
-          void host.request("notify", { v: 1, clients: [to], frame: { type: "message", from: me, notify: { title: me, body, tag: randomUUID() } } });
+          void host.request("notify", { clients: [to], frame: { type: "message", from: me, notify: { title: me, body, tag: randomUUID() } } });
           return text(`отправлено: ${to}`);
         },
       ),
@@ -95,7 +94,7 @@ export function make() {
           answers: z.record(z.string(), z.string()).describe("текст вопроса → ответ; несколько вариантов — через запятую"),
         },
         async ({ to, question, answers }) => {
-          const r = await host.request("answer", { v: 1, callsign: to, question, answers, from: me });
+          const r = await host.request("answer", { callsign: to, question, answers, from: me });
           return r.ok ? text("принято") : failed(to, r);
         },
       ),
@@ -114,10 +113,10 @@ export function make() {
         async ({ name, dir, text: body, machine, profile, model, effort }) => {
           const where = machine ?? host.machine;
           const opt = { ...(profile ? { profile } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
-          const o = await host.request("session.open", { v: 1, machine: where, name, dir, ...opt, from: me });
+          const o = await host.request("session.open", { machine: where, name, dir, ...opt, from: me });
           if (!o.ok) return failed(`${name}@${where}`, o);
           const cs = (o.result as { callsign: string }).callsign;
-          const m = await host.request("message", { v: 1, to: cs, text: body, from: me });
+          const m = await host.request("message", { to: cs, text: body, from: me });
           return m.ok ? text(`открыта: ${cs}; задача во вводе, итог хода придёт сам`) : text(`открыта: ${cs}, но задача не доставлена — ${m.error}`, true);
         },
       ),
@@ -126,7 +125,7 @@ export function make() {
         "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.",
         { callsign: z.string(), limit: z.number().int().min(1).optional().describe("сколько записей; по умолчанию 20") },
         async ({ callsign, limit }) => {
-          const r = await host.request("session.history", { v: 1, callsign, limit: limit ?? 20, before: null, from: me });
+          const r = await host.request("session.history", { callsign, limit: limit ?? 20, before: null, from: me });
           if (!r.ok) return failed(callsign, r);
           return text(lines((r.result as { messages: Entry[] }).messages));
         },
@@ -136,7 +135,7 @@ export function make() {
         "Сменить сессии модель, усилие или заголовок. Живой сессии модель и усилие — сразу.",
         { callsign: z.string(), model: z.string().optional(), effort: z.string().optional(), title: z.string().optional() },
         async ({ callsign, model, effort, title }) => {
-          const r = await host.request("session.update", { v: 1, callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
+          const r = await host.request("session.update", { callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
           return r.ok ? text(`сразу: ${((r.result as { now: string[] }).now ?? []).join(", ") || "—"}`) : failed(callsign, r);
         },
       ),
@@ -147,7 +146,7 @@ export function make() {
         async ({ callsign }) => {
           const target = callsign ?? me;
           const self = target === me;
-          const r = await host.request("session.remove", { v: 1, callsign: target, ...(self ? { after_turn: true } : {}), from: me });
+          const r = await host.request("session.remove", { callsign: target, ...(self ? { after_turn: true } : {}), from: me });
           if (!r.ok) return failed(target, r);
           return text(self ? "закроюсь после этого хода" : `закрыта: ${target}`);
         },
@@ -177,7 +176,7 @@ export function make() {
     if (typeof parent !== "string" || kindOf(parent) !== "session" || from !== parent) return;
     const r = m as { subtype: string; is_error?: boolean; result?: string };
     const body = r.subtype === "success" && !r.is_error ? (r.result ?? "") : `ход кончился: ${r.subtype}`;
-    void host.request("message", { v: 1, to: parent, text: body, report: true, from: me }).then((x) => {
+    void host.request("message", { to: parent, text: body, report: true, from: me }).then((x) => {
       if (!x.ok) host.log({ kind: "note", ev: "report", word: x.error, callsign: me, why: `итог хода родителю ${parent} не доставлен: ${x.error}` });
     });
   }
@@ -194,9 +193,6 @@ export function make() {
     on: {
       event(s, m) {
         if (m.type === "result") report(s, m);
-      },
-      frame(f) {
-        if (f.type === "roster") roster = f as Roster;
       },
     },
     start(h) {

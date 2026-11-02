@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MAX_FRAME } from "@switchboard/protocol";
-import { refuse } from "../contract.ts";
+import { clientPath, refuse } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
 import { frame, frames } from "../src/holders.ts";
 import { InputQueue } from "../src/queue.ts";
@@ -179,6 +179,42 @@ describe("договор модуля на стенде", () => {
     await st.open("site@laptop");
     expect(st.query("site@laptop").options.pathToClaudeCodeExecutable).toBe(st.sdk.bin);
     await st.close();
+  });
+
+  it("747 · папка клиента — одно правило: «~» и «~/…» от домашней папки, полный путь как есть, иначе null", () => {
+    // источник: факт 2 нояб. — подъём точки считал «x» от папки выпуска Host, открытие сессии и файлы машины отказывали
+    const home = join(tmpdir(), "u");
+    expect(clientPath("~", home)).toBe(home);
+    expect(clientPath("~/a/b", home)).toBe(join(home, "a", "b"));
+    const abs = join(tmpdir(), "srv", "x");
+    expect(clientPath(abs, home)).toBe(abs);
+    expect(clientPath("x", home)).toBeNull();
+    expect(clientPath("./x", home)).toBeNull();
+  });
+
+  it("748 · запрос и кадр модуля без v — версия из его uses или provides; названная — как есть", async () => {
+    // источник: чьё: код (так делает ядро веба: v из uses)
+    let host!: Host;
+    const q = module("host-questions", { start: (h) => void (host = h) }, { uses: { "session.watchers@host-watch": 2, "ledger.add@ledger": 1 } });
+    const watch = module("host-watch", {}, { provides: { "session.watchers": 2 } });
+    const st = await stand({ modules: [watch, q] });
+    void host.request("session.watchers", { callsign: "api@pc" });
+    await until(() => st.relay.frames("session.watchers").length === 1);
+    expect(st.relay.frames("session.watchers")[0]).toMatchObject({ v: 2, callsign: "api@pc" });
+    expect(host.emit({ type: "ledger.add", to: ".ledger", ev: "x", text: "y" })).toEqual({ ok: true });
+    expect(st.relay.frames("ledger.add")[0]).toMatchObject({ v: 1, to: ".ledger" });
+  });
+
+  it("749 · host.roster() — последний roster от relay; кадр roster без модуля-получателя — не «владельца нет»", async () => {
+    // источник: чьё: код (так у ядра веба: app.roster())
+    let host!: Host;
+    const q = module("host-questions", { start: (h) => void (host = h) });
+    const st = await stand({ modules: [q] });
+    const r = { type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] };
+    st.relay.deliver(r);
+    await until(() => (host.roster()?.clients ?? []).length === 1);
+    expect(host.roster()).toMatchObject({ clients: ["phone~owner@example.com"] });
+    expect(st.journal().some((l) => l.ev === "frame" && l.word === "unknown_request")).toBe(false);
   });
 
   it("744 · host.request: машина-адресат — одно правило hostOf: callsign другой машины важнее machine этой — через relay", async () => {

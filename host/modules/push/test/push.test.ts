@@ -98,13 +98,14 @@ describe("эталоны экосистемы о push", () => {
     expect(s.relay.frames("push.send")).toHaveLength(1);
   });
 
-  it("149 · в roster нет участника push: кадр не шлётся, строка «push.send v1 — нет в roster»", async () => {
+  it("149 · в roster нет участника push: push.send уходит, relay отказал offline — строка stop со словом, pushed пуст", async () => {
+    // источник: устав «система ловит» — отказ словом и причина в журнале; имя и версию проверяет получатель (итерация 6 ревью: сверка на отправителе убрана)
     const s = await bench();
     roster(s, [], []);
-    const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"], frame: question });
-    expect(r).toEqual({ ok: true, result: { pushed: [] } });
-    expect(s.relay.frames("push.send")).toHaveLength(0);
-    expect(s.journal().some((l) => l.who === "host-push" && String(l.why).startsWith("push.send v1 — нет в roster"))).toBe(true);
+    const p = s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"], frame: question });
+    await answerSend(s, 0, { ok: false, error: "offline" });
+    expect(await p).toEqual({ ok: true, result: { pushed: [] } });
+    expect(s.journal().some((l) => l.who === "host-push" && l.kind === "stop" && l.word === "offline")).toBe(true);
   });
 });
 
@@ -126,7 +127,7 @@ describe("push: юнит", () => {
   it("roster ещё не пришёл: notify отвечает pushed пуст", async () => {
     const mod = make();
     const logs: unknown[] = [];
-    await mod.start!({ log: (r: unknown) => logs.push(r) } as never);
+    await mod.start!({ log: (r: unknown) => logs.push(r), roster: () => null } as never);
     const r = await mod.requests!.notify({ type: "notify", clients: ["phone~owner@example.com"], frame: question }, {} as never);
     expect(r).toEqual({ pushed: [] });
     expect(logs).toHaveLength(1);

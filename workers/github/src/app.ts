@@ -1,7 +1,7 @@
 // Объект приложения GitHub: одна запись app в хранилище; github.app, github.setup, github.token.
 // Токенов, установок и репозиториев не хранит: их github спрашивает у GitHub на каждый запрос.
 import { DurableObject } from "cloudflare:workers";
-import { fail, ok, type Frame } from "@switchboard/protocol";
+import { accepts, fail, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type AppInfo } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { appJwt } from "./jwt.ts";
@@ -41,9 +41,8 @@ export class App extends DurableObject<Env> {
       log({ kind: "note", ev: "reply", from, why: "github ответов не ждёт" });
       return [];
     }
-    const v = (CONTRACT as Record<string, number>)[f.type];
-    if (v === undefined) return refuse("unknown_request", `github не обслуживает ${f.type}`);
-    if (f.v !== undefined && f.v !== v) return refuse("contract_mismatch", `${f.type} v${f.v} — у github v${v}`);
+    const bad = accepts(f, CONTRACT);
+    if (bad) return refuse(bad.word, bad.why);
     if (!f.id) return refuse("bad_frame", `${f.type} без id — ответить некому`);
     const id = f.id;
 

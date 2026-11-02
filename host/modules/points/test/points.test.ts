@@ -530,6 +530,13 @@ describe("points: покрытие плана host-modules", () => {
     expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, dryRun: true })).toMatchObject({ ok: true });
   });
 
+  it("3111 · папка подъёма не от ~ и не полная — bad_dir, а не путь от папки выпуска Host", async () => {
+    // источник: факт 2 нояб. — подъём точки считал «x» от папки выпуска Host (resolve), открытие сессии такой путь отклоняло
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir: "sb-copy", files: "point" })).toMatchObject({ ok: false, error: "bad_dir" });
+  });
+
   it("3110 · подъём с пульта — точка подъёма несёт by: отправителя запроса", async () => {
     // источник: чьё: код (снятие пометки «в R2» пишет by = ctx.from; журнал флота: «по чьей команде»)
     b = await bench({ home, machine: "pc" });

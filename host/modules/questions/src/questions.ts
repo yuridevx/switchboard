@@ -54,7 +54,7 @@ export function make(): Module {
   /** Кому вопрос: тот, кто дал задачу, и зрители сессии. */
   async function recipients(s: Session): Promise<string[]> {
     const cs = s.info.callsign;
-    const w = await host.request("session.watchers", { v: 1, callsign: cs });
+    const w = await host.request("session.watchers", { callsign: cs });
     if (!w.ok) host.log({ kind: "stop", ev: "question", word: w.error, callsign: cs, why: `session.watchers: ${w.error} — вопрос уходит без зрителей` });
     const viewers = w.ok && Array.isArray(w.result) ? (w.result as string[]) : [];
     const to: string[] = [];
@@ -66,7 +66,7 @@ export function make(): Module {
     const clients = to.filter(isClient);
     if (!clients.length) return;
     // ответ push не нужен: кому ушёл пуш, видно в его журнале
-    void host.request("notify", { v: 1, clients, frame: { ...frame, from: cs } });
+    void host.request("notify", { clients, frame: { ...frame, from: cs } });
   }
 
   function askNotify(cs: string, id: string, kind: Kind, body: Record<string, unknown>) {

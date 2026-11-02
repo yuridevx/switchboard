@@ -8,6 +8,7 @@
   "uses": {
     "manifest.check@manifest-gate": 1,
     "hello@relay": 1,
+    "roster@relay": 1,
     "session.state@relay": 1
   },
   "config": {}

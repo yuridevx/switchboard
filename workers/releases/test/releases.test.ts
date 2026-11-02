@@ -49,7 +49,7 @@ async function inR2(part: string, ...vs: string[]) {
   }
 }
 
-const req = (s: Stub, from: string, type: string, extra: Record<string, unknown> = {}) => s.frame({ type, id: "r", to: ".releases", from, ...extra });
+const req = (s: Stub, from: string, type: string, extra: Record<string, unknown> = {}) => s.frame({ type, v: 1, id: "r", to: ".releases", from, ...extra });
 const result = async (p: Promise<Frame[]>) => {
   const [r] = await p;
   expect(r).toMatchObject({ type: "reply", ok: true });
@@ -251,11 +251,11 @@ describe("эталоны releases", () => {
 
   it("12 · участник: hello — контракт; ответ, затем ledger.add и план keeper — кадрами ответа вызова по порядку", async () => {
     expect(await participant.hello()).toEqual({ contract: { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1 } });
-    const sent = await participant.frame({ type: "releases.plan", id: "q", to: ".releases", from: ".keeper@box" });
+    const sent = await participant.frame({ type: "releases.plan", v: 1, id: "q", to: ".releases", from: ".keeper@box" });
     expect(sent.map((x) => [x.type, x.to])).toEqual([["reply", ".keeper@box"]]);
     fakeCf(NONE);
     await inR2("host", "7.7.7");
-    const out = await participant.frame({ type: "releases.deploy", id: "d1", to: ".releases", from: "panel~o", part: "host", version: "7.7.7" });
+    const out = await participant.frame({ type: "releases.deploy", v: 1, id: "d1", to: ".releases", from: "panel~o", part: "host", version: "7.7.7" });
     expect(out.map((x) => [x.type, x.to])).toEqual([
       ["reply", "panel~o"],
       ["ledger.add", ".ledger"],
@@ -268,7 +268,7 @@ describe("эталоны releases", () => {
     const log = journal();
     expect((await req(s, "~x", "releases.nope"))[0]).toMatchObject({ ok: false, error: "unknown_request", to: "~x" });
     expect((await req(s, "~x", "releases.list", { v: 2 }))[0]).toMatchObject({ ok: false, error: "contract_mismatch" });
-    expect(await s.frame({ type: "releases.list", to: ".releases", from: "~x" })).toEqual([]);
+    expect(await s.frame({ type: "releases.list", v: 1, to: ".releases", from: "~x" })).toEqual([]);
     expect(await s.frame({ type: "reply", id: "x", ok: true, to: ".releases", from: "~x" })).toEqual([]);
     expect(log.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
       ["refuse", "unknown_request"],

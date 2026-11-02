@@ -2,7 +2,7 @@
 // Версии частей машины — архивы в R2 (готова та, у которой лежит .sha256), частей Cloudflare — версии Worker'а с меткой.
 // edge — новейшая версия, не хранится. План машины уходит её keeper: ответом на releases.plan и кадром при перемене.
 import { DurableObject } from "cloudflare:workers";
-import { fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
+import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
 import { CfFailed, deploy, deployed, versions } from "./cf.ts";
@@ -55,9 +55,8 @@ export class Releases extends DurableObject<Env> {
       log({ kind: "note", ev: "reply", from, why: "releases ответов не ждёт" });
       return [];
     }
-    const v = (CONTRACT as Record<string, number>)[f.type];
-    if (v === undefined) return refuse(new Refusal("unknown_request", `releases не обслуживает ${f.type}`));
-    if (f.v !== undefined && f.v !== v) return refuse(new Refusal("contract_mismatch", `${f.type} v${f.v} — у releases v${v}`));
+    const bad = accepts(f, CONTRACT);
+    if (bad) return refuse(new Refusal(bad.word, bad.why));
     if (!f.id) return refuse(new Refusal("bad_frame", `${f.type} без id — ответить некому`));
     const id = f.id;
 

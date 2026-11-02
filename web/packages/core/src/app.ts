@@ -1,7 +1,7 @@
 // Ядро веб-приложения: гейт набора, ключ, связь с relay через link, маршрут кадров модулям,
 // экраны и навигация, хранилище, штатный уход с экрана. Ни одной функции приложения само не знает.
 import { link, PROTO, type Frame, type Link, type Roster, type WsCtor } from "@switchboard/relay";
-import { hostOf, serviceAddress } from "@switchboard/protocol";
+import { serviceAddress } from "@switchboard/protocol";
 import { BASE_CSS } from "./css.ts";
 import { appGate, nameOf, ownerOf } from "./gate.ts";
 import { idbStore } from "./store.ts";
@@ -163,21 +163,8 @@ export function startApp(o: StartOptions): Running {
     const v = x.m.uses[ref];
     const owner = ownerOf(ref);
     const f: Frame = { ...body, type: n, v };
-    const worker = roster?.workers.find((w) => w.name === owner);
-    if (worker) f.to = serviceAddress(owner);
-    const machine = hostOf(body) ?? null;
-    const contract = worker ? worker.contract : machine ? provides(machine) : null;
-    if (contract) {
-      // возможности — по roster: имени нет у владельца — запрос не шлётся
-      if (contract[n] === undefined) {
-        console.warn(`switchboard: ${n} нет в contract ${worker ? owner : machine}`);
-        return { ok: false, error: "unknown_request" };
-      }
-      if (contract[n] !== v) {
-        console.warn(`switchboard: ${n} v${v} — у ${worker ? owner : machine} v${contract[n]}`);
-        return { ok: false, error: "contract_mismatch" };
-      }
-    }
+    // служба — .имя; имя и версию проверяет получатель и отвечает словом
+    if (roster?.workers.some((w) => w.name === owner)) f.to = serviceAddress(owner);
     if (!lk || conn !== "open") return { ok: false, error: "disconnected" };
     const p = lk.request(f);
     pending.add(p);

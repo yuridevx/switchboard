@@ -16,6 +16,10 @@ export type Manifest = {
 };
 
 /** Проверить набор модулей. Пустой список — набор годен; иначе — причины словами. */
+/** Ссылка манифеста «имя@владелец»: имя и владелец. Одно правило для гейта, ядра Host и ядра веба. */
+export const nameOf = (ref: string) => ref.slice(0, ref.lastIndexOf("@"));
+export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
+
 export function check(mods: Manifest[]): string[] {
   const errors: string[] = [];
   const byName = new Map<string, Manifest>();
@@ -37,13 +41,12 @@ export function check(mods: Manifest[]): string[] {
   // uses: владелец есть и отдаёт имя той же версии
   for (const m of mods) {
     for (const [ref, v] of Object.entries(m.uses)) {
-      const at = ref.lastIndexOf("@");
-      if (at <= 0) {
+      if (ref.lastIndexOf("@") <= 0) {
         errors.push(`модуль ${m.name}: uses «${ref}» — нужно имя@владелец`);
         continue;
       }
-      const n = ref.slice(0, at);
-      const o = byName.get(ref.slice(at + 1));
+      const n = nameOf(ref);
+      const o = byName.get(ownerOf(ref));
       if (!o) errors.push(`модуль ${m.name}: uses ${ref} — владельца нет в наборе`);
       else if (o.provides[n] === undefined) errors.push(`модуль ${m.name}: uses ${ref} — ${o.name} не отдаёт ${n}`);
       else if (o.provides[n] !== v) errors.push(`модуль ${m.name}: uses ${ref} v${v} — у владельца v${o.provides[n]}`);

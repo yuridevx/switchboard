@@ -115,7 +115,8 @@ export async function until<T>(fn: () => T | undefined | null | false, ms = 3000
 /** Собрать стенд и запустить Host. */
 export async function standHost(o: StandOptions = {}): Promise<Stand> {
   const machine = o.machine ?? "laptop";
-  const home = o.home ?? mkdtempSync(join(tmpdir(), "switchboard-stand-"));
+  // папка данных — как у main: своя, иначе SWITCHBOARD_HOME, иначе временная
+  const home = o.home ?? process.env.SWITCHBOARD_HOME ?? mkdtempSync(join(tmpdir(), "switchboard-stand-"));
   mkdirSync(join(home, "store"), { recursive: true });
   if (o.sessions) {
     const list: CoreRecord[] = o.sessions.map((s) => ({

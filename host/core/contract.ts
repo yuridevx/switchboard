@@ -11,6 +11,8 @@
 // Чтобы взять отсюда типы в коде модуля, в его module.json нужен
 //   "uses": { "host.module@host": 1 }
 // (гейт монорепо пускает импорт @switchboard/* только из uses). Тесты и стенд — без этого.
+import type { Roster } from "@switchboard/relay";
+export type { Roster };
 import type { Frame } from "@switchboard/protocol";
 import type {
   ElicitationRequest,
@@ -247,6 +249,8 @@ export type LogRecord = {
 
 export interface Host {
   readonly machine: string;
+  /** папка данных Host (SWITCHBOARD_HOME или ~/.switchboard): разделы модулей на диске — внутри неё */
+  readonly dataDir: string;
   /** версия выпуска Host */
   readonly version: string;
   /** версия Agent SDK этого Host */
@@ -274,6 +278,8 @@ export interface Host {
   probe(opts?: { env?: Record<string, string> }): Probe;
   /** Команда claude той же версии; secrets — только через env. */
   cli(args: string[], opts?: { env?: Record<string, string>; input?: string }): Promise<{ code: number | null; out: string }>;
+  /** Последний roster от relay; до первого — null. Один на Host, как у ядра веба. */
+  roster(): Roster | null;
 }
 
 // ───────────────────────── отказ словом ─────────────────────────
@@ -287,6 +293,7 @@ export { Refusal, refuse, isRefusal, REFUSAL } from "./src/refusal.ts";
  * IMAGE_TYPES: типы файлов, которые модель видит картинкой — блок image во вводе и в ответе инструмента MCP.
  */
 export { content, IMAGE_TYPES } from "./src/content.ts";
+export { clientPath, claudeDir } from "./src/paths.ts";
 
 // ───────────────────────── стенд ─────────────────────────
 

@@ -117,5 +117,16 @@ export function reaches(to: string, device: string): boolean {
   return to === device || (kindOf(to) === "user" && kindOf(device) === "device" && device.endsWith(to));
 }
 
+/**
+ * Приём запроса по договору получателя: имя обслуживается и версия совпадает, v обязателен.
+ * null — принят; иначе слово отказа с причиной. Одно правило для ядра Host и служб флота.
+ */
+export function accepts(f: { type: string; v?: unknown }, provides: Record<string, number>): { word: "unknown_request" | "contract_mismatch"; why: string } | null {
+  if (!Object.hasOwn(provides, f.type)) return { word: "unknown_request", why: `${f.type} не обслуживается` };
+  const v = provides[f.type];
+  if (f.v !== v) return { word: "contract_mismatch", why: `${f.type} — запрошена v${f.v ?? "—"}, здесь v${v}` };
+  return null;
+}
+
 /** Адрес службы флота по имени Worker-модуля: points → .points. */
 export const serviceAddress = (name: string) => `.${name}`;

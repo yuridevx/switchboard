@@ -43,7 +43,7 @@ async function inR2(...hashes: string[]) {
 const file = (b: string[], size = 100, p = "s.jsonl") => [{ p, size, b }];
 
 const put = (s: Stub, from: string, sid: string, files: unknown, extra: Record<string, unknown> = {}) =>
-  s.frame({ type: "points.put", id: "p", to: ".points", from, sid, why: "rule", files, callsign: `site@${from.slice(1)}`, ...extra });
+  s.frame({ type: "points.put", v: 1, id: "p", to: ".points", from, sid, why: "rule", files, callsign: `site@${from.slice(1)}`, ...extra });
 
 const sessionRow = (s: Stub, sid: string) =>
   runInDurableObject(s, (_o, st) => st.storage.sql.exec("SELECT owner, head FROM sessions WHERE sid = ?", sid).toArray()[0]);
@@ -106,7 +106,7 @@ describe("эталоны points", () => {
     await inR2("202b7");
     const second = await put(s, "@laptop", "s202", file(["202a1", "202b7"]));
     expect(second[0]).toMatchObject({ ok: true, result: { id: 2 } });
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect((l.result as { r2: { blocks: number } }).r2.blocks).toBe(2);
   });
 
@@ -143,7 +143,7 @@ describe("эталоны points", () => {
     const y = await put(s, "@pc", "s205", file(["205a1", "205c4"], 10), { why: "yield" });
     expect(y).toEqual([{ type: "reply", id: "p", ok: true, result: { id: 11 }, to: "@pc" }]);
     expect(await sessionRow(s, "s205")).toEqual({ owner: "mac", head: 10 });
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s205" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s205" });
     const pts = (l.result as { points: Array<{ id: number; base: number; line: boolean }> }).points;
     expect(pts.find((p) => p.id === 11)).toMatchObject({ base: 9, line: false });
     expect(pts.find((p) => p.id === 10)).toMatchObject({ line: true });
@@ -200,7 +200,7 @@ describe("эталоны points", () => {
   it("207 · правило убирает точку 2: из R2 уходит только c4; второй прогон на пустом реестре не удаляет ничего", async () => {
     const s = fresh();
     // объект создан «сегодня»: его суточный будильник — завтра, уборку в тесте зовём сами
-    await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     await inR2("207a1", "207b7", "207c4");
     clock(T0 - 40 * DAY);
     await put(s, "@laptop", "s207", file(["207a1"], 1));
@@ -231,7 +231,7 @@ describe("эталоны points", () => {
     const copy = await put(s, "@pc", "7e19", file(hashes.slice(0, 88)), { why: "raise", base: 1, callsign: "old-bot-2@pc" });
     expect(copy[0]).toMatchObject({ ok: true });
     expect(copy[1]).toMatchObject({ type: "ledger.add", ev: "session.copied" });
-    const out = await s.frame({ type: "points.delete", id: "d-1", to: ".points", from: "panel", sid: "9f03" });
+    const out = await s.frame({ type: "points.delete", v: 1, id: "d-1", to: ".points", from: "panel", sid: "9f03" });
     expect(out[0]).toEqual({ type: "reply", id: "d-1", ok: true, result: { points: 57, blocks: 212, bytes: 2120 }, to: "panel" });
     expect(out.slice(1)).toEqual([
       { type: "ledger.add", v: 1, to: ".ledger", ev: "session.deleted", text: "old-bot удалена из R2 · 57 точек", machine: "laptop", callsign: "old-bot@laptop", by: "panel" },
@@ -240,7 +240,7 @@ describe("эталоны points", () => {
     expect(present.filter(Boolean)).toHaveLength(88);
     expect(present.slice(0, 88).every(Boolean)).toBe(true);
     expect(await count(s, "SELECT COUNT(*) AS n FROM points WHERE sid = '9f03'")).toBe(0);
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect((l.result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["7e19"]);
   });
 
@@ -256,16 +256,16 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     await inR2("301a1");
     await put(s, "@laptop", "s301", file(["301a1"]), { dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3 });
     const api = fakeCf();
-    const [m] = await s.frame({ type: "points.get", id: "g", to: ".points", from: "@pc", ids: [1] });
+    const [m] = await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "@pc", ids: [1] });
     expect(m.result).toMatchObject({
       owner: "laptop",
       points: [{ id: 1, sid: "s301", machine: "laptop", why: "rule", base: null, dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3, files: file(["301a1"]) }],
       creds: { bucket: "switchboard-points" },
     });
     expect(api[0].body).toMatchObject({ permission: "object-read-only", prefixes: ["f/"] });
-    const [p] = await s.frame({ type: "points.get", id: "g", to: ".points", from: "panel", ids: [1] });
+    const [p] = await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "panel", ids: [1] });
     expect((p.result as Record<string, unknown>).creds).toBeUndefined();
-    expect(await s.frame({ type: "points.get", id: "g", to: ".points", from: "panel", ids: [1, 9] })).toEqual([
+    expect(await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "panel", ids: [1, 9] })).toEqual([
       { type: "reply", id: "g", ok: false, error: "no_point", ids: [9], to: "panel" },
     ]);
   });
@@ -277,7 +277,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     fakeCf(403);
     const lines: Array<Record<string, unknown>> = [];
     vi.spyOn(console, "log").mockImplementation((x: unknown) => void lines.push(JSON.parse(String(x))));
-    expect(await s.frame({ type: "points.get", id: "c", to: ".points", from: "@laptop", ids: [pid] })).toEqual([{ type: "reply", id: "c", ok: false, error: "r2_failed", to: "@laptop" }]);
+    expect(await s.frame({ type: "points.get", v: 1, id: "c", to: ".points", from: "@laptop", ids: [pid] })).toEqual([{ type: "reply", id: "c", ok: false, error: "r2_failed", to: "@laptop" }]);
     expect(lines).toContainEqual(expect.objectContaining({ part: "points", word: "r2_failed", status: 403 }));
     expect(JSON.stringify(lines)).toContain("Authentication error");
   });
@@ -289,7 +289,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const out = await put(s, "@pc", "s302", file(["302a1"], 2), { why: "raise", base: 2, expect: "pc" });
     expect(out[0]).toMatchObject({ ok: true, result: { id: 5 } });
     expect(out[1]).toMatchObject({ type: "ledger.add", ev: "session.rolled_back", machine: "pc", text: "site@pc откатана к точке 2" });
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s302" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s302" });
     const r = l.result as { owner: string; head: number; points: Array<{ id: number; line: boolean; until: number | null }> };
     expect([r.owner, r.head]).toEqual(["pc", 5]);
     expect(r.points.map((p) => [p.id, p.line])).toEqual([[5, true], [4, false], [3, false], [2, true], [1, true]]);
@@ -302,7 +302,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     await inR2("303a1", "303b7");
     await put(s, "@laptop", "s303", file(["303a1", "303b7"]), { dir: "~/x" });
     await sweep(s);
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect(l.result).toEqual({
       sessions: [{ sid: "s303", callsign: "site@laptop", dir: "~/x", owner: "laptop", head: { id: 1, at: T0 }, points: 1, branches: 0 }],
       r2: { bytes: 20, blocks: 2 },
@@ -314,11 +314,11 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const s = fresh();
     await inR2("304a1");
     await put(s, "@laptop", "s304", file(["304a1"]));
-    expect(await s.frame({ type: "points.delete", id: "d", to: ".points", from: "@mac", sid: "s304" })).toEqual([
+    expect(await s.frame({ type: "points.delete", v: 1, id: "d", to: ".points", from: "@mac", sid: "s304" })).toEqual([
       { type: "reply", id: "d", ok: false, error: "not_owner", owner: "laptop", to: "@mac" },
     ]);
-    expect(await s.frame({ type: "points.delete", id: "d", to: ".points", from: "@laptop" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s304" });
+    expect(await s.frame({ type: "points.delete", v: 1, id: "d", to: ".points", from: "@laptop" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s304" });
     expect((l.result as { points: unknown[] }).points).toHaveLength(1);
   });
 
@@ -327,7 +327,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     await inR2("2064a", "2064b");
     await put(s, "@laptop", "s2064", file(["2064a"]));
     await put(s, "@laptop", "s2064o", file(["2064b"]));
-    const other = ((await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2064o" }))[0].result as { points: Array<{ id: number }> }).points[0];
+    const other = ((await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2064o" }))[0].result as { points: Array<{ id: number }> }).points[0];
     const bad: Array<[string, Record<string, unknown>, unknown?]> = [
       ["panel", {}],
       ["@laptop", { sid: "" }],
@@ -342,7 +342,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     for (const [from, extra, files] of bad) {
       expect(await put(s, from, "s2064", files ?? file(["2064a"], 7), extra), JSON.stringify(extra)).toMatchObject([{ ok: false, error: "bad_frame" }]);
     }
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2064" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2064" });
     expect((l.result as { points: unknown[] }).points).toHaveLength(1);
   });
 
@@ -351,7 +351,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const lines = journal();
     expect(await s.frame({ type: "points.drop", id: "d", to: ".points", from: "panel" })).toEqual([{ type: "reply", id: "d", ok: false, error: "unknown_request", to: "panel" }]);
     expect(await s.frame({ type: "points.list", id: "d", v: 2, to: ".points", from: "panel" })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
-    expect(await s.frame({ type: "points.list", to: ".points", from: "panel" })).toEqual([]);
+    expect(await s.frame({ type: "points.list", v: 1, to: ".points", from: "panel" })).toEqual([]);
     expect(await s.frame({ type: "reply", id: "x", ok: true, to: ".points", from: "panel" })).toEqual([]);
     expect(lines.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
       ["refuse", "unknown_request"],
@@ -368,11 +368,11 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const out = await put(s, "@pc", "s2061c", file(["2061a"], 5), { base: p1, callsign: "copy@pc" });
     expect(out[0]).toMatchObject({ ok: true, to: "@pc" });
     expect(out[1]).toEqual({ type: "ledger.add", v: 1, to: ".ledger", ev: "session.copied", text: `site → copy@pc · из точки ${p1}`, machine: "pc", callsign: "copy@pc" });
-    const [c] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2061c" });
+    const [c] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2061c" });
     const r = c.result as { owner: string; head: number; points: Array<{ id: number; base: number }> };
     expect(r.owner).toBe("pc");
     expect(r.points).toEqual([expect.objectContaining({ id: r.head, base: p1 })]);
-    const [o] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2061" });
+    const [o] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2061" });
     expect(o.result).toMatchObject({ owner: "laptop", head: p1 });
   });
 
@@ -390,7 +390,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const lines = journal();
     expect(await put(s, "@laptop", "s2063", file(["2063ff"]))).toEqual([{ type: "reply", id: "p", ok: false, error: "r2_failed", to: "@laptop" }]);
     expect(lines).toContainEqual(expect.objectContaining({ part: "points", ev: "points.put", word: "r2_failed", status: 403 }));
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2063" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2063" });
     expect(l.result).toEqual({ owner: null, head: null, points: [] });
   });
 
@@ -401,7 +401,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const out = await put(s, "@laptop", "s2065", file(["2065a"], 2), { why: "raise", base: ids[1], expect: "laptop" });
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ ok: true });
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2065" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2065" });
     const r = l.result as { owner: string; head: number; points: Array<{ id: number; base: number }> };
     expect([r.owner, r.points.find((x) => x.id === r.head)?.base]).toEqual(["laptop", ids[1]]);
   });
@@ -412,30 +412,30 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const ids = await line(s, "@laptop", "s2066", 2, ["2066a"]);
     await put(s, "@pc", "s2066", file(["2066a"], 2), { why: "raise", base: ids[1], expect: "laptop" });
     type L = { owner: string; head: number; points: unknown[] };
-    const before = (await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2066" }))[0].result as L;
+    const before = (await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2066" }))[0].result as L;
     const y = await put(s, "@laptop", "s2066", file(["2066a"], 2), { why: "yield" });
     expect(y).toEqual([{ type: "reply", id: "p", ok: true, result: { id: ids[1], same: true }, to: "@laptop" }]);
-    const after = (await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "s2066" }))[0].result as L;
+    const after = (await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2066" }))[0].result as L;
     expect([after.owner, after.head, after.points.length]).toEqual([before.owner, before.head, before.points.length]);
   });
 
   it("2067 · points.get: ids не непустой список целых — bad_frame", async () => {
     const s = fresh();
     for (const ids of [undefined, [], ["a"], [1.5]]) {
-      expect(await s.frame({ type: "points.get", id: "g", to: ".points", from: "panel", ids })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+      expect(await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "panel", ids })).toMatchObject([{ ok: false, error: "bad_frame" }]);
     }
   });
 
   it("2068 · points.list сессии, которой нет, — пустой ответ", async () => {
     const s = fresh();
-    expect(await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel", sid: "zz" })).toEqual([
+    expect(await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "zz" })).toEqual([
       { type: "reply", id: "l", ok: true, result: { owner: null, head: null, points: [] }, to: "panel" },
     ]);
   });
 
   it("2069 · points.delete сессии, которой нет, — нули без события", async () => {
     const s = fresh();
-    expect(await s.frame({ type: "points.delete", id: "d", to: ".points", from: "panel", sid: "zz" })).toEqual([
+    expect(await s.frame({ type: "points.delete", v: 1, id: "d", to: ".points", from: "panel", sid: "zz" })).toEqual([
       { type: "reply", id: "d", ok: true, result: { points: 0, blocks: 0, bytes: 0 }, to: "panel" },
     ]);
   });
@@ -447,31 +447,31 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     clock(T0 + 366 * DAY);
     await put(s, "@laptop", "s2071n", file(["2071b"]));
     await sweep(s);
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect((l.result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["s2071n"]);
     expect([!!(await env.BUCKET.head("f/2071a")), !!(await env.BUCKET.head("f/2071b"))]).toEqual([false, true]);
   });
 
   it("2072 · будильник уборки: ставится на сутки при первом старте, не сдвигается; срабатывание убирает и ставит снова", async () => {
     const s = fresh();
-    await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     const alarm = () => runInDurableObject(s, (_o, st) => st.storage.getAlarm());
     expect(await alarm()).toBe(T0 + DAY);
     clock(T0 + 3600_000);
-    await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect(await alarm()).toBe(T0 + DAY);
     clock(T0 + DAY);
     expect(await runDurableObjectAlarm(s)).toBe(true);
     expect(await alarm()).toBe(T0 + 2 * DAY);
-    const [l] = await s.frame({ type: "points.list", id: "l", to: ".points", from: "panel" });
+    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect((l.result as { sweep: { at: number } }).sweep.at).toBe(T0 + DAY);
   });
 
   it("через вход участника: reply и ledger.add — кадры ответа вызова, по порядку", async () => {
     await inR2("305a1");
     const sent = [
-      ...(await relay.frame({ type: "points.put", id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) })),
-      ...(await relay.frame({ type: "points.put", id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) })),
+      ...(await relay.frame({ type: "points.put", v: 1, id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) })),
+      ...(await relay.frame({ type: "points.put", v: 1, id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) })),
     ];
     expect(sent.map((x) => [x.type, x.to])).toEqual([
       ["reply", "@laptop"],

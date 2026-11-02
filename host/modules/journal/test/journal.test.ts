@@ -64,7 +64,7 @@ describe("эталоны journal", () => {
     expect(r).toMatchObject({ ok: false, error: "contract_mismatch" });
     const l = s.journal().find((x) => x.word === "contract_mismatch");
     expect(l).toMatchObject({ kind: "refuse", who: "core", from: "panel-desk~owner@example.com", id: "h-3" });
-    expect(l!.why).toContain("запрошена v1, у host-chat v2");
+    expect(l!.why).toContain("запрошена v1, здесь v2 (host-chat)");
   });
 
   it("98 · три api_retry 529 и result с ошибкой у site; cwd_unavailable у wiki", async () => {
@@ -89,7 +89,7 @@ describe("эталоны journal", () => {
   it("99 · machine.journal: since 14:00, kind stop — keeper, приложение и host по времени; part — одна часть; limit 1 — ранняя и more, since = её t — вторая; файлы не изменились", async () => {
     const home = mkdtempSync(join(tmpdir(), "switchboard-journal-"));
     const dir = join(home, "journal");
-    mkdirSync(dir);
+    mkdirSync(dir, { recursive: true });
     const L = (o: object) => JSON.stringify({ part: "host", machine: "laptop", ...o });
     const host = [
       L({ t: "2026-10-30T13:59:00.000Z", who: "core", kind: "stop", ev: "gate", why: "до since" }),
@@ -105,7 +105,8 @@ describe("эталоны journal", () => {
     ];
     writeFileSync(join(dir, "host-2026-10-30.jsonl"), host.join("\n") + "\n");
     writeFileSync(join(dir, "keeper-2026-10-30.jsonl"), keeper.join("\n") + "\n");
-    const before = readFileSync(join(dir, "host-2026-10-30.jsonl"), "utf8") + readFileSync(join(dir, "keeper-2026-10-30.jsonl"), "utf8");
+    // журнал пишет и ядро стенда в ту же папку (одна папка данных Host) — проверяется, что модуль ничего не менял в прежних строках
+    const before = { host: readFileSync(join(dir, "host-2026-10-30.jsonl"), "utf8"), keeper: readFileSync(join(dir, "keeper-2026-10-30.jsonl"), "utf8") };
     process.env.SWITCHBOARD_HOME = home;
     const s = await bench();
     const ask = (o: object) => s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", kind: ["stop"], ...o });
@@ -127,7 +128,8 @@ describe("эталоны journal", () => {
     expect(br.more).toBe(true);
     const c = await ask({ since: br.records[0].t, limit: 1 });
     expect((c.result as { records: Array<{ ev: string }>; more: boolean })).toMatchObject({ records: [{ ev: "part_exit" }], more: true });
-    expect(readFileSync(join(dir, "host-2026-10-30.jsonl"), "utf8") + readFileSync(join(dir, "keeper-2026-10-30.jsonl"), "utf8")).toBe(before);
+    expect(readFileSync(join(dir, "host-2026-10-30.jsonl"), "utf8").startsWith(before.host)).toBe(true);
+    expect(readFileSync(join(dir, "keeper-2026-10-30.jsonl"), "utf8")).toBe(before.keeper);
     expect(await ask({ since: "вчера", limit: 5 })).toMatchObject({ ok: false, error: "bad_frame" });
     expect(await ask({ since: "2026-10-30T14:00:00.000Z" })).toMatchObject({ ok: false, error: "bad_frame" });
   });
@@ -177,22 +179,25 @@ describe("journal: юнит и стыки", () => {
 });
 
 describe("journal: покрытие плана host-modules", () => {
-  it("3014 · machine.journal: session — строки одной сессии; журнала ещё нет — пусто", async () => {
+  it("3014 · machine.journal: session — строки одной сессии; строк после since нет — пусто", async () => {
     // источник: чьё: код (journal/contract.ts:2; journal.ts:80, :88)
     const home = mkdtempSync(join(tmpdir(), "switchboard-journal-"));
     process.env.SWITCHBOARD_HOME = home;
     const s = await bench();
     const ask = (o: object) => s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", ...o });
-    // папки журнала у стенда своя; здесь — SWITCHBOARD_HOME без журнала
-    expect(await ask({ since: "2026-10-30T00:00:00.000Z", limit: 5 })).toMatchObject({ ok: true, result: { records: [], more: false } });
+    // строк после since нет — пусто (папку журнала ядро заводит с первой строки)
+    expect(await ask({ since: "2099-01-01T00:00:00.000Z", limit: 5 })).toMatchObject({ ok: true, result: { records: [], more: false } });
     const dir = join(home, "journal");
-    mkdirSync(dir);
+    mkdirSync(dir, { recursive: true });
     const L = (o: object) => JSON.stringify({ part: "host", machine: "laptop", who: "core", kind: "note", ...o });
     writeFileSync(join(dir, "host-2026-10-30.jsonl"), [L({ t: "2026-10-30T10:00:00.000Z", ev: "a", callsign: "site@laptop" }), L({ t: "2026-10-30T10:01:00.000Z", ev: "b", callsign: "wiki@laptop" })].join("\n") + "\n");
     await s.open("site@laptop");
     const r = await ask({ since: "2026-10-30T00:00:00.000Z", limit: 5, session: "site@laptop" });
     expect(r).toMatchObject({ ok: true });
-    expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toEqual(["a"]);
+    // строки фикстуры: только своей сессии (свои строки ядра о site@laptop тоже проходят фильтр)
+    const evs = (r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev);
+    expect(evs).toContain("a");
+    expect(evs).not.toContain("b");
   });
 
   it("3106 · журнал убранной сессии: запрос клиента через relay с session — её строки, а не offline", async () => {
@@ -201,7 +206,7 @@ describe("journal: покрытие плана host-modules", () => {
     process.env.SWITCHBOARD_HOME = home;
     const s = await bench();
     const dir = join(home, "journal");
-    mkdirSync(dir);
+    mkdirSync(dir, { recursive: true });
     const L = (o: object) => JSON.stringify({ part: "host", machine: "laptop", who: "core", kind: "note", ...o });
     writeFileSync(join(dir, "host-2026-10-30.jsonl"), L({ t: "2026-10-30T10:00:00.000Z", ev: "gone", callsign: "old@laptop" }) + "\n" + L({ t: "2026-10-30T10:01:00.000Z", ev: "other", callsign: "live@laptop" }) + "\n");
     const r = await s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", session: "old@laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 });

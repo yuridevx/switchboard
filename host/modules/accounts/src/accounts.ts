@@ -6,7 +6,6 @@
 // С claude говорит короткими процессами без сессии (host.probe) и командой claude auth status (host.cli).
 import { existsSync, lstatSync, mkdirSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import type { Stats } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { refuse } from "@switchboard/host";
 import type { Frame, Host, Module, Probe } from "@switchboard/host";
@@ -38,7 +37,6 @@ const NAME = /^[A-Za-z0-9_-]+$/;
 /** Проверка входа — раз в 2 мин, как в claude-fleet. */
 export const CHECK_MS = 120_000;
 
-export const switchboardHome = () => process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
 const sec = () => Math.floor(Date.now() / 1000);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const lstat = (p: string): Stats | null => {
@@ -113,7 +111,7 @@ export function make(): Module {
 
   const store = () => host.store<Accounts>();
   const all = (): Accounts => store().get() ?? {};
-  const dirOf = (name: string) => join(switchboardHome(), "accounts", name);
+  const dirOf = (name: string) => join(host.dataDir, "accounts", name);
   const env = (name: string): Record<string, string> => ({ CLAUDE_CONFIG_DIR: dirOf(name) });
   const save = (name: string, fn: (a: Account | undefined) => Account | undefined) =>
     store().update((cur = {}) => {

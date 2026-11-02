@@ -1,6 +1,6 @@
 // Реестр «имя → владелец» и гейт старта Host: тот же check гейта монорепо над списком модулей,
 // плюс устройство кода: обработчики — ровно имена provides, calls — методы закреплённого SDK, решения — по одному владельцу.
-import { check } from "@switchboard/manifest-gate";
+import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
 import type { Manifest } from "../contract.ts";
 import { CORE_ONLY, isCallable } from "./calls.ts";
 import type { ModuleEntry } from "./release.ts";
@@ -8,8 +8,7 @@ import type { ModuleEntry } from "./release.ts";
 /** Поля записи сессии, которые держит ядро. */
 export const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk"]);
 
-export const nameOf = (ref: string) => ref.slice(0, ref.lastIndexOf("@"));
-export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
+export { nameOf, ownerOf };
 
 /**
  * Гейт набора модулей Host. Пустой список — набор годен.

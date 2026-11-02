@@ -1,7 +1,7 @@
 // Реестр точек: SQLite своего объекта. Хозяин сессии, линия и ветки, правило хранения,
 // какие блоки уже в R2, временные ключи R2, уборка раз в сутки и удаление сессии сразу.
 import { DurableObject } from "cloudflare:workers";
-import { fail, machineOf, ok, type Frame } from "@switchboard/protocol";
+import { accepts, fail, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type ListedPoint, type Point, type PointFile, type Why } from "../contract.ts";
 import { R2Failed, tempCreds } from "./creds.ts";
@@ -85,9 +85,8 @@ export class Registry extends DurableObject<Env> {
       log({ kind: "note", ev: "reply", from, why: "points ответов не ждёт" });
       return [];
     }
-    const v = (CONTRACT as Record<string, number>)[f.type];
-    if (v === undefined) return refuse(new Refusal("unknown_request", `points не обслуживает ${f.type}`));
-    if (f.v !== undefined && f.v !== v) return refuse(new Refusal("contract_mismatch", `${f.type} v${f.v} — у points v${v}`));
+    const bad = accepts(f, CONTRACT);
+    if (bad) return refuse(new Refusal(bad.word, bad.why));
     if (!f.id) return refuse(new Refusal("bad_frame", `${f.type} без id — ответить некому`));
     const id = f.id;
 

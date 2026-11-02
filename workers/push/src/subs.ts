@@ -1,6 +1,6 @@
 // Объект подписок push: одна строка на клиента в SQLite; push.key, push.subscribe, push.send.
 import { DurableObject } from "cloudflare:workers";
-import { fail, kindOf, ok, reaches, type Frame } from "@switchboard/protocol";
+import { accepts, fail, kindOf, ok, reaches, type Frame } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
@@ -32,9 +32,8 @@ export class Subs extends DurableObject<Env> {
       log({ kind: "note", ev: "reply", from, why: "push ответов не ждёт" });
       return [];
     }
-    const v = (CONTRACT as Record<string, number>)[f.type];
-    if (v === undefined) return refuse("unknown_request", `push не обслуживает ${f.type}`);
-    if (f.v !== undefined && f.v !== v) return refuse("contract_mismatch", `${f.type} v${f.v} — у push v${v}`);
+    const bad = accepts(f, CONTRACT);
+    if (bad) return refuse(bad.word, bad.why);
 
     const sql = this.ctx.storage.sql;
     switch (f.type) {

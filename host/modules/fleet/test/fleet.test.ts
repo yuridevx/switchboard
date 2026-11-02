@@ -132,7 +132,7 @@ describe("fleet: инструменты и вклад", () => {
   it("fleet.list до первого roster — ошибка инструмента со словом disconnected", async () => {
     // выжимку roster закрепляет эталон 302; здесь — только ветка «roster ещё не пришёл»
     const fresh = make();
-    await fresh.module.start!({} as never);
+    await fresh.module.start!({ roster: () => null } as never);
     const off = await fresh.tools("site@laptop").find((t) => t.name === "list")!.handler({}, {});
     expect(off).toEqual({ content: [{ type: "text", text: "Нет связи с relay (disconnected): список сессий неизвестен" }], isError: true });
   });
@@ -143,7 +143,7 @@ describe("fleet: инструменты и вклад", () => {
     st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
     await st.open("site@laptop");
     expect(await call("site@laptop", "send", { to: "phone~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: phone~owner@example.com" }] });
-    expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "phone~owner@example.com", text: "Готово" }]);
+    expect(st.relay.frames("message")).toEqual([{ type: "message", v: 1, from: "site@laptop", to: "phone~owner@example.com", text: "Готово" }]);
     const push = await until(() => st.relay.frames("push.send")[0]);
     expect(push).toMatchObject({ v: 1, to: ".push", push: { to: "phone~owner@example.com", type: "message", from: "site@laptop", notify: { title: "site@laptop", body: "Готово" } } });
   });
@@ -197,7 +197,7 @@ describe("fleet: покрытие плана host-modules", () => {
     st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
     await st.open("site@laptop");
     expect(await call("site@laptop", "send", { to: "~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: ~owner@example.com" }] });
-    expect(st.relay.frames("message")).toEqual([{ type: "message", from: "site@laptop", to: "~owner@example.com", text: "Готово" }]);
+    expect(st.relay.frames("message")).toEqual([{ type: "message", v: 1, from: "site@laptop", to: "~owner@example.com", text: "Готово" }]);
     await new Promise((r) => setTimeout(r, 20));
     expect(st.relay.frames("push.send").map((f) => (f.push as { to: string; skip?: unknown }))).toEqual([expect.objectContaining({ to: "~owner@example.com" })]);
     expect((st.relay.frames("push.send")[0].push as { skip?: unknown }).skip).toBeUndefined();

@@ -1,6 +1,6 @@
 // Объект журнала флота: одна таблица events в SQLite. Записи не удаляются.
 import { DurableObject } from "cloudflare:workers";
-import { fail, machineOf, ok, type Frame } from "@switchboard/protocol";
+import { accepts, fail, machineOf, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type LedgerEvent } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
@@ -45,9 +45,10 @@ export class Journal extends DurableObject<Env> {
       log({ kind: "note", ev: "reply", from, why: "ledger ответов не ждёт" });
       return [];
     }
+    // machine.left и machine.back в договоре — кадры, которые ledger рассылает сам; принимает он только два запроса
     if (f.type !== "ledger.add" && f.type !== "ledger.read") return refuse("unknown_request", `ledger не обслуживает ${f.type}`);
-    const v = CONTRACT[f.type];
-    if (f.v !== undefined && f.v !== v) return refuse("contract_mismatch", `${f.type} v${f.v} — у ledger v${v}`);
+    const bad = accepts(f, CONTRACT);
+    if (bad) return refuse(bad.word, bad.why);
 
     if (f.type === "ledger.add") {
       if (typeof f.ev !== "string" || !f.ev) return refuse("bad_frame", "в ledger.add нет ev");

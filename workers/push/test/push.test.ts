@@ -13,7 +13,7 @@ const home = () => env.SUBS.get(env.SUBS.idFromName("home"));
 const frame = (f: Frame) => relay.frame(f);
 
 async function subscribe(client: string, u: Ua, endpoint: string) {
-  const out = await frame({ type: "push.subscribe", id: "u-" + client, to: ".push", from: client, sub: sub(u, endpoint) });
+  const out = await frame({ type: "push.subscribe", v: 1, id: "u-" + client, to: ".push", from: client, sub: sub(u, endpoint) });
   expect(out).toEqual([{ type: "reply", id: "u-" + client, ok: true, to: client }]);
 }
 
@@ -154,7 +154,7 @@ describe("эталоны push", () => {
   });
 
   it("124 · push.key — несжатая точка P-256 из x и y JWK; настройки VAPID_PUBLIC нет", async () => {
-    const out = await frame({ type: "push.key", id: "k-1", to: ".push", from: "phone" });
+    const out = await frame({ type: "push.key", v: 1, id: "k-1", to: ".push", from: "phone" });
     const key = unb64u((out[0] as unknown as { result: { key: string } }).result.key);
     expect(key.length).toBe(65);
     expect(key[0]).toBe(4);
@@ -180,13 +180,13 @@ describe("push: отказы и стык с relay", () => {
       [{ ...good, keys: { ...good.keys, auth: "!!!" } }, "ключи подписки — не base64url"],
     ];
     for (const [s, why] of bad) {
-      const out = await frame({ type: "push.subscribe", id: "u-2", to: ".push", from: "tab", sub: s });
+      const out = await frame({ type: "push.subscribe", v: 1, id: "u-2", to: ".push", from: "tab", sub: s });
       expect(out, why).toEqual([{ type: "reply", id: "u-2", ok: false, error: "bad_frame", to: "tab" }]);
       expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why, from: "tab" }));
     }
     expect((await table()).find((r) => r.client === "tab")?.endpoint).toBe("https://web.push.apple.com/tab");
     // без from — имя клиента некому поставить
-    await relay.frame({ type: "push.subscribe", id: "u-3", to: ".push", sub: good });
+    await relay.frame({ type: "push.subscribe", v: 1, id: "u-3", to: ".push", sub: good });
     expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why: "нет from — имя клиента ставит relay" }));
   });
 
@@ -213,11 +213,11 @@ describe("push: отказы и стык с relay", () => {
     await subscribe("phone2018", phone, "https://push.example/2018");
     const svc = fakeService(201);
     const bad: Frame[] = [
-      { type: "push.send", id: "b-1", to: ".push", from: "@pc" },
-      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { type: "question", notify: {} } },
-      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", notify: {} } },
-      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", type: "question" } },
-      { type: "push.send", id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", skip: "pult", type: "question", notify: {} } },
+      { type: "push.send", v: 1, id: "b-1", to: ".push", from: "@pc" },
+      { type: "push.send", v: 1, id: "b-1", to: ".push", from: "@pc", push: { type: "question", notify: {} } },
+      { type: "push.send", v: 1, id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", notify: {} } },
+      { type: "push.send", v: 1, id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", type: "question" } },
+      { type: "push.send", v: 1, id: "b-1", to: ".push", from: "@pc", push: { to: "phone2018", skip: "pult", type: "question", notify: {} } },
       send("b-1", "phone2018", { title: "x".repeat(5000) }),
     ];
     for (const f of bad) expect(await frame(f)).toMatchObject([{ id: "b-1", ok: false, error: "bad_frame" }]);
@@ -284,7 +284,12 @@ describe("push: отказы и стык с relay", () => {
     expect((await table()).some((r) => r.client === "tab~yuri2088@example.com")).toBe(false);
   });
 
+  it("2096 · запрос без v — contract_mismatch, как у ядра Host", async () => {
+    // источник: чьё: код (protocol accepts — v обязателен)
+    expect(await frame({ type: "push.key", id: "k-2096", to: ".push", from: "phone" })).toMatchObject([{ id: "k-2096", ok: false, error: "contract_mismatch" }]);
+  });
+
   it("кадр без id — push отвечать некому, кадров в relay нет", async () => {
-    expect(await frame({ type: "push.key", to: ".push", from: "phone" })).toEqual([]);
+    expect(await frame({ type: "push.key", v: 1, to: ".push", from: "phone" })).toEqual([]);
   });
 });

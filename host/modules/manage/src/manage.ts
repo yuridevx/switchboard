@@ -4,8 +4,8 @@
 // (родитель) и отметку «убрать после хода». Папку держит ядро, слот — slots, профиль — profiles, заголовок — файл разговора.
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, sep } from "node:path";
-import { refuse } from "@switchboard/host";
+import { sep } from "node:path";
+import { clientPath, refuse } from "@switchboard/host";
 import type { Ctx, Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
 
 /** Спецификация сессии: выбор клиента. Нет поля — значение по умолчанию claude. */
@@ -68,7 +68,6 @@ export function manage(o: ManageOptions = {}): Module {
   const pending = new Map<string, { spec: Spec; title: string; parent?: string }>();
 
   const tilde = (p: string) => (p === home ? "~" : p.startsWith(home + sep) ? "~/" + p.slice(home.length + 1).split(sep).join("/") : p);
-  const expand = (p: string) => (p === "~" ? home : p.startsWith("~/") ? join(home, ...p.slice(2).split("/")) : p);
   const recOf = (s: Session) => s.store<Rec>().get() ?? {};
   const specOfSession = (s: Session): Spec => {
     const { parent: _p, remove_after_turn: _r, ...spec } = recOf(s);
@@ -85,7 +84,7 @@ export function manage(o: ManageOptions = {}): Module {
   }
 
   function ledger(host: Host, ev: string, text: string, ctx: { from?: string }, callsign: string): void {
-    const r = host.emit({ type: "ledger.add", to: ".ledger", v: 1, ev, text, ...(ctx.from ? { by: ctx.from } : {}), machine: host.machine, callsign });
+    const r = host.emit({ type: "ledger.add", to: ".ledger", ev, text, ...(ctx.from ? { by: ctx.from } : {}), machine: host.machine, callsign });
     if (!r.ok) host.log({ kind: "note", ev: "ledger", word: r.error, callsign, why: `${ev} не записан в журнал флота: ${r.error}` });
   }
 
@@ -144,8 +143,8 @@ export function manage(o: ManageOptions = {}): Module {
         if (req.number !== undefined && typeof req.number !== "boolean") throw refuse("bad_spec", `session.open ${name}: number`);
         const asked = `${name}@${host.machine}`;
         const dir = req.dir;
-        if (typeof dir !== "string" || !(dir === "~" || dir.startsWith("~/") || isAbsolute(dir))) throw refuse("bad_spec", `session.open ${asked}: папка ${JSON.stringify(dir)} не от ~ и не полная`);
-        const cwd = expand(dir);
+        const cwd = typeof dir === "string" ? clientPath(dir, home) : null;
+        if (!cwd) throw refuse("bad_spec", `session.open ${asked}: папка ${JSON.stringify(dir)} не от ~ и не полная`);
         let isDir = false;
         try {
           isDir = statSync(cwd).isDirectory();
@@ -171,7 +170,7 @@ export function manage(o: ManageOptions = {}): Module {
           // профиль и слот — их владельцам, до старта
           for (const [type, key] of [["session.profile", "profile"], ["session.slot", "slot"]] as const) {
             if (req[key] === undefined) continue;
-            const r = await host.request(type, { v: 1, callsign, [key]: req[key] });
+            const r = await host.request(type, { callsign, [key]: req[key] });
             if (!r.ok) throw refuse(r.error, `session.open ${callsign}: ${type} — ${r.error}`);
           }
           let s: Session;

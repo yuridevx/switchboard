@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress } from "./contract.ts";
+import { accepts, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -79,6 +79,15 @@ describe("protocol: конверт кадра", () => {
     expect(hostOf({ to: ".push", callsign: "site@win" })).toBeNull();
     expect(hostOf({ callsign: "wiki" })).toBeNull();
     expect(hostOf({})).toBeUndefined();
+  });
+
+  it("2095 · приём запроса — одно правило: имя обслуживается, версия совпадает, v обязателен", () => {
+    // источник: чьё: код (ядро Host отказывало кадру без v, службы пропускали — итерация 6 ревью свела к одному правилу)
+    const provides = { "push.send": 1 };
+    expect(accepts({ type: "push.send", v: 1 }, provides)).toBeNull();
+    expect(accepts({ type: "push.send" }, provides)).toMatchObject({ word: "contract_mismatch" });
+    expect(accepts({ type: "push.send", v: 2 }, provides)).toMatchObject({ word: "contract_mismatch" });
+    expect(accepts({ type: "toString", v: 1 }, provides)).toMatchObject({ word: "unknown_request" });
   });
 
   it("2005 · голое имя и обрубки — не адрес", () => {

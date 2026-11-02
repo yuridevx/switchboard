@@ -111,8 +111,8 @@ describe("эталоны manage", () => {
     const r = await mod.requests!["session.open"]({ type: "session.open", id: "c-7", v: 1, machine: "laptop", name: "board", dir, profile: "team/profiles/ops", slot: "main" }, ctx);
     expect(r).toEqual({ callsign: "board@laptop", session_id: "42bc5ad4" });
     expect(log.map((l) => l[0])).toEqual(["session.profile", "session.slot", "host.open", "query()", "emit"]);
-    expect(log[0][1]).toEqual({ v: 1, callsign: "board@laptop", profile: "team/profiles/ops" });
-    expect(log[1][1]).toEqual({ v: 1, callsign: "board@laptop", slot: "main" });
+    expect(log[0][1]).toEqual({ callsign: "board@laptop", profile: "team/profiles/ops" });
+    expect(log[1][1]).toEqual({ callsign: "board@laptop", slot: "main" });
     expect(log[2][1]).toEqual({ callsign: "board@laptop", cwd: dir });
     const part = log[3][1] as QueryPart;
     expect(part).toMatchObject({ enableFileCheckpointing: true, title: "board" });

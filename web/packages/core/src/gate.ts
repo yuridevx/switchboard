@@ -1,7 +1,7 @@
 // Гейт набора экранов при старте приложения: у экрана, метки, принимаемого кадра и раздела
 // хранилища один модуль; каждое uses к модулю выпуска есть в provides владельца той же версии.
 // Правила владельцев и версий — общий гейт манифестов монорепо; здесь к ним добавлено устройство кода.
-import { check, type Manifest as GateManifest } from "@switchboard/manifest-gate";
+import { check, nameOf, ownerOf, type Manifest as GateManifest } from "@switchboard/manifest-gate";
 import core from "../module.json" with { type: "json" };
 import type { AppPart, Manifest } from "./types.ts";
 
@@ -11,8 +11,7 @@ export const CORE: Manifest = core;
 /** Разделы хранилища ядра: key — ключ флота устройства (его читает и обработчик пушей). */
 export const CORE_STORE = ["key"];
 
-export const nameOf = (ref: string) => ref.slice(0, ref.lastIndexOf("@"));
-export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
+export { nameOf, ownerOf };
 const stores = (names: string[]) => Object.fromEntries(names.map((s) => [`store.${s}`, 1]));
 
 /** Проверить набор модулей выпуска. Пустой список — годен; иначе — причины словами. */
