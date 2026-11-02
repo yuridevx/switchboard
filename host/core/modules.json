@@ -14,5 +14,6 @@
   "host-remote",
   "host-parts",
   "host-shell",
-  "host-incidents"
+  "host-incidents",
+  "host-keys"
 ]

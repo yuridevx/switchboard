@@ -3,5 +3,6 @@ import { startApp } from "@switchboard/web-core";
 import { phoneParts } from "../contract.ts";
 
 declare const RELAY_URL: string;
+declare const WORKERS: Record<string, string>;
 
-startApp({ root: document.getElementById("app")!, relayUrl: RELAY_URL, parts: phoneParts() });
+startApp({ root: document.getElementById("app")!, relayUrl: RELAY_URL, workers: WORKERS, parts: phoneParts() });

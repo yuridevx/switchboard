@@ -1,8 +1,8 @@
 // Живые аккаунты и слоты на машине — до шага, где нужен человек: настоящая ссылка входа claude.ai,
 // отказ на неверный код, список аккаунтов, слот без аккаунтов. env: FLOW_CLIENT_KEY, FLOW_MACHINE.
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const machine = process.env.FLOW_MACHINE!;
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {

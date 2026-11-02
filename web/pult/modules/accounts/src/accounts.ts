@@ -89,7 +89,11 @@ export function createAccounts(): AppModule {
   /** Открыли экран: каждой машине — machine.accounts { max_age: 120 } и machine.slots; затем расход почты — её машинам. */
   /** первый ответ machine.accounts ещё не пришёл: опрос лимитов занимает секунды — экран пишет «загружаю», а не «нет» */
   let loaded = false;
+  /** машины, чьи аккаунты и слоты уже взяты: новая в roster — догрузить */
+  const known = new Set<string>();
+
   async function loadAll() {
+    for (const m of [...machines("machine.accounts"), ...machines("machine.slots")]) known.add(m);
     await Promise.all([...machines("machine.accounts").map((m) => loadAccounts(m, 120)), ...machines("machine.slots").map((m) => loadSlots(m))]);
     loaded = true;
     redraw();
@@ -132,6 +136,12 @@ export function createAccounts(): AppModule {
       prevAccount.set(s.callsign, s.account);
     }
     if (!screens.size) return;
+    // машина пришла своим соединением позже — взять её аккаунты и слоты
+    for (const m of new Set([...machines("machine.accounts"), ...machines("machine.slots")])) {
+      if (known.has(m)) continue;
+      known.add(m);
+      changed.add(m);
+    }
     for (const m of changed) {
       if (!m) continue;
       void Promise.all([can(m, "machine.slots") ? loadSlots(m) : null, can(m, "machine.accounts") ? loadAccounts(m) : null]).then(redraw);
@@ -211,6 +221,8 @@ export function createAccounts(): AppModule {
     let view = params.view === "slots" ? "slots" : "accounts";
     let dlg: Dlg = params.machine && can(params.machine, "machine.login") ? { kind: "new", machine: params.machine, name: "", err: "" } : null;
     let slotMachine = params.machine && can(params.machine, "machine.slots") ? params.machine : (machines("machine.slots")[0] ?? "");
+    // машина из адреса может прийти позже первого roster: выбрать её, пока человек не выбрал другую
+    let slotChosen = slotMachine === params.machine;
     const notes = new Map<string, { text: string; tone: string }>();
     const note = (k: string, text: string, tone = "") => {
       notes.set(k, { text, tone });
@@ -425,7 +437,7 @@ export function createAccounts(): AppModule {
     // ───── вид «Слоты» ─────
     function drawSlots() {
       const ms = machines("machine.slots");
-      box.append(h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === slotMachine ? "true" : "false", onclick: () => ((slotMachine = m), draw()) }, m))));
+      box.append(h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === slotMachine ? "true" : "false", onclick: () => ((slotMachine = m), (slotChosen = true), draw()) }, m))));
       const m = slotMachine;
       const list = slots.get(m) ?? {};
       const a = accs.get(m) ?? {};
@@ -490,6 +502,10 @@ export function createAccounts(): AppModule {
     }
 
     function draw() {
+      if (!slotChosen && params.machine && can(params.machine, "machine.slots")) {
+        slotMachine = params.machine;
+        slotChosen = true;
+      }
       box.textContent = "";
       box.append(
         h(

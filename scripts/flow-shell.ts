@@ -7,7 +7,7 @@
 //      через «выпуски» посреди фонового запуска и поднять снова.
 import { existsSync } from "node:fs";
 import zlib from "node:zlib";
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const A = process.env.FLOW_A ?? "win";
 const B = process.env.FLOW_B ?? "wsl";
@@ -15,7 +15,7 @@ const model = process.env.FLOW_MODEL ?? "claude-haiku-4-5";
 const name = "shellflow";
 const cs = `${name}@${A}`;
 const mark = Math.random().toString(36).slice(2, 8);
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 
 const fails: string[] = [];
 let oks = 0;

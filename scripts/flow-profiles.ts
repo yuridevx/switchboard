@@ -2,13 +2,14 @@
 // CLAUDE.md и модель профиля), память профиля уходит в репозиторий и приходит на другую машину, профиль в session.open,
 // снятие профиля. Репозиторий — в host.json обеих машин (раздел host-profiles). env: FLOW_CLIENT_KEY,
 // FLOW_FROM_MACHINE, FLOW_TO_MACHINE, FLOW_DIR, FLOW_REPO (владелец/имя), FLOW_PROFILE (папка профиля в репозитории).
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const M1 = process.env.FLOW_FROM_MACHINE!;
 const M2 = process.env.FLOW_TO_MACHINE!;
 const dir = process.env.FLOW_DIR!;
 const ID = `${process.env.FLOW_REPO}/${process.env.FLOW_PROFILE}`;
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 300)}`);

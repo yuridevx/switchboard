@@ -363,13 +363,14 @@ describe("договор модуля: Host", () => {
     const chat = module("host-chat", { requests: { "session.prompt": () => 1 } });
     const st = await stand({ modules: [a, chat], relay: false });
     expect(await host.request("session.prompt", { v: 1, callsign: "x@pc" })).toEqual({ ok: false, error: "disconnected" });
+    // relay закрыл навсегда — запрос к сессии другой машины: disconnected; Worker'ы — POST, от relay не зависят
     let host2!: Host;
-    const b = module("host-b", { start: (h) => void (host2 = h) }, { uses: { "points.list@points": 1 } });
+    const b = module("host-b", { start: (h) => void (host2 = h) }, { uses: { "session.prompt@host-chat": 1 } });
     const st2 = await stand({ modules: [b], start: false });
     st2.relay.refuse = ["revoked"];
     await st2.start();
     await until(() => lines(st2, "relay_stopped").length === 1);
-    expect(await host2.request("points.list", { v: 1 })).toEqual({ ok: false, error: "disconnected" });
+    expect(await host2.request("session.prompt", { v: 1, callsign: "x@pc" })).toEqual({ ok: false, error: "disconnected" });
     expect([...lines(st, "module_failed"), ...lines(st2, "module_failed")]).toEqual([]);
   });
 

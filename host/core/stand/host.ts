@@ -136,7 +136,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
   let crashed = false;
   const config: HostConfig = {
     machine,
-    ...(o.relay === false ? {} : { workers: { relay: { url: "wss://relay.stand" } } }),
+    ...(o.relay === false ? {} : { relay: "wss://relay.stand", workers: FakeRelay.WORKERS }),
     ...(o.config ?? {}),
   };
   const kernel = new Kernel({
@@ -148,6 +148,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     holders,
     relayKey: `host.${machine}.k7f3.stand`,
     WebSocket: relay.WebSocket,
+    fetch: relay.fetch,
     clock,
     exit: (code) => exits.push(code),
     pauseMs: o.pauseMs ?? 1000,

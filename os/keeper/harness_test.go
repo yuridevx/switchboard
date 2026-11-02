@@ -147,11 +147,73 @@ type fakeRelay struct {
 	refuse string           // не пусто — «выпуски» отвечают на вопрос отказом с этим словом
 	hello  map[string]any   // последний hello keeper
 	opens  int              // принятых hello
+	path   string           // путь вебсокета последнего входа: /m/<машина>
+	keys   []string         // пропуска в POST к Worker'ам
 }
+
+// planReply — ответ «Выпусков» на вопрос о плане: план, отказ словом или молчание.
+func (r *fakeRelay) planReply(f map[string]any) (map[string]any, bool) {
+	r.mu.Lock()
+	p := r.plan
+	r.asks++
+	r.asked = append(r.asked, f)
+	quiet := r.asks <= r.silent
+	word := r.refuse
+	r.mu.Unlock()
+	if quiet {
+		return nil, false
+	}
+	if word != "" {
+		return map[string]any{"type": "reply", "id": f["id"], "ok": false, "error": word}, true
+	}
+	return map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": p}, true
+}
+
+// serveWorker — POST к Worker'ам флота: /releases (план), /ledger (журнал), /gate (приём приглашения).
+func (r *fakeRelay) serveWorker(w http.ResponseWriter, req *http.Request) {
+	var f map[string]any
+	json.NewDecoder(req.Body).Decode(&f)
+	r.mu.Lock()
+	r.keys = append(r.keys, fmt.Sprint(f["key"]))
+	r.mu.Unlock()
+	switch req.URL.Path {
+	case "/releases":
+		out, ok := r.planReply(f)
+		if !ok {
+			<-req.Context().Done()
+			return
+		}
+		json.NewEncoder(w).Encode(out)
+	case "/ledger":
+		r.mu.Lock()
+		r.ledger = append(r.ledger, f)
+		r.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	case "/gate":
+		inv := fmt.Sprint(f["invite"])
+		switch {
+		case strings.HasPrefix(inv, "win1."):
+			json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": map[string]any{"key": "host.win.win1.SECRET"}})
+		case strings.HasPrefix(inv, "phn1."):
+			json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": map[string]any{"key": "client.phone.phn1.SECRET"}})
+		default:
+			json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": f["id"], "ok": false, "error": "bad_invite"})
+		}
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+// workerURL — адрес Worker'а стенда.
+func (r *fakeRelay) workerURL(name string) string { return r.srv.URL + "/" + name }
 
 func newFakeRelay(t *testing.T) *fakeRelay {
 	r := &fakeRelay{t: t, reply: map[string]chan map[string]any{}, opened: make(chan struct{}, 10)}
 	r.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		if req.Method == http.MethodPost {
+			r.serveWorker(w, req)
+			return
+		}
 		ws, err := websocket.Accept(w, req, nil)
 		if err != nil {
 			return
@@ -171,6 +233,7 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		r.ws = ws
 		r.hello = hello
 		r.opens++
+		r.path = req.URL.Path
 		r.mu.Unlock()
 		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster","machines":[],"sessions":[],"clients":[],"workers":[]}`))
 		r.opened <- struct{}{}
@@ -186,26 +249,6 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 			var f map[string]any
 			json.Unmarshal(b, &f)
 			switch f["type"] {
-			case "releases.plan":
-				r.mu.Lock()
-				p := r.plan
-				r.asks++
-				r.asked = append(r.asked, f)
-				quiet := r.asks <= r.silent
-				word := r.refuse
-				r.mu.Unlock()
-				if quiet {
-					continue
-				}
-				out, _ := json.Marshal(map[string]any{"type": "reply", "id": f["id"], "ok": true, "result": p})
-				if word != "" {
-					out, _ = json.Marshal(map[string]any{"type": "reply", "id": f["id"], "ok": false, "error": word})
-				}
-				ws.Write(ctx, websocket.MessageText, out)
-			case "ledger.add":
-				r.mu.Lock()
-				r.ledger = append(r.ledger, f)
-				r.mu.Unlock()
 			case "reply":
 				r.mu.Lock()
 				c := r.reply[fmt.Sprint(f["id"])]
@@ -408,7 +451,7 @@ func newStand(t *testing.T) *stand {
 	home := t.TempDir()
 	s := &stand{t: t, home: home, relay: newFakeRelay(t), links: newLinks(t)}
 	os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.ab12.sig\n"), 0o600)
-	writeConf(home, map[string]any{"relay": s.relay.url()})
+	writeConf(home, map[string]any{"relay": s.relay.url(), "workers": map[string]any{"releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	return s

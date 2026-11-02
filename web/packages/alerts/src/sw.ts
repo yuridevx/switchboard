@@ -3,6 +3,7 @@
 // Нажатие — открыть приложение (пуш уйдёт модулю-владельцу); кнопка (Android) — короткое wss:
 // hello с ключом из хранилища, кадр кнопки, reply, close(1000).
 import { link, type Frame, type Reply, type WsCtor } from "@switchboard/relay";
+import { hostOf } from "@switchboard/protocol";
 import type { Store } from "@switchboard/web-core";
 
 /** То, что показать: заголовок, текст, кнопки с кадром; tag — id вопроса, тот же tag заменяет уведомление. */
@@ -43,14 +44,16 @@ export type SwOptions = {
   WebSocket?: WsCtor;
 };
 
-/** Отправить кадр по короткому соединению: hello с ключом, кадр, reply, close(1000). */
+/** Отправить кадр по короткому соединению с relay машины адресата: hello с пропуском, кадр, reply, close(1000). */
 export async function sendOnce(o: Pick<SwOptions, "relayUrl" | "store" | "WebSocket">, frame: Frame): Promise<Reply> {
   const key = await o.store.get<string>("key");
   if (!key) return { type: "reply", id: "", ok: false, error: "no_key" };
+  const machine = hostOf(frame);
+  if (!machine) return { type: "reply", id: "", ok: false, error: "bad_frame" };
   return new Promise<Reply>((resolve) => {
     let done = false;
     const l = link({
-      url: o.relayUrl,
+      url: `${o.relayUrl.replace(/\/$/, "")}/m/${machine}`,
       key,
       WebSocket: o.WebSocket,
       onState(s, why) {

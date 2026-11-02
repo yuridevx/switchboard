@@ -1,9 +1,9 @@
 // Живая переписка сессий: просим сессию A отправить сообщение сессии B инструментом fleet,
 // ждём, что B получила его во вводе; затем — что у A нет ListAgents (переписка Claude Code выключена).
 // env: FLOW_CLIENT_KEY, FLOW_FROM (a@m1), FLOW_TO (b@m2).
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const from = process.env.FLOW_FROM!;
 const to = process.env.FLOW_TO!;
 const mark = "метка-" + Math.random().toString(36).slice(2, 7);

@@ -57,7 +57,7 @@ describe("эталоны телефона", () => {
     const t = await stand(phoneParts(fakeBrowser()), { relay });
     expect(t.run.stopped).toBeNull();
     expect(t.run.failed).toEqual({});
-    expect(relay.hellos).toHaveLength(1);
+    expect(relay.hellos).toHaveLength(2); // hello — на каждую машину флота: laptop и pc
     expect(t.$(".sb-bt b")!.textContent).toBe("Флот");
   });
 

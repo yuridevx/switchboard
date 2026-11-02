@@ -8,7 +8,11 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
-  "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
+  "services": [
+    { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
+    // план keeper'у — в объект relay его машины
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Relay" }
+  ],
   "preview_urls": false,
   "observability": { "enabled": true },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
@@ -33,7 +37,10 @@
   "env": {
     "prod": {
       "workers_dev": false,
-      "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
+      "services": [
+        { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
+        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Relay" }
+      ],
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
       "durable_objects": { "bindings": [{ "name": "RELEASES", "class_name": "Releases" }] },
       "vars": {

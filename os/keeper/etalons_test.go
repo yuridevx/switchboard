@@ -1897,11 +1897,12 @@ func TestEtStopClosesLink(t *testing.T) {
 	}
 }
 
-// Установка: ключ машины — первой строкой stdin в machine.key; keeper.json — node из PATH полным путём, relay из
-// флага, незнакомые поля целы; файл keeper — на постоянном месте; без relay — предупреждение словами (CLAUDE.md:
-// «машину ставит сам keeper (keeper install, ключ машины — stdin)»; устав: секреты через stdin; чьё: код —
-// main.go prepareConf, placeSelf, conf.go «Незнакомые поля сохраняются как есть»).
+// 5084 · Установка: приглашение машины — первой строкой stdin; keeper принимает его POST gate.redeem и кладёт пропуск
+// в machine.key; keeper.json — node из PATH полным путём, relay и Worker'ы из флагов, незнакомые поля целы; файл keeper —
+// на постоянном месте (дизайн «Открытый флот»: «установка keeper принимает приглашение сама»; устав: секреты через stdin;
+// чьё: код — main.go prepareConf, placeSelf, conf.go «Незнакомые поля сохраняются как есть»).
 func TestEtInstallConf(t *testing.T) {
+	r := newFakeRelay(t)
 	home := t.TempDir()
 	t.Setenv("SWITCHBOARD_HOME", home)
 	bin := t.TempDir()
@@ -1909,14 +1910,16 @@ func TestEtInstallConf(t *testing.T) {
 	os.WriteFile(node, []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("PATH", bin)
 	writeConf(home, map[string]any{"site": "lab"})
-	if err := prepareConf(installFlags{relay: "wss://relay.test"}, bufio.NewReader(strings.NewReader("host.win.ab12.sig\r\npassword\n"))); err != nil {
+	f, _ := parseInstall([]string{"--relay", "wss://relay.test", "--worker", "gate=" + r.workerURL("gate"), "--worker", "releases=https://releases.test/", "--worker", "ledger=https://ledger.test/"})
+	if err := prepareConf(f, bufio.NewReader(strings.NewReader("win1.INVITE\r\npassword\n"))); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); string(b) != "host.win.ab12.sig\n" {
+	if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); string(b) != "host.win.win1.SECRET\n" {
 		t.Fatalf("machine.key %q", b)
 	}
 	m, _ := readConf(home)
-	if m["node"] != node || m["relay"] != "wss://relay.test" || m["site"] != "lab" {
+	w := confMap(m, "workers")
+	if m["node"] != node || m["relay"] != "wss://relay.test" || m["site"] != "lab" || w["releases"] != "https://releases.test/" || w["ledger"] != "https://ledger.test/" {
 		t.Fatalf("keeper.json %v", m)
 	}
 	dst, err := placeSelf()
@@ -1926,31 +1929,32 @@ func TestEtInstallConf(t *testing.T) {
 	if err != nil || dst != filepath.Join(home, exeName("keeper")) || b == nil || a.Size() != b.Size() {
 		t.Fatalf("файл keeper %q: %v", dst, err)
 	}
-	// без relay — установка идёт дальше, предупреждение словами
-	home2 := t.TempDir()
-	t.Setenv("SWITCHBOARD_HOME", home2)
-	r, w, _ := os.Pipe()
-	stderr := os.Stderr
-	os.Stderr = w
-	err = prepareConf(installFlags{}, bufio.NewReader(strings.NewReader("host.win.ab12.sig\n")))
-	os.Stderr = stderr
-	w.Close()
-	out, _ := io.ReadAll(r)
-	if err != nil || !strings.Contains(string(out), "в keeper.json нет relay") || !exists(filepath.Join(home2, "machine.key")) {
-		t.Fatalf("без relay: %v, stderr %q", err, out)
-	}
 }
 
-// Ключ не машины или пустой stdin — отказ словами, machine.key не записан (устав: система ловит — отказывает;
-// чьё: код — main.go «ключ не машины: нужен host.<машина>…»).
+// 5084 · Погашенное приглашение, приглашение не машины, нет адреса gate или пустой stdin — отказ словами,
+// machine.key не тронут (устав: система ловит — отказывает; чьё: код — main.go prepareConf).
 func TestEtInstallKeyRefused(t *testing.T) {
-	for _, in := range []string{"client.phone.ab.sig\n", ""} {
+	r := newFakeRelay(t)
+	cases := []struct {
+		in, gate, word string
+	}{
+		{"used.INVITE\n", r.workerURL("gate"), "bad_invite"},
+		{"phn1.INVITE\n", r.workerURL("gate"), "не машины"},
+		{"win1.INVITE\n", "", "нет адреса gate"},
+		{"", r.workerURL("gate"), "stdin"},
+	}
+	for _, c := range cases {
 		home := t.TempDir()
 		t.Setenv("SWITCHBOARD_HOME", home)
 		writeConf(home, map[string]any{"node": "/x/node"})
-		err := prepareConf(installFlags{}, bufio.NewReader(strings.NewReader(in)))
-		if err == nil || exists(filepath.Join(home, "machine.key")) {
-			t.Fatalf("stdin %q: отказа нет (%v) или ключ записан", in, err)
+		os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.old1.OLD\n"), 0o600)
+		f := installFlags{workers: map[string]string{}}
+		if c.gate != "" {
+			f.workers["gate"] = c.gate
+		}
+		err := prepareConf(f, bufio.NewReader(strings.NewReader(c.in)))
+		if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); err == nil || !strings.Contains(err.Error(), c.word) || string(b) != "host.win.old1.OLD\n" {
+			t.Fatalf("stdin %q: %v, machine.key %q", c.in, err, b)
 		}
 	}
 }
@@ -1980,14 +1984,14 @@ func TestEtVersionAndUsage(t *testing.T) {
 	}
 }
 
-// Строка журнала флота без связи: рация есть, соединения нет — строка ledger «нет связи: …» в журнале машины
-// (чьё: код — keeper.go ledger «нет связи — только в журнал машины»; устав: система ловит — пишет с причиной).
+// Строка журнала флота без связи: журнал не отвечает — строка ledger «offline: …» в журнале машины
+// (чьё: код — keeper.go ledger «не дошла — только в журнал машины»; устав: система ловит — пишет с причиной).
 func TestEtLedgerWithoutLink(t *testing.T) {
 	s := newStand(t)
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
-	dead := "ws://" + ln.Addr().String()
+	dead := ln.Addr().String()
 	ln.Close()
-	writeConf(s.home, map[string]any{"relay": dead})
+	writeConf(s.home, map[string]any{"relay": "ws://" + dead, "workers": map[string]any{"ledger": "http://" + dead + "/ledger"}})
 	b, _ := json.Marshal(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	os.WriteFile(planPath(s.home), b, 0o600)
 	k := s.start()
@@ -1997,7 +2001,7 @@ func TestEtLedgerWithoutLink(t *testing.T) {
 	killPid(t, partOf(k, "capture").Pid)
 	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
 	waitFor(t, "строка ledger без связи", func() bool {
-		return journalHas(s.home, `"ev":"ledger","ev":"part.failed","why":"нет связи: capture 1.3.2 — второе падение`)
+		return journalHas(s.home, `"ev":"ledger","ev":"part.failed","why":"offline: capture 1.3.2 — второе падение`)
 	})
 }
 
@@ -2212,4 +2216,27 @@ func TestEtHoldBadArgs(t *testing.T) {
 			t.Fatalf("hold %v: код %d, %q", args, cmd.ProcessState.ExitCode(), e.String())
 		}
 	}
+}
+
+// 5081 · 5082 · 5083 · Соединение — с relay своей машины (/m/<машина> из имени в пропуске); план — POST «Выпускам»
+// пропуском машины на каждом соединении; part.failed — POST журналу; адреса — из keeper.json (дизайн «Открытый флот»:
+// «keeper — relay своей машины, план на каждом соединении, журнал и приём — POST, адреса — в его настройке»).
+func TestEtMachineRelayAndPost(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	s.relay.mu.Lock()
+	path, keys := s.relay.path, append([]string(nil), s.relay.keys...)
+	s.relay.mu.Unlock()
+	if path != "/m/win" || len(keys) == 0 || keys[0] != "host.win.ab12.sig" {
+		t.Fatalf("путь relay %q, пропуска POST %v", path, keys)
+	}
+	asks := s.relay.planAsks()
+	s.relay.drop()
+	waitFor(t, "план на новом соединении", func() bool { return s.relay.planAsks() > asks })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "part.failed — POST журналу", func() bool { return s.relay.ledgerHas("part.failed capture 1.3.2") })
 }

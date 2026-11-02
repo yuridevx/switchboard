@@ -2,6 +2,8 @@ import type { GateApi } from "@switchboard/gate";
 import type { Releases } from "./releases.ts";
 
 export interface Env {
+  /** relay: план keeper'у — в объект его машины */
+  RELAY: { deliver(f: import("@switchboard/protocol").Frame): Promise<number> };
   /** gate: пропуск прямого запроса */
   GATE: GateApi;
   /** токен API Cloudflare: список версий Worker'ов и выкладка */

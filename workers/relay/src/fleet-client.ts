@@ -8,7 +8,7 @@ import { link, type Link, type LinkState, type WsCtor } from "./link.ts";
 export type FleetOptions = {
   /** адрес relay: wss://switchboard.<subdomain>.workers.dev — объект машины на /m/<машина> */
   relay: string;
-  /** адрес gate: https://… — keys.list */
+  /** адрес gate: https://… — keys.list; пусто — машины только по roster */
   gate: string;
   /** Worker'ы флота: имя → адрес https; кадр с to: ".имя" — POST по нему */
   workers: Record<string, string>;
@@ -24,6 +24,8 @@ export type FleetOptions = {
   onFrame?: (f: Frame, machine: string) => void;
   /** смена состояния соединения с машиной; машина "" — список машин у gate: stopped со словом — пропуск не принят */
   onState?: (machine: string, state: LinkState, why?: string) => void;
+  /** кадр без ожидания к Worker'у не дошёл: слово отказа — держатель пишет его в свой журнал */
+  onLost?: (f: Frame, word: string) => void;
   /** предел запроса, мс — и к relay, и к Worker'у. По умолчанию 120 000 */
   requestMs?: number;
   pingMs?: number;
@@ -34,6 +36,8 @@ export type FleetOptions = {
 };
 
 export interface FleetClient {
+  /** состояние своего соединения (у Host и keeper), у страницы — open, если открыто хоть одно */
+  readonly state: LinkState;
   /** roster флота — объединение roster объектов машин */
   readonly roster: Roster;
   /** соединения по машинам */
@@ -124,42 +128,79 @@ export function fleet(o: FleetOptions): FleetClient {
     }
   }
 
+  /** POST без ожидания: отказ — onLost. */
+  async function lost(url: string, f: Frame): Promise<void> {
+    const r = await post(url, f);
+    if (!r.ok && !stopped) o.onLost?.(f, r.error);
+  }
+
   /** Соединение, которому по адресу кадр; к Worker'у — его адрес. */
   function target(f: Frame): { link: Link } | { url: string } | { error: string } {
     const to = typeof f.to === "string" ? f.to : undefined;
     if (to !== undefined) {
       switch (kindOf(to)) {
         case "service": {
+          // Worker без адреса в списке — в своё соединение: участник relay или отказ offline словом relay
           const url = o.workers[to.slice(1)];
-          return url ? { url } : { error: "offline" };
+          return url ? { url } : judged();
         }
         case "machine":
         case "session":
-        case "part": {
-          const l = links.get(machineOf(to)!);
-          return l ? { link: l } : { error: "offline" };
-        }
+        case "part":
+          return machineLink(machineOf(to)!);
         case "device":
         case "user": {
           // устройства — гости каждой машины: Host шлёт через свою, страница — через любую открытую
-          const l = (o.machine ? links.get(o.machine) : undefined) ?? [...links.values()].find((x) => x.state === "open");
+          const l = home();
           return l ? { link: l } : { error: "disconnected" };
         }
         default:
-          return { error: "bad_frame" };
+          return judged();
       }
     }
-    if (f.to !== undefined) return { error: "bad_frame" };
+    if (f.to !== undefined) return judged();
     const m = hostOf(f);
-    if (!m) return { error: "bad_frame" };
-    const l = links.get(m);
+    if (!m) return judged();
+    return machineLink(m);
+  }
+
+  /** Адрес не разобран или Worker без адреса: кадр — в своё соединение, решает relay. */
+  function judged(): { link: Link } | { error: string } {
+    const l = home();
+    return l ? { link: l } : { error: "bad_frame" };
+  }
+
+  /** Кадр одному адресату или по callsign: машина — её соединение, Worker — POST без ожидания. */
+  function one(f: Frame): { ok: true } | { ok: false; error: string } {
+    const t = target(f);
+    if ("error" in t) return { ok: false, error: t.error };
+    if ("url" in t) {
+      void lost(t.url, f);
+      return { ok: true };
+    }
+    return t.link.send(f);
+  }
+
+  /** Своё соединение, у страницы — любое открытое. */
+  function home(): Link | undefined {
+    return (o.machine ? links.get(o.machine) : undefined) ?? [...links.values()].find((x) => x.state === "open");
+  }
+
+  /** Соединение машины; его ещё нет — своё: relay доставит, если машина у него в гостях, иначе offline. */
+  function machineLink(m: string): { link: Link } | { error: string } {
+    const l = links.get(m) ?? home();
     return l ? { link: l } : { error: "offline" };
   }
 
   if (o.machine) open(o.machine);
-  if (!o.only) void list();
+  if (!o.only && o.gate) void list();
 
   return {
+    get state(): LinkState {
+      if (o.machine) return links.get(o.machine)?.state ?? "connecting";
+      const all = [...links.values()];
+      return all.some((l) => l.state === "open") ? "open" : stopped ? "stopped" : (all[0]?.state ?? "connecting");
+    },
     get roster(): Roster {
       const r: Roster = { type: "roster", machines: [], sessions: [], clients: [], workers: [] };
       for (const l of links.values()) {
@@ -180,26 +221,27 @@ export function fleet(o: FleetOptions): FleetClient {
       return "url" in t ? post(t.url, g) : t.link.request(g);
     },
     send(f: Frame) {
-      const list = Array.isArray(f.to) ? (f.to as string[]) : [undefined];
-      let sent = false;
+      // список адресатов — по соединениям: каждому соединению и Worker'у один кадр со своей частью списка
+      if (!Array.isArray(f.to)) return one(f);
+      const groups = new Map<Link | string, string[]>();
       let last = "offline";
-      for (const a of list) {
-        const one = a === undefined ? f : { ...f, to: a };
-        const t = target(one);
+      for (const a of f.to as string[]) {
+        const t = target({ ...f, to: a });
         if ("error" in t) {
           last = t.error;
           continue;
         }
-        if ("url" in t) {
-          void post(t.url, one);
-          sent = true;
-          continue;
-        }
-        const r = t.link.send(one);
-        if (r.ok) sent = true;
-        else last = r.error;
+        const k = "url" in t ? t.url : t.link;
+        groups.set(k, [...(groups.get(k) ?? []), a]);
       }
-      return sent ? { ok: true as const } : { ok: false as const, error: last };
+      let sent = false;
+      let refused: { ok: false; error: string } | undefined;
+      for (const [k, to] of groups) {
+        const r = typeof k === "string" ? (void lost(k, { ...f, to }), { ok: true as const }) : k.send({ ...f, to });
+        if (r.ok) sent = true;
+        else refused = r;
+      }
+      return sent ? { ok: true as const } : (refused ?? { ok: false as const, error: last });
     },
     close(code = 1000, reason = "closing") {
       stopped = true;

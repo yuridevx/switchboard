@@ -1,13 +1,11 @@
 // Живой вопрос человеку: клиент даёт задачу, сессия спрашивает AskUserQuestion, вопрос приходит клиенту,
 // клиент отвечает answer, модель продолжает с ответом. env: FLOW_CLIENT_KEY, FLOW_CALLSIGN.
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const callsign = process.env.FLOW_CALLSIGN!;
 const questions: Array<Record<string, unknown>> = [];
 const answered: Array<Record<string, unknown>> = [];
-const l = link({
-  url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev",
-  key: process.env.FLOW_CLIENT_KEY!,
+const l = client(process.env.FLOW_CLIENT_KEY!, {
   onFrame: (f) => {
     if (f.type === "question") questions.push(f);
     if (f.type === "answered") answered.push(f);

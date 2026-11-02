@@ -303,23 +303,24 @@ describe("эталоны manage: ядро управления сессиями"
     }
   });
 
-  it("321 · журнала флота нет на связи: open и remove модуля этой машины — исполнены, заметка ledger disconnected в журнале Host", async () => {
-    // источник: устав — соединение с Worker-модулем оборвалось; заметка без очереди — чьё: код (Host.emit: «Обрыв — disconnected; очереди нет»)
+  it("321 · журнал флота не отвечает: open и remove модуля этой машины — исполнены, заметка ledger.add offline в журнале Host", async () => {
+    // источник: устав — прямой запрос к Worker'у не прошёл — отказ словом; заметка без очереди — чьё: код (клиент флота onLost)
     const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
     const caller = stand.module("host-caller", {}, { uses: { "session.open@host-manage": 1, "session.remove@host-manage": 1 } });
     const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
     const profiles = stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
     const st = await stand.standHost({ modules: [slots, profiles, { manifest, module: manage({ home }) }, caller] });
     stands.push(st);
-    // связь с relay оборвалась; переподключение — по поддельным часам, они стоят
-    st.relay.drop();
-    await stand.until(() => st.kernel.relay?.state !== "open");
+    st.relay.workersDown = true;
     const h = st.host("host-caller");
     expect(await h.request("session.open", { v: 1, machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop" } });
     expect(await h.request("session.remove", { v: 1, callsign: "board@laptop" })).toEqual({ ok: true, result: undefined });
     expect(st.kernel.sessions.has("board@laptop")).toBe(false);
-    const notes = st.journal().filter((l) => l.ev === "ledger" && l.word === "disconnected");
-    expect(notes.map((l) => String(l.why).split(" ")[0])).toEqual(["session.opened", "session.removed"]);
+    const notes = await stand.until(() => {
+      const n = st.journal().filter((l) => l.ev === "ledger.add" && l.word === "offline");
+      return n.length === 2 && n;
+    });
+    expect(notes.map((l) => String(l.why).split(" ")[0])).toEqual(["ledger.add", "ledger.add"]);
   });
 
   it("322 · remove after_turn посреди хода, Host перезапущен, ход кончился у держателя — новый Host убирает сессию после хода; session.removed в журнале флота", async () => {

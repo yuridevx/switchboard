@@ -9,7 +9,7 @@
 // env: FLOW_CLIENT_KEY (client.*), FLOW_A (win), FLOW_B (wsl), FLOW_PORT_A (7717), FLOW_PORT_B (7718),
 //      FLOW_TYPE (flow), FLOW_WSL (дистрибутив машины B, Ubuntu-24.04), FLOW_STOP=1.
 import { spawnSync } from "node:child_process";
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const A = process.env.FLOW_A ?? "win";
 const B = process.env.FLOW_B ?? "wsl";
@@ -17,7 +17,7 @@ const ports: Record<string, string> = { [A]: process.env.FLOW_PORT_A ?? "7717", 
 const type = process.env.FLOW_TYPE ?? "flow";
 const distro = process.env.FLOW_WSL ?? "Ubuntu-24.04";
 const mark = Math.random().toString(36).slice(2, 8);
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 
 const fails: string[] = [];
 let oks = 0;

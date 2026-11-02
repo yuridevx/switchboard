@@ -2,12 +2,13 @@
 // уступает её новому хозяину. Остановку и запуск машины делает тот, кто запускает сценарий (FIRE_STOP / FIRE_START —
 // команды оболочки). env: FLOW_CLIENT_KEY, FLOW_CALLSIGN (помеченная сессия на умирающей машине), FLOW_TO_MACHINE, FLOW_DIR.
 import { execSync } from "node:child_process";
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const CS = process.env.FLOW_CALLSIGN!;
 const DEAD = CS.split("@")[1];
 const TO = process.env.FLOW_TO_MACHINE!;
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 260)}`);

@@ -83,13 +83,13 @@ describe("эталоны releases", () => {
     expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
   });
 
-  it("3 · план спрашивает только keeper: Host машины и клиент — bad_frame", async () => {
+  it("3 · 5071 · план спрашивает машина: POST пропуском машины (@win) и keeper кадром (.keeper@win); часть не keeper и клиент — bad_frame", async () => {
     const s = fresh();
-    expect(await req(s, "@win", "releases.plan")).toEqual([{ type: "reply", id: "r", ok: false, error: "bad_frame", to: "@win" }]);
+    expect((await req(s, "@win", "releases.plan"))[0]).toMatchObject({ type: "reply", id: "r", ok: true, to: "@win" });
     expect((await req(s, ".host@win", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     expect((await req(s, "panel~o", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     fakeCf(NONE);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
   });
 
   it("4 · вся сборка одним вызовом: части сборки на свою edge, план на .keeper@ каждой машины, приложение не тронуто", async () => {
@@ -119,6 +119,9 @@ describe("эталоны releases", () => {
       { to: ".keeper@win", rev: 5, parts: [{ part: "keeper", version: "0.5.0" }, { part: "host", version: "1.1.58" }, { part: "capture", version: "1.4.0" }] },
       { to: ".keeper@wsl", rev: 5, parts: [{ part: "keeper", version: "0.5.0" }, { part: "host", version: "1.1.58" }] },
     ]);
+    // 5072 · перемена плана → relay.deliver: кадр .keeper@машина в объект её машины, from .releases
+    const sent = (await (env.RELAY as unknown as { delivered(): Promise<any[]> }).delivered()).filter((f: any) => f.rev === 5);
+    expect(sent.map((f: any) => [f.to, f.from])).toEqual([[".keeper@win", ".releases"], [".keeper@wsl", ".releases"]]);
     expect(out.filter((f) => f.type === "ledger.add").map((f) => [f.ev, f.text, f.by])).toEqual([
       ["part.deployed", "host 1.1.57 → 1.1.58", "~yuri"],
       ["part.deployed", "relay 1.1.57 → 1.1.58", "~yuri"],

@@ -104,7 +104,8 @@ describe("новая сессия", () => {
     };
     const t = await openScreen(relay, "/#open?machine=pc");
     expect(t.$('[data-machine="pc"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(relay.sent("machine.slots")[0]).toMatchObject({ machine: "pc" });
+    // машина pc приходит своим соединением после laptop: её слоты спрошены, когда она появилась
+    expect(relay.sent("machine.slots").find((f) => f.machine === "pc")).toMatchObject({ machine: "pc" });
     await t.click(t.btn(null, "Обзор"));
     await t.click(t.$('[data-machine="laptop"]'));
     expect(t.$(".op-browse")).toBeNull();

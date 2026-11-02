@@ -1,5 +1,6 @@
-// Поддельный relay: WebSocket для клиента link внутри процесса. Принимает hello, отвечает roster,
+// Поддельный relay: WebSocket для клиента флота внутри процесса. Принимает hello, отвечает roster,
 // записывает кадры Host, доставляет кадры и запросы, рвёт соединение и отказывает словом.
+// Он же — Worker'ы флота: POST кадра к Worker'у записан в sent, ответ теста deliver(reply) уходит телом ответа POST.
 import type { Frame } from "@switchboard/protocol";
 import type { WsCtor, WsLike } from "@switchboard/relay";
 
@@ -77,6 +78,27 @@ export class FakeRelay {
   since = 1730296931000;
   private seq = 0;
   private waits = new Map<string, (f: Frame) => void>();
+  /** Worker'ы недоступны: POST к ним — сбой сети */
+  workersDown = false;
+  /** POST к Worker'ам, ждущие ответа теста */
+  private posts = new Map<string, (r: Response) => void>();
+  /** адреса Worker'ов стенда для конфига Host */
+  static readonly WORKERS = Object.fromEntries(["push", "points", "ledger", "github", "releases", "relay"].map((n) => [n, `https://${n}.stand/`]));
+
+  /** fetch Host: POST кадра к Worker'у — как кадр, принятый relay (receive видит его и стенд модуля отвечает), пропуск в sent не попадает. Кадр без id — 204 сразу. */
+  readonly fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    if (this.workersDown) throw new Error("стенд: Worker'ы недоступны");
+    const { key: _k, ...f } = JSON.parse(String(init?.body)) as Frame;
+    const answer =
+      typeof f.id === "string"
+        ? new Promise<Response>((res, rej) => {
+            this.posts.set(f.id as string, res);
+            init?.signal?.addEventListener("abort", () => rej(new Error("abort")));
+          })
+        : undefined;
+    this.receive(undefined as unknown as FakeWs, JSON.stringify(f));
+    return answer ?? new Response(null, { status: 204 });
+  }) as typeof fetch;
 
   constructor() {
     const relay = this;
@@ -147,8 +169,13 @@ export class FakeRelay {
     };
   }
 
-  /** Кадр от relay в Host. */
+  /** Кадр от relay в Host; ответ на POST к Worker'у — телом этого POST. */
   deliver(f: Frame): void {
+    const post = f.type === "reply" && typeof f.id === "string" ? this.posts.get(f.id) : undefined;
+    if (post) {
+      this.posts.delete(f.id as string);
+      return post(Response.json(f));
+    }
     this.current?.deliver(JSON.stringify(f));
   }
 

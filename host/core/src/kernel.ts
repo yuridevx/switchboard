@@ -6,8 +6,8 @@ import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { accepts, fail, hostOf, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
-import { link } from "@switchboard/relay";
-import type { Link, LinkState, Roster, WsCtor } from "@switchboard/relay";
+import { fleet } from "@switchboard/relay";
+import type { FleetClient, LinkState, Roster, WsCtor } from "@switchboard/relay";
 import { isRefusal, refuse } from "./refusal.ts";
 import type {
   Host,
@@ -34,10 +34,13 @@ import { Sess } from "./session.ts";
 import { Stores } from "./store.ts";
 import type { CoreRecord } from "./store.ts";
 
-/** Конфиг Host: машина и relay — из окружения keeper, разделы модулей — ~/.switchboard/host.json */
+/** Конфиг Host: машина, relay и Worker'ы флота — из окружения keeper, разделы модулей — ~/.switchboard/host.json */
 export type HostConfig = {
   machine: string;
-  workers?: { relay?: { url: string } };
+  /** адрес relay wss://…: объект своей машины — /m/<машина>, других — гостем */
+  relay?: string;
+  /** Worker'ы флота: имя → адрес https; gate — список машин, остальные — POST кадров к ним */
+  workers?: Record<string, string>;
   /** разделы модулей: host.config() */
   modules?: Record<string, unknown>;
 };
@@ -63,9 +66,11 @@ export type Deps = {
   sdk: SdkApi;
   /** держатели процессов claude: файл keeper в режиме hold */
   holders: HolderApi;
-  /** ключ машины для relay */
+  /** пропуск машины: им Host входит в relay и зовёт Worker'ов */
   relayKey?: string;
   WebSocket?: WsCtor;
+  /** POST к Worker'ам; по умолчанию глобальный fetch */
+  fetch?: typeof fetch;
   clock?: Clock;
   /** выход процесса Host после штатной остановки */
   exit?: (code: number) => void;
@@ -132,7 +137,7 @@ export class Kernel {
   frameOwner = new Map<string, Mod>();
   decideOwner = new Map<string, string>();
   elicitOwner: string | null = null;
-  relay: Link | null = null;
+  relay: FleetClient | null = null;
   shutting: Promise<void> | null = null;
   private inflight = new Set<Promise<unknown>>();
   private probes = new Set<Query>();
@@ -165,7 +170,7 @@ export class Kernel {
 
   /** Старт Host по шагам дизайна. Гейт не прошёл — StartError, сессии у держателей не тронуты. */
   async start(): Promise<void> {
-    const relayOn = !!this.deps.config.workers?.relay;
+    const relayOn = !!this.deps.config.relay;
     const errors = gate(this.deps.core, this.release.modules, relayOn);
     if (errors.length) {
       for (const e of errors) this.log("core", { kind: "stop", ev: "gate", word: "check_failed", why: e });
@@ -391,19 +396,26 @@ export class Kernel {
   // ───────────── relay ─────────────
 
   private connectRelay(): void {
-    const r = this.deps.config.workers?.relay;
-    if (!r || this.shutting) return;
-    this.relay = link({
-      url: r.url,
+    const url = this.deps.config.relay;
+    if (!url || this.shutting) return;
+    const workers = this.deps.config.workers ?? {};
+    this.relay = fleet({
+      relay: url,
+      gate: workers.gate ?? "",
+      workers,
       key: this.deps.relayKey ?? "",
+      machine: this.machine,
       hello: () => ({
         sdk: this.sdkVersion,
         contract: this.contract(),
         sessions: [...this.sessions.values()].map((s) => s.helloRecord()),
       }),
       onFrame: (f) => this.onFrame(f),
-      onState: (st, why) => this.onRelayState(st, why),
+      // своя машина — связь Host; другие — гостевые соединения, строка журнала; "" — список машин у gate
+      onState: (m, st, why) => (m === this.machine ? this.onRelayState(st, why) : this.log("core", { ev: `guest_${st}`, why: `${m || "keys.list"}${why ? " · " + why : ""}` })),
+      onLost: (f, word) => this.log("core", { kind: "note", ev: f.type, word, why: `${f.type} → ${String(f.to)} не дошёл: ${word}` }),
       WebSocket: this.deps.WebSocket,
+      fetch: this.deps.fetch,
       pingMs: this.deps.pingMs,
       pauseMs: this.deps.pauseMs,
     });
@@ -442,8 +454,8 @@ export class Kernel {
       void this.call(owner.name, `frames.${f.type}`, s, (m, mod) => m.frames![f.type](f, this.ctx(mod, f.from)), () => undefined);
       return;
     }
-    // roster держит ядро; модули, которым он нужен событием, получают его как кадр
-    if (f.type === "roster") this.lastRoster = f as Roster;
+    // roster флота — объединение roster объектов машин; держит ядро, модули, которым он нужен событием, получают его как кадр
+    if (f.type === "roster") f = (this.lastRoster = this.relay?.roster ?? (f as Roster)) as unknown as Frame;
     let got = f.type === "roster";
     for (const m of this.mods) {
       if (!m.module.on?.frame || !Object.keys(m.manifest.uses ?? {}).some((r) => nameOf(r) === f.type)) continue;

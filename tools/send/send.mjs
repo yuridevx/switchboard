@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Сообщение в сессию флота от клиента — для служб компьютера, которым надо писать в сессию (тревоги, сторожа).
-// Без зависимостей: WebSocket Node 24. Ключ клиента — switchboard invite client <имя>; адрес отправителя — <имя>~владелец.
+// Без зависимостей: WebSocket Node 24. Пропуск программы — keys.invite client <имя> <почта>, принят switchboard redeem;
+// адрес отправителя — <имя>~<почта>. Соединение — с relay машины сессии: объект /m/<машина>.
 //   import { send } from "…/send.mjs";  await send("operator@laptop", "текст", { key }) → { ok: 1, error: "" } | { ok: 0, error }
-//   <ключ первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]
+//   <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]
 // Одна попытка: hello → roster → session.prompt → reply. Повторов нет, итог — вызывающему.
 import { pathToFileURL } from "node:url";
 
@@ -13,7 +14,7 @@ export function send(callsign, text, { key, url = RELAY, timeoutMs = 30_000 } = 
     const id = `send-${Date.now().toString(36)}`;
     let asked = false;
     let over = false;
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(`${url.replace(/\/$/, "")}/m/${callsign.slice(callsign.indexOf("@") + 1)}`);
     const end = (r) => {
       if (over) return;
       over = true;
@@ -48,7 +49,7 @@ export function send(callsign, text, { key, url = RELAY, timeoutMs = 30_000 } = 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   const [callsign, flag, url] = process.argv.slice(2);
   if (!callsign || (flag && (flag !== "--url" || !url))) {
-    console.error("вызов: <ключ клиента первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]");
+    console.error("вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]");
     process.exit(2);
   }
   const chunks = [];

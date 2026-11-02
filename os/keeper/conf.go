@@ -20,7 +20,8 @@ func homeDir() (string, error) {
 	return filepath.Join(u, ".switchboard"), nil
 }
 
-// keeper.json: { "node": "…", "relay": "wss://…" }; ключ машины — machine.key рядом, имя машины — в ключе.
+// keeper.json: { "node": "…", "relay": "wss://…", "workers": { "releases": "https://…", "ledger": "https://…", … } };
+// пропуск машины — machine.key рядом, имя машины — в пропуске.
 // Незнакомые поля сохраняются как есть.
 func confPath(home string) string { return filepath.Join(home, "keeper.json") }
 
@@ -37,6 +38,19 @@ func readConf(home string) (map[string]any, error) {
 		return nil, err
 	}
 	return m, nil
+}
+
+// confMap — объект строк из keeper.json: workers.
+func confMap(m map[string]any, k string) map[string]string {
+	out := map[string]string{}
+	if x, ok := m[k].(map[string]any); ok {
+		for kk, v := range x {
+			if s, ok := v.(string); ok {
+				out[kk] = s
+			}
+		}
+	}
+	return out
 }
 
 func confStr(m map[string]any, k string) string {
@@ -64,4 +78,3 @@ func writeFileAtomic(p string, b []byte) error {
 	}
 	return os.Rename(tmp, p)
 }
-

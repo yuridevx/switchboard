@@ -37,6 +37,8 @@ export function createOpen(): AppModule {
     el.append(box);
     const machines = () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["session.open"] !== undefined).map((m) => m.machine);
     let machine = params.machine && machines().includes(params.machine) ? params.machine : (machines()[0] ?? "");
+    // машина из адреса может прийти своим соединением позже первого roster: выбрать её, пока человек не выбрал другую
+    let chosen = machine === params.machine;
     let slots: Slots | null = null;
     let accounts: Accounts | null = null;
     let profiles: Profiles | null = null;
@@ -178,7 +180,7 @@ export function createOpen(): AppModule {
             { class: "sb-row" },
             h("span", null, "машина"),
             ms.length
-              ? h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === machine ? "true" : "false", "data-machine": m, onclick: () => ((machine = m), (browse = null), void loadMachine()) }, m)))
+              ? h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === machine ? "true" : "false", "data-machine": m, onclick: () => ((machine = m), (chosen = true), (browse = null), void loadMachine()) }, m)))
               : h("span", { class: "sb-note" }, "нет машин на связи, которые открывают сессии"),
           ),
           can("machine.slots")
@@ -285,7 +287,16 @@ export function createOpen(): AppModule {
     }
 
     void loadMachine();
-    return { head: () => ({ title: "Новая сессия" }), refresh: () => {} };
+    return {
+      head: () => ({ title: "Новая сессия" }),
+      refresh: () => {
+        if (chosen || !params.machine || !machines().includes(params.machine)) return;
+        machine = params.machine;
+        chosen = true;
+        browse = null;
+        void loadMachine();
+      },
+    };
   }
 
   return {

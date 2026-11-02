@@ -1,6 +1,7 @@
 // Живой главный флоу: клиент открывает сессию на машине, шлёт текст, ждёт конца хода и читает ответ из истории.
 // env: FLOW_CLIENT_KEY (client.*), FLOW_MACHINE, FLOW_DIR (папка проекта на машине), FLOW_MODEL (по умолчанию haiku).
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const key = process.env.FLOW_CLIENT_KEY!;
@@ -11,9 +12,7 @@ const name = process.env.FLOW_NAME ?? "flow";
 const callsign = `${name}@${machine}`;
 
 const states: string[] = [];
-const l = link({
-  url,
-  key,
+const l = client(key, {
   onFrame: (f) => {
     if (f.type === "roster") {
       const s = (f as unknown as Roster).sessions.find((x) => x.callsign === callsign);

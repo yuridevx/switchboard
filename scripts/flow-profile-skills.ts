@@ -1,13 +1,14 @@
 // Живой сценарий скилов профиля: репозиторий профилей сведён на машинах, у процесса сессии с профилем есть его скил
 // как «<папка>:<скил>». Репозиторий — в host.json машин (раздел host-profiles). env: FLOW_CLIENT_KEY,
 // FLOW_MACHINES (через запятую), FLOW_DIR, FLOW_REPO (владелец/имя), FLOW_PROFILE (папка со skills/), FLOW_SKILL.
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const MS = process.env.FLOW_MACHINES!.split(",");
 const REPO = process.env.FLOW_REPO!;
 const NAME = process.env.FLOW_PROFILE!;
 const ID = `${REPO}/${NAME}`;
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 300)}`);

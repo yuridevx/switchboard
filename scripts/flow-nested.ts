@@ -3,7 +3,7 @@
 // Каждая строка — ok или FAIL; в конце — число ok и FAIL.
 // env: FLOW_CLIENT_KEY (client.*), FLOW_A (машина родителя, по умолчанию win), FLOW_B (машина дочери, wsl),
 //      FLOW_DIR (папка обеих сессий, ~/sb-flow), FLOW_MODEL (claude-haiku-4-5).
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const A = process.env.FLOW_A ?? "win";
 const B = process.env.FLOW_B ?? "wsl";
@@ -12,7 +12,7 @@ const model = process.env.FLOW_MODEL ?? "claude-haiku-4-5";
 const mark = Math.random().toString(36).slice(2, 8);
 const lead = `nestlead${mark}@${A}`;
 const kid = `nestkid${mark}@${B}`;
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 
 const fails: string[] = [];
 let oks = 0;

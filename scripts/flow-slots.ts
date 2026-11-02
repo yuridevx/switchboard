@@ -1,13 +1,12 @@
 // Живые флоу с несколькими аккаунтами на одной машине. env: FLOW_CLIENT_KEY, FLOW_MACHINE,
 // FLOW_A (аккаунт с запасом), FLOW_B (второй аккаунт с запасом), FLOW_SPENT (аккаунт с исчерпанным лимитом).
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const machine = process.env.FLOW_MACHINE!;
 const [A, B, SPENT] = [process.env.FLOW_A!, process.env.FLOW_B!, process.env.FLOW_SPENT!];
 const questions: Array<Record<string, any>> = [];
-const l = link({
-  url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev",
-  key: process.env.FLOW_CLIENT_KEY!,
+const l = client(process.env.FLOW_CLIENT_KEY!, {
   onFrame: (f) => void (f.type === "question" && questions.push(f)),
 });
 const fails: string[] = [];

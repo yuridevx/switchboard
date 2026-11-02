@@ -1,5 +1,5 @@
 // Сборка веб-приложения (телефон, пульт): esbuild → <приложение>/dist/ (app.js, sw.js, статика, значки).
-// Адрес relay — RELAY_URL из окружения или адрес relay флота по умолчанию; ключа флота и секретов в сборке нет.
+// Адреса relay и Worker'ов — RELAY_URL и WORKERS из окружения или тестового флота по умолчанию; пропусков и секретов в сборке нет.
 // sw.js — обработчик пушей пакета web-alerts, один на оба приложения.
 import { build } from "esbuild";
 import {
@@ -23,6 +23,18 @@ export async function buildApp(app, name) {
     process.env.RELAY_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
   if (!/^wss:\/\//.test(RELAY_URL))
     throw new Error(`RELAY_URL — нужен wss://…, а не ${RELAY_URL}`);
+  // Worker'ы флота: имя → адрес https — WORKERS (JSON) из окружения, иначе тестовый флот
+  const WORKERS = process.env.WORKERS
+    ? JSON.parse(process.env.WORKERS)
+    : {
+        relay: "https://switchboard.yuridevx1608.workers.dev/",
+        ...Object.fromEntries(
+          ["gate", "push", "points", "ledger", "github", "releases"].map((n) => [
+            n,
+            `https://switchboard-${n}.yuridevx1608.workers.dev/`,
+          ]),
+        ),
+      };
 
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
@@ -64,7 +76,7 @@ export async function buildApp(app, name) {
     minify: true,
     sourcemap: true,
     target: "es2022",
-    define: { RELAY_URL: JSON.stringify(RELAY_URL) },
+    define: { RELAY_URL: JSON.stringify(RELAY_URL), WORKERS: JSON.stringify(WORKERS) },
     logLevel: "warning",
   };
   await build({

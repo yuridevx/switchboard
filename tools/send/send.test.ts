@@ -29,7 +29,8 @@ describe("send", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(r.stdout.trim()).toBe("ok");
     const [open, hello, prompt, close] = r.frames;
-    expect(open).toEqual({ url: "wss://relay.test" });
+    // relay машины сессии: объект /m/laptop
+    expect(open).toEqual({ url: "wss://relay.test/m/laptop" });
     expect(hello).toEqual({ type: "hello", key: KEY, proto: 1 });
     expect(prompt).toMatchObject({ type: "session.prompt", v: 1, to: "site@laptop", callsign: "site@laptop", text: "тревога: диск\nвторая строка" });
     expect(typeof prompt.id).toBe("string");

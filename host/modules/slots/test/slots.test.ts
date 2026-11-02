@@ -461,14 +461,13 @@ describe("slots: покрытие плана host-modules", () => {
     expect(read(slotDir("main"))).toContain("tok-infirex");
   }, 20_000);
 
-  it("3042 · журнала флота нет на связи — подмена прошла, причина в журнале Host", async () => {
+  it("3042 · журнал флота не отвечает — подмена прошла, причина в журнале Host", async () => {
     // источник: чьё: код (slots.ts:123-124)
     const R = now() + 3600;
     await bench({ accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: {} }, slots: { main: ["infirex", "y0902"] }, sessions: { "site@laptop": { slot: "main" } } });
-    st!.relay.drop();
-    await until(() => st!.kernel.relay?.state !== "open");
+    st!.relay.workersDown = true;
     st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.96, resetsAt: R }));
-    await until(() => st!.journal().some((l) => l.ev === "ledger.add" && l.word === "disconnected"));
+    await until(() => st!.journal().some((l) => l.ev === "ledger.add" && l.word === "offline"));
     expect(read(slotDir("main"))).toContain("tok-y0902");
   });
 

@@ -1,6 +1,7 @@
 // web-ask — вопросы сессий: кадры question и answered, запросы answer и question.list, экран вопроса,
 // метка asked для списка. Ждущие вопросы держит модуль questions на Host — здесь только память экрана.
 import { h, hhmm, type App, type AppModule, type Frame, type Roster } from "@switchboard/web-core";
+import { machineOf } from "@switchboard/protocol";
 import { CSS } from "./css.ts";
 
 /** Вопрос AskUserQuestion: 1–4 на кадр, по 2–4 варианта; «Свой ответ» есть всегда. */
@@ -110,7 +111,15 @@ function onAnswered(f: Frame) {
   app.changed();
 }
 
+/** Машина сессии на связи: её соединение открыто и её roster пришёл — вопросы спрашиваются у её Host. */
+const present = (callsign: string) => !!app.roster()?.machines.some((m) => m.machine === machineOf(callsign));
+
+/** Сессии, чьи вопросы нужно спросить: из уведомлений без тела и с ждущими вопросами. */
+const wanted = () => new Set([...need, ...[...recs.values()].filter((r) => r.status === "waiting").map((r) => r.callsign)]);
+
 function onRoster(ro: Roster) {
+  // машина появилась в roster флота — спросить вопросы её сессий, которых ждём
+  for (const c of wanted()) if (present(c)) void list(c);
   // широкий вид (пульт) спрашивает question.list при открытии чата сессии, а не по roster
   if (app.wide) return;
   for (const s of ro.sessions) if (s.state === "waiting" && !waitingOf(s.callsign).length) void list(s.callsign);
@@ -119,8 +128,7 @@ function onRoster(ro: Roster) {
 function onLink(s: string) {
   if (s !== "open") return;
   listed.clear();
-  const who = new Set([...need, ...[...recs.values()].filter((r) => r.status === "waiting").map((r) => r.callsign)]);
-  for (const c of who) void list(c);
+  for (const c of wanted()) if (present(c)) void list(c);
 }
 
 /** Метка для списка: текст первого ждущего вопроса сессии. */

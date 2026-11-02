@@ -1,12 +1,13 @@
 // Живой сценарий: управление сессией, чат и лента, машина и журнал, отказы протокола и краевые входы.
 // env: FLOW_CLIENT_KEY, FLOW_MACHINE, FLOW_DIR (папка проекта на машине, от ~), FLOW_HOST_KEY (пробный ключ машины для отказов протокола — не ключ живой машины: relay заменит её соединение, replaced).
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const machine = process.env.FLOW_MACHINE!;
 const dir = process.env.FLOW_DIR!;
 const events: Array<Record<string, any>> = [];
-const l = link({ url, key: process.env.FLOW_CLIENT_KEY!, onFrame: (f) => void (f.type === "session.events" && events.push(f)) });
+const l = client(process.env.FLOW_CLIENT_KEY!, { onFrame: (f) => void (f.type === "session.events" && events.push(f)) });
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 240)}`);
@@ -151,7 +152,7 @@ check("машины нет — offline", !off.ok && off.error === "offline", off
 const noSess = await req({ type: "session.spec", callsign: `nosuch@${machine}` });
 check("сессии нет на машине — отказ словом", !noSess.ok, noSess.error);
 // клиент пишет session.state — relay не пустит чужой callsign
-const raw = new WebSocket(url);
+const raw = new WebSocket(`${url}/m/probe`);
 await new Promise((r) => (raw.onopen = r));
 const closes: string[] = [];
 raw.onclose = (e) => closes.push(`${e.code}:${e.reason}`);
@@ -164,14 +165,14 @@ raw.send("это не json");
 await new Promise((r) => setTimeout(r, 1500));
 check("from чужой машины от Host — bad_from", replies.some((f) => f.id === "bf-1" && f.error === "bad_from") || closes.some((c) => c.includes("bad_from")), { replies: replies.filter((f) => f.type === "reply"), closes });
 raw.send(JSON.stringify({ type: "hello", proto: 2, key: process.env.FLOW_HOST_KEY }));
-const raw2 = new WebSocket(url);
+const raw2 = new WebSocket(`${url}/m/probe`);
 await new Promise((r) => (raw2.onopen = r));
 const c2: string[] = [];
 raw2.onclose = (e) => c2.push(`${e.code}:${e.reason}`);
 raw2.send(JSON.stringify({ type: "hello", proto: 99, key: process.env.FLOW_HOST_KEY }));
 await wait(() => c2.length > 0, 10000);
 check("hello с чужим proto — закрыто contract_mismatch", c2.some((c) => c.includes("contract_mismatch")), c2);
-const raw3 = new WebSocket(url);
+const raw3 = new WebSocket(`${url}/m/probe`);
 await new Promise((r) => (raw3.onopen = r));
 const c3: string[] = [];
 raw3.onclose = (e) => c3.push(`${e.code}:${e.reason}`);

@@ -2,13 +2,14 @@
 // журнал флота; сообщение несуществующим адресатам.
 // env: FLOW_CLIENT_KEY, FLOW_PUSH_KEY (ключ клиента пушей — сценарий сам подписывает его), FLOW_FROM_MACHINE, FLOW_TO_MACHINE, FLOW_DIR.
 import { createECDH, randomBytes } from "node:crypto";
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const M1 = process.env.FLOW_FROM_MACHINE!;
 const M2 = process.env.FLOW_TO_MACHINE!;
 const dir = process.env.FLOW_DIR!;
-const l = link({ url, key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 260)}`);
@@ -43,7 +44,7 @@ const NQ = `nq@${M1}`;
 await req({ type: "session.remove", callsign: NQ });
 await req({ type: "session.open", machine: M1, name: "nq", dir, model: "claude-haiku-4-5" });
 await state(NQ, "idle");
-const phone = link({ url, key: process.env.FLOW_PUSH_KEY! });
+const phone = client(process.env.FLOW_PUSH_KEY!);
 await wait(() => phone.state === "open", 15000);
 const phoneName = process.env.FLOW_PUSH_KEY!.split(".")[1];
 // подписка «телефона» под его адресом устройства: endpoint httpbin принимает пуш, телефона нет — путь проходит весь

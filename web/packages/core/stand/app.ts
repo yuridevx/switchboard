@@ -27,6 +27,8 @@ export async function stand(parts: AppPart[], o: StandOptions = {}) {
   const run = startApp({
     root,
     relayUrl: "wss://relay.test",
+    workers: FakeRelay.WORKERS,
+    fetch: relay.fetch,
     parts,
     store,
     WebSocket: relay.WebSocket,

@@ -1,8 +1,8 @@
 // Живые точки R2: пометить сессию «в R2», снять точку, поднять копию на другой машине и проверить,
 // что разговор переехал; в конце снять пометку (точки уходят из R2). env: FLOW_CLIENT_KEY, FLOW_FROM (a@m1), FLOW_TO_MACHINE.
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const from = process.env.FLOW_FROM!;
 const toMachine = process.env.FLOW_TO_MACHINE!;
 const wait = async (what: string, ok: () => Promise<boolean> | boolean, ms: number) => {

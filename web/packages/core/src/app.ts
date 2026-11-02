@@ -1,6 +1,6 @@
-// Ядро веб-приложения: гейт набора, ключ, связь с relay через link, маршрут кадров модулям,
+// Ядро веб-приложения: гейт набора, пропуск, связь с машинами флота клиентом fleet, маршрут кадров модулям,
 // экраны и навигация, хранилище, штатный уход с экрана. Ни одной функции приложения само не знает.
-import { link, PROTO, type Frame, type Link, type Roster, type WsCtor } from "@switchboard/relay";
+import { fleet, PROTO, type FleetClient, type Frame, type Roster, type WsCtor } from "@switchboard/relay";
 import { serviceAddress } from "@switchboard/protocol";
 import { BASE_CSS } from "./css.ts";
 import { appGate, nameOf, ownerOf } from "./gate.ts";
@@ -24,13 +24,15 @@ import type {
 type Mod = { m: Manifest; mod: AppModule; app: App; failed: string | null };
 type Mount = { owner: Mod; name: string; def: Screen; el: HTMLElement; handle: ScreenHandle; page: boolean; master?: boolean };
 
-/** Ключ флота клиента в адресе: #client.<имя>.<kid>.<подпись>. */
-const KEY_RE = /^client\.[^.]+\.[^.]+\..+/;
+/** Приглашение в адресе страницы: #invite=<номер>.<секрет>; его же принимает поле ввода. */
+const INVITE_RE = /^[a-z0-9]{4}\.[A-Za-z0-9_-]{43}$/;
+/** Предел приёма приглашения у gate. */
+const REDEEM_MS = 30_000;
 /** Причины своих закрытий link — не отказ relay. */
 const OWN = new Set(["closing", "hidden", "now"]);
 const MAX_PAUSE = 60_000;
 
-/** Номер ключа для экрана: client.phone.k2a9.<подпись> → client.phone.k2a9. */
+/** Номер пропуска для экрана: client.phone.k2a9.<секрет> → client.phone.k2a9. */
 export const keyId = (key: string) => key.split(".").slice(0, 3).join(".");
 
 /** Платформа по navigator: iPhone/iPad и запущено ли с экрана «Домой». */
@@ -49,8 +51,8 @@ export function startApp(o: StartOptions): Running {
   const platform = o.platform ?? detectPlatform(win);
   const firstPause = o.pauseMs ?? 1_000;
   const wide = !!o.wide;
-  /** Команда выдачи ключа: телефону — QR, компьютеру — ссылка. */
-  const invite = (n: string) => `switchboard invite client ${n} ${wide ? "--url" : "--qr"}`;
+  /** Как получить пропуск: приглашение выдаёт агент инструментом keys.invite. */
+  const invite = (n: string) => `keys.invite client ${n} <почта>`;
 
   const mods: Mod[] = [];
   const frameOwner = new Map<string, Mod>();
@@ -62,7 +64,7 @@ export function startApp(o: StartOptions): Running {
   let stopped: string | null = null;
   let key = "";
   let name = "";
-  let lk: Link | null = null;
+  let lk: FleetClient | null = null;
   let conn: ConnState = "connecting";
   let roster: Roster | null = null;
   let rosterAt = 0;
@@ -163,8 +165,8 @@ export function startApp(o: StartOptions): Running {
     const owner = ownerOf(ref);
     // версия — названная в вызове как есть, иначе из uses: одно правило с ядром Host
     const f: Frame = { ...body, type: n, v: (body.v as number | undefined) ?? x.m.uses[ref] };
-    // служба — .имя; имя и версию проверяет получатель и отвечает словом
-    if (roster?.workers.some((w) => w.name === owner)) f.to = serviceAddress(owner);
+    // Worker — .имя, POST по адресу из сборки; имя и версию проверяет получатель и отвечает словом
+    if (Object.hasOwn(o.workers, owner)) f.to = serviceAddress(owner);
     if (!lk || conn !== "open") return { ok: false, error: "disconnected" };
     const p = lk.request(f);
     pending.add(p);
@@ -425,14 +427,23 @@ export function startApp(o: StartOptions): Running {
   // ───── связь ─────
   function connect() {
     pause = firstPause;
-    lk = link({
-      url: o.relayUrl,
+    lk = fleet({
+      relay: o.relayUrl,
+      gate: o.workers.gate ?? "",
+      workers: o.workers,
       key,
       pauseMs: firstPause,
       maxPauseMs: MAX_PAUSE,
       WebSocket: o.WebSocket as WsCtor | undefined,
-      onState,
-      onFrame,
+      fetch: o.fetch,
+      // отказ пропуску на любой машине или у gate — остановка; иначе состояние флота: открыт, если открыта хоть одна машина;
+      // модули узнают о смене состояния флота, а не каждого соединения
+      onState: (_m, s, why) => {
+        if (s === "stopped" && why !== undefined && !OWN.has(why)) return onState("stopped", why);
+        const now = lk?.state ?? s;
+        if (now !== conn) onState(now, why);
+      },
+      onFrame: (f) => onFrame(f),
     });
   }
 
@@ -480,7 +491,8 @@ export function startApp(o: StartOptions): Running {
   function onFrame(f: Frame) {
     if (f.type === "roster") {
       const first = !roster;
-      roster = f as unknown as Roster;
+      // roster флота — объединение roster объектов машин
+      roster = lk?.roster ?? (f as unknown as Roster);
       rosterAt = Date.now();
       for (const x of mods) {
         if (x.mod.on?.roster && x.m.uses["roster@relay"] !== undefined) call(x, "кадре roster", () => x.mod.on!.roster!(roster!));
@@ -506,10 +518,10 @@ export function startApp(o: StartOptions): Running {
       return stopWith(
         why,
         h("div", { class: "sb-ring bad" }, "×"),
-        h("div", { class: "sb-big" }, why === "revoked" ? "Ключ отозван" : "Ключ не принят"),
-        h("p", null, `${kid} ${why === "revoked" ? "больше не принимают" : "не принят: подпись не сходится"}. Новый ключ — ${wide ? "ссылкой с машины владельца" : "QR с любой машины флота"}:`),
+        h("div", { class: "sb-big" }, why === "revoked" ? "Пропуск отозван" : "Пропуск не принят"),
+        h("p", null, `${kid} ${why === "revoked" ? "больше не принимают" : "не принят флотом"}. Новый пропуск — приглашением от агента флота:`),
         cmd,
-        h("p", null, wide ? "Откройте новую ссылку в этом браузере. Само приложение больше не подключается." : "Наведите камеру на новый QR. Само приложение больше не подключается."),
+        h("p", null, "Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается."),
       );
     }
     if (why === "contract_mismatch") {
@@ -527,6 +539,26 @@ export function startApp(o: StartOptions): Running {
       h("div", { class: "sb-big" }, "Связь остановлена"),
       h("p", null, `relay закрыл соединение: ${why || "без причины"}.`),
       h("button", { class: "sb-cta", onclick: () => win.location.reload() }, "Перезагрузить"),
+    );
+  }
+
+  /** Приём приглашения: POST gate.redeem → пропуск или слово отказа. */
+  async function redeem(inv: string): Promise<{ key: string } | { error: string }> {
+    try {
+      const res = await (o.fetch ?? fetch)(o.workers.gate ?? "", { method: "POST", body: JSON.stringify({ type: "gate.redeem", id: "redeem", v: 1, invite: inv }), signal: AbortSignal.timeout(REDEEM_MS) });
+      const r = (await res.json()) as { ok: boolean; result?: { key: string }; error?: string };
+      return r.ok && r.result ? { key: r.result.key } : { error: r.error ?? "bad_invite" };
+    } catch {
+      return { error: "gate_unavailable" };
+    }
+  }
+
+  function refusedInvite(word: string) {
+    return stopWith(
+      word,
+      h("div", { class: "sb-ring bad" }, "×"),
+      h("div", { class: "sb-big" }, "Приглашение не принято"),
+      h("p", null, word === "bad_invite" ? "Оно уже принято, отозвано или набрано с ошибкой. Попросите агента выдать новое." : `gate не ответил: ${word}. Откройте ссылку ещё раз позже.`),
     );
   }
 
@@ -579,9 +611,9 @@ export function startApp(o: StartOptions): Running {
     }
 
     const raw = decodeURIComponent(win.location.hash.replace(/^#/, ""));
-    const fromHash = KEY_RE.test(raw) ? raw : null;
+    const fromHash = raw.startsWith("invite=") && INVITE_RE.test(raw.slice(7)) ? raw.slice(7) : null;
     if (fromHash && platform.ios && !platform.standalone) {
-      // iPhone: пуши — только у приложения с экрана «Домой», хранилище у него своё — ключ ждёт в адресе
+      // iPhone: пуши — только у приложения с экрана «Домой», хранилище у него своё — приглашение ждёт в адресе, не погашено
       stopped = "install";
       return full(
         h("div", { class: "sb-logo xl" }, "S"),
@@ -594,35 +626,39 @@ export function startApp(o: StartOptions): Running {
           h("li", null, "«На экран „Домой“»"),
           h("li", null, "Откройте Switchboard с экрана «Домой»"),
         ),
-        h("p", null, `Ключ ${keyId(fromHash)} ждёт в адресе страницы до установки.`),
+        h("p", null, `Приглашение ${fromHash.split(".")[0]} ждёт в адресе страницы до установки.`),
       );
     }
     if (fromHash) {
-      await store.set("key", fromHash);
-      // ключ убран из адреса и из истории браузера; на сервер он не уходил — часть после # не отправляется
+      // приглашение — у gate: секрет пропуска рождается там и приходит один раз; адрес очищен в любом исходе
       win.history.replaceState(null, "", win.location.pathname + win.location.search);
+      const r = await redeem(fromHash);
+      if ("error" in r) return refusedInvite(r.error);
+      await store.set("key", r.key);
       fresh = true;
     }
-    key = fromHash ?? (await store.get<string>("key")) ?? "";
+    key = (await store.get<string>("key")) ?? "";
     if (!key) {
-      // ключ не доехал (iPhone: адрес с ключом не дошёл до экрана «Домой») — вставить вручную
-      const input = h("input", { class: "sb-keyin", type: "text", placeholder: wide ? "client.<имя>.… или адрес с #" : "client.phone.… или адрес с #", "aria-label": "Ключ флота" }) as HTMLInputElement;
+      // приглашение не доехало (iPhone: адрес не дошёл до экрана «Домой») — вставить вручную
+      const input = h("input", { class: "sb-keyin", type: "text", placeholder: "приглашение или ссылка с #invite=", "aria-label": "Приглашение" }) as HTMLInputElement;
       const why = h("p", { role: "alert" });
       const save = async () => {
-        const v = decodeURIComponent(input.value.trim().replace(/^.*#/, ""));
-        if (!KEY_RE.test(v)) return void (why.textContent = "Это не ключ клиента: нужен client.<имя>.<номер>.<подпись>.");
-        await store.set("key", v);
+        const v = decodeURIComponent(input.value.trim().replace(/^.*#(invite=)?/, ""));
+        if (!INVITE_RE.test(v)) return void (why.textContent = "Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.");
+        const r = await redeem(v);
+        if ("error" in r) return void (why.textContent = `Приглашение не принято: ${r.error}.`);
+        await store.set("key", r.key);
         win.location.reload();
       };
       return stopWith(
         "no_key",
         h("div", { class: "sb-logo xl" }, "S"),
-        h("div", { class: "sb-big" }, "Нужен ключ флота"),
-        h("p", null, wide ? "Вход — только ключом флота. Выдайте ссылку на машине владельца и откройте её в этом браузере:" : "Вход — только ключом флота. Напечатайте QR на любой машине флота и наведите на него камеру:"),
+        h("div", { class: "sb-big" }, "Нужен пропуск флота"),
+        h("p", null, "Вход — только пропуском. Попросите агента флота выдать приглашение и откройте ссылку в этом приложении:"),
         h("code", { class: "sb-cmd" }, invite(wide ? "<имя>" : "phone")),
-        h("p", null, wide ? "Или вставьте ключ из ссылки:" : "Или вставьте ключ из QR:"),
+        h("p", null, "Или вставьте приглашение:"),
         input,
-        h("button", { class: "sb-cta", onclick: () => void save() }, "Сохранить ключ"),
+        h("button", { class: "sb-cta", onclick: () => void save() }, "Принять приглашение"),
         why,
       );
     }

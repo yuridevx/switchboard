@@ -63,7 +63,8 @@ export class Releases extends DurableObject<Env> {
     try {
       switch (f.type) {
         case "releases.plan": {
-          if (kindOf(from) !== "part" || !from.startsWith(".keeper@")) throw new Refusal("bad_frame", "план спрашивает только keeper машины");
+          // keeper спрашивает план POST пропуском своей машины (@машина); на переходе — кадром через relay (.keeper@машина)
+          if (kindOf(from) !== "machine" && !(kindOf(from) === "part" && from.startsWith(".keeper@"))) throw new Refusal("bad_frame", "план спрашивает только машина");
           const m = machineOf(from)!;
           this.ctx.storage.sql.exec("INSERT OR IGNORE INTO plans (machine, plan) VALUES (?, '{}')", m);
           return answer(ok(id, await this.planOf(m)));
@@ -74,10 +75,12 @@ export class Releases extends DurableObject<Env> {
           return answer(ok(id, await this.upload(f)));
         case "releases.deploy": {
           const r = await this.deploy(f, from);
+          await this.deliver(r.out);
           return [...answer(ok(id, r.result)), ...r.out];
         }
         case "releases.set": {
           const r = await this.set(f);
+          await this.deliver(r.out);
           return [...answer(ok(id, r.result)), ...r.out];
         }
       }
@@ -186,6 +189,22 @@ export class Releases extends DurableObject<Env> {
       parts.push(pp);
     }
     return { rev: this.rev, parts };
+  }
+
+  /**
+   * Планы keeper'ам — привязкой relay.deliver в объект машины: keeper держит соединение с relay своей машины.
+   * На переходе те же кадры уходят и ответом участника — keeper'у прежнего кода на общем объекте; лишний план keeper
+   * не берёт: rev не новее исполняемого. relay не ответил — строка в журнале, keeper возьмёт план на следующем соединении.
+   */
+  private async deliver(out: Frame[]): Promise<void> {
+    for (const f of out.filter((x) => x.type === "releases.plan")) {
+      try {
+        const n = await this.env.RELAY.deliver({ ...f, from: ".releases" });
+        log({ kind: "note", ev: "releases.plan", why: `план → ${String(f.to)}: ${n ? "доставлен" : "keeper не на связи"}` });
+      } catch (e) {
+        log({ kind: "refuse", ev: "releases.plan", word: "offline", why: `relay.deliver → ${String(f.to)}: ${e}` });
+      }
+    }
   }
 
   private async planFrame(m: string): Promise<Frame> {

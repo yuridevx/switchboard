@@ -13,7 +13,8 @@
     "frame@relay": 1,
     "ledger.add@ledger": 1,
     "release.format@release": 1,
-    "gate.verify@gate": 1
+    "gate.verify@gate": 1,
+    "relay.deliver@relay": 1
   },
   "config": {
     "CLOUDFLARE_API_TOKEN": "secret",
@@ -23,6 +24,7 @@
     "CLOUD": "var",
     "BUCKET": "binding",
     "RELEASES": "binding",
-    "GATE": "binding"
+    "GATE": "binding",
+    "RELAY": "binding"
   }
 }

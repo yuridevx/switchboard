@@ -1,7 +1,7 @@
 // Флоу ядра по плану цикла тестов (web): ключ, связь, roster, маршрут кадров, запросы, экраны, уход с экрана, метки.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
-import { FakeRelay, flush, homeRoster, KEY } from "../stand/relay.ts";
+import { FakeRelay, flush, homeRoster, INVITE, KEY, oneMachine } from "../stand/relay.ts";
 
 const man = (name: string, provides: Record<string, number>, uses: Record<string, number>): Manifest => ({
   name,
@@ -86,11 +86,14 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 async function boot(o: { parts: AppPart[]; store?: ReturnType<typeof memoryStore>; relay?: FakeRelay; pauseMs?: number; wide?: boolean; noWait?: boolean }) {
-  const relay = o.relay ?? new FakeRelay(homeRoster());
+  const relay = o.relay ?? new FakeRelay(oneMachine());
+  relay.handlers["gate.redeem"] ??= (f) => (f.invite === INVITE ? { ok: true, result: { key: KEY } } : { ok: false, error: "bad_invite" });
   const store = o.store ?? memoryStore({ key: KEY });
   const run = startApp({
     root,
     relayUrl: "wss://relay.test",
+    workers: FakeRelay.WORKERS,
+    fetch: relay.fetch,
     parts: o.parts,
     store,
     WebSocket: relay.WebSocket,
@@ -129,27 +132,27 @@ describe("старт и ключ", () => {
     expect(root.querySelector<HTMLElement>(".sb-toast")!.hidden).toBe(true);
   });
 
-  it("4004 · ключ вставлен вручную — в хранилище без части до #, перезагрузка", async () => {
+  it("4004 · 5104 · приглашение вставлено вручную — принято у gate, пропуск в хранилище, перезагрузка", async () => {
     const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
     const store = memoryStore();
     const { run } = await boot({ parts: [sample().part], store });
     expect(run.stopped).toBe("no_key");
     const inp = root.querySelector<HTMLInputElement>(".sb-keyin")!;
-    inp.value = `https://switchboard-phone.test/#${KEY}`;
-    [...root.querySelectorAll("button")].find((b) => b.textContent === "Сохранить ключ")!.click();
+    inp.value = `https://switchboard-phone.test/#invite=${INVITE}`;
+    [...root.querySelectorAll("button")].find((b) => b.textContent === "Принять приглашение")!.click();
     await flush();
     expect(store.data.key).toBe(KEY);
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it("4005 · вставлен не ключ — отказ словами, хранилище не тронуто", async () => {
+  it("4005 · вставлено не приглашение — отказ словами, хранилище не тронуто", async () => {
     const store = memoryStore();
     const { run } = await boot({ parts: [sample().part], store });
     expect(run.stopped).toBe("no_key");
     root.querySelector<HTMLInputElement>(".sb-keyin")!.value = "hello";
-    [...root.querySelectorAll("button")].find((b) => b.textContent === "Сохранить ключ")!.click();
+    [...root.querySelectorAll("button")].find((b) => b.textContent === "Принять приглашение")!.click();
     await flush();
-    expect(root.querySelector('[role="alert"]')!.textContent).toBe("Это не ключ клиента: нужен client.<имя>.<номер>.<подпись>.");
+    expect(root.querySelector('[role="alert"]')!.textContent).toBe("Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.");
     expect(store.data.key).toBeUndefined();
   });
 });
@@ -165,7 +168,7 @@ describe("связь с relay", () => {
   });
 
   it("4007 · contract_mismatch — «Приложение устарело» с proto и «Перезагрузить», второго hello нет", async () => {
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.refuse = ["contract_mismatch"];
     const { run } = await boot({ parts: [sample().part], relay });
     await flush(20);
@@ -199,7 +202,7 @@ describe("связь с relay", () => {
   });
 
   it("4010 · отказ hello до первого roster — полоса «Нет связи» на экране подключения", async () => {
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.refuse = ["gate_unavailable"];
     await boot({ parts: [sample().part], relay, pauseMs: 60_000 });
     expect(root.textContent).toContain("подключаюсь · hello");
@@ -211,7 +214,7 @@ describe("связь с relay", () => {
 describe("roster", () => {
   it("4011 · до первого roster — «подключаюсь»; первый roster открывает экран из адреса", async () => {
     history.replaceState(null, "", "/#item?callsign=site%40laptop");
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     const pending = boot({ parts: [sample().part], relay, noWait: true });
     await pending;
     expect(root.textContent).toContain("подключаюсь · hello");
@@ -223,8 +226,8 @@ describe("roster", () => {
     const { relay } = await boot({ parts: [sample().part], wide: true });
     const nav = () => root.querySelector('.sb-navcol button[data-screen="list"]')!.textContent;
     expect(nav()).toBe("Сессии1");
-    const r = homeRoster();
-    r.sessions = [...r.sessions, { callsign: "x@pc", state: "waiting" }, { callsign: "y@pc", state: "waiting" }];
+    const r = oneMachine();
+    r.sessions = [...r.sessions, { callsign: "x@laptop", state: "waiting" }, { callsign: "y@laptop", state: "waiting" }];
     relay.setRoster(r);
     await flush();
     expect(nav()).toBe("Сессии3");
@@ -264,7 +267,7 @@ describe("кадры и запросы", () => {
   it("4194 · версия, названная в вызове, — как есть; не названа — из uses (одно правило с ядром Host)", async () => {
     // источник: чьё: код (ядро Host: названная — как есть, иначе из uses/provides); слепое расширение 2 нояб. — веб перезаписывал названную
     const s = sample();
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.handlers.answer = () => ({ ok: true });
     await boot({ parts: [s.part], relay });
     await s.box.app.request("answer", { callsign: "profiles@laptop", question: "q1", v: 2 });
@@ -274,7 +277,7 @@ describe("кадры и запросы", () => {
 
   it("4016 · запрос к Host — кадр с v из uses и callsign; reply ok — результат", async () => {
     const s = sample();
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.handlers.answer = () => ({ ok: true, result: { done: 1 } });
     await boot({ parts: [s.part], relay });
     expect(await s.box.app.request("answer", { callsign: "profiles@laptop", question: "q1" })).toEqual({ ok: true, result: { done: 1 } });
@@ -283,7 +286,7 @@ describe("кадры и запросы", () => {
 
   it("4018 · отказ владельца — слово модулю, ядро не бросает, модуль не выключен", async () => {
     const s = sample();
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.handlers.answer = () => ({ ok: false, error: "offline" });
     const { run } = await boot({ parts: [s.part], relay });
     expect(await s.box.app.request("answer", { callsign: "profiles@laptop" })).toEqual({ ok: false, error: "offline" });
@@ -292,7 +295,7 @@ describe("кадры и запросы", () => {
 
   it("4019 · машины нет в roster — кадр уходит, отказ relay словом", async () => {
     const s = sample();
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.handlers.answer = () => ({ ok: false, error: "offline" });
     await boot({ parts: [s.part], relay });
     expect(await s.box.app.request("answer", { callsign: "x@mac" })).toEqual({ ok: false, error: "offline" });
@@ -402,7 +405,7 @@ describe("уход с экрана", () => {
   });
 
   it("4029 · после отказа relay возвращение на экран не подключает", async () => {
-    const relay = new FakeRelay(homeRoster());
+    const relay = new FakeRelay(oneMachine());
     relay.refuse = ["revoked"];
     const log: string[] = [];
     const { run } = await boot({ parts: [sample(log).part], relay });
@@ -412,7 +415,23 @@ describe("уход с экрана", () => {
     await flush(10);
     expect(relay.hellos).toHaveLength(1);
     expect(log.filter((x) => x === "start sample")).toHaveLength(1);
-    expect(root.textContent).toContain("Ключ отозван");
+    expect(root.textContent).toContain("Пропуск отозван");
+  });
+});
+
+describe("машины флота", () => {
+  it("5105 · соединение с relay каждой машины; relay laptop упал — сессии pc на экране и запросы к ним работают", async () => {
+    const relay = new FakeRelay(homeRoster());
+    const s = sample();
+    const { run } = await boot({ parts: [s.part], relay });
+    expect(relay.socks.map((x) => x.url).sort()).toEqual(["wss://relay.test/m/laptop", "wss://relay.test/m/pc"]);
+    expect(s.box.app.roster()!.sessions.map((x) => x.callsign).sort()).toEqual(["poe-bot@pc", "profiles@laptop", "site@laptop", "wiki@pc"]);
+    relay.socks.find((x) => x.url.endsWith("/m/laptop"))!.serverClose(1006, "");
+    await flush();
+    expect(s.box.app.link()).toBe("open");
+    expect(run.stopped).toBeNull();
+    relay.handlers.answer = () => ({ ok: true, result: { done: 1 } });
+    expect(await s.box.app.request("answer", { callsign: "poe-bot@pc", question: "q1" })).toEqual({ ok: true, result: { done: 1 } });
   });
 });
 

@@ -7,14 +7,13 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { link, type Roster } from "@switchboard/relay";
+import { type Roster } from "@switchboard/relay";
+import { client } from "./client.ts";
 
 const machine = process.env.FLOW_MACHINE!;
 const dir = process.env.FLOW_DIR!;
 const questions: Array<Record<string, any>> = [];
-const l = link({
-  url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev",
-  key: process.env.FLOW_CLIENT_KEY!,
+const l = client(process.env.FLOW_CLIENT_KEY!, {
   onFrame: (f) => void (f.type === "question" && questions.push(f)),
 });
 const fails: string[] = [];

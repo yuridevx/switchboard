@@ -45,7 +45,8 @@ describe("кадр question", () => {
     const lists = relay.got.filter((f) => f.type === "question.list" && f.callsign === "poe-bot@pc");
     expect(lists).toHaveLength(1);
     expect(relay.got.indexOf(lists[0])).toBeGreaterThanOrEqual(0);
-    expect(relay.hellos).toHaveLength(1);
+    // hello — на каждую машину флота: laptop и pc
+    expect(relay.hellos).toHaveLength(2);
     expect(row(t, "poe-bot@pc").textContent).toContain("База?");
     expect(row(t, "poe-bot@pc").querySelector(".sb-badge")!.textContent).toBe("?");
   });
@@ -140,8 +141,9 @@ describe("ждущие вопросы у Host", () => {
     relay.drop();
     await new Promise((r) => setTimeout(r, 30));
     await flush(10);
-    expect(relay.hellos).toHaveLength(2);
-    expect(relay.sent("question.list").filter((f) => f.callsign === "profiles@laptop")).toHaveLength(2);
+    // hello — на каждую машину флота, до разрыва и после: laptop и pc дважды
+    expect(relay.hellos).toHaveLength(4);
+    expect(relay.sent("question.list").filter((f) => f.callsign === "profiles@laptop").length).toBeGreaterThanOrEqual(2);
     expect(row(t, "profiles@laptop").textContent).not.toContain("База?");
   });
 

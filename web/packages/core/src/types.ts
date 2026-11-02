@@ -146,8 +146,12 @@ export type Platform = { ios: boolean; standalone: boolean };
 export type StartOptions = {
   /** куда рисовать приложение */
   root: HTMLElement;
-  /** адрес relay из сборки: wss://switchboard.<subdomain>.workers.dev */
+  /** адрес relay из сборки: wss://switchboard.<subdomain>.workers.dev — объект машины на /m/<машина> */
   relayUrl: string;
+  /** Worker'ы флота из сборки: имя → адрес https; gate — список машин и приём приглашения */
+  workers: Record<string, string>;
+  /** fetch для POST к Worker'ам; по умолчанию глобальный */
+  fetch?: typeof fetch;
   /** модули выпуска по порядку старта */
   parts: AppPart[];
   /** узкий (телефон) или широкий (пульт) вид */

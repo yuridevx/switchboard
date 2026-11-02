@@ -1,12 +1,12 @@
 // Живой сценарий выпусков: каталог и планы у «выпусков», keeper каждой машины отвечает сам; тестовое приложение —
 // загрузка по ссылкам, выкладка в план машины, смена версии, два падения → failed, выключение силой, удаление.
 // env: FLOW_CLIENT_KEY, FLOW_MACHINE (машина для тестового приложения).
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 import { pack, sha256hex, shaLine } from "@switchboard/release";
 
 const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const M = process.env.FLOW_MACHINE!;
-const l = link({ url, key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 300)}`);

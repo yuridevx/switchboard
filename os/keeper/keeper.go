@@ -78,9 +78,12 @@ type part struct {
 
 type Keeper struct {
 	home, machine, node string
-	relay               string // адрес relay из keeper.json; части получают его в окружении
-	j                   *Journal
-	radio               *radio
+	relay               string // адрес relay из keeper.json (wss://…): объект своей машины — /m/<машина>; части получают его в окружении
+	// Worker'ы флота из keeper.json: имя → адрес https. keeper зовёт «Выпуски» (план) и журнал; Host получает весь список
+	workers map[string]string
+	key     string // пропуск машины: им keeper входит в relay и зовёт Worker'ов
+	j       *Journal
+	radio   *radio
 
 	mu    sync.Mutex
 	plan  plan  // исполняемый
@@ -122,7 +125,7 @@ func newKeeper(home string, echo io.Writer) (*Keeper, error) {
 		j.stop("keeper_start", "keeper.json не прочитан: "+err.Error())
 		return nil, err
 	}
-	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), node: confStr(conf, "node"), j: j, parts: map[string]*part{},
+	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), workers: confMap(conf, "workers"), key: key, node: confStr(conf, "node"), j: j, parts: map[string]*part{},
 		wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{}),
 		self: os.Executable, planWait: 30 * time.Second, limit: time.Minute}
 	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
@@ -147,8 +150,8 @@ func (k *Keeper) run() {
 	k.wg.Add(1)
 	go k.loop()
 	k.queue(k.plan)
-	if key := readKey(k.home); k.relay != "" && k.machine != "" {
-		k.radio = newRadio(k.relay, key)
+	if k.relay != "" && k.machine != "" {
+		k.radio = newRadio(strings.TrimRight(k.relay, "/")+"/m/"+k.machine, k.key)
 		k.radio.onOpen = k.askPlan
 		k.radio.onFrame = k.frame
 		k.radio.onState = func(open bool, why string) {
@@ -222,13 +225,18 @@ func (k *Keeper) quitting() bool {
 
 /* ===== рация ===== */
 
-// askPlan — при каждом подключении: вопрос о плане машины. Нет ответа — соединение закрыто:
-// переподключение спросит снова.
+// askPlan — при каждом подключении к relay своей машины: план — POST «Выпускам» пропуском машины.
+// Нет ответа — соединение с relay закрыто: переподключение спросит снова; отказ словом — строка журнала.
 func (k *Keeper) askPlan() {
-	r := k.radio.request(frameMsg{"type": "releases.plan", "v": 1, "to": ".releases"}, k.planWait)
+	url := k.workers["releases"]
+	if url == "" {
+		k.j.stop("plan", "в keeper.json нет адреса «Выпусков» (workers.releases) — исполняю сохранённый план")
+		return
+	}
+	r := post(url, k.key, frameMsg{"type": "releases.plan", "id": "plan", "v": 1, "to": ".releases"}, k.planWait, k.quit)
 	if !r.OK {
 		k.j.refuse("plan", r.Error, "releases.plan не ответил: "+r.Error)
-		if r.Error == "timeout" {
+		if r.Error == "timeout" || r.Error == "offline" {
 			k.radio.drop("releases.plan не ответил")
 		}
 		return
@@ -285,14 +293,22 @@ func (k *Keeper) frame(f frameMsg) {
 	}
 }
 
-// ledger — строка в журнал флота; нет связи — только в журнал машины.
+// ledger — строка в журнал флота POST журналу пропуском машины, своей горутиной: цикл частей не ждёт;
+// не дошла — только в журнал машины. Остановка keeper ждёт её до предела запроса: последняя строка перед выходом
+// (подмена себя) доходит.
 func (k *Keeper) ledger(ev, text string) {
-	if k.radio == nil {
+	url := k.workers["ledger"]
+	if url == "" {
+		k.j.note("ledger", "ev", ev, "why", "нет адреса журнала (workers.ledger): "+text)
 		return
 	}
-	if err := k.radio.send(frameMsg{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}); err != nil {
-		k.j.note("ledger", "ev", ev, "why", "нет связи: "+text)
-	}
+	k.wg.Add(1)
+	go func() {
+		defer k.wg.Done()
+		if r := post(url, k.key, frameMsg{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}, k.planWait, nil); !r.OK {
+			k.j.note("ledger", "ev", ev, "why", r.Error+": "+text)
+		}
+	}()
 }
 
 /* ===== состояние ===== */
@@ -634,6 +650,10 @@ func (k *Keeper) startPart(p *part, pp planPart, dir string) error {
 	)
 	if k.relay != "" {
 		env = append(env, "SWITCHBOARD_RELAY="+k.relay)
+	}
+	if len(k.workers) > 0 {
+		w, _ := json.Marshal(k.workers)
+		env = append(env, "SWITCHBOARD_WORKERS="+string(w))
 	}
 	for kk, v := range pp.Env {
 		env = append(env, kk+"="+v)

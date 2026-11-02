@@ -3,9 +3,9 @@
 // Приложение есть: сведения и репозитории установок, setup без replace — app_exists, с replace и неверным code —
 // github_failed (прежнее приложение цело), токен репозитория установки, чужой репозиторий — not_installed.
 // Токенов в выводе нет. env: FLOW_CLIENT_KEY; FLOW_REPO — репозиторий установки (по умолчанию yuridevx/switchboard-profiles).
-import { link } from "@switchboard/relay";
+import { client } from "./client.ts";
 
-const l = link({ url: process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev", key: process.env.FLOW_CLIENT_KEY! });
+const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];
 const check = (n: string, ok: boolean, d?: unknown) => {
   console.log(`${ok ? "ok  " : "FAIL"} ${n}${d === undefined ? "" : " · " + JSON.stringify(d).slice(0, 300)}`);

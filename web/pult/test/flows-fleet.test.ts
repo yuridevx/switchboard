@@ -402,7 +402,10 @@ describe("машины", () => {
     r.machines = r.machines.filter((m) => m.machine !== "pc");
     const relay = machinesRelay(r);
     const t = await machines(relay);
-    relay.setRoster(fleetRoster());
+    // машина pc вошла гостем на laptop — клиент флота открыл соединение с её relay
+    const full = fleetRoster();
+    full.clients = [...full.clients, "@pc"];
+    relay.setRoster(full);
     await flush(10);
     expect(relay.sent("keeper.state").map((f) => f.to)).toContain(".keeper@pc");
     expect(relay.sent("machine.profiles").map((f) => f.machine)).toContain("pc");

@@ -2,7 +2,8 @@
 // отвечает keeper.state, подменяет себя по плану.
 //
 //	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
-//	keeper install        — ключ машины (host.<машина>…, из него и имя машины) — первой строкой stdin; флаг --relay;
+//	keeper install        — приглашение машины — первой строкой stdin: keeper принимает его у gate (--worker gate=…)
+//	                        и кладёт пропуск в machine.key; --relay <wss>, --worker <имя>=<https> — адреса в keeper.json;
 //	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача
 //	                        «при входе пользователя» с повтором раз в минуту; Linux — systemd --user с linger
 //	keeper uninstall      — убрать службу или задачу
@@ -12,6 +13,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -20,6 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const serviceName = "switchboard-keeper"
@@ -51,7 +54,7 @@ func main() {
 	case "version":
 		fmt.Println(keeperVersion)
 	default:
-		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--relay <wss>] [--logon] | uninstall | hold … | version")
+		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--relay <wss>] [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version")
 		os.Exit(2)
 	}
 }
@@ -87,20 +90,36 @@ func runConsole(args []string) int {
 
 // installFlags — флаги установки.
 type installFlags struct {
-	relay string
-	logon bool
+	relay   string
+	workers map[string]string
+	logon   bool
+}
+
+// workerFlag — --worker <имя>=<https>, сколько угодно раз.
+type workerFlag map[string]string
+
+func (w workerFlag) String() string { return "" }
+func (w workerFlag) Set(v string) error {
+	name, url, ok := strings.Cut(v, "=")
+	if !ok || name == "" || !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return fmt.Errorf("--worker <имя>=<https://…>, а не %q", v)
+	}
+	w[name] = url
+	return nil
 }
 
 func parseInstall(args []string) (installFlags, error) {
-	var f installFlags
+	f := installFlags{workers: map[string]string{}}
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.StringVar(&f.relay, "relay", "", "адрес relay (wss://…)")
+	fs.Var(workerFlag(f.workers), "worker", "адрес Worker'а флота <имя>=<https://…>: gate, releases, ledger …")
 	fs.BoolVar(&f.logon, "logon", false, "Windows: задача «при входе пользователя» вместо службы")
 	return f, fs.Parse(args)
 }
 
-// prepareConf — keeper.json (node, relay) и ключ машины machine.key из первой строки stdin: им входят Host и keeper,
-// из него же — имя машины.
+// prepareConf — keeper.json (node, relay, workers) и пропуск машины machine.key: приглашение — первой строкой stdin,
+// keeper принимает его у gate (POST gate.redeem); погашенное или чужое — отказ словом, machine.key не тронут.
+// Пропуском входят Host и keeper, из него же — имя машины.
 func prepareConf(f installFlags, in *bufio.Reader) error {
 	home, err := homeDir()
 	if err != nil {
@@ -123,12 +142,29 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	if f.relay != "" {
 		m["relay"] = f.relay
 	}
-	key, err := readSecretLine(in)
-	if err != nil {
-		return fmt.Errorf("ключ машины — первой строкой stdin: %w", err)
+	workers := confMap(m, "workers")
+	for k, v := range f.workers {
+		workers[k] = v
 	}
+	if len(workers) > 0 {
+		m["workers"] = workers
+	}
+	invite, err := readSecretLine(in)
+	if err != nil {
+		return fmt.Errorf("приглашение машины — первой строкой stdin: %w", err)
+	}
+	if workers["gate"] == "" {
+		return fmt.Errorf("нет адреса gate: --worker gate=https://…")
+	}
+	r := post(workers["gate"], "", frameMsg{"type": "gate.redeem", "id": "install", "v": 1, "invite": invite}, 30*time.Second, nil)
+	if !r.OK {
+		return fmt.Errorf("приглашение не принято: %s", r.Error)
+	}
+	var got struct{ Key string }
+	json.Unmarshal(r.Result, &got)
+	key := got.Key
 	if !strings.HasPrefix(key, "host.") {
-		return fmt.Errorf("ключ не машины: нужен host.<машина>…")
+		return fmt.Errorf("приглашение не машины: пропуск %s", strings.Join(strings.SplitN(key, ".", 4)[:min(3, len(strings.SplitN(key, ".", 4)))], "."))
 	}
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return err
