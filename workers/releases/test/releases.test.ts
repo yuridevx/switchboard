@@ -762,7 +762,7 @@ describe("сборка Host «Выпусками»", () => {
     expect((await req(s, "~x", "releases.deploy", { part: "host-ghost" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
   });
 
-  it("5119 · откат сборки: deploy host со сборкой «+n» или прежним архивом — stable на него без новой сборки; модуль с «+» — bad_version", async () => {
+  it("5119 · откат сборки: deploy host со сборкой «+n» или прежним архивом — stable на него без новой сборки; модуль с «+» — bad_version; version null — сборка без модуля", async () => {
     const s = fresh();
     await setup();
     await req(s, "~x", "releases.deploy", { part: "host-watch" });
@@ -770,6 +770,13 @@ describe("сборка Host «Выпусками»", () => {
     await req(s, "~x", "releases.deploy", { part: "host-watch" });
     expect(await result(req(s, "~x", "releases.deploy", { part: "host", version: "1.2.0+1" }))).toEqual({ parts: { host: { from: "1.2.0+2", to: "1.2.0+1" } } });
     expect((await req(s, "~x", "releases.deploy", { part: "host-watch", version: "1.0.0+1" }))[0]).toMatchObject({ error: "bad_version" });
+    // снять модуль: version null — сборка без него; не модуль сборки — bad_frame
+    // без владельца чужого uses набор не проходит: host-push пользуется host-watch
+    expect((await req(s, "~x", "releases.deploy", { part: "host-watch", version: null }))[0]).toMatchObject({ error: "check_failed" });
+    expect(await result(req(s, "~x", "releases.deploy", { part: "host-push", version: null }))).toEqual({ parts: { host: { from: "1.2.0+1", to: "1.2.0+3" } } });
+    expect((await buildOf("1.2.0+3")).list.modules).toEqual([{ name: "host-watch", version: "1.0.0" }]);
+    expect((await req(s, "~x", "releases.deploy", { part: "push", version: null }))[0]).toMatchObject({ error: "bad_frame" });
+    await req(s, "~x", "releases.deploy", { part: "host", version: "1.2.0+1" });
     // прежний архив Host без манифеста — откат прямо на него
     expect(await result(req(s, "~x", "releases.deploy", { part: "host", version: "1.1.85" }))).toEqual({ parts: { host: { from: "1.2.0+1", to: "1.1.85" } } });
   });

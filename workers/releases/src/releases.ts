@@ -352,16 +352,17 @@ class Releases {
   private async deploy(f: Frame, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
     const part = f.part;
     if (typeof part !== "string" || (part !== "*" && !NAME.test(part))) throw new Refusal("bad_frame", "part — имя части или *");
-    if (f.version !== undefined && (typeof f.version !== "string" || !VERSION.test(f.version))) throw new Refusal("bad_version", "версия — три числа или сборка «+n»");
+    if (f.version !== undefined && f.version !== null && (typeof f.version !== "string" || !VERSION.test(f.version))) throw new Refusal("bad_version", "версия — три числа, сборка «+n» или null — снять модуль");
     if (part === "*" && f.version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
-    const want = f.version as string | undefined;
+    const want = (f.version ?? undefined) as string | undefined;
     const kind = part === "*" ? undefined : (await this.partKinds()).get(part);
     const cat = part === "*" ? undefined : (await this.catalog()).get(part);
-    // модуль сборки: новая сборка каждого приложения из его into
+    // модуль сборки: новая сборка каждого приложения из его into; version: null — сборки без него
     if (part !== "*" && !kind && cat?.manifest?.into?.length) {
       if (want && isBuild(want)) throw new Refusal("bad_version", `${part} — модуль: версия каталога, без «+»`);
-      return this.rebuild(cat.manifest.into, { name: part, version: want ?? cat.versions[cat.versions.length - 1] }, by);
+      return this.rebuild(cat.manifest.into, { name: part, version: f.version === null ? null : (want ?? cat.versions[cat.versions.length - 1]) }, by);
     }
+    if (f.version === null) throw new Refusal("bad_frame", `${part} — не модуль сборки: снимать нечего`);
     // корень сборки: версия ядра в каталоге — сборка с этим ядром; сборка «+n» или прежний архив без манифеста — откат на него
     if (kind?.app && !(want && (isBuild(want) || !(await this.manifest(part, want))))) {
       return this.rebuild([part], { name: part, version: want ?? cat!.versions[cat!.versions.length - 1] }, by);
@@ -454,11 +455,11 @@ class Releases {
    * сборки остальных приложений, Worker'ы, приложения ОС и библиотеки каталога. Host — архив под именем флота, stable
    * и планы машин; страница — тот же архив и версия её Worker'а со статикой, выложенная.
    */
-  private async rebuild(apps: string[], change: { name: string; version: string }, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
+  private async rebuild(apps: string[], change: { name: string; version: string | null }, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
     const s = await this.load();
     const cat = await this.catalog();
     const kinds = await this.partKinds();
-    if (!(await this.sha(change.name, change.version)) || !cat.has(change.name)) throw new Refusal("no_release", `у ${change.name} нет версии ${change.version}`);
+    if (change.version !== null && (!(await this.sha(change.name, change.version)) || !cat.has(change.name))) throw new Refusal("no_release", `у ${change.name} нет версии ${change.version}`);
     // списки всех приложений флота: собираемые — с заменой, остальные — как выложены
     const roots = [...kinds].filter(([, k]) => k.app).map(([p]) => p);
     for (const app of apps) if (!roots.includes(app)) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
@@ -467,7 +468,10 @@ class Releases {
     for (const app of roots) {
       cur.set(app, await this.current(app, s));
       const list = await this.listOf(app, cur.get(app)!);
-      if (apps.includes(app)) list.set(change.name, change.version);
+      if (apps.includes(app)) {
+        if (change.version === null) list.delete(change.name);
+        else list.set(change.name, change.version);
+      }
       lists.set(app, await this.manifests(list));
     }
     const inBuilds = new Set([...lists.values()].flatMap((l) => [...l.keys()]));
@@ -513,7 +517,7 @@ class Releases {
       await this.env.BUCKET.put(this.shaOf(app, version), shaLine(sha256hex(tgz), version));
       if (k.where === "cloud") {
         await deploy(this.env, k.script, await publishStatic(this.env, k.script, files, version));
-        await this.journal(`${app} ${cur.get(app) ?? "—"} → ${version} (${change.name} ${change.version})`, by);
+        await this.journal(`${app} ${cur.get(app) ?? "—"} → ${version} (${change.name} ${change.version ?? "снят"})`, by);
       } else {
         stable[app] = version;
         built.push([app, version]);
@@ -523,7 +527,7 @@ class Releases {
     const plans: Frame[] = [];
     if (built.length) {
       const rev = await this.save({ stable, plans: s.plans }, s.rev);
-      for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${change.name} ${change.version})`, by);
+      for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${change.name} ${change.version ?? "снят"})`, by);
       const next: Fleet = { stable, plans: s.plans, rev };
       for (const m of await this.machines()) {
         const plan = s.plans[m] ?? {};
