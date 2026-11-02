@@ -150,6 +150,8 @@ export class FakeSdk {
   /** разговоры без файла: claude ещё не прошёл первый ход */
   readonly noFile = new Set<string>();
   readonly cliCalls: Array<{ args: string[]; env: Record<string, string | undefined>; input?: string }> = [];
+  /** путь к claude, как его находит Host */
+  bin = "/opt/sdk/claude";
 
   constructor(version = "0.3.311") {
     this.version = version;

@@ -50,6 +50,8 @@ async function main(): Promise<number> {
   const keyFile = join(home, "machine.key");
   const relayKey = existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim() : undefined;
   const release = await loadRelease(coreDir);
+  // claude ищет Host один раз; SDK без пути ищет сам через process.report — на Linux с открытыми сокетами это ~20 с
+  const bin = claudePath(coreDir);
   const functions: SdkApi["functions"] = {};
   for (const [n, f] of Object.entries(sdk)) if (typeof f === "function") functions[n] = f as (...a: unknown[]) => Promise<unknown>;
   const k = new Kernel({
@@ -57,7 +59,7 @@ async function main(): Promise<number> {
     config,
     core,
     release,
-    sdk: { query: sdk.query, functions, cli: claudeCli(claudePath(coreDir)) },
+    sdk: { query: sdk.query, functions, cli: claudeCli(bin), bin },
     holders: realHolders(home, process.env.SWITCHBOARD_HOLDER),
     relayKey,
     exit: (code) => process.exit(code),

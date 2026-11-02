@@ -173,6 +173,14 @@ describe("договор модуля на стенде", () => {
     expect(await remote).toEqual({ ok: true, result: [] });
   });
 
+  it("745 · query() сессии получает путь к claude, который нашёл Host: SDK не ищет его второй раз", async () => {
+    // источник: факт 2 нояб. — открытие сессии на wsl ждало ~21 с: профиль CPU — 20 с в process.report.getReport() поиска claude в SDK
+    const st = await standHost();
+    await st.open("site@laptop");
+    expect(st.query("site@laptop").options.pathToClaudeCodeExecutable).toBe(st.sdk.bin);
+    await st.close();
+  });
+
   it("744 · host.request: машина-адресат — одно правило hostOf: callsign другой машины важнее machine этой — через relay", async () => {
     // источник: чьё: код (protocol hostOf — порядок рации: to, затем callsign, затем machine)
     let host!: Host;
@@ -375,6 +383,8 @@ describe("договор модуля на стенде", () => {
     expect(pq.options.env).toMatchObject({ CLAUDE_CONFIG_DIR: "/acc/y0902", DISABLE_UPDATES: "1" });
     expect(pq.options.permissionMode).toBe("bypassPermissions");
     expect(pq.options.spawnClaudeCodeProcess).toBeUndefined();
+    // путь к claude — тот, что нашёл Host: SDK его не ищет (поиск SDK на Linux — process.report, ~20 с)
+    expect(pq.options.pathToClaudeCodeExecutable).toBe(st.sdk.bin);
     expect(pq.calls.at(-1)).toEqual({ name: "claudeAuthenticate", args: [true] });
     expect(st.kernel.sessions.size).toBe(1);
     p.close();

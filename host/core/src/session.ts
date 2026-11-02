@@ -137,6 +137,7 @@ export class Sess {
       ...extra,
       ...start,
       cwd: this.rec.cwd,
+      ...(this.k.deps.sdk.bin ? { pathToClaudeCodeExecutable: this.k.deps.sdk.bin } : {}),
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       // состояние сессии — только из session_state_changed; SDK шлёт его лишь с этим ключом

@@ -49,6 +49,8 @@ export type SdkApi = {
   functions: Record<string, (...a: any[]) => Promise<unknown>>;
   /** команда claude той же версии */
   cli: (args: string[], env: Record<string, string | undefined>, input?: string) => Promise<{ code: number | null; out: string }>;
+  /** путь к исполняемому claude из пакета SDK: его же получает query() сессии — SDK не ищет его второй раз */
+  bin?: string;
 };
 
 export type Deps = {
@@ -573,6 +575,7 @@ export class Kernel {
       prompt: new InputQueue().stream(),
       options: {
         env: { ...process.env, ...(env ?? {}), DISABLE_UPDATES: "1" },
+        ...(this.deps.sdk.bin ? { pathToClaudeCodeExecutable: this.deps.sdk.bin } : {}),
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
       },
