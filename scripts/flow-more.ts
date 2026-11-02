@@ -55,11 +55,11 @@ await req({ type: "session.prompt", callsign: NQ, text: "Спроси меня �
 phone.close(1000, "away");
 await wait(async () => (await req({ type: "question.list", callsign: NQ })).result?.length > 0, 120000);
 const jq = await wait(async () => {
-  const j = await req({ type: "machine.journal", machine: M1, since: t0, limit: 500 });
+  const j = await req({ type: "machine.journal", v: 2, machine: M1, since: t0, limit: 500 });
   return JSON.stringify(j.result?.records ?? []).includes(`ask → ${phoneName}`);
 }, 30000);
 check("вопрос ушёл давшему задачу, которого нет на связи", jq);
-const jj = await req({ type: "machine.journal", machine: M1, since: t0, limit: 500 });
+const jj = await req({ type: "machine.journal", v: 2, machine: M1, since: t0, limit: 500 });
 const pushLines = (jj.result?.records ?? []).filter((r: any) => r.who === "host-push");
 check("host-push достал его пушем (в журнале нет «без пуша»)", !pushLines.some((r: any) => /без пуша/.test(r.why ?? "")), pushLines.map((r: any) => r.why));
 const ql = await req({ type: "question.list", callsign: NQ });
@@ -74,7 +74,7 @@ await turn(NQ, `Отправь инструментом fleet send челове�
 const hs = JSON.stringify(await req({ type: "session.history", callsign: NQ, before: null, limit: 20 }));
 check("fleet.send на ~email — отправлено", hs.includes(`отправлено: ~${email}`), hs.slice(-300));
 await new Promise((r) => setTimeout(r, 5000));
-const je = await req({ type: "machine.journal", machine: M1, since: t1, limit: 500 });
+const je = await req({ type: "machine.journal", v: 2, machine: M1, since: t1, limit: 500 });
 const pushE = (je.result?.records ?? []).filter((r: any) => r.who === "host-push");
 check("host-push: пуш на ~email без отказа (в журнале нет «без пуша»)", je.ok && !pushE.some((r: any) => /без пуша/.test(r.why ?? "")), pushE.map((r: any) => r.why));
 // служба пушей вживую: адрес человека доходит до проверочного устройства; iphone — в skip, реального пуша нет

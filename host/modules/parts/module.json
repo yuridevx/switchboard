@@ -10,7 +10,7 @@
     "releases.deploy@releases": 1,
     "releases.set@releases": 1,
     "keeper.state@keeper": 1,
-    "machine.journal@host-journal": 1,
+    "machine.journal@host-journal": 2,
     "release.format@release": 1
   },
   "calls": [],

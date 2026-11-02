@@ -20,7 +20,7 @@
     "session.profile@host-profiles": 1,
     "machine.profiles@host-profiles": 1,
     "machine.accounts@host-accounts": 1,
-    "machine.journal@host-journal": 1,
+    "machine.journal@host-journal": 2,
     "asked@web-ask": 1
   },
   "config": {}

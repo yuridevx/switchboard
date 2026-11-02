@@ -1,7 +1,7 @@
 // Ядро веб-приложения: гейт набора, ключ, связь с relay через link, маршрут кадров модулям,
 // экраны и навигация, хранилище, штатный уход с экрана. Ни одной функции приложения само не знает.
 import { link, PROTO, type Frame, type Link, type Roster, type WsCtor } from "@switchboard/relay";
-import { machineOf, serviceAddress } from "@switchboard/protocol";
+import { hostOf, serviceAddress } from "@switchboard/protocol";
 import { BASE_CSS } from "./css.ts";
 import { appGate, nameOf, ownerOf } from "./gate.ts";
 import { idbStore } from "./store.ts";
@@ -165,7 +165,7 @@ export function startApp(o: StartOptions): Running {
     const f: Frame = { ...body, type: n, v };
     const worker = roster?.workers.find((w) => w.name === owner);
     if (worker) f.to = serviceAddress(owner);
-    const machine = typeof body.callsign === "string" ? machineOf(body.callsign) : typeof body.machine === "string" ? body.machine : null;
+    const machine = hostOf(body) ?? null;
     const contract = worker ? worker.contract : machine ? provides(machine) : null;
     if (contract) {
       // возможности — по roster: имени нет у владельца — запрос не шлётся

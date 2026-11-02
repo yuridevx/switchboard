@@ -162,7 +162,6 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     };
     expect(await read({ machine: "laptop" })).toEqual(["site@laptop создана"]);
     expect(await read({ machine: "pc" })).toEqual(["pc: Host 1.5.0 → 1.6.0", "docs@pc создана"]);
-    expect(await read({ callsign: "docs@pc" })).toEqual(["docs@pc создана"]);
     expect(await read({ q: "Host" })).toEqual(["pc: Host 1.5.0 → 1.6.0"]);
     expect(await read({})).toHaveLength(3);
   });

@@ -108,7 +108,7 @@ export function make() {
           limit: z.number().int().positive().optional().describe("сколько строк, по умолчанию 50"),
         },
         async ({ machine, part, since, limit }) => {
-          const r = await ask("machine.journal", { machine, part, since: since ?? new Date(Date.now() - 3600_000).toISOString(), limit: limit ?? 50 });
+          const r = await ask("machine.journal", { v: 2, machine, part, since: since ?? new Date(Date.now() - 3600_000).toISOString(), limit: limit ?? 50 });
           return r.ok ? json(r.result) : failed("machine.journal", r);
         },
       ),

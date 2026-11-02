@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fail, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress } from "./contract.ts";
+import { fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -67,6 +67,18 @@ describe("protocol: конверт кадра", () => {
     // окончание адреса — с тильдой: ~ann не доходит до joann
     expect(reaches("~ann@example.com", "phone~joann@example.com")).toBe(false);
     expect(reaches("~ann@example.com", "phone~ann@example.com")).toBe(true);
+  });
+
+  it("3108 · машина-адресат кадра — по to, иначе callsign, иначе machine", () => {
+    // источник: чьё: код (порядок рации: to, затем callsign, затем machine)
+    expect(hostOf({ machine: "win", session: "site@win" } as { machine: string })).toBe("win");
+    expect(hostOf({ callsign: "site@win" })).toBe("win");
+    expect(hostOf({ machine: "pc", callsign: "site@win" })).toBe("win");
+    expect(hostOf({ to: "@win", machine: "pc" })).toBe("win");
+    expect(hostOf({ to: ".keeper@win" })).toBeNull();
+    expect(hostOf({ to: ".push", callsign: "site@win" })).toBeNull();
+    expect(hostOf({ callsign: "wiki" })).toBeNull();
+    expect(hostOf({})).toBeUndefined();
   });
 
   it("2005 · голое имя и обрубки — не адрес", () => {

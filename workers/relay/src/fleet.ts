@@ -1,7 +1,7 @@
 // Объект флота: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
 // На диск не пишет: всё о флоте — в карточках живых соединений и в ответах hello() участников.
 import { DurableObject } from "cloudflare:workers";
-import { fail, kindOf, machineOf, parseFrame, reaches, serviceAddress } from "@switchboard/protocol";
+import { fail, hostOf, kindOf, machineOf, parseFrame, reaches, serviceAddress } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
 import type { GateApi, VerifyResult } from "@switchboard/gate";
 import type { Participant, ParticipantHello, RelayWord, Roster, SessionRecord } from "../contract.ts";
@@ -247,7 +247,7 @@ export class Fleet extends DurableObject<Env> {
       for (const a of list) n += await this.deliver(a, out, this.who(s));
       return n ? undefined : refuse("offline", `→ ${list.join(",")}`);
     }
-    const m = typeof f.callsign === "string" ? machineOf(f.callsign) : typeof f.machine === "string" ? f.machine : undefined;
+    const m = hostOf(f);
     if (m === undefined) return refuse("bad_frame", "нет адреса");
     if (!m) return refuse("bad_frame", `callsign ${String(f.callsign)}`);
     const host = this.hostOf(m);

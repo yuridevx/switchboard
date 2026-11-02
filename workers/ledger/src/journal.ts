@@ -24,7 +24,8 @@ export class Journal extends DurableObject<Env> {
       callsign TEXT,
       text     TEXT NOT NULL)`);
     sql.exec("CREATE INDEX IF NOT EXISTS events_m ON events(machine, id)");
-    sql.exec("CREATE INDEX IF NOT EXISTS events_c ON events(callsign, id)");
+    // фильтра по сессии у ledger.read нет — индекс по callsign не нужен
+    sql.exec("DROP INDEX IF EXISTS events_c");
   }
 
   /** Кадр с to: ".ledger" или roster от relay → кадры, которые ledger шлёт в ответ. */
@@ -67,11 +68,9 @@ export class Journal extends DurableObject<Env> {
     if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) return refuse("bad_frame", "в ledger.read нет limit");
     const where: string[] = [];
     const args: unknown[] = [];
-    for (const k of ["machine", "callsign"] as const) {
-      if (typeof f[k] === "string") {
-        where.push(`${k} = ?`);
-        args.push(f[k]);
-      }
+    if (typeof f.machine === "string") {
+      where.push("machine = ?");
+      args.push(f.machine);
     }
     if (typeof f.q === "string" && f.q) {
       where.push("instr(text, ?) > 0");

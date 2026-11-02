@@ -23,7 +23,7 @@ const CARD = ["session.update", "session.spec", "session.call", "session.remove"
 function roster(without: string[] = [], tweak: (r: Roster) => void = () => {}): Roster {
   const r = homeRoster();
   for (const m of r.machines) {
-    m.contract = { ...m.contract, ...Object.fromEntries(CARD.map((n) => [n, 1])) };
+    m.contract = { ...m.contract, ...Object.fromEntries(CARD.map((n) => [n, n === "machine.journal" ? 2 : 1])) };
     for (const n of without) delete m.contract[n];
   }
   tweak(r);
@@ -240,7 +240,7 @@ describe("журнал машины в карточке", () => {
     const t = await wideCard("poe-bot@pc", roster(), relay);
     await t.tab("log");
     const first = relay.sent("machine.journal")[0];
-    expect(first).toMatchObject({ v: 1, machine: "pc", callsign: "poe-bot@pc", limit: 50 });
+    expect(first).toMatchObject({ v: 2, machine: "pc", session: "poe-bot@pc", limit: 50 });
     const midnight = new Date();
     midnight.setHours(0, 0, 0, 0);
     expect(first.since).toBe(midnight.toISOString());

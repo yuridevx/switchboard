@@ -501,7 +501,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     async function load(since: string, append: boolean) {
       loading = true;
       draw();
-      const r = await app.request<{ records: Rec[]; more: boolean }>("machine.journal", { machine, callsign, since, limit: 50, ...(kind ? { kind: [kind] } : {}) });
+      const r = await app.request<{ records: Rec[]; more: boolean }>("machine.journal", { machine, session: callsign, since, limit: 50, ...(kind ? { kind: [kind] } : {}) });
       loading = false;
       if (r.ok) {
         recs = append ? [...recs, ...r.result.records] : r.result.records;

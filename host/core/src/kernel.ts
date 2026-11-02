@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { fail, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
+import { fail, hostOf, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { link } from "@switchboard/relay";
 import type { Link, LinkState, WsCtor } from "@switchboard/relay";
@@ -558,8 +558,7 @@ export class Kernel {
     const ref = Object.keys(m.manifest.uses ?? {}).find((r) => nameOf(r) === name);
     if (!own && !ref) this.violation(m, caller, `${name} нет в uses`);
     const owner = own ? m.name : ownerOf(ref!);
-    const address = (payload.callsign ?? payload.machine ?? payload.to) as unknown;
-    const target = typeof payload.machine === "string" ? payload.machine : typeof address === "string" ? machineOf(address) : null;
+    const target = hostOf(payload) ?? null;
 
     const local = this.byName.has(owner) && (target === null || target === this.machine) && !(payload.to && typeof payload.to !== "string");
     if (local) {

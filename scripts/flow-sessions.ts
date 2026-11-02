@@ -134,11 +134,11 @@ const ks = await req({ type: "keeper.state", to: `.keeper@${machine}` });
 check("keeper.state: Host машины работает", ks.ok && ks.result.parts.some((p: any) => p.part === "host" && p.state === "running"), ks.ok ? ks.result.parts : ks.error);
 
 // --- журнал машины ---
-const j = await req({ type: "machine.journal", machine, since: t0, limit: 200 });
+const j = await req({ type: "machine.journal", v: 2, machine, since: t0, limit: 200 });
 check("machine.journal: записи с открытия сессии", j.ok && j.result.records.some((r: any) => r.callsign === CS), j.ok ? j.result.records.length : j.error);
-const jk = await req({ type: "machine.journal", machine, since: t0, kind: ["refuse"], limit: 200 });
+const jk = await req({ type: "machine.journal", v: 2, machine, since: t0, kind: ["refuse"], limit: 200 });
 check("machine.journal kind refuse: отказы этого прогона (bad_spec, name_taken)", jk.ok && jk.result.records.every((r: any) => r.kind === "refuse") && jk.result.records.some((r: any) => r.word === "name_taken"), jk.ok ? jk.result.records.length : jk.error);
-const jb = await req({ type: "machine.journal", machine, since: "вчера", limit: 10 });
+const jb = await req({ type: "machine.journal", v: 2, machine, since: "вчера", limit: 10 });
 check("machine.journal since не время — bad_frame", !jb.ok && jb.error === "bad_frame", jb.error);
 
 // --- отказы протокола ---

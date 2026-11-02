@@ -101,6 +101,17 @@ export function machineOf(address: string): string | null {
   return address.slice(address.indexOf("@") + 1);
 }
 
+/**
+ * Машина, чьему Host адресован кадр: по to, иначе по callsign, иначе по machine — одно правило для рации, Host и веба.
+ * to — не Host машины (служба, часть машины, человек, устройство) — null; callsign не адрес сессии — null; адреса нет — undefined.
+ */
+export function hostOf(f: { to?: unknown; callsign?: unknown; machine?: unknown }): string | null | undefined {
+  if (typeof f.to === "string") return kindOf(f.to) === "machine" || kindOf(f.to) === "session" ? machineOf(f.to) : null;
+  if (typeof f.callsign === "string") return kindOf(f.callsign) === "session" ? machineOf(f.callsign) : null;
+  if (typeof f.machine === "string") return f.machine;
+  return undefined;
+}
+
 /** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
 export function reaches(to: string, device: string): boolean {
   return to === device || (kindOf(to) === "user" && kindOf(device) === "device" && device.endsWith(to));

@@ -215,7 +215,7 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(t.$('[data-sec="where"]')!.textContent).toContain("после конца хода");
   });
 
-  it("186 · не поднялась: плашка с «Поднять» и «Почему →»; «Почему» — machine.journal с machine pc и callsign; «Поднять» — session.start", async () => {
+  it("186 · не поднялась: плашка с «Поднять» и «Почему →»; «Почему» — machine.journal с machine pc и session; «Поднять» — session.start", async () => {
     const relay = fleetRelay();
     relay.handlers["machine.journal"] = () => ({
       ok: true,
@@ -227,7 +227,7 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(t.$(".cw-pl b")!.textContent).toBe("Не поднялась: core: второй сбой до initialize");
     await t.click(t.btn(t.$(".cw-pl"), "Почему →"));
     expect(t.$('.cw-tabs [aria-selected="true"]')!.textContent).toBe("Журнал машины");
-    expect(relay.sent("machine.journal")).toEqual([expect.objectContaining({ v: 1, machine: "pc", callsign: "api@pc", limit: 50, since: expect.any(String) })]);
+    expect(relay.sent("machine.journal")).toEqual([expect.objectContaining({ v: 2, machine: "pc", session: "api@pc", limit: 50, since: expect.any(String) })]);
     expect(t.$(".cw-lr")!.textContent).toContain("sdk.result · cwd_unavailable · нет папки");
     await t.click(t.btn(t.$(".cw-pl"), "Поднять"));
     expect(relay.sent("session.start")).toEqual([expect.objectContaining({ callsign: "api@pc" })]);

@@ -29,7 +29,7 @@ async function bench(serve: Answer) {
     requests: { "machine.journal": (req) => ({ records: [{ part: req.part, machine: "laptop" }], more: false }) },
     start() {},
     stop() {},
-  });
+  }, { provides: { "machine.journal": 2 } });
   const st = await standHost({ modules: [{ manifest: manifest as Manifest, module: p.module }, journal] });
   stands.push(st);
   const recv = st.relay.receive.bind(st.relay);
@@ -124,7 +124,7 @@ describe("эталоны parts", () => {
     const { st, call } = await bench((f) => (f.type === "machine.journal" ? { ok: true, result: { records: [{ part: f.part, machine: f.machine }], more: false } } : undefined));
     expect((await call("log", { machine: "laptop", part: "capture", since: "2026-11-01T10:00:00Z" })).json()).toEqual({ records: [{ part: "capture", machine: "laptop" }], more: false });
     expect((await call("log", { machine: "win", part: "host", limit: 5 })).json()).toEqual({ records: [{ part: "host", machine: "win" }], more: false });
-    expect(st.relay.sent.filter((f) => f.type === "machine.journal").map(({ id: _i, since: _s, ...f }) => f)).toEqual([{ type: "machine.journal", v: 1, machine: "win", part: "host", limit: 5 }]);
+    expect(st.relay.sent.filter((f) => f.type === "machine.journal").map(({ id: _i, since: _s, ...f }) => f)).toEqual([{ type: "machine.journal", v: 2, machine: "win", part: "host", limit: 5 }]);
   });
 });
 
