@@ -4,7 +4,7 @@
 import type { HookCallbackMatcher, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryPart, Session, SessionState, StartKind, Store } from "../contract.ts";
 import type { Exited, HeldProcess } from "./holders.ts";
-import { handled } from "./kernel.ts";
+import { handled, INIT_MS, START_MS } from "./kernel.ts";
 import type { Kernel, Mod } from "./kernel.ts";
 import { InputQueue } from "./queue.ts";
 import type { CoreRecord } from "./store.ts";
@@ -77,7 +77,7 @@ export class Sess {
     };
     for (const m of this.k.mods) {
       if (!m.module.session || this.k.isDown(m, this)) continue;
-      const p = (await this.k.call(m.name, "session", this, (x, mod) => x.session!(this.facade(mod)), () => undefined)) as QueryPart | undefined;
+      const p = (await this.k.call(m.name, "session", this, (x, mod) => this.k.within(x.session!(this.facade(mod)), `session() не вернулся за ${START_MS / 1000} с`), () => undefined)) as QueryPart | undefined;
       if (!p) continue;
       const bad = Object.keys(p).find((key) => CORE_OPTIONS.has(key));
       if (bad) {
@@ -188,10 +188,17 @@ export class Sess {
     this.q = q;
     k.log("core", { ev: "launch", callsign: this.callsign, start: first?.fresh ? "spawn" : first?.fork ? "fork" : kind, sdk: this.rec.sdk, session_id: this.rec.session_id });
     void this.pump(q);
+    // процесс жив, но молчит на initialize: убить — дальше ветка «процесс умер»: один resume, второй сбой — failed
+    const late = k.clock.setTimeout(() => {
+      k.log("core", { kind: "stop", ev: "initialize_late", callsign: this.callsign, why: `процесс не ответил на initialize за ${INIT_MS / 1000} с — kill` });
+      void k.holders.kill(this.callsign);
+    }, INIT_MS);
     try {
       await q.initializationResult();
     } catch (e) {
       throw new Error(`${this.callsign}: процесс вышел до initialize — ${(e as Error).message}`);
+    } finally {
+      k.clock.clearTimeout(late);
     }
     if (this.q !== q) throw new Error(`${this.callsign}: процесс сменился до initialize`);
     this.ready = true;

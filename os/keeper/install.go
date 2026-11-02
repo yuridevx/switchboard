@@ -6,6 +6,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -92,11 +93,18 @@ func (k *Keeper) install(pp planPart) (string, error) {
 	// после переименования папки они вели бы в никуда. Версия готова, когда записана метка.
 	if a, err := readApp(dir); err == nil && len(a.Setup) > 0 {
 		c := k.command(a.Setup, dir)
-		cmd := exec.Command(c[0], c[1:]...)
+		ctx, cancel := context.WithTimeout(context.Background(), k.limit)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, c[0], c[1:]...)
+		// потомки setup держат трубу вывода — после убийства не ждать их дольше
+		cmd.WaitDelay = 5 * time.Second
 		cmd.Dir = dir
 		cmd.Env = os.Environ()
 		setProcAttr(cmd)
 		out, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			err = fmt.Errorf("не завершился за %v", k.limit)
+		}
 		if err != nil {
 			os.RemoveAll(dir)
 			s := strings.TrimSpace(string(out))
@@ -189,7 +197,15 @@ func (k *Keeper) selfUpdate(pp planPart) {
 		return
 	}
 	bin := keeperBinary(dir)
-	out, err := exec.Command(bin, "version").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), k.limit)
+	defer cancel()
+	vc := exec.CommandContext(ctx, bin, "version")
+	vc.WaitDelay = 5 * time.Second
+	out, err := vc.Output()
+	if ctx.Err() != nil {
+		fail(fmt.Sprintf("check_failed: новый файл не ответил за %v", k.limit))
+		return
+	}
 	if got := strings.TrimSpace(string(out)); err != nil || got != pp.Version {
 		fail(fmt.Sprintf("check_failed: новый файл ответил «%s» (%v), а в плане %s", got, err, pp.Version))
 		return

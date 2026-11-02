@@ -54,9 +54,16 @@ const ENV = prod ? ["--env", "prod"] : [];
 // веб собирается с адресом relay своего флота
 if (prod) process.env.RELAY_URL = "wss://relay.pfarm.app";
 const dirOf = (m) => join(root, WEB.includes(m) ? "web" : "workers", m);
+// предел вызова сборки и wrangler: вдвое выше самого долгого шага загрузки в CI (22 с)
+const SPAWN_MS = 45_000;
+/** Вызов не уложился в предел — причина словами. */
+const late = (r) => (r.error?.code === "ETIMEDOUT" ? ` — не завершился за ${SPAWN_MS / 1000} с` : "");
+
 function build(dir) {
-  if (existsSync(join(dir, "build.mjs")) && spawnSync(process.execPath, ["build.mjs"], { cwd: dir, stdio: "inherit" }).status !== 0) {
-    console.error(`deploy: сборка ${dir} не прошла`);
+  if (!existsSync(join(dir, "build.mjs"))) return;
+  const r = spawnSync(process.execPath, ["build.mjs"], { cwd: dir, stdio: "inherit", timeout: SPAWN_MS });
+  if (r.status !== 0) {
+    console.error(`deploy: сборка ${dir} не прошла${late(r)}`);
     process.exit(1);
   }
 }
@@ -69,9 +76,9 @@ if (!base.CLOUDFLARE_API_TOKEN || !base.CLOUDFLARE_ACCOUNT_ID) {
 }
 
 function run(cwd, args, input) {
-  const r = spawnSync(process.execPath, [wrangler, ...args], { cwd, env: base, input, stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"] });
+  const r = spawnSync(process.execPath, [wrangler, ...args], { cwd, env: base, input, stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"], timeout: SPAWN_MS });
   if (r.status !== 0) {
-    console.error(`deploy: wrangler ${args.join(" ")} в workers/${cwd.split(/[\\/]/).pop()} — выход ${r.status}`);
+    console.error(`deploy: wrangler ${args.join(" ")} в workers/${cwd.split(/[\\/]/).pop()} — выход ${r.status}${late(r)}`);
     process.exit(1);
   }
 }

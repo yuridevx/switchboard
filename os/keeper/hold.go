@@ -503,10 +503,28 @@ func spawnHolder(home string, s holdSpec) (holdFile, error) {
 	if err := cmd.Start(); err != nil {
 		return holdFile{}, err
 	}
-	line, rerr := bufio.NewReader(out).ReadString('\n')
-	if rerr != nil && line == "" {
+	// строка держателя о себе — не дольше holderWait, как соединение с ним
+	type read struct {
+		line string
+		err  error
+	}
+	got := make(chan read, 1)
+	go func() {
+		l, e := bufio.NewReader(out).ReadString('\n')
+		got <- read{l, e}
+	}()
+	var line string
+	select {
+	case r := <-got:
+		line = r.line
+		if r.err != nil && line == "" {
+			cmd.Wait()
+			return holdFile{}, fmt.Errorf("держатель не запустился: %s", strings.TrimSpace(stderr.String()))
+		}
+	case <-time.After(holderWait):
+		cmd.Process.Kill()
 		cmd.Wait()
-		return holdFile{}, fmt.Errorf("держатель не запустился: %s", strings.TrimSpace(stderr.String()))
+		return holdFile{}, fmt.Errorf("держатель не ответил за %v", holderWait)
 	}
 	// держатель живёт сам; его выход ждать некому — Release отпускает дескриптор
 	cmd.Process.Release()
@@ -529,12 +547,17 @@ type heldConn struct {
 
 var errRefused = errors.New("держатель отказал")
 
+// holderWait — предел соединения с держателем, его ключа и ответа, строки нового держателя о себе.
+var holderWait = 5 * time.Second
+
 // dialHolder — подключиться к держателю по файлу о нём; ответ — pid и накопленное.
 func dialHolder(f holdFile) (*heldConn, holderHello, error) {
-	c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", f.Port), 5*time.Second)
+	c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", f.Port), holderWait)
 	if err != nil {
 		return nil, holderHello{}, err
 	}
+	// ключ и ответ держателя — тот же предел, что у соединения; дальше кадры идут без срока
+	c.SetDeadline(time.Now().Add(holderWait))
 	if err := writeFrame(c, frAuth, []byte(f.Key)); err != nil {
 		c.Close()
 		return nil, holderHello{}, err
@@ -542,8 +565,12 @@ func dialHolder(f holdFile) (*heldConn, holderHello, error) {
 	t, b, err := readFrame(c)
 	if err != nil {
 		c.Close()
+		if ne, ok := err.(net.Error); ok && ne.Timeout() {
+			err = fmt.Errorf("держатель не ответил за %v", holderWait)
+		}
 		return nil, holderHello{}, err
 	}
+	c.SetDeadline(time.Time{})
 	if t == frError {
 		c.Close()
 		return nil, holderHello{}, fmt.Errorf("%w: %s", errRefused, b)

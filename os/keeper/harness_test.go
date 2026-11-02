@@ -40,6 +40,9 @@ func TestMain(m *testing.M) {
 			fakeApp(os.Args[2:])
 			return
 		case "version":
+			if os.Getenv("KEEPER_TEST_VERSION_HANG") == "1" {
+				time.Sleep(10 * time.Minute)
+			}
 			fmt.Println(os.Getenv("KEEPER_TEST_VERSION"))
 			return
 		case "setup":
@@ -51,6 +54,10 @@ func TestMain(m *testing.M) {
 			// долгий setup, как npm ci у Host: метка начала — стенду, чтобы уронить прежнюю версию посреди установки
 			os.WriteFile("setup-started", nil, 0o644)
 			time.Sleep(2 * time.Second)
+			return
+		case "hangsetup":
+			// setup завис, как npm ci без сети
+			time.Sleep(10 * time.Minute)
 			return
 		case "badsetup":
 			// setup упал, как npm ci без пакета

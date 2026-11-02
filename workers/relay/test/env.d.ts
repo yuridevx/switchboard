@@ -3,6 +3,7 @@ type Ctl = {
   setMode(m: string): Promise<void>;
   received(): Promise<Record<string, any>[]>;
   setReturn(fs: Record<string, unknown>[]): Promise<void>;
+  setContract(c: Record<string, number>): Promise<void>;
   clear(): Promise<void>;
 };
 declare namespace Cloudflare {

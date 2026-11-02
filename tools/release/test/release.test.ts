@@ -3,8 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
-import { bucketOf, parseArgs } from "../cli.ts";
+import { describe, expect, it, vi } from "vitest";
+import { bucketOf, main, parseArgs } from "../cli.ts";
 import { pack, packDir, parseSha, presign, sha256hex, shaLine } from "../contract.ts";
 import { s3, sign } from "../src/s3.ts";
 import type { Fetch } from "../src/s3.ts";
@@ -14,6 +14,7 @@ import type { Exec } from "../src/build.ts";
 import { buildKeeper } from "../src/keeper.ts";
 import type { GoExec } from "../src/keeper.ts";
 import { dirBucket, s3Bucket, upload } from "../src/publish.ts";
+import type { Bucket } from "../src/publish.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
 const tmp = () => mkdtempSync(join(tmpdir(), "switchboard-release-"));
@@ -174,6 +175,76 @@ describe("загрузка", () => {
 });
 
 describe("загрузка: отказ R2", () => {
+  it("3177 · R2 отказал на проверке хэша — исключение со статусом, ни одного PUT: версия не тронута", async () => {
+    // источник: чьё: код (publish.ts — GET хэша не 200 и не 404 — исключение)
+    const calls: string[] = [];
+    const f: Fetch = async (url, init) => {
+      calls.push(`${init.method} ${url.split("switchboard-releases/")[1]}`);
+      const body = Buffer.alloc(0);
+      return { status: 503, arrayBuffer: async () => body.buffer.slice(0) as ArrayBuffer };
+    };
+    const b = s3Bucket({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f);
+    await expect(upload(b, "host", "1.1.61", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("GET host/1.1.61.sha256: 503");
+    expect(calls).toEqual(["GET host/1.1.61.sha256"]);
+  });
+
+  it("3178 · загрузка прервалась между архивом и хэшем — версия не готова; повтор прогона кладёт архив заново и хэш", async () => {
+    // источник: чьё: код (готова версия с .sha256; повтор того же номера без хэша — загрузка целиком); факт — перезапуск CI №80
+    const d = mkdtempSync(join(tmpdir(), "rel-cut-"));
+    const real = dirBucket(d);
+    let cut = true;
+    const b: Bucket = { ...real, put: async (k, body) => (cut && k.endsWith(".sha256") ? Promise.reject(new Error("обрыв")) : real.put(k, body)) };
+    await expect(upload(b, "host", "1.1.62", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("обрыв");
+    expect(existsSync(join(d, "host", "1.1.62.tgz"))).toBe(true);
+    expect(existsSync(join(d, "host", "1.1.62.sha256"))).toBe(false);
+    cut = false;
+    expect(await upload(b, "host", "1.1.62", Buffer.from("t"), sha256hex("t"))).toBe("uploaded");
+    expect(readFileSync(join(d, "host", "1.1.62.sha256"), "utf8")).toBe(shaLine(sha256hex("t"), "1.1.62"));
+  });
+
+  it("3179 · сборка без загрузки (--dry-run) — архив собран, бакет не тронут, выход 0", async () => {
+    // источник: чьё: код (cli.ts — «--dry-run: только собрать, никуда не загружать»)
+    const out: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((s: unknown) => void out.push(String(s)));
+    try {
+      const go: GoExec = async (args, _cwd, env) => {
+        const out = args[args.indexOf("-o") + 1];
+        mkdirSync(join(out, ".."), { recursive: true });
+        writeFileSync(out, `keeper ${env.GOOS}`);
+        return { code: 0, out: "" };
+      };
+      expect(await main(["release", "keeper", "--dry-run"], {}, undefined, go)).toBe(0);
+    } finally {
+      log.mockRestore();
+    }
+    expect(out.some((l) => l.startsWith("собран keeper "))).toBe(true);
+    expect(out).toContain("--dry-run: никуда не загружено");
+  });
+
+  it("3180 · новый номер keeper — архив двух ОС загружен в бакет: .tgz, затем .sha256; тот же номер второй раз — пропуск", async () => {
+    // источник: чьё: код (cli.ts — keeper: файлы для Windows и Linux одним архивом; номер из module.json)
+    const d = mkdtempSync(join(tmpdir(), "rel-keeper-"));
+    const out: string[] = [];
+    const log = vi.spyOn(console, "log").mockImplementation((s: unknown) => void out.push(String(s)));
+    try {
+      const go: GoExec = async (args, _cwd, env) => {
+        const out = args[args.indexOf("-o") + 1];
+        mkdirSync(join(out, ".."), { recursive: true });
+        writeFileSync(out, `keeper ${env.GOOS}`);
+        return { code: 0, out: "" };
+      };
+      expect(await main(["release", "keeper", "--to", d], {}, undefined, go)).toBe(0);
+      expect(await main(["release", "keeper", "--to", d], {}, undefined, go)).toBe(0);
+    } finally {
+      log.mockRestore();
+    }
+    const v = JSON.parse(readFileSync(join(root, "os", "keeper", "module.json"), "utf8")).version;
+    const files = entries(readFileSync(join(d, "keeper", `${v}.tgz`))).filter((e) => e.data).map((e) => e.path).sort();
+    expect(files.length).toBe(2);
+    expect(readFileSync(join(d, "keeper", `${v}.sha256`), "utf8")).toMatch(/^[0-9a-f]{64} /);
+    expect(out.some((l) => l.includes(`keeper ${v} уже загружен с тем же хэшем — пропуск`))).toBe(true);
+  });
+
   it("2078 · R2 отказал на архиве — исключение со статусом, хэш не пишется: версия не готова", async () => {
     const calls: string[] = [];
     const f: Fetch = async (url, init) => {

@@ -181,6 +181,26 @@ describe("link · запросы", () => {
     expect(l.state).toBe("open");
   });
 
+  it("3143 · hello без ответа — связь не висит в connecting: за предел запроса сокет закрыт 4000 no_roster, переподключение по паузе", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; факт — hello теряется при смене кода relay
+    const { l, ws, states } = start({ requestMs: 5_000, pingMs: 1_000_000 });
+    ws.open();
+    vi.advanceTimersByTime(4_999);
+    expect(l.state).toBe("connecting");
+    vi.advanceTimersByTime(1);
+    expect(ws.closedWith).toEqual({ code: 4000, reason: "no_roster" });
+    expect(l.state).toBe("closed");
+    expect(states.at(-1)).toEqual(["closed", "no_roster"]);
+    vi.advanceTimersByTime(1_000);
+    const next = FakeWs.last();
+    expect(next).not.toBe(ws);
+    next.open();
+    next.recv(roster());
+    vi.advanceTimersByTime(10_000);
+    expect(l.state).toBe("open");
+    expect(next.closedWith).toBeNull();
+  });
+
   it("3120 · предел запроса по умолчанию — 120 с", async () => {
     // источник: чьё: код (вдвое выше самого долгого законного запроса — session.open на wsl до 62 с, 1 нояб.)
     const { l } = opened({ pingMs: 1_000_000 });
@@ -192,6 +212,20 @@ describe("link · запросы", () => {
     expect(r).toBeUndefined();
     vi.advanceTimersByTime(1);
     expect(await p).toMatchObject({ ok: false, error: "timeout" });
+  });
+
+  it("3144 · relay закрыл 1012 relay_updated (выпуск relay) — ждущие сразу disconnected, link переподключается и входит заново", async () => {
+    // источник: устав «соединение с Worker-модулем оборвалось — клиенты переподключаются»; чьё: код (1012 не фатален)
+    const { l, ws } = opened();
+    const p = l.request({ type: "keeper.state", to: ".keeper@laptop" });
+    ws.drop(1012, "relay_updated");
+    expect(await p).toMatchObject({ ok: false, error: "disconnected" });
+    expect(l.state).toBe("closed");
+    vi.advanceTimersByTime(1_000);
+    const next = FakeWs.last();
+    expect(next).not.toBe(ws);
+    next.open();
+    expect(next.json(0).type).toBe("hello");
   });
 
   it("обрыв — ждущие запросы сразу disconnected, не дожидаясь предела", async () => {

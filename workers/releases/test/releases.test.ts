@@ -309,6 +309,137 @@ describe("эталоны releases", () => {
     expect(JSON.stringify(log)).not.toContain("test-token");
   });
 
+  it("3125 · API Cloudflare держит соединение и не отвечает — за предел 8 с отказ cf_failed с причиной, stable и rev прежние", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит и поддержка graceful shutdown»;
+    // предел — вдвое выше самого долгого замера выкладки одной части целиком (3,6 с, три обращения к API)
+    const s = fresh();
+    await inR2("host", "1.4.0");
+    await inR2("keeper", "1.0.0");
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      (_i: RequestInfo | URL, init?: RequestInit) => new Promise((_ok, fail) => init?.signal?.addEventListener("abort", () => fail(init.signal!.reason))),
+    );
+    const log = journal();
+    const t = Date.now();
+    const [r] = await req(s, "~x", "releases.deploy", { part: "*" });
+    expect(Date.now() - t).toBeGreaterThanOrEqual(7_900);
+    expect(r).toMatchObject({ type: "reply", ok: false, error: "cf_failed" });
+    expect(log).toContainEqual(expect.objectContaining({ ev: "releases.deploy", word: "cf_failed", why: "API Cloudflare: не ответил за 8 с" }));
+    vi.restoreAllMocks();
+    fakeCf(NONE);
+    expect((await result(req(s, "~x", "releases.list"))).parts.host.stable).toBeNull();
+  }, 20_000);
+
+  it("3126 · повтор всей сборки — без перемен: from = to, ни одной выкладки, ни ledger.add, ни плана, rev прежняя", async () => {
+    // источник: чьё: код (выкладка — только если выложена другая версия); факт — после живых эталонов агент повторяет «*»
+    const s = fresh();
+    await inR2("host", "1.1.58");
+    await inR2("keeper", "0.5.0");
+    const all = Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }]));
+    fakeCf(all);
+    await req(s, "~x", "releases.deploy", { part: "*" });
+    await req(s, ".keeper@win", "releases.plan");
+    const rev = (await result(req(s, "~x", "releases.list"))).rev;
+    vi.restoreAllMocks();
+    const deploys = fakeCf(all);
+    const out = await req(s, "~x", "releases.deploy", { part: "*" });
+    const r = (out[0].result as any).parts;
+    for (const k of Object.keys(r)) expect(r[k].from).toBe(r[k].to);
+    expect(deploys).toEqual([]);
+    expect(out.filter((f) => f.type !== "reply")).toEqual([]);
+    expect((await result(req(s, "~x", "releases.list"))).rev).toBe(rev);
+  });
+
+  it("3127 · часть Cloudflare выложена мимо «выпусков» — «*» возвращает её на версию с меткой, from null, запись «gate — → 1.1.82»", async () => {
+    // источник: факт (живые эталоны выкладывают gate мимо «выпусков», после них — releases.deploy *); чьё: код
+    const s = fresh();
+    await inR2("host", "1.1.82");
+    await inR2("keeper", "0.5.0");
+    const deploys = fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.82"], live: "1.1.82" }])), gate: { tags: ["1.1.82"], live: "ручная" } });
+    const out = await req(s, "~yuri", "releases.deploy", { part: "*" });
+    expect((out[0].result as any).parts.gate).toEqual({ from: null, to: "1.1.82" });
+    expect(deploys).toEqual([{ script: "switchboard-gate", tag: "1.1.82" }]);
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => [f.text, f.by])).toContainEqual(["gate — → 1.1.82", "~yuri"]);
+  });
+
+  it("3128 · загрузка не дописана: edge части машины — последняя версия с хэшем; названная версия без хэша — no_release, stable и rev прежние", async () => {
+    // источник: чьё: код («готова та, у которой лежит .sha256»); факт — загрузка кладёт .tgz, затем .sha256
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.81", "1.1.82");
+    await env.BUCKET.put("host/1.1.83.tgz", "host 1.1.83");
+    await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.81" });
+    await req(s, ".keeper@win", "releases.plan");
+    expect((await result(req(s, "~x", "releases.deploy", { part: "host" }))).parts.host).toEqual({ from: "1.1.81", to: "1.1.82" });
+    const rev = (await result(req(s, "~x", "releases.list"))).rev;
+    const out = await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.83" });
+    expect(out).toEqual([expect.objectContaining({ type: "reply", ok: false, error: "no_release" })]);
+    const l = await result(req(s, "~x", "releases.list"));
+    expect([l.parts.host.stable, l.parts.host.edge, l.rev]).toEqual(["1.1.82", "1.1.82", rev]);
+  });
+
+  it("3129 · приложение на версию — план только машинам, где оно за stable; запись в журнал флота", async () => {
+    // источник: чьё: код (план меняется у машин, где часть идёт за stable)
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("capture", "1.4.0", "1.5.0");
+    await inR2("keeper", "0.5.0");
+    await req(s, "~x", "releases.deploy", { part: "keeper" });
+    await req(s, "~x", "releases.deploy", { part: "capture", version: "1.4.0" });
+    await req(s, ".keeper@win", "releases.plan");
+    await req(s, ".keeper@wsl", "releases.plan");
+    await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: true });
+    const out = await req(s, "~x", "releases.deploy", { part: "capture", version: "1.5.0" });
+    expect(plans(out).map((f) => f.to)).toEqual([".keeper@win"]);
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["capture 1.4.0 → 1.5.0"]);
+  });
+
+  it("3130 · убрать запись host — host снова за stable и в плане остаётся", async () => {
+    // источник: чьё: код (keeper и host в плане всегда)
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await req(s, "~x", "releases.deploy", { part: "host" });
+    await req(s, "~x", "releases.set", { machine: "win", part: "host", on: false });
+    const out = await req(s, "~x", "releases.set", { machine: "win", part: "host", remove: true });
+    expect(brief(plans(out)[0]).parts).toEqual([{ part: "host", version: "1.1.82" }]);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toContainEqual({ machine: "win", plan: {} });
+  });
+
+  it("3131 · окружение задать и снять: второй шаг — rev +1, в плане часть без env", async () => {
+    // источник: чьё: код
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("capture", "1.4.0");
+    await req(s, "~x", "releases.deploy", { part: "capture" });
+    await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: { SITE: "lab" } });
+    const out = await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: {} });
+    expect(brief(plans(out)[0])).toEqual({ to: ".keeper@win", rev: 3, parts: [{ part: "capture", version: "1.4.0" }] });
+  });
+
+  it("3132 · первая правка машины без плана — не «уже так»: rev +1, машина в списке, план keeper'у", async () => {
+    // источник: чьё: код
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await req(s, "~x", "releases.deploy", { part: "host" });
+    const out = await req(s, "~x", "releases.set", { machine: "pc3", part: "host", on: true });
+    expect(out[0]).toMatchObject({ ok: true, result: { machine: "pc3", rev: 2 } });
+    expect(plans(out).map((f) => f.to)).toEqual([".keeper@pc3"]);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toContainEqual({ machine: "pc3", plan: {} });
+  });
+
+  it("3133 · pin на версию без хэша (загрузка оборвалась между архивом и хэшем) — no_release, план и rev прежние", async () => {
+    // источник: чьё: код («готова та, у которой лежит .sha256»)
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await req(s, "~x", "releases.deploy", { part: "host" });
+    await env.BUCKET.put("sbprobe/1.0.1.tgz", "x");
+    const out = await req(s, "~x", "releases.set", { machine: "win", part: "sbprobe", pin: "1.0.1" });
+    expect(out).toEqual([expect.objectContaining({ ok: false, error: "no_release" })]);
+    expect((await result(req(s, "~x", "releases.list"))).rev).toBe(1);
+  });
+
   it("2037 · Cloudflare отказал посреди «*» — cf_failed, stable частей машины и rev прежние, планов нет", async () => {
     const s = fresh();
     fakeCf(NONE);

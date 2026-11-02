@@ -9,6 +9,9 @@ import { z } from "zod";
 import type { Host, Module, Result } from "@switchboard/host";
 import { packDir, sha256hex, shaLine } from "@switchboard/release";
 
+/** Предел PUT архива и хэша в R2 — как предел скачивания архива части у keeper. */
+const PUT_MS = 10 * 60_000;
+
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 type PlanEntry = { pin?: string };
 type Listed = { parts: Record<string, unknown>; machines: Array<{ machine: string; plan: Record<string, PlanEntry> }>; rev: number };
@@ -66,7 +69,18 @@ export function make() {
             [links.tgz, data],
             [links.sha256, Buffer.from(shaLine(sha256, version))],
           ] as const) {
-            const put = await fetch(url, { method: "PUT", body: new Uint8Array(body) });
+            // предел PUT — как у keeper на скачивание архива части: 10 мин
+            const ac = new AbortController();
+            const late = setTimeout(() => ac.abort(), PUT_MS);
+            let put: Response;
+            try {
+              put = await fetch(url, { method: "PUT", body: new Uint8Array(body), signal: ac.signal });
+            } catch (e) {
+              const why = ac.signal.aborted ? `R2 не ответил за ${PUT_MS / 60_000} мин` : String(e);
+              return text(`upload_failed: ${why} на ${new URL(url).pathname}`, true);
+            } finally {
+              clearTimeout(late);
+            }
             if (!put.ok) return text(`upload_failed: R2 ответил ${put.status} на ${new URL(url).pathname}`, true);
           }
           return json({ part, version, bytes: data.length, sha256 });

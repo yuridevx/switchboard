@@ -94,10 +94,12 @@ type Keeper struct {
 	done     chan struct{}
 	stopOnce sync.Once
 
-	// для стенда: свой файл (подмена себя), ожидание ответа на вопрос о плане, предел остановки части (больше предела Host 30 с)
+	// для стенда: свой файл (подмена себя), ожидание ответа на вопрос о плане
 	self     func() (string, error)
 	planWait time.Duration
-	stopWait time.Duration
+	// предел ожидания keeper: выход части после «закрой ввод» и после «убей», setup версии, проверка нового файла keeper —
+	// 1 мин: больше предела остановки Host (30 с) и вдвое выше самой долгой установки Host (21 с)
+	limit time.Duration
 }
 
 // Start — конфиг, журнал, сохранённый план, держатели с прошлой жизни, связь с рацией.
@@ -122,7 +124,7 @@ func newKeeper(home string, echo io.Writer) (*Keeper, error) {
 	}
 	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), node: confStr(conf, "node"), j: j, parts: map[string]*part{},
 		wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{}),
-		self: os.Executable, planWait: 30 * time.Second, stopWait: time.Minute}
+		self: os.Executable, planWait: 30 * time.Second, limit: time.Minute}
 	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
 	if b, err := os.ReadFile(planPath(home)); err == nil {
 		if err := json.Unmarshal(b, &k.plan); err != nil {
@@ -475,8 +477,9 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 		return
 	}
 	if !pp.on() {
-		if running {
-			k.stopPart(p, pp.Force)
+		if running && !k.stopPart(p, pp.Force) {
+			k.failPart(p, runVer, "не вышла после «убей»")
+			return
 		}
 		k.mu.Lock()
 		p.state, p.restarts, p.err = "stopped", 0, ""
@@ -510,8 +513,13 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 		return
 	}
 	if running {
-		k.stopPart(p, false)
+		ok := k.stopPart(p, false)
 		if k.quitting() {
+			return
+		}
+		// прежняя жива и после «убей»: новую не запускать — две версии разом
+		if !ok {
+			k.failPart(p, runVer, "не вышла после «убей»")
 			return
 		}
 	}
@@ -529,16 +537,17 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 	k.cleanupVersions(pp.Part, pp.Version, runVer)
 }
 
-// stopPart — закрыть ввод и ждать выхода не дольше stopWait: не вышла — строка stop_late и держатель убивает дерево
-// (устав: «не успела — жёсткий выход»); force — убить сразу. Остановка keeper прерывает ожидание.
-func (k *Keeper) stopPart(p *part, force bool) {
+// stopPart — закрыть ввод и ждать выхода не дольше limit: не вышла — строка stop_late и держатель убивает дерево
+// (устав: «не успела — жёсткий выход»); force — убить сразу. Не вышла и после «убей» за limit — false: часть failed
+// у вызывающего, новая версия не запускается. Остановка keeper прерывает ожидание.
+func (k *Keeper) stopPart(p *part, force bool) bool {
 	k.mu.Lock()
 	c, ch := p.conn, p.exited
 	p.stopReq = true
 	p.state = "stopping"
 	k.mu.Unlock()
 	if c == nil {
-		return
+		return true
 	}
 	if force {
 		c.kill()
@@ -546,22 +555,36 @@ func (k *Keeper) stopPart(p *part, force bool) {
 		c.closeInput()
 	}
 	if ch == nil {
-		return
+		return true
 	}
-	late := time.NewTimer(k.stopWait)
+	if !force {
+		if k.waitExit(ch) {
+			return true
+		}
+		if k.quitting() {
+			return true
+		}
+		k.j.stop("stop_late", fmt.Sprintf("%s %s не вышла за %v после «закрой ввод» — держатель убивает дерево", p.name, p.version, k.limit), "part", p.name)
+		c.kill()
+	}
+	if k.waitExit(ch) || k.quitting() {
+		return true
+	}
+	k.j.stop("stop_late", fmt.Sprintf("%s %s не вышла и за %v после «убей»", p.name, p.version, k.limit), "part", p.name)
+	return false
+}
+
+// waitExit — выход части не дольше limit; остановка keeper прерывает ожидание (false, quitting — у вызывающего).
+func (k *Keeper) waitExit(ch chan struct{}) bool {
+	late := time.NewTimer(k.limit)
 	defer late.Stop()
 	select {
 	case <-ch:
-		return
+		return true
 	case <-k.quit:
-		return
+		return false
 	case <-late.C:
-	}
-	k.j.stop("stop_late", fmt.Sprintf("%s %s не вышла за %v после «закрой ввод» — держатель убивает дерево", p.name, p.version, k.stopWait), "part", p.name)
-	c.kill()
-	select {
-	case <-ch:
-	case <-k.quit:
+		return false
 	}
 }
 
@@ -572,7 +595,10 @@ func (k *Keeper) removePart(name string) {
 	if p == nil {
 		return
 	}
-	k.stopPart(p, false)
+	if !k.stopPart(p, false) {
+		k.failPart(p, p.version, "не вышла после «убей»")
+		return
+	}
 	if k.quitting() {
 		return
 	}

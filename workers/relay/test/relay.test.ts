@@ -139,6 +139,136 @@ describe("эталоны relay", () => {
     expect(pc2.closed).toBeNull();
   });
 
+  it("3134 · служба не ответила за предел вызова — отправителю offline, строка offline с причиной; кадры другим адресатам идут, пока вызов висит", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — как предел запроса link (стенд — 500 мс)
+    const a = await laptop();
+    const panel = await hello("client", "panel-desk");
+    await env.ECHO.setMode("frame_hang");
+    panel.send({ type: "echo.ping", v: 1, id: "e-1", to: ".echo" });
+    await wait(50);
+    a.send({ type: "message", to: dev("panel-desk"), text: "пока висит" });
+    expect(await panel.next((f) => f.type === "message", 400)).toMatchObject({ text: "пока висит" });
+    expect(await panel.next((f) => f.id === "e-1", 3000)).toMatchObject({ type: "reply", ok: false, error: "offline" });
+    expect(logs.some((l) => l.startsWith("offline") && l.includes("echo.ping") && l.includes("не ответил за"))).toBe(true);
+    expect([a, panel].every((p) => p.closed === null)).toBe(true);
+  });
+
+  it("3135 · hello() участника при старте объекта не вернулся за предел — его нет в roster, строка в журнале; вход Host и запросы идут", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; чьё: код («Не ответил — его нет в roster»)
+    await env.PUSH.setMode("hello_hang");
+    const a = await laptop();
+    const r = await a.roster(3000);
+    expect(r.workers.map((w: F) => w.name)).not.toContain("push");
+    expect(logHas("worker push · hello:")).toBe(true);
+    const panel = await hello("client", "panel-desk");
+    a.send({ type: "message", to: dev("panel-desk"), text: "дошло" });
+    expect(await panel.next((f) => f.type === "message")).toMatchObject({ text: "дошло" });
+  });
+
+  it("3136 · gate.revoked при старте объекта не вернулся за предел — строка gate_unavailable, соединения живут, кадры идут", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; чьё: код (gate не ответил — соединения живут)
+    const a = await laptop();
+    const phone = await hello("client", "phone");
+    await env.GATE.setMode("hang");
+    await evictDurableObject(fleet());
+    a.send({ type: "message", to: dev("phone"), text: "после старта" });
+    expect(await phone.next((f) => f.type === "message", 3000)).toMatchObject({ text: "после старта" });
+    await phone.until(() => (logHas("gate_unavailable · проверка отозванных при старте") ? true : undefined), 3000, "строка gate_unavailable");
+    await env.GATE.setMode("real");
+    expect([a, phone].every((p) => p.closed === null)).toBe(true);
+  });
+
+  it("3137 · сокет прежнего кода без принятого hello — закрыт 1012 relay_updated при старте объекта, вход новым кодом живёт", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; факт — кадры при смене кода теряются молча, hello тоже
+    const bare = await open();
+    await wait(20);
+    await runInDurableObject(fleet(), async (_o, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ ...((ws.deserializeAttachment() as F) ?? {}), ver: "прежняя" });
+    });
+    await evictDurableObject(fleet());
+    const panel = await hello("client", "panel-desk");
+    expect(await bare.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
+    expect(panel.closed).toBeNull();
+  });
+
+  it("3138 · кадр прежнего соединения будит объект — все прежние закрыты 1012 relay_updated, строки abort нет; следующий вход живёт", async () => {
+    // источник: чьё: код («кадры, бывшие в пути при смене кода, теряются молча»; abort — только ошибка в коде relay)
+    const a = await laptop();
+    const phone = await hello("client", "phone");
+    await runInDurableObject(fleet(), async (_o, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ ...(ws.deserializeAttachment() as F), ver: "прежняя" });
+    });
+    await evictDurableObject(fleet());
+    phone.send({ type: "session.history", v: 1, id: "h-1", callsign: "site@laptop" });
+    for (const p of [a, phone]) expect(await p.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
+    await wait(100);
+    expect(logs.filter((l) => l.startsWith("abort"))).toEqual([]);
+    const panel = await hello("client", "panel-desk");
+    await wait(100);
+    expect(panel.closed).toBeNull();
+    expect(logs.filter((l) => l.startsWith("relay_updated"))).toHaveLength(1);
+  });
+
+  it("3139 · закрытые прежним кодом уходят из roster; вернувшаяся машина — с новым since и своими сессиями", async () => {
+    // источник: чьё: код (уход соединения — roster всем); устав «соединение оборвалось → клиенты переподключаются»
+    const a = await laptop();
+    const since1 = (await a.roster()).machines.find((m: F) => m.machine === "laptop").since;
+    await runInDurableObject(fleet(), async (_o, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ ...(ws.deserializeAttachment() as F), ver: "прежняя" });
+    });
+    await evictDurableObject(fleet());
+    const panel = await hello("client", "panel-desk");
+    await a.waitClose();
+    await panel.until(() => (panel.frames.some((f) => f.type === "roster" && !f.machines.length) ? true : undefined), 3000, "roster без laptop");
+    await wait(5);
+    await laptop();
+    const r = await panel.next((f) => f.type === "roster" && f.machines.some((m: F) => m.machine === "laptop"));
+    expect(r.machines.find((m: F) => m.machine === "laptop").since).toBeGreaterThan(since1);
+    expect(callsigns(r)).toEqual(["profiles@laptop", "site@laptop", "wiki@laptop"]);
+  });
+
+  it("3140 · ключ отозван, соединение прежнего кода — сначала relay_updated, на новый hello тем же ключом — revoked", async () => {
+    // источник: чьё: код (карточка прежнего кода закрыта раньше проверки отозванных; отказ — в hello)
+    const phone = await hello("client", "phone", {}, "k8e1");
+    await env.GATE.revokeLater(["client.phone.k8e1"]);
+    await runInDurableObject(fleet(), async (_o, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ ...(ws.deserializeAttachment() as F), ver: "прежняя" });
+    });
+    await evictDurableObject(fleet());
+    const panel = await hello("client", "panel-desk");
+    expect(await phone.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
+    const again = await open();
+    again.send({ type: "hello", proto: 1, key: await key("client", "phone", "k8e1") });
+    expect(await again.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
+    expect(panel.closed).toBeNull();
+  });
+
+  it("3141 · новая версия службы с новым контрактом — в roster новый контракт только после старта объекта", async () => {
+    // источник: чьё: код (участники спрашиваются заново на каждом старте; «Выпуск — сначала участник, затем relay»)
+    const a = await laptop();
+    expect((await a.roster()).workers.find((w: F) => w.name === "push").contract).toEqual({ "push.key": 1, "push.send": 1, "push.subscribe": 1 });
+    await env.PUSH.setContract({ "push.key": 1, "push.send": 2 });
+    const panel = await hello("client", "panel-desk");
+    expect((await panel.roster()).workers.find((w: F) => w.name === "push").contract).toEqual({ "push.key": 1, "push.send": 1, "push.subscribe": 1 });
+    await evictDurableObject(fleet());
+    const pc2 = await pc();
+    expect((await pc2.roster()).workers.find((w: F) => w.name === "push").contract).toEqual({ "push.key": 1, "push.send": 2 });
+  });
+
+  it("3142 · кадр службы другой службе, та бросила — ответ агенту дошёл, отказ строкой offline, соединения живы", async () => {
+    // источник: чьё: код (отказ одному из кадров ответа — строка в журнале relay, остальные идут)
+    const panel = await hello("client", "panel-desk");
+    await env.PUSH.setReturn([
+      { type: "reply", id: "p-1", to: dev("panel-desk"), ok: true },
+      { type: "ledger.add", to: ".ledger", ev: "x", text: "y" },
+    ]);
+    await env.LEDGER.setMode("frame_fail");
+    panel.send({ type: "push.send", v: 1, id: "p-1", to: ".push" });
+    expect(await panel.next((f) => f.id === "p-1")).toMatchObject({ ok: true });
+    await panel.until(() => (logs.some((l) => l.startsWith("offline .push → .ledger · ledger.add")) ? true : undefined), 3000, "строка offline");
+    expect(panel.closed).toBeNull();
+  });
+
   it("117 · gate не ответил на проверку при старте — соединения живут, строка в журнале", async () => {
     const phone = await hello("client", "phone", {}, "k8e1");
     await env.GATE.setMode("throw");

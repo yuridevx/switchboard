@@ -297,6 +297,93 @@ describe("эталоны ядра Host", () => {
     expect(st2.kernel.sessions.get("site@laptop")!.state).toBe("busy");
   });
 
+  it("3149 · start() модуля не возвращается — за 12 с модуль выключен с причиной, старт идёт дальше: relay, сессии, ready", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — вдвое выше самого долгого старта Host (5,9 с)
+    const stuck = module("host-stuck", { start: () => new Promise<void>(() => {}) });
+    const st = await stand({ sessions: [{ callsign: "site@laptop" }], modules: [stuck], start: false });
+    let started = false;
+    const run = st.start().then(() => (started = true));
+    await until(() => lines(st, "host_start").length === 1);
+    st.clock.advance(11_999);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(started).toBe(false);
+    st.clock.advance(1);
+    await run;
+    expect(lines(st, "module_failed")[0]).toMatchObject({ module: "host-stuck", why: expect.stringContaining("start() не вернулся за 12 с") });
+    expect(lines(st, "ready")).toHaveLength(1);
+    expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
+  });
+
+  it("3150 · session() модуля не возвращается при подъёме сессии — за 12 с модуль выключен в этой сессии, сессия поднимается без его вклада", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; устав «ошибка модуля — модуль выключен»
+    const stuck = module("host-stuck", { session: () => new Promise<undefined>(() => {}) });
+    const st = await stand({ sessions: [{ callsign: "site@laptop" }], modules: [stuck], start: false });
+    const run = st.start();
+    await until(() => lines(st, "host_start").length === 1);
+    await new Promise((r) => setTimeout(r, 20));
+    st.clock.advance(12_000);
+    await run;
+    expect(lines(st, "module_failed")[0]).toMatchObject({ module: "host-stuck", callsign: "site@laptop", why: expect.stringContaining("session() не вернулся за 12 с") });
+    expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
+  });
+
+  it("3151 · процесс жив, но молчит на initialize — за 60 с строка initialize_late и kill; дальше ветка «умер»: один resume, второй сбой — failed", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; устав «процесс claude умер — один resume, второй сбой до готовности — failed»;
+    // предел — как initializeTimeoutMs у startup() SDK 0.3.311 (60 с): у query() своего предела нет
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    st.holders.failInitNext = 2;
+    st.proc("site@laptop").exit(1, "упал");
+    await until(() => st.sdk.of("site@laptop").length === 2 && st.holders.procs.get("site@laptop")?.initializes === 1);
+    st.clock.advance(60_000);
+    await until(() => st.sdk.of("site@laptop").length === 3 || site.state === "failed");
+    expect(lines(st, "initialize_late")).toHaveLength(1);
+    expect(lines(st, "initialize_late")[0].why).toBe("процесс не ответил на initialize за 60 с — kill");
+    await until(() => site.state === "failed");
+    expect(st.sdk.of("site@laptop")).toHaveLength(2);
+  });
+
+  it("3173 · начатый запрос не отдаёт текущее — остановка не висит: за 30 с shutdown_late «ждёт начатые запросы», выход 1", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит и поддержка graceful shutdown»; устав «не успела — жёсткий выход»
+    const slow = module("host-slow", { requests: { "slow.go": () => new Promise(() => {}) } }, { provides: { "slow.go": 1 } });
+    const st = await stand({ modules: [slow] });
+    void st.relay.request({ type: "slow.go", v: 1, machine: "laptop" });
+    await new Promise((r) => setTimeout(r, 30));
+    const down = st.kernel.shutdown("ввод закрыт");
+    st.clock.advance(30_000);
+    await down;
+    expect(st.exits).toEqual([1]);
+    expect(lines(st, "shutdown_late")[0].why).toBe("остановка не успела за 30 с: ждёт начатые запросы — жёсткий выход 1 · ввод закрыт");
+  });
+
+  it("3174 · держателей нет после перезагрузки машины — новый Host поднимает каждую сессию resume, Host доходит до ready", async () => {
+    // источник: устав «процесс claude умер — один resume»; чьё: код (сессии нет среди живых — resume)
+    const st = await stand({ sessions: [{ callsign: "site@laptop" }, { callsign: "wiki@laptop" }], modules: [] });
+    for (const cs of ["site@laptop", "wiki@laptop"]) {
+      expect(st.kernel.sessions.get(cs)!.startKind).toBe("resume");
+      expect(st.kernel.sessions.get(cs)!.state).toBe("idle");
+    }
+    expect(lines(st, "ready")).toHaveLength(1);
+  });
+
+  it("3175 · сессия была failed у прежнего Host — новый Host пробует снова с хранилища (чистый перезапуск)", async () => {
+    // источник: чьё: код (Host начинает с хранилища; решение архитектора 2 нояб. — поведение оставить)
+    const st = await stand({ sessions: [{ callsign: "site@laptop", state: "failed" }], modules: [] });
+    const s = st.kernel.sessions.get("site@laptop")!;
+    expect(s.startKind).toBe("resume");
+    expect(s.state).toBe("idle");
+  });
+
+  it("3176 · relay недоступен на старте — сессии поднимаются, Host доходит до ready; связь — переподключением", async () => {
+    // источник: устав «соединение с Worker-модулем оборвалось — клиенты переподключаются»; «Часть падает… одна, остальные ждут»
+    const st = await stand({ sessions: [{ callsign: "site@laptop" }], modules: [], start: false, pauseMs: 5 });
+    st.relay.refuse.push("gate_unavailable");
+    await st.start();
+    expect(lines(st, "ready")).toHaveLength(1);
+    expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
+    await until(() => lines(st, "hello").length === 1);
+  });
+
   it("3121 · остановка ждёт без конца (stop() модуля ждёт ответ, который потерян) — за предел 30 с строка shutdown_late с тем, чего ждёт, и жёсткий выход 1; процессы claude живут у держателей", async () => {
     // источник: слово пользователя «у всех операций должен быть лимит и поддержка graceful shutdown» (2 нояб.);
     // факт — Host 1.1.56 на 4 машинах прода и 2 теста висел в stopping: profiles.stop ждал github.token без ответа

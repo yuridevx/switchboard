@@ -135,6 +135,7 @@ export function link(o: LinkOptions): Link {
   let waitingPong = false;
   let pingTimer: ReturnType<typeof setInterval> | undefined;
   let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+  let helloTimer: ReturnType<typeof setTimeout> | undefined;
   const pending = new Map<string, Pending>();
 
   function setState(s: LinkState, why?: string) {
@@ -152,7 +153,8 @@ export function link(o: LinkOptions): Link {
   function stopTimers() {
     if (pingTimer !== undefined) clearInterval(pingTimer);
     if (pauseTimer !== undefined) clearTimeout(pauseTimer);
-    pingTimer = pauseTimer = undefined;
+    if (helloTimer !== undefined) clearTimeout(helloTimer);
+    pingTimer = pauseTimer = helloTimer = undefined;
   }
 
   function connect() {
@@ -163,6 +165,10 @@ export function link(o: LinkOptions): Link {
     sock.addEventListener("open", () => {
       if (ws !== sock) return;
       sock.send(JSON.stringify({ ...(o.hello?.() ?? {}), type: "hello", key: o.key, proto: o.proto ?? PROTO }));
+      // ответ на hello — первый roster; не пришёл за предел запроса — hello потерян, соединение мёртвое
+      helloTimer = setTimeout(() => {
+        if (ws === sock && state !== "open") dead(sock, "no_roster");
+      }, requestMs);
       pingTimer = setInterval(() => {
         if (ws !== sock) return;
         if (waitingPong) return dead(sock);
@@ -179,15 +185,15 @@ export function link(o: LinkOptions): Link {
     sock.addEventListener("error", () => {}); // следом всегда приходит close
   }
 
-  // Нет pong: сокет считаем мёртвым сразу, не дожидаясь, пока закрытие дойдёт по сети.
-  function dead(sock: WsLike) {
+  // Нет pong или roster на hello: сокет считаем мёртвым сразу, не дожидаясь, пока закрытие дойдёт по сети.
+  function dead(sock: WsLike, why = "no_pong") {
     ws = null;
     try {
-      sock.close(4000, "no_pong");
+      sock.close(4000, why);
     } catch {
       // сокет уже закрыт — ветка та же
     }
-    closed(1006, "no_pong");
+    closed(1006, why);
   }
 
   function closed(code: number, reason: string) {
@@ -212,6 +218,8 @@ export function link(o: LinkOptions): Link {
     if (f.type === "roster") {
       roster = f as unknown as Roster;
       if (state !== "open") {
+        if (helloTimer !== undefined) clearTimeout(helloTimer);
+        helloTimer = undefined;
         pause = firstPause;
         setState("open");
       }

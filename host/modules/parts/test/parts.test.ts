@@ -151,6 +151,29 @@ describe("parts: покрытие плана host-modules", () => {
     expect([b.isError, b.text]).toEqual([true, "upload_failed: R2 ответил 403 на /a.tgz"]);
   });
 
+  it("3152 · upload: R2 держит PUT и не отвечает — за 10 мин текст upload_failed с причиной, хэш не пишется", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — как у keeper на скачивание архива части
+    const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
+    writeFileSync(join(dir, "app.json"), "{}");
+    const { call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { tgz: "https://r2.test/a.tgz?s", sha256: "https://r2.test/a.sha256?s" } } : undefined));
+    const puts: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((u: RequestInfo | URL, init?: RequestInit) => {
+      puts.push(String(u));
+      return new Promise((_ok, no) => init?.signal?.addEventListener("abort", () => no(new Error("aborted"))));
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = call("upload", { part: "capture", version: "1.4.2", dir: "." }, dir);
+      await vi.waitFor(() => expect(puts).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      const r = await pending;
+      expect([r.isError, r.text]).toEqual([true, "upload_failed: R2 не ответил за 10 мин на /a.tgz"]);
+      expect(puts).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("3075 · deploy: без версии — edge, отказ — текст ошибки; set: pin null уходит как есть", async () => {
     // источник: чьё: код (parts.ts:79-82, :96-99)
     const { st, call } = await bench((f) => {

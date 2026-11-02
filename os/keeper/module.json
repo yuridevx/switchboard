@@ -1,7 +1,7 @@
 {
   "name": "keeper",
   "type": "os",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "provides": { "keeper.state": 1 },
   "uses": { "releases.plan@releases": 1, "ledger.add@ledger": 1 },
   "config": {}

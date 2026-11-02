@@ -69,6 +69,8 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [test, keeper]
     runs-on: ubuntu-latest
+    # предел задания: вдвое выше самого долгого замера (2 мин 0 с) — зависшая загрузка не держит очередь upload
+    timeout-minutes: 4
     concurrency:
       group: upload
       cancel-in-progress: false

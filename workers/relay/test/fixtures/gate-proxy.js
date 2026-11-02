@@ -11,10 +11,13 @@ export class Gate extends WorkerEntrypoint {
   async verify(key) {
     calls.push(key);
     if (mode === "throw") throw new Error("gate сломан");
+    // отзыв «новым выпуском gate» — и на входе, как у настоящего gate
+    if (revokedLater.includes(String(key).split(".").slice(0, 3).join("."))) return { error: "revoked" };
     return (mode === "nosecret" ? this.env.NOSECRET : this.env.REAL).verify(key);
   }
   async revoked(ids) {
     if (mode === "throw") throw new Error("gate сломан");
+    if (mode === "hang") return new Promise((r) => setTimeout(() => r([]), 10_000));
     const real = await this.env.REAL.revoked(ids);
     return [...new Set([...real, ...ids.filter((id) => revokedLater.includes(id))])];
   }

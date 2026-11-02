@@ -17,6 +17,8 @@ export type Env = {
   OWNER: string;
   /** версия Worker'а от платформы (version_metadata): карточка помнит, каким кодом принято соединение */
   CF_VERSION?: { id: string };
+  /** предел вызова участника, мс; только стенд — в бою 120 000, как предел запроса link */
+  CALL_MS?: number;
 };
 
 /** Один объект на флот. */
@@ -47,7 +49,12 @@ type Sender = { ws: WebSocket; card: Card } | { worker: string };
 const log = (line: string) => console.log(line);
 const enc = new TextEncoder();
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === "object" && !Array.isArray(x);
-const cardOf = (ws: WebSocket) => ws.deserializeAttachment() as Card | null;
+/** Карточка принятого hello; до hello у сокета только версия кода, принявшего его. */
+const cardOf = (ws: WebSocket) => {
+  const a = ws.deserializeAttachment() as (Card | { ver: string }) | null;
+  return a && "role" in a ? a : null;
+};
+const verOf = (ws: WebSocket) => (ws.deserializeAttachment() as { ver?: string } | null)?.ver;
 /** role.name.kid ключа — без подписи: подпись в журнал не попадает. */
 const keyId = (key: string) => key.split(".").slice(0, 3).join(".").slice(0, 80);
 /** Номер ключа соединения role.name.kid: keeper входит ключом машины — его ключ host.<машина>.<kid>. */
@@ -72,6 +79,8 @@ export class Fleet extends DurableObject<Env> {
   async fetch(): Promise<Response> {
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
+    // версия кода, принявшего сокет: hello, потерянный при смене кода, не держит соединение без карточки
+    server.serializeAttachment({ ver: this.ver() });
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -79,6 +88,8 @@ export class Fleet extends DurableObject<Env> {
     let type = "?";
     try {
       await this.ready;
+      // старт объекта закрыл отправителя (прежний код relay): кадр потерян, как и прочие кадры в пути
+      if (ws.readyState !== 1) return;
       const text = typeof msg === "string" ? msg : "";
       const f = parseFrame(text);
       if (f) type = f.type;
@@ -404,9 +415,26 @@ export class Fleet extends DurableObject<Env> {
 
   /** Кадр участнику; кадры, которые он вернул, рация доставляет от его имени по одному. Бросил — исключение наружу. */
   private async callWorker(name: string, f: Frame): Promise<void> {
-    const out = await call(this.participant(name).frame(f));
-    if (!Array.isArray(out)) return log(`bad_frame ${name} · frame вернул не список кадров`);
-    for (const o of out) await this.fromWorker(name, o);
+    const run = (async () => {
+      const out = await call(this.participant(name).frame(f));
+      if (!Array.isArray(out)) return log(`bad_frame ${name} · frame вернул не список кадров`);
+      for (const o of out) await this.fromWorker(name, o);
+    })();
+    // после предела отправитель уже получил offline; кадры, которые участник вернёт позже, доставляются как обычно
+    run.catch(() => {});
+    await this.within(run, `${name} не ответил за ${this.callMs() / 1000} с`);
+  }
+
+  /** Предел вызова участника и gate — как предел запроса link: 120 с (стенд ставит меньше). */
+  private callMs(): number {
+    return this.env.CALL_MS ?? 120_000;
+  }
+
+  /** Обещание или исключение со словами why за предел вызова. */
+  private within<T>(p: Promise<T>, why: string): Promise<T> {
+    let t = 0;
+    const late = new Promise<never>((_ok, no) => (t = setTimeout(() => no(new Error(why)), this.callMs())));
+    return Promise.race([p, late]).finally(() => clearTimeout(t));
   }
 
   private participant(name: string): Participant {
@@ -420,7 +448,7 @@ export class Fleet extends DurableObject<Env> {
         const b = (this.env as unknown as Record<string, Participant | undefined>)[binding];
         if (!b) return log(`worker ${name} · привязки ${binding} нет`);
         try {
-          const h = await call(b.hello());
+          const h = await this.within(call(b.hello()), `не ответил за ${this.callMs() / 1000} с`);
           if (!isObj(h) || !isObj(h.contract)) throw new Error("hello() без contract");
           this.workers.set(name, { contract: h.contract, uses: isObj(h.uses) ? h.uses : undefined });
           log(`worker ${name} · ${Object.entries(h.contract).map(([k, v]) => `${k} ${v}`).join(", ")}`);
@@ -445,14 +473,14 @@ export class Fleet extends DurableObject<Env> {
    * gate не ответил — соединения живут, строка в журнале: проверит следующий старт.
    */
   private async recheck(): Promise<void> {
-    const stale = this.live().filter((ws) => cardOf(ws)!.ver !== this.ver());
+    const stale = this.ctx.getWebSockets().filter((ws) => ws.readyState === 1 && verOf(ws) !== this.ver());
     for (const ws of stale) ws.close(1012, "relay_updated");
     if (stale.length) log(`relay_updated · закрыто соединений прежнего кода relay: ${stale.length}`);
     const open = this.live().map((ws) => ({ ws, card: cardOf(ws)! }));
     if (!open.length) return;
     let gone: string[];
     try {
-      gone = await call(this.env.GATE.revoked(open.map((o) => keyOf(o.card))));
+      gone = await this.within(call(this.env.GATE.revoked(open.map((o) => keyOf(o.card)))), `не ответил за ${this.callMs() / 1000} с`);
     } catch (e) {
       return log(`gate_unavailable · проверка отозванных при старте: ${e}`);
     }

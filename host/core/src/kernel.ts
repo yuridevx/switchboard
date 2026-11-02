@@ -86,6 +86,10 @@ export class StartError extends Error {
 }
 
 export const MODULE_ERROR = "module_error";
+/** Предел start() и session() модуля на старте: вдвое выше самого долгого старта Host (host_start → ready до 5,9 с). */
+export const START_MS = 12_000;
+/** Предел ответа процесса claude на initialize — тот же, что у startup() SDK (initializeTimeoutMs по умолчанию 60 с). */
+export const INIT_MS = 60_000;
 const HANDLED = Symbol("handled");
 const SKIP = Symbol("skip");
 
@@ -213,10 +217,18 @@ export class Kernel {
   private async startModule(m: Mod): Promise<boolean> {
     if (!m.module.start) return true;
     let okStart = true;
-    await this.call(m.name, "start", null, (x) => x.start!(this.hostFacade(m)), () => {
+    await this.call(m.name, "start", null, (x) => this.within(x.start!(this.hostFacade(m)), `start() не вернулся за ${START_MS / 1000} с`), () => {
       okStart = false;
     });
     return okStart;
+  }
+
+  /** Значение или исключение со словами why за предел START_MS по часам ядра: ловушка call выключает модуль. */
+  within<T>(r: T | Promise<T>, why: string): T | Promise<T> {
+    if (!r || typeof (r as Promise<T>).then !== "function") return r;
+    let t: unknown;
+    const late = new Promise<never>((_ok, no) => (t = this.clock.setTimeout(() => no(new Error(why)), START_MS)));
+    return Promise.race([r as Promise<T>, late]).finally(() => this.clock.clearTimeout(t));
   }
 
   /** Владельцы имён по загруженным модулям. */

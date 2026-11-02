@@ -12,6 +12,9 @@ export class CfFailed extends Error {
   }
 }
 
+/** Предел обращения к API: вдвое выше самого долгого замера выкладки одной части целиком (3,6 с, три обращения). */
+const API_MS = 8_000;
+
 async function api<T>(env: Env, method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   if (!env.CF_ACCOUNT_ID || !env.CLOUDFLARE_API_TOKEN) throw new CfFailed(0, "нет CF_ACCOUNT_ID или CLOUDFLARE_API_TOKEN в настройках releases");
   let r: Response;
@@ -20,11 +23,17 @@ async function api<T>(env: Env, method: "GET" | "POST", path: string, body?: unk
       method,
       headers: { authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, "content-type": "application/json" },
       ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: AbortSignal.timeout(API_MS),
     });
   } catch (e) {
-    throw new CfFailed(0, String(e));
+    throw new CfFailed(0, late(e) ? `не ответил за ${API_MS / 1000} с` : String(e));
   }
-  const text = await r.text();
+  let text: string;
+  try {
+    text = await r.text();
+  } catch (e) {
+    throw new CfFailed(0, late(e) ? `не ответил за ${API_MS / 1000} с` : String(e));
+  }
   let j: { success?: boolean; errors?: unknown; result?: T } | null = null;
   try {
     j = JSON.parse(text);
@@ -34,6 +43,9 @@ async function api<T>(env: Env, method: "GET" | "POST", path: string, body?: unk
   if (!r.ok || !j?.success) throw new CfFailed(r.status, j ? JSON.stringify(j.errors ?? null) : text);
   return j.result as T;
 }
+
+/** Предел вышел: AbortSignal.timeout бросает TimeoutError. */
+const late = (e: unknown) => (e as { name?: string } | null)?.name === "TimeoutError";
 
 /** Версии Worker'а с меткой: метка → id версии. */
 export async function versions(env: Env, script: string): Promise<Map<string, string>> {
