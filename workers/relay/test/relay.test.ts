@@ -117,6 +117,28 @@ describe("эталоны relay", () => {
     expect([a, panel].every((p) => p.closed === null)).toBe(true);
   });
 
+  it("3124 · объект стартовал новым кодом relay — соединения, принятые прежним кодом, закрыты 1012 relay_updated (клиенты переподключаются); вход новым кодом живёт", async () => {
+    // источник: устав «Остановкой Worker-модулей управляет Cloudflare: их ветка — соединение оборвалось → клиенты
+    // переподключаются»; факт 2 нояб. — выпуск relay спящие сокеты не рвёт, кадр плана keeper@wsl и ответ releases.set потеряны
+    const a = await laptop();
+    const k = await hello("keeper", "laptop");
+    const phone = await hello("client", "phone");
+    await runInDurableObject(fleet(), async (_o, state) => {
+      for (const ws of state.getWebSockets()) ws.serializeAttachment({ ...(ws.deserializeAttachment() as F), ver: "прежняя" });
+    });
+    await evictDurableObject(fleet());
+    const panel = await hello("client", "panel-desk");
+    for (const p of [a, k, phone]) expect(await p.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
+    expect(logHas("relay_updated · закрыто соединений прежнего кода relay: 3")).toBe(true);
+    expect(panel.closed).toBeNull();
+    expect((await panel.roster()).clients).toContain(dev("panel-desk"));
+    // тот же код после выгрузки — никого не закрывает
+    await evictDurableObject(fleet());
+    const pc2 = await pc();
+    expect(panel.closed).toBeNull();
+    expect(pc2.closed).toBeNull();
+  });
+
   it("117 · gate не ответил на проверку при старте — соединения живут, строка в журнале", async () => {
     const phone = await hello("client", "phone", {}, "k8e1");
     await env.GATE.setMode("throw");

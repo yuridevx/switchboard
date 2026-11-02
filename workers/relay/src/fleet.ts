@@ -15,6 +15,8 @@ export type Env = {
   PARTICIPANTS: Record<string, string>;
   /** email владельца флота: клиентские ключи пока выданы ему — адрес устройства устройство~email */
   OWNER: string;
+  /** версия Worker'а от платформы (version_metadata): карточка помнит, каким кодом принято соединение */
+  CF_VERSION?: { id: string };
 };
 
 /** Один объект на флот. */
@@ -38,7 +40,8 @@ type HostCard = {
 type ClientCard = { role: "client"; name: string; kid: string; since: number; proto: number };
 /** часть машины (keeper): входит ключом машины с part в hello; в roster не входит, адрес .part@машина */
 type KeeperCard = { role: "keeper"; name: string; kid: string; since: number; proto: number };
-type Card = HostCard | ClientCard | KeeperCard;
+/** ver — версия кода relay, принявшего hello */
+type Card = (HostCard | ClientCard | KeeperCard) & { ver?: string };
 type Sender = { ws: WebSocket; card: Card } | { worker: string };
 
 const log = (line: string) => console.log(line);
@@ -198,7 +201,7 @@ export class Fleet extends DurableObject<Env> {
         }
       }
     }
-    ws.serializeAttachment(card);
+    ws.serializeAttachment({ ...card, ver: this.ver() });
     log(`hello ${id} · proto ${card.proto}${card.role === "host" ? ` · ${card.sessions.length} сессий` : ""}`);
     // keeper в roster не входит: roster — только ему, как знак, что hello принят; флот не меняется
     if (card.role === "keeper") ws.send(JSON.stringify(this.roster()));
@@ -428,12 +431,23 @@ export class Fleet extends DurableObject<Env> {
     );
   }
 
+  /** Версия кода relay; без привязки — пустая. */
+  private ver(): string {
+    return this.env.CF_VERSION?.id ?? "";
+  }
+
   /**
-   * Старт объекта: отозванные ключи открытых соединений — закрыть словом revoked. Выпуск relay спящие
+   * Старт объекта: соединения, принятые прежним кодом relay, — закрыть словом relay_updated: выпуск relay спящие
+   * веб-сокеты не рвёт, и кадры, бывшие в пути при смене кода, теряются молча; клиенты переподключаются по ветке
+   * устава «соединение оборвалось», keeper спрашивает план заново, ждущие запросы получают disconnected.
+   * Затем отозванные ключи открытых соединений — закрыть словом revoked. Выпуск relay спящие
    * веб-сокеты не рвёт (факт живого прогона 31 окт.), поэтому отзыв проверяется здесь, а не только в hello.
    * gate не ответил — соединения живут, строка в журнале: проверит следующий старт.
    */
   private async recheck(): Promise<void> {
+    const stale = this.live().filter((ws) => cardOf(ws)!.ver !== this.ver());
+    for (const ws of stale) ws.close(1012, "relay_updated");
+    if (stale.length) log(`relay_updated · закрыто соединений прежнего кода relay: ${stale.length}`);
     const open = this.live().map((ws) => ({ ws, card: cardOf(ws)! }));
     if (!open.length) return;
     let gone: string[];

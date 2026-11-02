@@ -7,6 +7,8 @@
   "compatibility_date": "2026-08-01",
   "workers_dev": true,
   "preview_urls": false,
+  // версия кода: соединения прежнего кода закрываются при старте объекта
+  "version_metadata": { "binding": "CF_VERSION" },
   "durable_objects": {
     "bindings": [{ "name": "FLEET", "class_name": "Fleet" }]
   },
@@ -33,6 +35,8 @@
     "prod": {
       "workers_dev": false,
       "routes": [{ "pattern": "relay.pfarm.app", "custom_domain": true }],
+      // версия кода: соединения прежнего кода закрываются при старте объекта
+      "version_metadata": { "binding": "CF_VERSION" },
       "durable_objects": {
         "bindings": [{ "name": "FLEET", "class_name": "Fleet" }]
       },
