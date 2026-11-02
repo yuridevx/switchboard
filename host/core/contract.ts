@@ -118,6 +118,7 @@ export type Ctx = { host: Host; from?: string; signal: AbortSignal };
  *   on.* → остальные модули получают сообщение как обычно;  session() → query() без вкладов модуля;
  *   hooks → {} (как будто хука нет);  decide → deny "module_error";  elicit → decline;
  *   fields → поле не отдаётся;  start() → модуль выключен на машине;  stop() → строка в журнале.
+ *   работа, начатая модулем (таймер, цепочка, событие), — модуль выключен там, где её начал.
  * Отказ словом своего контракта (already_answered, unknown_method…) — refuse(слово): это не ошибка модуля.
  */
 export interface Module {

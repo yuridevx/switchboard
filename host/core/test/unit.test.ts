@@ -569,6 +569,28 @@ describe("договор модуля на стенде", () => {
     expect(await st.relay.request({ type: "good.x", v: 1 })).toMatchObject({ ok: true, result: 2 });
   });
 
+  it("751 · ошибка в работе модуля вне вызова ядра (таймер из start, цепочка из session) — модуль выключен там, где начал; Host и другие модули работают", async () => {
+    // источник: устав «часть падает и перезапускается одна», ветка «ошибка модуля — модуль выключен»; факт 2 нояб. — отказ цепочки host-profiles уронил весь Host
+    let st!: Awaited<ReturnType<typeof stand>>;
+    let timerDone!: Promise<void>;
+    const bad = module("host-bad", {
+      // как обработчик процесса: ошибка вне вызова — ядру; контекст модуля наследуется таймером
+      start: () => void (timerDone = new Promise((r) => setTimeout(() => (st.kernel.stray(new Error("таймер упал")), r()), 0))),
+      requests: { "bad.x": () => 1 },
+    });
+    const chain = module("host-chain", { session: () => void Promise.resolve().then(() => st.kernel.stray(new Error("цепочка упала"))), requests: { "chain.x": () => 3 } });
+    const good = module("host-good", { requests: { "good.x": () => 2 } });
+    st = await stand({ modules: [bad, chain, good] });
+    await timerDone;
+    expect(st.journal().find((l) => l.ev === "module_failed" && l.module === "host-bad")!.why).toContain("модуль выключен на машине");
+    await st.open("site@laptop");
+    await until(() => st.states("site@laptop").at(-1)?.failed?.["host-chain"]);
+    expect(st.states("site@laptop").at(-1)!.failed).toMatchObject({ "host-bad": "таймер упал · работа вне вызова ядра", "host-chain": "цепочка упала · работа вне вызова ядра" });
+    expect(await st.relay.request({ type: "good.x", v: 1 })).toMatchObject({ ok: true, result: 2 });
+    // вне контекста модуля — не наше: решает процесс
+    expect(st.kernel.stray(new Error("ничья"))).toBe(false);
+  });
+
   it("журнал: строка JSON на запись, t по часам ядра, part host, who — модуль; kind по умолчанию note", async () => {
     let host!: Host;
     const m = module("host-journal", { start: (h) => void (host = h) });

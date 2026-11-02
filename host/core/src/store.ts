@@ -47,7 +47,8 @@ export class Stores {
   private write(name: string, s: Section): void {
     const f = join(this.dir, name + ".json");
     const tmp = f + ".tmp";
-    writeFileSync(tmp, JSON.stringify(s, null, 1));
+    // сброс на диск до rename: после обрыва питания файл старый или новый, а не нули
+    writeFileSync(tmp, JSON.stringify(s, null, 1), { flush: true });
     renameSync(tmp, f);
   }
 

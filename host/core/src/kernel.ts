@@ -274,6 +274,18 @@ export class Kernel {
     }
   }
 
+  /**
+   * Ошибка вне вызова ядра — в работе, которую модуль начал сам (таймер, цепочка, событие): контекст вызова, где её
+   * начали, наследуется, и модуль выключается там же. Модуль не определился — false: решает процесс (выход 1).
+   */
+  stray(e: unknown): boolean {
+    const st = this.als.getStore();
+    const m = st && this.byName.get(st.mod);
+    if (!m) return false;
+    this.disable(m, st.sess, "работа вне вызова ядра", e);
+    return true;
+  }
+
   /** Выключить модуль в сессии или на машине: failed в roster, строка stop в журнале. */
   disable(m: Mod, s: Sess | null, where: string, e: unknown): void {
     if (e && typeof e === "object" && (e as Record<symbol, unknown>)[HANDLED]) return;

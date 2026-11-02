@@ -70,6 +70,14 @@ async function main(): Promise<number> {
   process.stdin.resume();
   process.on("SIGTERM", () => void k.shutdown("SIGTERM"));
   process.on("SIGINT", () => void k.shutdown("SIGINT"));
+  // ошибка в работе модуля вне вызова ядра — модуль выключен, Host живёт; чья — неизвестно: выход 1, чистый перезапуск
+  const stray = (e: unknown) => {
+    if (k.stray(e)) return;
+    console.error(e);
+    process.exit(1);
+  };
+  process.on("unhandledRejection", stray);
+  process.on("uncaughtException", stray);
   try {
     await k.start();
   } catch (e) {
