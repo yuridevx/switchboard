@@ -10,12 +10,15 @@
   "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
+  // записи модуля — база D1 модуля во флоте
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-github", "database_id": "986ee07a-283a-46d5-b3c7-e4df2c27194a", "migrations_dir": "migrations" }],
   "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["App"] }],
   "env": {
     "prod": {
       "workers_dev": false,
       "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-github-prod", "database_id": "14d6abf8-d944-4634-af3a-e9569b6a74ab", "migrations_dir": "migrations" }],
       "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] }
     }
   }

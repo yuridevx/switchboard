@@ -9,12 +9,15 @@
   "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
+  // записи модуля — база D1 модуля во флоте
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-ledger", "database_id": "3689c045-3574-4537-bd08-20b83a0d4938", "migrations_dir": "migrations" }],
   "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }],
   "env": {
     "prod": {
       "workers_dev": false,
       "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-ledger-prod", "database_id": "b0c3d805-2d07-4f67-8034-51f474703337", "migrations_dir": "migrations" }],
       "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] }
     }
   }

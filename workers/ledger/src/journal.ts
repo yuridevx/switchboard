@@ -11,6 +11,12 @@ const BACK = "machine.back";
 type Row = { id: number; t: number; ev: string; from: string; by: string | null; machine: string | null; callsign: string | null; text: string };
 
 export class Journal extends DurableObject<Env> {
+
+  /** Переход на D1: все строки таблиц объекта — один прогон переноса читает их по привязке. */
+  async dump(): Promise<Record<string, Record<string, unknown>[]>> {
+    const sql = this.ctx.storage.sql;
+    return Object.fromEntries(["events"].map((t) => [t, sql.exec(`SELECT * FROM ${t}`).toArray() as Record<string, unknown>[]]));
+  }
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const sql = ctx.storage.sql;

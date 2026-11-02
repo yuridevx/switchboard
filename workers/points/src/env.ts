@@ -2,6 +2,8 @@ import type { GateApi } from "@switchboard/gate";
 import type { Registry } from "./registry.ts";
 
 export interface Env {
+  /** записи модуля — база D1 модуля во флоте */
+  DB: D1Database;
   /** gate: пропуск прямого запроса */
   GATE: GateApi;
   CF_ACCOUNT_ID: string;

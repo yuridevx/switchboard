@@ -46,6 +46,12 @@ class Refusal {
 type Plan = { base: number | null; owner: string; moveHead: boolean; event?: LedgerAdd; same?: number };
 
 export class Registry extends DurableObject<Env> {
+
+  /** Переход на D1: все строки таблиц объекта — один прогон переноса читает их по привязке. */
+  async dump(): Promise<Record<string, Record<string, unknown>[]>> {
+    const sql = this.ctx.storage.sql;
+    return Object.fromEntries(["sessions","points","blocks","refs","meta"].map((t) => [t, sql.exec(`SELECT * FROM ${t}`).toArray() as Record<string, unknown>[]]));
+  }
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     const sql = ctx.storage.sql;

@@ -9,6 +9,8 @@
   "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
+  // записи модуля — база D1 модуля во флоте
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-push", "database_id": "a0e33f07-d1ba-44cc-91a2-875f9234056e", "migrations_dir": "migrations" }],
   "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Subs"] }],
   "vars": { "VAPID_SUB": "https://switchboard.yuridevx1608.workers.dev" },
@@ -16,6 +18,7 @@
     "prod": {
       "workers_dev": false,
       "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-push-prod", "database_id": "63d993ee-6d9a-48e2-a492-7e6ba94279ec", "migrations_dir": "migrations" }],
       "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
       "vars": { "VAPID_SUB": "https://phone.pfarm.app" }
     }
