@@ -161,4 +161,15 @@ describe("push: покрытие плана host-modules", () => {
     expect(await p).toEqual({ ok: true, result: { pushed: ["~owner@example.com"] } });
     expect(s.relay.frames("push.send")).toHaveLength(1);
   });
+
+  it("3107 · адрес человека, все его устройства на связи — skip все, служба ответила gone: pushed пуст, остановки нет", async () => {
+    // источник: решение пользователя «пуш уходит только устройству не на связи»; чьё: код (gone — без kind stop)
+    const s = await bench();
+    roster(s, ["pult~owner@example.com", "phone~owner@example.com", "phone~anna@example.com"]);
+    const p = s.host("host-questions").request("notify", { v: 1, clients: ["~owner@example.com"], frame: question });
+    const f = await answerSend(s, 0, { ok: false, error: "gone" });
+    expect((f.push as { skip: string[] }).skip).toEqual(["pult~owner@example.com", "phone~owner@example.com"]);
+    expect(await p).toEqual({ ok: true, result: { pushed: [] } });
+    expect(s.journal().some((l) => l.who === "host-push" && l.kind === "stop")).toBe(false);
+  });
 });

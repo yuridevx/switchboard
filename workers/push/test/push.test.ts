@@ -300,6 +300,16 @@ describe("push: отказы и стык с relay", () => {
     expect(await frame(send("s-2086b", "~yuri2086@example.com"))).toMatchObject([{ id: "s-2086b", ok: false, error: "push_failed" }]);
   });
 
+  it("2088 · адрес человека: одному 503, другому 410 — push_failed, а не gone; строка 410 удалена", async () => {
+    // источник: чьё: код (отказ службы не выдаётся за «подписки нет»: host-push пишет gone без остановки)
+    await subscribe("phone~yuri2088@example.com", await ua(), "https://push.example/2088-phone");
+    await subscribe("tab~yuri2088@example.com", await ua(), "https://push.example/2088-tab");
+    const statuses: Record<string, number> = { "https://push.example/2088-phone": 503, "https://push.example/2088-tab": 410 };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => new Response(null, { status: statuses[new Request(input).url] }));
+    expect(await frame(send("s-2088", "~yuri2088@example.com"))).toMatchObject([{ id: "s-2088", ok: false, error: "push_failed" }]);
+    expect((await table()).some((r) => r.client === "tab~yuri2088@example.com")).toBe(false);
+  });
+
   it("кадр без id — push отвечать некому, кадров в relay нет", async () => {
     expect(await frame({ type: "push.key", to: ".push", from: "phone" })).toEqual([]);
   });

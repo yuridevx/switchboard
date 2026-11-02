@@ -718,4 +718,14 @@ describe("адреса и keeper машины", () => {
     a.send({ type: "message", id: "m-3", to: "phone", text: "голое" });
     expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-3", ok: false, error: "bad_frame" });
   });
+
+  it("2087 · ~email без его устройств на связи — offline; устройства другого человека кадр не получают", async () => {
+    // источник: чьё: код (доставка по reaches; адресата нет — offline)
+    const a = await laptop();
+    const p1 = await hello("client", "phone");
+    a.send({ type: "message", id: "m-2087", to: "~stranger@example.com", text: "чужому" });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-2087", ok: false, error: "offline" });
+    a.send({ type: "message", to: "~" + OWNER, text: "своему" });
+    expect(await p1.next((f) => f.type === "message")).toMatchObject({ text: "своему" });
+  });
 });

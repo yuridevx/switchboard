@@ -64,6 +64,9 @@ describe("protocol: конверт кадра", () => {
     expect(reaches("phone~yuri@example.com", "phone~yuri@example.com")).toBe(true);
     expect(reaches("~yuri@example.com", "phone~anna@example.com")).toBe(false);
     expect(reaches("phone~yuri@example.com", "pult~yuri@example.com")).toBe(false);
+    // окончание адреса — с тильдой: ~ann не доходит до joann
+    expect(reaches("~ann@example.com", "phone~joann@example.com")).toBe(false);
+    expect(reaches("~ann@example.com", "phone~ann@example.com")).toBe(true);
   });
 
   it("2005 · голое имя и обрубки — не адрес", () => {
