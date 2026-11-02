@@ -1,10 +1,10 @@
 // Реестр точек: SQLite своего объекта. Хозяин сессии, линия и ветки, правило хранения,
-// какие блоки уже в R2, временные ключи R2, уборка раз в сутки и удаление сессии сразу.
+// какие блоки уже в R2, ссылки машине на блоки, уборка раз в сутки и удаление сессии сразу.
 import { DurableObject } from "cloudflare:workers";
 import { accepts, fail, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type ListedPoint, type Point, type PointFile, type Why } from "../contract.ts";
-import { R2Failed, tempCreds } from "./creds.ts";
+import { presign } from "@switchboard/release";
 import type { Env } from "./env.ts";
 import { DAY, gone, lineOf, untilOf } from "./keep.ts";
 import { log } from "./log.ts";
@@ -106,7 +106,8 @@ export class Registry extends DurableObject<Env> {
           if (lost.length) throw new Refusal("no_point", `точек ${lost.join(", ")} нет`, { ids: lost });
           const s = this.session(rows[0].sid);
           const result: Record<string, unknown> = { owner: s?.owner ?? null, points: rows.map(full) };
-          if (machine) result.creds = await tempCreds(this.env, this.env.POINTS_BUCKET, "object-read-only", ["f/"]);
+          // машине — ссылки GET на блоки этих точек; пульту блоки не нужны
+          if (machine) result.links = await this.links("GET", [...new Set(rows.flatMap((r) => (JSON.parse(r.files) as PointFile[]).flatMap((x) => x.b)))]);
           return answer(ok(id, result));
         }
         case "points.list":
@@ -119,13 +120,19 @@ export class Registry extends DurableObject<Env> {
       }
     } catch (e) {
       if (e instanceof Refusal) return refuse(e);
-      if (e instanceof R2Failed) {
-        log({ kind: "refuse", ev: f.type, word: "r2_failed", why: e.message, from, status: e.status, text: e.text });
-        return answer(fail(id, "r2_failed"));
-      }
       throw e;
     }
     return refuse(new Refusal("unknown_request", `points не обслуживает ${f.type}`));
+  }
+
+  /** Ссылки на блоки f/<отпечаток>: один блок, один метод, час; подпись — общей функцией формата выпуска. */
+  private async links(method: "GET" | "PUT", hashes: string[]): Promise<Record<string, string>> {
+    const key = { accessKeyId: this.env.R2_KEY_ID, secretAccessKey: this.env.R2_KEY_SECRET };
+    const host = `${this.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+    const now = new Date();
+    const out: Record<string, string> = {};
+    for (const h of hashes) out[h] = await presign(key, { method, host, path: `/${this.env.POINTS_BUCKET}/f/${h}`, now });
+    return out;
   }
 
   // ---------- points.put ----------
@@ -155,8 +162,7 @@ export class Registry extends DurableObject<Env> {
     const heads = await Promise.all(unknown.map(async (h) => ({ h, o: await this.env.BUCKET.head(`f/${h}`) })));
     const missing = heads.filter((x) => !x.o).map((x) => x.h);
     if (missing.length) {
-      const creds = await tempCreds(this.env, this.env.POINTS_BUCKET, "object-read-write", ["f/"]);
-      throw new Refusal("missing", `${missing.length} блоков нет в R2`, { missing, creds });
+      throw new Refusal("missing", `${missing.length} блоков нет в R2`, { missing, links: await this.links("PUT", missing) });
     }
 
     // дальше без ожиданий: решение и запись — одним куском, другой кадр между ними не встанет

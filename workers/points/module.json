@@ -2,12 +2,12 @@
   "name": "points",
   "type": "worker",
   "version": "1.0.0",
-  "provides": { "points.put": 1, "points.get": 1, "points.list": 1, "points.delete": 1 },
-  "uses": { "frame@relay": 1, "ledger.add@ledger": 1 },
+  "provides": { "points.put": 2, "points.get": 2, "points.list": 1, "points.delete": 1 },
+  "uses": { "frame@relay": 1, "ledger.add@ledger": 1, "release.format@release": 1 },
   "config": {
-    "R2_TOKEN": "secret",
+    "R2_KEY_SECRET": "secret",
     "CF_ACCOUNT_ID": "var",
-    "R2_PARENT_KEY_ID": "var",
+    "R2_KEY_ID": "var",
     "POINTS_BUCKET": "var",
     "BUCKET": "binding",
     "REGISTRY": "binding"

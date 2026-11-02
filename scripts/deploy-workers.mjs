@@ -32,11 +32,13 @@ for (const f of FILES) {
 const val = (k) => process.env[k] || fromFiles[k];
 
 // модуль → секреты, которые кладутся в него; «ИМЯ=ИСТОЧНИК» — секрет модуля из значения с другим именем.
-// releases: токен API — выкладка версий Worker'ов; ключ R2 бакета выпусков — подпись ссылок на архивы
+// releases: токен API — выкладка версий Worker'ов; ключ R2 бакета выпусков — подпись ссылок на архивы.
+// points: секрет пары S3 токена R2 бакета точек — подпись ссылок на блоки; у прода своя пара (prod.env),
+// тестовая прав на бакет прода не имеет — её в прод не кладём
 const SECRETS = {
   gate: ["FLEET_SECRET"],
   push: ["VAPID_PRIVATE"],
-  points: ["R2_TOKEN"],
+  points: [prod ? "R2_KEY_SECRET=PROD_R2_SECRET_ACCESS_KEY" : "R2_KEY_SECRET=R2_SECRET_ACCESS_KEY"],
   releases: ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID=R2_ACCESS_KEY_ID", "R2_LINK_SECRET=R2_SECRET_ACCESS_KEY"],
 };
 const ORDER = ["gate", "push", "points", "ledger", "github", "releases", "relay"];

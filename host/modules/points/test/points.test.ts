@@ -8,7 +8,6 @@ import { stand } from "@switchboard/host";
 import type { Frame, Session } from "@switchboard/host";
 import { BLOCK, projectDir } from "../src/blocks.ts";
 import { GAP_MS, lastOf, LONG_MS } from "../src/points.ts";
-import { sign } from "../src/r2.ts";
 import { bench, FakeRegistry, tmpHome } from "./bench.ts";
 import type { Bench } from "./bench.ts";
 
@@ -461,12 +460,6 @@ describe("points: ветки и стыки", () => {
     expect(l[9][1]).toHaveLength(160);
   });
 
-  it("подпись S3: временный ключ в заголовке, область auto/s3", () => {
-    const { url, headers } = sign("PUT", { accessKeyId: "AK", secretAccessKey: "SK", sessionToken: "ST", endpoint: "https://a.r2.cloudflarestorage.com", bucket: "bk", exp: 0 }, "f/ab", Buffer.from("x"), new Date(Date.UTC(2026, 9, 31)));
-    expect(url).toBe("https://a.r2.cloudflarestorage.com/bk/f/ab");
-    expect(headers["x-amz-security-token"]).toBe("ST");
-    expect(headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AK\/20261031\/auto\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date;x-amz-security-token, Signature=[0-9a-f]{64}$/);
-  });
 });
 
 describe("points: покрытие плана host-modules", () => {
@@ -544,6 +537,31 @@ describe("points: покрытие плана host-modules", () => {
     const dir = join(home, "Projects", "site");
     expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", from: "pult~owner@example.com" })).toMatchObject({ ok: true });
     expect(b.reg.puts.filter((f) => f.why === "raise").at(-1)).toMatchObject({ by: "pult~owner@example.com" });
+  });
+
+  it("3112 · сохранение: недостающие блоки уходят PUT по ссылкам реестра, тело — сжатый блок, своей подписи нет; повторный points.put — ok", async () => {
+    // источник: чьё: код (ветка missing); ссылки — дизайн итерации 7
+    b = await bench({ home });
+    await marked();
+    const r = await ask({ type: "points.save", callsign: "site@laptop" });
+    expect(r).toMatchObject({ ok: true });
+    const missing = b.reg.puts.find((x) => x.result === "missing")!;
+    const hashes = [...new Set((missing.files as Array<{ b: string[] }>).flatMap((x) => x.b))];
+    expect(b.reg.r2calls.filter((c) => c.method === "PUT").map((c) => c.key).sort()).toEqual(hashes.map((h) => `f/${h}`).sort());
+    expect(b.reg.r2calls.every((c) => !c.signed)).toBe(true);
+    expect(b.reg.puts.at(-1)!.result).not.toBe("missing");
+  });
+
+  it("3113 · подъём: блоки берутся GET по ссылкам из points.get, файлы собраны байт в байт", async () => {
+    // источник: чьё: код (подъём точки); ссылки — дизайн итерации 7
+    b = await bench({ home, machine: "pc" });
+    const content = conv(30);
+    const row = b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: content });
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: true });
+    expect(readFileSync(fileOf(dir, SID))).toEqual(content);
+    expect(b.reg.r2calls.filter((c) => c.method === "GET").map((c) => c.key)).toEqual(row.files[0].b.map((h) => `f/${h}`));
+    expect(b.reg.r2calls.every((c) => !c.signed)).toBe(true);
   });
 
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {

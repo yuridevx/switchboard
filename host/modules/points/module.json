@@ -10,8 +10,8 @@
   },
   "uses": {
     "host.module@host": 1,
-    "points.put@points": 1,
-    "points.get@points": 1,
+    "points.put@points": 2,
+    "points.get@points": 2,
     "points.delete@points": 1,
     "session.open@host-manage": 1,
     "session.start@host-manage": 1,

@@ -9,8 +9,8 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: here("./wrangler.jsonc") },
       miniflare: {
-        // настройки API Cloudflare — поддельные: API в тестах подменён
-        bindings: { R2_TOKEN: "test-token", CF_ACCOUNT_ID: "acc0", R2_PARENT_KEY_ID: "parent0" },
+        // ключ ссылок и аккаунт — поддельные: ссылки подписываются на месте, в сеть служба не ходит
+        bindings: { CF_ACCOUNT_ID: "acc0", R2_KEY_ID: "kid0", R2_KEY_SECRET: "ksec0" },
       },
     }),
   ],

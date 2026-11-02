@@ -1,7 +1,7 @@
 // Контракт points: реестр точек сессий с пометкой «в R2» и временные ключи R2 на блоки точек.
 // Запросы — кадры с to: ".points", ответ — reply через relay. Байтов точек points не видит.
 
-export const CONTRACT = { "points.put": 1, "points.get": 1, "points.list": 1, "points.delete": 1 } as const;
+export const CONTRACT = { "points.put": 2, "points.get": 2, "points.list": 1, "points.delete": 1 } as const;
 
 /** Файл точки: путь относительно папки проектов Claude, размер и отпечатки блоков (SHA-256, hex) по порядку. */
 export type PointFile = { p: string; size: number; b: string[] };
@@ -17,7 +17,7 @@ export type Why = "rule" | "save" | "start" | "raise" | "yield";
 export type PointsPut = {
   type: "points.put";
   id: string;
-  v?: 1;
+  v?: 2;
   to: ".points";
   sid: string;
   why: Why;
@@ -36,16 +36,8 @@ export type PointsPut = {
 /** ok: id новой точки; same — файлы те же, что у основы: строки нет, id — основа. */
 export type PointsPutResult = { id: number; same?: true };
 
-/** Временный ключ R2 на час: машина шлёт его в S3, sessionToken — заголовком X-Amz-Security-Token. */
-export type Creds = {
-  accessKeyId: string;
-  secretAccessKey: string;
-  sessionToken: string;
-  endpoint: string;
-  bucket: string;
-  /** до какого времени ключ годен, мс */
-  exp: number;
-};
+/** Ссылки на блоки по отпечатку: один блок, один метод (PUT или GET), час; машина идёт по ссылке без ключа. */
+export type Links = Record<string, string>;
 
 /** Точка целиком — строка реестра. */
 export type Point = {
@@ -65,9 +57,9 @@ export type Point = {
   last?: unknown[];
 };
 
-/** points.get — строки точек целиком и хозяин; машине — ещё ключ R2 на чтение f/. */
-export type PointsGet = { type: "points.get"; id: string; v?: 1; to: ".points"; ids: number[] };
-export type PointsGetResult = { owner: string; points: Point[]; creds?: Creds };
+/** points.get — строки точек целиком и хозяин; машине — ещё ссылки GET на блоки этих точек. */
+export type PointsGet = { type: "points.get"; id: string; v?: 2; to: ".points"; ids: number[] };
+export type PointsGetResult = { owner: string; points: Point[]; links?: Links };
 
 /** points.list — без sid: обзор флота; с sid: точки сессии, line и until считает points. */
 export type PointsList = { type: "points.list"; id: string; v?: 1; to: ".points"; sid?: string };
@@ -84,7 +76,7 @@ export type PointsDelete = { type: "points.delete"; id: string; v?: 1; to: ".poi
 export type PointsDeleteResult = { points: number; blocks: number; bytes: number };
 
 /**
- * Слова отказа points. missing несёт missing (каких блоков нет) и creds на запись f/;
+ * Слова отказа points. missing несёт missing (каких блоков нет) и links — ссылки PUT на каждый;
  * not_owner — owner; no_point — ids.
  */
-export type PointsWord = "missing" | "not_owner" | "no_point" | "r2_failed";
+export type PointsWord = "missing" | "not_owner" | "no_point";

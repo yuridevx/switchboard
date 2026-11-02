@@ -2,6 +2,7 @@ import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test"
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
+import { presign } from "@switchboard/release";
 import type { Registry } from "../src/registry.ts";
 
 const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
@@ -16,17 +17,19 @@ const DAY = 86_400_000;
 const T0 = Date.UTC(2030, 9, 31, 20, 0);
 const clock = (t: number) => vi.setSystemTime(t);
 
-/** Поддельный API Cloudflare: выдаёт временный ключ и записывает тела запросов. */
-function fakeCf(status = 200) {
-  const calls: Array<{ url: string; auth: string | null; body: Record<string, unknown> }> = [];
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const req = new Request(input, init);
-    calls.push({ url: req.url, auth: req.headers.get("authorization"), body: await req.json() });
-    if (status !== 200) return Response.json({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, { status });
-    return Response.json({ success: true, result: { accessKeyId: "AK", secretAccessKey: "SK", sessionToken: "ST" } });
+/** Запросы службы в сеть: ссылки подписываются на месте, в сеть служба не ходит. */
+function net() {
+  const calls: string[] = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
+    calls.push(String(input instanceof Request ? input.url : input));
+    return new Response(null, { status: 500 });
   });
   return calls;
 }
+
+/** Ссылка на блок, как её подписывает служба: ключ ссылок стенда, бакет точек, час. */
+const linkOf = (method: "GET" | "PUT", h: string) =>
+  presign({ accessKeyId: "kid0", secretAccessKey: "ksec0" }, { method, host: "acc0.r2.cloudflarestorage.com", path: `/switchboard-points/f/${h}`, now: new Date() });
 
 /** Строки журнала points, которые попали в console.log. */
 function journal() {
@@ -43,7 +46,7 @@ async function inR2(...hashes: string[]) {
 const file = (b: string[], size = 100, p = "s.jsonl") => [{ p, size, b }];
 
 const put = (s: Stub, from: string, sid: string, files: unknown, extra: Record<string, unknown> = {}) =>
-  s.frame({ type: "points.put", v: 1, id: "p", to: ".points", from, sid, why: "rule", files, callsign: `site@${from.slice(1)}`, ...extra });
+  s.frame({ type: "points.put", v: 2, id: "p", to: ".points", from, sid, why: "rule", files, callsign: `site@${from.slice(1)}`, ...extra });
 
 const sessionRow = (s: Stub, sid: string) =>
   runInDurableObject(s, (_o, st) => st.storage.sql.exec("SELECT owner, head FROM sessions WHERE sid = ?", sid).toArray()[0]);
@@ -82,8 +85,8 @@ describe("эталоны points", () => {
     const s = fresh();
     await inR2("201a1");
     await line(s, "@pc", "s201", 2, ["201a1"]);
-    // блока 201zz в R2 нет: хозяин проверяется до похода в R2 — ключа на запись не просим
-    const api = fakeCf();
+    // блока 201zz в R2 нет: хозяин проверяется до похода в R2 — ссылок на запись не даём
+    const api = net();
     const out = await put(s, "@laptop", "s201", file(["201a1", "201ff"], 99));
     expect(api).toHaveLength(0);
     expect(out).toEqual([{ type: "reply", id: "p", ok: false, error: "not_owner", owner: "pc", to: "@laptop" }]);
@@ -91,17 +94,17 @@ describe("эталоны points", () => {
     expect(await sessionRow(s, "s201")).toEqual({ owner: "pc", head: 2 });
   });
 
-  it("202 · блока b7 нет: missing и ключ на запись f/ на час, строки нет; после того как машина положила b7 — ok", async () => {
+  it("202 · блока b7 нет: missing и ссылка PUT ровно на него, строки нет; после того как машина положила b7 — ok", async () => {
+    // источник: чьё: код (ветка missing); ссылки — дизайн итерации 7 (так подписывают выпуски)
     const s = fresh();
     await inR2("202a1");
     await put(s, "@laptop", "s202", file(["202a1"]));
-    const api = fakeCf();
+    const api = net();
     const first = await put(s, "@laptop", "s202", file(["202a1", "202b7"]));
-    expect(first[0]).toMatchObject({ ok: false, error: "missing", missing: ["202b7"], creds: { accessKeyId: "AK", secretAccessKey: "SK", sessionToken: "ST", bucket: "switchboard-points", endpoint: "https://acc0.r2.cloudflarestorage.com" } });
-    expect(api).toHaveLength(1);
-    expect(api[0].url).toBe("https://api.cloudflare.com/client/v4/accounts/acc0/r2/temp-access-credentials");
-    expect(api[0].auth).toBe("Bearer test-token");
-    expect(api[0].body).toEqual({ bucket: "switchboard-points", parentAccessKeyId: "parent0", permission: "object-read-write", prefixes: ["f/"], ttlSeconds: 3600 });
+    expect(first[0]).toMatchObject({ ok: false, error: "missing", missing: ["202b7"], links: { "202b7": await linkOf("PUT", "202b7") } });
+    expect(Object.keys((first[0] as unknown as { links: object }).links)).toEqual(["202b7"]);
+    expect(first[0]).not.toHaveProperty("creds");
+    expect(api).toHaveLength(0);
     expect(await count(s, "SELECT COUNT(*) AS n FROM points")).toBe(1);
     await inR2("202b7");
     const second = await put(s, "@laptop", "s202", file(["202a1", "202b7"]));
@@ -245,41 +248,43 @@ describe("эталоны points", () => {
   });
 
   it("209 · hello() — ровно пять запросов points", async () => {
-    expect(await relay.hello()).toEqual({ contract: { "points.put": 1, "points.get": 1, "points.list": 1, "points.delete": 1 } });
+    expect(await relay.hello()).toEqual({ contract: { "points.put": 2, "points.get": 2, "points.list": 1, "points.delete": 1 } });
   });
 
 });
 
 describe("points: get, list, откат, отказы, стык с relay", () => {
-  it("points.get: машине — строки, хозяин и ключ на чтение f/; пульту — без ключа; нет точки — no_point", async () => {
+  it("2098 · points.get: машине — строки, хозяин и ссылки GET на блоки этих точек и только их; пульту — без ссылок; нет точки — no_point", async () => {
+    // источник: чьё: код (points.get); ссылки — дизайн итерации 7
     const s = fresh();
-    await inR2("301a1");
-    await put(s, "@laptop", "s301", file(["301a1"]), { dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3 });
-    const api = fakeCf();
-    const [m] = await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "@pc", ids: [1] });
+    await inR2("301a1", "301b2", "302c3");
+    await put(s, "@laptop", "s301", file(["301a1", "301b2"]), { dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3 });
+    await put(s, "@laptop", "s302", file(["302c3"]));
+    const api = net();
+    const [m] = await s.frame({ type: "points.get", v: 2, id: "g", to: ".points", from: "@pc", ids: [1] });
     expect(m.result).toMatchObject({
       owner: "laptop",
-      points: [{ id: 1, sid: "s301", machine: "laptop", why: "rule", base: null, dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3, files: file(["301a1"]) }],
-      creds: { bucket: "switchboard-points" },
+      points: [{ id: 1, sid: "s301", machine: "laptop", why: "rule", base: null, dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3, files: file(["301a1", "301b2"]) }],
     });
-    expect(api[0].body).toMatchObject({ permission: "object-read-only", prefixes: ["f/"] });
-    const [p] = await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "panel", ids: [1] });
-    expect((p.result as Record<string, unknown>).creds).toBeUndefined();
-    expect(await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "panel", ids: [1, 9] })).toEqual([
+    expect((m.result as { links: Record<string, string> }).links).toEqual({ "301a1": await linkOf("GET", "301a1"), "301b2": await linkOf("GET", "301b2") });
+    expect(api).toHaveLength(0);
+    const [p] = await s.frame({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids: [1] });
+    expect((p.result as Record<string, unknown>).links).toBeUndefined();
+    expect(await s.frame({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids: [1, 9] })).toEqual([
       { type: "reply", id: "g", ok: false, error: "no_point", ids: [9], to: "panel" },
     ]);
   });
 
-  it("API Cloudflare отказал — r2_failed, ответ Cloudflare в журнале", async () => {
+  it("2097 · ссылка на блок: путь /<бакет>/f/<отпечаток>, id ключа ссылок, срок час; подпись — общей функцией формата выпуска", async () => {
+    // источник: чьё: код (так подписывают выпуски)
     const s = fresh();
-    await inR2("2f1a");
-    const [pid] = await line(s, "@laptop", "sr2f", 1, ["2f1a"]);
-    fakeCf(403);
-    const lines: Array<Record<string, unknown>> = [];
-    vi.spyOn(console, "log").mockImplementation((x: unknown) => void lines.push(JSON.parse(String(x))));
-    expect(await s.frame({ type: "points.get", v: 1, id: "c", to: ".points", from: "@laptop", ids: [pid] })).toEqual([{ type: "reply", id: "c", ok: false, error: "r2_failed", to: "@laptop" }]);
-    expect(lines).toContainEqual(expect.objectContaining({ part: "points", word: "r2_failed", status: 403 }));
-    expect(JSON.stringify(lines)).toContain("Authentication error");
+    const [r] = await put(s, "@laptop", "s2097", file(["2097aa"]));
+    const u = new URL((r as unknown as { links: Record<string, string> }).links["2097aa"]);
+    expect(u.host).toBe("acc0.r2.cloudflarestorage.com");
+    expect(u.pathname).toBe("/switchboard-points/f/2097aa");
+    expect(u.searchParams.get("X-Amz-Credential")).toMatch(/^kid0\//);
+    expect(u.searchParams.get("X-Amz-Expires")).toBe("3600");
+    expect(u.toString()).toBe(await linkOf("PUT", "2097aa"));
   });
 
   it("откат на той же машине — голова от base, ledger.add session.rolled_back; ветка «до отката» в списке", async () => {
@@ -384,16 +389,6 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     expect(await put(s, "@pc", "s2062", file(["2062a"]), { why: "raise", base: 99, expect: "laptop" })).toMatchObject([{ ok: false, error: "no_point", ids: [99] }]);
   });
 
-  it("2063 · points.put: API Cloudflare не выдал ключ — r2_failed, точки нет, ключей в журнале нет", async () => {
-    const s = fresh();
-    fakeCf(403);
-    const lines = journal();
-    expect(await put(s, "@laptop", "s2063", file(["2063ff"]))).toEqual([{ type: "reply", id: "p", ok: false, error: "r2_failed", to: "@laptop" }]);
-    expect(lines).toContainEqual(expect.objectContaining({ part: "points", ev: "points.put", word: "r2_failed", status: 403 }));
-    const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel", sid: "s2063" });
-    expect(l.result).toEqual({ owner: null, head: null, points: [] });
-  });
-
   it("2065 · подъём хозяином от своей головы — точка без события", async () => {
     const s = fresh();
     await inR2("2065a");
@@ -422,7 +417,7 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
   it("2067 · points.get: ids не непустой список целых — bad_frame", async () => {
     const s = fresh();
     for (const ids of [undefined, [], ["a"], [1.5]]) {
-      expect(await s.frame({ type: "points.get", v: 1, id: "g", to: ".points", from: "panel", ids })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+      expect(await s.frame({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids })).toMatchObject([{ ok: false, error: "bad_frame" }]);
     }
   });
 
@@ -470,8 +465,8 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
   it("через вход участника: reply и ledger.add — кадры ответа вызова, по порядку", async () => {
     await inR2("305a1");
     const sent = [
-      ...(await relay.frame({ type: "points.put", v: 1, id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) })),
-      ...(await relay.frame({ type: "points.put", v: 1, id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) })),
+      ...(await relay.frame({ type: "points.put", v: 2, id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) })),
+      ...(await relay.frame({ type: "points.put", v: 2, id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) })),
     ];
     expect(sent.map((x) => [x.type, x.to])).toEqual([
       ["reply", "@laptop"],

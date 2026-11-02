@@ -7,7 +7,7 @@
     "app@web-core": 1,
     "roster@relay": 1,
     "points.list@points": 1,
-    "points.get@points": 1,
+    "points.get@points": 2,
     "points.delete@points": 1,
     "points.save@host-points": 1,
     "session.r2@host-points": 1,

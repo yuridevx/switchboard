@@ -12,7 +12,7 @@ import type { PointFile, Ref } from "./blocks.ts";
 import { apply, BUNDLE, folderOf, realGit, snapshot } from "./git.ts";
 import type { Git, GitSummary } from "./git.ts";
 import { getBlock, putBlock } from "./r2.ts";
-import type { Creds, Fetch } from "./r2.ts";
+import type { Fetch, Links } from "./r2.ts";
 
 /** Конец хода — точка, если с прошлой прошло 2 мин; ход идёт 10 мин без точки — точка посреди хода. */
 export const GAP_MS = 2 * 60_000;
@@ -82,12 +82,12 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
     live.delete(cs);
   }
 
-  /** Недостающие блоки — zstd и PUT в R2 прямо с машины. */
-  async function upload(missing: string[], creds: Creds, refs: Map<string, Ref>): Promise<void> {
+  /** Недостающие блоки — zstd и PUT в R2 прямо с машины по ссылкам реестра. */
+  async function upload(missing: string[], links: Links, refs: Map<string, Ref>): Promise<void> {
     for (const h of missing) {
       const r = refs.get(h);
       if (!r) throw new Error(`блока ${h} нет на машине`);
-      await putBlock(creds, h, pack(readRef(r)), f);
+      await putBlock(links, h, pack(readRef(r)), f);
     }
   }
 
@@ -97,7 +97,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
     if (!r.ok && r.error === "missing") {
       const x = extra(r);
       try {
-        await upload((x.missing as string[]) ?? [], x.creds as Creds, refs);
+        await upload((x.missing as string[]) ?? [], (x.links as Links) ?? {}, refs);
       } catch (e) {
         host.log({ kind: "refuse", ev: "r2", word: "r2_failed", callsign: frame.callsign as string, why: (e as Error).message });
         return { ok: false, error: "r2_failed" };
@@ -247,7 +247,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
   }
 
   /** Собрать файлы точки из R2 в папку проекта. Блок не распаковался или длина не та — bad_point. */
-  async function assemble(row: Row, creds: Creds, proj: string, tmp: string): Promise<string | null> {
+  async function assemble(row: Row, links: Links, proj: string, tmp: string): Promise<string | null> {
     let bundle: string | null = null;
     const built: Array<[string, string]> = [];
     for (const pf of row.files) {
@@ -255,7 +255,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       for (const h of pf.b) {
         let raw: Buffer;
         try {
-          raw = unpack(await getBlock(creds, h, f));
+          raw = unpack(await getBlock(links, h, f));
         } catch (e) {
           // сбой R2 — отказ словом, как у save; модуль на машине не выключается
           if (/R2 GET/.test((e as Error).message)) throw refuse("r2_failed", `${pf.p}: ${(e as Error).message}`);
@@ -343,7 +343,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       if (!dir) throw refuse("bad_dir", `${String(fr.dir)}: папка не от ~ и не полная`);
       const g = await host.request("points.get", { ids: [point] });
       if (!g.ok) throw refuse(g.error, `points.get ${point}: ${g.error}`);
-      const res = g.result as { owner: string | null; points: Row[]; creds: Creds };
+      const res = g.result as { owner: string | null; points: Row[]; links: Links };
       const row = res.points[0];
       if (!row || row.sid !== sid) throw refuse("bad_point", `точка ${point} — не сессии ${sid}`);
       const owner = res.owner ?? row.machine;
@@ -363,7 +363,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       const tmp = mkdtempIn();
       let branch: string | null = chk.branch;
       try {
-        const bundle = await assemble(row, res.creds, proj, tmp);
+        const bundle = await assemble(row, res.links ?? {}, proj, tmp);
         if (!copy) asideOthers(sid, proj);
         if (mode === "point" && row.git && (chk.folder === "same" || chk.folder === "empty")) branch = await apply(git, row.git, dir, chk.folder, bundle);
       } finally {

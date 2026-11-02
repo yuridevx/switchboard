@@ -15,15 +15,6 @@ import type { Git } from "../src/git.ts";
 const { module, standHost } = stand;
 type Stand = stand.Stand;
 
-export const CREDS = {
-  accessKeyId: "AK",
-  secretAccessKey: "SK",
-  sessionToken: "ST",
-  endpoint: "https://acc.r2.cloudflarestorage.com",
-  bucket: "switchboard-points",
-  exp: 0,
-};
-
 type Row = { id: number; sid: string; machine: string; why: string; base: number | null; files: PointFile[]; callsign?: string; dir?: string; git?: unknown; spec?: unknown };
 
 /** Блоки байтов, как их режет модуль. */
@@ -50,16 +41,25 @@ export class FakeRegistry {
   gets: Frame[] = [];
   /** PUT в R2: ключи по порядку */
   r2puts: string[] = [];
+  /** запросы машины в R2: метод, ключ и был ли свой заголовок подписи */
+  r2calls: Array<{ method: string; key: string; signed: boolean }> = [];
   seq = 1000;
   /** ответить этим словом на следующий put (и owner) */
   refuseNext: { error: string; owner?: string } | null = null;
 
+  /** Ссылки реестра: один блок, один метод — метод записан в ссылке, R2 стенда сверяет его. */
+  links(method: "GET" | "PUT", hashes: string[]): Record<string, string> {
+    return Object.fromEntries(hashes.map((h) => [h, `https://r2.test/bk/f/${h}?X-Amz-Signature=${method}`]));
+  }
+
   fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = new URL(String(url));
     const key = u.pathname.split("/").slice(2).join("/");
-    if (!init?.headers || !(init.headers as Record<string, string>).authorization?.startsWith("AWS4-HMAC-SHA256 Credential=AK/")) return new Response("", { status: 403 });
-    if (init.method === "PUT") {
-      this.r2.set(key, Buffer.from(init.body as Uint8Array));
+    const method = init?.method ?? "GET";
+    this.r2calls.push({ method, key, signed: !!(init?.headers as Record<string, string> | undefined)?.authorization });
+    if (u.searchParams.get("X-Amz-Signature") !== method) return new Response("", { status: 403 });
+    if (method === "PUT") {
+      this.r2.set(key, Buffer.from(init!.body as Uint8Array));
       this.r2puts.push(key);
       return new Response("", { status: 200 });
     }
@@ -93,7 +93,7 @@ export class FakeRegistry {
       this.gets.push(f);
       const rows = (f.ids as number[]).map((i) => this.rows.get(i)).filter(Boolean) as Row[];
       if (!rows.length) return { ok: false, error: "no_point", ids: f.ids };
-      return { ok: true, result: { owner: this.sessions.get(rows[0].sid)?.owner ?? null, points: rows, creds: CREDS } };
+      return { ok: true, result: { owner: this.sessions.get(rows[0].sid)?.owner ?? null, points: rows, links: this.links("GET", [...new Set(rows.flatMap((r) => r.files.flatMap((x) => x.b)))]) } };
     }
     if (f.type === "points.delete") {
       this.deletes.push(f);
@@ -117,7 +117,7 @@ export class FakeRegistry {
     const base = typeof f.base === "number" ? f.base : null;
     if (s && f.why === "raise" && f.expect !== s.owner) return rec("not_owner", { ok: false, error: "not_owner", owner: s.owner });
     if (s && f.why !== "raise" && f.why !== "yield" && machine !== s.owner) return rec("not_owner", { ok: false, error: "not_owner", owner: s.owner });
-    if (missing.length) return rec("missing", { ok: false, error: "missing", missing, creds: CREDS });
+    if (missing.length) return rec("missing", { ok: false, error: "missing", missing, links: this.links("PUT", missing) });
     if (s && machine === s.owner && f.why !== "raise" && JSON.stringify(this.rows.get(s.head)?.files) === JSON.stringify(files)) {
       return rec("same", { ok: true, result: { id: s.head, same: true } });
     }
