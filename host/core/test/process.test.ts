@@ -1,8 +1,8 @@
-// Эталоны процесса Host (738–743): main.ts отдельным процессом — гейт выпуска --check и отказы старта.
+// Эталоны процесса Host (738–743, 752): main.ts отдельным процессом — гейт выпуска --check, отказы старта и ловушка процесса.
 // Выпуск с другим списком модулей — копия ядра во временной папке: @switchboard/host — эта копия,
 // прочие пакеты — ссылки на пакеты монорепо; поддельные модули — пакеты на JS.
 import { spawn } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,8 +32,8 @@ function run(main: string, args: string[], env: Record<string, string>): Promise
   });
 }
 
-/** Модуль-пакет на JS: манифест и пустой объект модуля. */
-type Fake = { provides: Record<string, number> };
+/** Модуль-пакет на JS: манифест и объект модуля (по умолчанию пустой). */
+type Fake = { provides: Record<string, number>; code?: string };
 
 /** Выпуск: копия ядра со своим modules.json; возвращает путь к main.ts копии. */
 function release(names: string[], fakes: Record<string, Fake> = {}): string {
@@ -54,7 +54,7 @@ function release(names: string[], fakes: Record<string, Fake> = {}): string {
     mkdirSync(d, { recursive: true });
     writeFileSync(join(d, "package.json"), JSON.stringify({ name: `@switchboard/${name}`, type: "module", exports: { ".": "./contract.js" } }));
     writeFileSync(join(d, "module.json"), JSON.stringify({ name, type: "sdk", version: "1.0.0", provides: m.provides, uses: {}, config: {} }));
-    writeFileSync(join(d, "contract.js"), "export default {};\n");
+    writeFileSync(join(d, "contract.js"), m.code ?? "export default {};\n");
     symlinkSync(d, join(sw, name), "junction");
   }
   return join(copy, "main.ts");
@@ -62,6 +62,22 @@ function release(names: string[], fakes: Record<string, Fake> = {}): string {
 
 const home = () => mkdtempSync(join(tmpdir(), "switchboard-home-"));
 const dup = { "host-a": { provides: { "x.do": 1 } }, "host-b": { provides: { "x.do": 1 } } };
+
+/** Строки журнала Host в папке h, пока ok() не вернёт true или не выйдет срок. */
+async function journalUntil(h: string, ok: (lines: Array<Record<string, unknown>>) => boolean, ms: number): Promise<Array<Record<string, unknown>>> {
+  const dir = join(h, "journal");
+  const read = () =>
+    existsSync(dir)
+      ? readdirSync(dir)
+          .filter((f) => f.startsWith("host-"))
+          .flatMap((f) => readFileSync(join(dir, f), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as Record<string, unknown>))
+      : [];
+  for (const t0 = Date.now(); Date.now() - t0 < ms; await new Promise((r) => setTimeout(r, 200))) {
+    const lines = read();
+    if (ok(lines)) return lines;
+  }
+  return read();
+}
 
 describe("процесс Host", () => {
   it("738 · --check годного выпуска: ok, версия, SDK 0.3.311 и proto; код 0", async () => {
@@ -102,6 +118,31 @@ describe("процесс Host", () => {
     expect(r.code).toBe(1);
     expect(r.err).toContain("host: не стартует");
     expect(r.err).toContain("x.do: два владельца — host-a и host-b");
+  }, 90_000);
+
+  it("752 · отказ промиса и бросок таймера, начатые модулем в start(), — модуль выключен на машине, процесс Host живёт", async () => {
+    // источник: устав «часть падает и перезапускается одна», ветка «ошибка модуля — модуль выключен»; факт 2 нояб. — отказ фоновой цепочки модуля уронил весь Host
+    const code = 'export default { start() { void Promise.reject(new Error("цепочка упала")); setTimeout(() => { throw new Error("таймер упал"); }, 50); } };\n';
+    const main = release(["host-bad"], { "host-bad": { provides: {}, code } });
+    const h = home();
+    const e: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h };
+    delete e.SWITCHBOARD_RELAY;
+    const p = spawn(process.execPath, [main], { env: e, windowsHide: true });
+    let err = "";
+    p.stderr.on("data", (d) => (err += d));
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "module_failed") && ls.some((l) => l.ev === "ready"), 30_000);
+    // таймер бросает уже после выключения — процесс всё ещё жив
+    await new Promise((r) => setTimeout(r, 500));
+    expect(p.exitCode).toBeNull();
+    const failed = lines.find((l) => l.ev === "module_failed")!;
+    expect(failed).toMatchObject({ module: "host-bad", word: "module_error" });
+    expect(String(failed.why)).toContain("работа вне вызова ядра");
+    expect(String(failed.why)).toContain("модуль выключен на машине");
+    // штатный выход: ввод закрыт — код 0, а не 1
+    p.stdin.end();
+    expect(await closed).toBe(0);
+    expect(err).not.toContain("цепочка упала");
   }, 90_000);
 
   it("743 · Host: пакета модуля нет — «host:» с причиной, код 1", async () => {
