@@ -14,11 +14,22 @@ export type Client = Pick<FleetClient, "request" | "send" | "close" | "links"> &
 
 /** Клиент флота с пропуском key; machine и hello — у программы, которая входит как машина (смоук). */
 export function client(key: string, o: { onFrame?: (f: Frame) => void; machine?: string; hello?: () => Record<string, unknown> } = {}): Client {
-  const c = fleet({ relay: RELAY, gate: WORKERS.gate, workers: WORKERS, key, machine: o.machine, hello: o.hello, onFrame: o.onFrame ? (f) => o.onFrame!(f) : undefined });
+  // отказ пропуску у gate (keys.list) — тоже остановка
+  let refused = false;
+  const c = fleet({
+    relay: RELAY,
+    gate: WORKERS.gate,
+    workers: WORKERS,
+    key,
+    machine: o.machine,
+    hello: o.hello,
+    onFrame: o.onFrame ? (f) => o.onFrame!(f) : undefined,
+    onState: (m, st) => void (m === "" && st === "stopped" && (refused = true)),
+  });
   return {
     get state(): LinkState {
       const all = [...c.links().values()];
-      if (all.some((l) => l.state === "stopped")) return "stopped";
+      if (refused || all.some((l) => l.state === "stopped")) return "stopped";
       return all.length && all.every((l) => l.state === "open") ? "open" : "connecting";
     },
     get roster() {
