@@ -52,9 +52,18 @@ async function call<T>(env: Env, path: string, init: RequestInit): Promise<T> {
 /** Предел вышел: AbortSignal.timeout бросает TimeoutError. */
 const late = (e: unknown) => (e as { name?: string } | null)?.name === "TimeoutError";
 
-/** Версии Worker'а с меткой: метка → id версии. */
+/** Worker'а с таким именем во флоте нет (код 10007): модуль-Worker лежит в каталоге, но здесь не выложен. */
+const absent = (e: unknown) => e instanceof CfFailed && e.status === 404 && e.text.includes("10007");
+
+/** Версии Worker'а с меткой: метка → id версии. Worker'а во флоте нет — версий нет. */
 export async function versions(env: Env, script: string): Promise<Map<string, string>> {
-  const r = await api<{ items?: Array<{ id: string; annotations?: Record<string, string> }> }>(env, "GET", `/workers/scripts/${script}/versions?per_page=100`);
+  let r: { items?: Array<{ id: string; annotations?: Record<string, string> }> };
+  try {
+    r = await api(env, "GET", `/workers/scripts/${script}/versions?per_page=100`);
+  } catch (e) {
+    if (absent(e)) return new Map();
+    throw e;
+  }
   const out = new Map<string, string>();
   for (const v of r.items ?? []) {
     const tag = v.annotations?.["workers/tag"];
@@ -63,9 +72,15 @@ export async function versions(env: Env, script: string): Promise<Map<string, st
   return out;
 }
 
-/** id выложенной версии: у последней выкладки — версия с наибольшей долей. */
+/** id выложенной версии: у последней выкладки — версия с наибольшей долей. Worker'а во флоте нет — null. */
 export async function deployed(env: Env, script: string): Promise<string | null> {
-  const r = await api<{ deployments?: Array<{ versions: Array<{ version_id: string; percentage: number }> }> }>(env, "GET", `/workers/scripts/${script}/deployments`);
+  let r: { deployments?: Array<{ versions: Array<{ version_id: string; percentage: number }> }> };
+  try {
+    r = await api(env, "GET", `/workers/scripts/${script}/deployments`);
+  } catch (e) {
+    if (absent(e)) return null;
+    throw e;
+  }
   const v = [...(r.deployments?.[0]?.versions ?? [])].sort((a, b) => b.percentage - a.percentage)[0];
   return v?.version_id ?? null;
 }

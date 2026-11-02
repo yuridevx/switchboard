@@ -762,6 +762,16 @@ describe("сборка Host «Выпусками»", () => {
     expect((await req(s, "~x", "releases.deploy", { part: "host-ghost" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
   });
 
+  it("5153 · модуль-Worker в каталоге, но во флоте не выложен (Cloudflare 10007) — list отдаёт его без версий, а не cf_failed", async () => {
+    // источник: живой факт 2 нояб. — hello-worker снят, модуль остался в каталоге, releases.list отвечал cf_failed (flow-releases)
+    const s = fresh();
+    await fakeCf({ push: { tags: ["1.0.3"], live: "1.0.3" } });
+    await inCatalog("ghost", "0.1.0", { type: "worker", provides: {}, uses: {}, config: {}, workers: { test: "switchboard-ghost" } });
+    const l = await result(req(s, "~x", "releases.list"));
+    expect(l.parts.ghost).toEqual({ where: "cloud", edge: null, stable: null });
+    expect(l.parts.push).toEqual({ where: "cloud", edge: "1.0.3", stable: "1.0.3" });
+  });
+
   it("5152 · в проверке набора приложение ОС — только выложенное: в плане машины его uses держат модуль сборки, вне плана — нет", async () => {
     // источник: дизайн «Открытый флот»: проверка — над выложенными сборками и частями флота; факт 2 нояб. — снять hello-host
     // мешал hello-daemon, уже снятый с машины
