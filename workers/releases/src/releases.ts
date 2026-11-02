@@ -6,17 +6,18 @@
 // Вид части — из каталога, по module.json в начале новейшего архива: workers — часть Cloudflare, имя Worker'а — по
 // флоту из настройки FLEET; тип os, корень сборки (ядро Host) или архив без манифеста — часть машины; остальные модули
 // входят в сборки и частями не бывают.
-// Сборка приложения — ядро и модули, чей into его называет: <флот>/<приложение>/<ядро>+<n>.tgz, внутри build.json —
+// Сборка приложения — корень и модули, чей into его называет: <флот>/<приложение>/<корень>+<n>.tgz, внутри build.json —
 // список в порядке зависимостей. Выкладка модуля — новая сборка: текущий список + модуль, проверка набора флота
-// (check), затем stable и планы. Номер с «+» — сборка, без — версия каталога.
+// (check: модули всех сборок, Worker'ы, приложения ОС, библиотеки). Host — stable и планы машин; страница (пульт,
+// телефон) — версия её Worker'а со статикой сборки, метка — номер сборки, и выкладка. Номер с «+» — сборка.
 import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
-import { CfFailed, deploy, deployed, versions } from "./cf.ts";
+import { CfFailed, deploy, deployed, publishStatic, urlOf, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
-import { entries, manifestOf, pack, parseSha, presign, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey } from "@switchboard/release";
-import { check, order, type Manifest } from "@switchboard/manifest-gate";
+import { entries, manifestOf, pack, parseSha, presign, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey, webBuild, type WebBuildList } from "@switchboard/release";
+import { check, order, ownerOf, type Manifest } from "@switchboard/manifest-gate";
 
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 /** Номер: версия каталога — три числа, сборка — ещё «+n». */
@@ -45,7 +46,7 @@ class Refusal {
 }
 
 /** Вид части: Cloudflare — с именем Worker'а этого флота, или машины; app — корень сборки. */
-type Kind = { where: "cloud"; script: string } | { where: "machine"; app: boolean };
+type Kind = { where: "cloud"; script: string; app: boolean } | { where: "machine"; app: boolean };
 
 /** Модуль каталога: готовые версии и манифест новейшей. */
 type Entry = { versions: string[]; manifest: CatManifest | null };
@@ -164,7 +165,7 @@ class Releases {
   /** Готовые версии части машины: у корня сборки — сборки этого флота, у остальных — версии каталога. */
   private async machineVersions(part: string): Promise<string[]> {
     const k = (await this.partKinds()).get(part);
-    const prefix = k?.where === "machine" && k.app ? `${this.env.FLEET}/${part}/` : `${part}/`;
+    const prefix = k?.app ? `${this.env.FLEET}/${part}/` : `${part}/`;
     const out: string[] = [];
     let cursor: string | undefined;
     do {
@@ -216,7 +217,7 @@ class Releases {
     const out = new Map<string, Kind>();
     for (const [p, { manifest: m }] of await this.catalog()) {
       const script = m?.workers?.[this.env.FLEET];
-      if (script) out.set(p, { where: "cloud", script });
+      if (script) out.set(p, { where: "cloud", script, app: m?.type === "web-app" });
       else if (!m || m.type === "os" || m.type === "sdk-core") out.set(p, { where: "machine", app: m?.type === "sdk-core" });
     }
     return out;
@@ -306,7 +307,8 @@ class Releases {
       cloud.sort().map(async (p) => {
         const script = (await this.script(p))!;
         const [vs, cur] = await Promise.all([versions(this.env, script), deployed(this.env, script)]);
-        return [p, { where: "cloud" as const, edge: newest(vs.keys()), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null }] as const;
+        const edge = (kinds.get(p) as Kind).app ? newest(await this.machineVersions(p)) : newest(vs.keys());
+        return [p, { where: "cloud" as const, edge, stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null }] as const;
       }),
     );
     for (const [p, x] of found) parts[p] = x;
@@ -348,13 +350,13 @@ class Releases {
       return this.rebuild(cat.manifest.into, { name: part, version: want ?? cat.versions[cat.versions.length - 1] }, by);
     }
     // корень сборки: версия ядра в каталоге — сборка с этим ядром; сборка «+n» или прежний архив без манифеста — откат на него
-    if (kind?.where === "machine" && kind.app && !(want && (isBuild(want) || !(await this.manifest(part, want))))) {
+    if (kind?.app && !(want && (isBuild(want) || !(await this.manifest(part, want))))) {
       return this.rebuild([part], { name: part, version: want ?? cat!.versions[cat!.versions.length - 1] }, by);
     }
     const s = await this.load();
     // relay — последним: его выкладка рвёт соединения флота
     const cloudOrder = [...(await this.partKinds())]
-      .filter(([, k]) => k.where === "cloud")
+      .filter(([, k]) => k.where === "cloud" && !k.app)
       .map(([p]) => p)
       .sort((a, b) => Number(a === "relay") - Number(b === "relay") || (a < b ? -1 : 1));
     const targets = part === "*" ? [...DEFAULT, ...cloudOrder] : [part];
@@ -400,67 +402,120 @@ class Releases {
     return { result, plans };
   }
 
+  /** Номер текущей сборки приложения: Host — stable флота, страница — метка выложенной версии её Worker'а. */
+  private async current(app: string, s: Fleet): Promise<string | null> {
+    const k = (await this.partKinds()).get(app);
+    if (k?.where !== "cloud") return s.stable[app] ?? null;
+    const [vs, cur] = await Promise.all([versions(this.env, k.script), deployed(this.env, k.script)]);
+    return [...vs].find(([, id]) => id === cur)?.[0] ?? null;
+  }
+
+  /** Список приложения: из его сборки, а до первой сборки — корень и все модули каталога с into приложения, новейшие. */
+  private async listOf(app: string, cur: string | null): Promise<Map<string, string>> {
+    const cat = await this.catalog();
+    const list = new Map<string, string>();
+    if (cur && isBuild(cur)) {
+      const b = JSON.parse((await this.files(this.tgz(app, cur))).find((x) => x.path === "build.json")!.data.toString("utf8")) as BuildList;
+      list.set(app, b.version.split("+")[0]);
+      for (const m of b.modules) list.set(m.name, m.version);
+    } else {
+      list.set(app, cat.get(app)!.versions.at(-1)!);
+      for (const [n, e] of cat) if (e.manifest?.into?.includes(app)) list.set(n, e.versions.at(-1)!);
+    }
+    return list;
+  }
+
+  /** Манифесты списка по версиям каталога. */
+  private async manifests(list: Map<string, string>): Promise<Map<string, CatManifest>> {
+    const out = new Map<string, CatManifest>();
+    for (const [n, v] of list) {
+      const m = await this.manifest(n, v);
+      if (!m) throw new Refusal("check_failed", `у ${n} ${v} нет module.json в начале архива`);
+      out.set(n, m);
+    }
+    return out;
+  }
+
   /**
-   * Новые сборки приложений apps: текущий список сборки (первая — ядро и все модули каталога с into приложения) с
-   * заменой change, проверка набора вместе с частями флота, архив под именем флота, stable и планы машин.
+   * Новые сборки приложений apps: текущий список с заменой change, проверка набора флота — новые сборки, текущие
+   * сборки остальных приложений, Worker'ы, приложения ОС и библиотеки каталога. Host — архив под именем флота, stable
+   * и планы машин; страница — тот же архив и версия её Worker'а со статикой, выложенная.
    */
   private async rebuild(apps: string[], change: { name: string; version: string }, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
     const s = await this.load();
     const cat = await this.catalog();
     const kinds = await this.partKinds();
+    if (!(await this.sha(change.name, change.version)) || !cat.has(change.name)) throw new Refusal("no_release", `у ${change.name} нет версии ${change.version}`);
+    // списки всех приложений флота: собираемые — с заменой, остальные — как выложены
+    const roots = [...kinds].filter(([, k]) => k.app).map(([p]) => p);
+    for (const app of apps) if (!roots.includes(app)) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
+    const cur = new Map<string, string | null>();
+    const lists = new Map<string, Map<string, CatManifest>>();
+    for (const app of roots) {
+      cur.set(app, await this.current(app, s));
+      const list = await this.listOf(app, cur.get(app)!);
+      if (apps.includes(app)) list.set(change.name, change.version);
+      lists.set(app, await this.manifests(list));
+    }
+    const inBuilds = new Set([...lists.values()].flatMap((l) => [...l.keys()]));
+    // модуль во многих сборках (ядро страницы) — один раз: версии в сборках одного флота сверяются как одно имя
+    const set = new Map<string, CatManifest>();
+    for (const l of lists.values()) for (const [n, m] of l) if (!set.has(n) || apps.some((a) => lists.get(a)!.get(n) === m)) set.set(n, m);
+    for (const [p, e] of cat) if (!inBuilds.has(p) && e.manifest && !e.manifest.into && !roots.includes(p)) set.set(p, e.manifest);
+    const errors = check([...set.values()]);
+    if (errors.length) throw new Refusal("check_failed", errors.join("; "));
+
     const result: Deployed = { parts: {} };
     const stable = { ...s.stable };
     const built: Array<[string, string]> = [];
     for (const app of apps) {
-      if (!(kinds.get(app) as { app?: boolean } | undefined)?.app) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
-      if (!(await this.sha(change.name, change.version)) || !cat.has(change.name)) throw new Refusal("no_release", `у ${change.name} нет версии ${change.version}`);
-      const cur = s.stable[app] ?? null;
-      // список: из текущей сборки или, у первой, ядро и все модули каталога с into приложения — новейшие
-      const list = new Map<string, string>();
-      if (cur && isBuild(cur)) {
-        const b = JSON.parse((await this.files(this.tgz(app, cur))).find((x) => x.path === "build.json")!.data.toString("utf8")) as BuildList;
-        list.set(app, b.version.split("+")[0]);
-        for (const m of b.modules) list.set(m.name, m.version);
-      } else {
-        list.set(app, cat.get(app)!.versions.at(-1)!);
-        for (const [n, e] of cat) if (e.manifest?.into?.includes(app)) list.set(n, e.versions.at(-1)!);
-      }
-      list.set(change.name, change.version);
-      const mans = new Map<string, CatManifest>();
-      for (const [n, v] of list) {
-        const m = await this.manifest(n, v);
-        if (!m) throw new Refusal("check_failed", `у ${n} ${v} нет module.json в начале архива`);
-        mans.set(n, m);
-      }
-      // проверка: сборка и остальной флот по манифестам каталога — Worker'ы, приложения ОС и библиотеки (протокол,
-      // формат выпуска, гейт); модули других сборок и их корни — пока без них (сборки страниц — следующим шагом)
-      const fleet = [...cat]
-        .filter(([p, e]) => !list.has(p) && e.manifest && !e.manifest.into && e.manifest.type !== "sdk-core" && e.manifest.type !== "web-app")
-        .map(([, e]) => e.manifest!);
-      const errors = check([...mans.values(), ...fleet]);
-      if (errors.length) throw new Refusal("check_failed", errors.join("; "));
-      const core = mans.get(app)!;
+      const mans = lists.get(app)!;
+      const root = mans.get(app)!;
       const mods = order([...mans.values()].filter((m) => m.name !== app));
-      const n = 1 + Math.max(0, ...(await this.machineVersions(app)).filter((v) => v.startsWith(`${core.version}+`)).map((v) => Number(v.split("+")[1])));
-      const version = `${core.version}+${n}`;
-      const files = [...(await this.files(tgzKey(app, core.version)))];
-      for (const m of mods) for (const x of await this.files(tgzKey(m.name, m.version))) files.push({ path: `modules/${m.name}/${x.path}`, data: x.data });
-      const list2: BuildList = { app, version, fleet: this.env.FLEET, modules: mods.map((m) => ({ name: m.name, version: m.version })) };
-      files.push({ path: "build.json", data: Buffer.from(JSON.stringify(list2, null, 2) + "\n") });
+      const n = 1 + Math.max(0, ...(await this.machineVersions(app)).filter((v) => v.startsWith(`${root.version}+`)).map((v) => Number(v.split("+")[1])));
+      const version = `${root.version}+${n}`;
+      const modules = mods.map((m) => ({ name: m.name, version: m.version }));
+      const k = kinds.get(app)!;
+      let files: Array<{ path: string; data: Buffer }>;
+      if (k.where === "cloud") {
+        // страница: адреса relay и Worker'ов, которыми пользуются её модули, — у Cloudflare по имени
+        const owners = new Set(mods.flatMap((m) => Object.keys(m.uses ?? {}).map(ownerOf)));
+        const workers: Record<string, string> = {};
+        for (const [p, kk] of kinds) if (kk.where === "cloud" && !kk.app && owners.has(p)) workers[p] = await urlOf(this.env, kk.script);
+        const relay = kinds.get("relay") as Kind | undefined;
+        if (relay?.where !== "cloud") throw new Refusal("no_release", "в каталоге нет Worker'а relay этого флота");
+        const list: WebBuildList = { app, version, fleet: this.env.FLEET, modules, relay: (await urlOf(this.env, relay.script)).replace(/^https/, "wss"), workers };
+        const shell = Buffer.from(await (await this.env.BUCKET.get(tgzKey(app, root.version)))!.arrayBuffer());
+        const tgzs = await Promise.all(mods.map(async (m) => ({ name: m.name, tgz: Buffer.from(await (await this.env.BUCKET.get(tgzKey(m.name, m.version)))!.arrayBuffer()) })));
+        files = webBuild(shell, tgzs, list) as Array<{ path: string; data: Buffer }>;
+      } else {
+        files = [...(await this.files(tgzKey(app, root.version)))];
+        for (const m of mods) for (const x of await this.files(tgzKey(m.name, m.version))) files.push({ path: `modules/${m.name}/${x.path}`, data: x.data });
+        const list: BuildList = { app, version, fleet: this.env.FLEET, modules };
+        files.push({ path: "build.json", data: Buffer.from(JSON.stringify(list, null, 2) + "\n") });
+      }
+      // архив сборки — под именем флота: следующая сборка начинается с его списка
       const tgz = pack(files);
       await this.env.BUCKET.put(this.tgz(app, version), tgz);
       await this.env.BUCKET.put(this.shaOf(app, version), shaLine(sha256hex(tgz), version));
-      stable[app] = version;
-      built.push([app, version]);
-      result.parts[app] = { from: cur, to: version };
+      if (k.where === "cloud") {
+        await deploy(this.env, k.script, await publishStatic(this.env, k.script, files, version));
+        await this.journal(`${app} ${cur.get(app) ?? "—"} → ${version} (${change.name} ${change.version})`, by);
+      } else {
+        stable[app] = version;
+        built.push([app, version]);
+      }
+      result.parts[app] = { from: cur.get(app) ?? null, to: version };
     }
-    const rev = await this.save({ stable, plans: s.plans }, s.rev);
-    for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${change.name} ${change.version})`, by);
-    const next: Fleet = { stable, plans: s.plans, rev };
     const plans: Frame[] = [];
-    for (const m of await this.machines()) {
-      const plan = s.plans[m] ?? {};
-      if (built.some(([app]) => (plan[app] ? !plan[app].pin : DEFAULT.includes(app)))) plans.push(await this.planFrame(next, m));
+    if (built.length) {
+      const rev = await this.save({ stable, plans: s.plans }, s.rev);
+      for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${change.name} ${change.version})`, by);
+      const next: Fleet = { stable, plans: s.plans, rev };
+      for (const m of await this.machines()) {
+        const plan = s.plans[m] ?? {};
+        if (built.some(([app]) => (plan[app] ? !plan[app].pin : DEFAULT.includes(app)))) plans.push(await this.planFrame(next, m));
+      }
     }
     return { result, plans };
   }
