@@ -1,13 +1,14 @@
 {
   "name": "releases",
   "type": "worker",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "provides": {
     "releases.plan": 1,
     "releases.list": 1,
     "releases.upload": 1,
     "releases.deploy": 1,
-    "releases.set": 1
+    "releases.set": 1,
+    "releases.fetch": 1
   },
   "uses": {
     "ledger.add@ledger": 1,

@@ -1,6 +1,6 @@
 // Эталоны модуля parts на стенде Host: поддельные SDK, relay и держатели. «Выпуски» и keeper'ы машин отвечают
 // через поддельный relay; ссылки R2 — подменённый fetch. Инструменты MCP зовутся обработчиком tool() сервера сессии.
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gunzipSync } from "node:zlib";
@@ -10,6 +10,7 @@ import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make } from "../src/parts.ts";
+import { pack } from "@switchboard/release";
 
 const { module, standHost } = stand;
 type Stand = stand.Stand;
@@ -212,5 +213,67 @@ describe("parts: покрытие плана host-modules", () => {
     const since = Date.parse(q.since as string);
     expect(before - since).toBeGreaterThanOrEqual(3600_000 - 1000);
     expect(before - since).toBeLessThanOrEqual(3600_000 + 1000);
+  });
+});
+
+describe("parts.fetch", () => {
+  // источник всех эталонов блока: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): инструмент сессии
+  // parts.fetch кладёт контракт и стенд в vendor/ репо
+  const tgz = pack([
+    { path: "module.json", data: Buffer.from('{"name":"web-card","version":"1.1.0","type":"web"}') },
+    { path: "contract.ts", data: Buffer.from("export {};\n") },
+    { path: "stand/app.ts", data: Buffer.from("export const stand = 1;\n") },
+  ]);
+
+  it("5164 · ссылка от releases.fetch, архив — в <dir>/vendor/<part>/: module.json, контракт, стенд; прежнее содержимое заменено", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "parts-repo-"));
+    mkdirSync(join(repo, "vendor", "web-card"), { recursive: true });
+    writeFileSync(join(repo, "vendor", "web-card", "old.ts"), "старое");
+    const { st, call } = await bench((f) => (f.type === "releases.fetch" ? { ok: true, result: { version: "1.1.0", url: "https://r2.test/b/web-card/1.1.0.tgz?sig" } } : undefined));
+    const got: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (got.push(String(u)), new Response(new Uint8Array(tgz), { status: 200 })));
+    const r = await call("fetch", { part: "web-card", dir: "." }, repo);
+    expect(r.isError).toBeUndefined();
+    expect(r.json()).toEqual({ part: "web-card", version: "1.1.0", dir: join(repo, "vendor", "web-card"), files: ["module.json", "contract.ts", "stand/app.ts"] });
+    expect(got).toEqual(["https://r2.test/b/web-card/1.1.0.tgz?sig"]);
+    expect(readFileSync(join(repo, "vendor", "web-card", "stand", "app.ts"), "utf8")).toBe("export const stand = 1;\n");
+    expect(existsSync(join(repo, "vendor", "web-card", "old.ts"))).toBe(false);
+    expect(st.relay.sent.find((f) => f.type === "releases.fetch")).toMatchObject({ to: ".releases", part: "web-card" });
+  });
+
+  it("5165 · releases.fetch отказал — текст ошибки, R2 не спрашивали; R2 ответил 404 — fetch_failed, vendor не тронут", async () => {
+    const repo = mkdtempSync(join(tmpdir(), "parts-repo-"));
+    let answer: Record<string, unknown> = { ok: false, error: "no_release" };
+    const { call } = await bench((f) => (f.type === "releases.fetch" ? answer : undefined));
+    const got: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u) => (got.push(String(u)), new Response("", { status: 404 })));
+    const a = await call("fetch", { part: "nobody", dir: "." }, repo);
+    expect([a.isError, a.text]).toEqual([true, "releases.fetch: no_release"]);
+    expect(got).toEqual([]);
+    answer = { ok: true, result: { version: "1.0.0", url: "https://r2.test/x.tgz?s" } };
+    const b = await call("fetch", { part: "x", version: "1.0.0", dir: "." }, repo);
+    expect([b.isError, b.text]).toEqual([true, "fetch_failed: R2 ответил 404 на x 1.0.0"]);
+    expect(existsSync(join(repo, "vendor"))).toBe(false);
+  });
+
+  it("5166 · R2 держит ответ — за 10 мин текст fetch_failed с причиной", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — как у загрузки
+    const repo = mkdtempSync(join(tmpdir(), "parts-repo-"));
+    const { call } = await bench((f) => (f.type === "releases.fetch" ? { ok: true, result: { version: "1.0.0", url: "https://r2.test/x.tgz?s" } } : undefined));
+    const got: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((u: RequestInfo | URL, init?: RequestInit) => {
+      got.push(String(u));
+      return new Promise((_ok, no) => init?.signal?.addEventListener("abort", () => no(new Error("aborted"))));
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = call("fetch", { part: "x", dir: "." }, repo);
+      await vi.waitFor(() => expect(got).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(10 * 60_000);
+      const r = await pending;
+      expect([r.isError, r.text]).toEqual([true, "fetch_failed: R2 не ответил за 10 мин на x 1.0.0"]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -836,3 +836,32 @@ describe("сборка страницы «Выпусками»", () => {
     expect((await result(req(s, "agent~x", "releases.deploy", { part: "web-core" }))).parts.pult).toEqual({ from: "1.1.0+1", to: "1.1.0+2" });
   });
 });
+
+describe("releases.fetch", () => {
+  // источник всех эталонов блока: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): releases.fetch даёт ссылку
+  // на чтение архива; другой репо берёт из каталога контракт и стенд
+  it("5161 · без version — новейшая готовая версия каталога: ссылка GET на её архив на час", async () => {
+    const s = fresh();
+    await inCatalog("web-card", "1.0.0", { type: "web" });
+    await inCatalog("web-card", "1.10.0", { type: "web" });
+    await env.BUCKET.put("web-card/2.0.0.tgz", "без хэша — не готова");
+    const r = await result(req(s, "repo~x", "releases.fetch", { part: "web-card" }));
+    expect(r.version).toBe("1.10.0");
+    expect(r.url).toMatch(/^https:\/\/acc0\.r2\.cloudflarestorage\.com\/switchboard-releases\/web-card\/1\.10\.0\.tgz\?X-Amz-Algorithm=AWS4-HMAC-SHA256&.*X-Amz-Expires=3600&/);
+  });
+
+  it("5162 · с version — эта версия; нет такой версии или модуля — no_release", async () => {
+    const s = fresh();
+    await inCatalog("web-card", "1.0.0", { type: "web" });
+    await inCatalog("web-card", "1.1.0", { type: "web" });
+    expect((await result(req(s, "repo~x", "releases.fetch", { part: "web-card", version: "1.0.0" }))).url).toContain("/web-card/1.0.0.tgz?");
+    expect((await req(s, "repo~x", "releases.fetch", { part: "web-card", version: "9.9.9" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    expect((await req(s, "repo~x", "releases.fetch", { part: "nobody" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+  });
+
+  it("5163 · сборка «+n» — не каталог: bad_version; имя не того вида — bad_frame", async () => {
+    const s = fresh();
+    expect((await req(s, "repo~x", "releases.fetch", { part: "host", version: "1.2.0+1" }))[0]).toMatchObject({ ok: false, error: "bad_version" });
+    expect((await req(s, "repo~x", "releases.fetch", { part: "Bad Name" }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+  });
+});

@@ -12,7 +12,7 @@
 // телефон) — версия её Worker'а со статикой сборки, метка — номер сборки, и выкладка. Номер с «+» — сборка.
 import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
-import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
+import { CONTRACT, type Deployed, type Fetched, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
 import { CfFailed, deploy, deployed, publishStatic, urlOf, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
@@ -100,6 +100,8 @@ class Releases {
         }
         case "releases.list":
           return answer(ok(id, await this.list(typeof f.part === "string" ? f.part : undefined)));
+        case "releases.fetch":
+          return answer(ok(id, await this.fetchLink(f)));
         case "releases.upload":
           return answer(ok(id, await this.upload(f)));
         case "releases.deploy": {
@@ -323,6 +325,17 @@ class Releases {
    * Ссылки на запись версии. Версия занята, когда лежит её .sha256: с тем же хэшем (sha256 в кадре) — same, загружать
    * нечего; с другим — version_exists. Архив без хэша — версия не готова (загрузка оборвалась): ссылки даются снова.
    */
+  /** Ссылка на чтение архива версии каталога на час; без version — новейшая готовая. Сборки — не каталог. */
+  private async fetchLink(f: Frame): Promise<Fetched> {
+    const part = f.part;
+    if (typeof part !== "string" || !NAME.test(part)) throw new Refusal("bad_frame", "part — имя модуля");
+    if (f.version !== undefined && (typeof f.version !== "string" || !VERSION.test(f.version) || isBuild(f.version)))
+      throw new Refusal("bad_version", "версия каталога — три числа, без «+»");
+    const version = (f.version as string | undefined) ?? (await this.catalog()).get(part)?.versions.at(-1);
+    if (!version || !(await this.sha(part, version))) throw new Refusal("no_release", `у ${part} нет версии ${version ?? "в каталоге"}`);
+    return { version, url: await this.link("GET", tgzKey(part, version)) };
+  }
+
   private async upload(f: Frame): Promise<Upload> {
     const part = f.part;
     const version = f.version;

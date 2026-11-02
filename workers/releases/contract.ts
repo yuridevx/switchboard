@@ -4,7 +4,7 @@
 // Часть машины — архивы в R2: <часть>/<версия>.tgz и <часть>/<версия>.sha256 (hex первым словом).
 // Часть Cloudflare — версии Worker'а с меткой-номером. edge — новейшая версия, не хранится; stable — выложенная.
 
-export const CONTRACT = { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1 } as const;
+export const CONTRACT = { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1, "releases.fetch": 1 } as const;
 
 /** Запись плана машины: только отличия от «за stable, включено». */
 export type PlanEntry = { pin?: string; on?: boolean; force?: boolean; env?: Record<string, string> };
@@ -32,6 +32,10 @@ export type Listed = {
  */
 export type ReleasesUpload = { type: "releases.upload"; id: string; v?: 1; to: ".releases"; part: string; version: string; sha256?: string };
 export type Upload = { tgz: string; sha256: string } | { same: true };
+
+/** releases.fetch — ссылка на чтение архива версии каталога (без version — новейшей) на час: другой репо берёт контракт и стенд. */
+export type ReleasesFetch = { type: "releases.fetch"; id: string; v?: 1; to: ".releases"; part: string; version?: string };
+export type Fetched = { version: string; url: string };
 
 /**
  * releases.deploy — stable на версию (без version — edge). part "*" — части Cloudflare и части машины на edge.

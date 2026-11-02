@@ -1,7 +1,7 @@
 {
   "name": "pult-journal",
   "type": "web",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "into": ["pult"],
   "provides": { "journal": 1 },
   "uses": {

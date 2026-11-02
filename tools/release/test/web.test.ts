@@ -10,10 +10,15 @@ const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
 const text = (tgz: Buffer, path: string) => entries(tgz).find((e) => e.path === path)!.data!.toString("utf8");
 
 describe("страница в каталоге", () => {
-  it("5131 · модуль страницы — module.json и один ES-файл: другие модули страницы — внешние импорты, протокол — внутри", async () => {
+  it("5131 · 5167 · модуль страницы — module.json и один ES-файл (другие модули страницы — внешние импорты, протокол — внутри) и рядом папка пакета с контрактом и стендом", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Веб: один файл ES-модуля»
     const p = packModule(join(root, "web/pult/modules/points"));
-    expect(entries(p.tgz).map((e) => e.path)).toEqual(["module.json", WEB_FILE]);
+    const paths = entries(p.tgz).map((e) => e.path);
+    expect(paths[0]).toBe("module.json");
+    expect(paths).toEqual(expect.arrayContaining([WEB_FILE, "contract.ts"]));
+    expect(paths.some((x) => x.startsWith("test/"))).toBe(false);
+    // ядро страницы отдаёт и стенд: чужой репо тестирует экраны на нём (5167)
+    expect(entries(packModule(join(root, "web/packages/core")).tgz).map((e) => e.path)).toEqual(expect.arrayContaining(["stand/app.ts", "stand/relay.ts"]));
     expect(await manifestOf(p.tgz)).toMatchObject({ name: "pult-points", type: "web", into: ["pult"] });
     const js = text(p.tgz, WEB_FILE);
     expect([...new Set(js.match(/from\s*"@switchboard\/[a-z-]+"/g))]).toEqual(['from"@switchboard/web-core"']);

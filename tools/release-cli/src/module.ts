@@ -1,5 +1,6 @@
 // Архив модуля для каталога: module.json первой записью; номер — из module.json.
-// Модуль Host, библиотека — папка пакета. Модуль страницы (web) — module.json и один ES-файл WEB_FILE: импорты других
+// Модуль Host, библиотека — папка пакета. Модуль страницы (web) — module.json, один ES-файл WEB_FILE и рядом папка
+// пакета (контракт и стенд — для тестов чужих репо; страница берёт только WEB_FILE): импорты других
 // модулей страницы остаются внешними (страница разрешает их import map'ом сборки), остальное вкладывается внутрь.
 // Worker — только module.json, а в нём имена Worker'а по флотам из wrangler-настройки (workers: {test, prod}) — руками
 // имя пишется в одном месте, в wrangler. Оболочка страницы (web-app) — Worker со статикой: module.json с workers и
@@ -111,7 +112,11 @@ export function packModule(at: string): PackedModule {
     const w = join(dir, "wrangler.jsonc");
     if (!existsSync(w)) throw new Error(`${m.name}: у модуля типа ${m.type} нет wrangler.jsonc`);
     files = [json({ ...m, workers: workerNames(jsonc(readFileSync(w, "utf8")) as never) }), ...(m.type === "web-app" ? shellFiles(dir) : [])];
-  } else if (m.type === "web") files = [json(m), { path: WEB_FILE, data: bundleWeb(dir, m) }];
+  } else if (m.type === "web") {
+    // сам модуль — одним файлом; рядом папка пакета: контракт и стенд — чужим репо для тестов (parts.fetch)
+    const pkg = packageFiles(dir).filter((p) => p !== MANIFEST && p !== WEB_FILE);
+    files = [json(m), { path: WEB_FILE, data: bundleWeb(dir, m) }, ...pkg.map((p) => ({ path: p, data: readFileSync(join(dir, ...p.split("/"))) }))];
+  }
   else files = packageFiles(dir).map((p) => ({ path: p, data: readFileSync(join(dir, ...p.split("/"))) }));
   const tgz = pack(files);
   return { name: m.name, version: m.version, tgz, sha: sha256hex(tgz) };

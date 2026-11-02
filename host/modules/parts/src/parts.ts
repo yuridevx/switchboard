@@ -1,13 +1,13 @@
-// Модуль parts: сервер MCP parts в каждой сессии — выпуски флота из разговора. Пять инструментов на все части:
-// list, upload, deploy, set, log. Зовёт «выпуски», keeper'ов машин и журнал машины; больше ничего. Хранить нечего.
+// Модуль parts: сервер MCP parts в каждой сессии — выпуски флота из разговора. Шесть инструментов на все части:
+// list, upload, fetch, deploy, set, log. Зовёт «выпуски», keeper'ов машин и журнал машины; больше ничего. Хранить нечего.
 // Ответы не ждут выхода процессов: итог видно в list и журнале флота.
-import { existsSync } from "node:fs";
-import { resolve, join } from "node:path";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve, join } from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Host, Module, Result } from "@switchboard/host";
-import { packDir, upload } from "@switchboard/release";
+import { entries, packDir, PUT_MS, upload } from "@switchboard/release";
 import type { UploadReply } from "@switchboard/release";
 
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -66,6 +66,44 @@ export function make() {
           } catch (e) {
             return text((e as Error).message, true);
           }
+        },
+      ),
+      tool(
+        "fetch",
+        "Взять модуль из каталога «выпусков» в папку репо: архив версии (без version — новейшей) распаковывается в <dir>/vendor/<part>/ — у модуля Host, библиотеки и Worker'а папка пакета с module.json, контрактом и стендом для тестов; у модуля страницы ещё module.js — он сам одним файлом. Прежнее содержимое vendor/<part> заменяется.",
+        {
+          part: z.string().describe("имя модуля в каталоге, например web-card или host"),
+          version: z.string().optional().describe("версия каталога; без неё — новейшая"),
+          dir: z.string().describe("корень репо; относительный — от рабочей папки сессии"),
+        },
+        async ({ part, version, dir }, extra) => {
+          const r = await ask("releases.fetch", { part, ...(version ? { version } : {}) });
+          if (!r.ok) return failed("releases.fetch", r);
+          const got = r.result as { version: string; url: string };
+          // предел скачивания — как у загрузки; сессия прервала ход — отмена
+          const ac = new AbortController();
+          let timedOut = false;
+          const late = setTimeout(() => ((timedOut = true), ac.abort()), PUT_MS);
+          (extra as { signal?: AbortSignal } | undefined)?.signal?.addEventListener("abort", () => ac.abort());
+          let tgz: Buffer;
+          try {
+            const res = await fetch(got.url, { signal: ac.signal });
+            if (!res.ok) return text(`fetch_failed: R2 ответил ${res.status} на ${part} ${got.version}`, true);
+            tgz = Buffer.from(await res.arrayBuffer());
+          } catch (e) {
+            return text(`fetch_failed: ${timedOut ? `R2 не ответил за ${PUT_MS / 60_000} мин` : String(e)} на ${part} ${got.version}`, true);
+          } finally {
+            clearTimeout(late);
+          }
+          const files = entries(tgz).filter((e) => e.data);
+          const target = resolve(cwd, dir, "vendor", part);
+          rmSync(target, { recursive: true, force: true });
+          for (const e of files) {
+            const p = join(target, ...e.path.split("/"));
+            mkdirSync(dirname(p), { recursive: true });
+            writeFileSync(p, e.data!);
+          }
+          return json({ part, version: got.version, dir: target, files: files.map((e) => e.path) });
         },
       ),
       tool(
