@@ -41,6 +41,8 @@ export async function buildKeeper(root: string, go: GoExec = runGo): Promise<{ v
       if (r.code !== 0) throw new Error(`go build ${t.goos}/${t.goarch}: ${r.out.trim()}`);
       files.push({ path: t.file, data: readFileSync(out), mode: 0o755 });
     }
+    // манифест — первой записью: «Выпуски» сверяют по нему набор флота
+    files.push({ path: "module.json", data: readFileSync(join(dir, "module.json")), mode: 0o644 });
     const tgz = pack(files);
     return { version, tgz, sha: sha256hex(tgz) };
   } finally {

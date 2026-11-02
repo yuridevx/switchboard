@@ -14,14 +14,15 @@
     "release.format@release": 1,
     "gate.verify@gate": 1,
     "relay.deliver@relay": 1,
-    "gate.list@gate": 1
+    "gate.list@gate": 1,
+    "manifest.check@manifest-gate": 1
   },
   "config": {
     "CLOUDFLARE_API_TOKEN": "secret",
     "R2_LINK_KEY_ID": "secret",
     "R2_LINK_SECRET": "secret",
     "CF_ACCOUNT_ID": "var",
-    "CLOUD": "var",
+    "FLEET": "var",
     "BUCKET": "binding",
     "GATE": "binding",
     "RELAY": "binding",

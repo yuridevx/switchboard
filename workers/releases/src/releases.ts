@@ -4,25 +4,32 @@
 // .sha256), частей Cloudflare — версии Worker'а с меткой. edge — новейшая версия, не хранится. План машины уходит её
 // keeper: ответом на releases.plan и кадром relay.deliver при перемене. Строки журнала — ledger.add по своей привязке.
 // Вид части — из каталога, по module.json в начале новейшего архива: workers — часть Cloudflare, имя Worker'а — по
-// флоту из настройки FLEET; тип os или архив без манифеста (сборка Host) — часть машины; остальные модули входят
-// в сборки и частями не бывают.
+// флоту из настройки FLEET; тип os, корень сборки (ядро Host) или архив без манифеста — часть машины; остальные модули
+// входят в сборки и частями не бывают.
+// Сборка приложения — ядро и модули, чей into его называет: <флот>/<приложение>/<ядро>+<n>.tgz, внутри build.json —
+// список в порядке зависимостей. Выкладка модуля — новая сборка: текущий список + модуль, проверка набора флота
+// (check), затем stable и планы. Номер с «+» — сборка, без — версия каталога.
 import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
 import { CfFailed, deploy, deployed, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
-import { manifestOf, parseSha, presign, RELEASES_BUCKET, shaKey, tgzKey, VERSION_RE as VERSION } from "@switchboard/release";
+import { entries, manifestOf, pack, parseSha, presign, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey } from "@switchboard/release";
+import { check, order, type Manifest } from "@switchboard/manifest-gate";
 
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
+/** Номер: версия каталога — три числа, сборка — ещё «+n». */
+const VERSION = /^\d+\.\d+\.\d+(\+\d+)?$/;
+const isBuild = (v: string) => v.includes("+");
 /** части каждой машины: без записи в плане — за stable; они же — части машины из сборки для deploy * */
 const DEFAULT = ["keeper", "host"];
 
-/** Порядок номеров: 1.1.10 новее 1.1.9. */
+/** Порядок номеров: 1.1.10 новее 1.1.9, 1.2.0+10 новее 1.2.0+9. */
 export function cmp(a: string, b: string): number {
-  const x = a.split(".").map(Number);
-  const y = b.split(".").map(Number);
-  for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i];
+  const x = a.split(/[.+]/).map(Number);
+  const y = b.split(/[.+]/).map(Number);
+  for (let i = 0; i < 4; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
   return 0;
 }
 const newest = (vs: Iterable<string>): string | null => [...vs].filter((v) => VERSION.test(v)).sort(cmp).pop() ?? null;
@@ -37,8 +44,15 @@ class Refusal {
   }
 }
 
-/** Вид части: Cloudflare — с именем Worker'а этого флота, или машины. */
-type Kind = { where: "cloud"; script: string } | { where: "machine" };
+/** Вид части: Cloudflare — с именем Worker'а этого флота, или машины; app — корень сборки. */
+type Kind = { where: "cloud"; script: string } | { where: "machine"; app: boolean };
+
+/** Модуль каталога: готовые версии и манифест новейшей. */
+type Entry = { versions: string[]; manifest: CatManifest | null };
+type CatManifest = Manifest & { into?: string[]; workers?: Record<string, string> };
+
+/** Список сборки — build.json в её корне. */
+type BuildList = { app: string; version: string; fleet: string; modules: Array<{ name: string; version: string }> };
 
 /** Начало архива, которого хватает на module.json. */
 const HEAD = 64 * 1024;
@@ -53,8 +67,8 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
 
 class Releases {
   private env: Env;
-  /** вид частей каталога — читается один раз на запрос */
-  private kinds?: Promise<Map<string, Kind>>;
+  /** каталог — читается один раз на запрос */
+  private cat?: Promise<Map<string, Entry>>;
   constructor(env: Env) {
     this.env = env;
   }
@@ -133,30 +147,40 @@ class Releases {
 
   // ---------- R2 ----------
 
-  /** Хэш готовой версии части машины: .sha256 лежит — версия загружена целиком. */
+  /** Ключ архива: сборка — <флот>/<приложение>/<номер>, версия каталога — <модуль>/<номер>. */
+  private tgz(part: string, v: string): string {
+    return isBuild(v) ? `${this.env.FLEET}/${tgzKey(part, v)}` : tgzKey(part, v);
+  }
+  private shaOf(part: string, v: string): string {
+    return isBuild(v) ? `${this.env.FLEET}/${shaKey(part, v)}` : shaKey(part, v);
+  }
+
+  /** Хэш готовой версии: .sha256 лежит — версия загружена целиком. */
   private async sha(part: string, version: string): Promise<string | null> {
-    const o = await this.env.BUCKET.get(shaKey(part, version));
+    const o = await this.env.BUCKET.get(this.shaOf(part, version));
     return o ? parseSha(await o.text()) : null;
   }
 
-  /** Готовые версии части машины. */
+  /** Готовые версии части машины: у корня сборки — сборки этого флота, у остальных — версии каталога. */
   private async machineVersions(part: string): Promise<string[]> {
+    const k = (await this.partKinds()).get(part);
+    const prefix = k?.where === "machine" && k.app ? `${this.env.FLEET}/${part}/` : `${part}/`;
     const out: string[] = [];
     let cursor: string | undefined;
     do {
-      const r = await this.env.BUCKET.list({ prefix: `${part}/`, cursor });
+      const r = await this.env.BUCKET.list({ prefix, cursor });
       for (const o of r.objects) {
-        const v = o.key.slice(part.length + 1).replace(/\.sha256$/, "");
-        if (o.key === shaKey(part, v) && VERSION.test(v)) out.push(v);
+        const v = o.key.slice(prefix.length).replace(/\.sha256$/, "");
+        if (o.key === prefix + `${v}.sha256` && VERSION.test(v)) out.push(v);
       }
       cursor = r.truncated ? r.cursor : undefined;
     } while (cursor);
     return out.sort(cmp);
   }
 
-  /** Части каталога и их вид: новейшая готовая версия каждого модуля → его module.json. */
-  private partKinds(): Promise<Map<string, Kind>> {
-    this.kinds ??= (async () => {
+  /** Каталог: модуль → готовые версии и module.json новейшей (сборки флотов — не каталог). */
+  private catalog(): Promise<Map<string, Entry>> {
+    this.cat ??= (async () => {
       const ready = new Map<string, string[]>();
       let cursor: string | undefined;
       do {
@@ -165,23 +189,44 @@ class Releases {
           const i = o.key.indexOf("/");
           const p = o.key.slice(0, i);
           const v = o.key.slice(i + 1).replace(/\.sha256$/, "");
-          if (o.key === shaKey(p, v) && VERSION.test(v)) ready.set(p, [...(ready.get(p) ?? []), v]);
+          if (o.key === shaKey(p, v) && VERSION.test(v) && !isBuild(v)) ready.set(p, [...(ready.get(p) ?? []), v]);
         }
         cursor = r.truncated ? r.cursor : undefined;
       } while (cursor);
-      const out = new Map<string, Kind>();
+      const out = new Map<string, Entry>();
       await Promise.all(
         [...ready].map(async ([p, vs]) => {
-          const o = await this.env.BUCKET.get(tgzKey(p, newest(vs)!), { range: { offset: 0, length: HEAD } });
-          const m = o ? await manifestOf(new Uint8Array(await o.arrayBuffer())) : null;
-          const script = (m?.workers as Record<string, string> | undefined)?.[this.env.FLEET];
-          if (script) out.set(p, { where: "cloud", script });
-          else if (!m || m.type === "os") out.set(p, { where: "machine" });
+          vs.sort(cmp);
+          out.set(p, { versions: vs, manifest: await this.manifest(p, vs[vs.length - 1]) });
         }),
       );
       return out;
     })();
-    return this.kinds;
+    return this.cat;
+  }
+
+  /** module.json версии каталога — по началу архива; архив без манифеста — null. */
+  private async manifest(p: string, v: string): Promise<CatManifest | null> {
+    const o = await this.env.BUCKET.get(tgzKey(p, v), { range: { offset: 0, length: HEAD } });
+    return o ? ((await manifestOf(new Uint8Array(await o.arrayBuffer()))) as CatManifest | null) : null;
+  }
+
+  /** Части и их вид по манифесту новейшей версии. */
+  private async partKinds(): Promise<Map<string, Kind>> {
+    const out = new Map<string, Kind>();
+    for (const [p, { manifest: m }] of await this.catalog()) {
+      const script = m?.workers?.[this.env.FLEET];
+      if (script) out.set(p, { where: "cloud", script });
+      else if (!m || m.type === "os" || m.type === "sdk-core") out.set(p, { where: "machine", app: m?.type === "sdk-core" });
+    }
+    return out;
+  }
+
+  /** Архив целиком: записи с данными. */
+  private async files(key: string): Promise<Array<{ path: string; data: Buffer }>> {
+    const o = await this.env.BUCKET.get(key);
+    if (!o) throw new Refusal("no_release", `в R2 нет ${key}`);
+    return entries(Buffer.from(await o.arrayBuffer())).filter((e) => e.data) as Array<{ path: string; data: Buffer }>;
   }
 
   /** Имя Worker'а части Cloudflare этого флота; часть машины или не часть — null. */
@@ -212,7 +257,7 @@ class Releases {
         log({ kind: "stop", ev: "releases.plan", why: `у ${p} ${version} нет хэша в R2 — часть не в плане`, machine: m });
         continue;
       }
-      const pp: PlanPart = { part: p, version, sha256, url: await this.link("GET", tgzKey(p, version)) };
+      const pp: PlanPart = { part: p, version, sha256, url: await this.link("GET", this.tgz(p, version)) };
       if (e.on !== undefined) pp.on = e.on;
       if (e.force) pp.force = true;
       if (e.env) pp.env = e.env;
@@ -282,12 +327,24 @@ class Releases {
     return { tgz: await this.link("PUT", tgzKey(part, version)), sha256: await this.link("PUT", shaKey(part, version)) };
   }
 
-  /** stable частей на версию: машины — у себя и планы keeper'ам, Cloudflare — выкладкой версии. */
+  /** stable частей на версию: машины — у себя и планы keeper'ам, Cloudflare — выкладкой версии; модуль сборки — новой сборкой. */
   private async deploy(f: Frame, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
     const part = f.part;
     if (typeof part !== "string" || (part !== "*" && !NAME.test(part))) throw new Refusal("bad_frame", "part — имя части или *");
-    if (f.version !== undefined && (typeof f.version !== "string" || !VERSION.test(f.version))) throw new Refusal("bad_version", "версия — три числа");
+    if (f.version !== undefined && (typeof f.version !== "string" || !VERSION.test(f.version))) throw new Refusal("bad_version", "версия — три числа или сборка «+n»");
     if (part === "*" && f.version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
+    const want = f.version as string | undefined;
+    const kind = part === "*" ? undefined : (await this.partKinds()).get(part);
+    const cat = part === "*" ? undefined : (await this.catalog()).get(part);
+    // модуль сборки: новая сборка каждого приложения из его into
+    if (part !== "*" && !kind && cat?.manifest?.into?.length) {
+      if (want && isBuild(want)) throw new Refusal("bad_version", `${part} — модуль: версия каталога, без «+»`);
+      return this.rebuild(cat.manifest.into, { name: part, version: want ?? cat.versions[cat.versions.length - 1] }, by);
+    }
+    // корень сборки: версия ядра в каталоге — сборка с этим ядром; сборка «+n» или прежний архив без манифеста — откат на него
+    if (kind?.where === "machine" && kind.app && !(want && (isBuild(want) || !(await this.manifest(part, want))))) {
+      return this.rebuild([part], { name: part, version: want ?? cat!.versions[cat!.versions.length - 1] }, by);
+    }
     const s = await this.load();
     // relay — последним: его выкладка рвёт соединения флота
     const cloudOrder = [...(await this.partKinds())]
@@ -333,6 +390,71 @@ class Releases {
         const plan = s.plans[m] ?? {};
         if ([...moved.keys()].some((p) => (plan[p] ? !plan[p].pin : DEFAULT.includes(p)))) plans.push(await this.planFrame(next, m));
       }
+    }
+    return { result, plans };
+  }
+
+  /**
+   * Новые сборки приложений apps: текущий список сборки (первая — ядро и все модули каталога с into приложения) с
+   * заменой change, проверка набора вместе с частями флота, архив под именем флота, stable и планы машин.
+   */
+  private async rebuild(apps: string[], change: { name: string; version: string }, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
+    const s = await this.load();
+    const cat = await this.catalog();
+    const kinds = await this.partKinds();
+    const result: Deployed = { parts: {} };
+    const stable = { ...s.stable };
+    const built: Array<[string, string]> = [];
+    for (const app of apps) {
+      if (!(kinds.get(app) as { app?: boolean } | undefined)?.app) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
+      if (!(await this.sha(change.name, change.version)) || !cat.has(change.name)) throw new Refusal("no_release", `у ${change.name} нет версии ${change.version}`);
+      const cur = s.stable[app] ?? null;
+      // список: из текущей сборки или, у первой, ядро и все модули каталога с into приложения — новейшие
+      const list = new Map<string, string>();
+      if (cur && isBuild(cur)) {
+        const b = JSON.parse((await this.files(this.tgz(app, cur))).find((x) => x.path === "build.json")!.data.toString("utf8")) as BuildList;
+        list.set(app, b.version.split("+")[0]);
+        for (const m of b.modules) list.set(m.name, m.version);
+      } else {
+        list.set(app, cat.get(app)!.versions.at(-1)!);
+        for (const [n, e] of cat) if (e.manifest?.into?.includes(app)) list.set(n, e.versions.at(-1)!);
+      }
+      list.set(change.name, change.version);
+      const mans = new Map<string, CatManifest>();
+      for (const [n, v] of list) {
+        const m = await this.manifest(n, v);
+        if (!m) throw new Refusal("check_failed", `у ${n} ${v} нет module.json в начале архива`);
+        mans.set(n, m);
+      }
+      // проверка: сборка и части флота — Worker'ы и приложения ОС по манифестам каталога
+      const fleet = [...kinds]
+        .filter(([p, k]) => !list.has(p) && (k.where === "cloud" || !k.app))
+        .map(([p]) => cat.get(p)?.manifest)
+        .filter((m): m is CatManifest => !!m && (m.type === "worker" || m.type === "os"));
+      const errors = check([...mans.values(), ...fleet]);
+      if (errors.length) throw new Refusal("check_failed", errors.join("; "));
+      const core = mans.get(app)!;
+      const mods = order([...mans.values()].filter((m) => m.name !== app));
+      const n = 1 + Math.max(0, ...(await this.machineVersions(app)).filter((v) => v.startsWith(`${core.version}+`)).map((v) => Number(v.split("+")[1])));
+      const version = `${core.version}+${n}`;
+      const files = [...(await this.files(tgzKey(app, core.version)))];
+      for (const m of mods) for (const x of await this.files(tgzKey(m.name, m.version))) files.push({ path: `modules/${m.name}/${x.path}`, data: x.data });
+      const list2: BuildList = { app, version, fleet: this.env.FLEET, modules: mods.map((m) => ({ name: m.name, version: m.version })) };
+      files.push({ path: "build.json", data: Buffer.from(JSON.stringify(list2, null, 2) + "\n") });
+      const tgz = pack(files);
+      await this.env.BUCKET.put(this.tgz(app, version), tgz);
+      await this.env.BUCKET.put(this.shaOf(app, version), shaLine(sha256hex(tgz), version));
+      stable[app] = version;
+      built.push([app, version]);
+      result.parts[app] = { from: cur, to: version };
+    }
+    const rev = await this.save({ stable, plans: s.plans }, s.rev);
+    for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${change.name} ${change.version})`, by);
+    const next: Fleet = { stable, plans: s.plans, rev };
+    const plans: Frame[] = [];
+    for (const m of await this.machines()) {
+      const plan = s.plans[m] ?? {};
+      if (built.some(([app]) => (plan[app] ? !plan[app].pin : DEFAULT.includes(app)))) plans.push(await this.planFrame(next, m));
     }
     return { result, plans };
   }

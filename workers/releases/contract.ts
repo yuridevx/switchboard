@@ -30,7 +30,11 @@ export type Listed = {
 export type ReleasesUpload = { type: "releases.upload"; id: string; v?: 1; to: ".releases"; part: string; version: string };
 export type Upload = { tgz: string; sha256: string };
 
-/** releases.deploy — stable на версию (без version — edge). part "*" — вся сборка: части Cloudflare и части машины из BUILD. */
+/**
+ * releases.deploy — stable на версию (без version — edge). part "*" — части Cloudflare и части машины на edge.
+ * Модуль сборки (into) — новая сборка каждого его приложения: текущий список + модуль, проверка набора флота
+ * (check_failed с причинами); корень сборки с версией каталога — сборка с этим ядром, со сборкой «+n» — откат на неё.
+ */
 export type ReleasesDeploy = { type: "releases.deploy"; id: string; v?: 1; to: ".releases"; part: string; version?: string };
 export type Deployed = { parts: Record<string, { from: string | null; to: string }> };
 
@@ -51,4 +55,4 @@ export type ReleasesSet = {
 export type SetResult = { machine: string; rev: number };
 
 /** Слова отказа. */
-export type Word = "bad_frame" | "unknown_request" | "contract_mismatch" | "no_release" | "no_part" | "version_exists" | "bad_version" | "cf_failed";
+export type Word = "bad_frame" | "unknown_request" | "contract_mismatch" | "no_release" | "no_part" | "version_exists" | "bad_version" | "cf_failed" | "check_failed" | "no_build";

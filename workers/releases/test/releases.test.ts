@@ -2,7 +2,7 @@ import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { pack, sha256hex, shaLine } from "@switchboard/release";
+import { entries, pack, sha256hex, shaLine } from "@switchboard/release";
 import { frame } from "../src/releases.ts";
 import type { Env } from "../src/env.ts";
 
@@ -683,5 +683,81 @@ describe("эталоны releases", () => {
     const v1 = ["env", "force", "on", "part", "sha256", "url", "version"];
     for (const p of [...(frame.parts as Array<Record<string, unknown>>), ...answer.parts]) expect(Object.keys(p).every((k) => v1.includes(k))).toBe(true);
     expect(Object.keys(answer.parts.find((p: { part: string }) => p.part === "capture")).sort()).toEqual(v1);
+  });
+});
+
+describe("сборка Host «Выпусками»", () => {
+  // источник всех эталонов блока: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Выпуски» собирают host —
+  // текущая сборка + модуль, список внутри; проверка набора — check_failed с причинами; сборки — под именем флота
+  const core = () => inCatalog("host", "1.2.0", { type: "sdk-core", provides: { "host.module": 1 }, uses: {}, config: {} });
+  const mod = (name: string, version: string, x: Record<string, unknown> = {}) =>
+    inCatalog(name, version, { type: "sdk", into: ["host"], provides: {}, uses: { "host.module@host": 1 }, config: {}, ...x });
+  const buildOf = async (v: string) => {
+    const o = await env.BUCKET.get(`test/host/${v}.tgz`);
+    const files = entries(Buffer.from(await o!.arrayBuffer()));
+    return { paths: files.map((x) => x.path), list: JSON.parse(files.find((x) => x.path === "build.json")!.data!.toString("utf8")) };
+  };
+  const setup = async () => {
+    await workersIn({ push: {} });
+    await inCatalog("push", "1.0.0", { type: "worker", provides: { "push.send": 1 }, uses: {}, config: {}, workers: { test: "switchboard-push" } });
+    await core();
+    await mod("host-watch", "1.0.0", { provides: { "session.watchers": 1 } });
+    await mod("host-push", "3.0.0", { provides: { notify: 1 }, uses: { "host.module@host": 1, "session.watchers@host-watch": 1, "push.send@push": 1 } });
+    await inR2("host", "1.1.85");
+    await GATE.setHosts(["win", "wsl"]);
+  };
+
+  it("5117 · первая сборка: ядро и модули каталога с into host по зависимостям; build.json внутри; stable и план машин — сборка под именем флота", async () => {
+    const s = fresh();
+    await setup();
+    // флот на прежней сборке Host монорепо (без «+»)
+    await E.DB.exec(`UPDATE fleet SET stable = '{"host":"1.1.85"}' WHERE one = 1`);
+    const out = await req(s, "agent~x", "releases.deploy", { part: "host-push" });
+    expect(out[0].result).toEqual({ parts: { host: { from: "1.1.85", to: "1.2.0+1" } } });
+    const b = await buildOf("1.2.0+1");
+    expect(b.list).toEqual({ app: "host", version: "1.2.0+1", fleet: "test", modules: [{ name: "host-watch", version: "1.0.0" }, { name: "host-push", version: "3.0.0" }] });
+    expect(b.paths).toEqual(["module.json", "build.json", "modules/", "modules/host-push/", "modules/host-push/module.json", "modules/host-watch/", "modules/host-watch/module.json"]);
+    expect(plans(out).map((p) => [p.to, (p.parts as any[]).find((x) => x.part === "host").version])).toEqual([[".keeper@win", "1.2.0+1"], [".keeper@wsl", "1.2.0+1"]]);
+    expect(((plans(out)[0].parts as any[]).find((x) => x.part === "host").url as string)).toContain("/switchboard-releases/test/host/1.2.0%2B1.tgz?");
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["host 1.1.85 → 1.2.0+1 (host-push 3.0.0)"]);
+  });
+
+  it("5116 · «два владельца»: модуль со вторым владельцем имени — check_failed с причиной, stable и сборки прежние; исправленная версия — новая сборка", async () => {
+    const s = fresh();
+    await setup();
+    await req(s, "~x", "releases.deploy", { part: "host-push" });
+    await mod("host-dup", "1.0.0", { provides: { notify: 1 } });
+    const log = journal();
+    const bad = await req(s, "~x", "releases.deploy", { part: "host-dup" });
+    expect(bad).toEqual([{ type: "reply", id: "r", ok: false, error: "check_failed", to: "~x" }]);
+    expect(log).toContainEqual(expect.objectContaining({ word: "check_failed", why: expect.stringContaining("имя notify: два владельца") }));
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host).toEqual({ where: "machine", edge: "1.2.0+1", stable: "1.2.0+1" });
+    await mod("host-dup", "1.0.1", { provides: { "dup.ping": 1 } });
+    const good = await result(req(s, "~x", "releases.deploy", { part: "host-dup", version: "1.0.1" }));
+    expect(good).toEqual({ parts: { host: { from: "1.2.0+1", to: "1.2.0+2" } } });
+    expect((await buildOf("1.2.0+2")).list.modules.map((m: any) => `${m.name} ${m.version}`)).toEqual(["host-dup 1.0.1", "host-watch 1.0.0", "host-push 3.0.0"]);
+  });
+
+  it("5118 · два флота: сборки прода под prod/ не видны тестовому — номер и edge только своих; uses на Worker без владельца во флоте — check_failed", async () => {
+    const s = fresh();
+    await setup();
+    await env.BUCKET.put("prod/host/1.2.0+7.tgz", "x");
+    await env.BUCKET.put("prod/host/1.2.0+7.sha256", shaLine(sha256hex("x"), "1.2.0+7"));
+    expect(await result(req(s, "~x", "releases.deploy", { part: "host-watch" }))).toEqual({ parts: { host: { from: null, to: "1.2.0+1" } } });
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host.edge).toBe("1.2.0+1");
+    await mod("host-ghost", "1.0.0", { uses: { "ghost.call@ghost": 1 } });
+    expect((await req(s, "~x", "releases.deploy", { part: "host-ghost" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+  });
+
+  it("5119 · откат сборки: deploy host со сборкой «+n» или прежним архивом — stable на него без новой сборки; модуль с «+» — bad_version", async () => {
+    const s = fresh();
+    await setup();
+    await req(s, "~x", "releases.deploy", { part: "host-watch" });
+    await mod("host-watch", "1.0.1", { provides: { "session.watchers": 1 } });
+    await req(s, "~x", "releases.deploy", { part: "host-watch" });
+    expect(await result(req(s, "~x", "releases.deploy", { part: "host", version: "1.2.0+1" }))).toEqual({ parts: { host: { from: "1.2.0+2", to: "1.2.0+1" } } });
+    expect((await req(s, "~x", "releases.deploy", { part: "host-watch", version: "1.0.0+1" }))[0]).toMatchObject({ error: "bad_version" });
+    // прежний архив Host без манифеста — откат прямо на него
+    expect(await result(req(s, "~x", "releases.deploy", { part: "host", version: "1.1.85" }))).toEqual({ parts: { host: { from: "1.2.0+1", to: "1.1.85" } } });
   });
 });

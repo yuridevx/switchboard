@@ -10,4 +10,4 @@ export { parseSha, RELEASES_BUCKET, shaKey, shaLine, tgzKey, VERSION_RE } from "
 export { presign } from "./src/presign.ts";
 export type { LinkKey } from "./src/presign.ts";
 export { sha256hex } from "./src/hash.ts";
-export { manifestOf, MANIFEST, pack, packDir } from "./src/tar.ts";
+export { entries, manifestOf, MANIFEST, pack, packDir } from "./src/tar.ts";
