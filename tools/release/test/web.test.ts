@@ -64,4 +64,20 @@ describe("страница в каталоге", () => {
     expect(JSON.parse(files.at(-1)!.data.toString())).toEqual(list);
     expect(() => webBuild(shell, [mod("web-core")], list)).toThrow("web-board: в архиве модуля нет module.js");
   });
+
+  it("5180 · index.html сборки — с картой импорта модулей до первого скрипта: модульный скрипт домена (маячок Cloudflare) её не опередит", () => {
+    // источник: прод 3 нояб. — на pult.pfarm.app маячок Web Analytics (модуль) грузился раньше карты, которую ставила оболочка:
+    // «Failed to resolve module specifier '@switchboard/web-core'», страница не стартовала
+    const html = '<!doctype html><html><head><meta charset="utf-8"><script src="app.js" defer></script></head><body></body></html>';
+    const shell = pack([{ path: "index.html", data: Buffer.from(html) }, { path: "app.js", data: Buffer.from("boot()") }]);
+    const mod = (name: string) => ({ name, tgz: pack([{ path: WEB_FILE, data: Buffer.from(`// ${name}`) }]) });
+    const list: BuildList = { app: "pult", version: "1.2.1+1", fleet: "prod", modules: [{ name: "web-core", version: "1.3.2" }, { name: "web-board", version: "1.4.2" }], workers: {} };
+    const out = webBuild(shell, [mod("web-core"), mod("web-board")], list).find((f) => f.path === "index.html")!.data.toString();
+    const map = out.indexOf('<script type="importmap">');
+    expect(map).toBeGreaterThan(0);
+    expect(map).toBeLessThan(out.indexOf('<script src="app.js"'));
+    expect(JSON.parse(out.slice(map + '<script type="importmap">'.length, out.indexOf("</script>", map)))).toEqual({
+      imports: { "@switchboard/web-core": "./m/web-core.js", "@switchboard/web-board": "./m/web-board.js" },
+    });
+  });
 });

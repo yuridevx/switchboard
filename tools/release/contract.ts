@@ -20,5 +20,6 @@ export type { ModuleJson, PackedModule } from "./src/pack.ts";
 export { upload, PUT_MS } from "./src/upload.ts";
 export type { FetchReply, Get, Put, UploadReply } from "./src/upload.ts";
 export { WEB_FILE, webBuild } from "./src/web.ts";
+export { importMap, withImportMap } from "./src/importmap.ts";
 export { BUILD_FILE, buildFile } from "./src/build-list.ts";
 export type { BuildList } from "./src/build-list.ts";

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./contract.ts"
+    ".": "./contract.ts",
+    "./importmap": "./src/importmap.ts"
   },
   "scripts": {
     "test": "cd ../.. && vitest run tools/release"

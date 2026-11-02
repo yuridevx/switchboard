@@ -1,6 +1,7 @@
 // Оболочка страницы (пульт, телефон) — классический скрипт app.js сборки: читает build.json рядом, ставит import map
 // «@switchboard/<модуль>» → ./m/<модуль>.js и запускает сборку ядром страницы. Своих адресов relay и Worker'ов,
 // своего списка модулей у оболочки нет: всё — в списке сборки.
+import { importMap } from "@switchboard/release/importmap";
 import type { BuildList, BuildOptions } from "@switchboard/web-core";
 
 /** Опции оболочки: вид, имя, порядок разделов, beside. */
@@ -10,10 +11,13 @@ export async function boot(o: ShellOptions): Promise<void> {
   const root = document.getElementById("app")!;
   try {
     const build = (await (await fetch("./build.json", { cache: "no-store" })).json()) as BuildList;
-    const map = document.createElement("script");
-    map.type = "importmap";
-    map.textContent = JSON.stringify({ imports: Object.fromEntries(build.modules.map((m) => [`@switchboard/${m.name}`, `./m/${m.name}.js`])) });
-    document.head.append(map);
+    // карту импорта сборка «Выпусков» уже вписала в index.html; нет её — та же карта отсюда
+    if (!document.querySelector('script[type="importmap"]')) {
+      const map = document.createElement("script");
+      map.type = "importmap";
+      map.textContent = JSON.stringify(importMap(build.modules));
+      document.head.append(map);
+    }
     // имя — строкой: сборщик оболочки его не вкладывает, браузер берёт ядро по import map
     const spec = "@switchboard/web-core";
     const core = (await import(/* @vite-ignore */ spec)) as typeof import("@switchboard/web-core");

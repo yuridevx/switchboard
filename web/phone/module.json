@@ -1,7 +1,7 @@
 {
   "name": "phone",
   "type": "web-app",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "provides": {},
   "uses": {
     "app@web-core": 1
