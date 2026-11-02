@@ -1,5 +1,5 @@
 // Юнит-тесты частей ядра и договора модуля на стенде.
-import { existsSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,6 +46,31 @@ describe("хранилище", () => {
     expect(fresh.machine("m").get()).toEqual({ a: 1 });
     fresh.machine<{ a: number }>("m").update((v) => ({ a: v!.a + 1 }));
     expect(JSON.parse(readFileSync(join(dir, "m.json"), "utf8"))).toEqual({ machine: { a: 2 } });
+  });
+
+  it("753 · set(undefined) раздела машины — после перечтения undefined, ключа machine в файле нет", () => {
+    // источник: чьё: код (store.ts — undefined удаляет раздел); контракт Store «файл всегда целый JSON»
+    const dir = mkdtempSync(join(tmpdir(), "sb-store-"));
+    const s = new Stores(dir);
+    s.machine<{ a: number }>("m").set({ a: 1 });
+    s.session<number>("m", "site@laptop").set(3);
+    s.machine("m").set(undefined);
+    const fresh = new Stores(dir);
+    expect(fresh.machine("m").get()).toBeUndefined();
+    expect(fresh.session("m", "site@laptop").get()).toBe(3);
+    expect(JSON.parse(readFileSync(join(dir, "m.json"), "utf8"))).toEqual({ sessions: { "site@laptop": 3 } });
+  });
+
+  it("754 · рядом недописанный A.json.tmp — новое хранилище отдаёт прежний A.json; после set файл целый, .tmp нет", () => {
+    // источник: устав «Чистый перезапуск — начинает с хранилища»; контракт Store «временный файл и rename, файл всегда целый JSON»; факт 2 нояб. — обрыв записи после жёсткой перезагрузки
+    const dir = mkdtempSync(join(tmpdir(), "sb-store-"));
+    new Stores(dir).machine<{ a: number }>("A").set({ a: 1 });
+    writeFileSync(join(dir, "A.json.tmp"), '{"machine":{"a":');
+    const s = new Stores(dir);
+    expect(s.machine("A").get()).toEqual({ a: 1 });
+    s.machine<{ a: number }>("A").set({ a: 2 });
+    expect(JSON.parse(readFileSync(join(dir, "A.json"), "utf8"))).toEqual({ machine: { a: 2 } });
+    expect(existsSync(join(dir, "A.json.tmp"))).toBe(false);
   });
 });
 
@@ -569,26 +594,67 @@ describe("договор модуля на стенде", () => {
     expect(await st.relay.request({ type: "good.x", v: 1 })).toMatchObject({ ok: true, result: 2 });
   });
 
-  it("751 · ошибка в работе модуля вне вызова ядра (таймер из start, цепочка из session) — модуль выключен там, где начал; Host и другие модули работают", async () => {
-    // источник: устав «часть падает и перезапускается одна», ветка «ошибка модуля — модуль выключен»; факт 2 нояб. — отказ цепочки host-profiles уронил весь Host
+  it("751 · ошибка в работе модуля вне вызова ядра (таймер из start, цепочка из обработчика запроса сессии a@) — модуль выключен там, где начал; b@, Host и другие модули работают", async () => {
+    // источник: устав «часть падает и перезапускается одна», ветка «ошибка модуля — модуль выключен» (в этой сессии); факт 2 нояб. — отказ цепочки host-profiles уронил весь Host
     let st!: Awaited<ReturnType<typeof stand>>;
     let timerDone!: Promise<void>;
+    let chainDone!: Promise<void>;
     const bad = module("host-bad", {
       // как обработчик процесса: ошибка вне вызова — ядру; контекст модуля наследуется таймером
       start: () => void (timerDone = new Promise((r) => setTimeout(() => (st.kernel.stray(new Error("таймер упал")), r()), 0))),
       requests: { "bad.x": () => 1 },
     });
-    const chain = module("host-chain", { session: () => void Promise.resolve().then(() => st.kernel.stray(new Error("цепочка упала"))), requests: { "chain.x": () => 3 } });
+    const chain = module("host-chain", {
+      requests: {
+        // цепочка без await, начатая в обработчике запроса о сессии a@, — контекст этой сессии
+        "chain.go": () => void (chainDone = Promise.resolve().then(() => void st.kernel.stray(new Error("цепочка упала")))),
+        "chain.x": () => 3,
+      },
+    });
     const good = module("host-good", { requests: { "good.x": () => 2 } });
     st = await stand({ modules: [bad, chain, good] });
     await timerDone;
     expect(st.journal().find((l) => l.ev === "module_failed" && l.module === "host-bad")!.why).toContain("модуль выключен на машине");
-    await st.open("site@laptop");
-    await until(() => st.states("site@laptop").at(-1)?.failed?.["host-chain"]);
-    expect(st.states("site@laptop").at(-1)!.failed).toMatchObject({ "host-bad": "таймер упал · работа вне вызова ядра", "host-chain": "цепочка упала · работа вне вызова ядра" });
+    await st.open("a@laptop");
+    await st.open("b@laptop");
+    expect(await st.relay.request({ type: "chain.go", v: 1, callsign: "a@laptop" })).toMatchObject({ ok: true });
+    await chainDone;
+    await until(() => st.states("a@laptop").at(-1)?.failed?.["host-chain"]);
+    expect(st.states("a@laptop").at(-1)!.failed).toMatchObject({ "host-bad": "таймер упал · работа вне вызова ядра", "host-chain": "цепочка упала · работа вне вызова ядра" });
+    expect(await st.relay.request({ type: "chain.x", v: 1, callsign: "a@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(await st.relay.request({ type: "chain.x", v: 1, callsign: "b@laptop" })).toMatchObject({ ok: true, result: 3 });
+    expect(st.states("b@laptop").at(-1)!.failed?.["host-chain"]).toBeUndefined();
     expect(await st.relay.request({ type: "good.x", v: 1 })).toMatchObject({ ok: true, result: 2 });
     // вне контекста модуля — не наше: решает процесс
     expect(st.kernel.stray(new Error("ничья"))).toBe(false);
+  });
+
+  it("755 · таймер из start() шлёт кадр чужого имени — нарушение договора: модуль выключен, stray поймал без второй строки", async () => {
+    // источник: устав «ошибка модуля — модуль выключен»; чьё: код (violation — «договор», ошибка помечена обработанной)
+    let st!: Awaited<ReturnType<typeof stand>>;
+    let caught: boolean | undefined;
+    let done!: Promise<void>;
+    const m = module("host-bad", {
+      start: (h: Host) =>
+        void (done = new Promise((r) =>
+          setTimeout(() => {
+            try {
+              h.emit({ type: "foreign.frame" });
+            } catch (e) {
+              // как обработчик процесса uncaughtException
+              caught = st.kernel.stray(e);
+            }
+            r();
+          }, 0),
+        )),
+    });
+    st = await stand({ modules: [m] });
+    await done;
+    expect(caught).toBe(true);
+    const lines = st.journal().filter((l) => l.ev === "module_failed");
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatchObject({ module: "host-bad" });
+    expect(String(lines[0].why)).toContain("договор");
   });
 
   it("журнал: строка JSON на запись, t по часам ядра, part host, who — модуль; kind по умолчанию note", async () => {

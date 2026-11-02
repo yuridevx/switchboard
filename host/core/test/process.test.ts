@@ -135,6 +135,9 @@ describe("процесс Host", () => {
     // таймер бросает уже после выключения — процесс всё ещё жив
     await new Promise((r) => setTimeout(r, 500));
     expect(p.exitCode).toBeNull();
+    // строка одна: бросок таймера после выключения второй строки не даёт
+    const after = await journalUntil(h, () => false, 300);
+    expect(after.filter((l) => l.ev === "module_failed")).toHaveLength(1);
     const failed = lines.find((l) => l.ev === "module_failed")!;
     expect(failed).toMatchObject({ module: "host-bad", word: "module_error" });
     expect(String(failed.why)).toContain("работа вне вызова ядра");
@@ -143,6 +146,17 @@ describe("процесс Host", () => {
     p.stdin.end();
     expect(await closed).toBe(0);
     expect(err).not.toContain("цепочка упала");
+  }, 90_000);
+
+  it("756 · таймер, заведённый модулем при импорте (до start), бросил — ошибка ничья: stderr и выход 1, module_failed нет", async () => {
+    // источник: устав «чистый перезапуск компонента или процесса» и ветка «Host умер — один перезапуск» у keeper; чьё: код (main.ts — stray вернул false → выход 1)
+    const code = 'setTimeout(() => { throw new Error("импорт упал"); }, 300);\nexport default {};\n';
+    const main = release(["host-early"], { "host-early": { provides: {}, code } });
+    const h = home();
+    const r = await run(main, [], { SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("импорт упал");
+    expect((await journalUntil(h, () => false, 0)).some((l) => l.ev === "module_failed")).toBe(false);
   }, 90_000);
 
   it("743 · Host: пакета модуля нет — «host:» с причиной, код 1", async () => {
