@@ -101,18 +101,22 @@ describe("CLI выпуска", () => {
     const err: string[] = [];
     const e = vi.spyOn(console, "error").mockImplementation((s: unknown) => void err.push(String(s)));
     const fl = fakeFleet();
-    fl.objects.set("protocol/1.0.0.sha256", Buffer.from(`${"0".repeat(64)}  1.0.0.tgz\n`));
-    fl.objects.set("protocol/1.0.0.tgz", pack([{ path: "module.json", data: Buffer.from("{}") }]));
+    // под нынешним номером protocol лежит другое содержимое
+    const pv = (JSON.parse(readFileSync(join(root, "protocol", "module.json"), "utf8")) as { version: string }).version;
+    fl.objects.set(`protocol/${pv}.sha256`, Buffer.from(`${"0".repeat(64)}  ${pv}.tgz
+`));
+    fl.objects.set(`protocol/${pv}.tgz`, pack([{ path: "module.json", data: Buffer.from("{}") }]));
     try {
-      expect(await main(["release", "modules"], ENV, undefined, go, fl.f)).toBe(1);
+      const code = await main(["release", "modules"], ENV, undefined, go, fl.f);
+      expect(code).toBe(1);
     } finally {
       q.done();
       e.mockRestore();
     }
-    expect(err).toEqual([expect.stringMatching(/^protocol 1\.0\.0: releases\.upload: version_exists/)]);
+    expect(err).toEqual([expect.stringMatching(/^protocol \d+\.\d+\.\d+: releases\.upload: version_exists/)]);
     expect(fl.posts.map((p) => p.part)).not.toContain("host");
     expect(fl.posts.map((p) => p.part)).not.toContain("keeper");
-    expect(fl.objects.has("push/1.0.0.tgz")).toBe(true);
+    expect([...fl.objects.keys()].some((k) => /^push\/[\d.]+\.tgz$/.test(k))).toBe(true);
     expect(q.out.at(-1)).toMatch(/^каталог: загружено \d+, уже были 0, собрано без загрузки 0, отказов 1$/);
   });
 });
