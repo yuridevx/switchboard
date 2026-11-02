@@ -173,6 +173,20 @@ describe("договор модуля на стенде", () => {
     expect(await remote).toEqual({ ok: true, result: [] });
   });
 
+  it("744 · host.request: машина-адресат — одно правило hostOf: callsign другой машины важнее machine этой — через relay", async () => {
+    // источник: чьё: код (protocol hostOf — порядок рации: to, затем callsign, затем machine)
+    let host!: Host;
+    const watch = module("host-watch", { requests: { "session.watchers": () => "local" } });
+    const q = module("host-questions", { start: (h) => void (host = h) }, { uses: { "session.watchers@host-watch": 1 } });
+    const st = await stand({ modules: [watch, q] });
+    const r = host.request("session.watchers", { v: 1, machine: "laptop", callsign: "api@pc" });
+    await until(() => st.relay.frames("session.watchers").length === 1);
+    const g = st.relay.frames("session.watchers")[0];
+    expect(g).toMatchObject({ machine: "laptop", callsign: "api@pc" });
+    st.relay.deliver({ type: "reply", id: g.id, ok: true, result: ["remote"] });
+    expect(await r).toEqual({ ok: true, result: ["remote"] });
+  });
+
   it("refuse(слово) — reply с этим словом и refuse в журнале от модуля, модуль не выключен; отказ из другой копии пакета — по метке", async () => {
     // отказ из другой копии пакета @switchboard/host (метка Symbol.for), как у модуля из папки нового выпуска
     const foreign = Object.assign(new Error("already_answered"), { word: "already_answered", [Symbol.for("switchboard.refusal")]: true });

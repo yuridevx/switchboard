@@ -207,5 +207,8 @@ describe("journal: покрытие плана host-modules", () => {
     const r = await s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", session: "old@laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 });
     expect(r).toMatchObject({ ok: true });
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toEqual(["gone"]);
+    // клиент прежней версии с фильтром callsign — отказ словом, а не строки всех сессий
+    await s.open("live@laptop");
+    expect(await s.relay.request({ type: "machine.journal", v: 1, machine: "laptop", callsign: "live@laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 })).toMatchObject({ ok: false, error: "contract_mismatch" });
   });
 });

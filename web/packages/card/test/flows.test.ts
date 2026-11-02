@@ -234,6 +234,20 @@ describe("настройки карточки", () => {
 describe("журнал машины в карточке", () => {
   const rec = (t: string, ev: string) => ({ t, part: "host", who: "core", callsign: "poe-bot@pc", kind: "stop", ev, word: "w", why: "y" });
 
+  it("4191 · сессия убрана, машина на связи: вкладка «Журнал машины» есть, запрос — с session и без callsign", async () => {
+    // источник: факт цикла тестов 2 нояб. — журнал убранной сессии отвечал offline (callsign запроса ядро читает как адрес)
+    const r = roster([], (x) => (x.sessions = x.sessions.filter((s) => s.callsign !== "poe-bot@pc")));
+    const relay = relayFor(r);
+    relay.handlers["machine.journal"] = () => ({ ok: true, result: { records: [rec("2026-11-01T06:00:00.000Z", "gone")], more: false } });
+    const t = await wideCard("poe-bot@pc", r, relay);
+    expect(t.$('.cw-tabs [data-tab="log"]')).not.toBeNull();
+    await t.tab("log");
+    const f = relay.sent("machine.journal")[0];
+    expect(f).toMatchObject({ v: 2, machine: "pc", session: "poe-bot@pc" });
+    expect(f).not.toHaveProperty("callsign");
+    expect(t.$(".cw-log")!.textContent).toContain("gone");
+  });
+
   it("4093 · с полуночи, фильтр kind, «дальше →» с t последней, «ещё раньше» — с прошлого дня", async () => {
     const relay = relayFor(roster());
     relay.handlers["machine.journal"] = (f) => ({ ok: true, result: { records: f.since && String(f.since).startsWith("2026-10-31T23") ? [rec("2026-11-01T05:00:00.000Z", "x2")] : [rec("2026-11-01T06:00:00.000Z", "x1")], more: true } });

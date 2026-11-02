@@ -288,6 +288,16 @@ describe("кадры и запросы", () => {
     expect(run.failed).toEqual({});
   });
 
+  it("4190 · машина-адресат — одно правило hostOf: to важнее machine; contract сверяется у машины из to", async () => {
+    // источник: чьё: код (protocol hostOf — порядок рации: to, затем callsign, затем machine)
+    const r = homeRoster();
+    r.machines[1].contract = { ...r.machines[1].contract, answer: 2 };
+    const s = sample();
+    const { relay } = await boot({ parts: [s.part], relay: new FakeRelay(r) });
+    expect(await s.box.app.request("answer", { to: "@pc", machine: "laptop" })).toEqual({ ok: false, error: "contract_mismatch" });
+    expect(relay.sent("answer")).toHaveLength(0);
+  });
+
   it("4019 · машины нет в roster — сверки нет, кадр уходит, отказ relay словом", async () => {
     const s = sample();
     const relay = new FakeRelay(homeRoster());

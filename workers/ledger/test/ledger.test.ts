@@ -127,6 +127,17 @@ describe("эталоны ledger", () => {
     expect([ids(r2), (r2.result as { more: boolean }).more]).toEqual([[5, 4], false]);
   });
 
+  it("2091 · фильтр машины со страницами назад и вперёд — только её записи, more — по её записям", async () => {
+    // источник: чьё: код (пульт шлёт machine вместе с before/after)
+    const j = fresh();
+    for (let i = 1; i <= 6; i++) await j.frame({ type: "ledger.add", to: ".ledger", from: i % 2 ? "@pc" : "@laptop", ev: "session.opened", machine: i % 2 ? "pc" : "laptop", text: `s${i}` });
+    const ids = (r: Frame) => (r.result as { events: Array<{ id: number }> }).events.map((e) => e.id);
+    const [r1] = await j.frame({ type: "ledger.read", id: "r-1", to: ".ledger", from: "panel", machine: "pc", before: 6, limit: 2 });
+    const [r2] = await j.frame({ type: "ledger.read", id: "r-2", to: ".ledger", from: "panel", machine: "pc", after: 1, limit: 10 });
+    expect([ids(r1), (r1.result as { more: boolean }).more]).toEqual([[5, 3], true]);
+    expect([ids(r2), (r2.result as { more: boolean }).more]).toEqual([[5, 3], false]);
+  });
+
   it("225 · два session.deleted от points; через 14 дней — те же две записи, будильника нет", async () => {
     const j = fresh();
     clock(at("22:41", "2026-10-30"));
@@ -151,7 +162,7 @@ describe("эталоны ledger", () => {
 });
 
 describe("ledger: чтение, отказы и стык с relay", () => {
-  it("фильтры machine, callsign, q; запись сессии берёт machine из callsign", async () => {
+  it("фильтры machine и q; запись сессии берёт machine из callsign", async () => {
     const j = fresh();
     await j.frame({ type: "ledger.add", to: ".ledger", from: "@laptop", ev: "session.opened", callsign: "site@laptop", text: "site@laptop создана" });
     await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "session.opened", callsign: "docs@pc", text: "docs@pc создана" });
