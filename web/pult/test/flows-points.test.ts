@@ -1,6 +1,8 @@
 // Флоу пульта по плану цикла тестов (web): новая сессия, вкладка «Точки», обзор точек, «пожар», перенос, диалоги точек.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
+import { createCard } from "@switchboard/web-card";
+import { pultParts } from "../contract.ts";
 import { fleetRelay, fleetRoster, flush, HOST, pointsRelay, pult, SID } from "./stand.ts";
 
 beforeEach(() => {
@@ -358,7 +360,7 @@ describe("перенос сессии «только в R2»", () => {
 async function sessionTab(relay = pointsRelay(), callsign = "site@laptop") {
   const t = await pult({ relay });
   await t.click(t.$(`[data-callsign="${callsign}"]`));
-  await t.click(t.$('.cw-tabs [data-tab="points"]'));
+  await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
   await flush(10);
   return t;
 }
@@ -417,11 +419,27 @@ describe("вкладка «Точки» сессии", () => {
     });
     const t = await pult({ relay });
     await t.click(t.$('[data-callsign="site@laptop"]'));
-    expect(t.$$(".cw-tabs [data-tab]").map((x) => x.dataset.tab)).toContain("points");
-    await t.click(t.$('.cw-tabs [data-tab="points"]'));
+    expect(t.$$(".cw-tabs [data-tab]").map((x) => x.dataset.tab)).toContain("session.points");
+    await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
     expect(t.$('.cw-place [data-r2="on"]')).not.toBeNull();
     await t.click(t.$('[data-callsign="poe-bot@pc"]'));
-    expect(t.$$(".cw-tabs [data-tab]").map((x) => x.dataset.tab)).not.toContain("points");
+    expect(t.$$(".cw-tabs [data-tab]").map((x) => x.dataset.tab)).not.toContain("session.points");
+  });
+
+  it("5124 · «Точки» — экран pult-points в месте card.tab: карточка без опций, вкладка между «Чатом» и «Настройками»", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): вкладка «Точки» через место card.tab; опций у карточки 0
+    expect(createCard.length).toBe(0);
+    const points = pultParts().find((p) => p.manifest.name === "pult-points")!;
+    expect(points.module.screens!["session.points"].place).toBe("card.tab");
+    expect(points.manifest.uses["card.tab@web-card"]).toBe(1);
+    const t = await pult({ relay: pointsRelay() });
+    await t.click(t.$('[data-callsign="site@laptop"]'));
+    expect(t.$$(".cw-tabs [data-tab]").map((x) => [x.dataset.tab, x.textContent])).toEqual([
+      ["chat", "Чат"],
+      ["session.points", "Точки"],
+      ["set", "Настройки"],
+      ["log", "Журнал машины"],
+    ]);
   });
 
   it("4195 · первые слова не отданы — «points.get: слово» на вкладке, линия видна", async () => {

@@ -216,7 +216,7 @@ describe("эталоны пульта: точки", () => {
       relay.handlers["points.save"] = () => ({ ok: true, result: { point: 42, same } });
       const t = await pult({ relay });
       await t.click(t.$('[data-callsign="site@laptop"]'));
-      await t.click(t.$('.cw-tabs [data-tab="points"]'));
+      await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
       await flush(10);
       await t.click(t.btn(null, "Перенести…"));
       await flush(10);
@@ -316,7 +316,7 @@ describe("эталоны пульта: точки", () => {
     relay.handlers["session.r2"] = (f) => ({ ok: true, result: f.on ? { point: 1 } : { deleted: 12 } });
     const t = await pult({ relay });
     await t.click(t.$('[data-callsign="wiki@laptop"]'));
-    await t.click(t.$('.cw-tabs [data-tab="points"]'));
+    await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
     expect(t.$('[data-r2="off"] b')!.textContent).toBe("wiki@laptop не в R2");
     expect(relay.sent("points.list")).toHaveLength(0);
     expect(relay.sent("points.get")).toHaveLength(0);
@@ -330,7 +330,7 @@ describe("эталоны пульта: точки", () => {
     relay2.handlers["session.r2"] = relay.handlers["session.r2"];
     const t2 = await pult({ relay: relay2 });
     await t2.click(t2.$('[data-callsign="wiki@laptop"]'));
-    await t2.click(t2.$('.cw-tabs [data-tab="points"]'));
+    await t2.click(t2.$('.cw-tabs [data-tab="session.points"]'));
     await flush(10);
     await t2.click(t2.$('[data-r2="on"] ~ .sb-sec [data-act="r2"]'));
     await t2.type(t2.$('[data-f="unmark"]'), "wik");
@@ -351,7 +351,7 @@ describe("эталоны пульта: точки", () => {
       relay.handlers["session.remove"] = () => ({ ok: true });
       const t = await pult({ relay });
       await t.click(t.$('[data-callsign="site@laptop"]'));
-      await t.click(t.$('.cw-tabs [data-tab="points"]'));
+      await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
       await flush(10);
       await t.click(t.$('[data-act="dir"]'));
       expect(t.$<HTMLInputElement>('[data-dlg="dir"] [data-f="dir"]')!.value).toBe("~/Projects/site-v2");
@@ -377,7 +377,7 @@ describe("эталоны пульта: точки", () => {
     relay.handlers["points.raise"] = () => ({ ok: true, result: { callsign: "site@laptop", point: 43, folder: "keep", branch: null } });
     const t = await pult({ relay });
     await t.click(t.$('[data-callsign="site@laptop"]'));
-    await t.click(t.$('.cw-tabs [data-tab="points"]'));
+    await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
     await flush(10);
     await t.click(t.$('[data-point="38"]'));
     await t.click(t.$('[data-card="38"] [data-act="rb"]'));

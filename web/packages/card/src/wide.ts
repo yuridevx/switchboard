@@ -1,20 +1,10 @@
 // Карточка сессии в широком виде (пульт): шапка из roster, плашка состояния, вкладки
-// «Чат» · вкладки выпуска (например «Точки») · «Настройки» · «Журнал машины».
+// «Чат» · вкладки места card.tab (например «Точки») · «Настройки» · «Журнал машины».
 // Каждое поле настроек — у своего владельца: модель, усилие, быстрый режим, стиль, заголовок — session.update;
 // слот — session.slot; профиль — session.profile; папка и заголовок — session.spec; сведения — session.call.
 // Итог изменения пульт берёт из следующего roster, а не из формы. Нет имени в contract машины — нет кнопки.
 import { add, h, hhmm, stateLabel, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-
-/** Вкладка карточки, которую кладёт другой модуль выпуска: свой экран в место карточки. */
-export type CardTab = {
-  key: string;
-  label: string;
-  /** показывать ли вкладку этой сессии (например, машина умеет точки) */
-  show?(callsign: string): boolean;
-  /** открыть свой экран в месте карточки; handle.close() — уход с вкладки */
-  mount(callsign: string, place: HTMLElement): ScreenHandle | undefined;
-};
 
 export const WIDE_CSS = `
 .cw{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -92,11 +82,11 @@ function midnight(daysBack = 0): string {
 }
 
 /** Карточка сессии в широком виде. */
-export function mountWide(app: App, el: HTMLElement, params: Record<string, string>, extra: CardTab[]): ScreenHandle {
+export function mountWide(app: App, el: HTMLElement, params: Record<string, string>): ScreenHandle {
   const callsign = params.callsign ?? "";
   const machine = machineOf(callsign) ?? "";
   let tab = params.tab ?? "chat";
-  /** экран вкладки: чат и вкладки выпуска — через ядро (их перерисовывает ядро), свои — здесь */
+  /** экран вкладки: чат и вкладки места card.tab — через ядро (их перерисовывает ядро), свои — здесь */
   let inner: ScreenHandle | undefined;
   let own: ScreenHandle | undefined;
   let limit = "";
@@ -210,9 +200,12 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
   }
 
   // ───── вкладки ─────
+  /** вставки места card.tab, видные этой сессии */
+  const placed = () => app.placed("card.tab").filter((t) => t.show({ callsign }));
+
   function tabList(): Array<[string, string]> {
     const out: Array<[string, string]> = [["chat", "Чат"]];
-    for (const t of extra) if (!t.show || t.show(callsign)) out.push([t.key, t.label]);
+    for (const t of placed()) out.push([t.screen, t.label]);
     out.push(["set", "Настройки"]);
     if (can("machine.journal")) out.push(["log", "Журнал машины"]);
     return out;
@@ -234,9 +227,8 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     inner = own = undefined;
     place.textContent = "";
     drawTabs();
-    const ex = extra.find((t) => t.key === tab);
     if (tab === "chat") inner = app.open("chat", { callsign }, place);
-    else if (ex) inner = ex.mount(callsign, place);
+    else if (placed().some((t) => t.screen === tab)) inner = app.open(tab, { callsign }, place);
     else if (tab === "log") own = mountLog();
     else {
       tab = "set";

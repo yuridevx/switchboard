@@ -1,5 +1,5 @@
 // Гейт набора экранов при старте приложения: у экрана, метки, принимаемого кадра и раздела
-// хранилища один модуль; каждое uses к модулю выпуска есть в provides владельца той же версии.
+// хранилища один модуль; каждое uses к модулю выпуска есть в provides владельца той же версии; место экрана — в uses.
 // Правила владельцев и версий — общий гейт манифестов монорепо; здесь к ним добавлено устройство кода.
 import { check, nameOf, ownerOf, type Manifest as GateManifest } from "@switchboard/manifest-gate";
 import core from "../module.json" with { type: "json" };
@@ -29,6 +29,8 @@ export function appGate(parts: AppPart[]): string[] {
     own("метки", Object.keys(mod.marks ?? {}));
     for (const [s, def] of Object.entries(mod.screens ?? {})) {
       if (def.mark && !mod.marks?.[def.mark]) errors.push(`модуль ${m.name}: экран ${s} — метки ${def.mark} нет в marks`);
+      // место — имя владельца места: в uses встраивающегося, владельца сверяет общий гейт
+      if (def.place && !Object.keys(m.uses).some((r) => nameOf(r) === def.place)) errors.push(`модуль ${m.name}: экран ${s} — места ${def.place} нет в uses`);
     }
     // принимаемый кадр — имя чужого владельца из uses; у кадра один принимающий модуль
     const accepts: Record<string, number> = {};

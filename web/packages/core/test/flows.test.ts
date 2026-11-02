@@ -1,6 +1,6 @@
 // Флоу ядра по плану цикла тестов (web): ключ, связь, roster, маршрут кадров, запросы, экраны, уход с экрана, метки.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
+import { appGate, memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, INVITE, KEY, oneMachine } from "../stand/relay.ts";
 
 const man = (name: string, provides: Record<string, number>, uses: Record<string, number>): Manifest => ({
@@ -470,6 +470,58 @@ describe("хранилище и метки", () => {
     const { run } = await boot({ parts: [sample().part, o.part] });
     expect(o.box.app.mark("fire")).toBeUndefined();
     expect(run.failed.other).toContain("метки fire нет в uses");
+  });
+});
+
+describe("места в странице", () => {
+  // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): place у экрана, app.placed и show у владельца места
+  const owner = (box: { app?: App }): AppPart => ({
+    manifest: man("host-card", { card: 1, "card.tab": 1 }, {}),
+    module: { screens: { card: { mount() {} } }, start: (a) => void (box.app = a) },
+  });
+  const tab = (name: string, show: (p: Record<string, string>) => boolean): AppPart => ({
+    manifest: man(name, { [`${name}.tab`]: 1 }, { "card.tab@host-card": 1 }),
+    module: { screens: { [`${name}.tab`]: { place: "card.tab", label: name, show, mount: (el) => void el.append(`вкладка ${name}`) } } },
+  });
+
+  it("5121 · владелец места видит вставки через app.placed; show решает видимость; вставку открывает app.open в своём элементе", async () => {
+    const box: { app?: App } = {};
+    await boot({ parts: [owner(box), tab("hello", (p) => p.callsign === "site@laptop"), tab("bye", () => false)] });
+    const placed = box.app!.placed("card.tab");
+    expect(placed.map((t) => [t.screen, t.label, t.show({ callsign: "site@laptop" })])).toEqual([
+      ["hello.tab", "hello", true],
+      ["bye.tab", "bye", false],
+    ]);
+    expect(placed[0].show({ callsign: "x@pc" })).toBe(false);
+    const el = document.createElement("div");
+    expect(box.app!.open("hello.tab", { callsign: "site@laptop" }, el)).toBeDefined();
+    expect(el.textContent).toBe("вкладка hello");
+  });
+
+  it("5122 · show бросил — выключен модуль вставки, а не владелец места; место не из provides — ошибка модуля владельца", async () => {
+    const box: { app?: App } = {};
+    const { run } = await boot({
+      parts: [
+        owner(box),
+        tab("boom", () => {
+          throw new Error("сломалось");
+        }),
+      ],
+    });
+    expect(box.app!.placed("card.tab")[0].show({})).toBe(false);
+    expect(Object.keys(run.failed)).toEqual(["boom"]);
+    expect(box.app!.placed("card.tab")).toEqual([]);
+    expect(box.app!.placed("chat.tab")).toEqual([]);
+    expect(run.failed["host-card"]).toContain("места chat.tab нет в provides");
+  });
+
+  it("5123 · экран в месте, которого нет в uses, — приложение не стартует; полоса сверху — место top ядра", async () => {
+    const stray: AppPart = { manifest: man("stray", { "stray.tab": 1 }, {}), module: { screens: { "stray.tab": { place: "card.tab", mount() {} } } } };
+    expect(appGate([stray])).toContain("модуль stray: экран stray.tab — места card.tab нет в uses");
+    const bar: AppPart = { manifest: man("bar", { bar: 1 }, { "top@web-core": 1 }), module: { screens: { bar: { place: "top", mount: (el) => void el.append("полоса") } } } };
+    expect(appGate([bar])).toEqual([]);
+    await boot({ parts: [sample().part, bar] });
+    expect(root.textContent).toContain("полоса");
   });
 });
 

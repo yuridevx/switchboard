@@ -5,7 +5,7 @@
 // в карточке сессии: пометка «в R2» (session.r2 у host-points), линия точек и ветки (points.list с sid,
 // первые слова — points.get), «Сохранить точку», перенос, копия, смена папки и откат — шагами, каждый запрос
 // после ответа предыдущего: points.save со стопом → points.raise → (смена папки) session.remove прежней.
-// Вкладку карточки выпуск берёт из tab: createCard({ tabs: [points.tab] }). Метка fire — сессии без машины.
+// session.points встаёт в место card.tab карточки (card.tab@web-card в uses). Метка fire — сессии без машины.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createPoints } from "./src/points.ts";

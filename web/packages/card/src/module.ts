@@ -1,11 +1,9 @@
-// web-card — карточка сессии: шапка из roster, вкладки «Чат» (экран chat в месте карточки)
+// web-card — карточка сессии: шапка из roster, вкладки «Чат» (экран chat в месте карточки), вкладки места card.tab
 // и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
-// Широкий вид (пульт) — src/wide.ts: плашка состояния, «Настройки», «Журнал машины» и вкладки выпуска.
+// Широкий вид (пульт) — src/wide.ts: плашка состояния, «Настройки», «Журнал машины» и вкладки места card.tab.
 import { h, sessionLine, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { mountWide, WIDE_CSS, type CardTab } from "./wide.ts";
-
-export type { CardTab };
+import { mountWide, WIDE_CSS } from "./wide.ts";
 
 const CSS = `
 .card-tabs{flex:none;display:flex;gap:4px;padding:6px 10px;background:var(--surface);border-bottom:1px solid var(--line2)}
@@ -19,13 +17,13 @@ const CSS = `
 `;
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createCard(o: { tabs?: CardTab[] } = {}): AppModule {
+export function createCard(): AppModule {
   let app: App;
 
   function mountCard(el: HTMLElement, params: Record<string, string>): ScreenHandle {
-    if (app.wide) return mountWide(app, el, params, o.tabs ?? []);
+    if (app.wide) return mountWide(app, el, params);
     const callsign = params.callsign ?? "";
-    let tab: "chat" | "info" = params.tab === "info" ? "info" : "chat";
+    let tab = params.tab ?? "chat";
     let inner: ScreenHandle | undefined;
     let busy = "";
     let error = "";
@@ -75,18 +73,32 @@ export function createCard(o: { tabs?: CardTab[] } = {}): AppModule {
       );
     }
 
-    function draw() {
+    /** вкладки: чат, вставки места card.tab, видные этой сессии, сведения */
+    const tabList = (): Array<[string, string]> => [
+      ["chat", "Чат"],
+      ...app
+        .placed("card.tab")
+        .filter((t) => t.show({ callsign }))
+        .map((t): [string, string] => [t.screen, t.label]),
+      ["info", "Сведения"],
+    ];
+
+    function drawTabs() {
+      const list = tabList();
+      if (!list.some(([k]) => k === tab)) tab = "chat";
       tabs.textContent = "";
-      for (const [k, label] of [["chat", "Чат"], ["info", "Сведения"]] as const) {
-        tabs.append(h("button", { role: "tab", "aria-selected": tab === k ? "true" : "false", onclick: () => select(k) }, label));
-      }
+      for (const [k, label] of list) tabs.append(h("button", { role: "tab", "aria-selected": tab === k ? "true" : "false", "data-tab": k, onclick: () => select(k) }, label));
+    }
+
+    function draw() {
+      drawTabs();
       if (tab === "info") {
         place.textContent = "";
         place.append(info());
-      } else if (!inner) inner = app.open("chat", { callsign }, place);
+      } else if (!inner) inner = app.open(tab, { callsign }, place);
     }
 
-    function select(k: "chat" | "info") {
+    function select(k: string) {
       if (k === tab) return;
       tab = k;
       inner?.close?.();
@@ -105,6 +117,7 @@ export function createCard(o: { tabs?: CardTab[] } = {}): AppModule {
       },
       refresh: () => {
         if (tab === "info") draw();
+        else drawTabs();
       },
       close: () => inner?.close?.(),
     };

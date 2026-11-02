@@ -6,6 +6,7 @@
   "provides": { "alerts": 1 },
   "uses": {
     "app@web-core": 1,
+    "top@web-core": 1,
     "hello@relay": 1,
     "push.key@push": 1,
     "push.subscribe@push": 1

@@ -2,7 +2,6 @@
 // смена папки, откат и «пожар». Своих данных не хранит: линия, ветки, срок и хозяин — от реестра points,
 // подъём и точки — host-points машины. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
 import { h, hhmm, plural, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
-import type { CardTab } from "@switchboard/web-card";
 import { machineOf } from "@switchboard/protocol";
 
 type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
@@ -87,8 +86,8 @@ function folderText(c: Check, m: string): string {
   }
 }
 
-/** Новый модуль со своей памятью; tab — вкладка «Точки» для карточки сессии. */
-export function createPoints(): AppModule & { tab: CardTab } {
+/** Новый модуль со своей памятью; экран session.points — вкладка «Точки» в месте card.tab карточки. */
+export function createPoints(): AppModule {
   let app: App;
   let fleet: Fleet | null = null;
   /** слово отказа последнего points.list реестра */
@@ -769,21 +768,22 @@ export function createPoints(): AppModule & { tab: CardTab } {
     return (fleet?.sessions ?? []).filter((s) => !on.has(s.owner)).length;
   };
 
-  const mod: AppModule & { tab: CardTab } = {
+  const mod: AppModule = {
     screens: {
       points: { nav: "Точки", mark: "fire", label: "Точки", mount: mountOverview },
-      "session.points": { label: "Точки сессии", path: "session-points", mount: mountSession },
+      "session.points": {
+        place: "card.tab",
+        label: "Точки",
+        path: "session-points",
+        // вкладка видна, когда машина сессии умеет точки
+        show: (p) => can(machineOf(p.callsign ?? "") ?? "", "session.r2"),
+        mount: mountSession,
+      },
     },
     marks: { fire: fireCount },
     css: CSS,
     start(a) {
       app = a;
-    },
-    tab: {
-      key: "points",
-      label: "Точки",
-      show: (callsign) => can(machineOf(callsign) ?? "", "session.r2"),
-      mount: (callsign, place) => app.open("session.points", { callsign }, place),
     },
   };
   return mod;

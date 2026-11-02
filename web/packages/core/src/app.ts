@@ -198,13 +198,24 @@ export function startApp(o: StartOptions): Running {
       request: ((n: string, body?: Record<string, unknown>) => request(x, n, body)) as App["request"],
       open: (screen, params = {}, place) => {
         const own = x.mod.screens?.[screen] !== undefined;
-        if (!own && !usesRef(x, screen)) {
+        const at = screenOwner.get(screen)?.def.place;
+        const inMyPlace = at !== undefined && x.m.provides[at] !== undefined;
+        if (!own && !inMyPlace && !usesRef(x, screen)) {
           failMod(x, `открытии ${screen}`, new Error(`экрана ${screen} нет в uses`));
           return undefined;
         }
         if (place) return mountIn(screen, params, place);
         go(screen, params);
         return undefined;
+      },
+      placed: (place) => {
+        if (x.m.provides[place] === undefined) {
+          failMod(x, `месте ${place}`, new Error(`места ${place} нет в provides`));
+          return [];
+        }
+        return [...screenOwner]
+          .filter(([, s]) => s.def.place === place && !s.owner.failed)
+          .map(([n, s]) => ({ screen: n, label: s.def.label ?? n, show: (p: Params) => !s.def.show || call(s.owner, `экране ${n}`, () => s.def.show!(p)) === true }));
       },
       back,
       provides,
@@ -239,7 +250,7 @@ export function startApp(o: StartOptions): Running {
     const raw = win.location.hash.replace(/^#/, "");
     const [path, q = ""] = raw.split("?");
     for (const [n, s] of screenOwner) {
-      if ((s.def.path ?? n) === path && !s.def.slot) return { screen: n, params: Object.fromEntries(new URLSearchParams(q)) };
+      if ((s.def.path ?? n) === path && s.def.place !== "top") return { screen: n, params: Object.fromEntries(new URLSearchParams(q)) };
     }
     return { screen: home(), params: {} };
   }
@@ -363,7 +374,7 @@ export function startApp(o: StartOptions): Running {
       ].filter((x): x is HTMLElement => x !== null),
     );
     // разделы: в широком виде — колонка, в узком — строка, если их больше одного
-    const navs = [...screenOwner].filter(([, s]) => s.def.nav && !s.def.slot);
+    const navs = [...screenOwner].filter(([, s]) => s.def.nav && s.def.place !== "top");
     const items = navs.map(([n, s]) => {
       const count = s.def.mark && !s.owner.failed ? call(s.owner, `метке ${s.def.mark}`, () => s.owner.mod.marks![s.def.mark!]()) : undefined;
       return h(
@@ -666,7 +677,7 @@ export function startApp(o: StartOptions): Running {
     name = key.split(".")[1];
 
     for (const x of mods) if (x.mod.start) await callAsync(x, "старте", () => x.mod.start!(x.app));
-    for (const [n, s] of screenOwner) if (s.def.slot === "top") mount(n, {}, top.appendChild(h("div")), false);
+    for (const [n, s] of screenOwner) if (s.def.place === "top") mount(n, {}, top.appendChild(h("div")), false);
     connectingScreen();
     win.addEventListener("popstate", () => {
       depth = (win.history.state as { depth?: number } | null)?.depth ?? 0;

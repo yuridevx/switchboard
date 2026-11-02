@@ -122,7 +122,7 @@ export function createAlerts(browser?: BrowserPush): AppModule {
 
   let listening = false;
   return {
-    screens: { alerts: { slot: "top", label: "Уведомления", mount: mountAlerts } },
+    screens: { alerts: { place: "top", label: "Уведомления", mount: mountAlerts } },
     store: ["pushes"],
     css: CSS,
     async start(a) {

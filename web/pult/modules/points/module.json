@@ -16,7 +16,8 @@
     "points.raise@host-points": 1,
     "machine.slots@host-slots": 1,
     "ledger.read@ledger": 1,
-    "card@web-card": 1
+    "card@web-card": 1,
+    "card.tab@web-card": 1
   },
   "config": {}
 }
