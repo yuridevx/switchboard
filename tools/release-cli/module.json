@@ -6,7 +6,8 @@
   "uses": {
     "release.format@release": 1,
     "releases.upload@releases": 1,
-    "manifest.check@manifest-gate": 1
+    "manifest.check@manifest-gate": 1,
+    "releases.fetch@releases": 1
   },
   "config": {
     "SWITCHBOARD_PASS": "secret",

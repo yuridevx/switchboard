@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { parseSha, sha256hex } from "@switchboard/release";
+import { pack, parseSha, sha256hex } from "@switchboard/release";
 import type { GoExec } from "../src/keeper.ts";
 import { asker, main, parseArgs } from "../cli.ts";
 import type { Fetch } from "../cli.ts";
@@ -26,6 +26,7 @@ function fakeFleet() {
     if (init.method === "POST") {
       const fr = JSON.parse(String(init.body)) as Record<string, string>;
       posts.push(fr);
+      if (fr.type === "releases.fetch") return { ok: true, status: 200, json: async () => ({ type: "reply", id: fr.id, ok: true, result: { version: fr.version, url: `https://r2.test/b/${fr.part}/${fr.version}.tgz` } }) };
       const had = objects.get(`${fr.part}/${fr.version}.sha256`);
       const reply = had
         ? parseSha(had.toString("utf8")) === fr.sha256
@@ -34,7 +35,12 @@ function fakeFleet() {
         : { type: "reply", id: fr.id, ok: true, result: { tgz: `https://r2.test/b/${fr.part}/${fr.version}.tgz`, sha256: `https://r2.test/b/${fr.part}/${fr.version}.sha256` } };
       return { ok: true, status: 200, json: async () => reply };
     }
-    objects.set(new URL(url).pathname.slice("/b/".length), Buffer.from(init.body as Uint8Array));
+    const key = new URL(url).pathname.slice("/b/".length);
+    if (init.method !== "PUT") {
+      const o = objects.get(key);
+      return { ok: !!o, status: o ? 200 : 404, json: async () => ({}), arrayBuffer: async () => new Uint8Array(o ?? []).buffer } as never;
+    }
+    objects.set(key, Buffer.from(init.body as Uint8Array));
     return { ok: true, status: 200, json: async () => ({}) };
   };
   return { f, objects, posts };
@@ -96,6 +102,7 @@ describe("CLI выпуска", () => {
     const e = vi.spyOn(console, "error").mockImplementation((s: unknown) => void err.push(String(s)));
     const fl = fakeFleet();
     fl.objects.set("protocol/1.0.0.sha256", Buffer.from(`${"0".repeat(64)}  1.0.0.tgz\n`));
+    fl.objects.set("protocol/1.0.0.tgz", pack([{ path: "module.json", data: Buffer.from("{}") }]));
     try {
       expect(await main(["release", "modules"], ENV, undefined, go, fl.f)).toBe(1);
     } finally {

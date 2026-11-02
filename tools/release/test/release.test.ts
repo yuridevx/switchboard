@@ -227,3 +227,26 @@ describe("упаковка модуля формата", () => {
     expect(() => packFolder(bare)).toThrow(/^no_app_json/);
   });
 });
+
+describe("загрузка: тот же tar с другим сжатием", () => {
+  it("5195 · version_exists: лежащий архив скачан по releases.fetch и сравнён без сжатия — тот же tar — same без PUT; другой tar — прежний отказ", async () => {
+    // источник: живой факт 2 нояб.: CI-загрузка каталога отказывала «подними номер» на модулях с тем же содержимым —
+    // gzip даёт разные байты на разных машинах при том же tar
+    const files = [{ path: "module.json", data: Buffer.from('{"name":"m","version":"1.0.0"}') }, { path: "a.ts", data: Buffer.from("x".repeat(5000)) }];
+    const lying = pack(files);
+    const { gunzipSync, gzipSync } = await import("node:zlib");
+    const mine = gzipSync(gunzipSync(lying), { level: 1 });
+    expect(sha256hex(mine)).not.toBe(sha256hex(lying));
+    const puts: string[] = [];
+    const put: Put = async (url) => (puts.push(url), { ok: true, status: 200 });
+    const exists = async (): Promise<UploadReply> => ({ ok: false, error: "version_exists" });
+    const look = async () => ({ ok: true as const, result: { version: "1.0.0", url: "https://r2.test/m/1.0.0.tgz" } });
+    const get = async () => ({ ok: true, status: 200, arrayBuffer: async () => new Uint8Array(lying).buffer as ArrayBuffer });
+    expect(await upload(exists, "1.0.0", mine, put, look, get)).toMatchObject({ done: "same" });
+    const other = pack([{ path: "module.json", data: Buffer.from("{}") }]);
+    await expect(upload(exists, "1.0.0", other, put, look, get)).rejects.toThrow("releases.upload: version_exists");
+    // без look — прежний отказ сразу
+    await expect(upload(exists, "1.0.0", mine, put)).rejects.toThrow("releases.upload: version_exists");
+    expect(puts).toEqual([]);
+  });
+});

@@ -155,6 +155,24 @@ describe("эталоны parts", () => {
     expect(st.relay.sent.filter((f) => f.type === "releases.upload").map((f) => f.part)).toEqual(["hello-host", "hello-tab", "hello-worker", "hello-daemon"]);
   });
 
+  it("5196 · upload: номер занят архивом с тем же tar и другим сжатием — releases.fetch, сравнение без сжатия, same без PUT", async () => {
+    // источник: живой факт 2 нояб.: gzip даёт разные байты на разных машинах при том же tar — «подними номер» на том же модуле
+    const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
+    writeFileSync(join(dir, "app.json"), "{}");
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ name: "capture", type: "os", version: "1.4.0", provides: {}, uses: {}, config: {} }));
+    const { gunzipSync, gzipSync } = await import("node:zlib");
+    const { packModule } = await import("@switchboard/release");
+    const lying = gzipSync(gunzipSync(packModule(dir).tgz), { level: 1 });
+    const { st, call } = await bench((f) =>
+      f.type === "releases.upload" ? { ok: false, error: "version_exists" } : f.type === "releases.fetch" ? { ok: true, result: { version: "1.4.0", url: "https://r2.test/capture/1.4.0.tgz?s" } } : undefined,
+    );
+    const seen: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u, init) => (seen.push(`${init?.method ?? "GET"} ${String(u)}`), new Response(lying, { status: 200 })));
+    expect((await call("upload", { dir: "." }, dir)).json()).toMatchObject({ part: "capture", version: "1.4.0", same: true });
+    expect(seen).toEqual(["GET https://r2.test/capture/1.4.0.tgz?s"]);
+    expect(st.relay.sent.filter((f) => f.type === "releases.fetch").map((f) => [f.part, f.version])).toEqual([["capture", "1.4.0"]]);
+  });
+
   it("3 · deploy и set — на .releases как есть, даже с полем machine; отказ — словом с ошибкой", async () => {
     const { st, call } = await bench((f) => {
       if (f.type === "releases.deploy") return { ok: true, result: { parts: { host: { from: "1.1.58", to: "1.1.57" } } } };

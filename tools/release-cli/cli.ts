@@ -19,7 +19,7 @@ import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { upload } from "@switchboard/release";
-import type { Put, UploadReply } from "@switchboard/release";
+import type { FetchReply, Get, Put, UploadReply } from "@switchboard/release";
 import { build, type Exec } from "./src/build.ts";
 import { buildKeeper, runGo, type GoExec } from "./src/keeper.ts";
 import { packFromRepo } from "./src/module.ts";
@@ -56,17 +56,19 @@ export function asker(env: Record<string, string | undefined>, f: Fetch = fetch 
   const key = env.SWITCHBOARD_PASS;
   if (!url || !key) throw new Error("нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы");
   let n = 0;
-  return (part: string, version: string) =>
-    async (sha256: string): Promise<UploadReply> => {
-      const id = `ci-${++n}`;
-      let res;
-      try {
-        res = await f(url, { method: "POST", body: JSON.stringify({ type: "releases.upload", v: 1, id, part, version, sha256, key }), signal: AbortSignal.timeout(POST_MS) });
-      } catch (e) {
-        return { ok: false, error: `offline: ${(e as Error).name === "TimeoutError" ? `«Выпуски» не ответили за ${POST_MS / 1000} с` : String(e)}` };
-      }
-      return (await res.json()) as UploadReply;
-    };
+  const post = async <T>(f0: Record<string, unknown>): Promise<T | { ok: false; error: string }> => {
+    let res;
+    try {
+      res = await f(url, { method: "POST", body: JSON.stringify({ v: 1, id: `ci-${++n}`, ...f0, key }), signal: AbortSignal.timeout(POST_MS) });
+    } catch (e) {
+      return { ok: false, error: `offline: ${(e as Error).name === "TimeoutError" ? `«Выпуски» не ответили за ${POST_MS / 1000} с` : String(e)}` };
+    }
+    return (await res.json()) as T;
+  };
+  return (part: string, version: string) => ({
+    upload: (sha256: string) => post<UploadReply>({ type: "releases.upload", part, version, sha256 }) as Promise<UploadReply>,
+    look: () => post<FetchReply>({ type: "releases.fetch", part, version }) as Promise<FetchReply>,
+  });
 }
 
 const exec: Exec = (cmd, args, cwd) => (cmd === "npm" ? runNpm(args, cwd) : runNode(args, cwd));
@@ -75,7 +77,8 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const a = parseArgs(argv);
   const ask = a.dryRun ? null : asker(env, f);
   const put = f as unknown as Put;
-  if (a.part === "modules") return modules(ask, put);
+  const get = f as unknown as Get;
+  if (a.part === "modules") return modules(ask, put, get);
   let version: string;
   let tgz: Buffer;
   const part = a.part === "core" ? "host" : a.part;
@@ -93,7 +96,8 @@ export async function main(argv: string[], env: Record<string, string | undefine
     console.log("--dry-run: никуда не загружено");
     return 0;
   }
-  const r = await upload(ask(part, version), version, tgz, put);
+  const q = ask(part, version);
+  const r = await upload(q.upload, version, tgz, put, q.look, get);
   console.log(r.done === "same" ? `${part} ${version} уже загружен с тем же хэшем — пропуск` : `загружено: ${part}/${version}.tgz, .sha256`);
   return 0;
 }
@@ -101,7 +105,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
 type Ask = ReturnType<typeof asker>;
 
 /** Каталог: все модули монорепо, кроме ядра Host и приложений ОС (у них своя сборка). Ответ — выход: 1, если хоть один отказ. */
-async function modules(ask: Ask | null, put: Put): Promise<number> {
+async function modules(ask: Ask | null, put: Put, get: Get): Promise<number> {
   const counts = { uploaded: 0, same: 0, built: 0 };
   const refused: string[] = [];
   for (const m of loadRepo(root).filter((x) => x.type !== "os" && x.type !== "sdk-core")) {
@@ -111,7 +115,8 @@ async function modules(ask: Ask | null, put: Put): Promise<number> {
       continue;
     }
     try {
-      counts[(await upload(ask(p.name, p.version), p.version, p.tgz, put)).done]++;
+      const q = ask(p.name, p.version);
+      counts[(await upload(q.upload, p.version, p.tgz, put, q.look, get)).done]++;
     } catch (e) {
       refused.push(`${p.name} ${p.version}: ${(e as Error).message}`);
     }

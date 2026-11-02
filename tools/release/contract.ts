@@ -17,6 +17,6 @@ export type { TarFile } from "./src/tar.ts";
 export { packageFiles, packModule } from "./src/pack.ts";
 export type { ModuleJson, PackedModule } from "./src/pack.ts";
 export { upload, PUT_MS } from "./src/upload.ts";
-export type { Put, UploadReply } from "./src/upload.ts";
+export type { FetchReply, Get, Put, UploadReply } from "./src/upload.ts";
 export { WEB_FILE, webBuild } from "./src/web.ts";
 export type { WebBuildList } from "./src/web.ts";

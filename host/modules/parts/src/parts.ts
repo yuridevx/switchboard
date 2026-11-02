@@ -8,7 +8,7 @@ import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Host, Module, Result } from "@switchboard/host";
 import { entries, packModule, PUT_MS, upload } from "@switchboard/release";
-import type { UploadReply } from "@switchboard/release";
+import type { FetchReply, UploadReply } from "@switchboard/release";
 
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 type PlanEntry = { pin?: string };
@@ -63,7 +63,13 @@ export function make() {
           const { name: part, version, tgz: data } = p;
           try {
             // загрузка по ссылкам «выпусков» — та же функция, что у CI
-            const r = await upload(async (sha256) => (await ask("releases.upload", { part, version, sha256 })) as UploadReply, version, data);
+            const r = await upload(
+              async (sha256) => (await ask("releases.upload", { part, version, sha256 })) as UploadReply,
+              version,
+              data,
+              fetch,
+              async () => (await ask("releases.fetch", { part, version })) as FetchReply,
+            );
             return json({ part, version, bytes: data.length, sha256: r.sha256, ...(r.done === "same" ? { same: true } : {}) });
           } catch (e) {
             return text((e as Error).message, true);
