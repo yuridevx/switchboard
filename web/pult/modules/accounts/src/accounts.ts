@@ -1,6 +1,6 @@
 // pult-accounts — аккаунты Claude флота, вход по ссылке и коду, слоты горячей подмены.
 // Ничего не считает за владельцев: окна — как прислал accounts машины, кто в слоте — как прислал slots.
-// Пульт только пересылает расход почты, увиденный одной машиной, другим её машинам (account.usage).
+// Расход почты на других машинах Host читает у Claude сам, перед подменой; пульт его не пересылает.
 import { h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
@@ -47,7 +47,6 @@ const WORDS: Record<string, string> = {
   slot_dir_busy: "На месте слота на машине папка с файлами — разберите её",
 };
 const say = (w: string) => WORDS[w] ?? w;
-const own = (w: Window) => w.src === "event" || w.src === "poll";
 const NAME = /^[A-Za-z0-9_-]+$/;
 
 function ago(sec?: number): string {
@@ -93,7 +92,7 @@ export function createAccounts(): AppModule {
   }
   const refusals = (n: string) => [...refused].filter(([k]) => k.endsWith(n)).map(([k, w]) => h("div", { class: "sb-note bad", role: "alert", "data-refused": k }, `${k}: ${w}`));
 
-  /** Открыли экран: каждой машине — machine.accounts { max_age: 120 } и machine.slots; затем расход почты — её машинам. */
+  /** Открыли экран: каждой машине — machine.accounts { max_age: 120 } и machine.slots. */
   /** первый ответ machine.accounts ещё не пришёл: опрос лимитов занимает секунды — экран пишет «загружаю», а не «нет» */
   let loaded = false;
   /** машины, чьи аккаунты и слоты уже взяты: новая в roster — догрузить */
@@ -104,33 +103,6 @@ export function createAccounts(): AppModule {
     await Promise.all([...machines("machine.accounts").map((m) => loadAccounts(m, 120)), ...machines("machine.slots").map((m) => loadSlots(m))]);
     loaded = true;
     redraw();
-    await forward();
-  }
-
-  /** Расход, который машина видела сама (event, poll), — другим машинам с той же почтой; src — имя машины. */
-  async function forward() {
-    const byEmail = new Map<string, Array<{ machine: string; name: string; a: Account }>>();
-    for (const [m, list] of accs) {
-      for (const [name, a] of Object.entries(list)) {
-        if (!a.email) continue;
-        byEmail.set(a.email, [...(byEmail.get(a.email) ?? []), { machine: m, name, a }]);
-      }
-    }
-    const sends: Array<Promise<unknown>> = [];
-    for (const list of byEmail.values()) {
-      for (const src of list) {
-        const groups = new Map<number, Record<string, { utilization: number; resetsAt?: number }>>();
-        for (const [k, w] of Object.entries(src.a.limits ?? {})) {
-          if (!own(w) || typeof w.at !== "number") continue;
-          groups.set(w.at, { ...(groups.get(w.at) ?? {}), [k]: { utilization: w.utilization, resetsAt: w.resetsAt } });
-        }
-        for (const dst of list) {
-          if (dst.machine === src.machine || !can(dst.machine, "account.usage")) continue;
-          for (const [at, windows] of groups) sends.push(app.request("account.usage", { machine: dst.machine, account: dst.name, src: src.machine, at, windows }));
-        }
-      }
-    }
-    await Promise.all(sends);
   }
 
   /** Подмену делает Host: у сессий машины сменился account — перечитать её слоты и окна. */

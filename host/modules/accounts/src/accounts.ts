@@ -227,10 +227,11 @@ export function make(): Module {
   const requests: Module["requests"] = {
     async "machine.accounts"(f) {
       const maxAge = typeof f.max_age === "number" ? f.max_age : null;
+      const only = typeof f.only === "string" ? f.only : null;
       if (maxAge !== null) {
         const now = sec();
         for (const [name, a] of Object.entries(all())) {
-          if (a.login !== "ok") continue;
+          if (a.login !== "ok" || (only !== null && name !== only)) continue;
           const fresh = Math.max(0, ...Object.values(a.limits ?? {}).map((w) => w.at));
           if (now - fresh > maxAge) await poll(name); // один опрос за раз
         }

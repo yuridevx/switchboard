@@ -50,7 +50,8 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     expect(t.relay.sent("machine.login_code")).toHaveLength(1);
   });
 
-  it("192 · лимиты по почте: machine.accounts { max_age: 120 } каждой машине; account.usage — свои наблюдения машины её соседям с src = имя машины; пересланное дальше не идёт", async () => {
+  it("192 · лимиты по почте: machine.accounts { max_age: 120 } каждой машине; расход между машинами пульт не пересылает — его читает Host у Claude", async () => {
+    // источник: дизайн «Пульт и телефон» (подписан 2 нояб.): «пересылки account.usage нет»; Host — эталон slots 3047
     const relay = fleetRelay();
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.accounts"] = (f) => ({
@@ -78,11 +79,7 @@ describe("эталоны пульта: аккаунты и слоты", () => {
       ["laptop", 120],
       ["pc", 120],
     ]);
-    const usage = relay.sent("account.usage").map(({ id: _, ...f }) => f);
-    expect(usage).toEqual([
-      { type: "account.usage", v: 1, machine: "pc", account: "y0902", src: "laptop", at: T(14, 40), windows: { five_hour: { utilization: 0.04, resetsAt: T(16, 20) } } },
-      { type: "account.usage", v: 1, machine: "laptop", account: "y0902", src: "pc", at: T(14, 55), windows: { five_hour: { utilization: 0.09, resetsAt: T(16, 20) } } },
-    ]);
+    expect(relay.sent("account.usage")).toEqual([]);
     // одна карточка на почту; окна — запись одной машины, как пришла
     expect(t.$$("[data-account]")).toHaveLength(1);
     expect(t.$$('[data-account] [data-window]').map((x) => x.textContent!.split(" · ")[0])).toEqual(["5 ч4 %"]);

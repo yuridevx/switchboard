@@ -43,7 +43,14 @@ const isLink = (p: string) => existsSync(p) && lstatSync(p).isSymbolicLink();
  * Машина: аккаунты (вход — файлом в папке аккаунта, слоты — ссылки на неё), порядок слотов и слоты сессий.
  * Сессии из списка поднимаются Host по resume.
  */
+/** Ответ Claude на опрос окон аккаунта (USAGE) в стенде: имя аккаунта → rate_limits; нет — окон нет. */
+let usage: Record<string, Record<string, { utilization: number; resets_at: string }>> = {};
+/** Кого стенд опрашивал. */
+let polled: string[] = [];
+
 async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<string, string[]>; sessions?: Record<string, { slot: string | null; cut?: string }> }) {
+  usage = {};
+  polled = [];
   const store = join(home, "store");
   mkdirSync(store, { recursive: true });
   const recs: Record<string, unknown> = {};
@@ -60,7 +67,7 @@ async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<stri
   }
   writeFileSync(join(store, "host-accounts.json"), JSON.stringify({ machine: recs }));
   writeFileSync(join(store, "host-slots.json"), JSON.stringify({ machine: { slots: o.slots ?? {} }, sessions: o.sessions ?? {} }));
-  const acc = { ...(accountsManifest as Manifest), calls: (accountsManifest as Manifest).calls!.filter((c) => c !== USAGE) };
+  const acc = accountsManifest as Manifest;
   st = await standHost({
     home,
     sessions: Object.keys(o.sessions ?? {}).map((callsign) => ({ callsign })),
@@ -70,6 +77,16 @@ async function bench(o: { accounts: Record<string, AccSpec>; slots?: Record<stri
       module("probe", {}, { uses: { "machine.accounts@host-accounts": 1, "session.slot@host-slots": 1 } }),
     ],
   });
+  // опрос окон: пробный процесс с папкой аккаунта отвечает из usage (как claude — rate_limits в процентах)
+  const orig = st.sdk.query;
+  st.sdk.query = (p) => {
+    const q = orig(p) as unknown as Record<string, unknown>;
+    if (p.options?.spawnClaudeCodeProcess) return q as never;
+    const dir = String(((p.options?.env ?? {}) as Record<string, string | undefined>).CLAUDE_CONFIG_DIR ?? "");
+    const name = Object.keys(o.accounts).find((n) => dir === accDir(n)) ?? "";
+    q[USAGE] = async () => (polled.push(name), { rate_limits: usage[name] ?? null });
+    return q as never;
+  };
   for (const cs of Object.keys(o.sessions ?? {})) await until(() => st!.session("probe", cs)?.state === "idle");
   return st;
 }
@@ -92,6 +109,22 @@ async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, ms = 
 }
 
 describe("эталоны slots", () => {
+  it("3047 · подмена: окна кандидата — свежие у Claude (только его, старше 2 мин); по ним он у порога — следующий", async () => {
+    // источник: дизайн «Пульт и телефон» (подписан 2 нояб.): «пересылки account.usage нет: slots зовёт machine.accounts с max_age»
+    const R = now() + 3600;
+    await bench({
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: {}, work3: {} },
+      slots: { main: ["infirex", "y0902", "work3"] },
+      sessions: { "site@laptop": { slot: "main" } },
+    });
+    // на другой машине y0902 уже выбран до 97 % — видно только у Claude
+    usage.y0902 = { five_hour: { utilization: 97, resets_at: new Date((R + 60) * 1000).toISOString() } };
+    st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.96, resetsAt: R }));
+    await until(() => swaps().length === 1);
+    expect(swaps()[0].text).toBe("слот main: infirex → work3 · 5 ч 96 %");
+    expect(polled).toEqual(["y0902", "work3"]);
+  });
+
   it("16 · у порога 95 % — один account.place, обе сессии на y0902 без перезапуска, ledger.add slot.swapped", async () => {
     const R = now() + 3600;
     await bench({

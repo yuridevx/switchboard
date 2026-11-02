@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "into": [
     "pult",
     "phone"
@@ -17,7 +17,6 @@
     "machine.login@host-accounts": 1,
     "machine.login_code@host-accounts": 1,
     "machine.account_remove@host-accounts": 1,
-    "account.usage@host-accounts": 1,
     "machine.slots@host-slots": 1,
     "slot.set@host-slots": 1,
     "slot.swap@host-slots": 1,

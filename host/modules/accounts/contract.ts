@@ -1,5 +1,5 @@
 // Контракт модуля Host accounts v2: аккаунты Claude на машине; слот — ссылка на папку аккаунта.
-//   machine.accounts { machine, max_age? } → { accounts: { имя: { email, plan, login, links, checked, limits } } }
+//   machine.accounts { machine, max_age?, only? } → (only — опросить старше max_age только этот аккаунт: кандидата подмены) { accounts: { имя: { email, plan, login, links, checked, limits } } }
 //   machine.login { machine, account } → { url };  machine.login_code { machine, account, code } → { email, plan }
 //   machine.account_remove { machine, account } → { wiped }
 //   account.usage { account, src, at, windows } — наблюдение окон (slots: src "event"; пульт: имя машины)

@@ -33,6 +33,9 @@ export const over = (a: Acc | undefined, now: number) => overWindows(a, now).len
 /** Когда аккаунт снова годится: самый поздний сброс его окон у порога. */
 const usableAt = (a: Acc | undefined, now: number) => Math.max(0, ...overWindows(a, now).map(([, v]) => v.resetsAt || 0));
 
+/** Окна моложе двух минут — свежие: то же, что спрашивает страница аккаунтов (max_age 120). */
+const FRESH_S = 120;
+
 export function make(): Module {
   let host: Host;
   /** папка слота — в папке данных Host */
@@ -59,8 +62,9 @@ export function make(): Module {
       .map((x) => host.session(x.callsign))
       .filter((s): s is Session => !!s && slotOf(s) === slot);
 
-  async function refresh(): Promise<void> {
-    const r = await host.request("machine.accounts", {});
+  /** Записи аккаунтов; only — окна этого аккаунта старше FRESH_S берутся у Claude (кандидат подмены). */
+  async function refresh(only?: string): Promise<void> {
+    const r = await host.request("machine.accounts", only ? { max_age: FRESH_S, only } : {});
     if (r.ok) accs = ((r.result as { accounts?: Record<string, Acc> })?.accounts ?? {}) as Record<string, Acc>;
     else host.log({ kind: "refuse", ev: "accounts", word: r.error, why: `machine.accounts: ${r.error}` });
   }
@@ -141,7 +145,17 @@ export function make(): Module {
   function swap(slot: string, expect: string, why: string): Promise<void> {
     return lock(slot, async () => {
       if (whoIn(slot) !== expect) return;
-      const next = candidate(slot, sec());
+      // расход аккаунта на других машинах видно только у Claude: окна кандидата — свежие; он уже у порога — следующий
+      let next: string | null = null;
+      for (let i = 0; i < (order()[slot]?.length ?? 0); i++) {
+        const n = candidate(slot, sec());
+        if (!n) break;
+        await refresh(n);
+        if (!over(accs[n], sec())) {
+          next = n;
+          break;
+        }
+      }
       if (!next) {
         const w = waitOf(slot);
         arm(slot);
