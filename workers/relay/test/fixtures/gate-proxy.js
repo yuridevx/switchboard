@@ -21,6 +21,12 @@ export class Gate extends WorkerEntrypoint {
     const real = await this.env.REAL.revoked(ids);
     return [...new Set([...real, ...ids.filter((id) => revokedLater.includes(id))])];
   }
+  revoke(kid) {
+    return this.env.REAL.revoke(kid);
+  }
+  list(role) {
+    return this.env.REAL.list(role);
+  }
   revokeLater(ids) {
     revokedLater = ids;
   }

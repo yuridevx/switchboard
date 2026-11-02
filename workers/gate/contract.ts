@@ -1,5 +1,5 @@
 // Контракт gate: кто пришёл по пропуску. Пропуска — строки в базе D1 gate; секретов в базе нет, только sha256.
-// Две двери: привязка внутри аккаунта (verify, revoke, revoked) и POST по адресу gate (keys.invite, keys.list, gate.redeem).
+// Две двери: привязка внутри аккаунта (verify, revoke, revoked, list) и POST по адресу gate (keys.invite, keys.list, gate.redeem).
 
 /** Кто пришёл: роль решает, кем соединение встанет в relay — машиной (host) или клиентом (client); addr — адрес отправителя. */
 export type Verified = { role: "host" | "client"; name: string; kid: string; addr: string };
@@ -23,7 +23,7 @@ export type Pass = {
   at: number;
 };
 
-/** gate.verify, gate.revoke, gate.revoked — методы входа Gate (привязка с "entrypoint": "Gate"). */
+/** gate.verify, gate.revoke, gate.revoked, gate.list — методы входа Gate (привязка с "entrypoint": "Gate"). */
 export interface GateApi {
   verify(key: string): Promise<VerifyResult>;
   /** Отметка «отозван» по номеру. Отозванный раньше — тот же ответ; номера нет — unknown_key. */
@@ -33,6 +33,8 @@ export interface GateApi {
    * push сверяет номера подписок на отправке.
    */
   revoked(ids: string[]): Promise<string[]>;
+  /** Строки пропусков, как keys.list: с role — только принятые этой роли. Вход relay берёт отсюда машины флота. */
+  list(role?: "host" | "client"): Promise<Pass[]>;
 }
 
 /**

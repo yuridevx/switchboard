@@ -2,8 +2,15 @@
   "name": "ledger",
   "type": "worker",
   "version": "1.0.0",
-  "provides": { "ledger.add": 1, "ledger.read": 1, "machine.left": 1, "machine.back": 1 },
-  "uses": { "frame@relay": 1, "roster@relay": 1 },
+  "provides": {
+    "ledger.add": 1,
+    "ledger.read": 1,
+    "machine.left": 1,
+    "machine.back": 1
+  },
+  "uses": {
+    "frame@relay": 1
+  },
   "config": {
     "JOURNAL": "binding"
   }

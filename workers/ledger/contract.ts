@@ -1,9 +1,7 @@
 // Контракт ledger: журнал флота. Пишут кадром ledger.add (без id), читают запросом ledger.read.
-// machine.left и machine.back пишет только сам ledger — по roster от relay.
+// machine.left и machine.back — ledger.add от relay машины (from .relay) без текста: текст пишет ledger по прежним записям.
 
 export const CONTRACT = { "ledger.add": 1, "ledger.read": 1, "machine.left": 1, "machine.back": 1 } as const;
-/** ledger получает roster, как соединение. */
-export const USES = { "roster@relay": 1 } as const;
 
 /**
  * ledger.add — запись о машине или сессии. ev — имя из контракта пишущего; text — что случилось словами.

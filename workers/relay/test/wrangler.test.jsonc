@@ -15,7 +15,6 @@
   "vars": {
     "PROTO": [1],
     "PARTICIPANTS": { "push": "PUSH", "ledger": "LEDGER", "audit": "AUDIT", "echo": "ECHO" },
-    "OWNER": "owner@example.com",
     // стенд: предел вызова участника короче боевого 120 с
     "CALL_MS": 500
   }

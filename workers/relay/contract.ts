@@ -15,6 +15,13 @@ export type { Frame, Reply } from "@switchboard/protocol";
 export { link, PROTO } from "./src/link.ts";
 export type { Link, LinkOptions, LinkState, WsLike, WsCtor } from "./src/link.ts";
 
+/**
+ * Запросы POST по адресу relay (вход без состояния). Тело — кадр JSON, ответ — reply.
+ *   keys.revoke {key, kid} → {addr, closed}: отметка «отозван» у gate, соединения номера закрыты на всех машинах.
+ * wss /m/<машина> — объект этой машины; wss / — объект перехода для клиентов прежнего кода.
+ */
+export const CONTRACT = { "keys.revoke": 1 } as const;
+
 /** Слова отказа relay. Слова gate (bad_key, revoked) relay передаёт как есть. */
 export type RelayWord = "bad_frame" | "bad_from" | "offline" | "contract_mismatch" | "gate_unavailable";
 
@@ -31,9 +38,10 @@ export const REPLACED = "replaced";
 export type SessionRecord = { callsign: string; state?: string | null; [field: string]: unknown };
 
 /**
- * hello — первый кадр соединения. key — ключ флота role.name.kid.sig.
- * Host шлёт ещё sdk, contract (provides модулей) и sessions; клиент — только key и proto.
- * keeper машины входит ключом машины и шлёт part: "keeper" — его адрес .keeper@машина, в roster его нет.
+ * hello — первый кадр соединения. key — пропуск role.name.kid.secret.
+ * Host своей машины шлёт ещё sdk, contract (provides модулей) и sessions; Host другой машины входит гостем — только key и proto;
+ * клиент — только key и proto. keeper входит пропуском машины в relay своей машины и шлёт part: "keeper" —
+ * его адрес .keeper@машина, в roster его нет.
  */
 export type HelloFrame = {
   type: "hello";
@@ -63,9 +71,10 @@ export type RosterMachine = {
 export type RosterWorker = { name: string; contract: Record<string, number> };
 
 /**
- * roster — relay шлёт всем соединениям после каждого hello, session.state и ухода соединения,
- * и участникам, у кого в uses есть roster@relay. Собран из карточек живых соединений
- * и ответов hello() участников.
+ * roster объекта — relay шлёт всем соединениям, кроме keeper, после каждого hello, session.state и ухода соединения.
+ * machines и sessions — своя машина объекта; clients — гости: устройства и программы (адрес от gate)
+ * и Host других машин (@машина) — по ним клиент находит машины, которых ещё не знает.
+ * Собран из карточек живых соединений и ответов hello() участников.
  */
 export type Roster = {
   type: "roster";
@@ -75,12 +84,12 @@ export type Roster = {
   workers: RosterWorker[];
 };
 
-/** Ответ участника на hello(): его контракт и, если нужен roster, uses: { "roster@relay": 1 }. */
-export type ParticipantHello = { contract: Record<string, number>; uses?: Record<string, number> };
+/** Ответ участника на hello(): его контракт. */
+export type ParticipantHello = { contract: Record<string, number> };
 
 /**
  * Вход участника — Worker-модуля на рации (класс Participant в его пакете).
- * relay зовёт hello() при старте объекта флота и frame(кадр) — для кадров с to = имя участника
+ * relay зовёт hello() при старте объекта и frame(кадр) — для кадров с to = имя участника
  * (кадр как есть плюс from). Ответ frame — кадры, которые relay доставит от имени участника (from ставит relay),
  * по порядку; отказ одному из них — строка в журнале relay, остальные идут. Исключение из frame — отправителю offline.
  */

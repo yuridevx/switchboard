@@ -1,4 +1,5 @@
-// relay: публичный wss на switchboard.<subdomain>.workers.dev; секретов нет, на диск не пишет.
+// relay: вход без состояния и объект на машину — wss /m/<машина>; объект home — переход для клиентов прежнего кода.
+// Публичный адрес switchboard.<subdomain>.workers.dev; секретов нет, на диск не пишет.
 // Новый участник — привязка в services и строка «имя → привязка» в PARTICIPANTS; код relay не меняется.
 // Выпуск — сначала участник, затем relay.
 {
@@ -25,9 +26,7 @@
     // версии контракта relay, которые он принимает в hello
     "PROTO": [1],
     // участник рации → имя его привязки
-    "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" },
-    // владелец флота: ключи клиентов пока выданы ему — адрес устройства phone~<email>
-    "OWNER": "yuridevx@gmail.com"
+    "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" }
   },
   "observability": { "enabled": true },
   // прод: тот же код, свои Worker-модули с суффиксом -prod, адрес wss://relay.pfarm.app (wrangler --env prod)
@@ -50,8 +49,7 @@
       ],
       "vars": {
         "PROTO": [1],
-        "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" },
-        "OWNER": "yuridevx@gmail.com"
+        "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" }
       }
     }
   }

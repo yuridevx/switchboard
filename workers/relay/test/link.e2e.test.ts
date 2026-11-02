@@ -1,4 +1,5 @@
 // link насквозь: Node 24 (глобальный WebSocket) → relay в miniflare → настоящий gate по привязке.
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
@@ -31,18 +32,23 @@ beforeAll(async () => {
         compatibilityDate: "2026-08-01",
         durableObjects: { FLEET: { className: "Fleet", useSQLite: true } },
         serviceBindings: { GATE: { name: "switchboard-gate", entrypoint: "Gate" } },
-        bindings: { PROTO: [1], PARTICIPANTS: {}, OWNER: "owner@example.com" },
+        bindings: { PROTO: [1], PARTICIPANTS: {} },
       },
       {
         name: "switchboard-gate",
         modules: true,
         script: bundle(join(here, "..", "..", "gate", "src", "index.ts")),
         compatibilityDate: "2026-08-01",
-        bindings: { FLEET_SECRET: SECRET, REVOKED: ["client.phone.k2a9"] },
+        d1Databases: { DB: "gate-db" },
+        bindings: { FLEET_SECRET: SECRET, REVOKED: ["client.phone.k2a9"], OWNER },
       },
     ],
   }));
   url = (await mf.ready).href.replace(/^http/, "ws");
+  // схема базы gate: старые ключи ищутся в ней первыми
+  const db = await mf.getD1Database("DB", "switchboard-gate");
+  const sql = readFileSync(join(here, "..", "..", "gate", "migrations", "0001_passes.sql"), "utf8").replace(/--.*$/gm, "");
+  for (const s of sql.split(";").map((x) => x.trim()).filter(Boolean)) await db.prepare(s).run();
 }, 60_000);
 
 afterAll(async () => {

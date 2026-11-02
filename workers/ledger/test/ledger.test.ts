@@ -13,13 +13,8 @@ let n = 0;
 const fresh = () =>
   env.JOURNAL.get(env.JOURNAL.idFromName(`t-${++n}-${Math.random()}`)) as unknown as DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
 
-const roster = (...machines: Array<string | [string, number]>): Frame => ({
-  type: "roster",
-  machines: machines.map((m) => (Array.isArray(m) ? { machine: m[0], since: m[1] } : { machine: m, since: 0 })),
-  sessions: [],
-  clients: [],
-  workers: [],
-});
+/** Вход или уход машины — ledger.add от relay её машины, без текста. */
+const presence = (ev: "machine.back" | "machine.left", machine: string, from = ".relay"): Frame => ({ type: "ledger.add", v: 1, to: ".ledger", from, ev, machine });
 
 async function all(stub: ReturnType<typeof fresh>) {
   return runInDurableObject(stub, (_o, s) => s.storage.sql.exec("SELECT * FROM events ORDER BY id").toArray());
@@ -42,36 +37,32 @@ afterEach(() => {
 });
 
 describe("эталоны ledger", () => {
-  it("220 · по roster: machine.back в 14:00, machine.left laptop в 14:02, machine.back laptop в 14:44 «не было 42 мин»", async () => {
+  it("5061 · machine.back от relay → «на связи», затем «не было 42 мин» по последней machine.left этой машины; от других — bad_frame, записи нет", async () => {
     const j = fresh();
     clock(at("14:00"));
-    await j.frame(roster("laptop", "pc"));
-    clock(at("14:01"));
-    // тот же roster ещё раз — новых записей нет
-    await j.frame(roster("laptop", "pc"));
+    await j.frame(presence("machine.back", "laptop"));
+    await j.frame(presence("machine.back", "pc"));
     clock(at("14:02"));
-    await j.frame(roster("pc"));
+    await j.frame(presence("machine.left", "laptop"));
     clock(at("14:44"));
-    await j.frame(roster(["laptop", at("14:44")], "pc"));
+    await j.frame(presence("machine.back", "laptop"));
+    expect(await j.frame({ ...presence("machine.back", "pc", "@pc"), id: "x-1" })).toMatchObject([{ ok: false, error: "bad_frame", to: "@pc" }]);
     const rows = await all(j);
     expect(rows.map((r) => [r.ev, r.machine, r.t, r.from])).toEqual([
-      ["machine.back", "laptop", at("14:00"), "ledger"],
-      ["machine.back", "pc", at("14:00"), "ledger"],
-      ["machine.left", "laptop", at("14:02"), "ledger"],
-      ["machine.back", "laptop", at("14:44"), "ledger"],
+      ["machine.back", "laptop", at("14:00"), ".relay"],
+      ["machine.back", "pc", at("14:00"), ".relay"],
+      ["machine.left", "laptop", at("14:02"), ".relay"],
+      ["machine.back", "laptop", at("14:44"), ".relay"],
     ]);
-    expect(rows[2].text).toBe("laptop пропала · была на связи с 14:00");
-    expect(rows[3].text).toBe("laptop вернулась · не было 42 мин");
+    expect(rows.map((r) => r.text)).toEqual(["laptop на связи", "pc на связи", "laptop пропала · была на связи с 14:00", "laptop вернулась · не было 42 мин"]);
   });
 
-  it("221 · перезапуск объекта: первый roster с теми же машинами записей не даёт; кроме events — ни таблиц, ни ключей", async () => {
+  it("221 · перезапуск объекта: записи на месте; кроме events — ни таблиц, ни ключей", async () => {
     const j = fresh();
     clock(at("14:00"));
-    await j.frame(roster("laptop", "pc"));
+    await j.frame(presence("machine.back", "laptop"));
     await evictDurableObject(j);
-    clock(at("14:50"));
-    await j.frame(roster("laptop", "pc"));
-    expect(await all(j)).toHaveLength(2);
+    expect(await all(j)).toHaveLength(1);
     const own = await runInDurableObject(j, async (_o, s) => ({
       tables: s.storage.sql
         .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'")
@@ -141,7 +132,6 @@ describe("эталоны ledger", () => {
     await j.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "points", ev: "session.deleted", machine: "laptop", by: "panel", text: "old-bot удалена" });
     await j.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "points", ev: "session.deleted", callsign: "wiki@pc", by: "panel", text: "wiki убрана из R2 · 12 точек" });
     clock(at("22:41", "2026-11-13"));
-    await j.frame(roster());
     const rows = await all(j);
     expect(rows.map((r) => [r.ev, r.by, r.machine])).toEqual([
       ["session.deleted", "panel", "laptop"],
@@ -150,10 +140,9 @@ describe("эталоны ledger", () => {
     expect(await runInDurableObject(j, (_o, s) => s.storage.getAlarm())).toBeNull();
   });
 
-  it("226 · hello() — контракт и uses roster@relay", async () => {
+  it("226 · hello() — контракт; roster ledger не получает", async () => {
     expect(await relay.hello()).toEqual({
       contract: { "ledger.add": 1, "ledger.read": 1, "machine.left": 1, "machine.back": 1 },
-      uses: { "roster@relay": 1 },
     });
   });
 });
@@ -197,19 +186,9 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     }
   });
 
-  it("2015 · новый Host вытеснил прежний: roster с той же машиной и новым since — журнал без left", async () => {
-    // источник: слово пользователя «часть машины, включая Host, умерла — один перезапуск»; чьё: код (journal.ts:97-100)
-    const j = fresh();
-    clock(at("14:00"));
-    await j.frame(roster(["laptop", 1]));
-    clock(at("14:05"));
-    await j.frame(roster(["laptop", 2]));
-    expect((await all(j)).map((r) => [r.ev, r.machine])).toEqual([["machine.back", "laptop"]]);
-  });
-
-  it("2010 · через вход участника: ответ только на ledger.read — кадром ответа вызова; на roster и ledger.add кадров нет", async () => {
+  it("2010 · через вход участника: ответ только на ledger.read — кадром ответа вызова; на ledger.add кадров нет", async () => {
     clock(at("09:00", "2026-11-01"));
-    expect(await relay.frame(roster("int-machine"))).toEqual([]);
+    expect(await relay.frame(presence("machine.back", "int-machine"))).toEqual([]);
     expect(await relay.frame({ type: "ledger.add", v: 1, to: ".ledger", from: "@int-machine", ev: "session.opened", machine: "int-machine", text: "s" })).toEqual([]);
     const sent = await relay.frame({ type: "ledger.read", v: 1, id: "r-int", to: ".ledger", from: "panel", machine: "int-machine", limit: 5 });
     expect(sent).toHaveLength(1);

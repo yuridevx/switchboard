@@ -28,7 +28,7 @@ export class Journal extends DurableObject<Env> {
     sql.exec("DROP INDEX IF EXISTS events_c");
   }
 
-  /** Кадр с to: ".ledger" или roster от relay → кадры, которые ledger шлёт в ответ. */
+  /** Кадр с to: ".ledger" → кадры, которые ledger шлёт в ответ. */
   async frame(f: Frame): Promise<Frame[]> {
     const from = f.from ?? "";
     const refuse = (word: string, why: string): Frame[] => {
@@ -36,24 +36,24 @@ export class Journal extends DurableObject<Env> {
       return f.id ? [{ ...fail(f.id, word), to: from }] : [];
     };
 
-    if (f.type === "roster") {
-      // roster шлёт только relay: от участников рации и клиентов кадр с этим именем relay не принимает
-      this.roster(f);
-      return [];
-    }
     if (f.type === "reply") {
       log({ kind: "note", ev: "reply", from, why: "ledger ответов не ждёт" });
       return [];
     }
-    // machine.left и machine.back в договоре — кадры, которые ledger рассылает сам; принимает он только два запроса
     if (f.type !== "ledger.add" && f.type !== "ledger.read") return refuse("unknown_request", `ledger не обслуживает ${f.type}`);
     const bad = accepts(f, CONTRACT);
     if (bad) return refuse(bad.word, bad.why);
 
     if (f.type === "ledger.add") {
       if (typeof f.ev !== "string" || !f.ev) return refuse("bad_frame", "в ledger.add нет ev");
+      if (f.ev === LEFT || f.ev === BACK) {
+        // вход и уход машины пишет только relay её машины; текст — по прежним записям журнала
+        if (from !== ".relay") return refuse("bad_frame", `${f.ev} пишет только relay`);
+        if (typeof f.machine !== "string" || !f.machine) return refuse("bad_frame", `в ${f.ev} нет machine`);
+        this.presence(f.ev, f.machine);
+        return [];
+      }
       if (typeof f.text !== "string" || !f.text) return refuse("bad_frame", "в ledger.add нет text");
-      if (f.ev === LEFT || f.ev === BACK) return refuse("bad_frame", `${f.ev} пишет только ledger — по roster`);
       const str = (x: unknown) => (typeof x === "string" && x ? x : null);
       const callsign = str(f.callsign);
       // у записи сессии machine — её машина
@@ -89,30 +89,18 @@ export class Journal extends DurableObject<Env> {
     return [{ ...ok(f.id, { events: page.map(event), more }), to: from }];
   }
 
-  /**
-   * roster: машины в нём сравниваются с последними machine.left и machine.back.
-   * Пропала — machine.left; появилась или вернулась — machine.back. Копии roster нет.
-   */
-  private roster(f: Frame): void {
-    const list = Array.isArray(f.machines) ? (f.machines as Array<{ machine?: unknown }>) : [];
-    const now = Date.now();
-    const present = list.map((m) => m.machine).filter((m): m is string => typeof m === "string" && !!m);
-    const last = new Map<string, { ev: string; t: number }>();
-    const rows = this.ctx.storage.sql.exec<{ machine: string; ev: string; t: number }>(
-      `SELECT e.machine, e.ev, e.t FROM events e JOIN
-         (SELECT MAX(id) AS id FROM events WHERE ev IN (?, ?) GROUP BY machine) m ON e.id = m.id`,
-      LEFT,
-      BACK,
-    );
-    for (const r of rows) last.set(r.machine, { ev: r.ev, t: r.t });
-    for (const [m, r] of last) {
-      if (r.ev === BACK && !present.includes(m)) this.add(LEFT, "ledger", `${m} пропала · была на связи с ${hhmm(r.t)}`, { machine: m });
-    }
-    for (const m of new Set(present)) {
-      const r = last.get(m);
-      if (r?.ev === BACK) continue;
-      this.add(BACK, "ledger", r ? `${m} вернулась · не было ${span(now - r.t)}` : `${m} на связи`, { machine: m });
-    }
+  /** Вход или уход машины от relay: текст — по последней записи о её входе или уходе. */
+  private presence(ev: string, m: string): void {
+    const last = this.ctx.storage.sql
+      .exec<{ ev: string; t: number }>("SELECT ev, t FROM events WHERE machine = ? AND ev IN (?, ?) ORDER BY id DESC LIMIT 1", m, LEFT, BACK)
+      .toArray()[0];
+    const text =
+      ev === LEFT
+        ? `${m} пропала${last?.ev === BACK ? ` · была на связи с ${hhmm(last.t)}` : ""}`
+        : last?.ev === LEFT
+          ? `${m} вернулась · не было ${span(Date.now() - last.t)}`
+          : `${m} на связи`;
+    this.add(ev, ".relay", text, { machine: m });
   }
 
   private add(ev: string, from: string, text: string, o: { by?: string | null; machine?: string | null; callsign?: string | null }): void {

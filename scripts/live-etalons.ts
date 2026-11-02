@@ -1,6 +1,6 @@
 // Эталоны, которые проверяются только на выложенном тестовом флоте (не на живом флоте пользователя):
 //   144 — секреты и адреса семи Worker (адрес — у relay и gate); 136 и 145 — выпуск push и gate не рвёт соединения relay;
-//   117 — отзыв ключа выпуском gate: соединение закрыто при ближайшем старте объекта флота, новый hello — revoked.
+//   5027 — отзыв пропуска keys.revoke на входе relay: соединение закрыто сразу, новый hello — revoked; пропуска эталона отозваны.
 // Токен деплоя и секрет флота — из ~/.switchboard-dev (SWITCHBOARD_DEV_DIR), как у deploy-workers.mjs.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -72,27 +72,39 @@ const fresh = link({ url, key: invite("client", "etalon-new") });
 check("145 · следующий hello проверен новой версией gate", await opened(fresh));
 fresh.close();
 
-// 117 — отзыв ключа: gate с REVOKED, затем relay
-const revokedKey = invite("client", "etalon-revoked");
-const victim = link({ url, key: revokedKey });
+// 5027 — отзыв пропуска: keys.revoke на входе relay закрывает соединения номера на объектах машин; пропуска эталона — приглашением
+const gateUrl = "https://switchboard-gate.yuridevx1608.workers.dev/";
+const relayUrl = "https://switchboard.yuridevx1608.workers.dev/";
+const post = (u: string, f: Record<string, unknown>) =>
+  fetch(u, { method: "POST", body: JSON.stringify({ id: "e", v: 1, ...f }) }).then((r) => r.json() as Promise<{ ok: boolean; result?: any; error?: string }>);
+const seeded = spawnSync(process.execPath, [join(root, "workers/gate/seed.ts"), "client", "etalon-agent", "etalon@example.com"], { encoding: "utf8" });
+wrangler("gate", ["d1", "execute", "switchboard-gate", "--remote", "--command", seeded.stdout.trim()]);
+const agent = (await post(gateUrl, { type: "gate.redeem", invite: seeded.stderr.trim() })).result.key as string;
+const mine: string[] = [agent.split(".")[2]];
+const pass = async (role: "host" | "client", name: string) => {
+  const inv = await post(gateUrl, { type: "keys.invite", key: agent, role, name, ...(role === "client" ? { person: "etalon@example.com" } : {}) });
+  mine.push(inv.result.kid);
+  return (await post(gateUrl, { type: "gate.redeem", invite: inv.result.invite })).result.key as string;
+};
+const mUrl = url + "/m/etalon-m";
+const mHost = link({ url: mUrl, key: await pass("host", "etalon-m"), hello: () => ({ sdk: "etalon", contract: {}, sessions: [] }) });
+const victimKey = await pass("client", "etalon-victim");
+const victim = link({ url: mUrl, key: victimKey });
+await opened(mHost);
 await opened(victim);
-const kid = revokedKey.split(".").slice(0, 3).join(".");
-wrangler("gate", ["deploy", "--var", `REVOKED:${JSON.stringify([kid])}`]);
-await new Promise((r) => setTimeout(r, 3000));
-check("117 · после выпуска gate с отзывом соединение живо", victim.state === "open", victim.state);
-// объект флота засыпает между кадрами; ping отвечает Cloudflare без пробуждения. Пауза — и кадр его будит:
-// при старте объект перепроверяет отозванные ключи открытых соединений
-await new Promise((r) => setTimeout(r, 30000));
-await host.request({ type: "push.key", v: 1, to: ".push" });
-const closed = await until(() => victim.state === "stopped", 30000);
-check("117 · объект флота стартовал — соединение отозванного ключа закрыто", closed, victim.state);
-check("117 · Host и клиенты на связи", host.state === "open" && phone.state === "open", { host: host.state, phone: phone.state });
-const again = link({ url, key: revokedKey });
+const rv = await post(relayUrl, { type: "keys.revoke", key: agent, kid: victimKey.split(".")[2] });
+check("5027 · keys.revoke → отметка у gate и соединение закрыто на объекте машины", rv.ok && rv.result.closed >= 1, rv);
+check("5027 · соединение отозванного пропуска закрыто без переподключения", await until(() => victim.state === "stopped", 15000), victim.state);
+check("5027 · Host машины на связи", mHost.state === "open", mHost.state);
+const again = link({ url: mUrl, key: victimKey });
 await until(() => again.state !== "connecting", 15000);
-check("117 · новый hello отозванным ключом не пускают", again.state === "stopped", again.state);
+check("5027 · новый hello отозванным пропуском не пускают", again.state === "stopped", again.state);
 again.close();
-// вернуть gate без отзыва
-wrangler("gate", ["deploy"]);
+mHost.close(1000, "done");
+// живых пропусков эталона после прогона — 0: отзыв своих, последним — пропуск агента
+for (const kid of mine.reverse()) await post(relayUrl, { type: "keys.revoke", key: agent, kid });
+const left = (await post(gateUrl, { type: "keys.list", key: agent })).error;
+check("живых пропусков эталона после прогона 0", left === "revoked", left);
 
 for (const l of [host, phone, phone2, victim]) l.close(1000, "done");
 console.log(fails.length ? `live-etalons: ${fails.length} провалов` : "live-etalons: ok");

@@ -1,6 +1,6 @@
 // Эталоны relay и экосистемы (часть relay) на настоящем объекте флота в workerd.
 // gate — настоящий, по привязке; участники push, ledger, audit, echo — поддельные Worker.
-import { SELF, abortAllDurableObjects, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { SELF, abortAllDurableObjects, applyD1Migrations, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const OWNER = "owner@example.com";
@@ -29,6 +29,7 @@ const logHas = (s: string) => logs.some((l) => l.includes(s));
 const callsigns = (r: F) => r.sessions.map((s: F) => s.callsign).sort();
 
 beforeEach(async () => {
+  await applyD1Migrations(env.GATE_DB, env.GATE_MIGRATIONS);
   for (const c of [env.PUSH, env.LEDGER, env.AUDIT, env.ECHO]) {
     await c.setMode("ok");
     await c.clear();
@@ -100,23 +101,6 @@ describe("эталоны relay", () => {
     expect([a, b, panel].every((p) => p.closed === null)).toBe(true);
   });
 
-  it("117 · ключ отозван после входа: до старта объекта соединение живо; объект стартовал — закрыто revoked, остальные на связи", async () => {
-    const a = await laptop();
-    const phone = await hello("client", "phone", {}, "k8e1");
-    const panel = await hello("client", "panel-desk");
-    // выпуск gate с отзывом: соединение телефона живо — выпуск relay его не рвёт (факт живого прогона 31 окт.)
-    await env.GATE.revokeLater(["client.phone.k8e1"]);
-    expect(phone.closed).toBeNull();
-    // объект флота стартует заново (выгружен; разбудил кадр) — перепроверка отозванных
-    await evictDurableObject(fleet());
-    a.send({ type: "session.state", callsign: "site@laptop", state: "idle", slot: "main", account: "y0902" });
-    expect(await phone.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
-    expect(logHas("revoked client.phone.k8e1 · закрыт при старте объекта")).toBe(true);
-    const r = await panel.roster();
-    expect(r.clients).not.toContain(dev("phone"));
-    expect([a, panel].every((p) => p.closed === null)).toBe(true);
-  });
-
   it("3124 · объект стартовал новым кодом relay — соединения, принятые прежним кодом, закрыты 1012 relay_updated (клиенты переподключаются); вход новым кодом живёт", async () => {
     // источник: устав «Остановкой Worker-модулей управляет Cloudflare: их ветка — соединение оборвалось → клиенты
     // переподключаются»; факт 2 нояб. — выпуск relay спящие сокеты не рвёт, кадр плана keeper@wsl и ответ releases.set потеряны
@@ -163,19 +147,6 @@ describe("эталоны relay", () => {
     const panel = await hello("client", "panel-desk");
     a.send({ type: "message", to: dev("panel-desk"), text: "дошло" });
     expect(await panel.next((f) => f.type === "message")).toMatchObject({ text: "дошло" });
-  });
-
-  it("3136 · gate.revoked при старте объекта не вернулся за предел — строка gate_unavailable, соединения живут, кадры идут", async () => {
-    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; чьё: код (gate не ответил — соединения живут)
-    const a = await laptop();
-    const phone = await hello("client", "phone");
-    await env.GATE.setMode("hang");
-    await evictDurableObject(fleet());
-    a.send({ type: "message", to: dev("phone"), text: "после старта" });
-    expect(await phone.next((f) => f.type === "message", 3000)).toMatchObject({ text: "после старта" });
-    await phone.until(() => (logHas("gate_unavailable · проверка отозванных при старте") ? true : undefined), 3000, "строка gate_unavailable");
-    await env.GATE.setMode("real");
-    expect([a, phone].every((p) => p.closed === null)).toBe(true);
   });
 
   it("3137 · сокет прежнего кода без принятого hello — закрыт 1012 relay_updated при старте объекта, вход новым кодом живёт", async () => {
@@ -267,17 +238,6 @@ describe("эталоны relay", () => {
     expect(await panel.next((f) => f.id === "p-1")).toMatchObject({ ok: true });
     await panel.until(() => (logs.some((l) => l.startsWith("offline .push → .ledger · ledger.add")) ? true : undefined), 3000, "строка offline");
     expect(panel.closed).toBeNull();
-  });
-
-  it("117 · gate не ответил на проверку при старте — соединения живут, строка в журнале", async () => {
-    const phone = await hello("client", "phone", {}, "k8e1");
-    await env.GATE.setMode("throw");
-    await evictDurableObject(fleet());
-    const panel = await hello("client", "panel-desk").catch(() => null);
-    await env.GATE.setMode("real");
-    expect(phone.closed).toBeNull();
-    expect(logHas("gate_unavailable · проверка отозванных при старте")).toBe(true);
-    void panel;
   });
 
   it("6 · session.open с machine и незнакомый relay budget.set с callsign — только Host laptop, поле в поле плюс from; машины нет — offline", async () => {
@@ -451,12 +411,11 @@ describe("эталоны relay", () => {
     const mac = await open();
     mac.send({ type: "hello", proto: 1, key: await key("host", "mac"), sessions: sessions("mac", ["api"]) });
     expect(await mac.waitClose()).toEqual({ code: 1008, reason: "gate_unavailable" });
-    // у gate нет FLEET_SECRET — то же слово, причина «FLEET_SECRET не задан»
+    // у gate нет FLEET_SECRET — переход закончен: ключ подписью — bad_key
     await env.GATE.setMode("nosecret");
     const x = await open();
     x.send({ type: "hello", proto: 1, key: await key("client", "tablet", "k8e1") });
-    expect(await x.waitClose()).toEqual({ code: 1008, reason: "gate_unavailable" });
-    expect(logs.find((l) => l.startsWith("gate client.tablet.k8e1"))).toMatch(/FLEET_SECRET не задан/);
+    expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
     await env.GATE.setMode("real");
     const panel = await hello("client", "panel-desk");
     expect((await panel.roster()).machines.map((m: F) => m.machine).sort()).toEqual(["laptop", "pc"]);
@@ -508,18 +467,6 @@ describe("эталоны relay", () => {
     expect(got).toEqual([{ type: "audit.log", to: ".audit", what: "x", from: "@laptop" }]);
   });
 
-  it("139 · LEDGER.hello() с uses roster@relay: после hello pc roster ушёл всем и одним вызовом LEDGER.frame; PUSH.frame не вызван", async () => {
-    const a = await laptop();
-    await env.LEDGER.clear();
-    await pc();
-    const r = await a.roster();
-    const got = await eventually(async () => {
-      const x = await env.LEDGER.received();
-      return x.length ? x : undefined;
-    });
-    expect(got).toEqual([r]);
-    expect(await env.PUSH.received()).toEqual([]);
-  });
 });
 
 describe("эталоны экосистемы · relay", () => {
@@ -682,28 +629,6 @@ describe("relay · разбор кадра", () => {
     await eventually(async () => (logHas("bad_frame push · не кадр") && logs.some((l) => l.startsWith("offline") && l.includes("@nas")) ? true : undefined));
   });
 
-  it("2043 · участник с другой версией roster@relay — roster ему не уходит, contract_mismatch в журнале", async () => {
-    await env.AUDIT.clear();
-    await runInDurableObject(fleet(), async (o) => {
-      const own = o as unknown as { ready: Promise<void>; workers: Map<string, { contract: F; uses?: F }> };
-      await own.ready;
-      own.workers.set("audit", { contract: { "audit.log": 1 }, uses: { "roster@relay": 2 } });
-    });
-    await laptop();
-    await eventually(async () => (await env.LEDGER.received()).length > 0 || undefined);
-    expect(await env.AUDIT.received()).toEqual([]);
-    expect(logHas("contract_mismatch audit · roster@relay v2 · relay v1")).toBe(true);
-  });
-
-  it("2044 · участник не принял roster — строка в журнале, соединения получили roster", async () => {
-    await env.LEDGER.setMode("frame_fail");
-    const a = await laptop();
-    const phone = await hello("client", "phone");
-    expect((await a.roster()).clients).toEqual([dev("phone")]);
-    await eventually(() => logs.find((l) => l.startsWith("offline relay → ledger · roster · frame:")));
-    expect(a.closed ?? phone.closed).toBeNull();
-  });
-
   it("2045 · session.state раздул карточку за предел — bad_frame, запись прежняя", async () => {
     const a = await laptop();
     const phone = await hello("client", "phone");
@@ -853,7 +778,7 @@ describe("адреса и keeper машины", () => {
     k.send({ type: "message", id: "m-2", from: "@laptop", to: dev("phone") });
     expect(await k.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-2", ok: false, error: "bad_from" });
     k.send({ type: "ledger.add", to: ".ledger", ev: "part.updated", text: "x" });
-    const adds = async () => (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add");
+    const adds = async () => (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add" && f.ev === "part.updated");
     await eventually(async () => (await adds()).length === 1);
     expect((await adds())[0].from).toBe(".keeper@laptop");
     expect(phone.frames.find((f) => f.type === "message")).toBeUndefined();
@@ -888,19 +813,6 @@ describe("адреса и keeper машины", () => {
     p.send({ type: "hello", key: await key("host", "laptop"), proto: 1, part: "capture" });
     expect(await p.waitClose()).toEqual({ code: 1008, reason: "bad_frame" });
     expect(a.closed).toBeFalsy();
-  });
-
-  it("2052 · отозван ключ машины — при старте объекта закрыты и Host, и keeper этой машины", async () => {
-    // источник: факт кода — keeper входит ключом машины (relay/contract.ts:36, fleet.ts:165), gate отзывает по номеру ключа role.name.kid (gate/contract.ts:8)
-    const a = await laptop();
-    const k = await hello("keeper", "laptop");
-    const panel = await hello("client", "panel-desk");
-    await env.GATE.revokeLater(["host.laptop.k7f3"]);
-    await evictDurableObject(fleet());
-    panel.send({ type: "message", to: dev("panel-desk") });
-    expect(await a.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
-    expect(await k.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
-    expect(panel.closed).toBeNull();
   });
 
   it("~email — все устройства пользователя; голое имя — не адрес: bad_frame", async () => {

@@ -1,5 +1,7 @@
-// Объект флота: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
-// На диск не пишет: всё о флоте — в карточках живых соединений и в ответах hello() участников.
+// Объект relay: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
+// Объект машины m/<машина> держит её Host и keeper и гостей — Host других машин, устройства, программы.
+// Объект home — переход: один на флот для клиентов прежнего кода, каждый Host в нём свой.
+// На диск не пишет: всё — в карточках живых соединений и в ответах hello() участников.
 import { DurableObject } from "cloudflare:workers";
 import { fail, hostOf, kindOf, machineOf, parseFrame, reaches, serviceAddress } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
@@ -9,25 +11,26 @@ import type { Participant, ParticipantHello, RelayWord, Roster, SessionRecord } 
 export type Env = {
   FLEET: DurableObjectNamespace<Fleet>;
   GATE: GateApi;
+  /** журнал: вход и уход Host своей машины пишет relay */
+  LEDGER: Participant;
   /** версии контракта relay, которые принимает hello */
   PROTO: number[];
   /** имя участника → имя его привязки */
   PARTICIPANTS: Record<string, string>;
-  /** email владельца флота: клиентские ключи пока выданы ему — адрес устройства устройство~email */
-  OWNER: string;
   /** версия Worker'а от платформы (version_metadata): карточка помнит, каким кодом принято соединение */
   CF_VERSION?: { id: string };
   /** предел вызова участника, мс; только стенд — в бою 120 000, как предел запроса link */
   CALL_MS?: number;
 };
 
-/** Один объект на флот. */
+/** Объект перехода: один на флот, для клиентов прежнего кода. */
 export const FLEET = "home";
+/** Имя объекта машины. */
+export const machineObject = (machine: string) => `m/${machine}`;
 /** Предел карточки соединения у Cloudflare. */
 export const CARD_LIMIT = 16_384;
 /** Имена relay: из них по сети разбирается только session.state; hello — первым кадром. */
 const OWN = new Set(["hello", "roster", "session.state", "frame"]);
-const ROSTER_V = 1;
 
 type HostCard = {
   role: "host";
@@ -39,11 +42,14 @@ type HostCard = {
   contract?: Record<string, number>;
   sessions: SessionRecord[];
 };
-type ClientCard = { role: "client"; name: string; kid: string; since: number; proto: number };
-/** часть машины (keeper): входит ключом машины с part в hello; в roster не входит, адрес .part@машина */
+/** Host другой машины в гостях: доставка ему — по адресам его машины; в roster — среди гостей @машина */
+type GuestCard = { role: "guest"; name: string; kid: string; since: number; proto: number };
+/** устройство или программа: адрес — из ответа gate */
+type ClientCard = { role: "client"; name: string; kid: string; addr: string; since: number; proto: number };
+/** часть машины (keeper): входит ключом своей машины с part в hello; в roster не входит, адрес .keeper@машина */
 type KeeperCard = { role: "keeper"; name: string; kid: string; since: number; proto: number };
 /** ver — версия кода relay, принявшего hello */
-type Card = (HostCard | ClientCard | KeeperCard) & { ver?: string };
+type Card = (HostCard | GuestCard | ClientCard | KeeperCard) & { ver?: string };
 type Sender = { ws: WebSocket; card: Card } | { worker: string };
 
 const log = (line: string) => console.log(line);
@@ -55,10 +61,8 @@ const cardOf = (ws: WebSocket) => {
   return a && "role" in a ? a : null;
 };
 const verOf = (ws: WebSocket) => (ws.deserializeAttachment() as { ver?: string } | null)?.ver;
-/** role.name.kid ключа — без подписи: подпись в журнал не попадает. */
+/** role.name.kid пропуска — без секрета: секрет в журнал не попадает. */
 const keyId = (key: string) => key.split(".").slice(0, 3).join(".").slice(0, 80);
-/** Номер ключа соединения role.name.kid: keeper входит ключом машины — его ключ host.<машина>.<kid>. */
-const keyOf = (c: Card) => `${c.role === "keeper" ? "host" : c.role}.${c.name}.${c.kid}`;
 /** callsign сессии этой машины: site@laptop; голый @laptop — не сессия. */
 const ownCallsign = (cs: unknown, machine: string) => typeof cs === "string" && cs.indexOf("@") > 0 && machineOf(cs) === machine;
 
@@ -68,11 +72,18 @@ export class Fleet extends DurableObject<Env> {
   private ready: Promise<void>;
   /** соединения, чей hello сейчас проверяет gate */
   private verifying = new Set<WebSocket>();
+  /** машина объекта; null — объект перехода home, где каждый Host свой */
+  private machine: string | null;
+  /** свои Host на связи — по ним relay пишет в журнал вход и уход машины */
+  private up = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    const name = ctx.id.name ?? FLEET;
+    this.machine = name.startsWith("m/") ? name.slice(2) : null;
     // ping → pong отвечает Cloudflare, объект не просыпается
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+    this.up = this.present();
     this.ready = this.helloParticipants().then(() => this.recheck());
   }
 
@@ -121,7 +132,7 @@ export class Fleet extends DurableObject<Env> {
       if (!card) return;
       log(`close ${card.role}.${card.name} · ${code}${reason ? " " + reason : ""}`);
       // keeper в roster не входит: его уход roster не меняет
-      if (card.role !== "keeper") await this.broadcast(ws);
+      if (card.role !== "keeper") await this.changed(ws);
     } catch (e) {
       this.crash(e, "webSocketClose");
     }
@@ -130,6 +141,28 @@ export class Fleet extends DurableObject<Env> {
   async webSocketError(ws: WebSocket, err: unknown): Promise<void> {
     const card = cardOf(ws);
     log(`error ${card ? `${card.role}.${card.name}` : "до hello"} · ${err}`);
+  }
+
+  /** Отзыв пропуска: закрыть соединения с этим номером словом revoked. Ответ — сколько закрыто. */
+  async close(kid: string): Promise<number> {
+    await this.ready;
+    const gone = this.live().filter((ws) => cardOf(ws)!.kid === kid);
+    for (const ws of gone) {
+      const c = cardOf(ws)!;
+      log(`revoked ${c.role}.${c.name}.${kid} · закрыт отзывом`);
+      ws.close(1008, "revoked");
+    }
+    if (gone.length) await this.changed();
+    return gone.length;
+  }
+
+  /** Кадр Worker'а по привязке (вход relay deliver): доставка своей машине; from ставит вызывающий. Ответ — сколько получателей. */
+  async deliver(f: Frame): Promise<number> {
+    await this.ready;
+    const to = typeof f.to === "string" ? f.to : "";
+    const n = kindOf(to) ? await this.send(to, f, String(f.from)) : 0;
+    log(`${n ? "deliver" : "offline"} ${String(f.from)} → ${to} · ${f.type}`);
+    return n;
   }
 
   /** Кадр, который участник вернул из frame: разбор и доставка от его имени; отказ — строка в журнале route. */
@@ -172,14 +205,15 @@ export class Fleet extends DurableObject<Env> {
     }
     let card: Card;
     const since = Date.now();
-    // часть машины входит ключом машины; в рацию из частей выходит только keeper
-    if (f.part !== undefined && !(r.role === "host" && f.part === "keeper")) {
-      log(`bad_frame ${id} · part ${JSON.stringify(f.part)} — в рацию входит только keeper ключом машины`);
+    const mine = r.role === "host" && (this.machine === null || r.name === this.machine);
+    // часть машины входит пропуском машины в relay своей машины; в рацию из частей выходит только keeper
+    if (f.part !== undefined && !(mine && f.part === "keeper")) {
+      log(`bad_frame ${id} · part ${JSON.stringify(f.part)} — в relay своей машины входит только keeper пропуском машины`);
       return ws.close(1008, "bad_frame");
     }
     if (f.part === "keeper") {
       card = { role: "keeper", name: r.name, kid: r.kid, since, proto: f.proto };
-    } else if (r.role === "host") {
+    } else if (mine) {
       const sessions = f.sessions ?? [];
       if (!Array.isArray(sessions) || !sessions.every((s) => isObj(s) && ownCallsign(s.callsign, r.name))) {
         log(`bad_from ${id} · в hello callsign не машины ${r.name}`);
@@ -195,15 +229,18 @@ export class Fleet extends DurableObject<Env> {
         contract: isObj(f.contract) ? (f.contract as Record<string, number>) : undefined,
         sessions: sessions as SessionRecord[],
       };
+    } else if (r.role === "host") {
+      card = { role: "guest", name: r.name, kid: r.kid, since, proto: f.proto };
     } else {
-      card = { role: "client", name: r.name, kid: r.kid, since, proto: f.proto };
+      card = { role: "client", name: r.name, kid: r.kid, addr: r.addr, since, proto: f.proto };
     }
     const size = enc.encode(JSON.stringify(card)).length;
     if (size > CARD_LIMIT) {
       log(`bad_frame ${id} · карточка ${size} байт · предел ${CARD_LIMIT}`);
       return ws.close(1008, "bad_frame");
     }
-    if (card.role === "host" || card.role === "keeper") {
+    // машина одна: новый hello той же машины в той же роли вытесняет прежний
+    if (card.role !== "client") {
       for (const s of this.live()) {
         const c = cardOf(s)!;
         if (s !== ws && c.role === card.role && c.name === card.name) {
@@ -213,10 +250,10 @@ export class Fleet extends DurableObject<Env> {
       }
     }
     ws.serializeAttachment({ ...card, ver: this.ver() });
-    log(`hello ${id} · proto ${card.proto}${card.role === "host" ? ` · ${card.sessions.length} сессий` : ""}`);
+    log(`hello ${id} · ${card.role}${card.role === "host" ? ` · ${card.sessions.length} сессий` : ""} · proto ${card.proto}`);
     // keeper в roster не входит: roster — только ему, как знак, что hello принят; флот не меняется
     if (card.role === "keeper") ws.send(JSON.stringify(this.roster()));
-    else await this.broadcast();
+    else await this.changed();
   }
 
   // ---------- кадр после hello: один порядок для соединений и участников ----------
@@ -227,10 +264,10 @@ export class Fleet extends DurableObject<Env> {
       return word;
     };
 
-    // from ставит relay по ключу или привязке: участник — .имя, keeper — .keeper@машина, клиент — устройство~email;
-    // Host — сама машина или сессия этой машины
+    // from ставит relay по пропуску или привязке: участник — .имя, keeper — .keeper@машина, клиент — адрес от gate;
+    // Host, свой или гость, — сама машина или сессия этой машины
     let from: string;
-    if ("worker" in s || s.card.role !== "host") {
+    if ("worker" in s || (s.card.role !== "host" && s.card.role !== "guest")) {
       const own = this.who(s);
       if (f.from !== undefined && f.from !== own) return refuse("bad_from", `from=${String(f.from)}`);
       from = own;
@@ -253,20 +290,20 @@ export class Fleet extends DurableObject<Env> {
       if (Array.isArray(f.to) && f.id !== undefined) return refuse("bad_frame", "to списком у кадра с id");
       if (!list.length || !list.every((a) => kindOf(a) !== null)) return refuse("bad_frame", `to не адрес: ${JSON.stringify(f.to)}`);
       let n = 0;
-      for (const a of list) n += await this.deliver(a, out, this.who(s));
+      for (const a of list) n += await this.send(a, out, this.who(s));
       return n ? undefined : refuse("offline", `→ ${list.join(",")}`);
     }
     const m = hostOf(f);
     if (m === undefined) return refuse("bad_frame", "нет адреса");
     if (!m) return refuse("bad_frame", `callsign ${String(f.callsign)}`);
-    const host = this.hostOf(m);
+    const host = this.machineConn(m);
     if (!host) return refuse("offline", `→ @${m}`);
     host.send(JSON.stringify(out));
     return undefined;
   }
 
   private async sessionState(s: Sender, f: Frame, refuse: (w: RelayWord, why: string) => RelayWord): Promise<RelayWord | undefined> {
-    if ("worker" in s || s.card.role !== "host") return refuse("bad_from", "session.state не от Host");
+    if ("worker" in s || s.card.role !== "host") return refuse("bad_from", "session.state не от своего Host");
     const card = s.card;
     if (!ownCallsign(f.callsign, card.name)) return refuse("bad_from", `callsign ${String(f.callsign)}`);
     // запись сессии — кадр без конверта; заменяется целиком, state: null убирает её
@@ -284,18 +321,18 @@ export class Fleet extends DurableObject<Env> {
     return undefined;
   }
 
-  /** Доставить по одному адресу по его виду; ответ — сколько получателей. */
-  private async deliver(a: string, out: Frame, sender: string): Promise<number> {
+  /** Доставить по одному адресу по его виду: своей машине и своим гостям. Ответ — сколько получателей. */
+  private async send(a: string, out: Frame, sender: string): Promise<number> {
     const text = JSON.stringify(out);
     switch (kindOf(a)) {
       case "machine":
       case "session": {
-        const m = machineOf(a);
-        const host = m ? this.hostOf(m) : undefined;
-        if (!host) return 0;
-        // callsign — только если он есть в карточке машины; @машина — сама машина
-        if (!a.startsWith("@") && !(cardOf(host) as HostCard).sessions.some((x) => x.callsign === a)) return 0;
-        host.send(text);
+        const ws = this.machineConn(machineOf(a)!);
+        if (!ws) return 0;
+        // callsign своего Host — только если он есть в карточке; гостю — всё по адресам его машины
+        const c = cardOf(ws)!;
+        if (c.role === "host" && !a.startsWith("@") && !c.sessions.some((x) => x.callsign === a)) return 0;
+        ws.send(text);
         return 1;
       }
       case "part": {
@@ -314,9 +351,7 @@ export class Fleet extends DurableObject<Env> {
         let n = 0;
         for (const ws of this.live()) {
           const c = cardOf(ws)!;
-          if (c.role !== "client") continue;
-          const addr = this.clientAddress(c.name);
-          if (reaches(a, addr)) {
+          if (c.role === "client" && reaches(a, c.addr)) {
             ws.send(text);
             n++;
           }
@@ -339,21 +374,17 @@ export class Fleet extends DurableObject<Env> {
     }
   }
 
-  /** Адрес устройства клиента: ключи клиентов пока выданы владельцу флота. */
-  private clientAddress(name: string): string {
-    return `${name}~${this.env.OWNER}`;
-  }
-
-  /** Адрес отправителя — по ключу или привязке. */
+  /** Адрес отправителя — по пропуску или привязке. */
   private who(s: Sender): string {
     if ("worker" in s) return serviceAddress(s.worker);
     switch (s.card.role) {
       case "host":
+      case "guest":
         return `@${s.card.name}`;
       case "keeper":
         return `.keeper@${s.card.name}`;
       default:
-        return this.clientAddress(s.card.name);
+        return s.card.addr;
     }
   }
 
@@ -364,13 +395,17 @@ export class Fleet extends DurableObject<Env> {
     return this.ctx.getWebSockets().filter((s) => s !== except && s.readyState === 1 && cardOf(s));
   }
 
-  private hostOf(machine: string): WebSocket | undefined {
-    return this.live().find((s) => {
+  /** Соединение машины: свой Host или Host этой машины в гостях. */
+  private machineConn(machine: string): WebSocket | undefined {
+    const all = this.live();
+    const by = (role: string) => all.find((s) => {
       const c = cardOf(s)!;
-      return c.role === "host" && c.name === machine;
+      return c.role === role && c.name === machine;
     });
+    return by("host") ?? by("guest");
   }
 
+  /** roster объекта: свои машины и их сессии; гости — устройства, программы и Host других машин (@машина). */
   roster(except?: WebSocket): Roster {
     const r: Roster = { type: "roster", machines: [], sessions: [], clients: [], workers: [] };
     for (const s of this.live(except)) {
@@ -378,37 +413,44 @@ export class Fleet extends DurableObject<Env> {
       if (c.role === "host") {
         r.machines.push({ machine: c.name, since: c.since, proto: c.proto, sdk: c.sdk, contract: c.contract });
         r.sessions.push(...c.sessions);
-      } else if (c.role === "client" && !r.clients.includes(this.clientAddress(c.name))) r.clients.push(this.clientAddress(c.name));
+        continue;
+      }
+      const addr = c.role === "client" ? c.addr : c.role === "guest" ? `@${c.name}` : null;
+      if (addr && !r.clients.includes(addr)) r.clients.push(addr);
     }
     for (const [name, h] of this.workers) r.workers.push({ name, contract: h.contract });
     return r;
   }
 
-  /** roster — всем соединениям и участникам, у кого roster@relay в uses. */
+  /** roster — всем соединениям, кроме keeper: ему — только первый, при входе. */
   private async broadcast(except?: WebSocket): Promise<void> {
-    const r = this.roster(except);
-    const text = JSON.stringify(r);
-    // keeper roster не читает: ему — только первый, при входе
+    const text = JSON.stringify(this.roster(except));
     for (const s of this.live(except)) if (cardOf(s)!.role !== "keeper") s.send(text);
-    const calls: Promise<void>[] = [];
-    for (const [name, h] of this.workers) {
-      const v = h.uses?.["roster@relay"];
-      if (v === undefined) continue;
-      if (v !== ROSTER_V) {
-        log(`contract_mismatch ${name} · roster@relay v${v} · relay v${ROSTER_V}`);
-        continue;
-      }
-      calls.push(
-        (async () => {
-          try {
-            await this.callWorker(name, r);
-          } catch (e) {
-            log(`offline relay → ${name} · roster · frame: ${e}`);
-          }
-        })(),
-      );
+  }
+
+  /** Состав соединений изменился: вход и уход своих Host — в журнал, roster — всем. */
+  private async changed(except?: WebSocket): Promise<void> {
+    const now = this.present(except);
+    const back = [...now].filter((m) => !this.up.has(m));
+    const left = [...this.up].filter((m) => !now.has(m));
+    this.up = now;
+    await Promise.all([...back.map((m) => this.journal("machine.back", m)), ...left.map((m) => this.journal("machine.left", m))]);
+    await this.broadcast(except);
+  }
+
+  /** Свои Host на связи. */
+  private present(except?: WebSocket): Set<string> {
+    return new Set(this.live(except).map((s) => cardOf(s)!).filter((c) => c.role === "host").map((c) => c.name));
+  }
+
+  /** Запись журнала о своей машине: текст пишет журнал по своим прежним записям. Журнал не ответил — строка здесь. */
+  private async journal(ev: "machine.back" | "machine.left", machine: string): Promise<void> {
+    log(`${ev} ${machine}`);
+    try {
+      await this.within(call(this.env.LEDGER.frame({ type: "ledger.add", v: 1, to: ".ledger", ev, machine, from: ".relay" })), `журнал не ответил за ${this.callMs() / 1000} с`);
+    } catch (e) {
+      log(`offline relay → .ledger · ${ev} ${machine} · ${e}`);
     }
-    await Promise.all(calls);
   }
 
   // ---------- участники ----------
@@ -425,7 +467,7 @@ export class Fleet extends DurableObject<Env> {
     await this.within(run, `${name} не ответил за ${this.callMs() / 1000} с`);
   }
 
-  /** Предел вызова участника и gate — как предел запроса link: 120 с (стенд ставит меньше). */
+  /** Предел вызова участника, журнала и gate — как предел запроса link: 120 с (стенд ставит меньше). */
   private callMs(): number {
     return this.env.CALL_MS ?? 120_000;
   }
@@ -450,7 +492,7 @@ export class Fleet extends DurableObject<Env> {
         try {
           const h = await this.within(call(b.hello()), `не ответил за ${this.callMs() / 1000} с`);
           if (!isObj(h) || !isObj(h.contract)) throw new Error("hello() без contract");
-          this.workers.set(name, { contract: h.contract, uses: isObj(h.uses) ? h.uses : undefined });
+          this.workers.set(name, { contract: h.contract });
           log(`worker ${name} · ${Object.entries(h.contract).map(([k, v]) => `${k} ${v}`).join(", ")}`);
         } catch (e) {
           log(`worker ${name} · hello: ${e}`);
@@ -468,30 +510,13 @@ export class Fleet extends DurableObject<Env> {
    * Старт объекта: соединения, принятые прежним кодом relay, — закрыть словом relay_updated: выпуск relay спящие
    * веб-сокеты не рвёт, и кадры, бывшие в пути при смене кода, теряются молча; клиенты переподключаются по ветке
    * устава «соединение оборвалось», keeper спрашивает план заново, ждущие запросы получают disconnected.
-   * Затем отозванные ключи открытых соединений — закрыть словом revoked. Выпуск relay спящие
-   * веб-сокеты не рвёт (факт живого прогона 31 окт.), поэтому отзыв проверяется здесь, а не только в hello.
-   * gate не ответил — соединения живут, строка в журнале: проверит следующий старт.
    */
   private async recheck(): Promise<void> {
     const stale = this.ctx.getWebSockets().filter((ws) => ws.readyState === 1 && verOf(ws) !== this.ver());
     for (const ws of stale) ws.close(1012, "relay_updated");
-    if (stale.length) log(`relay_updated · закрыто соединений прежнего кода relay: ${stale.length}`);
-    const open = this.live().map((ws) => ({ ws, card: cardOf(ws)! }));
-    if (!open.length) return;
-    let gone: string[];
-    try {
-      gone = await this.within(call(this.env.GATE.revoked(open.map((o) => keyOf(o.card)))), `не ответил за ${this.callMs() / 1000} с`);
-    } catch (e) {
-      return log(`gate_unavailable · проверка отозванных при старте: ${e}`);
-    }
-    if (!gone.length) return;
-    for (const o of open) {
-      const id = keyOf(o.card);
-      if (!gone.includes(id)) continue;
-      log(`revoked ${id} · закрыт при старте объекта`);
-      o.ws.close(1008, "revoked");
-    }
-    await this.broadcast();
+    if (!stale.length) return;
+    log(`relay_updated · закрыто соединений прежнего кода relay: ${stale.length}`);
+    await this.changed();
   }
 
   /** Ошибка в коде relay: строка в журнале и чистый перезапуск объекта. */
@@ -504,9 +529,9 @@ export class Fleet extends DurableObject<Env> {
 
 /**
  * Ответ вызова по привязке: копия значения, а сам результат освобождён сразу.
- * Неосвобождённый результат держит сессию вызова — объект флота не засыпает.
+ * Неосвобождённый результат держит сессию вызова — объект не засыпает.
  */
-async function call<T>(p: T | Promise<T>): Promise<T> {
+export async function call<T>(p: T | Promise<T>): Promise<T> {
   const r = await p;
   if (!r || typeof r !== "object") return r;
   const v = structuredClone(r);

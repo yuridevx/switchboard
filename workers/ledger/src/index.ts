@@ -1,15 +1,15 @@
-// Вход участника рации ledger: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: ".ledger" и roster (у ledger roster@relay в uses).
+// Вход участника рации ledger: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: ".ledger"; вход и уход машины — ledger.add от relay.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Frame } from "@switchboard/protocol";
 import type { Participant as Entry, ParticipantHello } from "@switchboard/relay";
-import { CONTRACT, USES } from "../contract.ts";
+import { CONTRACT } from "../contract.ts";
 import type { Env } from "./env.ts";
 
 export { Journal } from "./journal.ts";
 
 export class Participant extends WorkerEntrypoint<Env> implements Entry {
   hello(): ParticipantHello {
-    return { contract: { ...CONTRACT }, uses: { ...USES } };
+    return { contract: { ...CONTRACT } };
   }
 
   /** Всё — в один объект флота; его кадры (ответы и события) relay доставит от имени ledger. Исключение — relay ответит offline. */

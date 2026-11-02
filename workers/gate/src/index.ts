@@ -1,8 +1,8 @@
 // Worker gate: без состояния, пропуска — в базе D1 gate.
-// Привязка (вход Gate): verify, revoke, revoked. Адрес: POST keys.invite, keys.list (с пропуском), gate.redeem (без пропуска).
+// Привязка (вход Gate): verify, revoke, revoked, list. Адрес: POST keys.invite, keys.list (с пропуском), gate.redeem (без пропуска).
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { accepts, fail, ok, parseFrame, type Reply } from "@switchboard/protocol";
-import { CONTRACT, type GateApi, type VerifyResult } from "../contract.ts";
+import { CONTRACT, type GateApi, type Pass, type VerifyResult } from "../contract.ts";
 import { invite, list, redeem, revoke, revoked, verify, type Env } from "./pass.ts";
 
 export type { Env };
@@ -22,6 +22,12 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
 
   revoked(ids: string[]): Promise<string[]> {
     return revoked(this.env, ids);
+  }
+
+  async list(role?: "host" | "client"): Promise<Pass[]> {
+    const r = await list(this.env, { role });
+    if ("error" in r) throw new Error(r.why);
+    return r.passes;
   }
 }
 

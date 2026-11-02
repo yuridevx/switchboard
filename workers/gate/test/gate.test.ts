@@ -151,6 +151,8 @@ describe("эталоны gate: пропуска в базе D1", () => {
     const all: Pass[] = (await post({ type: "keys.list", key: by })).result.passes;
     expect(all.map((p) => p.state).sort()).toEqual(["ok", "revoked", "wait", "wait"]);
     expect(JSON.stringify(all)).not.toContain("hash");
+    // привязка list — то же: машины флота для входа relay
+    expect((await gate.list("host")).map((p) => p.addr)).toEqual(hosts.map((p) => p.addr));
   });
 
   it("5013 · seed → инструкция вставки; после неё в базе стенда redeem проходит", async () => {

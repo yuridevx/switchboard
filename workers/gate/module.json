@@ -2,7 +2,20 @@
   "name": "gate",
   "type": "worker",
   "version": "1.1.0",
-  "provides": { "gate.verify": 1, "gate.revoke": 1, "gate.revoked": 1, "keys.invite": 1, "keys.list": 1, "gate.redeem": 1 },
+  "provides": {
+    "gate.verify": 1,
+    "gate.revoke": 1,
+    "gate.revoked": 1,
+    "keys.invite": 1,
+    "keys.list": 1,
+    "gate.redeem": 1,
+    "gate.list": 1
+  },
   "uses": {},
-  "config": { "DB": "binding", "FLEET_SECRET": "secret", "REVOKED": "var", "OWNER": "var" }
+  "config": {
+    "DB": "binding",
+    "FLEET_SECRET": "secret",
+    "REVOKED": "var",
+    "OWNER": "var"
+  }
 }
