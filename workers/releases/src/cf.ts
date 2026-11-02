@@ -138,10 +138,12 @@ export async function publishStatic(env: Env, script: string, files: Array<{ pat
   return (await call<{ id: string }>(env, `/workers/scripts/${script}/versions`, { method: "POST", body: fd })).id;
 }
 
-/** Адрес Worker'а: свой домен, если он есть, иначе workers.dev аккаунта. */
-export async function urlOf(env: Env, script: string): Promise<string> {
-  const domains = await api<Array<{ hostname: string }>>(env, "GET", `/workers/domains?service=${script}`);
-  if (domains?.length) return `https://${domains[0].hostname}`;
-  const { subdomain } = await api<{ subdomain: string }>(env, "GET", "/workers/subdomain");
-  return `https://${script}.${subdomain}.workers.dev`;
+/** Адреса Worker'ов по имени: свой домен, если он есть, иначе workers.dev аккаунта. Два обращения на все имена. */
+export async function urlsOf(env: Env, scripts: string[]): Promise<Record<string, string>> {
+  if (!scripts.length) return {};
+  const [domains, { subdomain }] = await Promise.all([
+    api<Array<{ hostname: string; service: string }>>(env, "GET", "/workers/domains"),
+    api<{ subdomain: string }>(env, "GET", "/workers/subdomain"),
+  ]);
+  return Object.fromEntries(scripts.map((s) => [s, `https://${(domains ?? []).find((d) => d.service === s)?.hostname ?? `${s}.${subdomain}.workers.dev`}`]));
 }

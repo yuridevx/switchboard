@@ -846,7 +846,7 @@ describe("сборка страницы «Выпусками»", () => {
       if (p === "/workers/assets/upload") return req.headers.get("authorization") === "Bearer up" ? (sent.uploads++, ok({ jwt: "done" })) : new Response(null, { status: 401 });
       if (req.headers.get("authorization") !== "Bearer test-token") return new Response(null, { status: 401 });
       if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
-      if (p === "/workers/domains") return ok(u.searchParams.get("service") === "switchboard" ? [{ hostname: "relay.example" }] : []);
+      if (p === "/workers/domains") return ok([{ hostname: "relay.example", service: "switchboard" }, { hostname: "other.example", service: "чужой" }]);
       if (p === "/workers/scripts/switchboard-pult/assets-upload-session") {
         sent.manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
         return ok({ jwt: "up", buckets: [Object.values(sent.manifest).map((x) => x.hash)] });

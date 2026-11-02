@@ -13,7 +13,7 @@
 import { accepts, fail, kindOf, machineOf, ok, within, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Fetched, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
-import { CfFailed, deploy, deployed, publishStatic, urlOf, versions } from "./cf.ts";
+import { CfFailed, deploy, deployed, publishStatic, urlsOf, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
 import { BUILD_FILE, buildFile, entries, manifestOf, pack, parseSha, presign, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey, webBuild, type BuildList } from "@switchboard/release";
@@ -437,15 +437,16 @@ class Releases {
     return list;
   }
 
-  /** Манифесты списка по версиям каталога. */
+  /** Манифесты списка по версиям каталога — разом. */
   private async manifests(list: Map<string, string>): Promise<Map<string, CatManifest>> {
-    const out = new Map<string, CatManifest>();
-    for (const [n, v] of list) {
-      const m = await this.manifest(n, v);
-      if (!m) throw new Refusal("check_failed", `у ${n} ${v} нет module.json в начале архива`);
-      out.set(n, m);
-    }
-    return out;
+    const got = await Promise.all(
+      [...list].map(async ([n, v]) => {
+        const m = await this.manifest(n, v);
+        if (!m) throw new Refusal("check_failed", `у ${n} ${v} нет module.json в начале архива`);
+        return [n, m] as const;
+      }),
+    );
+    return new Map(got);
   }
 
   /**
@@ -461,17 +462,21 @@ class Releases {
     // списки всех приложений флота: собираемые — с заменой, остальные — как выложены
     const roots = [...kinds].filter(([, k]) => k.app).map(([p]) => p);
     for (const app of apps) if (!roots.includes(app)) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
+    const t0 = Date.now();
     const cur = new Map<string, string | null>();
     const lists = new Map<string, Map<string, CatManifest>>();
-    for (const app of roots) {
-      cur.set(app, await this.current(app, s));
-      const list = await this.listOf(app, cur.get(app)!);
-      if (apps.includes(app)) {
-        if (change.version === null) list.delete(change.name);
-        else list.set(change.name, change.version);
-      }
-      lists.set(app, await this.manifests(list));
-    }
+    await Promise.all(
+      roots.map(async (app) => {
+        cur.set(app, await this.current(app, s));
+        const list = await this.listOf(app, cur.get(app)!);
+        if (apps.includes(app)) {
+          if (change.version === null) list.delete(change.name);
+          else list.set(change.name, change.version);
+        }
+        lists.set(app, await this.manifests(list));
+      }),
+    );
+    const tList = Date.now();
     const inBuilds = new Set([...lists.values()].flatMap((l) => [...l.keys()]));
     // модуль во многих сборках (ядро страницы) — один раз: версии в сборках одного флота сверяются как одно имя
     const set = new Map<string, CatManifest>();
@@ -490,6 +495,7 @@ class Releases {
     const stable = { ...s.stable };
     const built: Array<[string, string]> = [];
     for (const app of apps) {
+      const tApp = Date.now();
       const mans = lists.get(app)!;
       const root = mans.get(app)!;
       const mods = order([...mans.values()].filter((m) => m.name !== app));
@@ -499,8 +505,9 @@ class Releases {
       const k = kinds.get(app)!;
       // адреса Worker'ов, которыми пользуются корень и модули сборки (relay, gate, …), — у Cloudflare по имени
       const owners = new Set([...mans.values()].flatMap((m) => Object.keys(m.uses ?? {}).map(ownerOf)));
-      const workers: Record<string, string> = {};
-      for (const [p, kk] of kinds) if (kk.where === "cloud" && !kk.app && owners.has(p)) workers[p] = await urlOf(this.env, kk.script);
+      const used = [...kinds].filter(([p, kk]) => kk.where === "cloud" && !kk.app && owners.has(p)) as Array<[string, { script: string }]>;
+      const urls = await urlsOf(this.env, used.map(([, kk]) => kk.script));
+      const workers: Record<string, string> = Object.fromEntries(used.map(([p, kk]) => [p, urls[kk.script]]));
       const list: BuildList = { app, version, fleet: this.env.FLEET, modules, workers };
       let files: Array<{ path: string; data: Buffer }>;
       if (k.where === "cloud") {
@@ -524,6 +531,7 @@ class Releases {
         built.push([app, version]);
       }
       result.parts[app] = { from: cur.get(app) ?? null, to: version };
+      log({ kind: "note", ev: "rebuild", why: `${app} ${version}: списки и проверка ${tList - t0} мс, сборка и выкладка ${Date.now() - tApp} мс` });
     }
     const plans: Frame[] = [];
     if (built.length) {
