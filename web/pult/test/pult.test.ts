@@ -110,6 +110,18 @@ describe("раскладка широкого вида", () => {
     expect(mine()).not.toContain("wiki@laptop");
   });
 
+  it("5222 · моё по цепочке: задачу дала моя сессия (from — позывной) — сессия в «Моём»; дала чужая — нет", async () => {
+    // источник: прототип «Пульт и телефон»: «моё — дочерние моих»; живой флот 3 нояб.: flow-1@wsl с from flow@win была «чужой»
+    const roster = fleetRoster();
+    roster.sessions = roster.sessions.map((s) =>
+      s.callsign === "wiki@laptop" ? { ...s, from: "site@laptop" } : s.callsign === "docs@pc" ? { ...s, from: "laptop~anna@example.com" } : s.callsign === "api@pc" ? { ...s, from: "docs@pc" } : s,
+    );
+    const t = await pult({ relay: fleetRelay(roster) });
+    const mine = t.$$(".bd-row").map((b) => b.dataset.callsign);
+    expect(mine).toContain("wiki@laptop");
+    expect(mine).not.toContain("api@pc");
+  });
+
   it("5219 · поиск сессии — Ctrl K: по позывному, без кадров; строка открывает карточку", async () => {
     // источник: прототип «Пульт и телефон»: «Найти сессию — Ctrl K, отдельного поиска в «Работе» нет»
     const t = await pult();

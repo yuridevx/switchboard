@@ -155,7 +155,7 @@ code{font-family:var(--mono)}
 .sb-b.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .sb-b.bad{color:var(--bad);border-color:var(--bad);background:transparent}
 .sb-b.dash{border-style:dashed;color:var(--muted);background:transparent}
-.sb-b[aria-pressed="true"]{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
+.sb-b[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .sb-b[disabled]{opacity:.45;cursor:default}
 .sb-in{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:13.5px var(--body);color:var(--ink);background:var(--bg);min-width:0}
 .sb-in.m{font-family:var(--mono);font-size:12.5px}

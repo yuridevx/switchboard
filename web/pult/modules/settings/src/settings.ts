@@ -156,7 +156,7 @@ export function createSettings(): AppModule {
     const pin = pe?.pin;
     const want = pin ?? stableOf(part);
     const online = machines().includes(m);
-    const kp = st && !("error" in st) ? st.parts?.find((x) => x.part === part) : undefined;
+    const kp = st && !("error" in st) ? (part === "keeper" && st.keeper ? { part, version: st.keeper, state: "running" } : st.parts?.find((x) => x.part === part)) : undefined;
     if (!online || !st || "error" in st) return kp || pe || want ? { k: "gone", t: kp?.version ?? want ?? "—", pin } : null;
     if (!kp && !pe) return null;
     if (pe?.on === false) return { k: "off", t: "выключена", pin };

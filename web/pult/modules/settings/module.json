@@ -1,8 +1,11 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "1.0.0",
-  "into": ["pult", "phone"],
+  "version": "1.0.1",
+  "into": [
+    "pult",
+    "phone"
+  ],
   "provides": {
     "settings": 1
   },

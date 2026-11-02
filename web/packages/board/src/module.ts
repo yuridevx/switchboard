@@ -141,7 +141,9 @@ export function createBoard(): AppModule {
     if (pins.includes(s.callsign)) return "закреплена вами";
     if (isMe(s.from, email)) return "задачу дали вы";
     if (isMe(s.parent, email)) return "открыли вы";
-    const p = parentOf(s);
+    // открыла или дала задачу сессия — моя, если моя она
+    const sender = typeof s.from === "string" && kindOf(s.from) === "session" && s.from !== s.callsign ? s.from : null;
+    const p = parentOf(s) ?? sender;
     const ps = p ? sessions().find((x) => x.callsign === p) : undefined;
     if (ps && depth < 8 && whyMine(ps, email, depth + 1)) return `открыла ваша ${ps.callsign}`;
     return "";
