@@ -60,8 +60,10 @@ const mp = await req({ type: "machine.profiles", machine: M1 });
 check("machine.profiles: модель профиля и сессия на нём", mp.result?.profiles?.[ID]?.model === "claude-haiku-4-5" && mp.result.profiles[ID].sessions.includes(A), mp.result?.profiles?.[ID]);
 
 // --- память профиля: запись на одной машине → репозиторий → другая машина ---
+// метка прогона: память профиля копит записи прошлых прогонов — спрашиваем запись именно этого
+const run = `прогон-${Date.now().toString(36)}`;
 const color = `бирюзовый-${Date.now() % 10000}`;
-await turn(A, `Сохрани в свою автоматическую память (memory) факт: мой любимый цвет — «${color}». Запиши файлом памяти, подтверди одним словом.`);
+await turn(A, `Сохрани в свою автоматическую память (memory) факт: цвет для метки «${run}» — «${color}». Запиши файлом памяти, подтверди одним словом.`);
 const pushed = await wait(async () => {
   const r = await req({ type: "machine.profiles", machine: M1, sync: true });
   return r.result?.repos?.[process.env.FLOW_REPO!]?.state === "ok" && /память/.test(r.result.repos[process.env.FLOW_REPO!].last ?? "");
@@ -79,7 +81,7 @@ check("session.profile сессии, которой нет, — offline: про�
 await req({ type: "session.open", machine: M2, name: "prof", dir, model: "claude-haiku-4-5", profile: ID });
 await state(B, "idle");
 check("сессия открылась сразу с профилем", rec(B)?.profile?.id === ID, rec(B)?.profile);
-const recall = await turn(B, "Какой мой любимый цвет? Посмотри в своей памяти и повтори запись дословно, вместе с цифрами.");
+const recall = await turn(B, `Какой цвет для метки «${run}»? Посмотри в своей памяти и повтори запись дословно, вместе с цифрами.`);
 check(`${M2}: память профиля с другой машины`, recall.includes(color), recall);
 
 // --- снятие профиля ---
