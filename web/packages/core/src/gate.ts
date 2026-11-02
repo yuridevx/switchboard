@@ -18,7 +18,8 @@ const stores = (names: string[]) => Object.fromEntries(names.map((s) => [`store.
 export function appGate(parts: AppPart[]): string[] {
   const errors: string[] = [];
   const inSet = new Set([CORE.name, ...parts.map((p) => p.manifest.name)]);
-  const set: GateManifest[] = [{ ...CORE, uses: {}, config: {}, provides: { ...CORE.provides, ...stores(CORE_STORE) } }];
+  // into сверяют гейт монорепо и выкладка: корня приложения в наборе страницы нет
+  const set: GateManifest[] = [{ name: CORE.name, type: CORE.type, version: CORE.version, uses: {}, config: {}, provides: { ...CORE.provides, ...stores(CORE_STORE) } }];
 
   for (const { manifest: m, module: mod } of parts) {
     const own = (kind: string, names: string[]) => {

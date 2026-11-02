@@ -2,6 +2,7 @@
   "name": "web-alerts",
   "type": "web",
   "version": "1.0.0",
+  "into": ["pult", "phone"],
   "provides": { "alerts": 1 },
   "uses": {
     "app@web-core": 1,

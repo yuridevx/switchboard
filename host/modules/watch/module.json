@@ -2,6 +2,7 @@
   "name": "host-watch",
   "type": "sdk",
   "version": "1.0.1",
+  "into": ["host"],
   "provides": {
     "session.watch": 1,
     "session.unwatch": 1,

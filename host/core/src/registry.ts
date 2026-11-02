@@ -1,5 +1,6 @@
 // Реестр «имя → владелец» и гейт старта Host: тот же check гейта монорепо над списком модулей,
-// плюс устройство кода: обработчики — ровно имена provides, calls — методы закреплённого SDK, решения — по одному владельцу.
+// плюс устройство кода: обработчики, решения по инструменту (decide.<инструмент>) и формы MCP (elicit) — имена provides,
+// calls — методы закреплённого SDK. Один владелец у решения — то же правило имён гейта.
 import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
 import type { Manifest } from "../contract.ts";
 import { CORE_ONLY, isCallable } from "./calls.ts";
@@ -30,8 +31,6 @@ export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): st
   }
   errors.push(...check(manifests).map((e) => e.replace(/^имя /, "")));
 
-  const decideOwner = new Map<string, string>();
-  let elicitOwner: string | null = null;
   for (const { manifest: m, module: mod } of entries) {
     const provides = m.provides ?? {};
     for (const kind of ["requests", "frames", "fields"] as const) {
@@ -44,15 +43,8 @@ export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): st
       if (CORE_ONLY.has(c)) errors.push(`${m.name}: calls ${c} — метод держит ядро`);
       else if (!isCallable(c)) errors.push(`${m.name}: calls ${c} — такого метода нет в SDK`);
     }
-    for (const tool of Object.keys(mod.decide ?? {})) {
-      const o = decideOwner.get(tool);
-      if (o) errors.push(`decide ${tool}: два владельца — ${o} и ${m.name}`);
-      else decideOwner.set(tool, m.name);
-    }
-    if (mod.elicit) {
-      if (elicitOwner) errors.push(`elicit: два владельца — ${elicitOwner} и ${m.name}`);
-      else elicitOwner = m.name;
-    }
+    for (const tool of Object.keys(mod.decide ?? {})) if (provides[`decide.${tool}`] === undefined) errors.push(`${m.name}: decide.${tool} — нет в provides`);
+    if (mod.elicit && provides.elicit === undefined) errors.push(`${m.name}: elicit — нет в provides`);
   }
   return errors;
 }

@@ -2,6 +2,7 @@
   "name": "host-points",
   "type": "sdk",
   "version": "1.0.0",
+  "into": ["host"],
   "provides": {
     "points.save": 1,
     "points.raise": 1,

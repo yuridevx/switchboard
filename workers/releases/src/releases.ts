@@ -3,13 +3,16 @@
 // вторая одновременная не находит строку — conflict. Версии частей машины — архивы в R2 (готова та, у которой лежит
 // .sha256), частей Cloudflare — версии Worker'а с меткой. edge — новейшая версия, не хранится. План машины уходит её
 // keeper: ответом на releases.plan и кадром relay.deliver при перемене. Строки журнала — ledger.add по своей привязке.
+// Вид части — из каталога, по module.json в начале новейшего архива: workers — часть Cloudflare, имя Worker'а — по
+// флоту из настройки FLEET; тип os или архив без манифеста (сборка Host) — часть машины; остальные модули входят
+// в сборки и частями не бывают.
 import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
 import { CfFailed, deploy, deployed, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
-import { parseSha, presign, RELEASES_BUCKET, shaKey, tgzKey, VERSION_RE as VERSION } from "@switchboard/release";
+import { manifestOf, parseSha, presign, RELEASES_BUCKET, shaKey, tgzKey, VERSION_RE as VERSION } from "@switchboard/release";
 
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
 /** части каждой машины: без записи в плане — за stable; они же — части машины из сборки для deploy * */
@@ -34,6 +37,12 @@ class Refusal {
   }
 }
 
+/** Вид части: Cloudflare — с именем Worker'а этого флота, или машины. */
+type Kind = { where: "cloud"; script: string } | { where: "machine" };
+
+/** Начало архива, которого хватает на module.json. */
+const HEAD = 64 * 1024;
+
 /** Строка флота: stable часть → версия, отличия планов машина → часть → запись, rev. */
 type Fleet = { stable: Record<string, string>; plans: Record<string, Record<string, PlanEntry>>; rev: number };
 
@@ -44,6 +53,8 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
 
 class Releases {
   private env: Env;
+  /** вид частей каталога — читается один раз на запрос */
+  private kinds?: Promise<Map<string, Kind>>;
   constructor(env: Env) {
     this.env = env;
   }
@@ -143,16 +154,40 @@ class Releases {
     return out.sort(cmp);
   }
 
-  /** Части машины, у которых есть архивы. */
-  private async machineParts(): Promise<string[]> {
-    const out: string[] = [];
-    let cursor: string | undefined;
-    do {
-      const r = await this.env.BUCKET.list({ delimiter: "/", cursor });
-      for (const p of r.delimitedPrefixes) out.push(p.replace(/\/$/, ""));
-      cursor = r.truncated ? r.cursor : undefined;
-    } while (cursor);
-    return out;
+  /** Части каталога и их вид: новейшая готовая версия каждого модуля → его module.json. */
+  private partKinds(): Promise<Map<string, Kind>> {
+    this.kinds ??= (async () => {
+      const ready = new Map<string, string[]>();
+      let cursor: string | undefined;
+      do {
+        const r = await this.env.BUCKET.list({ cursor });
+        for (const o of r.objects) {
+          const i = o.key.indexOf("/");
+          const p = o.key.slice(0, i);
+          const v = o.key.slice(i + 1).replace(/\.sha256$/, "");
+          if (o.key === shaKey(p, v) && VERSION.test(v)) ready.set(p, [...(ready.get(p) ?? []), v]);
+        }
+        cursor = r.truncated ? r.cursor : undefined;
+      } while (cursor);
+      const out = new Map<string, Kind>();
+      await Promise.all(
+        [...ready].map(async ([p, vs]) => {
+          const o = await this.env.BUCKET.get(tgzKey(p, newest(vs)!), { range: { offset: 0, length: HEAD } });
+          const m = o ? await manifestOf(new Uint8Array(await o.arrayBuffer())) : null;
+          const script = (m?.workers as Record<string, string> | undefined)?.[this.env.FLEET];
+          if (script) out.set(p, { where: "cloud", script });
+          else if (!m || m.type === "os") out.set(p, { where: "machine" });
+        }),
+      );
+      return out;
+    })();
+    return this.kinds;
+  }
+
+  /** Имя Worker'а части Cloudflare этого флота; часть машины или не часть — null. */
+  private async script(part: string): Promise<string | null> {
+    const k = (await this.partKinds()).get(part);
+    return k?.where === "cloud" ? k.script : null;
   }
 
   private link(method: "GET" | "PUT", key: string): Promise<string> {
@@ -217,14 +252,19 @@ class Releases {
   private async list(part?: string): Promise<Listed> {
     const s = await this.load();
     const parts: Listed["parts"] = {};
-    const cloud = Object.keys(this.env.CLOUD).filter((p) => !part || p === part);
-    const machine = part ? (this.env.CLOUD[part] ? [] : [part]) : [...new Set([...(await this.machineParts()), ...Object.keys(s.stable)])].filter((p) => !this.env.CLOUD[p]);
+    const kinds = await this.partKinds();
+    const cloud = [...kinds].filter(([p, k]) => k.where === "cloud" && (!part || p === part)).map(([p]) => p);
+    const machine = part ? (kinds.get(part)?.where === "cloud" ? [] : [part]) : [...new Set([...kinds.keys(), ...Object.keys(s.stable)])].filter((p) => kinds.get(p)?.where !== "cloud" && (kinds.has(p) || s.stable[p]));
     for (const p of machine.sort()) parts[p] = { where: "machine", edge: newest(await this.machineVersions(p)), stable: s.stable[p] ?? null };
-    for (const p of cloud) {
-      const vs = await versions(this.env, this.env.CLOUD[p]);
-      const cur = await deployed(this.env, this.env.CLOUD[p]);
-      parts[p] = { where: "cloud", edge: newest(vs.keys()), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null };
-    }
+    // Worker'ы спрашиваются у API Cloudflare разом: по одному — секунда на каждый
+    const found = await Promise.all(
+      cloud.sort().map(async (p) => {
+        const script = (await this.script(p))!;
+        const [vs, cur] = await Promise.all([versions(this.env, script), deployed(this.env, script)]);
+        return [p, { where: "cloud" as const, edge: newest(vs.keys()), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null }] as const;
+      }),
+    );
+    for (const [p, x] of found) parts[p] = x;
     const machines: Listed["machines"] = (await this.machines()).map((m) => {
       const plan = s.plans[m] ?? {};
       return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
@@ -236,7 +276,6 @@ class Releases {
     const part = f.part;
     const version = f.version;
     if (typeof part !== "string" || !NAME.test(part)) throw new Refusal("bad_frame", "part — имя части");
-    if (this.env.CLOUD[part]) throw new Refusal("bad_frame", `${part} — часть Cloudflare: её версии загружает wrangler`);
     if (typeof version !== "string" || !VERSION.test(version)) throw new Refusal("bad_version", "версия — три числа");
     if ((await this.env.BUCKET.head(tgzKey(part, version))) || (await this.env.BUCKET.head(shaKey(part, version))))
       throw new Refusal("version_exists", `${part} ${version} уже загружена — версия загружается один раз`);
@@ -251,7 +290,10 @@ class Releases {
     if (part === "*" && f.version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
     const s = await this.load();
     // relay — последним: его выкладка рвёт соединения флота
-    const cloudOrder = Object.keys(this.env.CLOUD).sort((a, b) => Number(a === "relay") - Number(b === "relay"));
+    const cloudOrder = [...(await this.partKinds())]
+      .filter(([, k]) => k.where === "cloud")
+      .map(([p]) => p)
+      .sort((a, b) => Number(a === "relay") - Number(b === "relay") || (a < b ? -1 : 1));
     const targets = part === "*" ? [...DEFAULT, ...cloudOrder] : [part];
     const result: Deployed = { parts: {} };
     // stable частей машины пишется после цикла: отказ Cloudflare посреди «*» не оставляет stable без rev и планов
@@ -260,7 +302,7 @@ class Releases {
       const want = part === "*" ? undefined : (f.version as string | undefined);
       let from: string | null;
       let to: string;
-      const script = this.env.CLOUD[p];
+      const script = await this.script(p);
       if (script) {
         const vs = await versions(this.env, script);
         const t = want ?? newest(vs.keys());
@@ -300,7 +342,7 @@ class Releases {
     const m = f.machine;
     const p = f.part;
     if (typeof m !== "string" || !NAME.test(m)) throw new Refusal("bad_frame", "machine — имя машины");
-    if (typeof p !== "string" || !NAME.test(p) || this.env.CLOUD[p]) throw new Refusal("bad_frame", "part — имя части машины");
+    if (typeof p !== "string" || !NAME.test(p) || (await this.script(p))) throw new Refusal("bad_frame", "part — имя части машины");
     if (p === "keeper" && (f.on !== undefined || f.force !== undefined || f.env !== undefined || f.remove !== undefined))
       throw new Refusal("bad_frame", "у keeper — только pin");
     const s = await this.load();

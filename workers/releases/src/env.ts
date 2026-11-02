@@ -15,8 +15,8 @@ export interface Env {
   R2_LINK_KEY_ID: string;
   R2_LINK_SECRET: string;
   CF_ACCOUNT_ID: string;
-  /** части Cloudflare: имя части → имя Worker'а */
-  CLOUD: Record<string, string>;
+  /** имя флота: по нему — имя Worker'а из module.json каталога (workers.<флот>) */
+  FLEET: string;
   /** привязка к бакету выпусков: список и хэши архивов */
   BUCKET: R2Bucket;
 }

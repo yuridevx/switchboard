@@ -126,11 +126,11 @@ describe("гейт старта Host", () => {
       "host-k: keeper.state@keeper — нет relay (SWITCHBOARD_RELAY)",
       "host-k2: spawn@keeper — нет relay (SWITCHBOARD_RELAY)",
       "host-p: push.send@push — нет relay (SWITCHBOARD_RELAY)",
+      "decide.AskUserQuestion: два владельца — host-q1 и host-q2",
       "host-a: requests.x — нет в provides",
       "host-b: поле state — имя ядра",
       "host-c: calls close — метод держит ядро",
       "host-c: calls nope — такого метода нет в SDK",
-      "decide AskUserQuestion: два владельца — host-q1 и host-q2",
     ]);
   });
 

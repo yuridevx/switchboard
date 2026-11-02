@@ -2,6 +2,7 @@
   "name": "web-ask",
   "type": "web",
   "version": "1.0.0",
+  "into": ["pult", "phone"],
   "provides": {
     "ask": 1,
     "asked": 1

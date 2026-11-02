@@ -2,6 +2,7 @@
   "name": "host-remote",
   "type": "sdk",
   "version": "1.1.0",
+  "into": ["host"],
   "provides": { "remote": 1 },
   "uses": {
     "host.module@host": 1,

@@ -48,7 +48,9 @@ export type Attachment = { name: string; media_type: string; data: string };
 
 /**
  * module.json модуля Host.
- * provides — имена, которыми модуль владеет: запросы, кадры (и входящие, и те, что он шлёт), поля roster.
+ * provides — имена, которыми модуль владеет: запросы, кадры (и входящие, и те, что он шлёт), поля roster,
+ *   решение по инструменту — decide.<инструмент>, формы MCP — elicit.
+ * into — ["host"]: модуль входит в сборку Host.
  * uses — "имя@владелец": версия; владелец — модуль Host, keeper машины (через relay, to .keeper@машина) или Worker-модуль (через relay).
  * calls — методы query() и функции SDK сессии, которые модуль зовёт через s.sdk / p.sdk.
  * config — схема своего раздела host.json (host.config()).
@@ -61,6 +63,7 @@ export type Manifest = {
   uses: Record<string, number>;
   calls?: string[];
   config: Record<string, "secret" | "var" | "binding">;
+  into?: string[];
 };
 
 // ───────────────────────── что модуль отдаёт ядру ─────────────────────────

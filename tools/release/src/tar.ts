@@ -42,9 +42,13 @@ function header(path: string, size: number, mode: number, type: "0" | "5"): Buff
   return h;
 }
 
-/** Собрать tgz: файлы по порядку путей, папки — из путей. */
+/** Манифест модуля в корне архива — первой записью: «Выпуски» читают его по началу архива. */
+export const MANIFEST = "module.json";
+
+/** Собрать tgz: манифест модуля первым, остальные файлы по порядку путей, папки — из путей. */
 export function pack(files: TarFile[]): Buffer {
-  const sorted = [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const key = (p: string) => (p === MANIFEST ? "" : p);
+  const sorted = [...files].sort((a, b) => (key(a.path) < key(b.path) ? -1 : key(a.path) > key(b.path) ? 1 : 0));
   const parts: Buffer[] = [];
   const dirs = new Set<string>();
   for (const f of sorted) {
@@ -90,6 +94,29 @@ export function entries(tgz: Buffer): Array<{ path: string; data: Buffer | null;
     off += Math.ceil(size / BLOCK) * BLOCK;
   }
   return out;
+}
+
+/**
+ * Манифест модуля по началу архива: первая запись — module.json → его содержимое, иначе null (архив без манифеста:
+ * сборка Host, keeper). Распаковывает только начало: хватает первых килобайт архива.
+ */
+export async function manifestOf(head: Uint8Array): Promise<Record<string, unknown> | null> {
+  const r = new Blob([new Uint8Array(head)]).stream().pipeThrough(new DecompressionStream("gzip")).getReader();
+  let buf = Buffer.alloc(0);
+  try {
+    for (;;) {
+      if (buf.length >= BLOCK) {
+        if (str(buf, 0, 100) !== MANIFEST || str(buf, 345, 155)) return null;
+        const end = BLOCK + parseInt(str(buf, 124, 12).trim() || "0", 8);
+        if (buf.length >= end) return JSON.parse(buf.subarray(BLOCK, end).toString("utf8")) as Record<string, unknown>;
+      }
+      const { done, value } = await r.read();
+      if (done) return null;
+      buf = Buffer.concat([buf, value]);
+    }
+  } finally {
+    r.cancel().catch(() => {});
+  }
 }
 
 /** Архив всей папки: файлы с путями от неё; исполняемые — с режимом 755. Папка приложения для загрузки из сессии. */

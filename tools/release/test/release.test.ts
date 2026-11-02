@@ -5,13 +5,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { bucketOf, main, parseArgs } from "../cli.ts";
-import { pack, packDir, parseSha, presign, sha256hex, shaLine } from "../contract.ts";
+import { manifestOf, pack, packDir, parseSha, presign, sha256hex, shaLine } from "../contract.ts";
 import { s3, sign } from "../src/s3.ts";
 import type { Fetch } from "../src/s3.ts";
 import { entries } from "../src/tar.ts";
 import { build, closure, packageFiles } from "../src/build.ts";
 import type { Exec } from "../src/build.ts";
 import { buildKeeper } from "../src/keeper.ts";
+import { packModule } from "../src/module.ts";
 import type { GoExec } from "../src/keeper.ts";
 import { dirBucket, s3Bucket, upload } from "../src/publish.ts";
 import type { Bucket } from "../src/publish.ts";
@@ -310,5 +311,28 @@ describe("сборка выпуска", () => {
     await expect(build({ root, version: "1.4.2", out, exec: exec('{ "ok": true, "version": "1.4.0" }') })).rejects.toThrow("версия 1.4.0");
     await expect(build({ root, version: "v1", out, exec: exec("") })).rejects.toThrow("не вида");
     expect(existsSync(join(out, "1.4.2.tgz"))).toBe(false);
+  });
+});
+
+describe("каталог модулей", () => {
+  it("5113 · архив модуля: module.json первой записью и читается по началу архива; у Worker'а — только module.json с именами по флотам из wrangler", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): имён Worker'ов в манифестах, написанных руками, 0
+    const d = tmp();
+    writeFileSync(join(d, "module.json"), JSON.stringify({ name: "hello-worker", type: "worker", version: "0.1.0", provides: {}, uses: {}, config: {} }));
+    writeFileSync(join(d, "wrangler.jsonc"), `// Worker\n{ "name": "hello", /* тест */ "main": "src/index.ts", "env": { "prod": { "routes": ["https://x//y"], }, "eu": { "name": "hello-eu" } } }`);
+    const w = packModule(d);
+    expect(entries(w.tgz).map((e) => e.path)).toEqual(["module.json"]);
+    expect(await manifestOf(w.tgz)).toMatchObject({ name: "hello-worker", version: "0.1.0", workers: { test: "hello", prod: "hello-prod", eu: "hello-eu" } });
+
+    const h = tmp();
+    mkdirSync(join(h, "src"));
+    writeFileSync(join(h, "contract.ts"), "export {};\n");
+    writeFileSync(join(h, "src", "a.ts"), "export const a = 1;\n");
+    writeFileSync(join(h, "module.json"), JSON.stringify({ name: "hello-host", type: "sdk", version: "0.1.0", into: ["host"] }));
+    const m = packModule(h);
+    expect(entries(m.tgz).map((e) => e.path)).toEqual(["module.json", "contract.ts", "src/", "src/a.ts"]);
+    expect(await manifestOf(m.tgz)).toMatchObject({ name: "hello-host", into: ["host"] });
+    expect(await manifestOf(pack([{ path: "app.json", data: Buffer.from("{}") }]))).toBeNull();
+    expect(packModule(h).sha).toBe(m.sha);
   });
 });

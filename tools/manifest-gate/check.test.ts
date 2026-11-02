@@ -53,6 +53,19 @@ describe("гейт манифестов", () => {
     expect(r.stdout.trim()).toMatch(/^gate: ok · \d+ модулей · \d+ имён контракта$/);
   });
 
+  it("5111 · into называет корень сборки своего типа: модуль Host — в ядро, экран — в оболочку страницы; у Worker into нет", () => {
+    const set = [
+      m("host", { type: "sdk-core" }),
+      m("pult", { type: "web-app" }),
+      m("host-chat", { type: "sdk", into: ["host"] }),
+      m("pult-open", { type: "web", into: ["pult"] }),
+    ];
+    expect(check(set)).toEqual([]);
+    expect(
+      check([...set, m("host-x", { type: "sdk", into: ["pult"] }), m("web-x", { type: "web", into: ["phone"] }), m("push", { into: ["host"] })]),
+    ).toEqual(["модуль host-x: into pult — pult не sdk-core", "модуль web-x: into phone — такого приложения нет в наборе", "модуль push: into у типа worker не бывает"]);
+  });
+
   it("секрет в двух модулях и повтор имени модуля", () => {
     const e = check([m("gate", { config: { FLEET_SECRET: "secret" } }), m("relay", { config: { FLEET_SECRET: "secret" } }), m("relay")]);
     expect(e).toContain("секрет FLEET_SECRET: в config двух модулей — gate и relay");

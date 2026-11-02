@@ -2,6 +2,7 @@
   "name": "host-accounts",
   "type": "sdk",
   "version": "2.0.0",
+  "into": ["host"],
   "provides": {
     "machine.accounts": 1,
     "machine.login": 1,

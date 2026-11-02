@@ -2,6 +2,7 @@
   "name": "pult-machines",
   "type": "web",
   "version": "2.0.0",
+  "into": ["pult"],
   "provides": {
     "machines": 1
   },

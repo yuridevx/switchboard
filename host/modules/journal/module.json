@@ -2,6 +2,7 @@
   "name": "host-journal",
   "type": "sdk",
   "version": "2.0.0",
+  "into": ["host"],
   "provides": { "machine.journal": 2 },
   "uses": {
     "host.module@host": 1

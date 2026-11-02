@@ -2,6 +2,7 @@
   "name": "host-profiles",
   "type": "sdk",
   "version": "1.0.0",
+  "into": ["host"],
   "provides": {
     "session.profile": 1,
     "machine.profiles": 1,

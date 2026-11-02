@@ -24,18 +24,8 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Releases"] }, { "tag": "v2", "deleted_classes": ["Releases"] }],
   "vars": {
     "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
-    // части Cloudflare: имя части → имя Worker'а
-    "CLOUD": {
-      "relay": "switchboard",
-      "gate": "switchboard-gate",
-      "push": "switchboard-push",
-      "points": "switchboard-points",
-      "ledger": "switchboard-ledger",
-      "github": "switchboard-github",
-      "releases": "switchboard-releases",
-      "phone": "switchboard-phone",
-      "pult": "switchboard-pult"
-    }
+    // флот: имя Worker'а части — из module.json каталога (workers.<флот>)
+    "FLEET": "test"
   },
   // прод: свои stable и планы машин; архивы частей машины — тот же бакет выпусков (CI грузит их один раз)
   "env": {
@@ -50,17 +40,7 @@
       "d1_databases": [{ "binding": "DB", "database_name": "switchboard-releases-prod", "database_id": "23066d12-7314-4a5c-aea2-d37299edbdf6", "migrations_dir": "migrations" }],
       "vars": {
         "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
-        "CLOUD": {
-          "relay": "switchboard-prod",
-          "gate": "switchboard-gate-prod",
-          "push": "switchboard-push-prod",
-          "points": "switchboard-points-prod",
-          "ledger": "switchboard-ledger-prod",
-          "github": "switchboard-github-prod",
-          "releases": "switchboard-releases-prod",
-          "phone": "switchboard-phone-prod",
-          "pult": "switchboard-pult-prod"
-        }
+        "FLEET": "prod"
       }
     }
   }

@@ -9,17 +9,22 @@ export type Manifest = {
   /** "имя@владелец" → версия */
   uses: Record<string, number>;
   config: Record<string, ConfigKind>;
+  /** приложения, в которые модуль входит: корни сборок — ядро Host или оболочка страницы */
+  into?: string[];
   /** пакеты @switchboard/*, которые импортирует код модуля (без тестов) — заполняет loadRepo */
   imports?: string[];
   /** имя npm-пакета модуля — заполняет loadRepo */
   pkg?: string;
 };
 
-/** Проверить набор модулей. Пустой список — набор годен; иначе — причины словами. */
 /** Ссылка манифеста «имя@владелец»: имя и владелец. Одно правило для гейта, ядра Host и ядра веба. */
 export const nameOf = (ref: string) => ref.slice(0, ref.lastIndexOf("@"));
 export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
 
+/** Тип модуля → тип корня приложения, в которое он входит. Другие типы ни во что не входят. */
+const ROOT: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
+
+/** Проверить набор модулей. Пустой список — набор годен; иначе — причины словами. */
 export function check(mods: Manifest[]): string[] {
   const errors: string[] = [];
   const byName = new Map<string, Manifest>();
@@ -50,6 +55,16 @@ export function check(mods: Manifest[]): string[] {
       if (!o) errors.push(`модуль ${m.name}: uses ${ref} — владельца нет в наборе`);
       else if (o.provides[n] === undefined) errors.push(`модуль ${m.name}: uses ${ref} — ${o.name} не отдаёт ${n}`);
       else if (o.provides[n] !== v) errors.push(`модуль ${m.name}: uses ${ref} v${v} — у владельца v${o.provides[n]}`);
+    }
+  }
+
+  // into: каждое приложение — корень сборки типа модуля в наборе
+  for (const m of mods) {
+    for (const app of m.into ?? []) {
+      const o = byName.get(app);
+      if (!ROOT[m.type]) errors.push(`модуль ${m.name}: into у типа ${m.type} не бывает`);
+      else if (!o) errors.push(`модуль ${m.name}: into ${app} — такого приложения нет в наборе`);
+      else if (o.type !== ROOT[m.type]) errors.push(`модуль ${m.name}: into ${app} — ${app} не ${ROOT[m.type]}`);
     }
   }
 

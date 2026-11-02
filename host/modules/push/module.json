@@ -2,6 +2,7 @@
   "name": "host-push",
   "type": "sdk",
   "version": "3.0.0",
+  "into": ["host"],
   "provides": { "notify": 1 },
   "uses": {
     "host.module@host": 1,

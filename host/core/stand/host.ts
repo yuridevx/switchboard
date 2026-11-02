@@ -25,12 +25,13 @@ export const CORE: Manifest = {
 };
 
 /**
- * Модуль для стенда: манифест собирается из объекта — provides из requests, frames и fields (версия 1)
+ * Модуль для стенда: манифест собирается из объекта — provides из requests, frames, fields, decide и elicit (версия 1)
  * плюс extra.provides; uses, calls, version — из extra.
  */
 export function module(name: string, mod: Module, extra: Partial<Manifest> = {}): ModuleEntry {
   const provides: Record<string, number> = {};
-  for (const n of [...Object.keys(mod.requests ?? {}), ...Object.keys(mod.frames ?? {}), ...Object.keys(mod.fields ?? {})]) provides[n] = 1;
+  const decide = Object.keys(mod.decide ?? {}).map((x) => `decide.${x}`);
+  for (const n of [...Object.keys(mod.requests ?? {}), ...Object.keys(mod.frames ?? {}), ...Object.keys(mod.fields ?? {}), ...decide, ...(mod.elicit ? ["elicit"] : [])]) provides[n] = 1;
   return {
     manifest: {
       name,

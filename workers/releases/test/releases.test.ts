@@ -2,7 +2,7 @@ import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { sha256hex, shaLine } from "@switchboard/release";
+import { pack, sha256hex, shaLine } from "@switchboard/release";
 import { frame } from "../src/releases.ts";
 import type { Env } from "../src/env.ts";
 
@@ -51,9 +51,28 @@ const fresh = (): Stub => ({
   },
 });
 
-/** Поддельный API Cloudflare: версии Worker'ов с метками, выложенная версия; записывает выкладки. */
-function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
-  const scripts = Object.fromEntries(Object.entries(parts).map(([p, x]) => [env.CLOUD[p], x]));
+/** Имя Worker'а части тестового флота — как в wrangler-настройках модулей. */
+const scriptOf = (p: string) => (p === "relay" ? "switchboard" : `switchboard-${p}`);
+
+/** Модуль в каталоге: архив с module.json первой записью и хэш. */
+async function inCatalog(name: string, version: string, manifest: Record<string, unknown>) {
+  const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, ...manifest })) }]);
+  await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
+  await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
+}
+
+/** Части Cloudflare в каталоге: модули с именами Worker'а по флотам. */
+async function workersIn(parts: Record<string, unknown>) {
+  for (const p of Object.keys(parts)) await inCatalog(p, "1.0.0", { type: "worker", workers: { test: scriptOf(p), prod: `${scriptOf(p)}-prod` } });
+}
+
+/**
+ * Поддельный API Cloudflare: версии Worker'ов с метками, выложенная версия; записывает выкладки.
+ * Части — модули каталога с именами Worker'а по флотам: их вид «Выпуски» берут из каталога.
+ */
+async function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
+  await workersIn(parts);
+  const scripts = Object.fromEntries(Object.entries(parts).map(([p, x]) => [scriptOf(p), x]));
   const deploys: Array<{ script: string; tag: string }> = [];
   const id = (s: string, tag: string) => `${s}-v${tag}`;
   const live = new Map(Object.entries(scripts).map(([s, x]) => [s, x.live ? id(s, x.live) : null]));
@@ -74,11 +93,13 @@ function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
   return deploys;
 }
 
-/** Готовая версия части машины в R2: архив и хэш. */
+/** Готовая версия части машины в R2: архив без манифеста (как сборка Host) и хэш. */
+const tgzOf = (part: string, v: string) => pack([{ path: "app.json", data: Buffer.from(`${part} ${v}`) }]);
 async function inR2(part: string, ...vs: string[]) {
   for (const v of vs) {
-    await env.BUCKET.put(`${part}/${v}.tgz`, `${part} ${v}`);
-    await env.BUCKET.put(`${part}/${v}.sha256`, shaLine(sha256hex(`${part} ${v}`), v));
+    const tgz = tgzOf(part, v);
+    await env.BUCKET.put(`${part}/${v}.tgz`, tgz);
+    await env.BUCKET.put(`${part}/${v}.sha256`, shaLine(sha256hex(tgz), v));
   }
 }
 
@@ -105,7 +126,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("эталоны releases", () => {
   it("2 · первый вопрос keeper: план пустой — keeper и host за stable, ссылка на час, машина в списке", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.57");
     await inR2("keeper", "0.5.0");
     await req(s, "~x", "releases.deploy", { part: "host" });
@@ -113,8 +134,8 @@ describe("эталоны releases", () => {
     const p = await result(req(s, ".keeper@win", "releases.plan"));
     expect(p.rev).toBe(2);
     expect(p.parts.map((x: any) => [x.part, x.version, x.sha256])).toEqual([
-      ["keeper", "0.5.0", sha256hex("keeper 0.5.0")],
-      ["host", "1.1.57", sha256hex("host 1.1.57")],
+      ["keeper", "0.5.0", sha256hex(tgzOf("keeper", "0.5.0"))],
+      ["host", "1.1.57", sha256hex(tgzOf("host", "1.1.57"))],
     ]);
     expect(p.parts[1].url).toMatch(/^https:\/\/acc0\.r2\.cloudflarestorage\.com\/switchboard-releases\/host\/1\.1\.57\.tgz\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AK%2F\d{8}%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=\d{8}T\d{6}Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=[0-9a-f]{64}$/);
     expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
@@ -126,7 +147,7 @@ describe("эталоны releases", () => {
     expect((await req(s, ".host@win", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     expect((await req(s, "panel~o", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     // машины флота — пропуска роли host у gate: своего списка машин у «Выпусков» нет
-    fakeCf(NONE);
+    await fakeCf(NONE);
     expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
     await hosts("win");
     expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
@@ -143,7 +164,7 @@ describe("эталоны releases", () => {
     await req(s, ".keeper@win", "releases.plan");
     await req(s, ".keeper@wsl", "releases.plan");
     await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: true });
-    const deploys = fakeCf({
+    const deploys = await fakeCf({
       ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])),
       relay: { tags: ["1.1.57", "1.1.58"], live: "1.1.57" },
     });
@@ -171,17 +192,17 @@ describe("эталоны releases", () => {
 
   it("4b · Cloudflare отказал посреди «*»: stable частей машины прежний; повтор с исправным Cloudflare — план keeper с новой rev", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.57", "1.1.58");
     await inR2("keeper", "0.5.0");
     await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.57" });
     await req(s, "~x", "releases.deploy", { part: "keeper" });
     await req(s, ".keeper@win", "releases.plan");
     // у gate версия есть, у github — нет: отказ на второй части Cloudflare
-    fakeCf({ ...NONE, gate: { tags: ["1.1.58"], live: "1.1.57" } });
+    await fakeCf({ ...NONE, gate: { tags: ["1.1.58"], live: "1.1.57" } });
     expect((await req(s, "~x", "releases.deploy", { part: "*" }))[0]).toMatchObject({ ok: false, error: "no_release" });
     expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host.stable).toBe("1.1.57");
-    fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
+    await fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
     expect((out[0].result as any).parts.host).toEqual({ from: "1.1.57", to: "1.1.58" });
     expect(plans(out).map(brief)).toEqual([{ to: ".keeper@win", rev: 3, parts: [{ part: "keeper", version: "0.5.0" }, { part: "host", version: "1.1.58" }] }]);
@@ -189,7 +210,7 @@ describe("эталоны releases", () => {
 
   it("5 · откат Worker одним вызовом: одна выкладка в Cloudflare, планы машин не меняются", async () => {
     const s = fresh();
-    const deploys = fakeCf({ ...NONE, relay: { tags: ["1.1.58", "1.1.59", "1.1.60"], live: "1.1.60" } });
+    const deploys = await fakeCf({ ...NONE, relay: { tags: ["1.1.58", "1.1.59", "1.1.60"], live: "1.1.60" } });
     await req(s, ".keeper@win", "releases.plan");
     const out = await req(s, "~x", "releases.deploy", { part: "relay", version: "1.1.58" });
     expect(out[0].result).toEqual({ parts: { relay: { from: "1.1.60", to: "1.1.58" } } });
@@ -201,7 +222,7 @@ describe("эталоны releases", () => {
 
   it("6 · закреплённая не следует за stable: pin 1.3.2 у pc2, deploy capture 1.4.0 — план pc2 не меняется", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("capture", "1.3.2", "1.4.0");
     await req(s, "~x", "releases.deploy", { part: "capture", version: "1.3.2" });
     await req(s, "~x", "releases.set", { machine: "pc2", part: "capture", pin: "1.3.2" });
@@ -219,7 +240,7 @@ describe("эталоны releases", () => {
 
   it("7 · машина вернулась на связь: при подключении keeper получает план с новой stable", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("capture", "1.3.2", "1.4.0");
     await req(s, "~x", "releases.deploy", { part: "capture", version: "1.3.2" });
     await req(s, "~x", "releases.set", { machine: "laptop", part: "capture" });
@@ -236,7 +257,8 @@ describe("эталоны releases", () => {
     expect(u.tgz).toMatch(/^https:\/\/acc0\.r2\.cloudflarestorage\.com\/switchboard-releases\/capture\/1\.5\.0\.tgz\?.*X-Amz-Signature=/);
     expect(u.sha256).toMatch(/\/capture\/1\.5\.0\.sha256\?/);
     expect((await req(s, "~x", "releases.upload", { part: "capture", version: "1.5" }))[0]).toMatchObject({ error: "bad_version" });
-    expect((await req(s, "~x", "releases.upload", { part: "relay", version: "1.5.0" }))[0]).toMatchObject({ error: "bad_frame" });
+    // модуль-Worker тоже загружается в каталог: в архиве его module.json
+    expect((await req(s, "~x", "releases.upload", { part: "relay", version: "1.5.0" }))[0]).toMatchObject({ ok: true });
     expect((await req(s, "~x", "releases.upload", { part: "Cap ture", version: "1.5.0" }))[0]).toMatchObject({ error: "bad_frame" });
     // архив без хэша — версия всё равно занята
     await env.BUCKET.put("capture/1.6.0.tgz", "half");
@@ -245,7 +267,7 @@ describe("эталоны releases", () => {
 
   it("9 · set: выключить силой, окружение, снять; у keeper только pin; уже так — ok с прежней rev", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("capture", "1.4.0");
     await inR2("keeper", "0.5.0", "0.6.0");
     await req(s, "~x", "releases.deploy", { part: "capture" });
@@ -265,7 +287,7 @@ describe("эталоны releases", () => {
 
   it("10 · list: части машины и Cloudflare с edge и stable, машины с планами", async () => {
     const s = fresh();
-    fakeCf({ ...NONE, relay: { tags: ["1.1.58", "1.1.60"], live: "1.1.58" } });
+    await fakeCf({ ...NONE, relay: { tags: ["1.1.58", "1.1.60"], live: "1.1.58" } });
     await inR2("host", "1.1.57", "1.1.58");
     await inR2("capture", "1.4.0", "1.10.0");
     // 1.1.59 без хэша — не готова и в edge не идёт
@@ -284,7 +306,7 @@ describe("эталоны releases", () => {
 
   it("11 · нет версии — no_release: у части машины нет версии или хэша, у Worker'а нет метки; stable и rev не меняются", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.57");
     await req(s, "~x", "releases.deploy", { part: "host" });
     expect((await req(s, "~x", "releases.deploy", { part: "host", version: "9.9.9" }))[0]).toMatchObject({ ok: false, error: "no_release" });
@@ -298,7 +320,7 @@ describe("эталоны releases", () => {
     await hosts("box");
     const sent = await participant.frame({ type: "releases.plan", v: 1, id: "q", to: ".releases", from: "@box" });
     expect(sent.map((x) => [x.type, x.to])).toEqual([["reply", "@box"]]);
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "7.7.7");
     await RELAY.clear();
     await LEDGER.clear();
@@ -310,7 +332,7 @@ describe("эталоны releases", () => {
 
   it("5073 · две правки плана одновременно — одна прошла, вторая conflict; строка флота — от первой, rev +1", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.82");
     await req(s, "~x", "releases.deploy", { part: "host" });
     const [a, b] = await Promise.all([
@@ -340,7 +362,7 @@ describe("эталоны releases", () => {
 
   it("2034 · версия без хэша — не в плане, строка stop", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("keeper", "1.0.1");
     await inR2("host", "1.1.59");
     await req(s, "~x", "releases.deploy", { part: "keeper" });
@@ -362,6 +384,7 @@ describe("эталоны releases", () => {
 
   it("2036 · list: API Cloudflare не ответил — cf_failed, статус и errors в журнале, без токена", async () => {
     const s = fresh();
+    await workersIn(NONE);
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, { status: 403 }));
     const log = journal();
     expect(await req(s, "~x", "releases.list")).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" }]);
@@ -373,6 +396,7 @@ describe("эталоны releases", () => {
     // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит и поддержка graceful shutdown»;
     // предел — вдвое выше самого долгого замера выкладки одной части целиком (3,6 с, три обращения к API)
     const s = fresh();
+    await workersIn(NONE);
     await inR2("host", "1.4.0");
     await inR2("keeper", "1.0.0");
     vi.spyOn(globalThis, "fetch").mockImplementation(
@@ -385,7 +409,7 @@ describe("эталоны releases", () => {
     expect(r).toMatchObject({ type: "reply", ok: false, error: "cf_failed" });
     expect(log).toContainEqual(expect.objectContaining({ ev: "releases.deploy", word: "cf_failed", why: "API Cloudflare: не ответил за 8 с" }));
     vi.restoreAllMocks();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     expect((await result(req(s, "~x", "releases.list"))).parts.host.stable).toBeNull();
   }, 20_000);
 
@@ -395,12 +419,12 @@ describe("эталоны releases", () => {
     await inR2("host", "1.1.58");
     await inR2("keeper", "0.5.0");
     const all = Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }]));
-    fakeCf(all);
+    await fakeCf(all);
     await req(s, "~x", "releases.deploy", { part: "*" });
     await req(s, ".keeper@win", "releases.plan");
     const rev = (await result(req(s, "~x", "releases.list"))).rev;
     vi.restoreAllMocks();
-    const deploys = fakeCf(all);
+    const deploys = await fakeCf(all);
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
     const r = (out[0].result as any).parts;
     for (const k of Object.keys(r)) expect(r[k].from).toBe(r[k].to);
@@ -414,7 +438,7 @@ describe("эталоны releases", () => {
     const s = fresh();
     await inR2("host", "1.1.82");
     await inR2("keeper", "0.5.0");
-    const deploys = fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.82"], live: "1.1.82" }])), gate: { tags: ["1.1.82"], live: "ручная" } });
+    const deploys = await fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.82"], live: "1.1.82" }])), gate: { tags: ["1.1.82"], live: "ручная" } });
     const out = await req(s, "~yuri", "releases.deploy", { part: "*" });
     expect((out[0].result as any).parts.gate).toEqual({ from: null, to: "1.1.82" });
     expect(deploys).toEqual([{ script: "switchboard-gate", tag: "1.1.82" }]);
@@ -424,7 +448,7 @@ describe("эталоны releases", () => {
   it("3128 · загрузка не дописана: edge части машины — последняя версия с хэшем; названная версия без хэша — no_release, stable и rev прежние", async () => {
     // источник: чьё: код («готова та, у которой лежит .sha256»); факт — загрузка кладёт .tgz, затем .sha256
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.81", "1.1.82");
     await env.BUCKET.put("host/1.1.83.tgz", "host 1.1.83");
     await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.81" });
@@ -440,7 +464,7 @@ describe("эталоны releases", () => {
   it("3129 · приложение на версию — план только машинам, где оно за stable; запись в журнал флота", async () => {
     // источник: чьё: код (план меняется у машин, где часть идёт за stable)
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("capture", "1.4.0", "1.5.0");
     await inR2("keeper", "0.5.0");
     await req(s, "~x", "releases.deploy", { part: "keeper" });
@@ -456,7 +480,7 @@ describe("эталоны releases", () => {
   it("3130 · убрать запись host — host снова за stable и в плане остаётся", async () => {
     // источник: чьё: код (keeper и host в плане всегда)
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.82");
     await req(s, "~x", "releases.deploy", { part: "host" });
     await hosts("win");
@@ -469,7 +493,7 @@ describe("эталоны releases", () => {
   it("3131 · окружение задать и снять: второй шаг — rev +1, в плане часть без env", async () => {
     // источник: чьё: код
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("capture", "1.4.0");
     await req(s, "~x", "releases.deploy", { part: "capture" });
     await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: { SITE: "lab" } });
@@ -480,7 +504,7 @@ describe("эталоны releases", () => {
   it("3132 · правка машины без отличий, которая ничего не меняет, — «уже так»: rev прежняя, плана нет; машина в списке — по пропуску у gate", async () => {
     // источник: дизайн «Открытый флот» — своего списка машин у «Выпусков» нет, машины — пропуска роли host
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.82");
     await req(s, "~x", "releases.deploy", { part: "host" });
     await hosts("pc3");
@@ -493,7 +517,7 @@ describe("эталоны releases", () => {
   it("3133 · pin на версию без хэша (загрузка оборвалась между архивом и хэшем) — no_release, план и rev прежние", async () => {
     // источник: чьё: код («готова та, у которой лежит .sha256»)
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.82");
     await req(s, "~x", "releases.deploy", { part: "host" });
     await env.BUCKET.put("sbprobe/1.0.1.tgz", "x");
@@ -504,13 +528,13 @@ describe("эталоны releases", () => {
 
   it("2037 · Cloudflare отказал посреди «*» — cf_failed, stable частей машины и rev прежние, планов нет", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("keeper", "1.0.1");
     await inR2("host", "1.1.58", "1.1.59");
     await req(s, "~x", "releases.deploy", { part: "keeper" });
     await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.58" });
     await req(s, ".keeper@win", "releases.plan");
-    const okCf = fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
+    const okCf = await fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
     void okCf;
     const real = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
@@ -519,7 +543,7 @@ describe("эталоны releases", () => {
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
     expect(out).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" }]);
     vi.restoreAllMocks();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     const l = await result(req(s, "~x", "releases.list", { part: "host" }));
     expect([l.parts.host.stable, l.rev]).toEqual(["1.1.58", 2]);
   });
@@ -527,7 +551,7 @@ describe("эталоны releases", () => {
   it("2092 · Cloudflare отказал посреди «*» — уже выложенные части Cloudflare в журнале флота, отказ cf_failed", async () => {
     // источник: устав «система ловит»: отказ — словом, причина — в журнале; факт цикла тестов 2 нояб. — записи выложенных частей терялись
     const s = fresh();
-    fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])));
+    await fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])));
     await inR2("keeper", "1.0.1");
     await inR2("host", "1.1.58");
     const real = vi.mocked(fetch).getMockImplementation()!;
@@ -536,27 +560,46 @@ describe("эталоны releases", () => {
     );
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
     expect(out[0]).toEqual({ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" });
-    // порядок выкладки — части Cloudflare по списку, relay последним: до points выложены gate и push
+    // порядок выкладки — части Cloudflare по имени, relay последним: до points выложены gate, github, ledger, phone
     expect(out.slice(1).map((f) => [f.type, f.to, f.text])).toEqual([
       ["ledger.add", ".ledger", "gate 1.1.58 → 1.1.59"],
-      ["ledger.add", ".ledger", "push 1.1.58 → 1.1.59"],
+      ["ledger.add", ".ledger", "github 1.1.58 → 1.1.59"],
+      ["ledger.add", ".ledger", "ledger 1.1.58 → 1.1.59"],
+      ["ledger.add", ".ledger", "phone 1.1.58 → 1.1.59"],
     ]);
   });
 
   it("2094 · у Worker'а нет версии посреди «*» — no_release, выложенные до него части Cloudflare в журнале флота", async () => {
     // источник: устав «система ловит»: отказ — словом, причина — в журнале
     const s = fresh();
-    fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])), points: { tags: [] } });
+    await fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])), points: { tags: [] } });
     await inR2("keeper", "1.0.1");
     await inR2("host", "1.1.58");
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
     expect(out[0]).toMatchObject({ type: "reply", ok: false, error: "no_release" });
-    expect(out.slice(1).map((f) => f.text)).toEqual(["gate 1.1.58 → 1.1.59", "push 1.1.58 → 1.1.59"]);
+    expect(out.slice(1).map((f) => f.text)).toEqual(["gate 1.1.58 → 1.1.59", "github 1.1.58 → 1.1.59", "ledger 1.1.58 → 1.1.59", "phone 1.1.58 → 1.1.59"]);
+  });
+
+  it("5112 · вид части — из каталога: Worker — по workers.<FLEET> модуля, сборка Host и os — части машины, модуль Host частью не бывает", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Выпуски» знают свой флот одной строкой настройки, списков Worker'ов нет
+    const s = fresh();
+    await fakeCf({ push: { tags: ["1.0.3"], live: "1.0.3" } });
+    await inCatalog("host-chat", "1.0.2", { type: "sdk", into: ["host"] });
+    await inCatalog("capture", "2.0.0", { type: "os" });
+    await inR2("host", "1.1.85");
+    const l = await result(req(s, "~x", "releases.list"));
+    expect(l.parts).toEqual({
+      capture: { where: "machine", edge: "2.0.0", stable: null },
+      host: { where: "machine", edge: "1.1.85", stable: null },
+      push: { where: "cloud", edge: "1.0.3", stable: "1.0.3" },
+    });
+    expect(vi.mocked(fetch).mock.calls.map(([u]) => new URL(String(u)).pathname.split("/")[7])).toEqual(["switchboard-push", "switchboard-push"]);
+    expect((await req(s, "~x", "releases.set", { machine: "win", part: "push", on: false }))[0]).toMatchObject({ error: "bad_frame" });
   });
 
   it("2039 · deploy части сборки: stable, rev, план машинам за stable, ledger.add с by; повтор — без перемен", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.58", "1.1.59");
     await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.58" });
     await req(s, ".keeper@laptop", "releases.plan");
@@ -585,7 +628,7 @@ describe("эталоны releases", () => {
 
   it("2041 · set: Host выключен силой и снова за stable; уже за stable — ok без плана; часть за stable — пустая запись; keeper закреплён и снят", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("host", "1.1.58");
     await inR2("keeper", "1.0.0", "1.0.1");
     await inR2("app", "1.0.0");
@@ -613,7 +656,7 @@ describe("эталоны releases", () => {
 
   it("2042 · set: вход отклонён — machine и part не имена, часть Cloudflare, pin не три числа, env не строки", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("app", "1.0.0");
     await req(s, "~x", "releases.deploy", { part: "app" });
     const bad = async (f: Record<string, unknown>) => (await req(s, "~x", "releases.set", f))[0];
@@ -627,7 +670,7 @@ describe("эталоны releases", () => {
 
   it("13 · план keeper — ровно поля v1: keeper заморожен с 1.0.0 и отказывает плану с чужим полем", async () => {
     const s = fresh();
-    fakeCf(NONE);
+    await fakeCf(NONE);
     await inR2("capture", "1.4.0");
     await inR2("keeper", "0.5.0");
     await req(s, "~x", "releases.deploy", { part: "keeper" });

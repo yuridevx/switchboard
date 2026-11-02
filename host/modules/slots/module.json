@@ -2,6 +2,7 @@
   "name": "host-slots",
   "type": "sdk",
   "version": "3.0.0",
+  "into": ["host"],
   "provides": {
     "machine.slots": 1,
     "slot.set": 1,

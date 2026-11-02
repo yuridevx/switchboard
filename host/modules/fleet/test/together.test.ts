@@ -49,7 +49,7 @@ describe("шесть модулей вместе", () => {
     });
     expect(st.startError).toBeNull();
     expect(Object.keys(st.relay.hellos[0].contract as object).sort()).toEqual(
-      ["answer", "answered", "machine.journal", "message", "notify", "question", "question.list", "session.events", "session.files", "session.history", "session.prompt", "session.unwatch", "session.watch", "session.watchers"],
+      ["answer", "answered", "decide.AskUserQuestion", "elicit", "machine.journal", "message", "notify", "question", "question.list", "session.events", "session.files", "session.history", "session.prompt", "session.unwatch", "session.watch", "session.watchers"],
     );
     const call = async (me: string, name: string, args: Record<string, unknown>) =>
       (await fleet.tools(me).find((t) => t.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }> };

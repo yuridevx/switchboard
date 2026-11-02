@@ -2,6 +2,7 @@
   "name": "web-chat",
   "type": "web",
   "version": "1.0.0",
+  "into": ["pult", "phone"],
   "provides": {
     "chat": 1,
     "unread": 1,
