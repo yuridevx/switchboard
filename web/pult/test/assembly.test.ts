@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadRepo, order } from "@switchboard/manifest-gate";
 import { webBuild, type WebBuildList } from "@switchboard/release";
 import type { BuildOptions } from "@switchboard/web-core";
-import { packModule } from "../../../tools/release/src/module.ts";
+import { packModule } from "../../../tools/release-cli/src/module.ts";
 import { PULT } from "../src/options.ts";
 import { FakeRelay, flush, KEY } from "../../packages/core/stand/relay.ts";
 import { memoryStore } from "@switchboard/web-core";
