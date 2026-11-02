@@ -83,7 +83,7 @@ describe("процесс Host", () => {
     // источник: устав «версия SDK закреплена точно»; ответ одной строкой JSON — чьё: код
     const r = await run(join(coreDir, "main.ts"), ["--check"], {});
     expect(r.code).toBe(0);
-    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.2.0", sdk: "0.3.311", proto: PROTO });
+    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.2.1", sdk: "0.3.311", proto: PROTO });
   }, 90_000);
 
   it("739 · --check: у имени два владельца — ok:false с причиной, код 1", async () => {

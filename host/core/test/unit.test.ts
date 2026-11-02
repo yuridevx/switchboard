@@ -152,7 +152,7 @@ describe("гейт старта Host", () => {
 describe("выпуск", () => {
   it("ядро без сборки: модулей нет, версия ядра, SDK 0.3.311", async () => {
     const r = await loadRelease(join(import.meta.dirname, ".."));
-    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.2.0", modules: [] });
+    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.2.1", modules: [] });
     expect(Array.isArray(r.modules)).toBe(true);
   });
 
