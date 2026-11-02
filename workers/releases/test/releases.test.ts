@@ -702,7 +702,9 @@ describe("сборка Host «Выпусками»", () => {
     await inCatalog("push", "1.0.0", { type: "worker", provides: { "push.send": 1 }, uses: {}, config: {}, workers: { test: "switchboard-push" } });
     await core();
     await mod("host-watch", "1.0.0", { provides: { "session.watchers": 1 } });
-    await mod("host-push", "3.0.0", { provides: { notify: 1 }, uses: { "host.module@host": 1, "session.watchers@host-watch": 1, "push.send@push": 1 } });
+    // библиотека — не часть флота, но владелец имени: её uses проверка находит в каталоге
+    await inCatalog("release", "2.0.0", { type: "tool", provides: { "release.format": 1 }, uses: {}, config: {} });
+    await mod("host-push", "3.0.0", { provides: { notify: 1 }, uses: { "host.module@host": 1, "session.watchers@host-watch": 1, "push.send@push": 1, "release.format@release": 1 } });
     await inR2("host", "1.1.85");
     await GATE.setHosts(["win", "wsl"]);
   };

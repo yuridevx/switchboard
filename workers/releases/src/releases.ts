@@ -426,11 +426,11 @@ class Releases {
         if (!m) throw new Refusal("check_failed", `у ${n} ${v} нет module.json в начале архива`);
         mans.set(n, m);
       }
-      // проверка: сборка и части флота — Worker'ы и приложения ОС по манифестам каталога
-      const fleet = [...kinds]
-        .filter(([p, k]) => !list.has(p) && (k.where === "cloud" || !k.app))
-        .map(([p]) => cat.get(p)?.manifest)
-        .filter((m): m is CatManifest => !!m && (m.type === "worker" || m.type === "os"));
+      // проверка: сборка и остальной флот по манифестам каталога — Worker'ы, приложения ОС и библиотеки (протокол,
+      // формат выпуска, гейт); модули других сборок и их корни — пока без них (сборки страниц — следующим шагом)
+      const fleet = [...cat]
+        .filter(([p, e]) => !list.has(p) && e.manifest && !e.manifest.into && e.manifest.type !== "sdk-core" && e.manifest.type !== "web-app")
+        .map(([, e]) => e.manifest!);
       const errors = check([...mans.values(), ...fleet]);
       if (errors.length) throw new Refusal("check_failed", errors.join("; "));
       const core = mans.get(app)!;
