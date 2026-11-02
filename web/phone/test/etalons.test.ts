@@ -1,6 +1,8 @@
 // Эталоны телефона и каркаса. Стенд — страница happy-dom, поддельные relay и служба пушей;
 // код приложения настоящий (слово пользователя 31 окт.: «да, оба»). Номер эталона — номер теста.
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { loadRepo } from "@switchboard/manifest-gate";
 import { serviceWorker } from "@switchboard/web-alerts";
 import { appGate, memoryStore } from "@switchboard/web-core";
 import { phoneParts } from "../contract.ts";
@@ -51,6 +53,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны телефона", () => {
+  it("5139 · модули стенда телефона — те же, что в into телефона", () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
+    const want = loadRepo(join(import.meta.dirname, "../../..")).filter((m) => m.into?.includes("phone") && m.name !== "web-core");
+    expect(phoneParts().map((p) => p.manifest.name).sort()).toEqual(want.map((m) => m.name).sort());
+    expect(want.length).toBe(5);
+  });
+
   it("4001 · набор телефона проходит гейт ядра и стартует: hello, домашний раздел «Флот»", async () => {
     expect(appGate(phoneParts())).toEqual([]);
     const relay = homeRelay();

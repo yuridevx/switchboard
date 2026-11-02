@@ -5,7 +5,8 @@
 //   <часть>/<версия>.tgz      архив части: у Host — папка выпуска с app.json, у keeper — windows-amd64/keeper.exe и linux-amd64/keeper
 //   <часть>/<версия>.sha256   «<sha256 архива>  <версия>.tgz»; пишется вторым — версия готова
 // Каталог модулей — та же раскладка: <модуль>/<версия>.tgz, module.json — первой записью архива; у Worker'а и оболочки
-// страницы в нём workers — имя Worker'а по флотам.
+// страницы в нём workers — имя Worker'а по флотам. Модуль страницы — module.json и один ES-файл (WEB_FILE);
+// сборка страницы — раскладка webBuild: оболочка в корне, m/<модуль>.js, build.json.
 export { parseSha, RELEASES_BUCKET, shaKey, shaLine, tgzKey, VERSION_RE } from "./src/format.ts";
 export { presign } from "./src/presign.ts";
 export type { LinkKey } from "./src/presign.ts";
@@ -20,3 +21,5 @@ export { buildKeeper, runGo } from "./src/keeper.ts";
 export type { GoExec } from "./src/keeper.ts";
 export { packModule } from "./src/module.ts";
 export { runNode, runNpm } from "./src/run.ts";
+export { WEB_FILE, webBuild } from "./src/web.ts";
+export type { WebBuildList } from "./src/web.ts";

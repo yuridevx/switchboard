@@ -1,5 +1,5 @@
-// Выпуск телефона: шесть общих пакетов web-* — следить и отвечать.
-// Порядок списка — порядок старта модулей; гейт набора ядро проверяет при старте приложения.
+// Телефон в монорепо — для стенда и тестов: шесть общих пакетов web-* — следить и отвечать. На странице состав и
+// порядок старта даёт список сборки (build.json), а не этот файл: эталон сверяет его с into телефона.
 import { manifest as alertsM, createAlerts, type BrowserPush } from "@switchboard/web-alerts";
 import { manifest as askM, createAsk } from "@switchboard/web-ask";
 import { manifest as boardM, createBoard } from "@switchboard/web-board";

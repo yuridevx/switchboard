@@ -1,8 +1,10 @@
 // Контракт web-core — ядро обоих веб-приложений (телефон и пульт).
 // Модуль приложения пользуется ядром через "app@web-core" в uses и отсюда же берёт типы и мелочи вида.
 //
-// Запуск приложения (web/phone/src/main.ts, web/pult/src/main.ts):
-//   startApp({ root, relayUrl: RELAY_URL, parts: [{ manifest, module }, …], wide: false });
+// Запуск сборки (оболочки web/phone и web/pult): startBuild({ root, build, wide, sections, beside }) — модули по списку
+// build.json («@switchboard/<имя>» через import map сборки → m/<имя>.js), адреса relay и Worker'ов — из него же;
+// модуль не загрузился — выключен только он. Стенд и тесты зовут startApp({ root, relayUrl, workers, parts }) сами.
+// Файл модуля сборки — default (объект модуля) и manifest его contract.ts.
 // Ядро: гейт набора (у экрана, метки, принимаемого кадра и раздела хранилища — один модуль) →
 // ключ флота (из адреса после # при установке, потом из хранилища; на iPhone вне «Домой» — экран установки) →
 // start() модулей → link к relay (hello с ключом, roster) → экран из адреса.
@@ -28,6 +30,7 @@
 export type {
   App,
   AppModule,
+  BuildList,
   AppPart,
   ConnState,
   Ctx,
@@ -47,6 +50,9 @@ export type { Frame, Roster, RosterMachine, SessionRecord } from "@switchboard/r
 
 /** Запустить приложение. */
 export { startApp, detectPlatform, keyId } from "./src/app.ts";
+/** Запустить сборку страницы по build.json. */
+export { startBuild } from "./src/build.ts";
+export type { BuildOptions } from "./src/build.ts";
 /** Гейт набора модулей выпуска (зовёт startApp; отдельно — для тестов выпуска). */
 export { appGate, CORE } from "./src/gate.ts";
 /** Хранилище разделов: IndexedDB (страница и обработчик пушей) и в памяти (стенд). */

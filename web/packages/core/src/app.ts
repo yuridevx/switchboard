@@ -255,9 +255,17 @@ export function startApp(o: StartOptions): Running {
     return { screen: home(), params: {} };
   }
 
+  /** Разделы по порядку: сначала по sections оболочки, остальные — следом в порядке списка модулей. */
+  function sections() {
+    const rank = (n: string) => {
+      const i = o.sections?.indexOf(n) ?? -1;
+      return i < 0 ? Number.MAX_SAFE_INTEGER : i;
+    };
+    return [...screenOwner].filter(([, s]) => s.def.nav && s.def.place !== "top").sort(([a], [b]) => rank(a) - rank(b));
+  }
+
   function home(): string {
-    for (const [n, s] of screenOwner) if (s.def.nav) return n;
-    return [...screenOwner.keys()][0] ?? "";
+    return sections()[0]?.[0] ?? [...screenOwner.keys()][0] ?? "";
   }
 
   function hashOf(screen: string, params: Params): string {
@@ -374,7 +382,7 @@ export function startApp(o: StartOptions): Running {
       ].filter((x): x is HTMLElement => x !== null),
     );
     // разделы: в широком виде — колонка, в узком — строка, если их больше одного
-    const navs = [...screenOwner].filter(([, s]) => s.def.nav && s.def.place !== "top");
+    const navs = sections();
     const items = navs.map(([n, s]) => {
       const count = s.def.mark && !s.owner.failed ? call(s.owner, `метке ${s.def.mark}`, () => s.owner.mod.marks![s.def.mark!]()) : undefined;
       return h(

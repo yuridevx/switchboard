@@ -1,7 +1,7 @@
 {
   "name": "pult",
   "type": "web-app",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "provides": {},
   "uses": {
     "app@web-core": 1,
@@ -11,5 +11,5 @@
     "ask@web-ask": 1,
     "alerts@web-alerts": 1
   },
-  "config": { "RELAY_URL": "var" }
+  "config": {}
 }

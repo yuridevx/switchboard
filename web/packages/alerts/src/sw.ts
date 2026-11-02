@@ -35,8 +35,8 @@ export interface SwScope {
 }
 
 export type SwOptions = {
-  /** адрес relay из сборки */
-  relayUrl: string;
+  /** адрес relay из списка сборки (build.json рядом с обработчиком): обещание — обработчик читает его при старте */
+  relayUrl: string | Promise<string>;
   /** хранилище приложения: key и pushes */
   store: Store;
   /** сколько кнопок показывает браузер: Notification.maxActions (Chrome на Android — 2, Safari — 0) */
@@ -50,10 +50,11 @@ export async function sendOnce(o: Pick<SwOptions, "relayUrl" | "store" | "WebSoc
   if (!key) return { type: "reply", id: "", ok: false, error: "no_key" };
   const machine = hostOf(frame);
   if (!machine) return { type: "reply", id: "", ok: false, error: "bad_frame" };
+  const relay = await o.relayUrl;
   return new Promise<Reply>((resolve) => {
     let done = false;
     const l = link({
-      url: `${o.relayUrl.replace(/\/$/, "")}/m/${machine}`,
+      url: `${relay.replace(/\/$/, "")}/m/${machine}`,
       key,
       WebSocket: o.WebSocket,
       onState(s, why) {

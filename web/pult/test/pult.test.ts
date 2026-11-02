@@ -4,7 +4,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { check, loadRepo } from "@switchboard/manifest-gate";
+import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { appGate } from "@switchboard/web-core";
 import { OWN, pultParts } from "../contract.ts";
 import { fleetRelay, fleetRoster, flush, pult } from "./stand.ts";
@@ -44,10 +44,20 @@ describe("гейт выпуска пульта", () => {
     expect(appGate(pultParts())).toEqual([]);
   });
 
-  it("в коде пульта нет ключа флота и секретов: адрес relay — из сборки", () => {
-    const main = readFileSync(join(here, "../src/main.ts"), "utf8");
-    expect(main).toContain("declare const RELAY_URL: string;");
-    expect(main).not.toMatch(/client\.[a-z-]+\.[a-z0-9]+\./);
+  it("в коде оболочки пульта нет адресов, ключа флота и списка модулей: всё — из build.json сборки", () => {
+    for (const f of ["../src/main.ts", "../src/options.ts", "../../shell.ts"]) {
+      const text = readFileSync(join(here, f), "utf8");
+      expect(text).not.toMatch(/wss:\/\/|workers\.dev|RELAY_URL|WORKERS/);
+      expect(text).not.toMatch(/client\.[a-z-]+\.[a-z0-9]+\./);
+      expect(text).not.toMatch(/from\s*["']@switchboard\/(?!web-core")/);
+    }
+  });
+
+  it("5138 · модули стенда пульта — те же, что в into пульта, в порядке списка сборки", () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
+    const want = order(loadRepo(root).filter((m) => m.into?.includes("pult") && m.name !== "web-core")).map((m) => m.name);
+    expect(pultParts().map((p) => p.manifest.name).sort()).toEqual([...want].sort());
+    expect(want.length).toBe(10);
   });
 });
 

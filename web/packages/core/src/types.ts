@@ -152,6 +152,9 @@ export interface App {
 /** Модуль выпуска: манифест и объект. */
 export type AppPart = { manifest: Manifest; module: AppModule };
 
+/** Список сборки страницы — build.json рядом со страницей; формат — у владельца формата выпуска. */
+export type { WebBuildList as BuildList } from "@switchboard/release";
+
 /** Платформа: на iPhone вне экрана «Домой» ключ ждёт в адресе. */
 export type Platform = { ios: boolean; standalone: boolean };
 
@@ -168,6 +171,8 @@ export type StartOptions = {
   parts: AppPart[];
   /** узкий (телефон) или широкий (пульт) вид */
   wide?: boolean;
+  /** порядок разделов от оболочки: экраны с nav; разделов, которых здесь нет, — следом в порядке списка модулей */
+  sections?: string[];
   /**
    * Широкий вид: экран → экран-список, рядом с которым он открывается (карточка — справа от списка сессий).
    * Пока открыт такой экран, список стоит слева в месте с классом sb-master; открыт сам список — на весь экран.

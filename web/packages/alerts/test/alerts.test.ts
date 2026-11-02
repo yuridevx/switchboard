@@ -116,6 +116,26 @@ describe("служебный обработчик", () => {
     expect(scope.focused).toEqual(["post pushes", "focus"]);
   });
 
+  it("5136 · адрес relay — из списка сборки: обработчик ждёт обещание build.json и отвечает через relay машины по нему", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): обработчик пушей — из списка сборки, своего адреса нет
+    const scope = fakeScope();
+    const relay = new FakeRelay(homeRoster());
+    relay.handlers.answer = () => ({ ok: true });
+    const store = memoryStore({ key: KEY });
+    let give!: (u: string) => void;
+    const relayUrl = new Promise<string>((r) => (give = r));
+    serviceWorker(scope, { relayUrl, store, maxActions: () => 2, WebSocket: relay.WebSocket as never });
+    await scope.fire("push", pushData(notify(2)));
+    const click = scope.fire("notificationclick", { action: "0", notification: { data: scope.shown[0].o.data, close: () => {} } });
+    await flush();
+    expect(relay.socks).toHaveLength(0);
+    give("wss://relay.from-build/");
+    await click;
+    await flush();
+    expect(relay.socks.map((s) => s.url)).toEqual(["wss://relay.from-build/m/laptop"]);
+    expect(relay.got.map((f) => f.type)).toContain("answer");
+  });
+
   it("кнопка: отказ relay — уведомление «Ответ не отправлен: слово»", async () => {
     const scope = fakeScope();
     const relay = new FakeRelay(homeRoster());

@@ -1,14 +1,10 @@
-// Сборка веб-приложения (телефон, пульт): esbuild → <приложение>/dist/ (app.js, sw.js, статика, значки).
-// Адреса relay и Worker'ов — RELAY_URL и WORKERS из окружения или тестового флота по умолчанию; пропусков и секретов в сборке нет.
-// sw.js — обработчик пушей пакета web-alerts, один на оба приложения.
+// Статика оболочки веб-приложения (телефон, пульт): esbuild → <приложение>/dist/ (app.js, sw.js, статика, значки) —
+// содержимое архива оболочки в каталоге. Модулей, адресов relay и Worker'ов, пропусков и секретов в ней нет:
+// модули и адреса страница берёт из build.json сборки «Выпусков».
+// app.js — классический скрипт оболочки (ставит import map до первого модуля); sw.js — обработчик пушей пакета
+// web-alerts, один на оба приложения.
 import { build } from "esbuild";
-import {
-  cpSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { deflateSync, crc32 } from "node:zlib";
@@ -19,71 +15,20 @@ const web = dirname(fileURLToPath(import.meta.url));
 export async function buildApp(app, name) {
   const here = app;
   const out = join(here, "dist");
-  const RELAY_URL =
-    process.env.RELAY_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
-  if (!/^wss:\/\//.test(RELAY_URL))
-    throw new Error(`RELAY_URL — нужен wss://…, а не ${RELAY_URL}`);
-  // Worker'ы флота: имя → адрес https — WORKERS (JSON) из окружения, иначе тестовый флот
-  const WORKERS = process.env.WORKERS
-    ? JSON.parse(process.env.WORKERS)
-    : {
-        relay: "https://switchboard.yuridevx1608.workers.dev/",
-        ...Object.fromEntries(
-          ["gate", "push", "points", "ledger", "github", "releases"].map((n) => [
-            n,
-            `https://switchboard-${n}.yuridevx1608.workers.dev/`,
-          ]),
-        ),
-      };
-
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
-  // Гейт манифестов отдаёт из контракта и loadRepo (Node, node:fs): в браузере он не зовётся.
-  // Встроенные модули Node подменяются заглушками с теми же именами — вызов бросает ошибку словами.
-  const nodeStub = {
-    name: "node-stub",
-    setup(b) {
-      b.onResolve({ filter: /^node:/ }, (a) => ({
-        path: a.path,
-        namespace: "node-stub",
-        pluginData: a.importer,
-      }));
-      b.onLoad({ filter: /.*/, namespace: "node-stub" }, (a) => {
-        const text = readFileSync(a.pluginData, "utf8");
-        const re = new RegExp(
-          `import\\s*\\{([^}]*)\\}\\s*from\\s*["']${a.path}["']`,
-          "g",
-        );
-        const names = [...text.matchAll(re)].flatMap((m) =>
-          m[1]
-            .split(",")
-            .map((x) => x.trim().split(/\s+as\s+/)[0])
-            .filter(Boolean),
-        );
-        const body = names
-          .map(
-            (n) =>
-              `export function ${n}() { throw new Error("${a.path}.${n} — нет в браузере"); }`,
-          )
-          .join("\n");
-        return { contents: body, loader: "js" };
-      });
-    },
-  };
   const common = {
     bundle: true,
-    plugins: [nodeStub],
     minify: true,
-    sourcemap: true,
     target: "es2022",
-    define: { RELAY_URL: JSON.stringify(RELAY_URL), WORKERS: JSON.stringify(WORKERS) },
     logLevel: "warning",
   };
+  // оболочка — классический скрипт: import map сборки должен встать раньше первого модуля
   await build({
     ...common,
     entryPoints: [join(here, "src/main.ts")],
     outfile: join(out, "app.js"),
-    format: "esm",
+    format: "iife",
   });
   // обработчик пушей — классический скрипт: регистрируется без type: "module"
   await build({
@@ -102,7 +47,7 @@ export async function buildApp(app, name) {
   ]) {
     writeFileSync(join(out, name), icon(size));
   }
-  console.log(`${name}: dist/ собран · relay ${RELAY_URL}`);
+  console.log(`${name}: dist/ собран — оболочка без модулей и адресов`);
 }
 
 function icon(size) {
