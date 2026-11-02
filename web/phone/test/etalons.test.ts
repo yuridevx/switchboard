@@ -57,17 +57,17 @@ describe("эталоны телефона", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = loadRepo(join(import.meta.dirname, "../../..")).filter((m) => m.into?.includes("phone") && m.name !== "web-core");
     expect(phoneParts().map((p) => p.manifest.name).sort()).toEqual(want.map((m) => m.name).sort());
-    expect(want.length).toBe(5);
+    expect(want.length).toBe(11);
   });
 
-  it("4001 · набор телефона проходит гейт ядра и стартует: hello, домашний раздел «Флот»", async () => {
+  it("4001 · набор телефона проходит гейт ядра и стартует: hello, домашний раздел «Вам»", async () => {
     expect(appGate(phoneParts())).toEqual([]);
     const relay = homeRelay();
     const t = await stand(phoneParts(fakeBrowser()), { relay });
     expect(t.run.stopped).toBeNull();
     expect(t.run.failed).toEqual({});
     expect(relay.hellos).toHaveLength(2); // hello — на каждую машину флота: laptop и pc
-    expect(t.$(".sb-bt b")!.textContent).toBe("Флот");
+    expect(t.$(".sb-bt b")!.textContent).toBe("Вам");
   });
 
   it("22 · пуш при закрытом приложении: уведомление с полным текстом, нажатие — переписка из уведомления, ответ — session.prompt", async () => {
@@ -91,19 +91,19 @@ describe("эталоны телефона", () => {
     expect(t.$(".chat-me small")!.textContent).toMatch(/доставлено$/);
   });
 
-  it("102 · уже ответили с пульта: already_answered — «Уже ответили с panel-desk: прод», варианты недоступны, повтора нет", async () => {
+  it("102 · уже ответили с пульта: already_answered — повтора нет; answered убирает вопрос из «Вам» на телефоне", async () => {
+    // источник: прототип «Пульт и телефон» (подписан 2 нояб.): «ответ, данный на одном устройстве, сразу пропадает из «Вам»
+    // на другом: побеждает первый ответ»
     const relay = homeRelay();
     relay.handlers.answer = () => ({ ok: false, error: "already_answered" });
     const t = await stand(phoneParts(fakeBrowser()), { relay });
     relay.push(QUESTION);
     await flush();
-    await t.click(t.$('[data-callsign="profiles@laptop"]'));
-    await t.click(t.$$(".ask-opt")[1]);
+    await t.click(t.$$(".ib-it .ask-opt")[1]);
     await t.click(t.button("Ответить"));
     relay.push({ type: "answered", from: "profiles@laptop", question: "toolu_01Hx", by: "panel-desk", answers: { "Какую базу мигрировать первой?": "прод" } });
     await flush();
-    expect(t.text()).toContain("Уже ответили с panel-desk: «прод».");
-    expect(t.$$<HTMLButtonElement>(".ask-opt").every((b) => b.disabled)).toBe(true);
+    expect(t.$('.ib-it[data-kind="q"]')).toBeNull();
     expect(relay.sent("answer")).toHaveLength(1);
   });
 
@@ -132,7 +132,8 @@ describe("эталоны телефона", () => {
     const relay = homeRelay();
     relay.handlers["session.prompt"] = () => undefined;
     const store = memoryStore({ key: KEY });
-    const t = await stand(phoneParts(fakeBrowser()), { relay, store });
+    const t = await stand(phoneParts(fakeBrowser()), { relay, store, url: "/#sessions" });
+    await t.click(t.$('[data-seg="all"]'));
     await t.click(t.$('[data-callsign="site@laptop"]'));
     await type(t, "Задеплой на стенд");
     const draft = t.$<HTMLTextAreaElement>(".chat-inp")!;
@@ -156,7 +157,8 @@ describe("эталоны телефона", () => {
     delete roster.machines[1].contract!["session.watch"];
     const relay = homeRelay(roster);
     relay.handlers["session.prompt"] = () => ({ ok: true });
-    const t = await stand(phoneParts(fakeBrowser()), { relay });
+    const t = await stand(phoneParts(fakeBrowser()), { relay, url: "/#sessions" });
+    await t.click(t.$('[data-seg="all"]'));
     await t.click(t.$('[data-callsign="poe-bot@pc"]'));
     expect(relay.sent("session.watch")).toHaveLength(0);
     expect(t.text()).toContain("pc не отдаёт ленту");

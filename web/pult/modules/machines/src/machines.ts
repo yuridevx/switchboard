@@ -1,32 +1,40 @@
-// pult-machines — машины флота из roster: части машины по ответу её keeper (keeper.state), профили, приложение GitHub.
-// Каждая цифра — ответ keeper, машины или roster. Машина следует плану «выпусков»: своей кнопки обновления нет.
-import { add, h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
+// pult-machines — машины флота строками: лампа, имя, система, host, keeper, сессии, состояние; поиск и фильтры.
+// Строка раскрывается в карточку: части по ответу keeper (keeper.state), профили, перезапуск упавшей части планом.
+// Каждая цифра — ответ keeper, машины или roster. Ушедшую машину помнит, пока страница открыта: roster её больше не несёт.
+import { h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 type State = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
 type Repo = { state: "ok" | "error" | "conflict"; op?: string; files?: string[]; error?: string; since?: number };
 type Profiles = { profiles: Record<string, unknown>; repos: Record<string, Repo> };
-type Gh = { app: { slug: string; id?: number; owner?: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: Record<string, unknown> } };
+/** Состояние строки: на связи, сбой части, ушла. */
+type Mst = "ok" | "fail" | "gone";
+type Filter = "project" | "all" | "fail" | "gone";
 
 const CSS = `
-.mc-cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:12px}
-.mc-hd{display:flex;align-items:center;gap:8px}
-.mc-hd b{font:600 16px var(--mono);flex:1}
+.mc-list{background:var(--surface);border:1px solid var(--line2);border-radius:12px;overflow:hidden}
+.mc-row{display:flex;align-items:center;border-bottom:1px solid var(--line2)}
+.mc-row:last-child{border-bottom:0}
+.mc-head{flex:1;min-width:0;display:flex;align-items:center;gap:12px;border:0;background:transparent;text-align:left;padding:10px 14px;font:inherit;color:inherit}
+.mc-head:hover{background:var(--surface2)}
+.mc-head .n{font:600 13.5px var(--mono);min-width:96px}
+.mc-head .os{font-size:12.5px;color:var(--muted);min-width:150px}
+.mc-head .v{font:500 12px var(--mono);color:var(--muted)}
+.mc-head .st{margin-left:auto;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.mc-det{padding:6px 16px 14px 36px;display:flex;flex-direction:column;gap:10px;background:var(--surface2);border-bottom:1px solid var(--line2)}
 .mc-kv{display:grid;grid-template-columns:90px minmax(0,1fr);gap:4px 10px;font-size:13px}
 .mc-kv span:nth-child(odd){color:var(--muted)}
 .mc-kv span:nth-child(even){font-family:var(--mono);font-size:12.5px}
 .mc-kv span.bad{color:var(--bad)}
+.mc-parts{display:flex;flex-direction:column;gap:6px}
+.mc-part{display:flex;align-items:center;gap:10px;font-size:13px}
+.mc-part b{font-weight:600}
+.mc-part .v{font:500 12px var(--mono);color:var(--muted)}
+.mc-part .e{font-size:12px;color:var(--bad)}
+.mc-part .r{margin-left:auto}
+@media (max-width:760px){.mc-head .os,.mc-head .v{display:none}.mc-det{padding-left:16px}}
 `;
-
-/** Слова отказа → строка на экране. */
-function say(w: string): string {
-  const t: Record<string, string> = {
-    not_installed: "Приложение GitHub не допущено к репозиторию",
-    app_exists: "Приложение GitHub флота уже есть",
-  };
-  return t[w] ?? w;
-}
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createMachines(): AppModule {
@@ -36,8 +44,8 @@ export function createMachines(): AppModule {
   const notes = new Map<string, { text: string; tone: string }>();
   /** since машины в последнем roster: вернулась — keeper спрашиваем заново */
   const seen = new Map<string, number>();
-  let gh: Gh | { error: string } | null = null;
-  let ghCode = "";
+  /** машина ушла из roster, пока страница открыта: когда */
+  const gone = new Map<string, number>();
   const screens = new Set<() => void>();
   const redraw = () => screens.forEach((d) => d());
 
@@ -55,7 +63,6 @@ export function createMachines(): AppModule {
       jobs.push(
         app.request<Profiles>("machine.profiles", { machine: m }).then((r) => {
           if (r.ok) profs.set(m, r.result);
-          // отказ — словом в карточке машины
           note(`profiles:${m}`, r.ok ? "" : `machine.profiles: ${r.error}`, "bad");
         }),
       );
@@ -63,17 +70,12 @@ export function createMachines(): AppModule {
     redraw();
   }
 
-  async function github() {
-    if (!app.worker("github")) return;
-    const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname });
-    gh = r.ok ? r.result : { error: r.error };
-    redraw();
-  }
-
   function onRoster(r: Roster) {
+    const now = new Set(r.machines.map((m) => m.machine));
+    for (const m of seen.keys()) if (!now.has(m) && !gone.has(m)) gone.set(m, Date.now());
     for (const m of r.machines) {
-      // вернулась (since другой) или впервые появилась — при открытом экране спросить её keeper и профили;
-      // закрытый экран при открытии спрашивает все машины сам
+      gone.delete(m.machine);
+      // вернулась (since другой) или впервые появилась — при открытом экране спросить её keeper и профили
       if (screens.size > 0 && seen.get(m.machine) !== m.since) void load(m.machine);
       seen.set(m.machine, m.since);
     }
@@ -88,45 +90,39 @@ export function createMachines(): AppModule {
     note(`sync:${m}`, "профили сведены с репозиториями", "ok");
   }
 
-  async function setup() {
-    note("gh", "Сохраняю приложение…");
-    const r = await app.request<{ app: { slug: string }; install: string }>("github.setup", { code: ghCode });
-    if (!r.ok) return note("gh", say(r.error), "bad");
-    ghCode = "";
-    history.replaceState(null, "", location.pathname + location.hash);
-    gh = { app: r.result.app, install: r.result.install, repos: [] };
-    note("gh", "Приложение сохранено — установите его на репозитории профилей.", "ok");
+  /** Перезапуск упавшей части — планом машины: выключить и включить; keeper исполняет. */
+  async function restart(m: string, part: string) {
+    note(`part:${m}:${part}`, "Перезапускаю…");
+    const off = await app.request("releases.set", { machine: m, part, on: false });
+    if (!off.ok) return note(`part:${m}:${part}`, `releases.set: ${off.error}`, "bad");
+    const on = await app.request("releases.set", { machine: m, part, on: true });
+    if (!on.ok) return note(`part:${m}:${part}`, `releases.set: ${on.error}`, "bad");
+    note(`part:${m}:${part}`, "выключена и включена по плану", "ok");
+    void load(m);
   }
 
-  async function create(org: string) {
-    let form = gh && "form" in gh ? gh.form : undefined;
-    if (org) {
-      const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname, org });
-      if (!r.ok) return note("gh", say(r.error), "bad");
-      form = r.result.form;
-    }
-    if (!form) return;
-    // форма manifest уходит в браузере на github.com; GitHub вернёт страницу с ?code=
-    const f = h("form", { method: "post", action: form.action, hidden: true }, h("input", { type: "hidden", name: "manifest", value: JSON.stringify(form.manifest) })) as HTMLFormElement;
-    document.body.append(f);
-    f.submit();
+  function stateOf(m: string): Mst {
+    if (gone.has(m)) return "gone";
+    const st = states.get(m);
+    return st && !("error" in st) && (st.parts ?? []).some((p) => p.state === "failed") ? "fail" : "ok";
   }
 
   function mount(el: HTMLElement): ScreenHandle {
     const box = h("div", { class: "sb-page" });
     el.append(box);
-    let org = "";
+    let q = "";
+    let filter: Filter = app.mark("project.current") ? "project" : "all";
+    let open: string | null = null;
 
-    function card(m: string): HTMLElement {
-      const rm = app.roster()?.machines.find((x) => x.machine === m);
+    function detail(m: string): HTMLElement {
       const st = states.get(m);
       const pr = profs.get(m);
-      const n = (app.roster()?.sessions ?? []).filter((s) => machineOf(s.callsign) === m).length;
       const ok = st && !("error" in st) ? st : null;
+      const on = !gone.has(m);
+      const noteEl = (k: string) => (notes.get(k)?.text ? h("div", { class: `sb-note ${notes.get(k)!.tone}`, role: "status" }, notes.get(k)!.text) : null);
       return h(
-        "section",
-        { class: "sb-sec", "data-machine": m },
-        h("div", { class: "mc-hd" }, h("b", null, m), rm ? h("span", { class: "sb-pill ok conn" }, "на связи") : h("span", { class: "sb-pill bad" }, "нет в roster"), h("span", { class: "sb-note" }, rm ? `с ${hhmm(rm.since)}` : "")),
+        "div",
+        { class: "mc-det", "data-machine": m },
         ok
           ? h(
               "div",
@@ -135,28 +131,37 @@ export function createMachines(): AppModule {
               h("span", null, ok.os ?? "?"),
               h("span", null, "keeper"),
               h("span", { "data-keeper": ok.keeper ?? "" }, `${ok.keeper ?? "?"} · план rev ${ok.rev ?? 0}`),
-              h("span", null, "сессии"),
-              h("span", null, String(n)),
-              ...(ok.parts ?? []).flatMap((p) => [
-                h("span", null, p.part),
-                h(
-                  "span",
-                  { "data-part": p.part, "data-state": p.state ?? "", class: p.state === "failed" ? "bad" : "" },
-                  [p.version, p.state, p.pid ? `pid ${p.pid}` : "", p.error ?? ""].filter(Boolean).join(" · "),
-                ),
-              ]),
+              pr ? h("span", null, "профили") : null,
+              pr ? h("span", null, Object.entries(pr.repos).map(([repo, s]) => `${repo}${s.state === "ok" ? "" : " · " + s.state}`).join(", ") || "—") : null,
             )
           : st && "error" in st
             ? h("div", { class: "sb-note bad" }, `keeper.state: ${st.error}`)
-            : rm
+            : on
               ? h("div", { class: "sb-note" }, "…")
               : null,
-        pr
+        ok
           ? h(
               "div",
-              { class: "mc-kv" },
-              h("span", null, "профили"),
-              h("span", null, Object.entries(pr.repos).map(([repo, s]) => `${repo}${s.state === "ok" ? "" : " · " + s.state}`).join(", ") || "—"),
+              { class: "mc-parts" },
+              (ok.parts ?? []).map((p) =>
+                h(
+                  "div",
+                  { class: "mc-part" },
+                  h("span", { class: `sb-dot ${p.state === "running" ? "idle" : p.state === "failed" ? "bad" : "stop"}` }),
+                  h(
+                    "span",
+                    null,
+                    h("b", null, p.part),
+                    " ",
+                    h("span", { class: p.state === "failed" ? "v bad" : "v", "data-part": p.part, "data-state": p.state ?? "" }, [p.version, p.state, p.pid ? `pid ${p.pid}` : ""].filter(Boolean).join(" · ")),
+                    p.error ? h("div", { class: "e" }, p.error) : null,
+                  ),
+                  p.state === "failed" && p.part !== "keeper" && app.worker("releases")
+                    ? h("button", { class: "sb-b r", onclick: () => void restart(m, p.part) }, "Перезапустить")
+                    : null,
+                  noteEl(`part:${m}:${p.part}`),
+                ),
+              ),
             )
           : null,
         ...Object.entries(pr?.repos ?? {})
@@ -166,65 +171,90 @@ export function createMachines(): AppModule {
               "div",
               { class: "sb-sec bad" },
               h("b", null, s.state === "conflict" ? `${repo}: память не сведена` : `${repo}: ${s.error ?? s.state}`),
-              h("span", { class: "sb-note" }, s.state === "conflict" ? `${s.op ?? "git pull"}: CONFLICT в ${(s.files ?? []).join(", ")}. Сессии профиля получат задание свести.` : (s.error ?? "")),
+              s.state === "conflict" ? h("span", { class: "sb-note" }, `${s.op ?? "git pull"}: CONFLICT в ${(s.files ?? []).join(", ")}`) : null,
             ),
           ),
-        notes.get(`profiles:${m}`)?.text ? h("div", { class: "sb-note bad", role: "alert" }, notes.get(`profiles:${m}`)!.text) : null,
-        notes.get(`sync:${m}`)?.text ? h("div", { class: `sb-note ${notes.get(`sync:${m}`)!.tone}` }, notes.get(`sync:${m}`)!.text) : null,
-        rm
+        noteEl(`profiles:${m}`),
+        noteEl(`sync:${m}`),
+        on
           ? h(
               "div",
               { class: "sb-opts" },
-              can(m, "machine.login") ? h("button", { class: "sb-b", onclick: () => app.open("accounts", { machine: m }) }, "+ Аккаунт") : null,
+              can(m, "machine.login") ? h("button", { class: "sb-b", onclick: () => app.open("accounts", { machine: m }) }, "Аккаунты машины") : null,
               can(m, "machine.profiles") ? h("button", { class: "sb-b", onclick: () => void sync(m) }, "Синхронизировать профили") : null,
+              app.wide ? h("button", { class: "sb-b", onclick: () => app.open("settings", { tab: "releases", machine: m }) }, "План в «Выпусках»") : null,
             )
           : null,
       );
     }
 
-    function ghSection(): HTMLElement | null {
-      if (!app.worker("github")) return null;
-      const n = notes.get("gh");
-      const orgIn = h("input", { class: "sb-in m", "data-f": "org", placeholder: "организация (необязательно)", value: org }) as HTMLInputElement;
-      orgIn.addEventListener("input", () => (org = orgIn.value));
-      let body: Array<HTMLElement | null>;
-      if (ghCode) body = [h("span", null, "GitHub вернул код нового приложения."), h("div", { class: "sb-opts" }, h("button", { class: "sb-b pri", onclick: () => void setup() }, "Сохранить приложение"))];
-      else if (!gh) body = [h("span", { class: "sb-note" }, "…")];
-      else if ("error" in gh) body = [h("span", { class: "sb-note bad" }, `github.app: ${gh.error}`)];
-      else if (gh.app)
-        body = [
-          h("span", null, h("b", { class: "sb-m" }, gh.app.slug), gh.repos?.length ? ` · репозитории: ${gh.repos.join(", ")}` : " · не установлено на репозитории"),
-          gh.install ? h("a", { class: "sb-b", href: gh.install, target: "_blank", rel: "noopener" }, "Установить на репозитории ↗") : null,
-        ];
-      else body = [h("span", { class: "sb-note" }, "Приложения нет: git профилей ходит на GitHub токеном установки приложения флота."), h("div", { class: "sb-opts" }, orgIn, h("button", { class: "sb-b pri", onclick: () => void create(org.trim()) }, "Создать приложение GitHub"))];
-      return h("section", { class: "sb-sec", "data-github": "" }, h("h4", { class: "sb-h4" }, "Приложение GitHub флота"), ...body, n?.text ? h("div", { class: `sb-note ${n.tone}` }, n.text) : null);
+    function row(m: string): HTMLElement[] {
+      const st = stateOf(m);
+      const k = states.get(m);
+      const ok = k && !("error" in k) ? k : null;
+      const host = ok?.parts?.find((p) => p.part === "host")?.version;
+      const n = (app.roster()?.sessions ?? []).filter((s) => machineOf(s.callsign) === m).length;
+      const text = st === "gone" ? `ушла ${hhmm(gone.get(m)!)}` : st === "fail" ? "сбой части" : "на связи";
+      const head = h(
+        "div",
+        { class: "mc-row", "data-row": m, "data-state": st },
+        h(
+          "button",
+          { class: "mc-head", "aria-expanded": open === m ? "true" : "false", onclick: () => ((open = open === m ? null : m), draw()) },
+          h("span", { class: `sb-dot ${st === "ok" ? "idle" : st === "gone" ? "gone" : "bad"}` }),
+          h("span", { class: "n" }, `@${m}`),
+          h("span", { class: "os" }, ok?.os ?? ""),
+          h("span", { class: "v" }, host ? `host ${host}` : ""),
+          h("span", { class: "v" }, ok?.keeper ? `keeper ${ok.keeper}` : ""),
+          h("span", { class: "st" }, [n ? `${n} ${plural(n, "сессия", "сессии", "сессий")}` : "", text].filter(Boolean).join(" · ")),
+        ),
+      );
+      return open === m ? [head, detail(m)] : [head];
     }
 
     function draw() {
       const keep = document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : undefined;
       box.textContent = "";
-      const on = (app.roster()?.machines ?? []).map((m) => m.machine);
-      add(
-        box,
-        h("div", { class: "sb-ph" }, h("h2", null, "Машины"), h("span", { class: "sb-note" }, "версии частей задаёт план «выпусков» — инструменты parts в любой сессии")),
-        h("div", { class: "mc-cards" }, on.map(card)),
-        ghSection(),
-        h("div", { class: "sb-note" }, `${on.length} ${plural(on.length, "машина", "машины", "машин")} на связи. Список — машины из roster; когда машина ушла и вернулась — в «Журнале флота».`),
+      const all = [...new Set([...(app.roster()?.machines ?? []).map((m) => m.machine), ...gone.keys()])];
+      // открыт проект — его машины: фильтр «в проекте» первым
+      const proj = app.mark("project.current") as string | null | undefined;
+      const pm = proj ? ((app.mark("project.machines", proj) as string[] | undefined) ?? []) : [];
+      if (filter === "project" && !proj) filter = "all";
+      const F: Record<Filter, [string, (m: string) => boolean]> = {
+        project: [proj ? `в проекте ${proj}` : "", (m) => pm.includes(m)],
+        all: ["все", () => true],
+        fail: ["со сбоем", (m) => stateOf(m) === "fail"],
+        gone: ["ушли", (m) => stateOf(m) === "gone"],
+      };
+      const t = q.trim().toLowerCase();
+      const shown = all.filter((m) => F[filter][1](m) && (!t || m.toLowerCase().includes(t) || (states.get(m) as State | undefined)?.os?.toLowerCase().includes(t)));
+      const qi = h("input", { class: "sb-in", "data-f": "q", type: "search", placeholder: "Найти машину", value: q }) as HTMLInputElement;
+      qi.addEventListener("input", () => ((q = qi.value), draw()));
+      box.append(
+        h(
+          "div",
+          { class: "sb-ph" },
+          qi,
+          h(
+            "div",
+            { class: "sb-opts" },
+            (Object.keys(F) as Filter[]).filter((k) => k !== "project" || !!proj).map((k) => h("button", { class: "sb-b", "data-filter": k, "aria-pressed": filter === k ? "true" : "false", onclick: () => ((filter = k), draw()) }, `${F[k][0]} ${all.filter(F[k][1]).length}`)),
+          ),
+        ),
+        shown.length ? h("div", { class: "mc-list" }, shown.flatMap(row)) : h("div", { class: "sb-note" }, "Таких машин нет"),
       );
       if (keep) (box.querySelector(`[data-f="${keep}"]`) as HTMLInputElement | null)?.focus();
     }
 
     screens.add(draw);
-    ghCode = new URLSearchParams(location.search).get("code") ?? "";
     draw();
     for (const m of app.roster()?.machines ?? []) void load(m.machine);
-    void github();
     return { head: () => ({ title: "Машины" }), close: () => screens.delete(draw) };
   }
 
   return {
     on: { roster: onRoster },
-    screens: { machines: { nav: "Машины", label: "Машины", mount } },
+    screens: { machines: { nav: "Машины", group: "Флот", label: "Машины", mount } },
     css: CSS,
     start(a) {
       app = a;

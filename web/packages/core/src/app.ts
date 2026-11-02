@@ -88,9 +88,11 @@ export function startApp(o: StartOptions): Running {
   const top = h("div", { class: "sb-top" });
   const view = h("div", { class: "sb-view" });
   const toastEl = h("div", { class: "sb-toast", role: "alert", hidden: true });
-  const main = h("main", { class: "sb-main" }, bar, navrow, off, top, view, toastEl);
+  const tabs = h("nav", { class: "sb-tabs", "aria-label": "Разделы", hidden: true });
+  const pal = h("div", { class: "sb-palw", hidden: true });
+  const main = h("main", { class: "sb-main" }, bar, navrow, off, top, view, toastEl, tabs);
   o.root.textContent = "";
-  o.root.append(style, h("div", { class: "sb-app" + (wide ? " wide" : "") }, navcol, main));
+  o.root.append(style, h("div", { class: "sb-app" + (wide ? " wide" : "") }, navcol, main, pal));
 
   /** Полноэкранное состояние вместо всего приложения: отказ, стоп, установка. */
   function full(...kids: Array<Node | null>) {
@@ -328,8 +330,11 @@ export function startApp(o: StartOptions): Running {
     current = { screen, params };
     const el = h("div", { class: "sb-screen", "data-screen": screen, style: "display:flex;flex-direction:column;flex:1;min-height:0" });
     // широкий вид: экран рядом со списком — список слева остаётся, меняется только правая часть
-    const masterName = wide ? o.beside?.[screen] : undefined;
     const old = mounts.find((x) => x.master);
+    const allowed = wide ? [o.beside?.[screen] ?? []].flat() : [];
+    // слева — разрешённый список, который уже стоит слева или открыт сейчас; иначе первый
+    const was = old ?? mounts.find((x) => x.page);
+    const masterName = was && allowed.includes(was.name) ? was.name : allowed[0];
     if (masterName && screenOwner.has(masterName)) {
       for (const mt of mounts.filter((x) => x.page)) unmount(mt);
       let right = view.querySelector<HTMLElement>(":scope > .sb-split > .sb-detail");
@@ -360,6 +365,17 @@ export function startApp(o: StartOptions): Running {
   }
 
   // ───── шапка, разделы, полоса связи ─────
+  /** Счёт метки раздела: число > 0 или null. */
+  function countOf(s: { owner: Mod; def: Screen }): number | null {
+    const c = s.def.mark && !s.owner.failed ? call(s.owner, `метке ${s.def.mark}`, () => s.owner.mod.marks![s.def.mark!]()) : undefined;
+    return typeof c === "number" && c > 0 ? c : null;
+  }
+
+  function sameParams(a: Params, b: Params): boolean {
+    const ka = Object.keys(a);
+    return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
+  }
+
   function drawChrome() {
     if (stopped || !roster) return;
     const page = mounts.find((x) => x.page);
@@ -381,33 +397,124 @@ export function startApp(o: StartOptions): Running {
       pill ? h("span", { class: `sb-pill ${pill.tone ?? ""}${conn !== "open" || def?.nav ? " conn" : ""}` }, pill.text) : null,
       ].filter((x): x is HTMLElement => x !== null),
     );
-    // разделы: в широком виде — колонка, в узком — строка, если их больше одного
+    // разделы: в широком виде — колонка (подпункты под разделом, группы с подписью), в узком — вкладки внизу,
+    // группа — одной вкладкой, её разделы — лентой над экраном
     const navs = sections();
-    const items = navs.map(([n, s]) => {
-      const count = s.def.mark && !s.owner.failed ? call(s.owner, `метке ${s.def.mark}`, () => s.owner.mod.marks![s.def.mark!]()) : undefined;
+    const on = (n: string) => page?.name === n || master?.name === n;
+    const item = ([n, s]: [string, { owner: Mod; def: Screen }]) => {
+      const count = countOf(s);
       return h(
         "button",
-        { "aria-current": page?.name === n || master?.name === n ? "page" : null, "data-screen": n, onclick: () => (page?.name === n ? null : go(n, {})) },
-        s.def.nav!,
-        typeof count === "number" && count > 0 ? h("span", { class: "sb-badge wait" }, count) : null,
+        { class: "sb-nv", "aria-current": on(n) && !(s.def.sub && Object.keys(current?.params ?? {}).length) ? "page" : null, "data-screen": n, onclick: () => go(n, {}) },
+        h("span", null, s.def.nav!),
+        count !== null ? h("span", { class: "sb-badge wait" }, count) : null,
       );
-    });
+    };
+    const subs = (n: string, s: { owner: Mod; def: Screen }) =>
+      (s.def.sub && !s.owner.failed ? (call(s.owner, `экране ${n}`, () => s.def.sub!()) ?? []) : []).map((x) =>
+        h(
+          "button",
+          { class: "sb-nv sub", "aria-current": page?.name === n && sameParams(current?.params ?? {}, x.params) ? "page" : null, onclick: () => go(n, x.params) },
+          h("span", null, x.label),
+          x.dots?.length ? h("span", { class: "sb-lamps" }, x.dots.slice(0, 4).map((d) => h("span", { class: `sb-dot ${d}` }))) : null,
+        ),
+      );
+    const groups = [...new Set(navs.map(([, s]) => s.def.group).filter((g): g is string => !!g))];
     navcol.textContent = "";
     navrow.textContent = "";
+    tabs.textContent = "";
     if (wide) {
-      // колонка разделов: имя приложения и связь, разделы, машины на связи, имя этого устройства
       const cp = conn === "open" ? { text: "на связи", tone: "ok" } : conn === "closed" ? { text: "нет связи", tone: "bad" } : { text: "подключаюсь", tone: "wait" };
       navcol.append(
-        h("div", { class: "sb-brand" }, h("div", { class: "sb-logo" }, "S"), h("b", null, o.brand ?? "Switchboard"), h("span", { class: `sb-pill conn ${cp.tone}`, title: cp.text, "aria-label": cp.text })),
-        ...items,
-        h("div", { class: "sb-ncap" }, "машины"),
-        ...(roster?.machines ?? []).map((m) => h("div", { class: "sb-nm", "data-nm": m.machine }, h("span", { class: "sb-dot idle" }), m.machine)),
-        h("div", { class: "sb-me" }, keyId(key).split(".").slice(1).join(" · ")),
+        h("div", { class: "sb-brand" }, h("b", null, o.brand ?? "Switchboard"), h("span", { class: `sb-pill conn ${cp.tone}`, title: cp.text, "aria-label": cp.text })),
+        h("button", { class: "sb-goto", onclick: () => openPal() }, h("span", null, "Перейти…"), h("kbd", null, "Ctrl K")),
+        ...navs.filter(([, s]) => !s.def.group).flatMap(([n, s]) => [item([n, s]), ...subs(n, s)]),
+        ...groups.flatMap((g) => [h("div", { class: "sb-grp" }, g), ...navs.filter(([, s]) => s.def.group === g).map(item)]),
       );
+    } else {
+      const solo = navs.filter(([, s]) => !s.def.group).map(item);
+      const grouped = groups.map((g) => {
+        const inG = navs.filter(([, s]) => s.def.group === g);
+        const cur = inG.some(([n]) => on(n));
+        const count = inG.reduce((acc, [, s]) => acc + (countOf(s) ?? 0), 0);
+        return h("button", { class: "sb-nv", "aria-current": cur ? "page" : null, "data-group": g, onclick: () => (cur ? null : go(inG[0][0], {})) }, h("span", null, g), count ? h("span", { class: "sb-badge wait" }, count) : null);
+      });
+      const all = [...solo, ...grouped];
+      if (all.length > 1) tabs.append(...all);
+      // лента разделов группы над экраном — когда открыт раздел группы
+      const g = groups.find((x) => navs.some(([n, s]) => s.def.group === x && on(n)));
+      if (g) navrow.append(...navs.filter(([, s]) => s.def.group === g).map(item));
     }
-    else if (items.length > 1) navrow.append(...items);
-    navrow.hidden = wide || items.length < 2;
+    tabs.hidden = wide || tabs.childElementCount < 2;
+    navrow.hidden = wide || navrow.childElementCount === 0;
     drawOff();
+  }
+
+  // ───── поиск Ctrl K: разделы и то, что экраны отдают в find ─────
+  type Hit = { label: string; hint?: string; dot?: string; screen: string; params: Params };
+  let palQ = "";
+  function hits(q: string): Hit[] {
+    const ql = q.trim().toLowerCase();
+    const out: Hit[] = [];
+    for (const [n, s] of screenOwner) {
+      if (s.owner.failed || s.def.place === "top") continue;
+      if (s.def.nav && (!ql || s.def.nav.toLowerCase().includes(ql))) out.push({ label: s.def.nav, hint: s.def.group ?? "раздел", screen: n, params: {} });
+      if (!s.def.find) continue;
+      for (const x of call(s.owner, `экране ${n}`, () => s.def.find!(ql)) ?? []) {
+        // строка ведёт на экран своего модуля или экран из его uses
+        if (s.owner.mod.screens?.[x.screen] === undefined && !usesRef(s.owner, x.screen)) continue;
+        out.push({ label: x.label, hint: x.hint, dot: x.dot, screen: x.screen, params: x.params ?? {} });
+      }
+    }
+    return out.slice(0, 40);
+  }
+
+  function openPal() {
+    if (stopped || !roster) return;
+    palQ = "";
+    drawPal();
+    pal.querySelector<HTMLInputElement>("input")?.focus();
+  }
+
+  function closePal() {
+    pal.hidden = true;
+    pal.textContent = "";
+  }
+
+  function pick(x: Hit) {
+    closePal();
+    go(x.screen, x.params);
+  }
+
+  function drawPal() {
+    const list = hits(palQ);
+    const res = h(
+      "div",
+      { class: "sb-palres", role: "listbox" },
+      list.map((x, i) =>
+        h("button", { class: "sb-palit" + (i === 0 ? " first" : ""), role: "option", onclick: () => pick(x) }, x.dot ? h("span", { class: `sb-dot ${x.dot}` }) : null, h("span", { class: "l" }, x.label), x.hint ? h("span", { class: "k" }, x.hint) : null),
+      ),
+    );
+    if (!list.length) res.append(h("div", { class: "sb-note", style: "padding:10px 12px" }, "Ничего не нашлось"));
+    const input = h("input", { class: "sb-palin", placeholder: "Сессия, проект, раздел или команда", "aria-label": "Перейти", value: palQ }) as HTMLInputElement;
+    input.addEventListener("input", () => {
+      palQ = input.value;
+      drawPal();
+      const again = pal.querySelector<HTMLInputElement>("input")!;
+      again.focus();
+      again.setSelectionRange(palQ.length, palQ.length);
+    });
+    input.addEventListener("keydown", (e) => {
+      const k = e as KeyboardEvent;
+      if (k.key === "Enter" && list[0]) {
+        k.preventDefault();
+        pick(list[0]);
+      }
+      if (k.key === "Escape") closePal();
+    });
+    pal.textContent = "";
+    pal.append(h("div", { class: "sb-palveil", onclick: closePal }), h("div", { class: "sb-pal", role: "dialog", "aria-label": "Перейти" }, input, res));
+    pal.hidden = false;
   }
 
   function drawOff() {
@@ -693,6 +800,13 @@ export function startApp(o: StartOptions): Running {
       if (win.location.hash !== routed) route();
     });
     doc.addEventListener("visibilitychange", () => (doc.visibilityState === "hidden" ? hide() : show()));
+    doc.addEventListener("keydown", (e) => {
+      const k = e as KeyboardEvent;
+      if (!wide || !(k.ctrlKey || k.metaKey) || !(k.code === "KeyK" || k.key === "k" || k.key === "л")) return;
+      k.preventDefault();
+      if (pal.hidden) openPal();
+      else closePal();
+    });
     win.addEventListener("pagehide", () => hide());
     if (doc.visibilityState === "hidden") hidden = true;
     else connect();

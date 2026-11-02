@@ -27,14 +27,14 @@ export function fleetRoster(over: Partial<Roster> = {}): Roster {
       { machine: "pc", since: Date.UTC(2026, 9, 31, 11, 40), proto: 1, contract: { ...HOST } },
     ],
     sessions: [
-      { callsign: "profiles@laptop", state: "waiting", model: "sonnet", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: null, remote: { url: "https://claude.ai/code/session_01Pf" } },
-      { callsign: "api@pc", state: "failed", model: "sonnet", effort: "medium", slot: { name: "main", wait: null }, account: "y0902", failed: { core: "второй сбой до initialize" } },
-      { callsign: "site@laptop", state: "busy", model: "opus", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: { id: "team/profiles/ops", state: "ok" }, remote: { url: "https://claude.ai/code/session_01Pf" } },
-      { callsign: "poe-bot@pc", state: "busy", model: "sonnet", effort: "medium", slot: { name: "main", wait: null }, account: "y0902" },
-      { callsign: "wiki@laptop", state: "idle", model: "haiku", effort: "low", slot: { name: "bot", wait: null }, account: "work3", profile: { id: "team/profiles/writer", state: "ok" } },
-      { callsign: "docs@pc", state: "stopped", model: "sonnet", slot: { name: "main", wait: null }, account: "y0902" },
+      { callsign: "profiles@laptop", dir: "~/Projects/switchboard", from: "panel-desk~owner@example.com", state: "waiting", model: "sonnet", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: null, remote: { url: "https://claude.ai/code/session_01Pf" } },
+      { callsign: "api@pc", dir: "~/Projects/switchboard", from: "panel-desk~owner@example.com", state: "failed", model: "sonnet", effort: "medium", slot: { name: "main", wait: null }, account: "y0902", failed: { core: "второй сбой до initialize" } },
+      { callsign: "site@laptop", dir: "~/Projects/switchboard", from: "panel-desk~owner@example.com", state: "busy", model: "opus", effort: "high", slot: { name: "main", wait: null }, account: "infirex", profile: { id: "team/profiles/ops", state: "ok" }, remote: { url: "https://claude.ai/code/session_01Pf" } },
+      { callsign: "poe-bot@pc", dir: "~/Projects/poe", from: "panel-desk~owner@example.com", state: "busy", model: "sonnet", effort: "medium", slot: { name: "main", wait: null }, account: "y0902" },
+      { callsign: "wiki@laptop", dir: "~/Projects/switchboard", from: "panel-desk~owner@example.com", state: "idle", model: "haiku", effort: "low", slot: { name: "bot", wait: null }, account: "work3", profile: { id: "team/profiles/writer", state: "ok" } },
+      { callsign: "docs@pc", dir: "~/Projects/switchboard", from: "panel-desk~owner@example.com", state: "stopped", model: "sonnet", slot: { name: "main", wait: null }, account: "y0902" },
     ],
-    clients: ["phone", "panel-desk"],
+    clients: ["phone~owner@example.com", "panel-desk~owner@example.com"],
     ...over,
   };
 }
@@ -54,7 +54,8 @@ export function fleetRelay(roster = fleetRoster()): FakeRelay {
 export async function pult(o: { relay?: FakeRelay; roster?: Roster; url?: string; store?: ReturnType<typeof memoryStore>; workers?: Record<string, string> } = {}) {
   const relay = o.relay ?? fleetRelay(o.roster);
   const store = o.store ?? memoryStore({ key: KEY });
-  const t = await stand(pultParts(fakeBrowser("granted")), { relay, store, url: o.url, options: { ...PULT, ...(o.workers ? { workers: o.workers } : {}) } });
+  // эталоны пульта — про «Работу», карточку и флот: стенд открывается на «Работе», домашний раздел проверяют своим адресом
+  const t = await stand(pultParts(fakeBrowser("granted")), { relay, store, url: o.url ?? "/#sessions", options: { ...PULT, ...(o.workers ? { workers: o.workers } : {}) } });
   await flush();
   /** напечатать в поле и дать отработать */
   const type = async (el: Element | null, text: string, ev = "input") => {

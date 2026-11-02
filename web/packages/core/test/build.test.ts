@@ -86,7 +86,7 @@ describe("сборка страницы", () => {
     });
     await run.ready;
     await flush();
-    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol button")].map((b) => b.dataset.screen)).toEqual(["c", "a", "b", "d"]);
+    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["c", "a", "b", "d"]);
     expect(document.querySelector('.sb-navcol button[aria-current="page"]')!.getAttribute("data-screen")).toBe("c");
   });
 });

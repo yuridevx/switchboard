@@ -770,7 +770,7 @@ export function createPoints(): AppModule {
 
   const mod: AppModule = {
     screens: {
-      points: { nav: "Точки", mark: "fire", label: "Точки", mount: mountOverview },
+      points: { nav: "Точки", group: "Флот", label: "Точки", mount: mountOverview },
       "session.points": {
         place: "card.tab",
         label: "Точки",

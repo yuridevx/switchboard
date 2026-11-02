@@ -224,7 +224,6 @@ describe("слоты", () => {
     const t = await slotsView(relay);
     await t.click(t.btn(t.$('[data-slot="laptop:bot"]'), "Удалить слот"));
     expect(t.$('[data-slot="laptop:bot"]')!.textContent).toContain("В слоте есть сессии — сначала переведите их");
-    await t.click(t.btn(t.$(".sb-page .sb-ph"), "Аккаунты"));
     await t.click(t.$('[data-account="name:a"] [data-sess="main"]'));
     const dlg = t.$('[data-dlg="sess"]')!;
     for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) c.checked = true;
@@ -237,10 +236,9 @@ describe("слоты", () => {
     const wait = Math.floor(Date.UTC(2026, 10, 2, 5, 0) / 1000);
     const relay = fleetAccounts(ACC, { pc: { main: { account: "a", order: ["a", "b"], wait, sessions: ["api@pc"] } } });
     const t = await accountsScreen(relay, "/#accounts?view=slots&machine=pc");
-    expect(t.$(".sb-ph h2")!.textContent).toBe("Слоты");
+    expect(t.$('[data-col="slots"] h2')!.textContent).toBe("Слоты");
     const main = t.$('[data-slot="pc:main"]')!;
     expect(main.textContent).toMatch(/Слот main ждёт сброса · \d\d:\d\d/);
-    expect(main.textContent).toContain("в час сброса Host сам положит аккаунт");
     expect(t.btn(main, "Удалить слот")).toBeNull();
   });
 
@@ -322,12 +320,11 @@ describe("удаление аккаунта", () => {
   });
 });
 
-/** Ответы keeper, профилей и GitHub для экрана «Машины». */
+/** Ответы keeper и профилей для экрана «Машины». */
 function machinesRelay(r: Roster = fleetRoster()) {
   const relay = fleetRelay(r);
   relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "1.0.1", rev: 7, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", pid: 1 }] } });
   relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "org/p": { state: "ok" } } } });
-  relay.handlers["github.app"] = () => ({ ok: true, result: { app: { slug: "sb-app" }, repos: ["org/p"], install: "https://github.com/apps/sb-app/installations/new" } });
   return relay;
 }
 
@@ -338,18 +335,27 @@ async function machines(relay = machinesRelay(), url?: string) {
   return t;
 }
 
+/** Раскрыть строку машины в карточку. */
+async function expand(t: Awaited<ReturnType<typeof pult>>, m: string) {
+  await t.click(t.$(`[data-row="${m}"] .mc-head`));
+  await flush(5);
+}
+
 describe("машины", () => {
   it("4150 · keeper не ответил — «keeper.state: слово» в карточке машины", async () => {
     const relay = machinesRelay();
     relay.handlers["keeper.state"] = (f) => (f.to === ".keeper@pc" ? { ok: false, error: "offline" } : { ok: true, result: { keeper: "1.0.1", parts: [] } });
     const t = await machines(relay);
+    await expand(t, "pc");
     expect(t.$('[data-machine="pc"]')!.textContent).toContain("keeper.state: offline");
+    await expand(t, "laptop");
     expect(t.$('[data-machine="laptop"]')!.textContent).not.toContain("keeper.state:");
   });
 
   it("4151 · «Синхронизировать профили» — machine.profiles { sync }, «сведены»; отказ — слово", async () => {
     const relay = machinesRelay();
     const t = await machines(relay);
+    await expand(t, "pc");
     await t.click(t.btn(t.$('[data-machine="pc"]'), "Синхронизировать профили"));
     expect(relay.sent("machine.profiles").at(-1)).toMatchObject({ machine: "pc", sync: true });
     expect(t.$('[data-machine="pc"]')!.textContent).toContain("профили сведены с репозиториями");
@@ -358,7 +364,8 @@ describe("машины", () => {
     expect(t.$('[data-machine="pc"]')!.textContent).toContain("machine.profiles: no_app");
   });
 
-  it("4152 · машина ушла из roster — её карточки нет, «1 машина на связи», кадров к ней нет", async () => {
+  it("4152 · машина ушла из roster — строка «ушла ЧЧ:ММ», в фильтре «ушли 1»; кадров к ней нет", async () => {
+    // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.): ушедшая машина остаётся строкой «ушла»
     const relay = machinesRelay();
     const t = await machines(relay);
     const n = relay.got.length;
@@ -366,8 +373,9 @@ describe("машины", () => {
     r.machines = r.machines.filter((m) => m.machine !== "pc");
     relay.setRoster(r);
     await flush(10);
-    expect(t.$('[data-machine="pc"]')).toBeNull();
-    expect(t.text()).toContain("1 машина на связи");
+    expect(t.$('[data-row="pc"]')!.getAttribute("data-state")).toBe("gone");
+    expect(t.$('[data-row="pc"]')!.textContent).toMatch(/ушла \d\d:\d\d/);
+    expect(t.$('[data-filter="gone"]')!.textContent).toBe("ушли 1");
     expect(relay.got.slice(n).filter((f) => f.to === ".keeper@pc" || f.machine === "pc")).toEqual([]);
   });
 
@@ -410,73 +418,8 @@ describe("машины", () => {
     await flush(10);
     expect(relay.sent("keeper.state").map((f) => f.to)).toContain(".keeper@pc");
     expect(relay.sent("machine.profiles").map((f) => f.machine)).toContain("pc");
+    await expand(t, "pc");
     expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("1.0.1 · план rev 7");
-  });
-});
-
-describe("приложение GitHub флота", () => {
-  it("4154 · приложение есть — slug, репозитории, «Установить на репозитории ↗»; запрос — к Worker github", async () => {
-    const relay = machinesRelay();
-    const t = await machines(relay);
-    expect(relay.sent("github.app")[0]).toMatchObject({ to: ".github", redirect: expect.stringMatching(/^http/) });
-    const gh = t.$("[data-github]")!;
-    expect(gh.textContent).toContain("sb-app · репозитории: org/p");
-    expect(gh.querySelector("a")!.getAttribute("href")).toBe("https://github.com/apps/sb-app/installations/new");
-  });
-
-  it("4155 · github нет в списке Worker'ов сборки — раздела нет, github.app не шлётся", async () => {
-    const relay = machinesRelay();
-    const { github: _g, ...workers } = FakeRelay.WORKERS;
-    const t = await pult({ relay, workers });
-    await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
-    await flush(10);
-    expect(t.$("[data-github]")).toBeNull();
-    expect(relay.sent("github.app")).toHaveLength(0);
-  });
-
-  it("4156 · приложения нет — форма manifest уходит POST на github.com; с организацией — форма из её ответа", async () => {
-    const relay = machinesRelay();
-    relay.handlers["github.app"] = (f) => ({ ok: true, result: { app: null, form: { action: f.org ? `https://github.com/organizations/${f.org}/settings/apps/new` : "https://github.com/settings/apps/new", manifest: { name: "sb" } } } });
-    const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
-    const t = await machines(relay);
-    await t.click(t.btn(t.$("[data-github]"), "Создать приложение GitHub"));
-    const forms = () => [...document.body.querySelectorAll<HTMLFormElement>("form[method=post]")];
-    expect(forms().at(-1)!.action).toBe("https://github.com/settings/apps/new");
-    expect(forms().at(-1)!.querySelector<HTMLInputElement>('input[name="manifest"]')!.value).toBe('{"name":"sb"}');
-    await t.type(t.$('[data-f="org"]'), "home-plab");
-    await t.click(t.btn(t.$("[data-github]"), "Создать приложение GitHub"));
-    expect(relay.sent("github.app").at(-1)).toMatchObject({ org: "home-plab" });
-    expect(forms().at(-1)!.action).toBe("https://github.com/organizations/home-plab/settings/apps/new");
-    expect(submit).toHaveBeenCalledTimes(2);
-  });
-
-  it("4157 · отказ github.app — «github.app: слово»; отказ github.app с организацией — форма не уходит", async () => {
-    const relay = machinesRelay();
-    relay.handlers["github.app"] = () => ({ ok: false, error: "no_secret" });
-    const t = await machines(relay);
-    expect(t.$("[data-github]")!.textContent).toContain("github.app: no_secret");
-    const relay2 = machinesRelay();
-    relay2.handlers["github.app"] = (f) => (f.org ? { ok: false, error: "no_org" } : { ok: true, result: { app: null, form: { action: "https://github.com/settings/apps/new", manifest: {} } } });
-    const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
-    const t2 = await machines(relay2);
-    await t2.type(t2.$('[data-f="org"]'), "nope");
-    await t2.click(t2.btn(t2.$("[data-github]"), "Создать приложение GitHub"));
-    expect(t2.$("[data-github]")!.textContent).toContain("no_org");
-    expect(submit).not.toHaveBeenCalled();
-  });
-
-  it("4158 · github.setup отказал — «Приложение GitHub флота уже есть»", async () => {
-    history.replaceState(null, "", "/?code=abc");
-    try {
-      const relay = machinesRelay();
-      relay.handlers["github.setup"] = () => ({ ok: false, error: "app_exists" });
-      const t = await machines(relay, "/?code=abc#machines");
-      await t.click(t.btn(t.$("[data-github]"), "Сохранить приложение"));
-      expect(relay.sent("github.setup")[0]).toMatchObject({ code: "abc" });
-      expect(t.$("[data-github]")!.textContent).toContain("Приложение GitHub флота уже есть");
-    } finally {
-      history.replaceState(null, "", "/");
-    }
   });
 });
 

@@ -1,23 +1,40 @@
-// pult-open — новая сессия: машина, слот, профиль, папка, имя, модель, усилие, «в R2» → session.open.
-// Своих данных нет: слоты, лимиты и профили — ответы владельцев на выбранной машине, папки — machine.dirs.
-import { h, plural, type App, type AppModule, type ScreenHandle } from "@switchboard/web-core";
+// pult-open — новая сессия по прототипу «Пульт и телефон»: имя — первым полем (позывной под ним), профиль, папка,
+// машина, слот, первое сообщение — необязательно; модель, усилие и «точки в R2» — в деталях.
+// Проект — последнее имя папки (поле roster dir); его профиль, папки и машины — из сессий проекта в roster.
+// Своих данных нет: слоты и профили — ответы владельцев на выбранной машине, папки — machine.dirs по шагу.
+// «Открыть» = session.open; включено «в R2» — session.r2; есть сообщение — session.prompt; затем карточка.
+import { add, h, type App, type AppModule, type Params, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { machineOf } from "@switchboard/protocol";
 
 const MODELS = ["opus", "sonnet", "haiku", "fable"];
-const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-type Slots = Record<string, { account: string | null; order?: string[]; sessions: string[] }>;
-type Accounts = Record<string, { limits?: Record<string, { utilization: number }> }>;
+type Slots = Record<string, { account: string | null; wait?: number | null; sessions: string[] }>;
 type Profiles = Record<string, { model?: string | null; effort?: string | null }>;
 
 const CSS = `
-.sb-navcol button[data-screen="open"]{border:1px dashed var(--line);color:var(--accent);margin-bottom:6px;order:-1}
-.op-dirs{display:flex;flex-wrap:wrap;gap:5px}
-.op-dirs button{font:500 12.5px var(--mono)}
-.op-browse{border:1px dashed var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:8px}
+.op{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px;max-width:680px}
+.op h2{margin:0;font:600 19px var(--body)}
+.op-fs{display:flex;flex-direction:column;gap:6px}
+.op-fs>.lb{font:600 12px var(--body);color:var(--muted)}
+.op-name{font:600 17px var(--body);padding:9px 12px}
+.op-at{font:400 12px var(--mono);color:var(--muted)}
+.op-chips{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
+.op-chips .sb-b{border-radius:999px}
+.op-chips .m{font-family:var(--mono)}
+.op-dirs{border:1px solid var(--line2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.op-crumbs{display:flex;align-items:center;gap:2px;flex-wrap:wrap;font-family:var(--mono)}
+.op-crumbs .sb-b{border-color:transparent;background:transparent;font-family:var(--mono)}
+.op-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:2px;max-height:180px;overflow-y:auto}
+.op-list .sb-b{justify-content:flex-start;border-color:transparent;background:transparent;font:500 13px var(--mono)}
 .op-err{font:500 12.5px var(--mono);color:var(--bad)}
+.op-foot{display:flex;gap:8px;justify-content:flex-end;align-items:center;border-top:1px solid var(--line2);padding-top:12px}
+.op textarea{resize:vertical;font:14px var(--body)}
 `;
 
+/** Проект сессии — последнее имя папки (поле roster dir). */
+export const projectOf = (dir: unknown) => (typeof dir === "string" ? (dir === "~" ? "~" : (dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? "").toLowerCase()) : "");
 /** Путь на шаг вверх: «~/Projects» → «~», «C:/x» → «C:/». */
 export function up(p: string): string {
   const parts = p.replace(/[\\/]+$/, "").split(/[\\/]/);
@@ -27,46 +44,78 @@ export function up(p: string): string {
   return out === "" ? "/" : /^[A-Za-z]:$/.test(out) ? out + "/" : out;
 }
 export const join = (p: string, n: string) => `${p.replace(/[\\/]+$/, "")}/${n}`;
+/** Время сброса слота: секунды или миллисекунды эпохи → ЧЧ:ММ. */
+const hm = (t: number) => {
+  const d = new Date(t < 1e12 ? t * 1000 : t);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createOpen(): AppModule {
   let app: App;
 
-  function mount(el: HTMLElement, params: Record<string, string>): ScreenHandle {
-    const box = h("div", { class: "sb-page" });
+  function mount(el: HTMLElement, params: Params): ScreenHandle {
+    const box = h("div", { class: "op" });
     el.append(box);
+    const sessions = (): SessionRecord[] => app.roster()?.sessions ?? [];
     const machines = () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["session.open"] !== undefined).map((m) => m.machine);
-    let machine = params.machine && machines().includes(params.machine) ? params.machine : (machines()[0] ?? "");
+    const src = params.from ? sessions().find((s) => s.callsign === params.from) : undefined;
+    const project = params.project ?? (src ? projectOf(src.dir) : "");
+    const inProject = (s: SessionRecord) => !!project && projectOf(s.dir) === project;
+    /** машины проекта: машины его сессий; первая на связи — по умолчанию */
+    const projMachines = () => [...new Set(sessions().filter(inProject).map((s) => machineOf(s.callsign) ?? ""))].filter((m) => machines().includes(m));
+    const pickMachine = () => (params.machine && machines().includes(params.machine) ? params.machine : src ? (machineOf(src.callsign) ?? "") : (projMachines()[0] ?? machines()[0] ?? ""));
+    let machine = pickMachine();
     // машина из адреса может прийти своим соединением позже первого roster: выбрать её, пока человек не выбрал другую
-    let chosen = machine === params.machine;
+    let chosen = !!machine && (!params.machine || machine === params.machine);
     let slots: Slots | null = null;
-    let accounts: Accounts | null = null;
     let profiles: Profiles | null = null;
-    /** имя запроса → слово отказа владельца выбранной машины */
     let refused: Record<string, string> = {};
     let slot = "";
     let profile = "";
-    let dir = "~/";
+    let dir = "";
+    let dirAuto = true;
     let name = "";
+    let text = "";
     let model = "";
     let effort = "";
-    let r2 = false;
-    let browse: { path: string; dirs: string[]; hidden: boolean; err: string; mk: string } | null = null;
+    let r2 = true;
+    let more = false;
+    let browse: { path: string; dirs: string[]; err: string } | null = null;
     let nameErr = "";
     let err = "";
     let sending = false;
 
     const can = (n: string) => app.provides(machine)?.[n] !== undefined;
-    /** отказ владельца — словом на месте ответа */
     const refuse = (m: string, n: string, r: { ok: boolean; error?: string }) => {
       if (!r.ok && m === machine) refused[n] = String(r.error);
     };
     const refusal = (n: string) => (refused[n] ? h("span", { class: "sb-note bad", role: "alert" }, `${n}: ${refused[n]}`) : null);
+    /** папки проекта на машине: последние — первыми */
+    const recentDirs = () => [...new Set(sessions().filter((s) => inProject(s) && machineOf(s.callsign) === machine && typeof s.dir === "string").map((s) => s.dir as string))];
+    /** имя по умолчанию — папка; занятое на машине — с номером */
+    const baseName = () => (name || projectOf(dir) || project || "task").replace(/[^A-Za-z0-9._-]/g, "").toLowerCase() || "task";
+    const callsignFor = () => {
+      const taken = new Set(sessions().map((s) => s.callsign));
+      const base = baseName();
+      if (name) return `${base}@${machine}`;
+      let cs = `${base}@${machine}`;
+      for (let n = 2; taken.has(cs); n++) cs = `${base}-${n}@${machine}`;
+      return cs;
+    };
+
+    /** профиль по умолчанию: профиль сессий проекта на этой машине, если он у машины есть */
+    function defaultProfile() {
+      const have = profiles ?? {};
+      const used = sessions().find((s) => inProject(s) && machineOf(s.callsign) === machine && (s.profile as { id?: string } | null)?.id && have[(s.profile as { id: string }).id]);
+      profile = used ? (used.profile as { id: string }).id : (Object.keys(have).find((id) => id.split("/").at(-1) === project) ?? "");
+    }
 
     async function loadMachine() {
-      slots = accounts = profiles = null;
+      slots = profiles = null;
       refused = {};
       slot = profile = "";
+      if (dirAuto) dir = src && machineOf(src.callsign) === machine && typeof src.dir === "string" ? src.dir : (recentDirs()[0] ?? "");
       const m = machine;
       const jobs: Array<Promise<void>> = [];
       if (can("machine.slots"))
@@ -79,18 +128,14 @@ export function createOpen(): AppModule {
             }
           }),
         );
-      if (can("machine.accounts"))
-        jobs.push(
-          app.request<{ accounts: Accounts }>("machine.accounts", { machine: m }).then((r) => {
-            refuse(m, "machine.accounts", r);
-            if (r.ok && m === machine) accounts = r.result.accounts ?? {};
-          }),
-        );
       if (can("machine.profiles"))
         jobs.push(
           app.request<{ profiles: Profiles }>("machine.profiles", { machine: m }).then((r) => {
             refuse(m, "machine.profiles", r);
-            if (r.ok && m === machine) profiles = r.result.profiles ?? {};
+            if (r.ok && m === machine) {
+              profiles = r.result.profiles ?? {};
+              defaultProfile();
+            }
           }),
         );
       draw();
@@ -100,188 +145,188 @@ export function createOpen(): AppModule {
 
     async function dirs(path: string) {
       const r = await app.request<{ path: string; dirs: string[] }>("machine.dirs", { machine, path });
-      const hidden = browse?.hidden ?? false;
-      browse = r.ok ? { path: r.result.path, dirs: r.result.dirs, hidden, err: "", mk: "" } : { path, dirs: [], hidden, err: `machine.dirs: ${r.error}`, mk: "" };
+      browse = r.ok ? { path: r.result.path, dirs: r.result.dirs.filter((d) => !d.startsWith(".")), err: "" } : { path, dirs: [], err: `machine.dirs: ${r.error}` };
       draw();
-    }
-
-    async function mkdir() {
-      if (!browse || !browse.mk.trim()) return;
-      const path = join(browse.path, browse.mk.trim());
-      const r = await app.request<{ path: string }>("machine.mkdir", { machine, path });
-      if (!r.ok) {
-        browse.err = `machine.mkdir: ${r.error}`;
-        return draw();
-      }
-      dir = r.result.path;
-      await dirs(dir);
     }
 
     async function open() {
       nameErr = err = "";
-      if (!NAME.test(name)) {
+      if (name && !NAME.test(name)) {
         nameErr = "имя — латиница, цифры, точка, - и _";
+        return draw();
+      }
+      if (!dir) {
+        err = "Выберите папку";
         return draw();
       }
       sending = true;
       draw();
-      const body: Record<string, unknown> = { machine, name, dir };
+      const cs = callsignFor();
+      const body: Record<string, unknown> = { machine, name: cs.slice(0, cs.indexOf("@")), dir };
       if (slot) body.slot = slot;
       if (profile) body.profile = profile;
       if (model) body.model = model;
       if (effort) body.effort = effort;
       const r = await app.request<{ callsign: string }>("session.open", body);
-      sending = false;
       if (!r.ok) {
-        if (r.error === "name_taken") nameErr = `name_taken — на ${machine} уже есть ${name}@${machine}`;
+        sending = false;
+        if (r.error === "name_taken") nameErr = `name_taken — на ${machine} уже есть ${cs}`;
         else err = `session.open: ${r.error}`;
         return draw();
       }
       const callsign = r.result.callsign;
       // пометку «в R2» держит host-points машины новой сессии; manage о ней не знает
-      if (r2) {
+      if (r2 && can("session.r2")) {
         const m = await app.request("session.r2", { callsign, on: true });
-        if (!m.ok) app.toast(`${callsign}: «в R2» не включилось — ${m.error}. Включить можно во вкладке «Точки».`);
+        if (!m.ok) app.toast(`${callsign}: «в R2» не включилось — ${m.error}`);
       }
+      // первое сообщение — необязательно: без него сессия открыта и ждёт ввода
+      if (text.trim()) {
+        const p = await app.request("session.prompt", { callsign, text: text.trim(), attachments: [] });
+        if (!p.ok) app.toast(`${callsign}: сообщение не ушло — ${p.error}`);
+      }
+      sending = false;
       app.open("card", { callsign });
     }
 
-    const limitOf = (acc: string | null) => {
-      const ws = Object.entries(accounts?.[acc ?? ""]?.limits ?? {});
-      const w = ws.find(([k]) => k === "five_hour") ?? ws[0];
-      return w ? `${w[0] === "five_hour" ? "5 ч" : w[0] === "seven_day" ? "неделя" : w[0]} ${Math.round(w[1].utilization * 100)} %` : "";
-    };
-
     function draw() {
-      const keep = document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : undefined;
+      const ae = document.activeElement as HTMLElement | null;
+      const keep = ae && box.contains(ae) ? ae.dataset.f : undefined;
+      const pos = keep && (ae as HTMLInputElement).selectionStart;
       box.textContent = "";
       const ms = machines();
-      const input = (f: string, value: string, set: (v: string) => void, attrs: Record<string, string> = {}) => {
-        const e = h("input", { class: "sb-in m", "data-f": f, value, ...attrs }) as HTMLInputElement;
-        e.addEventListener("input", () => {
-          set(e.value);
-          if (f === "name") {
-            nameErr = "";
-            preview.textContent = e.value ? `→ ${e.value}@${machine}` : "";
-          }
-        });
-        return e;
-      };
-      const preview = h("span", { class: "sb-note" }, name ? `→ ${name}@${machine}` : "");
-      const pick = (list: string[], cur: string, set: (v: string) => void, none: string) =>
-        h("div", { class: "sb-opts" }, [["", none], ...list.map((x) => [x, x])].map(([v, label]) => h("button", { class: "sb-b", "aria-pressed": cur === v ? "true" : "false", "data-v": v, onclick: () => (set(v), draw()) }, label)));
-      box.append(
-        h("div", { class: "sb-ph" }, h("h2", null, "Новая сессия")),
+      const pm = projMachines();
+      const near = ms.filter((m) => pm.includes(m) || m === machine);
+      const far = ms.filter((m) => !near.includes(m));
+      const nameIn = h("input", { class: "sb-in op-name", "data-f": "name", placeholder: baseName(), value: name, autocomplete: "off", "aria-label": "Имя сессии" }) as HTMLInputElement;
+      const at = h("span", { class: "op-at" }, `→ ${callsignFor()}`);
+      nameIn.addEventListener("input", () => {
+        name = nameIn.value;
+        nameErr = "";
+        at.textContent = `→ ${callsignFor()}`;
+      });
+      const msg = h("textarea", { class: "sb-in", "data-f": "text", rows: 2, placeholder: "необязательно", "aria-label": "Первое сообщение" }, text) as HTMLTextAreaElement;
+      msg.addEventListener("input", () => (text = msg.value));
+      msg.addEventListener("keydown", (e) => {
+        const k = e as KeyboardEvent;
+        if (k.key === "Enter" && (k.ctrlKey || k.metaKey)) {
+          k.preventDefault();
+          void open();
+        }
+      });
+      const chip = (label: string, pressed: boolean, attrs: Record<string, string>, onclick: () => void, cls = "") =>
+        h("button", { class: `sb-b ${cls}`, "aria-pressed": pressed ? "true" : "false", ...attrs, onclick }, label);
+      const recent = recentDirs();
+      if (dir && !recent.includes(dir)) recent.unshift(dir);
+      const otherSel = far.length
+        ? (() => {
+            const sel = h("select", { class: "sb-in", "aria-label": "Другая машина", "data-f": "machine-more" }, h("option", { value: "" }, `ещё ${far.length}…`), far.map((m) => h("option", { value: m }, m))) as HTMLSelectElement;
+            sel.addEventListener("change", () => sel.value && pickM(sel.value));
+            return sel;
+          })()
+        : null;
+      const prof = profiles ? Object.keys(profiles) : [];
+      const pr = profile ? profiles?.[profile] : undefined;
+      const sumModel = model || pr?.model || "";
+      const sumEffort = effort || pr?.effort || "";
+      add(
+        box,
+        h("h2", null, "Новая сессия"),
+        h("div", { class: "op-fs" }, h("span", { class: "lb" }, "Имя сессии"), nameIn, at, nameErr ? h("div", { class: "op-err", role: "alert" }, nameErr) : null),
+        can("machine.profiles")
+          ? h(
+              "div",
+              { class: "op-fs" },
+              h("span", { class: "lb" }, "Профиль"),
+              h("div", { class: "op-chips" }, [...prof, ""].map((id) => chip(id ? (id.split("/").at(-1) ?? id) : "без профиля", profile === id, { "data-profile": id }, () => ((profile = id), draw()))), refusal("machine.profiles")),
+            )
+          : null,
         h(
-          "section",
-          { class: "sb-sec" },
+          "div",
+          { class: "op-fs" },
+          h("span", { class: "lb" }, "Папка"),
           h(
             "div",
-            { class: "sb-row" },
-            h("span", null, "машина"),
-            ms.length
-              ? h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === machine ? "true" : "false", "data-machine": m, onclick: () => ((machine = m), (chosen = true), (browse = null), void loadMachine()) }, m)))
-              : h("span", { class: "sb-note" }, "нет машин на связи, которые открывают сессии"),
-          ),
-          can("machine.slots")
-            ? h(
-                "div",
-                { class: "sb-row" },
-                h("span", null, "слот"),
-                h(
-                  "div",
-                  { class: "sb-opts" },
-                  slots === null && !refused["machine.slots"] ? h("span", { class: "sb-note" }, "…") : null,
-                  refusal("machine.slots"),
-                  refusal("machine.accounts"),
-                  Object.entries(slots ?? {}).map(([n, sl]) =>
-                    h(
-                      "button",
-                      { class: "sb-b", "aria-pressed": slot === n ? "true" : "false", "data-slot": n, onclick: () => ((slot = n), draw()) },
-                      h("b", null, n),
-                      h("span", { class: "sb-note" }, [sl.account, `${sl.sessions.length} ${plural(sl.sessions.length, "сессия", "сессии", "сессий")}`, limitOf(sl.account)].filter(Boolean).join(" · ")),
-                    ),
-                  ),
-                  h("button", { class: "sb-b", "aria-pressed": slot === "" ? "true" : "false", onclick: () => ((slot = ""), draw()) }, "без слота — вход машины"),
-                ),
-              )
-            : null,
-          can("machine.profiles")
-            ? h(
-                "div",
-                { class: "sb-row" },
-                h("span", null, "профиль"),
-                h(
-                  "div",
-                  { class: "sb-opts" },
-                  Object.entries(profiles ?? {}).map(([id, p]) =>
-                    h("button", { class: "sb-b", "aria-pressed": profile === id ? "true" : "false", "data-profile": id, onclick: () => ((profile = id), draw()) }, id, h("span", { class: "sb-note" }, [p.model, p.effort].filter(Boolean).join(" · "))),
-                  ),
-                  h("button", { class: "sb-b", "aria-pressed": profile === "" ? "true" : "false", onclick: () => ((profile = ""), draw()) }, "без профиля"),
-                  refusal("machine.profiles"),
-                ),
-              )
-            : null,
-          h(
-            "div",
-            { class: "sb-row" },
-            h("span", null, "папка"),
-            h("div", { class: "sb-opts" }, input("dir", dir, (v) => (dir = v), { size: "36" }), can("machine.dirs") ? h("button", { class: "sb-b", onclick: () => void dirs(dir) }, "Обзор") : null),
+            { class: "op-chips" },
+            recent.map((d) => chip(d, dir === d && !browse, { "data-dir-pick": d }, () => ((dir = d), (dirAuto = false), (browse = null), draw()), "m")),
+            can("machine.dirs") ? h("button", { class: "sb-b dash", "aria-expanded": browse ? "true" : "false", onclick: () => (browse ? ((browse = null), draw()) : void dirs(dir ? up(dir) : "~")) }, "другая папка…") : null,
           ),
           browse ? drawBrowse() : null,
-          h("div", { class: "sb-row" }, h("span", null, "имя"), h("div", { class: "sb-opts" }, input("name", name, (v) => (name = v), { placeholder: "board" }), preview)),
-          nameErr ? h("div", { class: "op-err", role: "alert" }, nameErr) : null,
-          h("div", { class: "sb-row" }, h("span", null, "модель"), pick(MODELS, model, (v) => (model = v), "по профилю")),
-          h("div", { class: "sb-row" }, h("span", null, "усилие"), pick(EFFORTS, effort, (v) => (effort = v), "по профилю")),
-          can("session.r2")
-            ? h(
+        ),
+        h(
+          "div",
+          { class: "op-fs" },
+          h("span", { class: "lb" }, "Машина"),
+          ms.length
+            ? h("div", { class: "op-chips" }, near.map((m) => chip(m, m === machine, { "data-machine": m }, () => pickM(m))), otherSel)
+            : h("span", { class: "sb-note" }, "Нет машин на связи"),
+        ),
+        can("machine.slots")
+          ? h(
+              "div",
+              { class: "op-fs" },
+              h("span", { class: "lb" }, "Слот"),
+              h(
                 "div",
-                { class: "sb-row" },
-                h("span", null, "в R2"),
-                h(
-                  "div",
-                  { class: "sb-opts" },
-                  h("button", { class: "sb-b", "aria-pressed": r2 ? "false" : "true", "data-r2": "off", onclick: () => ((r2 = false), draw()) }, "выкл"),
-                  h("button", { class: "sb-b", "aria-pressed": r2 ? "true" : "false", "data-r2": "on", onclick: () => ((r2 = true), draw()) }, "вкл"),
-                  h("span", { class: "sb-note" }, "точки и перенос — только у сессий в R2; включить можно и потом, во вкладке «Точки»"),
-                ),
-              )
-            : null,
-          err ? h("div", { class: "op-err", role: "alert" }, err) : null,
-          h(
-            "div",
-            { class: "sb-opts" },
-            h("button", { class: "sb-b", onclick: () => app.back() }, "Отмена"),
-            h("button", { class: "sb-b pri", disabled: sending || !machine, onclick: () => void open() }, sending ? "Открываю…" : "Открыть сессию"),
-          ),
+                { class: "op-chips" },
+                refusal("machine.slots"),
+                Object.entries(slots ?? {}).map(([n, sl]) => chip(sl.wait ? `${n} · ждёт сброса ${hm(sl.wait)}` : n, slot === n, { "data-slot": n }, () => ((slot = n), draw()))),
+              ),
+            )
+          : null,
+        h("div", { class: "op-fs" }, h("span", { class: "lb" }, "Первое сообщение"), msg),
+        h("button", { class: "sb-b dash", style: "align-self:flex-start", "aria-expanded": more ? "true" : "false", "data-act": "more", onclick: () => ((more = !more), draw()) }, `${more ? "▾" : "▸"} ${[sumModel, EFFORTS.find(([k]) => k === sumEffort)?.[1] ?? sumEffort, r2 && can("session.r2") ? "точки в R2" : ""].filter(Boolean).join(" · ") || "детали"}`),
+        ...(more
+          ? [
+              h("div", { class: "op-fs" }, h("span", { class: "lb" }, "Модель"), h("div", { class: "op-chips" }, MODELS.map((m) => chip(m, (model || pr?.model) === m, { "data-model": m }, () => ((model = m), draw()))))),
+              h("div", { class: "op-fs" }, h("span", { class: "lb" }, "Усилие"), h("div", { class: "op-chips" }, EFFORTS.map(([k, l]) => chip(l, (effort || pr?.effort) === k, { "data-effort": k }, () => ((effort = k), draw()))))),
+              can("session.r2")
+                ? h("div", { class: "op-fs" }, h("span", { class: "lb" }, "Точки в R2"), h("div", { class: "op-chips" }, chip("выкл", !r2, { "data-r2": "off" }, () => ((r2 = false), draw())), chip("вкл", r2, { "data-r2": "on" }, () => ((r2 = true), draw()))))
+                : null,
+            ]
+          : []
+        ).filter((x): x is HTMLElement => x !== null),
+        err ? h("div", { class: "op-err", role: "alert" }, err) : null,
+        h(
+          "div",
+          { class: "op-foot" },
+          h("button", { class: "sb-b", onclick: () => app.back() }, "Отмена"),
+          h("button", { class: "sb-b pri", "data-act": "open", disabled: sending || !machine, onclick: () => void open() }, sending ? "Открываю…" : "Открыть"),
         ),
       );
-      if (keep) (box.querySelector(`[data-f="${keep}"]`) as HTMLInputElement | null)?.focus();
+      if (keep) {
+        const e = box.querySelector<HTMLInputElement>(`[data-f="${keep}"]`);
+        e?.focus();
+        if (e && typeof pos === "number") e.setSelectionRange(pos, pos);
+      }
+    }
+
+    function pickM(m: string) {
+      machine = m;
+      chosen = true;
+      browse = null;
+      void loadMachine();
     }
 
     function drawBrowse(): HTMLElement {
       const b = browse!;
-      const mk = h("input", { class: "sb-in m", "data-f": "mk", placeholder: "новая папка", value: b.mk }) as HTMLInputElement;
-      mk.addEventListener("input", () => (b.mk = mk.value));
-      const list = b.dirs.filter((d) => b.hidden || !d.startsWith("."));
+      const segs = b.path.split("/");
       return h(
         "div",
-        { class: "op-browse" },
+        { class: "op-dirs" },
         h(
           "div",
-          { class: "sb-opts" },
-          h("b", { class: "sb-m" }, b.path),
-          h("button", { class: "sb-b", onclick: () => void dirs("~") }, "~ Домой"),
-          h("button", { class: "sb-b", onclick: () => void dirs(up(b.path)) }, "↑ Вверх"),
-          h("button", { class: "sb-b", "aria-pressed": b.hidden ? "true" : "false", onclick: () => ((b.hidden = !b.hidden), draw()) }, "скрытые"),
+          { class: "op-crumbs" },
+          segs.flatMap((x, i) => [i ? h("span", { class: "sb-note" }, "/") : null, h("button", { class: "sb-b", "data-crumb": segs.slice(0, i + 1).join("/"), onclick: () => void dirs(segs.slice(0, i + 1).join("/") || "/") }, x || "/")]),
+          h("span", { class: "sb-note", style: "margin-left:auto" }, `@${machine}`),
         ),
         b.err ? h("div", { class: "op-err" }, b.err) : null,
-        h("div", { class: "op-dirs" }, list.map((d) => h("button", { class: "sb-b", "data-dir": d, onclick: () => void dirs(join(b.path, d)) }, d))),
+        h("div", { class: "op-list" }, b.dirs.length ? b.dirs.map((d) => h("button", { class: "sb-b", "data-dir": d, onclick: () => void dirs(join(b.path, d)) }, `▸ ${d}`)) : b.err ? null : h("span", { class: "sb-note" }, "Вложенных папок нет")),
         h(
           "div",
-          { class: "sb-opts" },
-          can("machine.mkdir") ? [mk, h("button", { class: "sb-b", onclick: () => void mkdir() }, "Создать папку")] : null,
-          h("button", { class: "sb-b pri", onclick: () => ((dir = b.path), (browse = null), draw()) }, "Выбрать эту папку"),
+          { class: "op-chips", style: "justify-content:flex-end" },
+          h("button", { class: "sb-b", onclick: () => ((browse = null), draw()) }, "Отмена"),
+          h("button", { class: "sb-b pri", "data-act": "pick", onclick: () => ((dir = b.path), (dirAuto = false), (browse = null), draw()) }, `Выбрать ${b.path.split("/").pop() || b.path}`),
         ),
       );
     }
@@ -290,17 +335,22 @@ export function createOpen(): AppModule {
     return {
       head: () => ({ title: "Новая сессия" }),
       refresh: () => {
-        if (chosen || !params.machine || !machines().includes(params.machine)) return;
-        machine = params.machine;
-        chosen = true;
-        browse = null;
+        if (chosen) return;
+        const m = pickMachine();
+        if (!m) return;
+        machine = m;
+        chosen = !params.machine || m === params.machine;
         void loadMachine();
       },
     };
   }
 
   return {
-    screens: { open: { nav: "＋ Новая сессия", label: "Новая сессия", mount } },
+    screens: {
+      open: { label: "Новая сессия", mount },
+      // пункт меню ⋯ карточки: новая сессия рядом — тот же проект и машина, что у сессии карточки
+      "open.near": { place: "card.menu", label: "Новая задача рядом", path: "open-near", show: (p) => !!p.callsign, mount },
+    },
     css: CSS,
     start(a) {
       app = a;

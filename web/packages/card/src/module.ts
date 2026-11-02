@@ -1,6 +1,7 @@
 // web-card — карточка сессии: шапка из roster, вкладки «Чат» (экран chat в месте карточки), вкладки места card.tab
 // и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
-// Широкий вид (пульт) — src/wide.ts: плашка состояния, «Настройки», «Журнал машины» и вкладки места card.tab.
+// Широкий вид (пульт) — src/wide.ts: шапка в одну строку, «Настройки», «Журнал» и вкладки места card.tab;
+// «Сведения сбоку» — выбор устройства, раздел хранилища info.
 import { h, sessionLine, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { mountWide, WIDE_CSS } from "./wide.ts";
@@ -19,9 +20,18 @@ const CSS = `
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createCard(): AppModule {
   let app: App;
+  /** сведения сбоку в широкой карточке — выбор этого устройства */
+  let info = false;
+  const opts = {
+    info: () => info,
+    setInfo: (v: boolean) => {
+      info = v;
+      void app.store<boolean>("card.info").set(v);
+    },
+  };
 
   function mountCard(el: HTMLElement, params: Record<string, string>): ScreenHandle {
-    if (app.wide) return mountWide(app, el, params);
+    if (app.wide) return mountWide(app, el, params, opts);
     const callsign = params.callsign ?? "";
     let tab = params.tab ?? "chat";
     let inner: ScreenHandle | undefined;
@@ -126,8 +136,10 @@ export function createCard(): AppModule {
   return {
     screens: { card: { label: "Карточка", mount: mountCard } },
     css: CSS + WIDE_CSS,
-    start(a) {
+    store: ["card.info"],
+    async start(a) {
       app = a;
+      info = (await app.store<boolean>("card.info").get()) === true;
     },
   };
 }

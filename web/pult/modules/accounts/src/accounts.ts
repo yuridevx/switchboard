@@ -20,6 +20,13 @@ const CSS = `
 .ac-m b{font:600 12.5px var(--mono)}
 .ac-ord{display:flex;align-items:center;gap:8px;font-size:13px}
 .ac-ord b{font:600 12.5px var(--mono);min-width:70px}
+.ac-cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;align-items:start}
+.ac-col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.ac-col .ac-cards{grid-template-columns:minmax(0,1fr)}
+.ac-sum{font-size:12.5px;color:var(--muted)}
+.ac-link{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.ac-link a{text-decoration:none}
+@media (max-width:900px){.ac-cols{grid-template-columns:minmax(0,1fr)}}
 `;
 
 /** Окна лимитов: подпись. */
@@ -184,9 +191,14 @@ export function createAccounts(): AppModule {
         "section",
         { class: "sb-sec dlg", "data-login": key },
         head,
-        h("div", null, "Откройте ", h("a", { href: l.url ?? "#", target: "_blank", rel: "noopener" }, "страницу входа ↗"), " и войдите в нужный аккаунт Claude."),
+        h(
+          "div",
+          { class: "ac-link" },
+          h("a", { class: "sb-b pri", href: l.url ?? "#", target: "_blank", rel: "noopener" }, "Открыть ссылку входа ↗"),
+          h("button", { class: "sb-b", onclick: () => void copy(l.url ?? "") }, "Копировать"),
+        ),
         h("div", { class: "sb-opts" }, inp, h("button", { class: "sb-b pri", disabled: l.phase === "code", onclick: () => void code(l, inp.value) }, "Отправить")),
-        h("div", { class: "sb-note" }, l.phase === "code" ? `Код отправлен ${l.machine} — ждём ответа claude…` : `Код уходит по TLS через relay только машине ${l.machine}; пульт его не хранит.`),
+        l.phase === "code" ? h("div", { class: "sb-note" }, `ждём ответа ${l.machine}…`) : null,
       );
     }
     if (l.phase === "ok") {
@@ -195,10 +207,19 @@ export function createAccounts(): AppModule {
         { class: "sb-sec ok", "data-login": key },
         head,
         h("b", null, `Вошёл: ${l.email} · ${l.plan}`),
-        h("div", { class: "sb-note" }, `Вход — в папке ${l.account} на ${l.machine}. Вход машины и ваш Claude Code не тронуты.`),
       );
     }
-    return h("section", { class: "sb-sec bad", "data-login": key }, head, h("b", null, say(l.err ?? "")), l.phase === "bad" ? h("div", { class: "sb-note" }, "Код одноразовый: нужен новый вход.") : h("div", { class: "sb-note" }, `слово: ${l.err}`), h("div", { class: "sb-opts" }, again));
+    return h("section", { class: "sb-sec bad", "data-login": key }, head, h("b", null, say(l.err ?? "")), l.phase === "bad" ? null : h("div", { class: "sb-note" }, `слово: ${l.err}`), h("div", { class: "sb-opts" }, again));
+  }
+
+  /** Ссылка входа — в буфер; браузер отказал — ссылка остаётся на кнопке. */
+  async function copy(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      app.toast("Ссылка скопирована", "ok");
+    } catch {
+      app.toast("Буфер недоступен — откройте ссылку кнопкой");
+    }
   }
 
   // ───── окна ─────
@@ -223,6 +244,10 @@ export function createAccounts(): AppModule {
     let slotMachine = params.machine && can(params.machine, "machine.slots") ? params.machine : (machines("machine.slots")[0] ?? "");
     // машина из адреса может прийти позже первого roster: выбрать её, пока человек не выбрал другую
     let slotChosen = slotMachine === params.machine;
+    /** почта, у которой открыт выбор машины для входа */
+    let pickFor = "";
+    /** куда рисуют виды: страница или колонка */
+    let out: HTMLElement = box;
     const notes = new Map<string, { text: string; tone: string }>();
     const note = (k: string, text: string, tone = "") => {
       notes.set(k, { text, tone });
@@ -292,8 +317,8 @@ export function createAccounts(): AppModule {
     // ───── вид «Аккаунты» ─────
     function drawAccounts() {
       const pending = [...logins.values()];
-      box.append(...pending.map(loginCard));
-      if (dlg?.kind === "new") box.append(drawNew(dlg));
+      out.append(...pending.map(loginCard));
+      if (dlg?.kind === "new") out.append(drawNew(dlg));
       const groups = new Map<string, Array<{ machine: string; name: string; a: Account }>>();
       for (const [m, list] of accs) {
         for (const [name, a] of Object.entries(list)) {
@@ -314,16 +339,35 @@ export function createAccounts(): AppModule {
           h("div", { class: "ac-hd" }, h("b", null, first.email ?? list[0].name), first.plan ? h("span", { class: "sb-pill busy" }, first.plan) : first.email ? null : h("span", { class: "sb-note" }, "почта — после входа"), h("span", { class: "sb-note" }, `${n} ${plural(n, "сессия", "сессии", "сессий")}`)),
           src ? windows(src.a) : null,
           src && w0 ? h("div", { class: "sb-note" }, [SRC[w0.src ?? ""] ?? `от ${w0.src}`, src.machine, ago(w0.at)].filter(Boolean).join(" · ")) : null,
+          (() => {
+            const n = list.filter((x) => x.a.login === "ok").length;
+            return h("div", { class: "ac-sum", "data-in": n }, `вошёл на ${n} ${plural(n, "машине", "машинах", "машинах")}`);
+          })(),
           list.map((x) => machineRow(x.machine, x.name, x.a)),
+          anyMachine(key, list),
           ...list.map((x) => noteEl(`rm:${x.machine}:${x.name}`)),
           ...list.filter((x) => dlg?.kind === "rm" && dlg.machine === x.machine && dlg.account === x.name).map((x) => drawRm(x.machine, x.name)),
           ...list.flatMap((x) => Object.entries(slots.get(x.machine) ?? {}).filter(([n, s]) => s.account === x.name && dlg?.kind === "sess" && dlg.machine === x.machine && dlg.slot === n).map(([n]) => drawSess(x.machine, n))),
         );
       });
-      box.append(h("div", { class: "ac-cards" }, cards));
-      box.append(...refusals("machine.accounts"));
-      if (!groups.size && !refusals("machine.accounts").length) box.append(h("div", { class: "sb-note" }, loaded ? "Аккаунтов нет — «+ Новый аккаунт»." : "Загружаю аккаунты машин…"));
-      box.append(h("div", { class: "sb-note" }, "Одна карточка — одна почта со всех машин. Окна — запись Host одной машины; свежее из всех источников выбирает он сам."));
+      out.append(h("div", { class: "ac-cards" }, cards));
+      out.append(...refusals("machine.accounts"));
+      if (!groups.size && !refusals("machine.accounts").length) out.append(h("div", { class: "sb-note" }, loaded ? "Аккаунтов нет — «+ Новый аккаунт»." : "Загружаю аккаунты машин…"));
+    }
+
+    /** «＋ войти на машине…»: любая машина на связи, где этой почты ещё нет; имя на машине — то же, что на других. */
+    function anyMachine(key: string, list: Array<{ machine: string; name: string; a: Account }>): HTMLElement | null {
+      const has = new Set(list.map((x) => x.machine));
+      const free = machines("machine.login").filter((m) => !has.has(m));
+      if (!free.length) return null;
+      const name = list[0].name;
+      if (pickFor !== key) return h("div", { class: "sb-opts" }, h("button", { class: "sb-b dash", "data-any": key, onclick: () => ((pickFor = key), draw()) }, "＋ войти на машине…"));
+      return h(
+        "div",
+        { class: "sb-opts", "data-any-pick": key },
+        free.map((m) => h("button", { class: "sb-b", onclick: () => ((pickFor = ""), void login(m, name)) }, m)),
+        h("button", { class: "sb-b", onclick: () => ((pickFor = ""), draw()) }, "Отмена"),
+      );
     }
 
     function machineRow(m: string, name: string, a: Account): HTMLElement {
@@ -358,7 +402,6 @@ export function createAccounts(): AppModule {
         h("h4", { class: "sb-h4" }, "Новый аккаунт"),
         h("div", { class: "sb-row" }, h("span", null, "Машина"), h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": d.machine === m ? "true" : "false", onclick: () => ((d.machine = m), draw()) }, m)))),
         h("div", { class: "sb-row" }, h("span", null, "Имя на машине"), inp),
-        h("div", { class: "sb-note" }, `латиница, цифры, - и _; из имени — своя папка Claude на ${d.machine}. Почту скажет вход.`),
         d.err ? h("div", { class: "sb-note bad" }, d.err) : null,
         h(
           "div",
@@ -392,11 +435,9 @@ export function createAccounts(): AppModule {
         { class: "sb-sec dlg", "data-dlg": "sess" },
         h("h4", { class: "sb-h4" }, `Сессии слота ${slot} на ${m} · сейчас ${s.account ?? "—"}`),
         h("b", null, "Сменить аккаунт всему слоту"),
-        h("div", { class: "sb-note" }, `${s.sessions.map((c) => c.split("@")[0]).join(", ") || "сессии слота"} продолжат тот же ход на новом аккаунте — без перезапуска`),
         h("div", { class: "sb-opts" }, pickAcc, h("button", { class: "sb-b pri", onclick: () => void swap(m, slot, pickAcc.value) }, "Сменить сейчас")),
         noteEl(`swap:${m}:${slot}`),
         h("b", null, "Перевести выбранные в другой слот"),
-        h("div", { class: "sb-note" }, "сессия переходит между ходами: закрыть и поднять с тем же разговором"),
         h("div", { class: "sb-opts" }, checks, pickSlot, h("button", { class: "sb-b", onclick: () => void moveSessions(m, checks.map((l) => l.querySelector("input")!).filter((i) => i.checked).map((i) => i.value), pickSlot.value) }, "Перевести")),
         noteEl(`move:${m}`),
         h("div", { class: "sb-opts" }, h("button", { class: "sb-b", onclick: () => ((dlg = null), draw()) }, "Закрыть")),
@@ -437,11 +478,18 @@ export function createAccounts(): AppModule {
     // ───── вид «Слоты» ─────
     function drawSlots() {
       const ms = machines("machine.slots");
-      box.append(h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === slotMachine ? "true" : "false", onclick: () => ((slotMachine = m), (slotChosen = true), draw()) }, m))));
+      // кнопками — выбранная и машины открытого проекта (до шести), остальные — списком
+      const proj = app.mark("project.current") as string | null | undefined;
+      const pm = proj ? ((app.mark("project.machines", proj) as string[] | undefined) ?? []) : [];
+      const near = ms.length > 6 ? [...new Set([slotMachine, ...pm, ...ms])].filter((m) => m && ms.includes(m)).slice(0, 6) : ms;
+      const far = ms.filter((m) => !near.includes(m));
+      const more = far.length ? (h("select", { class: "sb-in", "data-f": "slotm", "aria-label": "Другая машина" }, h("option", { value: "" }, `ещё ${far.length}…`), far.map((m) => h("option", { value: m }, m))) as HTMLSelectElement) : null;
+      more?.addEventListener("change", () => more.value && ((slotMachine = more.value), (slotChosen = true), draw()));
+      out.append(h("div", { class: "sb-opts", "data-slot-machines": "" }, near.map((m) => h("button", { class: "sb-b", "aria-pressed": m === slotMachine ? "true" : "false", onclick: () => ((slotMachine = m), (slotChosen = true), draw()) }, m)), more));
       const m = slotMachine;
       const list = slots.get(m) ?? {};
       const a = accs.get(m) ?? {};
-      box.append(...refusals("machine.slots").filter((x) => x.dataset.refused === `${m} · machine.slots`));
+      out.append(...refusals("machine.slots").filter((x) => x.dataset.refused === `${m} · machine.slots`));
       for (const [name, s] of Object.entries(list)) {
         const pick = h("select", { class: "sb-in", "data-f": `now:${name}` }, h("option", { value: "" }, "следующего по порядку — выберет Host"), s.order.filter((x) => x !== s.account).map((x) => h("option", { value: x }, x))) as HTMLSelectElement;
         const free = Object.keys(a).filter((x) => !s.order.includes(x) && a[x].login === "ok");
@@ -454,12 +502,12 @@ export function createAccounts(): AppModule {
           [o[i], o[j]] = [o[j], o[i]];
           void setOrder(m, name, o);
         };
-        box.append(
+        out.append(
           h(
             "section",
             { class: "sb-sec", "data-slot": `${m}:${name}` },
             s.wait
-              ? h("div", { class: "sb-sec wait" }, h("b", null, `Слот ${name} ждёт сброса · ${hhmm(s.wait * 1000)}`), h("span", { class: "sb-note" }, "Все аккаунты слота у порога. Сессии работают, пока модель не откажет; в час сброса Host сам положит аккаунт и скажет оборванным ходам «Продолжай»."))
+              ? h("div", { class: "sb-sec wait" }, h("b", null, `Слот ${name} ждёт сброса · ${hhmm(s.wait * 1000)}`))
               : null,
             h("div", { class: "ac-hd" }, h("b", null, `Слот ${name}`), h("span", { class: "sb-note" }, `${s.sessions.length} ${plural(s.sessions.length, "сессия", "сессии", "сессий")}${s.sessions.length ? ": " + s.sessions.map((c) => c.split("@")[0]).join(", ") : ""}`)),
             h(
@@ -487,18 +535,17 @@ export function createAccounts(): AppModule {
             noteEl(`set:${m}:${name}`),
             h("div", { class: "sb-opts" }, pick, h("button", { class: "sb-b pri", "data-act": "swap", onclick: () => void swap(m, name, pick.value) }, "Сменить сейчас")),
             noteEl(`swap:${m}:${name}`),
-            h("div", { class: "sb-note" }, "у порога Host меняет сам; окна — от accounts"),
           ),
         );
       }
       if (m) {
         const nm = h("input", { class: "sb-in m", "data-f": "newslot", placeholder: "имя слота" }) as HTMLInputElement;
         const acc = h("select", { class: "sb-in" }, Object.keys(a).filter((x) => a[x].login === "ok").map((x) => h("option", { value: x }, x))) as HTMLSelectElement;
-        box.append(
+        out.append(
           h("section", { class: "sb-sec" }, h("h4", { class: "sb-h4" }, `+ Новый слот на ${m}`), h("div", { class: "sb-opts" }, nm, acc, h("button", { class: "sb-b", onclick: () => nm.value && acc.value && void setOrder(m, nm.value, [acc.value]) }, "Создать")), noteEl(`set:${m}:${nm.value}`)),
         );
       }
-      if (!ms.length) box.append(h("div", { class: "sb-note" }, "Нет машин со слотами на связи."));
+      if (!ms.length) out.append(h("div", { class: "sb-note" }, "Нет машин со слотами на связи."));
     }
 
     function draw() {
@@ -507,18 +554,31 @@ export function createAccounts(): AppModule {
         slotChosen = true;
       }
       box.textContent = "";
+      const newBtn = machines("machine.login").length
+        ? h("button", { class: "sb-b pri", onclick: () => ((dlg = { kind: "new", machine: machines("machine.login")[0], name: "", err: "" }), draw()) }, "+ Новый аккаунт")
+        : null;
+      // широкий вид — аккаунты и слоты рядом; узкий — переключатель
+      if (app.wide) {
+        const left = h("div", { class: "ac-col", "data-col": "accounts" }, h("div", { class: "sb-ph" }, h("h2", null, "Аккаунты"), newBtn));
+        const right = h("div", { class: "ac-col", "data-col": "slots" }, h("div", { class: "sb-ph" }, h("h2", null, "Слоты")));
+        box.append(h("div", { class: "ac-cols" }, left, right));
+        out = left;
+        drawAccounts();
+        out = right;
+        drawSlots();
+        out = box;
+        return;
+      }
       box.append(
         h(
           "div",
           { class: "sb-ph" },
-          h("h2", null, view === "slots" ? "Слоты" : "Аккаунты"),
           h("button", { class: "sb-b", "aria-pressed": view === "accounts" ? "true" : "false", onclick: () => ((view = "accounts"), draw()) }, "Аккаунты"),
           h("button", { class: "sb-b", "aria-pressed": view === "slots" ? "true" : "false", onclick: () => ((view = "slots"), draw()) }, "Слоты"),
-          view === "accounts" && machines("machine.login").length
-            ? h("button", { class: "sb-b pri", onclick: () => ((dlg = { kind: "new", machine: machines("machine.login")[0], name: "", err: "" }), draw()) }, "+ Новый аккаунт")
-            : null,
+          view === "accounts" ? newBtn : null,
         ),
       );
+      out = box;
       if (view === "slots") drawSlots();
       else drawAccounts();
     }
@@ -535,7 +595,7 @@ export function createAccounts(): AppModule {
 
   return {
     on: { roster: onRoster },
-    screens: { accounts: { nav: "Аккаунты", mark: "logins", label: "Аккаунты", mount } },
+    screens: { accounts: { nav: "Аккаунты", group: "Флот", mark: "logins", label: "Аккаунты", mount } },
     marks: {
       logins: () => [...accs.values()].reduce((n, list) => n + Object.values(list).filter((a) => a.login === "pending").length, 0),
     },

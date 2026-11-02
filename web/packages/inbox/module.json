@@ -1,0 +1,21 @@
+{
+  "name": "web-inbox",
+  "type": "web",
+  "version": "0.1.0",
+  "into": ["pult", "phone"],
+  "provides": { "inbox": 1, "you": 1 },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "asked@web-ask": 1,
+    "ask@web-ask": 1,
+    "unread@web-chat": 1,
+    "card@web-card": 1,
+    "mine@web-board": 1,
+    "project@web-board": 1,
+    "fire@pult-points": 1,
+    "points@pult-points": 1,
+    "session.start@host-manage": 1
+  },
+  "config": {}
+}

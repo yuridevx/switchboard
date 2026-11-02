@@ -6,6 +6,7 @@ import type { QueryPart, Session, SessionState, StartKind, Store } from "../cont
 import type { Exited, HeldProcess } from "./holders.ts";
 import { handled, INIT_MS, START_MS } from "./kernel.ts";
 import type { Kernel, Mod } from "./kernel.ts";
+import { tildePath } from "./paths.ts";
 import { InputQueue } from "./queue.ts";
 import type { CoreRecord } from "./store.ts";
 
@@ -381,7 +382,9 @@ export class Sess {
   /** Запись сессии в roster: поля ядра и поля модулей; выключенные модули — в failed. */
   record(): Record<string, unknown> {
     const k = this.k;
-    const r: Record<string, unknown> = { callsign: this.callsign, state: this.state, sdk: this.rec.sdk };
+    // папка и отправитель последнего ввода — у ядра: по ним клиент выводит проект сессии и «моё»
+    const r: Record<string, unknown> = { callsign: this.callsign, state: this.state, sdk: this.rec.sdk, dir: tildePath(this.rec.cwd) };
+    if (this.rec.from) r.from = this.rec.from;
     for (const m of k.mods) {
       for (const name of Object.keys(m.module.fields ?? {})) {
         const v = this.field(m, name);

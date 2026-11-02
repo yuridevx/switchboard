@@ -343,7 +343,7 @@ export function createChat(): AppModule {
     const strip = h("div", { class: "chat-strip" });
     const sug = h("div", { class: "chat-sug", role: "listbox" });
     const files = h("div", { class: "chat-files" });
-    const tools = h("div", { class: "chat-tools", hidden: !wide });
+    const tools = h("div", { class: "chat-tools" });
     const input = h("textarea", { class: "chat-inp", rows: 1, placeholder: `Написать ${callsign}`, "aria-label": `Написать ${callsign}` }) as HTMLTextAreaElement;
     input.value = drafts[callsign] ?? "";
     const sendBtn = h("button", { class: "chat-send", "aria-label": "Отправить", type: "submit" }, "↑") as HTMLButtonElement;
@@ -512,14 +512,15 @@ export function createChat(): AppModule {
       );
     }
 
+    /** кнопки ввода: в широком виде — значок и слово, в узком — значок (имя — в aria-label) */
     function drawTools(live: boolean) {
       tools.textContent = "";
-      if (!wide) return;
+      const tool = (icon: string, word: string, label: string, onclick: () => void) => h("button", { type: "button", class: "chat-mini", "aria-label": label, onclick }, wide ? `${icon} ${word}` : icon);
       add(
         tools,
-        h("button", { type: "button", class: "chat-mini", onclick: () => picker.click() }, "＋ файл"),
-        has(callsign, "session.files") ? h("button", { type: "button", class: "chat-mini", onclick: () => ((input.value += input.value && !input.value.endsWith(" ") ? " @" : "@"), sync(), void suggest(), input.focus()) }, "@ файл") : null,
-        has(callsign, "session.call") && live ? h("button", { type: "button", class: "chat-mini", onclick: () => ((input.value = "/"), sync(), void suggest(), input.focus()) }, "/ команда") : null,
+        tool("＋", "файл", "Вложить файл", () => picker.click()),
+        has(callsign, "session.files") ? tool("@", "файл", "Файл папки", () => ((input.value += input.value && !input.value.endsWith(" ") ? " @" : "@"), sync(), void suggest(), input.focus())) : null,
+        has(callsign, "session.call") && live ? tool("/", "команда", "Команда", () => ((input.value = "/"), sync(), void suggest(), input.focus())) : null,
       );
     }
 

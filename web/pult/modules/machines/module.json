@@ -1,8 +1,11 @@
 {
   "name": "pult-machines",
   "type": "web",
-  "version": "2.1.2",
-  "into": ["pult"],
+  "version": "3.1.0",
+  "into": [
+    "pult",
+    "phone"
+  ],
   "provides": {
     "machines": 1
   },
@@ -10,10 +13,12 @@
     "app@web-core": 1,
     "roster@relay": 1,
     "machine.profiles@host-profiles": 1,
-    "github.app@github": 1,
-    "github.setup@github": 1,
     "accounts@pult-accounts": 1,
-    "keeper.state@keeper": 1
+    "keeper.state@keeper": 1,
+    "releases.set@releases": 1,
+    "project.current@web-board": 1,
+    "project.machines@web-board": 1,
+    "settings@pult-settings": 1
   },
   "config": {}
 }

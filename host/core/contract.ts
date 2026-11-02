@@ -297,7 +297,7 @@ export { Refusal, refuse, isRefusal, REFUSAL } from "./src/refusal.ts";
  * IMAGE_TYPES: типы файлов, которые модель видит картинкой — блок image во вводе и в ответе инструмента MCP.
  */
 export { content, IMAGE_TYPES } from "./src/content.ts";
-export { clientPath, claudeDir } from "./src/paths.ts";
+export { clientPath, claudeDir, tildePath } from "./src/paths.ts";
 
 // ───────────────────────── стенд ─────────────────────────
 

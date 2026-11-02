@@ -184,7 +184,6 @@ describe("эталоны пульта: машины", () => {
       };
     };
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "team/profiles": { state: "ok" } } } });
-    relay.handlers["github.app"] = () => ({ ok: true, result: { app: { slug: "switchboard-team", id: 1, owner: "team" }, repos: ["team/profiles"], install: "https://github.com/apps/switchboard-team/installations/new" } });
     const t = await pult({ relay });
     await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
     await flush(10);
@@ -194,6 +193,7 @@ describe("эталоны пульта: машины", () => {
   it("195 · машины: keeper.state от .keeper@машина — части с версиями и состоянием; failed — причиной; кнопки обновления нет; машина вернулась — keeper.state заново", async () => {
     const { t, relay, setHost } = await machines();
     expect(relay.sent("keeper.state").map((f) => f.to)).toEqual([".keeper@laptop", ".keeper@pc"]);
+    await t.click(t.$('[data-row="pc"] .mc-head'));
     expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("0.5.0 · план rev 44");
     expect(t.$('[data-machine="pc"] [data-part="host"]')!.textContent).toBe("1.1.58 · running · pid 7731");
     expect(t.$('[data-machine="pc"] [data-part="capture"]')!.textContent).toBe("1.3.2 · running · pid 9120");
@@ -204,7 +204,9 @@ describe("эталоны пульта: машины", () => {
     await flush(10);
     expect(relay.sent("keeper.state").map((f) => f.to)).toEqual([".keeper@laptop", ".keeper@pc", ".keeper@pc"]);
     const host = t.$('[data-machine="pc"] [data-part="host"]')!;
-    expect([host.textContent, host.getAttribute("data-state"), host.className]).toEqual(["1.1.59 · failed · pid 7731 · второе падение: код 1", "failed", "bad"]);
+    expect([host.textContent, host.getAttribute("data-state"), host.className]).toEqual(["1.1.59 · failed · pid 7731", "failed", "v bad"]);
+    expect(t.$('[data-machine="pc"]')!.textContent).toContain("второе падение: код 1");
+    expect(t.$('[data-row="pc"]')!.getAttribute("data-state")).toBe("fail");
   });
 });
 
@@ -263,7 +265,7 @@ describe("эталоны пульта: точки", () => {
     const d = new Date(left);
     const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
     expect(t.$('[data-fire="mac"] b')!.textContent).toBe(`mac не на связи с ${hm} · 2 сессии ждут на последних точках`);
-    expect(t.$('.sb-navcol button[data-screen="points"]')!.textContent).toBe("Точки2");
+    expect(t.$('.sb-navcol button[data-screen="points"]')!.textContent).toBe("Точки");
     await t.click(t.btn(null, "Перенести на другую машину…"));
     await flush(10);
     expect(relay.sent("points.raise").map((f) => [f.machine, f.sid, f.dryRun])).toEqual([
@@ -392,8 +394,8 @@ describe("эталоны пульта: точки", () => {
     Object.assign(r.sessions[2], { r2: {}, remote: { url: "https://claude.ai/code/session_02Qx" } });
     relay.setRoster(r);
     await flush();
-    expect(t.btn(null, "В claude.ai ↗") ?? t.$(".cw-acts a")).not.toBeNull();
-    expect(t.$(".cw-acts a")!.getAttribute("href")).toBe("https://claude.ai/code/session_02Qx");
+    await t.click(t.$('[data-pop="menu"]'));
+    expect(t.$<HTMLAnchorElement>('.cw-pop a[href^="https://claude.ai/"]')!.getAttribute("href")).toBe("https://claude.ai/code/session_02Qx");
     expect(relay.got.some((f) => f.type.startsWith("remote"))).toBe(false);
   });
 });

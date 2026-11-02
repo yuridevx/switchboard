@@ -30,8 +30,8 @@ async function feed(callsign = "site@laptop", relay = new FakeRelay(homeRoster()
   relay.handlers["session.watch"] ??= () => ({ ok: true });
   relay.handlers["session.unwatch"] ??= () => ({ ok: true });
   relay.handlers["session.history"] ??= hist([]);
-  const t = await stand(parts(), { relay, store });
-  await t.click(t.$(`[data-callsign="${callsign}"]`));
+  // лента — в карточке по адресу: список сессий board в эти эталоны не входит
+  const t = await stand(parts(), { relay, store, url: `/#card?callsign=${encodeURIComponent(callsign)}` });
   return t;
 }
 

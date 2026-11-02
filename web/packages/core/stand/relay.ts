@@ -185,12 +185,12 @@ export function homeRoster(over: Partial<Roster> = {}): Roster {
       { machine: "pc", since: 1, proto: 1, contract },
     ],
     sessions: [
-      { callsign: "site@laptop", state: "busy", model: "opus", effort: "high", slot: { name: "main", wait: null }, account: "y0902" },
-      { callsign: "profiles@laptop", state: "waiting", model: "opus", slot: { name: "main", wait: null } },
-      { callsign: "poe-bot@pc", state: "idle", model: "sonnet", slot: { name: "main", wait: null } },
-      { callsign: "wiki@pc", state: "stopped", model: "sonnet", slot: { name: "main", wait: null } },
+      { callsign: "site@laptop", dir: "~/Projects/switchboard", from: "phone~owner@example.com", state: "busy", model: "opus", effort: "high", slot: { name: "main", wait: null }, account: "y0902" },
+      { callsign: "profiles@laptop", dir: "~/Projects/switchboard", from: "phone~owner@example.com", state: "waiting", model: "opus", slot: { name: "main", wait: null } },
+      { callsign: "poe-bot@pc", dir: "~/Projects/poe", from: "phone~owner@example.com", state: "idle", model: "sonnet", slot: { name: "main", wait: null } },
+      { callsign: "wiki@pc", dir: "~/Projects/switchboard", from: "phone~owner@example.com", state: "stopped", model: "sonnet", slot: { name: "main", wait: null } },
     ],
-    clients: ["phone", "panel-desk"],
+    clients: ["phone~owner@example.com", "panel-desk~owner@example.com"],
     ...over,
   };
 }

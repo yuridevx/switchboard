@@ -1,0 +1,146 @@
+// Разделы страницы по прототипу «Пульт и телефон» (подписан пользователем 2 нояб.: «основа дизайна ок»):
+// группа «Флот», подпункты раздела, поиск Ctrl K в широком виде, вкладки внизу в узком.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { memoryStore, startApp, type AppModule, type AppPart, type Manifest } from "../contract.ts";
+import { FakeRelay, flush, homeRoster, KEY } from "../stand/relay.ts";
+
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  document.body.innerHTML = '<div id="app"></div>';
+  history.replaceState(null, "", "/");
+});
+afterEach(() => vi.restoreAllMocks());
+
+const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1 } });
+
+/** Работа с подпунктами-проектами и поиском; два раздела группы «Флот». */
+function parts(): AppPart[] {
+  const work: AppModule = {
+    screens: {
+      work: {
+        nav: "Работа",
+        sub: () => [
+          { label: "switchboard", params: { project: "switchboard" }, dots: ["busy", "wait"] },
+          { label: "pfarm", params: { project: "pfarm" }, dots: ["idle"] },
+        ],
+        find: (q) => ["refactor@win", "api@wsl"].filter((c) => c.includes(q)).map((c) => ({ label: c, hint: "сессия", dot: "busy", screen: "work", params: { callsign: c } })),
+        mount: (el, p) => void (el.textContent = `работа ${p.project ?? p.callsign ?? "все"}`),
+      },
+    },
+  };
+  const fleet: AppModule = {
+    screens: {
+      machines: { nav: "Машины", group: "Флот", mount: (el) => void (el.textContent = "машины") },
+      access: { nav: "Аккаунты", group: "Флот", mount: (el) => void (el.textContent = "аккаунты") },
+    },
+  };
+  return [
+    { manifest: man("w", { work: 1 }), module: work },
+    { manifest: man("f", { machines: 1, access: 1 }), module: fleet },
+  ];
+}
+
+async function run(wide: boolean) {
+  const relay = new FakeRelay(homeRoster());
+  const r = startApp({
+    root: document.getElementById("app")!,
+    workers: FakeRelay.WORKERS,
+    fetch: relay.fetch,
+    parts: parts(),
+    wide,
+    sections: ["work", "machines", "access"],
+    store: memoryStore({ key: KEY }),
+    WebSocket: relay.WebSocket,
+    platform: { ios: false, standalone: false },
+    pauseMs: 5,
+  });
+  await r.ready;
+  await flush();
+  return r;
+}
+const texts = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)].map((b) => b.textContent);
+
+describe("разделы страницы", () => {
+  it("5170 · широкий вид: подпункты раздела под ним, группа «Флот» с подписью; подпункт открывает раздел с параметрами и становится текущим", async () => {
+    await run(true);
+    expect(texts(".sb-navcol .sb-nv")).toEqual(["Работа", "switchboard", "pfarm", "Машины", "Аккаунты"]);
+    expect(texts(".sb-navcol .sb-grp")).toEqual(["Флот"]);
+    expect(document.querySelectorAll(".sb-navcol .sb-nv.sub .sb-lamps .sb-dot")).toHaveLength(3);
+    // машин и имени устройства в колонке больше нет
+    expect(document.querySelector(".sb-nm, .sb-me, .sb-ncap")).toBeNull();
+    [...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv.sub")][1].click();
+    await flush();
+    expect(location.hash).toBe("#work?project=pfarm");
+    expect(document.querySelector(".sb-main")!.textContent).toContain("работа pfarm");
+    expect(document.querySelector('.sb-navcol .sb-nv[aria-current="page"]')!.textContent).toBe("pfarm");
+  });
+
+  it("5171 · Ctrl K: разделы и строки find экранов; Enter открывает первую; Esc закрывает", async () => {
+    await run(true);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
+    expect(input).not.toBeNull();
+    expect(texts(".sb-palit .l")).toEqual(["Работа", "refactor@win", "api@wsl", "Машины", "Аккаунты"]);
+    input.value = "api";
+    input.dispatchEvent(new Event("input"));
+    expect(texts(".sb-palit .l")).toEqual(["api@wsl"]);
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    await flush();
+    expect(location.hash).toBe("#work?callsign=api%40wsl");
+    expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(true);
+    document.querySelector<HTMLElement>(".sb-goto")!.click();
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(true);
+  });
+
+  it("5174 · beside списком: карточка открыта от «Вам» — слева «Вам», от «Работы» — «Работа»; поиск ведёт и на экран из uses", async () => {
+    const relay = new FakeRelay(homeRoster());
+    const lists: AppModule = {
+      screens: {
+        inbox: { nav: "Вам", find: () => [{ label: "site@laptop", screen: "card", params: { callsign: "site@laptop" } }], mount: (el) => void (el.textContent = "вам") },
+        board: { nav: "Работа", mount: (el) => void (el.textContent = "работа") },
+      },
+    };
+    const card: AppModule = { screens: { card: { mount: (el, p) => void (el.textContent = `карточка ${p.callsign}`) } } };
+    const r = startApp({
+      root: document.getElementById("app")!,
+      workers: FakeRelay.WORKERS,
+      fetch: relay.fetch,
+      parts: [
+        { manifest: { ...man("l", { inbox: 1, board: 1 }), uses: { "app@web-core": 1, "card@c": 1 } }, module: lists },
+        { manifest: man("c", { card: 1 }), module: card },
+      ],
+      wide: true,
+      beside: { card: ["board", "inbox"] },
+      store: memoryStore({ key: KEY }),
+      WebSocket: relay.WebSocket,
+      platform: { ios: false, standalone: false },
+      pauseMs: 5,
+    });
+    await r.ready;
+    await flush();
+    location.hash = "#inbox";
+    await flush();
+    location.hash = "#card?callsign=site%40laptop";
+    await flush();
+    expect(document.querySelector(".sb-master")!.getAttribute("data-screen")).toBe("inbox");
+    location.hash = "#board";
+    await flush();
+    location.hash = "#card?callsign=site%40laptop";
+    await flush();
+    expect(document.querySelector(".sb-master")!.getAttribute("data-screen")).toBe("board");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    expect(texts(".sb-palit .l")).toContain("site@laptop");
+  });
+
+  it("5172 · узкий вид: вкладки внизу — разделы без группы и одна вкладка группы; открыт раздел группы — его соседи лентой над экраном", async () => {
+    await run(false);
+    expect(texts(".sb-tabs .sb-nv")).toEqual(["Работа", "Флот"]);
+    expect(document.querySelector<HTMLElement>(".sb-navrow")!.hidden).toBe(true);
+    document.querySelector<HTMLElement>('.sb-tabs [data-group="Флот"]')!.click();
+    await flush();
+    expect(location.hash).toBe("#machines");
+    expect(texts(".sb-navrow .sb-nv")).toEqual(["Машины", "Аккаунты"]);
+    expect(document.querySelector('.sb-tabs [data-group="Флот"]')!.getAttribute("aria-current")).toBe("page");
+  });
+});

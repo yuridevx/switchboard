@@ -388,6 +388,22 @@ describe("договор модуля на стенде", () => {
     await k.close();
   });
 
+  it("roster сессии несёт dir — папку от ~ — и from — отправителя последнего ввода; from меняется с вводом", async () => {
+    let sess!: import("../contract.ts").Session;
+    const probe = module("host-probe", { on: { open: (s) => void (sess = s) } });
+    const st = await stand({ modules: [probe] });
+    await st.open("site@laptop");
+    const { homedir } = await import("node:os");
+    const want = sess.info.cwd === homedir() ? "~" : sess.info.cwd.startsWith(homedir()) ? "~/" + sess.info.cwd.slice(homedir().length + 1).split(/[\\/]/).join("/") : sess.info.cwd;
+    expect(st.states("site@laptop").at(-1)).toMatchObject({ dir: want });
+    sess.input("привет", { from: "phone~you@mail" });
+    sess.refresh();
+    await until(() => st.states("site@laptop").at(-1)?.from === "phone~you@mail");
+    sess.input("ещё", { from: "pult~you@mail" });
+    sess.refresh();
+    await until(() => st.states("site@laptop").at(-1)?.from === "pult~you@mail");
+  });
+
   it("регрессия: s.refresh() — поле вне событий SDK уходит в session.state сразу", async () => {
     let url: string | null = null;
     let sess!: import("../contract.ts").Session;

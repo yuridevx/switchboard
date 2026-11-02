@@ -4,8 +4,7 @@
 // (родитель) и отметку «убрать после хода». Папку держит ядро, слот — slots, профиль — profiles, заголовок — файл разговора.
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { sep } from "node:path";
-import { clientPath, refuse } from "@switchboard/host";
+import { clientPath, refuse, tildePath } from "@switchboard/host";
 import type { Ctx, Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
 
 /** Спецификация сессии: выбор клиента. Нет поля — значение по умолчанию claude. */
@@ -67,7 +66,6 @@ export function manage(o: ManageOptions = {}): Module {
   /** Спецификация, заголовок и родитель новой сессии: от session.open до её первого session() внутри host.open. Имя занято, пока открывается. */
   const pending = new Map<string, { spec: Spec; title: string; parent?: string }>();
 
-  const tilde = (p: string) => (p === home ? "~" : p.startsWith(home + sep) ? "~/" + p.slice(home.length + 1).split(sep).join("/") : p);
   const recOf = (s: Session) => s.store<Rec>().get() ?? {};
   const specOfSession = (s: Session): Spec => {
     const { parent: _p, remove_after_turn: _r, ...spec } = recOf(s);
@@ -234,7 +232,7 @@ export function manage(o: ManageOptions = {}): Module {
         const s = host.session(req.callsign as string)!;
         const spec = specOfSession(s);
         const info = (await call(s, "getSessionInfo")) as { customTitle?: string; summary?: string } | undefined;
-        return { dir: tilde(s.info.cwd), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
+        return { dir: tildePath(s.info.cwd, home), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
       },
 
       async "session.stop"(req, { host }) {

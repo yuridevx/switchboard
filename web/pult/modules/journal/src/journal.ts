@@ -98,7 +98,6 @@ export function createJournal(): AppModule {
       if (!shown.length) list.append(h("div", { class: "sb-note" }, reading ? "…" : "Записей нет."));
       box.append(list);
       if (more) box.append(h("div", { class: "sb-opts" }, h("button", { class: "sb-b", onclick: () => void read({ before: Math.min(...evs.map((e) => e.id)) }, "older") }, "Раньше")));
-      box.append(h("div", { class: "sb-note" }, "Текст записи пишет модуль, который это сделал; пульт показывает как есть. Сбои частей — не здесь, а в журнале машины во вкладке сессии."));
       if (keep) (box.querySelector(`[data-f="${keep}"]`) as HTMLInputElement | null)?.focus();
     }
 
@@ -110,7 +109,7 @@ export function createJournal(): AppModule {
 
   return {
     on: { roster: () => screens.forEach((f) => f()) },
-    screens: { journal: { nav: "Журнал флота", label: "Журнал флота", mount } },
+    screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", mount } },
     css: CSS,
     start(a) {
       app = a;

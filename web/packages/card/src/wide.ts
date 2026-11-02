@@ -1,46 +1,64 @@
-// Карточка сессии в широком виде (пульт): шапка из roster, плашка состояния, вкладки
-// «Чат» · вкладки места card.tab (например «Точки») · «Настройки» · «Журнал машины».
-// Каждое поле настроек — у своего владельца: модель, усилие, быстрый режим, стиль, заголовок — session.update;
-// слот — session.slot; профиль — session.profile; папка и заголовок — session.spec; сведения — session.call.
-// Итог изменения пульт берёт из следующего roster, а не из формы. Нет имени в contract машины — нет кнопки.
-import { add, h, hhmm, stateLabel, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+// Карточка сессии в широком виде (пульт), по прототипу «Пульт и телефон»: шапка — одна строка
+// (лампа с подсказкой состояния, позывной, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Прервать»/«Запустить», «⋯»),
+// плашка — только у не запустившейся, сведения сбоку — по желанию. Вкладки: «Разговор» · вкладки места card.tab
+// · «Настройки» · «Журнал». Поле — у своего владельца: модель, усилие, быстрый режим, заголовок — session.update;
+// слот — session.slot; профиль — session.profile; итог изменения — из следующего roster. Нет имени в contract — нет кнопки.
+import { add, h, hhmm, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 export const WIDE_CSS = `
 .cw{flex:1;min-height:0;display:flex;flex-direction:column}
-.cw-h{flex:none;display:flex;align-items:flex-start;gap:10px;padding:12px 16px 9px;background:var(--surface);border-bottom:1px solid var(--line2)}
-.cw-ht{flex:1;min-width:0}
-.cw-ht>b{font:600 16px var(--mono);margin-right:8px}
-.cw-meta{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
-.cw-chip{font:500 11.5px/1.3 var(--mono);background:var(--surface2);border:1px solid var(--line2);border-radius:999px;padding:2px 8px;white-space:nowrap;color:var(--muted)}
-.cw-chip.warn{color:var(--wait);border-color:var(--wait)}
-.cw-acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.cw-h{flex:none;display:flex;align-items:center;gap:10px;padding:0 10px 0 16px;min-height:48px;background:var(--surface);border-bottom:1px solid var(--line2);flex-wrap:nowrap}
+.cw-lamp{flex:none;cursor:help;animation:none}
+.cw-cs{font:600 16px var(--mono);white-space:nowrap}
+.cw-hpw{position:relative;display:flex;gap:6px;flex:none}
+.cw-hb{font:500 12.5px/1.3 var(--body);border:1px solid var(--line2);background:var(--surface2);color:var(--ink);border-radius:999px;padding:3px 10px;white-space:nowrap}
+.cw-hb.lim{background:var(--wait-weak);color:var(--wait);border-color:transparent}
+.cw-hb.you{background:var(--wait);color:var(--on-wait,#fff);border-color:transparent}
+.cw-tabs{display:flex;gap:2px;margin-left:auto;align-self:stretch}
+.cw-tabs button{font:500 13.5px var(--body);padding:0 11px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);border-radius:0;white-space:nowrap}
+.cw-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
+.cw-tabs button .n{font-size:11.5px;color:var(--muted);margin-left:3px}
 .cw-b{font:600 12.5px/1.2 var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 10px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
 .cw-b.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .cw-b.bad{color:var(--bad);border-color:var(--bad);background:transparent}
-.cw-b[aria-pressed="true"]{background:var(--accent-weak);border-color:var(--accent);color:var(--accent)}
+.cw-b.ghost{border-color:transparent;background:transparent}
+.cw-b[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .cw-b[disabled]{opacity:.45;cursor:default}
-.cw-why{font-size:12px;color:var(--muted);max-width:30ch}
-.cw-pl{flex:none;display:flex;gap:10px;align-items:center;padding:9px 16px;border-bottom:1px solid var(--line2)}
-.cw-pl>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;font-size:13px}
-.cw-pl b{font-size:13.5px}
-.cw-pl.bad{background:var(--bad-weak)} .cw-pl.bad b{color:var(--bad)}
-.cw-pl.wait{background:var(--wait-weak)} .cw-pl.wait b{color:var(--wait)}
-.cw-pl.stop{background:var(--surface2)}
-.cw-tabs{flex:none;display:flex;gap:2px;padding:0 12px;background:var(--surface);border-bottom:1px solid var(--line2)}
-.cw-tabs button{font:600 13px var(--body);padding:8px 10px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);border-radius:0}
-.cw-tabs button[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent)}
-.cw-place{flex:1;min-height:0;display:flex;flex-direction:column}
-.cw-set{flex:1;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
-.cw-sec{background:var(--surface);border:1px solid var(--line2);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
-.cw-h4{margin:0;font:600 10.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
-.cw-row{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;align-items:center;font-size:13.5px}
-.cw-row>span:first-child{color:var(--muted)}
-.cw-opts{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
-.cw-in{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:13.5px var(--body);color:var(--ink);background:var(--bg);min-width:0}
-.cw-mono{font-family:var(--mono);font-size:12.5px}
+.cw-why{font-size:12px;color:var(--bad);white-space:nowrap}
+.cw-mw{position:relative;flex:none}
+.cw-more{font-size:18px;line-height:1;padding:4px 10px}
+.cw-pop{position:absolute;top:calc(100% + 6px);z-index:6;width:270px;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:8px;display:flex;flex-direction:column;gap:2px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
+.cw-pop.l{left:0}.cw-pop.r{right:0}.cw-pop.w{width:340px}
+.cw-pop hr{border:0;border-top:1px solid var(--line2);margin:4px 0;width:100%}
+.cw-pop .lb{font-size:11.5px;color:var(--muted);padding:2px 8px}
+.cw-mi{display:block;text-align:left;width:100%;border:0;background:transparent;border-radius:8px;padding:6px 8px;font:500 13px var(--body);color:var(--ink);text-decoration:none}
+.cw-mi:hover{background:var(--accent-weak)}
+.cw-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;font-size:12.5px;padding:4px 8px 8px}
+.cw-kv dt{color:var(--muted)}.cw-kv dd{margin:0;font-weight:600;overflow-wrap:anywhere}
+.cw-opts{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:2px 6px}
+.cw-win{display:grid;grid-template-columns:96px minmax(0,1fr) 128px;gap:8px;align-items:center;font-size:12.5px;padding:2px 8px}
+.cw-win .v{white-space:nowrap;color:var(--muted);font-size:11.5px}
+.cw-meter{height:6px;border-radius:999px;background:var(--surface2);overflow:hidden;border:1px solid var(--line2)}
+.cw-meter i{display:block;height:100%;background:var(--busy)}
+.cw-meter.hot i{background:var(--wait)}.cw-meter.full i{background:var(--bad)}
+.cw-pl{flex:none;display:flex;gap:10px;align-items:center;padding:9px 16px;border-bottom:1px solid var(--line2);background:var(--bad-weak)}
+.cw-pl b{flex:1;font-size:13.5px;color:var(--bad)}
+.cw-body{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr)}
+.cw-body.info{grid-template-columns:minmax(0,1fr) 262px}
+.cw-place{min-height:0;min-width:0;display:flex;flex-direction:column}
+.cw-info{border-left:1px solid var(--line2);background:var(--surface);padding:12px 14px;display:flex;flex-direction:column;gap:14px;font-size:13px;min-height:0;overflow-y:auto}
+.cw-info h4{margin:0 0 5px;font:600 12px var(--body);color:var(--muted)}
+.cw-info .cw-kv{padding:0}
+.cw-sw{display:flex;align-items:center;gap:8px;padding:2px 0;font-size:13px}
+.cw-sw span{flex:1}
+.cw-set{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:14px;max-width:680px}
+.cw-fs{display:flex;flex-direction:column;gap:6px}
+.cw-fs>.lb{font:600 12px var(--body);color:var(--muted)}
+.cw-in{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:13.5px var(--body);color:var(--ink);background:var(--surface);min-width:0}
 .cw-note{font-size:12.5px;color:var(--muted)}
 .cw-note.ok{color:var(--ok)} .cw-note.bad{color:var(--bad)}
+.cw-confirm{border:1px solid var(--bad);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px}
 .cw-log{flex:1;min-height:0;overflow-y:auto;padding:12px 16px;display:flex;flex-direction:column;gap:6px}
 .cw-lr{display:grid;grid-template-columns:70px 52px 110px minmax(0,1fr);gap:8px;font:12.5px/1.4 var(--mono);padding:4px 0;border-bottom:1px solid var(--line2)}
 .cw-lr .k{font-weight:600}
@@ -49,29 +67,36 @@ export const WIDE_CSS = `
 .cw-lr .x{overflow-wrap:anywhere}
 `;
 
-/** Подпись состояния в шапке широкого вида. */
+/** Подпись и лампа состояния (подсказка индикатора). */
 const LABEL: Record<string, [string, string]> = {
-  busy: ["отвечает", "busy"],
-  waiting: ["ждёт ответа", "wait"],
-  failed: ["не поднялась", "bad"],
-  idle: ["свободна", "ok"],
+  busy: ["работает", "busy"],
+  waiting: ["ждёт вас", "wait"],
+  failed: ["не запустилась", "bad"],
+  idle: ["свободна", "idle"],
   starting: ["запускается", "busy"],
-  stopping: ["останавливается", ""],
-  stopped: ["остановлена", ""],
+  stopping: ["останавливается", "stop"],
+  stopped: ["остановлена", "stop"],
 };
+/** Модели, когда SDK машины не спросить (сессия не живая). */
 const MODELS = ["opus", "sonnet", "haiku", "fable"];
-const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
+const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
+const effName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ?? String(e ?? "");
 const LIVE = new Set(["idle", "busy", "waiting"]);
 /** Окна лимитов аккаунта → подпись. */
-const WINDOWS: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus" };
-/** Порог подсказки лимита в шапке. */
+const WINDOWS: Record<string, string> = { five_hour: "5 часов", seven_day: "неделя", seven_day_opus: "неделя Opus" };
+/** С этой доли окна 5 часов кнопка аккаунта жёлтая. */
 const LIMIT_HINT = 0.7;
 
-type Spec = { dir?: string; model?: string | null; effort?: string | null; title?: string | null };
+type Win = { utilization: number; resetsAt?: number };
+type Acc = { email?: string; plan?: string; limits?: Record<string, Win> };
+type SlotInfo = { account: string | null; order?: string[] };
 type Mcp = { name: string; status?: string };
 type Rec = { t: string; part?: string; who?: string; kind?: string; ev?: string; word?: string; why?: string; callsign?: string };
+type Model = { value: string; displayName?: string };
 
 const msg = (r: { ok: boolean; error?: string }) => (r.ok ? "" : String(r.error));
+/** Время сброса: секунды или миллисекунды эпохи → ЧЧ:ММ. */
+const at = (t: number) => hhmm(t < 1e12 ? t * 1000 : t);
 
 /** Полночь сегодня по местному времени — since журнала машины. */
 function midnight(daysBack = 0): string {
@@ -81,29 +106,57 @@ function midnight(daysBack = 0): string {
   return d.toISOString();
 }
 
+/** Состояние карточки, общее для всех карточек модуля: сведения сбоку — выбор устройства. */
+export type WideOpts = { info: () => boolean; setInfo: (v: boolean) => void };
+
 /** Карточка сессии в широком виде. */
-export function mountWide(app: App, el: HTMLElement, params: Record<string, string>): ScreenHandle {
+export function mountWide(app: App, el: HTMLElement, params: Record<string, string>, o: WideOpts): ScreenHandle {
   const callsign = params.callsign ?? "";
   const machine = machineOf(callsign) ?? "";
   let tab = params.tab ?? "chat";
   /** экран вкладки: чат и вкладки места card.tab — через ядро (их перерисовывает ядро), свои — здесь */
   let inner: ScreenHandle | undefined;
   let own: ScreenHandle | undefined;
-  let limit = "";
   let headNote = "";
-  let forget = false;
+  /** открытое окно шапки: модель, аккаунт или меню ⋯ */
+  let pop: "" | "model" | "acc" | "menu" = "";
+  let accounts: Record<string, Acc> | null = null;
+  let slots: Record<string, SlotInfo> | null = null;
+  let models: Model[] | null = null;
+  let mcp: Mcp[] | null = null;
 
   const session = (): SessionRecord | undefined => app.roster()?.sessions.find((s) => s.callsign === callsign);
   const can = (name: string) => app.provides(machine)?.[name] !== undefined;
   const live = () => LIVE.has(String(session()?.state));
+  const slotOf = (s?: SessionRecord) => s?.slot as { name?: string; wait?: number | null } | null | undefined;
+  const profileOf = (s?: SessionRecord) => (s?.profile as { id?: string } | null | undefined)?.id;
 
   const head = h("div", { class: "cw-h" });
-  const plaque = h("div", { class: "cw-pl", role: "status" });
-  const tabs = h("div", { class: "cw-tabs", role: "tablist" });
+  const plaque = h("div", { class: "cw-pl", role: "status", hidden: true });
   const place = h("div", { class: "cw-place" });
-  el.append(h("div", { class: "cw" }, head, plaque, tabs, place));
+  const side = h("aside", { class: "cw-info", "aria-label": "Сведения" });
+  const body = h("div", { class: "cw-body" }, place);
+  el.append(h("div", { class: "cw" }, head, plaque, body));
 
-  // ───── шапка и плашка ─────
+  // окна шапки закрываются кликом мимо и Esc; клик внутри шапки помечает её слушатель — кнопка после перерисовки уже не в DOM
+  const inHead = new WeakSet<Event>();
+  head.addEventListener("click", (e) => inHead.add(e));
+  const outside = (e: Event) => {
+    if (pop && !inHead.has(e)) {
+      pop = "";
+      drawHead();
+    }
+  };
+  const esc = (e: Event) => {
+    if ((e as KeyboardEvent).key === "Escape" && pop) {
+      pop = "";
+      drawHead();
+    }
+  };
+  document.addEventListener("click", outside);
+  document.addEventListener("keydown", esc);
+
+  // ───── запросы шапки ─────
   async function interrupt() {
     const r = await app.request("session.call", { callsign, method: "interrupt", args: [] });
     headNote = r.ok ? "" : `Прервать: ${msg(r)}`;
@@ -112,91 +165,240 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
 
   async function start() {
     const r = await app.request("session.start", { callsign });
-    if (!r.ok) app.toast(`${callsign}: «Поднять» — ${msg(r)}`);
+    if (!r.ok) app.toast(`${callsign}: «Запустить» — ${msg(r)}`);
+  }
+
+  async function update(body: Record<string, unknown>, what: string) {
+    pop = "";
+    drawHead();
+    const r = await app.request("session.update", { callsign, ...body });
+    if (!r.ok) app.toast(`${callsign}: ${what} — ${msg(r)}`);
+  }
+
+  /** аккаунты и слоты машины: подпись кнопки аккаунта и её окно */
+  async function loadAccounts() {
+    const jobs: Array<Promise<void>> = [];
+    if (can("machine.accounts"))
+      jobs.push(
+        app.request<{ accounts: Record<string, Acc> }>("machine.accounts", { machine }).then((r) => {
+          if (r.ok) accounts = r.result.accounts ?? {};
+        }),
+      );
+    if (can("machine.slots"))
+      jobs.push(
+        app.request<{ slots: Record<string, SlotInfo> }>("machine.slots", { machine }).then((r) => {
+          if (r.ok) slots = r.result.slots ?? {};
+        }),
+      );
+    await Promise.all(jobs.map((j) => j.then(drawHead)));
+  }
+
+  async function loadModels() {
+    if (models || !live() || !can("session.call")) return;
+    const r = await app.request<Model[]>("session.call", { callsign, method: "supportedModels", args: [] });
+    if (r.ok && Array.isArray(r.result)) models = r.result;
+    drawHead();
+  }
+
+  function toggle(p: "model" | "acc" | "menu") {
+    pop = pop === p ? "" : p;
+    if (pop === "model") void loadModels();
+    if (pop === "acc") void loadAccounts();
+    drawHead();
+  }
+
+  // ───── шапка ─────
+  function tip(s: SessionRecord): string {
+    const [label] = LABEL[String(s.state)] ?? [String(s.state)];
+    const why = s.failed ? Object.entries(s.failed as Record<string, string>).map(([k, v]) => `${k}: ${v}`).join("; ") : "";
+    return s.state === "failed" && why ? `${label}: ${why}` : label;
+  }
+
+  function modelPop(s: SessionRecord): HTMLElement {
+    const list: Model[] = models ?? MODELS.map((m) => ({ value: m }));
+    return h(
+      "div",
+      { class: "cw-pop l", role: "dialog", "aria-label": "Модель и усилие" },
+      h("span", { class: "lb" }, "Модель"),
+      list.map((m) =>
+        h("button", { class: "cw-mi", role: "menuitemradio", "aria-checked": m.value === s.model ? "true" : "false", "data-model": m.value, onclick: () => void update({ model: m.value }, "модель") }, `${m.value === s.model ? "✓ " : ""}${m.displayName ?? m.value}`),
+      ),
+      h("span", { class: "lb" }, "Усилие"),
+      h(
+        "div",
+        { class: "cw-opts" },
+        EFFORTS.map(([k, l]) => h("button", { class: "cw-b", "aria-pressed": s.effort === k ? "true" : "false", "data-effort": k, onclick: () => void update({ effort: k }, "усилие") }, l)),
+      ),
+    );
+  }
+
+  function accPop(s: SessionRecord): HTMLElement {
+    const name = String(s.account ?? "");
+    const a = accounts?.[name];
+    const sl = slotOf(s);
+    const queue = sl?.name ? (slots?.[sl.name]?.order ?? []) : [];
+    return h(
+      "div",
+      { class: "cw-pop l w", role: "dialog", "aria-label": "Аккаунт и лимиты" },
+      h(
+        "dl",
+        { class: "cw-kv" },
+        h("dt", null, "аккаунт"),
+        h("dd", null, [a?.email ?? name, a?.plan].filter(Boolean).join(" · ")),
+        sl?.name ? [h("dt", null, "слот"), h("dd", null, `${sl.name} @${machine}`)] : null,
+      ),
+      Object.entries(a?.limits ?? {}).map(([k, w]) => {
+        const p = Math.round(w.utilization * 100);
+        return h(
+          "div",
+          { class: "cw-win", "data-win": k },
+          h("span", null, WINDOWS[k] ?? k),
+          h("div", { class: `cw-meter${p >= 95 ? " full" : p >= 70 ? " hot" : ""}` }, h("i", { style: `width:${Math.min(p, 100)}%` })),
+          h("span", { class: "v" }, `${p} %${w.resetsAt ? " · до " + at(w.resetsAt) : ""}`),
+        );
+      }),
+      queue.length ? h("div", { class: "cw-note", style: "padding:2px 8px" }, `очередь слота: ${queue.join(" → ")}`) : null,
+      can("session.slot") ? h("div", { class: "cw-opts" }, h("button", { class: "cw-b", onclick: () => ((pop = ""), select("set")) }, "Сменить слот")) : null,
+    );
+  }
+
+  function menuPop(s: SessionRecord): HTMLElement {
+    const remote = (s.remote as { url?: string } | undefined)?.url;
+    const inc = s.incident as { type?: string; key?: string } | null | undefined;
+    return h(
+      "div",
+      { class: "cw-pop r", role: "menu", "aria-label": `Сессия ${callsign}` },
+      h(
+        "dl",
+        { class: "cw-kv" },
+        h("dt", null, "профиль"),
+        h("dd", null, profileOf(s)?.split("/").at(-1) ?? "без профиля"),
+        typeof s.dir === "string" ? [h("dt", null, "папка"), h("dd", null, s.dir)] : null,
+        h("dt", null, "машина"),
+        h("dd", null, `@${machine}`),
+        inc?.type ? [h("dt", null, "инцидент"), h("dd", null, [inc.type, inc.key].filter(Boolean).join(" · "))] : null,
+      ),
+      h("hr"),
+      h("button", { class: "cw-mi", role: "menuitemcheckbox", "aria-checked": o.info() ? "true" : "false", "data-act": "info", onclick: () => ((pop = ""), o.setInfo(!o.info()), drawBody(), drawHead()) }, `${o.info() ? "✓ " : ""}Сведения сбоку`),
+      // пункты места card.menu: экраны других модулей («Новая задача рядом» — pult-open), открываются с позывным
+      app
+        .placed("card.menu")
+        .filter((x) => x.show({ callsign }))
+        .map((x) => h("button", { class: "cw-mi", role: "menuitem", "data-screen": x.screen, onclick: () => ((pop = ""), app.open(x.screen, { from: callsign })) }, x.label)),
+      remote ? h("a", { class: "cw-mi", role: "menuitem", href: remote, target: "_blank", rel: "noopener" }, "Открыть в claude.ai ↗") : null,
+    );
   }
 
   function drawHead() {
     const s = session();
     head.textContent = "";
     if (!s) {
-      head.append(h("div", { class: "cw-ht" }, h("b", null, callsign), h("span", { class: "sb-pill" }, "не на связи"), h("div", { class: "cw-meta" }, h("span", { class: "cw-chip" }, `${machine} не в roster`))));
+      head.append(h("span", { class: "sb-dot stop cw-lamp", role: "img", title: "не на связи", "aria-label": "не на связи" }), h("b", { class: "cw-cs" }, callsign), h("span", { class: "cw-note" }, `${machine} не на связи`), tabsEl());
       return;
     }
-    const [label, tone] = LABEL[String(s.state)] ?? [String(s.state), ""];
-    const slot = (s.slot as { name?: string } | null | undefined)?.name;
-    const profile = (s.profile as { id?: string } | null | undefined)?.id;
-    const remote = s.remote as { url?: string; error?: string } | undefined;
-    head.append(
+    const [, dot] = LABEL[String(s.state)] ?? ["", ""];
+    const t = tip(s);
+    const sl = slotOf(s);
+    const w5 = accounts?.[String(s.account ?? "")]?.limits?.five_hour;
+    const accText = sl?.wait ? `ждёт сброса ${at(sl.wait)}` : w5 ? `${Math.round(w5.utilization * 100)} %` : "";
+    const accCls = sl?.wait ? "you" : w5 && w5.utilization >= LIMIT_HINT ? "lim" : "";
+    const stopped = s.state === "stopped" || s.state === "failed";
+    add(
+      head,
+      h("span", { class: `sb-dot ${dot} cw-lamp`, tabindex: "0", role: "img", title: t, "aria-label": t, "data-tip": t }),
+      h("b", { class: "cw-cs" }, callsign),
       h(
-        "div",
-        { class: "cw-ht" },
-        h("b", null, callsign),
-        h("span", { class: `sb-pill ${tone}` }, label),
-        h(
-          "div",
-          { class: "cw-meta" },
-          h("span", { class: "cw-chip" }, machine),
-          slot ? h("span", { class: "cw-chip" }, [slot, s.account].filter(Boolean).join(" · ")) : s.account ? h("span", { class: "cw-chip" }, String(s.account)) : null,
-          s.model ? h("span", { class: "cw-chip" }, [s.model, s.effort].filter(Boolean).join(" · ")) : null,
-          profile ? h("span", { class: "cw-chip" }, profile.split("/").at(-1)!) : null,
-          limit ? h("span", { class: "cw-chip warn" }, limit) : null,
-        ),
+        "span",
+        { class: "cw-hpw" },
+        s.model || can("session.update")
+          ? h("button", { class: "cw-hb", "data-pop": "model", "aria-expanded": pop === "model" ? "true" : "false", disabled: !can("session.update") }, `${[s.model, effName(s.effort)].filter(Boolean).join(" · ")} ▾`)
+          : null,
+        s.account ? h("button", { class: `cw-hb ${accCls}`, "data-pop": "acc", "aria-expanded": pop === "acc" ? "true" : "false" }, `${[s.account, accText].filter(Boolean).join(" · ")} ▾`) : null,
+        pop === "model" ? modelPop(s) : pop === "acc" ? accPop(s) : null,
       ),
-      h(
-        "div",
-        { class: "cw-acts" },
-        remote?.url ? h("a", { class: "cw-b", href: remote.url, target: "_blank", rel: "noopener" }, "В claude.ai ↗") : remote?.error ? h("span", { class: "cw-why", title: "Remote Control" }, `claude.ai: ${remote.error}`) : null,
-        s.state === "busy" && can("session.call") ? h("button", { class: "cw-b bad", onclick: () => void interrupt() }, "■ Прервать") : null,
-        headNote ? h("span", { class: "cw-why" }, headNote) : null,
-      ),
+      tabsEl(),
+      s.state === "busy" && can("session.call") ? h("button", { class: "cw-b bad", onclick: () => void interrupt() }, "■ Прервать") : null,
+      stopped && can("session.start") ? h("button", { class: "cw-b pri", onclick: () => void start() }, "Запустить") : null,
+      headNote ? h("span", { class: "cw-why" }, headNote) : null,
+      h("span", { class: "cw-mw" }, h("button", { class: "cw-b ghost cw-more", "data-pop": "menu", "aria-haspopup": "menu", "aria-expanded": pop === "menu" ? "true" : "false", "aria-label": "Действия сессии" }, "⋯"), pop === "menu" ? menuPop(s) : null),
     );
+    for (const b of head.querySelectorAll<HTMLButtonElement>("[data-pop]")) b.addEventListener("click", () => toggle(b.dataset.pop as "model" | "acc" | "menu"));
   }
 
+  /** плашка — только у не запустившейся: причина и журнал */
   function drawPlaque() {
     const s = session();
     plaque.textContent = "";
-    plaque.className = "cw-pl";
-    plaque.hidden = true;
-    if (!s) return;
-    const remote = (s.remote as { url?: string } | undefined)?.url;
-    if (s.state === "failed") {
-      const why = s.failed ? Object.entries(s.failed as Record<string, string>).map(([k, v]) => `${k}: ${v}`).join("; ") : "";
-      plaque.classList.add("bad");
-      add(
-        plaque,
-        h("div", null, h("b", null, `Не поднялась${why ? ": " + why : ""}`), h("span", null, `Третьего запуска нет. Причина — в журнале машины ${machine}.`)),
-        can("session.start") ? h("button", { class: "cw-b pri", onclick: () => void start() }, "Поднять") : null,
-        can("machine.journal") ? h("button", { class: "cw-b", onclick: () => select("log") }, "Почему →") : null,
-      );
-    } else if (s.state === "waiting" && app.mark("asked", callsign)) {
-      const asked = app.mark("asked", callsign) as string;
-      plaque.classList.add("wait");
-      add(
-        plaque,
-        h("div", null, h("b", null, `Задаёт вопрос: ${asked}`), h("span", null, "Ответьте в чате ниже или в claude.ai — первый ответ выигрывает.")),
-        remote ? h("a", { class: "cw-b", href: remote, target: "_blank", rel: "noopener" }, "Ответить в claude.ai ↗") : null,
-      );
-    } else if (s.state === "stopped") {
-      plaque.classList.add("stop");
-      add(
-        plaque,
-        h("div", null, h("b", null, "Остановлена"), h("span", null, "Разговор цел: «Поднять» продолжит его по resume.")),
-        can("session.start") ? h("button", { class: "cw-b pri", onclick: () => void start() }, "Поднять") : null,
-      );
-    } else return;
-    plaque.hidden = false;
+    plaque.hidden = s?.state !== "failed";
+    if (plaque.hidden) return;
+    const why = s!.failed ? Object.entries(s!.failed as Record<string, string>).map(([k, v]) => `${k}: ${v}`).join("; ") : "";
+    add(plaque, h("b", null, `Не запустилась${why ? ": " + why : ""}`), can("machine.journal") ? h("button", { class: "cw-b", onclick: () => select("log") }, "Почему") : null);
   }
 
-  /** Лимит аккаунта сессии в шапке — с 70 %, как прислал accounts. */
-  async function loadLimit() {
-    if (!can("machine.accounts")) return;
-    const r = await app.request<{ accounts: Record<string, { limits?: Record<string, { utilization: number; resetsAt?: number }> }> }>("machine.accounts", { machine });
-    const acc = session()?.account;
-    if (!r.ok || typeof acc !== "string") return;
-    const ws = Object.entries(r.result.accounts?.[acc]?.limits ?? {}).filter(([, w]) => w.utilization >= LIMIT_HINT);
-    ws.sort((a, b) => b[1].utilization - a[1].utilization);
-    limit = ws[0] ? `${WINDOWS[ws[0][0]] ?? ws[0][0]} ${Math.round(ws[0][1].utilization * 100)} %` : "";
-    drawHead();
+  // ───── сведения сбоку ─────
+  async function loadMcp() {
+    if (mcp || !live() || !can("session.call")) return;
+    const r = await app.request<Mcp[]>("session.call", { callsign, method: "mcpServerStatus", args: [] });
+    if (r.ok && Array.isArray(r.result)) mcp = r.result;
+    drawSide();
+  }
+
+  async function mcpToggle(m: Mcp) {
+    const r = await app.request("session.call", { callsign, method: "toggleMcpServer", args: [m.name, m.status === "disabled"] });
+    if (!r.ok) return app.toast(`toggleMcpServer: ${msg(r)}`);
+    mcp = null;
+    await loadMcp();
+  }
+
+  function drawSide() {
+    const s = session();
+    side.textContent = "";
+    if (!s) return;
+    const kids = (app.roster()?.sessions ?? []).filter((x) => x.parent === callsign).map((x) => x.callsign);
+    const from = typeof s.from === "string" ? s.from : "";
+    const remote = (s.remote as { url?: string } | undefined)?.url;
+    add(
+      side,
+      h(
+        "div",
+        null,
+        h("h4", null, "Сведения"),
+        h(
+          "dl",
+          { class: "cw-kv" },
+          from ? [h("dt", null, "задачу дал"), h("dd", null, from)] : null,
+          typeof s.dir === "string" ? [h("dt", null, "папка"), h("dd", null, s.dir)] : null,
+          h("dt", null, "профиль"),
+          h("dd", null, profileOf(s)?.split("/").at(-1) ?? "без профиля"),
+        ),
+      ),
+      typeof s.parent === "string" || kids.length
+        ? h(
+            "div",
+            null,
+            h("h4", null, "Дерево"),
+            h(
+              "dl",
+              { class: "cw-kv" },
+              typeof s.parent === "string" ? [h("dt", null, "открыла"), h("dd", null, s.parent)] : null,
+              kids.length ? [h("dt", null, "ведёт"), h("dd", null, kids.map((k) => h("button", { class: "cw-b ghost", style: "padding:0 4px", onclick: () => app.open("card", { callsign: k }) }, k)))] : null,
+            ),
+          )
+        : null,
+      mcp?.length ? h("div", null, h("h4", null, "Серверы MCP"), mcp.map((m) => h("label", { class: "cw-sw" }, h("span", null, m.name), h("button", { class: "cw-b", "data-mcp": m.name, onclick: () => void mcpToggle(m) }, m.status === "disabled" ? "вкл" : "выкл")))) : null,
+      remote ? h("a", { class: "cw-mi", style: "padding:0", href: remote, target: "_blank", rel: "noopener" }, "Открыть в claude.ai ↗") : null,
+    );
+  }
+
+  function drawBody() {
+    const on = o.info();
+    body.classList.toggle("info", on);
+    if (on && !side.isConnected) {
+      body.append(side);
+      void loadMcp();
+    }
+    if (!on) side.remove();
+    if (on) drawSide();
   }
 
   // ───── вкладки ─────
@@ -204,16 +406,19 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
   const placed = () => app.placed("card.tab").filter((t) => t.show({ callsign }));
 
   function tabList(): Array<[string, string]> {
-    const out: Array<[string, string]> = [["chat", "Чат"]];
+    const out: Array<[string, string]> = [["chat", "Разговор"]];
     for (const t of placed()) out.push([t.screen, t.label]);
     out.push(["set", "Настройки"]);
-    if (can("machine.journal")) out.push(["log", "Журнал машины"]);
+    if (can("machine.journal")) out.push(["log", "Журнал"]);
     return out;
   }
 
-  function drawTabs() {
-    tabs.textContent = "";
-    for (const [k, label] of tabList()) tabs.append(h("button", { role: "tab", "aria-selected": tab === k ? "true" : "false", "data-tab": k, onclick: () => select(k) }, label));
+  function tabsEl(): HTMLElement {
+    return h(
+      "div",
+      { class: "cw-tabs", role: "tablist" },
+      tabList().map(([k, label]) => h("button", { role: "tab", "aria-selected": tab === k ? "true" : "false", "data-tab": k, onclick: () => select(k) }, label)),
+    );
   }
 
   function select(k: string) {
@@ -226,252 +431,155 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     inner?.close?.();
     inner = own = undefined;
     place.textContent = "";
-    drawTabs();
     if (tab === "chat") inner = app.open("chat", { callsign }, place);
     else if (placed().some((t) => t.screen === tab)) inner = app.open(tab, { callsign }, place);
-    else if (tab === "log") own = mountLog();
+    else if (tab === "log" && can("machine.journal")) own = mountLog();
     else {
       tab = "set";
-      drawTabs();
       own = mountSet();
     }
+    drawHead();
   }
 
   // ───── настройки ─────
   function mountSet(): ScreenHandle {
     const box = h("div", { class: "cw-set" });
     place.append(box);
-    const s0 = session();
-    const form: { model?: string; effort?: string; fast?: boolean; style?: string; title?: string } = {};
     const notes: Record<string, { text: string; tone: string }> = {};
-    let spec: Spec | null = null;
-    let slots: string[] | null = null;
     let profiles: string[] | null = null;
-    let ctx: number | null = null;
-    let mcp: Mcp[] | null = null;
-    let agents: string[] | null = null;
-    let slotPick: string | undefined;
-    let profilePick: string | undefined;
+    let title: string | null = null;
+    let titleEdit: string | undefined;
+    let removing = false;
 
     const note = (k: string, text: string, tone = "") => {
       notes[k] = { text, tone };
       draw();
     };
+    const noteEl = (k: string) => (notes[k]?.text ? h("div", { class: `cw-note ${notes[k].tone}`, role: "status" }, notes[k].text) : null);
 
     async function load() {
       const jobs: Array<Promise<void>> = [];
-      if (can("session.spec")) {
+      if (can("session.spec"))
         jobs.push(
-          app.request<Spec>("session.spec", { callsign }).then((r) => {
-            if (r.ok) spec = r.result;
+          app.request<{ title?: string | null }>("session.spec", { callsign }).then((r) => {
+            if (r.ok) title = r.result.title ?? "";
           }),
         );
-      }
-      if (can("machine.slots")) {
-        jobs.push(
-          app.request<{ slots: Record<string, unknown> }>("machine.slots", { machine }).then((r) => {
-            if (r.ok) slots = Object.keys(r.result.slots ?? {});
-          }),
-        );
-      }
-      if (can("machine.profiles")) {
+      if (can("machine.profiles"))
         jobs.push(
           app.request<{ profiles: Record<string, unknown> }>("machine.profiles", { machine }).then((r) => {
             if (r.ok) profiles = Object.keys(r.result.profiles ?? {});
           }),
         );
-      }
-      if (can("session.call") && LIVE.has(String(s0?.state))) {
-        const call = <T>(method: string) => app.request<T>("session.call", { callsign, method, args: [] });
+      if (!slots && can("machine.slots"))
         jobs.push(
-          call<{ percentage?: number }>("getContextUsage").then((r) => {
-            if (r.ok) ctx = r.result?.percentage ?? null;
-          }),
-          call<Mcp[]>("mcpServerStatus").then((r) => {
-            if (r.ok && Array.isArray(r.result)) mcp = r.result;
-          }),
-          call<Array<{ name?: string } | string>>("supportedAgents").then((r) => {
-            if (r.ok && Array.isArray(r.result)) agents = r.result.map((a) => (typeof a === "string" ? a : String(a.name)));
+          app.request<{ slots: Record<string, SlotInfo> }>("machine.slots", { machine }).then((r) => {
+            if (r.ok) slots = r.result.slots ?? {};
           }),
         );
-      }
-      // каждый ответ — сразу на экран: владелец, который молчит, не держит остальных
       await Promise.all(jobs.map((j) => j.then(draw)));
-    }
-
-    async function apply() {
-      const s = session();
-      const body: Record<string, unknown> = { callsign };
-      if (form.model && form.model !== s?.model) body.model = form.model;
-      if (form.effort && form.effort !== s?.effort) body.effort = form.effort;
-      if (form.fast !== undefined) body.fast = form.fast;
-      if (form.style !== undefined) body.style = form.style;
-      if (form.title !== undefined && form.title !== (spec?.title ?? "")) body.title = form.title;
-      if (Object.keys(body).length === 1) return note("upd", "Нечего применять — всё как сейчас.");
-      note("upd", "Применяю…");
-      const r = await app.request<{ now?: string[] }>("session.update", body);
-      if (!r.ok) return note("upd", `Не применено: ${msg(r)}`, "bad");
-      const now = r.result?.now ?? [];
-      const later = Object.keys(body).filter((k) => k !== "callsign" && !now.includes(k));
-      // новые значения покажет следующий roster, форма сбрасывается
-      for (const k of Object.keys(form)) delete form[k as keyof typeof form];
-      note("upd", [now.length ? `${now.join(", ")} — сразу, ход не прерван` : "", later.length ? `${later.join(", ")} — со следующего хода` : ""].filter(Boolean).join(" · "), "ok");
     }
 
     async function move(name: "session.slot" | "session.profile", value: string | null) {
       const key = name === "session.slot" ? "slot" : "profile";
-      note(key, "Отправляю…");
+      note(key, "…");
       const r = await app.request<{ restart?: boolean }>(name, { callsign, [key]: value });
       if (!r.ok) return note(key, `Не вышло: ${msg(r)}`, "bad");
-      note(key, r.result?.restart ? "после конца хода — сессия перейдёт между ходами" : "сразу", "ok");
+      note(key, r.result?.restart ? "после хода" : "", "ok");
     }
 
-    async function mcpCall(method: string, args: unknown[]) {
-      const r = await app.request("session.call", { callsign, method, args });
-      if (!r.ok) return note("mcp", `${method}: ${msg(r)}`, "bad");
-      const st = await app.request<Mcp[]>("session.call", { callsign, method: "mcpServerStatus", args: [] });
-      if (st.ok && Array.isArray(st.result)) mcp = st.result;
-      note("mcp", "");
+    async function setTitle() {
+      if (titleEdit === undefined || titleEdit === (title ?? "")) return;
+      const r = await app.request("session.update", { callsign, title: titleEdit });
+      if (!r.ok) return note("title", `Не вышло: ${msg(r)}`, "bad");
+      title = titleEdit;
+      titleEdit = undefined;
+      note("title", "");
     }
 
     async function act(name: "session.stop" | "session.start" | "session.remove") {
-      note("ctl", "Отправляю…");
+      note("ctl", "…");
       const r = await app.request(name, { callsign });
       if (!r.ok) return note("ctl", `${name}: ${msg(r)}`, "bad");
       if (name === "session.remove") return app.back();
       note("ctl", "");
     }
 
-    const chips = (list: string[], cur: string | undefined, pick: (v: string) => void, disabled = false) =>
-      list.map((v) => h("button", { class: "cw-b", "aria-pressed": cur === v ? "true" : "false", disabled, "data-v": v, onclick: () => pick(v) }, v));
-    const noteEl = (k: string) => (notes[k]?.text ? h("div", { class: `cw-note ${notes[k].tone}`, role: "status" }, notes[k].text) : null);
-
     function draw() {
       const s = session();
-      const keep = document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement) ? document.activeElement.dataset.f : undefined;
+      const keep = document.activeElement instanceof HTMLInputElement && box.contains(document.activeElement);
       box.textContent = "";
-      const model = form.model ?? (s?.model as string | undefined);
-      const effort = form.effort ?? (s?.effort as string | undefined);
-      const isLive = LIVE.has(String(s?.state));
-      const style = h("input", { class: "cw-in", "data-f": "style", placeholder: "default", value: form.style ?? "" }) as HTMLInputElement;
-      style.addEventListener("input", () => (form.style = style.value));
-      const title = h("input", { class: "cw-in", "data-f": "title", placeholder: "заголовок в claude.ai и истории", value: form.title ?? spec?.title ?? "" }) as HTMLInputElement;
-      title.addEventListener("input", () => (form.title = title.value));
-      if (can("session.update")) {
-        box.append(
-          h(
-            "section",
-            { class: "cw-sec", "data-sec": "update" },
-            h("h4", { class: "cw-h4" }, "модель и ответ · session.update"),
-            h("div", { class: "cw-row" }, h("span", null, "модель"), h("div", { class: "cw-opts" }, chips(MODELS, model, (v) => ((form.model = v), draw())))),
-            h("div", { class: "cw-row" }, h("span", null, "усилие"), h("div", { class: "cw-opts" }, chips(EFFORTS, effort, (v) => ((form.effort = v), draw())))),
-            h("div", { class: "cw-row" }, h("span", null, "быстрый"), h("div", { class: "cw-opts" }, chips(["выкл", "вкл"], form.fast === undefined ? undefined : form.fast ? "вкл" : "выкл", (v) => ((form.fast = v === "вкл"), draw())))),
-            h("div", { class: "cw-row" }, h("span", null, "стиль"), style),
-            h("div", { class: "cw-row" }, h("span", null, "заголовок"), title),
-            h("div", { class: "cw-opts" }, h("button", { class: "cw-b pri", onclick: () => void apply() }, "Применить"), h("span", { class: "cw-note" }, "модель и усилие — сразу, ход не прерван · стиль — сразу")),
-            noteEl("upd"),
-          ),
-        );
-      }
-      const slotNow = (s?.slot as { name?: string } | null | undefined)?.name ?? "";
-      const profNow = (s?.profile as { id?: string } | null | undefined)?.id ?? "";
-      const sel = (list: string[], cur: string, none: string, on: (v: string) => void, f: string) => {
-        const e = h("select", { class: "cw-in", "data-f": f }, h("option", { value: "" }, none), list.map((v) => h("option", { value: v, selected: v === cur }, v))) as HTMLSelectElement;
-        e.addEventListener("change", () => on(e.value));
-        return e;
-      };
-      box.append(
-        h(
-          "section",
-          { class: "cw-sec", "data-sec": "where" },
-          h("h4", { class: "cw-h4" }, "где работает"),
-          can("session.slot")
-            ? h(
-                "div",
-                { class: "cw-row" },
-                h("span", null, "слот"),
-                h(
-                  "div",
-                  { class: "cw-opts" },
-                  sel(slots ?? (slotNow ? [slotNow] : []), slotPick ?? slotNow, "без слота — вход машины", (v) => ((slotPick = v), draw()), "slot"),
-                  (slotPick ?? slotNow) !== slotNow ? h("button", { class: "cw-b", onclick: () => void move("session.slot", slotPick || null) }, "Перевести") : null,
-                  s?.account ? h("span", { class: "cw-note" }, `аккаунт ${s.account}`) : null,
-                ),
-              )
-            : null,
-          noteEl("slot"),
-          can("session.profile")
-            ? h(
-                "div",
-                { class: "cw-row" },
-                h("span", null, "профиль"),
-                h(
-                  "div",
-                  { class: "cw-opts" },
-                  sel(profiles ?? (profNow ? [profNow] : []), profilePick ?? profNow, "без профиля", (v) => ((profilePick = v), draw()), "profile"),
-                  (profilePick ?? profNow) !== profNow ? h("button", { class: "cw-b", onclick: () => void move("session.profile", profilePick || null) }, "Сменить") : null,
-                ),
-              )
-            : null,
-          noteEl("profile"),
-          h("div", { class: "cw-row" }, h("span", null, "папка"), h("span", { class: "cw-mono" }, spec?.dir ?? "—")),
-          h("div", { class: "cw-row" }, h("span", null, "позывной"), h("span", { class: "cw-mono" }, `${callsign} · не меняется`)),
-        ),
-      );
-      if (can("session.call") && isLive) {
-        box.append(
-          h(
-            "section",
-            { class: "cw-sec", "data-sec": "call" },
-            h("h4", { class: "cw-h4" }, "сведения · session.call"),
-            h("div", { class: "cw-row" }, h("span", null, "контекст"), h("span", { class: "cw-mono" }, ctx === null ? "—" : `${Math.round(ctx)} %`)),
-            ...(mcp ?? []).map((m) =>
+      const profNow = profileOf(s) ?? "";
+      const slotNow = slotOf(s)?.name ?? "";
+      const fast = !!(s?.fast as boolean | undefined);
+      const t = h("input", { class: "cw-in", "data-f": "title", placeholder: "Заголовок в claude.ai", value: titleEdit ?? title ?? "" }) as HTMLInputElement;
+      t.addEventListener("input", () => (titleEdit = t.value));
+      t.addEventListener("change", () => void setTitle());
+      const stopped = s?.state === "stopped" || s?.state === "failed";
+      add(
+        box,
+        can("session.profile")
+          ? h(
+              "div",
+              { class: "cw-fs", "data-sec": "profile" },
+              h("span", { class: "lb" }, "Профиль"),
               h(
                 "div",
-                { class: "cw-row" },
-                h("span", { class: "cw-mono" }, m.name),
-                h(
-                  "div",
-                  { class: "cw-opts" },
-                  h("span", { class: "cw-note" }, m.status ?? ""),
-                  h("button", { class: "cw-b", onclick: () => void mcpCall("toggleMcpServer", [m.name, m.status === "disabled"]) }, m.status === "disabled" ? "вкл" : "выкл"),
-                  m.status !== "connected" && m.status !== "disabled" ? h("button", { class: "cw-b", onclick: () => void mcpCall("reconnectMcpServer", [m.name]) }, "переподключить") : null,
+                { class: "cw-opts", style: "padding:0" },
+                [...(profiles ?? (profNow ? [profNow] : [])), ""].map((p) =>
+                  h("button", { class: "cw-b", "aria-pressed": profNow === p ? "true" : "false", "data-profile": p, onclick: () => (p === profNow ? null : void move("session.profile", p || null)) }, p ? p.split("/").at(-1) : "без профиля"),
                 ),
               ),
-            ),
-            noteEl("mcp"),
-            agents ? h("div", { class: "cw-row" }, h("span", null, "субагенты"), h("span", { class: "cw-mono" }, agents.join(" · ") || "—")) : null,
-          ),
-        );
-      }
-      const stopped = s?.state === "stopped" || s?.state === "failed";
-      box.append(
+              noteEl("profile"),
+            )
+          : null,
+        can("session.update")
+          ? h(
+              "label",
+              { class: "cw-sw", "data-sec": "fast" },
+              h("button", { class: "cw-b", role: "switch", "aria-checked": fast ? "true" : "false", "aria-pressed": fast ? "true" : "false", onclick: () => void update({ fast: !fast }, "быстрый режим") }, fast ? "вкл" : "выкл"),
+              h("span", null, "Быстрый режим"),
+            )
+          : null,
+        can("session.update") ? h("div", { class: "cw-fs", "data-sec": "title" }, h("span", { class: "lb" }, "Заголовок"), t, noteEl("title")) : null,
+        can("session.slot")
+          ? h(
+              "div",
+              { class: "cw-fs", "data-sec": "slot" },
+              h("span", { class: "lb" }, "Слот"),
+              h(
+                "div",
+                { class: "cw-opts", style: "padding:0" },
+                [...Object.keys(slots ?? (slotNow ? { [slotNow]: 1 } : {})), ""].map((v) =>
+                  h("button", { class: "cw-b", "aria-pressed": slotNow === v ? "true" : "false", "data-slot": v, onclick: () => (v === slotNow ? null : void move("session.slot", v || null)) }, v || "без слота"),
+                ),
+              ),
+              noteEl("slot"),
+            )
+          : null,
         h(
-          "section",
-          { class: "cw-sec", "data-sec": "ctl" },
-          h("h4", { class: "cw-h4" }, "управление"),
+          "div",
+          { class: "cw-fs", "data-sec": "ctl" },
+          h("span", { class: "lb" }, "Сессия"),
           h(
             "div",
-            { class: "cw-opts" },
-            s?.state === "busy" && can("session.call") ? h("button", { class: "cw-b bad", onclick: () => void interrupt() }, "■ Прервать") : null,
-            s && isLive && can("session.stop") ? h("button", { class: "cw-b", onclick: () => void act("session.stop") }, "Стоп") : null,
-            s && stopped && can("session.start") ? h("button", { class: "cw-b pri", onclick: () => void act("session.start") }, "Поднять") : null,
-            s && can("session.remove") && !forget ? h("button", { class: "cw-b bad", onclick: () => ((forget = true), draw()) }, "Забыть…") : null,
+            { class: "cw-opts", style: "padding:0" },
+            s && live() && can("session.stop") ? h("button", { class: "cw-b", onclick: () => void act("session.stop") }, "Остановить") : null,
+            s && stopped && can("session.start") ? h("button", { class: "cw-b pri", onclick: () => void act("session.start") }, "Запустить") : null,
+            s && can("session.remove") && !removing ? h("button", { class: "cw-b bad", onclick: () => ((removing = true), draw()) }, "Убрать…") : null,
           ),
-          forget
+          removing
             ? h(
                 "div",
-                { class: "cw-opts" },
-                h("span", { class: "cw-note" }, `Забыть ${callsign}? Сессия уйдёт из списка; если она была в R2, её точки останутся в «Точках».`),
-                h("button", { class: "cw-b", onclick: () => ((forget = false), draw()) }, "Отмена"),
-                h("button", { class: "cw-b bad", onclick: () => void act("session.remove") }, "Забыть"),
+                { class: "cw-confirm" },
+                h("span", null, `${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`),
+                h("div", { class: "cw-opts", style: "padding:0" }, h("button", { class: "cw-b bad", onclick: () => void act("session.remove") }, "Убрать"), h("button", { class: "cw-b", onclick: () => ((removing = false), draw()) }, "Отмена")),
               )
             : null,
-          h("div", { class: "cw-note" }, "Стоп — после текущей команды, разговор цел. Забыть — сессия уходит из списка; если она была в R2, её точки остаются в «Точках» как «только в R2»."),
           noteEl("ctl"),
         ),
       );
-      if (keep) (box.querySelector(`[data-f="${keep}"]`) as HTMLElement | null)?.focus();
+      if (keep) box.querySelector<HTMLInputElement>('[data-f="title"]')?.focus();
     }
 
     void load();
@@ -509,7 +617,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
       box.append(
         h(
           "div",
-          { class: "cw-opts" },
+          { class: "cw-opts", style: "padding:0" },
           ["", "stop", "refuse", "note"].map((k) => h("button", { class: "cw-b", "aria-pressed": kind === k ? "true" : "false", onclick: () => ((kind = k), reload()) }, k || "все")),
           h("span", { class: "cw-note" }, `${machine} · ${days ? `с ${days} дн. назад` : "сегодня"}`),
         ),
@@ -530,31 +638,33 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
       }
       if (!recs.length && !loading && !err) box.append(h("div", { class: "cw-note" }, "Записей нет."));
       if (more) box.append(h("button", { class: "cw-b", onclick: () => void load(recs.at(-1)!.t, true) }, "дальше →"));
-      box.append(h("button", { class: "cw-b", onclick: () => ((days += 1), reload()) }, "ещё раньше — с прошлого дня"));
-      box.append(h("div", { class: "cw-note" }, `Записи host и keeper машины ${machine} с этим позывным — как в файлах. Журнал флота — раздел «Журнал флота».`));
+      box.append(h("button", { class: "cw-b", onclick: () => ((days += 1), reload()) }, "Раньше"));
     }
     reload();
     return {};
   }
 
-  drawHead();
-  drawPlaque();
   openTab();
-  void loadLimit();
+  drawPlaque();
+  drawBody();
+  void loadAccounts();
   return {
     head: () => {
       const s = session();
       if (!s) return { title: callsign, mono: true, sub: `${machine} не на связи` };
-      const st = stateLabel(s.state);
-      return { title: callsign, mono: true, sub: [s.model, s.effort].filter(Boolean).join(" · "), pill: { text: st.text, tone: st.tone } };
+      const [label, dot] = LABEL[String(s.state)] ?? [String(s.state), ""];
+      return { title: callsign, mono: true, sub: [s.model, effName(s.effort)].filter(Boolean).join(" · "), pill: { text: label, tone: dot === "idle" ? "ok" : dot === "stop" ? "" : (dot as "busy" | "wait" | "bad") } };
     },
     refresh: () => {
       drawHead();
       drawPlaque();
-      const want = tabList().map(([k]) => k).join();
-      if (want !== [...tabs.children].map((b) => (b as HTMLElement).dataset.tab).join()) drawTabs();
+      if (o.info()) drawSide();
       own?.refresh?.();
     },
-    close: () => inner?.close?.(),
+    close: () => {
+      document.removeEventListener("click", outside);
+      document.removeEventListener("keydown", esc);
+      inner?.close?.();
+    },
   };
 }

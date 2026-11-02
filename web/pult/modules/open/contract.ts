@@ -1,8 +1,8 @@
-// Контракт pult-open — новая сессия (свой пакет пульта).
-// Экран open (#open, раздел «＋ Новая сессия»): машина — из roster с session.open в contract; слоты, лимиты
-// аккаунтов и профили — у их владельцев на этой машине; папки — machine.dirs по шагу, «создать» — machine.mkdir.
-// Одна кнопка — один session.open; «в R2» выключено, включили — после reply ещё session.r2 { on: true }.
-// После reply — карточка новой сессии (card@web-card).
+// Контракт pult-open — новая сессия (пульт и телефон).
+// Экран open (#open; параметры project, machine, from): имя первым полем, профиль — по умолчанию профиль сессий проекта
+// на машине, папка — недавние папки проекта и machine.dirs по шагу, машина — машины проекта кнопками, слот,
+// первое сообщение — необязательно. «Открыть» — session.open, «в R2» — session.r2, сообщение — session.prompt, затем card.
+// Экран open.near встаёт в место card.menu карточки: «Новая задача рядом» с from — позывным сессии карточки.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createOpen } from "./src/open.ts";

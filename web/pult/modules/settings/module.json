@@ -1,0 +1,25 @@
+{
+  "name": "pult-settings",
+  "type": "web",
+  "version": "1.0.0",
+  "into": ["pult", "phone"],
+  "provides": {
+    "settings": 1
+  },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "releases.list@releases": 1,
+    "releases.set@releases": 1,
+    "releases.deploy@releases": 1,
+    "keeper.state@keeper": 1,
+    "keys.list@gate": 1,
+    "keys.invite@gate": 1,
+    "keys.revoke@relay": 1,
+    "github.app@github": 1,
+    "github.setup@github": 1,
+    "machine.profiles@host-profiles": 1,
+    "alerts.state@web-alerts": 1
+  },
+  "config": {}
+}

@@ -36,7 +36,7 @@ describe("гейт выпуска пульта", () => {
   it("свои модули пульта с манифестами монорепо: у имени один владелец, uses — у владельцев той же версии, импорт — только из uses", () => {
     // гейт монорепо сам находит модули пульта (web/pult/modules/*) — набор берём целиком из него
     const repo = loadRepo(root);
-    expect(repo.filter((m) => m.name.startsWith("pult-")).map((m) => m.name).sort()).toEqual(["pult-accounts", "pult-journal", "pult-machines", "pult-open", "pult-points"]);
+    expect(repo.filter((m) => m.name.startsWith("pult-")).map((m) => m.name).sort()).toEqual(["pult-accounts", "pult-incidents", "pult-journal", "pult-machines", "pult-open", "pult-points", "pult-settings"]);
     expect(check(repo)).toEqual([]);
   });
 
@@ -57,46 +57,69 @@ describe("гейт выпуска пульта", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = order(loadRepo(root).filter((m) => m.into?.includes("pult") && m.name !== "web-core")).map((m) => m.name);
     expect(pultParts().map((p) => p.manifest.name).sort()).toEqual([...want].sort());
-    expect(want.length).toBe(10);
+    expect(want.length).toBe(13);
   });
 });
 
 describe("раскладка широкого вида", () => {
-  it("колонка разделов: «＋ Новая сессия», Сессии, Точки, Аккаунты, Машины, Журнал флота; машины на связи и имя устройства", async () => {
+  it("5220 · колонка разделов: «Перейти… Ctrl K», Вам, Работа с проектами, Инциденты, группа «Флот»; машин и имени устройства в колонке нет", async () => {
+    // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
-    expect(t.$$(".sb-navcol button").map((b) => b.dataset.screen)).toEqual(["board", "open", "points", "accounts", "machines", "journal"]);
-    expect(t.$$(".sb-nm").map((x) => x.textContent)).toEqual(["laptop", "pc"]);
-    expect(t.$(".sb-me")!.textContent).toBe("panel-desk · k3f1");
-    expect(t.$(".sb-brand")!.textContent).toBe("SПульт");
+    expect(t.$$(".sb-navcol .sb-nv:not(.sub)").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "journal", "points", "settings"]);
+    expect(t.$$(".sb-navcol .sb-grp").map((x) => x.textContent)).toEqual(["Флот"]);
+    expect(t.$$(".sb-navcol .sb-nv.sub").length).toBeGreaterThan(0);
+    expect(t.$(".sb-goto")).not.toBeNull();
+    expect(t.$(".sb-nm, .sb-me")).toBeNull();
+    expect(t.$(".sb-brand b")!.textContent).toBe("Пульт");
   });
 
-  it("карточка открывается справа от списка: список остаётся слева с выбранной строкой; сводка — только когда карточки нет", async () => {
+  it("5218 · карточка открывается справа от списка «Работы»: список остаётся слева с выбранной строкой", async () => {
+    // источник: прототип «Пульт и телефон» (подписан 2 нояб.): список проекта слева, сессия справа
     const t = await pult();
-    expect(t.$(".board-sum")).not.toBeNull();
     expect(t.$(".sb-split")).toBeNull();
+    await t.click(t.$('[data-seg="all"]'));
     await t.click(t.$('[data-callsign="site@laptop"]'));
-    expect(t.$(".sb-split .sb-master .board-list")).not.toBeNull();
+    expect(t.$(".sb-split .sb-master .bd-list")).not.toBeNull();
     expect(t.$(".sb-split .sb-detail .cw")).not.toBeNull();
-    expect(t.$('.board-wr[aria-current="true"]')!.dataset.callsign).toBe("site@laptop");
+    expect(t.$('.bd-row[aria-current="true"]')!.dataset.callsign).toBe("site@laptop");
     const master = t.$(".sb-master");
     await t.click(t.$('[data-callsign="wiki@laptop"]'));
     expect(t.$(".sb-master")).toBe(master);
-    expect(t.$('.board-wr[aria-current="true"]')!.dataset.callsign).toBe("wiki@laptop");
-    expect(t.$('.sb-navcol button[aria-current="page"]')!.dataset.screen).toBe("board");
+    expect(t.$('.bd-row[aria-current="true"]')!.dataset.callsign).toBe("wiki@laptop");
   });
 
-  it("поиск по позывному, слоту, аккаунту и профилю — на странице, без кадров", async () => {
+  it("5221 · закрепление: чужая сессия — «Закрепить в «Моём»» в меню ⋯ карточки → в «Моём» с ⌖; снова — откреплена", async () => {
+    // источник: прототип «Пульт и телефон» (подписан 2 нояб.): «закрепление — моя на этом устройстве»
+    const roster = fleetRoster();
+    roster.sessions = roster.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, from: "laptop~anna@example.com" } : s));
+    const t = await pult({ relay: fleetRelay(roster) });
+    const mine = () => t.$$(".bd-row").map((b) => b.dataset.callsign);
+    expect(mine()).not.toContain("wiki@laptop");
+    await t.go("#card?callsign=wiki%40laptop");
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('[data-screen="board.pin"]'));
+    await flush(10);
+    await t.go("#sessions");
+    expect(mine()).toContain("wiki@laptop");
+    expect(t.$('[data-callsign="wiki@laptop"] .bd-pin')!.textContent).toBe("⌖");
+    await t.go("#card?callsign=wiki%40laptop");
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('[data-screen="board.pin"]'));
+    await flush(10);
+    await t.go("#sessions");
+    expect(mine()).not.toContain("wiki@laptop");
+  });
+
+  it("5219 · поиск сессии — Ctrl K: по позывному, без кадров; строка открывает карточку", async () => {
+    // источник: прототип «Пульт и телефон»: «Найти сессию — Ctrl K, отдельного поиска в «Работе» нет»
     const t = await pult();
-    await t.type(t.$(".board-q"), "writer");
-    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["wiki@laptop"]);
-    await t.type(t.$(".board-q"), "y0902");
-    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["api@pc", "poe-bot@pc", "docs@pc"]);
-    // фильтр «нужны вы» поверх поиска
-    await t.click(t.$('[data-filter="need"]'));
-    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["api@pc"]);
-    await t.type(t.$(".board-q"), "");
-    expect(t.$$(".board-wr").map((x) => x.dataset.callsign)).toEqual(["profiles@laptop", "api@pc"]);
-    expect(t.relay.got).toEqual([]);
+    const sent = t.relay.got.length;
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
+    input.value = "wiki";
+    input.dispatchEvent(new Event("input"));
+    expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["wiki@laptop"]);
+    expect(t.relay.got.length).toBe(sent);
   });
 
   it("галерея карточек #gallery: образцы сообщений SDK тем же кодом ленты, кадров нет", async () => {
@@ -105,7 +128,7 @@ describe("раскладка широкого вида", () => {
     expect(t.text()).toContain("ход закончен · 2 мин 14 с · 6 шагов · $0,41");
     expect(t.text()).toContain("контекст сжат · 182 К → 41 К");
     expect(t.text()).toContain("сессия Claude · poe-bot@pc");
-    expect(t.relay.got).toEqual([]);
+    expect(t.relay.got.filter((f) => f.type !== "machine.journal")).toEqual([]);
   });
 });
 
@@ -164,7 +187,7 @@ describe("чат и карточка на стыках", () => {
     expect(decodeURIComponent(a.href)).toContain("## Claude\n\nСборка зелёная.");
   });
 
-  it("настройки: сведения — getContextUsage, mcpServerStatus, supportedAgents; «Забыть…» — session.remove после подтверждения", async () => {
+  it("сведения сбоку — серверы MCP (mcpServerStatus, toggleMcpServer); «Убрать…» в «Настройках» — session.remove после подтверждения", async () => {
     const relay = fleetRelay();
     relay.handlers["session.call"] = (f) =>
       f.method === "getContextUsage"
@@ -177,16 +200,15 @@ describe("чат и карточка на стыках", () => {
     relay.handlers["session.remove"] = () => ({ ok: true });
     const t = await pult({ relay });
     await t.click(t.$('[data-callsign="wiki@laptop"]'));
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('.cw-pop [data-act="info"]'));
+    expect(relay.sent("session.call").map((f) => f.method)).toContain("mcpServerStatus");
+    await t.click(t.$('aside.cw-info [data-mcp="github"]'));
+    expect(relay.sent("session.call").find((f) => f.method === "toggleMcpServer")).toMatchObject({ args: ["github", false] });
     await t.click(t.$('.cw-tabs [data-tab="set"]'));
-    expect(relay.sent("session.call").map((f) => f.method).sort()).toEqual(["getContextUsage", "mcpServerStatus", "supportedAgents"]);
-    const call = t.$('[data-sec="call"]')!.textContent!;
-    expect(call).toContain("21 %");
-    expect(call).toContain("Explore · Plan");
-    await t.click(t.btn(t.$('[data-sec="call"]'), "переподключить"));
-    expect(relay.sent("session.call").find((f) => f.method === "reconnectMcpServer")).toMatchObject({ args: ["github"] });
-    await t.click(t.btn(null, "Забыть…"));
+    await t.click(t.btn(null, "Убрать…"));
     expect(relay.sent("session.remove")).toHaveLength(0);
-    await t.click(t.btn(t.$('[data-sec="ctl"]'), "Забыть"));
+    await t.click(t.btn(t.$(".cw-confirm"), "Убрать"));
     expect(relay.sent("session.remove")).toEqual([expect.objectContaining({ callsign: "wiki@laptop" })]);
   });
 });
@@ -258,22 +280,16 @@ describe("журнал флота и машины", () => {
     expect(relay.sent("ledger.read")[3]).toMatchObject({ machine: "pc", limit: 50 });
   });
 
-  it("«+ Аккаунт» у машины — экран аккаунтов с формой входа на этой машине; GitHub вернул code — github.setup", async () => {
+  it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине; конфликт профилей — в карточке", async () => {
     const relay = fleetRelay();
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "0.5.0", rev: 1, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", restarts: 0 }] } });
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "team/profiles": { state: "conflict", op: "git pull", files: ["ops/memory/testing.md"] } } } });
-    relay.handlers["github.app"] = () => ({ ok: true, result: { app: null, form: { action: "https://github.com/settings/apps/new", manifest: { name: "switchboard" } } } });
-    relay.handlers["github.setup"] = () => ({ ok: true, result: { app: { slug: "switchboard-team" }, install: "https://github.com/apps/switchboard-team/installations/new" } });
-    const t = await pult({ relay, url: "/?code=c0de#machines" });
+    const t = await pult({ relay, url: "/#machines" });
     await flush(10);
-    expect(t.$('section[data-machine="pc"]')!.textContent).toContain("team/profiles: память не сведена");
-    expect(relay.sent("github.app")[0]).toMatchObject({ to: ".github", redirect: expect.stringMatching(/^http/) });
-    await t.click(t.btn(null, "Сохранить приложение"));
-    expect(relay.sent("github.setup")).toEqual([expect.objectContaining({ to: ".github", code: "c0de" })]);
-    expect(location.search).toBe("");
-    expect(t.$("[data-github] a")!.getAttribute("href")).toBe("https://github.com/apps/switchboard-team/installations/new");
-    await t.click(t.btn(t.$('section[data-machine="pc"]'), "+ Аккаунт"));
+    await t.click(t.$('[data-row="pc"] .mc-head'));
+    expect(t.$('[data-machine="pc"]')!.textContent).toContain("team/profiles: память не сведена");
+    await t.click(t.btn(t.$('[data-machine="pc"]'), "Аккаунты машины"));
     expect(location.hash).toBe("#accounts?machine=pc");
     expect(t.$('.sb-sec.dlg [aria-pressed="true"]')!.textContent).toBe("pc");
   });

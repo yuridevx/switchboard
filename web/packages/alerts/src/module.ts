@@ -123,6 +123,8 @@ export function createAlerts(browser?: BrowserPush): AppModule {
   let listening = false;
   return {
     screens: { alerts: { place: "top", label: "Уведомления", mount: mountAlerts } },
+    // состояние уведомлений этого устройства — для «Настроек»: off (браузер не умеет), ask, working, on, denied, error
+    marks: { "alerts.state": () => state },
     store: ["pushes"],
     css: CSS,
     async start(a) {

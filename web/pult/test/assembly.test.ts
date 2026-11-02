@@ -40,7 +40,7 @@ describe("пульт из каталога", () => {
       workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
-    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(11);
+    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(14);
 
     // сборка на диске; m/<модуль>.js — пакетом @switchboard/<модуль>, как import map страницы
     const dir = mkdtempSync(join(tmpdir(), "switchboard-pult-build-"));
@@ -80,8 +80,8 @@ describe("пульт из каталога", () => {
     await flush();
     expect(run.stopped).toBeNull();
     expect(run.failed).toEqual({});
-    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol button")].map((b) => b.dataset.screen)).toEqual(["board", "open", "points", "accounts", "machines", "journal"]);
-    expect(document.querySelector(".sb-brand")!.textContent).toBe("SПульт");
+    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv:not(.sub)")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "journal", "points", "settings"]);
+    expect(document.querySelector(".sb-brand b")!.textContent).toBe("Пульт");
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
   }, 120_000);

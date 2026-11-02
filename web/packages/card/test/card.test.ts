@@ -25,8 +25,8 @@ async function card(callsign: string, roster = homeRoster()) {
   const relay = new FakeRelay(roster);
   relay.handlers["session.watch"] = () => ({ ok: true });
   relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
-  const t = await stand(parts(), { relay });
-  await t.click(t.$(`[data-callsign="${callsign}"]`));
+  // карточка — по адресу: список сессий board в эти эталоны не входит
+  const t = await stand(parts(), { relay, url: `/#card?callsign=${encodeURIComponent(callsign)}` });
   return t;
 }
 
