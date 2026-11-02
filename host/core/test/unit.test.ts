@@ -14,6 +14,9 @@ import { Stores } from "../src/store.ts";
 import { CORE, FakeClock, FakeRelay, msg, module, standHost, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
 
+/** номер ядра — из его манифеста: тесты не держат его числом */
+const CORE_VERSION = (JSON.parse((process.getBuiltinModule("node:fs") as typeof import("node:fs")).readFileSync(new URL("../module.json", import.meta.url), "utf8")) as { version: string }).version;
+
 const stands: Stand[] = [];
 async function stand(o: Parameters<typeof standHost>[0] = {}): Promise<Stand> {
   const st = await standHost(o);
@@ -152,7 +155,7 @@ describe("гейт старта Host", () => {
 describe("выпуск", () => {
   it("ядро без сборки: модулей нет, версия ядра, SDK 0.3.311", async () => {
     const r = await loadRelease(join(import.meta.dirname, ".."));
-    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.2.2", modules: [], workers: {} });
+    expect(r).toMatchObject({ sdk: "0.3.311", version: CORE_VERSION, modules: [], workers: {} });
     expect(Array.isArray(r.modules)).toBe(true);
   });
 

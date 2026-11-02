@@ -51,7 +51,7 @@ const ecdh = createECDH("prime256v1");
 ecdh.generateKeys();
 const sub = { endpoint: "https://httpbin.org/status/201", keys: { p256dh: ecdh.getPublicKey().toString("base64url"), auth: randomBytes(16).toString("base64url") } };
 const ps = await req({ type: "push.subscribe", to: ".push", sub }, phone);
-check("push.subscribe клиента пушей", ps.ok, ps.error ?? phone.state);
+check("push.subscribe клиента пушей", ps.ok, ps.ok ? undefined : { error: ps.error, why: (ps as { why?: string }).why, state: phone.state });
 await req({ type: "session.prompt", callsign: NQ, text: "Спроси меня инструментом AskUserQuestion: «Чай или кофе?» с вариантами «чай» и «кофе». Получив ответ, напиши его одним словом." }, phone);
 phone.close(1000, "away");
 await wait(async () => (await req({ type: "question.list", callsign: NQ })).result?.length > 0, 120000);

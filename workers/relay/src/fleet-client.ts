@@ -109,7 +109,10 @@ export function fleet(o: FleetOptions): FleetClient {
     pause = Math.min(pause * 2, maxPause);
   }
 
-  /** POST кадра с пропуском; ответ — reply. Нет ответа за предел — timeout, close() — disconnected, сеть — offline. */
+  /**
+   * POST кадра с пропуском; ответ — reply. Нет ответа за предел — timeout, close() — disconnected, сеть или ответ не JSON
+   * (страница ошибки Cloudflare) — offline; причина — в why отказа: исключение сети или статус и начало тела.
+   */
   async function post(url: string, f: Frame): Promise<Reply> {
     const id = f.id ?? "";
     if (stopped) return fail(id, "disconnected");
@@ -123,9 +126,14 @@ export function fleet(o: FleetOptions): FleetClient {
     try {
       const res = await doFetch(url, { method: "POST", body: JSON.stringify({ ...f, key: o.key }), signal: ac.signal });
       if (res.status === 204) return { type: "reply", id, ok: true };
-      return (await res.json()) as Reply;
+      const text = await res.text();
+      try {
+        return JSON.parse(text) as Reply;
+      } catch {
+        return { ...fail(id, "offline"), why: `${res.status}: ${text.slice(0, 160)}` } as unknown as Reply;
+      }
     } catch (e) {
-      return fail(id, late ? "timeout" : ac.signal.aborted ? "disconnected" : "offline");
+      return { ...fail(id, late ? "timeout" : ac.signal.aborted ? "disconnected" : "offline"), why: String(e) } as unknown as Reply;
     } finally {
       clearTimeout(timer);
       posts.delete(ac);

@@ -9,6 +9,9 @@ import { describe, expect, it } from "vitest";
 import { PROTO } from "@switchboard/relay";
 import { loadRelease } from "../src/release.ts";
 
+/** номер ядра — из его манифеста: тесты не держат его числом */
+const CORE_VERSION = (JSON.parse((process.getBuiltinModule("node:fs") as typeof import("node:fs")).readFileSync(new URL("../module.json", import.meta.url), "utf8")) as { version: string }).version;
+
 const coreDir = join(import.meta.dirname, "..");
 const rootModules = join(coreDir, "..", "..", "node_modules");
 
@@ -99,7 +102,7 @@ describe("процесс Host", () => {
     // источник: устав «версия SDK закреплена точно»; ответ одной строкой JSON — чьё: код
     const r = await run(join(coreDir, "main.ts"), ["--check"], {});
     expect(r.code).toBe(0);
-    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.2.2", sdk: "0.3.311", proto: PROTO });
+    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: CORE_VERSION, sdk: "0.3.311", proto: PROTO });
   }, 90_000);
 
   it("739 · --check: у имени два владельца — ok:false с причиной, код 1", async () => {
