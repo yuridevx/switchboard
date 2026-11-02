@@ -14,7 +14,7 @@
 // поэтому Node снимает типы с .ts сам, без сборки в .js.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { pack, sha256hex, shaLine, VERSION_RE } from "@switchboard/release";
+import { pack, packageFiles, sha256hex, shaLine, VERSION_RE } from "@switchboard/release";
 import type { TarFile } from "@switchboard/release";
 import type { RunResult } from "./run.ts";
 
@@ -41,8 +41,6 @@ export type Built = {
   check: { ok: boolean; version?: string; sdk?: string; proto?: number; why?: string };
 };
 
-const SKIP_DIRS = new Set(["node_modules", "dist", ".wrangler", "test", "tests"]);
-const SKIP_FILE = /(\.test\.|\.spec\.|^vitest\.config\.|^tsconfig.*\.json$|^wrangler\.(jsonc?|toml)$|^\.dev\.vars)/;
 const SRC = /\.(ts|tsx|mts|js|mjs)$/;
 const IMPORT = /(?:from\s*|import\s*\(\s*|import\s+)["'](@switchboard\/[^"'/]+)/g;
 
@@ -64,20 +62,6 @@ export function workspaces(root: string): Map<string, string> {
     for (const d of readdirSync(base)) if (statSync(join(base, d)).isDirectory()) add(join(base, d));
   }
   return out;
-}
-
-/** Файлы пакета, которые идут в выпуск: без тестов, настроек сборки и node_modules. Пути — через «/». */
-export function packageFiles(dir: string): string[] {
-  const out: string[] = [];
-  const walk = (d: string) => {
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      if (e.isDirectory()) {
-        if (!SKIP_DIRS.has(e.name)) walk(join(d, e.name));
-      } else if (e.isFile() && !SKIP_FILE.test(e.name)) out.push(relative(dir, join(d, e.name)).split(sep).join("/"));
-    }
-  };
-  walk(dir);
-  return out.sort();
 }
 
 /** Пакеты @switchboard, которые импортирует код пакета. */

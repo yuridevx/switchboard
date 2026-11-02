@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { loadRepo } from "@switchboard/manifest-gate";
 import { serviceWorker } from "@switchboard/web-alerts";
 import { appGate, memoryStore } from "@switchboard/web-core";
-import { phoneParts } from "../contract.ts";
+import { phoneParts } from "../stand/parts.ts";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../../packages/core/stand/app.ts";
 import { fakeBrowser, fakeScope } from "../../packages/alerts/stand/fakes.ts";
 

@@ -1,6 +1,5 @@
 // Архив выпуска: tar (ustar) в gzip. Только файлы и папки — ссылок и особых записей в выпуске нет.
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { isAbsolute } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 
 export type TarFile = { path: string; data: Buffer; mode?: number };
@@ -117,18 +116,4 @@ export async function manifestOf(head: Uint8Array): Promise<Record<string, unkno
   } finally {
     r.cancel().catch(() => {});
   }
-}
-
-/** Архив всей папки: файлы с путями от неё; исполняемые — с режимом 755. Папка приложения для загрузки из сессии. */
-export function packDir(dir: string): Buffer {
-  const files: TarFile[] = [];
-  const walk = (d: string) => {
-    for (const e of readdirSync(d, { withFileTypes: true })) {
-      const p = join(d, e.name);
-      if (e.isDirectory()) walk(p);
-      else if (e.isFile()) files.push({ path: relative(dir, p).split(sep).join("/"), data: readFileSync(p), mode: statSync(p).mode & 0o111 ? 0o755 : 0o644 });
-    }
-  };
-  walk(dir);
-  return pack(files);
 }

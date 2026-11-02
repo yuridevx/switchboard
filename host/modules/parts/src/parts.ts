@@ -1,13 +1,13 @@
 // Модуль parts: сервер MCP parts в каждой сессии — выпуски флота из разговора. Шесть инструментов на все части:
 // list, upload, fetch, deploy, set, log. Зовёт «выпуски», keeper'ов машин и журнал машины; больше ничего. Хранить нечего.
 // Ответы не ждут выхода процессов: итог видно в list и журнале флота.
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Host, Module, Result } from "@switchboard/host";
-import { entries, packDir, PUT_MS, upload } from "@switchboard/release";
+import { entries, packModule, PUT_MS, upload } from "@switchboard/release";
 import type { UploadReply } from "@switchboard/release";
 
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
@@ -49,16 +49,18 @@ export function make() {
       ),
       tool(
         "upload",
-        "Загрузить версию приложения из папки на этой машине: упаковать, посчитать хэш и положить архив и хэш по двум ссылкам «выпусков». stable не трогает — новая версия становится edge. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists. Части сборки (host, keeper, Worker'ы) загружает CI.",
+        "Загрузить модуль из папки в каталог «выпусков»: упаковать по его module.json — имя и номер оттуда (модуль Host и библиотека — файлы пакета; модуль страницы — его module.js и файлы пакета; Worker — имена по флотам из wrangler.jsonc; приложение ОС — dist/ с app.json или папка с app.json), положить архив и хэш по двум ссылкам «выпусков». stable не трогает: модуль выкладывает deploy. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists.",
         {
-          part: z.string().describe("имя приложения"),
-          version: z.string().describe("версия — три числа, например 1.4.0"),
-          dir: z.string().describe("папка с app.json в корне; относительная — от рабочей папки сессии"),
+          dir: z.string().describe("папка модуля с module.json; относительная — от рабочей папки сессии"),
         },
-        async ({ part, version, dir }) => {
-          const root = resolve(cwd, dir);
-          if (!existsSync(join(root, "app.json"))) return text(`no_app_json: в ${root} нет app.json`, true);
-          const data = packDir(root);
+        async ({ dir }) => {
+          let p: ReturnType<typeof packModule>;
+          try {
+            p = packModule(resolve(cwd, dir));
+          } catch (e) {
+            return text((e as Error).message, true);
+          }
+          const { name: part, version, tgz: data } = p;
           try {
             // загрузка по ссылкам «выпусков» — та же функция, что у CI
             const r = await upload(async (sha256) => (await ask("releases.upload", { part, version, sha256 })) as UploadReply, version, data);

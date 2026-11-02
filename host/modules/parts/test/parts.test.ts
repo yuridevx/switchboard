@@ -10,7 +10,7 @@ import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make } from "../src/parts.ts";
-import { pack } from "@switchboard/release";
+import { entries, pack } from "@switchboard/release";
 
 const { module, standHost } = stand;
 type Stand = stand.Stand;
@@ -82,9 +82,10 @@ describe("эталоны parts", () => {
     ]);
   });
 
-  it("2 · upload: две ссылки от «выпусков», архив с app.json и его хэш строкой sha256sum; без app.json — отказ без запроса", async () => {
+  it("2 · upload: модуль по module.json — две ссылки от «выпусков», архив и его хэш строкой sha256sum; без module.json — отказ без запроса", async () => {
     const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
     mkdirSync(join(dir, "app"));
+    writeFileSync(join(dir, "app", "module.json"), JSON.stringify({ name: "capture", type: "os", version: "1.4.0", provides: {}, uses: {}, config: {} }));
     writeFileSync(join(dir, "app", "app.json"), '{ "run": ["node", "main.js"] }');
     writeFileSync(join(dir, "app", "main.js"), "process.stdin.resume();");
     const { st, call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { tgz: "https://r2.test/b/capture/1.4.0.tgz?sig", sha256: "https://r2.test/b/capture/1.4.0.sha256?sig" } } : undefined));
@@ -93,9 +94,9 @@ describe("эталоны parts", () => {
       puts.push({ url: String(u), body: Buffer.from(init!.body as Uint8Array) });
       return new Response("", { status: 200 });
     });
-    expect((await call("upload", { part: "capture", version: "1.4.0", dir: "." }, dir)).text).toMatch(/^no_app_json/);
+    expect((await call("upload", { dir: "." }, dir)).text).toMatch(/^no_module_json/);
     expect(st.relay.sent.filter((f) => f.type === "releases.upload")).toEqual([]);
-    const r = await call("upload", { part: "capture", version: "1.4.0", dir: "app" }, dir);
+    const r = await call("upload", { dir: "app" }, dir);
     expect(r.isError).toBeUndefined();
     const sha = createHash("sha256").update(puts[0].body).digest("hex");
     expect(r.json()).toEqual({ part: "capture", version: "1.4.0", bytes: puts[0].body.length, sha256: sha });
@@ -109,12 +110,49 @@ describe("эталоны parts", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): загрузка по ссылкам «Выпусков» — одна функция у parts.upload и CI
     const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
     writeFileSync(join(dir, "app.json"), "{}");
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ name: "capture", type: "os", version: "1.4.0", provides: {}, uses: {}, config: {} }));
     const { call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { same: true } } : undefined));
     const puts: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => (puts.push(String(url)), new Response("", { status: 200 })));
-    const r = await call("upload", { part: "capture", version: "1.4.0", dir: "." }, dir);
+    const r = await call("upload", { dir: "." }, dir);
     expect(r.json()).toMatchObject({ part: "capture", version: "1.4.0", same: true });
     expect(puts).toEqual([]);
+  });
+
+  it("5191 · upload модуля чужого репо по его module.json: модуль Host — файлы пакета, страницы — его module.js, Worker — имена по флотам из wrangler, приложение ОС — dist/; module.json первым", async () => {
+    // источник: отчёт слепого архитектора 2 нояб.: пункт 12 — одна упаковка «папка модуля → архив» у parts.upload и release-cli
+    const root = mkdtempSync(join(tmpdir(), "parts-repo-"));
+    const mod = (name: string, type: string, files: Record<string, string>) => {
+      const d = join(root, name);
+      mkdirSync(d, { recursive: true });
+      writeFileSync(join(d, "module.json"), JSON.stringify({ name, type, version: "0.1.0", provides: {}, uses: {}, config: {} }));
+      for (const [p, s] of Object.entries(files)) {
+        mkdirSync(join(d, p, ".."), { recursive: true });
+        writeFileSync(join(d, p), s);
+      }
+    };
+    mod("hello-host", "sdk", { "contract.ts": "export default {};", "src/a.ts": "export {};", "test/a.test.ts": "x" });
+    mod("hello-tab", "web", { "module.js": "export default {};", "contract.ts": "export {};" });
+    mod("hello-worker", "worker", { "wrangler.jsonc": '// w\n{ "name": "hello-worker", "env": { "prod": {} } }', "src/index.ts": "x" });
+    mod("hello-daemon", "os", { "app.json": "{}", "dist/app.json": '{"run":["node","d.mjs"]}', "dist/d.mjs": "1" });
+    mod("bad-tab", "web", { "contract.ts": "x" });
+    const { st, call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { tgz: `https://r2.test/${f.part}.tgz`, sha256: `https://r2.test/${f.part}.sha256` } } : undefined));
+    const tgz = new Map<string, Buffer>();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (u, init) => {
+      const url = String(u);
+      if (url.endsWith(".tgz")) tgz.set(url.slice("https://r2.test/".length, -4), Buffer.from(init!.body as Uint8Array));
+      return new Response("", { status: 200 });
+    });
+    for (const n of ["hello-host", "hello-tab", "hello-worker", "hello-daemon"]) expect((await call("upload", { dir: n }, root)).json()).toMatchObject({ part: n, version: "0.1.0" });
+    const paths = (n: string) => entries(tgz.get(n)!).filter((e) => e.data).map((e) => e.path);
+    expect(paths("hello-host")).toEqual(["module.json", "contract.ts", "src/a.ts"]);
+    expect(paths("hello-tab")).toEqual(["module.json", "contract.ts", "module.js"]);
+    expect(paths("hello-worker")).toEqual(["module.json"]);
+    expect(JSON.parse(entries(tgz.get("hello-worker")!)[0].data!.toString("utf8")).workers).toEqual({ test: "hello-worker", prod: "hello-worker-prod" });
+    expect(paths("hello-daemon")).toEqual(["module.json", "app.json", "d.mjs"]);
+    const bad = await call("upload", { dir: "bad-tab" }, root);
+    expect([bad.isError, bad.text]).toEqual([true, "bad-tab: у модуля страницы нет module.js — собери его одним файлом"]);
+    expect(st.relay.sent.filter((f) => f.type === "releases.upload").map((f) => f.part)).toEqual(["hello-host", "hello-tab", "hello-worker", "hello-daemon"]);
   });
 
   it("3 · deploy и set — на .releases как есть, даже с полем machine; отказ — словом с ошибкой", async () => {
@@ -154,13 +192,14 @@ describe("parts: покрытие плана host-modules", () => {
     // источник: чьё: код (parts.ts:61, :69-70)
     const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
     writeFileSync(join(dir, "app.json"), "{}");
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ name: "capture", type: "os", version: "1.4.0", provides: {}, uses: {}, config: {} }));
     let refuse = true;
     const { call } = await bench((f) => (f.type === "releases.upload" ? (refuse ? { ok: false, error: "exists" } : { ok: true, result: { tgz: "https://r2.test/a.tgz?s", sha256: "https://r2.test/a.sha256?s" } }) : undefined));
-    const a = await call("upload", { part: "capture", version: "1.4.0", dir: "." }, dir);
+    const a = await call("upload", { dir: "." }, dir);
     expect([a.isError, a.text]).toEqual([true, "releases.upload: exists"]);
     refuse = false;
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => new Response("", { status: 403 }));
-    const b = await call("upload", { part: "capture", version: "1.4.1", dir: "." }, dir);
+    const b = await call("upload", { dir: "." }, dir);
     expect([b.isError, b.text]).toEqual([true, "upload_failed: R2 ответил 403 на /a.tgz"]);
   });
 
@@ -168,6 +207,7 @@ describe("parts: покрытие плана host-modules", () => {
     // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — как у keeper на скачивание архива части
     const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
     writeFileSync(join(dir, "app.json"), "{}");
+    writeFileSync(join(dir, "module.json"), JSON.stringify({ name: "capture", type: "os", version: "1.4.2", provides: {}, uses: {}, config: {} }));
     const { call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { tgz: "https://r2.test/a.tgz?s", sha256: "https://r2.test/a.sha256?s" } } : undefined));
     const puts: string[] = [];
     vi.spyOn(globalThis, "fetch").mockImplementation((u: RequestInfo | URL, init?: RequestInit) => {
@@ -176,7 +216,7 @@ describe("parts: покрытие плана host-modules", () => {
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     try {
-      const pending = call("upload", { part: "capture", version: "1.4.2", dir: "." }, dir);
+      const pending = call("upload", { dir: "." }, dir);
       await vi.waitFor(() => expect(puts).toHaveLength(1));
       await vi.advanceTimersByTimeAsync(10 * 60_000);
       const r = await pending;

@@ -22,7 +22,7 @@ import { upload } from "@switchboard/release";
 import type { Put, UploadReply } from "@switchboard/release";
 import { build, type Exec } from "./src/build.ts";
 import { buildKeeper, runGo, type GoExec } from "./src/keeper.ts";
-import { packModule } from "./src/module.ts";
+import { packFromRepo } from "./src/module.ts";
 import { runNode, runNpm } from "./src/run.ts";
 import { loadRepo } from "@switchboard/manifest-gate";
 
@@ -105,7 +105,7 @@ async function modules(ask: Ask | null, put: Put): Promise<number> {
   const counts = { uploaded: 0, same: 0, built: 0 };
   const refused: string[] = [];
   for (const m of loadRepo(root).filter((x) => x.type !== "os" && x.type !== "sdk-core")) {
-    const p = packModule(join(root, m.dir));
+    const p = packFromRepo(join(root, m.dir));
     if (!ask) {
       counts.built++;
       continue;

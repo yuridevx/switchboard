@@ -866,6 +866,44 @@ describe("сборка страницы «Выпусками»", () => {
     // следующая сборка начинается со списка выложенной
     expect((await result(req(s, "agent~x", "releases.deploy", { part: "web-core" }))).parts.pult).toEqual({ from: "1.1.0+1", to: "1.1.0+2" });
   });
+
+  it("5194 · снять модуль страницы: оболочка пользуется только ядром страницы — сборка без модуля проходит проверку", async () => {
+    // источник: отчёт слепого архитектора 2 нояб.: пункт 4 — снять web-chat упиралось в uses оболочки (check_failed)
+    const s = fresh();
+    const put = async (name: string, version: string, manifest: Record<string, unknown>, extra: Array<[string, string]> = []) => {
+      const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) }, ...extra.map(([path, d]) => ({ path, data: Buffer.from(d) }))]);
+      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
+      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
+    };
+    await put("relay", "1.0.0", { type: "worker", provides: { roster: 1 }, workers: { test: "switchboard" } });
+    await put("pult", "1.1.2", { type: "web-app", uses: { "app@web-core": 1 }, workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    await put("web-core", "1.1.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "export default {}"]]);
+    await put("web-chat", "1.0.0", { type: "web", into: ["pult"], provides: { chat: 1 }, uses: { "app@web-core": 1 } }, [["module.js", "export default {}"]]);
+    const tags: string[] = [];
+    let live = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      const u = new URL(req.url);
+      const p = u.pathname.replace("/client/v4/accounts/acc0", "");
+      const ok = (result: unknown) => Response.json({ success: true, result });
+      if (p === "/workers/assets/upload") return ok({ jwt: "done" });
+      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
+      if (p === "/workers/domains") return ok([]);
+      if (p.endsWith("/assets-upload-session")) return ok({ jwt: "up", buckets: [] });
+      if (p.endsWith("/versions") && req.method === "POST") {
+        tags.push(JSON.parse(await ((await req.formData()).get("metadata") as Blob).text()).annotations["workers/tag"]);
+        return ok({ id: `v-${tags.at(-1)}` });
+      }
+      if (p.endsWith("/versions")) return ok({ items: [...tags].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
+      if (p.endsWith("/deployments") && req.method === "POST") return (live = ((await req.json()) as any).versions[0].version_id), ok({});
+      if (p.endsWith("/deployments")) return ok({ deployments: live ? [{ versions: [{ version_id: live, percentage: 100 }] }] : [] });
+      return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
+    });
+    expect((await result(req(s, "~x", "releases.deploy", { part: "web-chat" }))).parts.pult.to).toBe("1.1.2+1");
+    expect(await result(req(s, "~x", "releases.deploy", { part: "web-chat", version: null }))).toEqual({ parts: { pult: { from: "1.1.2+1", to: "1.1.2+2" } } });
+    const files = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.2+2.tgz"))!.arrayBuffer()));
+    expect(JSON.parse(files.find((x) => x.path === "build.json")!.data!.toString("utf8")).modules).toEqual([{ name: "web-core", version: "1.1.0" }]);
+  });
 });
 
 describe("releases.fetch", () => {

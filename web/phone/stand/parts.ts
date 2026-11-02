@@ -1,4 +1,4 @@
-// Телефон в монорепо — для стенда и тестов: шесть общих пакетов web-* — следить и отвечать. На странице состав и
+// Стенд телефона в монорепо — для тестов (код оболочки — web/shell.ts — берёт только web-core): шесть общих пакетов web-* — следить и отвечать. На странице состав и
 // порядок старта даёт список сборки (build.json), а не этот файл: эталон сверяет его с into телефона.
 import { manifest as alertsM, createAlerts, type BrowserPush } from "@switchboard/web-alerts";
 import { manifest as askM, createAsk } from "@switchboard/web-ask";

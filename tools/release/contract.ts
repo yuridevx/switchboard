@@ -11,8 +11,11 @@ export { parseSha, RELEASES_BUCKET, shaKey, shaLine, tgzKey, VERSION_RE } from "
 export { presign } from "./src/presign.ts";
 export type { LinkKey } from "./src/presign.ts";
 export { sha256hex } from "./src/hash.ts";
-export { entries, manifestOf, MANIFEST, pack, packDir } from "./src/tar.ts";
+export { entries, manifestOf, MANIFEST, pack } from "./src/tar.ts";
 export type { TarFile } from "./src/tar.ts";
+// упаковка модуля из папки по module.json — монорепо (release-cli) и чужой репо (parts.upload)
+export { packageFiles, packModule } from "./src/pack.ts";
+export type { ModuleJson, PackedModule } from "./src/pack.ts";
 export { upload, PUT_MS } from "./src/upload.ts";
 export type { Put, UploadReply } from "./src/upload.ts";
 export { WEB_FILE, webBuild } from "./src/web.ts";

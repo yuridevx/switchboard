@@ -5,10 +5,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { loadRepo, order } from "@switchboard/manifest-gate";
+import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { webBuild, type WebBuildList } from "@switchboard/release";
 import type { BuildOptions } from "@switchboard/web-core";
-import { packModule } from "../../../tools/release-cli/src/module.ts";
+import { packFromRepo as packModule } from "../../../tools/release-cli/src/module.ts";
 import { PULT } from "../src/options.ts";
 import { FakeRelay, flush, KEY } from "../../packages/core/stand/relay.ts";
 import { memoryStore } from "@switchboard/web-core";
@@ -86,4 +86,20 @@ describe("пульт из каталога", () => {
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
   }, 120_000);
+});
+
+describe("состав оболочки", () => {
+  it("5193 · состав приложения — только into модулей: оболочка пульта и телефона пользуется лишь ядром страницы, снять любой модуль страницы её uses не мешает", () => {
+    // источник: отчёт слепого архитектора 2 нояб.: пункт 4 — состав приложения записан дважды (uses оболочки и into
+    // модулей); снять модуль страницы упиралось в uses оболочки (check_failed)
+    const repo = loadRepo(root).map(({ imports: _i, pkg: _p, dir: _d, ...m }) => m);
+    for (const app of ["pult", "phone"]) {
+      const shell = repo.find((m) => m.name === app)!;
+      expect(Object.keys(shell.uses)).toEqual(["app@web-core"]);
+      const set = repo.filter((m) => m.name === app || m.into?.includes(app));
+      for (const gone of set.filter((m) => m.name !== app && m.name !== "web-core")) {
+        expect(check(set.filter((m) => m !== gone)).filter((e) => e.startsWith(`модуль ${app}:`))).toEqual([]);
+      }
+    }
+  });
 });

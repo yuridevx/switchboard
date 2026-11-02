@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { appGate } from "@switchboard/web-core";
-import { OWN, pultParts } from "../contract.ts";
+import { OWN, pultParts } from "../stand/parts.ts";
 import { fleetRelay, fleetRoster, flush, pult } from "./stand.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));

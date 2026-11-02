@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
 import { createCard } from "@switchboard/web-card";
-import { pultParts } from "../contract.ts";
+import { pultParts } from "../stand/parts.ts";
 import { fleetRelay, fleetRoster, flush, HOST, pointsRelay, pult, SID } from "./stand.ts";
 
 beforeEach(() => {

@@ -1,16 +1,17 @@
 // Формат выпуска, архив, ссылки, загрузка по ссылкам «Выпусков» и сборка на подменённых npm и node.
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { manifestOf, pack, packDir, parseSha, presign, sha256hex, shaLine, upload } from "../contract.ts";
+import { manifestOf, pack, parseSha, presign, sha256hex, shaLine, upload } from "../contract.ts";
 import type { Put, UploadReply } from "../contract.ts";
 import { entries } from "../src/tar.ts";
-import { build, closure, packageFiles } from "../../release-cli/src/build.ts";
+import { build, closure } from "../../release-cli/src/build.ts";
+import { packageFiles, packModule as packFolder } from "../src/pack.ts";
 import type { Exec } from "../../release-cli/src/build.ts";
 import { buildKeeper } from "../../release-cli/src/keeper.ts";
-import { packModule } from "../../release-cli/src/module.ts";
+import { packFromRepo as packModule } from "../../release-cli/src/module.ts";
 import type { GoExec } from "../../release-cli/src/keeper.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
@@ -47,16 +48,6 @@ describe("архив выпуска", () => {
 });
 
 describe("упаковка папки и ссылки", () => {
-  it("packDir: все файлы папки с путями от неё, тот же набор — тот же архив", () => {
-    const d = tmp();
-    mkdirSync(join(d, "lib"));
-    writeFileSync(join(d, "app.json"), '{"run":["node","main.js"]}');
-    writeFileSync(join(d, "lib", "x.js"), "1");
-    const a = packDir(d);
-    expect(entries(a).filter((e) => e.data).map((e) => e.path)).toEqual(["app.json", "lib/x.js"]);
-    expect(sha256hex(packDir(d))).toBe(sha256hex(a));
-  });
-
   it("presign — пример AWS: GET test.txt на сутки", async () => {
     const url = await presign(
       { accessKeyId: "AKIAIOSFODNN7EXAMPLE", secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", region: "us-east-1" },
@@ -210,5 +201,29 @@ describe("каталог модулей", () => {
     expect(await manifestOf(m.tgz)).toMatchObject({ name: "hello-host", into: ["host"] });
     expect(await manifestOf(pack([{ path: "app.json", data: Buffer.from("{}") }]))).toBeNull();
     expect(packModule(h).sha).toBe(m.sha);
+  });
+});
+
+describe("упаковка модуля формата", () => {
+  it("5192 · одна упаковка: приложение ОС — dist/ с app.json и режимом исполнения, module.json модуля пакета — байт в байт; без module.json и app.json — отказ словом", () => {
+    // источник: отчёт слепого архитектора 2 нояб.: пункт 12 — упаковщиков модуля два (parts.upload и release-cli)
+    const d = tmp();
+    mkdirSync(join(d, "dist"));
+    writeFileSync(join(d, "module.json"), '{ "name": "daemon", "type": "os", "version": "0.1.0" }');
+    writeFileSync(join(d, "dist", "app.json"), '{"run":["./d"]}');
+    writeFileSync(join(d, "dist", "d"), "#!/bin/sh");
+    chmodSync(join(d, "dist", "d"), 0o755);
+    const os = entries(packFolder(d).tgz).filter((e) => e.data);
+    expect(os.map((e) => e.path)).toEqual(["module.json", "app.json", "d"]);
+    expect(os[0].data!.toString()).toBe('{ "name": "daemon", "type": "os", "version": "0.1.0" }');
+    if (process.platform !== "win32") expect(os[2].mode).toBe(0o755);
+    const lib = tmp();
+    writeFileSync(join(lib, "module.json"), '{"name":"lib","type":"tool","version":"1.0.0"}');
+    writeFileSync(join(lib, "contract.ts"), "export {};");
+    expect(entries(packFolder(lib).tgz)[0].data!.toString()).toBe('{"name":"lib","type":"tool","version":"1.0.0"}');
+    expect(() => packFolder(tmp())).toThrow(/^no_module_json/);
+    const bare = tmp();
+    writeFileSync(join(bare, "module.json"), '{"name":"x","type":"os","version":"1.0.0"}');
+    expect(() => packFolder(bare)).toThrow(/^no_app_json/);
   });
 });

@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadRepo } from "@switchboard/manifest-gate";
 import { memoryStore, type Roster } from "@switchboard/web-core";
-import { PULT, pultParts } from "../contract.ts";
+import { PULT, pultParts } from "../stand/parts.ts";
 import { FakeRelay, flush, stand } from "../../packages/core/stand/app.ts";
 import { fakeBrowser } from "../../packages/alerts/stand/fakes.ts";
 

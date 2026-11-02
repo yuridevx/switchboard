@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./contract.ts"
+    ".": "./stand/parts.ts"
   },
   "scripts": {
     "build": "node build.mjs",
