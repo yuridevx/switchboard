@@ -1,15 +1,17 @@
 {
   "name": "host",
   "type": "sdk-core",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "provides": {
     "host.module": 1
   },
   "uses": {
     "manifest.check@manifest-gate": 1,
+    "release.format@release": 1,
     "hello@relay": 1,
     "roster@relay": 1,
-    "session.state@relay": 1
+    "session.state@relay": 1,
+    "keys.list@gate": 1
   },
   "config": {}
 }

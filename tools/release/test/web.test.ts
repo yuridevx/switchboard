@@ -2,7 +2,7 @@
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { manifestOf, pack, WEB_FILE, webBuild, type WebBuildList } from "../contract.ts";
+import { manifestOf, pack, WEB_FILE, webBuild, type BuildList } from "../contract.ts";
 import { packFromRepo as packModule } from "../../release-cli/src/module.ts";
 import { entries } from "../src/tar.ts";
 
@@ -48,7 +48,7 @@ describe("страница в каталоге", () => {
       { path: "app.js", data: Buffer.from("boot()") },
     ]);
     const mod = (name: string) => ({ name, tgz: pack([{ path: "module.json", data: Buffer.from("{}") }, { path: WEB_FILE, data: Buffer.from(`// ${name}`) }]) });
-    const list: WebBuildList = {
+    const list: BuildList = {
       app: "pult",
       version: "1.1.0+1",
       fleet: "test",
@@ -56,8 +56,7 @@ describe("страница в каталоге", () => {
         { name: "web-core", version: "1.1.0" },
         { name: "web-board", version: "1.2.0" },
       ],
-      relay: "wss://relay.test",
-      workers: { gate: "https://gate.test/" },
+      workers: { gate: "https://gate.test/", relay: "https://relay.test/" },
     };
     const files = webBuild(shell, [mod("web-board"), mod("web-core")], list);
     expect(files.map((f) => f.path)).toEqual(["app.js", "index.html", "m/web-core.js", "m/web-board.js", "build.json"]);

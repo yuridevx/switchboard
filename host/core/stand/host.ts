@@ -135,16 +135,13 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
   const clock = new FakeClock();
   const exits: number[] = [];
   let crashed = false;
-  const config: HostConfig = {
-    machine,
-    ...(o.relay === false ? {} : { relay: "wss://relay.stand", workers: FakeRelay.WORKERS }),
-    ...(o.config ?? {}),
-  };
+  const config: HostConfig = { machine, ...(o.config ?? {}) };
   const kernel = new Kernel({
     home,
     config,
     core: CORE,
-    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [] },
+    // адреса флота — в списке сборки: relay: false — сборка без relay
+    release: { version: o.version ?? "1.4.0", sdk: sdk.version, modules: o.modules ?? [], workers: o.relay === false ? {} : FakeRelay.WORKERS },
     sdk,
     holders,
     relayKey: `host.${machine}.k7f3.stand`,

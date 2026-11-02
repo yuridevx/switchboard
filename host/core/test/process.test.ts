@@ -4,9 +4,10 @@
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROTO } from "@switchboard/relay";
+import { loadRelease } from "../src/release.ts";
 
 const coreDir = join(import.meta.dirname, "..");
 const rootModules = join(coreDir, "..", "..", "node_modules");
@@ -36,12 +37,12 @@ function run(main: string, args: string[], env: Record<string, string>): Promise
 type Fake = { provides: Record<string, number>; code?: string };
 
 /** Сборка: копия ядра и модули по списку build.json; возвращает путь к main.ts копии. */
-function release(names: string[], fakes: Record<string, Fake> = {}): string {
+function release(names: string[], fakes: Record<string, Fake> = {}, workers: Record<string, string> = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "switchboard-release-"));
   const copy = join(dir, "packages", "host");
   cpSync(join(coreDir, "src"), join(copy, "src"), { recursive: true });
   for (const f of ["main.ts", "contract.ts", "module.json", "package.json"]) cpSync(join(coreDir, f), join(copy, f));
-  writeFileSync(join(dir, "build.json"), JSON.stringify({ version: "1.2.0+1", modules: names.map((name) => ({ name, version: "1.0.0" })) }));
+  writeFileSync(join(dir, "build.json"), JSON.stringify({ app: "host", version: "1.2.0+1", fleet: "test", modules: names.map((name) => ({ name, version: "1.0.0" })), workers }));
   const sw = join(dir, "node_modules", "@switchboard");
   mkdirSync(sw, { recursive: true });
   for (const n of readdirSync(join(rootModules, "@switchboard"))) {
@@ -79,11 +80,26 @@ async function journalUntil(h: string, ok: (lines: Array<Record<string, unknown>
 }
 
 describe("процесс Host", () => {
+  it("5173 · адреса relay и Worker'ов Host берёт из build.json сборки, не из окружения keeper", async () => {
+    // источник: отчёт слепого архитектора 2 нояб., пункт 1 (дубликат состояния: адреса флота — в сборке, как у страниц);
+    // дизайн «Открытый флот»: «список сборки: модули по зависимостям, Worker'ы и их адреса»
+    const workers = { relay: "https://relay.test/", gate: "https://gate.test/", push: "https://push.test/" };
+    const main = release([], {}, workers);
+    const prev = process.env.SWITCHBOARD_WORKERS;
+    process.env.SWITCHBOARD_WORKERS = JSON.stringify({ relay: "https://чужой/" });
+    try {
+      expect((await loadRelease(dirname(main))).workers).toEqual(workers);
+    } finally {
+      if (prev === undefined) delete process.env.SWITCHBOARD_WORKERS;
+      else process.env.SWITCHBOARD_WORKERS = prev;
+    }
+  }, 90_000);
+
   it("738 · --check годного выпуска: ok, версия, SDK 0.3.311 и proto; код 0", async () => {
     // источник: устав «версия SDK закреплена точно»; ответ одной строкой JSON — чьё: код
     const r = await run(join(coreDir, "main.ts"), ["--check"], {});
     expect(r.code).toBe(0);
-    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.2.1", sdk: "0.3.311", proto: PROTO });
+    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.2.2", sdk: "0.3.311", proto: PROTO });
   }, 90_000);
 
   it("739 · --check: у имени два владельца — ok:false с причиной, код 1", async () => {

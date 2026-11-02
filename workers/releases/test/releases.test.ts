@@ -78,7 +78,11 @@ async function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) 
   const live = new Map(Object.entries(scripts).map(([s, x]) => [s, x.live ? id(s, x.live) : null]));
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init);
-    const m = new URL(req.url).pathname.match(/^\/client\/v4\/accounts\/acc0\/workers\/scripts\/([^/]+)\/(versions|deployments)$/);
+    // адрес Worker'а: своих доменов нет — workers.dev поддомена sub
+    const path = new URL(req.url).pathname;
+    if (path === "/client/v4/accounts/acc0/workers/domains") return Response.json({ success: true, result: [] });
+    if (path === "/client/v4/accounts/acc0/workers/subdomain") return Response.json({ success: true, result: { subdomain: "sub" } });
+    const m = path.match(/^\/client\/v4\/accounts\/acc0\/workers\/scripts\/([^/]+)\/(versions|deployments)$/);
     if (!m || req.headers.get("authorization") !== "Bearer test-token") return Response.json({ success: false, errors: [{ message: "not found" }] }, { status: 404 });
     const [, s, what] = m;
     const x = scripts[s];
@@ -709,6 +713,8 @@ describe("сборка Host «Выпусками»", () => {
     return { paths: files.map((x) => x.path), list: JSON.parse(files.find((x) => x.path === "build.json")!.data!.toString("utf8")) };
   };
   const setup = async () => {
+    // API Cloudflare: адреса Worker'ов для списка сборки
+    await fakeCf({});
     await workersIn({ push: {} });
     await inCatalog("push", "1.0.0", { type: "worker", provides: { "push.send": 1 }, uses: {}, config: {}, workers: { test: "switchboard-push" } });
     await core();
@@ -720,7 +726,8 @@ describe("сборка Host «Выпусками»", () => {
     await GATE.setHosts(["win", "wsl"]);
   };
 
-  it("5117 · первая сборка: ядро и модули каталога с into host по зависимостям; build.json внутри; stable и план машин — сборка под именем флота", async () => {
+  it("5117 · 5172 · первая сборка: ядро и модули каталога с into host по зависимостям; build.json внутри с адресами Worker'ов, которыми пользуется сборка; stable и план машин — сборка под именем флота", async () => {
+    // 5172 — источник: отчёт слепого архитектора 2 нояб., пункт 1 (дубликат состояния: адреса Worker'ов у Host — из сборки, как у страниц)
     const s = fresh();
     await setup();
     // флот на прежней сборке Host монорепо (без «+»)
@@ -728,7 +735,14 @@ describe("сборка Host «Выпусками»", () => {
     const out = await req(s, "agent~x", "releases.deploy", { part: "host-push" });
     expect(out[0].result).toEqual({ parts: { host: { from: "1.1.85", to: "1.2.0+1" } } });
     const b = await buildOf("1.2.0+1");
-    expect(b.list).toEqual({ app: "host", version: "1.2.0+1", fleet: "test", modules: [{ name: "host-watch", version: "1.0.0" }, { name: "host-push", version: "3.0.0" }] });
+    // адреса Worker'ов, которыми пользуются модули сборки, — в списке сборки Host, как у страниц (5172)
+    expect(b.list).toEqual({
+      app: "host",
+      version: "1.2.0+1",
+      fleet: "test",
+      modules: [{ name: "host-watch", version: "1.0.0" }, { name: "host-push", version: "3.0.0" }],
+      workers: { push: "https://switchboard-push.sub.workers.dev" },
+    });
     expect(b.paths).toEqual(["module.json", "build.json", "modules/", "modules/host-push/", "modules/host-push/module.json", "modules/host-watch/", "modules/host-watch/module.json"]);
     expect(plans(out).map((p) => [p.to, (p.parts as any[]).find((x) => x.part === "host").version])).toEqual([[".keeper@win", "1.2.0+1"], [".keeper@wsl", "1.2.0+1"]]);
     expect(((plans(out)[0].parts as any[]).find((x) => x.part === "host").url as string)).toContain("/switchboard-releases/test/host/1.2.0%2B1.tgz?");
@@ -859,7 +873,6 @@ describe("сборка страницы «Выпусками»", () => {
       version: "1.1.0+1",
       fleet: "test",
       modules: [{ name: "web-core", version: "1.1.0" }, { name: "web-x", version: "1.0.0" }],
-      relay: "wss://relay.example",
       workers: { push: "https://switchboard-push.sub.workers.dev", relay: "https://relay.example" },
     });
     expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["pult 1.1.85 → 1.1.0+1 (web-x 1.0.0)"]);

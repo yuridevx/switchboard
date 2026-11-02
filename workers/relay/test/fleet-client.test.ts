@@ -68,7 +68,7 @@ function stand(machines: string[], answers: Record<string, (body: any) => Respon
 }
 
 function start(o: Partial<FleetOptions> & { fetch: typeof fetch }) {
-  return fleet({ relay: "wss://relay.test", gate: "https://gate.test/", workers: { push: "https://push.test/" }, key: "host.win.k7f2.S", WebSocket: FakeWs, ...o });
+  return fleet({ workers: { relay: "https://relay.test/", gate: "https://gate.test/", push: "https://push.test/" }, key: "host.win.k7f2.S", WebSocket: FakeWs, ...o });
 }
 
 /** Открыть соединение с машиной: hello принят, пришёл roster объекта. */
@@ -205,13 +205,18 @@ describe("эталоны клиента флота", () => {
     expect(n).toBe(2);
   });
 
-  it("keeper (only): соединение только со своей машиной, списка у gate не спрашивает", async () => {
-    const s = stand(["win", "wsl"]);
-    start({ fetch: s.f, machine: "win", only: true, hello: () => ({ part: "keeper" }) });
+  it("5171 · одна карта адресов: relay — wss адреса Worker'а relay, gate — из неё же; кадр к Worker'у без адреса — отказ offline здесь, в relay не идёт", async () => {
+    // источник: отчёт слепого архитектора 2 нояб.: пункты 2 и 6 (дубликат состояния; лишняя коммуникация — «кадр к Worker'у
+    // через relay не ходит» — дизайн «Открытый флот», слово пользователя «делай»)
+    const s = stand(["win"]);
+    const f = fleet({ workers: { relay: "https://relay.test/", gate: "https://gate.test/" }, key: "host.win.k7f2.S", WebSocket: FakeWs, fetch: s.f, machine: "win" });
     await tick();
-    expect(s.calls).toEqual([]);
-    up("win", roster("win", [], ["@wsl"]));
+    expect(s.calls.map((c) => c.url)).toEqual(["https://gate.test/"]);
     expect(FakeWs.all.map((w) => w.url)).toEqual(["wss://relay.test/m/win"]);
-    expect(FakeWs.of("win")!.json(0)).toMatchObject({ type: "hello", part: "keeper" });
+    up("win");
+    const sent = FakeWs.of("win")!.sent.length;
+    expect(await f.request({ type: "hello.echo", v: 1, to: ".hello-worker" })).toMatchObject({ ok: false, error: "offline" });
+    expect(f.send({ type: "ledger.add", v: 1, to: ".ledger" })).toEqual({ ok: false, error: "offline" });
+    expect(FakeWs.of("win")!.sent.length).toBe(sent);
   });
 });

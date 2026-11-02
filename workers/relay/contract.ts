@@ -16,12 +16,13 @@ export { link, PROTO } from "./src/link.ts";
 export type { Link, LinkOptions, LinkState, WsLike, WsCtor } from "./src/link.ts";
 /**
  * fleet(options) — клиент флота: соединение с relay каждой машины (машины — keys.list у gate, новые — гостями в roster),
- * кадр к машине — в её соединение, к Worker'у — POST с пропуском по адресу из options.workers.
- *   const f = fleet({ relay, gate, workers, key, machine: "win", hello: () => ({ sdk, contract, sessions }), onFrame });
+ * кадр к машине — в её соединение, к Worker'у — POST с пропуском по адресу из options.workers; адреса — одна карта
+ * workers (relay — wss того же адреса, gate — список машин). relayWs(workers) — адрес объектов relay.
+ *   const f = fleet({ workers, key, machine: "win", hello: () => ({ sdk, contract, sessions }), onFrame });
  *   await f.request({ type: "message", to: "site@wsl", text: "…" });   // через relay машины wsl
  *   await f.request({ type: "push.send", v: 1, to: ".push", … });     // POST к Worker'у push
  */
-export { fleet } from "./src/fleet-client.ts";
+export { fleet, relayWs } from "./src/fleet-client.ts";
 export type { FleetClient, FleetOptions } from "./src/fleet-client.ts";
 
 /**

@@ -33,7 +33,7 @@ describe.skipIf(process.env.SWITCHBOARD_LIVE !== "1" || !process.env.SWITCHBOARD
       home,
       config: { machine: "live" },
       core: CORE,
-      release: { version: "live", sdk: "0.3.311", modules: [module("host-live", live)] },
+      release: { version: "live", sdk: "0.3.311", modules: [module("host-live", live)], workers: {} },
       sdk: { query: sdk.query, functions, cli: async () => ({ code: 0, out: "" }) },
       holders: realHolders(home, process.env.SWITCHBOARD_HOLDER),
     });

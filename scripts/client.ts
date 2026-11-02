@@ -1,14 +1,17 @@
-// Клиент флота для живых сценариев и эталонов: адреса тестового флота (или SWITCHBOARD_URL и SWITCHBOARD_WORKERS),
-// соединение с relay каждой машины, к Worker'ам — POST. state open — открыты все известные машины: сценарий ждёт флот целиком.
-import { fleet, type FleetClient, type Frame, type LinkState, type Roster } from "@switchboard/relay";
+// Клиент флота для живых сценариев и эталонов: адреса тестового флота (или SWITCHBOARD_WORKERS — одна карта адресов,
+// relay в ней — объекты машин), соединение с relay каждой машины, к Worker'ам — POST. state open — открыты все известные
+// машины: сценарий ждёт флот целиком.
+import { fleet, relayWs, type FleetClient, type Frame, type LinkState, type Roster } from "@switchboard/relay";
 
-export const RELAY = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 export const WORKERS: Record<string, string> = process.env.SWITCHBOARD_WORKERS
   ? JSON.parse(process.env.SWITCHBOARD_WORKERS)
   : {
       relay: "https://switchboard.yuridevx1608.workers.dev/",
       ...Object.fromEntries(["gate", "push", "points", "ledger", "github", "releases"].map((n) => [n, `https://switchboard-${n}.yuridevx1608.workers.dev/`])),
     };
+
+/** адрес объектов relay — для сценариев, которые открывают сокет сами */
+export const RELAY = relayWs(WORKERS);
 
 export type Client = Pick<FleetClient, "request" | "send" | "close" | "links"> & { readonly state: LinkState; readonly roster: Roster | null };
 
@@ -17,8 +20,6 @@ export function client(key: string, o: { onFrame?: (f: Frame) => void; machine?:
   // отказ пропуску у gate (keys.list) — тоже остановка
   let refused = false;
   const c = fleet({
-    relay: RELAY,
-    gate: WORKERS.gate,
     workers: WORKERS,
     key,
     machine: o.machine,

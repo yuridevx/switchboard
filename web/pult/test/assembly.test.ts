@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { check, loadRepo, order } from "@switchboard/manifest-gate";
-import { webBuild, type WebBuildList } from "@switchboard/release";
+import { webBuild, type BuildList } from "@switchboard/release";
 import type { BuildOptions } from "@switchboard/web-core";
 import { packFromRepo as packModule } from "../../../tools/release-cli/src/module.ts";
 import { PULT } from "../src/options.ts";
@@ -32,13 +32,12 @@ describe("пульт из каталога", () => {
     const mods = order(repo.filter((m) => m.into?.includes("pult")));
     const shell = packModule(join(root, "web/pult"));
     const packed = mods.map((m) => packModule(join(root, m.dir)));
-    const list: WebBuildList = {
+    const list: BuildList = {
       app: "pult",
       version: `${shell.version}+1`,
       fleet: "test",
       modules: packed.map((p) => ({ name: p.name, version: p.version })),
-      relay: "wss://relay.from-build",
-      workers: FakeRelay.WORKERS,
+      workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
     expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(11);

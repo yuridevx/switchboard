@@ -6,20 +6,17 @@ import type { Roster } from "../contract.ts";
 import { link, type Link, type LinkState, type WsCtor } from "./link.ts";
 
 export type FleetOptions = {
-  /** адрес relay: wss://switchboard.<subdomain>.workers.dev — объект машины на /m/<машина> */
-  relay: string;
-  /** адрес gate: https://… — keys.list; пусто — машины только по roster */
-  gate: string;
-  /** Worker'ы флота: имя → адрес https; кадр с to: ".имя" — POST по нему */
+  /**
+   * Worker'ы флота: имя → адрес https — одна карта адресов. Кадр с to: ".имя" — POST по нему; relay — объекты машин
+   * (wss того же адреса, /m/<машина>); gate — keys.list, без него машины только по roster.
+   */
   workers: Record<string, string>;
   /** пропуск держателя role.name.kid.secret — из файла, переменной окружения или хранилища; не из argv */
   key: string;
   /** своя машина (Host, keeper): соединение с её relay — своё, с hello(); кадры устройствам — через него */
   machine?: string;
-  /** поля hello своего соединения: Host — { sdk, contract, sessions }, keeper — { part: "keeper" } */
+  /** поля hello своего соединения: Host — { sdk, contract, sessions } */
   hello?: () => Record<string, unknown>;
-  /** только своя машина: гостем к другим не входить (keeper) */
-  only?: boolean;
   /** входящий кадр с машины, кроме ответов на свои запросы */
   onFrame?: (f: Frame, machine: string) => void;
   /** смена состояния соединения с машиной; машина "" — список машин у gate: stopped со словом — пропуск не принят */
@@ -53,7 +50,11 @@ export interface FleetClient {
 /** Слова gate, после которых список машин не спрашивают заново: пропуск не принят. */
 const FATAL = new Set(["bad_key", "revoked"]);
 
+/** Адрес объектов relay из адреса Worker'а relay: https://… → wss://…, без «/» в конце. */
+export const relayWs = (workers: Record<string, string>): string => (workers.relay ?? "").replace(/^http/, "ws").replace(/\/$/, "");
+
 export function fleet(o: FleetOptions): FleetClient {
+  const relay = relayWs(o.workers);
   const doFetch = o.fetch ?? fetch;
   const requestMs = o.requestMs ?? 120_000;
   const firstPause = o.pauseMs ?? 1_000;
@@ -72,7 +73,7 @@ export function fleet(o: FleetOptions): FleetClient {
     if (stopped || links.has(machine)) return;
     const own = machine === o.machine;
     const l = link({
-      url: `${o.relay.replace(/\/$/, "")}/m/${machine}`,
+      url: `${relay}/m/${machine}`,
       key: o.key,
       hello: own ? o.hello : undefined,
       requestMs,
@@ -83,7 +84,7 @@ export function fleet(o: FleetOptions): FleetClient {
       onState: (s, why) => o.onState?.(machine, s, why),
       onFrame: (f) => {
         if (typeof f.id === "string" && f.type !== "reply" && typeof f.from === "string") origin.set(`${f.id}|${f.from}`, l);
-        if (f.type === "roster" && !o.only) {
+        if (f.type === "roster") {
           // Host другой машины в гостях — машина, которую клиент мог ещё не знать
           for (const c of (f as unknown as Roster).clients) if (c.startsWith("@")) open(c.slice(1));
         }
@@ -95,7 +96,7 @@ export function fleet(o: FleetOptions): FleetClient {
 
   /** keys.list роли host у gate → соединение с каждой машиной; сбой — повтор с растущей паузой, отказ пропуску — стоп. */
   async function list() {
-    const r = await post(o.gate, { type: "keys.list", id: `${prefix}-list`, v: 1, role: "host" });
+    const r = await post(o.workers.gate, { type: "keys.list", id: `${prefix}-list`, v: 1, role: "host" });
     if (stopped) return;
     if (r.ok) {
       pause = firstPause;
@@ -143,9 +144,9 @@ export function fleet(o: FleetOptions): FleetClient {
     if (to !== undefined) {
       switch (kindOf(to)) {
         case "service": {
-          // Worker без адреса в списке — в своё соединение: участник relay или отказ offline словом relay
+          // кадр к Worker'у через relay не ходит: адреса нет — отказ здесь же
           const url = o.workers[to.slice(1)];
-          return url ? { url } : judged();
+          return url ? { url } : { error: "offline" };
         }
         case "machine":
         case "session":
@@ -167,7 +168,7 @@ export function fleet(o: FleetOptions): FleetClient {
     return machineLink(m);
   }
 
-  /** Адрес не разобран или Worker без адреса: кадр — в своё соединение, решает relay. */
+  /** Адрес не разобран: кадр — в своё соединение, решает relay. */
   function judged(): { link: Link } | { error: string } {
     const l = home();
     return l ? { link: l } : { error: "bad_frame" };
@@ -196,7 +197,7 @@ export function fleet(o: FleetOptions): FleetClient {
   }
 
   if (o.machine) open(o.machine);
-  if (!o.only && o.gate) void list();
+  if (o.workers.gate) void list();
 
   return {
     get state(): LinkState {

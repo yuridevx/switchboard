@@ -30,8 +30,8 @@ describe("сборка страницы", () => {
         { name: "list", version: "1.0.0" },
         { name: "broken", version: "2.0.0" },
       ],
-      relay: "wss://relay.from-build",
-      workers: FakeRelay.WORKERS,
+      // адрес relay — в той же карте Worker'ов: объекты машин — wss того же адреса
+      workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const asked: string[] = [];
     const run = await startBuild({
@@ -74,7 +74,6 @@ describe("сборка страницы", () => {
     const relay = new FakeRelay(homeRoster());
     const run = startApp({
       root: document.getElementById("app")!,
-      relayUrl: "wss://relay.test",
       workers: FakeRelay.WORKERS,
       fetch: relay.fetch,
       parts,

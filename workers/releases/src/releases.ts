@@ -16,7 +16,7 @@ import { CONTRACT, type Deployed, type Fetched, type Listed, type Plan, type Pla
 import { CfFailed, deploy, deployed, publishStatic, urlOf, versions } from "./cf.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
-import { entries, manifestOf, pack, parseSha, presign, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey, webBuild, type WebBuildList } from "@switchboard/release";
+import { BUILD_FILE, buildFile, entries, manifestOf, pack, parseSha, presign, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey, webBuild, type BuildList } from "@switchboard/release";
 import { check, order, ownerOf, type Manifest } from "@switchboard/manifest-gate";
 
 const NAME = /^[a-z0-9][a-z0-9-]*$/;
@@ -52,8 +52,6 @@ type Kind = { where: "cloud"; script: string; app: boolean } | { where: "machine
 type Entry = { versions: string[]; manifest: CatManifest | null };
 type CatManifest = Manifest & { into?: string[]; workers?: Record<string, string> };
 
-/** Список сборки — build.json в её корне. */
-type BuildList = { app: string; version: string; fleet: string; modules: Array<{ name: string; version: string }> };
 
 /** Начало архива, которого хватает на module.json. */
 const HEAD = 64 * 1024;
@@ -429,7 +427,7 @@ class Releases {
     const cat = await this.catalog();
     const list = new Map<string, string>();
     if (cur && isBuild(cur)) {
-      const b = JSON.parse((await this.files(this.tgz(app, cur))).find((x) => x.path === "build.json")!.data.toString("utf8")) as BuildList;
+      const b = JSON.parse((await this.files(this.tgz(app, cur))).find((x) => x.path === BUILD_FILE)!.data.toString("utf8")) as BuildList;
       list.set(app, b.version.split("+")[0]);
       for (const m of b.modules) list.set(m.name, m.version);
     } else {
@@ -499,23 +497,20 @@ class Releases {
       const version = `${root.version}+${n}`;
       const modules = mods.map((m) => ({ name: m.name, version: m.version }));
       const k = kinds.get(app)!;
+      // адреса Worker'ов, которыми пользуются корень и модули сборки (relay, gate, …), — у Cloudflare по имени
+      const owners = new Set([...mans.values()].flatMap((m) => Object.keys(m.uses ?? {}).map(ownerOf)));
+      const workers: Record<string, string> = {};
+      for (const [p, kk] of kinds) if (kk.where === "cloud" && !kk.app && owners.has(p)) workers[p] = await urlOf(this.env, kk.script);
+      const list: BuildList = { app, version, fleet: this.env.FLEET, modules, workers };
       let files: Array<{ path: string; data: Buffer }>;
       if (k.where === "cloud") {
-        // страница: адреса relay и Worker'ов, которыми пользуются её модули, — у Cloudflare по имени
-        const owners = new Set(mods.flatMap((m) => Object.keys(m.uses ?? {}).map(ownerOf)));
-        const workers: Record<string, string> = {};
-        for (const [p, kk] of kinds) if (kk.where === "cloud" && !kk.app && owners.has(p)) workers[p] = await urlOf(this.env, kk.script);
-        const relay = kinds.get("relay") as Kind | undefined;
-        if (relay?.where !== "cloud") throw new Refusal("no_release", "в каталоге нет Worker'а relay этого флота");
-        const list: WebBuildList = { app, version, fleet: this.env.FLEET, modules, relay: (await urlOf(this.env, relay.script)).replace(/^https/, "wss"), workers };
         const shell = Buffer.from(await (await this.env.BUCKET.get(tgzKey(app, root.version)))!.arrayBuffer());
         const tgzs = await Promise.all(mods.map(async (m) => ({ name: m.name, tgz: Buffer.from(await (await this.env.BUCKET.get(tgzKey(m.name, m.version)))!.arrayBuffer()) })));
         files = webBuild(shell, tgzs, list) as Array<{ path: string; data: Buffer }>;
       } else {
         files = [...(await this.files(tgzKey(app, root.version)))];
         for (const m of mods) for (const x of await this.files(tgzKey(m.name, m.version))) files.push({ path: `modules/${m.name}/${x.path}`, data: x.data });
-        const list: BuildList = { app, version, fleet: this.env.FLEET, modules };
-        files.push({ path: "build.json", data: Buffer.from(JSON.stringify(list, null, 2) + "\n") });
+        files.push(buildFile(list) as { path: string; data: Buffer });
       }
       // архив сборки — под именем флота: следующая сборка начинается с его списка
       const tgz = pack(files);

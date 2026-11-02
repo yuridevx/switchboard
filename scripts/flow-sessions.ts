@@ -1,9 +1,8 @@
 // Живой сценарий: управление сессией, чат и лента, машина и журнал, отказы протокола и краевые входы.
 // env: FLOW_CLIENT_KEY, FLOW_MACHINE, FLOW_DIR (папка проекта на машине, от ~), FLOW_HOST_KEY (пробный ключ машины для отказов протокола — не ключ живой машины: relay заменит её соединение, replaced).
 import { type Roster } from "@switchboard/relay";
-import { client } from "./client.ts";
+import { client, RELAY as url } from "./client.ts";
 
-const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const machine = process.env.FLOW_MACHINE!;
 const dir = process.env.FLOW_DIR!;
 const events: Array<Record<string, any>> = [];

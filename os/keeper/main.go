@@ -3,7 +3,8 @@
 //
 //	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
 //	keeper install        — приглашение машины — первой строкой stdin: keeper принимает его у gate (--worker gate=…)
-//	                        и кладёт пропуск в machine.key; --relay <wss>, --worker <имя>=<https> — адреса в keeper.json;
+//	                        и кладёт пропуск в machine.key; --worker <имя>=<https> — адреса в keeper.json (relay, gate,
+//	                        releases, ledger; relay — объект своей машины);
 //	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача
 //	                        «при входе пользователя» с повтором раз в минуту; Linux — systemd --user с linger
 //	keeper uninstall      — убрать службу или задачу
@@ -54,7 +55,7 @@ func main() {
 	case "version":
 		fmt.Println(keeperVersion)
 	default:
-		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--relay <wss>] [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version")
+		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version")
 		os.Exit(2)
 	}
 }
@@ -90,7 +91,6 @@ func runConsole(args []string) int {
 
 // installFlags — флаги установки.
 type installFlags struct {
-	relay   string
 	workers map[string]string
 	logon   bool
 }
@@ -111,13 +111,12 @@ func (w workerFlag) Set(v string) error {
 func parseInstall(args []string) (installFlags, error) {
 	f := installFlags{workers: map[string]string{}}
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	fs.StringVar(&f.relay, "relay", "", "адрес relay (wss://…)")
-	fs.Var(workerFlag(f.workers), "worker", "адрес Worker'а флота <имя>=<https://…>: gate, releases, ledger …")
+	fs.Var(workerFlag(f.workers), "worker", "адрес Worker'а флота <имя>=<https://…>: relay, gate, releases, ledger")
 	fs.BoolVar(&f.logon, "logon", false, "Windows: задача «при входе пользователя» вместо службы")
 	return f, fs.Parse(args)
 }
 
-// prepareConf — keeper.json (node, relay, workers) и пропуск машины machine.key: приглашение — первой строкой stdin,
+// prepareConf — keeper.json (node, workers) и пропуск машины machine.key: приглашение — первой строкой stdin,
 // keeper принимает его у gate (POST gate.redeem); погашенное или чужое — отказ словом, machine.key не тронут.
 // Пропуском входят Host и keeper, из него же — имя машины.
 func prepareConf(f installFlags, in *bufio.Reader) error {
@@ -138,9 +137,6 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 			return err
 		}
 		m["node"] = node
-	}
-	if f.relay != "" {
-		m["relay"] = f.relay
 	}
 	workers := confMap(m, "workers")
 	for k, v := range f.workers {
@@ -172,8 +168,8 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	if err := os.WriteFile(filepath.Join(home, "machine.key"), []byte(key+"\n"), 0o600); err != nil {
 		return err
 	}
-	if confStr(m, "relay") == "" {
-		fmt.Fprintln(os.Stderr, "install: в keeper.json нет relay — keeper будет исполнять сохранённый план без связи (--relay)")
+	if workers["relay"] == "" {
+		fmt.Fprintln(os.Stderr, "install: в keeper.json нет адреса relay — keeper будет исполнять сохранённый план без связи (--worker relay=https://…)")
 	}
 	return writeConf(home, m)
 }

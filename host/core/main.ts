@@ -1,6 +1,6 @@
 // Точка входа Host — часть машины, её запускает keeper. Ввод закрылся или сигнал ОС — штатный выход,
-// процессы claude остаются у своих держателей. От keeper — окружение: SWITCHBOARD_MACHINE, SWITCHBOARD_RELAY, SWITCHBOARD_WORKERS,
-// SWITCHBOARD_HOLDER (файл держателя), SWITCHBOARD_HOME. Ключ машины — ~/.switchboard/machine.key;
+// процессы claude остаются у своих держателей. От keeper — окружение: SWITCHBOARD_MACHINE, SWITCHBOARD_HOLDER (файл
+// держателя), SWITCHBOARD_HOME; адреса relay и Worker'ов флота — в списке сборки (build.json). Ключ машины — ~/.switchboard/machine.key;
 // разделы модулей — ~/.switchboard/host.json { "modules": {…} }, файла нет — модули без настроек.
 // node main.ts --check — гейт выпуска отдельным процессом, без relay, keeper, хранилища и claude.
 import { existsSync, readFileSync } from "node:fs";
@@ -46,8 +46,7 @@ async function main(): Promise<number> {
   }
   const file = join(home, "host.json");
   const modules = existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as { modules?: Record<string, unknown> }).modules : undefined;
-  const workers = process.env.SWITCHBOARD_WORKERS ? (JSON.parse(process.env.SWITCHBOARD_WORKERS) as Record<string, string>) : undefined;
-  const config: HostConfig = { machine, relay: process.env.SWITCHBOARD_RELAY, workers, modules };
+  const config: HostConfig = { machine, modules };
   const keyFile = join(home, "machine.key");
   const relayKey = existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim() : undefined;
   const release = await loadRelease(coreDir);

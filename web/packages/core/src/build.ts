@@ -1,10 +1,10 @@
-// Старт сборки страницы: модули — по списку build.json, адреса relay и Worker'ов — из него же; своих адресов у
+// Старт сборки страницы: модули — по списку build.json, адреса Worker'ов (и relay) — из него же; своих адресов у
 // страницы нет. Модуль не загрузился — выключен только он: его start бросает причину, ловушка ядра его выключает.
 import { startApp } from "./app.ts";
 import { CORE } from "./gate.ts";
 import type { AppModule, AppPart, BuildList, Manifest, Running, StartOptions } from "./types.ts";
 
-export type BuildOptions = Omit<StartOptions, "relayUrl" | "workers" | "parts"> & {
+export type BuildOptions = Omit<StartOptions, "workers" | "parts"> & {
   /** список сборки — build.json */
   build: BuildList;
   /** загрузить модуль по имени; по умолчанию — динамический импорт «@switchboard/имя» через import map сборки */
@@ -38,5 +38,5 @@ export async function startBuild(o: BuildOptions): Promise<Running> {
         }
       }),
   );
-  return startApp({ ...rest, relayUrl: build.relay, workers: build.workers, parts });
+  return startApp({ ...rest, workers: build.workers, parts });
 }

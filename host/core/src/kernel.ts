@@ -34,13 +34,9 @@ import { Sess } from "./session.ts";
 import { Stores } from "./store.ts";
 import type { CoreRecord } from "./store.ts";
 
-/** Конфиг Host: машина, relay и Worker'ы флота — из окружения keeper, разделы модулей — ~/.switchboard/host.json */
+/** Конфиг Host: машина — из окружения keeper, разделы модулей — ~/.switchboard/host.json. Адреса флота — в выпуске. */
 export type HostConfig = {
   machine: string;
-  /** адрес relay wss://…: объект своей машины — /m/<машина>, других — гостем */
-  relay?: string;
-  /** Worker'ы флота: имя → адрес https; gate — список машин, остальные — POST кадров к ним */
-  workers?: Record<string, string>;
   /** разделы модулей: host.config() */
   modules?: Record<string, unknown>;
 };
@@ -170,7 +166,7 @@ export class Kernel {
 
   /** Старт Host по шагам дизайна. Гейт не прошёл — StartError, сессии у держателей не тронуты. */
   async start(): Promise<void> {
-    const relayOn = !!this.deps.config.relay;
+    const relayOn = !!this.release.workers.relay;
     const { fatal, down } = gate(this.deps.core, this.release.modules, relayOn);
     if (fatal.length) {
       for (const e of fatal) this.log("core", { kind: "stop", ev: "gate", word: "check_failed", why: e });
@@ -398,12 +394,9 @@ export class Kernel {
   // ───────────── relay ─────────────
 
   private connectRelay(): void {
-    const url = this.deps.config.relay;
-    if (!url || this.shutting) return;
-    const workers = this.deps.config.workers ?? {};
+    const workers = this.release.workers;
+    if (!workers.relay || this.shutting) return;
     this.relay = fleet({
-      relay: url,
-      gate: workers.gate ?? "",
       workers,
       key: this.deps.relayKey ?? "",
       machine: this.machine,
@@ -587,8 +580,9 @@ export class Kernel {
     }
     if (!this.relay) return { ok: false, error: "disconnected" };
     const frame: Frame = { ...payload, type: name };
-    // участник рации — .имя, даже если в запросе есть поля machine или callsign; keeper машины адресуется явно: .keeper@машина
-    if (!this.byName.has(owner) && payload.to === undefined) frame.to = serviceAddress(owner);
+    // владелец — Worker флота (есть в адресах сборки) — .имя, даже если в запросе есть поля machine или callsign;
+    // keeper машины адресуется явно: .keeper@машина
+    if (this.release.workers[owner] && payload.to === undefined) frame.to = serviceAddress(owner);
     // отказ несёт все поля reply владельца (missing, owner, creds…), без конверта
     const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame)) as Frame & Reply;
     return r as Result;

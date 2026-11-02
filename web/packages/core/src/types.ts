@@ -153,7 +153,7 @@ export interface App {
 export type AppPart = { manifest: Manifest; module: AppModule };
 
 /** Список сборки страницы — build.json рядом со страницей; формат — у владельца формата выпуска. */
-export type { WebBuildList as BuildList } from "@switchboard/release";
+export type { BuildList } from "@switchboard/release";
 
 /** Платформа: на iPhone вне экрана «Домой» ключ ждёт в адресе. */
 export type Platform = { ios: boolean; standalone: boolean };
@@ -161,9 +161,7 @@ export type Platform = { ios: boolean; standalone: boolean };
 export type StartOptions = {
   /** куда рисовать приложение */
   root: HTMLElement;
-  /** адрес relay из сборки: wss://switchboard.<subdomain>.workers.dev — объект машины на /m/<машина> */
-  relayUrl: string;
-  /** Worker'ы флота из сборки: имя → адрес https; gate — список машин и приём приглашения */
+  /** Worker'ы флота из сборки: имя → адрес https; relay — объекты машин, gate — список машин и приём приглашения */
   workers: Record<string, string>;
   /** fetch для POST к Worker'ам; по умолчанию глобальный */
   fetch?: typeof fetch;

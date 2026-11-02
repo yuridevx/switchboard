@@ -91,7 +91,6 @@ async function boot(o: { parts: AppPart[]; store?: ReturnType<typeof memoryStore
   const store = o.store ?? memoryStore({ key: KEY });
   const run = startApp({
     root,
-    relayUrl: "wss://relay.test",
     workers: FakeRelay.WORKERS,
     fetch: relay.fetch,
     parts: o.parts,

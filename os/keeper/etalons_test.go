@@ -681,7 +681,7 @@ func TestEtSavedPlanWithoutRelay(t *testing.T) {
 	writeHoldFile(s.home, holdFile{ID: "capture", Owner: "keeper", Port: port, Key: "dead", Tag: "1.3.2"})
 	k := s.start()
 	waitFor(t, "running без связи", func() bool { return partOf(k, "capture").State == "running" })
-	for _, want := range []string{`"kind":"stop","ev":"relay","why":"в keeper.json нет relay`,
+	for _, want := range []string{`"kind":"stop","ev":"relay","why":"в keeper.json нет адреса relay`,
 		`"ev":"adopt","id":"capture","why":"держатель не отвечает — файл убран`, `"ev":"plan","rev":7`, `"ev":"part_start","version":"1.3.2","pid":`} {
 		if !journalHas(s.home, want) {
 			t.Fatalf("нет строки %s", want)
@@ -1196,7 +1196,7 @@ func TestEtPartEnv(t *testing.T) {
 	self, _ := os.Executable()
 	data := filepath.Join(partDir(s.home, "capture"), "data")
 	for _, want := range []string{"SWITCHBOARD_MACHINE=win", "SWITCHBOARD_VERSION=1.3.2", "SWITCHBOARD_DATA=" + data,
-		"SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY=" + s.relay.url(), "SITE=lab"} {
+		"SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY= ", "SWITCHBOARD_WORKERS={", "SITE=lab"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("нет %s в %q", want, line)
 		}
@@ -1413,16 +1413,20 @@ func TestEtRelayDropReasks(t *testing.T) {
 	}
 }
 
-// «Выпуски» не ответили на вопрос о плане — keeper закрывает соединение, переподключается и спрашивает снова.
-func TestEtPlanNoAnswerReconnects(t *testing.T) {
+// 5175 · «Выпуски» не ответили на вопрос о плане — строка журнала, соединение с relay своей машины не трогается;
+// план приходит кадром releases.plan (источник: отчёт слепого архитектора 2 нояб., пункт 7 — лишняя коммуникация:
+// повтор через переподключение relay; устав «система ловит, агент чинит» — без обходных путей).
+func TestEtPlanNoAnswerNoReconnect(t *testing.T) {
 	s := newStand(t)
 	s.relay.setSilent(1)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	k := s.startWith(func(k *Keeper) { k.planWait = 500 * time.Millisecond })
-	waitFor(t, "план со второго вопроса", func() bool { return partOf(k, "capture").State == "running" })
-	if s.relay.planAsks() < 2 || !journalHas(s.home, `"word":"timeout"`) {
-		t.Fatalf("вопросов %d", s.relay.planAsks())
+	waitFor(t, "отказ timeout в журнале", func() bool { return journalHas(s.home, `"word":"timeout"`) })
+	time.Sleep(time.Second)
+	if _, opens := s.relay.seen(); opens != 1 || s.relay.planAsks() != 1 {
+		t.Fatalf("hello %d, вопросов %d — keeper переподключался", opens, s.relay.planAsks())
 	}
+	s.relay.push(planMsg(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	waitFor(t, "план кадром", func() bool { return partOf(k, "capture").State == "running" })
 }
 
 /* ===== план тестов 1 нояб.: сценарии, у которых не было эталона ===== */
@@ -1910,7 +1914,7 @@ func TestEtInstallConf(t *testing.T) {
 	os.WriteFile(node, []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("PATH", bin)
 	writeConf(home, map[string]any{"site": "lab"})
-	f, _ := parseInstall([]string{"--relay", "wss://relay.test", "--worker", "gate=" + r.workerURL("gate"), "--worker", "releases=https://releases.test/", "--worker", "ledger=https://ledger.test/"})
+	f, _ := parseInstall([]string{"--worker", "relay=https://relay.test/", "--worker", "gate=" + r.workerURL("gate"), "--worker", "releases=https://releases.test/", "--worker", "ledger=https://ledger.test/"})
 	if err := prepareConf(f, bufio.NewReader(strings.NewReader("win1.INVITE\r\npassword\n"))); err != nil {
 		t.Fatal(err)
 	}
@@ -1919,7 +1923,7 @@ func TestEtInstallConf(t *testing.T) {
 	}
 	m, _ := readConf(home)
 	w := confMap(m, "workers")
-	if m["node"] != node || m["relay"] != "wss://relay.test" || m["site"] != "lab" || w["releases"] != "https://releases.test/" || w["ledger"] != "https://ledger.test/" {
+	if m["node"] != node || m["relay"] != nil || w["relay"] != "https://relay.test/" || m["site"] != "lab" || w["releases"] != "https://releases.test/" || w["ledger"] != "https://ledger.test/" {
 		t.Fatalf("keeper.json %v", m)
 	}
 	dst, err := placeSelf()
@@ -1991,7 +1995,7 @@ func TestEtLedgerWithoutLink(t *testing.T) {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	dead := ln.Addr().String()
 	ln.Close()
-	writeConf(s.home, map[string]any{"relay": "ws://" + dead, "workers": map[string]any{"ledger": "http://" + dead + "/ledger"}})
+	writeConf(s.home, map[string]any{"workers": map[string]any{"relay": "http://" + dead, "ledger": "http://" + dead + "/ledger"}})
 	b, _ := json.Marshal(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	os.WriteFile(planPath(s.home), b, 0o600)
 	k := s.start()

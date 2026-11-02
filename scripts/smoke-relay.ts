@@ -1,5 +1,5 @@
 // Живой смоук флота: две стороны подключаются к выложенному relay, проверяют roster, участников и доставку.
-// Ключи флота — из env SMOKE_HOST_KEY и SMOKE_CLIENT_KEY (выдаёт switchboard invite). Адрес — SWITCHBOARD_URL.
+// Ключи флота — из env SMOKE_HOST_KEY и SMOKE_CLIENT_KEY (выдаёт switchboard invite). Адреса — SWITCHBOARD_WORKERS (scripts/client.ts).
 import type { Roster } from "@switchboard/relay";
 import { client, type Client } from "./client.ts";
 

@@ -1,7 +1,7 @@
 {
   "name": "web-core",
   "type": "web",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "into": ["pult", "phone"],
   "provides": { "app": 1, "top": 1 },
   "uses": { "hello@relay": 1, "roster@relay": 1, "keys.list@gate": 1, "gate.redeem@gate": 1, "manifest.check@manifest-gate": 1, "release.format@release": 1 },

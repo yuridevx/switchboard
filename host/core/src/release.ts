@@ -1,26 +1,27 @@
 // Выпуск Host: ядро, список сборки и Agent SDK точных версий.
-// Сборка «Выпусков» — папка ядра плюс modules/<имя>/ и build.json в корне: { version, modules: [{ name, version }] }
-// в порядке зависимостей — это порядок старта. Без build.json (ядро само по себе, монорепо) модулей нет.
-// Модуль не импортировался — запись с ошибкой: ядро выключает его, остальные работают.
+// Сборка «Выпусков» — папка ядра плюс modules/<имя>/ и build.json в корне (BuildList формата выпуска): модули в порядке
+// зависимостей — это порядок старта, и адреса Worker'ов флота, которыми пользуется сборка. Без build.json (ядро само
+// по себе, монорепо) модулей и адресов нет. Модуль не импортировался — запись с ошибкой: ядро выключает его, остальные
+// работают.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { BUILD_FILE, type BuildList } from "@switchboard/release";
 import type { Manifest, Module } from "../contract.ts";
 
 /** Модуль выпуска; error — импорт не прошёл: модуль выключен на машине. */
 export type ModuleEntry = { manifest: Manifest; module: Module; error?: string };
 
-/** Список сборки в build.json. */
-export type BuildList = { version: string; modules: Array<{ name: string; version: string }> };
-
 export type Release = {
-  /** версия выпуска: release.json папки ядра, иначе версия ядра */
+  /** версия выпуска: build.json сборки, иначе версия ядра */
   version: string;
   /** версия Agent SDK */
   sdk: string;
   modules: ModuleEntry[];
+  /** адреса Worker'ов флота из списка сборки: имя → https; relay — объекты машин, gate — список машин */
+  workers: Record<string, string>;
 };
 
 const readJson = (f: string) => JSON.parse(readFileSync(f, "utf8"));
@@ -44,7 +45,7 @@ export async function loadRelease(base: string): Promise<Release> {
   const sdk = readJson(join(sdkDir, "package.json")).version as string;
   // корень сборки — над packages/host
   const root = dirname(dirname(coreDir));
-  const list = existsSync(join(root, "build.json")) ? (readJson(join(root, "build.json")) as BuildList) : null;
+  const list = existsSync(join(root, BUILD_FILE)) ? (readJson(join(root, BUILD_FILE)) as BuildList) : null;
   const modules: ModuleEntry[] = [];
   for (const { name } of list?.modules ?? []) {
     const dir = join(root, "modules", name);
@@ -58,7 +59,7 @@ export async function loadRelease(base: string): Promise<Release> {
       modules.push({ manifest, module: {}, error: `импорт: ${(e as Error).message}` });
     }
   }
-  return { version: list?.version ?? core.version, sdk, modules };
+  return { version: list?.version ?? core.version, sdk, modules, workers: list?.workers ?? {} };
 }
 
 /** Команда claude из пакета SDK: ввод — stdin, вывод — stdout и stderr вместе. claude нет — code null со словами. */

@@ -4,7 +4,6 @@
 import { client } from "./client.ts";
 import { pack, sha256hex, shaLine } from "@switchboard/release";
 
-const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const M = process.env.FLOW_MACHINE!;
 const l = client(process.env.FLOW_CLIENT_KEY!);
 const fails: string[] = [];

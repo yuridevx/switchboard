@@ -3,7 +3,7 @@
 //
 // Запуск сборки (оболочки web/phone и web/pult): startBuild({ root, build, wide, sections, beside }) — модули по списку
 // build.json («@switchboard/<имя>» через import map сборки → m/<имя>.js), адреса relay и Worker'ов — из него же;
-// модуль не загрузился — выключен только он. Стенд и тесты зовут startApp({ root, relayUrl, workers, parts }) сами.
+// модуль не загрузился — выключен только он. Стенд и тесты зовут startApp({ root, workers, parts }) сами; relay — workers.relay.
 // Файл модуля сборки — default (объект модуля) и manifest его contract.ts.
 // Ядро: гейт набора (у экрана, метки, принимаемого кадра и раздела хранилища — один модуль) →
 // ключ флота (из адреса после # при установке, потом из хранилища; на iPhone вне «Домой» — экран установки) →

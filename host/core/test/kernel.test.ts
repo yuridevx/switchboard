@@ -268,7 +268,7 @@ describe("процесс сессии у держателя", () => {
     // источник: устав «процесс claude умер — один resume, второй сбой до готовности — failed»
     const home = mkdtempSync(join(tmpdir(), "switchboard-core-"));
     const sdk = new FakeSdk();
-    const k = new Kernel({ home, config: { machine: "laptop" }, core: CORE, release: { version: "1", sdk: sdk.version, modules: [] }, sdk, holders: realHolders(home, undefined) });
+    const k = new Kernel({ home, config: { machine: "laptop" }, core: CORE, release: { version: "1", sdk: sdk.version, modules: [], workers: {} }, sdk, holders: realHolders(home, undefined) });
     await k.start();
     await expect(k.open({ callsign: CS, cwd: home })).rejects.toThrow("процесс вышел до initialize");
     await until(() => k.sessions.get(CS)!.state === "failed");
@@ -372,6 +372,22 @@ describe("договор модуля: Host", () => {
     await until(() => lines(st2, "relay_stopped").length === 1);
     expect(await host2.request("session.prompt", { v: 1, callsign: "x@pc" })).toEqual({ ok: false, error: "disconnected" });
     expect([...lines(st, "module_failed"), ...lines(st2, "module_failed")]).toEqual([]);
+  });
+
+  it("5174 · владелец имени — Worker, когда он есть в адресах сборки: запрос — POST по адресу .имя; нет в адресах — к Worker'у не адресуется", async () => {
+    // источник: отчёт слепого архитектора 2 нояб., пункт 9 (дубликат логики: «Worker ли владелец» — одно правило у Host и
+    // страницы); устав «у каждого понятия один владелец»
+    let host!: Host;
+    const a = module("host-a", { start: (h) => void (host = h) }, { uses: { "push.send@push": 1, "x.do@ghost": 1 } });
+    const st = await stand({ modules: [a] });
+    await until(() => st.relay.hellos.length === 1);
+    void host.request("push.send", { v: 1, text: "п" });
+    await until(() => st.relay.sent.some((f) => f.type === "push.send"));
+    expect(st.relay.sent.find((f) => f.type === "push.send")!.to).toBe(".push");
+    void host.request("x.do", { v: 1 });
+    await until(() => st.relay.sent.some((f) => f.type === "x.do"));
+    expect(st.relay.sent.find((f) => f.type === "x.do")!.to).toBeUndefined();
+    await st.close();
   });
 
   it("723 · host.config: свой раздел modules.<имя> из host.json; раздела нет — {}", async () => {

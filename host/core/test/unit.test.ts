@@ -124,9 +124,9 @@ describe("гейт старта Host", () => {
     );
     // набор — Host не стартует; устройство кода одного модуля — выключен только он
     expect(errors.fatal).toEqual([
-      "host-k: keeper.state@keeper — нет relay (SWITCHBOARD_RELAY)",
-      "host-k2: spawn@keeper — нет relay (SWITCHBOARD_RELAY)",
-      "host-p: push.send@push — нет relay (SWITCHBOARD_RELAY)",
+      "host-k: keeper.state@keeper — нет relay в списке сборки",
+      "host-k2: spawn@keeper — нет relay в списке сборки",
+      "host-p: push.send@push — нет relay в списке сборки",
       "decide.AskUserQuestion: два владельца — host-q1 и host-q2",
     ]);
     expect(Object.fromEntries(errors.down)).toEqual({
@@ -152,7 +152,7 @@ describe("гейт старта Host", () => {
 describe("выпуск", () => {
   it("ядро без сборки: модулей нет, версия ядра, SDK 0.3.311", async () => {
     const r = await loadRelease(join(import.meta.dirname, ".."));
-    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.2.1", modules: [] });
+    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.2.2", modules: [], workers: {} });
     expect(Array.isArray(r.modules)).toBe(true);
   });
 

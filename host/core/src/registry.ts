@@ -31,7 +31,7 @@ export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): Ga
     for (const [ref, v] of Object.entries(m.uses ?? {})) {
       const o = ownerOf(ref);
       if (local.has(o)) uses[ref] = v;
-      if (!local.has(o) && !relay) errors.push(`${m.name}: ${ref} — нет relay (SWITCHBOARD_RELAY)`);
+      if (!local.has(o) && !relay) errors.push(`${m.name}: ${ref} — нет relay в списке сборки`);
     }
     manifests.push({ ...m, provides: m.provides ?? {}, uses, config: m.config ?? {} });
   }

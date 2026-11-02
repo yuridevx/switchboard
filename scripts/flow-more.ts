@@ -5,7 +5,6 @@ import { createECDH, randomBytes } from "node:crypto";
 import { type Roster } from "@switchboard/relay";
 import { client } from "./client.ts";
 
-const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const M1 = process.env.FLOW_FROM_MACHINE!;
 const M2 = process.env.FLOW_TO_MACHINE!;
 const dir = process.env.FLOW_DIR!;

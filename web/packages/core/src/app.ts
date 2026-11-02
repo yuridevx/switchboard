@@ -448,8 +448,6 @@ export function startApp(o: StartOptions): Running {
   function connect() {
     pause = firstPause;
     lk = fleet({
-      relay: o.relayUrl,
-      gate: o.workers.gate ?? "",
       workers: o.workers,
       key,
       pauseMs: firstPause,

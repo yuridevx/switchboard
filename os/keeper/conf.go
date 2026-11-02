@@ -20,7 +20,8 @@ func homeDir() (string, error) {
 	return filepath.Join(u, ".switchboard"), nil
 }
 
-// keeper.json: { "node": "…", "relay": "wss://…", "workers": { "releases": "https://…", "ledger": "https://…", … } };
+// keeper.json: { "node": "…", "workers": { "relay": "https://…", "releases": "https://…", "ledger": "https://…", … } } —
+// одна карта адресов: relay — объект своей машины (wss того же адреса); прежний ключ relay не читается;
 // пропуск машины — machine.key рядом, имя машины — в пропуске.
 // Незнакомые поля сохраняются как есть.
 func confPath(home string) string { return filepath.Join(home, "keeper.json") }

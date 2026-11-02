@@ -82,7 +82,6 @@ async function boot(o: { parts?: AppPart[]; store?: ReturnType<typeof memoryStor
   const s = sample();
   const run = startApp({
     root,
-    relayUrl: "wss://relay.test",
     workers: FakeRelay.WORKERS,
     fetch: relay.fetch,
     parts: o.parts ?? [s.part],
@@ -185,7 +184,7 @@ describe("ключ и связь", () => {
     root = document.getElementById("app")!;
     const r2 = new FakeRelay(oneMachine());
     r2.refuse = ["bad_key"];
-    const run2 = startApp({ root, relayUrl: "wss://relay.test", workers: FakeRelay.WORKERS, fetch: r2.fetch, parts: [sample().part], store: memoryStore({ key: "client.panel-desk.k3f1.Qa7sig" }), WebSocket: r2.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5, wide: true });
+    const run2 = startApp({ root, workers: FakeRelay.WORKERS, fetch: r2.fetch, parts: [sample().part], store: memoryStore({ key: "client.panel-desk.k3f1.Qa7sig" }), WebSocket: r2.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5, wide: true });
     await run2.ready;
     await flush(20);
     expect(run2.stopped).toBe("bad_key");

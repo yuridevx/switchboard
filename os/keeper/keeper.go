@@ -78,8 +78,9 @@ type part struct {
 
 type Keeper struct {
 	home, machine, node string
-	relay               string // адрес relay из keeper.json (wss://…): объект своей машины — /m/<машина>; части получают его в окружении
-	// Worker'ы флота из keeper.json: имя → адрес https. keeper зовёт «Выпуски» (план) и журнал; Host получает весь список
+	// Worker'ы флота из keeper.json: имя → адрес https — одна карта адресов. keeper зовёт «Выпуски» (план) и журнал,
+	// relay — объект своей машины (wss того же адреса, /m/<машина>); части получают карту в окружении (приложениям ОС
+	// больше неоткуда её взять; Host берёт адреса из своей сборки)
 	workers map[string]string
 	key     string // пропуск машины: им keeper входит в relay и зовёт Worker'ов
 	j       *Journal
@@ -125,7 +126,7 @@ func newKeeper(home string, echo io.Writer) (*Keeper, error) {
 		j.stop("keeper_start", "keeper.json не прочитан: "+err.Error())
 		return nil, err
 	}
-	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), workers: confMap(conf, "workers"), key: key, node: confStr(conf, "node"), j: j, parts: map[string]*part{},
+	k := &Keeper{home: home, machine: machine, workers: confMap(conf, "workers"), key: key, node: confStr(conf, "node"), j: j, parts: map[string]*part{},
 		wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{}),
 		self: os.Executable, planWait: 30 * time.Second, limit: time.Minute}
 	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
@@ -150,8 +151,8 @@ func (k *Keeper) run() {
 	k.wg.Add(1)
 	go k.loop()
 	k.queue(k.plan)
-	if k.relay != "" && k.machine != "" {
-		k.radio = newRadio(strings.TrimRight(k.relay, "/")+"/m/"+k.machine, k.key)
+	if relay := relayWs(k.workers); relay != "" && k.machine != "" {
+		k.radio = newRadio(relay+"/m/"+k.machine, k.key)
 		k.radio.onOpen = k.askPlan
 		k.radio.onFrame = k.frame
 		k.radio.onState = func(open bool, why string) {
@@ -163,8 +164,17 @@ func (k *Keeper) run() {
 		}
 		go k.radio.run()
 	} else {
-		k.j.stop("relay", "в keeper.json нет relay или нет machine.key — исполняю сохранённый план без связи")
+		k.j.stop("relay", "в keeper.json нет адреса relay (workers.relay) или нет machine.key — исполняю сохранённый план без связи")
 	}
+}
+
+// relayWs — адрес объектов relay из адреса Worker'а relay: https://… → wss://…, без «/» в конце.
+func relayWs(workers map[string]string) string {
+	u := workers["relay"]
+	if strings.HasPrefix(u, "http") {
+		u = "ws" + strings.TrimPrefix(u, "http")
+	}
+	return strings.TrimRight(u, "/")
 }
 
 func planPath(home string) string { return filepath.Join(home, "plan.json") }
@@ -226,7 +236,7 @@ func (k *Keeper) quitting() bool {
 /* ===== рация ===== */
 
 // askPlan — при каждом подключении к relay своей машины: план — POST «Выпускам» пропуском машины.
-// Нет ответа — соединение с relay закрыто: переподключение спросит снова; отказ словом — строка журнала.
+// Отказ или нет ответа — строка журнала; план придёт кадром releases.plan при перемене или при следующем соединении.
 func (k *Keeper) askPlan() {
 	url := k.workers["releases"]
 	if url == "" {
@@ -236,9 +246,6 @@ func (k *Keeper) askPlan() {
 	r := post(url, k.key, frameMsg{"type": "releases.plan", "id": "plan", "v": 1, "to": ".releases"}, k.planWait, k.quit)
 	if !r.OK {
 		k.j.refuse("plan", r.Error, "releases.plan не ответил: "+r.Error)
-		if r.Error == "timeout" || r.Error == "offline" {
-			k.radio.drop("releases.plan не ответил")
-		}
 		return
 	}
 	k.takePlan(r.Result, "ответ releases.plan")
@@ -648,9 +655,6 @@ func (k *Keeper) startPart(p *part, pp planPart, dir string) error {
 		"SWITCHBOARD_VERSION="+pp.Version,
 		"SWITCHBOARD_DATA="+data,
 	)
-	if k.relay != "" {
-		env = append(env, "SWITCHBOARD_RELAY="+k.relay)
-	}
 	if len(k.workers) > 0 {
 		w, _ := json.Marshal(k.workers)
 		env = append(env, "SWITCHBOARD_WORKERS="+string(w))

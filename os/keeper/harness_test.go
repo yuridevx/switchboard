@@ -108,7 +108,7 @@ func fakeApp(args []string) {
 	}
 	if mode == "env" {
 		var kv []string
-		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_RELAY", "SITE"} {
+		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_RELAY", "SWITCHBOARD_WORKERS", "SITE"} {
 			kv = append(kv, n+"="+os.Getenv(n))
 		}
 		fmt.Println("env " + strings.Join(kv, " "))
@@ -451,7 +451,8 @@ func newStand(t *testing.T) *stand {
 	home := t.TempDir()
 	s := &stand{t: t, home: home, relay: newFakeRelay(t), links: newLinks(t)}
 	os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.ab12.sig\n"), 0o600)
-	writeConf(home, map[string]any{"relay": s.relay.url(), "workers": map[string]any{"releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})
+	// одна карта адресов: relay — адрес Worker'а relay (http стенда), объект машины — ws того же адреса
+	writeConf(home, map[string]any{"workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws"), "releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	return s

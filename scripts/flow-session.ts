@@ -3,7 +3,6 @@
 import { type Roster } from "@switchboard/relay";
 import { client } from "./client.ts";
 
-const url = process.env.SWITCHBOARD_URL ?? "wss://switchboard.yuridevx1608.workers.dev";
 const key = process.env.FLOW_CLIENT_KEY!;
 const machine = process.env.FLOW_MACHINE!;
 const dir = process.env.FLOW_DIR!;
