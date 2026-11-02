@@ -64,8 +64,6 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
   const seen = new Set<string>();
   /** точки старта Host ждут связи с relay: до первого roster points.put получил бы disconnected */
   const startPending = new Set<string>();
-  /** roster от relay уже приходил — связь есть, точку старта можно снимать сразу */
-  let linked = false;
 
   const L = (cs: string) => {
     let x = live.get(cs);
@@ -445,12 +443,11 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         // старт Host: связи с relay ещё нет — точка на первом roster (живой прогон 31 окт.: точка старта получала
         // disconnected, и вернувшаяся после пожара машина не узнавала, что сессия уже у другой)
         if (s.info.start !== "attach" && s.info.start !== "resume") return;
-        if (linked) rule(s, "start");
+        if (host.roster() !== null) rule(s, "start");
         else startPending.add(cs);
       },
       frame(f) {
         if (f.type !== "roster") return;
-        linked = true;
         for (const cs of [...startPending]) {
           startPending.delete(cs);
           const s = host.session(cs);

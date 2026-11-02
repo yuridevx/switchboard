@@ -186,8 +186,10 @@ describe("кадры и запросы из relay", () => {
     expect(await st.relay.request({ type: "y.do", v: 1 })).toMatchObject({ ok: false, error: "unknown_request" });
     expect(await st.relay.request({ type: "a.x", v: 2 })).toMatchObject({ ok: false, error: "contract_mismatch" });
     expect(await st.relay.request({ type: "a.x", v: 1, callsign: "none@laptop" })).toMatchObject({ ok: false, error: "offline" });
+    // запрос без v — тот же отказ версии (итерация 6: v обязателен везде)
+    expect(await st.relay.request({ type: "a.x" })).toMatchObject({ ok: false, error: "contract_mismatch" });
     expect(called).not.toHaveBeenCalled();
-    expect(lines(st, "request").filter((l) => l.kind === "refuse").map((l) => l.word)).toEqual(["unknown_request", "contract_mismatch", "offline"]);
+    expect(lines(st, "request").filter((l) => l.kind === "refuse").map((l) => l.word)).toEqual(["unknown_request", "contract_mismatch", "offline", "contract_mismatch"]);
   });
 });
 

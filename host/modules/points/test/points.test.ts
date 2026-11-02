@@ -539,6 +539,44 @@ describe("points: покрытие плана host-modules", () => {
     expect(b.reg.puts.filter((f) => f.why === "raise").at(-1)).toMatchObject({ by: "pult~owner@example.com" });
   });
 
+  it("3114 · сеть до R2 оборвалась посреди подъёма — r2_failed, как у сохранения; модуль включён", async () => {
+    // источник: итерация 4 ревью «один сбой R2 — один исход r2_failed»; факт слепого расширения 2 нояб. — обрыв сети давал bad_point
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    b.reg.netDown = true;
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "r2_failed" });
+    expect(b.st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+
+  it("3115 · сеть до R2 оборвалась при сохранении — r2_failed, поле r2 { error }", async () => {
+    // источник: чьё: код (сбой PUT по ссылке — r2_failed); итерация 4 ревью — один исход сбоя R2
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    write(s.info.cwd, s.info.session_id, conv(4));
+    b.reg.netDown = true;
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "r2_failed" });
+  });
+
+  it("3116 · реестр отказал точке своим словом — тот же отказ, поле r2 { error } с этим словом", async () => {
+    // источник: чьё: код (отказ реестра идёт как есть; поле r2 несёт слово)
+    b = await bench({ home });
+    await marked();
+    b.reg.refuseNext = { error: "disconnected" };
+    expect(await ask({ type: "points.save", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "disconnected" });
+    b.st.proc("site@laptop").send(msg.state("idle"));
+    await until(() => (last("site@laptop").r2 as { error?: string })?.error === "disconnected");
+  });
+
+  it("3117 · подъём с папкой «~/…» — принят (от домашней папки машины), а не bad_dir", async () => {
+    // источник: живой прогон 31 окт. — «~/папка» с пульта считалась от папки выпуска Host; итерация 6 — одно правило clientPath (747)
+    // dryRun только читает папку: тест не пишет в домашнюю папку машины
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir: "~/sb-3117-нет-такой", files: "point", dryRun: true });
+    expect(r).toMatchObject({ ok: true });
+  });
+
   it("3112 · сохранение: недостающие блоки уходят PUT по ссылкам реестра, тело — сжатый блок, своей подписи нет; повторный points.put — ok", async () => {
     // источник: чьё: код (ветка missing); ссылки — дизайн итерации 7
     b = await bench({ home });

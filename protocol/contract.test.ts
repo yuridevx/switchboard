@@ -88,6 +88,10 @@ describe("protocol: конверт кадра", () => {
     expect(accepts({ type: "push.send" }, provides)).toMatchObject({ word: "contract_mismatch" });
     expect(accepts({ type: "push.send", v: 2 }, provides)).toMatchObject({ word: "contract_mismatch" });
     expect(accepts({ type: "toString", v: 1 }, provides)).toMatchObject({ word: "unknown_request" });
+    // причина — словами: имя и обе версии
+    expect(accepts({ type: "push.send", v: 2 }, provides)!.why).toBe("push.send — запрошена v2, здесь v1");
+    expect(accepts({ type: "push.send" }, provides)!.why).toBe("push.send — запрошена v—, здесь v1");
+    expect(accepts({ type: "push.drop", v: 1 }, provides)!.why).toBe("push.drop не обслуживается");
   });
 
   it("2005 · голое имя и обрубки — не адрес", () => {

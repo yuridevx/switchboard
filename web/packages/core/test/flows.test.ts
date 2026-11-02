@@ -261,6 +261,17 @@ describe("кадры и запросы", () => {
     expect(run.failed).toEqual({});
   });
 
+  it("4194 · версия, названная в вызове, — как есть; не названа — из uses (одно правило с ядром Host)", async () => {
+    // источник: чьё: код (ядро Host: названная — как есть, иначе из uses/provides); слепое расширение 2 нояб. — веб перезаписывал названную
+    const s = sample();
+    const relay = new FakeRelay(homeRoster());
+    relay.handlers.answer = () => ({ ok: true });
+    await boot({ parts: [s.part], relay });
+    await s.box.app.request("answer", { callsign: "profiles@laptop", question: "q1", v: 2 });
+    await s.box.app.request("answer", { callsign: "profiles@laptop", question: "q2" });
+    expect(relay.sent("answer").map((f) => f.v)).toEqual([2, 1]);
+  });
+
   it("4016 · запрос к Host — кадр с v из uses и callsign; reply ok — результат", async () => {
     const s = sample();
     const relay = new FakeRelay(homeRoster());

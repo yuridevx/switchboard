@@ -176,6 +176,15 @@ describe("manage", () => {
     expect(st.session("host-manage", "x@laptop")!.store().get()).toEqual({ model: "opus", fast: true, parent: "panel-desk~owner@example.com" });
   });
 
+  it("3118 · open с папкой полным путём — как есть (так её шлёт подъём точки)", async () => {
+    // источник: чьё: код (правило clientPath ядра: полный путь — как есть; подъём точки открывает сессию с полным путём)
+    const { st, home } = await laptop();
+    const full = join(home, "full");
+    mkdirSync(full);
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "y", dir: full })).toMatchObject({ ok: true });
+    expect(st.query("y@laptop").options.cwd).toBe(full);
+  });
+
   it("open: процесс вышел до initialize — open_failed, повтора нет", async () => {
     const { st, home } = await laptop();
     mkdirSync(join(home, "p"));

@@ -11,7 +11,7 @@ import { InputQueue } from "../src/queue.ts";
 import { gate } from "../src/registry.ts";
 import { loadRelease } from "../src/release.ts";
 import { Stores } from "../src/store.ts";
-import { CORE, FakeClock, msg, module, standHost, until } from "../stand/index.ts";
+import { CORE, FakeClock, FakeRelay, msg, module, standHost, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
 
 const stands: Stand[] = [];
@@ -203,17 +203,43 @@ describe("договор модуля на стенде", () => {
     expect(st.relay.frames("session.watchers")[0]).toMatchObject({ v: 2, callsign: "api@pc" });
     expect(host.emit({ type: "ledger.add", to: ".ledger", ev: "x", text: "y" })).toEqual({ ok: true });
     expect(st.relay.frames("ledger.add")[0]).toMatchObject({ v: 1, to: ".ledger" });
+    // названная — как есть: в запросе и в кадре
+    void host.request("session.watchers", { callsign: "api@pc", v: 3 });
+    await until(() => st.relay.frames("session.watchers").length === 2);
+    expect(st.relay.frames("session.watchers")[1]).toMatchObject({ v: 3 });
+    expect(host.emit({ type: "ledger.add", to: ".ledger", ev: "x", text: "y", v: 2 })).toEqual({ ok: true });
+    expect(st.relay.frames("ledger.add")[1]).toMatchObject({ v: 2 });
+  });
+
+  it("750 · своё имя без v — версия из своих provides; названа чужая версия — contract_mismatch, вызывающий не выключен", async () => {
+    // источник: чьё: код (ядро Host: v из provides; отказ версии — словом, модуль работает дальше)
+    let host!: Host;
+    const watch = module("host-watch", { requests: { "session.watchers": () => "ok" }, start: (h) => void (host = h) }, { provides: { "session.watchers": 2 } });
+    const st = await stand({ modules: [watch] });
+    expect(await host.request("session.watchers", {})).toEqual({ ok: true, result: "ok" });
+    expect(await host.request("session.watchers", { v: 1 })).toEqual({ ok: false, error: "contract_mismatch" });
+    expect(await host.request("session.watchers", {})).toEqual({ ok: true, result: "ok" });
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
   });
 
   it("749 · host.roster() — последний roster от relay; кадр roster без модуля-получателя — не «владельца нет»", async () => {
     // источник: чьё: код (так у ядра веба: app.roster())
     let host!: Host;
     const q = module("host-questions", { start: (h) => void (host = h) });
-    const st = await stand({ modules: [q] });
+    // relay придерживает первый roster: до него у ядра roster нет
+    const relayStand = new FakeRelay();
+    relayStand.holdRoster = true;
+    const st = await stand({ modules: [q], relayStand });
     const r = { type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] };
+    // до первого roster — null
+    expect(host.roster()).toBeNull();
     st.relay.deliver(r);
     await until(() => (host.roster()?.clients ?? []).length === 1);
     expect(host.roster()).toMatchObject({ clients: ["phone~owner@example.com"] });
+    // следующий — заменяет прежний
+    st.relay.deliver({ ...r, clients: [] });
+    await until(() => (host.roster()?.clients ?? [1]).length === 0);
+    expect(host.roster()).toMatchObject({ clients: [] });
     expect(st.journal().some((l) => l.ev === "frame" && l.word === "unknown_request")).toBe(false);
   });
 

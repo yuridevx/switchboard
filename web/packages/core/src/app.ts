@@ -160,9 +160,9 @@ export function startApp(o: StartOptions): Running {
       failMod(x, `запросе ${n}`, new Error(`${n} нет в uses`));
       return { ok: false, error: "module_error" };
     }
-    const v = x.m.uses[ref];
     const owner = ownerOf(ref);
-    const f: Frame = { ...body, type: n, v };
+    // версия — названная в вызове как есть, иначе из uses: одно правило с ядром Host
+    const f: Frame = { ...body, type: n, v: (body.v as number | undefined) ?? x.m.uses[ref] };
     // служба — .имя; имя и версию проверяет получатель и отвечает словом
     if (roster?.workers.some((w) => w.name === owner)) f.to = serviceAddress(owner);
     if (!lk || conn !== "open") return { ok: false, error: "disconnected" };

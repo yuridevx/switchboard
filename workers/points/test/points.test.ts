@@ -356,10 +356,18 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     const lines = journal();
     expect(await s.frame({ type: "points.drop", id: "d", to: ".points", from: "panel" })).toEqual([{ type: "reply", id: "d", ok: false, error: "unknown_request", to: "panel" }]);
     expect(await s.frame({ type: "points.list", id: "d", v: 2, to: ".points", from: "panel" })).toMatchObject([{ ok: false, error: "contract_mismatch" }]);
+    // точка и выдача прежней версии (v1, до ссылок) — тот же отказ, без строки и без ссылок
+    const p1 = (await s.frame({ type: "points.put", id: "p", v: 1, to: ".points", from: "@laptop", sid: "s2058", why: "save", files: [] }))[0];
+    expect(p1).toMatchObject({ ok: false, error: "contract_mismatch" });
+    expect(p1).not.toHaveProperty("links");
+    expect((await s.frame({ type: "points.get", id: "g", v: 1, to: ".points", from: "@laptop", ids: [1] }))[0]).toMatchObject({ ok: false, error: "contract_mismatch" });
+    expect(await count(s, "SELECT COUNT(*) AS n FROM points WHERE sid = ?", "s2058")).toBe(0);
     expect(await s.frame({ type: "points.list", v: 1, to: ".points", from: "panel" })).toEqual([]);
     expect(await s.frame({ type: "reply", id: "x", ok: true, to: ".points", from: "panel" })).toEqual([]);
     expect(lines.map((l) => [l.kind, l.word ?? l.ev])).toEqual([
       ["refuse", "unknown_request"],
+      ["refuse", "contract_mismatch"],
+      ["refuse", "contract_mismatch"],
       ["refuse", "contract_mismatch"],
       ["refuse", "bad_frame"],
       ["note", "reply"],

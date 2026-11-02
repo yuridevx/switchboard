@@ -423,6 +423,15 @@ describe("вкладка «Точки» сессии", () => {
     expect(t.$$(".cw-tabs [data-tab]").map((x) => x.dataset.tab)).not.toContain("points");
   });
 
+  it("4195 · первые слова не отданы — «points.get: слово» на вкладке, линия видна", async () => {
+    // источник: чьё: код (вкладка «Точки»: отказ реестра — словом, points.ts — refused)
+    const relay = pointsRelay();
+    relay.handlers["points.get"] = () => ({ ok: false, error: "disconnected" });
+    const t = await sessionTab(relay);
+    expect(t.$('[data-r2="on"]')!.textContent).toContain("points.get: disconnected");
+    expect(t.$('[data-point="41"]')).not.toBeNull();
+  });
+
   it("4178 · реестр не отдал линию — «points.list: слово» вместо «…», points.get нет", async () => {
     const relay = pointsRelay();
     const list = relay.handlers["points.list"];

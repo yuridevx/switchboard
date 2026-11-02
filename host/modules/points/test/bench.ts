@@ -52,7 +52,11 @@ export class FakeRegistry {
     return Object.fromEntries(hashes.map((h) => [h, `https://r2.test/bk/f/${h}?X-Amz-Signature=${method}`]));
   }
 
+  /** сеть до R2 оборвана: fetch бросает, как настоящий при обрыве */
+  netDown = false;
+
   fetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    if (this.netDown) throw new TypeError("fetch failed");
     const u = new URL(String(url));
     const key = u.pathname.split("/").slice(2).join("/");
     const method = init?.method ?? "GET";
