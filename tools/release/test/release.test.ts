@@ -111,7 +111,7 @@ describe("загрузка по ссылкам «Выпусков»", () => {
     expect(puts).toEqual(["/switchboard-releases/keeper/0.5.0.tgz"]);
   });
 
-  it("архив keeper: два файла по ОС, режим исполнения, тот же вывод go — тот же хэш; go не собрал — исключение", async () => {
+  it("архив keeper: module.json первым, два файла по ОС, режим исполнения, тот же вывод go — тот же хэш; go не собрал — исключение", async () => {
     const seen: string[][] = [];
     const go: GoExec = async (args, _cwd, env) => {
       seen.push(args);
@@ -122,7 +122,8 @@ describe("загрузка по ссылкам «Выпусков»", () => {
     };
     const a = await buildKeeper(root, go);
     expect(a.version).toBe(JSON.parse(readFileSync(join(root, "os", "keeper", "module.json"), "utf8")).version);
-    expect(entries(a.tgz).filter((e) => e.data).map((e) => [e.path, e.data!.toString(), e.mode])).toEqual([
+    expect(entries(a.tgz).filter((e) => e.data).map((e) => [e.path, e.path === "module.json" ? "" : e.data!.toString(), e.mode])).toEqual([
+      ["module.json", "", 0o644],
       ["linux-amd64/keeper", "keeper linux/amd64", 0o755],
       ["windows-amd64/keeper.exe", "keeper windows/amd64", 0o755],
     ]);
