@@ -762,6 +762,20 @@ describe("сборка Host «Выпусками»", () => {
     expect((await req(s, "~x", "releases.deploy", { part: "host-ghost" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
   });
 
+  it("5152 · в проверке набора приложение ОС — только выложенное: в плане машины его uses держат модуль сборки, вне плана — нет", async () => {
+    // источник: дизайн «Открытый флот»: проверка — над выложенными сборками и частями флота; факт 2 нояб. — снять hello-host
+    // мешал hello-daemon, уже снятый с машины
+    const s = fresh();
+    await setup();
+    await mod("hello-host", "0.1.0", { provides: { "hello.ping": 1 } });
+    await inCatalog("hello-daemon", "0.1.0", { type: "os", provides: {}, uses: { "hello.ping@hello-host": 1 }, config: {} });
+    await req(s, "~x", "releases.deploy", { part: "hello-host" });
+    await req(s, "~x", "releases.set", { machine: "win", part: "hello-daemon", pin: "0.1.0" });
+    expect((await req(s, "~x", "releases.deploy", { part: "hello-host", version: null }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+    await req(s, "~x", "releases.set", { machine: "win", part: "hello-daemon", remove: true });
+    expect((await result(req(s, "~x", "releases.deploy", { part: "hello-host", version: null }))).parts.host.to).toBe("1.2.0+2");
+  });
+
   it("5119 · откат сборки: deploy host со сборкой «+n» или прежним архивом — stable на него без новой сборки; модуль с «+» — bad_version; version null — сборка без модуля", async () => {
     const s = fresh();
     await setup();

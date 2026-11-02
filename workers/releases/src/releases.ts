@@ -478,7 +478,13 @@ class Releases {
     // модуль во многих сборках (ядро страницы) — один раз: версии в сборках одного флота сверяются как одно имя
     const set = new Map<string, CatManifest>();
     for (const l of lists.values()) for (const [n, m] of l) if (!set.has(n) || apps.some((a) => lists.get(a)!.get(n) === m)) set.set(n, m);
-    for (const [p, e] of cat) if (!inBuilds.has(p) && e.manifest && !e.manifest.into && !roots.includes(p)) set.set(p, e.manifest);
+    // остальной флот: Worker'ы и библиотеки каталога; приложение ОС — только выложенное: в stable или в плане машины
+    const placed = (p: string) => !!s.stable[p] || Object.values(s.plans).some((plan) => !!plan[p]);
+    for (const [p, e] of cat) {
+      if (inBuilds.has(p) || !e.manifest || e.manifest.into || roots.includes(p)) continue;
+      if (e.manifest.type === "os" && !placed(p)) continue;
+      set.set(p, e.manifest);
+    }
     const errors = check([...set.values()]);
     if (errors.length) throw new Refusal("check_failed", errors.join("; "));
 
