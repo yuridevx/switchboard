@@ -30,6 +30,8 @@
   // прод: свои stable и планы машин; архивы частей машины — тот же бакет выпусков (CI грузит их один раз)
   "env": {
     "prod": {
+      // свой домен прода: адрес Worker'а в сборках страниц и keeper.json машин прода
+      "routes": [{ "pattern": "releases.pfarm.app", "custom_domain": true }],
       "workers_dev": false,
       "services": [
         { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
