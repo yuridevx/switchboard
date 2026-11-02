@@ -1,0 +1,15 @@
+{
+  "name": "release-cli",
+  "type": "tool",
+  "version": "1.0.0",
+  "provides": {},
+  "uses": {
+    "release.format@release": 1,
+    "releases.upload@releases": 1,
+    "manifest.check@manifest-gate": 1
+  },
+  "config": {
+    "SWITCHBOARD_PASS": "secret",
+    "SWITCHBOARD_RELEASES": "var"
+  }
+}

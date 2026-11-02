@@ -1,5 +1,5 @@
 // Загрузка Worker-модулей из CI (deploy-workers.mjs): вход отклонён, нет токена, вызов не уложился в предел,
-// сборка веба упала. wrangler и сборка подменяются предзагрузкой: настоящий Cloudflare не трогается.
+// веб не загружается. wrangler и сборка подменяются предзагрузкой: настоящий Cloudflare не трогается.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -33,7 +33,7 @@ function deploy(args: string[], o: { token?: boolean; pre?: string } = {}) {
   delete env.CLOUDFLARE_ACCOUNT_ID;
   if (o.token) Object.assign(env, { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" });
   const r = spawnSync(process.execPath, [...(o.pre ? ["--import", o.pre] : []), script, ...args], { env, encoding: "utf8", timeout: 60_000 });
-  return { code: r.status, err: r.stderr };
+  return { code: r.status, err: r.stderr, out: r.stdout };
 }
 
 describe("deploy-workers: загрузка из CI", () => {
@@ -58,10 +58,11 @@ describe("deploy-workers: загрузка из CI", () => {
     expect(r.err).toMatch(/deploy: wrangler versions upload .* — не завершился за 45 с/);
   });
 
-  it("3156 · сборка веба не прошла — отказ словами, выход 1; Worker'ы до неё загружены", () => {
-    // источник: чьё: код (сборка телефона и пульта перед загрузкой их версий)
+  it("5146 · загрузка без выкладки — только Worker-модули: веб не собирается и не загружается", () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): веб больше не загружает
     const r = deploy(["--upload", "1.1.99"], { token: true, pre: preload({ wrangler: "", build: "process.exit(1)" }) });
-    expect(r.code).toBe(1);
-    expect(r.err).toMatch(/deploy: сборка .*(phone|pult) не прошла/);
+    expect(r.code).toBe(0);
+    expect(r.out).not.toMatch(/phone|pult/);
+    expect(r.out).toContain("deploy: загружено 1.1.99, ничего не выложено");
   });
 });

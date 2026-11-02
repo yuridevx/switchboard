@@ -2,8 +2,8 @@
 // Токен деплоя и секреты — из переменных окружения (так в GitHub Actions), иначе из файлов env вне репо
 // (SWITCHBOARD_DEV_DIR, по умолчанию ~/.switchboard-dev). Секреты уходят в wrangler только через stdin.
 // Запуск: node scripts/deploy-workers.mjs [модуль…]   без списка — все; первую выкладку нового Worker и новых миграций
-// делает только этот путь. node scripts/deploy-workers.mjs --upload <номер> — загрузка без выкладки (CI): каждая часть
-// Cloudflare, включая телефон и пульт, — версией с меткой-номером; секреты не трогает, stable двигает «выпуски».
+// делает только этот путь. node scripts/deploy-workers.mjs --upload <номер> — загрузка без выкладки (CI): каждый
+// Worker-модуль — версией с меткой-номером; секреты не трогает, stable двигает «выпуски». Веб не загружает.
 // --env prod — то же для прода: Worker'ы с суффиксом -prod на pfarm.app, свой FLEET_SECRET из prod.env.
 // phone и pult в списке — сборка и выкладка веба (первая выкладка прода вешает домен).
 import { existsSync, readFileSync } from "node:fs";
@@ -84,9 +84,8 @@ function run(cwd, args, input) {
 }
 
 if (upload) {
-  for (const dir of [...ORDER, ...WEB].map(dirOf)) {
+  for (const dir of ORDER.map(dirOf)) {
     console.log(`\n=== ${dir.split(/[\\/]/).slice(-2).join("/")} ${upload}${prod ? " prod" : ""} ===`);
-    build(dir);
     run(dir, ["versions", "upload", ...ENV, "--tag", upload, "--message", upload]);
   }
   console.log(`\ndeploy: загружено ${upload}, ничего не выложено`);

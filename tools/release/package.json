@@ -6,11 +6,7 @@
   "exports": {
     ".": "./contract.ts"
   },
-  "bin": {
-    "switchboard": "./cli.ts"
-  },
   "scripts": {
-    "release": "node cli.ts release",
     "test": "cd ../.. && vitest run tools/release"
   }
 }

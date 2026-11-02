@@ -55,13 +55,18 @@ jobs:
         if: runner.os == 'Linux'
         with:
           node-version: 24
+          cache: npm
+      # CLI выпуска — пакет монорепо: формат выпуска и гейт манифестов из workspaces
+      - if: runner.os == 'Linux'
+        working-directory: .
+        run: npm ci
       - name: архив выпуска собран дважды — один хэш
         if: runner.os == 'Linux'
         working-directory: .
         run: |
-          a=$(node tools/release/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
+          a=$(node tools/release-cli/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
           (cd os/keeper && go clean -cache)
-          b=$(node tools/release/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
+          b=$(node tools/release-cli/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
           echo "$a · $b"; [ -n "$a" ] && [ "$a" = "$b" ]
 
   upload:
@@ -75,11 +80,11 @@ jobs:
       group: upload
       cancel-in-progress: false
     env:
+      # версии Worker'ов — wrangler; каталог — запросом releases.upload пропуском программы ci, ключей R2 у CI нет
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_ENDPOINT: https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com
+      SWITCHBOARD_PASS: ${{ secrets.SWITCHBOARD_CI_PASS }}
+      SWITCHBOARD_RELEASES: https://switchboard-releases.yuridevx1608.workers.dev
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -91,9 +96,11 @@ jobs:
           go-version-file: os/keeper/go.mod
           cache-dependency-path: os/keeper/go.sum
       - run: npm ci
-      - name: Worker-модули, телефон и пульт — версии с меткой 1.1.<прогон>
+      - name: Worker-модули — версии с меткой 1.1.<прогон>
         run: node scripts/deploy-workers.mjs --upload 1.1.${{ github.run_number }}
-      - name: Host в R2
-        run: node tools/release/cli.ts release host 1.1.${{ github.run_number }}
-      - name: keeper в R2 — когда поднят его номер
-        run: node tools/release/cli.ts release keeper
+      - name: ядро Host в каталог — когда поднят его номер
+        run: node tools/release-cli/cli.ts release core
+      - name: модули в каталог — у каждого свой номер; тот же номер с другим кодом — отказ «подними номер»
+        run: node tools/release-cli/cli.ts release modules
+      - name: keeper в каталог — когда поднят его номер
+        run: node tools/release-cli/cli.ts release keeper

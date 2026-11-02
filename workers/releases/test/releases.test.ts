@@ -260,9 +260,20 @@ describe("эталоны releases", () => {
     // модуль-Worker тоже загружается в каталог: в архиве его module.json
     expect((await req(s, "~x", "releases.upload", { part: "relay", version: "1.5.0" }))[0]).toMatchObject({ ok: true });
     expect((await req(s, "~x", "releases.upload", { part: "Cap ture", version: "1.5.0" }))[0]).toMatchObject({ error: "bad_frame" });
-    // архив без хэша — версия всё равно занята
+  });
+
+  it("5144 · загрузка с хэшем: тот же лежит — same без ссылок, другой — version_exists; архив без хэша — ссылки снова; хэш не того вида — bad_frame", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): CI грузит модули запросом releases.upload —
+    // повтор прогона с теми же модулями проходит; архив без хэша — версия не готова: факт — перезапуск CI №80 после обрыва
+    const s = fresh();
+    await inR2("capture", "1.4.0");
+    const sha = sha256hex(tgzOf("capture", "1.4.0"));
+    expect(await result(req(s, "~x", "releases.upload", { part: "capture", version: "1.4.0", sha256: sha }))).toEqual({ same: true });
+    expect((await req(s, "~x", "releases.upload", { part: "capture", version: "1.4.0", sha256: "0".repeat(64) }))[0]).toMatchObject({ ok: false, error: "version_exists" });
     await env.BUCKET.put("capture/1.6.0.tgz", "half");
-    expect((await req(s, "~x", "releases.upload", { part: "capture", version: "1.6.0" }))[0]).toMatchObject({ ok: false, error: "version_exists" });
+    const again = await result(req(s, "~x", "releases.upload", { part: "capture", version: "1.6.0", sha256: sha }));
+    expect(again.tgz).toMatch(/\/capture\/1\.6\.0\.tgz\?/);
+    expect((await req(s, "~x", "releases.upload", { part: "capture", version: "1.7.0", sha256: "abc" }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
   });
 
   it("9 · set: выключить силой, окружение, снять; у keeper только pin; уже так — ok с прежней rev", async () => {

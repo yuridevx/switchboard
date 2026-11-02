@@ -7,10 +7,8 @@ import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Host, Module, Result } from "@switchboard/host";
-import { packDir, sha256hex, shaLine } from "@switchboard/release";
-
-/** Предел PUT архива и хэша в R2 — как предел скачивания архива части у keeper. */
-const PUT_MS = 10 * 60_000;
+import { packDir, upload } from "@switchboard/release";
+import type { UploadReply } from "@switchboard/release";
 
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 type PlanEntry = { pin?: string };
@@ -51,7 +49,7 @@ export function make() {
       ),
       tool(
         "upload",
-        "Загрузить версию приложения из папки на этой машине: упаковать, посчитать хэш и положить архив и хэш по двум ссылкам «выпусков». stable не трогает — новая версия становится edge. Версия загружается один раз. Части сборки (host, keeper, Worker'ы) загружает CI.",
+        "Загрузить версию приложения из папки на этой машине: упаковать, посчитать хэш и положить архив и хэш по двум ссылкам «выпусков». stable не трогает — новая версия становится edge. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists. Части сборки (host, keeper, Worker'ы) загружает CI.",
         {
           part: z.string().describe("имя приложения"),
           version: z.string().describe("версия — три числа, например 1.4.0"),
@@ -60,30 +58,14 @@ export function make() {
         async ({ part, version, dir }) => {
           const root = resolve(cwd, dir);
           if (!existsSync(join(root, "app.json"))) return text(`no_app_json: в ${root} нет app.json`, true);
-          const r = await ask("releases.upload", { part, version });
-          if (!r.ok) return failed("releases.upload", r);
-          const links = r.result as { tgz: string; sha256: string };
           const data = packDir(root);
-          const sha256 = sha256hex(data);
-          for (const [url, body] of [
-            [links.tgz, data],
-            [links.sha256, Buffer.from(shaLine(sha256, version))],
-          ] as const) {
-            // предел PUT — как у keeper на скачивание архива части: 10 мин
-            const ac = new AbortController();
-            const late = setTimeout(() => ac.abort(), PUT_MS);
-            let put: Response;
-            try {
-              put = await fetch(url, { method: "PUT", body: new Uint8Array(body), signal: ac.signal });
-            } catch (e) {
-              const why = ac.signal.aborted ? `R2 не ответил за ${PUT_MS / 60_000} мин` : String(e);
-              return text(`upload_failed: ${why} на ${new URL(url).pathname}`, true);
-            } finally {
-              clearTimeout(late);
-            }
-            if (!put.ok) return text(`upload_failed: R2 ответил ${put.status} на ${new URL(url).pathname}`, true);
+          try {
+            // загрузка по ссылкам «выпусков» — та же функция, что у CI
+            const r = await upload(async (sha256) => (await ask("releases.upload", { part, version, sha256 })) as UploadReply, version, data);
+            return json({ part, version, bytes: data.length, sha256: r.sha256, ...(r.done === "same" ? { same: true } : {}) });
+          } catch (e) {
+            return text((e as Error).message, true);
           }
-          return json({ part, version, bytes: data.length, sha256 });
         },
       ),
       tool(

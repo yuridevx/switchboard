@@ -317,13 +317,19 @@ class Releases {
     return { parts, machines, rev: s.rev };
   }
 
+  /**
+   * Ссылки на запись версии. Версия занята, когда лежит её .sha256: с тем же хэшем (sha256 в кадре) — same, загружать
+   * нечего; с другим — version_exists. Архив без хэша — версия не готова (загрузка оборвалась): ссылки даются снова.
+   */
   private async upload(f: Frame): Promise<Upload> {
     const part = f.part;
     const version = f.version;
     if (typeof part !== "string" || !NAME.test(part)) throw new Refusal("bad_frame", "part — имя части");
     if (typeof version !== "string" || !VERSION.test(version)) throw new Refusal("bad_version", "версия — три числа");
-    if ((await this.env.BUCKET.head(tgzKey(part, version))) || (await this.env.BUCKET.head(shaKey(part, version))))
-      throw new Refusal("version_exists", `${part} ${version} уже загружена — версия загружается один раз`);
+    if (f.sha256 !== undefined && (typeof f.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(f.sha256))) throw new Refusal("bad_frame", "sha256 — хэш архива, 64 знака hex");
+    const had = await this.sha(part, version);
+    if (had && had === f.sha256) return { same: true };
+    if (had) throw new Refusal("version_exists", `${part} ${version} уже загружена с другим хэшем — подними номер`);
     return { tgz: await this.link("PUT", tgzKey(part, version)), sha256: await this.link("PUT", shaKey(part, version)) };
   }
 

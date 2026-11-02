@@ -1,21 +1,17 @@
-// Формат выпуска, архив, подпись S3, выкладка и сборка на подменённых npm и node.
+// Формат выпуска, архив, ссылки, загрузка по ссылкам «Выпусков» и сборка на подменённых npm и node.
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
-import { bucketOf, main, parseArgs } from "../cli.ts";
-import { manifestOf, pack, packDir, parseSha, presign, sha256hex, shaLine } from "../contract.ts";
-import { s3, sign } from "../src/s3.ts";
-import type { Fetch } from "../src/s3.ts";
+import { manifestOf, pack, packDir, parseSha, presign, sha256hex, shaLine, upload } from "../contract.ts";
+import type { Put, UploadReply } from "../contract.ts";
 import { entries } from "../src/tar.ts";
 import { build, closure, packageFiles } from "../src/build.ts";
 import type { Exec } from "../src/build.ts";
 import { buildKeeper } from "../src/keeper.ts";
 import { packModule } from "../src/module.ts";
 import type { GoExec } from "../src/keeper.ts";
-import { dirBucket, s3Bucket, upload } from "../src/publish.ts";
-import type { Bucket } from "../src/publish.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
 const tmp = () => mkdtempSync(join(tmpdir(), "switchboard-release-"));
@@ -72,85 +68,47 @@ describe("упаковка папки и ссылки", () => {
   });
 });
 
-describe("подпись S3", () => {
-  it("пример AWS «GET Object»: та же подпись", async () => {
-    const auth = await sign({
-      method: "GET",
-      path: "/test.txt",
-      headers: {
-        host: "examplebucket.s3.amazonaws.com",
-        range: "bytes=0-9",
-        "x-amz-content-sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-        "x-amz-date": "20130524T000000Z",
-      },
-      payloadHash: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-      accessKeyId: "AKIAIOSFODNN7EXAMPLE",
-      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-      region: "us-east-1",
-    });
-    expect(auth).toBe(
-      "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20130524/us-east-1/s3/aws4_request, SignedHeaders=host;range;x-amz-content-sha256;x-amz-date, Signature=f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41",
-    );
-  });
+/** «Выпуски» и R2 на подделках: ответ releases.upload и записанные PUT. */
+function fakeReleases(reply: UploadReply) {
+  const asked: string[] = [];
+  const puts: Array<[string, string]> = [];
+  const ask = async (sha256: string) => {
+    asked.push(sha256);
+    return reply;
+  };
+  const put: Put = async (url, init) => {
+    puts.push([new URL(url).pathname, Buffer.from(init.body).toString("utf8")]);
+    return { ok: true, status: 200 };
+  };
+  return { ask, put, asked, puts };
+}
+const LINKS: UploadReply = { ok: true, result: { tgz: "https://acc0.r2.cloudflarestorage.com/switchboard-releases/keeper/0.5.0.tgz?X-Amz-Signature=a", sha256: "https://acc0.r2.cloudflarestorage.com/switchboard-releases/keeper/0.5.0.sha256?X-Amz-Signature=b" } };
 
-  it("клиент: path-style адрес, тело PUT подписано своим хэшем", async () => {
-    const seen: Array<{ url: string; method: string; headers: Record<string, string> }> = [];
-    const f: Fetch = async (url, init) => {
-      seen.push({ url, method: init.method, headers: init.headers });
-      return { status: 200, arrayBuffer: async () => new TextEncoder().encode("1.4.1\n").buffer as ArrayBuffer };
-    };
-    const c = s3({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f, () => new Date(Date.UTC(2026, 9, 31, 12)));
-    const r = await c.get("host/latest");
-    expect(r.body.toString()).toBe("1.4.1\n");
-    await c.put("host/1.4.1.tgz", Buffer.from("tgz"));
-    expect(seen[0].url).toBe("https://acc0.r2.cloudflarestorage.com/switchboard-releases/host/latest");
-    expect(seen[0].headers).toMatchObject({ "x-amz-date": "20261031T120000Z", "x-amz-content-sha256": "UNSIGNED-PAYLOAD" });
-    expect(seen[0].headers.authorization).toMatch(/^AWS4-HMAC-SHA256 Credential=AK\/20261031\/auto\/s3\/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature=[0-9a-f]{64}$/);
-    expect(seen[1].headers["x-amz-content-sha256"]).toBe(sha256hex("tgz"));
-  });
-});
-
-describe("загрузка", () => {
-  it("архив, затем хэш в <часть>/<версия>; тот же номер с тем же хэшем — пропуск, с другим — «подними номер», ничего не перезаписано", async () => {
-    const d = tmp();
-    const b = dirBucket(d);
+describe("загрузка по ссылкам «Выпусков»", () => {
+  it("5141 · хэш архива — в запрос; ссылки — PUT архива, затем .sha256; тот же хэш лежит — пропуск без PUT; отказ — словом «Выпусков»", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): загрузка по ссылкам «Выпусков» — одна функция
     const tgz = Buffer.from("архив");
-    expect(await upload(b, "keeper", "0.5.0", tgz, sha256hex(tgz))).toBe("uploaded");
-    expect(parseSha(readFileSync(join(d, "keeper", "0.5.0.sha256"), "utf8"))).toBe(sha256hex(tgz));
-    expect(await upload(b, "keeper", "0.5.0", tgz, sha256hex(tgz))).toBe("same");
-    await expect(upload(b, "keeper", "0.5.0", Buffer.from("другой"), sha256hex("другой"))).rejects.toThrow("подними номер keeper");
-    expect(readFileSync(join(d, "keeper", "0.5.0.tgz"), "utf8")).toBe("архив");
-    expect(existsSync(join(d, "host", "latest"))).toBe(false);
+    const a = fakeReleases(LINKS);
+    expect(await upload(a.ask, "0.5.0", tgz, a.put)).toEqual({ done: "uploaded", sha256: sha256hex(tgz) });
+    expect(a.asked).toEqual([sha256hex(tgz)]);
+    expect(a.puts).toEqual([
+      ["/switchboard-releases/keeper/0.5.0.tgz", "архив"],
+      ["/switchboard-releases/keeper/0.5.0.sha256", shaLine(sha256hex(tgz), "0.5.0")],
+    ]);
+    const same = fakeReleases({ ok: true, result: { same: true } });
+    expect((await upload(same.ask, "0.5.0", tgz, same.put)).done).toBe("same");
+    expect(same.puts).toEqual([]);
+    const no = fakeReleases({ ok: false, error: "version_exists" });
+    await expect(upload(no.ask, "0.5.0", tgz, no.put)).rejects.toThrow("releases.upload: version_exists");
+    expect(no.puts).toEqual([]);
   });
 
-  it("R2: GET хэша 404 — PUT архива, затем хэша; хэш есть — без PUT", async () => {
-    const calls: string[] = [];
-    let have: string | null = null;
-    const f: Fetch = async (url, init) => {
-      calls.push(`${init.method} ${url.split("switchboard-releases/")[1]}`);
-      const body = init.method === "GET" && have ? Buffer.from(have) : Buffer.alloc(0);
-      return { status: init.method === "GET" ? (have ? 200 : 404) : 200, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) as ArrayBuffer };
-    };
-    const b = s3Bucket({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f);
-    await upload(b, "host", "1.1.58", Buffer.from("t"), sha256hex("t"));
-    expect(calls).toEqual(["GET host/1.1.58.sha256", "PUT host/1.1.58.tgz", "PUT host/1.1.58.sha256"]);
-    have = shaLine(sha256hex("t"), "1.1.58");
-    calls.length = 0;
-    expect(await upload(b, "host", "1.1.58", Buffer.from("t"), sha256hex("t"))).toBe("same");
-    expect(calls).toEqual(["GET host/1.1.58.sha256"]);
-  });
-
-  it("2077 · аргументы: core, keeper и modules без номера; --out, --dry-run, --to; незнакомый — отказ; ключ R2 только из окружения", () => {
-    expect(parseArgs(["release", "core", "--dry-run"])).toMatchObject({ part: "core", dryRun: true });
-    expect(parseArgs(["release", "keeper", "--to", "x"])).toMatchObject({ part: "keeper", dryRun: false });
-    expect(parseArgs(["release", "modules"])).toMatchObject({ part: "modules" });
-    expect(() => parseArgs(["release", "host", "1.4.1"])).toThrow("вызов");
-    expect(() => parseArgs(["release", "1.4.1"])).toThrow("вызов");
-    expect(() => parseArgs(["release", "core", "--dry-run", "--to", "x"])).toThrow();
-    expect(() => parseArgs(["release", "core", "--zip"])).toThrow("незнакомый аргумент: --zip");
-    expect(bucketOf(parseArgs(["release", "core", "--dry-run"]), {})).toBeNull();
-    expect(() => bucketOf(parseArgs(["release", "keeper"]), {})).toThrow("R2_ACCESS_KEY_ID");
-    expect(bucketOf(parseArgs(["release", "keeper"]), { R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_ENDPOINT: "https://x" })?.where).toBe("https://x/switchboard-releases");
+  it("2078 · R2 отказал на архиве — исключение со статусом и путём, хэш не пишется: версия не готова", async () => {
+    const a = fakeReleases(LINKS);
+    const puts: string[] = [];
+    const put: Put = async (url) => (puts.push(new URL(url).pathname), { ok: false, status: 500 });
+    await expect(upload(a.ask, "0.5.0", Buffer.from("t"), put)).rejects.toThrow("upload_failed: R2 ответил 500 на /switchboard-releases/keeper/0.5.0.tgz");
+    expect(puts).toEqual(["/switchboard-releases/keeper/0.5.0.tgz"]);
   });
 
   it("архив keeper: два файла по ОС, режим исполнения, тот же вывод go — тот же хэш; go не собрал — исключение", async () => {
@@ -172,91 +130,6 @@ describe("загрузка", () => {
     // без сведений git: иначе ревизия коммита в файле меняет хэш при неизменном коде
     expect(seen.every((x) => x.includes("-buildvcs=false") && x.includes("-trimpath"))).toBe(true);
     await expect(buildKeeper(root, async () => ({ code: 1, out: "syntax error" }))).rejects.toThrow("go build windows/amd64: syntax error");
-  });
-});
-
-describe("загрузка: отказ R2", () => {
-  it("3177 · R2 отказал на проверке хэша — исключение со статусом, ни одного PUT: версия не тронута", async () => {
-    // источник: чьё: код (publish.ts — GET хэша не 200 и не 404 — исключение)
-    const calls: string[] = [];
-    const f: Fetch = async (url, init) => {
-      calls.push(`${init.method} ${url.split("switchboard-releases/")[1]}`);
-      const body = Buffer.alloc(0);
-      return { status: 503, arrayBuffer: async () => body.buffer.slice(0) as ArrayBuffer };
-    };
-    const b = s3Bucket({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f);
-    await expect(upload(b, "host", "1.1.61", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("GET host/1.1.61.sha256: 503");
-    expect(calls).toEqual(["GET host/1.1.61.sha256"]);
-  });
-
-  it("3178 · загрузка прервалась между архивом и хэшем — версия не готова; повтор прогона кладёт архив заново и хэш", async () => {
-    // источник: чьё: код (готова версия с .sha256; повтор того же номера без хэша — загрузка целиком); факт — перезапуск CI №80
-    const d = mkdtempSync(join(tmpdir(), "rel-cut-"));
-    const real = dirBucket(d);
-    let cut = true;
-    const b: Bucket = { ...real, put: async (k, body) => (cut && k.endsWith(".sha256") ? Promise.reject(new Error("обрыв")) : real.put(k, body)) };
-    await expect(upload(b, "host", "1.1.62", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("обрыв");
-    expect(existsSync(join(d, "host", "1.1.62.tgz"))).toBe(true);
-    expect(existsSync(join(d, "host", "1.1.62.sha256"))).toBe(false);
-    cut = false;
-    expect(await upload(b, "host", "1.1.62", Buffer.from("t"), sha256hex("t"))).toBe("uploaded");
-    expect(readFileSync(join(d, "host", "1.1.62.sha256"), "utf8")).toBe(shaLine(sha256hex("t"), "1.1.62"));
-  });
-
-  it("3179 · сборка без загрузки (--dry-run) — архив собран, бакет не тронут, выход 0", async () => {
-    // источник: чьё: код (cli.ts — «--dry-run: только собрать, никуда не загружать»)
-    const out: string[] = [];
-    const log = vi.spyOn(console, "log").mockImplementation((s: unknown) => void out.push(String(s)));
-    try {
-      const go: GoExec = async (args, _cwd, env) => {
-        const out = args[args.indexOf("-o") + 1];
-        mkdirSync(join(out, ".."), { recursive: true });
-        writeFileSync(out, `keeper ${env.GOOS}`);
-        return { code: 0, out: "" };
-      };
-      expect(await main(["release", "keeper", "--dry-run"], {}, undefined, go)).toBe(0);
-    } finally {
-      log.mockRestore();
-    }
-    expect(out.some((l) => l.startsWith("собран keeper "))).toBe(true);
-    expect(out).toContain("--dry-run: никуда не загружено");
-  });
-
-  it("3180 · новый номер keeper — архив двух ОС загружен в бакет: .tgz, затем .sha256; тот же номер второй раз — пропуск", async () => {
-    // источник: чьё: код (cli.ts — keeper: файлы для Windows и Linux одним архивом; номер из module.json)
-    const d = mkdtempSync(join(tmpdir(), "rel-keeper-"));
-    const out: string[] = [];
-    const log = vi.spyOn(console, "log").mockImplementation((s: unknown) => void out.push(String(s)));
-    try {
-      const go: GoExec = async (args, _cwd, env) => {
-        const out = args[args.indexOf("-o") + 1];
-        mkdirSync(join(out, ".."), { recursive: true });
-        writeFileSync(out, `keeper ${env.GOOS}`);
-        return { code: 0, out: "" };
-      };
-      expect(await main(["release", "keeper", "--to", d], {}, undefined, go)).toBe(0);
-      expect(await main(["release", "keeper", "--to", d], {}, undefined, go)).toBe(0);
-    } finally {
-      log.mockRestore();
-    }
-    const v = JSON.parse(readFileSync(join(root, "os", "keeper", "module.json"), "utf8")).version;
-    const files = entries(readFileSync(join(d, "keeper", `${v}.tgz`))).filter((e) => e.data).map((e) => e.path).sort();
-    expect(files.length).toBe(2);
-    expect(readFileSync(join(d, "keeper", `${v}.sha256`), "utf8")).toMatch(/^[0-9a-f]{64} /);
-    expect(out.some((l) => l.includes(`keeper ${v} уже загружен с тем же хэшем — пропуск`))).toBe(true);
-  });
-
-  it("2078 · R2 отказал на архиве — исключение со статусом, хэш не пишется: версия не готова", async () => {
-    const calls: string[] = [];
-    const f: Fetch = async (url, init) => {
-      calls.push(`${init.method} ${url.split("switchboard-releases/")[1]}`);
-      const status = init.method === "GET" ? 404 : 500;
-      const body = Buffer.from("InternalError");
-      return { status, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) as ArrayBuffer };
-    };
-    const b = s3Bucket({ accessKeyId: "AK", secretAccessKey: "SK", endpoint: "https://acc0.r2.cloudflarestorage.com", bucket: "switchboard-releases" }, f);
-    await expect(upload(b, "host", "1.1.60", Buffer.from("t"), sha256hex("t"))).rejects.toThrow("PUT host/1.1.60.tgz: 500 InternalError");
-    expect(calls).toEqual(["GET host/1.1.60.sha256", "PUT host/1.1.60.tgz"]);
   });
 });
 

@@ -101,7 +101,19 @@ describe("эталоны parts", () => {
     expect(puts.map((p) => p.url)).toEqual(["https://r2.test/b/capture/1.4.0.tgz?sig", "https://r2.test/b/capture/1.4.0.sha256?sig"]);
     expect(puts[1].body.toString()).toBe(`${sha}  1.4.0.tgz\n`);
     expect(gunzipSync(puts[0].body).toString("latin1")).toContain("app.json");
-    expect(st.relay.sent.find((f) => f.type === "releases.upload")).toMatchObject({ to: ".releases", part: "capture", version: "1.4.0" });
+    expect(st.relay.sent.find((f) => f.type === "releases.upload")).toMatchObject({ to: ".releases", part: "capture", version: "1.4.0", sha256: sha });
+  });
+
+  it("5145 · upload: тот же архив уже лежит — «выпуски» отвечают same, PUT нет", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): загрузка по ссылкам «Выпусков» — одна функция у parts.upload и CI
+    const dir = mkdtempSync(join(tmpdir(), "parts-app-"));
+    writeFileSync(join(dir, "app.json"), "{}");
+    const { call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { same: true } } : undefined));
+    const puts: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url) => (puts.push(String(url)), new Response("", { status: 200 })));
+    const r = await call("upload", { part: "capture", version: "1.4.0", dir: "." }, dir);
+    expect(r.json()).toMatchObject({ part: "capture", version: "1.4.0", same: true });
+    expect(puts).toEqual([]);
   });
 
   it("3 · deploy и set — на .releases как есть, даже с полем machine; отказ — словом с ошибкой", async () => {

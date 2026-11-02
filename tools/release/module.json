@@ -5,10 +5,6 @@
   "provides": {
     "release.format": 1
   },
-  "uses": { "manifest.check@manifest-gate": 1 },
-  "config": {
-    "R2_ACCESS_KEY_ID": "secret",
-    "R2_SECRET_ACCESS_KEY": "secret",
-    "R2_ENDPOINT": "var"
-  }
+  "uses": {},
+  "config": {}
 }

@@ -26,9 +26,12 @@ export type Listed = {
   rev: number;
 };
 
-/** releases.upload — две ссылки на запись версии части машины: архив и хэш. Версия загружается один раз. */
-export type ReleasesUpload = { type: "releases.upload"; id: string; v?: 1; to: ".releases"; part: string; version: string };
-export type Upload = { tgz: string; sha256: string };
+/**
+ * releases.upload — две ссылки на запись версии: архив и хэш. Версия загружается один раз: с sha256 архива в кадре
+ * та же лежащая версия — same (загружать нечего), другая — version_exists.
+ */
+export type ReleasesUpload = { type: "releases.upload"; id: string; v?: 1; to: ".releases"; part: string; version: string; sha256?: string };
+export type Upload = { tgz: string; sha256: string } | { same: true };
 
 /**
  * releases.deploy — stable на версию (без version — edge). part "*" — части Cloudflare и части машины на edge.
