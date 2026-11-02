@@ -297,6 +297,43 @@ describe("эталоны ядра Host", () => {
     expect(st2.kernel.sessions.get("site@laptop")!.state).toBe("busy");
   });
 
+  it("3121 · остановка ждёт без конца (stop() модуля ждёт ответ, который потерян) — за предел 30 с строка shutdown_late с тем, чего ждёт, и жёсткий выход 1; процессы claude живут у держателей", async () => {
+    // источник: слово пользователя «у всех операций должен быть лимит и поддержка graceful shutdown» (2 нояб.);
+    // факт — Host 1.1.56 на 4 машинах прода и 2 теста висел в stopping: profiles.stop ждал github.token без ответа
+    const k = await keeper();
+    let host!: Host;
+    const profiles = module("host-profiles", {
+      start: (h) => void (host = h),
+      stop: async () => void (await host.request("github.token", { repo: "o/r" })),
+    }, { uses: { "github.token@github": 1 } });
+    const st = await stand({ holders: k, modules: [profiles] });
+    await st.open("site@laptop");
+    let finished = false;
+    const down = st.kernel.shutdown("ввод закрыт").then(() => (finished = true));
+    await until(() => st.relay.frames("github.token").length === 1);
+    st.clock.advance(29_999);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(finished).toBe(false);
+    expect(st.exits).toEqual([]);
+    st.clock.advance(1);
+    await down;
+    expect(st.exits).toEqual([1]);
+    const late = lines(st, "shutdown_late");
+    expect(late).toHaveLength(1);
+    expect(late[0]).toMatchObject({ kind: "stop", why: "остановка не успела за 30 с: ждёт stop() модуля host-profiles — жёсткий выход 1 · ввод закрыт" });
+    expect(lines(st, "exit")).toEqual([]);
+    expect([...k.procs.values()].every((x) => x.alive)).toBe(true);
+  });
+
+  it("3122 · остановка успела — таймер предела снят: выход 0 один раз, строки shutdown_late нет", async () => {
+    // источник: чьё: код (штатная ветка остановки не меняется пределом)
+    const st = await stand({ modules: [module("host-journal", { stop: () => {} })] });
+    await st.kernel.shutdown("ввод закрыт");
+    st.clock.advance(60_000);
+    expect(st.exits).toEqual([0]);
+    expect(lines(st, "shutdown_late")).toEqual([]);
+  });
+
   // паузы переподключения и их рост — клиент рации (охват relay); здесь — то, что видно со стороны ядра
   it("68 · обрыв relay: ждущий запрос сразу disconnected; переподключение; новый hello — те же сессии и contract; ходы не прерывались; строк stop нет", async () => {
     let host!: Host;

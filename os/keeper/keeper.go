@@ -94,9 +94,10 @@ type Keeper struct {
 	done     chan struct{}
 	stopOnce sync.Once
 
-	// для стенда: свой файл (подмена себя), ожидание ответа на вопрос о плане
+	// для стенда: свой файл (подмена себя), ожидание ответа на вопрос о плане, предел остановки части (больше предела Host 30 с)
 	self     func() (string, error)
 	planWait time.Duration
+	stopWait time.Duration
 }
 
 // Start — конфиг, журнал, сохранённый план, держатели с прошлой жизни, связь с рацией.
@@ -121,7 +122,7 @@ func newKeeper(home string, echo io.Writer) (*Keeper, error) {
 	}
 	k := &Keeper{home: home, machine: machine, relay: confStr(conf, "relay"), node: confStr(conf, "node"), j: j, parts: map[string]*part{},
 		wake: make(chan struct{}, 1), quit: make(chan struct{}), done: make(chan struct{}),
-		self: os.Executable, planWait: 30 * time.Second}
+		self: os.Executable, planWait: 30 * time.Second, stopWait: time.Minute}
 	j.note("keeper_start", "keeper", keeperVersion, "pid", os.Getpid(), "os", osName())
 	if b, err := os.ReadFile(planPath(home)); err == nil {
 		if err := json.Unmarshal(b, &k.plan); err != nil {
@@ -528,7 +529,8 @@ func (k *Keeper) applyPart(pp planPart, prev planPart, had bool) {
 	k.cleanupVersions(pp.Part, pp.Version, runVer)
 }
 
-// stopPart — закрыть ввод и ждать выхода без таймера; force — убить дерево сразу. Остановка keeper прерывает ожидание.
+// stopPart — закрыть ввод и ждать выхода не дольше stopWait: не вышла — строка stop_late и держатель убивает дерево
+// (устав: «не успела — жёсткий выход»); force — убить сразу. Остановка keeper прерывает ожидание.
 func (k *Keeper) stopPart(p *part, force bool) {
 	k.mu.Lock()
 	c, ch := p.conn, p.exited
@@ -543,11 +545,23 @@ func (k *Keeper) stopPart(p *part, force bool) {
 	} else {
 		c.closeInput()
 	}
-	if ch != nil {
-		select {
-		case <-ch:
-		case <-k.quit:
-		}
+	if ch == nil {
+		return
+	}
+	late := time.NewTimer(k.stopWait)
+	defer late.Stop()
+	select {
+	case <-ch:
+		return
+	case <-k.quit:
+		return
+	case <-late.C:
+	}
+	k.j.stop("stop_late", fmt.Sprintf("%s %s не вышла за %v после «закрой ввод» — держатель убивает дерево", p.name, p.version, k.stopWait), "part", p.name)
+	c.kill()
+	select {
+	case <-ch:
+	case <-k.quit:
 	}
 }
 

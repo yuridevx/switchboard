@@ -161,7 +161,40 @@ describe("link · запросы", () => {
     expect(await small).toMatchObject({ ok: true });
   });
 
-  it("обрыв — ждущие запросы сразу disconnected, без таймера", async () => {
+  it("3119 · ответ потерян в пути, связь жива — ждущий получает timeout за предел запроса; поздний ответ — в onFrame; другие запросы не задеты", async () => {
+    // источник: слово пользователя «у всех операций должен быть лимит» (2 нояб.); факт — Host 1.1.56 висел в stopping на github.token без ответа
+    const { l, ws, frames } = opened({ requestMs: 5_000 });
+    const lost = l.request({ type: "github.token", to: ".github", repo: "o/r" });
+    const lostId = ws.json().id;
+    let done = false;
+    void lost.then(() => (done = true));
+    vi.advanceTimersByTime(4_999);
+    await Promise.resolve();
+    expect(done).toBe(false);
+    const ok = l.request({ type: "message", to: "site@laptop" });
+    vi.advanceTimersByTime(1);
+    expect(await lost).toEqual({ type: "reply", id: lostId, ok: false, error: "timeout" });
+    ws.recv({ type: "reply", id: lostId, ok: true });
+    expect(frames.filter((f) => f.type === "reply").map((f) => f.id)).toEqual([lostId]);
+    ws.recv({ type: "reply", id: ws.json().id, ok: true });
+    expect(await ok).toMatchObject({ ok: true });
+    expect(l.state).toBe("open");
+  });
+
+  it("3120 · предел запроса по умолчанию — 120 с", async () => {
+    // источник: чьё: код (вдвое выше самого долгого законного запроса — session.open на wsl до 62 с, 1 нояб.)
+    const { l } = opened({ pingMs: 1_000_000 });
+    const p = l.request({ type: "session.open", machine: "pc" });
+    let r: unknown;
+    void p.then((x) => (r = x));
+    vi.advanceTimersByTime(119_999);
+    await Promise.resolve();
+    expect(r).toBeUndefined();
+    vi.advanceTimersByTime(1);
+    expect(await p).toMatchObject({ ok: false, error: "timeout" });
+  });
+
+  it("обрыв — ждущие запросы сразу disconnected, не дожидаясь предела", async () => {
     const { l, ws } = opened();
     const a = l.request({ type: "message", to: "site@laptop" });
     const b = l.request({ type: "session.history", callsign: "wiki@pc" });

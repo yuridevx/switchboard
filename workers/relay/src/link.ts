@@ -50,6 +50,8 @@ export type LinkOptions = {
   pauseMs?: number;
   /** Потолок паузы, мс. По умолчанию 60 000. */
   maxPauseMs?: number;
+  /** Предел запроса, мс: нет ответа — timeout. По умолчанию 120 000 — вдвое выше самого долгого законного запроса (session.open до 62 с). */
+  requestMs?: number;
   /** Конструктор WebSocket; по умолчанию глобальный. */
   WebSocket?: WsCtor;
 };
@@ -63,7 +65,7 @@ export interface Link {
    * Не бросает: отказ — reply { ok: false, error }. Очереди нет:
    * связи нет — сразу disconnected; связь оборвалась, пока ждали, — disconnected;
    * адресат (машина callsign/machine/to "@m" или имя клиента/участника в to) ушёл из roster
-   * или его машина сменила since — disconnected. Таймера нет.
+   * или его машина сменила since — disconnected. Нет ответа за предел requestMs — timeout; поздний ответ — в onFrame как ответ без ждущего.
    * Кадр больше MAX_FRAME не уходит: сразу too_large { bytes } — relay порвал бы соединение всей машины.
    */
   request(f: Frame): Promise<Reply>;
@@ -122,6 +124,7 @@ export function link(o: LinkOptions): Link {
   const pingMs = o.pingMs ?? 30_000;
   const firstPause = o.pauseMs ?? 1_000;
   const maxPause = o.maxPauseMs ?? 60_000;
+  const requestMs = o.requestMs ?? 120_000;
   // свой префикс id: два соединения с одним именем клиента получают ответы друг друга по to
   const prefix = Math.random().toString(36).slice(2, 8);
   let seq = 0;
@@ -263,7 +266,17 @@ export function link(o: LinkOptions): Link {
       const bytes = oversize(text);
       if (bytes !== null) return Promise.resolve(Object.assign(fail(id, TOO_LARGE), { bytes }));
       return new Promise<Reply>((resolve) => {
-        pending.set(id, { ...p, resolve });
+        // предел запроса: ответ потерян в пути — ждущий не висит вечно
+        const timer = setTimeout(() => {
+          if (pending.delete(id)) resolve(fail(id, "timeout"));
+        }, requestMs);
+        pending.set(id, {
+          ...p,
+          resolve: (r) => {
+            clearTimeout(timer);
+            resolve(r);
+          },
+        });
         sock.send(text);
       });
     },

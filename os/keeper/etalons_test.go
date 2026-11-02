@@ -124,7 +124,7 @@ func TestEtVersionSwitchNoOverlap(t *testing.T) {
 	}
 }
 
-// Не выходит по закрытию ввода: stopping без таймера; force — держатель убивает дерево: и останавливаемую (мимо
+// Не выходит по закрытию ввода: stopping держится до предела остановки; force — держатель убивает дерево: и останавливаемую (мимо
 // очереди), и работающую (план заморозки, «Чего не делаем»: «остановка ждёт выхода, force убивает»).
 func TestEtStubbornForce(t *testing.T) {
 	s := newStand(t)
@@ -136,7 +136,7 @@ func TestEtStubbornForce(t *testing.T) {
 	waitFor(t, "stopping", func() bool { return partOf(k, "capture").State == "stopping" })
 	time.Sleep(time.Second)
 	if partOf(k, "capture").State != "stopping" {
-		t.Fatal("stopping держится без таймера")
+		t.Fatal("stopping держится до предела")
 	}
 	off["force"] = true
 	s.relay.push(planMsg(3, off))
@@ -149,6 +149,33 @@ func TestEtStubbornForce(t *testing.T) {
 	waitFor(t, "два выхода силой", func() bool {
 		return strings.Count(readJournal(s.home), `"ev":"part_exit","version":"1.3.2","why":"сигнал SIGKILL`) == 2
 	})
+}
+
+// 3123 · Часть не вышла за предел остановки после «закрой ввод» — строка stop_late с причиной, держатель убивает
+// дерево, часть stopped; смена версии идёт дальше без рук (слово пользователя 2 нояб.: «у всех операций должен быть
+// лимит и поддержка graceful shutdown»; устав: «не успела — жёсткий выход, это ожидаемая ветка»; факт — Host 1.1.56
+// на 4 машинах прода висел в stopping, снят руками).
+func TestEtStopLimitKills(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles("stubborn"), on)))
+	k := s.startWith(func(k *Keeper) { k.stopWait = 1500 * time.Millisecond })
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
+	waitFor(t, "1.3.2 stopping", func() bool { return partOf(k, "capture").State == "stopping" })
+	time.Sleep(700 * time.Millisecond)
+	if partOf(k, "capture").State != "stopping" {
+		t.Fatal("до предела часть ещё останавливается штатно")
+	}
+	waitFor(t, "1.4.0 running после предела", func() bool {
+		p := partOf(k, "capture")
+		return p.State == "running" && p.Version == "1.4.0"
+	})
+	if !journalHas(s.home, `"part":"capture"`) || !journalHas(s.home, `"kind":"stop","ev":"stop_late","why":"capture 1.3.2 не вышла за 1.5s после «закрой ввод» — держатель убивает дерево"`) || !journalHas(s.home, `"ev":"part_exit","version":"1.3.2","why":"сигнал SIGKILL`) {
+		t.Fatal("нет строки stop_late или выхода силой\n" + readJournal(s.home))
+	}
+	if journalHas(s.home, `"ev":"part_failed"`) {
+		t.Fatal("выход силой после предела — не падение части")
+	}
 }
 
 // Одно падение — один перезапуск, с диска: ссылка из плана живёт час; второе — failed и part.failed; та же запись

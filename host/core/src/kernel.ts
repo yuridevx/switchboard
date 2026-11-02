@@ -72,6 +72,8 @@ export type Deps = {
   /** период ping и первая пауза переподключения link */
   pingMs?: number;
   pauseMs?: number;
+  /** предел штатной остановки, мс: не успела — журнал и жёсткий выход 1. По умолчанию 30 000; keeper ждёт дольше. */
+  stopMs?: number;
 };
 
 /** Host не стартует: причины — строками гейта. */
@@ -662,21 +664,37 @@ export class Kernel {
    */
   shutdown(reason: string): Promise<void> {
     if (this.shutting) return this.shutting;
-    this.shutting = (async () => {
-      this.log("core", { ev: "shutdown", why: `остановка: ${reason}` });
-      this.abort.abort();
-      await Promise.allSettled([...this.inflight]);
-      for (const s of this.sessions.values()) s.shutdown();
-      for (const m of [...this.mods].reverse()) {
-        if (!m.module.stop || m.down) continue;
-        await this.call(m.name, "stop", null, (x) => x.stop!(), () => undefined);
-      }
-      for (const q of this.probes) q.close();
-      this.relay?.close(1000, "shutting_down");
-      this.holders.close();
-      this.log("core", { ev: "exit", why: `выход 0 · ${reason}` });
-      this.deps.exit?.(0);
-    })();
+    this.shutting = new Promise<void>((done) => {
+      // предел остановки: что-то ждёт без конца — причина в журнал и жёсткий выход; процессы claude живут у держателей
+      const limit = this.deps.stopMs ?? 30_000;
+      let stage = "начатые запросы";
+      let late = false;
+      const timer = this.clock.setTimeout(() => {
+        late = true;
+        this.log("core", { kind: "stop", ev: "shutdown_late", why: `остановка не успела за ${limit / 1000} с: ждёт ${stage} — жёсткий выход 1 · ${reason}` });
+        this.deps.exit?.(1);
+        done();
+      }, limit);
+      void (async () => {
+        this.log("core", { ev: "shutdown", why: `остановка: ${reason}` });
+        this.abort.abort();
+        await Promise.allSettled([...this.inflight]);
+        for (const s of this.sessions.values()) s.shutdown();
+        for (const m of [...this.mods].reverse()) {
+          if (!m.module.stop || m.down) continue;
+          stage = `stop() модуля ${m.name}`;
+          await this.call(m.name, "stop", null, (x) => x.stop!(), () => undefined);
+        }
+        if (late) return;
+        this.clock.clearTimeout(timer);
+        for (const q of this.probes) q.close();
+        this.relay?.close(1000, "shutting_down");
+        this.holders.close();
+        this.log("core", { ev: "exit", why: `выход 0 · ${reason}` });
+        this.deps.exit?.(0);
+        done();
+      })();
+    });
     return this.shutting;
   }
 }
