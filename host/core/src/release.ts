@@ -1,6 +1,7 @@
-// Выпуск Host: ядро, список модулей и Agent SDK точных версий.
-// Пакеты находятся обычным разрешением Node от папки выпуска: @switchboard/host — ядро,
-// его modules.json — список модулей по порядку старта, @switchboard/<имя> — пакет модуля.
+// Выпуск Host: ядро, список сборки и Agent SDK точных версий.
+// Сборка «Выпусков» — папка ядра плюс modules/<имя>/ и build.json в корне: { version, modules: [{ name, version }] }
+// в порядке зависимостей — это порядок старта. Без build.json (ядро само по себе, монорепо) модулей нет.
+// Модуль не импортировался — запись с ошибкой: ядро выключает его, остальные работают.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -8,7 +9,11 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { Manifest, Module } from "../contract.ts";
 
-export type ModuleEntry = { manifest: Manifest; module: Module };
+/** Модуль выпуска; error — импорт не прошёл: модуль выключен на машине. */
+export type ModuleEntry = { manifest: Manifest; module: Module; error?: string };
+
+/** Список сборки в build.json. */
+export type BuildList = { version: string; modules: Array<{ name: string; version: string }> };
 
 export type Release = {
   /** версия выпуска: release.json папки ядра, иначе версия ядра */
@@ -34,20 +39,26 @@ export async function loadRelease(base: string): Promise<Release> {
   const req = createRequire(join(base, "noop.js"));
   const coreDir = realpathSync(packageDir(req.resolve("@switchboard/host"), "@switchboard/host"));
   const core = readJson(join(coreDir, "module.json")) as Manifest;
-  const rel = existsSync(join(coreDir, "release.json")) ? (readJson(join(coreDir, "release.json")) as { version?: string }) : {};
   const coreReq = createRequire(join(coreDir, "noop.js"));
   const sdkDir = packageDir(coreReq.resolve("@anthropic-ai/claude-agent-sdk"), "@anthropic-ai/claude-agent-sdk");
   const sdk = readJson(join(sdkDir, "package.json")).version as string;
-  const names = readJson(join(coreDir, "modules.json")) as string[];
+  // корень сборки — над packages/host
+  const root = dirname(dirname(coreDir));
+  const list = existsSync(join(root, "build.json")) ? (readJson(join(root, "build.json")) as BuildList) : null;
   const modules: ModuleEntry[] = [];
-  for (const name of names) {
-    const entry = realpathSync(coreReq.resolve(`@switchboard/${name}`));
-    const dir = dirname(entry);
+  for (const { name } of list?.modules ?? []) {
+    const dir = join(root, "modules", name);
     const manifest = readJson(join(dir, "module.json")) as Manifest;
-    const module = ((await import(pathToFileURL(entry).href)) as { default: Module }).default;
-    modules.push({ manifest, module });
+    try {
+      const exp = (readJson(join(dir, "package.json")) as { exports?: Record<string, string> }).exports?.["."] ?? "./contract.ts";
+      const module = ((await import(pathToFileURL(join(dir, exp)).href)) as { default?: Module }).default;
+      if (!module) throw new Error("нет default — объекта модуля");
+      modules.push({ manifest, module });
+    } catch (e) {
+      modules.push({ manifest, module: {}, error: `импорт: ${(e as Error).message}` });
+    }
   }
-  return { version: rel.version ?? core.version, sdk, modules };
+  return { version: list?.version ?? core.version, sdk, modules };
 }
 
 /** Команда claude из пакета SDK: ввод — stdin, вывод — stdout и stderr вместе. claude нет — code null со словами. */

@@ -1,6 +1,6 @@
 // Эталоны процесса Host (738–743, 752): main.ts отдельным процессом — гейт выпуска --check, отказы старта и ловушка процесса.
-// Выпуск с другим списком модулей — копия ядра во временной папке: @switchboard/host — эта копия,
-// прочие пакеты — ссылки на пакеты монорепо; поддельные модули — пакеты на JS.
+// Выпуск — сборка во временной папке, как у «Выпусков»: packages/host — копия ядра, @switchboard/host — ссылка на неё,
+// прочие пакеты — ссылки на пакеты монорепо; поддельные модули — modules/<имя>/ на JS; build.json — список.
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -35,13 +35,13 @@ function run(main: string, args: string[], env: Record<string, string>): Promise
 /** Модуль-пакет на JS: манифест и объект модуля (по умолчанию пустой). */
 type Fake = { provides: Record<string, number>; code?: string };
 
-/** Выпуск: копия ядра со своим modules.json; возвращает путь к main.ts копии. */
+/** Сборка: копия ядра и модули по списку build.json; возвращает путь к main.ts копии. */
 function release(names: string[], fakes: Record<string, Fake> = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "switchboard-release-"));
-  const copy = join(dir, "core");
+  const copy = join(dir, "packages", "host");
   cpSync(join(coreDir, "src"), join(copy, "src"), { recursive: true });
   for (const f of ["main.ts", "contract.ts", "module.json", "package.json"]) cpSync(join(coreDir, f), join(copy, f));
-  writeFileSync(join(copy, "modules.json"), JSON.stringify(names));
+  writeFileSync(join(dir, "build.json"), JSON.stringify({ version: "1.2.0+1", modules: names.map((name) => ({ name, version: "1.0.0" })) }));
   const sw = join(dir, "node_modules", "@switchboard");
   mkdirSync(sw, { recursive: true });
   for (const n of readdirSync(join(rootModules, "@switchboard"))) {
@@ -50,12 +50,11 @@ function release(names: string[], fakes: Record<string, Fake> = {}): string {
   symlinkSync(copy, join(sw, "host"), "junction");
   symlinkSync(realpathSync(join(rootModules, "@anthropic-ai")), join(dir, "node_modules", "@anthropic-ai"), "junction");
   for (const [name, m] of Object.entries(fakes)) {
-    const d = join(dir, "fakes", name);
+    const d = join(dir, "modules", name);
     mkdirSync(d, { recursive: true });
     writeFileSync(join(d, "package.json"), JSON.stringify({ name: `@switchboard/${name}`, type: "module", exports: { ".": "./contract.js" } }));
-    writeFileSync(join(d, "module.json"), JSON.stringify({ name, type: "sdk", version: "1.0.0", provides: m.provides, uses: {}, config: {} }));
+    writeFileSync(join(d, "module.json"), JSON.stringify({ name, type: "sdk", version: "1.0.0", into: ["host"], provides: m.provides, uses: {}, config: {} }));
     writeFileSync(join(d, "contract.js"), m.code ?? "export default {};\n");
-    symlinkSync(d, join(sw, name), "junction");
   }
   return join(copy, "main.ts");
 }
@@ -84,7 +83,7 @@ describe("процесс Host", () => {
     // источник: устав «версия SDK закреплена точно»; ответ одной строкой JSON — чьё: код
     const r = await run(join(coreDir, "main.ts"), ["--check"], {});
     expect(r.code).toBe(0);
-    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.0.0", sdk: "0.3.311", proto: PROTO });
+    expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: "1.2.0", sdk: "0.3.311", proto: PROTO });
   }, 90_000);
 
   it("739 · --check: у имени два владельца — ok:false с причиной, код 1", async () => {
@@ -96,13 +95,13 @@ describe("процесс Host", () => {
     expect(x.why).toContain("x.do: два владельца — host-a и host-b");
   }, 90_000);
 
-  it("740 · --check: пакета модуля нет — ok:false со словами ошибки, код 1", async () => {
+  it("740 · --check: папки модуля из списка сборки нет — ok:false со словами ошибки, код 1", async () => {
     // источник: устав «система ловит… отказывает, пишет причину»
     const r = await run(release(["host-nope"]), ["--check"], {});
     expect(r.code).toBe(1);
     const x = JSON.parse(r.out.trim());
     expect(x.ok).toBe(false);
-    expect(x.why).toContain("@switchboard/host-nope");
+    expect(x.why).toContain("host-nope");
   }, 90_000);
 
   it("741 · Host без SWITCHBOARD_MACHINE — отказ словами в stderr, код 1", async () => {
@@ -148,6 +147,28 @@ describe("процесс Host", () => {
     expect(err).not.toContain("цепочка упала");
   }, 90_000);
 
+  it("5115 · модуль не импортировался или его обработчик не из provides — модуль выключен на машине, Host готов", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): ошибка импорта или обработчик не из provides — модуль failed
+    const main = release(["host-broken", "host-extra", "host-ok"], {
+      "host-broken": { provides: {}, code: 'throw new Error("импорт сломан");\n' },
+      "host-extra": { provides: {}, code: 'export default { requests: { "x.y": () => 1 } };\n' },
+      "host-ok": { provides: {} },
+    });
+    const h = home();
+    const e: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h };
+    delete e.SWITCHBOARD_RELAY;
+    const p = spawn(process.execPath, [main], { env: e, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 30_000);
+    const failed = lines.filter((l) => l.ev === "module_failed");
+    expect(failed.map((l) => l.module).sort()).toEqual(["host-broken", "host-extra"]);
+    expect(String(failed.find((l) => l.module === "host-broken")!.why)).toContain("импорт сломан");
+    expect(String(failed.find((l) => l.module === "host-extra")!.why)).toContain("requests.x.y — нет в provides");
+    expect(lines.find((l) => l.ev === "host_start")).toMatchObject({ version: "1.2.0+1", modules: ["host-broken 1.0.0", "host-extra 1.0.0", "host-ok 1.0.0"] });
+    p.stdin.end();
+    expect(await closed).toBe(0);
+  }, 90_000);
+
   it("756 · таймер, заведённый модулем при импорте (до start), бросил — ошибка ничья: stderr и выход 1, module_failed нет", async () => {
     // источник: устав «чистый перезапуск компонента или процесса» и ветка «Host умер — один перезапуск» у keeper; чьё: код (main.ts — stray вернул false → выход 1)
     const code = 'setTimeout(() => { throw new Error("импорт упал"); }, 300);\nexport default {};\n';
@@ -159,11 +180,11 @@ describe("процесс Host", () => {
     expect((await journalUntil(h, () => false, 0)).some((l) => l.ev === "module_failed")).toBe(false);
   }, 90_000);
 
-  it("743 · Host: пакета модуля нет — «host:» с причиной, код 1", async () => {
+  it("743 · Host: папки модуля из списка сборки нет — «host:» с причиной, код 1", async () => {
     // источник: устав «Код системы только обнаруживает ошибку и не пускает её дальше»; дальше ведёт keeper
     const r = await run(release(["host-nope"]), [], { SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: home() });
     expect(r.code).toBe(1);
     expect(r.err).toContain("host:");
-    expect(r.err).toContain("@switchboard/host-nope");
+    expect(r.err).toContain("host-nope");
   }, 90_000);
 });

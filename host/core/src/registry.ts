@@ -11,12 +11,18 @@ export const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk"]);
 
 export { nameOf, ownerOf };
 
+/** Итог гейта: fatal — Host не стартует (имена набора); down — модуль → причины: он выключен, остальные работают. */
+export type GateResult = { fatal: string[]; down: Map<string, string[]> };
+
 /**
- * Гейт набора модулей Host. Пустой список — набор годен.
+ * Гейт набора модулей Host. Ошибки набора (два владельца имени, uses без владельца, нет relay) — fatal;
+ * ошибки устройства кода одного модуля (импорт, обработчик не из provides, calls мимо SDK) — только этот модуль.
  * Имя из uses, чей владелец не модуль Host и не ядро, — имя участника рации (Worker-модуля или keeper машины): идёт через relay.
  */
-export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): string[] {
+export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): GateResult {
   const errors: string[] = [];
+  const down = new Map<string, string[]>();
+  const off = (m: string, why: string) => down.set(m, [...(down.get(m) ?? []), why]);
   const local = new Set([core.name, ...entries.map((e) => e.manifest.name)]);
   // uses ядра сверяет гейт монорепо: его владельцы — вне процесса Host
   const manifests: Manifest[] = [{ ...core, uses: {} }];
@@ -31,20 +37,21 @@ export function gate(core: Manifest, entries: ModuleEntry[], relay: boolean): st
   }
   errors.push(...check(manifests).map((e) => e.replace(/^имя /, "")));
 
-  for (const { manifest: m, module: mod } of entries) {
+  for (const { manifest: m, module: mod, error } of entries) {
     const provides = m.provides ?? {};
+    if (error) off(m.name, `${m.name}: ${error}`);
     for (const kind of ["requests", "frames", "fields"] as const) {
       for (const n of Object.keys(mod[kind] ?? {})) {
-        if (provides[n] === undefined) errors.push(`${m.name}: ${kind}.${n} — нет в provides`);
-        if (kind === "fields" && CORE_FIELDS.has(n)) errors.push(`${m.name}: поле ${n} — имя ядра`);
+        if (provides[n] === undefined) off(m.name, `${m.name}: ${kind}.${n} — нет в provides`);
+        if (kind === "fields" && CORE_FIELDS.has(n)) off(m.name, `${m.name}: поле ${n} — имя ядра`);
       }
     }
     for (const c of m.calls ?? []) {
-      if (CORE_ONLY.has(c)) errors.push(`${m.name}: calls ${c} — метод держит ядро`);
-      else if (!isCallable(c)) errors.push(`${m.name}: calls ${c} — такого метода нет в SDK`);
+      if (CORE_ONLY.has(c)) off(m.name, `${m.name}: calls ${c} — метод держит ядро`);
+      else if (!isCallable(c)) off(m.name, `${m.name}: calls ${c} — такого метода нет в SDK`);
     }
-    for (const tool of Object.keys(mod.decide ?? {})) if (provides[`decide.${tool}`] === undefined) errors.push(`${m.name}: decide.${tool} — нет в provides`);
-    if (mod.elicit && provides.elicit === undefined) errors.push(`${m.name}: elicit — нет в provides`);
+    for (const tool of Object.keys(mod.decide ?? {})) if (provides[`decide.${tool}`] === undefined) off(m.name, `${m.name}: decide.${tool} — нет в provides`);
+    if (mod.elicit && provides.elicit === undefined) off(m.name, `${m.name}: elicit — нет в provides`);
   }
-  return errors;
+  return { fatal: errors, down };
 }

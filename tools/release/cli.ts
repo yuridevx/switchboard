@@ -1,20 +1,21 @@
 #!/usr/bin/env node
-// switchboard release host <версия> [--out <папка>] [--dry-run | --to <папка>]
+// switchboard release core [--out <папка>] [--dry-run | --to <папка>]
 // switchboard release keeper [--dry-run | --to <папка>]
 // switchboard release modules [--dry-run | --to <папка>]
 //
 // Собирает часть машины из монорепо и загружает её в бакет R2 switchboard-releases: <часть>/<версия>.tgz,
 // затем <часть>/<версия>.sha256. Не выкладывает: stable двигает «выпуски» (releases.deploy).
-//   host     ядро и модули host/core/modules.json, проверка host --check; номер — аргументом (CI: 1.1.<прогон>)
+//   core     ядро Host без модулей — host/<номер из host/core/module.json>.tgz, проверка host --check; тот же номер
+//            с тем же хэшем — пропуск, с другим — отказ «подними номер host». Сборку Host с модулями делают «Выпуски»
 //   keeper   файлы для Windows и Linux одним архивом; номер — из os/keeper/module.json. Номер уже загружен
 //            с тем же хэшем — пропуск; с другим — отказ «подними номер keeper»
-//   modules  каталог: каждый модуль монорепо, кроме приложений ОС, — <модуль>/<номер из module.json>.tgz; тот же
+//   modules  каталог: каждый модуль монорепо, кроме ядра Host и приложений ОС, — <модуль>/<номер из module.json>.tgz; тот же
 //            хэш — пропуск, другой — отказ «подними номер» (остальные модули загружаются)
 //   --out <папка>   куда собрать папку выпуска Host, .tgz и .sha256; по умолчанию dist/release в корне монорепо
 //   --dry-run       только собрать, никуда не загружать
 //   --to <папка>    загрузить в местную папку той же раскладки, что бакет (поддельный R2 для проверок)
 // Ключ R2 на запись — из окружения: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_ENDPOINT (https://<аккаунт>.r2.cloudflarestorage.com).
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "./src/build.ts";
@@ -30,18 +31,14 @@ import { runNode, runNpm } from "./src/run.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-export type Args = { part: "host" | "keeper" | "modules"; version?: string; out: string; dryRun: boolean; to?: string };
+export type Args = { part: "core" | "keeper" | "modules"; out: string; dryRun: boolean; to?: string };
 
-const USAGE = "вызов: switchboard release host <версия> | keeper | modules [--out <папка>] [--dry-run | --to <папка>]";
+const USAGE = "вызов: switchboard release core | keeper | modules [--out <папка>] [--dry-run | --to <папка>]";
 
 export function parseArgs(argv: string[]): Args {
   const [cmd, part, ...rest] = argv;
-  if (cmd !== "release" || (part !== "host" && part !== "keeper" && part !== "modules")) throw new Error(USAGE);
+  if (cmd !== "release" || (part !== "core" && part !== "keeper" && part !== "modules")) throw new Error(USAGE);
   const a: Args = { part, out: join(root, "dist", "release"), dryRun: false };
-  if (part === "host") {
-    a.version = rest.shift();
-    if (!a.version || a.version.startsWith("--")) throw new Error(USAGE);
-  }
   for (let i = 0; i < rest.length; i++) {
     const k = rest[i];
     if (k === "--dry-run") a.dryRun = true;
@@ -71,10 +68,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
   let version: string;
   let tgz: Buffer;
   let sha: string;
-  if (a.part === "host") {
-    const b = await build({ root, version: a.version!, out: a.out, exec: x });
+  const part = a.part === "core" ? "host" : a.part;
+  if (a.part === "core") {
+    const core = JSON.parse(readFileSync(join(root, "host", "core", "module.json"), "utf8")) as { version: string };
+    const b = await build({ root, version: core.version, out: a.out, exec: x });
     ({ version, tgz, sha } = b);
-    console.log(`собран host ${version}: ${b.packages.length} пакетов · SDK ${b.check.sdk} · ${tgz.length} байт · sha256 ${sha}`);
+    console.log(`собрано ядро host ${version}: ${b.packages.length} пакетов · SDK ${b.check.sdk} · ${tgz.length} байт · sha256 ${sha}`);
   } else {
     ({ version, tgz, sha } = await buildKeeper(root, go));
     console.log(`собран keeper ${version}: ${tgz.length} байт · sha256 ${sha}`);
@@ -83,16 +82,16 @@ export async function main(argv: string[], env: Record<string, string | undefine
     console.log("--dry-run: никуда не загружено");
     return 0;
   }
-  const r = await upload(bucket, a.part, version, tgz, sha);
-  console.log(r === "same" ? `${a.part} ${version} уже загружен с тем же хэшем — пропуск` : `загружено в ${bucket.where}: ${a.part}/${version}.tgz, .sha256`);
+  const r = await upload(bucket, part, version, tgz, sha);
+  console.log(r === "same" ? `${part} ${version} уже загружен с тем же хэшем — пропуск` : `загружено в ${bucket.where}: ${part}/${version}.tgz, .sha256`);
   return 0;
 }
 
-/** Каталог: все модули монорепо, кроме приложений ОС (у них своя сборка). Ответ — выход: 1, если хоть один отказ. */
+/** Каталог: все модули монорепо, кроме ядра Host и приложений ОС (у них своя сборка). Ответ — выход: 1, если хоть один отказ. */
 async function modules(bucket: Bucket | null): Promise<number> {
   const counts = { uploaded: 0, same: 0, built: 0 };
   const refused: string[] = [];
-  for (const m of loadRepo(root).filter((x) => x.type !== "os")) {
+  for (const m of loadRepo(root).filter((x) => x.type !== "os" && x.type !== "sdk-core")) {
     const p = packModule(join(root, m.dir));
     if (!bucket) {
       counts.built++;

@@ -122,16 +122,18 @@ describe("гейт старта Host", () => {
       ],
       false,
     );
-    expect(errors).toEqual([
+    // набор — Host не стартует; устройство кода одного модуля — выключен только он
+    expect(errors.fatal).toEqual([
       "host-k: keeper.state@keeper — нет relay (SWITCHBOARD_RELAY)",
       "host-k2: spawn@keeper — нет relay (SWITCHBOARD_RELAY)",
       "host-p: push.send@push — нет relay (SWITCHBOARD_RELAY)",
       "decide.AskUserQuestion: два владельца — host-q1 и host-q2",
-      "host-a: requests.x — нет в provides",
-      "host-b: поле state — имя ядра",
-      "host-c: calls close — метод держит ядро",
-      "host-c: calls nope — такого метода нет в SDK",
     ]);
+    expect(Object.fromEntries(errors.down)).toEqual({
+      "host-a": ["host-a: requests.x — нет в provides"],
+      "host-b": ["host-b: поле state — имя ядра"],
+      "host-c": ["host-c: calls close — метод держит ядро", "host-c: calls nope — такого метода нет в SDK"],
+    });
   });
 
   it("годный набор: Worker-имя и keeper.state через relay, uses между модулями той же версии", () => {
@@ -143,14 +145,14 @@ describe("гейт старта Host", () => {
       ],
       true,
     );
-    expect(errors).toEqual([]);
+    expect(errors).toEqual({ fatal: [], down: new Map() });
   });
 });
 
 describe("выпуск", () => {
-  it("выпуск монорепо: ядро, SDK 0.3.311 и список модулей", async () => {
+  it("ядро без сборки: модулей нет, версия ядра, SDK 0.3.311", async () => {
     const r = await loadRelease(join(import.meta.dirname, ".."));
-    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.0.0" });
+    expect(r).toMatchObject({ sdk: "0.3.311", version: "1.2.0", modules: [] });
     expect(Array.isArray(r.modules)).toBe(true);
   });
 

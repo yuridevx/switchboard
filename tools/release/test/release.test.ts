@@ -140,15 +140,15 @@ describe("загрузка", () => {
     expect(calls).toEqual(["GET host/1.1.58.sha256"]);
   });
 
-  it("2077 · аргументы: host с номером, keeper без; --out, --dry-run, --to; незнакомый — отказ; ключ R2 только из окружения", () => {
-    expect(parseArgs(["release", "host", "1.4.1", "--dry-run"])).toMatchObject({ part: "host", version: "1.4.1", dryRun: true });
+  it("2077 · аргументы: core, keeper и modules без номера; --out, --dry-run, --to; незнакомый — отказ; ключ R2 только из окружения", () => {
+    expect(parseArgs(["release", "core", "--dry-run"])).toMatchObject({ part: "core", dryRun: true });
     expect(parseArgs(["release", "keeper", "--to", "x"])).toMatchObject({ part: "keeper", dryRun: false });
-    expect(() => parseArgs(["release", "host"])).toThrow("вызов");
+    expect(parseArgs(["release", "modules"])).toMatchObject({ part: "modules" });
+    expect(() => parseArgs(["release", "host", "1.4.1"])).toThrow("вызов");
     expect(() => parseArgs(["release", "1.4.1"])).toThrow("вызов");
-    expect(() => parseArgs(["release", "host", "1.4.1", "--dry-run", "--to", "x"])).toThrow();
-    expect(() => parseArgs(["release", "host", "1.4.1", "--zip"])).toThrow("незнакомый аргумент: --zip");
-    expect(() => parseArgs(["release", "host", "--dry-run"])).toThrow("вызов");
-    expect(bucketOf(parseArgs(["release", "host", "1.4.1", "--dry-run"]), {})).toBeNull();
+    expect(() => parseArgs(["release", "core", "--dry-run", "--to", "x"])).toThrow();
+    expect(() => parseArgs(["release", "core", "--zip"])).toThrow("незнакомый аргумент: --zip");
+    expect(bucketOf(parseArgs(["release", "core", "--dry-run"]), {})).toBeNull();
     expect(() => bucketOf(parseArgs(["release", "keeper"]), {})).toThrow("R2_ACCESS_KEY_ID");
     expect(bucketOf(parseArgs(["release", "keeper"]), { R2_ACCESS_KEY_ID: "a", R2_SECRET_ACCESS_KEY: "b", R2_ENDPOINT: "https://x" })?.where).toBe("https://x/switchboard-releases");
   });
@@ -261,10 +261,11 @@ describe("загрузка: отказ R2", () => {
 });
 
 describe("сборка выпуска", () => {
-  it("пакеты выпуска: ядро, модули списка и то, что они импортируют; тестов и настроек нет", () => {
+  it("пакеты ядра: ядро, то, что оно импортирует, и пакеты @switchboard из его зависимостей; модулей, тестов и настроек нет", () => {
     const names = closure(root).map((p) => p.name);
     expect(names[0]).toBe("@switchboard/host");
-    expect(names).toEqual(expect.arrayContaining(["@switchboard/protocol", "@switchboard/relay", "@switchboard/manifest-gate"]));
+    expect(names).toEqual(expect.arrayContaining(["@switchboard/protocol", "@switchboard/relay", "@switchboard/manifest-gate", "@switchboard/release"]));
+    expect(names.some((n) => n.startsWith("@switchboard/host-"))).toBe(false);
     const core = closure(root)[0].dir;
     const files = packageFiles(core);
     expect(files).toContain("main.ts");
@@ -272,7 +273,7 @@ describe("сборка выпуска", () => {
     expect(files.some((f) => f.startsWith("test/") || f.includes(".test."))).toBe(false);
   });
 
-  it("папка версии: вход host, workspaces, release.json; npm и host --check по порядку; архив без node_modules", async () => {
+  it("папка ядра: module.json первым, вход host, workspaces; npm и host --check по порядку; архив без node_modules", async () => {
     const out = tmp();
     const ran: string[] = [];
     const exec: Exec = async (cmd, args, cwd) => {
@@ -287,14 +288,15 @@ describe("сборка выпуска", () => {
     expect(b.check).toEqual({ ok: true, version: "1.4.1", sdk: "0.3.311", proto: 1 });
     expect(existsSync(join(b.dir, "node_modules"))).toBe(false);
     const paths = entries(b.tgz).map((e) => e.path);
-    expect(paths).toEqual(expect.arrayContaining(["host", "package.json", "package-lock.json", "packages/host/main.ts", "packages/host/release.json", "packages/protocol/contract.ts"]));
+    expect(paths[0]).toBe("module.json");
+    expect(await manifestOf(b.tgz)).toMatchObject({ name: "host", type: "sdk-core" });
+    expect(paths).toEqual(expect.arrayContaining(["host", "package.json", "package-lock.json", "packages/host/main.ts", "packages/protocol/contract.ts", "packages/release/contract.ts"]));
     expect(paths.some((p) => p.includes("node_modules") || p.includes(".test."))).toBe(false);
     const rootPj = JSON.parse(readFileSync(join(b.dir, "package.json"), "utf8"));
     expect(rootPj).toMatchObject({ type: "module", workspaces: ["packages/*"], version: "1.4.1" });
     const corePj = JSON.parse(readFileSync(join(b.dir, "packages", "host", "package.json"), "utf8"));
-    expect(corePj.dependencies).toEqual({ "@anthropic-ai/claude-agent-sdk": "0.3.311" });
+    expect(corePj.dependencies).toEqual({ "@anthropic-ai/claude-agent-sdk": "0.3.311", zod: "4.4.3" });
     expect(corePj.scripts).toBeUndefined();
-    expect(JSON.parse(readFileSync(join(b.dir, "packages", "host", "release.json"), "utf8"))).toEqual({ version: "1.4.1" });
     // Host — часть машины, как приложение: keeper ставит его по app.json
     expect(JSON.parse(readFileSync(join(b.dir, "app.json"), "utf8"))).toEqual({ run: ["node", "host"], setup: ["npm", "ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], detach_children: true });
     expect(paths).toContain("app.json");

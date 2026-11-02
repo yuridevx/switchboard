@@ -171,14 +171,16 @@ export class Kernel {
   /** Старт Host по шагам дизайна. Гейт не прошёл — StartError, сессии у держателей не тронуты. */
   async start(): Promise<void> {
     const relayOn = !!this.deps.config.relay;
-    const errors = gate(this.deps.core, this.release.modules, relayOn);
-    if (errors.length) {
-      for (const e of errors) this.log("core", { kind: "stop", ev: "gate", word: "check_failed", why: e });
-      throw new StartError(errors);
+    const { fatal, down } = gate(this.deps.core, this.release.modules, relayOn);
+    if (fatal.length) {
+      for (const e of fatal) this.log("core", { kind: "stop", ev: "gate", word: "check_failed", why: e });
+      throw new StartError(fatal);
     }
-    this.mods = this.release.modules.map((e) => new Mod(e.manifest, e.module));
+    this.mods = this.release.modules.map((e) => new Mod(e.manifest, down.has(e.manifest.name) ? {} : e.module));
     this.index();
     this.log("core", { ev: "host_start", version: this.version, sdk: this.sdkVersion, modules: this.mods.map((m) => `${m.name} ${m.manifest.version}`) });
+    // модуль с ошибкой своего кода — выключен на машине (failed в roster), Host работает без него
+    for (const m of this.mods) if (down.has(m.name)) this.disable(m, null, "гейт старта", new Error(down.get(m.name)!.join("; ")));
     for (const m of this.mods) await this.startModule(m);
 
     const procs = this.holders.list();

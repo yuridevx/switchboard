@@ -1,12 +1,15 @@
-// Сборка выпуска Host из монорепо: ядро и модули из host/core/modules.json, с пакетами, которые они импортируют.
+// Архив ядра Host для каталога: ядро, пакеты, которые оно импортирует, и то, что оно даёт модулям (зависимости
+// @switchboard из его package.json — формат выпуска), без модулей. Модули и список кладут «Выпуски» при сборке.
 //
-// Папка выпуска — маленький монорепо npm; keeper ставит его как любое приложение по app.json:
+// Папка ядра — маленький монорепо npm; keeper ставит сборку как любое приложение по app.json:
+//   module.json              манифест ядра — первой записью архива
 //   app.json                 run: node host; setup: npm ci --omit=dev; detach_children — держатели сессий переживают Host
 //   host                     вход: импортирует packages/host/main.ts
 //   package.json             workspaces: packages/*
-//   package-lock.json        зависимости (SDK и его пакеты) — npm ci на машине
-//   packages/host/           ядро; release.json — версия выпуска
-//   packages/<имя>/          модули и пакеты, которые они импортируют
+//   package-lock.json        зависимости (SDK, zod и их пакеты) — npm ci на машине
+//   packages/<имя>/          ядро и его пакеты
+// В сборке рядом — modules/<имя>/ и build.json; modules/ вне workspaces: npm их не трогает, а импорты модулей
+// (@switchboard/host, протокол, SDK, zod) Node находит в node_modules корня.
 // npm ci связывает пакеты в node_modules/@switchboard ссылками на packages/: настоящий путь файлов — вне node_modules,
 // поэтому Node снимает типы с .ts сам, без сборки в .js.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -100,13 +103,10 @@ function releasePackageJson(src: Record<string, any>): Record<string, unknown> {
   return out;
 }
 
-/** Пакеты выпуска: ядро, модули списка и всё, что они импортируют. */
+/** Пакеты ядра: ядро, всё, что оно импортирует, и пакеты @switchboard из зависимостей — их ядро даёт модулям. */
 export function closure(root: string): Array<{ name: string; dir: string }> {
   const ws = workspaces(root);
-  const coreDir = ws.get("@switchboard/host");
-  if (!coreDir) throw new Error("пакета @switchboard/host нет в workspaces");
-  const names = JSON.parse(readFileSync(join(coreDir, "modules.json"), "utf8")) as string[];
-  const queue = ["@switchboard/host", ...names.map((n) => `@switchboard/${n}`)];
+  const queue = ["@switchboard/host"];
   const seen = new Map<string, string>();
   while (queue.length) {
     const name = queue.shift()!;
@@ -114,7 +114,8 @@ export function closure(root: string): Array<{ name: string; dir: string }> {
     const dir = ws.get(name);
     if (!dir) throw new Error(`пакета ${name} нет в workspaces`);
     seen.set(name, dir);
-    queue.push(...importsOf(dir, packageFiles(dir)));
+    const deps = Object.keys((JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as { dependencies?: Record<string, string> }).dependencies ?? {});
+    queue.push(...importsOf(dir, packageFiles(dir)), ...deps.filter((d) => d.startsWith("@switchboard/")));
   }
   return [...seen].map(([name, dir]) => ({ name, dir }));
 }
@@ -136,7 +137,7 @@ export function parseCheck(out: string): Built["check"] {
   }
 }
 
-/** Собрать выпуск: папка, lockfile, npm ci и host --check, архив и его SHA-256. Не прошло — исключение с причиной. */
+/** Собрать архив ядра: папка, lockfile, npm ci и host --check, архив и его SHA-256. Не прошло — исключение с причиной. */
 export async function build(o: BuildOptions): Promise<Built> {
   if (!VERSION_RE.test(o.version)) throw new Error(`версия «${o.version}» не вида 1.4.1`);
   const pkgs = closure(o.root);
@@ -155,7 +156,7 @@ export async function build(o: BuildOptions): Promise<Built> {
     const pj = releasePackageJson(JSON.parse(readFileSync(join(src, "package.json"), "utf8")));
     put(`${base}/package.json`, Buffer.from(JSON.stringify(pj, null, 2) + "\n"));
   }
-  put("packages/host/release.json", Buffer.from(JSON.stringify({ version: o.version }) + "\n"));
+  put("module.json", readFileSync(join(pkgs[0].dir, "module.json")));
   put("app.json", Buffer.from(JSON.stringify(APP) + "\n"));
   put("package.json", Buffer.from(JSON.stringify({ name: "switchboard-host-release", version: o.version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n"));
   put("host", Buffer.from(ENTRY), 0o755);

@@ -23,7 +23,8 @@ const home = process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
 async function check(): Promise<number> {
   try {
     const rel = await loadRelease(coreDir);
-    const errors = gate(core, rel.modules, true);
+    const g = gate(core, rel.modules, true);
+    const errors = [...g.fatal, ...[...g.down.values()].flat()];
     if (errors.length) {
       console.log(JSON.stringify({ ok: false, why: errors.join("; ") }));
       return 1;
