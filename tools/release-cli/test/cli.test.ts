@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it, vi } from "vitest";
 import { parseSha, sha256hex } from "@switchboard/release";
-import type { GoExec } from "@switchboard/release";
+import type { GoExec } from "../src/keeper.ts";
 import { asker, main, parseArgs } from "../cli.ts";
 import type { Fetch } from "../cli.ts";
 

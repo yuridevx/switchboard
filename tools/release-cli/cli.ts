@@ -18,8 +18,12 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { build, buildKeeper, packModule, runGo, runNode, runNpm, upload } from "@switchboard/release";
-import type { Exec, GoExec, Put, UploadReply } from "@switchboard/release";
+import { upload } from "@switchboard/release";
+import type { Put, UploadReply } from "@switchboard/release";
+import { build, type Exec } from "./src/build.ts";
+import { buildKeeper, runGo, type GoExec } from "./src/keeper.ts";
+import { packModule } from "./src/module.ts";
+import { runNode, runNpm } from "./src/run.ts";
 import { loadRepo } from "@switchboard/manifest-gate";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");

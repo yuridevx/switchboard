@@ -12,14 +12,8 @@ export { presign } from "./src/presign.ts";
 export type { LinkKey } from "./src/presign.ts";
 export { sha256hex } from "./src/hash.ts";
 export { entries, manifestOf, MANIFEST, pack, packDir } from "./src/tar.ts";
+export type { TarFile } from "./src/tar.ts";
 export { upload, PUT_MS } from "./src/upload.ts";
 export type { Put, UploadReply } from "./src/upload.ts";
-// упаковка частей из монорепо — для CLI выпуска
-export { build } from "./src/build.ts";
-export type { Exec } from "./src/build.ts";
-export { buildKeeper, runGo } from "./src/keeper.ts";
-export type { GoExec } from "./src/keeper.ts";
-export { packModule } from "./src/module.ts";
-export { runNode, runNpm } from "./src/run.ts";
 export { WEB_FILE, webBuild } from "./src/web.ts";
 export type { WebBuildList } from "./src/web.ts";

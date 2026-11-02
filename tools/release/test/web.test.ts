@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { manifestOf, pack, WEB_FILE, webBuild, type WebBuildList } from "../contract.ts";
-import { packModule } from "../src/module.ts";
+import { packModule } from "../../release-cli/src/module.ts";
 import { entries } from "../src/tar.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");

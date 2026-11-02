@@ -7,9 +7,8 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sha256hex } from "./hash.ts";
+import { pack, sha256hex } from "@switchboard/release";
 import type { RunResult } from "./run.ts";
-import { pack } from "./tar.ts";
 
 export const TARGETS = [
   { goos: "windows", goarch: "amd64", file: "windows-amd64/keeper.exe" },

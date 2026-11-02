@@ -9,10 +9,8 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { buildSync } from "esbuild";
+import { MANIFEST, pack, sha256hex, WEB_FILE, type TarFile } from "@switchboard/release";
 import { packageFiles } from "./build.ts";
-import { sha256hex } from "./hash.ts";
-import { MANIFEST, pack, type TarFile } from "./tar.ts";
-import { WEB_FILE } from "./web.ts";
 
 /** Типы модулей, которые выкладываются версией Worker'а. */
 export const CLOUD_TYPES = new Set(["worker", "web-app"]);

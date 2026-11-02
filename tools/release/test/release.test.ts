@@ -7,11 +7,11 @@ import { describe, expect, it, vi } from "vitest";
 import { manifestOf, pack, packDir, parseSha, presign, sha256hex, shaLine, upload } from "../contract.ts";
 import type { Put, UploadReply } from "../contract.ts";
 import { entries } from "../src/tar.ts";
-import { build, closure, packageFiles } from "../src/build.ts";
-import type { Exec } from "../src/build.ts";
-import { buildKeeper } from "../src/keeper.ts";
-import { packModule } from "../src/module.ts";
-import type { GoExec } from "../src/keeper.ts";
+import { build, closure, packageFiles } from "../../release-cli/src/build.ts";
+import type { Exec } from "../../release-cli/src/build.ts";
+import { buildKeeper } from "../../release-cli/src/keeper.ts";
+import { packModule } from "../../release-cli/src/module.ts";
+import type { GoExec } from "../../release-cli/src/keeper.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
 const tmp = () => mkdtempSync(join(tmpdir(), "switchboard-release-"));

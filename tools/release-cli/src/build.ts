@@ -14,11 +14,9 @@
 // поэтому Node снимает типы с .ts сам, без сборки в .js.
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
-import { shaLine, VERSION_RE } from "./format.ts";
-import { sha256hex } from "./hash.ts";
+import { pack, sha256hex, shaLine, VERSION_RE } from "@switchboard/release";
+import type { TarFile } from "@switchboard/release";
 import type { RunResult } from "./run.ts";
-import { pack } from "./tar.ts";
-import type { TarFile } from "./tar.ts";
 
 export type Exec = (cmd: "npm" | "node", args: string[], cwd: string) => Promise<RunResult>;
 
