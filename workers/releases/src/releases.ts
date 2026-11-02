@@ -83,10 +83,12 @@ export class Releases extends DurableObject<Env> {
         }
       }
     } catch (e) {
-      if (e instanceof Refusal) return refuse(e);
+      // отказ посреди «*»: уже выложенные части Cloudflare — в журнал флота
+      const done = (e as { done?: Frame[] }).done ?? [];
+      if (e instanceof Refusal) return [...refuse(e), ...done];
       if (e instanceof CfFailed) {
         log({ kind: "refuse", ev: f.type, word: "cf_failed", why: e.message, from, status: e.status, text: e.text });
-        return answer(fail(id, "cf_failed"));
+        return [...answer(fail(id, "cf_failed")), ...done];
       }
       throw e;
     }
@@ -233,28 +235,39 @@ export class Releases extends DurableObject<Env> {
     const out: Frame[] = [];
     // stable частей машины пишется после цикла: отказ Cloudflare посреди «*» не оставляет stable без rev и планов
     const moved = new Map<string, string>();
-    for (const p of targets) {
-      const want = part === "*" ? undefined : (f.version as string | undefined);
-      let from: string | null;
-      let to: string;
-      const script = this.env.CLOUD[p];
-      if (script) {
-        const vs = await versions(this.env, script);
-        const t = want ?? newest(vs.keys());
-        if (!t || !vs.has(t)) throw new Refusal("no_release", `у ${p} нет версии ${t ?? "с меткой"}`);
-        to = t;
-        const cur = await deployed(this.env, script);
-        from = [...vs].find(([, id]) => id === cur)?.[0] ?? null;
-        if (cur !== vs.get(to)) await deploy(this.env, script, vs.get(to)!);
-      } else {
-        const t = want ?? newest(await this.machineVersions(p));
-        if (!t || !(await this.sha(p, t))) throw new Refusal("no_release", `у ${p} нет версии ${t ?? ""}`.trim());
-        to = t;
-        from = this.stableOf(p);
-        if (from !== to) moved.set(p, to);
+    // записи о выложенных частях Cloudflare: при отказе посреди цикла они уходят с отказом
+    const done: Frame[] = [];
+    try {
+      for (const p of targets) {
+        const want = part === "*" ? undefined : (f.version as string | undefined);
+        let from: string | null;
+        let to: string;
+        const script = this.env.CLOUD[p];
+        if (script) {
+          const vs = await versions(this.env, script);
+          const t = want ?? newest(vs.keys());
+          if (!t || !vs.has(t)) throw new Refusal("no_release", `у ${p} нет версии ${t ?? "с меткой"}`);
+          to = t;
+          const cur = await deployed(this.env, script);
+          from = [...vs].find(([, id]) => id === cur)?.[0] ?? null;
+          if (cur !== vs.get(to)) await deploy(this.env, script, vs.get(to)!);
+        } else {
+          const t = want ?? newest(await this.machineVersions(p));
+          if (!t || !(await this.sha(p, t))) throw new Refusal("no_release", `у ${p} нет версии ${t ?? ""}`.trim());
+          to = t;
+          from = this.stableOf(p);
+          if (from !== to) moved.set(p, to);
+        }
+        result.parts[p] = { from, to };
+        if (from !== to) {
+          const rec = ledger(`${p} ${from ?? "—"} → ${to}`, by);
+          out.push(rec);
+          if (script) done.push(rec);
+        }
       }
-      result.parts[p] = { from, to };
-      if (from !== to) out.push(ledger(`${p} ${from ?? "—"} → ${to}`, by));
+    } catch (e) {
+      if (e instanceof Refusal || e instanceof CfFailed) Object.assign(e, { done });
+      throw e;
     }
     if (moved.size) {
       for (const [p, to] of moved) this.ctx.storage.sql.exec("INSERT INTO stable (part, version) VALUES (?, ?) ON CONFLICT(part) DO UPDATE SET version = excluded.version", p, to);

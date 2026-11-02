@@ -21,7 +21,7 @@ export type LedgerAdd = {
   callsign?: string;
 };
 
-/** ledger.read — записи, новые сначала. before или after — id; фильтры machine и q — подстрока текста. */
+/** ledger.read — записи, новые сначала. before или after — id; фильтр machine. */
 export type LedgerRead = {
   type: "ledger.read";
   id: string;
@@ -31,7 +31,6 @@ export type LedgerRead = {
   before?: number;
   after?: number;
   machine?: string;
-  q?: string;
 };
 
 export type LedgerEvent = {

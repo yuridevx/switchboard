@@ -331,6 +331,25 @@ describe("эталоны releases", () => {
     expect([l.parts.host.stable, l.rev]).toEqual(["1.1.58", 2]);
   });
 
+  it("2092 · Cloudflare отказал посреди «*» — уже выложенные части Cloudflare в журнале флота, отказ cf_failed", async () => {
+    // источник: устав «система ловит»: отказ — словом, причина — в журнале; факт цикла тестов 2 нояб. — записи выложенных частей терялись
+    const s = fresh();
+    fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])));
+    await inR2("keeper", "1.0.1");
+    await inR2("host", "1.1.58");
+    const real = vi.mocked(fetch).getMockImplementation()!;
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
+      new Request(input, init).url.includes("/switchboard-points/") ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
+    );
+    const out = await req(s, "~x", "releases.deploy", { part: "*" });
+    expect(out[0]).toEqual({ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" });
+    // порядок выкладки — части Cloudflare по списку, relay последним: до points выложены gate и push
+    expect(out.slice(1).map((f) => [f.type, f.to, f.text])).toEqual([
+      ["ledger.add", ".ledger", "gate 1.1.58 → 1.1.59"],
+      ["ledger.add", ".ledger", "push 1.1.58 → 1.1.59"],
+    ]);
+  });
+
   it("2039 · deploy части сборки: stable, rev, план машинам за stable, ledger.add с by; повтор — без перемен", async () => {
     const s = fresh();
     fakeCf(NONE);

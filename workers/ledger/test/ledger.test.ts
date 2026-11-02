@@ -159,7 +159,7 @@ describe("эталоны ledger", () => {
 });
 
 describe("ledger: чтение, отказы и стык с relay", () => {
-  it("фильтры machine и q; запись сессии берёт machine из callsign", async () => {
+  it("фильтр machine; запись сессии берёт machine из callsign", async () => {
     const j = fresh();
     await j.frame({ type: "ledger.add", to: ".ledger", from: "@laptop", ev: "session.opened", callsign: "site@laptop", text: "site@laptop создана" });
     await j.frame({ type: "ledger.add", to: ".ledger", from: "@pc", ev: "session.opened", callsign: "docs@pc", text: "docs@pc создана" });
@@ -170,7 +170,6 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     };
     expect(await read({ machine: "laptop" })).toEqual(["site@laptop создана"]);
     expect(await read({ machine: "pc" })).toEqual(["pc: Host 1.5.0 → 1.6.0", "docs@pc создана"]);
-    expect(await read({ q: "Host" })).toEqual(["pc: Host 1.5.0 → 1.6.0"]);
     expect(await read({})).toHaveLength(3);
   });
 
@@ -196,14 +195,6 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     for (const limit of [undefined, 0, "5", 1.5]) {
       expect(await j.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel", limit })).toMatchObject([{ id: "r", ok: false, error: "bad_frame", to: "panel" }]);
     }
-  });
-
-  it("roster не от relay (с from участника) — bad_frame, записей нет", async () => {
-    const j = fresh();
-    const log = journal();
-    await j.frame({ ...roster("laptop"), from: "panel" });
-    expect(await all(j)).toEqual([]);
-    expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", from: "panel" }));
   });
 
   it("2015 · новый Host вытеснил прежний: roster с той же машиной и новым since — журнал без left", async () => {

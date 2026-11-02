@@ -37,8 +37,7 @@ export class Journal extends DurableObject<Env> {
     };
 
     if (f.type === "roster") {
-      // roster ledger получает от relay по своей привязке; от участника рации — чужой кадр
-      if (f.from !== undefined && f.from !== "relay") return refuse("bad_frame", "roster шлёт только relay");
+      // roster шлёт только relay: от участников рации и клиентов кадр с этим именем relay не принимает
       this.roster(f);
       return [];
     }
@@ -71,10 +70,6 @@ export class Journal extends DurableObject<Env> {
     if (typeof f.machine === "string") {
       where.push("machine = ?");
       args.push(f.machine);
-    }
-    if (typeof f.q === "string" && f.q) {
-      where.push("instr(text, ?) > 0");
-      args.push(f.q);
     }
     const after = typeof f.after === "number";
     if (after) {
