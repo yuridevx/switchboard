@@ -1,11 +1,4 @@
-import type { Frame } from "@switchboard/protocol";
 import type { Releases } from "./releases.ts";
-
-/** Вход Radio relay (контракт frame@relay): свой кадр или reply; ответ — слово отказа или ничего. */
-export type Radio = { frame(f: Frame): Promise<string | undefined> };
-
-/** Ответ участника на hello(): контракт. */
-export type ParticipantHello = { contract: Record<string, number> };
 
 export interface Env {
   /** токен API Cloudflare: список версий Worker'ов и выкладка */
@@ -18,8 +11,6 @@ export interface Env {
   CLOUD: Record<string, string>;
   /** привязка к бакету выпусков: список и хэши архивов */
   BUCKET: R2Bucket;
-  /** своя привязка к relay: вход Radio, props { name: "releases" } */
-  RELAY: Radio;
   /** объект выпусков, один на флот */
   RELEASES: DurableObjectNamespace<Releases>;
 }

@@ -8,9 +8,6 @@
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true },
-  "services": [
-    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "points" } }
-  ],
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points" }],
   "durable_objects": { "bindings": [{ "name": "REGISTRY", "class_name": "Registry" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Registry"] }],
@@ -22,9 +19,6 @@
   // прод: свой бакет точек; R2_PARENT_KEY_ID — токен R2 прода (бакеты switchboard-points-prod и switchboard-releases)
   "env": {
     "prod": {
-      "services": [
-        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Radio", "props": { "name": "points" } }
-      ],
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points-prod" }],
       "durable_objects": { "bindings": [{ "name": "REGISTRY", "class_name": "Registry" }] },
       "vars": {

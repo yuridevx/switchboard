@@ -10,7 +10,6 @@
     "R2_PARENT_KEY_ID": "var",
     "POINTS_BUCKET": "var",
     "BUCKET": "binding",
-    "RELAY": "binding",
     "REGISTRY": "binding"
   }
 }

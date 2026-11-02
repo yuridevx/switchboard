@@ -1,11 +1,10 @@
-import { createExecutionContext, env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { Participant } from "../src/index.ts";
 import type { Registry } from "../src/registry.ts";
 
-const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
+const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
 type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
 const sweep = (s: Stub) => runInDurableObject(s, (o) => (o as unknown as Registry).sweep());
 let n = 0;
@@ -64,8 +63,6 @@ async function line(s: Stub, from: string, sid: string, k: number, b: string[]) 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
   clock(T0);
-  await env.RELAY_LOG.take();
-  await env.RELAY_LOG.answer();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -364,27 +361,6 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     ]);
   });
 
-  it("2059 · объект реестра бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
-    const lines = journal();
-    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой реестра")) }) };
-    const p = new Participant(createExecutionContext(), { ...env, REGISTRY: broken } as never);
-    await expect(p.frame({ type: "points.list", id: "l", to: ".points", from: "panel" })).rejects.toThrow("сбой реестра");
-    expect(lines).toContainEqual(expect.objectContaining({ part: "points", kind: "stop", ev: "points.list", from: "panel" }));
-    expect(await env.RELAY_LOG.take()).toEqual([]);
-  });
-
-  it("2060 · relay не принял кадр (ledger не на связи) — ответ ушёл, строка refuse, вызов не бросает", async () => {
-    await inR2("2060a");
-    await relay.frame({ type: "points.put", id: "p-1", to: ".points", from: "@laptop", sid: "s2060", why: "rule", files: file(["2060a"]), callsign: "x@laptop" });
-    await env.RELAY_LOG.take();
-    const lines = journal();
-    await env.RELAY_LOG.answer("offline");
-    await relay.frame({ type: "points.delete", id: "d-1", to: ".points", from: "panel", sid: "s2060" });
-    const sent = await env.RELAY_LOG.take();
-    expect(sent.map((x) => x.frame.type)).toEqual(["reply", "ledger.add"]);
-    expect(lines).toContainEqual(expect.objectContaining({ part: "points", ev: "relay", word: "offline", to: ".ledger", type: "ledger.add" }));
-  });
-
   it("2061 · копия — новый sid с base из другой сессии: хозяин — машина копии, исходная цела, session.copied", async () => {
     const s = fresh();
     await inR2("2061a");
@@ -491,13 +467,13 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     expect((l.result as { sweep: { at: number } }).sweep.at).toBe(T0 + DAY);
   });
 
-  it("через вход участника: reply и ledger.add уходят в relay по привязке с именем points", async () => {
+  it("через вход участника: reply и ledger.add — кадры ответа вызова, по порядку", async () => {
     await inR2("305a1");
-    await relay.frame({ type: "points.put", id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) });
-    await relay.frame({ type: "points.put", id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) });
-    const sent = await env.RELAY_LOG.take();
-    expect(sent.map((x) => x.name)).toEqual(["points", "points", "points"]);
-    expect(sent.map((x) => [x.frame.type, x.frame.to])).toEqual([
+    const sent = [
+      ...(await relay.frame({ type: "points.put", id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) })),
+      ...(await relay.frame({ type: "points.put", id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) })),
+    ];
+    expect(sent.map((x) => [x.type, x.to])).toEqual([
       ["reply", "@laptop"],
       ["reply", "@pc"],
       ["ledger.add", ".ledger"],

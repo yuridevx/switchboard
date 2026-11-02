@@ -19,8 +19,6 @@ export default defineConfig({
       wrangler: { configPath: here("./wrangler.jsonc") },
       miniflare: {
         bindings: { VAPID_PRIVATE: JSON.stringify(TEST_VAPID) },
-        serviceBindings: { RELAY_LOG: { name: "switchboard", entrypoint: "Log" } },
-        workers: [{ name: "switchboard", modules: true, scriptPath: here("./test/relay-stub.js"), compatibilityDate: "2026-08-01" }],
       },
     }),
   ],

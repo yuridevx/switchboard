@@ -2,6 +2,7 @@
 type Ctl = {
   setMode(m: string): Promise<void>;
   received(): Promise<Record<string, any>[]>;
+  setReturn(fs: Record<string, unknown>[]): Promise<void>;
   clear(): Promise<void>;
   send(f: Record<string, unknown>): Promise<string | undefined>;
 };

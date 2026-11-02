@@ -9,8 +9,6 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: here("./wrangler.jsonc") },
       miniflare: {
-        serviceBindings: { RELAY_LOG: { name: "switchboard", entrypoint: "Log" } },
-        workers: [{ name: "switchboard", modules: true, scriptPath: here("./test/relay-stub.js"), compatibilityDate: "2026-08-01" }],
       },
     }),
   ],

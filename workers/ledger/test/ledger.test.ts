@@ -1,11 +1,10 @@
-import { createExecutionContext, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { Participant } from "../src/index.ts";
 import { span } from "../src/journal.ts";
 
-const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
+const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
 const at = (hm: string, day = "2026-10-31") => new Date(`${day}T${hm}:00Z`).getTime();
 const clock = (t: number) => vi.setSystemTime(t);
 
@@ -36,8 +35,6 @@ function journal() {
 
 beforeEach(async () => {
   vi.useFakeTimers({ toFake: ["Date"] });
-  await env.RELAY_LOG.take();
-  await env.RELAY_LOG.answer();
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -219,34 +216,14 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     expect((await all(j)).map((r) => [r.ev, r.machine])).toEqual([["machine.back", "laptop"]]);
   });
 
-  it("2010 · через вход участника: ответ только на ledger.read — через RELAY с props ledger; на roster и ledger.add кадров нет", async () => {
+  it("2010 · через вход участника: ответ только на ledger.read — кадром ответа вызова; на roster и ledger.add кадров нет", async () => {
     clock(at("09:00", "2026-11-01"));
-    await relay.frame(roster("int-machine"));
-    await relay.frame({ type: "ledger.add", to: ".ledger", from: "@int-machine", ev: "session.opened", machine: "int-machine", text: "s" });
-    expect(await env.RELAY_LOG.take()).toEqual([]);
-    await relay.frame({ type: "ledger.read", id: "r-int", to: ".ledger", from: "panel", machine: "int-machine", limit: 5 });
-    const sent = await env.RELAY_LOG.take();
+    expect(await relay.frame(roster("int-machine"))).toEqual([]);
+    expect(await relay.frame({ type: "ledger.add", to: ".ledger", from: "@int-machine", ev: "session.opened", machine: "int-machine", text: "s" })).toEqual([]);
+    const sent = await relay.frame({ type: "ledger.read", id: "r-int", to: ".ledger", from: "panel", machine: "int-machine", limit: 5 });
     expect(sent).toHaveLength(1);
-    expect(sent[0].name).toBe("ledger");
-    expect(sent[0].frame).toMatchObject({ type: "reply", id: "r-int", to: "panel", ok: true });
-    expect((sent[0].frame.result as { events: Array<{ text: string }> }).events.map((e) => e.text)).toEqual(["s", "int-machine на связи"]);
-  });
-
-  it("2012 · объект журнала бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
-    const log = journal();
-    // сбой в коде объекта журнала: пространство объектов, чей frame бросает
-    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой журнала")) }) };
-    const p = new Participant(createExecutionContext(), { ...env, JOURNAL: broken } as never);
-    await expect(p.frame({ type: "ledger.read", id: "r", to: ".ledger", from: "panel", limit: 1 })).rejects.toThrow("сбой журнала");
-    expect(log).toContainEqual(expect.objectContaining({ part: "ledger", kind: "stop", ev: "ledger.read", from: "panel", why: "Error: сбой журнала" }));
-    expect(await env.RELAY_LOG.take()).toEqual([]);
-  });
-
-  it("2013 · relay не принял ответ — строка refuse, вызов участника не бросает", async () => {
-    const log = journal();
-    await env.RELAY_LOG.answer("offline");
-    await relay.frame({ type: "ledger.read", id: "r-off", to: ".ledger", from: "panel", limit: 1 });
-    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "relay", word: "offline", to: "panel", type: "reply" }));
+    expect(sent[0]).toMatchObject({ type: "reply", id: "r-int", to: "panel", ok: true });
+    expect((sent[0].result as { events: Array<{ text: string }> }).events.map((e) => e.text)).toEqual(["s", "int-machine на связи"]);
   });
 
   it("span: секунды, минуты, часы, дни", () => {

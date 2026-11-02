@@ -318,7 +318,7 @@ export class Fleet extends DurableObject<Env> {
         const name = a.slice(1);
         if (!this.workers.has(name)) return 0;
         try {
-          await call(this.participant(name).frame(out));
+          await this.callWorker(name, out);
           return 1;
         } catch (e) {
           log(`offline ${sender} → ${a} · ${out.type} · frame: ${e}`);
@@ -392,7 +392,7 @@ export class Fleet extends DurableObject<Env> {
       calls.push(
         (async () => {
           try {
-            await call(this.participant(name).frame(r));
+            await this.callWorker(name, r);
           } catch (e) {
             log(`offline relay → ${name} · roster · frame: ${e}`);
           }
@@ -403,6 +403,14 @@ export class Fleet extends DurableObject<Env> {
   }
 
   // ---------- участники ----------
+
+  /** Кадр участнику; кадры, которые он вернул, рация доставляет от его имени по одному. Бросил — исключение наружу. */
+  private async callWorker(name: string, f: Frame): Promise<void> {
+    const out = await call(this.participant(name).frame(f));
+    // служба на входе Radio шлёт свои кадры сама и ничего не возвращает
+    if (!Array.isArray(out)) return;
+    for (const o of out) await this.radio(name, o);
+  }
 
   private participant(name: string): Participant {
     return (this.env as unknown as Record<string, Participant>)[this.env.PARTICIPANTS[name]];

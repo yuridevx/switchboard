@@ -7,17 +7,11 @@
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true },
-  "services": [
-    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "push" } }
-  ],
   "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Subs"] }],
   "vars": { "VAPID_SUB": "https://switchboard.yuridevx1608.workers.dev" },
   "env": {
     "prod": {
-      "services": [
-        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Radio", "props": { "name": "push" } }
-      ],
       "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
       "vars": { "VAPID_SUB": "https://phone.pfarm.app" }
     }

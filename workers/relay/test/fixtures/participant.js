@@ -1,9 +1,10 @@
 // Поддельный участник рации для тестов relay: имя, контракт и uses — из своих bindings.
-// Отвечает на *.ping через свою привязку RELAY; остальное только запоминает.
+// Отвечает на *.ping кадрами в ответе frame; остальное запоминает и возвращает кадры, заданные тестом.
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 const got = [];
 let mode = "ok";
+let ret = [];
 
 export class Participant extends WorkerEntrypoint {
   hello() {
@@ -15,9 +16,11 @@ export class Participant extends WorkerEntrypoint {
   async frame(f) {
     got.push(f);
     if (mode === "frame_fail") throw new Error("frame сломан");
-    if (f.id && f.type.endsWith(".ping")) {
-      await this.env.RELAY.frame({ type: "reply", id: f.id, to: f.from, ok: true, result: { pong: this.env.NAME } });
-    }
+    if (f.id && f.type.endsWith(".ping")) return [{ type: "reply", id: f.id, to: f.from, ok: true, result: { pong: this.env.NAME } }];
+    return ret;
+  }
+  setReturn(fs) {
+    ret = fs;
   }
   // управление из теста
   setMode(m) {
@@ -28,6 +31,7 @@ export class Participant extends WorkerEntrypoint {
   }
   clear() {
     got.length = 0;
+    ret = [];
   }
   send(f) {
     return this.env.RELAY.frame(f);

@@ -7,7 +7,6 @@
   "config": {
     "VAPID_PRIVATE": "secret",
     "VAPID_SUB": "var",
-    "RELAY": "binding",
     "SUBS": "binding"
   }
 }

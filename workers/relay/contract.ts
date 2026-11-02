@@ -81,11 +81,12 @@ export type ParticipantHello = { contract: Record<string, number>; uses?: Record
 /**
  * Вход участника — Worker-модуля на рации (класс Participant в его пакете).
  * relay зовёт hello() при старте объекта флота и frame(кадр) — для кадров с to = имя участника
- * (кадр как есть плюс from). Исключение из frame — отправителю offline.
+ * (кадр как есть плюс from). Ответ frame — кадры, которые relay доставит от имени участника (from ставит relay),
+ * по порядку; отказ одному из них — строка в журнале relay, остальные идут. Исключение из frame — отправителю offline.
  */
 export interface Participant {
   hello(): ParticipantHello | Promise<ParticipantHello>;
-  frame(f: Frame): void | Promise<void>;
+  frame(f: Frame): Frame[] | Promise<Frame[]>;
 }
 
 /**

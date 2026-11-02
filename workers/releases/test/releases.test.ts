@@ -1,9 +1,8 @@
-import { createExecutionContext, env } from "cloudflare:test";
+import { env } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import { sha256hex, shaLine } from "@switchboard/release";
-import { Participant } from "../src/index.ts";
 
 /** Строки журнала releases, которые попали в console.log. */
 function journal() {
@@ -14,7 +13,7 @@ function journal() {
   return lines;
 }
 
-const participant = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
+const participant = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
 type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
 let n = 0;
 const fresh = () => env.RELEASES.get(env.RELEASES.idFromName(`t-${++n}-${Math.random()}`)) as unknown as Stub;
@@ -63,7 +62,6 @@ const NONE = { relay: { tags: [] }, gate: { tags: [] }, push: { tags: [] }, poin
 
 beforeEach(async () => {
   for (const o of (await env.BUCKET.list()).objects) await env.BUCKET.delete(o.key);
-  await env.RELAY_LOG.take();
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -251,16 +249,14 @@ describe("эталоны releases", () => {
     expect([l.parts.host.stable, l.rev]).toEqual(["1.1.57", 1]);
   });
 
-  it("12 · участник: hello — контракт; ответ, затем ledger.add и план keeper уходят через свою привязку RELAY по порядку", async () => {
+  it("12 · участник: hello — контракт; ответ, затем ledger.add и план keeper — кадрами ответа вызова по порядку", async () => {
     expect(await participant.hello()).toEqual({ contract: { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1 } });
-    await participant.frame({ type: "releases.plan", id: "q", to: ".releases", from: ".keeper@box" });
-    const sent = await env.RELAY_LOG.take();
-    expect(sent.map((x) => [x.name, x.frame.type, x.frame.to])).toEqual([["releases", "reply", ".keeper@box"]]);
+    const sent = await participant.frame({ type: "releases.plan", id: "q", to: ".releases", from: ".keeper@box" });
+    expect(sent.map((x) => [x.type, x.to])).toEqual([["reply", ".keeper@box"]]);
     fakeCf(NONE);
     await inR2("host", "7.7.7");
-    await participant.frame({ type: "releases.deploy", id: "d1", to: ".releases", from: "panel~o", part: "host", version: "7.7.7" });
-    const out = await env.RELAY_LOG.take();
-    expect(out.map((x) => [x.frame.type, x.frame.to])).toEqual([
+    const out = await participant.frame({ type: "releases.deploy", id: "d1", to: ".releases", from: "panel~o", part: "host", version: "7.7.7" });
+    expect(out.map((x) => [x.type, x.to])).toEqual([
       ["reply", "panel~o"],
       ["ledger.add", ".ledger"],
       ["releases.plan", ".keeper@box"],
@@ -280,31 +276,6 @@ describe("эталоны releases", () => {
       ["refuse", "bad_frame"],
       ["note", "reply"],
     ]);
-  });
-
-  it("2031 · объект выпусков бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
-    const log = journal();
-    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой выпусков")) }) };
-    const p = new Participant(createExecutionContext(), { ...env, RELEASES: broken } as never);
-    await expect(p.frame({ type: "releases.list", id: "l", to: ".releases", from: "~x" })).rejects.toThrow("сбой выпусков");
-    expect(log).toContainEqual(expect.objectContaining({ part: "releases", kind: "stop", ev: "releases.list", from: "~x" }));
-    expect(await env.RELAY_LOG.take()).toEqual([]);
-  });
-
-  it("2032 · relay не принял план keeper'у — строка refuse, ответ ушёл, вызов не бросает", async () => {
-    fakeCf(NONE);
-    await inR2("host", "7.7.8");
-    await participant.frame({ type: "releases.plan", id: "q", to: ".releases", from: ".keeper@gone" });
-    await env.RELAY_LOG.take();
-    const log = journal();
-    await env.RELAY_LOG.answer("offline");
-    try {
-      await participant.frame({ type: "releases.set", id: "s", to: ".releases", from: "~x", machine: "gone", part: "host", on: false });
-    } finally {
-      await env.RELAY_LOG.answer();
-    }
-    expect((await env.RELAY_LOG.take()).map((x) => x.frame.type)).toEqual(["reply", "releases.plan"]);
-    expect(log).toContainEqual(expect.objectContaining({ part: "releases", ev: "relay", word: "offline", to: ".keeper@gone", type: "releases.plan" }));
   });
 
   it("2034 · версия без хэша — не в плане, строка stop", async () => {

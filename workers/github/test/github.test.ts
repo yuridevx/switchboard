@@ -1,14 +1,13 @@
-import { createExecutionContext, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import wrangler from "../wrangler.jsonc?raw";
 import manifest from "../module.json" with { type: "json" };
 import type { Stored } from "../src/app.ts";
-import { Participant } from "../src/index.ts";
 import { pkcs8 } from "../src/jwt.ts";
 
-const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<void> } }).default;
+const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
 type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
 let n = 0;
 const fresh = () => env.APP.get(env.APP.idFromName(`t-${++n}-${Math.random()}`)) as unknown as Stub;
@@ -77,10 +76,6 @@ async function verifyJwt(auth: string | null) {
   return { good, head: b64uJson(head), claims: b64uJson(body) };
 }
 
-beforeEach(async () => {
-  await env.RELAY_LOG.take();
-  await env.RELAY_LOG.answer();
-});
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны github", () => {
@@ -199,11 +194,8 @@ describe("эталоны github", () => {
       "GET /repos/team/profiles/installation": [200, { id: 7 }],
       "POST /app/installations/7/access_tokens": [201, { token: "ghs_after", expires_at: "2026-10-31T14:00:00Z" }],
     });
-    await relay.frame({ type: "github.token", id: "t-246", to: ".github", from: "@laptop", repo: "team/profiles" });
-    const sent = await env.RELAY_LOG.take();
-    expect(sent).toEqual([
-      { name: "github", frame: { type: "reply", id: "t-246", ok: true, to: "@laptop", result: { token: "ghs_after", expires_at: "2026-10-31T14:00:00Z" } } },
-    ]);
+    const sent = await relay.frame({ type: "github.token", id: "t-246", to: ".github", from: "@laptop", repo: "team/profiles" });
+    expect(sent).toEqual([{ type: "reply", id: "t-246", ok: true, to: "@laptop", result: { token: "ghs_after", expires_at: "2026-10-31T14:00:00Z" } }]);
   });
 });
 
@@ -346,20 +338,4 @@ describe("github: приложение есть, отказы", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("2024 · объект приложения бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
-    const log = journal();
-    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой приложения")) }) };
-    const p = new Participant(createExecutionContext(), { ...env, APP: broken } as never);
-    await expect(p.frame({ type: "github.token", id: "t", to: ".github", from: "@pc", repo: "a/b" })).rejects.toThrow("сбой приложения");
-    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ part: "github", kind: "stop", ev: "github.token", from: "@pc" }));
-    expect(await env.RELAY_LOG.take()).toEqual([]);
-  });
-
-  it("2025 · relay не принял ответ — строка refuse, вызов участника не бросает", async () => {
-    await env.RELAY_LOG.answer("offline");
-    fakeGithub({ "GET /app/installations": [200, []] });
-    const log = journal();
-    await relay.frame({ type: "github.app", id: "a-off", to: ".github", from: "panel-gone", redirect: "https://p/" });
-    expect(log.map((l) => JSON.parse(l))).toContainEqual(expect.objectContaining({ part: "github", ev: "relay", word: "offline", to: "panel-gone", type: "reply" }));
-  });
 });

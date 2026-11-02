@@ -21,7 +21,6 @@
     "CF_ACCOUNT_ID": "var",
     "CLOUD": "var",
     "BUCKET": "binding",
-    "RELAY": "binding",
     "RELEASES": "binding"
   }
 }

@@ -8,16 +8,10 @@
   "workers_dev": false,
   "preview_urls": false,
   "observability": { "enabled": true },
-  "services": [
-    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Radio", "props": { "name": "github" } }
-  ],
   "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["App"] }],
   "env": {
     "prod": {
-      "services": [
-        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Radio", "props": { "name": "github" } }
-      ],
       "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] }
     }
   }

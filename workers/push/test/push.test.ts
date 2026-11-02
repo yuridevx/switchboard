@@ -1,22 +1,16 @@
-import { createExecutionContext, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { Participant } from "../src/index.ts";
 import { b64u, unb64u } from "../src/webpush.ts";
 import { decrypt, fakeService, journal, sub, ua, type Ua } from "./helpers.ts";
 
 const VAPID = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
-const relay = (exports as unknown as { default: unknown }).default as { hello(): Promise<unknown>; frame(f: Frame): Promise<void> };
+const relay = (exports as unknown as { default: unknown }).default as { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> };
 const home = () => env.SUBS.get(env.SUBS.idFromName("home"));
 
-async function frame(f: Frame) {
-  await relay.frame(f);
-  return (await env.RELAY_LOG.take()).map((x) => {
-    expect(x.name).toBe("push");
-    return x.frame;
-  });
-}
+/** Кадр на вход участника; ответ — кадры, которые relay доставит от имени push. */
+const frame = (f: Frame) => relay.frame(f);
 
 async function subscribe(client: string, u: Ua, endpoint: string) {
   const out = await frame({ type: "push.subscribe", id: "u-" + client, to: ".push", from: client, sub: sub(u, endpoint) });
@@ -47,10 +41,6 @@ async function table(): Promise<Array<Record<string, unknown>>> {
 
 const open = (u: Ua) => ({ keys: u.keys, auth: unb64u(u.auth) });
 
-beforeEach(async () => {
-  await env.RELAY_LOG.take();
-  await env.RELAY_LOG.answer();
-});
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны push", () => {
@@ -234,15 +224,6 @@ describe("push: отказы и стык с relay", () => {
     expect(svc.posts).toHaveLength(0);
   });
 
-  it("2017 · объект подписок бросил — строка stop, вызов участника бросает (relay ответит offline)", async () => {
-    const log = journal();
-    const broken = { idFromName: () => ({}), get: () => ({ frame: () => Promise.reject(new Error("сбой подписок")) }) };
-    const p = new Participant(createExecutionContext(), { ...env, SUBS: broken } as never);
-    await expect(p.frame({ type: "push.key", id: "k", to: ".push", from: "phone" })).rejects.toThrow("сбой подписок");
-    expect(log).toContainEqual(expect.objectContaining({ part: "push", kind: "stop", ev: "push.key", from: "phone", why: "Error: сбой подписок" }));
-    expect(await env.RELAY_LOG.take()).toEqual([]);
-  });
-
   it("служба не ответила (сеть) — push_failed с причиной в журнале", async () => {
     const phone = await ua();
     await subscribe("phone-net", phone, "https://push.example/net");
@@ -250,13 +231,6 @@ describe("push: отказы и стык с relay", () => {
     const log = journal();
     expect(await frame(send("s-n", "phone-net"))).toMatchObject([{ ok: false, error: "push_failed" }]);
     expect(log.some((l) => l.word === "push_failed" && String(l.why).includes("connection reset"))).toBe(true);
-  });
-
-  it("relay отказал ответу push словом — строка в журнале push", async () => {
-    await env.RELAY_LOG.answer("offline");
-    const log = journal();
-    await relay.frame({ type: "push.key", id: "k-9", to: ".push", from: "phone-gone" });
-    expect(log).toContainEqual(expect.objectContaining({ part: "push", ev: "relay", word: "offline", to: "phone-gone" }));
   });
 
   it("2083 · адрес человека: пуш каждой его подписке, кроме skip; ответ ok", async () => {

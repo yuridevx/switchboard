@@ -588,6 +588,37 @@ describe("relay · разбор кадра", () => {
     expect(got).toEqual([{ type: "ledger.add", to: ".ledger", ev: "x", text: "y", from: ".push" }]);
   });
 
+  it("2089 · участник вернул ответ Host и ledger.add — оба доставлены по порядку от его имени", async () => {
+    // источник: чьё: код (from участника ставит relay; кадры службы — по порядку)
+    const a = await laptop();
+    await env.LEDGER.clear();
+    await env.PUSH.setReturn([
+      { type: "reply", id: "s-2089", to: "@laptop", ok: true, result: { cut: false } },
+      { type: "ledger.add", to: ".ledger", ev: "x", text: "y" },
+    ]);
+    a.send({ type: "push.send", id: "s-2089", to: ".push", push: {} });
+    expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "s-2089", to: "@laptop", ok: true, result: { cut: false }, from: ".push" });
+    const got = await eventually(async () => {
+      const g = (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add");
+      return g.length ? g : undefined;
+    });
+    expect(got).toEqual([{ type: "ledger.add", to: ".ledger", ev: "x", text: "y", from: ".push" }]);
+  });
+
+  it("2090 · участник вернул ответ, кадр с чужим from и кадр машине не на связи — ответ дошёл, отказы в журнале relay", async () => {
+    // источник: чьё: код (отказ одному кадру службы не останавливает остальные)
+    const a = await laptop();
+    await env.PUSH.setReturn([
+      { type: "reply", id: "s-2090", to: "@laptop", ok: true },
+      { type: "message", from: "phone", to: "@laptop" },
+      { type: "keeper.plan", to: ".keeper@mac" },
+    ]);
+    a.send({ type: "push.send", id: "s-2090", to: ".push", push: {} });
+    expect(await a.next((f) => f.type === "reply")).toMatchObject({ id: "s-2090", ok: true, from: ".push" });
+    await eventually(async () => (logHas("bad_from .push · message") && logs.some((l) => l.startsWith("offline") && l.includes("keeper.plan")) ? true : undefined));
+    expect(await a.quiet()).toEqual([]);
+  });
+
   it("2050 · участник без props.name — bad_from, строка в журнале", async () => {
     const word = await runInDurableObject(fleet(), (o) => (o as unknown as { radio(n: string, f: F): Promise<string | undefined> }).radio("", { type: "message", to: "@laptop" }));
     expect(word).toBe("bad_from");
