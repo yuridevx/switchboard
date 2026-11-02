@@ -4,7 +4,7 @@
 // Запуск: node scripts/deploy-workers.mjs [модуль…]   без списка — все; первую выкладку нового Worker и новых миграций
 // делает только этот путь. node scripts/deploy-workers.mjs --upload <номер> — загрузка без выкладки (CI): каждый
 // Worker-модуль — версией с меткой-номером; секреты не трогает, stable двигает «выпуски». Веб не загружает.
-// --env prod — то же для прода: Worker'ы с суффиксом -prod на pfarm.app, свой FLEET_SECRET из prod.env.
+// --env prod — то же для прода: Worker'ы с суффиксом -prod на pfarm.app, свои секреты из prod.env.
 // phone и pult в списке — сборка и выкладка веба (первая выкладка прода вешает домен).
 import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -17,7 +17,7 @@ const dev = process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev
 const args = process.argv.slice(2);
 const prod = args.includes("--env") && args[args.indexOf("--env") + 1] === "prod";
 const rest = args.filter((a, i) => a !== "--env" && args[i - 1] !== "--env");
-// prod.env первым: его FLEET_SECRET важнее тестового
+// prod.env первым: его значения важнее тестовых
 const FILES = [...(prod ? ["prod.env"] : []), "cf-deploy.env", "fleet-secrets.env", "r2-points.env"];
 
 const fromFiles = {};
@@ -36,7 +36,6 @@ const val = (k) => process.env[k] || fromFiles[k];
 // points: секрет пары S3 токена R2 бакета точек — подпись ссылок на блоки; у прода своя пара (prod.env),
 // тестовая прав на бакет прода не имеет — её в прод не кладём
 const SECRETS = {
-  gate: ["FLEET_SECRET"],
   push: ["VAPID_PRIVATE"],
   points: [prod ? "R2_KEY_SECRET=PROD_R2_SECRET_ACCESS_KEY" : "R2_KEY_SECRET=R2_SECRET_ACCESS_KEY"],
   releases: ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID=R2_ACCESS_KEY_ID", "R2_LINK_SECRET=R2_SECRET_ACCESS_KEY"],

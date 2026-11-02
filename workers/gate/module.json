@@ -1,7 +1,7 @@
 {
   "name": "gate",
   "type": "worker",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "provides": {
     "gate.verify": 1,
     "gate.revoke": 1,
@@ -13,9 +13,6 @@
   },
   "uses": {},
   "config": {
-    "DB": "binding",
-    "FLEET_SECRET": "secret",
-    "REVOKED": "var",
-    "OWNER": "var"
+    "DB": "binding"
   }
 }

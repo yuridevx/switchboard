@@ -313,7 +313,7 @@ describe("эталоны relay", () => {
     expect(logs).toContain("bad_frame до hello · message");
   });
 
-  it("118 · 132 · 143 · gate не ответил (сбой или нет FLEET_SECRET): телефон и Host pc закрыты 1008 gate_unavailable, причина в журнале без подписи; laptop на связи, roster не изменился", async () => {
+  it("118 · 132 · 143 · gate не ответил: телефон и Host pc закрыты 1008 gate_unavailable, причина в журнале без секрета; laptop на связи, roster не изменился", async () => {
     const a = await laptop();
     const b = await pc();
     await a.roster();
@@ -330,11 +330,6 @@ describe("эталоны relay", () => {
     const mac = await open();
     mac.send({ type: "hello", proto: 1, key: await key("host", "mac"), sessions: sessions("mac", ["api"]) });
     expect(await mac.waitClose()).toEqual({ code: 1008, reason: "gate_unavailable" });
-    // у gate нет FLEET_SECRET — переход закончен: ключ подписью — bad_key
-    await env.GATE.setMode("nosecret");
-    const x = await open();
-    x.send({ type: "hello", proto: 1, key: await key("client", "tablet", "k8e1") });
-    expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
     await env.GATE.setMode("real");
     const panel = await hello("client", "panel-desk");
     expect((await panel.roster()).machines.map((m: F) => m.machine)).toEqual(["laptop"]);
@@ -353,7 +348,7 @@ describe("эталоны relay", () => {
 });
 
 describe("эталоны экосистемы · relay", () => {
-  it("30 · ключ host.laptop.k7f3 другим секретом — закрыт bad_key; в журнале имя ключа; кадры не дошли; roster не изменился", async () => {
+  it("30 · пропуск host.laptop.k7f3 с чужим секретом — закрыт bad_key; в журнале имя пропуска; кадры не дошли; roster не изменился", async () => {
     const phone = await hello("client", "phone");
     const x = await open();
     x.send({ type: "hello", proto: 1, key: await key("host", "laptop", "k7f3", "чужой секрет"), sessions: sessions("laptop", ["site"]) });
@@ -409,7 +404,7 @@ describe("эталоны экосистемы · relay", () => {
     const x = await open();
     x.send({ type: "hello", proto: 2, key: await key("host", "laptop") });
     expect(await x.waitClose()).toEqual({ code: 1008, reason: "contract_mismatch" });
-    expect(logs).toContain("contract_mismatch host.laptop.k7f3 · proto 2 · relay [1]");
+    expect(logs).toContain("contract_mismatch host.laptop.k-laptop · proto 2 · relay [1]");
   });
 
 });

@@ -5,20 +5,21 @@ import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sign } from "./sign.ts";
+import { OWNER, SECRET, standPass } from "./sign.ts";
 import { link, type Link, type LinkState } from "../contract.ts";
 
-const OWNER = "owner@example.com";
 /** адрес устройства владельца флота: ключи клиентов выданы ему */
 const dev = (n: string) => `${n}~${OWNER}`;
 import type { Frame } from "@switchboard/protocol";
 
 const here = dirname(fileURLToPath(import.meta.url));
-const SECRET = "e2e-secret";
 const bundle = (entry: string) =>
   buildSync({ entryPoints: [entry], bundle: true, format: "esm", platform: "neutral", external: ["cloudflare:workers"], write: false }).outputFiles[0].text;
 
 let mf: Miniflare;
+let db: Awaited<ReturnType<Miniflare["getD1Database"]>>;
+/** пропуск стенда в базе gate: на месте прежнего ключа подписью */
+const sign = (secret: string, role: "host" | "client", name: string, kid: string) => standPass(db, role, name, kid, secret);
 let url: string;
 const links: Link[] = [];
 
@@ -40,14 +41,13 @@ beforeAll(async () => {
         script: bundle(join(here, "..", "..", "gate", "src", "index.ts")),
         compatibilityDate: "2026-08-01",
         d1Databases: { DB: "gate-db" },
-        bindings: { FLEET_SECRET: SECRET, REVOKED: ["client.phone.k2a9"], OWNER },
       },
     ],
   }));
   // объект машины laptop: Host laptop — свой, остальные — гости
   url = (await mf.ready).href.replace(/^http/, "ws") + "m/laptop";
-  // схема базы gate: старые ключи ищутся в ней первыми
-  const db = await mf.getD1Database("DB", "switchboard-gate");
+  // схема базы gate: пропуска стенда кладутся прямо в неё
+  db = await mf.getD1Database("DB", "switchboard-gate");
   const sql = readFileSync(join(here, "..", "..", "gate", "migrations", "0001_passes.sql"), "utf8").replace(/--.*$/gm, "");
   for (const s of sql.split(";").map((x) => x.trim()).filter(Boolean)) await db.prepare(s).run();
 }, 60_000);

@@ -1,5 +1,5 @@
 // Привязка GATE в тестах relay: настоящий gate за переключателем режима.
-// real — настоящий gate с секретом теста; nosecret — настоящий gate без FLEET_SECRET; throw — gate не ответил.
+// real — настоящий gate над базой стенда; throw — gate не ответил.
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 const calls = [];
@@ -13,7 +13,7 @@ export class Gate extends WorkerEntrypoint {
     if (mode === "throw") throw new Error("gate сломан");
     // отзыв «новым выпуском gate» — и на входе, как у настоящего gate
     if (revokedLater.includes(String(key).split(".").slice(0, 3).join("."))) return { error: "revoked" };
-    return (mode === "nosecret" ? this.env.NOSECRET : this.env.REAL).verify(key);
+    return this.env.REAL.verify(key);
   }
   async revoked(ids) {
     if (mode === "throw") throw new Error("gate сломан");

@@ -1,24 +1,15 @@
-// Пропуска над базой D1 gate: проверка, приглашение, приём, список, отзыв.
-// На переходе номер, которого нет в базе, проверяется подписью секрета флота (key.ts) — адрес клиента имя~владелец.
+// Пропуска над базой D1 gate: проверка, приглашение, приём, список, отзыв. Номера нет в базе — bad_key.
 import type { Pass, Verified, VerifyResult } from "../contract.ts";
-import { newKid, parseKey, secret, sha256, verifyKey } from "./key.ts";
+import { newKid, parseKey, secret, sha256 } from "./key.ts";
 
-export type Env = {
-  DB: D1Database;
-  /** переход: секрет флота старых ключей; после перехода его нет */
-  FLEET_SECRET?: string;
-  /** переход: номера отозванных старых ключей role.name.kid */
-  REVOKED?: string[];
-  /** переход: человек за устройством у старых ключей — адрес имя~OWNER */
-  OWNER?: string;
-};
+export type Env = { DB: D1Database };
 
 type Log = (line: string) => void;
 
 const PART = /^[A-Za-z0-9_-]+$/;
 const PERSON = /^[^\s~@]+@[^\s~@]+$/;
 
-/** Пропуск role.name.kid.секрет: строка базы по номеру — правда о роли и имени; номера нет — старый ключ подписью. */
+/** Пропуск role.name.kid.секрет: строка базы по номеру — правда о роли и имени. */
 export async function verify(env: Env, key: unknown, log: Log): Promise<VerifyResult> {
   const p = parseKey(key);
   if (!p) {
@@ -30,7 +21,10 @@ export async function verify(env: Env, key: unknown, log: Log): Promise<VerifyRe
     .bind(p.kid)
     .first<{ role: string; name: string; state: string; hash: string; addr: string }>();
   const ms = Date.now() - t;
-  if (!row) return legacy(env, p.id, key as string, p.role, p.name, p.kid, log);
+  if (!row) {
+    log(`bad_key ${p.id} · номера нет в базе · ${ms} мс`);
+    return { error: "bad_key" };
+  }
   if (row.role !== p.role || row.name !== p.name || row.state === "wait" || (await sha256(p.sig)) !== row.hash) {
     log(`bad_key ${p.id} · ${row.state === "wait" ? "пропуск не принят" : "не сошлись секрет, роль или имя"} · ${ms} мс`);
     return { error: "bad_key" };
@@ -41,17 +35,6 @@ export async function verify(env: Env, key: unknown, log: Log): Promise<VerifyRe
   }
   log(`ok ${p.id} → ${row.addr} · ${ms} мс`);
   return { role: p.role, name: p.name, kid: p.kid, addr: row.addr };
-}
-
-/** Переход: старый ключ с подписью секретом флота. Секрета нет — переход закончен, bad_key. */
-async function legacy(env: Env, id: string, key: string, role: "host" | "client", name: string, kid: string, log: Log): Promise<VerifyResult> {
-  if (!env.FLEET_SECRET) {
-    log(`bad_key ${id} · номера нет в базе`);
-    return { error: "bad_key" };
-  }
-  const r = await verifyKey(key, env.FLEET_SECRET, env.REVOKED ?? [], log);
-  if ("error" in r) return r;
-  return { role, name, kid, addr: role === "host" ? `@${name}` : `${name}~${env.OWNER}` };
 }
 
 export type Word = { error: string; why: string };
@@ -114,7 +97,7 @@ export async function revoke(env: Env, kid: string): Promise<{ addr: string } | 
   return row ? { addr: row.addr } : { error: "unknown_key" };
 }
 
-/** gate.revoked: из номеров — отозванные; номер — kid или role.name.kid (старые ключи — по списку перехода). */
+/** gate.revoked: из номеров — отозванные; номер — kid или role.name.kid. */
 export async function revoked(env: Env, ids: string[]): Promise<string[]> {
   if (!ids.length) return [];
   const kid = (id: string) => id.slice(id.lastIndexOf(".") + 1);
@@ -122,6 +105,5 @@ export async function revoked(env: Env, ids: string[]): Promise<string[]> {
     .bind(...ids.map(kid))
     .all<{ id: string }>();
   const gone = new Set(rows.results.map((r) => r.id));
-  const old = env.REVOKED ?? [];
-  return ids.filter((id) => gone.has(kid(id)) || old.includes(id));
+  return ids.filter((id) => gone.has(kid(id)));
 }

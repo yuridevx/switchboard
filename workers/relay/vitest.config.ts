@@ -8,8 +8,6 @@ import { defineConfig } from "vitest/config";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const TEST_SECRET = "test-secret";
-
 /** Настоящий gate одним ES-модулем для miniflare. */
 export function gateScript(): string {
   const r = buildSync({
@@ -54,10 +52,7 @@ export default defineConfig({
                   modules: true,
                   script: fixture("gate-proxy.js"),
                   compatibilityDate: "2026-08-01",
-                  serviceBindings: {
-                    REAL: { name: "gate-real", entrypoint: "Gate" },
-                    NOSECRET: { name: "gate-nosecret", entrypoint: "Gate" },
-                  },
+                  serviceBindings: { REAL: { name: "gate-real", entrypoint: "Gate" } },
                 },
                 {
                   name: "gate-real",
@@ -65,15 +60,6 @@ export default defineConfig({
                   script: gateScript(),
                   compatibilityDate: "2026-08-01",
                   d1Databases: { DB: "gate-db" },
-                  bindings: { FLEET_SECRET: TEST_SECRET, REVOKED: ["client.phone.k2a9"], OWNER: "owner@example.com" },
-                },
-                {
-                  name: "gate-nosecret",
-                  modules: true,
-                  script: gateScript(),
-                  compatibilityDate: "2026-08-01",
-                  d1Databases: { DB: "gate-db" },
-                  bindings: { REVOKED: [], OWNER: "owner@example.com" },
                 },
                 participant("ledger", { "ledger.add": 1, "ledger.read": 1 }),
               ],

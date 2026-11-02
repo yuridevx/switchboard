@@ -1,4 +1,4 @@
-// Тесты gate: проект gate — Worker в workerd (miniflare) с базой D1 стенда и секретом перехода; проект tools — инструменты в Node.
+// Тесты gate: проект gate — Worker в workerd (miniflare) с базой D1 стенда; проект tools — инструменты в Node.
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
@@ -13,12 +13,12 @@ export default defineConfig({
         plugins: [
           cloudflareTest({
             wrangler: { configPath: "./wrangler.jsonc" },
-            miniflare: { d1Databases: ["PROD"], bindings: { FLEET_SECRET: "test-secret", REVOKED: ["client.phone.k2a9"], TEST_MIGRATIONS: migrations } },
+            miniflare: { d1Databases: ["PROD"], bindings: { TEST_MIGRATIONS: migrations } },
           }),
         ],
         test: { name: "gate", include: ["test/gate.test.ts"] },
       },
-      { test: { name: "tools", environment: "node", include: ["test/invite.test.ts", "test/seed.test.ts", "test/entrance.test.ts", "test/redeem.test.ts"] } },
+      { test: { name: "tools", environment: "node", include: ["test/seed.test.ts", "test/entrance.test.ts", "test/redeem.test.ts"] } },
     ],
   },
 });

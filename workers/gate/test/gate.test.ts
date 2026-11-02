@@ -1,4 +1,4 @@
-// Эталоны gate 5001–5014 над базой D1 стенда; переход — старые ключи подписью секрета теста (111–114, 117).
+// Эталоны gate 5001–5014 над базой D1 стенда; старых ключей подписью больше нет (5201).
 import { exports, env as rawEnv } from "cloudflare:workers";
 import { applyD1Migrations, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,7 @@ import worker from "../src/index.ts";
 import { verify, type Env } from "../src/pass.ts";
 import { seed } from "../src/seed.ts";
 
-/** Старый ключ подписью, как его выдавал прежний invite.ts: проверка подписью живёт до снятия (вторая половина шага 5). */
+/** Старый ключ подписью, как его выдавал прежний invite.ts — для эталона «такой ключ больше не входит». */
 async function sign(secret: string, role: "host" | "client", name: string, kid: string): Promise<string> {
   const id = `${role}.${name}.${kid}`;
   const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
@@ -125,23 +125,20 @@ describe("эталоны gate: пропуска в базе D1", () => {
     expect(await verify({ DB: env.PROD }, key, () => {})).toEqual({ error: "bad_key" });
   });
 
-  it("5010 · переход: старый ключ с подписью → адрес имя~владелец из настройки gate; после снятия секрета → bad_key", async () => {
-    const old = await sign(SECRET, "client", "phone", "k8e1");
-    expect(await gate.verify(old)).toEqual({ role: "client", name: "phone", kid: "k8e1", addr: "phone~yuridevx@gmail.com" });
-    expect(await gate.verify(await sign(SECRET, "host", "laptop", "k7f3"))).toMatchObject({ addr: "@laptop" });
-    expect(await verify({ DB: env.DB, OWNER: "yuridevx@gmail.com" }, old, () => {})).toEqual({ error: "bad_key" });
+  it("5201 · старый ключ подписью больше не входит: номера нет в базе — bad_key, причина в журнале", async () => {
+    // источник: дизайн «Открытый флот», шаг 5 — после суток без старых входов проверка подписью уходит; факт 2 нояб.:
+    // журнал gate за 48 ч — старых входов после перехода машин 0 на обоих флотах
+    expect(await gate.verify(await sign(SECRET, "client", "phone", "k8e1"))).toEqual({ error: "bad_key" });
+    expect(await gate.verify(await sign(SECRET, "host", "laptop", "k7f3"))).toEqual({ error: "bad_key" });
+    expect(logs.some((l) => l.startsWith("bad_key host.laptop.k7f3 · номера нет в базе"))).toBe(true);
   });
 
-  it("5011 · revoked(номера) → отозванные из них; живые и незнакомые не попадают; старые ключи — по списку перехода", async () => {
+  it("5011 · revoked(номера) → отозванные из них; живые и незнакомые не попадают", async () => {
     const by = await agent();
     const a = await post({ type: "keys.invite", key: by, role: "host", name: "a" });
     const b = await post({ type: "keys.invite", key: by, role: "host", name: "b" });
     await gate.revoke(a.result.kid);
-    expect(await gate.revoked([a.result.kid, b.result.kid, "zzzz", "client.phone.k2a9", "client.phone.k8e1", `host.a.${a.result.kid}`])).toEqual([
-      a.result.kid,
-      "client.phone.k2a9",
-      `host.a.${a.result.kid}`,
-    ]);
+    expect(await gate.revoked([a.result.kid, b.result.kid, "zzzz", "client.phone.k2a9", `host.a.${a.result.kid}`])).toEqual([a.result.kid, `host.a.${a.result.kid}`]);
     expect(await gate.revoked([])).toEqual([]);
     expect(await gate.revoke("nope")).toEqual({ error: "unknown_key" });
   });
@@ -196,33 +193,18 @@ describe("вход gate: запросы и отказы", () => {
     expect(p.headers.get("access-control-allow-origin")).toBe("*");
   });
 
-  it("конфиг выпуска: адрес workers.dev, база D1 в обоих окружениях, секретов в настройке нет", () => {
+  it("конфиг выпуска: адрес workers.dev, база D1 в обоих окружениях, настроек перехода нет", () => {
     const c = JSON.parse(config.replace(/^\s*\/\/.*$/gm, ""));
     expect(c.name).toBe("switchboard-gate");
     expect(c.workers_dev).toBe(true);
     expect(c.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "switchboard-gate" });
     expect(c.env.prod.d1_databases[0]).toMatchObject({ binding: "DB", database_name: "switchboard-gate-prod" });
-    expect(c.vars?.FLEET_SECRET).toBeUndefined();
+    expect(c.vars).toBeUndefined();
+    expect(c.env.prod.vars).toBeUndefined();
   });
 });
 
-describe("переход: старые ключи подписью", () => {
-  it("111 · верный ключ host.laptop.k7f3 — роль, имя, номер, адрес; в журнале ok", async () => {
-    expect(await gate.verify(await sign(SECRET, "host", "laptop", "k7f3"))).toEqual({ role: "host", name: "laptop", kid: "k7f3", addr: "@laptop" });
-    expect(logs).toContain("ok host.laptop.k7f3");
-  });
-
-  it("112 · ключ, подписанный другим секретом, — bad_key; подписи в журнале нет", async () => {
-    const key = await sign("другой-секрет", "host", "laptop", "k7f3");
-    expect(await gate.verify(key)).toEqual({ error: "bad_key" });
-    expect(logs.join("\n")).not.toContain(key.split(".")[3]);
-  });
-
-  it("113 · отозванный client.phone.k2a9 — revoked; k8e1 тем же секретом проходит", async () => {
-    expect(await gate.verify(await sign(SECRET, "client", "phone", "k2a9"))).toEqual({ error: "revoked" });
-    expect(await gate.verify(await sign(SECRET, "client", "phone", "k8e1"))).toMatchObject({ kid: "k8e1" });
-  });
-
+describe("пропуск не того вида", () => {
   it("114 · пропуск не того вида — bad_key без исключения", async () => {
     for (const k of ["laptop-key", "admin.laptop.k7f3.Jx9w", undefined, "host.laptop.k7f3", "host..k7f3.sig", 42]) {
       expect(await gate.verify(k as string)).toEqual({ error: "bad_key" });
@@ -230,13 +212,13 @@ describe("переход: старые ключи подписью", () => {
   });
 
 describe("один способ выдачи", () => {
-  it("5184 · старого ключа подписью выдать нечем: в коде gate нет sign, у пакета нет bin switchboard-invite; проверка старых ключей жива", async () => {
+  it("5184 · старого ключа подписью выдать нечем: в коде gate нет sign, у пакета нет bin switchboard-invite; проверки подписью тоже нет", async () => {
     // источник: отчёт слепого архитектора 2 нояб.: п. 3 — два способа выдать пропуск
     const key = await import("../src/key.ts");
     expect(Object.keys(key)).not.toContain("sign");
     const pkg = (await import("../package.json", { with: { type: "json" } })).default as { bin?: Record<string, string> };
     expect(Object.keys(pkg.bin ?? {})).toEqual(["switchboard-seed", "switchboard-redeem"]);
-    expect(Object.keys(key)).toContain("verifyKey");
+    expect(Object.keys(key)).not.toContain("verifyKey");
   });
 });
 });

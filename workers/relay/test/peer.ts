@@ -1,13 +1,12 @@
 // Соединение с relay внутри workerd для тестов: hello, кадры по одному, закрытие.
 import { SELF, env } from "cloudflare:test";
 
-export const SECRET = "test-secret";
-
-import { sign } from "./sign.ts";
-export { sign };
+import { SECRET, standPass } from "./sign.ts";
 type F = Record<string, any>;
 
-export const key = (role: "host" | "client", name: string, kid = "k7f3", secret = SECRET) => sign(secret, role, name, kid);
+/** Пропуск стенда: строка в базе gate стенда. Номер по умолчанию — свой у каждого имени (номер в базе один). */
+export const key = (role: "host" | "client", name: string, kid = `k-${name}`, secret = SECRET) =>
+  standPass((env as unknown as { GATE_DB: Parameters<typeof standPass>[0] }).GATE_DB, role, name, kid, secret);
 
 export class Peer {
   frames: F[] = [];
