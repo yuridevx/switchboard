@@ -171,6 +171,23 @@ describe("эталоны клиента флота", () => {
     expect(await c.request({ type: "push.key", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "disconnected" });
   });
 
+  it("5058 · ответ на запрос — тем же соединением, по которому пришёл запрос: там его ждёт спросивший", async () => {
+    const s = stand(["win", "wsl"]);
+    const c = start({ fetch: s.f, machine: "win" });
+    await tick();
+    const win = up("win");
+    const wsl = up("wsl", roster("wsl"));
+    // Host wsl спросил гостем через объект win; ответ по адресу @wsl ушёл бы в объект wsl — туда, где его не ждут
+    win.recv({ type: "session.remove", id: "q-1", from: "@wsl", callsign: "pm@win" });
+    const before = wsl.sent.length;
+    expect(c.send({ type: "reply", id: "q-1", ok: true, to: "@wsl" })).toEqual({ ok: true });
+    expect(win.json()).toMatchObject({ type: "reply", id: "q-1", to: "@wsl" });
+    expect(wsl.sent.length).toBe(before);
+    // кадр, не ответ, — по адресу
+    c.send({ type: "message", to: "@wsl" });
+    expect(wsl.json()).toMatchObject({ type: "message", to: "@wsl" });
+  });
+
   it("keys.list не прошёл: сбой — повтор с паузой; отказ пропуску — stopped со словом", async () => {
     let n = 0;
     const states: string[] = [];

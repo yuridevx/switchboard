@@ -252,8 +252,7 @@ describe("эталоны releases", () => {
     expect([l.parts.host.stable, l.rev]).toEqual(["1.1.57", 1]);
   });
 
-  it("12 · участник: hello — контракт; ответ, затем ledger.add и план keeper — кадрами ответа вызова по порядку", async () => {
-    expect(await participant.hello()).toEqual({ contract: { "releases.plan": 1, "releases.list": 1, "releases.upload": 1, "releases.deploy": 1, "releases.set": 1 } });
+  it("12 · вход по привязке: ответ, затем ledger.add и план keeper — кадрами ответа вызова по порядку", async () => {
     const sent = await participant.frame({ type: "releases.plan", v: 1, id: "q", to: ".releases", from: ".keeper@box" });
     expect(sent.map((x) => [x.type, x.to])).toEqual([["reply", ".keeper@box"]]);
     fakeCf(NONE);

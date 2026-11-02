@@ -10,7 +10,6 @@
     "releases.set": 1
   },
   "uses": {
-    "frame@relay": 1,
     "ledger.add@ledger": 1,
     "release.format@release": 1,
     "gate.verify@gate": 1,

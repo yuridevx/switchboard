@@ -140,7 +140,7 @@ describe("fleet: инструменты и вклад", () => {
   it("fleet.send человеку: кадр message без id; телефона нет на связи — пуш запросом push.send с заголовком отправителя", async () => {
     // источник: устав — «достают до телефона»; принятый дизайн — «send — сессии или человеку»; текст ответа — чьё: код
     const { st, call } = await bench({ extra: [{ manifest: pushManifest as Manifest, module: makePush() }] });
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     await st.open("site@laptop");
     expect(await call("site@laptop", "send", { to: "phone~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: phone~owner@example.com" }] });
     expect(st.relay.frames("message")).toEqual([{ type: "message", v: 1, from: "site@laptop", to: "phone~owner@example.com", text: "Готово" }]);
@@ -194,7 +194,7 @@ describe("fleet: покрытие плана host-modules", () => {
   it("3024 · fleet.send человеку ~email — кадр message его адресу, «отправлено»; один push.send его адресу (пуш всем его устройствам не на связи)", async () => {
     // источник: чьё: код (fleet.ts:75, :82-86); слово пользователя 2 нояб. «пушить всем»
     const { st, call } = await bench({ extra: [{ manifest: pushManifest as Manifest, module: makePush() }] });
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     await st.open("site@laptop");
     expect(await call("site@laptop", "send", { to: "~owner@example.com", text: "Готово" })).toEqual({ content: [{ type: "text", text: "отправлено: ~owner@example.com" }] });
     expect(st.relay.frames("message")).toEqual([{ type: "message", v: 1, from: "site@laptop", to: "~owner@example.com", text: "Готово" }]);

@@ -59,6 +59,8 @@ export function fleet(o: FleetOptions): FleetClient {
   const firstPause = o.pauseMs ?? 1_000;
   const maxPause = o.maxPauseMs ?? 60_000;
   const links = new Map<string, Link>();
+  /** откуда пришёл запрос «id|from»: ответ — тем же соединением, там его ждут */
+  const origin = new Map<string, Link>();
   const posts = new Set<AbortController>();
   let stopped = false;
   let pause = firstPause;
@@ -80,6 +82,7 @@ export function fleet(o: FleetOptions): FleetClient {
       WebSocket: o.WebSocket,
       onState: (s, why) => o.onState?.(machine, s, why),
       onFrame: (f) => {
+        if (typeof f.id === "string" && f.type !== "reply" && typeof f.from === "string") origin.set(`${f.id}|${f.from}`, l);
         if (f.type === "roster" && !o.only) {
           // Host другой машины в гостях — машина, которую клиент мог ещё не знать
           for (const c of (f as unknown as Roster).clients) if (c.startsWith("@")) open(c.slice(1));
@@ -202,14 +205,13 @@ export function fleet(o: FleetOptions): FleetClient {
       return all.some((l) => l.state === "open") ? "open" : stopped ? "stopped" : (all[0]?.state ?? "connecting");
     },
     get roster(): Roster {
-      const r: Roster = { type: "roster", machines: [], sessions: [], clients: [], workers: [] };
+      const r: Roster = { type: "roster", machines: [], sessions: [], clients: [] };
       for (const l of links.values()) {
         const x = l.roster;
         if (!x || l.state !== "open") continue;
         r.machines.push(...x.machines);
         r.sessions.push(...x.sessions);
         for (const c of x.clients) if (!c.startsWith("@") && !r.clients.includes(c)) r.clients.push(c);
-        for (const w of x.workers) if (!r.workers.some((y) => y.name === w.name)) r.workers.push(w);
       }
       return r;
     },
@@ -221,6 +223,13 @@ export function fleet(o: FleetOptions): FleetClient {
       return "url" in t ? post(t.url, g) : t.link.request(g);
     },
     send(f: Frame) {
+      // ответ на запрос — тем же соединением, по которому пришёл запрос: там его ждёт спросивший
+      const back = f.type === "reply" && typeof f.id === "string" && typeof f.to === "string" ? `${f.id}|${f.to}` : "";
+      const via = back ? origin.get(back) : undefined;
+      if (via) {
+        origin.delete(back);
+        if (via.state === "open") return via.send(f);
+      }
       // список адресатов — по соединениям: каждому соединению и Worker'у один кадр со своей частью списка
       if (!Array.isArray(f.to)) return one(f);
       const groups = new Map<Link | string, string[]>();
@@ -245,6 +254,7 @@ export function fleet(o: FleetOptions): FleetClient {
     },
     close(code = 1000, reason = "closing") {
       stopped = true;
+      origin.clear();
       if (listTimer !== undefined) clearTimeout(listTimer);
       for (const ac of [...posts]) ac.abort();
       for (const l of links.values()) l.close(code, reason);

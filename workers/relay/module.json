@@ -6,7 +6,6 @@
     "hello": 1,
     "roster": 1,
     "session.state": 1,
-    "frame": 1,
     "keys.revoke": 1,
     "relay.deliver": 1
   },
@@ -18,11 +17,7 @@
   },
   "config": {
     "GATE": "binding",
-    "PUSH": "binding",
-    "POINTS": "binding",
     "LEDGER": "binding",
-    "GITHUB": "binding",
-    "PARTICIPANTS": "var",
     "PROTO": "var"
   }
 }

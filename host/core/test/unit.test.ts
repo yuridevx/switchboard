@@ -255,7 +255,7 @@ describe("договор модуля на стенде", () => {
     const relayStand = new FakeRelay();
     relayStand.holdRoster = true;
     const st = await stand({ modules: [q], relayStand });
-    const r = { type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] };
+    const r = { type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"] };
     // до первого roster — null
     expect(host.roster()).toBeNull();
     st.relay.deliver(r);
@@ -423,7 +423,7 @@ describe("договор модуля на стенде", () => {
     const st = await stand({ modules: [fleet, other] });
     got.length = 0; // roster после hello уже пришёл
     st.relay.deliver({ type: "message", to: "site@laptop", from: "poe-bot@pc", text: "привет" });
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     await until(() => got.length === 2);
     expect(got).toEqual(["message привет от poe-bot@pc", "fleet roster"]);
   });

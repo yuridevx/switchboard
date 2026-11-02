@@ -1,7 +1,8 @@
 // Эталоны, которые проверяются только на выложенном тестовом флоте (не на живом флоте пользователя):
 //   144 — секреты и адреса семи Worker (адрес — у каждого); 136 и 145 — выпуск push и gate не рвёт соединения relay;
 //   5027 — отзыв пропуска keys.revoke на входе relay: соединение закрыто сразу, новый hello — revoked; пропуска эталона отозваны.
-// Токен деплоя и секрет флота — из ~/.switchboard-dev (SWITCHBOARD_DEV_DIR), как у deploy-workers.mjs.
+// Токен деплоя — из ~/.switchboard-dev (SWITCHBOARD_DEV_DIR), как у deploy-workers.mjs. Пропуска эталона — приглашением:
+// агент эталона заводится seed'ом в базу gate, в конце прогона отзывает всё, что выдал, и себя.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -20,8 +21,6 @@ for (const f of ["cf-deploy.env", "fleet-secrets.env"])
 const url = "wss://switchboard.yuridevx1608.workers.dev";
 const api = (path: string) =>
   fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CLOUDFLARE_ACCOUNT_ID}${path}`, { headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}` } }).then((r) => r.json() as Promise<{ result: unknown }>);
-const invite = (role: string, name: string) =>
-  spawnSync(process.execPath, [join(root, "workers/gate/invite.ts"), role, name], { input: env.FLEET_SECRET, encoding: "utf8" }).stdout.trim();
 const wrangler = (dir: string, args: string[]) => {
   const r = spawnSync(process.execPath, [join(root, "node_modules/wrangler/bin/wrangler.js"), ...args], { cwd: join(root, "workers", dir), env: { ...process.env, CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID }, encoding: "utf8" });
   if (r.status !== 0) throw new Error(`wrangler ${args.join(" ")} в ${dir}: ${r.stderr.slice(-500)}`);
@@ -50,29 +49,7 @@ for (const [w, want] of Object.entries(SECRETS)) {
   check(`144 · ${w}: секреты ${JSON.stringify(want)}, адрес ${pub ? "есть" : "нет"}`, JSON.stringify(sec) === JSON.stringify(want) && sub.enabled === pub && !sub.previews_enabled, { sec, sub });
 }
 
-// 136 и 145 — выпуск push и gate при открытых соединениях
-const host = link({ url, key: invite("host", "etalon"), hello: () => ({ sdk: "etalon", contract: {}, sessions: [] }) });
-const phone = link({ url, key: invite("client", "etalon-phone") });
-await opened(host);
-await opened(phone);
-const since = host.roster?.machines.find((m) => m.machine === "etalon")?.since;
-let rosters = 0;
-const phone2 = link({ url, key: invite("client", "etalon-watch"), onFrame: (f) => void (f.type === "roster" && rosters++) });
-await opened(phone2);
-await new Promise((r) => setTimeout(r, 1000));
-rosters = 0;
-wrangler("push", ["deploy"]);
-wrangler("gate", ["deploy"]);
-await new Promise((r) => setTimeout(r, 3000));
-const same = host.state === "open" && phone.state === "open" && host.roster?.machines.find((m) => m.machine === "etalon")?.since === since;
-check("136 · 145 · выпуск push и gate: соединения relay живы, roster не разослан заново", same && rosters === 0, { host: host.state, phone: phone.state, rosters });
-const k = await phone.request({ type: "push.key", v: 1, to: ".push" });
-check("145 · следующий push.send/push.key — у новой версии push", k.ok === true);
-const fresh = link({ url, key: invite("client", "etalon-new") });
-check("145 · следующий hello проверен новой версией gate", await opened(fresh));
-fresh.close();
-
-// 5027 — отзыв пропуска: keys.revoke на входе relay закрывает соединения номера на объектах машин; пропуска эталона — приглашением
+// агент эталона и его пропуска — приглашением
 const gateUrl = "https://switchboard-gate.yuridevx1608.workers.dev/";
 const relayUrl = "https://switchboard.yuridevx1608.workers.dev/";
 const post = (u: string, f: Record<string, unknown>) =>
@@ -86,6 +63,29 @@ const pass = async (role: "host" | "client", name: string) => {
   mine.push(inv.result.kid);
   return (await post(gateUrl, { type: "gate.redeem", invite: inv.result.invite })).result.key as string;
 };
+// 136 и 145 — выпуск push и gate при открытых соединениях объекта машины etalon
+const eUrl = url + "/m/etalon";
+const host = link({ url: eUrl, key: await pass("host", "etalon"), hello: () => ({ sdk: "etalon", contract: {}, sessions: [] }) });
+const phone = link({ url: eUrl, key: await pass("client", "etalon-phone") });
+await opened(host);
+await opened(phone);
+const since = host.roster?.machines.find((m) => m.machine === "etalon")?.since;
+let rosters = 0;
+const phone2 = link({ url: eUrl, key: await pass("client", "etalon-watch"), onFrame: (f) => void (f.type === "roster" && rosters++) });
+await opened(phone2);
+await new Promise((r) => setTimeout(r, 1000));
+rosters = 0;
+wrangler("push", ["deploy"]);
+wrangler("gate", ["deploy"]);
+await new Promise((r) => setTimeout(r, 3000));
+const same = host.state === "open" && phone.state === "open" && host.roster?.machines.find((m) => m.machine === "etalon")?.since === since;
+check("136 · 145 · выпуск push и gate: соединения relay живы, roster не разослан заново", same && rosters === 0, { host: host.state, phone: phone.state, rosters });
+const k = await post("https://switchboard-push.yuridevx1608.workers.dev/", { type: "push.key", key: agent });
+check("145 · следующий push.send/push.key — у новой версии push", k.ok === true);
+const fresh = link({ url: eUrl, key: await pass("client", "etalon-new") });
+check("145 · следующий hello проверен новой версией gate", await opened(fresh));
+fresh.close();
+
 const mUrl = url + "/m/etalon-m";
 const mHost = link({ url: mUrl, key: await pass("host", "etalon-m"), hello: () => ({ sdk: "etalon", contract: {}, sessions: [] }) });
 const victimKey = await pass("client", "etalon-victim");

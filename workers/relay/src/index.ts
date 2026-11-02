@@ -1,10 +1,10 @@
-// Worker relay — вход без состояния: wss /m/<машина> → объект этой машины; wss / — объект перехода home.
+// Worker relay — вход без состояния: wss /m/<машина> → объект этой машины.
 // POST keys.revoke — отзыв пропуска: отметка у gate, затем close на объектах всех машин флота.
 // Привязка Relay.deliver — кадр Worker'а своей машине (план keeper'у от «Выпусков»).
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { accepts, fail, machineOf, ok, parseFrame, type Frame, type Reply } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";
-import { FLEET, Fleet, call, machineObject, type Env } from "./fleet.ts";
+import { Fleet, call, machineObject, type Env } from "./fleet.ts";
 
 export { Fleet };
 
@@ -17,7 +17,7 @@ const CORS = { "access-control-allow-origin": "*" };
 
 const stub = (env: Env, name: string) => env.FLEET.get(env.FLEET.idFromName(name));
 
-/** keys.revoke {key, kid}: отметка у gate, close на объекте каждой машины из списка gate и на объекте перехода. */
+/** keys.revoke {key, kid}: отметка у gate, close на объекте каждой машины из списка gate. */
 async function revoke(env: Env, text: string): Promise<Reply> {
   const f = parseFrame(text);
   if (!f || !f.id) return fail(f?.id ?? "", "bad_frame");
@@ -32,7 +32,7 @@ async function revoke(env: Env, text: string): Promise<Reply> {
     return fail(f.id, r.error);
   }
   const machines = (await call(env.GATE.list("host"))).map((p) => p.name);
-  const closed = (await Promise.all([FLEET, ...machines.map(machineObject)].map((n) => stub(env, n).close(f.kid as string)))).reduce((a, b) => a + b, 0);
+  const closed = (await Promise.all(machines.map((m) => stub(env, machineObject(m)).close(f.kid as string)))).reduce((a, b) => a + b, 0);
   log(`revoke ${f.kid} ${r.addr} · отозвал ${who.addr} · закрыто соединений ${closed} на ${machines.length} машинах`);
   return ok(f.id, { addr: r.addr, closed });
 }
@@ -63,7 +63,7 @@ export default {
       return new Response("switchboard relay: wss /m/<машина> или POST keys.revoke\n", { status: 426 });
     }
     const m = MACHINE.exec(path);
-    if (!m && path !== "/") return new Response("switchboard relay: нет такого пути\n", { status: 404 });
-    return stub(env, m ? machineObject(m[1]) : FLEET).fetch(req);
+    if (!m) return new Response("switchboard relay: wss /m/<машина>\n", { status: 404 });
+    return stub(env, machineObject(m[1])).fetch(req);
   },
 } satisfies ExportedHandler<Env>;

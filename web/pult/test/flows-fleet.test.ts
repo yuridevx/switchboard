@@ -1,6 +1,7 @@
 // Флоу пульта по плану цикла тестов (web): аккаунты и вход, слоты, удаление аккаунта, машины, приложение GitHub, журнал флота.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
+import { FakeRelay } from "../../packages/core/stand/app.ts";
 import { fleetRelay, fleetRoster, flush, HOST, pult } from "./stand.ts";
 
 beforeEach(() => {
@@ -423,11 +424,12 @@ describe("приложение GitHub флота", () => {
     expect(gh.querySelector("a")!.getAttribute("href")).toBe("https://github.com/apps/sb-app/installations/new");
   });
 
-  it("4155 · github нет в roster — раздела нет, github.app не шлётся", async () => {
-    const r = fleetRoster();
-    r.workers = r.workers.filter((w) => w.name !== "github");
-    const relay = machinesRelay(r);
-    const t = await machines(relay);
+  it("4155 · github нет в списке Worker'ов сборки — раздела нет, github.app не шлётся", async () => {
+    const relay = machinesRelay();
+    const { github: _g, ...workers } = FakeRelay.WORKERS;
+    const t = await pult({ relay, workers });
+    await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
+    await flush(10);
     expect(t.$("[data-github]")).toBeNull();
     expect(relay.sent("github.app")).toHaveLength(0);
   });

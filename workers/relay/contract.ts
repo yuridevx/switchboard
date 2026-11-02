@@ -27,7 +27,7 @@ export type { FleetClient, FleetOptions } from "./src/fleet-client.ts";
 /**
  * Запросы POST по адресу relay (вход без состояния). Тело — кадр JSON, ответ — reply.
  *   keys.revoke {key, kid} → {addr, closed}: отметка «отозван» у gate, соединения номера закрыты на всех машинах.
- * wss /m/<машина> — объект этой машины; wss / — объект перехода для клиентов прежнего кода.
+ * wss /m/<машина> — объект этой машины.
  */
 export const CONTRACT = { "keys.revoke": 1 } as const;
 
@@ -77,32 +77,23 @@ export type RosterMachine = {
   sdk?: string;
   contract?: Record<string, number>;
 };
-export type RosterWorker = { name: string; contract: Record<string, number> };
-
 /**
  * roster объекта — relay шлёт всем соединениям, кроме keeper, после каждого hello, session.state и ухода соединения.
  * machines и sessions — своя машина объекта; clients — гости: устройства и программы (адрес от gate)
  * и Host других машин (@машина) — по ним клиент находит машины, которых ещё не знает.
- * Собран из карточек живых соединений и ответов hello() участников.
+ * Собран из карточек живых соединений.
  */
 export type Roster = {
   type: "roster";
   machines: RosterMachine[];
   sessions: SessionRecord[];
   clients: string[];
-  workers: RosterWorker[];
 };
 
-/** Ответ участника на hello(): его контракт. */
-export type ParticipantHello = { contract: Record<string, number> };
-
 /**
- * Вход участника — Worker-модуля на рации (класс Participant в его пакете).
- * relay зовёт hello() при старте объекта и frame(кадр) — для кадров с to = имя участника
- * (кадр как есть плюс from). Ответ frame — кадры, которые relay доставит от имени участника (from ставит relay),
- * по порядку; отказ одному из них — строка в журнале relay, остальные идут. Исключение из frame — отправителю offline.
+ * Вход Worker'а по привязке внутри аккаунта: кадр как есть, from ставит вызывающий; ответ — кадры, которые Worker
+ * отдаёт вызывающему. Им relay пишет журналу вход и уход машины, Worker'ы пишут журналу свои строки.
  */
 export interface Participant {
-  hello(): ParticipantHello | Promise<ParticipantHello>;
   frame(f: Frame): Frame[] | Promise<Frame[]>;
 }

@@ -165,7 +165,6 @@ export class FakeRelay {
       machines: [{ machine, since: this.since, proto: 1, sdk: hello.sdk, contract: hello.contract }, ...(extra.machines ?? [])],
       sessions: (hello.sessions as object[]) ?? [],
       clients: extra.clients ?? ["phone~owner@example.com", "panel-desk~owner@example.com"],
-      workers: [],
     };
   }
 

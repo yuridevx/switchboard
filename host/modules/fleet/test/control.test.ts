@@ -60,7 +60,7 @@ async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHo
 
 /** roster от relay с родителями сессий — fleet берёт родителя отсюда. */
 function roster(st: Stand, sessions: Array<{ callsign: string; parent?: string; [k: string]: unknown }>) {
-  st.relay.deliver({ type: "roster", machines: [], sessions: sessions.map((s) => ({ state: "idle", ...s })), clients: ["phone~owner@example.com"], workers: [] } as Frame);
+  st.relay.deliver({ type: "roster", machines: [], sessions: sessions.map((s) => ({ state: "idle", ...s })), clients: ["phone~owner@example.com"] } as Frame);
 }
 
 describe("эталоны: сессия ведёт другие сессии", () => {

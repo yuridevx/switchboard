@@ -191,7 +191,6 @@ export function homeRoster(over: Partial<Roster> = {}): Roster {
       { callsign: "wiki@pc", state: "stopped", model: "sonnet", slot: { name: "main", wait: null } },
     ],
     clients: ["phone", "panel-desk"],
-    workers: [{ name: "push", contract: { "push.key": 1, "push.send": 1, "push.subscribe": 1 } }],
     ...over,
   };
 }

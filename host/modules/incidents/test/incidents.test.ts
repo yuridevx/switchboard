@@ -198,7 +198,7 @@ describe("эталоны incidents", () => {
 
   it("308 · AskUserQuestion в сессии инцидента — вопрос человеку из to: кадр question; телефона нет на связи — пуш запросом push.send", async () => {
     const { st, post } = await bench();
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [{ name: "push", contract: { "push.send": 1 } }] } as Frame);
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] } as Frame);
     await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
     const p = await until(() => st.holders.procs.get("disk-full-1@win"));
     await until(() => p.inputs.length === 1);

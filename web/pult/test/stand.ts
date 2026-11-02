@@ -35,7 +35,6 @@ export function fleetRoster(over: Partial<Roster> = {}): Roster {
       { callsign: "docs@pc", state: "stopped", model: "sonnet", slot: { name: "main", wait: null }, account: "y0902" },
     ],
     clients: ["phone", "panel-desk"],
-    workers: [worker("push"), worker("points"), worker("ledger"), worker("github")],
     ...over,
   };
 }
@@ -52,10 +51,10 @@ export function fleetRelay(roster = fleetRoster()): FakeRelay {
 }
 
 /** Поднять пульт на стенде. */
-export async function pult(o: { relay?: FakeRelay; roster?: Roster; url?: string; store?: ReturnType<typeof memoryStore> } = {}) {
+export async function pult(o: { relay?: FakeRelay; roster?: Roster; url?: string; store?: ReturnType<typeof memoryStore>; workers?: Record<string, string> } = {}) {
   const relay = o.relay ?? fleetRelay(o.roster);
   const store = o.store ?? memoryStore({ key: KEY });
-  const t = await stand(pultParts(fakeBrowser("granted")), { relay, store, url: o.url, options: PULT });
+  const t = await stand(pultParts(fakeBrowser("granted")), { relay, store, url: o.url, options: { ...PULT, ...(o.workers ? { workers: o.workers } : {}) } });
   await flush();
   /** напечатать в поле и дать отработать */
   const type = async (el: Element | null, text: string, ev = "input") => {

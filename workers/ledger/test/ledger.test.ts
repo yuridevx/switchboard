@@ -140,11 +140,6 @@ describe("эталоны ledger", () => {
     expect(await runInDurableObject(j, (_o, s) => s.storage.getAlarm())).toBeNull();
   });
 
-  it("226 · hello() — контракт; roster ledger не получает", async () => {
-    expect(await relay.hello()).toEqual({
-      contract: { "ledger.add": 1, "ledger.read": 1, "machine.left": 1, "machine.back": 1 },
-    });
-  });
 });
 
 describe("ledger: чтение, отказы и стык с relay", () => {

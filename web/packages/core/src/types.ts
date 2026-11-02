@@ -121,6 +121,8 @@ export interface App {
   provides(machine: string): Record<string, number> | null;
   /** Последний roster; ядро держит его в памяти. */
   roster(): Roster | null;
+  /** Есть ли во флоте Worker с этим именем — по списку адресов сборки, а не по roster. */
+  worker(name: string): boolean;
   /** Экран на весь экран сейчас и его параметры (в широком виде — правая часть); до первого roster — null. */
   current(): { screen: string; params: Params } | null;
   /** Связь сейчас. */

@@ -1,4 +1,4 @@
-// relay в тестах: тот же код, участники — поддельные Worker из vitest.config.ts.
+// relay в тестах: тот же код; gate — настоящий за переключателем, журнал — поддельный Worker из vitest.config.ts.
 {
   "name": "switchboard",
   "main": "../src/index.ts",
@@ -7,15 +7,11 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Fleet"] }],
   "services": [
     { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
-    { "binding": "PUSH", "service": "switchboard-push", "entrypoint": "Participant" },
-    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" },
-    { "binding": "AUDIT", "service": "switchboard-audit", "entrypoint": "Participant" },
-    { "binding": "ECHO", "service": "switchboard-echo", "entrypoint": "Participant" }
+    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" }
   ],
   "vars": {
     "PROTO": [1],
-    "PARTICIPANTS": { "push": "PUSH", "ledger": "LEDGER", "audit": "AUDIT", "echo": "ECHO" },
-    // стенд: предел вызова участника короче боевого 120 с
+    // стенд: предел вызова журнала короче боевого 120 с
     "CALL_MS": 500
   }
 }

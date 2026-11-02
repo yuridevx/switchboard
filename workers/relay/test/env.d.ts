@@ -11,12 +11,8 @@ declare namespace Cloudflare {
     FLEET: DurableObjectNamespace<import("../src/fleet.ts").Fleet>;
     GATE: import("@switchboard/gate").GateApi & { setMode(m: string): Promise<void>; calls(): Promise<string[]>; clear(): Promise<void>; revokeLater(ids: string[]): Promise<void> };
     PROTO: number[];
-    PARTICIPANTS: Record<string, string>;
     GATE_DB: D1Database;
     GATE_MIGRATIONS: import("cloudflare:test").D1Migration[];
-    PUSH: Ctl;
     LEDGER: Ctl;
-    AUDIT: Ctl;
-    ECHO: Ctl;
   }
 }

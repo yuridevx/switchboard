@@ -149,10 +149,6 @@ describe("эталоны push", () => {
     expect((await table()).find((r) => r.client === "phone121")).toBeTruthy();
   });
 
-  it("122 · hello() — ровно три запроса push", async () => {
-    expect(await relay.hello()).toEqual({ contract: { "push.key": 1, "push.send": 1, "push.subscribe": 1 } });
-  });
-
   it("124 · push.key — несжатая точка P-256 из x и y JWK; настройки VAPID_PUBLIC нет", async () => {
     const out = await frame({ type: "push.key", v: 1, id: "k-1", to: ".push", from: "phone" });
     const key = unb64u((out[0] as unknown as { result: { key: string } }).result.key);

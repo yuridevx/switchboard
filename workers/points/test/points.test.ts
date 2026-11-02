@@ -247,10 +247,6 @@ describe("эталоны points", () => {
     expect((l.result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["7e19"]);
   });
 
-  it("209 · hello() — ровно пять запросов points", async () => {
-    expect(await relay.hello()).toEqual({ contract: { "points.put": 2, "points.get": 2, "points.list": 1, "points.delete": 1 } });
-  });
-
 });
 
 describe("points: get, list, откат, отказы, стык с relay", () => {

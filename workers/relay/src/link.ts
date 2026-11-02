@@ -1,6 +1,6 @@
 // Клиент link: соединение с relay по wss. Им пользуются ядро Host, веб-приложения и скрипты.
 // Работает в Node 24 (глобальный WebSocket) и в браузере; в тестах WebSocket подставляется.
-import { fail, isReply, kindOf, machineOf, oversize, parseFrame, serviceAddress, TOO_LARGE } from "@switchboard/protocol";
+import { fail, isReply, kindOf, machineOf, oversize, parseFrame, TOO_LARGE } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
 
@@ -113,7 +113,7 @@ function sinceOf(r: Roster | null, machine: string): number | undefined {
 }
 
 function hasName(r: Roster | null, name: string): boolean {
-  return !!r && (r.clients.includes(name) || r.workers.some((w) => serviceAddress(w.name) === name));
+  return !!r && r.clients.includes(name);
 }
 
 /** Открыть связь с relay. Подключается сразу; дальше живёт сама до close() или отказа relay. */

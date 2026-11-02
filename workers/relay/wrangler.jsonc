@@ -1,7 +1,6 @@
-// relay: вход без состояния и объект на машину — wss /m/<машина>; объект home — переход для клиентов прежнего кода.
+// relay: вход без состояния и объект на машину — wss /m/<машина>.
 // Публичный адрес switchboard.<subdomain>.workers.dev; секретов нет, на диск не пишет.
-// Новый участник — привязка в services и строка «имя → привязка» в PARTICIPANTS; код relay не меняется.
-// Выпуск — сначала участник, затем relay.
+// Привязки: gate — пропуск на hello и отзыв, журнал — вход и уход машины.
 {
   "name": "switchboard",
   "main": "src/index.ts",
@@ -16,17 +15,11 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Fleet"] }],
   "services": [
     { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
-    { "binding": "PUSH", "service": "switchboard-push", "entrypoint": "Participant" },
-    { "binding": "POINTS", "service": "switchboard-points", "entrypoint": "Participant" },
     { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" },
-    { "binding": "GITHUB", "service": "switchboard-github", "entrypoint": "Participant" },
-    { "binding": "RELEASES", "service": "switchboard-releases", "entrypoint": "Participant" }
   ],
   "vars": {
     // версии контракта relay, которые он принимает в hello
-    "PROTO": [1],
-    // участник рации → имя его привязки
-    "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" }
+    "PROTO": [1]
   },
   "observability": { "enabled": true },
   // прод: тот же код, свои Worker-модули с суффиксом -prod, адрес wss://relay.pfarm.app (wrangler --env prod)
@@ -41,15 +34,10 @@
       },
       "services": [
         { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
-        { "binding": "PUSH", "service": "switchboard-push-prod", "entrypoint": "Participant" },
-        { "binding": "POINTS", "service": "switchboard-points-prod", "entrypoint": "Participant" },
         { "binding": "LEDGER", "service": "switchboard-ledger-prod", "entrypoint": "Participant" },
-        { "binding": "GITHUB", "service": "switchboard-github-prod", "entrypoint": "Participant" },
-        { "binding": "RELEASES", "service": "switchboard-releases-prod", "entrypoint": "Participant" }
       ],
       "vars": {
-        "PROTO": [1],
-        "PARTICIPANTS": { "push": "PUSH", "points": "POINTS", "ledger": "LEDGER", "github": "GITHUB", "releases": "RELEASES" }
+        "PROTO": [1]
       }
     }
   }

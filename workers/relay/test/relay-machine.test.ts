@@ -39,7 +39,7 @@ const ledgerAdds = async () => (await env.LEDGER.received()).filter((f: F) => f.
 beforeEach(async () => {
   await applyD1Migrations(env.GATE_DB, env.GATE_MIGRATIONS);
   await env.GATE_DB.exec("DELETE FROM passes");
-  for (const c of [env.PUSH, env.LEDGER, env.AUDIT, env.ECHO]) {
+  for (const c of [env.LEDGER]) {
     await c.setMode("ok");
     await c.clear();
   }

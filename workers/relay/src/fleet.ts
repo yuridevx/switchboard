@@ -1,12 +1,11 @@
-// Объект relay: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
-// Объект машины m/<машина> держит её Host и keeper и гостей — Host других машин, устройства, программы.
-// Объект home — переход: один на флот для клиентов прежнего кода, каждый Host в нём свой.
-// На диск не пишет: всё — в карточках живых соединений и в ответах hello() участников.
+// Объект relay машины m/<машина>: соединения и их карточки, hello через gate, roster, доставка по адресу, from.
+// Держит её Host и keeper и гостей — Host других машин, устройства, программы. Доставляет только своей машине и гостям.
+// На диск не пишет: всё — в карточках живых соединений.
 import { DurableObject } from "cloudflare:workers";
-import { fail, hostOf, kindOf, machineOf, parseFrame, reaches, serviceAddress } from "@switchboard/protocol";
+import { fail, hostOf, kindOf, machineOf, parseFrame, reaches } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
 import type { GateApi, VerifyResult } from "@switchboard/gate";
-import type { Participant, ParticipantHello, RelayWord, Roster, SessionRecord } from "../contract.ts";
+import type { Participant, RelayWord, Roster, SessionRecord } from "../contract.ts";
 
 export type Env = {
   FLEET: DurableObjectNamespace<Fleet>;
@@ -15,16 +14,12 @@ export type Env = {
   LEDGER: Participant;
   /** версии контракта relay, которые принимает hello */
   PROTO: number[];
-  /** имя участника → имя его привязки */
-  PARTICIPANTS: Record<string, string>;
   /** версия Worker'а от платформы (version_metadata): карточка помнит, каким кодом принято соединение */
   CF_VERSION?: { id: string };
-  /** предел вызова участника, мс; только стенд — в бою 120 000, как предел запроса link */
+  /** предел вызова журнала, мс; только стенд — в бою 120 000, как предел запроса link */
   CALL_MS?: number;
 };
 
-/** Объект перехода: один на флот, для клиентов прежнего кода. */
-export const FLEET = "home";
 /** Имя объекта машины. */
 export const machineObject = (machine: string) => `m/${machine}`;
 /** Предел карточки соединения у Cloudflare. */
@@ -50,7 +45,7 @@ type ClientCard = { role: "client"; name: string; kid: string; addr: string; sin
 type KeeperCard = { role: "keeper"; name: string; kid: string; since: number; proto: number };
 /** ver — версия кода relay, принявшего hello */
 type Card = (HostCard | GuestCard | ClientCard | KeeperCard) & { ver?: string };
-type Sender = { ws: WebSocket; card: Card } | { worker: string };
+type Sender = { ws: WebSocket; card: Card };
 
 const log = (line: string) => console.log(line);
 const enc = new TextEncoder();
@@ -67,24 +62,21 @@ const keyId = (key: string) => key.split(".").slice(0, 3).join(".").slice(0, 80)
 const ownCallsign = (cs: unknown, machine: string) => typeof cs === "string" && cs.indexOf("@") > 0 && machineOf(cs) === machine;
 
 export class Fleet extends DurableObject<Env> {
-  /** участники, ответившие на hello(); память объекта — спрашиваются заново на каждом старте */
-  private workers = new Map<string, ParticipantHello>();
   private ready: Promise<void>;
   /** соединения, чей hello сейчас проверяет gate */
   private verifying = new Set<WebSocket>();
-  /** машина объекта; null — объект перехода home, где каждый Host свой */
-  private machine: string | null;
+  /** машина объекта */
+  private machine: string;
   /** свои Host на связи — по ним relay пишет в журнал вход и уход машины */
   private up = new Set<string>();
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
-    const name = ctx.id.name ?? FLEET;
-    this.machine = name.startsWith("m/") ? name.slice(2) : null;
+    this.machine = (ctx.id.name ?? "").slice("m/".length);
     // ping → pong отвечает Cloudflare, объект не просыпается
     ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
     this.up = this.present();
-    this.ready = this.helloParticipants().then(() => this.recheck());
+    this.ready = this.recheck();
   }
 
   async fetch(): Promise<Response> {
@@ -165,20 +157,6 @@ export class Fleet extends DurableObject<Env> {
     return n;
   }
 
-  /** Кадр, который участник вернул из frame: разбор и доставка от его имени; отказ — строка в журнале route. */
-  private async fromWorker(name: string, raw: unknown): Promise<void> {
-    try {
-      const f = parseFrame(JSON.stringify(raw ?? null));
-      if (!f) {
-        log(`bad_frame ${name} · не кадр`);
-        return;
-      }
-      await this.route({ worker: name }, f);
-    } catch (e) {
-      this.crash(e, `fromWorker(${name})`);
-    }
-  }
-
   // ---------- hello ----------
 
   private async hello(ws: WebSocket, f: Frame): Promise<void> {
@@ -205,7 +183,7 @@ export class Fleet extends DurableObject<Env> {
     }
     let card: Card;
     const since = Date.now();
-    const mine = r.role === "host" && (this.machine === null || r.name === this.machine);
+    const mine = r.role === "host" && r.name === this.machine;
     // часть машины входит пропуском машины в relay своей машины; в рацию из частей выходит только keeper
     if (f.part !== undefined && !(mine && f.part === "keeper")) {
       log(`bad_frame ${id} · part ${JSON.stringify(f.part)} — в relay своей машины входит только keeper пропуском машины`);
@@ -264,10 +242,10 @@ export class Fleet extends DurableObject<Env> {
       return word;
     };
 
-    // from ставит relay по пропуску или привязке: участник — .имя, keeper — .keeper@машина, клиент — адрес от gate;
+    // from ставит relay по пропуску: keeper — .keeper@машина, клиент — адрес от gate;
     // Host, свой или гость, — сама машина или сессия этой машины
     let from: string;
-    if ("worker" in s || (s.card.role !== "host" && s.card.role !== "guest")) {
+    if (s.card.role !== "host" && s.card.role !== "guest") {
       const own = this.who(s);
       if (f.from !== undefined && f.from !== own) return refuse("bad_from", `from=${String(f.from)}`);
       from = own;
@@ -303,7 +281,7 @@ export class Fleet extends DurableObject<Env> {
   }
 
   private async sessionState(s: Sender, f: Frame, refuse: (w: RelayWord, why: string) => RelayWord): Promise<RelayWord | undefined> {
-    if ("worker" in s || s.card.role !== "host") return refuse("bad_from", "session.state не от своего Host");
+    if (s.card.role !== "host") return refuse("bad_from", "session.state не от своего Host");
     const card = s.card;
     if (!ownCallsign(f.callsign, card.name)) return refuse("bad_from", `callsign ${String(f.callsign)}`);
     // запись сессии — кадр без конверта; заменяется целиком, state: null убирает её
@@ -358,25 +336,14 @@ export class Fleet extends DurableObject<Env> {
         }
         return n;
       }
-      case "service": {
-        const name = a.slice(1);
-        if (!this.workers.has(name)) return 0;
-        try {
-          await this.callWorker(name, out);
-          return 1;
-        } catch (e) {
-          log(`offline ${sender} → ${a} · ${out.type} · frame: ${e}`);
-          return 0;
-        }
-      }
       default:
+        // служба (Worker) — прямым запросом по её адресу, не через relay
         return 0;
     }
   }
 
   /** Адрес отправителя — по пропуску или привязке. */
   private who(s: Sender): string {
-    if ("worker" in s) return serviceAddress(s.worker);
     switch (s.card.role) {
       case "host":
       case "guest":
@@ -405,9 +372,9 @@ export class Fleet extends DurableObject<Env> {
     return by("host") ?? by("guest");
   }
 
-  /** roster объекта: свои машины и их сессии; гости — устройства, программы и Host других машин (@машина). */
+  /** roster объекта: своя машина и её сессии; гости — устройства, программы и Host других машин (@машина). */
   roster(except?: WebSocket): Roster {
-    const r: Roster = { type: "roster", machines: [], sessions: [], clients: [], workers: [] };
+    const r: Roster = { type: "roster", machines: [], sessions: [], clients: [] };
     for (const s of this.live(except)) {
       const c = cardOf(s)!;
       if (c.role === "host") {
@@ -418,7 +385,6 @@ export class Fleet extends DurableObject<Env> {
       const addr = c.role === "client" ? c.addr : c.role === "guest" ? `@${c.name}` : null;
       if (addr && !r.clients.includes(addr)) r.clients.push(addr);
     }
-    for (const [name, h] of this.workers) r.workers.push({ name, contract: h.contract });
     return r;
   }
 
@@ -453,21 +419,9 @@ export class Fleet extends DurableObject<Env> {
     }
   }
 
-  // ---------- участники ----------
+  // ---------- пределы ----------
 
-  /** Кадр участнику; кадры, которые он вернул, рация доставляет от его имени по одному. Бросил — исключение наружу. */
-  private async callWorker(name: string, f: Frame): Promise<void> {
-    const run = (async () => {
-      const out = await call(this.participant(name).frame(f));
-      if (!Array.isArray(out)) return log(`bad_frame ${name} · frame вернул не список кадров`);
-      for (const o of out) await this.fromWorker(name, o);
-    })();
-    // после предела отправитель уже получил offline; кадры, которые участник вернёт позже, доставляются как обычно
-    run.catch(() => {});
-    await this.within(run, `${name} не ответил за ${this.callMs() / 1000} с`);
-  }
-
-  /** Предел вызова участника, журнала и gate — как предел запроса link: 120 с (стенд ставит меньше). */
+  /** Предел вызова журнала — как предел запроса link: 120 с (стенд ставит меньше). */
   private callMs(): number {
     return this.env.CALL_MS ?? 120_000;
   }
@@ -477,28 +431,6 @@ export class Fleet extends DurableObject<Env> {
     let t = 0;
     const late = new Promise<never>((_ok, no) => (t = setTimeout(() => no(new Error(why)), this.callMs())));
     return Promise.race([p, late]).finally(() => clearTimeout(t));
-  }
-
-  private participant(name: string): Participant {
-    return (this.env as unknown as Record<string, Participant>)[this.env.PARTICIPANTS[name]];
-  }
-
-  /** hello() каждого участника из PARTICIPANTS при старте объекта. Не ответил — его нет в roster. */
-  private async helloParticipants(): Promise<void> {
-    await Promise.all(
-      Object.entries(this.env.PARTICIPANTS ?? {}).map(async ([name, binding]) => {
-        const b = (this.env as unknown as Record<string, Participant | undefined>)[binding];
-        if (!b) return log(`worker ${name} · привязки ${binding} нет`);
-        try {
-          const h = await this.within(call(b.hello()), `не ответил за ${this.callMs() / 1000} с`);
-          if (!isObj(h) || !isObj(h.contract)) throw new Error("hello() без contract");
-          this.workers.set(name, { contract: h.contract });
-          log(`worker ${name} · ${Object.entries(h.contract).map(([k, v]) => `${k} ${v}`).join(", ")}`);
-        } catch (e) {
-          log(`worker ${name} · hello: ${e}`);
-        }
-      }),
-    );
   }
 
   /** Версия кода relay; без привязки — пустая. */

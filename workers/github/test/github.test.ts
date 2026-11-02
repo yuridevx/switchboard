@@ -179,10 +179,6 @@ describe("эталоны github", () => {
     ]);
   });
 
-  it("245 · hello() — ровно три запроса github", async () => {
-    expect(await relay.hello()).toEqual({ contract: { "github.app": 1, "github.setup": 1, "github.token": 1 } });
-  });
-
   it("246 · секретов Worker нет, адрес — прямой вход (пакет «Открытый флот»); после перезапуска объекта токен выдан без новой настройки", async () => {
     const cfg = JSON.parse(wrangler.replace(/^\s*\/\/.*$/gm, ""));
     expect([cfg.workers_dev, cfg.preview_urls, cfg.routes, cfg.route]).toEqual([true, false, undefined, undefined]);

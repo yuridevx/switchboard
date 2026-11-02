@@ -32,7 +32,7 @@ beforeAll(async () => {
         compatibilityDate: "2026-08-01",
         durableObjects: { FLEET: { className: "Fleet", useSQLite: true } },
         serviceBindings: { GATE: { name: "switchboard-gate", entrypoint: "Gate" } },
-        bindings: { PROTO: [1], PARTICIPANTS: {} },
+        bindings: { PROTO: [1] },
       },
       {
         name: "switchboard-gate",
@@ -44,7 +44,8 @@ beforeAll(async () => {
       },
     ],
   }));
-  url = (await mf.ready).href.replace(/^http/, "ws");
+  // объект машины laptop: Host laptop — свой, остальные — гости
+  url = (await mf.ready).href.replace(/^http/, "ws") + "m/laptop";
   // схема базы gate: старые ключи ищутся в ней первыми
   const db = await mf.getD1Database("DB", "switchboard-gate");
   const sql = readFileSync(join(here, "..", "..", "gate", "migrations", "0001_passes.sql"), "utf8").replace(/--.*$/gm, "");

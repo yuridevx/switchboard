@@ -263,10 +263,9 @@ describe("link · правило отправителя по roster", () => {
     expect(await p).toMatchObject({ ok: false, error: "disconnected" });
   });
 
-  it("2054 · клиент или участник ушёл из roster — disconnected; @машина — по машине; часть машины и пользователь по roster не снимаются", async () => {
+  it("2054 · клиент ушёл из roster — disconnected; @машина — по машине; часть машины и пользователь по roster не снимаются", async () => {
     const { l, ws } = opened();
     const toPhone = l.request({ type: "message", to: "phone~owner@example.com" });
-    const toPush = l.request({ type: "push.send", to: ".push" });
     const toMachine = l.request({ type: "machine.dirs", to: "@laptop" });
     const toKeeper = l.request({ type: "keeper.state", to: ".keeper@laptop" });
     const toUser = l.request({ type: "message", to: "~owner@example.com" });
@@ -275,11 +274,10 @@ describe("link · правило отправителя по roster", () => {
     void toUser.then(() => settled++);
     ws.recv(roster([["pc", 1]], [], []));
     expect(await toPhone).toMatchObject({ error: "disconnected" });
-    expect(await toPush).toMatchObject({ error: "disconnected" });
     expect(await toMachine).toMatchObject({ error: "disconnected" });
     await Promise.resolve();
     expect(settled).toBe(0);
-    ws.recv({ type: "reply", id: JSON.parse(ws.sent[4]).id, ok: true });
+    ws.recv({ type: "reply", id: JSON.parse(ws.sent[3]).id, ok: true });
     expect(await toKeeper).toMatchObject({ ok: true });
   });
 

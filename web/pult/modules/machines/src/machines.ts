@@ -64,7 +64,7 @@ export function createMachines(): AppModule {
   }
 
   async function github() {
-    if (!app.roster()?.workers.some((w) => w.name === "github")) return;
+    if (!app.worker("github")) return;
     const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname });
     gh = r.ok ? r.result : { error: r.error };
     redraw();
@@ -183,7 +183,7 @@ export function createMachines(): AppModule {
     }
 
     function ghSection(): HTMLElement | null {
-      if (!app.roster()?.workers.some((w) => w.name === "github")) return null;
+      if (!app.worker("github")) return null;
       const n = notes.get("gh");
       const orgIn = h("input", { class: "sb-in m", "data-f": "org", placeholder: "организация (необязательно)", value: org }) as HTMLInputElement;
       orgIn.addEventListener("input", () => (org = orgIn.value));

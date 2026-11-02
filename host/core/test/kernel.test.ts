@@ -156,7 +156,7 @@ describe("кадры и запросы из relay", () => {
     const b = module("host-b", { on: { frame: (f) => void got.push(`b ${f.type}`) } }, { uses: { "roster@relay": 1 } });
     const st = await stand({ modules: [a, b] });
     await until(() => got.includes("b roster"));
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     await until(() => got.filter((x) => x === "b roster").length === 2);
     expect(got.filter((x) => x === "a roster")).toHaveLength(1);
     const f = lines(st, "module_failed");

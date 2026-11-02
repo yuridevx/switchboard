@@ -25,8 +25,9 @@ export class Peer {
     });
   }
 
-  static async open(): Promise<Peer> {
-    const res = await SELF.fetch("https://switchboard.test/", { headers: { Upgrade: "websocket" } });
+  /** Соединение с объектом машины; по умолчанию — laptop: Host других машин входят к нему гостями. */
+  static async open(machine = "laptop"): Promise<Peer> {
+    const res = await SELF.fetch(`https://switchboard.test/m/${machine}`, { headers: { Upgrade: "websocket" } });
     const ws = res.webSocket!;
     ws.accept();
     return new Peer(ws);
@@ -110,4 +111,4 @@ export async function eventually<T>(get: () => Promise<T | undefined> | T | unde
   }
 }
 
-export const fleet = () => env.FLEET.get(env.FLEET.idFromName("home"));
+export const fleet = (machine = "laptop") => env.FLEET.get(env.FLEET.idFromName(`m/${machine}`));

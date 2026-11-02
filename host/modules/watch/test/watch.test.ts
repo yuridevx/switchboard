@@ -85,7 +85,7 @@ describe("эталоны watch", () => {
     await watch(st, "session.watch", "phone~owner@example.com");
     const store = () => st.session("host-watch", "site@laptop")!.store<string[]>().get();
     expect(store()).toEqual(["panel-desk~owner@example.com", "phone~owner@example.com"]);
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"] });
     await until(() => store()?.length === 1);
     expect(store()).toEqual(["phone~owner@example.com"]);
     const p = st.proc("site@laptop");
@@ -96,7 +96,7 @@ describe("эталоны watch", () => {
     // открытая пачка, потом уходит phone
     p.send(msg.state("running"));
     await until(() => seen.length === 5);
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [], workers: [] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     await until(() => store()?.length === 0);
     vi.advanceTimersByTime(WINDOW_MS * 3);
     expect(events(st)).toHaveLength(1);
@@ -138,7 +138,7 @@ describe("эталоны watch", () => {
     await watch(st, "session.unwatch", "phone~owner@example.com");
     const h = st.host("host-questions");
     asked.push(await h.request("session.watchers", { v: 1, callsign: "site@laptop" }));
-    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"], workers: [] });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: ["phone~owner@example.com"] });
     await until(() => st.session("host-watch", "site@laptop")!.store<string[]>().get()?.length === 0);
     asked.push(await h.request("session.watchers", { v: 1, callsign: "site@laptop" }));
     expect(asked).toEqual([

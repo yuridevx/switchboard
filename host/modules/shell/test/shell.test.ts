@@ -352,7 +352,7 @@ describe("эталоны shell", { timeout: 30_000 }, () => {
   // источник: принятый дизайн, сценарий «Host wsl упал» — «Клиент рации отпускает ждущих, когда машина-адресат ушла. Своего таймера нет. … после подъёма Host — no_run»
   it("295 · Host цели упал посреди ждущего run: модели сразу disconnected текстом; поднятый Host цели — no_run", async () => {
     const { a, b } = await pair();
-    const roster = (machines: string[]) => ({ type: "roster", machines: machines.map((machine) => ({ machine, since: 1 })), sessions: [], clients: [], workers: [] });
+    const roster = (machines: string[]) => ({ type: "roster", machines: machines.map((machine) => ({ machine, since: 1 })), sessions: [], clients: [] });
     a.st.relay.deliver(roster(["win", "wsl"]));
     const call = a.tool("site@win", "run", { machine: "wsl", shell: "bash", script: "sleep 3", background: false });
     const run = String((await until(() => a.st.relay.frames("shell.run").at(-1))).run);
