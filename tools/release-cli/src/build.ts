@@ -143,6 +143,9 @@ export async function build(o: BuildOptions): Promise<Built> {
   put("package.json", Buffer.from(JSON.stringify({ name: "switchboard-host-release", version: o.version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n"));
   put("host", Buffer.from(ENTRY), 0o755);
 
+  // версии зависимостей — из lock-файла монорепо: npm сужает его до пакетов ядра, а не разрешает заново по реестру
+  // (иначе новый патч в реестре меняет архив той же версии ядра от прогона к прогону)
+  put("package-lock.json", readFileSync(join(o.root, "package-lock.json")));
   const lock = await o.exec("npm", ["install", "--package-lock-only", "--ignore-scripts", "--no-audit", "--no-fund"], dir);
   if (lock.code !== 0) throw new Error(`npm install --package-lock-only: ${lock.out.trim()}`);
   const ci = await o.exec("npm", ["ci", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund"], dir);
