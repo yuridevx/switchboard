@@ -167,6 +167,8 @@ describe("manage", () => {
     mkdirSync(join(home, "p"));
     expect(await req(st, { type: "session.open", machine: "laptop", name: "site", dir: "~/p" })).toMatchObject({ ok: false, error: "name_taken" });
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/нет" })).toMatchObject({ ok: false, error: "bad_spec" });
+    // папка не от ~ и не полная — отказ, а не путь от папки выпуска Host (одно правило ядра clientPath)
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "p" })).toMatchObject({ ok: false, error: "bad_spec" });
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p", effort: "ultra" })).toMatchObject({ ok: false, error: "bad_spec" });
     expect(st.journal().find((l) => l.word === "bad_spec" && String(l.why).includes("effort"))).toBeTruthy();
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p", color: "red", model: "opus", fast: true })).toMatchObject({ ok: true });

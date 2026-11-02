@@ -366,7 +366,7 @@ describe("вкладка «Точки» сессии", () => {
   it("4173 · линия, ветки и первые слова; карточка точки — копия и откат", async () => {
     const t = await sessionTab();
     expect(t.relay.sent("points.list").at(-1)).toMatchObject({ sid: SID });
-    expect(t.relay.sent("points.get")).toEqual([expect.objectContaining({ ids: [41, 38, 33] })]);
+    expect(t.relay.sent("points.get")).toEqual([expect.objectContaining({ v: 2, ids: [41, 38, 33] })]);
     expect(t.$('[data-r2="on"] .sb-ph b')!.textContent).toMatch(/^Точка .+ · №41$/);
     expect(t.$('[data-point="33"]')!.textContent).toContain("ветка · №33");
     expect(t.$('[data-point="41"]')!.textContent).toContain("«обнови зависимости и прогони тесты»");
