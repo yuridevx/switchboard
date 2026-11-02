@@ -183,9 +183,9 @@ describe("эталоны github", () => {
     expect(await relay.hello()).toEqual({ contract: { "github.app": 1, "github.setup": 1, "github.token": 1 } });
   });
 
-  it("246 · секретов Worker нет, адреса нет; после перезапуска объекта токен выдан без новой настройки", async () => {
+  it("246 · секретов Worker нет, адрес — прямой вход (пакет «Открытый флот»); после перезапуска объекта токен выдан без новой настройки", async () => {
     const cfg = JSON.parse(wrangler.replace(/^\s*\/\/.*$/gm, ""));
-    expect([cfg.workers_dev, cfg.preview_urls, cfg.routes, cfg.route]).toEqual([false, false, undefined, undefined]);
+    expect([cfg.workers_dev, cfg.preview_urls, cfg.routes, cfg.route]).toEqual([true, false, undefined, undefined]);
     expect(Object.values(manifest.config)).not.toContain("secret");
     const s = home();
     await seed(s);

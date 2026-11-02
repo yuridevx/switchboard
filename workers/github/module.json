@@ -2,9 +2,17 @@
   "name": "github",
   "type": "worker",
   "version": "1.0.0",
-  "provides": { "github.app": 1, "github.setup": 1, "github.token": 1 },
-  "uses": { "frame@relay": 1 },
+  "provides": {
+    "github.app": 1,
+    "github.setup": 1,
+    "github.token": 1
+  },
+  "uses": {
+    "frame@relay": 1,
+    "gate.verify@gate": 1
+  },
   "config": {
-    "APP": "binding"
+    "APP": "binding",
+    "GATE": "binding"
   }
 }

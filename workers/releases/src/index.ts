@@ -1,6 +1,7 @@
 // Вход участника рации releases: relay зовёт hello() при старте объекта флота и frame(кадр) для кадров с to: ".releases".
 import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Frame } from "@switchboard/protocol";
+import { entrance } from "@switchboard/gate";
 import type { Participant as Entry, ParticipantHello } from "@switchboard/relay";
 import { CONTRACT } from "../contract.ts";
 import type { Env } from "./env.ts";
@@ -8,6 +9,11 @@ import type { Env } from "./env.ts";
 export { Releases } from "./releases.ts";
 
 export class Participant extends WorkerEntrypoint<Env> implements Entry {
+  /** Прямой вход: POST кадра с пропуском — тот же frame. */
+  fetch(req: Request): Promise<Response> {
+    return entrance(req, this.env.GATE, (f) => this.frame(f));
+  }
+
   hello(): ParticipantHello {
     return { contract: { ...CONTRACT } };
   }

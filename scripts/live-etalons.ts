@@ -1,5 +1,5 @@
 // Эталоны, которые проверяются только на выложенном тестовом флоте (не на живом флоте пользователя):
-//   144 — секреты и адреса семи Worker (адрес — у relay и gate); 136 и 145 — выпуск push и gate не рвёт соединения relay;
+//   144 — секреты и адреса семи Worker (адрес — у каждого); 136 и 145 — выпуск push и gate не рвёт соединения relay;
 //   5027 — отзыв пропуска keys.revoke на входе relay: соединение закрыто сразу, новый hello — revoked; пропуска эталона отозваны.
 // Токен деплоя и секрет флота — из ~/.switchboard-dev (SWITCHBOARD_DEV_DIR), как у deploy-workers.mjs.
 import { spawnSync } from "node:child_process";
@@ -40,8 +40,8 @@ const until = async (ok: () => boolean, ms = 20000) => {
 };
 const opened = (l: Link) => until(() => l.state === "open");
 
-// 144 — секреты и адреса; адрес — у relay и тех, к кому ходят напрямую (пакет «Открытый флот»: gate с шага 1)
-const PUBLIC = ["switchboard", "switchboard-gate"];
+// 144 — секреты и адреса; адрес — у каждого Worker'а флота: прямой вход (пакет «Открытый флот»)
+const PUBLIC = ["switchboard", "switchboard-gate", "switchboard-push", "switchboard-points", "switchboard-ledger", "switchboard-github", "switchboard-releases"];
 const SECRETS: Record<string, string[]> = { switchboard: [], "switchboard-gate": ["FLEET_SECRET"], "switchboard-push": ["VAPID_PRIVATE"], "switchboard-points": ["R2_KEY_SECRET"], "switchboard-ledger": [], "switchboard-github": [], "switchboard-releases": ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID", "R2_LINK_SECRET"] };
 for (const [w, want] of Object.entries(SECRETS)) {
   const sec = ((await api(`/workers/scripts/${w}/secrets`)).result as Array<{ name: string }>).map((s) => s.name).sort();

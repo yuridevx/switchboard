@@ -14,6 +14,15 @@ export type { Frame, Reply } from "@switchboard/protocol";
  */
 export { link, PROTO } from "./src/link.ts";
 export type { Link, LinkOptions, LinkState, WsLike, WsCtor } from "./src/link.ts";
+/**
+ * fleet(options) — клиент флота: соединение с relay каждой машины (машины — keys.list у gate, новые — гостями в roster),
+ * кадр к машине — в её соединение, к Worker'у — POST с пропуском по адресу из options.workers.
+ *   const f = fleet({ relay, gate, workers, key, machine: "win", hello: () => ({ sdk, contract, sessions }), onFrame });
+ *   await f.request({ type: "message", to: "site@wsl", text: "…" });   // через relay машины wsl
+ *   await f.request({ type: "push.send", v: 1, to: ".push", … });     // POST к Worker'у push
+ */
+export { fleet } from "./src/fleet-client.ts";
+export type { FleetClient, FleetOptions } from "./src/fleet-client.ts";
 
 /**
  * Запросы POST по адресу relay (вход без состояния). Тело — кадр JSON, ответ — reply.

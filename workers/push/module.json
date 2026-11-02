@@ -2,11 +2,19 @@
   "name": "push",
   "type": "worker",
   "version": "1.0.0",
-  "provides": { "push.key": 1, "push.send": 1, "push.subscribe": 1 },
-  "uses": { "frame@relay": 1 },
+  "provides": {
+    "push.key": 1,
+    "push.send": 1,
+    "push.subscribe": 1
+  },
+  "uses": {
+    "frame@relay": 1,
+    "gate.verify@gate": 1
+  },
   "config": {
     "VAPID_PRIVATE": "secret",
     "VAPID_SUB": "var",
-    "SUBS": "binding"
+    "SUBS": "binding",
+    "GATE": "binding"
   }
 }

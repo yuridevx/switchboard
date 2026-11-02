@@ -1,4 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["contract.ts", "src/link.ts", "test/link*.test.ts", "vitest.config.ts"]
+  "include": [
+    "contract.ts",
+    "src/link.ts",
+    "src/fleet-client.ts",
+    "test/link*.test.ts",
+    "test/fleet-client.test.ts",
+    "vitest.config.ts"
+  ]
 }

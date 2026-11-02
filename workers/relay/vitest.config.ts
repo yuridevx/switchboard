@@ -86,7 +86,7 @@ export default defineConfig({
         test: { name: "relay", include: ["test/relay*.test.ts"], testTimeout: 15_000 },
       },
       {
-        test: { name: "link", environment: "node", include: ["test/link*.test.ts"] },
+        test: { name: "link", environment: "node", include: ["test/link*.test.ts", "test/fleet-client.test.ts"] },
       },
     ],
   },

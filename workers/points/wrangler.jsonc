@@ -1,11 +1,13 @@
-// Worker points: реестр точек, участник рации без адреса в интернете.
+// Worker points: реестр точек, участник рации и прямой вход по адресу.
 // Секрет R2_KEY_SECRET — секрет пары S3 токена R2 бакета точек (id пары — R2_KEY_ID в vars); wrangler secret put из stdin.
 {
   "name": "switchboard-points",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
+  // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
+  "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points" }],
@@ -19,6 +21,8 @@
   // прод: свой бакет точек; R2_KEY_ID — пара токена R2 прода (бакеты switchboard-points-prod и switchboard-releases)
   "env": {
     "prod": {
+      "workers_dev": false,
+      "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points-prod" }],
       "durable_objects": { "bindings": [{ "name": "REGISTRY", "class_name": "Registry" }] },
       "vars": {

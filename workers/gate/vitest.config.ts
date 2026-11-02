@@ -18,7 +18,7 @@ export default defineConfig({
         ],
         test: { name: "gate", include: ["test/gate.test.ts"] },
       },
-      { test: { name: "tools", environment: "node", include: ["test/invite.test.ts", "test/seed.test.ts"] } },
+      { test: { name: "tools", environment: "node", include: ["test/invite.test.ts", "test/seed.test.ts", "test/entrance.test.ts", "test/redeem.test.ts"] } },
     ],
   },
 });

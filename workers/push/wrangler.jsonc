@@ -1,10 +1,12 @@
-// Worker push: участник рации без адреса в интернете. Секрет VAPID_PRIVATE — wrangler secret put из stdin.
+// Worker push: участник рации и прямой вход по адресу. Секрет VAPID_PRIVATE — wrangler secret put из stdin.
 {
   "name": "switchboard-push",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
+  // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
+  "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
   "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
@@ -12,6 +14,8 @@
   "vars": { "VAPID_SUB": "https://switchboard.yuridevx1608.workers.dev" },
   "env": {
     "prod": {
+      "workers_dev": false,
+      "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
       "durable_objects": { "bindings": [{ "name": "SUBS", "class_name": "Subs" }] },
       "vars": { "VAPID_SUB": "https://phone.pfarm.app" }
     }

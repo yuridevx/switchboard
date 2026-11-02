@@ -196,6 +196,14 @@ describe("ledger: чтение, отказы и стык с relay", () => {
     expect((sent[0].result as { events: Array<{ text: string }> }).events.map((e) => e.text)).toEqual(["s", "int-machine на связи"]);
   });
 
+  it("5044 · вызов по привязке → from тот, что поставил вызывающий: .points и .releases пишут по своей привязке", async () => {
+    clock(at("10:00", "2026-11-02"));
+    await relay.frame({ type: "ledger.add", v: 1, to: ".ledger", from: ".points", ev: "session.deleted", machine: "b-machine", text: "p" });
+    await relay.frame({ type: "ledger.add", v: 1, to: ".ledger", from: ".releases", ev: "part.deployed", machine: "b-machine", text: "r" });
+    const [r] = await relay.frame({ type: "ledger.read", v: 1, id: "r", to: ".ledger", from: "panel", machine: "b-machine", limit: 5 });
+    expect((r.result as { events: Array<{ from: string }> }).events.map((e) => e.from)).toEqual([".releases", ".points"]);
+  });
+
   it("span: секунды, минуты, часы, дни", () => {
     expect([span(3000), span(42 * 60000), span(125 * 60000), span(3 * 86400000)]).toEqual(["3 с", "42 мин", "2 ч 5 мин", "3 дн"]);
   });

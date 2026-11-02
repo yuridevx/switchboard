@@ -1,4 +1,4 @@
-// Worker releases («выпуски»): каталог частей, stable, планы машин; участник рации без адреса в интернете.
+// Worker releases («выпуски»): каталог частей, stable, планы машин; участник рации и прямой вход по адресу.
 // Секреты CLOUDFLARE_API_TOKEN (выкладка версий Worker'ов) и R2_LINK_KEY_ID / R2_LINK_SECRET
 // (подпись ссылок на архивы) — wrangler secret put из stdin.
 {
@@ -6,7 +6,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
+  // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
+  "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
@@ -30,6 +32,8 @@
   // прод: свои stable и планы машин; архивы частей машины — тот же бакет выпусков (CI грузит их один раз)
   "env": {
     "prod": {
+      "workers_dev": false,
+      "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
       "durable_objects": { "bindings": [{ "name": "RELEASES", "class_name": "Releases" }] },
       "vars": {

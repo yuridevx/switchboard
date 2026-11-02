@@ -9,6 +9,11 @@
     "qrcode-terminal.d.ts",
     "test/invite.test.ts",
     "test/seed.test.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "src/entrance.ts",
+    "test/entrance.test.ts",
+    "redeem.ts",
+    "test/redeem.test.ts",
+    "src/stand.ts"
   ]
 }

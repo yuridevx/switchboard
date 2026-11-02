@@ -47,3 +47,5 @@ export interface GateApi {
  * bad_invite — приглашения нет, оно принято или отозвано; gate_unavailable — база не ответила.
  */
 export const CONTRACT = { "keys.invite": 1, "keys.list": 1, "gate.redeem": 1 } as const;
+export { entrance } from "./src/entrance.ts";
+export { gateStand } from "./src/stand.ts";

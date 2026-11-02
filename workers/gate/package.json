@@ -8,7 +8,8 @@
   },
   "bin": {
     "switchboard-invite": "./invite.ts",
-    "switchboard-seed": "./seed.ts"
+    "switchboard-seed": "./seed.ts",
+    "switchboard-redeem": "./redeem.ts"
   },
   "scripts": {
     "test": "vitest run",

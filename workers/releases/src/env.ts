@@ -1,6 +1,9 @@
+import type { GateApi } from "@switchboard/gate";
 import type { Releases } from "./releases.ts";
 
 export interface Env {
+  /** gate: пропуск прямого запроса */
+  GATE: GateApi;
   /** токен API Cloudflare: список версий Worker'ов и выкладка */
   CLOUDFLARE_API_TOKEN: string;
   /** ключ R2 бакета выпусков: им подписаны ссылки на чтение и запись архивов */

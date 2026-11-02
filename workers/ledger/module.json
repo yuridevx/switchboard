@@ -9,9 +9,11 @@
     "machine.back": 1
   },
   "uses": {
-    "frame@relay": 1
+    "frame@relay": 1,
+    "gate.verify@gate": 1
   },
   "config": {
-    "JOURNAL": "binding"
+    "JOURNAL": "binding",
+    "GATE": "binding"
   }
 }

@@ -1,17 +1,21 @@
-// Worker github: приложение GitHub флота, участник рации без адреса в интернете.
+// Worker github: приложение GitHub флота, участник рации и прямой вход по адресу.
 // Секретов Worker нет: ключ приложения github кладёт в хранилище своего объекта при настройке с пульта.
 {
   "name": "switchboard-github",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  "workers_dev": true,
+  // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
+  "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
   "preview_urls": false,
   "observability": { "enabled": true },
   "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["App"] }],
   "env": {
     "prod": {
+      "workers_dev": false,
+      "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
       "durable_objects": { "bindings": [{ "name": "APP", "class_name": "App" }] }
     }
   }
