@@ -13,7 +13,8 @@
     "ledger.add@ledger": 1,
     "release.format@release": 1,
     "gate.verify@gate": 1,
-    "relay.deliver@relay": 1
+    "relay.deliver@relay": 1,
+    "gate.list@gate": 1
   },
   "config": {
     "CLOUDFLARE_API_TOKEN": "secret",
@@ -22,8 +23,9 @@
     "CF_ACCOUNT_ID": "var",
     "CLOUD": "var",
     "BUCKET": "binding",
-    "RELEASES": "binding",
     "GATE": "binding",
-    "RELAY": "binding"
+    "RELAY": "binding",
+    "DB": "binding",
+    "LEDGER": "binding"
   }
 }

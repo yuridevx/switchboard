@@ -1,6 +1,5 @@
-// Объект приложения GitHub: одна запись app в хранилище; github.app, github.setup, github.token.
+// Приложение GitHub флота над базой D1 модуля: одна строка app; github.app, github.setup, github.token.
 // Токенов, установок и репозиториев не хранит: их github спрашивает у GitHub на каждый запрос.
-import { DurableObject } from "cloudflare:workers";
 import { accepts, fail, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type AppInfo } from "../contract.ts";
 import type { Env } from "./env.ts";
@@ -27,83 +26,77 @@ class Failed extends Error {
 const REPO = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9_.-]+$/;
 const CODE = /^[A-Za-z0-9_-]+$/;
 
-export class App extends DurableObject<Env> {
+/** Кадр с to: ".github" → кадры, которые github шлёт в ответ. */
+export async function frame(env: Env, f: Frame): Promise<Frame[]> {
+  const from = f.from ?? "";
+  const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);
+  const refuse = (word: string, why: string, extra: Record<string, unknown> = {}, more: Record<string, unknown> = {}): Frame[] => {
+    log({ kind: "refuse", ev: f.type, word, why, from, ...more });
+    return f.id ? answer({ ...fail(f.id, word), ...extra }) : [];
+  };
 
-  /** Переход на D1: запись приложения — один прогон переноса читает её по привязке. */
-  async dump(): Promise<Record<string, Record<string, unknown>[]>> {
-    const app = await this.ctx.storage.get<Stored>("app");
-    return { app: app ? [app as unknown as Record<string, unknown>] : [] };
+  if (f.type === "reply") {
+    log({ kind: "note", ev: "reply", from, why: "github ответов не ждёт" });
+    return [];
   }
-  /** Кадр с to: ".github" → кадры, которые github шлёт в ответ. */
-  async frame(f: Frame): Promise<Frame[]> {
-    const from = f.from ?? "";
-    const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);
-    const refuse = (word: string, why: string, extra: Record<string, unknown> = {}, more: Record<string, unknown> = {}): Frame[] => {
-      log({ kind: "refuse", ev: f.type, word, why, from, ...more });
-      return f.id ? answer({ ...fail(f.id, word), ...extra }) : [];
-    };
+  const bad = accepts(f, CONTRACT);
+  if (bad) return refuse(bad.word, bad.why);
+  if (!f.id) return refuse("bad_frame", `${f.type} без id — ответить некому`);
+  const id = f.id;
 
-    if (f.type === "reply") {
-      log({ kind: "note", ev: "reply", from, why: "github ответов не ждёт" });
-      return [];
-    }
-    const bad = accepts(f, CONTRACT);
-    if (bad) return refuse(bad.word, bad.why);
-    if (!f.id) return refuse("bad_frame", `${f.type} без id — ответить некому`);
-    const id = f.id;
-
-    try {
-      const app = await this.ctx.storage.get<Stored>("app");
-      switch (f.type) {
-        case "github.app": {
-          if (typeof f.redirect !== "string" || !/^https?:\/\//.test(f.redirect)) return refuse("bad_frame", "нет redirect — адреса пульта");
-          if (f.org !== undefined && (typeof f.org !== "string" || !/^[A-Za-z0-9-]+$/.test(f.org))) return refuse("bad_frame", "org — не имя организации");
-          if (!app) return answer(ok(id, { app: null, form: form(f.redirect, f.org as string | undefined) }));
-          return answer(ok(id, { app: info(app), repos: await repos(app), install: install(app) }));
-        }
-
-        case "github.setup": {
-          if (typeof f.code !== "string" || !CODE.test(f.code)) return refuse("bad_frame", "нет code из возврата GitHub");
-          if (app && f.replace !== true) return refuse("app_exists", "приложение уже есть; заменить — replace: true", { app: { id: app.id, slug: app.slug } });
-          const r = await gh(`/app-manifests/${f.code}/conversions`, { method: "POST" });
-          if (r.status !== 201) throw new Failed(r.status, await r.text());
-          const g = (await r.json()) as { id: number; slug: string; owner?: { login?: string }; pem: string };
-          // client_secret и webhook_secret не сохраняются: входа через GitHub и вебхуков у флота нет
-          const next: Stored = { id: g.id, slug: g.slug, owner: g.owner?.login ?? "", pem: g.pem, at: Date.now(), by: from };
-          await this.ctx.storage.put("app", next);
-          log({ kind: "note", ev: f.type, from, app: next.id, slug: next.slug, owner: next.owner, replaced: !!app });
-          return answer(ok(id, { app: info(next), install: install(next) }));
-        }
-
-        case "github.token": {
-          if (typeof f.repo !== "string" || !REPO.test(f.repo)) return refuse("bad_frame", "repo — не вида владелец/имя");
-          if (!app) return refuse("no_app", "приложения ещё нет: github.setup не делали");
-          const jwt = await appJwt(app.id, app.pem, Date.now());
-          const r = await gh(`/repos/${f.repo}/installation`, {}, `Bearer ${jwt}`);
-          if (r.status === 404) {
-            await r.body?.cancel();
-            return refuse("not_installed", `приложение не допущено к ${f.repo}`, { install: install(app) }, { repo: f.repo });
-          }
-          if (r.status !== 200) throw new Failed(r.status, await r.text());
-          const inst = (await r.json()) as { id: number };
-          const name = f.repo.split("/")[1];
-          const t = await gh(
-            `/app/installations/${inst.id}/access_tokens`,
-            { method: "POST", body: JSON.stringify({ repositories: [name], permissions: { contents: "write" } }) },
-            `Bearer ${jwt}`,
-          );
-          if (t.status !== 201) throw new Failed(t.status, await t.text());
-          const tok = (await t.json()) as { token: string; expires_at: string };
-          log({ kind: "note", ev: f.type, from, repo: f.repo, installation: inst.id });
-          return answer(ok(id, { token: tok.token, expires_at: tok.expires_at }));
-        }
+  try {
+    const app = (await env.DB.prepare("SELECT id, slug, owner, pem, at, by FROM app WHERE one = 1").first<Stored>()) ?? undefined;
+    switch (f.type) {
+      case "github.app": {
+        if (typeof f.redirect !== "string" || !/^https?:\/\//.test(f.redirect)) return refuse("bad_frame", "нет redirect — адреса пульта");
+        if (f.org !== undefined && (typeof f.org !== "string" || !/^[A-Za-z0-9-]+$/.test(f.org))) return refuse("bad_frame", "org — не имя организации");
+        if (!app) return answer(ok(id, { app: null, form: form(f.redirect, f.org as string | undefined) }));
+        return answer(ok(id, { app: info(app), repos: await repos(app), install: install(app) }));
       }
-    } catch (e) {
-      if (e instanceof Failed) return refuse("github_failed", e.message, {}, { status: e.status, text: e.text });
-      throw e;
+
+      case "github.setup": {
+        if (typeof f.code !== "string" || !CODE.test(f.code)) return refuse("bad_frame", "нет code из возврата GitHub");
+        if (app && f.replace !== true) return refuse("app_exists", "приложение уже есть; заменить — replace: true", { app: { id: app.id, slug: app.slug } });
+        const r = await gh(`/app-manifests/${f.code}/conversions`, { method: "POST" });
+        if (r.status !== 201) throw new Failed(r.status, await r.text());
+        const g = (await r.json()) as { id: number; slug: string; owner?: { login?: string }; pem: string };
+        // client_secret и webhook_secret не сохраняются: входа через GitHub и вебхуков у флота нет
+        const next: Stored = { id: g.id, slug: g.slug, owner: g.owner?.login ?? "", pem: g.pem, at: Date.now(), by: from };
+        await env.DB.prepare("INSERT OR REPLACE INTO app (one, id, slug, owner, pem, at, by) VALUES (1, ?, ?, ?, ?, ?, ?)")
+          .bind(next.id, next.slug, next.owner, next.pem, next.at, next.by)
+          .run();
+        log({ kind: "note", ev: f.type, from, app: next.id, slug: next.slug, owner: next.owner, replaced: !!app });
+        return answer(ok(id, { app: info(next), install: install(next) }));
+      }
+
+      case "github.token": {
+        if (typeof f.repo !== "string" || !REPO.test(f.repo)) return refuse("bad_frame", "repo — не вида владелец/имя");
+        if (!app) return refuse("no_app", "приложения ещё нет: github.setup не делали");
+        const jwt = await appJwt(app.id, app.pem, Date.now());
+        const r = await gh(`/repos/${f.repo}/installation`, {}, `Bearer ${jwt}`);
+        if (r.status === 404) {
+          await r.body?.cancel();
+          return refuse("not_installed", `приложение не допущено к ${f.repo}`, { install: install(app) }, { repo: f.repo });
+        }
+        if (r.status !== 200) throw new Failed(r.status, await r.text());
+        const inst = (await r.json()) as { id: number };
+        const name = f.repo.split("/")[1];
+        const t = await gh(
+          `/app/installations/${inst.id}/access_tokens`,
+          { method: "POST", body: JSON.stringify({ repositories: [name], permissions: { contents: "write" } }) },
+          `Bearer ${jwt}`,
+        );
+        if (t.status !== 201) throw new Failed(t.status, await t.text());
+        const tok = (await t.json()) as { token: string; expires_at: string };
+        log({ kind: "note", ev: f.type, from, repo: f.repo, installation: inst.id });
+        return answer(ok(id, { token: tok.token, expires_at: tok.expires_at }));
+      }
     }
-    return refuse("unknown_request", `github не обслуживает ${f.type}`);
+  } catch (e) {
+    if (e instanceof Failed) return refuse("github_failed", e.message, {}, { status: e.status, text: e.text });
+    throw e;
   }
+  return refuse("unknown_request", `github не обслуживает ${f.type}`);
 }
 
 function info(a: Stored): AppInfo {

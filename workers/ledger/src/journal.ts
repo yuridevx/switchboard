@@ -1,5 +1,4 @@
-// Объект журнала флота: одна таблица events в SQLite. Записи не удаляются.
-import { DurableObject } from "cloudflare:workers";
+// Журнал флота над базой D1 модуля: одна таблица events. Записи не удаляются.
 import { accepts, fail, machineOf, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type LedgerEvent } from "../contract.ts";
 import type { Env } from "./env.ts";
@@ -10,117 +9,88 @@ const BACK = "machine.back";
 
 type Row = { id: number; t: number; ev: string; from: string; by: string | null; machine: string | null; callsign: string | null; text: string };
 
-export class Journal extends DurableObject<Env> {
+/** Кадр с to: ".ledger" → кадры, которые ledger шлёт в ответ. */
+export async function frame(env: Env, f: Frame): Promise<Frame[]> {
+  const db = env.DB;
+  const from = f.from ?? "";
+  const refuse = (word: string, why: string): Frame[] => {
+    log({ kind: "refuse", ev: f.type, word, why, from, rec: typeof f.ev === "string" ? f.ev : undefined });
+    return f.id ? [{ ...fail(f.id, word), to: from }] : [];
+  };
 
-  /** Переход на D1: все строки таблиц объекта — один прогон переноса читает их по привязке. */
-  async dump(): Promise<Record<string, Record<string, unknown>[]>> {
-    const sql = this.ctx.storage.sql;
-    return Object.fromEntries(["events"].map((t) => [t, sql.exec(`SELECT * FROM ${t}`).toArray() as Record<string, unknown>[]]));
+  if (f.type === "reply") {
+    log({ kind: "note", ev: "reply", from, why: "ledger ответов не ждёт" });
+    return [];
   }
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    const sql = ctx.storage.sql;
-    sql.exec(`CREATE TABLE IF NOT EXISTS events (
-      id       INTEGER PRIMARY KEY AUTOINCREMENT,
-      t        INTEGER NOT NULL,
-      ev       TEXT NOT NULL,
-      "from"   TEXT NOT NULL,
-      by       TEXT,
-      machine  TEXT,
-      callsign TEXT,
-      text     TEXT NOT NULL)`);
-    sql.exec("CREATE INDEX IF NOT EXISTS events_m ON events(machine, id)");
-    // фильтра по сессии у ledger.read нет — индекс по callsign не нужен
-    sql.exec("DROP INDEX IF EXISTS events_c");
-  }
+  if (f.type !== "ledger.add" && f.type !== "ledger.read") return refuse("unknown_request", `ledger не обслуживает ${f.type}`);
+  const bad = accepts(f, CONTRACT);
+  if (bad) return refuse(bad.word, bad.why);
 
-  /** Кадр с to: ".ledger" → кадры, которые ledger шлёт в ответ. */
-  async frame(f: Frame): Promise<Frame[]> {
-    const from = f.from ?? "";
-    const refuse = (word: string, why: string): Frame[] => {
-      log({ kind: "refuse", ev: f.type, word, why, from, rec: typeof f.ev === "string" ? f.ev : undefined });
-      return f.id ? [{ ...fail(f.id, word), to: from }] : [];
-    };
-
-    if (f.type === "reply") {
-      log({ kind: "note", ev: "reply", from, why: "ledger ответов не ждёт" });
+  if (f.type === "ledger.add") {
+    if (typeof f.ev !== "string" || !f.ev) return refuse("bad_frame", "в ledger.add нет ev");
+    if (f.ev === LEFT || f.ev === BACK) {
+      // вход и уход машины пишет только relay её машины; текст — по прежним записям журнала
+      if (from !== ".relay") return refuse("bad_frame", `${f.ev} пишет только relay`);
+      if (typeof f.machine !== "string" || !f.machine) return refuse("bad_frame", `в ${f.ev} нет machine`);
+      await presence(db, f.ev, f.machine);
       return [];
     }
-    if (f.type !== "ledger.add" && f.type !== "ledger.read") return refuse("unknown_request", `ledger не обслуживает ${f.type}`);
-    const bad = accepts(f, CONTRACT);
-    if (bad) return refuse(bad.word, bad.why);
-
-    if (f.type === "ledger.add") {
-      if (typeof f.ev !== "string" || !f.ev) return refuse("bad_frame", "в ledger.add нет ev");
-      if (f.ev === LEFT || f.ev === BACK) {
-        // вход и уход машины пишет только relay её машины; текст — по прежним записям журнала
-        if (from !== ".relay") return refuse("bad_frame", `${f.ev} пишет только relay`);
-        if (typeof f.machine !== "string" || !f.machine) return refuse("bad_frame", `в ${f.ev} нет machine`);
-        this.presence(f.ev, f.machine);
-        return [];
-      }
-      if (typeof f.text !== "string" || !f.text) return refuse("bad_frame", "в ledger.add нет text");
-      const str = (x: unknown) => (typeof x === "string" && x ? x : null);
-      const callsign = str(f.callsign);
-      // у записи сессии machine — её машина
-      const machine = str(f.machine) ?? (callsign ? machineOf(callsign) : null);
-      this.add(f.ev, from, f.text, { by: str(f.by), machine, callsign });
-      return [];
-    }
-
-    // ledger.read
-    if (!f.id) return refuse("bad_frame", "ledger.read без id — ответить некому");
-    const limit = f.limit;
-    if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) return refuse("bad_frame", "в ledger.read нет limit");
-    const where: string[] = [];
-    const args: unknown[] = [];
-    if (typeof f.machine === "string") {
-      where.push("machine = ?");
-      args.push(f.machine);
-    }
-    const after = typeof f.after === "number";
-    if (after) {
-      where.push("id > ?");
-      args.push(f.after);
-    } else if (typeof f.before === "number") {
-      where.push("id < ?");
-      args.push(f.before);
-    }
-    // after — ближайшие более новые; иначе — ближайшие более старые; в ответе всегда новые сначала
-    const q = `SELECT * FROM events ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id ${after ? "ASC" : "DESC"} LIMIT ?`;
-    const rows = this.ctx.storage.sql.exec<Row>(q, ...args, limit + 1).toArray();
-    const more = rows.length > limit;
-    const page = rows.slice(0, limit);
-    if (after) page.reverse();
-    return [{ ...ok(f.id, { events: page.map(event), more }), to: from }];
+    if (typeof f.text !== "string" || !f.text) return refuse("bad_frame", "в ledger.add нет text");
+    const str = (x: unknown) => (typeof x === "string" && x ? x : null);
+    const callsign = str(f.callsign);
+    // у записи сессии machine — её машина
+    const machine = str(f.machine) ?? (callsign ? machineOf(callsign) : null);
+    await add(db, f.ev, from, f.text, { by: str(f.by), machine, callsign });
+    return [];
   }
 
-  /** Вход или уход машины от relay: текст — по последней записи о её входе или уходе. */
-  private presence(ev: string, m: string): void {
-    const last = this.ctx.storage.sql
-      .exec<{ ev: string; t: number }>("SELECT ev, t FROM events WHERE machine = ? AND ev IN (?, ?) ORDER BY id DESC LIMIT 1", m, LEFT, BACK)
-      .toArray()[0];
-    const text =
-      ev === LEFT
-        ? `${m} пропала${last?.ev === BACK ? ` · была на связи с ${hhmm(last.t)}` : ""}`
-        : last?.ev === LEFT
-          ? `${m} вернулась · не было ${span(Date.now() - last.t)}`
-          : `${m} на связи`;
-    this.add(ev, ".relay", text, { machine: m });
+  // ledger.read
+  if (!f.id) return refuse("bad_frame", "ledger.read без id — ответить некому");
+  const limit = f.limit;
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1) return refuse("bad_frame", "в ledger.read нет limit");
+  const where: string[] = [];
+  const args: unknown[] = [];
+  if (typeof f.machine === "string") {
+    where.push("machine = ?");
+    args.push(f.machine);
   }
+  const after = typeof f.after === "number";
+  if (after) {
+    where.push("id > ?");
+    args.push(f.after);
+  } else if (typeof f.before === "number") {
+    where.push("id < ?");
+    args.push(f.before);
+  }
+  // after — ближайшие более новые; иначе — ближайшие более старые; в ответе всегда новые сначала
+  const q = `SELECT * FROM events ${where.length ? "WHERE " + where.join(" AND ") : ""} ORDER BY id ${after ? "ASC" : "DESC"} LIMIT ?`;
+  const rows = (await db.prepare(q).bind(...args, limit + 1).all<Row>()).results;
+  const more = rows.length > limit;
+  const page = rows.slice(0, limit);
+  if (after) page.reverse();
+  return [{ ...ok(f.id, { events: page.map(event), more }), to: from }];
+}
 
-  private add(ev: string, from: string, text: string, o: { by?: string | null; machine?: string | null; callsign?: string | null }): void {
-    this.ctx.storage.sql.exec(
-      'INSERT INTO events (t, ev, "from", by, machine, callsign, text) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      Date.now(),
-      ev,
-      from,
-      o.by ?? null,
-      o.machine ?? null,
-      o.callsign ?? null,
-      text,
-    );
-  }
+/** Вход или уход машины от relay: текст — по последней записи о её входе или уходе. */
+async function presence(db: D1Database, ev: string, m: string): Promise<void> {
+  const last = await db
+    .prepare("SELECT ev, t FROM events WHERE machine = ? AND ev IN (?, ?) ORDER BY id DESC LIMIT 1")
+    .bind(m, LEFT, BACK)
+    .first<{ ev: string; t: number }>();
+  const text =
+    ev === LEFT
+      ? `${m} пропала${last?.ev === BACK ? ` · была на связи с ${hhmm(last.t)}` : ""}`
+      : last?.ev === LEFT
+        ? `${m} вернулась · не было ${span(Date.now() - last.t)}`
+        : `${m} на связи`;
+  await add(db, ev, ".relay", text, { machine: m });
+}
+
+async function add(db: D1Database, ev: string, from: string, text: string, o: { by?: string | null; machine?: string | null; callsign?: string | null }): Promise<void> {
+  await db
+    .prepare('INSERT INTO events (t, ev, "from", by, machine, callsign, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .bind(Date.now(), ev, from, o.by ?? null, o.machine ?? null, o.callsign ?? null, text)
+    .run();
 }
 
 function event(r: Row): LedgerEvent {

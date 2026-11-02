@@ -1,17 +1,23 @@
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import wrangler from "../wrangler.jsonc?raw";
 import manifest from "../module.json" with { type: "json" };
-import type { Stored } from "../src/app.ts";
+import { frame, type Stored } from "../src/app.ts";
+import type { Env } from "../src/env.ts";
 import { pkcs8 } from "../src/jwt.ts";
 
 const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
-type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
-let n = 0;
-const fresh = () => env.APP.get(env.APP.idFromName(`t-${++n}-${Math.random()}`)) as unknown as Stub;
-const home = () => env.APP.get(env.APP.idFromName("home")) as unknown as Stub;
+const E = env as unknown as Env & { TEST_MIGRATIONS: D1Migration[] };
+type Stub = { frame(f: Frame): Promise<Frame[]> };
+/** github на тест: база D1 стенда, пустая к началу теста. */
+const fresh = (): Stub => ({ frame: (f) => frame(E, f) });
+const home = fresh;
+beforeEach(async () => {
+  await applyD1Migrations(E.DB, E.TEST_MIGRATIONS);
+  await E.DB.exec("DELETE FROM app");
+});
 
 const INSTALL = "https://github.com/apps/switchboard-team/installations/new";
 let pem = "";
@@ -36,8 +42,9 @@ beforeAll(async () => {
 });
 
 const APP = (): Stored => ({ id: 1047113, slug: "switchboard-team", owner: "team", pem, at: 1793457720000, by: "panel" });
-const seed = (s: Stub, app: Stored = APP()) => runInDurableObject(s, (_o, st) => st.storage.put("app", app));
-const stored = (s: Stub) => runInDurableObject(s, (_o, st) => st.storage.get<Stored>("app"));
+const seed = (_s: Stub, app: Stored = APP()) =>
+  E.DB.prepare("INSERT OR REPLACE INTO app (one, id, slug, owner, pem, at, by) VALUES (1, ?, ?, ?, ?, ?, ?)").bind(app.id, app.slug, app.owner, app.pem, app.at, app.by).run();
+const stored = async (_s: Stub) => (await E.DB.prepare("SELECT id, slug, owner, pem, at, by FROM app WHERE one = 1").first<Stored>()) ?? undefined;
 
 type Call = { method: string; path: string; auth: string | null; body: unknown };
 
@@ -179,13 +186,12 @@ describe("эталоны github", () => {
     ]);
   });
 
-  it("246 · секретов Worker нет, адрес — прямой вход (пакет «Открытый флот»); после перезапуска объекта токен выдан без новой настройки", async () => {
+  it("246 · секретов Worker нет, адрес — прямой вход (пакет «Открытый флот»); строка приложения — в базе: новый вход Worker'а выдаёт токен без новой настройки", async () => {
     const cfg = JSON.parse(wrangler.replace(/^\s*\/\/.*$/gm, ""));
     expect([cfg.workers_dev, cfg.preview_urls, cfg.routes, cfg.route]).toEqual([true, false, undefined, undefined]);
     expect(Object.values(manifest.config)).not.toContain("secret");
     const s = home();
     await seed(s);
-    await evictDurableObject(s);
     fakeGithub({
       "GET /repos/team/profiles/installation": [200, { id: 7 }],
       "POST /app/installations/7/access_tokens": [201, { token: "ghs_after", expires_at: "2026-10-31T14:00:00Z" }],

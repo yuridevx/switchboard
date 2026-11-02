@@ -11,7 +11,7 @@
     "gate.verify@gate": 1
   },
   "config": {
-    "APP": "binding",
-    "GATE": "binding"
+    "GATE": "binding",
+    "DB": "binding"
   }
 }

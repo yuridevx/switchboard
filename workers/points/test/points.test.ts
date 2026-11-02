@@ -1,15 +1,31 @@
-import { env, runDurableObjectAlarm, runInDurableObject } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import { presign } from "@switchboard/release";
-import type { Registry } from "../src/registry.ts";
+import { frame, sweep as sweepNow } from "../src/registry.ts";
+import type { Env } from "../src/env.ts";
 
-const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
-type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
-const sweep = (s: Stub) => runInDurableObject(s, (o) => (o as unknown as Registry).sweep());
-let n = 0;
-const fresh = () => env.REGISTRY.get(env.REGISTRY.idFromName(`t-${++n}-${Math.random()}`)) as unknown as Stub;
+const E = env as unknown as Env & { TEST_MIGRATIONS: D1Migration[] };
+const LEDGER = E.LEDGER as unknown as { got(): Promise<Frame[]>; clear(): Promise<void> };
+const relay = (exports as unknown as { default: { frame(f: Frame): Promise<Frame[]> } }).default;
+type Stub = { frame(f: Frame): Promise<Frame[]> };
+const sweep = (_s?: Stub) => sweepNow(E);
+/**
+ * Реестр на тест: база D1 стенда, пустая к началу теста. Ответ — reply, затем строки журнала,
+ * которые points отдал журналу по привязке (как раньше — кадрами ответа объекта).
+ */
+const fresh = (): Stub => ({
+  async frame(f) {
+    await LEDGER.clear();
+    const out = await frame(E, f);
+    return [...out, ...(await LEDGER.got()).map(({ from: _f, ...x }) => x as Frame)];
+  },
+});
+beforeEach(async () => {
+  await applyD1Migrations(E.DB, E.TEST_MIGRATIONS);
+  await E.DB.batch(["sessions", "points", "blocks", "refs", "meta", "sqlite_sequence"].map((x) => E.DB.prepare(`DELETE FROM ${x}`)));
+});
 
 const DAY = 86_400_000;
 // часы теста — в будущем: будильник объекта ставится от поддельного Date.now(), а срабатывает по настоящим часам;
@@ -48,10 +64,8 @@ const file = (b: string[], size = 100, p = "s.jsonl") => [{ p, size, b }];
 const put = (s: Stub, from: string, sid: string, files: unknown, extra: Record<string, unknown> = {}) =>
   s.frame({ type: "points.put", v: 2, id: "p", to: ".points", from, sid, why: "rule", files, callsign: `site@${from.slice(1)}`, ...extra });
 
-const sessionRow = (s: Stub, sid: string) =>
-  runInDurableObject(s, (_o, st) => st.storage.sql.exec("SELECT owner, head FROM sessions WHERE sid = ?", sid).toArray()[0]);
-const count = (s: Stub, q: string, ...args: unknown[]) =>
-  runInDurableObject(s, (_o, st) => (st.storage.sql.exec(q, ...args).one() as { n: number }).n);
+const sessionRow = async (_s: Stub, sid: string) => (await E.DB.prepare("SELECT owner, head FROM sessions WHERE sid = ?").bind(sid).first()) ?? undefined;
+const count = async (_s: Stub, q: string, ...args: Array<string | number>) => (await E.DB.prepare(q).bind(...args).first<{ n: number }>())!.n;
 
 /** Сессия из k точек хозяина: файлы у каждой свои (size — номер). */
 async function line(s: Stub, from: string, sid: string, k: number, b: string[]) {
@@ -165,14 +179,13 @@ describe("эталоны points", () => {
     const branch = { id: ++id, at: today - 40 * DAY + 13 * 3600_000, base: brBase.id };
     rows.push(branch);
     const head = rows.filter((r) => r !== branch).at(-1)!;
-    await runInDurableObject(s, (_o, st) => {
-      for (const r of rows)
-        st.storage.sql.exec("INSERT INTO points (id, sid, machine, at, why, base, files) VALUES (?, 's206', 'laptop', ?, 'rule', ?, '[]')", r.id, r.at, r.base);
-      st.storage.sql.exec("INSERT INTO sessions (sid, owner, head) VALUES ('s206', 'laptop', ?)", head.id);
-    });
+    await E.DB.batch([
+      ...rows.map((r) => E.DB.prepare("INSERT INTO points (id, sid, machine, at, why, base, files) VALUES (?, 's206', 'laptop', ?, 'rule', ?, '[]')").bind(r.id, r.at, r.base)),
+      E.DB.prepare("INSERT INTO sessions (sid, owner, head) VALUES ('s206', 'laptop', ?)").bind(head.id),
+    ]);
     clock(today + 20 * 3600_000);
     await sweep(s);
-    const left = new Set(await runInDurableObject(s, (_o, st) => st.storage.sql.exec<{ id: number }>("SELECT id FROM points").toArray().map((r) => r.id)));
+    const left = new Set((await E.DB.prepare("SELECT id FROM points").all<{ id: number }>()).results.map((r) => r.id));
 
     // ожидание — прямо по словам правила, своими датами (неделя — с понедельника по getUTCDay)
     const age = (r: { at: number }) => Math.floor((today - Date.UTC(new Date(r.at).getUTCFullYear(), new Date(r.at).getUTCMonth(), new Date(r.at).getUTCDate())) / DAY);
@@ -451,23 +464,17 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     expect([!!(await env.BUCKET.head("f/2071a")), !!(await env.BUCKET.head("f/2071b"))]).toEqual([false, true]);
   });
 
-  it("2072 · будильник уборки: ставится на сутки при первом старте, не сдвигается; срабатывание убирает и ставит снова", async () => {
+  it("2072 · уборка — расписанием Worker'а раз в сутки: срабатывание убирает и пишет время уборки", async () => {
     const s = fresh();
-    await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
-    const alarm = () => runInDurableObject(s, (_o, st) => st.storage.getAlarm());
-    expect(await alarm()).toBe(T0 + DAY);
-    clock(T0 + 3600_000);
-    await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
-    expect(await alarm()).toBe(T0 + DAY);
     clock(T0 + DAY);
-    expect(await runDurableObjectAlarm(s)).toBe(true);
-    expect(await alarm()).toBe(T0 + 2 * DAY);
+    await (relay as unknown as { scheduled(): Promise<void> }).scheduled();
     const [l] = await s.frame({ type: "points.list", v: 1, id: "l", to: ".points", from: "panel" });
     expect((l.result as { sweep: { at: number } }).sweep.at).toBe(T0 + DAY);
   });
 
-  it("через вход участника: reply и ledger.add — кадры ответа вызова, по порядку", async () => {
+  it("вход по привязке: ответом — только reply; строка журнала — по привязке LEDGER с from .points", async () => {
     await inR2("305a1");
+    await LEDGER.clear();
     const sent = [
       ...(await relay.frame({ type: "points.put", v: 2, id: "p-1", to: ".points", from: "@laptop", sid: "s305", why: "rule", files: file(["305a1"]) })),
       ...(await relay.frame({ type: "points.put", v: 2, id: "p-2", to: ".points", from: "@pc", sid: "s305", why: "raise", base: (await lastId()) ?? 0, expect: "laptop", files: file(["305a1"]) })),
@@ -475,12 +482,11 @@ describe("points: get, list, откат, отказы, стык с relay", () =>
     expect(sent.map((x) => [x.type, x.to])).toEqual([
       ["reply", "@laptop"],
       ["reply", "@pc"],
-      ["ledger.add", ".ledger"],
     ]);
+    expect((await LEDGER.got()).map((x) => [x.type, x.from, x.ev])).toEqual([["ledger.add", ".points", "session.moved"]]);
   });
 });
 
 async function lastId(): Promise<number | undefined> {
-  const home = env.REGISTRY.get(env.REGISTRY.idFromName("home"));
-  return runInDurableObject(home, (_o, st) => (st.storage.sql.exec("SELECT MAX(id) AS n FROM points WHERE sid = 's305'").one() as { n: number }).n);
+  return (await E.DB.prepare("SELECT MAX(id) AS n FROM points WHERE sid = 's305'").first<{ n: number }>())?.n;
 }

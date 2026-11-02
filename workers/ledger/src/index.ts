@@ -3,8 +3,7 @@ import { WorkerEntrypoint } from "cloudflare:workers";
 import type { Frame } from "@switchboard/protocol";
 import { entrance } from "@switchboard/gate";
 import type { Env } from "./env.ts";
-
-export { Journal } from "./journal.ts";
+import { frame } from "./journal.ts";
 
 export class Participant extends WorkerEntrypoint<Env> {
   /** Прямой вход: POST кадра с пропуском — тот же frame. */
@@ -12,9 +11,9 @@ export class Participant extends WorkerEntrypoint<Env> {
     return entrance(req, this.env.GATE, (f) => this.frame(f));
   }
 
-  /** Всё — в один объект флота; ответ — кадры вызывающему. */
-  async frame(f: Frame): Promise<Frame[]> {
-    return (await this.env.JOURNAL.get(this.env.JOURNAL.idFromName("home")).frame(f)) as Frame[];
+  /** Записи — в базе D1 журнала; ответ — кадры вызывающему. */
+  frame(f: Frame): Promise<Frame[]> {
+    return frame(this.env, f);
   }
 }
 

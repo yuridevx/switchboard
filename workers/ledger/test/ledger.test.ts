@@ -1,23 +1,23 @@
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
-import { span } from "../src/journal.ts";
+import { frame, span } from "../src/journal.ts";
+import type { Env } from "../src/env.ts";
 
 const relay = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
 const at = (hm: string, day = "2026-10-31") => new Date(`${day}T${hm}:00Z`).getTime();
 const clock = (t: number) => vi.setSystemTime(t);
 
-let n = 0;
-/** Свой объект журнала на тест: пустой SQLite. */
-const fresh = () =>
-  env.JOURNAL.get(env.JOURNAL.idFromName(`t-${++n}-${Math.random()}`)) as unknown as DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
+const E = env as unknown as Env & { TEST_MIGRATIONS: D1Migration[] };
+/** Журнал на тест: база D1 стенда, пустая к началу теста. */
+const fresh = () => ({ frame: (f: Frame) => frame(E, f) });
 
 /** Вход или уход машины — ledger.add от relay её машины, без текста. */
 const presence = (ev: "machine.back" | "machine.left", machine: string, from = ".relay"): Frame => ({ type: "ledger.add", v: 1, to: ".ledger", from, ev, machine });
 
-async function all(stub: ReturnType<typeof fresh>) {
-  return runInDurableObject(stub, (_o, s) => s.storage.sql.exec("SELECT * FROM events ORDER BY id").toArray());
+async function all(_j?: unknown) {
+  return (await E.DB.prepare("SELECT * FROM events ORDER BY id").all<Record<string, unknown>>()).results;
 }
 
 function journal() {
@@ -29,6 +29,9 @@ function journal() {
 }
 
 beforeEach(async () => {
+  await applyD1Migrations(E.DB, E.TEST_MIGRATIONS);
+  // номера записей с 1 в каждом тесте: курсор — номер записи
+  await E.DB.batch([E.DB.prepare("DELETE FROM events"), E.DB.prepare("DELETE FROM sqlite_sequence WHERE name = 'events'")]);
   vi.useFakeTimers({ toFake: ["Date"] });
 });
 afterEach(() => {
@@ -57,22 +60,12 @@ describe("эталоны ledger", () => {
     expect(rows.map((r) => r.text)).toEqual(["laptop на связи", "pc на связи", "laptop пропала · была на связи с 14:00", "laptop вернулась · не было 42 мин"]);
   });
 
-  it("221 · перезапуск объекта: записи на месте; кроме events — ни таблиц, ни ключей", async () => {
-    const j = fresh();
+  it("221 · 5062 · хранилище — база журнала: ledger.add, затем ledger.read на новом входе Worker'а — запись на месте; объекта нет", async () => {
     clock(at("14:00"));
-    await j.frame(presence("machine.back", "laptop"));
-    await evictDurableObject(j);
-    expect(await all(j)).toHaveLength(1);
-    const own = await runInDurableObject(j, async (_o, s) => ({
-      tables: s.storage.sql
-        .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'table'")
-        .toArray()
-        .map((r) => r.name)
-        .filter((x) => !x.startsWith("_cf_") && x !== "sqlite_sequence"),
-      keys: [...(await s.storage.list()).keys()],
-      alarm: await s.storage.getAlarm(),
-    }));
-    expect(own).toEqual({ tables: ["events"], keys: [], alarm: null });
+    await relay.frame(presence("machine.back", "laptop"));
+    const [r] = await relay.frame({ type: "ledger.read", v: 1, id: "r", to: ".ledger", from: "panel", machine: "laptop", limit: 5 });
+    expect((r.result as { events: Array<{ text: string }> }).events.map((e) => e.text)).toEqual(["laptop на связи"]);
+    expect((env as unknown as Record<string, unknown>).JOURNAL).toBeUndefined();
   });
 
   it("222 · ledger.add без id от @laptop: ответа нет; ledger.read отдаёт запись с from @laptop, t — часы ledger, без by", async () => {
@@ -137,7 +130,6 @@ describe("эталоны ledger", () => {
       ["session.deleted", "panel", "laptop"],
       ["session.deleted", "panel", "pc"],
     ]);
-    expect(await runInDurableObject(j, (_o, s) => s.storage.getAlarm())).toBeNull();
   });
 
 });

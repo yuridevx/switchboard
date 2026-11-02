@@ -13,7 +13,7 @@
   "config": {
     "VAPID_PRIVATE": "secret",
     "VAPID_SUB": "var",
-    "SUBS": "binding",
-    "GATE": "binding"
+    "GATE": "binding",
+    "DB": "binding"
   }
 }

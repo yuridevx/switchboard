@@ -1,15 +1,16 @@
-import { env, evictDurableObject, runInDurableObject } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import { b64u, unb64u } from "../src/webpush.ts";
 import { decrypt, fakeService, journal, sub, ua, type Ua } from "./helpers.ts";
 
 const VAPID = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
 const relay = (exports as unknown as { default: unknown }).default as { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> };
-const home = () => env.SUBS.get(env.SUBS.idFromName("home"));
+const DB = (env as unknown as { DB: D1Database }).DB;
+beforeAll(() => applyD1Migrations(DB, (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS));
 
-/** Кадр на вход участника; ответ — кадры, которые relay доставит от имени push. */
+/** Кадр на вход по привязке; ответ — кадры вызывающему. */
 const frame = (f: Frame) => relay.frame(f);
 
 async function subscribe(client: string, u: Ua, endpoint: string) {
@@ -36,7 +37,7 @@ const send = (id: string, to: string, notify: Record<string, unknown> = NOTIFY):
 });
 
 async function table(): Promise<Array<Record<string, unknown>>> {
-  return runInDurableObject(home(), (_o, state) => state.storage.sql.exec("SELECT * FROM subs ORDER BY client").toArray());
+  return (await DB.prepare("SELECT * FROM subs ORDER BY client").all<Record<string, unknown>>()).results;
 }
 
 const open = (u: Ua) => ({ keys: u.keys, auth: unb64u(u.auth) });
@@ -81,14 +82,28 @@ describe("эталоны push", () => {
     expect(text).not.toContain(phone.auth);
   });
 
-  it("42 · подписка переживает перезапуск объекта push: пуш уходит по подписке, записанной до выпуска", async () => {
+  it("42 · подписка — в базе D1 push: пуш уходит по подписке, записанной до выпуска", async () => {
     const phone = await ua();
     await subscribe("phone42", phone, "https://web.push.apple.com/before-release");
-    await evictDurableObject(home());
     const svc = fakeService(201);
     const out = await frame(send("s-42", "phone42"));
     expect(svc.posts.map((p) => p.url)).toEqual(["https://web.push.apple.com/before-release"]);
     expect(out[0]).toMatchObject({ id: "s-42", ok: true });
+  });
+
+  it("5063 · push.subscribe через вход — строка устройства с номером пропуска; номер отозван — один gate.revoked, строка удалена, gone; живой — ушёл", async () => {
+    const a = await ua();
+    const b = await ua();
+    // номер пропуска приходит от обёртки входа полем kid; стенд gate считает отозванным секрет «revoked» и номера из revoke
+    await frame({ type: "push.subscribe", v: 1, id: "s1", to: ".push", from: "tab~a@b", kid: "t1ab", sub: sub(a, "https://fcm.googleapis.com/send/tab") });
+    await frame({ type: "push.subscribe", v: 1, id: "s2", to: ".push", from: "pad~a@b", kid: "p4ad", sub: sub(b, "https://fcm.googleapis.com/send/pad") });
+    expect((await table()).filter((r) => String(r.client).endsWith("~a@b")).map((r) => [r.client, r.kid])).toEqual([["pad~a@b", "p4ad"], ["tab~a@b", "t1ab"]]);
+    await (env as unknown as { GATE: { revoke(k: string): Promise<unknown> } }).GATE.revoke("t1ab");
+    const svc = fakeService(201);
+    const out = await frame({ type: "push.send", id: "x", v: 1, to: ".push", from: "@laptop", push: { to: "~a@b", type: "question", notify: NOTIFY } });
+    expect(svc.posts.map((p) => p.url)).toEqual(["https://fcm.googleapis.com/send/pad"]);
+    expect(out[0]).toMatchObject({ ok: true });
+    expect((await table()).map((r) => r.client)).not.toContain("tab~a@b");
   });
 
   it("43 · служба ответила 410: gone, строка удалена, в журнале 410 и адрес; следующий push.send — gone без POST", async () => {

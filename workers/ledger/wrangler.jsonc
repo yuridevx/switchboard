@@ -1,4 +1,4 @@
-// Worker ledger: журнал флота, участник рации и прямой вход по адресу. Секретов нет.
+// Worker ledger: журнал флота без состояния, записи — в базе D1;, участник рации и прямой вход по адресу. Секретов нет.
 {
   "name": "switchboard-ledger",
   "main": "src/index.ts",
@@ -11,14 +11,13 @@
   "observability": { "enabled": true },
   // записи модуля — база D1 модуля во флоте
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-ledger", "database_id": "3689c045-3574-4537-bd08-20b83a0d4938", "migrations_dir": "migrations" }],
-  "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }],
+  // объект журнала ушёл: записи перенесены в базу D1
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Journal"] }, { "tag": "v2", "deleted_classes": ["Journal"] }],
   "env": {
     "prod": {
       "workers_dev": false,
       "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
-      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-ledger-prod", "database_id": "b0c3d805-2d07-4f67-8034-51f474703337", "migrations_dir": "migrations" }],
-      "durable_objects": { "bindings": [{ "name": "JOURNAL", "class_name": "Journal" }] }
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-ledger-prod", "database_id": "b0c3d805-2d07-4f67-8034-51f474703337", "migrations_dir": "migrations" }]
     }
   }
 }

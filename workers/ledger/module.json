@@ -12,7 +12,7 @@
     "gate.verify@gate": 1
   },
   "config": {
-    "JOURNAL": "binding",
-    "GATE": "binding"
+    "GATE": "binding",
+    "DB": "binding"
   }
 }

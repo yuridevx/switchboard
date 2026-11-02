@@ -19,7 +19,8 @@
     "R2_KEY_ID": "var",
     "POINTS_BUCKET": "var",
     "BUCKET": "binding",
-    "REGISTRY": "binding",
-    "GATE": "binding"
+    "GATE": "binding",
+    "DB": "binding",
+    "LEDGER": "binding"
   }
 }

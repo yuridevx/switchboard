@@ -1,5 +1,4 @@
 import type { GateApi } from "@switchboard/gate";
-import type { Subs } from "./subs.ts";
 
 export interface Env {
   /** записи модуля — база D1 модуля во флоте */
@@ -10,6 +9,4 @@ export interface Env {
   VAPID_PRIVATE: string;
   /** sub в JWT VAPID: адрес, по которому служба пушей может связаться с владельцем */
   VAPID_SUB: string;
-  /** объект подписок, один на флот */
-  SUBS: DurableObjectNamespace<Subs>;
 }

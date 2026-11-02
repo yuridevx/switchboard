@@ -11,15 +11,17 @@
   "services": [
     { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
     // план keeper'у — в объект relay его машины
-    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Relay" }
+    { "binding": "RELAY", "service": "switchboard", "entrypoint": "Relay" },
+    // журнал: строки part.deployed
+    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" }
   ],
   "preview_urls": false,
   "observability": { "enabled": true },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
   // записи модуля — база D1 модуля во флоте
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-releases", "database_id": "a0cf449e-20dd-4837-bb15-576144855857", "migrations_dir": "migrations" }],
-  "durable_objects": { "bindings": [{ "name": "RELEASES", "class_name": "Releases" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Releases"] }],
+  // объект выпусков ушёл: строка флота перенесена в базу D1
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Releases"] }, { "tag": "v2", "deleted_classes": ["Releases"] }],
   "vars": {
     "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
     // части Cloudflare: имя части → имя Worker'а
@@ -41,11 +43,11 @@
       "workers_dev": false,
       "services": [
         { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
-        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Relay" }
+        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Relay" },
+        { "binding": "LEDGER", "service": "switchboard-ledger-prod", "entrypoint": "Participant" }
       ],
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-releases" }],
       "d1_databases": [{ "binding": "DB", "database_name": "switchboard-releases-prod", "database_id": "23066d12-7314-4a5c-aea2-d37299edbdf6", "migrations_dir": "migrations" }],
-      "durable_objects": { "bindings": [{ "name": "RELEASES", "class_name": "Releases" }] },
       "vars": {
         "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
         "CLOUD": {

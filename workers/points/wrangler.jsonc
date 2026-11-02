@@ -7,14 +7,20 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   // прямой вход: POST кадра с пропуском — обёртка entrance из контракта gate
-  "services": [{ "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" }],
+  "services": [
+    { "binding": "GATE", "service": "switchboard-gate", "entrypoint": "Gate" },
+    // журнал: строки о сессиях точек
+    { "binding": "LEDGER", "service": "switchboard-ledger", "entrypoint": "Participant" }
+  ],
+  // уборка раз в сутки: правило хранения и блоки без ссылок
+  "triggers": { "crons": ["17 3 * * *"] },
   "preview_urls": false,
   "observability": { "enabled": true },
   "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points" }],
   // записи модуля — база D1 модуля во флоте
   "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points", "database_id": "b1547083-f378-46a0-ade5-02a137f27ff4", "migrations_dir": "migrations" }],
-  "durable_objects": { "bindings": [{ "name": "REGISTRY", "class_name": "Registry" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Registry"] }],
+  // объект реестра ушёл: записи перенесены в базу D1
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Registry"] }, { "tag": "v2", "deleted_classes": ["Registry"] }],
   "vars": {
     "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
     "R2_KEY_ID": "52ff079797a7b57156228a0ad6e9b30e",
@@ -24,10 +30,13 @@
   "env": {
     "prod": {
       "workers_dev": false,
-      "services": [{ "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" }],
+      "services": [
+        { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
+        { "binding": "LEDGER", "service": "switchboard-ledger-prod", "entrypoint": "Participant" }
+      ],
+      "triggers": { "crons": ["17 3 * * *"] },
       "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "switchboard-points-prod" }],
       "d1_databases": [{ "binding": "DB", "database_name": "switchboard-points-prod", "database_id": "344cbc13-9127-48c3-92a0-6078cffc8b30", "migrations_dir": "migrations" }],
-      "durable_objects": { "bindings": [{ "name": "REGISTRY", "class_name": "Registry" }] },
       "vars": {
         "CF_ACCOUNT_ID": "e2bbfeb848083376095e5ebbd42dba2e",
         "R2_KEY_ID": "d9a6cd9efef5927581212086e2ff4ede",

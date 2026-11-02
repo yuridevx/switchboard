@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-pool-workers";
 import { defineConfig } from "vitest/config";
 import { gateStand } from "@switchboard/gate";
 
@@ -20,7 +20,7 @@ export default defineConfig({
       wrangler: { configPath: here("./wrangler.jsonc") },
       miniflare: {
         workers: [gateStand()],
-        bindings: { VAPID_PRIVATE: JSON.stringify(TEST_VAPID) },
+        bindings: { VAPID_PRIVATE: JSON.stringify(TEST_VAPID), TEST_MIGRATIONS: await readD1Migrations(here("./migrations")) },
       },
     }),
   ],

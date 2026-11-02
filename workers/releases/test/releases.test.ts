@@ -1,8 +1,10 @@
-import { env } from "cloudflare:test";
+import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import { sha256hex, shaLine } from "@switchboard/release";
+import { frame } from "../src/releases.ts";
+import type { Env } from "../src/env.ts";
 
 /** Строки журнала releases, которые попали в console.log. */
 function journal() {
@@ -13,10 +15,41 @@ function journal() {
   return lines;
 }
 
-const participant = (exports as unknown as { default: { hello(): Promise<unknown>; frame(f: Frame): Promise<Frame[]> } }).default;
-type Stub = DurableObjectStub & { frame(f: Frame): Promise<Frame[]> };
-let n = 0;
-const fresh = () => env.RELEASES.get(env.RELEASES.idFromName(`t-${++n}-${Math.random()}`)) as unknown as Stub;
+const participant = (exports as unknown as { default: { frame(f: Frame): Promise<Frame[]> } }).default;
+type Stand<T> = { got(): Promise<T[]>; delivered(): Promise<T[]>; clear(): Promise<void>; setHosts(n: string[]): Promise<void> };
+const E = env as unknown as Env & { TEST_MIGRATIONS: D1Migration[] };
+const RELAY = E.RELAY as unknown as Stand<Frame>;
+const LEDGER = E.LEDGER as unknown as Stand<Frame>;
+const GATE = E.GATE as unknown as Stand<never>;
+/** машины флота стенда — пропуска роли host у gate */
+let known = new Set<string>();
+type Stub = { frame(f: Frame): Promise<Frame[]> };
+/** Машины флота у gate стенда. */
+const hosts = async (...ms: string[]) => {
+  for (const m of ms) known.add(m);
+  await GATE.setHosts([...known]);
+};
+/**
+ * «Выпуски» на тест: база D1 стенда со строкой флота rev 0. Ответ запроса — кадры, как раньше отдавал объект:
+ * reply, затем строки журнала (ушли по привязке LEDGER) и планы keeper'ам (ушли relay.deliver).
+ * Вопрос плана от .keeper@машина — POST пропуском машины (@машина); машина становится машиной флота у gate.
+ */
+const fresh = (): Stub => ({
+  async frame(f) {
+    let g = f;
+    if (f.type === "releases.plan" && typeof f.from === "string" && f.from.startsWith(".keeper@")) {
+      const m = f.from.slice(".keeper@".length);
+      known.add(m);
+      await GATE.setHosts([...known]);
+      g = { ...f, from: `@${m}` };
+    }
+    await RELAY.clear();
+    await LEDGER.clear();
+    const out = await frame(E, g);
+    const back = (r: Frame) => (g.from !== f.from && r.to === g.from ? { ...r, to: f.from } : r);
+    return [...out.map(back), ...(await LEDGER.got()).map(({ from: _f, ...x }) => x as Frame), ...(await RELAY.delivered())];
+  },
+});
 
 /** Поддельный API Cloudflare: версии Worker'ов с метками, выложенная версия; записывает выкладки. */
 function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
@@ -62,6 +95,10 @@ const NONE = { relay: { tags: [] }, gate: { tags: [] }, push: { tags: [] }, poin
 
 beforeEach(async () => {
   for (const o of (await env.BUCKET.list()).objects) await env.BUCKET.delete(o.key);
+  await applyD1Migrations(E.DB, E.TEST_MIGRATIONS);
+  await E.DB.exec("UPDATE fleet SET stable = '{}', plans = '{}', rev = 0 WHERE one = 1");
+  known = new Set();
+  await GATE.setHosts([]);
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -88,7 +125,10 @@ describe("эталоны releases", () => {
     expect((await req(s, "@win", "releases.plan"))[0]).toMatchObject({ type: "reply", id: "r", ok: true, to: "@win" });
     expect((await req(s, ".host@win", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     expect((await req(s, "panel~o", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    // машины флота — пропуска роли host у gate: своего списка машин у «Выпусков» нет
     fakeCf(NONE);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
+    await hosts("win");
     expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
   });
 
@@ -123,8 +163,8 @@ describe("эталоны releases", () => {
     const sent = (await (env.RELAY as unknown as { delivered(): Promise<any[]> }).delivered()).filter((f: any) => f.rev === 5);
     expect(sent.map((f: any) => [f.to, f.from])).toEqual([[".keeper@win", ".releases"], [".keeper@wsl", ".releases"]]);
     expect(out.filter((f) => f.type === "ledger.add").map((f) => [f.ev, f.text, f.by])).toEqual([
-      ["part.deployed", "host 1.1.57 → 1.1.58", "~yuri"],
       ["part.deployed", "relay 1.1.57 → 1.1.58", "~yuri"],
+      ["part.deployed", "host 1.1.57 → 1.1.58", "~yuri"],
     ]);
     expect(deploys).toEqual([{ script: "switchboard", tag: "1.1.58" }]);
   });
@@ -166,6 +206,7 @@ describe("эталоны releases", () => {
     await req(s, "~x", "releases.deploy", { part: "capture", version: "1.3.2" });
     await req(s, "~x", "releases.set", { machine: "pc2", part: "capture", pin: "1.3.2" });
     await req(s, "~x", "releases.set", { machine: "win", part: "capture" });
+    await hosts("win", "pc2");
     // у laptop capture в плане нет — план ему не уходит
     await req(s, ".keeper@laptop", "releases.plan");
     const rev = (await result(req(s, "~x", "releases.list", { part: "capture" }))).rev;
@@ -231,6 +272,7 @@ describe("эталоны releases", () => {
     await env.BUCKET.put("host/1.1.59.tgz", "half");
     await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.57" });
     await req(s, "~x", "releases.set", { machine: "pc2", part: "capture", pin: "1.4.0" });
+    await hosts("pc2");
     const l = await result(req(s, "~x", "releases.list"));
     expect(l.parts.host).toEqual({ where: "machine", edge: "1.1.58", stable: "1.1.57" });
     expect(l.parts.capture).toEqual({ where: "machine", edge: "1.10.0", stable: null });
@@ -252,17 +294,33 @@ describe("эталоны releases", () => {
     expect([l.parts.host.stable, l.rev]).toEqual(["1.1.57", 1]);
   });
 
-  it("12 · вход по привязке: ответ, затем ledger.add и план keeper — кадрами ответа вызова по порядку", async () => {
-    const sent = await participant.frame({ type: "releases.plan", v: 1, id: "q", to: ".releases", from: ".keeper@box" });
-    expect(sent.map((x) => [x.type, x.to])).toEqual([["reply", ".keeper@box"]]);
+  it("12 · вход по привязке: ответом — только reply; строка журнала — по привязке LEDGER с from .releases, план — relay.deliver", async () => {
+    await hosts("box");
+    const sent = await participant.frame({ type: "releases.plan", v: 1, id: "q", to: ".releases", from: "@box" });
+    expect(sent.map((x) => [x.type, x.to])).toEqual([["reply", "@box"]]);
     fakeCf(NONE);
     await inR2("host", "7.7.7");
+    await RELAY.clear();
+    await LEDGER.clear();
     const out = await participant.frame({ type: "releases.deploy", v: 1, id: "d1", to: ".releases", from: "panel~o", part: "host", version: "7.7.7" });
-    expect(out.map((x) => [x.type, x.to])).toEqual([
-      ["reply", "panel~o"],
-      ["ledger.add", ".ledger"],
-      ["releases.plan", ".keeper@box"],
+    expect(out.map((x) => [x.type, x.to])).toEqual([["reply", "panel~o"]]);
+    expect((await LEDGER.got()).map((x) => [x.type, x.from, x.text])).toEqual([["ledger.add", ".releases", "host — → 7.7.7"]]);
+    expect((await RELAY.delivered()).map((x) => [x.type, x.to, x.from])).toEqual([["releases.plan", ".keeper@box", ".releases"]]);
+  });
+
+  it("5073 · две правки плана одновременно — одна прошла, вторая conflict; строка флота — от первой, rev +1", async () => {
+    const s = fresh();
+    fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await req(s, "~x", "releases.deploy", { part: "host" });
+    const [a, b] = await Promise.all([
+      req(s, "~x", "releases.set", { machine: "win", part: "host", on: false }),
+      req(s, "~x", "releases.set", { machine: "wsl", part: "host", on: false }),
     ]);
+    expect([a[0].ok, b[0].ok].sort()).toEqual([false, true]);
+    expect([a[0], b[0]].find((r) => !r.ok)).toMatchObject({ error: "conflict" });
+    const row = await E.DB.prepare("SELECT plans, rev FROM fleet WHERE one = 1").first<{ plans: string; rev: number }>();
+    expect([Object.keys(JSON.parse(row!.plans)).length, row!.rev]).toEqual([1, 2]);
   });
 
   it("2030 · вход отклонён: чужое имя — unknown_request, другая версия — contract_mismatch, без id — только строка, reply — note", async () => {
@@ -401,6 +459,7 @@ describe("эталоны releases", () => {
     fakeCf(NONE);
     await inR2("host", "1.1.82");
     await req(s, "~x", "releases.deploy", { part: "host" });
+    await hosts("win");
     await req(s, "~x", "releases.set", { machine: "win", part: "host", on: false });
     const out = await req(s, "~x", "releases.set", { machine: "win", part: "host", remove: true });
     expect(brief(plans(out)[0]).parts).toEqual([{ part: "host", version: "1.1.82" }]);
@@ -418,15 +477,16 @@ describe("эталоны releases", () => {
     expect(brief(plans(out)[0])).toEqual({ to: ".keeper@win", rev: 3, parts: [{ part: "capture", version: "1.4.0" }] });
   });
 
-  it("3132 · первая правка машины без плана — не «уже так»: rev +1, машина в списке, план keeper'у", async () => {
-    // источник: чьё: код
+  it("3132 · правка машины без отличий, которая ничего не меняет, — «уже так»: rev прежняя, плана нет; машина в списке — по пропуску у gate", async () => {
+    // источник: дизайн «Открытый флот» — своего списка машин у «Выпусков» нет, машины — пропуска роли host
     const s = fresh();
     fakeCf(NONE);
     await inR2("host", "1.1.82");
     await req(s, "~x", "releases.deploy", { part: "host" });
+    await hosts("pc3");
     const out = await req(s, "~x", "releases.set", { machine: "pc3", part: "host", on: true });
-    expect(out[0]).toMatchObject({ ok: true, result: { machine: "pc3", rev: 2 } });
-    expect(plans(out).map((f) => f.to)).toEqual([".keeper@pc3"]);
+    expect(out[0]).toMatchObject({ ok: true, result: { machine: "pc3", rev: 1 } });
+    expect(plans(out)).toEqual([]);
     expect((await result(req(s, "~x", "releases.list"))).machines).toContainEqual({ machine: "pc3", plan: {} });
   });
 
@@ -573,7 +633,8 @@ describe("эталоны releases", () => {
     await req(s, "~x", "releases.deploy", { part: "keeper" });
     await req(s, "~x", "releases.set", { machine: "win", part: "capture", pin: "1.4.0", env: { SITE: "lab" } });
     const frame = plans(await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: false, force: true }))[0];
-    expect(Object.keys(frame).sort()).toEqual(["parts", "rev", "to", "type", "v"]);
+    // конверт кадра (type, v, to, from) — протокол; тело плана — ровно поля v1
+    expect(Object.keys(frame).sort()).toEqual(["from", "parts", "rev", "to", "type", "v"]);
     const answer = await result(req(s, ".keeper@win", "releases.plan"));
     expect(Object.keys(answer).sort()).toEqual(["parts", "rev"]);
     const v1 = ["env", "force", "on", "part", "sha256", "url", "version"];

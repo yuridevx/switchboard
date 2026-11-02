@@ -1,7 +1,8 @@
-// Выпуски флота: SQLite своего объекта — stable частей машины, планы машин и одна rev на все планы.
-// Версии частей машины — архивы в R2 (готова та, у которой лежит .sha256), частей Cloudflare — версии Worker'а с меткой.
-// edge — новейшая версия, не хранится. План машины уходит её keeper: ответом на releases.plan и кадром при перемене.
-import { DurableObject } from "cloudflare:workers";
+// Выпуски флота над базой D1 модуля: одна строка флота — stable частей, отличия планов машин и одна rev.
+// Машины флота — пропуска роли host у gate; своего списка машин нет. Правка — UPDATE … WHERE rev = прочитанная:
+// вторая одновременная не находит строку — conflict. Версии частей машины — архивы в R2 (готова та, у которой лежит
+// .sha256), частей Cloudflare — версии Worker'а с меткой. edge — новейшая версия, не хранится. План машины уходит её
+// keeper: ответом на releases.plan и кадром relay.deliver при перемене. Строки журнала — ledger.add по своей привязке.
 import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
@@ -33,22 +34,20 @@ class Refusal {
   }
 }
 
-export class Releases extends DurableObject<Env> {
+/** Строка флота: stable часть → версия, отличия планов машина → часть → запись, rev. */
+type Fleet = { stable: Record<string, string>; plans: Record<string, Record<string, PlanEntry>>; rev: number };
 
-  /** Переход на D1: все строки таблиц объекта — один прогон переноса читает их по привязке. */
-  async dump(): Promise<Record<string, Record<string, unknown>[]>> {
-    const sql = this.ctx.storage.sql;
-    return Object.fromEntries(["stable","plans","meta"].map((t) => [t, sql.exec(`SELECT * FROM ${t}`).toArray() as Record<string, unknown>[]]));
-  }
-  constructor(ctx: DurableObjectState, env: Env) {
-    super(ctx, env);
-    const sql = ctx.storage.sql;
-    sql.exec("CREATE TABLE IF NOT EXISTS stable (part TEXT PRIMARY KEY, version TEXT NOT NULL)");
-    sql.exec("CREATE TABLE IF NOT EXISTS plans (machine TEXT PRIMARY KEY, plan TEXT NOT NULL)");
-    sql.exec("CREATE TABLE IF NOT EXISTS meta (k TEXT PRIMARY KEY, v TEXT NOT NULL)");
+/** Кадр с to: ".releases" → reply тому, кто спросил. */
+export async function frame(env: Env, f: Frame): Promise<Frame[]> {
+  return new Releases(env).frame(f);
+}
+
+class Releases {
+  private env: Env;
+  constructor(env: Env) {
+    this.env = env;
   }
 
-  /** Кадр с to: ".releases" → reply тому, кто спросил; планы keeper'ам и ledger.add — следом. */
   async frame(f: Frame): Promise<Frame[]> {
     const from = f.from ?? "";
     const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);
@@ -69,11 +68,9 @@ export class Releases extends DurableObject<Env> {
     try {
       switch (f.type) {
         case "releases.plan": {
-          // keeper спрашивает план POST пропуском своей машины (@машина); на переходе — кадром через relay (.keeper@машина)
-          if (kindOf(from) !== "machine" && !(kindOf(from) === "part" && from.startsWith(".keeper@"))) throw new Refusal("bad_frame", "план спрашивает только машина");
-          const m = machineOf(from)!;
-          this.ctx.storage.sql.exec("INSERT OR IGNORE INTO plans (machine, plan) VALUES (?, '{}')", m);
-          return answer(ok(id, await this.planOf(m)));
+          // keeper спрашивает план POST пропуском своей машины
+          if (kindOf(from) !== "machine") throw new Refusal("bad_frame", "план спрашивает только машина пропуском машины");
+          return answer(ok(id, await this.planOf(await this.load(), machineOf(from)!)));
         }
         case "releases.list":
           return answer(ok(id, await this.list(typeof f.part === "string" ? f.part : undefined)));
@@ -81,22 +78,20 @@ export class Releases extends DurableObject<Env> {
           return answer(ok(id, await this.upload(f)));
         case "releases.deploy": {
           const r = await this.deploy(f, from);
-          await this.deliver(r.out);
-          return [...answer(ok(id, r.result)), ...r.out];
+          await this.deliver(r.plans);
+          return answer(ok(id, r.result));
         }
         case "releases.set": {
           const r = await this.set(f);
-          await this.deliver(r.out);
-          return [...answer(ok(id, r.result)), ...r.out];
+          await this.deliver(r.plans);
+          return answer(ok(id, r.result));
         }
       }
     } catch (e) {
-      // отказ посреди «*»: уже выложенные части Cloudflare — в журнал флота
-      const done = (e as { done?: Frame[] }).done ?? [];
-      if (e instanceof Refusal) return [...refuse(e), ...done];
+      if (e instanceof Refusal) return refuse(e);
       if (e instanceof CfFailed) {
         log({ kind: "refuse", ev: f.type, word: "cf_failed", why: e.message, from, status: e.status, text: e.text });
-        return [...answer(fail(id, "cf_failed")), ...done];
+        return answer(fail(id, "cf_failed"));
       }
       throw e;
     }
@@ -105,30 +100,24 @@ export class Releases extends DurableObject<Env> {
 
   // ---------- хранилище ----------
 
-  private get rev(): number {
-    const r = this.ctx.storage.sql.exec<{ v: string }>("SELECT v FROM meta WHERE k = 'rev'").toArray()[0];
-    return r ? Number(r.v) : 0;
+  private async load(): Promise<Fleet> {
+    const r = await this.env.DB.prepare("SELECT stable, plans, rev FROM fleet WHERE one = 1").first<{ stable: string; plans: string; rev: number }>();
+    if (!r) throw new Error("в базе «Выпусков» нет строки флота — миграция не применена");
+    return { stable: JSON.parse(r.stable), plans: JSON.parse(r.plans), rev: r.rev };
   }
 
-  private bump(): number {
-    const rev = this.rev + 1;
-    this.ctx.storage.sql.exec("INSERT INTO meta (k, v) VALUES ('rev', ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v", String(rev));
-    return rev;
+  /** Запись строки флота с rev + 1 только поверх прочитанной: успела другая правка — conflict, строка не тронута. */
+  private async save(next: Omit<Fleet, "rev">, read: number): Promise<number> {
+    const r = await this.env.DB.prepare("UPDATE fleet SET stable = ?, plans = ?, rev = ? WHERE one = 1 AND rev = ?")
+      .bind(JSON.stringify(next.stable), JSON.stringify(next.plans), read + 1, read)
+      .run();
+    if (!r.meta.changes) throw new Refusal("conflict", `строку флота уже правили после rev ${read} — повтори запрос`);
+    return read + 1;
   }
 
-  private stableOf(part: string): string | null {
-    return this.ctx.storage.sql.exec<{ version: string }>("SELECT version FROM stable WHERE part = ?", part).toArray()[0]?.version ?? null;
-  }
-
-  private plans(): Map<string, Record<string, PlanEntry>> {
-    const out = new Map<string, Record<string, PlanEntry>>();
-    for (const r of this.ctx.storage.sql.exec<{ machine: string; plan: string }>("SELECT machine, plan FROM plans ORDER BY machine")) out.set(r.machine, JSON.parse(r.plan));
-    return out;
-  }
-
-  private entries(m: string): Record<string, PlanEntry> {
-    const r = this.ctx.storage.sql.exec<{ plan: string }>("SELECT plan FROM plans WHERE machine = ?", m).toArray()[0];
-    return r ? JSON.parse(r.plan) : {};
+  /** Машины флота — принятые пропуска роли host у gate. */
+  private async machines(): Promise<string[]> {
+    return (await this.env.GATE.list("host")).map((p) => p.name).sort();
   }
 
   // ---------- R2 ----------
@@ -176,12 +165,12 @@ export class Releases extends DurableObject<Env> {
   // ---------- план ----------
 
   /** План машины для keeper: stable раскрыт в версии, ссылки на архивы на час. Версии без хэша в план не идут. */
-  private async planOf(m: string): Promise<Plan> {
-    const stored = this.entries(m);
+  private async planOf(s: Fleet, m: string): Promise<Plan> {
+    const stored = s.plans[m] ?? {};
     const parts: PlanPart[] = [];
     for (const p of new Set([...DEFAULT, ...Object.keys(stored)])) {
       const e = stored[p] ?? {};
-      const version = e.pin ?? this.stableOf(p);
+      const version = e.pin ?? s.stable[p] ?? null;
       if (!version) continue;
       const sha256 = await this.sha(p, version);
       if (!sha256) {
@@ -194,18 +183,18 @@ export class Releases extends DurableObject<Env> {
       if (e.env) pp.env = e.env;
       parts.push(pp);
     }
-    return { rev: this.rev, parts };
+    return { rev: s.rev, parts };
   }
 
-  /**
-   * Планы keeper'ам — привязкой relay.deliver в объект машины: keeper держит соединение с relay своей машины.
-   * На переходе те же кадры уходят и ответом участника — keeper'у прежнего кода на общем объекте; лишний план keeper
-   * не берёт: rev не новее исполняемого. relay не ответил — строка в журнале, keeper возьмёт план на следующем соединении.
-   */
-  private async deliver(out: Frame[]): Promise<void> {
-    for (const f of out.filter((x) => x.type === "releases.plan")) {
+  private async planFrame(s: Fleet, m: string): Promise<Frame> {
+    return { type: "releases.plan", v: 1, to: `.keeper@${m}`, from: ".releases", ...(await this.planOf(s, m)) } as unknown as Frame;
+  }
+
+  /** Планы keeper'ам — привязкой relay.deliver в объект машины. relay не ответил — строка журнала, keeper возьмёт план на следующем соединении. */
+  private async deliver(plans: Frame[]): Promise<void> {
+    for (const f of plans) {
       try {
-        const n = await this.env.RELAY.deliver({ ...f, from: ".releases" });
+        const n = await this.env.RELAY.deliver(f);
         log({ kind: "note", ev: "releases.plan", why: `план → ${String(f.to)}: ${n ? "доставлен" : "keeper не на связи"}` });
       } catch (e) {
         log({ kind: "refuse", ev: "releases.plan", word: "offline", why: `relay.deliver → ${String(f.to)}: ${e}` });
@@ -213,26 +202,34 @@ export class Releases extends DurableObject<Env> {
     }
   }
 
-  private async planFrame(m: string): Promise<Frame> {
-    return { type: "releases.plan", v: 1, to: `.keeper@${m}`, ...(await this.planOf(m)) } as unknown as Frame;
+  /** Строка журнала флота по своей привязке; журнал не ответил — строка здесь. */
+  private async journal(text: string, by: string): Promise<void> {
+    const f: LedgerAdd = { type: "ledger.add", v: 1, to: ".ledger", ev: "part.deployed", text, ...(by ? { by } : {}) };
+    try {
+      await this.env.LEDGER.frame({ ...(f as unknown as Frame), from: ".releases" });
+    } catch (e) {
+      log({ kind: "refuse", ev: "ledger.add", word: "offline", why: `${text}: ${e}` });
+    }
   }
 
   // ---------- запросы ----------
 
   private async list(part?: string): Promise<Listed> {
+    const s = await this.load();
     const parts: Listed["parts"] = {};
     const cloud = Object.keys(this.env.CLOUD).filter((p) => !part || p === part);
-    const stored = this.ctx.storage.sql.exec<{ part: string }>("SELECT part FROM stable").toArray().map((r) => r.part);
-    const machine = part ? (this.env.CLOUD[part] ? [] : [part]) : [...new Set([...(await this.machineParts()), ...stored])].filter((p) => !this.env.CLOUD[p]);
-    for (const p of machine.sort()) parts[p] = { where: "machine", edge: newest(await this.machineVersions(p)), stable: this.stableOf(p) };
+    const machine = part ? (this.env.CLOUD[part] ? [] : [part]) : [...new Set([...(await this.machineParts()), ...Object.keys(s.stable)])].filter((p) => !this.env.CLOUD[p]);
+    for (const p of machine.sort()) parts[p] = { where: "machine", edge: newest(await this.machineVersions(p)), stable: s.stable[p] ?? null };
     for (const p of cloud) {
       const vs = await versions(this.env, this.env.CLOUD[p]);
       const cur = await deployed(this.env, this.env.CLOUD[p]);
       parts[p] = { where: "cloud", edge: newest(vs.keys()), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null };
     }
-    const machines: Listed["machines"] = [];
-    for (const [machine, plan] of this.plans()) machines.push({ machine, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan });
-    return { parts, machines, rev: this.rev };
+    const machines: Listed["machines"] = (await this.machines()).map((m) => {
+      const plan = s.plans[m] ?? {};
+      return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
+    });
+    return { parts, machines, rev: s.rev };
   }
 
   private async upload(f: Frame): Promise<Upload> {
@@ -247,71 +244,67 @@ export class Releases extends DurableObject<Env> {
   }
 
   /** stable частей на версию: машины — у себя и планы keeper'ам, Cloudflare — выкладкой версии. */
-  private async deploy(f: Frame, by: string): Promise<{ result: Deployed; out: Frame[] }> {
+  private async deploy(f: Frame, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
     const part = f.part;
     if (typeof part !== "string" || (part !== "*" && !NAME.test(part))) throw new Refusal("bad_frame", "part — имя части или *");
     if (f.version !== undefined && (typeof f.version !== "string" || !VERSION.test(f.version))) throw new Refusal("bad_version", "версия — три числа");
     if (part === "*" && f.version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
+    const s = await this.load();
     // relay — последним: его выкладка рвёт соединения флота
     const cloudOrder = Object.keys(this.env.CLOUD).sort((a, b) => Number(a === "relay") - Number(b === "relay"));
     const targets = part === "*" ? [...DEFAULT, ...cloudOrder] : [part];
     const result: Deployed = { parts: {} };
-    const out: Frame[] = [];
     // stable частей машины пишется после цикла: отказ Cloudflare посреди «*» не оставляет stable без rev и планов
     const moved = new Map<string, string>();
-    // записи о выложенных частях Cloudflare: при отказе посреди цикла они уходят с отказом
-    const done: Frame[] = [];
-    try {
-      for (const p of targets) {
-        const want = part === "*" ? undefined : (f.version as string | undefined);
-        let from: string | null;
-        let to: string;
-        const script = this.env.CLOUD[p];
-        if (script) {
-          const vs = await versions(this.env, script);
-          const t = want ?? newest(vs.keys());
-          if (!t || !vs.has(t)) throw new Refusal("no_release", `у ${p} нет версии ${t ?? "с меткой"}`);
-          to = t;
-          const cur = await deployed(this.env, script);
-          from = [...vs].find(([, id]) => id === cur)?.[0] ?? null;
-          if (cur !== vs.get(to)) await deploy(this.env, script, vs.get(to)!);
-        } else {
-          const t = want ?? newest(await this.machineVersions(p));
-          if (!t || !(await this.sha(p, t))) throw new Refusal("no_release", `у ${p} нет версии ${t ?? ""}`.trim());
-          to = t;
-          from = this.stableOf(p);
-          if (from !== to) moved.set(p, to);
-        }
-        result.parts[p] = { from, to };
-        if (from !== to) {
-          const rec = ledger(`${p} ${from ?? "—"} → ${to}`, by);
-          out.push(rec);
-          if (script) done.push(rec);
-        }
+    for (const p of targets) {
+      const want = part === "*" ? undefined : (f.version as string | undefined);
+      let from: string | null;
+      let to: string;
+      const script = this.env.CLOUD[p];
+      if (script) {
+        const vs = await versions(this.env, script);
+        const t = want ?? newest(vs.keys());
+        if (!t || !vs.has(t)) throw new Refusal("no_release", `у ${p} нет версии ${t ?? "с меткой"}`);
+        to = t;
+        const cur = await deployed(this.env, script);
+        from = [...vs].find(([, id]) => id === cur)?.[0] ?? null;
+        if (cur !== vs.get(to)) await deploy(this.env, script, vs.get(to)!);
+        // выложенная часть Cloudflare — в журнал сразу: отказ дальше по циклу её не отменяет
+        if (from !== to) await this.journal(`${p} ${from ?? "—"} → ${to}`, by);
+      } else {
+        const t = want ?? newest(await this.machineVersions(p));
+        if (!t || !(await this.sha(p, t))) throw new Refusal("no_release", `у ${p} нет версии ${t ?? ""}`.trim());
+        to = t;
+        from = s.stable[p] ?? null;
+        if (from !== to) moved.set(p, to);
       }
-    } catch (e) {
-      if (e instanceof Refusal || e instanceof CfFailed) Object.assign(e, { done });
-      throw e;
+      result.parts[p] = { from, to };
     }
+    const plans: Frame[] = [];
     if (moved.size) {
-      for (const [p, to] of moved) this.ctx.storage.sql.exec("INSERT INTO stable (part, version) VALUES (?, ?) ON CONFLICT(part) DO UPDATE SET version = excluded.version", p, to);
-      this.bump();
+      const stable = { ...s.stable, ...Object.fromEntries(moved) };
+      const rev = await this.save({ stable, plans: s.plans }, s.rev);
+      for (const [p, to] of moved) await this.journal(`${p} ${s.stable[p] ?? "—"} → ${to}`, by);
+      const next: Fleet = { stable, plans: s.plans, rev };
       // план меняется у машин, где часть идёт за stable: она в плане без pin или своя для каждой машины
-      for (const [m, plan] of this.plans())
-        if ([...moved.keys()].some((p) => (plan[p] ? !plan[p].pin : DEFAULT.includes(p)))) out.push(await this.planFrame(m));
+      for (const m of await this.machines()) {
+        const plan = s.plans[m] ?? {};
+        if ([...moved.keys()].some((p) => (plan[p] ? !plan[p].pin : DEFAULT.includes(p)))) plans.push(await this.planFrame(next, m));
+      }
     }
-    return { result, out };
+    return { result, plans };
   }
 
   /** Единственная правка плана машины. Уже так — ok с прежней rev. */
-  private async set(f: Frame): Promise<{ result: SetResult; out: Frame[] }> {
+  private async set(f: Frame): Promise<{ result: SetResult; plans: Frame[] }> {
     const m = f.machine;
     const p = f.part;
     if (typeof m !== "string" || !NAME.test(m)) throw new Refusal("bad_frame", "machine — имя машины");
     if (typeof p !== "string" || !NAME.test(p) || this.env.CLOUD[p]) throw new Refusal("bad_frame", "part — имя части машины");
     if (p === "keeper" && (f.on !== undefined || f.force !== undefined || f.env !== undefined || f.remove !== undefined))
       throw new Refusal("bad_frame", "у keeper — только pin");
-    const before = this.entries(m);
+    const s = await this.load();
+    const before = s.plans[m] ?? {};
     const plan: Record<string, PlanEntry> = structuredClone(before);
     if (f.remove === true) {
       if (!plan[p]) throw new Refusal("no_part", `${p} нет в плане ${m}`);
@@ -335,19 +328,15 @@ export class Releases extends DurableObject<Env> {
       // включено — по умолчанию; force — только у выключенной
       if (e.on === true) delete e.on;
       if (e.on !== false) delete e.force;
-      if (!e.pin && !this.stableOf(p)) throw new Refusal("no_release", `у ${p} нет stable — закрепи версию`);
+      if (!e.pin && !s.stable[p]) throw new Refusal("no_release", `у ${p} нет stable — закрепи версию`);
       if (!Object.keys(e).length && DEFAULT.includes(p)) delete plan[p];
       else plan[p] = e;
     }
-    const known = this.ctx.storage.sql.exec("SELECT 1 FROM plans WHERE machine = ?", m).toArray().length > 0;
-    if (known && JSON.stringify(plan) === JSON.stringify(before)) return { result: { machine: m, rev: this.rev }, out: [] };
-    this.ctx.storage.sql.exec("INSERT INTO plans (machine, plan) VALUES (?, ?) ON CONFLICT(machine) DO UPDATE SET plan = excluded.plan", m, JSON.stringify(plan));
-    const rev = this.bump();
-    return { result: { machine: m, rev }, out: [await this.planFrame(m)] };
+    if (JSON.stringify(plan) === JSON.stringify(before)) return { result: { machine: m, rev: s.rev }, plans: [] };
+    const plans = { ...s.plans };
+    if (Object.keys(plan).length) plans[m] = plan;
+    else delete plans[m];
+    const rev = await this.save({ stable: s.stable, plans }, s.rev);
+    return { result: { machine: m, rev }, plans: [await this.planFrame({ stable: s.stable, plans, rev }, m)] };
   }
-}
-
-function ledger(text: string, by: string): Frame {
-  const f: LedgerAdd = { type: "ledger.add", v: 1, to: ".ledger", ev: "part.deployed", text, ...(by ? { by } : {}) };
-  return f as unknown as Frame;
 }

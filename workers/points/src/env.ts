@@ -1,5 +1,4 @@
 import type { GateApi } from "@switchboard/gate";
-import type { Registry } from "./registry.ts";
 
 export interface Env {
   /** записи модуля — база D1 модуля во флоте */
@@ -14,6 +13,6 @@ export interface Env {
   POINTS_BUCKET: string;
   /** привязка к бакету точек — только чтобы проверять и удалять блоки */
   BUCKET: R2Bucket;
-  /** объект реестра, один на флот */
-  REGISTRY: DurableObjectNamespace<Registry>;
+  /** журнал: строки session.copied, moved, rolled_back, deleted — по своей привязке */
+  LEDGER: { frame(f: import("@switchboard/protocol").Frame): Promise<unknown> };
 }
