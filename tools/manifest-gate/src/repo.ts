@@ -7,7 +7,7 @@ const readdirSync = ((p: string, o?: unknown) => fs().readdirSync(p, o as never)
 const readFileSync = (p: string, e: "utf8") => fs().readFileSync(p, e);
 const statSync = (p: string) => fs().statSync(p);
 const relative = (a: string, b: string) => path().relative(a, b);
-import type { Manifest } from "./check.ts";
+import { order, type Manifest } from "./check.ts";
 
 const GROUPS = ["protocol", "tools/*", "workers/*", "os/*", "host/core", "host/modules/*", "web/packages/*", "web/phone", "web/pult", "web/pult/modules/*"];
 const SRC = /\.(ts|tsx|mts|js|mjs)$/;
@@ -47,9 +47,9 @@ function imports(dir: string): string[] {
   return [...found].sort();
 }
 
-/** Манифесты всех модулей монорепо с их импортами (тесты и стенд не считаются). */
+/** Манифесты всех модулей монорепо с их импортами (тесты и стенд не считаются) — в порядке зависимостей. */
 export function loadRepo(root: string): Array<Manifest & { dir: string }> {
-  return dirs(root).map((d) => {
+  return order(dirs(root).map((d) => {
     const m = JSON.parse(readFileSync(join(d, "module.json"), "utf8")) as Manifest & { dir: string };
     const pj = join(d, "package.json");
     if (existsSync(pj)) m.pkg = JSON.parse(readFileSync(pj, "utf8")).name;
@@ -59,5 +59,5 @@ export function loadRepo(root: string): Array<Manifest & { dir: string }> {
     m.config ??= {};
     m.dir = relative(root, d);
     return m;
-  });
+  }));
 }

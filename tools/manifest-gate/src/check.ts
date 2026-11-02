@@ -24,6 +24,27 @@ export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);
 /** Тип модуля → тип корня приложения, в которое он входит. Другие типы ни во что не входят. */
 const ROOT: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
 
+/** Владельцы uses модуля из набора, кроме него самого. */
+const localOwners = (m: Manifest, names: Set<string>) => [...new Set(Object.keys(m.uses).map(ownerOf))].filter((o) => o !== m.name && names.has(o));
+
+/**
+ * Список сборки в порядке зависимостей: модуль — после владельцев своих uses из набора; из готовых — первым по имени.
+ * Цикл упорядочить нельзя: его модули встают в конец по имени, а check называет цикл.
+ */
+export function order<T extends Manifest>(mods: T[]): T[] {
+  const names = new Set(mods.map((m) => m.name));
+  const placed = new Set<string>();
+  const left = [...mods].sort((a, b) => (a.name < b.name ? -1 : 1));
+  const out: T[] = [];
+  while (left.length) {
+    const i = left.findIndex((m) => localOwners(m, names).every((o) => placed.has(o)));
+    const [m] = left.splice(i < 0 ? 0 : i, 1);
+    out.push(m);
+    placed.add(m.name);
+  }
+  return out;
+}
+
 /** Проверить набор модулей. Пустой список — набор годен; иначе — причины словами. */
 export function check(mods: Manifest[]): string[] {
   const errors: string[] = [];
@@ -57,6 +78,21 @@ export function check(mods: Manifest[]): string[] {
       else if (o.provides[n] !== v) errors.push(`модуль ${m.name}: uses ${ref} v${v} — у владельца v${o.provides[n]}`);
     }
   }
+
+  // цикл зависимостей: путь по uses из модуля обратно в него — список сборки не построить
+  const names = new Set(mods.map((m) => m.name));
+  const done = new Set<string>();
+  const path: string[] = [];
+  const walk = (n: string) => {
+    const at = path.indexOf(n);
+    if (at >= 0) return void errors.push(`цикл зависимостей: ${[...path.slice(at), n].join(" → ")}`);
+    if (done.has(n)) return;
+    path.push(n);
+    for (const o of localOwners(byName.get(n)!, names)) walk(o);
+    path.pop();
+    done.add(n);
+  };
+  for (const m of mods) walk(m.name);
 
   // into: каждое приложение — корень сборки типа модуля в наборе
   for (const m of mods) {

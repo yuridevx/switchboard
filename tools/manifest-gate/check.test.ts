@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { check, type Manifest } from "./contract.ts";
+import { check, order, type Manifest } from "./contract.ts";
 
 const m = (name: string, x: Partial<Manifest> = {}): Manifest => ({
   name, type: "worker", version: "1.0.0", provides: {}, uses: {}, config: {}, pkg: `@switchboard/${name}`, imports: [], ...x,
@@ -64,6 +64,19 @@ describe("гейт манифестов", () => {
     expect(
       check([...set, m("host-x", { type: "sdk", into: ["pult"] }), m("web-x", { type: "web", into: ["phone"] }), m("push", { into: ["host"] })]),
     ).toEqual(["модуль host-x: into pult — pult не sdk-core", "модуль web-x: into phone — такого приложения нет в наборе", "модуль push: into у типа worker не бывает"]);
+  });
+
+  it("5114 · список сборки — в порядке зависимостей: order ставит владельца раньше; check ловит цикл в любом порядке", () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — зависимость раньше
+    const watch = m("host-watch", { type: "sdk", provides: { "session.watchers": 1 } });
+    const push = m("host-push", { type: "sdk", provides: { notify: 1 }, uses: { "session.watchers@host-watch": 1 } });
+    const q = m("host-questions", { type: "sdk", uses: { "notify@host-push": 1, "session.watchers@host-watch": 1 } });
+    expect(order([q, push, watch]).map((x) => x.name)).toEqual(["host-watch", "host-push", "host-questions"]);
+    expect(check([q, watch, push])).toEqual([]);
+    const a1 = m("a", { provides: { x: 1 }, uses: { "y@b": 1 } });
+    const b1 = m("b", { provides: { y: 1 }, uses: { "z@c": 1 } });
+    const c1 = m("c", { provides: { z: 1 }, uses: { "x@a": 1 } });
+    expect(check([c1, b1, a1, watch])).toEqual(["цикл зависимостей: c → a → b → c"]);
   });
 
   it("секрет в двух модулях и повтор имени модуля", () => {
