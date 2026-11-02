@@ -16,5 +16,8 @@ export function withImportMap(html: string, modules: Array<{ name: string }>): s
   const tag = `<script type="importmap">${JSON.stringify(importMap(modules))}</script>`;
   const at = html.search(/<script\b/i);
   if (at >= 0) return html.slice(0, at) + tag + "\n" + html.slice(at);
-  return html.replace(/<\/head>/i, `${tag}\n</head>`);
+  if (/<\/head>/i.test(html)) return html.replace(/<\/head>/i, `${tag}\n</head>`);
+  // ни скрипта, ни head — сразу после doctype
+  const dt = html.match(/^<!doctype[^>]*>/i)?.[0] ?? "";
+  return dt + tag + html.slice(dt.length);
 }

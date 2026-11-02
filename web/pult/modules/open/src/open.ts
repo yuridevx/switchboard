@@ -16,6 +16,9 @@ type Profiles = Record<string, { model?: string | null; effort?: string | null }
 const CSS = `
 .op{flex:1;min-height:0;overflow-y:auto;padding:16px 18px;display:flex;flex-direction:column;gap:12px;max-width:680px}
 .op h2{margin:0;font:600 19px var(--body)}
+.op.sheet{max-width:none;margin-top:auto;flex:none;max-height:92%;background:var(--surface);border-radius:18px 18px 0 0;box-shadow:0 -10px 40px rgba(0,0,0,.25);padding:6px 16px calc(16px + env(safe-area-inset-bottom,0px))}
+.op.sheet::before{content:"";align-self:center;width:40px;height:4px;border-radius:2px;background:var(--line);margin:4px 0 2px;flex:none}
+.sb-screen:has(> .op.sheet){background:rgba(10,15,12,.38);justify-content:flex-end}
 .op-fs{display:flex;flex-direction:column;gap:6px}
 .op-fs>.lb{font:600 12px var(--body);color:var(--muted)}
 .op-name{font:600 17px var(--body);padding:9px 12px}
@@ -55,7 +58,8 @@ export function createOpen(): AppModule {
   let app: App;
 
   function mount(el: HTMLElement, params: Params): ScreenHandle {
-    const box = h("div", { class: "op" });
+    // телефон: форма — лист снизу поверх затемнения (прототип «Пульт и телефон»)
+    const box = h("div", { class: app.wide ? "op" : "op sheet" });
     el.append(box);
     const sessions = (): SessionRecord[] => app.roster()?.sessions ?? [];
     const machines = () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["session.open"] !== undefined).map((m) => m.machine);

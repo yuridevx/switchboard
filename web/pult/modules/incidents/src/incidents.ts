@@ -1,5 +1,5 @@
 // pult-incidents — инциденты: сессии с полем roster incident и недоставленные обращения из журнала машины.
-// Своего хранилища нет: сессии — из roster, недоставленные — ответ machine.journal; текст отказа — как записал Host.
+// Своего хранилища нет: сессии — из roster, недоставленные — обращения incident.pending без сессии, причина — machine.journal.
 import { h, hhmm, stateLabel, type App, type AppModule, type Roster, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
@@ -62,8 +62,12 @@ export function createIncidents(): AppModule {
         const r = await app.request<{ records: Rec[]; more: boolean }>("machine.journal", { machine: m, since: midnight(), kind: ["refuse"], limit: 200 });
         if (!r.ok) return void refused.set(m, r.error);
         refused.delete(m);
+        // недоставленные — отказы, чьё обращение ещё на диске без сессии: доставленное потом уходит из списка сразу
+        const p = await app.request<{ appeals: Array<{ id: string; callsign: string | null }> }>("incident.pending", { machine: m });
+        if (!p.ok) return void refused.set(m, `incident.pending: ${p.error}`);
+        const waiting = new Set(p.result.appeals.filter((a) => !a.callsign).map((a) => a.id));
         const byId = new Map<string, Lost>();
-        for (const x of r.result.records) if (x.ev === "incident" && x.id) byId.set(x.id, { machine: m, id: x.id, word: x.word ?? "", why: x.why ?? "", t: x.t });
+        for (const x of r.result.records) if (x.ev === "incident" && x.id && waiting.has(x.id)) byId.set(x.id, { machine: m, id: x.id, word: x.word ?? "", why: x.why ?? "", t: x.t });
         lost.set(m, [...byId.values()].reverse());
       }),
     );
@@ -156,6 +160,8 @@ export function createIncidents(): AppModule {
     screens: {
       incidents: {
         nav: "Инциденты",
+        // телефон: во «Флоте»; пульт — отдельный раздел колонки
+        narrowGroup: "Флот",
         mark: "incidents.open",
         label: "Инциденты",
         mount,

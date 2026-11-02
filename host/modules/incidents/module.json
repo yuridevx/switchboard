@@ -1,10 +1,13 @@
 {
   "name": "host-incidents",
   "type": "sdk",
-  "version": "1.1.0",
-  "into": ["host"],
+  "version": "1.2.0",
+  "into": [
+    "host"
+  ],
   "provides": {
-    "incident": 1
+    "incident": 1,
+    "incident.pending": 1
   },
   "uses": {
     "host.module@host": 1,
@@ -12,5 +15,9 @@
     "session.prompt@host-chat": 1
   },
   "calls": [],
-  "config": { "port": "var", "to": "var", "types": "var" }
+  "config": {
+    "port": "var",
+    "to": "var",
+    "types": "var"
+  }
 }

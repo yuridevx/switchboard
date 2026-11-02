@@ -311,10 +311,11 @@ describe("эталоны releases", () => {
     await req(s, "~x", "releases.set", { machine: "pc2", part: "capture", pin: "1.4.0" });
     await hosts("pc2");
     const l = await result(req(s, "~x", "releases.list"));
-    expect(l.parts.host).toEqual({ where: "machine", edge: "1.1.58", stable: "1.1.57" });
-    expect(l.parts.capture).toEqual({ where: "machine", edge: "1.10.0", stable: null });
-    expect(l.parts.relay).toEqual({ where: "cloud", edge: "1.1.60", stable: "1.1.58" });
-    expect(l.parts.pult).toEqual({ where: "cloud", edge: null, stable: null });
+    // versions — номера части по порядку: «Выпуски» на странице закрепляют и возвращают любую из них
+    expect(l.parts.host).toEqual({ where: "machine", edge: "1.1.58", stable: "1.1.57", versions: ["1.1.57", "1.1.58"] });
+    expect(l.parts.capture).toEqual({ where: "machine", edge: "1.10.0", stable: null, versions: ["1.4.0", "1.10.0"] });
+    expect(l.parts.relay).toEqual({ where: "cloud", edge: "1.1.60", stable: "1.1.58", versions: ["1.1.58", "1.1.60"] });
+    expect(l.parts.pult).toEqual({ where: "cloud", edge: null, stable: null, versions: [] });
     expect(l.machines).toEqual([{ machine: "pc2", plan: { capture: { pin: "1.4.0" } } }]);
     expect(Object.keys((await result(req(s, "~x", "releases.list", { part: "host" }))).parts)).toEqual(["host"]);
   });
@@ -603,7 +604,7 @@ describe("эталоны releases", () => {
     await inCatalog("capture", "2.0.0", { type: "os" });
     await inR2("host", "1.1.85");
     const l = await result(req(s, "~x", "releases.list"));
-    expect(l.parts).toEqual({
+    expect(l.parts).toMatchObject({
       capture: { where: "machine", edge: "2.0.0", stable: null },
       host: { where: "machine", edge: "1.1.85", stable: null },
       push: { where: "cloud", edge: "1.0.3", stable: "1.0.3" },
@@ -758,7 +759,7 @@ describe("сборка Host «Выпусками»", () => {
     const bad = await req(s, "~x", "releases.deploy", { part: "host-dup" });
     expect(bad).toEqual([{ type: "reply", id: "r", ok: false, error: "check_failed", to: "~x" }]);
     expect(log).toContainEqual(expect.objectContaining({ word: "check_failed", why: expect.stringContaining("имя notify: два владельца") }));
-    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host).toEqual({ where: "machine", edge: "1.2.0+1", stable: "1.2.0+1" });
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host).toMatchObject({ where: "machine", edge: "1.2.0+1", stable: "1.2.0+1" });
     await mod("host-dup", "1.0.1", { provides: { "dup.ping": 1 } });
     const good = await result(req(s, "~x", "releases.deploy", { part: "host-dup", version: "1.0.1" }));
     expect(good).toEqual({ parts: { host: { from: "1.2.0+1", to: "1.2.0+2" } } });
@@ -782,8 +783,8 @@ describe("сборка Host «Выпусками»", () => {
     await fakeCf({ push: { tags: ["1.0.3"], live: "1.0.3" } });
     await inCatalog("ghost", "0.1.0", { type: "worker", provides: {}, uses: {}, config: {}, workers: { test: "switchboard-ghost" } });
     const l = await result(req(s, "~x", "releases.list"));
-    expect(l.parts.ghost).toEqual({ where: "cloud", edge: null, stable: null });
-    expect(l.parts.push).toEqual({ where: "cloud", edge: "1.0.3", stable: "1.0.3" });
+    expect(l.parts.ghost).toMatchObject({ where: "cloud", edge: null, stable: null });
+    expect(l.parts.push).toMatchObject({ where: "cloud", edge: "1.0.3", stable: "1.0.3" });
   });
 
   it("5152 · в проверке набора приложение ОС — только выложенное: в плане машины его uses держат модуль сборки, вне плана — нет", async () => {
@@ -859,6 +860,9 @@ describe("сборка страницы «Выпусками»", () => {
       if (p === "/workers/scripts/switchboard-pult/versions") return ok({ items: [...tags].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
       if (p === "/workers/scripts/switchboard-pult/deployments" && req.method === "POST") return (live = ((await req.json()) as any).versions[0].version_id), ok({});
       if (p === "/workers/scripts/switchboard-pult/deployments") return ok({ deployments: [{ versions: [{ version_id: live, percentage: 100 }] }] });
+      // остальные Worker'ы флота — без версий: так отвечает Cloudflare, пока версий нет (их спрашивает полный list)
+      if (/^\/workers\/scripts\/[^/]+\/versions$/.test(p)) return ok({ items: [] });
+      if (/^\/workers\/scripts\/[^/]+\/deployments$/.test(p)) return ok({ deployments: [] });
       return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
     });
     const out = await req(s, "agent~x", "releases.deploy", { part: "web-x" });
@@ -878,6 +882,13 @@ describe("сборка страницы «Выпусками»", () => {
     expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["pult 1.1.85 → 1.1.0+1 (web-x 1.0.0)"]);
     // следующая сборка начинается со списка выложенной
     expect((await result(req(s, "agent~x", "releases.deploy", { part: "web-core" }))).parts.pult).toEqual({ from: "1.1.0+1", to: "1.1.0+2" });
+    // index.html сборки — с картой импорта модулей (release 2.4.0): маячок домена её не опережает
+    expect(files.find((x) => x.path === "index.html")!.data!.toString("utf8")).toContain('"@switchboard/web-x":"./m/web-x.js"');
+    // list: модуль сборки — номер в выложенной сборке и новейший в каталоге; у пульта — история сборок
+    await put("web-x", "1.1.0", { type: "web", into: ["pult"], uses: { "app@web-core": 1, "push.send@push": 1, "roster@relay": 1 } }, [["module.js", "export default {x:2}"]]);
+    const l = await result(req(s, "agent~x", "releases.list"));
+    expect(l.modules["web-x"]).toEqual({ into: ["pult"], built: { pult: "1.0.0" }, edge: "1.1.0" });
+    expect(l.parts.pult.versions).toEqual(["1.1.0+1", "1.1.0+2"]);
   });
 
   it("5194 · снять модуль страницы: оболочка пользуется только ядром страницы — сборка без модуля проходит проверку", async () => {

@@ -98,7 +98,7 @@ describe("вход аккаунта", () => {
 
 describe("инциденты", () => {
   /** Флот с двумя сессиями инцидентов (одна закрыта) и отказом доставки в журнале pc. */
-  function incRelay() {
+  function incRelay(delivered = false) {
     const r: Roster = fleetRoster();
     r.sessions = [
       ...r.sessions,
@@ -119,6 +119,8 @@ describe("инциденты", () => {
         more: false,
       },
     });
+    // обращение a1 на диске pc: сессия не открылась; delivered — ход его уже взял, на диске его нет
+    relay.handlers["incident.pending"] = (f) => ({ ok: true, result: { appeals: f.machine === "pc" && !delivered ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null }] : [] } });
     return relay;
   }
 
@@ -150,5 +152,14 @@ describe("инциденты", () => {
     expect(lost[0].textContent).toContain("no_profile");
     await t.click(lost[0]);
     expect(t.$('[data-why="pc:a1"]')!.textContent).toContain("профиль you/profiles/gpu-temp не найден");
+  });
+
+  it("5406 · отказ в журнале, а обращение потом доставлено (его нет в incident.pending) — в «Не доставлены» его нет", async () => {
+    // источник: отложенная половина делай 3 нояб.: «недоставленное, потом доставленное — висит до полуночи»
+    const relay = incRelay(true);
+    const t = await pult({ relay, url: "/#incidents" });
+    await flush(10);
+    expect(relay.sent("incident.pending").map((f) => f.machine)).toContain("pc");
+    expect(t.$$("[data-lost]")).toHaveLength(0);
   });
 });

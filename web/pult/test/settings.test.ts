@@ -36,13 +36,17 @@ function fleet() {
     ok: true,
     result: {
       parts: {
-        host: { where: "machine", edge: "1.2.0+8", stable: "1.2.0+7" },
-        keeper: { where: "machine", edge: "1.0.5", stable: "1.0.5" },
-        pult: { where: "cloud", edge: "1.2.0+13", stable: "1.2.0+12" },
-        relay: { where: "cloud", edge: "1.1.0", stable: "1.1.0" },
+        host: { where: "machine", edge: "1.2.0+8", stable: "1.2.0+7", versions: ["1.2.0+5", "1.2.0+6", "1.2.0+7", "1.2.0+8"] },
+        keeper: { where: "machine", edge: "1.0.5", stable: "1.0.5", versions: ["1.0.3", "1.0.4", "1.0.5"] },
+        pult: { where: "cloud", edge: "1.2.0+13", stable: "1.2.0+12", versions: ["1.2.0+10", "1.2.0+11", "1.2.0+12", "1.2.0+13"] },
+        relay: { where: "cloud", edge: "1.1.0", stable: "1.1.0", versions: ["1.1.0"] },
       },
       machines: Object.entries(plans).map(([machine, plan]) => ({ machine, plan })),
       rev: 9,
+      modules: {
+        "web-inbox": { into: ["pult", "phone"], built: { pult: "0.1.0", phone: "0.1.0" }, edge: "0.2.0" },
+        "web-core": { into: ["pult", "phone"], built: { pult: "1.3.2", phone: "1.3.2" }, edge: "1.3.2" },
+      },
     },
   });
   relay.handlers["keeper.state"] = (f: Frame) => {
@@ -146,13 +150,15 @@ describe("pult-settings", () => {
     await t.click(t.btn("Выложить +13"));
     expect(t.sent("releases.deploy").at(-1)).toMatchObject({ part: "pult", version: "1.2.0+13", to: ".releases" });
     expect(t.text()).toContain("Выложено: pult 1.2.0+12 → 1.2.0+13");
-    const name = t.$<HTMLInputElement>('[aria-label="Модуль"]')!;
-    name.value = "web-inbox";
-    await t.click(t.btn("Выложить"));
+    // модули сборок: в сборке 0.1.0, в каталоге 0.2.0 — «Выложить 0.2.0»; у web-core новее нет
+    expect(t.$('tr[data-module="web-core"]')!.textContent).not.toContain("Выложить");
+    await t.click(t.btn("Выложить 0.2.0", t.$('tr[data-module="web-inbox"]')!));
     expect(t.sent("releases.deploy").at(-1)).toMatchObject({ part: "web-inbox" });
-    expect(t.text()).toContain("Не выложен web-inbox: проверка флота не прошла");
+    expect(t.text()).toContain("Не выложен web-inbox 0.2.0: проверка флота не прошла");
     await t.click(t.btn("Вернуть +11", t.$('tr[data-part="pult"]')!));
     expect(t.sent("releases.deploy").at(-1)).toMatchObject({ part: "pult", version: "1.2.0+11" });
+    // история: вернуть можно и более раннюю сборку
+    expect(t.btn("Вернуть +10", t.$('tr[data-part="pult"]')!)).not.toBeNull();
   });
 
   it("5504 · пропуска: пригласить устройство — keys.invite и ссылка #invite=; отозвать с подтверждением — keys.revoke у relay; это устройство не отзывается", async () => {

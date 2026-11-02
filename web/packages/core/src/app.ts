@@ -371,6 +371,9 @@ export function startApp(o: StartOptions): Running {
     return typeof c === "number" && c > 0 ? c : null;
   }
 
+  /** Группа раздела в этом виде: в узком — narrowGroup, если есть. */
+  const groupOf = (d: Screen) => (wide ? d.group : (d.narrowGroup ?? d.group));
+
   function sameParams(a: Params, b: Params): boolean {
     const ka = Object.keys(a);
     return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
@@ -419,7 +422,7 @@ export function startApp(o: StartOptions): Running {
           x.dots?.length ? h("span", { class: "sb-lamps" }, x.dots.slice(0, 4).map((d) => h("span", { class: `sb-dot ${d}` }))) : null,
         ),
       );
-    const groups = [...new Set(navs.map(([, s]) => s.def.group).filter((g): g is string => !!g))];
+    const groups = [...new Set(navs.map(([, s]) => groupOf(s.def)).filter((g): g is string => !!g))];
     navcol.textContent = "";
     navrow.textContent = "";
     tabs.textContent = "";
@@ -428,13 +431,13 @@ export function startApp(o: StartOptions): Running {
       navcol.append(
         h("div", { class: "sb-brand" }, h("b", null, o.brand ?? "Switchboard"), h("span", { class: `sb-pill conn ${cp.tone}`, title: cp.text, "aria-label": cp.text })),
         h("button", { class: "sb-goto", onclick: () => openPal() }, h("span", null, "Перейти…"), h("kbd", null, "Ctrl K")),
-        ...navs.filter(([, s]) => !s.def.group).flatMap(([n, s]) => [item([n, s]), ...subs(n, s)]),
-        ...groups.flatMap((g) => [h("div", { class: "sb-grp" }, g), ...navs.filter(([, s]) => s.def.group === g).map(item)]),
+        ...navs.filter(([, s]) => !groupOf(s.def)).flatMap(([n, s]) => [item([n, s]), ...subs(n, s)]),
+        ...groups.flatMap((g) => [h("div", { class: "sb-grp" }, g), ...navs.filter(([, s]) => groupOf(s.def) === g).map(item)]),
       );
     } else {
-      const solo = navs.filter(([, s]) => !s.def.group).map(item);
+      const solo = navs.filter(([, s]) => !groupOf(s.def)).map(item);
       const grouped = groups.map((g) => {
-        const inG = navs.filter(([, s]) => s.def.group === g);
+        const inG = navs.filter(([, s]) => groupOf(s.def) === g);
         const cur = inG.some(([n]) => on(n));
         const count = inG.reduce((acc, [, s]) => acc + (countOf(s) ?? 0), 0);
         return h("button", { class: "sb-nv", "aria-current": cur ? "page" : null, "data-group": g, onclick: () => (cur ? null : go(inG[0][0], {})) }, h("span", null, g), count ? h("span", { class: "sb-badge wait" }, count) : null);
@@ -442,8 +445,8 @@ export function startApp(o: StartOptions): Running {
       const all = [...solo, ...grouped];
       if (all.length > 1) tabs.append(...all);
       // лента разделов группы над экраном — когда открыт раздел группы
-      const g = groups.find((x) => navs.some(([n, s]) => s.def.group === x && on(n)));
-      if (g) navrow.append(...navs.filter(([, s]) => s.def.group === g).map(item));
+      const g = groups.find((x) => navs.some(([n, s]) => groupOf(s.def) === x && on(n)));
+      if (g) navrow.append(...navs.filter(([, s]) => groupOf(s.def) === g).map(item));
     }
     tabs.hidden = wide || tabs.childElementCount < 2;
     navrow.hidden = wide || navrow.childElementCount === 0;
@@ -458,7 +461,7 @@ export function startApp(o: StartOptions): Running {
     const out: Hit[] = [];
     for (const [n, s] of screenOwner) {
       if (s.owner.failed || s.def.place === "top") continue;
-      if (s.def.nav && (!ql || s.def.nav.toLowerCase().includes(ql))) out.push({ label: s.def.nav, hint: s.def.group ?? "раздел", screen: n, params: {} });
+      if (s.def.nav && (!ql || s.def.nav.toLowerCase().includes(ql))) out.push({ label: s.def.nav, hint: groupOf(s.def) ?? "раздел", screen: n, params: {} });
       if (!s.def.find) continue;
       for (const x of call(s.owner, `экране ${n}`, () => s.def.find!(ql)) ?? []) {
         // строка ведёт на экран своего модуля или экран из его uses

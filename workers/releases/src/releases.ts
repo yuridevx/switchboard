@@ -301,14 +301,18 @@ class Releases {
     const kinds = await this.partKinds();
     const cloud = [...kinds].filter(([p, k]) => k.where === "cloud" && (!part || p === part)).map(([p]) => p);
     const machine = part ? (kinds.get(part)?.where === "cloud" ? [] : [part]) : [...new Set([...kinds.keys(), ...Object.keys(s.stable)])].filter((p) => kinds.get(p)?.where !== "cloud" && (kinds.has(p) || s.stable[p]));
-    for (const p of machine.sort()) parts[p] = { where: "machine", edge: newest(await this.machineVersions(p)), stable: s.stable[p] ?? null };
+    const last = (vs: Iterable<string>) => [...vs].filter((v) => VERSION.test(v)).sort(cmp).slice(-10);
+    for (const p of machine.sort()) {
+      const vs = await this.machineVersions(p);
+      parts[p] = { where: "machine", edge: newest(vs), stable: s.stable[p] ?? null, versions: last(vs) };
+    }
     // Worker'ы спрашиваются у API Cloudflare разом: по одному — секунда на каждый
     const found = await Promise.all(
       cloud.sort().map(async (p) => {
         const script = (await this.script(p))!;
         const [vs, cur] = await Promise.all([versions(this.env, script), deployed(this.env, script)]);
-        const edge = (kinds.get(p) as Kind).app ? newest(await this.machineVersions(p)) : newest(vs.keys());
-        return [p, { where: "cloud" as const, edge, stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null }] as const;
+        const own = (kinds.get(p) as Kind).app ? await this.machineVersions(p) : [...vs.keys()];
+        return [p, { where: "cloud" as const, edge: newest(own), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null, versions: last(own) }] as const;
       }),
     );
     for (const [p, x] of found) parts[p] = x;
@@ -316,7 +320,17 @@ class Releases {
       const plan = s.plans[m] ?? {};
       return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
     });
-    return { parts, machines, rev: s.rev };
+    if (part) return { parts, machines, rev: s.rev };
+    // модули сборок: номер в выложенной сборке каждого приложения — из её списка, новейший — из каталога
+    const cat = await this.catalog();
+    const modules: NonNullable<Listed["modules"]> = {};
+    for (const [n, e] of cat) if (e.manifest?.into?.length) modules[n] = { into: e.manifest.into, built: {}, edge: e.versions.at(-1) ?? null };
+    for (const app of [...kinds].filter(([, k]) => k.app).map(([p]) => p)) {
+      const cur = parts[app]?.stable ?? (await this.current(app, s));
+      if (!cur) continue;
+      for (const [n, v] of await this.listOf(app, cur)) if (modules[n]) modules[n].built[app] = v;
+    }
+    return { parts, machines, rev: s.rev, modules };
   }
 
   /**

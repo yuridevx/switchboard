@@ -172,6 +172,13 @@ export function make(): Module {
       incident: (s) => mine(s),
     },
 
+    requests: {
+      // обращения на диске: ход их ещё не взял; callsign — сессия, куда ушло, null — сессия не открылась (причина — журнал)
+      "incident.pending"() {
+        return { appeals: book().map((a) => ({ id: a.id, type: a.type, key: a.key ?? null, callsign: a.callsign ?? null })) };
+      },
+    },
+
     on: {
       // ход взял обращение — снято с диска
       event(_s, msg) {

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { MAX_FRAME } from "@switchboard/protocol";
-import { clientPath, refuse } from "../contract.ts";
+import { clientPath, refuse, tildePath } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
 import { frame, frames } from "../src/holders.ts";
 import { InputQueue } from "../src/queue.ts";
@@ -209,6 +209,19 @@ describe("договор модуля на стенде", () => {
     await st.open("site@laptop");
     expect(st.query("site@laptop").options.pathToClaudeCodeExecutable).toBe(st.sdk.bin);
     await st.close();
+  });
+
+  it("748 · папка для клиента — обратное к clientPath: «~», «~/…» через «/»; на Windows — и путь с «/», и регистр диска любой", () => {
+    // источник: прод 3 нояб. — на hz-win11 папка сессии в roster шла полным путём C:/Users/admin/projects
+    const home = join(tmpdir(), "u");
+    expect(tildePath(home, home)).toBe("~");
+    expect(tildePath(join(home, "a", "b"), home)).toBe("~/a/b");
+    expect(tildePath(join(tmpdir(), "srv"), home)).not.toMatch(/^~/);
+    if (process.platform === "win32") {
+      expect(tildePath("C:/Users/admin/projects", String.raw`C:\Users\admin`)).toBe("~/projects");
+      expect(tildePath(String.raw`c:\Users\Admin\poe1-proj`, String.raw`C:\Users\admin`)).toBe("~/poe1-proj");
+      expect(tildePath("C:/Users/admin", String.raw`C:\Users\admin`)).toBe("~");
+    }
   });
 
   it("747 · папка клиента — одно правило: «~» и «~/…» от домашней папки, полный путь как есть, иначе null", () => {

@@ -3,7 +3,12 @@
 import { add, h, plural, type App, type AppModule, type Params, type Roster, type ScreenHandle } from "@switchboard/web-core";
 
 type Entry = { pin?: string; on?: boolean; force?: boolean };
-type Listed = { parts: Record<string, { where: "machine" | "cloud"; edge: string | null; stable: string | null }>; machines: Array<{ machine: string; plan: Record<string, Entry> }>; rev: number };
+type Listed = {
+  parts: Record<string, { where: "machine" | "cloud"; edge: string | null; stable: string | null; versions?: string[] }>;
+  machines: Array<{ machine: string; plan: Record<string, Entry> }>;
+  rev: number;
+  modules?: Record<string, { into: string[]; built: Record<string, string>; edge: string | null }>;
+};
 type KPart = { part: string; version?: string; state?: string; error?: string };
 type KState = { keeper?: string; rev?: number; os?: string; parts?: KPart[] };
 type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok" | "revoked"; by: string; at: number };
@@ -61,6 +66,13 @@ function say(w: string): string {
 }
 
 /** Сборка «+n»: прежняя — «+n−1»; версия каталога — null. */
+/** Порядок номеров: 1.1.10 новее 1.1.9, 1.2.0+10 новее 1.2.0+9. */
+export function cmpV(a: string, b: string): number {
+  const x = a.split(/[.+]/).map(Number), y = b.split(/[.+]/).map(Number);
+  for (let i = 0; i < 4; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) - (y[i] ?? 0);
+  return 0;
+}
+
 export function prevBuild(v: string | null | undefined): string | null {
   const m = /^(.+)\+(\d+)$/.exec(v ?? "");
   return m && Number(m[2]) > 1 ? `${m[1]}+${Number(m[2]) - 1}` : null;
@@ -148,6 +160,12 @@ export function createSettings(): AppModule {
   }
   function stableOf(part: string): string | null {
     return list && !("error" in list) ? (list.parts[part]?.stable ?? null) : null;
+  }
+  /** Последние номера части, кроме stable, новые первыми (до n). */
+  function versionsOf(part: string, n: number): string[] {
+    const vs = list && !("error" in list) ? (list.parts[part]?.versions ?? []) : [];
+    const st = stableOf(part);
+    return vs.filter((v) => v !== st).reverse().slice(0, n);
   }
   /** Ячейка матрицы: что стоит на машине против того, что ей велено (закрепление плана, иначе stable). */
   function cellOf(m: string, part: string): Cell | null {
@@ -353,9 +371,8 @@ export function createSettings(): AppModule {
           .map((p) => {
             const c = cellOf(m, p)!;
             const stable = stableOf(p);
-            const edge = list && !("error" in list) ? (list.parts[p]?.edge ?? null) : null;
             const pinned = planOf(m)[p]?.pin;
-            const choices = [...new Set([edge, prevBuild(stable), pinned].filter((v): v is string => !!v && v !== stable))];
+            const choices = [...new Set([...versionsOf(p, 4), pinned].filter((v): v is string => !!v && v !== stable))];
             const vin = h("input", { class: "sb-in m", placeholder: "версия", "aria-label": `Версия ${p}`, style: "width:110px" }) as HTMLInputElement;
             verInput.set(p, vin);
             return h(
@@ -384,7 +401,7 @@ export function createSettings(): AppModule {
     function bulkH(): HTMLElement | null {
       if (!rsel.size) return null;
       const stable = stableOf("host");
-      const vs = [...new Set([prevBuild(stable), list && !("error" in list) ? list.parts.host?.edge : null].filter((v): v is string => !!v && v !== stable))];
+      const vs = versionsOf("host", 3).filter((v) => v !== stable);
       return h(
         "div",
         { class: "st-bulk", "data-bulk": "" },
@@ -400,8 +417,8 @@ export function createSettings(): AppModule {
     function catalogH(): HTMLElement {
       const ls = list && !("error" in list) ? list : null;
       const rows = Object.entries(ls?.parts ?? {}).sort(([a], [b]) => a.localeCompare(b));
-      const nameIn = h("input", { class: "sb-in m", "data-f": "dep", placeholder: "модуль", "aria-label": "Модуль" }) as HTMLInputElement;
-      const verIn = h("input", { class: "sb-in m", placeholder: "версия", "aria-label": "Версия модуля", style: "width:110px" }) as HTMLInputElement;
+      const mods = Object.entries(ls?.modules ?? {}).sort(([a], [b]) => a.localeCompare(b));
+      const newer = (edge: string | null, built: Record<string, string>) => !!edge && Object.values(built).some((v) => cmpV(edge, v) > 0);
       return h(
         "div",
         { style: "display:flex;flex-direction:column;gap:12px" },
@@ -412,19 +429,20 @@ export function createSettings(): AppModule {
           h(
             "table",
             { class: "st-tbl" },
-            h("thead", null, h("tr", null, h("th", null, "часть"), h("th", null, "где"), h("th", null, "stable"), h("th", null, "новее"), h("th", { style: "width:30%" }, ""))),
+            h("thead", null, h("tr", null, h("th", null, "часть"), h("th", null, "где"), h("th", null, "stable"), h("th", null, "история"), h("th", { style: "width:30%" }, ""))),
             h(
               "tbody",
               null,
               rows.map(([p, x]) => {
-                const back = prevBuild(x.stable);
+                // прежние номера — история части: вернуть можно любой из них
+                const older = (x.versions ?? []).filter((v) => x.stable && cmpV(v, x.stable) < 0).reverse().slice(0, 3);
                 return h(
                   "tr",
                   { "data-part": p },
                   h("td", { class: "sb-m" }, p),
                   h("td", null, x.where === "cloud" ? "Cloudflare" : "машины"),
                   h("td", { class: "sb-m" }, x.stable ?? "—"),
-                  h("td", { class: "sb-m" }, x.edge && x.edge !== x.stable ? x.edge : ""),
+                  h("td", { class: "sb-m sb-note" }, (x.versions ?? []).slice(-4).map(short).join(" · ")),
                   h(
                     "td",
                     null,
@@ -432,7 +450,7 @@ export function createSettings(): AppModule {
                       "div",
                       { class: "sb-opts" },
                       x.edge && x.edge !== x.stable ? h("button", { class: "sb-b pri", disabled: busy !== "", onclick: () => void deploy(p, x.edge!) }, busy === p ? "Выкладываю…" : `Выложить ${short(x.edge)}`) : null,
-                      back ? h("button", { class: "sb-b", disabled: busy !== "", onclick: () => void deploy(p, back) }, `Вернуть ${short(back)}`) : null,
+                      older.map((v) => h("button", { class: "sb-b", "data-back": v, disabled: busy !== "", onclick: () => void deploy(p, v) }, `Вернуть ${short(v)}`)),
                     ),
                   ),
                 );
@@ -443,8 +461,27 @@ export function createSettings(): AppModule {
         h(
           "section",
           { class: "sb-sec" },
-          h("b", null, "Модуль сборки"),
-          h("div", { class: "sb-opts" }, nameIn, verIn, h("button", { class: "sb-b pri", disabled: busy !== "", onclick: () => (nameIn.value.trim() ? void deploy(nameIn.value.trim(), verIn.value.trim() || undefined) : undefined) }, busy && !ls?.parts[busy] ? "Выкладываю…" : "Выложить")),
+          h("b", null, "Модули сборок"),
+          h(
+            "table",
+            { class: "st-tbl" },
+            h("thead", null, h("tr", null, h("th", null, "модуль"), h("th", null, "входит в"), h("th", null, "в сборке"), h("th", null, "новее"), h("th", { style: "width:20%" }, ""))),
+            h(
+              "tbody",
+              null,
+              mods.map(([n, x]) =>
+                h(
+                  "tr",
+                  { "data-module": n },
+                  h("td", { class: "sb-m" }, n),
+                  h("td", null, x.into.join(", ")),
+                  h("td", { class: "sb-m" }, Object.entries(x.built).map(([app, v]) => `${app} ${v}`).join(" · ") || "—"),
+                  h("td", { class: "sb-m" }, newer(x.edge, x.built) ? x.edge : ""),
+                  h("td", null, newer(x.edge, x.built) ? h("button", { class: "sb-b pri", disabled: busy !== "", onclick: () => void deploy(n, x.edge!) }, busy === n ? "Выкладываю…" : `Выложить ${x.edge}`) : null),
+                ),
+              ),
+            ),
+          ),
         ),
         noteEl("deploy"),
       );

@@ -6,6 +6,7 @@
 //   повтор — тот же id в теге <incident>. Отказ доставки (open_failed, no_profile, bad_spec, stopped, shutting_down…) — строка
 //   журнала ev incident с id; обращение ждёт следующего старта Host или следующего обращения.
 //   Поле roster incident { type, key }; правило модуля — в системный промпт сессии инцидента.
+//   incident.pending {} → { appeals: [{ id, type, key, callsign }] } — обращения на диске; callsign null — сессия не открылась.
 // Настройка машины — host.json: "modules": { "host-incidents": { "port": 7717, "to": "phone~you@example.com",
 //   "types": { "disk-full": { "profile": "you/profiles/disk-full", "dir": "~" } } } }.
 import { make } from "./src/incidents.ts";

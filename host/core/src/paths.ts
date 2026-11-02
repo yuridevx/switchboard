@@ -11,8 +11,12 @@ export function clientPath(p: string, home: string = homedir()): string | null {
 
 /** Папка для клиента: домашняя — «~», внутри неё — «~/…» через «/»; вне её — как есть. Обратное к clientPath. */
 export function tildePath(p: string, home: string = homedir()): string {
-  if (p === home) return "~";
-  return p.startsWith(home + sep) ? "~/" + p.slice(home.length + 1).split(sep).join("/") : p;
+  // на Windows папка приходит и с «/», и с «\» (C:/Users/admin/projects) — сравнение по одному виду, регистр диска — любой
+  const norm = (x: string) => x.split(sep).join("/").replace(/\/+$/, "");
+  const a = norm(p), h = norm(home);
+  const same = (x: string, y: string) => (sep === "\\" ? x.toLowerCase() === y.toLowerCase() : x === y);
+  if (same(a, h)) return "~";
+  return same(a.slice(0, h.length + 1), h + "/") ? "~/" + a.slice(h.length + 1) : p;
 }
 
 /** Папка Claude Code машины: CLAUDE_CONFIG_DIR или ~/.claude. */

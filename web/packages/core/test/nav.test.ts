@@ -93,6 +93,27 @@ describe("разделы страницы", () => {
     expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(true);
   });
 
+  it("5175 · narrowGroup: в широком виде раздел отдельно, в узком — в группе («Инциденты» во «Флоте» телефона)", async () => {
+    // источник: прототип «Пульт и телефон» (подписан 2 нояб.): телефон — Вам, Работа, Флот (аккаунты, машины, инциденты, настройки)
+    const relay = new FakeRelay(homeRoster());
+    const mods = (): AppPart[] => [
+      ...parts(),
+      { manifest: man("i", { incidents: 1 }), module: { screens: { incidents: { nav: "Инциденты", narrowGroup: "Флот", mount: (el) => void (el.textContent = "инциденты") } } } },
+    ];
+    const start = (wide: boolean) =>
+      startApp({ root: document.getElementById("app")!, workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: mods(), wide, sections: ["work", "incidents", "machines", "access"], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
+    await start(true).ready;
+    await flush();
+    expect(texts(".sb-navcol .sb-nv:not(.sub)")).toEqual(["Работа", "Инциденты", "Машины", "Аккаунты"]);
+    document.body.innerHTML = '<div id="app"></div>';
+    await start(false).ready;
+    await flush();
+    expect(texts(".sb-tabs .sb-nv")).toEqual(["Работа", "Флот"]);
+    location.hash = "#incidents";
+    await flush();
+    expect(texts(".sb-navrow .sb-nv")).toEqual(["Инциденты", "Машины", "Аккаунты"]);
+  });
+
   it("5174 · beside списком: карточка открыта от «Вам» — слева «Вам», от «Работы» — «Работа»; поиск ведёт и на экран из uses", async () => {
     const relay = new FakeRelay(homeRoster());
     const lists: AppModule = {

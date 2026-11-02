@@ -21,7 +21,10 @@ export type ReleasesPlan = { type: "releases.plan"; id: string; v?: 1; to: ".rel
 /** releases.list — каталог и планы. part — только эта часть. */
 export type ReleasesList = { type: "releases.list"; id: string; v?: 1; to: ".releases"; part?: string };
 export type Listed = {
-  parts: Record<string, { where: "machine" | "cloud"; edge: string | null; stable: string | null }>;
+  /** versions — последние номера части по порядку (до 10): у приложения — история его сборок, у части машины — каталог */
+  parts: Record<string, { where: "machine" | "cloud"; edge: string | null; stable: string | null; versions: string[] }>;
+  /** модули сборок (into): в какие приложения входят, номер в выложенной сборке каждого, новейший в каталоге; без part */
+  modules?: Record<string, { into: string[]; built: Record<string, string>; edge: string | null }>;
   machines: Array<{ machine: string; plan: Record<string, PlanEntry> }>;
   rev: number;
 };
