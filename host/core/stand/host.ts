@@ -152,7 +152,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
     pauseMs: o.pauseMs ?? 1000,
   });
   // свой модуль стенда вне списка: тест видит сессию так же, как модуль
-  const standMod = new Mod({ name: "stand", type: "sdk", version: "0.0.0", provides: {}, uses: {}, config: {} }, {}, 0);
+  const standMod = new Mod({ name: "stand", type: "sdk", version: "0.0.0", provides: {}, uses: {}, config: {} }, {});
   const st: Stand = {
     kernel,
     sdk,

@@ -517,6 +517,19 @@ describe("points: покрытие плана host-modules", () => {
     await until(() => (last("site@laptop").r2 as { error?: string })?.error === "r2_failed");
   });
 
+  it("3109 · R2 не отдал блок при подъёме — отказ r2_failed, модуль точек остаётся включён", async () => {
+    // источник: факт цикла тестов 2 нояб. — один сбой R2: при save слово r2_failed, при raise модуль выключался на машине
+    b = await bench({ home, machine: "pc" });
+    const row = b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    b.reg.r2.delete(`f/${row.files[0].b[0]}`);
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "r2_failed" });
+    expect(existsSync(fileOf(dir, SID))).toBe(false);
+    expect(b.st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+    // модуль жив: следующий запрос обслуживается им, а не отказом module_error
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, dryRun: true })).toMatchObject({ ok: true });
+  });
+
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {
     // источник: чьё: код (points.ts:322-331)
     b = await bench({ home });
@@ -582,17 +595,6 @@ describe("points: покрытие плана host-modules", () => {
     const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir: join(home, "Projects", "site") });
     expect(r.ok).toBe(true);
     expect(b.st.journal().some((l) => l.ev === "session.remove" && l.word === "offline" && l.callsign === "site@laptop")).toBe(true);
-  });
-
-  it("3092 · R2 не отдал блок посреди подъёма — ошибка модуля, points выключен на машине", async () => {
-    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен»); чьё: код (points.ts:262 — сбой R2 GET дальше как есть)
-    b = await bench({ home, machine: "pc" });
-    const row = b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
-    b.reg.r2.delete(`f/${row.files[0].b[0]}`);
-    const dir = join(home, "Projects", "site");
-    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir })).toMatchObject({ ok: false, error: "module_error" });
-    expect(existsSync(fileOf(dir, SID))).toBe(false);
-    expect(b.st.journal().some((l) => l.ev === "module_failed" && l.module === "host-points")).toBe(true);
   });
 
   it("3093 · точка старта — одна на сессию; новой сессии точка старта не нужна", async () => {

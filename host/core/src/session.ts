@@ -40,10 +40,8 @@ export class Sess {
   /** события хуков, которые SDK получил в initialize этого query() */
   ready = false;
   crashes = 0;
-  launchSeq = 0;
   closing: null | "stop" | "restart" | "shutdown" = null;
   /** вызовы decide и elicit, ждущие человека */
-  pending = new Set<{ mod: string; gen: number; run: () => void }>();
   private reasons: string[] = [];
   private resultWaiters: Array<() => void> = [];
   private exitWaiters: Array<() => void> = [];
@@ -67,7 +65,6 @@ export class Sess {
   prepare(kind: StartKind, point?: number): void {
     this.startKind = kind;
     if (kind === "point") this.point = point;
-    this.launchSeq = ++this.k.seq;
   }
 
   async collectParts(): Promise<Parts> {
@@ -422,8 +419,7 @@ export class Sess {
     const k = this.k;
     f = {
       get info() {
-        // модуль, загруженный после старта процесса, видит сессию как после перезапуска Host
-        const start: StartKind = m.seq > s.launchSeq ? "attach" : s.startKind;
+        const start: StartKind = s.startKind;
         return {
           callsign: s.callsign,
           session_id: s.rec.session_id,

@@ -96,19 +96,14 @@ export class Mod {
   readonly name: string;
   readonly manifest: Manifest;
   readonly module: Module;
-  /** порядковый номер загрузки: модуль, загруженный после старта процесса сессии, видит её как attach */
-  readonly seq: number;
   /** причина выключения на всей машине */
   down: string | null = null;
-  constructor(m: Manifest, mod: Module, seq: number) {
+  constructor(m: Manifest, mod: Module) {
     this.name = m.name;
     this.manifest = m;
     this.module = mod ?? {};
-    this.seq = seq;
   }
 }
-
-type Pending = { mod: string; gen: number; run: () => void };
 
 export class Kernel {
   readonly deps: Deps;
@@ -128,7 +123,6 @@ export class Kernel {
   decideOwner = new Map<string, string>();
   elicitOwner: string | null = null;
   relay: Link | null = null;
-  seq = 0;
   shutting: Promise<void> | null = null;
   private inflight = new Set<Promise<unknown>>();
   private probes = new Set<Query>();
@@ -167,7 +161,7 @@ export class Kernel {
       for (const e of errors) this.log("core", { kind: "stop", ev: "gate", word: "check_failed", why: e });
       throw new StartError(errors);
     }
-    this.mods = this.release.modules.map((e) => new Mod(e.manifest, e.module, ++this.seq));
+    this.mods = this.release.modules.map((e) => new Mod(e.manifest, e.module));
     this.index();
     this.log("core", { ev: "host_start", version: this.version, sdk: this.sdkVersion, modules: this.mods.map((m) => `${m.name} ${m.manifest.version}`) });
     for (const m of this.mods) await this.startModule(m);
@@ -330,7 +324,7 @@ export class Kernel {
       this.log("core", { kind: "refuse", ev: "decide", word: MODULE_ERROR, callsign: s.callsign, module: owner, tool });
       return { behavior: "deny" as const, message: MODULE_ERROR };
     };
-    return this.pending<PermissionResult>(s, owner, (m, mod) => {
+    return this.waitHuman<PermissionResult>(s, owner, (m, mod) => {
       const d = m.decide?.[tool];
       if (!d) throw new Error(`decide.${tool} нет в новой версии`);
       return d(s.facade(mod), input, o as never);
@@ -344,28 +338,18 @@ export class Kernel {
       this.log("core", { ev: "elicit", callsign: s.callsign, why: "у форм MCP нет владельца — decline" });
       return Promise.resolve(decline);
     }
-    return this.pending<ElicitationResult>(s, owner, (m, mod) => {
+    return this.waitHuman<ElicitationResult>(s, owner, (m, mod) => {
       if (!m.elicit) throw new Error("elicit нет в новой версии");
       return m.elicit(s.facade(mod), req as never, o);
     }, "elicit", () => decline);
   }
 
-  /** Вызов, ждущий человека: при перезагрузке модуля ядро отдаёт его новой версии заново. */
-  private pending<T>(s: Sess, owner: string, fn: (m: Module, mod: Mod) => T | Promise<T>, where: string, onFail: () => T): Promise<T> {
-    return new Promise<T>((resolve) => {
-      const p: Pending = { mod: owner, gen: 0, run: () => {} };
-      p.run = () => {
-        const g = ++p.gen;
-        const done = (r: T) => {
-          if (p.gen !== g) return;
-          s.pending.delete(p);
-          resolve(r);
-        };
-        Promise.resolve(this.call(owner, where, s, fn, onFail)).then(done, () => done(onFail()));
-      };
-      s.pending.add(p);
-      p.run();
-    });
+  /** Вызов, ждущий человека: сбой модуля — ответ onFail. */
+  private waitHuman<T>(s: Sess, owner: string, fn: (m: Module, mod: Mod) => T | Promise<T>, where: string, onFail: () => T): Promise<T> {
+    return Promise.resolve(this.call(owner, where, s, fn, onFail)).then(
+      (r) => r,
+      () => onFail(),
+    );
   }
 
   // ───────────── держатели ─────────────
@@ -397,19 +381,10 @@ export class Kernel {
 
   private onRelayState(st: LinkState, why?: string): void {
     if (st === "stopped") {
-      if (why === "rehello" || why === "shutting_down") return;
+      if (why === "shutting_down") return;
       this.log("core", { kind: "stop", ev: "relay_stopped", word: why, why: `relay закрыл соединение: ${why} — Host не переподключается` });
     } else if (st === "closed") this.log("core", { ev: "relay_closed", why: why ?? "" });
     else if (st === "open") this.log("core", { ev: "hello", why: "hello принят" });
-  }
-
-  /** Новый hello: provides поменялись. Ждущие ответа этой машины запросы — disconnected. */
-  private rehello(): void {
-    const old = this.relay;
-    if (!old) return;
-    this.relay = null;
-    old.close(1000, "rehello");
-    this.connectRelay();
   }
 
   /** Кадр в relay; связи нет — disconnected, больше предела кадра — too_large (слово ставит клиент рации). */

@@ -259,7 +259,8 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         try {
           raw = unpack(await getBlock(creds, h, f));
         } catch (e) {
-          if (/R2 GET/.test((e as Error).message)) throw e;
+          // сбой R2 — отказ словом, как у save; модуль на машине не выключается
+          if (/R2 GET/.test((e as Error).message)) throw refuse("r2_failed", `${pf.p}: ${(e as Error).message}`);
           throw refuse("bad_point", `${pf.p}: блок ${h} не распаковался`);
         }
         if (sha256(raw) !== h) throw refuse("bad_point", `${pf.p}: блок ${h} — другое содержимое`);

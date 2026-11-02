@@ -370,6 +370,17 @@ describe("машины", () => {
     expect(relay.got.slice(n).filter((f) => f.to === ".keeper@pc" || f.machine === "pc")).toEqual([]);
   });
 
+  it("4192 · машина вернулась при закрытом экране «Машины» — keeper.state не шлётся", async () => {
+    // источник: факт цикла тестов 2 нояб. — пульт опрашивал вернувшуюся машину и при закрытом экране; при открытии экран спрашивает все машины сам
+    const relay = machinesRelay();
+    await pult({ relay });
+    await flush(10);
+    const r = fleetRoster();
+    relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: m.since + 60_000 } : m)) });
+    await flush(10);
+    expect(relay.sent("keeper.state")).toHaveLength(0);
+  });
+
   it("4153 · машина впервые в roster при открытом экране — keeper.state и профили, а не «…»", async () => {
     const r = fleetRoster();
     r.machines = r.machines.filter((m) => m.machine !== "pc");

@@ -72,8 +72,9 @@ export function createMachines(): AppModule {
 
   function onRoster(r: Roster) {
     for (const m of r.machines) {
-      // вернулась (since другой) или впервые появилась при открытом экране — спросить её keeper и профили
-      if (seen.has(m.machine) ? seen.get(m.machine) !== m.since : screens.size > 0) void load(m.machine);
+      // вернулась (since другой) или впервые появилась — при открытом экране спросить её keeper и профили;
+      // закрытый экран при открытии спрашивает все машины сам
+      if (screens.size > 0 && seen.get(m.machine) !== m.since) void load(m.machine);
       seen.set(m.machine, m.since);
     }
     redraw();
