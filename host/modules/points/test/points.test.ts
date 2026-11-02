@@ -530,6 +530,15 @@ describe("points: покрытие плана host-modules", () => {
     expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, dryRun: true })).toMatchObject({ ok: true });
   });
 
+  it("3110 · подъём с пульта — точка подъёма несёт by: отправителя запроса", async () => {
+    // источник: чьё: код (снятие пометки «в R2» пишет by = ctx.from; журнал флота: «по чьей команде»)
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    const dir = join(home, "Projects", "site");
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", from: "pult~owner@example.com" })).toMatchObject({ ok: true });
+    expect(b.reg.puts.filter((f) => f.why === "raise").at(-1)).toMatchObject({ by: "pult~owner@example.com" });
+  });
+
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {
     // источник: чьё: код (points.ts:322-331)
     b = await bench({ home });

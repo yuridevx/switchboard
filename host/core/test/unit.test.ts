@@ -472,7 +472,7 @@ describe("договор модуля на стенде", () => {
     ]);
   });
 
-  it("elicit: владелец решает форму; владельца нет — decline; владелец бросил — decline, выключен в сессии", async () => {
+  it("746 · elicit: владелец решает форму; владельца нет — decline; владелец бросил — decline, выключен в сессии, следующая форма — decline без него", async () => {
     const m = module("host-questions", { elicit: (_s, req) => ({ action: "accept", content: { project: String((req as { message: string }).message) } }) });
     const st = await stand({ modules: [m] });
     await st.open("site@laptop");
@@ -481,12 +481,16 @@ describe("договор модуля на стенде", () => {
     await st2.open("site@laptop");
     expect(await st2.proc("site@laptop").elicit({ serverName: "jira", message: "x" })).toEqual({ action: "decline" });
     expect(st2.journal().find((l) => l.ev === "elicit")).toMatchObject({ callsign: "site@laptop" });
-    const bad = module("host-questions", { elicit: () => { throw new Error("форма упала"); } });
+    let calls = 0;
+    const bad = module("host-questions", { elicit: () => { calls++; throw new Error("форма упала"); } });
     const st3 = await stand({ modules: [bad] });
     await st3.open("site@laptop");
     expect(await st3.proc("site@laptop").elicit({ serverName: "jira", message: "x" })).toEqual({ action: "decline" });
     await until(() => st3.states("site@laptop").at(-1)?.failed?.["host-questions"]);
     expect(st3.journal().filter((l) => l.ev === "module_failed")).toHaveLength(1);
+    // 746 · владелец выключен в сессии — следующая форма decline без вызова владельца
+    expect(await st3.proc("site@laptop").elicit({ serverName: "jira", message: "y" })).toEqual({ action: "decline" });
+    expect(calls).toBe(1);
   });
 
   it("start() модуля бросил на старте Host: выключен на машине, failed в roster, Host работает", async () => {

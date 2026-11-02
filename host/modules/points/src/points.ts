@@ -335,7 +335,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       return out;
     },
 
-    async "points.raise"(fr) {
+    async "points.raise"(fr, ctx) {
       const sid = String(fr.sid ?? "");
       const point = fr.point;
       if (!sid || typeof point !== "number") throw refuse("bad_point", "нужны sid и номер точки");
@@ -415,7 +415,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
         host.log({ ev: "raise", callsign, sid, point, copy, why: `${callsign}: копия из точки ${point}; точка подъёма — на первом конце хода` });
         return { callsign, point: null, folder: mode === "keep" ? "keep" : chk.folder, branch };
       }
-      const out = await snap(s, "raise", { base: point, ...(copy ? {} : { expect: owner }), ...(fr.by ? { by: fr.by } : {}) });
+      const out = await snap(s, "raise", { base: point, ...(copy ? {} : { expect: owner }), ...(ctx.from ? { by: ctx.from } : {}) });
       if ("error" in out) {
         if (out.error === "not_owner") {
           // сессию уже подняли в другом месте: своя — убрать

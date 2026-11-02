@@ -350,6 +350,17 @@ describe("эталоны releases", () => {
     ]);
   });
 
+  it("2094 · у Worker'а нет версии посреди «*» — no_release, выложенные до него части Cloudflare в журнале флота", async () => {
+    // источник: устав «система ловит»: отказ — словом, причина — в журнале
+    const s = fresh();
+    fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])), points: { tags: [] } });
+    await inR2("keeper", "1.0.1");
+    await inR2("host", "1.1.58");
+    const out = await req(s, "~x", "releases.deploy", { part: "*" });
+    expect(out[0]).toMatchObject({ type: "reply", ok: false, error: "no_release" });
+    expect(out.slice(1).map((f) => f.text)).toEqual(["gate 1.1.58 → 1.1.59", "push 1.1.58 → 1.1.59"]);
+  });
+
   it("2039 · deploy части сборки: stable, rev, план машинам за stable, ledger.add с by; повтор — без перемен", async () => {
     const s = fresh();
     fakeCf(NONE);

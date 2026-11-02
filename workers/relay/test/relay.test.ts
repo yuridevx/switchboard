@@ -614,6 +614,15 @@ describe("relay · разбор кадра", () => {
     expect(got).toEqual([{ type: "ledger.add", to: ".ledger", ev: "x", text: "y", from: ".push" }]);
   });
 
+  it("2093 · участник вернул не список кадров — строка bad_frame в журнале relay, доставки нет", async () => {
+    // источник: чьё: код (fleet.ts — «frame вернул не список кадров»)
+    const a = await laptop();
+    await env.PUSH.setReturn({ type: "reply", id: "s-2093", to: "@laptop", ok: true } as never);
+    a.send({ type: "push.send", to: ".push", push: {} });
+    await eventually(async () => (logHas("frame вернул не список кадров") ? true : undefined));
+    expect(await a.quiet()).toEqual([]);
+  });
+
   it("2090 · участник вернул ответ, кадр с чужим from и кадр машине не на связи — ответ дошёл, отказы в журнале relay", async () => {
     // источник: чьё: код (отказ одному кадру службы не останавливает остальные)
     const a = await laptop();

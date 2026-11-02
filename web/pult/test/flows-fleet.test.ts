@@ -381,6 +381,22 @@ describe("машины", () => {
     expect(relay.sent("keeper.state")).toHaveLength(0);
   });
 
+  it("4193 · экран «Машины» закрыли, машина вернулась, экран открыли снова — keeper.state на открытии, а не при закрытом", async () => {
+    // источник: чьё: код (экран при открытии спрашивает все машины; закрытый — не спрашивает)
+    const relay = machinesRelay();
+    const t = await machines(relay);
+    const before = relay.sent("keeper.state").length;
+    await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
+    await flush(10);
+    const r = fleetRoster();
+    relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: m.since + 60_000 } : m)) });
+    await flush(10);
+    expect(relay.sent("keeper.state")).toHaveLength(before);
+    await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
+    await flush(10);
+    expect(relay.sent("keeper.state").slice(before).map((f) => f.to)).toContain(".keeper@pc");
+  });
+
   it("4153 · машина впервые в roster при открытом экране — keeper.state и профили, а не «…»", async () => {
     const r = fleetRoster();
     r.machines = r.machines.filter((m) => m.machine !== "pc");
