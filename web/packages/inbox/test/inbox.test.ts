@@ -24,10 +24,10 @@ const parts = () => [
 function fleet(over: (r: Roster) => void = () => {}): Roster {
   const r = homeRoster();
   r.sessions = [
-    { callsign: "site@laptop", state: "busy", dir: "~/Projects/site", from: "phone~you@mail" },
-    { callsign: "night@pc", state: "idle", dir: "~/projects/pfarm", from: "pult~you@mail", slot: { name: "night", wait: 1_900_000_000 } },
-    { callsign: "catan@laptop", state: "failed", dir: "~/Projects/catan", from: "pult~you@mail", failed: { host: "процесс claude завершился дважды до готовности" } },
-    { callsign: "anna@pc", state: "failed", dir: "~/projects/pfarm", from: "laptop~anna@mail" },
+    { callsign: "site@laptop", state: "busy", dir: "~/Projects/site", by: "phone~you@mail" },
+    { callsign: "night@pc", state: "idle", dir: "~/projects/pfarm", by: "pult~you@mail", slot: { name: "night", wait: 1_900_000_000 } },
+    { callsign: "catan@laptop", state: "failed", dir: "~/Projects/catan", by: "pult~you@mail", failed: { host: "процесс claude завершился дважды до готовности" } },
+    { callsign: "anna@pc", state: "failed", dir: "~/projects/pfarm", by: "laptop~anna@mail" },
   ];
   r.clients = ["phone~you@mail", "laptop~anna@mail"];
   over(r);

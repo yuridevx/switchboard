@@ -388,7 +388,7 @@ describe("договор модуля на стенде", () => {
     await k.close();
   });
 
-  it("roster сессии несёт dir — папку от ~ — и from — отправителя последнего ввода; from меняется с вводом", async () => {
+  it("roster сессии несёт dir — папку от ~ — и by — отправителя последнего ввода; by меняется с вводом; поля from в session.state нет", async () => {
     let sess!: import("../contract.ts").Session;
     const probe = module("host-probe", { on: { open: (s) => void (sess = s) } });
     const st = await stand({ modules: [probe] });
@@ -398,10 +398,12 @@ describe("договор модуля на стенде", () => {
     expect(st.states("site@laptop").at(-1)).toMatchObject({ dir: want });
     sess.input("привет", { from: "phone~you@mail" });
     sess.refresh();
-    await until(() => st.states("site@laptop").at(-1)?.from === "phone~you@mail");
+    await until(() => st.states("site@laptop").at(-1)?.by === "phone~you@mail");
+    // from в кадре — адрес отправителя: relay не доставляет кадр с чужим from (живой флот 3 нояб.)
+    expect(st.relay.frames("session.state").every((f) => !("from" in f) || f.from === undefined)).toBe(true);
     sess.input("ещё", { from: "pult~you@mail" });
     sess.refresh();
-    await until(() => st.states("site@laptop").at(-1)?.from === "pult~you@mail");
+    await until(() => st.states("site@laptop").at(-1)?.by === "pult~you@mail");
   });
 
   it("регрессия: s.refresh() — поле вне событий SDK уходит в session.state сразу", async () => {

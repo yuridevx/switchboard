@@ -91,7 +91,7 @@ describe("раскладка широкого вида", () => {
   it("5221 · закрепление: чужая сессия — «Закрепить в «Моём»» в меню ⋯ карточки → в «Моём» с ⌖; снова — откреплена", async () => {
     // источник: прототип «Пульт и телефон» (подписан 2 нояб.): «закрепление — моя на этом устройстве»
     const roster = fleetRoster();
-    roster.sessions = roster.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, from: "laptop~anna@example.com" } : s));
+    roster.sessions = roster.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, by: "laptop~anna@example.com" } : s));
     const t = await pult({ relay: fleetRelay(roster) });
     const mine = () => t.$$(".bd-row").map((b) => b.dataset.callsign);
     expect(mine()).not.toContain("wiki@laptop");
@@ -110,11 +110,11 @@ describe("раскладка широкого вида", () => {
     expect(mine()).not.toContain("wiki@laptop");
   });
 
-  it("5222 · моё по цепочке: задачу дала моя сессия (from — позывной) — сессия в «Моём»; дала чужая — нет", async () => {
+  it("5222 · моё по цепочке: задачу дала моя сессия (by — позывной) — сессия в «Моём»; дала чужая — нет", async () => {
     // источник: прототип «Пульт и телефон»: «моё — дочерние моих»; живой флот 3 нояб.: flow-1@wsl с from flow@win была «чужой»
     const roster = fleetRoster();
     roster.sessions = roster.sessions.map((s) =>
-      s.callsign === "wiki@laptop" ? { ...s, from: "site@laptop" } : s.callsign === "docs@pc" ? { ...s, from: "laptop~anna@example.com" } : s.callsign === "api@pc" ? { ...s, from: "docs@pc" } : s,
+      s.callsign === "wiki@laptop" ? { ...s, by: "site@laptop" } : s.callsign === "docs@pc" ? { ...s, by: "laptop~anna@example.com" } : s.callsign === "api@pc" ? { ...s, by: "docs@pc" } : s,
     );
     const t = await pult({ relay: fleetRelay(roster) });
     const mine = t.$$(".bd-row").map((b) => b.dataset.callsign);

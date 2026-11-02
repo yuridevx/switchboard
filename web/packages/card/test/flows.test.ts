@@ -171,7 +171,7 @@ describe("карточка в широком виде", () => {
     const { memoryStore } = await import("@switchboard/web-core");
     const { KEY } = await import("../../core/stand/app.ts");
     const store = memoryStore({ key: KEY });
-    const r = roster([], (x) => Object.assign(x.sessions[0], { dir: "~/Projects/site", from: "pult~you@mail", parent: "pult~you@mail" }));
+    const r = roster([], (x) => Object.assign(x.sessions[0], { dir: "~/Projects/site", by: "pult~you@mail", parent: "pult~you@mail" }));
     const relay = relayFor(r);
     const t = await stand(parts(), { relay, wide: true, store, url: "/#card?callsign=site%40laptop", options: { beside: { card: "board", chat: "board", ask: "board" } } });
     await flush();

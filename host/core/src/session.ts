@@ -382,9 +382,10 @@ export class Sess {
   /** Запись сессии в roster: поля ядра и поля модулей; выключенные модули — в failed. */
   record(): Record<string, unknown> {
     const k = this.k;
-    // папка и отправитель последнего ввода — у ядра: по ним клиент выводит проект сессии и «моё»
+    // папка и отправитель последнего ввода — у ядра: по ним клиент выводит проект сессии и «моё»;
+    // поле — by: from в кадре — адрес отправителя самого кадра
     const r: Record<string, unknown> = { callsign: this.callsign, state: this.state, sdk: this.rec.sdk, dir: tildePath(this.rec.cwd) };
-    if (this.rec.from) r.from = this.rec.from;
+    if (this.rec.from) r.by = this.rec.from;
     for (const m of k.mods) {
       for (const name of Object.keys(m.module.fields ?? {})) {
         const v = this.field(m, name);

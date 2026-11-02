@@ -7,7 +7,7 @@ import { CORE_ONLY, isCallable } from "./calls.ts";
 import type { ModuleEntry } from "./release.ts";
 
 /** Поля записи сессии, которые держит ядро. */
-export const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk", "dir", "from"]);
+export const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk", "dir", "by"]);
 
 export { nameOf, ownerOf };
 

@@ -139,10 +139,10 @@ export function createBoard(): AppModule {
   /** Почему сессия моя: задачу дали вы, открыли вы, открыла ваша сессия; не моя — "". */
   function whyMine(s: SessionRecord, email = myEmail(), depth = 0): string {
     if (pins.includes(s.callsign)) return "закреплена вами";
-    if (isMe(s.from, email)) return "задачу дали вы";
+    if (isMe(s.by, email)) return "задачу дали вы";
     if (isMe(s.parent, email)) return "открыли вы";
     // открыла или дала задачу сессия — моя, если моя она
-    const sender = typeof s.from === "string" && kindOf(s.from) === "session" && s.from !== s.callsign ? s.from : null;
+    const sender = typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null;
     const p = parentOf(s) ?? sender;
     const ps = p ? sessions().find((x) => x.callsign === p) : undefined;
     if (ps && depth < 8 && whyMine(ps, email, depth + 1)) return `открыла ваша ${ps.callsign}`;

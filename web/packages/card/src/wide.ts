@@ -355,7 +355,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     side.textContent = "";
     if (!s) return;
     const kids = (app.roster()?.sessions ?? []).filter((x) => x.parent === callsign).map((x) => x.callsign);
-    const from = typeof s.from === "string" ? s.from : "";
+    const from = typeof s.by === "string" ? s.by : "";
     const remote = (s.remote as { url?: string } | undefined)?.url;
     add(
       side,
