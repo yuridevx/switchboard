@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { buildSync } from "esbuild";
 import { Miniflare, convertV4MiniflareOptions } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { sign } from "../../gate/src/key.ts";
+import { sign } from "./peer.ts";
 import { link, type Link, type LinkState } from "../contract.ts";
 
 const OWNER = "owner@example.com";

@@ -1,7 +1,7 @@
 // Реестр точек над базой D1 модуля. Хозяин сессии, линия и ветки, правило хранения,
 // какие блоки уже в R2, ссылки машине на блоки, уборка раз в сутки (расписание Worker'а) и удаление сессии сразу.
 // Строки журнала флота — ledger.add по своей привязке.
-import { accepts, fail, machineOf, ok, type Frame } from "@switchboard/protocol";
+import { accepts, fail, machineOf, ok, within, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type ListedPoint, type Point, type PointFile, type Why } from "../contract.ts";
 import { presign } from "@switchboard/release";
@@ -120,7 +120,7 @@ class Registry {
   /** Строка журнала флота по своей привязке; журнал не ответил — строка здесь. */
   private async journal(e: LedgerAdd): Promise<void> {
     try {
-      await this.env.LEDGER.frame({ ...(e as unknown as Frame), from: ".points" });
+      await within(this.env.LEDGER.frame({ ...(e as unknown as Frame), from: ".points" }), "журнал не ответил");
     } catch (err) {
       log({ kind: "refuse", ev: "ledger.add", word: "offline", why: `${e.ev}: ${err}` });
     }

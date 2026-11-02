@@ -2,7 +2,7 @@
 // Держит её Host и keeper и гостей — Host других машин, устройства, программы. Доставляет только своей машине и гостям.
 // На диск не пишет: всё — в карточках живых соединений.
 import { DurableObject } from "cloudflare:workers";
-import { fail, hostOf, kindOf, machineOf, parseFrame, reaches } from "@switchboard/protocol";
+import { CALL_MS, fail, hostOf, kindOf, machineOf, parseFrame, reaches, within } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
 import type { GateApi, VerifyResult } from "@switchboard/gate";
 import type { Participant, RelayWord, Roster, SessionRecord } from "../contract.ts";
@@ -16,7 +16,7 @@ export type Env = {
   PROTO: number[];
   /** версия Worker'а от платформы (version_metadata): карточка помнит, каким кодом принято соединение */
   CF_VERSION?: { id: string };
-  /** предел вызова журнала, мс; только стенд — в бою 120 000, как предел запроса link */
+  /** предел вызова по привязке (gate, журнал), мс; только стенд — в бою CALL_MS протокола */
   CALL_MS?: number;
 };
 
@@ -164,7 +164,7 @@ export class Fleet extends DurableObject<Env> {
     let r: VerifyResult;
     this.verifying.add(ws);
     try {
-      r = await call(this.env.GATE.verify(key));
+      r = await this.within(call(this.env.GATE.verify(key)), `gate не ответил за ${this.callMs() / 1000} с`);
     } catch (e) {
       log(`gate ${keyId(key)} · gate_unavailable · ${e}`);
       return ws.close(1008, "gate_unavailable");
@@ -421,16 +421,14 @@ export class Fleet extends DurableObject<Env> {
 
   // ---------- пределы ----------
 
-  /** Предел вызова журнала — как предел запроса link: 120 с (стенд ставит меньше). */
+  /** Предел вызова по привязке — CALL_MS протокола (стенд ставит меньше). */
   private callMs(): number {
-    return this.env.CALL_MS ?? 120_000;
+    return this.env.CALL_MS ?? CALL_MS;
   }
 
-  /** Обещание или исключение со словами why за предел вызова. */
+  /** Обещание или исключение со словами why за предел вызова — функция предела протокола. */
   private within<T>(p: Promise<T>, why: string): Promise<T> {
-    let t = 0;
-    const late = new Promise<never>((_ok, no) => (t = setTimeout(() => no(new Error(why)), this.callMs())));
-    return Promise.race([p, late]).finally(() => clearTimeout(t));
+    return within(p, why, this.callMs());
   }
 
   /** Версия кода relay; без привязки — пустая. */

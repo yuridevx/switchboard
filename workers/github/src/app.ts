@@ -1,6 +1,6 @@
 // Приложение GitHub флота над базой D1 модуля: одна строка app; github.app, github.setup, github.token.
 // Токенов, установок и репозиториев не хранит: их github спрашивает у GitHub на каждый запрос.
-import { accepts, fail, ok, type Frame } from "@switchboard/protocol";
+import { accepts, CALL_MS, fail, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type AppInfo } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { appJwt } from "./jwt.ts";
@@ -150,7 +150,7 @@ async function pages<T>(path: string, auth: string, items: (body: unknown) => T[
   }
 }
 
-/** Запрос к API GitHub. Нет ответа (сеть) — Failed со статусом 0. */
+/** Запрос к API GitHub. Нет ответа (сеть или предел CALL_MS) — Failed со статусом 0. */
 async function gh(path: string, init: RequestInit, auth?: string): Promise<Response> {
   const headers: Record<string, string> = {
     accept: "application/vnd.github+json",
@@ -160,7 +160,7 @@ async function gh(path: string, init: RequestInit, auth?: string): Promise<Respo
   if (auth) headers.authorization = auth;
   if (init.body) headers["content-type"] = "application/json";
   try {
-    return await fetch(API + path, { ...init, headers });
+    return await fetch(API + path, { ...init, headers, signal: AbortSignal.timeout(CALL_MS) });
   } catch (e) {
     throw new Failed(0, String(e));
   }

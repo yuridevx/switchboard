@@ -19,14 +19,9 @@ export function parseKey(key: unknown): ParsedKey | null {
   return { role: p[0] as "host" | "client", name: p[1], kid: p[2], sig: p[3], id: `${p[0]}.${p[1]}.${p[2]}` };
 }
 
-function hmac(secret: string, usage: "sign" | "verify"): Promise<CryptoKey> {
-  return crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, [usage]);
-}
-
-function toB64url(b: ArrayBuffer): string {
-  let s = "";
-  for (const x of new Uint8Array(b)) s += String.fromCharCode(x);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+/** Ключ проверки старой подписи (переход): выдачи старых ключей больше нет. */
+function hmac(secret: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
 }
 
 function fromB64url(s: string): Uint8Array {
@@ -38,14 +33,6 @@ function fromB64url(s: string): Uint8Array {
 export function newKid(): string {
   const a = "abcdefghijklmnopqrstuvwxyz0123456789";
   return Array.from(crypto.getRandomValues(new Uint8Array(4)), (x) => a[x % a.length]).join("");
-}
-
-/** Выдать ключ: role.name.kid.sig. */
-export async function sign(secret: string, role: "host" | "client", name: string, kid: string): Promise<string> {
-  const id = `${role}.${name}.${kid}`;
-  if (!parseKey(`${id}.x`)) throw new Error(`ключ ${id}: роль host или client, имя и номер — A-Z a-z 0-9 _ -`);
-  const sig = await crypto.subtle.sign("HMAC", await hmac(secret, "sign"), enc.encode(id));
-  return `${id}.${toB64url(sig)}`;
 }
 
 /**
@@ -73,7 +60,7 @@ export async function verifyKey(
   } catch {
     sig = new Uint8Array();
   }
-  const ok = await crypto.subtle.verify("HMAC", await hmac(secret, "verify"), sig as Uint8Array<ArrayBuffer>, enc.encode(p.id));
+  const ok = await crypto.subtle.verify("HMAC", await hmac(secret), sig as Uint8Array<ArrayBuffer>, enc.encode(p.id));
   if (!ok) {
     log(`bad_key ${p.id} · подпись не сошлась`);
     return { error: "bad_key" };

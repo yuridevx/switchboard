@@ -1,5 +1,5 @@
 // Подписки push над базой D1 модуля: строка на устройство с номером пропуска; push.key, push.subscribe, push.send.
-import { accepts, fail, kindOf, ok, reaches, type Frame } from "@switchboard/protocol";
+import { accepts, CALL_MS, fail, kindOf, ok, reaches, within, type Frame } from "@switchboard/protocol";
 import { CONTRACT } from "../contract.ts";
 import type { Env } from "./env.ts";
 import { log } from "./log.ts";
@@ -39,7 +39,7 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
       // одна строка на устройство: новая подписка заменяет прежнюю; номер пропуска — чтобы отзыв гасил уведомления
       await db
         .prepare("INSERT OR REPLACE INTO subs (client, endpoint, p256dh, auth, at, kid) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(from, sub.endpoint, sub.keys.p256dh, sub.keys.auth, Date.now(), typeof f.kid === "string" ? f.kid : null)
+        .bind(from, sub.endpoint, sub.keys.p256dh, sub.keys.auth, Date.now(), typeof f.fromKid === "string" ? f.fromKid : null)
         .run();
       log({ kind: "note", ev: "subscribe", client: from, host: new URL(sub.endpoint).host });
       return answer(ok(f.id ?? ""));
@@ -60,7 +60,7 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
           : (await db.prepare("SELECT * FROM subs WHERE client = ?").bind(to).all<Row>()).results;
       // отозванный пропуск подписки — строка удалена, ему не пушим; номера сверяются одним вызовом gate
       const kids = found.flatMap((r) => (r.kid ? [r.kid] : []));
-      const gone = kids.length ? new Set(await env.GATE.revoked(kids)) : new Set<string>();
+      const gone = kids.length ? new Set(await within(env.GATE.revoked(kids), "gate не ответил на revoked")) : new Set<string>();
       for (const r of found.filter((x) => x.kid && gone.has(x.kid))) {
         await db.prepare("DELETE FROM subs WHERE client = ? AND kid = ?").bind(r.client, r.kid).run();
         log({ kind: "refuse", ev: f.type, word: "gone", why: `пропуск ${r.kid} отозван: подписка удалена`, from, client: r.client, type });
@@ -85,6 +85,7 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
           try {
             const res = await fetch(row.endpoint, {
               method: "POST",
+              signal: AbortSignal.timeout(CALL_MS),
               headers: {
                 authorization: `vapid t=${jwt}, k=${publicKey(jwk)}`,
                 "content-encoding": "aes128gcm",

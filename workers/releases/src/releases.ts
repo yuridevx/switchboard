@@ -10,7 +10,7 @@
 // список в порядке зависимостей. Выкладка модуля — новая сборка: текущий список + модуль, проверка набора флота
 // (check: модули всех сборок, Worker'ы, приложения ОС, библиотеки). Host — stable и планы машин; страница (пульт,
 // телефон) — версия её Worker'а со статикой сборки, метка — номер сборки, и выкладка. Номер с «+» — сборка.
-import { accepts, fail, kindOf, machineOf, ok, type Frame } from "@switchboard/protocol";
+import { accepts, fail, kindOf, machineOf, ok, within, type Frame } from "@switchboard/protocol";
 import type { LedgerAdd } from "@switchboard/ledger";
 import { CONTRACT, type Deployed, type Fetched, type Listed, type Plan, type PlanEntry, type PlanPart, type SetResult, type Upload } from "../contract.ts";
 import { CfFailed, deploy, deployed, publishStatic, urlOf, versions } from "./cf.ts";
@@ -145,7 +145,7 @@ class Releases {
 
   /** Машины флота — принятые пропуска роли host у gate. */
   private async machines(): Promise<string[]> {
-    return (await this.env.GATE.list("host")).map((p) => p.name).sort();
+    return (await within(this.env.GATE.list("host"), "gate не ответил на list")).map((p) => p.name).sort();
   }
 
   // ---------- R2 ----------
@@ -277,7 +277,7 @@ class Releases {
   private async deliver(plans: Frame[]): Promise<void> {
     for (const f of plans) {
       try {
-        const n = await this.env.RELAY.deliver(f);
+        const n = await within(this.env.RELAY.deliver(f), "relay не ответил на deliver");
         log({ kind: "note", ev: "releases.plan", why: `план → ${String(f.to)}: ${n ? "доставлен" : "keeper не на связи"}` });
       } catch (e) {
         log({ kind: "refuse", ev: "releases.plan", word: "offline", why: `relay.deliver → ${String(f.to)}: ${e}` });
@@ -289,7 +289,7 @@ class Releases {
   private async journal(text: string, by: string): Promise<void> {
     const f: LedgerAdd = { type: "ledger.add", v: 1, to: ".ledger", ev: "part.deployed", text, ...(by ? { by } : {}) };
     try {
-      await this.env.LEDGER.frame({ ...(f as unknown as Frame), from: ".releases" });
+      await within(this.env.LEDGER.frame({ ...(f as unknown as Frame), from: ".releases" }), "журнал не ответил");
     } catch (e) {
       log({ kind: "refuse", ev: "ledger.add", word: "offline", why: `${text}: ${e}` });
     }

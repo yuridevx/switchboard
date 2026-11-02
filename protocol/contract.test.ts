@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accepts, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress } from "./contract.ts";
+import { accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress, within } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -99,5 +99,13 @@ describe("protocol: конверт кадра", () => {
     for (const bad of ["phone", "", ".", "x@", "~", "a~", ".@w", ".k@", 5]) expect(kindOf(bad)).toBeNull();
     expect(machineOf("phone")).toBeNull();
     expect(machineOf("x@")).toBeNull();
+  });
+
+  it("5181 · within: значение до предела — оно; после предела — исключение со словами; предел по умолчанию — 120 с", async () => {
+    // источник: слово пользователя 2 нояб.: у всех операций лимит; отчёт слепого архитектора 2 нояб.: п. 8 — одна реализация предела
+    expect(CALL_MS).toBe(120_000);
+    expect(await within(Promise.resolve(7), "не дождался", 50)).toBe(7);
+    expect(await within(3, "не дождался", 50)).toBe(3);
+    await expect(within(new Promise(() => {}), "gate не ответил за 0,05 с", 50)).rejects.toThrow("gate не ответил за 0,05 с");
   });
 });

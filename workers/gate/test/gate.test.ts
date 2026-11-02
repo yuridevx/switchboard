@@ -4,9 +4,16 @@ import { applyD1Migrations, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GateApi, Pass } from "../contract.ts";
 import worker from "../src/index.ts";
-import { sign } from "../src/key.ts";
 import { verify, type Env } from "../src/pass.ts";
 import { seed } from "../src/seed.ts";
+
+/** Старый ключ подписью, как его выдавал прежний invite.ts: проверка подписью живёт до снятия (вторая половина шага 5). */
+async function sign(secret: string, role: "host" | "client", name: string, kid: string): Promise<string> {
+  const id = `${role}.${name}.${kid}`;
+  const k = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = new Uint8Array(await crypto.subtle.sign("HMAC", k, new TextEncoder().encode(id)));
+  return `${id}.${btoa(String.fromCharCode(...sig)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
+}
 import config from "../wrangler.jsonc?raw";
 
 type TestEnv = Env & { PROD: D1Database; TEST_MIGRATIONS: D1Migration[] };
@@ -221,4 +228,15 @@ describe("переход: старые ключи подписью", () => {
       expect(await gate.verify(k as string)).toEqual({ error: "bad_key" });
     }
   });
+
+describe("один способ выдачи", () => {
+  it("5184 · старого ключа подписью выдать нечем: в коде gate нет sign, у пакета нет bin switchboard-invite; проверка старых ключей жива", async () => {
+    // источник: отчёт слепого архитектора 2 нояб.: п. 3 — два способа выдать пропуск
+    const key = await import("../src/key.ts");
+    expect(Object.keys(key)).not.toContain("sign");
+    const pkg = (await import("../package.json", { with: { type: "json" } })).default as { bin?: Record<string, string> };
+    expect(Object.keys(pkg.bin ?? {})).toEqual(["switchboard-seed", "switchboard-redeem"]);
+    expect(Object.keys(key)).toContain("verifyKey");
+  });
+});
 });

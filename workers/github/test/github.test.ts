@@ -295,6 +295,19 @@ describe("github: приложение есть, отказы", () => {
     ]);
   });
 
+  it("5186 · запрос к GitHub — с пределом: fetch идёт с сигналом отмены; сработал — github_failed", async () => {
+    // источник: слово пользователя 2 нояб.: у всех операций лимит; отчёт слепого архитектора 2 нояб.: п. 8 — внешний fetch без предела
+    const s = fresh();
+    await seed(s);
+    const signals: unknown[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_i: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal);
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    });
+    expect(await s.frame({ type: "github.token", v: 1, id: "t-5186", to: ".github", from: "@laptop", repo: "team/profiles" })).toMatchObject([{ ok: false, error: "github_failed" }]);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+  });
+
   it("2023 · github.token: repo не вида владелец/имя — bad_frame, GitHub не вызван", async () => {
     const s = fresh();
     await seed(s);

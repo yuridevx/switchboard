@@ -7,16 +7,11 @@
     ".": "./contract.ts"
   },
   "bin": {
-    "switchboard-invite": "./invite.ts",
     "switchboard-seed": "./seed.ts",
     "switchboard-redeem": "./redeem.ts"
   },
   "scripts": {
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "invite": "node invite.ts"
-  },
-  "dependencies": {
-    "qrcode-terminal": "0.12.0"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit"
   }
 }

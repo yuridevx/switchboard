@@ -1,5 +1,5 @@
 // Эталоны входа Worker'а 5041–5046: обёртка entrance с поддельным gate.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import type { GateApi, VerifyResult } from "../contract.ts";
 import { entrance } from "../src/entrance.ts";
@@ -38,7 +38,7 @@ describe("эталоны входа Worker'а", () => {
       return [{ type: "reply", id: "1", ok: true, result: { key: "K" }, to: f.from }];
     });
     expect(g.keys).toEqual(["client.phone.p3a1.secret"]);
-    expect(seen).toEqual([{ type: "push.key", id: "1", v: 1, from: "phone~owner@example.com", kid: "p3a1" }]);
+    expect(seen).toEqual([{ type: "push.key", id: "1", v: 1, from: "phone~owner@example.com", fromKid: "p3a1" }]);
     expect(r.status).toBe(200);
     expect(r.headers.get("access-control-allow-origin")).toBe("*");
     expect(await r.json()).toEqual({ type: "reply", id: "1", ok: true, result: { key: "K" }, to: "phone~owner@example.com" });
@@ -46,8 +46,8 @@ describe("эталоны входа Worker'а", () => {
 
   it("5042 · from в кадре POST не берётся: отправитель — адрес пропуска", async () => {
     const seen: Frame[] = [];
-    await entrance(post({ type: "push.key", id: "1", v: 1, key: "k", from: "@win", kid: "zzzz" }), gate(PHONE), (f) => (seen.push(f), []));
-    expect(seen[0]).toMatchObject({ from: "phone~owner@example.com", kid: "p3a1" });
+    await entrance(post({ type: "push.key", id: "1", v: 1, key: "k", from: "@win", fromKid: "zzzz" }), gate(PHONE), (f) => (seen.push(f), []));
+    expect(seen[0]).toMatchObject({ from: "phone~owner@example.com", fromKid: "p3a1" });
   });
 
   it("5043 · плохой пропуск → bad_key; gate не ответил → gate_unavailable; обработчик не вызван", async () => {
@@ -93,5 +93,24 @@ describe("эталоны входа Worker'а", () => {
     }, () => {});
     expect(boom.status).toBe(500);
     expect(await boom.json()).toMatchObject({ ok: false, error: "failed" });
+  });
+
+  it("5182 · gate не ответил за предел — gate_unavailable 503, frame не звался", async () => {
+    // источник: слово пользователя 2 нояб.: у всех операций лимит; отчёт слепого архитектора 2 нояб.: п. 8 — вызов по привязке без предела
+    const late = vi.spyOn(globalThis, "setTimeout").mockImplementation(((cb: () => void) => (queueMicrotask(cb), 0)) as never);
+    const hang: GateApi = { ...gate(PHONE), verify: () => new Promise(() => {}) };
+    const seen: Frame[] = [];
+    const r = await entrance(post({ type: "push.key", id: "1", v: 1, key: "k" }), hang, (f) => (seen.push(f), []), () => {});
+    late.mockRestore();
+    expect(r.status).toBe(503);
+    expect(await r.json()).toEqual({ type: "reply", id: "1", ok: false, error: "gate_unavailable" });
+    expect(seen).toEqual([]);
+  });
+
+  it("5183 · номер пропуска отправителя — fromKid; поле kid запроса (keys.revoke {kid}) доходит до frame как есть", async () => {
+    // источник: отчёт слепого архитектора 2 нояб.: п. 5 — вход relay через entrance; kid — номер отзываемого пропуска
+    const seen: Frame[] = [];
+    await entrance(post({ type: "keys.revoke", id: "1", v: 1, key: "k", kid: "zz11", fromKid: "подделка" }), gate(PHONE), (f) => (seen.push(f), []));
+    expect(seen[0]).toMatchObject({ kid: "zz11", fromKid: "p3a1", from: "phone~owner@example.com" });
   });
 });

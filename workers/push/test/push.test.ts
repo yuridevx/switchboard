@@ -95,8 +95,8 @@ describe("эталоны push", () => {
     const a = await ua();
     const b = await ua();
     // номер пропуска приходит от обёртки входа полем kid; стенд gate считает отозванным секрет «revoked» и номера из revoke
-    await frame({ type: "push.subscribe", v: 1, id: "s1", to: ".push", from: "tab~a@b", kid: "t1ab", sub: sub(a, "https://fcm.googleapis.com/send/tab") });
-    await frame({ type: "push.subscribe", v: 1, id: "s2", to: ".push", from: "pad~a@b", kid: "p4ad", sub: sub(b, "https://fcm.googleapis.com/send/pad") });
+    await frame({ type: "push.subscribe", v: 1, id: "s1", to: ".push", from: "tab~a@b", fromKid: "t1ab", sub: sub(a, "https://fcm.googleapis.com/send/tab") });
+    await frame({ type: "push.subscribe", v: 1, id: "s2", to: ".push", from: "pad~a@b", fromKid: "p4ad", sub: sub(b, "https://fcm.googleapis.com/send/pad") });
     expect((await table()).filter((r) => String(r.client).endsWith("~a@b")).map((r) => [r.client, r.kid])).toEqual([["pad~a@b", "p4ad"], ["tab~a@b", "t1ab"]]);
     await (env as unknown as { GATE: { revoke(k: string): Promise<unknown> } }).GATE.revoke("t1ab");
     const svc = fakeService(201);
@@ -242,6 +242,17 @@ describe("push: отказы и стык с relay", () => {
     const log = journal();
     expect(await frame(send("s-n", "phone-net"))).toMatchObject([{ ok: false, error: "push_failed" }]);
     expect(log.some((l) => l.word === "push_failed" && String(l.why).includes("connection reset"))).toBe(true);
+  });
+
+  it("5185 · пуш службе — с пределом: fetch к endpoint идёт с сигналом отмены", async () => {
+    // источник: слово пользователя 2 нояб.: у всех операций лимит; отчёт слепого архитектора 2 нояб.: п. 8 — внешний fetch без предела
+    const phone = await ua();
+    await subscribe("phone-5185", phone, "https://push.example/5185");
+    const signals: unknown[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_i: RequestInfo | URL, init?: RequestInit) => (signals.push(init?.signal), new Response(null, { status: 201 })));
+    expect(await frame(send("s-5185", "phone-5185"))).toMatchObject([{ ok: true }]);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
   });
 
   it("2083 · адрес человека: пуш каждой его подписке, кроме skip; ответ ok", async () => {

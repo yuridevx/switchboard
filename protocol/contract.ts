@@ -130,3 +130,19 @@ export function accepts(f: { type: string; v?: unknown }, provides: Record<strin
 
 /** Адрес службы флота по имени Worker-модуля: points → .points. */
 export const serviceAddress = (name: string) => `.${name}`;
+
+/**
+ * Предел ожидания вызова другой части — по привязке или fetch: как предел запроса клиента флота (120 с). Кто ждёт
+ * ответа части дольше, тот сам уже получил отказ timeout — держать вызов сверх этого незачем.
+ */
+export const CALL_MS = 120_000;
+
+/** Обещание или исключение со словами why за предел ms (по умолчанию CALL_MS). Слово пользователя 2 нояб.: у всех операций лимит. */
+export function within<T>(p: T | Promise<T>, why: string, ms: number = CALL_MS): Promise<T> {
+  let stop = () => {};
+  const late = new Promise<never>((_ok, no) => {
+    const t = setTimeout(() => no(new Error(why)), ms);
+    stop = () => clearTimeout(t);
+  });
+  return Promise.race([Promise.resolve(p), late]).finally(() => stop());
+}
