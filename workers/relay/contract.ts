@@ -88,12 +88,3 @@ export interface Participant {
   hello(): ParticipantHello | Promise<ParticipantHello>;
   frame(f: Frame): Frame[] | Promise<Frame[]>;
 }
-
-/**
- * Вход Radio relay — для участников, через свою привязку RELAY с props { name }.
- * frame(кадр): свой кадр или reply; from ставит relay из props.name.
- * Ответ: undefined — передан; слово — отказ (offline, bad_from, bad_frame).
- */
-export interface Radio {
-  frame(f: Frame): Promise<RelayWord | undefined>;
-}

@@ -33,9 +33,6 @@ export class Participant extends WorkerEntrypoint {
     got.length = 0;
     ret = [];
   }
-  send(f) {
-    return this.env.RELAY.frame(f);
-  }
 }
 
 export default { fetch: () => new Response(null, { status: 404 }) };

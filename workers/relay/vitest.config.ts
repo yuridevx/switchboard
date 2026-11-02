@@ -8,8 +8,6 @@ import { defineConfig } from "vitest/config";
 import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
 
 const here = dirname(fileURLToPath(import.meta.url));
-// имя раннера = vitest-pool-workers-runner-<имя проекта>: к нему привязки участников RELAY → Radio
-const RUNNER = "vitest-pool-workers-runner-relay";
 export const TEST_SECRET = "test-secret";
 
 /** Настоящий gate одним ES-модулем для miniflare. */
@@ -34,7 +32,6 @@ function participant(name: string, contract: Record<string, number>, uses?: Reco
     script: fixture("participant.js"),
     compatibilityDate: "2026-08-01",
     bindings: { NAME: name, CONTRACT: contract, ...(uses ? { USES: uses } : {}) },
-    serviceBindings: { RELAY: { name: RUNNER, entrypoint: "Radio", props: { name } } },
   };
 }
 

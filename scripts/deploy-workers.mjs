@@ -6,7 +6,7 @@
 // Cloudflare, включая телефон и пульт, — версией с меткой-номером; секреты не трогает, stable двигает «выпуски».
 // --env prod — то же для прода: Worker'ы с суффиксом -prod на pfarm.app, свой FLEET_SECRET из prod.env.
 // phone и pult в списке — сборка и выкладка веба (первая выкладка прода вешает домен).
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -49,7 +49,6 @@ if (rest[0] === "--upload" && !/^\d+\.\d+\.\d+$/.test(upload ?? "")) {
 const want = upload ? [] : rest;
 const list = want.length ? [...ORDER, ...WEB].filter((m) => want.includes(m)) : ORDER;
 const ENV = prod ? ["--env", "prod"] : [];
-const RELAY = prod ? "switchboard-prod" : "switchboard";
 // веб собирается с адресом relay своего флота
 if (prod) process.env.RELAY_URL = "wss://relay.pfarm.app";
 const dirOf = (m) => join(root, WEB.includes(m) ? "web" : "workers", m);
@@ -83,40 +82,6 @@ if (upload) {
   }
   console.log(`\ndeploy: загружено ${upload}, ничего не выложено`);
   process.exit(0);
-}
-
-// Первый выпуск флота: участники привязаны к relay, relay — к участникам; Cloudflare не пускает привязку
-// к несуществующему Worker. Если relay ещё нет — сначала он выходит с одной привязкой GATE и без участников.
-async function relayExists() {
-  const r = await fetch(`https://api.cloudflare.com/client/v4/accounts/${base.CLOUDFLARE_ACCOUNT_ID}/workers/scripts/${RELAY}/settings`, {
-    headers: { Authorization: `Bearer ${base.CLOUDFLARE_API_TOKEN}` },
-  });
-  if (r.status === 404) return false;
-  if (!r.ok) {
-    console.error(`deploy: не узнал, есть ли relay — HTTP ${r.status}`);
-    process.exit(1);
-  }
-  return true;
-}
-if (list.some((m) => ORDER.includes(m) && m !== "gate" && m !== "relay") && !(await relayExists())) {
-  const dir = join(root, "workers", "relay");
-  const conf = JSON.parse(
-    readFileSync(join(dir, "wrangler.jsonc"), "utf8")
-      .split("\n")
-      .filter((l) => !/^\s*\/\//.test(l))
-      .join("\n"),
-  );
-  const env = prod ? conf.env.prod : conf;
-  env.services = env.services.filter((s) => s.binding === "GATE");
-  env.vars.PARTICIPANTS = {};
-  const boot = join(dir, "wrangler.bootstrap.json");
-  writeFileSync(boot, JSON.stringify(conf, null, 2));
-  console.log("\n=== relay (первый выпуск, без участников) ===");
-  try {
-    run(dir, ["deploy", "--config", "wrangler.bootstrap.json", ...ENV]);
-  } finally {
-    rmSync(boot, { force: true });
-  }
 }
 
 for (const m of list) {

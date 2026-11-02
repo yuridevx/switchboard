@@ -270,13 +270,16 @@ describe("эталоны relay", () => {
     expect(got.length).toBe(1);
   });
 
-  it("131 · участник отвечает через Radio.frame: from из props; кадр с чужим from — bad_from, строка в журнале", async () => {
+  it("131 · участник отвечает кадрами ответа frame: from — его имя; кадр с чужим from — bad_from, строка в журнале", async () => {
     const a = await laptop();
-    expect(await env.PUSH.send({ type: "reply", id: "s-4", to: "@laptop", ok: true, result: { cut: false } })).toBeUndefined();
+    await env.PUSH.setReturn([
+      { type: "reply", id: "s-4", to: "@laptop", ok: true, result: { cut: false } },
+      { type: "message", from: "phone", to: "@laptop" },
+    ]);
+    a.send({ type: "push.send", id: "s-4", to: ".push", push: {} });
     expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "s-4", to: "@laptop", ok: true, result: { cut: false }, from: ".push" });
-    expect(await env.PUSH.send({ type: "message", from: "phone", to: "@laptop" })).toBe("bad_from");
+    await eventually(async () => (logHas("bad_from .push · message") ? true : undefined));
     expect(await a.quiet()).toEqual([]);
-    expect(logHas("bad_from .push · message")).toBe(true);
   });
 
   it("118 · 132 · 143 · gate не ответил (сбой или нет FLEET_SECRET): телефон и Host pc закрыты 1008 gate_unavailable, причина в журнале без подписи; laptop на связи, roster не изменился", async () => {
@@ -520,9 +523,11 @@ describe("relay · разбор кадра", () => {
     expect(await b.next((f) => f.type === "machine.dirs")).toEqual({ type: "machine.dirs", id: "d-1", to: "@pc", from: "@laptop" });
   });
 
-  it("участник: кадр не объект — bad_frame; адресата нет — offline словом", async () => {
-    expect(await env.PUSH.send("строка" as unknown as F)).toBe("bad_frame");
-    expect(await env.PUSH.send({ type: "message", to: "@nas" })).toBe("offline");
+  it("участник вернул не кадр — bad_frame; адресата нет — offline; строки в журнале relay", async () => {
+    const a = await laptop();
+    await env.PUSH.setReturn(["строка" as unknown as F, { type: "message", to: "@nas" }]);
+    a.send({ type: "push.key", to: ".push" });
+    await eventually(async () => (logHas("bad_frame push · не кадр") && logs.some((l) => l.startsWith("offline") && l.includes("@nas")) ? true : undefined));
   });
 
   it("2043 · участник с другой версией roster@relay — roster ему не уходит, contract_mismatch в журнале", async () => {
@@ -580,11 +585,15 @@ describe("relay · разбор кадра", () => {
     expect(a.frames.filter((f) => f.type === "roster")).toEqual([]);
   });
 
-  it("2049 · кадр участника другому участнику: from — имя из props", async () => {
-    await laptop();
+  it("2049 · кадр участника другому участнику: from — имя участника", async () => {
+    const a = await laptop();
     await env.LEDGER.clear();
-    expect(await env.PUSH.send({ type: "ledger.add", to: ".ledger", ev: "x", text: "y" })).toBeUndefined();
-    const got = (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add");
+    await env.PUSH.setReturn([{ type: "ledger.add", to: ".ledger", ev: "x", text: "y" }]);
+    a.send({ type: "push.key", to: ".push" });
+    const got = await eventually(async () => {
+      const g = (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add");
+      return g.length ? g : undefined;
+    });
     expect(got).toEqual([{ type: "ledger.add", to: ".ledger", ev: "x", text: "y", from: ".push" }]);
   });
 
@@ -619,26 +628,20 @@ describe("relay · разбор кадра", () => {
     expect(await a.quiet()).toEqual([]);
   });
 
-  it("2050 · участник без props.name — bad_from, строка в журнале", async () => {
-    const word = await runInDurableObject(fleet(), (o) => (o as unknown as { radio(n: string, f: F): Promise<string | undefined> }).radio("", { type: "message", to: "@laptop" }));
-    expect(word).toBe("bad_from");
-    expect(logHas("bad_from участник без props.name")).toBe(true);
-  });
-
-  it("2051 · сбой в коде relay на кадре участника — журнал abort, объект перезапущен, вызов Radio.frame бросает", async () => {
+  it("2051 · сбой в коде relay на кадре, который вернул участник, — журнал abort, объект перезапущен", async () => {
     const a = await laptop();
     const thrown = await runInDurableObject(fleet(), async (o) => {
-      const own = o as unknown as { route: () => never; radio(n: string, f: F): Promise<unknown> };
+      const own = o as unknown as { route: () => never; fromWorker(n: string, f: F): Promise<unknown> };
       own.route = () => {
         throw new TypeError("сбой в коде relay");
       };
-      return own.radio("push", { type: "message", to: "@laptop" }).then(
+      return own.fromWorker("push", { type: "message", to: "@laptop" }).then(
         () => "нет исключения",
         (e: unknown) => String(e),
       );
     }).catch((e: unknown) => String(e));
     expect(thrown).toMatch(/сбой в коде relay|reset/);
-    expect(logs.find((l) => l.startsWith("abort"))).toMatch(/сбой в коде relay[\s\S]*radio\(push\)/);
+    expect(logs.find((l) => l.startsWith("abort"))).toMatch(/сбой в коде relay[\s\S]*fromWorker\(push\)/);
     await a.waitClose();
   });
 

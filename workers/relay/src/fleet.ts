@@ -118,22 +118,17 @@ export class Fleet extends DurableObject<Env> {
     log(`error ${card ? `${card.role}.${card.name}` : "до hello"} · ${err}`);
   }
 
-  /** Кадр участника: вход Radio передаёт его сюда с именем из props привязки. */
-  async radio(name: string, raw: unknown): Promise<RelayWord | undefined> {
+  /** Кадр, который участник вернул из frame: разбор и доставка от его имени; отказ — строка в журнале route. */
+  private async fromWorker(name: string, raw: unknown): Promise<void> {
     try {
-      await this.ready;
-      if (!name) {
-        log("bad_from участник без props.name");
-        return "bad_from";
-      }
       const f = parseFrame(JSON.stringify(raw ?? null));
       if (!f) {
         log(`bad_frame ${name} · не кадр`);
-        return "bad_frame";
+        return;
       }
-      return await this.route({ worker: name }, f);
+      await this.route({ worker: name }, f);
     } catch (e) {
-      this.crash(e, `radio(${name})`);
+      this.crash(e, `fromWorker(${name})`);
     }
   }
 
@@ -407,9 +402,8 @@ export class Fleet extends DurableObject<Env> {
   /** Кадр участнику; кадры, которые он вернул, рация доставляет от его имени по одному. Бросил — исключение наружу. */
   private async callWorker(name: string, f: Frame): Promise<void> {
     const out = await call(this.participant(name).frame(f));
-    // служба на входе Radio шлёт свои кадры сама и ничего не возвращает
-    if (!Array.isArray(out)) return;
-    for (const o of out) await this.radio(name, o);
+    if (!Array.isArray(out)) return log(`bad_frame ${name} · frame вернул не список кадров`);
+    for (const o of out) await this.fromWorker(name, o);
   }
 
   private participant(name: string): Participant {
