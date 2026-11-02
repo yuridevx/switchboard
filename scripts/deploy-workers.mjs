@@ -101,6 +101,8 @@ for (const m of list) {
   }
   console.log(`\n=== ${m}${prod ? " prod" : ""} ===`);
   build(cwd);
+  // схема базы D1 модуля — миграциями wrangler до выкладки кода, который ею пользуется
+  if (existsSync(join(cwd, "migrations"))) run(cwd, ["d1", "migrations", "apply", "DB", "--remote", ...ENV]);
   run(cwd, ["deploy", ...ENV]);
   for (const s of SECRETS[m] ?? []) {
     const [k, from = k] = s.split("=");

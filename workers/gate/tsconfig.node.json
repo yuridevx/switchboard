@@ -1,4 +1,14 @@
 {
   "extends": "../../tsconfig.base.json",
-  "include": ["contract.ts", "src/key.ts", "invite.ts", "qrcode-terminal.d.ts", "test/invite.test.ts", "vitest.config.ts"]
+  "include": [
+    "contract.ts",
+    "src/key.ts",
+    "src/seed.ts",
+    "invite.ts",
+    "seed.ts",
+    "qrcode-terminal.d.ts",
+    "test/invite.test.ts",
+    "test/seed.test.ts",
+    "vitest.config.ts"
+  ]
 }

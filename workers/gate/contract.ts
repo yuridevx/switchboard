@@ -1,22 +1,47 @@
-// Контракт gate: проверка ключа флота. Вход Gate без публичного адреса — его зовёт только relay по привязке GATE.
+// Контракт gate: кто пришёл по пропуску. Пропуска — строки в базе D1 gate; секретов в базе нет, только sha256.
+// Две двери: привязка внутри аккаунта (verify, revoke, revoked) и POST по адресу gate (keys.invite, keys.list, gate.redeem).
 
-/** Кто пришёл: роль решает, кем соединение встанет в relay — машиной (host) или клиентом (client). */
-export type Verified = { role: "host" | "client"; name: string; kid: string };
+/** Кто пришёл: роль решает, кем соединение встанет в relay — машиной (host) или клиентом (client); addr — адрес отправителя. */
+export type Verified = { role: "host" | "client"; name: string; kid: string; addr: string };
 
 /**
  * Ответ verify. Отказ — значением со словом:
- * bad_key — ключ не того вида или подпись не сошлась; revoked — номер ключа в REVOKED.
- * Исключение значит «gate не ответил» (нет FLEET_SECRET, ошибка в коде) — relay закрывает hello словом gate_unavailable.
+ * bad_key — пропуск не того вида, номера нет в базе, секрет, роль или имя не сошлись; revoked — пропуск отозван.
+ * Исключение значит «gate не ответил» (база не ответила, ошибка в коде) — двери отвечают словом gate_unavailable.
  */
 export type VerifyResult = Verified | { error: "bad_key" | "revoked" };
 
-/** gate.verify — метод verify на входе Gate (привязка с "entrypoint": "Gate"). */
+/** Строка пропуска в keys.list: без хэша. */
+export type Pass = {
+  id: string;
+  role: "host" | "client";
+  name: string;
+  person: string | null;
+  addr: string;
+  state: "wait" | "ok" | "revoked";
+  by: string;
+  at: number;
+};
+
+/** gate.verify, gate.revoke, gate.revoked — методы входа Gate (привязка с "entrypoint": "Gate"). */
 export interface GateApi {
   verify(key: string): Promise<VerifyResult>;
+  /** Отметка «отозван» по номеру. Отозванный раньше — тот же ответ; номера нет — unknown_key. */
+  revoke(kid: string): Promise<{ addr: string } | { error: "unknown_key" }>;
   /**
-   * Какие из номеров role.name.kid отозваны. relay спрашивает при каждом старте объекта флота про открытые
-   * соединения: выпуск relay спящие веб-сокеты не рвёт (факт живого прогона 31 окт.), и без этого отозванный
-   * ключ жил бы до своего переподключения.
+   * Какие из номеров отозваны. Номер — kid или role.name.kid; живые и незнакомые не попадают.
+   * push сверяет номера подписок на отправке.
    */
   revoked(ids: string[]): Promise<string[]>;
 }
+
+/**
+ * Запросы POST по адресу gate. Тело — кадр JSON (Content-Type любой: страница шлёт text/plain без предзапроса),
+ * ответ — reply {id, ok, result | error}.
+ *   keys.invite {key, role, name, person?} → {kid, invite, addr}; person обязателен у client
+ *   keys.list {key, role?} → {passes: Pass[]}; с role — только принятые этой роли
+ *   gate.redeem {invite} → {key}; пропуска не нужно
+ * Слова отказа: bad_key, revoked — пропуск; bad_request — поля не того вида; name_taken — у адреса есть живой пропуск;
+ * bad_invite — приглашения нет, оно принято или отозвано; gate_unavailable — база не ответила.
+ */
+export const CONTRACT = { "keys.invite": 1, "keys.list": 1, "gate.redeem": 1 } as const;

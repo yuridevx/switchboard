@@ -1,20 +1,22 @@
-// gate: без адреса в интернете — достижим только по привязке GATE из relay.
-// FLEET_SECRET — секрет Worker: <секрет из хранилища> | wrangler secret put FLEET_SECRET
+// gate: пропуска флота в базе D1 gate. Адрес — POST keys.invite, keys.list, gate.redeem; привязка Gate — verify, revoke, revoked.
+// Переход: старые ключи — подписью FLEET_SECRET (wrangler secret put FLEET_SECRET), отозванные — REVOKED, адрес клиента — имя~OWNER.
 {
   "name": "switchboard-gate",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-01",
-  "workers_dev": false,
+  "workers_dev": true,
   "preview_urls": false,
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-gate", "database_id": "38d056bd-24b2-41cc-aeef-7deb97dc9bed", "migrations_dir": "migrations" }],
   "vars": {
-    // номера отозванных ключей role.name.kid; отзыв — выпуск gate, затем relay
-    "REVOKED": []
+    "REVOKED": [],
+    "OWNER": "yuridevx@gmail.com"
   },
   "observability": { "enabled": true },
-  // прод — switchboard-gate-prod со своим FLEET_SECRET: ключи теста в прод не входят
+  // прод — switchboard-gate-prod со своей базой и своим FLEET_SECRET: пропуска теста в прод не входят
   "env": {
     "prod": {
-      "vars": { "REVOKED": [] }
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-gate-prod", "database_id": "78220606-b94a-475c-99f3-7c103836d9b4", "migrations_dir": "migrations" }],
+      "vars": { "REVOKED": [], "OWNER": "yuridevx@gmail.com" }
     }
   }
 }

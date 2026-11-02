@@ -1,5 +1,5 @@
 // Эталоны, которые проверяются только на выложенном тестовом флоте (не на живом флоте пользователя):
-//   144 — секреты и адреса семи Worker; 136 и 145 — выпуск push и gate не рвёт соединения relay;
+//   144 — секреты и адреса семи Worker (адрес — у relay и gate); 136 и 145 — выпуск push и gate не рвёт соединения relay;
 //   117 — отзыв ключа выпуском gate: соединение закрыто при ближайшем старте объекта флота, новый hello — revoked.
 // Токен деплоя и секрет флота — из ~/.switchboard-dev (SWITCHBOARD_DEV_DIR), как у deploy-workers.mjs.
 import { spawnSync } from "node:child_process";
@@ -40,12 +40,13 @@ const until = async (ok: () => boolean, ms = 20000) => {
 };
 const opened = (l: Link) => until(() => l.state === "open");
 
-// 144 — секреты и адреса
+// 144 — секреты и адреса; адрес — у relay и тех, к кому ходят напрямую (пакет «Открытый флот»: gate с шага 1)
+const PUBLIC = ["switchboard", "switchboard-gate"];
 const SECRETS: Record<string, string[]> = { switchboard: [], "switchboard-gate": ["FLEET_SECRET"], "switchboard-push": ["VAPID_PRIVATE"], "switchboard-points": ["R2_KEY_SECRET"], "switchboard-ledger": [], "switchboard-github": [], "switchboard-releases": ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID", "R2_LINK_SECRET"] };
 for (const [w, want] of Object.entries(SECRETS)) {
   const sec = ((await api(`/workers/scripts/${w}/secrets`)).result as Array<{ name: string }>).map((s) => s.name).sort();
   const sub = (await api(`/workers/scripts/${w}/subdomain`)).result as { enabled: boolean; previews_enabled: boolean };
-  const pub = w === "switchboard";
+  const pub = PUBLIC.includes(w);
   check(`144 · ${w}: секреты ${JSON.stringify(want)}, адрес ${pub ? "есть" : "нет"}`, JSON.stringify(sec) === JSON.stringify(want) && sub.enabled === pub && !sub.previews_enabled, { sec, sub });
 }
 

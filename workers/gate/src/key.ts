@@ -1,6 +1,9 @@
 // Ключ флота: role.name.kid.sig, sig — HMAC-SHA256 секретом флота от role.name.kid в base64url.
 // WebCrypto: один код для Worker gate и для инструмента invite в Node.
-import type { VerifyResult } from "../contract.ts";
+import type { Verified } from "../contract.ts";
+
+/** Старый ключ: роль, имя, номер — адрес ставит gate. */
+export type LegacyResult = Omit<Verified, "addr"> | { error: "bad_key" | "revoked" };
 
 const PART = /^[A-Za-z0-9_-]+$/;
 const ROLES = new Set(["host", "client"]);
@@ -54,7 +57,7 @@ export async function verifyKey(
   secret: string | undefined,
   revoked: readonly string[],
   log: (line: string) => void,
-): Promise<VerifyResult> {
+): Promise<LegacyResult> {
   const p = parseKey(key);
   if (!p) {
     log("bad_key ключ не того вида: нужно role.name.kid.sig, роль host или client");
@@ -81,4 +84,16 @@ export async function verifyKey(
   }
   log(`ok ${p.id}`);
   return { role: p.role, name: p.name, kid: p.kid };
+}
+
+/** 32 случайных байта в base64url: секрет пропуска и приглашения. */
+export function secret(): string {
+  let s = "";
+  for (const x of crypto.getRandomValues(new Uint8Array(32))) s += String.fromCharCode(x);
+  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+export async function sha256(text: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, "0")).join("");
 }

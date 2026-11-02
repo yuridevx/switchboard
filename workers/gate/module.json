@@ -1,8 +1,8 @@
 {
   "name": "gate",
   "type": "worker",
-  "version": "1.0.0",
-  "provides": { "gate.verify": 1, "gate.revoked": 1 },
+  "version": "1.1.0",
+  "provides": { "gate.verify": 1, "gate.revoke": 1, "gate.revoked": 1, "keys.invite": 1, "keys.list": 1, "gate.redeem": 1 },
   "uses": {},
-  "config": { "FLEET_SECRET": "secret", "REVOKED": "var" }
+  "config": { "DB": "binding", "FLEET_SECRET": "secret", "REVOKED": "var", "OWNER": "var" }
 }
