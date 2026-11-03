@@ -1,7 +1,7 @@
 // Экраны входа и отказа: приложение не работает, причина и что делать. Один экран — один компонент; какой — по записи снимка ядра.
 import { useRef, useState } from "react";
 import { PROTO } from "@switchboard/relay";
-import { Cmd, Cta } from "@switchboard/web-ui";
+import { Btn, Cmd, Cta } from "@switchboard/web-ui";
 import type { Stop } from "../state.ts";
 import { useCore } from "./core.ts";
 
@@ -102,6 +102,26 @@ function InviteRefused({ word }: { word: string }) {
   );
 }
 
+/** Приглашение в адресе при имеющемся пропуске: заменить его может только человек. */
+function ReplacePass({ invite, number, kid }: { invite: string; number: string; kid: string }) {
+  const core = useCore();
+  const [why, setWhy] = useState("");
+  return (
+    <>
+      <div className="sb-ring wait">?</div>
+      <div className="sb-big">Заменить пропуск этого устройства?</div>
+      <p>{`Ссылка несёт приглашение ${number}. Сейчас устройство входит пропуском ${kid}. Заменяйте, только если сами просили эту ссылку.`}</p>
+      <Cta data-act="replace" onClick={async () => setWhy((await core.acceptInvite(invite)) ?? "")}>
+        Заменить пропуск
+      </Cta>
+      <Btn data-act="keep" onClick={core.reload}>
+        Оставить текущий
+      </Btn>
+      <p role="alert">{why}</p>
+    </>
+  );
+}
+
 /** Нужен пропуск: поле приглашения; ядро отвечает причиной отказа или null. */
 function KeyPrompt({ command }: { command: string }) {
   const core = useCore();
@@ -137,6 +157,8 @@ export function StopScreen({ stop }: { stop: Stop }) {
       return <ConnectionStopped why={stop.why} />;
     case "invite":
       return <InviteRefused word={stop.word} />;
+    case "replace":
+      return <ReplacePass invite={stop.invite} number={stop.number} kid={stop.kid} />;
     case "key":
       return <KeyPrompt command={stop.command} />;
   }

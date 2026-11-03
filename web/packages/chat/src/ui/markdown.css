@@ -42,6 +42,8 @@
 .cb code{font:inherit}
 .html-frame{resize:vertical;overflow:hidden;height:320px;min-height:120px;background:#fff}
 .html-frame iframe{width:100%;height:100%;border:0;display:block}
+.html-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;font-size:13px;color:var(--wait);background:var(--wait-weak)}
+.html-left .cb-b{color:var(--ink)}
 
 /* подсветка: цвета темы */
 .hljs-keyword,.hljs-built_in,.hljs-selector-tag,.hljs-literal,.hljs-type{color:var(--busy)}

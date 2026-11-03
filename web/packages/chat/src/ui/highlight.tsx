@@ -25,16 +25,22 @@ import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
 
 const lowlight = createLowlight({ bash, c, cpp, csharp, css, diff, go, ini, java, javascript, json, markdown, powershell, python, rust, shell, sql, typescript, xml, yaml });
-lowlight.registerAlias({ bash: ["sh", "zsh"], javascript: ["js", "jsx", "mjs"], typescript: ["ts", "tsx"], python: ["py"], rust: ["rs"], ini: ["toml"], xml: ["html", "svg"], yaml: ["yml"], powershell: ["ps1", "pwsh"], csharp: ["cs"] });
+const ALIASES = { bash: ["sh", "zsh"], javascript: ["js", "jsx", "mjs"], typescript: ["ts", "tsx"], python: ["py"], rust: ["rs"], ini: ["toml"], xml: ["html", "svg"], yaml: ["yml"], powershell: ["ps1", "pwsh"], csharp: ["cs"] };
+lowlight.registerAlias(ALIASES);
+/** Языки по именам: имя из текста сессии не должно найтись в прототипе объекта (constructor, __proto__). */
+const KNOWN = new Set([...lowlight.listLanguages(), ...Object.values(ALIASES).flat()]);
 
 const LANG_OF_EXT: Record<string, string> = { sh: "bash", ts: "ts", tsx: "ts", js: "js", jsx: "js", mjs: "js", json: "json", py: "py", go: "go", rs: "rs", css: "css", html: "html", svg: "html", md: "markdown", yml: "yaml", yaml: "yaml", toml: "toml", sql: "sql", c: "c", h: "c", cpp: "cpp", cs: "cs", java: "java", ps1: "ps1" };
 /** Язык файла по расширению. */
-export const langOfPath = (path: string | undefined) => LANG_OF_EXT[String(path).split(".").pop()?.toLowerCase() ?? ""] ?? "";
+export function langOfPath(path: string | undefined): string {
+  const ext = String(path).split(".").pop()?.toLowerCase() ?? "";
+  return Object.hasOwn(LANG_OF_EXT, ext) ? LANG_OF_EXT[ext] : "";
+}
 
 /** Код с подсветкой: узлы React; считается один раз на текст. */
 export function useHighlighted(code: string, lang: string): ReactNode {
   return useMemo(() => {
-    if (!lang || !lowlight.registered(lang)) return code;
+    if (!KNOWN.has(lang)) return code;
     return toJsxRuntime(lowlight.highlight(lang, code), { Fragment, jsx, jsxs });
   }, [code, lang]);
 }

@@ -68,7 +68,10 @@ export async function boot(d: Deps & { o: StartOptions; platform: Platform; regi
     win.history.replaceState(null, "", win.location.pathname + win.location.search);
     // то же приглашение уже принято на этом устройстве: иконка экрана «Домой» помнит адрес с #invite= — пропуск в хранилище
     const had = (await store.get<string>("key")) ?? "";
-    if (had.split(".")[2] !== fromHash.split(".")[0]) {
+    const number = fromHash.split(".")[0];
+    if (had.split(".")[2] !== number) {
+      // ссылку могли подсунуть (ответ сессии, письмо): пропуск устройства меняет только человек; приглашение не гасится
+      if (had) return state.set({ stopped: "replace", full: { kind: "replace", invite: fromHash, number, kid: keyId(had) } });
       const r = await redeem(o, fromHash);
       if ("error" in r) return stopWith(r.error, { kind: "invite", word: r.error });
       await store.set("key", r.key);

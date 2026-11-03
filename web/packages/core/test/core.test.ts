@@ -184,7 +184,7 @@ describe("ключ и связь", () => {
     // источник: слово пользователя 3 нояб. — «кнопки зачистки на страницы ошибки на телефоне, чтоб удалить сохранённый профиль»
     const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
     history.replaceState(null, "", "/#invite=" + INVITE);
-    const store = memoryStore({ key: KEY, pushes: [1] });
+    const store = memoryStore({ pushes: [1] });
     const relay = new FakeRelay(oneMachine());
     relay.handlers["gate.redeem"] = () => ({ ok: false, error: "bad_invite" });
     await boot({ store, relay });

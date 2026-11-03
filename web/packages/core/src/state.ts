@@ -12,6 +12,7 @@ export type Stop =
   | { kind: "outdated" }
   | { kind: "connection"; why: string }
   | { kind: "invite"; word: string }
+  | { kind: "replace"; invite: string; number: string; kid: string }
   | { kind: "key"; command: string };
 
 export type Toast = { text: string; tone: "ok" | "bad"; shown: boolean };

@@ -16,6 +16,9 @@ function Pre({ text, tone }: { text: string; tone?: "bad" | "muted" }) {
   return <pre className={tone ? `tb-pre ${tone}` : "tb-pre"}>{text || "—"}</pre>;
 }
 
+/** Ошибка инструмента со своим телом: ошибки — словами. */
+const Failed = ({ t }: { t: Tool }) => (t.result?.isError ? <Pre text={t.result.text} tone="bad" /> : null);
+
 /** Вывод инструмента; ошибка — красным; картинки — следом. */
 function Result({ t }: { t: Tool }) {
   if (!t.result) return <div className="tb-wait">ждём результата…</div>;
@@ -48,7 +51,7 @@ function WriteBody({ t }: { t: Tool }) {
     <>
       {html ? <HtmlFrame html={t.input.content ?? ""} title={baseName(t.input.file_path)} /> : null}
       <Diff t={t} />
-      {t.result?.isError ? <Pre text={t.result.text} tone="bad" /> : null}
+      <Failed t={t} />
     </>
   );
 }
@@ -71,7 +74,7 @@ export function ToolBody({ t, task }: { t: Tool; task?: Task }) {
         <>
           {i.replace_all ? <Hint>все вхождения</Hint> : null}
           <Diff t={t} />
-          {t.result?.isError ? <Pre text={t.result.text} tone="bad" /> : null}
+          <Failed t={t} />
         </>
       );
     case "Write":
@@ -81,12 +84,18 @@ export function ToolBody({ t, task }: { t: Tool; task?: Task }) {
         <>
           {i.cell_id ? <Hint>{`ячейка ${i.cell_id}`}</Hint> : null}
           <Diff t={t} />
+          <Failed t={t} />
         </>
       );
     case "Read":
       return <FileResult t={t} />;
     case "TodoWrite":
-      return <Todos todos={i.todos} />;
+      return (
+        <>
+          <Todos todos={i.todos} />
+          <Failed t={t} />
+        </>
+      );
     case "WebFetch":
       return (
         <>
@@ -99,20 +108,26 @@ export function ToolBody({ t, task }: { t: Tool; task?: Task }) {
       return <SubAgent t={t} task={task} />;
     case "ExitPlanMode":
       return (
-        <div className="tb-md">
-          <Markdown text={i.plan ?? ""} />
-        </div>
+        <>
+          <div className="tb-md">
+            <Markdown text={i.plan ?? ""} />
+          </div>
+          <Failed t={t} />
+        </>
       );
     case "AskUserQuestion":
       return (
-        <div className="tb-md">
-          {(i.questions ?? []).map((q) => (
-            <div key={q.question} className="tb-q">
-              <b>{q.question}</b>
-              <span>{i.answers?.[q.question] ?? (q.options ?? []).map((o) => o.label).join(" · ")}</span>
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="tb-md">
+            {(i.questions ?? []).map((q) => (
+              <div key={q.question} className="tb-q">
+                <b>{q.question}</b>
+                <span>{i.answers?.[q.question] ?? (q.options ?? []).map((o) => o.label).join(" · ")}</span>
+              </div>
+            ))}
+          </div>
+          <Failed t={t} />
+        </>
       );
     case "Grep":
     case "Glob":
