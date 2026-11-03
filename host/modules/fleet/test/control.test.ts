@@ -146,11 +146,14 @@ describe("эталоны: сессия ведёт другие сессии", ()
     const { st, call } = await bench();
     roster(st, [{ callsign: "lead@win", cost: 1 }, { callsign: "fix-auth@wsl", parent: "lead@win" }]);
     await new Promise((r) => setTimeout(r, 10));
-    const r = JSON.parse((await call("lead@win", "list", {})).content[0].text);
+    const asked = call("lead@win", "list", {});
+    const g = await until(() => st.relay.frames("prefs.get")[0]);
+    st.relay.deliver({ type: "reply", id: g.id as string, from: "prefs", ok: true, result: { values: {} } } as Frame);
+    const r = JSON.parse((await asked).content[0].text);
     expect(r.me).toBe("lead@win");
     expect(r.sessions).toEqual([
-      { callsign: "lead@win", state: "idle", parent: null, model: null },
-      { callsign: "fix-auth@wsl", state: "idle", parent: "lead@win", model: null },
+      { callsign: "lead@win", state: "idle", parent: null, model: null, label: null, project: null },
+      { callsign: "fix-auth@wsl", state: "idle", parent: "lead@win", model: null, label: null, project: null },
     ]);
     expect(r.clients).toEqual(["phone~owner@example.com"]);
   });

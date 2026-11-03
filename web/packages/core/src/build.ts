@@ -49,5 +49,5 @@ export async function startBuild(o: BuildOptions): Promise<Running> {
         }
       }),
   );
-  return startApp({ ...rest, workers: build.workers, parts });
+  return startApp({ ...rest, workers: build.workers, parts, application: build.app });
 }

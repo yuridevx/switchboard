@@ -48,15 +48,6 @@ describe("эталоны machine", () => {
     expect(readdirSync(home)).toEqual(["Projects"]);
   });
 
-  it("238 · machine.mkdir: создана, второй раз — exists, опечатка в родителе — not_found; сессий нет", async () => {
-    const { st, home } = await pc();
-    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: "~/Projects/board" })).toMatchObject({ ok: true, result: { path: "~/Projects/board" } });
-    expect(existsSync(join(home, "Projects", "board"))).toBe(true);
-    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: "~/Projects/board" })).toMatchObject({ ok: false, error: "exists" });
-    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: "~/Projets/board" })).toMatchObject({ ok: false, error: "not_found" });
-    expect(existsSync(join(home, "Projets"))).toBe(false);
-    expect(st.kernel.sessions.size).toBe(0);
-  });
 });
 
 describe("machine", () => {
@@ -66,6 +57,17 @@ describe("machine", () => {
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~" })).toMatchObject({ ok: true, result: { dirs: [".claude", "Projects"] } });
     const full = join(home, "Projects");
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: full })).toMatchObject({ ok: true, result: { path: full } });
+  });
+
+  it("6201 · имя в 300 знаков — not_found, machine не выключен (факт: опыт на Linux, ENAMETOOLONG)", async () => {
+    const { st } = await pc();
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: `~/${"x".repeat(300)}` })).toMatchObject({ ok: false, error: "not_found" });
+    expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~/Projects" })).toMatchObject({ ok: true });
+  });
+
+  it("6202 · запроса создания папки нет: unknown_request", async () => {
+    const { st } = await pc();
+    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: "~/x" })).toMatchObject({ ok: false });
   });
 
   it("путь — файл: not_found", async () => {
@@ -84,13 +86,12 @@ function locked(home: string): string | null {
 }
 
 describe("machine: покрытие плана host-modules", () => {
-  it("3015 · нет доступа — no_access у dirs и mkdir; модуль жив", async (t) => {
+  it("3015 · нет доступа — no_access у dirs; модуль жив", async (t) => {
     // источник: чьё: код (machine/contract.ts:4; machine.ts:42, :52)
     const { st, home } = await pc();
     const p = locked(home);
     if (!p) return t.skip();
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: p })).toMatchObject({ ok: false, error: "no_access" });
-    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: join(p, "x") })).toMatchObject({ ok: false, error: "no_access" });
     expect(await st.relay.request({ type: "machine.dirs", v: 1, machine: "pc", path: "~" })).toMatchObject({ ok: true });
   });
 
@@ -104,11 +105,4 @@ describe("machine: покрытие плана host-modules", () => {
     expect(st.journal().some((l) => l.ev === "module_failed" && l.module === "host-machine")).toBe(true);
   });
 
-  it("3017 · mkdir: незнакомая ошибка ОС — ошибка модуля, machine выключен на машине", async () => {
-    // источник: слово пользователя (устав: «ошибка модуля — модуль выключен»)
-    const { st } = await pc();
-    const bad = "~/a\u0000b";
-    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: bad })).toMatchObject({ ok: false, error: "module_error" });
-    expect(await st.relay.request({ type: "machine.mkdir", v: 1, machine: "pc", path: "~/ok" })).toMatchObject({ ok: false, error: "module_error" });
-  });
 });

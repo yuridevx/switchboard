@@ -56,6 +56,39 @@ describe("эталоны prefs", () => {
     expect((await E.DB.prepare("SELECT COUNT(*) AS n FROM prefs").first<{ n: number }>())?.n).toBe(0);
   });
 
+  it("6001 · записанное в одной из трёх областей не видно из двух других; другой человек и другое приложение его не видят", async () => {
+    await ask(PHONE, { type: "prefs.set", name: "k", value: "человек" });
+    await ask(PHONE, { type: "prefs.set", name: "k", value: "флот", scope: "global" });
+    await ask(PHONE, { type: "prefs.set", name: "k", value: "пульт", scope: "app:pult" });
+    const read = async (from: string, scope?: string) => (await ask(from, { type: "prefs.get", ...(scope ? { scope } : {}) })).result?.values;
+    expect(await read(PHONE)).toEqual({ k: "человек" });
+    expect(await read(PULT, "global")).toEqual({ k: "флот" });
+    expect(await read(OTHER, "global")).toEqual({ k: "флот" });
+    expect(await read(OTHER, "app:pult")).toEqual({ k: "пульт" });
+    expect(await read(PHONE, "app:phone")).toEqual({});
+    expect(await read(OTHER)).toEqual({});
+  });
+
+  it("6002 · машина и сессия читают и пишут область флота; в область человека им нельзя", async () => {
+    expect(await ask("@laptop", { type: "prefs.set", name: "fleet.labels", value: { machines: { laptop: "ПК" } }, scope: "global" })).toMatchObject({ ok: true });
+    expect((await ask("site@laptop", { type: "prefs.get", scope: "global" })).result?.values).toEqual({ "fleet.labels": { machines: { laptop: "ПК" } } });
+    expect(await ask("@laptop", { type: "prefs.get" })).toMatchObject({ ok: false, error: "not_user" });
+  });
+
+  it("6003 · чужая почта или неизвестное значение вместо области — отказ, чужого не прочесть", async () => {
+    await set(PHONE, "k", "моё");
+    for (const scope of ["~a@example.com", "app:~a@example.com", "app:", "user", 1]) {
+      expect(await ask(OTHER, { type: "prefs.get", scope })).toMatchObject({ ok: false, error: "bad_frame" });
+      expect(await ask(OTHER, { type: "prefs.set", name: "k", value: "чужое", scope })).toMatchObject({ ok: false, error: "bad_frame" });
+    }
+    expect((await get(PHONE)).result?.values).toEqual({ k: "моё" });
+  });
+
+  it("6004 · значение больше предела — отказ словом, строки нет", async () => {
+    expect(await ask(PHONE, { type: "prefs.set", name: "big", value: "x".repeat(2_000_001), scope: "global" })).toMatchObject({ ok: false, error: "too_large" });
+    expect((await ask(PHONE, { type: "prefs.get", scope: "global" })).result?.values).toEqual({});
+  });
+
   it("5604 · неверные поля — bad_frame; чужой запрос и версия — слово протокола", async () => {
     expect(await set(PHONE, "", 1)).toMatchObject({ ok: false, error: "bad_frame" });
     expect(await ask(PHONE, { type: "prefs.set", name: "k" })).toMatchObject({ ok: false, error: "bad_frame" });

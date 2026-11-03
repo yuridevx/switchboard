@@ -2,7 +2,7 @@
 // выбранное видно всегда; поле без совпадений свёрнуто. Снизу — сколько подходит. Хранит список модуль, здесь — только правка копии.
 import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { Btn, plural, projectOf } from "@switchboard/web-ui";
+import { Btn, plural } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { FIELDS, profileOf, type Field, type Filter } from "./rules.ts";
 
@@ -16,6 +16,9 @@ const STATES: Array<[string, string]> = [
 
 export type EditorCtx = {
   sessions(): SessionRecord[];
+  /** проекты: номер и имя */
+  projects(): Array<[string, string]>;
+  projectId(callsign: string): string;
   machines(): string[];
   mName(machine: string): string;
   owners(): string[];
@@ -26,7 +29,7 @@ export type EditorCtx = {
 function options(ctx: EditorCtx, k: Field): Array<[string, string]> {
   const uniq = (xs: Array<string | undefined>) => [...new Set(xs.filter((x): x is string => !!x))].sort();
   if (k === "who") return [["mine", "моё"], ...ctx.owners().map((o): [string, string] => [o, o.slice(1)])];
-  if (k === "projects") return uniq(ctx.sessions().map((s) => projectOf(s.dir))).map((x) => [x, x]);
+  if (k === "projects") return ctx.projects();
   if (k === "machines") return uniq([...ctx.machines(), ...ctx.sessions().map((s) => machineOf(s.callsign) ?? "")]).map((m) => [m, ctx.mName(m)]);
   if (k === "profiles") return uniq(ctx.sessions().map(profileOf)).map((x) => [x, x]);
   return STATES;
@@ -48,7 +51,7 @@ export function FilterEditor({ ctx, base, save, remove, close }: { ctx: EditorCt
   }
 
   const hit = ctx.sessions().filter((s) => ctx.match(f, s));
-  const np = new Set(hit.map((s) => projectOf(s.dir))).size;
+  const np = new Set(hit.map((s) => ctx.projectId(s.callsign))).size;
   const ql = q.trim().toLowerCase();
   const fields = FIELDS.map(([k, label]) => {
     const sel = f[k] ?? [];

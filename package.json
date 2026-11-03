@@ -17,6 +17,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run gate && vitest run",
     "test:workers": "npm run test --workspaces --if-present",
+    "stand": "node scripts/shots/dev.mjs",
+    "stand:check": "node scripts/shots/stand-check.mjs",
     "shots": "node scripts/shots/run.mjs",
     "drag": "node scripts/shots/drag.mjs"
   },

@@ -31,9 +31,9 @@ async function card(callsign: string, roster = homeRoster()) {
 }
 
 describe("карточка сессии", () => {
-  it("шапка: имя, машина и проект; состояние — лампой без слов; вкладка «Чат» — лента в месте карточки", async () => {
+  it("шапка: имя, машина и папка; состояние — лампой без слов; вкладка «Чат» — лента в месте карточки", async () => {
     const t = await card("site@laptop");
-    expect(t.$(".sb-bt")!.textContent).toBe("site@laptop@laptop · switchboard");
+    expect(t.$(".sb-bt")!.textContent).toBe("site@laptop@laptop · папка switchboard");
     expect(t.$(".sb-pill")).toBeNull();
     expect(t.$(".sb-bar .sb-dot.busy")).not.toBeNull();
     expect(t.$(".card-place .chat-comp")).not.toBeNull();

@@ -1,9 +1,9 @@
-// Правила «Работы» без экрана: порядок сессий и проектов, дерево по parent, фильтр, место в закреплённых.
+// Правила «Работы» без экрана: дерево по parent, фильтр, ранг состояния — только для ламп и поиска. Порядок проектов и строк — в записи (records).
 import type { SessionRecord } from "@switchboard/web-core";
 import { profileName } from "@switchboard/web-ui";
 import { kindOf, machineOf } from "@switchboard/protocol";
 
-/** Порядок: ждёт вас и сбой, работает, остальные. */
+/** Ранг состояния: ждёт вас и сбой, работает, остальные. Порядок списка от него не зависит. */
 export const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 export const byRank = (a: SessionRecord, b: SessionRecord) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign);
 export const profileOf = (s: SessionRecord) => {
@@ -15,12 +15,12 @@ export const incidentOf = (s: SessionRecord) => (s.incident as { type?: string }
 /** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */
 export const parentOf = (s: SessionRecord) => (typeof s.parent === "string" && kindOf(s.parent) === "session" && s.parent !== s.callsign ? s.parent : null);
 
-/** Порядок дерева: дочь сразу под родителем, глубина — отступ; родителя нет в списке — дочь в корне. */
+/** Порядок дерева при заданном порядке строк: дочь сразу под родителем, глубина — отступ; родителя нет в списке — дочь в корне. */
 export function tree(list: SessionRecord[]): Array<[SessionRecord, number]> {
   const here = new Set(list.map((s) => s.callsign));
   const kids = new Map<string, SessionRecord[]>();
   const roots: SessionRecord[] = [];
-  for (const s of [...list].sort(byRank)) {
+  for (const s of list) {
     const p = parentOf(s);
     if (p && here.has(p)) kids.set(p, [...(kids.get(p) ?? []), s]);
     else roots.push(s);
@@ -75,24 +75,4 @@ export function orderFilters(own: Filter[], row: string[]): Filter[] {
   return all.map((f, i) => [f, i] as const).sort((a, b) => (at(a[0]) === at(b[0]) ? a[1] - b[1] : at(a[0]) - at(b[0]))).map(([f]) => f);
 }
 
-export type Project = { name: string; ss: SessionRecord[]; r: number };
-
-/** Проекты: закреплённые сверху в порядке человека; остальные — ждут вас, работают, по имени. */
-export function orderProjects(list: Project[], top: string[]): Project[] {
-  const at = (n: string) => {
-    const i = top.indexOf(n);
-    return i < 0 ? Infinity : i;
-  };
-  return [...list].sort((a, b) => (at(a.name) === at(b.name) ? a.r - b.r || a.name.localeCompare(b.name) : at(a.name) - at(b.name)));
-}
-
-/** Новый порядок закреплённых: name среди видимых vis на месте k; k null — открепить. Невидимые в этом фильтре не сдвигаются. */
-export function placeTop(top: string[], name: string, vis: string[], k: number | null): string[] {
-  const t = top.filter((x) => x !== name);
-  const v = vis.filter((x) => x !== name);
-  if (k === null) return t;
-  if (k < v.length) t.splice(t.indexOf(v[k]), 0, name);
-  else if (v.length) t.splice(t.indexOf(v[v.length - 1]) + 1, 0, name);
-  else t.unshift(name);
-  return t;
-}
+export type Project = { id: string; name: string; ss: SessionRecord[]; r: number };

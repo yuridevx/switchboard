@@ -2,7 +2,7 @@
 // остановить, поднять, убрать. Всё — методами Agent SDK через ядро; поток сообщений не читает.
 // Своё хранит в разделе сессии: спецификацию — что выбрал клиент (модель, усилие, флаги ответа), кто открыл сессию
 // (родитель) и отметку «убрать после хода». Папку держит ядро, слот — slots, профиль — profiles, заголовок — файл разговора.
-import { statSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { clientPath, refuse, tildePath } from "@switchboard/host";
 import type { Ctx, Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
@@ -137,19 +137,21 @@ export function manage(o: ManageOptions = {}): Module {
       async "session.open"(req, ctx) {
         const { host } = ctx;
         const name = req.name;
-        if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_spec", `session.open: имя ${JSON.stringify(name)}`);
+        if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_name", `session.open: имя ${JSON.stringify(name)}`);
         if (req.number !== undefined && typeof req.number !== "boolean") throw refuse("bad_spec", `session.open ${name}: number`);
         const asked = `${name}@${host.machine}`;
         const dir = req.dir;
         const cwd = typeof dir === "string" ? clientPath(dir, home) : null;
-        if (!cwd) throw refuse("bad_spec", `session.open ${asked}: папка ${JSON.stringify(dir)} не от ~ и не полная`);
+        if (!cwd) throw refuse("bad_dir", `session.open ${asked}: папка ${JSON.stringify(dir)} не от ~ и не полная`);
+        if (req.mkdir !== undefined && typeof req.mkdir !== "boolean") throw refuse("bad_spec", `session.open ${asked}: mkdir`);
         let isDir = false;
         try {
           isDir = statSync(cwd).isDirectory();
         } catch {
-          // нет папки — ниже отказ
+          // нет папки — ниже отказ или создание
         }
-        if (!isDir) throw refuse("bad_spec", `session.open ${asked}: папки ${dir} нет`);
+        // создать папку можно только по просьбе: опечатка агента даёт отказ
+        if (!isDir && req.mkdir !== true) throw refuse("bad_dir", `session.open ${asked}: папки ${dir} нет`);
         const spec = specOf(req);
         if (req.resume !== undefined && typeof req.resume !== "string") throw refuse("bad_spec", `session.open ${asked}: resume`);
         if (req.fork !== undefined && typeof req.fork !== "boolean") throw refuse("bad_spec", `session.open ${asked}: fork`);
@@ -170,6 +172,14 @@ export function manage(o: ManageOptions = {}): Module {
             if (req[key] === undefined) continue;
             const r = await host.request(type, { callsign, [key]: req[key] });
             if (!r.ok) throw refuse(r.error, `session.open ${callsign}: ${type} — ${r.error}`);
+          }
+          // путь строится последним шагом перед стартом: имя занято, профиль или слот не подошли — папки не появится
+          if (!isDir) {
+            try {
+              mkdirSync(cwd, { recursive: true });
+            } catch (e) {
+              throw refuse("bad_dir", `session.open ${callsign}: папка ${dir} не создана — ${(e as Error).message}`);
+            }
           }
           let s: Session;
           try {

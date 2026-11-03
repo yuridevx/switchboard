@@ -17,7 +17,7 @@ type Listed = {
 };
 type KPart = { part: string; version?: string; state?: string; error?: string };
 type KState = { keeper?: string; rev?: number; os?: string; parts?: KPart[] };
-type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok" | "revoked"; by: string; at: number };
+type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok"; by: string; at: number };
 type Form = { action: string; manifest: Record<string, unknown> };
 type Gh = { app: { slug: string } | null; repos?: string[]; install?: string; form?: Form };
 type Err = { error: string };
@@ -139,8 +139,9 @@ export function createSettings(): AppModule {
     await Promise.all([loadList(), ...machines().map(loadKeeper)]);
   }
   async function loadPasses() {
-    const r = await app.request<{ passes: Pass[] }>("keys.list");
-    passes = r.ok ? r.result.passes : { error: r.error };
+    const r = await app.request<{ passes: Array<Omit<Pass, "state"> & { state: Pass["state"] | "revoked" }> }>("keys.list");
+    // отозванные не показываем (слово пользователя 3 нояб.)
+    passes = r.ok ? r.result.passes.filter((p): p is Pass => p.state !== "revoked") : { error: r.error };
     bump();
   }
   async function loadGithub() {
@@ -786,7 +787,7 @@ export function createSettings(): AppModule {
 
   function PassTable({ title, rows, me }: { title: string; rows: Pass[]; me: Pass | undefined }) {
     if (!rows.length) return null;
-    const word = { ok: ["действует", "ok"], wait: ["ждёт приёма", "wait"], revoked: ["отозван", "bad"] } as const;
+    const word = { ok: ["действует", "ok"], wait: ["ждёт приёма", "wait"] } as const;
     return (
       <Sec data-passes={title}>
         <b>{title}</b>
@@ -821,7 +822,7 @@ export function createSettings(): AppModule {
                 </td>
                 <td>{new Date(p.at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</td>
                 <td>
-                  {p.state === "revoked" ? null : p === me ? (
+                  {p === me ? (
                     <Note>это устройство</Note>
                   ) : confirm === p.id ? (
                     <Opts>
@@ -991,7 +992,7 @@ export function createSettings(): AppModule {
         </Row>
         <Row label="пропуск">
           <span>
-            {me ? (me.state === "ok" ? "действует" : me.state === "wait" ? "ждёт приёма" : "отозван") : "—"}
+            {me ? (me.state === "ok" ? "действует" : "ждёт приёма") : "—"}
             {app.wide ? (
               <Btn className="st-ml8" onClick={() => app.open("settings", { tab: "passes" })}>
                 Пропуска

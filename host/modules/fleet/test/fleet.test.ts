@@ -186,7 +186,7 @@ describe("fleet: инструменты и вклад", () => {
     expect(o.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
     expect(o.systemPrompt.append).toContain("Ты во флоте как site@laptop");
     expect(o.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
-    expect(make().tools("x@y").map((t) => t.name)).toEqual(["list", "send", "answer", "open", "history", "update", "remove"]);
+    expect(make().tools("x@y").map((t) => t.name)).toEqual(["list", "send", "answer", "open", "history", "update", "label", "remove"]);
   });
 });
 

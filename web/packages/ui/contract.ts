@@ -9,7 +9,7 @@ export * from "./src/format.ts";
 export { personal } from "./src/personal.ts";
 export { createStore } from "./src/store.ts";
 export type { Store } from "./src/store.ts";
-export type { Personal } from "./src/personal.ts";
+export type { Personal, Scope } from "./src/personal.ts";
 
 export const manifest = json;
 export default {};

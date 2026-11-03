@@ -30,6 +30,7 @@ function fleet() {
     { id: "kh1", role: "host", name: "laptop", person: null, addr: "@laptop", state: "ok", by: "агент", at: Date.UTC(2026, 10, 1) },
     { id: "kc1", role: "client", name: "pult", person: "you@mail", addr: "pult~you@mail", state: "ok", by: "@laptop", at: Date.UTC(2026, 10, 2) },
     { id: "kc2", role: "client", name: "phone", person: "you@mail", addr: "phone~you@mail", state: "ok", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
+    { id: "kr1", role: "client", name: "old", person: "you@mail", addr: "old~you@mail", state: "revoked", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
   ];
   const relay = new FakeRelay(roster());
   relay.handlers["releases.list"] = () => ({
@@ -167,6 +168,8 @@ describe("pult-settings", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (s: string) => void writes.push(s) } });
     const t = await settings({ url: "/#settings?tab=passes", workers: { ...FakeRelay.WORKERS, phone: "https://phone.test/" } });
     expect(t.$('[data-passes="Машины"]')!.textContent).toContain("@laptop");
+    // отозванных не показываем (слово пользователя 3 нояб.)
+    expect(t.$('tr[data-pass="kr1"]')).toBeNull();
     const me = t.$('tr[data-pass="kc1"]')!;
     expect(me.textContent).toContain("это устройство");
     expect(t.btn("Отозвать…", me)).toBeNull();

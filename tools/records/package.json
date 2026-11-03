@@ -1,0 +1,12 @@
+{
+  "name": "@switchboard/records",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./contract.ts"
+  },
+  "scripts": {
+    "test": "cd ../.. && vitest run tools/records"
+  }
+}

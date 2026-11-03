@@ -1,7 +1,7 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "2.0.2",
+  "version": "2.0.3",
   "into": [
     "pult"
   ],
@@ -27,7 +27,9 @@
     "ledger.read@ledger": 1,
     "card@web-card": 1,
     "card.tab@web-card": 1,
-    "project.machines@web-board": 1
+    "project.machines@web-board": 2,
+    "project.of@web-board": 1,
+    "board.assign@web-board": 1
   },
   "config": {}
 }

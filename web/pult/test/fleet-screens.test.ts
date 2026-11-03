@@ -74,6 +74,7 @@ describe("машины", () => {
 describe("вход аккаунта", () => {
   it("5403 · «＋ войти на машине…» — машины на связи без этой почты; выбор — machine.login с тем же именем; ссылка входа — активная, «Копировать» кладёт её в буфер", async () => {
     const relay = fleetRelay();
+    relay.scoped.global = { "fleet.projects": [{ id: "poe", name: "poe", sessions: ["poe-bot@pc"] }] };
     relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { night: { login: "ok", email: "night@x.io", plan: "max" } } : {} } });
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/authorize?code=true&x=1" } });
@@ -100,6 +101,7 @@ describe("вход аккаунта · проект", () => {
   it("5404 · открыт проект: машины проекта в «＋ войти на машине…» — со ★", async () => {
     // источник: подпись экрана p17 прототипа «Пульт и телефон» (подписан 2 нояб.): ★ только с проектом
     const relay = fleetRelay();
+    relay.scoped.global = { "fleet.projects": [{ id: "poe", name: "poe", sessions: ["poe-bot@pc"] }] };
     relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { night: { login: "ok", email: "night@x.io", plan: "max" } } : {} } });
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["session.watch"] = () => ({ ok: true });

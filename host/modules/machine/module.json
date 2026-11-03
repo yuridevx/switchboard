@@ -1,11 +1,10 @@
 {
   "name": "host-machine",
   "type": "sdk",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "into": ["host"],
   "provides": {
-    "machine.dirs": 1,
-    "machine.mkdir": 1
+    "machine.dirs": 1
   },
   "uses": {
     "host.module@host": 1

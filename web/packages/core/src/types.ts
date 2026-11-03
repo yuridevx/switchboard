@@ -127,6 +127,8 @@ export type SlotProps = { screen: string; params?: Params; close?: () => void };
 export interface App {
   /** имя клиента во флоте — из ключа: client.phone.k2a9… → phone */
   readonly name: string;
+  /** имя приложения из списка сборки: pult, phone; вне сборки — нет */
+  readonly application?: string;
   /** широкий вид (пульт): экраны в местах; узкий (телефон): каждый экран на весь экран */
   readonly wide: boolean;
   /**
@@ -194,6 +196,8 @@ export type StartOptions = {
   fetch?: typeof fetch;
   /** модули выпуска по порядку старта */
   parts: AppPart[];
+  /** имя приложения из списка сборки */
+  application?: string;
   /** узкий (телефон) или широкий (пульт) вид */
   wide?: boolean;
   /** порядок разделов от оболочки: экраны с nav; разделов, которых здесь нет, — следом в порядке списка модулей */

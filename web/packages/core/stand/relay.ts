@@ -42,9 +42,14 @@ export class FakeRelay {
 
   /** настройки пользователя стенда — как у Worker'а prefs; тест подменяет handlers["prefs.get"], чтобы он отказал */
   values: Record<string, unknown> = {};
+  /** области global и app:<приложение> */
+  scoped: Record<string, Record<string, unknown>> = {};
+  private areaOf(f: Frame): Record<string, unknown> {
+    return typeof f.scope === "string" ? (this.scoped[f.scope] ??= {}) : this.values;
+  }
   private prefsStand(f: Frame): ((x: Frame) => { ok: boolean; result?: unknown; error?: string }) | undefined {
-    if (f.type === "prefs.get") return () => ({ ok: true, result: { values: JSON.parse(JSON.stringify(this.values)) } });
-    if (f.type === "prefs.set") return (x) => ((this.values[x.name as string] = x.value), { ok: true });
+    if (f.type === "prefs.get") return (x) => ({ ok: true, result: { values: JSON.parse(JSON.stringify(this.areaOf(x))) } });
+    if (f.type === "prefs.set") return (x) => ((this.areaOf(x)[x.name as string] = x.value), { ok: true });
     return undefined;
   }
 

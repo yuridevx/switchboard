@@ -2,11 +2,9 @@
 // родная прокрутка ряда с инерцией. Клавиатура: Alt+← / Alt+→ на чипе. Escape — отмена.
 // Пока чип в руке, DOM ряда не меняется: призрак — поверх списка (вне маски ряда), на месте чипа — пустое гнездо; гнездо и соседи едут
 // transform'ом к посадочным местам. Отпустили — призрак садится в гнездо, порядок сохраняется. Выбранный фильтр не меняется.
+import { startPress, type Press } from "./gesture.ts";
 import { calm } from "./projects-drag.ts";
 
-const SLOP_MOUSE = 4;
-const SLOP_TOUCH = 8;
-const HOLD_MS = 300;
 const EDGE = 44;
 const SPEED = 14;
 const LAND_MS = 200;
@@ -22,7 +20,7 @@ export type ChipsApi = {
 };
 
 type Gesture = {
-  el: HTMLElement; row: HTMLElement; pid: number; touch: boolean; x0: number; y0: number; x: number; active: boolean; landing?: boolean; timer?: ReturnType<typeof setTimeout>;
+  el: HTMLElement; row: HTMLElement; pid: number; x0: number; y0: number; x: number; active: boolean; landing?: boolean; press: Press;
   chips: HTMLElement[]; i: number; k: number; L: number[]; W: number[]; gap: number; pad: number; slots: number[]; grab: number; dy: number; ghost: HTMLElement; raf: number;
 };
 
@@ -77,7 +75,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     const s = S!;
     const row = s.row;
     const rr = row.getBoundingClientRect();
-    clearTimeout(s.timer);
+    s.press.cancel();
     s.active = true;
     s.chips = chipsOf(row);
     s.i = s.k = s.chips.indexOf(s.el);
@@ -151,12 +149,10 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     (e) => {
       const el = (e.target as Element).closest<HTMLElement>(".fscroll > .fc");
       if (!el || S || e.button !== 0 || !e.isPrimary) return;
-      const touch = e.pointerType !== "mouse";
-      S = { el, row: el.parentElement!, pid: e.pointerId, touch, x0: e.clientX, y0: e.clientY, x: e.clientX, active: false } as Gesture;
-      if (touch)
-        S.timer = setTimeout(() => {
-          if (S && !S.active) begin();
-        }, HOLD_MS);
+      S = { el, row: el.parentElement!, pid: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, active: false } as Gesture;
+      S.press = startPress(e, () => {
+        if (S && !S.active) begin();
+      });
     },
     on,
   );
@@ -170,16 +166,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
         place();
         return;
       }
-      const far = Math.hypot(e.clientX - s.x0, e.clientY - s.y0);
-      if (s.touch) {
-        // палец повёл — это прокрутка
-        if (far > SLOP_TOUCH) {
-          clearTimeout(s.timer);
-          S = null;
-        }
-        return;
-      }
-      if (far > SLOP_MOUSE) begin();
+      if (!s.press.move(e.clientX, e.clientY)) S = null;
     },
     on,
   );
@@ -193,7 +180,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
       }
       const s = S;
       if (!s || e.pointerId !== s.pid || s.landing) return;
-      clearTimeout(s.timer);
+      s.press.cancel();
       if (!s.active) {
         S = null; // нажатие без перетаскивания — обычный клик
         return;
@@ -208,7 +195,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     (e) => {
       const s = S;
       if (!s || e.pointerId !== s.pid || s.landing) return;
-      clearTimeout(s.timer);
+      s.press.cancel();
       if (s.active) land(false);
       else S = null;
     },
