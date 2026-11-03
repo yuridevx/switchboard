@@ -253,6 +253,41 @@ describe("эталоны relay", () => {
     expect(await fresh.next((f) => f.type === "message")).toMatchObject({ from: dev("panel-desk") });
   });
 
+  it("6101 · связь Host оборвалась молча: прежнее соединение не ответило на close и выглядит открытым — машина и сессии в roster по разу, кадры — в новое", async () => {
+    const old = await laptop();
+    const panel = await hello("client", "panel-desk");
+    await panel.roster();
+    await wait(5);
+    // платформа после сна объекта снова показывает такой сокет открытым: close до него не доходит
+    await runInDurableObject(fleet(), (o) => {
+      const x = o as unknown as { ctx: DurableObjectState };
+      const real = x.ctx;
+      x.ctx = new Proxy(real, {
+        get(t, k) {
+          if (k !== "getWebSockets") {
+            const v = Reflect.get(t, k);
+            return typeof v === "function" ? v.bind(t) : v;
+          }
+          return () => {
+            const all = t.getWebSockets();
+            for (const s of all) s.close = () => {};
+            return all;
+          };
+        },
+      });
+    });
+    const fresh = await hello("host", "laptop", { contract: { message: 1 }, sessions: sessions("laptop", ["site"]) });
+    const r = await eventually(async () => {
+      const y = await fresh.roster();
+      return y.sessions.some((s: F) => s.callsign === "site@laptop") ? y : undefined;
+    });
+    expect(r.machines.length).toBe(1);
+    expect(callsigns(r)).toEqual(["site@laptop"]);
+    panel.send({ type: "message", to: "site@laptop", text: "hi" });
+    expect(await fresh.next((f) => f.type === "message")).toMatchObject({ from: dev("panel-desk") });
+    expect(await old.quiet()).toEqual([]);
+  });
+
   it("44 · обработчик кадра бросает исключение: журнал с причиной и типом, ctx.abort, все соединения закрыты; после hello roster тот же", async () => {
     const a = await laptop();
     const panel = await hello("client", "panel-desk");

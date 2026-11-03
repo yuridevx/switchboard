@@ -217,12 +217,14 @@ export class Fleet extends DurableObject<Env> {
       log(`bad_frame ${id} · карточка ${size} байт · предел ${CARD_LIMIT}`);
       return ws.close(1008, "bad_frame");
     }
-    // машина одна: новый hello той же машины в той же роли вытесняет прежний
+    // машина одна: новый hello той же машины в той же роли вытесняет прежний. Карточка снимается сразу: оборвавшийся сокет
+    // на close не отвечает, и после сна объекта платформа снова показывает его открытым
     if (card.role !== "client") {
       for (const s of this.live()) {
         const c = cardOf(s)!;
         if (s !== ws && c.role === card.role && c.name === card.name) {
           log(`replaced ${c.role}.${c.name}.${c.kid}`);
+          s.serializeAttachment({ ver: this.ver() });
           s.close(1000, "replaced");
         }
       }
