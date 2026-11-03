@@ -1,5 +1,7 @@
 // Флоу ядра по плану цикла тестов (web): ключ, связь, roster, маршрут кадров, запросы, экраны, уход с экрана, метки.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createElement, useEffect, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { appGate, memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, INVITE, KEY, oneMachine } from "../stand/relay.ts";
 
@@ -23,17 +25,17 @@ function sample(log: string[] = [], over: Partial<AppModule> = {}) {
         nav: "Сессии",
         mark: "need",
         label: "Список",
-        mount(el) {
-          const draw = () => (el.textContent = `список ${box.app.roster()?.sessions.length}`);
-          draw();
-          return { refresh: draw, close: () => log.push("list closed") };
+        view() {
+          const n = box.app.use(() => box.app.roster()?.sessions.length);
+          useEffect(() => () => void log.push("list closed"), []);
+          return `список ${n}`;
         },
       },
       item: {
         label: "Карточка",
-        mount(el, p) {
-          el.append(`item ${p.callsign}`);
-          return { close: () => log.push(`item closed ${p.callsign}`) };
+        view({ params: p }) {
+          useEffect(() => () => void log.push(`item closed ${p.callsign}`), [p.callsign]);
+          return `item ${p.callsign}`;
         },
       },
     },
@@ -61,7 +63,7 @@ function other(log: string[] = [], over: Partial<AppModule> = {}) {
   const part: AppPart = {
     manifest: man("other", { side: 1 }, { "item@sample": 1, "need@sample": 1 }),
     module: {
-      screens: { side: { label: "Сбоку", mount: (el) => void el.append("сбоку") } },
+      screens: { side: { label: "Сбоку", view: () => "сбоку" } },
       start(a) {
         box.app = a;
         log.push("start other");
@@ -303,17 +305,22 @@ describe("кадры и запросы", () => {
 });
 
 describe("экраны и адрес", () => {
-  it("4020 · экран в месте другого модуля — адрес не меняется, close() убирает его", async () => {
+  it("4020 · экран в месте другого модуля — адрес не меняется, убран из разметки — закрыт", async () => {
     const log: string[] = [];
     const s = sample(log);
+    let shown: (v: boolean) => void = () => {};
     const o = other(log);
+    o.part.module.screens!.side.view = function Side() {
+      const [on, set] = useState(true);
+      shown = set;
+      return on ? createElement(o.box.app.Slot, { screen: "item", params: { callsign: "a@pc" } }) : null;
+    };
+    history.replaceState(null, "", "/#side");
     await boot({ parts: [s.part, o.part] });
-    const place = document.createElement("div");
-    root.querySelector('[data-screen="list"]')!.append(place);
-    const h = o.box.app.open("item", { callsign: "a@pc" }, place)!;
-    expect(place.textContent).toBe("item a@pc");
-    expect(location.hash).toBe("");
-    h.close!();
+    expect(root.querySelector('[data-screen="side"]')!.textContent).toBe("item a@pc");
+    expect(location.hash).toBe("#side");
+    shown(false);
+    await flush();
     expect(log).toContain("item closed a@pc");
   });
 
@@ -333,8 +340,8 @@ describe("экраны и адрес", () => {
     expect(root.querySelector('[data-screen="side"]')).toBeNull();
   });
 
-  it("4024 · экран выключенного модуля — причина вместо экрана, mount не зовётся", async () => {
-    const mount = vi.fn();
+  it("4024 · экран выключенного модуля — причина вместо экрана, компонент не зовётся", async () => {
+    const view = vi.fn(() => null);
     const s = sample([], {
       frames: {
         question: () => {
@@ -342,14 +349,14 @@ describe("экраны и адрес", () => {
         },
       },
     });
-    s.part.module.screens!.item.mount = mount;
+    s.part.module.screens!.item.view = view;
     const { relay } = await boot({ parts: [s.part] });
     relay.push({ type: "question", from: "a@pc" });
     await flush();
     history.pushState(null, "", "/#item?callsign=a%40pc");
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     await flush();
-    expect(mount).not.toHaveBeenCalled();
+    expect(view).not.toHaveBeenCalled();
     expect(root.textContent).toContain("Карточка выключен");
     expect(root.textContent).toContain("Перезапустить приложение");
   });
@@ -511,25 +518,25 @@ describe("места в странице", () => {
   // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): place у экрана, app.placed и show у владельца места
   const owner = (box: { app?: App }): AppPart => ({
     manifest: man("host-card", { card: 1, "card.tab": 1 }, {}),
-    module: { screens: { card: { mount() {} } }, start: (a) => void (box.app = a) },
+    module: { screens: { card: { view: () => null } }, start: (a) => void (box.app = a) },
   });
   const tab = (name: string, show: (p: Record<string, string>) => boolean): AppPart => ({
     manifest: man(name, { [`${name}.tab`]: 1 }, { "card.tab@host-card": 1 }),
-    module: { screens: { [`${name}.tab`]: { place: "card.tab", label: name, show, mount: (el) => void el.append(`вкладка ${name}`) } } },
+    module: { screens: { [`${name}.tab`]: { place: "card.tab", label: name, show, view: () => `вкладка ${name}` } } },
   });
 
-  it("5121 · владелец места видит вставки через app.placed; show решает видимость; вставку открывает app.open в своём элементе", async () => {
+  it("5121 · владелец места видит вставки через app.placed; show решает видимость; вставку рисует app.Slot", async () => {
     const box: { app?: App } = {};
     await boot({ parts: [owner(box), tab("hello", (p) => p.callsign === "site@laptop"), tab("bye", () => false)] });
-    const placed = box.app!.placed("card.tab");
-    expect(placed.map((t) => [t.screen, t.label, t.show({ callsign: "site@laptop" })])).toEqual([
-      ["hello.tab", "hello", true],
-      ["bye.tab", "bye", false],
-    ]);
-    expect(placed[0].show({ callsign: "x@pc" })).toBe(false);
+    expect(box.app!.placed("card.tab", { callsign: "site@laptop" })).toEqual([{ screen: "hello.tab", label: "hello" }]);
+    expect(box.app!.placed("card.tab", { callsign: "x@pc" })).toEqual([]);
     const el = document.createElement("div");
-    expect(box.app!.open("hello.tab", { callsign: "site@laptop" }, el)).toBeDefined();
+    document.body.append(el);
+    const view = createRoot(el);
+    view.render(createElement(box.app!.Slot, { screen: "hello.tab", params: { callsign: "site@laptop" } }));
+    await flush();
     expect(el.textContent).toBe("вкладка hello");
+    view.unmount();
   });
 
   it("5122 · show бросил — выключен модуль вставки, а не владелец места; место не из provides — ошибка модуля владельца", async () => {
@@ -542,7 +549,7 @@ describe("места в странице", () => {
         }),
       ],
     });
-    expect(box.app!.placed("card.tab")[0].show({})).toBe(false);
+    expect(box.app!.placed("card.tab")).toEqual([]);
     expect(Object.keys(run.failed)).toEqual(["boom"]);
     expect(box.app!.placed("card.tab")).toEqual([]);
     expect(box.app!.placed("chat.tab")).toEqual([]);
@@ -550,9 +557,9 @@ describe("места в странице", () => {
   });
 
   it("5123 · экран в месте, которого нет в uses, — приложение не стартует; полоса сверху — место top ядра", async () => {
-    const stray: AppPart = { manifest: man("stray", { "stray.tab": 1 }, {}), module: { screens: { "stray.tab": { place: "card.tab", mount() {} } } } };
+    const stray: AppPart = { manifest: man("stray", { "stray.tab": 1 }, {}), module: { screens: { "stray.tab": { place: "card.tab", view: () => null } } } };
     expect(appGate([stray])).toContain("модуль stray: экран stray.tab — места card.tab нет в uses");
-    const bar: AppPart = { manifest: man("bar", { bar: 1 }, { "top@web-core": 1 }), module: { screens: { bar: { place: "top", mount: (el) => void el.append("полоса") } } } };
+    const bar: AppPart = { manifest: man("bar", { bar: 1 }, { "top@web-core": 1 }), module: { screens: { bar: { place: "top", view: () => "полоса" } } } };
     expect(appGate([bar])).toEqual([]);
     await boot({ parts: [sample().part, bar] });
     expect(root.textContent).toContain("полоса");

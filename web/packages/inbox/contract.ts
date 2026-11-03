@@ -6,7 +6,13 @@
 // Метка you — число карточек: счётчик раздела.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createInbox } from "./src/module.ts";
+import { createInbox } from "./src/module.tsx";
+
+declare module "@switchboard/web-core" {
+  interface Marks {
+    you(): number;
+  }
+}
 
 export { createInbox };
 export const manifest: Manifest = json;

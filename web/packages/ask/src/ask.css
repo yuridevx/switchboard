@@ -1,5 +1,3 @@
-// Стили экрана вопроса: карточка вопроса, варианты, «Свой ответ».
-export const CSS = `
 .ask-q{background:var(--surface);border:1px solid var(--line2);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:9px}
 .ask-qh{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .ask-chip{font:600 12px/1 var(--mono);background:var(--wait-weak);color:var(--wait);padding:5px 8px;border-radius:6px}
@@ -23,4 +21,3 @@ export const CSS = `
 .ask-decline{width:100%;background:none;border:1px solid var(--line);border-radius:12px;padding:10px;font:600 14px var(--body)}
 .ask-hint{font-size:12.5px;color:var(--muted);text-align:center;margin-top:auto;padding:6px 0 12px}
 .ask-empty{color:var(--muted);text-align:center;padding:40px 12px}
-`;

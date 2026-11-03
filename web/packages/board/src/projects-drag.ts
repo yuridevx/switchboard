@@ -434,27 +434,3 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     landing = null;
   });
 }
-
-export const PROJECTS_CSS = `
-.grip{-webkit-touch-callout:none}
-.grip:active{cursor:grabbing}
-.sb-app:not(.wide) .grip{position:relative}
-.sb-app:not(.wide) .grip::after{content:"";position:absolute;inset:-8px -2px -4px -6px}
-.reordering,.reordering *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
-.reordering .bd-body{overflow-anchor:none}
-.lst.dnd-on > :not(.dnd-slot){transition:transform .22s ${EASE},opacity .16s ease,border-color .16s ease}
-.lst.dnd-on > .pin-sep{position:absolute;left:6px;right:6px;top:0;border-top-color:color-mix(in srgb,var(--muted) 60%,transparent)}
-.lst.dnd-on > .pjs{z-index:1}
-.lst.dnd-on > .pjs.dnd-slot{z-index:0}
-.pjs.dnd-slot.dnd-folded > .bd-row,.pjs.dnd-slot.dnd-folded > .mgrp{display:none}
-.pjs.dnd-slot > .pj{visibility:hidden}
-.pjs.dnd-slot::after{content:"";position:absolute;inset:3px 0 0;border-radius:10px;border:1.5px dashed var(--line);background:var(--surface2)}
-.pjs.dnd-slot.dnd-pin::after{border-style:solid;border-color:var(--muted);background:var(--accent-weak)}
-.pj.dnd-card{position:absolute;top:0;left:0;z-index:30;margin:0;padding:5px 4px 5px 6px;pointer-events:none;background:var(--surface);border-radius:10px;box-shadow:0 0 0 1px var(--line);transition:scale .16s ease,box-shadow .16s ease,background-color .16s ease,opacity .2s ease;will-change:translate}
-.pj.dnd-card.up{scale:1.02;box-shadow:0 0 0 1px var(--line),0 14px 30px -8px rgba(16,24,20,.32),0 3px 8px rgba(16,24,20,.10)}
-.pj.dnd-card.up.dnd-pin{box-shadow:0 0 0 1.5px var(--muted),0 14px 30px -8px rgba(16,24,20,.32),0 3px 8px rgba(16,24,20,.10)}
-.pj.dnd-card.land{box-shadow:0 0 0 1px transparent;transition:translate .22s ${EASE},scale .2s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s ease}
-.dnd-card .grip{opacity:1!important;color:var(--ink);background:transparent!important}
-.dnd-card .pj-t,.dnd-card .pj-add{background:transparent!important}
-@media (prefers-reduced-motion:reduce){.lst.dnd-on > *,.pj.dnd-card,.pj.dnd-card.land{transition:none!important}}
-`;

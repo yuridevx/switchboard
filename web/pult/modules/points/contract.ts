@@ -8,7 +8,13 @@
 // session.points встаёт в место card.tab карточки (card.tab@web-card в uses). Метка fire — сессии без машины.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createPoints } from "./src/points.ts";
+import { createPoints } from "./src/points.tsx";
+
+declare module "@switchboard/web-core" {
+  interface Marks {
+    fire(): number;
+  }
+}
 
 export { createPoints };
 export const manifest: Manifest = json;

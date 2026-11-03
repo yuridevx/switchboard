@@ -12,7 +12,7 @@ import { idbStore } from "./store.ts";
 import { same } from "./same.ts";
 import type { App, AppModule, ConnState, Ctx, Manifest, Params, Platform, Result, Running, Screen, SlotProps, StartOptions } from "./types.ts";
 import { place } from "./view/place.tsx";
-import { Root, type Core, type Hit } from "./view/shell.tsx";
+import { pageCss, Root, type Core, type Hit } from "./view/shell.tsx";
 import { browserOld, connectionStopped, gateRefused, inviteRefused, installHere, KeyPrompt, outdated, passRefused } from "./view/stops.tsx";
 
 export type Mod = { m: Manifest; mod: AppModule; app: App; failed: string | null };
@@ -55,6 +55,7 @@ export function startApp(o: StartOptions): Running {
 
   let stopped: string | null = null;
   let full: ReactNode = null;
+  let css = pageCss([]);
   let key = "";
   let name = "";
   let lk: FleetClient | null = null;
@@ -507,6 +508,8 @@ export function startApp(o: StartOptions): Running {
       for (const [n, def] of Object.entries(p.module.screens ?? {})) screenOwner.set(n, { owner: x, def });
       for (const n of Object.keys(p.module.marks ?? {})) markOwner.set(n, x);
     }
+    css = pageCss(mods.filter((x) => x.mod.css).map((x) => ({ name: x.m.name, css: x.mod.css! })));
+    changed();
 
     const raw = decodeURIComponent(win.location.hash.replace(/^#/, ""));
     const fromHash = raw.startsWith("invite=") && INVITE_RE.test(raw.slice(7)) ? raw.slice(7) : null;
@@ -565,7 +568,7 @@ export function startApp(o: StartOptions): Running {
     wide,
     brand: o.brand,
     win,
-    moduleCss: () => mods.filter((x) => x.mod.css).map((x) => ({ name: x.m.name, css: x.mod.css! })),
+    css: () => css,
     subscribe,
     rev: () => rev,
     use: useSelect,

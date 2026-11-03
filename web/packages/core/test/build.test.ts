@@ -12,7 +12,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1 } });
-const screenMod = (name: string, nav: string): AppModule => ({ screens: { [name]: { nav, label: nav, mount: (el) => void (el.textContent = nav) } } });
+const screenMod = (name: string, nav: string): AppModule => ({ screens: { [name]: { nav, label: nav, view: () => nav } } });
 
 describe("сборка страницы", () => {
   it("5134 · startBuild: модули по списку сборки (ядро — само), relay и Worker'ы — из build.json; модуль не загрузился — выключен только он", async () => {

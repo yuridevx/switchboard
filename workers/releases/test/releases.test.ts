@@ -833,7 +833,7 @@ describe("сборка страницы «Выпусками»", () => {
     };
     await put("relay", "1.0.0", { type: "worker", provides: { roster: 1 }, workers: { test: "switchboard" } });
     await put("push", "1.0.0", { type: "worker", provides: { "push.send": 1 }, workers: { test: "switchboard-push" } });
-    await put("pult", "1.1.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"], ["_headers", "/build.json\n  Cache-Control: no-cache\n"]]);
+    await put("pult", "1.1.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
     // страница телефона — тоже адрес сборки, если модуль пользуется ею (слово пользователя 3 нояб.: ссылка приглашения на телефон)
     await put("phone", "1.0.0", { type: "web-app", provides: { page: 1 }, workers: { test: "switchboard-phone" } }, [["index.html", "<!doctype html>"]]);
     await put("web-core", "1.1.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "export default {}"]]);
@@ -869,9 +869,9 @@ describe("сборка страницы «Выпусками»", () => {
     });
     const out = await req(s, "agent~x", "releases.deploy", { part: "web-x" });
     expect(out[0].result).toEqual({ parts: { pult: { from: "1.1.85", to: "1.1.0+1" } } });
-    expect(Object.keys(sent.manifest!).sort()).toEqual(["/build.json", "/index.html", "/m/web-core.js", "/m/web-x.js"]);
+    expect(Object.keys(sent.manifest!).sort()).toEqual(["/build.json", "/index.html", "/m/web-core.1.1.0.js", "/m/web-x.1.0.0.js"]);
     expect(sent.uploads).toBe(1);
-    expect(sent.meta).toMatchObject({ assets: { jwt: "done", config: { not_found_handling: "single-page-application", _headers: "/build.json\n  Cache-Control: no-cache\n" } }, annotations: { "workers/tag": "1.1.0+1" } });
+    expect(sent.meta).toMatchObject({ assets: { jwt: "done", config: { _headers: "/m/*\n  Cache-Control: public, max-age=31536000, immutable\n/app.*.js\n  Cache-Control: public, max-age=31536000, immutable\n" } }, annotations: { "workers/tag": "1.1.0+1" } });
     expect(live).toBe("v-1.1.0+1");
     const files = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.0+1.tgz"))!.arrayBuffer()));
     expect(JSON.parse(files.find((x) => x.path === "build.json")!.data!.toString("utf8"))).toEqual({
@@ -885,7 +885,7 @@ describe("сборка страницы «Выпусками»", () => {
     // следующая сборка начинается со списка выложенной
     expect((await result(req(s, "agent~x", "releases.deploy", { part: "web-core" }))).parts.pult).toEqual({ from: "1.1.0+1", to: "1.1.0+2" });
     // index.html сборки — с картой импорта модулей (release 2.4.0): маячок домена её не опережает
-    expect(files.find((x) => x.path === "index.html")!.data!.toString("utf8")).toContain('"@switchboard/web-x":"./m/web-x.js"');
+    expect(files.find((x) => x.path === "index.html")!.data!.toString("utf8")).toContain('"@switchboard/web-x":"./m/web-x.1.0.0.js"');
     // list: модуль сборки — номер в выложенной сборке и новейший в каталоге; у пульта — история сборок
     await put("web-x", "1.1.0", { type: "web", into: ["pult"], uses: { "app@web-core": 1, "push.send@push": 1, "roster@relay": 1 } }, [["module.js", "export default {x:2}"]]);
     const l = await result(req(s, "agent~x", "releases.list"));

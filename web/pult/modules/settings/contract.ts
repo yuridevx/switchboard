@@ -13,7 +13,7 @@
 // Телефон (узкий вид) — только «Это устройство».
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createSettings } from "./src/settings.ts";
+import { createSettings } from "./src/settings.tsx";
 
 export { createSettings };
 export const manifest: Manifest = json;

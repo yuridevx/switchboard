@@ -9,6 +9,11 @@ export function Btn({ pri, bad, dash, className, ...p }: ComponentProps<"button"
   return <button {...p} className={cx("sb-b", pri && "pri", bad && "bad", dash && "dash", className)} />;
 }
 
+/** Ссылка в виде кнопки. */
+export function LinkBtn({ pri, className, ...p }: ComponentProps<"a"> & { pri?: boolean }) {
+  return <a {...p} className={cx("sb-b", pri && "pri", className)} />;
+}
+
 /** Широкая главная кнопка экрана. */
 export function Cta({ className, ...p }: ComponentProps<"button">) {
   return <button {...p} className={cx("sb-cta", className)} />;
@@ -32,6 +37,16 @@ export function Sel({ className, ...p }: ComponentProps<"select">) {
 /** Строка пояснения или отказа: tone — цвет. */
 export function Note({ tone, className, ...p }: ComponentProps<"div"> & { tone?: "ok" | "bad" | "wait" }) {
   return <div {...p} className={cx("sb-note", tone, className)} />;
+}
+
+/** То же внутри строки текста. */
+export function Hint({ tone, className, ...p }: ComponentProps<"span"> & { tone?: "ok" | "bad" | "wait" }) {
+  return <span {...p} className={cx("sb-note", tone, className)} />;
+}
+
+/** Команда или адрес, который копируют. */
+export function Cmd({ className, ...p }: ComponentProps<"code">) {
+  return <code {...p} className={cx("sb-cmd", className)} />;
 }
 
 /** Пилюля состояния: conn — с лампой. */
@@ -92,6 +107,16 @@ export function Row({ label, children, className, ...p }: ComponentProps<"div"> 
 /** Ряд кнопок и значений. */
 export function Opts({ className, ...p }: ComponentProps<"div">) {
   return <div {...p} className={cx("sb-opts", className)} />;
+}
+
+/** Ряд подписи и поля выбора: нажатие на подпись выбирает. */
+export function OptsLabel({ className, ...p }: ComponentProps<"label">) {
+  return <label {...p} className={cx("sb-opts", className)} />;
+}
+
+/** Ряд значений внутри строки текста. */
+export function OptsInline({ className, ...p }: ComponentProps<"span">) {
+  return <span {...p} className={cx("sb-opts", className)} />;
 }
 
 /** Моноширинный текст. */

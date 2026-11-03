@@ -1,7 +1,7 @@
 // Экраны входа и отказа: приложение не работает, причина и что делать. Один экран — одна функция.
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { PROTO } from "@switchboard/relay";
-import { Cta } from "@switchboard/web-ui";
+import { Cmd, Cta } from "@switchboard/web-ui";
 
 function Wipe({ run }: { run(): void }) {
   return (
@@ -57,7 +57,7 @@ export function passRefused(why: "revoked" | "bad_key", kid: string, command: st
       <div className="sb-ring bad">×</div>
       <div className="sb-big">{why === "revoked" ? "Пропуск отозван" : "Пропуск не принят"}</div>
       <p>{`${kid} ${why === "revoked" ? "больше не принимают" : "не принят флотом"}. Новый пропуск — приглашением от агента флота:`}</p>
-      <code className="sb-cmd">{command}</code>
+      <Cmd>{command}</Cmd>
       <p>Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается.</p>
       <Wipe run={wipe} />
     </>
@@ -99,17 +99,17 @@ export function inviteRefused(word: string, wipe: () => void) {
 
 /** Нужен пропуск: поле приглашения; accept отвечает причиной отказа или null. */
 export function KeyPrompt({ command, accept }: { command: string; accept(value: string): Promise<string | null> }) {
-  const [value, setValue] = useState("");
+  const input = useRef<HTMLInputElement>(null);
   const [why, setWhy] = useState("");
   return (
     <>
       <div className="sb-logo xl">S</div>
       <div className="sb-big">Нужен пропуск флота</div>
       <p>Вход — только пропуском. Попросите агента флота выдать приглашение и откройте ссылку в этом приложении:</p>
-      <code className="sb-cmd">{command}</code>
+      <Cmd>{command}</Cmd>
       <p>Или вставьте приглашение:</p>
-      <input className="sb-keyin" type="text" placeholder="приглашение или ссылка с #invite=" aria-label="Приглашение" onInput={(e) => setValue(e.currentTarget.value)} />
-      <Cta onClick={async () => setWhy((await accept(value)) ?? "")}>Принять приглашение</Cta>
+      <input className="sb-keyin" type="text" placeholder="приглашение или ссылка с #invite=" aria-label="Приглашение" ref={input} />
+      <Cta onClick={async () => setWhy((await accept(input.current?.value ?? "")) ?? "")}>Принять приглашение</Cta>
       <p role="alert">{why}</p>
     </>
   );

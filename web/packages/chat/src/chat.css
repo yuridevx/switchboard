@@ -1,5 +1,4 @@
-// Стили ленты: текст модели, вызовы инструментов, свои пузыри, сообщения сессии, ввод.
-export const CSS = `
+/* Стили ленты: текст модели, вызовы инструментов, свои пузыри, сообщения сессии, ввод. */
 .chat{flex:1;min-height:0;display:flex;flex-direction:column}
 .chat-feed{gap:9px}
 .chat-txt{font-size:15px;max-width:94%;white-space:pre-wrap;overflow-wrap:anywhere}
@@ -71,4 +70,3 @@ export const CSS = `
 .chat-galc{display:flex;flex-direction:column;gap:6px;min-width:0}
 .chat-galn{display:flex;flex-direction:column;gap:2px;font-size:12.5px;color:var(--muted)}
 .chat-galn b{color:var(--ink);font-size:13.5px}
-`;

@@ -1,8 +1,8 @@
 // web-alerts — уведомления: полоса «Включить уведомления» (push.key → подписка браузера → push.subscribe)
 // и пуши, сохранённые обработчиком, — ядру при старте и возвращении на экран (кадр уходит владельцу по type).
 // Ключ VAPID и подписка — у Worker push; машинам приложение подписку не шлёт и у себя её не хранит.
-import { h, type App, type AppModule, type ScreenHandle } from "@switchboard/web-core";
-import { CSS } from "./css.ts";
+import type { App, AppModule } from "@switchboard/web-core";
+import css from "./alerts.css";
 import type { StoredPush } from "./sw.ts";
 
 /** Что модуль берёт у браузера; в тестах — подделка. */
@@ -17,7 +17,8 @@ export type BrowserPush = {
   Notification?: { permission: string; requestPermission(): Promise<string> };
 };
 
-type State = "off" | "ask" | "working" | "on" | "denied" | "error";
+/** Состояние уведомлений устройства: off — браузер не умеет. */
+export type AlertsState = "off" | "ask" | "working" | "on" | "denied" | "error";
 
 /** base64url → байты: открытый ключ VAPID для applicationServerKey. */
 export function b64url(s: string): Uint8Array {
@@ -28,9 +29,8 @@ export function b64url(s: string): Uint8Array {
 /** Новый модуль; browser — API пушей браузера (по умолчанию глобальные). */
 export function createAlerts(browser?: BrowserPush): AppModule {
   let app: App;
-  let state: State = "off";
+  let state: AlertsState = "off";
   let error = "";
-  const handles = new Set<() => void>();
   const env = (): BrowserPush =>
     browser ?? {
       sw: (globalThis.navigator as Navigator | undefined)?.serviceWorker as unknown as BrowserPush["sw"],
@@ -40,7 +40,6 @@ export function createAlerts(browser?: BrowserPush): AppModule {
     const e = env();
     return !!e.sw && !!e.Notification && (browser !== undefined || "PushManager" in globalThis);
   };
-  const redraw = () => handles.forEach((f) => f());
 
   /** Пуши из раздела pushes — ядру: владелец кадра рисует его как пришедший по связи. */
   async function takePushes() {
@@ -61,19 +60,19 @@ export function createAlerts(browser?: BrowserPush): AppModule {
       const reg = await e.sw!.ready;
       state = (await reg.pushManager.getSubscription()) ? "on" : "ask";
     }
-    redraw();
+    app.changed();
   }
 
   async function enable() {
     const e = env();
     state = "working";
     error = "";
-    redraw();
+    app.changed();
     // разрешение спрашивается только по нажатию
     const perm = await e.Notification!.requestPermission();
     if (perm !== "granted") {
       state = perm === "denied" ? "denied" : "ask";
-      return redraw();
+      return app.changed();
     }
     const k = await app.request<{ key: string }>("push.key");
     if (!k.ok) return fail(k.error);
@@ -87,7 +86,7 @@ export function createAlerts(browser?: BrowserPush): AppModule {
     const r = await app.request("push.subscribe", { sub: sub.toJSON() });
     if (!r.ok) return fail(r.error);
     state = "on";
-    redraw();
+    app.changed();
     app.toast("Уведомления включены: сессии достучатся, когда приложение закрыто.", "ok");
   }
 
@@ -95,38 +94,42 @@ export function createAlerts(browser?: BrowserPush): AppModule {
     console.error(`switchboard: уведомления не включены — ${word}`);
     state = "error";
     error = word;
-    redraw();
+    app.changed();
   }
 
-  function mountAlerts(el: HTMLElement): ScreenHandle {
-    function draw() {
-      el.textContent = "";
-      if (state === "off" || state === "on") return;
-      if (state === "denied") {
-        el.append(h("div", { class: "al-card muted" }, h("span", null, h("b", null, "Уведомления запрещены"), h("span", null, "Разрешите их в настройках браузера для этого сайта."))));
-        return;
-      }
-      el.append(
-        h(
-          "div",
-          { class: "al-card" },
-          h("span", null, h("b", null, "Включить уведомления"), h("span", null, state === "error" ? `Не вышло: ${error}` : "Сессии достучатся, когда приложение закрыто.")),
-          h("button", { class: "al-on", disabled: state === "working", onclick: () => void enable() }, state === "working" ? "…" : state === "error" ? "Ещё раз" : "Включить"),
-        ),
+  function Alerts() {
+    const now = app.use(() => ({ state, error }));
+    if (now.state === "off" || now.state === "on") return null;
+    if (now.state === "denied") {
+      return (
+        <div className="al-card muted">
+          <span>
+            <b>Уведомления запрещены</b>
+            <span>Разрешите их в настройках браузера для этого сайта.</span>
+          </span>
+        </div>
       );
     }
-    handles.add(draw);
-    draw();
-    return { close: () => handles.delete(draw) };
+    return (
+      <div className="al-card">
+        <span>
+          <b>Включить уведомления</b>
+          <span>{now.state === "error" ? `Не вышло: ${now.error}` : "Сессии достучатся, когда приложение закрыто."}</span>
+        </span>
+        <button className="al-on" disabled={now.state === "working"} onClick={() => void enable()}>
+          {now.state === "working" ? "…" : now.state === "error" ? "Ещё раз" : "Включить"}
+        </button>
+      </div>
+    );
   }
 
   let listening = false;
   return {
-    screens: { alerts: { place: "top", label: "Уведомления", mount: mountAlerts } },
+    screens: { alerts: { place: "top", label: "Уведомления", view: Alerts } },
     // состояние уведомлений этого устройства — для «Настроек»: off (браузер не умеет), ask, working, on, denied, error
     marks: { "alerts.state": () => state },
     store: ["pushes"],
-    css: CSS,
+    css,
     async start(a) {
       app = a;
       const e = env();

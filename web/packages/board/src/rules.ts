@@ -1,5 +1,6 @@
 // Правила «Работы» без экрана: порядок сессий и проектов, дерево по parent, фильтр, место в закреплённых.
-import { profileName, type SessionRecord } from "@switchboard/web-core";
+import type { SessionRecord } from "@switchboard/web-core";
+import { profileName } from "@switchboard/web-ui";
 import { kindOf, machineOf } from "@switchboard/protocol";
 
 /** Порядок: ждёт вас и сбой, работает, остальные. */

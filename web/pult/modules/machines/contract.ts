@@ -5,7 +5,7 @@
 // «Аккаунты машины» — экран accounts с машиной. Ушедшую машину помнит, пока страница открыта.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createMachines } from "./src/machines.ts";
+import { createMachines } from "./src/machines.tsx";
 
 export { createMachines };
 export const manifest: Manifest = json;

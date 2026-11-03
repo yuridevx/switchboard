@@ -99,3 +99,4 @@ code{font-family:var(--mono)}
 .sb-barw i{display:block;height:100%;background:var(--ok)}
 .sb-barw.warn i{background:var(--wait)}
 .sb-barw.bad i{background:var(--bad)}
+.sb-cmd{font:600 12.5px/1.4 var(--mono);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;text-align:left;word-break:break-word}

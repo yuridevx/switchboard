@@ -1,6 +1,6 @@
 // Образцы для галереи карточек (#gallery): сообщения SDK той же формы, что приходят в session.events,
 // и подпись «когда появляется». Рисуются тем же кодом, что живая лента.
-import type { SdkMsg } from "./render.ts";
+import type { SdkMsg } from "./render.tsx";
 
 export type Sample = { title: string; when: string; msgs: SdkMsg[]; swap?: string; hint?: string };
 

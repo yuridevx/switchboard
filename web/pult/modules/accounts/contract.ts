@@ -10,8 +10,16 @@
 // Метка logins — число идущих входов (login: pending) из последних ответов machine.accounts.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createAccounts } from "./src/accounts.ts";
+import { createAccounts } from "./src/accounts.tsx";
 
 export { createAccounts };
+
+declare module "@switchboard/web-core" {
+  interface Marks {
+    /** число идущих входов */
+    logins(): number;
+  }
+}
+
 export const manifest: Manifest = json;
 export default createAccounts() satisfies AppModule;

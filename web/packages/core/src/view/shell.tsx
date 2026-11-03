@@ -13,7 +13,7 @@ export type Core = {
   wide: boolean;
   brand?: string;
   win: Window;
-  moduleCss(): Array<{ name: string; css: string }>;
+  css(): string;
   subscribe(f: () => void): () => void;
   rev(): number;
   use<T>(select: () => T): T;
@@ -43,8 +43,8 @@ export type Core = {
 };
 
 /** Стили страницы: основание, вид ядра и стили модулей в их областях. */
-function pageCss(core: Core): string {
-  const scoped = core.moduleCss().map((m) => `@scope ([data-m="${m.name}"]) to ([data-m]) {\n${m.css}\n}`);
+export function pageCss(mods: Array<{ name: string; css: string }>): string {
+  const scoped = mods.map((m) => `@scope ([data-module="${m.name}"]) to ([data-module]) {\n${m.css}\n}`);
   return [UI_CSS, css, ...scoped].join("\n");
 }
 
@@ -301,9 +301,9 @@ function Shell({ core }: { core: Core }) {
   );
 }
 
-/** Корень страницы: стили и каркас. Стили модулей известны после гейта, поэтому читаются при каждом обновлении. */
+/** Корень страницы: стили и каркас. */
 export function Root({ core }: { core: Core }) {
-  const text = core.use(() => pageCss(core));
+  const text = core.use(core.css);
   return (
     <>
       <style>{text}</style>

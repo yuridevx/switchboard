@@ -6,8 +6,16 @@
 // Журнал читается при открытии экрана и на первом roster. Метка incidents.open — открытые инциденты и недоставленные.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createIncidents } from "./src/incidents.ts";
+import { createIncidents } from "./src/incidents.tsx";
 
 export { createIncidents };
+
+declare module "@switchboard/web-core" {
+  interface Marks {
+    /** открытые инциденты и недоставленные обращения */
+    "incidents.open"(): number;
+  }
+}
+
 export const manifest: Manifest = json;
 export default createIncidents() satisfies AppModule;

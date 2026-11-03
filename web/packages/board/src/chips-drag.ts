@@ -268,14 +268,3 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     S = null;
   });
 }
-
-export const CHIPS_CSS = `
-.fscroll > .fc{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
-.fscroll.fc-sorting > .fc,.fscroll > .fc.fc-glide{transition:transform .2s cubic-bezier(.2,.8,.2,1)}
-.fscroll > .fc.fc-slot{visibility:hidden}
-button.fc.fc-ghost{position:absolute;left:0;top:0;margin:0;z-index:40;pointer-events:none;will-change:translate;transition:scale .15s ease-out,box-shadow .15s ease-out}
-button.fc.fc-ghost.lifted{scale:1.06;box-shadow:0 6px 16px rgba(20,30,25,.22),0 1px 3px rgba(20,30,25,.16)}
-button.fc.fc-ghost.landing{transition:translate .2s cubic-bezier(.2,.8,.2,1),scale .2s ease-out,box-shadow .2s ease-out}
-@media (prefers-reduced-motion:reduce){.fscroll.fc-sorting > .fc,.fscroll > .fc.fc-glide,button.fc.fc-ghost{transition:none!important}}
-.fscroll > .fc:focus-visible{outline-offset:-3px}
-`;

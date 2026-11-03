@@ -1,9 +1,8 @@
-// Стили «Работы»: один список для колонки пульта и экрана телефона.
-export const BOARD_CSS = `
+/* Стили «Работы»: один список для колонки пульта и экрана телефона. Вид — классы wide и side на корне .bd. */
 .bd{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr)}
-.sb-app.wide .bd{grid-template-columns:minmax(280px,340px) minmax(0,1fr)}
-.sb-master .bd{grid-template-columns:minmax(0,1fr)}
-.sb-master .bd-pick{display:none}
+.bd.wide{grid-template-columns:minmax(280px,340px) minmax(0,1fr)}
+.bd.side{grid-template-columns:minmax(0,1fr)}
+.bd.side .bd-pick{display:none}
 .bd-list{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--surface);border-right:1px solid var(--line2);overflow:hidden}
 .bd-lh{flex:none;display:flex;align-items:center;gap:8px;padding:12px 12px 8px}
 .bd-lh b{flex:1;font:600 19px/1.2 var(--body)}
@@ -39,7 +38,7 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .mgrp{display:flex;align-items:center;gap:6px;padding:7px 10px 1px 34px;font:600 11.5px var(--body);color:var(--muted)}
 .mgrp .n{font:500 10.5px var(--mono);opacity:.8}
 .bd-row{position:relative;display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:transparent;border-radius:9px;padding:7px 10px;color:var(--ink)}
-.sb-app:not(.wide) .bd-row{padding:7px 12px}
+.bd:not(.wide) .bd-row{padding:7px 12px}
 .bd-row[aria-current="true"]{background:var(--accent-weak)}
 .bd-row .sb-dot{margin-top:5px;flex:none}
 .bd-rt{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -61,7 +60,7 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .bd-row.kid::before{content:"";position:absolute;left:14px;top:-4px;height:18px;width:9px;border-left:1.5px solid var(--line);border-bottom:1.5px solid var(--line);border-bottom-left-radius:6px}
 .bd-empty{color:var(--muted);padding:16px 12px;font-size:12.5px}
 .bd-pick{min-width:0}
-@media (max-width:760px){.sb-app.wide .bd{grid-template-columns:minmax(0,1fr)}.bd-pick{display:none}}
+@media (max-width:760px){.bd.wide{grid-template-columns:minmax(0,1fr)}.bd-pick{display:none}}
 /* в одну строку */
 .bd-list.dense .bd-row{padding:3px 10px;gap:8px;align-items:center}
 .bd-list.dense .bd-row .sb-dot{margin-top:0}
@@ -78,9 +77,8 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .bd-list.dense .pin-sep{margin:3px 8px}
 /* панель вида: не закрывает список — на пульте в правой части, на телефоне блоком под списком */
 .bd-vw{display:flex;flex-direction:column;gap:8px;background:var(--surface);padding:10px 12px 12px}
-.sb-app.wide .bd-vw{position:fixed;right:8px;top:58px;z-index:9;width:330px;max-height:calc(100% - 66px);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
-.sb-app:not(.wide) .bd-vw{flex:none;border-top:1px solid var(--line);max-height:58%;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
-.sb-main:has(.bd-vw) .sb-tabs{display:none}
+.bd.wide .bd-vw{position:fixed;right:8px;top:58px;z-index:9;width:330px;max-height:calc(100% - 66px);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
+.bd:not(.wide) .bd-vw{flex:none;border-top:1px solid var(--line);max-height:58%;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
 .vw-h{display:flex;align-items:center;gap:6px;font:600 14px var(--body);flex:none}
 .vw-h b{flex:1}
 .vw-x{border:1px solid transparent;background:transparent;border-radius:8px;padding:3px 8px;font:500 12.5px var(--body);color:var(--muted)}
@@ -96,8 +94,8 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 /* окно фильтра */
 .bd-veil{position:fixed;inset:0;z-index:15;background:rgba(10,15,12,.38);display:flex;align-items:flex-start;justify-content:center;padding-top:40px}
 .bd-dlg{width:min(620px,92%);max-height:calc(100% - 80px);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}
-.sb-app:not(.wide) .bd-veil{align-items:flex-end;padding-top:0}
-.sb-app:not(.wide) .bd-dlg{width:100%;max-height:88%;border-radius:18px 18px 0 0;border-width:1px 0 0}
+.bd:not(.wide) .bd-veil{align-items:flex-end;padding-top:0}
+.bd:not(.wide) .bd-dlg{width:100%;max-height:88%;border-radius:18px 18px 0 0;border-width:1px 0 0}
 .fe-h{flex:none;padding:14px 16px 6px}
 .fe-h b{font:600 16px var(--body)}
 .fe-b{flex:1;overflow-y:auto;min-height:0;padding:4px 16px 12px;display:flex;flex-direction:column;gap:10px}
@@ -113,4 +111,34 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .fe-none{font-size:12.5px;color:var(--muted);padding:4px 2px}
 .fe-ft{flex:none;display:flex;align-items:center;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line2);background:var(--surface)}
 .fe-n{flex:1;min-width:0;font-size:12.5px;color:var(--muted)}
-`;
+/* перестановка проектов */
+.grip{-webkit-touch-callout:none}
+.grip:active{cursor:grabbing}
+.bd:not(.wide) .grip{position:relative}
+.bd:not(.wide) .grip::after{content:"";position:absolute;inset:-8px -2px -4px -6px}
+.reordering,.reordering *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
+.reordering .bd-body{overflow-anchor:none}
+.lst.dnd-on > :not(.dnd-slot){transition:transform .22s cubic-bezier(0,0,.58,1),opacity .16s ease,border-color .16s ease}
+.lst.dnd-on > .pin-sep{position:absolute;left:6px;right:6px;top:0;border-top-color:color-mix(in srgb,var(--muted) 60%,transparent)}
+.lst.dnd-on > .pjs{z-index:1}
+.lst.dnd-on > .pjs.dnd-slot{z-index:0}
+.pjs.dnd-slot.dnd-folded > .bd-row,.pjs.dnd-slot.dnd-folded > .mgrp{display:none}
+.pjs.dnd-slot > .pj{visibility:hidden}
+.pjs.dnd-slot::after{content:"";position:absolute;inset:3px 0 0;border-radius:10px;border:1.5px dashed var(--line);background:var(--surface2)}
+.pjs.dnd-slot.dnd-pin::after{border-style:solid;border-color:var(--muted);background:var(--accent-weak)}
+.pj.dnd-card{position:absolute;top:0;left:0;z-index:30;margin:0;padding:5px 4px 5px 6px;pointer-events:none;background:var(--surface);border-radius:10px;box-shadow:0 0 0 1px var(--line);transition:scale .16s ease,box-shadow .16s ease,background-color .16s ease,opacity .2s ease;will-change:translate}
+.pj.dnd-card.up{scale:1.02;box-shadow:0 0 0 1px var(--line),0 14px 30px -8px rgba(16,24,20,.32),0 3px 8px rgba(16,24,20,.10)}
+.pj.dnd-card.up.dnd-pin{box-shadow:0 0 0 1.5px var(--muted),0 14px 30px -8px rgba(16,24,20,.32),0 3px 8px rgba(16,24,20,.10)}
+.pj.dnd-card.land{box-shadow:0 0 0 1px transparent;transition:translate .22s cubic-bezier(0,0,.58,1),scale .2s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s ease}
+.dnd-card .grip{opacity:1!important;color:var(--ink);background:transparent!important}
+.dnd-card .pj-t,.dnd-card .pj-add{background:transparent!important}
+@media (prefers-reduced-motion:reduce){.lst.dnd-on > *,.pj.dnd-card,.pj.dnd-card.land{transition:none!important}}
+/* перестановка фильтров */
+.fscroll > .fc{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:manipulation}
+.fscroll.fc-sorting > .fc,.fscroll > .fc.fc-glide{transition:transform .2s cubic-bezier(.2,.8,.2,1)}
+.fscroll > .fc.fc-slot{visibility:hidden}
+button.fc.fc-ghost{position:absolute;left:0;top:0;margin:0;z-index:40;pointer-events:none;will-change:translate;transition:scale .15s ease-out,box-shadow .15s ease-out}
+button.fc.fc-ghost.lifted{scale:1.06;box-shadow:0 6px 16px rgba(20,30,25,.22),0 1px 3px rgba(20,30,25,.16)}
+button.fc.fc-ghost.landing{transition:translate .2s cubic-bezier(.2,.8,.2,1),scale .2s ease-out,box-shadow .2s ease-out}
+@media (prefers-reduced-motion:reduce){.fscroll.fc-sorting > .fc,.fscroll > .fc.fc-glide,button.fc.fc-ghost{transition:none!important}}
+.fscroll > .fc:focus-visible{outline-offset:-3px}

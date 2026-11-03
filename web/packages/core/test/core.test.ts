@@ -1,6 +1,7 @@
 // Ядро на поддельном relay: гейт, ключ, связь, маршрут кадров, запросы, экраны, уход с экрана.
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useEffect } from "react";
 import { appGate, idbStore, memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, INVITE, KEY, oneMachine } from "../stand/relay.ts";
 
@@ -29,16 +30,15 @@ function sample(log: string[] = []) {
         nav: "Сессии",
         mark: "need",
         label: "Список",
-        mount(el) {
-          el.append("список");
-          return { head: () => ({ title: "Флот", sub: `${app.roster()?.machines.length} машины` }), close: () => log.push("list closed") };
+        view() {
+          useEffect(() => () => void log.push("list closed"), []);
+          return "список";
         },
+        head: () => ({ title: "Флот", sub: `${app.roster()?.machines.length} машины` }),
       },
       item: {
-        mount(el, p) {
-          el.append(`item ${p.callsign}`);
-          return { head: () => ({ title: p.callsign, mono: true }) };
-        },
+        view: ({ params: p }) => `item ${p.callsign}`,
+        head: (p) => ({ title: p.callsign, mono: true }),
       },
     },
     marks: { need: () => 1 },
@@ -110,7 +110,7 @@ describe("гейт набора", () => {
   it("экран не из provides, кадр не из uses, uses к модулю выпуска другой версии", () => {
     const bad: AppPart = {
       manifest: man("bad", {}, { "list@sample": 2 }),
-      module: { screens: { x: { mount() {} } }, frames: { answered: () => {} } },
+      module: { screens: { x: { view: () => null } }, frames: { answered: () => {} } },
     };
     expect(appGate([sample().part, bad])).toEqual([
       "модуль bad: экрана x нет в provides",
@@ -120,7 +120,7 @@ describe("гейт набора", () => {
     // метка экрана не из marks, on.roster без roster@relay, раздел хранилища у двух модулей
     const bad2: AppPart = {
       manifest: man("bad2", { y: 1 }, {}),
-      module: { screens: { y: { mark: "cnt", mount() {} } }, on: { roster: () => {} }, store: ["drafts"] },
+      module: { screens: { y: { mark: "cnt", view: () => null } }, on: { roster: () => {} }, store: ["drafts"] },
     };
     const errs = appGate([sample().part, bad2]);
     expect(errs).toContain("модуль bad2: экран y — метки cnt нет в marks");
@@ -261,7 +261,7 @@ describe("ключ и связь", () => {
     const log: string[] = [];
     const relay = new FakeRelay(homeRoster());
     const s = sample(log);
-    await boot({ relay, parts: [s.part] });
+    await boot({ relay, parts: [s.part], pauseMs: 60 });
     const p = s.app.request("answer", { callsign: "profiles@laptop", question: "q1", answers: {} });
     await flush(1);
     expect(relay.sent("answer")[0]).toMatchObject({ type: "answer", v: 1, callsign: "profiles@laptop" });
@@ -272,7 +272,7 @@ describe("ключ и связь", () => {
     await flush(1);
     expect(root.querySelector(".sb-pill")!.textContent).toBe("нет связи");
     expect(root.querySelector(".sb-bt span")!.textContent).toMatch(/^данные на \d\d:\d\d$/);
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 120));
     await flush();
     expect(log.filter((x) => x.startsWith("link"))).toEqual(["link open", "link closed", "link connecting", "link open"]);
   });
@@ -288,6 +288,7 @@ describe("маршрут и запросы", () => {
     expect(log).toContain("question profiles@laptop");
     relay.push({ type: "question", from: "x@pc", boom: true });
     expect(run.failed.sample).toBe("Модуль sample упал на кадре question: TypeError: boom");
+    await flush();
     expect(root.textContent).toContain("Список выключен");
     relay.push({ type: "question", from: "y@pc" });
     relay.setRoster(homeRoster());
@@ -320,6 +321,7 @@ describe("маршрут и запросы", () => {
     const s = sample(log);
     await boot({ parts: [s.part] });
     s.app.open("item", { callsign: "site@laptop" });
+    await flush();
     expect(location.hash).toBe("#item?callsign=site%40laptop");
     expect(root.textContent).toContain("item site@laptop");
     expect(log).toContain("list closed");

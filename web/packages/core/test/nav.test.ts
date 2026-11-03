@@ -21,17 +21,15 @@ function parts(): AppPart[] {
       work: {
         nav: "Работа",
         find: (q) => ["refactor@win", "api@wsl"].filter((c) => c.includes(q)).map((c) => ({ label: c, hint: "сессия", dot: "busy", screen: "work", params: { callsign: c } })),
-        mount: (el, p) => {
-          el.textContent = `работа ${p.callsign ?? "все"}`;
-          return { head: () => ({ title: "Работа", action: { label: "Новая сессия", text: "+", run: () => (added++, undefined) } }) };
-        },
+        view: ({ params: p }) => `работа ${p.callsign ?? "все"}`,
+        head: () => ({ title: "Работа", action: { label: "Новая сессия", text: "+", run: () => (added++, undefined) } }),
       },
     },
   };
   const fleet: AppModule = {
     screens: {
-      machines: { nav: "Машины", group: "Флот", mount: (el) => void (el.textContent = "машины") },
-      access: { nav: "Аккаунты", group: "Флот", mount: (el) => void (el.textContent = "аккаунты") },
+      machines: { nav: "Машины", group: "Флот", view: () => "машины" },
+      access: { nav: "Аккаунты", group: "Флот", view: () => "аккаунты" },
     },
   };
   return [
@@ -78,8 +76,10 @@ describe("разделы страницы", () => {
     added = 0;
     await run(false);
     document.querySelector<HTMLElement>("[data-find]")!.click();
+    await flush();
     expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(false);
-    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush();
     document.querySelector<HTMLElement>("[data-new]")!.click();
     expect(added).toBe(1);
   });
@@ -87,18 +87,22 @@ describe("разделы страницы", () => {
   it("5171 · Ctrl K: разделы и строки find экранов; Enter открывает первую; Esc закрывает", async () => {
     await run(true);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
     const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
     expect(input).not.toBeNull();
     expect(texts(".sb-palit .l")).toEqual(["Работа", "refactor@win", "api@wsl", "Машины", "Аккаунты"]);
     input.value = "api";
-    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect(texts(".sb-palit .l")).toEqual(["api@wsl"]);
-    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await flush();
     expect(location.hash).toBe("#work?callsign=api%40wsl");
     expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(true);
     document.querySelector<HTMLElement>(".sb-goto")!.click();
-    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await flush();
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flush();
     expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(true);
   });
 
@@ -107,7 +111,7 @@ describe("разделы страницы", () => {
     const relay = new FakeRelay(homeRoster());
     const mods = (): AppPart[] => [
       ...parts(),
-      { manifest: man("i", { incidents: 1 }), module: { screens: { incidents: { nav: "Инциденты", narrowGroup: "Флот", mount: (el) => void (el.textContent = "инциденты") } } } },
+      { manifest: man("i", { incidents: 1 }), module: { screens: { incidents: { nav: "Инциденты", narrowGroup: "Флот", view: () => "инциденты" } } } },
     ];
     const start = (wide: boolean) =>
       startApp({ root: document.getElementById("app")!, workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: mods(), wide, sections: ["work", "incidents", "machines", "access"], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
@@ -127,11 +131,11 @@ describe("разделы страницы", () => {
     const relay = new FakeRelay(homeRoster());
     const lists: AppModule = {
       screens: {
-        inbox: { nav: "Вам", find: () => [{ label: "site@laptop", screen: "card", params: { callsign: "site@laptop" } }], mount: (el) => void (el.textContent = "вам") },
-        board: { nav: "Работа", mount: (el) => void (el.textContent = "работа") },
+        inbox: { nav: "Вам", find: () => [{ label: "site@laptop", screen: "card", params: { callsign: "site@laptop" } }], view: () => "вам" },
+        board: { nav: "Работа", view: () => "работа" },
       },
     };
-    const card: AppModule = { screens: { card: { mount: (el, p) => void (el.textContent = `карточка ${p.callsign}`) } } };
+    const card: AppModule = { screens: { card: { view: ({ params: p }) => `карточка ${p.callsign}` } } };
     const r = startApp({
       root: document.getElementById("app")!,
       workers: FakeRelay.WORKERS,
@@ -160,6 +164,7 @@ describe("разделы страницы", () => {
     await flush();
     expect(document.querySelector(".sb-master")!.getAttribute("data-screen")).toBe("board");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
     expect(texts(".sb-palit .l")).toContain("site@laptop");
   });
 

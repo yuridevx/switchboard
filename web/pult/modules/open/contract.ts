@@ -4,7 +4,7 @@
 // «Открыть» — session.open, «в R2» — session.r2, задача — session.prompt, затем card.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createOpen } from "./src/open.ts";
+import { createOpen } from "./src/open.tsx";
 
 export { createOpen };
 export const manifest: Manifest = json;
