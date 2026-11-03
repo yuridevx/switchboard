@@ -113,6 +113,7 @@ const roster = {
 };
 
 const relay = new FakeRelay(roster as never);
+(window as unknown as { __relay: FakeRelay }).__relay = relay;
 if (kind === "small") {
   relay.values["web-labels.names"] = { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } };
   relay.values["web-board.filters"] = [{ id: "f1", name: "pfarm", projects: ["pfarm"] }];
@@ -129,21 +130,51 @@ const Q = (s: S) => ({ question: `q-${s.cs}`, kind: "ask", questions: [{ questio
 h["question.list"] = (f) => ({ ok: true, result: F.ss.filter((s) => s.cs === f.callsign && s.q).map(Q) });
 h["session.watch"] = () => ({ ok: true });
 h["session.unwatch"] = () => ({ ok: true });
-h["session.history"] = (f) => ({
-  ok: true,
-  result: {
-    more: false,
-    messages: [
-      { type: "user", uuid: "u1", message: { content: `Задача для ${f.callsign}: разбери список и почини.` } },
-      { type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "Беру. Сначала прочитаю модуль и тесты к нему." }] } },
-      { type: "assistant", uuid: "a2", message: { content: [{ type: "text", text: "Нашёл причину: заголовки разделов лежат одним потоком. Правлю." }] } },
-    ],
-  },
-});
-h["session.prompt"] = () => ({ ok: true, result: { uuid: "u2" } });
+// разговор стенда: что видно в ленте живой сессии
+const talk = (cs: string) => {
+  const asst = (uuid: string, content: unknown[]) => ({ type: "assistant", uuid, message: { id: uuid, model: "claude-opus-5-5", content } });
+  const res = (uuid: string, id: string, content: string, is_error = false) => ({ type: "user", uuid, message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error }] } });
+  const base = [
+    { type: "user", uuid: `${cs}-u1`, timestamp: new Date(Date.now() - 900000).toISOString(), message: { content: `Задача для ${cs}: сборка на CI падает с утра, разбери и почини.` } },
+    asst(`${cs}-a1`, [{ type: "thinking", thinking: "Сначала лог CI, потом конфиг тестов." }, { type: "text", text: "Беру. Сначала прочитаю **конфиг** и лог последнего прогона." }]),
+    asst(`${cs}-a2`, [{ type: "tool_use", id: `${cs}-t1`, name: "Read", input: { file_path: "vitest.config.ts" } }]),
+    res(`${cs}-r1`, `${cs}-t1`, 'export default { test: { testTimeout: 5000 } };'),
+    asst(`${cs}-a3`, [{ type: "tool_use", id: `${cs}-t2`, name: "Bash", input: { command: "npm test -- --reporter=dot", description: "Прогон тестов" } }]),
+    res(`${cs}-r2`, `${cs}-t2`, "Tests  1 failed | 214 passed\n  эталон 4187: Test timed out in 5000ms", true),
+    asst(`${cs}-a4`, [{ type: "tool_use", id: `${cs}-t3`, name: "Edit", input: { file_path: "vitest.config.ts", old_string: "testTimeout: 5000", new_string: "testTimeout: 15000" } }]),
+    res(`${cs}-r3`, `${cs}-t3`, "ok"),
+    asst(`${cs}-a5`, [{ type: "text", text: "## Итог\n\nСборка падала на **таймауте**: эталон 4187 идёт дольше 5 с.\n\n| Часть | Было | Стало |\n|---|---:|---:|\n| testTimeout | 5 с | 15 с |\n| тесты | 214 из 215 | 215 из 215 |\n\n```ts\nexport default { test: { testTimeout: 15000 } };\n```\n\nОсталось выложить на тестовый флот." }]),
+    { type: "result", uuid: `${cs}-z1`, subtype: "success", duration_ms: 134000, num_turns: 6, total_cost_usd: 0.41, usage: { input_tokens: 1200, cache_read_input_tokens: 45000 } },
+    { type: "user", uuid: `${cs}-u2`, timestamp: new Date(Date.now() - 120000).toISOString(), message: { content: "Хорошо. Прогони ещё раз и обнови README" } },
+  ];
+  const running = [
+    asst(`${cs}-a6`, [{ type: "tool_use", id: `${cs}-t4`, name: "TodoWrite", input: { todos: [{ content: "Прогнать тесты", status: "completed" }, { content: "Обновить README", activeForm: "Обновляю README", status: "in_progress" }, { content: "Выложить на флот", status: "pending" }] } }]),
+    res(`${cs}-r4`, `${cs}-t4`, "ok"),
+    asst(`${cs}-a7`, [{ type: "tool_use", id: `${cs}-t5`, name: "Bash", input: { command: "npm run dev", run_in_background: true } }]),
+    { type: "system", subtype: "task_started", uuid: `${cs}-k1`, task_id: `${cs}-bg`, tool_use_id: `${cs}-t5`, task_type: "local_bash", description: "npm run dev", is_backgrounded: true },
+    res(`${cs}-r5`, `${cs}-t5`, "Command running in background"),
+    asst(`${cs}-a8`, [{ type: "tool_use", id: `${cs}-t6`, name: "Agent", input: { description: "Ищет упоминания таймаута", prompt: "Найди все упоминания таймаута в README", subagent_type: "Explore" } }]),
+    { type: "system", subtype: "task_started", uuid: `${cs}-k2`, task_id: `${cs}-ag`, tool_use_id: `${cs}-t6`, task_type: "local_agent", description: "Ищет упоминания таймаута" },
+    { type: "system", subtype: "task_progress", uuid: `${cs}-k3`, task_id: `${cs}-ag`, summary: "читает README.md", usage: { tool_uses: 3 } },
+  ];
+  const s = F.ss.find((x) => x.cs === cs);
+  if (cs.startsWith("home@")) return [];
+  return s?.state === "busy" ? [...base, ...running] : base;
+};
+h["session.history"] = (f) => ({ ok: true, result: { more: String(f.callsign).startsWith("tests@"), messages: f.before ? [] : talk(String(f.callsign)) } });
+h["session.files"] = (f) => ({ ok: true, result: ["src/worker.ts", "src/combat/damage.ts", "test/worker.test.ts", "README.md"].filter((x) => x.includes(String(f.query))) });
+h["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
 h["session.update"] = () => ({ ok: true, result: {} });
 h["session.spec"] = () => ({ ok: true, result: { title: "" } });
-h["session.call"] = () => ({ ok: true, result: [] });
+h["session.call"] = (f) => {
+  const answers: Record<string, unknown> = {
+    supportedCommands: [{ name: "compact", description: "Сжать разговор, оставив краткое содержание" }, { name: "context", description: "Сколько занято в контексте" }, { name: "review", description: "Ревью изменений" }, { name: "clear", description: "Начать разговор заново" }],
+    getContextUsage: { totalTokens: 84200, maxTokens: 200000, percentage: 42, categories: [{ name: "System prompt", tokens: 3700 }, { name: "System tools", tokens: 21500 }, { name: "Memory files", tokens: 2100 }, { name: "Skills", tokens: 5700 }, { name: "Messages", tokens: 51200 }, { name: "Free space", tokens: 115800 }] },
+    supportedAgents: [{ name: "general-purpose", description: "Агент общего назначения для поиска и многошаговых задач" }, { name: "Explore", description: "Быстрый поиск по коду" }],
+    rewindFiles: { canRewind: true, filesChanged: ["vitest.config.ts", "README.md"], insertions: 4, deletions: 1 },
+  };
+  return { ok: true, result: answers[String(f.method)] ?? [] };
+};
 h["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { login: "ok", email: "dev@mail.ru", plan: "Max 20×", limits: { five_hour: { utilization: 0.42, resetsAt: Date.now() / 1000 + 7200 }, seven_day: { utilization: 0.61, resetsAt: Date.now() / 1000 + 86400 } } }, night: { login: "ok", email: "night@x.io", plan: "Max 5×", limits: { five_hour: { utilization: 0.82, resetsAt: Date.now() / 1000 + 3600 } } } } } });
 h["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] }, second: { account: "night", order: ["night"], wait: Date.now() / 1000 + 3600, sessions: [] } } } });
 h["machine.profiles"] = (f) => {

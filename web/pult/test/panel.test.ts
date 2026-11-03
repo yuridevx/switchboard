@@ -270,18 +270,18 @@ describe("эталоны пульта: сессии и чат", () => {
     await t.expand();
     await t.click(t.$('[data-callsign="poe-bot@pc"]'));
     await t.type(t.$(".chat-inp"), "@");
-    expect(t.btn(null, "@ файл")).toBeNull();
-    expect(t.btn(null, "/ команда")).toBeNull();
-    expect(t.btn(null, "■ Прервать")).toBeNull();
+    expect(t.$('[aria-label="Файл папки"]')).toBeNull();
+    expect(t.$('[aria-label="Команда"]')).toBeNull();
+    expect(t.btn(null, "Прервать")).toBeNull();
     await t.click(t.$('.cw-tabs [data-tab="set"]'));
     expect(t.$('[data-sec="call"]')).toBeNull();
-    expect(t.btn(null, "■ Прервать")).toBeNull();
+    expect(t.btn(null, "Прервать")).toBeNull();
     expect(relay.got.filter((f) => (f.type === "session.files" || f.type === "session.call") && String(f.callsign).endsWith("@pc"))).toEqual([]);
 
     await t.click(t.$('[data-callsign="site@laptop"]'));
-    expect(t.btn(null, "@ файл")).not.toBeNull();
-    expect(t.btn(null, "/ команда")).not.toBeNull();
-    expect(t.btn(null, "■ Прервать")).not.toBeNull();
+    expect(t.$('[aria-label="Файл папки"]')).not.toBeNull();
+    expect(t.$('[aria-label="Команда"]')).not.toBeNull();
+    expect(t.btn(null, "Прервать")).not.toBeNull();
     await t.type(t.$(".chat-inp"), "Сравни с @wor");
     expect(relay.sent("session.files")).toEqual([expect.objectContaining({ callsign: "site@laptop", query: "wor", limit: 20 })]);
     expect(t.$$(".chat-sugi").map((b) => b.textContent)).toEqual(["src/worker.ts", "test/worker.test.ts"]);

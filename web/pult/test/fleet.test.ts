@@ -165,7 +165,7 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     expect(t.$('[data-slot="laptop:main"] [data-current]')!.textContent).toBe("в слоте: y0902");
     await t.click(t.$('.sb-navcol button[data-screen="board"]'));
     await t.click(t.$('[data-callsign="site@laptop"]'));
-    expect(t.$(".chat-sys.swap")!.textContent).toBe("⇄ аккаунт: infirex → y0902");
+    expect(t.$(".chat-sys.swap")!.textContent).toBe("аккаунт: infirex → y0902");
   });
 });
 

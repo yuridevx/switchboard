@@ -1,0 +1,125 @@
+// Сообщения SDK так, как их читает лента: кадры session.events и записи session.history одной формы.
+// Поля необязательные: claude новее чата может прислать больше или иначе, незнакомое пропускается.
+
+/** Вход инструмента: поля, которые показывают карточки. */
+export type ToolInput = {
+  command?: string;
+  description?: string;
+  run_in_background?: boolean;
+  file_path?: string;
+  offset?: number;
+  limit?: number;
+  old_string?: string;
+  new_string?: string;
+  replace_all?: boolean;
+  content?: string;
+  edits?: Array<{ old_string: string; new_string: string }>;
+  notebook_path?: string;
+  cell_id?: string;
+  new_source?: string;
+  pattern?: string;
+  path?: string;
+  glob?: string;
+  url?: string;
+  query?: string;
+  prompt?: string;
+  skill?: string;
+  subagent_type?: string;
+  todos?: Array<{ content?: string; activeForm?: string; status?: string }>;
+  questions?: Array<{ question: string; header?: string; multiSelect?: boolean; options?: Array<{ label: string; description?: string }> }>;
+  plan?: string;
+  answers?: Record<string, string>;
+  [field: string]: unknown;
+};
+
+export type WireBlock = {
+  type: string;
+  text?: string;
+  thinking?: string;
+  id?: string;
+  name?: string;
+  input?: ToolInput;
+  tool_use_id?: string;
+  content?: unknown;
+  is_error?: boolean;
+  source?: { type?: string; media_type?: string; data?: unknown };
+};
+export type WireContent = string | WireBlock[];
+
+export type WireUsage = { total_tokens?: number; tool_uses?: number; duration_ms?: number };
+export type WireTask = { task_id?: string; tool_use_id?: string; task_type?: string; description?: string; subagent_type?: string };
+export type WireCompact = { pre_tokens?: number; post_tokens?: number; preTokens?: number; postTokens?: number; trigger?: string };
+
+/** Кадр потока или запись истории. У записей файла разговора часть полей — camelCase. */
+export type WireMessage = WireTask & {
+  type: string;
+  subtype?: string;
+  uuid?: string;
+  timestamp?: string;
+  parent_tool_use_id?: string | null;
+  message?: { id?: string; model?: string; content?: WireContent; stop_reason?: string | null; stop_details?: { category?: string | null; explanation?: string | null } | null } | string;
+  isApiErrorMessage?: boolean;
+  content?: string;
+  isSynthetic?: boolean;
+  isMeta?: boolean;
+  origin?: { kind?: string; name?: string; from?: string; fromMode?: string; body?: string; senderTaskId?: string };
+  isCompactSummary?: boolean;
+  error?: string;
+  event?: { type?: string; message?: { id?: string }; delta?: { type?: string; text?: string; thinking?: string } };
+  is_error?: boolean;
+  result?: string;
+  errors?: string[];
+  total_cost_usd?: number;
+  duration_ms?: number;
+  num_turns?: number;
+  usage?: WireUsage & { input_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+  rate_limit_info?: { status?: string; rateLimitType?: string; resetsAt?: number };
+  state?: string;
+  model?: string;
+  status?: string;
+  compact_result?: string;
+  compact_error?: string;
+  compact_metadata?: WireCompact;
+  compactMetadata?: WireCompact;
+  attempt?: number;
+  max_retries?: number;
+  error_status?: number | string | null;
+  retry_delay_ms?: number;
+  summary?: string;
+  preceding_tool_use_ids?: string[];
+  last_tool_name?: string;
+  is_backgrounded?: boolean;
+  patch?: { status?: string; is_backgrounded?: boolean; end_time?: number };
+  tasks?: WireTask[];
+  level?: string;
+  text?: string;
+  priority?: string;
+  tool_name?: string;
+  original_model?: string;
+  fallback_model?: string;
+  originalModel?: string;
+  fallbackModel?: string;
+  retracted_message_uuids?: string[];
+  retractedMessageUuids?: string[];
+  api_refusal_explanation?: string | null;
+  apiRefusalExplanation?: string | null;
+  api_refusal_category?: string | null;
+  apiRefusalCategory?: string | null;
+  refused_user_message_uuid?: string | null;
+  refusedUserMessageUuid?: string | null;
+  scope?: string;
+  trigger?: string;
+  hook_event?: string;
+  hook_name?: string;
+  outcome?: string;
+  exit_code?: number;
+  stderr?: string;
+  output?: string;
+  memories?: Array<{ path: string }>;
+  name?: string;
+  suggestion?: string;
+  elapsed_time_seconds?: number;
+  estimated_tokens?: number;
+  files?: Array<{ filename: string }>;
+  failed?: Array<{ filename: string; error: string }>;
+};

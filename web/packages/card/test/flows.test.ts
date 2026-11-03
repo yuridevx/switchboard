@@ -76,7 +76,7 @@ describe("карточка в широком виде", () => {
   // источник: прототип «Пульт и телефон», подписан пользователем 2 нояб. («основа дизайна ок»); комментарии к прототипу:
   // «переработай статус в 1 строку», «перенести в право в контекст меню всю панель», «не запустилось — ховер индикатора,
   // опус и высокое конфигурируемый отсюда», «где-то надо сделать лимиты и аккаунт активный», сведения — «опциональные»
-  it("5301 · шапка — одна строка: лампа, позывной, «модель · усилие ▾», «аккаунт · % ▾» (жёлтая с 70 %), вкладки, «■ Прервать», «⋯»", async () => {
+  it("5301 · шапка — одна строка: лампа, позывной, «модель · усилие ▾», «аккаунт · % ▾» (жёлтая с 70 %), вкладки, «⋯»", async () => {
     const r = roster();
     const relay = relayFor(r);
     relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "dev@mail", plan: "Max 20×", limits: { five_hour: { utilization: 0.82, resetsAt: 1793660000 }, seven_day: { utilization: 0.41 } } } } } });
@@ -88,7 +88,6 @@ describe("карточка в широком виде", () => {
     expect(head.querySelector('[data-pop="acc"]')!.classList.contains("lim")).toBe(true);
     expect(head.querySelector(".cw-tabs")).not.toBeNull();
     expect([...head.querySelectorAll(".cw-tabs [data-tab]")].map((b) => b.textContent)).toEqual(["Разговор", "Настройки", "Журнал"]);
-    expect(t.btn(".cw-h", "■ Прервать")).not.toBeNull();
     expect(head.querySelector('[data-pop="menu"]')).not.toBeNull();
     // плашки у живой сессии нет; состояние — не текстом
     expect(t.$(".cw-pl")!.hidden).toBe(true);
@@ -219,19 +218,7 @@ describe("карточка в широком виде", () => {
     expect(toggled()).toHaveLength(1);
   });
 
-  it("4083 · «■ Прервать» у отвечающей — session.call interrupt; отказ — «Прервать: слово» в шапке", async () => {
-    const relay = relayFor(roster());
-    relay.handlers["session.call"] = () => ({ ok: false, error: "not_running" });
-    const t = await wideCard("site@laptop", roster(), relay);
-    await t.click(t.btn(".cw-h", "■ Прервать"));
-    expect(relay.sent("session.call")).toEqual([expect.objectContaining({ callsign: "site@laptop", method: "interrupt", args: [] })]);
-    expect(t.$(".cw-h")!.textContent).toContain("Прервать: not_running");
-    relay.handlers["session.call"] = () => ({ ok: true, result: null });
-    await t.click(t.btn(".cw-h", "■ Прервать"));
-    expect(t.$(".cw-h")!.textContent).not.toContain("Прервать: ");
-  });
-
-  it("4085 · сессии нет в roster — «pc не на связи», плашки и «Прервать» нет", async () => {
+  it("4085 · сессии нет в roster — «pc не на связи», плашки нет", async () => {
     const r = roster([], (x) => {
       x.machines = x.machines.filter((m) => m.machine !== "pc");
       x.sessions = x.sessions.filter((s) => !s.callsign.endsWith("@pc"));
@@ -239,7 +226,6 @@ describe("карточка в широком виде", () => {
     const t = await wideCard("poe-bot@pc", r);
     expect(t.$(".cw-h")!.textContent).toContain("poe-bot@pc@pc✎не на связи");
     expect(t.$(".cw-pl")!.hidden).toBe(true);
-    expect(t.btn(".cw", "■ Прервать")).toBeNull();
   });
 });
 
@@ -272,7 +258,6 @@ describe("настройки карточки", () => {
     expect(t.relay.sent("session.call")).toEqual([]);
     const ctl = [...t.$('[data-sec="ctl"]')!.querySelectorAll("button")].map((b) => b.textContent);
     expect(ctl).toEqual(["Запустить", "Убрать…"]);
-    expect(t.btn(".cw-h", "■ Прервать")).toBeNull();
   });
 });
 

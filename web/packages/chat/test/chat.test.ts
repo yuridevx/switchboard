@@ -56,7 +56,7 @@ describe("лента сессии", () => {
     });
     await flush();
     expect(t.$$(".chat-txt").map((x) => x.textContent)).toEqual(["Смотрю лог CI."]);
-    expect(t.$(".chat-tool")!.textContent).toBe("Bashnpm test18 с");
+    expect(t.$(".chat-tool")!.textContent).toBe("Командаnpm test18 с");
     relay.push({
       type: "session.events",
       from: "site@laptop",
@@ -67,7 +67,7 @@ describe("лента сессии", () => {
       ],
     });
     await flush();
-    expect(t.$(".chat-tool")!.textContent).toBe("Bashnpm test✓");
+    expect(t.$(".chat-tool")!.textContent).toBe("Командаnpm test");
     expect(t.$(".chat-res")!.textContent).toBe("ход закончен · 2 мин 14 с");
     expect(relay.sent("session.history")).toHaveLength(1);
   });

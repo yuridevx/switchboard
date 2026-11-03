@@ -160,12 +160,12 @@ describe("чат и карточка на стыках", () => {
     await t.type(t.$(".chat-inp"), "/");
     await t.type(t.$(".chat-inp"), "/re");
     expect(relay.sent("session.call").filter((f) => f.method === "supportedCommands")).toHaveLength(1);
-    expect(t.$$(".chat-sugi").map((b) => b.textContent)).toEqual(["/review — ревью", "/reload-plugins"]);
+    expect(t.$$(".chat-sugi").map((b) => b.textContent)).toEqual(["/reviewревью", "/reload-plugins"]);
     await t.click(t.$$(".chat-sugi")[1]);
     expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("/reload-plugins ");
     await t.click(t.btn(t.$(".chat-feed"), "В фон"));
     expect(relay.sent("session.call").at(-1)).toMatchObject({ callsign: "site@laptop", method: "backgroundTasks", args: ["toolu_01Bx"] });
-    await t.click(t.btn(t.$(".chat-feed"), "↶ откатить файлы"));
+    await t.click(t.btn(t.$(".chat-feed"), "откатить файлы"));
     expect(relay.sent("session.call").at(-1)).toMatchObject({ method: "rewindFiles", args: ["5b1e", { dryRun: true }] });
     expect(t.$(".chat-rwc")!.textContent).toContain("Откатить файлы к этому сообщению? проба: 2 файла · +4 −1 · команды Bash не откатываются");
     await t.click(t.btn(t.$(".chat-rwc"), "Откатить"));
@@ -191,8 +191,8 @@ describe("чат и карточка на стыках", () => {
     const t = await pult({ relay });
     await t.click(t.$('[data-callsign="site@laptop"]'));
     await t.click(t.btn(null, "фокус"));
-    expect(t.$$(".chat-feed > *").map((x) => x.className.split(" ")[0])).toEqual(["chat-me", "chat-steps", "chat-txt", "chat-res"]);
-    expect(t.$(".chat-steps")!.textContent).toBe("4 шагов · Read · Edit · Bash ×2 — развернуть");
+    expect(t.$$(".chat-col > :not(.chat-work)").map((x) => x.className.replace("dis ", "").split(" ")[0])).toEqual(["chat-me", "chat-steps", "chat-reply", "chat-res"]);
+    expect(t.$(".chat-steps")!.textContent).toBe("4 шага · Команда ×2 · Чтение · Правка");
     expect(t.$(".chat-txt")!.textContent).toBe("Сборка зелёная.");
     const a = t.$<HTMLAnchorElement>(".chat-bar a")!;
     // переход по ссылке на стенде не нужен: браузер по download сохраняет файл
@@ -259,7 +259,7 @@ describe("аккаунты: шаги по контракту", () => {
     Object.defineProperty(picker, "files", { value: [new File(["hi"], "a.txt", { type: "text/plain" })], configurable: true });
     picker.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
-    expect(t.$(".chat-file")!.textContent).toBe("a.txt✕");
+    expect(t.$(".chat-file")!.textContent).toBe("a.txt");
     await t.type(t.$(".chat-inp"), "Посмотри файл");
     await t.click(t.$(".chat-send"));
     expect(relay.sent("session.prompt")[0]).toMatchObject({ callsign: "wiki@laptop", text: "Посмотри файл", attachments: [{ name: "a.txt", media_type: "text/plain", data: "aGk=" }] });

@@ -90,7 +90,7 @@ describe("лента", () => {
     const before = relay.got.length;
     relay.setRoster(roster((x) => (x.sessions[0].account = "yurianrun")));
     await flush();
-    expect(t.$(".chat-sys.swap")!.textContent).toBe("⇄ аккаунт: infirex → yurianrun");
+    expect(t.$(".chat-sys.swap")!.textContent).toBe("аккаунт: infirex → yurianrun");
     expect(relay.got.length).toBe(before);
   });
 });
@@ -100,7 +100,7 @@ describe("ввод", () => {
     const t = await chat("site@laptop", { wide: true });
     t.relay.push({ type: "session.events", from: "site@laptop", seq: 1, events: [{ type: "prompt_suggestion", suggestion: "Запусти тесты" }] });
     await flush();
-    expect(t.$(".chat-hint")!.textContent).toBe("Подсказка: «Запусти тесты» — Tab");
+    expect(t.$(".chat-hint")!.textContent).toBe("Запусти тестыTab");
     const before = t.relay.got.length;
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
     inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true, bubbles: true }));
@@ -121,11 +121,24 @@ describe("ввод", () => {
 });
 
 describe("широкий ввод", () => {
+  it("4083 · «Прервать» у отвечающей — session.call interrupt; отказ — тост словом; у простаивающей кнопки нет", async () => {
+    const r = roster((x) => (x.sessions[0].state = "busy"));
+    const relay = relayFor(r);
+    relay.handlers["session.call"] = () => ({ ok: false, error: "not_running" });
+    const t = await chat(r.sessions[0].callsign, { relay, wide: true });
+    await t.click(t.btn(".chat-under", "Прервать"));
+    expect(relay.sent("session.call")).toEqual([expect.objectContaining({ callsign: r.sessions[0].callsign, method: "interrupt", args: [] })]);
+    expect(t.$(".sb-toast")!.textContent).toBe(`${r.sessions[0].callsign}: interrupt — not_running`);
+    relay.setRoster(roster((x) => (x.sessions[0].state = "idle")));
+    await flush();
+    expect(t.btn(".chat-under", "Прервать")).toBeNull();
+  });
+
   it("4105 · «■ Стоп» задачи — session.call stopTask; отказ — тост «callsign: метод — слово»", async () => {
     const relay = relayFor(roster(), [{ type: "system", subtype: "task_started", uuid: "s1", task_id: "task1", description: "фоновая сборка" }]);
     relay.handlers["session.call"] = () => ({ ok: false, error: "no_task" });
     const t = await chat("poe-bot@pc", { relay, wide: true });
-    await t.click(t.btn(".chat-feed", "■ Стоп"));
+    await t.click(t.btn(".chat-feed", "Стоп"));
     expect(relay.sent("session.call")).toEqual([expect.objectContaining({ callsign: "poe-bot@pc", method: "stopTask", args: ["task1"] })]);
     expect(t.$(".sb-toast")!.textContent).toBe("poe-bot@pc: stopTask — no_task");
   });
@@ -137,7 +150,7 @@ describe("широкий ввод", () => {
     picker.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
     await t.click(t.$('[aria-label="убрать a.png"]'));
-    expect(t.$$(".chat-file").map((x) => x.textContent)).toEqual(["b.txt✕"]);
+    expect(t.$$(".chat-file").map((x) => x.textContent)).toEqual(["b.txt"]);
     await t.type("смотри");
     await t.click(t.$(".chat-send"));
     expect(t.relay.sent("session.prompt")[0]).toMatchObject({ text: "смотри", attachments: [{ name: "b.txt", media_type: "text/plain", data: "Yg==" }] });
@@ -153,7 +166,7 @@ describe("откат файлов", () => {
 
   it("4107 · откатить нельзя — «Откатить нельзя: слово», кнопки «Откатить» нет", async () => {
     const t = await chat("poe-bot@pc", { relay: relayRw(() => ({ ok: true, result: { canRewind: false, error: "no checkpoint" } })), wide: true });
-    await t.click(t.btn(".chat-feed", "↶ откатить файлы"));
+    await t.click(t.btn(".chat-feed", "откатить файлы"));
     expect(t.$(".chat-rwc")!.textContent).toBe("Откатить нельзя: no checkpoint");
     expect(t.btn(".chat-rwc", "Откатить")).toBeNull();
     expect(t.relay.sent("session.call")).toHaveLength(1);
@@ -164,14 +177,14 @@ describe("откат файлов", () => {
       relay: relayRw((f) => ((f.args as unknown[]).length === 2 ? { ok: true, result: { canRewind: true, filesChanged: ["a"], insertions: 1, deletions: 0 } } : { ok: false, error: "offline" })),
       wide: true,
     });
-    await t.click(t.btn(".chat-feed", "↶ откатить файлы"));
+    await t.click(t.btn(".chat-feed", "откатить файлы"));
     await t.click(t.btn(".chat-rwc", "Откатить"));
     expect(t.$(".chat-rwc")!.textContent).toBe("Не откатилось: offline");
   });
 
   it("4109 · «Отмена» после пробы — строка пробы убрана, отката нет", async () => {
     const t = await chat("poe-bot@pc", { relay: relayRw(() => ({ ok: true, result: { canRewind: true, filesChanged: ["a"], insertions: 1, deletions: 0 } })), wide: true });
-    await t.click(t.btn(".chat-feed", "↶ откатить файлы"));
+    await t.click(t.btn(".chat-feed", "откатить файлы"));
     await t.click(t.btn(".chat-rwc", "Отмена"));
     expect(t.$(".chat-rwc")).toBeNull();
     expect(t.relay.sent("session.call")).toHaveLength(1);

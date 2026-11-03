@@ -116,7 +116,6 @@ export function Wide({ app, params, o }: { app: App; params: Record<string, stri
   const select = (k: string) => {
     if (k !== tab) setTab(resolve(k));
   };
-  const [headNote, setHeadNote] = useState("");
   /** открытое окно шапки: модель, аккаунт или меню ⋯ */
   const [pop, setPop] = useState<Pop>("");
   const [accounts, setAccounts] = useState<Record<string, Acc> | null>(null);
@@ -143,11 +142,6 @@ export function Wide({ app, params, o }: { app: App; params: Record<string, stri
   }, []);
 
   // ───── запросы шапки ─────
-  async function interrupt() {
-    const r = await app.request("session.call", { callsign, method: "interrupt", args: [] });
-    setHeadNote(r.ok ? "" : `Прервать: ${msg(r)}`);
-  }
-
   async function start() {
     const r = await app.request("session.start", { callsign });
     if (!r.ok) app.toast(`${callsign}: «Запустить» — ${msg(r)}`);
@@ -272,17 +266,11 @@ export function Wide({ app, params, o }: { app: App; params: Record<string, stri
         </div>
         <div className="cw-hr">
           {tabsEl}
-          {x.state === "busy" && can("session.call") ? (
-            <button className="cw-b bad" onClick={() => void interrupt()}>
-              ■ Прервать
-            </button>
-          ) : null}
           {stopped && can("session.start") ? (
             <button className="cw-b pri" onClick={() => void start()}>
               Запустить
             </button>
           ) : null}
-          {headNote ? <span className="cw-why">{headNote}</span> : null}
           {/* пункты места card.menu: закрепление (web-board) */}
           {menuItems.map((m) => (
             <button key={m.screen} className="cw-b" data-screen={m.screen} onClick={() => app.open(m.screen, { from: callsign })}>
