@@ -1,6 +1,7 @@
 // pult-settings — настройки флота вкладками: выпуски по машинам и каталог, пропуска, GitHub и устройство.
 // Каждая цифра — ответ владельца: «Выпусков» (stable, планы), keeper машины (что стоит), gate (пропуска), github, профилей.
 import { add, h, plural, type App, type AppModule, type Params, type Roster, type ScreenHandle } from "@switchboard/web-core";
+import qrcode from "qrcode-generator";
 
 type Entry = { pin?: string; on?: boolean; force?: boolean };
 type Listed = {
@@ -44,6 +45,11 @@ const CSS = `
 .st-repos{max-height:340px;overflow-y:auto;border:1px solid var(--line2);border-radius:9px;background:var(--surface2)}
 .st-repo{display:flex;gap:8px;align-items:center;padding:7px 10px;border-bottom:1px solid var(--line2);font-size:13px}
 .st-repo:last-child{border-bottom:0}
+.st-inv{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:start}
+.st-invl{display:flex;flex-direction:column;gap:8px;min-width:0}
+.st-qr{width:156px;padding:12px;background:#fff;border-radius:10px;line-height:0}
+.st-qr svg{width:100%;height:auto;display:block}
+@media (max-width:640px){.st-inv{grid-template-columns:minmax(0,1fr)}.st-qr{justify-self:center}}
 .st-two{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:start}
 @media (max-width:900px){.st-grid,.st-two{grid-template-columns:minmax(0,1fr)}}
 `;
@@ -252,6 +258,16 @@ export function createSettings(): AppModule {
     app.toast(`${p.addr} отозван — соединения закрыты`, "ok");
     await loadPasses();
   }
+  /** QR ссылки: SVG библиотеки qrcode-generator на белом поле. */
+  function qr(text: string): HTMLElement {
+    const q = qrcode(0, "M");
+    q.addData(text);
+    q.make();
+    const box = h("div", { class: "st-qr", role: "img", "aria-label": "QR ссылки для телефона", "data-qr": text });
+    box.innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    return box;
+  }
+
   function copy(text: string) {
     // буфер — по нажатию; отказ браузера — словом
     const clip = (globalThis.navigator as Navigator | undefined)?.clipboard;
@@ -528,12 +544,23 @@ export function createSettings(): AppModule {
                 x.kind === "device"
                   ? [["Пульт", `${location.origin}${location.pathname}#invite=${x.invite}`], ...(phone ? [["Телефон", new URL(`#invite=${x.invite}`, phone).href] as [string, string]] : [])]
                   : [[null, x.invite]];
+              // QR — ссылки на телефон: её сканируют телефоном; колонка справа, в узком окне — под ссылками
+              const toPhone = rows.find(([l]) => l === "Телефон")?.[1];
               return h(
                 "section",
                 { class: "sb-sec ok", "data-invited": "" },
-                h("span", null, x.kind === "device" ? "Ссылка для " : x.kind === "program" ? "Приглашение для " : "Приглашение машины ", h("b", { class: "sb-m" }, x.addr)),
-                rows.map(([l, text]) => h("div", { class: "sb-opts", "data-link": l ?? "" }, l ? h("b", { style: "min-width:72px" }, l) : null, h("code", { class: "sb-cmd", style: "flex:1;min-width:0;overflow-wrap:anywhere" }, text), h("button", { class: "sb-b pri", onclick: () => copy(text) }, "Копировать"))),
-                h("div", { class: "sb-opts" }, h("button", { class: "sb-b", onclick: () => ((invited = null), redraw()) }, "Готово")),
+                h(
+                  "div",
+                  { class: "st-inv" },
+                  h(
+                    "div",
+                    { class: "st-invl" },
+                    h("span", null, x.kind === "device" ? "Ссылка для " : x.kind === "program" ? "Приглашение для " : "Приглашение машины ", h("b", { class: "sb-m" }, x.addr)),
+                    rows.map(([l, text]) => h("div", { class: "sb-opts", "data-link": l ?? "" }, l ? h("b", { style: "min-width:72px" }, l) : null, h("code", { class: "sb-cmd", style: "flex:1;min-width:0;overflow-wrap:anywhere" }, text), h("button", { class: "sb-b pri", onclick: () => copy(text) }, "Копировать"))),
+                    h("div", { class: "sb-opts" }, h("button", { class: "sb-b", onclick: () => ((invited = null), redraw()) }, "Готово")),
+                  ),
+                  toPhone ? qr(toPhone) : null,
+                ),
               );
             })()
           : null;

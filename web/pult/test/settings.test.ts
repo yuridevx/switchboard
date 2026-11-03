@@ -184,6 +184,9 @@ describe("pult-settings", () => {
     const inv = "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567";
     expect(t.$("[data-link=\"Пульт\"] code")!.textContent).toBe(`${location.origin}/#invite=${inv}`);
     expect(t.$("[data-link=\"Телефон\"] code")!.textContent).toBe(`https://phone.test/#invite=${inv}`);
+    // QR — ссылки на телефон (слово пользователя 3 нояб.)
+    expect(t.$("[data-qr] svg")).not.toBeNull();
+    expect(t.$("[data-qr]")!.dataset.qr).toBe(`https://phone.test/#invite=${inv}`);
     await t.click(t.btn("Копировать", t.$("[data-link=\"Телефон\"]")!));
     expect(writes).toEqual([`https://phone.test/#invite=${inv}`]);
     expect(t.$("[data-invited]")!.textContent).toContain("laptop2~you@mail");
