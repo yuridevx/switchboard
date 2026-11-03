@@ -119,6 +119,23 @@ export function parseCheck(out: string): Built["check"] {
   }
 }
 
+/** Файлы архива ядра, кроме lockfile: пакеты, манифест и обвязка. */
+export function coreFiles(root: string, version: string): Array<{ path: string; data: Buffer; mode?: number }> {
+  const pkgs = closure(root);
+  const out: Array<{ path: string; data: Buffer; mode?: number }> = [];
+  for (const { name, dir: src } of pkgs) {
+    const base = `packages/${name.slice("@switchboard/".length)}`;
+    for (const f of packageFiles(src)) if (f !== "package.json") out.push({ path: `${base}/${f}`, data: readFileSync(join(src, f)) });
+    const pj = releasePackageJson(JSON.parse(readFileSync(join(src, "package.json"), "utf8")));
+    out.push({ path: `${base}/package.json`, data: Buffer.from(JSON.stringify(pj, null, 2) + "\n") });
+  }
+  out.push({ path: "module.json", data: readFileSync(join(pkgs[0].dir, "module.json")) });
+  out.push({ path: "app.json", data: Buffer.from(JSON.stringify(APP) + "\n") });
+  out.push({ path: "package.json", data: Buffer.from(JSON.stringify({ name: "switchboard-host-release", version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n") });
+  out.push({ path: "host", data: Buffer.from(ENTRY), mode: 0o755 });
+  return out;
+}
+
 /** Собрать архив ядра: папка, lockfile, npm ci и host --check, архив и его SHA-256. Не прошло — исключение с причиной. */
 export async function build(o: BuildOptions): Promise<Built> {
   if (!VERSION_RE.test(o.version)) throw new Error(`версия «${o.version}» не вида 1.4.1`);
@@ -132,16 +149,7 @@ export async function build(o: BuildOptions): Promise<Built> {
     mkdirSync(join(p, ".."), { recursive: true });
     writeFileSync(p, data, mode ? { mode } : {});
   };
-  for (const { name, dir: src } of pkgs) {
-    const base = `packages/${name.slice("@switchboard/".length)}`;
-    for (const f of packageFiles(src)) if (f !== "package.json") put(`${base}/${f}`, readFileSync(join(src, f)));
-    const pj = releasePackageJson(JSON.parse(readFileSync(join(src, "package.json"), "utf8")));
-    put(`${base}/package.json`, Buffer.from(JSON.stringify(pj, null, 2) + "\n"));
-  }
-  put("module.json", readFileSync(join(pkgs[0].dir, "module.json")));
-  put("app.json", Buffer.from(JSON.stringify(APP) + "\n"));
-  put("package.json", Buffer.from(JSON.stringify({ name: "switchboard-host-release", version: o.version, private: true, type: "module", workspaces: ["packages/*"] }, null, 2) + "\n"));
-  put("host", Buffer.from(ENTRY), 0o755);
+  for (const f of coreFiles(o.root, o.version)) put(f.path, f.data, f.mode);
 
   // версии зависимостей — из lock-файла монорепо: npm сужает его до пакетов ядра, а не разрешает заново по реестру
   // (иначе новый патч в реестре меняет архив той же версии ядра от прогона к прогону)
