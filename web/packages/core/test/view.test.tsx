@@ -230,12 +230,12 @@ describe("сборка страницы", () => {
   it("5716 · упал вид ядра — страница показывает причину, а не пустоту", async () => {
     // источник: дизайн «Новая модульность фронта», эталон основания; вид ядра — вне границы модуля
     const relay = new FakeRelay(homeRoster());
-    const sections = { indexOf: () => { throw new Error("сломан порядок разделов"); } } as unknown as string[];
-    const part: AppPart = { manifest: man("m", { m: 1, n: 1 }), module: { screens: { m: { nav: "М", view: () => "экран" }, n: { nav: "Н", view: () => "экран" } } } };
-    const run = startApp({ root: root(), workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [part], sections, store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
+    const broken = { nav: "М", view: () => "экран", get group(): string { throw new Error("сломана группа раздела"); } };
+    const part: AppPart = { manifest: man("m", { m: 1 }), module: { screens: { m: broken } } };
+    const run = startApp({ root: root(), workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [part], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
     await run.ready;
     await flush();
-    expect(root().textContent).toBe("Приложение упало: сломан порядок разделов");
+    expect(root().textContent).toBe("Приложение упало: сломана группа раздела");
   });
 
   it("5716 · не загрузилась сборка — страница показывает причину", async () => {
