@@ -119,7 +119,7 @@ func fakeApp(args []string) {
 	}
 	if mode == "env" {
 		var kv []string
-		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_RELAY", "SWITCHBOARD_WORKERS", "SITE"} {
+		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_HOME", "SWITCHBOARD_RELAY", "SWITCHBOARD_WORKERS", "SITE"} {
 			kv = append(kv, n+"="+os.Getenv(n))
 		}
 		wd, _ := os.Getwd()

@@ -1395,7 +1395,7 @@ func TestEtPartEnv(t *testing.T) {
 	self, _ := os.Executable()
 	data := filepath.Join(partDir(s.home, "capture"), "data")
 	for _, want := range []string{"SWITCHBOARD_MACHINE=win", "SWITCHBOARD_VERSION=1.3.2", "SWITCHBOARD_DATA=" + data,
-		"SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY= ", "SWITCHBOARD_WORKERS={", "SITE=lab", "CWD=" + data} {
+		"SWITCHBOARD_HOME=" + s.home, "SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY= ", "SWITCHBOARD_WORKERS={", "SITE=lab", "CWD=" + data} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("нет %s в %q", want, line)
 		}

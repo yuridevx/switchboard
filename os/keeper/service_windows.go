@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"os"
+	"strings"
 	"time"
 	"unsafe"
 
@@ -101,12 +102,13 @@ func install(args []string) error {
 	}
 	defer m.Disconnect()
 	s, err := m.CreateService(serviceName, exe, mgr.Config{
-		DisplayName:      "Switchboard keeper",
+		// имя в диспетчере служб тоже уникально: без имени флота вторая служба не создаётся
+		DisplayName:      strings.TrimSpace("Switchboard keeper " + fleetName),
 		Description:      "Исполняет план машины Switchboard: держит Host и приложения через держатели.",
 		StartType:        mgr.StartAutomatic,
 		ServiceStartName: dom + `\` + acc,
 		Password:         pw,
-	})
+	}, runArgs()...)
 	if err != nil {
 		return err
 	}

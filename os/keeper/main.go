@@ -2,6 +2,7 @@
 // отвечает keeper.state, подменяет себя по плану.
 //
 //	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
+//	--name <имя>          — у run, install, uninstall: второй флот на этом компьютере — своя служба и своя папка
 //	keeper install        — приглашение машины — первой строкой stdin: keeper принимает его у gate (--worker gate=…)
 //	                        и кладёт пропуск в machine.key; --worker <имя>=<https> — адреса в keeper.json (relay, gate,
 //	                        releases, ledger; relay — объект своей машины);
@@ -26,24 +27,69 @@ import (
 	"time"
 )
 
-const serviceName = "switchboard-keeper"
+// serviceName — служба и задача keeper; fleetName — имя второго флота на компьютере, его ставит useName.
+var (
+	serviceName = "switchboard-keeper"
+	fleetName   = ""
+)
+
+// useName — --name <имя> из аргументов: служба switchboard-keeper-<имя>, папка ~/.switchboard-<имя>. Правило одно и только
+// здесь; папка — в SWITCHBOARD_HOME: homeDir читает его, держатели и части наследуют. Возвращает остальные аргументы.
+func useName(args []string) ([]string, error) {
+	rest := []string{}
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--name" {
+			rest = append(rest, args[i])
+			continue
+		}
+		i++
+		if i == len(args) || !validID(args[i]) {
+			return nil, fmt.Errorf("--name <имя> — без путей")
+		}
+		u, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		fleetName = args[i]
+		serviceName = "switchboard-keeper-" + fleetName
+		os.Setenv("SWITCHBOARD_HOME", filepath.Join(u, ".switchboard-"+fleetName))
+	}
+	return rest, nil
+}
+
+// runArgs — команда службы и задачи: имя флота они несут в своей командной строке.
+func runArgs() []string {
+	if fleetName == "" {
+		return []string{"run"}
+	}
+	return []string{"run", "--name", fleetName}
+}
 
 func main() {
-	if isService() {
-		runService()
-		return
-	}
 	cmd := ""
 	if len(os.Args) > 1 {
 		cmd = os.Args[1]
 	}
+	args := os.Args[min(2, len(os.Args)):]
+	// у держателя свои аргументы и команда процесса после --: папку он получает в окружении
+	if cmd != "hold" {
+		var err error
+		if args, err = useName(args); err != nil {
+			fmt.Fprintln(os.Stderr, "keeper:", err)
+			os.Exit(2)
+		}
+	}
+	if isService() {
+		runService()
+		return
+	}
 	switch cmd {
 	case "run":
-		os.Exit(runConsole(os.Args[2:]))
+		os.Exit(runConsole(args))
 	case "hold":
-		os.Exit(runHold(os.Args[2:]))
+		os.Exit(runHold(args))
 	case "install":
-		if err := install(os.Args[2:]); err != nil {
+		if err := install(args); err != nil {
 			fmt.Fprintln(os.Stderr, "install:", err)
 			os.Exit(1)
 		}
@@ -55,7 +101,7 @@ func main() {
 	case "version":
 		fmt.Println(keeperVersion)
 	default:
-		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version")
+		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version; у run, install, uninstall — [--name <имя>]")
 		os.Exit(2)
 	}
 }

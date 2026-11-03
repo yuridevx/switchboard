@@ -45,7 +45,7 @@ const logonTaskXML = `<?xml version="1.0" encoding="UTF-16"?>
     <Enabled>true</Enabled>
   </Settings>
   <Actions Context="Author">
-    <Exec><Command>%[2]s</Command><Arguments>run --hide</Arguments></Exec>
+    <Exec><Command>%[2]s</Command><Arguments>%[3]s --hide</Arguments></Exec>
   </Actions>
 </Task>
 `
@@ -63,14 +63,14 @@ func installLogonTask() error {
 	if err != nil {
 		return err
 	}
-	xml := fmt.Sprintf(logonTaskXML, xmlEscape(dom+`\`+acc), xmlEscape(exe))
+	xml := fmt.Sprintf(logonTaskXML, xmlEscape(dom+`\`+acc), xmlEscape(exe), xmlEscape(strings.Join(runArgs(), " ")))
 	// schtasks ждёт файл XML в UTF-16 с меткой порядка байт
 	u := utf16.Encode([]rune(xml))
 	b := []byte{0xFF, 0xFE}
 	for _, c := range u {
 		b = append(b, byte(c), byte(c>>8))
 	}
-	tmp := filepath.Join(os.TempDir(), "switchboard-keeper-task.xml")
+	tmp := filepath.Join(os.TempDir(), serviceName+"-task.xml")
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}

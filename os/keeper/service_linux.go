@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strings"
 )
 
 func isService() bool { return false }
@@ -23,7 +24,7 @@ Description=Switchboard keeper
 StartLimitIntervalSec=0
 
 [Service]
-ExecStart="%s" run
+ExecStart="%s" %s
 Restart=always
 RestartSec=1
 KillMode=process
@@ -63,7 +64,7 @@ func install(args []string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(p, []byte(fmt.Sprintf(unitText, exe)), 0o644); err != nil {
+	if err := os.WriteFile(p, []byte(fmt.Sprintf(unitText, exe, strings.Join(runArgs(), " "))), 0o644); err != nil {
 		return err
 	}
 	u, err := user.Current()

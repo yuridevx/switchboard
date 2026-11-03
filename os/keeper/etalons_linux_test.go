@@ -4,7 +4,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -151,5 +153,40 @@ func TestEtOSStopIsNotCrash(t *testing.T) {
 	starts := strings.Count(readJournal(s.home), `"ev":"part_start"`)
 	if p := partOf(k, "capture"); p.State != "stopped" || p.Restarts != 0 || starts != 1 || s.relay.ledgerHas("part.failed") {
 		t.Fatalf("выход по остановке ОС принят за падение: %+v, стартов %d", p, starts)
+	}
+}
+
+// 5524 · uninstall --name снимает только свою службу: свой юнит удалён, чужой на месте; юнит своего имени запускает
+// run --name (дизайн «Любой агент», этап 0). systemctl — подделка: пишет свои аргументы.
+func TestEtNameOwnUnitOnly(t *testing.T) {
+	dir, u := t.TempDir(), t.TempDir()
+	log := filepath.Join(dir, "calls")
+	os.WriteFile(filepath.Join(dir, "systemctl"), []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"), 0o755)
+	os.WriteFile(filepath.Join(dir, "loginctl"), []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("XDG_CONFIG_HOME", u)
+	units := filepath.Join(u, "systemd", "user")
+	os.MkdirAll(units, 0o755)
+	other := filepath.Join(units, "switchboard-keeper.service")
+	own := filepath.Join(units, "switchboard-keeper-prod.service")
+	os.WriteFile(other, []byte("x"), 0o644)
+	os.WriteFile(own, []byte("x"), 0o644)
+	home := t.TempDir()
+	if code, _, e := runKeeper(t, home, "", "uninstall", "--name", "prod"); code != 0 {
+		t.Fatalf("uninstall: код %d, %q", code, e)
+	}
+	if _, err := os.Stat(own); !os.IsNotExist(err) {
+		t.Fatalf("свой юнит на месте: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("чужой юнит снят: %v", err)
+	}
+	if b, _ := os.ReadFile(log); !strings.Contains(string(b), "disable --now switchboard-keeper-prod.service") || strings.Contains(string(b), "switchboard-keeper.service") {
+		t.Fatalf("вызовы systemctl: %s", b)
+	}
+	fleetName = "prod"
+	defer func() { fleetName = "" }()
+	if text := fmt.Sprintf(unitText, "/k", strings.Join(runArgs(), " ")); !strings.Contains(text, `ExecStart="/k" run --name prod`) {
+		t.Fatalf("юнит: %s", text)
 	}
 }
