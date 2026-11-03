@@ -13,8 +13,8 @@ import { exportMarkdown } from "./export.ts";
 export type Attachment = { name: string; media_type: string; data: string };
 export type Rewind = { uuid: string; text: string; tone: "" | "bad" | "ok"; ready: boolean };
 export type Command = { name: string; description?: string; argumentHint?: string };
-/** Что отправка вернула в поле: отказ session.prompt. */
-export type Returned = { text: string; attachments: Attachment[] };
+/** Что отправка вернула в поле: отказ session.prompt. id — чьё: второй такой же отказ тоже возвращает. */
+export type Returned = { id: string; text: string; attachments: Attachment[] };
 
 export type Conv = {
   feed: Feed;
@@ -38,9 +38,13 @@ export type Conv = {
   /** уже есть более ранние записи и с какой продолжать */
   more: boolean;
   before: string | null;
+  /** since машины, на которой открыта подписка; машины нет в roster — нет */
+  since?: number;
+  /** вложения сообщений без ответа: «отправить ещё раз» шлёт их снова */
+  held: Record<string, Attachment[]>;
 };
 
-const newConv = (): Conv => ({ feed: emptyFeed(), seq: null, fresh: true, watching: false, noFeed: false, unread: 0, mounted: 0, focus: false, more: false, before: null });
+const newConv = (): Conv => ({ feed: emptyFeed(), seq: null, fresh: true, watching: false, noFeed: false, unread: 0, mounted: 0, focus: false, more: false, before: null, held: {} });
 const EMPTY = newConv();
 const PAGE = 50;
 const uuid = (): string => crypto.randomUUID();
@@ -79,7 +83,10 @@ export function createChatStore() {
     const messages = r.result.messages ?? [];
     edit(cs, (c) => {
       if (c.refused?.startsWith("session.history")) c.refused = undefined;
+      // ранние страницы уже в ленте: «Раньше» продолжает с них, а не с начала этой страницы
+      const pagedBack = c.before && c.feed.seen[c.before] && !messages.some((m) => m.uuid === c.before);
       c.feed = withHistory(read(cs).feed, messages);
+      if (pagedBack) return;
       c.more = !!r.result.more;
       c.before = messages[0]?.uuid ?? null;
     });
@@ -132,18 +139,23 @@ export function createChatStore() {
         if (it.state === "sending") it.state = "ok";
         it.at = Date.now();
       });
-    } else if (r.error === "disconnected") {
+      edit(cs, (c) => void delete c.held[id]);
+    } else if (r.error === "disconnected" || r.error === "timeout") {
       // ответа не было: дошло или нет — неизвестно; после hello история покажет uuid
       setMine(cs, id, (it) => {
         if (it.state === "sending") it.state = "lost";
       });
     } else {
+      // поле занято новым текстом — отказанный туда не вернётся; экран закрыт — вложениям негде ждать: сказать, а не обещать
+      const typed = !!drafts[cs];
+      const closed = !read(cs).mounted && attachments.length > 0;
       edit(cs, (c) => {
         c.feed.items = c.feed.items.filter((i) => i.id !== id);
-        c.returned = { text, attachments };
+        c.returned = { id, text, attachments };
+        delete c.held[id];
       });
       drafts[cs] ||= text;
-      app.toast(`${cs}: не доставлено — ${refusalText(cs, r.error)}. Черновик цел.`);
+      app.toast(`${cs}: не доставлено — ${refusalText(cs, r.error)}. ${typed ? "В поле новый текст, отправленный текст не возвращён." : closed ? "Черновик цел, вложения не сохранены." : "Черновик цел."}`);
     }
   }
 
@@ -181,6 +193,7 @@ export function createChatStore() {
         c.mounted++;
         c.unread = 0;
         c.account ??= sessionOf(cs)?.account as string | undefined;
+        c.since = app.roster()?.machines.find((m) => m.machine === machineOf(cs))?.since;
       });
       void watch(cs);
       return () => {
@@ -218,8 +231,18 @@ export function createChatStore() {
       });
       if (ctx.open) app.open("chat", { callsign: cs });
     },
-    /** Подмена аккаунта слота видна по roster: у сессии сменилось поле account — строка в ленте. */
+    /** Подмена аккаунта слота видна по roster: у сессии сменилось поле account — строка в ленте. Машина появилась или поднялась заново — открытая лента подписывается снова. */
     onRoster(r: Roster) {
+      for (const [cs, c] of Object.entries(store.get().convs)) {
+        if (!c.mounted) continue;
+        const since = r.machines.find((m) => m.machine === machineOf(cs))?.since;
+        if (since === c.since) continue;
+        edit(cs, (x) => {
+          x.since = since;
+          if (since !== undefined) x.watching = false;
+        });
+        if (since !== undefined) void watch(cs);
+      }
       for (const s of r.sessions) {
         const known = store.get().convs[s.callsign];
         if (!known || typeof s.account !== "string" || known.account === s.account) continue;
@@ -250,18 +273,19 @@ export function createChatStore() {
       const images = attachments.filter((a) => a.media_type.startsWith("image/"));
       const files = attachments.filter((a) => !a.media_type.startsWith("image/"));
       fold(cs, (f) => addMine(f, { id, text, images: images.map(dataUrl), files: files.map((a) => a.name), at: Date.now(), queued: sessionOf(cs)?.state === "busy" }));
+      if (attachments.length) edit(cs, (c) => void (c.held[id] = attachments));
       delete drafts[cs];
       void deliver(cs, id, text, attachments);
     },
     /** «Отправить ещё раз» пузыря без ответа: тот же uuid. */
     resend(cs: string, id: string, text: string) {
       setMine(cs, id, (it) => void (it.state = "sending"));
-      void deliver(cs, id, text, []);
+      void deliver(cs, id, text, read(cs).held[id] ?? []);
     },
     /** Текст обратно в поле ввода: «Изменить сообщение» после отказа модели. */
     returnText(cs: string, text: string) {
       drafts[cs] ||= text;
-      edit(cs, (c) => void (c.returned = { text, attachments: [] }));
+      edit(cs, (c) => void (c.returned = { id: uuid(), text, attachments: [] }));
     },
     /** Команды сессии — в снимок разговора: один запрос на разговор. */
     async loadCommands(cs: string) {

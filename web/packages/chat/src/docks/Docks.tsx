@@ -38,16 +38,20 @@ export function TodoDock({ callsign }: { callsign: string }) {
 }
 
 function BackgroundRow({ t, callsign }: { t: Task; callsign: string }) {
+  const app = useApp();
   const chat = useChat();
+  const canStop = app.use(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
   return (
     <div className="chat-bgr">
       {t.type === "local_agent" ? <Bot size={14} /> : <Terminal size={14} />}
       <span title={t.description}>{t.description || t.id}</span>
       {t.summary ? <em>{t.summary}</em> : null}
-      <button type="button" className="chat-mini" onClick={() => void chat.call(callsign, "stopTask", [t.id])}>
-        <Square size={11} />
-        Стоп
-      </button>
+      {canStop ? (
+        <button type="button" className="chat-mini" onClick={() => void chat.call(callsign, "stopTask", [t.id])}>
+          <Square size={11} />
+          Стоп
+        </button>
+      ) : null}
     </div>
   );
 }

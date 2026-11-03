@@ -66,6 +66,10 @@ describe("свёртка", () => {
     expect(live.items).toHaveLength(1);
     expect(live.items[0]).toMatchObject({ sys: { type: "compact", pre: 90_000, post: 8000, summary: "таймаут поднят" } });
     expect(fold(sum).items[0]).toMatchObject({ sys: { type: "compact", summary: "таймаут поднят" } });
+    // источник: файл разговора 3 нояб. — сводка посреди ленты; реплики до и после на месте, текст обёртки не виден (перенесено из 5537)
+    const mid = fold(user("u1", "до"), sum, user("u2", "после"));
+    expect(mid.items.map((i) => (i.kind === "sys" ? i.sys.type : i.kind))).toEqual(["user", "compact", "user"]);
+    expect(JSON.stringify(mid.items)).not.toContain("This session is being continued");
   });
 
   it("6207 · стоимость накопительная за процесс: строка хода — разница; прерванный ход без строки ошибки", () => {
@@ -122,6 +126,68 @@ describe("история", () => {
     expect(f.items.map((i) => i.id)).toEqual(["u1", "aa1", "u2"]);
     expect(f.tools.t1.result).toMatchObject({ text: "вывод" });
     expect(f.orphans.t1).toBeUndefined();
+  });
+});
+
+describe("request-session-history", () => {
+  it("6646 · повторная история: строка команды одна", () => {
+    const cmd = user("c1", "<command-name>/context</command-name>");
+    const out = user("c2", "<local-command-stdout>42%</local-command-stdout>");
+    const f = withHistory(fold(cmd, out), [cmd, out]);
+    expect(f.items.filter((i) => i.kind === "sys")).toHaveLength(1);
+    expect(f.items[0]).toMatchObject({ sys: { name: "/context", output: "42%" } });
+  });
+
+  it("6647 · повторная история: шаги субагента целы", () => {
+    const call = tool("a1", "T", "Agent");
+    const step: WireMessage = { ...asst("a2", [{ type: "text", text: "шаг" }], "m2"), parent_tool_use_id: "T" };
+    const sum: WireMessage = { type: "tool_use_summary", uuid: "s1", summary: "сводка", preceding_tool_use_ids: ["T"] };
+    const f = withHistory(fold(call, step, sum, result("r1", "T", "итог из кадра")), [call]);
+    expect(f.tools.T.parts).toEqual([{ kind: "text", text: "шаг" }]);
+    expect(f.tools.T.summary).toBe("сводка");
+    expect(f.tools.T.result).toMatchObject({ text: "итог из кадра" });
+  });
+
+  it("6648 · повторная история не меняет порядок", () => {
+    let f = withHistory(emptyFeed(), [user("u3", "в"), user("u4", "г")]);
+    f = withOlder(f, [user("u1", "а"), user("u2", "б")]);
+    f = withHistory(f, [user("u3", "в"), user("u4", "г")]);
+    expect(f.items.map((i) => i.id)).toEqual(["u1", "u2", "u3", "u4"]);
+    const turn = fold(user("u1", "а"), asst("a1", [{ type: "text", text: "о" }]), { type: "result", uuid: "z1", subtype: "success" }, user("u2", "б"));
+    const again = withHistory(turn, [user("u1", "а"), asst("a1", [{ type: "text", text: "о" }]), user("u2", "б")]);
+    expect(again.items.map((i) => i.id)).toEqual(["u1", "aa1", "s:z1", "u2"]);
+  });
+
+  it("6649 · записи без истории не пропадают", () => {
+    const mine = addMine(emptyFeed(), { id: "m1", text: "моё", images: [], files: [], at: 1 });
+    const f = withHistory(mine, [user("u1", "из истории")]);
+    expect(f.items.map((i) => i.id)).toEqual(["u1", "m1"]);
+    expect(f.items[1]).toMatchObject({ state: "sending" });
+  });
+
+  it("6650 · раньше дважды: итог на средней странице", () => {
+    let f = withHistory(emptyFeed(), [user("u3", "в")]);
+    f = withOlder(f, [result("r1", "T", "итог"), user("u2", "б")]);
+    f = withOlder(f, [tool("a1", "T")]);
+    expect(f.tools.T.result).toMatchObject({ text: "итог" });
+    expect(f.orphans.T).toBeUndefined();
+    expect(f.items.map((i) => i.id)).toEqual(["aa1", "u2", "u3"]);
+  });
+
+  it("6651 · сообщение разрезано границей страницы", () => {
+    const early = asst("a1", [{ type: "text", text: "текст" }], "m1");
+    const late = asst("a2", [{ type: "tool_use", id: "T", name: "Bash", input: {} }], "m1");
+    const f = withOlder(withHistory(emptyFeed(), [late]), [early]);
+    expect(f.items).toHaveLength(1);
+    expect(f.items[0]).toMatchObject({ parts: [{ kind: "text", text: "текст" }, { kind: "tool", id: "T" }], uuids: ["a1", "a2"] });
+  });
+
+  it("6652 · сводка сжатия из кадра и она же в истории без границы — одна строка", () => {
+    const bound: WireMessage = { type: "system", subtype: "compact_boundary", uuid: "b1", compact_metadata: { pre_tokens: 90_000 } };
+    const sum: WireMessage = { ...user("s1", "This session is being continued from a previous conversation.\nSummary:\nсуть"), isCompactSummary: true };
+    const f = withHistory(fold(bound, sum), [sum]);
+    expect(f.items.filter((i) => i.kind === "sys")).toHaveLength(1);
+    expect(f.items[0]).toMatchObject({ sys: { type: "compact", pre: 90_000, summary: "суть" } });
   });
 });
 

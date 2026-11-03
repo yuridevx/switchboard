@@ -2,7 +2,7 @@
 // Снаружи чистая: applyEvents(feed, сообщения) → новый снимок, неизменённые записи сохраняют ссылку (рисуется только новое).
 import { produce, type Draft } from "immer";
 import { contentOf, imageUrl, isSummary, peerOf, resultOf, specialOf, summaryOf, textOf } from "./parse.ts";
-import { isEnded, type AsstItem, type Feed, type Item, type Part, type Sys, type SysItem, type Task, type TaskStatus, type UserItem } from "./types.ts";
+import { isEnded, type AsstItem, type Feed, type Item, type Part, type Sys, type SysItem, type Task, type TaskStatus, type Tool, type UserItem } from "./types.ts";
 import type { WireContent, WireMessage, WireTask, WireUsage } from "./wire.ts";
 
 type D = Draft<Feed>;
@@ -66,7 +66,7 @@ function toolResults(d: D, c?: WireContent) {
 }
 
 /** Слэш-команда: вывод claude присылает раньше имени (/compact) — имя той же строке; своего пузыря «/команда» не остаётся. */
-function command(d: D, name: string, args: string | undefined, at: number) {
+function command(d: D, name: string, args: string | undefined, at: number, uuid?: string) {
   const recent = d.items.slice(-6);
   const own = recent.find((i) => i.kind === "user" && i.text.trim().split(/\s/)[0] === name);
   if (own) d.items.splice(d.items.indexOf(own), 1);
@@ -74,20 +74,20 @@ function command(d: D, name: string, args: string | undefined, at: number) {
   if (nameless?.sys.type === "command") {
     nameless.sys.name = name;
     nameless.sys.args = args;
-  } else addSys(d, { type: "command", name, args }, at);
+  } else addSys(d, { type: "command", name, args }, at, uuid);
 }
 
 /** Вывод команды — её строке, если она только что была и ещё без вывода; иначе своей строкой. */
-function commandOutput(d: D, text: string, at: number) {
+function commandOutput(d: D, text: string, at: number, uuid?: string) {
   const last = d.items.slice(-4).findLast((i): i is Draft<SysItem> => i.kind === "sys" && i.sys.type === "command" && !i.sys.output);
   if (last?.sys.type === "command") last.sys.output = text;
-  else addSys(d, { type: "command", name: "", output: text }, at);
+  else addSys(d, { type: "command", name: "", output: text }, at, uuid);
 }
 
-function taskNotice(d: D, id: string | undefined, status: string | undefined, summary: string | undefined, at: number) {
+function taskNotice(d: D, id: string | undefined, status: string | undefined, summary: string | undefined, at: number, uuid?: string) {
   if (id && d.ended[id]) return;
   if (id) d.ended[id] = true;
-  if (status || summary) addSys(d, { type: "task", status: asStatus(status), description: summary ?? "" }, at);
+  if (status || summary) addSys(d, { type: "task", status: asStatus(status), description: summary ?? "" }, at, uuid);
 }
 
 function user(d: D, m: WireMessage, at: number) {
@@ -96,14 +96,17 @@ function user(d: D, m: WireMessage, at: number) {
   const raw = textOf(c).trim();
   if (m.origin?.kind === "task-notification") {
     const s = specialOf(raw);
-    if (s?.kind === "task") taskNotice(d, s.id, s.status, s.summary, at);
+    if (s?.kind === "task") taskNotice(d, s.id, s.status, s.summary, at, m.uuid);
     return;
   }
   // сводка сжатия: на строке границы, если та только что была; в истории границы нет — своей строкой
   if (isSummary(m, raw)) {
     const prev = d.items.at(-1);
-    if (prev?.kind === "sys" && prev.sys.type === "compact") prev.sys.summary = summaryOf(raw);
-    else addSys(d, { type: "compact", summary: summaryOf(raw) }, at, m.uuid);
+    if (prev?.kind === "sys" && prev.sys.type === "compact") {
+      prev.sys.summary = summaryOf(raw);
+      // в истории та же сводка бывает своей строкой: склейка находит её по этой записи
+      if (m.uuid) d.byMsg[`s:${m.uuid}`] = prev.id;
+    } else addSys(d, { type: "compact", summary: summaryOf(raw) }, at, m.uuid);
     return;
   }
   const peer = peerOf(raw, m.origin);
@@ -117,9 +120,9 @@ function user(d: D, m: WireMessage, at: number) {
     if (sp.kind === "interrupted") {
       d.cut = true;
       addSys(d, { type: "interrupted" }, at, m.uuid);
-    } else if (sp.kind === "command") command(d, sp.name, sp.args, at);
-    else if (sp.kind === "output") commandOutput(d, sp.text, at);
-    else if (sp.kind === "task") taskNotice(d, sp.id, sp.status, sp.summary, at);
+    } else if (sp.kind === "command") command(d, sp.name, sp.args, at, m.uuid);
+    else if (sp.kind === "output") commandOutput(d, sp.text, at, m.uuid);
+    else if (sp.kind === "task") taskNotice(d, sp.id, sp.status, sp.summary, at, m.uuid);
     return;
   }
   // следующий ход начался — подсказка прошлого не нужна
@@ -182,8 +185,15 @@ function stream(d: D, m: WireMessage) {
   else parts.push({ kind, text: piece, live: true });
 }
 
+/** Ход кончен: кусочки, не дождавшиеся готового блока, больше не пишутся. */
+function endLive(parts: Draft<Part>[]) {
+  for (const p of parts) if ((p.kind === "text" || p.kind === "think") && p.live) p.live = false;
+}
+
 function result(d: D, m: WireMessage, at: number) {
   d.live = null;
+  for (const it of d.items) if (it.kind === "assistant") endLive(it.parts);
+  for (const t of Object.values(d.tools)) endLive(t.parts);
   d.thinking = undefined;
   const interrupted = d.cut;
   d.cut = false;
@@ -233,7 +243,10 @@ function taskEvent(d: D, m: WireMessage, at: number) {
       t.status = "running";
       if (m.is_backgrounded) t.background = true;
       // задача без вызова инструмента видна своей строкой: её карточки нет
-      if (!m.tool_use_id) addSys(d, { type: "task", id: t.id, status: "running", description: t.description, kind: t.type }, at, m.uuid);
+      if (!m.tool_use_id) {
+        addSys(d, { type: "task", id: t.id, status: "running", description: t.description, kind: t.type }, at, m.uuid);
+        d.ended[t.id] = true;
+      }
       break;
     }
     case "task_progress": {
@@ -260,7 +273,7 @@ function taskEvent(d: D, m: WireMessage, at: number) {
       // в ленту — конец фоновой задачи; у задач переднего плана итог виден на карточке
       if (t.background && !d.ended[t.id]) {
         d.ended[t.id] = true;
-        addSys(d, { type: "task", status: t.status, description: t.description, kind: t.type }, at);
+        addSys(d, { type: "task", status: t.status, description: t.description, kind: t.type }, at, m.uuid);
       }
       break;
     }
@@ -315,10 +328,10 @@ function system(d: D, m: WireMessage, at: number) {
       break;
     }
     case "api_retry":
-      addSys(d, { type: "retry", attempt: m.attempt, max: m.max_retries, error: m.error_status ? String(m.error_status) : m.error, delayMs: m.retry_delay_ms }, at);
+      addSys(d, { type: "retry", attempt: m.attempt, max: m.max_retries, error: m.error_status ? String(m.error_status) : m.error, delayMs: m.retry_delay_ms }, at, m.uuid);
       break;
     case "local_command_output":
-      commandOutput(d, String(m.content ?? "").trim(), at);
+      commandOutput(d, String(m.content ?? "").trim(), at, m.uuid);
       break;
     case "task_started":
     case "task_progress":
@@ -394,7 +407,7 @@ function apply(d: D, m: WireMessage) {
         break;
       }
       assistant(d, m, at);
-      if (m.error && !m.parent_tool_use_id) addSys(d, { type: "error", text: ERR[m.error] ?? m.error }, at);
+      if (m.error && !m.parent_tool_use_id) addSys(d, { type: "error", text: ERR[m.error] ?? m.error }, at, m.uuid);
       break;
     }
     case "stream_event":
@@ -439,55 +452,79 @@ export const applyEvents = (feed: Feed, msgs: WireMessage[]): Feed =>
     for (const m of msgs) apply(d, m);
   });
 
-/** Заново из истории: сначала она, затем то, чего в ней нет (живые пачки, переписка, свои пузыри). Свой пузырь, найденный в истории, — ✓✓. */
-export function withHistory(cur: Feed, msgs: WireMessage[]): Feed {
-  const h = applyEvents({ ...emptyFeed(), n: cur.n, cost: cur.cost, ended: cur.ended }, msgs);
-  return produce(h, (d) => {
-    const inHistory = new Set(h.items.map((i) => i.id));
-    for (const it of cur.items) {
-      if (!inHistory.has(it.id)) {
-        d.items.push(it as Draft<Item>);
-        continue;
-      }
-      if (it.kind !== "user" || !it.state) continue;
-      const again = findUser(d, it.id)!;
-      again.state = "echo";
-      again.queued = it.queued;
-      again.images = [...it.images];
-      again.files = [...it.files];
-      again.at = it.at;
-    }
-    d.tools = { ...cur.tools, ...d.tools } as D["tools"];
-    d.tasks = { ...cur.tasks, ...d.tasks } as D["tasks"];
-    d.seen = { ...cur.seen, ...d.seen };
-    d.byMsg = { ...cur.byMsg, ...d.byMsg };
-    d.orphans = { ...cur.orphans, ...d.orphans } as D["orphans"];
-    d.suggestion = cur.suggestion;
-    d.compacting = cur.compacting;
-    d.thinking = cur.thinking;
-    d.model = cur.model ?? d.model;
-  });
+/** Одна запись и в ленте, и в истории: у ленты бывает больше (живые кусочки, вложения своего пузыря, строка, дополненная позже). */
+function mergeItem(cur: Item, h: Item): Item {
+  if (cur.kind === "user" && h.kind === "user" && cur.state) return { ...h, state: "echo", queued: cur.queued, images: cur.images, files: cur.files, at: cur.at };
+  if (cur.kind === "assistant" && h.kind === "assistant") return h.uuids.every((u) => cur.uuids.includes(u)) ? cur : h;
+  if (cur.kind === "sys" && h.kind === "sys") return Object.keys(h.sys).some((k) => !(k in cur.sys)) ? { ...cur, sys: { ...h.sys, ...cur.sys } as Sys } : cur;
+  return cur;
 }
 
-/** Более ранняя страница истории: записи — перед текущими; итоги, ждавшие своего вызова, — в карточки. */
+/** Карточка из истории и из кадров: шаги субагента и сводку история не несёт, итог мог прийти только кадром. */
+function mergeTool(cur: Tool, h: Tool): Tool {
+  return { ...h, ...cur, parts: cur.parts.length ? cur.parts : h.parts, result: cur.result ?? h.result };
+}
+
+/**
+ * Заново из истории — в порядке разговора: запись истории встаёт на своё место в ленте; чего в ней нет
+ * (ранние страницы, живые пачки, переписка, свои пузыри, строки итогов) — остаётся там, где стояло. Свой пузырь, найденный в истории, — ✓✓.
+ */
+export function withHistory(cur: Feed, msgs: WireMessage[]): Feed {
+  const h = applyEvents({ ...emptyFeed(), n: cur.n, ended: cur.ended }, msgs);
+  const place = new Map(cur.items.map((it, i) => [it.id, i]));
+  const items: Item[] = [];
+  let i = 0;
+  for (const it of h.items) {
+    const at = place.get(cur.byMsg[it.id] ?? it.id);
+    if (at === undefined) {
+      items.push(it);
+      continue;
+    }
+    if (at < i) continue;
+    while (i < at) items.push(cur.items[i++]);
+    items.push(mergeItem(cur.items[i++], it));
+  }
+  items.push(...cur.items.slice(i));
+  const tools = { ...h.tools, ...cur.tools };
+  for (const id of Object.keys(h.tools)) if (cur.tools[id]) tools[id] = mergeTool(cur.tools[id], h.tools[id]);
+  const tasks = { ...h.tasks, ...cur.tasks };
+  // конец, который лента пропустила, есть только в истории
+  for (const id of Object.keys(h.tasks)) if (cur.tasks[id] && isEnded(h.tasks[id].status) && !isEnded(cur.tasks[id].status)) tasks[id] = h.tasks[id];
+  return {
+    ...h,
+    items,
+    tools,
+    tasks,
+    seen: { ...cur.seen, ...h.seen },
+    byMsg: { ...cur.byMsg, ...h.byMsg },
+    orphans: { ...cur.orphans, ...h.orphans },
+    live: cur.live,
+    cut: cur.cut,
+    cost: Math.max(cur.cost, h.cost),
+    suggestion: cur.suggestion,
+    compacting: cur.compacting,
+    thinking: cur.thinking,
+    model: cur.model ?? h.model,
+  };
+}
+
+/** Более ранняя страница истории: записи — перед текущими; итоги, ждавшие своего вызова, — в карточки; сообщение, разрезанное границей страницы, — одна запись. */
 export function withOlder(cur: Feed, msgs: WireMessage[]): Feed {
   const h = applyEvents({ ...emptyFeed(), n: cur.n }, msgs.filter((m) => !m.uuid || !cur.seen[m.uuid]));
-  return produce(cur, (d) => {
-    const have = new Set(cur.items.map((i) => i.id));
-    d.items = [...h.items.filter((i) => !have.has(i.id)), ...cur.items] as D["items"];
-    const tools = { ...h.tools, ...cur.tools };
-    const orphans = { ...cur.orphans };
-    for (const [id, result] of Object.entries(cur.orphans)) {
-      if (!tools[id]) continue;
-      tools[id] = { ...tools[id], result };
-      delete orphans[id];
-    }
-    d.tools = tools as D["tools"];
-    d.orphans = orphans as D["orphans"];
-    d.seen = { ...h.seen, ...cur.seen };
-    d.byMsg = { ...h.byMsg, ...cur.byMsg };
-    d.n = h.n;
+  const older = new Map(h.items.map((it) => [it.id, it]));
+  const rest = cur.items.map((it) => {
+    const early = older.get(it.id);
+    return it.kind === "assistant" && early?.kind === "assistant" ? { ...it, parts: [...early.parts, ...it.parts], uuids: [...early.uuids, ...it.uuids], at: early.at } : it;
   });
+  const have = new Set(cur.items.map((i) => i.id));
+  const tools = { ...h.tools, ...cur.tools };
+  const orphans = { ...h.orphans, ...cur.orphans };
+  for (const [id, result] of Object.entries(orphans)) {
+    if (!tools[id]) continue;
+    tools[id] = { ...tools[id], result };
+    delete orphans[id];
+  }
+  return { ...cur, items: [...h.items.filter((i) => !have.has(i.id)), ...rest], tools, orphans, seen: { ...h.seen, ...cur.seen }, byMsg: { ...h.byMsg, ...cur.byMsg }, n: h.n };
 }
 
 /** Своё сообщение — сразу в ленту, ждёт reply. */
