@@ -45,7 +45,8 @@ export function createBoardStore() {
       follow(waiting);
     }
     if (!state().listShown || !state().view.projects) return;
-    const unseen = model.projects().filter((x) => state().col[x.id] === undefined);
+    // без сессий решать не о чем: запись проектов может прийти раньше roster, а решение — одно на проект
+    const unseen = model.projects().filter((x) => state().col[x.id] === undefined && x.ss.length);
     if (!unseen.length) return;
     store.set((s) => {
       for (const x of unseen) s.col[x.id] = !firstOpen(x);

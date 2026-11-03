@@ -186,12 +186,12 @@ describe("первый показ", () => {
     await t.click(t.$('.pj-t[data-proj="pfarm"]'));
     relay.scoped.global["fleet.projects"] = [...PROJECTS(), { id: "fresh", name: "fresh", sessions: ["fresh@pc"] }];
     relay.drop();
-    await new Promise((r) => setTimeout(r, 20));
+    // запись проектов пришла раньше roster: пока сессий проекта нет, решение о первом показе не принимается (упало в CI 4 нояб.)
+    await vi.waitFor(() => expect(expanded(t, "fresh")).not.toBeUndefined());
     const r = fleet();
     r.sessions.push({ callsign: "fresh@pc", state: "waiting", dir: "~/fresh", by: "phone~you@mail" });
     relay.setRoster(r);
-    await flush(10);
-    expect(expanded(t, "fresh")).toBe("true");
+    await vi.waitFor(() => expect(expanded(t, "fresh")).toBe("true"));
     expect(expanded(t, "switchboard")).toBe("false");
     expect(expanded(t, "pfarm")).toBe("true");
   });
