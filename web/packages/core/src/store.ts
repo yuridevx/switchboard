@@ -7,6 +7,8 @@ export interface Store {
   set(section: string, value: unknown): Promise<void>;
   /** Прочитать и записать раздел в одной транзакции: обработчик пушей и страница пишут pushes вдвоём. */
   update<T = unknown>(section: string, fn: (old: T | undefined) => T): Promise<T>;
+  /** Стереть все разделы: пропуск и данные приложения на этом устройстве. */
+  clear(): Promise<void>;
 }
 
 const TABLE = "sections";
@@ -56,6 +58,11 @@ export function idbStore(db = "switchboard", idb: IDBFactory = indexedDB): Store
         };
       });
     },
+    clear() {
+      return tx<void>("readwrite", (st) => {
+        st.clear();
+      });
+    },
   };
 }
 
@@ -74,6 +81,9 @@ export function memoryStore(init: Record<string, unknown> = {}): Store & { data:
       const v = fn(structuredClone(data[section]) as T | undefined);
       data[section] = structuredClone(v);
       return v;
+    },
+    async clear() {
+      for (const k of Object.keys(data)) delete data[k];
     },
   };
 }

@@ -168,6 +168,47 @@ describe("ключ и связь", () => {
     expect(root.textContent).toContain("keys.invite client phone <почта>");
   });
 
+  it("5197 · iPhone, повторный запуск с экрана «Домой»: в адресе то же приглашение, пропуск из него уже в хранилище — gate не спрашивается, hello с пропуском, адрес очищен", async () => {
+    // источник: живой прогон прода 3 нояб. — второй запуск иконки с #invite= давал «Приглашение не принято»
+    history.replaceState(null, "", "/#invite=" + INVITE);
+    const had = `client.phone.${INVITE.split(".")[0]}.Vt5sig`;
+    const relay = new FakeRelay(oneMachine());
+    const { run } = await boot({ store: memoryStore({ key: had }), relay, ios: true, standalone: true });
+    expect(relay.sent("gate.redeem")).toEqual([]);
+    expect(relay.hellos).toEqual([{ type: "hello", key: had, proto: 1 }]);
+    expect(location.hash).toBe("");
+    expect(run.stopped).toBeNull();
+  });
+
+  it("5198 · «Стереть данные приложения» на экранах отказа: хранилище пусто, адрес без приглашения, перезагрузка", async () => {
+    // источник: слово пользователя 3 нояб. — «кнопки зачистки на страницы ошибки на телефоне, чтоб удалить сохранённый профиль»
+    const reload = vi.spyOn(window.location, "reload").mockImplementation(() => {});
+    history.replaceState(null, "", "/#invite=" + INVITE);
+    const store = memoryStore({ key: KEY, pushes: [1] });
+    const relay = new FakeRelay(oneMachine());
+    relay.handlers["gate.redeem"] = () => ({ ok: false, error: "bad_invite" });
+    await boot({ store, relay });
+    expect(root.textContent).toContain("Приглашение не принято");
+    root.querySelector<HTMLButtonElement>("[data-act=wipe]")!.click();
+    await flush();
+    expect(store.data).toEqual({});
+    expect(location.hash).toBe("");
+    expect(reload).toHaveBeenCalledTimes(1);
+
+    // и на «Пропуск отозван»
+    document.body.innerHTML = '<div id="app"></div>';
+    root = document.getElementById("app")!;
+    const s2 = memoryStore({ key: KEY });
+    const r2 = new FakeRelay(oneMachine());
+    r2.refuse = ["revoked"];
+    await boot({ store: s2, relay: r2 });
+    await flush(20);
+    root.querySelector<HTMLButtonElement>("[data-act=wipe]")!.click();
+    await flush();
+    expect(s2.data).toEqual({});
+    expect(reload).toHaveBeenCalledTimes(2);
+  });
+
   it("5103 · revoked — экран «Пропуск отозван», переподключений нет", async () => {
     const relay = new FakeRelay(oneMachine());
     relay.refuse = ["revoked"];
@@ -312,5 +353,7 @@ describe("хранилище IndexedDB", () => {
     expect(await st.get("key")).toBe(KEY);
     await st.update<number[]>("pushes", (a = []) => [...a, 1]);
     expect(await st.update<number[]>("pushes", (a = []) => [...a, 2])).toEqual([1, 2]);
+    await st.clear();
+    expect([await st.get("key"), await st.get("pushes")]).toEqual([undefined, undefined]);
   });
 });

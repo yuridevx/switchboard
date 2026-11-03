@@ -639,6 +639,22 @@ export function startApp(o: StartOptions): Running {
     deliver(f);
   }
 
+  /** Стереть пропуск и данные приложения на устройстве; дальше — страница без приглашения в адресе: поле приглашения. */
+  const wipe = () =>
+    h(
+      "button",
+      {
+        class: "sb-cta",
+        "data-act": "wipe",
+        onclick: async () => {
+          await store.clear();
+          win.history.replaceState(null, "", win.location.pathname + win.location.search);
+          win.location.reload();
+        },
+      },
+      "Стереть данные приложения",
+    );
+
   function refused(why: string) {
     const kid = keyId(key);
     const cmd = h("code", { class: "sb-cmd" }, invite(name));
@@ -650,6 +666,7 @@ export function startApp(o: StartOptions): Running {
         h("p", null, `${kid} ${why === "revoked" ? "больше не принимают" : "не принят флотом"}. Новый пропуск — приглашением от агента флота:`),
         cmd,
         h("p", null, "Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается."),
+        wipe(),
       );
     }
     if (why === "contract_mismatch") {
@@ -687,6 +704,7 @@ export function startApp(o: StartOptions): Running {
       h("div", { class: "sb-ring bad" }, "×"),
       h("div", { class: "sb-big" }, "Приглашение не принято"),
       h("p", null, word === "bad_invite" ? "Оно уже принято, отозвано или набрано с ошибкой. Попросите агента выдать новое." : `gate не ответил: ${word}. Откройте ссылку ещё раз позже.`),
+      wipe(),
     );
   }
 
@@ -760,10 +778,14 @@ export function startApp(o: StartOptions): Running {
     if (fromHash) {
       // приглашение — у gate: секрет пропуска рождается там и приходит один раз; адрес очищен в любом исходе
       win.history.replaceState(null, "", win.location.pathname + win.location.search);
-      const r = await redeem(fromHash);
-      if ("error" in r) return refusedInvite(r.error);
-      await store.set("key", r.key);
-      fresh = true;
+      // то же приглашение уже принято на этом устройстве: иконка экрана «Домой» помнит адрес с #invite= — пропуск в хранилище
+      const had = (await store.get<string>("key")) ?? "";
+      if (had.split(".")[2] !== fromHash.split(".")[0]) {
+        const r = await redeem(fromHash);
+        if ("error" in r) return refusedInvite(r.error);
+        await store.set("key", r.key);
+        fresh = true;
+      }
     }
     key = (await store.get<string>("key")) ?? "";
     if (!key) {
