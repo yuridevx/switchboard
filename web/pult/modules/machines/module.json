@@ -16,7 +16,7 @@
     "app@web-core": 1,
     "roster@relay": 1,
     "accounts@pult-accounts": 1,
-    "keeper.state@keeper": 1,
+    "keeper.answers@pult-settings": 1,
     "releases.set@releases": 1,
     "project.current@web-board": 2,
     "project.machines@web-board": 2,

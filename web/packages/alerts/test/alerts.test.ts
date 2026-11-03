@@ -6,6 +6,7 @@ import { createCard, manifest as cardM } from "@switchboard/web-card";
 import { createChat, manifest as chatM } from "@switchboard/web-chat";
 import { memoryStore } from "@switchboard/web-core";
 import { b64url, createAlerts, manifest as alertsM, serviceWorker, type BrowserPush } from "../contract.ts";
+import { createAlertsStore, READY_MS } from "../src/store.ts";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../../core/stand/app.ts";
 import { fakeBrowser, fakeScope } from "../stand/fakes.ts";
 
@@ -148,5 +149,39 @@ describe("служебный обработчик", () => {
     expect(scope.shown[1].title).toBe("Ответ не отправлен: already_answered");
     expect(scope.shown[1].o.tag).toBe("toolu_01Hx");
     expect(scope.opened).toEqual([]);
+  });
+});
+
+describe("предел обработчика пушей", () => {
+  it("6242 · обработчик не поднялся: «включаю» не остаётся навсегда — отказ словом; подписки нет", async () => {
+    vi.useFakeTimers();
+    const fails = vi.spyOn(console, "error").mockImplementation(() => {});
+    const calls: string[] = [];
+    const browser: BrowserPush = {
+      sw: { register: async () => undefined, ready: new Promise(() => {}), addEventListener: () => {} },
+      Notification: { permission: "default", requestPermission: async () => "granted" },
+    };
+    const store = createAlertsStore(browser);
+    const app = {
+      changed: () => {},
+      store: () => ({ update: async () => [] }),
+      deliver: () => {},
+      toast: (x: string) => calls.push(x),
+      request: async (name: string) => {
+        calls.push(name);
+        return { ok: true, result: { key: "AAAA" } };
+      },
+    };
+    await store.start(app as never);
+    const done = store.enable();
+    await vi.advanceTimersByTimeAsync(READY_MS - 1);
+    expect(store.state()).toBe("working");
+    await vi.advanceTimersByTimeAsync(1);
+    await done;
+    expect(store.state()).toBe("error");
+    expect(store.error()).toBe("обработчик пушей не поднялся");
+    expect(calls).toEqual(["push.key"]);
+    fails.mockRestore();
+    vi.useRealTimers();
   });
 });

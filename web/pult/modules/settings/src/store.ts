@@ -1,7 +1,7 @@
 // Состояние настроек: ответы владельцев («Выпуски», keeper'ы, gate, github) и вид экрана, который переживает закрытие экрана
 // (вкладка, выбранная машина, отмеченные, поиск, приглашение). Каждая цифра — ответ владельца; своего модуль не считает.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, plural } from "@switchboard/web-ui";
+import { createStore, machineAnswers, plural, type MachineAnswers } from "@switchboard/web-ui";
 import { planOf, say, type Err, type KState, type Listed, type ReleaseData } from "./rules.ts";
 
 export type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok"; by: string; at: number };
@@ -14,7 +14,6 @@ export type Invited = { kind: Kind; invite: string; addr: string };
 
 export type State = {
   list: Listed | Err | null;
-  kst: Record<string, KState | Err>;
   passes: Pass[] | Err | null;
   gh: Gh | Err | null;
   ghCode: string;
@@ -29,8 +28,6 @@ export type State = {
   confirm: string | null;
   busy: string;
   notes: Record<string, { text: string; tone?: Tone }>;
-  /** сколько открыто вкладок, которым нужны ответы машин: машина пришла в roster — спросить её */
-  releasesOpen: number;
 };
 
 export type SettingsStore = ReturnType<typeof createSettingsStore>;
@@ -38,13 +35,15 @@ export type SettingsStore = ReturnType<typeof createSettingsStore>;
 export function createSettingsStore() {
   let app: App;
   const store = createStore<State>(
-    { list: null, kst: {}, passes: null, gh: null, ghCode: "", posting: null, rtab: "machines", rm: null, rsel: {}, rq: "", gq: "", inviting: null, invited: null, confirm: null, busy: "", notes: {}, releasesOpen: 0 },
+    { list: null, passes: null, gh: null, ghCode: "", posting: null, rtab: "machines", rm: null, rsel: {}, rq: "", gq: "", inviting: null, invited: null, confirm: null, busy: "", notes: {} },
     () => app.changed(),
   );
+  /** Ответы keeper'ов: один владелец на все экраны, «Машины» берут их меткой keeper.answers. */
+  let keeper: MachineAnswers<KState>;
   const note = (k: string, text: string, tone?: Tone) => store.set((s) => void (s.notes[k] = { text, tone }));
   const machines = () => (app.roster()?.machines ?? []).map((m) => m.machine);
   /** Данные правил выпусков: выборка сравнивается по содержимому, ветви снимка — по ссылке. */
-  const releaseData = (): ReleaseData => ({ list: store.get().list, kst: store.get().kst, online: machines() });
+  const releaseData = (): ReleaseData => ({ list: store.get().list, kst: keeper.get(), online: machines() });
 
   // ───────── данные ─────────
   async function loadList() {
@@ -52,11 +51,7 @@ export function createSettingsStore() {
     const r = await app.request<Listed>("releases.list");
     store.set((s) => void (s.list = r.ok ? r.result : { error: r.error }));
   }
-  async function loadKeeper(m: string) {
-    // keeper машины отвечает сам, даже когда Host мёртв
-    const r = await app.request<KState>("keeper.state", { to: `.keeper@${m}` });
-    store.set((s) => void (s.kst[m] = r.ok ? r.result : { error: r.error }));
-  }
+  const loadKeeper = (m: string) => keeper.reload(m);
   async function loadReleases() {
     await Promise.all([loadList(), ...machines().map(loadKeeper)]);
   }
@@ -88,12 +83,13 @@ export function createSettingsStore() {
     machines,
     start(a: App) {
       app = a;
+      // keeper машины отвечает сам, даже когда Host мёртв
+      keeper ??= machineAnswers<KState>(app, (m) => app.request<KState>("keeper.state", { to: `.keeper@${m}` }));
     },
-    /** Машина пришла (или вернулась) при открытой вкладке — её keeper; закрытая вкладка спросит сама. */
-    onRoster(r: Roster) {
-      const s = store.get();
-      for (const { machine } of r.machines) if (s.releasesOpen && !Object.hasOwn(s.kst, machine)) void loadKeeper(machine);
-    },
+    /** Машина пришла или вернулась при открытом экране — её keeper. */
+    onRoster: (r: Roster) => keeper.onRoster(r),
+    /** Ответы keeper'ов для других модулей. */
+    keeper: () => keeper,
 
     // ───────── экран ─────────
     /** Открытие экрана: машина и код GitHub из адреса. */
@@ -106,9 +102,8 @@ export function createSettingsStore() {
     /** Вкладка открыта: ответы её владельцев. Возврат — вкладка закрыта. */
     openTab(tab: "releases" | "passes" | "general"): () => void {
       if (tab === "releases") {
-        store.set((s) => void s.releasesOpen++);
-        void loadReleases();
-        return () => store.set((s) => void s.releasesOpen--);
+        void loadList();
+        return keeper.mount();
       }
       void loadPasses();
       if (tab === "general" && app.wide) void loadGithub();

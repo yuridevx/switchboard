@@ -55,7 +55,7 @@ function MachineRow({ m, name, a }: Entry & { m: string }) {
   const app = useApp();
   const store = useAccounts();
   const sc = useScreen();
-  const list = app.use(() => store.state().slots[m]) ?? {};
+  const list = app.use(() => store.slotsOf(m)) ?? {};
   const can = app.use(() => ({ swap: app.can(m, "slot.swap"), login: app.can(m, "machine.login"), remove: app.can(m, "machine.account_remove") }));
   const inSlots = slotsWith(list, name);
   const reserve = Object.entries(list).find(([, s]) => s.account !== name && s.order.includes(name))?.[0];
@@ -89,7 +89,7 @@ function AccountCard({ id, list, sessions }: { id: string; list: Entry[]; sessio
   const app = useApp();
   const store = useAccounts();
   const { dlg } = useScreen();
-  const slots = app.use(() => store.state().slots);
+  const slots = app.use(store.allSlots);
   const first = list[0].a;
   // окна — запись одной машины, как пришла: первая машина, у которой они есть
   const src = list.find((x) => Object.keys(x.a.limits ?? {}).length);
@@ -130,10 +130,10 @@ export function AccountsView() {
   const app = useApp();
   const store = useAccounts();
   const { dlg } = useScreen();
-  const accs = app.use(() => store.state().accs);
+  const accs = app.use(store.allAccs);
   const logins = app.use(() => store.state().logins);
-  const loaded = app.use(() => store.state().loaded);
-  const refused = app.use(() => Object.keys(store.state().refused).some((k) => k.endsWith("machine.accounts")));
+  const loaded = app.use(store.loaded);
+  const refused = app.use(() => Object.keys(store.refused()).some((k) => k.endsWith("machine.accounts")));
   const sessions = app.use(() => app.roster()?.sessions ?? []);
   const groups = useMemo(() => {
     const out = new Map<string, Entry[]>();

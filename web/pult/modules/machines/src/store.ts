@@ -1,6 +1,6 @@
 // Состояние машин: ответы keeper, итоги перезапуска и ушедшие машины. Roster их больше не несёт — помнит, пока страница открыта.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, type MachineAnswers } from "@switchboard/web-ui";
 
 export type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 export type KeeperState = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
@@ -10,35 +10,30 @@ export type Mst = "ok" | "fail" | "gone";
 type Notice = { text: string; tone: "ok" | "bad" | "wait" | undefined };
 
 type State = {
-  states: Record<string, KeeperReply>;
   notes: Record<string, Notice>;
-  /** since машины в последнем roster: вернулась — keeper спрашиваем заново */
-  seen: Record<string, number>;
+  /** машины последнего roster: какой не стало — ушла */
+  seen: Record<string, true>;
   /** машина ушла из roster, пока страница открыта: когда */
   gone: Record<string, number>;
-  /** сколько экранов открыто: при открытом экране вернувшейся машине спрашиваем keeper */
-  opened: number;
 };
 
 /** Ответ keeper, если он без отказа. */
 export const okOf = (st: KeeperReply | null | undefined): KeeperState | null => (st && !("error" in st) ? st : null);
 
-export function stateOf(m: string, states: State["states"], gone: State["gone"]): Mst {
+export function stateOf(m: string, states: Readonly<Record<string, KeeperReply>>, gone: State["gone"]): Mst {
   if (gone[m] !== undefined) return "gone";
   return (okOf(states[m])?.parts ?? []).some((p) => p.state === "failed") ? "fail" : "ok";
 }
+
+const NONE: Readonly<Record<string, KeeperReply>> = {};
 
 export type MachinesStore = ReturnType<typeof createMachinesStore>;
 
 export function createMachinesStore() {
   let app: App;
-  const store = createStore<State>({ states: {}, notes: {}, seen: {}, gone: {}, opened: 0 }, () => app.changed());
-
-  /** Keeper машины отвечает сам, даже когда Host мёртв. */
-  async function load(m: string) {
-    const r = await app.request<KeeperState>("keeper.state", { to: `.keeper@${m}` });
-    store.set((s) => void (s.states[m] = r.ok ? r.result : { error: r.error }));
-  }
+  /** Ответы keeper'ов — у владельца, модуля настроек; своей копии нет. */
+  const keeper = () => app.mark("keeper.answers") as MachineAnswers<KeeperState> | undefined;
+  const store = createStore<State>({ notes: {}, seen: {}, gone: {} }, () => app.changed());
 
   const note = (k: string, text: string, tone?: "ok" | "bad") => store.set((s) => void (s.notes[k] = { text, tone }));
 
@@ -48,24 +43,16 @@ export function createMachinesStore() {
     },
     onRoster(r: Roster) {
       const now = new Set(r.machines.map((m) => m.machine));
-      const ask: string[] = [];
       store.set((s) => {
         for (const m of Object.keys(s.seen)) if (!now.has(m) && s.gone[m] === undefined) s.gone[m] = Date.now();
         for (const m of r.machines) {
           delete s.gone[m.machine];
-          // вернулась (since другой) или впервые появилась — при открытом экране спросить её keeper
-          if (s.opened > 0 && s.seen[m.machine] !== m.since) ask.push(m.machine);
-          s.seen[m.machine] = m.since;
+          s.seen[m.machine] = true;
         }
       });
-      for (const m of ask) void load(m);
     },
     /** Экран открыт: спросить keeper всех машин; возврат — экран закрыт. */
-    mount(): () => void {
-      store.set((s) => void s.opened++);
-      for (const m of app.roster()?.machines ?? []) void load(m.machine);
-      return () => store.set((s) => void s.opened--);
-    },
+    mount: () => keeper()?.mount() ?? (() => {}),
     /** Перезапуск упавшей части — планом машины: выключить и включить; keeper исполняет. */
     async restart(m: string, part: string) {
       const k = `part:${m}:${part}`;
@@ -75,9 +62,9 @@ export function createMachinesStore() {
       const on = await app.request("releases.set", { machine: m, part, on: true });
       if (!on.ok) return note(k, `releases.set: ${on.error}`, "bad");
       note(k, "выключена и включена по плану", "ok");
-      void load(m);
+      void keeper()?.reload(m);
     },
-    states: () => store.get().states,
+    states: () => keeper()?.get() ?? NONE,
     gone: () => store.get().gone,
     note: (k: string) => store.get().notes[k] ?? null,
   };

@@ -31,6 +31,7 @@ export function createSettings(): AppModule {
           TABS.filter(([, l]) => !q || l.toLowerCase().includes(q)).map(([tab, l]) => ({ label: `Настройки: ${l.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
       },
     },
+    marks: { "keeper.answers": () => settings.keeper() },
     css,
     start: settings.start,
   };

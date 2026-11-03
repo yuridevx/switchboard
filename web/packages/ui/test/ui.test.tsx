@@ -48,6 +48,31 @@ describe("ответы машин", () => {
     expect(asked).toEqual(["a"]);
   });
 
+  it("6240 · второй экран рядом ответы не спрашивает заново: один запрос на машину; закрылись оба — снова спросит", async () => {
+    const { m, asked } = setup();
+    const a = m.mount();
+    const b = m.mount();
+    await act(async () => {});
+    expect(asked).toEqual(["a"]);
+    expect(m.isOpen()).toBe(true);
+    a();
+    b();
+    expect(m.isOpen()).toBe(false);
+    m.mount();
+    await act(async () => {});
+    expect(asked).toEqual(["a", "a"]);
+  });
+
+  it("6241 · put кладёт известный ответ без запроса; reload с how спрашивает другим запросом", async () => {
+    const { m, asked } = setup();
+    m.put("a", 7);
+    expect(m.get().a).toBe(7);
+    expect(asked).toEqual([]);
+    await act(async () => m.reload("a", async () => ({ ok: true, result: 9 })));
+    expect(m.get().a).toBe(9);
+    expect(asked).toEqual([]);
+  });
+
   it("6231 · при открытом экране: пришла новая и вернулась прежняя — спрошены; та же — нет; отказ — словом", async () => {
     const { m, asked, setRoster } = setup();
     const r0 = rosterOf([["a", 1]]);

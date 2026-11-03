@@ -13,32 +13,41 @@ export type MachineAnswer<T> = T | { error: string };
 export type MachineAnswers<T> = {
   /** снимок ответов по машинам */
   get(): Readonly<Record<string, MachineAnswer<T>>>;
-  /** экран открыт: спросить все машины; возврат — экран закрыт */
+  /** экран открыт: спросить все машины (второй открытый рядом не спрашивает ещё раз); возврат — экран закрыт */
   mount(): () => void;
+  /** открыт ли экран */
+  isOpen(): boolean;
   /** новый roster: машину, которая пришла или вернулась при открытом экране, спросить */
   onRoster(r: Roster): void;
-  /** спросить одну машину заново */
-  reload(machine: string): Promise<void>;
+  /** спросить одну машину заново; how — другой запрос вместо обычного (с другими полями) */
+  reload(machine: string, how?: (machine: string) => Promise<Answer<T>>): Promise<void>;
+  /** положить ответ, известный без запроса: итог своего действия */
+  put(machine: string, value: T): void;
 };
 
 /** machines — кого спрашивать; по умолчанию все машины roster. */
 export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promise<Answer<T>>, machines: () => string[] = () => (app.roster()?.machines ?? []).map((m) => m.machine)): MachineAnswers<T> {
   const store = createStore<{ answers: Record<string, MachineAnswer<T>>; opened: number; seen: Record<string, unknown> }>({ answers: {}, opened: 0, seen: {} }, () => app.changed());
 
-  async function reload(machine: string) {
-    const r = await ask(machine);
+  const put = (machine: string, value: MachineAnswer<T>) =>
     store.set((s) => {
-      (s.answers as Record<string, MachineAnswer<T>>)[machine] = r.ok ? r.result : { error: r.error };
+      (s.answers as Record<string, MachineAnswer<T>>)[machine] = value;
     });
+
+  async function reload(machine: string, how = ask) {
+    const r = await how(machine);
+    put(machine, r.ok ? r.result : { error: r.error });
   }
 
   return {
     get: () => store.get().answers,
     mount() {
+      const first = !store.get().opened;
       store.set((s) => void s.opened++);
-      for (const m of machines()) void reload(m);
+      if (first) for (const m of machines()) void reload(m);
       return () => store.set((s) => void s.opened--);
     },
+    isOpen: () => store.get().opened > 0,
     onRoster(r) {
       const allowed = new Set(machines());
       const { opened, seen } = store.get();
@@ -47,5 +56,6 @@ export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promis
       if (opened) for (const m of fresh) if (allowed.has(m.machine)) void reload(m.machine);
     },
     reload,
+    put,
   };
 }

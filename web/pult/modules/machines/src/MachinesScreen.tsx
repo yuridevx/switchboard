@@ -12,7 +12,7 @@ export function MachinesScreen() {
   const app = useApp();
   const machines = useMachines();
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<Filter>(() => (app.mark("project.current") ? "project" : "all"));
+  const [chosen, setFilter] = useState<Filter>(() => (app.mark("project.current") ? "project" : "all"));
   const [open, setOpen] = useState<string | null>(null);
   const toggle = useCallback((m: string) => setOpen((old) => (old === m ? null : m)), []);
   const states = app.use(machines.states);
@@ -21,8 +21,8 @@ export function MachinesScreen() {
   const proj = app.use(() => app.mark("project.current"));
   const pm = app.use(() => (proj ? (app.mark("project.machines", proj) ?? []) : []));
   useEffect(() => machines.mount(), [machines]);
-  // проект закрыт — фильтра по нему нет: поправка состояния при рисовании
-  if (filter === "project" && !proj) setFilter("all");
+  // проект закрыт — фильтра по нему нет; проект открылся снова — фильтр вернулся
+  const filter = chosen === "project" && !proj ? "all" : chosen;
   const all = [...new Set([...names, ...Object.keys(gone)])];
   const F: Record<Filter, [string, (m: string) => boolean]> = {
     project: [proj ? `в проекте ${proj}` : "", (m) => pm.includes(m)],

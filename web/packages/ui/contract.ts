@@ -9,7 +9,7 @@ export * from "./src/format.ts";
 export { personal } from "./src/personal.ts";
 export { useLoad, useNow } from "./src/hooks.ts";
 export { machineAnswers } from "./src/machines.ts";
-export type { MachineAnswers } from "./src/machines.ts";
+export type { MachineAnswer, MachineAnswers } from "./src/machines.ts";
 export { createStore } from "./src/store.ts";
 export type { Store } from "./src/store.ts";
 export type { Personal, Scope } from "./src/personal.ts";

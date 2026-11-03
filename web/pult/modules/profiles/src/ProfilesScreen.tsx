@@ -10,7 +10,7 @@ export function ProfilesScreen() {
   const profiles = useProfiles();
   const { all, repos, errors, machines } = app.use(profiles.summary);
   const [q, setQ] = useState("");
-  const [onlyCf, setOnlyCf] = useState(false);
+  const [wantCf, setOnlyCf] = useState(false);
   const [exp, setExp] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
@@ -24,10 +24,10 @@ export function ProfilesScreen() {
 
   const ql = q.trim().toLowerCase();
   const ncf = all.filter((r) => r.cf.length).length;
-  // конфликтов не осталось — фильтр снят: поправка состояния при рисовании
-  if (!ncf && onlyCf) setOnlyCf(false);
+  // конфликтов не осталось — фильтра нет; появились снова — фильтр вернулся
+  const onlyCf = wantCf && ncf > 0;
   const shown = all
-    .filter((r) => (!ql || `${r.id} ${r.about}`.toLowerCase().includes(ql)) && (!(onlyCf && ncf) || r.cf.length))
+    .filter((r) => (!ql || `${r.id} ${r.about}`.toLowerCase().includes(ql)) && (!onlyCf || r.cf.length))
     .sort((a, b) => (b.cf.length ? 1 : 0) - (a.cf.length ? 1 : 0) || short(a.id).localeCompare(short(b.id)));
   return (
     <div className={"pf" + (app.wide ? " wide" : "")}>

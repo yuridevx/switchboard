@@ -1,5 +1,5 @@
 // Экран инцидентов: не доставленные обращения и сессии с инцидентом. Строка читает только своё и перерисовывается одна.
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { Btn, Dot, hhmm, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel } from "@switchboard/web-ui";
@@ -69,7 +69,7 @@ export function IncidentsScreen() {
   const refused = app.use(incidents.refused);
   const words = useMemo(() => Object.entries(refused), [refused]);
   useEffect(() => void incidents.load(), [incidents]);
-  const pick = (k: string) => setPicked((old) => (old === k ? "" : k));
+  const pick = useCallback((k: string) => setPicked((old) => (old === k ? "" : k)), []);
   return (
     <Page>
       <PageHead title={app.wide ? "Инциденты" : undefined}>

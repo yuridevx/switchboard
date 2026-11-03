@@ -187,6 +187,18 @@ describe("эталоны пульта: машины", () => {
     return { t, relay, setHost: (m: string, v: { version: string; state: string; error?: string }) => (host = { ...host, [m]: v }) };
   }
 
+  it("6243 · ответы keeper одни на «Машины» и «Настройки»: новые «Настройки» сразу видят полученное «Машинами», пока их запрос идёт", async () => {
+    // источник: гейт архитектора «дубликат состояния не пропускается»; ответы — метка keeper.answers модуля настроек
+    const { t, relay } = await machines();
+    relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [], rev: 1, modules: {} } });
+    expect(relay.sent("keeper.state")).toHaveLength(2);
+    relay.handlers["keeper.state"] = () => undefined; // второй раз keeper не отвечает
+    await t.go("#settings?tab=releases");
+    await flush(10);
+    expect(relay.sent("keeper.state")).toHaveLength(4);
+    expect(t.root.textContent).toContain("rev 44");
+  });
+
   it("195 · машины: keeper.state от .keeper@машина — части с версиями и состоянием; failed — причиной; кнопки обновления нет; машина вернулась — keeper.state заново", async () => {
     const { t, relay, setHost } = await machines();
     expect(relay.sent("keeper.state").map((f) => f.to)).toEqual([".keeper@laptop", ".keeper@pc"]);

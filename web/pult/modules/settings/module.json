@@ -1,13 +1,14 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "2.0.3",
+  "version": "2.1.0",
   "into": [
     "pult",
     "phone"
   ],
   "provides": {
-    "settings": 1
+    "settings": 1,
+    "keeper.answers": 1
   },
   "uses": {
     "view@web-view": 19,

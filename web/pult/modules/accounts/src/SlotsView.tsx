@@ -1,9 +1,9 @@
 // Вид «Слоты»: слоты выбранной машины, запас по порядку, смена сейчас и новый слот.
 import { useState } from "react";
 import { useApp } from "@switchboard/web-core";
-import { Btn, H4, Hint, hhmm, In, M, Note, Opts, PickOne, plural, Sec, Sel } from "@switchboard/web-ui";
+import { Btn, H4, Hint, hhmm, In, M, Note, Opts, PickOne, plural, Sec, Sel, LIMIT_NAMES } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
-import { NoteLine, Refused, Shared, WIN, Windows } from "./parts.tsx";
+import { NoteLine, Refused, Shared, Windows } from "./parts.tsx";
 import type { Account, Slot } from "./store.ts";
 
 const NONE: Record<string, Account> = {};
@@ -12,7 +12,7 @@ function SlotCard({ m, name, s }: { m: string; name: string; s: Slot }) {
   const app = useApp();
   const store = useAccounts();
   const sc = useScreen();
-  const a = app.use(() => store.state().accs[m]) ?? NONE;
+  const a = app.use(() => store.accsOf(m)) ?? NONE;
   const [pick, setPick] = useState("");
   const others = s.order.filter((x) => x !== s.account);
   const now = others.includes(pick) ? pick : "";
@@ -47,7 +47,7 @@ function SlotCard({ m, name, s }: { m: string; name: string; s: Slot }) {
       {s.order.map((x, i) => (
         <div key={x} className="ac-ord">
           <b>{x}</b>
-          <Hint>{Object.entries(a[x]?.limits ?? {}).map(([k, w]) => `${WIN[k] ?? k} ${Math.round(w.utilization * 100)} %`).join(" · ")}</Hint>
+          <Hint>{Object.entries(a[x]?.limits ?? {}).map(([k, w]) => `${LIMIT_NAMES[k] ?? k} ${Math.round(w.utilization * 100)} %`).join(" · ")}</Hint>
           <Shared m={m} account={x} except={name} />
           <Btn aria-label={`${x} выше`} disabled={i === 0} onClick={() => move(i, -1)}>
             ↑
@@ -101,7 +101,7 @@ function NewSlot({ m }: { m: string }) {
   const app = useApp();
   const store = useAccounts();
   const sc = useScreen();
-  const a = app.use(() => store.state().accs[m]) ?? NONE;
+  const a = app.use(() => store.accsOf(m)) ?? NONE;
   const [name, setName] = useState("");
   const [chosen, setChosen] = useState("");
   const ready = Object.keys(a).filter((x) => a[x].login === "ok");
@@ -138,7 +138,7 @@ export function SlotsView() {
   const sc = useScreen();
   const ms = app.use(() => store.machines("machine.slots"));
   const m = sc.slotMachine;
-  const list = app.use(() => store.state().slots[m]);
+  const list = app.use(() => store.slotsOf(m));
   return (
     <>
       {/* кнопками — выбранная и машины открытого проекта, остальные — списком */}

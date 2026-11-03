@@ -25,12 +25,16 @@ export function b64url(s: string): Uint8Array {
   return Uint8Array.from(b, (c) => c.charCodeAt(0));
 }
 
+/** Предел ожидания обработчика пушей: он не поднялся — отказ словом, а не вечное «включаю». */
+export const READY_MS = 10_000;
+
 export type AlertsStore = ReturnType<typeof createAlertsStore>;
 
 /** browser — API пушей браузера (по умолчанию глобальные). */
 export function createAlertsStore(browser?: BrowserPush) {
   let app: App;
-  const store = createStore<{ state: AlertsState; error: string; listening: boolean }>({ state: "off", error: "", listening: false }, () => app.changed());
+  const store = createStore<{ state: AlertsState; error: string }>({ state: "off", error: "" }, () => app.changed());
+  let listening = false;
 
   const env = (): BrowserPush =>
     browser ?? {
@@ -42,6 +46,17 @@ export function createAlertsStore(browser?: BrowserPush) {
     return !!e.sw && !!e.Notification && (browser !== undefined || "PushManager" in globalThis);
   };
   const setState = (state: AlertsState) => store.set((s) => void (s.state = state));
+
+  /** Регистрация обработчика с пределом; не успел — null. */
+  async function ready(e: BrowserPush) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), READY_MS)));
+    try {
+      return await Promise.race([e.sw!.ready, late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
 
   /** Пуши из раздела pushes — ядру: владелец кадра рисует его как пришедший по связи. */
   async function takePushes() {
@@ -59,8 +74,8 @@ export function createAlertsStore(browser?: BrowserPush) {
     if (e.Notification!.permission === "denied") setState("denied");
     else if (e.Notification!.permission !== "granted") setState("ask");
     else {
-      const reg = await e.sw!.ready;
-      setState((await reg.pushManager.getSubscription()) ? "on" : "ask");
+      const reg = await ready(e);
+      setState(reg && (await reg.pushManager.getSubscription()) ? "on" : "ask");
     }
   }
 
@@ -86,7 +101,8 @@ export function createAlertsStore(browser?: BrowserPush) {
       if (perm !== "granted") return setState(perm === "denied" ? "denied" : "ask");
       const k = await app.request<{ key: string }>("push.key");
       if (!k.ok) return fail(k.error);
-      const reg = await e.sw!.ready;
+      const reg = await ready(e);
+      if (!reg) return fail("обработчик пушей не поднялся");
       let sub: { toJSON(): unknown };
       try {
         sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(k.result.key) });
@@ -101,8 +117,8 @@ export function createAlertsStore(browser?: BrowserPush) {
     async start(a: App) {
       app = a;
       const e = env();
-      if (e.sw && !store.get().listening) {
-        store.set((s) => void (s.listening = true));
+      if (e.sw && !listening) {
+        listening = true;
         // обработчик открыл уже открытое окно — пуши забрать сразу
         e.sw.addEventListener("message", (m) => {
           if (m.data === "pushes") void takePushes();
