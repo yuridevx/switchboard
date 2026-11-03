@@ -7,7 +7,7 @@ import type {} from "@switchboard/web-board";
 import type {} from "@switchboard/web-chat";
 import type {} from "@switchboard/web-labels";
 import { machineOf } from "@switchboard/protocol";
-import { Dot, hhmm, projectOf } from "@switchboard/web-ui";
+import { Dot, hhmm } from "@switchboard/web-ui";
 import css from "./inbox.css";
 
 type Kind = "q" | "msg" | "fail" | "wait" | "away" | "fire" | "done";
@@ -81,13 +81,14 @@ export function createInbox(): AppModule {
   /** Заголовок карточки: лампа, позывной (открыть) и что случилось. */
   function CardHead({ s, dot, label }: { s: SessionRecord; dot: string; label: string }) {
     const name = app.use(() => app.mark("label.session", s.callsign)?.text ?? s.callsign);
+    const project = app.use(() => app.mark("project.of", s.callsign)?.name ?? "");
     return (
       <div className="ib-ih">
         <Dot kind={dot} />
         <button className="ib-cs" onClick={() => app.open("card", { callsign: s.callsign })}>
           {name}
         </button>
-        <span className="ib-lb">{[label, projectOf(s.dir)].filter(Boolean).join(" · ")}</span>
+        <span className="ib-lb">{[label, project].filter(Boolean).join(" · ")}</span>
       </div>
     );
   }

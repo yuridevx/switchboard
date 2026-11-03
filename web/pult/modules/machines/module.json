@@ -1,7 +1,7 @@
 {
   "name": "pult-machines",
   "type": "web",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "into": [
     "pult",
     "phone"
@@ -18,8 +18,8 @@
     "accounts@pult-accounts": 1,
     "keeper.state@keeper": 1,
     "releases.set@releases": 1,
-    "project.current@web-board": 1,
-    "project.machines@web-board": 1,
+    "project.current@web-board": 2,
+    "project.machines@web-board": 2,
     "settings@pult-settings": 1
   },
   "config": {}

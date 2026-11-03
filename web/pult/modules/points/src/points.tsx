@@ -7,7 +7,7 @@ import type { App, AppModule, ScreenProps, SessionRecord } from "@switchboard/we
 import type {} from "@switchboard/web-board";
 import type {} from "@switchboard/web-labels";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, H4, hhmm, In, M, Note, Opts, OptsLabel, Page, PageHead, PickOne, plural, projectOf, Row, Sec } from "@switchboard/web-ui";
+import { Btn, H4, hhmm, In, M, Note, Opts, OptsLabel, Page, PageHead, PickOne, plural, Row, Sec } from "@switchboard/web-ui";
 import css from "./points.css";
 
 type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
@@ -128,14 +128,18 @@ export function createPoints(): AppModule {
 
   const online = () => new Set((app.roster()?.machines ?? []).map((m) => m.machine));
   const live = () => new Set((app.roster()?.sessions ?? []).map((s) => s.callsign));
+  /** Поднятая сессия встаёт в проект исходной: команду записи держит «Работа». */
+  function keepProject(from: string | null | undefined, to: string) {
+    const project = from ? app.mark("project.of", from)?.id : undefined;
+    if (project && project !== "~") app.open("board.assign", { callsign: to, project });
+  }
   const raisers = () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["points.raise"] !== undefined).map((m) => m.machine);
 
   /** Выбор машины подъёма: выбранная и машины проекта сессии (метки web-board) — кнопками, остальные — списком. */
   function PickMachine({ cur, callsign, on }: { cur: string; callsign: string | undefined; on(m: string): void }) {
     const pm = app.use(() => {
-      const s = callsign ? app.roster()?.sessions.find((x) => x.callsign === callsign) : undefined;
-      const project = s ? projectOf(s.dir) : null;
-      return project ? (app.mark("project.machines", project) ?? []) : [];
+      const project = callsign ? app.mark("project.of", callsign)?.id : null;
+      return project && project !== "~" ? (app.mark("project.machines", project) ?? []) : [];
     });
     const all = app.use(raisers);
     return (
@@ -237,6 +241,7 @@ export function createPoints(): AppModule {
       for (const [i, r] of f.rows.entries()) {
         setSt(i, "поднимается…");
         const x = await app.request<{ callsign: string }>("points.raise", { machine: f.target, sid: r.s.sid, point: r.s.head.id, dir: r.dir, ...(r.slot ? { slot: r.slot } : {}), files: "point" });
+        if (x.ok) keepProject(r.s.callsign, x.result.callsign);
         setSt(i, x.ok ? `готова — ${x.result.callsign}` : x.error === "not_owner" ? "уже подняли на другой машине" : `не поднялась: ${say(x.error)}`, x.ok ? 1 : 0);
       }
       void loadFleet();
@@ -246,7 +251,10 @@ export function createPoints(): AppModule {
       setMove((m) => m && { ...m, phase: "run", msg: `${d.target} поднимает сессию из точки…` });
       const x = await app.request<{ callsign: string }>("points.raise", { machine: d.target, sid: d.s.sid, point: d.s.head.id, dir: d.dir, ...(d.slot ? { slot: d.slot } : {}), files: "point" });
       setMove((m) => m && { ...m, phase: x.ok ? "done" : "err", msg: x.ok ? `${nameOf(d.s.callsign ?? "")} поднята: ${x.result.callsign}` : say(x.error, "", d.target) });
-      if (x.ok) void loadFleet();
+      if (x.ok) {
+        keepProject(d.s.callsign, x.result.callsign);
+        void loadFleet();
+      }
     }
     async function openMove(s: FleetSession) {
       const target = raisers()[0] ?? "";
@@ -600,6 +608,7 @@ export function createPoints(): AppModule {
       if (d.slot && (d.kind === "move" || d.kind === "copy")) body.slot = d.slot;
       const r = await app.request<{ callsign: string; point: number; folder: string; branch: string | null }>("points.raise", body);
       if (!r.ok) return fail(r.error);
+      keepProject(callsign, r.result.callsign);
       if (d.kind === "dir") {
         step(`«Забыть» ${callsign}…`);
         const rm = await app.request("session.remove", { callsign });

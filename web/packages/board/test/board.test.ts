@@ -9,7 +9,7 @@ import { createChat, manifest as chatM } from "@switchboard/web-chat";
 import { createLabels, manifest as labelsM } from "@switchboard/web-labels";
 import { memoryStore } from "@switchboard/web-core";
 import { createBoard, manifest as boardM } from "../contract.ts";
-import { orderFilters, placeTop } from "../src/rules.ts";
+import { orderFilters } from "../src/rules.ts";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
@@ -42,7 +42,23 @@ type T = Awaited<ReturnType<typeof stand>>;
 const rows = (t: T) => t.$$(".bd-row").map((x) => x.dataset.callsign);
 const projects = (t: T) => t.$$(".pjs").map((x) => x.dataset.proj);
 const chips = (t: T) => t.$$(".fscroll > .fc").map((x) => x.dataset.fid);
-const relayWith = (values: Record<string, unknown> = {}) => Object.assign(new FakeRelay(fleet()), { values });
+/** Запись проектов флота: проект — группа, собранная вручную; здесь она совпала с папками. */
+const PROJECTS = () => [
+  { id: "switchboard", name: "switchboard", sessions: ["migrate@laptop", "refactor@laptop", "tests@pc", "build@build"] },
+  { id: "pfarm", name: "pfarm", sessions: ["api@pc", "docs@pc"] },
+  { id: "notes", name: "notes", sessions: ["note@pc"] },
+];
+const relayWith = (values: Record<string, unknown> = {}, projects: unknown = PROJECTS()) => Object.assign(new FakeRelay(fleet()), { values, scoped: { global: { "fleet.projects": projects } } as Record<string, Record<string, unknown>> });
+/** Записи области флота поверх записи проектов. */
+const withLabels = (labels: unknown, values: Record<string, unknown> = {}) => {
+  const relay = relayWith(values);
+  relay.scoped.global["fleet.labels"] = labels;
+  return relay;
+};
+const press = async (el: Element, key: string) => {
+  el.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+  await flush(3);
+};
 const start = (o: Parameters<typeof stand>[1] = {}) => stand(parts(), { relay: relayWith(), ...o }).then(async (t) => (await flush(5), t));
 
 beforeEach(() => {
@@ -52,11 +68,10 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("список", () => {
-  it("5210 · проект — последнее имя папки на любой машине; разделы: ждёт вас → работает → остальные; число сессий в заголовке", async () => {
+  it("5210 · проект — последнее имя папки на любой машине; разделы: ждёт вас → работает → остальные; числа сессий в заголовке нет (слово пользователя 3 нояб.: «цифер не нужно»)", async () => {
     const t = await start();
     expect(projects(t)).toEqual(["switchboard", "pfarm"]);
-    expect(t.$('.pjs[data-proj="switchboard"] .pj-t .n')!.textContent).toBe("4");
-    expect(t.$('.pjs[data-proj="pfarm"] .pj-t .n')!.textContent).toBe("1");
+    expect(t.$(".pj-t .n")).toBeNull();
   });
 
   it("5211 · «Моё»: чужой сессии нет (чьё: код — whyMine); во «Всё» — владелец вместо метки «чужая», чужая дочь чужой — тоже", async () => {
@@ -92,7 +107,8 @@ describe("список", () => {
   it("5213 · дочь — сразу под родителем с отступом (чьё: код — tree); без «Дочерних» — ровный список", async () => {
     const r = fleet();
     r.sessions[1] = { ...r.sessions[1], callsign: "tests@laptop" };
-    const t = await start({ relay: new FakeRelay(r) });
+    const t = await start({ relay: Object.assign(new FakeRelay(r), { scoped: { global: { "fleet.projects": [{ id: "switchboard", name: "switchboard", sessions: ["migrate@laptop", "refactor@laptop", "build@build"] }] } } }) });
+    // дочерняя без своего места — в проекте родителя, под ним
     expect(rows(t).slice(0, 4)).toEqual(["migrate@laptop", "refactor@laptop", "tests@laptop", "build@build"]);
     const kid = t.$('[data-callsign="tests@laptop"]')!;
     expect(kid.className).toBe("bd-row kid");
@@ -249,7 +265,7 @@ describe("фильтры", () => {
   });
 
   it("5223 · окно фильтра — одна строка поиска: поле без совпадений свёрнуто, выбранное видно всегда; имена — вместо адреса", async () => {
-    const relay = relayWith({ "web-labels.names": { machines: { pc: "Домашний ПК" } } });
+    const relay = withLabels({ machines: { pc: "Домашний ПК" } });
     const t = await start({ relay });
     await t.click(t.$(".fc.add"));
     await t.click(t.$('[data-field="projects"] [data-v="pfarm"]'));
@@ -279,65 +295,90 @@ describe("фильтры", () => {
 });
 
 describe("порядок проектов", () => {
-  it("5230 · закреплённые — сверху в своём порядке, ниже черта; невидимые в фильтре не сдвигаются при перестановке", async () => {
-    expect(placeTop(["a", "hidden", "b"], "c", ["a", "b"], 1)).toEqual(["a", "hidden", "c", "b"]);
-    expect(placeTop(["a", "b"], "b", ["a", "b"], null)).toEqual(["a"]);
-    expect(placeTop([], "x", [], 0)).toEqual(["x"]);
-    const t = await start({ relay: relayWith({ "web-board.top": ["pfarm"] }) });
-    expect(projects(t)).toEqual(["pfarm", "switchboard"]);
-    expect(t.$(".lst > .pin-sep")).not.toBeNull();
-    expect(t.$('.pjs[data-proj="pfarm"]')!.classList.contains("pinned")).toBe(true);
-  });
-
-  it("5231 · стрелки на ручке: вверх — закрепить, ещё вниз — открепить; фокус остаётся на ручке; пишется только web-board.top", async () => {
+  it("6401 · сессия занята → ждёт → свободна: порядок строк и проектов тот же на каждом шаге (слово пользователя)", async () => {
     const relay = relayWith();
     const t = await start({ relay });
-    const press = async (proj: string, key: string) => {
-      const g = t.$(`.grip[data-proj="${proj}"]`)!;
-      g.focus();
-      g.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    await t.click(t.$('.pj-t[data-proj="pfarm"]'));
+    await t.click(t.$(".fc[data-fid=all]"));
+    const was = [projects(t), rows(t)];
+    for (const state of ["busy", "waiting", "idle", "failed"]) {
+      const r = fleet();
+      r.sessions = r.sessions.map((x) => (x.callsign === "build@build" ? { ...x, state } : x));
+      relay.setRoster(r);
       await flush(5);
-    };
-    // 6107 · новый рисунок после перестановки проекта не сбрасывает прокрутку ряда фильтров
-    t.$(".fscroll")!.scrollLeft = 120;
-    await press("switchboard", "ArrowUp");
-    expect(relay.values["web-board.top"]).toEqual(["switchboard"]);
-    expect(t.$(".fscroll")!.scrollLeft).toBe(120);
-    expect(document.activeElement).toBe(t.$('.grip[data-proj="switchboard"]'));
-    await press("pfarm", "ArrowUp");
-    expect(projects(t)).toEqual(["switchboard", "pfarm"]);
-    await press("pfarm", "ArrowUp");
-    expect(projects(t)).toEqual(["pfarm", "switchboard"]);
-    await press("switchboard", "ArrowDown");
-    expect(relay.values["web-board.top"]).toEqual(["pfarm"]);
-    expect(new Set(relay.sent("prefs.set").map((f) => f.name))).toEqual(new Set(["web-board.top"]));
+      expect([projects(t), rows(t)]).toEqual(was);
+    }
   });
 
-  it("5232 · roster при перестановке: список не перерисован, после посадки — один рисунок с новыми данными", async () => {
+  it("6402 · стрелки на ручке переставляют проекты; фокус на ручке; «Без проекта» последний и без ручки", async () => {
+    const relay = relayWith();
+    const r = fleet();
+    r.sessions.push({ callsign: "free@pc", state: "idle", dir: "~", by: "phone~you@mail" } as never);
+    relay.setRoster(r);
+    const t = await start({ relay });
+    expect(projects(t).at(-1)).toBe("~");
+    expect(t.$('.grip[data-proj="~"]')).toBeNull();
+    const grip = t.$('.grip[data-proj="switchboard"]')!;
+    grip.focus();
+    await press(grip, "ArrowDown");
+    await flush(5);
+    expect(projects(t)).toEqual(["pfarm", "switchboard", "~"]);
+    expect((relay.scoped.global["fleet.projects"] as Array<{ id: string }>).map((x) => x.id)).toEqual(["pfarm", "notes", "switchboard"]);
+    expect((document.activeElement as HTMLElement).dataset.proj).toBe("switchboard");
+    // пишется только запись флота
+    expect(relay.sent("prefs.set").every((f) => f.scope === "global")).toBe(true);
+  });
+
+  it("6403 · ⠿ Enter — меню: имя и «Удалить»; 3 сессии уходят в «Без проекта», номера нет в фильтрах, к флоту ни одного запроса", async () => {
+    const relay = relayWith({ "web-board.filters": [{ id: "f1", name: "Ф", projects: ["switchboard", "pfarm"] }] });
+    const t = await start({ relay });
+    await press(t.$('.grip[data-proj="pfarm"]')!, "Enter");
+    await flush(3);
+    const name = t.$<HTMLInputElement>('[data-f="project-name"]')!;
+    expect(name.value).toBe("pfarm");
+    name.value = "Ферма";
+    await press(name, "Enter");
+    await flush(5);
+    expect(t.$('.pjs[data-proj="pfarm"] .nm')!.textContent).toBe("Ферма");
+    await press(t.$('.grip[data-proj="pfarm"]')!, "Enter");
+    await flush(3);
+    const before = relay.sent("session.open").length;
+    await t.click(t.$('[data-act="project-remove"]'));
+    await flush(5);
+    expect((relay.scoped.global["fleet.projects"] as Array<{ id: string }>).map((x) => x.id)).not.toContain("pfarm");
+    expect((relay.values["web-board.filters"] as Array<{ projects: string[] }>)[0].projects).toEqual(["switchboard"]);
+    expect(relay.sent("session.open").length).toBe(before);
+    await t.click(t.$(".fc[data-fid=all]"));
+    await flush(3);
+    expect(projects(t).at(-1)).toBe("~");
+    expect(t.$('.pjs[data-proj="~"]')).not.toBeNull();
+  });
+
+  it("6404 · «Новый проект» — последняя строка; пустой проект виден; проект со скрытыми фильтром сессиями скрыт", async () => {
     const relay = relayWith();
     const t = await start({ relay });
-    const lst = t.$(".lst");
-    t.$(".bd-list")!.classList.add("reordering");
-    relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.filter((s) => s.callsign !== "build@build") });
+    await t.click(t.$('[data-act="project-new"]'));
+    await flush(2);
+    const i = t.$<HTMLInputElement>('[data-f="project-new"]')!;
+    i.value = "Пустой";
+    await press(i, "Enter");
     await flush(5);
-    expect(t.$(".lst")).toBe(lst);
-    t.$(".bd-list")!.classList.remove("reordering");
-    relay.setRoster({ ...relay.roster });
-    await flush(5);
-    expect(rows(t)).not.toContain("build@build");
+    expect(projects(t)).toContain("пустой");
+    // в «Моё» нет сессий notes, она скрыта; пустой виден
+    expect(projects(t)).not.toContain("notes");
+    await t.click(t.$(".fc[data-fid=all]"));
+    await flush(3);
+    expect(projects(t)).toContain("notes");
   });
 
-  it("5233 · roster при фокусе на ручке: фокус на месте, следующая стрелка переставляет дальше", async () => {
+  it("6405 · «+» у проекта несёт его номер; команда после открытия ставит сессию в конец проекта", async () => {
     const relay = relayWith();
     const t = await start({ relay });
-    t.$('.grip[data-proj="pfarm"]')!.focus();
-    relay.setRoster({ ...relay.roster });
-    await flush(5);
-    expect(document.activeElement).toBe(t.$('.grip[data-proj="pfarm"]'));
+    await t.click(t.$('.pj-add[data-proj="pfarm"]'));
+    await flush(3);
+    expect(location.hash).toContain("project=pfarm");
   });
-});
 
-describe("настройки у почты", () => {
   it("5240 · запись — свежий prefs.get и правка: другое устройство дописало фильтр, после моей правки остались оба", async () => {
     const relay = relayWith();
     const t = await start({ relay });
@@ -356,15 +397,14 @@ describe("настройки у почты", () => {
     const relay = relayWith();
     const t = await start({ relay });
     const gets = relay.sent("prefs.get").length;
-    for (const k of ["switchboard", "pfarm", "pfarm"]) {
-      const g = t.$(`.grip[data-proj="${k}"]`)!;
-      g.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    for (const k of ["switchboard", "pfarm", "switchboard"]) {
+      t.$(`.grip[data-proj="${k}"]`)!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     }
     expect(projects(t)).toEqual(["pfarm", "switchboard"]);
     await flush(5);
     expect(relay.sent("prefs.get").length - gets).toBe(1);
     expect(relay.sent("prefs.set")).toHaveLength(1);
-    expect(relay.values["web-board.top"]).toEqual(["pfarm", "switchboard"]);
+    expect((relay.scoped.global["fleet.projects"] as Array<{ id: string }>).map((x) => x.id).indexOf("pfarm")).toBeLessThan((relay.scoped.global["fleet.projects"] as Array<{ id: string }>).map((x) => x.id).indexOf("switchboard"));
   });
 
   it("5245 · выбранный свой фильтр остаётся при отказе prefs: виден «Моё», выбор устройства не стёрт; ответ с фильтром — он снова выбран", async () => {
@@ -402,8 +442,11 @@ describe("настройки у почты", () => {
     const t = await start({ relay });
     expect(chips(t)).toEqual(["mine", "all"]);
     expect(rows(t)).toContain("migrate@laptop");
-    const g = t.$('.grip[data-proj="pfarm"]')!;
-    g.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    await t.click(t.$('[data-act="project-new"]'));
+    await flush(2);
+    const i = t.$<HTMLInputElement>('[data-f="project-new"]')!;
+    i.value = "Новый";
+    await press(i, "Enter");
     await flush(5);
     expect(t.$(".sb-toast")!.textContent).toBe("Настройка не сохранилась: not_user");
     expect(relay.sent("prefs.set")).toHaveLength(0);
@@ -416,7 +459,7 @@ describe("настройки у почты", () => {
     const g = t.$('.grip[data-proj="pfarm"]')!;
     g.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
     await t.run.hide();
-    expect(relay.values["web-board.top"]).toEqual(["pfarm"]);
+    expect((relay.scoped.global["fleet.projects"] as Array<{ id: string }>)[0].id).toBe("pfarm");
   });
 
   it("5244 · закрепление сессии: чужая — «Закрепить» в карточке; закреплена — в «Моём» с причиной и значком, у почты", async () => {
@@ -450,7 +493,6 @@ describe("вид списка", () => {
       ['[data-v="prof"]', ".bd-t2 .bd-pill"],
       ['[data-v="grip"]', ".grip"],
       ['[data-v="add"]', ".pj-add"],
-      ['[data-v="pjcount"]', ".pj-t .n"],
       ['[data-v="fcount"]', ".fc .n"],
       ['[data-v="badge"]', ".bd-row .sb-badge"],
     ];
@@ -468,7 +510,7 @@ describe("вид списка", () => {
     expect(t2.$(".grip")).not.toBeNull();
   });
 
-  it("5251 · без «По проектам» — плоский список в любом фильтре: ждут вас → работают → по имени, проект — в строке; «По машинам» недоступно", async () => {
+  it("5251 · без «По проектам» — плоский список в любом фильтре в порядке проектов, проект — в строке; «По машинам» недоступно", async () => {
     const t = await start();
     await t.click(t.$(".fc.vw"));
     await t.click(t.$('[data-v="projects"]'));
@@ -482,7 +524,7 @@ describe("вид списка", () => {
     const t = await start();
     await t.click(t.$(".fc.vw"));
     await t.click(t.$('[data-v="group"]'));
-    expect(t.$$('.pjs[data-proj="switchboard"] .mgrp').map((x) => x.dataset.group)).toEqual(["laptop", "pc", "build"]);
+    expect(t.$$('.pjs[data-proj="switchboard"] .mgrp').map((x) => x.dataset.group)).toEqual(["build", "laptop", "pc"]);
     expect(t.$(".bd-at")).toBeNull();
   });
 
@@ -499,7 +541,7 @@ describe("вид списка", () => {
 
 describe("имена", () => {
   it("5260 · заданное имя — вместо адреса в строке и поиске; поиск находит и по имени; адреса в основном виде нет", async () => {
-    const relay = relayWith({ "web-labels.names": { sessions: { "migrate@laptop": "Переезд" }, machines: { laptop: "Домашний ПК" } } });
+    const relay = withLabels({ sessions: { "migrate@laptop": "Переезд" }, machines: { laptop: "Домашний ПК" } });
     const t = await start({ relay });
     const row = t.$('[data-callsign="migrate@laptop"]')!;
     expect(row.querySelector(".bd-cs")!.textContent).toBe("Переезд");

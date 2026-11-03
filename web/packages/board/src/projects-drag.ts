@@ -1,9 +1,13 @@
-// Перестановка проектов: мышь и палец одним кодом (pointer), стрелки на ручке — с клавиатуры.
-// Нажали на ⠿ и повели (сдвиг больше 5 px) — заголовок поднимается карточкой ровно с того места, где схватили; строки схваченного
-// проекта сворачиваются, на его месте — гнездо. DOM во время перетаскивания не переставляется: соседи только сдвигаются transform
-// по раскладке-модели, поэтому без рывков. Гнездо среди закреплённых и сразу под ними — закрепить на этом месте; ниже — проект
-// встаёт туда, где окажется по правилу. У края — прокрутка, быстрее ближе к краю. Escape — отмена. Захват указателя и карточка —
-// у постоянного элемента списка: перерисовки на время жеста только запоминаются (класс reordering), закрытие экрана — отмена.
+// Перестановка проектов и строк: одна зона жеста на список, мышь и палец одним кодом (pointer), стрелки на ручке проекта — с клавиатуры. Порядок задаёт только человек.
+// Проект: нажали на ⠿ и повели (сдвиг больше 5 px) — заголовок поднимается карточкой ровно с того места, где схватили; строки схваченного проекта сворачиваются,
+// на его месте — гнездо. DOM во время перетаскивания не переставляется: соседи только сдвигаются transform по раскладке-модели, поэтому без рывков. «Без проекта» стоит
+// последним и не двигается. Нажали и отпустили на ⠿ — меню проекта.
+// Строка: мышь — нажать и повести, палец — удержать (начало жеста — startPress, как у фильтров). Строка поднимается копией, линия показывает место; родитель едет блоком
+// с дочерними. На свёрнутый проект можно бросать: строка встаёт в его конец. Плоский список и группы по машинам порядок только читают: api.rowsMove() — false.
+// У края — прокрутка, быстрее ближе к краю. Escape — отмена. Захват указателя и карточка — у постоянного элемента списка: перерисовки на время жеста только
+// запоминаются (класс reordering), закрытие экрана — отмена.
+import { startPress, type Press } from "./gesture.ts";
+
 const SLOP = 5;
 const EDGE = 52;
 const SPEED = 1400; // px/с у края
@@ -15,26 +19,30 @@ const dur = () => (calm() ? 0 : 220);
 export type ProjectsApi = {
   /** постоянный элемент списка: не перерисовывается */
   root: HTMLElement;
-  /** номер проекта среди незакреплённых по правилу, если его открепить */
-  ruleIndex(name: string): number;
-  /** новый порядок: name среди видимых закреплённых vis на месте k; k null — открепить */
-  place(name: string, vis: string[], k: number | null): void;
+  /** новый порядок проектов: name перед before; before нет — в конец */
+  place(name: string, before: string | null): void;
+  /** нажатие на ⠿ без перетаскивания и Enter на ней */
+  menu(name: string): void;
+  /** можно ли сейчас переставлять строки */
+  rowsMove(): boolean;
+  /** поставить блок строк в проект перед before; before нет — в конец; shown — показанные строки этого проекта */
+  placeRows(block: string[], project: string, before: string | null, shown: string[]): void;
   /** перерисовать список сейчас */
   redraw(): void;
 };
 
-type Item = { el: HTMLElement; pinned: boolean; top: number; h: number };
+type Item = { el: HTMLElement; top: number; h: number };
 type Tail = { el: HTMLElement; top: number; h: number; gap: number };
-type Lay = { pos: Map<HTMLElement, number>; sepY: number | null; secEnd: number; end: number };
+type Lay = { pos: Map<HTMLElement, number>; end: number };
 type Drag = {
   name: string; lst: HTMLElement; sec: HTMLElement; sc: HTMLElement; pid: number; x0: number; y0: number; y: number; active: boolean;
-  grab: number; cy0: number; cardY: number; lift: number; items: Item[]; tail: Tail[]; top: number; hd: number; yTop: number; sepH: number; sepM: number; P: number; r: number;
-  mode: "pin" | "rule"; k: number | null; mode0: "pin" | "rule"; k0: number | null; sep: HTMLElement; card: HTMLElement; L: Lay; sy: number; expanded: boolean; raf: number; ts: number; acc: number; upOk: boolean; downOk: boolean;
+  grab: number; cy0: number; cardY: number; lift: number; items: Item[]; tail: Tail[]; top: number; hd: number; yTop: number;
+  k: number; k0: number; card: HTMLElement; L: Lay; sy: number; expanded: boolean; raf: number; ts: number; acc: number; upOk: boolean; downOk: boolean;
 };
 
 const scrollerOf = (lst: Element) => lst.closest<HTMLElement>(".bd-body")!;
-const secsOf = (lst: Element) => [...lst.querySelectorAll<HTMLElement>(":scope > .pjs")];
-const keyOf = (el: HTMLElement) => (el.classList.contains("pjs") ? "p:" + el.dataset.proj : el.classList.contains("pin-sep") ? "sep" : el.className);
+const secsOf = (lst: Element) => [...lst.querySelectorAll<HTMLElement>(':scope > .pjs:not([data-proj="~"])')];
+const keyOf = (el: HTMLElement) => (el.classList.contains("pjs") ? "p:" + el.dataset.proj : el.className);
 const setY = (el: HTMLElement, dy: number) => void (el.style.transform = dy ? `translateY(${dy}px)` : "");
 function viewOf(sc: HTMLElement) {
   const r = sc.getBoundingClientRect();
@@ -72,35 +80,21 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     stickWhile(dur() + 80);
   }
 
-  /** раскладка-модель: где каждый стоит при гнезде в зоне mode на месте k */
+  /** раскладка-модель: где каждый стоит при гнезде на месте k */
   function layout(d: Drag): Lay {
-    const pins = d.items.filter((i) => i.pinned);
-    const rest = d.items.filter((i) => !i.pinned);
     const slot = { el: d.sec, h: d.hd };
-    const a = d.mode === "pin" ? [...pins.slice(0, d.k ?? 0), slot, ...pins.slice(d.k ?? 0)] : pins;
-    const b = d.mode === "pin" ? rest : [...rest.slice(0, d.r), slot, ...rest.slice(d.r)];
     const pos = new Map<HTMLElement, number>();
     let y = d.yTop;
-    let sepY: number | null = null;
-    for (const it of a) {
+    for (const it of [...d.items.slice(0, d.k), slot, ...d.items.slice(d.k)]) {
       pos.set(it.el, y);
       y += it.h;
     }
-    if (a.length && b.length) {
-      sepY = y;
-      y += d.sepH;
-    }
-    for (const it of b) {
-      pos.set(it.el, y);
-      y += it.h;
-    }
-    const secEnd = y;
     for (const t of d.tail) {
       y += t.gap;
       pos.set(t.el, y);
       y += t.h;
     }
-    return { pos, sepY, secEnd, end: y };
+    return { pos, end: y };
   }
 
   /** раскладку — на экран: соседи едут transition'ом, гнездо встаёт сразу и проявляется */
@@ -113,27 +107,14 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
       setY(d.sec, sy);
       if (!calm()) d.sec.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, pseudoElement: "::after" });
     }
-    d.sec.classList.toggle("dnd-pin", d.mode === "pin");
-    d.card.classList.toggle("dnd-pin", d.mode === "pin");
-    if (L.sepY !== null) {
-      d.sep.style.transform = `translateY(${L.sepY}px)`;
-      d.sep.style.opacity = "";
-    } else d.sep.style.opacity = "0";
   }
 
-  /** зона — по черте: центр карточки перешёл черту — зона другая; место среди закреплённых — по серединам соседей */
+  /** место — по серединам соседей */
   function hit(d: Drag) {
     const c = d.cardY + d.hd / 2 - d.lst.getBoundingClientRect().top;
-    const L = d.L;
-    const line = L.sepY !== null ? L.sepY + d.sepH / 2 : d.P === d.items.length ? L.secEnd - 8 : d.yTop + d.hd;
-    const mode = c < line ? "pin" : "rule";
-    let k: number | null = null;
-    if (mode === "pin") {
-      k = 0;
-      for (const it of d.items) if (it.pinned && L.pos.get(it.el)! + it.h / 2 < c) k++;
-    }
-    if (mode !== d.mode || k !== d.k) {
-      d.mode = mode;
+    let k = 0;
+    for (const it of d.items) if (d.L.pos.get(it.el)! + it.h / 2 < c) k++;
+    if (k !== d.k) {
       d.k = k;
       apply(d);
     }
@@ -195,41 +176,25 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     sec.classList.add("dnd-slot");
     sec.style.height = hh + "px";
     if (shift) sec.querySelectorAll<HTMLElement>(":scope > .bd-row, :scope > .mgrp").forEach((r) => (r.style.transform = `translateY(${-shift}px)`));
-    let sep = lst.querySelector<HTMLElement>(":scope > .pin-sep");
-    const sepWas = sep ? (before.get(sep) ?? null) : null;
-    if (!sep) {
-      sep = document.createElement("div");
-      sep.className = "pin-sep";
-      sep.setAttribute("aria-hidden", "true");
-      lst.appendChild(sep);
-    }
-    d.sep = sep;
     for (const el of lst.children as unknown as HTMLElement[]) {
       el.style.transition = "none";
       el.style.transform = "";
     }
     const secs = secsOf(lst);
-    d.items = secs.filter((s) => s !== sec).map((el) => ({ el, pinned: el.classList.contains("pinned"), top: el.offsetTop, h: el.offsetHeight }));
+    d.items = secs.filter((s) => s !== sec).map((el) => ({ el, top: el.offsetTop, h: el.offsetHeight }));
     d.top = sec.offsetTop;
     d.hd = hh;
     d.yTop = secs[0].offsetTop;
-    const sm = getComputedStyle(sep);
-    d.sepM = parseFloat(sm.marginTop) || 0;
-    d.sepH = d.sepM + (parseFloat(sm.marginBottom) || 0) + sep.offsetHeight;
     const last = secs[secs.length - 1];
     let bottom = last.offsetTop + last.offsetHeight;
     d.tail = ([...lst.children] as HTMLElement[])
-      .filter((el) => !el.matches(".pjs, .pin-sep"))
+      .filter((el) => !secs.includes(el))
       .map((el) => {
         const t = { el, top: el.offsetTop, h: el.offsetHeight, gap: el.offsetTop - bottom };
         bottom = t.top + t.h;
         return t;
       });
-    d.P = d.items.filter((i) => i.pinned).length;
-    d.r = api.ruleIndex(d.name);
-    const pinned = sec.classList.contains("pinned");
-    d.mode0 = d.mode = pinned ? "pin" : "rule";
-    d.k0 = d.k = pinned ? d.items.filter((i) => i.pinned && i.top < d.top).length : null;
+    d.k0 = d.k = d.items.filter((i) => i.top < d.top).length;
     // карточка: копия заголовка, ровные поля; содержимое — точно там же, где было
     const card = (d.card = hdr.cloneNode(true) as HTMLElement);
     card.className = "pj dnd-card";
@@ -251,11 +216,6 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     sc.scrollTop += lst.getBoundingClientRect().top + d.L.pos.get(sec)! - hb.top;
     const lt = lst.getBoundingClientRect().top;
     for (const it of [...d.items, ...d.tail]) setY(it.el, before.get(it.el)! - (lt + it.top));
-    if (sepWas !== null) sep.style.transform = `translateY(${sepWas - lt - d.sepM}px)`;
-    else {
-      sep.style.opacity = "0";
-      if (d.L.sepY !== null) sep.style.transform = `translateY(${d.L.sepY}px)`;
-    }
     void lst.offsetHeight; // зафиксировать старые места
     for (const el of lst.children as unknown as HTMLElement[]) el.style.transition = "";
     d.sy = d.L.pos.get(sec)! - d.top;
@@ -311,15 +271,17 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     } catch {
       /* захват уже снят */
     }
-    if (!d.active) return;
+    if (!d.active) {
+      if (ok) api.menu(d.name);
+      return;
+    }
     cancelAnimationFrame(d.raf);
     if (!ok) {
-      d.mode = d.mode0;
       d.k = d.k0;
       apply(d);
     }
-    const vis = d.items.filter((i) => i.pinned).map((i) => i.el.dataset.proj!);
-    const k = d.mode === "pin" ? d.k : null;
+    const moved = d.k !== d.k0;
+    const nextId = d.items[d.k]?.el.dataset.proj ?? null;
     // посадка: в гнездо; гнездо за краем — карточка уходит к краю и тает
     const v = viewOf(d.sc);
     const rr = root.getBoundingClientRect();
@@ -338,7 +300,7 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
       const before = screenOf(d.lst);
       d.card.remove();
       root.classList.remove("reordering");
-      if (ok) api.place(d.name, vis, k);
+      if (ok && moved) api.place(d.name, nextId);
       api.redraw();
       flipAfter(before, d.expanded ? d.name : null);
     };
@@ -355,7 +317,8 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
         return;
       }
       const g = (e.target as Element).closest<HTMLElement>(".grip");
-      if (!g || drag || !e.isPrimary || e.button !== 0) return;
+      if (!g) return void pressRow(e);
+      if (drag || row || !e.isPrimary || e.button !== 0) return;
       const sec = g.closest<HTMLElement>(".pjs");
       const lst = sec?.parentElement;
       if (!sec || !lst) return;
@@ -396,25 +359,29 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     },
     { capture: true, signal },
   );
-  // стрелки на ручке. Вверх: незакреплённый — последним закреплённым, закреплённый — на одно выше; вниз: на одно ниже, последний — открепляется
+  // стрелки на ручке: на одно место выше или ниже; Enter и пробел — меню проекта
   root.addEventListener(
     "keydown",
     (e) => {
       const g = (e.target as Element).closest?.<HTMLElement>(".grip");
-      if (!g || drag || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+      if (!g || drag) return;
+      const name = g.dataset.proj!;
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        return api.menu(name);
+      }
+      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
       e.preventDefault();
       if (landing) {
         landing();
         return;
       }
       const lst = g.closest<HTMLElement>(".lst")!;
-      const name = g.dataset.proj!;
-      const vis = secsOf(lst).filter((s) => s.classList.contains("pinned")).map((s) => s.dataset.proj!);
-      const i = vis.indexOf(name);
-      if ((e.key === "ArrowUp" && i === 0) || (e.key === "ArrowDown" && i < 0)) return;
-      const k = e.key === "ArrowUp" ? (i < 0 ? vis.length : i - 1) : i + 1 >= vis.length ? null : i + 1;
+      const ids = secsOf(lst).map((s) => s.dataset.proj!);
+      const i = ids.indexOf(name);
+      if ((e.key === "ArrowUp" && i === 0) || (e.key === "ArrowDown" && i === ids.length - 1)) return;
       const before = screenOf(lst);
-      api.place(name, vis, k);
+      api.place(name, e.key === "ArrowUp" ? ids[i - 1] : (ids[i + 2] ?? null));
       api.redraw();
       const again = root.querySelector<HTMLElement>(`.grip[data-proj=${JSON.stringify(name)}]`);
       if (!again) return;
@@ -427,10 +394,177 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     },
     on,
   );
+
+  // ───── строка ─────
+  type Target = { project: string; before: string | null; line: number | null; head: HTMLElement | null };
+  type RowDrag = { el: HTMLElement; pid: number; x0: number; y0: number; x: number; y: number; grabX: number; grabY: number; press: Press; active: boolean; block: Set<HTMLElement>; ghost: HTMLElement; line: HTMLElement; lst: HTMLElement; sc: HTMLElement; to: Target | null; raf: number; ts: number; acc: number };
+  let row: RowDrag | null = null;
+
+  /** Блок: строка и её дочерние — строки с большим отступом сразу под ней. */
+  function blockOf(el: HTMLElement): HTMLElement[] {
+    const depth = (x: HTMLElement) => parseFloat(x.style.paddingLeft) || 0;
+    const out = [el];
+    for (let n = el.nextElementSibling as HTMLElement | null; n?.classList.contains("bd-row") && depth(n) > depth(el); n = n.nextElementSibling as HTMLElement | null) out.push(n);
+    return out;
+  }
+
+  function pressRow(e: PointerEvent) {
+    const el = (e.target as Element).closest<HTMLElement>(".bd-row");
+    if (!el || drag || row || !e.isPrimary || e.button !== 0 || !api.rowsMove()) return;
+    const lst = el.closest<HTMLElement>(".lst");
+    if (!lst) return;
+    row = { el, pid: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, active: false, lst, sc: scrollerOf(lst), to: null, press: startPress(e, () => row && !row.active && beginRow(row)) } as RowDrag;
+  }
+
+  function beginRow(d: RowDrag) {
+    d.active = true;
+    try {
+      root.setPointerCapture(d.pid);
+    } catch {
+      /* указатель уже ушёл */
+    }
+    d.block = new Set(blockOf(d.el));
+    const r = d.el.getBoundingClientRect();
+    d.grabX = d.x0 - r.left;
+    d.grabY = d.y0 - r.top;
+    root.classList.add("reordering");
+    for (const x of d.block) x.classList.add("dnd-row-out");
+    const g = (d.ghost = d.el.cloneNode(true) as HTMLElement);
+    g.removeAttribute("data-callsign");
+    g.classList.add("dnd-row-card");
+    g.setAttribute("aria-hidden", "true");
+    g.inert = true;
+    g.style.width = r.width + "px";
+    root.appendChild(g);
+    const line = (d.line = document.createElement("div"));
+    line.className = "dnd-row-line";
+    root.appendChild(line);
+    d.ts = 0;
+    d.acc = 0;
+    followRow(d);
+    const tick = (ts: number) => {
+      if (row !== d) return;
+      const dt = d.ts ? Math.min(50, ts - d.ts) : 0;
+      d.ts = ts;
+      const v = viewOf(d.sc);
+      const up = v.top + EDGE - d.y;
+      const down = d.y - (v.bottom - EDGE);
+      const f = (x: number) => SPEED * Math.min(1.7, x / EDGE) ** 2;
+      const speed = up > 0 ? -f(up) : down > 0 ? f(down) : 0;
+      d.acc = speed ? d.acc + (speed * dt) / 1000 : 0;
+      const step = Math.trunc(d.acc);
+      if (step) {
+        d.sc.scrollTop += step;
+        d.acc -= step;
+        followRow(d);
+      }
+      d.raf = requestAnimationFrame(tick);
+    };
+    d.raf = requestAnimationFrame(tick);
+  }
+
+  /** Куда встанет строка при этой высоте указателя: свёрнутый проект — в конец; иначе перед первой строкой, чья середина ниже. */
+  function targetAt(d: RowDrag): Target | null {
+    const secs = [...d.lst.querySelectorAll<HTMLElement>(":scope > .pjs")];
+    const first = secs[0];
+    if (!first) return null;
+    const sec = secs.find((s) => d.y < s.getBoundingClientRect().bottom) ?? secs[secs.length - 1];
+    const project = sec.dataset.proj!;
+    const rows = [...sec.querySelectorAll<HTMLElement>(":scope > .bd-row")].filter((x) => !d.block.has(x));
+    if (!rows.length) return { project, before: null, line: null, head: sec.querySelector<HTMLElement>(".pj") };
+    const next = rows.find((x) => {
+      const b = x.getBoundingClientRect();
+      return d.y < b.top + b.height / 2;
+    });
+    const anchor = next ?? rows[rows.length - 1];
+    const b = anchor.getBoundingClientRect();
+    return { project, before: next ? next.dataset.callsign! : null, line: next ? b.top : b.bottom, head: null };
+  }
+
+  function followRow(d: RowDrag) {
+    const rr = root.getBoundingClientRect();
+    d.ghost.style.translate = `${d.x - d.grabX - rr.left - root.clientLeft}px ${d.y - d.grabY - rr.top - root.clientTop}px`;
+    d.to = targetAt(d);
+    d.line.style.display = d.to?.line == null ? "none" : "";
+    if (d.to?.line != null) {
+      const l = d.lst.getBoundingClientRect();
+      d.line.style.left = l.left - rr.left - root.clientLeft + 8 + "px";
+      d.line.style.width = l.width - 16 + "px";
+      d.line.style.top = d.to.line - rr.top - root.clientTop - 1 + "px";
+    }
+    for (const h of d.lst.querySelectorAll<HTMLElement>(".pj.dnd-into")) if (h !== d.to?.head) h.classList.remove("dnd-into");
+    d.to?.head?.classList.add("dnd-into");
+  }
+
+  function endRow(ok: boolean) {
+    const d = row;
+    if (!d) return;
+    row = null;
+    d.press.cancel();
+    if (!d.active) return;
+    cancelAnimationFrame(d.raf);
+    try {
+      root.releasePointerCapture(d.pid);
+    } catch {
+      /* захват уже снят */
+    }
+    // клик после жеста сессию не открывает
+    const swallow = (e: Event) => {
+      e.stopPropagation();
+      e.preventDefault();
+    };
+    root.addEventListener("click", swallow, { capture: true, once: true, signal });
+    setTimeout(() => root.removeEventListener("click", swallow, { capture: true }), 50);
+    d.ghost.remove();
+    d.line.remove();
+    d.lst.querySelector(".pj.dnd-into")?.classList.remove("dnd-into");
+    for (const x of d.block) x.classList.remove("dnd-row-out");
+    root.classList.remove("reordering");
+    const to = d.to;
+    if (ok && to) {
+      const shown = [...d.lst.querySelectorAll<HTMLElement>(`:scope > .pjs[data-proj=${JSON.stringify(to.project)}] > .bd-row`)].map((x) => x.dataset.callsign!);
+      api.placeRows([...d.block].map((x) => x.dataset.callsign!), to.project, to.before, shown);
+    }
+    api.redraw();
+  }
+
+  window.addEventListener(
+    "pointermove",
+    (e) => {
+      const d = row;
+      if (!d || e.pointerId !== d.pid) return;
+      d.x = e.clientX;
+      d.y = e.clientY;
+      if (d.active) return followRow(d);
+      if (!d.press.move(e.clientX, e.clientY)) row = null;
+    },
+    on,
+  );
+  window.addEventListener("pointerup", (e) => void (row && e.pointerId === row.pid && endRow(true)), on);
+  window.addEventListener("pointercancel", (e) => void (row && e.pointerId === row.pid && endRow(false)), on);
+  // строка в руке — палец не прокручивает список, меню браузера не всплывает
+  root.addEventListener("touchmove", (e) => void (row?.active && e.preventDefault()), { passive: false, signal });
+  root.addEventListener("contextmenu", (e) => void (row && e.preventDefault()), on);
+  document.addEventListener(
+    "keydown",
+    (e) => {
+      if (!row?.active || e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      endRow(false);
+    },
+    { capture: true, signal },
+  );
+
   /** закрытие экрана посреди жеста — отмена */
   signal.addEventListener("abort", () => {
     if (drag) cancelAnimationFrame(drag.raf);
     drag = null;
     landing = null;
+    if (row) {
+      row.press.cancel();
+      cancelAnimationFrame(row.raf);
+    }
+    row = null;
   });
 }

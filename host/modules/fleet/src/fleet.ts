@@ -3,17 +3,18 @@
 // и закрыть — запросы manage и chat, fleet их только зовёт. Чужое сообщение — запрос message: текст с отправителем
 // ложится во ввод с priority "next" (простаивающая просыпается, занятая читает на границе шага). Адресата нет — отказ сразу.
 // Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent от manage этой машины), и это сессия, —
-// текст result уходит родителю тем же message. Хранить нечего.
+// текст result уходит родителю тем же message. Своего хранения нет: проекты и имена — записи области флота у службы настроек, формат — у records.
 import { randomUUID } from "node:crypto";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import type { Ctx, Frame, Host, Module, Result, SDKMessage, Session } from "@switchboard/host";
+import { addProject, FLEET_PREFIX, LABELS, labelOf, NONE, placeSessions, PROJECTS, projectByName, projectIdOf, setLabel, settings, type Labels, type ProjectRec, type Settings } from "@switchboard/records";
 import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
 type RosterSession = { callsign: string; state?: string | null; parent?: string; model?: string };
-type Roster = { sessions?: RosterSession[]; clients?: string[] };
+type Roster = { sessions?: RosterSession[]; machines?: Array<{ machine: string }>; clients?: string[] };
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 
 const text = (t: string, isError = false): Text => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
@@ -28,7 +29,7 @@ export const task = (from: string, body: string) => `${wrap(from, body)}\n(За�
 export const prompt = (me: string) =>
   `Ты во флоте как ${me}. Кто на связи — fleet.list; написать сессии или человеку — fleet.send. ` +
   `Открыть сессию с задачей — fleet.open: она твоя дочь, итог каждого её хода, начатого тобой, придёт сам тегом <fleet-message from="…">. ` +
-  `Что делала сессия — fleet.history; модель, усилие, заголовок — fleet.update; закрыть — fleet.remove (без callsign — себя, после этого хода). ` +
+  `Проект сессии — параметр project у fleet.open и fleet.update, имя в интерфейсе — fleet.label. Что делала сессия — fleet.history; модель, усилие, заголовок — fleet.update; закрыть — fleet.remove (без callsign — себя, после этого хода). ` +
   `Сообщения флота приходят во ввод тегом <fleet-message from="…">; вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer. ` +
   `Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно.`;
 
@@ -59,15 +60,39 @@ export function lines(messages: Entry[]): string {
 
 export function make() {
   let host: Host;
+  /** записи области флота: правки этой машины идут по одной, остановка их дожидается */
+  let meta: Settings;
+
+  /** Поставить сессию в конец проекта по имени; нет такого — проект создаётся; пустое имя — «Без проекта». Ответ — слово отказа или null. */
+  const assign = (callsign: string, project: string) =>
+    meta.edit<ProjectRec[]>(PROJECTS, (old) => {
+      if (!project.trim()) return placeSessions(old, [callsign], NONE);
+      const had = projectByName(old, project);
+      if (had) return placeSessions(old, [callsign], had.id);
+      const made = addProject(old, project);
+      return placeSessions(made.recs, [callsign], made.id);
+    });
 
   /** Инструменты сервера MCP одной сессии: отправитель — сама сессия, в аргументах его нет. */
   function tools(me: string): SdkMcpToolDefinition<any>[] {
     return [
-      tool("list", "Кто на связи: сессии флота с состоянием, родителем и моделью; клиенты (телефон, пульт).", {}, async () => {
+      tool("list", "Кто на связи: сессии флота с состоянием, родителем, моделью, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}, async () => {
         const roster = host.roster() as Roster | null;
         if (!roster) return text("Нет связи с relay (disconnected): список сессий неизвестен", true);
-        const sessions = (roster.sessions ?? []).map((s) => ({ callsign: s.callsign, state: s.state ?? null, parent: s.parent ?? null, model: s.model ?? null }));
-        return text(JSON.stringify({ me, sessions, clients: roster.clients ?? [] }));
+        // служба настроек не ответила — список сессий всё равно приходит, а вместо меток слово причины
+        const word = await meta.read();
+        const recs = word ? undefined : meta.get<ProjectRec[]>(PROJECTS);
+        const labels = word ? undefined : meta.get<Labels>(LABELS);
+        const list = roster.sessions ?? [];
+        const parentOf = (cs: string) => list.find((s) => s.callsign === cs)?.parent;
+        const projectName = (cs: string) => {
+          const id = projectIdOf(recs, cs, parentOf);
+          return id === NONE ? null : (recs?.find((r) => r.id === id)?.name ?? null);
+        };
+        const sessions = list.map((s) => ({ callsign: s.callsign, state: s.state ?? null, parent: s.parent ?? null, model: s.model ?? null, label: labelOf(labels, s.callsign) ?? null, project: projectName(s.callsign) }));
+        const machines = (roster.machines ?? []).map((m) => ({ machine: m.machine, label: labelOf(labels, `@${m.machine}`) ?? null }));
+        const projects = (recs ?? []).filter((r) => r.id !== NONE).map((r) => r.name);
+        return text(JSON.stringify({ me, sessions, machines, projects, clients: roster.clients ?? [], ...(word ? { meta: `имена и проекты недоступны: ${word}` } : {}) }));
       }),
       tool(
         "send",
@@ -109,15 +134,18 @@ export function make() {
           profile: z.string().optional().describe("профиль сессии"),
           model: z.string().optional(),
           effort: z.string().optional(),
+          project: z.string().optional().describe("имя проекта: сессия встанет в его конец, нет такого — создастся; без него — в проект открывшей"),
         },
-        async ({ name, dir, text: body, machine, profile, model, effort }) => {
+        async ({ name, dir, text: body, machine, profile, model, effort, project }) => {
           const where = machine ?? host.machine;
           const opt = { ...(profile ? { profile } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
           const o = await host.request("session.open", { machine: where, name, dir, ...opt, from: me });
           if (!o.ok) return failed(`${name}@${where}`, o);
           const cs = (o.result as { callsign: string }).callsign;
+          const word = project === undefined ? null : await assign(cs, project);
+          const note = word ? `; проект не записан: ${word}` : "";
           const m = await host.request("message", { to: cs, text: body, from: me });
-          return m.ok ? text(`открыта: ${cs}; задача во вводе, итог хода придёт сам`) : text(`открыта: ${cs}, но задача не доставлена — ${m.error}`, true);
+          return m.ok ? text(`открыта: ${cs}; задача во вводе, итог хода придёт сам${note}`) : text(`открыта: ${cs}, но задача не доставлена — ${m.error}`, true);
         },
       ),
       tool(
@@ -132,11 +160,28 @@ export function make() {
       ),
       tool(
         "update",
-        "Сменить сессии модель, усилие или заголовок. Живой сессии модель и усилие — сразу.",
-        { callsign: z.string(), model: z.string().optional(), effort: z.string().optional(), title: z.string().optional() },
-        async ({ callsign, model, effort, title }) => {
+        "Сменить сессии модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу.",
+        { callsign: z.string(), model: z.string().optional(), effort: z.string().optional(), title: z.string().optional(), project: z.string().optional().describe("имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта") },
+        async ({ callsign, model, effort, title, project }) => {
+          if (project !== undefined) {
+            const word = await assign(callsign, project);
+            if (word) return text(`Не выполнено: проект ${callsign} — ${word}`, true);
+            if (!model && !effort && !title) return text(project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`);
+          }
           const r = await host.request("session.update", { callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
           return r.ok ? text(`сразу: ${((r.result as { now: string[] }).now ?? []).join(", ") || "—"}`) : failed(callsign, r);
+        },
+      ),
+      tool(
+        "label",
+        "Имя в интерфейсе: сессии (site@laptop) или машины (@laptop); адрес остаётся адресом. Пустой текст снимает имя.",
+        { to: z.string().describe("callsign сессии или @машина"), text: z.string().describe("имя; пустое — снять") },
+        async ({ to, text: name }) => {
+          const k = kindOf(to);
+          if (k !== "session" && k !== "machine") return text(`Не выполнено: ${to} — не сессия и не машина`, true);
+          const word = await meta.edit<Labels>(LABELS, (old) => setLabel(old, to, name));
+          if (word) return text(`Не выполнено: имя ${to} — ${word}`, true);
+          return text(name.trim() ? `имя ${to}: ${name.trim()}` : `имя ${to} снято`);
         },
       ),
       tool(
@@ -183,7 +228,7 @@ export function make() {
 
   const mod: Module = {
     session: (s) => ({
-      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.3.0", tools: tools(s.info.callsign) }) },
+      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.4.0", tools: tools(s.info.callsign) }) },
       append: prompt(s.info.callsign),
       // переписка между сессиями — только через fleet: рубильник Claude Code убирает ListAgents и доставку
       // SendMessage чужим сессиям в обе стороны; SendMessage своим субагентам остаётся (исключение устава, слово 1 нояб.)
@@ -197,9 +242,10 @@ export function make() {
     },
     start(h) {
       host = h;
+      meta = settings({ ask: (name, body) => h.request(name, body) as never, prefix: FLEET_PREFIX, scope: "global" });
     },
-    // хранить и снимать нечего
-    stop() {},
+    // своего хранить нечего; правки записей доходят до службы
+    stop: () => meta.settled(),
   };
   return { module: mod, tools };
 }

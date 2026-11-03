@@ -40,14 +40,14 @@ check("session.open", open.ok, open.error);
 await state(CS, "idle");
 const dup = await req({ type: "session.open", machine, name: "mg", dir });
 check("то же имя — name_taken", !dup.ok && dup.error === "name_taken", dup.error);
-for (const [what, f] of [
-  ["плохое имя", { name: "a b/c", dir }],
-  ["папки нет", { name: "mg2", dir: "~/нет-такой-папки-" + Date.now() }],
-  ["относительная папка", { name: "mg3", dir: "x/y" }],
-  ["усилие не из списка", { name: "mg4", dir, effort: "ultra" }],
+for (const [what, word, f] of [
+  ["плохое имя", "bad_name", { name: "a b/c", dir }],
+  ["папки нет", "bad_dir", { name: "mg2", dir: "~/нет-такой-папки-" + Date.now() }],
+  ["относительная папка", "bad_dir", { name: "mg3", dir: "x/y" }],
+  ["усилие не из списка", "bad_spec", { name: "mg4", dir, effort: "ultra" }],
 ] as const) {
   const r = await req({ type: "session.open", machine, ...f });
-  check(`session.open: ${what} — bad_spec`, !r.ok && r.error === "bad_spec", r.error ?? r.result);
+  check(`session.open: ${what} — ${word}`, !r.ok && r.error === word, r.error ?? r.result);
 }
 const spec = await req({ type: "session.spec", callsign: CS });
 check("session.spec: папка, модель, усилие", spec.ok && spec.result.model === "claude-haiku-4-5" && spec.result.effort === "low", spec.result);
@@ -124,10 +124,13 @@ check("после стопа и старта разговор цел", /рим|r
 // --- машина ---
 const dirs = await req({ type: "machine.dirs", machine, path: "~" });
 check("machine.dirs ~", dirs.ok && Array.isArray(dirs.result.dirs) && dirs.result.dirs.length > 0, dirs.ok ? dirs.result.dirs.length : dirs.error);
-const nd = `~/sb-mkdir-${Date.now()}`;
-check("machine.mkdir", (await req({ type: "machine.mkdir", machine, path: nd })).ok);
-const again = await req({ type: "machine.mkdir", machine, path: nd });
-check("machine.mkdir той же — exists", !again.ok && again.error === "exists", again.error);
+const nd = `~/sb-mkdir-${Date.now()}/a/b`;
+const noDir = await req({ type: "session.open", machine, name: `mk-${Date.now()}`, dir: nd });
+check("session.open: папки нет, просьбы создать нет — bad_dir", !noDir.ok && noDir.error === "bad_dir", noDir.error);
+const madeName = `mk-${Date.now()}`;
+const made = await req({ type: "session.open", machine, name: madeName, dir: nd, mkdir: true });
+check("session.open mkdir: цепочка создана, сессия открыта", made.ok, made.error);
+if (made.ok) await req({ type: "session.remove", callsign: made.result.callsign });
 const nf = await req({ type: "machine.dirs", machine, path: "~/нет-" + Date.now() });
 check("machine.dirs папки нет — not_found", !nf.ok && nf.error === "not_found", nf.error);
 const ks = await req({ type: "keeper.state", to: `.keeper@${machine}` });
@@ -137,7 +140,7 @@ check("keeper.state: Host машины работает", ks.ok && ks.result.par
 const j = await req({ type: "machine.journal", v: 2, machine, since: t0, limit: 200 });
 check("machine.journal: записи с открытия сессии", j.ok && j.result.records.some((r: any) => r.callsign === CS), j.ok ? j.result.records.length : j.error);
 const jk = await req({ type: "machine.journal", v: 2, machine, since: t0, kind: ["refuse"], limit: 200 });
-check("machine.journal kind refuse: отказы этого прогона (bad_spec, name_taken)", jk.ok && jk.result.records.every((r: any) => r.kind === "refuse") && jk.result.records.some((r: any) => r.word === "name_taken"), jk.ok ? jk.result.records.length : jk.error);
+check("machine.journal kind refuse: отказы этого прогона (bad_name, bad_dir, bad_spec, name_taken)", jk.ok && jk.result.records.every((r: any) => r.kind === "refuse") && jk.result.records.some((r: any) => r.word === "name_taken"), jk.ok ? jk.result.records.length : jk.error);
 const jb = await req({ type: "machine.journal", v: 2, machine, since: "вчера", limit: 10 });
 check("machine.journal since не время — bad_frame", !jb.ok && jb.error === "bad_frame", jb.error);
 

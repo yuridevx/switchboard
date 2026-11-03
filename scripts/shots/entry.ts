@@ -1,6 +1,8 @@
 // Настоящий код страниц на подделке relay: большой и малый флот — для снимков глазами. ?app=pult|phone&kind=small|big
 import { memoryStore, startApp } from "../../web/packages/core/contract.ts";
 import { FakeRelay } from "../../web/packages/core/stand/relay.ts";
+import { firstFill } from "../../tools/records/contract.ts";
+import { folderOf } from "../../web/packages/ui/contract.ts";
 import { PULT, pultParts } from "../../web/pult/stand/parts.ts";
 import { phoneParts } from "../../web/phone/stand/parts.ts";
 import { fakeBrowser } from "../../web/packages/alerts/stand/fakes.ts";
@@ -113,11 +115,13 @@ const roster = {
 };
 
 const relay = new FakeRelay(roster as never);
+// проекты — запись области флота, как после заполнения при выкладке: папка каждой сессии стала проектом
+const TOP = kind === "small" ? ["pfarm", "switchboard"] : ["switchboard", "pfarm"];
+relay.scoped.global = { "fleet.projects": firstFill(F.ss.map((s) => ({ callsign: s.cs, folder: folderOf(s.dir) })), TOP) };
 if (kind === "small") {
-  relay.values["web-labels.names"] = { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } };
+  relay.scoped.global["fleet.labels"] = { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } };
   relay.values["web-board.filters"] = [{ id: "f1", name: "pfarm", projects: ["pfarm"] }];
 } else {
-  relay.values["web-board.top"] = ["switchboard", "pfarm"];
   relay.values["web-board.filters"] = [
     { id: "f1", name: "GPU", machines: ["gpu-01", "gpu-02"] },
     { id: "f2", name: "Ждут и сбои", states: ["waiting", "failed"] },

@@ -61,7 +61,7 @@ describe("эталоны телефона", () => {
     expect(want.length).toBe(13);
   });
 
-  it("5319 · новая сессия на телефоне: сначала машина, потом папки; «‹ @машина» — назад к машинам", async () => {
+  it("5319 · новая сессия на телефоне: имя сверху, машина кнопкой, адрес и папки", async () => {
     const r = homeRoster();
     for (const m of r.machines) m.contract = { ...m.contract, "session.open": 1, "machine.dirs": 1 };
     const relay = homeRelay(r);
@@ -70,17 +70,15 @@ describe("эталоны телефона", () => {
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: {} } });
     const t = await stand(phoneParts(fakeBrowser()), { relay, url: "/#open" });
     await flush(5);
-    await t.click(t.$('[data-where="browse"]'));
-    await flush(5);
-    expect(t.$(".op-bm")).not.toBeNull();
-    expect(t.$(".op-bf")).toBeNull();
+    // машина — кнопкой над адресом; список машин открывается по ней
+    expect(t.$('.op-bl')).toBeNull();
+    await t.click(t.$('[data-act="pick-machine"]'));
     await t.click(t.$('.op-bl [data-machine="pc"]'));
     await flush(5);
-    expect(t.$(".op-bm")).toBeNull();
-    expect(t.$(".op-bk")!.textContent).toBe("‹ @pc");
+    expect(t.$(".op-bl")).toBeNull();
+    expect(t.$(".op-bk")!.textContent).toBe("@pc");
     expect(t.$$("[data-dir]").map((x) => x.dataset.dir)).toEqual(["src"]);
-    await t.click(t.$(".op-bk"));
-    expect(t.$(".op-bm")).not.toBeNull();
+    expect(t.$<HTMLInputElement>('[data-f="name"]')!.value).toBe("");
   });
 
   it("4001 · набор телефона проходит гейт ядра и стартует: hello, домашний раздел «Вам»", async () => {

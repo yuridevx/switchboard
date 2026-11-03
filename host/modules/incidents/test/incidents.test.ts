@@ -272,13 +272,13 @@ describe("эталоны incidents: ожидаемые ветки", () => {
     expect(q.inputs[0].uuid).toBe(r.body.id);
   });
 
-  it("340 · папки типа нет — отказ bad_spec; профиля типа нет — no_profile; POST оба 202, сессий нет, причина в журнале, обращения ждут на диске", async () => {
+  it("340 · папки типа нет — отказ bad_dir; профиля типа нет — no_profile; POST оба 202, сессий нет, причина в журнале, обращения ждут на диске", async () => {
     // источник: принятый дизайн — «Нет папки или профиля типа — причина в журнале; сессии нет»; слово для папки — bad_spec: чьё: код (manage)
     const { st, post, disk } = await bench();
     const refusal = (id: unknown) => until(() => st.journal().find((l) => l.ev === "incident" && l.kind === "refuse" && l.id === id));
     const nodir = await post({ type: "nodir", text: "x" });
     expect(nodir.status).toBe(202);
-    expect(await refusal(nodir.body.id)).toMatchObject({ word: "bad_spec" });
+    expect(await refusal(nodir.body.id)).toMatchObject({ word: "bad_dir" });
     const noprof = await post({ type: "noprof", text: "x" });
     expect(noprof.status).toBe(202);
     expect(await refusal(noprof.body.id)).toMatchObject({ word: "no_profile" });

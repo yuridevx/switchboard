@@ -1,6 +1,6 @@
 // Эталоны manage на стенде Host: поддельные SDK, relay, keeper и часы. Номер эталона — номер теста.
 // slots и profiles — поддельные модули стенда: их пишут другие.
-import { mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -161,19 +161,40 @@ describe("эталоны manage", () => {
 });
 
 describe("manage", () => {
-  it("open: имя занято — name_taken; папки нет — bad_spec; усилие не того вида — bad_spec; незнакомое поле — не ошибка", async () => {
+  it("open: имя занято — name_taken; папки нет — bad_dir; усилие не того вида — bad_spec; незнакомое поле — не ошибка", async () => {
     const { st, home } = await laptop();
     await st.open("site@laptop");
     mkdirSync(join(home, "p"));
     expect(await req(st, { type: "session.open", machine: "laptop", name: "site", dir: "~/p" })).toMatchObject({ ok: false, error: "name_taken" });
-    expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/нет" })).toMatchObject({ ok: false, error: "bad_spec" });
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/нет" })).toMatchObject({ ok: false, error: "bad_dir" });
     // папка не от ~ и не полная — отказ, а не путь от папки выпуска Host (одно правило ядра clientPath)
-    expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "p" })).toMatchObject({ ok: false, error: "bad_spec" });
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "p" })).toMatchObject({ ok: false, error: "bad_dir" });
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p", effort: "ultra" })).toMatchObject({ ok: false, error: "bad_spec" });
     expect(st.journal().find((l) => l.word === "bad_spec" && String(l.why).includes("effort"))).toBeTruthy();
     expect(await req(st, { type: "session.open", machine: "laptop", name: "x", dir: "~/p", color: "red", model: "opus", fast: true })).toMatchObject({ ok: true });
     expect(st.query("x@laptop").options).toMatchObject({ model: "opus", settings: { fastMode: true } });
     expect(st.session("host-manage", "x@laptop")!.store().get()).toEqual({ model: "opus", fast: true, parent: "panel-desk~owner@example.com" });
+  });
+
+  it("6203 · open с mkdir строит весь путь; без просьбы папка не появляется; занятое имя и неверное имя пути не создают", async () => {
+    const { st, home } = await laptop();
+    await st.open("site@laptop");
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "a", dir: "~/new/deep/path" })).toMatchObject({ ok: false, error: "bad_dir" });
+    expect(existsSync(join(home, "new"))).toBe(false);
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "site", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: false, error: "name_taken" });
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "a b", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: false, error: "bad_name" });
+    expect(existsSync(join(home, "new"))).toBe(false);
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "a", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: true, result: { callsign: "a@laptop" } });
+    expect(st.query("a@laptop").options.cwd).toBe(join(home, "new", "deep", "path"));
+  });
+
+  it("6204 · open с mkdir: на месте файл или файл в родителях — bad_dir словом, модуль жив; существующая папка — обычное открытие", async () => {
+    const { st, home } = await laptop();
+    writeFileSync(join(home, "file"), "x");
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "a", dir: "~/file", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "a", dir: "~/file/sub", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
+    mkdirSync(join(home, "p"));
+    expect(await req(st, { type: "session.open", machine: "laptop", name: "a", dir: "~/p", mkdir: true })).toMatchObject({ ok: true });
   });
 
   it("3118 · open с папкой полным путём — как есть (так её шлёт подъём точки)", async () => {

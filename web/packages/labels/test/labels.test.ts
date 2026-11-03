@@ -37,7 +37,7 @@ function host() {
 }
 
 async function open(values: Record<string, unknown> = {}) {
-  const relay = Object.assign(new FakeRelay(homeRoster()), { values });
+  const relay = Object.assign(new FakeRelay(homeRoster()), { scoped: { global: values } });
   const x = host();
   const t = await stand([{ manifest, module: createLabels() }, { manifest: x.own, module: x.module }], { relay, url: "/#names" });
   await flush(5);
@@ -61,18 +61,18 @@ describe("имена", () => {
     await flush(5);
     expect(x.session("site@laptop")).toEqual({ text: "Сайт", human: true });
     expect(x.machine("laptop")).toEqual({ text: "Домашний ПК", human: true });
-    expect(relay.values["web-labels.names"]).toEqual({ sessions: { "site@laptop": "Сайт" }, machines: { laptop: "Домашний ПК" } });
+    expect(relay.scoped.global["fleet.labels"]).toEqual({ sessions: { "site@laptop": "Сайт" }, machines: { laptop: "Домашний ПК" } });
     expect(t.$('[data-place="1"]')!.textContent).toBe("closed");
   });
 
   it("5271 · пустое — снова адрес; имена других сессий не трогает", async () => {
-    const { t, relay, x } = await open({ "web-labels.names": { sessions: { "site@laptop": "Сайт", "wiki@laptop": "Вики" }, machines: {} } });
+    const { t, relay, x } = await open({ "fleet.labels": { sessions: { "site@laptop": "Сайт", "wiki@laptop": "Вики" }, machines: {} } });
     expect(t.$<HTMLInputElement>('[data-f="session"]')!.value).toBe("Сайт");
     fill(t, "session", "");
     await t.click(t.$('[data-act="save"]'));
     await flush(5);
     expect(x.session("site@laptop")).toEqual({ text: "site", human: false });
-    expect(relay.values["web-labels.names"]).toEqual({ sessions: { "wiki@laptop": "Вики" }, machines: {} });
+    expect(relay.scoped.global["fleet.labels"]).toEqual({ sessions: { "wiki@laptop": "Вики" }, machines: {} });
   });
 
   it("5272 · Escape и «Отмена» — без записи", async () => {

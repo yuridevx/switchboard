@@ -41,8 +41,8 @@ export function myAddress(app: { name: string; roster(): Roster | null }): strin
   return c ? userOf(c) : null;
 }
 
-/** Проект сессии — последнее имя папки dir в нижнем регистре; домашняя папка — «~». Одно правило на все экраны. */
-export function projectOf(dir: unknown): string {
+/** Имя папки сессии — последнее имя dir в нижнем регистре; домашняя папка — «~». Папка — свойство сессии, проект с ней не связан. */
+export function folderOf(dir: unknown): string {
   const d = typeof dir === "string" && dir ? dir : "~";
   if (d === "~") return "~";
   return d.replace(/[\\/]+$/, "").split(/[\\/]/).pop()!.toLowerCase();

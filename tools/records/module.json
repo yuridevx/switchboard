@@ -1,0 +1,10 @@
+{
+  "name": "records",
+  "type": "tool",
+  "version": "1.0.0",
+  "provides": {
+    "records.format": 1
+  },
+  "uses": {},
+  "config": {}
+}

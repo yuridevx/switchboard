@@ -1,7 +1,7 @@
 {
   "name": "web-inbox",
   "type": "web",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "into": [
     "pult",
     "phone"
@@ -22,6 +22,7 @@
     "unread@web-chat": 1,
     "card@web-card": 1,
     "mine@web-board": 1,
+    "project.of@web-board": 1,
     "fire@pult-points": 1,
     "points@pult-points": 1,
     "session.start@host-manage": 1

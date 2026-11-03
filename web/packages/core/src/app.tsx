@@ -198,6 +198,7 @@ export function startApp(o: StartOptions): Running {
         return name;
       },
       wide,
+      application: o.application,
       request: ((n: string, body?: Record<string, unknown>) => request(x, n, body)) as App["request"],
       open: (screen, params = {}) => {
         if (!mayOpen(x, screen)) return failMod(x, `открытии ${screen}`, new Error(`экрана ${screen} нет в uses`));

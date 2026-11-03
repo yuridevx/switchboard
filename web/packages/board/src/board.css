@@ -26,7 +26,6 @@ button.fc.vw[aria-expanded="true"]{background:var(--accent);color:var(--on-accen
 @media (hover:hover){.grip:hover{background:var(--accent-weak);color:var(--ink)}}
 .grip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 @media (hover:hover){.bd-list .grip{opacity:.35}.bd-list .pj:hover .grip,.bd-list .grip:focus-visible{opacity:1}}
-.pin-sep{border-top:1.5px solid var(--line);margin:6px 8px}
 button.pj-t{flex:1;min-width:0;display:flex;align-items:center;gap:7px;border:0;background:transparent;padding:4px 6px;border-radius:7px;font:600 13.5px var(--body);text-align:left;color:var(--ink)}
 @media (hover:hover){button.pj-t:hover{background:var(--accent-weak)}button.pj-add:hover{background:var(--accent-weak);color:var(--ink)}.bd-row:hover{background:var(--surface2)}}
 .pj-t .car{width:12px;color:var(--muted);font-size:10px;transition:transform .15s;flex:none}
@@ -34,7 +33,6 @@ button.pj-t{flex:1;min-width:0;display:flex;align-items:center;gap:7px;border:0;
 .pj-t .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pj-t .lamps{display:flex;gap:3px;margin-left:auto;align-items:center}
 .pj-t .lamps .sb-dot{width:7px;height:7px;animation:none;box-shadow:none}
-.pj-t .n{font:500 11.5px var(--mono);color:var(--muted);margin-left:4px}
 button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:8px;font-size:17px;line-height:1;display:grid;place-items:center;background:transparent;color:var(--muted)}
 .mgrp{display:flex;align-items:center;gap:6px;padding:7px 10px 1px 34px;font:600 11.5px var(--body);color:var(--muted)}
 .mgrp .n{font:500 10.5px var(--mono);opacity:.8}
@@ -75,7 +73,6 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .bd-list.dense .bd-row.kid::before{top:-3px;height:13px}
 .bd-list.dense .pj{padding-top:4px;padding-bottom:0}
 .bd-list.dense .mgrp{padding-top:4px}
-.bd-list.dense .pin-sep{margin:3px 8px}
 /* панель вида: не закрывает список — на пульте в правой части, на телефоне блоком под списком */
 .bd-vw{display:flex;flex-direction:column;gap:8px;background:var(--surface);padding:10px 12px 12px}
 .bd.wide .bd-vw{position:fixed;right:8px;top:58px;z-index:9;width:330px;max-height:calc(100% - 66px);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
@@ -114,16 +111,13 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .reordering,.reordering *{cursor:grabbing!important;user-select:none;-webkit-user-select:none}
 .reordering .bd-body{overflow-anchor:none}
 .lst.dnd-on > :not(.dnd-slot){transition:transform .22s cubic-bezier(0,0,.58,1),opacity .16s ease,border-color .16s ease}
-.lst.dnd-on > .pin-sep{position:absolute;left:6px;right:6px;top:0;border-top-color:color-mix(in srgb,var(--muted) 60%,transparent)}
 .lst.dnd-on > .pjs{z-index:1}
 .lst.dnd-on > .pjs.dnd-slot{z-index:0}
 .pjs.dnd-slot.dnd-folded > .bd-row,.pjs.dnd-slot.dnd-folded > .mgrp{display:none}
 .pjs.dnd-slot > .pj{visibility:hidden}
 .pjs.dnd-slot::after{content:"";position:absolute;inset:3px 0 0;border-radius:10px;border:1.5px dashed var(--line);background:var(--surface2)}
-.pjs.dnd-slot.dnd-pin::after{border-style:solid;border-color:var(--muted);background:var(--accent-weak)}
 .pj.dnd-card{position:absolute;top:0;left:0;z-index:30;margin:0;padding:5px 4px 5px 6px;pointer-events:none;background:var(--surface);border-radius:10px;box-shadow:0 0 0 1px var(--line);transition:scale .16s ease,box-shadow .16s ease,background-color .16s ease,opacity .2s ease;will-change:translate}
 .pj.dnd-card.up{scale:1.02;box-shadow:0 0 0 1px var(--line),0 14px 30px -8px rgba(16,24,20,.32),0 3px 8px rgba(16,24,20,.10)}
-.pj.dnd-card.up.dnd-pin{box-shadow:0 0 0 1.5px var(--muted),0 14px 30px -8px rgba(16,24,20,.32),0 3px 8px rgba(16,24,20,.10)}
 .pj.dnd-card.land{box-shadow:0 0 0 1px transparent;transition:translate .22s cubic-bezier(0,0,.58,1),scale .2s ease,box-shadow .2s ease,background-color .2s ease,opacity .2s ease}
 .dnd-card .grip{opacity:1!important;color:var(--ink);background:transparent!important}
 .dnd-card .pj-t,.dnd-card .pj-add{background:transparent!important}
@@ -137,3 +131,12 @@ button.fc.fc-ghost.lifted{scale:1.06;box-shadow:0 6px 16px rgba(20,30,25,.22),0 
 button.fc.fc-ghost.landing{transition:translate .2s cubic-bezier(.2,.8,.2,1),scale .2s ease-out,box-shadow .2s ease-out}
 @media (prefers-reduced-motion:reduce){.fscroll.fc-sorting > .fc,.fscroll > .fc.fc-glide,button.fc.fc-ghost{transition:none!important}}
 .fscroll > .fc:focus-visible{outline-offset:-3px}
+.bd-row.dnd-row-out{opacity:.35}
+.bd-row.dnd-row-card{position:absolute;top:0;left:0;z-index:30;pointer-events:none;background:var(--surface);box-shadow:0 0 0 1px var(--line),0 14px 30px -8px rgba(16,24,20,.32)}
+.dnd-row-line{position:absolute;z-index:29;height:2px;border-radius:1px;background:var(--ink);pointer-events:none}
+.pj.dnd-into{background:var(--accent-weak);border-radius:10px}
+.pj-new{display:block;width:100%;margin-top:6px;padding:7px 10px;border:0;background:transparent;border-radius:9px;color:var(--muted);text-align:left;font:inherit;cursor:pointer}
+.pj-newin{display:block;width:calc(100% - 16px);margin:6px 8px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+.pj-menu{display:flex;gap:6px;align-items:center;padding:4px 8px 8px}
+.pj-menu input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
+@media (hover:hover){.pj-new:hover{background:var(--accent-weak);color:var(--ink)}}

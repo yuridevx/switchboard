@@ -1,7 +1,7 @@
 {
   "name": "host-fleet",
   "type": "sdk",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "into": ["host"],
   "provides": { "message": 1 },
   "uses": {
@@ -12,7 +12,10 @@
     "session.update@host-manage": 1,
     "session.remove@host-manage": 1,
     "parent@host-manage": 1,
-    "session.history@host-chat": 1
+    "session.history@host-chat": 1,
+    "prefs.get@prefs": 1,
+    "prefs.set@prefs": 1,
+    "records.format@records": 1
   },
   "calls": [],
   "config": {}

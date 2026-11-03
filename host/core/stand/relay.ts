@@ -83,7 +83,7 @@ export class FakeRelay {
   /** POST к Worker'ам, ждущие ответа теста */
   private posts = new Map<string, (r: Response) => void>();
   /** адреса Worker'ов стенда для конфига Host */
-  static readonly WORKERS = Object.fromEntries(["push", "points", "ledger", "github", "releases", "relay", "gate"].map((n) => [n, `https://${n}.stand/`]));
+  static readonly WORKERS = Object.fromEntries(["push", "points", "ledger", "github", "prefs", "releases", "relay", "gate"].map((n) => [n, `https://${n}.stand/`]));
 
   /** fetch Host: POST кадра к Worker'у — как кадр, принятый relay (receive видит его и стенд модуля отвечает), пропуск в sent не попадает. Кадр без id — 204 сразу. */
   readonly fetch = (async (_url: string | URL | Request, init?: RequestInit) => {

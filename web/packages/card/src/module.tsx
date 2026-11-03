@@ -4,7 +4,7 @@
 // «Сведения сбоку» — выбор устройства, раздел хранилища info.
 import { useEffect, useState } from "react";
 import type { App, AppModule, Head, ScreenProps } from "@switchboard/web-core";
-import { BadCard, Btn, Choices, EFFORTS, MODELS, Opts, Pad, projectOf, stateLabel } from "@switchboard/web-ui";
+import { BadCard, Btn, Choices, EFFORTS, MODELS, Opts, Pad, folderOf, stateLabel } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import css from "./card.css";
 import { HEAD0, machineName, Names, sessionName, useCan, useSession, Wide, wideHead, type HeadView, type WideOpts } from "./wide.tsx";
@@ -160,7 +160,7 @@ export function createCard(): AppModule {
     const at = machineName(app, machineOf(callsign) ?? "").text;
     if (!s) return { title: name.text, mono: !name.human, sub: `${at} не на связи` };
     // лампа без слов: состояние понятно по индикатору
-    return { title: name.text, mono: !name.human, sub: `${at} · ${projectOf(s.dir)}`, dot: s.state === "failed" ? "bad" : stateLabel(s.state).dot };
+    return { title: name.text, mono: !name.human, sub: `${at} · папка ${folderOf(s.dir)}`, dot: s.state === "failed" ? "bad" : stateLabel(s.state).dot };
   }
 
   const save = (next: HeadView) => {

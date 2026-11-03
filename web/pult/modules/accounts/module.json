@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "into": [
     "pult",
     "phone"
@@ -23,8 +23,8 @@
     "slot.set@host-slots": 1,
     "slot.swap@host-slots": 1,
     "session.slot@host-slots": 1,
-    "project.current@web-board": 1,
-    "project.machines@web-board": 1
+    "project.current@web-board": 2,
+    "project.machines@web-board": 2
   },
   "config": {}
 }

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { App, AppModule, Roster } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, effortName, plural, profileName as short, projectOf, stateLabel } from "@switchboard/web-ui";
+import { Btn, Dot, effortName, plural, profileName as short, folderOf, stateLabel } from "@switchboard/web-ui";
 import css from "./profiles.css";
 
 type Repo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };
@@ -62,7 +62,7 @@ export function createProfiles(): AppModule {
           .filter((s) => (s.profile as { id?: string } | null | undefined)?.id === r.id)
           .map((s) => {
             const n = app.mark("label.session", s.callsign) ?? { text: s.callsign, human: false };
-            return { callsign: s.callsign, lamp: s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop", text: n.text, human: n.human, place: `${mLabel(machineOf(s.callsign) ?? "")} · ${projectOf(s.dir)}` };
+            return { callsign: s.callsign, lamp: s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop", text: n.text, human: n.human, place: `${mLabel(machineOf(s.callsign) ?? "")} · ${folderOf(s.dir)}` };
           }),
       })),
       repos: [...new Set([...answers.values()].flatMap((a) => ("error" in a ? [] : Object.keys(a.repos))))],

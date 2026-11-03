@@ -7,7 +7,7 @@ export const UI_CSS: string = css;
 export * from "./src/parts.tsx";
 export * from "./src/format.ts";
 export { personal } from "./src/personal.ts";
-export type { Personal } from "./src/personal.ts";
+export type { Personal, Scope } from "./src/personal.ts";
 
 export const manifest = json;
 export default {};

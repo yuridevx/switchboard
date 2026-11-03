@@ -1,13 +1,14 @@
-// web-board — «Работа»: сессии всех машин по проектам в одном списке для колонки пульта и экрана телефона. Проект — последнее имя папки
-// (правило projectOf набора). Настройки человека — у его почты (Worker prefs, ключи web-board.*): свои фильтры, порядок фильтров, закреплённые
-// проекты и сессии; одни на всех его устройствах. Настройки устройства — в хранилище страницы: выбранный фильтр, свёрнутые проекты, вид списка.
+// web-board — «Работа»: сессии всех машин по проектам в одном списке для колонки пульта и экрана телефона. Проект — логическая группа, папка — свойство сессии.
+// Запись fleet.projects (область флота, формат — у records) задаёт состав проектов и порядок строк; порядок меняет только человек, состояние сессии видно по лампе.
+// Настройки человека — у его почты (ключи web-board.*): свои фильтры, порядок фильтров, закреплённые сессии. Настройки устройства — в хранилище страницы: выбранный фильтр, свёрнутые проекты, вид.
 // «Моё» — сессия, ввод или открытие которой пришли от моего адреса (имя~почта), её дочери и закреплённые; метка mine — одно место этого правила.
 // Вид: список и ряд фильтров читают модель выборкой, строка — свою выборкой: на изменение одной сессии перерисовывается одна строка.
 // Пока идёт перестановка, выборки держат прошлый ответ; её конец рисует ряд и список заново: жест менял их элементы напрямую.
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { App, AppModule, SessionRecord } from "@switchboard/web-core";
-import { Badge, Btn, Dot, myAddress, personal, projectOf, stateLabel, type Personal } from "@switchboard/web-ui";
+import { Badge, Btn, Dot, folderOf, myAddress, personal, stateLabel, type Personal } from "@switchboard/web-ui";
+import { addProject, arrange, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, projectIdOf, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { kindOf, machineOf, userOf } from "@switchboard/protocol";
 import type {} from "@switchboard/web-ask";
 import type {} from "@switchboard/web-chat";
@@ -16,7 +17,7 @@ import css from "./board.css";
 import { attachChipDrag } from "./chips-drag.ts";
 import { FilterEditor } from "./filters.tsx";
 import { attachProjectDrag } from "./projects-drag.ts";
-import { BUILT, byRank, incidentOf, match, orderFilters, orderProjects, parentOf, placeTop, profileOf, rank, tree, type Filter, type Project } from "./rules.ts";
+import { BUILT, byRank, incidentOf, match, orderFilters, parentOf, profileOf, rank, tree, type Filter, type Project } from "./rules.ts";
 import { VIEW0, ViewPanel, type View } from "./view.tsx";
 
 const lamp = (s: SessionRecord) => (s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop");
@@ -27,13 +28,17 @@ const HOLD = Symbol("hold");
 /** Что стоит в списке: строка сессии или лёгкая группа по машине. */
 type RowItem = { k: "row"; callsign: string; depth: number; noAt: boolean; project: string | null };
 type GroupItem = { k: "group"; machine: string; label: string; n: number };
-type Section = { name: string; pinned: boolean; sep: boolean; open: boolean; count: number | null; lamps: string[]; grip: boolean; add: boolean; items: Array<RowItem | GroupItem> };
+type Section = { id: string; name: string; open: boolean; lamps: string[]; grip: boolean; add: boolean; menu: boolean; items: Array<RowItem | GroupItem> };
 type ListModel = { flat: RowItem[] | null; sections: Section[]; empty: string; current: string | undefined };
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createBoard(): AppModule {
   let app: App;
   let p: Personal;
+  /** запись проектов — область флота */
+  let g: Personal;
+  /** проект с открытым меню */
+  let menuOf: string | null = null;
   /** выбранный фильтр — выбор этого устройства */
   let flt = "mine";
   /** свёрнутые проекты этого устройства; проекта нет — ещё не виден, решает первый показ */
@@ -51,10 +56,17 @@ export function createBoard(): AppModule {
 
   const sessions = () => app?.roster()?.sessions ?? [];
   const pins = () => p?.get<string[]>("pins") ?? [];
-  const top = () => p?.get<string[]>("top") ?? [];
+  const recs = () => g?.get<ProjectRec[]>(PROJECTS);
   const own = () => p?.get<Filter[]>("filters") ?? [];
   const row = () => p?.get<string[]>("row") ?? [];
   const session = (callsign: string) => sessions().find((x) => x.callsign === callsign);
+  const projectId = (callsign: string) => projectIdOf(recs(), callsign, (cs) => { const x = session(cs); return x ? parentOf(x) : null; });
+  /** «Без проекта» — не проект: «последний проект» его не называет. */
+  const realProject = (callsign: string) => {
+    const id = projectId(callsign);
+    return id === NONE ? null : id;
+  };
+  const projectName = (id: string) => recs()?.find((r) => r.id === id)?.name ?? (id === NONE ? "Без проекта" : id);
 
   const me = () => (app ? myAddress(app) : null);
   const isMe = (a: unknown, mail: string | null) => !!mail && typeof a === "string" && userOf(a) === mail;
@@ -87,19 +99,19 @@ export function createBoard(): AppModule {
 
   const filters = () => orderFilters(own(), row());
   const currentFilter = () => filters().find((f) => f.id === flt) ?? BUILT[0];
-  const fits = (f: Filter, s: SessionRecord, mail = me()) => match(f, s, projectOf(s.dir), (x) => !!whyMine(x, mail), (x) => ownerOf(x));
+  const fits = (f: Filter, s: SessionRecord, mail = me()) => match(f, s, projectId(s.callsign), (x) => !!whyMine(x, mail), (x) => ownerOf(x));
 
-  /** Проекты выбранного фильтра в порядке списка. */
+  /** Проекты выбранного фильтра в порядке записи. Совсем пустой проект виден всегда; проект, все сессии которого скрыты фильтром, скрыт. */
   function projects(): Project[] {
     const f = currentFilter();
     const mail = me();
-    const g = new Map<string, SessionRecord[]>();
-    for (const s of sessions()) {
-      if (!fits(f, s, mail)) continue;
-      const name = projectOf(s.dir);
-      g.set(name, [...(g.get(name) ?? []), s]);
-    }
-    return orderProjects([...g].map(([name, ss]) => ({ name, ss, r: Math.min(...ss.map(rank)) })), top());
+    const all = sessions();
+    const links = all.map((s) => ({ callsign: s.callsign, parent: parentOf(s) }));
+    return arrange(recs(), links).flatMap((sec): Project[] => {
+      const ss = sec.callsigns.flatMap((cs) => session(cs) ?? []).filter((s) => fits(f, s, mail));
+      if (!ss.length && sec.callsigns.length) return [];
+      return [{ id: sec.id, name: sec.name, ss, r: Math.min(...ss.map(rank)) }];
+    });
   }
 
   /** Вторая строка: вопрос, сообщение, причина сбоя или профиль и модель — что включено в виде. */
@@ -113,7 +125,7 @@ export function createBoard(): AppModule {
   }
 
   function openSession(s: SessionRecord) {
-    lastProject = projectOf(s.dir);
+    lastProject = realProject(s.callsign);
     // телефон: сессия с вопросом — сразу вопрос; пульт — карточка, вопрос в разговоре
     if (!app.wide && app.mark("asked", s.callsign)) app.open("ask", { callsign: s.callsign });
     else app.open("card", { callsign: s.callsign });
@@ -145,7 +157,7 @@ export function createBoard(): AppModule {
 
   /** Строки проекта: деревом или ровно; лёгкие группы по машинам — если включены в виде. */
   function rowsOf(ss: SessionRecord[], noAt: boolean): RowItem[] {
-    const ordered: Array<[SessionRecord, number]> = view.tree ? tree(ss) : [...ss].sort(byRank).map((s) => [s, 0]);
+    const ordered: Array<[SessionRecord, number]> = view.tree ? tree(ss) : ss.map((s) => [s, 0]);
     return ordered.map(([s, depth]) => ({ k: "row", callsign: s.callsign, depth, noAt, project: null }));
   }
   function projectRows(x: Project): Array<RowItem | GroupItem> {
@@ -156,16 +168,16 @@ export function createBoard(): AppModule {
       by.set(m, [...(by.get(m) ?? []), s]);
     }
     return [...by]
-      .sort((a, b) => Math.min(...a[1].map(rank)) - Math.min(...b[1].map(rank)) || a[0].localeCompare(b[0]))
+      .sort((a, b) => a[0].localeCompare(b[0]))
       .flatMap(([m, ss]): Array<RowItem | GroupItem> => [{ k: "group", machine: m, label: mName(m), n: ss.length }, ...rowsOf(ss, true)]);
   }
 
-  /** «+» у проекта — место его верхней сессии, чья машина на связи. */
-  function newIn(name: string) {
-    const x = projects().find((y) => y.name === name);
+  /** «+» у проекта — место его верхней сессии, чья машина на связи; номер проекта страница новой сессии вернёт во вставку «после открытия», не читая. */
+  function newIn(id: string) {
+    const x = projects().find((y) => y.id === id);
     const online = new Set((app.roster()?.machines ?? []).filter((m) => m.contract?.["session.open"] !== undefined).map((m) => m.machine));
     const s = x && tree(x.ss).map(([y]) => y).find((y) => online.has(machineOf(y.callsign) ?? "") && typeof y.dir === "string");
-    app.open("open", s ? { machine: machineOf(s.callsign)!, dir: s.dir as string } : {});
+    app.open("open", { ...(s ? { machine: machineOf(s.callsign)!, dir: s.dir as string } : {}), ...(id === NONE ? {} : { project: id }) });
   }
 
   function saveCol() {
@@ -179,8 +191,8 @@ export function createBoard(): AppModule {
     lastCurrent = callsign;
     const s = callsign ? session(callsign) : undefined;
     if (!s) return;
-    const name = projectOf(s.dir);
-    lastProject = name;
+    const name = projectId(s.callsign);
+    lastProject = realProject(s.callsign);
     follow = s.callsign;
     if (col[name] !== false) {
       col[name] = false;
@@ -193,33 +205,27 @@ export function createBoard(): AppModule {
     followCurrent();
     const ps = projects();
     const empty = `в «${currentFilter().name}» сессий нет`;
-    // без группировки по проектам — плоский список: ждут вас, работают, по имени; проект — в строке
+    // без группировки по проектам — плоский список в порядке проектов; проект — в строке
     if (!view.projects) {
-      const flat = ps.flatMap((x) => x.ss).sort(byRank);
-      return { flat: flat.map((s) => ({ k: "row", callsign: s.callsign, depth: 0, noAt: false, project: projectOf(s.dir) })), sections: [], empty, current: lastCurrent };
+      return { flat: ps.flatMap((x) => x.ss.map((s): RowItem => ({ k: "row", callsign: s.callsign, depth: 0, noAt: false, project: x.name }))), sections: [], empty, current: lastCurrent };
     }
     let seen = false;
-    let sep = false;
     const sections = ps.map((x): Section => {
       // впервые увиденный проект развёрнут, только если в нём ждут вас или сбой; дальше — как оставил человек
-      if (col[x.name] === undefined) {
-        col[x.name] = x.r !== 0;
+      if (col[x.id] === undefined) {
+        col[x.id] = x.r !== 0;
         seen = true;
       }
-      const open = !col[x.name];
-      const pinned = top().includes(x.name);
-      // граница закреплённых и остальных — тонкая черта
-      const line = !pinned && !sep && ps.some((y) => top().includes(y.name));
-      if (line) sep = true;
+      const open = !col[x.id];
       return {
+        id: x.id,
         name: x.name,
-        pinned,
-        sep: line,
         open,
-        count: view.pjcount ? x.ss.length : null,
-        lamps: !open && view.pjlamps ? x.ss.slice(0, 6).map(lamp) : [],
-        grip: view.grip,
+        // порядок ламп — единственное, что ещё зависит от состояния: «ждёт» и «сбой» первыми
+        lamps: !open && view.pjlamps ? [...x.ss].sort((a, b) => rank(a) - rank(b)).slice(0, 6).map(lamp) : [],
+        grip: view.grip && x.id !== NONE,
         add: view.add,
+        menu: menuOf === x.id,
         items: open ? projectRows(x) : [],
       };
     });
@@ -235,7 +241,7 @@ export function createBoard(): AppModule {
   }
 
   /** Рисовать нельзя: первый рисунок ждёт ответа prefs (связи нет вовсе — рисуем встроенное); идёт перестановка. */
-  const held = () => !app.roster() || (!p.ready() && app.link() === "open") || !!listNode?.classList.contains("reordering");
+  const held = () => !app.roster() || ((!p.ready() || !g.ready()) && app.link() === "open") || !!listNode?.classList.contains("reordering");
 
   /** Выборка вида: пока рисовать нельзя — прошлый ответ. */
   function useHeld<T>(select: () => T): T | undefined {
@@ -293,21 +299,94 @@ export function createBoard(): AppModule {
     );
   });
 
+  /** Меню проекта: имя и «Удалить»; сессии удалённого уходят в «Без проекта» и работают дальше. */
+  function ProjectMenu({ id, name }: { id: string; name: string }) {
+    const input = useRef<HTMLInputElement>(null);
+    useLayoutEffect(() => input.current?.focus(), []);
+    const close = () => {
+      menuOf = null;
+      app.changed();
+    };
+    const save = () => {
+      const v = input.current?.value.trim() ?? "";
+      if (v && v !== name) g.edit<ProjectRec[]>(PROJECTS, (old) => renameProject(old, id, v));
+      close();
+    };
+    return (
+      <div className="pj-menu" data-menu={id}>
+        <input
+          ref={input}
+          data-f="project-name"
+          defaultValue={name}
+          aria-label="Имя проекта"
+          autoComplete="off"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") close();
+          }}
+          onBlur={save}
+        />
+        <Btn
+          bad
+          data-act="project-remove"
+          onPointerDown={(e: { preventDefault(): void }) => e.preventDefault()}
+          onClick={() => {
+            g.edit<ProjectRec[]>(PROJECTS, (old) => removeProject(old, id));
+            p.edit<Filter[]>("filters", (old) => (old ?? []).map((f) => (f.projects?.includes(id) ? { ...f, projects: f.projects.filter((x) => x !== id) } : f)));
+            close();
+          }}
+        >
+          Удалить
+        </Btn>
+      </div>
+    );
+  }
+
+  /** Последняя строка списка: новый проект. */
+  function NewProject() {
+    const [on, setOn] = useState(false);
+    if (!on) {
+      return (
+        <button className="pj-new" data-act="project-new" onClick={() => setOn(true)}>
+          Новый проект
+        </button>
+      );
+    }
+    const done = (v: string) => {
+      if (v.trim()) g.edit<ProjectRec[]>(PROJECTS, (old) => addProject(old, v).recs);
+      setOn(false);
+    };
+    return (
+      <input
+        className="pj-newin"
+        data-f="project-new"
+        aria-label="Имя нового проекта"
+        autoComplete="off"
+        autoFocus
+        onKeyDown={(e) => {
+          if (e.key === "Enter") done(e.currentTarget.value);
+          if (e.key === "Escape") setOn(false);
+        }}
+        onBlur={(e) => done(e.currentTarget.value)}
+      />
+    );
+  }
+
   const ProjectSection = memo(function ProjectSection({ x }: { x: Section }) {
     return (
-      <section className={"pjs" + (x.pinned ? " pinned" : "")} data-proj={x.name}>
+      <section className="pjs" data-proj={x.id}>
         <div className="pj">
           {x.grip ? (
-            <span className="grip" role="button" tabIndex={0} data-proj={x.name} aria-label={`Переместить ${x.name}: перетащить или стрелки`}>
+            <span className="grip" role="button" tabIndex={0} data-proj={x.id} aria-label={`Проект ${x.name}: перетащить, стрелки или нажать — имя и удаление`}>
               ⠿
             </span>
           ) : null}
           <button
             className="pj-t"
             aria-expanded={x.open}
-            data-proj={x.name}
+            data-proj={x.id}
             onClick={() => {
-              col[x.name] = !col[x.name];
+              col[x.id] = !col[x.id];
               saveCol();
               app.changed();
             }}
@@ -318,15 +397,15 @@ export function createBoard(): AppModule {
               {x.lamps.map((l, i) => (
                 <Dot key={i} kind={l} />
               ))}
-              {x.count !== null ? <span className="n">{String(x.count)}</span> : null}
             </span>
           </button>
           {x.add ? (
-            <button className="pj-add" data-proj={x.name} aria-label={`Новая сессия в ${x.name}`} onClick={() => newIn(x.name)}>
+            <button className="pj-add" data-proj={x.id} aria-label={`Новая сессия в ${x.name}`} onClick={() => newIn(x.id)}>
               +
             </button>
           ) : null}
         </div>
+        {x.menu ? <ProjectMenu id={x.id} name={x.name} /> : null}
         {x.items.map((it) =>
           it.k === "group" ? (
             <div key={`g:${it.machine}`} className="mgrp" data-group={it.machine}>
@@ -362,8 +441,11 @@ export function createBoard(): AppModule {
     }
     return (
       <div key={gen} ref={lst} className="lst">
-        {m.sections.flatMap((x) => [x.sep ? <div key="sep" className="pin-sep" aria-hidden="true" /> : null, <ProjectSection key={`p:${x.name}`} x={x} />])}
+        {m.sections.map((x) => (
+          <ProjectSection key={`p:${x.id}`} x={x} />
+        ))}
         {m.sections.length ? null : empty}
+        <NewProject />
       </div>
     );
   });
@@ -409,6 +491,8 @@ export function createBoard(): AppModule {
 
   const editorCtx = {
     sessions,
+    projects: () => [...(recs() ?? []).filter((r) => r.id !== NONE).map((r): [string, string] => [r.id, r.name]), [NONE, projectName(NONE)] as [string, string]],
+    projectId,
     machines: () => (app.roster()?.machines ?? []).map((m) => m.machine),
     mName,
     owners: () => [...new Set(sessions().map((s) => ownerOf(s)).filter((x): x is string => !!x && x !== me()))].sort(),
@@ -440,11 +524,13 @@ export function createBoard(): AppModule {
       attachProjectDrag(
         {
           root,
-          ruleIndex: (name) => {
-            const pinned = new Set(top().filter((x) => x !== name));
-            return orderProjects(projects().filter((x) => !pinned.has(x.name)), []).findIndex((x) => x.name === name);
+          place: (name, before) => g.edit<ProjectRec[]>(PROJECTS, (old) => moveProject(old, name, before)),
+          menu: (name) => {
+            menuOf = menuOf === name ? null : name;
+            app.changed();
           },
-          place: (name, vis, k) => p.edit<string[]>("top", (old) => placeTop(old ?? [], name, vis, k)),
+          rowsMove: () => view.projects && !view.group,
+          placeRows: (block, project, before, shown) => g.edit<ProjectRec[]>(PROJECTS, (old) => dropSessions(old, block, project, before, shown)),
           redraw,
         },
         ac.signal,
@@ -557,10 +643,21 @@ export function createBoard(): AppModule {
   return {
     on: {
       link(state) {
-        if (state === "open") void p.read().then(movePins);
+        if (state === "open") {
+          void p.read().then(movePins);
+          void g.read();
+        }
       },
     },
     screens: {
+      // вставка места «после открытия»: страница новой сессии возвращает номер проекта, не читая его
+      "board.assign": {
+        place: "open.after",
+        label: "Проект",
+        path: "assign",
+        show: (x) => !!x.project,
+        run: (x) => void g.edit<ProjectRec[]>(PROJECTS, (old) => placeSessions(old, [x.callsign ?? ""], x.project ?? NONE)),
+      },
       // кнопка карточки: закрепить чужую сессию в «Моём»; своей незачем
       "board.pin": {
         place: "card.menu",
@@ -588,9 +685,9 @@ export function createBoard(): AppModule {
         // Ctrl K ведёт сразу на сессию: найденная разворачивает свой проект
         find: (q) =>
           sessions()
-            .filter((s) => !q || `${s.callsign} ${sName(s.callsign)} ${mName(machineOf(s.callsign) ?? "")} ${projectOf(s.dir)}`.toLowerCase().includes(q))
+            .filter((s) => !q || `${s.callsign} ${sName(s.callsign)} ${mName(machineOf(s.callsign) ?? "")} ${folderOf(s.dir)} ${projectName(projectId(s.callsign))}`.toLowerCase().includes(q))
             .sort(byRank)
-            .map((s) => ({ label: sName(s.callsign), hint: `${mName(machineOf(s.callsign) ?? "")} · ${projectOf(s.dir)}`, dot: lamp(s), screen: "card", params: { callsign: s.callsign } })),
+            .map((s) => ({ label: sName(s.callsign), hint: `${mName(machineOf(s.callsign) ?? "")} · папка ${folderOf(s.dir)}`, dot: lamp(s), screen: "card", params: { callsign: s.callsign } })),
       },
     },
     marks: {
@@ -599,22 +696,29 @@ export function createBoard(): AppModule {
         const s = session(callsign);
         return s ? whyMine(s) : "";
       },
-      /** машины сессий проекта */
-      "project.machines": (project: string) => [...new Set(sessions().filter((s) => projectOf(s.dir) === project).map((s) => machineOf(s.callsign) ?? ""))].filter(Boolean),
-      /** открытый или последний проект */
+      /** машины сессий проекта по номеру */
+      "project.machines": (project: string) => [...new Set(sessions().filter((s) => projectId(s.callsign) === project).map((s) => machineOf(s.callsign) ?? ""))].filter(Boolean),
+      /** номер открытого или последнего проекта */
       "project.current": () => lastProject,
+      /** проект сессии: номер и имя */
+      "project.of": (callsign: string) => {
+        const id = projectId(callsign);
+        return { id, name: projectName(id) };
+      },
     },
     store: ["flt", "collapsed", "view", "pins"],
     css,
     async start(a) {
       app = a;
       p ??= personal(app, "web-board", () => app.changed());
+      g ??= personal(app, FLEET_PREFIX, () => app.changed(), "global");
       flt = (await app.store<string>("flt").get()) ?? "mine";
       col = (await app.store<Record<string, boolean>>("collapsed").get()) ?? {};
       view = { ...VIEW0, ...(await app.store<View>("view").get()) };
     },
     async stop() {
       await p?.settled();
+      await g?.settled();
     },
   };
 }

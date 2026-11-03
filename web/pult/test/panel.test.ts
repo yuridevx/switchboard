@@ -38,15 +38,13 @@ function openRelay(roster = fleetRoster()) {
   return relay;
 }
 
-/** Заполнить «Новую сессию»: «Папка на машине» → laptop → ~ → Projects → switchboard, выбрать, профиль ops, слот main, имя. */
+/** Заполнить «Новую сессию»: машина laptop, адрес ~/Projects/switchboard, профиль ops, слот main, имя. */
 async function fillOpen(t: Awaited<ReturnType<typeof pult>>, name: string) {
   await t.go("#open");
-  await t.click(t.$('[data-where="browse"]'));
+  await flush(5);
   await t.click(t.$('.op-bl [data-machine="laptop"]'));
-  await t.click(t.$('[data-preset="~"]'));
   await t.click(t.$('[data-dir="Projects"]'));
   await t.click(t.$('[data-dir="switchboard"]'));
-  await t.click(t.$('[data-act="pick"]'));
   await flush(5);
   await t.click(t.$('[data-pop="prof"]'));
   await t.click(t.$('[data-profile="team/profiles/ops"]'));
@@ -76,6 +74,7 @@ describe("эталоны пульта: сессии и чат", () => {
     await fillOpen(t, "board");
     expect(t.$('[data-machine="pc"]')).toBeNull();
     expect(t.relay.sent("machine.dirs").map((f) => f.path).slice(-3)).toEqual(["~", "~/Projects", "~/Projects/switchboard"]);
+    expect(t.relay.sent("machine.mkdir")).toHaveLength(0);
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toEqual([
       expect.objectContaining({ v: 1, machine: "laptop", name: "board", dir: "~/Projects/switchboard", slot: "main", profile: "team/profiles/ops" }),
@@ -88,7 +87,7 @@ describe("эталоны пульта: сессии и чат", () => {
     await fillOpen(t2, "site");
     await t2.click(t2.$('[data-act="open"]'));
     expect(t2.relay.sent("session.open")).toHaveLength(1);
-    expect(t2.$(".op-err")!.textContent).toBe("name_taken: на laptop уже есть site@laptop");
+    expect(t2.$(".op-err")!.textContent).toBe("на laptop уже есть site");
     expect(t2.$('.sb-detail [data-screen="open"]')).not.toBeNull();
   });
 

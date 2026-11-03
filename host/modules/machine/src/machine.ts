@@ -1,5 +1,5 @@
 // Модуль machine: папки машины. Что стоит и работает на машине, отвечает keeper.state. Событий Claude не слушает, хранить нечего.
-import { mkdirSync, readdirSync } from "node:fs";
+import { readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { clientPath, refuse } from "@switchboard/host";
 import type { Ctx, Frame, Module } from "@switchboard/host";
@@ -37,17 +37,7 @@ export function machine(o: MachineOptions = {}): Module {
             .sort();
           return { path: given, dirs };
         } catch (e) {
-          return osWord(e, `machine.dirs «${given}» от ${ctx.from ?? "?"}`, { ENOENT: "not_found", ENOTDIR: "not_found", EACCES: "no_access", EPERM: "no_access" });
-        }
-      },
-      "machine.mkdir"(req, ctx) {
-        const { given, path } = resolvePath(req, ctx, home);
-        try {
-          // одна папка в существующей: цепочку не строим
-          mkdirSync(path);
-          return { path: given };
-        } catch (e) {
-          return osWord(e, `machine.mkdir «${given}» от ${ctx.from ?? "?"}`, { EEXIST: "exists", ENOENT: "not_found", ENOTDIR: "not_found", EACCES: "no_access", EPERM: "no_access" });
+          return osWord(e, `machine.dirs «${given}» от ${ctx.from ?? "?"}`, { ENOENT: "not_found", ENOTDIR: "not_found", ENAMETOOLONG: "not_found", EACCES: "no_access", EPERM: "no_access" });
         }
       },
     },

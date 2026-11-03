@@ -16,6 +16,8 @@ const rect = (p, sel) => p.evaluate((s) => { const r = document.querySelector(s)
 const projects = (p) => p.evaluate(() => [...document.querySelectorAll(".lst > .pjs")].map((x) => x.dataset.proj));
 const chips = (p) => p.evaluate(() => [...document.querySelectorAll(".fscroll > .fc")].map((x) => x.dataset.fid));
 const values = (p) => p.evaluate(() => window.relay.values);
+const record = (p) => p.evaluate(() => window.relay.scoped.global["fleet.projects"]);
+const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[data-proj="${x}"] > .bd-row`)].map((r) => r.dataset.callsign), id);
 
   const b = await launch();
 
@@ -29,7 +31,7 @@ const values = (p) => p.evaluate(() => window.relay.values);
     await p.waitForSelector(".lst > .pjs");
     await p.waitForTimeout(300);
     const before = await projects(p);
-    check("закреплённые сверху", before[0] === "switchboard" && before[1] === "pfarm", before.slice(0, 3).join(", "));
+    check("начальный порядок записи", before[0] === "switchboard" && before[1] === "pfarm", before.slice(0, 3).join(", "));
     const t = before[2];
     const g = await rect(p, `.grip[data-proj="${t}"]`);
     const hdr0 = await rect(p, `.pjs[data-proj="${t}"] > .pj .pj-t`);
@@ -48,38 +50,34 @@ const values = (p) => p.evaluate(() => window.relay.values);
     await p.evaluate(() => window.relay.setRoster({ ...window.relay.roster }));
     await p.waitForTimeout(80);
     check("roster посреди жеста: список тот же", await p.evaluate((l) => l === document.querySelector(".lst"), lst0));
-    // повели вверх, к закреплённым
+    // повели вверх, на самый верх
     const y0 = g.y + 21;
     for (let i = 1; i <= 16; i++) {
-      await p.mouse.move(g.x + 11, y0 + ((await rect(p, '.grip[data-proj="switchboard"]')).y + 60 - y0) * (i / 16));
+      await p.mouse.move(g.x + 11, y0 + ((await rect(p, '.pjs[data-proj="switchboard"] .pj')).y - 20 - y0) * (i / 16));
       await p.waitForTimeout(16);
     }
     await p.waitForTimeout(260);
-    await p.screenshot({ path: path.join(OUT, "project-pin.png") });
-    const pinZone = await p.evaluate(() => document.querySelector(".dnd-card").classList.contains("dnd-pin"));
-    check("зона закрепления подсвечена", pinZone);
+    await p.screenshot({ path: path.join(OUT, "project-move.png") });
     await p.mouse.up();
     await p.waitForTimeout(320);
     const after = await projects(p);
-    const top = (await values(p))["web-board.top"];
-    check("проект закреплён на месте броска", after.indexOf(t) < 3 && top.includes(t), `${after.slice(0, 4).join(", ")} · top ${JSON.stringify(top)}`);
+    const saved = (await record(p)).map((r) => r.id);
+    check("проект на месте броска, порядок в записи", after[0] === t && saved[0] === t, after.slice(0, 3).join(", "));
     check("класс снят и карточки нет", await p.evaluate(() => !document.querySelector(".dnd-card") && !document.querySelector(".reordering")));
 
-    // открепить: бросить ниже черты
-    const g2 = await rect(p, `.grip[data-proj="${t}"]`);
-    await p.mouse.move(g2.x + 11, g2.y + 14);
-    await p.mouse.down();
-    await p.mouse.move(g2.x + 11, g2.y + 30, { steps: 3 });
-    await p.mouse.move(g2.x + 11, g2.y + 500, { steps: 16 });
-    await p.waitForTimeout(240);
-    await p.screenshot({ path: path.join(OUT, "project-unpin.png") });
-    await p.mouse.up();
-    await p.waitForTimeout(320);
-    check("брошен ниже черты — откреплён", !(await values(p))["web-board.top"].includes(t));
+    // нажатие без сдвига — меню проекта
+    const gm = await rect(p, `.grip[data-proj="${t}"]`);
+    await p.mouse.click(gm.x + 11, gm.y + 14);
+    await p.waitForTimeout(120);
+    check("нажатие на ⠿ — меню: имя и удаление", !!(await p.$(`[data-menu="${t}"] [data-f="project-name"]`)) && !!(await p.$('[data-act="project-remove"]')));
+    await p.screenshot({ path: path.join(OUT, "project-menu.png") });
+    await p.keyboard.press("Escape");
+    await p.waitForTimeout(100);
 
     // автопрокрутка у нижнего края
     const sc0 = await p.evaluate(() => document.querySelector(".bd-body").scrollTop);
-    const g3 = await rect(p, '.grip[data-proj="switchboard"]');
+    const order0 = await projects(p);
+    const g3 = await rect(p, `.grip[data-proj="${order0[0]}"]`);
     const body = await rect(p, ".bd-body");
     await p.mouse.move(g3.x + 11, g3.y + 14);
     await p.mouse.down();
@@ -90,7 +88,7 @@ const values = (p) => p.evaluate(() => window.relay.values);
     check("у края список едет", sc1 > sc0 + 100, `${sc0} → ${Math.round(sc1)} px`);
     await p.keyboard.press("Escape");
     await p.waitForTimeout(320);
-    check("Escape — порядок прежний", (await projects(p))[0] === "switchboard");
+    check("Escape — порядок прежний", JSON.stringify(await projects(p)) === JSON.stringify(order0));
     await p.mouse.up();
 
     // заголовки липнут только внутри своего раздела
@@ -106,10 +104,80 @@ const values = (p) => p.evaluate(() => window.relay.values);
     // стрелки на ручке и видимый фокус
     await p.evaluate(() => document.querySelector(".bd-body").scrollTo(0, 0));
     await p.focus('.grip[data-proj="pfarm"]');
+    const i0 = (await projects(p)).indexOf("pfarm");
     await p.keyboard.press("ArrowUp");
     await p.waitForTimeout(280);
-    check("стрелка вверх на ручке", (await projects(p))[0] === "pfarm");
+    check("стрелка вверх на ручке", (await projects(p)).indexOf("pfarm") === i0 - 1);
     check("фокус на ручке", await p.evaluate(() => document.activeElement?.dataset?.proj === "pfarm"));
+    check("ошибок страницы нет", errs.length === 0, errs.slice(0, 2).join(" | "));
+    await ctx.close();
+  }
+
+  // ───── строки мышью ─────
+  {
+    const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
+    const p = await ctx.newPage();
+    const errs = [];
+    p.on("pageerror", (e) => errs.push(e.message));
+    await p.goto(url("pult", "small", "#sessions"));
+    await p.waitForSelector(".bd-row");
+    await p.waitForTimeout(300);
+    const dragRow = async (from, toY, mid) => {
+      const r = await rect(p, `[data-callsign="${from}"]`);
+      await p.mouse.move(r.x + 60, r.y + r.h / 2);
+      await p.mouse.down();
+      await p.mouse.move(r.x + 60, r.y + r.h / 2 + 8, { steps: 2 });
+      await p.mouse.move(r.x + 60, toY, { steps: 12 });
+      await p.waitForTimeout(60);
+      if (mid) await mid();
+      await p.mouse.up();
+      await p.waitForTimeout(150);
+    };
+    const hash0 = await p.evaluate(() => location.hash);
+    const before = await rowsOf(p, "pfarm");
+    const top = await rect(p, `[data-callsign="${before[0]}"]`);
+    await dragRow(before[2], top.y + 4, async () => {
+      check("строка поднята, линия показывает место", !!(await p.$(".dnd-row-card")) && !!(await p.$(".dnd-row-line")));
+      await p.screenshot({ path: path.join(OUT, "row-move.png") });
+    });
+    check("строка выше соседа: на месте броска", (await rowsOf(p, "pfarm"))[0] === before[2], (await rowsOf(p, "pfarm")).join(", "));
+    check("порядок в записи", (await record(p)).find((x) => x.id === "pfarm").sessions[0] === before[2]);
+    check("клик после жеста сессию не открывает", (await p.evaluate(() => location.hash)) === hash0);
+    check("следов жеста нет", await p.evaluate(() => !document.querySelector(".dnd-row-card, .dnd-row-line, .dnd-row-out, .reordering")));
+
+    // смена состояния ничего не двигает
+    const r0 = await rowsOf(p, "pfarm");
+    await p.evaluate((cs) => window.relay.setRoster({ ...window.relay.roster, sessions: window.relay.roster.sessions.map((x) => (x.callsign === cs ? { ...x, state: "waiting" } : x)) }), r0[2]);
+    await p.waitForTimeout(100);
+    check("смена состояния: порядок тот же", JSON.stringify(await rowsOf(p, "pfarm")) === JSON.stringify(r0));
+
+    // родитель едет блоком в другой проект
+    const dest = await rect(p, `[data-callsign="${r0[1]}"]`);
+    await dragRow("refactor@win", dest.y + 4);
+    const pf = await rowsOf(p, "pfarm");
+    check("родитель в другом проекте, дочерние под ним", pf.indexOf("refactor@win") >= 0 && pf[pf.indexOf("refactor@win") + 1] === "review@wsl" && pf[pf.indexOf("refactor@win") + 2] === "tests@wsl", pf.join(", "));
+
+    // на свёрнутый проект: в его конец
+    const none = await rect(p, '.pjs[data-proj="~"] > .pj');
+    await dragRow(pf[0], none.y + 10);
+    const rec = await record(p);
+    check("брошена на свёрнутый проект — в его записи", rec.find((x) => x.id === "~")?.sessions.includes(pf[0]) && !rec.find((x) => x.id === "pfarm").sessions.includes(pf[0]));
+
+    // Escape: всё на месте
+    const r2 = await rowsOf(p, "pfarm");
+    const rr = await rect(p, `[data-callsign="${r2[1]}"]`);
+    await p.mouse.move(rr.x + 60, rr.y + 10);
+    await p.mouse.down();
+    await p.mouse.move(rr.x + 60, rr.y + 60, { steps: 5 });
+    await p.keyboard.press("Escape");
+    await p.mouse.up();
+    await p.waitForTimeout(100);
+    check("Escape: порядок строк прежний", JSON.stringify(await rowsOf(p, "pfarm")) === JSON.stringify(r2));
+
+    // обычный клик открывает
+    await p.click(`[data-callsign="${r2[0]}"]`);
+    await p.waitForTimeout(100);
+    check("обычный клик открывает сессию", (await p.evaluate(() => location.hash)).startsWith("#card"));
     check("ошибок страницы нет", errs.length === 0, errs.slice(0, 2).join(" | "));
     await ctx.close();
   }
@@ -191,7 +259,43 @@ const values = (p) => p.evaluate(() => window.relay.values);
     await touch("touchEnd");
     await p.waitForTimeout(320);
     const after = await projects(p);
-    check("палец: проект закреплён", after.indexOf(t) < 2 && (await values(p))["web-board.top"].includes(t), after.slice(0, 3).join(", "));
+    check("палец: проект переставлен", after.indexOf(t) < before.indexOf(t) && (await record(p)).findIndex((x) => x.id === t) < before.indexOf(t), after.slice(0, 3).join(", "));
+
+    // строка: удержание поднимает, ведение раньше — прокрутка
+    await p.evaluate(() => document.querySelector(".bd-body").scrollTo(0, 0));
+    const open = await p.evaluate(() => {
+      const h = [...document.querySelectorAll(".pjs")].find((x) => x.querySelectorAll(":scope > .bd-row").length >= 2);
+      return h ? h.dataset.proj : null;
+    });
+    if (!open) await p.click(".pj-t");
+    await p.waitForTimeout(100);
+    const fid = open ?? (await p.evaluate(() => document.querySelector(".pjs:has(> .bd-row)").dataset.proj));
+    const rr0 = await rowsOf(p, fid);
+    const r1 = await rect(p, `[data-callsign="${rr0[1]}"]`);
+    await touch("touchStart", r1.x + 60, r1.y + 12);
+    for (let i = 1; i <= 4; i++) {
+      await touch("touchMove", r1.x + 60, r1.y + 12 - i * 8);
+      await p.waitForTimeout(16);
+    }
+    check("палец повёл сразу — строка не поднята", !(await p.$(".dnd-row-card")));
+    await touch("touchEnd");
+    await p.waitForTimeout(100);
+    await p.evaluate(() => document.querySelector(".bd-body").scrollTo(0, 0));
+    const r1b = await rect(p, `[data-callsign="${rr0[1]}"]`);
+    const r0b = await rect(p, `[data-callsign="${rr0[0]}"]`);
+    const hashR = await p.evaluate(() => location.hash);
+    await touch("touchStart", r1b.x + 60, r1b.y + 12);
+    await p.waitForTimeout(360);
+    check("палец: удержание поднимает строку", !!(await p.$(".dnd-row-card")));
+    for (let i = 1; i <= 8; i++) {
+      await touch("touchMove", r1b.x + 60, r1b.y + 12 + ((r0b.y + 4 - (r1b.y + 12)) * i) / 8);
+      await p.waitForTimeout(16);
+    }
+    await p.screenshot({ path: path.join(OUT, "phone-row.png") });
+    await touch("touchEnd");
+    await p.waitForTimeout(200);
+    check("палец: строка на месте броска", (await rowsOf(p, fid))[0] === rr0[1], (await rowsOf(p, fid)).slice(0, 3).join(", "));
+    check("палец: сессия не открылась", (await p.evaluate(() => location.hash)) === hashR);
 
     // чип: ведение — прокрутка ряда, чип не тронут
     const r0 = await chips(p);
