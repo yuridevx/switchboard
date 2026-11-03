@@ -2,6 +2,8 @@
 // Порядок разделов — у оболочки.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStore, startApp, startBuild, type AppModule, type AppPart, type BuildList, type Manifest } from "../contract.ts";
+import type { App } from "../contract.ts";
+import { personal, type Scope } from "../../ui/contract.ts";
 import { FakeRelay, flush, homeRoster, KEY } from "../stand/relay.ts";
 
 beforeEach(() => {
@@ -15,6 +17,25 @@ const man = (name: string, provides: Record<string, number>): Manifest => ({ nam
 const screenMod = (name: string, nav: string): AppModule => ({ screens: { [name]: { nav, label: nav, view: () => nav } } });
 
 describe("сборка страницы", () => {
+  it("6601 · имя приложения из списка сборки — у модуля; настройка области приложения уходит с ним; область флота и человека — своими словами", async () => {
+    const relay = new FakeRelay(homeRoster());
+    let got: App | null = null;
+    const build: BuildList = { app: "pult", version: "1.1.0+2", fleet: "test", modules: [{ name: "web-core", version: "1.1.0" }, { name: "list", version: "1.0.0" }], workers: FakeRelay.WORKERS };
+    const mod: AppModule = { ...screenMod("list", "Список"), start: (a) => void (got = a) };
+    const run = await startBuild({ root: document.getElementById("app")!, build, load: async () => ({ manifest: man("list", { list: 1 }), default: mod }), fetch: relay.fetch, store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket as never, platform: { ios: false, standalone: false }, pauseMs: 5 });
+    await run.ready;
+    expect(got!.application).toBe("pult");
+    const scopeOf = async (scope?: Scope) => {
+      const asked: Array<Record<string, unknown>> = [];
+      const p = personal({ application: got!.application, request: async (_n: string, body?: Record<string, unknown>) => (asked.push(body ?? {}), { ok: true, result: { values: {} } }) as never, toast: () => {} }, "x", () => {}, scope);
+      await p.read();
+      return asked[0].scope;
+    };
+    expect(await scopeOf("app")).toBe("app:pult");
+    expect(await scopeOf("global")).toBe("global");
+    expect(await scopeOf()).toBeUndefined();
+  });
+
   it("5134 · startBuild: модули по списку сборки (ядро — само), relay и Worker'ы — из build.json; модуль не загрузился — выключен только он", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адреса relay и Worker'ов страница берёт из
     // списка сборки; модуль не загрузился — выключен только он, остальные работают

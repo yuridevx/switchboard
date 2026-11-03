@@ -42,7 +42,7 @@ export function PickMachine({ cur, callsign, on }: { cur: string; callsign: stri
   const points = usePoints();
   const near = app.use(() => {
     const project = callsign ? app.mark("project.of", callsign)?.id : null;
-    return project && project !== "~" ? (app.mark("project.machines", project) ?? []) : [];
+    return project ? (app.mark("project.machines", project) ?? []) : [];
   });
   const all = app.use(points.raisers);
   return (

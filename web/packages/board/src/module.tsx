@@ -64,10 +64,10 @@ export function createBoard(): AppModule {
       "project.machines": (project: string) => [...new Set(board.sessions().filter((s) => board.projectId(s.callsign) === project).map((s) => machineOf(s.callsign) ?? ""))].filter(Boolean),
       /** номер открытого или последнего проекта */
       "project.current": () => board.lastProject(),
-      /** проект сессии: номер и имя */
+      /** проект сессии: номер и имя; без проекта — null */
       "project.of": (callsign: string) => {
-        const id = board.projectId(callsign);
-        return { id, name: board.projectName(id) };
+        const id = board.realProject(callsign);
+        return id ? { id, name: board.projectName(id) } : null;
       },
     },
     store: ["flt", "collapsed", "view", "pins"],
