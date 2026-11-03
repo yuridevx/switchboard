@@ -15,8 +15,8 @@ declare module "@switchboard/web-core" {
     "project.machines"(project: string): string[];
     /** номер открытого или последнего проекта */
     "project.current"(): string | null;
-    /** проект сессии: номер и имя */
-    "project.of"(callsign: string): { id: string; name: string };
+    /** проект сессии: номер и имя; без проекта — null */
+    "project.of"(callsign: string): { id: string; name: string } | null;
   }
 }
 

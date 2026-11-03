@@ -131,7 +131,7 @@ export function createPoints(): AppModule {
   /** Поднятая сессия встаёт в проект исходной: команду записи держит «Работа». */
   function keepProject(from: string | null | undefined, to: string) {
     const project = from ? app.mark("project.of", from)?.id : undefined;
-    if (project && project !== "~") app.open("board.assign", { callsign: to, project });
+    if (project) app.open("board.assign", { callsign: to, project });
   }
   const raisers = () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["points.raise"] !== undefined).map((m) => m.machine);
 
@@ -139,7 +139,7 @@ export function createPoints(): AppModule {
   function PickMachine({ cur, callsign, on }: { cur: string; callsign: string | undefined; on(m: string): void }) {
     const pm = app.use(() => {
       const project = callsign ? app.mark("project.of", callsign)?.id : null;
-      return project && project !== "~" ? (app.mark("project.machines", project) ?? []) : [];
+      return project ? (app.mark("project.machines", project) ?? []) : [];
     });
     const all = app.use(raisers);
     return (

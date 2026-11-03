@@ -700,10 +700,10 @@ export function createBoard(): AppModule {
       "project.machines": (project: string) => [...new Set(sessions().filter((s) => projectId(s.callsign) === project).map((s) => machineOf(s.callsign) ?? ""))].filter(Boolean),
       /** номер открытого или последнего проекта */
       "project.current": () => lastProject,
-      /** проект сессии: номер и имя */
+      /** проект сессии: номер и имя; без проекта — null */
       "project.of": (callsign: string) => {
-        const id = projectId(callsign);
-        return { id, name: projectName(id) };
+        const id = realProject(callsign);
+        return id ? { id, name: projectName(id) } : null;
       },
     },
     store: ["flt", "collapsed", "view", "pins"],

@@ -423,6 +423,18 @@ describe("перенос сессии «только в R2»", () => {
     expect(relay.sent("points.list").length).toBe(lists + 1);
   });
 
+  it("6514 · подъём из точки на другой машине: новая сессия в проекте исходной; без проекта запись не меняется", async () => {
+    const relay = onlyRelay();
+    relay.scoped.global = { "fleet.projects": [{ id: "work", name: "Работа", sessions: ["old-bot@pc"] }] };
+    relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "same" } } : { ok: true, result: { callsign: "old-bot@laptop" } });
+    const t = await points(relay);
+    await t.click(t.btn(t.$('[data-sid="old"]'), "Перенести на машину…"));
+    await flush(10);
+    await t.click(t.btn(t.$('[data-dlg="raise"]'), "Поднять на laptop"));
+    await flush(5);
+    expect(relay.scoped.global["fleet.projects"]).toEqual([{ id: "work", name: "Работа", sessions: ["old-bot@pc", "old-bot@laptop"] }]);
+  });
+
   it("4171 · подъём отказал — «Не поднялась на laptop», кнопка снова доступна", async () => {
     const relay = onlyRelay();
     relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "same" } } : { ok: false, error: "open_failed" });
