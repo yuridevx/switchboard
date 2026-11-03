@@ -3,6 +3,7 @@ import { Component, memo, type ComponentType, type ReactNode } from "react";
 import { BadCard, Cta, Pad } from "@switchboard/web-ui";
 import type { Mod } from "../app.tsx";
 import { same } from "../same.ts";
+import { AppCtx } from "./context.ts";
 import type { Params, Screen, SlotProps } from "../types.ts";
 
 type Deps = {
@@ -54,7 +55,9 @@ export function place({ lookup, use, fail, reload }: Deps): ComponentType<SlotPr
     return (
       <div data-module={s.owner.m.name} style={{ display: "contents" }}>
         <Boundary key={JSON.stringify(p)} onError={(e) => fail(s.owner, `экране ${screen}`, e)}>
-          <View params={p} close={close} />
+          <AppCtx.Provider value={s.owner.app}>
+            <View params={p} close={close} />
+          </AppCtx.Provider>
         </Boundary>
       </div>
     );

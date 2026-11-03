@@ -28,7 +28,7 @@
 //   } satisfies AppModule;
 // Что даёт ядро — интерфейс App (app.request, app.open, app.can, app.store, app.deliver, app.mark, app.use, app.Slot, …).
 // Вид: модуль получает app в start и рисует компоненты; app.use(select) — выборка, компонент перерисуется, когда изменился ответ;
-// app.Slot — чужой экран в своём; ядро модуль не импортирует, отсюда — только типы.
+// app.Slot — чужой экран в своём; ядро модуль не импортирует, отсюда — типы и useApp(): app модуля в компонентах его экрана.
 export type {
   App,
   AppModule,
@@ -52,6 +52,8 @@ export type {
 export type { Store } from "./src/store.ts";
 export type { Frame, Roster, RosterMachine, SessionRecord } from "@switchboard/relay";
 
+/** App модуля в компонентах его экрана. */
+export { useApp } from "./src/view/context.ts";
 /** Запустить приложение. */
 export { startApp, detectPlatform, keyId } from "./src/app.tsx";
 /** Запустить сборку страницы по build.json. */

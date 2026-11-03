@@ -7,6 +7,7 @@ export const UI_CSS: string = css;
 export * from "./src/parts.tsx";
 export * from "./src/format.ts";
 export { personal } from "./src/personal.ts";
+export { useLoad } from "./src/hooks.ts";
 export { createStore } from "./src/store.ts";
 export type { Store } from "./src/store.ts";
 export type { Personal, Scope } from "./src/personal.ts";
