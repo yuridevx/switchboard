@@ -73,9 +73,9 @@ function fleet() {
   // пропуска клиентов: стенд сам отвечает на keys.list машинами — здесь весь список gate
   const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const f = JSON.parse(String(init?.body)) as Frame;
-    if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === undefined && !relay.handlers["keys.list"]) {
+    if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === undefined) {
       relay.got.push(f);
-      return Response.json({ type: "reply", id: f.id, ok: true, result: { passes } });
+      return Response.json({ type: "reply", id: f.id, ...(relay.handlers["keys.list"]?.(f) ?? { ok: true, result: { passes } }) });
     }
     return relay.fetch(url, init);
   }) as typeof globalThis.fetch;
@@ -282,7 +282,7 @@ describe("pult-settings", () => {
     expect(t.text()).toContain("releases.list: denied");
     const t3 = await settings({ url: "/#settings?tab=general", hooks: (r) => (r.handlers["github.app"] = () => ({ ok: false, error: "no_app" })) });
     expect(t3.text()).toContain("github.app: no_app");
-    const t2 = await settings({ url: "/#settings?tab=passes", hooks: (r) => (r.handlers["keys.list"] = (f) => (f.role === undefined ? { ok: false, error: "denied" } : { ok: true, result: { passes: [] } })) });
+    const t2 = await settings({ url: "/#settings?tab=passes", hooks: (r) => (r.handlers["keys.list"] = () => ({ ok: false, error: "denied" })) });
     expect(t2.text()).toContain("keys.list: denied");
   });
 
