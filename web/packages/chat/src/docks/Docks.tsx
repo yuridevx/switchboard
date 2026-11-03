@@ -1,5 +1,6 @@
 // Над полем ввода: задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
 import { useRef } from "react";
+import { useApp } from "@switchboard/web-core";
 import { Bot, Layers, ListChecks, Square, Terminal } from "lucide-react";
 import { useChat } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
@@ -75,21 +76,21 @@ export function BackgroundDock({ callsign }: { callsign: string }) {
 
 /** Вопрос сессии: узко — полоса, которая открывает экран вопроса; широко — экран ask в месте над вводом. */
 export function AskDock({ callsign }: { callsign: string }) {
+  const app = useApp();
   const chat = useChat();
-  const asked = chat.useApp(() => chat.asked(callsign));
-  const waiting = chat.useApp(() => chat.sessionOf(callsign)?.state === "waiting");
+  const asked = app.use(() => app.mark("asked", callsign));
+  const waiting = app.use(() => chat.sessionOf(callsign)?.state === "waiting");
   // вопрос над вводом: открыт, пока открыт чат — ответ «принят» или «уже ответили» остаётся виден
   const opened = useRef(false);
   if (asked || waiting) opened.current = true;
-  const Slot = chat.Slot;
   return (
     <div className="chat-ask">
-      {chat.wide ? (
+      {app.wide ? (
         opened.current ? (
-          <Slot screen="ask" params={{ callsign }} />
+          <app.Slot screen="ask" params={{ callsign }} />
         ) : null
       ) : asked ? (
-        <button type="button" className="chat-askbar" onClick={() => chat.open("ask", { callsign })}>
+        <button type="button" className="chat-askbar" onClick={() => app.open("ask", { callsign })}>
           <b>?</b>
           <span>{asked}</span>
           <em>Ответить</em>

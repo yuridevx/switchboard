@@ -152,20 +152,10 @@ export function createChatStore() {
     // ───── выборки ─────
     /** Выборка из разговора: компонент перерисуется, когда изменился её ответ. */
     useConv: <T,>(cs: string, select: (c: Conv) => T): T => app.use(() => select(read(cs))),
-    /** Выборка из ядра: roster, метки, связь. */
-    useApp: <T,>(select: () => T): T => app.use(select),
-    get wide() {
-      return app.wide;
-    },
-    get Slot() {
-      return app.Slot;
-    },
     nameOf: (cs: string) => app.mark("label.session", cs)?.text ?? cs,
-    asked: (cs: string) => app.mark("asked", cs),
     sessionOf,
     isLive,
     can,
-    open: (screen: string, params: Record<string, string>) => app.open(screen, params),
     draft: (cs: string) => drafts[cs] ?? "",
     setDraft: (cs: string, text: string) => void (drafts[cs] = text),
     /** Счётчик непрочитанного для метки unread. */

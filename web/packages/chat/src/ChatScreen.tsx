@@ -1,6 +1,7 @@
 // Экран чата: полоса над лентой, лента и всё, что над вводом и под ней.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
+import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { Pad } from "@switchboard/web-ui";
 import { RowView } from "./cards/ItemView.tsx";
@@ -46,10 +47,11 @@ const FeedRow = memo(function FeedRow({ row, callsign }: { row: Row; callsign: s
 
 /** Внизу ленты: идёт сжатие или ход. */
 function Working({ callsign }: { callsign: string }) {
+  const app = useApp();
   const chat = useChat();
   const compacting = chat.useConv(callsign, (c) => c.feed.compacting);
   const thinking = chat.useConv(callsign, (c) => c.feed.thinking);
-  const busy = chat.useApp(() => chat.sessionOf(callsign)?.state === "busy");
+  const busy = app.use(() => chat.sessionOf(callsign)?.state === "busy");
   if (compacting) return <div className="chat-work">Сжимаю контекст…</div>;
   if (!busy) return null;
   return (
@@ -63,6 +65,7 @@ function Working({ callsign }: { callsign: string }) {
 }
 
 function FeedView({ callsign }: { callsign: string }) {
+  const app = useApp();
   const chat = useChat();
   const items = chat.useConv(callsign, (c) => c.feed.items);
   const tools = chat.useConv(callsign, (c) => c.feed.tools);
@@ -70,7 +73,7 @@ function FeedView({ callsign }: { callsign: string }) {
   const noFeed = chat.useConv(callsign, (c) => c.noFeed);
   const refused = chat.useConv(callsign, (c) => c.refused);
   const more = chat.useConv(callsign, (c) => c.more);
-  const rows = useMemo<Row[]>(() => (chat.wide && focus ? focusRows(items, tools) : items.map((item) => ({ id: item.id, item }))), [chat.wide, focus, items, tools]);
+  const rows = useMemo<Row[]>(() => (app.wide && focus ? focusRows(items, tools) : items.map((item) => ({ id: item.id, item }))), [app.wide, focus, items, tools]);
   const box = useRef<HTMLDivElement>(null);
   const col = useRef<HTMLDivElement>(null);
   const { away, toBottom } = useStickToBottom(box, col);
@@ -108,9 +111,10 @@ function FeedView({ callsign }: { callsign: string }) {
 
 /** Полоса над лентой: контекст, фокус, выгрузка. Чего нет в contract машины — того нет. */
 function Bar({ callsign, panel, setPanel }: { callsign: string; panel: boolean; setPanel(v: boolean): void }) {
+  const app = useApp();
   const chat = useChat();
   const focus = chat.useConv(callsign, (c) => c.focus);
-  const canCall = chat.useApp(() => chat.can(callsign, "session.call") && chat.isLive(callsign));
+  const canCall = app.use(() => chat.can(callsign, "session.call") && chat.isLive(callsign));
   return (
     <div className="chat-bar">
       {canCall ? (
@@ -139,29 +143,30 @@ function Bar({ callsign, panel, setPanel }: { callsign: string; panel: boolean; 
 }
 
 export function ChatScreen({ callsign }: { callsign: string }) {
+  const app = useApp();
   const chat = useChat();
   const [panel, setPanel] = useState(false);
   useEffect(() => chat.mount(callsign), [chat, callsign]);
-  const name = chat.useApp(() => chat.nameOf(callsign));
-  const canCall = chat.useApp(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
+  const name = app.use(() => chat.nameOf(callsign));
+  const canCall = app.use(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
   // что карточкам ленты: выборка из этого разговора и кнопки, если сессия жива и машина умеет session.call
   const view = useMemo<CardsView>(
     () => ({
       useFeed: <T,>(select: (f: Feed) => T) => chat.useConv(callsign, (c) => select(c.feed)),
       name,
-      wide: chat.wide,
+      wide: app.wide,
       background: canCall ? (id) => void chat.call(callsign, "backgroundTasks", [id]) : undefined,
       stopTask: canCall ? (id) => void chat.call(callsign, "stopTask", [id]) : undefined,
-      rewind: chat.wide && canCall ? (id) => void chat.probeRewind(callsign, id) : undefined,
+      rewind: app.wide && canCall ? (id) => void chat.probeRewind(callsign, id) : undefined,
       resend: (id, text) => chat.resend(callsign, id, text),
       edit: (text) => chat.returnText(callsign, text),
     }),
-    [chat, callsign, name, canCall],
+    [app.wide, chat, callsign, name, canCall],
   );
   return (
     <CardsCtx.Provider value={view}>
-      <div className={chat.wide ? "chat wide" : "chat"}>
-        {chat.wide ? <Bar callsign={callsign} panel={panel} setPanel={setPanel} /> : null}
+      <div className={app.wide ? "chat wide" : "chat"}>
+        {app.wide ? <Bar callsign={callsign} panel={panel} setPanel={setPanel} /> : null}
         {panel ? <ContextPanel callsign={callsign} close={() => setPanel(false)} /> : null}
         <FeedView callsign={callsign} />
         <div className="chat-dock">

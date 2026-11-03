@@ -174,6 +174,7 @@ describe("вопрос сессии", () => {
     const inp = t.$<HTMLInputElement>(".ask-field input")!;
     inp.value = "WEB";
     inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.button("Отправить"));
     expect(t.relay.sent("answer")[0]).toMatchObject({ question: "toolu_01Hx", action: "accept", content: { project: "WEB" } });
 

@@ -44,9 +44,11 @@ async function open(values: Record<string, unknown> = {}) {
   await t.click(t.$("[data-open]"));
   return { t, relay, x };
 }
-const fill = (t: Awaited<ReturnType<typeof stand>>, f: string, v: string) => {
+const fill = async (t: Awaited<ReturnType<typeof stand>>, f: string, v: string) => {
   const e = t.$<HTMLInputElement>(`[data-f="${f}"]`)!;
   e.value = v;
+  e.dispatchEvent(new Event("input", { bubbles: true }));
+  await flush();
 };
 
 describe("имена", () => {
@@ -55,8 +57,8 @@ describe("имена", () => {
     expect(x.session("site@laptop")).toEqual({ text: "site", human: false });
     expect(x.machine("laptop")).toEqual({ text: "@laptop", human: false });
     expect(t.$(".lb-a")!.textContent).toBe("site@laptop");
-    fill(t, "session", "Сайт");
-    fill(t, "machine", "Домашний ПК");
+    await fill(t, "session", "Сайт");
+    await fill(t, "machine", "Домашний ПК");
     await t.click(t.$('[data-act="save"]'));
     await flush(5);
     expect(x.session("site@laptop")).toEqual({ text: "Сайт", human: true });
@@ -68,7 +70,7 @@ describe("имена", () => {
   it("5271 · пустое — снова адрес; имена других сессий не трогает", async () => {
     const { t, relay, x } = await open({ "fleet.labels": { sessions: { "site@laptop": "Сайт", "wiki@laptop": "Вики" }, machines: {} } });
     expect(t.$<HTMLInputElement>('[data-f="session"]')!.value).toBe("Сайт");
-    fill(t, "session", "");
+    await fill(t, "session", "");
     await t.click(t.$('[data-act="save"]'));
     await flush(5);
     expect(x.session("site@laptop")).toEqual({ text: "site", human: false });
@@ -77,7 +79,7 @@ describe("имена", () => {
 
   it("5272 · Escape и «Отмена» — без записи", async () => {
     const { t, relay } = await open();
-    fill(t, "session", "Сайт");
+    await fill(t, "session", "Сайт");
     t.$('[data-f="session"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await flush(5);
     expect(relay.sent("prefs.set")).toHaveLength(0);

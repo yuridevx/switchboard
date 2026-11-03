@@ -3,6 +3,7 @@
 // Текст — состояние этого компонента (курсор при наборе не прыгает); в хранилище уходит черновик, отказ отправки возвращает текст и вложения.
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
+import { useApp } from "@switchboard/web-core";
 import { useChat } from "../context.ts";
 import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";
@@ -40,6 +41,7 @@ function Chips({ list, drop }: { list: Attachment[]; drop(a: Attachment): void }
 }
 
 export function Composer({ callsign }: { callsign: string }) {
+  const app = useApp();
   const chat = useChat();
   const inp = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -47,11 +49,11 @@ export function Composer({ callsign }: { callsign: string }) {
   const [pending, setPending] = useState<Attachment[]>([]);
   const [dragging, setDragging] = useState(false);
 
-  const name = chat.useApp(() => chat.nameOf(callsign));
-  const busy = chat.useApp(() => chat.sessionOf(callsign)?.state === "busy");
-  const live = chat.useApp(() => chat.isLive(callsign));
-  const canFiles = chat.useApp(() => chat.can(callsign, "session.files"));
-  const canCall = chat.useApp(() => chat.can(callsign, "session.call"));
+  const name = app.use(() => chat.nameOf(callsign));
+  const busy = app.use(() => chat.sessionOf(callsign)?.state === "busy");
+  const live = app.use(() => chat.isLive(callsign));
+  const canFiles = app.use(() => chat.can(callsign, "session.files"));
+  const canCall = app.use(() => chat.can(callsign, "session.call"));
   const suggestion = chat.useConv(callsign, (c) => c.feed.suggestion);
   const returned = chat.useConv(callsign, (c) => c.returned);
   const suggest = useSuggest(callsign, text);
