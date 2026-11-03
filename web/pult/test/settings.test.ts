@@ -81,13 +81,13 @@ function fleet() {
   return { relay, plans, fetch };
 }
 
-async function settings(o: { wide?: boolean; url?: string } = {}) {
+async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string> } = {}) {
   const fl = fleet();
   const parts: AppPart[] = [
     { manifest: settingsM, module: createSettings() },
     { manifest: alertsM, module: createAlerts(fakeBrowser("granted")) },
   ];
-  const t = await stand(parts, { relay: fl.relay, store: memoryStore({ key: "client.pult.k3f1.Qa7sig" }), wide: o.wide ?? true, url: o.url ?? "/#settings", options: { fetch: fl.fetch } });
+  const t = await stand(parts, { relay: fl.relay, store: memoryStore({ key: "client.pult.k3f1.Qa7sig" }), wide: o.wide ?? true, url: o.url ?? "/#settings", options: { fetch: fl.fetch, ...(o.workers ? { workers: o.workers } : {}) } });
   await flush(10);
   const btn = (text: string | RegExp, scope: Element = t.root) =>
     [...scope.querySelectorAll<HTMLButtonElement>("button")].find((b) => (typeof text === "string" ? b.textContent?.trim() === text : text.test(b.textContent ?? ""))) ?? null;
@@ -161,8 +161,11 @@ describe("pult-settings", () => {
     expect(t.btn("Вернуть +10", t.$('tr[data-part="pult"]')!)).not.toBeNull();
   });
 
-  it("5504 · пропуска: пригласить устройство — keys.invite и ссылка #invite=; отозвать с подтверждением — keys.revoke у relay; это устройство не отзывается", async () => {
-    const t = await settings({ url: "/#settings?tab=passes" });
+  it("5504 · пропуска: пригласить устройство — keys.invite и ссылки #invite= на пульт и телефон, каждая копируется; отозвать с подтверждением — keys.revoke у relay; это устройство не отзывается", async () => {
+    // источник: слово пользователя 3 нояб. — «отдавала инвайт сразу и линком на пульт и на телефон, копия по выбору»
+    const writes: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (s: string) => void writes.push(s) } });
+    const t = await settings({ url: "/#settings?tab=passes", workers: { ...FakeRelay.WORKERS, phone: "https://phone.test/" } });
     expect(t.$('[data-passes="Машины"]')!.textContent).toContain("@laptop");
     const me = t.$('tr[data-pass="kc1"]')!;
     expect(me.textContent).toContain("это устройство");
@@ -178,7 +181,11 @@ describe("pult-settings", () => {
     who.dispatchEvent(new Event("input"));
     await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
     expect(t.sent("keys.invite").at(-1)).toMatchObject({ role: "client", name: "laptop2", person: "you@mail", to: ".gate" });
-    expect(t.$("[data-invited]")!.textContent).toContain("#invite=k9ab.SECRET");
+    const inv = "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567";
+    expect(t.$("[data-link=\"Пульт\"] code")!.textContent).toBe(`${location.origin}/#invite=${inv}`);
+    expect(t.$("[data-link=\"Телефон\"] code")!.textContent).toBe(`https://phone.test/#invite=${inv}`);
+    await t.click(t.btn("Копировать", t.$("[data-link=\"Телефон\"]")!));
+    expect(writes).toEqual([`https://phone.test/#invite=${inv}`]);
     expect(t.$("[data-invited]")!.textContent).toContain("laptop2~you@mail");
     await t.click(t.btn("Готово"));
     const phone = t.$('tr[data-pass="kc2"]')!;

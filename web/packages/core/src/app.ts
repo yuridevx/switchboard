@@ -222,7 +222,7 @@ export function startApp(o: StartOptions): Running {
       back,
       provides,
       roster: () => roster,
-      worker: (n) => Object.hasOwn(o.workers, n),
+      worker: (n) => (Object.hasOwn(o.workers, n) ? o.workers[n] : null),
       current: () => (current ? { screen: current.screen, params: { ...current.params } } : null),
       link: () => conn,
       mark: (n, ...args) => {

@@ -834,8 +834,10 @@ describe("сборка страницы «Выпусками»", () => {
     await put("relay", "1.0.0", { type: "worker", provides: { roster: 1 }, workers: { test: "switchboard" } });
     await put("push", "1.0.0", { type: "worker", provides: { "push.send": 1 }, workers: { test: "switchboard-push" } });
     await put("pult", "1.1.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"], ["_headers", "/build.json\n  Cache-Control: no-cache\n"]]);
+    // страница телефона — тоже адрес сборки, если модуль пользуется ею (слово пользователя 3 нояб.: ссылка приглашения на телефон)
+    await put("phone", "1.0.0", { type: "web-app", provides: { page: 1 }, workers: { test: "switchboard-phone" } }, [["index.html", "<!doctype html>"]]);
     await put("web-core", "1.1.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "export default {}"]]);
-    await put("web-x", "1.0.0", { type: "web", into: ["pult"], uses: { "app@web-core": 1, "push.send@push": 1, "roster@relay": 1 } }, [["module.js", "export default {x:1}"]]);
+    await put("web-x", "1.0.0", { type: "web", into: ["pult"], uses: { "app@web-core": 1, "push.send@push": 1, "roster@relay": 1, "page@phone": 1 } }, [["module.js", "export default {x:1}"]]);
     const tags: string[] = ["1.1.85"];
     let live = "v-1.1.85";
     const sent: { manifest?: Record<string, { hash: string }>; meta?: any; uploads: number } = { uploads: 0 };
@@ -877,7 +879,7 @@ describe("сборка страницы «Выпусками»", () => {
       version: "1.1.0+1",
       fleet: "test",
       modules: [{ name: "web-core", version: "1.1.0" }, { name: "web-x", version: "1.0.0" }],
-      workers: { push: "https://switchboard-push.sub.workers.dev", relay: "https://relay.example" },
+      workers: { push: "https://switchboard-push.sub.workers.dev", relay: "https://relay.example", phone: "https://switchboard-phone.sub.workers.dev" },
     });
     expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["pult 1.1.85 → 1.1.0+1 (web-x 1.0.0)"]);
     // следующая сборка начинается со списка выложенной

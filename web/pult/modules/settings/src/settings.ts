@@ -522,12 +522,17 @@ export function createSettings(): AppModule {
         : invited
           ? (() => {
               const x = invited;
-              const text = x.kind === "device" ? `${location.origin}${location.pathname}#invite=${x.invite}` : x.invite;
+              // устройству — ссылка на пульт и на телефон (адрес страницы телефона — из сборки); копирует человек нужную
+              const phone = app.worker("phone");
+              const rows: Array<[string | null, string]> =
+                x.kind === "device"
+                  ? [["Пульт", `${location.origin}${location.pathname}#invite=${x.invite}`], ...(phone ? [["Телефон", new URL(`#invite=${x.invite}`, phone).href] as [string, string]] : [])]
+                  : [[null, x.invite]];
               return h(
                 "section",
                 { class: "sb-sec ok", "data-invited": "" },
                 h("span", null, x.kind === "device" ? "Ссылка для " : x.kind === "program" ? "Приглашение для " : "Приглашение машины ", h("b", { class: "sb-m" }, x.addr)),
-                h("div", { class: "sb-opts" }, h("code", { class: "sb-cmd", style: "flex:1;min-width:0;overflow-wrap:anywhere" }, text), h("button", { class: "sb-b pri", onclick: () => copy(text) }, "Копировать")),
+                rows.map(([l, text]) => h("div", { class: "sb-opts", "data-link": l ?? "" }, l ? h("b", { style: "min-width:72px" }, l) : null, h("code", { class: "sb-cmd", style: "flex:1;min-width:0;overflow-wrap:anywhere" }, text), h("button", { class: "sb-b pri", onclick: () => copy(text) }, "Копировать"))),
                 h("div", { class: "sb-opts" }, h("button", { class: "sb-b", onclick: () => ((invited = null), redraw()) }, "Готово")),
               );
             })()

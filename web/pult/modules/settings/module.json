@@ -1,7 +1,7 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "into": [
     "pult",
     "phone"
@@ -22,7 +22,8 @@
     "github.app@github": 1,
     "github.setup@github": 1,
     "machine.profiles@host-profiles": 1,
-    "alerts.state@web-alerts": 1
+    "alerts.state@web-alerts": 1,
+    "page@phone": 1
   },
   "config": {}
 }

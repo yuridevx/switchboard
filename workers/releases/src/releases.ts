@@ -517,9 +517,9 @@ class Releases {
       const version = `${root.version}+${n}`;
       const modules = mods.map((m) => ({ name: m.name, version: m.version }));
       const k = kinds.get(app)!;
-      // адреса Worker'ов, которыми пользуются корень и модули сборки (relay, gate, …), — у Cloudflare по имени
+      // адреса Worker'ов и страниц, которыми пользуются корень и модули сборки (relay, gate, phone, …), — у Cloudflare по имени
       const owners = new Set([...mans.values()].flatMap((m) => Object.keys(m.uses ?? {}).map(ownerOf)));
-      const used = [...kinds].filter(([p, kk]) => kk.where === "cloud" && !kk.app && owners.has(p)) as Array<[string, { script: string }]>;
+      const used = [...kinds].filter(([p, kk]) => kk.where === "cloud" && owners.has(p)) as Array<[string, { script: string }]>;
       const urls = await urlsOf(this.env, used.map(([, kk]) => kk.script));
       const workers: Record<string, string> = Object.fromEntries(used.map(([p, kk]) => [p, urls[kk.script]]));
       const list: BuildList = { app, version, fleet: this.env.FLEET, modules, workers };
