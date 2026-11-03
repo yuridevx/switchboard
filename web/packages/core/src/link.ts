@@ -96,6 +96,8 @@ export function createLink(d: {
     // экраны его не видят: при возвращении на страницу остаётся прежний, без мигания «половина флота → весь»
     const settled = new Set<string>();
     let held = false;
+    /** машины, оборвавшиеся при открытом флоте: их возвращение модули иначе не увидят */
+    const gone = new Set<string>();
     const whole = () => !!lk && lk.links().size > 0 && [...lk.links().keys()].every((m) => settled.has(m));
     lk = fleet({
       workers: o.workers,
@@ -109,10 +111,15 @@ export function createLink(d: {
       onState: (m, s, why) => {
         if (s === "stopped" && why !== undefined && !OWN.has(why)) return onState("stopped", why);
         const was = whole();
+        if (m && s === "closed") gone.add(m);
         if (m && s !== "connecting") settled.add(m);
         if (!whole()) return;
         const now = lk?.state ?? s;
-        if (now !== state.get().conn) onState(now, why);
+        if (now !== state.get().conn) {
+          gone.clear();
+          onState(now, why);
+          // одна машина вернулась внутри открытого флота: её hello принят, подписки на ней пропали — экраны шлют заново
+        } else if (m && s === "open" && gone.delete(m)) setConn("open");
         // последней собралась закрывшаяся машина: отложенный roster остальных — сейчас; открывшаяся пришлёт свой следом
         if (!was && held) {
           held = false;

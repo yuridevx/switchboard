@@ -17,7 +17,7 @@ const man = (name: string, provides: Record<string, number>): Manifest => ({ nam
 const screenMod = (name: string, nav: string): AppModule => ({ screens: { [name]: { nav, label: nav, view: () => nav } } });
 
 describe("сборка страницы", () => {
-  it("6601 · имя приложения из списка сборки — у модуля; настройка области приложения уходит с ним; область флота и человека — своими словами", async () => {
+  it("6594 · имя приложения из списка сборки — у модуля; настройка области приложения уходит с ним; область флота и человека — своими словами", async () => {
     const relay = new FakeRelay(homeRoster());
     let got: App | null = null;
     const build: BuildList = { app: "pult", version: "1.1.0+2", fleet: "test", modules: [{ name: "web-core", version: "1.1.0" }, { name: "list", version: "1.0.0" }], workers: FakeRelay.WORKERS };

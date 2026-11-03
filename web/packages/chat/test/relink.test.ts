@@ -1,0 +1,43 @@
+// Обрыв соединения с одной машиной при живом Host: Host снимает зрителя (roster без клиента), лента должна подписаться заново.
+// Источник: устав — соединение с объектом relay машины оборвалось, клиенты переподключаются; контракт ядра: on.link open —
+// hello принят, открытые экраны заново шлют свои подписки. Факт: host/modules/watch снимает зрителя, которого нет в roster.
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { createAlerts, manifest as alertsM } from "@switchboard/web-alerts";
+import { createAsk, manifest as askM } from "@switchboard/web-ask";
+import { createBoard, manifest as boardM } from "@switchboard/web-board";
+import { createCard, manifest as cardM } from "@switchboard/web-card";
+import { createChat, manifest as chatM } from "../contract.ts";
+import { FakeRelay, flush, homeRoster, stand } from "../../core/stand/app.ts";
+
+const parts = () => [
+  { manifest: boardM, module: createBoard() },
+  { manifest: cardM, module: createCard() },
+  { manifest: chatM, module: createChat() },
+  { manifest: askM, module: createAsk() },
+  { manifest: alertsM, module: createAlerts({}) },
+];
+
+beforeEach(() => {
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  vi.spyOn(console, "warn").mockImplementation(() => {});
+});
+afterEach(() => vi.restoreAllMocks());
+
+it("6595 · оборвалось соединение только с машиной открытой сессии: session.watch и session.history заново; лента идёт дальше", async () => {
+  const relay = new FakeRelay(homeRoster());
+  relay.handlers["session.watch"] = () => ({ ok: true });
+  relay.handlers["session.unwatch"] = () => ({ ok: true });
+  relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [], more: false } });
+  relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+  await stand(parts(), { relay, url: `/#chat?callsign=${encodeURIComponent("site@laptop")}` });
+  await flush();
+  expect(relay.sent("session.watch")).toHaveLength(1);
+  expect(relay.open.length).toBeGreaterThan(1);
+  const own = relay.open.find((s) => s.url.endsWith("/m/laptop"))!;
+  own.serverClose(1006, "");
+  await new Promise((r) => setTimeout(r, 30));
+  await flush(10);
+  expect(relay.open.some((s) => s.url.endsWith("/m/laptop"))).toBe(true);
+  expect(relay.sent("session.watch").length).toBeGreaterThanOrEqual(2);
+  expect(relay.got.filter((f) => f.type === "session.watch" || f.type === "session.history").slice(-2).map((f) => f.type)).toEqual(["session.watch", "session.history"]);
+});
