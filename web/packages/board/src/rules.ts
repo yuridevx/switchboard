@@ -76,3 +76,7 @@ export function orderFilters(own: Filter[], row: string[]): Filter[] {
 }
 
 export type Project = { id: string; name: string; ss: SessionRecord[]; r: number };
+
+/** Вид списка — настройка устройства: раздел хранилища view, на сервер не уходит, у пульта и телефона свои значения. */
+export const VIEW0 = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true, fcount: true };
+export type View = typeof VIEW0;

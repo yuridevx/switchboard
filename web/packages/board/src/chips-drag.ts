@@ -14,6 +14,8 @@ export type ChipsApi = {
   root: HTMLElement;
   /** новый порядок ряда */
   place(ids: string[]): void;
+  /** перестановка началась или кончилась: пока идёт, виды не рисуют */
+  reordering(on: boolean): void;
   redraw(): void;
   /** следующий click по чипу не считать выбором */
   swallow(): void;
@@ -99,6 +101,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     s.ghost = g;
     root.appendChild(g);
     root.classList.add("reordering");
+    api.reordering(true);
     row.classList.add("fc-sorting");
     s.el.classList.add("fc-slot");
     try {
@@ -137,6 +140,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
         S = null;
         s.ghost.remove();
         root.classList.remove("reordering");
+        api.reordering(false);
         if (s.k !== s.i) api.place(ids);
         api.redraw();
       },

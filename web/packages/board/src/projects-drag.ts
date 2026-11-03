@@ -27,6 +27,8 @@ export type ProjectsApi = {
   rowsMove(): boolean;
   /** поставить блок строк в проект перед before; before нет — в конец; shown — показанные строки этого проекта */
   placeRows(block: string[], project: string, before: string | null, shown: string[]): void;
+  /** перестановка началась или кончилась: пока идёт, виды не рисуют */
+  reordering(on: boolean): void;
   /** перерисовать список сейчас */
   redraw(): void;
 };
@@ -172,6 +174,7 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     const before = new Map([...lst.children].map((el) => [el as HTMLElement, el.getBoundingClientRect().top]));
     lst.style.minHeight = lst.offsetHeight + "px"; // сворачивание не обрезает прокрутку — список не прыгает
     root.classList.add("reordering");
+    api.reordering(true);
     lst.classList.add("dnd-on");
     sec.classList.add("dnd-slot");
     sec.style.height = hh + "px";
@@ -300,6 +303,7 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
       const before = screenOf(d.lst);
       d.card.remove();
       root.classList.remove("reordering");
+      api.reordering(false);
       if (ok && moved) api.place(d.name, nextId);
       api.redraw();
       flipAfter(before, d.expanded ? d.name : null);
@@ -428,6 +432,7 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     d.grabX = d.x0 - r.left;
     d.grabY = d.y0 - r.top;
     root.classList.add("reordering");
+    api.reordering(true);
     for (const x of d.block) x.classList.add("dnd-row-out");
     const g = (d.ghost = d.el.cloneNode(true) as HTMLElement);
     g.removeAttribute("data-callsign");
@@ -520,6 +525,7 @@ export function attachProjectDrag(api: ProjectsApi, signal: AbortSignal) {
     d.lst.querySelector(".pj.dnd-into")?.classList.remove("dnd-into");
     for (const x of d.block) x.classList.remove("dnd-row-out");
     root.classList.remove("reordering");
+    api.reordering(false);
     const to = d.to;
     if (ok && to) {
       const shown = [...d.lst.querySelectorAll<HTMLElement>(`:scope > .pjs[data-proj=${JSON.stringify(to.project)}] > .bd-row`)].map((x) => x.dataset.callsign!);
