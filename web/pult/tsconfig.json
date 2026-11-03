@@ -1,4 +1,11 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "include": ["stand", "src", "modules", "test", "vitest.config.ts"]
+  "extends": "../tsconfig.web.json",
+  "include": [
+    "stand",
+    "src",
+    "modules",
+    "test",
+    "vitest.config.ts",
+    "../css.d.ts"
+  ]
 }

@@ -10,6 +10,8 @@
     "settings": 1
   },
   "uses": {
+    "view@web-view": 19,
+    "ui@web-ui": 1,
     "app@web-core": 1,
     "roster@relay": 1,
     "releases.list@releases": 1,

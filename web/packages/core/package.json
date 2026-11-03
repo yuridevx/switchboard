@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./contract.ts",
-    "./stand": "./stand/app.ts"
+    "./stand": "./stand/app.ts",
+    "./store": "./src/store.ts"
   },
   "scripts": {
     "test": "vitest run",

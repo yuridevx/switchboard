@@ -1,0 +1,5 @@
+.jr-day{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:8px}
+.jr-r{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:10px;align-items:baseline;font-size:13.5px;padding:5px 0;border-bottom:1px solid var(--line2)}
+.jr-r>span:first-child{font:500 12.5px var(--mono);color:var(--muted)}
+.jr-r em{font:500 12px var(--mono);font-style:normal;color:var(--muted)}
+.jr-r .by{color:var(--accent);font:500 12px var(--mono)}

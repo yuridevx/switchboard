@@ -11,6 +11,8 @@
     "you": 1
   },
   "uses": {
+    "view@web-view": 19,
+    "ui@web-ui": 1,
     "label.session@web-labels": 1,
     "label.machine@web-labels": 1,
     "app@web-core": 1,

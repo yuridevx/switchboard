@@ -31,6 +31,9 @@ function dirs(root: string): string[] {
   return out;
 }
 
+/** Импорт React: упаковка заменяет его рантаймом страницы, значит рантайм должен быть в uses. */
+const REACT = /(?:from\s*|import\s+)["']react(?:-dom)?(?:\/[^"']*)?["']/;
+
 function imports(dir: string): string[] {
   const found = new Set<string>();
   const walk = (d: string) => {
@@ -40,6 +43,7 @@ function imports(dir: string): string[] {
       } else if (SRC.test(e.name) && !/\.test\.|\.spec\./.test(e.name) && !e.name.endsWith(".d.ts")) {
         const text = readFileSync(join(d, e.name), "utf8");
         for (const m of text.matchAll(IMPORT)) found.add(m[1]);
+        if (REACT.test(text)) found.add("@switchboard/web-view");
       }
     }
   };

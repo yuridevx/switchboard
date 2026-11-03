@@ -20,13 +20,15 @@
 //   export default {
 //     frames: { question: onQuestion },             // кадры по type (имена — из uses)
 //     on: { roster: draw, link: (s) => … },          // roster и смена связи
-//     screens: { ask: { label: "Вопрос", mount(el, params) { …; return { head, refresh, close }; } } },
+//     screens: { ask: { label: "Вопрос", view: Ask, head: (params) => ({ title: "Вопрос" }) } },
 //     marks: { asked: (callsign) => text },          // метки для других модулей
 //     store: ["drafts"],                             // свои разделы хранилища
-//     css: "…",                                      // свои стили
+//     css,                                           // свои стили: текст своего .css, ядро ограничивает его местом модуля
 //     start(app) { … }, stop() { … },
 //   } satisfies AppModule;
-// Что даёт ядро — интерфейс App (app.request, app.open, app.provides, app.store, app.deliver, app.mark, …).
+// Что даёт ядро — интерфейс App (app.request, app.open, app.can, app.store, app.deliver, app.mark, app.use, app.Slot, …).
+// Вид: модуль получает app в start и рисует компоненты; app.use(select) — выборка, компонент перерисуется, когда изменился ответ;
+// app.Slot — чужой экран в своём; ядро модуль не импортирует, отсюда — только типы.
 export type {
   App,
   AppModule,
@@ -41,7 +43,9 @@ export type {
   Result,
   Running,
   Screen,
-  ScreenHandle,
+  ScreenProps,
+  SlotProps,
+  Marks,
   Section,
   StartOptions,
 } from "./src/types.ts";
@@ -49,17 +53,11 @@ export type { Store } from "./src/store.ts";
 export type { Frame, Roster, RosterMachine, SessionRecord } from "@switchboard/relay";
 
 /** Запустить приложение. */
-export { startApp, detectPlatform, keyId } from "./src/app.ts";
+export { startApp, detectPlatform, keyId } from "./src/app.tsx";
 /** Запустить сборку страницы по build.json. */
-export { startBuild } from "./src/build.ts";
+export { startBuild, LOAD_MS } from "./src/build.ts";
 export type { BuildOptions } from "./src/build.ts";
 /** Гейт набора модулей выпуска (зовёт startApp; отдельно — для тестов выпуска). */
 export { appGate, CORE } from "./src/gate.ts";
 /** Хранилище разделов: IndexedDB (страница и обработчик пушей) и в памяти (стенд). */
 export { idbStore, memoryStore } from "./src/store.ts";
-/** Мелочи вида: построитель элементов, подписи состояний сессии, время, склонение. */
-export { h, add, stateLabel, sessionLine, myAddress, MODELS, EFFORTS, effortName, profileName, projectOf, hhmm, duration, plural, pickOne } from "./src/ui.ts";
-/** Настройки пользователя у почты: цикл над prefs для модуля страницы. */
-export { personal } from "./src/personal.ts";
-export type { Personal } from "./src/personal.ts";
-export type { Tone } from "./src/ui.ts";

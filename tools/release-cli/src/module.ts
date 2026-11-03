@@ -9,14 +9,17 @@ import { buildSync } from "esbuild";
 import { MANIFEST, packageFiles, packModule, type ModuleJson, type PackedModule } from "@switchboard/release";
 
 const IMPORT = /(?:from\s*|import\s*\(\s*|import\s+)["'](@switchboard\/[a-z0-9-]+)["'/]/g;
-const SRC = /\.(ts|mts|js|mjs)$/;
+const SRC = /\.(ts|tsx|mts|js|mjs)$/;
+/** Рантайм страницы: модуль пишет импорт из "react", в файле модуля остаётся импорт этого модуля. */
+const VIEW = "@switchboard/web-view";
+const VIEW_NAME = "web-view";
 
 /** Пакеты @switchboard — модули страницы, которые импортирует код модуля в dir: они остаются внешними. */
 function webImports(dir: string, self: string): string[] {
   const req = createRequire(join(dir, "noop.js"));
   const found = new Set<string>();
   for (const f of packageFiles(dir)) {
-    if (!SRC.test(f) || f.endsWith(".d.ts") || f.startsWith("stand/")) continue;
+    if (!SRC.test(f) || f.endsWith(".d.ts") || f.startsWith("stand/") || f.startsWith("test/")) continue;
     for (const m of readFileSync(join(dir, ...f.split("/")), "utf8").matchAll(IMPORT)) found.add(m[1]);
   }
   return [...found].filter((spec) => {
@@ -43,7 +46,15 @@ function bundleWeb(dir: string, m: ModuleJson): Buffer {
     target: "es2022",
     minify: true,
     write: false,
-    external: webImports(dir, m.name),
+    jsx: "automatic",
+    loader: { ".css": "text" },
+    define: { "process.env.NODE_ENV": '"production"' },
+    ...(m.name === VIEW_NAME
+      ? { external: webImports(dir, m.name) }
+      : {
+          alias: { "react/jsx-runtime": VIEW, "react-dom/client": VIEW, "react-dom": VIEW, react: VIEW },
+          external: [...new Set([VIEW, ...webImports(dir, m.name)])],
+        }),
     logLevel: "silent",
   });
   return Buffer.from(r.outputFiles[0].contents);

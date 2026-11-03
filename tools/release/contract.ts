@@ -6,7 +6,7 @@
 //   <часть>/<версия>.sha256   «<sha256 архива>  <версия>.tgz»; пишется вторым — версия готова
 // Каталог модулей — та же раскладка: <модуль>/<версия>.tgz, module.json — первой записью архива; у Worker'а и оболочки
 // страницы в нём workers — имя Worker'а по флотам. Модуль страницы — module.json и один ES-файл (WEB_FILE);
-// сборка страницы — раскладка webBuild: оболочка в корне, m/<модуль>.js, build.json. Список сборки (BuildList,
+// сборка страницы — раскладка webBuild: оболочка в корне, m/<модуль>.<версия>.js, build.json, _headers. Список сборки (BuildList,
 // buildFile) — один для Host и страниц: модули и адреса Worker'ов флота.
 export { parseSha, RELEASES_BUCKET, shaKey, shaLine, tgzKey, VERSION_RE } from "./src/format.ts";
 export { presign } from "./src/presign.ts";

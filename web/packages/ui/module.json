@@ -1,0 +1,16 @@
+{
+  "name": "web-ui",
+  "type": "web",
+  "version": "1.0.0",
+  "into": [
+    "pult",
+    "phone"
+  ],
+  "provides": {
+    "ui": 1
+  },
+  "uses": {
+    "view@web-view": 19
+  },
+  "config": {}
+}

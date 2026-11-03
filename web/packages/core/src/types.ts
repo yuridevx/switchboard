@@ -1,4 +1,5 @@
 // Договор модуля веб-приложения: что модуль отдаёт ядру и что ядро даёт модулю.
+import type { ComponentType, ReactNode } from "react";
 import type { Frame, Roster } from "@switchboard/relay";
 import type { Store } from "./store.ts";
 
@@ -35,15 +36,13 @@ export type Head = {
   action?: { label: string; text: string; run(): void };
 };
 
-/** То, что вернул mount экрана. */
-export interface ScreenHandle {
-  /** шапка экрана на весь экран; у экрана в месте не спрашивается */
-  head?(): Head;
-  /** перерисовать: ядро зовёт после roster, после changed() любого модуля и смены связи */
-  refresh?(): void;
-  /** экран убран со страницы */
-  close?(): void;
-}
+/** Что получает компонент экрана. */
+export type ScreenProps = {
+  /** из адреса, из app.open или из app.Slot; новые параметры — экран начат заново */
+  params: Params;
+  /** экран закрылся сам (окно в месте): передаёт вызывающий через app.Slot */
+  close?: () => void;
+};
 
 /** Экран модуля. Имя экрана — ключ в screens и имя в provides модуля. */
 export type Screen = {
@@ -65,19 +64,23 @@ export type Screen = {
    * модуля-владельца внутри его экрана (card.tab — вкладка карточки). Имя места — в uses модуля: top@web-core, card.tab@web-card.
    */
   place?: string;
-  /** видна ли вставка с этими параметрами (вкладка — этой сессии); зовёт владелец места через app.placed */
+  /** видна ли вставка с этими параметрами (вкладка — этой сессии); учитывает app.placed */
   show?(params: Params): boolean;
   /** путь в адресе после #; по умолчанию — имя экрана */
   path?: string;
   /** человеческое имя: подпись вставки в месте (вкладка «Точки») и экран упавшего модуля — «Лента выключена» */
   label?: string;
-  /** нарисовать экран в el; params — из адреса или из app.open */
-  mount(el: HTMLElement, params: Params): ScreenHandle | void;
+  /** компонент экрана; у команды его нет */
+  view?: ComponentType<ScreenProps>;
+  /** шапка экрана на весь экран; у экрана в месте не спрашивается */
+  head?(params: Params): Head;
+  /** команда вместо экрана (пункт меню в чужом месте): app.open зовёт run и никуда не переходит */
+  run?(params: Params): void;
 };
 
 /**
  * Модуль приложения — default export его contract.ts. Все поля необязательны.
- * Ловушка ошибок: каждый вызов модуля ядро оборачивает. Бросил — модуль выключен до перезапуска
+ * Ловушка ошибок: каждый вызов модуля и отрисовку его экранов ядро ловит. Бросил — модуль выключен до перезапуска
  * приложения: его кадры дальше не идут, метки пусты, на его экранах — причина. Остальные работают.
  */
 export interface AppModule {
@@ -95,7 +98,7 @@ export interface AppModule {
   marks?: Record<string, (...args: string[]) => unknown>;
   /** Разделы хранилища модуля; у раздела один владелец, key — раздел ядра. */
   store?: string[];
-  /** Стили модуля — ядро кладёт их в <style> страницы. */
+  /** Стили модуля: ядро ограничивает их местом модуля (@scope до вложенного модуля). */
   css?: string;
   /** Поднять своё: ядро зовёт по порядку списка при старте и при возвращении на экран. */
   start?(app: App): void | Promise<void>;
@@ -113,6 +116,13 @@ export interface Section<T> {
   update(fn: (old: T | undefined) => T): Promise<T>;
 }
 
+/** Типы меток: владелец дописывает свои в своём contract.ts (declare module "@switchboard/web-core"). */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface Marks {}
+
+/** Что принимает app.Slot. */
+export type SlotProps = { screen: string; params?: Params; close?: () => void };
+
 /** Что ядро даёт модулю. У каждого модуля свой объект: ядро знает, кто зовёт. */
 export interface App {
   /** имя клиента во флоте — из ключа: client.phone.k2a9… → phone */
@@ -128,20 +138,16 @@ export interface App {
    */
   request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
   /**
-   * Открыть экран. Без place — на весь экран, с переходом в адресе; с place — внутри элемента
-   * другого модуля (чат в карточке), тогда вернётся handle: его close() убирает экран.
+   * Открыть экран на весь экран с переходом в адресе; у команды — вызвать её run.
    * Экран — свой, из uses модуля или вставленный в место, которым модуль владеет.
    */
-  open(screen: string, params?: Params, place?: HTMLElement): ScreenHandle | undefined;
-  /**
-   * Экраны, вставленные в место модуля: имя места — из его provides (card.tab). Открыть вставку — app.open(screen, params, el).
-   * show обёрнут ловушкой ошибок владельца экрана: бросил — его модуль выключен, вставка не видна.
-   */
-  placed(place: string): Array<{ screen: string; label: string; show(params: Params): boolean }>;
+  open(screen: string, params?: Params): void;
+  /** Экраны, вставленные в место модуля и видимые с этими параметрами: имя места — из его provides (card.tab). */
+  placed(place: string, params?: Params): Array<{ screen: string; label: string }>;
   /** Назад: на прошлый экран или на домашний раздел. */
   back(): void;
-  /** Что умеет машина: её contract из последнего roster; машины нет в roster — null. */
-  provides(machine: string): Record<string, number> | null;
+  /** Умеет ли машина запрос: true/false по её contract из последнего roster; машины нет в roster — null. */
+  can(machine: string, name: string): boolean | null;
   /** Последний roster; ядро держит его в памяти. */
   roster(): Roster | null;
   /** Адрес Worker'а или страницы флота с этим именем — из списка адресов сборки, а не из roster; нет — null. */
@@ -151,15 +157,23 @@ export interface App {
   /** Связь сейчас. */
   link(): ConnState;
   /** Метка другого модуля из uses: app.mark("asked", "profiles@laptop"). Выключенный владелец — undefined. */
+  mark<K extends keyof Marks>(name: K, ...args: Marks[K] extends (...a: infer A) => unknown ? A : never): (Marks[K] extends (...a: never[]) => infer R ? R : never) | undefined;
   mark(name: string, ...args: string[]): unknown;
   /** Свой раздел хранилища (из store модуля). */
   store<T = unknown>(section: string): Section<T>;
   /** Кадр — модулю-владельцу его type, как пришедший с relay. */
   deliver(frame: Frame, ctx?: Ctx): void;
-  /** Метки или данные модуля изменились — ядро перерисует открытые экраны. */
+  /** Метки или данные модуля изменились: ядро заново считает выборки app.use (один раз за такт). */
   changed(): void;
   /** Короткая строка внизу экрана: отказ, который надо увидеть. */
   toast(text: string, tone?: "ok" | "bad"): void;
+  /**
+   * Хук: выборка из данных ядра и модуля. Компонент перерисуется, только когда ответ изменился.
+   * Сравниваются простые объекты и массивы по содержимому, остальное — по ссылке; выборка отдаёт данные, а не функции.
+   */
+  use<T>(select: () => T): T;
+  /** Экран другого модуля внутри своего: своя граница ошибки и область стилей. Экран — как в app.open. */
+  Slot: ComponentType<SlotProps>;
 }
 
 /** Модуль выпуска: манифест и объект. */
@@ -168,8 +182,8 @@ export type AppPart = { manifest: Manifest; module: AppModule };
 /** Список сборки страницы — build.json рядом со страницей; формат — у владельца формата выпуска. */
 export type { BuildList } from "@switchboard/release";
 
-/** Платформа: на iPhone вне экрана «Домой» ключ ждёт в адресе. */
-export type Platform = { ios: boolean; standalone: boolean };
+/** Платформа: на iPhone вне экрана «Домой» ключ ждёт в адресе; scope: false — браузер без @scope. */
+export type Platform = { ios: boolean; standalone: boolean; scope?: boolean };
 
 export type StartOptions = {
   /** куда рисовать приложение */
@@ -217,3 +231,5 @@ export interface Running {
   /** вернуться на экран: снова start модулей и hello */
   show(): Promise<void>;
 }
+
+export type { ReactNode };

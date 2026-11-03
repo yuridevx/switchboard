@@ -130,7 +130,7 @@ export async function publishStatic(env: Env, script: string, files: Array<{ pat
   }
   const meta = {
     compatibility_date: "2026-10-01",
-    assets: { jwt, config: { not_found_handling: "single-page-application", ...(headers ? { _headers: new TextDecoder().decode(headers.data) } : {}) } },
+    assets: { jwt, config: { ...(headers ? { _headers: new TextDecoder().decode(headers.data) } : {}) } },
     annotations: { "workers/tag": tag },
   };
   const fd = new FormData();

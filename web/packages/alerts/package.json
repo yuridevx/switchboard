@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./contract.ts"
+    ".": "./contract.ts",
+    "./sw": "./src/sw.ts"
   },
   "scripts": {
     "test": "vitest run",

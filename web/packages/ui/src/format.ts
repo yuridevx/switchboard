@@ -1,35 +1,6 @@
-// Мелочи вида, общие для модулей приложения: построитель элементов, подписи состояний, время.
-import type { SessionRecord } from "@switchboard/relay";
+// Мелочи вида, общие для модулей приложения: подписи состояний, модели и усилия, время, склонение.
+import type { SessionRecord, Roster } from "@switchboard/relay";
 import { userOf } from "@switchboard/protocol";
-import type { App } from "./types.ts";
-
-type Child = Node | string | number | null | undefined | false;
-type Attrs = Record<string, string | number | boolean | null | undefined | ((ev: Event) => void)>;
-
-/**
- * h("button", { class: "ph-row", onclick: fn }, "текст", child) — элемент с атрибутами и детьми.
- * on<имя> — слушатель события; false/null/undefined — атрибут и ребёнок пропускаются.
- */
-export function h(tag: string, attrs?: Attrs | null, ...kids: Array<Child | Child[]>): HTMLElement {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs ?? {})) {
-    if (v === false || v === null || v === undefined) continue;
-    if (typeof v === "function") el.addEventListener(k.slice(2), v as EventListener);
-    else if (v === true) el.setAttribute(k, "");
-    else el.setAttribute(k, String(v));
-  }
-  for (const k of kids.flat()) {
-    if (k === null || k === undefined || k === false) continue;
-    el.append(k instanceof Node ? k : String(k));
-  }
-  return el;
-}
-
-/** Дописать детей в элемент: null, undefined и false пропускаются, массивы раскрываются. */
-export function add(el: HTMLElement, ...kids: Array<Child | Child[]>): HTMLElement {
-  for (const k of kids.flat()) if (k !== null && k !== undefined && k !== false) el.append(k instanceof Node ? k : String(k));
-  return el;
-}
 
 /** Тон метки: цвет пилюли и точки строки. */
 export type Tone = "ok" | "wait" | "bad" | "busy" | "";
@@ -65,12 +36,12 @@ export const effortName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ??
 export const profileName = (id: string) => id.split("/").at(-1) ?? id;
 
 /** Мой адрес ~почта: среди клиентов roster — устройство с именем этого приложения. */
-export function myAddress(app: App): string | null {
+export function myAddress(app: { name: string; roster(): Roster | null }): string | null {
   const c = (app.roster()?.clients ?? []).find((x) => x.startsWith(`${app.name}~`));
   return c ? userOf(c) : null;
 }
 
-/** Проект сессии — последнее имя папки dir в нижнем регистре; домашняя папка — «~». Одно правило для всех модулей. */
+/** Проект сессии — последнее имя папки dir в нижнем регистре; домашняя папка — «~». Одно правило на все экраны. */
 export function projectOf(dir: unknown): string {
   const d = typeof dir === "string" && dir ? dir : "~";
   if (d === "~") return "~";
@@ -108,16 +79,4 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (b === 1) return one;
   if (b >= 2 && b <= 4) return few;
   return many;
-}
-
-/**
- * Выбор одного из многих: выбранный и ближние (машины проекта) — кнопками, остальные — списком «ещё N…».
- * select — атрибуты списка (data-f), button — атрибуты кнопки значения.
- */
-export function pickOne(all: string[], near: string[], cur: string, on: (v: string) => void, a: { select: Attrs; button?: (v: string) => Attrs }): HTMLElement[] {
-  const shown = all.filter((v) => v === cur || near.includes(v));
-  const far = all.filter((v) => !shown.includes(v));
-  const sel = far.length ? (h("select", { class: "sb-in", ...a.select }, h("option", { value: "" }, `ещё ${far.length}…`), far.map((v) => h("option", { value: v }, v))) as HTMLSelectElement) : null;
-  sel?.addEventListener("change", () => sel.value && on(sel.value));
-  return [...shown.map((v) => h("button", { class: "sb-b", "aria-pressed": v === cur ? "true" : "false", ...a.button?.(v), onclick: () => on(v) }, v)), ...(sel ? [sel] : [])];
 }

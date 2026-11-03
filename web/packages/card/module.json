@@ -13,6 +13,8 @@
     "card.view": 1
   },
   "uses": {
+    "view@web-view": 19,
+    "ui@web-ui": 1,
     "app@web-core": 1,
     "roster@relay": 1,
     "session.stop@host-manage": 1,

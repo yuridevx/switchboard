@@ -1,7 +1,12 @@
 // Настройки пользователя в модуле страницы: цикл над Worker'ом prefs. Ключи — «префикс.раздел»; значения — в памяти до следующего чтения,
 // копии на диске устройства нет. Правка — функция над свежим значением: изменение читает prefs.get, применяет все накопленные правки
 // и пишет свои ключи prefs.set. Цикл один на модуль; остановка модуля ждёт его. Модуль объявляет prefs.get и prefs.set в uses.
-import type { App } from "./types.ts";
+
+/** Что цикл настроек берёт у app модуля. */
+type AppLike = {
+  request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<{ ok: true; result: T } | { ok: false; error: string }>;
+  toast(text: string, tone?: "ok" | "bad"): void;
+};
 
 type Edit = [string, (old: unknown) => unknown];
 
@@ -18,7 +23,7 @@ export type Personal = {
   settled(): Promise<void>;
 };
 
-export function personal(app: App, prefix: string, changed: () => void): Personal {
+export function personal(app: AppLike, prefix: string, changed: () => void): Personal {
   const key = (section: string) => `${prefix}.${section}`;
   let values: Record<string, unknown> = {};
   let answered = false;

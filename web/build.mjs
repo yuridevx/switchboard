@@ -33,7 +33,7 @@ export async function buildApp(app, name) {
   // обработчик пушей — классический скрипт: регистрируется без type: "module"
   await build({
     ...common,
-    entryPoints: [join(web, "packages/alerts/worker.ts")],
+    entryPoints: [join(web, "sw.ts")],
     outfile: join(out, "sw.js"),
     format: "iife",
   });
