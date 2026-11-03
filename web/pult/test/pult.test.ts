@@ -58,7 +58,7 @@ describe("гейт выпуска пульта", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = order(loadRepo(root).filter((m) => m.into?.includes("pult") && m.name !== "web-core")).map((m) => m.name);
     expect(pultParts().map((p) => p.manifest.name).sort()).toEqual([...want].sort());
-    expect(want.length).toBe(15);
+    expect(want.length).toBe(17);
   });
 });
 
@@ -127,9 +127,11 @@ describe("раскладка широкого вида", () => {
     const t = await pult();
     const sent = t.relay.got.length;
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
     const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
     input.value = "wiki";
-    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["wiki"]);
     expect(t.relay.got.length).toBe(sent);
   });
@@ -195,7 +197,7 @@ describe("чат и карточка на стыках", () => {
     const a = t.$<HTMLAnchorElement>(".chat-bar a")!;
     // переход по ссылке на стенде не нужен: браузер по download сохраняет файл
     a.addEventListener("click", (e) => e.preventDefault());
-    a.dispatchEvent(new MouseEvent("click", { cancelable: true }));
+    a.dispatchEvent(new MouseEvent("click", { cancelable: true, bubbles: true }));
     expect(decodeURIComponent(a.href)).toContain("## Claude\n\nСборка зелёная.");
   });
 
@@ -255,7 +257,7 @@ describe("аккаунты: шаги по контракту", () => {
     await t.click(t.$('[data-callsign="wiki@laptop"]'));
     const picker = t.$<HTMLInputElement>('.chat input[type="file"]')!;
     Object.defineProperty(picker, "files", { value: [new File(["hi"], "a.txt", { type: "text/plain" })], configurable: true });
-    picker.dispatchEvent(new Event("change"));
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
     expect(t.$(".chat-file")!.textContent).toBe("a.txt✕");
     await t.type(t.$(".chat-inp"), "Посмотри файл");
@@ -287,7 +289,7 @@ describe("журнал флота и машины", () => {
     expect(t.text()).toContain("Вчера");
     const sel = t.$<HTMLSelectElement>('[data-f="machine"]')!;
     sel.value = "pc";
-    sel.dispatchEvent(new Event("change"));
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
     await flush();
     expect(relay.sent("ledger.read")[3]).toMatchObject({ machine: "pc", limit: 50 });
   });

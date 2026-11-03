@@ -163,6 +163,7 @@ describe("карточка в широком виде", () => {
     expect(t.$<HTMLAnchorElement>('.cw-pop a[href="https://claude.ai/code/s1"]')!.textContent).toBe("Открыть в claude.ai ↗");
     // клик мимо закрывает меню
     document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await flush();
     expect(t.$(".cw-pop")).toBeNull();
   });
 

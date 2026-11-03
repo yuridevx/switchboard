@@ -3,7 +3,7 @@
 .sb-main{flex:1;min-width:0;display:flex;flex-direction:column;height:100%;position:relative}
 .sb-navcol{flex:none;width:212px;border-right:1px solid var(--line2);background:var(--surface2);display:flex;flex-direction:column;gap:2px;padding:12px 10px;overflow-y:auto}
 .sb-nv{display:flex;justify-content:space-between;align-items:center;gap:8px;border:0;background:transparent;border-radius:8px;padding:7px 9px;font:500 14px var(--body);text-align:left;color:var(--ink)}
-.sb-nv:hover{background:var(--accent-weak)}
+@media (hover:hover){.sb-nv:hover{background:var(--accent-weak)}}
 .sb-navcol .sb-nv[aria-current="page"]{background:var(--surface);box-shadow:0 0 0 1px var(--line);font-weight:600}
 .sb-grp{font:600 11.5px var(--body);color:var(--muted);padding:12px 9px 4px}
 .sb-find{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;padding:0}
@@ -24,7 +24,8 @@
 .sb-palin{width:100%;border:0;border-bottom:1px solid var(--line2);padding:14px 16px;font:16px var(--body);background:transparent;color:var(--ink);outline:none}
 .sb-palres{display:flex;flex-direction:column;padding:6px;max-height:380px;overflow-y:auto}
 .sb-palit{display:flex;gap:10px;align-items:center;border:0;background:transparent;text-align:left;padding:8px 10px;border-radius:8px}
-.sb-palit:hover,.sb-palit.first{background:var(--accent-weak)}
+.sb-palit.first{background:var(--accent-weak)}
+@media (hover:hover){.sb-palit:hover{background:var(--accent-weak)}}
 .sb-palit .l{font:500 13.5px var(--mono)}
 .sb-palit .k{margin-left:auto;font-size:12px;color:var(--muted)}
 .sb-palit .sb-dot{width:9px;height:9px;animation:none}
@@ -34,7 +35,7 @@
 .sb-brand{display:flex;align-items:center;gap:8px;padding:2px 6px 8px;font:700 15px var(--body)}
 .sb-brand b{flex:1}
 .sb-brand .sb-logo{width:26px;height:26px;border-radius:8px;font-size:13px}
-.sb-brand .sb-pill{padding:4px;background:none}
+.sb-brand .sb-pill{padding:4px}
 .sb-navcol .sb-brand{order:-2}
 .sb-split{flex:1;min-height:0;display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr)}
 .sb-master{border-right:1px solid var(--line2);background:var(--surface);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}

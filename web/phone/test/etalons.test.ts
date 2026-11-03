@@ -42,7 +42,8 @@ function homeRelay(roster = homeRoster()) {
 const type = async (t: Awaited<ReturnType<typeof stand>>, text: string) => {
   const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
   inp.value = text;
-  inp.dispatchEvent(new Event("input"));
+  inp.dispatchEvent(new Event("input", { bubbles: true }));
+  await flush();
   await t.click(t.$(".chat-send"));
 };
 
@@ -55,7 +56,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("эталоны телефона", () => {
   it("5139 · модули стенда телефона — те же, что в into телефона", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
-    const want = loadRepo(join(import.meta.dirname, "../../..")).filter((m) => m.into?.includes("phone") && m.name !== "web-core");
+    const want = loadRepo(join(import.meta.dirname, "../../..")).filter((m) => m.into?.includes("phone") && !["web-core", "web-view", "web-ui"].includes(m.name));
     expect(phoneParts().map((p) => p.manifest.name).sort()).toEqual(want.map((m) => m.name).sort());
     expect(want.length).toBe(13);
   });
@@ -161,7 +162,7 @@ describe("эталоны телефона", () => {
     await type(t, "Задеплой на стенд");
     const draft = t.$<HTMLTextAreaElement>(".chat-inp")!;
     draft.value = "и потом";
-    draft.dispatchEvent(new Event("input"));
+    draft.dispatchEvent(new Event("input", { bubbles: true }));
     const before = relay.got.length;
     const hiding = t.run.hide();
     await flush();

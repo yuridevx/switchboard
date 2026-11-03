@@ -9,7 +9,7 @@
 .pf-w{background:var(--surface);border:1px solid var(--line2);border-radius:10px;overflow:hidden}
 .pf-w.cf{border-color:var(--bad)}
 .pf-r{display:flex;gap:12px;align-items:flex-start;width:100%;border:0;background:transparent;padding:9px 12px;text-align:left;color:var(--ink)}
-.pf-r:hover{background:var(--surface2)}
+@media (hover:hover){.pf-r:hover{background:var(--surface2)}}
 .pf-n{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .pf-n b{font:600 13.5px var(--body)}
 .pf-n span{font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -22,7 +22,7 @@
 .pf-ms{display:flex;flex-wrap:wrap;gap:4px;padding-top:8px}
 .pf-ss{display:flex;flex-direction:column;gap:1px}
 .pf-ss button{display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:4px 6px;border-radius:7px;text-align:left;font-size:13px;color:var(--ink)}
-.pf-ss button:hover{background:var(--surface2)}
+@media (hover:hover){.pf-ss button:hover{background:var(--surface2)}}
 .pf-ss .sb-dot{width:7px;height:7px;animation:none;box-shadow:none;flex:none}
 .pf-ss .nm{font:600 13px var(--mono)}
 .pf-ss .nm.hum{font-family:var(--body)}

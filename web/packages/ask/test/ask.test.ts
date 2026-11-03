@@ -92,7 +92,8 @@ describe("вопрос сессии", () => {
     await t.click(t.$$(".ask-opt")[5]); // свой ответ ко второму
     const inp = t.$<HTMLInputElement>("input.ask-own")!;
     inp.value = "линт";
-    inp.dispatchEvent(new Event("input"));
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.button("Ответить"));
     expect(t.relay.sent("answer")[0].answers).toEqual({ "Какую базу мигрировать первой?": "прод", "Что прогнать?": "юнит, e2e, линт" });
   });
@@ -147,7 +148,7 @@ describe("вопрос сессии", () => {
     expect(t.text()).toContain("Данные для новой задачи");
     const inp = t.$<HTMLInputElement>(".ask-field input")!;
     inp.value = "WEB";
-    inp.dispatchEvent(new Event("input"));
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
     await t.click(t.button("Отправить"));
     expect(t.relay.sent("answer")[0]).toMatchObject({ question: "toolu_01Hx", action: "accept", content: { project: "WEB" } });
 

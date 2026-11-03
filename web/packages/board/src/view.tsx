@@ -3,6 +3,7 @@
 // Группа «Шапка» — экран card.view карточки в месте панели (только пульт): её настройки — у карточки.
 import { useState } from "react";
 import type { App } from "@switchboard/web-core";
+import { Choices } from "@switchboard/web-ui";
 
 export const VIEW0 = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, pjcount: true, grip: true, add: true, fcount: true };
 export type View = typeof VIEW0;
@@ -47,16 +48,13 @@ export function ViewPanel({ app, get, set, reset, onClose }: { app: App; get(): 
       </div>
       <div className="vw-b">
         {UNITS.map(([title, items]) => (
-          <div key={title} className="vw-g">
-            <span className="vw-t">{title}</span>
-            <div className="vw-c">
+          <Choices key={title} title={title}>
               {items.map(([k, label, full]) => (
                 <button key={k} data-v={k} aria-label={full} aria-pressed={String(!!v[k]) as "true" | "false"} disabled={k === "group" && !v.projects} onClick={() => set(k, !get()[k])}>
                   {label}
                 </button>
               ))}
-            </div>
-          </div>
+            </Choices>
         ))}
         {app.wide ? (
           <div>

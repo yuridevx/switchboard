@@ -22,7 +22,8 @@ button.fc.vw[aria-expanded="true"]{background:var(--accent);color:var(--on-accen
 .pjs{position:relative}
 .pj{display:flex;align-items:center;gap:4px;padding:8px 4px 2px 6px;position:sticky;top:0;background:var(--surface);z-index:2;box-shadow:0 1px 0 var(--line2)}
 .grip{flex:none;width:22px;height:28px;display:grid;place-items:center;color:var(--muted);cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;border-radius:6px;font-size:15px;line-height:1}
-.grip:hover,.grip:focus-visible{background:var(--accent-weak);color:var(--ink)}
+.grip:focus-visible{background:var(--accent-weak);color:var(--ink)}
+@media (hover:hover){.grip:hover{background:var(--accent-weak);color:var(--ink)}}
 .grip:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 @media (hover:hover){.bd-list .grip{opacity:.35}.bd-list .pj:hover .grip,.bd-list .grip:focus-visible{opacity:1}}
 .pin-sep{border-top:1.5px solid var(--line);margin:6px 8px}
@@ -82,15 +83,9 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .vw-h{display:flex;align-items:center;gap:6px;font:600 14px var(--body);flex:none}
 .vw-h b{flex:1}
 .vw-x{border:1px solid transparent;background:transparent;border-radius:8px;padding:3px 8px;font:500 12.5px var(--body);color:var(--muted)}
-.vw-x:hover{background:var(--accent-weak)}
+@media (hover:hover){.vw-x:hover{background:var(--accent-weak)}}
 .vw-x.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);padding:4px 12px;font-weight:600}
 .vw-b{display:flex;flex-direction:column;gap:8px;min-height:0;overflow-y:auto}
-.vw-g{display:flex;flex-direction:column;gap:4px}
-.vw-t{font:600 11.5px var(--body);color:var(--muted)}
-.vw-c{display:flex;flex-wrap:wrap;gap:4px}
-.vw-c button{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font:500 12.5px var(--body);background:transparent;color:var(--muted)}
-.vw-c button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-.vw-c button:disabled{opacity:.45;cursor:default}
 /* окно фильтра */
 .bd-veil{position:fixed;inset:0;z-index:15;background:rgba(10,15,12,.38);display:flex;align-items:flex-start;justify-content:center;padding-top:40px}
 .bd-dlg{width:min(620px,92%);max-height:calc(100% - 80px);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}

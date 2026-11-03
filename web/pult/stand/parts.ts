@@ -9,6 +9,8 @@ import { manifest as cardM, createCard } from "@switchboard/web-card";
 import { manifest as chatM, createChat } from "@switchboard/web-chat";
 import { manifest as inboxM, createInbox } from "@switchboard/web-inbox";
 import { manifest as labelsM, createLabels } from "@switchboard/web-labels";
+import { manifest as uiM } from "@switchboard/web-ui";
+import { manifest as viewM } from "@switchboard/web-view";
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import { manifest as openM, createOpen } from "../modules/open/contract.ts";
 import { manifest as accountsM, createAccounts } from "../modules/accounts/contract.ts";
@@ -28,6 +30,8 @@ export { PULT } from "../src/options.ts";
 /** Модули выпуска пульта, каждый со своей памятью; browser — API пушей (в тестах — подделка). */
 export function pultParts(browser?: BrowserPush): AppPart[] {
   return [
+    { manifest: viewM, module: {} },
+    { manifest: uiM, module: {} },
     { manifest: labelsM, module: createLabels() },
     { manifest: inboxM, module: createInbox() },
     { manifest: boardM, module: createBoard() },

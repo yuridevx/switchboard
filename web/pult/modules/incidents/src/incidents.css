@@ -1,7 +1,7 @@
 .in-cap{display:flex;align-items:center;gap:7px;font:600 12px var(--body);color:var(--muted);padding:10px 2px 4px}
 .in-list{display:flex;flex-direction:column;gap:6px}
 .in-row{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:1px solid var(--line2);background:var(--surface);border-radius:10px;padding:9px 12px;font:inherit;color:inherit}
-.in-row:hover{border-color:var(--line)}
+@media (hover:hover){.in-row:hover{border-color:var(--line)}}
 .in-row .d{margin-top:5px;flex:none}
 .in-row .g{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .in-row .t1{display:flex;gap:8px;align-items:baseline;min-width:0}

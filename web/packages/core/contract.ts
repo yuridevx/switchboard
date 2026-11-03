@@ -2,7 +2,7 @@
 // Модуль приложения пользуется ядром через "app@web-core" в uses и отсюда же берёт типы и мелочи вида.
 //
 // Запуск сборки (оболочки web/phone и web/pult): startBuild({ root, build, wide, sections, beside }) — модули по списку
-// build.json («@switchboard/<имя>» через import map сборки → m/<имя>.js), адреса relay и Worker'ов — из него же;
+// build.json («@switchboard/<имя>» через import map сборки → m/<имя>.<версия>.js), адреса relay и Worker'ов — из него же;
 // модуль не загрузился — выключен только он. Стенд и тесты зовут startApp({ root, workers, parts }) сами; relay — workers.relay.
 // Файл модуля сборки — default (объект модуля) и manifest его contract.ts.
 // Ядро: гейт набора (у экрана, метки, принимаемого кадра и раздела хранилища — один модуль) →

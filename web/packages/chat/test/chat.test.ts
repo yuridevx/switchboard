@@ -89,7 +89,8 @@ describe("лента сессии", () => {
     t.relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
     inp.value = "Задеплой на стенд";
-    inp.dispatchEvent(new Event("input"));
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.$(".chat-send"));
     const p = t.relay.sent("session.prompt")[0];
     expect(p).toMatchObject({ v: 1, callsign: "site@laptop", text: "Задеплой на стенд" });
@@ -103,7 +104,8 @@ describe("лента сессии", () => {
     t.relay.handlers["session.prompt"] = () => ({ ok: false, error: "offline" });
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
     inp.value = "Катим";
-    inp.dispatchEvent(new Event("input"));
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.$(".chat-send"));
     expect(t.$(".chat-me")).toBeNull();
     expect(inp.value).toBe("Катим");
@@ -115,7 +117,7 @@ describe("лента сессии", () => {
     const t = await feed("site@laptop", new FakeRelay(homeRoster()), store);
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
     inp.value = "недописанное";
-    inp.dispatchEvent(new Event("input"));
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
     await t.click(t.button("‹"));
     expect(t.relay.sent("session.unwatch")[0]).toMatchObject({ callsign: "site@laptop" });
     expect(store.data.drafts).toEqual({ "site@laptop": "недописанное" });

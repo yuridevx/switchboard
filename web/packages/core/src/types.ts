@@ -230,6 +230,8 @@ export interface Running {
   hide(): Promise<void>;
   /** вернуться на экран: снова start модулей и hello */
   show(): Promise<void>;
+  /** снять вид со страницы: стенд перед следующим приложением */
+  unmount(): void;
 }
 
 export type { ReactNode };

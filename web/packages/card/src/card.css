@@ -16,7 +16,7 @@
 .cw-hr{flex:1 0 auto;display:flex;align-items:center;gap:10px;min-height:44px}
 .cw-lamp{flex:none;cursor:help;animation:none}
 .cw-nm{flex:0 1 auto;min-width:0;display:inline-flex;flex-direction:column;align-items:flex-start;gap:0;border:0;background:transparent;padding:2px 7px;margin-left:-5px;border-radius:7px;color:var(--ink)}
-.cw-nm:hover{background:var(--accent-weak)}
+@media (hover:hover){.cw-nm:hover{background:var(--accent-weak)}}
 .cw-nm1{display:inline-flex;align-items:baseline;gap:7px;min-width:0;max-width:100%}
 .cw-cs{font:600 16px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .cw-cs.hum{font-family:var(--body)}
@@ -48,7 +48,7 @@
 .cw-pop hr{border:0;border-top:1px solid var(--line2);margin:4px 0;width:100%}
 .cw-pop .lb{font-size:11.5px;color:var(--muted);padding:2px 8px}
 .cw-mi{display:block;text-align:left;width:100%;border:0;background:transparent;border-radius:8px;padding:6px 8px;font:500 13px var(--body);color:var(--ink);text-decoration:none}
-.cw-mi:hover{background:var(--accent-weak)}
+@media (hover:hover){.cw-mi:hover{background:var(--accent-weak)}}
 .cw-kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;font-size:12.5px;padding:4px 8px 8px}
 .cw-kv dt{color:var(--muted)}.cw-kv dd{margin:0;font-weight:600;overflow-wrap:anywhere}
 .cw-opts{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:2px 6px}
@@ -86,8 +86,3 @@
 .cw-mi.flat{padding:0}
 
 /* Группа «Шапка» в панели вида «Работы»: стили панели до вложенного модуля не доходят */
-.vw-g{display:flex;flex-direction:column;gap:4px}
-.vw-t{font:600 11.5px var(--body);color:var(--muted)}
-.vw-c{display:flex;flex-wrap:wrap;gap:4px}
-.vw-c button{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font:500 12.5px var(--body);background:transparent;color:var(--muted)}
-.vw-c button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}

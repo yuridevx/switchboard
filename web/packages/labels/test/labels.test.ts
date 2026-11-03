@@ -1,7 +1,8 @@
 // web-labels на стенде. Источник: дизайн «Сессии, проекты и профили» (блок «Эталоны», «найс делай» пользователя 3 нояб.):
 // имена сессии и машины — у почты; пустое — снова адрес; настоящий адрес виден в окне «Имена».
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { h, type App, type AppModule, type Manifest } from "@switchboard/web-core";
+import { createElement, Fragment, useState } from "react";
+import type { App, AppModule, Manifest } from "@switchboard/web-core";
 import { createLabels, manifest } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, stand } from "../../core/stand/app.ts";
 
@@ -18,21 +19,15 @@ function host() {
     screens: {
       names: {
         nav: "Имена",
-        mount: (el) => {
-          const place = h("div", { "data-place": "1" });
-          // окно открывается нажатием, как в карточке
-          const open = h("button", {
-            "data-open": "1",
-            onclick: () => {
-              const hd = app.open("labels", { callsign: "site@laptop" }, place);
-              place.addEventListener("sb-close", () => {
-                hd?.close?.();
-                place.textContent = "closed";
-              });
-            },
-          });
-          el.append(open, place);
-          return { refresh: () => void 0 };
+        // окно открывается нажатием, как в карточке
+        view: function Names() {
+          const [state, set] = useState<"" | "open" | "closed">("");
+          return createElement(
+            Fragment,
+            null,
+            createElement("button", { "data-open": "1", onClick: () => set("open") }),
+            createElement("div", { "data-place": "1" }, state === "open" ? createElement(app.Slot, { screen: "labels", params: { callsign: "site@laptop" }, close: () => set("closed") }) : state),
+          );
         },
       },
     },
@@ -83,7 +78,7 @@ describe("имена", () => {
   it("5272 · Escape и «Отмена» — без записи", async () => {
     const { t, relay } = await open();
     fill(t, "session", "Сайт");
-    t.$('[data-f="session"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    t.$('[data-f="session"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await flush(5);
     expect(relay.sent("prefs.set")).toHaveLength(0);
     expect(t.$('[data-place="1"]')!.textContent).toBe("closed");

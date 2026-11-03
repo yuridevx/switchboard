@@ -164,8 +164,8 @@ export class FakeSock {
   }
 }
 
-/** Дать отработать таймерам и обещаниям стенда. */
-export async function flush(n = 6) {
+/** Дать отработать таймерам, обещаниям и отрисовке React: клик → отрисовка → эффект → запрос → ответ → отрисовка. */
+export async function flush(n = 12) {
   for (let i = 0; i < n; i++) await new Promise((r) => setTimeout(r, 0));
 }
 

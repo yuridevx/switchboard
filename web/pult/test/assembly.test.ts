@@ -41,12 +41,12 @@ describe("пульт из каталога", () => {
       workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
-    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(16);
+    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(18);
 
-    // сборка на диске; m/<модуль>.js — пакетом @switchboard/<модуль>, как import map страницы
+    // сборка на диске; m/<модуль>.<версия>.js — пакетом @switchboard/<модуль>, как import map страницы
     const dir = mkdtempSync(join(tmpdir(), "switchboard-pult-build-"));
     for (const f of files) {
-      const m = /^m\/(.+)\.js$/.exec(f.path);
+      const m = /^m\/(.+?)\.\d+\.\d+\.\d+\.js$/.exec(f.path);
       const p = m ? join(dir, "node_modules", "@switchboard", m[1]) : join(dir, ...dirname(f.path).split("/"));
       mkdirSync(p, { recursive: true });
       if (!m) writeFileSync(join(dir, ...f.path.split("/")), f.data);
@@ -115,7 +115,7 @@ describe("статика оболочки пульта", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
     const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
     expect(r.status).toBe(0);
-    expect(readdirSync(dist).sort()).toEqual(["_headers", "app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
+    expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
     for (const f of ["app.js", "sw.js", "index.html"]) {
       const text = readFileSync(join(dist, f), "utf8");
       expect(text).not.toMatch(/wss:\/\/|workers\.dev|pfarm\.app/);

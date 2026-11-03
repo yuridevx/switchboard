@@ -13,7 +13,7 @@ describe("статика оболочки телефона", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
     const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
     expect(r.status).toBe(0);
-    expect(readdirSync(dist).sort()).toEqual(["_headers", "app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
+    expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
     for (const f of ["app.js", "sw.js", "index.html"]) {
       const text = readFileSync(join(dist, f), "utf8");
       expect(text).not.toMatch(/wss:\/\/|workers\.dev|pfarm\.app/);

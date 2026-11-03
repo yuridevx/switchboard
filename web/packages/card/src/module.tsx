@@ -4,7 +4,7 @@
 // «Сведения сбоку» — выбор устройства, раздел хранилища info.
 import { useEffect, useState } from "react";
 import type { App, AppModule, Head, ScreenProps } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, MODELS, Opts, Pad, projectOf, stateLabel } from "@switchboard/web-ui";
+import { BadCard, Btn, Choices, EFFORTS, MODELS, Opts, Pad, projectOf, stateLabel } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import css from "./card.css";
 import { HEAD0, machineName, Names, sessionName, useCan, useSession, Wide, wideHead, type HeadView, type WideOpts } from "./wide.tsx";
@@ -176,16 +176,13 @@ export function createCard(): AppModule {
       if (params.reset && params.reset !== "0") save({ ...HEAD0 });
     }, []);
     return (
-      <div className="vw-g">
-        <span className="vw-t">Шапка</span>
-        <div className="vw-c">
+      <Choices title="Шапка">
           {UNITS.map(([k, label, full]) => (
             <button key={k} data-v={k} aria-label={full} aria-pressed={String(v[k]) as "true" | "false"} onClick={() => save({ ...head, [k]: !head[k] })}>
               {label}
             </button>
           ))}
-        </div>
-      </div>
+      </Choices>
     );
   }
 

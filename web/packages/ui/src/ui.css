@@ -100,3 +100,9 @@ code{font-family:var(--mono)}
 .sb-barw.warn i{background:var(--wait)}
 .sb-barw.bad i{background:var(--bad)}
 .sb-cmd{font:600 12.5px/1.4 var(--mono);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:7px 10px;text-align:left;word-break:break-word}
+.vw-g{display:flex;flex-direction:column;gap:4px}
+.vw-t{font:600 11.5px var(--body);color:var(--muted)}
+.vw-c{display:flex;flex-wrap:wrap;gap:4px}
+.vw-c button{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font:500 12.5px var(--body);background:transparent;color:var(--muted)}
+.vw-c button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.vw-c button:disabled{opacity:.45;cursor:default}

@@ -55,12 +55,14 @@ describe("профили", () => {
     const q = t.$<HTMLInputElement>('[data-f="q"]')!;
     q.focus();
     q.value = "writ";
-    q.dispatchEvent(new Event("input"));
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect(t.$$("[data-profile]").map((x) => x.dataset.profile)).toEqual(["team/profiles/writer"]);
     expect(document.activeElement).toBe(t.$('[data-f="q"]'));
     q.value = "";
     t.$<HTMLInputElement>('[data-f="q"]')!.value = "";
-    t.$('[data-f="q"]')!.dispatchEvent(new Event("input"));
+    t.$('[data-f="q"]')!.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.$('[data-act="conflicts"]'));
     expect(t.$$("[data-profile]").map((x) => x.dataset.profile)).toEqual(["team/profiles/ops"]);
   });

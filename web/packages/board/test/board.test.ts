@@ -96,7 +96,7 @@ describe("список", () => {
     expect(rows(t).slice(0, 4)).toEqual(["migrate@laptop", "refactor@laptop", "tests@laptop", "build@build"]);
     const kid = t.$('[data-callsign="tests@laptop"]')!;
     expect(kid.className).toBe("bd-row kid");
-    expect(kid.getAttribute("style")).toBe("padding-left:32px");
+    expect(kid.style.paddingLeft).toBe("32px");
     await t.click(t.$(".fc.vw"));
     await t.click(t.$('[data-v="tree"]'));
     expect(t.$('[data-callsign="tests@laptop"]')!.className).toBe("bd-row");
@@ -119,13 +119,16 @@ describe("список", () => {
     t.relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
     expect(t.$('.pj-t[data-proj="pfarm"]')!.getAttribute("aria-expanded")).toBe("false");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
     const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
     input.value = "pfarm";
-    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["api", "docs"]);
     input.value = "api";
-    input.dispatchEvent(new Event("input"));
-    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await flush(5);
     expect(location.hash).toBe("#card?callsign=api%40pc");
     expect(t.$('.pj-t[data-proj="pfarm"]')!.getAttribute("aria-expanded")).toBe("true");
@@ -168,10 +171,12 @@ describe("поиск на телефоне", () => {
     t.relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
     const find = async () => {
       t.$("[data-find]")!.click();
+      await flush();
       const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
       input.value = "api";
-      input.dispatchEvent(new Event("input"));
-      document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      await flush();
+      document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
       await flush(5);
       await new Promise((r) => setTimeout(r, 5));
       expect(location.hash).toBe("#card?callsign=api%40pc");
@@ -214,7 +219,8 @@ describe("фильтры", () => {
     await t.click(t.$(".fc.add"));
     const name = t.$<HTMLInputElement>('[data-editor] [data-f="name"]')!;
     name.value = "pfarm";
-    name.dispatchEvent(new Event("input"));
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.$('[data-field="projects"] [data-v="pfarm"]'));
     expect(t.$(".fe-n")!.textContent).toBe("подходит 2 сессии · 1 проект");
     await t.click(t.$('[data-act="fsave"]'));
@@ -250,7 +256,8 @@ describe("фильтры", () => {
     expect(t.$('[data-field="machines"] [data-v="pc"]')!.textContent).toBe("Домашний ПК");
     const q = t.$<HTMLInputElement>('[data-editor] [data-f="q"]')!;
     q.value = "домашний";
-    q.dispatchEvent(new Event("input"));
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect(t.$$("[data-field]").map((x) => x.dataset.field)).toEqual(["projects", "machines"]);
     expect(t.$$('[data-field="projects"] [data-v]').map((x) => x.dataset.v)).toEqual(["pfarm"]);
     expect(t.$<HTMLInputElement>('[data-editor] [data-f="q"]')).toBe(q);
@@ -335,7 +342,8 @@ describe("настройки у почты", () => {
     await t.click(t.$(".fc.add"));
     const name = t.$<HTMLInputElement>('[data-editor] [data-f="name"]')!;
     name.value = "С пульта";
-    name.dispatchEvent(new Event("input"));
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.$('[data-act="fsave"]'));
     await flush(5);
     expect((relay.values["web-board.filters"] as Array<{ name: string }>).map((f) => f.name)).toEqual(["С телефона", "С пульта"]);
@@ -498,9 +506,11 @@ describe("имена", () => {
     expect(t.$('[data-callsign="tests@pc"] .bd-cs')!.textContent).toBe("tests");
     expect(t.$('[data-callsign="tests@pc"] .bd-at')!.textContent).toBe("@pc");
     t.$("[data-find]")!.click();
+    await flush();
     const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
     input.value = "переезд";
-    input.dispatchEvent(new Event("input"));
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["Переезд"]);
   });
 });

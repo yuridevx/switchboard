@@ -45,7 +45,7 @@ async function chat(callsign: string, o: { relay?: FakeRelay; wide?: boolean } =
   const type = async (text: string) => {
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
     inp.value = text;
-    inp.dispatchEvent(new Event("input"));
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
     await flush();
   };
   const btn = (scope: string, text: string) => [...(t.$(scope) ?? t.root).querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text) ?? null;
@@ -103,7 +103,7 @@ describe("ввод", () => {
     expect(t.$(".chat-hint")!.textContent).toBe("Подсказка: «Запусти тесты» — Tab");
     const before = t.relay.got.length;
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
-    inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true }));
+    inp.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", cancelable: true, bubbles: true }));
     await flush();
     expect(inp.value).toBe("Запусти тесты");
     expect(t.relay.got.length).toBe(before);
@@ -113,7 +113,7 @@ describe("ввод", () => {
     const t = await chat("site@laptop");
     await t.type("   ");
     expect(t.$<HTMLButtonElement>(".chat-send")!.disabled).toBe(true);
-    t.$(".chat-inp")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", cancelable: true }));
+    t.$(".chat-inp")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", cancelable: true, bubbles: true }));
     await flush();
     expect(t.relay.sent("session.prompt")).toHaveLength(0);
     expect(t.$(".chat-me")).toBeNull();
@@ -134,7 +134,7 @@ describe("широкий ввод", () => {
     const t = await chat("poe-bot@pc", { wide: true });
     const picker = t.$<HTMLInputElement>('.chat input[type="file"]')!;
     Object.defineProperty(picker, "files", { value: [new File(["a"], "a.png", { type: "image/png" }), new File(["b"], "b.txt", { type: "text/plain" })], configurable: true });
-    picker.dispatchEvent(new Event("change"));
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
     await t.click(t.$('[aria-label="убрать a.png"]'));
     expect(t.$$(".chat-file").map((x) => x.textContent)).toEqual(["b.txt✕"]);

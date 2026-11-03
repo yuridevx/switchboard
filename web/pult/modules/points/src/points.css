@@ -2,7 +2,7 @@
 .pt-row b{font:600 13px var(--mono)}
 .pt-day{font:600 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding-top:6px}
 .pt-pt{display:grid;grid-template-columns:52px 14px minmax(0,1fr) auto;gap:8px;align-items:center;width:100%;text-align:left;border:1px solid transparent;background:none;border-radius:8px;padding:5px 6px;font-size:13px}
-.pt-pt:hover{border-color:var(--line)}
+@media (hover:hover){.pt-pt:hover{border-color:var(--line)}}
 .pt-pt[aria-pressed="true"]{background:var(--accent-weak)}
 .pt-pt i{width:10px;height:10px;border-radius:50%;background:var(--accent)}
 .pt-pt.br{padding-left:26px}

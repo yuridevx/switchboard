@@ -61,7 +61,7 @@ export async function pult(o: { relay?: FakeRelay; roster?: Roster; url?: string
   const type = async (el: Element | null, text: string, ev = "input") => {
     if (!el) throw new Error("стенд: нет поля");
     (el as HTMLInputElement).value = text;
-    el.dispatchEvent(new Event(ev));
+    el.dispatchEvent(new Event(ev, { bubbles: true }));
     await flush();
   };
   /** кнопка по тексту внутри элемента */

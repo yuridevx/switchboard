@@ -8,7 +8,7 @@ import { chromium } from "playwright-core";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-export const OUT = join(root, "dist", "shots");
+export const OUT = process.env.SHOTS_OUT ?? join(root, "dist", "shots");
 
 /** Контракт Host на стенде: provides ядра и всех его модулей, как Host шлёт его в hello. */
 function hostContract() {
@@ -37,7 +37,9 @@ export async function prepare() {
     format: "iife",
     platform: "browser",
     target: "es2022",
-    define: { __HOST__: JSON.stringify(hostContract()) },
+    jsx: "automatic",
+    loader: { ".css": "text" },
+    define: { __HOST__: JSON.stringify(hostContract()), "process.env.NODE_ENV": '"production"' },
     logLevel: "warning",
   });
   writeFileSync(join(OUT, "index.html"), '<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Стенд</title></head><body><div id="app"></div><script src="bundle.js"></script></body></html>');

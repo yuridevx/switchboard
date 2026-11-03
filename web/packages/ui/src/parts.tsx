@@ -119,6 +119,16 @@ export function OptsInline({ className, ...p }: ComponentProps<"span">) {
   return <span {...p} className={cx("sb-opts", className)} />;
 }
 
+/** Группа выбора в панели настроек: подпись и ряд кнопок-переключателей. */
+export function Choices({ title, children }: { title: ReactNode; children: ReactNode }) {
+  return (
+    <div className="vw-g">
+      <span className="vw-t">{title}</span>
+      <div className="vw-c">{children}</div>
+    </div>
+  );
+}
+
 /** Моноширинный текст. */
 export function M({ className, ...p }: ComponentProps<"span">) {
   return <span {...p} className={cx("sb-m", className)} />;

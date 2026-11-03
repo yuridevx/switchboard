@@ -17,8 +17,12 @@ export type StandOptions = {
   options?: Partial<StartOptions>;
 };
 
+/** Прошлое приложение стенда: живое дерево React занимало бы общий планировщик и тормозило следующий тест. */
+let last: { unmount(): void } | null = null;
+
 /** Поднять приложение на стенде: страница, relay, хранилище; дождаться первого roster. */
 export async function stand(parts: AppPart[], o: StandOptions = {}) {
+  last?.unmount();
   document.body.innerHTML = '<div id="app"></div>';
   const root = document.getElementById("app")!;
   history.replaceState(null, "", o.url ?? "/");
@@ -36,6 +40,7 @@ export async function stand(parts: AppPart[], o: StandOptions = {}) {
     wide: o.wide,
     ...o.options,
   });
+  last = run;
   await run.ready;
   await flush();
   const $ = <T extends Element = HTMLElement>(sel: string) => root.querySelector<T>(sel);

@@ -78,7 +78,8 @@ describe("новая сессия", () => {
     const q = t.$<HTMLInputElement>('[data-f="q"]')!;
     q.focus();
     q.value = "poe";
-    q.dispatchEvent(new Event("input"));
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect(t.$$(".op-plc").map((x) => x.dataset.dirPick)).toEqual(["~/Projects/poe-bot"]);
     expect(document.activeElement).toBe(t.$('[data-f="q"]'));
   });
@@ -102,7 +103,7 @@ describe("новая сессия", () => {
     await t.type(t.$('[data-f="name"]'), "fix");
     await t.type(t.$('[data-f="text"]'), "Почини сценарий 4193");
     expect(t.$('[data-act="open"]')!.textContent).toBe("Начать");
-    t.$('[data-f="text"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
+    t.$('[data-f="text"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
     await flush(10);
     const types = t.relay.got.map((f) => f.type).filter((x) => ["session.open", "session.r2", "session.prompt"].includes(x));
     expect(types).toEqual(["session.open", "session.r2", "session.prompt"]);
@@ -118,7 +119,8 @@ describe("новая сессия", () => {
     expect(t.$$(".op-pr[data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer", ""]);
     const q = t.$<HTMLInputElement>('[data-f="pq"]')!;
     q.value = "дежур";
-    q.dispatchEvent(new Event("input"));
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect(t.$$(".op-pr[data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", ""]);
     await t.click(t.$$(".op-pr").at(-1)!);
     await t.click(t.$('[data-pop="prof"]'));
@@ -163,7 +165,7 @@ describe("новая сессия", () => {
     relay.handlers["machine.dirs"] = () => ({ ok: false, error: "not_found" });
     const p = t.$<HTMLInputElement>('[data-f="path"]')!;
     p.value = "~/нет";
-    p.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    p.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     await flush(5);
     expect(t.$(".op-bf .op-err")!.textContent).toBe("machine.dirs: not_found");
   });
@@ -397,7 +399,7 @@ describe("«пожар»", () => {
     expect(sel.options[0].textContent).toBe("ещё 7…");
     expect(dlg.querySelectorAll('.sb-opts button[aria-pressed="true"]')).toHaveLength(1);
     sel.value = "b3";
-    sel.dispatchEvent(new Event("change"));
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
     expect(relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "b3" });
   });
@@ -409,7 +411,7 @@ describe("«пожар»", () => {
     // машина вне проекта — в списке «ещё N…» (подпись экрана p05)
     const sel = t.$<HTMLSelectElement>('[data-dlg="fire"] select[data-f="target"]')!;
     sel.value = "pc";
-    sel.dispatchEvent(new Event("change"));
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
     expect(t.relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "pc" });
     expect(t.relay.sent("points.raise").filter((f) => f.machine === "pc" && f.dryRun)).toHaveLength(2);
@@ -511,8 +513,7 @@ describe("вкладка «Точки» сессии", () => {
     relay.handlers["session.r2"] = () => ({ ok: false, error: "offline" });
     const t = await sessionTab(relay, "wiki@laptop");
     const box = t.$<HTMLInputElement>('[data-r2="off"] [data-act="r2"]')!;
-    box.checked = true;
-    box.dispatchEvent(new Event("change"));
+    box.click();
     await flush();
     expect(t.$("[data-note]")!.textContent).toBe("Машины нет на связи");
     expect(t.$('[data-r2="off"]')).not.toBeNull();
@@ -634,8 +635,8 @@ describe("диалоги точек", () => {
     await t.click(t.btn(null, "Перенести…"));
     await flush(10);
     const box = [...t.$('[data-dlg="move"]')!.querySelectorAll("label")].find((l) => l.textContent === "прервать ответ и сделать сразу")!.querySelector("input")!;
-    box.checked = true;
-    box.dispatchEvent(new Event("change"));
+    box.click();
+    await flush();
     await run(t);
     expect(relay.sent("points.save")[0]).toMatchObject({ callsign: "site@laptop", stop: true, interrupt: true });
   });

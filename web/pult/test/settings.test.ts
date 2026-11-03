@@ -175,10 +175,10 @@ describe("pult-settings", () => {
     await t.click(t.btn("Пригласить"));
     const nameIn = t.$<HTMLInputElement>('[aria-label="Имя"]')!;
     nameIn.value = "laptop2";
-    nameIn.dispatchEvent(new Event("input"));
+    nameIn.dispatchEvent(new Event("input", { bubbles: true }));
     const who = t.$<HTMLInputElement>('[aria-label="Почта"]')!;
     who.value = "you@mail";
-    who.dispatchEvent(new Event("input"));
+    who.dispatchEvent(new Event("input", { bubbles: true }));
     await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
     expect(t.sent("keys.invite").at(-1)).toMatchObject({ role: "client", name: "laptop2", person: "you@mail", to: ".gate" });
     const inv = "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567";
@@ -221,9 +221,11 @@ describe("pult-settings", () => {
     expect(t.sent("github.setup").at(-1)).toMatchObject({ code: "gh123", to: ".github" });
     expect(location.search).toBe("");
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
     const q = document.querySelector<HTMLInputElement>(".sb-palin")!;
     q.value = "пропуска";
-    q.dispatchEvent(new Event("input"));
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toContain("Настройки: пропуска");
   });
 });

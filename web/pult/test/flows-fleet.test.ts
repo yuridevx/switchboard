@@ -184,7 +184,7 @@ describe("слоты", () => {
     expect(relay.sent("slot.set").at(-1)).toMatchObject({ machine: "laptop", slot: "main", order: ["b", "a"] });
     const add = main().querySelector<HTMLSelectElement>('[data-f="add:main"]')!;
     add.value = "c";
-    add.dispatchEvent(new Event("change"));
+    add.dispatchEvent(new Event("change", { bubbles: true }));
     await flush();
     expect(relay.sent("slot.set").at(-1)).toMatchObject({ order: ["a", "b", "c"] });
     await t.click(main().querySelector('[aria-label="убрать b"]'));

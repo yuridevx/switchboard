@@ -18,6 +18,8 @@ function dayOf(t: number): string {
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createJournal(): AppModule {
   let app: App;
+  /** сколько roster пришло: каждый — повод дочитать, даже с тем же содержимым */
+  let rosters = 0;
 
   function Journal() {
     const [evs, setEvs] = useState<Ev[]>([]);
@@ -54,6 +56,7 @@ export function createJournal(): AppModule {
 
     // первое чтение и новый roster — дочитать записи после последней
     const seen = app.use(() => app.roster());
+    const arrived = app.use(() => rosters);
     const first = useRef(true);
     useEffect(() => {
       if (first.current) {
@@ -64,7 +67,7 @@ export function createJournal(): AppModule {
       if (reading.current) return;
       if (!known.current.length) return void read({}, "all");
       void read({ after: Math.max(...known.current.map((e) => e.id)) }, "newer");
-    }, [seen]);
+    }, [arrived]);
 
     const names = [...new Set([...(seen?.machines ?? []).map((m) => m.machine), ...evs.map((e) => e.machine).filter((x): x is string => !!x)])].sort();
     const t = q.trim().toLowerCase();
@@ -127,6 +130,9 @@ export function createJournal(): AppModule {
   }
 
   return {
+    on: {
+      roster: () => void rosters++,
+    },
     screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal, head: () => ({ title: "Журнал флота" }) } },
     css,
     start(a) {

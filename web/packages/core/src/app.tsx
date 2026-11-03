@@ -601,7 +601,12 @@ export function startApp(o: StartOptions): Running {
   };
 
   // каркас страницы встаёт сразу: экран старта виден до ответа хранилища
-  const view = createRoot(o.root);
+  const view = createRoot(o.root, {
+    onUncaughtError: (e) => {
+      console.error("switchboard: вид ядра упал", e);
+      o.root.textContent = `Приложение упало: ${e instanceof Error ? e.message : String(e)}`;
+    },
+  });
   flushSync(() => view.render(<Root core={core} />));
 
   const ready = boot();
@@ -615,5 +620,6 @@ export function startApp(o: StartOptions): Running {
     },
     hide,
     show,
+    unmount: () => view.unmount(),
   };
 }
