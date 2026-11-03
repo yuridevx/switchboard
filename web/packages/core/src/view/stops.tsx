@@ -1,17 +1,20 @@
-// Экраны входа и отказа: приложение не работает, причина и что делать. Один экран — одна функция.
+// Экраны входа и отказа: приложение не работает, причина и что делать. Один экран — один компонент; какой — по записи снимка ядра.
 import { useRef, useState } from "react";
 import { PROTO } from "@switchboard/relay";
 import { Cmd, Cta } from "@switchboard/web-ui";
+import type { Stop } from "../state.ts";
+import { useCore } from "./core.ts";
 
-function Wipe({ run }: { run(): void }) {
+function Wipe() {
+  const core = useCore();
   return (
-    <Cta data-act="wipe" onClick={run}>
+    <Cta data-act="wipe" onClick={() => void core.wipe()}>
       Стереть данные приложения
     </Cta>
   );
 }
 
-export function gateRefused(errors: string[]) {
+function GateRefused({ errors }: { errors: string[] }) {
   return (
     <>
       <div className="sb-ring bad">×</div>
@@ -25,7 +28,7 @@ export function gateRefused(errors: string[]) {
   );
 }
 
-export function browserOld() {
+function BrowserOld() {
   return (
     <>
       <div className="sb-ring wait">↻</div>
@@ -35,7 +38,7 @@ export function browserOld() {
   );
 }
 
-export function installHere(number: string) {
+function InstallHere({ number }: { number: string }) {
   return (
     <>
       <div className="sb-logo xl">S</div>
@@ -51,7 +54,7 @@ export function installHere(number: string) {
   );
 }
 
-export function passRefused(why: "revoked" | "bad_key", kid: string, command: string, wipe: () => void) {
+function PassRefused({ why, kid, command }: { why: "revoked" | "bad_key"; kid: string; command: string }) {
   return (
     <>
       <div className="sb-ring bad">×</div>
@@ -59,46 +62,49 @@ export function passRefused(why: "revoked" | "bad_key", kid: string, command: st
       <p>{`${kid} ${why === "revoked" ? "больше не принимают" : "не принят флотом"}. Новый пропуск — приглашением от агента флота:`}</p>
       <Cmd>{command}</Cmd>
       <p>Откройте ссылку-приглашение в этом приложении. Само приложение больше не подключается.</p>
-      <Wipe run={wipe} />
+      <Wipe />
     </>
   );
 }
 
-export function outdated(reload: () => void) {
+function Outdated() {
+  const core = useCore();
   return (
     <>
       <div className="sb-ring wait">↻</div>
       <div className="sb-big">Приложение устарело</div>
       <p>{`У приложения proto ${PROTO}; relay эту версию не принял — его обновили, пока приложение было открыто.`}</p>
-      <Cta onClick={reload}>Перезагрузить</Cta>
+      <Cta onClick={core.reload}>Перезагрузить</Cta>
     </>
   );
 }
 
-export function connectionStopped(why: string, reload: () => void) {
+function ConnectionStopped({ why }: { why: string }) {
+  const core = useCore();
   return (
     <>
       <div className="sb-ring bad">×</div>
       <div className="sb-big">Связь остановлена</div>
       <p>{`relay закрыл соединение: ${why || "без причины"}.`}</p>
-      <Cta onClick={reload}>Перезагрузить</Cta>
+      <Cta onClick={core.reload}>Перезагрузить</Cta>
     </>
   );
 }
 
-export function inviteRefused(word: string, wipe: () => void) {
+function InviteRefused({ word }: { word: string }) {
   return (
     <>
       <div className="sb-ring bad">×</div>
       <div className="sb-big">Приглашение не принято</div>
       <p>{word === "bad_invite" ? "Оно уже принято, отозвано или набрано с ошибкой. Попросите агента выдать новое." : `gate не ответил: ${word}. Откройте ссылку ещё раз позже.`}</p>
-      <Wipe run={wipe} />
+      <Wipe />
     </>
   );
 }
 
-/** Нужен пропуск: поле приглашения; accept отвечает причиной отказа или null. */
-export function KeyPrompt({ command, accept }: { command: string; accept(value: string): Promise<string | null> }) {
+/** Нужен пропуск: поле приглашения; ядро отвечает причиной отказа или null. */
+function KeyPrompt({ command }: { command: string }) {
+  const core = useCore();
   const input = useRef<HTMLInputElement>(null);
   const [why, setWhy] = useState("");
   return (
@@ -109,8 +115,29 @@ export function KeyPrompt({ command, accept }: { command: string; accept(value: 
       <Cmd>{command}</Cmd>
       <p>Или вставьте приглашение:</p>
       <input className="sb-keyin" type="text" placeholder="приглашение или ссылка с #invite=" aria-label="Приглашение" ref={input} />
-      <Cta onClick={async () => setWhy((await accept(input.current?.value ?? "")) ?? "")}>Принять приглашение</Cta>
+      <Cta onClick={async () => setWhy((await core.acceptInvite(input.current?.value ?? "")) ?? "")}>Принять приглашение</Cta>
       <p role="alert">{why}</p>
     </>
   );
+}
+
+export function StopScreen({ stop }: { stop: Stop }) {
+  switch (stop.kind) {
+    case "gate":
+      return <GateRefused errors={stop.errors} />;
+    case "browser":
+      return <BrowserOld />;
+    case "install":
+      return <InstallHere number={stop.number} />;
+    case "pass":
+      return <PassRefused why={stop.why} kid={stop.kid} command={stop.command} />;
+    case "outdated":
+      return <Outdated />;
+    case "connection":
+      return <ConnectionStopped why={stop.why} />;
+    case "invite":
+      return <InviteRefused word={stop.word} />;
+    case "key":
+      return <KeyPrompt command={stop.command} />;
+  }
 }

@@ -6,7 +6,7 @@ import { kindOf, machineOf, userOf } from "@switchboard/protocol";
 import type {} from "@switchboard/web-ask";
 import type {} from "@switchboard/web-chat";
 import type {} from "@switchboard/web-labels";
-import { BUILT, incidentOf, match, orderFilters, parentOf, rank, tree, type Filter, type Project, type View } from "./rules.ts";
+import { BUILT, firstOpen, incidentOf, match, orderFilters, parentOf, rank, tree, type Filter, type Project, type View } from "./rules.ts";
 
 /** Снимок модуля. */
 export type State = {
@@ -19,8 +19,10 @@ export type State = {
   view: View;
   /** последний открытый проект — для экранов «Машины» и «Аккаунты» */
   lastProject: string | null;
-  /** открытая сессия, которую список уже показал */
-  lastCurrent: string | undefined;
+  /** открытая сессия ждёт первого ответа prefs: её проект ещё неизвестен */
+  follow: string | null;
+  /** список на экране: первый показ проекта запоминается, только пока его видно */
+  listShown: boolean;
   /** прокрутка списка: телефон строит экран заново при каждом возврате */
   bodyTop: number;
   /** идёт перестановка: жест меняет элементы списка напрямую, рисовать нельзя */
@@ -155,7 +157,7 @@ export function createModel({ app, user, fleet, state }: Env) {
     return [...by].sort((a, b) => a[0].localeCompare(b[0])).flatMap(([m, ss]): Array<RowItem | GroupItem> => [{ k: "group", machine: m, label: mName(m), n: ss.length }, ...rowsOf(ss, true)]);
   }
 
-  /** Модель списка. Впервые увиденный проект развёрнут, только если в нём ждут вас или сбой; решение запоминает store (fixFirstShown). */
+  /** Модель списка. Впервые увиденный проект — по правилу firstOpen; решение запоминает store. */
   function listModel(): ListModel {
     const { view, col, menuOf } = state();
     const ps = projects();
@@ -163,7 +165,7 @@ export function createModel({ app, user, fleet, state }: Env) {
     // без группировки по проектам — плоский список в порядке проектов; проект — в строке
     if (!view.projects) return { flat: ps.flatMap((x) => x.ss.map((s): RowItem => ({ k: "row", callsign: s.callsign, depth: 0, noAt: false, project: x.name }))), sections: [], empty };
     const sections = ps.map((x): Section => {
-      const open = !(col[x.id] ?? x.r !== 0);
+      const open = col[x.id] === undefined ? firstOpen(x) : !col[x.id];
       return {
         id: x.id,
         name: x.name,

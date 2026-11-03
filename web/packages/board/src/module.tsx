@@ -16,7 +16,7 @@ import { createBoardStore } from "./store.ts";
 export function createBoard(): AppModule {
   const board = createBoardStore();
   return {
-    on: { link: board.onLink },
+    on: { link: board.onLink, roster: board.onRoster, current: board.onCurrent },
     screens: {
       // вставка места «после открытия»: страница новой сессии возвращает номер проекта, не читая его
       "board.assign": {

@@ -1,5 +1,5 @@
 // Шапка экрана и полоса «Нет связи».
-import { Dot, hhmm, Pill } from "@switchboard/web-ui";
+import { Dot, hhmm, Pill, useNow } from "@switchboard/web-ui";
 import type { Head } from "../types.ts";
 import { useCore } from "./core.ts";
 
@@ -53,20 +53,27 @@ export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
   );
 }
 
+/** Текст и кнопка полосы: отсчёт идёт, только пока она видна. */
+function OfflineBody({ retryAt, rosterAt }: { retryAt: number; rosterAt: number }) {
+  const core = useCore();
+  const now = useNow(1_000);
+  const left = Math.max(0, Math.ceil((retryAt - now) / 1000));
+  return (
+    <>
+      <span>{`Нет связи с relay${core.wide && rosterAt ? ` · данные на ${hhmm(rosterAt)}` : ""}${left > 0 ? ` · снова через ${left} с` : " · подключаюсь"}`}</span>
+      <button onClick={core.reconnectNow}>Сейчас</button>
+    </>
+  );
+}
+
 /** Полоса «Нет связи»: когда снова и «Сейчас». */
 export function Offline() {
   const core = useCore();
   const { conn, retryAt, stopped, rosterAt } = core.state();
   const hidden = conn === "open" || retryAt === 0 || stopped !== null;
-  const left = Math.max(0, Math.ceil((retryAt - Date.now()) / 1000));
   return (
     <div className="sb-off" role="status" hidden={hidden}>
-      {hidden ? null : (
-        <>
-          <span>{`Нет связи с relay${core.wide && rosterAt ? ` · данные на ${hhmm(rosterAt)}` : ""}${left > 0 ? ` · снова через ${left} с` : " · подключаюсь"}`}</span>
-          <button onClick={core.reconnectNow}>Сейчас</button>
-        </>
-      )}
+      {hidden ? null : <OfflineBody retryAt={retryAt} rosterAt={rosterAt} />}
     </div>
   );
 }

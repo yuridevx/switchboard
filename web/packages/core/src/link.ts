@@ -26,7 +26,6 @@ export function createLink(d: {
   const pending = new Set<Promise<unknown>>();
   let lk: FleetClient | null = null;
   let pause = firstPause;
-  let tick: ReturnType<typeof setInterval> | undefined;
 
   function setConn(conn: ConnState) {
     state.set({ conn });
@@ -37,12 +36,10 @@ export function createLink(d: {
   function onState(s: string, why?: string) {
     if (s === "stopped") {
       if (why !== undefined && OWN.has(why)) return;
-      clearInterval(tick);
       setConn("stopped");
       return refused(why ?? "");
     }
     if (s === "open") {
-      clearInterval(tick);
       pause = firstPause;
       state.set({ retryAt: 0 });
       setConn("open");
@@ -55,8 +52,6 @@ export function createLink(d: {
       pause = Math.min(pause * 2, MAX_PAUSE);
       console.warn(`switchboard: связь с relay оборвалась (${why}) · снова через ${Math.round((retryAt - Date.now()) / 1000)} с`);
       setConn("closed");
-      clearInterval(tick);
-      tick = setInterval(changed, 1_000);
       return;
     }
     setConn("connecting");
@@ -151,11 +146,9 @@ export function createLink(d: {
     settle: () => Promise.all([...pending]),
     /** Уход с экрана: close(1000); страница скрыта — вид не будим. */
     close() {
-      clearInterval(tick);
       lk?.close(1000, "hidden");
       lk = null;
       state.set({ conn: "connecting", retryAt: 0 }, { quiet: true });
     },
-    stopTick: () => clearInterval(tick),
   };
 }

@@ -1,6 +1,5 @@
-// Группа «Шапка» в панели вида «Работы». params.reset — номер сброса панели: новый номер, не «0», возвращает встроенное.
-import { useEffect } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
+// Группа «Шапка» в панели вида «Работы». Вернуть встроенное — команда card.view (app.open).
+import { useApp } from "@switchboard/web-core";
 import { Choices } from "@switchboard/web-ui";
 import { useCard } from "./context.ts";
 import type { HeadView } from "./session.ts";
@@ -8,13 +7,10 @@ import type { HeadView } from "./session.ts";
 /** Единицы шапки в панели вида. */
 const UNITS: Array<[keyof HeadView, string, string]> = [["haddr", "Адрес", "Адрес сессии"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"]];
 
-export function HeadPanel({ params }: ScreenProps) {
+export function HeadPanel() {
   const app = useApp();
   const card = useCard();
   const view = app.use(card.head);
-  useEffect(() => {
-    if (params.reset && params.reset !== "0") card.resetHead();
-  }, [card, params.reset]);
   return (
     <Choices title="Шапка">
       {UNITS.map(([k, label, full]) => (

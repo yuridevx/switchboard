@@ -1,8 +1,18 @@
 // Состояние ядра, которое читают вид и модули: один неизменяемый снимок. Правка заменяет снимок и будит вид.
-// Не createStore: roster принадлежит клиенту флота и не замораживается, full — элементы React.
-import type { ReactNode } from "react";
+// Не createStore: roster принадлежит клиенту флота и не замораживается.
 import type { Roster } from "@switchboard/relay";
 import type { ConnState, Params } from "./types.ts";
+
+/** Экран на всю страницу: что случилось и данные для него; рисует его вид (view/stops.tsx). */
+export type Stop =
+  | { kind: "gate"; errors: string[] }
+  | { kind: "browser" }
+  | { kind: "install"; number: string }
+  | { kind: "pass"; why: "revoked" | "bad_key"; kid: string; command: string }
+  | { kind: "outdated" }
+  | { kind: "connection"; why: string }
+  | { kind: "invite"; word: string }
+  | { kind: "key"; command: string };
 
 export type Toast = { text: string; tone: "ok" | "bad"; shown: boolean };
 
@@ -10,7 +20,7 @@ export type CoreState = {
   /** почему не стартовало или остановилось */
   stopped: string | null;
   /** экран на всю страницу: вход, отказ, остановка */
-  full: ReactNode;
+  full: Stop | null;
   css: string;
   /** пропуск устройства */
   key: string;

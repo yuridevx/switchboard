@@ -39,6 +39,7 @@ export function createRouter(d: { win: Window; wide: boolean; beside?: Record<st
     const was = master ?? current?.screen;
     const name = was && allowed.includes(was) ? was : allowed[0];
     state.set({ master: name && screens.has(name) ? name : null, current: next });
+    for (const x of registry.mods) if (x.mod.on?.current) registry.call(x, "смене экрана", () => x.mod.on!.current!(next));
   }
 
   function go(screen: string, params: Params) {

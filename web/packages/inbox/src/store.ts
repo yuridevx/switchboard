@@ -1,6 +1,6 @@
 // Состояние «Вам»: только то, что видно по смене roster при открытом приложении — «готово» (busy → idle) и ушедшие машины.
 // Карточки выводятся из roster и меток других модулей; очереди и хранилища нет.
-import type { App, Roster } from "@switchboard/web-core";
+import type { App, Params, Roster } from "@switchboard/web-core";
 import type {} from "@switchboard/web-ask";
 import type {} from "@switchboard/web-board";
 import type {} from "@switchboard/web-chat";
@@ -61,22 +61,11 @@ export function createInboxStore() {
     });
   }
 
-  /** Открыли карточку сессии — «готово» прочитано. Ядро не шлёт события перехода, поэтому отметка — при выборке, где карточка открыта. */
-  function sweepViewed() {
-    const viewed = Object.keys(store.get().done).filter(viewing);
-    if (viewed.length) {
-      store.set((d) => {
-        for (const c of viewed) delete d.done[c];
-      });
-    }
-  }
-
   /** Карточки сейчас: из roster, меток и того, что видно по смене roster. */
   function items(): Item[] {
     const out: Item[] = [];
     const r = app?.roster();
     if (!r) return out;
-    sweepViewed();
     const { done, seen, gone } = store.get();
     for (const s of r.sessions) {
       const callsign = s.callsign;
@@ -103,6 +92,11 @@ export function createInboxStore() {
       app = a;
     },
     onRoster,
+    /** Открыли карточку сессии — «готово» прочитано. */
+    onCurrent(c: { screen: string; params: Params }) {
+      const callsign = c.params.callsign;
+      if (callsign && c.screen !== "inbox") store.set((d) => void delete d.done[callsign]);
+    },
     items,
     count: () => items().length,
     /** «Прочитано» на карточке «готово». */

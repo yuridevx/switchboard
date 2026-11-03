@@ -7,6 +7,7 @@ import { CoreCtx, useCore, type Core } from "./core.ts";
 import { Palette } from "./palette.tsx";
 import { Place } from "./place.tsx";
 import { GroupRow, NavColumn, sectionsModel, Tabs } from "./sections.tsx";
+import { StopScreen } from "./stops.tsx";
 
 /** Стили страницы: основание, вид ядра и стили модулей в их областях. */
 export function pageCss(mods: Array<{ name: string; css: string }>): string {
@@ -18,16 +19,17 @@ export function pageCss(mods: Array<{ name: string; css: string }>): string {
 function Stage({ ready }: { ready: boolean }) {
   const core = useCore();
   const { full, current, master, connecting, fresh } = core.state();
-  const pageKey = current ? `${current.screen}?${new URLSearchParams(current.params)}` : "";
   const screenEl = current ? (
-    <div key={pageKey} className="sb-screen" data-screen={current.screen} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+    <div className="sb-screen" data-screen={current.screen} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <Place screen={current.screen} params={current.params} />
     </div>
   ) : null;
   return (
     <div className="sb-view">
       {full ? (
-        <div className="sb-full">{full}</div>
+        <div className="sb-full">
+          <StopScreen stop={full} />
+        </div>
       ) : ready ? (
         master ? (
           <div className="sb-split">

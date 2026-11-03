@@ -91,6 +91,8 @@ export interface AppModule {
     roster?(r: Roster): void;
     /** смена связи; open — hello принят: открытые экраны заново шлют свои подписки */
     link?(state: ConnState): void;
+    /** открыт экран: человек перешёл, новый адрес или команда app.open */
+    current?(c: { screen: string; params: Params }): void;
   };
   /** Экраны — имена из provides. */
   screens?: Record<string, Screen>;

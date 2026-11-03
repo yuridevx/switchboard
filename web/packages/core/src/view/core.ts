@@ -20,6 +20,10 @@ export type Core = {
   lookup(screen: string): ScreenEntry | undefined;
   fail: Registry["fail"];
   reload(): void;
+  /** стереть пропуск и данные приложения на устройстве */
+  wipe(): Promise<void>;
+  /** принять вставленное приглашение: причина отказа или null */
+  acceptInvite(value: string): Promise<string | null>;
   head(screen: string, params: Params): Head;
   sections(): Array<[string, ScreenEntry]>;
   countOf(s: ScreenEntry): number | null;

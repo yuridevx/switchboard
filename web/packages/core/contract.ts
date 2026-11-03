@@ -19,7 +19,7 @@
 // Модуль — default export его contract.ts, объект AppModule:
 //   export default {
 //     frames: { question: onQuestion },             // кадры по type (имена — из uses)
-//     on: { roster: draw, link: (s) => … },          // roster и смена связи
+//     on: { roster: draw, link: (s) => …, current: (c) => … }, // roster, смена связи, открытый экран
 //     screens: { ask: { label: "Вопрос", view: Ask, head: (params) => ({ title: "Вопрос" }) } },
 //     marks: { asked: (callsign) => text },          // метки для других модулей
 //     store: ["drafts"],                             // свои разделы хранилища

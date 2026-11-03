@@ -27,7 +27,7 @@ export function createCard(): AppModule {
     screens: {
       card: { label: "Карточка", view: provided(CardScreen), head: card.screenHead },
       // группа «Шапка» в панели вида «Работы»: настройки шапки — у карточки
-      "card.view": { label: "Шапка", path: "card-view", view: provided(HeadPanel) },
+      "card.view": { label: "Шапка", path: "card-view", view: provided(HeadPanel), run: card.resetHead },
     },
     css,
     store: ["card.info", "card.head"],

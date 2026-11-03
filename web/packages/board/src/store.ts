@@ -5,7 +5,7 @@ import { createStore, folderOf, lamp, personal, type Personal } from "@switchboa
 import { addProject, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { machineOf } from "@switchboard/protocol";
 import { createModel, type State } from "./model.ts";
-import { byRank, tree, VIEW0, type Filter, type View } from "./rules.ts";
+import { byRank, firstOpen, tree, VIEW0, type Filter, type View } from "./rules.ts";
 
 export type BoardStore = ReturnType<typeof createBoardStore>;
 
@@ -14,7 +14,7 @@ export function createBoardStore() {
   // циклы настроек — службы, как app: своё состояние они держат сами
   let user: Personal;
   let fleet: Personal;
-  const store = createStore<State>({ menuOf: null, flt: "mine", col: {}, view: { ...VIEW0 }, lastProject: null, lastCurrent: undefined, bodyTop: 0, reordering: false }, () => app.changed());
+  const store = createStore<State>({ menuOf: null, flt: "mine", col: {}, view: { ...VIEW0 }, lastProject: null, follow: null, listShown: false, bodyTop: 0, reordering: false }, () => app.changed());
   const state = () => store.get();
   const model = createModel({ app: () => app, user: () => user, fleet: () => fleet, state });
 
@@ -23,9 +23,40 @@ export function createBoardStore() {
   const editProjects = (fn: (old: ProjectRec[] | undefined) => ProjectRec[]) => fleet.edit<ProjectRec[]>(PROJECTS, fn);
   const editFilters = (fn: (old: Filter[]) => Filter[]) => user.edit<Filter[]>("filters", (old) => fn(old ?? []));
 
+  /** Открытая сессия: её проект разворачивается и становится последним. */
+  function follow(callsign: string) {
+    const s = model.session(callsign);
+    if (!s) return;
+    const project = model.projectId(callsign);
+    const unfold = state().col[project] !== false;
+    store.set((d) => {
+      d.lastProject = model.realProject(callsign);
+      if (unfold) d.col[project] = false;
+    });
+    if (unfold) saveCol();
+  }
+
+  /** Данные списка изменились: ждавшая открытая сессия находит проект; первый показ проекта запоминается — дальше как оставил человек. */
+  function settle() {
+    if (model.held()) return;
+    const waiting = state().follow;
+    if (waiting) {
+      store.set((d) => void (d.follow = null));
+      follow(waiting);
+    }
+    if (!state().listShown || !state().view.projects) return;
+    const unseen = model.projects().filter((x) => state().col[x.id] === undefined);
+    if (!unseen.length) return;
+    store.set((s) => {
+      for (const x of unseen) s.col[x.id] = !firstOpen(x);
+    });
+    saveCol();
+  }
+
   function pick(id: string) {
     store.set((s) => void (s.flt = id));
     void app.store<string>("flt").set(id);
+    settle();
   }
 
   /** Закрепления прежней версии лежали на устройстве: один раз переходят к почте. Пересмотр — 1 дек. 2026: устройства перешли, убрать вместе с разделом pins. */
@@ -40,7 +71,6 @@ export function createBoardStore() {
     ...model,
     view: () => state().view,
     filterId: () => state().flt,
-    lastCurrent: () => state().lastCurrent,
     lastProject: () => state().lastProject,
     bodyTop: () => state().bodyTop,
     rowsMove: () => state().view.projects && !state().view.group,
@@ -48,14 +78,19 @@ export function createBoardStore() {
     // ───── жизненный цикл ─────
     async start(a: App) {
       app = a;
-      user ??= personal(app, "web-board", () => app.changed());
-      fleet ??= personal(app, FLEET_PREFIX, () => app.changed(), "global");
+      const prefs = () => {
+        app.changed();
+        settle();
+      };
+      user ??= personal(app, "web-board", prefs);
+      fleet ??= personal(app, FLEET_PREFIX, prefs, "global");
       const [flt, col, view] = await Promise.all([app.store<string>("flt").get(), app.store<Record<string, boolean>>("collapsed").get(), app.store<View>("view").get()]);
       store.set((s) => {
         s.flt = flt ?? "mine";
         s.col = col ?? {};
         s.view = { ...VIEW0, ...view };
       });
+      settle();
     },
     async stop() {
       await user?.settled();
@@ -66,6 +101,13 @@ export function createBoardStore() {
       void user.read().then(movePins);
       void fleet.read();
     },
+    onRoster: settle,
+    /** Открыт экран сессии: пока нет ответа prefs, проект неизвестен — ждёт его. */
+    onCurrent(c: { params: Params }) {
+      const callsign = c.params.callsign ?? null;
+      if (callsign && !model.held()) follow(callsign);
+      store.set((d) => void (d.follow = callsign && model.held() ? callsign : null));
+    },
 
     // ───── список ─────
     pick,
@@ -73,29 +115,9 @@ export function createBoardStore() {
       store.set((s) => void (s.col[id] = !s.col[id]));
       saveCol();
     },
-    /** Первый показ проекта запоминается: дальше — как оставил человек. */
-    fixFirstShown() {
-      if (!state().view.projects) return;
-      const unseen = model.projects().filter((x) => state().col[x.id] === undefined);
-      if (!unseen.length) return;
-      store.set((s) => {
-        for (const x of unseen) s.col[x.id] = x.r !== 0;
-      });
-      saveCol();
-    },
-    /** Найденная или только что открытая сессия: её проект разворачивается и становится последним. */
-    followCurrent(callsign: string | undefined) {
-      if (callsign === state().lastCurrent) return;
-      const s = callsign ? model.session(callsign) : undefined;
-      const project = s ? model.projectId(s.callsign) : null;
-      const unfold = project !== null && state().col[project] !== false;
-      store.set((d) => {
-        d.lastCurrent = callsign;
-        if (!s) return;
-        d.lastProject = model.realProject(s.callsign);
-        if (unfold) d.col[project!] = false;
-      });
-      if (unfold) saveCol();
+    setListShown(on: boolean) {
+      store.set((s) => void (s.listShown = on));
+      if (on) settle();
     },
     setBodyTop: (top: number) => store.set((s) => void (s.bodyTop = top)),
     setReordering: (on: boolean) => store.set((s) => void (s.reordering = on)),
@@ -157,10 +179,12 @@ export function createBoardStore() {
     toggleView(k: keyof View) {
       store.set((s) => void (s.view[k] = !s.view[k]));
       saveView();
+      settle();
     },
     resetView() {
       store.set((s) => void (s.view = { ...VIEW0 }));
       saveView();
+      settle();
     },
   };
 }

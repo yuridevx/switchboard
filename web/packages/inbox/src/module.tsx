@@ -9,7 +9,7 @@ import { createInboxStore } from "./store.ts";
 export function createInbox(): AppModule {
   const inbox = createInboxStore();
   return {
-    on: { roster: inbox.onRoster },
+    on: { roster: inbox.onRoster, current: inbox.onCurrent },
     screens: {
       inbox: {
         nav: "Вам",

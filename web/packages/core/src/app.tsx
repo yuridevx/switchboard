@@ -41,7 +41,7 @@ export function startApp(o: StartOptions): Running {
   const registry = createRegistry(bus.changed);
   const nav = createNav(registry, { wide, sections: o.sections });
   const router = createRouter({ win, wide, beside: o.beside, registry, nav, state });
-  const halt = createHalt({ state, store, win, stopTick: () => link.stopTick() });
+  const halt = createHalt({ state, store, win, o });
   const link = createLink({ o, state, registry, changed: bus.changed, route: router.route, toast, refused: halt.refused });
   const life = createLifecycle({ registry, link, state });
 
@@ -57,6 +57,8 @@ export function startApp(o: StartOptions): Running {
     lookup: registry.lookup,
     fail: registry.fail,
     reload: () => win.location.reload(),
+    wipe: halt.wipe,
+    acceptInvite: halt.acceptInvite,
     head: nav.head,
     sections: nav.sections,
     countOf: nav.countOf,

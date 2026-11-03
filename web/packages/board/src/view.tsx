@@ -1,6 +1,5 @@
 // Панель вида списка: каждая единица информации — свой переключатель.
 // Группа «Шапка» — экран card.view карточки в месте панели (только пульт): её настройки — у карточки.
-import { useState } from "react";
 import { useApp } from "@switchboard/web-core";
 import { Choices } from "@switchboard/web-ui";
 import { useBoard } from "./context.ts";
@@ -19,8 +18,6 @@ export function ViewPanel({ onClose }: { onClose(): void }) {
   const app = useApp();
   const board = useBoard();
   const v = app.use(board.view);
-  // номер сброса: новый номер — экран карточки начат заново и возвращает свои настройки
-  const [resets, setResets] = useState(0);
   return (
     // data-hide-tabs: на телефоне панель встаёт блоком под список, вкладки ядра на это время убираются
     <div className="bd-vw" role="dialog" aria-label="Вид списка" data-hide-tabs="">
@@ -31,7 +28,8 @@ export function ViewPanel({ onClose }: { onClose(): void }) {
           data-act="view-reset"
           onClick={() => {
             board.resetView();
-            setResets((n) => n + 1);
+            // настройки шапки — у карточки: её команда возвращает свои; вне широкого вида группы нет
+            if (app.wide) app.open("card.view");
           }}
         >
           Вернуть
@@ -58,7 +56,7 @@ export function ViewPanel({ onClose }: { onClose(): void }) {
         ))}
         {app.wide ? (
           <div>
-            <app.Slot screen="card.view" params={{ reset: String(resets) }} />
+            <app.Slot screen="card.view" />
           </div>
         ) : null}
       </div>

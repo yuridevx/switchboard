@@ -46,7 +46,7 @@ function PlaceView({ screen, params, close }: SlotProps) {
   const p = params ?? NONE;
   return (
     <div data-module={s.owner.m.name} style={{ display: "contents" }}>
-      <Boundary key={JSON.stringify(p)} onError={(e) => core.fail(s.owner, `экране ${screen}`, e)}>
+      <Boundary key={`${screen}?${JSON.stringify(p)}`} onError={(e) => core.fail(s.owner, `экране ${screen}`, e)}>
         <AppCtx.Provider value={s.owner.app}>
           <View params={p} close={close} />
         </AppCtx.Provider>

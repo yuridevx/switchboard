@@ -1,6 +1,6 @@
 // Подписка вида: одно уведомление за такт и хук выборки. Единственный механизм, через который вид узнаёт об изменениях.
 import { useRef, useSyncExternalStore } from "react";
-import { same } from "./same.ts";
+import { share } from "./same.ts";
 
 export type Bus = ReturnType<typeof createBus>;
 
@@ -22,12 +22,13 @@ export function createBus() {
     });
   }
 
-  /** Хук выборки: ответ сравнивается с прошлым, тот же — компонент не перерисовывается. */
+  /** Хук выборки: ответ сравнивается с прошлым, тот же — компонент не перерисовывается; равные ветви нового ответа — прежние ссылки. */
   function useSelect<T>(select: () => T): T {
     const last = useRef<{ v: T } | null>(null);
     const snap = () => {
       const v = select();
-      if (!last.current || !same(last.current.v, v)) last.current = { v };
+      if (!last.current) last.current = { v };
+      else last.current = { v: share(last.current.v, v) };
       return last.current.v;
     };
     return useSyncExternalStore(subscribe, snap, snap);

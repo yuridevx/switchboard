@@ -5,8 +5,8 @@
 // Место card.tab: вкладка другого модуля — его экран с place: "card.tab", label и show(params) и card.tab@web-card
 // в uses (так «Точки» пульта); карточка берёт вкладки через app.placed и о модулях не знает.
 // Место card.menu: пункт меню другого модуля — команда с run(params) или экран с view; params.from — позывной карточки.
-// Экран card.view — группа «Шапка» для панели вида другого модуля: <app.Slot screen="card.view" params={{ reset }}/>;
-// reset — номер сброса панели: новый номер, не «0», возвращает встроенные настройки шапки.
+// Экран card.view — группа «Шапка» для панели вида другого модуля: <app.Slot screen="card.view"/>;
+// app.open("card.view") — команда: возвращает встроенные настройки шапки.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createCard } from "./src/module.tsx";

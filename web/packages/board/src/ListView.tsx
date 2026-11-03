@@ -1,4 +1,4 @@
-// Список «Работы»: проекты или плоско; открытая сессия разворачивает свой проект и показывается. gen — поколение после перестановки: элементы строятся заново.
+// Список «Работы»: проекты или плоско; строка открытой сессии показывается, как только она есть. gen — поколение после перестановки: элементы строятся заново.
 import { memo, useLayoutEffect, useRef } from "react";
 import { useApp } from "@switchboard/web-core";
 import { useBoard } from "./context.ts";
@@ -13,16 +13,14 @@ export const ListView = memo(function ListView({ gen }: { gen: number }) {
   const current = app.use(() => app.current()?.params.callsign);
   const lst = useRef<HTMLDivElement>(null);
   /** открытая сессия, которую список уже показал */
-  const shown = useRef(board.lastCurrent());
+  const shown = useRef<string | undefined>(undefined);
   const ready = !!m;
 
+  // список на экране: store запоминает первый показ проектов
   useLayoutEffect(() => {
-    if (ready) board.followCurrent(current);
-  }, [board, ready, current]);
-
-  useLayoutEffect(() => {
-    if (ready) board.fixFirstShown();
-  }, [board, ready, m]);
+    board.setListShown(true);
+    return () => board.setListShown(false);
+  }, [board]);
 
   // строка появляется, когда её проект развернулся: показать, как только она есть
   useLayoutEffect(() => {
