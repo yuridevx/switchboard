@@ -5,7 +5,7 @@ import { FakeRelay, flush, homeRoster, stand } from "../stand/app.ts";
 import type { AppPart, Params } from "../contract.ts";
 
 describe("share", () => {
-  it("6240 · всё равно — прошлый ответ; изменилась одна ветвь — соседние ветви прежние", () => {
+  it("6802 · всё равно — прошлый ответ; изменилась одна ветвь — соседние ветви прежние", () => {
     const a = { list: [{ id: 1, s: { x: 1 } }, { id: 2, s: { x: 2 } }], n: 1 };
     expect(share(a, structuredClone(a))).toBe(a);
     const b = structuredClone(a);
@@ -17,7 +17,7 @@ describe("share", () => {
     expect(c.list[1].s.x).toBe(9);
   });
 
-  it("6241 · ключ убран, длина изменилась, не простой объект — новый ответ верен", () => {
+  it("6803 · ключ убран, длина изменилась, не простой объект — новый ответ верен", () => {
     expect(share({ a: 1, b: 2 } as { a: number; b?: number }, { a: 1 })).toEqual({ a: 1 });
     expect(share([1, 2], [1])).toEqual([1]);
     const d = new Date();
@@ -27,7 +27,7 @@ describe("share", () => {
 });
 
 describe("on.current", () => {
-  it("6242 · открытый экран приходит модулю с параметрами на каждый переход; экран в снимке уже новый", async () => {
+  it("6804 · открытый экран приходит модулю с параметрами на каждый переход; экран в снимке уже новый", async () => {
     const seen: Array<{ screen: string; params: Params }> = [];
     const shown: Array<string | undefined> = [];
     let app!: Parameters<NonNullable<AppPart["module"]["start"]>>[0];

@@ -1,5 +1,5 @@
 // Общие хуки экранов: чтение данных экрана с отменой устаревшего ответа.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 /** Текущее время с шагом ms: таймер живёт, пока компонент на экране; ms 0 — стоит. Отсчёт виден только там, где он нужен. */
 export function useNow(ms: number): number {
@@ -17,16 +17,20 @@ type Answer<T> = { ok: true; result: T } | { ok: false; error: string };
 
 /**
  * Данные экрана: читает при открытии и при смене deps; устаревший ответ отбрасывается.
- * data остаётся прежней, пока идёт перечитывание; reload — перечитать.
+ * data остаётся прежней, пока идёт чтение; отказ по новым deps снимает её (данные прежних deps — не ответ для новых), отказ перечитывания — держит.
+ * reload — перечитать.
  */
 export function useLoad<T>(load: () => Promise<Answer<T>>, deps: readonly unknown[]): { data: T | undefined; error: string; loading: boolean; reload(): void } {
   const [state, setState] = useState<{ data: T | undefined; error: string; loading: boolean }>({ data: undefined, error: "", loading: true });
   const [turn, setTurn] = useState(0);
+  const lastTurn = useRef(turn);
   useEffect(() => {
     let stale = false;
+    const again = lastTurn.current !== turn;
+    lastTurn.current = turn;
     setState((s) => (s.loading ? s : { ...s, loading: true }));
     void load().then((r) => {
-      if (!stale) setState((s) => (r.ok ? { data: r.result, error: "", loading: false } : { data: s.data, error: r.error, loading: false }));
+      if (!stale) setState((s) => (r.ok ? { data: r.result, error: "", loading: false } : { data: again ? s.data : undefined, error: r.error, loading: false }));
     });
     return () => {
       stale = true;

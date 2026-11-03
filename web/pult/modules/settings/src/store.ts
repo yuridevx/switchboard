@@ -88,6 +88,8 @@ export function createSettingsStore() {
     },
     /** Машина пришла или вернулась при открытом экране — её keeper. */
     onRoster: (r: Roster) => keeper.onRoster(r),
+    /** Связь вернулась — keeper тех машин, кому запрос не дошёл. */
+    onLink: (state: string) => keeper.onLink(state),
     /** Ответы keeper'ов для других модулей. */
     keeper: () => keeper,
 

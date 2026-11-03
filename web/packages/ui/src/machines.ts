@@ -1,4 +1,5 @@
-// Ответы машин экрану: открыт экран — спросить все машины, пришла или вернулась машина — доспросить её. Закрыт — не спрашивает.
+// Ответы машин экрану: открыт экран — спросить все машины, пришла или вернулась машина — доспросить её; вернулась связь клиента —
+// доспросить тех, кому не дошло. Закрыт — не спрашивает.
 // Один цикл на все экраны с ответом от каждой машины. Состояние — неизменяемый снимок: его читает выборка app.use.
 import type { Roster } from "@switchboard/relay";
 import { createStore } from "./store.ts";
@@ -19,6 +20,8 @@ export type MachineAnswers<T> = {
   isOpen(): boolean;
   /** новый roster: машину, которая пришла или вернулась при открытом экране, спросить */
   onRoster(r: Roster): void;
+  /** связь клиента сменилась (on.link модуля): вернулась — спросить машины с отказом disconnected, ответа от них не было */
+  onLink(state: string): void;
   /** спросить одну машину заново; how — другой запрос вместо обычного (с другими полями) */
   reload(machine: string, how?: (machine: string) => Promise<Answer<T>>): Promise<void>;
   /** положить ответ, известный без запроса: итог своего действия */
@@ -54,6 +57,12 @@ export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promis
       const fresh = r.machines.filter((m) => seen[m.machine] !== m.since);
       if (fresh.length) store.set((s) => void fresh.forEach((m) => (s.seen[m.machine] = m.since)));
       if (opened) for (const m of fresh) if (allowed.has(m.machine)) void reload(m.machine);
+    },
+    onLink(state) {
+      if (state !== "open") return;
+      const { opened, answers } = store.get();
+      if (!opened) return;
+      for (const [m, a] of Object.entries(answers)) if ((a as { error?: string } | null)?.error === "disconnected") void reload(m);
     },
     reload,
     put,

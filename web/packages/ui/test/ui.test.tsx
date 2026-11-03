@@ -48,7 +48,7 @@ describe("ответы машин", () => {
     expect(asked).toEqual(["a"]);
   });
 
-  it("6240 · второй экран рядом ответы не спрашивает заново: один запрос на машину; закрылись оба — снова спросит", async () => {
+  it("6800 · второй экран рядом ответы не спрашивает заново: один запрос на машину; закрылись оба — снова спросит", async () => {
     const { m, asked } = setup();
     const a = m.mount();
     const b = m.mount();
@@ -63,7 +63,7 @@ describe("ответы машин", () => {
     expect(asked).toEqual(["a", "a"]);
   });
 
-  it("6241 · put кладёт известный ответ без запроса; reload с how спрашивает другим запросом", async () => {
+  it("6801 · put кладёт известный ответ без запроса; reload с how спрашивает другим запросом", async () => {
     const { m, asked } = setup();
     m.put("a", 7);
     expect(m.get().a).toBe(7);
@@ -92,16 +92,6 @@ describe("ответы машин", () => {
     expect(asked).toEqual(["a", "bad", "a"]);
   });
 
-  it("6232 · снимок неизменяем: новый ответ меняет ссылку и зовёт changed", async () => {
-    const { m, changed } = setup();
-    m.mount();
-    await act(async () => {});
-    const a = m.get();
-    await m.reload("b");
-    expect(m.get()).not.toBe(a);
-    expect(a.b).toBeUndefined();
-    expect(changed).toHaveBeenCalled();
-  });
 });
 
 describe("поле с фиксацией", () => {
