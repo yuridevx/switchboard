@@ -40,6 +40,33 @@ func TestEtHolderSignalClosesInput(t *testing.T) {
 	}
 }
 
+// 5508 · Вышедший держатель не остаётся зомби у того, кто его запустил (wsl 3 нояб.: 23 зомби [keeper] под keeper run
+// за 11 ч — spawnHolder отпускал держателя без Wait).
+func TestEtHolderReaped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hf holdFile
+	b, _ := os.ReadFile(holdPath(home, "s"))
+	json.Unmarshal(b, &hf)
+	c, _, err := dialHolder(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.closeInput()
+	if x, err := c.read(func([]byte) {}); err != nil || x == nil {
+		t.Fatalf("выход %+v %v", x, err)
+	}
+	c.Close()
+	// забранный процесс исчезает из таблицы целиком; зомби отвечает на сигнал 0
+	waitFor(t, "держатель забран", func() bool { return syscall.Kill(hf.Holder, 0) != nil })
+}
+
 // Остановка ОС: держатель закрыл ввод части по сигналу — keeper считает выход остановкой, а не падением: без
 // перезапуска и без part.failed (ВМ win11-2 1 нояб.: на перезагрузке держатель узнал об остановке на 5 с раньше службы,
 // keeper перезапустил часть посреди выключения и поставил failed).

@@ -8,7 +8,7 @@ package main
 // слушает 127.0.0.1 на порту от ОС, пишет о себе ~/.switchboard/procs/<id>.json (адрес, ключ, pid, хозяин) и одной
 // строкой то же — в свой stdout, после чего stdout закрывает. Подключается к нему только хозяин, по ключу.
 // Пока хозяина нет — копит вывод и код выхода. Процесс вышел, выход отдан хозяину и хозяин закрыл соединение — файл
-// убран, держатель вышел.
+// убран, держатель вышел; хозяин не забрал выход за ownerWait — тоже.
 // Ошибки процесса (stderr) — строками в журнал машины.
 import (
 	"bufio"
@@ -296,9 +296,26 @@ func (h *holder) pump(outR, errR *os.File) {
 	c := h.conn
 	h.mu.Unlock()
 	h.j.note("held_exit", "id", h.id, "pid", h.cmd.Process.Pid, "code", code, "signal", sig, "stderr", h.lastErr)
+	time.AfterFunc(ownerWait, h.unclaimed)
 	if c != nil {
 		h.sendExit(c)
 	}
+}
+
+// ownerWait — предел ожидания хозяина после выхода процесса: тот же, что у остановки части в keeper.
+var ownerWait = time.Minute
+
+// unclaimed — процесс вышел ownerWait назад: держатель выходит. Хозяин так и не забрал выход (keeper снят, Host не
+// вернулся) — строка в журнал; вернувшийся хозяин держателя не найдёт — его ветка «процесса нет» (ubuntu-db 3 нояб.:
+// держатель Host после снятия keeper ждал хозяина без предела).
+func (h *holder) unclaimed() {
+	h.mu.Lock()
+	sent := h.exitTo != nil
+	h.mu.Unlock()
+	if !sent {
+		h.j.note("held_unclaimed", "id", h.id, "why", fmt.Sprintf("хозяин не забрал выход за %v — держатель вышел", ownerWait))
+	}
+	h.finish()
 }
 
 // deliver — кусок вывода: хозяину, если подключён, иначе — в память.
@@ -526,8 +543,9 @@ func spawnHolder(home string, s holdSpec) (holdFile, error) {
 		cmd.Wait()
 		return holdFile{}, fmt.Errorf("держатель не ответил за %v", holderWait)
 	}
-	// держатель живёт сам; его выход ждать некому — Release отпускает дескриптор
-	cmd.Process.Release()
+	// держатель живёт сам; Wait забирает его выход — иначе вышедший держатель остаётся зомби, пока жив хозяин
+	// (wsl 3 нояб.: 23 зомби под keeper run за 11 ч)
+	go cmd.Wait()
 	var r struct {
 		Port int    `json:"port"`
 		Key  string `json:"key"`

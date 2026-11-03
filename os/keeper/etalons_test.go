@@ -730,6 +730,28 @@ func TestEtExitWithoutKeeper(t *testing.T) {
 	}
 }
 
+// 5507 · Процесс вышел, хозяина нет — держатель ждёт его не дольше ownerWait: строка held_unclaimed, файл убран,
+// держатель вышел (ubuntu-db 3 нояб.: после снятия keeper держатель Host ждал хозяина без предела; устав: «у всех
+// операций лимит»).
+func TestEtHolderUnclaimedExit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hf holdFile
+	b, _ := os.ReadFile(holdPath(home, "s"))
+	json.Unmarshal(b, &hf)
+	killPid(t, f.Pid)
+	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(home, "s")) && !alive(hf.Holder) })
+	if !journalHas(home, `"ev":"held_unclaimed"`) {
+		t.Fatal("нет строки held_unclaimed")
+	}
+}
+
 // keeper отвечает состояние сам, без Host.
 func TestEtKeeperState(t *testing.T) {
 	s := newStand(t)

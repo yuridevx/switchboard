@@ -30,6 +30,10 @@ func TestMain(m *testing.M) {
 	if os.Getenv("KEEPER_TEST_CHILD") == "1" && len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "hold":
+			// предел ожидания хозяина — короче для эталонов держателя без хозяина
+			if d, err := time.ParseDuration(os.Getenv("KEEPER_TEST_OWNER_WAIT")); err == nil {
+				ownerWait = d
+			}
 			os.Exit(runHold(os.Args[2:]))
 		case "keeper":
 			// настоящий вход файла keeper: аргументы — как у него
