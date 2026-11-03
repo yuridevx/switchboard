@@ -1,4 +1,4 @@
-// pult-journal — журнал флота. Здесь — только связка с ядром; записи — на экране, приход roster — в store.
+// pult-journal — журнал флота. Здесь — только связка с ядром; записи открытого экрана и дочитывание по roster — в store.
 import type { AppModule } from "@switchboard/web-core";
 import { JournalCtx } from "./context.ts";
 import css from "./journal.css";

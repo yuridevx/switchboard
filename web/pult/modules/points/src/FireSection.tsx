@@ -62,11 +62,9 @@ export function FireSection({ fires, left }: { fires: Array<[string, FleetSessio
 
   async function pick(target: string, rows: FireRow[]) {
     setFire((f) => f && { ...f, target });
-    const slots = await points.slotsOf(target);
-    if (!Array.isArray(slots)) return setFire((f) => f && { ...f, rows: f.rows.map((r) => ({ ...r, check: slots })) });
-    setFire((f) => f && { ...f, rows: f.rows.map((r) => ({ ...r, slot: slots[0] ?? "" })) });
-    const checks = await Promise.all(rows.map((r) => points.dry(target, r.s.sid, r.s.head.id, r.dir)));
-    setFire((f) => f && { ...f, rows: f.rows.map((r, i) => ({ ...r, check: checks[i] })) });
+    const { slots, checks } = await points.probe(target, rows.map((r) => ({ sid: r.s.sid, point: r.s.head.id, dir: r.dir })));
+    // выбрали другую машину, пока шёл ответ — он устарел
+    setFire((f) => f && f.target === target ? { ...f, rows: f.rows.map((r, i) => ({ ...r, slot: slots ? (slots[0] ?? "") : r.slot, check: checks[i] })) } : f);
   }
 
   function open(from: string, list: FleetSession[]) {

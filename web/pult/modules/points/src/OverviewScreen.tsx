@@ -1,5 +1,5 @@
 // Обзор реестра: «пожар», сессии в R2 на связи, «только в R2», занято в R2.
-import { memo, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo } from "react";
 import { useApp } from "@switchboard/web-core";
 import { ago, Btn, day, H4, hhmm, Note, Opts, Page, PageHead, plural, Sec } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
@@ -9,7 +9,7 @@ import { OnlySection } from "./OnlySection.tsx";
 import type { FleetSession } from "./store.ts";
 
 /** Строка сессии в R2: имя — своей выборкой, правка имени перерисует только её. */
-const R2Row = memo(function R2Row({ s, save }: { s: FleetSession; save(callsign: string): void }) {
+const R2Row = memo(function R2Row({ s, save }: { s: FleetSession; save(callsign: string): Promise<void> }) {
   const app = useApp();
   const label = app.use(() => app.mark("label.session", s.callsign ?? ""));
   const canSave = app.use(() => !!app.can(s.owner, "points.save"));
@@ -19,7 +19,7 @@ const R2Row = memo(function R2Row({ s, save }: { s: FleetSession; save(callsign:
         <b>{label?.text ?? s.callsign}</b>
         {` ${ago(s.head.at)} · №${s.head.id}`}
       </span>
-      {canSave ? <Btn onClick={() => save(s.callsign!)}>Сохранить сейчас</Btn> : null}
+      {canSave ? <Btn onClick={() => void save(s.callsign!)}>Сохранить сейчас</Btn> : null}
     </div>
   );
 });
@@ -42,11 +42,11 @@ export function OverviewScreen() {
 
   useEffect(() => void points.loadFleet(), [points]);
 
-  async function save(callsign: string) {
+  const save = useCallback(async (callsign: string) => {
     const r = await points.savePoint(callsign);
     app.toast(r.ok ? `${callsign}: точка №${r.result.point}${r.result.same ? " — та же" : ""}` : `${callsign}: ${say(r.error, callsign)}`, r.ok ? "ok" : "bad");
     if (r.ok) await points.loadFleet();
-  }
+  }, [app, points]);
 
   // раскладка реестра: хозяин пропал, сессия живёт на машине, осталась только в R2
   const { fires, only, inR2 } = useMemo(() => {
@@ -96,7 +96,7 @@ export function OverviewScreen() {
       <Sec>
         <H4>Последняя точка — давнее всех сверху</H4>
         {inR2.map((s) => (
-          <R2Row key={s.sid} s={s} save={(c) => void save(c)} />
+          <R2Row key={s.sid} s={s} save={save} />
         ))}
         {inR2.length ? null : <Note>Сессий в R2 на связи нет.</Note>}
       </Sec>

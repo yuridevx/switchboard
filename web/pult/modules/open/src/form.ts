@@ -9,15 +9,14 @@ export type Place = { m: string; dir: string };
 /** Ответ о родителе адреса: что в нём лежит или слово отказа. */
 export type Listing = { m: string; parent: string; dirs: string[]; word: string } | null;
 
-/** Состояние формы: один снимок, правка — новым снимком. */
+/** Ввод человека: один снимок, правка — новым снимком. Профиль undefined — не выбран: берётся по умолчанию; model и effort значат, когда modelSet. */
 export type Form = {
   machine: string;
   addr: string;
   name: string;
   nameErr: string;
   err: string;
-  profile: string | null;
-  profileSet: boolean;
+  profile: string | null | undefined;
   model: string;
   effort: string;
   modelSet: boolean;
@@ -28,13 +27,12 @@ export type Form = {
   pq: string;
   pop: "" | "prof" | "model";
   pickM: boolean;
-  list: Listing;
-  slots: Slots | null;
-  profiles: Profiles | null;
-  refused: Record<string, string>;
 };
 
-export const EMPTY: Form = { machine: "", addr: HOME, name: "", nameErr: "", err: "", profile: null, profileSet: false, model: "", effort: "", modelSet: false, slot: "", r2: false, text: "", sending: false, pq: "", pop: "", pickM: false, list: null, slots: null, profiles: null, refused: {} };
+/** Что видно на форме: ввод и то, что вычислено из ответов машины. */
+export type FormView = Form & { profile: string | null; list: Listing; slots: Slots | null; profiles: Profiles | null; refused: Record<string, string> };
+
+export const EMPTY: Form = { machine: "", addr: HOME, name: "", nameErr: "", err: "", profile: undefined, model: "", effort: "", modelSet: false, slot: "", r2: false, text: "", sending: false, pq: "", pop: "", pickM: false };
 
 /** Адрес → родитель и хвост: набранное после последней косой черты фильтрует список родителя. */
 export function splitAddr(addr: string): { parent: string; tail: string } {
@@ -57,7 +55,7 @@ export const matching = (dirs: string[], tail: string) => {
 export const dirOf = (s: SessionRecord) => (typeof s.dir === "string" && s.dir ? s.dir : HOME);
 
 /** Что видно по адресу: список родителя под хвост и пометка «новая папка» — только подсказка, решает машина. */
-export function addrView(f: Form) {
+export function addrView(f: FormView) {
   const { parent, tail } = splitAddr(f.addr);
   const listed = f.list && f.list.m === f.machine && f.list.parent === parent ? f.list : null;
   const shown = listed ? matching(listed.dirs, tail) : [];

@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useApp, type ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { ago, Btn, In, Note, Opts, OptsLabel, Page, PageHead, plural, Sec } from "@switchboard/web-ui";
+import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, Page, PageHead, plural, Sec } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { nameOf, r2Of, say } from "./format.ts";
 import { PointDialog } from "./PointDialog.tsx";
@@ -10,15 +10,6 @@ import { PointLine } from "./PointLine.tsx";
 import { usePointDialog } from "./usePointDialog.ts";
 
 type Tone = { text: string; tone?: "ok" | "bad" };
-
-function StateNote({ note }: { note: Tone }) {
-  if (!note.text) return null;
-  return (
-    <Note tone={note.tone} role="status" data-note="">
-      {note.text}
-    </Note>
-  );
-}
 
 /** Снятие пометки: сначала галочка, затем ввод имени. */
 function Unmark({ callsign, machine, confirm }: { callsign: string; machine: string; confirm(): Promise<boolean> }) {
@@ -120,7 +111,7 @@ export function SessionPointsScreen({ params }: ScreenProps) {
             </OptsLabel>
           ) : null}
           <Note>Включите — Host сразу положит первую точку.</Note>
-          <StateNote note={note} />
+          <Outcome note={note} data-note="" />
         </Sec>
       </Page>
     );
@@ -156,7 +147,7 @@ export function SessionPointsScreen({ params }: ScreenProps) {
             {refused}
           </Note>
         ) : null}
-        <StateNote note={note} />
+        <Outcome note={note} data-note="" />
       </Sec>
       {c.dlg ? <PointDialog d={c.dlg} c={c} callsign={callsign} sid={sid} /> : null}
       {line ? <PointLine line={line} callsign={callsign} open={c.open} /> : null}

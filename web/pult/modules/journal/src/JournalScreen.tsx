@@ -1,8 +1,9 @@
 // Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useApp } from "@switchboard/web-core";
 import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel } from "@switchboard/web-ui";
-import { useLedger, type Ev } from "./useLedger.ts";
+import { useJournal } from "./context.ts";
+import type { Ev } from "./store.ts";
 
 function dayOf(t: number): string {
   const d = new Date(t);
@@ -30,7 +31,9 @@ function EvRow({ e, day }: { e: Ev; day: string | null }) {
 
 export function JournalScreen() {
   const app = useApp();
-  const { evs, more, machine, err, busy, pickMachine, older } = useLedger();
+  const journal = useJournal();
+  const { evs, more, machine, err, busy } = app.use(journal.view);
+  useEffect(() => journal.mount(), [journal]);
   const [q, setQ] = useState("");
   const online = app.use(() => (app.roster()?.machines ?? []).map((m) => m.machine));
   const names = [...new Set([...online, ...evs.map((e) => e.machine).filter((x): x is string => !!x)])].sort();
@@ -40,7 +43,7 @@ export function JournalScreen() {
     <Page>
       <PageHead title="Журнал флота">
         <In data-f="q" type="search" placeholder="⌕ поиск по записям" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
-        <Sel data-f="machine" value={machine} onChange={(e) => pickMachine(e.currentTarget.value)}>
+        <Sel data-f="machine" value={machine} onChange={(e) => journal.pickMachine(e.currentTarget.value)}>
           <option value="">все машины</option>
           {names.map((m) => (
             <option key={m} value={m}>
@@ -63,7 +66,7 @@ export function JournalScreen() {
       </Sec>
       {more ? (
         <Opts>
-          <Btn onClick={older}>Раньше</Btn>
+          <Btn onClick={journal.older}>Раньше</Btn>
         </Opts>
       ) : null}
     </Page>

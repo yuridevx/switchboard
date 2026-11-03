@@ -443,6 +443,31 @@ describe("журнал флота", () => {
     expect(t.$('.jr-r[data-id="3"] em')!.textContent).toBe("a@laptop");
   });
 
+  it("6521 · быстрая смена машины: опоздавший ответ прежней не перекрывает выбранную", async () => {
+    // источник: слепой архитектор 4 нояб.: чтение журнала шло без отмены устаревшего ответа
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: false } });
+    const t = await journal(relay);
+    relay.handlers["ledger.read"] = () => undefined;
+    const pick = async (m: string) => {
+      const s = t.$<HTMLSelectElement>('[data-f="machine"]')!;
+      s.value = m;
+      s.dispatchEvent(new Event("change", { bubbles: true }));
+      await flush();
+    };
+    await pick("pc");
+    await pick("laptop");
+    const [late, now] = relay.sent("ledger.read").slice(-2) as Array<{ id: string; machine: string }>;
+    expect([late.machine, now.machine]).toEqual(["pc", "laptop"]);
+    const ev = (id: number, machine: string) => ({ id, t: Date.now(), ev: "e", from: machine, machine, text: `запись ${machine}` });
+    relay.reply(now.id, { ok: true, result: { events: [ev(20, "laptop")], more: false } });
+    await flush();
+    relay.reply(late.id, { ok: true, result: { events: [ev(10, "pc")], more: true } });
+    await flush();
+    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["20"]);
+    expect(t.button("Раньше")).toBeNull();
+  });
+
   it("4160 · отказ ledger.read — «ledger.read: слово»", async () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = () => ({ ok: false, error: "unknown_request" });

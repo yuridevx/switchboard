@@ -80,6 +80,16 @@ describe("новая сессия", () => {
     expect(t.$('[data-pop="prof"] b')!.textContent).toBe("без профиля");
   });
 
+  it("6520 · профиль, выбранный вручную, переживает правку адреса", async () => {
+    // источник: слепой архитектор 4 нояб.: поле profileSet в форме нигде не ставилось, адрес сбрасывал выбор человека
+    const t = await openScreen();
+    await t.click(t.$('[data-pop="prof"]'));
+    await t.click(t.$('[data-profile="team/profiles/ops"]'));
+    expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+    await go(t, "~/Projects/other");
+    expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+  });
+
   it("6504 · «Открыть» без имени: «нужно имя» у поля; 0 запросов к машине; кнопка не отключена", async () => {
     const relay = openRelay();
     const t = await openScreen(relay);

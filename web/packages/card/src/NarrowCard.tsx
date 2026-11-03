@@ -3,13 +3,14 @@ import { useState } from "react";
 import { useApp, type Params } from "@switchboard/web-core";
 import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
-import { useCan, useSession } from "./context.ts";
+import { useCan, useCard, useSession } from "./context.ts";
 import { Names } from "./Names.tsx";
 import { slotOf } from "./session.ts";
 
 /** «Ещё» на телефоне. */
 function Info({ callsign, openNames }: { callsign: string; openNames(): void }) {
   const app = useApp();
+  const card = useCard();
   const s = useSession(callsign);
   const can = useCan(machineOf(callsign) ?? "");
   const menu = app.use(() => app.placed("card.menu", { callsign }));
@@ -28,7 +29,7 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
   async function act(name: "session.stop" | "session.start") {
     setBusy(name);
     setError("");
-    const r = await app.request(name, { callsign });
+    const r = await card.control(callsign, name);
     setBusy("");
     if (!r.ok) setError(`${name}: ${r.error}`);
   }

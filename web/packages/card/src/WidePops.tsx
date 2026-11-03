@@ -1,10 +1,7 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
 import type { SessionRecord } from "@switchboard/web-core";
-import { at, EFFORTS, MODELS, profileName, profileNameOf, remoteOf } from "@switchboard/web-ui";
+import { EFFORTS, LIMIT_NAMES, LimitRow, MODELS, profileName, profileNameOf, remoteOf } from "@switchboard/web-ui";
 import { slotOf, type Acc, type Model, type SlotInfo } from "./session.ts";
-
-/** Окна лимитов аккаунта → подпись. */
-const WINDOWS: Record<string, string> = { five_hour: "5 часов", seven_day: "неделя", seven_day_opus: "неделя Opus" };
 
 /** Строка «подпись — значение» списка сведений. */
 export function Kv({ k, v }: { k: string; v: string }) {
@@ -49,18 +46,9 @@ export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s
         <Kv k="аккаунт" v={[a?.email ?? name, a?.plan].filter(Boolean).join(" · ")} />
         {sl?.name ? <Kv k="слот" v={`${sl.name} @${machine}`} /> : null}
       </dl>
-      {Object.entries(a?.limits ?? {}).map(([k, w]) => {
-        const p = Math.round(w.utilization * 100);
-        return (
-          <div key={k} className="cw-win" data-win={k}>
-            <span>{WINDOWS[k] ?? k}</span>
-            <div className={`cw-meter${p >= 95 ? " full" : p >= 70 ? " hot" : ""}`}>
-              <i style={{ width: `${Math.min(p, 100)}%` }} />
-            </div>
-            <span className="v">{`${p} %${w.resetsAt ? " · до " + at(w.resetsAt) : ""}`}</span>
-          </div>
-        );
-      })}
+      {Object.entries(a?.limits ?? {}).map(([k, w]) => (
+        <LimitRow key={k} className="cw-win" data-win={k} label={LIMIT_NAMES[k] ?? k} used={w.utilization} resets={w.resetsAt} />
+      ))}
       {queue.length ? <div className="cw-note queue">{`очередь слота: ${queue.join(" → ")}`}</div> : null}
       {canSlot ? (
         <div className="cw-opts">

@@ -1,42 +1,24 @@
 // Вкладка «Настройки» широкой карточки: профиль, быстрый режим, заголовок, слот, остановка и удаление.
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { profileIdOf, profileName, useLoad } from "@switchboard/web-ui";
+import { CommitIn, Outcome, profileIdOf, profileName, useLoad } from "@switchboard/web-ui";
+import { useCard } from "./context.ts";
 import { notAsked, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 
-type Note = { text: string; tone: string };
+type Note = { text: string; tone: "ok" | "bad" | "" };
 type Spec = { title?: string | null };
 type Profiles = { profiles: Record<string, unknown> };
 
-function NoteLine({ note }: { note?: Note }) {
-  if (!note?.text) return null;
-  return (
-    <div className={`cw-note ${note.tone}`} role="status">
-      {note.text}
-    </div>
-  );
-}
-
 export function SetTab({ machine, callsign, s, can, live, data }: { machine: string; callsign: string; s: SessionRecord | undefined; can: Can; live: boolean; data: WideData }) {
   const app = useApp();
+  const card = useCard();
   const [notes, setNotes] = useState<Record<string, Note>>({});
   const spec = useLoad(() => (app.can(machine, "session.spec") === true ? app.request<Spec>("session.spec", { callsign }) : notAsked<Spec>()), [callsign]);
   const profiles = useLoad(() => (app.can(machine, "machine.profiles") === true ? app.request<Profiles>("machine.profiles", { machine }) : notAsked<Profiles>()), [machine]);
-  const [savedTitle, setSavedTitle] = useState<string | null>(null);
-  const [titleEdit, setTitleEdit] = useState<string | undefined>();
   const [removing, setRemoving] = useState(false);
-  const titleEl = useRef<HTMLInputElement>(null);
-  const title = savedTitle ?? spec.data?.title ?? "";
 
-  const note = (k: string, text: string, tone = "") => setNotes((old) => ({ ...old, [k]: { text, tone } }));
-
-  // слоты: шапка могла не успеть прочитать — вкладке они нужны сразу
-  useEffect(() => {
-    if (!data.slots) data.reloadSlots();
-    // только при открытии вкладки
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const note = (k: string, text: string, tone: Note["tone"] = "") => setNotes((old) => ({ ...old, [k]: { text, tone } }));
 
   async function move(name: "session.slot" | "session.profile", value: string | null) {
     const key = name === "session.slot" ? "slot" : "profile";
@@ -46,27 +28,17 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
     note(key, r.result?.restart ? "после хода" : "", "ok");
   }
 
-  // заголовок уходит по настоящему событию change поля — подтверждение ввода; onChange в React срабатывает на каждую букву
-  useEffect(() => {
-    const el = titleEl.current;
-    if (!el) return;
-    const save = async () => {
-      const v = el.value;
-      if (v === title) return;
-      const r = await app.request("session.update", { callsign, title: v });
-      if (!r.ok) return note("title", `Не вышло: ${r.error}`, "bad");
-      setSavedTitle(v);
-      setTitleEdit(undefined);
-      note("title", "");
-    };
-    const on = () => void save();
-    el.addEventListener("change", on);
-    return () => el.removeEventListener("change", on);
-  }, [app, callsign, title]);
+  /** Заголовок уходит, когда ввод подтверждён; владелец значения — session.spec. */
+  async function saveTitle(title: string) {
+    const r = await app.request("session.update", { callsign, title });
+    if (!r.ok) return note("title", `Не вышло: ${r.error}`, "bad");
+    spec.reload();
+    note("title", "");
+  }
 
   async function act(name: "session.stop" | "session.start" | "session.remove") {
     note("ctl", "…");
-    const r = await app.request(name, { callsign });
+    const r = await card.control(callsign, name);
     if (!r.ok) return note("ctl", `${name}: ${r.error}`, "bad");
     if (name === "session.remove") return app.back();
     note("ctl", "");
@@ -89,7 +61,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
               </button>
             ))}
           </div>
-          <NoteLine note={notes.profile} />
+          <Outcome className="cw-note" note={notes.profile} />
         </div>
       ) : null}
       {can("session.update") ? (
@@ -103,8 +75,8 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
       {can("session.update") ? (
         <div className="cw-fs" data-sec="title">
           <span className="lb">Заголовок</span>
-          <input ref={titleEl} className="cw-in" data-f="title" placeholder="Заголовок в claude.ai" value={titleEdit ?? title} onInput={(e) => setTitleEdit(e.currentTarget.value)} />
-          <NoteLine note={notes.title} />
+          <CommitIn className="cw-in" data-f="title" placeholder="Заголовок в claude.ai" value={spec.data?.title ?? ""} onCommit={(v) => void saveTitle(v)} />
+          <Outcome className="cw-note" note={notes.title} />
         </div>
       ) : null}
       {can("session.slot") ? (
@@ -117,7 +89,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
               </button>
             ))}
           </div>
-          <NoteLine note={notes.slot} />
+          <Outcome className="cw-note" note={notes.slot} />
         </div>
       ) : null}
       <div className="cw-fs" data-sec="ctl">
@@ -152,7 +124,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
             </div>
           </div>
         ) : null}
-        <NoteLine note={notes.ctl} />
+        <Outcome className="cw-note" note={notes.ctl} />
       </div>
     </div>
   );

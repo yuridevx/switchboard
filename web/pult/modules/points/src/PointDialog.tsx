@@ -1,9 +1,9 @@
 // Окно действия над точкой: перенос, копия, смена папки, откат. Поля и шаги — usePointDialog.
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec } from "@switchboard/web-ui";
+import { Btn, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
-import { CheckLine, DirInput } from "./parts.tsx";
+import { CheckLine } from "./parts.tsx";
 import type { Dialog, DialogControl } from "./usePointDialog.ts";
 
 export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogControl; callsign: string; sid: string }) {
@@ -63,7 +63,7 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
       ) : null}
       {d.kind !== "rb" ? (
         <Row label={d.kind === "dir" ? "Новая папка" : `Папка на ${d.target}`}>
-          <DirInput value={d.dir} onInput={(v) => c.patch({ dir: v })} onCommit={(v) => c.recheck(d, { dir: v })} />
+          <CommitIn mono data-f="dir" value={d.dir} onCommit={(v) => c.recheck(d, { dir: v })} />
         </Row>
       ) : (
         <Row label="Папка">

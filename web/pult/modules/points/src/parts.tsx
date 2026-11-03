@@ -1,7 +1,6 @@
 // Общие части диалогов: строка проверки папки, поле папки, выбор машины.
-import { useEffect, useRef } from "react";
 import { useApp } from "@switchboard/web-core";
-import { In, Note, Opts, PickOne } from "@switchboard/web-ui";
+import { CommitIn, Note, Opts, PickOne } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { folderText, say } from "./format.ts";
 import type { CheckResult } from "./store.ts";
@@ -21,19 +20,6 @@ export function CheckLine({ check, target }: { check: CheckResult | null; target
       {folderText(check, target)}
     </Note>
   );
-}
-
-/** Поле папки: каждая буква — в onInput, готовое значение (браузерное change: уход с поля, Enter) — в onCommit. */
-export function DirInput({ value, onInput, onCommit }: { value: string; onInput(v: string): void; onCommit(v: string): void }) {
-  const field = useRef<HTMLInputElement>(null);
-  // в React onChange — на каждую букву: готовое значение даёт только событие браузера
-  useEffect(() => {
-    const el = field.current!;
-    const commit = () => onCommit(el.value);
-    el.addEventListener("change", commit);
-    return () => el.removeEventListener("change", commit);
-  }, [onCommit]);
-  return <In ref={field} mono data-f="dir" value={value} onInput={(e) => onInput(e.currentTarget.value)} />;
 }
 
 /** Выбор машины подъёма: выбранная и машины проекта сессии (метки web-board) — кнопками, остальные — списком. */

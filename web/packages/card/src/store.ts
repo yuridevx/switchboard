@@ -40,6 +40,8 @@ export function createCardStore() {
     },
     toggleHead: (k: keyof HeadView) => saveHead({ ...store.get().head, [k]: !store.get().head[k] }),
     resetHead: () => saveHead({ ...HEAD0 }),
+    /** Пуск, остановка и удаление сессии: кто нажал, тот и показывает отказ. */
+    control: (callsign: string, name: "session.start" | "session.stop" | "session.remove") => app.request(name, { callsign }),
     /** Шапка экрана: у каждого вида своя. */
     screenHead(params: Params): Head {
       const callsign = params.callsign ?? "";

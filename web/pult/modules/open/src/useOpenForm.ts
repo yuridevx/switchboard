@@ -1,103 +1,99 @@
-// Логика формы новой сессии: снимок формы и запросы к машине. Ответы приходят позже отрисовки — читают последний снимок, а не тот, что был при запросе.
-import { useEffect, useRef, useState } from "react";
-import { useApp, type Params } from "@switchboard/web-core";
+// Логика формы новой сессии. В снимке — только ввод человека; ответы машины читает useLoad, профиль, модель и слот вычисляются из них.
+import { useState } from "react";
+import { useApp, type Params, type Result } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
+import { profileIdOf, useLoad } from "@switchboard/web-ui";
 import { useOpen } from "./context.ts";
-import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type Profiles, type Slots } from "./form.ts";
-import { profileIdOf } from "@switchboard/web-ui";
-
-/** Снимок формы и чтение последнего из отложенных ответов. */
-function useSnapshot(initial: Form) {
-  const [value, setValue] = useState(initial);
-  const latest = useRef(value);
-  const set = (patch: Partial<Form>) => {
-    latest.current = { ...latest.current, ...patch };
-    setValue(latest.current);
-  };
-  return [value, () => latest.current, set] as const;
-}
+import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type FormView, type Listing, type Profiles, type Slots } from "./form.ts";
 
 export type OpenForm = ReturnType<typeof useOpenForm>;
+
+/** Машина такого запроса не умеет: не спрашиваем, данных нет. */
+const notAsked = <T,>(): Promise<Result<T>> => Promise.resolve({ ok: false, error: "" });
 
 export function useOpenForm(params: Params) {
   const app = useApp();
   const open = useOpen();
-  const [f, s, set] = useSnapshot(EMPTY);
+  const [input, setInput] = useState<Form>(EMPTY);
+  const set = (patch: Partial<Form>) => setInput((v) => ({ ...v, ...patch }));
   const online = app.use(open.machines);
   // первый ответ о своих местах нужен, чтобы выбрать место старта
   const known = app.use(open.known);
 
-  function setProfile(id: string | null) {
-    if (s().modelSet) return set({ profile: id });
-    const pr = id ? s().profiles?.[id] : undefined;
-    set({ profile: id, model: pr?.model ?? "", effort: pr?.effort ?? "" });
+  /** Откуда старт: адрес страницы, иначе последнее своё место, иначе машина с наибольшим числом сессий и домашняя папка. Машина может прийти своим соединением позже первого roster. */
+  function startPlace() {
+    if (params.machine) return online.includes(params.machine) ? { m: params.machine, dir: params.dir || HOME } : null;
+    if (!known) return null;
+    const last = open.recents().find((x) => online.includes(x.m));
+    if (last) return last;
+    const m = open.byUse(online)[0];
+    return m ? { m, dir: HOME } : null;
   }
+  // выбирается один раз, когда есть из чего: поправка при рисовании, эффект не нужен
+  const start0 = input.machine ? null : startPlace();
+  if (start0) setInput({ ...input, machine: start0.m, addr: start0.dir });
+
+  const machine = start0?.m ?? input.machine;
+  const addr = start0?.dir ?? input.addr;
+  const { parent } = splitAddr(addr);
+
+  const slotsQ = useLoad(() => (open.can(machine, "machine.slots") ? app.request<{ slots: Slots }>("machine.slots", { machine }) : notAsked<{ slots: Slots }>()), [machine]);
+  const profilesQ = useLoad(() => (open.can(machine, "machine.profiles") ? app.request<{ profiles: Profiles }>("machine.profiles", { machine }) : notAsked<{ profiles: Profiles }>()), [machine]);
+  // список — один запрос на родителя: буквы хвоста новых запросов не дают
+  const listQ = useLoad<NonNullable<Listing>>(
+    () =>
+      machine
+        ? app.request<{ path: string; dirs: string[] }>("machine.dirs", { machine, path: parent }).then((r) => ({ ok: true as const, result: { m: machine, parent, dirs: r.ok ? r.result.dirs : [], word: r.ok ? "" : r.error } }))
+        : notAsked(),
+    [machine, parent],
+  );
+
+  const slots = slotsQ.data ? (slotsQ.data.slots ?? {}) : null;
+  const profiles = profilesQ.data ? (profilesQ.data.profiles ?? {}) : null;
 
   /** Профиль по умолчанию — только от сессии в этой же папке: имя папки ничего не значит. */
-  function defaultProfile() {
-    const { profileSet, profiles, machine, addr } = s();
-    if (profileSet) return;
+  const autoProfile = app.use(() => {
     const have = profiles ?? {};
     const dir = dirOfAddr(addr);
-    const used = open.sessions().find((x) => machineOf(x.callsign) === machine && dirOf(x) === dir && profileIdOf(x) && have[(x.profile as { id: string }).id]);
-    setProfile(used ? (used.profile as { id: string }).id : null);
+    const used = open.sessions().find((x) => machineOf(x.callsign) === machine && dirOf(x) === dir && profileIdOf(x) && have[profileIdOf(x)!]);
+    return used ? profileIdOf(used)! : null;
+  });
+  const profile = input.profile !== undefined ? input.profile : autoProfile;
+  const chosen = profile ? profiles?.[profile] : undefined;
+
+  const f: FormView = {
+    ...input,
+    machine,
+    addr,
+    profile,
+    model: input.modelSet ? input.model : (chosen?.model ?? ""),
+    effort: input.modelSet ? input.effort : (chosen?.effort ?? ""),
+    slot: input.slot || Object.keys(slots ?? {})[0] || "",
+    slots,
+    profiles,
+    list: listQ.data ?? null,
+    refused: { ...(slotsQ.error ? { "machine.slots": slotsQ.error } : {}), ...(profilesQ.error ? { "machine.profiles": profilesQ.error } : {}) },
+  };
+
+  function setAddr(next: string) {
+    set({ addr: next, err: "" });
   }
 
-  async function loadMachine() {
-    const m = s().machine;
-    set({ slots: null, profiles: null, refused: {}, slot: "" });
-    const jobs: Array<Promise<void>> = [];
-    if (open.can(m, "machine.slots"))
-      jobs.push(
-        app.request<{ slots: Slots }>("machine.slots", { machine: m }).then((r) => {
-          if (m !== s().machine) return;
-          if (!r.ok) return set({ refused: { ...s().refused, "machine.slots": r.error } });
-          const slots = r.result.slots ?? {};
-          set({ slots, slot: s().slot || (Object.keys(slots)[0] ?? "") });
-        }),
-      );
-    if (open.can(m, "machine.profiles"))
-      jobs.push(
-        app.request<{ profiles: Profiles }>("machine.profiles", { machine: m }).then((r) => {
-          if (m !== s().machine) return;
-          if (!r.ok) return set({ refused: { ...s().refused, "machine.profiles": r.error } });
-          set({ profiles: r.result.profiles ?? {} });
-          defaultProfile();
-        }),
-      );
-    await Promise.all(jobs);
-  }
-
-  /** Список — один запрос на родителя: буквы хвоста новых запросов не дают. */
-  async function listParent() {
-    const m = s().machine;
-    const { parent } = splitAddr(s().addr);
-    if (!m || (s().list?.m === m && s().list?.parent === parent)) return;
-    set({ list: { m, parent, dirs: [], word: "" } });
-    const r = await app.request<{ path: string; dirs: string[] }>("machine.dirs", { machine: m, path: parent });
-    if (s().machine !== m || splitAddr(s().addr).parent !== parent) return;
-    set({ list: { m, parent, dirs: r.ok ? r.result.dirs : [], word: r.ok ? "" : r.error } });
-  }
-
-  function setAddr(addr: string) {
-    set({ addr, err: "" });
-    void listParent();
-    defaultProfile();
-  }
-
+  /** Другая машина — снова профиль и слот по умолчанию: выбранных там может не быть. */
   function pick(m: string, dir: string) {
-    const same = m === s().machine;
-    set({ machine: m, pickM: false, err: "" });
-    setAddr(dir);
-    if (!same) void loadMachine();
+    set({ ...(m === machine ? {} : { machine: m, slot: "", profile: undefined }), addr: dir, pickM: false, err: "" });
+  }
+
+  /** Модель или усилие выбраны человеком: дальше оба не следуют за профилем. */
+  function chooseModel(patch: { model?: string; effort?: string }) {
+    set({ model: f.model, effort: f.effort, ...patch, modelSet: true });
   }
 
   async function start() {
-    const { name } = s();
+    const { name, slot, modelSet, model, effort, r2, text } = f;
     set({ nameErr: name ? "" : "нужно имя", err: "" });
     if (!name) return;
     set({ sending: true });
-    const { machine, addr, slot, profile, modelSet, model, effort, r2, text } = s();
     const dir = dirOfAddr(addr);
     // создать или нет — решает машина: просьба уходит всегда, агентов это не касается
     const body: Record<string, unknown> = { machine, name, dir, mkdir: true };
@@ -128,21 +124,5 @@ export function useOpenForm(params: Params) {
     app.open("card", { callsign });
   }
 
-  /** Откуда старт: адрес страницы, иначе последнее своё место, иначе машина с наибольшим числом сессий и домашняя папка. Машина может прийти своим соединением позже первого roster. */
-  useEffect(() => {
-    if (s().machine) return;
-    if (params.machine) {
-      if (online.includes(params.machine)) pick(params.machine, params.dir || HOME);
-      return;
-    }
-    if (!known) return;
-    const last = open.recents().find((x) => online.includes(x.m));
-    if (last) return pick(last.m, last.dir);
-    const m = open.byUse(online)[0];
-    if (m) pick(m, HOME);
-    // выбирается один раз, когда есть из чего: остальное читается на этот момент
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [online, known]);
-
-  return { f, set, online, setProfile, setAddr, pick, start };
+  return { f, set, online, setProfile: (id: string | null) => set({ profile: id }), chooseModel, setAddr, pick, start };
 }

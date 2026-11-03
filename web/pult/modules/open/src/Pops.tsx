@@ -48,14 +48,14 @@ export function ProfilePop({ form }: { form: OpenForm }) {
 
 export function ModelPop({ form }: { form: OpenForm }) {
   const open = useOpen();
-  const { f, set } = form;
+  const { f, set, chooseModel } = form;
   const slots = Object.entries(f.slots ?? {});
   return (
     <>
       <div className="lb">Модель</div>
       <div className="op-opts">
         {MODELS.map((m) => (
-          <button key={m} data-model={m} aria-pressed={f.model === m} onClick={() => set({ model: m, modelSet: true })}>
+          <button key={m} data-model={m} aria-pressed={f.model === m} onClick={() => chooseModel({ model: m })}>
             {m}
           </button>
         ))}
@@ -63,7 +63,7 @@ export function ModelPop({ form }: { form: OpenForm }) {
       <div className="lb">Усилие</div>
       <div className="op-opts">
         {EFFORTS.map(([k, l]) => (
-          <button key={k} data-effort={k} aria-pressed={f.effort === k} onClick={() => set({ effort: k, modelSet: true })}>
+          <button key={k} data-effort={k} aria-pressed={f.effort === k} onClick={() => chooseModel({ effort: k })}>
             {l}
           </button>
         ))}

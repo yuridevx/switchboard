@@ -58,6 +58,12 @@ export function createPointsStore() {
     });
   }
 
+  /** Проверка подъёма: что будет с папкой на целевой машине. */
+  async function dry(m: string, sid: string, point: number, dir: string): Promise<CheckResult> {
+    const r = await app.request<Check>("points.raise", { machine: m, sid, point, dir, files: "point", dryRun: true });
+    return r.ok ? r.result : { error: r.error };
+  }
+
   return {
     start(a: App) {
       app = a;
@@ -131,16 +137,17 @@ export function createPointsStore() {
     savePoint: (callsign: string, o: SaveOptions = {}) => app.request<{ point: number; same: boolean }>("points.save", { callsign, ...(o.stop ? { stop: true } : {}), ...(o.interrupt ? { interrupt: true } : {}) }),
     raise: (body: Record<string, unknown>) => app.request<Raised>("points.raise", body),
     forget: (callsign: string) => app.request("session.remove", { callsign }),
-    /** Слоты машины; отказ — словом проверки: без него подъём ушёл бы без слота, на вход машины. */
-    async slotsOf(m: string): Promise<string[] | { error: string }> {
-      if (!app.can(m, "machine.slots")) return [];
-      const r = await app.request<{ slots: Record<string, unknown> }>("machine.slots", { machine: m });
-      return r.ok ? Object.keys(r.result.slots ?? {}) : { error: `machine.slots: ${r.error}` };
-    },
-    /** Проверка подъёма: что будет с папкой на целевой машине. */
-    async dry(m: string, sid: string, point: number, dir: string): Promise<CheckResult> {
-      const r = await app.request<Check>("points.raise", { machine: m, sid, point, dir, files: "point", dryRun: true });
-      return r.ok ? r.result : { error: r.error };
+    dry,
+    /** Что будет на целевой машине: её слоты и проверка папки каждого подъёма. Отказ слотов — словом проверки: без него подъём ушёл бы без слота, на вход машины. */
+    async probe(m: string, raises: Array<{ sid: string; point: number | null | undefined; dir: string }>): Promise<{ slots: string[] | null; checks: CheckResult[] }> {
+      let slots: string[] = [];
+      if (app.can(m, "machine.slots")) {
+        const r = await app.request<{ slots: Record<string, unknown> }>("machine.slots", { machine: m });
+        if (!r.ok) return { slots: null, checks: raises.map(() => ({ error: `machine.slots: ${r.error}` })) };
+        slots = Object.keys(r.result.slots ?? {});
+      }
+      const checks = await Promise.all(raises.map((x) => (typeof x.point === "number" ? dry(m, x.sid, x.point, x.dir) : { error: "bad_point" })));
+      return { slots, checks };
     },
     /** Поднятая сессия встаёт в проект исходной: команду записи держит «Работа». */
     keepProject(from: string | null | undefined, to: string) {

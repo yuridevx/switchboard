@@ -78,10 +78,9 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
 
   async function pickTarget(target: string, s: FleetSession, dir: string) {
     setMove((m) => m && { ...m, target });
-    const sl = await points.slotsOf(target);
-    const slots = Array.isArray(sl) ? sl : [];
-    const check = Array.isArray(sl) ? await points.dry(target, s.sid, s.head.id, dir) : sl;
-    setMove((m) => m && { ...m, slot: slots[0] ?? "", check });
+    const { slots, checks } = await points.probe(target, [{ sid: s.sid, point: s.head.id, dir }]);
+    // выбрали другую машину, пока шёл ответ — он устарел
+    setMove((m) => m && m.target === target ? { ...m, slot: slots?.[0] ?? "", check: checks[0] } : m);
   }
 
   function openMove(s: FleetSession) {

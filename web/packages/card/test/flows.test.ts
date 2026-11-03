@@ -148,7 +148,7 @@ describe("карточка в широком виде", () => {
     await t.click(b);
     const pop = t.$(".cw-pop")!;
     expect(pop.querySelector(".cw-kv")!.textContent).toBe("аккаунтnight@mail · Max 5×слотnight @laptop");
-    expect(pop.querySelector('[data-win="five_hour"]')!.textContent).toBe("5 часов98 % · до 16:40");
+    expect(pop.querySelector('[data-win="five_hour"]')!.textContent).toBe("5 ч98 % · до 16:40");
     expect(pop.textContent).toContain("очередь слота: y0902 → spare");
     await t.click(t.btn(".cw-pop", "Сменить слот"));
     expect(t.$('.cw-tabs [aria-selected="true"]')!.textContent).toBe("Настройки");

@@ -37,12 +37,11 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
 
   async function pickTarget(d: Dialog, m: string) {
     setDlg((x) => x && { ...x, target: m });
-    const sl = await points.slotsOf(m);
-    if (!Array.isArray(sl)) return setDlg((x) => x && { ...x, slots: null, check: sl });
+    const point = d.from === "fresh" ? points.line(sid)?.head : d.from;
+    const { slots, checks } = await points.probe(m, [{ sid, point, dir: d.dir }]);
     const cur = String((points.session(callsign)?.slot as { name?: string } | undefined)?.name);
-    const slot = sl.includes(cur) ? cur : (sl[0] ?? "");
-    setDlg((x) => x && { ...x, slots: sl, slot });
-    await check({ ...d, target: m, slots: sl, slot });
+    // выбрали другую машину, пока шёл ответ — он устарел
+    setDlg((x) => x && x.target === m ? { ...x, slots, slot: slots ? (slots.includes(cur) ? cur : (slots[0] ?? "")) : x.slot, check: checks[0] } : x);
   }
 
   function open(kind: DialogKind, from: "fresh" | number = "fresh") {
