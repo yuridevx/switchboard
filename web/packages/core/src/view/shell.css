@@ -63,8 +63,8 @@
 
 /* тело экрана */
 .sb-view{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
-.sb-top:empty{display:none}
 .sb-top{flex:none;padding:10px 12px 0}
+.sb-top:not(:has(> div > * > *)){display:none}
 
 /* экраны широкого вида: страница, разделы, кнопки, поля */
 

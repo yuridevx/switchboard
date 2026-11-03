@@ -752,7 +752,16 @@ export function createAccounts(): AppModule {
                 </option>
               ))}
           </Sel>
-          <Btn onClick={() => nm.current?.value && acc.current?.value && void sc.setOrder(m, nm.current.value, [acc.current.value])}>Создать</Btn>
+          <Btn
+            onClick={() => {
+              const name = nm.current?.value;
+              if (!name || !acc.current?.value) return;
+              nm.current!.value = "";
+              void sc.setOrder(m, name, [acc.current.value]);
+            }}
+          >
+            Создать
+          </Btn>
         </Opts>
       </Sec>
     );

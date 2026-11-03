@@ -581,7 +581,7 @@ export function createChat(): AppModule {
     // черновик вернулся (отказ session.prompt) — в поле, если человек сейчас не печатает
     useEffect(() => {
       const el = inp.current!;
-      if (el.value !== draft && el.ownerDocument.activeElement !== el) {
+      if (el.value !== draft && (!el.value || el.ownerDocument.activeElement !== el)) {
         el.value = draft;
         setText(draft);
       }
@@ -692,8 +692,8 @@ export function createChat(): AppModule {
           {sugKind && sugList.length ? (
             <>
               <div className="chat-sugh">{sugKind === "files" ? "файлы папки · session.files" : "команды · session.call supportedCommands"}</div>
-              {sugList.map((x) => (
-                <button key={x} type="button" className="chat-sugi" role="option" onClick={() => pick(x)}>
+              {sugList.map((x, i) => (
+                <button key={i} type="button" className="chat-sugi" role="option" onClick={() => pick(x)}>
                   {x}
                 </button>
               ))}
@@ -709,8 +709,8 @@ export function createChat(): AppModule {
         >
           <div className="chat-box">
             <div className="chat-files">
-              {pending.map((a) => (
-                <span key={a.name} className="chat-file">
+              {pending.map((a, i) => (
+                <span key={i} className="chat-file">
                   {a.name}
                   <button type="button" aria-label={`убрать ${a.name}`} onClick={() => setPending((p) => p.filter((x) => x !== a))}>
                     ✕

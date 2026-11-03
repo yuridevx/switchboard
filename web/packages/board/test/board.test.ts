@@ -298,8 +298,11 @@ describe("порядок проектов", () => {
       g.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
       await flush(5);
     };
+    // 6107 · новый рисунок после перестановки проекта не сбрасывает прокрутку ряда фильтров
+    t.$(".fscroll")!.scrollLeft = 120;
     await press("switchboard", "ArrowUp");
     expect(relay.values["web-board.top"]).toEqual(["switchboard"]);
+    expect(t.$(".fscroll")!.scrollLeft).toBe(120);
     expect(document.activeElement).toBe(t.$('.grip[data-proj="switchboard"]'));
     await press("pfarm", "ArrowUp");
     expect(projects(t)).toEqual(["switchboard", "pfarm"]);

@@ -137,6 +137,31 @@ describe("вопрос сессии", () => {
     expect(t.$('[data-callsign="profiles@laptop"]')!.textContent).toContain("Какую базу мигрировать первой?");
   });
 
+  it("6102 · следующий вопрос той же сессии — с чистым выбором; следующая форма — с пустыми полями", async () => {
+    const t = await opened();
+    t.relay.handlers.answer = () => ({ ok: true });
+    await t.click(t.$$(".ask-opt")[0]);
+    await t.click(t.button("Ответить"));
+    t.relay.push(question({ question: "toolu_02" }));
+    await flush();
+    expect(t.$$(".ask-opt").map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", "false", "false"]);
+
+    const schema = { type: "object", properties: { project: { type: "string" } } };
+    const f = await opened({ kind: "form", questions: undefined, message: "Первая", schema });
+    f.relay.handlers.answer = () => ({ ok: true });
+    const inp = f.$<HTMLInputElement>(".ask-field input")!;
+    inp.value = "WEB";
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await f.click(f.button("Отправить"));
+    f.relay.push(question({ question: "toolu_02", kind: "form", questions: undefined, message: "Вторая", schema }));
+    await flush();
+    expect(f.text()).toContain("Вторая");
+    expect(f.$<HTMLInputElement>(".ask-field input")!.value).toBe("");
+    await f.click(f.button("Отправить"));
+    expect(f.relay.sent("answer")[1]).toMatchObject({ question: "toolu_02", content: {} });
+    expect(f.relay.sent("answer")[1].content).toEqual({});
+  });
+
   it("форма MCP: поля схемы → answer с content; «Отклонить» → action decline", async () => {
     const t = await opened({
       kind: "form",

@@ -75,9 +75,12 @@ function Qr({ text }: { text: string }) {
 }
 
 /** Форма manifest уходит в браузере на github.com; GitHub вернёт страницу с ?code=. */
-function PostForm({ form }: { form: Form }) {
+function PostForm({ form, sent }: { form: Form; sent(): void }) {
   const el = useRef<HTMLFormElement>(null);
-  useEffect(() => el.current?.submit(), []);
+  useEffect(() => {
+    el.current?.submit();
+    sent();
+  }, []);
   return (
     <form ref={el} method="post" action={form.action} hidden>
       <input type="hidden" name="manifest" value={JSON.stringify(form.manifest)} />
@@ -1039,7 +1042,14 @@ export function createSettings(): AppModule {
             <Device />
           </>
         )}
-        {posting ? <PostForm form={posting} /> : null}
+        {posting ? (
+          <PostForm
+            form={posting}
+            sent={() => {
+              posting = null;
+            }}
+          />
+        ) : null}
       </Page>
     );
   }

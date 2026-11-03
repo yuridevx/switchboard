@@ -112,6 +112,33 @@ describe("лента сессии", () => {
     expect(t.text()).toContain("poe-bot@pc: не доставлено — pc не на связи. Черновик цел.");
   });
 
+  it("6103 · отказ при фокусе в поле: отправленный текст возвращается в поле, как обещает «Черновик цел»", async () => {
+    const t = await feed("poe-bot@pc");
+    t.relay.handlers["session.prompt"] = () => ({ ok: false, error: "offline" });
+    const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
+    inp.focus();
+    inp.value = "Катим";
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    await t.click(t.$(".chat-send"));
+    await flush();
+    expect(document.activeElement).toBe(inp);
+    expect(inp.value).toBe("Катим");
+  });
+
+  it("6109 · два вложения с одним именем: оба чипа, без повтора ключа; убрать можно одно", async () => {
+    const t = await feed();
+    const pick = t.$<HTMLInputElement>('input[type="file"]')!;
+    const file = () => new File(["x"], "a.txt", { type: "text/plain" });
+    Object.defineProperty(pick, "files", { configurable: true, value: [file(), file()] });
+    pick.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush(10);
+    expect(t.$$(".chat-file")).toHaveLength(2);
+    expect(vi.mocked(console.error).mock.calls.flat().map(String).join(" ")).not.toContain("same key");
+    await t.click(t.$(".chat-file button"));
+    expect(t.$$(".chat-file")).toHaveLength(1);
+  });
+
   it("уход с ленты — session.unwatch; черновик — в раздел drafts", async () => {
     const store = memoryStore({ key: KEY });
     const t = await feed("site@laptop", new FakeRelay(homeRoster()), store);

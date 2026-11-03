@@ -445,6 +445,8 @@ export function createPoints(): AppModule {
                         mono
                         data-f={`del:${s.sid}`}
                         placeholder={name}
+                        value={typed}
+                        onChange={() => {}}
                         onInput={(e) => {
                           const v = e.currentTarget.value;
                           setDel((x) => x && { ...x, typed: v });

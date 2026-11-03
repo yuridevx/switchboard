@@ -215,6 +215,19 @@ describe("pult-settings", () => {
     expect(p.sent("releases.list")).toHaveLength(0);
   });
 
+  it("6104 · форма создания приложения GitHub уходит один раз: новое открытие экрана её не повторяет", async () => {
+    const submit = vi.spyOn(HTMLFormElement.prototype, "submit").mockImplementation(() => {});
+    const t = await settings();
+    t.relay.handlers["github.app"] = () => ({ ok: true, result: { app: null, form: { action: "https://github.com/settings/apps/new", manifest: { name: "x" } } } });
+    await t.go("#settings?tab=general");
+    await t.click(t.btn("Создать приложение GitHub"));
+    expect(submit).toHaveBeenCalledTimes(1);
+    await t.go("#settings?tab=releases");
+    await t.go("#settings?tab=general");
+    expect(submit).toHaveBeenCalledTimes(1);
+    submit.mockRestore();
+  });
+
   it("5506 · GitHub вернул ?code= — «Сохранить приложение» сохраняет его github.setup; поиск Ctrl K находит вкладки настроек", async () => {
     const t = await settings({ url: "/?code=gh123#settings?tab=general" });
     await t.click(t.btn("Сохранить приложение"));

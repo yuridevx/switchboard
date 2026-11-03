@@ -194,6 +194,8 @@ describe("слоты", () => {
     expect(t.text()).toContain("слот bot удалён");
     await t.type(t.$('[data-f="newslot"]'), "night");
     await t.click(t.btn(null, "Создать"));
+    // 6108 · созданный слот: поле имени пустое, повторное «Создать» не шлёт slot.set
+    expect(t.$<HTMLInputElement>('[data-f="newslot"]')!.value).toBe("");
     expect(relay.sent("slot.set").at(-1)).toMatchObject({ slot: "night", order: ["a"] });
     expect(relay.sent("machine.slots").length).toBeGreaterThanOrEqual(6);
   });

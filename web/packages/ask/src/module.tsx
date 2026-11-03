@@ -172,6 +172,12 @@ function Ask({ params }: ScreenProps) {
 
   const r = currentOf(callsign, shown.current);
   if (r) {
+    if (shown.current !== null && shown.current !== r.id) {
+      formVals.current = {};
+      setPicks({});
+      setOwn({});
+      setOwnOn([]);
+    }
     shown.current = r.id;
     onScreen.set(callsign, r.id);
   }
@@ -277,7 +283,7 @@ function Ask({ params }: ScreenProps) {
     const props = (f.schema as { properties?: Record<string, { type?: string; enum?: string[]; title?: string; description?: string }> })?.properties ?? {};
     const vals = formVals.current;
     return (
-      <div className="ask-q">
+      <div key={rec.id} className="ask-q">
         {title}
         {Object.entries(props).map(([k, p]) => {
           const num = p.type === "number" || p.type === "integer";

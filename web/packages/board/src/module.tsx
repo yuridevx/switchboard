@@ -362,7 +362,7 @@ export function createBoard(): AppModule {
     }
     return (
       <div key={gen} ref={lst} className="lst">
-        {m.sections.flatMap((x) => [x.sep ? <div key="sep" className="pin-sep" aria-hidden="true" /> : null, <ProjectSection key={x.name} x={x} />])}
+        {m.sections.flatMap((x) => [x.sep ? <div key="sep" className="pin-sep" aria-hidden="true" /> : null, <ProjectSection key={`p:${x.name}`} x={x} />])}
         {m.sections.length ? null : empty}
       </div>
     );
@@ -432,7 +432,9 @@ export function createBoard(): AppModule {
       const ac = new AbortController();
       // конец жеста: сразу новый рисунок — жест дальше читает его элементы; выборки строк догоняют уведомлением
       const redraw = () => {
+        const left = root.querySelector(".fscroll")?.scrollLeft ?? 0;
         flushSync(() => setGen((g) => g + 1));
+        root.querySelector(".fscroll")!.scrollLeft = left;
         app.changed();
       };
       attachProjectDrag(

@@ -310,6 +310,23 @@ describe("эталоны пульта: точки", () => {
     expect(t.$("[data-only]")!.textContent).toContain("old-bot удалена — 57 точек");
   });
 
+  it("6105 · повторное «Удалить…» очищает поле имени: поле и кнопка показывают одно", async () => {
+    const relay = fleetRelay();
+    relay.handlers["points.list"] = () => ({
+      ok: true,
+      result: { sessions: [{ sid: "9f03", callsign: "old-bot@laptop", dir: "~/Projects/bot", owner: "laptop", head: { id: 212, at: Date.UTC(2026, 8, 2) }, points: 57, branches: 0 }], r2: { bytes: 0 } },
+    });
+    const t = await pult({ relay });
+    await t.click(t.$('.sb-navcol button[data-screen="points"]'));
+    await flush(10);
+    await t.click(t.btn(t.$('[data-sid="9f03"]'), "Удалить…"));
+    await t.type(t.$('[data-f="del:9f03"]'), "old-bot");
+    expect(t.$<HTMLButtonElement>('[data-act="delete"]')!.disabled).toBe(false);
+    await t.click(t.btn(t.$('[data-sid="9f03"]'), "Удалить…"));
+    expect(t.$<HTMLInputElement>('[data-f="del:9f03"]')!.value).toBe("");
+    expect(t.$<HTMLButtonElement>('[data-act="delete"]')!.disabled).toBe(true);
+  });
+
   it("262 · не в R2: points.list и points.get не шлются, переноса и отката нет; «Хранить в R2» — session.r2 on; второй прогон: «wik» — недоступно, «wiki» — session.r2 off → «12 точек удалено», points.delete нет", async () => {
     const relay = pointsRelay();
     relay.handlers["session.r2"] = (f) => ({ ok: true, result: f.on ? { point: 1 } : { deleted: 12 } });

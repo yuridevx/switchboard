@@ -186,6 +186,39 @@ describe("карточка в широком виде", () => {
     expect(t2.$("aside.cw-info")).not.toBeNull();
   });
 
+  it("6106 · сведения открыты, сессия ожила позже — список серверов MCP приходит без переоткрытия", async () => {
+    const r = roster([], (x) => void (x.sessions[0].state = "stopped"));
+    const relay = relayFor(r);
+    relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "connected" }] } : { ok: true, result: null });
+    const t = await wideCard("site@laptop", r, relay);
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('.cw-pop [data-act="info"]'));
+    await flush();
+    const asked = () => relay.sent("session.call").filter((f) => f.method === "mcpServerStatus");
+    expect(asked()).toHaveLength(0);
+    relay.setRoster(roster([], (x) => void (x.sessions[0].state = "idle")));
+    await flush();
+    expect(asked()).toHaveLength(1);
+    expect(t.$("aside.cw-info")!.textContent).toContain("fleet");
+  });
+
+  it("6110 · клик по имени сервера MCP ничего не переключает; «выкл» — переключает", async () => {
+    const r = roster();
+    const relay = relayFor(r);
+    relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "connected" }] } : { ok: true, result: null });
+    const t = await wideCard("site@laptop", r, relay);
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('.cw-pop [data-act="info"]'));
+    await flush();
+    const toggled = () => relay.sent("session.call").filter((f) => f.method === "toggleMcpServer");
+    await t.click(t.$(".cw-sw span"));
+    await flush();
+    expect(toggled()).toHaveLength(0);
+    await t.click(t.$('[data-mcp="fleet"]'));
+    await flush();
+    expect(toggled()).toHaveLength(1);
+  });
+
   it("4083 · «■ Прервать» у отвечающей — session.call interrupt; отказ — «Прервать: слово» в шапке", async () => {
     const relay = relayFor(roster());
     relay.handlers["session.call"] = () => ({ ok: false, error: "not_running" });

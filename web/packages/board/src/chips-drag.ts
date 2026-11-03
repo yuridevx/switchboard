@@ -136,14 +136,11 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
         const ids = s.chips.map((c) => c.dataset.fid!);
         const [id] = ids.splice(s.i, 1);
         ids.splice(s.k, 0, id);
-        const sl = s.row.scrollLeft;
         S = null;
         s.ghost.remove();
         root.classList.remove("reordering");
         if (s.k !== s.i) api.place(ids);
         api.redraw();
-        const nr = root.querySelector<HTMLElement>(".fscroll");
-        if (nr) nr.scrollLeft = sl;
       },
       calm() ? 0 : LAND_MS,
     );
@@ -245,7 +242,6 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
       api.place(ids);
       api.redraw();
       const nr = root.querySelector<HTMLElement>(".fscroll")!;
-      nr.scrollLeft = sl;
       const moved = nr.querySelector<HTMLElement>(`:scope > .fc[data-fid=${JSON.stringify(el.dataset.fid!)}]`)!;
       moved.focus();
       moved.scrollIntoView?.({ block: "nearest", inline: "nearest" });

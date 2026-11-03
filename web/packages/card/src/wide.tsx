@@ -207,7 +207,7 @@ export function Wide({ app, params, o }: { app: App; params: Record<string, stri
   useEffect(() => void loadAccounts(), []);
   useEffect(() => {
     if (info && !mcp) void loadMcp();
-  }, [info]);
+  }, [info, live]);
 
   // ───── части шапки ─────
   const nameEl = (
@@ -379,12 +379,12 @@ export function Wide({ app, params, o }: { app: App; params: Record<string, stri
                     <div>
                       <h4>Серверы MCP</h4>
                       {mcp.map((m) => (
-                        <label key={m.name} className="cw-sw">
+                        <div key={m.name} className="cw-sw">
                           <span>{m.name}</span>
                           <button className="cw-b" data-mcp={m.name} onClick={() => void mcpToggle(m)}>
                             {m.status === "disabled" ? "вкл" : "выкл"}
                           </button>
-                        </label>
+                        </div>
                       ))}
                     </div>
                   ) : null}
