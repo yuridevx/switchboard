@@ -415,10 +415,18 @@ export function createBoard(): AppModule {
     };
   }
 
+  /** Закрепления прежней версии лежали на устройстве: один раз переходят к почте. Пересмотр — 1 дек. 2026: устройства перешли, убрать вместе с разделом pins. */
+  async function movePins() {
+    const old = await app.store<string[]>("pins").get();
+    if (!old?.length) return;
+    p.edit<string[]>("pins", (cur) => [...new Set([...(cur ?? []), ...old])]);
+    await app.store<string[]>("pins").set([]);
+  }
+
   return {
     on: {
       link(state) {
-        if (state === "open") void p.read();
+        if (state === "open") void p.read().then(movePins);
       },
     },
     screens: {
@@ -464,7 +472,7 @@ export function createBoard(): AppModule {
       /** открытый или последний проект */
       "project.current": () => lastProject,
     },
-    store: ["flt", "collapsed", "view"],
+    store: ["flt", "collapsed", "view", "pins"],
     css: BOARD_CSS + PROJECTS_CSS + CHIPS_CSS,
     async start(a) {
       app = a;

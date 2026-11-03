@@ -100,12 +100,15 @@ describe("ждущие вопросы у Host", () => {
     expect(relay.sent("question.list").filter((f) => f.callsign === "profiles@laptop")).toHaveLength(1);
   });
 
-  it("4055 · пульт: question.list по roster не шлётся", async () => {
+  it("4055 · пульт: сессия ждёт — question.list один раз на два одинаковых roster, вопрос в строке сразу после загрузки", async () => {
+    // источник: живой обход 3 нояб., пользователь: «закрывай хвосты»: у пульта после перезагрузки ждущей сессии не было ни в «Вам», ни с вопросом в строке
     const relay = relayWith({ "profiles@laptop": [pending()] });
-    await stand(parts(), { relay, wide: true });
+    const t = await stand(parts(), { relay, wide: true });
     relay.setRoster(homeRoster());
-    await flush();
-    expect(relay.sent("question.list")).toHaveLength(0);
+    await flush(5);
+    expect(relay.sent("question.list").filter((f) => f.callsign === "profiles@laptop")).toHaveLength(1);
+    await t.expand();
+    expect(row(t, "profiles@laptop").textContent).toContain("База?");
   });
 
   it("4056 · ответили, пока приложения не было — Host вопроса не знает, вопрос исчез", async () => {

@@ -140,7 +140,7 @@ describe("раскладка широкого вида", () => {
     expect(t.text()).toContain("ход закончен · 2 мин 14 с · 6 шагов · $0,41");
     expect(t.text()).toContain("контекст сжат · 182 К → 41 К");
     expect(t.text()).toContain("сессия Claude · poe-bot@pc");
-    expect(t.relay.got.filter((f) => f.type !== "machine.journal" && f.type !== "prefs.get")).toEqual([]);
+    expect(t.relay.got.filter((f) => !["machine.journal", "prefs.get", "question.list"].includes(f.type))).toEqual([]);
   });
 });
 

@@ -161,6 +161,30 @@ describe("список", () => {
   });
 });
 
+describe("поиск на телефоне", () => {
+  it("5218 · карточка из поиска, «Назад» — список, карточка снова не открывается; тот же запрос открывает её ещё раз", async () => {
+    const t = await start();
+    t.relay.handlers["session.watch"] = () => ({ ok: true });
+    t.relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
+    const find = async () => {
+      t.$("[data-find]")!.click();
+      const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
+      input.value = "api";
+      input.dispatchEvent(new Event("input"));
+      document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+      await flush(5);
+      await new Promise((r) => setTimeout(r, 5));
+      expect(location.hash).toBe("#card?callsign=api%40pc");
+    };
+    await find();
+    await t.click(t.button("‹"));
+    await flush(5);
+    expect(location.hash).not.toContain("card");
+    expect(t.$(".bd-list")).not.toBeNull();
+    await find();
+  });
+});
+
 describe("фильтры", () => {
   it("5220 · внутри поля «или», между полями «и», пустое не сужает; «моё» в «Чьи» — whyMine; почта — та же цепочка, что у «моё»", async () => {
     const relay = relayWith({
@@ -330,6 +354,35 @@ describe("настройки у почты", () => {
     expect(relay.sent("prefs.get").length - gets).toBe(1);
     expect(relay.sent("prefs.set")).toHaveLength(1);
     expect(relay.values["web-board.top"]).toEqual(["pfarm", "switchboard"]);
+  });
+
+  it("5245 · выбранный свой фильтр остаётся при отказе prefs: виден «Моё», выбор устройства не стёрт; ответ с фильтром — он снова выбран", async () => {
+    const store = memoryStore({ key: KEY, flt: "f1" });
+    const relay = relayWith({ "web-board.filters": [{ id: "f1", name: "GPU" }] });
+    relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    const ok = relay.handlers["prefs.get"];
+    relay.handlers["prefs.get"] = () => ({ ok: false, error: "offline" });
+    const t = await start({ relay, store });
+    expect(t.$('.fc[aria-selected="true"]')!.dataset.fid).toBe("mine");
+    expect(await store.get("flt")).toBe("f1");
+    if (ok) relay.handlers["prefs.get"] = ok;
+    else delete relay.handlers["prefs.get"];
+    await t.run.hide();
+    await t.run.show();
+    await flush(10);
+    expect(t.$('.fc[aria-selected="true"]')!.dataset.fid).toBe("f1");
+  });
+
+  it("5246 · закрепления прежней версии с устройства переходят к почте один раз; закреплённое на другом устройстве остаётся", async () => {
+    const store = memoryStore({ key: KEY, pins: ["docs@pc"] });
+    const relay = relayWith({ "web-board.pins": ["note@pc"] });
+    const t = await start({ relay, store });
+    await flush(5);
+    expect(relay.values["web-board.pins"]).toEqual(["note@pc", "docs@pc"]);
+    expect(await store.get("pins")).toEqual([]);
+    await t.expand();
+    expect(rows(t)).toContain("docs@pc");
+    expect(relay.sent("prefs.set")).toHaveLength(1);
   });
 
   it("5242 · prefs отказал: «Моё» и «Всё» работают, своих нет; изменение — отказ словом, prefs.set не уходит", async () => {

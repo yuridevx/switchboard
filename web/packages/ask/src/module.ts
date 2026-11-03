@@ -120,8 +120,6 @@ const wanted = () => new Set([...need, ...[...recs.values()].filter((r) => r.sta
 function onRoster(ro: Roster) {
   // машина появилась в roster флота — спросить вопросы её сессий, которых ждём
   for (const c of wanted()) if (present(c)) void list(c);
-  // широкий вид (пульт) спрашивает question.list при открытии чата сессии, а не по roster
-  if (app.wide) return;
   for (const s of ro.sessions) if (s.state === "waiting" && !waitingOf(s.callsign).length) void list(s.callsign);
 }
 
