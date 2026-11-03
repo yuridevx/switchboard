@@ -1,6 +1,7 @@
 // Подсказки поля ввода: «/» в начале — команды сессии, «@часть» в конце — файлы её папки.
-// Стрелки выбирают, Tab и Enter подставляют, Esc закрывает до следующей правки текста.
+// Стрелки выбирают, Tab и Enter подставляют, Esc закрывает до следующей правки текста. Что показать — считается из текста при рисовании.
 import { useEffect, useState } from "react";
+import { useLoad } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 
 export type Suggestion = { key: string; label: string; hint?: string; insert: string };
@@ -9,52 +10,41 @@ export type Suggest = { kind: "cmd" | "file"; items: Suggestion[]; sel: number; 
 const AT = /(?:^|\s)@([^\s@]*)$/;
 const SLASH = /^\/(\S*)$/;
 const MAX = 20;
+const NO_FILES = { ok: true as const, result: [] as string[] };
 
 export function useSuggest(callsign: string, text: string): Suggest | null {
   const chat = useChat();
-  const canCall = chat.can(callsign, "session.call");
-  const canFiles = chat.can(callsign, "session.files");
-  const [items, setItems] = useState<Suggestion[]>([]);
-  const [kind, setKind] = useState<Suggest["kind"]>("cmd");
-  const [sel, setSel] = useState(0);
+  const slash = chat.can(callsign, "session.call") ? SLASH.exec(text)?.[1] : undefined;
+  const at = chat.can(callsign, "session.files") && slash === undefined ? AT.exec(text)?.[1] : undefined;
+  const commands = chat.useConv(callsign, (c) => c.commands);
+  const files = useLoad(() => (at === undefined ? Promise.resolve(NO_FILES) : chat.files(callsign, at)), [chat, callsign, at]);
+  /** выбор и закрытие относятся к тексту, при котором сделаны: новая буква их сбрасывает */
+  const [picked, setPicked] = useState({ text: "", sel: 0 });
   const [closedAt, setClosedAt] = useState<string | null>(null);
 
-  const slash = canCall ? SLASH.exec(text)?.[1] : undefined;
-  const at = canFiles && slash === undefined ? AT.exec(text)?.[1] : undefined;
-
+  const wantCommands = slash !== undefined;
   useEffect(() => {
-    setSel(0);
-    if (slash === undefined && at === undefined) return setItems([]);
-    let stale = false;
-    const done = (k: Suggest["kind"], list: Suggestion[]) => {
-      if (stale) return;
-      setKind(k);
-      setItems(list);
-    };
-    if (slash !== undefined) {
-      void chat.commands(callsign).then((all) =>
-        done(
-          "cmd",
-          all
-            .filter((c) => c.name.startsWith(slash))
-            .slice(0, MAX)
-            .map((c) => ({ key: c.name, label: `/${c.name}`, hint: c.description, insert: `/${c.name} ` })),
-        ),
-      );
-    } else if (at !== undefined) {
-      void chat.files(callsign, at).then((all) => done("file", all.map((f) => ({ key: f, label: f, insert: text.replace(/@([^\s@]*)$/, `@${f} `) }))));
-    }
-    return () => {
-      stale = true;
-    };
-  }, [chat, callsign, slash, at, text]);
+    if (wantCommands) chat.loadCommands(callsign);
+  }, [chat, callsign, wantCommands]);
+
+  const kind: Suggest["kind"] = slash !== undefined ? "cmd" : "file";
+  const items: Suggestion[] =
+    slash !== undefined
+      ? (commands ?? [])
+          .filter((c) => c.name.startsWith(slash))
+          .slice(0, MAX)
+          .map((c) => ({ key: c.name, label: `/${c.name}`, hint: c.description, insert: `/${c.name} ` }))
+      : at !== undefined && !files.error
+        ? (files.data ?? []).map((f) => ({ key: f, label: f, insert: text.replace(/@([^\s@]*)$/, `@${f} `) }))
+        : [];
 
   if (!items.length || closedAt === text) return null;
+  const sel = Math.min(picked.text === text ? picked.sel : 0, items.length - 1);
   return {
     kind,
     items,
-    sel: Math.min(sel, items.length - 1),
-    move: (d) => setSel((sel + d + items.length) % items.length),
+    sel,
+    move: (d) => setPicked({ text, sel: (sel + d + items.length) % items.length }),
     close: () => setClosedAt(text),
   };
 }

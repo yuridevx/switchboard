@@ -58,13 +58,8 @@ export function AskScreen({ params }: ScreenProps) {
   const r = app.use(() => ask.current(callsign));
   const loading = app.use(() => ask.isLoading(callsign));
   const refused = app.use(() => ask.refusedOf(callsign));
-  const id = r?.id;
 
   useEffect(() => void ask.list(callsign, true), [ask, callsign]);
-  useEffect(() => {
-    if (id) ask.show(callsign, id);
-  }, [ask, callsign, id]);
-  useEffect(() => () => ask.forget(callsign), [ask, callsign]);
 
   if (!r) {
     return (

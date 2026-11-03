@@ -1,5 +1,5 @@
 // Над полем ввода: задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
-import { useRef } from "react";
+import { useState } from "react";
 import { useApp } from "@switchboard/web-core";
 import { Bot, Layers, ListChecks, Square, Terminal } from "lucide-react";
 import { useChat } from "../context.ts";
@@ -81,12 +81,12 @@ export function AskDock({ callsign }: { callsign: string }) {
   const asked = app.use(() => app.mark("asked", callsign));
   const waiting = app.use(() => chat.sessionOf(callsign)?.state === "waiting");
   // вопрос над вводом: открыт, пока открыт чат — ответ «принят» или «уже ответили» остаётся виден
-  const opened = useRef(false);
-  if (asked || waiting) opened.current = true;
+  const [opened, setOpened] = useState(false);
+  if ((asked || waiting) && !opened) setOpened(true);
   return (
     <div className="chat-ask">
       {app.wide ? (
-        opened.current ? (
+        opened ? (
           <app.Slot screen="ask" params={{ callsign }} />
         ) : null
       ) : asked ? (

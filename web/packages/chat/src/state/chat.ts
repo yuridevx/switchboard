@@ -142,7 +142,7 @@ export function createChatStore() {
         c.feed.items = c.feed.items.filter((i) => i.id !== id);
         c.returned = { text, attachments };
       });
-      drafts[cs] = text;
+      drafts[cs] ||= text;
       app.toast(`${cs}: не доставлено — ${refusalText(cs, r.error)}. Черновик цел.`);
     }
   }
@@ -258,25 +258,20 @@ export function createChatStore() {
       setMine(cs, id, (it) => void (it.state = "sending"));
       void deliver(cs, id, text, []);
     },
-    takeReturned: (cs: string) => edit(cs, (c) => void (c.returned = undefined)),
     /** Текст обратно в поле ввода: «Изменить сообщение» после отказа модели. */
-    returnText: (cs: string, text: string) => edit(cs, (c) => void (c.returned = { text, attachments: [] })),
-    /** Команды сессии: один запрос на разговор. */
-    async commands(cs: string): Promise<Command[]> {
-      const known = read(cs).commands;
-      if (known) return known;
-      if (known === null) return [];
+    returnText(cs: string, text: string) {
+      drafts[cs] ||= text;
+      edit(cs, (c) => void (c.returned = { text, attachments: [] }));
+    },
+    /** Команды сессии — в снимок разговора: один запрос на разговор. */
+    async loadCommands(cs: string) {
+      if (read(cs).commands !== undefined) return;
       edit(cs, (c) => void (c.commands = null));
       const r = await app.request<Command[]>("session.call", { callsign: cs, method: "supportedCommands", args: [] });
-      const list = r.ok && Array.isArray(r.result) ? r.result : [];
-      edit(cs, (c) => void (c.commands = list));
-      return list;
+      edit(cs, (c) => void (c.commands = r.ok && Array.isArray(r.result) ? r.result : []));
     },
     /** Файлы папки сессии для «@». */
-    async files(cs: string, query: string): Promise<string[]> {
-      const r = await app.request<string[]>("session.files", { callsign: cs, query, limit: 20 });
-      return r.ok && Array.isArray(r.result) ? r.result : [];
-    },
+    files: (cs: string, query: string) => app.request<string[]>("session.files", { callsign: cs, query, limit: 20 }),
 
     // ───── лента ─────
     /** Более ранняя страница истории. */

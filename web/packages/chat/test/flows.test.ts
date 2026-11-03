@@ -121,6 +121,36 @@ describe("ввод", () => {
 });
 
 describe("широкий ввод", () => {
+  it("6241 · второй символ, набранный, пока идёт запрос команд: ответ пришёл — список по текущему тексту; запрос один", async () => {
+    // источник: найдено слепым архитектором 4 нояб.: ответ первого символа отбрасывался, второй получал пустой список
+    const relay = relayFor();
+    relay.handlers["session.call"] = () => undefined;
+    const t = await chat("poe-bot@pc", { relay, wide: true });
+    await t.type("/");
+    await t.type("/c");
+    const asked = relay.sent("session.call");
+    expect(asked).toHaveLength(1);
+    relay.reply(String(asked[0].id), { ok: true, result: [{ name: "compact", description: "Сжать" }, { name: "review" }] });
+    await flush();
+    expect(t.$$(".chat-sugi").map((b) => b.textContent)).toEqual(["/compactСжать"]);
+  });
+
+  it("6243 · отказ отправки возвращает вложения в поле; поле не пусто — текст человека не затирается", async () => {
+    // источник: отказ session.prompt — текст и вложения обратно (бэклог «Вложения теряются при отказе»)
+    const relay = relayFor();
+    relay.handlers["session.prompt"] = () => ({ ok: false, error: "offline" });
+    const t = await chat("poe-bot@pc", { relay, wide: true });
+    const picker = t.$<HTMLInputElement>('.chat input[type="file"]')!;
+    Object.defineProperty(picker, "files", { value: [new File(["a"], "b.txt", { type: "text/plain" })], configurable: true });
+    picker.dispatchEvent(new Event("change", { bubbles: true }));
+    await flush(10);
+    await t.type("смотри");
+    await t.click(t.$(".chat-send"));
+    await flush();
+    expect(t.$$(".chat-file").map((x) => x.textContent)).toEqual(["b.txt"]);
+    expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("смотри");
+  });
+
   it("4083 · «Прервать» у отвечающей — session.call interrupt; отказ — тост словом; у простаивающей кнопки нет", async () => {
     const r = roster((x) => (x.sessions[0].state = "busy"));
     const relay = relayFor(r);

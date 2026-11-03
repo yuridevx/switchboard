@@ -1,7 +1,7 @@
 // Ввод: поле растёт по тексту; Enter — отправить, Shift+Enter — строка; в занятую сессию сообщение встаёт в очередь; «Прервать», пока Claude работает.
 // «/» — команды, «@» — файлы папки; вложения — скрепкой, вставкой и перетаскиванием; подсказка Claude — над полем, Tab подставляет.
 // Текст — состояние этого компонента (курсор при наборе не прыгает); в хранилище уходит черновик, отказ отправки возвращает текст и вложения.
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
 import { useApp } from "@switchboard/web-core";
 import { useChat } from "../context.ts";
@@ -58,6 +58,16 @@ export function Composer({ callsign }: { callsign: string }) {
   const returned = chat.useConv(callsign, (c) => c.returned);
   const suggest = useSuggest(callsign, text);
 
+  // отказ отправки: текст и вложения обратно в поле; напечатанное человеком не затирается
+  const [returnedSeen, setReturnedSeen] = useState(returned);
+  if (returned !== returnedSeen) {
+    setReturnedSeen(returned);
+    if (returned) {
+      if (!text) setText(returned.text);
+      setPending([...pending, ...returned.attachments]);
+    }
+  }
+
   const change = (v: string) => {
     chat.setDraft(callsign, v);
     setText(v);
@@ -69,18 +79,6 @@ export function Composer({ callsign }: { callsign: string }) {
     el.style.height = "auto";
     if (el.scrollHeight) el.style.height = `${el.scrollHeight + 2}px`;
   }, [text]);
-
-  // отказ отправки: текст и вложения обратно в поле
-  useEffect(() => {
-    if (!returned) return;
-    chat.takeReturned(callsign);
-    setText((cur) => {
-      const v = cur || returned.text;
-      chat.setDraft(callsign, v);
-      return v;
-    });
-    setPending((p) => [...p, ...returned.attachments]);
-  }, [chat, callsign, returned]);
 
   function send() {
     const value = text.trim();

@@ -1,7 +1,6 @@
 // Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты сессии. Открытая панель спрашивает session.call один раз.
-import { useEffect, useState } from "react";
 import { Archive, Gauge } from "lucide-react";
-import { Meter } from "@switchboard/web-ui";
+import { Meter, useLoad } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import { kTokens } from "../cards/format.ts";
 
@@ -13,21 +12,10 @@ const NAMES: Record<string, string> = { "System prompt": "Системная п�
 
 export function ContextPanel({ callsign, close }: { callsign: string; close(): void }) {
   const chat = useChat();
-  const [usage, setUsage] = useState<Usage | null>(null);
-  const [agents, setAgents] = useState<Agent[]>([]);
-
-  useEffect(() => {
-    let stale = false;
-    void chat.call<Usage>(callsign, "getContextUsage").then((u) => {
-      if (!stale) setUsage(u ?? {});
-    });
-    void chat.call<Agent[]>(callsign, "supportedAgents").then((a) => {
-      if (!stale && Array.isArray(a)) setAgents(a);
-    });
-    return () => {
-      stale = true;
-    };
-  }, [chat, callsign]);
+  // отказ метода — тост словом (chat.call); панель остаётся с тем, что ответили
+  const { data: usage } = useLoad<Usage>(() => chat.call<Usage>(callsign, "getContextUsage").then((u) => ({ ok: true as const, result: u ?? {} })), [chat, callsign]);
+  const { data: agentList } = useLoad<Agent[] | undefined>(() => chat.call<Agent[]>(callsign, "supportedAgents").then((a) => ({ ok: true as const, result: a })), [chat, callsign]);
+  const agents = Array.isArray(agentList) ? agentList : [];
 
   const pct = Math.round(usage?.percentage ?? 0);
   return (

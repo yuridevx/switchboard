@@ -6,6 +6,8 @@ import { createCard, manifest as cardM } from "@switchboard/web-card";
 import { createChat, manifest as chatM } from "@switchboard/web-chat";
 import { memoryStore } from "@switchboard/web-core";
 import { createAsk, manifest as askM } from "../contract.ts";
+import { PULT, pultParts } from "@switchboard/pult";
+import { fakeBrowser } from "../../alerts/stand/fakes.ts";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
@@ -227,5 +229,26 @@ describe("экран вопроса", () => {
     await flush();
     expect(ask().querySelector(".ask-qt")!.textContent).toBe("Деплоить?");
     expect([...ask().querySelectorAll("button")].some((b) => b.textContent === "Ответить")).toBe(true);
+  });
+});
+
+describe("вопрос в двух местах пульта", () => {
+  it("6240 · карточка «Вам» и док чата рядом: ответ в доке — карточка уходит, в доке остаётся «Ответ принят»", async () => {
+    // источник: найдено слепым архитектором 4 нояб.: уход карточки стирал показанный вопрос у дока
+    const relay = relayWith({ "poe-bot@pc": [pending()] });
+    relay.handlers.answer = () => ({ ok: true });
+    const t = await stand(pultParts(fakeBrowser("granted")), { relay, wide: true, options: PULT, url: "/#inbox" });
+    relay.push(question("poe-bot@pc"));
+    await flush();
+    await t.go(`#chat?callsign=${encodeURIComponent("poe-bot@pc")}`);
+    expect(t.$(".ib-q")?.textContent).toContain("База?");
+    const dock = () => t.$(".chat-ask")!;
+    expect(dock().textContent).toContain("База?");
+    await t.click([...dock().querySelectorAll<HTMLElement>(".ask-opt")].find((b) => b.textContent?.startsWith("стенд"))!);
+    await t.click([...dock().querySelectorAll<HTMLElement>("button")].find((b) => b.textContent === "Ответить")!);
+    await flush();
+    expect(t.$(".ib-q")).toBeNull();
+    expect(dock().textContent).toContain("Ответ «стенд» принят.");
+    expect(dock().textContent).not.toContain("нет ждущих вопросов");
   });
 });

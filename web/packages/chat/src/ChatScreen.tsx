@@ -4,13 +4,13 @@ import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { Pad } from "@switchboard/web-ui";
-import { RowView } from "./cards/ItemView.tsx";
+import { ItemView, StepsRow } from "./cards/ItemView.tsx";
 import { Composer } from "./composer/Composer.tsx";
 import { CardsCtx, useChat, type CardsView } from "./context.ts";
 import { AskDock, BackgroundDock, TodoDock } from "./docks/Docks.tsx";
 import { ContextPanel } from "./panel/ContextPanel.tsx";
-import { focusRows, type Row } from "./state/focus.ts";
-import type { Feed } from "./state/types.ts";
+import { focusRows, type Row, type Steps } from "./state/focus.ts";
+import type { Feed, Item } from "./state/types.ts";
 import { useStickToBottom } from "./ui/useStickToBottom.ts";
 
 /** Плашка отката под сообщением. */
@@ -36,11 +36,11 @@ function RewindCard({ callsign, id }: { callsign: string; id: string }) {
 }
 
 /** Строка ленты: новое сообщение не перерисовывает остальные. */
-const FeedRow = memo(function FeedRow({ row, callsign }: { row: Row; callsign: string }) {
+const FeedRow = memo(function FeedRow({ id, item, steps, callsign }: { id: string; item?: Item; steps?: Steps; callsign: string }) {
   return (
     <>
-      <RowView row={row} />
-      <RewindCard callsign={callsign} id={row.id} />
+      {item ? <ItemView it={item} /> : <StepsRow steps={steps!} />}
+      <RewindCard callsign={callsign} id={id} />
     </>
   );
 });
@@ -88,7 +88,7 @@ function FeedView({ callsign }: { callsign: string }) {
             </button>
           ) : null}
           {rows.map((row) => (
-            <FeedRow key={row.id} row={row} callsign={callsign} />
+            <FeedRow key={row.id} id={row.id} item={"item" in row ? row.item : undefined} steps={"steps" in row ? row.steps : undefined} callsign={callsign} />
           ))}
           {refused ? (
             <div className="chat-note" role="alert">
@@ -174,7 +174,7 @@ export function ChatScreen({ callsign }: { callsign: string }) {
           <TodoDock callsign={callsign} />
           <AskDock callsign={callsign} />
         </div>
-        <Composer key={callsign} callsign={callsign} />
+        <Composer callsign={callsign} />
       </div>
     </CardsCtx.Provider>
   );

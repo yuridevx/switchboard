@@ -15,21 +15,17 @@ import { createChatStore } from "./state/chat.ts";
 export function createChat(): AppModule {
   const chat = createChatStore();
 
-  function Screen({ params }: ScreenProps) {
-    return (
-      <ChatCtx.Provider value={chat}>
-        <ChatScreen key={params.callsign} callsign={params.callsign ?? ""} />
-      </ChatCtx.Provider>
-    );
-  }
-
   return {
     frames: { "session.events": chat.onEvents, message: chat.onMessage },
     on: { roster: chat.onRoster, link: chat.onLink },
     screens: {
       chat: {
         label: "Лента",
-        view: Screen,
+        view: ({ params }: ScreenProps) => (
+          <ChatCtx.Provider value={chat}>
+            <ChatScreen callsign={params.callsign ?? ""} />
+          </ChatCtx.Provider>
+        ),
         head: (params) => {
           const callsign = params.callsign ?? "";
           const s = chat.sessionOf(callsign);

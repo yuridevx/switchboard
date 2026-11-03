@@ -42,8 +42,6 @@ type State = {
   loading: Record<string, true>;
   /** позывной → слово отказа последнего question.list */
   refused: Record<string, string>;
-  /** позывной → вопрос на экране: шапка спрашивает его у модуля */
-  onScreen: Record<string, string>;
 };
 
 /** Ответ ещё можно менять: ждёт или не дошёл. */
@@ -71,7 +69,7 @@ export type AskStore = ReturnType<typeof createAskStore>;
 
 export function createAskStore() {
   let app: App;
-  const store = createStore<State>({ recs: [], need: {}, listed: {}, loading: {}, refused: {}, onScreen: {} }, () => app.changed());
+  const store = createStore<State>({ recs: [], need: {}, listed: {}, loading: {}, refused: {} }, () => app.changed());
 
   const waitingOf = (callsign: string) => store.get().recs.filter((r) => r.callsign === callsign && r.status === "waiting");
   const editRec = (id: string, change: (r: Rec) => void) =>
@@ -115,12 +113,10 @@ export function createAskStore() {
     return new Set([...Object.keys(s.need), ...s.recs.filter((r) => r.status === "waiting").map((r) => r.callsign)]);
   };
 
-  /** Вопрос на экране: показанный держится, пока ждёт ответа; закрыт — следующий ждущий, нет его — итог показанного. */
+  /** Вопрос на экране: первый ещё не закрытый; все закрыты — итог последнего. Одна чистая выборка для всех мест экрана. */
   function current(callsign: string): Rec | undefined {
-    const s = store.get();
-    const id = s.onScreen[callsign];
-    const shown = id ? s.recs.find((r) => r.id === id) : undefined;
-    return shown && (shown.status === "waiting" || shown.status === "sending" || shown.status === "error") ? shown : (waitingOf(callsign)[0] ?? shown);
+    const own = store.get().recs.filter((r) => r.callsign === callsign);
+    return own.find((r) => r.status === "waiting" || r.status === "sending" || r.status === "error") ?? own.at(-1);
   }
 
   return {
@@ -133,10 +129,6 @@ export function createAskStore() {
     refusedOf: (callsign: string) => store.get().refused[callsign],
     /** Имя этого устройства и кто ещё видит вопрос: подпись под ответом. */
     othersOf: (r: Rec) => r.to.filter((x) => x !== app.name),
-    /** Экран показывает этот вопрос. */
-    show: (callsign: string, id: string) => store.set((s) => void (s.onScreen[callsign] = id)),
-    /** Экран закрыт: показанный вопрос шапке больше не нужен. */
-    forget: (callsign: string) => store.set((s) => void delete s.onScreen[callsign]),
 
     /** Ответ человека: первый ответ выигрывает, свой повторно не шлётся. */
     async answer(r: Rec, body: Record<string, unknown>, mine?: Record<string, string>) {

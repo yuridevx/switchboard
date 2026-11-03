@@ -1,7 +1,7 @@
 // Запись ленты → карточка; в фокусе — ещё и свёрнутые шаги хода. memo: новое сообщение рисует одну карточку.
 import { memo } from "react";
 import { ListCollapse } from "lucide-react";
-import type { Row, Steps } from "../state/focus.ts";
+import type { Steps } from "../state/focus.ts";
 import type { Item } from "../state/types.ts";
 import { Disclosure } from "../ui/Disclosure.tsx";
 import { kindOf } from "./tools/kinds.tsx";
@@ -31,7 +31,7 @@ function stepsLine(s: Steps): string {
   return [total ? stepsWord(total) : null, ...names, s.thought ? "размышлял" : null].filter(Boolean).join(" · ") || "служебные строки";
 }
 
-function StepsRow({ steps }: { steps: Steps }) {
+export function StepsRow({ steps }: { steps: Steps }) {
   return (
     <Disclosure
       className="chat-steps"
@@ -47,8 +47,4 @@ function StepsRow({ steps }: { steps: Steps }) {
       ))}
     </Disclosure>
   );
-}
-
-export function RowView({ row }: { row: Row }) {
-  return "steps" in row ? <StepsRow steps={row.steps} /> : <ItemView it={row.item} />;
 }

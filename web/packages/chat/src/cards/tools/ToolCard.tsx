@@ -2,6 +2,7 @@
 // Состояние выбирает сама: секунды и итог перерисовывают только её.
 import { useState } from "react";
 import { ArrowDownToLine, Check, ChevronDown, ChevronRight, Loader2, Square, X } from "lucide-react";
+import { useNow } from "@switchboard/web-ui";
 import { useCards } from "../../context.ts";
 import type { Task, Tool } from "../../state/types.ts";
 import { DiffCount } from "./Diff.tsx";
@@ -61,7 +62,7 @@ function StateMark({ st, secs }: { st: State; secs?: number }) {
 /** Полоса идущей команды или субагента: сколько идёт, что делает, «В фон» и «Стоп». */
 function TaskBar({ task, t }: { task: Task; t: Tool }) {
   const v = useCards();
-  const secs = v.useFeed(() => Math.max(0, Math.round((Date.now() - task.startedAt) / 1000)));
+  const secs = Math.max(0, Math.round((useNow(1000) - task.startedAt) / 1000));
   const agent = task.type === "local_agent";
   return (
     <div className="tc-bar">
