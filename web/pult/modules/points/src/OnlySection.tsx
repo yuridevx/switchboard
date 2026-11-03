@@ -1,0 +1,146 @@
+// «Только в R2»: сессии без живого процесса. Поиск, удаление после ввода имени и подъём на машину из последней точки.
+import { useState } from "react";
+import { useApp } from "@switchboard/web-core";
+import { Btn, H4, In, M, Note, Opts, PageHead, plural, Row, Sec } from "@switchboard/web-ui";
+import { usePoints } from "./context.ts";
+import { day, nameOf, say } from "./format.ts";
+import { CheckLine, PickMachine } from "./parts.tsx";
+import type { CheckResult, FleetSession } from "./store.ts";
+
+type Del = { sid: string; name: string; typed: string };
+type Move = { s: FleetSession; target: string; slot: string; dir: string; check: CheckResult | null; phase: "" | "run" | "done" | "err"; msg: string };
+
+function DeleteDialog({ d, type, cancel, remove }: { d: Del; type(v: string): void; cancel(): void; remove(): void }) {
+  return (
+    <Sec dlg data-dlg="delete">
+      <b>{`Удалить точки «${d.name}» насовсем`}</b>
+      <Note>Строки точек и блоки без ссылок уйдут из R2 сразу, в том же запросе; блоки, нужные копиям, останутся. Отменить нельзя — отмены у удаления нет.</Note>
+      <Opts>
+        <span>{`Введите имя сессии: ${d.name}`}</span>
+        <In mono data-f={`del:${d.sid}`} placeholder={d.name} value={d.typed} onInput={(e) => type(e.currentTarget.value)} />
+      </Opts>
+      <Opts>
+        <Btn onClick={cancel}>Отмена</Btn>
+        <Btn bad data-act="delete" disabled={d.typed !== d.name} onClick={remove}>
+          Удалить насовсем
+        </Btn>
+      </Opts>
+    </Sec>
+  );
+}
+
+function MoveDialog({ d, pick, run, close }: { d: Move; pick(m: string): void; run(): void; close(): void }) {
+  return (
+    <Sec dlg data-dlg="raise">
+      <b>{`Поднять ${nameOf(d.s.callsign ?? "")} из точки №${d.s.head.id}`}</b>
+      <Row label="Машина">
+        <PickMachine cur={d.target} callsign={d.s.callsign ?? undefined} on={pick} />
+      </Row>
+      <Row label="Слот">
+        <span>{d.slot || "без слота"}</span>
+      </Row>
+      <Row label="Папка">
+        <M>{d.dir}</M>
+      </Row>
+      <CheckLine check={d.check} target={d.target} />
+      {d.msg ? (
+        <Note tone={d.phase === "err" ? "bad" : d.phase === "done" ? "ok" : undefined} role="status">
+          {d.msg}
+        </Note>
+      ) : null}
+      <Opts>
+        <Btn onClick={close}>{d.phase === "done" ? "Закрыть" : "Отмена"}</Btn>
+        {d.phase !== "done" ? (
+          <Btn pri disabled={d.phase === "run" || !d.check || "error" in d.check || d.check.folder === "other"} onClick={run}>
+            {`Поднять на ${d.target}`}
+          </Btn>
+        ) : null}
+      </Opts>
+    </Sec>
+  );
+}
+
+export function OnlySection({ only }: { only: FleetSession[] }) {
+  const app = useApp();
+  const points = usePoints();
+  const canRaise = app.use(() => points.raisers().length > 0);
+  const [q, setQ] = useState("");
+  const [del, setDel] = useState<Del | null>(null);
+  const [done, setDone] = useState("");
+  const [move, setMove] = useState<Move | null>(null);
+
+  async function remove(d: Del) {
+    const r = await points.deleteSession(d.sid);
+    if (!r.ok) return setDone(`points.delete: ${r.error}`);
+    setDel(null);
+    setDone(`${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`);
+  }
+
+  async function pickTarget(target: string, s: FleetSession, dir: string) {
+    setMove((m) => m && { ...m, target });
+    const sl = await points.slotsOf(target);
+    const slots = Array.isArray(sl) ? sl : [];
+    const check = Array.isArray(sl) ? await points.dry(target, s.sid, s.head.id, dir) : sl;
+    setMove((m) => m && { ...m, slot: slots[0] ?? "", check });
+  }
+
+  function openMove(s: FleetSession) {
+    const target = points.raisers()[0] ?? "";
+    const dir = s.dir ?? "~";
+    setMove({ s, target, slot: "", dir, check: null, phase: "", msg: "" });
+    void pickTarget(target, s, dir);
+  }
+
+  async function runMove(d: Move) {
+    setMove((m) => m && { ...m, phase: "run", msg: `${d.target} поднимает сессию из точки…` });
+    const x = await points.raise({ machine: d.target, sid: d.s.sid, point: d.s.head.id, dir: d.dir, ...(d.slot ? { slot: d.slot } : {}), files: "point" });
+    setMove((m) => m && { ...m, phase: x.ok ? "done" : "err", msg: x.ok ? `${nameOf(d.s.callsign ?? "")} поднята: ${x.result.callsign}` : say(x.error, "", d.target) });
+    if (x.ok) {
+      points.keepProject(d.s.callsign, x.result.callsign);
+      void points.loadFleet();
+    }
+  }
+
+  const low = q.toLowerCase();
+  const shown = only.filter((s) => !q || [s.callsign, s.dir, day(s.head.at)].some((x) => x?.toLowerCase().includes(low))).sort((a, b) => b.head.at - a.head.at);
+
+  return (
+    <Sec data-only="">
+      <PageHead>
+        <H4>{`Только в R2 · ${only.length}`}</H4>
+        <In data-f="q" placeholder="⌕ имя, папка или месяц…" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      </PageHead>
+      {shown.map((s) => {
+        const name = nameOf(s.callsign ?? s.sid);
+        return (
+          <div key={s.sid} className="pt-row" data-sid={s.sid}>
+            <span>
+              <b>{name}</b>
+              {` ${s.dir ?? ""} · последняя точка ${day(s.head.at)}`}
+            </span>
+            <Opts>
+              <Btn
+                bad
+                onClick={() => {
+                  setDel({ sid: s.sid, name, typed: "" });
+                  setDone("");
+                }}
+              >
+                Удалить…
+              </Btn>
+              {canRaise ? <Btn onClick={() => openMove(s)}>Перенести на машину…</Btn> : null}
+            </Opts>
+            {del?.sid === s.sid ? <DeleteDialog d={del} type={(typed) => setDel((x) => x && { ...x, typed })} cancel={() => setDel(null)} remove={() => void remove(del)} /> : null}
+            {move?.s.sid === s.sid ? <MoveDialog d={move} pick={(m) => void pickTarget(m, move.s, move.dir)} run={() => void runMove(move)} close={() => setMove(null)} /> : null}
+          </div>
+        );
+      })}
+      {done ? (
+        <Sec tone="ok" role="status">
+          <b>{done}</b>
+          <Note>Запись — в «Журнале флота».</Note>
+        </Sec>
+      ) : null}
+    </Sec>
+  );
+}
