@@ -161,7 +161,7 @@ export function createInbox(): AppModule {
         return h(
           "div",
           { class: "ib-it bad", "data-kind": "away", "data-machine": it.m },
-          h("div", { class: "ib-ih" }, h("span", { class: "sb-dot gone" }), h("b", { class: "ib-cs", style: "text-decoration:none" }, (app.mark("label.machine", it.m) as { text: string } | undefined)?.text ?? `@${it.m}`), h("span", { class: "ib-lb" }, `не на связи с ${hhmm(it.at!)}`)),
+          h("div", { class: "ib-ih" }, h("span", { class: "sb-dot gone" }), h("b", { class: "ib-cs", style: "text-decoration:none" }, (app.mark("label.machine", it.m ?? "") as { text: string } | undefined)?.text ?? `@${it.m}`), h("span", { class: "ib-lb" }, `не на связи с ${hhmm(it.at!)}`)),
           h("div", { class: "ib-tx" }, it.list!.map((x) => x.callsign).join(", ")),
           app.mark("fire") !== undefined ? h("div", { class: "ib-acts" }, h("button", { class: "pri", onclick: () => app.open("points", {}) }, "Поднять из точки")) : null,
         );

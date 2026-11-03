@@ -1,11 +1,14 @@
 // Правила «Работы» без экрана: порядок сессий и проектов, дерево по parent, фильтр, место в закреплённых.
-import { type SessionRecord } from "@switchboard/web-core";
+import { profileName, type SessionRecord } from "@switchboard/web-core";
 import { kindOf, machineOf } from "@switchboard/protocol";
 
 /** Порядок: ждёт вас и сбой, работает, остальные. */
 export const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 export const byRank = (a: SessionRecord, b: SessionRecord) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign);
-export const profileOf = (s: SessionRecord) => (s.profile as { id?: string } | null | undefined)?.id?.split("/").at(-1);
+export const profileOf = (s: SessionRecord) => {
+  const id = (s.profile as { id?: string } | null | undefined)?.id;
+  return id ? profileName(id) : undefined;
+};
 export const incidentOf = (s: SessionRecord) => (s.incident as { type?: string } | null | undefined)?.type;
 
 /** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */

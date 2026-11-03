@@ -300,7 +300,7 @@ export function createPoints(): AppModule {
             h(
               "div",
               { class: "pt-row", "data-sid": s.sid },
-              h("span", null, h("b", null, (app.mark("label.session", s.callsign) as { text: string } | undefined)?.text ?? s.callsign), ` ${ago(s.head.at)} · №${s.head.id}`),
+              h("span", null, h("b", null, (app.mark("label.session", s.callsign ?? "") as { text: string } | undefined)?.text ?? s.callsign), ` ${ago(s.head.at)} · №${s.head.id}`),
               can(s.owner, "points.save") ? h("button", { class: "sb-b", onclick: () => void save(s.callsign!) }, "Сохранить сейчас") : null,
             ),
           ),

@@ -3,7 +3,7 @@
 // плашка — только у не запустившейся, сведения сбоку — по желанию. Вкладки: «Разговор» · вкладки места card.tab
 // · «Настройки» · «Журнал». Поле — у своего владельца: модель, усилие, быстрый режим, заголовок — session.update;
 // слот — session.slot; профиль — session.profile; итог изменения — из следующего roster. Нет имени в contract — нет кнопки.
-import { add, h, hhmm, myAddress, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { add, effortName as effName, EFFORTS, h, hhmm, MODELS, myAddress, profileName, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf, userOf } from "@switchboard/protocol";
 
 export const WIDE_CSS = `
@@ -89,10 +89,6 @@ const LABEL: Record<string, [string, string]> = {
   stopping: ["останавливается", "stop"],
   stopped: ["остановлена", "stop"],
 };
-/** Модели, когда SDK машины не спросить (сессия не живая). */
-export const MODELS = ["opus", "sonnet", "haiku", "fable"];
-export const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
-const effName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ?? String(e ?? "");
 const LIVE = new Set(["idle", "busy", "waiting"]);
 /** Окна лимитов аккаунта → подпись. */
 const WINDOWS: Record<string, string> = { five_hour: "5 часов", seven_day: "неделя", seven_day_opus: "неделя Opus" };
@@ -308,7 +304,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
         "dl",
         { class: "cw-kv" },
         h("dt", null, "профиль"),
-        h("dd", null, profileOf(s)?.split("/").at(-1) ?? "без профиля"),
+        h("dd", null, (profileOf(s) ? profileName(profileOf(s)!) : "без профиля")),
         typeof s.dir === "string" ? [h("dt", null, "папка"), h("dd", null, s.dir)] : null,
         h("dt", null, "машина"),
         h("dd", null, `@${machine}`),
@@ -348,7 +344,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     const stopped = s.state === "stopped" || s.state === "failed";
     const view = o.head();
     const owner = typeof s.by === "string" ? userOf(s.by) : null;
-    const prof = profileOf(s)?.split("/").at(-1);
+    const prof = profileOf(s) ? profileName(profileOf(s)!) : undefined;
     // слева кто, справа вкладки и действия: не помещаются в строку — вкладки уходят второй строкой
     add(
       head,
@@ -362,7 +358,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
         "span",
         { class: "cw-hpw" },
         view.hmodel && (s.model || can("session.update"))
-          ? h("button", { class: "cw-hb", "data-pop": "model", "aria-expanded": pop === "model" ? "true" : "false", disabled: !can("session.update") }, `${[s.model, effName(s.effort)].filter(Boolean).join(" · ")} ▾`)
+          ? h("button", { class: "cw-hb", "data-pop": "model", "aria-expanded": pop === "model" ? "true" : "false", disabled: !can("session.update") }, `${[s.model, s.effort ? effName(s.effort) : null].filter(Boolean).join(" · ") || "модель"} ▾`)
           : null,
         s.account ? h("button", { class: `cw-hb ${accCls}`, "data-pop": "acc", "aria-expanded": pop === "acc" ? "true" : "false" }, `${[s.account, accText].filter(Boolean).join(" · ")} ▾`) : null,
         pop === "model" ? modelPop(s) : pop === "acc" ? accPop(s) : null,
@@ -430,7 +426,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
           from ? [h("dt", null, "задачу дал"), h("dd", null, from)] : null,
           typeof s.dir === "string" ? [h("dt", null, "папка"), h("dd", null, s.dir)] : null,
           h("dt", null, "профиль"),
-          h("dd", null, profileOf(s)?.split("/").at(-1) ?? "без профиля"),
+          h("dd", null, (profileOf(s) ? profileName(profileOf(s)!) : "без профиля")),
         ),
       ),
       typeof s.parent === "string" || kids.length
@@ -588,7 +584,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
                 "div",
                 { class: "cw-opts", style: "padding:0" },
                 [...(profiles ?? (profNow ? [profNow] : [])), ""].map((p) =>
-                  h("button", { class: "cw-b", "aria-pressed": profNow === p ? "true" : "false", "data-profile": p, onclick: () => (p === profNow ? null : void move("session.profile", p || null)) }, p ? p.split("/").at(-1) : "без профиля"),
+                  h("button", { class: "cw-b", "aria-pressed": profNow === p ? "true" : "false", "data-profile": p, onclick: () => (p === profNow ? null : void move("session.profile", p || null)) }, p ? profileName(p) : "без профиля"),
                 ),
               ),
               noteEl("profile"),

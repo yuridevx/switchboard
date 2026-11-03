@@ -56,6 +56,14 @@ export function stateLabel(state: unknown): { text: string; tone: Tone; dot: str
   }
 }
 
+/** Модели, когда SDK машины не спросить. */
+export const MODELS = ["opus", "sonnet", "haiku", "fable"];
+/** Усилия и подписи. */
+export const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
+export const effortName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ?? String(e ?? "");
+/** Короткое имя профиля: team/profiles/ops → ops. */
+export const profileName = (id: string) => id.split("/").at(-1) ?? id;
+
 /** Мой адрес ~почта: среди клиентов roster — устройство с именем этого приложения. */
 export function myAddress(app: App): string | null {
   const c = (app.roster()?.clients ?? []).find((x) => x.startsWith(`${app.name}~`));

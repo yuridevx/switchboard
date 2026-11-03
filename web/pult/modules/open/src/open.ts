@@ -2,11 +2,9 @@
 // (машины и папки по частоте из roster, пресеты, путь, machine.dirs). Снизу — поле ввода: имя обязательно и подставлено из папки,
 // чипы «Профиль» и модель · усилие · слот, «Точки в R2» (выключены), задача — необязательно.
 // «Открыть» = session.open; включено «в R2» — session.r2; есть задача — session.prompt; затем карточка. Своих данных нет.
-import { h, plural, projectOf, type App, type AppModule, type Params, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { effortName as effName, EFFORTS, h, MODELS, plural, profileName as short, projectOf, type App, type AppModule, type Params, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
-const MODELS = ["opus", "sonnet", "haiku", "fable"];
-const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 type Slots = Record<string, { account: string | null; wait?: number | null; sessions: string[] }>;
@@ -127,8 +125,6 @@ const hm = (t: number) => {
   const d = new Date(t < 1e12 ? t * 1000 : t);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
-const effName = (e: string) => EFFORTS.find(([k]) => k === e)?.[1] ?? e;
-const short = (id: string) => id.split("/").at(-1) ?? id;
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createOpen(): AppModule {

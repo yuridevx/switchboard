@@ -1,9 +1,7 @@
 // pult-profiles — профили флота: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
 // Раньше сводили «Машины» и «Настройки»; теперь это единственный экран профилей.
-import { h, plural, projectOf, stateLabel, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
+import { effortName, h, plural, profileName as short, projectOf, stateLabel, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-
-const EFFORT: Record<string, string> = { low: "низкое", medium: "среднее", high: "высокое", xhigh: "очень высокое", max: "макс." };
 
 type Repo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };
 type Answer = { profiles: Record<string, { model?: string | null; effort?: string | null; about?: string }>; repos: Record<string, Repo> };
@@ -47,7 +45,6 @@ const CSS = `
 `;
 
 const repoOf = (id: string) => id.slice(0, id.lastIndexOf("/"));
-const short = (id: string) => id.split("/").at(-1) ?? id;
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createProfiles(): AppModule {
@@ -144,7 +141,7 @@ export function createProfiles(): AppModule {
                     h(
                       "span",
                       { class: "pf-m" },
-                      h("span", null, [r.model, EFFORT[r.effort] ?? r.effort].filter(Boolean).join(" · ")),
+                      h("span", null, [r.model, r.effort ? effortName(r.effort) : null].filter(Boolean).join(" · ")),
                       h("span", { class: "c" }, `${r.ms.length}/${nm} ${plural(nm, "машины", "машин", "машин")} · ${run.length} ${plural(run.length, "сессия", "сессии", "сессий")}`),
                       r.cf.length ? h("span", { class: "pf-p bad" }, `конфликт ${r.cf.map((x) => mLabel(x.m)).join(", ")}`) : null,
                     ),

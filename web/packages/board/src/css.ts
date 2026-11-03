@@ -28,7 +28,7 @@ button.fc.vw[aria-expanded="true"]{background:var(--accent);color:var(--on-accen
 @media (hover:hover){.bd-list .grip{opacity:.35}.bd-list .pj:hover .grip,.bd-list .grip:focus-visible{opacity:1}}
 .pin-sep{border-top:1.5px solid var(--line);margin:6px 8px}
 button.pj-t{flex:1;min-width:0;display:flex;align-items:center;gap:7px;border:0;background:transparent;padding:4px 6px;border-radius:7px;font:600 13.5px var(--body);text-align:left;color:var(--ink)}
-button.pj-t:hover{background:var(--accent-weak)}
+@media (hover:hover){button.pj-t:hover{background:var(--accent-weak)}button.pj-add:hover{background:var(--accent-weak);color:var(--ink)}.bd-row:hover{background:var(--surface2)}}
 .pj-t .car{width:12px;color:var(--muted);font-size:10px;transition:transform .15s;flex:none}
 .pj-t[aria-expanded="false"] .car{transform:rotate(-90deg)}
 .pj-t .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -36,12 +36,10 @@ button.pj-t:hover{background:var(--accent-weak)}
 .pj-t .lamps .sb-dot{width:7px;height:7px;animation:none;box-shadow:none}
 .pj-t .n{font:500 11.5px var(--mono);color:var(--muted);margin-left:4px}
 button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:8px;font-size:17px;line-height:1;display:grid;place-items:center;background:transparent;color:var(--muted)}
-button.pj-add:hover{background:var(--accent-weak);color:var(--ink)}
 .mgrp{display:flex;align-items:center;gap:6px;padding:7px 10px 1px 34px;font:600 11.5px var(--body);color:var(--muted)}
 .mgrp .n{font:500 10.5px var(--mono);opacity:.8}
 .bd-row{position:relative;display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:transparent;border-radius:9px;padding:7px 10px;color:var(--ink)}
 .sb-app:not(.wide) .bd-row{padding:7px 12px}
-.bd-row:hover{background:var(--surface2)}
 .bd-row[aria-current="true"]{background:var(--accent-weak)}
 .bd-row .sb-dot{margin-top:5px;flex:none}
 .bd-rt{flex:1;min-width:0;display:flex;flex-direction:column}

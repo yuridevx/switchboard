@@ -2,9 +2,9 @@
 // и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
 // Широкий вид (пульт) — src/wide.ts: шапка в одну строку, «Настройки», «Журнал» и вкладки места card.tab;
 // «Сведения сбоку» — выбор устройства, раздел хранилища info.
-import { h, projectOf, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { EFFORTS, h, MODELS, projectOf, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { EFFORTS, HEAD0, machineName, MODELS, mountWide, openNames, placedAct, sessionName, WIDE_CSS, type HeadView } from "./wide.ts";
+import { HEAD0, machineName, mountWide, openNames, placedAct, sessionName, WIDE_CSS, type HeadView } from "./wide.ts";
 
 const CSS = `
 .card-pick{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px}
