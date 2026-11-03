@@ -1,20 +1,14 @@
 // Малые части экранов настроек: строка итога по ключу и поле, чей текст переживает закрытие экрана.
 import { useState, type ComponentProps } from "react";
 import { useApp } from "@switchboard/web-core";
-import { In, Note } from "@switchboard/web-ui";
+import { In, Outcome } from "@switchboard/web-ui";
 import { useSettings } from "./context.ts";
 
 /** Строка отказа или итога по ключу. */
 export function NoteOf({ k }: { k: string }) {
   const app = useApp();
   const settings = useSettings();
-  const n = app.use(() => settings.get().notes[k]);
-  if (!n?.text) return null;
-  return (
-    <Note tone={n.tone} role={n.tone === "bad" ? "alert" : undefined}>
-      {n.text}
-    </Note>
-  );
+  return <Outcome note={app.use(() => settings.get().notes[k])} />;
 }
 
 /**

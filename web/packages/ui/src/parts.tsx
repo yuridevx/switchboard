@@ -200,7 +200,7 @@ export function LimitRow({ label, used, resets, ...p }: ComponentProps<"div"> & 
 export function Outcome({ note, ...p }: ComponentProps<"div"> & { note?: { text: string; tone?: "ok" | "bad" | "wait" | "" } }) {
   if (!note?.text) return null;
   return (
-    <Note role="status" {...p} tone={note.tone || undefined}>
+    <Note role={note.tone === "bad" ? "alert" : "status"} {...p} tone={note.tone || undefined}>
       {note.text}
     </Note>
   );

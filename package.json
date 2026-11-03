@@ -14,7 +14,7 @@
   ],
   "scripts": {
     "gate": "node tools/manifest-gate/cli.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && node scripts/web-typecheck.mjs",
     "test": "npm run gate && vitest run",
     "test:workers": "npm run test --workspaces --if-present",
     "stand": "node scripts/shots/dev.mjs",

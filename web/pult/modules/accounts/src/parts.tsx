@@ -1,6 +1,6 @@
 // Общие части карточек: окна лимитов, строка итога, пометка общего аккаунта, отказы владельцев.
 import { useApp } from "@switchboard/web-core";
-import { Hint, LIMIT_NAMES, LimitRow, Note } from "@switchboard/web-ui";
+import { Hint, LIMIT_NAMES, LimitRow, Note, Outcome } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
 import { slotsWith, type Account } from "./store.ts";
 
@@ -16,12 +16,7 @@ export function Windows({ a }: { a: Account | undefined }) {
 
 /** Строка итога действия. */
 export function NoteLine({ k }: { k: string }) {
-  const n = useScreen().notes[k];
-  return n?.text ? (
-    <Note tone={n.tone} role="status" data-note={k}>
-      {n.text}
-    </Note>
-  ) : null;
+  return <Outcome note={useScreen().notes[k]} data-note={k} />;
 }
 
 /** Пометка «сейчас и в слоте …» — аккаунт стоит и в других слотах машины, лимит у них общий. */
