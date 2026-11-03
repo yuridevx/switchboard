@@ -16,7 +16,9 @@
     "gate": "node tools/manifest-gate/cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run gate && vitest run",
-    "test:workers": "npm run test --workspaces --if-present"
+    "test:workers": "npm run test --workspaces --if-present",
+    "shots": "node scripts/shots/run.mjs",
+    "drag": "node scripts/shots/drag.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.23.0",
@@ -26,6 +28,7 @@
     "@vitest/snapshot": "4.1.12",
     "esbuild": "0.28.2",
     "happy-dom": "21.0.4",
+    "playwright-core": "1.64.1",
     "typescript": "5.9.3",
     "vitest": "4.1.12",
     "wrangler": "4.156.0",
