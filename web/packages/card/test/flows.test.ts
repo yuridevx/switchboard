@@ -65,8 +65,8 @@ describe("карточка в узком виде", () => {
     r.sessions = r.sessions.filter((s) => !s.callsign.endsWith("@laptop"));
     const t = await stand(parts(), { relay: relayFor(r), url: "/#card?callsign=site%40laptop&tab=info" });
     await flush();
-    expect(t.$(".sb-bt")!.textContent).toBe("site@laptoplaptop не на связи");
-    expect(t.$(".card-info")!.textContent).toBe("состояниеlaptop не на связи");
+    expect(t.$(".sb-bt")!.textContent).toBe("site@laptop@laptop не на связи");
+    expect(t.$(".card-info")!.textContent).toBe("адресsite@laptop");
     expect(t.button("Остановить")).toBeNull();
     expect(t.button("Поднять")).toBeNull();
   });
@@ -90,8 +90,7 @@ describe("карточка в широком виде", () => {
     expect([...head.querySelectorAll(".cw-tabs [data-tab]")].map((b) => b.textContent)).toEqual(["Разговор", "Настройки", "Журнал"]);
     expect(t.btn(".cw-h", "■ Прервать")).not.toBeNull();
     expect(head.querySelector('[data-pop="menu"]')).not.toBeNull();
-    // второй строки шапки и плашки у живой сессии нет; состояние — не текстом
-    expect(t.$(".cw-meta")).toBeNull();
+    // плашки у живой сессии нет; состояние — не текстом
     expect(t.$(".cw-pl")!.hidden).toBe(true);
     expect(head.textContent).not.toContain("работает");
     expect(head.textContent).not.toContain("null");
@@ -204,7 +203,7 @@ describe("карточка в широком виде", () => {
       x.sessions = x.sessions.filter((s) => !s.callsign.endsWith("@pc"));
     });
     const t = await wideCard("poe-bot@pc", r);
-    expect(t.$(".cw-h")!.textContent).toContain("poe-bot@pcpc не на связи");
+    expect(t.$(".cw-h")!.textContent).toContain("poe-bot@pc@pc✎не на связи");
     expect(t.$(".cw-pl")!.hidden).toBe(true);
     expect(t.btn(".cw", "■ Прервать")).toBeNull();
   });

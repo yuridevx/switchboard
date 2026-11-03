@@ -1,0 +1,21 @@
+{
+  "name": "pult-profiles",
+  "type": "web",
+  "version": "1.0.0",
+  "into": [
+    "pult",
+    "phone"
+  ],
+  "provides": {
+    "profiles": 1
+  },
+  "uses": {
+    "app@web-core": 1,
+    "roster@relay": 1,
+    "machine.profiles@host-profiles": 1,
+    "card@web-card": 1,
+    "label.session@web-labels": 1,
+    "label.machine@web-labels": 1
+  },
+  "config": {}
+}

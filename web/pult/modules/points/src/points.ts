@@ -1,7 +1,7 @@
 // pult-points — точки сессий с пометкой «в R2»: обзор реестра, вкладка «Точки» карточки, перенос, копия,
 // смена папки, откат и «пожар». Своих данных не хранит: линия, ветки, срок и хозяин — от реестра points,
 // подъём и точки — host-points машины. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
-import { h, hhmm, pickOne, plural, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { h, hhmm, pickOne, plural, projectOf, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
@@ -108,7 +108,8 @@ export function createPoints(): AppModule {
 
   /** Выбор машины подъёма: выбранная и машины проекта сессии (метки web-board) — кнопками, остальные — списком. */
   function pickMachine(cur: string, callsign: string | undefined, on: (m: string) => void): HTMLElement {
-    const project = callsign ? (app.mark("project", callsign) as string | null | undefined) : null;
+    const s = callsign ? app.roster()?.sessions.find((x) => x.callsign === callsign) : undefined;
+    const project = s ? projectOf(s.dir) : null;
     const pm = project ? ((app.mark("project.machines", project) as string[] | undefined) ?? []) : [];
     return h("div", { class: "sb-opts" }, pickOne(raisers(), pm, cur, on, { select: { "data-f": "target", "aria-label": "Другая машина" } }));
   }
@@ -299,7 +300,7 @@ export function createPoints(): AppModule {
             h(
               "div",
               { class: "pt-row", "data-sid": s.sid },
-              h("span", null, h("b", null, s.callsign), ` ${ago(s.head.at)} · №${s.head.id}`),
+              h("span", null, h("b", null, (app.mark("label.session", s.callsign) as { text: string } | undefined)?.text ?? s.callsign), ` ${ago(s.head.at)} · №${s.head.id}`),
               can(s.owner, "points.save") ? h("button", { class: "sb-b", onclick: () => void save(s.callsign!) }, "Сохранить сейчас") : null,
             ),
           ),

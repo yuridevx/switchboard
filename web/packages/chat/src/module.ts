@@ -51,6 +51,8 @@ const uuid = (): string => crypto.randomUUID();
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createChat(): AppModule {
   let app: App;
+  /** человеческое имя сессии; адрес в протоколе не меняется */
+  const nameOf = (c: string) => (app.mark("label.session", c) as { text: string } | undefined)?.text ?? c;
   const convs = new Map<string, Conv>();
   let drafts: Record<string, string> = {};
   let draftsLoaded = false;
@@ -266,7 +268,7 @@ export function createChat(): AppModule {
       return h(
         "div",
         { class: "chat-in" },
-        h("div", { class: "chat-from" }, `${callsign} → вам`, it.push ? h("span", { class: "chat-tag" }, "из уведомления") : null),
+        h("div", { class: "chat-from" }, `${nameOf(callsign)} → вам`, it.push ? h("span", { class: "chat-tag" }, "из уведомления") : null),
         it.text,
         h("small", null, hhmm(it.at)),
       );
@@ -344,7 +346,7 @@ export function createChat(): AppModule {
     const sug = h("div", { class: "chat-sug", role: "listbox" });
     const files = h("div", { class: "chat-files" });
     const tools = h("div", { class: "chat-tools" });
-    const input = h("textarea", { class: "chat-inp", rows: 1, placeholder: `Написать ${callsign}`, "aria-label": `Написать ${callsign}` }) as HTMLTextAreaElement;
+    const input = h("textarea", { class: "chat-inp", rows: 1, placeholder: `Написать ${nameOf(callsign)}`, "aria-label": `Написать ${nameOf(callsign)}` }) as HTMLTextAreaElement;
     input.value = drafts[callsign] ?? "";
     const sendBtn = h("button", { class: "chat-send", "aria-label": "Отправить", type: "submit" }, "↑") as HTMLButtonElement;
     const form = h("form", { class: "chat-comp" + (wide ? " wide" : "") }, h("div", { class: "chat-box" }, files, input, tools), sendBtn) as HTMLFormElement;
@@ -569,7 +571,7 @@ export function createChat(): AppModule {
       if (wide) {
         // вопрос над вводом: открыт, пока открыт чат, — ответ «принят» или «уже ответили» остаётся виден
         if ((asked || s?.state === "waiting") && !askHandle) askHandle = app.open("ask", { callsign }, askBox);
-        input.placeholder = s?.state === "busy" ? `В очередь ${callsign} — Claude возьмёт на границе шага` : `Сообщение ${callsign} — Enter; Shift+Enter — строка`;
+        input.placeholder = s?.state === "busy" ? `В очередь ${nameOf(callsign)} — Claude возьмёт на границе шага` : `Сообщение ${nameOf(callsign)} — Enter; Shift+Enter — строка`;
       } else {
         askBox.textContent = "";
         if (asked) askBox.append(h("button", { class: "chat-askbar", onclick: () => app.open("ask", { callsign }) }, h("b", null, "?"), h("span", null, asked), h("em", null, "Ответить")));
@@ -583,9 +585,9 @@ export function createChat(): AppModule {
     return {
       head: () => {
         const s = app.roster()?.sessions.find((x) => x.callsign === callsign);
-        if (!s) return { title: callsign, mono: true, sub: `${machineOf(callsign)} не на связи` };
+        if (!s) return { title: nameOf(callsign), mono: true, sub: `${machineOf(callsign)} не на связи` };
         const st = stateLabel(s.state);
-        return { title: callsign, mono: true, sub: sessionLine(s, true), pill: { text: st.text, tone: st.tone } };
+        return { title: nameOf(callsign), mono: true, sub: sessionLine(s, true), pill: { text: st.text, tone: st.tone } };
       },
       refresh: () => {
         c.unread = 0;

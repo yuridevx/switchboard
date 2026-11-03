@@ -3,19 +3,31 @@
 // плашка — только у не запустившейся, сведения сбоку — по желанию. Вкладки: «Разговор» · вкладки места card.tab
 // · «Настройки» · «Журнал». Поле — у своего владельца: модель, усилие, быстрый режим, заголовок — session.update;
 // слот — session.slot; профиль — session.profile; итог изменения — из следующего roster. Нет имени в contract — нет кнопки.
-import { add, h, hhmm, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
-import { machineOf } from "@switchboard/protocol";
+import { add, h, hhmm, myAddress, type App, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { machineOf, userOf } from "@switchboard/protocol";
 
 export const WIDE_CSS = `
 .cw{flex:1;min-height:0;display:flex;flex-direction:column}
-.cw-h{flex:none;display:flex;align-items:center;gap:10px;padding:0 10px 0 16px;min-height:48px;background:var(--surface);border-bottom:1px solid var(--line2);flex-wrap:nowrap}
+.cw-h{flex:none;display:flex;flex-wrap:wrap;align-items:stretch;column-gap:10px;padding:0 10px 0 16px;background:var(--surface);border-bottom:1px solid var(--line2)}
+.cw-hl{flex:0 1 auto;min-width:0;display:flex;align-items:center;gap:10px;min-height:48px}
+.cw-hr{flex:1 0 auto;display:flex;align-items:center;gap:10px;min-height:44px}
 .cw-lamp{flex:none;cursor:help;animation:none}
-.cw-cs{font:600 16px var(--mono);white-space:nowrap}
+.cw-nm{flex:0 1 auto;min-width:0;display:inline-flex;flex-direction:column;align-items:flex-start;gap:0;border:0;background:transparent;padding:2px 7px;margin-left:-5px;border-radius:7px;color:var(--ink)}
+.cw-nm:hover{background:var(--accent-weak)}
+.cw-nm1{display:inline-flex;align-items:baseline;gap:7px;min-width:0;max-width:100%}
+.cw-cs{font:600 16px var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cw-cs.hum{font-family:var(--body)}
+.cw-at{font:400 12.5px var(--mono);color:var(--muted);white-space:nowrap}
+.cw-at.hum{font-family:var(--body)}
+.cw-ed{font-size:12px;color:var(--muted)}
+.cw-real{font:400 11px/1.2 var(--mono);color:var(--muted);white-space:nowrap}
+.cw-meta{display:flex;align-items:center;gap:6px;min-width:0;overflow:hidden;flex:0 1000 auto}
+.cw-pill{font:600 11px var(--body);padding:1px 7px;border-radius:999px;background:var(--surface2);border:1px solid var(--line2);white-space:nowrap}
 .cw-hpw{position:relative;display:flex;gap:6px;flex:none}
 .cw-hb{font:500 12.5px/1.3 var(--body);border:1px solid var(--line2);background:var(--surface2);color:var(--ink);border-radius:999px;padding:3px 10px;white-space:nowrap}
 .cw-hb.lim{background:var(--wait-weak);color:var(--wait);border-color:transparent}
 .cw-hb.you{background:var(--wait);color:var(--on-wait,#fff);border-color:transparent}
-.cw-tabs{display:flex;gap:2px;margin-left:auto;align-self:stretch}
+.cw-tabs{display:flex;gap:2px;margin-right:auto;align-self:stretch;flex:none}
 .cw-tabs button{font:500 13.5px var(--body);padding:0 11px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);border-radius:0;white-space:nowrap}
 .cw-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
 .cw-tabs button .n{font-size:11.5px;color:var(--muted);margin-left:3px}
@@ -106,8 +118,32 @@ function midnight(daysBack = 0): string {
   return d.toISOString();
 }
 
-/** Состояние карточки, общее для всех карточек модуля: сведения сбоку — выбор устройства. */
-export type WideOpts = { info: () => boolean; setInfo: (v: boolean) => void };
+/** Что показывать в шапке — выбор устройства; переключатели — экран card.view в панели вида «Работы». */
+export const HEAD0 = { haddr: false, howner: true, hprof: true, hmodel: true };
+export type HeadView = typeof HEAD0;
+
+type Shown = { text: string; human: boolean };
+export const sessionName = (app: App, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? { text: callsign, human: false };
+export const machineName = (app: App, machine: string) => (app.mark("label.machine", machine) as Shown | undefined) ?? { text: `@${machine}`, human: false };
+
+/** Окно «Имена» web-labels поверх карточки. */
+export function openNames(app: App, root: HTMLElement, callsign: string) {
+  const host = h("div");
+  root.append(host);
+  const hd = app.open("labels", { callsign }, host);
+  host.addEventListener("sb-close", () => {
+    hd?.close?.();
+    host.remove();
+  });
+}
+
+/** Пункт места card.menu: экран — действие с from, своего вида у него нет. */
+export function placedAct(app: App, screen: string, callsign: string) {
+  app.open(screen, { from: callsign }, h("div"))?.close?.();
+}
+
+/** Состояние карточки, общее для всех карточек модуля: сведения сбоку и шапка — выбор устройства. */
+export type WideOpts = { head: () => HeadView; info: () => boolean; setInfo: (v: boolean) => void };
 
 /** Карточка сессии в широком виде. */
 export function mountWide(app: App, el: HTMLElement, params: Record<string, string>, o: WideOpts): ScreenHandle {
@@ -280,12 +316,19 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
       ),
       h("hr"),
       h("button", { class: "cw-mi", role: "menuitemcheckbox", "aria-checked": o.info() ? "true" : "false", "data-act": "info", onclick: () => ((pop = ""), o.setInfo(!o.info()), drawBody(), drawHead()) }, `${o.info() ? "✓ " : ""}Сведения сбоку`),
-      // пункты места card.menu: экраны других модулей («Новая задача рядом» — pult-open), открываются с позывным
-      app
-        .placed("card.menu")
-        .filter((x) => x.show({ callsign }))
-        .map((x) => h("button", { class: "cw-mi", role: "menuitem", "data-screen": x.screen, onclick: () => ((pop = ""), app.open(x.screen, { from: callsign })) }, x.label)),
       remote ? h("a", { class: "cw-mi", role: "menuitem", href: remote, target: "_blank", rel: "noopener" }, "Открыть в claude.ai ↗") : null,
+    );
+  }
+
+  /** имя сессии и машины — кнопка окна «Имена»; настоящий адрес — по переключателю вида */
+  function nameEl(): HTMLElement {
+    const n = sessionName(app, callsign);
+    const m = machineName(app, machine);
+    return h(
+      "button",
+      { class: "cw-nm", "data-act": "names", "aria-label": "Имена сессии и машины", onclick: () => openNames(app, el, callsign) },
+      h("span", { class: "cw-nm1" }, h("b", { class: "cw-cs" + (n.human ? " hum" : "") }, n.text), h("span", { class: "cw-at" + (m.human ? " hum" : "") }, m.text), h("span", { class: "cw-ed", "aria-hidden": "true" }, "✎")),
+      o.head().haddr && (n.human || m.human) ? h("span", { class: "cw-real" }, callsign) : null,
     );
   }
 
@@ -293,7 +336,7 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     const s = session();
     head.textContent = "";
     if (!s) {
-      head.append(h("span", { class: "sb-dot stop cw-lamp", role: "img", title: "не на связи", "aria-label": "не на связи" }), h("b", { class: "cw-cs" }, callsign), h("span", { class: "cw-note" }, `${machine} не на связи`), tabsEl());
+      head.append(h("div", { class: "cw-hl" }, h("span", { class: "sb-dot stop cw-lamp", role: "img", title: "не на связи", "aria-label": "не на связи" }), nameEl(), h("span", { class: "cw-note" }, "не на связи")), h("div", { class: "cw-hr" }, tabsEl()));
       return;
     }
     const [, dot] = LABEL[String(s.state)] ?? ["", ""];
@@ -303,24 +346,42 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
     const accText = sl?.wait ? `ждёт сброса ${at(sl.wait)}` : w5 ? `${Math.round(w5.utilization * 100)} %` : "";
     const accCls = sl?.wait ? "you" : w5 && w5.utilization >= LIMIT_HINT ? "lim" : "";
     const stopped = s.state === "stopped" || s.state === "failed";
+    const view = o.head();
+    const owner = typeof s.by === "string" ? userOf(s.by) : null;
+    const prof = profileOf(s)?.split("/").at(-1);
+    // слева кто, справа вкладки и действия: не помещаются в строку — вкладки уходят второй строкой
     add(
       head,
+      h(
+        "div",
+        { class: "cw-hl" },
       h("span", { class: `sb-dot ${dot} cw-lamp`, tabindex: "0", role: "img", title: t, "aria-label": t, "data-tip": t }),
-      h("b", { class: "cw-cs" }, callsign),
+      nameEl(),
+      h("span", { class: "cw-meta" }, view.howner && owner && owner !== myAddress(app) ? h("span", { class: "cw-pill" }, owner.slice(1)) : null, view.hprof && prof ? h("span", { class: "cw-pill" }, prof) : null),
       h(
         "span",
         { class: "cw-hpw" },
-        s.model || can("session.update")
+        view.hmodel && (s.model || can("session.update"))
           ? h("button", { class: "cw-hb", "data-pop": "model", "aria-expanded": pop === "model" ? "true" : "false", disabled: !can("session.update") }, `${[s.model, effName(s.effort)].filter(Boolean).join(" · ")} ▾`)
           : null,
         s.account ? h("button", { class: `cw-hb ${accCls}`, "data-pop": "acc", "aria-expanded": pop === "acc" ? "true" : "false" }, `${[s.account, accText].filter(Boolean).join(" · ")} ▾`) : null,
         pop === "model" ? modelPop(s) : pop === "acc" ? accPop(s) : null,
       ),
+      ),
+      h(
+        "div",
+        { class: "cw-hr" },
       tabsEl(),
       s.state === "busy" && can("session.call") ? h("button", { class: "cw-b bad", onclick: () => void interrupt() }, "■ Прервать") : null,
       stopped && can("session.start") ? h("button", { class: "cw-b pri", onclick: () => void start() }, "Запустить") : null,
       headNote ? h("span", { class: "cw-why" }, headNote) : null,
+      // пункты места card.menu: закрепление (web-board)
+      app
+        .placed("card.menu")
+        .filter((x) => x.show({ callsign }))
+        .map((x) => h("button", { class: "cw-b", "data-screen": x.screen, onclick: () => placedAct(app, x.screen, callsign) }, x.label)),
       h("span", { class: "cw-mw" }, h("button", { class: "cw-b ghost cw-more", "data-pop": "menu", "aria-haspopup": "menu", "aria-expanded": pop === "menu" ? "true" : "false", "aria-label": "Действия сессии" }, "⋯"), pop === "menu" ? menuPop(s) : null),
+      ),
     );
     for (const b of head.querySelectorAll<HTMLButtonElement>("[data-pop]")) b.addEventListener("click", () => toggle(b.dataset.pop as "model" | "acc" | "menu"));
   }
@@ -651,9 +712,9 @@ export function mountWide(app: App, el: HTMLElement, params: Record<string, stri
   return {
     head: () => {
       const s = session();
-      if (!s) return { title: callsign, mono: true, sub: `${machine} не на связи` };
-      const [label, dot] = LABEL[String(s.state)] ?? [String(s.state), ""];
-      return { title: callsign, mono: true, sub: [s.model, effName(s.effort)].filter(Boolean).join(" · "), pill: { text: label, tone: dot === "idle" ? "ok" : dot === "stop" ? "" : (dot as "busy" | "wait" | "bad") } };
+      const n = sessionName(app, callsign);
+      if (!s) return { title: n.text, mono: !n.human };
+      return { title: n.text, mono: !n.human, sub: [s.model, effName(s.effort)].filter(Boolean).join(" · ") };
     },
     refresh: () => {
       drawHead();

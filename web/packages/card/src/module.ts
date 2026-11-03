@@ -2,9 +2,9 @@
 // и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
 // Широкий вид (пульт) — src/wide.ts: шапка в одну строку, «Настройки», «Журнал» и вкладки места card.tab;
 // «Сведения сбоку» — выбор устройства, раздел хранилища info.
-import { h, sessionLine, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { h, projectOf, stateLabel, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { EFFORTS, MODELS, mountWide, WIDE_CSS } from "./wide.ts";
+import { EFFORTS, HEAD0, machineName, MODELS, mountWide, openNames, placedAct, sessionName, WIDE_CSS, type HeadView } from "./wide.ts";
 
 const CSS = `
 .card-pick{display:flex;flex-direction:column;gap:8px;margin:4px 0 8px}
@@ -23,7 +23,10 @@ export function createCard(): AppModule {
   let app: App;
   /** сведения сбоку в широкой карточке — выбор этого устройства */
   let info = false;
+  /** что показывать в шапке карточки пульта — выбор этого устройства */
+  let head: HeadView = { ...HEAD0 };
   const opts = {
+    head: () => head,
     info: () => info,
     setInfo: (v: boolean) => {
       info = v;
@@ -73,14 +76,14 @@ export function createCard(): AppModule {
       const s = session();
       const rows: Array<[string, unknown]> = s
         ? [
-            ["состояние", stateLabel(s.state).text],
+            ["адрес", callsign],
             ["папка", s.dir],
             ["слот", (s.slot as { name?: string } | undefined)?.name],
             ["аккаунт", s.account],
             ["профиль", (s.profile as { id?: string } | null | undefined)?.id],
             ["сбой", s.failed ? Object.entries(s.failed as Record<string, string>).map(([k, v]) => `${k}: ${v}`).join("; ") : undefined],
           ]
-        : [["состояние", `${machineOf(callsign)} не на связи`]];
+        : [["адрес", callsign]];
       const remote = typeof s?.remote === "string" ? s.remote : (s?.remote as { url?: string } | undefined)?.url;
       const stopped = s?.state === "stopped";
       return h(
@@ -95,11 +98,12 @@ export function createCard(): AppModule {
               h("div", { class: "sb-opts", "data-pick": "effort" }, EFFORTS.map(([k, l]) => h("button", { class: "sb-b", "aria-pressed": s.effort === k ? "true" : "false", disabled: !!busy, onclick: () => void update({ effort: k }) }, l))),
             )
           : null,
-        // пункты места card.menu: «Закрепить в «Моём»» (web-board), «Новая задача рядом» (pult-open)
+        h("button", { class: "card-act", "data-act": "names", onclick: () => openNames(app, el, callsign) }, "Имена"),
+        // пункты места card.menu: закрепление (web-board)
         app
           .placed("card.menu")
           .filter((x) => x.show({ callsign }))
-          .map((x) => h("button", { class: "card-act", "data-screen": x.screen, onclick: () => app.open(x.screen, { from: callsign }) }, x.label)),
+          .map((x) => h("button", { class: "card-act", "data-screen": x.screen, onclick: () => placedAct(app, x.screen, callsign) }, x.label)),
         remote ? h("a", { class: "card-act", href: remote, target: "_blank", rel: "noopener" }, "Открыть в claude.ai") : null,
         s && !stopped && can("session.stop") ? h("button", { class: "card-act", disabled: !!busy, onclick: () => act("session.stop") }, busy === "session.stop" ? "Останавливаю…" : "Остановить") : null,
         s && stopped && can("session.start") ? h("button", { class: "card-act", disabled: !!busy, onclick: () => act("session.start") }, busy === "session.start" ? "Поднимаю…" : "Поднять") : null,
@@ -145,9 +149,11 @@ export function createCard(): AppModule {
     return {
       head: () => {
         const s = session();
-        if (!s) return { title: callsign, mono: true, sub: `${machineOf(callsign)} не на связи` };
-        const st = stateLabel(s.state);
-        return { title: callsign, mono: true, sub: sessionLine(s, true), pill: { text: st.text, tone: st.tone } };
+        const name = sessionName(app, callsign);
+        const at = machineName(app, machineOf(callsign) ?? "").text;
+        if (!s) return { title: name.text, mono: !name.human, sub: `${at} не на связи` };
+        // лампа без слов: состояние понятно по индикатору
+        return { title: name.text, mono: !name.human, sub: `${at} · ${projectOf(s.dir)}`, dot: s.state === "failed" ? "bad" : stateLabel(s.state).dot };
       },
       refresh: () => {
         if (tab === "info") draw();
@@ -158,12 +164,35 @@ export function createCard(): AppModule {
   }
 
   return {
-    screens: { card: { label: "Карточка", mount: mountCard } },
+    screens: {
+      card: { label: "Карточка", mount: mountCard },
+      // группа «Шапка» в панели вида «Работы»: настройки шапки — у карточки
+      "card.view": {
+        label: "Шапка",
+        path: "card-view",
+        mount: (el) => {
+          const units: Array<[keyof HeadView, string, string]> = [["haddr", "Адрес", "Адрес сессии"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"]];
+          const sync = () => units.forEach(([k], i) => row.children[i].setAttribute("aria-pressed", String(head[k])));
+          const save = (next: HeadView) => {
+            head = next;
+            void app.store<HeadView>("card.head").set(head);
+            sync();
+            app.changed();
+          };
+          const row = h("div", { class: "vw-c" }, units.map(([k, label, full]) => h("button", { "data-v": k, "aria-label": full, onclick: () => save({ ...head, [k]: !head[k] }) }, label)));
+          const box = h("div", { class: "vw-g" }, h("span", { class: "vw-t" }, "Шапка"), row);
+          box.addEventListener("sb-reset", () => save({ ...HEAD0 }));
+          el.append(box);
+          sync();
+        },
+      },
+    },
     css: CSS + WIDE_CSS,
-    store: ["card.info"],
+    store: ["card.info", "card.head"],
     async start(a) {
       app = a;
       info = (await app.store<boolean>("card.info").get()) === true;
+      head = { ...HEAD0, ...(await app.store<HeadView>("card.head").get()) };
     },
   };
 }

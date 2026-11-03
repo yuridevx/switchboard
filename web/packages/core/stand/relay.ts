@@ -24,7 +24,7 @@ export class FakeRelay {
   /** чьё соединение спросило запрос с этим id */
   asked = new Map<string, FakeSock>();
   /** Worker'ы стенда для startApp({ workers }) */
-  static readonly WORKERS = Object.fromEntries(["gate", "relay", "push", "points", "ledger", "github", "releases"].map((n) => [n, `https://${n}.test/`]));
+  static readonly WORKERS = Object.fromEntries(["gate", "relay", "push", "points", "ledger", "github", "prefs", "releases"].map((n) => [n, `https://${n}.test/`]));
 
   /** fetch приложения: keys.list у gate — машины roster; прочее — обработчик по type, как у кадра через relay. */
   readonly fetch = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -34,11 +34,19 @@ export class FakeRelay {
     }
     this.got.push(f as Frame);
     if (typeof f.id !== "string") return new Response(null, { status: 204 });
-    const hd = this.handlers[f.type];
+    const hd = this.handlers[f.type] ?? this.prefsStand(f as Frame);
     const a = hd?.(f as Frame);
     if (a) return Response.json({ type: "reply", id: f.id, ...a });
     return new Promise<Response>((res) => this.posts.set(f.id as string, res));
   }) as typeof fetch;
+
+  /** настройки пользователя стенда — как у Worker'а prefs; тест подменяет handlers["prefs.get"], чтобы он отказал */
+  values: Record<string, unknown> = {};
+  private prefsStand(f: Frame): ((x: Frame) => { ok: boolean; result?: unknown; error?: string }) | undefined {
+    if (f.type === "prefs.get") return () => ({ ok: true, result: { values: JSON.parse(JSON.stringify(this.values)) } });
+    if (f.type === "prefs.set") return (x) => ((this.values[x.name as string] = x.value), { ok: true });
+    return undefined;
+  }
 
   /** roster объекта машины: своя машина и её сессии; гости и Worker'ы — общие стенда. */
   rosterOf(sock: FakeSock): Roster {

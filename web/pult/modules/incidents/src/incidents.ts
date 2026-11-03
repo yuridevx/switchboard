@@ -108,7 +108,7 @@ export function createIncidents(): AppModule {
                 "button",
                 { class: "in-row in-lost", "data-lost": k, "aria-expanded": picked === k ? "true" : "false", onclick: () => ((picked = picked === k ? "" : k), draw()) },
                 h("span", { class: "sb-dot bad" }),
-                h("span", { class: "g" }, h("span", { class: "t1" }, h("b", null, `@${x.machine}`), h("span", { class: "s bad" }, x.word)), h("span", { class: "t2" }, `с ${hhmm(new Date(x.t))}`)),
+                h("span", { class: "g" }, h("span", { class: "t1" }, h("b", null, (app.mark("label.machine", x.machine) as { text: string } | undefined)?.text ?? `@${x.machine}`), h("span", { class: "s bad" }, x.word)), h("span", { class: "t2" }, `с ${hhmm(new Date(x.t))}`)),
               );
               return picked === k ? [row, h("div", { class: "in-why", "data-why": k }, x.why || x.word)] : [row];
             }),
@@ -134,7 +134,7 @@ export function createIncidents(): AppModule {
                   "span",
                   { class: "g" },
                   h("span", { class: "t1" }, h("b", null, inc.type), inc.key !== undefined ? h("span", { class: "k" }, String(inc.key)) : null, h("span", { class: "s" }, st.text)),
-                  h("span", { class: "t2" }, h("span", { class: "m" }, s.callsign), ` · @${machineOf(s.callsign)}`),
+                  h("span", { class: "t2" }, h("span", { class: "m" }, (app.mark("label.session", s.callsign) as { text: string } | undefined)?.text ?? s.callsign), ` · ${(app.mark("label.machine", machineOf(s.callsign) ?? "") as { text: string } | undefined)?.text ?? `@${machineOf(s.callsign)}`}`),
                 ),
               );
             }),

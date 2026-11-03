@@ -183,7 +183,7 @@ describe("эталоны profiles", () => {
     await st!.open("wiki@laptop");
     const r = await ask({ type: "machine.profiles", sync: true });
     expect(r.result.repos["team/profiles"]).toMatchObject({ state: "conflict", op: "git pull --no-rebase", files: ["ops/memory/testing.md"] });
-    expect(r.result.profiles[OPS]).toEqual({ model: "opus", effort: "high", sessions: ["site@laptop"] });
+    expect(r.result.profiles[OPS]).toEqual({ model: "opus", effort: "high" });
     const out = (await st!.proc("site@laptop").hook("UserPromptSubmit", { prompt: "Поправь тесты миграций" })) as any[];
     expect(out[0].hookSpecificOutput.hookEventName).toBe("UserPromptSubmit");
     expect(out[0].hookSpecificOutput.additionalContext).toContain("ops/memory/testing.md");
@@ -381,6 +381,17 @@ describe("profiles: покрытие плана host-modules", () => {
     expect(st!.proc("n@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
   });
 
+  it("5606 · machine.profiles: about из profile.yaml; нет строки — поля нет; сессий в ответе нет", async () => {
+    repo();
+    writeFileSync(join(clone(), "ops", "profile.yaml"), "model: opus\neffort: high\nabout: Выкладка и флот\n");
+    const { mod } = await bench({ git: fakeGit().git });
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    const r = await ask({ type: "machine.profiles" });
+    expect(r.result.profiles[OPS]).toEqual({ model: "opus", effort: "high", about: "Выкладка и флот" });
+    expect(r.result.profiles["team/profiles/writer"]).toEqual({ model: null, effort: null });
+  });
+
   it("3060 · machine.profiles: профиль без profile.yaml — null; sync с отказом токена — ответ с причиной, не отказ", async () => {
     // источник: чьё: код (profiles.ts:273-291, :149)
     repo();
@@ -389,7 +400,8 @@ describe("profiles: покрытие плана host-modules", () => {
     github(st!, () => ({ ok: false, error: "not_installed" }));
     const r = await ask({ type: "machine.profiles", sync: true });
     expect(r.ok).toBe(true);
-    expect(r.result.profiles["team/profiles/writer"]).toEqual({ model: null, effort: null, sessions: [] });
+    // нет строки about — поля нет; сессий в ответе нет: они в поле profile roster
+    expect(r.result.profiles["team/profiles/writer"]).toEqual({ model: null, effort: null });
     expect(r.result.repos["team/profiles"]).toMatchObject({ state: "error", op: "github.token", error: "not_installed" });
   });
 

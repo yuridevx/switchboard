@@ -1,456 +1,480 @@
-// web-board — «Работа»: сессии всех машин по проектам. Проект — последнее имя папки поля dir; «моё» — сессия, ввод
-// или открытие которой пришли от моего адреса (имя~почта), её дочери и закреплённые. Внутри проекта — группы по
-// профилям или машинам, в группе — дерево по parent. Машины проекта — выбор устройства (раздел хранилища projects);
-// по умолчанию — машины его сессий. Метки mine, project и project.machines — одно место этих правил для других модулей.
-import { h, plural, stateLabel, type App, type AppModule, type Params, type Roster, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
-import { kindOf, machineOf } from "@switchboard/protocol";
+// web-board — «Работа»: сессии всех машин по проектам в одном списке для колонки пульта и экрана телефона. Проект — последнее имя папки
+// (правило projectOf ядра). Настройки человека — у его почты (Worker prefs, ключи web-board.*): свои фильтры, порядок фильтров, закреплённые
+// проекты и сессии; одни на всех его устройствах. Настройки устройства — в хранилище страницы: выбранный фильтр, свёрнутые проекты, вид списка.
+// «Моё» — сессия, ввод или открытие которой пришли от моего адреса (имя~почта), её дочери и закреплённые; метка mine — одно место этого правила.
+import { h, myAddress, personal, projectOf, stateLabel, type App, type AppModule, type Personal, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { kindOf, machineOf, userOf } from "@switchboard/protocol";
+import { attachChipDrag, CHIPS_CSS } from "./chips-drag.ts";
+import { BOARD_CSS } from "./css.ts";
+import { filterEditor } from "./filters.ts";
+import { attachProjectDrag, PROJECTS_CSS } from "./projects-drag.ts";
+import { BUILT, byRank, incidentOf, match, orderFilters, orderProjects, parentOf, placeTop, profileOf, rank, tree, type Filter, type Project } from "./rules.ts";
+import { VIEW0, viewPanel, type View, type ViewPanel } from "./view.ts";
 
-const CSS = `
-.bd{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr)}
-.sb-app.wide .bd{grid-template-columns:minmax(280px,340px) minmax(0,1fr)}
-.sb-master .bd{grid-template-columns:minmax(0,1fr)}
-.sb-master .bd-pick{display:none}
-.bd-list{display:flex;flex-direction:column;min-height:0;background:var(--surface);border-right:1px solid var(--line2)}
-.bd-lh{padding:14px 14px 8px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--line2)}
-.bd-lh .t{display:flex;align-items:center;gap:8px}
-.bd-lh b{font:600 19px/1.2 var(--body);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bd-lh .s{font-size:12px;color:var(--muted)}
-.bd-segs{display:flex;justify-content:space-between;gap:8px}
-.bd-seg{display:flex;gap:4px}
-.bd-seg button,.bd-chips button{border:1px solid var(--line2);background:var(--surface2);border-radius:999px;padding:3px 10px;font:500 12px var(--body);color:var(--ink);white-space:nowrap}
-.bd-seg button[aria-pressed="true"],.bd-chips button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-.bd-chips{display:flex;gap:6px;overflow-x:auto;padding:10px 12px 2px;scrollbar-width:none}
-.bd-chips button{flex:none}
-.bd-chips i{font-style:normal;color:var(--muted);margin-left:3px}
-.bd-chips button[aria-pressed="true"] i{color:inherit}
-.bd-body{flex:1;min-height:0;overflow-y:auto;padding:4px 6px 12px}
-.bd-proj{display:flex;align-items:center;gap:8px;padding:12px 10px 4px;font:600 12.5px var(--body)}
-.bd-proj span{font-weight:400;font-size:11.5px;color:var(--muted)}
-.bd-grp{display:flex;align-items:center;gap:7px;padding:8px 10px 2px 12px;font-size:11.5px;color:var(--muted)}
-.bd-grp .p{font:600 11.5px var(--body);color:var(--ink);background:var(--surface2);border:1px solid var(--line2);border-radius:999px;padding:1px 8px}
-.bd-grp .m{font:600 12px var(--mono);color:var(--ink)}
-.bd-grp .sb-dot{width:7px;height:7px;animation:none;box-shadow:none}
-.bd-row{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:transparent;border-radius:9px;padding:8px 10px;color:var(--ink)}
-.bd-row:hover{background:var(--surface2)}
-.bd-row[aria-current="true"]{background:var(--accent-weak)}
-.bd-row .sb-dot{width:9px;height:9px;margin-top:5px;flex:none}
-.bd-rt{flex:1;min-width:0;display:flex;flex-direction:column}
-.bd-t1{display:flex;gap:6px;align-items:baseline;min-width:0}
-.bd-t1 b{font:600 13px var(--mono);white-space:nowrap}
-.bd-t1 .st{margin-left:auto;font-size:11.5px;color:var(--muted);white-space:nowrap}
-.bd-t2{font-size:12.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bd-tag{font:500 11px var(--body);border-radius:999px;padding:1px 7px;background:var(--surface2);color:var(--muted);white-space:nowrap}
-.bd-tag.inc{background:var(--wait-weak);color:var(--wait)}
-.bd-row .sb-badge{flex:none;align-self:center}
-.bd-pin{font-size:12px;color:var(--muted)}
-.bd-more{display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding:6px 12px}
-.bd-more button,.bd-link{border:0;background:none;color:var(--ink);font:600 12px var(--body);padding:2px 4px;white-space:nowrap}
-.bd-empty{color:var(--muted);text-align:center;padding:36px 12px}
-.bd-pick{display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:14px}
-@media (max-width:760px){.sb-app.wide .bd{grid-template-columns:minmax(0,1fr)}.bd-pick{display:none}}
-/* окно «Машины проекта» */
-.bd-veil{position:fixed;inset:0;z-index:15;background:rgba(10,15,12,.38);display:flex;align-items:flex-start;justify-content:center;padding-top:70px}
-.bd-dlg{width:min(560px,92%);max-height:calc(100% - 100px);background:var(--surface);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.25);display:flex;flex-direction:column;overflow:hidden}
-.bd-dh{display:flex;align-items:center;gap:10px;padding:14px 16px 10px;font:600 17px var(--body)}
-.bd-dh span{flex:1}
-.bd-dh button{border:0;background:none;font-size:16px;color:var(--muted)}
-.bd-db{padding:0 16px 10px;display:flex;flex-direction:column;gap:8px;min-height:0}
-.bd-db input{border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:14px var(--body);background:var(--bg);color:var(--ink)}
-.bd-fl{display:flex;flex-direction:column;gap:2px;overflow-y:auto;max-height:360px}
-.bd-fr{display:flex;align-items:center;gap:9px;border:0;background:transparent;text-align:left;padding:7px 8px;border-radius:8px;color:var(--ink)}
-.bd-fr:hover{background:var(--surface2)}
-.bd-fr .box{width:18px;height:18px;border:1.5px solid var(--line);border-radius:5px;display:grid;place-items:center;font-size:12px;flex:none}
-.bd-fr[aria-checked="true"] .box{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.bd-fr b{font:500 13px var(--mono);flex:1}
-.bd-fr span:last-child{font-size:12px;color:var(--muted)}
-.bd-df{display:flex;align-items:center;gap:8px;padding:12px 16px;border-top:1px solid var(--line2)}
-.bd-df span{flex:1;font-size:12px;color:var(--muted)}
-.bd-df button{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:6px 11px;font:600 13px var(--body);color:var(--ink)}
-.bd-df button.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-`;
+type Shown = { text: string; human: boolean };
 
-/** Короткая подпись состояния строки. */
-const SHORT: Record<string, string> = { busy: "работает", waiting: "ждёт вас", idle: "свободна", stopped: "остановлена", failed: "не запустилась", starting: "запускается", stopping: "останавливается" };
-/** Порядок: ждёт вас, работает, остальные. */
-const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
-const profileOf = (s: SessionRecord) => (s.profile as { id?: string } | null | undefined)?.id?.split("/").at(-1);
-const incidentOf = (s: SessionRecord) => (s.incident as { type?: string } | null | undefined)?.type;
-/** Профиль сессии для группы: без профиля — одна группа. */
-const profOf = (s: SessionRecord) => profileOf(s) ?? "без профиля";
+const PIN = '<svg class="bd-pin" viewBox="0 0 16 16" role="img" aria-label="закреплена"><path d="M6 2h4l-.5 4 2.5 2.5V10H8.6L8 14l-.6-4H4V8.5L6.5 6z"/></svg>';
+const VIEW_ICON = '<svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="1.9"/><circle cx="5" cy="12" r="1.9"/></svg>';
 
-/** Проект сессии — последнее имя папки dir; домашняя папка — «домашняя папка». Одно правило для всех модулей — метка project. */
-export function projectOf(s: SessionRecord): string {
-  const dir = typeof s.dir === "string" && s.dir ? s.dir : "~";
-  if (dir === "~") return "домашняя папка";
-  return dir.replace(/[\\/]+$/, "").split(/[\\/]/).pop()!.toLowerCase();
-}
-
-/** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */
-const parentOf = (s: SessionRecord) => (typeof s.parent === "string" && kindOf(s.parent) === "session" && s.parent !== s.callsign ? s.parent : null);
-
-/** Порядок дерева: дочь сразу под родителем, глубина — отступ; родителя нет в списке — дочь в корне. */
-export function tree(list: SessionRecord[]): Array<[SessionRecord, number]> {
-  const here = new Set(list.map((s) => s.callsign));
-  const kids = new Map<string, SessionRecord[]>();
-  const roots: SessionRecord[] = [];
-  const by = (a: SessionRecord, b: SessionRecord) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign);
-  for (const s of [...list].sort(by)) {
-    const p = parentOf(s);
-    if (p && here.has(p)) kids.set(p, [...(kids.get(p) ?? []), s]);
-    else roots.push(s);
-  }
-  const out: Array<[SessionRecord, number]> = [];
-  const seen = new Set<string>();
-  const walk = (s: SessionRecord, d: number) => {
-    if (seen.has(s.callsign)) return;
-    seen.add(s.callsign);
-    out.push([s, d]);
-    for (const k of kids.get(s.callsign) ?? []) walk(k, d + 1);
-  };
-  for (const s of roots) walk(s, 0);
-  // родители по кругу — в корень
-  for (const s of list) walk(s, 0);
-  return out;
-}
-
-type Project = { name: string; sessions: SessionRecord[]; machines: string[]; rank: number };
+const lamp = (s: SessionRecord) => (s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop");
+const htmlOf = (markup: string) => {
+  const t = document.createElement("template");
+  t.innerHTML = markup;
+  return t.content.firstElementChild as HTMLElement;
+};
 
 /** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
 export function createBoard(): AppModule {
   let app: App;
-  /** машины проекта, выбранные на этом устройстве: проект → машины */
-  let chosen: Record<string, string[]> = {};
-  /** закреплённые на этом устройстве сессии — «моё» независимо от того, кто дал задачу */
-  let pins: string[] = [];
-  let onlyMine = true;
-  let group: "profile" | "machine" = "profile";
+  let p: Personal;
+  /** выбранный фильтр — выбор этого устройства */
+  let flt = "mine";
+  /** свёрнутые проекты этого устройства; проекта нет — ещё не виден, решает первый показ */
+  let col: Record<string, boolean> = {};
+  let view: View = { ...VIEW0 };
+  /** последний открытый проект — для экранов «Машины» и «Аккаунты» */
   let lastProject: string | null = null;
-  const redraws = new Set<() => void>();
+  let lastCurrent: string | undefined;
+  /** прокрутка списка: телефон строит экран заново при каждом возврате */
+  let bodyTop = 0;
 
   const sessions = () => app?.roster()?.sessions ?? [];
+  const pins = () => p?.get<string[]>("pins") ?? [];
+  const top = () => p?.get<string[]>("top") ?? [];
+  const own = () => p?.get<Filter[]>("filters") ?? [];
+  const row = () => p?.get<string[]>("row") ?? [];
+  const session = (callsign: string) => sessions().find((x) => x.callsign === callsign);
 
-  /** Мой адрес во флоте — среди клиентов roster: имя устройства и почта. */
-  function myEmail(): string | null {
-    const me = (app?.roster()?.clients ?? []).find((c) => c.startsWith(`${app.name}~`));
-    return me ? me.slice(me.indexOf("~") + 1) : null;
-  }
-  const isMe = (a: unknown, email: string | null) => !!email && typeof a === "string" && a.includes("~") && a.slice(a.indexOf("~") + 1) === email;
+  const me = () => (app ? myAddress(app) : null);
+  const isMe = (a: unknown, mail: string | null) => !!mail && typeof a === "string" && userOf(a) === mail;
 
   /** Почему сессия моя: задачу дали вы, открыли вы, открыла ваша сессия; не моя — "". */
-  function whyMine(s: SessionRecord, email = myEmail(), depth = 0): string {
-    if (pins.includes(s.callsign)) return "закреплена вами";
-    if (isMe(s.by, email)) return "задачу дали вы";
-    if (isMe(s.parent, email)) return "открыли вы";
+  function whyMine(s: SessionRecord, mail = me(), depth = 0): string {
+    if (pins().includes(s.callsign)) return "закреплена вами";
+    if (isMe(s.by, mail)) return "задачу дали вы";
+    if (isMe(s.parent, mail)) return "открыли вы";
     // открыла или дала задачу сессия — моя, если моя она
     const sender = typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null;
-    const p = parentOf(s) ?? sender;
-    const ps = p ? sessions().find((x) => x.callsign === p) : undefined;
-    if (ps && depth < 8 && whyMine(ps, email, depth + 1)) return `открыла ваша ${ps.callsign}`;
+    const up = parentOf(s) ?? sender;
+    const ps = up ? session(up) : undefined;
+    if (ps && depth < 8 && whyMine(ps, mail, depth + 1)) return `открыла ваша ${ps.callsign}`;
     return "";
   }
 
-  /** Машины проекта: выбранные, иначе машины его сессий. */
-  function machinesOf(project: string): string[] {
-    return chosen[project] ?? [...new Set(sessions().filter((s) => projectOf(s) === project).map((s) => machineOf(s.callsign) ?? ""))].filter(Boolean);
+  /** Чья сессия: ~почта того, кто её завёл; завела сессия — её владелец. */
+  function ownerOf(s: SessionRecord, depth = 0): string | null {
+    for (const a of [s.by, s.parent]) if (typeof a === "string" && userOf(a)) return userOf(a);
+    const up = parentOf(s) ?? (typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null);
+    const ps = up ? session(up) : undefined;
+    return ps && depth < 8 ? ownerOf(ps, depth + 1) : null;
   }
-  const inProject = (s: SessionRecord) => machinesOf(projectOf(s)).includes(machineOf(s.callsign) ?? "");
 
-  /** Проекты: сессии на машинах проекта; порядок — ждёт вас, работает, остальные; внутри — по имени. */
-  function projects(mine: boolean): Project[] {
-    const email = myEmail();
+  const sLabel = (callsign: string) => app.mark("label.session", callsign) as Shown | undefined;
+  const mLabel = (machine: string) => app.mark("label.machine", machine) as Shown | undefined;
+  const sName = (callsign: string) => sLabel(callsign)?.text ?? callsign;
+  const mName = (machine: string) => mLabel(machine)?.text ?? `@${machine}`;
+
+  const filters = () => orderFilters(own(), row());
+  const currentFilter = () => filters().find((f) => f.id === flt) ?? BUILT[0];
+  const fits = (f: Filter, s: SessionRecord, mail = me()) => match(f, s, projectOf(s.dir), (x) => !!whyMine(x, mail), (x) => ownerOf(x));
+
+  /** Проекты выбранного фильтра в порядке списка. */
+  function projects(): Project[] {
+    const f = currentFilter();
+    const mail = me();
     const g = new Map<string, SessionRecord[]>();
     for (const s of sessions()) {
-      if (mine && !whyMine(s, email)) continue;
-      const p = projectOf(s);
-      g.set(p, [...(g.get(p) ?? []), s]);
+      if (!fits(f, s, mail)) continue;
+      const name = projectOf(s.dir);
+      g.set(name, [...(g.get(name) ?? []), s]);
     }
-    return [...g]
-      .map(([name, ss]) => ({ name, sessions: ss, machines: [...new Set(ss.map((s) => machineOf(s.callsign) ?? ""))], rank: Math.min(...ss.map(rank)) }))
-      .sort((a, b) => a.rank - b.rank || a.name.localeCompare(b.name));
+    return orderProjects([...g].map(([name, ss]) => ({ name, ss, r: Math.min(...ss.map(rank)) })), top());
   }
 
-  /** Закрепить или открепить сессию на этом устройстве; ответ — закреплена ли теперь. */
-  async function togglePin(callsign: string): Promise<boolean> {
-    pins = pins.includes(callsign) ? pins.filter((x) => x !== callsign) : [...pins, callsign];
-    await app.store<string[]>("pins").set(pins);
-    app.changed();
-    return pins.includes(callsign);
-  }
-
-  async function save() {
-    await app.store<Record<string, string[]>>("projects").set(chosen);
-  }
-
-  /** Строка второй строки: вопрос, сообщение, причина сбоя или модель · профиль. */
-  function line(s: SessionRecord): string {
+  /** Вторая строка: вопрос, сообщение, причина сбоя или профиль и модель — что включено в виде. */
+  function line(s: SessionRecord): Array<HTMLElement | null> {
     const asked = app.mark("asked", s.callsign) as string | undefined;
-    if (asked) return `? ${asked}`;
+    if (asked && view.q) return [h("span", { class: "tx q" }, `? ${asked}`)];
     const unread = app.mark("unread", s.callsign) as { count: number; text: string } | undefined;
-    if (unread?.text) return unread.text;
-    if (s.state === "failed" && s.failed) return Object.values(s.failed as Record<string, string>).join("; ");
-    return [s.model, profileOf(s)].filter((x) => typeof x === "string" && x).join(" · ");
+    if (unread?.text && view.unread) return [h("span", { class: "tx" }, unread.text)];
+    if (s.state === "failed" && s.failed && view.fail) return [h("span", { class: "tx f" }, Object.values(s.failed as Record<string, string>).join("; "))];
+    const prof = profileOf(s);
+    return [prof && view.prof ? h("span", { class: "bd-pill" }, prof) : null, typeof s.model === "string" && s.model && view.model ? h("span", { class: "tx" }, s.model) : null];
   }
 
-  function row(s: SessionRecord, depth: number, email: string | null): HTMLElement {
+  function openSession(s: SessionRecord) {
+    lastProject = projectOf(s.dir);
+    // телефон: сессия с вопросом — сразу вопрос; пульт — карточка, вопрос в разговоре
+    if (!app.wide && app.mark("asked", s.callsign)) app.open("ask", { callsign: s.callsign });
+    else app.open("card", { callsign: s.callsign });
+  }
+
+  function rowEl(s: SessionRecord, depth: number, mail: string | null, noAt: boolean, project: string | null): HTMLElement {
     const asked = app.mark("asked", s.callsign) as string | undefined;
     const unread = app.mark("unread", s.callsign) as { count: number } | undefined;
-    const st = stateLabel(s.state);
-    const sel = app.current()?.params.callsign === s.callsign;
+    const machine = machineOf(s.callsign) ?? "";
+    const owner = view.owner && !whyMine(s, mail) ? ownerOf(s) : null;
+    const inc = view.inc ? incidentOf(s) : undefined;
+    const t2 = [project ? h("span", { class: "prj" }, project) : null, ...line(s)].filter(Boolean);
     return h(
       "button",
       {
         class: "bd-row" + (depth ? " kid" : ""),
         "data-callsign": s.callsign,
-        "aria-current": sel ? "true" : "false",
-        style: depth ? `padding-left:${10 + depth * 18}px` : null,
-        onclick: () => {
-          lastProject = projectOf(s);
-          // телефон: сессия с вопросом — сразу вопрос; пульт — карточка, вопрос в разговоре
-          if (!app.wide && app.mark("asked", s.callsign)) app.open("ask", { callsign: s.callsign });
-          else app.open("card", { callsign: s.callsign });
-        },
+        "aria-current": app.current()?.params.callsign === s.callsign ? "true" : "false",
+        style: depth ? `padding-left:${10 + depth * 22}px` : null,
+        onclick: () => openSession(s),
       },
-      h("span", { class: `sb-dot ${s.state === "failed" ? "bad" : st.dot}`, title: SHORT[String(s.state)] ?? st.text }),
+      view.lamp ? h("span", { class: `sb-dot ${lamp(s)}`, title: stateLabel(s.state).text }) : null,
       h(
         "span",
         { class: "bd-rt" },
         h(
           "span",
           { class: "bd-t1" },
-          depth ? h("span", { class: "bd-tag" }, "↳") : null,
-          h("b", null, s.callsign),
-          pins.includes(s.callsign) ? h("span", { class: "bd-pin", title: "закреплена" }, "⌖") : null,
-          incidentOf(s) ? h("span", { class: "bd-tag inc" }, incidentOf(s)!) : null,
-          whyMine(s, email) ? null : h("span", { class: "bd-tag" }, "чужая"),
-          h("span", { class: "st" }, SHORT[String(s.state)] ?? st.text),
+          h("b", { class: "bd-cs" + (sLabel(s.callsign)?.human ? " hum" : "") }, sName(s.callsign)),
+          owner ? h("span", { class: "bd-pill own" }, owner.slice(1, owner.indexOf("@"))) : null,
+          inc ? h("span", { class: "bd-pill inc" }, inc) : null,
+          view.pin && pins().includes(s.callsign) ? htmlOf(PIN) : null,
+          view.at && !noAt ? h("span", { class: "bd-at" + (mLabel(machine)?.human ? " hum" : "") }, mName(machine)) : null,
         ),
-        h("span", { class: "bd-t2" }, line(s)),
+        t2.length ? h("span", { class: "bd-t2" }, t2) : null,
       ),
-      asked ? h("span", { class: "sb-badge wait", "aria-label": "ждёт ответа" }, "?") : unread?.count ? h("span", { class: "sb-badge" }, unread.count) : null,
+      !view.badge ? null : asked ? h("span", { class: "sb-badge wait", "aria-label": "ждёт ответа" }, "?") : unread?.count ? h("span", { class: "sb-badge" }, unread.count) : null,
     );
   }
 
-  /** Окно «Машины проекта»: все машины roster, поиск, «все машины флота». */
-  function focusDialog(project: string, done: () => void): HTMLElement {
-    let q = "";
-    const veil = h("div", { class: "bd-veil", "data-focus": project });
-    const close = () => {
-      veil.remove();
-      done();
-    };
-    veil.addEventListener("click", (e) => e.target === veil && close());
-    function draw() {
-      const all = (app.roster()?.machines ?? []).map((m) => m.machine).sort();
-      const pm = machinesOf(project);
-      const n = (m: string) => sessions().filter((s) => machineOf(s.callsign) === m).length;
-      const input = h("input", { placeholder: "Найти машину", "aria-label": "Найти машину", value: q }) as HTMLInputElement;
-      input.addEventListener("input", () => {
-        q = input.value;
-        draw();
-        const again = veil.querySelector<HTMLInputElement>("input")!;
-        again.focus();
-        again.setSelectionRange(q.length, q.length);
-      });
-      const toggle = (m: string) => {
-        chosen[project] = pm.includes(m) ? pm.filter((x) => x !== m) : [...pm, m];
-        void save();
-        draw();
-        app.changed();
-      };
-      veil.textContent = "";
-      veil.append(
+  /** Строки проекта: деревом или ровно; лёгкие группы по машинам — если включены в виде. */
+  function rowsOf(ss: SessionRecord[], mail: string | null, noAt: boolean): HTMLElement[] {
+    const ordered: Array<[SessionRecord, number]> = view.tree ? tree(ss) : [...ss].sort(byRank).map((s) => [s, 0]);
+    return ordered.map(([s, d]) => rowEl(s, d, mail, noAt, null));
+  }
+  function projectRows(x: Project, mail: string | null): HTMLElement[] {
+    if (!view.group) return rowsOf(x.ss, mail, false);
+    const by = new Map<string, SessionRecord[]>();
+    for (const s of x.ss) {
+      const m = machineOf(s.callsign) ?? "";
+      by.set(m, [...(by.get(m) ?? []), s]);
+    }
+    return [...by]
+      .sort((a, b) => Math.min(...a[1].map(rank)) - Math.min(...b[1].map(rank)) || a[0].localeCompare(b[0]))
+      .flatMap(([m, ss]) => [h("div", { class: "mgrp", "data-group": m }, h("span", null, mName(m)), h("span", { class: "n" }, String(ss.length))), ...rowsOf(ss, mail, true)]);
+  }
+
+  /** «+» у проекта — место его верхней сессии, чья машина на связи. */
+  function newIn(x: Project) {
+    const online = new Set((app.roster()?.machines ?? []).filter((m) => m.contract?.["session.open"] !== undefined).map((m) => m.machine));
+    const s = tree(x.ss).map(([y]) => y).find((y) => online.has(machineOf(y.callsign) ?? "") && typeof y.dir === "string");
+    app.open("open", s ? { machine: machineOf(s.callsign)!, dir: s.dir as string } : {});
+  }
+
+  function saveCol() {
+    void app.store<Record<string, boolean>>("collapsed").set(col);
+  }
+
+  function listEl(mail: string | null): HTMLElement {
+    const ps = projects();
+    const cur = currentFilter();
+    const empty = () => h("div", { class: "bd-empty" }, `в «${cur.name}» сессий нет`);
+    // без группировки по проектам — плоский список: ждут вас, работают, по имени; проект — в строке
+    if (!view.projects) {
+      const flat = ps.flatMap((x) => x.ss).sort(byRank);
+      return h("div", { class: "lst flat" }, flat.length ? flat.map((s) => rowEl(s, 0, mail, false, projectOf(s.dir))) : empty());
+    }
+    const lst = h("div", { class: "lst" });
+    let seen = false;
+    let sep = false;
+    for (const x of ps) {
+      // впервые увиденный проект развёрнут, только если в нём ждут вас или сбой; дальше — как оставил человек
+      if (col[x.name] === undefined) {
+        col[x.name] = x.r !== 0;
+        seen = true;
+      }
+      const open = !col[x.name];
+      const pinned = top().includes(x.name);
+      // граница закреплённых и остальных — тонкая черта
+      if (!pinned && !sep && ps.some((y) => top().includes(y.name))) {
+        sep = true;
+        lst.append(h("div", { class: "pin-sep", "aria-hidden": "true" }));
+      }
+      lst.append(
         h(
-          "div",
-          { class: "bd-dlg", role: "dialog", "aria-label": `Машины проекта ${project}` },
-          h("div", { class: "bd-dh" }, h("span", null, `Машины проекта ${project}`), h("button", { "aria-label": "Закрыть", onclick: close }, "✕")),
+          "section",
+          { class: "pjs" + (pinned ? " pinned" : ""), "data-proj": x.name },
           h(
             "div",
-            { class: "bd-db" },
-            input,
+            { class: "pj" },
+            view.grip ? h("span", { class: "grip", role: "button", tabindex: "0", "data-proj": x.name, "aria-label": `Переместить ${x.name}: перетащить или стрелки` }, "⠿") : null,
             h(
-              "div",
-              { class: "bd-fl" },
-              all
-                .filter((m) => !q || m.includes(q.toLowerCase()))
-                .map((m) =>
-                  h(
-                    "button",
-                    { class: "bd-fr", role: "checkbox", "aria-checked": String(pm.includes(m)), "data-machine": m, onclick: () => toggle(m) },
-                    h("span", { class: "box" }, pm.includes(m) ? "✓" : ""),
-                    h("b", null, `@${m}`),
-                    h("span", null, n(m) ? `${n(m)} сесс.` : ""),
-                  ),
-                ),
+              "button",
+              {
+                class: "pj-t",
+                "aria-expanded": String(open),
+                "data-proj": x.name,
+                onclick: () => {
+                  col[x.name] = !col[x.name];
+                  saveCol();
+                  app.changed();
+                },
+              },
+              h("span", { class: "car" }, "▼"),
+              h("span", { class: "nm" }, x.name),
+              h("span", { class: "lamps" }, !open && view.pjlamps ? x.ss.slice(0, 6).map((s) => h("span", { class: `sb-dot ${lamp(s)}` })) : null, view.pjcount ? h("span", { class: "n" }, String(x.ss.length)) : null),
             ),
+            view.add ? h("button", { class: "pj-add", "data-proj": x.name, "aria-label": `Новая сессия в ${x.name}`, onclick: () => newIn(x) }, "+") : null,
           ),
-          h(
-            "div",
-            { class: "bd-df" },
-            h("button", { onclick: () => ((chosen[project] = all), void save(), draw(), app.changed()) }, "Все машины флота"),
-            h("span", null, `в проекте ${pm.length} из ${all.length}`),
-            h("button", { class: "pri", onclick: close }, "Готово"),
-          ),
+          open ? projectRows(x, mail) : null,
         ),
       );
     }
-    draw();
-    return veil;
+    if (seen) saveCol();
+    if (!ps.length) lst.append(empty());
+    return lst;
   }
 
-  function mountBoard(el: HTMLElement, params: Params): ScreenHandle {
-    const project = params.project || null;
-    if (project) lastProject = project;
-    // строка поиска Ctrl K ведёт на сессию — список открывает её карточку (поиск ведёт только на экраны своего модуля)
-    if (params.callsign) queueMicrotask(() => app.open("card", { callsign: params.callsign }));
-    const head = h("div", { class: "bd-lh" });
-    const chips = h("div", { class: "bd-chips", role: "tablist", "aria-label": "Проекты" });
+  /** Найденная или только что открытая сессия видна: её проект разворачивается. */
+  function followCurrent(): boolean {
+    const c = app.current();
+    const callsign = c?.params.callsign;
+    if (callsign === lastCurrent) return false;
+    lastCurrent = callsign;
+    const s = callsign ? session(callsign) : undefined;
+    if (!s) return false;
+    const name = projectOf(s.dir);
+    lastProject = name;
+    if (col[name] !== false) {
+      col[name] = false;
+      saveCol();
+    }
+    return true;
+  }
+
+  function mountBoard(el: HTMLElement): ScreenHandle {
     const body = h("div", { class: "bd-body" });
-    el.append(h("div", { class: "bd" }, h("div", { class: "bd-list" }, head, app.wide ? null : chips, body), app.wide ? h("div", { class: "bd-pick" }, "Выберите сессию") : null));
+    const bar = h("div", { class: "fbar" });
+    const list = h("div", { class: "bd-list" }, app.wide ? h("div", { class: "bd-lh" }, h("b", null, "Работа"), h("button", { class: "sb-b pri", "data-new": "1", onclick: () => app.open("open", {}) }, "Новая")) : null, bar, body);
+    el.append(h("div", { class: "bd" }, list, app.wide ? h("div", { class: "bd-pick" }) : null));
 
-    function seg(label: string, on: boolean, act: () => void, data: string) {
-      return h("button", { "aria-pressed": String(on), "data-seg": data, onclick: () => (act(), draw()) }, label);
+    let panel: ViewPanel | null = null;
+    let editor: HTMLElement | null = null;
+    let swallowed = false;
+    const ac = new AbortController();
+
+    const closeEditor = () => {
+      editor?.remove();
+      editor = null;
+    };
+    function openEditor(f: Filter | null) {
+      closeEditor();
+      editor = filterEditor(
+        {
+          sessions,
+          machines: () => (app.roster()?.machines ?? []).map((m) => m.machine),
+          mName,
+          owners: () => [...new Set(sessions().map((s) => ownerOf(s)).filter((x): x is string => !!x && x !== me()))].sort(),
+          match: (x, s) => fits(x, s),
+        },
+        f,
+        {
+          save: (clean) => {
+            p.edit<Filter[]>("filters", (old) => {
+              const list = old ?? [];
+              return list.some((x) => x.id === clean.id) ? list.map((x) => (x.id === clean.id ? clean : x)) : [...list, clean];
+            });
+            pick(clean.id);
+            closeEditor();
+          },
+          remove: (id) => {
+            p.edit<Filter[]>("filters", (old) => (old ?? []).filter((x) => x.id !== id));
+            if (flt === id) pick("mine");
+            closeEditor();
+          },
+          close: closeEditor,
+        },
+      );
+      list.append(editor);
+    }
+
+    function pick(id: string) {
+      flt = id;
+      void app.store<string>("flt").set(id);
+      draw();
+    }
+
+    function toggleView() {
+      if (panel) {
+        panel.close();
+        panel = null;
+        draw();
+        return;
+      }
+      panel = viewPanel(app, {
+        get: () => view,
+        set: (k, v) => {
+          view = { ...view, [k]: v };
+          void app.store<View>("view").set(view);
+          draw();
+        },
+        reset: () => {
+          view = { ...VIEW0 };
+          void app.store<View>("view").set(view);
+          draw();
+        },
+        onClose: toggleView,
+      });
+      list.append(panel.el);
+      draw();
+    }
+
+    /** Ряд фильтров: «Моё», «Всё» и свои; число — сколько сессий подходит; выбранный свой — нажатие правит. */
+    function drawBar(mail: string | null) {
+      const left = bar.querySelector(".fscroll")?.scrollLeft ?? 0;
+      const cur = currentFilter();
+      const scroll = h(
+        "div",
+        { class: "fscroll", role: "tablist", "aria-label": "Фильтры" },
+        filters().map((f) => {
+          const on = f.id === cur.id;
+          const n = sessions().filter((s) => fits(f, s, mail)).length;
+          return h(
+            "button",
+            {
+              class: "fc",
+              role: "tab",
+              "data-fid": f.id,
+              "aria-selected": String(on),
+              onclick: () => {
+                if (swallowed) return;
+                if (on && !f.fixed) openEditor(f);
+                else pick(f.id);
+              },
+            },
+            f.name,
+            view.fcount ? h("span", { class: "n" }, String(n)) : null,
+            on && !f.fixed ? h("span", { class: "ed", "aria-hidden": "true" }, "✎") : null,
+          );
+        }),
+      );
+      const vw = h("button", { class: "fc vw", "aria-label": "Вид списка", "aria-expanded": String(!!panel), onclick: toggleView });
+      vw.append(htmlOf(VIEW_ICON));
+      bar.replaceChildren(scroll, h("button", { class: "fc add", "aria-label": "Новый фильтр", onclick: () => openEditor(null) }, "+"), vw);
+      scroll.scrollLeft = left;
     }
 
     function draw() {
-      if (!app.roster()) return;
-      const email = myEmail();
-      const all = projects(onlyMine);
-      const p = project ? all.find((x) => x.name === project) : undefined;
-      // шапка: имя проекта или «Работа», профили · машины проекта, переключатели
-      head.textContent = "";
-      head.append(
-        h("div", { class: "t" }, h("b", null, project ?? "Работа"), h("button", { class: "sb-b pri", "data-new": "1", onclick: () => app.open("open", project ? { project } : {}) }, app.wide ? "Новая задача" : "＋")),
-        ...(p ? [h("div", { class: "s" }, [[...new Set(p.sessions.map(profOf))].join(", "), machinesOf(p.name).join(", ")].filter(Boolean).join(" · "))] : []),
-        h(
-          "div",
-          { class: "bd-segs" },
-          h("div", { class: "bd-seg", role: "group", "aria-label": "Чьи сессии" }, seg("Моё", onlyMine, () => (onlyMine = true), "mine"), seg("Всё", !onlyMine, () => (onlyMine = false), "all")),
-          h("div", { class: "bd-seg", role: "group", "aria-label": "Группировка" }, seg("по профилям", group === "profile", () => (group = "profile"), "profile"), seg("по машинам", group === "machine", () => (group = "machine"), "machine")),
-        ),
-      );
-      // телефон: проекты лентой
-      chips.textContent = "";
-      chips.append(
-        h("button", { "aria-pressed": String(!project), onclick: () => app.open("board", {}) }, "все"),
-        ...all.map((x) => h("button", { "aria-pressed": String(project === x.name), "data-project": x.name, onclick: () => app.open("board", { project: x.name }) }, x.name, h("i", null, String(x.sessions.filter(inProject).length)))),
-      );
-      body.textContent = "";
-      const shown = project ? all.filter((x) => x.name === project) : all;
-      let outside = 0;
-      for (const x of shown) {
-        const pm = machinesOf(x.name);
-        const ss = x.sessions.filter((s) => pm.includes(machineOf(s.callsign) ?? ""));
-        outside += x.sessions.length - ss.length;
-        if (!ss.length) continue;
-        if (!project) body.append(h("div", { class: "bd-proj", "data-proj": x.name }, x.name, h("span", null, `${ss.length} · ${pm.filter((m) => ss.some((s) => machineOf(s.callsign) === m)).join(", ")}`)));
-        const keys = group === "machine" ? pm.filter((m) => ss.some((s) => machineOf(s.callsign) === m)) : [...new Set(ss.map(profOf))].sort();
-        for (const k of keys) {
-          const inG = ss.filter((s) => (group === "machine" ? machineOf(s.callsign) : profOf(s)) === k);
-          body.append(
-            h(
-              "div",
-              { class: "bd-grp", "data-group": k },
-              group === "machine" ? [h("span", { class: "sb-dot idle" }), h("span", { class: "m" }, `@${k}`)] : h("span", { class: "p" }, k),
-              h("span", null, String(inG.length)),
-            ),
-          );
-          for (const [s, d] of tree(inG)) body.append(row(s, d, email));
-        }
-      }
-      if (!body.childElementCount) body.append(h("div", { class: "bd-empty" }, onlyMine ? "Ваших сессий нет" : "Сессий нет"));
-      const foreign = onlyMine ? sessions().filter((s) => (!project || projectOf(s) === project) && !whyMine(s, email)).length : 0;
-      if (foreign) body.append(h("div", { class: "bd-more", "data-foreign": "1" }, `Ещё ${foreign} — чужие сессии`, h("button", { onclick: () => ((onlyMine = false), draw()) }, "Всё")));
-      if (outside) {
-        body.append(
-          h(
-            "div",
-            { class: "bd-more", "data-outside": String(outside) },
-            `Ещё ${outside} вне машин проекта`,
-            project ? h("button", { onclick: () => el.append(focusDialog(project, draw)) }, "машины проекта") : null,
-          ),
-        );
-      }
+      // первый рисунок ждёт ответа prefs; связи нет вовсе — рисуем встроенное
+      if (!app.roster() || (!p.ready() && app.link() === "open")) return;
+      // перестановка идёт — перерисует её конец
+      if (list.classList.contains("reordering")) return;
+      const ae = document.activeElement as HTMLElement | null;
+      const focus = ae && list.contains(ae) && !ae.closest(".bd-vw, .bd-veil") ? "." + ae.classList[0] + Object.entries(ae.dataset).map(([k, v]) => `[data-${k}=${JSON.stringify(v)}]`).join("") : null;
+      const mail = me();
+      const moved = followCurrent();
+      list.classList.toggle("dense", view.dense);
+      drawBar(mail);
+      body.replaceChildren(listEl(mail));
+      if (focus) list.querySelector<HTMLElement>(focus)?.focus({ preventScroll: true });
+      if (moved) body.querySelector<HTMLElement>(`[data-callsign=${JSON.stringify(lastCurrent)}]`)?.scrollIntoView?.({ block: "nearest" });
     }
-    draw();
-    redraws.add(draw);
-    return {
-      head: () => {
-        const n = sessions().length;
-        return { title: project ?? "Работа", sub: `${n} ${plural(n, "сессия", "сессии", "сессий")}` };
+
+    attachProjectDrag(
+      {
+        root: list,
+        ruleIndex: (name) => {
+          const pinned = new Set(top().filter((x) => x !== name));
+          return orderProjects(projects().filter((x) => !pinned.has(x.name)), []).findIndex((x) => x.name === name);
+        },
+        place: (name, vis, k) => p.edit<string[]>("top", (old) => placeTop(old ?? [], name, vis, k)),
+        redraw: draw,
       },
+      ac.signal,
+    );
+    attachChipDrag(
+      {
+        root: list,
+        place: (ids) => p.edit<string[]>("row", () => ids),
+        redraw: draw,
+        swallow: () => {
+          swallowed = true;
+          setTimeout(() => (swallowed = false), 50);
+        },
+      },
+      ac.signal,
+    );
+    draw();
+    body.scrollTop = bodyTop;
+    return {
+      head: () => ({ title: "Работа", action: { label: "Новая сессия", text: "+", run: () => app.open("open", {}) } }),
       refresh: draw,
-      close: () => redraws.delete(draw),
+      close: () => {
+        bodyTop = body.scrollTop;
+        ac.abort();
+        panel?.close();
+        closeEditor();
+      },
     };
   }
-
-  /** Лампы проекта в колонке разделов: тоны сессий на машинах проекта. */
-  const dot = (s: SessionRecord) => (s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop");
 
   return {
     on: {
-      roster(_r: Roster) {
-        /* список перерисует ядро; своё ничего не держит */
+      link(state) {
+        if (state === "open") void p.read();
       },
     },
     screens: {
-      // пункт меню карточки: переключает закрепление этой сессии и возвращает к карточке
+      // кнопка карточки: закрепить чужую сессию в «Моём»; своей незачем
       "board.pin": {
         place: "card.menu",
-        label: "Закрепить в «Моём» / открепить",
+        label: "Закрепить",
         path: "pin",
-        show: (p) => !!p.callsign,
-        mount: (_el, p) => {
-          if (!p.from) return;
-          void togglePin(p.from).then((on) => app.toast(`${p.from} ${on ? "закреплена в «Моём»" : "откреплена"}`, "ok"));
-          app.back();
+        show: (x) => {
+          const s = session(x.callsign ?? "");
+          return !!s && !pins().includes(s.callsign) && !whyMine(s);
         },
+        mount: (_el, x) => void p.edit<string[]>("pins", (old) => [...new Set([...(old ?? []), x.from ?? ""])]),
+      },
+      "board.unpin": {
+        place: "card.menu",
+        label: "Закреплена",
+        path: "unpin",
+        show: (x) => pins().includes(x.callsign ?? ""),
+        mount: (_el, x) => void p.edit<string[]>("pins", (old) => (old ?? []).filter((c) => c !== x.from)),
       },
       board: {
         nav: "Работа",
         label: "Работа",
         path: "sessions",
         mount: mountBoard,
-        sub: () =>
-          projects(true)
-            .map((x) => ({ x, ss: x.sessions.filter(inProject) }))
-            .filter(({ ss }) => ss.length)
-            .map(({ x, ss }) => ({ label: x.name, params: { project: x.name }, dots: ss.map(dot) })),
-        find: (q) => {
-          const out: Array<{ label: string; hint?: string; dot?: string; screen: string; params?: Params }> = [];
-          for (const x of projects(false)) if (!q || x.name.includes(q)) out.push({ label: x.name, hint: `проект · ${x.sessions.length} ${plural(x.sessions.length, "сессия", "сессии", "сессий")}`, screen: "board", params: { project: x.name } });
-          for (const s of sessions()) {
-            if (q && !`${s.callsign} ${projectOf(s)}`.toLowerCase().includes(q)) continue;
-            out.push({ label: s.callsign, hint: `${projectOf(s)} · ${SHORT[String(s.state)] ?? s.state}`, dot: dot(s), screen: "board", params: { project: projectOf(s), callsign: s.callsign } });
-          }
-          return out;
-        },
+        // Ctrl K ведёт сразу на сессию: найденная разворачивает свой проект
+        find: (q) =>
+          sessions()
+            .filter((s) => !q || `${s.callsign} ${sName(s.callsign)} ${mName(machineOf(s.callsign) ?? "")} ${projectOf(s.dir)}`.toLowerCase().includes(q))
+            .sort(byRank)
+            .map((s) => ({ label: sName(s.callsign), hint: `${mName(machineOf(s.callsign) ?? "")} · ${projectOf(s.dir)}`, dot: lamp(s), screen: "card", params: { callsign: s.callsign } })),
       },
     },
     marks: {
       /** почему сессия моя; не моя — "" */
       mine: (callsign: string) => {
-        const s = sessions().find((x) => x.callsign === callsign);
+        const s = session(callsign);
         return s ? whyMine(s) : "";
       },
-      /** проект сессии */
-      project: (callsign: string) => {
-        const s = sessions().find((x) => x.callsign === callsign);
-        return s ? projectOf(s) : null;
-      },
-      /** машины проекта на этом устройстве */
-      "project.machines": (project: string) => machinesOf(project),
-      /** последний открытый проект */
-      "project.current": () => {
-        const c = app?.current();
-        return (c?.screen === "board" ? c.params.project : null) ?? lastProject;
-      },
+      /** машины сессий проекта */
+      "project.machines": (project: string) => [...new Set(sessions().filter((s) => projectOf(s.dir) === project).map((s) => machineOf(s.callsign) ?? ""))].filter(Boolean),
+      /** открытый или последний проект */
+      "project.current": () => lastProject,
     },
-    store: ["projects", "pins"],
-    css: CSS,
+    store: ["flt", "collapsed", "view"],
+    css: BOARD_CSS + PROJECTS_CSS + CHIPS_CSS,
     async start(a) {
       app = a;
-      chosen = (await app.store<Record<string, string[]>>("projects").get()) ?? {};
-      pins = (await app.store<string[]>("pins").get()) ?? [];
+      p ??= personal(app, "web-board", () => app.changed());
+      flt = (await app.store<string>("flt").get()) ?? "mine";
+      col = (await app.store<Record<string, boolean>>("collapsed").get()) ?? {};
+      view = { ...VIEW0, ...(await app.store<View>("view").get()) };
+    },
+    async stop() {
+      await p?.settled();
     },
   };
 }

@@ -27,8 +27,12 @@ export type Head = {
   sub?: string;
   /** пилюля справа; пока нет связи, ядро ставит вместо неё свою */
   pill?: { text: string; tone?: "ok" | "wait" | "bad" | "busy" | "" };
+  /** лампа слева от заголовка: состояние без слов */
+  dot?: string;
   /** заголовок моноширинным — позывной */
   mono?: boolean;
+  /** кнопка шапки на телефоне: главное действие раздела */
+  action?: { label: string; text: string; run(): void };
 };
 
 /** То, что вернул mount экрана. */
@@ -54,8 +58,6 @@ export type Screen = {
   group?: string;
   /** Группа раздела только в узком виде (телефон): «Инциденты» — во «Флоте» телефона, в колонке пульта — отдельно. */
   narrowGroup?: string;
-  /** Подпункты раздела в колонке широкого вида (проекты «Работы»): params — экрану раздела, dots — тоны ламп. */
-  sub?(): Array<{ label: string; params: Params; dots?: string[] }>;
   /** Что экран отдаёт поиску Ctrl K: строки, ведущие на экран этого модуля или экран из его uses. */
   find?(q: string): Array<{ label: string; hint?: string; dot?: string; screen: string; params?: Params }>;
   /**

@@ -1,6 +1,6 @@
 // web-inbox — «Вам»: что ждёт вас. Карточки — из roster и меток других модулей; очереди и хранилища нет.
 // Своя память — только то, что видно по смене roster при открытом приложении: «готово» (busy → idle) и ушедшие машины.
-import { h, hhmm, type App, type AppModule, type Roster, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { h, hhmm, projectOf, type App, type AppModule, type Roster, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 const CSS = `
@@ -93,12 +93,12 @@ export function createInbox(): AppModule {
 
   /** Заголовок карточки: лампа, позывной (открыть) и что случилось. */
   function head(s: SessionRecord, dot: string, label: string): HTMLElement {
-    const project = app.mark("project", s.callsign) as string | null | undefined;
+    const project = projectOf(s.dir);
     return h(
       "div",
       { class: "ib-ih" },
       h("span", { class: `sb-dot ${dot}` }),
-      h("button", { class: "ib-cs", onclick: () => app.open("card", { callsign: s.callsign }) }, s.callsign),
+      h("button", { class: "ib-cs", onclick: () => app.open("card", { callsign: s.callsign }) }, (app.mark("label.session", s.callsign) as { text: string } | undefined)?.text ?? s.callsign),
       h("span", { class: "ib-lb" }, [label, project].filter(Boolean).join(" · ")),
     );
   }
@@ -161,7 +161,7 @@ export function createInbox(): AppModule {
         return h(
           "div",
           { class: "ib-it bad", "data-kind": "away", "data-machine": it.m },
-          h("div", { class: "ib-ih" }, h("span", { class: "sb-dot gone" }), h("b", { class: "ib-cs", style: "text-decoration:none" }, `@${it.m}`), h("span", { class: "ib-lb" }, `не на связи с ${hhmm(it.at!)}`)),
+          h("div", { class: "ib-ih" }, h("span", { class: "sb-dot gone" }), h("b", { class: "ib-cs", style: "text-decoration:none" }, (app.mark("label.machine", it.m) as { text: string } | undefined)?.text ?? `@${it.m}`), h("span", { class: "ib-lb" }, `не на связи с ${hhmm(it.at!)}`)),
           h("div", { class: "ib-tx" }, it.list!.map((x) => x.callsign).join(", ")),
           app.mark("fire") !== undefined ? h("div", { class: "ib-acts" }, h("button", { class: "pri", onclick: () => app.open("points", {}) }, "Поднять из точки")) : null,
         );

@@ -1,14 +1,13 @@
 {
   "name": "pult-open",
   "type": "web",
-  "version": "1.3.2",
+  "version": "2.0.0",
   "into": [
     "pult",
     "phone"
   ],
   "provides": {
-    "open": 1,
-    "open.near": 1
+    "open": 1
   },
   "uses": {
     "app@web-core": 1,
@@ -20,7 +19,7 @@
     "session.r2@host-points": 1,
     "card@web-card": 1,
     "session.prompt@host-chat": 1,
-    "card.menu@web-card": 1
+    "label.machine@web-labels": 1
   },
   "config": {}
 }

@@ -1,8 +1,11 @@
 {
   "name": "web-alerts",
   "type": "web",
-  "version": "1.2.0",
-  "into": ["pult", "phone"],
+  "version": "1.2.1",
+  "into": [
+    "pult",
+    "phone"
+  ],
   "provides": {
     "alerts": 1,
     "alerts.state": 1

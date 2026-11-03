@@ -102,7 +102,9 @@ describe("вход аккаунта · проект", () => {
     const relay = fleetRelay();
     relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { night: { login: "ok", email: "night@x.io", plan: "max" } } : {} } });
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
-    const t = await pult({ relay, url: "/#sessions?project=poe" });
+    relay.handlers["session.watch"] = () => ({ ok: true });
+    relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
+    const t = await pult({ relay, url: "/#card?callsign=poe-bot%40pc" });
     await flush(10);
     location.hash = "#accounts";
     await flush(10);

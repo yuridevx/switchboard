@@ -38,17 +38,22 @@ function openRelay(roster = fleetRoster()) {
   return relay;
 }
 
-/** Заполнить «Новую сессию»: имя, профиль ops, «другая папка…» ~ → Projects → switchboard, laptop, слот main. */
+/** Заполнить «Новую сессию»: «Папка на машине» → laptop → ~ → Projects → switchboard, выбрать, профиль ops, слот main, имя. */
 async function fillOpen(t: Awaited<ReturnType<typeof pult>>, name: string) {
   await t.go("#open");
-  await t.type(t.$('[data-f="name"]'), name);
-  await t.click(t.$('[data-machine="laptop"]'));
-  await t.click(t.$('[data-slot="main"]'));
-  await t.click(t.$('[data-profile="team/profiles/ops"]'));
-  await t.click(t.btn(null, "другая папка…"));
+  await t.click(t.$('[data-where="browse"]'));
+  await t.click(t.$('.op-bl [data-machine="laptop"]'));
+  await t.click(t.$('[data-preset="~"]'));
   await t.click(t.$('[data-dir="Projects"]'));
   await t.click(t.$('[data-dir="switchboard"]'));
   await t.click(t.$('[data-act="pick"]'));
+  await flush(5);
+  await t.click(t.$('[data-pop="prof"]'));
+  await t.click(t.$('[data-profile="team/profiles/ops"]'));
+  await t.click(t.$('[data-pop="model"]'));
+  await t.click(t.$('[data-slot="main"]'));
+  await t.click(t.$('[data-pop="model"]'));
+  await t.type(t.$('[data-f="name"]'), name);
 }
 
 const sendText = async (t: Awaited<ReturnType<typeof pult>>, text: string) => {
@@ -70,22 +75,20 @@ describe("эталоны пульта: сессии и чат", () => {
     const t = await pult({ relay: openRelay(r) });
     await fillOpen(t, "board");
     expect(t.$('[data-machine="pc"]')).toBeNull();
-    // серых поясняющих текстов нет (правило пользователя 2 нояб.): у первого сообщения — без «необязательно»
-    expect(t.$('[data-f="text"]')!.getAttribute("placeholder")).toBeNull();
-    expect(t.relay.sent("machine.dirs").map((f) => f.path)).toEqual(["~", "~/Projects", "~/Projects/switchboard"]);
+    expect(t.relay.sent("machine.dirs").map((f) => f.path).slice(-3)).toEqual(["~", "~/Projects", "~/Projects/switchboard"]);
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toEqual([
       expect.objectContaining({ v: 1, machine: "laptop", name: "board", dir: "~/Projects/switchboard", slot: "main", profile: "team/profiles/ops" }),
     ]);
     expect(location.hash).toBe("#card?callsign=board%40laptop");
-    expect(t.$(".cw-cs")!.textContent).toBe("board@laptop");
+    expect(t.$(".cw-cs")!.textContent).toBe("board");
     expect(t.$(".sb-detail .chat")).not.toBeNull();
 
     const t2 = await pult({ relay: openRelay(r) });
     await fillOpen(t2, "site");
     await t2.click(t2.$('[data-act="open"]'));
     expect(t2.relay.sent("session.open")).toHaveLength(1);
-    expect(t2.$(".op-err")!.textContent).toBe("name_taken — на laptop уже есть site@laptop");
+    expect(t2.$(".op-err")!.textContent).toBe("name_taken: на laptop уже есть site@laptop");
     expect(t2.$('.sb-detail [data-screen="open"]')).not.toBeNull();
   });
 
@@ -264,6 +267,7 @@ describe("эталоны пульта: сессии и чат", () => {
     const relay = fleetRelay(r);
     relay.handlers["session.files"] = () => ({ ok: true, result: ["src/worker.ts", "test/worker.test.ts"] });
     const t = await pult({ relay });
+    await t.expand();
     await t.click(t.$('[data-callsign="poe-bot@pc"]'));
     await t.type(t.$(".chat-inp"), "@");
     expect(t.btn(null, "@ файл")).toBeNull();
@@ -285,12 +289,10 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("Сравни с @src/worker.ts ");
   });
 
-  it("260 · «точки в R2» — по умолчанию включено: после reply session.r2 { callsign, on: true }; выключили в деталях — session.r2 нет; поля r2 в session.open нет", async () => {
+  it("260 · «Точки в R2» по умолчанию выключены: session.r2 нет; включили — после reply session.r2 { callsign, on: true }; поля r2 в session.open нет", async () => {
+    // источник: слово пользователя 3 нояб.: «точка р2 по умолчанию выключено»
     const t = await pult({ relay: openRelay() });
     await fillOpen(t, "board");
-    await t.click(t.$('[data-act="more"]'));
-    expect(t.$('[data-r2="on"]')!.getAttribute("aria-pressed")).toBe("true");
-    await t.click(t.$('[data-r2="off"]'));
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toHaveLength(1);
     expect(t.relay.sent("session.r2")).toHaveLength(0);
@@ -298,6 +300,8 @@ describe("эталоны пульта: сессии и чат", () => {
 
     const t2 = await pult({ relay: openRelay() });
     await fillOpen(t2, "board");
+    await t2.click(t2.$('[data-pop="model"]'));
+    await t2.click(t2.$("[data-r2]"));
     await t2.click(t2.$('[data-act="open"]'));
     const types = t2.relay.got.map((f) => f.type);
     expect(types.indexOf("session.r2")).toBeGreaterThan(types.indexOf("session.open"));

@@ -1,7 +1,7 @@
 {
   "name": "pult-machines",
   "type": "web",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "into": [
     "pult",
     "phone"
@@ -10,9 +10,9 @@
     "machines": 1
   },
   "uses": {
+    "label.machine@web-labels": 1,
     "app@web-core": 1,
     "roster@relay": 1,
-    "machine.profiles@host-profiles": 1,
     "accounts@pult-accounts": 1,
     "keeper.state@keeper": 1,
     "releases.set@releases": 1,

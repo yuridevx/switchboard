@@ -197,15 +197,12 @@ describe("pult-settings", () => {
     expect(t.sent("keys.revoke").at(-1)).toMatchObject({ kid: "kc2", to: ".relay" });
   });
 
-  it("5505 · GitHub и устройство: репозитории приложения с поиском и «используются» — репозитории профилей; устройство — адрес, пропуск, уведомления; телефон — только устройство", async () => {
+  it("5505 · GitHub и устройство: репозитории приложения с поиском, профилей на экране нет; устройство — адрес, пропуск, уведомления; телефон — только устройство", async () => {
     const t = await settings({ url: "/#settings?tab=general" });
     expect(t.$$("[data-github] .st-repo").map((r) => r.dataset.repo)).toEqual(["you/switchboard", "you/profiles", "you/site"]);
-    await t.click(t.btn("используются 1"));
-    expect(t.$$("[data-github] .st-repo").map((r) => r.dataset.repo)).toEqual(["you/profiles"]);
-    expect(t.$('[data-github] [data-repo="you/profiles"]')!.textContent).toContain("laptop");
-    expect(t.$("[data-profiles]")!.textContent).toContain("you/profiles");
-    await t.click(t.btn("Синхронизировать"));
-    expect(t.sent("machine.profiles").filter((f) => f.sync === true).map((f) => f.machine)).toEqual(["laptop", "pc"]);
+    expect(t.$("[data-profiles]")).toBeNull();
+    expect(t.btn("Синхронизировать")).toBeNull();
+    expect(t.sent("machine.profiles")).toHaveLength(0);
     const dev = t.$("[data-device]")!;
     expect(dev.textContent).toContain("pult~you@mail");
     expect(dev.textContent).toContain("действует");

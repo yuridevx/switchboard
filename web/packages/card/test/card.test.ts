@@ -31,10 +31,11 @@ async function card(callsign: string, roster = homeRoster()) {
 }
 
 describe("карточка сессии", () => {
-  it("шапка: callsign, модель · усилие · слот, состояние; вкладка «Чат» — лента в месте карточки", async () => {
+  it("шапка: имя, машина и проект; состояние — лампой без слов; вкладка «Чат» — лента в месте карточки", async () => {
     const t = await card("site@laptop");
-    expect(t.$(".sb-bt")!.textContent).toBe("site@laptopopus · high · main");
-    expect(t.$(".sb-pill")!.textContent).toBe("работает");
+    expect(t.$(".sb-bt")!.textContent).toBe("site@laptop@laptop · switchboard");
+    expect(t.$(".sb-pill")).toBeNull();
+    expect(t.$(".sb-bar .sb-dot.busy")).not.toBeNull();
     expect(t.$(".card-place .chat-comp")).not.toBeNull();
     expect(t.relay.sent("session.watch")[0]).toMatchObject({ callsign: "site@laptop" });
   });
@@ -46,7 +47,7 @@ describe("карточка сессии", () => {
     t.relay.handlers["session.stop"] = () => ({ ok: false, error: "stopping" });
     await t.click(t.button("Ещё"));
     expect(t.relay.sent("session.unwatch")).toHaveLength(1);
-    expect(t.$(".card-info")!.textContent).toBe("состояниеработаетпапка~/Projects/switchboardслотmainаккаунтy0902");
+    expect(t.$(".card-info")!.textContent).toBe("адресsite@laptopпапка~/Projects/switchboardслотmainаккаунтy0902");
     // прототип «Пульт и телефон»: модель и усилие меняются из сессии и на телефоне
     t.relay.handlers["session.update"] = () => ({ ok: true });
     expect(t.$('[data-pick="model"] [aria-pressed="true"]')!.textContent).toBe("opus");

@@ -57,7 +57,7 @@ describe("эталоны телефона", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = loadRepo(join(import.meta.dirname, "../../..")).filter((m) => m.into?.includes("phone") && m.name !== "web-core");
     expect(phoneParts().map((p) => p.manifest.name).sort()).toEqual(want.map((m) => m.name).sort());
-    expect(want.length).toBe(11);
+    expect(want.length).toBe(13);
   });
 
   it("4001 · набор телефона проходит гейт ядра и стартует: hello, домашний раздел «Вам»", async () => {
@@ -83,7 +83,7 @@ describe("эталоны телефона", () => {
     const relay = homeRelay();
     relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
     const t = await stand(phoneParts(fakeBrowser("granted")), { relay, store });
-    expect(t.$(".sb-bt b")!.textContent).toBe("poe-bot@pc");
+    expect(t.$(".sb-bt b")!.textContent).toBe("poe-bot");
     expect(t.$(".chat-in")!.textContent).toContain(text);
     expect(t.$(".chat-tag")!.textContent).toBe("из уведомления");
     await type(t, "Катим");
@@ -133,7 +133,8 @@ describe("эталоны телефона", () => {
     relay.handlers["session.prompt"] = () => undefined;
     const store = memoryStore({ key: KEY });
     const t = await stand(phoneParts(fakeBrowser()), { relay, store, url: "/#sessions" });
-    await t.click(t.$('[data-seg="all"]'));
+    await t.click(t.$('[data-fid="all"]'));
+    await t.expand();
     await t.click(t.$('[data-callsign="site@laptop"]'));
     await type(t, "Задеплой на стенд");
     const draft = t.$<HTMLTextAreaElement>(".chat-inp")!;
@@ -158,7 +159,8 @@ describe("эталоны телефона", () => {
     const relay = homeRelay(roster);
     relay.handlers["session.prompt"] = () => ({ ok: true });
     const t = await stand(phoneParts(fakeBrowser()), { relay, url: "/#sessions" });
-    await t.click(t.$('[data-seg="all"]'));
+    await t.click(t.$('[data-fid="all"]'));
+    await t.expand();
     await t.click(t.$('[data-callsign="poe-bot@pc"]'));
     expect(relay.sent("session.watch")).toHaveLength(0);
     expect(t.text()).toContain("pc не отдаёт ленту");

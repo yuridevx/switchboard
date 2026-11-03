@@ -47,6 +47,7 @@ describe("кадр question", () => {
     expect(relay.got.indexOf(lists[0])).toBeGreaterThanOrEqual(0);
     // hello — на каждую машину флота: laptop и pc
     expect(relay.hellos).toHaveLength(2);
+    await t.expand();
     expect(row(t, "poe-bot@pc").textContent).toContain("База?");
     expect(row(t, "poe-bot@pc").querySelector(".sb-badge")!.textContent).toBe("?");
   });
@@ -161,6 +162,7 @@ describe("ждущие вопросы у Host", () => {
     await new Promise((r) => setTimeout(r, 30));
     await flush(10);
     expect(relay.sent("question.list")).toEqual([expect.objectContaining({ callsign: "site@laptop" })]);
+    await t.expand();
     expect(row(t, "site@laptop").querySelector(".sb-badge")!.textContent).toBe("?");
   });
 });

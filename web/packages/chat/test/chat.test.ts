@@ -117,6 +117,7 @@ describe("переписка", () => {
     t.relay.handlers["session.history"] = hist([]);
     t.relay.push({ type: "message", from: "poe-bot@pc", to: "phone", text: "Эталоны: 13 из 13. Катить в основную?" });
     await flush();
+    await t.expand();
     const row = t.$('[data-callsign="poe-bot@pc"]')!;
     expect(row.textContent).toContain("Эталоны: 13 из 13. Катить в основную?");
     expect(row.querySelector(".sb-badge")!.textContent).toBe("1");

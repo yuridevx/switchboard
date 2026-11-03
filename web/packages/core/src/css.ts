@@ -51,10 +51,9 @@ code{font-family:var(--mono)}
 .sb-nv{display:flex;justify-content:space-between;align-items:center;gap:8px;border:0;background:transparent;border-radius:8px;padding:7px 9px;font:500 14px var(--body);text-align:left;color:var(--ink)}
 .sb-nv:hover{background:var(--accent-weak)}
 .sb-navcol .sb-nv[aria-current="page"]{background:var(--surface);box-shadow:0 0 0 1px var(--line);font-weight:600}
-.sb-nv.sub{padding:5px 9px 5px 28px;font-size:13px}
-.sb-lamps{display:flex;gap:3px}
-.sb-lamps .sb-dot{width:7px;height:7px;animation:none;box-shadow:none}
 .sb-grp{font:600 11.5px var(--body);color:var(--muted);padding:12px 9px 4px}
+.sb-find{flex:none;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--surface);color:var(--ink);display:grid;place-items:center;padding:0}
+.sb-find.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-size:20px;line-height:1}
 .sb-goto{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);background:var(--surface);color:var(--muted);border-radius:8px;padding:6px 10px;margin:2px 0 8px;font:500 13px var(--body)}
 .sb-goto kbd{font:600 11px var(--mono);border:1px solid var(--line);border-radius:4px;padding:0 5px;background:var(--surface2)}
 .sb-navrow{flex:none;display:flex;gap:6px;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--line2);overflow-x:auto;scrollbar-width:none}

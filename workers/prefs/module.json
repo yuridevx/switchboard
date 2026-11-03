@@ -1,0 +1,16 @@
+{
+  "name": "prefs",
+  "type": "worker",
+  "version": "1.0.0",
+  "provides": {
+    "prefs.get": 1,
+    "prefs.set": 1
+  },
+  "uses": {
+    "gate.verify@gate": 1
+  },
+  "config": {
+    "GATE": "binding",
+    "DB": "binding"
+  }
+}

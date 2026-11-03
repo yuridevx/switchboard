@@ -40,7 +40,7 @@ const SECRETS = {
   points: [prod ? "R2_KEY_SECRET=PROD_R2_SECRET_ACCESS_KEY" : "R2_KEY_SECRET=R2_SECRET_ACCESS_KEY"],
   releases: ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID=R2_ACCESS_KEY_ID", "R2_LINK_SECRET=R2_SECRET_ACCESS_KEY"],
 };
-const ORDER = ["gate", "push", "points", "ledger", "github", "releases", "relay"];
+const ORDER = ["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"];
 const WEB = ["phone", "pult"];
 const upload = rest[0] === "--upload" ? rest[1] : undefined;
 if (rest[0] === "--upload" && !/^\d+\.\d+\.\d+$/.test(upload ?? "")) {

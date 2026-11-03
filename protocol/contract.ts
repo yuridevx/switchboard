@@ -112,9 +112,15 @@ export function hostOf(f: { to?: unknown; callsign?: unknown; machine?: unknown 
   return undefined;
 }
 
+/** Пользователь адреса: phone~a@b.c и ~a@b.c → ~a@b.c; машина, сессия, служба — null. Одно правило для протокола, prefs и веба. */
+export function userOf(address: string): string | null {
+  const k = kindOf(address);
+  return k === "user" ? address : k === "device" ? address.slice(address.indexOf("~")) : null;
+}
+
 /** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
 export function reaches(to: string, device: string): boolean {
-  return to === device || (kindOf(to) === "user" && kindOf(device) === "device" && device.endsWith(to));
+  return to === device || (kindOf(to) === "user" && kindOf(device) === "device" && userOf(device) === to);
 }
 
 /**

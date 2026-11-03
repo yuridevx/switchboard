@@ -58,7 +58,7 @@ await state(A, "idle");
 check("roster: поле profile с состоянием ok", rec(A)?.profile?.state === "ok", rec(A)?.profile);
 check("CLAUDE.md профиля в промпте", /сова-42/.test(await turn(A, "Какой у тебя профиль? Ответь как велит твой профиль.")));
 const mp = await req({ type: "machine.profiles", machine: M1 });
-check("machine.profiles: модель профиля и сессия на нём", mp.result?.profiles?.[ID]?.model === "claude-haiku-4-5" && mp.result.profiles[ID].sessions.includes(A), mp.result?.profiles?.[ID]);
+check("machine.profiles: модель профиля и сессия на нём", mp.result?.profiles?.[ID]?.model === "claude-haiku-4-5" && (rec(A)?.profile as { id?: string } | undefined)?.id === ID, mp.result?.profiles?.[ID]);
 
 // --- память профиля: запись на одной машине → репозиторий → другая машина ---
 // метка прогона: память профиля копит записи прошлых прогонов — спрашиваем запись именно этого

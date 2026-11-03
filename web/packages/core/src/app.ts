@@ -379,6 +379,13 @@ export function startApp(o: StartOptions): Running {
     return ka.length === Object.keys(b).length && ka.every((k) => a[k] === b[k]);
   }
 
+  /** Кнопка поиска в шапке разделов телефона — тот же поиск, что Ctrl K в колонке пульта. */
+  function findButton() {
+    const b = h("button", { class: "sb-find", "aria-label": "Найти", "data-find": "1", onclick: () => openPal() });
+    b.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="6"/><path d="M16 16l4 4"/></svg>';
+    return b;
+  }
+
   function drawChrome() {
     if (stopped || !roster) return;
     const page = mounts.find((x) => x.page);
@@ -396,11 +403,14 @@ export function startApp(o: StartOptions): Running {
     bar.append(
       ...[
       def?.nav ? h("div", { class: "sb-logo", "aria-hidden": "true" }, "S") : h("button", { class: "sb-back", "aria-label": "Назад", onclick: back }, "‹"),
+      hd.dot ? h("span", { class: `sb-dot ${hd.dot}` }) : null,
       h("div", { class: "sb-bt" }, h("b", { class: hd.mono ? "m" : null }, hd.title), sub ? h("span", null, sub) : null),
+      !wide && def?.nav ? findButton() : null,
+      !wide && hd.action ? h("button", { class: "sb-find pri", "aria-label": hd.action.label, "data-new": "1", onclick: hd.action.run }, hd.action.text) : null,
       pill ? h("span", { class: `sb-pill ${pill.tone ?? ""}${conn !== "open" || def?.nav ? " conn" : ""}` }, pill.text) : null,
       ].filter((x): x is HTMLElement => x !== null),
     );
-    // разделы: в широком виде — колонка (подпункты под разделом, группы с подписью), в узком — вкладки внизу,
+    // разделы: в широком виде — колонка (группы с подписью), в узком — вкладки внизу,
     // группа — одной вкладкой, её разделы — лентой над экраном
     const navs = sections();
     const on = (n: string) => page?.name === n || master?.name === n;
@@ -408,20 +418,11 @@ export function startApp(o: StartOptions): Running {
       const count = countOf(s);
       return h(
         "button",
-        { class: "sb-nv", "aria-current": on(n) && !(s.def.sub && Object.keys(current?.params ?? {}).length) ? "page" : null, "data-screen": n, onclick: () => go(n, {}) },
+        { class: "sb-nv", "aria-current": on(n) ? "page" : null, "data-screen": n, onclick: () => go(n, {}) },
         h("span", null, s.def.nav!),
         count !== null ? h("span", { class: "sb-badge wait" }, count) : null,
       );
     };
-    const subs = (n: string, s: { owner: Mod; def: Screen }) =>
-      (s.def.sub && !s.owner.failed ? (call(s.owner, `экране ${n}`, () => s.def.sub!()) ?? []) : []).map((x) =>
-        h(
-          "button",
-          { class: "sb-nv sub", "aria-current": page?.name === n && sameParams(current?.params ?? {}, x.params) ? "page" : null, onclick: () => go(n, x.params) },
-          h("span", null, x.label),
-          x.dots?.length ? h("span", { class: "sb-lamps" }, x.dots.slice(0, 4).map((d) => h("span", { class: `sb-dot ${d}` }))) : null,
-        ),
-      );
     const groups = [...new Set(navs.map(([, s]) => groupOf(s.def)).filter((g): g is string => !!g))];
     navcol.textContent = "";
     navrow.textContent = "";
@@ -431,7 +432,7 @@ export function startApp(o: StartOptions): Running {
       navcol.append(
         h("div", { class: "sb-brand" }, h("b", null, o.brand ?? "Switchboard"), h("span", { class: `sb-pill conn ${cp.tone}`, title: cp.text, "aria-label": cp.text })),
         h("button", { class: "sb-goto", onclick: () => openPal() }, h("span", null, "Перейти…"), h("kbd", null, "Ctrl K")),
-        ...navs.filter(([, s]) => !groupOf(s.def)).flatMap(([n, s]) => [item([n, s]), ...subs(n, s)]),
+        ...navs.filter(([, s]) => !groupOf(s.def)).map(item),
         ...groups.flatMap((g) => [h("div", { class: "sb-grp" }, g), ...navs.filter(([, s]) => groupOf(s.def) === g).map(item)]),
       );
     } else {

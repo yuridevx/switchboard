@@ -364,7 +364,8 @@ function mountAsk(el: HTMLElement, params: Record<string, string>) {
           : r.status === "ok"
             ? { text: "ответ принят", tone: "ok" as const }
             : { text: r.status === "cancelled" ? "снят" : "уже ответили", tone: "" as const };
-      return { title: callsign, mono: true, sub: r ? `вопрос сессии · ${hhmm(r.at)}` : "вопрос сессии", pill: r || loading.has(callsign) ? pill : undefined };
+      const name = (app.mark("label.session", callsign) as { text: string; human: boolean } | undefined) ?? { text: callsign, human: false };
+      return { title: name.text, mono: !name.human, sub: r ? `вопрос сессии · ${hhmm(r.at)}` : "вопрос сессии", pill: r || loading.has(callsign) ? pill : undefined };
     },
     refresh: () => {
       // поле своего ответа под пальцем сохраняет фокус после перерисовки

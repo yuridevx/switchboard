@@ -1,7 +1,7 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "into": [
     "pult",
     "phone"
@@ -21,7 +21,6 @@
     "keys.revoke@relay": 1,
     "github.app@github": 1,
     "github.setup@github": 1,
-    "machine.profiles@host-profiles": 1,
     "alerts.state@web-alerts": 1,
     "page@phone": 1
   },

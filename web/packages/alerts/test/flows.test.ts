@@ -125,6 +125,7 @@ describe("пуши из раздела pushes", () => {
     await flush(10);
     expect(store.data.pushes).toEqual([]);
     expect(relay.sent("question.list").filter((x) => x.callsign === "poe-bot@pc")).toHaveLength(1);
+    await t.expand();
     expect(t.$('[data-callsign="poe-bot@pc"]')!.textContent).toContain("Катим?");
   });
 });

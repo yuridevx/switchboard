@@ -1,5 +1,5 @@
 // Разделы страницы по прототипу «Пульт и телефон» (подписан пользователем 2 нояб.: «основа дизайна ок»):
-// группа «Флот», подпункты раздела, поиск Ctrl K в широком виде, вкладки внизу в узком.
+// группа «Флот», поиск Ctrl K в широком виде и кнопкой в шапке на телефоне, вкладки внизу в узком.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStore, startApp, type AppModule, type AppPart, type Manifest } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, KEY } from "../stand/relay.ts";
@@ -13,18 +13,18 @@ afterEach(() => vi.restoreAllMocks());
 
 const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1 } });
 
-/** Работа с подпунктами-проектами и поиском; два раздела группы «Флот». */
+/** Работа с поиском и кнопкой шапки; два раздела группы «Флот». */
+let added = 0;
 function parts(): AppPart[] {
   const work: AppModule = {
     screens: {
       work: {
         nav: "Работа",
-        sub: () => [
-          { label: "switchboard", params: { project: "switchboard" }, dots: ["busy", "wait"] },
-          { label: "pfarm", params: { project: "pfarm" }, dots: ["idle"] },
-        ],
         find: (q) => ["refactor@win", "api@wsl"].filter((c) => c.includes(q)).map((c) => ({ label: c, hint: "сессия", dot: "busy", screen: "work", params: { callsign: c } })),
-        mount: (el, p) => void (el.textContent = `работа ${p.project ?? p.callsign ?? "все"}`),
+        mount: (el, p) => {
+          el.textContent = `работа ${p.callsign ?? "все"}`;
+          return { head: () => ({ title: "Работа", action: { label: "Новая сессия", text: "+", run: () => (added++, undefined) } }) };
+        },
       },
     },
   };
@@ -61,18 +61,27 @@ async function run(wide: boolean) {
 const texts = (sel: string) => [...document.querySelectorAll<HTMLElement>(sel)].map((b) => b.textContent);
 
 describe("разделы страницы", () => {
-  it("5170 · широкий вид: подпункты раздела под ним, группа «Флот» с подписью; подпункт открывает раздел с параметрами и становится текущим", async () => {
+  it("5170 · широкий вид: раздел и группа «Флот» с подписью; подпунктов под разделом нет, кнопки шапки нет", async () => {
     await run(true);
-    expect(texts(".sb-navcol .sb-nv")).toEqual(["Работа", "switchboard", "pfarm", "Машины", "Аккаунты"]);
+    expect(texts(".sb-navcol .sb-nv")).toEqual(["Работа", "Машины", "Аккаунты"]);
     expect(texts(".sb-navcol .sb-grp")).toEqual(["Флот"]);
-    expect(document.querySelectorAll(".sb-navcol .sb-nv.sub .sb-lamps .sb-dot")).toHaveLength(3);
     // машин и имени устройства в колонке больше нет
     expect(document.querySelector(".sb-nm, .sb-me, .sb-ncap")).toBeNull();
-    [...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv.sub")][1].click();
+    expect(document.querySelector("[data-find], [data-new]")).toBeNull();
+    [...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")][1].click();
     await flush();
-    expect(location.hash).toBe("#work?project=pfarm");
-    expect(document.querySelector(".sb-main")!.textContent).toContain("работа pfarm");
-    expect(document.querySelector('.sb-navcol .sb-nv[aria-current="page"]')!.textContent).toBe("pfarm");
+    expect(location.hash).toBe("#machines");
+    expect(document.querySelector('.sb-navcol .sb-nv[aria-current="page"]')!.textContent).toBe("Машины");
+  });
+
+  it("5173 · узкий вид: в шапке раздела — поиск и кнопка раздела; поиск открывает тот же Ctrl K; кнопка зовёт действие раздела", async () => {
+    added = 0;
+    await run(false);
+    document.querySelector<HTMLElement>("[data-find]")!.click();
+    expect(document.querySelector<HTMLElement>(".sb-palw")!.hidden).toBe(false);
+    document.querySelector<HTMLInputElement>(".sb-palin")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    document.querySelector<HTMLElement>("[data-new]")!.click();
+    expect(added).toBe(1);
   });
 
   it("5171 · Ctrl K: разделы и строки find экранов; Enter открывает первую; Esc закрывает", async () => {

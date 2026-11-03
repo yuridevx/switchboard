@@ -35,54 +35,73 @@ function openRelay(r = projRoster()) {
   return relay;
 }
 
-async function openScreen(relay = openRelay(), url = "/#open?project=site") {
+async function openScreen(relay = openRelay(), url = "/#open?machine=laptop&dir=~%2FProjects%2Fsite") {
   const t = await pult({ relay, url });
   await flush(10);
   return t;
 }
 
 describe("новая сессия", () => {
-  // источник: прототип «Пульт и телефон» (подписан 2 нояб.) и комментарии пользователя к нему: «имя сессии важно, что
-  // делать не очень», «а где выбор профиля?», «покажи выбор папок»; машины проекта — фокус проекта
-  it("5310 · имя — первым полем, позывной под ним с номером; профиль, папка и машина — из сессий проекта; остальные машины — списком", async () => {
+  // источник: дизайн «Сессии, проекты и профили» (блок «Эталоны», «найс делай» пользователя 3 нояб.)
+  it("5310 · форма с machine и dir: место выбрано, имя подставлено из папки с номером, профиль — по правилу места, модель и усилие — из профиля", async () => {
     const t = await openScreen();
-    const first = t.$(".op .op-fs input")!;
-    expect(first.dataset.f).toBe("name");
-    expect(first.getAttribute("placeholder")).toBe("site");
-    expect(t.$(".op-at")!.textContent).toBe("→ site-2@laptop");
-    expect(t.$('[data-profile="team/profiles/ops"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(t.$$("[data-profile]").map((b) => b.textContent)).toEqual(["ops", "writer", "без профиля"]);
-    expect(t.$$("[data-dir-pick]").map((b) => b.dataset.dirPick)).toEqual(["~/Projects/site", "~/projects/site"]);
-    expect(t.$('[data-dir-pick="~/Projects/site"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(t.$$("[data-machine]").map((b) => b.dataset.machine)).toEqual(["laptop"]);
-    expect(t.$('[data-f="machine-more"]')!.textContent).toContain("pc");
-    expect(t.$$("[data-slot]").map((b) => b.textContent)).toEqual(["main", `night · ждёт сброса ${new Date(1793666400 * 1000).toTimeString().slice(0, 5)}`]);
+    expect(t.$<HTMLInputElement>('[data-f="name"]')!.value).toBe("site-2");
+    expect(t.$('.op-nm .at')!.textContent).toBe("@laptop");
+    expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+    expect(t.$('[data-pop="model"] b')!.textContent).toBe("opus");
+    expect(t.$('[data-pop="model"] .k')!.textContent).toBe("высокое · main");
+    expect(t.$('.op-plc[aria-checked="true"]')!.dataset.dirPick).toBe("~/Projects/site");
     expect(t.$(".op")!.textContent).not.toContain("null");
-    await t.type(t.$('[data-f="name"]'), "fix");
-    expect(t.$(".op-at")!.textContent).toBe("→ fix@laptop");
   });
 
-  it("5315 · слотов на машине нет — строки «Слот» нет", async () => {
-    // источник: правило пользователя 2 нояб. — лейблы без информации убираются; живой снимок теста: «Слот» без слотов у win
-    const relay = openRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
-    const t = await openScreen(relay);
-    expect([...t.$$(".op .lb")].map((x) => x.textContent)).not.toContain("Слот");
+  it("5311 · «Новая»: место не выбрано, имя неактивно, «Открыть» неактивна до выбора; «Точки в R2» выключены", async () => {
+    const t = await openScreen(openRelay(), "/#open");
+    expect(t.$<HTMLInputElement>('[data-f="name"]')!.disabled).toBe(true);
+    expect(t.$<HTMLButtonElement>('[data-act="open"]')!.disabled).toBe(true);
+    expect(t.$<HTMLButtonElement>('[data-pop="prof"]')!.disabled).toBe(true);
+    expect(t.relay.got.filter((f) => f.type === "machine.slots" || f.type === "machine.profiles")).toEqual([]);
+    await t.click(t.$('[data-pop="model"]'));
+    expect(t.$('[data-r2]')!.getAttribute("aria-checked")).toBe("false");
+    await t.click(t.$('[data-pop="model"]'));
+    await t.click(t.$('.op-plc[data-dir-pick="~/Projects/api"]'));
+    await flush(5);
+    expect(t.$<HTMLInputElement>('[data-f="name"]')!.value).toBe("api-2");
+    expect(t.$<HTMLButtonElement>('[data-act="open"]')!.disabled).toBe(false);
   });
 
-  it("5311 · без сообщения — session.open (с профилем, папкой, слотом), «в R2» — session.r2, session.prompt нет; затем карточка", async () => {
+  it("5312 · недавние — уникальные «машина · папка» из roster по проектам; поиск по проекту, машине и папке; выбранное — первым", async () => {
     const t = await openScreen();
+    expect(t.$$(".op-g")[0].textContent).toBe("выбрано · site");
+    expect(t.$$(".op-plc")[0].dataset.dirPick).toBe("~/Projects/site");
+    const n = t.$$(".op-plc").length;
+    expect(new Set(t.$$(".op-plc").map((x) => `${x.dataset.machine}|${x.dataset.dirPick}`)).size).toBe(n);
+    const q = t.$<HTMLInputElement>('[data-f="q"]')!;
+    q.focus();
+    q.value = "poe";
+    q.dispatchEvent(new Event("input"));
+    expect(t.$$(".op-plc").map((x) => x.dataset.dirPick)).toEqual(["~/Projects/poe-bot"]);
+    expect(document.activeElement).toBe(t.$('[data-f="q"]'));
+  });
+
+  it("5313 · без задачи — «Открыть»: session.open с профилем, папкой и слотом; R2 нет, session.prompt нет; затем карточка", async () => {
+    const t = await openScreen();
+    expect(t.$('[data-act="open"]')!.textContent).toBe("Открыть");
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toEqual([expect.objectContaining({ v: 1, machine: "laptop", name: "site-2", dir: "~/Projects/site", slot: "main", profile: "team/profiles/ops" })]);
-    expect(t.relay.sent("session.r2")).toEqual([expect.objectContaining({ callsign: "site-2@laptop", on: true })]);
+    expect(t.relay.sent("session.open")[0]).not.toHaveProperty("model");
+    expect(t.relay.sent("session.r2")).toHaveLength(0);
     expect(t.relay.sent("session.prompt")).toHaveLength(0);
     expect(location.hash).toBe("#card?callsign=site-2%40laptop");
   });
 
-  it("5312 · с сообщением — session.open → session.r2 → session.prompt { callsign, text }; Ctrl Enter открывает", async () => {
+  it("5314 · с задачей — «Начать», R2 включили: session.open → session.r2 → session.prompt; Ctrl Enter начинает", async () => {
     const t = await openScreen();
+    await t.click(t.$('[data-pop="model"]'));
+    await t.click(t.$("[data-r2]"));
+    await t.click(t.$('[data-pop="model"]'));
     await t.type(t.$('[data-f="name"]'), "fix");
     await t.type(t.$('[data-f="text"]'), "Почини сценарий 4193");
+    expect(t.$('[data-act="open"]')!.textContent).toBe("Начать");
     t.$('[data-f="text"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }));
     await flush(10);
     const types = t.relay.got.map((f) => f.type).filter((x) => ["session.open", "session.r2", "session.prompt"].includes(x));
@@ -91,57 +110,77 @@ describe("новая сессия", () => {
     expect(location.hash).toBe("#card?callsign=fix%40laptop");
   });
 
-  it("5313 · «другая папка…»: machine.dirs от папки на шаг выше, крошки, вложенные папки без скрытых, «Выбрать» ставит папку", async () => {
+  it("5315 · чип «Профиль» — профили машины места с поиском; сменилось место — профиль остаётся, если он есть на новой машине, иначе — по правилу места", async () => {
+    const relay = openRelay();
+    relay.handlers["machine.profiles"] = (f) => ({ ok: true, result: { profiles: f.machine === "laptop" ? { "team/profiles/ops": { model: "opus", effort: "high", about: "дежурство" }, "team/profiles/writer": { model: "haiku", effort: "low" } } : { "team/profiles/writer": { model: "haiku", effort: "low" } }, repos: {} } });
+    const t = await openScreen(relay);
+    await t.click(t.$('[data-pop="prof"]'));
+    expect(t.$$(".op-pr[data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer", ""]);
+    const q = t.$<HTMLInputElement>('[data-f="pq"]')!;
+    q.value = "дежур";
+    q.dispatchEvent(new Event("input"));
+    expect(t.$$(".op-pr[data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", ""]);
+    await t.click(t.$$(".op-pr").at(-1)!);
+    await t.click(t.$('[data-pop="prof"]'));
+    await t.click(t.$('[data-profile="team/profiles/writer"]'));
+    await t.click(t.$('.op-plc[data-machine="pc"]'));
+    await flush(5);
+    expect(t.$('[data-pop="prof"] b')!.textContent).toBe("writer");
+    await t.click(t.$('.op-plc[data-dir-pick="~/Projects/site"]'));
+    await flush(5);
+    expect(t.$('[data-pop="prof"] b')!.textContent).toBe("writer");
+  });
+
+  it("5316 · «Папка на машине»: открывается на машине и папке места; машины по числу сессий; пресеты — папки сессий и над ними, дом последним; крошки и вложенные без скрытых", async () => {
     const t = await openScreen();
-    await t.click(t.btn(null, "другая папка…"));
-    expect(t.relay.sent("machine.dirs").at(-1)).toMatchObject({ machine: "laptop", path: "~/Projects" });
+    await t.click(t.$('[data-where="browse"]'));
+    expect(t.relay.sent("machine.dirs").at(-1)).toMatchObject({ machine: "laptop", path: "~/Projects/site" });
+    expect(t.$$('.op-bl [data-machine]').map((x) => x.dataset.machine)).toEqual(["laptop", "pc"]);
+    expect(t.$('.op-bl [data-machine="laptop"]')!.getAttribute("aria-selected")).toBe("true");
+    const pre = t.$$("[data-preset]").map((x) => x.dataset.preset);
+    expect(pre.at(-1)).toBe("~");
+    expect(pre[0]).toBe("~/Projects");
     expect(t.$$("[data-dir]").map((x) => x.dataset.dir)).toEqual(["api", "site"]);
-    expect(t.$$("[data-crumb]").map((x) => x.dataset.crumb)).toEqual(["~", "~/Projects"]);
+    expect(t.$$("[data-crumb]").map((x) => x.dataset.crumb)).toEqual(["~", "~/Projects", "~/Projects/site"]);
     await t.click(t.$('[data-dir="api"]'));
-    expect(t.relay.sent("machine.dirs").at(-1)).toMatchObject({ path: "~/Projects/api" });
+    expect(t.relay.sent("machine.dirs").at(-1)).toMatchObject({ path: "~/Projects/site/api" });
     await t.click(t.$('[data-crumb="~"]'));
     expect(t.relay.sent("machine.dirs").at(-1)).toMatchObject({ path: "~" });
     await t.click(t.$('[data-dir="site"]'));
     await t.click(t.$('[data-act="pick"]'));
-    expect(t.$(".op-dirs")).toBeNull();
-    expect(t.$('[data-dir-pick="~/site"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(t.$(".op-brw")).toBeNull();
+    expect(t.$('[data-where="recent"]')!.getAttribute("aria-selected")).toBe("true");
+    expect(t.$('.op-plc[aria-checked="true"]')!.dataset.dirPick).toBe("~/site");
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")[0]).toMatchObject({ dir: "~/site" });
   });
 
-  it("5314 · «Новая задача рядом» из меню ⋯ карточки — машина, папка и профиль той сессии", async () => {
-    const t = await pult({ relay: openRelay(), url: "/#card?callsign=site%40laptop" });
-    await t.click(t.$('[data-pop="menu"]'));
-    await t.click(t.$('.cw-pop [data-screen="open.near"]'));
-    await flush(10);
-    expect(location.hash).toBe("#open-near?from=site%40laptop");
-    expect(t.$('[data-machine="laptop"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(t.$('[data-dir-pick="~/Projects/site"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(t.$('[data-profile="team/profiles/ops"]')!.getAttribute("aria-pressed")).toBe("true");
+  it("5317 · без места обзор — на самой частой машине в первом её пресете; путь вводится руками; отказ machine.dirs — словом", async () => {
+    const relay = openRelay();
+    const t = await openScreen(relay, "/#open");
+    await t.click(t.$('[data-where="browse"]'));
+    expect(relay.sent("machine.dirs").at(-1)).toMatchObject({ machine: "laptop", path: "~/Projects" });
+    relay.handlers["machine.dirs"] = () => ({ ok: false, error: "not_found" });
+    const p = t.$<HTMLInputElement>('[data-f="path"]')!;
+    p.value = "~/нет";
+    p.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter" }));
+    await flush(5);
+    expect(t.$(".op-bf .op-err")!.textContent).toBe("machine.dirs: not_found");
   });
 
-  it("4121 · нет машин с session.open — «Нет машин на связи», «Открыть» недоступна, кадров нет", async () => {
+  it("4121 · нет машин с session.open — «мест нет», «Открыть» недоступна, кадров нет", async () => {
     const r = projRoster();
     for (const m of r.machines) {
       m.contract = { ...HOST };
       delete m.contract["session.open"];
     }
-    const t = await openScreen(openRelay(r));
-    expect(t.text()).toContain("Нет машин на связи");
+    const t = await openScreen(openRelay(r), "/#open");
+    expect(t.text()).toContain("мест нет");
     expect(t.$<HTMLButtonElement>('[data-act="open"]')!.disabled).toBe(true);
     expect(t.relay.got.filter((f) => ["machine.slots", "machine.profiles", "machine.dirs"].includes(f.type))).toEqual([]);
   });
 
-  it("4123 · отказ machine.dirs — строка со словом, папка прежняя", async () => {
-    const relay = openRelay();
-    relay.handlers["machine.dirs"] = () => ({ ok: false, error: "not_found" });
-    const t = await openScreen(relay);
-    await t.click(t.btn(null, "другая папка…"));
-    expect(t.$(".op-dirs")!.textContent).toContain("machine.dirs: not_found");
-    expect(t.$('[data-dir-pick="~/Projects/site"]')).not.toBeNull();
-  });
-
-  it("4124 · машина из адреса; смена машины — кадры новой, обзор закрыт, запоздалый ответ прежней не рисуется", async () => {
+  it("4124 · запоздалый ответ прежней машины не рисуется; смена места — кадры новой", async () => {
     const relay = openRelay();
     let late: (() => void) | null = null;
     relay.handlers["machine.slots"] = (f) => {
@@ -151,73 +190,84 @@ describe("новая сессия", () => {
       }
       return { ok: true, result: { slots: { [`${f.machine}-main`]: { account: null, wait: null, sessions: [] } } } };
     };
-    const t = await openScreen(relay, "/#open?machine=pc");
-    expect(t.$('[data-machine="pc"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(relay.sent("machine.slots").find((f) => f.machine === "pc")).toMatchObject({ machine: "pc" });
-    await t.click(t.btn(null, "другая папка…"));
-    const sel = t.$<HTMLSelectElement>('[data-f="machine-more"]')!;
-    sel.value = "laptop";
-    sel.dispatchEvent(new Event("change"));
-    await flush(10);
-    expect(t.$(".op-dirs")).toBeNull();
-    expect(relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "laptop" });
+    const t = await openScreen(relay, "/#open?machine=pc&dir=~%2Fx");
+    expect(relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "pc" });
+    await t.click(t.$('.op-plc[data-machine="laptop"]'));
+    await flush(5);
     late!();
     await flush();
+    await t.click(t.$('[data-pop="model"]'));
     expect(t.$$("[data-slot]").map((x) => x.dataset.slot)).toEqual(["laptop-main"]);
   });
 
-  it("4125 · отказ machine.slots — слово на месте слотов; «Открыть» доступна", async () => {
+  it("4125 · отказ machine.slots — слово в окне чипа; «Открыть» доступна", async () => {
     const relay = openRelay();
     relay.handlers["machine.slots"] = () => ({ ok: false, error: "offline" });
     const t = await openScreen(relay);
+    await t.click(t.$('[data-pop="model"]'));
     expect(t.text()).toContain("machine.slots: offline");
     expect(t.$<HTMLButtonElement>('[data-act="open"]')!.disabled).toBe(false);
   });
 
-  it("4127 · имя не по форме — строка под полем, session.open нет", async () => {
+  it("4127 · имя не по форме — строка под полем, session.open нет; пустое — «Открыть» неактивна", async () => {
     const t = await openScreen();
     await t.type(t.$('[data-f="name"]'), "my board");
     await t.click(t.$('[data-act="open"]'));
-    expect(t.$(".op-err")!.textContent).toBe("имя — латиница, цифры, точка, - и _");
+    expect(t.$(".op-err")!.textContent).toBe("латиница, цифры, точка, - и _");
     expect(t.relay.sent("session.open")).toHaveLength(0);
+    await t.type(t.$('[data-f="name"]'), "");
+    expect(t.$<HTMLButtonElement>('[data-act="open"]')!.disabled).toBe(true);
   });
 
-  it("4128 · прочий отказ session.open — «session.open: слово», карточки, session.r2 и session.prompt нет", async () => {
+  it("4128 · name_taken — задача остаётся, поле имени красное с причиной; прочий отказ — словом; карточки и session.prompt нет", async () => {
     const relay = openRelay();
-    relay.handlers["session.open"] = () => ({ ok: false, error: "bad_dir" });
+    relay.handlers["session.open"] = () => ({ ok: false, error: "name_taken" });
     const t = await openScreen(relay);
     await t.type(t.$('[data-f="text"]'), "привет");
     await t.click(t.$('[data-act="open"]'));
+    expect(t.$(".op-err")!.textContent).toBe("name_taken: на laptop уже есть site-2@laptop");
+    expect(t.$(".op-nm")!.classList.contains("bad")).toBe(true);
+    expect(t.$<HTMLTextAreaElement>('[data-f="text"]')!.value).toBe("привет");
+    relay.handlers["session.open"] = () => ({ ok: false, error: "bad_dir" });
+    await t.click(t.$('[data-act="open"]'));
     expect(t.$(".op-err")!.textContent).toBe("session.open: bad_dir");
-    expect(relay.sent("session.r2")).toHaveLength(0);
     expect(relay.sent("session.prompt")).toHaveLength(0);
     expect(t.$(".cw")).toBeNull();
   });
 
-  it("4129 · повторное нажатие, пока session.open идёт, — «Открываю…», второго кадра нет", async () => {
+  it("4129 · повторное нажатие, пока session.open идёт, — второго кадра нет", async () => {
     const relay = openRelay();
     relay.handlers["session.open"] = () => undefined;
     const t = await openScreen(relay);
     await t.click(t.$('[data-act="open"]'));
-    const b = t.btn(null, "Открываю…")!;
+    const b = t.$<HTMLButtonElement>('[data-act="open"]')!;
     expect(b.disabled).toBe(true);
     await t.click(b);
     expect(relay.sent("session.open")).toHaveLength(1);
   });
 
-  it("4130 · «в R2» не включилось — тост со словом, карточка новой сессии открыта; выключили в деталях — session.r2 нет", async () => {
+  it("4130 · «в R2» не включилось — тост со словом, карточка новой сессии открыта", async () => {
     const relay = openRelay();
     relay.handlers["session.r2"] = () => ({ ok: false, error: "offline" });
     const t = await openScreen(relay);
-    await t.type(t.$('[data-f="name"]'), "board");
+    await t.click(t.$('[data-pop="model"]'));
+    await t.click(t.$("[data-r2]"));
     await t.click(t.$('[data-act="open"]'));
-    expect(t.$(".sb-toast")!.textContent).toBe("board@laptop: «в R2» не включилось — offline");
-    expect(location.hash).toBe("#card?callsign=board%40laptop");
-    const t2 = await openScreen();
-    await t2.click(t2.$('[data-act="more"]'));
-    await t2.click(t2.$('[data-r2="off"]'));
-    await t2.click(t2.$('[data-act="open"]'));
-    expect(t2.relay.sent("session.r2")).toHaveLength(0);
+    expect(t.$(".sb-toast")!.textContent).toBe("site-2@laptop: «в R2» не включилось — offline");
+    expect(location.hash).toBe("#card?callsign=site-2%40laptop");
+  });
+
+  it("5318 · «+» у проекта — форма с местом его верхней сессии на связи; меню карточки без «Новой задачи рядом»", async () => {
+    const t = await pult({ relay: openRelay() });
+    await flush(5);
+    await t.click(t.$('.pj-add[data-proj="poe-bot"]') ?? t.$(".pj-add"));
+    expect(location.hash).toContain("#open?machine=");
+    expect(location.hash).toContain("dir=");
+    await flush(10);
+    expect(t.$('.op-plc[aria-checked="true"]')).not.toBeNull();
+    const c = await pult({ relay: openRelay(), url: "/#card?callsign=site%40laptop" });
+    await c.click(c.$('[data-pop="menu"]'));
+    expect(c.$('[data-screen="open.near"]')).toBeNull();
   });
 });
 
@@ -421,6 +471,7 @@ describe("перенос сессии «только в R2»", () => {
 /** Вкладка «Точки» карточки site@laptop. */
 async function sessionTab(relay = pointsRelay(), callsign = "site@laptop") {
   const t = await pult({ relay });
+  await t.expand();
   await t.click(t.$(`[data-callsign="${callsign}"]`));
   await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
   await flush(10);
@@ -480,6 +531,7 @@ describe("вкладка «Точки» сессии", () => {
       r.machines[1].contract = pc;
     });
     const t = await pult({ relay });
+    await t.expand();
     await t.click(t.$('[data-callsign="site@laptop"]'));
     expect(t.$$(".cw-tabs [data-tab]").map((x) => x.dataset.tab)).toContain("session.points");
     await t.click(t.$('.cw-tabs [data-tab="session.points"]'));

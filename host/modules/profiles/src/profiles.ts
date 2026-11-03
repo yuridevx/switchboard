@@ -271,11 +271,6 @@ export function make(deps: { git?: Git } = {}): Module {
       },
       async "machine.profiles"(f) {
         if (f.sync === true) await Promise.all(repos().map((r) => sync(r)));
-        const users = new Map<string, string[]>();
-        for (const x of host.sessions()) {
-          const id = host.session(x.callsign) ? profileOf(host.session(x.callsign)!) : null;
-          if (id) users.set(id, [...(users.get(id) ?? []), x.callsign]);
-        }
         const profiles: Record<string, unknown> = {};
         const states: Record<string, RepoState> = {};
         for (const repo of repos()) {
@@ -283,7 +278,7 @@ export function make(deps: { git?: Git } = {}): Module {
           for (const name of profilesOf(repo)) {
             const id = `${repo}/${name}`;
             const y = yamlOf(join(cloneDir(repo), name));
-            profiles[id] = { model: y.model ?? null, effort: y.effort ?? null, sessions: users.get(id) ?? [] };
+            profiles[id] = { model: y.model ?? null, effort: y.effort ?? null, ...(typeof y.about === "string" && y.about ? { about: y.about } : {}) };
           }
         }
         return { profiles, repos: states };

@@ -1,8 +1,10 @@
 {
   "name": "host-profiles",
   "type": "sdk",
-  "version": "1.0.0",
-  "into": ["host"],
+  "version": "1.1.0",
+  "into": [
+    "host"
+  ],
   "provides": {
     "session.profile": 1,
     "machine.profiles": 1,
@@ -13,5 +15,7 @@
     "github.token@github": 1
   },
   "calls": [],
-  "config": { "repos": "var" }
+  "config": {
+    "repos": "var"
+  }
 }

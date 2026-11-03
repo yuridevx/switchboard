@@ -352,18 +352,6 @@ describe("машины", () => {
     expect(t.$('[data-machine="laptop"]')!.textContent).not.toContain("keeper.state:");
   });
 
-  it("4151 · «Синхронизировать профили» — machine.profiles { sync }, «сведены»; отказ — слово", async () => {
-    const relay = machinesRelay();
-    const t = await machines(relay);
-    await expand(t, "pc");
-    await t.click(t.btn(t.$('[data-machine="pc"]'), "Синхронизировать профили"));
-    expect(relay.sent("machine.profiles").at(-1)).toMatchObject({ machine: "pc", sync: true });
-    expect(t.$('[data-machine="pc"]')!.textContent).toContain("профили сведены с репозиториями");
-    relay.handlers["machine.profiles"] = () => ({ ok: false, error: "no_app" });
-    await t.click(t.btn(t.$('[data-machine="pc"]'), "Синхронизировать профили"));
-    expect(t.$('[data-machine="pc"]')!.textContent).toContain("machine.profiles: no_app");
-  });
-
   it("4152 · машина ушла из roster — строка «ушла ЧЧ:ММ», в фильтре «ушли 1»; кадров к ней нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.): ушедшая машина остаётся строкой «ушла»
     const relay = machinesRelay();
@@ -406,7 +394,7 @@ describe("машины", () => {
     expect(relay.sent("keeper.state").slice(before).map((f) => f.to)).toContain(".keeper@pc");
   });
 
-  it("4153 · машина впервые в roster при открытом экране — keeper.state и профили, а не «…»", async () => {
+  it("4153 · машина впервые в roster при открытом экране — keeper.state, а не «…»", async () => {
     const r = fleetRoster();
     r.machines = r.machines.filter((m) => m.machine !== "pc");
     const relay = machinesRelay(r);
@@ -417,7 +405,6 @@ describe("машины", () => {
     relay.setRoster(full);
     await flush(10);
     expect(relay.sent("keeper.state").map((f) => f.to)).toContain(".keeper@pc");
-    expect(relay.sent("machine.profiles").map((f) => f.machine)).toContain("pc");
     await expand(t, "pc");
     expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("1.0.1 · план rev 7");
   });

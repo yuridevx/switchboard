@@ -36,7 +36,7 @@ describe("гейт выпуска пульта", () => {
   it("свои модули пульта с манифестами монорепо: у имени один владелец, uses — у владельцев той же версии, импорт — только из uses", () => {
     // гейт монорепо сам находит модули пульта (web/pult/modules/*) — набор берём целиком из него
     const repo = loadRepo(root);
-    expect(repo.filter((m) => m.name.startsWith("pult-")).map((m) => m.name).sort()).toEqual(["pult-accounts", "pult-incidents", "pult-journal", "pult-machines", "pult-open", "pult-points", "pult-settings"]);
+    expect(repo.filter((m) => m.name.startsWith("pult-")).map((m) => m.name).sort()).toEqual(["pult-accounts", "pult-incidents", "pult-journal", "pult-machines", "pult-open", "pult-points", "pult-profiles", "pult-settings"]);
     expect(check(repo)).toEqual([]);
   });
 
@@ -58,17 +58,17 @@ describe("гейт выпуска пульта", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = order(loadRepo(root).filter((m) => m.into?.includes("pult") && m.name !== "web-core")).map((m) => m.name);
     expect(pultParts().map((p) => p.manifest.name).sort()).toEqual([...want].sort());
-    expect(want.length).toBe(13);
+    expect(want.length).toBe(15);
   });
 });
 
 describe("раскладка широкого вида", () => {
-  it("5220 · колонка разделов: «Перейти… Ctrl K», Вам, Работа с проектами, Инциденты, группа «Флот»; машин и имени устройства в колонке нет", async () => {
+  it("5220 · колонка разделов: «Перейти… Ctrl K», Вам, Работа, Инциденты, группа «Флот» с профилями; машин и имени устройства в колонке нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
-    expect(t.$$(".sb-navcol .sb-nv:not(.sub)").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "journal", "points", "settings"]);
+    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "profiles", "journal", "points", "settings"]);
     expect(t.$$(".sb-navcol .sb-grp").map((x) => x.textContent)).toEqual(["Флот"]);
-    expect(t.$$(".sb-navcol .sb-nv.sub").length).toBeGreaterThan(0);
+    expect(t.$(".sb-navcol .sb-nv.sub")).toBeNull();
     expect(t.$(".sb-goto")).not.toBeNull();
     expect(t.$(".sb-nm, .sb-me")).toBeNull();
     expect(t.$(".sb-brand b")!.textContent).toBe("Пульт");
@@ -78,7 +78,7 @@ describe("раскладка широкого вида", () => {
     // источник: прототип «Пульт и телефон» (подписан 2 нояб.): список проекта слева, сессия справа
     const t = await pult();
     expect(t.$(".sb-split")).toBeNull();
-    await t.click(t.$('[data-seg="all"]'));
+    await t.expand();
     await t.click(t.$('[data-callsign="site@laptop"]'));
     expect(t.$(".sb-split .sb-master .bd-list")).not.toBeNull();
     expect(t.$(".sb-split .sb-detail .cw")).not.toBeNull();
@@ -89,7 +89,7 @@ describe("раскладка широкого вида", () => {
     expect(t.$('.bd-row[aria-current="true"]')!.dataset.callsign).toBe("wiki@laptop");
   });
 
-  it("5221 · закрепление: чужая сессия — «Закрепить в «Моём»» в меню ⋯ карточки → в «Моём» с ⌖; снова — откреплена", async () => {
+  it("5221 · закрепление: чужая сессия — «Закрепить» в шапке карточки → в «Моём» со значком; «Закреплена» — откреплена", async () => {
     // источник: прототип «Пульт и телефон» (подписан 2 нояб.): «закрепление — моя на этом устройстве»
     const roster = fleetRoster();
     roster.sessions = roster.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, by: "laptop~anna@example.com" } : s));
@@ -97,15 +97,14 @@ describe("раскладка широкого вида", () => {
     const mine = () => t.$$(".bd-row").map((b) => b.dataset.callsign);
     expect(mine()).not.toContain("wiki@laptop");
     await t.go("#card?callsign=wiki%40laptop");
-    await t.click(t.$('[data-pop="menu"]'));
-    await t.click(t.$('[data-screen="board.pin"]'));
+    await t.click(t.$('.cw-h [data-screen="board.pin"]'));
     await flush(10);
     await t.go("#sessions");
+    await t.expand();
     expect(mine()).toContain("wiki@laptop");
-    expect(t.$('[data-callsign="wiki@laptop"] .bd-pin')!.textContent).toBe("⌖");
+    expect(t.$('[data-callsign="wiki@laptop"] .bd-pin')).not.toBeNull();
     await t.go("#card?callsign=wiki%40laptop");
-    await t.click(t.$('[data-pop="menu"]'));
-    await t.click(t.$('[data-screen="board.pin"]'));
+    await t.click(t.$('.cw-h [data-screen="board.unpin"]'));
     await flush(10);
     await t.go("#sessions");
     expect(mine()).not.toContain("wiki@laptop");
@@ -131,7 +130,7 @@ describe("раскладка широкого вида", () => {
     const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
     input.value = "wiki";
     input.dispatchEvent(new Event("input"));
-    expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["wiki@laptop"]);
+    expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["wiki"]);
     expect(t.relay.got.length).toBe(sent);
   });
 
@@ -141,7 +140,7 @@ describe("раскладка широкого вида", () => {
     expect(t.text()).toContain("ход закончен · 2 мин 14 с · 6 шагов · $0,41");
     expect(t.text()).toContain("контекст сжат · 182 К → 41 К");
     expect(t.text()).toContain("сессия Claude · poe-bot@pc");
-    expect(t.relay.got.filter((f) => f.type !== "machine.journal")).toEqual([]);
+    expect(t.relay.got.filter((f) => f.type !== "machine.journal" && f.type !== "prefs.get")).toEqual([]);
   });
 });
 
@@ -293,15 +292,13 @@ describe("журнал флота и машины", () => {
     expect(relay.sent("ledger.read")[3]).toMatchObject({ machine: "pc", limit: 50 });
   });
 
-  it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине; конфликт профилей — в карточке", async () => {
+  it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине", async () => {
     const relay = fleetRelay();
     relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "0.5.0", rev: 1, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", restarts: 0 }] } });
-    relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "team/profiles": { state: "conflict", op: "git pull", files: ["ops/memory/testing.md"] } } } });
     const t = await pult({ relay, url: "/#machines" });
     await flush(10);
     await t.click(t.$('[data-row="pc"] .mc-head'));
-    expect(t.$('[data-machine="pc"]')!.textContent).toContain("team/profiles: память не сведена");
     await t.click(t.btn(t.$('[data-machine="pc"]'), "Аккаунты машины"));
     expect(location.hash).toBe("#accounts?machine=pc");
     expect(t.$('.sb-sec.dlg [aria-pressed="true"]')!.textContent).toBe("pc");

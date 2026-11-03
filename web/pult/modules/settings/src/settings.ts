@@ -13,8 +13,6 @@ type Listed = {
 type KPart = { part: string; version?: string; state?: string; error?: string };
 type KState = { keeper?: string; rev?: number; os?: string; parts?: KPart[] };
 type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok" | "revoked"; by: string; at: number };
-type Repo = { state: "ok" | "error" | "conflict"; error?: string };
-type Profiles = { profiles: Record<string, unknown>; repos: Record<string, Repo> };
 type Gh = { app: { slug: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: Record<string, unknown> } };
 type Err = { error: string };
 type Cell = { k: "ok" | "upd" | "behind" | "fail" | "off" | "gone"; t: string; pin?: string; why?: string };
@@ -50,8 +48,7 @@ const CSS = `
 .st-qr{width:156px;padding:12px;background:#fff;border-radius:10px;line-height:0}
 .st-qr svg{width:100%;height:auto;display:block}
 @media (max-width:640px){.st-inv{grid-template-columns:minmax(0,1fr)}.st-qr{justify-self:center}}
-.st-two{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;align-items:start}
-@media (max-width:900px){.st-grid,.st-two{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:900px){.st-grid{grid-template-columns:minmax(0,1fr)}}
 `;
 
 /** Слова отказа → строка на экране. */
@@ -91,7 +88,6 @@ export function createSettings(): AppModule {
   let list: Listed | Err | null = null;
   const kst = new Map<string, KState | Err>();
   let passes: Pass[] | Err | null = null;
-  const profs = new Map<string, Profiles | Err>();
   let gh: Gh | Err | null = null;
   let ghCode = "";
   // вид экрана: вкладка выпусков, выбранная машина, отмеченные, поиск, форма приглашения, подтверждение отзыва
@@ -100,7 +96,6 @@ export function createSettings(): AppModule {
   const rsel = new Set<string>();
   let rq = "";
   let gq = "";
-  let used = false;
   let inviting: { kind: "device" | "program" | "machine"; name: string; person: string } | null = null;
   let invited: { kind: "device" | "program" | "machine"; invite: string; addr: string } | null = null;
   let confirm: string | null = null;
@@ -108,7 +103,7 @@ export function createSettings(): AppModule {
   const notes = new Map<string, { text: string; tone: string }>();
   const screens = new Set<() => void>();
   /** открытые вкладки, которым нужны ответы машин: машина пришла в roster — спросить её */
-  const open = { releases: 0, general: 0 };
+  const open = { releases: 0 };
   const redraw = () => screens.forEach((d) => d());
   const note = (k: string, text: string, tone = "") => {
     notes.set(k, { text, tone });
@@ -140,17 +135,6 @@ export function createSettings(): AppModule {
   async function loadPasses() {
     const r = await app.request<{ passes: Pass[] }>("keys.list");
     passes = r.ok ? r.result.passes : { error: r.error };
-    redraw();
-  }
-  async function loadProfiles(sync = false) {
-    await Promise.all(
-      machines()
-        .filter((m) => can(m, "machine.profiles"))
-        .map(async (m) => {
-          const r = await app.request<Profiles>("machine.profiles", sync ? { machine: m, sync: true } : { machine: m });
-          profs.set(m, r.ok ? r.result : { error: r.error });
-        }),
-    );
     redraw();
   }
   async function loadGithub() {
@@ -301,16 +285,6 @@ export function createSettings(): AppModule {
     document.body.append(f);
     f.submit();
   }
-  /** Репозиторий → машины, чьи профили в нём, и их состояния. */
-  function profileRepos(): Map<string, Array<{ m: string; state: string }>> {
-    const out = new Map<string, Array<{ m: string; state: string }>>();
-    for (const [m, p] of profs) {
-      if ("error" in p) continue;
-      for (const [repo, s] of Object.entries(p.repos)) out.set(repo, [...(out.get(repo) ?? []), { m, state: s.state }]);
-    }
-    return out;
-  }
-
   // ───────── экран ─────────
   function mount(el: HTMLElement, params: Params): ScreenHandle {
     const box = h("div", { class: "sb-page" });
@@ -618,7 +592,6 @@ export function createSettings(): AppModule {
     // ── GitHub и устройство ──
     function ghH(): HTMLElement | null {
       if (!app.worker("github")) return null;
-      const used_ = profileRepos();
       let body: Array<HTMLElement | null>;
       if (ghCode) body = [h("span", null, "GitHub вернул код нового приложения."), h("div", { class: "sb-opts" }, h("button", { class: "sb-b pri", onclick: () => void setup() }, "Сохранить приложение"))];
       else if (!gh) body = [h("span", { class: "sb-note" }, "…")];
@@ -626,13 +599,12 @@ export function createSettings(): AppModule {
       else if (gh.app) {
         const repos = gh.repos ?? [];
         const q = gq.trim().toLowerCase();
-        const shown = repos.filter((r) => (!used || used_.has(r)) && (!q || r.toLowerCase().includes(q)));
+        const shown = repos.filter((r) => !q || r.toLowerCase().includes(q));
         const search = h("input", { class: "sb-in", "data-f": "gq", placeholder: "Найти репозиторий", "aria-label": "Найти репозиторий", value: gq, style: "flex:1" }) as HTMLInputElement;
         search.addEventListener("input", () => {
           gq = search.value;
           redraw();
         });
-        const nUsed = repos.filter((r) => used_.has(r)).length;
         body = [
           h("div", { class: "sb-ph" }, h("b", { class: "sb-m", style: "flex:1" }, gh.app.slug), h("span", { class: "sb-pill ok" }, `${repos.length} ${plural(repos.length, "репозиторий", "репозитория", "репозиториев")}`), gh.install ? h("a", { class: "sb-b", href: gh.install, target: "_blank", rel: "noopener" }, "Доступ на GitHub ↗") : null),
           repos.length
@@ -640,8 +612,6 @@ export function createSettings(): AppModule {
                 "div",
                 { class: "sb-opts", style: "flex-wrap:nowrap" },
                 search,
-                h("button", { class: "sb-b", "aria-pressed": used ? "false" : "true", onclick: () => ((used = false), redraw()) }, `все ${repos.length}`),
-                h("button", { class: "sb-b", "aria-pressed": used ? "true" : "false", onclick: () => ((used = true), redraw()) }, `используются ${nUsed}`),
               )
             : null,
           repos.length
@@ -649,7 +619,7 @@ export function createSettings(): AppModule {
                 "div",
                 { class: "st-repos" },
                 shown.length
-                  ? shown.map((r) => h("div", { class: "st-repo", "data-repo": r }, h("span", { class: "sb-m", style: "flex:1" }, r), used_.has(r) ? h("span", { class: "sb-note" }, `профили · ${used_.get(r)!.map((x) => x.m).join(", ")}`) : null))
+                  ? shown.map((r) => h("div", { class: "st-repo", "data-repo": r }, h("span", { class: "sb-m", style: "flex:1" }, r)))
                   : h("div", { class: "st-repo sb-note" }, "Таких нет"),
               )
             : null,
@@ -661,25 +631,6 @@ export function createSettings(): AppModule {
         body = [h("div", { class: "sb-opts" }, orgIn, h("button", { class: "sb-b pri", onclick: () => void create(org.trim()) }, "Создать приложение GitHub"))];
       }
       return h("section", { class: "sb-sec", "data-github": "" }, h("b", null, "Приложение GitHub флота"), ...body, noteEl("gh"));
-    }
-    function profilesH(): HTMLElement | null {
-      const repos = profileRepos();
-      const errs = [...profs].filter(([, p]) => "error" in p) as Array<[string, Err]>;
-      if (!repos.size && !errs.length) return null;
-      return h(
-        "section",
-        { class: "sb-sec", "data-profiles": "" },
-        h("div", { class: "sb-ph" }, h("b", { style: "flex:1" }, "Репозитории профилей"), h("button", { class: "sb-b", onclick: () => void loadProfiles(true).then(() => app.toast("Профили сведены с репозиториями", "ok")) }, "Синхронизировать")),
-        ...[...repos].map(([repo, ms]) =>
-          h(
-            "div",
-            { class: "sb-row", "data-repo": repo },
-            h("span", { class: "sb-m" }, repo),
-            h("span", null, ms.map((x) => h("span", { class: x.state === "ok" ? "" : "sb-note bad" }, `@${x.m}${x.state === "ok" ? "" : " · " + (x.state === "conflict" ? "конфликт" : "ошибка")} `))),
-          ),
-        ),
-        ...errs.map(([m, e]) => h("div", { class: "sb-note bad" }, `@${m}: machine.profiles: ${e.error}`)),
-      );
     }
     function deviceH(): HTMLElement {
       const ps = passes && !("error" in passes) ? passes : [];
@@ -713,7 +664,7 @@ export function createSettings(): AppModule {
           h("div", { class: "sb-opts" }, inviting || invited ? null : h("button", { class: "sb-b pri", onclick: () => ((inviting = { kind: "device", name: "", person: "" }), redraw()) }, "Пригласить")),
           ...passesH(),
         );
-      else if (app.wide) add(box, h("div", { class: "st-two" }, h("div", { style: "display:flex;flex-direction:column;gap:12px" }, ghH(), deviceH()), profilesH() ?? h("span")));
+      else if (app.wide) add(box, ghH(), deviceH());
       else add(box, deviceH());
       if (keep) {
         const el2 = box.querySelector<HTMLInputElement>(`[data-f="${keep}"]`);
@@ -726,21 +677,20 @@ export function createSettings(): AppModule {
     ghCode = new URLSearchParams(location.search).get("code") ?? "";
     draw();
     const t = tab();
-    const want = t === "releases" ? "releases" : t === "general" && app.wide ? "general" : null;
-    if (want) open[want]++;
+    const shown = t === "releases";
+    if (shown) open.releases++;
     // при открытии — ответы владельцев своей вкладки
     if (t === "releases") void loadReleases();
     if (t === "passes" || t === "general") void loadPasses();
     if (t === "general" && app.wide) {
       void loadGithub();
-      void loadProfiles();
     }
     return {
       head: () => ({ title: "Настройки" }),
       refresh: draw,
       close: () => {
         screens.delete(draw);
-        if (want) open[want]--;
+        if (shown) open.releases--;
       },
     };
   }
@@ -748,10 +698,9 @@ export function createSettings(): AppModule {
   return {
     on: {
       roster(r: Roster) {
-        // машина пришла (или вернулась) при открытой вкладке — её keeper и профили; закрытая вкладка спросит сама
+        // машина пришла (или вернулась) при открытой вкладке — её keeper; закрытая вкладка спросит сама
         for (const m of r.machines.map((x) => x.machine)) {
           if (open.releases && !kst.has(m)) void loadKeeper(m);
-          if (open.general && !profs.has(m) && can(m, "machine.profiles")) void app.request<Profiles>("machine.profiles", { machine: m }).then((x) => (profs.set(m, x.ok ? x.result : { error: x.error }), redraw()));
         }
         redraw();
       },

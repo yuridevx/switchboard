@@ -1,5 +1,7 @@
 // Мелочи вида, общие для модулей приложения: построитель элементов, подписи состояний, время.
 import type { SessionRecord } from "@switchboard/relay";
+import { userOf } from "@switchboard/protocol";
+import type { App } from "./types.ts";
 
 type Child = Node | string | number | null | undefined | false;
 type Attrs = Record<string, string | number | boolean | null | undefined | ((ev: Event) => void)>;
@@ -52,6 +54,19 @@ export function stateLabel(state: unknown): { text: string; tone: Tone; dot: str
     default:
       return { text: String(state ?? "—"), tone: "", dot: "" };
   }
+}
+
+/** Мой адрес ~почта: среди клиентов roster — устройство с именем этого приложения. */
+export function myAddress(app: App): string | null {
+  const c = (app.roster()?.clients ?? []).find((x) => x.startsWith(`${app.name}~`));
+  return c ? userOf(c) : null;
+}
+
+/** Проект сессии — последнее имя папки dir в нижнем регистре; домашняя папка — «~». Одно правило для всех модулей. */
+export function projectOf(dir: unknown): string {
+  const d = typeof dir === "string" && dir ? dir : "~";
+  if (d === "~") return "~";
+  return d.replace(/[\\/]+$/, "").split(/[\\/]/).pop()!.toLowerCase();
 }
 
 /** Строка «opus · high · main» из записи сессии: модель, усилие, слот. */

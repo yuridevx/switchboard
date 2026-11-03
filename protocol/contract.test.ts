@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress, within } from "./contract.ts";
+import { accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress, userOf, within } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -67,6 +67,12 @@ describe("protocol: конверт кадра", () => {
     // окончание адреса — с тильдой: ~ann не доходит до joann
     expect(reaches("~ann@example.com", "phone~joann@example.com")).toBe(false);
     expect(reaches("~ann@example.com", "phone~ann@example.com")).toBe(true);
+    // userOf: пользователь адреса — устройство и человек; машина, сессия и служба — нет
+    expect(userOf("phone~a@b.c")).toBe("~a@b.c");
+    expect(userOf("~a@b.c")).toBe("~a@b.c");
+    expect(userOf("@laptop")).toBeNull();
+    expect(userOf("site@laptop")).toBeNull();
+    expect(userOf(".relay")).toBeNull();
   });
 
   it("3108 · машина-адресат кадра — по to, иначе callsign, иначе machine", () => {

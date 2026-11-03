@@ -1,13 +1,11 @@
 // pult-machines — машины флота строками: лампа, имя, система, host, keeper, сессии, состояние; поиск и фильтры.
-// Строка раскрывается в карточку: части по ответу keeper (keeper.state), профили, перезапуск упавшей части планом.
+// Строка раскрывается в карточку: части по ответу keeper (keeper.state), перезапуск упавшей части планом.
 // Каждая цифра — ответ keeper, машины или roster. Ушедшую машину помнит, пока страница открыта: roster её больше не несёт.
 import { h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 type State = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
-type Repo = { state: "ok" | "error" | "conflict"; op?: string; files?: string[]; error?: string; since?: number };
-type Profiles = { profiles: Record<string, unknown>; repos: Record<string, Repo> };
 /** Состояние строки: на связи, сбой части, ушла. */
 type Mst = "ok" | "fail" | "gone";
 type Filter = "project" | "all" | "fail" | "gone";
@@ -40,7 +38,6 @@ const CSS = `
 export function createMachines(): AppModule {
   let app: App;
   const states = new Map<string, State | { error: string }>();
-  const profs = new Map<string, Profiles>();
   const notes = new Map<string, { text: string; tone: string }>();
   /** since машины в последнем roster: вернулась — keeper спрашиваем заново */
   const seen = new Map<string, number>();
@@ -59,13 +56,6 @@ export function createMachines(): AppModule {
     const jobs: Array<Promise<void>> = [];
     // keeper машины отвечает сам, даже когда Host мёртв
     jobs.push(app.request<State>("keeper.state", { to: `.keeper@${m}` }).then((r) => void states.set(m, r.ok ? r.result : { error: r.error })));
-    if (can(m, "machine.profiles"))
-      jobs.push(
-        app.request<Profiles>("machine.profiles", { machine: m }).then((r) => {
-          if (r.ok) profs.set(m, r.result);
-          note(`profiles:${m}`, r.ok ? "" : `machine.profiles: ${r.error}`, "bad");
-        }),
-      );
     await Promise.all(jobs);
     redraw();
   }
@@ -80,14 +70,6 @@ export function createMachines(): AppModule {
       seen.set(m.machine, m.since);
     }
     redraw();
-  }
-
-  async function sync(m: string) {
-    note(`sync:${m}`, "Синхронизирую…");
-    const r = await app.request<Profiles>("machine.profiles", { machine: m, sync: true });
-    if (!r.ok) return note(`sync:${m}`, `machine.profiles: ${r.error}`, "bad");
-    profs.set(m, r.result);
-    note(`sync:${m}`, "профили сведены с репозиториями", "ok");
   }
 
   /** Перезапуск упавшей части — планом машины: выключить и включить; keeper исполняет. */
@@ -116,7 +98,6 @@ export function createMachines(): AppModule {
 
     function detail(m: string): HTMLElement {
       const st = states.get(m);
-      const pr = profs.get(m);
       const ok = st && !("error" in st) ? st : null;
       const on = !gone.has(m);
       const noteEl = (k: string) => (notes.get(k)?.text ? h("div", { class: `sb-note ${notes.get(k)!.tone}`, role: "status" }, notes.get(k)!.text) : null);
@@ -131,8 +112,6 @@ export function createMachines(): AppModule {
               h("span", null, ok.os ?? "?"),
               h("span", null, "keeper"),
               h("span", { "data-keeper": ok.keeper ?? "" }, `${ok.keeper ?? "?"} · план rev ${ok.rev ?? 0}`),
-              pr ? h("span", null, "профили") : null,
-              pr ? h("span", null, Object.entries(pr.repos).map(([repo, s]) => `${repo}${s.state === "ok" ? "" : " · " + s.state}`).join(", ") || "—") : null,
             )
           : st && "error" in st
             ? h("div", { class: "sb-note bad" }, `keeper.state: ${st.error}`)
@@ -164,24 +143,11 @@ export function createMachines(): AppModule {
               ),
             )
           : null,
-        ...Object.entries(pr?.repos ?? {})
-          .filter(([, s]) => s.state !== "ok")
-          .map(([repo, s]) =>
-            h(
-              "div",
-              { class: "sb-sec bad" },
-              h("b", null, s.state === "conflict" ? `${repo}: память не сведена` : `${repo}: ${s.error ?? s.state}`),
-              s.state === "conflict" ? h("span", { class: "sb-note" }, `${s.op ?? "git pull"}: CONFLICT в ${(s.files ?? []).join(", ")}`) : null,
-            ),
-          ),
-        noteEl(`profiles:${m}`),
-        noteEl(`sync:${m}`),
         on
           ? h(
               "div",
               { class: "sb-opts" },
               can(m, "machine.login") ? h("button", { class: "sb-b", onclick: () => app.open("accounts", { machine: m }) }, "Аккаунты машины") : null,
-              can(m, "machine.profiles") ? h("button", { class: "sb-b", onclick: () => void sync(m) }, "Синхронизировать профили") : null,
               app.wide ? h("button", { class: "sb-b", onclick: () => app.open("settings", { tab: "releases", machine: m }) }, "План в «Выпусках»") : null,
             )
           : null,
@@ -202,7 +168,7 @@ export function createMachines(): AppModule {
           "button",
           { class: "mc-head", "aria-expanded": open === m ? "true" : "false", onclick: () => ((open = open === m ? null : m), draw()) },
           h("span", { class: `sb-dot ${st === "ok" ? "idle" : st === "gone" ? "gone" : "bad"}` }),
-          h("span", { class: "n" }, `@${m}`),
+          h("span", { class: "n" }, (app.mark("label.machine", m) as { text: string } | undefined)?.text ?? `@${m}`),
           h("span", { class: "os" }, ok?.os ?? ""),
           h("span", { class: "v" }, host ? `host ${host}` : ""),
           h("span", { class: "v" }, ok?.keeper ? `keeper ${ok.keeper}` : ""),
