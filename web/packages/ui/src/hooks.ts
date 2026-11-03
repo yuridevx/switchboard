@@ -1,6 +1,17 @@
 // Общие хуки экранов: чтение данных экрана с отменой устаревшего ответа.
 import { useCallback, useEffect, useState } from "react";
 
+/** Текущее время с шагом ms: таймер живёт, пока компонент на экране; ms 0 — стоит. Отсчёт виден только там, где он нужен. */
+export function useNow(ms: number): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!ms) return;
+    const h = setInterval(() => setNow(Date.now()), ms);
+    return () => clearInterval(h);
+  }, [ms]);
+  return now;
+}
+
 /** Ответ запроса ядра: результат или слово ошибки (форма Result, ядро ui не знает). */
 type Answer<T> = { ok: true; result: T } | { ok: false; error: string };
 

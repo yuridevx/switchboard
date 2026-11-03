@@ -1,7 +1,7 @@
 // Сведения сбоку широкой карточки: кто дал задачу, папка, профиль, дерево сессий, серверы MCP, ссылка в claude.ai.
 import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { profileName } from "@switchboard/web-ui";
-import { profileOf, remoteOf, type Mcp } from "./session.ts";
+import { profileName, profileNameOf, remoteOf } from "@switchboard/web-ui";
+import type { Mcp } from "./session.ts";
 import { Kv } from "./WidePops.tsx";
 
 export function WideAside({ callsign, s, mcp, toggleMcp }: { callsign: string; s: SessionRecord | undefined; mcp: Mcp[] | null; toggleMcp(m: Mcp): Promise<void> }) {
@@ -18,7 +18,7 @@ export function WideAside({ callsign, s, mcp, toggleMcp }: { callsign: string; s
             <dl className="cw-kv">
               {from ? <Kv k="задачу дал" v={from} /> : null}
               {typeof s.dir === "string" ? <Kv k="папка" v={s.dir} /> : null}
-              <Kv k="профиль" v={profileOf(s) ? profileName(profileOf(s)!) : "без профиля"} />
+              <Kv k="профиль" v={profileNameOf(s) ?? "без профиля"} />
             </dl>
           </div>
           {typeof s.parent === "string" || kids.length ? (

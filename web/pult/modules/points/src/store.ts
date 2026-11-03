@@ -3,7 +3,7 @@
 import type { App, SessionRecord } from "@switchboard/web-core";
 import type {} from "@switchboard/web-board";
 import { machineOf } from "@switchboard/protocol";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, machinesWith, sessionOf } from "@switchboard/web-ui";
 
 export type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
 export type Fleet = { sessions: FleetSession[]; r2: { bytes: number; blocks: number }; sweep: { at: number; blocks: number; bytes: number } | null };
@@ -34,7 +34,7 @@ export function createPointsStore() {
   const store = createStore<State>({ fleet: null, fleetRefused: "", lines: {}, full: {}, left: {} }, () => app.changed());
 
   const fleet = () => store.get().fleet;
-  const session = (callsign: string): SessionRecord | undefined => app.roster()?.sessions.find((s) => s.callsign === callsign);
+  const session = (callsign: string): SessionRecord | undefined => sessionOf(app, callsign);
   const onlineMachines = () => new Set((app.roster()?.machines ?? []).map((m) => m.machine));
 
   async function loadFleet() {
@@ -73,7 +73,7 @@ export function createPointsStore() {
     /** Вкладка «Точки» видна, когда машина сессии умеет точки. */
     canTab: (callsign: string) => app.can(machineOf(callsign) ?? "", "session.r2") === true,
     /** Машины, умеющие подъём. */
-    raisers: () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["points.raise"] !== undefined).map((m) => m.machine),
+    raisers: () => machinesWith(app, "points.raise"),
     /** Метка fire: сессии, чьей машины нет в roster. */
     fireCount() {
       const on = onlineMachines();

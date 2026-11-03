@@ -1,20 +1,12 @@
 // Вкладка «Журнал» широкой карточки: записи машины об этой сессии; фильтр по виду, «дальше» и «раньше».
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "@switchboard/web-core";
-import { hhmm } from "@switchboard/web-ui";
+import { hhmm, midnight } from "@switchboard/web-ui";
 
 type Rec = { t: string; part?: string; who?: string; kind?: string; ev?: string; word?: string; why?: string };
 type Page = { recs: Rec[]; more: boolean; err: string; loading: boolean };
 
 const KINDS = ["", "stop", "refuse", "note"];
-
-/** Полночь по местному времени daysBack дней назад — since журнала машины. */
-function midnight(daysBack: number): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - daysBack);
-  return d.toISOString();
-}
 
 function timeOf(t: string): string {
   const d = new Date(t);

@@ -1,11 +1,11 @@
 // Карточка на телефоне: вкладки чат, вставки места card.tab, видные этой сессии, и «Ещё» — сведения, модель и усилие, действия.
 import { useState } from "react";
 import { useApp, type Params } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, MODELS, Opts, Pad } from "@switchboard/web-ui";
+import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useSession } from "./context.ts";
 import { Names } from "./Names.tsx";
-import { failedText, profileOf, slotOf } from "./session.ts";
+import { slotOf } from "./session.ts";
 
 /** «Ещё» на телефоне. */
 function Info({ callsign, openNames }: { callsign: string; openNames(): void }) {
@@ -39,11 +39,11 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
         ["папка", s.dir],
         ["слот", slotOf(s)?.name],
         ["аккаунт", s.account],
-        ["профиль", profileOf(s)],
-        ["сбой", s.failed ? failedText(s) : undefined],
+        ["профиль", profileIdOf(s)],
+        ["сбой", s.failed ? failText(s) : undefined],
       ]
     : [["адрес", callsign]];
-  const remote = typeof s?.remote === "string" ? s.remote : (s?.remote as { url?: string } | undefined)?.url;
+  const remote = remoteOf(s);
   const stopped = s?.state === "stopped";
   return (
     <Pad>

@@ -1,12 +1,12 @@
 // Модель «Работы»: чистые выборки из снимка модуля, roster и записей настроек. Ничего не меняет; состояние и действия — store.ts.
 import type { App, SessionRecord } from "@switchboard/web-core";
-import { myAddress, stateLabel, type Personal } from "@switchboard/web-ui";
+import { failText, lamp, machineLabel, myAddress, profileNameOf, sessionLabel, stateLabel, type Personal } from "@switchboard/web-ui";
 import { arrange, NONE, PROJECTS, projectIdOf, type ProjectRec } from "@switchboard/records";
 import { kindOf, machineOf, userOf } from "@switchboard/protocol";
 import type {} from "@switchboard/web-ask";
 import type {} from "@switchboard/web-chat";
 import type {} from "@switchboard/web-labels";
-import { BUILT, incidentOf, match, orderFilters, parentOf, profileOf, rank, tree, type Filter, type Project, type View } from "./rules.ts";
+import { BUILT, incidentOf, match, orderFilters, parentOf, rank, tree, type Filter, type Project, type View } from "./rules.ts";
 
 /** Снимок модуля. */
 export type State = {
@@ -33,7 +33,6 @@ export type GroupItem = { k: "group"; machine: string; label: string; n: number 
 export type Section = { id: string; name: string; open: boolean; lamps: Array<{ callsign: string; kind: string }>; grip: boolean; add: boolean; menu: boolean; items: Array<RowItem | GroupItem> };
 export type ListModel = { flat: RowItem[] | null; sections: Section[]; empty: string };
 
-export const lamp = (s: SessionRecord) => (s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop");
 const isMe = (a: unknown, mail: string | null) => !!mail && typeof a === "string" && userOf(a) === mail;
 
 type Env = { app(): App | undefined; user(): Personal | undefined; fleet(): Personal | undefined; state(): State };
@@ -83,10 +82,10 @@ export function createModel({ app, user, fleet, state }: Env) {
     return ps && depth < 8 ? ownerOf(ps, depth + 1) : null;
   }
 
-  const sLabel = (callsign: string) => app()!.mark("label.session", callsign);
-  const mLabel = (machine: string) => app()!.mark("label.machine", machine);
-  const sName = (callsign: string) => sLabel(callsign)?.text ?? callsign;
-  const mName = (machine: string) => mLabel(machine)?.text ?? `@${machine}`;
+  const sLabel = (callsign: string) => sessionLabel(app()!, callsign);
+  const mLabel = (machine: string) => machineLabel(app()!, machine);
+  const sName = (callsign: string) => sLabel(callsign).text;
+  const mName = (machine: string) => mLabel(machine).text;
 
   const filters = () => orderFilters(own(), row());
   const currentFilter = () => filters().find((f) => f.id === state().flt) ?? BUILT[0];
@@ -110,8 +109,8 @@ export function createModel({ app, user, fleet, state }: Env) {
     if (asked && view.q) return [{ c: "tx q", t: `? ${asked}` }];
     const unread = app()!.mark("unread", s.callsign);
     if (unread?.text && view.unread) return [{ c: "tx", t: unread.text }];
-    if (s.state === "failed" && s.failed && view.fail) return [{ c: "tx f", t: Object.values(s.failed as Record<string, string>).join("; ") }];
-    const prof = profileOf(s);
+    if (s.state === "failed" && s.failed && view.fail) return [{ c: "tx f", t: failText(s) }];
+    const prof = profileNameOf(s);
     return [...(prof && view.prof ? [{ c: "bd-pill", t: prof }] : []), ...(typeof s.model === "string" && s.model && view.model ? [{ c: "tx", t: s.model }] : [])];
   }
 
@@ -130,12 +129,12 @@ export function createModel({ app, user, fleet, state }: Env) {
       lamp: view.lamp ? lamp(s) : null,
       title: stateLabel(s.state).text,
       name: sName(callsign),
-      human: !!sLabel(callsign)?.human,
+      human: sLabel(callsign).human,
       owner: owner ? owner.slice(1, owner.indexOf("@")) : null,
       inc: (view.inc ? incidentOf(s) : undefined) ?? null,
       pin: view.pin && pins().includes(callsign),
       at: view.at && !noAt ? mName(machine) : null,
-      atHuman: !!mLabel(machine)?.human,
+      atHuman: mLabel(machine).human,
       t2: [...(project ? [{ c: "prj", t: project }] : []), ...line(s, asked)],
       badge: !view.badge ? null : asked ? "?" : unread?.count || null,
     };

@@ -3,7 +3,7 @@
 // перед подменой; пульт его не пересылает.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, machinesWith } from "@switchboard/web-ui";
 
 export type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
 export type Account = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
@@ -57,7 +57,7 @@ export function createAccountsStore() {
   let app: App;
   const store = createStore<State>({ accs: {}, slots: {}, logins: {}, prevAccount: {}, refused: {}, opened: 0, loaded: false, known: {} }, () => app.changed());
 
-  const machines = (n: string) => (app.roster()?.machines ?? []).filter((m) => m.contract?.[n] !== undefined).map((m) => m.machine);
+  const machines = (n: string) => machinesWith(app, n);
 
   /** Отказ владельца — словом на экране, а не «аккаунтов нет»; ответ снимает его. */
   function refusal(s: State, m: string, n: string, r: { ok: boolean; error?: string }) {

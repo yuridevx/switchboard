@@ -4,7 +4,7 @@
 // Чего нет в contract машины — того нет на экране и в кадрах.
 import type { App, Ctx, Frame, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, isLive as stateIsLive, sessionLabel, sessionOf as findSession } from "@switchboard/web-ui";
 import { addMine, applyEvents, emptyFeed, withHistory, withOlder } from "./feed.ts";
 import type { Feed, UserItem } from "./types.ts";
 import type { WireMessage } from "./wire.ts";
@@ -43,7 +43,6 @@ export type Conv = {
 const newConv = (): Conv => ({ feed: emptyFeed(), seq: null, fresh: true, watching: false, noFeed: false, unread: 0, mounted: 0, focus: false, more: false, before: null });
 const EMPTY = newConv();
 const PAGE = 50;
-const LIVE = ["idle", "busy", "waiting"];
 const uuid = (): string => crypto.randomUUID();
 const dataUrl = (a: Attachment) => `data:${a.media_type};base64,${a.data}`;
 
@@ -63,8 +62,8 @@ export function createChatStore() {
     });
   const fold = (cs: string, change: (f: Feed) => Feed) => edit(cs, (c) => void (c.feed = change(read(cs).feed)));
 
-  const sessionOf = (cs: string) => app.roster()?.sessions.find((s) => s.callsign === cs);
-  const isLive = (cs: string) => LIVE.includes(String(sessionOf(cs)?.state));
+  const sessionOf = (cs: string) => findSession(app, cs);
+  const isLive = (cs: string) => stateIsLive(sessionOf(cs)?.state);
   const can = (cs: string, name: string) => {
     const m = machineOf(cs);
     return !!m && app.can(m, name) === true;
@@ -152,7 +151,7 @@ export function createChatStore() {
     // ───── выборки ─────
     /** Выборка из разговора: компонент перерисуется, когда изменился её ответ. */
     useConv: <T,>(cs: string, select: (c: Conv) => T): T => app.use(() => select(read(cs))),
-    nameOf: (cs: string) => app.mark("label.session", cs)?.text ?? cs,
+    nameOf: (cs: string) => sessionLabel(app, cs).text,
     sessionOf,
     isLive,
     can,

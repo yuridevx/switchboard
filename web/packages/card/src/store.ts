@@ -1,8 +1,8 @@
 // Состояние карточки: выбор этого устройства — сведения сбоку и что показывать в шапке. Шапка экрана — из roster и этого выбора не зависит.
 import type { App, Head, Params } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, effortName, folderOf, stateLabel } from "@switchboard/web-ui";
-import { HEAD0, machineName, sessionName, type HeadView } from "./session.ts";
+import { createStore, effortName, folderOf, machineLabel, sessionLabel, sessionOf, stateLabel } from "@switchboard/web-ui";
+import { HEAD0, type HeadView } from "./session.ts";
 
 type State = {
   /** сведения сбоку в широкой карточке */
@@ -43,16 +43,16 @@ export function createCardStore() {
     /** Шапка экрана: у каждого вида своя. */
     screenHead(params: Params): Head {
       const callsign = params.callsign ?? "";
-      const s = app.roster()?.sessions.find((x) => x.callsign === callsign);
-      const name = sessionName(app, callsign);
+      const s = sessionOf(app, callsign);
+      const name = sessionLabel(app, callsign);
       if (app.wide) {
         if (!s) return { title: name.text, mono: !name.human };
         return { title: name.text, mono: !name.human, sub: [s.model, effortName(s.effort)].filter(Boolean).join(" · ") };
       }
-      const host = machineName(app, machineOf(callsign) ?? "").text;
+      const host = machineLabel(app, machineOf(callsign) ?? "").text;
       if (!s) return { title: name.text, mono: !name.human, sub: `${host} не на связи` };
       // лампа без слов: состояние понятно по индикатору
-      return { title: name.text, mono: !name.human, sub: `${host} · папка ${folderOf(s.dir)}`, dot: s.state === "failed" ? "bad" : stateLabel(s.state).dot };
+      return { title: name.text, mono: !name.human, sub: `${host} · папка ${folderOf(s.dir)}`, dot: stateLabel(s.state).dot };
     },
   };
 }

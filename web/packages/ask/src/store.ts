@@ -2,7 +2,7 @@
 // Кадры question и answered, запросы answer и question.list; снимок читают экран, метка asked и шапка.
 import type { App, Frame, Params, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, hhmm } from "@switchboard/web-ui";
+import { createStore, hhmm, sessionLabel } from "@switchboard/web-ui";
 
 /** Вопрос AskUserQuestion: 1–4 на кадр, по 2–4 варианта; «Свой ответ» есть всегда. */
 export type Question = {
@@ -208,7 +208,7 @@ export function createAskStore() {
           : r.status === "ok"
             ? { text: "ответ принят", tone: "ok" as const }
             : { text: r.status === "cancelled" ? "снят" : "уже ответили", tone: "" as const };
-      const name = app.mark("label.session", callsign) ?? { text: callsign, human: false };
+      const name = sessionLabel(app, callsign);
       return { title: name.text, mono: !name.human, sub: r ? `вопрос сессии · ${hhmm(r.at)}` : "вопрос сессии", pill: r || store.get().loading[callsign] ? pill : undefined };
     },
   };

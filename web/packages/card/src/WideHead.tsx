@@ -1,10 +1,10 @@
 // Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { Dot, effortName, myAddress, profileName } from "@switchboard/web-ui";
+import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard } from "./context.ts";
-import { at, failedText, LABEL, machineName, profileOf, sessionName, slotOf, type Can } from "./session.ts";
+import { slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 import { AccPop, MenuPop, ModelPop } from "./WidePops.tsx";
 
@@ -19,8 +19,8 @@ function NameButton({ callsign, machine, openNames }: { callsign: string; machin
   const app = useApp();
   const card = useCard();
   const view = app.use(card.head);
-  const name = app.use(() => sessionName(app, callsign));
-  const host = app.use(() => machineName(app, machine));
+  const name = app.use(() => sessionLabel(app, callsign));
+  const host = app.use(() => machineLabel(app, machine));
   return (
     <button className="cw-nm" data-act="names" aria-label="Имена сессии и машины" onClick={openNames}>
       <span className="cw-nm1">
@@ -63,8 +63,8 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
     if (next === "acc") data.reloadAccounts();
   }
 
-  const [label, dot] = LABEL[String(x.state)] ?? [String(x.state), ""];
-  const why = failedText(x);
+  const { text: label, dot } = stateLabel(x.state);
+  const why = failText(x);
   const tip = x.state === "failed" && why ? `${label}: ${why}` : label;
   const sl = slotOf(x);
   const w5 = data.accounts?.[String(x.account ?? "")]?.limits?.five_hour;
@@ -72,7 +72,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
   const accCls = sl?.wait ? "you" : w5 && w5.utilization >= LIMIT_HINT ? "lim" : "";
   const stopped = x.state === "stopped" || x.state === "failed";
   const owner = typeof x.by === "string" ? userOf(x.by) : null;
-  const prof = profileOf(x) ? profileName(profileOf(x)!) : undefined;
+  const prof = profileNameOf(x);
   // слева кто, справа вкладки и действия: не помещаются в строку — вкладки уходят второй строкой
   return (
     <>

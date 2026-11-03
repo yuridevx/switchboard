@@ -1,8 +1,7 @@
 // Окна чипов новой сессии: профиль; модель, усилие, слот и «Точки в R2».
-import { effortName, EFFORTS, MODELS, profileName as short } from "@switchboard/web-ui";
+import { at, effortName, EFFORTS, MODELS, profileName as short } from "@switchboard/web-ui";
 import { useOpen } from "./context.ts";
 import { useMachineLabels } from "./Browser.tsx";
-import { hm } from "./form.ts";
 import type { OpenForm } from "./useOpenForm.ts";
 
 export function ProfilePop({ form }: { form: OpenForm }) {
@@ -74,7 +73,7 @@ export function ModelPop({ form }: { form: OpenForm }) {
         <div className="op-opts">
           {slots.map(([n, sl]) => (
             <button key={n} data-slot={n} aria-pressed={f.slot === n} onClick={() => set({ slot: n })}>
-              {sl.wait ? `${n} · ждёт сброса ${hm(sl.wait)}` : n}
+              {sl.wait ? `${n} · ждёт сброса ${at(sl.wait)}` : n}
             </button>
           ))}
         </div>

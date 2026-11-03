@@ -1,7 +1,7 @@
 // Окно действия над точкой: перенос, копия, смена папки, откат. Поля и шаги — usePointDialog.
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, H4, In, M, Note, Opts, OptsLabel, Row, Sec } from "@switchboard/web-ui";
+import { Btn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { CheckLine, DirInput } from "./parts.tsx";
 import type { Dialog, DialogControl } from "./usePointDialog.ts";
@@ -13,7 +13,7 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
   const raisers = app.use(points.raisers);
   const head = app.use(() => points.line(sid)?.head);
   const dir = app.use(() => points.dirOf(sid));
-  const remote = app.use(() => (points.session(callsign)?.remote as { url?: string } | undefined)?.url);
+  const remote = app.use(() => remoteOf(points.session(callsign)));
 
   const toPoint = typeof d.from === "number" ? `точке №${d.from}` : "точке";
   const titles = { move: `Перенести ${callsign}`, copy: `Скопировать ${callsign}`, dir: `Сменить папку ${callsign}`, rb: `Откатить ${callsign} к ${toPoint}` };

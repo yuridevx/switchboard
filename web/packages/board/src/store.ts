@@ -1,10 +1,10 @@
 // Состояние «Работы» и его действия: выбор устройства — в снимке и хранилище страницы, настройки человека и запись проектов — в циклах prefs.
 // Виды читают выборкой, меняют только действия отсюда. Выборки — model.ts.
 import type { App, Params, SessionRecord } from "@switchboard/web-core";
-import { createStore, folderOf, personal, type Personal } from "@switchboard/web-ui";
+import { createStore, folderOf, lamp, personal, type Personal } from "@switchboard/web-ui";
 import { addProject, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { machineOf } from "@switchboard/protocol";
-import { createModel, lamp, type State } from "./model.ts";
+import { createModel, type State } from "./model.ts";
 import { byRank, tree, VIEW0, type Filter, type View } from "./rules.ts";
 
 export type BoardStore = ReturnType<typeof createBoardStore>;

@@ -4,6 +4,7 @@ import { useApp, type Params } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { useOpen } from "./context.ts";
 import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type Profiles, type Slots } from "./form.ts";
+import { profileIdOf } from "@switchboard/web-ui";
 
 /** Снимок формы и чтение последнего из отложенных ответов. */
 function useSnapshot(initial: Form) {
@@ -38,7 +39,7 @@ export function useOpenForm(params: Params) {
     if (profileSet) return;
     const have = profiles ?? {};
     const dir = dirOfAddr(addr);
-    const used = open.sessions().find((x) => machineOf(x.callsign) === machine && dirOf(x) === dir && (x.profile as { id?: string } | null)?.id && have[(x.profile as { id: string }).id]);
+    const used = open.sessions().find((x) => machineOf(x.callsign) === machine && dirOf(x) === dir && profileIdOf(x) && have[(x.profile as { id: string }).id]);
     setProfile(used ? (used.profile as { id: string }).id : null);
   }
 

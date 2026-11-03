@@ -1,19 +1,13 @@
 // Окно фильтра: имя, одна строка поиска на все поля, поля «Чьи · Проекты · Машины · Профили · Состояние». Совпадения поиска — в каждом поле;
 // выбранное видно всегда; поле без совпадений свёрнуто. Снизу — сколько подходит. Хранит список store, здесь — только правка копии.
 import { useEffect, useRef, useState } from "react";
-import { Btn, plural } from "@switchboard/web-ui";
+import { Btn, plural, profileNameOf, stateLabel } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { useBoard } from "./context.ts";
 import type { BoardStore } from "./store.ts";
-import { FIELDS, profileOf, type Field, type Filter } from "./rules.ts";
+import { FIELDS, type Field, type Filter } from "./rules.ts";
 
-const STATES: Array<[string, string]> = [
-  ["waiting", "ждёт вас"],
-  ["busy", "работает"],
-  ["idle", "свободна"],
-  ["failed", "не запустилась"],
-  ["stopped", "остановлена"],
-];
+const STATES: Array<[string, string]> = ["waiting", "busy", "idle", "failed", "stopped"].map((k) => [k, stateLabel(k).text]);
 
 /** Варианты поля: значение и подпись. */
 function options(board: BoardStore, k: Field): Array<[string, string]> {
@@ -21,7 +15,7 @@ function options(board: BoardStore, k: Field): Array<[string, string]> {
   if (k === "who") return [["mine", "моё"], ...board.owners().map((o): [string, string] => [o, o.slice(1)])];
   if (k === "projects") return board.projectOptions();
   if (k === "machines") return uniq([...board.machines(), ...board.sessions().map((s) => machineOf(s.callsign) ?? "")]).map((m) => [m, board.mName(m)]);
-  if (k === "profiles") return uniq(board.sessions().map(profileOf)).map((x) => [x, x]);
+  if (k === "profiles") return uniq(board.sessions().map(profileNameOf)).map((x) => [x, x]);
   return STATES;
 }
 

@@ -1,7 +1,7 @@
 // Состояние профилей: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, folderOf, profileName as short, stateLabel } from "@switchboard/web-ui";
+import { createStore, folderOf, lamp, machineLabel, profileIdOf, profileName as short, sessionLabel } from "@switchboard/web-ui";
 
 type Repo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };
 type Answer = { profiles: Record<string, { model?: string | null; effort?: string | null; about?: string }>; repos: Record<string, Repo> };
@@ -45,7 +45,7 @@ export function createProfilesStore() {
 
   const can = (m: string) => app.can(m, "machine.profiles") === true;
   const machines = () => (app.roster()?.machines ?? []).map((m) => m.machine).filter(can);
-  const mLabel = (m: string) => app.mark("label.machine", m)?.text ?? `@${m}`;
+  const mLabel = (m: string) => machineLabel(app, m).text;
 
   async function load(m: string, sync = false) {
     const r = await app.request<Answer>("machine.profiles", sync ? { machine: m, sync: true } : { machine: m });
@@ -78,10 +78,10 @@ export function createProfilesStore() {
           ms: r.ms.map((m) => ({ m, label: mLabel(m) })),
           cf: r.cf.map((x) => ({ ...x, label: mLabel(x.m) })),
           run: sessions
-            .filter((s) => (s.profile as { id?: string } | null | undefined)?.id === r.id)
+            .filter((s) => profileIdOf(s) === r.id)
             .map((s) => {
-              const n = app.mark("label.session", s.callsign) ?? { text: s.callsign, human: false };
-              return { callsign: s.callsign, lamp: s.state === "failed" ? "bad" : stateLabel(s.state).dot || "stop", text: n.text, human: n.human, place: `${mLabel(machineOf(s.callsign) ?? "")} · ${folderOf(s.dir)}` };
+              const n = sessionLabel(app, s.callsign);
+              return { callsign: s.callsign, lamp: lamp(s), text: n.text, human: n.human, place: `${mLabel(machineOf(s.callsign) ?? "")} · ${folderOf(s.dir)}` };
             }),
         })),
         repos: [...new Set(replies.flatMap((a) => ("error" in a ? [] : Object.keys(a.repos))))],

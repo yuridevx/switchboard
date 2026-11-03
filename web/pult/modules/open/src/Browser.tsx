@@ -4,11 +4,12 @@ import type {} from "@switchboard/web-labels";
 import { useOpen } from "./context.ts";
 import { addrView, dirOfAddr, HOME, into } from "./form.ts";
 import type { OpenForm } from "./useOpenForm.ts";
+import { machineLabel } from "@switchboard/web-ui";
 
 /** Имя машины: человеческое из меток, иначе адрес. Выборка: новое имя перерисует вызвавшего. */
 export function useMachineLabels() {
   const app = useApp();
-  const labels = app.use(() => Object.fromEntries((app.roster()?.machines ?? []).map((m) => [m.machine, app.mark("label.machine", m.machine) ?? null])));
+  const labels = app.use(() => Object.fromEntries((app.roster()?.machines ?? []).map((m) => [m.machine, machineLabel(app, m.machine)])));
   return (m: string) => labels[m] ?? { text: `@${m}`, human: false };
 }
 

@@ -5,27 +5,25 @@ import { userOf } from "@switchboard/protocol";
 /** Тон метки: цвет пилюли и точки строки. */
 export type Tone = "ok" | "wait" | "bad" | "busy" | "";
 
-/** Состояние сессии из roster → подпись и тон. */
+/** Состояние сессии из roster → подпись, тон и лампа. Один словарь на все экраны; неизвестное — как есть, без лампы. */
+const STATES: Record<string, { text: string; tone: Tone; dot: string }> = {
+  busy: { text: "работает", tone: "busy", dot: "busy" },
+  waiting: { text: "ждёт вас", tone: "wait", dot: "wait" },
+  idle: { text: "свободна", tone: "ok", dot: "idle" },
+  starting: { text: "запускается", tone: "busy", dot: "busy" },
+  stopping: { text: "останавливается", tone: "", dot: "stop" },
+  stopped: { text: "остановлена", tone: "", dot: "stop" },
+  failed: { text: "не запустилась", tone: "bad", dot: "bad" },
+};
 export function stateLabel(state: unknown): { text: string; tone: Tone; dot: string } {
-  switch (state) {
-    case "busy":
-      return { text: "работает", tone: "busy", dot: "busy" };
-    case "waiting":
-      return { text: "ждёт ответа", tone: "wait", dot: "wait" };
-    case "idle":
-      return { text: "простаивает", tone: "ok", dot: "idle" };
-    case "starting":
-      return { text: "поднимается", tone: "busy", dot: "busy" };
-    case "stopping":
-      return { text: "останавливается", tone: "", dot: "stop" };
-    case "stopped":
-      return { text: "остановлена", tone: "", dot: "stop" };
-    case "failed":
-      return { text: "сбой", tone: "bad", dot: "wait" };
-    default:
-      return { text: String(state ?? "—"), tone: "", dot: "" };
-  }
+  return STATES[String(state)] ?? { text: String(state ?? "—"), tone: "", dot: "" };
 }
+/** Лампа строки сессии: неизвестное состояние — как остановленная. */
+export const lamp = (s: SessionRecord) => stateLabel(s.state).dot || "stop";
+
+/** Живая сессия: процесс claude отвечает. */
+export const LIVE = new Set(["idle", "busy", "waiting"]);
+export const isLive = (state: unknown) => LIVE.has(String(state));
 
 /** Модели, когда SDK машины не спросить. */
 export const MODELS = ["opus", "sonnet", "haiku", "fable"];
@@ -34,6 +32,36 @@ export const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medi
 export const effortName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ?? String(e ?? "");
 /** Короткое имя профиля: team/profiles/ops → ops. */
 export const profileName = (id: string) => id.split("/").at(-1) ?? id;
+/** Номер профиля сессии: team/profiles/ops. */
+export const profileIdOf = (s?: SessionRecord) => (s?.profile as { id?: string } | null | undefined)?.id;
+/** Имя профиля сессии: ops. */
+export const profileNameOf = (s?: SessionRecord) => {
+  const id = profileIdOf(s);
+  return id ? profileName(id) : undefined;
+};
+
+type Marks = { mark(name: string, ...args: string[]): unknown };
+type Rostered = { roster(): Roster | null };
+/** Подпись имени: человеческое имя или адрес. */
+export type Shown = { text: string; human: boolean };
+
+/** Запись сессии из roster. */
+export const sessionOf = (app: Rostered, callsign: string) => app.roster()?.sessions.find((s) => s.callsign === callsign);
+/** Имя сессии; модуля имён нет или он упал — позывной. */
+export const sessionLabel = (app: Marks, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? { text: callsign, human: false };
+/** Имя машины; модуля имён нет или он упал — адрес. */
+export const machineLabel = (app: Marks, machine: string) => (app.mark("label.machine", machine) as Shown | undefined) ?? { text: `@${machine}`, human: false };
+/** Машины на связи, у которых в contract есть все эти запросы. */
+export const machinesWith = (app: Rostered, ...names: string[]) => (app.roster()?.machines ?? []).filter((m) => names.every((n) => m.contract?.[n] !== undefined)).map((m) => m.machine);
+/** Ссылка Remote Control сессии. */
+export const remoteOf = (s?: SessionRecord) => (typeof s?.remote === "string" ? s.remote : (s?.remote as { url?: string } | undefined)?.url);
+/** Причина сбоя сессии: «часть: причина; …». */
+export const failText = (s: SessionRecord) =>
+  s.failed
+    ? Object.entries(s.failed as Record<string, string>)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join("; ")
+    : "";
 
 /** Мой адрес ~почта: среди клиентов roster — устройство с именем этого приложения. */
 export function myAddress(app: { name: string; roster(): Roster | null }): string | null {
@@ -60,6 +88,32 @@ export function hhmm(t: number | Date = Date.now()): string {
   const d = typeof t === "number" ? new Date(t) : t;
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
+
+/** ЧЧ:ММ момента: секунды или миллисекунды эпохи. */
+export const at = (t: number) => hhmm(t < 1e12 ? t * 1000 : t);
+/** «3 нояб.» */
+export const day = (t: number) => new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+/** Сколько прошло: «только что», «5 мин назад», «2 ч 5 мин назад»; с суток — день. */
+export function ago(t: number): string {
+  const m = Math.round((Date.now() - t) / 60000);
+  if (m < 1) return "только что";
+  if (m < 60) return `${m} мин назад`;
+  const hr = Math.floor(m / 60);
+  return hr < 24 ? `${hr} ч ${m % 60} мин назад` : day(t);
+}
+/** Полночь по местному времени daysBack дней назад — since журнала машины. */
+export function midnight(daysBack = 0): string {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - daysBack);
+  return d.toISOString();
+}
+
+/** Порог окна лимита: доля в процентах → цвет полосы. */
+export const LIMIT_WARN = 70;
+export const LIMIT_BAD = 90;
+/** Окна лимитов: подпись. */
+export const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus", seven_day_sonnet: "неделя sonnet" };
 
 /** «2 мин 14 с», «33 мин», «18 с» — длительность хода. */
 export function duration(ms: number): string {

@@ -54,11 +54,6 @@ export const matching = (dirs: string[], tail: string) => {
   const t = tail.toLowerCase();
   return dirs.filter((d) => (t.startsWith(".") || !d.startsWith(".")) && d.toLowerCase().startsWith(t));
 };
-/** Время сброса слота: секунды или миллисекунды эпохи → ЧЧ:ММ. */
-export const hm = (t: number) => {
-  const d = new Date(t < 1e12 ? t * 1000 : t);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-};
 export const dirOf = (s: SessionRecord) => (typeof s.dir === "string" && s.dir ? s.dir : HOME);
 
 /** Что видно по адресу: список родителя под хвост и пометка «новая папка» — только подсказка, решает машина. */

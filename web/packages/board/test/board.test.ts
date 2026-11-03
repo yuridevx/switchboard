@@ -124,7 +124,7 @@ describe("список", () => {
     const t = await start({ relay: new FakeRelay(r) });
     const text = t.$(".bd-body")!.textContent!;
     for (const w of ["свободна", "остановлена", "работает", "ждёт", "Ещё", "ещё"]) expect(text).not.toContain(w);
-    expect(t.$('[data-callsign="refactor@laptop"] .tx.f')!.textContent).toBe("нет слота");
+    expect(t.$('[data-callsign="refactor@laptop"] .tx.f')!.textContent).toBe("start: нет слота");
     expect(t.$('[data-callsign="build@build"] .bd-t2')!.textContent).toBe("cisonnet");
     expect(t.$('[data-callsign="refactor@laptop"] .sb-dot.bad')).not.toBeNull();
   });

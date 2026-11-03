@@ -2,7 +2,7 @@
 import { memo } from "react";
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, Note, Opts, plural } from "@switchboard/web-ui";
+import { Btn, Dot, hhmm, machineLabel, Note, Opts, plural } from "@switchboard/web-ui";
 import { useMachines } from "./context.ts";
 import { okOf, stateOf, type Part } from "./store.ts";
 
@@ -86,7 +86,7 @@ export const MachineRow = memo(function MachineRow({ m, open, toggle }: { m: str
       keeper: ok?.keeper,
       at: machines.gone()[m] ?? 0,
       n: (app.roster()?.sessions ?? []).filter((s) => machineOf(s.callsign) === m).length,
-      name: app.mark("label.machine", m)?.text ?? `@${m}`,
+      name: machineLabel(app, m).text,
     };
   });
   const text = d.st === "gone" ? `ушла ${hhmm(d.at)}` : d.st === "fail" ? "сбой части" : "на связи";

@@ -46,7 +46,7 @@ describe("«Вам»", () => {
   it("5230 · «не запустилась» и «ждёт сброса лимита» — только у моих сессий; счётчик раздела; чужая сессия карточки не даёт", async () => {
     const t = await stand(parts(), { roster: fleet(), url: "/#inbox" });
     expect(kinds(t)).toEqual(["fail:catan@laptop", "wait:night@pc"]);
-    expect(t.$('[data-kind="fail"] .ib-tx')!.textContent).toBe("процесс claude завершился дважды до готовности");
+    expect(t.$('[data-kind="fail"] .ib-tx')!.textContent).toBe("host: процесс claude завершился дважды до готовности");
     expect(t.$('[data-kind="wait"] .ib-tx')!.textContent).toMatch(/^Аккаунты слота night у порога — продолжит после \d\d:\d\d$/);
     expect(t.$$(".ib-gh").map((x) => x.textContent)).toEqual(["Сломалось или ждёт · 2"]);
     // сессия поднялась, слот сменился — карточки ушли сами

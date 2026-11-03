@@ -1,8 +1,8 @@
 // Вкладка «Настройки» широкой карточки: профиль, быстрый режим, заголовок, слот, остановка и удаление.
 import { useEffect, useRef, useState } from "react";
 import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { profileName, useLoad } from "@switchboard/web-ui";
-import { notAsked, profileOf, slotOf, type Can } from "./session.ts";
+import { profileIdOf, profileName, useLoad } from "@switchboard/web-ui";
+import { notAsked, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 
 type Note = { text: string; tone: string };
@@ -72,7 +72,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
     note("ctl", "");
   }
 
-  const profNow = profileOf(s) ?? "";
+  const profNow = profileIdOf(s) ?? "";
   const slotNow = slotOf(s)?.name ?? "";
   const fast = !!(s?.fast as boolean | undefined);
   const stopped = s?.state === "stopped" || s?.state === "failed";

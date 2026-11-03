@@ -1,7 +1,7 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
 import type { SessionRecord } from "@switchboard/web-core";
-import { EFFORTS, MODELS, profileName } from "@switchboard/web-ui";
-import { at, profileOf, remoteOf, slotOf, type Acc, type Model, type SlotInfo } from "./session.ts";
+import { at, EFFORTS, MODELS, profileName, profileNameOf, remoteOf } from "@switchboard/web-ui";
+import { slotOf, type Acc, type Model, type SlotInfo } from "./session.ts";
 
 /** Окна лимитов аккаунта → подпись. */
 const WINDOWS: Record<string, string> = { five_hour: "5 часов", seven_day: "неделя", seven_day_opus: "неделя Opus" };
@@ -79,7 +79,7 @@ export function MenuPop({ s, machine, callsign, info, toggleInfo }: { s: Session
   return (
     <div className="cw-pop r" role="menu" aria-label={`Сессия ${callsign}`}>
       <dl className="cw-kv">
-        <Kv k="профиль" v={profileOf(s) ? profileName(profileOf(s)!) : "без профиля"} />
+        <Kv k="профиль" v={profileNameOf(s) ?? "без профиля"} />
         {typeof s.dir === "string" ? <Kv k="папка" v={s.dir} /> : null}
         <Kv k="машина" v={`@${machine}`} />
         {inc?.type ? <Kv k="инцидент" v={[inc.type, inc.key].filter(Boolean).join(" · ")} /> : null}

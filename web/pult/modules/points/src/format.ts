@@ -6,15 +6,6 @@ import type { Check } from "./store.ts";
 export const r2Of = (s: SessionRecord | undefined) => s?.r2 as { error?: string; at?: number } | undefined;
 export const nameOf = (callsign: string) => callsign.split("@")[0];
 export const mb = (b: number) => `${Math.round(b / 1048576)} МБ`;
-export const day = (t: number) => new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-
-export function ago(t: number): string {
-  const m = Math.round((Date.now() - t) / 60000);
-  if (m < 1) return "только что";
-  if (m < 60) return `${m} мин назад`;
-  const hr = Math.floor(m / 60);
-  return hr < 24 ? `${hr} ч ${m % 60} мин назад` : day(t);
-}
 
 /** Слова отказа host-points и points → строка на экране. */
 export function say(w: string, cs = "", target = "", src = ""): string {

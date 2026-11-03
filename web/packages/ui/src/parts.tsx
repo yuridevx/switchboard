@@ -1,6 +1,6 @@
 // Компоненты набора: один компонент — один класс основания. Лишние свойства (data-*, aria-*, обработчики) идут на элемент.
-import type { ComponentProps, ReactNode } from "react";
-import type { Tone } from "./format.ts";
+import { useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { at, LIMIT_BAD, LIMIT_WARN, type Tone } from "./format.ts";
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
 
@@ -22,6 +22,47 @@ export function Cta({ className, ...p }: ComponentProps<"button">) {
 /** Поле ввода: mono — моноширинное. */
 export function In({ mono, className, ...p }: ComponentProps<"input"> & { mono?: boolean }) {
   return <input {...p} className={cx("sb-in", mono && "m", className)} />;
+}
+
+/**
+ * Поле с фиксацией: текст — своё состояние, значение уходит наружу по Enter и при уходе с поля, только если изменилось.
+ * Esc возвращает прежнее. Новое значение снаружи заменяет текст.
+ */
+export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }: Omit<ComponentProps<typeof In>, "value" | "defaultValue" | "onInput"> & { value: string; onCommit(text: string): void; onCancel?(): void }) {
+  const [text, setText] = useState(value);
+  const [outer, setOuter] = useState(value);
+  // значение снаружи изменилось: поправка при рисовании, эффект не нужен
+  if (outer !== value) {
+    setOuter(value);
+    setText(value);
+  }
+  /** последнее отправленное: Enter и следующий уход с поля — одна фиксация */
+  const sent = useRef(value);
+  sent.current = outer === value ? sent.current : value;
+  const commit = () => {
+    if (text === sent.current) return;
+    sent.current = text;
+    onCommit(text);
+  };
+  return (
+    <In
+      {...p}
+      value={text}
+      onInput={(e) => setText(e.currentTarget.value)}
+      onBlur={(e) => {
+        commit();
+        onBlur?.(e);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") commit();
+        if (e.key === "Escape") {
+          setText(sent.current);
+          onCancel?.();
+        }
+        onKeyDown?.(e);
+      }}
+    />
+  );
 }
 
 /** Многострочное поле. */
@@ -140,6 +181,18 @@ export function Meter({ value, warn, bad, className, ...p }: ComponentProps<"spa
     <span {...p} className={cx("sb-barw", warn && "warn", bad && "bad", className)}>
       <i style={{ width: `${value}%` }} />
     </span>
+  );
+}
+
+/** Строка окна лимита: подпись, полоса, процент и время сброса; пороги цвета — одни на все экраны. used — доля 0…1. */
+export function LimitRow({ label, used, resets, ...p }: ComponentProps<"div"> & { label: ReactNode; used: number; resets?: number }) {
+  const pct = Math.round(used * 100);
+  return (
+    <div {...p}>
+      <span>{label}</span>
+      <Meter value={Math.min(100, pct)} bad={pct >= LIMIT_BAD} warn={pct < LIMIT_BAD && pct >= LIMIT_WARN} />
+      <em>{`${pct} %${resets ? ` · до ${at(resets)}` : ""}`}</em>
+    </div>
   );
 }
 

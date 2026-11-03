@@ -1,14 +1,14 @@
 // Карточки «Вам»: вопрос, сообщение, сбой, ожидание лимита, готово, ушедшая машина. Каждая выбирает своё и меняется одна.
 import { memo } from "react";
 import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { Dot, hhmm } from "@switchboard/web-ui";
+import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf } from "@switchboard/web-ui";
 import { useInbox } from "./context.ts";
 import type { Item, Kind } from "./store.ts";
 
 /** Заголовок карточки: лампа, позывной (открыть) и что случилось. */
 function CardHead({ s, dot, label }: { s: SessionRecord; dot: string; label: string }) {
   const app = useApp();
-  const name = app.use(() => app.mark("label.session", s.callsign)?.text ?? s.callsign);
+  const name = app.use(() => sessionLabel(app, s.callsign).text);
   const project = app.use(() => app.mark("project.of", s.callsign)?.name ?? "");
   return (
     <div className="ib-ih">
@@ -24,7 +24,7 @@ function CardHead({ s, dot, label }: { s: SessionRecord; dot: string; label: str
 /** Машина не на связи: подпись и «Поднять из точки», если модуль точек есть. */
 function Away({ machine, at, list }: { machine: string; at: number; list: string }) {
   const app = useApp();
-  const name = app.use(() => app.mark("label.machine", machine)?.text ?? `@${machine}`);
+  const name = app.use(() => machineLabel(app, machine).text);
   const points = app.use(() => app.mark("fire") !== undefined);
   return (
     <div className="ib-it bad" data-kind="away" data-machine={machine}>
@@ -67,7 +67,7 @@ function Fire({ n }: { n: number }) {
 const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Kind; callsign: string; at?: number }) {
   const app = useApp();
   const inbox = useInbox();
-  const s = app.use(() => app.roster()?.sessions.find((x) => x.callsign === callsign));
+  const s = app.use(() => sessionOf(app, callsign));
   const unread = app.use(() => (kind === "msg" ? app.mark("unread", callsign) : undefined));
   if (!s) return null;
   const open = () => app.open("card", { callsign });
@@ -95,7 +95,7 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
         </div>
       );
     case "fail": {
-      const why = s.failed ? Object.values(s.failed as Record<string, string>).join("; ") : "";
+      const why = failText(s);
       return (
         <div className="ib-it bad" data-kind="fail" data-callsign={callsign}>
           <CardHead s={s} dot="bad" label="не запустилась" />

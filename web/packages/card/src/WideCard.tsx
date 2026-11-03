@@ -8,11 +8,11 @@ import { machineOf } from "@switchboard/protocol";
 import { useCan, useCard, useSession } from "./context.ts";
 import { LogTab } from "./LogTab.tsx";
 import { Names } from "./Names.tsx";
-import { failedText, LIVE } from "./session.ts";
 import { SetTab } from "./SetTab.tsx";
 import { useWideData } from "./useWideData.ts";
 import { WideAside } from "./WideAside.tsx";
 import { WideHead } from "./WideHead.tsx";
+import { failText, isLive } from "@switchboard/web-ui";
 
 export function WideCard({ params }: { params: Params }) {
   const app = useApp();
@@ -23,7 +23,7 @@ export function WideCard({ params }: { params: Params }) {
   const can = useCan(machine);
   const info = app.use(card.info);
   const placedTabs = app.use(() => app.placed("card.tab", { callsign }));
-  const live = LIVE.has(String(s?.state));
+  const live = isLive(s?.state);
   const data = useWideData(callsign, machine, live, info);
 
   /** вкладка: разговор и вставка места — экран в месте, остальное — настройки или журнал */
@@ -48,7 +48,7 @@ export function WideCard({ params }: { params: Params }) {
         <div className="cw-pl" role="status" hidden={!failed}>
           {failed ? (
             <>
-              <b>{`Не запустилась${failedText(s!) ? ": " + failedText(s!) : ""}`}</b>
+              <b>{`Не запустилась${failText(s!) ? ": " + failText(s!) : ""}`}</b>
               {can("machine.journal") ? (
                 <button className="cw-b" onClick={() => select("log")}>
                   Почему

@@ -2,14 +2,14 @@
 import { memo, useEffect, useMemo, useState } from "react";
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, Note, Page, PageHead, stateLabel } from "@switchboard/web-ui";
+import { Btn, Dot, hhmm, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel } from "@switchboard/web-ui";
 import { useIncidents } from "./context.ts";
 import { incOf, isOpen, type Lost } from "./store.ts";
 
 const LostRow = memo(function LostRow({ x, picked, pick }: { x: Lost; picked: boolean; pick(k: string): void }) {
   const app = useApp();
   const k = `${x.machine}:${x.id}`;
-  const name = app.use(() => app.mark("label.machine", x.machine)?.text ?? `@${x.machine}`);
+  const name = app.use(() => machineLabel(app, x.machine).text);
   return (
     <>
       <button className="in-row in-lost" data-lost={k} aria-expanded={picked ? "true" : "false"} onClick={() => pick(k)}>
@@ -35,9 +35,9 @@ const SessionRow = memo(function SessionRow({ callsign }: { callsign: string }) 
   const app = useApp();
   const incidents = useIncidents();
   const s = app.use(() => incidents.sessions().find((x) => x.callsign === callsign));
-  const name = app.use(() => app.mark("label.session", callsign)?.text ?? callsign);
+  const name = app.use(() => sessionLabel(app, callsign).text);
   const machine = machineOf(callsign) ?? "";
-  const host = app.use(() => app.mark("label.machine", machine)?.text ?? `@${machine}`);
+  const host = app.use(() => machineLabel(app, machine).text);
   if (!s) return null;
   const inc = incOf(s)!;
   const st = s.state === "stopped" ? { text: "закрыт", dot: "stop" } : stateLabel(s.state);

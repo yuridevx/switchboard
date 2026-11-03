@@ -1,15 +1,11 @@
 // Правила «Работы» без экрана: дерево по parent, фильтр, ранг состояния — только для ламп и поиска. Порядок проектов и строк — в записи (records).
 import type { SessionRecord } from "@switchboard/web-core";
-import { profileName } from "@switchboard/web-ui";
+import { profileNameOf } from "@switchboard/web-ui";
 import { kindOf, machineOf } from "@switchboard/protocol";
 
 /** Ранг состояния: ждёт вас и сбой, работает, остальные. Порядок списка от него не зависит. */
 export const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 export const byRank = (a: SessionRecord, b: SessionRecord) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign);
-export const profileOf = (s: SessionRecord) => {
-  const id = (s.profile as { id?: string } | null | undefined)?.id;
-  return id ? profileName(id) : undefined;
-};
 export const incidentOf = (s: SessionRecord) => (s.incident as { type?: string } | null | undefined)?.type;
 
 /** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */
@@ -60,7 +56,7 @@ export function match(f: Filter, s: SessionRecord, project: string, mine: (s: Se
   if (f.who?.length && !f.who.some((x) => (x === "mine" ? mine(s) : owner(s) === x))) return false;
   if (f.projects?.length && !f.projects.includes(project)) return false;
   if (f.machines?.length && !f.machines.includes(machineOf(s.callsign) ?? "")) return false;
-  if (f.profiles?.length && !f.profiles.includes(profileOf(s) ?? "")) return false;
+  if (f.profiles?.length && !f.profiles.includes(profileNameOf(s) ?? "")) return false;
   if (f.states?.length && !f.states.includes(String(s.state))) return false;
   return true;
 }

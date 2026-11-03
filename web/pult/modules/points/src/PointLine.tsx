@@ -2,9 +2,8 @@
 import { Fragment, useMemo, useState } from "react";
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, H4, hhmm, Note, Opts, plural, Row, Sec } from "@switchboard/web-ui";
+import { Btn, day, H4, hhmm, Note, Opts, plural, Row, Sec } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
-import { day } from "./format.ts";
 import type { Line, LPoint } from "./store.ts";
 import type { DialogKind } from "./usePointDialog.ts";
 

@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Hint, Note, Opts, OptsInline, Pill, plural, Sec } from "@switchboard/web-ui";
+import { ago, Btn, Hint, Note, Opts, OptsInline, Pill, plural, Sec } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
 import { NewDlg, RmDlg, SessDlg } from "./Dialogs.tsx";
 import { LoginCard } from "./LoginCard.tsx";
@@ -13,14 +13,6 @@ type Entry = { machine: string; name: string; a: Account };
 
 /** Откуда окно: событие сессии, опрос claude или расход с другой машины. */
 const SRC: Record<string, string> = { event: "по ответу сессии", poll: "спросили claude" };
-
-function ago(sec?: number): string {
-  if (!sec) return "";
-  const m = Math.round((Date.now() / 1000 - sec) / 60);
-  if (m < 1) return "сейчас";
-  if (m < 60) return `${m} мин назад`;
-  return `${Math.round(m / 60)} ч назад`;
-}
 
 /** «＋ войти на машине…»: любая машина на связи, где этой почты ещё нет; имя на машине — то же, что на других. */
 function AnyMachine({ id, list }: { id: string; list: Entry[] }) {
@@ -111,7 +103,7 @@ function AccountCard({ id, list, sessions }: { id: string; list: Entry[]; sessio
         <Hint>{`${sessions} ${plural(sessions, "сессия", "сессии", "сессий")}`}</Hint>
       </div>
       {src ? <Windows a={src.a} /> : null}
-      {src && w0 ? <Note>{[w0.src ? (SRC[w0.src] ?? `от ${w0.src}`) : null, src.machine, ago(w0.at)].filter(Boolean).join(" · ")}</Note> : null}
+      {src && w0 ? <Note>{[w0.src ? (SRC[w0.src] ?? `от ${w0.src}`) : null, src.machine, w0.at ? ago(w0.at * 1000) : ""].filter(Boolean).join(" · ")}</Note> : null}
       <div className="ac-sum" data-in={inN}>{`вошёл на ${inN} ${plural(inN, "машине", "машинах", "машинах")}`}</div>
       {list.map((x) => (
         <MachineRow key={x.machine} m={x.machine} machine={x.machine} name={x.name} a={x.a} />
