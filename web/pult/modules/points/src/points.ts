@@ -1,7 +1,7 @@
 // pult-points — точки сессий с пометкой «в R2»: обзор реестра, вкладка «Точки» карточки, перенос, копия,
 // смена папки, откат и «пожар». Своих данных не хранит: линия, ветки, срок и хозяин — от реестра points,
 // подъём и точки — host-points машины. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
-import { h, hhmm, plural, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { h, hhmm, pickOne, plural, type App, type AppModule, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
@@ -105,6 +105,14 @@ export function createPoints(): AppModule {
   const online = () => new Set((app.roster()?.machines ?? []).map((m) => m.machine));
   const live = () => new Set((app.roster()?.sessions ?? []).map((s) => s.callsign));
   const raisers = () => (app.roster()?.machines ?? []).filter((m) => m.contract?.["points.raise"] !== undefined).map((m) => m.machine);
+
+  /** Выбор машины подъёма: выбранная и машины проекта сессии (метки web-board) — кнопками, остальные — списком. */
+  function pickMachine(cur: string, callsign: string | undefined, on: (m: string) => void): HTMLElement {
+    const project = callsign ? (app.mark("project", callsign) as string | null | undefined) : null;
+    const pm = project ? ((app.mark("project.machines", project) as string[] | undefined) ?? []) : [];
+    return h("div", { class: "sb-opts" }, pickOne(raisers(), pm, cur, on, { select: { "data-f": "target", "aria-label": "Другая машина" } }));
+  }
+
 
   async function loadFleet() {
     const r = await app.request<Fleet>("points.list", {});
@@ -368,7 +376,7 @@ export function createPoints(): AppModule {
         h("h4", { class: "sb-h4" }, `Перенести сессии ${f.from} на другую машину`),
         f.run
           ? h("div", { class: f.k === f.rows.length ? "sb-sec ok" : "sb-sec wait", role: "status", "data-progress": `${f.k}/${f.rows.length}` }, h("b", null, `Перенос с ${f.from} на ${f.target}: ${f.k} из ${f.rows.length} готовы${f.k < f.rows.length && f.rows.some((r) => !r.st || r.st.endsWith("…")) ? " — не закрывайте страницу" : ""}`))
-          : h("div", { class: "sb-row" }, h("span", null, "Куда"), h("div", { class: "sb-opts" }, ms.map((m) => h("button", { class: "sb-b", "aria-pressed": m === f.target ? "true" : "false", onclick: () => void fireTarget(m) }, m)))),
+          : h("div", { class: "sb-row" }, h("span", null, "Куда"), pickMachine(f.target, f.rows[0]?.s.callsign ?? undefined, (m) => void fireTarget(m))),
         f.rows.map((r) =>
           h(
             "div",
@@ -397,7 +405,7 @@ export function createPoints(): AppModule {
         "div",
         { class: "sb-sec dlg", "data-dlg": "raise" },
         h("b", null, `Поднять ${nameOf(d.s.callsign ?? "")} из точки №${d.s.head.id}`),
-        h("div", { class: "sb-row" }, h("span", null, "Машина"), h("div", { class: "sb-opts" }, raisers().map((m) => h("button", { class: "sb-b", "aria-pressed": m === d.target ? "true" : "false", onclick: () => void moveTarget(m) }, m)))),
+        h("div", { class: "sb-row" }, h("span", null, "Машина"), pickMachine(d.target, d.s.callsign ?? undefined, (m) => void moveTarget(m))),
         h("div", { class: "sb-row" }, h("span", null, "Слот"), h("span", null, d.slot || "без слота")),
         h("div", { class: "sb-row" }, h("span", null, "Папка"), h("span", { class: "sb-m" }, d.dir)),
         checkLine(d),

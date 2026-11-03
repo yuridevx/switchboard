@@ -325,11 +325,33 @@ describe("«пожар»", () => {
     expect(t.$("[data-progress]")!.dataset.progress).toBe("1/2");
   });
 
+  it("4196 · флот больше шести машин: машина подъёма — выбранная кнопкой, остальные списком «ещё N…»; выбор из списка — пробы на неё", async () => {
+    // источник: подпись экрана p05 прототипа «Пульт и телефон» (подписан 2 нояб.): машины проекта кнопками, остальные списком
+    const relay = fireRelay((r) => {
+      const c = r.machines[0].contract;
+      for (const m of ["b1", "b2", "b3", "b4", "b5", "b6"]) r.machines.push({ machine: m, since: 1, proto: 1, contract: { ...c } });
+    });
+    const t = await points(relay);
+    await t.click(t.btn(null, "Перенести на другую машину…"));
+    await flush(10);
+    const dlg = t.$('[data-dlg="fire"]')!;
+    const sel = dlg.querySelector<HTMLSelectElement>('select[data-f="target"]')!;
+    expect(sel.options[0].textContent).toBe("ещё 7…");
+    expect(dlg.querySelectorAll('.sb-opts button[aria-pressed="true"]')).toHaveLength(1);
+    sel.value = "b3";
+    sel.dispatchEvent(new Event("change"));
+    await flush(10);
+    expect(relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "b3" });
+  });
+
   it("4169 · другая машина-цель — слоты и пробы заново, кнопка на неё", async () => {
     const t = await points();
     await t.click(t.btn(null, "Перенести на другую машину…"));
     await flush(10);
-    await t.click(t.btn(t.$('[data-dlg="fire"]'), "pc"));
+    // машина вне проекта — в списке «ещё N…» (подпись экрана p05)
+    const sel = t.$<HTMLSelectElement>('[data-dlg="fire"] select[data-f="target"]')!;
+    sel.value = "pc";
+    sel.dispatchEvent(new Event("change"));
     await flush(10);
     expect(t.relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "pc" });
     expect(t.relay.sent("points.raise").filter((f) => f.machine === "pc" && f.dryRun)).toHaveLength(2);

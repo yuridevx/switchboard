@@ -3,7 +3,7 @@
 // Проект — последнее имя папки (поле roster dir); его профиль, папки и машины — из сессий проекта в roster.
 // Своих данных нет: слоты и профили — ответы владельцев на выбранной машине, папки — machine.dirs по шагу.
 // «Открыть» = session.open; включено «в R2» — session.r2; есть сообщение — session.prompt; затем карточка.
-import { add, h, type App, type AppModule, type Params, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
+import { add, h, pickOne, type App, type AppModule, type Params, type ScreenHandle, type SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 const MODELS = ["opus", "sonnet", "haiku", "fable"];
@@ -200,8 +200,6 @@ export function createOpen(): AppModule {
       box.textContent = "";
       const ms = machines();
       const pm = projMachines();
-      const near = ms.filter((m) => pm.includes(m) || m === machine);
-      const far = ms.filter((m) => !near.includes(m));
       const nameIn = h("input", { class: "sb-in op-name", "data-f": "name", placeholder: baseName(), value: name, autocomplete: "off", "aria-label": "Имя сессии" }) as HTMLInputElement;
       const at = h("span", { class: "op-at" }, `→ ${callsignFor()}`);
       nameIn.addEventListener("input", () => {
@@ -209,7 +207,7 @@ export function createOpen(): AppModule {
         nameErr = "";
         at.textContent = `→ ${callsignFor()}`;
       });
-      const msg = h("textarea", { class: "sb-in", "data-f": "text", rows: 2, placeholder: "необязательно", "aria-label": "Первое сообщение" }, text) as HTMLTextAreaElement;
+      const msg = h("textarea", { class: "sb-in", "data-f": "text", rows: 2, "aria-label": "Первое сообщение" }, text) as HTMLTextAreaElement;
       msg.addEventListener("input", () => (text = msg.value));
       msg.addEventListener("keydown", (e) => {
         const k = e as KeyboardEvent;
@@ -222,13 +220,6 @@ export function createOpen(): AppModule {
         h("button", { class: `sb-b ${cls}`, "aria-pressed": pressed ? "true" : "false", ...attrs, onclick }, label);
       const recent = recentDirs();
       if (dir && !recent.includes(dir)) recent.unshift(dir);
-      const otherSel = far.length
-        ? (() => {
-            const sel = h("select", { class: "sb-in", "aria-label": "Другая машина", "data-f": "machine-more" }, h("option", { value: "" }, `ещё ${far.length}…`), far.map((m) => h("option", { value: m }, m))) as HTMLSelectElement;
-            sel.addEventListener("change", () => sel.value && pickM(sel.value));
-            return sel;
-          })()
-        : null;
       const prof = profiles ? Object.keys(profiles) : [];
       const pr = profile ? profiles?.[profile] : undefined;
       const sumModel = model || pr?.model || "";
@@ -262,7 +253,7 @@ export function createOpen(): AppModule {
           { class: "op-fs" },
           h("span", { class: "lb" }, "Машина"),
           ms.length
-            ? h("div", { class: "op-chips" }, near.map((m) => chip(m, m === machine, { "data-machine": m }, () => pickM(m))), otherSel)
+            ? h("div", { class: "op-chips" }, pickOne(ms, pm, machine, pickM, { select: { "aria-label": "Другая машина", "data-f": "machine-more" }, button: (m) => ({ "data-machine": m }) }))
             : h("span", { class: "sb-note" }, "Нет машин на связи"),
         ),
         can("machine.slots")

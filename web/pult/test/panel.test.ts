@@ -70,6 +70,8 @@ describe("эталоны пульта: сессии и чат", () => {
     const t = await pult({ relay: openRelay(r) });
     await fillOpen(t, "board");
     expect(t.$('[data-machine="pc"]')).toBeNull();
+    // серых поясняющих текстов нет (правило пользователя 2 нояб.): у первого сообщения — без «необязательно»
+    expect(t.$('[data-f="text"]')!.getAttribute("placeholder")).toBeNull();
     expect(t.relay.sent("machine.dirs").map((f) => f.path)).toEqual(["~", "~/Projects", "~/Projects/switchboard"]);
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toEqual([

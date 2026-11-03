@@ -1,7 +1,7 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "into": [
     "pult"
   ],
@@ -23,7 +23,9 @@
     "machine.slots@host-slots": 1,
     "ledger.read@ledger": 1,
     "card@web-card": 1,
-    "card.tab@web-card": 1
+    "card.tab@web-card": 1,
+    "project@web-board": 1,
+    "project.machines@web-board": 1
   },
   "config": {}
 }

@@ -1,7 +1,7 @@
 // pult-accounts — аккаунты Claude флота, вход по ссылке и коду, слоты горячей подмены.
 // Ничего не считает за владельцев: окна — как прислал accounts машины, кто в слоте — как прислал slots.
 // Расход почты на других машинах Host читает у Claude сам, перед подменой; пульт его не пересылает.
-import { h, hhmm, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
+import { h, hhmm, pickOne, plural, type App, type AppModule, type Roster, type ScreenHandle } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 
 type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
@@ -15,7 +15,7 @@ const CSS = `
 .ac-hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
 .ac-hd b{font:600 15px var(--mono)}
 .ac-w{display:grid;grid-template-columns:56px minmax(0,1fr) 120px;gap:8px;align-items:center;font-size:13px}
-.ac-w em{font:600 12px var(--mono);font-style:normal}
+.ac-w em{font:600 12px var(--mono);font-style:normal;white-space:nowrap}
 .ac-m{display:grid;grid-template-columns:70px minmax(0,1fr) auto;gap:8px;align-items:center;font-size:13px;border-top:1px solid var(--line2);padding-top:7px}
 .ac-m b{font:600 12.5px var(--mono)}
 .ac-ord{display:flex;align-items:center;gap:8px;font-size:13px}
@@ -333,11 +333,14 @@ export function createAccounts(): AppModule {
       const free = machines("machine.login").filter((m) => !has.has(m));
       if (!free.length) return null;
       const name = list[0].name;
+      // ★ — машины открытого проекта; без проекта меток нет
+      const proj = app.mark("project.current") as string | null | undefined;
+      const pm = proj ? ((app.mark("project.machines", proj) as string[] | undefined) ?? []) : [];
       if (pickFor !== key) return h("div", { class: "sb-opts" }, h("button", { class: "sb-b dash", "data-any": key, onclick: () => ((pickFor = key), draw()) }, "＋ войти на машине…"));
       return h(
         "div",
         { class: "sb-opts", "data-any-pick": key },
-        free.map((m) => h("button", { class: "sb-b", onclick: () => ((pickFor = ""), void login(m, name)) }, m)),
+        free.map((m) => h("button", { class: "sb-b", "data-m": m, onclick: () => ((pickFor = ""), void login(m, name)) }, pm.includes(m) ? `${m} ★` : m)),
         h("button", { class: "sb-b", onclick: () => ((pickFor = ""), draw()) }, "Отмена"),
       );
     }
@@ -450,14 +453,10 @@ export function createAccounts(): AppModule {
     // ───── вид «Слоты» ─────
     function drawSlots() {
       const ms = machines("machine.slots");
-      // кнопками — выбранная и машины открытого проекта (до шести), остальные — списком
+      // кнопками — выбранная и машины открытого проекта, остальные — списком
       const proj = app.mark("project.current") as string | null | undefined;
       const pm = proj ? ((app.mark("project.machines", proj) as string[] | undefined) ?? []) : [];
-      const near = ms.length > 6 ? [...new Set([slotMachine, ...pm, ...ms])].filter((m) => m && ms.includes(m)).slice(0, 6) : ms;
-      const far = ms.filter((m) => !near.includes(m));
-      const more = far.length ? (h("select", { class: "sb-in", "data-f": "slotm", "aria-label": "Другая машина" }, h("option", { value: "" }, `ещё ${far.length}…`), far.map((m) => h("option", { value: m }, m))) as HTMLSelectElement) : null;
-      more?.addEventListener("change", () => more.value && ((slotMachine = more.value), (slotChosen = true), draw()));
-      out.append(h("div", { class: "sb-opts", "data-slot-machines": "" }, near.map((m) => h("button", { class: "sb-b", "aria-pressed": m === slotMachine ? "true" : "false", onclick: () => ((slotMachine = m), (slotChosen = true), draw()) }, m)), more));
+      out.append(h("div", { class: "sb-opts", "data-slot-machines": "" }, pickOne(ms, pm, slotMachine, (m) => ((slotMachine = m), (slotChosen = true), draw()), { select: { "data-f": "slotm", "aria-label": "Другая машина" } })));
       const m = slotMachine;
       const list = slots.get(m) ?? {};
       const a = accs.get(m) ?? {};

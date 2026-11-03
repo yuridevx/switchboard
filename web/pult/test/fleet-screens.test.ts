@@ -96,6 +96,21 @@ describe("вход аккаунта", () => {
   });
 });
 
+describe("вход аккаунта · проект", () => {
+  it("5404 · открыт проект: машины проекта в «＋ войти на машине…» — со ★", async () => {
+    // источник: подпись экрана p17 прототипа «Пульт и телефон» (подписан 2 нояб.): ★ только с проектом
+    const relay = fleetRelay();
+    relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { night: { login: "ok", email: "night@x.io", plan: "max" } } : {} } });
+    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    const t = await pult({ relay, url: "/#sessions?project=poe" });
+    await flush(10);
+    location.hash = "#accounts";
+    await flush(10);
+    await t.click(t.$('[data-account="night@x.io"] [data-any]'));
+    expect([...t.$('[data-any-pick="night@x.io"]')!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["pc ★", "Отмена"]);
+  });
+});
+
 describe("инциденты", () => {
   /** Флот с двумя сессиями инцидентов (одна закрыта) и отказом доставки в журнале pc. */
   function incRelay(delivered = false) {

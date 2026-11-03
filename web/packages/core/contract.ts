@@ -58,5 +58,5 @@ export { appGate, CORE } from "./src/gate.ts";
 /** Хранилище разделов: IndexedDB (страница и обработчик пушей) и в памяти (стенд). */
 export { idbStore, memoryStore } from "./src/store.ts";
 /** Мелочи вида: построитель элементов, подписи состояний сессии, время, склонение. */
-export { h, add, stateLabel, sessionLine, hhmm, duration, plural } from "./src/ui.ts";
+export { h, add, stateLabel, sessionLine, hhmm, duration, plural, pickOne } from "./src/ui.ts";
 export type { Tone } from "./src/ui.ts";

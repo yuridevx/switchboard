@@ -86,3 +86,15 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (b >= 2 && b <= 4) return few;
   return many;
 }
+
+/**
+ * Выбор одного из многих: выбранный и ближние (машины проекта) — кнопками, остальные — списком «ещё N…».
+ * select — атрибуты списка (data-f), button — атрибуты кнопки значения.
+ */
+export function pickOne(all: string[], near: string[], cur: string, on: (v: string) => void, a: { select: Attrs; button?: (v: string) => Attrs }): HTMLElement[] {
+  const shown = all.filter((v) => v === cur || near.includes(v));
+  const far = all.filter((v) => !shown.includes(v));
+  const sel = far.length ? (h("select", { class: "sb-in", ...a.select }, h("option", { value: "" }, `ещё ${far.length}…`), far.map((v) => h("option", { value: v }, v))) as HTMLSelectElement) : null;
+  sel?.addEventListener("change", () => sel.value && on(sel.value));
+  return [...shown.map((v) => h("button", { class: "sb-b", "aria-pressed": v === cur ? "true" : "false", ...a.button?.(v), onclick: () => on(v) }, v)), ...(sel ? [sel] : [])];
+}
