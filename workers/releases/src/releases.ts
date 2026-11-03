@@ -456,6 +456,23 @@ class Releases {
     return list;
   }
 
+  /** Список приложения на новейших номерах: набор выложенной сборки и модули приложения, от которых он теперь зависит. Чужие модули каталога с into не входят. */
+  private async latestOf(app: string, cur: string | null, cat: Awaited<ReturnType<Releases["catalog"]>>): Promise<Map<string, string>> {
+    const list = await this.listOf(app, cur);
+    const newest = (n: string) => cat.get(n)?.versions.at(-1);
+    for (const n of list.keys()) list.set(n, newest(n) ?? list.get(n)!);
+    for (let queue = [...list.keys()]; queue.length; ) {
+      const n = queue.pop()!;
+      for (const ref of Object.keys((await this.manifest(n, list.get(n)!))?.uses ?? {})) {
+        const owner = ownerOf(ref);
+        if (list.has(owner) || !cat.get(owner)?.manifest?.into?.includes(app)) continue;
+        list.set(owner, newest(owner)!);
+        queue.push(owner);
+      }
+    }
+    return list;
+  }
+
   /** Манифесты списка по версиям каталога — разом. */
   private async manifests(list: Map<string, string>): Promise<Map<string, CatManifest>> {
     const got = await Promise.all(
@@ -487,7 +504,7 @@ class Releases {
     await Promise.all(
       roots.map(async (app) => {
         cur.set(app, await this.current(app, s));
-        const list = await this.listOf(app, latest && apps.includes(app) ? null : cur.get(app)!);
+        const list = latest && apps.includes(app) ? await this.latestOf(app, cur.get(app)!, cat) : await this.listOf(app, cur.get(app)!);
         if (apps.includes(app)) {
           if (change.version === null) list.delete(change.name);
           else list.set(change.name, change.version);
