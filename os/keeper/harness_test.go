@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -33,6 +34,12 @@ func TestMain(m *testing.M) {
 			// предел ожидания хозяина — короче для эталонов держателя без хозяина
 			if d, err := time.ParseDuration(os.Getenv("KEEPER_TEST_OWNER_WAIT")); err == nil {
 				ownerWait = d
+			}
+			// держатель завис до строки о себе: pid — в файл для проверки, что хозяин его убил
+			if os.Getenv("KEEPER_TEST_HOLD_SILENT") == "1" {
+				home, _ := homeDir()
+				os.WriteFile(filepath.Join(home, "silent-pid"), []byte(strconv.Itoa(os.Getpid())), 0o644)
+				time.Sleep(10 * time.Minute)
 			}
 			os.Exit(runHold(os.Args[2:]))
 		case "keeper":
@@ -115,6 +122,8 @@ func fakeApp(args []string) {
 		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_RELAY", "SWITCHBOARD_WORKERS", "SITE"} {
 			kv = append(kv, n+"="+os.Getenv(n))
 		}
+		wd, _ := os.Getwd()
+		kv = append(kv, "CWD="+wd)
 		fmt.Println("env " + strings.Join(kv, " "))
 	}
 	fmt.Fprintln(os.Stderr, "app: stderr line")

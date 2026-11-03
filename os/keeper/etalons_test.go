@@ -752,6 +752,182 @@ func TestEtHolderUnclaimedExit(t *testing.T) {
 	}
 }
 
+// 5509 · Хозяин получил выход и держит соединение — держатель всё равно выходит через ownerWait: файл убран, строки
+// held_unclaimed нет — выход забран (устав: «у всех операций лимит»; чьё: код — unclaimed).
+func TestEtHolderExitTakenOwnerStays(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hf holdFile
+	b, _ := os.ReadFile(holdPath(home, "s"))
+	json.Unmarshal(b, &hf)
+	c, _, err := dialHolder(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.closeInput()
+	if x, err := c.read(func([]byte) {}); err != nil || x == nil {
+		t.Fatalf("выход %+v %v", x, err)
+	}
+	// соединение остаётся открытым
+	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(home, "s")) && !alive(hf.Holder) })
+	if journalHas(home, `"ev":"held_unclaimed"`) {
+		t.Fatal("held_unclaimed при забранном выходе")
+	}
+}
+
+// 5510 · Держатель не прислал строку о себе за holderWait — хозяин получает отказ «держатель не ответил за …», держатель
+// убит, файла о нём нет (устав: «у всех операций лимит», слово пользователя 2 нояб.).
+func TestEtSpawnHolderSilent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	old := holderWait
+	holderWait = 500 * time.Millisecond
+	t.Cleanup(func() { holderWait = old })
+	self, _ := os.Executable()
+	_, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_HOLD_SILENT=1"), Cmd: []string{self, "app"}})
+	if err == nil || !strings.Contains(err.Error(), "держатель не ответил за") {
+		t.Fatalf("отказ %v", err)
+	}
+	b, _ := os.ReadFile(filepath.Join(home, "silent-pid"))
+	pid := 0
+	fmt.Sscan(string(b), &pid)
+	if pid == 0 {
+		t.Fatal("молчащий держатель не записал pid")
+	}
+	waitFor(t, "молчащий держатель убит", func() bool { return !alive(pid) })
+	if exists(holdPath(home, "s")) {
+		t.Fatal("файл о держателе есть")
+	}
+}
+
+// 5511 · keeper вернулся после того, как держатель ушёл по ownerWait: файла нет — часть запущена по сохранённому плану
+// заново (новый pid, part_start), restarts 0, part.failed нет (устав, закрытый список: «часть машины … умерла — один
+// перезапуск»; чьё: код — run: adopt, затем queue(plan) — выход без держателя не считается падением).
+func TestEtKeeperBackAfterUnclaimed(t *testing.T) {
+	t.Setenv("KEEPER_TEST_OWNER_WAIT", "300ms")
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	k.Stop()
+	killPid(t, pid)
+	waitFor(t, "held_unclaimed", func() bool { return journalHas(s.home, `"ev":"held_unclaimed"`) && !exists(holdPath(s.home, "capture")) })
+	k2 := s.start()
+	waitFor(t, "часть запущена заново", func() bool {
+		p := partOf(k2, "capture")
+		return p.State == "running" && p.Pid != pid && p.Pid != 0
+	})
+	if p := partOf(k2, "capture"); p.Restarts != 0 || strings.Count(readJournal(s.home), `"ev":"part_start"`) != 2 || s.relay.ledgerHas("part.failed") {
+		t.Fatalf("часть %+v, стартов %d", p, strings.Count(readJournal(s.home), `"ev":"part_start"`))
+	}
+}
+
+// 5513 · Процесс жив дольше ownerWait — держатель ждёт хозяина: файл на месте, held_unclaimed нет, хозяин получает
+// тот же pid; предел считается только от выхода процесса (устав, закрытый список: «держатели живут, keeper
+// подключается к своим»; чьё: код — таймер ownerWait заводится в pump после выхода процесса).
+func TestEtHolderLiveProcessOutlastsOwnerWait(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second)
+	if !exists(holdPath(home, "s")) || journalHas(home, `"ev":"held_unclaimed"`) {
+		t.Fatal("держатель живого процесса ушёл")
+	}
+	c, hh, err := dialHolder(f)
+	if err != nil || hh.Pid != f.Pid {
+		t.Fatalf("hello %+v %v", hh, err)
+	}
+	c.Close()
+}
+
+// 5514 · keeper на старте не берёт вышедший держатель Host: строк adopt и orphan_kill по нему нет; держатель уходит сам
+// по ownerWait (устав: «Keeper без решений. Процессы claude держит Host через свои держатели»; чьё: код — adopt берёт
+// только держатели с хозяином keeper).
+func TestEtKeeperLeavesExitedHostHolder(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	f, err := spawnHolder(s.home, holdSpec{ID: "site@win", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=1s"), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	killPid(t, f.Pid)
+	s.relay.setPlan(plan1(1))
+	k := s.start()
+	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
+	waitFor(t, "held_unclaimed", func() bool { return journalHas(s.home, `"ev":"held_unclaimed","callsign":"site@win"`) && !exists(holdPath(s.home, "site@win")) })
+	if journalHas(s.home, `"ev":"adopt","id":"site@win"`) || journalHas(s.home, `"ev":"orphan_kill","id":"site@win"`) {
+		t.Fatal("keeper взялся за держатель Host")
+	}
+}
+
+// 5515 · keeper вернулся до ownerWait, части нет в плане: держатель keeper с вышедшим процессом снят как ничей —
+// orphan_kill, выход отдан keeper, файл убран, держатель вышел, held_unclaimed нет, part_start нет (чьё: код — adopt
+// «Есть в плане — подключиться, нет — убить»; устав: «Keeper без решений… исполняет план»).
+func TestEtKeeperOrphanExitedHolder(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	f, err := spawnHolder(s.home, holdSpec{ID: "old", Owner: "keeper", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=10s"), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hf holdFile
+	b, _ := os.ReadFile(holdPath(s.home, "old"))
+	json.Unmarshal(b, &hf)
+	killPid(t, f.Pid)
+	waitFor(t, "процесс вышел", func() bool { return !alive(f.Pid) })
+	s.relay.setPlan(plan1(1))
+	s.start()
+	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(s.home, "old")) && !alive(hf.Holder) })
+	if !journalHas(s.home, `"ev":"orphan_kill","id":"old"`) || journalHas(s.home, `"ev":"held_unclaimed"`) || journalHas(s.home, `"ev":"part_start","part":"old"`) {
+		t.Fatal("ничей держатель снят не так")
+	}
+}
+
+// 5518 · Соединение без кадра ключа держатель закрывает за 10 с словом bad_key; держатель и процесс живут, хозяин с
+// ключом подключается (устав: «у всех операций должен быть лимит», слово пользователя 2 нояб.).
+func TestEtHolderNoKeyClosed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", f.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer raw.Close()
+	start := time.Now()
+	raw.SetReadDeadline(time.Now().Add(15 * time.Second))
+	ty, body, err := readFrame(raw)
+	if err != nil || ty != frError || string(body) != "bad_key" || time.Since(start) < 9*time.Second {
+		t.Fatalf("кадр %q %q %v за %v", ty, body, err, time.Since(start))
+	}
+	if !alive(f.Pid) {
+		t.Fatal("процесс умер")
+	}
+	c, hh, err := dialHolder(f)
+	if err != nil || hh.Pid != f.Pid {
+		t.Fatalf("хозяин не подключился: %+v %v", hh, err)
+	}
+	c.Close()
+}
+
 // keeper отвечает состояние сам, без Host.
 func TestEtKeeperState(t *testing.T) {
 	s := newStand(t)
@@ -1206,7 +1382,8 @@ func TestEtPartRemoved(t *testing.T) {
 	}
 }
 
-// Приложение получает от keeper окружение машины и окружение из плана.
+// Приложение получает от keeper окружение машины и окружение из плана; рабочая папка процесса — data части
+// (чьё: код — startPart, Cwd: data).
 func TestEtPartEnv(t *testing.T) {
 	s := newStand(t)
 	p := s.links.part("capture", "1.3.2", appFiles("env"), on)
@@ -1218,7 +1395,7 @@ func TestEtPartEnv(t *testing.T) {
 	self, _ := os.Executable()
 	data := filepath.Join(partDir(s.home, "capture"), "data")
 	for _, want := range []string{"SWITCHBOARD_MACHINE=win", "SWITCHBOARD_VERSION=1.3.2", "SWITCHBOARD_DATA=" + data,
-		"SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY= ", "SWITCHBOARD_WORKERS={", "SITE=lab"} {
+		"SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY= ", "SWITCHBOARD_WORKERS={", "SITE=lab", "CWD=" + data} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("нет %s в %q", want, line)
 		}
