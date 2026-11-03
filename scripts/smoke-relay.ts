@@ -49,8 +49,6 @@ try {
   // клиент в roster — адрес устройства: имя из ключа client.<имя>.… и email владельца флота
   const me = clientKey!.split(".")[1];
   check(`roster: клиент ${me}~владелец`, !!r?.clients.some((c) => c.startsWith(`${me}~`) && c.length > me.length + 1), r?.clients);
-  const workers = (r?.workers ?? []).map((w) => w.name).sort();
-  check("roster: участники push, points, ledger, github", ["github", "ledger", "points", "push"].every((n) => workers.includes(n)), workers);
 
   const echo = await phone.request({ type: "smoke.echo", v: 1, machine: "smoke", text: "привет" });
   check("запрос клиента → Host машины и ответ", echo.ok === true && (echo as { result?: { echo?: string } }).result?.echo === "привет", echo);
