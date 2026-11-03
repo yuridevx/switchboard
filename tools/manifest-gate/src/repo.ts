@@ -39,7 +39,8 @@ function imports(dir: string): string[] {
   const walk = (d: string) => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       if (e.isDirectory()) {
-        if (!SKIP.has(e.name)) walk(join(d, e.name));
+        // вложенный модуль (экран пульта) считает свои импорты сам
+        if (!SKIP.has(e.name) && !existsSync(join(d, e.name, "module.json"))) walk(join(d, e.name));
       } else if (SRC.test(e.name) && !/\.test\.|\.spec\./.test(e.name) && !e.name.endsWith(".d.ts")) {
         const text = readFileSync(join(d, e.name), "utf8");
         for (const m of text.matchAll(IMPORT)) found.add(m[1]);

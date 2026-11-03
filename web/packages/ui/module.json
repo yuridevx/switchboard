@@ -10,7 +10,8 @@
     "ui": 1
   },
   "uses": {
-    "view@web-view": 19
+    "view@web-view": 19,
+    "roster@relay": 1
   },
   "config": {}
 }
