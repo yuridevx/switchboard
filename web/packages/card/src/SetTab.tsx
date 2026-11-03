@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useApp, type SessionRecord } from "@switchboard/web-core";
 import { CommitIn, Outcome, profileIdOf, profileName, useLoad } from "@switchboard/web-ui";
 import { useCard } from "./context.ts";
-import { notAsked, slotOf, type Can } from "./session.ts";
+import { isDown, notAsked, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 
 type Note = { text: string; tone: "ok" | "bad" | "" };
@@ -47,7 +47,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
   const profNow = profileIdOf(s) ?? "";
   const slotNow = slotOf(s)?.name ?? "";
   const fast = !!(s?.fast as boolean | undefined);
-  const stopped = s?.state === "stopped" || s?.state === "failed";
+  const stopped = isDown(s);
   const profileList = profiles.data ? Object.keys(profiles.data.profiles ?? {}) : profNow ? [profNow] : [];
   return (
     <div className="cw-set">

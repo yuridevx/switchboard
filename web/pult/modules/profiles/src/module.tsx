@@ -10,7 +10,7 @@ import { createProfilesStore } from "./store.ts";
 export function createProfiles(): AppModule {
   const profiles = createProfilesStore();
   return {
-    on: { roster: profiles.onRoster, link: profiles.onLink },
+    on: { roster: profiles.onRoster },
     screens: {
       profiles: {
         nav: "Профили",

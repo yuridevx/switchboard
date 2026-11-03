@@ -253,33 +253,32 @@ describe("ответы машин", () => {
   it("6825 · связь клиента вернулась: машина с отказом disconnected спрошена заново, остальные — нет", async () => {
     // источник: устав — соединение с объектом relay оборвалось: клиенты переподключаются; находка плана: отказ держался до нового открытия
     const t = setup();
+    t.set([["a", 1], ["b", 1]]);
     t.words.a = "disconnected";
     t.m.mount();
     await settle();
     expect(t.m.get().a).toEqual({ error: "disconnected" });
     delete t.words.a;
-    t.m.onLink("closed");
-    await settle();
-    expect(t.asked).toEqual(["a", "b"]);
-    t.m.onLink("open");
+    t.set([["a", 1], ["b", 1]]);
     await settle();
     expect(t.asked).toEqual(["a", "b", "a"]);
     expect(t.m.get().a).toBe(3);
   });
 
-  it("6826 · экран закрыт: связь вернулась — запросов нет; другое слово отказа не спрашивается заново", async () => {
+  it("6826 · экран закрыт: roster без запросов; другое слово отказа не спрашивается заново", async () => {
     // источник: гейт архитектора — опрос без нужды; устав — отказ словом, система не повторяет сама
     const t = setup([["a", 1]]);
+    t.set([["a", 1]]);
     t.words.a = "offline";
     const close = t.m.mount();
     await settle();
-    t.m.onLink("open");
+    t.set([["a", 1]]);
     await settle();
     expect(t.asked).toEqual(["a"]);
     t.words.a = "disconnected";
     await t.m.reload("a");
     close();
-    t.m.onLink("open");
+    t.set([["a", 1]]);
     await settle();
     expect(t.asked).toEqual(["a", "a"]);
   });

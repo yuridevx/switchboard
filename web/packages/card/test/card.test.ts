@@ -58,14 +58,14 @@ describe("карточка сессии", () => {
     expect(t.text()).toContain("session.stop: stopping");
   });
 
-  it("остановленная — «Поднять»; нет session.start в contract машины — кнопки нет", async () => {
+  it("остановленная — «Запустить»; нет session.start в contract машины — кнопки нет", async () => {
     const t = await card("wiki@pc");
     await t.click(t.button("Ещё"));
-    expect(t.button("Поднять")).not.toBeNull();
+    expect(t.button("Запустить")).not.toBeNull();
     const r = homeRoster();
     delete r.machines[1].contract!["session.start"];
     const t2 = await card("wiki@pc", r);
     await t2.click(t2.button("Ещё"));
-    expect(t2.button("Поднять")).toBeNull();
+    expect(t2.button("Запустить")).toBeNull();
   });
 });

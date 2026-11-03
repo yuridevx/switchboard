@@ -5,7 +5,7 @@ import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remote
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useCard, useSession } from "./context.ts";
 import { Names } from "./Names.tsx";
-import { slotOf } from "./session.ts";
+import { isDown, slotOf } from "./session.ts";
 
 /** «Ещё» на телефоне. */
 function Info({ callsign, openNames }: { callsign: string; openNames(): void }) {
@@ -45,7 +45,7 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
       ]
     : [["адрес", callsign]];
   const remote = remoteOf(s);
-  const stopped = s?.state === "stopped";
+  const down = isDown(s);
   return (
     <Pad>
       <dl className="card-info">
@@ -85,14 +85,14 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
           Открыть в claude.ai
         </a>
       ) : null}
-      {s && !stopped && can("session.stop") ? (
+      {s && !down && can("session.stop") ? (
         <button className="card-act" disabled={!!busy} onClick={() => void act("session.stop")}>
           {busy === "session.stop" ? "Останавливаю…" : "Остановить"}
         </button>
       ) : null}
-      {s && stopped && can("session.start") ? (
+      {s && down && can("session.start") ? (
         <button className="card-act" disabled={!!busy} onClick={() => void act("session.start")}>
-          {busy === "session.start" ? "Поднимаю…" : "Поднять"}
+          {busy === "session.start" ? "Запускаю…" : "Запустить"}
         </button>
       ) : null}
       {error ? (

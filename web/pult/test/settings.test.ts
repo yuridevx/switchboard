@@ -3,7 +3,7 @@
 // страницы в разрезе машин»). Стенд: настройки и уведомления на поддельном relay; ответы владельцев — подделки.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStore, type AppPart, type Frame, type Roster } from "@switchboard/web-core";
-import { manifest as alertsM, createAlerts } from "@switchboard/web-alerts";
+import { manifest as alertsM, createAlerts, type BrowserPush } from "@switchboard/web-alerts";
 import { FakeRelay, flush, stand } from "../../packages/core/stand/app.ts";
 import { fakeBrowser } from "../../packages/alerts/stand/fakes.ts";
 import { manifest as settingsM, createSettings } from "../modules/settings/contract.ts";
@@ -73,7 +73,7 @@ function fleet() {
   // пропуска клиентов: стенд сам отвечает на keys.list машинами — здесь весь список gate
   const fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const f = JSON.parse(String(init?.body)) as Frame;
-    if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === undefined) {
+    if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === undefined && !relay.handlers["keys.list"]) {
       relay.got.push(f);
       return Response.json({ type: "reply", id: f.id, ok: true, result: { passes } });
     }
@@ -82,11 +82,12 @@ function fleet() {
   return { relay, plans, fetch };
 }
 
-async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string> } = {}) {
+async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string>; browser?: BrowserPush; hooks?(relay: FakeRelay): void } = {}) {
   const fl = fleet();
+  o.hooks?.(fl.relay);
   const parts: AppPart[] = [
     { manifest: settingsM, module: createSettings() },
-    { manifest: alertsM, module: createAlerts(fakeBrowser("granted")) },
+    { manifest: alertsM, module: createAlerts(o.browser ?? fakeBrowser("granted")) },
   ];
   const t = await stand(parts, { relay: fl.relay, store: memoryStore({ key: "client.pult.k3f1.Qa7sig" }), wide: o.wide ?? true, url: o.url ?? "/#settings", options: { fetch: fl.fetch, ...(o.workers ? { workers: o.workers } : {}) } });
   await flush(10);
@@ -243,5 +244,56 @@ describe("pult-settings", () => {
     q.dispatchEvent(new Event("input", { bubbles: true }));
     await flush();
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toContain("Настройки: пропуска");
+  });
+
+  it("6946 · вкладки: «Выпуски» — releases.list и keeper.state; «Пропуска» — keys.list; «GitHub и устройство» — keys.list и github.app", async () => {
+    // источник: факт — при открытии ответы владельцев своей вкладки
+    const t = await settings();
+    expect(t.sent("releases.list").length).toBeGreaterThan(0);
+    expect(t.sent("keeper.state").length).toBeGreaterThan(0);
+    expect(t.sent("github.app")).toHaveLength(0);
+    const t2 = await settings({ url: "/#settings?tab=passes" });
+    expect(t2.sent("keys.list").length).toBeGreaterThan(0);
+    expect(t2.sent("releases.list")).toHaveLength(0);
+    const t3 = await settings({ url: "/#settings?tab=general" });
+    expect(t3.sent("keys.list").length).toBeGreaterThan(0);
+    expect(t3.sent("github.app").length).toBeGreaterThan(0);
+  });
+
+  it("6947 · телефон: keys.list; github.app и keeper.state нет; виден раздел «Это устройство»", async () => {
+    // источник: чьё: код
+    const t = await settings({ wide: false });
+    expect(t.sent("keys.list").length).toBeGreaterThan(0);
+    expect(t.sent("github.app")).toHaveLength(0);
+    expect(t.sent("keeper.state")).toHaveLength(0);
+    expect(t.$("[data-device]")).not.toBeNull();
+  });
+
+  it("6948 · отозванные пропуска не показаны", async () => {
+    // источник: слово пользователя 3 нояб.: отозванные не показываем
+    const t = await settings({ url: "/#settings?tab=passes" });
+    expect(t.text()).toContain("phone~you@mail");
+    expect(t.text()).not.toContain("old~you@mail");
+  });
+
+  it("6949 · владелец отказал: на своей вкладке «запрос: слово»", async () => {
+    // источник: устав — отказ словом
+    const t = await settings({ hooks: (r) => (r.handlers["releases.list"] = () => ({ ok: false, error: "denied" })) });
+    expect(t.text()).toContain("releases.list: denied");
+    const t3 = await settings({ url: "/#settings?tab=general", hooks: (r) => (r.handlers["github.app"] = () => ({ ok: false, error: "no_app" })) });
+    expect(t3.text()).toContain("github.app: no_app");
+    const t2 = await settings({ url: "/#settings?tab=passes", hooks: (r) => (r.handlers["keys.list"] = (f) => (f.role === undefined ? { ok: false, error: "denied" } : { ok: true, result: { passes: [] } })) });
+    expect(t2.text()).toContain("keys.list: denied");
+  });
+
+  it("6989 · уведомления на устройстве: подписан — «включены»; браузер не умеет — своё слово, ошибок нет", async () => {
+    // источник: факт — off: браузер не умеет; разрешение спрашивается только по нажатию
+    const sub = fakeBrowser("granted");
+    await (await sub.sw!.ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(1) });
+    const t = await settings({ url: "/#settings?tab=general", browser: sub });
+    expect(t.$("[data-device]")!.textContent).toContain("включены");
+    expect(sub.calls).not.toContain("requestPermission");
+    const t2 = await settings({ url: "/#settings?tab=general", browser: {} });
+    expect(t2.$("[data-device]")!.textContent).toContain("браузер не умеет");
   });
 });

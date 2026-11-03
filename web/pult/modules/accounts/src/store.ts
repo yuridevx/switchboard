@@ -128,12 +128,6 @@ export function createAccountsStore() {
       };
     },
 
-    /** Связь вернулась — аккаунты и слоты машин, кому запрос не дошёл. */
-    onLink(state: string) {
-      accs.onLink(state);
-      slots.onLink(state);
-    },
-
     /** Подмену делает Host: у сессий машины сменился account — перечитать её слоты и окна. */
     onRoster(r: Roster) {
       const changed = new Set<string>();

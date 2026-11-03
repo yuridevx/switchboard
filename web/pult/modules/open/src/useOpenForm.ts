@@ -11,6 +11,14 @@ export type OpenForm = ReturnType<typeof useOpenForm>;
 /** Машина такого запроса не умеет: не спрашиваем, данных нет. */
 const notAsked = <T,>(): Promise<Result<T>> => Promise.resolve({ ok: false, error: "" });
 
+/** Ответ машины этой формы. Ответ прежней машины не считается: выбранных там слотов и профилей здесь может не быть; пока идёт новый ответ — данных нет. */
+function useMachineAnswer<T>(machine: string, name: string) {
+  const app = useApp();
+  const open = useOpen();
+  const q = useLoad<{ m: string; value: T }>(() => (open.can(machine, name) ? app.request<T>(name, { machine }).then((r) => (r.ok ? { ok: true as const, result: { m: machine, value: r.result } } : r)) : notAsked()), [machine]);
+  return { data: q.data?.m === machine ? q.data.value : null, error: q.loading ? "" : q.error };
+}
+
 export function useOpenForm(params: Params) {
   const app = useApp();
   const open = useOpen();
@@ -37,8 +45,8 @@ export function useOpenForm(params: Params) {
   const addr = start0?.dir ?? input.addr;
   const { parent } = splitAddr(addr);
 
-  const slotsQ = useLoad(() => (open.can(machine, "machine.slots") ? app.request<{ slots: Slots }>("machine.slots", { machine }) : notAsked<{ slots: Slots }>()), [machine]);
-  const profilesQ = useLoad(() => (open.can(machine, "machine.profiles") ? app.request<{ profiles: Profiles }>("machine.profiles", { machine }) : notAsked<{ profiles: Profiles }>()), [machine]);
+  const slotsQ = useMachineAnswer<{ slots: Slots }>(machine, "machine.slots");
+  const profilesQ = useMachineAnswer<{ profiles: Profiles }>(machine, "machine.profiles");
   // список — один запрос на родителя: буквы хвоста новых запросов не дают
   const listQ = useLoad<NonNullable<Listing>>(
     () =>

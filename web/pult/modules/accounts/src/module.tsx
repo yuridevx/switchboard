@@ -9,7 +9,7 @@ import { createAccountsStore } from "./store.ts";
 export function createAccounts(): AppModule {
   const accounts = createAccountsStore();
   return {
-    on: { roster: accounts.onRoster, link: accounts.onLink },
+    on: { roster: accounts.onRoster },
     screens: {
       accounts: {
         nav: "Аккаунты",

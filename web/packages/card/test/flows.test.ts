@@ -68,7 +68,7 @@ describe("карточка в узком виде", () => {
     expect(t.$(".sb-bt")!.textContent).toBe("site@laptop@laptop не на связи");
     expect(t.$(".card-info")!.textContent).toBe("адресsite@laptop");
     expect(t.button("Остановить")).toBeNull();
-    expect(t.button("Поднять")).toBeNull();
+    expect(t.button("Запустить")).toBeNull();
   });
 });
 

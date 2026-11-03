@@ -4,7 +4,7 @@ import { useApp, type SessionRecord } from "@switchboard/web-core";
 import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard } from "./context.ts";
-import { slotOf, type Can } from "./session.ts";
+import { isDown, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 import { AccPop, MenuPop, ModelPop } from "./WidePops.tsx";
 
@@ -70,7 +70,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
   const w5 = data.accounts?.[String(x.account ?? "")]?.limits?.five_hour;
   const accText = sl?.wait ? `ждёт сброса ${at(sl.wait)}` : w5 ? `${Math.round(w5.utilization * 100)} %` : "";
   const accCls = sl?.wait ? "you" : w5 && w5.utilization >= LIMIT_HINT ? "lim" : "";
-  const stopped = x.state === "stopped" || x.state === "failed";
+  const stopped = isDown(x);
   const owner = typeof x.by === "string" ? userOf(x.by) : null;
   const prof = profileNameOf(x);
   // слева кто, справа вкладки и действия: не помещаются в строку — вкладки уходят второй строкой

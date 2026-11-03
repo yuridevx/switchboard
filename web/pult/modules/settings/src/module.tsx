@@ -15,7 +15,7 @@ const TABS = [
 export function createSettings(): AppModule {
   const settings = createSettingsStore();
   return {
-    on: { roster: settings.onRoster, link: settings.onLink },
+    on: { roster: settings.onRoster },
     screens: {
       settings: {
         nav: "Настройки",

@@ -18,10 +18,8 @@ export type MachineAnswers<T> = {
   mount(): () => void;
   /** открыт ли экран */
   isOpen(): boolean;
-  /** новый roster: машину, которая пришла или вернулась при открытом экране, спросить */
+  /** новый roster: машину, которая пришла или вернулась, и ту, кому запрос не дошёл из-за обрыва, при открытом экране спросить */
   onRoster(r: Roster): void;
-  /** связь клиента сменилась (on.link модуля): вернулась — спросить машины с отказом disconnected, ответа от них не было */
-  onLink(state: string): void;
   /** спросить одну машину заново; how — другой запрос вместо обычного (с другими полями) */
   reload(machine: string, how?: (machine: string) => Promise<Answer<T>>): Promise<void>;
   /** положить ответ, известный без запроса: итог своего действия */
@@ -56,13 +54,10 @@ export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promis
       const { opened, seen } = store.get();
       const fresh = r.machines.filter((m) => seen[m.machine] !== m.since);
       if (fresh.length) store.set((s) => void fresh.forEach((m) => (s.seen[m.machine] = m.since)));
-      if (opened) for (const m of fresh) if (allowed.has(m.machine)) void reload(m.machine);
-    },
-    onLink(state) {
-      if (state !== "open") return;
-      const { opened, answers } = store.get();
       if (!opened) return;
-      for (const [m, a] of Object.entries(answers)) if ((a as { error?: string } | null)?.error === "disconnected") void reload(m);
+      // связь вернулась: since прежний, но roster флота приходит, когда открылись все его соединения; кому запрос не дошёл — спросить заново
+      const lost = (m: string) => (store.get().answers[m] as { error?: string } | undefined)?.error === "disconnected";
+      for (const m of r.machines) if (allowed.has(m.machine) && (fresh.includes(m) || lost(m.machine))) void reload(m.machine);
     },
     reload,
     put,
