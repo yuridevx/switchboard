@@ -43,9 +43,9 @@ export type Fetched = { version: string; url: string };
 /**
  * releases.deploy — stable на версию (без version — edge). part "*" — части Cloudflare и части машины на edge.
  * Модуль сборки (into) — новая сборка каждого его приложения: текущий список + модуль, проверка набора флота
- * (check_failed с причинами); корень сборки с версией каталога — сборка с этим ядром, со сборкой «+n» — откат на неё.
+ * (check_failed с причинами); latest: true у корня — новейшие версии всех его модулей одной сборкой; корень сборки с версией каталога — сборка с этим ядром, со сборкой «+n» — откат на неё.
  */
-export type ReleasesDeploy = { type: "releases.deploy"; id: string; v?: 1; to: ".releases"; part: string; version?: string };
+export type ReleasesDeploy = { type: "releases.deploy"; id: string; v?: 1; to: ".releases"; part: string; version?: string; latest?: true };
 export type Deployed = { parts: Record<string, { from: string | null; to: string }> };
 
 /** releases.set — единственная правка плана машины. pin: null — снять. У keeper — только pin. */

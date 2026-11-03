@@ -891,6 +891,16 @@ describe("сборка страницы «Выпусками»", () => {
     const l = await result(req(s, "agent~x", "releases.list"));
     expect(l.modules["web-x"]).toEqual({ into: ["pult"], built: { pult: "1.0.0" }, edge: "1.1.0" });
     expect(l.parts.pult.versions).toEqual(["1.1.0+1", "1.1.0+2"]);
+    // 5717 · latest: все модули на новейшие одной сборкой — страница меняется разом (источник: переход фронта на React:
+    // старые модули не стартуют с новым ядром, выкладка по модулю оставила бы страницу сломанной на всё время выкладки)
+    await put("web-core", "1.2.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "export default {}"]]);
+    const uploads = sent.uploads;
+    expect((await result(req(s, "agent~x", "releases.deploy", { part: "pult", latest: true }))).parts.pult).toEqual({ from: "1.1.0+2", to: "1.1.0+3" });
+    expect(sent.uploads).toBe(uploads + 1);
+    const third = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.0+3.tgz"))!.arrayBuffer()));
+    expect(JSON.parse(third.find((x) => x.path === "build.json")!.data!.toString("utf8")).modules).toEqual([{ name: "web-core", version: "1.2.0" }, { name: "web-x", version: "1.1.0" }]);
+    const refused = await req(s, "agent~x", "releases.deploy", { part: "web-x", latest: true });
+    expect(refused[0]).toMatchObject({ ok: false, error: "bad_frame" });
   });
 
   it("5194 · снять модуль страницы: оболочка пользуется только ядром страницы — сборка без модуля проходит проверку", async () => {

@@ -369,6 +369,11 @@ class Releases {
     const want = (f.version ?? undefined) as string | undefined;
     const kind = part === "*" ? undefined : (await this.partKinds()).get(part);
     const cat = part === "*" ? undefined : (await this.catalog()).get(part);
+    // latest: корень и все его модули — на новейшие версии каталога одной сборкой: смена, которую нельзя выложить по модулю
+    if (f.latest !== undefined) {
+      if (f.latest !== true || want !== undefined || !kind?.app) throw new Refusal("bad_frame", "latest: true — только у корня сборки и без version");
+      return this.rebuild([part as string], { name: part as string, version: cat!.versions[cat!.versions.length - 1] }, by, true);
+    }
     // модуль сборки: новая сборка каждого приложения из его into; version: null — сборки без него
     if (part !== "*" && !kind && cat?.manifest?.into?.length) {
       if (want && isBuild(want)) throw new Refusal("bad_version", `${part} — модуль: версия каталога, без «+»`);
@@ -468,7 +473,7 @@ class Releases {
    * сборки остальных приложений, Worker'ы, приложения ОС и библиотеки каталога. Host — архив под именем флота, stable
    * и планы машин; страница — тот же архив и версия её Worker'а со статикой, выложенная.
    */
-  private async rebuild(apps: string[], change: { name: string; version: string | null }, by: string): Promise<{ result: Deployed; plans: Frame[] }> {
+  private async rebuild(apps: string[], change: { name: string; version: string | null }, by: string, latest = false): Promise<{ result: Deployed; plans: Frame[] }> {
     const s = await this.load();
     const cat = await this.catalog();
     const kinds = await this.partKinds();
@@ -482,7 +487,7 @@ class Releases {
     await Promise.all(
       roots.map(async (app) => {
         cur.set(app, await this.current(app, s));
-        const list = await this.listOf(app, cur.get(app)!);
+        const list = await this.listOf(app, latest && apps.includes(app) ? null : cur.get(app)!);
         if (apps.includes(app)) {
           if (change.version === null) list.delete(change.name);
           else list.set(change.name, change.version);
