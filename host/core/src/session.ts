@@ -249,6 +249,14 @@ export class Sess {
     if (this.closing || !this.q) return;
     this.q = null;
     this.proc = null;
+    // ОС останавливается раньше, чем об этом узнаёт Host (win11-2 1 нояб.: держатель на 5 с раньше службы): не падение,
+    // resume посреди выключения не нужен; в записи сессия не остановлена — новый Host поднимет её сам
+    if (e.os_stop) {
+      this.k.log("core", { ev: "session_os_stop", callsign: this.callsign, why: `остановка ОС: процесс claude вышел, ${why}` });
+      this.setState("stopped");
+      this.emitClose();
+      return;
+    }
     this.reasons.push(why);
     this.k.log("core", { kind: "stop", ev: "session_exited", callsign: this.callsign, why: `процесс claude вышел, ${why}` });
     this.emitClose();

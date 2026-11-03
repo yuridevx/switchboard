@@ -4,7 +4,7 @@
 //
 // Протокол держателя — заморожен; кадры [тип 1 байт][длина 4 байта, big-endian][данные]:
 //   Host → держатель: 'a' ключ (первым), 'i' ввод, 'c' закрыть ввод, 'k' убить дерево процесса
-//   держатель → Host: 'h' {pid, buffered}, 'o' вывод, 'x' {code, signal, stderr}, 'e' слово отказа
+//   держатель → Host: 'h' {pid, buffered}, 'o' вывод, 'x' {code, signal, stderr, os_stop?}, 'e' слово отказа
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -19,7 +19,7 @@ export type HoldFile = { id: string; owner: string; pid: number; port: number; k
 /** Процесс у держателя: для старта Host. */
 export type ProcInfo = { id: string; pid: number };
 
-export type Exited = { op: "exited"; id: string; pid?: number; code: number | null; signal?: string | null; stderr?: string };
+export type Exited = { op: "exited"; id: string; pid?: number; code: number | null; signal?: string | null; stderr?: string; os_stop?: boolean };
 
 /** Что ядру нужно от ОС: запустить держатель и прочитать файлы держателей. На стенде — подделка. */
 export type HolderApi = {
@@ -214,8 +214,8 @@ export class HeldProcess extends EventEmitter implements SpawnedProcess {
         else if (t === "o") {
           if (!this.stdout.writableEnded) this.stdout.write(data);
         } else if (t === "x") {
-          const x = JSON.parse(data.toString("utf8")) as { code: number | null; signal: string | null; stderr: string };
-          this.finish({ op: "exited", id: this.id, pid: this.pid ?? undefined, code: x.code, signal: x.signal, stderr: x.stderr });
+          const x = JSON.parse(data.toString("utf8")) as { code: number | null; signal: string | null; stderr: string; os_stop?: boolean };
+          this.finish({ op: "exited", id: this.id, pid: this.pid ?? undefined, code: x.code, signal: x.signal, stderr: x.stderr, os_stop: x.os_stop });
           sock.end();
         } else if (t === "e") {
           this.finish({ op: "exited", id: this.id, code: null, signal: null, stderr: `держатель: ${data.toString("utf8")}` });

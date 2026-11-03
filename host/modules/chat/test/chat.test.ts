@@ -39,6 +39,9 @@ function folder(git: boolean): string {
   return d;
 }
 
+/** Функции SDK чтения разговора: файл есть, записи — без границ сжатия. */
+const conversation = (getSessionMessages: (...a: unknown[]) => Promise<unknown>) => ({ getSessionInfo: async () => ({}), importSessionToStore: async () => {}, getSessionMessages });
+
 describe("эталоны chat", () => {
   it("15 · session.prompt простаивающей сессии: ввод человека без обёртки, ход, reply ok; session.history отдаёт это сообщение", async () => {
     const s = await bench();
@@ -57,10 +60,10 @@ describe("эталоны chat", () => {
       { type: "assistant", uuid: "a1", session_id: sess.info.session_id, message: {}, parent_tool_use_id: null, parent_agent_id: null },
     ];
     const calls: unknown[][] = [];
-    s.sdk.functions = { getSessionMessages: async (...a: unknown[]) => (calls.push(a), rec) };
+    s.sdk.functions = conversation(async (...a: unknown[]) => (calls.push(a), rec));
     const h = await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 50 });
     expect(h).toMatchObject({ ok: true, result: { messages: rec, more: false } });
-    expect(calls).toEqual([[sess.info.session_id, { dir: sess.info.cwd, includeSystemMessages: true }]]);
+    expect(calls).toMatchObject([[sess.info.session_id, { dir: sess.info.cwd, includeSystemMessages: true }]]);
     expect(p.inputs).toHaveLength(1);
   });
 
@@ -131,7 +134,7 @@ describe("chat: юнит и стыки", () => {
     const s = await bench();
     await s.open("site@laptop");
     const rec = Array.from({ length: 14 }, (_, i) => ({ type: "user", uuid: `u${i + 1}` }));
-    s.sdk.functions = { getSessionMessages: async () => rec };
+    s.sdk.functions = conversation(async () => rec);
     const page = async (before: string | null) => (await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before, limit: 6 })).result as { messages: Array<{ uuid: string }>; more: boolean };
     const p1 = await page(null);
     expect(p1.messages.map((m) => m.uuid)).toEqual(["u9", "u10", "u11", "u12", "u13", "u14"]);
@@ -201,11 +204,11 @@ describe("chat: покрытие плана host-modules", () => {
     // источник: чьё: код (chat.ts:49-61; getSessionMessages — функция SDK по файлу, процесс не нужен)
     const s = await bench();
     const sess = await s.open("site@laptop");
-    s.sdk.functions = { getSessionMessages: async () => [] };
+    s.sdk.functions = conversation(async () => []);
     expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 5 })).toMatchObject({ ok: true, result: { messages: [], more: false } });
     await sess.stop();
     const rec = [{ type: "user", uuid: "u1" }];
-    s.sdk.functions = { getSessionMessages: async () => rec };
+    s.sdk.functions = conversation(async () => rec);
     expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 5 })).toMatchObject({ ok: true, result: { messages: rec, more: false } });
   });
 
@@ -213,7 +216,7 @@ describe("chat: покрытие плана host-modules", () => {
     // источник: слово пользователя (устав: «ошибка модуля — модуль выключен, в roster failed»)
     const s = await bench();
     await s.open("site@laptop");
-    s.sdk.functions = { getSessionMessages: async () => { throw new Error("файл разговора не читается"); } };
+    s.sdk.functions = conversation(async () => { throw new Error("файл разговора не читается"); });
     expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 5 })).toMatchObject({ ok: false, error: "module_error" });
     await until(() => s.states("site@laptop").at(-1)?.failed?.["host-chat"]);
     expect(s.journal().some((l) => l.ev === "module_failed" && l.module === "host-chat")).toBe(true);

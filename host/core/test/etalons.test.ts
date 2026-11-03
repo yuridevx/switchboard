@@ -182,6 +182,21 @@ describe("эталоны ядра Host", () => {
     await until(() => st.session("host-audit", "site@laptop")!.state === "idle" && st.states("site@laptop").some((f) => f.state === "busy"));
   });
 
+  it("5525 · выход с os_stop: ОС останавливается — resume нет, сессия stopped, причина в журнале; в записи не остановлена", async () => {
+    // источник: слепое расширение плана keeper-holder 3 нояб.; чьё: код — keeper.go exitedPart: «такой выход — не падение, перезапуска нет»
+    const closed: string[] = [];
+    const st = await stand({ modules: [module("host-watch", { on: { close: (s) => void closed.push(s.info.callsign) } })] });
+    const site = await st.open("site@laptop");
+    st.proc("site@laptop").exit(0, "", null, true);
+    await until(() => site.state === "stopped");
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+    expect(lines(st, "session_exited")).toHaveLength(0);
+    expect(lines(st, "session_os_stop")[0].why).toContain("остановка ОС");
+    expect(closed).toEqual(["site@laptop"]);
+    // в записи не остановлена: новый Host поднимает её resume (эталон 3174)
+    expect(st.kernel.sessions.get("site@laptop")!.rec.stopped).toBeFalsy();
+  });
+
   it("63 · exited посреди хода: starting → resume через spawn → idle; код и stderr в журнале; on.close модулей; wiki не тронута", async () => {
     const closed: string[] = [];
     const st = await stand({ modules: [module("host-watch", { on: { close: (s) => void closed.push(s.info.callsign) } })] });

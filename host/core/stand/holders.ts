@@ -37,7 +37,7 @@ export class FakeProc {
   port = 0;
   private server: net.Server | null = null;
   /** выход, ещё не отданный Host */
-  private exitInfo: { code: number | null; signal: string | null; stderr: string } | null = null;
+  private exitInfo: { code: number | null; signal: string | null; stderr: string; os_stop?: boolean } | null = null;
   private listeners: Array<(w: Wire) => void> = [];
 
   constructor(k: FakeHolders, id: string, pid: number, o: { command?: string; args?: string[]; cwd?: string; env?: Record<string, string | undefined> } = {}) {
@@ -192,10 +192,10 @@ export class FakeProc {
   }
 
   /** Процесс вышел: держатель отдаёт остаток вывода и выход; Host нет — хранит выход до подключения. */
-  exit(code: number | null = 1, stderr = "", signal: string | null = null): void {
+  exit(code: number | null = 1, stderr = "", signal: string | null = null, os_stop?: boolean): void {
     if (!this.alive) return;
     this.alive = false;
-    this.exitInfo = { code, signal, stderr };
+    this.exitInfo = { code, signal, stderr, ...(os_stop ? { os_stop } : {}) };
     this.deliverExit();
   }
 

@@ -498,7 +498,7 @@ describe("договор модуля на стенде", () => {
     await s.sdk("getContextUsage");
     expect(st.query("site@laptop").calls.at(-1)).toEqual({ name: "getContextUsage", args: [] });
     await s.sdk("getSessionMessages", { limit: 5 });
-    expect(st.sdk.fnCalls).toEqual([{ name: "getSessionMessages", args: [s.info.session_id, { dir: s.info.cwd, limit: 5 }] }]);
+    expect(st.sdk.fnCalls.at(-1)).toMatchObject({ name: "getSessionMessages", args: [s.info.session_id, { dir: s.info.cwd, limit: 5 }] });
     const host = st.host("host-manage");
     const p = host.probe({ env: { CLAUDE_CONFIG_DIR: "/acc/y0902" } });
     await p.sdk("claudeAuthenticate", true);

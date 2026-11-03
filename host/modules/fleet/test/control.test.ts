@@ -385,7 +385,7 @@ describe("fleet: покрытие плана host-modules — управлени
     await st.open("docs@win");
     expect(await call("lead@win", "history", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не выполнено: nope@win — module_error" }], isError: true });
     expect(await call("lead@win", "remove", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не выполнено: nope@win — module_error" }], isError: true });
-    st.sdk.functions = { getSessionMessages: async () => [{ type: "user", uuid: "u1", message: { content: "привет" } }] };
+    st.sdk.functions = { getSessionInfo: async () => ({}), importSessionToStore: async () => {}, getSessionMessages: async () => [{ type: "user", uuid: "u1", message: { content: "привет" } }] };
     expect((await call("lead@win", "history", { callsign: "docs@win" })).content[0].text).toBe("user: привет");
     expect((await call("lead@win", "remove", { callsign: "docs@win" })).content[0].text).toBe("закрыта: docs@win");
   });

@@ -21,6 +21,7 @@ import type {
   Store,
 } from "../contract.ts";
 import { SESSION_FUNCTIONS } from "./calls.ts";
+import { wholeConversation } from "./history.ts";
 import type { Clock } from "./clock.ts";
 import { realClock } from "./clock.ts";
 import { journal } from "./journal.ts";
@@ -639,6 +640,7 @@ export class Kernel {
     if (at !== undefined) {
       const a: unknown[] = [s.rec.session_id, ...args];
       a[at] = { dir: s.rec.cwd, ...((a[at] as object) ?? {}) };
+      if (name === "getSessionMessages") return wholeConversation(this.deps.sdk.functions, s.rec.session_id, a[at] as { dir?: string });
       return this.deps.sdk.functions[name](...a);
     }
     if (!s.q) throw new Error(`${s.callsign}: процесс сессии не запущен`);
