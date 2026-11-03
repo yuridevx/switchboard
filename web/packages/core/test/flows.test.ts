@@ -403,6 +403,41 @@ describe("уход с экрана", () => {
     expect(log.filter((x) => x === "stop sample")).toHaveLength(1);
   });
 
+  // источник: слово пользователя 3 нояб. — «мигание, когда перезаходишь на уже открытую вкладку… стабильно, если свернуть и
+  // развернуть окно хрома»: после возвращения экран не видит флот, собранный не до конца
+  it("4033 · возвращение на экран: roster и «на связи» — когда ответили все машины, без промежуточного неполного", async () => {
+    const log: string[] = [];
+    const { run, relay } = await boot({ parts: [sample(log).part], relay: new FakeRelay(homeRoster()) });
+    await flush(10);
+    expect(root.textContent).toContain("список 4");
+    await run.hide();
+    log.length = 0;
+    const seen: string[] = [];
+    const watch = new MutationObserver(() => seen.push(root.querySelector('[data-screen="list"]')?.textContent ?? ""));
+    watch.observe(root, { subtree: true, childList: true, characterData: true });
+    await run.show();
+    await flush(10);
+    watch.disconnect();
+    expect(relay.open).toHaveLength(2);
+    expect(log.filter((x) => x.startsWith("roster"))).toEqual(["roster 4"]);
+    expect(log.filter((x) => x.startsWith("link"))).toEqual(["link open"]);
+    expect(seen.filter((x) => x && x !== "список 4")).toEqual([]);
+  });
+
+  it("4034 · машина не ответила при возвращении — её соединение закрылось, остальные видны", async () => {
+    const log: string[] = [];
+    const { run, relay } = await boot({ parts: [sample(log).part], relay: new FakeRelay(homeRoster()) });
+    await flush(10);
+    await run.hide();
+    log.length = 0;
+    relay.refuse = ["", "gate_unavailable"];
+    await run.show();
+    await flush(10);
+    expect(log.filter((x) => x.startsWith("link"))).toEqual(["link open"]);
+    // pc закрылся — флот собран: видна laptop; pc вернулся своим переподключением — снова все
+    expect(log.filter((x) => x.startsWith("roster"))[0]).toBe("roster 2");
+  });
+
   it("4029 · после отказа relay возвращение на экран не подключает", async () => {
     const relay = new FakeRelay(oneMachine());
     relay.refuse = ["revoked"];

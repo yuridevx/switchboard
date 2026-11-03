@@ -557,6 +557,11 @@ export function startApp(o: StartOptions): Running {
   // ───── связь ─────
   function connect() {
     pause = firstPause;
+    // флот собран, когда каждое соединение этого клиента хоть раз открылось или закрылось; до того roster неполный —
+    // экраны его не видят: при возвращении на страницу остаётся прежний, без мигания «половина флота → весь»
+    const settled = new Set<string>();
+    let held = false;
+    const whole = () => !!lk && lk.links().size > 0 && [...lk.links().keys()].every((m) => settled.has(m));
     lk = fleet({
       workers: o.workers,
       key,
@@ -566,12 +571,23 @@ export function startApp(o: StartOptions): Running {
       fetch: o.fetch,
       // отказ пропуску на любой машине или у gate — остановка; иначе состояние флота: открыт, если открыта хоть одна машина;
       // модули узнают о смене состояния флота, а не каждого соединения
-      onState: (_m, s, why) => {
+      onState: (m, s, why) => {
         if (s === "stopped" && why !== undefined && !OWN.has(why)) return onState("stopped", why);
+        const was = whole();
+        if (m && s !== "connecting") settled.add(m);
+        if (!whole()) return;
         const now = lk?.state ?? s;
         if (now !== conn) onState(now, why);
+        // последней собралась закрывшаяся машина: отложенный roster остальных — сейчас; открывшаяся пришлёт свой следом
+        if (!was && held) {
+          held = false;
+          if (s !== "open") onFrame({ type: "roster" });
+        }
       },
-      onFrame: (f) => onFrame(f),
+      onFrame: (f) => {
+        if (f.type === "roster" && !whole()) return void (held = true);
+        onFrame(f);
+      },
     });
   }
 
