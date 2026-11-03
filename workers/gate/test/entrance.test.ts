@@ -53,9 +53,15 @@ describe("эталоны входа Worker'а", () => {
   it("5043 · плохой пропуск → bad_key; gate не ответил → gate_unavailable; обработчик не вызван", async () => {
     let calls = 0;
     const h = () => (calls++, []);
-    expect(await (await entrance(post({ type: "push.key", id: "1", v: 1, key: "x" }), gate({ error: "bad_key" }), h)).json()).toMatchObject({ ok: false, error: "bad_key" });
-    expect(await (await entrance(post({ type: "push.key", id: "2", v: 1, key: "x" }), gate({ error: "revoked" }), h)).json()).toMatchObject({ ok: false, error: "revoked" });
-    const down = await entrance(post({ type: "push.key", id: "3", v: 1, key: "x" }), gate("throw"), h, () => {});
+    const log: string[] = [];
+    const line = (l: string) => void log.push(l);
+    expect(await (await entrance(post({ type: "push.key", id: "1", v: 1, key: "x" }), gate({ error: "bad_key" }), h, line)).json()).toMatchObject({ ok: false, error: "bad_key" });
+    expect(await (await entrance(post({ type: "push.key", id: "2", v: 1, key: "x" }), gate({ error: "revoked" }), h, line)).json()).toMatchObject({ ok: false, error: "revoked" });
+    const down = await entrance(post({ type: "push.key", id: "3", v: 1, key: "x" }), gate("throw"), h, line);
+    expect(log[0]).toBe("bad_key push.key");
+    expect(log[1]).toBe("revoked push.key");
+    expect(log[2]).toContain("gate_unavailable push.key");
+    expect(log[2]).toContain("база gate не ответила");
     expect(down.status).toBe(503);
     expect(await down.json()).toMatchObject({ id: "3", ok: false, error: "gate_unavailable" });
     expect(calls).toBe(0);
@@ -88,9 +94,12 @@ describe("эталоны входа Worker'а", () => {
     expect((await entrance(new Request("https://push.example/"), gate(PHONE), () => [])).status).toBe(404);
     const bad = await entrance(new Request("https://push.example/", { method: "POST", body: "не кадр" }), gate(PHONE), () => []);
     expect(await bad.json()).toMatchObject({ ok: false, error: "bad_frame" });
+    const log: string[] = [];
     const boom = await entrance(post({ type: "push.key", id: "1", v: 1, key: "k" }), gate(PHONE), () => {
       throw new Error("сбой");
-    }, () => {});
+    }, (l) => void log.push(l));
+    expect(log[0]).toContain("failed push.key от phone~owner@example.com");
+    expect(log[0]).toContain("сбой");
     expect(boom.status).toBe(500);
     expect(await boom.json()).toMatchObject({ ok: false, error: "failed" });
   });

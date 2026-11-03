@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { wholeConversation } from "../src/history.ts";
+import { module, standHost } from "../stand/index.ts";
 
 const sdk = { getSessionInfo, getSessionMessages, importSessionToStore } as never as Record<string, (...a: any[]) => Promise<unknown>>;
 const SID = "44444444-4444-4444-8444-444444444444";
@@ -93,8 +94,28 @@ describe("история после сжатия", () => {
   it("5534 · ссылка границы ведёт в никуда — родитель: предыдущее сообщение файла; история не обрывается", async () => {
     // источник: настоящий файл 3 нояб. (1 из 6): logicalParentUuid нет среди записей
     const a = chain("a", 4, null);
-    write([...a, boundary("x", "нет-такой"), summary("s", "x"), turn("z", "s")]);
+    // запись субагента перед границей родителем не становится
+    const side = { ...turn("side", "a3"), isSidechain: true };
+    write([...a, side, boundary("x", "нет-такой"), summary("s", "x"), turn("z", "s")]);
     expect(uuids(await wholeConversation(sdk, SID, { dir }))).toEqual([...a.map((m) => m.uuid), "s", "z"]);
+  });
+
+  it("5536 · s.sdk модуля (session.history, points) — весь разговор: сессии с папкой и записи с границей уже со ссылкой", async () => {
+    // источник: бэклог «Задевает session.history и points» — оба зовут s.sdk("getSessionMessages")
+    const m = module("host-reader", {}, { calls: ["getSessionMessages"] });
+    const st = await standHost({ modules: [m] });
+    await st.open("site@laptop");
+    const s = st.session("host-reader", "site@laptop")!;
+    let seen: any;
+    st.sdk.functions = {
+      getSessionInfo: async () => ({}),
+      importSessionToStore: async (_sid: string, store: any) => void (await store.append({}, [turn("b1", null), boundary("x", "b1")])),
+      getSessionMessages: async (sid: string, o: any) => ((seen = { sid, o, entries: await o.sessionStore.load() }), ["весь разговор"]),
+    } as never;
+    expect(await s.sdk("getSessionMessages", { includeSystemMessages: true })).toEqual(["весь разговор"]);
+    expect(seen).toMatchObject({ sid: s.info.session_id, o: { dir: s.info.cwd, includeSystemMessages: true } });
+    expect(seen.entries[1].parentUuid).toBe("b1");
+    await st.close();
   });
 
   it("5535 · без сжатия — как у SDK; опции проходят; файла ещё нет — пустой разговор", async () => {

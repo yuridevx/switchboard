@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, describe, expect, it } from "vitest";
 import { content, stand } from "@switchboard/host";
 import type { Manifest } from "@switchboard/host";
@@ -141,7 +142,6 @@ describe("chat: юнит и стыки", () => {
     expect(p1.more).toBe(true);
     const p3 = await page("u3");
     expect(p3).toEqual({ messages: [{ type: "user", uuid: "u1" }, { type: "user", uuid: "u2" }], more: false });
-    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null })).toMatchObject({ ok: false, error: "bad_frame" });
   });
 
   it("session.files: папка не в git — все файлы, limit клиента", async () => {
@@ -242,5 +242,110 @@ describe("chat: покрытие плана host-modules", () => {
     s.proc("site@laptop").send(stand.msg.state("idle"));
     await until(() => s.states("site@laptop").at(-1)?.failed?.["host-chat"]);
     expect(await s.relay.request({ type: "session.files", v: 1, callsign: "wiki@laptop", query: "worker", limit: 5 })).toMatchObject({ ok: true });
+  });
+});
+
+/** Настоящие функции чтения SDK на файле разговора: 6 сообщений, граница, сводка, 4 сообщения. */
+function compacted(s: Stand, cwd: string) {
+  const cfg = mkdtempSync(join(tmpdir(), "switchboard-chat-cfg-"));
+  process.env.CLAUDE_CONFIG_DIR = cfg;
+  const sid = "44444444-4444-4444-8444-444444444444";
+  const base = { sessionId: sid, isSidechain: false, timestamp: "2026-11-03T00:00:00.000Z", cwd, version: "2.1.0" };
+  const turn1 = (uuid: string, parentUuid: string | null, type = "user") => ({
+    ...base,
+    type,
+    uuid,
+    parentUuid,
+    message: type === "user" ? { role: "user", content: uuid } : { id: `m-${uuid}`, role: "assistant", model: "m", content: [{ type: "text", text: uuid }] },
+  });
+  const records = [
+    turn1("a0", null), turn1("a1", "a0", "assistant"), turn1("a2", "a1"), turn1("a3", "a2", "assistant"), turn1("a4", "a3"), turn1("a5", "a4", "assistant"),
+    { ...base, type: "system", subtype: "compact_boundary", uuid: "x", parentUuid: null, logicalParentUuid: "a5", compactMetadata: { trigger: "manual", preTokens: 1000 } },
+    { ...turn1("s", "x"), isCompactSummary: true },
+    turn1("c0", "s"), turn1("c1", "c0", "assistant"), turn1("c2", "c1"), turn1("c3", "c2", "assistant"),
+  ];
+  const project = join(cfg, "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
+  mkdirSync(project, { recursive: true });
+  writeFileSync(join(project, `${sid}.jsonl`), records.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  // id сессии стенда — не uuid: функции SDK читают файл этого разговора
+  s.sdk.functions = {
+    getSessionInfo: (_id: string, o: never) => getSessionInfo(sid, o),
+    importSessionToStore: (_id: string, store: never, o: never) => importSessionToStore(sid, store, o),
+    getSessionMessages: (_id: string, o: never) => getSessionMessages(sid, o),
+  } as never;
+}
+
+describe("chat: история через сжатие контекста", () => {
+  const saved = process.env.CLAUDE_CONFIG_DIR;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = saved;
+  });
+  const page = async (s: Stand, before: string | null) => (await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before, limit: 4 })).result as { messages: Array<{ uuid: string }>; more: boolean };
+
+  it("5538 · страницы через границу сжатия: стык в стык, каждая запись один раз, граница на своём месте и годится как before", async () => {
+    // источник: факт — опыт 3 нояб. на SDK 0.3.311 с includeSystemMessages: «c0 c1 c2 c3 | a4 a5 x s | a0 a1 a2 a3»
+    const s = await bench();
+    const site = await s.open("site@laptop");
+    compacted(s, site.info.cwd);
+    const p1 = await page(s, null);
+    const p2 = await page(s, p1.messages[0].uuid);
+    const p3 = await page(s, p2.messages[0].uuid);
+    expect([p1, p2, p3].map((p) => p.messages.map((m) => m.uuid).join(" "))).toEqual(["c0 c1 c2 c3", "a4 a5 x s", "a0 a1 a2 a3"]);
+    expect([p1.more, p2.more, p3.more]).toEqual([true, true, false]);
+    expect((await page(s, "x")).messages.map((m) => m.uuid)).toEqual(["a2", "a3", "a4", "a5"]);
+  });
+
+  it("5539 · история остановленной сессии со сжатием: разговор целиком, процесс не поднят, во ввод ничего", async () => {
+    // чьё: код — kernel.ts sessionSdk: функция чтения возвращается до проверки процесса
+    const s = await bench();
+    const site = await s.open("site@laptop");
+    compacted(s, site.info.cwd);
+    const p = s.proc("site@laptop");
+    await site.stop();
+    const started = s.sdk.of("site@laptop").length;
+    const h = await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 50 });
+    expect(h).toMatchObject({ ok: true });
+    expect((h.result as { messages: Array<{ uuid: string }> }).messages.map((m) => m.uuid)).toContain("a0");
+    expect(s.sdk.of("site@laptop")).toHaveLength(started);
+    expect(p.inputs).toHaveLength(0);
+  });
+
+  it("5540 · вход session.history отклонён словом, причина в журнале, chat не выключен; сессии нет на машине — offline", async () => {
+    // источник: устав «ошибки — словами»; слова — чьё: код
+    const s = await bench();
+    const site = await s.open("site@laptop");
+    compacted(s, site.info.cwd);
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: "нет-такой", limit: 4 })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "ghost@laptop", before: null, limit: 4 })).toMatchObject({ ok: false, error: "offline" });
+    const words = s.journal().filter((l) => l.kind === "refuse").map((l) => l.word);
+    expect(words.filter((w) => w === "bad_frame")).toHaveLength(2);
+    expect(words).toContain("offline");
+    expect((await page(s, null)).messages).toHaveLength(4);
+  });
+
+  it("5547 · остановка Host во время чтения истории: новый запрос — shutting_down, начатый получает ответ раньше закрытия relay, выход 0", async () => {
+    // источник: устав «не принимает новое → доводит текущее → закрывает соединения с причиной → выходит»; слово — чьё: код
+    const s = await bench();
+    await s.open("site@laptop");
+    let release = (_m: unknown) => {};
+    let reading = false;
+    s.sdk.functions = conversation(() => {
+      reading = true;
+      return new Promise((r) => (release = r));
+    });
+    const first = s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 4 });
+    await until(() => reading);
+    const down = s.kernel.shutdown("ввод закрыт");
+    expect(await s.relay.request({ type: "session.history", v: 1, callsign: "site@laptop", before: null, limit: 4 })).toMatchObject({ ok: false, error: "shutting_down" });
+    let closesAtReply = -1;
+    const answered = first.then((r) => ((closesAtReply = s.relay.clientCloses.length), r));
+    release([{ type: "user", uuid: "u1" }]);
+    expect(await answered).toMatchObject({ ok: true, result: { messages: [{ uuid: "u1" }], more: false } });
+    await down;
+    expect(closesAtReply).toBe(0);
+    expect(s.relay.clientCloses.at(-1)).toEqual({ code: 1000, reason: "shutting_down" });
+    expect(s.exits).toEqual([0]);
   });
 });

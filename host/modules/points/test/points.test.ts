@@ -58,6 +58,27 @@ function at(ms: number, base: number) {
 }
 
 describe("эталоны points", () => {
+  it("5548 · чтение разговора бросило при снятии точки: точка снята без msgs и last, причина в журнале, points не выключен", async () => {
+    // чьё: код — points.ts snapOnce: msgs необязательны
+    b = await bench({ home });
+    await marked();
+    b.st.sdk.functions = {
+      getSessionInfo: async () => ({}),
+      importSessionToStore: async () => {},
+      getSessionMessages: async () => {
+        throw new Error("файл разговора не читается");
+      },
+    } as never;
+    const r = await ask({ type: "points.save", callsign: "site@laptop" });
+    expect(r.ok).toBe(true);
+    expect(r.result.point).toBeTypeOf("number");
+    const put = puts().at(-1)!;
+    expect(put.msgs).toBeUndefined();
+    expect(put.last).toBeUndefined();
+    expect(b.st.journal()).toContainEqual(expect.objectContaining({ kind: "note", ev: "messages", why: "файл разговора не читается" }));
+    expect((await ask({ type: "points.save", callsign: "site@laptop" })).ok).toBe(true);
+  });
+
   it("210 · конец хода — точка не чаще раза в 2 мин: точки в 3:00 и 6:00, в 4:12 нет", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.UTC(2026, 9, 31, 14, 0) });
     const T0 = Date.now();

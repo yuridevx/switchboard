@@ -110,6 +110,9 @@ func fakeApp(args []string) {
 			fmt.Printf("session %d\n", f.Pid)
 		}
 	}
+	if mode == "args" {
+		fmt.Println("args " + strings.Join(args, " "))
+	}
 	if mode == "chatty" {
 		go func() {
 			for i := 0; ; i++ {

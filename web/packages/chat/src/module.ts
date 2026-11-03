@@ -106,6 +106,9 @@ export function createChat(): AppModule {
         if (to !== c.items) to.push(mine);
         return;
       }
+      // сводка сжатия после живой границы: строку «контекст сжат» та уже нарисовала
+      const prev = to.at(-1);
+      if (m.isCompactSummary && prev?.k === "sdk" && prev.msg.subtype === "compact_boundary") return;
       if (!textOf(m)) return; // только итоги инструментов
       c.suggestion = undefined;
     }

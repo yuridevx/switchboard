@@ -72,6 +72,18 @@ describe("лента сессии", () => {
     expect(relay.sent("session.history")).toHaveLength(1);
   });
 
+  it("5537 · сводка сжатия в истории — строка «контекст сжат», а не реплика человека; реплики до и после на месте", async () => {
+    // источник: настоящий файл 3 нояб. — SDK отдаёт сводку как user с isCompactSummary; с полной историей она посреди ленты
+    const relay = new FakeRelay(homeRoster());
+    relay.handlers["session.history"] = hist([user("u1", "до сжатия"), { ...user("s1", "This session is being continued"), isCompactSummary: true }, user("u2", "после сжатия")]);
+    const t = await feed("site@laptop", relay);
+    const text = t.root.textContent ?? "";
+    expect(text).toContain("до сжатия");
+    expect(text).toContain("после сжатия");
+    expect(text).toContain("контекст сжат");
+    expect(text).not.toContain("This session is being continued");
+  });
+
   it("ввод: session.prompt с uuid → «доставлено»", async () => {
     const t = await feed();
     t.relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });

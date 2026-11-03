@@ -197,6 +197,120 @@ describe("эталоны ядра Host", () => {
     expect(st.kernel.sessions.get("site@laptop")!.rec.stopped).toBeFalsy();
   });
 
+  it("5526 · после выхода с os_stop session.start поднимает сессию resume тем же разговором: Host пережил сигнал — сессия не потеряна", async () => {
+    // источник: устав «Чистый перезапуск», чьё: код — session.ts start; сигнал ОС без остановки Host (kill -TERM держателю)
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const sid = site.info.session_id;
+    st.proc("site@laptop").exit(0, "", null, true);
+    await until(() => site.state === "stopped");
+    await st.kernel.sessions.get("site@laptop")!.start();
+    await until(() => site.state === "idle");
+    expect(st.query("site@laptop").options.resume).toBe(sid);
+  });
+
+  it("5527 · процесс вышел посреди хода, пока stop ждёт итог хода: stop доходит до конца, сессия stopped", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; слепое расширение плана: interruptTurn ждал result без предела
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    p.noInterrupt = true;
+    const stopping = site.stop();
+    await until(() => p.interrupts === 1);
+    p.exit(0, "", null, true);
+    await stopping;
+    expect(site.state).toBe("stopped");
+  });
+
+  it("5528 · сессия встала по сигналу ОС, Host остановился — новый Host поднимает её resume тем же разговором, без session.start", async () => {
+    // источник: устав «чистый перезапуск начинает с хранилища»; чьё: код — session.ts onExited «новый Host поднимет её сам»
+    const k = await keeper();
+    const st = await stand({ holders: k, modules: [] });
+    const site = await st.open("site@laptop");
+    const sid = site.info.session_id;
+    st.proc("site@laptop").exit(0, "", null, true);
+    await until(() => site.state === "stopped");
+    await st.kernel.shutdown("ввод закрыт");
+    const st2 = await stand({ holders: k, home: st.home, modules: [] });
+    const back = st2.kernel.sessions.get("site@laptop")!;
+    await until(() => back.state === "idle");
+    expect(st2.query("site@laptop").options.resume).toBe(sid);
+    // журнал папки один: строка прежнего Host и новая
+    expect(lines(st2, "ready")).toHaveLength(2);
+  });
+
+  it("5529 · ход посреди сигнала отдаёт свой вывод: result дошёл до модуля, сессия stopped, resume нет", async () => {
+    // источник: устав «доводит или отдаёт текущее»; чьё: код — hold.go: выход отдаётся после всего вывода
+    const seen: string[] = [];
+    const st = await stand({ modules: [module("host-watch", { on: { event: (_s, m) => void seen.push(m.type) } })] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    p.send({ type: "result", subtype: "success", is_error: false, num_turns: 1, total_cost_usd: 0, session_id: "s" });
+    p.exit(0, "", null, true);
+    await until(() => site.state === "stopped" && seen.includes("result"));
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+    expect(lines(st, "session_exited")).toHaveLength(0);
+  });
+
+  it("5530 · процесс убит сигналом вместе с держателем: тоже остановка ОС — stopped, сигнал в причине, session_exited и session_failed нет", async () => {
+    // чьё: код — hold.go ставит os_stop при любом коде, session.ts смотрит только на него
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    st.proc("site@laptop").exit(null, "", "SIGTERM", true);
+    await until(() => site.state === "stopped");
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+    expect(lines(st, "session_os_stop")[0].why).toContain("сигнал SIGTERM");
+    expect(lines(st, "session_exited")).toHaveLength(0);
+    expect(lines(st, "session_failed")).toHaveLength(0);
+  });
+
+  it("5545 · сигнал без Host: новый Host забирает выход при подключении — сессия stopped, нового держателя нет, Host доходит до ready", async () => {
+    // чьё: код — hold.go отдаёт накопленный выход новому хозяину; session.ts onExited; kernel.ts ждёт settled сессий
+    const k = await keeper();
+    const p = await k.addProcess("a@laptop");
+    p.exit(0, "", null, true);
+    const st = await stand({ holders: k, sessions: [{ callsign: "a@laptop" }], modules: [] });
+    const a = st.kernel.sessions.get("a@laptop")!;
+    await until(() => a.state === "stopped");
+    expect(k.spawns).toHaveLength(0);
+    expect(lines(st, "session_os_stop")).toHaveLength(1);
+    expect(lines(st, "session_exited")).toHaveLength(0);
+    expect(lines(st, "session_failed")).toHaveLength(0);
+    expect(a.rec.stopped).toBeFalsy();
+    expect(lines(st, "ready")).toHaveLength(1);
+  });
+
+  it("5546 · выход с os_stop во время штатной остановки Host: запуска нет, session_exited нет, выход 0; новый Host поднимает сессию resume", async () => {
+    // источник: устав «каждая часть останавливается штатно»; чьё: код — session.ts «наш close — ожидаемо»
+    let release = () => {};
+    const wait = new Promise<void>((r) => (release = r));
+    let stopping = false;
+    const slow = module("host-slow", { stop: async () => { stopping = true; await wait; } });
+    const k = await keeper();
+    const st = await stand({ holders: k, modules: [slow] });
+    const site = await st.open("site@laptop");
+    const sid = site.info.session_id;
+    const down = st.kernel.shutdown("ввод закрыт");
+    await until(() => stopping);
+    st.proc("site@laptop").exit(0, "", null, true);
+    await until(() => !k.procs.has("site@laptop"));
+    release();
+    await down;
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+    expect(lines(st, "session_exited")).toHaveLength(0);
+    expect(lines(st, "session_failed")).toHaveLength(0);
+    expect(lines(st, "exit")).toHaveLength(1);
+    expect(st.exits).toEqual([0]);
+    const st2 = await stand({ holders: k, home: st.home, modules: [] });
+    const back = st2.kernel.sessions.get("site@laptop")!;
+    await until(() => back.state === "idle");
+    expect(st2.query("site@laptop").options.resume).toBe(sid);
+  });
+
   it("63 · exited посреди хода: starting → resume через spawn → idle; код и stderr в журнале; on.close модулей; wiki не тронута", async () => {
     const closed: string[] = [];
     const st = await stand({ modules: [module("host-watch", { on: { close: (s) => void closed.push(s.info.callsign) } })] });

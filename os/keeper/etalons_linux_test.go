@@ -5,6 +5,8 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,5 +190,116 @@ func TestEtNameOwnUnitOnly(t *testing.T) {
 	defer func() { fleetName = "" }()
 	if text := fmt.Sprintf(unitText, "/k", strings.Join(runArgs(), " ")); !strings.Contains(text, `ExecStart="/k" run --name prod`) {
 		t.Fatalf("юнит: %s", text)
+	}
+}
+
+// linuxBench — поддельные systemctl и loginctl, gate принимает приглашение; юниты — во временной папке.
+func linuxBench(t *testing.T, systemctl string) (units, log, gateURL string, u string) {
+	t.Helper()
+	u = nameStand(t)
+	dir := t.TempDir()
+	log = filepath.Join(dir, "calls")
+	os.WriteFile(filepath.Join(dir, "systemctl"), []byte("#!/bin/sh\necho \"$@\" >> "+log+"\n"+systemctl+"\n"), 0o755)
+	os.WriteFile(filepath.Join(dir, "loginctl"), []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("XDG_CONFIG_HOME", u)
+	units = filepath.Join(u, "systemd", "user")
+	os.MkdirAll(units, 0o755)
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": "install", "ok": true, "result": map[string]string{"key": "host.pc.ab12.sig"}})
+	}))
+	t.Cleanup(gate.Close)
+	return units, log, gate.URL, u
+}
+
+// 5562 · install --name на Linux: свой юнит с файлом своей папки и run --name; enable и restart — только свой; юнит первого
+// флота не тронут (дизайн «Любой агент», этап 0).
+func TestEtNameInstallOwnUnit(t *testing.T) {
+	units, log, gate, u := linuxBench(t, "")
+	first := filepath.Join(units, "switchboard-keeper.service")
+	os.WriteFile(first, []byte("первый флот"), 0o644)
+	if code, _, e := runKeeper(t, t.TempDir(), "invite\n", "install", "--name", "prod", "--worker", "gate="+gate); code != 0 {
+		t.Fatalf("install: код %d, %q", code, e)
+	}
+	b, err := os.ReadFile(filepath.Join(units, "switchboard-keeper-prod.service"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `ExecStart="` + filepath.Join(u, ".switchboard-prod", "keeper") + `" run --name prod`
+	if !strings.Contains(string(b), want) {
+		t.Fatalf("юнит без %q: %s", want, b)
+	}
+	calls, _ := os.ReadFile(log)
+	for _, c := range []string{"enable switchboard-keeper-prod.service", "restart switchboard-keeper-prod.service"} {
+		if !strings.Contains(string(calls), c) {
+			t.Fatalf("нет %q: %s", c, calls)
+		}
+	}
+	if strings.Contains(string(calls), "switchboard-keeper.service") {
+		t.Fatalf("задет первый флот: %s", calls)
+	}
+	if got, _ := os.ReadFile(first); string(got) != "первый флот" {
+		t.Fatalf("юнит первого флота переписан: %s", got)
+	}
+}
+
+// 5563 · Установка поверх своего имени — без отказа: юнит переписан, перезапуск своего, держатели живут (KillMode=process)
+// (чьё: код — service_linux.go «установка поверх работающей службы — перезапуск с новым юнитом и файлом; держатели живут»).
+func TestEtNameInstallOverOwn(t *testing.T) {
+	units, log, gate, _ := linuxBench(t, "")
+	own := filepath.Join(units, "switchboard-keeper-prod.service")
+	other := filepath.Join(units, "switchboard-keeper-other.service")
+	os.WriteFile(own, []byte("старый"), 0o644)
+	os.WriteFile(other, []byte("чужой"), 0o644)
+	if code, _, e := runKeeper(t, t.TempDir(), "invite\n", "install", "--name", "prod", "--worker", "gate="+gate); code != 0 {
+		t.Fatalf("install: код %d, %q", code, e)
+	}
+	if b, _ := os.ReadFile(own); !strings.Contains(string(b), "KillMode=process") {
+		t.Fatalf("юнит: %s", b)
+	}
+	if b, _ := os.ReadFile(other); string(b) != "чужой" {
+		t.Fatalf("чужой юнит: %s", b)
+	}
+	if calls, _ := os.ReadFile(log); !strings.Contains(string(calls), "restart switchboard-keeper-prod.service") || strings.Contains(string(calls), "other") {
+		t.Fatalf("вызовы: %s", calls)
+	}
+}
+
+// 5566 · uninstall имени, которого нет: код 1, причина словом; другой юнит на месте (устав «система ловит»; дизайн этапа 0).
+func TestEtNameUninstallUnknownUnit(t *testing.T) {
+	units, _, _, _ := linuxBench(t, "echo 'Unit file does not exist' >&2; exit 1")
+	other := filepath.Join(units, "switchboard-keeper.service")
+	os.WriteFile(other, []byte("x"), 0o644)
+	code, _, e := runKeeper(t, t.TempDir(), "", "uninstall", "--name", "typo")
+	if code != 1 || !strings.Contains(e, "uninstall:") || !strings.Contains(e, "Unit file does not exist") {
+		t.Fatalf("код %d, %q", code, e)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("другой юнит: %v", err)
+	}
+}
+
+// 5568 · SIGTERM keeper под именем: код 0, последняя строка keeper — keeper_exit в своей папке; своя часть и второй keeper живут
+// (устав «каждая часть останавливается штатно»; чьё: код — main.go «штатная остановка keeper (держатели и их процессы живут)»).
+func TestEtNameGracefulStop(t *testing.T) {
+	u := nameStand(t)
+	a := newNamedKeeper(t, u, "a")
+	b := newNamedKeeper(t, u, "b")
+	pidA, pidB := a.partPid(), b.partPid()
+	a.cmd.Process.Signal(syscall.SIGTERM)
+	if err := a.cmd.Wait(); err != nil {
+		t.Fatalf("выход: %v", err)
+	}
+	var last string
+	for _, l := range strings.Split(journalText(a.own), "\n") {
+		if strings.Contains(l, `"who":"keeper"`) {
+			last = l
+		}
+	}
+	if !strings.Contains(last, "keeper_exit") {
+		t.Fatalf("последняя строка keeper: %s", last)
+	}
+	if !alive(pidA) || !alive(pidB) || b.cmd.ProcessState != nil {
+		t.Fatalf("задеты: часть a %v, часть b %v", alive(pidA), alive(pidB))
 	}
 }

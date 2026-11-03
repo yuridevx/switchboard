@@ -57,3 +57,19 @@ func TestEtNameOwnTaskOnly(t *testing.T) {
 		t.Fatal("чужая задача снята")
 	}
 }
+
+// 5566 · uninstall имени, которого нет: код 1, причина словом; задача другого имени на месте (устав «система ловит»; дизайн этапа 0).
+func TestEtNameUninstallUnknownTask(t *testing.T) {
+	other := fmt.Sprintf("switchboard-keeper-t%do", os.Getpid())
+	if out, err := exec.Command("schtasks", "/Create", "/TN", other, "/TR", "cmd /c exit", "/SC", "ONCE", "/ST", "23:59", "/F").CombinedOutput(); err != nil {
+		t.Fatalf("schtasks: %v: %s", err, out)
+	}
+	t.Cleanup(func() { exec.Command("schtasks", "/Delete", "/TN", other, "/F").Run() })
+	code, _, e := runKeeper(t, t.TempDir(), "", "uninstall", "--name", fmt.Sprintf("t%dx", os.Getpid()))
+	if code != 1 || !strings.Contains(e, "uninstall:") {
+		t.Fatalf("код %d, %q", code, e)
+	}
+	if exec.Command("schtasks", "/Query", "/TN", other).Run() != nil {
+		t.Fatal("задача другого имени снята")
+	}
+}

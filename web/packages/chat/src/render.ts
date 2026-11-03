@@ -21,6 +21,8 @@ export type SdkMsg = {
   max_retries?: number;
   error_status?: number | null;
   compact_metadata?: { trigger?: string; pre_tokens?: number; post_tokens?: number };
+  /** сводка сжатия: в истории SDK стоит на месте границы — реплика не человека */
+  isCompactSummary?: boolean;
   suggestion?: string;
   message?: { content?: string | Block[] };
 };
@@ -87,6 +89,7 @@ export function resultLine(m: SdkMsg): string {
 
 /** Карточки одного сообщения SDK. */
 export function drawSdk(m: SdkMsg, v: View): HTMLElement[] {
+  if (m.isCompactSummary) return [h("div", { class: "chat-sys" }, "контекст сжат")];
   if (m.type === "result") return [h("div", { class: "chat-res" + (m.subtype === "success" ? "" : " err") }, resultLine(m))];
   if (m.type === "system") {
     if (m.subtype === "compact_boundary") {

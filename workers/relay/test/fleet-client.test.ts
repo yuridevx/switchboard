@@ -205,6 +205,60 @@ describe("эталоны клиента флота", () => {
     expect(n).toBe(2);
   });
 
+  it("5542 · отказ Worker'а телом-кадром — то же слово у клиента при любом статусе, а не offline: bad_key, revoked, gate_unavailable, failed", async () => {
+    // источник: устав «прямой запрос к Worker'у не прошёл — отказ словом»; бэклог «push.subscribe иногда отвечает offline»
+    const words: Array<[string, number]> = [["bad_key", 200], ["revoked", 200], ["gate_unavailable", 503], ["failed", 500]];
+    const answers = [...words];
+    const s = stand([], {
+      "https://push.test/": (b) => {
+        const [error, status] = answers.shift()!;
+        return Response.json({ type: "reply", id: b.id, ok: false, error }, { status });
+      },
+    });
+    const c = start({ fetch: s.f });
+    await tick();
+    for (const [error] of words) expect(await c.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error });
+  });
+
+  it("5543 · нет ответа за предел запроса — timeout с причиной, POST один, повтора нет", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций лимит»; устав «отказ словом»
+    const s = stand([], { "https://push.test/": () => new Promise<Response>(() => {}) });
+    const c = start({ fetch: s.f, requestMs: 1000 });
+    await tick();
+    const p = c.request({ type: "push.subscribe", v: 1, to: ".push" });
+    await vi.advanceTimersByTimeAsync(1000);
+    const r = (await p) as unknown as { ok: boolean; error: string; why?: string };
+    expect(r).toMatchObject({ ok: false, error: "timeout" });
+    expect(r.why).toBeTruthy();
+    expect(s.calls.filter((x) => x.url === "https://push.test/")).toHaveLength(1);
+  });
+
+  it("5544 · close(): ждущий запрос — disconnected сразу, без предела; новый — disconnected без POST", async () => {
+    // источник: устав «останавливается штатно: не принимает новое»; слово пользователя 2 нояб. «лимит и graceful shutdown»
+    const s = stand([], { "https://push.test/": () => new Promise<Response>(() => {}) });
+    const c = start({ fetch: s.f });
+    await tick();
+    const p = c.request({ type: "push.subscribe", v: 1, to: ".push" });
+    await tick();
+    c.close();
+    expect(await p).toMatchObject({ ok: false, error: "disconnected" });
+    const posts = s.calls.filter((x) => x.url === "https://push.test/").length;
+    expect(await c.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "disconnected" });
+    expect(s.calls.filter((x) => x.url === "https://push.test/")).toHaveLength(posts);
+  });
+
+  it("5541 · POST к Worker'у не дошёл — отказ offline с причиной: статус и начало тела страницы ошибки, исключение сети", async () => {
+    // источник: бэклог «push.subscribe иногда отвечает offline: причина теряется в post()», устав «ошибка словом, причина в журнале»
+    const answers: Array<() => Promise<Response>> = [
+      async () => new Response("<html>error code: 1101</html>", { status: 500 }),
+      async () => { throw new TypeError("fetch failed"); },
+    ];
+    const f = fleet({ workers: { push: "https://push.test/" }, key: "client.c.k.S", WebSocket: FakeWs, fetch: (() => answers.shift()!()) as never });
+    expect(await f.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why: "500: <html>error code: 1101</html>" });
+    expect(await f.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why: "TypeError: fetch failed" });
+    f.close();
+  });
+
   it("5171 · одна карта адресов: relay — wss адреса Worker'а relay, gate — из неё же; кадр к Worker'у без адреса — отказ offline здесь, в relay не идёт", async () => {
     // источник: отчёт слепого архитектора 2 нояб.: пункты 2 и 6 (дубликат состояния; лишняя коммуникация — «кадр к Worker'у
     // через relay не ходит» — дизайн «Открытый флот», слово пользователя «делай»)
@@ -218,5 +272,7 @@ describe("эталоны клиента флота", () => {
     expect(await f.request({ type: "hello.echo", v: 1, to: ".hello-worker" })).toMatchObject({ ok: false, error: "offline" });
     expect(f.send({ type: "ledger.add", v: 1, to: ".ledger" })).toEqual({ ok: false, error: "offline" });
     expect(FakeWs.of("win")!.sent.length).toBe(sent);
+    // POST тоже не было: только список машин у gate
+    expect(s.calls.map((c) => c.url)).toEqual(["https://gate.test/"]);
   });
 });

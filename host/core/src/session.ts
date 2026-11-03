@@ -246,7 +246,15 @@ export class Sess {
     const why = `код ${e.code}${e.signal ? `, сигнал ${e.signal}` : ""}${e.stderr ? `: ${e.stderr}` : ""}`;
     const waiters = this.exitWaiters.splice(0);
     for (const w of waiters) w();
-    if (this.closing || !this.q) return;
+    // процесс вышел посреди хода: итога не будет — ждущие его не висят
+    for (const w of this.resultWaiters.splice(0)) w();
+    // вышел, пока закрывали: закрывающему ждать больше нечего
+    if (this.closing) {
+      this.q = null;
+      this.proc = null;
+      return;
+    }
+    if (!this.q) return;
     this.q = null;
     this.proc = null;
     // ОС останавливается раньше, чем об этом узнаёт Host (win11-2 1 нояб.: держатель на 5 с раньше службы): не падение,

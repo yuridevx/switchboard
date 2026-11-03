@@ -140,6 +140,9 @@ func installed() bool {
 // taskInstalled — задача «при входе» keeper есть.
 func taskInstalled() bool { return exec.Command("schtasks", "/Query", "/TN", serviceName).Run() == nil }
 
+// uninstallWait — предел ожидания остановки службы при снятии.
+const uninstallWait = 3 * time.Minute
+
 func uninstall() error {
 	if taskInstalled() {
 		// задача снята — запущенный по ней keeper остановлен тоже, иначе он жил бы рядом со следующей установкой
@@ -165,7 +168,11 @@ func uninstall() error {
 		if _, err := s.Control(svc.Stop); err != nil {
 			return err
 		}
-		for st.State != svc.Stopped {
+		// предел — больше своего хода остановки keeper: не остановилась — отказ словом, служба на месте
+		for end := time.Now().Add(uninstallWait); st.State != svc.Stopped; {
+			if time.Now().After(end) {
+				return fmt.Errorf("служба %s не остановилась за %v", serviceName, uninstallWait)
+			}
 			time.Sleep(300 * time.Millisecond)
 			if st, err = s.Query(); err != nil {
 				return err

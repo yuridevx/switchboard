@@ -143,7 +143,8 @@ describe("эталоны push", () => {
     await frame(send("s-120", "phone120"));
     expect(svc.posts[0].url).toBe("https://web.push.apple.com/first");
     const phone2 = await ua();
-    await subscribe("phone120", phone2, "https://web.push.apple.com/second");
+    await frame({ type: "push.subscribe", v: 1, id: "u-120", to: ".push", from: "phone120", fromKid: "n2ew", sub: sub(phone2, "https://web.push.apple.com/second") });
+    expect((await table()).find((r) => r.client === "phone120")).toMatchObject({ endpoint: "https://web.push.apple.com/second", kid: "n2ew", p256dh: phone2.p256dh });
     const panel = await ua();
     await subscribe("panel-desk120", panel, "https://fcm.googleapis.com/fcm/send/panel");
     const mine = (await table()).filter((r) => String(r.client).endsWith("120"));
@@ -195,6 +196,9 @@ describe("push: отказы и стык с relay", () => {
       expect(out, why).toEqual([{ type: "reply", id: "u-2", ok: false, error: "bad_frame", to: "tab" }]);
       expect(log).toContainEqual(expect.objectContaining({ word: "bad_frame", why, from: "tab" }));
     }
+    // кадр без версии контракта — отказ раньше разбора подписки
+    expect(await frame({ type: "push.subscribe", id: "u-v", to: ".push", from: "tab", sub: good })).toEqual([{ type: "reply", id: "u-v", ok: false, error: "contract_mismatch", to: "tab" }]);
+    expect(log).toContainEqual(expect.objectContaining({ word: "contract_mismatch" }));
     expect((await table()).find((r) => r.client === "tab")?.endpoint).toBe("https://web.push.apple.com/tab");
     // без from — имя клиента некому поставить
     await relay.frame({ type: "push.subscribe", v: 1, id: "u-3", to: ".push", sub: good });

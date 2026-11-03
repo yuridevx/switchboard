@@ -23,6 +23,8 @@ export class FakeProc {
   /** ввод сессии: сообщения user от SDK */
   inputs: Array<{ message: { content: unknown }; priority?: string; [k: string]: unknown }> = [];
   interrupts = 0;
+  /** процесс не отвечает на прерывание итогом хода */
+  noInterrupt = false;
   /** не отвечать на initialize: процесс выйдет до готовности */
   failInit = false;
   /** состояние хода, как его показал тест: на interrupt процесс сам отдаёт result и idle */
@@ -133,7 +135,7 @@ export class FakeProc {
     } else if (x.$ === "user") this.inputs.push(x.message as FakeProc["inputs"][number]);
     else if (x.$ === "interrupt") {
       this.interrupts++;
-      if (this.busy) {
+      if (this.busy && !this.noInterrupt) {
         this.send({ type: "result", subtype: "error_during_execution", is_error: true, num_turns: 1, total_cost_usd: 0, session_id: "s" });
         this.send({ type: "system", subtype: "session_state_changed", state: "idle", session_id: "s" });
       }
