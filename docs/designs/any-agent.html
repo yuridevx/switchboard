@@ -1,0 +1,1281 @@
+<title>Любой агент во флоте</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geologica:wght@400;500;600;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1040px, блоки дизайна; макет чата — токены --a-* приложения (ламповый пульт). */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+  --a-ground:#E6E9E4; --a-panel:#FBFCFA; --a-sunk:#F0F2EE; --a-ink:#17201B; --a-muted:#56625B; --a-line:#D3D9D2; --a-line2:#E2E6E0;
+  --a-you:#A85A05; --a-on-you:#FFFFFF; --a-you-weak:#FBEBD2; --a-busy:#2B5CCB; --a-busy-weak:#E0E7F8; --a-ok:#287649; --a-ok-weak:#DCEEE2; --a-bad:#B3302A; --a-bad-weak:#F6DEDB;
+  --a-btn:#17201B; --a-on-btn:#FBFCFA; --a-sel:#E3E8E1;
+  --a-font:"Geologica","Golos Text",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  --a-ground:#0D110F; --a-panel:#151A17; --a-sunk:#1B211D; --a-ink:#E2E8E3; --a-muted:#9AA69F; --a-line:#2B342E; --a-line2:#222A25;
+  --a-you:#F1A443; --a-on-you:#1E1404; --a-you-weak:#382810; --a-busy:#88A7FF; --a-busy-weak:#1B2646; --a-ok:#66C691; --a-ok-weak:#15301F; --a-bad:#FF8B80; --a-bad-weak:#3D1C19;
+  --a-btn:#E2E8E3; --a-on-btn:#151A17; --a-sel:#232B26;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  --a-ground:#0D110F; --a-panel:#151A17; --a-sunk:#1B211D; --a-ink:#E2E8E3; --a-muted:#9AA69F; --a-line:#2B342E; --a-line2:#222A25;
+  --a-you:#F1A443; --a-on-you:#1E1404; --a-you-weak:#382810; --a-busy:#88A7FF; --a-busy-weak:#1B2646; --a-ok:#66C691; --a-ok-weak:#15301F; --a-bad:#FF8B80; --a-bad-weak:#3D1C19;
+  --a-btn:#E2E8E3; --a-on-btn:#151A17; --a-sel:#232B26;
+  color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.55 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;overflow-wrap:break-word}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 clamp(28px,4.6vw,42px)/1.1 var(--disp);letter-spacing:-.01em}
+h2{font:600 20px/1.25 var(--disp)}
+h3{font:600 15.5px/1.3 var(--body)}
+p{margin:0;max-width:72ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.muted{color:var(--muted)}
+.eyebrow{font:600 11px/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px;max-width:72ch}
+.lede.chg{border:1px solid var(--chg-edge);border-radius:10px;padding:10px 14px}
+.lede.chg.read{border-color:var(--line)}
+.howto{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:13px;color:var(--muted)}
+.howto kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.toc{display:flex;flex-wrap:wrap;gap:6px}
+.toc a{font-size:13px;text-decoration:none;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 11px}
+.toc a:hover{border-color:var(--accent);color:var(--accent)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.blk-h p{flex-basis:100%}
+.blk-h button.cmt{margin-left:auto;font-size:12.5px;padding:4px 10px}
+.lc{display:flex;flex-direction:column;gap:8px}
+.lc-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.lc-list li{border:1px solid var(--accent);background:var(--accent-weak);border-radius:9px;padding:7px 10px;display:flex;flex-direction:column;gap:2px}
+.lc-list time{font:500 11.5px var(--mono);color:var(--muted)}
+.lc-list p{white-space:pre-wrap;font-size:14px}
+.lc-form{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.lc-form textarea{width:100%;font:400 14px/1.45 var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:8px 10px;resize:vertical}
+.lc-err{font-size:13px;color:var(--bad)}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.pad{padding:14px;display:flex;flex-direction:column;gap:10px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+@media (max-width:820px){.two{grid-template-columns:minmax(0,1fr)}}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.seg .lbl{font-size:13px;color:var(--muted)}
+.fact{font-size:12.5px;border-left:2px solid var(--ok);padding-left:9px}
+.fact b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mark-banner{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);font-size:13px;padding:8px 12px;border-radius:9px;z-index:50;max-width:calc(100% - 32px)}
+.fig{overflow-x:auto}
+svg.d{display:block;width:100%;height:auto}
+.d .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5}
+.d .box.acc{fill:var(--accent-weak);stroke:var(--accent)}
+.d .box.you{fill:var(--wait-weak);stroke:var(--wait)}
+.d .box.ok{fill:var(--ok-weak);stroke:var(--ok)}
+.d .box.bad{fill:var(--bad-weak);stroke:var(--bad)}
+.d .box.dim{fill:var(--surface2);stroke:var(--line2)}
+.d .bt{fill:var(--ink);font:600 13px var(--body)}
+.d .bs{fill:var(--muted);font:400 11.5px var(--body)}
+.d .bm{fill:var(--accent);font:600 11.5px var(--mono)}
+.d .bw{fill:var(--wait);font:600 11.5px var(--mono)}
+.d .bb{fill:var(--bad);font:600 11.5px var(--mono)}
+.d .ln{stroke:var(--accent);stroke-width:1.6;fill:none}
+.d .ln.w{stroke:var(--wait)}
+.d .ln.m{stroke:var(--muted);stroke-dasharray:4 3}
+.d .ln.b{stroke:var(--bad)}
+.d .ah{fill:var(--accent)}
+.d .ahw{fill:var(--wait)}
+.d .ahm{fill:var(--muted)}
+.d .ahb{fill:var(--bad)}
+.d .life{stroke:var(--line);stroke-width:1.5;stroke-dasharray:3 4}
+.d .g-off{opacity:.25;transition:opacity .2s}
+.d .g-on{opacity:1;transition:opacity .2s}
+@media (prefers-reduced-motion:reduce){.d .g-off,.d .g-on{transition:none}}
+.mx-wrap{overflow-x:auto}
+.mx{width:100%;min-width:620px;border-collapse:collapse;font-size:13.5px}
+.mx th,.mx td{padding:8px 10px;border-bottom:1px solid var(--line2);text-align:left;vertical-align:top}
+.mx th{font:600 10.5px/1.3 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.mx .num{font:600 13px var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mx td.y{color:var(--ok);font:600 13px var(--mono);text-align:center}
+.mx td.n{color:var(--muted);font:600 13px var(--mono);text-align:center}
+.mx code{font-size:12.5px}
+.st{font:600 10px/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:6px;padding:1px 6px;white-space:nowrap}
+.st.have{background:var(--surface2);color:var(--muted);border:1px solid var(--line)}
+.st.new{background:var(--accent);color:var(--on-accent)}
+.st.chg{background:var(--wait-weak);color:var(--wait);border:0}
+.st.gone{background:var(--bad-weak);color:var(--bad)}
+.nots{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:8px}
+.nots li{padding:10px 12px;border-radius:10px;border:1px solid var(--line2);background:var(--surface);font-size:14px;display:flex;flex-direction:column;gap:2px;min-width:0}
+.chg.read .nots li{background:var(--surface2)}
+.nots b{font-weight:600}
+.nots span{color:var(--muted);font-size:13.5px}
+.ets{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,320px),1fr));gap:12px}
+.eg{display:flex;flex-direction:column;gap:6px;min-width:0}
+.eg h3{font:600 11.5px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.eg ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.eg li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px;align-items:baseline;font-size:13.5px;padding:6px 9px;border-radius:8px;border:1px solid var(--line2);background:var(--surface)}
+.chg.read .eg li{background:var(--surface2)}
+.eg li small{display:block;font-size:12px;color:var(--muted)}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:34px minmax(0,1fr) minmax(0,17em);gap:12px;align-items:start;padding:11px 12px;border:1px solid var(--line2);border-radius:10px;background:var(--surface)}
+.chg.read .steps li{background:var(--surface2)}
+@media (max-width:700px){.steps li{grid-template-columns:34px minmax(0,1fr)}.steps .gate{grid-column:2}}
+.steps li::before{content:counter(s,decimal);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--bg);font:600 12px var(--mono)}
+.steps b{display:block;font-weight:600}
+.steps span{font-size:13.5px;color:var(--muted)}
+.steps .gate{font-size:12.5px;border-left:2px solid var(--ok);padding-left:10px;color:var(--ink)}
+.steps .gate::before{content:"Готово";display:block;font:600 10px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ok)}
+.verdict{font-size:14px;border-left:3px solid var(--accent);padding:6px 0 6px 12px;max-width:80ch}
+.gaterow{display:flex;flex-wrap:wrap;gap:8px}
+.gaterow span{font:500 12.5px var(--mono);background:var(--surface2);border:1px solid var(--line2);border-radius:8px;padding:4px 9px;font-variant-numeric:tabular-nums}
+.gaterow span b{color:var(--ok)}
+/* сравнение вариантов */
+.vs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+@media (max-width:820px){.vs{grid-template-columns:minmax(0,1fr)}}
+.vcard{border:1px solid var(--line2);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:6px;background:var(--surface);font-size:13.5px}
+.chg.read .vcard{background:var(--surface2)}
+.vcard.win{border:2px solid var(--accent)}
+.vcard h3{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.vcard ul{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:3px}
+.verd{font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;border-radius:6px}
+.verd.y{background:var(--accent);color:var(--on-accent)}
+.verd.n{background:var(--bad-weak);color:var(--bad)}
+.meter{display:flex;flex-direction:column;gap:4px;margin-top:4px}
+.meter div{display:grid;grid-template-columns:9.5em minmax(0,1fr) 3.2em;gap:8px;align-items:center;font-size:12.5px}
+.meter i{display:block;height:8px;border-radius:4px;background:var(--accent)}
+.meter i.w{background:var(--wait)}
+.meter b{font:600 12px var(--mono);text-align:right;font-variant-numeric:tabular-nums}
+
+/* ===== макет чата ===== */
+.ap{font:400 14px/1.45 var(--a-font);color:var(--a-ink);background:var(--a-ground);border-radius:14px;border:1px solid var(--line);overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.ap button{font:500 12.5px var(--a-font);color:var(--a-ink);background:var(--a-panel);border:1px solid var(--a-line);border-radius:8px;padding:4px 10px}
+.ap .cs{font:600 14px var(--mono)}
+.chat-h{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--a-panel);border-bottom:1px solid var(--a-line2);flex-wrap:wrap}
+.chat-h .at{font:400 12.5px var(--mono);color:var(--a-muted)}
+.lamp{flex:none;width:10px;height:10px;border-radius:50%;display:inline-block;background:var(--a-busy)}
+.chip{display:inline-flex;align-items:center;gap:5px;font:500 12px var(--a-font);padding:2px 9px;border-radius:999px;background:var(--a-sunk);border:1px solid var(--a-line2);white-space:nowrap}
+.chip b{font-weight:600}
+.chip.agent{background:var(--a-busy-weak);color:var(--a-busy);border-color:transparent;font-weight:600}
+.chat-h .sp{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap}
+.feed{display:flex;flex-direction:column;gap:8px;padding:14px;min-height:0}
+.c-me{align-self:flex-end;max-width:85%;background:var(--a-btn);color:var(--a-on-btn);border-radius:14px 14px 4px 14px;padding:7px 12px}
+.c-txt{align-self:flex-start;max-width:92%}
+.c-th{align-self:flex-start;font-size:12.5px;color:var(--a-muted);font-style:italic;border-left:2px solid var(--a-line);padding-left:8px}
+.c-tool{border:1px solid var(--a-line2);background:var(--a-panel);border-radius:10px;padding:7px 10px;display:flex;flex-direction:column;gap:5px;font-size:13px}
+.c-tool .r{display:flex;gap:8px;align-items:center;min-width:0}
+.c-tool .k{font:600 10.5px var(--mono);letter-spacing:.05em;text-transform:uppercase;padding:1px 6px;border-radius:5px;background:var(--a-sunk);color:var(--a-muted);flex:none}
+.c-tool .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono);font-size:12.5px}
+.c-tool .s{flex:none;font:600 12px var(--mono)}
+.c-tool .s.ok{color:var(--a-ok)} .c-tool .s.run{color:var(--a-busy)} .c-tool .s.bad{color:var(--a-bad)}
+.c-diff{font:400 12px/1.45 var(--mono);border-radius:6px;overflow:hidden;border:1px solid var(--a-line2)}
+.c-diff div{padding:1px 8px;white-space:pre-wrap;overflow-wrap:anywhere}
+.c-diff .del{background:var(--a-bad-weak);color:var(--a-bad)}
+.c-diff .add{background:var(--a-ok-weak);color:var(--a-ok)}
+.c-term{font:400 12px/1.45 var(--mono);background:var(--a-sunk);border-radius:6px;padding:5px 8px;white-space:pre-wrap;color:var(--a-muted)}
+.c-plan{border:1px solid var(--a-line2);background:var(--a-panel);border-radius:10px;padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:3px}
+.c-plan .h{font:600 11.5px var(--a-font);color:var(--a-muted)}
+.c-plan .e{display:flex;gap:7px}
+.c-plan .e.done{color:var(--a-muted);text-decoration:line-through}
+.c-plan .e.now{font-weight:600}
+.c-q{border:1.5px solid var(--a-you);background:var(--a-you-weak);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.c-q .qt{font-weight:600}
+.c-q .o{display:flex;gap:6px;flex-wrap:wrap}
+.c-sys{align-self:center;font-size:12px;color:var(--a-muted)}
+.c-raw{font:400 11.5px/1.4 var(--mono);background:var(--a-sunk);border:1px dashed var(--a-line);border-radius:6px;padding:6px 8px;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--a-muted)}
+.c-card{cursor:pointer}
+.c-card:focus-visible{outline:2px solid var(--a-busy);outline-offset:2px;border-radius:10px}
+.composer{border-top:1px solid var(--a-line2);background:var(--a-panel);padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.composer .in{border:1px solid var(--a-line);border-radius:10px;padding:8px 10px;color:var(--a-muted);font-size:13.5px;background:var(--a-panel)}
+.composer .tl{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.cmds{display:flex;gap:4px;flex-wrap:wrap}
+.cmds span{font:500 11.5px var(--mono);padding:1px 7px;border-radius:6px;background:var(--a-sunk);border:1px solid var(--a-line2)}
+.usage{margin-left:auto;display:flex;align-items:center;gap:6px;font:500 11.5px var(--mono);color:var(--a-muted)}
+.usage i{display:block;width:70px;height:6px;border-radius:3px;background:var(--a-sunk);position:relative;overflow:hidden}
+.usage i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--u,40%);background:var(--a-busy)}
+.chatgrid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:14px;align-items:start}
+@media (max-width:860px){.chatgrid{grid-template-columns:minmax(0,1fr)}}
+.kinds{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:5px}
+.kinds li{display:grid;grid-template-columns:minmax(0,11.5em) minmax(0,1fr);gap:8px;font-size:13px;padding:6px 9px;border:1px solid var(--line2);border-radius:8px;background:var(--surface);align-items:baseline}
+.chg.read .kinds li{background:var(--surface2)}
+.kinds code{font-size:12px;color:var(--accent)}
+.kinds li.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+span.chg,p.chg,div.chg{border:1px solid var(--chg-edge);border-radius:6px;padding:1px 4px}
+span.chg.read,p.chg.read,div.chg.read{border-color:transparent}
+/* правки слепого архитектора: li и вложенные панели тоже жёлтые */
+li.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+li.chg.read{background:var(--surface);border-color:var(--line2)}
+div.inner.pad.chg{padding:14px;border-radius:10px;background:var(--chg-bg);border-color:var(--chg-edge)}
+div.inner.pad.chg.read{background:var(--surface);border-color:var(--line)}
+small.chg{background:var(--chg-bg);border-radius:4px;padding:0 3px}
+small.chg.read{background:transparent}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <span class="eyebrow">Switchboard · дизайн · отложен 3 нояб. 2026</span>
+  <p class="chg" data-chg="df-status"><b>Отложено словом пользователя 3 нояб. 2026.</b> В бэклог ушёл только этап 0: два флота на одном компьютере и история после сжатия контекста. ACP, агенты Kimi и Muse, чат на событиях ACP и A2A ждут своего времени. Версии и заявки адаптеров — на эту дату, при возврате их надо снять заново.</p>
+  <h1>Любой агент во флоте</h1>
+  <p class="lede chg" data-chg="aa-lede">Стандарт управления агентом называется <b>ACP — Agent Client Protocol</b>: одна программа (клиент) запускает агента, даёт ему задачу и получает поток его работы. По нему уже работают Claude, Codex, Gemini CLI, Copilot CLI и ещё около 60 агентов. Рекомендация: Host флота становится клиентом ACP, а агентом сессии может быть любая программа, которая говорит по ACP. Свои мосты не пишем: Claude и Codex подключаются через открытые адаптеры, остальные умеют ACP сами. Лента и чат страницы рисуются по видам событий ACP, одинаково для любого агента. <span class="chg" data-chg="km-lede">Первыми после Claude — Kimi и Muse Spark (слово пользователя 3 нояб.).</span> <span class="chg" data-chg="tw-lede">Один компьютер может входить в два флота сразу: у каждой системы своя служба и своя папка данных.</span></p>
+  <div class="howto">
+    <span>Жёлтое — новое. Каждый блок принимается отдельно: «да» — принят, «нет» — убран.</span>
+    <span><kbd>A</kbd> над блоком — прочитал · <kbd>Z</kbd> — снять</span>
+  </div>
+  <nav class="toc" aria-label="Блоки">
+    <a href="#std">Стандарт</a><a href="#who">Кто говорит по ACP</a><a href="#maturity" class="chg" data-chg="mt-toc">Зрелость адаптеров</a><a href="#exp" class="chg" data-chg="ex-toc">Опыты</a><a href="#vars">Два варианта</a><a href="#arch">Архитектура</a><a href="#life">Жизнь сессии</a><a href="#mods">Модули Host</a><a href="#hist">История</a><a href="#chat">Чат страницы</a><a href="#two" class="chg" data-chg="tw-toc">Два флота на одном компьютере</a><a href="#a2a" class="chg" data-chg="a2-toc">A2A</a><a href="#etalons">Эталоны</a><a href="#archgate">Гейт</a><a href="#forks">Развилки</a><a href="#steps">Порядок</a><a href="#not">Чего нет</a>
+  </nav>
+</header>
+
+<!-- ===================== СТАНДАРТ ===================== -->
+<section class="blk chg" data-chg="aa-std" id="std">
+  <div class="blk-h"><span class="tag"></span><h2>Четыре открытых протокола — у каждого своя пара</h2>
+    <p class="muted">Управление агентом — только ACP. Остальные три решают другие задачи, и мы ими уже пользуемся или не нуждаемся.</p></div>
+  <div class="inner pad">
+    <div class="fig">
+      <svg class="d" viewBox="0 0 860 250" role="img" aria-labelledby="std-t" style="min-width:640px">
+        <title id="std-t">Клиент — редактор или Host флота — говорит с агентом по ACP. Агент ходит к инструментам по MCP. Агенты разных систем переговариваются по A2A. Веб-страница получает поток от своего бэкенда по AG-UI.</title>
+        <defs>
+          <marker id="s-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="s-m" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahm" d="M0,0 L8,4 L0,8 z"/></marker>
+        </defs>
+        <rect class="box acc" x="20" y="80" width="190" height="80" rx="12"/>
+        <text class="bt" x="36" y="108">Клиент</text>
+        <text class="bs" x="36" y="128">редактор, Host флота</text>
+        <text class="bs" x="36" y="146">запускает и ведёт агента</text>
+        <rect class="box acc" x="330" y="80" width="190" height="80" rx="12"/>
+        <text class="bt" x="346" y="108">Агент</text>
+        <text class="bs" x="346" y="128">Claude, Codex, Gemini…</text>
+        <text class="bs" x="346" y="146">процесс с вводом и выводом</text>
+        <path class="ln" d="M210,112 H326" marker-end="url(#s-a)"/>
+        <path class="ln" d="M326,132 H214" marker-end="url(#s-a)"/>
+        <text class="bm" x="238" y="102">ACP</text>
+        <text class="bs" x="222" y="150">задача ⇄ поток</text>
+        <rect class="box" x="650" y="80" width="190" height="80" rx="12"/>
+        <text class="bt" x="666" y="108">Инструменты</text>
+        <text class="bs" x="666" y="128">серверы MCP флота:</text>
+        <text class="bs" x="666" y="146">переписка, ключи, части</text>
+        <path class="ln m" d="M520,120 H646" marker-end="url(#s-m)"/>
+        <text class="bm" x="566" y="110" style="fill:var(--muted)">MCP</text>
+        <rect class="box dim" x="330" y="192" width="190" height="46" rx="10"/>
+        <text class="bt" x="346" y="220" style="fill:var(--muted)">агент другой системы</text>
+        <path class="ln m" d="M425,160 V188" marker-end="url(#s-m)"/>
+        <text class="bm" x="434" y="180" style="fill:var(--muted)">A2A</text>
+        <rect class="box dim" x="20" y="8" width="190" height="46" rx="10"/>
+        <text class="bt" x="36" y="36" style="fill:var(--muted)">веб-страница</text>
+        <path class="ln m" d="M115,54 V76" marker-end="url(#s-m)"/>
+        <text class="bm" x="124" y="70" style="fill:var(--muted)">AG-UI</text>
+      </svg>
+    </div>
+    <div class="mx-wrap"><table class="mx">
+      <thead><tr><th>протокол</th><th>кто ↔ кто</th><th>для флота</th></tr></thead>
+      <tbody>
+        <tr><td><b>ACP</b> · Agent Client Protocol</td><td>клиент ↔ агент: новая сессия, задача, поток работы, вопрос человеку, отмена</td><td><b>берём:</b> граница Host ↔ агент</td></tr>
+        <tr><td>MCP · Model Context Protocol</td><td>агент ↔ инструменты</td><td>уже есть: инструменты флота</td></tr>
+        <tr><td>A2A · Agent2Agent</td><td>агент ↔ агент разных систем</td><td>не нужен: сессии говорят через флот</td></tr>
+        <tr><td>AG-UI</td><td>бэкенд агента ↔ веб-страница</td><td>не нужен: страница получает поток ACP через relay</td></tr>
+      </tbody>
+    </table></div>
+    <p class="fact">ACP: JSON-RPC 2.0 строками через ввод и вывод процесса; авторы — Zed и JetBrains, лицензия Apache 2.0; SDK на TypeScript <b>2.4.0</b> (2 нояб. 2026), реестр агентов — <b>~60</b>.</p>
+  </div>
+</section>
+
+<!-- ===================== КТО ГОВОРИТ ===================== -->
+<section class="blk chg" data-chg="aa-who" id="who">
+  <div class="blk-h"><span class="tag"></span><h2>Кто уже говорит по ACP</h2>
+    <p class="muted">Опыт на этой машине: каждому адаптеру отправлен <code>initialize</code>, в таблице — то, что они ответили. Claude-адаптер построен на том же Claude Agent SDK, что держит сессии сейчас.</p></div>
+  <div class="inner pad">
+    <div class="mx-wrap"><table class="mx" style="min-width:700px">
+      <thead><tr><th>агент</th><th>как говорит</th><th>история (load)</th><th>список</th><th>resume</th><th>fork</th><th>MCP по HTTP</th><th>картинки</th><th>вход</th></tr></thead>
+      <tbody>
+        <tr><td><b>Claude</b></td><td>адаптер <code>claude-agent-acp 0.100.0</code> → Claude Agent SDK <code>0.3.316</code></td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td>своя папка входа, как сейчас</td></tr>
+        <tr class="chg" data-chg="mt-codex"><td><b>Codex</b></td><td>адаптер <code>@agentclientprotocol/codex-acp 2.5.0</code> → сервер приложения Codex <code>@openai/codex ^0.165</code></td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td>ChatGPT или ключ API</td></tr>
+        <tr class="chg" data-chg="km-kimi"><td><b>Kimi</b></td><td>сам: Kimi Code CLI <code>@moonshot-ai/kimi-code 2.4.1</code>, <code>kimi acp</code></td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td>аккаунт Kimi, код устройства из терминала</td></tr>
+        <tr class="chg" data-chg="km-muse"><td><b>Muse Spark</b></td><td>неофициальный адаптер <code>muse-spark-code-acp 0.19.0</code> → Muse Code CLI от Meta</td><td class="y">✓</td><td class="y">✓</td><td class="y">✓</td><td class="n">—</td><td class="y">✓</td><td class="y">✓</td><td>Muse Code, ChatGPT или OpenRouter</td></tr>
+        <tr><td>Gemini CLI</td><td>сам, ключ <code>--acp</code></td><td colspan="6" class="n"><span class="chg" data-chg="km-gem">только load; после автосжатия каждый запрос — ошибка 400</span></td><td>Google</td></tr>
+        <tr><td>Copilot CLI, OpenCode, Goose, Cursor, Kiro, Qwen Code, Junie…</td><td>сами</td><td colspan="6" class="n">тот же путь, без нашего кода</td><td>свой</td></tr>
+      </tbody>
+    </table></div>
+    <p class="fact">Опыт: <code>initialize</code> → ответ с возможностями у <b>2 из 2</b> адаптеров. Claude-адаптер сам умеет Remote Control (команда <code>/remote-control</code>), AskUserQuestion отдаёт формой <code>elicitation/create</code>, опции SDK принимает в <code>_meta.claudeCode.options</code> — проверено по коду адаптера.</p>
+    <p class="fact chg" data-chg="mt-codex-fact">Адаптер Codex — только <code>@agentclientprotocol/codex-acp</code>: прежний <code>zed-industries/codex-acp</code> в архиве с 22 июля 2026. Новый запускает сервер приложения Codex уже на <code>initialize</code> и падает, если не может открыть свою папку состояния. С отдельной <code>CODEX_HOME</code> ответ пришёл за <b>~2 с</b>.</p>
+  </div>
+</section>
+
+<!-- ===================== ЗРЕЛОСТЬ АДАПТЕРОВ ===================== -->
+<section class="blk chg" data-chg="mt-main" id="maturity">
+  <div class="blk-h"><span class="tag"></span><h2>Зрелость адаптеров</h2>
+    <p class="muted">Чем платим за ACP: адаптер выходит позже своего агента и добавляет свои ошибки. Данные npm и GitHub с 1 мая по 3 нояб. 2026. Их собрала соседняя сессия; номера заявок ниже я сверил.</p></div>
+  <div class="inner pad">
+    <div class="mx-wrap"><table class="mx" style="min-width:700px">
+      <thead><tr><th>адаптер</th><th class="num">отставание от агента, дни: медиана · p90 · макс</th><th class="num">заявки с 3 авг.: открыто · закрыто</th><th>что задевает флот</th></tr></thead>
+      <tbody>
+        <tr><td><b>Claude</b> · выпуск раз в 1,7 дня</td><td class="num">2,9 · 8,5 · 17,9</td><td class="num">127 · 55 (43 %)</td><td><b>#1297</b> повтор истории — только с последнего сжатия контекста · <b>#1518</b> сжатие при простое не включается для входа <code>sdk-ts</code> · #1388 инструменты MCP из плагина не доходят до модели <span class="chg" data-chg="mt-sdk-path">· #1297 — путь SDK, проверен опытом на SDK Host; #1518 — по разбору бинарника; #1388 без OAuth не воспроизводится (6 из 6 вызовов прошли)</span></td></tr>
+        <tr><td><b>Codex</b> · 3 мажорные версии за полгода</td><td class="num">5,9 · 20,2 · 32,6</td><td class="num">63 · 10 (16 %)</td><td><b>#477</b> переписывает песочницу в настройках Codex · <b>#600</b> ход не кончается, если сервер Codex умер · #647 ошибка модели приходит текстом ответа</td></tr>
+        <tr class="chg" data-chg="km-mt"><td><b>Kimi Code</b> · ACP встроен · прежний <code>kimi-cli</code> в архиве</td><td class="num">0</td><td class="num">—</td><td>на Windows оболочка — Git Bash, нужен Git for Windows; вход — свой, на машине</td></tr>
+        <tr class="chg" data-chg="km-mt2"><td><b>Muse Spark</b> · один автор, MIT, не продукт Meta</td><td class="num">—</td><td class="num">—</td><td>адаптер одного человека: держим версию точно, замена — другой мост к Muse Code, если этот заглохнет</td></tr>
+        <tr><td><b>Gemini CLI</b> · ACP встроен</td><td class="num">0</td><td class="num">27 · 7</td><td>библиотека ACP 0.16.1 при последней 2.4.0 · двойное выполнение команд при повторе · ошибка 400 после перезагрузки сессии</td></tr>
+      </tbody>
+    </table></div>
+    <div class="nots" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))">
+      <li class="chg" data-chg="mt-hist2"><b>История до сжатия (#1297) теряется уже сейчас</b><span>Это SDK: чтение разговора идёт по цепочке записей, а метка сжатия цепочку рвёт. Опыт на SDK Host 0.3.311: в файле 32 сообщения до сжатия и 7 после — чтение вернуло 9. Чинится в одном месте: в адаптере есть правка #1430 (склеить цепочку по ссылке назад), до перехода — тот же обход в нынешнем Host; баг — в бэклоге.</span></li>
+      <li class="chg" data-chg="mt-codex2"><b>Codex — своя папка и полный доступ</b><span>«Разрешено всё» у Codex — переменная <code>INITIAL_AGENT_MODE=agent-full-access</code>: каждый ход идёт без песочницы и без одобрений, переписывать адаптеру нечего. Доверие к папке он ставит сам — пишет в <code>CODEX_HOME</code> системы, ваши настройки Codex не трогает.</span></li>
+      <li><b>Сервер Codex умер посреди хода (#600)</b><span>Адаптер жив, ответа на задачу нет. Это опыт до кода: как Host это видит и какой у хода лимит.</span></li>
+      <li><b>Отставание</b><span>Версии у нас закреплены точно, обновляем выпуском, так что 3 дня Claude не мешают. Хуже, что адаптер Codex на ^0.165 выходит в среднем через 6 дней после Codex, в худшем — через месяц.</span></li>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ОПЫТЫ ===================== -->
+<section class="blk chg" data-chg="ex-main" id="exp">
+  <div class="blk-h"><span class="tag"></span><h2>Опыты: 11 из 11</h2>
+    <p class="muted">Поставила соседняя сессия 3 нояб. Claude — адаптер 0.100.0 на Haiku; Codex 2.5.0 и Gemini CLI 0.66.0 — на поддельных серверах модели, входа в них на машине нет.</p></div>
+  <div class="mx-wrap"><table class="mx" style="min-width:720px">
+    <thead><tr><th>опыт</th><th>исход</th><th class="num">число</th><th>для дизайна</th></tr></thead>
+    <tbody>
+      <tr><td>Host ушёл посреди хода, новый — без initialize</td><td>ответ на прежний prompt дошёл новому клиенту; процесс тот же</td><td class="num">1,5 с</td><td>подключение к живому верно; держатель копит вывод, возможности клиента — те же</td></tr>
+      <tr><td>Host ушёл при открытом вопросе</td><td>ответ с прежним id принят, ход дошёл</td><td class="num">1,5 с</td><td>вопрос переживает перезапуск</td></tr>
+      <tr><td>load живой сессии между ходами</td><td>не пересобрана, память хода цела</td><td class="num">8 мс</td><td>история через load</td></tr>
+      <tr><td>AskUserQuestion при «разрешено всё»</td><td>форма <code>elicitation/create</code>, разрешений не спрашивал</td><td class="num">1 · 0</td><td>у вопросов один вход</td></tr>
+      <tr><td>«Разрешено всё»</td><td>Claude: <code>set_config_option mode=bypassPermissions</code> после new; Codex: переменная окружения, 3 файла из 3 записаны</td><td class="num">1 · 0 вызовов</td><td>режим в new не задаётся (#1489) — отдельный вызов</td></tr>
+      <tr><td>MCP по HTTP с ключом в заголовке</td><td>заголовок дошёл у Claude и Codex; после перезапуска сервера MCP — работает</td><td class="num">100 %</td><td>ключ в заголовке</td></tr>
+      <tr><td>сервер Codex убит посреди хода</td><td>ошибка на prompt, адаптер жив, следующий ход прошёл</td><td class="num">1,1 с</td><td>лимит хода в Host не нужен</td></tr>
+      <tr><td>история после сжатия</td><td>0.100.0: 0 из 2 сообщений до сжатия; с правкой #1430: 2 из 2</td><td class="num">0,5 с</td><td>#1430 чинит</td></tr>
+      <tr><td>Gemini: load после автосжатия</td><td>каждый следующий prompt — ошибка 400</td><td class="num">2 из 2</td><td>Gemini как второй агент не годится</td></tr>
+      <tr><td>MCP из плагина, прямой SDK</td><td>инструменты дошли</td><td class="num">6 из 6</td><td>#1388 — только с OAuth</td></tr>
+      <tr><td>внешний @-импорт в CLAUDE.md</td><td>не раскрывается ни в SDK, ни в <code>claude -p</code></td><td class="num">0 из 2</td><td>свойство любого неинтерактивного запуска</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ===================== ДВА ВАРИАНТА ===================== -->
+<section class="blk chg" data-chg="aa-vars" id="vars">
+  <div class="blk-h"><span class="tag"></span><h2>Два варианта: свои мосты или открытое</h2>
+    <p class="muted">Открытое бывает двух видов: стандарт с адаптерами — и готовые шлюзы, которые сами держат агентов и сами показывают их в телефоне. Переключите вариант — схема покажет, что пишем мы.</p></div>
+  <div class="seg" role="group" aria-label="Вариант">
+    <span class="lbl">Вариант</span>
+    <button type="button" id="v-a" data-v="a" aria-pressed="false">A · свои мосты</button>
+    <button type="button" id="v-b" data-v="b" aria-pressed="true">B · ACP и открытые адаптеры</button>
+    <button type="button" id="v-c" data-v="c" aria-pressed="false">B′ · готовый шлюз</button>
+  </div>
+  <div class="inner pad">
+    <div class="fig">
+      <svg class="d" viewBox="0 0 860 236" role="img" aria-labelledby="v-t" style="min-width:640px" id="v-svg">
+        <title id="v-t">Схема выбранного варианта: что между страницей и агентами пишем мы, а что берём готовым.</title>
+        <defs>
+          <marker id="v-a1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="v-w1" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahw" d="M0,0 L8,4 L0,8 z"/></marker>
+        </defs>
+        <g id="v-body"></g>
+      </svg>
+    </div>
+    <div class="vs">
+      <div class="vcard" id="vc-a">
+        <h3>A · свои мосты <span class="verd n">нет</span></h3>
+        <ul>
+          <li>На каждого агента — свой мост к его закрытому протоколу: Claude SDK, сервер приложения Codex, Gemini…</li>
+          <li>Свой формат событий ленты — второй ACP, только наш.</li>
+          <li>Каждое обновление агента — правка нашего моста.</li>
+        </ul>
+        <div class="meter"><div><span>наших мостов</span><i class="w" style="width:100%"></i><b>N</b></div><div><span>своих форматов</span><i class="w" style="width:50%"></i><b>1</b></div></div>
+      </div>
+      <div class="vcard win" id="vc-b">
+        <h3>B · ACP и адаптеры <span class="verd y">рекомендую</span></h3>
+        <ul>
+          <li>Host — клиент ACP. Агент — строка в списке сборки: команда запуска.</li>
+          <li>Claude и Codex — через открытые адаптеры, остальные — сами.</li>
+          <li>Флот остаётся нашим: relay, пропуска, держатели, модули, телефон.</li>
+        </ul>
+        <div class="meter"><div><span>наших мостов</span><i style="width:2%"></i><b>0</b></div><div><span>своих форматов</span><i style="width:2%"></i><b>0</b></div></div>
+      </div>
+      <div class="vcard" id="vc-c">
+        <h3>B′ · готовый шлюз <span class="verd n">нет</span></h3>
+        <ul>
+          <li>OpenACP (Telegram, Discord), Agent Gateway, ACP UI — каждый сам держит агентов и сам их показывает.</li>
+          <li>Одна машина, свой вход, своя страница: заменяют Host, relay и телефон, а флота у них нет.</li>
+          <li>Берём у них только то же, что и они: стандарт и адаптеры.</li>
+        </ul>
+        <div class="meter"><div><span>частей флота заменит</span><i class="w" style="width:100%"></i><b>3</b></div><div><span>второй телефон</span><i class="w" style="width:50%"></i><b>1</b></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== АРХИТЕКТУРА ===================== -->
+<section class="blk chg" data-chg="aa-arch" id="arch">
+  <div class="blk-h"><span class="tag"></span><h2>Новая архитектура: Host — клиент ACP</h2>
+    <p class="muted">Меняется одна граница — между Host и процессом сессии. Флот вокруг тот же: телефон и пульт идут через relay, держатель хранит процесс сессии и переживает перезапуск Host. Выберите агента — схема покажет его путь.</p></div>
+  <div class="seg" role="group" aria-label="Агент сессии">
+    <span class="lbl">Агент сессии</span>
+    <button type="button" data-ag="claude" aria-pressed="true">Claude</button>
+    <button type="button" data-ag="codex" aria-pressed="false">Codex</button>
+    <button type="button" data-ag="gemini" aria-pressed="false">Gemini CLI</button>
+  </div>
+  <div class="inner pad">
+    <div class="fig">
+      <svg class="d" viewBox="0 0 900 330" role="img" aria-labelledby="ar-t" style="min-width:700px">
+        <title id="ar-t">Телефон и пульт через relay говорят с Host. Host — ядро, клиент ACP, и модули; инструменты модулей отдаются агенту по MCP через HTTP на этой машине. Каждый процесс сессии держит держатель. Процесс сессии — адаптер Claude, который запускает claude, адаптер Codex или Gemini CLI, говорящий по ACP сам.</title>
+        <defs>
+          <marker id="r-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="r-m" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahm" d="M0,0 L8,4 L0,8 z"/></marker>
+        </defs>
+        <rect class="box" x="10" y="40" width="120" height="56" rx="10"/><text class="bt" x="24" y="66">Телефон</text><text class="bs" x="24" y="84">чат по ACP</text>
+        <rect class="box" x="10" y="112" width="120" height="56" rx="10"/><text class="bt" x="24" y="138">Пульт</text><text class="bs" x="24" y="156">чат по ACP</text>
+        <rect class="box" x="168" y="74" width="96" height="62" rx="10"/><text class="bt" x="184" y="100">relay</text><text class="bs" x="184" y="118">как есть</text>
+        <path class="ln m" d="M130,68 L164,96" marker-end="url(#r-m)"/><path class="ln m" d="M130,140 L164,116" marker-end="url(#r-m)"/>
+        <rect class="box acc" x="300" y="20" width="270" height="290" rx="14"/>
+        <text class="bt" x="318" y="46">Host машины</text>
+        <rect class="box" x="318" y="60" width="234" height="82" rx="10"/>
+        <text class="bt" x="332" y="84">ядро — клиент ACP</text>
+        <text class="bs" x="332" y="104">одно соединение на сессию</text>
+        <text class="bs" x="332" y="122">состояние, очередь, сбой → resume</text>
+        <rect class="box" x="318" y="154" width="234" height="62" rx="10"/>
+        <text class="bt" x="332" y="178">модули</text>
+        <text class="bs" x="332" y="198">лента, вопросы, флот, слоты…</text>
+        <rect class="box ok" x="318" y="228" width="234" height="66" rx="10"/>
+        <text class="bt" x="332" y="252">MCP модулей по HTTP</text>
+        <text class="bs" x="332" y="272">127.0.0.1, ключ сессии в заголовке</text>
+        <path class="ln m" d="M264,105 H296" marker-end="url(#r-m)"/>
+        <rect class="box" x="604" y="60" width="98" height="200" rx="10"/>
+        <text class="bt" x="616" y="86">держатель</text>
+        <text class="bs" x="616" y="106">процесс</text><text class="bs" x="616" y="122">на сессию,</text><text class="bs" x="616" y="138">байты как</text><text class="bs" x="616" y="154">есть</text>
+        <path class="ln" d="M552,100 H600" marker-end="url(#r-a)"/>
+        <text class="bm" x="562" y="92">ACP</text>
+        <g id="ag-claude">
+          <rect class="box acc" x="736" y="40" width="156" height="66" rx="10"/>
+          <text class="bt" x="748" y="64">claude-agent-acp</text>
+          <text class="bs" x="748" y="82">→ Claude Agent SDK</text>
+          <text class="bs" x="748" y="98">→ claude</text>
+          <path class="ln" d="M702,90 H732" marker-end="url(#r-a)"/>
+        </g>
+        <g id="ag-codex">
+          <rect class="box acc" x="736" y="124" width="156" height="56" rx="10"/>
+          <text class="bt" x="748" y="148">codex-acp</text>
+          <text class="bs" x="748" y="166">Codex в одном файле</text>
+          <path class="ln" d="M702,152 H732" marker-end="url(#r-a)"/>
+        </g>
+        <g id="ag-gemini">
+          <rect class="box acc" x="736" y="198" width="156" height="56" rx="10"/>
+          <text class="bt" x="748" y="222">gemini --acp</text>
+          <text class="bs" x="748" y="240">сам, без адаптера</text>
+          <path class="ln" d="M702,226 H732" marker-end="url(#r-a)"/>
+        </g>
+        <path class="ln m" d="M736,280 C680,300 600,300 556,270" marker-end="url(#r-m)"/>
+        <text class="bs" x="610" y="316">агент зовёт инструменты флота по MCP</text>
+      </svg>
+    </div>
+    <div class="mx-wrap"><table class="mx">
+      <thead><tr><th>агент</th><th>команда в списке сборки</th><th>своё в окружении процесса</th></tr></thead>
+      <tbody id="ag-tbl"></tbody>
+    </table></div>
+    <p class="fact">Один процесс на сессию — как сейчас: свой держатель, своё окружение, падает один. Держатель передаёт байты и не знает протокола — менять его не нужно.</p>
+  </div>
+</section>
+
+<!-- ===================== ЖИЗНЬ СЕССИИ ===================== -->
+<section class="blk chg" data-chg="aa-life" id="life">
+  <div class="blk-h"><span class="tag"></span><h2>Жизнь сессии по ACP</h2>
+    <p class="muted chg" data-chg="ba-state">Состояние сессии Host знает сам, из своих же запросов: ждёт ответа на задачу — «работает», ждёт ответа человека — «ждёт вас», иначе — «свободна». Ход, который агент начал сам (Claude — по концу фоновой задачи), в ACP 1 конца не имеет: его события идут в ленту, состояние остаётся «свободна», задача в этот момент встаёт к агенту в очередь.</p></div>
+  <div class="inner pad">
+    <div class="fig">
+      <svg class="d" viewBox="0 0 860 400" role="img" aria-labelledby="lf-t" style="min-width:660px">
+        <title id="lf-t">Последовательность: Host через держатель запускает агента, initialize, session/new с папкой и серверами MCP, режим «разрешено всё». Задача session/prompt: поток session/update, вопрос elicitation/create уходит человеку, ответ, конец хода. Процесс умер — один session/resume, второй сбой до готовности — failed.</title>
+        <defs><marker id="l-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+        <marker id="l-w" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahw" d="M0,0 L8,4 L0,8 z"/></marker>
+        <marker id="l-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahb" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+        <rect class="box" x="30" y="10" width="140" height="34" rx="8"/><text class="bt" x="58" y="32">человек</text>
+        <rect class="box acc" x="300" y="10" width="140" height="34" rx="8"/><text class="bt" x="320" y="32">Host — клиент</text>
+        <rect class="box acc" x="640" y="10" width="160" height="34" rx="8"/><text class="bt" x="672" y="32">агент сессии</text>
+        <path class="life" d="M100,44 V392"/><path class="life" d="M370,44 V392"/><path class="life" d="M720,44 V392"/>
+        <path class="ln" d="M370,70 H716" marker-end="url(#l-a)"/><text class="bm" x="390" y="64">запуск у держателя · initialize</text>
+        <path class="ln" d="M370,100 H716" marker-end="url(#l-a)"/><text class="bm" x="390" y="94">session/new {cwd, mcpServers, _meta}</text>
+        <g class="chg" data-chg="ba-mode"><rect x="384" y="110" width="318" height="18" rx="4" style="fill:var(--chg-bg);stroke:var(--chg-edge)"/><path class="ln" d="M370,130 H716" marker-end="url(#l-a)"/><text class="bm" x="390" y="124">session/set_config_option: режим «разрешено всё»</text></g>
+        <rect x="372" y="138" width="80" height="16" rx="4" style="fill:var(--ok-weak)"/><text class="bs" x="378" y="150" style="fill:var(--ok)">свободна</text>
+        <path class="ln" d="M100,176 H366" marker-end="url(#l-a)"/><text class="bs" x="112" y="170">текст задачи</text>
+        <path class="ln" d="M370,176 H716" marker-end="url(#l-a)"/><text class="bm" x="390" y="170">session/prompt</text>
+        <rect x="372" y="184" width="80" height="16" rx="4" style="fill:var(--accent-weak)"/><text class="bs" x="378" y="196" style="fill:var(--accent)">работает</text>
+        <path class="ln" d="M716,214 H374" marker-end="url(#l-a)"/><text class="bm" x="470" y="208">session/update × N → лента</text>
+        <path class="ln w" d="M716,244 H374" marker-end="url(#l-w)"/><text class="bw" x="470" y="238">elicitation/create — вопрос</text>
+        <path class="ln w" d="M370,244 H104" marker-end="url(#l-w)"/><text class="bw" x="120" y="238">вопрос · ждёт вас</text>
+        <path class="ln w" d="M100,270 H366" marker-end="url(#l-w)"/><text class="bs" x="112" y="264">первый ответ</text>
+        <path class="ln w" d="M370,270 H716" marker-end="url(#l-w)"/><text class="bw" x="470" y="264">ответ формы</text>
+        <path class="ln" d="M716,300 H374" marker-end="url(#l-a)"/><text class="bm" x="470" y="294">ответ prompt {stopReason}</text>
+        <rect x="372" y="306" width="80" height="16" rx="4" style="fill:var(--ok-weak)"/><text class="bs" x="378" y="318" style="fill:var(--ok)">свободна</text>
+        <path class="ln b" d="M716,350 H374" marker-end="url(#l-b)"/><text class="bb" x="470" y="344">процесс вышел (держатель)</text>
+        <path class="ln b" d="M370,378 H716" marker-end="url(#l-b)"/><text class="bb" x="390" y="372">один session/resume · второй сбой — failed</text>
+      </svg>
+    </div>
+    <div class="two">
+      <div class="nots" style="grid-template-columns:minmax(0,1fr)">
+        <li class="chg" data-chg="ba-restart-li"><b>Перезапуск Host</b><span>Процесс агента живёт у держателя, его вывод копится там же. Новый Host продолжает по записи сессии — схема ниже.</span></li>
+        <li class="chg" data-chg="ba-close"><b>Остановка сессии</b><span><code>session/cancel</code> → конец хода → закрыть ввод процесса → процесс выходит. Не успел за лимит — держатель убивает дерево процесса.</span></li>
+      </div>
+      <div class="nots" style="grid-template-columns:minmax(0,1fr)">
+        <li><b>Модель, усилие, режим</b><span>Стандартные настройки сессии ACP: <code>session/set_config_option</code>. Список моделей приходит от агента, Host его не знает.</span></li>
+        <li><b>Своё у агента</b><span>Что есть только у одного агента, идёт его расширением ACP: у Claude — <code>_meta.claudeCode.options</code> (добавка к промпту, настройки, плагины), <code>_claude/rateLimit</code> в потоке.</span></li>
+      </div>
+    </div>
+    <div class="inner pad chg" data-chg="ba-restart">
+      <h3>Перезапуск Host посреди хода и с ждущим вопросом</h3>
+      <div class="fig">
+        <svg class="d" viewBox="0 0 860 250" role="img" aria-labelledby="rs-t" style="min-width:660px">
+          <title id="rs-t">Старый Host пишет в запись сессии ответ initialize, id своего незакрытого session/prompt и незакрытый вопрос агента с телом. Пока Host нет, держатель копит вывод агента. Новый Host читает запись, initialize не шлёт, вопрос снова отдаёт модулю вопросов — он уходит тем же адресатам; ответ человека уходит агенту с тем же id; ответ агента на старый prompt закрывает ход. Свои id новый Host начинает со своего номера запуска.</title>
+          <defs><marker id="rs-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="rs-w" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahw" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+          <rect class="box dim" x="10" y="14" width="150" height="56" rx="10"/><text class="bt" x="24" y="38">старый Host</text><text class="bs" x="24" y="56">id запросов 7:1, 7:2…</text>
+          <rect class="box you" x="210" y="10" width="300" height="104" rx="12"/><text class="bt" x="226" y="34">запись сессии у ядра</text>
+          <text class="bm" x="226" y="56">init: ответ initialize</text>
+          <text class="bm" x="226" y="76">prompt: 7:12 — ход идёт</text>
+          <text class="bw" x="226" y="96">asked: id 41 elicitation/create {…}</text>
+          <path class="ln" d="M160,42 H206" marker-end="url(#rs-a)"/>
+          <rect class="box" x="560" y="14" width="140" height="56" rx="10"/><text class="bt" x="574" y="38">держатель</text><text class="bs" x="574" y="56">копит вывод</text>
+          <rect class="box acc" x="740" y="14" width="110" height="56" rx="10"/><text class="bt" x="754" y="38">агент</text><text class="bs" x="754" y="56">ждёт id 41</text>
+          <path class="ln m" d="M736,42 H704" marker-end="url(#rs-a)"/>
+          <rect class="box acc" x="10" y="150" width="150" height="56" rx="10"/><text class="bt" x="24" y="174">новый Host</text><text class="bs" x="24" y="192">id 8:1, 8:2…</text>
+          <path class="ln" d="M210,100 C180,120 150,130 110,146" marker-end="url(#rs-a)"/><text class="bs" x="150" y="136">читает</text>
+          <path class="ln" d="M160,166 H556" marker-end="url(#rs-a)"/><text class="bs" x="200" y="160">подключение без initialize</text>
+          <path class="ln w" d="M160,186 H300" marker-end="url(#rs-w)"/><rect class="box you" x="304" y="170" width="200" height="34" rx="8"/><text class="bw" x="316" y="192">вопрос 41 — тем же адресатам</text>
+          <path class="ln w" d="M504,192 C620,192 700,150 790,74" marker-end="url(#rs-w)"/><text class="bw" x="560" y="214">ответ человека · id 41</text>
+          <path class="ln" d="M770,74 C760,120 700,236 160,236" marker-end="url(#rs-a)"/><text class="bm" x="330" y="230">ответ на 7:12 — ход закрыт, «свободна»</text>
+        </svg>
+      </div>
+      <p class="fact">Почему запись, а не новое подключение: SDK ACP нумерует запросы соединения с <b>0</b> — новый Host получил бы ответ на чужой запрос; адаптер для себя соединения не терял и свой вопрос второй раз не пришлёт. Сейчас тот же вопрос после перезапуска Host повторяет SDK (тот же toolUseID) — ядро берёт эту роль на себя. Соединение с агентом ведёт ядро: строки JSON-RPC, типы — из SDK ACP.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== МОДУЛИ HOST ===================== -->
+<section class="blk chg" data-chg="aa-mods" id="mods">
+  <div class="blk-h"><span class="tag"></span><h2>Что модулю Host даёт ядро</h2>
+    <p class="muted">Модуль больше не видит Claude Agent SDK: ядро даёт ему сессию на языке ACP.</p>
+    <p class="chg" data-chg="ba-uses">Модуль одного агента объявляет агента в <code>uses</code>, как любую зависимость: <code>"claude@agent": 1</code>. Ядро не подключает его к сессии другого агента. Нового поля в манифесте нет; <code>calls</code> уходит.</p></div>
+  <div class="inner pad">
+    <div class="mx-wrap"><table class="mx" style="min-width:720px">
+      <thead><tr><th>что нужно модулю</th><th>по ACP</th><th>кто владеет</th></tr></thead>
+      <tbody>
+        <tr><td>положить ввод сессии</td><td><code>session/prompt</code>; занятая сессия ставит его в очередь</td><td>ядро</td></tr>
+        <tr><td>поток сессии</td><td><code>session/update</code> — одно событие модулям вместо сообщений SDK</td><td>ядро раздаёт</td></tr>
+        <tr><td>спросить человека</td><td><code>elicitation/create</code> (AskUserQuestion и формы MCP — одним путём), <code>session/request_permission</code></td><td>модуль вопросов</td></tr>
+        <tr><td>инструменты флота</td><td><code>mcpServers</code> в <code>session/new</code>, тип http; Host отдаёт серверы модулей на 127.0.0.1 <span class="chg" data-chg="ba-mcp">· порт выбран один раз и лежит в хранилище Host, ключ — в записи сессии, сессий MCP нет: после перезапуска Host живой агент ходит по тому же адресу. MCP через само соединение ACP адаптер Claude не умеет (только http и sse)</span></td><td>ядро — адрес, модуль — сервер</td></tr>
+        <tr><td>ключ окружения</td><td>окружение процесса при запуске у держателя</td><td>модуль ключа</td></tr>
+        <tr><td>модель, усилие, режим</td><td><code>session/set_config_option</code>, <code>config_option_update</code> в потоке <span class="chg" data-chg="ba-cfg">· и режим «разрешено всё» на старте: id и значение — в строке агента в списке сборки; страницы видят их полями roster</span></td><td>модуль управления</td></tr>
+        <tr><td>прервать ход</td><td><code>session/cancel</code></td><td>ядро</td></tr>
+        <tr><td>история разговора</td><td><code>session/load</code> — агент повторяет разговор из своего файла</td><td>ядро; страницы — чат</td></tr>
+        <tr><td>«файл записан», «модель сменилась»</td><td><code>tool_call_update</code> вида edit, <code>config_option_update</code> — из потока; хуков SDK больше нет</td><td>модуль, кому надо</td></tr>
+      </tbody>
+    </table></div>
+    <div class="ets">
+      <div class="eg"><h3>общие — любой агент</h3><ul>
+        <li><span class="st chg">меняется</span><span>лента, чат, вопросы, флот, управление, журнал<small>читают поток ACP вместо сообщений SDK</small></span></li>
+        <li><span class="st have">как есть</span><span>пуши, тревоги, ключи, оболочка, части, машина</span></li>
+      </ul></div>
+      <div class="eg"><h3>модули Claude — только сессии Claude</h3><ul>
+        <li><span class="st have">как есть</span><span>аккаунты<small>вход по ссылке и коду — коротким процессом на SDK, как сейчас</small><small class="chg" data-chg="ba-sdk1">SDK для входа — той же версии, что внутри закреплённого адаптера: Claude SDK на машине один</small></span></li>
+        <li><span class="st chg">меняется</span><span>слоты<small>папка входа — в окружении; лимит — из <code>_claude/rateLimit</code></small></span></li>
+        <li><span class="st chg">меняется</span><span>Remote Control<small>команда адаптера <code>/remote-control</code></small></span></li>
+        <li><span class="st chg">меняется</span><span>профили<small>добавка и плагин — в <code>_meta</code>; память — по событию записи файла</small><small class="chg" data-chg="ba-nudge">задание модели, когда память профиля не сведена, — вводом сессии в момент сбоя: вставок в начало сессии и в каждую задачу больше нет</small></span></li>
+        <li><span class="st have">как есть</span><span>точки<small>байты файла разговора Claude</small></span></li>
+      </ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ИСТОРИЯ ===================== -->
+<section class="blk chg" data-chg="aa-hist" id="hist">
+  <div class="blk-h"><span class="tag"></span><h2>История разговора — у агента</h2>
+    <p class="muted">Разговор хранит сам агент в своём файле. Host его не копирует.</p>
+    <p class="chg" data-chg="ba-hist-p">По просьбе страницы Host зовёт <code>session/load</code> на живом соединении — только между ходами: тогда всё, что агент шлёт до ответа на load, — повтор, и он идёт только запросившему, мимо модулей и других зрителей. У ленты и у истории одна форма — события ACP.</p></div>
+  <div class="inner pad">
+    <div class="fig chg" data-chg="ba-hist-fig">
+      <svg class="d" viewBox="0 0 860 230" role="img" aria-labelledby="hs2-t" style="min-width:660px">
+        <title id="hs2-t">Страница просит историю. Сессия работает — отказ словом busy; страница уже видит живую ленту и просит снова, когда roster покажет «свободна». Сессия свободна — load встаёт в очередь ввода, задачи ждут за ним; Host шлёт session/load с теми же параметрами, что у запуска; повтор агента идёт только запросившему; Host отдаёт последние 50.</title>
+        <defs><marker id="h2-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+        <marker id="h2-w" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahw" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+        <rect class="box" x="10" y="80" width="130" height="56" rx="10"/><text class="bt" x="24" y="106">страница</text><text class="bs" x="24" y="124">limit 50, before</text>
+        <rect class="box acc" x="250" y="66" width="200" height="84" rx="12"/><text class="bt" x="266" y="90">Host</text>
+        <text class="bs" x="266" y="110">load — в очередь ввода,</text><text class="bs" x="266" y="126">задачи ждут за ним;</text><text class="bs" x="266" y="142">отдаёт последние 50</text>
+        <rect class="box" x="610" y="80" width="240" height="56" rx="10"/><text class="bt" x="624" y="106">агент</text><text class="bs" x="624" y="124">файл разговора → session/update</text>
+        <path class="ln" d="M140,100 H246" marker-end="url(#h2-a)"/><text class="bm" x="150" y="94">история</text>
+        <path class="ln" d="M450,100 H606" marker-end="url(#h2-a)"/><text class="bm" x="462" y="94">session/load · те же параметры</text>
+        <path class="ln" d="M606,124 H454" marker-end="url(#h2-a)"/><text class="bm" x="462" y="142">повтор → только запросившему</text>
+        <path class="ln" d="M246,124 H144" marker-end="url(#h2-a)"/><text class="bm" x="150" y="142">50</text>
+        <rect class="box you" x="250" y="8" width="200" height="40" rx="10"/><text class="bw" x="264" y="33">работает → отказ busy</text>
+        <path class="ln w" d="M246,28 C190,28 120,40 90,76" marker-end="url(#h2-w)"/>
+        <text class="bs" x="10" y="178">страница видит живую ленту сразу; историю просит снова, когда roster покажет «свободна»</text>
+        <rect class="box ok" x="250" y="190" width="200" height="34" rx="8"/><text class="bs" x="262" y="212" style="fill:var(--ok)">модули и зрители повтора не видят</text>
+        <path class="ln m" d="M350,150 V186"/>
+      </svg>
+    </div>
+    <div class="two">
+      <div class="nots" style="grid-template-columns:minmax(0,1fr)">
+        <li><b>Почему страницы, а не весь повтор</b><span>Файлы разговоров на этой машине: 847 штук, медиана <b>0,45 МБ</b>, 90-й процентиль <b>2,1 МБ</b>, 99-й — <b>18,7 МБ</b>. Телефону — только последние 50 событий; «раньше» — снова load, Host режет.</span></li>
+      </div>
+      <div class="nots" style="grid-template-columns:minmax(0,1fr)">
+        <li><b>Замер на живом флоте</b><span>Время повтора и байты на открытие чата — в журнале Host. Тюнинг — потом, по замеру.</span></li>
+        <li class="chg" data-chg="ba-hist-params"><b>Те же параметры</b><span>Адаптер Claude сверяет параметры load с живой сессией; при других — разбирает её и собирает заново, идущий ход пропадает. Поэтому папка, MCP и <code>_meta</code> уходят агенту только при запуске, load и resume несут их же, новые — только перезапуском между ходами.</span></li>
+        <li class="chg" data-chg="ba-hist-limit"><b>Лимит load</b><span>Как у initialize. Не уложился — процесс убит, дальше ветка «процесс вышел»: иначе хвост повтора ушёл бы модулям.</span></li>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ЧАТ ===================== -->
+<section class="blk chg" data-chg="aa-chat" id="chat">
+  <div class="blk-h"><span class="tag"></span><h2>Чат страницы рисует события ACP</h2>
+    <p class="muted">Одна карточка на вид события — одинаково для любого агента. Страница больше не разбирает инструменты Claude по именам: правку показывает дифф из события, план — событие плана, команды «/» и модели приходят от агента. Выберите агента; нажмите карточку — под ней откроется событие ACP, из которого она нарисована.</p></div>
+  <div class="seg" role="group" aria-label="Агент в макете">
+    <span class="lbl">Агент</span>
+    <button type="button" data-ch="claude" aria-pressed="true">Claude</button>
+    <button type="button" data-ch="codex" aria-pressed="false">Codex</button>
+    <button type="button" data-ch="gemini" aria-pressed="false">Gemini CLI</button>
+  </div>
+  <div class="chatgrid">
+    <div class="ap" aria-label="Макет чата сессии">
+      <div class="chat-h">
+        <span class="lamp" aria-hidden="true"></span>
+        <span class="cs" id="ch-cs">refactor</span><span class="at">@win</span>
+        <span class="chip agent" id="ch-agent">Claude</span>
+        <span class="sp" id="ch-chips"></span>
+      </div>
+      <div class="feed" id="ch-feed"></div>
+      <div class="composer">
+        <div class="in">Задача сессии… «/» — команды агента, «@» — файлы</div>
+        <div class="tl"><span class="cmds" id="ch-cmds"></span><span class="usage" id="ch-usage"><i></i><span></span></span></div>
+      </div>
+    </div>
+    <div class="inner pad">
+      <h3>Карточки по видам событий</h3>
+      <ul class="kinds" id="ch-kinds">
+        <li data-k="user_message_chunk"><code>user_message_chunk</code><span>пузырь человека; сообщение другой сессии — с отправителем</span></li>
+        <li data-k="agent_message_chunk"><code>agent_message_chunk</code><span>текст агента</span></li>
+        <li data-k="agent_thought_chunk"><code>agent_thought_chunk</code><span>мысли — тихой строкой</span></li>
+        <li data-k="tool_call"><code>tool_call</code> / <code>_update</code><span>вызов: вид (чтение, правка, команда, поиск…), статус, дифф, вывод терминала</span></li>
+        <li data-k="plan"><code>plan</code><span>план с отметками — вместо разбора TodoWrite</span></li>
+        <li data-k="elicitation"><code>elicitation/create</code><span>вопрос человеку — янтарём, как сейчас</span></li>
+        <li data-k="available_commands_update"><code>available_commands_update</code><span>команды «/» под вводом</span></li>
+        <li data-k="config_option_update" class="chg" data-chg="ba-cfg-chat"><code>config_option_update</code><span>модель, усилие, режим — чипы в шапке из полей roster модуля управления; лента это событие не рисует</span></li>
+        <li data-k="usage_update"><code>usage_update</code><span>занятость контекста</span></li>
+      </ul>
+      <p class="fact">Возможности на экране — по ответу агента на <code>initialize</code> и по его событиям: чего агент не прислал, того на экране нет.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ДВА ФЛОТА ===================== -->
+<section class="blk chg" data-chg="tw-two" id="two">
+  <div class="blk-h"><span class="tag"></span><h2>Два флота на одном компьютере</h2>
+    <p class="muted">Компьютер входит в два флота сразу — например, в тестовый и в рабочий. Каждый флот ставит свою службу keeper со своей папкой данных; дальше каждая служба держит свой Host, свои сессии и свои аккаунты и ничего не знает о второй. Включается одним именем при установке: <code>keeper install --name prod</code>. Без имени всё как сейчас.</p></div>
+  <div class="inner pad">
+    <div class="fig">
+      <svg class="d" viewBox="0 0 860 300" role="img" aria-labelledby="tw-t" style="min-width:660px">
+        <title id="tw-t">Один компьютер. Слева служба switchboard-keeper с папкой ~/.switchboard: свой Host, держатели, аккаунты, слоты, связь с тестовым флотом. Справа служба switchboard-keeper-prod с папкой ~/.switchboard-prod: то же, связь с рабочим флотом. Внизу общее для обоих: папка Claude для сессий без слота, вход Codex и Gemini, папки проектов.</title>
+        <defs><marker id="t-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahm" d="M0,0 L8,4 L0,8 z"/></marker></defs>
+        <rect class="box dim" x="10" y="10" width="840" height="280" rx="16"/>
+        <text class="bt" x="28" y="36">компьютер win</text>
+        <rect class="box acc" x="28" y="52" width="380" height="160" rx="12"/>
+        <text class="bt" x="44" y="76">служба switchboard-keeper</text>
+        <text class="bm" x="44" y="96">~/.switchboard</text>
+        <text class="bs" x="44" y="120">Host · держатели · сессии</text>
+        <text class="bs" x="44" y="138">аккаунты · слоты · части</text>
+        <text class="bs" x="44" y="156">порт MCP — свой, из хранилища</text>
+        <text class="bs" x="44" y="190">машина win в тестовом флоте</text>
+        <rect class="box ok" x="452" y="52" width="380" height="160" rx="12"/>
+        <text class="bt" x="468" y="76">служба switchboard-keeper-prod</text>
+        <text class="bm" x="468" y="96">~/.switchboard-prod</text>
+        <text class="bs" x="468" y="120">Host · держатели · сессии</text>
+        <text class="bs" x="468" y="138">аккаунты · слоты · части</text>
+        <text class="bs" x="468" y="156">порт MCP — свой, из хранилища</text>
+        <text class="bs" x="468" y="190">машина win в рабочем флоте</text>
+        <rect class="box" x="28" y="230" width="804" height="46" rx="10"/>
+        <text class="bt" x="44" y="258">общее: папка Claude для сессий без слота · вход Gemini · папки проектов</text>
+        <path class="ln m" d="M218,212 V226" marker-end="url(#t-a)"/><path class="ln m" d="M642,212 V226" marker-end="url(#t-a)"/>
+      </svg>
+    </div>
+    <div class="mx-wrap"><table class="mx">
+      <thead><tr><th>что</th><th>у каждой системы своё</th><th>общее</th></tr></thead>
+      <tbody>
+        <tr><td>служба ОС</td><td><code>switchboard-keeper</code> · <code>switchboard-keeper-prod</code></td><td></td></tr>
+        <tr><td>папка данных</td><td>файл keeper, план, пропуск машины, хранилище Host, держатели, аккаунты, слоты, части</td><td></td></tr>
+        <tr><td>Host и сессии</td><td>свой Host, свои позывные; порт MCP выбирает ОС при первом запуске, он лежит в хранилище</td><td></td></tr>
+        <tr><td>агенты</td><td>вход Claude — в аккаунтах своей системы<span class="chg" data-chg="mt-two-codex">; Codex — своя <code>CODEX_HOME</code> с входом</span></td><td>папка Claude для сессий без слота, вход Gemini</td></tr>
+      </tbody>
+    </table></div>
+    <p class="fact">По коду сейчас все данные keeper и Host лежат в одной папке, она задаётся <code>SWITCHBOARD_HOME</code>. Мешают двое: имя службы зашито одно, и служба не знает папки. Второй <code>keeper install</code> сегодня отказывает: «keeper уже стоит службой».</p>
+    <div class="nots" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))">
+      <li><b>Имя — одно правило у keeper</b><span>Из <code>--name</code> keeper выводит имя службы и папку и запускает себя командой <code>run --name prod</code>. Host и держателям папку передаёт в <code>SWITCHBOARD_HOME</code> — они её не выводят.</span></li>
+      <li><b>Обновление и удаление</b><span>keeper обновляет файл в своей папке; <code>keeper uninstall --name prod</code> снимает только свою службу.</span></li>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== A2A ===================== -->
+<section class="blk chg" data-chg="a2-main" id="a2a">
+  <div class="blk-h"><span class="tag"></span><h2>A2A — только на границе флота</h2>
+    <p class="muted">A2A — открытый стандарт, по которому агенты разных систем дают друг другу задачи: у агента есть визитка с умениями, задача идёт по шагам «работает → ждёт ввода → готово», поток — по SSE. Внутри флота он не нужен: сессии уже говорят друг с другом через флот. Нужен он только на границе — когда агент другой системы зовёт сессию флота или сессия зовёт его. Выберите направление.</p></div>
+  <div class="seg" role="group" aria-label="Направление A2A">
+    <span class="lbl">Направление</span>
+    <button type="button" data-a2="in" aria-pressed="false">внутри флота</button>
+    <button type="button" data-a2="out" aria-pressed="true">сессия → чужой агент</button>
+    <button type="button" data-a2="edge" aria-pressed="false">чужой агент → сессия</button>
+  </div>
+  <div class="inner pad">
+    <div class="fig">
+      <svg class="d" viewBox="0 0 860 210" role="img" aria-labelledby="a2-t" style="min-width:640px">
+        <title id="a2-t">Схема выбранного направления A2A: кто кого зовёт, через что и что пишем мы.</title>
+        <defs>
+          <marker id="a2-a" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a2-w" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahw" d="M0,0 L8,4 L0,8 z"/></marker>
+          <marker id="a2-b" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ahb" d="M0,0 L8,4 L0,8 z"/></marker>
+        </defs>
+        <g id="a2-body"></g>
+      </svg>
+    </div>
+    <p class="verdict" id="a2-verd"></p>
+  </div>
+
+  <div class="inner pad">
+    <h3>Если внешний агент позовёт сессию: как A2A ложится на флот</h3>
+    <div class="mx-wrap"><table class="mx" style="min-width:700px">
+      <thead><tr><th>A2A</th><th>во флоте</th></tr></thead>
+      <tbody>
+        <tr><td>визитка агента <code>/.well-known/agent-card.json</code>, умения</td><td>одна визитка флота; умения — профили: задача по умению открывает сессию с этим профилем</td></tr>
+        <tr><td><code>contextId</code> — разговор</td><td>позывной сессии: <code>site@laptop</code></td></tr>
+        <tr><td>задача <code>SendMessage</code></td><td>ход сессии: без contextId — новая сессия, с ним — ввод в ту же</td></tr>
+        <tr><td>WORKING · INPUT_REQUIRED · COMPLETED · FAILED · CANCELED</td><td>работает · ждёт вас (вопрос уходит вызывающему, он дал задачу) · конец хода · failed · <code>session/cancel</code></td></tr>
+        <tr><td><code>SendStreamingMessage</code>, SSE</td><td>лента сессии: события ACP → обновления статуса; текст агента — артефакт задачи</td></tr>
+        <tr><td>учётные данные в заголовке</td><td>пропуск флота с ролью клиента — тот же, что у отправки в сессию сейчас</td></tr>
+        <tr><td><code>ListTasks</code>, push-уведомления</td><td>нет — их нет в визитке</td></tr>
+      </tbody>
+    </table></div>
+    <div class="two">
+      <div class="nots" style="grid-template-columns:minmax(0,1fr)">
+        <li><b>Встаёт вместо, а не рядом</b><span>Сейчас у программ вне флота уже есть вход «сообщение в сессию по пропуску»: позывной и текст по relay. Вход A2A делает то же самое в стандартной форме — значит, он заменяет этот вход, третьего не будет. Приём тревог на 127.0.0.1 остаётся: он локальный, без сети, с доставкой с диска.</span></li>
+      </div>
+      <div class="nots" style="grid-template-columns:minmax(0,1fr)">
+        <li><b>Условия Anthropic</b><span>Сессии Claude на подписке нельзя отдавать чужим вызывающим: третьим лицам — только сессии на ключе API, Bedrock или Vertex. Своим агентам с пропуском флота — можно. Это пишут авторы моста a2acode; перед реализацией — сверить с условиями Anthropic.</span></li>
+      </div>
+    </div>
+    <p class="fact">A2A 1.0 — стабильный стандарт с апреля 2026, Linux Foundation, больше 150 организаций; привязки JSON-RPC, gRPC и HTTP+JSON. JS SDK — <code>@a2a-js/sdk 1.3.0</code>. Мост «агент A2A → инструменты MCP» — <code>a2a-mcp-skillmap 0.2.1</code>, сторонний. Claude Code сам A2A не говорит — только сторонние обёртки поверх SDK или ACP.</p>
+  </div>
+
+  <div class="inner pad chg" data-chg="a2-gate">
+    <h3>Гейт A2A</h3>
+    <p style="font-size:14px">Работа: <b>маленькая</b> — сейчас кода нет; вход A2A, когда понадобится, меняет только форму существующего входа.</p>
+    <div class="gaterow">
+      <span>дубликаты механизма: A2A внутри флота — второй канал сессия ↔ сессия · 1 → <b>0</b> (не берём)</span>
+      <span>способы войти в сессию извне по пропуску 1 → <b>1</b> (A2A — вместо, не рядом)</span>
+      <span>лишние коммуникации 0 → <b>0</b></span>
+      <span>циклы 0 → <b>0</b></span>
+    </div>
+    <div class="mx-wrap"><table class="mx">
+      <thead><tr><th>развилка</th><th>рекомендую</th><th>иначе</th><th>не скажете</th></tr></thead>
+      <tbody>
+        <tr><td>Есть ли сейчас агент другой системы, который должен звать сессии флота?</td><td>нет — вход A2A не строим; этот блок — готовая раскладка на потом</td><td>есть — вход A2A строим вместо отправки по пропуску; сессии Claude — только своим</td><td>не строим</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+  <div class="inner pad chg" data-chg="a2-steps">
+    <h3>Порядок A2A</h3>
+    <ol class="steps">
+      <li><div><b>Сессия зовёт чужого агента — без нашего кода</b><span>Мост A2A → MCP подключается в профиле, как любой сервер MCP. Опыт на своей сессии: образец агента из JS SDK A2A, сессия даёт ему задачу через мост.</span></div><div class="gate">1 ответ агента A2A в ленте сессии; строк нашего кода — 0</div></li>
+      <li><div><b>Вход A2A — только по первому внешнему вызывающему</b><span>Worker-модуль: визитка, SendMessage, SendStreamingMessage, GetTask, CancelTask; пропуск флота; кадры relay как есть. Первый шаг — опыт, встаёт ли JS SDK A2A в Worker.</span></div><div class="gate">внешний клиент A2A: задача, вопрос, ответ, конец хода — 4 из 4</div></li>
+      <li><div><b>Отправка по пропуску уходит</b><span>Её вызывающие переходят на A2A; прежний вход удаляется в том же выпуске.</span></div><div class="gate">способов войти в сессию извне по пропуску — 1</div></li>
+    </ol>
+  </div>
+</section>
+
+<!-- ===================== ЭТАЛОНЫ ===================== -->
+<section class="blk chg" data-chg="aa-et" id="etalons">
+  <div class="blk-h"><span class="tag"></span><h2>Эталоны</h2>
+    <p class="muted">Стенд Host: поддельный агент ACP вместо поддельного SDK — он отвечает заданным потоком событий. Номера получат тесты при реализации.</p></div>
+  <div class="ets">
+    <div class="eg"><h3>ядро Host</h3><ul>
+      <li><span class="st new">новый</span><span>новая сессия: initialize → session/new → режим «разрешено всё» → «свободна»</span></li>
+      <li><span class="st new">новый</span><span>задача: prompt → «работает» → поток модулям → ответ → «свободна»</span></li>
+      <li><span class="st new">новый</span><span>вопрос: elicitation/create → «ждёт вас» → первый ответ уходит агенту, второй — already_answered</span></li>
+      <li><span class="st chg">меняется</span><span>процесс вышел: один session/resume; второй сбой до готовности — failed</span></li>
+      <li class="chg" data-chg="ba-et-restart"><span class="st chg">меняется</span><span>перезапуск Host посреди хода: подключение без initialize, ответ на prompt прежнего Host закрывает ход; id нового Host с прежними не совпадают</span></li>
+      <li class="chg" data-chg="ba-et-ask"><span class="st new">новый</span><span>перезапуск Host с ждущим вопросом: вопрос снова уходит тем же адресатам, ответ доходит агенту с прежним id</span></li>
+      <li class="chg" data-chg="ba-et-hist"><span class="st new">новый</span><span>история: load на свободной сессии — страница из 50, модулям и зрителям ничего, задача ждёт за load; на занятой — busy; load с параметрами запуска</span></li>
+      <li class="chg" data-chg="ba-et-uses"><span class="st new">новый</span><span>модуль с <code>uses</code> <code>claude@agent</code> не входит в сессию Codex</span></li>
+      <li><span class="st new">новый</span><span>сервер MCP модуля по HTTP: чужой ключ сессии — отказ</span></li>
+      <li class="chg" data-chg="ba-et-mcp"><span class="st new">новый</span><span>сервер MCP после перезапуска Host: тот же порт и ключ, вызов агента проходит</span></li>
+      <li><span class="st chg">меняется</span><span>штатная остановка Host: новое не принимает, процессы остаются у держателей</span></li>
+    </ul></div>
+    <div class="eg chg" data-chg="tw-et"><h3>keeper, два флота</h3><ul>
+      <li><span class="st new">новый</span><span><code>install --name prod</code>: служба <code>switchboard-keeper-prod</code>, папка <code>~/.switchboard-prod</code>, команда службы <code>run --name prod</code></span></li>
+      <li><span class="st new">новый</span><span>Host и держатели получают <code>SWITCHBOARD_HOME</code> своей папки</span></li>
+      <li><span class="st chg">меняется</span><span>без имени — служба и папка прежние; второй install без имени — отказ словом</span></li>
+      <li><span class="st new">новый</span><span><code>uninstall --name prod</code> снимает только свою службу</span></li>
+    </ul></div>
+    <div class="eg"><h3>чат страницы</h3><ul>
+      <li><span class="st new">новый</span><span>каждый вид события → своя карточка; незнакомый вид пропускается</span></li>
+      <li><span class="st new">новый</span><span>tool_call_update меняет статус той же карточки по toolCallId</span></li>
+      <li><span class="st chg">меняется</span><span>склейка истории и ленты по id сообщения и вызова</span></li>
+      <li class="chg" data-chg="ba-et-busy"><span class="st new">новый</span><span>история занятой сессии: busy → живая лента сразу, повторный запрос, когда roster показал «свободна»</span></li>
+      <li><span class="st new">новый</span><span>чипов модели и команд «/» нет, пока агент их не прислал</span></li>
+      <li><span class="st chg">меняется</span><span>галерея карточек — на образцах событий ACP трёх агентов</span></li>
+    </ul></div>
+    <div class="eg"><h3>вживую, win и wsl</h3><ul>
+      <li><span class="st new">новый</span><span>сессия Claude: задача, вопрос с телефона, ответ, история</span></li>
+      <li class="chg" data-chg="km-et"><span class="st new">новый</span><span>сессии Kimi и Muse: задача, инструмент флота по MCP, история</span></li>
+      <li><span class="st chg">меняется</span><span>подмена аккаунта слота на сессии Claude без остановки процесса</span></li>
+      <li class="chg" data-chg="tw-et-live"><span class="st new">новый</span><span>два keeper на win в тестовом флоте под двумя именами машин: сессии обеих видны с телефона, остановка одной службы не трогает другую</span></li>
+      <li class="chg" data-chg="ba-et-live"><span class="st chg">меняется</span><span>перезапуск Host посреди хода и с ждущим вопросом — ход доходит, ответ с телефона доходит</span></li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ===================== ГЕЙТ ===================== -->
+<section class="blk chg" data-chg="aa-gate" id="archgate">
+  <div class="blk-h"><span class="tag"></span><h2>Гейт</h2>
+    <p class="muted">Работа: <b>большая</b> — меняет границу Host ↔ процесс сессии, договор модулей Host и форму ленты для страниц.</p></div>
+  <div class="inner pad chg" data-chg="ba-gate">
+    <div class="gaterow">
+      <span>дубликаты ответственности 0 → <b>0</b></span>
+      <span>состояния 0 → <b>0</b></span>
+      <span>логики 0 → <b>0</b></span>
+      <span>смысла 0 → <b>0</b></span>
+      <span>других 4 → <b>0</b></span>
+      <span>лишние коммуникации 3 → <b>0</b></span>
+      <span>циклы 0 → <b>0</b></span>
+    </div>
+    <div class="mx-wrap"><table class="mx" style="min-width:700px">
+      <thead><tr><th>реестр</th><th>что было двойным</th><th>как сведено</th></tr></thead>
+      <tbody>
+        <tr><td>механизм</td><td>спросить человека: <code>decide.AskUserQuestion</code> и <code>elicit</code> — два входа модуля вопросов</td><td>один путь <code>elicitation/create</code>; модуль вопросов — владелец</td></tr>
+        <tr><td>механизм</td><td>отдельное поле манифеста «для какого агента» рядом с <code>uses</code></td><td>агент — зависимость в <code>uses</code></td></tr>
+        <tr><td>механизм</td><td>режим сессии: <code>set_mode</code> рядом с <code>set_config_option</code></td><td>одна настройка сессии</td></tr>
+        <tr><td>механизм</td><td>две версии Claude SDK на машине: в Host для входа и внутри адаптера</td><td>одна — версия адаптера</td></tr>
+        <tr><td>коммуникация</td><td>повтор истории на занятой сессии — всем зрителям и модулям, страницы отбрасывают его по id</td><td>load только между ходами, повтор — только запросившему</td></tr>
+        <tr><td>коммуникация</td><td><code>session/close</code> перед закрытием ввода процесса</td><td>закрыть ввод</td></tr>
+        <tr><td>коммуникация</td><td>модель, усилие, режим — полем roster и событием в ленте</td><td>только поле roster</td></tr>
+      </tbody>
+    </table></div>
+    <p class="fact">Не дубликаты, а перенос: состояние сейчас — только из события SDK; дифф и план — сейчас только на странице, станут событиями агента.</p>
+    <div class="mx-wrap"><table class="mx">
+      <thead><tr><th>числа</th><th class="num">до</th><th class="num">после</th></tr></thead>
+      <tbody>
+        <tr><td>агенты, которыми может работать сессия</td><td class="num">1</td><td class="num">любой ACP · проверяем 2</td></tr>
+        <tr><td>наш код на каждого агента</td><td class="num">—</td><td class="num">0 мостов</td></tr>
+        <tr><td>имена SDK, которые зовут модули</td><td class="num">38</td><td class="num">0</td></tr>
+        <tr><td>методы ACP, которые зовёт ядро</td><td class="num">0</td><td class="num">7</td></tr>
+        <tr><td>входы модуля «спросить человека»</td><td class="num">2</td><td class="num">1</td></tr>
+        <tr><td>хуки SDK у модулей</td><td class="num">4</td><td class="num">0</td></tr>
+        <tr><td>ключи манифеста модуля</td><td class="num">8</td><td class="num">7</td></tr>
+        <tr><td>каналы Host на машине: relay, держатели, MCP по HTTP</td><td class="num">2</td><td class="num">3</td></tr>
+        <tr><td>ключи, которые Host выдаёт сам: держателя, MCP сессии</td><td class="num">1</td><td class="num">2</td></tr>
+        <tr><td>версии Claude SDK на машине</td><td class="num">1</td><td class="num">1</td></tr>
+        <tr><td>ожидаемые ветки сбоя сессии</td><td class="num">2</td><td class="num">2</td></tr>
+        <tr><td>эталоны ядра</td><td class="num">—</td><td class="num">11</td></tr>
+        <tr class="chg" data-chg="tw-num"><td>систем Switchboard на одном компьютере · флаги keeper install · правило «имя → папка»</td><td class="num">1 · 0 · —</td><td class="num">любое · 1 · 1 место (keeper)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="verdict">Вердикт архитектора: делай после ответа на развилки.</p>
+  </div>
+</section>
+
+<!-- ===================== РАЗВИЛКИ ===================== -->
+<section class="blk chg" data-chg="aa-forks" id="forks">
+  <div class="blk-h"><span class="tag"></span><h2>Развилки</h2>
+    <p class="muted">Дизайн задевает ваши решения в уставе — ниже рекомендация и что будет, если не ответите.</p></div>
+  <div class="mx-wrap"><table class="mx" style="min-width:700px">
+    <thead><tr><th>вопрос</th><th>рекомендую</th><th>иначе</th><th>не скажете</th></tr></thead>
+    <tbody>
+      <tr><td>Устав: «сессиями управляет Claude Agent SDK, свой протокол stdin не пишем»</td><td>«Сессиями управляет агент по ACP; Claude — открытым адаптером на Claude Agent SDK, версия адаптера закреплена точно» <span class="chg" data-chg="ba-fork-sdk">— вход аккаунтов на SDK той же версии, что внутри адаптера</span></td><td>Claude — напрямую через SDK, остальные — по ACP: два пути в ядре <span class="chg" data-chg="mt-fork1">· цена рекомендованного: адаптер Claude отстаёт от SDK на 2,9 дня по медиане, 127 открытых заявок, 16 из них о регрессиях</span></td><td>рекомендованное</td></tr>
+      <tr><td>Функции Claude, которых адаптер не отдаёт клиенту: откат файлов, «В фон» у команды, «■ Стоп» у задачи субагента</td><td>убрать с экрана сейчас; вернуть правкой в открытый адаптер, если понадобятся</td><td>держать Claude на прямом SDK ради них</td><td>рекомендованное</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<!-- ===================== ПОРЯДОК ===================== -->
+<section class="blk chg" data-chg="aa-steps" id="steps">
+  <div class="blk-h"><span class="tag"></span><h2>Порядок реализации</h2></div>
+  <div class="inner pad chg" data-chg="pl-plan">
+    <h3>План работ</h3>
+    <p style="font-size:14px">Решено в разговоре 3 нояб.: ACP для всех агентов; первые после Claude — Kimi и Muse; чат — наш, на событиях ACP, готовые клиенты — образец; A2A не строим. Развилки ниже, на которые нет ответа, идут рекомендованным вариантом.</p>
+    <div class="mx-wrap"><table class="mx" style="min-width:720px">
+      <thead><tr><th class="num">#</th><th>шаг</th><th>что делаем</th><th>готово, когда</th><th>после</th></tr></thead>
+      <tbody>
+        <tr><td colspan="5"><b>Этап 0 — польза сразу, без ACP</b></td></tr>
+        <tr><td class="num">1</td><td>Два флота на одном компьютере</td><td>keeper: <code>--name</code> у install, run, uninstall; служба и папка из имени; <code>SWITCHBOARD_HOME</code> — Host и держателям</td><td>эталоны keeper 4 из 4; на win две службы рядом; снят блок с переводом rog-win-pro в прод</td><td>—</td></tr>
+        <tr><td class="num">2</td><td>История после сжатия контекста</td><td>в нынешнем Host: склейка цепочки разговора по ссылке назад и выдача через <code>sessionStore</code> SDK — обход из #1430</td><td>красный эталон на файле со сжатием стал зелёным: 32 из 32 сообщений до сжатия</td><td>—</td></tr>
+        <tr><td colspan="5"><b>Этап 1 — ядро Host на ACP, на стенде</b></td></tr>
+        <tr><td class="num">3</td><td>Поддельный агент ACP</td><td>на стороне агента из <code>@agentclientprotocol/sdk</code>; отвечает заданным потоком; заменяет поддельный SDK</td><td>11 эталонов ядра написаны и красные</td><td>—</td></tr>
+        <tr><td class="num">4</td><td>Ядро — клиент ACP</td><td>клиент из <code>@agentclientprotocol/sdk</code>; запуск у держателя; запись незакрытых запросов; состояние из своих запросов; очередь ввода; resume; load между ходами; режим через <code>set_config_option</code></td><td>эталоны ядра 11 из 11 зелёные; запуск сессии на стенде не дольше прежнего</td><td>3</td></tr>
+        <tr><td class="num">5</td><td>Договор модулей</td><td>поток ACP; один вход «спросить человека»; вклад — окружение, MCP, <code>_meta</code>, настройки; агент — в <code>uses</code>; <code>calls</code> убран</td><td>гейт манифестов: 0 модулей с именами SDK</td><td>4</td></tr>
+        <tr><td class="num">6</td><td>MCP модулей по HTTP</td><td>127.0.0.1, ключ в заголовке, порт в хранилище Host</td><td>4 из 4 серверов отвечают агенту, и после перезапуска Host</td><td>4</td></tr>
+        <tr><td class="num">7</td><td>Модули на поток</td><td>лента, чат, вопросы, управление, флот, журнал; модули Claude — слоты, Remote Control, профили, аккаунты, точки</td><td>тесты 17 модулей зелёные</td><td>5, 6</td></tr>
+        <tr><td colspan="5"><b>Этап 2 — агенты</b></td></tr>
+        <tr><td class="num">8</td><td>Агенты в сборке Host</td><td>три npm-пакета, версии точно: <code>@agentclientprotocol/claude-agent-acp</code>, <code>@moonshot-ai/kimi-code</code>, <code>muse-spark-code-acp</code>; команды и версии сверены с реестром ACP; своей упаковки нет</td><td>на win и wsl 3 из 3 отвечают на initialize</td><td>4</td></tr>
+        <tr><td class="num">9</td><td>Своя папка агента у системы</td><td>у Kimi и Muse — папка состояния и входа внутри папки данных системы, как у Codex <code>CODEX_HOME</code>; какая переменная — опыт</td><td>после входа сессии Kimi и Muse отвечают; домашние папки пользователя не тронуты</td><td>8</td></tr>
+        <tr><td colspan="5"><b>Этап 3 — чат</b></td></tr>
+        <tr><td class="num">10</td><td>Дифф без React</td><td>опыт: <code>@pierre/diffs</code> в нашей странице без фреймворка</td><td>карточка правки рисует дифф; прирост сборки страницы — числом; не встаёт — свой дифф, как сейчас</td><td>—</td></tr>
+        <tr><td class="num">11</td><td>Чат на событиях ACP</td><td>карточка на вид события; типы из SDK ACP; склейка по id; история: busy и повтор; чипы — по возможностям агента; откат, «В фон» и «■ Стоп» убраны</td><td>тесты фронта зелёные; галерея: 9 видов на образцах Claude, Kimi, Muse</td><td>7, 10</td></tr>
+        <tr><td colspan="5"><b>Этап 4 — живая проверка и прод</b></td></tr>
+        <tr><td class="num">12</td><td>Тестовый флот, win и wsl</td><td>сессии Claude, Kimi, Muse с телефона; перезапуск Host посреди хода и с ждущим вопросом; подмена аккаунта Claude; второй keeper на win</td><td>живых эталонов: все PASS, число — в итоге</td><td>1, 9, 11</td></tr>
+        <tr><td class="num">13</td><td>Прод</td><td>по вашему «да» после шага 12; строка устава о SDK меняется на ACP</td><td>прод на новом Host; журнал без отказов сессий за сутки</td><td>12</td></tr>
+      </tbody>
+    </table></div>
+    <div class="nots" style="grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))">
+      <li><b>Нужно от вас</b><span>Вход Kimi и вход Muse — Muse Code, ChatGPT или OpenRouter — на тестовых win и wsl к шагу 9. До этого шаги 1–8 и 10–11 идут без них.</span></li>
+      <li><b>Параллельно</b><span>1, 2 и 10 не зависят ни от чего и идут сразу. 3–7 — одна цепочка. 8–9 и 11 — после ядра.</span></li>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ЧЕГО НЕТ ===================== -->
+<section class="blk chg" data-chg="aa-not" id="not">
+  <div class="blk-h"><span class="tag"></span><h2>Чего в дизайне нет</h2></div>
+  <ul class="nots">
+    <li><b>Своих мостов к агентам</b><span>Агент без ACP во флот не входит, пока у него нет адаптера.</span></li>
+    <li><b>Своей копии разговора</b><span>Историю хранит агент; Host её только повторяет постранично.</span></li>
+    <li><b>Готового шлюза</b><span>OpenACP и похожие заменили бы флот, а не дополнили.</span></li>
+    <li><b>Правок relay и держателя</b><span>Relay пересылает кадры как есть, держатель — байты.</span></li>
+    <li><b>Входа в чужие аккаунты</b><span>Вход Codex и Gemini — их собственный: Codex — в папке системы, Gemini — на машине.</span></li>
+    <li><b>Agent2Agent и AG-UI</b><span>Сессии говорят через флот, страница — через relay.</span></li>
+    <li class="chg" data-chg="tw-not"><b>Связи между двумя флотами</b><span>Системы на одном компьютере друг друга не видят; сессия пишет только в свой флот.</span></li>
+  </ul>
+</section>
+</div>
+
+<script>
+/* ===== Варианты, путь агента, макет чата ===== */
+(function(){
+  const NS = "http://www.w3.org/2000/svg";
+  function el(tag, attrs, text){ const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text) n.textContent = text; return n; }
+  function box(g, x, y, w, h, cls, t1, t2){ g.appendChild(el("rect", {class:"box " + cls, x, y, width:w, height:h, rx:10})); g.appendChild(el("text", {class:"bt", x:x+12, y:y+24}, t1)); if (t2) g.appendChild(el("text", {class:"bs", x:x+12, y:y+42}, t2)); }
+  function arrow(g, d, w){ g.appendChild(el("path", {class:"ln" + (w ? " w" : ""), d, "marker-end": w ? "url(#v-w1)" : "url(#v-a1)"})); }
+
+  const V = {
+    a(g){
+      box(g, 10, 88, 130, 56, "", "страница", "наш формат");
+      box(g, 200, 72, 190, 88, "you", "Host", "свой формат событий");
+      [["мост Claude", "закрытый SDK", 10], ["мост Codex", "сервер приложения", 84], ["мост Gemini", "свой протокол", 158]].forEach(([a, b, y]) => {
+        box(g, 450, y, 160, 56, "you", a, b); box(g, 690, y, 160, 56, "dim", a.replace("мост ", ""), "");
+        arrow(g, `M390,116 L446,${y+28}`, true); arrow(g, `M610,${y+28} H686`, true);
+      });
+      arrow(g, "M196,116 H144", true);
+      g.appendChild(el("text", {class:"bw", x:200, y:186}, "жёлтое — пишем и сопровождаем мы"));
+    },
+    b(g){
+      box(g, 10, 88, 130, 56, "", "страница", "события ACP");
+      box(g, 200, 72, 190, 88, "acc", "Host — клиент ACP", "одно соединение на сессию");
+      [["claude-agent-acp", "открытый", 10], ["codex-acp", "открытый", 84], ["gemini --acp", "сам", 158]].forEach(([a, b, y]) => {
+        box(g, 450, y, 180, 56, "ok", a, b); box(g, 690, y, 160, 56, "dim", a.split(/[- ]/)[0], "");
+        arrow(g, `M390,116 L446,${y+28}`); arrow(g, `M630,${y+28} H686`);
+      });
+      arrow(g, "M196,116 H144");
+      g.appendChild(el("text", {class:"bm", x:400, y:110}, "ACP"));
+      g.appendChild(el("text", {class:"bm", x:200, y:186, style:"fill:var(--ok)"}, "зелёное — готовое и открытое; наш код — только флот"));
+    },
+    c(g){
+      box(g, 10, 30, 130, 56, "", "телефон флота", "");
+      box(g, 10, 120, 130, 56, "you", "второй телефон", "страница шлюза");
+      box(g, 200, 30, 190, 56, "dim", "Host · relay · пропуска", "остаются без дела");
+      box(g, 200, 120, 190, 56, "you", "шлюз на машине", "OpenACP, Agent Gateway");
+      box(g, 450, 120, 180, 56, "ok", "адаптеры ACP", "те же, что в B");
+      arrow(g, "M140,148 H196", true); arrow(g, "M390,148 H446");
+      arrow(g, "M140,58 H196", true);
+      g.appendChild(el("text", {class:"bw", x:200, y:212}, "шлюз заменяет флот на одной машине, а не подключается к нему"));
+    },
+  };
+  function showV(k){
+    const g = document.getElementById("v-body"); g.replaceChildren(); V[k](g);
+    document.querySelectorAll("[data-v]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === k)));
+  }
+  document.querySelectorAll("[data-v]").forEach(b => b.addEventListener("click", () => showV(b.dataset.v)));
+  showV("b");
+
+  const AG = {
+    claude: ["<code>claude-agent-acp</code> 0.100.0", "папка входа слота, <code>DISABLE_UPDATES=1</code>, <code>CLAUDE_CODE_HARBOR_KITE=0</code>"],
+    codex: ["<code>@agentclientprotocol/codex-acp</code> 2.5.0", "<code>CODEX_HOME</code> в папке данных системы — там же вход Codex; <code>INITIAL_AGENT_MODE=agent-full-access</code>"],
+    gemini: ["<code>gemini --acp</code>", "свой вход Google на машине"],
+  };
+  function showAg(k){
+    ["claude","codex","gemini"].forEach(n => { const g = document.getElementById("ag-" + n); g.setAttribute("class", n === k ? "g-on" : "g-off"); });
+    document.querySelectorAll("[data-ag]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ag === k)));
+    const tb = document.getElementById("ag-tbl"); tb.replaceChildren();
+    const name = {claude:"Claude", codex:"Codex", gemini:"Gemini CLI"}[k];
+    const tr = document.createElement("tr"); tr.innerHTML = `<td><b>${name}</b></td><td>${AG[k][0]}</td><td>${AG[k][1]}</td>`; tb.appendChild(tr);
+  }
+  document.querySelectorAll("[data-ag]").forEach(b => b.addEventListener("click", () => showAg(b.dataset.ag)));
+  showAg("claude");
+
+  /* Образцы событий ACP: один поток на агента; карточки рисует одна функция. */
+  const U = (update) => ({ sessionId: "s1", update });
+  const SAMPLES = {
+    claude: {
+      name: "Claude", cs: "refactor", config: [["модель", "opus"], ["усилие", "high"], ["режим", "разрешено всё"]], usage: 38,
+      cmds: ["/compact", "/review", "/remote-control", "/mcp"],
+      events: [
+        U({ sessionUpdate: "user_message_chunk", messageId: "m1", content: { type: "text", text: "Убери дубль проверки пропуска в relay" } }),
+        U({ sessionUpdate: "agent_thought_chunk", messageId: "m2", content: { type: "text", text: "Проверка есть и в гейте, и в relay — оставить у владельца" } }),
+        U({ sessionUpdate: "plan", entries: [{ content: "Найти обе проверки", status: "completed", priority: "high" }, { content: "Оставить проверку у гейта", status: "in_progress", priority: "high" }, { content: "Прогнать тесты relay", status: "pending", priority: "medium" }] }),
+        U({ sessionUpdate: "tool_call", toolCallId: "t1", title: "grep verifyPass", kind: "search", status: "completed" }),
+        U({ sessionUpdate: "tool_call", toolCallId: "t2", title: "relay/src/attach.ts", kind: "edit", status: "completed", content: [{ type: "diff", path: "relay/src/attach.ts", oldText: "if (!verifyPass(p)) return refuse(\"bad_pass\");", newText: "const who = await gate.verify(p);" }] }),
+        U({ sessionUpdate: "tool_call", toolCallId: "t3", title: "npm test -- relay", kind: "execute", status: "in_progress", content: [{ type: "content", content: { type: "text", text: "✓ 212 passed · 2 running…" } }] }),
+        { method: "elicitation/create", params: { sessionId: "s1", message: "Выложить relay на тестовый флот?", options: ["Да", "Нет, сначала покажи дифф"] } },
+      ],
+    },
+    codex: {
+      name: "Codex", cs: "billing", config: [["модель", "gpt-5"], ["рассуждение", "medium"], ["режим", "полный доступ"]], usage: 22,
+      cmds: ["/init", "/review", "/status"],
+      events: [
+        U({ sessionUpdate: "user_message_chunk", messageId: "c1", content: { type: "text", text: "Добавь тест на округление счёта" } }),
+        U({ sessionUpdate: "agent_message_chunk", messageId: "c2", content: { type: "text", text: "Добавлю тест рядом с расчётом и прогоню набор." } }),
+        U({ sessionUpdate: "tool_call", toolCallId: "x1", title: "billing/round.test.ts", kind: "edit", status: "completed", content: [{ type: "diff", path: "billing/round.test.ts", oldText: null, newText: "expect(round(10.005)).toBe(10.01);" }] }),
+        U({ sessionUpdate: "tool_call", toolCallId: "x2", title: "npm test -- round", kind: "execute", status: "failed", content: [{ type: "content", content: { type: "text", text: "✗ expected 10.01, got 10" } }] }),
+        U({ sessionUpdate: "agent_message_chunk", messageId: "c3", content: { type: "text", text: "Округление теряет полкопейки — правлю round()." } }),
+      ],
+    },
+    gemini: {
+      name: "Gemini CLI", cs: "docs", config: [["модель", "gemini-2.5-pro"]], usage: 9,
+      cmds: ["/memory", "/tools"],
+      events: [
+        U({ sessionUpdate: "user_message_chunk", messageId: "g1", content: { type: "text", text: "Сверь README с командами CLI" } }),
+        U({ sessionUpdate: "tool_call", toolCallId: "y1", title: "README.md", kind: "read", status: "completed" }),
+        U({ sessionUpdate: "tool_call", toolCallId: "y2", title: "switchboard --help", kind: "execute", status: "completed", content: [{ type: "content", content: { type: "text", text: "release · keeper · send" } }] }),
+        U({ sessionUpdate: "agent_message_chunk", messageId: "g2", content: { type: "text", text: "В README нет команды send — добавляю раздел." } }),
+      ],
+    },
+  };
+  const KIND = { read: "чтение", edit: "правка", delete: "удаление", move: "перенос", search: "поиск", execute: "команда", think: "мысль", fetch: "сеть", other: "вызов" };
+  const ST = { completed: ["✓", "ok"], failed: ["✗", "bad"], in_progress: ["…", "run"], pending: ["…", "run"] };
+  function h(tag, cls, text){ const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; }
+  function textOf(c){ return c && c.type === "text" ? c.text : ""; }
+
+  /* Одно событие ACP → карточка; незнакомый вид — null. */
+  function card(ev){
+    if (ev.method === "elicitation/create"){
+      const q = h("div", "c-q"); q.append(h("div", "qt", ev.params.message));
+      const o = h("div", "o"); ev.params.options.forEach(t => o.append(h("button", "", t))); q.append(o); return [q, "elicitation"];
+    }
+    const u = ev.update;
+    switch (u.sessionUpdate){
+      case "user_message_chunk": return [h("div", "c-me", textOf(u.content)), u.sessionUpdate];
+      case "agent_message_chunk": return [h("div", "c-txt", textOf(u.content)), u.sessionUpdate];
+      case "agent_thought_chunk": return [h("div", "c-th", textOf(u.content)), u.sessionUpdate];
+      case "plan": {
+        const p = h("div", "c-plan"); p.append(h("div", "h", "План"));
+        u.entries.forEach(e => { const r = h("div", "e" + (e.status === "completed" ? " done" : e.status === "in_progress" ? " now" : "")); r.append(h("span", "", e.status === "completed" ? "☑" : e.status === "in_progress" ? "▸" : "☐"), h("span", "", e.content)); p.append(r); });
+        return [p, "plan"];
+      }
+      case "tool_call": {
+        const t = h("div", "c-tool"); const r = h("div", "r"); const st = ST[u.status] || ["?", ""];
+        r.append(h("span", "k", KIND[u.kind] || KIND.other), h("span", "t", u.title), h("span", "s " + st[1], st[0])); t.append(r);
+        (u.content || []).forEach(c => {
+          if (c.type === "diff"){ const d = h("div", "c-diff"); if (c.oldText) d.append(h("div", "del", "− " + c.oldText)); d.append(h("div", "add", "+ " + c.newText)); t.append(d); }
+          if (c.type === "content") t.append(h("div", "c-term", textOf(c.content)));
+        });
+        return [t, "tool_call"];
+      }
+    }
+    return null;
+  }
+  function showCh(k){
+    const s = SAMPLES[k];
+    document.querySelectorAll("[data-ch]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.ch === k)));
+    document.getElementById("ch-agent").textContent = s.name;
+    document.getElementById("ch-cs").textContent = s.cs;
+    const chips = document.getElementById("ch-chips"); chips.replaceChildren();
+    s.config.forEach(([a, b]) => { const c = h("span", "chip"); c.append(document.createTextNode(a + " "), h("b", "", b)); chips.append(c); });
+    const cmds = document.getElementById("ch-cmds"); cmds.replaceChildren(); s.cmds.forEach(c => cmds.append(h("span", "", c)));
+    const us = document.getElementById("ch-usage"); us.style.setProperty("--u", s.usage + "%"); us.querySelector("span").textContent = "контекст " + s.usage + "%";
+    const feed = document.getElementById("ch-feed"); feed.replaceChildren();
+    const seen = new Set();
+    s.events.forEach(ev => {
+      const r = card(ev); if (!r) return; const [n, kind] = r; seen.add(kind);
+      n.classList.add("c-card"); n.tabIndex = 0; n.setAttribute("role", "button"); n.setAttribute("aria-label", "Показать событие ACP");
+      const raw = h("pre", "c-raw", JSON.stringify(ev, null, 1)); raw.hidden = true;
+      const toggle = (e) => { if (e.target.tagName === "BUTTON") return; raw.hidden = !raw.hidden; };
+      n.addEventListener("click", toggle); n.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " "){ e.preventDefault(); toggle(e); } });
+      feed.append(n, raw);
+    });
+    ["available_commands_update", "config_option_update", "usage_update"].forEach(x => seen.add(x));
+    document.querySelectorAll("#ch-kinds li").forEach(li => li.classList.toggle("on", seen.has(li.dataset.k)));
+  }
+  document.querySelectorAll("[data-ch]").forEach(b => b.addEventListener("click", () => showCh(b.dataset.ch)));
+  showCh("claude");
+
+  /* A2A: три направления на одной схеме. */
+  const A2 = {
+    in: [g => {
+      box(g, 20, 70, 180, 64, "acc", "сессия site@laptop", "");
+      box(g, 340, 70, 180, 64, "acc", "флот", "relay, MCP-инструменты");
+      box(g, 660, 70, 180, 64, "acc", "сессия api@wsl", "");
+      g.appendChild(el("path", {class:"ln", d:"M200,102 H336", "marker-end":"url(#a2-a)"})); g.appendChild(el("path", {class:"ln", d:"M520,102 H656", "marker-end":"url(#a2-a)"}));
+      g.appendChild(el("path", {class:"ln b", d:"M110,134 C110,190 750,190 750,138", "marker-end":"url(#a2-b)"}));
+      g.appendChild(el("text", {class:"bb", x:330, y:176}, "A2A рядом с флотом — второй канал, не берём"));
+    }, "Внутри флота — не берём: сессии уже говорят через флот, A2A стал бы вторым каналом для того же."],
+    out: [g => {
+      box(g, 20, 70, 190, 64, "acc", "сессия флота", "любой агент ACP");
+      box(g, 330, 70, 200, 64, "ok", "мост A2A → MCP", "сервер MCP в профиле");
+      box(g, 650, 70, 190, 64, "dim", "агент другой системы", "визитка A2A");
+      g.appendChild(el("path", {class:"ln", d:"M210,102 H326", "marker-end":"url(#a2-a)"})); g.appendChild(el("path", {class:"ln", d:"M530,102 H646", "marker-end":"url(#a2-a)"}));
+      g.appendChild(el("text", {class:"bm", x:240, y:94}, "MCP")); g.appendChild(el("text", {class:"bm", x:560, y:94}, "A2A"));
+      g.appendChild(el("text", {class:"bm", x:330, y:170, style:"fill:var(--ok)"}, "наш код — 0: сервер MCP в профиле"));
+    }, "Сессия → чужой агент — без нашего кода: мост A2A → MCP ставится в профиле, как любой сервер MCP."],
+    edge: [g => {
+      box(g, 20, 70, 180, 64, "dim", "агент другой системы", "клиент A2A");
+      box(g, 270, 70, 190, 64, "you", "вход A2A", "Worker-модуль, по слову");
+      box(g, 520, 70, 120, 64, "", "relay", "");
+      box(g, 690, 70, 150, 64, "acc", "сессия", "ход = задача");
+      g.appendChild(el("path", {class:"ln w", d:"M200,102 H266", "marker-end":"url(#a2-w)"})); g.appendChild(el("path", {class:"ln", d:"M460,102 H516", "marker-end":"url(#a2-a)"})); g.appendChild(el("path", {class:"ln", d:"M640,102 H686", "marker-end":"url(#a2-a)"}));
+      g.appendChild(el("text", {class:"bw", x:210, y:94}, "A2A"));
+      g.appendChild(el("text", {class:"bw", x:270, y:170}, "встаёт вместо отправки по пропуску, не рядом"));
+    }, "Чужой агент → сессия — по первому внешнему вызывающему: вход A2A заменяет отправку в сессию по пропуску."],
+  };
+  function showA2(k){
+    const g = document.getElementById("a2-body"); g.replaceChildren(); A2[k][0](g);
+    document.getElementById("a2-verd").textContent = A2[k][1];
+    document.querySelectorAll("[data-a2]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.a2 === k)));
+  }
+  document.querySelectorAll("[data-a2]").forEach(b => b.addEventListener("click", () => showA2(b.dataset.a2)));
+  showA2("out");
+
+  /* Комментарий к блоку. На localhost — свой: ветка под шапкой блока, хранит локальный сервер. */
+  const LOCAL = location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname);
+  if (LOCAL){
+    const heads = [...document.querySelectorAll("section.blk[data-chg] > .blk-h")];
+    const lists = new Map();
+    function drawComments(all){
+      for (const [block, ul] of lists){
+        ul.replaceChildren();
+        all.filter(c => c.block === block).forEach(c => {
+          const li = document.createElement("li");
+          const t = document.createElement("time"); t.textContent = new Date(c.at).toLocaleString("ru-RU", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"});
+          const p = document.createElement("p"); p.textContent = c.text;
+          li.append(t, p); ul.append(li);
+        });
+        ul.hidden = !ul.children.length;
+      }
+    }
+    heads.forEach(head => {
+      const block = head.parentElement.getAttribute("data-chg");
+      const box = document.createElement("div"); box.className = "lc";
+      const ul = document.createElement("ul"); ul.className = "lc-list"; ul.hidden = true; lists.set(block, ul);
+      const form = document.createElement("form"); form.className = "lc-form"; form.hidden = true;
+      const ta = document.createElement("textarea"); ta.id = "lc-" + block; ta.rows = 3; ta.setAttribute("aria-label", "Комментарий к блоку");
+      const send = document.createElement("button"); send.type = "submit"; send.textContent = "Отправить";
+      const err = document.createElement("span"); err.className = "lc-err";
+      form.append(ta, send, err);
+      const b = document.createElement("button"); b.type = "button"; b.className = "cmt"; b.textContent = "Комментировать";
+      b.addEventListener("click", () => { form.hidden = !form.hidden; if (!form.hidden) ta.focus(); });
+      form.addEventListener("submit", async e => {
+        e.preventDefault(); err.textContent = "";
+        try {
+          const r = await fetch("/api/comment", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({block, text: ta.value})});
+          if (!r.ok) throw new Error((await r.json()).error);
+          ta.value = ""; form.hidden = true;
+          drawComments((await (await fetch("/api/state")).json()).comments);
+        } catch (x) { err.textContent = "Не сохранилось: " + x.message; }
+      });
+      head.insertBefore(b, head.querySelector("p"));
+      box.append(ul, form); head.after(box);
+    });
+    fetch("/api/state").then(r => r.json()).then(d => drawComments(d.comments)).catch(() => {});
+    return;
+  }
+  (async function(){
+    let cm = null;
+    try { cm = (window.claude && window.claude.use) ? await window.claude.use("comments") : null; } catch (_) { cm = null; }
+    if (!cm) return;
+    document.querySelectorAll("section.blk > .blk-h").forEach(head => {
+      const b = document.createElement("button"); b.type = "button"; b.className = "cmt"; b.textContent = "Комментировать";
+      b.addEventListener("click", async () => {
+        try { await cm.openComposer({ element: head.parentElement }); }
+        catch (e) { if (e && (e.code === "unavailable" || e.code === "not_granted")) document.querySelectorAll("button.cmt").forEach(x => x.remove()); }
+      });
+      head.insertBefore(b, head.querySelector("p"));
+    });
+  })();
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>
