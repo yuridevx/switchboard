@@ -206,9 +206,9 @@ describe("слоты", () => {
     const t = await accountsScreen(relay);
     await t.click(t.$('[data-account="name:a"] [data-sess="main"]'));
     const dlg = t.$('[data-dlg="sess"]')!;
-    for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) c.checked = true;
+    for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) await t.click(c);
     const target = dlg.querySelector<HTMLSelectElement>('[data-f="target"]')!;
-    target.value = "bot";
+    await t.type(target, "bot", "change");
     const slots = relay.sent("machine.slots").length;
     await t.click(t.btn(dlg, "Перевести"));
     expect(relay.sent("session.slot").map((f) => [f.callsign, f.slot])).toEqual([
@@ -228,7 +228,7 @@ describe("слоты", () => {
     expect(t.$('[data-slot="laptop:bot"]')!.textContent).toContain("В слоте есть сессии — сначала переведите их");
     await t.click(t.$('[data-account="name:a"] [data-sess="main"]'));
     const dlg = t.$('[data-dlg="sess"]')!;
-    for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) c.checked = true;
+    for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) await t.click(c);
     await t.click(t.btn(dlg, "Перевести"));
     expect(relay.sent("session.slot")).toHaveLength(2);
     expect(t.$('[data-dlg="sess"]')!.textContent).toContain("site@laptop: Такого слота нет · profiles@laptop: перешла");
@@ -294,7 +294,7 @@ describe("удаление аккаунта", () => {
     const t = await accountsScreen(relay);
     await rm(t, "a", "a@x.io");
     const next = t.$<HTMLSelectElement>('[data-dlg="rm"] [data-f="next"]')!;
-    next.value = "c";
+    await t.type(next, "c", "change");
     await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
     expect(relay.sent("slot.swap")[0]).toMatchObject({ machine: "laptop", slot: "main", account: "c" });
     expect(relay.sent("slot.set")[0]).toMatchObject({ slot: "main", order: ["b", "c"] });

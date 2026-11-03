@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "into": [
     "pult",
     "phone"
