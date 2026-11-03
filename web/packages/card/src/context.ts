@@ -1,7 +1,7 @@
 // Состояние модуля в контексте его экранов и общие выборки из roster.
 import { createContext, useContext } from "react";
-import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { sessionOf } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/web-core";
+import { sessionOf, useApp } from "@switchboard/web-ui";
 import { NAMES, type Can } from "./session.ts";
 import type { CardStore } from "./store.ts";
 

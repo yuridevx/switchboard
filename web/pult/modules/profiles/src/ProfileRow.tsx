@@ -1,6 +1,5 @@
 // Строка профиля: имя, модель, сколько машин и сессий; раскрывается в машины, идущие сессии и конфликты.
-import { useApp } from "@switchboard/web-core";
-import { Dot, effortName, plural, profileName as short } from "@switchboard/web-ui";
+import { Dot, effortName, plural, profileName as short, useApp } from "@switchboard/web-ui";
 import type { ProfileRowData } from "./store.ts";
 
 export function ProfileRow({ r, machines, open, toggle }: { r: ProfileRowData; machines: number; open: boolean; toggle(id: string): void }) {

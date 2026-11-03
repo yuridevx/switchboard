@@ -1,10 +1,9 @@
 // Проводник новой сессии: машины, последние места, адрес и папки родителя.
-import { useApp } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
 import { useOpen } from "./context.ts";
 import { addrView, dirOfAddr, HOME, into } from "./form.ts";
 import type { OpenForm } from "./useOpenForm.ts";
-import { machineLabel } from "@switchboard/web-ui";
+import { machineLabel, useApp } from "@switchboard/web-ui";
 
 /** Имя машины: человеческое из меток, иначе адрес. Выборка: новое имя перерисует вызвавшего. */
 export function useMachineLabels() {

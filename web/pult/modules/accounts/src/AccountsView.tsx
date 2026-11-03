@@ -1,8 +1,7 @@
 // Вид «Аккаунты»: идущие входы, диалог нового аккаунта и карточка на почту со всех машин.
 import { useMemo } from "react";
-import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { ago, Btn, Hint, Note, Opts, OptsInline, Pill, plural, Sec } from "@switchboard/web-ui";
+import { ago, Btn, Hint, Note, Opts, OptsInline, Pill, plural, Sec, useApp } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
 import { NewDlg, RmDlg, SessDlg } from "./Dialogs.tsx";
 import { LoginCard } from "./LoginCard.tsx";

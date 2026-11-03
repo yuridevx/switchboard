@@ -1,7 +1,6 @@
 // «Только в R2»: сессии без живого процесса. Поиск, удаление после ввода имени и подъём на машину из последней точки.
 import { useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn, day, H4, In, M, Note, Opts, PageHead, plural, Row, Sec } from "@switchboard/web-ui";
+import { Btn, day, H4, In, M, Note, Opts, PageHead, plural, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { nameOf, say } from "./format.ts";
 import { CheckLine, PickMachine } from "./parts.tsx";

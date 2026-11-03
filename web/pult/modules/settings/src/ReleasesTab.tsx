@@ -1,6 +1,5 @@
 // Вкладка «Выпуски»: по машинам (stable флота, отмеченные, матрица и план машины) или каталог и сборки.
-import { useApp } from "@switchboard/web-core";
-import { Btn, M, Meter, Note, plural, Sec } from "@switchboard/web-ui";
+import { Btn, M, Meter, Note, plural, Sec, useApp } from "@switchboard/web-ui";
 import { Catalog } from "./Catalog.tsx";
 import { useSettings } from "./context.ts";
 import { MachinePlan } from "./MachinePlan.tsx";

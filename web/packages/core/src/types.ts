@@ -241,3 +241,9 @@ export interface Running {
 }
 
 export type { ReactNode };
+
+// App модуля в контексте экрана: значение и хук — в наборе, тип дописывает ядро.
+declare module "@switchboard/web-ui" {
+  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
+  interface AppHandle extends App {}
+}

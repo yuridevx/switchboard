@@ -1,6 +1,6 @@
 // Сведения сбоку широкой карточки: кто дал задачу, папка, профиль, дерево сессий, серверы MCP, ссылка в claude.ai.
-import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { profileName, profileNameOf, remoteOf } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/web-core";
+import { profileName, profileNameOf, remoteOf, useApp } from "@switchboard/web-ui";
 import type { Mcp } from "./session.ts";
 import { Kv } from "./WidePops.tsx";
 

@@ -1,7 +1,6 @@
 // Малые части экранов настроек: строка итога по ключу и поле, чей текст переживает закрытие экрана.
 import { useState, type ComponentProps } from "react";
-import { useApp } from "@switchboard/web-core";
-import { In, Outcome } from "@switchboard/web-ui";
+import { In, Outcome, useApp } from "@switchboard/web-ui";
 import { useSettings } from "./context.ts";
 
 /** Строка отказа или итога по ключу. */

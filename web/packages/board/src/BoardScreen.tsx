@@ -1,7 +1,6 @@
 // Экран «Работа»: шапка, ряд фильтров, список, панель вида и окно фильтра. Панель и окно — местное состояние экрана.
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn } from "@switchboard/web-ui";
+import { Btn, useApp } from "@switchboard/web-ui";
 import { useBoard } from "./context.ts";
 import { FilterBar } from "./FilterBar.tsx";
 import { FilterEditor } from "./filters.tsx";

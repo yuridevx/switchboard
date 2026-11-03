@@ -1,7 +1,7 @@
 // Карточка на телефоне: вкладки чат, вставки места card.tab, видные этой сессии, и «Ещё» — сведения, модель и усилие, действия.
 import { useState } from "react";
-import { useApp, type Params } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf } from "@switchboard/web-ui";
+import type { Params } from "@switchboard/web-core";
+import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, useApp } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useCard, useSession } from "./context.ts";
 import { Names } from "./Names.tsx";

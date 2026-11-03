@@ -1,7 +1,7 @@
 // Экран новой сессии: имя, проводник, чипы профиля и модели, задача.
 import { useEffect, useRef } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
-import { Btn, effortName, profileName as short } from "@switchboard/web-ui";
+import type { ScreenProps } from "@switchboard/web-core";
+import { Btn, effortName, profileName as short, useApp } from "@switchboard/web-ui";
 import { FolderPane, MachinesPane } from "./Browser.tsx";
 import { addrView } from "./form.ts";
 import { ModelPop, ProfilePop } from "./Pops.tsx";

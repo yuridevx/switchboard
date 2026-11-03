@@ -2,7 +2,8 @@
 // и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
 // Здесь — только связка с ядром: состояние — store.ts, узкий вид — NarrowCard.tsx, широкий (пульт) — WideCard.tsx.
 import type { ComponentType } from "react";
-import { useApp, type AppModule, type ScreenProps } from "@switchboard/web-core";
+import { useApp } from "@switchboard/web-ui";
+import type { AppModule, ScreenProps } from "@switchboard/web-core";
 import css from "./card.css";
 import { CardCtx } from "./context.ts";
 import { HeadPanel } from "./HeadPanel.tsx";

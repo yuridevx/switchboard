@@ -1,7 +1,6 @@
 // Обзор реестра: «пожар», сессии в R2 на связи, «только в R2», занято в R2.
 import { memo, useCallback, useEffect, useMemo } from "react";
-import { useApp } from "@switchboard/web-core";
-import { ago, Btn, day, H4, hhmm, Note, Opts, Page, PageHead, plural, Sec } from "@switchboard/web-ui";
+import { ago, Btn, day, H4, hhmm, Note, Opts, Page, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { FireSection } from "./FireSection.tsx";
 import { mb, r2Of, say } from "./format.ts";

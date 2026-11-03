@@ -1,7 +1,6 @@
 // Вид «Слоты»: слоты выбранной машины, запас по порядку, смена сейчас и новый слот.
 import { useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn, H4, Hint, hhmm, In, M, Note, Opts, PickOne, plural, Sec, Sel, LIMIT_NAMES } from "@switchboard/web-ui";
+import { Btn, H4, Hint, hhmm, In, M, Note, Opts, PickOne, plural, Sec, Sel, LIMIT_NAMES, useApp } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
 import { NoteLine, Refused, Shared, Windows } from "./parts.tsx";
 import type { Account, Slot } from "./store.ts";

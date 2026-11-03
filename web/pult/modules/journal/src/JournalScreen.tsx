@@ -1,7 +1,6 @@
 // Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger.
 import { useEffect, useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel } from "@switchboard/web-ui";
+import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
 import { useJournal } from "./context.ts";
 import type { Ev } from "./store.ts";
 

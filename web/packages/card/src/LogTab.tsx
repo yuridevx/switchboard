@@ -1,7 +1,6 @@
 // Вкладка «Журнал» широкой карточки: записи машины об этой сессии; фильтр по виду, «дальше» и «раньше».
 import { useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { hhmm, midnight, useLoad } from "@switchboard/web-ui";
+import { hhmm, midnight, useLoad, useApp } from "@switchboard/web-ui";
 
 type Rec = { t: string; part?: string; who?: string; kind?: string; ev?: string; word?: string; why?: string };
 

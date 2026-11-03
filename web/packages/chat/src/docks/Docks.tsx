@@ -1,6 +1,6 @@
 // Над полем ввода: задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
 import { useState } from "react";
-import { useApp } from "@switchboard/web-core";
+import { useApp } from "@switchboard/web-ui";
 import { Bot, Layers, ListChecks, Square, Terminal } from "lucide-react";
 import { useChat } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";

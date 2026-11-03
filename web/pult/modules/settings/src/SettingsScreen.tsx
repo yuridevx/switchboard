@@ -1,7 +1,7 @@
 // Экран настроек: заголовок с вкладками и содержимое вкладки. Новые параметры адреса — экран начат заново.
 import { useEffect, useLayoutEffect } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
-import { Btn, Page, PageHead } from "@switchboard/web-ui";
+import type { ScreenProps } from "@switchboard/web-core";
+import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
 import { useSettings } from "./context.ts";
 import { Device, Github, PostForm } from "./General.tsx";
 import { Passes } from "./Passes.tsx";

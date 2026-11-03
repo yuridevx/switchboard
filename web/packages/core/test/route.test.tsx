@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { memoryStore, startApp, useApp, type App, type AppPart, type Manifest, type Params } from "../contract.ts";
+import { memoryStore, startApp, type App, type AppPart, type Manifest, type Params } from "../contract.ts";
+import { useApp } from "@switchboard/web-ui";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../stand/app.ts";
 
 const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1, ...uses } });

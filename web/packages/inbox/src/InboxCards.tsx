@@ -1,7 +1,7 @@
 // Карточки «Вам»: вопрос, сообщение, сбой, ожидание лимита, готово, ушедшая машина. Каждая выбирает своё и меняется одна.
 import { memo } from "react";
-import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/web-core";
+import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp } from "@switchboard/web-ui";
 import { useInbox } from "./context.ts";
 import type { Item, Kind } from "./store.ts";
 

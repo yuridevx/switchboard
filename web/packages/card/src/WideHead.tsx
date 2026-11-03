@@ -1,7 +1,7 @@
 // Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
 import { useEffect, useRef, useState } from "react";
-import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/web-core";
+import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard } from "./context.ts";
 import { isDown, slotOf, type Can } from "./session.ts";

@@ -1,5 +1,18 @@
 // Общие хуки экранов: чтение данных экрана с отменой устаревшего ответа.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+
+/** App модуля. Набор ядра не знает: тип дописывает ядро (declare module), значение ставит место экрана. */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export interface AppHandle {}
+
+export const AppCtx = createContext<AppHandle | null>(null);
+
+/** App модуля, чей экран рисуется. */
+export function useApp(): AppHandle {
+  const app = useContext(AppCtx);
+  if (!app) throw new Error("useApp вне экрана модуля");
+  return app;
+}
 
 /** Текущее время с шагом ms: таймер живёт, пока компонент на экране; ms 0 — стоит. Отсчёт виден только там, где он нужен. */
 export function useNow(ms: number): number {

@@ -1,7 +1,7 @@
 // Состояние открытого экрана: вид, диалог, выбранная машина слотов, строки итогов. Живёт, пока экран открыт; карточки берут его из контекста.
 import { useMemo, useRef, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { useApp } from "@switchboard/web-core";
+import { useApp } from "@switchboard/web-ui";
 import type {} from "@switchboard/web-board";
 import { useAccounts } from "./context.ts";
 import type { Say, Tone } from "./store.ts";

@@ -3,7 +3,7 @@
 // Поле — у своего владельца: модель, усилие, быстрый режим, заголовок — session.update; слот — session.slot; профиль — session.profile;
 // итог изменения — из следующего roster. Нет имени в contract — нет кнопки.
 import { useState } from "react";
-import { useApp, type Params } from "@switchboard/web-core";
+import type { Params } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useCard, useSession } from "./context.ts";
 import { LogTab } from "./LogTab.tsx";
@@ -12,7 +12,7 @@ import { SetTab } from "./SetTab.tsx";
 import { useWideData } from "./useWideData.ts";
 import { WideAside } from "./WideAside.tsx";
 import { WideHead } from "./WideHead.tsx";
-import { failText, isLive } from "@switchboard/web-ui";
+import { failText, isLive, useApp } from "@switchboard/web-ui";
 
 export function WideCard({ params }: { params: Params }) {
   const app = useApp();

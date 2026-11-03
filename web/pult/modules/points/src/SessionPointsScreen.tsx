@@ -1,8 +1,8 @@
 // Вкладка «Точки» карточки: пометка «в R2», последняя точка и действия, линия и ветки, снятие пометки.
 import { useCallback, useEffect, useState } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
+import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, Page, PageHead, plural, Sec } from "@switchboard/web-ui";
+import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, Page, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { nameOf, r2Of, say } from "./format.ts";
 import { PointDialog } from "./PointDialog.tsx";

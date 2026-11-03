@@ -1,8 +1,8 @@
 // Экран вопроса сессии: вопрос или форма, итог ответа и кто ещё видит вопрос. Выбор человека живёт в компоненте вопроса:
 // другой вопрос — другой ключ, выбор начат заново.
 import { useEffect } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
-import { BadCard, OkCard, Pad, WaitCard } from "@switchboard/web-ui";
+import type { ScreenProps } from "@switchboard/web-core";
+import { BadCard, OkCard, Pad, WaitCard, useApp } from "@switchboard/web-ui";
 import { AskForm } from "./AskForm.tsx";
 import { AskQuestions } from "./AskQuestions.tsx";
 import { useAsk } from "./context.ts";

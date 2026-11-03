@@ -1,7 +1,6 @@
 // Приглашение: форма и итог. Устройству — ссылки на пульт и телефон (QR — на телефон), программе и машине — приглашение строкой.
 import { useMemo } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn, Cmd, M, Opts, Sec } from "@switchboard/web-ui";
+import { Btn, Cmd, M, Opts, Sec, useApp } from "@switchboard/web-ui";
 import qrcode from "qrcode-generator";
 import { useSettings } from "./context.ts";
 import { NoteOf, StoredIn } from "./parts.tsx";

@@ -1,8 +1,8 @@
 // Окно «Имена» в месте вызывающего: закрылось — вызывающий получает close через app.Slot.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
+import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn } from "@switchboard/web-ui";
+import { Btn, useApp } from "@switchboard/web-ui";
 import { useLabels } from "./context.ts";
 
 export function LabelsScreen({ params, close }: ScreenProps) {

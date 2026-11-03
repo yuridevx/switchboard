@@ -1,8 +1,8 @@
 // Логика формы новой сессии. В снимке — только ввод человека; ответы машины читает useLoad, профиль, модель и слот вычисляются из них.
 import { useState } from "react";
-import { useApp, type Params, type Result } from "@switchboard/web-core";
+import type { Params, Result } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { profileIdOf, useLoad } from "@switchboard/web-ui";
+import { profileIdOf, useLoad, useApp } from "@switchboard/web-ui";
 import { useOpen } from "./context.ts";
 import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type FormView, type Listing, type Profiles, type Slots } from "./form.ts";
 

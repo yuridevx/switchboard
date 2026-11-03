@@ -1,8 +1,7 @@
 // Экран инцидентов: не доставленные обращения и сессии с инцидентом. Строка читает только своё и перерисовывается одна.
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel } from "@switchboard/web-ui";
+import { Btn, Dot, hhmm, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
 import { useIncidents } from "./context.ts";
 import { incOf, isOpen, type Lost } from "./store.ts";
 

@@ -3,7 +3,7 @@
 // Текст — состояние этого компонента (курсор при наборе не прыгает); в хранилище уходит черновик, отказ отправки возвращает текст и вложения.
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
-import { useApp } from "@switchboard/web-core";
+import { useApp } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";

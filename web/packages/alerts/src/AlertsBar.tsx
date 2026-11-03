@@ -1,5 +1,5 @@
 // Полоса «Включить уведомления» над экранами разделов; включены или браузер не умеет — полосы нет.
-import { useApp } from "@switchboard/web-core";
+import { useApp } from "@switchboard/web-ui";
 import { useAlerts } from "./context.ts";
 
 export function AlertsBar() {

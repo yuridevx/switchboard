@@ -1,7 +1,7 @@
 // Вкладка «Настройки» широкой карточки: профиль, быстрый режим, заголовок, слот, остановка и удаление.
 import { useState } from "react";
-import { useApp, type SessionRecord } from "@switchboard/web-core";
-import { CommitIn, Outcome, profileIdOf, profileName, useLoad } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/web-core";
+import { CommitIn, Outcome, profileIdOf, profileName, useLoad, useApp } from "@switchboard/web-ui";
 import { useCard } from "./context.ts";
 import { isDown, notAsked, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";

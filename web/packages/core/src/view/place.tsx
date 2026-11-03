@@ -1,9 +1,8 @@
 // Место экрана: граница ошибки и область стилей вокруг компонента модуля. Новые параметры — экран начат заново.
 import { Component, memo, type ReactNode } from "react";
-import { BadCard, Cta, Pad } from "@switchboard/web-ui";
+import { BadCard, Cta, Pad, AppCtx } from "@switchboard/web-ui";
 import { same } from "../same.ts";
 import type { Params, Screen, SlotProps } from "../types.ts";
-import { AppCtx } from "./context.ts";
 import { useCore } from "./core.ts";
 
 class Boundary extends Component<{ onError(e: unknown): void; children: ReactNode }, { failed: boolean }> {

@@ -1,8 +1,7 @@
 // Строка машины и её карточка: части по ответу keeper, перезапуск упавшей части. Строка читает только своё: изменилась другая машина — эта не перерисовывается.
 import { memo } from "react";
-import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, machineLabel, Note, Opts, plural } from "@switchboard/web-ui";
+import { Btn, Dot, hhmm, machineLabel, Note, Opts, plural, useApp } from "@switchboard/web-ui";
 import { useMachines } from "./context.ts";
 import { okOf, stateOf, type Part } from "./store.ts";
 

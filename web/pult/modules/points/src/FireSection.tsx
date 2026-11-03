@@ -1,7 +1,6 @@
 // «Пожар»: машины хозяина нет в roster. Плашка на машину и перенос её сессий: по одной, следующая — после ответа на предыдущую; points.save не шлётся.
 import { useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec } from "@switchboard/web-ui";
+import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./context.ts";
 import { folderText, nameOf, say } from "./format.ts";
 import { PickMachine } from "./parts.tsx";

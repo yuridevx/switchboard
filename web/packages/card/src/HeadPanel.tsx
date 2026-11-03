@@ -1,6 +1,5 @@
 // Группа «Шапка» в панели вида «Работы». Вернуть встроенное — команда card.view (app.open).
-import { useApp } from "@switchboard/web-core";
-import { Choices } from "@switchboard/web-ui";
+import { Choices, useApp } from "@switchboard/web-ui";
 import { useCard } from "./context.ts";
 import type { HeadView } from "./session.ts";
 

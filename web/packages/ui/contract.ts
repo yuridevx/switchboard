@@ -7,6 +7,8 @@ export const UI_CSS: string = css;
 export * from "./src/parts.tsx";
 export * from "./src/format.ts";
 export { personal } from "./src/personal.ts";
+export { AppCtx, useApp } from "./src/hooks.ts";
+export type { AppHandle } from "./src/hooks.ts";
 export { useLoad, useNow } from "./src/hooks.ts";
 export { machineAnswers } from "./src/machines.ts";
 export type { MachineAnswer, MachineAnswers } from "./src/machines.ts";

@@ -1,7 +1,7 @@
 // Экран аккаунтов: широкий вид — аккаунты и слоты рядом; узкий — переключатель.
 import { useEffect } from "react";
-import { useApp, type ScreenProps } from "@switchboard/web-core";
-import { Btn, Page, PageHead } from "@switchboard/web-ui";
+import type { ScreenProps } from "@switchboard/web-core";
+import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
 import { AccountsView } from "./AccountsView.tsx";
 import { ScreenCtx, useAccounts } from "./context.ts";
 import { useAccountsScreen } from "./screen.ts";

@@ -1,7 +1,6 @@
 // Диалоги аккаунтов: новый аккаунт, сессии слота, удаление.
 import { useState } from "react";
-import { useApp } from "@switchboard/web-core";
-import { Btn, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel } from "@switchboard/web-ui";
+import { Btn, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
 import { NoteLine } from "./parts.tsx";
 import { slotsWith, type Slot } from "./store.ts";

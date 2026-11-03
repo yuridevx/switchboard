@@ -1,9 +1,8 @@
 // Экран чата: полоса над лентой, лента и всё, что над вводом и под ней.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
-import { useApp } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Pad } from "@switchboard/web-ui";
+import { Pad, useApp } from "@switchboard/web-ui";
 import { ItemView, StepsRow } from "./cards/ItemView.tsx";
 import { Composer } from "./composer/Composer.tsx";
 import { CardsCtx, useChat, type CardsView } from "./context.ts";
