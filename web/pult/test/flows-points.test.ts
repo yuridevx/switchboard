@@ -62,6 +62,14 @@ describe("новая сессия", () => {
     expect(t.$(".op-at")!.textContent).toBe("→ fix@laptop");
   });
 
+  it("5315 · слотов на машине нет — строки «Слот» нет", async () => {
+    // источник: правило пользователя 2 нояб. — лейблы без информации убираются; живой снимок теста: «Слот» без слотов у win
+    const relay = openRelay();
+    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    const t = await openScreen(relay);
+    expect([...t.$$(".op .lb")].map((x) => x.textContent)).not.toContain("Слот");
+  });
+
   it("5311 · без сообщения — session.open (с профилем, папкой, слотом), «в R2» — session.r2, session.prompt нет; затем карточка", async () => {
     const t = await openScreen();
     await t.click(t.$('[data-act="open"]'));

@@ -256,7 +256,8 @@ export function createOpen(): AppModule {
             ? h("div", { class: "op-chips" }, pickOne(ms, pm, machine, pickM, { select: { "aria-label": "Другая машина", "data-f": "machine-more" }, button: (m) => ({ "data-machine": m }) }))
             : h("span", { class: "sb-note" }, "Нет машин на связи"),
         ),
-        can("machine.slots")
+        // слотов на машине нет — строки нет
+        can("machine.slots") && (refused["machine.slots"] || Object.keys(slots ?? {}).length)
           ? h(
               "div",
               { class: "op-fs" },
