@@ -169,8 +169,8 @@ describe("новая сессия", () => {
 
   it("6510 · уход со страницы посреди записи места: остановка ждёт записи, место сохранено", async () => {
     const relay = openRelay();
-    // карточка после открытия спрашивает многое: остановка ждёт и этих ответов
-    relay.handlers = new Proxy(relay.handlers, { get: (h, k: string) => h[k] ?? (k.startsWith("prefs.") ? undefined : () => ({ ok: true, result: k === "question.list" ? [] : { messages: [], appeals: [] } })) });
+    // карточка после открытия спрашивает многое: остановка ждёт и этих ответов, отказ словом экраны принимают
+    relay.handlers = new Proxy(relay.handlers, { get: (h, k: string) => h[k] ?? (k.startsWith("prefs.") ? undefined : () => ({ ok: false, error: "stand_no_handler" })) });
     const t = await openScreen(relay);
     await named(t, "a");
     await t.click(t.$('[data-act="open"]'));
