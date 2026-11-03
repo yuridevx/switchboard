@@ -517,6 +517,8 @@ describe("вкладка «Точки» сессии", () => {
     await flush();
     expect(t.$("[data-note]")!.textContent).toBe("Машины нет на связи");
     expect(t.$('[data-r2="off"]')).not.toBeNull();
+    // 6111 · после отказа галочка снята: следующий клик снова означает «включить»
+    expect(box.checked).toBe(false);
   });
 
   it("4176 · последняя точка не удалась — причина в заголовке вкладки", async () => {

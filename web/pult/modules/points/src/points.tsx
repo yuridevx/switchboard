@@ -806,7 +806,7 @@ export function createPoints(): AppModule {
             <Note>Точек нет: перенос, копия, откат, смена папки и «пожар» — только у сессий в R2.</Note>
             {app.can(machine, "session.r2") ? (
               <OptsLabel>
-                <input type="checkbox" data-act="r2" onChange={() => void mark(true)} />
+                <input type="checkbox" data-act="r2" checked={false} onChange={() => void mark(true)} />
                 Хранить в R2
               </OptsLabel>
             ) : null}
