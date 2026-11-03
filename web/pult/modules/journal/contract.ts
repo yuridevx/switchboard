@@ -5,7 +5,7 @@
 // after = последний id (отдельного канала нет). Журнал сессии (сбои из файлов машины) — вкладка карточки.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createJournal } from "./src/journal.tsx";
+import { createJournal } from "./src/module.tsx";
 
 export { createJournal };
 export const manifest: Manifest = json;

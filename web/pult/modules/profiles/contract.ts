@@ -3,7 +3,7 @@
 // Поиск, отбор «конфликты N». Одна кнопка «Синхронизировать» — machine.profiles { sync: true } по всем машинам. Своих данных нет.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createProfiles } from "./src/profiles.tsx";
+import { createProfiles } from "./src/module.tsx";
 
 export { createProfiles };
 export const manifest: Manifest = json;

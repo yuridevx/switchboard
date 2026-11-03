@@ -4,7 +4,7 @@
 // Хранит у почты: pult-open.recent — 5 своих последних мест.
 import type { AppModule, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import { createOpen } from "./src/open.tsx";
+import { createOpen } from "./src/module.tsx";
 
 export { createOpen };
 export const manifest: Manifest = json;
