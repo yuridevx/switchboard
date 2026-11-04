@@ -83,6 +83,8 @@ code{font-family:var(--mono)}
 .sb-row>span:first-child{color:var(--muted)}
 .sb-opts{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .sb-b{font:600 12.5px/1.2 var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 10px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+/* строка не сжимается в прокручиваемом списке: явный предел высоты снимает автоматический по содержимому */
+.sb-rw{flex-shrink:0}
 @media (pointer:coarse){.sb-b,.sb-rw,.sb-ds,.sb-tx,.sb-ic{min-height:32px}.sb-ic{min-width:32px}}
 .sb-b.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .sb-b.bad{color:var(--bad);border-color:var(--bad);background:transparent}
