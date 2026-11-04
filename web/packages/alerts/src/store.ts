@@ -1,60 +1,63 @@
-// Состояние уведомлений устройства и путь включения: разрешение → push.key → подписка браузера → push.subscribe.
-// Пуши, сохранённые обработчиком, — ядру при старте и возвращении на экран (кадр уходит владельцу по type).
+// Уведомления устройства: состояние, путь включения и забор пушей, которые сохранил обработчик.
+// Истина о подписке — у браузера и Worker'а push; здесь её нет.
 import { withLimit } from "@switchboard/protocol";
 import type { App } from "@switchboard/web-core";
 import { createStore, useModule } from "@switchboard/web-ui";
 import type { StoredPush } from "./sw.ts";
 
+type PushManagerLike = { getSubscription(): Promise<{ toJSON(): unknown } | null>; subscribe(o: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }): Promise<{ toJSON(): unknown }> };
+
 /** Что модуль берёт у браузера; в тестах — подделка. */
 export type BrowserPush = {
-  /** navigator.serviceWorker */
   sw?: {
     register(url: string): Promise<unknown>;
-    ready: Promise<{ pushManager: { getSubscription(): Promise<{ toJSON(): unknown } | null>; subscribe(o: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }): Promise<{ toJSON(): unknown }> } }>;
+    ready: Promise<{ pushManager: PushManagerLike }>;
     addEventListener(t: "message", fn: (e: { data: unknown }) => void): void;
   };
-  /** глобальный Notification */
   Notification?: { permission: string; requestPermission(): Promise<string> };
 };
 
 /** Состояние уведомлений устройства: off — браузер не умеет. */
 export type AlertsState = "off" | "ask" | "working" | "on" | "denied" | "error";
 
-/** base64url → байты: открытый ключ VAPID для applicationServerKey. */
-export function b64url(s: string): Uint8Array {
-  const b = atob(s.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (s.length % 4)) % 4));
-  return Uint8Array.from(b, (c) => c.charCodeAt(0));
-}
+/** Предел ожидания обработчика пушей. */
+const READY_MS = 10_000;
+/** Предел разрешения и подписки: человек думает, браузер может промолчать. */
+const ASK_MS = 120_000;
 
-/** Предел ожидания обработчика пушей: он не поднялся — отказ словом, а не вечное «включаю». */
-export const READY_MS = 10_000;
-/** Предел разрешения и подписки браузера: ни ответа, ни отказа — кнопка снова доступна. */
-export const ASK_MS = 120_000;
+const keyBytes = (b64u: string) => Uint8Array.from(atob(b64u.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(b64u.length / 4) * 4, "=")), (c) => c.charCodeAt(0));
+
+const globalPush = (): BrowserPush => ({
+  sw: globalThis.navigator?.serviceWorker as unknown as BrowserPush["sw"],
+  Notification: (globalThis as { Notification?: BrowserPush["Notification"] }).Notification,
+});
 
 export type AlertsStore = ReturnType<typeof createAlertsStore>;
-/** Стор модуля в экранах. */
 export const useAlerts = (): AlertsStore => useModule<AlertsStore>();
 
-/** browser — API пушей браузера (по умолчанию глобальные). */
 export function createAlertsStore(app: App, browser?: BrowserPush) {
-  const store = createStore<{ state: AlertsState; error: string }>({ state: "off", error: "" }, () => app.changed());
+  const { sw, Notification: permission } = browser ?? globalPush();
+  // обработчик ставится и без пушей: подделка стенда PushManager не объявляет
+  const supported = !!sw && !!permission && (browser !== undefined || "PushManager" in globalThis);
+  const s =createStore<{ state: AlertsState; error: string }>({ state: "off", error: "" }, () => app.changed());
+  const to = (state: AlertsState, error = "") =>
+    s.set((d) => {
+      d.state = state;
+      d.error = error;
+    });
+  const handler = () => withLimit(sw!.ready, READY_MS, () => null);
 
-  const env = (): BrowserPush =>
-    browser ?? {
-      sw: (globalThis.navigator as Navigator | undefined)?.serviceWorker as unknown as BrowserPush["sw"],
-      Notification: (globalThis as { Notification?: BrowserPush["Notification"] }).Notification,
-    };
-  const supported = () => {
-    const e = env();
-    return !!e.sw && !!e.Notification && (browser !== undefined || "PushManager" in globalThis);
-  };
-  const setState = (state: AlertsState) => store.set((s) => void (s.state = state));
+  /** Состояние по браузеру: что разрешено и есть ли подписка. */
+  async function look(): Promise<void> {
+    if (!supported) return to("off");
+    if (permission!.permission === "denied") return to("denied");
+    if (permission!.permission !== "granted") return to("ask");
+    const reg = await handler();
+    to(reg && (await reg.pushManager.getSubscription()) ? "on" : "ask");
+  }
 
-  /** Регистрация обработчика с пределом; не успел — null. */
-  const ready = (e: BrowserPush) => withLimit(e.sw!.ready, READY_MS, () => null);
-
-  /** Пуши из раздела pushes — ядру: владелец кадра рисует его как пришедший по связи. */
-  async function takePushes() {
+  /** Пуши из раздела pushes — ядру: владелец кадра рисует его как пришедший по связи; нажатый открывает его экран. */
+  async function takePushes(): Promise<void> {
     let taken: StoredPush[] = [];
     await app.store<StoredPush[]>("pushes").update((old) => {
       taken = old ?? [];
@@ -63,71 +66,55 @@ export function createAlertsStore(app: App, browser?: BrowserPush) {
     for (const p of taken) app.deliver({ type: p.type, from: p.from, notify: p.notify }, { open: !!p.clicked });
   }
 
-  async function check() {
-    if (!supported()) return setState("off");
-    const e = env();
-    if (e.Notification!.permission === "denied") setState("denied");
-    else if (e.Notification!.permission !== "granted") setState("ask");
-    else {
-      const reg = await ready(e);
-      setState(reg && (await reg.pushManager.getSubscription()) ? "on" : "ask");
+  async function collect(): Promise<void> {
+    await takePushes();
+    void look();
+  }
+
+  function fail(word: string): void {
+    console.error(`switchboard: уведомления не включены — ${word}`);
+    to("error", word);
+  }
+
+  /** Подписка браузера с пределом: отказ браузера и молчание — слово. */
+  async function subscribe(reg: { pushManager: PushManagerLike }, key: string): Promise<{ toJSON(): unknown } | string> {
+    try {
+      const silent = () => {
+        throw new Error("браузер не подписал за предел");
+      };
+      return await withLimit(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) }), ASK_MS, silent);
+    } catch (e) {
+      return e instanceof Error ? e.message : String(e);
     }
   }
 
-  function fail(word: string) {
-    console.error(`switchboard: уведомления не включены — ${word}`);
-    store.set((s) => {
-      s.state = "error";
-      s.error = word;
-    });
+  async function enable(): Promise<void> {
+    to("working");
+    // разрешение спрашивается только по нажатию
+    const answer = await withLimit(permission!.requestPermission(), ASK_MS, () => "default");
+    if (answer !== "granted") return to(answer === "denied" ? "denied" : "ask");
+    const key = await app.read<{ key: string }>("push.key");
+    if (!key.ok) return fail(key.error);
+    const reg = await handler();
+    if (!reg) return fail("обработчик пушей не поднялся");
+    const sub = await subscribe(reg, key.result.key);
+    if (typeof sub === "string") return fail(sub);
+    const r = await app.request("push.subscribe", { sub: sub.toJSON() });
+    if (!r.ok) return fail(r.error);
+    to("on");
+    app.toast("Уведомления включены: сессии достучатся, когда приложение закрыто.", "ok");
   }
 
-  async function collect() {
-    await takePushes();
-    void check();
-  }
-
-  return {
-    state: () => store.get().state,
-    error: () => store.get().error,
-    async enable() {
-      const e = env();
-      store.set((s) => {
-        s.state = "working";
-        s.error = "";
+  async function start(): Promise<void> {
+    if (sw) {
+      // обработчик открыл уже открытое окно — пуши забрать сразу
+      sw.addEventListener("message", (m) => {
+        if (m.data === "pushes") void takePushes();
       });
-      // разрешение спрашивается только по нажатию
-      const perm = await withLimit(e.Notification!.requestPermission(), ASK_MS, () => "default" as const);
-      if (perm !== "granted") return setState(perm === "denied" ? "denied" : "ask");
-      const k = await app.read<{ key: string }>("push.key");
-      if (!k.ok) return fail(k.error);
-      const reg = await ready(e);
-      if (!reg) return fail("обработчик пушей не поднялся");
-      let sub: { toJSON(): unknown };
-      try {
-        sub = await withLimit(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(k.result.key) }), ASK_MS, () => {
-          throw new Error("браузер не подписал за предел");
-        });
-      } catch (x) {
-        return fail(x instanceof Error ? x.message : String(x));
-      }
-      const r = await app.request("push.subscribe", { sub: sub.toJSON() });
-      if (!r.ok) return fail(r.error);
-      setState("on");
-      app.toast("Уведомления включены: сессии достучатся, когда приложение закрыто.", "ok");
-    },
-    async start() {
-      const e = env();
-      if (e.sw) {
-        // обработчик открыл уже открытое окно — пуши забрать сразу
-        e.sw.addEventListener("message", (m) => {
-          if (m.data === "pushes") void takePushes();
-        });
-        e.sw.register("sw.js").catch((x: unknown) => console.error("switchboard: обработчик пушей не зарегистрирован", x));
-      }
-      await collect();
-    },
-    /** Страница вернулась на экран: пуши, пришедшие без неё. */
-    show: collect,
-  };
+      sw.register("sw.js").catch((e: unknown) => console.error("switchboard: обработчик пушей не зарегистрирован", e));
+    }
+    await collect();
+  }
+
+  return { state: () => s.get().state, error: () => s.get().error, enable, start, show: collect };
 }
