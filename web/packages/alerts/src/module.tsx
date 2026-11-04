@@ -1,17 +1,21 @@
-// Снесено: экрана и уведомлений нет, пока модуль не написан заново. Типы — контракт модуля.
+// web-alerts: связка уведомлений с ядром приложения. Состояние — store.ts, экран — AlertsBar.tsx.
 import type { App, AppModule } from "@switchboard/web-core";
+import css from "./alerts.css";
+import { AlertsBar } from "./AlertsBar.tsx";
+import { createAlertsStore, type BrowserPush } from "./store.ts";
 
-/** Что модуль берёт у браузера; в тестах — подделка. */
-export type BrowserPush = {
-  sw?: {
-    register(url: string): Promise<unknown>;
-    ready: Promise<{ pushManager: { getSubscription(): Promise<{ toJSON(): unknown } | null>; subscribe(o: { userVisibleOnly: boolean; applicationServerKey: Uint8Array }): Promise<{ toJSON(): unknown }> } }>;
-    addEventListener(t: "message", fn: (e: { data: unknown }) => void): void;
+/** Функция модуля; browser — API пушей браузера, по умолчанию настоящие. */
+export const createAlerts =
+  (browser?: BrowserPush) =>
+  (app: App): AppModule => {
+    const alerts = createAlertsStore(app, browser);
+    return {
+      state: alerts,
+      on: { show: alerts.show },
+      screens: { alerts: { place: "top", label: "Уведомления", view: AlertsBar } },
+      marks: { "alerts.state": alerts.state },
+      store: ["pushes"],
+      css,
+      start: alerts.start,
+    };
   };
-  Notification?: { permission: string; requestPermission(): Promise<string> };
-};
-
-/** Состояние уведомлений устройства: off — браузер не умеет. */
-export type AlertsState = "off" | "ask" | "working" | "on" | "denied" | "error";
-
-export const createAlerts = (_browser?: BrowserPush) => (_app: App): AppModule => ({});
