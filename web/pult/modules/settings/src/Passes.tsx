@@ -1,4 +1,5 @@
 // Вкладка «Пропуска»: машины и устройства, приглашение и отзыв. Это устройство не отзывается.
+import { useState } from "react";
 import { Btn, M, Note, Opts, Pill, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
 import { Invited, InviteForm } from "./Invite.tsx";
@@ -79,7 +80,7 @@ export function Passes() {
   const app = useApp();
   const settings = useSettings();
   const passes = app.use(() => settings.get().passes);
-  const inviting = app.use(() => settings.get().inviting);
+  const [inviting, setInviting] = useState(false);
   const invited = app.use(() => settings.get().invited);
   const ps = okOf(passes) ?? [];
   const me = ps.find((p) => p.role === "client" && p.name === app.name && p.state === "ok");
@@ -87,12 +88,12 @@ export function Passes() {
     <>
       <Opts>
         {inviting || invited ? null : (
-          <Btn pri onClick={settings.startInvite}>
+          <Btn pri onClick={() => setInviting(true)}>
             Пригласить
           </Btn>
         )}
       </Opts>
-      {inviting ? <InviteForm f={inviting} /> : invited ? <Invited x={invited} /> : null}
+      {inviting ? <InviteForm close={() => setInviting(false)} /> : invited ? <Invited x={invited} /> : null}
       {passes && "error" in passes ? (
         <Note tone="bad" role="alert">{`keys.list: ${passes.error}`}</Note>
       ) : passes ? null : (

@@ -17,6 +17,7 @@ export function createSettings(app: App): AppModule {
     state: settings,
     on: { roster: settings.onRoster },
     screens: {
+      "keeper.reload": { label: "Ответ keeper", path: "keeper-reload", run: (p) => settings.reloadKeeper(p.machine ?? "") },
       settings: {
         nav: "Настройки",
         group: "Флот",
@@ -27,7 +28,7 @@ export function createSettings(app: App): AppModule {
           TABS.filter(([, l]) => !q || l.toLowerCase().includes(q)).map(([tab, l]) => ({ label: `Настройки: ${l.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
       },
     },
-    marks: { "keeper.answers": () => settings.keeper() },
+    marks: { "keeper.answers": () => settings.keeperAnswers },
     css,
   };
 }

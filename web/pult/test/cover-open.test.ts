@@ -33,6 +33,24 @@ const chipProf = (t: T) => t.$('[data-pop="prof"] b')!.textContent;
 const start = (t: T) => t.click(t.$('[data-act="open"]'));
 
 describe("новая сессия: выбор", () => {
+  it("7254 · машина научилась точкам при открытом окне модели — переключатель появляется", async () => {
+    // источник: чьё: код — переключатель виден, когда машина умеет session.r2; roster меняется и при открытом окне
+    const relay = openRelay();
+    const without = fleetRoster();
+    without.machines = without.machines.map((m) => {
+      const contract = { ...m.contract };
+      delete contract["session.r2"];
+      return { ...m, contract };
+    });
+    relay.setRoster(without);
+    const t = await openScreen(relay);
+    await t.click(chipModel(t));
+    expect(t.$("[data-r2]")).toBeNull();
+    relay.setRoster(fleetRoster());
+    await flush(5);
+    expect(t.$("[data-r2]")).not.toBeNull();
+  });
+
   it("6910 · другая машина: профиль и слот снова по умолчанию", async () => {
     // источник: чьё: код — выбранных там может не быть
     const t = await openScreen();

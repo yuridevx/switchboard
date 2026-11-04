@@ -1,13 +1,14 @@
 {
   "name": "pult-machines",
   "type": "web",
-  "version": "4.1.0",
+  "version": "4.2.0",
   "into": [
     "pult",
     "phone"
   ],
   "provides": {
-    "machines": 1
+    "machines": 1,
+    "machines.gone": 1
   },
   "uses": {
     "view@web-view": 19,
@@ -16,7 +17,8 @@
     "app@web-core": 2,
     "roster@relay": 1,
     "accounts@pult-accounts": 1,
-    "keeper.answers@pult-settings": 1,
+    "keeper.answers@pult-settings": 2,
+    "keeper.reload@pult-settings": 1,
     "releases.set@releases": 1,
     "project.current@web-board": 2,
     "project.machines@web-board": 2,

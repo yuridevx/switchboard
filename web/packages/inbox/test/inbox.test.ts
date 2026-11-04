@@ -8,6 +8,7 @@ import { createAsk, manifest as askM } from "@switchboard/web-ask";
 import { createBoard, manifest as boardM } from "@switchboard/web-board";
 import { createCard, manifest as cardM } from "@switchboard/web-card";
 import { createChat, manifest as chatM } from "@switchboard/web-chat";
+import { createMachines, manifest as machinesM } from "../../../pult/modules/machines/contract.ts";
 import { createInbox, manifest as inboxM } from "../contract.ts";
 import { flush, homeRoster, stand } from "../../core/stand/app.ts";
 
@@ -18,6 +19,8 @@ const parts = () => [
   { manifest: chatM, module: createChat },
   { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
+  // когда машина ушла, знает её владелец: настоящий модуль машин
+  { manifest: machinesM, module: createMachines },
 ];
 
 /** Я — phone~you@mail. Мои: site, wait, fail; чужая — anna. */

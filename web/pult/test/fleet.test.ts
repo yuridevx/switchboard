@@ -346,7 +346,8 @@ describe("эталоны пульта: точки", () => {
     await t.click(t.$('[data-callsign="wiki@laptop"]'));
     await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
     expect(t.$('[data-r2="off"] b')!.textContent).toBe("wiki@laptop не в R2");
-    expect(relay.sent("points.list")).toHaveLength(0);
+    // реестр прочитан один раз при первом roster; линия сессии не спрашивалась
+    expect(relay.sent("points.list").filter((f) => f.sid)).toHaveLength(0);
     expect(relay.sent("points.get")).toHaveLength(0);
     expect(t.btn(null, "Перенести…")).toBeNull();
     expect(t.btn(null, "Сменить папку…")).toBeNull();

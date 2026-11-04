@@ -1,10 +1,11 @@
 // Состояние машин: ответы keeper, итоги перезапуска и ушедшие машины. Roster их больше не несёт — помнит, пока страница открыта.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, type MachineAnswers, useModule, okOf } from "@switchboard/web-ui";
+import { createStore, type MachineAnswer, useModule, okOf } from "@switchboard/web-ui";
+import type { KeeperState, KeeperPart } from "../../settings/contract.ts";
 
-export type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
-export type KeeperState = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
-export type KeeperReply = KeeperState | { error: string };
+export type { KeeperState };
+export type Part = KeeperPart;
+export type KeeperReply = MachineAnswer<KeeperState>;
 /** Состояние строки: на связи, сбой части, ушла. */
 export type Mst = "ok" | "fail" | "gone";
 type Notice = { text: string; tone: "ok" | "bad" | "wait" | undefined };
@@ -32,7 +33,7 @@ export const useMachines = (): MachinesStore => useModule<MachinesStore>();
 
 export function createMachinesStore(app: App) {
   /** Ответы keeper'ов — у владельца, модуля настроек; своей копии нет. */
-  const keeper = () => app.mark("keeper.answers") as MachineAnswers<KeeperState> | undefined;
+  const keeper = () => app.mark("keeper.answers");
   const store = createStore<State>({ notes: {}, seen: {}, gone: {} }, () => app.changed());
 
   const note = (k: string, text: string, tone?: "ok" | "bad") => store.set((s) => void (s.notes[k] = { text, tone }));
@@ -59,7 +60,7 @@ export function createMachinesStore(app: App) {
       const on = await app.request("releases.set", { machine: m, part, on: true });
       if (!on.ok) return note(k, `releases.set: ${on.error}`, "bad");
       note(k, "выключена и включена по плану", "ok");
-      void keeper()?.reload(m);
+      if (keeper()) app.open("keeper.reload", { machine: m });
     },
     states: () => keeper()?.get() ?? NONE,
     gone: () => store.get().gone,

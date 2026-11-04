@@ -59,6 +59,7 @@ describe("машины", () => {
     const card = t.$('[data-machine="pc"]')!;
     expect(card.textContent).toContain("exit 2: порт 9400 занят");
     expect(t.btn(card, "Перезапустить")).not.toBeNull();
+    const keeperAsked = relay.sent("keeper.state").filter((f) => f.to === ".keeper@pc").length;
     await t.click(t.btn(card, "Перезапустить"));
     await flush(5);
     expect(relay.sent("releases.set").map((f) => [f.machine, f.part, f.on])).toEqual([
@@ -66,6 +67,10 @@ describe("машины", () => {
       ["pc", "nvidia-exporter", true],
     ]);
     expect(t.$('[data-machine="pc"]')!.textContent).toContain("выключена и включена по плану");
+    // 7252: перезапуск перечитывает keeper командой keeper.reload и не уводит с экрана
+    expect(location.hash).toContain("machines");
+    await flush(10);
+    expect(relay.sent("keeper.state").filter((f) => f.to === ".keeper@pc").length).toBeGreaterThan(keeperAsked);
     await t.click(t.$('[data-row="pc"] .mc-head'));
     expect(t.$('[data-machine="pc"]')).toBeNull();
   });

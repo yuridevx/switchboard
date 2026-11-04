@@ -2,9 +2,10 @@
 import { useState } from "react";
 import { Btn, day, H4, In, M, Note, Opts, PageHead, plural, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
-import { nameOf, say } from "./format.ts";
+import { canRaise, nameOf, say } from "./format.ts";
 import { CheckLine, PickMachine } from "./parts.tsx";
 import type { CheckResult, FleetSession } from "./store.ts";
+import { useTargetPick } from "./useTargetPick.ts";
 
 type Del = { sid: string; name: string; typed: string };
 type Move = { s: FleetSession; target: string; slot: string; dir: string; check: CheckResult | null; phase: "" | "run" | "done" | "err"; msg: string };
@@ -50,7 +51,7 @@ function MoveDialog({ d, pick, run, close }: { d: Move; pick(m: string): void; r
       <Opts>
         <Btn onClick={close}>{d.phase === "done" ? "Закрыть" : "Отмена"}</Btn>
         {d.phase !== "done" ? (
-          <Btn pri disabled={d.phase === "run" || !d.check || "error" in d.check || d.check.folder === "other"} onClick={run}>
+          <Btn pri disabled={d.phase === "run" || !canRaise(d.check)} onClick={run}>
             {`Поднять на ${d.target}`}
           </Btn>
         ) : null}
@@ -62,11 +63,12 @@ function MoveDialog({ d, pick, run, close }: { d: Move; pick(m: string): void; r
 export function OnlySection({ only }: { only: FleetSession[] }) {
   const app = useApp();
   const points = usePoints();
-  const canRaise = app.use(() => points.raisers().length > 0);
+  const hasRaisers = app.use(() => points.raisers().length > 0);
   const [q, setQ] = useState("");
   const [del, setDel] = useState<Del | null>(null);
   const [done, setDone] = useState("");
   const [move, setMove] = useState<Move | null>(null);
+  const pick = useTargetPick(setMove);
 
   async function remove(d: Del) {
     const r = await points.deleteSession(d.sid);
@@ -75,12 +77,7 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
     setDone(`${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`);
   }
 
-  async function pickTarget(target: string, s: FleetSession, dir: string) {
-    setMove((m) => m && { ...m, target });
-    const { slots, checks } = await points.probe(target, [{ sid: s.sid, point: s.head.id, dir }]);
-    // выбрали другую машину, пока шёл ответ — он устарел
-    setMove((m) => m && m.target === target ? { ...m, slot: slots?.[0] ?? "", check: checks[0] } : m);
-  }
+  const pickTarget = (target: string, s: FleetSession, dir: string) => pick(target, [{ sid: s.sid, point: s.head.id, dir }], (m, { slots, checks }) => ({ ...m, slot: slots?.[0] ?? "", check: checks[0] }));
 
   function openMove(s: FleetSession) {
     const target = points.raisers()[0] ?? "";
@@ -126,7 +123,7 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
               >
                 Удалить…
               </Btn>
-              {canRaise ? <Btn onClick={() => openMove(s)}>Перенести на машину…</Btn> : null}
+              {hasRaisers ? <Btn onClick={() => openMove(s)}>Перенести на машину…</Btn> : null}
             </Opts>
             {del?.sid === s.sid ? <DeleteDialog d={del} type={(typed) => setDel((x) => x && { ...x, typed })} cancel={() => setDel(null)} remove={() => void remove(del)} /> : null}
             {move?.s.sid === s.sid ? <MoveDialog d={move} pick={(m) => void pickTarget(m, move.s, move.dir)} run={() => void runMove(move)} close={() => setMove(null)} /> : null}

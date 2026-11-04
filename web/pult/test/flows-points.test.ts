@@ -295,6 +295,21 @@ async function points(relay = fireRelay()) {
 }
 
 describe("обзор точек", () => {
+  it("7251 · машина ушла до открытия: карточка «Вам» считает машины, а не сессии, и знает о ней без экрана точек", async () => {
+    // источник: подпись карточки «машин не на связи»; ушедшие до открытия знает модуль точек
+    const relay = pointsRelay();
+    const row = (sid: string) => ({ sid, callsign: `${sid}@old`, dir: "~/x", owner: "old", head: { id: 1, at: at(8, 0) }, points: 1, branches: 0 });
+    relay.handlers["points.list"] = () => ({ ok: true, result: { sessions: [row("a"), row("b"), row("c")], r2: { bytes: 0, blocks: 0 }, sweep: null } });
+    const t = await pult({ relay, url: "/#inbox" });
+    await flush(10);
+    expect(t.$('[data-kind="fire"]')!.textContent).toContain("машин не на связи: 1");
+    // реестр спрошен один раз: новый roster его не перечитывает; журнал — только с экрана точек
+    relay.setRoster(relay.roster);
+    await flush();
+    expect(relay.sent("points.list")).toHaveLength(1);
+    expect(relay.sent("ledger.read")).toHaveLength(0);
+  });
+
   it("4163 · обзор реестра: в R2, только в R2, не в R2, объём и уборка", async () => {
     const relay = pointsRelay();
     relay.handlers["points.list"] = () => ({

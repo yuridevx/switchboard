@@ -1,14 +1,14 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "into": [
     "pult"
   ],
   "provides": {
     "points": 1,
     "session.points": 1,
-    "fire": 1
+    "fire": 2
   },
   "uses": {
     "view@web-view": 19,

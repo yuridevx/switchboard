@@ -12,17 +12,18 @@ const repoOf = (id: string) => id.slice(0, id.lastIndexOf("/"));
 function rowsOf(answers: Readonly<Record<string, MachineAnswer<Answer>>>) {
   const out = new Map<string, { id: string; about: string; model: string; effort: string; ms: string[]; cf: Array<{ m: string; repo: Repo }> }>();
   for (const [m, a] of Object.entries(answers)) {
-    if ("error" in a) continue;
-    for (const [id, p] of Object.entries(a.profiles)) {
+    const ok = okOf(a);
+    if (!ok) continue;
+    for (const [id, p] of Object.entries(ok.profiles)) {
       const row = out.get(id) ?? { id, about: p.about ?? "", model: p.model ?? "", effort: p.effort ?? "", ms: [], cf: [] };
       row.ms.push(m);
       out.set(id, row);
-      const repo = a.repos[repoOf(id)];
+      const repo = ok.repos[repoOf(id)];
       if (!repo || repo.state === "ok") continue;
       // файлы конфликта — под папками профилей: конфликт у того, чьи файлы; ни под чьей — у всех профилей репозитория
       const files = repo.files ?? [];
       const own = files.filter((f) => f.startsWith(`${short(id)}/`));
-      const anyone = files.some((f) => Object.keys(a.profiles).some((x) => f.startsWith(`${short(x)}/`)));
+      const anyone = files.some((f) => Object.keys(ok.profiles).some((x) => f.startsWith(`${short(x)}/`)));
       if (own.length || !anyone) row.cf.push({ m, repo: { ...repo, files: own.length ? own : files } });
     }
   }

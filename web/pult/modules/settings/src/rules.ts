@@ -7,7 +7,7 @@ export type Listed = {
   rev: number;
   modules?: Record<string, { into: string[]; built: Record<string, string>; edge: string | null }>;
 };
-export type KPart = { part: string; version?: string; state?: string; error?: string };
+export type KPart = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 export type KState = { keeper?: string; rev?: number; os?: string; parts?: KPart[] };
 export type Err = { error: string };
 export type Cell = { k: "ok" | "upd" | "behind" | "fail" | "off" | "gone"; t: string; pin?: string; why?: string };
@@ -65,8 +65,9 @@ export function cellOf(d: ReleaseData, m: string, part: string): Cell | null {
   const pin = pe?.pin;
   const want = pin ?? stableOf(d, part);
   const online = d.online.includes(m);
-  const kp = st && !("error" in st) ? (part === "keeper" && st.keeper ? { part, version: st.keeper, state: "running", error: undefined } : st.parts?.find((x) => x.part === part)) : undefined;
-  if (!online || !st || "error" in st) return kp || pe || want ? { k: "gone", t: kp?.version ?? want ?? "—", pin } : null;
+  const ok = okOf(st);
+  const kp = ok ? (part === "keeper" && ok.keeper ? { part, version: ok.keeper, state: "running", error: undefined } : ok.parts?.find((x) => x.part === part)) : undefined;
+  if (!online || !ok) return kp || pe || want ? { k: "gone", t: kp?.version ?? want ?? "—", pin } : null;
   if (!kp && !pe) return null;
   if (pe?.on === false) return { k: "off", t: "выключена", pin };
   if (kp?.state === "failed") return { k: "fail", t: `${kp.version ?? "?"} · сбой`, pin, why: kp.error };
@@ -77,7 +78,7 @@ export function cellOf(d: ReleaseData, m: string, part: string): Cell | null {
 /** Части машин: из каталога и из ответов keeper'ов; host и keeper — первыми. */
 export function machineParts(d: ReleaseData): string[] {
   const fromList = Object.entries(listed(d)?.parts ?? {}).filter(([, p]) => p.where === "machine").map(([n]) => n);
-  const seen = Object.values(d.kst).flatMap((s) => ("error" in s ? [] : (s.parts ?? []).map((p) => p.part)));
+  const seen = Object.values(d.kst).flatMap((s) => (okOf(s)?.parts ?? []).map((p) => p.part));
   const rank = (p: string) => (p === "host" ? 0 : p === "keeper" ? 1 : 2);
   return [...new Set([...fromList, ...seen])].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }

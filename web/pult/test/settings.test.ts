@@ -183,6 +183,7 @@ describe("pult-settings", () => {
     const who = t.$<HTMLInputElement>('[aria-label="Почта"]')!;
     who.value = "you@mail";
     who.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
     await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
     expect(t.sent("keys.invite").at(-1)).toMatchObject({ role: "client", name: "laptop2", person: "you@mail", to: ".gate" });
     const inv = "k9ab.SECRETsecretSECRETsecretSECRETsecret1234567";
@@ -230,6 +231,20 @@ describe("pult-settings", () => {
     await t.go("#settings?tab=general");
     expect(submit).toHaveBeenCalledTimes(1);
     submit.mockRestore();
+  });
+
+  it("7253 · машина из адреса выбрана при открытии; поиск и выбор — местные: окно плана закрывается, поиск сужает таблицу", async () => {
+    // источник: чьё: код — машина из адреса открывает план; поиск экрана держит сам экран
+    const t = await settings({ url: "/#settings?tab=releases&machine=pc" });
+    await flush(10);
+    expect(t.$('.st-mx tr[data-machine="pc"]')!.getAttribute("aria-current")).toBe("true");
+    await t.click(t.$('[aria-label="Закрыть"]'));
+    expect(t.$('.st-mx tr[aria-current="true"]')).toBeNull();
+    const q = t.$<HTMLInputElement>('[data-f="rq"]')!;
+    q.value = "lapt";
+    q.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    expect(t.$$('.st-mx tbody tr').map((x) => x.getAttribute("data-machine"))).toEqual(["laptop"]);
   });
 
   it("5506 · GitHub вернул ?code= — «Сохранить приложение» сохраняет его github.setup; поиск Ctrl K находит вкладки настроек", async () => {

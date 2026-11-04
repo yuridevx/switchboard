@@ -59,7 +59,7 @@ function PlanPart({ m, p }: { m: string; p: string }) {
   );
 }
 
-export function MachinePlan({ m }: { m: string }) {
+export function MachinePlan({ m, close }: { m: string; close(): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(settings.releaseData);
@@ -71,7 +71,7 @@ export function MachinePlan({ m }: { m: string }) {
           <b>{`@${m}`}</b>
         </M>
         {okOf(st)?.os ? <Note>{okOf(st)!.os}</Note> : null}
-        <Btn aria-label="Закрыть" onClick={() => settings.pickMachine(null)}>
+        <Btn aria-label="Закрыть" onClick={close}>
           ✕
         </Btn>
       </PageHead>

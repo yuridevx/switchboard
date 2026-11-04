@@ -11,6 +11,7 @@ export function createPoints(app: App): AppModule {
   const points = createPointsStore(app);
   return {
     state: points,
+    on: { roster: points.onRoster },
     screens: {
       points: {
         nav: "Точки",
@@ -28,7 +29,7 @@ export function createPoints(app: App): AppModule {
         view: SessionPointsScreen,
       },
     },
-    marks: { fire: () => points.fireCount() },
+    marks: { fire: points.fireMachines },
     css,
   };
 }

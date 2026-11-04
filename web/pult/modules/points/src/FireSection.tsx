@@ -2,15 +2,16 @@
 import { useState } from "react";
 import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
-import { folderText, nameOf, say } from "./format.ts";
+import { canRaise, folderText, nameOf, say } from "./format.ts";
 import { PickMachine } from "./parts.tsx";
 import type { CheckResult, FleetSession } from "./store.ts";
+import { useTargetPick } from "./useTargetPick.ts";
 
 type FireRow = { s: FleetSession; dir: string; slot: string; check: CheckResult | null; st: string };
 type Fire = { from: string; target: string; rows: FireRow[]; run: boolean; done: number };
 
 function FireDialog({ f, pick, run, close }: { f: Fire; pick(m: string): void; run(): void; close(): void }) {
-  const ready = f.rows.every((r) => r.check && !("error" in r.check) && r.check.folder !== "other");
+  const ready = f.rows.every((r) => canRaise(r.check));
   return (
     <Sec dlg data-dlg="fire">
       <H4>{`Перенести сессии ${f.from} на другую машину`}</H4>
@@ -56,15 +57,12 @@ function FireDialog({ f, pick, run, close }: { f: Fire; pick(m: string): void; r
 export function FireSection({ fires, left }: { fires: Array<[string, FleetSession[]]>; left: Record<string, number> }) {
   const app = useApp();
   const points = usePoints();
-  const canRaise = app.use(() => points.raisers().length > 0);
+  const hasRaisers = app.use(() => points.raisers().length > 0);
   const [fire, setFire] = useState<Fire | null>(null);
+  const pickTarget = useTargetPick(setFire);
 
-  async function pick(target: string, rows: FireRow[]) {
-    setFire((f) => f && { ...f, target });
-    const { slots, checks } = await points.probe(target, rows.map((r) => ({ sid: r.s.sid, point: r.s.head.id, dir: r.dir })));
-    // выбрали другую машину, пока шёл ответ — он устарел
-    setFire((f) => f && f.target === target ? { ...f, rows: f.rows.map((r, i) => ({ ...r, slot: slots ? (slots[0] ?? "") : r.slot, check: checks[i] })) } : f);
-  }
+  const pick = (target: string, rows: FireRow[]) =>
+    pickTarget(target, rows.map((r) => ({ sid: r.s.sid, point: r.s.head.id, dir: r.dir })), (f, { slots, checks }) => ({ ...f, rows: f.rows.map((r, i) => ({ ...r, slot: slots ? (slots[0] ?? "") : r.slot, check: checks[i] })) }));
 
   function open(from: string, list: FleetSession[]) {
     const target = points.raisers()[0] ?? "";
@@ -91,7 +89,7 @@ export function FireSection({ fires, left }: { fires: Array<[string, FleetSessio
         <Sec key={m} tone="bad" data-fire={m}>
           <b>{`${m} не на связи${left[m] ? ` с ${hhmm(left[m])}` : ""} · ${list.length} ${plural(list.length, "сессия ждёт", "сессии ждут", "сессий ждут")} на последних точках`}</b>
           <Note>{`Что ${m} допишет после точек, вернётся веткой, если он появится.`}</Note>
-          {!fire && canRaise ? (
+          {!fire && hasRaisers ? (
             <Opts>
               <Btn pri onClick={() => open(m, list)}>
                 Перенести на другую машину…

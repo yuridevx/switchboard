@@ -1,15 +1,14 @@
 // Матрица выпусков: машина × часть по ответам keeper'ов и плану; поиск, отметка машин, выбор машины для её плана.
-import { Dot, Note, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
+import { useState } from "react";
+import { Dot, In, Note, PageHead, plural, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { StoredIn } from "./parts.tsx";
 import { cellOf, machineParts, relMachines } from "./rules.ts";
 
-export function Matrix() {
+export function Matrix({ rm, pick }: { rm: string | null; pick(m: string | null): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(settings.releaseData);
-  const rq = app.use(() => settings.get().rq);
-  const rm = app.use(() => settings.get().rm);
+  const [rq, setRq] = useState("");
   const rsel = app.use(() => settings.get().rsel);
   const parts = machineParts(d);
   const q = rq.trim().toLowerCase();
@@ -17,7 +16,7 @@ export function Matrix() {
   return (
     <Sec className="st-matrix">
       <PageHead>
-        <StoredIn className="st-rq" data-f="rq" placeholder="Найти машину" aria-label="Найти машину" initial={rq} onValue={settings.setMachineQuery} />
+        <In className="st-rq" data-f="rq" placeholder="Найти машину" aria-label="Найти машину" value={rq} onInput={(e) => setRq(e.currentTarget.value)} />
         <Note className="st-end">{`${ms.length} ${plural(ms.length, "машина", "машины", "машин")}`}</Note>
       </PageHead>
       <div className="st-scroll">
@@ -36,7 +35,8 @@ export function Matrix() {
             {ms.map((m) => {
               const st = d.kst[m];
               const online = d.online.includes(m);
-              const tone = !online ? "stop" : st && "error" in st ? "wait" : parts.some((p) => cellOf(d, m, p)?.k === "fail") ? "wait" : "idle";
+              const ok = okOf(st);
+              const tone = !online ? "stop" : st && !ok ? "wait" : parts.some((p) => cellOf(d, m, p)?.k === "fail") ? "wait" : "idle";
               return (
                 <tr key={m} data-machine={m} aria-current={rm === m ? "true" : undefined}>
                   <td>
@@ -45,7 +45,7 @@ export function Matrix() {
                     </button>
                   </td>
                   <td>
-                    <button className="st-mn" onClick={() => settings.pickMachine(rm === m ? null : m)}>
+                    <button className="st-mn" onClick={() => pick(rm === m ? null : m)}>
                       <Dot kind={tone} />
                       {`@${m}`}
                     </button>
@@ -65,7 +65,7 @@ export function Matrix() {
                     );
                   })}
                   <td>
-                    <Note>{st && !("error" in st) ? `rev ${st.rev ?? 0}` : online ? (st ? `keeper: ${st.error}` : "…") : "не на связи"}</Note>
+                    <Note>{ok ? `rev ${ok.rev ?? 0}` : !online ? "не на связи" : st && "error" in st ? `keeper: ${st.error}` : "…"}</Note>
                   </td>
                 </tr>
               );

@@ -1,9 +1,9 @@
 // Экран настроек: заголовок с вкладками и содержимое вкладки. Новые параметры адреса — экран начат заново.
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { Device, Github, PostForm } from "./General.tsx";
+import { Device, Github } from "./General.tsx";
 import { Passes } from "./Passes.tsx";
 import { Releases } from "./ReleasesTab.tsx";
 
@@ -32,10 +32,7 @@ export function SettingsScreen({ params }: ScreenProps) {
   const app = useApp();
   const settings = useSettings();
   const tab: Tab = !app.wide ? "general" : params.tab === "passes" || params.tab === "general" ? params.tab : "releases";
-  const posting = app.use(() => settings.get().posting);
 
-  // машина и код GitHub из адреса — до первого рисунка на экране
-  useLayoutEffect(() => settings.adopt(params.machine, new URLSearchParams(location.search).get("code") ?? ""), [settings, params.machine]);
   // при открытии — ответы владельцев своей вкладки
   useEffect(() => settings.openTab(tab), [settings, tab]);
 
@@ -43,7 +40,7 @@ export function SettingsScreen({ params }: ScreenProps) {
     <Page>
       {app.wide ? <PageHead title="Настройки"><Tabs tab={tab} /></PageHead> : null}
       {tab === "releases" ? (
-        <Releases />
+        <Releases machine={params.machine} />
       ) : tab === "passes" ? (
         <Passes />
       ) : (
@@ -52,7 +49,6 @@ export function SettingsScreen({ params }: ScreenProps) {
           <Device />
         </>
       )}
-      {posting ? <PostForm form={posting} sent={settings.posted} /> : null}
     </Page>
   );
 }

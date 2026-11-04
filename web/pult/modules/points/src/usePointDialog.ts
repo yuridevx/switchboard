@@ -4,6 +4,7 @@ import { machineOf } from "@switchboard/protocol";
 import { usePoints } from "./store.ts";
 import { nameOf, say } from "./format.ts";
 import type { CheckResult } from "./store.ts";
+import { useTargetPick } from "./useTargetPick.ts";
 
 export type DialogKind = "move" | "copy" | "dir" | "rb";
 export type Dialog = {
@@ -26,6 +27,7 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
   const points = usePoints();
   const machine = machineOf(callsign) ?? "";
   const [dlg, setDlg] = useState<Dialog | null>(null);
+  const pick = useTargetPick(setDlg);
 
   async function check(d: Dialog) {
     // слоты цели не пришли — проверка остаётся отказом, подъём недоступен
@@ -35,13 +37,10 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
     setDlg((x) => x && { ...x, check: c });
   }
 
-  async function pickTarget(d: Dialog, m: string) {
-    setDlg((x) => x && { ...x, target: m });
+  function pickTarget(d: Dialog, m: string) {
     const point = d.from === "fresh" ? points.line(sid)?.head : d.from;
-    const { slots, checks } = await points.probe(m, [{ sid, point, dir: d.dir }]);
     const cur = String((points.session(callsign)?.slot as { name?: string } | undefined)?.name);
-    // выбрали другую машину, пока шёл ответ — он устарел
-    setDlg((x) => x && x.target === m ? { ...x, slots, slot: slots ? (slots.includes(cur) ? cur : (slots[0] ?? "")) : x.slot, check: checks[0] } : x);
+    return pick(m, [{ sid, point, dir: d.dir }], (x, { slots, checks }) => ({ ...x, slots, slot: slots ? (slots.includes(cur) ? cur : (slots[0] ?? "")) : x.slot, check: checks[0] }));
   }
 
   function open(kind: DialogKind, from: "fresh" | number = "fresh") {

@@ -18,6 +18,8 @@ type State = {
   fleet: Fleet | null;
   /** слово отказа последнего points.list реестра */
   fleetRefused: string;
+  /** реестр уже спрошен при первом roster */
+  fleetAsked: boolean;
   lines: Record<string, Line>;
   full: Record<number, Full>;
   /** когда машина ушла из флота: журнал флота */
@@ -32,31 +34,39 @@ export type PointsStore = ReturnType<typeof createPointsStore>;
 export const usePoints = (): PointsStore => useModule<PointsStore>();
 
 export function createPointsStore(app: App) {
-  const store = createStore<State>({ fleet: null, fleetRefused: "", lines: {}, full: {}, left: {} }, () => app.changed());
+  const store = createStore<State>({ fleet: null, fleetRefused: "", fleetAsked: false, lines: {}, full: {}, left: {} }, () => app.changed());
 
   const fleet = () => store.get().fleet;
   const session = (callsign: string): SessionRecord | undefined => sessionOf(app, callsign);
   const onlineMachines = () => new Set(machinesWith(app));
 
-  async function loadFleet() {
+  async function readRegistry() {
     const r = await app.request<Fleet>("points.list", {});
-    const next = r.ok ? r.result : fleet();
-    // «пожар»: машины хозяина нет в roster — когда ушла, скажет журнал флота
+    store.set((s) => {
+      if (r.ok) s.fleet = r.result;
+      s.fleetRefused = r.ok ? "" : r.error;
+    });
+  }
+
+  /** «Пожар»: машины хозяев, которых нет в roster. */
+  function fireMachines(): string[] {
     const on = onlineMachines();
-    const gone = new Set((next?.sessions ?? []).filter((s) => !on.has(s.owner)).map((s) => s.owner));
+    return [...new Set((fleet()?.sessions ?? []).map((s) => s.owner))].filter((m) => !on.has(m));
+  }
+
+  async function loadFleet() {
+    await readRegistry();
+    // когда машина хозяина ушла, скажет журнал флота
+    const gone = fireMachines();
     const left: Record<string, number> = {};
     await Promise.all(
-      [...gone].map(async (m) => {
+      gone.map(async (m) => {
         const j = await app.request<{ events: Array<{ t: number; ev: string }> }>("ledger.read", { machine: m, limit: 1 });
         const e = j.ok ? j.result.events.find((x) => x.ev === "machine.left") : undefined;
         if (e) left[m] = e.t;
       }),
     );
-    store.set((s) => {
-      if (r.ok) s.fleet = r.result;
-      s.fleetRefused = r.ok ? "" : r.error;
-      Object.assign(s.left, left);
-    });
+    store.set((s) => void Object.assign(s.left, left));
   }
 
   /** Проверка подъёма: что будет с папкой на целевой машине. */
@@ -77,10 +87,13 @@ export function createPointsStore(app: App) {
     canTab: (callsign: string) => app.can(machineOf(callsign) ?? "", "session.r2") === true,
     /** Машины, умеющие подъём. */
     raisers: () => machinesWith(app, "points.raise"),
-    /** Метка fire: сессии, чьей машины нет в roster. */
-    fireCount() {
-      const on = onlineMachines();
-      return (fleet()?.sessions ?? []).filter((s) => !on.has(s.owner)).length;
+    /** Метка fire: машины с сессиями в R2, которых нет в roster. */
+    fireMachines,
+    /** Первый roster: реестр один раз, без него fire не знает о машинах, ушедших до открытия приложения. */
+    onRoster() {
+      if (store.get().fleetAsked) return;
+      store.set((s) => void (s.fleetAsked = true));
+      void readRegistry();
     },
     /** Папка сессии: у последней точки, иначе в реестре. */
     dirOf(sid: string) {

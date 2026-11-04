@@ -2,6 +2,7 @@
 import { machineOf } from "@switchboard/protocol";
 import { Btn, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
+import { canRaise } from "./format.ts";
 import { CheckLine } from "./parts.tsx";
 import type { Dialog, DialogControl } from "./usePointDialog.ts";
 
@@ -19,7 +20,7 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
   const label = { move: `Перенести на ${d.target}`, copy: `Скопировать на ${d.target}`, dir: "Скопировать и забыть", rb: `Откатить к ${typeof d.from === "number" ? `№${d.from}` : "точке"}` }[d.kind];
   const busy = d.phase === "run";
   const moving = d.kind === "move" || d.kind === "copy";
-  const blocked = moving && (!d.check || "error" in d.check || d.check.folder === "other");
+  const blocked = moving && !canRaise(d.check);
 
   return (
     <Sec dlg data-dlg={d.kind}>

@@ -7,6 +7,7 @@ import { createAsk, manifest as askM } from "@switchboard/web-ask";
 import { createBoard, manifest as boardM } from "@switchboard/web-board";
 import { createCard, manifest as cardM } from "@switchboard/web-card";
 import { createChat, manifest as chatM } from "@switchboard/web-chat";
+import { createMachines, manifest as machinesM } from "../../../pult/modules/machines/contract.ts";
 import { createInbox, manifest as inboxM } from "../contract.ts";
 import { createInboxStore } from "../src/store.ts";
 import { flush, homeRoster, stand } from "../../core/stand/app.ts";
@@ -18,12 +19,14 @@ const parts = (extra: Array<{ manifest: Manifest; module: () => AppModule }> = [
   { manifest: chatM, module: createChat },
   { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
+  // когда машина ушла, знает её владелец: настоящий модуль машин
+  { manifest: machinesM, module: createMachines },
   ...extra,
 ];
 
-/** Подделка модуля точек: метка fire — сколько машин не на связи; экран точек нужен только как цель кнопки. */
-const points = (fire: number) => ({
-  manifest: { name: "pult-points", type: "web", version: "1.0.0", provides: { fire: 1, points: 1 }, uses: {} } as Manifest,
+/** Подделка модуля точек: метка fire — какие машины не на связи; экран точек нужен только как цель кнопки. */
+const points = (fire: string[]) => ({
+  manifest: { name: "pult-points", type: "web", version: "1.0.0", provides: { fire: 2, points: 1 }, uses: {} } as Manifest,
   module: () => ({ marks: { fire: () => fire }, screens: { points: { nav: "Точки", label: "Точки", view: () => null } } }) as AppModule,
 });
 
@@ -162,7 +165,7 @@ describe("машины", () => {
 
   it("6967 · ушла машина с моими сессиями: «не на связи с ЧЧ:ММ», только мои, «Поднять из точки»", async () => {
     // источник: устав — соединение с объектом машины оборвалось
-    const t = await withRelay({ roster: fleet(), url: "/#inbox" }, parts([points(1)]));
+    const t = await withRelay({ roster: fleet(), url: "/#inbox" }, parts([points(["pc"])]));
     t.relay.setRoster(fleet((r) => without(r, "pc")));
     await flush();
     const card = t.$('[data-kind="away"]')!;
@@ -179,14 +182,25 @@ describe("машины", () => {
     expect(kinds(t)).toEqual([]);
   });
 
-  it("6969 · машины ушли до открытия: метка fire 3, при открытом ушла одна — «машин не на связи: 2» и «Поднять из точки»", async () => {
+  it("6969 · машины ушли до открытия: метка fire — три машины, при открытом ушла одна из них — «машин не на связи: 2» и «Поднять из точки»", async () => {
     // источник: факт — ушли раньше, чем открыто приложение, знает модуль точек
-    const t = await withRelay({ roster: fleet(), url: "/#inbox" }, parts([points(3)]));
+    const t = await withRelay({ roster: fleet(), url: "/#inbox" }, parts([points(["old1", "old2", "pc"])]));
     t.relay.setRoster(fleet((r) => without(r, "pc")));
     await flush();
     const fire = t.$('[data-kind="fire"]')!;
     expect(fire.textContent).toContain("машин не на связи: 2");
     expect(fire.textContent).toContain("Поднять из точки");
+  });
+
+  it("7250 · время ухода — у владельца: карточка показывает время из метки machines.gone, а не считает своё", async () => {
+    // источник: гейт архитектора «дубликат состояния не пропускается»
+    const at = new Date(2026, 10, 4, 3, 7).getTime();
+    const gone = {
+      manifest: { name: "pult-machines", type: "web", version: "1.0.0", provides: { "machines.gone": 1 }, uses: {} } as Manifest,
+      module: () => ({ marks: { "machines.gone": () => ({ pc: at }) } }) as AppModule,
+    };
+    const t = await withRelay({ roster: fleet(), url: "/#inbox" }, parts().filter((p) => p.manifest.name !== "pult-machines").concat(gone));
+    expect(t.$('[data-kind="away"]')!.textContent).toContain("не на связи с 03:07");
   });
 
   it("6970 · всё разобрано: «Всё разобрано», метка «Вам» без числа", async () => {

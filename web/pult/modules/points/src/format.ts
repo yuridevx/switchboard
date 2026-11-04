@@ -1,7 +1,7 @@
 // Подписи точек: время, размер, слова отказа, что будет с папкой.
 import type { SessionRecord } from "@switchboard/web-core";
 import { plural, linkText } from "@switchboard/web-ui";
-import type { Check } from "./store.ts";
+import type { Check, CheckResult } from "./store.ts";
 
 export const r2Of = (s: SessionRecord | undefined) => s?.r2 as { error?: string; at?: number } | undefined;
 export { nameOf } from "@switchboard/protocol";
@@ -23,6 +23,9 @@ export function say(w: string, cs = "", target = "", src = ""): string {
 }
 
 /** Что будет с папкой на целевой машине — ответ points.raise с dryRun. */
+/** Подъём возможен: проверка пришла, отказа нет, папка не чужая. */
+export const canRaise = (c: CheckResult | null) => !!c && !("error" in c) && c.folder !== "other";
+
 export function folderText(c: Check, m: string): string {
   switch (c.folder) {
     case "same":

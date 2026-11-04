@@ -3,16 +3,15 @@ import { useEffect, useRef, useState } from "react";
 import type {} from "@switchboard/web-alerts";
 import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { NoteOf, StoredIn } from "./parts.tsx";
+import { NoteOf } from "./parts.tsx";
 import type { Form, Gh } from "./store.ts";
 
 /** Форма manifest уходит в браузере на github.com; GitHub вернёт страницу с ?code=. */
-export function PostForm({ form, sent }: { form: Form; sent(): void }) {
+function PostForm({ form }: { form: Form }) {
   const el = useRef<HTMLFormElement>(null);
   useEffect(() => {
     el.current?.submit();
-    sent();
-  }, [sent]);
+  }, [form]);
   return (
     <form ref={el} method="post" action={form.action} hidden>
       <input type="hidden" name="manifest" value={JSON.stringify(form.manifest)} />
@@ -23,20 +22,20 @@ export function PostForm({ form, sent }: { form: Form; sent(): void }) {
 function GhCreate() {
   const settings = useSettings();
   const [org, setOrg] = useState("");
+  const [form, setForm] = useState<Form | undefined>();
   return (
     <Opts>
       <In mono data-f="org" placeholder="организация" aria-label="Организация" value={org} onInput={(e) => setOrg(e.currentTarget.value)} />
-      <Btn pri onClick={() => void settings.create(org.trim())}>
+      <Btn pri onClick={() => void settings.create(org.trim()).then(setForm)}>
         Создать приложение GitHub
       </Btn>
+      {form ? <PostForm form={form} /> : null}
     </Opts>
   );
 }
 
 function GhApp({ value }: { value: Gh }) {
-  const app = useApp();
-  const settings = useSettings();
-  const gq = app.use(() => settings.get().gq);
+  const [gq, setGq] = useState("");
   const repos = value.repos ?? [];
   const q = gq.trim().toLowerCase();
   const shown = repos.filter((r) => !q || r.toLowerCase().includes(q));
@@ -55,7 +54,7 @@ function GhApp({ value }: { value: Gh }) {
       </PageHead>
       {repos.length ? (
         <Opts className="st-nowrap">
-          <StoredIn className="st-grow" data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" initial={gq} onValue={settings.setRepoQuery} />
+          <In className="st-grow" data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" value={gq} onInput={(e) => setGq(e.currentTarget.value)} />
         </Opts>
       ) : null}
       {repos.length ? (
@@ -79,7 +78,8 @@ export function Github() {
   const app = useApp();
   const settings = useSettings();
   const gh = app.use(() => settings.get().gh);
-  const ghCode = app.use(() => settings.get().ghCode);
+  // GitHub вернул код нового приложения в адресе; сохранено — адрес очищен
+  const [ghCode, setGhCode] = useState(() => new URLSearchParams(location.search).get("code") ?? "");
   if (!app.worker("github")) return null;
   return (
     <Sec data-github="">
@@ -88,7 +88,7 @@ export function Github() {
         <>
           <span>GitHub вернул код нового приложения.</span>
           <Opts>
-            <Btn pri onClick={() => void settings.setup()}>
+            <Btn pri onClick={() => void settings.setup(ghCode).then((ok) => ok && setGhCode(""))}>
               Сохранить приложение
             </Btn>
           </Opts>

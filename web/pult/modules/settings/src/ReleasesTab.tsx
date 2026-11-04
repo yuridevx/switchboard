@@ -1,4 +1,5 @@
 // Вкладка «Выпуски»: по машинам (stable флота, отмеченные, матрица и план машины) или каталог и сборки.
+import { useState } from "react";
 import { Btn, M, Meter, Note, plural, Sec, useApp } from "@switchboard/web-ui";
 import { Catalog } from "./Catalog.tsx";
 import { useSettings } from "./store.ts";
@@ -76,12 +77,13 @@ function SubTab({ k, label, cur }: { k: State["rtab"]; label: string; cur: State
   );
 }
 
-export function Releases() {
+export function Releases({ machine }: { machine?: string }) {
   const app = useApp();
   const settings = useSettings();
   const list = app.use(() => settings.get().list);
   const rtab = app.use(() => settings.get().rtab);
-  const rm = app.use(() => settings.get().rm);
+  // машина из адреса — выбрана при открытии: новые параметры адреса открывают экран заново
+  const [rm, setRm] = useState<string | null>(machine ?? null);
   if (!app.worker("releases")) return <Note>«Выпусков» во флоте нет</Note>;
   return (
     <>
@@ -100,8 +102,8 @@ export function Releases() {
           <Roll />
           <Bulk />
           <div className="st-grid">
-            <Matrix />
-            {rm ? <MachinePlan key={rm} m={rm} /> : <span />}
+            <Matrix rm={rm} pick={setRm} />
+            {rm ? <MachinePlan key={rm} m={rm} close={() => setRm(null)} /> : <span />}
           </div>
         </>
       )}

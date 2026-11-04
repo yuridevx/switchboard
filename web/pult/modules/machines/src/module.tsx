@@ -23,6 +23,7 @@ export function createMachines(app: App): AppModule {
         head: () => ({ title: "Машины" }),
       },
     },
+    marks: { "machines.gone": machines.gone },
     css,
   };
 }

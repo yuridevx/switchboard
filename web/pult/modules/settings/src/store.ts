@@ -1,5 +1,5 @@
 // Состояние настроек: ответы владельцев («Выпуски», keeper'ы, gate, github) и вид экрана, который переживает закрытие экрана
-// (вкладка, выбранная машина, отмеченные, поиск, приглашение). Каждая цифра — ответ владельца; своего модуль не считает.
+// (подвкладка, отмеченные машины, выданное приглашение). Каждая цифра — ответ владельца; своего модуль не считает.
 import type { App, Roster } from "@switchboard/web-core";
 import { createStore, machineAnswers, type MachineAnswers, plural, useModule, machinesWith, okOf } from "@switchboard/web-ui";
 import { planOf, say, type Err, type KState, type Listed, type ReleaseData } from "./rules.ts";
@@ -16,19 +16,16 @@ export type State = {
   list: Listed | Err | null;
   passes: Pass[] | Err | null;
   gh: Gh | Err | null;
-  ghCode: string;
-  posting: Form | null;
   rtab: "machines" | "catalog";
-  rm: string | null;
   rsel: Record<string, true>;
-  rq: string;
-  gq: string;
-  inviting: Inviting | null;
   invited: Invited | null;
   confirm: string | null;
   busy: string;
   notes: Record<string, { text: string; tone?: Tone }>;
 };
+
+/** Ответы keeper'ов для других модулей: читать и держать открытыми; перечитать — команда keeper.reload. */
+export type KeeperAnswers = Pick<MachineAnswers<KState>, "get" | "mount">;
 
 export type SettingsStore = ReturnType<typeof createSettingsStore>;
 /** Стор модуля в экранах. */
@@ -36,7 +33,7 @@ export const useSettings = (): SettingsStore => useModule<SettingsStore>();
 
 export function createSettingsStore(app: App) {
   const store = createStore<State>(
-    { list: null, passes: null, gh: null, ghCode: "", posting: null, rtab: "machines", rm: null, rsel: {}, rq: "", gq: "", inviting: null, invited: null, confirm: null, busy: "", notes: {} },
+    { list: null, passes: null, gh: null, rtab: "machines", rsel: {}, invited: null, confirm: null, busy: "", notes: {} },
     () => app.changed(),
   );
   /** Ответы keeper'ов: один владелец на все экраны, «Машины» берут их меткой keeper.answers; keeper машины отвечает сам, даже когда Host мёртв. */
@@ -84,17 +81,12 @@ export function createSettingsStore(app: App) {
     machines,
     /** Машина пришла или вернулась при открытом экране — её keeper. */
     onRoster: (r: Roster) => keeper.onRoster(r),
-    /** Ответы keeper'ов для других модулей. */
-    keeper: () => keeper,
+    /** Метка keeper.answers. */
+    keeperAnswers: { get: keeper.get, mount: keeper.mount } satisfies KeeperAnswers,
+    /** Команда keeper.reload. */
+    reloadKeeper: loadKeeper,
 
     // ───────── экран ─────────
-    /** Открытие экрана: машина и код GitHub из адреса. */
-    adopt(machine: string | undefined, ghCode: string) {
-      store.set((s) => {
-        if (machine) s.rm = machine;
-        s.ghCode = ghCode;
-      });
-    },
     /** Вкладка открыта: ответы её владельцев. Возврат — вкладка закрыта. */
     openTab(tab: "releases" | "passes" | "general"): () => void {
       if (tab === "releases") {
@@ -106,15 +98,12 @@ export function createSettingsStore(app: App) {
       return () => {};
     },
     setReleasesTab: (rtab: State["rtab"]) => store.set((s) => void (s.rtab = rtab)),
-    pickMachine: (m: string | null) => store.set((s) => void (s.rm = m)),
     toggleSelected: (m: string) =>
       store.set((s) => {
         if (s.rsel[m]) delete s.rsel[m];
         else s.rsel[m] = true;
       }),
     clearSelected: () => store.set((s) => void (s.rsel = {})),
-    setMachineQuery: (q: string) => store.set((s) => void (s.rq = q)),
-    setRepoQuery: (q: string) => store.set((s) => void (s.gq = q)),
 
     // ───────── выпуски ─────────
     async pin(m: string, part: string, v: string | null) {
@@ -146,26 +135,21 @@ export function createSettingsStore(app: App) {
     },
 
     // ───────── пропуска ─────────
-    startInvite: () => store.set((s) => void (s.inviting = { kind: "device", name: "", person: "" })),
-    editInvite: (change: Partial<Inviting>) =>
-      store.set((s) => {
-        if (s.inviting) Object.assign(s.inviting, change);
-      }),
-    cancelInvite: () => store.set((s) => void (s.inviting = null)),
     closeInvited: () => store.set((s) => void (s.invited = null)),
-    async invite() {
-      const inviting = store.get().inviting;
-      if (!inviting) return;
-      const { kind, name, person } = inviting;
+    /** Пригласить; возврат — удалось: форма закрывается. */
+    async invite({ kind, name, person }: Inviting): Promise<boolean> {
       const role = kind === "machine" ? "host" : "client";
       const r = await app.request<{ kid: string; invite: string; addr: string }>("keys.invite", { role, name: name.trim(), ...(role === "client" ? { person: person.trim() } : {}) });
-      if (!r.ok) return note("invite", say(r.error), "bad");
+      if (!r.ok) {
+        note("invite", say(r.error), "bad");
+        return false;
+      }
       store.set((s) => {
         s.invited = { kind, invite: r.result.invite, addr: r.result.addr };
-        s.inviting = null;
         s.notes.invite = { text: "" };
       });
       await loadPasses();
+      return true;
     },
     askRevoke: (id: string | null) => store.set((s) => void (s.confirm = id)),
     async revoke(p: Pass) {
@@ -177,30 +161,28 @@ export function createSettingsStore(app: App) {
     },
 
     // ───────── GitHub ─────────
-    async setup() {
+    /** Сохранить приложение по коду из адреса; возврат — удалось. */
+    async setup(code: string): Promise<boolean> {
       note("gh", "Сохраняю приложение…");
-      const r = await app.request<{ app: { slug: string }; install: string }>("github.setup", { code: store.get().ghCode });
-      if (!r.ok) return note("gh", say(r.error), "bad");
+      const r = await app.request<{ app: { slug: string }; install: string }>("github.setup", { code });
+      if (!r.ok) {
+        note("gh", say(r.error), "bad");
+        return false;
+      }
       history.replaceState(null, "", location.pathname + location.hash);
       store.set((s) => {
-        s.ghCode = "";
         s.gh = { app: r.result.app, install: r.result.install, repos: [] };
         s.notes.gh = { text: "Приложение сохранено — установите его на репозитории.", tone: "ok" };
       });
+      return true;
     },
-    async create(org: string) {
-      const gh = store.get().gh;
-      let form = okOf(gh)?.form;
-      if (org) {
-        const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname, org });
-        if (!r.ok) return note("gh", say(r.error), "bad");
-        form = r.result.form;
-      }
-      if (form) {
-        const chosen = form;
-        store.set((s) => void (s.posting = chosen));
-      }
+    /** Форма создания приложения: своя у организации; отказ — строкой итога. */
+    async create(org: string): Promise<Form | undefined> {
+      if (!org) return okOf(store.get().gh)?.form;
+      const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname, org });
+      if (r.ok) return r.result.form;
+      note("gh", say(r.error), "bad");
+      return undefined;
     },
-    posted: () => store.set((s) => void (s.posting = null)),
   };
 }

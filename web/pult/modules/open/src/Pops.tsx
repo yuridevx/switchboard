@@ -1,5 +1,5 @@
 // Окна чипов новой сессии: профиль; модель, усилие, слот и «Точки в R2».
-import { at, effortName, EFFORTS, MODELS, profileName as short } from "@switchboard/web-ui";
+import { at, effortName, EFFORTS, MODELS, profileName as short, useApp } from "@switchboard/web-ui";
 import { useOpen } from "./store.ts";
 import { useMachineLabels } from "./Browser.tsx";
 import type { OpenForm } from "./useOpenForm.ts";
@@ -47,8 +47,10 @@ export function ProfilePop({ form }: { form: OpenForm }) {
 }
 
 export function ModelPop({ form }: { form: OpenForm }) {
+  const app = useApp();
   const open = useOpen();
   const { f, set, chooseModel } = form;
+  const r2 = app.use(() => open.can(f.machine, "session.r2") || !f.machine);
   const slots = Object.entries(f.slots ?? {});
   return (
     <>
@@ -83,7 +85,7 @@ export function ModelPop({ form }: { form: OpenForm }) {
           {`machine.slots: ${f.refused["machine.slots"]}`}
         </div>
       ) : null}
-      {open.can(f.machine, "session.r2") || !f.machine ? (
+      {r2 ? (
         <div className="op-sw">
           <span>Точки в R2</span>
           <button role="switch" aria-label="Точки в R2" aria-checked={f.r2} data-r2="1" onClick={() => set({ r2: !f.r2 })} />
