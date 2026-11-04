@@ -257,10 +257,12 @@ export function makeSlots(host: () => Host, book: Book, usage: Usage, sharedLogi
     });
   }
 
-  /** Слот существует и в нём кто-то есть; иначе отказ со словом. */
+  /** Слот существует и в нём вошедший аккаунт; иначе отказ до запуска: сессия ответила бы «Not logged in». */
   function usable(slot: string): void {
     if (!book.orders()[slot]) throw refuse("no_slot", `слота ${slot} нет. ${slotsWord()}`);
-    if (!whoIn(slot)) throw refuse("not_logged_in", `в слоте ${slot} никого`);
+    const who = whoIn(slot);
+    if (!who) throw refuse("not_logged_in", `в слоте ${slot} никого`);
+    if (book.accounts()[who].login !== "ok") throw refuse("not_logged_in", `в слоте ${slot} ${who} без входа`);
   }
 
   const requests: Required<Module>["requests"] = {

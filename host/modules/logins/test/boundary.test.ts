@@ -1294,3 +1294,19 @@ describe("видимое: причины словами", () => {
     expect(st!.journal().some((l) => l.ev === "login" && l.kind === "refuse" && l.why === "corp: срок входа вышел — кода нет за 30 мин")).toBe(true);
   });
 });
+
+describe("разбор спорного: вход пропал", () => {
+  it("аккаунт в слоте без входа: открытие и перевод — not_logged_in до запуска; вход вернулся — идёт", async () => {
+    // источник: факт — настоящий SDK на папке без входа отвечает «Not logged in · Please run /login»; бэклог 4 нояб.
+    await bench({ accounts: { x: { in: "main", login: "none" } }, slots: { main: ["x"] }, sessions: { "site@laptop": { slot: null } } });
+    const e = await refused(opening("job"));
+    expect(e?.word).toBe("not_logged_in");
+    expect(e?.why).toBe("в слоте main x без входа");
+    expect(st!.sdk.of("job@laptop")).toHaveLength(0);
+    expect(await ask({ type: "session.slot", callsign: "site@laptop", slot: "main" })).toMatchObject({ ok: false, error: "not_logged_in" });
+    await ask({ type: "machine.login", account: "x" });
+    await ask({ type: "machine.login_code", account: "x", code: "Xk2pL#Qm9vY" });
+    await opening("job");
+    expect(st!.proc("job@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
+  });
+});
