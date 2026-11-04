@@ -1,45 +1,37 @@
-// Модуль монорепо для каталога: упаковка — общая, формата выпуска (packModule); здесь только то, что знает монорепо:
-// модуль страницы собирается одним ES-файлом esbuild'ом (импорты других модулей страницы остаются внешними — страница
-// разрешает их import map'ом сборки), статика оболочки — её же build.mjs в dist/.
+// Модуль монорепо для каталога: упаковка — формата выпуска; здесь то, что знает монорепо. Модуль страницы собирается одним ES-файлом
+// (импорты других модулей страницы остаются внешними: страница разрешает их картой импорта сборки), статика оболочки — её build.mjs.
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { buildSync } from "esbuild";
-import { MANIFEST, packageFiles, packModule, type ModuleJson, type PackedModule } from "@switchboard/release";
+import { MANIFEST, packModule, type ModuleJson, type PackedModule } from "@switchboard/release";
+import { importsOf, readJson } from "./graph.ts";
+import { STEP_MS } from "./spawn.ts";
 
-const IMPORT = /(?:from\s*|import\s*\(\s*|import\s+)["'](@switchboard\/[a-z0-9-]+)["'/]/g;
-const SRC = /\.(ts|tsx|mts|js|mjs)$/;
 /** Рантайм страницы: модуль пишет импорт из "react", в файле модуля остаётся импорт этого модуля. */
 const VIEW = "@switchboard/web-view";
 const VIEW_NAME = "web-view";
 
-/** Пакеты @switchboard — модули страницы, которые импортирует код модуля в dir: они остаются внешними. */
-function webImports(dir: string, self: string): string[] {
-  const req = createRequire(join(dir, "noop.js"));
-  const found = new Set<string>();
-  for (const f of packageFiles(dir)) {
-    if (!SRC.test(f) || f.endsWith(".d.ts") || f.startsWith("stand/") || f.startsWith("test/")) continue;
-    for (const m of readFileSync(join(dir, ...f.split("/")), "utf8").matchAll(IMPORT)) found.add(m[1]);
+/** Модуль страницы ли пакет: папка пакета — вверх от его входа до package.json, рядом module.json типа web. */
+function isPageModule(entry: string, self: string): boolean {
+  for (let d = dirname(entry); dirname(d) !== d; d = dirname(d)) {
+    if (!existsSync(join(d, "package.json"))) continue;
+    const mj = join(d, MANIFEST);
+    const m = existsSync(mj) ? readJson<ModuleJson>(mj) : null;
+    return m?.type === "web" && m.name !== self;
   }
-  return [...found].filter((spec) => {
-    // папка пакета — вверх от его входа до package.json; модуль страницы — module.json типа web рядом
-    for (let d = dirname(req.resolve(spec)); dirname(d) !== d; d = dirname(d)) {
-      if (!existsSync(join(d, "package.json"))) continue;
-      const mj = join(d, MANIFEST);
-      const m = existsSync(mj) ? (JSON.parse(readFileSync(mj, "utf8")) as ModuleJson) : null;
-      return m?.type === "web" && m.name !== self;
-    }
-    return false;
-  });
+  return false;
 }
 
-/** Модуль страницы одним ES-файлом: вход — exports["."] пакета, без пакета — contract.ts. */
+/** Модуль страницы одним файлом: вход — exports["."] пакета, без пакета — contract.ts. */
 function bundleWeb(dir: string, m: ModuleJson): Buffer {
   const pj = join(dir, "package.json");
-  const exp = existsSync(pj) ? (JSON.parse(readFileSync(pj, "utf8")) as { exports?: Record<string, string> }).exports?.["."] : undefined;
-  const r = buildSync({
-    entryPoints: [join(dir, exp ?? "contract.ts")],
+  const entry = existsSync(pj) ? readJson<{ exports?: Record<string, string> }>(pj).exports?.["."] : undefined;
+  const req = createRequire(join(dir, "noop.js"));
+  const external = importsOf(dir, (f) => f.startsWith("stand/") || f.startsWith("test/")).filter((spec) => isPageModule(req.resolve(spec), m.name));
+  const { outputFiles } = buildSync({
+    entryPoints: [join(dir, entry ?? "contract.ts")],
     bundle: true,
     format: "esm",
     platform: "browser",
@@ -49,21 +41,15 @@ function bundleWeb(dir: string, m: ModuleJson): Buffer {
     jsx: "automatic",
     loader: { ".css": "text" },
     define: { "process.env.NODE_ENV": '"production"' },
-    ...(m.name === VIEW_NAME
-      ? { external: webImports(dir, m.name) }
-      : {
-          alias: { "react/jsx-runtime": VIEW, "react-dom/client": VIEW, "react-dom": VIEW, react: VIEW },
-          external: [...new Set([VIEW, ...webImports(dir, m.name)])],
-        }),
     logLevel: "silent",
+    ...(m.name === VIEW_NAME ? { external } : { alias: { "react/jsx-runtime": VIEW, "react-dom/client": VIEW, "react-dom": VIEW, react: VIEW }, external: [...new Set([VIEW, ...external])] }),
   });
-  return Buffer.from(r.outputFiles[0].contents);
+  return Buffer.from(outputFiles[0].contents);
 }
 
-/** Упаковать модуль монорепо: оболочке — собрать статику, модулю страницы — бандл; остальное — общая упаковка. */
+/** Упаковать модуль монорепо: оболочке — собрать статику, модулю страницы — бандл. */
 export function packFromRepo(at: string): PackedModule {
   const dir = resolve(at);
-  const m = JSON.parse(readFileSync(join(dir, MANIFEST), "utf8")) as ModuleJson;
-  if (m.type === "web-app") execFileSync(process.execPath, ["build.mjs"], { cwd: dir, stdio: "pipe" });
+  if (readJson<ModuleJson>(join(dir, MANIFEST)).type === "web-app") execFileSync(process.execPath, ["build.mjs"], { cwd: dir, stdio: "pipe", timeout: STEP_MS });
   return packModule(dir, { bundle: bundleWeb });
 }

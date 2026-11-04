@@ -17,9 +17,8 @@ declare module "@switchboard/web-ui" {
 }
 
 export { createAlerts } from "./src/module.tsx";
-export { b64url } from "./src/store.ts";
-export type { AlertsState, BrowserPush } from "./src/store.ts";
+export type { BrowserPush } from "./src/store.ts";
 export { serviceWorker } from "./src/sw.ts";
-export type { Notify, StoredPush, SwScope, SwOptions } from "./src/sw.ts";
+export type { SwScope } from "./src/sw.ts";
 export const manifest: Manifest = json;
 export default createAlerts() satisfies AppPart["module"];

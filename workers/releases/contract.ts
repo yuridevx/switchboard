@@ -78,4 +78,4 @@ export type ReleasesSet = {
 export type SetResult = { machine: string; rev: number };
 
 /** Слова отказа. */
-export type Word = "bad_frame" | "unknown_request" | "contract_mismatch" | "no_release" | "no_part" | "version_exists" | "bad_version" | "cf_failed" | "check_failed" | "no_build";
+export type Word = "bad_frame" | "unknown_request" | "contract_mismatch" | "no_release" | "no_part" | "version_exists" | "bad_version" | "cf_failed" | "check_failed" | "no_build" | "conflict" | "gate_unavailable";
