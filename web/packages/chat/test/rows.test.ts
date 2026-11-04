@@ -32,10 +32,10 @@ it("6242 · новое сообщение рисует одну строку: п
   relay.handlers["session.watch"] = () => ({ ok: true });
   relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [{ type: "user", uuid: "u1", message: { content: "Почини" } }] } });
   const parts = [
-    { manifest: boardM, module: createBoard() },
-    { manifest: cardM, module: createCard() },
-    { manifest: chatM, module: createChat() },
-    { manifest: askM, module: createAsk() },
+    { manifest: boardM, module: createBoard },
+    { manifest: cardM, module: createCard },
+    { manifest: chatM, module: createChat },
+    { manifest: askM, module: createAsk },
     { manifest: alertsM, module: createAlerts({}) },
   ];
   await stand(parts, { relay, url: `/#chat?callsign=${encodeURIComponent("poe-bot@pc")}` });

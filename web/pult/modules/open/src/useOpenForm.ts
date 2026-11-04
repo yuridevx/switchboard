@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { Params, Result } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { profileIdOf, useLoad, useApp } from "@switchboard/web-ui";
-import { useOpen } from "./context.ts";
+import { useOpen } from "./store.ts";
 import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type FormView, type Listing, type Profiles, type Slots } from "./form.ts";
 
 export type OpenForm = ReturnType<typeof useOpenForm>;

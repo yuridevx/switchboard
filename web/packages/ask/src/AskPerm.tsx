@@ -2,7 +2,7 @@
 // ответ за человека не выбирается никогда. Причина отказа — местное состояние запроса.
 import { useState } from "react";
 import { Cta, Markdown } from "@switchboard/web-ui";
-import { useAsk } from "./context.ts";
+import { useAsk } from "./store.ts";
 import { alwaysLines, isPlan, permFrame, subjectOf } from "./perm.ts";
 import { isLocked, type Rec } from "./store.ts";
 

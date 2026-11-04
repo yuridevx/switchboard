@@ -1,12 +1,12 @@
 {
   "name": "phone",
   "type": "web-app",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "provides": {
     "page": 1
   },
   "uses": {
-    "app@web-core": 1
+    "app@web-core": 2
   },
   "config": {}
 }

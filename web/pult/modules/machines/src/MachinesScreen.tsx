@@ -1,7 +1,7 @@
 // Экран машин: строки, поиск и фильтры. Открыт проект — его машины: фильтр «в проекте» первым.
 import { useCallback, useEffect, useState } from "react";
 import { Btn, In, Note, Opts, Page, PageHead, useApp } from "@switchboard/web-ui";
-import { useMachines } from "./context.ts";
+import { useMachines } from "./store.ts";
 import { MachineRow } from "./MachineRow.tsx";
 import { okOf, stateOf } from "./store.ts";
 

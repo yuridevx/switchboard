@@ -6,7 +6,7 @@ import type { Mod } from "./mod.ts";
 import { clientName, INVITE_RE, inviteCommand, keyId, redeem } from "./pass.ts";
 import type { Registry } from "./registry.ts";
 import type { Router } from "./router.ts";
-import type { CoreStore, Stop } from "./state.ts";
+import type { CoreStore, Stop, Stopped } from "./state.ts";
 import type { App, Platform, StartOptions } from "./types.ts";
 import { pageCss } from "./view/shell.tsx";
 
@@ -23,7 +23,7 @@ async function wipe({ store, win }: Pick<Deps, "store" | "win">) {
 export function createHalt(d: Deps & { o: StartOptions }) {
   const stopWith = (why: string, stop: Stop) => {
     console.error(`switchboard: ${why}`);
-    d.state.set({ stopped: why, full: stop });
+    d.state.set({ full: { ...stop, why } as Stopped });
   };
   return {
     stopWith,
@@ -51,17 +51,18 @@ export async function boot(d: Deps & { o: StartOptions; platform: Platform; regi
   const { o, state, store, win, platform, registry, appFor, router, link, life, stopWith } = d;
   const doc = win.document;
 
-  const errors = appGate(o.parts);
+  registry.define(o.parts, appFor);
+  const errors = appGate(registry.mods.map((x) => ({ manifest: x.m, module: x.mod })));
   if (errors.length) return stopWith("gate", { kind: "gate", errors });
   if (platform.scope === false) return stopWith("browser", { kind: "browser" });
-  registry.add(o.parts, appFor);
+  registry.add();
   state.set({ css: pageCss(registry.mods.filter((x) => x.mod.css).map((x) => ({ name: x.m.name, css: x.mod.css! }))) });
 
   const raw = decodeURIComponent(win.location.hash.replace(/^#/, ""));
   const fromHash = raw.startsWith("invite=") && INVITE_RE.test(raw.slice(7)) ? raw.slice(7) : null;
   if (fromHash && platform.ios && !platform.standalone) {
     // iPhone: пуши — только у приложения с экрана «Домой», хранилище у него своё — приглашение ждёт в адресе, не погашено
-    return state.set({ stopped: "install", full: { kind: "install", number: fromHash.split(".")[0] } });
+    return state.set({ full: { kind: "install", number: fromHash.split(".")[0], why: "install" } });
   }
   if (fromHash) {
     // приглашение — у gate: секрет пропуска рождается там и приходит один раз; адрес очищен в любом исходе
@@ -71,7 +72,7 @@ export async function boot(d: Deps & { o: StartOptions; platform: Platform; regi
     const number = fromHash.split(".")[0];
     if (had.split(".")[2] !== number) {
       // ссылку могли подсунуть (ответ сессии, письмо): пропуск устройства меняет только человек; приглашение не гасится
-      if (had) return state.set({ stopped: "replace", full: { kind: "replace", invite: fromHash, number, kid: keyId(had) } });
+      if (had) return state.set({ full: { kind: "replace", invite: fromHash, number, kid: keyId(had), why: "replace" } });
       const r = await redeem(o, fromHash);
       if ("error" in r) return stopWith(r.error, { kind: "invite", word: r.error });
       await store.set("key", r.key);
@@ -86,7 +87,7 @@ export async function boot(d: Deps & { o: StartOptions; platform: Platform; regi
   }
 
   await registry.startAll();
-  state.set({ tops: [...registry.screens].filter(([, s]) => s.def.place === "top").map(([n]) => n), connecting: true });
+  state.set({ tops: [...registry.screens].filter(([, s]) => s.def.place === "top").map(([n]) => n) });
   router.listen();
   doc.addEventListener("visibilitychange", () => (doc.visibilityState === "hidden" ? life.hide() : life.show()));
   win.addEventListener("pagehide", () => void life.hide());

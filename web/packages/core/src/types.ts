@@ -79,20 +79,24 @@ export type Screen = {
 };
 
 /**
- * Модуль приложения — default export его contract.ts. Все поля необязательны.
+ * Определение модуля: его отдаёт функция модуля (default export contract.ts). Все поля необязательны.
  * Ловушка ошибок: каждый вызов модуля и отрисовку его экранов ядро ловит. Бросил — модуль выключен до перезапуска
  * приложения: его кадры дальше не идут, метки пусты, на его экранах — причина. Остальные работают.
  */
 export interface AppModule {
+  /** Стор модуля: экраны берут его хуком useModule из web-ui. */
+  state?: unknown;
   /** Кадры по type — их имена должны быть в uses модуля (имя@владелец). У кадра один принимающий модуль. */
   frames?: Record<string, (f: Frame, ctx: Ctx) => void>;
   on?: {
     /** roster от relay — модулям, у которых roster@relay в uses */
     roster?(r: Roster): void;
-    /** смена связи; open — hello принят: открытые экраны заново шлют свои подписки */
-    link?(state: ConnState): void;
+    /** смена связи; open — hello принят: открытые экраны заново шлют свои подписки; machine — вернулась только эта машина внутри открытого флота */
+    link?(state: ConnState, machine?: string): void;
     /** открыт экран: человек перешёл, новый адрес или команда app.open */
     current?(c: { screen: string; params: Params }): void;
+    /** страница вернулась на экран после ухода: забрать накопленное без неё */
+    show?(): void | Promise<void>;
   };
   /** Экраны — имена из provides. */
   screens?: Record<string, Screen>;
@@ -102,8 +106,8 @@ export interface AppModule {
   store?: string[];
   /** Стили модуля: ядро ограничивает их местом модуля (@scope до вложенного модуля). */
   css?: string;
-  /** Поднять своё: ядро зовёт по порядку списка при старте и при возвращении на экран. */
-  start?(app: App): void | Promise<void>;
+  /** Поднять своё из хранилища: ядро зовёт по порядку списка один раз при старте. */
+  start?(): void | Promise<void>;
   /** Штатная остановка при уходе с экрана: дописать хранилище, снять подписки. Порядок обратный. */
   stop?(): void | Promise<void>;
 }
@@ -178,10 +182,15 @@ export interface App {
   use<T>(select: () => T): T;
   /** Экран другого модуля внутри своего: своя граница ошибки и область стилей. Экран — как в app.open. */
   Slot: ComponentType<SlotProps>;
+  /** Стор этого модуля — поле state его определения; экраны берут его хуком useModule. */
+  readonly state: unknown;
 }
 
-/** Модуль выпуска: манифест и объект. */
-export type AppPart = { manifest: Manifest; module: AppModule };
+/** Модуль выпуска: манифест и функция модуля. Ядро зовёт её один раз со своим app; бросила — модуль выключен. */
+export type AppPart = { manifest: Manifest; module: (app: App) => AppModule };
+
+/** Модуль с определением: что проверяет гейт набора. */
+export type DefinedPart = { manifest: Manifest; module: AppModule };
 
 /** Список сборки страницы — build.json рядом со страницей; формат — у владельца формата выпуска. */
 export type { BuildList } from "@switchboard/release";
@@ -234,7 +243,7 @@ export interface Running {
   readonly failed: Record<string, string>;
   /** уйти с экрана штатно (как visibilitychange → hidden) */
   hide(): Promise<void>;
-  /** вернуться на экран: снова start модулей и hello */
+  /** вернуться на экран: on.show модулей и hello */
   show(): Promise<void>;
   /** снять вид со страницы: стенд перед следующим приложением */
   unmount(): void;

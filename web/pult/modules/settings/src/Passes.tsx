@@ -1,6 +1,6 @@
 // Вкладка «Пропуска»: машины и устройства, приглашение и отзыв. Это устройство не отзывается.
 import { Btn, M, Note, Opts, Pill, Sec, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { Invited, InviteForm } from "./Invite.tsx";
 import { NoteOf } from "./parts.tsx";
 import type { Pass } from "./store.ts";

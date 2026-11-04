@@ -1,7 +1,7 @@
 // Диалог действия над точкой вкладки: перенос, копия, смена папки, откат. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { usePoints } from "./context.ts";
+import { usePoints } from "./store.ts";
 import { nameOf, say } from "./format.ts";
 import type { CheckResult } from "./store.ts";
 

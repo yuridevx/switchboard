@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { Params } from "@switchboard/web-core";
 import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, useApp } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
-import { useCan, useCard, useSession } from "./context.ts";
+import { useCan, useCard, useSession } from "./hooks.ts";
 import { Names } from "./Names.tsx";
 import { isDown, slotOf } from "./session.ts";
 

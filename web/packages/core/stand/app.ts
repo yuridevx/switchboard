@@ -1,6 +1,6 @@
 // Стенд: приложение на странице happy-dom с поддельным relay и хранилищем в памяти.
 import type { Roster } from "@switchboard/relay";
-import { memoryStore, startApp, type AppPart, type StartOptions } from "../contract.ts";
+import { memoryStore, startApp, type App, type AppPart, type DefinedPart, type StartOptions } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, KEY } from "./relay.ts";
 
 export type StandOptions = {
@@ -16,6 +16,9 @@ export type StandOptions = {
   /** прочие опции запуска приложения (beside, brand) */
   options?: Partial<StartOptions>;
 };
+
+/** Определения модулей для гейта набора: функция модуля без настоящего ядра. */
+export const defined = (parts: AppPart[]): DefinedPart[] => parts.map((p) => ({ manifest: p.manifest, module: p.module({} as App) }));
 
 /** Прошлое приложение стенда: живое дерево React занимало бы общий планировщик и тормозило следующий тест. */
 let last: { unmount(): void } | null = null;

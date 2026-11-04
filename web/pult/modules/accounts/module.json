@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "3.0.4",
+  "version": "3.1.0",
   "into": [
     "pult",
     "phone"
@@ -13,7 +13,7 @@
   "uses": {
     "view@web-view": 19,
     "ui@web-ui": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "roster@relay": 1,
     "machine.accounts@host-accounts": 1,
     "machine.login@host-accounts": 1,

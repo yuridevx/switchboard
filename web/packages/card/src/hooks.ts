@@ -1,12 +1,10 @@
-// Состояние модуля в контексте его экранов и общие выборки из roster.
-import { createContext, useContext } from "react";
+// Стор модуля в экранах и общие выборки из roster.
 import type { SessionRecord } from "@switchboard/web-core";
-import { sessionOf, useApp } from "@switchboard/web-ui";
+import { sessionOf, useApp, useModule } from "@switchboard/web-ui";
 import { NAMES, type Can } from "./session.ts";
 import type { CardStore } from "./store.ts";
 
-export const CardCtx = createContext<CardStore | null>(null);
-export const useCard = (): CardStore => useContext(CardCtx)!;
+export const useCard = (): CardStore => useModule<CardStore>();
 
 /** Что умеет машина — по contract из roster; кнопка перерисуется, когда он изменился. */
 export function useCan(machine: string): Can {

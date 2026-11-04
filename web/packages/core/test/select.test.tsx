@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { share } from "../src/same.ts";
 import { FakeRelay, flush, homeRoster, stand } from "../stand/app.ts";
-import type { AppPart, Params } from "../contract.ts";
+import type { App, AppPart, Params } from "../contract.ts";
 
 describe("share", () => {
   it("6802 · всё равно — прошлый ответ; изменилась одна ветвь — соседние ветви прежние", () => {
@@ -30,10 +30,10 @@ describe("on.current", () => {
   it("6804 · открытый экран приходит модулю с параметрами на каждый переход; экран в снимке уже новый", async () => {
     const seen: Array<{ screen: string; params: Params }> = [];
     const shown: Array<string | undefined> = [];
-    let app!: Parameters<NonNullable<AppPart["module"]["start"]>>[0];
+    let app!: App;
     const part: AppPart = {
       manifest: { name: "m", type: "web", version: "1.0.0", provides: { a: 1, b: 1 }, uses: {} },
-      module: {
+      module: (x) => ({
         on: {
           current: (c) => {
             seen.push(c);
@@ -41,10 +41,10 @@ describe("on.current", () => {
           },
         },
         screens: { a: { nav: "А", view: () => null }, b: { path: "b", view: () => null } },
-        start: (x) => {
+        start: () => {
           app = x;
         },
-      },
+      }),
     };
     await stand([part], { relay: new FakeRelay(homeRoster()) });
     await flush();

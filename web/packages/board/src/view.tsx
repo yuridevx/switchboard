@@ -1,7 +1,7 @@
 // Панель вида списка: каждая единица информации — свой переключатель.
 // Группа «Шапка» — экран card.view карточки в месте панели (только пульт): её настройки — у карточки.
 import { Choices, useApp } from "@switchboard/web-ui";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import type { View } from "./rules.ts";
 
 type Unit = [keyof View, string, string];

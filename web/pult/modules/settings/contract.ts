@@ -12,10 +12,10 @@
 //     это устройство: адрес, пропуск, уведомления — метка alerts.state модуля web-alerts.
 // Телефон (узкий вид) — только «Это устройство».
 // Метка keeper.answers — ответы keeper'ов всех машин (MachineAnswers): их единственный владелец; другой экран читает get(), открыт — mount().
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createSettings } from "./src/module.tsx";
 
 export { createSettings };
 export const manifest: Manifest = json;
-export default createSettings() satisfies AppModule;
+export default createSettings satisfies AppPart["module"];

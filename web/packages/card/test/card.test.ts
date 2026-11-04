@@ -8,10 +8,10 @@ import { createCard, manifest as cardM } from "../contract.ts";
 import { FakeRelay, homeRoster, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
 ];
 

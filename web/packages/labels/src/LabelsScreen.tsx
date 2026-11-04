@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { Btn, useApp } from "@switchboard/web-ui";
-import { useLabels } from "./context.ts";
+import { useLabels } from "./store.ts";
 
 export function LabelsScreen({ params, close }: ScreenProps) {
   const app = useApp();

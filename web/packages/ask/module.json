@@ -1,7 +1,7 @@
 {
   "name": "web-ask",
   "type": "web",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "into": [
     "pult",
     "phone"
@@ -15,7 +15,7 @@
     "view@web-view": 19,
     "ui@web-ui": 1,
     "label.session@web-labels": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "roster@relay": 1,
     "question@host-questions": 1,
     "answered@host-questions": 1,

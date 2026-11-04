@@ -6,7 +6,7 @@ import { BadCard, OkCard, Pad, WaitCard, useApp } from "@switchboard/web-ui";
 import { AskForm } from "./AskForm.tsx";
 import { AskPerm } from "./AskPerm.tsx";
 import { AskQuestions } from "./AskQuestions.tsx";
-import { useAsk } from "./context.ts";
+import { useAsk } from "./store.ts";
 import type { Rec } from "./store.ts";
 
 function Result({ rec }: { rec: Rec }) {

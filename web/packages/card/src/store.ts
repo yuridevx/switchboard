@@ -13,8 +13,7 @@ type State = {
 
 export type CardStore = ReturnType<typeof createCardStore>;
 
-export function createCardStore() {
-  let app: App;
+export function createCardStore(app: App) {
   const store = createStore<State>({ info: false, head: { ...HEAD0 } }, () => app.changed());
 
   function saveHead(head: HeadView) {
@@ -23,8 +22,7 @@ export function createCardStore() {
   }
 
   return {
-    async start(a: App) {
-      app = a;
+    async start() {
       const info = (await app.store<boolean>("card.info").get()) === true;
       const head = { ...HEAD0, ...(await app.store<HeadView>("card.head").get()) };
       store.set((s) => {

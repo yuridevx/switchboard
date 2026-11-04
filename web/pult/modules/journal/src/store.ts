@@ -1,6 +1,6 @@
 // Журнал флота: записи открытого экрана. Первое чтение при открытии; пока экран открыт, каждый roster — дочитать новые (after = последний id).
 import type { App } from "@switchboard/web-core";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, useModule } from "@switchboard/web-ui";
 
 export type Ev = { id: number; t: number; ev: string; from: string; by?: string; machine?: string; callsign?: string; text: string };
 
@@ -8,9 +8,10 @@ type View = { open: boolean; evs: Ev[]; more: boolean; machine: string; err: str
 const CLOSED: View = { open: false, evs: [], more: false, machine: "", err: "", busy: false };
 
 export type JournalStore = ReturnType<typeof createJournalStore>;
+/** Стор модуля в экранах. */
+export const useJournal = (): JournalStore => useModule<JournalStore>();
 
-export function createJournalStore() {
-  let app: App;
+export function createJournalStore(app: App) {
   const store = createStore<View>(CLOSED, () => app.changed());
   /** номер выборки: смена машины и закрытие экрана отменяют идущие чтения */
   let epoch = 0;
@@ -39,9 +40,6 @@ export function createJournalStore() {
   }
 
   return {
-    start(a: App) {
-      app = a;
-    },
     view: () => store.get(),
     /** Экран открыт: первое чтение; возврат — закрыть: записи живут только на экране. */
     mount(): () => void {

@@ -4,7 +4,7 @@
 // открытом приложении; уход раньше — метка fire модуля точек), «готово» (busy → idle, пока карточка не открыта).
 // Кроме вопроса и сообщения — только мои сессии (метка mine web-board). Карточка уходит сама, когда сменилось состояние.
 // Метка you — число карточек: счётчик раздела.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createInbox } from "./src/module.tsx";
 
@@ -16,4 +16,4 @@ declare module "@switchboard/web-core" {
 
 export { createInbox };
 export const manifest: Manifest = json;
-export default createInbox() satisfies AppModule;
+export default createInbox satisfies AppPart["module"];

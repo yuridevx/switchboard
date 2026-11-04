@@ -5,6 +5,9 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface AppHandle {}
 
+/** Что useModule берёт у App (поле дописывает и ядро). */
+type WithState = { readonly state: unknown };
+
 export const AppCtx = createContext<AppHandle | null>(null);
 
 /** App модуля, чей экран рисуется. */
@@ -12,6 +15,11 @@ export function useApp(): AppHandle {
   const app = useContext(AppCtx);
   if (!app) throw new Error("useApp вне экрана модуля");
   return app;
+}
+
+/** Стор модуля, чей экран рисуется: поле state его определения. */
+export function useModule<T>(): T {
+  return (useApp() as WithState).state as T;
 }
 
 /** Текущее время с шагом ms: таймер живёт, пока компонент на экране; ms 0 — стоит. Отсчёт виден только там, где он нужен. */

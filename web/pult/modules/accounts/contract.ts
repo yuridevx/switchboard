@@ -8,7 +8,7 @@
 // Слоты: «Сменить сейчас» — slot.swap, запас — slot.set, перевод сессий — session.slot. Подмену Host делает сам:
 // сменился account сессий в roster — экран перечитывает слоты и окна этой машины.
 // Метка logins — число идущих входов (login: pending) из последних ответов machine.accounts.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createAccounts } from "./src/module.tsx";
 
@@ -22,4 +22,4 @@ declare module "@switchboard/web-core" {
 }
 
 export const manifest: Manifest = json;
-export default createAccounts() satisfies AppModule;
+export default createAccounts satisfies AppPart["module"];

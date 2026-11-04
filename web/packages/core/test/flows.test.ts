@@ -1,8 +1,8 @@
 // Флоу ядра по плану цикла тестов (web): ключ, связь, roster, маршрут кадров, запросы, экраны, уход с экрана, метки.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createElement, useEffect, useState } from "react";
-import { createRoot } from "react-dom/client";
-import { appGate, memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
+import { appGate, memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest, type SlotProps } from "../contract.ts";
+import { defined } from "../stand/app.ts";
 import { FakeRelay, flush, homeRoster, INVITE, KEY, oneMachine } from "../stand/relay.ts";
 
 const man = (name: string, provides: Record<string, number>, uses: Record<string, number>): Manifest => ({
@@ -10,7 +10,7 @@ const man = (name: string, provides: Record<string, number>, uses: Record<string
   type: "web",
   version: "1.0.0",
   provides,
-  uses: { "app@web-core": 1, ...uses },
+  uses: { "app@web-core": 2, ...uses },
 });
 
 
@@ -41,8 +41,7 @@ function sample(log: string[] = [], over: Partial<AppModule> = {}) {
     },
     marks: { need: () => (box.app.roster()?.sessions ?? []).filter((s) => s.state === "waiting").length },
     store: ["drafts"],
-    start(a) {
-      box.app = a;
+    start() {
       log.push("start sample");
     },
     stop() {
@@ -52,9 +51,12 @@ function sample(log: string[] = [], over: Partial<AppModule> = {}) {
   };
   const part: AppPart = {
     manifest: man("sample", { list: 1, item: 1, need: 1 }, { "roster@relay": 1, "question@host-questions": 1, "answer@host-questions": 1, "push.key@push": 1 }),
-    module: mod,
+    module: (a) => {
+      box.app = a;
+      return mod;
+    },
   };
-  return { part, box };
+  return { part, box, mod };
 }
 
 /** Второй модуль: свой экран side; uses — экран item и метка need модуля sample. */
@@ -62,9 +64,9 @@ function other(log: string[] = [], over: Partial<AppModule> = {}) {
   const box: { app: App } = { app: null as unknown as App };
   const part: AppPart = {
     manifest: man("other", { side: 1 }, { "item@sample": 1, "need@sample": 1 }),
-    module: {
+    module: (a) => ({
       screens: { side: { label: "Сбоку", view: () => "сбоку" } },
-      start(a) {
+      start() {
         box.app = a;
         log.push("start other");
       },
@@ -72,7 +74,7 @@ function other(log: string[] = [], over: Partial<AppModule> = {}) {
         log.push("stop other");
       },
       ...over,
-    },
+    }),
   };
   return { part, box };
 }
@@ -155,6 +157,25 @@ describe("старт и ключ", () => {
     await flush();
     expect(root.querySelector('[role="alert"]')!.textContent).toBe("Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.");
     expect(store.data.key).toBeUndefined();
+  });
+});
+
+describe("функция модуля", () => {
+  it("7219 · функция модуля бросила: выключен только он, на его экране — причина; остальные работают", async () => {
+    // источник: контракт ядра — бросил, значит выключен; его экраны показывают причину
+    const log: string[] = [];
+    const bad: AppPart = {
+      manifest: man("bad", { broken: 1 }, {}),
+      module: () => {
+        throw new Error("сломалось при создании");
+      },
+    };
+    history.replaceState(null, "", "/#broken");
+    const { run } = await boot({ parts: [sample(log).part, bad] });
+    expect(run.stopped).toBeNull();
+    expect(run.failed.bad).toContain("сломалось при создании");
+    expect(root.textContent).toContain("сломалось при создании");
+    expect(log).toContain("start sample");
   });
 });
 
@@ -310,10 +331,15 @@ describe("экраны и адрес", () => {
     const s = sample(log);
     let shown: (v: boolean) => void = () => {};
     const o = other(log);
-    o.part.module.screens!.side.view = function Side() {
-      const [on, set] = useState(true);
-      shown = set;
-      return on ? createElement(o.box.app.Slot, { screen: "item", params: { callsign: "a@pc" } }) : null;
+    const base = o.part.module;
+    o.part.module = (a) => {
+      const d = base(a);
+      d.screens!.side.view = function Side() {
+        const [on, set] = useState(true);
+        shown = set;
+        return on ? createElement(o.box.app.Slot, { screen: "item", params: { callsign: "a@pc" } }) : null;
+      };
+      return d;
     };
     history.replaceState(null, "", "/#side");
     await boot({ parts: [s.part, o.part] });
@@ -349,7 +375,7 @@ describe("экраны и адрес", () => {
         },
       },
     });
-    s.part.module.screens!.item.view = view;
+    s.mod.screens!.item.view = view;
     const { relay } = await boot({ parts: [s.part] });
     relay.push({ type: "question", from: "a@pc" });
     await flush();
@@ -480,8 +506,8 @@ describe("хранилище и метки", () => {
   it("4030 · раздел не из store модуля — ошибка модуля, хранилище не тронуто", async () => {
     const store = memoryStore({ key: KEY });
     const s = sample([], {
-      start(a) {
-        void a.store("pushes").set([1]);
+      start() {
+        void s.box.app.store("pushes").set([1]);
       },
     });
     const { run } = await boot({ parts: [s.part], store });
@@ -516,27 +542,22 @@ describe("хранилище и метки", () => {
 
 describe("места в странице", () => {
   // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): place у экрана, app.placed и show у владельца места
-  const owner = (box: { app?: App }): AppPart => ({
+  const owner = (box: { app?: App }, slot?: SlotProps): AppPart => ({
     manifest: man("host-card", { card: 1, "card.tab": 1 }, {}),
-    module: { screens: { card: { view: () => null } }, start: (a) => void (box.app = a) },
+    module: (a) => ({ screens: { card: { view: () => (slot ? createElement(a.Slot, slot) : null) } }, start: () => void (box.app = a) }),
   });
   const tab = (name: string, show: (p: Record<string, string>) => boolean): AppPart => ({
     manifest: man(name, { [`${name}.tab`]: 1 }, { "card.tab@host-card": 1 }),
-    module: { screens: { [`${name}.tab`]: { place: "card.tab", label: name, show, view: () => `вкладка ${name}` } } },
+    module: () => ({ screens: { [`${name}.tab`]: { place: "card.tab", label: name, show, view: () => `вкладка ${name}` } } }),
   });
 
   it("5121 · владелец места видит вставки через app.placed; show решает видимость; вставку рисует app.Slot", async () => {
     const box: { app?: App } = {};
-    await boot({ parts: [owner(box), tab("hello", (p) => p.callsign === "site@laptop"), tab("bye", () => false)] });
+    history.replaceState(null, "", "/#card");
+    await boot({ parts: [owner(box, { screen: "hello.tab", params: { callsign: "site@laptop" } }), tab("hello", (p) => p.callsign === "site@laptop"), tab("bye", () => false)] });
     expect(box.app!.placed("card.tab", { callsign: "site@laptop" })).toEqual([{ screen: "hello.tab", label: "hello" }]);
     expect(box.app!.placed("card.tab", { callsign: "x@pc" })).toEqual([]);
-    const el = document.createElement("div");
-    document.body.append(el);
-    const view = createRoot(el);
-    view.render(createElement(box.app!.Slot, { screen: "hello.tab", params: { callsign: "site@laptop" } }));
-    await flush();
-    expect(el.textContent).toBe("вкладка hello");
-    view.unmount();
+    expect(root.querySelector('[data-screen="card"]')!.textContent).toBe("вкладка hello");
   });
 
   it("5122 · show бросил — выключен модуль вставки, а не владелец места; место не из provides — ошибка модуля владельца", async () => {
@@ -557,10 +578,10 @@ describe("места в странице", () => {
   });
 
   it("5123 · экран в месте, которого нет в uses, — приложение не стартует; полоса сверху — место top ядра", async () => {
-    const stray: AppPart = { manifest: man("stray", { "stray.tab": 1 }, {}), module: { screens: { "stray.tab": { place: "card.tab", view: () => null } } } };
-    expect(appGate([stray])).toContain("модуль stray: экран stray.tab — места card.tab нет в uses");
-    const bar: AppPart = { manifest: man("bar", { bar: 1 }, { "top@web-core": 1 }), module: { screens: { bar: { place: "top", view: () => "полоса" } } } };
-    expect(appGate([bar])).toEqual([]);
+    const stray: AppPart = { manifest: man("stray", { "stray.tab": 1 }, {}), module: () => ({ screens: { "stray.tab": { place: "card.tab", view: () => null } } }) };
+    expect(appGate(defined([stray]))).toContain("модуль stray: экран stray.tab — места card.tab нет в uses");
+    const bar: AppPart = { manifest: man("bar", { bar: 1 }, { "top@web-core": 1 }), module: () => ({ screens: { bar: { place: "top", view: () => "полоса" } } }) };
+    expect(appGate(defined([bar]))).toEqual([]);
     await boot({ parts: [sample().part, bar] });
     expect(root.textContent).toContain("полоса");
   });

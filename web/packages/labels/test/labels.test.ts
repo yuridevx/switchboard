@@ -14,7 +14,7 @@ afterEach(() => vi.restoreAllMocks());
 /** Хозяин окна: своего экрана у web-labels нет, окно открывает вызывающий. */
 function host() {
   let app: App;
-  const own: Manifest = { name: "host-screen", type: "web", version: "1.0.0", provides: { names: 1 }, uses: { "app@web-core": 1, "labels@web-labels": 1, "label.session@web-labels": 1, "label.machine@web-labels": 1 } };
+  const own: Manifest = { name: "host-screen", type: "web", version: "1.0.0", provides: { names: 1 }, uses: { "app@web-core": 2, "labels@web-labels": 1, "label.session@web-labels": 1, "label.machine@web-labels": 1 } };
   const module: AppModule = {
     screens: {
       names: {
@@ -31,15 +31,20 @@ function host() {
         },
       },
     },
-    start: (a) => void (app = a),
   };
-  return { own, module, session: (c: string) => app.mark("label.session", c) as Shown, machine: (m: string) => app.mark("label.machine", m) as Shown };
+  return { own, module, app: (a: App) => void (app = a), session: (c: string) => app.mark("label.session", c) as Shown, machine: (m: string) => app.mark("label.machine", m) as Shown };
 }
 
 async function open(values: Record<string, unknown> = {}) {
   const relay = Object.assign(new FakeRelay(homeRoster()), { scoped: { global: values } });
   const x = host();
-  const t = await stand([{ manifest, module: createLabels() }, { manifest: x.own, module: x.module }], { relay, url: "/#names" });
+  const t = await stand([{ manifest, module: createLabels }, {
+      manifest: x.own,
+      module: (a) => {
+        x.app(a);
+        return x.module;
+      },
+    }], { relay, url: "/#names" });
   await flush(5);
   await t.click(t.$("[data-open]"));
   return { t, relay, x };

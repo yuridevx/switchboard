@@ -1,7 +1,7 @@
 // Строка сессии: читает только своё; на изменение одной сессии перерисовывается она одна.
 import { memo } from "react";
 import { Badge, Dot } from "@switchboard/web-ui";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import type { RowItem } from "./model.ts";
 import { useHeld } from "./useHeld.ts";
 

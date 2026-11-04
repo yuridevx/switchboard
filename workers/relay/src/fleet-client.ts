@@ -20,7 +20,7 @@ export type FleetOptions = {
   /** входящий кадр с машины, кроме ответов на свои запросы */
   onFrame?: (f: Frame, machine: string) => void;
   /** смена состояния соединения с машиной; машина "" — список машин у gate: stopped со словом — пропуск не принят */
-  onState?: (machine: string, state: LinkState, why?: string) => void;
+  onState?: (machine: string, state: LinkState, why?: string, retryAt?: number) => void;
   /** кадр без ожидания к Worker'у не дошёл: слово отказа — держатель пишет его в свой журнал */
   onLost?: (f: Frame, word: string) => void;
   /** предел запроса, мс — и к relay, и к Worker'у. По умолчанию 120 000 */
@@ -81,7 +81,7 @@ export function fleet(o: FleetOptions): FleetClient {
       pauseMs: o.pauseMs,
       maxPauseMs: o.maxPauseMs,
       WebSocket: o.WebSocket,
-      onState: (s, why) => o.onState?.(machine, s, why),
+      onState: (s, why, retryAt) => o.onState?.(machine, s, why, retryAt),
       onFrame: (f) => {
         if (typeof f.id === "string" && f.type !== "reply" && typeof f.from === "string") origin.set(`${f.id}|${f.from}`, l);
         if (f.type === "roster") {
@@ -104,7 +104,7 @@ export function fleet(o: FleetOptions): FleetClient {
       return;
     }
     if (FATAL.has(r.error)) return o.onState?.("", "stopped", r.error);
-    o.onState?.("", "closed", r.error);
+    o.onState?.("", "closed", r.error, Date.now() + pause);
     listTimer = setTimeout(list, pause);
     pause = Math.min(pause * 2, maxPause);
   }

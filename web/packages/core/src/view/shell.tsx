@@ -1,12 +1,12 @@
 // Вид ядра: каркас страницы и экраны модулей в местах. Разделы — sections.tsx, шапка и полоса связи — bar.tsx, поиск — palette.tsx.
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { UI_CSS } from "@switchboard/web-ui";
 import css from "./shell.css";
 import { Bar, Offline } from "./bar.tsx";
 import { CoreCtx, useCore, type Core } from "./core.ts";
 import { Palette } from "./palette.tsx";
 import { Place } from "./place.tsx";
-import { GroupRow, NavColumn, sectionsModel, Tabs } from "./sections.tsx";
+import { GroupRow, NavColumn, Tabs, useSections } from "./sections.tsx";
 import { StopScreen } from "./stops.tsx";
 
 /** Стили страницы: основание, вид ядра и стили модулей в их областях. */
@@ -18,7 +18,10 @@ export function pageCss(mods: Array<{ name: string; css: string }>): string {
 /** Экран: на всю страницу, рядом со списком или один; пока нет roster — экран подключения. */
 function Stage({ ready }: { ready: boolean }) {
   const core = useCore();
-  const { full, current, master, connecting, fresh } = core.state();
+  const { full, current, master, connecting, fresh } = core.use(() => {
+    const st = core.state();
+    return { full: st.full, current: st.current, master: st.master, connecting: !!st.key && !st.roster, fresh: st.fresh };
+  });
   const screenEl = current ? (
     <div className="sb-screen" data-screen={current.screen} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
       <Place screen={current.screen} params={current.params} />
@@ -57,8 +60,8 @@ function Stage({ ready }: { ready: boolean }) {
 function usePalette(core: Core) {
   const [open, setOpen] = useState(false);
   const canOpen = () => {
-    const { stopped, roster } = core.state();
-    return !stopped && !!roster;
+    const { full, roster } = core.state();
+    return !full && !!roster;
   };
   useEffect(() => {
     const keys = (e: KeyboardEvent) => {
@@ -74,15 +77,43 @@ function usePalette(core: Core) {
   return { open, close: () => setOpen(false), show: () => void (canOpen() && setOpen(true)) };
 }
 
+/** Полоса над экранами разделов. */
+function TopPlaces({ ready }: { ready: boolean }) {
+  const core = useCore();
+  const { shown, tops } = core.use(() => {
+    const { current, master, tops: t } = core.state();
+    const def = current ? core.lookup(current.screen)?.def : undefined;
+    return { shown: ready && (!!def?.nav || !!master), tops: t };
+  });
+  return (
+    <div className="sb-top" hidden={!shown}>
+      {tops.map((n) => (
+        <div key={n}>
+          <Place screen={n} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToastLine() {
+  const core = useCore();
+  const toast = core.use(() => core.state().toast);
+  return (
+    <div className={"sb-toast " + (toast?.tone ?? "")} role="alert" hidden={!toast?.shown}>
+      {toast?.text}
+    </div>
+  );
+}
+
 function Shell() {
   const core = useCore();
-  // вид ядра маленький: перерисовывается на каждое изменение и читает всё заново
-  useSyncExternalStore(core.subscribe, core.rev, core.rev);
   const pal = usePalette(core);
-  const { stopped, roster, current, master, tops, toast } = core.state();
-  const ready = !!roster && !!current && !stopped;
-  const def = current ? core.lookup(current.screen)?.def : undefined;
-  const model = sectionsModel(core);
+  const ready = core.use(() => {
+    const { full, roster, current } = core.state();
+    return !!roster && !!current && !full;
+  });
+  const model = useSections();
   return (
     <div className={"sb-app" + (core.wide ? " wide" : "")}>
       <NavColumn model={model} openPal={pal.show} />
@@ -90,17 +121,9 @@ function Shell() {
         <Bar ready={ready} openPal={pal.show} />
         <GroupRow model={model} ready={ready} />
         <Offline />
-        <div className="sb-top" hidden={!ready || (!def?.nav && !master)}>
-          {tops.map((n) => (
-            <div key={n}>
-              <Place screen={n} />
-            </div>
-          ))}
-        </div>
+        <TopPlaces ready={ready} />
         <Stage ready={ready} />
-        <div className={"sb-toast " + (toast?.tone ?? "")} role="alert" hidden={!toast?.shown}>
-          {toast?.text}
-        </div>
+        <ToastLine />
         <Tabs model={model} />
       </main>
       <div className="sb-palw" hidden={!pal.open}>

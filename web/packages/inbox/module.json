@@ -1,7 +1,7 @@
 {
   "name": "web-inbox",
   "type": "web",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "into": [
     "pult",
     "phone"
@@ -15,7 +15,7 @@
     "ui@web-ui": 1,
     "label.session@web-labels": 1,
     "label.machine@web-labels": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "roster@relay": 1,
     "asked@web-ask": 1,
     "ask@web-ask": 1,

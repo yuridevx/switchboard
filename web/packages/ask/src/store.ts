@@ -2,7 +2,7 @@
 // Кадры question и answered, запросы answer и question.list; снимок читают экран, метка asked и шапка.
 import type { App, Frame, Params, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, hhmm, sessionLabel } from "@switchboard/web-ui";
+import { createStore, hhmm, sessionLabel, useModule } from "@switchboard/web-ui";
 import { permLine, type PermFrame } from "./perm.ts";
 
 /** Вопрос AskUserQuestion: 1–4 на кадр, по 2–4 варианта; «Свой ответ» есть всегда. */
@@ -72,9 +72,10 @@ export function added(recs: Rec[], callsign: string, f: Frame | Record<string, u
 }
 
 export type AskStore = ReturnType<typeof createAskStore>;
+/** Стор модуля в экранах. */
+export const useAsk = (): AskStore => useModule<AskStore>();
 
-export function createAskStore() {
-  let app: App;
+export function createAskStore(app: App) {
   const store = createStore<State>({ recs: [], need: {}, listed: {}, waits: {}, loading: {}, refused: {} }, () => app.changed());
 
   const waitingOf = (callsign: string) => store.get().recs.filter((r) => r.callsign === callsign && r.status === "waiting");
@@ -126,9 +127,6 @@ export function createAskStore() {
   }
 
   return {
-    start(a: App) {
-      app = a;
-    },
     list,
     current,
     isLoading: (callsign: string) => !!store.get().loading[callsign],
@@ -193,10 +191,13 @@ export function createAskStore() {
       for (const c of wanted()) if (present(c)) void list(c);
       for (const s of ro.sessions) if (s.state === "waiting" && !waitingOf(s.callsign).length) void list(s.callsign);
     },
-    onLink(state: string) {
+    onLink(state: string, machine?: string) {
       if (state !== "open") return;
-      store.set((s) => void (s.listed = {}));
-      for (const c of wanted()) if (present(c)) void list(c);
+      const here = (c: string) => !machine || machineOf(c) === machine;
+      store.set((s) => {
+        for (const c of Object.keys(s.listed)) if (here(c)) delete s.listed[c];
+      });
+      for (const c of wanted()) if (here(c) && present(c)) void list(c);
     },
 
     /** Метка для списка: текст первого ждущего вопроса сессии. */

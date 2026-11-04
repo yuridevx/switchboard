@@ -6,7 +6,7 @@
 // первые слова — points.get), «Сохранить точку», перенос, копия, смена папки и откат — шагами, каждый запрос
 // после ответа предыдущего: points.save со стопом → points.raise → (смена папки) session.remove прежней.
 // session.points встаёт в место card.tab карточки (card.tab@web-card в uses). Метка fire — сессии без машины.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createPoints } from "./src/module.tsx";
 
@@ -18,4 +18,4 @@ declare module "@switchboard/web-core" {
 
 export { createPoints };
 export const manifest: Manifest = json;
-export default createPoints() satisfies AppModule;
+export default createPoints satisfies AppPart["module"];

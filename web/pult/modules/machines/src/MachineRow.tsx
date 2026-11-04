@@ -2,7 +2,7 @@
 import { memo } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { Btn, Dot, hhmm, machineLabel, Note, Opts, plural, useApp } from "@switchboard/web-ui";
-import { useMachines } from "./context.ts";
+import { useMachines } from "./store.ts";
 import { okOf, stateOf, type Part } from "./store.ts";
 
 /** Строка части: перезапуск упавшей и строка его итога. */

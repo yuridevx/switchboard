@@ -14,7 +14,7 @@ export * from "./src/parts.tsx";
 export * from "./src/format.ts";
 export * from "./src/perms.ts";
 export { personal } from "./src/personal.ts";
-export { AppCtx, useApp } from "./src/hooks.ts";
+export { AppCtx, useApp, useModule } from "./src/hooks.ts";
 export type { AppHandle } from "./src/hooks.ts";
 export { useLoad, useNow } from "./src/hooks.ts";
 export { machineAnswers } from "./src/machines.ts";

@@ -1,7 +1,7 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "2.0.7",
+  "version": "2.1.0",
   "into": [
     "pult"
   ],
@@ -14,7 +14,7 @@
     "view@web-view": 19,
     "ui@web-ui": 1,
     "label.session@web-labels": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "roster@relay": 1,
     "points.list@points": 1,
     "points.get@points": 2,

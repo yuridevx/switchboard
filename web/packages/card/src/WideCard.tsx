@@ -5,7 +5,7 @@
 import { useState } from "react";
 import type { Params } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { useCan, useCard, useSession } from "./context.ts";
+import { useCan, useCard, useSession } from "./hooks.ts";
 import { LogTab } from "./LogTab.tsx";
 import { Names } from "./Names.tsx";
 import { SetTab } from "./SetTab.tsx";

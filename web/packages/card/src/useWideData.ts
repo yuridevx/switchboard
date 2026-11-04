@@ -1,7 +1,7 @@
 // Данные широкой карточки на время экрана: аккаунты, слоты, модели и серверы MCP; запросы шапки и настроек.
 import { useState } from "react";
 import { useLoad, useApp } from "@switchboard/web-ui";
-import { useCard } from "./context.ts";
+import { useCard } from "./hooks.ts";
 import { notAsked, type Acc, type Mcp, type Model, type SlotInfo } from "./session.ts";
 
 export type WideData = ReturnType<typeof useWideData>;

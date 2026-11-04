@@ -1,6 +1,6 @@
 // Ряд фильтров: «Моё», «Всё» и свои; число — сколько подходит. Что делать по нажатию, решает экран.
 import { memo } from "react";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import { useHeld } from "./useHeld.ts";
 
 type Props = { gen: number; panel: boolean; chip(id: string, on: boolean, fixed: boolean): void; add(): void; toggle(): void };

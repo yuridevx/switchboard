@@ -1,6 +1,6 @@
 // Группа «Шапка» в панели вида «Работы». Вернуть встроенное — команда card.view (app.open).
 import { Choices, useApp } from "@switchboard/web-ui";
-import { useCard } from "./context.ts";
+import { useCard } from "./hooks.ts";
 import type { HeadView } from "./session.ts";
 
 /** Единицы шапки в панели вида. */

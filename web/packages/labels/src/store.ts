@@ -1,25 +1,23 @@
 // Имена сессий и машин: запись области флота fleet.labels, одна на всех и на агентов. Цикл записи — personal из web-ui.
 import type { App } from "@switchboard/web-core";
-import { personal, type Personal } from "@switchboard/web-ui";
+import { personal, type Personal, useModule } from "@switchboard/web-ui";
 import { FLEET_PREFIX, LABELS, labelOf, setLabel, type Labels } from "@switchboard/records";
 
 export type Shown = { text: string; human: boolean };
 
 export type LabelsStore = ReturnType<typeof createLabelsStore>;
+/** Стор модуля в экранах. */
+export const useLabels = (): LabelsStore => useModule<LabelsStore>();
 
-export function createLabelsStore() {
-  let app: App;
-  let p: Personal;
-  const names = () => p?.get<Labels>(LABELS);
+export function createLabelsStore(app: App) {
+  const p: Personal = personal(app, FLEET_PREFIX, () => app.changed(), "global");
+  const names = () => p.get<Labels>(LABELS);
 
   return {
-    start(a: App) {
-      app = a;
-      p ??= personal(app, FLEET_PREFIX, () => app.changed(), "global");
-    },
-    settled: () => p?.settled(),
-    onLink(state: string) {
-      if (state === "open") void p.read();
+    settled: p.settled,
+    // имена — у Worker'а: возврат одной машины их не трогает
+    onLink(state: string, machine?: string) {
+      if (state === "open" && !machine) void p.read();
     },
     /** Заданное имя адреса или пусто: начальное значение окна. */
     nameOf: (address: string) => labelOf(names(), address) ?? "",

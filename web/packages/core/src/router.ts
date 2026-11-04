@@ -29,8 +29,8 @@ export function createRouter(d: { win: Window; wide: boolean; beside?: Record<st
   }
 
   function route() {
-    const { stopped, roster, master, current } = state.get();
-    if (stopped || !roster) return;
+    const { full, roster, master, current } = state.get();
+    if (full || !roster) return;
     const next = parseHash();
     routed = win.location.hash;
     // широкий вид: экран рядом со списком — список слева остаётся, меняется только правая часть;

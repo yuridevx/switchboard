@@ -11,12 +11,12 @@ import { createInbox, manifest as inboxM } from "../contract.ts";
 import { createInboxStore } from "../src/store.ts";
 import { flush, homeRoster, stand } from "../../core/stand/app.ts";
 
-const parts = (extra: Array<{ manifest: Manifest; module: AppModule }> = []) => [
-  { manifest: inboxM, module: createInbox() },
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+const parts = (extra: Array<{ manifest: Manifest; module: () => AppModule }> = []) => [
+  { manifest: inboxM, module: createInbox },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
   ...extra,
 ];
@@ -24,7 +24,7 @@ const parts = (extra: Array<{ manifest: Manifest; module: AppModule }> = []) => 
 /** Подделка модуля точек: метка fire — сколько машин не на связи; экран точек нужен только как цель кнопки. */
 const points = (fire: number) => ({
   manifest: { name: "pult-points", type: "web", version: "1.0.0", provides: { fire: 1, points: 1 }, uses: {} } as Manifest,
-  module: { marks: { fire: () => fire }, screens: { points: { nav: "Точки", label: "Точки", view: () => null } } } as AppModule,
+  module: () => ({ marks: { fire: () => fire }, screens: { points: { nav: "Точки", label: "Точки", view: () => null } } }) as AppModule,
 });
 
 /** Я — phone~you@mail. site и mine@pc мои; anna@pc чужая. */
@@ -81,12 +81,11 @@ describe("«готово»", () => {
 
   it("6962 · чтение карточек и метки не пишет в снимок: уведомлений нет, «готово» снимается только переходом", () => {
     // источник: устав персоны архитектора — выборка чистая
-    const store = createInboxStore();
     let cur: { screen: string; params: Record<string, string> } | null = { screen: "inbox", params: {} };
     let r = fleet();
     const changed = vi.fn();
     const app = { roster: () => r, current: () => cur, changed, mark: (n: string, c: string) => (n === "mine" ? c !== "anna@pc" : undefined), wide: false } as unknown as App;
-    store.start(app);
+    const store = createInboxStore(app as never);
     store.onRoster(r);
     r = fleet((x) => idle(x));
     store.onRoster(r);

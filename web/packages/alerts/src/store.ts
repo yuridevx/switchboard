@@ -1,7 +1,7 @@
 // Состояние уведомлений устройства и путь включения: разрешение → push.key → подписка браузера → push.subscribe.
 // Пуши, сохранённые обработчиком, — ядру при старте и возвращении на экран (кадр уходит владельцу по type).
 import type { App } from "@switchboard/web-core";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, useModule } from "@switchboard/web-ui";
 import type { StoredPush } from "./sw.ts";
 
 /** Что модуль берёт у браузера; в тестах — подделка. */
@@ -29,12 +29,12 @@ export function b64url(s: string): Uint8Array {
 export const READY_MS = 10_000;
 
 export type AlertsStore = ReturnType<typeof createAlertsStore>;
+/** Стор модуля в экранах. */
+export const useAlerts = (): AlertsStore => useModule<AlertsStore>();
 
 /** browser — API пушей браузера (по умолчанию глобальные). */
-export function createAlertsStore(browser?: BrowserPush) {
-  let app: App;
+export function createAlertsStore(app: App, browser?: BrowserPush) {
   const store = createStore<{ state: AlertsState; error: string }>({ state: "off", error: "" }, () => app.changed());
-  let listening = false;
 
   const env = (): BrowserPush =>
     browser ?? {
@@ -87,6 +87,11 @@ export function createAlertsStore(browser?: BrowserPush) {
     });
   }
 
+  async function collect() {
+    await takePushes();
+    void check();
+  }
+
   return {
     state: () => store.get().state,
     error: () => store.get().error,
@@ -114,19 +119,18 @@ export function createAlertsStore(browser?: BrowserPush) {
       setState("on");
       app.toast("Уведомления включены: сессии достучатся, когда приложение закрыто.", "ok");
     },
-    async start(a: App) {
-      app = a;
+    async start() {
       const e = env();
-      if (e.sw && !listening) {
-        listening = true;
+      if (e.sw) {
         // обработчик открыл уже открытое окно — пуши забрать сразу
         e.sw.addEventListener("message", (m) => {
           if (m.data === "pushes") void takePushes();
         });
         e.sw.register("sw.js").catch((x: unknown) => console.error("switchboard: обработчик пушей не зарегистрирован", x));
       }
-      await takePushes();
-      void check();
+      await collect();
     },
+    /** Страница вернулась на экран: пуши, пришедшие без неё. */
+    show: collect,
   };
 }

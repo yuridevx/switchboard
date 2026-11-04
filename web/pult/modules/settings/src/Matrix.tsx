@@ -1,6 +1,6 @@
 // Матрица выпусков: машина × часть по ответам keeper'ов и плану; поиск, отметка машин, выбор машины для её плана.
 import { Dot, Note, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { StoredIn } from "./parts.tsx";
 import { cellOf, machineParts, relMachines } from "./rules.ts";
 

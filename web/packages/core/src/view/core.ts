@@ -4,7 +4,7 @@ import type { ScreenEntry } from "../mod.ts";
 import type { Hit } from "../nav.ts";
 import type { Registry } from "../registry.ts";
 import type { CoreState } from "../state.ts";
-import type { Head, Params, Screen } from "../types.ts";
+import type { App, Head, Params, Screen } from "../types.ts";
 
 export type { Hit };
 
@@ -12,12 +12,12 @@ export type Core = {
   wide: boolean;
   brand?: string;
   win: Window;
-  subscribe(f: () => void): () => void;
-  rev(): number;
   use<T>(select: () => T): T;
   state(): CoreState;
   keyLabel(): string;
   lookup(screen: string): ScreenEntry | undefined;
+  /** может ли модуль этого App открыть экран */
+  mayOpen(app: App, screen: string): boolean;
   fail: Registry["fail"];
   reload(): void;
   /** стереть пропуск и данные приложения на устройстве */

@@ -2,7 +2,7 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { Btn, Dot, hhmm, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
-import { useIncidents } from "./context.ts";
+import { useIncidents } from "./store.ts";
 import { incOf, isOpen, type Lost } from "./store.ts";
 
 const LostRow = memo(function LostRow({ x, picked, pick }: { x: Lost; picked: boolean; pick(k: string): void }) {

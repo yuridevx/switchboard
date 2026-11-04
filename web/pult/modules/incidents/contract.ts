@@ -4,7 +4,7 @@
 // нажатие — карточка сессии (card). «Не доставлены» — строки журнала машины (machine.journal, kind refuse, ev incident)
 // с полуночи: слово отказа и причина как записал Host; обращение ждёт на диске Host до следующего обращения или старта.
 // Журнал читается при открытии экрана и на первом roster. Метка incidents.open — открытые инциденты и недоставленные.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createIncidents } from "./src/module.tsx";
 
@@ -18,4 +18,4 @@ declare module "@switchboard/web-core" {
 }
 
 export const manifest: Manifest = json;
-export default createIncidents() satisfies AppModule;
+export default createIncidents satisfies AppPart["module"];

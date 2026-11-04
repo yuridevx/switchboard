@@ -16,10 +16,10 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const parts = (browser: BrowserPush) => [
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts(browser) },
 ];
 

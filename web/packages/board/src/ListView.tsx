@@ -1,7 +1,7 @@
 // Список «Работы»: проекты или плоско; строка открытой сессии показывается, как только она есть. gen — поколение после перестановки: элементы строятся заново.
 import { memo, useLayoutEffect, useRef } from "react";
 import { useApp } from "@switchboard/web-ui";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import { NewProject, ProjectSection } from "./ProjectSection.tsx";
 import { SessionRow } from "./SessionRow.tsx";
 import { useHeld } from "./useHeld.ts";

@@ -14,7 +14,7 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const root = () => document.getElementById("app")!;
-const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1, "roster@relay": 1, ...uses } });
+const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2, "roster@relay": 1, ...uses } });
 
 async function boot(parts: AppPart[], roster: Roster = homeRoster()) {
   const relay = new FakeRelay(roster);
@@ -42,8 +42,14 @@ function listModule(renders: { rows: number }) {
       </>
     );
   }
-  const module: AppModule = { screens: { list: { nav: "Список", label: "Список", view: List } }, start: (a) => void (app = a) };
-  return { manifest: man("list", { list: 1 }), module } satisfies AppPart;
+  const mod: AppModule = { screens: { list: { nav: "Список", label: "Список", view: List } } };
+  return {
+    manifest: man("list", { list: 1 }),
+    module: (a) => {
+      app = a;
+      return mod;
+    },
+  } satisfies AppPart;
 }
 
 const manySessions = (n: number): Roster => {
@@ -78,7 +84,7 @@ describe("выборки", () => {
       });
       return "экран";
     }
-    await boot([{ manifest: man("v", { v: 1 }), module: { screens: { v: { nav: "В", view: V } }, start: (a) => void (app = a) } }]);
+    await boot([{ manifest: man("v", { v: 1 }), module: (a) => ({ screens: { v: { nav: "В", view: V } }, start: () => void (app = a) }) }]);
     counted = 0;
     for (let i = 0; i < 10; i++) app.changed();
     await flush();
@@ -94,8 +100,16 @@ describe("выборки", () => {
       renders++;
       return `счёт ${u.count}`;
     }
-    const module: AppModule = { screens: { v: { nav: "В", view: V } }, marks: { unread: () => ({ count: 3 }) }, start: (a) => void (app = a) };
-    await boot([{ manifest: man("v", { v: 1, unread: 1 }), module }]);
+    const mod: AppModule = { screens: { v: { nav: "В", view: V } }, marks: { unread: () => ({ count: 3 }) } };
+    await boot([
+      {
+        manifest: man("v", { v: 1, unread: 1 }),
+        module: (a) => {
+          app = a;
+          return mod;
+        },
+      },
+    ]);
     renders = 0;
     app.changed();
     await flush();
@@ -126,7 +140,7 @@ describe("место экрана", () => {
       if (v) throw new Error("сломан рендер");
       return <div data-bad="1">жив</div>;
     }
-    const broken: AppPart = { manifest: man("broken", { broken: 1 }), module: { screens: { broken: { nav: "Плохой", label: "Плохой", view: Bad } }, start: (a) => void (app = a) } };
+    const broken: AppPart = { manifest: man("broken", { broken: 1 }), module: (a) => ({ screens: { broken: { nav: "Плохой", label: "Плохой", view: Bad } }, start: () => void (app = a) }) };
     const { relay, run } = await boot([broken, neighbour()]);
     expect(root().querySelector("[data-bad]")).not.toBeNull();
     bad = true;
@@ -147,8 +161,8 @@ describe("место экрана", () => {
     // чьё: код — правило «экран — свой, из uses или вставленный в своё место»
     let app!: App;
     const V = () => <app.Slot screen="side" />;
-    const caller: AppPart = { manifest: man("caller", { caller: 1 }), module: { screens: { caller: { nav: "Вызов", label: "Вызов", view: V } }, start: (a) => void (app = a) } };
-    const side: AppPart = { manifest: man("side", { side: 1 }), module: { screens: { side: { label: "Бок", view: () => "бок" } } } };
+    const caller: AppPart = { manifest: man("caller", { caller: 1 }), module: (a) => ({ screens: { caller: { nav: "Вызов", label: "Вызов", view: V } }, start: () => void (app = a) }) };
+    const side: AppPart = { manifest: man("side", { side: 1 }), module: () => ({ screens: { side: { label: "Бок", view: () => "бок" } } }) };
     const { run } = await boot([caller, side]);
     expect(run.failed.caller).toContain("экрана side нет в uses");
     expect(root().textContent).not.toContain("бок");
@@ -165,7 +179,7 @@ describe("место экрана", () => {
         </button>
       );
     }
-    const part: AppPart = { manifest: man("c", { card: 1 }), module: { screens: { card: { nav: "К", view: Card } }, start: (a) => void (app = a) } };
+    const part: AppPart = { manifest: man("c", { card: 1 }), module: (a) => ({ screens: { card: { nav: "К", view: Card } }, start: () => void (app = a) }) };
     await boot([part]);
     app.open("card", { callsign: "a@pc" });
     await flush();
@@ -182,9 +196,9 @@ describe("место экрана", () => {
     let app!: App;
     const outer: AppPart = {
       manifest: man("outer", { outer: 1 }, { "inner@inner-m": 1 }),
-      module: { screens: { outer: { nav: "Вне", view: () => <app.Slot screen="inner" /> } }, css: ".t{color:red}", start: (a) => void (app = a) },
+      module: (a) => ({ screens: { outer: { nav: "Вне", view: () => <app.Slot screen="inner" /> } }, css: ".t{color:red}", start: () => void (app = a) }),
     };
-    const inner: AppPart = { manifest: man("inner-m", { inner: 1 }), module: { screens: { inner: { view: () => <b className="t">внутри</b> } } } };
+    const inner: AppPart = { manifest: man("inner-m", { inner: 1 }), module: () => ({ screens: { inner: { view: () => <b className="t">внутри</b> } } }) };
     await boot([outer, inner]);
     expect(root().querySelector("style")!.textContent).toContain('@scope ([data-module="outer"]) to ([data-module]) {\n.t{color:red}\n}');
     expect(root().querySelector('[data-module="outer"] [data-module="inner-m"] .t')!.textContent).toBe("внутри");
@@ -194,7 +208,7 @@ describe("место экрана", () => {
     // источник: дизайн: «система ловит»; модуль без области стилей не показываем
     const relay = new FakeRelay(homeRoster());
     const started = vi.fn();
-    const run = startApp({ root: root(), workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [{ manifest: man("m", {}), module: { start: started } }], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false, scope: false } });
+    const run = startApp({ root: root(), workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [{ manifest: man("m", {}), module: () => ({ start: started }) }], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false, scope: false } });
     await run.ready;
     await flush();
     expect(run.stopped).toBe("browser");
@@ -214,7 +228,7 @@ describe("сборка страницы", () => {
       root: root(),
       build: list,
       loadMs: 10,
-      load: (name) => (name === "slow" ? new Promise(() => {}) : Promise.resolve({ default: ok, manifest: man("ok", { ok: 1 }) })),
+      load: (name) => (name === "slow" ? new Promise(() => {}) : Promise.resolve({ default: () => ok, manifest: man("ok", { ok: 1 }) })),
       fetch: relay.fetch,
       store: memoryStore({ key: KEY }),
       WebSocket: relay.WebSocket,
@@ -231,7 +245,7 @@ describe("сборка страницы", () => {
     // источник: дизайн «Новая модульность фронта», эталон основания; вид ядра — вне границы модуля
     const relay = new FakeRelay(homeRoster());
     const broken = { nav: "М", view: () => "экран", get group(): string { throw new Error("сломана группа раздела"); } };
-    const part: AppPart = { manifest: man("m", { m: 1 }), module: { screens: { m: broken } } };
+    const part: AppPart = { manifest: man("m", { m: 1 }), module: () => ({ screens: { m: broken } }) };
     const run = startApp({ root: root(), workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [part], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
     await run.ready;
     await flush();

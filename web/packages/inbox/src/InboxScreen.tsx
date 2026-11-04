@@ -1,7 +1,7 @@
 // Экран «Вам»: карточки по группам; пусто — «Всё разобрано».
 import { Fragment } from "react";
 import { useApp } from "@switchboard/web-ui";
-import { useInbox } from "./context.ts";
+import { useInbox } from "./store.ts";
 import { InboxCard } from "./InboxCards.tsx";
 
 const GROUPS = ["Ждут ответа", "Сломалось или ждёт", "Готово"];

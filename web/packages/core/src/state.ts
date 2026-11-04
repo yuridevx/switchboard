@@ -15,20 +15,19 @@ export type Stop =
   | { kind: "replace"; invite: string; number: string; kid: string }
   | { kind: "key"; command: string };
 
+/** Приложение остановлено: экран и слово причины. */
+export type Stopped = Stop & { why: string };
+
 export type Toast = { text: string; tone: "ok" | "bad"; shown: boolean };
 
 export type CoreState = {
-  /** почему не стартовало или остановилось */
-  stopped: string | null;
-  /** экран на всю страницу: вход, отказ, остановка */
-  full: Stop | null;
+  /** остановлено: экран на всю страницу (вход, отказ) и слово причины */
+  full: Stopped | null;
   css: string;
   /** пропуск устройства */
   key: string;
   /** приглашение принято в этом запуске */
   fresh: boolean;
-  /** ждём первый roster */
-  connecting: boolean;
   conn: ConnState;
   roster: Roster | null;
   rosterAt: number;
@@ -48,7 +47,7 @@ export type CoreStore = {
 };
 
 export function createCoreState(css: string, changed: () => void): CoreStore {
-  let state: CoreState = { stopped: null, full: null, css, key: "", fresh: false, connecting: false, conn: "connecting", roster: null, rosterAt: 0, retryAt: 0, current: null, master: null, tops: [], toast: null };
+  let state: CoreState = { full: null, css, key: "", fresh: false, conn: "connecting", roster: null, rosterAt: 0, retryAt: 0, current: null, master: null, tops: [], toast: null };
   return {
     get: () => state,
     set(patch, o) {

@@ -7,10 +7,10 @@
 // Место card.menu: пункт меню другого модуля — команда с run(params) или экран с view; params.from — позывной карточки.
 // Экран card.view — группа «Шапка» для панели вида другого модуля: <app.Slot screen="card.view"/>;
 // app.open("card.view") — команда: возвращает встроенные настройки шапки.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createCard } from "./src/module.tsx";
 
 export { createCard };
 export const manifest: Manifest = json;
-export default createCard() satisfies AppModule;
+export default createCard satisfies AppPart["module"];

@@ -1,11 +1,11 @@
-// Контексты чата. ChatCtx — состояние и действия живого экрана. CardsCtx — что нужно карточкам ленты:
+// Стор чата в экранах и контекст карточек. CardsCtx — что нужно карточкам ленты:
 // живая лента и галерея дают его по-разному, карточки об этом не знают.
 import { createContext, useContext } from "react";
+import { useModule } from "@switchboard/web-ui";
 import type { ChatStore } from "./state/chat.ts";
 import type { Feed } from "./state/types.ts";
 
-export const ChatCtx = createContext<ChatStore | null>(null);
-export const useChat = (): ChatStore => useContext(ChatCtx)!;
+export const useChat = (): ChatStore => useModule<ChatStore>();
 
 export type CardsView = {
   /** выборка из ленты: карточка перерисуется, когда изменился её ответ */

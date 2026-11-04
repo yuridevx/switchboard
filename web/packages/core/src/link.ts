@@ -7,7 +7,6 @@ import type { ConnState, Ctx, Result, StartOptions } from "./types.ts";
 
 /** Причины своих закрытий link — не отказ relay. */
 const OWN = new Set(["closing", "hidden", "now"]);
-const MAX_PAUSE = 60_000;
 
 export type Link = ReturnType<typeof createLink>;
 
@@ -22,34 +21,28 @@ export function createLink(d: {
   refused(why: string): void;
 }) {
   const { o, state, registry, changed, route, toast, refused } = d;
-  const firstPause = o.pauseMs ?? 1_000;
   const pending = new Set<Promise<unknown>>();
   let lk: FleetClient | null = null;
-  let pause = firstPause;
 
-  function setConn(conn: ConnState) {
+  function setConn(conn: ConnState, machine?: string) {
     state.set({ conn });
-    for (const x of registry.mods) if (x.mod.on?.link) registry.call(x, "смене связи", () => x.mod.on!.link!(conn));
+    for (const x of registry.mods) if (x.mod.on?.link) registry.call(x, "смене связи", () => x.mod.on!.link!(conn, machine));
     changed();
   }
 
-  function onState(s: string, why?: string) {
+  function onState(s: string, why?: string, retryAt = 0) {
     if (s === "stopped") {
       if (why !== undefined && OWN.has(why)) return;
       setConn("stopped");
       return refused(why ?? "");
     }
     if (s === "open") {
-      pause = firstPause;
       state.set({ retryAt: 0 });
       setConn("open");
       return;
     }
     if (s === "closed") {
-      // та же пауза, что у link: растёт вдвое до потолка, сбрасывается на принятом hello
-      const retryAt = Date.now() + pause;
       state.set({ retryAt });
-      pause = Math.min(pause * 2, MAX_PAUSE);
       console.warn(`switchboard: связь с relay оборвалась (${why}) · снова через ${Math.round((retryAt - Date.now()) / 1000)} с`);
       setConn("closed");
       return;
@@ -81,7 +74,6 @@ export function createLink(d: {
       if (x.mod.on?.roster && x.m.uses["roster@relay"] !== undefined) registry.call(x, "кадре roster", () => x.mod.on!.roster!(roster));
     }
     if (!first) return changed();
-    state.set({ connecting: false });
     route();
     if (state.get().fresh) {
       const ms = roster.machines.map((m) => m.machine);
@@ -91,7 +83,6 @@ export function createLink(d: {
   }
 
   function connect() {
-    pause = firstPause;
     // флот собран, когда каждое соединение этого клиента хоть раз открылось или закрылось; до того roster неполный —
     // экраны его не видят: при возвращении на страницу остаётся прежний, без мигания «половина флота → весь»
     const settled = new Set<string>();
@@ -102,13 +93,12 @@ export function createLink(d: {
     lk = fleet({
       workers: o.workers,
       key: state.get().key,
-      pauseMs: firstPause,
-      maxPauseMs: MAX_PAUSE,
+      pauseMs: o.pauseMs,
       WebSocket: o.WebSocket as WsCtor | undefined,
       fetch: o.fetch,
       // отказ пропуску на любой машине или у gate — остановка; иначе состояние флота: открыт, если открыта хоть одна машина;
       // модули узнают о смене состояния флота, а не каждого соединения
-      onState: (m, s, why) => {
+      onState: (m, s, why, retryAt) => {
         if (s === "stopped" && why !== undefined && !OWN.has(why)) return onState("stopped", why);
         const was = whole();
         if (m && s === "closed") gone.add(m);
@@ -117,9 +107,14 @@ export function createLink(d: {
         const now = lk?.state ?? s;
         if (now !== state.get().conn) {
           gone.clear();
-          onState(now, why);
-          // одна машина вернулась внутри открытого флота: её hello принят, подписки на ней пропали — экраны шлют заново
-        } else if (m && s === "open" && gone.delete(m)) setConn("open");
+          onState(now, why, retryAt);
+          // одна машина вернулась внутри открытого флота: её hello принят, подписки на ней пропали — её экраны шлют заново
+        } else if (m && s === "open" && gone.delete(m)) setConn("open", m);
+        // флот без связи: отсчёт — до ближайшей попытки любого соединения
+        else if (s === "closed" && now === "closed" && retryAt) {
+          const was = state.get().retryAt;
+          state.set({ retryAt: was > Date.now() ? Math.min(was, retryAt) : retryAt });
+        }
         // последней собралась закрывшаяся машина: отложенный roster остальных — сейчас; открывшаяся пришлёт свой следом
         if (!was && held) {
           held = false;

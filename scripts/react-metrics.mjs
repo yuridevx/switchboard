@@ -1,6 +1,6 @@
 // Числа идиоматичности React-кода фронта. node scripts/react-metrics.mjs
 // Считаются только `let`, Map и Set на отступе 2 внутри фабрик create*: локальные переменные функций верхнего уровня не состояние модуля.
-// Служебные ссылки — что не рисуется: app, снимок и его хранилище, клиент настроек, циклы опроса машин, таймеры и счётчики ядра, защита от устаревшего ответа.
+// Служебные ссылки — что не рисуется: снимок ядра, таймеры и счётчики ядра, защита от устаревшего ответа.
 // Состояние вида — всё остальное: его цель 0, оно живёт в снимке createStore.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -16,22 +16,12 @@ const walk = (d) =>
 
 /** Что служебное и почему: ключ — файл и имя, новое имя с тем же словом в другом файле служебным само не становится. */
 const SERVICE = {
-  "web/packages/alerts/src/store.ts:app": "app модуля",
-  "web/packages/alerts/src/store.ts:listening": "слушатель обработчика пушей",
-  "web/packages/ask/src/store.ts:app": "app модуля",
-  "web/packages/board/src/store.ts:app": "app модуля",
-  "web/packages/board/src/store.ts:user": "клиент настроек",
-  "web/packages/board/src/store.ts:fleet": "клиент настроек",
-  "web/packages/card/src/store.ts:app": "app модуля",
-  "web/packages/chat/src/state/chat.ts:app": "app модуля",
   "web/packages/core/src/bus.ts:subs": "подписчики выборок",
-  "web/packages/core/src/bus.ts:rev": "номер уведомления",
   "web/packages/core/src/bus.ts:queued": "уведомление в такте",
   "web/packages/core/src/lifecycle.ts:hidden": "страница скрыта",
   "web/packages/core/src/lifecycle.ts:life": "очередь ухода и возврата",
   "web/packages/core/src/link.ts:pending": "начатые запросы",
   "web/packages/core/src/link.ts:lk": "соединение",
-  "web/packages/core/src/link.ts:pause": "пауза переподключения",
   "web/packages/core/src/registry.ts:frameOwner": "реестр модулей",
   "web/packages/core/src/registry.ts:screenOwner": "реестр модулей",
   "web/packages/core/src/registry.ts:markOwner": "реестр модулей",
@@ -39,23 +29,7 @@ const SERVICE = {
   "web/packages/core/src/router.ts:depth": "глубина истории",
   "web/packages/core/src/state.ts:state": "сам снимок",
   "web/packages/core/src/state.ts:timer": "таймер",
-  "web/packages/inbox/src/store.ts:app": "app модуля",
-  "web/packages/labels/src/store.ts:app": "app модуля",
-  "web/packages/labels/src/store.ts:p": "клиент настроек",
-  "web/pult/modules/accounts/src/store.ts:app": "app модуля",
-  "web/pult/modules/accounts/src/store.ts:accs": "цикл опроса машин",
-  "web/pult/modules/accounts/src/store.ts:slots": "цикл опроса машин",
-  "web/pult/modules/incidents/src/store.ts:app": "app модуля",
-  "web/pult/modules/journal/src/store.ts:app": "app модуля",
   "web/pult/modules/journal/src/store.ts:epoch": "защита от устаревшего ответа",
-  "web/pult/modules/machines/src/store.ts:app": "app модуля",
-  "web/pult/modules/open/src/store.ts:app": "app модуля",
-  "web/pult/modules/open/src/store.ts:p": "клиент настроек",
-  "web/pult/modules/points/src/store.ts:app": "app модуля",
-  "web/pult/modules/profiles/src/store.ts:app": "app модуля",
-  "web/pult/modules/profiles/src/store.ts:replies": "цикл опроса машин",
-  "web/pult/modules/settings/src/store.ts:app": "app модуля",
-  "web/pult/modules/settings/src/store.ts:keeper": "цикл опроса машин",
 };
 const NAME = /^ {2}(?:let (\w+)|const (\w+)(?:: [^=]+)? = new (?:Map|Set)\b)/;
 
@@ -89,7 +63,10 @@ for (const f of walk(join(root, "web"))) {
     file,
     lines: lines.length,
     // компонент (function с заглавной) с отступом: объявлен внутри другой функции
-    inner: lines.filter((l) => /^\s+(const \w+ = memo\(function |function )[A-Z]\w*\(/.test(l)).length,
+    // и компонент как значение: стрелка или вызов в поле view определения модуля, стрелка с заглавным именем, фабрика компонентов
+    inner: lines.filter((l) => /^\s+(const \w+ = memo\(function |function )[A-Z]\w*\(/.test(l) || (file.endsWith("/module.tsx") && /^\s+view: (\(|\w+ =>|\w+\()/.test(l)) || /^\s+const [A-Z]\w* = (\([^)]*\)|\w+) =>/.test(l) || /^\s+const \w+ = \(\w+: ComponentType/.test(l)).length,
+    contexts: (s.match(/= createContext[<(]/g) ?? []).length,
+    letApp: (s.match(/^\s+let app:/gm) ?? []).length,
     service: names.length - view.length,
     view: view.length,
     changed: (s.match(/app\.changed\(\)/g) ?? []).length,
@@ -97,7 +74,7 @@ for (const f of walk(join(root, "web"))) {
     states: (s.match(/useState[<(]/g) ?? []).length,
     effects: (s.match(/useEffect\(/g) ?? []).length,
   };
-  if (m.inner || m.service || m.view || m.changed || m.dom || m.lines > 400) rows.push(m);
+  if (m.inner || m.service || m.view || m.changed || m.dom || m.contexts || m.letApp || m.lines > 400) rows.push(m);
 }
 rows.sort((a, b) => b.inner + b.view + b.service + b.changed - (a.inner + a.view + a.service + a.changed));
 const sum = (k) => rows.reduce((n, r) => n + r[k], 0);
@@ -105,4 +82,4 @@ const p = (n, w = 3) => String(n).padStart(w);
 for (const r of rows) console.log(`${r.file.padEnd(52)} строк ${p(r.lines, 5)} · внутр.комп ${p(r.inner)} · состояние вида ${p(r.view)} · служебные ${p(r.service)} · changed ${p(r.changed)} · DOM ${p(r.dom)} · useState ${p(r.states)} · useEffect ${p(r.effects, 2)}`);
 console.log("служебные ссылки:", Object.entries(services).sort((a, b) => b[1] - a[1]).map(([n, k]) => `${n} ×${k}`).join(", "));
 if (viewState.length) console.log("состояние вида:", viewState.join(", "));
-console.log(`ИТОГО: файлов ${rows.length} · внутренних компонентов ${sum("inner")} · состояние вида в замыканиях ${sum("view")} · служебные ссылки ${sum("service")} · app.changed ${sum("changed")} · ручной DOM ${sum("dom")} · файлов > 400 строк ${rows.filter((r) => r.lines > 400).length}`);
+console.log(`ИТОГО: файлов ${rows.length} · внутренних компонентов ${sum("inner")} · createContext ${sum("contexts")} · let app ${sum("letApp")} · состояние вида в замыканиях ${sum("view")} · служебные ссылки ${sum("service")} · app.changed ${sum("changed")} · ручной DOM ${sum("dom")} · файлов > 400 строк ${rows.filter((r) => r.lines > 400).length}`);

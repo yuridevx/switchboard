@@ -1,7 +1,7 @@
 // План машины сбоку: части, версии, закрепление, включение.
 import { useState } from "react";
 import { Btn, In, M, Note, Opts, PageHead, Sec, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { NoteOf } from "./parts.tsx";
 import { cellOf, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
 

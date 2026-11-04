@@ -1,7 +1,7 @@
 // Окно действия над точкой: перенос, копия, смена папки, откат. Поля и шаги — usePointDialog.
 import { machineOf } from "@switchboard/protocol";
 import { Btn, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec, useApp } from "@switchboard/web-ui";
-import { usePoints } from "./context.ts";
+import { usePoints } from "./store.ts";
 import { CheckLine } from "./parts.tsx";
 import type { Dialog, DialogControl } from "./usePointDialog.ts";
 

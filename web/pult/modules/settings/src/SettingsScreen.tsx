@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { Device, Github, PostForm } from "./General.tsx";
 import { Passes } from "./Passes.tsx";
 import { Releases } from "./ReleasesTab.tsx";

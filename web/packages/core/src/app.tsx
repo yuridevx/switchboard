@@ -49,12 +49,14 @@ export function startApp(o: StartOptions): Running {
     wide,
     brand: o.brand,
     win,
-    subscribe: bus.subscribe,
-    rev: bus.rev,
     use: bus.useSelect,
     state: state.get,
     keyLabel: () => keyId(state.get().key),
     lookup: registry.lookup,
+    mayOpen: (app, screen) => {
+      const x = registry.modOf(app);
+      return !!x && registry.mayOpen(x, screen);
+    },
     fail: registry.fail,
     reload: () => win.location.reload(),
     wipe: halt.wipe,
@@ -83,7 +85,7 @@ export function startApp(o: StartOptions): Running {
   return {
     ready,
     get stopped() {
-      return state.get().stopped;
+      return state.get().full?.why ?? null;
     },
     get failed() {
       return Object.fromEntries(registry.mods.filter((x) => x.failed).map((x) => [x.m.name, x.failed!]));

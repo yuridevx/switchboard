@@ -2,7 +2,7 @@
 import { memo } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp } from "@switchboard/web-ui";
-import { useInbox } from "./context.ts";
+import { useInbox } from "./store.ts";
 import type { Item, Kind } from "./store.ts";
 
 /** Заголовок карточки: лампа, позывной (открыть) и что случилось. */

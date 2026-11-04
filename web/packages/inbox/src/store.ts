@@ -6,7 +6,7 @@ import type {} from "@switchboard/web-board";
 import type {} from "@switchboard/web-chat";
 import type {} from "@switchboard/web-labels";
 import { machineOf } from "@switchboard/protocol";
-import { createStore } from "@switchboard/web-ui";
+import { createStore, useModule } from "@switchboard/web-ui";
 
 export type Kind = "q" | "msg" | "fail" | "wait" | "away" | "fire" | "done";
 /** Карточка: только простые поля — строка списка перерисовывается, когда изменились они или её выборка. */
@@ -27,9 +27,10 @@ type State = {
 };
 
 export type InboxStore = ReturnType<typeof createInboxStore>;
+/** Стор модуля в экранах. */
+export const useInbox = (): InboxStore => useModule<InboxStore>();
 
-export function createInboxStore() {
-  let app: App;
+export function createInboxStore(app: App) {
   const store = createStore<State>({ states: {}, machines: [], done: {}, gone: {}, seen: {}, wasMine: {} }, () => app.changed());
 
   const viewing = (callsign: string) => {
@@ -64,7 +65,7 @@ export function createInboxStore() {
   /** Карточки сейчас: из roster, меток и того, что видно по смене roster. */
   function items(): Item[] {
     const out: Item[] = [];
-    const r = app?.roster();
+    const r = app.roster();
     if (!r) return out;
     const { done, seen, gone } = store.get();
     for (const s of r.sessions) {
@@ -88,9 +89,6 @@ export function createInboxStore() {
   }
 
   return {
-    start(a: App) {
-      app = a;
-    },
     onRoster,
     /** Открыли карточку сессии — «готово» прочитано. */
     onCurrent(c: { screen: string; params: Params }) {

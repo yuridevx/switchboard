@@ -1,7 +1,7 @@
 // Вопросы AskUserQuestion: варианты плитками, «Свой ответ» текстом, кнопка ответа. Выбор — местное состояние вопроса.
 import { useState } from "react";
 import { Cta } from "@switchboard/web-ui";
-import { useAsk } from "./context.ts";
+import { useAsk } from "./store.ts";
 import { isLocked, type Question, type Rec } from "./store.ts";
 
 export function AskQuestions({ rec }: { rec: Rec }) {

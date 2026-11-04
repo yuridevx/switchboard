@@ -1,15 +1,15 @@
 // pult-profiles — профили флота, единственный экран профилей. Здесь — только связка с ядром; состояние — store.ts, вид — компоненты.
-import type { AppModule } from "@switchboard/web-core";
+import type { App, AppModule } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
-import { ProfilesCtx } from "./context.ts";
 import css from "./profiles.css";
 import { ProfilesScreen } from "./ProfilesScreen.tsx";
 import { createProfilesStore } from "./store.ts";
 
-/** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createProfiles(): AppModule {
-  const profiles = createProfilesStore();
+/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
+export function createProfiles(app: App): AppModule {
+  const profiles = createProfilesStore(app);
   return {
+    state: profiles,
     on: { roster: profiles.onRoster },
     screens: {
       profiles: {
@@ -17,15 +17,10 @@ export function createProfiles(): AppModule {
         group: "Флот",
         label: "Профили",
         path: "profiles",
-        view: () => (
-          <ProfilesCtx.Provider value={profiles}>
-            <ProfilesScreen />
-          </ProfilesCtx.Provider>
-        ),
+        view: ProfilesScreen,
         head: () => ({ title: "Профили" }),
       },
     },
     css,
-    start: profiles.start,
   };
 }

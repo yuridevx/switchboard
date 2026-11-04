@@ -1,7 +1,7 @@
 {
   "name": "web-chat",
   "type": "web",
-  "version": "3.0.5",
+  "version": "3.1.0",
   "into": [
     "pult",
     "phone"
@@ -15,7 +15,7 @@
     "view@web-view": 19,
     "ui@web-ui": 1,
     "label.session@web-labels": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "session.watch@host-watch": 1,
     "session.unwatch@host-watch": 1,
     "session.events@host-watch": 1,

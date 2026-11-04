@@ -1,7 +1,7 @@
 // Выборка вида: пока рисовать нельзя (ждём prefs, идёт перестановка) — прошлый ответ.
 import { useRef } from "react";
 import { useApp } from "@switchboard/web-ui";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 
 const HOLD = Symbol("hold");
 

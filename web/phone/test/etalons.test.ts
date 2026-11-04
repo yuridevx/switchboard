@@ -6,7 +6,7 @@ import { loadRepo } from "@switchboard/manifest-gate";
 import { serviceWorker } from "@switchboard/web-alerts";
 import { appGate, memoryStore } from "@switchboard/web-core";
 import { phoneParts } from "../stand/parts.ts";
-import { FakeRelay, flush, homeRoster, KEY, stand } from "../../packages/core/stand/app.ts";
+import { defined, FakeRelay, flush, homeRoster, KEY, stand } from "../../packages/core/stand/app.ts";
 import { fakeBrowser, fakeScope } from "../../packages/alerts/stand/fakes.ts";
 
 const QUESTION = {
@@ -82,7 +82,7 @@ describe("эталоны телефона", () => {
   });
 
   it("4001 · набор телефона проходит гейт ядра и стартует: hello, домашний раздел «Вам»", async () => {
-    expect(appGate(phoneParts())).toEqual([]);
+    expect(appGate(defined(phoneParts()))).toEqual([]);
     const relay = homeRelay();
     const t = await stand(phoneParts(fakeBrowser()), { relay });
     expect(t.run.stopped).toBeNull();

@@ -3,10 +3,10 @@
 // кто записал и по чьей команде; текст — как написал модуль-владелец события. ledger.read: limit 50,
 // «Раньше» — before, машина — machine, поиск — по загруженным; пока экран открыт, на каждом roster —
 // after = последний id (отдельного канала нет). Журнал сессии (сбои из файлов машины) — вкладка карточки.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createJournal } from "./src/module.tsx";
 
 export { createJournal };
 export const manifest: Manifest = json;
-export default createJournal() satisfies AppModule;
+export default createJournal satisfies AppPart["module"];

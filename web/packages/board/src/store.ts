@@ -1,22 +1,27 @@
 // Состояние «Работы» и его действия: выбор устройства — в снимке и хранилище страницы, настройки человека и запись проектов — в циклах prefs.
 // Виды читают выборкой, меняют только действия отсюда. Выборки — model.ts.
 import type { App, Params, SessionRecord } from "@switchboard/web-core";
-import { createStore, folderOf, lamp, personal, type Personal } from "@switchboard/web-ui";
+import { createStore, folderOf, lamp, personal, type Personal, useModule } from "@switchboard/web-ui";
 import { addProject, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { machineOf } from "@switchboard/protocol";
 import { createModel, type State } from "./model.ts";
 import { byRank, firstOpen, tree, VIEW0, type Filter, type View } from "./rules.ts";
 
 export type BoardStore = ReturnType<typeof createBoardStore>;
+/** Стор модуля в экранах. */
+export const useBoard = (): BoardStore => useModule<BoardStore>();
 
-export function createBoardStore() {
-  let app: App;
-  // циклы настроек — службы, как app: своё состояние они держат сами
-  let user: Personal;
-  let fleet: Personal;
+export function createBoardStore(app: App) {
   const store = createStore<State>({ menuOf: null, flt: "mine", col: {}, view: { ...VIEW0 }, lastProject: null, follow: null, listShown: false, bodyTop: 0, reordering: false }, () => app.changed());
   const state = () => store.get();
-  const model = createModel({ app: () => app, user: () => user, fleet: () => fleet, state });
+  // циклы настроек — службы, как app: своё состояние они держат сами
+  const prefs = () => {
+    app.changed();
+    settle();
+  };
+  const user: Personal = personal(app, "web-board", prefs);
+  const fleet: Personal = personal(app, FLEET_PREFIX, prefs, "global");
+  const model = createModel({ app, user, fleet, state });
 
   const saveCol = () => void app.store<Record<string, boolean>>("collapsed").set(state().col);
   const saveView = () => void app.store<View>("view").set(state().view);
@@ -77,14 +82,7 @@ export function createBoardStore() {
     rowsMove: () => state().view.projects && !state().view.group,
 
     // ───── жизненный цикл ─────
-    async start(a: App) {
-      app = a;
-      const prefs = () => {
-        app.changed();
-        settle();
-      };
-      user ??= personal(app, "web-board", prefs);
-      fleet ??= personal(app, FLEET_PREFIX, prefs, "global");
+    async start() {
       const [flt, col, view] = await Promise.all([app.store<string>("flt").get(), app.store<Record<string, boolean>>("collapsed").get(), app.store<View>("view").get()]);
       store.set((s) => {
         s.flt = flt ?? "mine";
@@ -94,11 +92,12 @@ export function createBoardStore() {
       settle();
     },
     async stop() {
-      await user?.settled();
-      await fleet?.settled();
+      await user.settled();
+      await fleet.settled();
     },
-    onLink(link: string) {
-      if (link !== "open") return;
+    // настройки — у Worker'а: возврат одной машины их не трогает
+    onLink(link: string, machine?: string) {
+      if (link !== "open" || machine) return;
       void user.read().then(movePins);
       void fleet.read();
     },

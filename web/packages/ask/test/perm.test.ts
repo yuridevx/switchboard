@@ -12,10 +12,10 @@ import { flush, stand } from "../../core/stand/app.ts";
 
 const CS = "profiles@laptop";
 const parts = () => [
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
 ];
 
@@ -79,7 +79,7 @@ describe("запрос разрешения на экране", () => {
   });
 
   it("7138 · в «Вам» — ждущий вопрос: экран запроса прямо в карточке", async () => {
-    const t = await stand([...parts(), { manifest: inboxM, module: createInbox() }]);
+    const t = await stand([...parts(), { manifest: inboxM, module: createInbox }]);
     t.relay.handlers["question.list"] = (f) => ({ ok: true, result: f.callsign === CS ? [{ ...perm(), type: undefined, from: undefined, to: undefined }] : [] });
     t.relay.push(perm());
     await flush();

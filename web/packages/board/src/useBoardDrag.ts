@@ -1,7 +1,7 @@
 // Перестановка в списке: движки жестов живут вне дерева React и правят элементы напрямую; решения идут в store, конец жеста рисует список заново.
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { flushSync } from "react-dom";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import { attachChipDrag } from "./chips-drag.ts";
 import { attachProjectDrag } from "./projects-drag.ts";
 

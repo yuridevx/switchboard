@@ -5,21 +5,28 @@ import { useCore } from "./core.ts";
 
 export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
   const core = useCore();
-  const { current, conn, rosterAt } = core.state();
-  const def = current ? core.lookup(current.screen)?.def : undefined;
-  const hd = current && ready ? core.head(current.screen, current.params) : { title: "" as string, sub: undefined as string | undefined };
-  const head = hd as Head;
-  let pill = head.pill ?? (def?.nav ? { text: "на связи", tone: "ok" as const } : undefined);
-  let sub = head.sub;
-  if (conn !== "open") {
-    pill = conn === "closed" ? { text: "нет связи", tone: "bad" as const } : { text: "подключаюсь", tone: "wait" as const };
-    if (conn === "closed" && rosterAt) sub = `данные на ${hhmm(rosterAt)}`;
-  }
+  // шапка экрана — простые данные; действие берётся заново при нажатии
+  const v = core.use(() => {
+    const { current, conn, rosterAt } = core.state();
+    const def = current ? core.lookup(current.screen)?.def : undefined;
+    const head: Partial<Head> = current && ready ? core.head(current.screen, current.params) : {};
+    let pill = head.pill ?? (def?.nav ? { text: "на связи", tone: "ok" as const } : undefined);
+    let sub = head.sub;
+    if (conn !== "open") {
+      pill = conn === "closed" ? { text: "нет связи", tone: "bad" as const } : { text: "подключаюсь", tone: "wait" as const };
+      if (conn === "closed" && rosterAt) sub = `данные на ${hhmm(rosterAt)}`;
+    }
+    return { nav: !!def?.nav, off: conn !== "open", title: head.title ?? "", sub, pill, dot: head.dot, mono: head.mono, action: head.action ? { label: head.action.label, text: head.action.text } : null };
+  });
+  const runAction = () => {
+    const c = core.state().current;
+    if (c) core.head(c.screen, c.params).action?.run();
+  };
   return (
     <header className="sb-bar" hidden={!ready}>
       {ready ? (
         <>
-          {def?.nav ? (
+          {v.nav ? (
             <div className="sb-logo" aria-hidden="true">
               S
             </div>
@@ -28,12 +35,12 @@ export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
               ‹
             </button>
           )}
-          {head.dot ? <Dot kind={head.dot} /> : null}
+          {v.dot ? <Dot kind={v.dot} /> : null}
           <div className="sb-bt">
-            <b className={head.mono ? "m" : undefined}>{head.title}</b>
-            {sub ? <span>{sub}</span> : null}
+            <b className={v.mono ? "m" : undefined}>{v.title}</b>
+            {v.sub ? <span>{v.sub}</span> : null}
           </div>
-          {!core.wide && def?.nav ? (
+          {!core.wide && v.nav ? (
             <button className="sb-find" aria-label="Найти" data-find="1" onClick={openPal}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <circle cx="11" cy="11" r="6" />
@@ -41,12 +48,12 @@ export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
               </svg>
             </button>
           ) : null}
-          {!core.wide && head.action ? (
-            <button className="sb-find pri" aria-label={head.action.label} data-new="1" onClick={head.action.run}>
-              {head.action.text}
+          {!core.wide && v.action ? (
+            <button className="sb-find pri" aria-label={v.action.label} data-new="1" onClick={runAction}>
+              {v.action.text}
             </button>
           ) : null}
-          {pill ? <Pill conn={conn !== "open" || !!def?.nav} tone={pill.tone ?? ""}>{pill.text}</Pill> : null}
+          {v.pill ? <Pill conn={v.off || v.nav} tone={v.pill.tone ?? ""}>{v.pill.text}</Pill> : null}
         </>
       ) : null}
     </header>
@@ -69,8 +76,10 @@ function OfflineBody({ retryAt, rosterAt }: { retryAt: number; rosterAt: number 
 /** Полоса «Нет связи»: когда снова и «Сейчас». */
 export function Offline() {
   const core = useCore();
-  const { conn, retryAt, stopped, rosterAt } = core.state();
-  const hidden = conn === "open" || retryAt === 0 || stopped !== null;
+  const { hidden, retryAt, rosterAt } = core.use(() => {
+    const { conn, retryAt: at, full, rosterAt: t } = core.state();
+    return { hidden: conn === "open" || at === 0 || !!full, retryAt: at, rosterAt: t };
+  });
   return (
     <div className="sb-off" role="status" hidden={hidden}>
       {hidden ? null : <OfflineBody retryAt={retryAt} rosterAt={rosterAt} />}

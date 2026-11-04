@@ -1,7 +1,7 @@
 {
   "name": "host",
   "type": "sdk-core",
-  "version": "1.2.17",
+  "version": "1.2.18",
   "provides": {
     "host.module": 1
   },

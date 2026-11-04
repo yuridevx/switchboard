@@ -1,6 +1,6 @@
 // Окна чипов новой сессии: профиль; модель, усилие, слот и «Точки в R2».
 import { at, effortName, EFFORTS, MODELS, profileName as short } from "@switchboard/web-ui";
-import { useOpen } from "./context.ts";
+import { useOpen } from "./store.ts";
 import { useMachineLabels } from "./Browser.tsx";
 import type { OpenForm } from "./useOpenForm.ts";
 

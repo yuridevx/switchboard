@@ -1,5 +1,6 @@
 // web-board на стенде. Источник свойств — дизайн «Сессии, проекты и профили» (блок «Эталоны», «найс делай» пользователя 3 нояб.),
 // «чьё: код» — там, где свойство перенесено из прежнего кода (rank, whyMine, tree, line). Перетаскивание указателем — проход в браузере.
+import type { AppModule } from "@switchboard/web-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/relay";
 import { createAlerts, manifest as alertsM } from "@switchboard/web-alerts";
@@ -13,11 +14,11 @@ import { orderFilters } from "../src/rules.ts";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
-  { manifest: labelsM, module: createLabels() },
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: labelsM, module: createLabels },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
 ];
 
@@ -152,8 +153,8 @@ describe("список", () => {
   });
 
   it("5216 · метки: mine — почему моя; project.machines — машины сессий проекта; project.current — последний открытый", async () => {
-    const board = createBoard();
-    const t = await stand([parts()[0], { manifest: boardM, module: board }, ...parts().slice(2)], { relay: relayWith() });
+    let board!: AppModule;
+    const t = await stand([parts()[0], { manifest: boardM, module: (app) => (board = createBoard(app)) }, ...parts().slice(2)], { relay: relayWith() });
     await flush(5);
     const m = board.marks!;
     expect(m.mine("migrate@laptop")).toBe("задачу дали вы");

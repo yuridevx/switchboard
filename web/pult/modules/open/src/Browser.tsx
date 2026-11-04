@@ -1,6 +1,6 @@
 // Проводник новой сессии: машины, последние места, адрес и папки родителя.
 import type {} from "@switchboard/web-labels";
-import { useOpen } from "./context.ts";
+import { useOpen } from "./store.ts";
 import { addrView, dirOfAddr, HOME, into } from "./form.ts";
 import type { OpenForm } from "./useOpenForm.ts";
 import { machineLabel, useApp } from "@switchboard/web-ui";

@@ -10,10 +10,10 @@ import { createChat, manifest as chatM } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
 ];
 
@@ -40,4 +40,23 @@ it("6595 · оборвалось соединение только с машин
   expect(relay.open.some((s) => s.url.endsWith("/m/laptop"))).toBe(true);
   expect(relay.sent("session.watch").length).toBeGreaterThanOrEqual(2);
   expect(relay.got.filter((f) => f.type === "session.watch" || f.type === "session.history").slice(-2).map((f) => f.type)).toEqual(["session.watch", "session.history"]);
+});
+
+it("7217 · вернулась другая машина: подписка открытой сессии и настройки не читаются заново, вопросы — только у неё", async () => {
+  // источник: гейт архитектора — лишняя коммуникация; подписки пропали только у вернувшейся машины, настройки живут у Worker'а
+  const relay = new FakeRelay(homeRoster());
+  relay.handlers["session.watch"] = () => ({ ok: true });
+  relay.handlers["session.unwatch"] = () => ({ ok: true });
+  relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [], more: false } });
+  relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+  await stand(parts(), { relay, url: `/#chat?callsign=${encodeURIComponent("site@laptop")}` });
+  await flush();
+  const other = relay.open.find((s) => !s.url.endsWith("/m/laptop"))!;
+  const was = { watch: relay.sent("session.watch").length, prefs: relay.sent("prefs.get").length };
+  other.serverClose(1006, "");
+  await new Promise((r) => setTimeout(r, 30));
+  await flush(10);
+  expect(relay.open.some((s) => s.url === other.url)).toBe(true);
+  expect(relay.sent("session.watch").length - was.watch).toBe(0);
+  expect(relay.sent("prefs.get").length - was.prefs).toBe(0);
 });

@@ -17,10 +17,10 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 const parts = (browser: BrowserPush) => [
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts(browser) },
 ];
 
@@ -161,7 +161,6 @@ describe("предел обработчика пушей", () => {
       sw: { register: async () => undefined, ready: new Promise(() => {}), addEventListener: () => {} },
       Notification: { permission: "default", requestPermission: async () => "granted" },
     };
-    const store = createAlertsStore(browser);
     const app = {
       changed: () => {},
       store: () => ({ update: async () => [] }),
@@ -172,7 +171,8 @@ describe("предел обработчика пушей", () => {
         return { ok: true, result: { key: "AAAA" } };
       },
     };
-    await store.start(app as never);
+    const store = createAlertsStore(app as never, browser);
+    await store.start();
     const done = store.enable();
     await vi.advanceTimersByTimeAsync(READY_MS - 1);
     expect(store.state()).toBe("working");

@@ -1,7 +1,7 @@
 {
   "name": "pult-profiles",
   "type": "web",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "into": [
     "pult",
     "phone"
@@ -12,7 +12,7 @@
   "uses": {
     "view@web-view": 19,
     "ui@web-ui": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "roster@relay": 1,
     "machine.profiles@host-profiles": 1,
     "card@web-card": 1,

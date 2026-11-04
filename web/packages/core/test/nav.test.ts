@@ -11,7 +11,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1 } });
+const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2 } });
 
 /** Работа с поиском и кнопкой шапки; два раздела группы «Флот». */
 let added = 0;
@@ -33,8 +33,8 @@ function parts(): AppPart[] {
     },
   };
   return [
-    { manifest: man("w", { work: 1 }), module: work },
-    { manifest: man("f", { machines: 1, access: 1 }), module: fleet },
+    { manifest: man("w", { work: 1 }), module: () => work },
+    { manifest: man("f", { machines: 1, access: 1 }), module: () => fleet },
   ];
 }
 
@@ -111,7 +111,7 @@ describe("разделы страницы", () => {
     const relay = new FakeRelay(homeRoster());
     const mods = (): AppPart[] => [
       ...parts(),
-      { manifest: man("i", { incidents: 1 }), module: { screens: { incidents: { nav: "Инциденты", narrowGroup: "Флот", view: () => "инциденты" } } } },
+      { manifest: man("i", { incidents: 1 }), module: () => ({ screens: { incidents: { nav: "Инциденты", narrowGroup: "Флот", view: () => "инциденты" } } }) },
     ];
     const start = (wide: boolean) =>
       startApp({ root: document.getElementById("app")!, workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: mods(), wide, sections: ["work", "incidents", "machines", "access"], store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
@@ -141,8 +141,8 @@ describe("разделы страницы", () => {
       workers: FakeRelay.WORKERS,
       fetch: relay.fetch,
       parts: [
-        { manifest: { ...man("l", { inbox: 1, board: 1 }), uses: { "app@web-core": 1, "card@c": 1 } }, module: lists },
-        { manifest: man("c", { card: 1 }), module: card },
+        { manifest: { ...man("l", { inbox: 1, board: 1 }), uses: { "app@web-core": 2, "card@c": 1 } }, module: () => lists },
+        { manifest: man("c", { card: 1 }), module: () => card },
       ],
       wide: true,
       beside: { card: ["board", "inbox"] },

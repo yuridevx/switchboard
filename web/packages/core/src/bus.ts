@@ -6,7 +6,6 @@ export type Bus = ReturnType<typeof createBus>;
 
 export function createBus() {
   const subs = new Set<() => void>();
-  let rev = 0;
   let queued = false;
   const subscribe = (f: () => void) => {
     subs.add(f);
@@ -17,7 +16,6 @@ export function createBus() {
     queued = true;
     queueMicrotask(() => {
       queued = false;
-      rev++;
       for (const f of [...subs]) f();
     });
   }
@@ -34,5 +32,5 @@ export function createBus() {
     return useSyncExternalStore(subscribe, snap, snap);
   }
 
-  return { subscribe, changed, rev: () => rev, useSelect };
+  return { changed, useSelect };
 }

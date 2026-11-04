@@ -7,8 +7,8 @@ import { INVITE, oneMachine } from "../stand/relay.ts";
 
 const OTHER = "client.phone.q7w1.Zzsig";
 const part = (): AppPart => ({
-  manifest: { name: "web-x", type: "web", version: "1.0.0", provides: { list: 1 }, uses: { "app@web-core": 1 } },
-  module: { screens: { list: { nav: "Список", view: () => null, head: () => ({ title: "Список" }) } } },
+  manifest: { name: "web-x", type: "web", version: "1.0.0", provides: { list: 1 }, uses: { "app@web-core": 2 } },
+  module: () => ({ screens: { list: { nav: "Список", view: () => null, head: () => ({ title: "Список" }) } } }),
 });
 
 const button = (text: string) => [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === text) ?? null;

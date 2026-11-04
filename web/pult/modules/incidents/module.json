@@ -1,7 +1,7 @@
 {
   "name": "pult-incidents",
   "type": "web",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "into": [
     "pult",
     "phone"
@@ -15,7 +15,7 @@
     "ui@web-ui": 1,
     "label.session@web-labels": 1,
     "label.machine@web-labels": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "roster@relay": 1,
     "machine.journal@host-journal": 2,
     "card@web-card": 1,

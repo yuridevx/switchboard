@@ -57,10 +57,9 @@ const dataUrl = (a: Attachment) => `data:${a.media_type};base64,${a.data}`;
 
 export type ChatStore = ReturnType<typeof createChatStore>;
 
-export function createChatStore() {
-  let app: App;
+export function createChatStore(app: App) {
   /** drafts — черновики: поле ввода владеет текстом, пока открыто; здесь — что сохранить в хранилище */
-  const store = createStore<{ convs: Record<string, Conv>; drafts: Record<string, string>; draftsLoaded: boolean }>({ convs: {}, drafts: {}, draftsLoaded: false }, () => app.changed());
+  const store = createStore<{ convs: Record<string, Conv>; drafts: Record<string, string> }>({ convs: {}, drafts: {} }, () => app.changed());
   const setDraftOf = (cs: string, text: string) => store.set((s) => void (s.drafts[cs] = text));
   const dropDraft = (cs: string) => store.set((s) => void delete s.drafts[cs]);
 
@@ -201,14 +200,9 @@ export function createChatStore() {
     },
 
     // ───── жизненный цикл ─────
-    async start(a: App) {
-      app = a;
-      if (store.get().draftsLoaded) return;
+    async start() {
       const saved = (await app.store<Record<string, string>>("drafts").get()) ?? {};
-      store.set((s) => {
-        s.drafts = { ...saved, ...s.drafts };
-        s.draftsLoaded = true;
-      });
+      store.set((s) => void (s.drafts = { ...saved, ...s.drafts }));
     },
     async stop() {
       await saveDrafts();
@@ -288,10 +282,10 @@ export function createChatStore() {
       }
     },
     /** После своего hello открыть ленты заново: relay перезапускался, подписки могли пропасть. */
-    onLink(state: string) {
+    onLink(state: string, machine?: string) {
       if (state !== "open") return;
       for (const [cs, c] of Object.entries(store.get().convs)) {
-        if (!c.mounted) continue;
+        if (!c.mounted || (machine && machineOf(cs) !== machine)) continue;
         edit(cs, (x) => void (x.watching = false));
         void watch(cs);
       }

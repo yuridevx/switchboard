@@ -86,7 +86,7 @@ async function settings(o: { wide?: boolean; url?: string; workers?: Record<stri
   const fl = fleet();
   o.hooks?.(fl.relay);
   const parts: AppPart[] = [
-    { manifest: settingsM, module: createSettings() },
+    { manifest: settingsM, module: createSettings },
     { manifest: alertsM, module: createAlerts(o.browser ?? fakeBrowser("granted")) },
   ];
   const t = await stand(parts, { relay: fl.relay, store: memoryStore({ key: "client.pult.k3f1.Qa7sig" }), wide: o.wide ?? true, url: o.url ?? "/#settings", options: { fetch: fl.fetch, ...(o.workers ? { workers: o.workers } : {}) } });

@@ -1,7 +1,7 @@
 // Форма MCP-сервера: поля по схеме или ссылка. Значения — местное состояние формы; число идёт в ответ числом.
 import { useState } from "react";
 import { Cta } from "@switchboard/web-ui";
-import { useAsk } from "./context.ts";
+import { useAsk } from "./store.ts";
 import { isLocked, type Rec } from "./store.ts";
 
 type Field = { type?: string; enum?: string[]; title?: string; description?: string };

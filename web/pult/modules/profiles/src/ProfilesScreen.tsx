@@ -1,7 +1,7 @@
 // Экран профилей: поиск, конфликты первыми, «Синхронизировать» — свести на всех машинах.
 import { useEffect, useState } from "react";
 import { Btn, profileName as short, useApp } from "@switchboard/web-ui";
-import { useProfiles } from "./context.ts";
+import { useProfiles } from "./store.ts";
 import { ProfileRow } from "./ProfileRow.tsx";
 
 export function ProfilesScreen() {

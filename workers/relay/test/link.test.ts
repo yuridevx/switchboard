@@ -334,6 +334,18 @@ describe("link · переподключение", () => {
     expect(states.at(-1)).toEqual(["stopped", reason]);
   });
 
+  it("7218 · closed говорит, когда следующая попытка: отсчёт страницы — от клиента связи", () => {
+    // источник: гейт архитектора — пауза считается в одном месте
+    const at: Array<number | undefined> = [];
+    const { ws } = opened({ onState: (s: LinkState, _w?: string, retryAt?: number) => (s === "closed" ? at.push(retryAt) : undefined) });
+    const t0 = Date.now();
+    ws.drop(1006);
+    expect(at).toEqual([t0 + 1000]);
+    vi.advanceTimersByTime(1000);
+    FakeWs.last().drop(1006);
+    expect(at[1]).toBe(t0 + 1000 + 2000);
+  });
+
   it("пауза не больше maxPauseMs", () => {
     start({ maxPauseMs: 3000 });
     for (let i = 0; i < 5; i++) {

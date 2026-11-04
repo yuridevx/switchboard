@@ -3,7 +3,7 @@
 // Экран ask (параметр callsign): узко — на весь экран, широко — в месте над вводом чата (app.Slot).
 // Метка asked(callsign) — текст первого ждущего вопроса для строки списка, и запроса разрешения тоже.
 // Метка asked.tool(callsign, toolUseId) — запрос разрешения этого инструмента ждёт человека.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createAsk } from "./src/module.tsx";
 
@@ -17,4 +17,4 @@ declare module "@switchboard/web-core" {
 export type { Question } from "./src/store.ts";
 export { createAsk };
 export const manifest: Manifest = json;
-export default createAsk() satisfies AppModule;
+export default createAsk satisfies AppPart["module"];

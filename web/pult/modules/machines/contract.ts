@@ -4,10 +4,10 @@
 // мёртвом Host), перезапуск упавшей части — releases.set on:false → on:true.
 // «Аккаунты машины» — экран accounts с машиной. Ушедшую машину помнит, пока страница открыта.
 // Ответы keeper'ов — метка keeper.answers модуля настроек: своей копии нет.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createMachines } from "./src/module.tsx";
 
 export { createMachines };
 export const manifest: Manifest = json;
-export default createMachines() satisfies AppModule;
+export default createMachines satisfies AppPart["module"];

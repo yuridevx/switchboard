@@ -1,7 +1,7 @@
 // Проект в списке: заголовок с ручкой, лампами и «+», меню имени и строки. И последняя строка списка — новый проект.
 import { memo, useLayoutEffect, useRef, useState } from "react";
 import { Btn, Dot } from "@switchboard/web-ui";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import type { Section } from "./model.ts";
 import { SessionRow } from "./SessionRow.tsx";
 

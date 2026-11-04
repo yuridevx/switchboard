@@ -42,15 +42,21 @@ export function createRegistry(changed: () => void) {
   return {
     mods,
     screens: screenOwner,
-    /** Занести модули выпуска; app — его App. */
-    add(parts: AppPart[], appFor: (x: Mod) => App) {
+    /** Определения модулей выпуска: сначала App, затем функция модуля. Бросила — модуль выключен, на его экранах — причина. */
+    define(parts: AppPart[], appFor: (x: Mod) => App) {
       for (const p of parts) {
-        const x: Mod = { m: p.manifest, mod: p.module, app: null as unknown as App, failed: null };
+        const x: Mod = { m: p.manifest, mod: {}, app: null as unknown as App, failed: null };
         x.app = appFor(x);
         mods.push(x);
-        for (const t of Object.keys(p.module.frames ?? {})) frameOwner.set(t, x);
-        for (const [n, def] of Object.entries(p.module.screens ?? {})) screenOwner.set(n, { owner: x, def });
-        for (const n of Object.keys(p.module.marks ?? {})) markOwner.set(n, x);
+        x.mod = call(x, "старте", () => p.module(x.app)) ?? { screens: Object.fromEntries(Object.keys(p.manifest.provides).map((n) => [n, {}])) };
+      }
+    },
+    /** Занести владельцев: набор прошёл гейт. */
+    add() {
+      for (const x of mods) {
+        for (const t of Object.keys(x.mod.frames ?? {})) frameOwner.set(t, x);
+        for (const [n, def] of Object.entries(x.mod.screens ?? {})) screenOwner.set(n, { owner: x, def });
+        for (const n of Object.keys(x.mod.marks ?? {})) markOwner.set(n, x);
       }
     },
     fail,
@@ -60,6 +66,8 @@ export function createRegistry(changed: () => void) {
     frameOwner: (type: string) => frameOwner.get(type),
     markOwner: (name: string) => markOwner.get(name),
     lookup: (screen: string) => screenOwner.get(screen),
+    /** Модуль этого App. */
+    modOf: (app: App) => mods.find((x) => x.app === app),
     /** Может ли модуль открыть экран: свой, из uses или вставленный в его место. */
     mayOpen(x: Mod, screen: string): boolean {
       const at = screenOwner.get(screen)?.def.place;
@@ -67,7 +75,11 @@ export function createRegistry(changed: () => void) {
     },
     /** Запустить start модулей по порядку. */
     async startAll() {
-      for (const x of mods) if (x.mod.start) await callAsync(x, "старте", () => x.mod.start!(x.app));
+      for (const x of mods) if (x.mod.start) await callAsync(x, "старте", () => x.mod.start!());
+    },
+    /** Страница вернулась на экран: on.show модулей по порядку. */
+    async showAll() {
+      for (const x of mods) if (x.mod.on?.show) await callAsync(x, "возвращении на экран", () => x.mod.on!.show!());
     },
     /** Остановить модули в обратном порядке. */
     async stopAll() {

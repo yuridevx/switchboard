@@ -131,8 +131,8 @@ describe("request-session-history", () => {
       use: <T,>(s: () => T) => s(),
       store: () => ({ get: async () => undefined, set: async (v: unknown) => void saved.push(v) }),
     };
-    const store = createChatStore();
-    await store.start(app as never);
+    const store = createChatStore(app as never);
+    await store.start();
     const close1 = store.mount(CS);
     const close2 = store.mount(CS);
     store.mount(IDLE);

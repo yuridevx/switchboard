@@ -5,7 +5,7 @@
 // Раздел pushes: пуши, сохранённые обработчиком; при старте и возвращении на экран — app.deliver владельцу.
 // Обработчик пушей — serviceWorker(self, { relayUrl, store, maxActions }) в sw.js приложения:
 // показ notify, кнопки (если все помещаются), короткое wss для кнопки, открытие приложения по нажатию.
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import type { AlertsState } from "./src/store.ts";
 import json from "./module.json" with { type: "json" };
 import { createAlerts } from "./src/module.tsx";
@@ -22,4 +22,4 @@ export type { AlertsState, BrowserPush } from "./src/store.ts";
 export { serviceWorker, sendOnce } from "./src/sw.ts";
 export type { Notify, StoredPush, SwScope, SwOptions } from "./src/sw.ts";
 export const manifest: Manifest = json;
-export default createAlerts() satisfies AppModule;
+export default createAlerts() satisfies AppPart["module"];

@@ -1,8 +1,8 @@
 // Старт сборки страницы: модули — по списку build.json, адреса Worker'ов (и relay) — из него же; своих адресов у
-// страницы нет. Модуль не загрузился за предел — выключен только он: его start бросает причину, ловушка ядра его выключает.
+// страницы нет. Модуль не загрузился за предел — выключен только он: его функция бросает причину, ловушка ядра его выключает.
 import { startApp } from "./app.tsx";
 import { CORE } from "./gate.ts";
-import type { AppModule, AppPart, BuildList, Manifest, Running, StartOptions } from "./types.ts";
+import type { AppPart, BuildList, Manifest, Running, StartOptions } from "./types.ts";
 
 export type BuildOptions = Omit<StartOptions, "workers" | "parts"> & {
   /** список сборки — build.json */
@@ -30,18 +30,17 @@ export async function startBuild(o: BuildOptions): Promise<Running> {
           const limit = new Promise<never>((_, no) => {
             timer = setTimeout(() => no(new Error(`не загрузился за ${loadMs} мс`)), loadMs);
           });
-          const x = (await Promise.race([load(name), limit])) as { default?: AppModule; manifest?: Manifest };
+          const x = (await Promise.race([load(name), limit])) as { default?: AppPart["module"] | object; manifest?: Manifest };
           if (!x.default || !x.manifest) throw new Error("в файле модуля нет default или manifest");
-          return { manifest: x.manifest, module: x.default };
+          // библиотека страницы (web-view, web-ui) отдаёт только экспорты: default — пустой объект, модуля нет
+          return { manifest: x.manifest, module: typeof x.default === "function" ? (x.default as AppPart["module"]) : () => ({}) };
         } catch (e) {
           const why = `импорт: ${e instanceof Error ? e.message : String(e)}`;
           const manifest: Manifest = { name, type: "web", version, provides: {}, uses: {} };
           return {
             manifest,
-            module: {
-              start() {
-                throw new Error(why);
-              },
+            module: () => {
+              throw new Error(why);
             },
           };
         } finally {

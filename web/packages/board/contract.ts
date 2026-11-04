@@ -3,7 +3,7 @@
 // Метки: mine(callsign) — почему сессия моя или ""; project.machines(номер) — машины сессий проекта; project.current() — номер открытого или последнего; project.of(callsign) — номер и имя.
 // Экраны board.pin и board.unpin — команды в месте card.menu; board.assign — команда в месте open.after: Screen.run, своего вида нет.
 // Нажатие строки — карточка card; «Новая» и «+» у проекта — open (с machine, dir места проекта и номером project).
-import type { AppModule, Manifest } from "@switchboard/web-core";
+import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createBoard } from "./src/module.tsx";
 
@@ -22,4 +22,4 @@ declare module "@switchboard/web-core" {
 
 export { createBoard };
 export const manifest: Manifest = json;
-export default createBoard() satisfies AppModule;
+export default createBoard satisfies AppPart["module"];

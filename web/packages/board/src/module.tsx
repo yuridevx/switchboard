@@ -5,17 +5,17 @@
 // Вид: список и ряд фильтров читают модель выборкой, строка — свою выборкой: на изменение одной сессии перерисовывается одна строка.
 // Пока идёт перестановка, выборки держат прошлый ответ; её конец рисует ряд и список заново: жест менял их элементы напрямую.
 // Здесь — только связка с ядром; состояние — store.ts и model.ts, вид — компоненты.
-import type { AppModule } from "@switchboard/web-core";
+import type { App, AppModule } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import css from "./board.css";
 import { BoardScreen } from "./BoardScreen.tsx";
-import { BoardCtx } from "./context.ts";
 import { createBoardStore } from "./store.ts";
 
-/** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createBoard(): AppModule {
-  const board = createBoardStore();
+/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
+export function createBoard(app: App): AppModule {
+  const board = createBoardStore(app);
   return {
+    state: board,
     on: { link: board.onLink, roster: board.onRoster, current: board.onCurrent },
     screens: {
       // вставка места «после открытия»: страница новой сессии возвращает номер проекта, не читая его
@@ -45,11 +45,7 @@ export function createBoard(): AppModule {
         nav: "Работа",
         label: "Работа",
         path: "sessions",
-        view: () => (
-          <BoardCtx.Provider value={board}>
-            <BoardScreen />
-          </BoardCtx.Provider>
-        ),
+        view: BoardScreen,
         head: () => ({ title: "Работа", action: { label: "Новая сессия", text: "+", run: board.openNew } }),
         find: board.find,
       },

@@ -1,7 +1,7 @@
 // Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger.
 import { useEffect, useState } from "react";
 import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
-import { useJournal } from "./context.ts";
+import { useJournal } from "./store.ts";
 import type { Ev } from "./store.ts";
 
 function dayOf(t: number): string {

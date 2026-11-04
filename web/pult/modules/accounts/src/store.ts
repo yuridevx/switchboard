@@ -49,13 +49,8 @@ export function slotsWith(list: Record<string, Slot>, account: string): string[]
 
 export type AccountsStore = ReturnType<typeof createAccountsStore>;
 
-export function createAccountsStore() {
-  let app: App;
+export function createAccountsStore(app: App) {
   const store = createStore<State>({ logins: {}, prevAccount: {} }, () => app.changed());
-  /** Ответы машин: цикл «экран открыт — спросить, машина пришла — доспросить» у обоих один. */
-  let accs: MachineAnswers<Accounts>;
-  let slots: MachineAnswers<Slots>;
-
   const machines = (n: string) => machinesWith(app, n);
 
   async function askAccounts(m: string, body: Record<string, unknown>) {
@@ -66,6 +61,9 @@ export function createAccountsStore() {
     const r = await app.request<Partial<Slots>>("machine.slots", { machine: m });
     return r.ok ? { ok: true as const, result: { slots: r.result.slots ?? {} } } : r;
   }
+  /** Ответы машин: цикл «экран открыт — спросить, машина пришла — доспросить» у обоих один; открыли экран — machine.accounts { max_age: 120 } и machine.slots. */
+  const accs: MachineAnswers<Accounts> = machineAnswers<Accounts>(app, (m) => askAccounts(m, { max_age: 120 }), () => machines("machine.accounts"));
+  const slots: MachineAnswers<Slots> = machineAnswers<Slots>(app, askSlots, () => machines("machine.slots"));
   /** Свежие окна: после своего действия и подмены кэш Host не годится. */
   const loadAccounts = (m: string) => accs.reload(m, (x) => askAccounts(x, {}));
   const loadSlots = (m: string) => slots.reload(m);
@@ -96,12 +94,6 @@ export function createAccountsStore() {
     });
 
   return {
-    start(a: App) {
-      app = a;
-      // открыли экран: каждой машине — machine.accounts { max_age: 120 } и machine.slots
-      accs ??= machineAnswers<Accounts>(app, (m) => askAccounts(m, { max_age: 120 }), () => machines("machine.accounts"));
-      slots ??= machineAnswers<Slots>(app, askSlots, () => machines("machine.slots"));
-    },
     state: store.get,
     machines,
     accsOf,

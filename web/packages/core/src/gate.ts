@@ -3,7 +3,7 @@
 // Правила владельцев и версий — общий гейт манифестов монорепо; здесь к ним добавлено устройство кода.
 import { check, nameOf, ownerOf, type Manifest as GateManifest } from "@switchboard/manifest-gate";
 import core from "../module.json" with { type: "json" };
-import type { AppPart, Manifest } from "./types.ts";
+import type { DefinedPart, Manifest } from "./types.ts";
 
 /** Манифест ядра: модули пользуются им через "app@web-core". */
 export const CORE: Manifest = core;
@@ -15,7 +15,7 @@ export { nameOf, ownerOf };
 const stores = (names: string[]) => Object.fromEntries(names.map((s) => [`store.${s}`, 1]));
 
 /** Проверить набор модулей выпуска. Пустой список — годен; иначе — причины словами. */
-export function appGate(parts: AppPart[]): string[] {
+export function appGate(parts: DefinedPart[]): string[] {
   const errors: string[] = [];
   const inSet = new Set([CORE.name, ...parts.map((p) => p.manifest.name)]);
   // into сверяют гейт монорепо и выкладка: корня приложения в наборе страницы нет

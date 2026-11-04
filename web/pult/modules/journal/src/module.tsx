@@ -1,29 +1,24 @@
 // pult-journal — журнал флота. Здесь — только связка с ядром; записи открытого экрана и дочитывание по roster — в store.
-import type { AppModule } from "@switchboard/web-core";
-import { JournalCtx } from "./context.ts";
+import type { App, AppModule } from "@switchboard/web-core";
 import css from "./journal.css";
 import { JournalScreen } from "./JournalScreen.tsx";
 import { createJournalStore } from "./store.ts";
 
-/** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createJournal(): AppModule {
-  const journal = createJournalStore();
+/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
+export function createJournal(app: App): AppModule {
+  const journal = createJournalStore(app);
   return {
+    state: journal,
     on: { roster: journal.onRoster },
     screens: {
       journal: {
         nav: "Журнал",
         group: "Флот",
         label: "Журнал флота",
-        view: () => (
-          <JournalCtx.Provider value={journal}>
-            <JournalScreen />
-          </JournalCtx.Provider>
-        ),
+        view: JournalScreen,
         head: () => ({ title: "Журнал флота" }),
       },
     },
     css,
-    start: journal.start,
   };
 }

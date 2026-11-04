@@ -1,6 +1,6 @@
 // Состояние машин: ответы keeper, итоги перезапуска и ушедшие машины. Roster их больше не несёт — помнит, пока страница открыта.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, type MachineAnswers } from "@switchboard/web-ui";
+import { createStore, type MachineAnswers, useModule } from "@switchboard/web-ui";
 
 export type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 export type KeeperState = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
@@ -28,9 +28,10 @@ export function stateOf(m: string, states: Readonly<Record<string, KeeperReply>>
 const NONE: Readonly<Record<string, KeeperReply>> = {};
 
 export type MachinesStore = ReturnType<typeof createMachinesStore>;
+/** Стор модуля в экранах. */
+export const useMachines = (): MachinesStore => useModule<MachinesStore>();
 
-export function createMachinesStore() {
-  let app: App;
+export function createMachinesStore(app: App) {
   /** Ответы keeper'ов — у владельца, модуля настроек; своей копии нет. */
   const keeper = () => app.mark("keeper.answers") as MachineAnswers<KeeperState> | undefined;
   const store = createStore<State>({ notes: {}, seen: {}, gone: {} }, () => app.changed());
@@ -38,9 +39,6 @@ export function createMachinesStore() {
   const note = (k: string, text: string, tone?: "ok" | "bad") => store.set((s) => void (s.notes[k] = { text, tone }));
 
   return {
-    start(a: App) {
-      app = a;
-    },
     onRoster(r: Roster) {
       const now = new Set(r.machines.map((m) => m.machine));
       store.set((s) => {

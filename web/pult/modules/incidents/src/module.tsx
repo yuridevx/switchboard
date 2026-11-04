@@ -1,16 +1,16 @@
 // pult-incidents — инциденты: сессии с полем roster incident и недоставленные обращения из журнала машины.
 // Своего хранилища нет: сессии — из roster, недоставленные — обращения incident.pending без сессии, причина — из журнала. Здесь — только связка с ядром.
-import type { AppModule } from "@switchboard/web-core";
+import type { App, AppModule } from "@switchboard/web-core";
 import { stateLabel } from "@switchboard/web-ui";
-import { IncidentsCtx } from "./context.ts";
 import css from "./incidents.css";
 import { IncidentsScreen } from "./IncidentsScreen.tsx";
 import { createIncidentsStore, incOf } from "./store.ts";
 
-/** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createIncidents(): AppModule {
-  const incidents = createIncidentsStore();
+/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
+export function createIncidents(app: App): AppModule {
+  const incidents = createIncidentsStore(app);
   return {
+    state: incidents,
     on: { roster: incidents.onRoster },
     screens: {
       incidents: {
@@ -19,11 +19,7 @@ export function createIncidents(): AppModule {
         narrowGroup: "Флот",
         mark: "incidents.open",
         label: "Инциденты",
-        view: () => (
-          <IncidentsCtx.Provider value={incidents}>
-            <IncidentsScreen />
-          </IncidentsCtx.Provider>
-        ),
+        view: IncidentsScreen,
         head: () => ({ title: "Инциденты" }),
         find: (q) =>
           incidents
@@ -34,6 +30,5 @@ export function createIncidents(): AppModule {
     },
     marks: { "incidents.open": () => incidents.openCount() },
     css,
-    start: incidents.start,
   };
 }

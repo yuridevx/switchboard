@@ -8,7 +8,7 @@ export function Palette({ close }: { close(): void }) {
   const [q, setQ] = useState("");
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => input.current?.focus(), []);
-  const list = core.hits(q);
+  const list = core.use(() => core.hits(q));
   const pick = (x: Hit) => {
     close();
     core.go(x.screen, x.params);

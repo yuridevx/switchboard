@@ -1,7 +1,7 @@
 // Состояние настроек: ответы владельцев («Выпуски», keeper'ы, gate, github) и вид экрана, который переживает закрытие экрана
 // (вкладка, выбранная машина, отмеченные, поиск, приглашение). Каждая цифра — ответ владельца; своего модуль не считает.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, machineAnswers, plural, type MachineAnswers } from "@switchboard/web-ui";
+import { createStore, machineAnswers, type MachineAnswers, plural, useModule } from "@switchboard/web-ui";
 import { planOf, say, type Err, type KState, type Listed, type ReleaseData } from "./rules.ts";
 
 export type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok"; by: string; at: number };
@@ -31,15 +31,16 @@ export type State = {
 };
 
 export type SettingsStore = ReturnType<typeof createSettingsStore>;
+/** Стор модуля в экранах. */
+export const useSettings = (): SettingsStore => useModule<SettingsStore>();
 
-export function createSettingsStore() {
-  let app: App;
+export function createSettingsStore(app: App) {
   const store = createStore<State>(
     { list: null, passes: null, gh: null, ghCode: "", posting: null, rtab: "machines", rm: null, rsel: {}, rq: "", gq: "", inviting: null, invited: null, confirm: null, busy: "", notes: {} },
     () => app.changed(),
   );
-  /** Ответы keeper'ов: один владелец на все экраны, «Машины» берут их меткой keeper.answers. */
-  let keeper: MachineAnswers<KState>;
+  /** Ответы keeper'ов: один владелец на все экраны, «Машины» берут их меткой keeper.answers; keeper машины отвечает сам, даже когда Host мёртв. */
+  const keeper: MachineAnswers<KState> = machineAnswers<KState>(app, (m) => app.request<KState>("keeper.state", { to: `.keeper@${m}` }));
   const note = (k: string, text: string, tone?: Tone) => store.set((s) => void (s.notes[k] = { text, tone }));
   const machines = () => (app.roster()?.machines ?? []).map((m) => m.machine);
   /** Данные правил выпусков: выборка сравнивается по содержимому, ветви снимка — по ссылке. */
@@ -81,11 +82,6 @@ export function createSettingsStore() {
     get: store.get,
     releaseData,
     machines,
-    start(a: App) {
-      app = a;
-      // keeper машины отвечает сам, даже когда Host мёртв
-      keeper ??= machineAnswers<KState>(app, (m) => app.request<KState>("keeper.state", { to: `.keeper@${m}` }));
-    },
     /** Машина пришла или вернулась при открытом экране — её keeper. */
     onRoster: (r: Roster) => keeper.onRoster(r),
     /** Ответы keeper'ов для других модулей. */

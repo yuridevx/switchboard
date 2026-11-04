@@ -3,6 +3,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useEffect } from "react";
 import { appGate, idbStore, memoryStore, startApp, type App, type AppModule, type AppPart, type Manifest } from "../contract.ts";
+import { defined } from "../stand/app.ts";
 import { FakeRelay, flush, homeRoster, INVITE, KEY, oneMachine } from "../stand/relay.ts";
 
 const man = (name: string, provides: Record<string, number>, uses: Record<string, number>): Manifest => ({
@@ -10,7 +11,7 @@ const man = (name: string, provides: Record<string, number>, uses: Record<string
   type: "web",
   version: "1.0.0",
   provides,
-  uses: { "app@web-core": 1, ...uses },
+  uses: { "app@web-core": 2, ...uses },
 });
 
 /** Модуль-образец: экран list (раздел), кадр question, запрос answer к Host, push.key к Worker push. */
@@ -24,7 +25,7 @@ function sample(log: string[] = []) {
         app.changed();
       },
     },
-    on: { roster: (r) => log.push(`roster ${r.sessions.length}`), link: (s) => log.push(`link ${s}`) },
+    on: { roster: (r) => log.push(`roster ${r.sessions.length}`), link: (s) => log.push(`link ${s}`), show: () => void log.push("show sample") },
     screens: {
       list: {
         nav: "Сессии",
@@ -43,8 +44,7 @@ function sample(log: string[] = []) {
     },
     marks: { need: () => 1 },
     store: ["drafts"],
-    start(a) {
-      app = a;
+    start() {
       log.push("start sample");
     },
     async stop() {
@@ -59,7 +59,10 @@ function sample(log: string[] = []) {
       "answer@host-questions": 1,
       "push.key@push": 1,
     }),
-    module: mod,
+    module: (a) => {
+      app = a;
+      return mod;
+    },
   };
   return { part, get app() {
     return app;
@@ -98,8 +101,8 @@ async function boot(o: { parts?: AppPart[]; store?: ReturnType<typeof memoryStor
 describe("гейт набора", () => {
   it("кадр с двумя принимающими модулями — приложение не стартует, связи нет", async () => {
     const a = sample().part;
-    const dupe: AppPart = { manifest: man("dupe", {}, { "question@host-questions": 1 }), module: { frames: { question: () => {} } } };
-    expect(appGate([a, dupe])).toContain("имя question: два владельца — sample и dupe");
+    const dupe: AppPart = { manifest: man("dupe", {}, { "question@host-questions": 1 }), module: () => ({ frames: { question: () => {} } }) };
+    expect(appGate(defined([a, dupe]))).toContain("имя question: два владельца — sample и dupe");
     const { run, relay } = await boot({ parts: [a, dupe] });
     expect(run.stopped).toBe("gate");
     expect(root.textContent).toContain("Приложение не стартует");
@@ -110,9 +113,9 @@ describe("гейт набора", () => {
   it("экран не из provides, кадр не из uses, uses к модулю выпуска другой версии", () => {
     const bad: AppPart = {
       manifest: man("bad", {}, { "list@sample": 2 }),
-      module: { screens: { x: { view: () => null } }, frames: { answered: () => {} } },
+      module: () => ({ screens: { x: { view: () => null } }, frames: { answered: () => {} } }),
     };
-    expect(appGate([sample().part, bad])).toEqual([
+    expect(appGate(defined([sample().part, bad]))).toEqual([
       "модуль bad: экрана x нет в provides",
       "модуль bad: кадр answered нет в uses",
       "модуль bad: uses list@sample v2 — у владельца v1",
@@ -120,9 +123,9 @@ describe("гейт набора", () => {
     // метка экрана не из marks, on.roster без roster@relay, раздел хранилища у двух модулей
     const bad2: AppPart = {
       manifest: man("bad2", { y: 1 }, {}),
-      module: { screens: { y: { mark: "cnt", view: () => null } }, on: { roster: () => {} }, store: ["drafts"] },
+      module: () => ({ screens: { y: { mark: "cnt", view: () => null } }, on: { roster: () => {} }, store: ["drafts"] }),
     };
-    const errs = appGate([sample().part, bad2]);
+    const errs = appGate(defined([sample().part, bad2]));
     expect(errs).toContain("модуль bad2: экран y — метки cnt нет в marks");
     expect(errs).toContain("модуль bad2: on.roster без roster@relay в uses");
     expect(errs.some((e) => e.includes("store.drafts") && e.includes("два владельца"))).toBe(true);
@@ -282,7 +285,7 @@ describe("маршрут и запросы", () => {
   it("кадр — модулю по type; ошибка модуля выключает его, экран показывает причину, roster идёт дальше", async () => {
     const log: string[] = [];
     const s = sample(log);
-    const other: AppPart = { manifest: man("other", {}, { "roster@relay": 1 }), module: { on: { roster: () => log.push("other roster") } } };
+    const other: AppPart = { manifest: man("other", {}, { "roster@relay": 1 }), module: () => ({ on: { roster: () => log.push("other roster") } }) };
     const { relay, run } = await boot({ parts: [s.part, other] });
     relay.push({ type: "question", from: "profiles@laptop" });
     expect(log).toContain("question profiles@laptop");
@@ -333,7 +336,7 @@ describe("маршрут и запросы", () => {
 });
 
 describe("уход с экрана", () => {
-  it("возвращение на экран — start модулей заново и hello с тем же ключом", async () => {
+  it("возвращение на экран — on.show модулей, start один раз, hello с тем же ключом", async () => {
     const log: string[] = [];
     const s = sample(log);
     const { run, relay } = await boot({ parts: [s.part] });
@@ -341,9 +344,10 @@ describe("уход с экрана", () => {
     expect(relay.socks[0].closedWith).toEqual({ code: 1000, reason: "hidden" });
     await run.show();
     await flush();
-    expect(log.filter((x) => x === "start sample")).toHaveLength(2);
+    expect(log.filter((x) => x === "start sample")).toHaveLength(1);
+    expect(log.filter((x) => x === "show sample")).toHaveLength(1);
     expect(relay.hellos).toEqual([{ type: "hello", key: KEY, proto: 1 }, { type: "hello", key: KEY, proto: 1 }]);
-    expect(log.slice(log.lastIndexOf("start sample"))).toContain("link open");
+    expect(log.slice(log.lastIndexOf("show sample"))).toContain("link open");
   });
 });
 

@@ -1,4 +1,5 @@
 // Покрытие плана route-board-project: проект открытой сессии, первый показ, настройки ещё не ответили, строка с вопросом, сброс вида.
+import type { AppModule, AppPart } from "@switchboard/web-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/relay";
 import { createAlerts, manifest as alertsM } from "@switchboard/web-alerts";
@@ -35,12 +36,12 @@ function relayWith(r = fleet()) {
 
 /** Приложение и модуль «Работы»: метка project.current видна снаружи. */
 async function start(o: Parameters<typeof stand>[1] = {}) {
-  const board = createBoard();
-  const list = [
-    { manifest: boardM, module: board },
-    { manifest: cardM, module: createCard() },
-    { manifest: chatM, module: createChat() },
-    { manifest: askM, module: createAsk() },
+  let board!: AppModule;
+  const list: AppPart[] = [
+    { manifest: boardM, module: (app) => (board = createBoard(app)) },
+    { manifest: cardM, module: createCard },
+    { manifest: chatM, module: createChat },
+    { manifest: askM, module: createAsk },
     { manifest: alertsM, module: createAlerts({}) },
   ];
   const t = await stand(list, { relay: relayWith(), ...o });

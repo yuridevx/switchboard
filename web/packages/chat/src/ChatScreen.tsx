@@ -1,6 +1,7 @@
 // Экран чата: полоса над лентой, лента и всё, что над вводом и под ней.
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
+import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { Pad, useApp } from "@switchboard/web-ui";
 import { ItemView, StepsRow } from "./cards/ItemView.tsx";
@@ -141,7 +142,8 @@ function Bar({ callsign, panel, setPanel }: { callsign: string; panel: boolean; 
   );
 }
 
-export function ChatScreen({ callsign }: { callsign: string }) {
+export function ChatScreen({ params }: ScreenProps) {
+  const callsign = params.callsign ?? "";
   const app = useApp();
   const chat = useChat();
   const [panel, setPanel] = useState(false);

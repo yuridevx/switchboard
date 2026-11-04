@@ -1,6 +1,6 @@
 // Каталог и сборки: части со stable и историей, модули сборок; «Выложить» и «Вернуть».
 import { Btn, M, Note, Opts, Sec, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { NoteOf } from "./parts.tsx";
 import { cmpV, short, type Listed } from "./rules.ts";
 

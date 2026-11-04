@@ -1,6 +1,6 @@
 // Состояние инцидентов: недоставленные обращения по машинам и отказы чтения. Сессии с инцидентом — из roster, здесь их нет.
 import type { App, SessionRecord } from "@switchboard/web-core";
-import { createStore, machinesWith, midnight } from "@switchboard/web-ui";
+import { createStore, machinesWith, midnight, useModule } from "@switchboard/web-ui";
 
 type Rec = { t: string; kind?: string; ev?: string; word?: string; why?: string; id?: string };
 export type Lost = { machine: string; id: string; word: string; why: string; t: string };
@@ -21,9 +21,10 @@ export const incOf = (s: SessionRecord): Inc | null => {
 export const isOpen = (s: SessionRecord) => s.state !== "stopped";
 
 export type IncidentsStore = ReturnType<typeof createIncidentsStore>;
+/** Стор модуля в экранах. */
+export const useIncidents = (): IncidentsStore => useModule<IncidentsStore>();
 
-export function createIncidentsStore() {
-  let app: App;
+export function createIncidentsStore(app: App) {
   const store = createStore<State>({ lost: {}, refused: {}, asked: {} }, () => app.changed());
 
   /** Машины с инцидентами и журналом. */
@@ -50,9 +51,6 @@ export function createIncidentsStore() {
   const allLost = () => Object.values(store.get().lost).flat();
 
   return {
-    start(a: App) {
-      app = a;
-    },
     load,
     sessions,
     allLost,

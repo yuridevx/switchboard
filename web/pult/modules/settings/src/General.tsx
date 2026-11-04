@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type {} from "@switchboard/web-alerts";
 import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { NoteOf, StoredIn } from "./parts.tsx";
 import type { Form, Gh } from "./store.ts";
 

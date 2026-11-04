@@ -3,7 +3,7 @@
 import type { App, SessionRecord } from "@switchboard/web-core";
 import type {} from "@switchboard/web-board";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, machinesWith, sessionOf } from "@switchboard/web-ui";
+import { createStore, machinesWith, sessionOf, useModule } from "@switchboard/web-ui";
 
 export type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
 export type Fleet = { sessions: FleetSession[]; r2: { bytes: number; blocks: number }; sweep: { at: number; blocks: number; bytes: number } | null };
@@ -28,9 +28,10 @@ type Raised = { callsign: string; point: number; folder: string; branch: string 
 type SaveOptions = { stop?: boolean; interrupt?: boolean };
 
 export type PointsStore = ReturnType<typeof createPointsStore>;
+/** Стор модуля в экранах. */
+export const usePoints = (): PointsStore => useModule<PointsStore>();
 
-export function createPointsStore() {
-  let app: App;
+export function createPointsStore(app: App) {
   const store = createStore<State>({ fleet: null, fleetRefused: "", lines: {}, full: {}, left: {} }, () => app.changed());
 
   const fleet = () => store.get().fleet;
@@ -65,10 +66,6 @@ export function createPointsStore() {
   }
 
   return {
-    start(a: App) {
-      app = a;
-    },
-
     // ───── выборки ─────
     fleet,
     fleetRefused: () => store.get().fleetRefused,

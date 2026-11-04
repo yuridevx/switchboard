@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { CommitIn, Outcome, profileIdOf, profileName, useLoad, useApp } from "@switchboard/web-ui";
-import { useCard } from "./context.ts";
+import { useCard } from "./hooks.ts";
 import { isDown, notAsked, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 

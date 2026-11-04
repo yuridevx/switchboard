@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Btn, plural, profileNameOf, stateLabel } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
-import { useBoard } from "./context.ts";
+import { useBoard } from "./store.ts";
 import type { BoardStore } from "./store.ts";
 import { FIELDS, type Field, type Filter } from "./rules.ts";
 

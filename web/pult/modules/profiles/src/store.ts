@@ -1,7 +1,7 @@
 // Состояние профилей: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { folderOf, lamp, machineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, type MachineAnswer, type MachineAnswers } from "@switchboard/web-ui";
+import { folderOf, lamp, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule } from "@switchboard/web-ui";
 
 type Repo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };
 type Answer = { profiles: Record<string, { model?: string | null; effort?: string | null; about?: string }>; repos: Record<string, Repo> };
@@ -30,21 +30,17 @@ function rowsOf(answers: Readonly<Record<string, MachineAnswer<Answer>>>) {
 }
 
 export type ProfilesStore = ReturnType<typeof createProfilesStore>;
+/** Стор модуля в экранах. */
+export const useProfiles = (): ProfilesStore => useModule<ProfilesStore>();
 export type ProfileRowData = ReturnType<ProfilesStore["summary"]>["all"][number];
 
-export function createProfilesStore() {
-  let app: App;
-  let replies: MachineAnswers<Answer>;
-
+export function createProfilesStore(app: App) {
   const can = (m: string) => app.can(m, "machine.profiles") === true;
   const machines = () => (app.roster()?.machines ?? []).map((m) => m.machine).filter(can);
   const mLabel = (m: string) => machineLabel(app, m).text;
+  const replies: MachineAnswers<Answer> = machineAnswers<Answer>(app, (m) => app.request<Answer>("machine.profiles", { machine: m }), machines);
 
   return {
-    start(a: App) {
-      app = a;
-      replies ??= machineAnswers<Answer>(app, (m) => app.request<Answer>("machine.profiles", { machine: m }), machines);
-    },
     /** Машина пришла или вернулась при открытом экране — спросить и её. */
     onRoster: (r: Roster) => replies.onRoster(r),
     /** Экран открыт: спросить машины; возврат — экран закрыт. */

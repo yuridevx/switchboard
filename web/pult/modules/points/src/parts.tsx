@@ -1,6 +1,6 @@
 // Общие части диалогов: строка проверки папки, поле папки, выбор машины.
 import { CommitIn, Note, Opts, PickOne, useApp } from "@switchboard/web-ui";
-import { usePoints } from "./context.ts";
+import { usePoints } from "./store.ts";
 import { folderText, say } from "./format.ts";
 import type { CheckResult } from "./store.ts";
 

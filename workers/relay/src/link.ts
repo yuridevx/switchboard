@@ -43,7 +43,8 @@ export type LinkOptions = {
   /** Каждый входящий кадр, кроме ответов на свои запросы: roster (после того, как link его учёл), запросы, кадры с to. */
   onFrame?: (f: Frame) => void;
   /** Смена состояния; why — слово или причина закрытия. */
-  onState?: (state: LinkState, why?: string) => void;
+  /** retryAt — у closed: когда следующая попытка (мс) */
+  onState?: (state: LinkState, why?: string, retryAt?: number) => void;
   /** Период ping, мс. Нет pong к следующему ping — соединение мёртвое: закрыть и переподключиться. По умолчанию 30 000. */
   pingMs?: number;
   /** Первая пауза переподключения, мс; растёт вдвое, сбрасывается после принятого hello. По умолчанию 1 000. */
@@ -138,10 +139,10 @@ export function link(o: LinkOptions): Link {
   let helloTimer: ReturnType<typeof setTimeout> | undefined;
   const pending = new Map<string, Pending>();
 
-  function setState(s: LinkState, why?: string) {
+  function setState(s: LinkState, why?: string, retryAt?: number) {
     if (state === s && why === undefined) return;
     state = s;
-    o.onState?.(s, why);
+    o.onState?.(s, why, retryAt);
   }
 
   function failAll() {
@@ -203,7 +204,7 @@ export function link(o: LinkOptions): Link {
     if (state === "stopped") return;
     const fatal = (code === 1008 && reason !== "gate_unavailable") || (code === 1000 && reason === "replaced");
     if (fatal) return setState("stopped", reason);
-    setState("closed", reason || String(code));
+    setState("closed", reason || String(code), Date.now() + pause);
     pauseTimer = setTimeout(connect, pause);
     pause = Math.min(pause * 2, maxPause);
   }

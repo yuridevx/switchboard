@@ -1,14 +1,14 @@
 // web-inbox — «Вам»: что ждёт вас. Здесь — только связка с ядром: состояние — store.ts, вид — InboxScreen.tsx.
-import type { AppModule } from "@switchboard/web-core";
-import { InboxCtx } from "./context.ts";
+import type { App, AppModule } from "@switchboard/web-core";
 import css from "./inbox.css";
 import { InboxScreen } from "./InboxScreen.tsx";
 import { createInboxStore } from "./store.ts";
 
-/** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createInbox(): AppModule {
-  const inbox = createInboxStore();
+/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
+export function createInbox(app: App): AppModule {
+  const inbox = createInboxStore(app);
   return {
+    state: inbox,
     on: { roster: inbox.onRoster, current: inbox.onCurrent },
     screens: {
       inbox: {
@@ -16,16 +16,11 @@ export function createInbox(): AppModule {
         mark: "you",
         label: "Вам",
         path: "inbox",
-        view: () => (
-          <InboxCtx.Provider value={inbox}>
-            <InboxScreen />
-          </InboxCtx.Provider>
-        ),
+        view: InboxScreen,
         head: () => ({ title: "Вам" }),
       },
     },
     marks: { you: inbox.count },
     css,
-    start: inbox.start,
   };
 }

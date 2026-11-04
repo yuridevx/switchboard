@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
-import { useCard } from "./context.ts";
+import { useCard } from "./hooks.ts";
 import { isDown, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 import { AccPop, MenuPop, ModelPop } from "./WidePops.tsx";

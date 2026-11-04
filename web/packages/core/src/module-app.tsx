@@ -9,9 +9,9 @@ import { clientName } from "./pass.ts";
 import type { Registry } from "./registry.ts";
 import type { Router } from "./router.ts";
 import type { CoreStore } from "./state.ts";
-import type { App, Result, SlotProps, StartOptions } from "./types.ts";
-import { CoreCtx, type Core } from "./view/core.ts";
-import { Place } from "./view/place.tsx";
+import type { App, Result, StartOptions } from "./types.ts";
+import type { Core } from "./view/core.ts";
+import { Slot } from "./view/place.tsx";
 
 export type AppDeps = { o: StartOptions; store: NonNullable<StartOptions["store"]>; state: CoreStore; registry: Registry; router: Router; link: Link; bus: Bus; toast: App["toast"]; core: Core };
 
@@ -33,20 +33,12 @@ export function moduleApp(x: Mod, d: AppDeps): App {
     return link.request(f);
   }
 
-  const Slot = (p: SlotProps) => {
-    // чужой экран вне uses — ошибка вызывающего: её ловит граница его экрана
-    if (!mayOpen(x, p.screen)) throw new Error(`экрана ${p.screen} нет в uses`);
-    // контекст ядра — здесь: Slot рисуют и вне дерева страницы
-    return (
-      <CoreCtx.Provider value={core}>
-        <Place screen={p.screen} params={p.params} close={p.close} />
-      </CoreCtx.Provider>
-    );
-  };
-
   return {
     get name() {
       return clientName(state.get().key);
+    },
+    get state() {
+      return x.mod.state;
     },
     wide: !!o.wide,
     application: o.application,

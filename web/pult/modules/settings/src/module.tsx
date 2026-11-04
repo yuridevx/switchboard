@@ -1,6 +1,5 @@
 // pult-settings — настройки флота вкладками: выпуски по машинам и каталог, пропуска, GitHub и устройство. Здесь — только связка с ядром.
-import type { AppModule, ScreenProps } from "@switchboard/web-core";
-import { SettingsCtx } from "./context.ts";
+import type { App, AppModule } from "@switchboard/web-core";
 import css from "./settings.css";
 import { SettingsScreen } from "./SettingsScreen.tsx";
 import { createSettingsStore } from "./store.ts";
@@ -11,21 +10,18 @@ const TABS = [
   ["general", "GitHub и устройство"],
 ];
 
-/** Новый модуль со своей памятью (в выпуске — один; в тестах — на каждый прогон). */
-export function createSettings(): AppModule {
-  const settings = createSettingsStore();
+/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
+export function createSettings(app: App): AppModule {
+  const settings = createSettingsStore(app);
   return {
+    state: settings,
     on: { roster: settings.onRoster },
     screens: {
       settings: {
         nav: "Настройки",
         group: "Флот",
         label: "Настройки",
-        view: (p: ScreenProps) => (
-          <SettingsCtx.Provider value={settings}>
-            <SettingsScreen {...p} />
-          </SettingsCtx.Provider>
-        ),
+        view: SettingsScreen,
         head: () => ({ title: "Настройки" }),
         find: (q: string) =>
           TABS.filter(([, l]) => !q || l.toLowerCase().includes(q)).map(([tab, l]) => ({ label: `Настройки: ${l.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
@@ -33,6 +29,5 @@ export function createSettings(): AppModule {
     },
     marks: { "keeper.answers": () => settings.keeper() },
     css,
-    start: settings.start,
   };
 }

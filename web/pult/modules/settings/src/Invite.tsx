@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import { Btn, Cmd, M, Opts, Sec, useApp } from "@switchboard/web-ui";
 import qrcode from "qrcode-generator";
-import { useSettings } from "./context.ts";
+import { useSettings } from "./store.ts";
 import { NoteOf, StoredIn } from "./parts.tsx";
 import type { Invited as InvitedInfo, Inviting, Kind } from "./store.ts";
 

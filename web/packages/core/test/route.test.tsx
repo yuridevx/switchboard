@@ -6,7 +6,7 @@ import { memoryStore, startApp, type App, type AppPart, type Manifest, type Para
 import { useApp } from "@switchboard/web-ui";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../stand/app.ts";
 
-const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1, ...uses } });
+const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2, ...uses } });
 
 type Seen = { screen: string; params: Params };
 
@@ -16,7 +16,7 @@ function part(over: { current?(c: Seen): void; roster?(): void; run?(): void } =
   const box: { app: App } = { app: null as never };
   const p: AppPart = {
     manifest: man("m", { a: 1, b: 1, c: 1, cmd: 1 }, { "roster@relay": 1 }),
-    module: {
+    module: (a) => ({
       on: {
         current(c) {
           seen.push(c);
@@ -30,8 +30,8 @@ function part(over: { current?(c: Seen): void; roster?(): void; run?(): void } =
         c: { path: "c", label: "В", view: () => <div data-s="c">в</div> },
         cmd: { run: () => over.run?.() },
       },
-      start: (a) => void (box.app = a),
-    },
+      start: () => void (box.app = a),
+    }),
   };
   return { p, seen, box };
 }
@@ -147,7 +147,12 @@ describe("on.current", () => {
     const m = part();
     m.p.manifest.provides.bar = 1;
     m.p.manifest.uses["top@web-core"] = 1;
-    m.p.module.screens!.bar = { place: "top", path: "bar", view: () => null };
+    const base = m.p.module;
+    m.p.module = (a) => {
+      const d = base(a);
+      d.screens!.bar = { place: "top", path: "bar", view: () => null };
+      return d;
+    };
     await stand([m.p], { url: "/#b" });
     m.seen.length = 0;
     history.replaceState(null, "", "#nosuch?x=1");
@@ -199,7 +204,7 @@ describe("on.current", () => {
     });
     const m = part({ current: bad });
     const other: Seen[] = [];
-    const neighbour: AppPart = { manifest: man("n", { n: 1 }), module: { on: { current: (c) => void other.push(c) }, screens: { n: { label: "Н", view: () => "н" } } } };
+    const neighbour: AppPart = { manifest: man("n", { n: 1 }), module: () => ({ on: { current: (c) => void other.push(c) }, screens: { n: { label: "Н", view: () => "н" } } }) };
     const t = await stand([m.p, neighbour]);
     other.length = 0;
     m.box.app.open("b");
@@ -217,7 +222,7 @@ describe("on.current", () => {
   it("6850 · app.open мимо uses: выключен вызывающий; адрес и экран прежние, on.current нет", async () => {
     // источник: устав — части пользуются друг другом только через контракт
     const m = part();
-    const side: AppPart = { manifest: man("s", { side: 1 }), module: { screens: { side: { path: "side", view: () => "бок" } } } };
+    const side: AppPart = { manifest: man("s", { side: 1 }), module: () => ({ screens: { side: { path: "side", view: () => "бок" } } }) };
     const t = await stand([m.p, side]);
     m.seen.length = 0;
     const before = location.hash;
@@ -243,8 +248,8 @@ describe("выборка и место экрана", () => {
       got.main = app;
       return <app.Slot screen="side" />;
     }
-    const main: AppPart = { manifest: man("main", { main: 1 }, { "side@side": 1 }), module: { screens: { main: { nav: "Г", view: Main } }, start: (a) => void (starts.main = a) } };
-    const side: AppPart = { manifest: man("side", { side: 1 }), module: { screens: { side: { view: Side } }, start: (a) => void (starts.side = a) } };
+    const main: AppPart = { manifest: man("main", { main: 1 }, { "side@side": 1 }), module: (a) => ({ screens: { main: { nav: "Г", view: Main } }, start: () => void (starts.main = a) }) };
+    const side: AppPart = { manifest: man("side", { side: 1 }), module: (a) => ({ screens: { side: { view: Side } }, start: () => void (starts.side = a) }) };
     const t = await stand([side, main]);
     expect(t.$("[data-side]")).not.toBeNull();
     expect(got.main).toBe(starts.main);
@@ -274,7 +279,7 @@ describe("выборка и место экрана", () => {
       });
       return null;
     };
-    const p: AppPart = { manifest: man("m", { a: 1, b: 1 }), module: { screens: { a: { nav: "А", view: () => (open ? <Screen /> : null) }, b: { path: "b", view: () => "б" } }, start: (a) => void (box.app = a) } };
+    const p: AppPart = { manifest: man("m", { a: 1, b: 1 }), module: (a) => ({ screens: { a: { nav: "А", view: () => (open ? <Screen /> : null) }, b: { path: "b", view: () => "б" } }, start: () => void (box.app = a) }) };
     await stand([p]);
     expect(calls).toBeGreaterThan(0);
     open = false;
@@ -305,8 +310,8 @@ describe("выборка и место экрана", () => {
       bump = () => set((n) => n + 1);
       return <app.Slot screen="side" params={{ x: "1" }} />;
     }
-    const main: AppPart = { manifest: man("main", { main: 1 }, { "side@side": 1 }), module: { screens: { main: { nav: "Г", view: Main } } } };
-    const side: AppPart = { manifest: man("side", { side: 1 }), module: { screens: { side: { view: Side } } } };
+    const main: AppPart = { manifest: man("main", { main: 1 }, { "side@side": 1 }), module: () => ({ screens: { main: { nav: "Г", view: Main } } }) };
+    const side: AppPart = { manifest: man("side", { side: 1 }), module: () => ({ screens: { side: { view: Side } } }) };
     const t = await stand([side, main]);
     await t.click(t.$("[data-side]"));
     expect(t.$("[data-side]")!.textContent).toBe("1");
@@ -338,8 +343,8 @@ describe("выборка и место экрана", () => {
         </div>
       );
     }
-    const main: AppPart = { manifest: man("main", { main: 1 }, { "bad@bad": 1 }), module: { screens: { main: { nav: "Г", view: Main } } } };
-    const bad: AppPart = { manifest: man("bad", { bad: 1 }), module: { screens: { bad: { label: "Бок", view: Bad } }, start: (a) => void (box = a) } };
+    const main: AppPart = { manifest: man("main", { main: 1 }, { "bad@bad": 1 }), module: () => ({ screens: { main: { nav: "Г", view: Main } } }) };
+    const bad: AppPart = { manifest: man("bad", { bad: 1 }), module: (a) => ({ screens: { bad: { label: "Бок", view: Bad } }, start: () => void (box = a) }) };
     const t = await stand([bad, main]);
     await t.click(t.$("[data-main]"));
     boom = true;
@@ -358,7 +363,7 @@ describe("выборка и место экрана", () => {
     const Bad = () => {
       throw new Error("сломан экран");
     };
-    const p: AppPart = { manifest: man("m", { a: 1 }), module: { screens: { a: { nav: "А", label: "А", view: Bad } } } };
+    const p: AppPart = { manifest: man("m", { a: 1 }), module: () => ({ screens: { a: { nav: "А", label: "А", view: Bad } } }) };
     const fake = new Proxy(real, { get: (o, k) => (k === "reload" ? reload : Reflect.get(o, k)) });
     const win = new Proxy(window, { get: (o, k) => { if (k === "location") return fake; const v = Reflect.get(o, k); return typeof v === "function" ? v.bind(o) : v; } });
     const t = await stand([p], { options: { window: win as Window } });

@@ -18,18 +18,18 @@ import { manifest as profilesM, createProfiles } from "../../pult/modules/profil
 /** Модули выпуска телефона, каждый со своей памятью; browser — API пушей (в тестах — подделка). */
 export function phoneParts(browser?: BrowserPush): AppPart[] {
   return [
-    { manifest: labelsM, module: createLabels() },
-    { manifest: inboxM, module: createInbox() },
-    { manifest: boardM, module: createBoard() },
-    { manifest: cardM, module: createCard() },
-    { manifest: openM, module: createOpen() },
-    { manifest: chatM, module: createChat() },
-    { manifest: askM, module: createAsk() },
-    { manifest: incidentsM, module: createIncidents() },
-    { manifest: accountsM, module: createAccounts() },
-    { manifest: machinesM, module: createMachines() },
-    { manifest: profilesM, module: createProfiles() },
-    { manifest: settingsM, module: createSettings() },
+    { manifest: labelsM, module: createLabels },
+    { manifest: inboxM, module: createInbox },
+    { manifest: boardM, module: createBoard },
+    { manifest: cardM, module: createCard },
+    { manifest: openM, module: createOpen },
+    { manifest: chatM, module: createChat },
+    { manifest: askM, module: createAsk },
+    { manifest: incidentsM, module: createIncidents },
+    { manifest: accountsM, module: createAccounts },
+    { manifest: machinesM, module: createMachines },
+    { manifest: profilesM, module: createProfiles },
+    { manifest: settingsM, module: createSettings },
     { manifest: alertsM, module: createAlerts(browser) },
   ];
 }

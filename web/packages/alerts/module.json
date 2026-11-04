@@ -1,7 +1,7 @@
 {
   "name": "web-alerts",
   "type": "web",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "into": [
     "pult",
     "phone"
@@ -13,7 +13,7 @@
   "uses": {
     "view@web-view": 19,
     "ui@web-ui": 1,
-    "app@web-core": 1,
+    "app@web-core": 2,
     "top@web-core": 1,
     "hello@relay": 1,
     "push.key@push": 1,

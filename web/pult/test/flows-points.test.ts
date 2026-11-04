@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
 import { createCard } from "@switchboard/web-card";
+import { defined } from "../../packages/core/stand/app.ts";
 import { pultParts } from "../stand/parts.ts";
 import { fleetRelay, fleetRoster, flush, HOST, pointsRelay, pult, SID } from "./stand.ts";
 
@@ -548,9 +549,9 @@ describe("вкладка «Точки» сессии", () => {
 
   it("5124 · «Точки» — экран pult-points в месте card.tab: карточка без опций, вкладка между «Разговором» и «Настройками»", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): вкладка «Точки» через место card.tab; опций у карточки 0
-    expect(createCard.length).toBe(0);
+    expect(createCard.length).toBe(1);
     const points = pultParts().find((p) => p.manifest.name === "pult-points")!;
-    expect(points.module.screens!["session.points"].place).toBe("card.tab");
+    expect(defined([points])[0].module.screens!["session.points"].place).toBe("card.tab");
     expect(points.manifest.uses["card.tab@web-card"]).toBe(1);
     const t = await pult({ relay: pointsRelay() });
     await t.click(t.$('[data-callsign="site@laptop"]'));

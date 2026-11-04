@@ -13,7 +13,7 @@ export function createLifecycle(d: { registry: Registry; link: Link; state: Core
   return {
     hide(): Promise<void> {
       life = life.then(async () => {
-        if (hidden || state.get().stopped) return;
+        if (hidden || state.get().full) return;
         hidden = true;
         await link.settle();
         await registry.stopAll();
@@ -24,9 +24,9 @@ export function createLifecycle(d: { registry: Registry; link: Link; state: Core
     },
     show(): Promise<void> {
       life = life.then(async () => {
-        if (!hidden || state.get().stopped) return;
+        if (!hidden || state.get().full) return;
         hidden = false;
-        await registry.startAll();
+        await registry.showAll();
         link.connect();
       });
       return life;

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { appGate } from "@switchboard/web-core";
 import { OWN, pultParts } from "../stand/parts.ts";
+import { defined } from "../../packages/core/stand/app.ts";
 import { fleetRelay, fleetRoster, flush, pult } from "./stand.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -41,7 +42,7 @@ describe("гейт выпуска пульта", () => {
   });
 
   it("набор выпуска проходит гейт ядра при старте", () => {
-    expect(appGate(pultParts())).toEqual([]);
+    expect(appGate(defined(pultParts()))).toEqual([]);
   });
 
   it("в коде оболочки пульта нет адресов, ключа флота и списка модулей: всё — из build.json сборки", () => {

@@ -10,10 +10,10 @@ import { FakeRelay, flush, homeRoster, stand } from "../../core/stand/app.ts";
 import { fakeBrowser } from "../stand/fakes.ts";
 
 const parts = (browser: BrowserPush) => [
-  { manifest: boardM, module: createBoard() },
-  { manifest: cardM, module: createCard() },
-  { manifest: chatM, module: createChat() },
-  { manifest: askM, module: createAsk() },
+  { manifest: boardM, module: createBoard },
+  { manifest: cardM, module: createCard },
+  { manifest: chatM, module: createChat },
+  { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts(browser) },
 ];
 
@@ -66,8 +66,8 @@ describe("включение", () => {
       sw: { register: async () => undefined, ready: new Promise(() => {}), addEventListener: () => {} },
       Notification: { permission: "granted", requestPermission: async () => "granted" },
     };
-    const store = createAlertsStore(browser);
-    const started = store.start({ changed: () => {}, store: () => ({ update: async () => [] }), deliver: () => {}, toast: () => {} } as never);
+    const store = createAlertsStore({ changed: () => {}, store: () => ({ update: async () => [] }), deliver: () => {}, toast: () => {} } as never, browser);
+    const started = store.start();
     let done = false;
     void Promise.resolve(started).then(() => (done = true));
     await vi.advanceTimersByTimeAsync(READY_MS + 1);

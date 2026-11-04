@@ -13,7 +13,7 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 1 } });
+const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2 } });
 const screenMod = (name: string, nav: string): AppModule => ({ screens: { [name]: { nav, label: nav, view: () => nav } } });
 
 describe("сборка страницы", () => {
@@ -21,7 +21,10 @@ describe("сборка страницы", () => {
     const relay = new FakeRelay(homeRoster());
     let got: App | null = null;
     const build: BuildList = { app: "pult", version: "1.1.0+2", fleet: "test", modules: [{ name: "web-core", version: "1.1.0" }, { name: "list", version: "1.0.0" }], workers: FakeRelay.WORKERS };
-    const mod: AppModule = { ...screenMod("list", "Список"), start: (a) => void (got = a) };
+    const mod: AppPart["module"] = (a) => {
+      got = a;
+      return screenMod("list", "Список");
+    };
     const run = await startBuild({ root: document.getElementById("app")!, build, load: async () => ({ manifest: man("list", { list: 1 }), default: mod }), fetch: relay.fetch, store: memoryStore({ key: KEY }), WebSocket: relay.WebSocket as never, platform: { ios: false, standalone: false }, pauseMs: 5 });
     await run.ready;
     expect(got!.application).toBe("pult");
@@ -61,7 +64,7 @@ describe("сборка страницы", () => {
       load: async (name) => {
         asked.push(name);
         if (name === "broken") throw new Error("404 m/broken.js");
-        return { manifest: man("list", { list: 1 }), default: screenMod("list", "Список") };
+        return { manifest: man("list", { list: 1 }), default: () => screenMod("list", "Список") };
       },
       fetch: relay.fetch,
       store: memoryStore({ key: KEY }),
@@ -87,10 +90,10 @@ describe("сборка страницы", () => {
   it("5135 · порядок разделов — у оболочки: sections первыми, остальные — следом по списку модулей; домашний — первый", async () => {
     // источник: дизайн «Открытый флот»: «beside и порядок разделов — у оболочки; разделы, которых в ней нет, встают следом»
     const parts: AppPart[] = [
-      { manifest: man("a", { a: 1 }), module: screenMod("a", "А") },
-      { manifest: man("b", { b: 1 }), module: screenMod("b", "Б") },
-      { manifest: man("c", { c: 1 }), module: screenMod("c", "В") },
-      { manifest: man("d", { d: 1 }), module: screenMod("d", "Г") },
+      { manifest: man("a", { a: 1 }), module: () => screenMod("a", "А") },
+      { manifest: man("b", { b: 1 }), module: () => screenMod("b", "Б") },
+      { manifest: man("c", { c: 1 }), module: () => screenMod("c", "В") },
+      { manifest: man("d", { d: 1 }), module: () => screenMod("d", "Г") },
     ];
     const relay = new FakeRelay(homeRoster());
     const run = startApp({

@@ -37,14 +37,14 @@ export type ListModel = { flat: RowItem[] | null; sections: Section[]; empty: st
 
 const isMe = (a: unknown, mail: string | null) => !!mail && typeof a === "string" && userOf(a) === mail;
 
-type Env = { app(): App | undefined; user(): Personal | undefined; fleet(): Personal | undefined; state(): State };
+type Env = { app: App; user: Personal; fleet: Personal; state(): State };
 
 export function createModel({ app, user, fleet, state }: Env) {
-  const sessions = () => app()?.roster()?.sessions ?? [];
-  const pins = () => user()?.get<string[]>("pins") ?? [];
-  const recs = () => fleet()?.get<ProjectRec[]>(PROJECTS);
-  const own = () => user()?.get<Filter[]>("filters") ?? [];
-  const row = () => user()?.get<string[]>("row") ?? [];
+  const sessions = () => app.roster()?.sessions ?? [];
+  const pins = () => user.get<string[]>("pins") ?? [];
+  const recs = () => fleet.get<ProjectRec[]>(PROJECTS);
+  const own = () => user.get<Filter[]>("filters") ?? [];
+  const row = () => user.get<string[]>("row") ?? [];
   const session = (callsign: string) => sessions().find((x) => x.callsign === callsign);
   const projectId = (callsign: string) =>
     projectIdOf(recs(), callsign, (cs) => {
@@ -58,10 +58,7 @@ export function createModel({ app, user, fleet, state }: Env) {
   };
   const projectName = (id: string) => recs()?.find((r) => r.id === id)?.name ?? (id === NONE ? "Без проекта" : id);
 
-  const me = () => {
-    const a = app();
-    return a ? myAddress(a) : null;
-  };
+  const me = () => myAddress(app);
 
   /** Почему сессия моя: задачу дали вы, открыли вы, открыла ваша сессия; не моя — "". */
   function whyMine(s: SessionRecord, mail = me(), depth = 0): string {
@@ -84,8 +81,8 @@ export function createModel({ app, user, fleet, state }: Env) {
     return ps && depth < 8 ? ownerOf(ps, depth + 1) : null;
   }
 
-  const sLabel = (callsign: string) => sessionLabel(app()!, callsign);
-  const mLabel = (machine: string) => machineLabel(app()!, machine);
+  const sLabel = (callsign: string) => sessionLabel(app, callsign);
+  const mLabel = (machine: string) => machineLabel(app, machine);
   const sName = (callsign: string) => sLabel(callsign).text;
   const mName = (machine: string) => mLabel(machine).text;
 
@@ -109,7 +106,7 @@ export function createModel({ app, user, fleet, state }: Env) {
   function line(s: SessionRecord, asked: string | undefined): Array<{ c: string; t: string }> {
     const view = state().view;
     if (asked && view.q) return [{ c: "tx q", t: `? ${asked}` }];
-    const unread = app()!.mark("unread", s.callsign);
+    const unread = app.mark("unread", s.callsign);
     if (unread?.text && view.unread) return [{ c: "tx", t: unread.text }];
     if (s.state === "failed" && s.failed && view.fail) return [{ c: "tx f", t: failText(s) }];
     const prof = profileNameOf(s);
@@ -120,14 +117,13 @@ export function createModel({ app, user, fleet, state }: Env) {
   function rowData(callsign: string, noAt: boolean, project: string | null) {
     const s = session(callsign);
     if (!s) return null;
-    const a = app()!;
     const view = state().view;
-    const asked = a.mark("asked", callsign);
-    const unread = a.mark("unread", callsign);
+    const asked = app.mark("asked", callsign);
+    const unread = app.mark("unread", callsign);
     const machine = machineOf(callsign) ?? "";
     const owner = view.owner && !whyMine(s) ? ownerOf(s) : null;
     return {
-      current: a.current()?.params.callsign === callsign,
+      current: app.current()?.params.callsign === callsign,
       lamp: view.lamp ? lamp(s) : null,
       title: stateLabel(s.state).text,
       name: sName(callsign),
@@ -191,8 +187,7 @@ export function createModel({ app, user, fleet, state }: Env) {
 
   /** Рисовать нельзя: первый рисунок ждёт ответа prefs (связи нет вовсе — рисуем встроенное); идёт перестановка. */
   function held() {
-    const a = app()!;
-    return !a.roster() || ((!user()!.ready() || !fleet()!.ready()) && a.link() === "open") || state().reordering;
+    return !app.roster() || ((!user.ready() || !fleet.ready()) && app.link() === "open") || state().reordering;
   }
 
   return {
@@ -217,7 +212,7 @@ export function createModel({ app, user, fleet, state }: Env) {
     held,
     /** Проекты для окна фильтра: номер и имя. */
     projectOptions: () => [...(recs() ?? []).filter((r) => r.id !== NONE).map((r): [string, string] => [r.id, r.name]), [NONE, projectName(NONE)] as [string, string]],
-    machines: () => (app()?.roster()?.machines ?? []).map((m) => m.machine),
+    machines: () => (app.roster()?.machines ?? []).map((m) => m.machine),
     owners: () => [...new Set(sessions().map((s) => ownerOf(s)).filter((x): x is string => !!x && x !== me()))].sort(),
   };
 }

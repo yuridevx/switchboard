@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, Page, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
-import { usePoints } from "./context.ts";
+import { usePoints } from "./store.ts";
 import { nameOf, r2Of, say } from "./format.ts";
 import { PointDialog } from "./PointDialog.tsx";
 import { PointLine } from "./PointLine.tsx";
