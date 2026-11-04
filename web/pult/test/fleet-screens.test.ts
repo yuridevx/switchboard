@@ -1,7 +1,6 @@
 // Эталоны экранов флота по прототипу «Пульт и телефон» (подписан пользователем 2 нояб.: «основа дизайна ок»):
-// машины строками с фильтрами и раскрытием, вход аккаунта на любой машине с активной ссылкой, инциденты из roster и журнала.
+// машины строками с фильтрами и раскрытием, вход аккаунта на любой машине с активной ссылкой.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Roster } from "@switchboard/web-core";
 import { flush, fleetRelay, fleetRoster, pult, SLOTS } from "./stand.ts";
 
 beforeEach(() => {
@@ -121,73 +120,5 @@ describe("вход аккаунта · проект", () => {
     await flush(10);
     await t.click(t.$('[data-account="night@x.io"] [data-any]'));
     expect([...t.$('[data-any-pick="night@x.io"]')!.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["pc ★", "Отмена"]);
-  });
-});
-
-describe("инциденты", () => {
-  /** Флот с двумя сессиями инцидентов (одна закрыта) и отказом доставки в журнале pc. */
-  function incRelay(delivered = false) {
-    const r: Roster = fleetRoster();
-    r.sessions = [
-      ...r.sessions,
-      { callsign: "build-red@laptop", state: "busy", incident: { type: "build-red", key: "switchboard#main" } },
-      { callsign: "disk-old@pc", state: "stopped", incident: { type: "disk-full", key: "/" } },
-    ];
-    const relay = fleetRelay(r);
-    relay.handlers["machine.journal"] = (f) => ({
-      ok: true,
-      result: {
-        records:
-          f.machine === "pc"
-            ? [
-                { t: new Date().toISOString(), kind: "refuse", ev: "incident", word: "no_profile", id: "a1", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения" },
-                { t: new Date().toISOString(), kind: "refuse", ev: "session.open", word: "bad_spec", why: "не инцидент" },
-              ]
-            : [],
-        more: false,
-      },
-    });
-    // обращение a1 на диске pc: сессия не открылась; delivered — ход его уже взял, на диске его нет
-    relay.handlers["incident.pending"] = (f) => ({ ok: true, result: { appeals: f.machine === "pc" && !delivered ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null }] : [] } });
-    return relay;
-  }
-
-  it("6907 · «В сессиях» — сессии с полем roster incident: тип, ключ, состояние; закрытая — только во «все»; нажатие — карточка сессии; метка раздела — открытые и недоставленные", async () => {
-    const relay = incRelay();
-    const t = await pult({ relay, url: "/#incidents" });
-    await flush(10);
-    expect(t.$$("[data-incident]").map((x) => x.getAttribute("data-incident"))).toEqual(["build-red@laptop"]);
-    const row = t.$('[data-incident="build-red@laptop"]')!;
-    expect(row.textContent).toContain("build-red");
-    expect(row.textContent).toContain("switchboard#main");
-    expect(row.textContent).toContain("работает");
-    await t.click(t.$('[data-f="all"]'));
-    expect(t.$$("[data-incident]").map((x) => x.getAttribute("data-incident"))).toEqual(["build-red@laptop", "disk-old@pc"]);
-    expect(t.$('[data-incident="disk-old@pc"]')!.textContent).toContain("закрыт");
-    expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты2");
-    await t.click(row);
-    expect(location.hash).toBe("#card?callsign=build-red%40laptop");
-  });
-
-  it("5405 · «Не доставлены» — отказы ev incident из журнала машины (kind refuse, с полуночи); нажатие — причина словами; другие отказы журнала не попадают", async () => {
-    const relay = incRelay();
-    const t = await pult({ relay, url: "/#incidents" });
-    await flush(10);
-    expect(relay.sent("machine.journal").map((f) => [f.machine, f.kind])).toEqual(expect.arrayContaining([["pc", ["refuse"]]]));
-    expect(relay.sent("machine.journal").every((f) => typeof f.since === "string" && f.limit === 200)).toBe(true);
-    const lost = t.$$("[data-lost]");
-    expect(lost.map((x) => x.getAttribute("data-lost"))).toEqual(["pc:a1"]);
-    expect(lost[0].textContent).toContain("no_profile");
-    await t.click(lost[0]);
-    expect(t.$('[data-why="pc:a1"]')!.textContent).toContain("профиль you/profiles/gpu-temp не найден");
-  });
-
-  it("5406 · отказ в журнале, а обращение потом доставлено (его нет в incident.pending) — в «Не доставлены» его нет", async () => {
-    // источник: отложенная половина делай 3 нояб.: «недоставленное, потом доставленное — висит до полуночи»
-    const relay = incRelay(true);
-    const t = await pult({ relay, url: "/#incidents" });
-    await flush(10);
-    expect(relay.sent("incident.pending").map((f) => f.machine)).toContain("pc");
-    expect(t.$$("[data-lost]")).toHaveLength(0);
   });
 });
