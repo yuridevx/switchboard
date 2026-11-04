@@ -1,23 +1,29 @@
-// Стенд модуля points: настоящее ядро Host на поддельных SDK, relay, keeper и часах;
-// Worker points (реестр) и R2 — подделки в памяти, manage этой машины — модуль-подделка поверх ядра,
-// manage соседней машины — участник рации, который пишет запросы и отвечает ok.
-import { existsSync, copyFileSync, mkdirSync, mkdtempSync } from "node:fs";
+// Стенд модуля точек: настоящее ядро Host на поддельных SDK, relay, keeper и часах;
+// реестр Worker'а и R2 — подделки в памяти, manage этой машины — модуль-подделка поверх ядра,
+// manage соседней машины — участник рации, который пишет запросы и отвечает ok. Модуль — только через контракт.
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { vi } from "vitest";
 import { refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest, Module } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { BLOCK, pack, projectDir, sha256, unpack } from "../src/blocks.ts";
-import type { PointFile } from "../src/blocks.ts";
-import { make } from "../src/points.ts";
-import type { Git } from "../src/git.ts";
 
 const { module, standHost } = stand;
 type Stand = stand.Stand;
 
+/** Формат блоков — контракт хранилища: 1 МиБ, отпечаток SHA-256 содержимого, в R2 — zstd. */
+export const BLOCK = 1 << 20;
+const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
+const pack = (b: Buffer) => zstdCompressSync(b);
+const unpack = (b: Buffer) => zstdDecompressSync(b);
+
+export type PointFile = { p: string; size: number; b: string[] };
 type Row = { id: number; sid: string; machine: string; why: string; base: number | null; files: PointFile[]; callsign?: string; dir?: string; git?: unknown; spec?: unknown };
 
-/** Блоки байтов, как их режет модуль. */
+/** Блоки байтов, как их хранит R2. */
 export function blocks(buf: Buffer, p: string): { file: PointFile; data: Map<string, Buffer> } {
   const size = p.endsWith(".jsonl") ? buf.lastIndexOf(0x0a) + 1 : buf.length;
   const data = new Map<string, Buffer>();
@@ -31,7 +37,7 @@ export function blocks(buf: Buffer, p: string): { file: PointFile; data: Map<str
   return { file: { p, size, b }, data };
 }
 
-/** Поддельный Worker points: тот же разбор хозяина и блоков, что у реестра, в памяти; R2 — словарь. */
+/** Поддельный Worker точек: контракт points.put, points.get, points.delete в памяти; R2 — словарь. */
 export class FakeRegistry {
   r2 = new Map<string, Buffer>();
   rows = new Map<number, Row>();
@@ -46,14 +52,13 @@ export class FakeRegistry {
   seq = 1000;
   /** ответить этим словом на следующий put (и owner) */
   refuseNext: { error: string; owner?: string } | null = null;
+  /** сеть до R2 оборвана: fetch бросает, как настоящий при обрыве */
+  netDown = false;
 
   /** Ссылки реестра: один блок, один метод — метод записан в ссылке, R2 стенда сверяет его. */
   links(method: "GET" | "PUT", hashes: string[]): Record<string, string> {
     return Object.fromEntries(hashes.map((h) => [h, `https://r2.test/bk/f/${h}?X-Amz-Signature=${method}`]));
   }
-
-  /** сеть до R2 оборвана: fetch бросает, как настоящий при обрыве */
-  netDown = false;
 
   fetch = (async (url: string | URL | Request, init?: RequestInit) => {
     if (this.netDown) throw new TypeError("fetch failed");
@@ -87,6 +92,7 @@ export class FakeRegistry {
     return row;
   }
 
+  /** Байты файла точки, распакованные из R2. */
   bytes(id: number, p: string): Buffer {
     const f = this.rows.get(id)!.files.find((x) => x.p === p)!;
     return Buffer.concat(f.b.map((h) => unpack(this.r2.get(`f/${h}`)!)));
@@ -134,11 +140,8 @@ export class FakeRegistry {
 
 export type ManageCall = { type: string; [k: string]: unknown };
 
-/**
- * Поддельный manage этой машины: открывает и поднимает сессии через ядро. fork — новый sid; файл нового разговора
- * claude пишет только на первом ходу (факт живого прогона 31 окт.) — подделка его не пишет, тест кладёт сам: forkWrite().
- */
-export function fakeManage(calls: ManageCall[], o: { failOpen?: string; failStop?: string } = {}): Module {
+/** Поддельный manage этой машины: открывает и поднимает сессии через ядро. fork — новый sid; файл нового разговора claude пишет только на первом ходу. */
+function fakeManage(calls: ManageCall[], o: { failOpen?: string; failStop?: string } = {}): Module {
   return {
     requests: {
       async "session.open"(f, { host }) {
@@ -181,11 +184,14 @@ export type Bench = {
   home: string;
 };
 
-/** Стенд points: настоящее ядро, поддельный реестр Worker points и manage. */
+let fresh = 0;
+/** Контракт создаёт объект модуля при загрузке, а он хранит своё в памяти: новый Host стенда — новая загрузка. */
+const load = async () => ((await import(/* @vite-ignore */ `../contract.ts?fresh=${++fresh}`)) as { default: Module }).default;
+
+/** Стенд: настоящее ядро, модуль из контракта, поддельный реестр и manage. R2 модуль достаёт глобальным fetch. */
 export async function bench(o: {
   home: string;
   machine?: string;
-  git?: Git;
   failOpen?: string;
   /** manage этой машины отказывает в session.stop этим словом */
   failStop?: string;
@@ -199,10 +205,11 @@ export async function bench(o: {
   holdRoster?: boolean;
 }): Promise<Bench> {
   const reg = o.reg ?? new FakeRegistry();
+  vi.stubGlobal("fetch", (...a: Parameters<typeof fetch>) => reg.fetch(...a));
   const manage: ManageCall[] = [];
   const remote: Frame[] = [];
   const machine = o.machine ?? "laptop";
-  // ответы Worker points и manage соседних машин — с первого кадра, ещё до старта Host
+  // ответы Worker'а и manage соседних машин — с первого кадра, ещё до старта Host
   const relay = new stand.FakeRelay();
   relay.holdRoster = !!o.holdRoster;
   const recv = relay.receive.bind(relay);
@@ -227,26 +234,16 @@ export async function bench(o: {
     relayStand: relay,
     start: false,
     modules: [
-      { manifest: fakeManageManifest(), module: fakeManage(manage, { failOpen: o.failOpen, failStop: o.failStop }) },
-      { manifest: manifest as Manifest, module: make({ git: o.git, fetch: reg.fetch }) },
+      { manifest: module("host-manage", fakeManage([]), {}).manifest, module: fakeManage(manage, { failOpen: o.failOpen, failStop: o.failStop }) },
+      { manifest: manifest as Manifest, module: await load() },
     ],
   });
   await st.start();
   return { st, reg, manage, remote, home: o.home };
 }
 
-function fakeManageManifest(): Manifest {
-  return module("host-manage", fakeManage([]), {}).manifest;
-}
-
 export function tmpHome(): string {
   const home = mkdtempSync(join(tmpdir(), "sb-points-"));
   mkdirSync(join(home, "claude", "projects"), { recursive: true });
   return home;
-}
-
-/** claude записал файл копии на первом ходу: разговор базы под новым sid. */
-export function forkWrite(dir: string, from: string, to: string): void {
-  const proj = projectDir(dir);
-  copyFileSync(join(proj, `${from}.jsonl`), join(proj, `${to}.jsonl`));
 }
