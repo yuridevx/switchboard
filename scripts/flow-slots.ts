@@ -113,21 +113,22 @@ check(`ход в s4 на общем аккаунте ${A}`, /ок/i.test(await t
 const hs = await req({ type: "slot.swap", machine, slot: "s2", account: A });
 check(`slot.swap s2: ${B} → ${A}`, hs.ok && hs.result?.from === B && hs.result?.to === A, hs.error ?? hs.result);
 check(`roster: ${S2} на ${A} сразу после подмены`, await wait(() => rec(S2)?.account === A, 30000), rec(S2)?.account);
-check(`горячая подмена: разговор ${S2} продолжается на ${A}`, /ёж/i.test(await turn(S2, "Какое слово я просил запомнить? Одним словом.")));
 const slotsNow = (await req({ type: "machine.accounts", machine })).result?.slots ?? {};
-check(`${A} сейчас в трёх слотах: s1, s2, s4`, ["s1", "s2", "s4"].every((s) => slotsNow[s]?.account === A), Object.fromEntries(Object.entries(slotsNow).map(([k, v]: [string, any]) => [k, v.account])));
+check(`${A} сразу после подмены в трёх слотах: s1, s2, s4`, ["s1", "s2", "s4"].every((s) => slotsNow[s]?.account === A), Object.fromEntries(Object.entries(slotsNow).map(([k, v]: [string, any]) => [k, v.account])));
+check(`горячая подмена: разговор ${S2} продолжается на ${A}`, /ёж/i.test(await turn(S2, "Какое слово я просил запомнить? Одним словом.")));
 
 // слот, где все аккаунты за порогом: ждёт сброса
 const w = await req({ type: "slot.set", machine, slot: "s3", order: [SPENT] });
 const slots = await req({ type: "machine.accounts", machine });
 check("слот только с исчерпанным аккаунтом — отказ или ожидание сброса", !w.ok || !!slots.result?.slots?.s3?.wait, w.ok ? slots.result?.slots?.s3 : w.error);
 
-// удаление аккаунта без запаса (A — в s1, s2 и s4; в порядке s1 и s4 других нет): отказ со слотом, ничего не тронуто.
+// удаление аккаунта без запаса (A — в s1 и s4, других в их порядке нет): отказ со слотом, ничего не тронуто.
 // Стирание настоящего входа вживую не проверяем: слово пользователя 4 нояб., его закрепляет эталон на подделках
+const held = (await req({ type: "machine.accounts", machine })).result?.slots ?? {};
 const rm = await req({ type: "machine.account_remove", machine, account: A });
-check("machine.account_remove без запаса — отказ no_reserve с именем слота", !rm.ok && rm.error === "no_reserve" && /sd/.test(rm.why ?? ""), rm.ok ? rm.result : [rm.error, rm.why]);
+check("machine.account_remove без запаса — отказ no_reserve с именем слота", !rm.ok && rm.error === "no_reserve" && /слот s[0-9]/.test(rm.why ?? ""), rm.ok ? rm.result : [rm.error, rm.why]);
 const kept = (await req({ type: "machine.accounts", machine })).result ?? {};
-check(`после отказа ${A} на месте: вход и слоты те же`, kept.accounts?.[A]?.login === "ok" && ["s1", "s2", "s4"].every((s) => kept.slots?.[s]?.account === A), kept.slots);
+check(`после отказа ${A} на месте: вход и слоты те же`, kept.accounts?.[A]?.login === "ok" && Object.keys(held).every((s) => kept.slots?.[s]?.account === held[s].account), kept.slots);
 
 // уборка
 for (const cs of [S1, S2, S3]) await req({ type: "session.remove", callsign: cs });
