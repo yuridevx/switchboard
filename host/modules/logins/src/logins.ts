@@ -53,6 +53,8 @@ const FRESH_S = 120;
 /** Порог: 95 % за 5 ч, 98 % за неделю (и прочие окна). */
 export const limitOf = (w: string) => (w === "five_hour" ? 0.95 : 0.98);
 export const CONTINUE = "Продолжай";
+/** Слот, который машина без слотов и без общего входа заводит сама при открытии сессии. */
+export const MAIN_SLOT = "main";
 
 const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 const NAME = /^[A-Za-z0-9_-]+$/;
@@ -222,9 +224,9 @@ export function make() {
     host.log({ kind: "refuse", ev: "login", account: name, why: `${name}: срок входа вышел — кода нет за ${LOGIN_WAIT_MS / 60_000} мин` });
   }
 
-  /** claude auth status с папкой аккаунта: вошёл ли. Не ответил за предел — исключение: что с входом, неизвестно. */
-  async function loggedIn(name: string): Promise<boolean> {
-    const r = await within(host.cli(["auth", "status"], { env: env(name) }), `${name}: auth status не ответил за ${STATUS_MS / 1000} с`, STATUS_MS);
+  /** claude auth status: вошёл ли. Не ответил за предел — исключение: что с входом, неизвестно. */
+  async function status(who: string, vars: Record<string, string>): Promise<boolean> {
+    const r = await within(host.cli(["auth", "status"], { env: vars }), `${who}: auth status не ответил за ${STATUS_MS / 1000} с`, STATUS_MS);
     if (r.code !== 0) return false;
     try {
       return (JSON.parse(r.out) as { loggedIn?: boolean }).loggedIn !== false;
@@ -232,6 +234,7 @@ export function make() {
       return true; // выход 0 без JSON — вошёл
     }
   }
+  const loggedIn = (name: string) => status(name, env(name));
 
   /** Проверка входа всех аккаунтов: пропал — login none и строка журнала. Прежняя ещё идёт — следующий раз. */
   async function check(): Promise<void> {
@@ -506,6 +509,37 @@ export function make() {
     if (!whoIn(slot)) throw refuse("not_logged_in", `в слоте ${slot} никого`);
   }
 
+  /** Новый слот: порядок и первый вошедший аккаунт в ссылке; такого нет — слота нет: сессии в нём шли бы «Not logged in» (живой прогон 31 окт.). */
+  async function createSlot(slot: string, list: string[], known: boolean): Promise<string> {
+    const first = list.find((n) => all()[n]?.login === "ok");
+    if (!first) throw refuse("no_reserve", `${slot}: в порядке нет вошедшего аккаунта`);
+    setOrder(slot, list);
+    const r = await place(slot, first, "новый слот");
+    if (!r.ok) {
+      if (!known) setOrder(slot, null);
+      throw refuse(r.error, `${slot}: ${first} не встал в слот — ${r.why ?? r.error}`);
+    }
+    return first;
+  }
+
+  /**
+   * Открытие на машине без слотов: общий вход есть — сессия на нём; нет — слот main из вошедших аккаунтов, иначе новая
+   * машина после входа отвечала бы «Not logged in» (журнал hz-ex44-win-1, 4 нояб.); аккаунтов нет — отказ до запуска.
+   */
+  async function slotOfBareMachine(): Promise<string | null> {
+    if (await status("общий вход", {})) return null;
+    return queue(async () => {
+      const made = Object.keys(order())[0]; // параллельное открытие успело раньше
+      if (made) return made;
+      const list = Object.keys(all()).filter((n) => all()[n].login === "ok");
+      if (!list.length) throw refuse("not_logged_in", `на ${host.machine} нет входа Claude: войдите в аккаунт на этой машине`);
+      await createSlot(MAIN_SLOT, list, false);
+      host.log({ ev: "slot.set", slot: MAIN_SLOT, order: list, why: `${MAIN_SLOT}: общего входа нет, слот из вошедших аккаунтов` });
+      arm(MAIN_SLOT);
+      return MAIN_SLOT;
+    });
+  }
+
   const requests: Module["requests"] = {
     async "machine.accounts"(f) {
       const maxAge = typeof f.max_age === "number" ? f.max_age : null;
@@ -645,17 +679,8 @@ export function make() {
         }
         let cur = whoIn(slot);
         if (!cur) {
-          // новый слот берёт первый вошедший аккаунт порядка (хоть и стоящий в другом слоте); такого нет — слота нет:
-          // сессии в слоте без входа шли бы «Not logged in» (живой прогон 31 окт.)
-          const first = list.find((n) => all()[n]?.login === "ok");
-          if (!first) throw refuse("no_reserve", `${slot}: в порядке нет вошедшего аккаунта`);
-          setOrder(slot, list);
-          const r = await place(slot, first, "новый слот");
-          if (!r.ok) {
-            if (!known) setOrder(slot, null);
-            throw refuse(r.error, `${slot}: ${first} не встал в слот — ${r.why ?? r.error}`);
-          }
-          cur = first;
+          // новый слот берёт первый вошедший аккаунт порядка (хоть и стоящий в другом слоте)
+          cur = await createSlot(slot, list, !!known);
         } else setOrder(slot, list);
         host.log({ ev: "slot.set", slot, order: list });
         arm(slot);
@@ -702,15 +727,15 @@ export function make() {
         return slot ? whoIn(slot) : undefined;
       },
     },
-    /** Открытие сессии: названный слот или правило машины: нет слотов — без слота, один — он, больше — отказ со списком. */
-    opening(s: Session, req: Record<string, unknown>): void {
+    /** Открытие сессии: названный слот или правило машины: нет слотов — slotOfBareMachine, один — он, больше — отказ со списком. */
+    async opening(s: Session, req: Record<string, unknown>): Promise<void> {
       if (req.slot !== undefined && typeof req.slot !== "string") throw refuse("bad_frame", "session.open: slot — имя слота");
       let slot: string | null;
       if (typeof req.slot === "string") slot = req.slot;
       else {
         const names = Object.keys(order());
         if (names.length > 1) throw refuse("slot_required", slotsWord());
-        slot = names[0] ?? null;
+        slot = names[0] ?? (await slotOfBareMachine());
       }
       if (slot !== null) usable(slot);
       s.store<Mine>().set({ slot });
@@ -746,5 +771,5 @@ export function make() {
       for (const set of polls.values()) for (const p of set) p.close();
     },
   };
-  return mod as unknown as Module & Required<Pick<Module, "requests">> & { opening(s: Session, req: Record<string, unknown>): void };
+  return mod as unknown as Module & Required<Pick<Module, "requests">> & { opening(s: Session, req: Record<string, unknown>): Promise<void> };
 }

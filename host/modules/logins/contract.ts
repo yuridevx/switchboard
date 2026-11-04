@@ -6,7 +6,7 @@
 //   slot.swap { machine, slot, account? } → { from, to }  («Сменить сейчас»)
 //   session.slot { callsign, slot | null } → { restart } — поле обязательно
 //   поля roster: slot { name, wait }, account
-//   вход открытия: req.slot — имя слота; нет поля: на машине нет слотов — без слота, один — он, больше — slot_required
+//   вход открытия: req.slot — имя слота; нет поля: на машине нет слотов — общий вход, а без него слот main из вошедших аккаунтов (их нет — not_logged_in), один — он, больше — slot_required
 // Слова: no_account, no_slot, slot_required, not_logged_in, no_reserve, has_sessions, not_started, bad_code, login_failed,
 // refresh_locked, slot_dir_busy, account_dir_busy, shutting_down; у no_slot и slot_required причина называет слоты машины.
 import { make } from "./src/logins.ts";

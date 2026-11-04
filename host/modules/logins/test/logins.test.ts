@@ -932,6 +932,34 @@ describe("эталоны дизайна «Предел чтений и слот�
     await opening("wiki");
     expect(st!.proc("wiki@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
     expect(raw().sessions["wiki@laptop"]).toEqual({ slot: null });
+    expect(await slots()).toEqual({});
+  });
+
+  // Статус общего входа — окружение без папки аккаунта.
+  const noShared = (env: Record<string, string | undefined>) => (env.CLAUDE_CONFIG_DIR ? { code: 0, out: JSON.stringify({ loggedIn: true }) } : { code: 1, out: JSON.stringify({ loggedIn: false }) });
+
+  it("7360 · новая машина: вход есть, слота и общего входа нет — слот main из вошедших, ключ есть при первом запуске", async () => {
+    // источник: факт, журнал hz-ex44-win-1 4 нояб.: вход 07:07:24, открытие 07:07:46 — «Not logged in»
+    await bench({ accounts: { mypoelife: {}, spare: {}, gone: { login: "none" } }, status: noShared });
+    await opening("win1");
+    expect(st!.proc("win1@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
+    expect(read(slotDir("main"))).toContain("tok-mypoelife");
+    expect((await slots()).main).toMatchObject({ account: "mypoelife", order: ["mypoelife", "spare"], sessions: ["win1@laptop"] });
+    expect(raw().sessions["win1@laptop"]).toEqual({ slot: "main" });
+    await opening("win2");
+    expect(st!.proc("win2@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
+    expect(places()).toHaveLength(1);
+  });
+
+  it("7361 · новая машина без единого входа — not_logged_in до запуска: нет процесса, папки и записи сессии", async () => {
+    // источник: живое воспроизведение 4 нояб. на машине probe, Host 1.3.3+1: сессия открылась и ответила «Not logged in»
+    await bench({ status: noShared });
+    const e = await refused(opening("job"));
+    expect(e?.word).toBe("not_logged_in");
+    expect(e?.why).toContain("laptop");
+    expect(existsSync(join(home, "work", "job"))).toBe(false);
+    expect(raw().sessions["job@laptop"]).toBeUndefined();
+    expect(await slots()).toEqual({});
   });
 
   it("E9 · 1 слот, не сказано — сессия в слоте, ключ есть уже при первом запуске, в списке виден аккаунт", async () => {
