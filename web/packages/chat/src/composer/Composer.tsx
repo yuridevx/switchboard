@@ -55,9 +55,8 @@ export function Composer({ callsign }: { callsign: string }) {
 
   const name = app.use(() => chat.nameOf(callsign));
   const busy = app.use(() => chat.inTurn(callsign));
-  const live = app.use(() => chat.isLive(callsign));
   const canFiles = app.use(() => chat.can(callsign, "session.files"));
-  const canCall = app.use(() => chat.can(callsign, "session.call"));
+  const canCall = app.use(() => chat.canCall(callsign));
   const suggestion = useConv(callsign, (c) => c.feed.suggestion);
   const mode = app.use(() => chat.sessionOf(callsign)?.mode as string | undefined);
   const returned = useConv(callsign, (c) => c.returned);
@@ -202,12 +201,12 @@ export function Composer({ callsign }: { callsign: string }) {
               <AtSign size={16} />
             </button>
           ) : null}
-          {canCall && live ? (
+          {canCall ? (
             <button type="button" className="chat-tb" aria-label="Команда" title="Команда" onClick={() => pick("/")}>
               <Slash size={16} />
             </button>
           ) : null}
-          {canCall && live && mode ? <ModeSelect callsign={callsign} mode={mode} /> : null}
+          {canCall && mode ? <ModeSelect callsign={callsign} mode={mode} /> : null}
           <span className="chat-grow" />
           {busy && canCall ? (
             <button type="button" className="chat-stop" onClick={() => void chat.call(callsign, "interrupt")}>

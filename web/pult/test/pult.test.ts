@@ -8,7 +8,7 @@ import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { appGate } from "@switchboard/web-core";
 import { OWN, pultParts } from "../stand/parts.ts";
 import { defined } from "../../packages/core/stand/app.ts";
-import { fleetRelay, fleetRoster, flush, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, pult } from "./stand.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../../..");
@@ -135,15 +135,6 @@ describe("раскладка широкого вида", () => {
     await flush();
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["wiki"]);
     expect(t.relay.got.length).toBe(sent);
-  });
-
-  it("галерея карточек #gallery: образцы сообщений SDK тем же кодом ленты, кадров нет", async () => {
-    const t = await pult({ url: "/#gallery" });
-    expect(t.$$(".chat-galr").length).toBeGreaterThan(10);
-    expect(t.text()).toContain("ход закончен · 2 мин 14 с · 6 шагов · $0,41");
-    expect(t.text()).toContain("контекст сжат · 182 К → 41 К");
-    expect(t.text()).toContain("сессия Claude · poe-bot@pc");
-    expect(t.relay.got.filter((f) => !["machine.journal", "prefs.get", "question.list", "points.list"].includes(f.type))).toEqual([]);
   });
 });
 
@@ -280,7 +271,7 @@ describe("журнал флота и машины", () => {
     const t = await pult({ relay });
     await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
     expect(relay.sent("ledger.read")[0]).toMatchObject({ to: ".ledger", limit: 50 });
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush(10);
     expect(relay.sent("ledger.read")[1]).toMatchObject({ after: 905, limit: 50 });
     expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["906", "905"]);

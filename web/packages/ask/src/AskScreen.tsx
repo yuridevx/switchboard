@@ -60,7 +60,7 @@ export function AskScreen({ params }: ScreenProps) {
   const loading = app.use(() => ask.isLoading(callsign));
   const refused = app.use(() => ask.refusedOf(callsign));
 
-  useEffect(() => void ask.list(callsign, true), [ask, callsign]);
+  useEffect(() => void ask.list(callsign), [ask, callsign]);
 
   if (!r) {
     return (

@@ -71,7 +71,7 @@ function TaskOutputBox({ t, callsign }: { t: Task; callsign: string }) {
 function BackgroundRow({ t, callsign }: { t: Task; callsign: string }) {
   const app = useApp();
   const chat = useChat();
-  const canCall = app.use(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
+  const canCall = app.use(() => chat.canCall(callsign));
   const [out, setOut] = useState(false);
   const shell = t.type === "local_bash" || t.type === "monitor";
   return (

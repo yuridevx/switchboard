@@ -53,6 +53,40 @@ async function opened(over: Record<string, unknown> = {}) {
 }
 
 describe("вопрос сессии", () => {
+  const listed = (t: { relay: { sent(n: string): unknown[] } }) => t.relay.sent("question.list").length;
+  const visit = async (t: { click(el: unknown): Promise<void>; $(s: string): unknown }) => {
+    history.pushState(null, "", "/#inbox");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await flush();
+    history.pushState(null, "", `/#ask?callsign=${encodeURIComponent("profiles@laptop")}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await flush();
+  };
+
+  it("7293 · повторное открытие экрана при живой связи — без нового question.list: вопросы приходят кадром", async () => {
+    // источник: отчёт архитектора, лишняя коммуникация 2; контракт: вопрос приходит кадром question
+    const t = await opened();
+    const n = listed(t);
+    await visit(t);
+    await visit(t);
+    expect(listed(t)).toBe(n);
+  });
+
+  it("7294 · связь с машиной вернулась — экран спрашивает снова; закрытый вопрос тоже снимает отметку", async () => {
+    // источник: ожидаемая ветка устава «соединение оборвалось — клиенты переподключаются»; за закрытым может ждать следующий запрос той же сессии
+    const t = await opened();
+    await visit(t);
+    const n = listed(t);
+    t.relay.push({ type: "answered", from: "profiles@laptop", question: "toolu_01Hx", by: "other", answers: {} });
+    await flush();
+    await visit(t);
+    expect(listed(t)).toBe(n + 1);
+    t.relay.drop();
+    await new Promise((r) => setTimeout(r, 30));
+    await flush(10);
+    expect(listed(t)).toBeGreaterThan(n + 1);
+  });
+
   it("метка asked в строке списка: «?» и текст вопроса", async () => {
     const t = await stand(parts());
     t.relay.handlers["question.list"] = () => ({ ok: true, result: [] });

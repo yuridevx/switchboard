@@ -43,6 +43,38 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("выбор режима", () => {
+  const modelsAsked = (calls: Array<Record<string, unknown>>) => calls.filter((f) => f.method === "supportedModels").length;
+  const away = async () => {
+    history.pushState(null, "", "/#inbox");
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await flush();
+  };
+  const back = async () => {
+    history.pushState(null, "", `/#chat?callsign=${encodeURIComponent(CS)}`);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    await flush();
+  };
+
+  it("7291 · supportedModels — один запрос на разговор: возврат на экран не спрашивает снова", async () => {
+    // источник: отчёт архитектора, лишняя коммуникация 6; ответ SDK за время разговора не меняется
+    const { relay, calls } = bench("default", { supportedModels: [{ value: "opus", supportsAutoMode: true }] });
+    await chat(CS, { relay, wide: true });
+    expect(modelsAsked(calls)).toBe(1);
+    await away();
+    await back();
+    expect(modelsAsked(calls)).toBe(1);
+  });
+
+  it("7292 · отказ supportedModels не запоминается: следующий показ спрашивает снова", async () => {
+    // источник: чьё: код — отказ не должен навсегда скрыть режим «Авто»
+    const { relay, calls } = bench("default", { supportedModels: "refuse" });
+    await chat(CS, { relay, wide: true });
+    expect(modelsAsked(calls)).toBe(1);
+    await away();
+    await back();
+    expect(modelsAsked(calls)).toBe(2);
+  });
+
   it("7151 · режим из поля roster: четыре режима, нынешний выбран; Авто нет, пока модель не умеет", async () => {
     const { relay } = bench("default");
     const t = await chat(CS, { relay, wide: true });

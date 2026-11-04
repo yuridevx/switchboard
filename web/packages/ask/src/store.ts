@@ -4,33 +4,9 @@ import type { App, Frame, Params, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { createStore, hhmm, sessionLabel, useModule } from "@switchboard/web-ui";
 import { permLine, type PermFrame } from "./perm.ts";
+import type { Question, Rec } from "./rec.ts";
 
-/** Вопрос AskUserQuestion: 1–4 на кадр, по 2–4 варианта; «Свой ответ» есть всегда. */
-export type Question = {
-  question: string;
-  header?: string;
-  multiSelect?: boolean;
-  options: Array<{ label: string; description?: string }>;
-};
-
-export type Status = "waiting" | "sending" | "ok" | "late" | "cancelled" | "gone" | "error";
-
-/** Вопрос сессии в памяти модуля. */
-export type Rec = {
-  id: string;
-  callsign: string;
-  kind: string;
-  questions: Question[];
-  /** форма MCP: message, schema, url, server */
-  frame: Frame;
-  to: string[];
-  at: number;
-  status: Status;
-  error?: string;
-  /** кто ответил и что — из answered или свой ответ */
-  by?: string;
-  answers?: Record<string, string>;
-};
+export type { Question, Rec, Status } from "./rec.ts";
 
 type State = {
   /** вопросы в порядке прихода */
@@ -90,7 +66,7 @@ export function createAskStore(app: App) {
       if (r) change(r as Rec);
     });
 
-  /** Ждущие вопросы сессии — у модуля questions её Host. */
+  /** Ждущие вопросы сессии — у модуля questions её Host. Один запрос на ожидание и на связь: новые вопросы приходят кадром; force — уведомление без тела говорит, что вопрос есть. */
   async function list(callsign: string, force = false) {
     if (!force && store.get().listed[callsign]) return;
     store.set((s) => {
@@ -173,6 +149,8 @@ export function createAskStore(app: App) {
       if (ctx.open) app.open("ask", { callsign });
     },
     onAnswered(f: Frame) {
+      // за закрытым может стоять следующий запрос той же сессии: следующий показ спросит заново
+      store.set((d) => void delete d.listed[String(f.from)]);
       editRec(String(f.question), (r) => {
         if (f.cancelled) r.status = "cancelled";
         else if (r.status !== "ok") {

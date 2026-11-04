@@ -5,6 +5,7 @@ import { firstFill } from "../../tools/records/contract.ts";
 import { folderOf } from "../../web/packages/ui/contract.ts";
 import { PULT, pultParts } from "../../web/pult/stand/parts.ts";
 import { phoneParts } from "../../web/phone/stand/parts.ts";
+import { galleryPart } from "../../web/packages/chat/stand/gallery/part.ts";
 import { fakeBrowser } from "../../web/packages/alerts/stand/fakes.ts";
 
 declare const __HOST__: Record<string, number>;
@@ -281,7 +282,7 @@ const run = startApp({
   root: document.getElementById("app")!,
   workers: FakeRelay.WORKERS,
   fetch: fetchIt,
-  parts: app === "pult" ? pultParts(fakeBrowser("granted")) : phoneParts(fakeBrowser("granted")),
+  parts: [...(app === "pult" ? pultParts(fakeBrowser("granted")) : phoneParts(fakeBrowser("granted"))), galleryPart],
   store,
   WebSocket: relay.WebSocket,
   platform: { ios: false, standalone: false },

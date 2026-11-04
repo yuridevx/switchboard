@@ -114,7 +114,7 @@ function Bar({ callsign, panel, setPanel }: { callsign: string; panel: boolean; 
   const app = useApp();
   const chat = useChat();
   const focus = useConv(callsign, (c) => c.focus);
-  const canCall = app.use(() => chat.can(callsign, "session.call") && chat.isLive(callsign));
+  const canCall = app.use(() => chat.canCall(callsign));
   return (
     <div className="chat-bar">
       {canCall ? (
@@ -149,7 +149,7 @@ export function ChatScreen({ params }: ScreenProps) {
   const [panel, setPanel] = useState(false);
   useEffect(() => chat.mount(callsign), [chat, callsign]);
   const name = app.use(() => chat.nameOf(callsign));
-  const canCall = app.use(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
+  const canCall = app.use(() => chat.canCall(callsign));
   // что карточкам ленты: выборка из этого разговора и кнопки, если сессия жива и машина умеет session.call
   const view = useMemo<CardsView>(
     () => ({

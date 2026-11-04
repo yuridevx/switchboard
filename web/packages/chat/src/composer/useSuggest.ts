@@ -17,7 +17,7 @@ const NO_FILES = { ok: true as const, result: [] as string[] };
 export function useSuggest(callsign: string, text: string): Suggest | null {
   const app = useApp();
   const chat = useChat();
-  const canCall = app.use(() => chat.can(callsign, "session.call"));
+  const canCall = app.use(() => chat.canCall(callsign));
   const canFiles = app.use(() => chat.can(callsign, "session.files"));
   const slash = canCall ? SLASH.exec(text)?.[1] : undefined;
   const at = canFiles && slash === undefined ? AT.exec(text)?.[1] : undefined;

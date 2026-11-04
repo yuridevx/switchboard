@@ -1,5 +1,5 @@
 // Образцы галереи: сообщения SDK той же формы, что приходят в session.events. Рисуются тем же кодом, что живая лента.
-import type { WireBlock, WireMessage } from "../state/wire.ts";
+import type { WireBlock, WireMessage } from "../../src/state/wire.ts";
 
 export type Sample = { title: string; msgs: WireMessage[]; /** инструменты, чей запрос разрешения ждёт человека */ asking?: string[] };
 export type Section = { title: string; samples: Sample[] };

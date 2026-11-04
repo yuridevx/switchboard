@@ -534,3 +534,30 @@ export const addMine = (feed: Feed, it: Omit<UserItem, "kind" | "state">): Feed 
     d.suggestion = "";
     d.items.push({ kind: "user", ...it, state: "sending" });
   });
+
+/** Сообщение сессии владельцу. */
+export const addIn = (feed: Feed, text: string, at: number, push: boolean): Feed =>
+  produce(feed, (d) => {
+    d.n++;
+    d.items.push({ kind: "in", id: `in${d.n}`, text, at, push });
+  });
+
+/** Подмена аккаунта слота — служебная строка. */
+export const addSwap = (feed: Feed, from: string, to: string, at: number): Feed =>
+  produce(feed, (d) => {
+    d.n++;
+    d.items.push({ kind: "sys", id: `sw${d.n}`, sys: { type: "swap", from, to }, at });
+  });
+
+/** Запись убрана из ленты: своё сообщение вернулось в поле. */
+export const dropItem = (feed: Feed, id: string): Feed =>
+  produce(feed, (d) => {
+    d.items = d.items.filter((i) => i.id !== id);
+  });
+
+/** Правка своего сообщения: доставка и время. */
+export const editMine = (feed: Feed, id: string, change: (it: UserItem) => void): Feed =>
+  produce(feed, (d) => {
+    const it = d.items.findLast((i) => i.id === id);
+    if (it?.kind === "user") change(it as UserItem);
+  });

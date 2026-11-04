@@ -1,12 +1,12 @@
 // Галерея карточек: каждый образец свёрнут той же лентой и нарисован теми же компонентами; соединения нет, кнопки ничего не шлют.
 import { useMemo, type ReactNode } from "react";
 import { Pad } from "@switchboard/web-ui";
-import { ItemView } from "../cards/ItemView.tsx";
-import { MeCard } from "../cards/UserCards.tsx";
-import { OutputView, SideCard } from "../docks/Docks.tsx";
-import { CardsCtx, type CardsView } from "../context.ts";
-import { applyEvents, emptyFeed } from "../state/feed.ts";
-import type { Feed } from "../state/types.ts";
+import { ItemView } from "../../src/cards/ItemView.tsx";
+import { MeCard } from "../../src/cards/UserCards.tsx";
+import { OutputView, SideCard } from "../../src/docks/Docks.tsx";
+import { CardsCtx, type CardsView } from "../../src/context.ts";
+import { applyEvents, emptyFeed } from "../../src/state/feed.ts";
+import type { Feed } from "../../src/state/types.ts";
 import { SECTIONS, type Sample } from "./samples.ts";
 
 const noop = () => {};

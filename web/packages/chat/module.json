@@ -1,15 +1,14 @@
 {
   "name": "web-chat",
   "type": "web",
-  "version": "3.1.1",
+  "version": "3.2.0",
   "into": [
     "pult",
     "phone"
   ],
   "provides": {
     "chat": 1,
-    "unread": 1,
-    "gallery": 1
+    "unread": 1
   },
   "uses": {
     "view@web-view": 19,

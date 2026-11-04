@@ -5,6 +5,7 @@ import { createAsk, manifest as askM } from "@switchboard/web-ask";
 import { createBoard, manifest as boardM } from "@switchboard/web-board";
 import { createCard, manifest as cardM } from "@switchboard/web-card";
 import { createChat, manifest as chatM } from "../contract.ts";
+import { galleryPart } from "../stand/gallery/part.ts";
 import { FakeRelay, flush, homeRoster, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
@@ -13,6 +14,7 @@ const parts = () => [
   { manifest: chatM, module: createChat },
   { manifest: askM, module: createAsk },
   { manifest: alertsM, module: createAlerts({}) },
+  galleryPart,
 ];
 const SECTIONS = ["Сообщения", "Ответ Claude", "Инструменты", "Служебные строки", "Над вводом и своё"];
 const SESSION_FRAMES = /^session\.|^answer$/;
@@ -24,6 +26,18 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("галерея", () => {
+  it("7295 · образцы сообщений SDK тем же кодом ленты, кадров нет; на странице галереи нет", async () => {
+    // источник: мерка «удаление раньше добавления» в отчёте архитектора; образцы нужны только снимкам и тестам
+    const t = await stand(parts(), { url: "/#gallery", wide: true });
+    await flush();
+    expect(t.$$(".chat-galr").length).toBeGreaterThan(10);
+    expect(t.text()).toContain("ход закончен · 2 мин 14 с · 6 шагов · $0,41");
+    expect(t.text()).toContain("контекст сжат · 182 К → 41 К");
+    expect(t.text()).toContain("сессия Claude · poe-bot@pc");
+    expect(t.relay.got.filter((f) => SESSION_FRAMES.test(f.type)).map((f) => f.type)).toEqual([]);
+    expect(Object.keys(chatM.provides)).not.toContain("gallery");
+  });
+
   for (const [number, app, wide] of [["6750", "пульт", true], ["6752", "телефон", false]] as const) {
     it(`${number} · ${app}: пять разделов, кадров сессиям нет`, async () => {
       const t = await stand(parts(), { url: "/#gallery", wide });

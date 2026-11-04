@@ -1,6 +1,6 @@
 // Запрос разрешения в кадре question: поля и суть. Форма кадра — у модуля questions на Host.
 import { PERM_PLACES, permModeName } from "@switchboard/web-ui";
-import type { Rec } from "./store.ts";
+import type { Rec } from "./rec.ts";
 
 export type PermFrame = {
   tool: string;

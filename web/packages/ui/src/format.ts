@@ -150,3 +150,21 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (b >= 2 && b <= 4) return few;
   return many;
 }
+
+/** Сессии, у которых сменился account: одно правило для всех модулей. was — что помнит модуль; from нет — сессия ещё не встречалась. */
+export function accountChanges(r: { sessions: ReadonlyArray<{ callsign?: string | null; account?: unknown }> }, was: (callsign: string) => string | undefined): Array<{ callsign: string; from?: string; account: string }> {
+  const out: Array<{ callsign: string; from?: string; account: string }> = [];
+  for (const s of r.sessions) {
+    if (typeof s.account !== "string" || !s.callsign) continue;
+    const from = was(s.callsign);
+    if (from !== s.account) out.push({ callsign: s.callsign, from, account: s.account });
+  }
+  return out;
+}
+
+/** Сессии, у которых аккаунт сменился с прошлого roster: подмену делает Host. known — прошлый аккаунт сессии, правится на месте. */
+export function accountChanged(known: Record<string, string>, sessions: ReadonlyArray<{ callsign: string; account?: unknown }>): string[] {
+  const list = accountChanges({ sessions }, (cs) => known[cs]);
+  for (const x of list) known[x.callsign] = x.account;
+  return list.filter((x) => x.from !== undefined).map((x) => x.callsign);
+}

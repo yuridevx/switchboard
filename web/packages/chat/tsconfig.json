@@ -3,6 +3,7 @@
   "include": [
     "contract.ts",
     "src",
+    "stand",
     "test",
     "vitest.config.ts",
     "../../css.d.ts"

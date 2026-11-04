@@ -1,8 +1,8 @@
 // Режим разрешений сессии: выбор в ряду под полем ввода — на широком и узком экране. Значение — поле roster: его меняет Host, а не выбор.
-import { PERM_MODES, useLoad } from "@switchboard/web-ui";
+import { useEffect } from "react";
+import { PERM_MODES } from "@switchboard/web-ui";
 import { useChat, useConv } from "../context.ts";
-
-type Model = { value: string; supportsAutoMode?: boolean };
+import type { Model } from "../state/chat.ts";
 
 const AUTO = "auto";
 
@@ -14,8 +14,9 @@ function modelOf(models: Model[], model: string | undefined): Model | undefined 
 export function ModeSelect({ callsign, mode }: { callsign: string; mode: string }) {
   const chat = useChat();
   const model = useConv(callsign, (c) => c.feed.model);
-  const { data } = useLoad<Model[] | null>(() => chat.ask<Model[] | null>(callsign, "supportedModels"), [chat, callsign]);
-  const auto = !!modelOf(Array.isArray(data) ? data : [], model)?.supportsAutoMode;
+  const models = useConv(callsign, (c) => c.models);
+  useEffect(() => void chat.loadModels(callsign), [chat, callsign]);
+  const auto = !!modelOf(models ?? [], model)?.supportsAutoMode;
   const known = PERM_MODES.some(([v]) => v === mode);
   return (
     <select className="chat-mode" aria-label="Режим разрешений" title="Режим разрешений" data-mode={mode} value={mode} onChange={(e) => void chat.call(callsign, "setPermissionMode", [e.currentTarget.value])}>

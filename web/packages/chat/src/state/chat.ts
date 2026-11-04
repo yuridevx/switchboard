@@ -4,8 +4,8 @@
 // Чего нет в contract машины — того нет на экране и в кадрах.
 import type { App, Ctx, Frame, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, isLive as stateIsLive, sessionLabel, sessionOf as findSession, linkText, type Result } from "@switchboard/web-ui";
-import { addMine, applyEvents, emptyFeed, withHistory, withOlder } from "./feed.ts";
+import { accountChanges, createStore, isLive as stateIsLive, sessionLabel, sessionOf as findSession, linkText, type Result } from "@switchboard/web-ui";
+import { addIn, addMine, addSwap, applyEvents, dropItem, editMine, emptyFeed, withHistory, withOlder } from "./feed.ts";
 import type { Feed, UserItem } from "./types.ts";
 import type { WireMessage } from "./wire.ts";
 import { exportMarkdown } from "./export.ts";
@@ -13,6 +13,7 @@ import { exportMarkdown } from "./export.ts";
 export type Attachment = { name: string; media_type: string; data: string };
 export type Rewind = { uuid: string; text: string; tone: "" | "bad" | "ok"; ready: boolean };
 export type Command = { name: string; description?: string; argumentHint?: string };
+export type Model = { value: string; supportsAutoMode?: boolean };
 /** Что отправка вернула в поле: отказ session.prompt. id — чьё: второй такой же отказ тоже возвращает. */
 /** Вопрос сбоку: в разговор не попадает. Нет ни ответа, ни отказа — Claude думает. */
 export type Side = { id: string; q: string; a?: string; err?: string };
@@ -40,6 +41,8 @@ export type Conv = {
   focus: boolean;
   rewind?: Rewind;
   commands?: Command[] | null;
+  /** модели SDK: null — запрос в пути; отказ — нет значения, следующий экран спросит снова */
+  models?: Model[] | null;
   returned?: Returned;
   /** уже есть более ранние записи и с какой продолжать */
   more: boolean;
@@ -60,10 +63,11 @@ const dataUrl = (a: Attachment) => `data:${a.media_type};base64,${a.data}`;
 export type ChatStore = ReturnType<typeof createChatStore>;
 
 export function createChatStore(app: App) {
-  /** drafts — черновики: поле ввода владеет текстом, пока открыто; здесь — что сохранить в хранилище */
-  const store = createStore<{ convs: Record<string, Conv>; drafts: Record<string, string> }>({ convs: {}, drafts: {} }, () => app.changed());
-  const setDraftOf = (cs: string, text: string) => store.set((s) => void (s.drafts[cs] = text));
-  const dropDraft = (cs: string) => store.set((s) => void delete s.drafts[cs]);
+  const store = createStore<{ convs: Record<string, Conv> }>({ convs: {} }, () => app.changed());
+  /** Черновики — вне снимка: текстом владеет поле ввода, выборок на них нет; буква не будит экраны. Здесь — что сохранить в хранилище. */
+  const drafts: Record<string, string> = {};
+  const setDraftOf = (cs: string, text: string) => void (drafts[cs] = text);
+  const dropDraft = (cs: string) => void delete drafts[cs];
 
   const read = (cs: string): Conv => store.get().convs[cs] ?? EMPTY;
   const edit = (cs: string, change: (c: Conv) => void) =>
@@ -78,6 +82,8 @@ export function createChatStore(app: App) {
     const m = machineOf(cs);
     return !!m && app.can(m, name) === true;
   };
+  /** Методы query() доступны: у живой сессии на машине с session.call. */
+  const canCall = (cs: string) => isLive(cs) && can(cs, "session.call");
 
   async function history(cs: string) {
     if (!can(cs, "session.history")) return;
@@ -134,7 +140,7 @@ export function createChatStore(app: App) {
   }
 
   async function saveDrafts() {
-    await app.store<Record<string, string>>("drafts").set(Object.fromEntries(Object.entries(store.get().drafts).filter(([, v]) => v)));
+    await app.store<Record<string, string>>("drafts").set(Object.fromEntries(Object.entries(drafts).filter(([, v]) => v)));
   }
 
   function refusalText(cs: string, word: string): string {
@@ -143,11 +149,7 @@ export function createChatStore(app: App) {
     return linkText(word, machineOf(cs));
   }
 
-  const setMine = (cs: string, id: string, change: (it: UserItem) => void) =>
-    edit(cs, (c) => {
-      const it = c.feed.items.findLast((i) => i.id === id);
-      if (it?.kind === "user") change(it);
-    });
+  const setMine = (cs: string, id: string, change: (it: UserItem) => void) => fold(cs, (f) => editMine(f, id, change));
 
   /** Метод query() сессии как есть: отказ словом для человека достаётся вызывающему. */
   const ask = async <T,>(cs: string, method: string, args: unknown[] = []) => {
@@ -163,9 +165,9 @@ export function createChatStore(app: App) {
 
   /** Текст и вложения обратно в поле, своего пузыря больше нет. Напечатанное человеком не затирается. */
   function giveBack(cs: string, id: string, text: string, attachments: Attachment[] = []) {
-    if (!store.get().drafts[cs]) setDraftOf(cs, text);
+    if (!drafts[cs]) setDraftOf(cs, text);
+    fold(cs, (f) => dropItem(f, id));
     edit(cs, (c) => {
-      c.feed.items = c.feed.items.filter((i) => i.id !== id);
       c.returned = { id, attachments };
       delete c.held[id];
     });
@@ -188,7 +190,7 @@ export function createChatStore(app: App) {
       });
     } else {
       // поле занято новым текстом — отказанный туда не вернётся; экран закрыт — вложениям негде ждать: сказать, а не обещать
-      const typed = !!store.get().drafts[cs];
+      const typed = !!drafts[cs];
       const closed = !read(cs).mounted && attachments.length > 0;
       giveBack(cs, id, text, attachments);
       app.toast(`${cs}: не доставлено — ${refusalText(cs, r.error)}. ${typed ? "В поле новый текст, отправленный текст не возвращён." : closed ? "Черновик цел, вложения не сохранены." : "Черновик цел."}`);
@@ -202,7 +204,8 @@ export function createChatStore(app: App) {
     sessionOf,
     isLive,
     can,
-    draft: (cs: string) => store.get().drafts[cs] ?? "",
+    canCall,
+    draft: (cs: string) => drafts[cs] ?? "",
     setDraft: setDraftOf,
     /** Счётчик непрочитанного для метки unread. */
     unread(cs: string) {
@@ -213,7 +216,8 @@ export function createChatStore(app: App) {
     // ───── жизненный цикл ─────
     async start() {
       const saved = (await app.store<Record<string, string>>("drafts").get()) ?? {};
-      store.set((s) => void (s.drafts = { ...saved, ...s.drafts }));
+      // напечатанное, пока читалось хранилище, важнее сохранённого
+      for (const [cs, text] of Object.entries(saved)) drafts[cs] ??= text;
     },
     async stop() {
       await saveDrafts();
@@ -256,9 +260,8 @@ export function createChatStore(app: App) {
       const cs = String(f.from);
       const notify = f.notify as { body?: string } | undefined;
       const text = typeof f.text === "string" ? f.text : (notify?.body ?? "");
+      fold(cs, (feed) => addIn(feed, text, Date.now(), typeof f.text !== "string" && !!notify));
       edit(cs, (c) => {
-        c.feed.n++;
-        c.feed.items.push({ kind: "in", id: `in${c.feed.n}`, text, at: Date.now(), push: typeof f.text !== "string" && !!notify });
         if (!c.mounted) {
           c.unread++;
           c.lastIn = text;
@@ -268,17 +271,10 @@ export function createChatStore(app: App) {
     },
     /** Подмена аккаунта слота видна по roster: у сессии сменилось поле account — строка в ленте. Машина появилась или поднялась заново — открытая лента подписывается снова. */
     onRoster(r: Roster) {
-      for (const s of r.sessions) {
-        const known = store.get().convs[s.callsign];
-        if (!known || typeof s.account !== "string" || known.account === s.account) continue;
-        const account = s.account;
-        edit(s.callsign, (c) => {
-          if (c.account) {
-            c.feed.n++;
-            c.feed.items.push({ kind: "sys", id: `sw${c.feed.n}`, sys: { type: "swap", from: c.account, to: account }, at: Date.now() });
-          }
-          c.account = account;
-        });
+      for (const { callsign, from, account } of accountChanges(r, (cs) => store.get().convs[cs]?.account)) {
+        if (!store.get().convs[callsign]) continue;
+        if (from) fold(callsign, (f) => addSwap(f, from, account, Date.now()));
+        edit(callsign, (c) => void (c.account = account));
       }
     },
     /** После своего hello открыть ленты заново: relay перезапускался, подписки могли пропасть. */
@@ -345,6 +341,16 @@ export function createChatStore(app: App) {
       edit(cs, (c) => void (c.commands = null));
       const r = await ask<Command[]>(cs, "supportedCommands");
       edit(cs, (c) => void (c.commands = r.ok && Array.isArray(r.result) ? r.result : []));
+    },
+    /** Модели SDK — в снимок разговора: один запрос на разговор, а не на каждый показ экрана. */
+    async loadModels(cs: string) {
+      if (read(cs).models !== undefined) return;
+      edit(cs, (c) => void (c.models = null));
+      const r = await ask<Model[] | null>(cs, "supportedModels");
+      edit(cs, (c) => {
+        if (r.ok) c.models = Array.isArray(r.result) ? r.result : [];
+        else delete c.models;
+      });
     },
     /** Файлы папки сессии для «@». */
     files: (cs: string, query: string) => app.request<string[]>("session.files", { callsign: cs, query, limit: 20 }),

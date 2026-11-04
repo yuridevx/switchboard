@@ -6,7 +6,6 @@ import { machineOf } from "@switchboard/protocol";
 import { sessionLine, stateLabel } from "@switchboard/web-ui";
 import base from "./chat.css";
 import { ChatScreen } from "./ChatScreen.tsx";
-import { Gallery } from "./gallery/Gallery.tsx";
 import { createChatStore } from "./state/chat.ts";
 
 /** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
@@ -29,7 +28,6 @@ export function createChat(app: App): AppModule {
           return { title: chat.nameOf(callsign), mono: true, sub: sessionLine(s, true), pill: { text: st.text, tone: st.tone } };
         },
       },
-      gallery: { label: "Галерея", path: "gallery", view: Gallery, head: () => ({ title: "Галерея карточек" }) },
     },
     marks: { unread: chat.unread },
     store: ["drafts"],
