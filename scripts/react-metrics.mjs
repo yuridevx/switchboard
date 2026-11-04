@@ -79,7 +79,7 @@ for (const f of walk(join(root, "web"))) {
     // кнопки и поля мимо набора: файлы самого набора не считаются
     rawButtons: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<button\b/g) ?? []).length,
     rawFields: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<(input|textarea|select)\b/g) ?? []).length,
-    kit: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<(Btn|Cta|LinkBtn|Chip|Chips|Tabs|In|CommitIn|Area|Sel)\b/g) ?? []).length,
+    kit: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<(Btn|Cta|LinkBtn|RowBtn|IconBtn|DisclosureBtn|TextBtn|Switch|Check|Chip|Chips|Tabs|In|CommitIn|Area|Sel)\b/g) ?? []).length,
     effects: (s.match(/useEffect\(/g) ?? []).length,
   };
   controls.rawButtons += m.rawButtons;
