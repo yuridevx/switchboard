@@ -152,6 +152,19 @@ describe("список", () => {
     expect(t.$('.bd-row[aria-current="true"]')!.dataset.callsign).toBe("api@pc");
   });
 
+  it("7308 · «Моё» — по адресу пропуска от gate: два устройства phone разных людей, первое в roster чужое", async () => {
+    // источник: бэклог 3 нояб., слепой архитектор «Сессии, проекты и профили»: gate допускает phone~a и phone~b одновременно
+    let board!: AppModule;
+    const relay = relayWith();
+    relay.roster.clients = ["phone~anna@mail", "phone~you@mail"];
+    relay.you = "phone~you@mail";
+    await stand([parts()[0], { manifest: boardM, module: (app) => (board = createBoard(app)) }, ...parts().slice(2)], { relay });
+    await flush(5);
+    const m = board.marks!;
+    expect(m.mine("migrate@laptop")).toBe("задачу дали вы");
+    expect(m.mine("docs@pc")).toBe("");
+  });
+
   it("5216 · метки: mine — почему моя; project.machines — машины сессий проекта; project.current — последний открытый", async () => {
     let board!: AppModule;
     const t = await stand([parts()[0], { manifest: boardM, module: (app) => (board = createBoard(app)) }, ...parts().slice(2)], { relay: relayWith() });

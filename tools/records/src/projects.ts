@@ -90,15 +90,3 @@ export const removeProject = (recs: ProjectRec[] | undefined, id: string): Proje
 /** Проект по имени без учёта регистра; у агента проект всегда имя. */
 export const projectByName = (recs: ProjectRec[] | undefined, name: string): ProjectRec | undefined => recs?.find((r) => r.id !== NONE && r.name.toLowerCase() === name.trim().toLowerCase());
 
-/** Первое заполнение при выкладке: каждая папка — проект с тем же номером, начальный порядок — top; домашняя папка — «Без проекта». */
-export function firstFill(list: Array<{ callsign: string; folder: string }>, top: string[] = []): ProjectRec[] {
-  const by = new Map<string, string[]>();
-  for (const s of [...list].sort((a, b) => a.callsign.localeCompare(b.callsign))) {
-    if (s.folder !== NONE) by.set(s.folder, [...(by.get(s.folder) ?? []), s.callsign]);
-  }
-  const at = (n: string) => {
-    const i = top.indexOf(n);
-    return i < 0 ? Infinity : i;
-  };
-  return [...by].sort((a, b) => (at(a[0]) === at(b[0]) ? a[0].localeCompare(b[0]) : at(a[0]) - at(b[0]))).map(([id, sessions]) => ({ id, name: id, sessions }));
-}

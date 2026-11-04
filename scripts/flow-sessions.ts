@@ -91,7 +91,7 @@ const cmds = await req({ type: "session.call", callsign: CS, method: "supportedC
 check("session.call supportedCommands", cmds.ok && Array.isArray(cmds.result), Array.isArray(cmds.result) ? cmds.result.length : cmds.error);
 const ctx = await req({ type: "session.call", callsign: CS, method: "getContextUsage" });
 check("session.call getContextUsage", ctx.ok, ctx.ok ? Object.keys(ctx.result ?? {}).slice(0, 4) : ctx.error);
-const bad = await req({ type: "session.call", callsign: CS, method: "setPermissionMode", args: ["default"] });
+const bad = await req({ type: "session.call", callsign: CS, method: "streamInput" });
 check("session.call закрытого метода — unknown_method", !bad.ok && bad.error === "unknown_method", bad.error);
 
 // --- прерывание длинного хода ---

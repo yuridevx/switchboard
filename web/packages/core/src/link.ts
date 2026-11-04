@@ -23,6 +23,8 @@ export function createLink(d: {
   const { o, state, registry, changed, route, toast, refused } = d;
   const pending = new Set<Promise<unknown>>();
   let lk: FleetClient | null = null;
+  /** адрес пропуска: новый клиент после ухода со страницы узнаёт его заново, вид всё это время показывает прежний */
+  let addr: string | null = null;
   /** since машин по roster: новый или машина пришла — её экраны спрашивают заново; других копий нет */
   let since: Map<string, unknown> | null = null;
   /** машины, чьё соединение вернулось внутри открытого флота: подписки на них пропали, сообщит их roster */
@@ -153,6 +155,10 @@ export function createLink(d: {
   return {
     connect,
     deliver,
+    address() {
+      addr = lk?.addr ?? addr;
+      return addr;
+    },
     reconnectNow() {
       lk?.close(1000, "now");
       connect();
