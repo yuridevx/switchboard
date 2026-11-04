@@ -1,35 +1,15 @@
-// pult-points — точки сессий с пометкой «в R2»: обзор реестра, вкладка «Точки» карточки, перенос, копия, смена папки, откат и «пожар».
-// Здесь — только связка с ядром: состояние — store.ts, экраны — OverviewScreen и SessionPointsScreen.
+// Снесено: экраны точек отвечают словом, пока не написаны заново.
 import type { App, AppModule } from "@switchboard/web-core";
-import { OverviewScreen } from "./OverviewScreen.tsx";
 import css from "./points.css";
-import { SessionPointsScreen } from "./SessionPointsScreen.tsx";
-import { createPointsStore } from "./store.ts";
 
-/** Функция модуля; экран session.points — вкладка «Точки» в месте card.tab карточки. */
-export function createPoints(app: App): AppModule {
-  const points = createPointsStore(app);
+export function createPoints(_app: App): AppModule {
+  const Gone = () => <div>снесено</div>;
   return {
-    state: points,
-    on: { roster: points.onRoster },
     screens: {
-      points: {
-        nav: "Точки",
-        group: "Флот",
-        label: "Точки",
-        view: OverviewScreen,
-        head: () => ({ title: "Точки" }),
-      },
-      "session.points": {
-        place: "card.tab",
-        label: "Точки",
-        path: "session-points",
-        // вкладка видна, когда машина сессии умеет точки
-        show: (p) => points.canTab(p.callsign ?? ""),
-        view: SessionPointsScreen,
-      },
+      points: { nav: "Точки", group: "Флот", label: "Точки", view: Gone, head: () => ({ title: "Точки" }) },
+      "session.points": { place: "card.tab", label: "Точки", path: "session-points", show: () => true, view: Gone },
     },
-    marks: { fire: points.fireMachines },
+    marks: { fire: () => [] },
     css,
   };
 }
