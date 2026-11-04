@@ -9,7 +9,7 @@ export function Matrix({ list, rm, pick }: { list: Listed | null; rm: string | n
   const app = useApp();
   const settings = useSettings();
   const d = app.use(() => settings.releaseData(list));
-  const { data: hosts } = useHosts();
+  const { data: hosts, error: noHosts } = useHosts();
   const [rq, setRq] = useState("");
   const rsel = app.use(() => settings.get().rsel);
   const parts = machineParts(d);
@@ -19,6 +19,7 @@ export function Matrix({ list, rm, pick }: { list: Listed | null; rm: string | n
   const ms = all.filter((m) => !q || m.toLowerCase().includes(q) || names[m]?.toLowerCase().includes(q));
   return (
     <Sec className="st-matrix">
+      {noHosts ? <Note tone="bad" role="alert">{`keys.list: ${noHosts}`}</Note> : null}
       <PageHead>
         <In className="st-rq" data-f="rq" placeholder="Найти машину" aria-label="Найти машину" value={rq} onInput={(e) => setRq(e.currentTarget.value)} />
         <Note className="st-end">{`${ms.length} ${plural(ms.length, "машина", "машины", "машин")}`}</Note>

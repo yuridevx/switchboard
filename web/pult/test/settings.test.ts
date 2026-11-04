@@ -24,7 +24,7 @@ const roster = (): Roster => ({
 
 type Plan = Record<string, { pin?: string; on?: boolean }>;
 /** Флот «Выпусков»: stable host +7, keeper 1.0.5; laptop держит keeper 1.0.4 закреплённым, pc отстал по host и уронил hello-daemon; old ушла. */
-function fleet(offline: string[] = []) {
+function fleet(offline: string[] = [], hostsRefused = "") {
   const plans: Record<string, Plan> = { laptop: { keeper: { pin: "1.0.4" } }, pc: {}, old: {} };
   const passes = [
     { id: "kh1", role: "host", name: "laptop", person: null, addr: "@laptop", state: "ok", by: "агент", at: Date.UTC(2026, 10, 1) },
@@ -76,6 +76,8 @@ function fleet(offline: string[] = []) {
       relay.got.push(f);
       return Response.json({ type: "reply", id: f.id, ...(relay.handlers["keys.list"]?.(f) ?? { ok: true, result: { passes } }) });
     }
+    // экран спрашивает машины сам; у клиента флота id со словом list
+    if (hostsRefused && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === "host" && !String(f.id).endsWith("-list")) return Response.json({ type: "reply", id: f.id, ok: false, error: hostsRefused });
     const r = await relay.fetch(url, init);
     // машина с пропуском, которой нет на связи: её знает только gate
     if (offline.length && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === "host") {
@@ -87,8 +89,8 @@ function fleet(offline: string[] = []) {
   return { relay, plans, fetch };
 }
 
-async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string>; browser?: BrowserPush; hooks?(relay: FakeRelay): void; offline?: string[] } = {}) {
-  const fl = fleet(o.offline);
+async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string>; browser?: BrowserPush; hooks?(relay: FakeRelay): void; offline?: string[]; hostsRefused?: string } = {}) {
+  const fl = fleet(o.offline, o.hostsRefused);
   o.hooks?.(fl.relay);
   const parts: AppPart[] = [
     { manifest: settingsM, module: createSettings },
@@ -315,6 +317,13 @@ describe("pult-settings", () => {
     expect(mx.querySelector('[data-machine="laptop"]')).not.toBeNull();
     expect(mx.querySelector('[data-machine="gone"]')).not.toBeNull();
     expect(mx.querySelector('[data-machine="ghost"]')).toBeNull();
+  });
+
+  it("7355 · gate отказал экрану в списке машин: отказ словом, машины на связи на месте", async () => {
+    // источник: устав — отказ словом, без молчаливого отказа; чьё: код — машины на связи матрица знает из roster
+    const t = await settings({ hostsRefused: "denied" });
+    expect(t.text()).toContain("keys.list: denied");
+    expect(t.$('tr[data-machine="laptop"]')).not.toBeNull();
   });
 
   it("E33 · каталог молчит: слово над таблицей, машины и ответы keeper на месте", async () => {
