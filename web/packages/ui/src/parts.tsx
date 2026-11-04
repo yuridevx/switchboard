@@ -1,5 +1,6 @@
 // Компоненты набора: один компонент — один класс основания. Лишние свойства (data-*, aria-*, обработчики) идут на элемент.
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
+import type { OutcomeNote } from "./hooks.ts";
 import { at, LIMIT_BAD, LIMIT_WARN, type Tone } from "./format.ts";
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
@@ -197,7 +198,7 @@ export function LimitRow({ label, used, resets, ...p }: ComponentProps<"div"> & 
 }
 
 /** Итог действия одной строкой: пусто — строки нет. */
-export function Outcome({ note, ...p }: ComponentProps<"div"> & { note?: { text: string; tone?: "ok" | "bad" | "wait" | "" } }) {
+export function Outcome({ note, ...p }: ComponentProps<"div"> & { note?: OutcomeNote | null }) {
   if (!note?.text) return null;
   return (
     <Note role={note.tone === "bad" ? "alert" : "status"} {...p} tone={note.tone || undefined}>

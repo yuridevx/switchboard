@@ -247,6 +247,21 @@ describe("pult-settings", () => {
     expect(t.$$('.st-mx tbody tr').map((x) => x.getAttribute("data-machine"))).toEqual(["laptop"]);
   });
 
+  it("7270 · итог выкладки переживает смену вкладки: выкладка идёт десятки секунд, человек успевает уйти", async () => {
+    // источник: чьё: код — итог лежал в сторе; факт: сборка страницы идёт 22–45 с
+    const t = await settings({ hooks: (r) => void (r.handlers["releases.deploy"] = () => undefined) });
+    await t.click(t.btn("Каталог и сборки"));
+    await t.click(t.btn("Выложить +13"));
+    const id = t.sent("releases.deploy").at(-1)!.id as string;
+    await t.click(t.$('[data-tab="passes"]'));
+    await flush(10);
+    t.relay.reply(id, { ok: true, result: { parts: { pult: { from: "1.2.0+12", to: "1.2.0+13" } } } });
+    await flush(10);
+    await t.click(t.$('[data-tab="releases"]'));
+    await flush(10);
+    expect(t.text()).toContain("Выложено: pult 1.2.0+12 → 1.2.0+13");
+  });
+
   it("5506 · GitHub вернул ?code= — «Сохранить приложение» сохраняет его github.setup; поиск Ctrl K находит вкладки настроек", async () => {
     const t = await settings({ url: "/?code=gh123#settings?tab=general" });
     await t.click(t.btn("Сохранить приложение"));

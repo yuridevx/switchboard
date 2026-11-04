@@ -1,9 +1,8 @@
 // Приглашение: форма и итог. Устройству — ссылки на пульт и телефон (QR — на телефон), программе и машине — приглашение строкой.
 import { useMemo, useState } from "react";
-import { Btn, Cmd, In, M, Opts, Sec, useApp, CopyButton } from "@switchboard/web-ui";
+import { Btn, Cmd, In, M, Opts, Outcome, Sec, useApp, useOutcome, CopyButton } from "@switchboard/web-ui";
 import qrcode from "qrcode-generator";
 import { useSettings } from "./store.ts";
-import { NoteOf } from "./parts.tsx";
 import type { Invited as InvitedInfo, Inviting, Kind } from "./store.ts";
 
 /** QR ссылки: модули qrcode-generator рисунком на белом поле. */
@@ -38,6 +37,7 @@ function KindButton({ k, label, cur, pick }: { k: Kind; label: string; cur: Kind
 export function InviteForm({ close }: { close(): void }) {
   const settings = useSettings();
   const [f, setF] = useState<Inviting>({ kind: "device", name: "", person: "" });
+  const [notes, say] = useOutcome();
   const pick = (kind: Kind) => setF((x) => ({ ...x, kind }));
   return (
     <Sec data-invite="">
@@ -51,12 +51,12 @@ export function InviteForm({ close }: { close(): void }) {
         {f.kind === "machine" ? null : <In data-f="iwho" placeholder="почта" aria-label="Почта" value={f.person} onInput={(e) => { const person = e.currentTarget.value; setF((x) => ({ ...x, person })); }} />}
       </Opts>
       <Opts>
-        <Btn pri onClick={() => void settings.invite(f).then((ok) => ok && close())}>
+        <Btn pri onClick={() => void settings.invite(f).then((refused) => (refused ? say("invite", refused, "bad") : close()))}>
           Пригласить
         </Btn>
         <Btn onClick={close}>Отмена</Btn>
       </Opts>
-      <NoteOf k="invite" />
+      <Outcome note={notes.invite} />
     </Sec>
   );
 }

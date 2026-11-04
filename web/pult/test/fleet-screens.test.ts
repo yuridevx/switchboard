@@ -71,6 +71,10 @@ describe("машины", () => {
     expect(location.hash).toContain("machines");
     await flush(10);
     expect(relay.sent("keeper.state").filter((f) => f.to === ".keeper@pc").length).toBeGreaterThan(keeperAsked);
+    // строка итога у строки машины: свёртка карточки её не теряет
+    await t.click(t.$('[data-row="pc"] .mc-head'));
+    await t.click(t.$('[data-row="pc"] .mc-head'));
+    expect(t.$('[data-machine="pc"]')!.textContent).toContain("выключена и включена по плану");
     await t.click(t.$('[data-row="pc"] .mc-head'));
     expect(t.$('[data-machine="pc"]')).toBeNull();
   });

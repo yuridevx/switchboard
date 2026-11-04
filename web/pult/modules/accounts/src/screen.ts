@@ -1,13 +1,12 @@
 // Состояние открытого экрана: вид, диалог, выбранная машина слотов, строки итогов. Живёт, пока экран открыт; карточки берут его из контекста.
 import { useMemo, useRef, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { useApp } from "@switchboard/web-ui";
+import { useApp, useOutcome } from "@switchboard/web-ui";
 import type {} from "@switchboard/web-board";
 import { useAccounts } from "./context.ts";
-import type { Say, Tone } from "./store.ts";
+import type { Say } from "./store.ts";
 
 export type Dlg = null | { kind: "new"; id: number; machine: string } | { kind: "sess"; machine: string; slot: string } | { kind: "rm"; machine: string; account: string };
-export type NoteText = { text: string; tone: Tone };
 
 export function useAccountsScreen(params: ScreenProps["params"]) {
   const app = useApp();
@@ -18,7 +17,7 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
   const [picked, setPicked] = useState<string | null>(null);
   /** почта, у которой открыт выбор машины для входа */
   const [pickFor, setPickFor] = useState("");
-  const [notes, setNotes] = useState<Record<string, NoteText>>({});
+  const [notes, say] = useOutcome();
 
   // машина из адреса может прийти позже первого roster: выбрать её, пока человек не выбрал другую
   const fromAddress = app.use(() => (params.machine && app.can(params.machine, "machine.slots") ? params.machine : ""));
@@ -32,7 +31,7 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
     const note =
       (k: string): Say =>
       (text, tone) =>
-        setNotes((old) => ({ ...old, [k]: { text, tone } }));
+        say(k, text, tone);
     return {
       view,
       setView,
@@ -51,7 +50,7 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
       moveSessions: (m: string, list: string[], target: string) => void store.moveSessions(m, list, target, note(`move:${m}`)),
       remove: (m: string, account: string, next: string) => void store.remove(m, account, next, note(`rm:${m}:${account}`), () => setDlg(null)),
     };
-  }, [store, view, dlg, slotMachine, pickFor, notes, near]);
+  }, [store, view, dlg, slotMachine, pickFor, notes, say, near]);
 }
 
 export type AccountsScreenState = ReturnType<typeof useAccountsScreen>;

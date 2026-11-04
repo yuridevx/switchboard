@@ -34,6 +34,16 @@ export function useNow(ms: number): number {
 }
 
 /** Ответ запроса ядра: результат или слово отказа. Одна форма на ядро и модули. */
+/** Строка итога действия. */
+export type OutcomeNote = { text: string; tone?: "ok" | "bad" | "wait" | "" };
+
+/** Строки итога действий по ключу: живут, пока стоит компонент; действие возвращает результат, слова кладёт экран. */
+export function useOutcome() {
+  const [notes, setNotes] = useState<Readonly<Record<string, OutcomeNote>>>({});
+  const say = useCallback((k: string, text: string, tone?: OutcomeNote["tone"]) => setNotes((old) => ({ ...old, [k]: { text, tone } })), []);
+  return [notes, say] as const;
+}
+
 export type Result<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
 const sameDeps = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]));

@@ -1,11 +1,10 @@
 // Вкладка «Выпуски»: по машинам (stable флота, отмеченные, матрица и план машины) или каталог и сборки.
-import { useState } from "react";
-import { Btn, M, Meter, Note, plural, Sec, useApp } from "@switchboard/web-ui";
+import { useCallback, useState } from "react";
+import { Btn, M, Meter, Note, Outcome, plural, Sec, useApp, useOutcome } from "@switchboard/web-ui";
 import { Catalog } from "./Catalog.tsx";
 import { useSettings } from "./store.ts";
 import { MachinePlan } from "./MachinePlan.tsx";
 import { Matrix } from "./Matrix.tsx";
-import { NoteOf } from "./parts.tsx";
 import { cellOf, prevBuild, short, stableOf, versionsOf } from "./rules.ts";
 import type { State } from "./store.ts";
 
@@ -38,13 +37,13 @@ function Roll() {
             </div>
           );
         })}
-      <NoteOf k="deploy" />
+      <Outcome note={app.use(() => settings.get().deployed)} />
     </Sec>
   );
 }
 
 /** Отмеченные машины: закрепить host разом или вернуть к stable. */
-function Bulk() {
+function Bulk({ refused }: { refused(text: string | null): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(settings.releaseData);
@@ -58,11 +57,11 @@ function Bulk() {
       <Note>{selected.map((m) => `@${m}`).join(", ")}</Note>
       <span className="st-grow" />
       {vs.map((v) => (
-        <Btn key={v} onClick={() => void settings.bulk(v)}>
+        <Btn key={v} onClick={() => void settings.bulk(v).then(refused)}>
           {`host: закрепить ${short(v)}`}
         </Btn>
       ))}
-      <Btn onClick={() => void settings.bulk(null)}>host: к stable</Btn>
+      <Btn onClick={() => void settings.bulk(null).then(refused)}>host: к stable</Btn>
       <Btn onClick={settings.clearSelected}>Снять</Btn>
     </div>
   );
@@ -84,6 +83,10 @@ export function Releases({ machine }: { machine?: string }) {
   const rtab = app.use(() => settings.get().rtab);
   // машина из адреса — выбрана при открытии: новые параметры адреса открывают экран заново
   const [rm, setRm] = useState<string | null>(machine ?? null);
+  const [notes, say] = useOutcome();
+  const refused = useCallback((text: string | null) => {
+    if (text) say("plan", text, "bad");
+  }, [say]);
   if (!app.worker("releases")) return <Note>«Выпусков» во флоте нет</Note>;
   return (
     <>
@@ -100,10 +103,10 @@ export function Releases({ machine }: { machine?: string }) {
       ) : (
         <>
           <Roll />
-          <Bulk />
+          <Bulk refused={refused} />
           <div className="st-grid">
             <Matrix rm={rm} pick={setRm} />
-            {rm ? <MachinePlan key={rm} m={rm} close={() => setRm(null)} /> : <span />}
+            {rm ? <MachinePlan key={rm} m={rm} close={() => setRm(null)} note={notes.plan} refused={refused} /> : <span />}
           </div>
         </>
       )}

@@ -1,9 +1,8 @@
 // Вкладка «GitHub и устройство»: приложение GitHub флота и его репозитории; адрес, пропуск и уведомления этого устройства.
 import { useEffect, useRef, useState } from "react";
 import type {} from "@switchboard/web-alerts";
-import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp, okOf } from "@switchboard/web-ui";
+import { Btn, In, LinkBtn, M, Note, Opts, Outcome, PageHead, Pill, plural, Row, Sec, useApp, useOutcome, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { NoteOf } from "./parts.tsx";
 import type { Form, Gh } from "./store.ts";
 
 /** Форма manifest уходит в браузере на github.com; GitHub вернёт страницу с ?code=. */
@@ -19,14 +18,17 @@ function PostForm({ form }: { form: Form }) {
   );
 }
 
-function GhCreate() {
+function GhCreate({ refused }: { refused(text: string): void }) {
   const settings = useSettings();
   const [org, setOrg] = useState("");
   const [form, setForm] = useState<Form | undefined>();
   return (
     <Opts>
       <In mono data-f="org" placeholder="организация" aria-label="Организация" value={org} onInput={(e) => setOrg(e.currentTarget.value)} />
-      <Btn pri onClick={() => void settings.create(org.trim()).then(setForm)}>
+      <Btn pri onClick={() => void settings.create(org.trim()).then((x) => {
+          setForm(x.form);
+          if (x.refused) refused(x.refused);
+        })}>
         Создать приложение GitHub
       </Btn>
       {form ? <PostForm form={form} /> : null}
@@ -80,6 +82,14 @@ export function Github() {
   const gh = app.use(() => settings.get().gh);
   // GitHub вернул код нового приложения в адресе; сохранено — адрес очищен
   const [ghCode, setGhCode] = useState(() => new URLSearchParams(location.search).get("code") ?? "");
+  const [notes, say] = useOutcome();
+  async function save() {
+    say("gh", "Сохраняю приложение…");
+    const refused = await settings.setup(ghCode);
+    if (refused) return say("gh", refused, "bad");
+    setGhCode("");
+    say("gh", "Приложение сохранено — установите его на репозитории.", "ok");
+  }
   if (!app.worker("github")) return null;
   return (
     <Sec data-github="">
@@ -88,7 +98,7 @@ export function Github() {
         <>
           <span>GitHub вернул код нового приложения.</span>
           <Opts>
-            <Btn pri onClick={() => void settings.setup(ghCode).then((ok) => ok && setGhCode(""))}>
+            <Btn pri onClick={() => void save()}>
               Сохранить приложение
             </Btn>
           </Opts>
@@ -100,9 +110,9 @@ export function Github() {
       ) : gh.app ? (
         <GhApp value={gh} />
       ) : (
-        <GhCreate />
+        <GhCreate refused={(text) => say("gh", text, "bad")} />
       )}
-      <NoteOf k="gh" />
+      <Outcome note={notes.gh} />
     </Sec>
   );
 }

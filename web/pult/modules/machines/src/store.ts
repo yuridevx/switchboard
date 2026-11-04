@@ -1,6 +1,6 @@
-// Состояние машин: ответы keeper, итоги перезапуска и ушедшие машины. Roster их больше не несёт — помнит, пока страница открыта.
+// Состояние машин: ответы keeper и ушедшие машины. Roster их больше не несёт — помнит, пока страница открыта.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, type MachineAnswer, useModule, okOf } from "@switchboard/web-ui";
+import { createStore, type MachineAnswer, type OutcomeNote, useModule, okOf } from "@switchboard/web-ui";
 import type { KeeperState, KeeperPart } from "../../settings/contract.ts";
 
 export type { KeeperState };
@@ -8,10 +8,8 @@ export type Part = KeeperPart;
 export type KeeperReply = MachineAnswer<KeeperState>;
 /** Состояние строки: на связи, сбой части, ушла. */
 export type Mst = "ok" | "fail" | "gone";
-type Notice = { text: string; tone: "ok" | "bad" | "wait" | undefined };
 
 type State = {
-  notes: Record<string, Notice>;
   /** машины последнего roster: какой не стало — ушла */
   seen: Record<string, true>;
   /** машина ушла из roster, пока страница открыта: когда */
@@ -34,9 +32,7 @@ export const useMachines = (): MachinesStore => useModule<MachinesStore>();
 export function createMachinesStore(app: App) {
   /** Ответы keeper'ов — у владельца, модуля настроек; своей копии нет. */
   const keeper = () => app.mark("keeper.answers");
-  const store = createStore<State>({ notes: {}, seen: {}, gone: {} }, () => app.changed());
-
-  const note = (k: string, text: string, tone?: "ok" | "bad") => store.set((s) => void (s.notes[k] = { text, tone }));
+  const store = createStore<State>({ seen: {}, gone: {} }, () => app.changed());
 
   return {
     onRoster(r: Roster) {
@@ -52,18 +48,15 @@ export function createMachinesStore(app: App) {
     /** Экран открыт: спросить keeper всех машин; возврат — экран закрыт. */
     mount: () => keeper()?.mount() ?? (() => {}),
     /** Перезапуск упавшей части — планом машины: выключить и включить; keeper исполняет. */
-    async restart(m: string, part: string) {
-      const k = `part:${m}:${part}`;
-      note(k, "Перезапускаю…");
+    async restart(m: string, part: string): Promise<OutcomeNote> {
       const off = await app.request("releases.set", { machine: m, part, on: false });
-      if (!off.ok) return note(k, `releases.set: ${off.error}`, "bad");
+      if (!off.ok) return { text: `releases.set: ${off.error}`, tone: "bad" };
       const on = await app.request("releases.set", { machine: m, part, on: true });
-      if (!on.ok) return note(k, `releases.set: ${on.error}`, "bad");
-      note(k, "выключена и включена по плану", "ok");
+      if (!on.ok) return { text: `releases.set: ${on.error}`, tone: "bad" };
       if (keeper()) app.open("keeper.reload", { machine: m });
+      return { text: "выключена и включена по плану", tone: "ok" };
     },
     states: () => keeper()?.get() ?? NONE,
     gone: () => store.get().gone,
-    note: (k: string) => store.get().notes[k] ?? null,
   };
 }

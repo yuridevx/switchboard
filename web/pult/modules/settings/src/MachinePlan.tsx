@@ -1,12 +1,11 @@
 // План машины сбоку: части, версии, закрепление, включение.
 import { useState } from "react";
-import { Btn, In, M, Note, Opts, PageHead, Sec, useApp, okOf } from "@switchboard/web-ui";
+import { Btn, In, M, Note, Opts, Outcome, type OutcomeNote, PageHead, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { NoteOf } from "./parts.tsx";
 import { cellOf, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
 
 /** Часть в плане машины. Введённая версия живёт в поле. */
-function PlanPart({ m, p }: { m: string; p: string }) {
+function PlanPart({ m, p, refused }: { m: string; p: string; refused(text: string | null): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(settings.releaseData);
@@ -28,12 +27,12 @@ function PlanPart({ m, p }: { m: string; p: string }) {
       {stable || choices.length ? (
         <Opts>
           {stable ? (
-            <Btn aria-pressed={pinned ? "false" : "true"} onClick={() => void settings.pin(m, p, null)}>
+            <Btn aria-pressed={pinned ? "false" : "true"} onClick={() => void settings.pin(m, p, null).then(refused)}>
               {`stable ${short(stable)}`}
             </Btn>
           ) : null}
           {choices.map((v) => (
-            <Btn key={v} aria-pressed={pinned === v ? "true" : "false"} onClick={() => void settings.pin(m, p, v)}>
+            <Btn key={v} aria-pressed={pinned === v ? "true" : "false"} onClick={() => void settings.pin(m, p, v).then(refused)}>
               {`📌 ${short(v)}`}
             </Btn>
           ))}
@@ -41,7 +40,7 @@ function PlanPart({ m, p }: { m: string; p: string }) {
           <Btn
             onClick={() => {
               const v = version.trim();
-              if (v) void settings.pin(m, p, v);
+              if (v) void settings.pin(m, p, v).then(refused);
             }}
           >
             Закрепить
@@ -50,7 +49,7 @@ function PlanPart({ m, p }: { m: string; p: string }) {
       ) : null}
       {p === "keeper" ? null : (
         <Opts>
-          <Btn role="switch" aria-checked={off ? "false" : "true"} aria-pressed={off ? "false" : "true"} onClick={() => void settings.togglePart(m, p)}>
+          <Btn role="switch" aria-checked={off ? "false" : "true"} aria-pressed={off ? "false" : "true"} onClick={() => void settings.togglePart(m, p).then(refused)}>
             {off ? "выключена" : "включена"}
           </Btn>
         </Opts>
@@ -59,7 +58,7 @@ function PlanPart({ m, p }: { m: string; p: string }) {
   );
 }
 
-export function MachinePlan({ m, close }: { m: string; close(): void }) {
+export function MachinePlan({ m, close, note, refused }: { m: string; close(): void; note?: OutcomeNote; refused(text: string | null): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(settings.releaseData);
@@ -79,9 +78,9 @@ export function MachinePlan({ m, close }: { m: string; close(): void }) {
       {machineParts(d)
         .filter((p) => cellOf(d, m, p))
         .map((p) => (
-          <PlanPart key={p} m={m} p={p} />
+          <PlanPart key={p} m={m} p={p} refused={refused} />
         ))}
-      <NoteOf k="rel" />
+      <Outcome note={note} />
     </Sec>
   );
 }

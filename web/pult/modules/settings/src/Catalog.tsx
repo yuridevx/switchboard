@@ -1,7 +1,6 @@
 // Каталог и сборки: части со stable и историей, модули сборок; «Выложить» и «Вернуть».
-import { Btn, M, Note, Opts, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, M, Note, Opts, Outcome, Sec, useApp } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { NoteOf } from "./parts.tsx";
 import { cmpV, short, type Listed } from "./rules.ts";
 
 const newer = (edge: string | null, built: Record<string, string>) => !!edge && Object.values(built).some((v) => cmpV(edge, v) > 0);
@@ -114,7 +113,7 @@ export function Catalog({ list }: { list: Listed }) {
           </tbody>
         </table>
       </Sec>
-      <NoteOf k="deploy" />
+      <Outcome note={app.use(() => settings.get().deployed)} />
     </div>
   );
 }

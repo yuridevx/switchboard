@@ -1,15 +1,13 @@
 // Строка машины и её карточка: части по ответу keeper, перезапуск упавшей части. Строка читает только своё: изменилась другая машина — эта не перерисовывается.
 import { memo } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, machineLabel, Note, Opts, plural, useApp, okOf } from "@switchboard/web-ui";
+import { Btn, Dot, hhmm, machineLabel, Note, Opts, Outcome, type OutcomeNote, plural, useApp, useOutcome, okOf } from "@switchboard/web-ui";
 import { useMachines } from "./store.ts";
 import { stateOf, type Part } from "./store.ts";
 
 /** Строка части: перезапуск упавшей и строка его итога. */
-function PartRow({ m, p }: { m: string; p: Part }) {
+function PartRow({ p, note, restart }: { p: Part; note?: OutcomeNote; restart(part: string): void }) {
   const app = useApp();
-  const machines = useMachines();
-  const n = app.use(() => machines.note(`part:${m}:${p.part}`));
   return (
     <div className="mc-part">
       <Dot kind={p.state === "running" ? "idle" : p.state === "failed" ? "bad" : "stop"} />
@@ -21,21 +19,17 @@ function PartRow({ m, p }: { m: string; p: Part }) {
         {p.error ? <div className="e">{p.error}</div> : null}
       </span>
       {p.state === "failed" && p.part !== "keeper" && app.worker("releases") ? (
-        <Btn className="r" onClick={() => void machines.restart(m, p.part)}>
+        <Btn className="r" onClick={() => restart(p.part)}>
           Перезапустить
         </Btn>
       ) : null}
-      {n?.text ? (
-        <Note tone={n.tone} role="status">
-          {n.text}
-        </Note>
-      ) : null}
+      <Outcome note={note} />
     </div>
   );
 }
 
 /** Карточка машины: система, keeper, части и переходы. */
-function Detail({ m }: { m: string }) {
+function Detail({ m, notes, restart }: { m: string; notes: Readonly<Record<string, OutcomeNote>>; restart(part: string): void }) {
   const app = useApp();
   const machines = useMachines();
   const st = app.use(() => machines.states()[m] ?? null);
@@ -59,7 +53,7 @@ function Detail({ m }: { m: string }) {
       {ok ? (
         <div className="mc-parts">
           {(ok.parts ?? []).map((p) => (
-            <PartRow key={p.part} m={m} p={p} />
+            <PartRow key={p.part} p={p} note={notes[p.part]} restart={restart} />
           ))}
         </div>
       ) : null}
@@ -76,6 +70,12 @@ function Detail({ m }: { m: string }) {
 export const MachineRow = memo(function MachineRow({ m, open, toggle }: { m: string; open: boolean; toggle(m: string): void }) {
   const app = useApp();
   const machines = useMachines();
+  // строка итога — у строки машины: переживает свёртку карточки
+  const [notes, say] = useOutcome();
+  const restart = (part: string) => {
+    say(part, "Перезапускаю…");
+    void machines.restart(m, part).then((n) => say(part, n.text, n.tone));
+  };
   const d = app.use(() => {
     const ok = okOf(machines.states()[m]);
     return {
@@ -101,7 +101,7 @@ export const MachineRow = memo(function MachineRow({ m, open, toggle }: { m: str
           <span className="st">{[d.n ? `${d.n} ${plural(d.n, "сессия", "сессии", "сессий")}` : "", text].filter(Boolean).join(" · ")}</span>
         </button>
       </div>
-      {open ? <Detail m={m} /> : null}
+      {open ? <Detail m={m} notes={notes} restart={restart} /> : null}
     </>
   );
 });

@@ -2,14 +2,13 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, Page, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
+import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, type OutcomeNote, Page, PageHead, plural, Sec, useApp, useOutcome } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { nameOf, r2Of, say } from "./format.ts";
 import { PointDialog } from "./PointDialog.tsx";
 import { PointLine } from "./PointLine.tsx";
 import { usePointDialog } from "./usePointDialog.ts";
 
-type Tone = { text: string; tone?: "ok" | "bad" };
 
 /** Снятие пометки: сначала галочка, затем ввод имени. */
 function Unmark({ callsign, machine, confirm }: { callsign: string; machine: string; confirm(): Promise<boolean> }) {
@@ -47,7 +46,8 @@ export function SessionPointsScreen({ params }: ScreenProps) {
   const points = usePoints();
   const callsign = params.callsign ?? "";
   const machine = machineOf(callsign) ?? "";
-  const [note, setNote] = useState<Tone>({ text: "" });
+  const [notes, put] = useOutcome();
+  const setNote = (n: OutcomeNote) => put("point", n.text, n.tone);
   /** сессия в реестре; появляется с загрузкой линии */
   const [sid, setSid] = useState("");
   /** слово отказа реестра: линии (points.list) или первых слов (points.get) */
@@ -111,7 +111,7 @@ export function SessionPointsScreen({ params }: ScreenProps) {
             </OptsLabel>
           ) : null}
           <Note>Включите — Host сразу положит первую точку.</Note>
-          <Outcome note={note} data-note="" />
+          <Outcome note={notes.point} data-note="" />
         </Sec>
       </Page>
     );
@@ -147,7 +147,7 @@ export function SessionPointsScreen({ params }: ScreenProps) {
             {refused}
           </Note>
         ) : null}
-        <Outcome note={note} data-note="" />
+        <Outcome note={notes.point} data-note="" />
       </Sec>
       {c.dlg ? <PointDialog d={c.dlg} c={c} callsign={callsign} sid={sid} /> : null}
       {line ? <PointLine line={line} callsign={callsign} open={c.open} /> : null}

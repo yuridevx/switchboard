@@ -3,15 +3,14 @@
 // перед подменой; пульт его не пересылает.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf } from "@switchboard/web-ui";
+import { createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type OutcomeNote } from "@switchboard/web-ui";
 
 export type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
 export type Account = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
 export type Slot = { account: string | null; order: string[]; wait: number | null; sessions: string[] };
 export type Login = { machine: string; account: string; phase: "wait" | "url" | "code" | "ok" | "bad" | "err"; url?: string; email?: string; plan?: string; err?: string };
-export type Tone = "ok" | "bad" | "wait" | undefined;
 /** Строка итога действия: её держит открытый экран. */
-export type Say = (text: string, tone?: Tone) => void;
+export type Say = (text: string, tone?: OutcomeNote["tone"]) => void;
 
 type Accounts = { accounts: Record<string, Account> };
 type Slots = { slots: Record<string, Slot> };
