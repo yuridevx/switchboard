@@ -33,11 +33,12 @@ export const prompt = (me: string) =>
   `Сообщения флота приходят во ввод тегом <fleet-message from="…">; вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer. ` +
   `Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно.`;
 
-/** Отказ словом — текстом для модели. */
+/** Отказ словом — текстом для модели; причина владельца — следом: список слотов машины и подобное. */
 function failed(to: string, r: Result & { ok: false }): Text {
   if (r.error === "offline") return text(`Не доставлено: ${to} не на связи (offline)`, true);
   if (r.error === "disconnected") return text(`Доставка не подтверждена: нет связи с relay (disconnected)`, true);
-  return text(`Не выполнено: ${to} — ${r.error}`, true);
+  if (r.error === "timeout") return text(`Не выполнено: ${to} — timeout: исход неизвестен, проверь list`, true);
+  return text(`Не выполнено: ${to} — ${r.error}${typeof r.why === "string" && r.why ? `. ${r.why}` : ""}`, true);
 }
 
 type Block = { type?: string; text?: string; name?: string };
@@ -125,7 +126,7 @@ export function make() {
       ),
       tool(
         "open",
-        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам.",
+        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам. Без параметра slot: на машине один слот — он, слотов нет — общий вход, два и больше — отказ со списком слотов.",
         {
           name: z.string().describe("имя сессии: буквы, цифры, . _ -"),
           dir: z.string().describe("папка: от ~ или полный путь"),
@@ -134,18 +135,20 @@ export function make() {
           profile: z.string().optional().describe("профиль сессии"),
           model: z.string().optional(),
           effort: z.string().optional(),
+          slot: z.string().optional().describe("имя слота машины"),
           project: z.string().optional().describe("имя проекта: сессия встанет в его конец, нет такого — создастся; без него — в проект открывшей"),
         },
-        async ({ name, dir, text: body, machine, profile, model, effort, project }) => {
+        async ({ name, dir, text: body, machine, profile, model, effort, slot, project }) => {
           const where = machine ?? host.machine;
-          const opt = { ...(profile ? { profile } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}) };
+          const opt = { ...(profile ? { profile } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(slot !== undefined ? { slot } : {}) };
           const o = await host.request("session.open", { machine: where, name, dir, ...opt, from: me });
           if (!o.ok) return failed(`${name}@${where}`, o);
-          const cs = (o.result as { callsign: string }).callsign;
+          const { callsign: cs, slot: inSlot } = o.result as { callsign: string; slot?: string | null };
+          const opened = inSlot ? `${cs} · слот ${inSlot}` : cs;
           const word = project === undefined ? null : await assign(cs, project);
           const note = word ? `; проект не записан: ${word}` : "";
           const m = await host.request("message", { to: cs, text: body, from: me });
-          return m.ok ? text(`открыта: ${cs}; задача во вводе, итог хода придёт сам${note}`) : text(`открыта: ${cs}, но задача не доставлена — ${m.error}`, true);
+          return m.ok ? text(`открыта: ${opened}; задача во вводе, итог хода придёт сам${note}`) : text(`открыта: ${opened}, но задача не доставлена — ${m.error}`, true);
         },
       ),
       tool(
@@ -160,16 +163,23 @@ export function make() {
       ),
       tool(
         "update",
-        "Сменить сессии модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу.",
-        { callsign: z.string(), model: z.string().optional(), effort: z.string().optional(), title: z.string().optional(), project: z.string().optional().describe("имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта") },
-        async ({ callsign, model, effort, title, project }) => {
+        "Сменить сессии слот, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот — перезапуском между ходами. Слот меняется первым: его отказ не меняет остального.",
+        { callsign: z.string(), slot: z.string().optional().describe("имя слота машины этой сессии"), model: z.string().optional(), effort: z.string().optional(), title: z.string().optional(), project: z.string().optional().describe("имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта") },
+        async ({ callsign, slot, model, effort, title, project }) => {
+          let moved = "";
+          if (slot !== undefined) {
+            const r = await host.request("session.slot", { callsign, slot, from: me });
+            if (!r.ok) return failed(callsign, r);
+            moved = `слот ${slot}${(r.result as { restart?: boolean }).restart ? "; перезапуск между ходами" : ""}; `;
+            if (project === undefined && !model && !effort && !title) return text(moved.slice(0, -2));
+          }
           if (project !== undefined) {
             const word = await assign(callsign, project);
-            if (word) return text(`Не выполнено: проект ${callsign} — ${word}`, true);
-            if (!model && !effort && !title) return text(project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`);
+            if (word) return text(`${moved}Не выполнено: проект ${callsign} — ${word}`, true);
+            if (!model && !effort && !title) return text(moved + (project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`));
           }
           const r = await host.request("session.update", { callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
-          return r.ok ? text(`сразу: ${((r.result as { now: string[] }).now ?? []).join(", ") || "—"}`) : failed(callsign, r);
+          return r.ok ? text(`${moved}сразу: ${((r.result as { now: string[] }).now ?? []).join(", ") || "—"}`) : failed(callsign, r);
         },
       ),
       tool(
@@ -220,7 +230,8 @@ export function make() {
     const parent = s.field("parent");
     if (typeof parent !== "string" || kindOf(parent) !== "session" || from !== parent) return;
     const r = m as { subtype: string; is_error?: boolean; result?: string };
-    const body = r.subtype === "success" && !r.is_error ? (r.result ?? "") : `ход кончился: ${r.subtype}`;
+    // ход с ошибкой бывает и с типом success («Not logged in»): родителю — текст ошибки, а не тип
+    const body = !r.is_error && r.subtype === "success" ? (r.result ?? "") : r.is_error && r.result ? `ход кончился ошибкой: ${r.result}` : `ход кончился: ${r.subtype}`;
     void host.request("message", { to: parent, text: body, report: true, from: me }).then((x) => {
       if (!x.ok) host.log({ kind: "note", ev: "report", word: x.error, callsign: me, why: `итог хода родителю ${parent} не доставлен: ${x.error}` });
     });
@@ -228,7 +239,7 @@ export function make() {
 
   const mod: Module = {
     session: (s) => ({
-      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.4.0", tools: tools(s.info.callsign) }) },
+      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.5.0", tools: tools(s.info.callsign) }) },
       append: prompt(s.info.callsign),
       // переписка между сессиями — только через fleet: рубильник Claude Code убирает ListAgents и доставку
       // SendMessage чужим сессиям в обе стороны; SendMessage своим субагентам остаётся (исключение устава, слово 1 нояб.)
@@ -242,7 +253,7 @@ export function make() {
     },
     start(h) {
       host = h;
-      meta = settings({ ask: (name, body) => h.request(name, body) as never, prefix: FLEET_PREFIX, scope: "global" });
+      meta = settings({ read: (name, body) => h.read(name, body) as never, ask: (name, body) => h.request(name, body) as never, prefix: FLEET_PREFIX, scope: "global" });
     },
     // своего хранить нечего; правки записей доходят до службы
     stop: () => meta.settled(),

@@ -1,9 +1,9 @@
 // Состояние аккаунтов и слотов всего времени жизни модуля и действия с запросами. Ничего не считает за владельцев:
-// окна — как прислал accounts машины, кто в слоте — как прислал slots. Расход почты на других машинах Host читает у Claude сам,
+// окна и кто в слоте — как прислала машина одним ответом. Расход почты на других машинах Host читает у Claude сам,
 // перед подменой; пульт его не пересылает.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { type AccountInfo, type AccountsAnswer, accountChanged, type ConnState, createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type Result, type SlotInfo, type SlotsAnswer, useModule } from "@switchboard/web-ui";
+import { type AccountInfo, type AccountsAnswer, accountChanged, type ConnState, createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type Result, type SlotInfo, useModule } from "@switchboard/web-ui";
 
 export type Account = AccountInfo;
 export type Slot = SlotInfo;
@@ -17,20 +17,22 @@ type State = {
 
 /** Ответ без отказа, иначе undefined. */
 
-/** Слова отказа slots и accounts → строка на экране. */
+/** Слова отказа модуля аккаунтов → строка на экране. */
 const WORDS: Record<string, string> = {
   no_reserve: "В запасе нет вошедшего ниже порога — слот прежний",
   has_sessions: "В слоте есть сессии — сначала переведите их",
   no_account: "Такого аккаунта нет на машине",
   no_slot: "Такого слота нет",
-  in_slot: "Аккаунт в слоте — сначала смените его в слоте",
   bad_code: "Код не принят — вход закрыт",
   not_started: "Вход прервался: Host перезапускался",
   not_logged_in: "У аккаунта нет входа",
   refresh_locked: "Claude сейчас обновляет вход этого аккаунта — повторите через минуту",
   slot_dir_busy: "На месте слота на машине папка с файлами — разберите её",
+  account_dir_busy: "Папка аккаунта занята — повторите через минуту",
 };
 export const say = (w: string) => WORDS[w] ?? linkText(w);
+/** Отказ со своей причиной: в какой слот он упёрся, знает машина. */
+const sayWhy = (r: { error: string; why?: string }) => (r.why ? `${say(r.error)} — ${r.why}` : say(r.error));
 
 /** Слоты машины, где аккаунт стоит сейчас: один аккаунт может стоять в нескольких. */
 export function slotsWith(list: Record<string, Slot>, account: string): string[] {
@@ -48,22 +50,18 @@ export function createAccountsStore(app: App) {
   const machines = (n: string) => machinesWith(app, n);
 
   async function askAccounts(m: string, body: Record<string, unknown>) {
-    const r = await app.request<Partial<AccountsAnswer>>("machine.accounts", { machine: m, ...body });
-    return r.ok ? { ok: true as const, result: { accounts: r.result.accounts ?? {} } } : r;
+    const r = await app.read<Partial<AccountsAnswer>>("machine.accounts", { machine: m, ...body });
+    return r.ok ? { ok: true as const, result: { accounts: r.result.accounts ?? {}, slots: r.result.slots ?? {} } } : r;
   }
-  async function askSlots(m: string) {
-    const r = await app.request<Partial<SlotsAnswer>>("machine.slots", { machine: m });
-    return r.ok ? { ok: true as const, result: { slots: r.result.slots ?? {} } } : r;
-  }
-  /** Ответы машин: цикл «экран открыт — спросить, машина пришла — доспросить» у обоих один; открыли экран — machine.accounts { max_age: 120 } и machine.slots. */
+  /** Ответы машин: открыли экран — machine.accounts { max_age: 120 }, в нём и слоты; машина пришла — доспросить. */
   const accs: MachineAnswers<AccountsAnswer> = machineAnswers<AccountsAnswer>(app, (m) => askAccounts(m, { max_age: 120 }), () => machines("machine.accounts"));
-  const slots: MachineAnswers<SlotsAnswer> = machineAnswers<SlotsAnswer>(app, askSlots, () => machines("machine.slots"));
   /** Свежие окна: после своего действия и подмены кэш Host не годится. */
   const loadAccounts = (m: string) => accs.reload(m, (x) => askAccounts(x, { max_age: 0 }));
-  const loadSlots = (m: string) => slots.reload(m);
+  /** Записи без опроса окон: после правки слотов. */
+  const loadSlots = (m: string) => accs.reload(m, (x) => askAccounts(x, {}));
 
   const accsOf = (m: string) => okOf(accs.get()[m])?.accounts;
-  const slotsOf = (m: string) => okOf(slots.get()[m])?.slots;
+  const slotsOf = (m: string) => okOf(accs.get()[m])?.slots;
   /** Ответы всех машин без отказов. */
   const okAnswers = <T extends object, R>(all: Readonly<Record<string, MachineAnswer<T>>>, pick: (a: T) => R) => {
     const out: Record<string, R> = {};
@@ -93,31 +91,25 @@ export function createAccountsStore(app: App) {
     accsOf,
     slotsOf,
     allAccs,
-    allSlots: () => okAnswers(slots.get(), (a) => a.slots),
+    allSlots: () => okAnswers(accs.get(), (a) => a.slots ?? {}),
     /** Отказы владельцев: «машина · запрос» → слово; ответ снимает его. Экран пишет слово, а не «аккаунтов нет». */
     refused() {
       const out: Record<string, string> = {};
       for (const [m, a] of Object.entries(accs.get())) if ("error" in a) out[`${m} · machine.accounts`] = a.error;
-      for (const [m, a] of Object.entries(slots.get())) if ("error" in a) out[`${m} · machine.slots`] = a.error;
       return out;
     },
     /** Первые ответы machine.accounts пришли: опрос лимитов занимает секунды — экран пишет «загружаю», а не «нет». */
     loaded: () => machines("machine.accounts").every((m) => accs.get()[m] !== undefined),
 
+    /** Ответ машины ещё не пришёл. */
+    waiting: (m: string) => accs.get()[m] === undefined,
+
     /** Экран открыт: читает всё заново; возврат — экран закрыт. */
-    mount(): () => void {
-      const a = accs.mount();
-      const b = slots.mount();
-      return () => {
-        a();
-        b();
-      };
-    },
+    mount: () => accs.mount(),
 
     /** Машина вернулась, пришла или перезапустилась — её аккаунты и слоты. */
     onLink(state: ConnState, machine?: string) {
       accs.onLink(state, machine);
-      slots.onLink(state, machine);
     },
 
     /** Подмену делает Host: у сессий машины сменился account — перечитать её слоты и окна. */
@@ -127,7 +119,6 @@ export function createAccountsStore(app: App) {
       if (!accs.isOpen()) return;
       for (const m of changed) {
         if (!m) continue;
-        if (app.can(m, "machine.slots")) void loadSlots(m);
         if (app.can(m, "machine.accounts")) void loadAccounts(m);
       }
     },
@@ -154,14 +145,14 @@ export function createAccountsStore(app: App) {
     // ───── действия слотов ─────
     async swap(m: string, slot: string, account: string): Promise<Result<string>> {
       const r = await app.request<{ from: string | null; to: string }>("slot.swap", { machine: m, slot, ...(account ? { account } : {}) });
-      if (!r.ok) return { ok: false, error: say(r.error) };
-      const list = slotsOf(m);
-      if (list?.[slot]) slots.put(m, { slots: { ...list, [slot]: { ...list[slot], account: r.result.to } } });
+      if (!r.ok) return { ok: false, error: sayWhy(r) };
+      const was = okOf(accs.get()[m]);
+      if (was?.slots?.[slot]) accs.put(m, { ...was, slots: { ...was.slots, [slot]: { ...was.slots[slot], account: r.result.to } } });
       return { ok: true, result: `${r.result.from ?? "—"} → ${r.result.to}` };
     },
     async setOrder(m: string, slot: string, order: string[]): Promise<Result<string>> {
       const r = await app.request<{ account: string | null }>("slot.set", { machine: m, slot, order });
-      if (!r.ok) return { ok: false, error: say(r.error) };
+      if (!r.ok) return { ok: false, error: sayWhy(r) };
       await loadSlots(m);
       return { ok: true, result: order.length ? "порядок сохранён" : `слот ${slot} удалён` };
     },
@@ -174,23 +165,11 @@ export function createAccountsStore(app: App) {
       await loadSlots(m);
       return { ok: true, result: out.join(" · ") };
     },
-    /** Удалить аккаунт: сменить его в слотах, убрать из порядка, стереть. Пульт складывает шаги сам — каждый после ответа предыдущего. */
-    async remove(m: string, account: string, pickNext: string, step: (text: string) => void): Promise<Result<string>> {
-      const list = slotsOf(m) ?? {};
-      for (const inSlot of slotsWith(list, account)) {
-        step(`слот ${inSlot}: смена аккаунта…`);
-        const next = pickNext && list[inSlot].order.includes(pickNext) ? pickNext : "";
-        const r = await app.request<{ from: string; to: string }>("slot.swap", { machine: m, slot: inSlot, ...(next ? { account: next } : {}) });
-        if (!r.ok) return { ok: false, error: `слот ${inSlot}: ${say(r.error)}` };
-      }
-      for (const [name, s] of Object.entries(list)) {
-        if (!s.order.includes(account)) continue;
-        const r = await app.request("slot.set", { machine: m, slot: name, order: s.order.filter((x) => x !== account) });
-        if (!r.ok) return { ok: false, error: `slot.set ${name}: ${say(r.error)}` };
-      }
-      const r = await app.request<{ wiped: boolean }>("machine.account_remove", { machine: m, account });
-      if (!r.ok) return { ok: false, error: say(r.error) };
-      await Promise.all([loadAccounts(m), loadSlots(m)]);
+    /** Удалить аккаунт: сменить его в слотах, убрать из порядка и стереть — один запрос, шаги выполняет машина. */
+    async remove(m: string, account: string, pickNext: string): Promise<Result<string>> {
+      const r = await app.request<{ wiped: boolean }>("machine.account_remove", { machine: m, account, ...(pickNext ? { next: pickNext } : {}) });
+      if (!r.ok) return { ok: false, error: sayWhy(r) };
+      await loadAccounts(m);
       return { ok: true, result: `${account} удалён с ${m}` };
     },
   };

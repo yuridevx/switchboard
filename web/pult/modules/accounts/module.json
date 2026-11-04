@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "3.1.1",
+  "version": "3.2.0",
   "into": [
     "pult",
     "phone"
@@ -15,14 +15,13 @@
     "ui@web-ui": 1,
     "app@web-core": 2,
     "roster@relay": 1,
-    "machine.accounts@host-accounts": 1,
-    "machine.login@host-accounts": 1,
-    "machine.login_code@host-accounts": 1,
-    "machine.account_remove@host-accounts": 1,
-    "machine.slots@host-slots": 1,
-    "slot.set@host-slots": 1,
-    "slot.swap@host-slots": 1,
-    "session.slot@host-slots": 1,
+    "machine.accounts@host-logins": 1,
+    "machine.login@host-logins": 1,
+    "machine.login_code@host-logins": 1,
+    "machine.account_remove@host-logins": 1,
+    "slot.set@host-logins": 1,
+    "slot.swap@host-logins": 1,
+    "session.slot@host-logins": 1,
     "project.current@web-board": 2,
     "project.machines@web-board": 2
   },

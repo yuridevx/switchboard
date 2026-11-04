@@ -2,7 +2,7 @@
 // машины строками с фильтрами и раскрытием, вход аккаунта на любой машине с активной ссылкой, инциденты из roster и журнала.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { flush, fleetRelay, fleetRoster, pult } from "./stand.ts";
+import { flush, fleetRelay, fleetRoster, pult, SLOTS } from "./stand.ts";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -85,7 +85,7 @@ describe("вход аккаунта", () => {
     const relay = fleetRelay();
     relay.scoped.global = { "fleet.projects": [{ id: "poe", name: "poe", sessions: ["poe-bot@pc"] }] };
     relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { night: { login: "ok", email: "night@x.io", plan: "max" } } : {} } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/authorize?code=true&x=1" } });
     const writes: string[] = [];
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (s: string) => void writes.push(s) } });
@@ -112,7 +112,7 @@ describe("вход аккаунта · проект", () => {
     const relay = fleetRelay();
     relay.scoped.global = { "fleet.projects": [{ id: "poe", name: "poe", sessions: ["poe-bot@pc"] }] };
     relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { night: { login: "ok", email: "night@x.io", plan: "max" } } : {} } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["session.watch"] = () => ({ ok: true });
     relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
     const t = await pult({ relay, url: "/#card?callsign=poe-bot%40pc" });

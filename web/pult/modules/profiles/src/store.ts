@@ -38,7 +38,7 @@ export type ProfileRowData = ReturnType<ProfilesStore["summary"]>["all"][number]
 export function createProfilesStore(app: App) {
   const machines = () => machinesWith(app, "machine.profiles");
   const mLabel = (m: string) => machineLabel(app, m).text;
-  const replies: MachineAnswers<Answer> = machineAnswers<Answer>(app, (m) => app.request<Answer>("machine.profiles", { machine: m }), machines);
+  const replies: MachineAnswers<Answer> = machineAnswers<Answer>(app, (m) => app.read<Answer>("machine.profiles", { machine: m }), machines);
 
   return {
     /** Машина пришла или вернулась при открытом экране — спросить и её. */

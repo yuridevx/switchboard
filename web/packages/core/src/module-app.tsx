@@ -19,7 +19,7 @@ export function moduleApp(x: Mod, d: AppDeps): App {
   const { o, store, state, registry, router, link, bus, toast, core } = d;
   const { fail, call, usesRef, mayOpen } = registry;
 
-  async function request(n: string, body: Record<string, unknown> = {}): Promise<Result> {
+  async function ask(n: string, body: Record<string, unknown>, read: boolean): Promise<Result> {
     const ref = usesRef(x, n);
     if (!ref) {
       fail(x, `запросе ${n}`, new Error(`${n} нет в uses`));
@@ -30,7 +30,7 @@ export function moduleApp(x: Mod, d: AppDeps): App {
     const f: Frame = { ...body, type: n, v: (body.v as number | undefined) ?? x.m.uses[ref] };
     // Worker — .имя, POST по адресу из сборки; имя и версию проверяет получатель и отвечает словом
     if (Object.hasOwn(o.workers, owner)) f.to = serviceAddress(owner);
-    return link.request(f);
+    return link.request(f, read);
   }
 
   return {
@@ -43,7 +43,8 @@ export function moduleApp(x: Mod, d: AppDeps): App {
     address: () => link.address(),
     wide: !!o.wide,
     application: o.application,
-    request: request as App["request"],
+    request: ((n: string, body: Record<string, unknown> = {}) => ask(n, body, false)) as App["request"],
+    read: ((n: string, body: Record<string, unknown> = {}) => ask(n, body, true)) as App["read"],
     open: (screen, params = {}) => {
       if (!mayOpen(x, screen)) return fail(x, `открытии ${screen}`, new Error(`экрана ${screen} нет в uses`));
       router.go(screen, params);

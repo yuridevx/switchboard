@@ -100,19 +100,18 @@ function ReleasesBody({ machine }: { machine?: string }) {
         <SubTab k="machines" label="По машинам" cur={rtab} />
         <SubTab k="catalog" label="Каталог и сборки" cur={rtab} />
       </div>
-      {error ? (
-        <Note tone="bad" role="alert">{`releases.list: ${error}`}</Note>
-      ) : !list ? (
+      {error ? <Note tone="bad" role="alert">{`releases.list: ${error}`}</Note> : null}
+      {!list && !error ? (
         <Note>…</Note>
       ) : rtab === "catalog" ? (
-        <Catalog list={list} />
+        list ? <Catalog list={list} /> : null
       ) : (
         <>
-          <Roll list={list} />
-          <Bulk list={list} done={done} />
+          {list ? <Roll list={list} /> : null}
+          {list ? <Bulk list={list} done={done} /> : null}
           <div className="st-grid">
-            <Matrix list={list} rm={rm} pick={setRm} />
-            {rm ? <MachinePlan key={rm} list={list} m={rm} close={() => setRm(null)} note={notes.plan} done={done} /> : <span />}
+            <Matrix list={list ?? null} rm={rm} pick={setRm} />
+            {rm ? <MachinePlan key={rm} list={list ?? null} m={rm} close={() => setRm(null)} note={notes.plan} done={done} /> : <span />}
           </div>
         </>
       )}

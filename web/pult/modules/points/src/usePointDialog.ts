@@ -1,10 +1,10 @@
 // Диалог действия над точкой вкладки: перенос, копия, смена папки, откат. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
-import { slotOf } from "@switchboard/web-ui";
+import { slotChoice, slotOf } from "@switchboard/web-ui";
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { usePoints } from "./store.ts";
 import { nameOf, say } from "./format.ts";
-import type { CheckResult } from "./store.ts";
+import type { CheckResult, Slots } from "./store.ts";
 import { useTargetPick } from "./useTargetPick.ts";
 
 export type DialogKind = "move" | "copy" | "dir" | "rb";
@@ -13,7 +13,7 @@ export type Dialog = {
   target: string;
   from: "fresh" | number;
   slot: string;
-  slots: string[] | null;
+  slots: Slots | null;
   dir: string;
   name: string;
   files: "point" | "keep";
@@ -40,8 +40,8 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
 
   function pickTarget(d: Dialog, m: string) {
     const point = d.from === "fresh" ? points.line(sid)?.head : d.from;
-    const cur = String(slotOf(points.session(callsign))?.name);
-    return pick(m, [{ sid, point, dir: d.dir }], (x, { slots, checks }) => ({ ...x, slots, slot: slots ? (slots.includes(cur) ? cur : (slots[0] ?? "")) : x.slot, check: checks[0] }));
+    const cur = slotOf(points.session(callsign))?.name;
+    return pick(m, [{ sid, point, dir: d.dir }], (x, { slots, checks }) => ({ ...x, slots, slot: slots ? slotChoice(Object.keys(slots), cur) : "", check: checks[0] }));
   }
 
   function open(kind: DialogKind, from: "fresh" | number = "fresh") {
@@ -66,11 +66,22 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
     if (kind === "move" || kind === "copy") void pickTarget(d, target);
   }
 
+  /** Слот копии в новой папке: строки выбора нет — текущий слот сессии, у сессии без слота — как в строке выбора. */
+  async function dirSlot(): Promise<{ slot: string } | { error: string }> {
+    const cur = slotOf(points.session(callsign))?.name;
+    if (cur) return { slot: cur };
+    const got = await points.slotsAt(machine);
+    return "error" in got ? got : { slot: slotChoice(Object.keys(got.slots)) };
+  }
+
   /** Шаги диалога: точка (со стопом, кроме копии), затем подъём; смена папки — ещё «Забыть» прежнюю. */
   async function run(d: Dialog) {
     const step = (msg: string) => setDlg((x) => x && { ...x, phase: "run", msg });
     const fail = (w: string) => setDlg((x) => x && { ...x, phase: "err", msg: d.kind === "dir" && w === "open_failed" ? `Копия не поднялась — «Забыть» не отправлен, ${callsign} остаётся остановленной` : say(w, nameOf(callsign), d.target, machine) });
     let point = typeof d.from === "number" ? d.from : 0;
+    // до остановки сессии: без списка слотов смена папки не начинается
+    const kept = d.kind === "dir" ? await dirSlot() : null;
+    if (kept && "error" in kept) return fail(kept.error);
     const stop = d.kind !== "copy";
     if (stop || d.from === "fresh") {
       step(stop ? `${machine} дожидается конца ответа, останавливает сессию и кладёт точку…` : `${machine} кладёт свежую точку…`);
@@ -82,6 +93,7 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
     const body: Record<string, unknown> = { machine: d.target, sid, point, dir: d.dir, files: d.files };
     if (d.kind === "copy" || d.kind === "dir") Object.assign(body, { copy: true, name: d.name });
     if (d.slot && (d.kind === "move" || d.kind === "copy")) body.slot = d.slot;
+    if (kept && "slot" in kept && kept.slot) body.slot = kept.slot;
     const r = await points.raise(body, callsign);
     if (!r.ok) return fail(r.error);
     if (d.kind === "dir") {

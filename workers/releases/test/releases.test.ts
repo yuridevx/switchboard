@@ -5,6 +5,7 @@ import type { Frame } from "@switchboard/protocol";
 import { entries, pack, sha256hex, shaLine } from "@switchboard/release";
 import { frame } from "../src/releases.ts";
 import type { Env } from "../src/env.ts";
+import type { Deployed } from "../contract.ts";
 
 /** Строки журнала releases, которые попали в console.log. */
 function journal() {
@@ -993,6 +994,181 @@ describe("сборка страницы «Выпусками»", () => {
     expect(await result(req(s, "~x", "releases.deploy", { part: "web-chat", version: null }))).toEqual({ parts: { pult: { from: "1.1.2+1", to: "1.1.2+2" } } });
     const files = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.2+2.tgz"))!.arrayBuffer()));
     expect(JSON.parse(files.find((x) => x.path === "build.json")!.data!.toString("utf8")).modules).toEqual([{ name: "web-core", version: "1.1.0" }]);
+  });
+});
+
+describe("список выпусков в пределе чтения", () => {
+  /** Env с подсчётом чтений хранилища и самых одновременных списков. */
+  const counted = () => {
+    const c = { reads: 0, inList: 0, maxList: 0 };
+    const BUCKET = {
+      get: (k: string, o?: R2GetOptions) => (c.reads++, E.BUCKET.get(k, o as never)),
+      list: async (o?: R2ListOptions) => {
+        c.reads++;
+        c.maxList = Math.max(c.maxList, ++c.inList);
+        // пауза держит запрос открытым: последовательный обход одновременности не даст
+        await new Promise((r) => setTimeout(r, 5));
+        c.inList--;
+        return E.BUCKET.list(o);
+      },
+    };
+    return { c, env: new Proxy(E, { get: (t, k) => (k === "BUCKET" ? BUCKET : Reflect.get(t, k)) }) as Env };
+  };
+  const listOf = async (e: Env, part?: string) => {
+    const [r] = await frame(e, { type: "releases.list", v: 1, id: "r", to: ".releases", from: "~x", ...(part ? { part } : {}) });
+    expect(r).toMatchObject({ type: "reply", ok: true });
+    return r.result as any;
+  };
+
+  it("E7 · вопрос об одной части при 60 модулях: не больше 3 чтений хранилища, ответ тот же", async () => {
+    // источник: факт — замер 2,5 с на одну часть при обходе всего хранилища
+    await fakeCf({ push: { tags: ["1.0.0"], live: "1.0.0" } });
+    await GATE.setHosts(["win"]);
+    for (let i = 0; i < 60; i++) await inCatalog(`mod-${i}`, "1.0.0", { type: "sdk", into: ["host"] });
+    await inCatalog("host", "1.2.0", { type: "sdk-core" });
+    const tgz = tgzOf("host", "1.2.0+7");
+    await env.BUCKET.put("test/host/1.2.0+7.tgz", tgz);
+    await env.BUCKET.put("test/host/1.2.0+7.sha256", shaLine(sha256hex(tgz), "1.2.0+7"));
+    await inR2("keeper", "1.1.4", "1.1.5");
+    const host = counted();
+    expect((await listOf(host.env, "host")).parts).toEqual({ host: { where: "machine", edge: "1.2.0+7", stable: null, versions: ["1.2.0+7"] } });
+    expect(host.c.reads).toBeLessThanOrEqual(3);
+    const keeper = counted();
+    expect((await listOf(keeper.env, "keeper")).parts).toEqual({ keeper: { where: "machine", edge: "1.1.5", stable: null, versions: ["1.1.4", "1.1.5"] } });
+    expect(keeper.c.reads).toBeLessThanOrEqual(3);
+    const push = counted();
+    const pushed = await listOf(push.env, "push");
+    expect(pushed.parts.push).toMatchObject({ where: "cloud", edge: "1.0.0", stable: "1.0.0" });
+    expect(pushed.machines).toEqual([{ machine: "win", plan: {} }]);
+    expect(push.c.reads).toBeLessThanOrEqual(3);
+    // той же формы, что и ответ о всём флоте
+    const all = await listOf(E);
+    expect(all.parts.keeper).toEqual({ where: "machine", edge: "1.1.5", stable: null, versions: ["1.1.4", "1.1.5"] });
+  });
+
+  it("E7 · ответ о всём флоте: части читаются одновременно", async () => {
+    // источник: замер 6,3 с и замечание архитектора: части машин читались по одной
+    await fakeCf({});
+    await inR2("host", "1.1.0");
+    await inR2("keeper", "1.1.5");
+    await inR2("capture", "1.0.0");
+    const all = counted();
+    await listOf(all.env);
+    expect(all.c.maxList).toBeGreaterThan(1);
+  });
+});
+
+describe("смена границы модулей: снять модуль и проверить вместе с новыми страницами", () => {
+  // Манифесты — настоящие по именам и запросам: host-accounts, host-slots и их читатели в дереве на 4 нояб., host-logins из дизайна
+  const LOGIN = { "machine.accounts": 1, "machine.login": 1, "machine.login_code": 1, "machine.account_remove": 1 };
+  const SLOT = { "slot.set": 1, "slot.swap": 1, "session.slot": 1 };
+  const setup = async () => {
+    const put = async (name: string, version: string, manifest: Record<string, unknown>) => {
+      const tgz = pack([
+        { path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) },
+        { path: manifest.type === "web-app" ? "index.html" : "module.js", data: Buffer.from("x") },
+      ]);
+      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
+      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
+    };
+    const live: Record<string, string> = {};
+    const tags: Record<string, string[]> = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      const p = new URL(req.url).pathname.replace("/client/v4/accounts/acc0", "");
+      const ok = (result: unknown) => Response.json({ success: true, result });
+      if (p === "/workers/assets/upload") return ok({ jwt: "done" });
+      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
+      if (p === "/workers/domains") return ok([]);
+      const m = /^\/workers\/scripts\/([^/]+)\/(assets-upload-session|versions|deployments)$/.exec(p);
+      if (!m) return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
+      const [, script, what] = m;
+      if (what === "assets-upload-session") {
+        const manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
+        return ok({ jwt: "up", buckets: [Object.values(manifest).map((x) => x.hash)] });
+      }
+      if (what === "versions" && req.method === "POST") {
+        const meta = JSON.parse(await ((await req.formData()).get("metadata") as Blob).text());
+        (tags[script] ??= []).push(meta.annotations["workers/tag"]);
+        return ok({ id: `v-${tags[script].at(-1)}` });
+      }
+      if (what === "versions") return ok({ items: [...(tags[script] ?? [])].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
+      if (req.method === "POST") return (live[script] = ((await req.json()) as any).versions[0].version_id), ok({});
+      return ok({ deployments: live[script] ? [{ versions: [{ version_id: live[script], percentage: 100 }] }] : [] });
+    });
+    const page = (name: string, version: string, owner: { accounts: string; slots: string; old: boolean }) =>
+      put(name, version, {
+        type: "web",
+        into: ["pult", "phone"],
+        uses: {
+          "app@web-core": 1,
+          ...Object.fromEntries(Object.keys(LOGIN).map((n) => [`${n}@${owner.accounts}`, 1])),
+          ...Object.fromEntries(Object.keys(SLOT).map((n) => [`${n}@${owner.slots}`, 1])),
+          ...(owner.old ? { "machine.slots@host-slots": 1 } : {}),
+        },
+      });
+    await put("host", "1.2.22", { type: "sdk-core", provides: { "host.module": 1 } });
+    await put("host-accounts", "2.1.0", { type: "sdk", into: ["host"], provides: { ...LOGIN, "account.usage": 1, "account.place": 2 }, uses: { "host.module@host": 1 } });
+    await put("host-slots", "3.1.0", {
+      type: "sdk",
+      into: ["host"],
+      provides: { "machine.slots": 1, ...SLOT, slot: 1, account: 1 },
+      uses: { "host.module@host": 1, "machine.accounts@host-accounts": 1, "account.place@host-accounts": 2, "account.usage@host-accounts": 1 },
+    });
+    await put("host-remote", "1.1.0", { type: "sdk", into: ["host"], uses: { "host.module@host": 1, "account@host-slots": 1 } });
+    await put("web-core", "3.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 1 } });
+    await page("pult-accounts", "3.1.1", { accounts: "host-accounts", slots: "host-slots", old: true });
+    await put("pult", "2.1.0", { type: "web-app", workers: { test: "switchboard-pult" } });
+    await put("phone", "2.1.0", { type: "web-app", workers: { test: "switchboard-phone" } });
+    await GATE.setHosts(["win"]);
+    const s = fresh();
+    await result(req(s, "~x", "releases.deploy", { part: "host", latest: true }));
+    await result(req(s, "~x", "releases.deploy", { part: "web-core", latest: true }));
+    // новая граница: один модуль; прежние имена читателей — на него
+    await put("host", "1.2.23", { type: "sdk-core", provides: { "host.module": 1 } });
+    await put("host-logins", "1.0.0", { type: "sdk", into: ["host"], provides: { ...LOGIN, ...SLOT, slot: 1, account: 1 }, uses: { "host.module@host": 1 } });
+    await put("host-remote", "1.2.0", { type: "sdk", into: ["host"], uses: { "host.module@host": 1, "account@host-logins": 1 } });
+    await page("pult-accounts", "4.0.0", { accounts: "host-logins", slots: "host-logins", old: false });
+    return s;
+  };
+  const modulesOf = async (key: string) => JSON.parse(entries(Buffer.from(await (await env.BUCKET.get(key))!.arrayBuffer())).find((x) => x.path === "build.json")!.data!.toString("utf8")).modules.map((m: { name: string }) => m.name);
+
+  it("E38 · с without и check_with Host выкладывается один раз, страницы — следом; без полей check_failed", async () => {
+    // источник: факт — прогон проверки на настоящих манифестах: 8, 4 и 7 ошибок порознь, 0 одной проверкой
+    const s = await setup();
+    // два владельца: старые модули остались в сборке рядом с новым
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+    // старые модули сняты, но страницы всё ещё называют их владельцами
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true, without: ["host-slots", "host-accounts"] }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+    // только check_with: снова два владельца
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true, check_with: ["pult", "phone"] }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+    const out = await req(s, "~x", "releases.deploy", { part: "host", latest: true, without: ["host-slots", "host-accounts"], check_with: ["pult", "phone"] });
+    expect(out[0]).toMatchObject({ ok: true, result: { parts: { host: { to: "1.2.23+1" } } } });
+    const mods = await modulesOf("test/host/1.2.23+1.tgz");
+    expect(mods).toContain("host-logins");
+    expect(mods).not.toContain("host-slots");
+    expect(mods).not.toContain("host-accounts");
+    // страницы не выложены: проверялись, но не собирались
+    expect((out[0].result as Deployed).parts).not.toHaveProperty("pult");
+    expect(await modulesOf("test/pult/2.1.0+1.tgz")).toContain("pult-accounts");
+    expect(await env.BUCKET.get("test/pult/2.1.0+2.tgz")).toBeNull();
+    expect(plans(out).map((f) => f.to)).toEqual([".keeper@win"]);
+    expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["host 1.2.22+1 → 1.2.23+1 (host 1.2.23; сняты host-slots, host-accounts)"]);
+    // страницы следом: Host уже новый, одна обычная выкладка
+    const pages = await req(s, "~x", "releases.deploy", { part: "pult-accounts", latest: true });
+    expect(pages[0]).toMatchObject({ ok: true, result: { parts: { pult: { to: "2.1.0+2" }, phone: { to: "2.1.0+2" } } } });
+  });
+
+  it("E38 · поля только с latest, имена проверяются, чужое приложение — no_build, откат номером идёт мимо проверки", async () => {
+    // источник: чьё: код — правила запроса выкладки и отката сборкой
+    const s = await setup();
+    expect((await req(s, "~x", "releases.deploy", { part: "host", without: ["host-slots"] }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true, without: "host-slots" }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true, without: ["host"] }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true, check_with: ["нет"] }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host", latest: true, check_with: ["no-app"] }))[0]).toMatchObject({ ok: false, error: "no_build" });
+    await result(req(s, "~x", "releases.deploy", { part: "host", latest: true, without: ["host-slots", "host-accounts"], check_with: ["pult", "phone"] }));
+    expect((await result(req(s, "~x", "releases.deploy", { part: "host", version: "1.2.22+1" }))).parts.host).toEqual({ from: "1.2.23+1", to: "1.2.22+1" });
   });
 });
 

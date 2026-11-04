@@ -1,6 +1,6 @@
 // Клиент link: соединение с relay по wss. Им пользуются ядро Host, веб-приложения и скрипты.
 // Работает в Node 24 (глобальный WebSocket) и в браузере; в тестах WebSocket подставляется.
-import { fail, isReply, kindOf, machineOf, oversize, parseFrame, TOO_LARGE } from "@switchboard/protocol";
+import { CALL_MS, READ_MS, fail, isReply, kindOf, machineOf, oversize, parseFrame, TOO_LARGE } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
 
@@ -51,7 +51,7 @@ export type LinkOptions = {
   pauseMs?: number;
   /** Потолок паузы, мс. По умолчанию 60 000. */
   maxPauseMs?: number;
-  /** Предел запроса, мс: нет ответа — timeout. По умолчанию 120 000 — вдвое выше самого долгого законного запроса (session.open до 62 с). */
+  /** Предел запроса, мс: нет ответа — timeout. По умолчанию CALL_MS — вдвое выше самого долгого законного запроса (session.open до 62 с). */
   requestMs?: number;
   /** Конструктор WebSocket; по умолчанию глобальный. */
   WebSocket?: WsCtor;
@@ -68,8 +68,9 @@ export interface Link {
    * адресат (машина callsign/machine/to "@m" или имя клиента/участника в to) ушёл из roster
    * или его машина сменила since — disconnected. Нет ответа за предел requestMs — timeout; поздний ответ — в onFrame как ответ без ждущего.
    * Кадр больше MAX_FRAME не уходит: сразу too_large { bytes } — relay порвал бы соединение всей машины.
+   * read — запрос только читает: предел READ_MS, но не дольше requestMs.
    */
-  request(f: Frame): Promise<Reply>;
+  request(f: Frame, read?: boolean): Promise<Reply>;
   /**
    * Кадр без ожидания ответа; очереди нет. Связи нет — disconnected, кадр не ушёл.
    * Больше MAX_FRAME: ответ заменяется отказом too_large { bytes } тому же адресату и уходит; прочий кадр не уходит — too_large { bytes }.
@@ -125,7 +126,7 @@ export function link(o: LinkOptions): Link {
   const pingMs = o.pingMs ?? 30_000;
   const firstPause = o.pauseMs ?? 1_000;
   const maxPause = o.maxPauseMs ?? 60_000;
-  const requestMs = o.requestMs ?? 120_000;
+  const requestMs = o.requestMs ?? CALL_MS;
   // свой префикс id: два соединения с одним именем клиента получают ответы друг друга по to
   const prefix = Math.random().toString(36).slice(2, 8);
   let seq = 0;
@@ -261,7 +262,7 @@ export function link(o: LinkOptions): Link {
     get roster() {
       return roster;
     },
-    request(f: Frame): Promise<Reply> {
+    request(f: Frame, read = false): Promise<Reply> {
       const id = f.id ?? `${prefix}-${++seq}`;
       const sock = ws;
       if (state !== "open" || !sock) return Promise.resolve(fail(id, "disconnected"));
@@ -278,7 +279,7 @@ export function link(o: LinkOptions): Link {
         // предел запроса: ответ потерян в пути — ждущий не висит вечно
         const timer = setTimeout(() => {
           if (pending.delete(id)) resolve(fail(id, "timeout"));
-        }, requestMs);
+        }, read ? Math.min(READ_MS, requestMs) : requestMs);
         pending.set(id, {
           ...p,
           resolve: (r) => {

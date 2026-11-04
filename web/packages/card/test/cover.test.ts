@@ -16,7 +16,7 @@ const parts = () => [
   { manifest: alertsM, module: createAlerts({}) },
 ];
 
-const CARD = ["session.update", "session.spec", "session.call", "session.remove", "session.slot", "machine.slots", "session.profile", "machine.profiles", "machine.accounts", "machine.journal", "session.stop", "session.start"];
+const CARD = ["session.update", "session.spec", "session.call", "session.remove", "session.slot", "session.profile", "machine.profiles", "machine.accounts", "machine.journal", "session.stop", "session.start"];
 
 function roster(without: string[] = [], tweak: (r: Roster) => void = () => {}): Roster {
   const r = homeRoster();
@@ -118,7 +118,7 @@ describe("настройки сессии", () => {
     const r = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { profile: { id: "team/profiles/ops", state: "ok" }, slot: { name: "main", wait: null } }));
     const relay = relayFor(r);
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": {} } } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "a", order: ["a"] } } } });
+    relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: {}, slots: { main: { account: "a", order: ["a"] } } } });
     const t = await wideCard(r, relay);
     await t.tab("set");
     await t.click(t.$('[data-profile="team/profiles/ops"]'));
@@ -250,7 +250,6 @@ describe("журнал и лимиты", () => {
     const rr = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { account: "y0902" }));
     const relay = relayFor(rr);
     relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "a@x", limits: { five_hour: { utilization: 0.75 }, seven_day: { utilization: 0.92 }, seven_day_opus: { utilization: 0.1 } } } } } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     const t = await wideCard(rr, relay);
     await t.click(t.$('[data-pop="acc"]'));
     await flush();
@@ -350,5 +349,30 @@ describe("возврат машины и страницы", () => {
     await t.run.show();
     await flush();
     expect(t.$("aside.cw-info")).not.toBeNull();
+  });
+});
+
+describe("E6 · чтение не ответило", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("E6 · слот, профиль, заголовок и серверы MCP: через 10 с слово на месте данных, а не «без слота» и не пусто", async () => {
+    // источник: слово пользователя 4 нояб. — «таймаут операций на запрос метадаты 10 секунд»; дизайн «Что видит человек при отказе»
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    const r = roster([], (x) => void Object.assign(x.sessions.find((s) => s.callsign === "poe-bot@pc")!, { slot: { name: "main", wait: null }, profile: { id: "team/profiles/ops", state: "ok" } }));
+    const relay = relayFor(r);
+    for (const n of ["machine.accounts", "machine.profiles", "session.spec", "session.call"]) relay.handlers[n] = () => undefined as never;
+    const t = await wideCard(r, relay);
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('.cw-pop [data-act="info"]'));
+    await t.tab("set");
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(t.$('[data-refused="slot"]')).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_500);
+    await flush();
+    expect(t.$('[data-refused="slot"]')!.textContent).toBe("main · timeout");
+    expect(t.$('[data-sec="slot"] [data-slot=""]')).toBeNull();
+    expect(t.$('[data-refused="profile"]')!.textContent).toBe("ops · timeout");
+    expect(t.$('[data-refused="title"]')!.textContent).toBe("timeout");
+    expect(t.$('[data-refused="mcp"]')!.textContent).toBe("timeout");
   });
 });

@@ -98,7 +98,7 @@ describe("цикл настроек", () => {
   it("6110 · две правки подряд идут поверх свежего и не теряют друг друга; область в каждом запросе", async () => {
     const s = service();
     s.values["fleet.projects"] = [{ id: "a", name: "a", sessions: [] }];
-    const c = settings({ ask: s.ask, prefix: "fleet", scope: "global" });
+    const c = settings({ read: s.ask, ask: s.ask, prefix: "fleet", scope: "global" });
     const one = c.edit<ProjectRec[]>("projects", (old) => placeSessions(old, ["x@m"], "a"));
     const two = c.edit<ProjectRec[]>("projects", (old) => placeSessions(old, ["y@m"], "a"));
     expect(await Promise.all([one, two])).toEqual([null, null]);
@@ -108,17 +108,33 @@ describe("цикл настроек", () => {
 
   it("6111 · отказ службы — слово в ответе правки; без области поля scope нет", async () => {
     const ask: Ask = async () => ({ ok: false, error: "gate_unavailable" });
-    const c = settings({ ask, prefix: "x" });
+    const c = settings({ read: ask, ask, prefix: "x" });
     expect(await c.edit("k", () => 1)).toBe("gate_unavailable");
     const s = service();
-    await settings({ ask: s.ask, prefix: "x" }).read();
+    await settings({ read: s.ask, ask: s.ask, prefix: "x" }).read();
     expect(s.log[0][1]).toEqual({ prefix: "x." });
+  });
+
+  it("7900 · чтение значений идёт входом read, запись — входом ask: у них разный предел", async () => {
+    // источник: дизайн «Предел чтений и слоты», слово пользователя: таймаут на запрос метадаты 10 с
+    const s = service();
+    const reads: string[] = [];
+    const asks: string[] = [];
+    const c = settings({
+      read: ((n: string, b: Record<string, unknown>) => (reads.push(n), s.ask(n, b))) as Ask,
+      ask: ((n: string, b: Record<string, unknown>) => (asks.push(n), s.ask(n, b))) as Ask,
+      prefix: "x",
+    });
+    await c.read();
+    await c.edit("k", () => 1);
+    expect(reads).toEqual(["prefs.get", "prefs.get"]);
+    expect(asks).toEqual(["prefs.set"]);
   });
 
   it("7321 · чтение и цикл правки спрашивают только свои ключи области", async () => {
     // источник: отчёт слепого архитектора 4 нояб.: каждая страница читала всю область, чужие ключи ей не нужны
     const s = service();
-    const c = settings({ ask: s.ask, prefix: "web-board", scope: "global" });
+    const c = settings({ read: s.ask, ask: s.ask, prefix: "web-board", scope: "global" });
     await c.read();
     await c.edit("top", () => 1);
     await c.settled();

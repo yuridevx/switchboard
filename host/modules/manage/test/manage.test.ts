@@ -20,8 +20,8 @@ type Seen = Array<[string, Record<string, unknown>]>;
 /** Host laptop: manage и поддельные slots, profiles; seen — их запросы по порядку. */
 async function laptop(o: { home?: string } = {}) {
   const seen: Seen = [];
-  const slots = stand.module("host-slots", { requests: { "session.slot": (f) => (seen.push(["session.slot", f]), { restart: false }) } });
-  const profiles = stand.module("host-profiles", { requests: { "session.profile": (f) => (seen.push(["session.profile", f]), { restart: false }) } });
+  const slots = stand.module("host-logins", { fields: { slot: (s) => s.store<{ slot?: string }>().get()?.slot ? { name: s.store<{ slot: string }>().get()!.slot } : undefined }, opening: (s, f) => (seen.push(["slot", f]), void (typeof f.slot === "string" && s.store().set({ slot: f.slot }))) });
+  const profiles = stand.module("host-profiles", { opening: (_s, f) => void seen.push(["profile", f]) });
   const home = o.home ?? mkdtempSync(join(tmpdir(), "switchboard-manage-"));
   const st = await stand.standHost({ modules: [slots, profiles, { manifest, module: manage({ home }) }] });
   stands.push(st);
@@ -93,7 +93,7 @@ describe("эталоны manage", () => {
     await inPlan(a.st);
     await a.st.close();
     stands.splice(stands.indexOf(a.st), 1);
-    const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+    const slots = stand.module("host-logins", { fields: { slot: () => undefined } });
     const profiles = stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
     const st = await stand.standHost({ home: a.st.home, modules: [slots, profiles, { manifest, module: manage({ home: a.home }) }] });
     stands.push(st);
@@ -182,48 +182,20 @@ describe("эталоны manage", () => {
     expect(s.state).toBe("idle");
   });
 
-  it("87 · open с профилем и слотом без модели: до host.open — по одному session.profile и session.slot; в разделе ни папки, ни профиля, ни слота; ledger.add session.opened by panel-desk; spec из своих мест", async () => {
-    // На модели Host: ядро сейчас отвечает offline на запрос с callsign ещё не открытой сессии (см. отчёт) —
-    // поэтому порядок шагов manage проверяется на своём входе, без ядра.
-    const log: Array<[string, unknown]> = [];
-    const stores = new Map<string, unknown>();
-    let s!: Session;
-    const mod = manage({ home: "/home/u" });
-    const host = {
-      machine: "laptop",
-      session: (cs: string) => (s && s.info.callsign === cs ? s : undefined),
-      request: async (name: string, p: Record<string, unknown>) => (log.push([name, p]), { ok: true, result: { restart: false } }),
-      emit: (f: Frame) => (log.push(["emit", f]), { ok: true }),
-      log: () => {},
-      open: async (spec: OpenSpec) => {
-        log.push(["host.open", spec]);
-        s = {
-          info: { callsign: spec.callsign, session_id: "42bc5ad4", cwd: spec.cwd, model: "claude-opus-5", sdk: "0.3.311", from: null, start: "spawn" },
-          state: "idle" as SessionState,
-          store: () => ({ get: () => stores.get(spec.callsign), set: (v: unknown) => void stores.set(spec.callsign, v), update: () => undefined }),
-          sdk: async (name: string) => (log.push(["sdk", name]), name === "getSessionInfo" ? { customTitle: "board", summary: "x" } : undefined),
-        } as unknown as Session;
-        log.push(["query()", mod.session!(s)]);
-        return s;
-      },
-    } as unknown as Host;
-    const ctx: Ctx = { host, from: "panel-desk~owner@example.com", signal: new AbortController().signal };
-    const dir = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
-    const r = await mod.requests!["session.open"]({ type: "session.open", id: "c-7", v: 1, machine: "laptop", name: "board", dir, profile: "team/profiles/ops", slot: "main" }, ctx);
-    expect(r).toEqual({ callsign: "board@laptop", session_id: "42bc5ad4" });
-    expect(log.map((l) => l[0])).toEqual(["session.profile", "session.slot", "host.open", "query()", "emit"]);
-    expect(log[0][1]).toEqual({ callsign: "board@laptop", profile: "team/profiles/ops" });
-    expect(log[1][1]).toEqual({ callsign: "board@laptop", slot: "main" });
-    expect(log[2][1]).toEqual({ callsign: "board@laptop", cwd: dir });
-    const part = log[3][1] as QueryPart;
+  it("87 · open с профилем и слотом без модели: один запрос открытия доходит до модулей, отдельных запросов нет; ответ называет слот; в разделе manage только родитель", async () => {
+    // источник: принятый дизайн: значение «до старта» едет запросом открытия; чьё: код — профиль и слот у своих владельцев
+    const { st, seen, home } = await laptop();
+    const dir = mkdtempSync(join(home, "d-"));
+    const r = await req(st, { type: "session.open", machine: "laptop", name: "board", dir, profile: "team/profiles/ops", slot: "main" });
+    expect(r).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: "main" } });
+    expect(seen.map((x) => x[0]).sort()).toEqual(["profile", "slot"]);
+    expect(seen[0][1]).toMatchObject({ name: "board", profile: "team/profiles/ops", slot: "main" });
+    const part = st.query("board@laptop").options as QueryPart;
     expect(part).toMatchObject({ enableFileCheckpointing: true, title: "board" });
     expect(part.model).toBeUndefined();
-    expect(part.effort).toBeUndefined();
-    // в разделе manage — только родитель: ни папки, ни профиля, ни слота
-    expect(stores.get("board@laptop")).toEqual({ parent: "panel-desk~owner@example.com" });
-    expect(log[4][1]).toMatchObject({ type: "ledger.add", to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", machine: "laptop", callsign: "board@laptop" });
-    const spec = await mod.requests!["session.spec"]({ type: "session.spec", id: "k-6", v: 1, callsign: "board@laptop" }, ctx);
-    expect(spec).toEqual({ dir, model: null, effort: null, title: "board" });
+    const rec = st.session("host-manage", "board@laptop")!.store().get();
+    expect(Object.keys(rec as object)).toEqual(["parent"]);
+    expect(JSON.stringify(rec)).not.toContain("main");
   });
 
   it("87 · то же на стенде без профиля и слота: ответ после initialize, query() без модели, ledger.add, spec — папка у ядра, заголовок из файла", async () => {
@@ -412,13 +384,18 @@ describe("эталоны manage: ядро управления сессиями"
     process.env.SWITCHBOARD_HOME = mkdtempSync(join(tmpdir(), "switchboard-manage-sb-"));
     try {
       const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
-      const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+      const slots = stand.module("host-logins", { fields: { slot: () => undefined } });
       const st = await stand.standHost({ modules: [slots, { manifest: profilesManifest as Manifest, module: makeProfiles({ git: async () => ({ code: 0, out: "" }) }) }, { manifest, module: manage({ home }) }] });
       stands.push(st);
       expect(await req(st, { type: "session.open", machine: "laptop", name: "board", dir: "~", profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile" });
       expect(st.journal().some((l) => l.ev === "request" && l.word === "no_profile" && String(l.why).includes("board@laptop"))).toBe(true);
       expect(st.kernel.sessions.has("board@laptop")).toBe(false);
-      expect(await req(st, { type: "session.open", machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop" } });
+      // E22: нет новой папки, процесса и записи сессии
+      const fresh = join(home, "new-folder");
+      expect(await req(st, { type: "session.open", machine: "laptop", name: "board", dir: fresh, mkdir: true, profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile" });
+      expect(existsSync(fresh)).toBe(false);
+      expect(st.sdk.queries.length).toBe(0);
+      expect(await req(st, { type: "session.open", machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: null } });
     } finally {
       if (saved === undefined) delete process.env.SWITCHBOARD_HOME;
       else process.env.SWITCHBOARD_HOME = saved;
@@ -429,7 +406,7 @@ describe("эталоны manage: ядро управления сессиями"
     // источник: устав — прямой запрос к Worker'у не прошёл — отказ словом; заметка без очереди — чьё: код (клиент флота onLost)
     const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
     const caller = stand.module("host-caller", {}, { uses: { "session.open@host-manage": 1, "session.remove@host-manage": 1 } });
-    const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+    const slots = stand.module("host-logins", { fields: { slot: () => undefined } });
     const profiles = stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
     const st = await stand.standHost({ modules: [slots, profiles, { manifest, module: manage({ home }) }, caller] });
     stands.push(st);
@@ -453,7 +430,7 @@ describe("эталоны manage: ядро управления сессиями"
       stand.standHost({
         home,
         holders: k,
-        modules: [stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }), stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }), { manifest, module: manage({ home: work }) }],
+        modules: [stand.module("host-logins", { fields: { slot: () => undefined } }), stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }), { manifest, module: manage({ home: work }) }],
       });
     try {
       const a = await host();
@@ -564,7 +541,7 @@ describe("manage: покрытие плана host-modules", () => {
     const seen: Array<[string, number | undefined]> = [];
     const spy = stand.module("host-spy", { on: { open: (s) => void seen.push([s.info.start, s.info.point]) } });
     const home = mkdtempSync(join(tmpdir(), "switchboard-manage-"));
-    const st = await stand.standHost({ modules: [stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }), stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }), { manifest, module: manage({ home }) }, spy] });
+    const st = await stand.standHost({ modules: [stand.module("host-logins", { fields: { slot: () => undefined } }), stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }), { manifest, module: manage({ home }) }, spy] });
     stands.push(st);
     const s = await st.open("site@laptop");
     await s.stop();

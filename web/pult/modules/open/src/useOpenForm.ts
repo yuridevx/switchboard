@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { Params } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { profileIdOf, useMachineLoad, useApp } from "@switchboard/web-ui";
+import { type AccountsAnswer, profileIdOf, slotChoice, useMachineLoad, useApp } from "@switchboard/web-ui";
 import { useOpen } from "./store.ts";
 import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type FormView, type Listing, type Profiles, type Slots } from "./form.ts";
 
@@ -11,7 +11,7 @@ export type OpenForm = ReturnType<typeof useOpenForm>;
 /** Ответ машины этой формы. Ответ прежней машины не считается: выбранных там слотов и профилей здесь может не быть. */
 function useMachineAnswer<T>(machine: string, name: string) {
   const q = useMachineLoad<T>(machine, name);
-  return { data: q.stale ? null : (q.data ?? null), error: q.error };
+  return { data: q.stale ? null : (q.data ?? null), error: q.error, reload: q.reload };
 }
 
 export function useOpenForm(params: Params) {
@@ -40,13 +40,14 @@ export function useOpenForm(params: Params) {
   const addr = start0?.dir ?? input.addr;
   const { parent } = splitAddr(addr);
 
-  const slotsQ = useMachineAnswer<{ slots: Slots }>(machine, "machine.slots");
+  // слоты машины — в ответе аккаунтов; без просьбы о свежих окнах он не запускает ни одного claude
+  const slotsQ = useMachineAnswer<AccountsAnswer>(machine, "machine.accounts");
   const profilesQ = useMachineAnswer<{ profiles: Profiles }>(machine, "machine.profiles");
   // список — один запрос на родителя: буквы хвоста новых запросов не дают
   const listQ = useMachineLoad<{ path: string; dirs: string[] }>(machine, "machine.dirs", { machine, path: parent });
   const list: Listing = listQ.stale || (!listQ.data && !listQ.error) ? null : { m: machine, parent, dirs: listQ.data?.dirs ?? [], word: listQ.error };
 
-  const slots = slotsQ.data ? (slotsQ.data.slots ?? {}) : null;
+  const slots: Slots | null = slotsQ.data ? (slotsQ.data.slots ?? {}) : null;
   const profiles = profilesQ.data ? (profilesQ.data.profiles ?? {}) : null;
 
   /** Профиль по умолчанию — только от сессии в этой же папке: имя папки ничего не значит. */
@@ -66,11 +67,11 @@ export function useOpenForm(params: Params) {
     profile,
     model: input.modelSet ? input.model : (chosen?.model ?? ""),
     effort: input.modelSet ? input.effort : (chosen?.effort ?? ""),
-    slot: input.slot || Object.keys(slots ?? {})[0] || "",
+    slot: slotChoice(Object.keys(slots ?? {}), input.slot),
     slots,
     profiles,
     list,
-    refused: { ...(slotsQ.error ? { "machine.slots": slotsQ.error } : {}), ...(profilesQ.error ? { "machine.profiles": profilesQ.error } : {}) },
+    refused: { ...(slotsQ.error ? { "machine.accounts": slotsQ.error } : {}), ...(profilesQ.error ? { "machine.profiles": profilesQ.error } : {}) },
   };
 
   function setAddr(next: string) {
@@ -101,8 +102,14 @@ export function useOpenForm(params: Params) {
     if (modelSet && effort) body.effort = effort;
     const r = await app.request<{ callsign: string }>("session.open", body);
     if (!r.ok) {
+      // список слотов не дошёл, на машине их два и больше: строка выбора видна после перечитывания
+      if (r.error === "slot_required") {
+        slotsQ.reload();
+        set({ sending: false, pop: "model", err: "Выберите слот" });
+        return;
+      }
       const atName = r.error === "name_taken" ? `на ${machine} уже есть ${name}` : r.error === "bad_name" ? "латиница, цифры, точка, - и _" : "";
-      set({ sending: false, ...(atName ? { nameErr: atName } : { err: `session.open: ${r.error}` }) });
+      set({ sending: false, ...(atName ? { nameErr: atName } : { err: `session.open: ${r.error}${r.why ? ` — ${r.why}` : ""}` }) });
       return;
     }
     const callsign = r.result.callsign;

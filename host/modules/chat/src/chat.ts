@@ -7,12 +7,15 @@ import { readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import type { Attachment, Frame, Host, Module, Session } from "@switchboard/host";
 import { content, refuse } from "@switchboard/host";
+import { READ_MS } from "@switchboard/protocol";
 
 /** Файлы папки без того, что скрывает .gitignore: git ls-files; папка не в git — все файлы, кроме .git. */
 function listFiles(cwd: string): Promise<string[]> {
   return new Promise((resolve, reject) => {
-    execFile("git", ["-C", cwd, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { maxBuffer: 256 * 1024 * 1024, windowsHide: true }, (err, out) => {
+    execFile("git", ["-C", cwd, "ls-files", "-z", "--cached", "--others", "--exclude-standard"], { maxBuffer: 256 * 1024 * 1024, windowsHide: true, timeout: READ_MS }, (err, out) => {
       if (!err) return resolve(out.split("\0").filter(Boolean));
+      // предел чтения: у каждого запроса файлов свой процесс, зависшему не висеть
+      if ((err as { killed?: boolean }).killed) return reject(refuse("timeout", `git ls-files не ответил за ${READ_MS / 1000} с`));
       if ((err as { code?: unknown }).code !== 128) return reject(err);
       // не репозиторий git: .gitignore тут ничего не скрывает; сбой обхода — в отказ промиса, к ловушке ядра
       try {

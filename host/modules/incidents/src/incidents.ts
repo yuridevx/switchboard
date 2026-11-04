@@ -14,7 +14,7 @@ import type { Attachment, Host, Module, Session } from "@switchboard/host";
 import { content, isRefusal, refuse } from "@switchboard/host";
 
 /** Тип инцидента в host.json: профиль-плейбук и папка сессии. */
-export type IncidentType = { profile?: string; dir: string };
+export type IncidentType = { profile?: string; dir: string; slot?: string };
 /** Раздел host-incidents в host.json. */
 export type Config = { port?: number; to?: string; types?: Record<string, IncidentType> };
 /** Своё в хранилище сессии инцидента. */
@@ -45,8 +45,6 @@ export function make(): Module {
   const sending = new Set<string>();
   /** обращения одного типа идут по очереди: два POST подряд не откроют две сессии, новая сессия узнаёт свой ключ */
   const chains = new Map<string, Promise<unknown>>();
-  /** открываемая сейчас сессия типа: её ключ — session() запишет при первом старте */
-  const opening = new Map<string, Mine>();
 
   const cfg = () => host.config<Config>();
   const mine = (s: Session) => s.store<Mine>().get();
@@ -73,14 +71,10 @@ export function make(): Module {
       if (!t) throw refuse("unknown_type", `${a.type}: типа нет в host.json`);
       let callsign = find(a.type, a.key);
       if (!callsign) {
-        opening.set(a.type, { type: a.type, ...(a.key !== undefined ? { key: a.key } : {}) });
-        try {
-          const r = await host.request("session.open", { name: a.type, number: true, dir: t.dir, ...(t.profile ? { profile: t.profile } : {}) });
-          if (!r.ok) throw refuse(r.error, `${a.type}: session.open — ${r.error}`);
-          callsign = (r.result as { callsign: string }).callsign;
-        } finally {
-          opening.delete(a.type);
-        }
+        const incident: Mine = { type: a.type, ...(a.key !== undefined ? { key: a.key } : {}) };
+        const r = await host.request("session.open", { name: a.type, number: true, dir: t.dir, incident, ...(t.profile ? { profile: t.profile } : {}), ...(t.slot ? { slot: t.slot } : {}) });
+        if (!r.ok) throw refuse(r.error, `${a.type}: session.open — ${r.error}${typeof r.why === "string" ? ` · ${r.why}` : ""}`);
+        callsign = (r.result as { callsign: string }).callsign;
         host.log({ ev: "incident_open", callsign, type: a.type, ...(a.key !== undefined ? { key: a.key } : {}), why: `инцидент ${a.type}${a.key !== undefined ? ` · ${a.key}` : ""} — новая сессия` });
       }
       const to = cfg().to;
@@ -159,11 +153,13 @@ export function make(): Module {
   }
 
   return {
+    // тип и ключ новой сессии — из запроса открытия
+    opening(s, req) {
+      if (req.incident) s.store<Mine>().set(req.incident as Mine);
+    },
+    openingReads: ["incident"],
+
     session(s) {
-      // первый старт новой сессии: тип и ключ — из открывающего обращения (раздел прежней с тем же именем ядро стёрло при remove)
-      if (s.info.start === "spawn") {
-        for (const [type, m] of opening) if (s.info.callsign.startsWith(`${type}-`) && /^\d+@/.test(s.info.callsign.slice(type.length + 1))) s.store<Mine>().set(m);
-      }
       const m = mine(s);
       return m ? { append: rule(m.type, m.key, cfg().to) } : undefined;
     },

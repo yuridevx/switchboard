@@ -1,7 +1,7 @@
 {
-  "name": "host-accounts",
+  "name": "host-logins",
   "type": "sdk",
-  "version": "2.1.0",
+  "version": "1.0.0",
   "into": [
     "host"
   ],
@@ -10,11 +10,15 @@
     "machine.login": 1,
     "machine.login_code": 1,
     "machine.account_remove": 1,
-    "account.usage": 1,
-    "account.place": 2
+    "session.slot": 1,
+    "slot.set": 1,
+    "slot.swap": 1,
+    "slot": 1,
+    "account": 1
   },
   "uses": {
-    "host.module@host": 1
+    "host.module@host": 1,
+    "ledger.add@ledger": 1
   },
   "calls": [
     "claudeAuthenticate",

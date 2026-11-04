@@ -2,7 +2,7 @@
 // Номер эталона — номер теста.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStore } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, flush, HOST, KEY, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, HOST, KEY, pult, SLOTS } from "./stand.ts";
 
 const QUESTION = {
   type: "question",
@@ -26,7 +26,7 @@ const QUESTION = {
 /** Ответы владельцев для новой сессии на laptop. */
 function openRelay(roster = fleetRoster()) {
   const relay = fleetRelay(roster);
-  relay.handlers["machine.slots"] = () => ({
+  relay.handlers[SLOTS] = () => ({
     ok: true,
     result: { slots: { main: { account: "infirex", order: ["infirex"], wait: null, sessions: ["site@laptop", "profiles@laptop"] }, bot: { account: "work3", order: ["work3"], wait: null, sessions: ["wiki@laptop"] } } },
   });

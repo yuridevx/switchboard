@@ -47,7 +47,7 @@ export function prevBuild(v: string | null | undefined): string | null {
 }
 export const short = (v: string) => (v.includes("+") ? `+${v.split("+")[1]}` : v);
 
-const listed = (d: ReleaseData): Listed | null => okOf(d.list) ?? null;
+const listed = (d: ReleaseData): Listed | null => okOf<Listed>(d.list) ?? null;
 
 export const planOf = (d: ReleaseData, m: string): Record<string, Entry> => listed(d)?.machines.find((x) => x.machine === m)?.plan ?? {};
 export const stableOf = (d: ReleaseData, part: string): string | null => listed(d)?.parts[part]?.stable ?? null;
@@ -65,7 +65,7 @@ export function cellOf(d: ReleaseData, m: string, part: string): Cell | null {
   const pin = pe?.pin;
   const want = pin ?? stableOf(d, part);
   const online = d.online.includes(m);
-  const ok = okOf(st);
+  const ok = okOf<KState>(st);
   const kp = ok ? (part === "keeper" && ok.keeper ? { part, version: ok.keeper, state: "running", error: undefined } : ok.parts?.find((x) => x.part === part)) : undefined;
   if (!online || !ok) return kp || pe || want ? { k: "gone", t: kp?.version ?? want ?? "—", pin } : null;
   if (!kp && !pe) return null;
@@ -78,7 +78,7 @@ export function cellOf(d: ReleaseData, m: string, part: string): Cell | null {
 /** Части машин: из каталога и из ответов keeper'ов; host и keeper — первыми. */
 export function machineParts(d: ReleaseData): string[] {
   const fromList = Object.entries(listed(d)?.parts ?? {}).filter(([, p]) => p.where === "machine").map(([n]) => n);
-  const seen = Object.values(d.kst).flatMap((s) => (okOf(s)?.parts ?? []).map((p) => p.part));
+  const seen = Object.values(d.kst).flatMap((s) => (okOf<KState>(s)?.parts ?? []).map((p) => p.part));
   const rank = (p: string) => (p === "host" ? 0 : p === "keeper" ? 1 : 2);
   return [...new Set([...fromList, ...seen])].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }

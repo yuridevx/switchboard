@@ -1,5 +1,5 @@
 // Окна чипов новой сессии: профиль; модель, усилие, слот и «Точки в R2».
-import { at, Chip, Chips, effortName, EFFORTS, In, MODELS, profileName as short, RowBtn, Switch, useApp } from "@switchboard/web-ui";
+import { Chip, Chips, effortName, EFFORTS, In, MODELS, profileName as short, RowBtn, SlotPick, Switch, useApp } from "@switchboard/web-ui";
 import { useOpen } from "./store.ts";
 import { useMachineLabels } from "./Browser.tsx";
 import type { OpenForm } from "./useOpenForm.ts";
@@ -51,7 +51,6 @@ export function ModelPop({ form }: { form: OpenForm }) {
   const open = useOpen();
   const { f, set, chooseModel } = form;
   const r2 = app.use(() => open.can(f.machine, "session.r2") || !f.machine);
-  const slots = Object.entries(f.slots ?? {});
   return (
     <>
       <div className="lb">Модель</div>
@@ -70,19 +69,10 @@ export function ModelPop({ form }: { form: OpenForm }) {
           </Chip>
         ))}
       </Chips>
-      {slots.length ? <div className="lb">Слот</div> : null}
-      {slots.length ? (
-        <Chips className="op-opts">
-          {slots.map(([n, sl]) => (
-            <Chip key={n} on={f.slot === n} data-slot={n} onClick={() => set({ slot: n })}>
-              {sl.wait ? `${n} · ждёт сброса ${at(sl.wait)}` : n}
-            </Chip>
-          ))}
-        </Chips>
-      ) : null}
-      {f.refused["machine.slots"] ? (
+      <SlotPick slots={f.slots ?? {}} value={f.slot} on={(slot) => set({ slot, err: "" })} />
+      {f.refused["machine.accounts"] ? (
         <div className="op-err" role="alert">
-          {`machine.slots: ${f.refused["machine.slots"]}`}
+          {`machine.accounts: ${f.refused["machine.accounts"]}`}
         </div>
       ) : null}
       {r2 ? (

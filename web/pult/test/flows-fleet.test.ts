@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
 import { FakeRelay } from "../../packages/core/stand/app.ts";
-import { fleetRelay, fleetRoster, joinedRoster, flush, HOST, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, HOST, pult, SLOTS } from "./stand.ts";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -17,7 +17,7 @@ type Ans = { ok: true; result?: unknown } | { ok: false; error: string };
 function fleetAccounts(accounts: Record<string, unknown>, slots: Record<string, unknown> = {}, r = fleetRoster()) {
   const relay = fleetRelay(r);
   relay.handlers["machine.accounts"] = (f) => (accounts[String(f.machine)] as Ans | undefined) ?? { ok: true, result: { accounts: {} } };
-  relay.handlers["machine.slots"] = (f) => ({ ok: true, result: { slots: slots[String(f.machine)] ?? {} } });
+  relay.handlers[SLOTS] = (f) => ({ ok: true, result: { slots: slots[String(f.machine)] ?? {} } });
   return relay;
 }
 
@@ -60,7 +60,7 @@ describe("аккаунты", () => {
     r.sessions[0].account = "yurianrun";
     relay.setRoster(r);
     await flush();
-    expect(relay.sent("machine.slots")).toHaveLength(0);
+    expect(relay.sent("machine.accounts")).toHaveLength(0);
     expect(relay.sent("machine.accounts")).toHaveLength(0);
     void t;
   });
@@ -197,7 +197,7 @@ describe("слоты", () => {
     // 6108 · созданный слот: поле имени пустое, повторное «Создать» не шлёт slot.set
     expect(t.$<HTMLInputElement>('[data-f="newslot"]')!.value).toBe("");
     expect(relay.sent("slot.set").at(-1)).toMatchObject({ slot: "night", order: ["a"] });
-    expect(relay.sent("machine.slots").length).toBeGreaterThanOrEqual(6);
+    expect(relay.sent("machine.accounts").length).toBeGreaterThanOrEqual(6);
   });
 
   it("4142 · перевод выбранных сессий — session.slot по одной, строка итогов, machine.slots заново", async () => {
@@ -209,14 +209,14 @@ describe("слоты", () => {
     for (const c of dlg.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')) await t.click(c);
     const target = dlg.querySelector<HTMLSelectElement>('[data-f="target"]')!;
     await t.type(target, "bot", "change");
-    const slots = relay.sent("machine.slots").length;
+    const slots = relay.sent("machine.accounts").length;
     await t.click(t.btn(dlg, "Перевести"));
     expect(relay.sent("session.slot").map((f) => [f.callsign, f.slot])).toEqual([
       ["site@laptop", "bot"],
       ["profiles@laptop", "bot"],
     ]);
     expect(t.$('[data-dlg="sess"]')!.textContent).toContain("site@laptop: перейдёт между ходами · profiles@laptop: перешла");
-    expect(relay.sent("machine.slots").length).toBe(slots + 1);
+    expect(relay.sent("machine.accounts").length).toBe(slots + 1);
   });
 
   it("4143 · отказы slots словами: has_sessions; перевод — у отказавшей сессии слово, вторая переведена", async () => {
@@ -248,12 +248,35 @@ describe("слоты", () => {
     const r = fleetRoster();
     for (const m of r.machines) {
       m.contract = { ...HOST };
-      delete m.contract["machine.slots"];
+      delete m.contract["machine.accounts"];
     }
     const relay = fleetAccounts({}, {}, r);
     const t = await accountsScreen(relay, "/#accounts?view=slots");
     expect(t.text()).toContain("Нет машин со слотами на связи.");
-    expect(relay.sent("machine.slots")).toHaveLength(0);
+    expect(relay.sent("machine.accounts")).toHaveLength(0);
+  });
+});
+
+describe("E6 · слоты, когда машина молчит", () => {
+  it("ответа ещё нет — «…», а не экран «слотов нет»; отказ — слово; прежние слоты остаются рядом со словом", async () => {
+    const SL = { laptop: { main: { account: "a", order: ["a"], wait: null, sessions: [] } } };
+    const relay = fleetAccounts({ laptop: ok({ a: { login: "ok" } }) }, SL);
+    const answer = relay.handlers["machine.accounts"];
+    let silent = true;
+    relay.handlers["machine.accounts"] = (f) => (silent ? undefined : answer(f));
+    const t = await accountsScreen(relay, "/#accounts?view=slots");
+    expect(t.$("[data-slots-wait]")!.textContent).toBe("…");
+    expect(t.text()).not.toContain("Новый слот на laptop");
+    for (const q of relay.sent("machine.accounts")) relay.reply(String(q.id), { ok: true, result: { accounts: { a: { login: "ok" } }, slots: SL.laptop } });
+    await flush(10);
+    expect(t.$("[data-slots-wait]")).toBeNull();
+    expect(t.$('[data-slot="laptop:main"]')).not.toBeNull();
+    silent = false;
+    relay.handlers["machine.accounts"] = () => ({ ok: false, error: "timeout" });
+    relay.setRoster(fleetRoster({ sessions: fleetRoster().sessions.map((x) => (x.callsign === "site@laptop" ? { ...x, account: "b" } : x)) }));
+    await flush(10);
+    expect(t.text()).toContain("laptop · machine.accounts: timeout");
+    expect(t.$('[data-slot="laptop:main"]')).not.toBeNull();
   });
 });
 
@@ -275,50 +298,38 @@ describe("удаление аккаунта", () => {
     expect(t.text()).toContain("old удалён с laptop");
   });
 
-  it("4147 · шаг отказал — дальше не идёт: slot.swap no_reserve, slot.set и удаления нет", async () => {
+  it("4147 · нет запаса: отказ машины со словом и слотом, шагов со страницы нет", async () => {
     const relay = fleetAccounts(AC, SL);
-    relay.handlers["slot.swap"] = () => ({ ok: false, error: "no_reserve" });
+    relay.handlers["machine.account_remove"] = () => ({ ok: false, error: "no_reserve", why: "слот main" });
     const t = await accountsScreen(relay);
     await rm(t, "a", "a@x.io");
     await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
-    expect(t.text()).toContain("слот main: В запасе нет вошедшего ниже порога — слот прежний");
+    expect(t.text()).toContain("В запасе нет вошедшего ниже порога — слот прежний — слот main");
+    expect(relay.sent("slot.swap")).toHaveLength(0);
     expect(relay.sent("slot.set")).toHaveLength(0);
-    expect(relay.sent("machine.account_remove")).toHaveLength(0);
   });
 
-  it("4148 · выбран, кого положить в слот, — slot.swap с account", async () => {
+  it("4148 · выбран, кого положить в слот, — next в запросе удаления", async () => {
     const relay = fleetAccounts(AC, SL);
-    relay.handlers["slot.swap"] = () => ({ ok: true, result: { from: "a", to: "c" } });
-    relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "c" } });
     relay.handlers["machine.account_remove"] = () => ({ ok: true, result: { wiped: true } });
     const t = await accountsScreen(relay);
     await rm(t, "a", "a@x.io");
     const next = t.$<HTMLSelectElement>('[data-dlg="rm"] [data-f="next"]')!;
     await t.type(next, "c", "change");
     await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
-    expect(relay.sent("slot.swap")[0]).toMatchObject({ machine: "laptop", slot: "main", account: "c" });
-    expect(relay.sent("slot.set")[0]).toMatchObject({ slot: "main", order: ["b", "c"] });
-    expect(relay.sent("machine.account_remove")[0]).toMatchObject({ account: "a" });
+    expect(relay.sent("machine.account_remove")[0]).toMatchObject({ machine: "laptop", account: "a", next: "c" });
   });
 
-  it("4149 · удаление отказало — слово, диалог открыт; отказ slot.set — удаления нет", async () => {
+  it("4149 · удаление отказало — слово, диалог открыт", async () => {
     const relay = fleetAccounts(AC, SL);
-    relay.handlers["machine.account_remove"] = () => ({ ok: false, error: "in_slot" });
+    relay.handlers["machine.account_remove"] = () => ({ ok: false, error: "refresh_locked" });
     const t = await accountsScreen(relay);
     await rm(t, "old", "o@x.io");
     const accs = relay.sent("machine.accounts").length;
     await t.click(t.btn(t.$('[data-dlg="rm"]'), "Удалить"));
-    expect(t.text()).toContain("Аккаунт в слоте — сначала смените его в слоте");
+    expect(t.text()).toContain("Claude сейчас обновляет вход этого аккаунта");
     expect(t.$('[data-dlg="rm"]')).not.toBeNull();
     expect(relay.sent("machine.accounts")).toHaveLength(accs);
-
-    const relay2 = fleetAccounts(AC, { laptop: { main: { account: "a", order: ["a"], wait: null, sessions: [] }, bot: { account: "x", order: ["x", "old"], wait: null, sessions: [] } } });
-    relay2.handlers["slot.set"] = () => ({ ok: false, error: "no_slot" });
-    const t2 = await accountsScreen(relay2);
-    await rm(t2, "old", "o@x.io");
-    await t2.click(t2.btn(t2.$('[data-dlg="rm"]'), "Удалить"));
-    expect(t2.text()).toContain("slot.set bot: Такого слота нет");
-    expect(relay2.sent("machine.account_remove")).toHaveLength(0);
   });
 });
 

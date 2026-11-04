@@ -121,8 +121,10 @@ describe("request-session-history", () => {
   it("6661 · два экрана одного разговора и штатная остановка", async () => {
     const got: string[] = [];
     const saved: unknown[] = [];
+    const ask = async (name: string, body: { callsign?: string }) => (got.push(`${name} ${body.callsign}`), { ok: true, result: { messages: [] } });
     const app = {
-      request: async (name: string, body: { callsign?: string }) => (got.push(`${name} ${body.callsign}`), { ok: true, result: { messages: [] } }),
+      request: ask,
+      read: ask,
       can: () => true,
       roster: () => ({ machines: [], sessions: [] }),
       changed() {},

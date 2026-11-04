@@ -227,8 +227,7 @@ h["session.call"] = (f) => {
   }
   return { ok: true, result: answers[String(f.method)] ?? [] };
 };
-h["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { login: "ok", email: "dev@mail.ru", plan: "Max 20×", limits: { five_hour: { utilization: 0.42, resetsAt: Date.now() / 1000 + 7200 }, seven_day: { utilization: 0.61, resetsAt: Date.now() / 1000 + 86400 } } }, night: { login: "ok", email: "night@x.io", plan: "Max 5×", limits: { five_hour: { utilization: 0.82, resetsAt: Date.now() / 1000 + 3600 } } } } } });
-h["machine.slots"] = (f) => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: F.ss.filter((s) => s.cs.endsWith(`@${String(f.machine ?? String(f.to ?? "").split("@")[1])}`)).map((s) => s.cs) }, second: { account: "night", order: ["night"], wait: Date.now() / 1000 + 3600, sessions: [] } } } });
+h["machine.accounts"] = (f) => ({ ok: true, result: { accounts: { y0902: { login: "ok", email: "dev@mail.ru", plan: "Max 20×", limits: { five_hour: { utilization: 0.42, resetsAt: Date.now() / 1000 + 7200 }, seven_day: { utilization: 0.61, resetsAt: Date.now() / 1000 + 86400 } } }, night: { login: "ok", email: "night@x.io", plan: "Max 5×", limits: { five_hour: { utilization: 0.82, resetsAt: Date.now() / 1000 + 3600 } } } }, slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: F.ss.filter((s) => s.cs.endsWith(`@${String(f.machine ?? String(f.to ?? "").split("@")[1])}`)).map((s) => s.cs) }, second: { account: "night", order: ["night"], wait: Date.now() / 1000 + 3600, sessions: [] } } } });
 h["machine.profiles"] = (f) => {
   const m = String(f.machine);
   const profiles: Record<string, unknown> = {};

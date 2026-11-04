@@ -4,7 +4,7 @@ import type { Roster } from "@switchboard/web-core";
 import { createCard } from "@switchboard/web-card";
 import { defined } from "../../packages/core/stand/app.ts";
 import { pultParts } from "../stand/parts.ts";
-import { fleetRelay, fleetRoster, flush, HOST, pointsRelay, pult, SID } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, HOST, pointsRelay, pult, SID, SLOTS } from "./stand.ts";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -27,7 +27,7 @@ function projRoster(): Roster {
 /** Ответы владельцев для экрана новой сессии. */
 function openRelay(r = projRoster()) {
   const relay = fleetRelay(r);
-  relay.handlers["machine.slots"] = (f) => ({ ok: true, result: { slots: { main: { account: "infirex", wait: null, sessions: f.machine === "laptop" ? ["site@laptop"] : [] }, night: { account: "work3", wait: 1793666400, sessions: [] } } } });
+  relay.handlers[SLOTS] = (f) => ({ ok: true, result: { slots: { main: { account: "infirex", wait: null, sessions: f.machine === "laptop" ? ["site@laptop"] : [] }, night: { account: "work3", wait: 1793666400, sessions: [] } } } });
   relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high" }, "team/profiles/writer": { model: "haiku", effort: "low" } }, repos: {} } });
   relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: ["api", ".git", "site"] } });
   relay.handlers["session.open"] = (f) => ({ ok: true, result: { callsign: `${f.name}@${f.machine}` } });
@@ -281,7 +281,7 @@ function fireRelay(over: (r: Roster) => void = () => {}) {
     },
   });
   relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [{ id: 1, t: at(10, 0), ev: "machine.left", from: ".relay", text: "mac ушла" }], more: false } });
-  relay.handlers["machine.slots"] = (f) => ({ ok: true, result: { slots: { [f.machine === "pc" ? "main" : "bot"]: {} } } });
+  relay.handlers[SLOTS] = (f) => ({ ok: true, result: { slots: { [f.machine === "pc" ? "main" : "bot"]: {} } } });
   relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "same" } } : { ok: true, result: { callsign: `${String(f.sid) === "s1" ? "one" : "two"}@${f.machine}` } });
   return relay;
 }
@@ -407,7 +407,7 @@ describe("«пожар»", () => {
     sel.value = "b3";
     sel.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
-    expect(relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "b3" });
+    expect(relay.sent("machine.accounts").at(-1)).toMatchObject({ machine: "b3" });
   });
 
   it("4169 · другая машина-цель — слоты и пробы заново, кнопка на неё", async () => {
@@ -419,9 +419,8 @@ describe("«пожар»", () => {
     sel.value = "pc";
     sel.dispatchEvent(new Event("change", { bubbles: true }));
     await flush(10);
-    expect(t.relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "pc" });
+    expect(t.relay.sent("machine.accounts").at(-1)).toMatchObject({ machine: "pc" });
     expect(t.relay.sent("points.raise").filter((f) => f.machine === "pc" && f.dryRun)).toHaveLength(2);
-    expect(t.$('[data-row="one"]')!.textContent).toContain("Слот на pc: main");
     expect(t.btn(t.$('[data-dlg="fire"]'), "Перенести 2 из 2 на pc")).not.toBeNull();
   });
 });
@@ -442,7 +441,8 @@ describe("перенос сессии «только в R2»", () => {
     expect(relay.sent("points.raise")[0]).toMatchObject({ machine: "laptop", sid: "old", point: 4, dir: "~/b", files: "point", dryRun: true });
     const lists = relay.sent("points.list").length;
     await t.click(t.btn(t.$('[data-dlg="raise"]'), "Поднять на laptop"));
-    expect(relay.sent("points.raise").at(-1)).toMatchObject({ machine: "laptop", sid: "old", point: 4, slot: "bot" });
+    expect(relay.sent("points.raise").at(-1)).toMatchObject({ machine: "laptop", sid: "old", point: 4 });
+    expect(relay.sent("points.raise").at(-1)).not.toHaveProperty("slot");
     expect(relay.sent("points.raise").at(-1)).not.toHaveProperty("dryRun");
     expect(t.$('[data-dlg="raise"]')!.textContent).toContain("old-bot поднята: old-bot@laptop");
     expect(relay.sent("points.list").length).toBe(lists + 1);
@@ -661,13 +661,78 @@ describe("диалоги точек", () => {
     expect(relay.sent("points.save")[0]).toMatchObject({ callsign: "site@laptop", stop: true, interrupt: true });
   });
 
-  it("4189 · отказ machine.slots цели — проверка словом, запуск недоступен, points.save нет", async () => {
+  describe("E16 · окно смены папки", () => {
+    // источник: факт — такая копия уходила со слота на общий вход
+    const run = async (relay: ReturnType<typeof pointsRelay>, callsign = "site@laptop") => {
+      relay.handlers["points.save"] = () => ({ ok: true, result: { point: 42, same: false } });
+      relay.handlers["points.raise"] = () => ({ ok: true, result: { callsign: "site-v2@laptop", point: 1, folder: "keep", branch: null } });
+      relay.handlers["session.remove"] = () => ({ ok: true });
+      const t = await sessionTab(relay, callsign);
+      await t.click(t.$('[data-act="dir"]'));
+      expect(t.$("[data-slot-pick]")).toBeNull();
+      await t.click(t.$('[data-dlg="dir"] [data-act="run"]'));
+      await flush(10);
+      return t;
+    };
+    const bare = () =>
+      pointsRelay((r) => {
+        for (const x of r.sessions) if (x.callsign === "site@laptop") delete x.slot;
+      });
+
+    it("сессия в слоте — текущий слот", async () => {
+      const relay = pointsRelay();
+      await run(relay);
+      expect(relay.sent("points.raise").at(-1)).toMatchObject({ copy: true, slot: "main" });
+    });
+
+    it("сессия без слота, два слота на машине — первый", async () => {
+      const relay = bare();
+      relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "a", order: ["a"], wait: null, sessions: [] }, bot: { account: "b", order: ["b"], wait: null, sessions: [] } } } });
+      await run(relay);
+      expect(relay.sent("points.raise").at(-1)).toMatchObject({ copy: true, slot: "main" });
+    });
+
+    it("сессия без слота, один слот — поля нет, решает машина", async () => {
+      const relay = bare();
+      await run(relay);
+      expect(relay.sent("points.raise").at(-1)).toMatchObject({ copy: true });
+      expect(relay.sent("points.raise").at(-1)).not.toHaveProperty("slot");
+    });
+
+    it("сессия без слота, список не пришёл — сессия не остановлена, слово", async () => {
+      const relay = bare();
+      relay.handlers[SLOTS] = () => ({ ok: false, error: "timeout" });
+      const t = await run(relay);
+      expect(relay.sent("points.save")).toHaveLength(0);
+      expect(relay.sent("points.raise")).toHaveLength(0);
+      expect(t.$('[data-dlg="dir"] [data-phase="err"]')!.textContent).toContain("machine.accounts: timeout");
+    });
+  });
+
+  it("E24 · окно переноса: два слота — отмечен текущий, выбранный уходит; варианта «без слота» нет", async () => {
     const relay = dialogRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: false, error: "offline" });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { bot: { account: "b", order: ["b"], wait: null, sessions: [] }, main: { account: "a", order: ["a"], wait: null, sessions: [] } } } });
     const t = await sessionTab(relay);
     await t.click(t.btn(null, "Перенести…"));
     await flush(10);
-    expect(t.$('[data-dlg="move"] [data-check="error"]')!.textContent).toBe("machine.slots: offline");
+    expect(t.$('[data-dlg="move"] [data-slot="main"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(t.$('[data-dlg="move"]')!.textContent).not.toContain("без слота");
+  });
+
+  it("E6 · реестр точек не ответил: слово на месте точек, а не «Точек ещё нет»", async () => {
+    const relay = pointsRelay();
+    relay.handlers["points.list"] = () => ({ ok: false, error: "timeout" });
+    const t = await sessionTab(relay);
+    expect(t.$('[data-r2="on"] .sb-ph b')!.textContent).toBe("points.list: timeout");
+  });
+
+  it("4189 · список слотов цели не пришёл — проверка словом, запуск недоступен, points.save нет", async () => {
+    const relay = dialogRelay();
+    relay.handlers[SLOTS] = () => ({ ok: false, error: "offline" });
+    const t = await sessionTab(relay);
+    await t.click(t.btn(null, "Перенести…"));
+    await flush(10);
+    expect(t.$('[data-dlg="move"] [data-check="error"]')!.textContent).toBe("machine.accounts: offline");
     expect(t.$<HTMLButtonElement>('[data-act="run"]')!.disabled).toBe(true);
     expect(relay.sent("points.raise")).toHaveLength(0);
     expect(relay.sent("points.save")).toHaveLength(0);

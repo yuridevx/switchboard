@@ -334,30 +334,78 @@ describe("договор модуля на стенде", () => {
     expect(f[0].why).toContain("модуль выключен на машине");
   });
 
-  it("регрессия: запрос модуля этой машины с callsign ещё не открытой сессии доставляется владельцу", async () => {
+  it("E20 · запрос о сессии, которой нет: и через relay, и от модуля этой машины — offline, обработчик не вызван, модуль жив", async () => {
+    // источник: чьё: код — адресата нет; принятый дизайн: значение «до старта» едет запросом открытия
     let host!: Host;
-    const slots = module("host-slots", { requests: { "session.slot": (req, ctx) => ({ cs: req.callsign, live: !!ctx.host.session(req.callsign as string) }) } });
-    const manage = module("host-manage", { start: (h) => void (host = h) }, { uses: { "session.slot@host-slots": 1 } });
-    const st = await stand({ modules: [slots, manage] });
-    expect(await host.request("session.slot", { v: 1, callsign: "board@laptop", slot: "main" })).toEqual({ ok: true, result: { cs: "board@laptop", live: false } });
-    expect(st.journal().some((l) => l.ev === "module_failed" || l.word === "offline")).toBe(false);
-  });
-
-  it("регрессия: запрос модуля о сессии, которой нет, — сбой владельца даёт module_error, модуль на машине не выключен (живой прогон 31 окт.)", async () => {
-    let host!: Host;
-    const manage = module("host-manage", {
-      requests: {
-        "session.spec": (req, ctx) => ({ dir: ctx.host.session(req.callsign as string)!.info.cwd }),
-        "session.remove": () => ({ removed: true }),
-      },
-    });
-    const points = module("host-points", { start: (h) => void (host = h) }, { uses: { "session.spec@host-manage": 1, "session.remove@host-manage": 1 } });
-    const st = await stand({ modules: [manage, points] });
+    const asked: unknown[] = [];
+    const owner = module("host-manage", { requests: { "session.spec": (req) => (asked.push(req.callsign), { ok: true }) } });
+    const caller = module("host-points", { start: (h) => void (host = h) }, { uses: { "session.spec@host-manage": 1 } });
+    const st = await stand({ modules: [owner, caller] });
     await st.open("site@laptop");
-    expect(await host.request("session.spec", { v: 1, callsign: "gone@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(await host.request("session.spec", { v: 1, callsign: "gone@laptop" })).toMatchObject({ ok: false, error: "offline" });
+    expect(await st.relay.request({ type: "session.spec", v: 1, callsign: "gone@laptop" })).toMatchObject({ ok: false, error: "offline" });
+    expect(asked).toEqual([]);
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
     expect(await host.request("session.spec", { v: 1, callsign: "site@laptop" })).toMatchObject({ ok: true });
-    expect(await st.relay.request({ type: "session.remove", v: 1, callsign: "site@laptop" })).toMatchObject({ ok: true });
+  });
+
+  it("E10 · отказ в запросе открытия: наружу со словом; нет процесса, папки, записи ядра и разделов; следующее открытие имени с чистого", async () => {
+    // источник: слово пользователя 4 нояб. — два слота без названного: отказ со списком; проход архитектора: повторное открытие брало старую запись
+    const reader = module("host-logins", {
+      opening(s, req) {
+        s.store<{ slot?: unknown }>().set({ slot: req.slot });
+        if (req.slot === undefined) throw refuse("slot_required", "Слоты машины: main, bot");
+      },
+      session: (s) => ((s.store<{ slot?: string }>().get()?.slot ? { env: { SLOT_DIR: s.store<{ slot: string }>().get()!.slot } } : undefined)),
+    });
+    const st = await stand({ modules: [reader] });
+    const cwd = join(st.home, "new-dir");
+    await expect(st.open("job@laptop", { cwd, mkdir: true, opening: {} })).rejects.toMatchObject({ word: "slot_required", why: "Слоты машины: main, bot" });
+    expect(existsSync(cwd)).toBe(false);
+    expect(st.kernel.sessions.has("job@laptop")).toBe(false);
+    expect(st.sdk.queries.length).toBe(0);
+    // раздел модуль успел записать до отказа: он стёрт
+    expect(JSON.parse(readFileSync(join(st.home, "store", "host-logins.json"), "utf8")).sessions?.["job@laptop"]).toBeUndefined();
+    const s = await st.open("job@laptop", { cwd, mkdir: true, opening: { slot: "bot" } });
+    expect(existsSync(cwd)).toBe(true);
+    expect(st.proc("job@laptop").env.SLOT_DIR).toBe("bot");
+    expect(s.info.callsign).toBe("job@laptop");
+    await st.close();
+    const again = await standHost({ home: st.home, modules: [module("host-logins", { opening() {}, session: (x) => ({ env: { SLOT_DIR: String(x.store<{ slot: string }>().get()?.slot) } }) })] });
+    stands.push(again);
+    await until(() => again.kernel.sessions.get("job@laptop")?.state === "idle");
+    expect(again.proc("job@laptop").env.SLOT_DIR).toBe("bot");
+  });
+
+  it("E35 · модуль с opening выключен: module_error, сессии нет; его поля в запросе нет у читателя со списком — открытие идёт; упал в opening — module_error", async () => {
+    // источник: чьё: код — названный слот при выключенном модуле отказывал module_error; находка архитектора: иначе сессия тихо шла бы на общий вход
+    const always = module("host-logins", { requests: { "x.boom": () => { throw new Error("бах"); } }, opening() {} });
+    const onlyField = module("host-profiles", { requests: { "y.boom": () => { throw new Error("бах"); } }, opening() {}, openingReads: ["profile"] });
+    const st = await stand({ modules: [always, onlyField] });
+    expect(await st.relay.request({ type: "y.boom", v: 1, machine: "laptop" })).toMatchObject({ error: "module_error" });
+    await expect(st.open("a@laptop", { opening: { profile: "ops" } })).rejects.toMatchObject({ word: "module_error" });
+    await st.open("b@laptop", { opening: {} });
+    expect(await st.relay.request({ type: "x.boom", v: 1, machine: "laptop" })).toMatchObject({ error: "module_error" });
+    await expect(st.open("c@laptop", { opening: {} })).rejects.toMatchObject({ word: "module_error" });
+    expect(st.kernel.sessions.has("a@laptop")).toBe(false);
+    expect(st.kernel.sessions.has("c@laptop")).toBe(false);
+    const fall = await stand({ modules: [module("host-logins", { opening() { throw new Error("бах"); } })] });
+    await expect(fall.open("d@laptop", { opening: {} })).rejects.toMatchObject({ word: "module_error" });
+    expect(fall.journal().some((l) => l.ev === "module_failed" && String(l.why).includes("opening"))).toBe(true);
+  });
+
+  it("E35 · отказ словом в session() сохранённой сессии: Host стартует, модуль выключен в этой сессии", async () => {
+    // источник: находка архитектора — отказ из session() на старте давал StartError на всю машину
+    let refusing = false;
+    const m = () => module("host-profiles", { session: () => { if (refusing) throw refuse("no_profile", "профиля больше нет"); return undefined; } });
+    const a = await stand({ modules: [m()] });
+    await a.open("site@laptop");
+    await a.close();
+    refusing = true;
+    const b = await standHost({ home: a.home, modules: [m()] });
+    stands.push(b);
+    await until(() => b.kernel.sessions.get("site@laptop")?.state === "idle");
+    await until(() => (b.states("site@laptop").at(-1)?.failed as Record<string, string>)?.["host-profiles"]);
   });
 
   it("регрессия: renameSession живой сессии — метод query с её session_id; остановленной — функция SDK с папкой", async () => {

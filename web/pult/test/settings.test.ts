@@ -312,6 +312,19 @@ describe("pult-settings", () => {
     expect(t.text()).not.toContain("old~you@mail");
   });
 
+  it("E33 · каталог молчит: слово над таблицей, машины и ответы keeper на месте", async () => {
+    // источник: слово пользователя 4 нояб. — «таймаутить нужно конкретную машину а не весь запрос и отдавать результат частично»
+    // сам предел запроса к службе — E2 у клиента флота; здесь — что экран делает со словом
+    const t = await settings({ hooks: (r) => (r.handlers["releases.list"] = () => ({ ok: false, error: "timeout" })) });
+    expect(t.text()).toContain("releases.list: timeout");
+    const mx = t.$(".st-mx")!;
+    expect(mx.textContent).toContain("laptop");
+    expect(mx.textContent).toContain("pc");
+    expect(mx.textContent).toContain("host");
+    // части и кнопки, которым нужен каталог, не появляются из ниоткуда
+    expect(t.text()).not.toContain("Stable флота");
+  });
+
   it("6949 · владелец отказал: на своей вкладке «запрос: слово»", async () => {
     // источник: устав — отказ словом
     const t = await settings({ hooks: (r) => (r.handlers["releases.list"] = () => ({ ok: false, error: "denied" })) });

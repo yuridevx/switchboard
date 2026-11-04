@@ -2,7 +2,7 @@
 import type { ComponentType } from "react";
 import type { Frame, Roster } from "@switchboard/relay";
 /** Ответ запроса: результат или отказ словом. */
-export type Result<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
+export type Result<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
 
 /** Параметры экрана — пары в адресе после #: #card?callsign=site%40laptop. */
 export type Params = Record<string, string>;
@@ -42,9 +42,11 @@ export interface App {
    * Имя — только из uses модуля (иначе ошибка модуля); v ставит ядро из uses.
    * Владелец имени — Worker-модуль из roster (push) → to: .владелец; иначе адрес — callsign или machine кадра,
    * и ядро сверяет имя с contract машины в roster: нет — unknown_request, другая версия — contract_mismatch.
-   * Не бросает: отказ — { ok: false, error }. Связи нет — disconnected сразу.
+   * Не бросает: отказ — { ok: false, error, why? }; why — причина владельца, если он её назвал. Связи нет — disconnected сразу.
    */
   request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
+  /** Чтение: тот же вход, что у request, предел ответа 10 с — отказ словом timeout. Экранные выборки и вопросы о состоянии. */
+  read<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
   /**
    * Открыть экран на весь экран с переходом в адресе.
    * Экран — свой, из uses модуля или вставленный в место, которым модуль владеет.

@@ -31,10 +31,10 @@ export function createIncidentsStore(app: App) {
 
   async function loadMachine(m: string) {
     store.set((s) => void (s.asked[m] = true));
-    const r = await app.request<JournalAnswer>("machine.journal", { machine: m, since: midnight(), kind: ["refuse"], limit: 200 });
+    const r = await app.read<JournalAnswer>("machine.journal", { machine: m, since: midnight(), kind: ["refuse"], limit: 200 });
     if (!r.ok) return store.set((s) => void (s.refused[m] = r.error));
     // недоставленные — отказы, чьё обращение ещё на диске без сессии: доставленное потом уходит из списка само
-    const p = await app.request<{ appeals: Array<{ id: string; callsign: string | null }> }>("incident.pending", { machine: m });
+    const p = await app.read<{ appeals: Array<{ id: string; callsign: string | null }> }>("incident.pending", { machine: m });
     if (!p.ok) return store.set((s) => void (s.refused[m] = `incident.pending: ${p.error}`));
     const waiting = new Set(p.result.appeals.filter((a) => !a.callsign).map((a) => a.id));
     const byId = new Map<string, Lost>();

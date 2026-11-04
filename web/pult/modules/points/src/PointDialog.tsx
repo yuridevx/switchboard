@@ -1,6 +1,6 @@
 // Окно действия над точкой: перенос, копия, смена папки, откат. Поля и шаги — usePointDialog.
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Check, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, Check, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec, SlotPick, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { canRaise } from "./format.ts";
 import { CheckLine } from "./parts.tsx";
@@ -50,17 +50,7 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
           </Opts>
         </Row>
       ) : null}
-      {moving && d.slots ? (
-        <Row label={`Слот на ${d.target}`}>
-          <Opts>
-            {[...d.slots, ""].map((x) => (
-              <Btn key={x} aria-pressed={d.slot === x ? "true" : "false"} onClick={() => c.patch({ slot: x })}>
-                {x || "без слота"}
-              </Btn>
-            ))}
-          </Opts>
-        </Row>
-      ) : null}
+      {moving && d.slots ? <SlotPick label={`Слот на ${d.target}`} slots={d.slots} value={d.slot} on={(slot) => c.patch({ slot })} /> : null}
       {d.kind !== "rb" ? (
         <Row label={d.kind === "dir" ? "Новая папка" : `Папка на ${d.target}`}>
           <CommitIn mono data-f="dir" value={d.dir} onCommit={(v) => c.recheck(d, { dir: v })} />

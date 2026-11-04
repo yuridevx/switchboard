@@ -1,7 +1,7 @@
 // Покрытие плана screen-machine-answers: ответы машин одним циклом, фильтры по вычислению, части и отказы. Настройки — в settings.test.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, flush, pointsRelay, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, pointsRelay, pult, SLOTS } from "./stand.ts";
 
 type T = Awaited<ReturnType<typeof pult>>;
 
@@ -42,35 +42,35 @@ describe("аккаунты", () => {
     // источник: факт — host/modules/accounts: без max_age чтение кэша без опроса; комментарий стора обещает свежие окна
     const r = fleetRoster();
     const relay = fleetRelay(r);
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     await screen(relay, "/#accounts");
     relay.setRoster({ ...r, sessions: r.sessions.map((s) => (s.callsign === "site@laptop" ? { ...s, account: "work3" } : s)) });
     await flush(10);
     expect(relay.sent("machine.accounts").at(-1)).toMatchObject({ machine: "laptop", max_age: 0 });
   });
 
-  it("6940 · машина пришла при открытом экране: ей machine.accounts max_age 120 и machine.slots", async () => {
+  it("6940 · машина пришла при открытом экране: ей machine.accounts max_age 120, в нём и слоты", async () => {
     // источник: чьё: код
     const relay = fleetRelay(withoutPc());
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     await screen(relay, "/#accounts");
     expect(relay.sent("machine.accounts").map((f) => f.machine)).toEqual(["laptop"]);
     relay.setRoster(withPc());
     await flush(10);
     expect(relay.sent("machine.accounts").at(-1)).toMatchObject({ machine: "pc", max_age: 120 });
-    expect(relay.sent("machine.slots").at(-1)).toMatchObject({ machine: "pc" });
+    expect(relay.sent("machine.accounts").at(-1)).toMatchObject({ machine: "pc" });
   });
 
   it("6950 · машина без запроса: ей запросов нет и слов отказа о ней нет; другой — есть", async () => {
     // источник: чьё: код
     const r = fleetRoster();
-    for (const n of ["machine.accounts", "machine.slots", "machine.profiles"]) delete r.machines[1].contract![n];
+    for (const n of ["machine.accounts", "machine.profiles"]) delete r.machines[1].contract![n];
     const relay = fleetRelay(r);
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: {} } });
     const t = await screen(relay, "/#accounts");
     await t.go("#profiles");
-    for (const n of ["machine.accounts", "machine.slots", "machine.profiles"]) {
+    for (const n of ["machine.accounts", "machine.profiles"]) {
       expect(relay.sent(n).map((f) => f.machine)).toEqual(["laptop"]);
     }
     expect(t.text()).not.toContain("pc:");
@@ -80,7 +80,7 @@ describe("аккаунты", () => {
   it("6951 · отказ снят ответом: связь с машиной вернулась с новым since — слова нет, её аккаунты на экране", async () => {
     // источник: факт — ответ снимает его; устав — клиенты переподключаются
     const relay = fleetRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.accounts"] = (f) => (f.machine === "pc" ? { ok: false, error: "offline" } : { ok: true, result: { accounts: {} } });
     const t = await screen(relay, "/#accounts");
     expect(t.text()).toContain("pc · machine.accounts: offline");
@@ -112,7 +112,7 @@ describe("связь вернулась", () => {
 
   it("6954 · аккаунты: «disconnected» снимается вопросом заново", () =>
     // источник: устав — соединение оборвалось, клиенты переподключаются; факт — machines.ts: машина вернулась — доспросить
-    scenario("/#accounts", "machine.accounts", "machine.accounts: disconnected", () => ({ accounts: {} }), (x) => (x.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } }))));
+    scenario("/#accounts", "machine.accounts", "machine.accounts: disconnected", () => ({ accounts: {} }), (x) => (x.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } }))));
 
   it("6955 · профили: «disconnected» снимается вопросом заново", () =>
     // источник: то же

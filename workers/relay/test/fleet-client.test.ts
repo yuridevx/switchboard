@@ -154,6 +154,46 @@ describe("эталоны клиента флота", () => {
     expect(r.clients).toEqual(["phone~a@b", "pult~a@b"]);
   });
 
+  it("E2 · служба по HTTP молчит: read → timeout на 10 с, запрос ждёт дальше; то же к машине по соединению", async () => {
+    // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»
+    const s = stand(["win"], { "https://push.test/": () => new Promise<Response>(() => {}) });
+    const c = start({ fetch: s.f });
+    await tick();
+    up("win", roster("win"));
+    const words: Record<string, string> = {};
+    const note = (k: string) => (x: { ok: boolean; error?: string }) => (words[k] = x.error ?? "ok");
+    void c.request({ type: "push.key", v: 1, to: ".push" }, true).then(note("post read"));
+    void c.request({ type: "push.send", v: 1, to: ".push" }).then(note("post request"));
+    void c.request({ type: "keeper.state", v: 1, to: ".keeper@win" }, true).then(note("ws read"));
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(words).toEqual({});
+    await vi.advanceTimersByTimeAsync(1);
+    expect(words).toEqual({ "post read": "timeout", "ws read": "timeout" });
+    await vi.advanceTimersByTimeAsync(110_000);
+    expect(words).toMatchObject({ "post request": "timeout" });
+    c.close();
+  });
+
+  it("E2 · список машин при подключении — чтение: gate молчит, через 10 с следующая попытка", async () => {
+    // источник: дизайн «Предел чтений и слоты» — список машин при подключении тоже чтение
+    let asked = 0;
+    const c = fleet({
+      workers: { relay: "https://relay.test/", gate: "https://gate.test/" },
+      key: "client.x.k.s",
+      WebSocket: FakeWs,
+      pauseMs: 1,
+      fetch: ((_u: string, init: RequestInit) => {
+        asked++;
+        return new Promise<Response>((_ok, no) => init.signal?.addEventListener("abort", () => no(new Error("aborted"))));
+      }) as typeof fetch,
+    });
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(asked).toBe(1);
+    await vi.advanceTimersByTimeAsync(2);
+    expect(asked).toBe(2);
+    c.close();
+  });
+
   it("5056 · POST без ответа за предел → timeout; close() → ждущие disconnected на всех соединениях", async () => {
     const s = stand(["win"], { "https://push.test/": () => new Promise<Response>(() => {}) });
     const c = start({ fetch: s.f, requestMs: 5000 });

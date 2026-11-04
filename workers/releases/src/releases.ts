@@ -59,6 +59,13 @@ const HEAD = 64 * 1024;
 /** Строка флота: stable часть → версия, отличия планов машина → часть → запись, rev. */
 type Fleet = { stable: Record<string, string>; plans: Record<string, Record<string, PlanEntry>>; rev: number };
 
+/** Поле кадра со списком имён; нет поля — пусто. */
+function namesOf(x: unknown, field: string): string[] {
+  if (x === undefined) return [];
+  if (!Array.isArray(x) || x.some((n) => typeof n !== "string" || !NAME.test(n))) throw new Refusal("bad_frame", `${field} — список имён`);
+  return x as string[];
+}
+
 /** Кадр с to: ".releases" → reply тому, кто спросил. */
 export async function frame(env: Env, f: Frame): Promise<Frame[]> {
   return new Releases(env).frame(f);
@@ -164,8 +171,11 @@ class Releases {
 
   /** Готовые версии части машины: у корня сборки — сборки этого флота, у остальных — версии каталога. */
   private async machineVersions(part: string): Promise<string[]> {
-    const k = (await this.partKinds()).get(part);
-    const prefix = k?.app ? `${this.env.FLEET}/${part}/` : `${part}/`;
+    return this.readyUnder((await this.partKinds()).get(part)?.app ? `${this.env.FLEET}/${part}/` : `${part}/`);
+  }
+
+  /** Готовые версии под папкой R2: рядом лежит .sha256. */
+  private async readyUnder(prefix: string): Promise<string[]> {
     const out: string[] = [];
     let cursor: string | undefined;
     do {
@@ -216,11 +226,17 @@ class Releases {
   private async partKinds(): Promise<Map<string, Kind>> {
     const out = new Map<string, Kind>();
     for (const [p, { manifest: m }] of await this.catalog()) {
-      const script = m?.workers?.[this.env.FLEET];
-      if (script) out.set(p, { where: "cloud", script, app: m?.type === "web-app" });
-      else if (!m || m.type === "os" || m.type === "sdk-core") out.set(p, { where: "machine", app: m?.type === "sdk-core" });
+      const k = this.kindBy(m);
+      if (k) out.set(p, k);
     }
     return out;
+  }
+
+  /** Вид части по манифесту её новейшей версии; модуль сборки частью не бывает — null. */
+  private kindBy(m: CatManifest | null): Kind | null {
+    const script = m?.workers?.[this.env.FLEET];
+    if (script) return { where: "cloud", script, app: m?.type === "web-app" };
+    return !m || m.type === "os" || m.type === "sdk-core" ? { where: "machine", app: m?.type === "sdk-core" } : null;
   }
 
   /** Архив целиком: записи с данными. */
@@ -297,40 +313,53 @@ class Releases {
 
   private async list(part?: string): Promise<Listed> {
     const s = await this.load();
-    const parts: Listed["parts"] = {};
-    const kinds = await this.partKinds();
-    const cloud = [...kinds].filter(([p, k]) => k.where === "cloud" && (!part || p === part)).map(([p]) => p);
-    const machine = part ? (kinds.get(part)?.where === "cloud" ? [] : [part]) : [...new Set([...kinds.keys(), ...Object.keys(s.stable)])].filter((p) => kinds.get(p)?.where !== "cloud" && (kinds.has(p) || s.stable[p]));
     const last = (vs: Iterable<string>) => [...vs].filter((v) => VERSION.test(v)).sort(cmp).slice(-10);
-    for (const p of machine.sort()) {
-      const vs = await this.machineVersions(p);
-      parts[p] = { where: "machine", edge: newest(vs), stable: s.stable[p] ?? null, versions: last(vs) };
+    const onMachine = (p: string, vs: string[]): Listed["parts"][string] => ({ where: "machine", edge: newest(vs), stable: s.stable[p] ?? null, versions: last(vs) });
+    // Worker'ы спрашиваются у API Cloudflare: метки версий и выложенная
+    const inCloud = async (p: string, k: Kind & { where: "cloud" }): Promise<Listed["parts"][string]> => {
+      const [vs, cur] = await Promise.all([versions(this.env, k.script), deployed(this.env, k.script)]);
+      const own = k.app ? await this.readyUnder(`${this.env.FLEET}/${p}/`) : [...vs.keys()];
+      return { where: "cloud", edge: newest(own), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null, versions: last(own) };
+    };
+    const planned = (names: string[]): Listed["machines"] =>
+      names.map((m) => {
+        const plan = s.plans[m] ?? {};
+        return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
+      });
+    if (part) {
+      // одна часть — только её папка и манифест новейшей версии: каталог целиком не обходится
+      const own = await this.readyUnder(`${part}/`);
+      const top = newest(own.filter((v) => !isBuild(v)));
+      const k = top ? this.kindBy(await this.manifest(part, top)) : null;
+      const [line, names] = await Promise.all([
+        k?.where === "cloud" ? inCloud(part, k) : k?.app ? this.readyUnder(`${this.env.FLEET}/${part}/`).then((vs) => onMachine(part, vs)) : onMachine(part, own),
+        this.machines(),
+      ]);
+      return { parts: { [part]: line }, machines: planned(names), rev: s.rev };
     }
-    // Worker'ы спрашиваются у API Cloudflare разом: по одному — секунда на каждый
-    const found = await Promise.all(
-      cloud.sort().map(async (p) => {
-        const script = (await this.script(p))!;
-        const [vs, cur] = await Promise.all([versions(this.env, script), deployed(this.env, script)]);
-        const own = (kinds.get(p) as Kind).app ? await this.machineVersions(p) : [...vs.keys()];
-        return [p, { where: "cloud" as const, edge: newest(own), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null, versions: last(own) }] as const;
-      }),
-    );
-    for (const [p, x] of found) parts[p] = x;
-    const machines: Listed["machines"] = (await this.machines()).map((m) => {
-      const plan = s.plans[m] ?? {};
-      return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
-    });
-    if (part) return { parts, machines, rev: s.rev };
+    const kinds = await this.partKinds();
+    const cloud = [...kinds].filter(([, k]) => k.where === "cloud").map(([p]) => p).sort();
+    const machine = [...new Set([...kinds.keys(), ...Object.keys(s.stable)])].filter((p) => kinds.get(p)?.where !== "cloud" && (kinds.has(p) || s.stable[p])).sort();
+    const [onMachines, inClouds, names] = await Promise.all([
+      Promise.all(machine.map(async (p) => [p, onMachine(p, await this.machineVersions(p))] as const)),
+      Promise.all(cloud.map(async (p) => [p, await inCloud(p, kinds.get(p) as Kind & { where: "cloud" })] as const)),
+      this.machines(),
+    ]);
+    const parts: Listed["parts"] = Object.fromEntries([...onMachines, ...inClouds]);
     // модули сборок: номер в выложенной сборке каждого приложения — из её списка, новейший — из каталога
     const cat = await this.catalog();
     const modules: NonNullable<Listed["modules"]> = {};
     for (const [n, e] of cat) if (e.manifest?.into?.length) modules[n] = { into: e.manifest.into, built: {}, edge: e.versions.at(-1) ?? null };
-    for (const app of [...kinds].filter(([, k]) => k.app).map(([p]) => p)) {
-      const cur = parts[app]?.stable ?? (await this.current(app, s));
-      if (!cur) continue;
-      for (const [n, v] of await this.listOf(app, cur)) if (modules[n]) modules[n].built[app] = v;
-    }
-    return { parts, machines, rev: s.rev, modules };
+    const builds = await Promise.all(
+      [...kinds]
+        .filter(([, k]) => k.app)
+        .map(async ([app]) => {
+          const cur = parts[app]?.stable ?? (await this.current(app, s));
+          return [app, cur ? await this.listOf(app, cur) : new Map<string, string>()] as const;
+        }),
+    );
+    for (const [app, list] of builds) for (const [n, v] of list) if (modules[n]) modules[n].built[app] = v;
+    return { parts, machines: planned(names), rev: s.rev, modules };
   }
 
   /**
@@ -367,6 +396,8 @@ class Releases {
     if (f.version !== undefined && f.version !== null && (typeof f.version !== "string" || !VERSION.test(f.version))) throw new Refusal("bad_version", "версия — три числа, сборка «+n» или null — снять модуль");
     if (part === "*" && f.version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
     const want = (f.version ?? undefined) as string | undefined;
+    const also = { without: namesOf(f.without, "without"), checkWith: namesOf(f.check_with, "check_with") };
+    if (also.without.length + also.checkWith.length && f.latest !== true) throw new Refusal("bad_frame", "without и check_with — только вместе с latest: true");
     const kind = part === "*" ? undefined : (await this.partKinds()).get(part);
     const cat = part === "*" ? undefined : (await this.catalog()).get(part);
     // latest: корень и все его модули — на новейшие версии каталога одной сборкой: смена, которую нельзя выложить по модулю
@@ -374,7 +405,7 @@ class Releases {
       // у модуля — все приложения его into сразу, одной проверкой: смену контракта, общего для приложений, порознь не выложить
       const apps = kind?.app ? [part as string] : (cat?.manifest?.into ?? []);
       if (f.latest !== true || want !== undefined || !apps.length) throw new Refusal("bad_frame", "latest: true — только у корня сборки или модуля сборки и без version");
-      return this.rebuild(apps, { name: part as string, version: cat!.versions[cat!.versions.length - 1] }, by, true);
+      return this.rebuild(apps, { name: part as string, version: cat!.versions[cat!.versions.length - 1] }, by, true, also);
     }
     // модуль сборки: новая сборка каждого приложения из его into; version: null — сборки без него
     if (part !== "*" && !kind && cat?.manifest?.into?.length) {
@@ -459,15 +490,16 @@ class Releases {
   }
 
   /** Список приложения на новейших номерах: набор выложенной сборки и модули приложения, от которых он теперь зависит. Чужие модули каталога с into не входят. */
-  private async latestOf(app: string, cur: string | null, cat: Awaited<ReturnType<Releases["catalog"]>>): Promise<Map<string, string>> {
+  private async latestOf(app: string, cur: string | null, cat: Awaited<ReturnType<Releases["catalog"]>>, without: string[]): Promise<Map<string, string>> {
     const list = await this.listOf(app, cur);
+    for (const n of without) list.delete(n);
     const newest = (n: string) => cat.get(n)?.versions.at(-1);
     for (const n of list.keys()) list.set(n, newest(n) ?? list.get(n)!);
     for (let queue = [...list.keys()]; queue.length; ) {
       const n = queue.pop()!;
       for (const ref of Object.keys((await this.manifest(n, list.get(n)!))?.uses ?? {})) {
         const owner = ownerOf(ref);
-        if (list.has(owner) || !cat.get(owner)?.manifest?.into?.includes(app)) continue;
+        if (list.has(owner) || without.includes(owner) || !cat.get(owner)?.manifest?.into?.includes(app)) continue;
         list.set(owner, newest(owner)!);
         queue.push(owner);
       }
@@ -490,23 +522,33 @@ class Releases {
   /**
    * Новые сборки приложений apps: текущий список с заменой change, проверка набора флота — новые сборки, текущие
    * сборки остальных приложений, Worker'ы, приложения ОС и библиотеки каталога. Host — архив под именем флота, stable
-   * и планы машин; страница — тот же архив и версия её Worker'а со статикой, выложенная.
+   * и планы машин; страница — тот же архив и версия её Worker'а со статикой, выложенная. without — модули, которых
+   * больше нет в собираемых сборках; checkWith — приложения, которые проверяются на новейших списках, но не собираются:
+   * смена границы модулей выкладывается по частям, а проверяется как один набор.
    */
-  private async rebuild(apps: string[], change: { name: string; version: string | null }, by: string, latest = false): Promise<{ result: Deployed; plans: Frame[] }> {
+  private async rebuild(
+    apps: string[],
+    change: { name: string; version: string | null },
+    by: string,
+    latest = false,
+    { without, checkWith }: { without: string[]; checkWith: string[] } = { without: [], checkWith: [] },
+  ): Promise<{ result: Deployed; plans: Frame[] }> {
     const s = await this.load();
     const cat = await this.catalog();
     const kinds = await this.partKinds();
     if (change.version !== null && (!(await this.sha(change.name, change.version)) || !cat.has(change.name))) throw new Refusal("no_release", `у ${change.name} нет версии ${change.version}`);
     // списки всех приложений флота: собираемые — с заменой, остальные — как выложены
     const roots = [...kinds].filter(([, k]) => k.app).map(([p]) => p);
-    for (const app of apps) if (!roots.includes(app)) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
+    for (const app of [...apps, ...checkWith]) if (!roots.includes(app)) throw new Refusal("no_build", `${app} не собирается «Выпусками»: в каталоге нет его корня сборки`);
+    if (without.includes(change.name) || without.some((n) => roots.includes(n))) throw new Refusal("bad_frame", "without — модули сборки, не корень и не выкладываемая часть");
+    const checked = [...apps, ...checkWith];
     const t0 = Date.now();
     const cur = new Map<string, string | null>();
     const lists = new Map<string, Map<string, CatManifest>>();
     await Promise.all(
       roots.map(async (app) => {
         cur.set(app, await this.current(app, s));
-        const list = latest && apps.includes(app) ? await this.latestOf(app, cur.get(app)!, cat) : await this.listOf(app, cur.get(app)!);
+        const list = latest && checked.includes(app) ? await this.latestOf(app, cur.get(app)!, cat, without) : await this.listOf(app, cur.get(app)!);
         if (apps.includes(app)) {
           if (change.version === null) list.delete(change.name);
           else list.set(change.name, change.version);
@@ -518,7 +560,7 @@ class Releases {
     const inBuilds = new Set([...lists.values()].flatMap((l) => [...l.keys()]));
     // модуль во многих сборках (ядро страницы) — один раз: версии в сборках одного флота сверяются как одно имя
     const set = new Map<string, CatManifest>();
-    for (const l of lists.values()) for (const [n, m] of l) if (!set.has(n) || apps.some((a) => lists.get(a)!.get(n) === m)) set.set(n, m);
+    for (const l of lists.values()) for (const [n, m] of l) if (!set.has(n) || checked.some((a) => lists.get(a)!.get(n) === m)) set.set(n, m);
     // остальной флот: Worker'ы и библиотеки каталога; приложение ОС — только выложенное: в stable или в плане машины
     const placed = (p: string) => !!s.stable[p] || Object.values(s.plans).some((plan) => !!plan[p]);
     for (const [p, e] of cat) {
@@ -529,6 +571,7 @@ class Releases {
     const errors = check([...set.values()]);
     if (errors.length) throw new Refusal("check_failed", errors.join("; "));
 
+    const changed = `${change.name} ${change.version ?? "снят"}${without.length ? `; сняты ${without.join(", ")}` : ""}`;
     const result: Deployed = { parts: {} };
     const stable = { ...s.stable };
     const built: Array<[string, string]> = [];
@@ -563,7 +606,7 @@ class Releases {
       await this.env.BUCKET.put(this.shaOf(app, version), shaLine(sha256hex(tgz), version));
       if (k.where === "cloud") {
         await deploy(this.env, k.script, await publishStatic(this.env, k.script, files, version));
-        await this.journal(`${app} ${cur.get(app) ?? "—"} → ${version} (${change.name} ${change.version ?? "снят"})`, by);
+        await this.journal(`${app} ${cur.get(app) ?? "—"} → ${version} (${changed})`, by);
       } else {
         stable[app] = version;
         built.push([app, version]);
@@ -574,7 +617,7 @@ class Releases {
     const plans: Frame[] = [];
     if (built.length) {
       const rev = await this.save({ stable, plans: s.plans }, s.rev);
-      for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${change.name} ${change.version ?? "снят"})`, by);
+      for (const [app, v] of built) await this.journal(`${app} ${s.stable[app] ?? "—"} → ${v} (${changed})`, by);
       const next: Fleet = { stable, plans: s.plans, rev };
       for (const m of await this.machines()) {
         const plan = s.plans[m] ?? {};

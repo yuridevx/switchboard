@@ -163,14 +163,16 @@ export function createLink(d: {
       lk?.close(1000, "now");
       connect();
     },
-    /** Запрос кадром; связи нет — disconnected сразу. Начатый запрос держит уход с экрана до reply. */
-    async request(f: Frame): Promise<Result> {
+    /** Запрос кадром; связи нет — disconnected сразу. Начатый запрос держит уход с экрана до reply. read — только читает: предел 10 с. */
+    async request(f: Frame, read = false): Promise<Result> {
       if (!lk || state.get().conn !== "open") return { ok: false, error: "disconnected" };
-      const p = lk.request(f);
+      const p = lk.request(f, read);
       pending.add(p);
       const r = await p;
       pending.delete(p);
-      return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error };
+      if (r.ok) return { ok: true, result: r.result };
+      const why = (r as { why?: unknown }).why;
+      return { ok: false, error: r.error, ...(typeof why === "string" ? { why } : {}) };
     },
     /** Дождаться начатых запросов. */
     settle: () => Promise.all([...pending]),

@@ -161,6 +161,43 @@ describe("link · запросы", () => {
     expect(await small).toMatchObject({ ok: true });
   });
 
+  it("E1 · чтение молчит: read → timeout ровно на 10 с; запрос-действие ждёт дальше, до 120 с", async () => {
+    // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»
+    const { l } = opened({ pingMs: 1_000_000 });
+    let read = "", act = "";
+    void l.request({ type: "session.prompt", callsign: "site@laptop" }).then((x) => (act = (x as { error?: string }).error ?? "ok"));
+    void l.request({ type: "keeper.state", to: ".keeper@laptop" }, true).then((x) => (read = (x as { error?: string }).error ?? "ok"));
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(read).toBe("");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(read).toBe("timeout");
+    await vi.advanceTimersByTimeAsync(109_999);
+    expect(act).toBe("");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(act).toBe("timeout");
+  });
+
+  it("E1 · предел чтения не длиннее предела запроса: стенд с коротким requestMs не ждёт 10 с", async () => {
+    // чьё: код — requestMs стенда задаёт верхний предел любого запроса
+    const { l } = opened({ requestMs: 2_000 });
+    const r = l.request({ type: "keeper.state", to: ".keeper@laptop" }, true);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(await r).toMatchObject({ ok: false, error: "timeout" });
+  });
+
+  it("E5 · ответ на чтение пришёл на 11-й секунде: ждущий уже получил timeout, ответ ему не доходит", async () => {
+    // чьё: код — поздний ответ уходит в onFrame как ответ без ждущего
+    const { l, ws, frames } = opened();
+    const r = l.request({ type: "keeper.state", to: ".keeper@laptop" }, true);
+    const id = ws.json().id;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await r).toMatchObject({ ok: false, error: "timeout" });
+    await vi.advanceTimersByTimeAsync(1_000);
+    ws.recv({ type: "reply", id, ok: true, result: { late: true } });
+    expect(await r).toMatchObject({ ok: false, error: "timeout" });
+    expect(frames.filter((f) => f.type === "reply").map((f) => f.id)).toEqual([id]);
+  });
+
   it("3119 · ответ потерян в пути, связь жива — ждущий получает timeout за предел запроса; поздний ответ — в onFrame; другие запросы не задеты", async () => {
     // источник: слово пользователя «у всех операций должен быть лимит» (2 нояб.); факт — Host 1.1.56 висел в stopping на github.token без ответа
     const { l, ws, frames } = opened({ requestMs: 5_000 });

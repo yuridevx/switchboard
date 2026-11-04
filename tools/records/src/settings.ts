@@ -1,6 +1,6 @@
 // Цикл настроек над Worker'ом prefs — один на страницы и Host: правка читает свежие значения области, применяется поверх них и пишет свои ключи.
-// Правки одного цикла идут по одной; копии на диске нет. Запрос к службе передаёт тот, кто зовёт.
-export type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
+// Правки одного цикла идут по одной; копии на диске нет. Запрос к службе передаёт тот, кто зовёт: чтение и запись — двумя входами, у них разный предел.
+export type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
 export type Ask = <T = unknown>(name: string, body: Record<string, unknown>) => Promise<AskResult<T>>;
 
 export type Settings = {
@@ -18,7 +18,7 @@ export type Settings = {
 
 type Edit = { name: string; fn: (old: unknown) => unknown; done(word: string | null): void };
 
-export function settings(o: { ask: Ask; prefix: string; scope?: string; changed?: () => void }): Settings {
+export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: string; changed?: () => void }): Settings {
   const key = (section: string) => `${o.prefix}.${section}`;
   // только свои ключи: чужие разделы области этому циклу не приходят
   const asked = { prefix: `${o.prefix}.`, ...(o.scope ? { scope: o.scope } : {}) };
@@ -30,7 +30,7 @@ export function settings(o: { ask: Ask; prefix: string; scope?: string; changed?
   let running: Promise<void> | null = null;
 
   async function read(): Promise<string | null> {
-    const r = await o.ask<{ values: Record<string, unknown> }>("prefs.get", asked);
+    const r = await o.read<{ values: Record<string, unknown> }>("prefs.get", asked);
     if (r.ok) values = r.result.values;
     // связи нет — ответит следующее открытие; отказ службы — рисуем встроенное
     if (r.ok || r.error !== "disconnected") answered = true;
@@ -43,7 +43,7 @@ export function settings(o: { ask: Ask; prefix: string; scope?: string; changed?
     while (queue.length) {
       const batch = queue;
       queue = [];
-      const fresh = await o.ask<{ values: Record<string, unknown> }>("prefs.get", asked);
+      const fresh = await o.read<{ values: Record<string, unknown> }>("prefs.get", asked);
       if (!fresh.ok) {
         for (const e of batch) e.done(fresh.error);
         continue;

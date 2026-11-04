@@ -8,10 +8,13 @@ import { createStore } from "./store.ts";
 
 type AppLike = Pick<App, "roster" | "changed">;
 
-/** Ответ машины: данные или слово отказа. */
-export type MachineAnswer<T> = T | { error: string };
-/** Данные ответа; отказа и ответа ещё нет — undefined. */
-export const okOf = <T extends object>(a: MachineAnswer<T> | null | undefined): T | undefined => (a && !("error" in a) ? a : undefined);
+/** Ответ машины: данные или слово отказа; held — данные прошлого ответа, экран держит их рядом со словом. */
+export type MachineAnswer<T> = T | { error: string; held?: T };
+const refused = <T,>(a: MachineAnswer<T>): a is { error: string; held?: T } => typeof a === "object" && a !== null && "error" in a;
+/** Данные ответа, при отказе — прошлые; ответа ещё нет и прошлых нет — undefined. */
+export const okOf = <T,>(a: MachineAnswer<T> | null | undefined): T | undefined => (a === null || a === undefined ? undefined : refused(a) ? a.held : (a as T));
+/** Слово отказа; отказа нет — пусто. */
+export const wordOf = <T,>(a: MachineAnswer<T> | null | undefined): string => (a !== null && a !== undefined && refused(a) ? a.error : "");
 
 export type MachineAnswers<T> = {
   /** снимок ответов по машинам */
@@ -20,7 +23,7 @@ export type MachineAnswers<T> = {
   mount(): () => void;
   /** открыт ли экран */
   isOpen(): boolean;
-  /** on.link: машина вернулась, пришла или перезапустилась — её спросить; связь вернулась — спросить тех, кому не дошло */
+  /** on.link: машина вернулась, пришла или перезапустилась — её спросить; связь вернулась — спросить тех, кому не дошло или кто не ответил вовремя */
   onLink(state: ConnState, machine?: string): void;
   /** спросить одну машину заново; how — другой запрос вместо обычного (с другими полями) */
   reload(machine: string, how?: (machine: string) => Promise<Result<T>>): Promise<void>;
@@ -32,14 +35,26 @@ export type MachineAnswers<T> = {
 export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promise<Result<T>>, machines: () => string[] = () => machinesWith(app)): MachineAnswers<T> {
   const store = createStore<{ answers: Record<string, MachineAnswer<T>>; opened: number }>({ answers: {}, opened: 0 }, () => app.changed());
 
-  const put = (machine: string, value: MachineAnswer<T>) =>
+  /** последний вопрос к машине: ответ на прежний — уже не новость, опоздавший отказ не затирает свежие данные */
+  const turns = new Map<string, number>();
+  const next = (machine: string) => {
+    const turn = (turns.get(machine) ?? 0) + 1;
+    turns.set(machine, turn);
+    return turn;
+  };
+
+  const set = (machine: string, value: MachineAnswer<T>) =>
     store.set((s) => {
       (s.answers as Record<string, MachineAnswer<T>>)[machine] = value;
     });
 
   async function reload(machine: string, how = ask) {
+    const turn = next(machine);
     const r = await how(machine);
-    put(machine, r.ok ? r.result : { error: r.error });
+    if (turns.get(machine) !== turn) return;
+    if (r.ok) return set(machine, r.result);
+    const held = okOf(store.get().answers[machine] as MachineAnswer<T> | undefined);
+    set(machine, { error: r.error, ...(held ? { held } : {}) });
   }
 
   return {
@@ -53,10 +68,14 @@ export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promis
     isOpen: () => store.get().opened > 0,
     onLink(state, machine) {
       if (state !== "open" || !store.get().opened) return;
-      const lost = (m: string) => (store.get().answers[m] as { error?: string } | undefined)?.error === "disconnected";
+      // на мёртвом сокете чтение успевает получить timeout раньше обрыва
+      const lost = (m: string) => ["disconnected", "timeout"].includes(wordOf(store.get().answers[m] as MachineAnswer<T> | undefined));
       for (const m of machines()) if (machine ? m === machine : lost(m)) void reload(m);
     },
     reload,
-    put,
+    put(machine, value) {
+      next(machine);
+      set(machine, value);
+    },
   };
 }

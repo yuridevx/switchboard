@@ -29,8 +29,7 @@ check("непройденный вход не оставил аккаунт во
 const rm = await req({ type: "machine.account_remove", account: acc });
 check("machine.account_remove убирает папку пробного аккаунта", rm.ok || rm.error === "no_account", rm.ok ? rm.result : rm.error);
 
-const slots = await req({ type: "machine.slots" });
-check("machine.slots отвечает", slots.ok && typeof slots.result?.slots === "object", slots.result ?? slots.error);
+check("machine.accounts отвечает и слотами", list1.ok && typeof list1.result?.slots === "object", list1.result?.slots ?? list1.error);
 const set = await req({ type: "slot.set", slot: "probe-slot", order: ["nobody"] });
 check("slot.set с аккаунтом, которого нет, — отказ no_account", !set.ok && set.error === "no_account", set.error ?? set.result);
 l.close(1000, "done");

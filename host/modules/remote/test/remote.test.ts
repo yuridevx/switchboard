@@ -34,7 +34,7 @@ afterEach(async () => {
 type World = { who: Record<string, string>; claudeDir: string };
 /** Поддельный slots: все сессии — в слоте main, в нём who.main. */
 function slots(w: World): ReturnType<typeof stand.module> {
-  return stand.module("host-slots", { fields: { account: () => w.who.main } });
+  return stand.module("host-logins", { fields: { account: () => w.who.main } });
 }
 
 async function make(o: { machine?: string; holders?: stand.FakeHolders; home?: string; world?: World; extra?: Module } = {}) {
@@ -220,7 +220,7 @@ describe("remote", () => {
 /** Поддельный slots, который ломается по команде: поле account бросает — ядро выключает slots в сессии. */
 function flaky(w: World) {
   let broken = false;
-  const mod = stand.module("host-slots", {
+  const mod = stand.module("host-logins", {
     fields: {
       account: () => {
         if (broken) throw new Error("slots упал");

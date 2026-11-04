@@ -1,7 +1,7 @@
 // Покрытие плана: форма новой сессии (action-open-form) и журнал флота (action-journal-machine). Сценарии, которых не было в прежних тестах.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, joinedRoster, flush, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, pult, SLOTS } from "./stand.ts";
 
 type T = Awaited<ReturnType<typeof pult>>;
 
@@ -13,7 +13,7 @@ afterEach(() => vi.restoreAllMocks());
 
 function openRelay(r: Roster = fleetRoster()) {
   const relay = fleetRelay(r);
-  relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "a", wait: null, sessions: [] }, night: { account: "b", wait: null, sessions: [] } } } });
+  relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "a", wait: null, sessions: [] }, night: { account: "b", wait: null, sessions: [] } } } });
   relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high" } }, repos: {} } });
   relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: ["api", "site"] } });
   relay.handlers["session.open"] = (f) => ({ ok: true, result: { callsign: `${f.name}@${f.machine}` } });
@@ -84,13 +84,13 @@ describe("новая сессия: выбор", () => {
   it("6912 · slots и profiles отказали: слово в окне своего чипа; форма работает, запуск доступен", async () => {
     // источник: устав — отказ словом
     const relay = openRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: false, error: "offline" });
+    relay.handlers[SLOTS] = () => ({ ok: false, error: "offline" });
     relay.handlers["machine.profiles"] = () => ({ ok: false, error: "no_repo" });
     const t = await openScreen(relay);
     await t.click(t.$('[data-pop="prof"]'));
     expect(t.$(".op-pop")!.textContent).toContain("machine.profiles: no_repo");
     await t.click(chipModel(t));
-    expect(t.$(".op-pop")!.textContent).toContain("machine.slots: offline");
+    expect(t.$(".op-pop")!.textContent).toContain("machine.accounts: offline");
     await named(t, "a");
     await start(t);
     expect(relay.sent("session.open")).toEqual([expect.objectContaining({ machine: "laptop", name: "a" })]);
@@ -119,7 +119,7 @@ describe("новая сессия: выбор", () => {
   it("6918 · машина не умеет slots, profiles и r2: запросов нет, слов отказа нет, переключателя нет", async () => {
     // источник: факт — машина такого запроса не умеет: не спрашиваем, данных нет
     const r = fleetRoster();
-    for (const n of ["machine.slots", "machine.profiles", "session.r2"]) delete r.machines[0].contract![n];
+    for (const n of ["machine.accounts", "machine.profiles", "session.r2"]) delete r.machines[0].contract![n];
     const relay = openRelay(r);
     const t = await openScreen(relay);
     await t.click(t.$('[data-pop="prof"]'));
@@ -129,7 +129,7 @@ describe("новая сессия: выбор", () => {
     expect(t.$("[data-r2]")).toBeNull();
     await named(t, "a");
     await start(t);
-    expect(relay.sent("machine.slots")).toHaveLength(0);
+    expect(relay.sent("machine.accounts")).toHaveLength(0);
     expect(relay.sent("machine.profiles")).toHaveLength(0);
     expect(relay.sent("session.open")[0]).not.toHaveProperty("slot");
     expect(relay.sent("session.open")[0]).not.toHaveProperty("profile");
@@ -138,8 +138,8 @@ describe("новая сессия: выбор", () => {
   it("6922 · другая машина отказала: слоты и профиль прежней не показаны и не уходят в её session.open", async () => {
     // источник: факт — другая машина снова по умолчанию: выбранных там может не быть
     const relay = openRelay();
-    const of = relay.handlers["machine.slots"];
-    relay.handlers["machine.slots"] = (f) => (f.machine === "pc" ? { ok: false, error: "offline" } : of(f));
+    const of = relay.handlers[SLOTS];
+    relay.handlers[SLOTS] = (f) => (f.machine === "pc" ? { ok: false, error: "offline" } : of(f));
     const op = relay.handlers["machine.profiles"];
     relay.handlers["machine.profiles"] = (f) => (f.machine === "pc" ? { ok: false, error: "offline" } : op(f));
     const t = await openScreen(relay);
@@ -159,7 +159,7 @@ describe("новая сессия: выбор", () => {
     // источник: то же; окно между выбором машины и ответом
     const relay = openRelay();
     const t = await openScreen(relay);
-    relay.handlers["machine.slots"] = () => undefined;
+    relay.handlers[SLOTS] = () => undefined;
     await t.click(t.$('.op-bl [data-machine="pc"]'));
     await flush(5);
     await named(t, "a");

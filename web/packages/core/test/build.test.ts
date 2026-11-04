@@ -30,7 +30,8 @@ describe("сборка страницы", () => {
     expect(got!.application).toBe("pult");
     const scopeOf = async (scope?: Scope) => {
       const asked: Array<Record<string, unknown>> = [];
-      const p = personal({ application: got!.application, request: async (_n: string, body?: Record<string, unknown>) => (asked.push(body ?? {}), { ok: true, result: { values: {} } }) as never, toast: () => {} }, "x", () => {}, scope);
+      const ask = async (_n: string, body?: Record<string, unknown>) => (asked.push(body ?? {}), { ok: true, result: { values: {} } }) as never;
+      const p = personal({ application: got!.application, read: ask, request: ask, toast: () => {} }, "x", () => {}, scope);
       await p.onLink("open");
       return asked[0].scope;
     };

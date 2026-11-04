@@ -307,6 +307,36 @@ describe("маршрут и запросы", () => {
     expect(relay.sent("push.key")[0]).toMatchObject({ type: "push.key", v: 1, to: ".push" });
   });
 
+  it("E1 · страница: app.read молчит — timeout на 10 с; app.request в это время ждёт", async () => {
+    // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»
+    const relay = new FakeRelay(homeRoster());
+    relay.handlers["answer"] = () => undefined as never;
+    const { s } = await boot({ relay });
+    vi.useFakeTimers();
+    try {
+      let read = "", act = "";
+      void s.app.read("answer", { callsign: "profiles@laptop" }).then((r) => (read = r.ok ? "ok" : r.error));
+      void s.app.request("answer", { callsign: "profiles@laptop" }).then((r) => (act = r.ok ? "ok" : r.error));
+      await vi.advanceTimersByTimeAsync(9_999);
+      expect(read).toBe("");
+      await vi.advanceTimersByTimeAsync(1);
+      expect(read).toBe("timeout");
+      expect(act).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("E21 · страница: отказ с причиной доходит до модуля полем why, и у request, и у read", async () => {
+    // факт: так отвечают службы флота; нужно экрану, чтобы показать имя слота в отказе
+    const relay = new FakeRelay(homeRoster());
+    relay.handlers["answer"] = () => ({ ok: false, error: "no_reserve", why: "слот main: нет запаса" });
+    const { s } = await boot({ relay });
+    const want = { ok: false, error: "no_reserve", why: "слот main: нет запаса" };
+    expect(await s.app.request("answer", { callsign: "profiles@laptop" })).toEqual(want);
+    expect(await s.app.read("answer", { callsign: "profiles@laptop" })).toEqual(want);
+  });
+
   it("запрос к имени не из uses — ошибка модуля", async () => {
     const { s, run } = await boot();
     expect(await s.app.request("session.stop", { callsign: "site@laptop" })).toEqual({ ok: false, error: "module_error" });

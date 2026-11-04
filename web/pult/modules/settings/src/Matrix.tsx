@@ -2,9 +2,9 @@
 import { useState } from "react";
 import { Dot, In, Note, okOf, PageHead, plural, RowBtn, Sec, Switch, useApp } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { cellOf, type Listed, machineParts, relMachines } from "./rules.ts";
+import { cellOf, type KState, type Listed, machineParts, relMachines } from "./rules.ts";
 
-export function Matrix({ list, rm, pick }: { list: Listed; rm: string | null; pick(m: string | null): void }) {
+export function Matrix({ list, rm, pick }: { list: Listed | null; rm: string | null; pick(m: string | null): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(() => settings.releaseData(list));
@@ -35,8 +35,9 @@ export function Matrix({ list, rm, pick }: { list: Listed; rm: string | null; pi
             {ms.map((m) => {
               const st = d.kst[m];
               const online = d.online.includes(m);
-              const ok = okOf(st);
-              const tone = !online ? "stop" : st && !ok ? "wait" : parts.some((p) => cellOf(d, m, p)?.k === "fail") ? "wait" : "idle";
+              const ok = okOf<KState>(st);
+              const refused = st && "error" in st ? st.error : "";
+              const tone = !online ? "stop" : refused ? "wait" : parts.some((p) => cellOf(d, m, p)?.k === "fail") ? "wait" : "idle";
               return (
                 <tr key={m} data-machine={m} aria-current={rm === m ? "true" : undefined}>
                   <td>
@@ -65,7 +66,7 @@ export function Matrix({ list, rm, pick }: { list: Listed; rm: string | null; pi
                     );
                   })}
                   <td>
-                    <Note>{ok ? `rev ${ok.rev ?? 0}` : !online ? "не на связи" : st && "error" in st ? `keeper: ${st.error}` : "…"}</Note>
+                    <Note>{!online ? "не на связи" : refused ? `keeper: ${refused}` : ok ? `rev ${ok.rev ?? 0}` : "…"}</Note>
                   </td>
                 </tr>
               );

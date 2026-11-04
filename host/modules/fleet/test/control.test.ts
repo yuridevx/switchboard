@@ -30,7 +30,7 @@ afterEach(async () => {
 async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHolders; holdRoster?: boolean; withQuestions?: boolean } = {}) {
   const f = make();
   const dir = mkdtempSync(join(tmpdir(), "switchboard-fleet-"));
-  const slots = module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+  const slots = module("host-logins", { requests: { "session.slot": () => ({ restart: false }) }, fields: { slot: () => undefined } });
   const profiles = module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
   const relay = new FakeRelay();
   relay.holdRoster = !!o.holdRoster;
@@ -240,7 +240,7 @@ describe("эталоны: сессия ведёт другие сессии — 
     await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
     await until(() => st.proc("docs@win").inputs.length === 1);
     const r = await call("lead@win", "open", { name: "docs", dir, text: "Ещё раз" });
-    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — name_taken" }], isError: true });
+    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — name_taken. session.open: docs@win уже есть" }], isError: true });
     await new Promise((x) => setTimeout(x, 20));
     expect(st.proc("docs@win").inputs).toHaveLength(1);
     expect([...st.kernel.sessions.keys()].sort()).toEqual(["docs@win", "lead@win"]);
@@ -252,7 +252,7 @@ describe("эталоны: сессия ведёт другие сессии — 
     await st.open("lead@win");
     await call("lead@win", "open", { name: "docs", dir, text: "x" });
     const r = await call("lead@win", "update", { callsign: "docs@win", effort: "huge" });
-    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — bad_spec" }], isError: true });
+    expect(r).toEqual({ content: [{ type: "text", text: 'Не выполнено: docs@win — bad_spec. session.update docs@win: effort = "huge"' }], isError: true });
     expect(st.query("docs@win").calls.filter((c) => c.name === "applyFlagSettings" || c.name === "setModel")).toEqual([]);
   });
 
@@ -287,6 +287,21 @@ describe("эталоны: сессия ведёт другие сессии — 
     const lead = st.proc("lead@win");
     await until(() => lead.inputs.length === 1);
     expect(lead.inputs[0].message.content).toBe(wrap("docs@win", "ход кончился: error_during_execution"));
+  });
+
+  it("E14 · ход дочери: успех по типу и признак ошибки — родителю текст ошибки, а не «success»", async () => {
+    // источник: факт, отчёт об ошибке 4 нояб.: win1@hz-ex44-win-1 ответила «Not logged in», родитель получил «ход кончился: success»
+    const { st, call, dir } = await bench();
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir, text: "Обнови README" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    kid.send(msg.state("running"));
+    kid.send(msg.result({ subtype: "success", is_error: true, result: "Not logged in · Please run /login" }));
+    kid.send(msg.state("idle"));
+    const lead = st.proc("lead@win");
+    await until(() => lead.inputs.length === 1);
+    expect(lead.inputs[0].message.content).toBe(wrap("docs@win", "ход кончился ошибкой: Not logged in · Please run /login"));
   });
 
   it("331 · процесс дочери умер посреди хода — один resume, итога нет: родителю ничего", async () => {
@@ -350,7 +365,7 @@ describe("эталоны: сессия ведёт другие сессии — 
     await until(() => st.relay.frames("question")[0]);
     expect(await st.relay.request({ type: "answer", v: 1, callsign: "docs@win", question: "toolu_k2", answers: { "Какой README?": "в docs" }, from: "phone~owner@example.com" })).toMatchObject({ ok: true });
     const r = await call("lead@win", "answer", { to: "docs@win", question: "toolu_k2", answers: { "Какой README?": "корневой" } });
-    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — already_answered" }], isError: true });
+    expect(r).toEqual({ content: [{ type: "text", text: "Не выполнено: docs@win — already_answered. toolu_k2: на вопрос уже ответили" }], isError: true });
     expect(await asked).toMatchObject({ behavior: "allow", updatedInput: { answers: { "Какой README?": "в docs" } } });
     expect(st.relay.frames("answered")).toEqual([expect.objectContaining({ question: "toolu_k2", by: "phone~owner@example.com" })]);
   });
@@ -367,14 +382,14 @@ describe("fleet: покрытие плана host-modules — управлени
     expect(await o).toEqual({ content: [{ type: "text", text: "открыта: fix@wsl, но задача не доставлена — offline" }], isError: true });
   });
 
-  it("3026 · history и remove сессии, которой нет на этой машине, — module_error текстом; chat и manage живы", async () => {
-    // источник: чьё: код (kernel.ts:492-506 «сбой владельца — отказ module_error, а не выключение модуля»; fleet.ts:39)
+  it("3026 · history и remove сессии, которой нет на этой машине, — offline текстом; chat и manage живы", async () => {
+    // источник: дизайн «Предел чтений и слоты», E20: запрос о сессии, которой нет, — offline, обработчик не вызван
     const f = make();
     const dir = mkdtempSync(join(tmpdir(), "switchboard-fleet-"));
     const st = await standHost({
       machine: "win",
       modules: [
-        module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }),
+        module("host-logins", { requests: { "session.slot": () => ({ restart: false }) }, fields: { slot: () => undefined } }),
         module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } }),
         { manifest: json("chat"), module: makeChat() },
         { manifest: manageManifest, module: manage({ home: dir }) },
@@ -386,8 +401,8 @@ describe("fleet: покрытие плана host-modules — управлени
       (await f.tools(me).find((x) => x.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }>; isError?: boolean };
     await st.open("lead@win");
     await st.open("docs@win");
-    expect(await call("lead@win", "history", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не выполнено: nope@win — module_error" }], isError: true });
-    expect(await call("lead@win", "remove", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не выполнено: nope@win — module_error" }], isError: true });
+    expect(await call("lead@win", "history", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не доставлено: nope@win не на связи (offline)" }], isError: true });
+    expect(await call("lead@win", "remove", { callsign: "nope@win" })).toEqual({ content: [{ type: "text", text: "Не доставлено: nope@win не на связи (offline)" }], isError: true });
     st.sdk.functions = { getSessionInfo: async () => ({}), importSessionToStore: async () => {}, getSessionMessages: async () => [{ type: "user", uuid: "u1", message: { content: "привет" } }] };
     expect((await call("lead@win", "history", { callsign: "docs@win" })).content[0].text).toBe("user: привет");
     expect((await call("lead@win", "remove", { callsign: "docs@win" })).content[0].text).toBe("закрыта: docs@win");

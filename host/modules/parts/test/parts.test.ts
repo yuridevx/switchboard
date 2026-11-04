@@ -21,7 +21,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-type Answer = (f: Frame) => Record<string, unknown> | undefined;
+/** ответ; null — молчать; undefined — ответа у теста нет: список машин отвечает сам */
+type Answer = (f: Frame) => Record<string, unknown> | undefined | null;
 
 /** Host машины laptop с модулем parts; serve отвечает на запросы, ушедшие в relay. Журнал машины — поддельный модуль. */
 async function bench(serve: Answer) {
@@ -38,7 +39,9 @@ async function bench(serve: Answer) {
     recv(ws, text);
     const f = JSON.parse(text) as Frame;
     if (f.type === "hello" || f.type === "reply" || typeof f.id !== "string") return;
-    const r = serve(f);
+    // список машин — у gate; тест может ответить сам
+    const got = serve(f);
+    const r = got === null ? undefined : (got ?? (f.type === "keys.list" ? { ok: true, result: { passes: MACHINES.map((name) => ({ name })) } } : undefined));
     if (r) queueMicrotask(() => st.relay.deliver({ type: "reply", id: f.id as string, from: f.to ?? "x", ...r } as Frame));
   };
   const call = async (name: string, args: Record<string, unknown>, cwd = tmpdir()) => {
@@ -49,6 +52,7 @@ async function bench(serve: Answer) {
   return { st, call };
 }
 
+const MACHINES = ["pc2", "laptop"];
 const LISTED = {
   parts: { host: { where: "machine", edge: "1.1.58", stable: "1.1.57" }, capture: { where: "machine", edge: "1.5.0", stable: "1.4.0" } },
   machines: [
@@ -75,11 +79,9 @@ describe("эталоны parts", () => {
         { machine: "laptop", error: "offline" },
       ],
     });
-    expect(st.relay.sent.filter((f) => f.id).map((f) => [f.type, f.to])).toEqual([
-      ["releases.list", ".releases"],
-      ["keeper.state", ".keeper@pc2"],
-      ["keeper.state", ".keeper@laptop"],
-    ]);
+    const asked = st.relay.sent.filter((f) => f.id).map((f) => `${f.type} ${f.to}`);
+    expect(asked[0]).toBe("keys.list .gate");
+    expect(asked.slice(1).sort()).toEqual(["keeper.state .keeper@laptop", "keeper.state .keeper@pc2", "releases.list .releases"]);
   });
 
   it("2 · upload: модуль по module.json — две ссылки от «выпусков», архив и его хэш строкой sha256sum; без module.json — отказ без запроса", async () => {
@@ -198,12 +200,79 @@ describe("эталоны parts", () => {
 });
 
 describe("parts: покрытие плана host-modules", () => {
-  it("3073 · list: «выпуски» отказали — текст ошибки, keeper не спрашивали", async () => {
-    // источник: чьё: код (parts.ts:19, :35)
-    const { st, call } = await bench((f) => (f.type === "releases.list" ? { ok: false, error: "no_access" } : undefined));
+  const STATE = { keeper: "1.1.5", rev: 47, os: "linux", parts: [{ part: "host", version: "1.2.23", state: "running" }] };
+  const EIGHT = ["base1", "base2", "hz-ex44-1", "hz-ex44-2", "hz-ex44-win-1", "hz-win11", "rog-win-pro", "rog-wsl"];
+  const passes = (names: string[]) => ({ ok: true, result: { passes: names.map((name) => ({ name })) } });
+
+  it("3073 · list: «выпуски» отказали — машины с данными и слово вместо частей", async () => {
+    // источник: слово пользователя: таймаутить конкретную машину и отдавать результат частично
+    const { call } = await bench((f) => {
+      if (f.type === "releases.list") return { ok: false, error: "no_access" };
+      if (f.type === "keeper.state") return { ok: true, result: STATE };
+    });
     const r = await call("list", {});
-    expect([r.isError, r.text]).toEqual([true, "releases.list: no_access"]);
-    expect(st.relay.sent.filter((f) => f.type === "keeper.state")).toEqual([]);
+    expect(r.isError).toBeUndefined();
+    expect(r.json()).toEqual({ error: "каталог отказал (no_access): edge, stable и закрепления неизвестны", machines: MACHINES.map((machine) => ({ machine, ...STATE })) });
+  });
+
+  it("E4 · 8 машин, одна молчит: 7 с данными, у одной error: timeout, ответ через 10 с после списка машин", async () => {
+    // источник: слово пользователя: «таймаутить нужно конкретную машину а не весь запрос и отдавать результат частично»
+    const { call } = await bench((f) => {
+      if (f.type === "keys.list") return passes(EIGHT);
+      if (f.type === "releases.list") return { ok: true, result: { parts: LISTED.parts, machines: EIGHT.map((machine) => ({ machine, plan: {} })), rev: 47 } };
+      if (f.type === "keeper.state" && f.to !== ".keeper@base1") return { ok: true, result: STATE };
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      let done = false;
+      const pending = call("list", {}).finally(() => (done = true));
+      await vi.advanceTimersByTimeAsync(9_900);
+      expect(done).toBe(false);
+      await vi.advanceTimersByTimeAsync(200);
+      const r = await pending;
+      const got = r.json();
+      expect(got.parts).toEqual(LISTED.parts);
+      expect(got.machines.find((m: { machine: string }) => m.machine === "base1")).toEqual({ machine: "base1", error: "timeout" });
+      expect(got.machines.filter((m: { error?: string }) => !m.error)).toHaveLength(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("E25 · каталог молчит, 8 машин отвечают: { error, machines } без ключа частей", async () => {
+    // источник: слово пользователя: частичный результат; находка архитектора: parts: { error } читалось бы как часть с именем error
+    const { call } = await bench((f) => {
+      if (f.type === "keys.list") return passes(EIGHT);
+      if (f.type === "keeper.state") return { ok: true, result: STATE };
+    });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = call("list", {});
+      await vi.advanceTimersByTimeAsync(10_100);
+      const r = await pending;
+      const got = r.json();
+      expect(got).not.toHaveProperty("parts");
+      expect(got.error).toBe("каталог не ответил за 10 с: edge, stable и закрепления неизвестны");
+      expect(got.machines.map((m: { machine: string }) => m.machine)).toEqual(EIGHT);
+      expect(got.machines.every((m: { keeper?: string }) => m.keeper === "1.1.5")).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("E26 · служба пропусков молчит: через 10 с слово, каталог и keeper не спрашивали", async () => {
+    // источник: устав: ошибка словом; находка архитектора: каталог сам зовёт gate, частичного ответа без него не будет
+    const { st, call } = await bench((f) => (f.type === "keys.list" ? null : { ok: true, result: {} }));
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const pending = call("list", {});
+      await vi.advanceTimersByTimeAsync(10_100);
+      const r = await pending;
+      expect([r.isError, r.text]).toEqual([true, "список машин неизвестен: keys.list — timeout"]);
+      expect(st.relay.sent.filter((f) => f.type === "releases.list" || f.type === "keeper.state")).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("3074 · upload: releases.upload отказал; R2 ответил 403 — текст ошибки", async () => {

@@ -1,8 +1,8 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
-import type { AccountsAnswer, ModelInfo, SlotsAnswer } from "@switchboard/web-ui";
+import type { AccountsAnswer, ModelInfo } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/web-core";
 import { useEffect } from "react";
-import { Btn, EFFORTS, incidentOf, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, RowBtn, slotOf, useApp } from "@switchboard/web-ui";
+import { Btn, EFFORTS, incidentOf, isLive, LIMIT_NAMES, LimitRow, MODELS, Note, profileNameOf, remoteOf, RowBtn, slotOf, useApp } from "@switchboard/web-ui";
 
 /** Строка «подпись — значение» списка сведений. */
 export function Kv({ k, v }: { k: string; v: string }) {
@@ -43,7 +43,7 @@ export function ModelPop({ s, callsign, update }: { s: SessionRecord; callsign: 
   );
 }
 
-export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s: SessionRecord; machine: string; accounts: AccountsAnswer["accounts"] | null; slots: SlotsAnswer["slots"] | null; canSlot: boolean; changeSlot(): void }) {
+export function AccPop({ s, machine, accounts, slots, word, canSlot, changeSlot }: { s: SessionRecord; machine: string; accounts: AccountsAnswer["accounts"] | null; slots: AccountsAnswer["slots"] | null; word: string; canSlot: boolean; changeSlot(): void }) {
   const name = String(s.account ?? "");
   const a = accounts?.[name];
   const sl = slotOf(s);
@@ -54,6 +54,7 @@ export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s
         <Kv k="аккаунт" v={[a?.email ?? name, a?.plan].filter(Boolean).join(" · ")} />
         {sl?.name ? <Kv k="слот" v={`${sl.name} @${machine}`} /> : null}
       </dl>
+      {word && !accounts ? <Note tone="bad" data-refused="acc">{word}</Note> : null}
       {Object.entries(a?.limits ?? {}).map(([k, w]) => (
         <LimitRow key={k} className="cw-win" data-win={k} label={LIMIT_NAMES[k] ?? k} used={w.utilization} resets={w.resetsAt} />
       ))}

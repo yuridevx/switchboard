@@ -1,5 +1,6 @@
 // Модуль parts: сервер MCP parts в каждой сессии — выпуски флота из разговора. Шесть инструментов на все части:
-// list, upload, fetch, deploy, set, log. Зовёт «выпуски», keeper'ов машин и журнал машины; больше ничего. Хранить нечего.
+// list, upload, fetch, deploy, set, log. Зовёт «выпуски», gate, keeper'ов машин и журнал машины; больше ничего. Хранить нечего.
+// list отвечает частично: у каталога и каждой машины свой предел чтения, опоздавший не держит остальных.
 // Ответы не ждут выхода процессов: итог видно в list и журнале флота.
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve, join } from "node:path";
@@ -13,6 +14,7 @@ import type { FetchReply, UploadReply } from "@switchboard/release";
 type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean };
 type PlanEntry = { pin?: string };
 type Listed = { parts: Record<string, unknown>; machines: Array<{ machine: string; plan: Record<string, PlanEntry> }>; rev: number };
+type Passes = { passes: Array<{ name: string }> };
 type KeeperState = { keeper: string; rev: number; os: string; parts: Array<{ part: string; [k: string]: unknown }> };
 
 const text = (t: string, isError = false): Text => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
@@ -23,28 +25,34 @@ export function make() {
   let host: Host;
 
   const ask = (name: string, payload: Record<string, unknown>) => host.request(name, { ...payload });
+  const read = (name: string, payload: Record<string, unknown>) => host.read(name, { ...payload });
 
   /** Инструменты сервера MCP одной сессии: папка upload — от рабочей папки сессии. */
   function tools(cwd: string): SdkMcpToolDefinition<any>[] {
     return [
       tool(
         "list",
-        "Части флота и машины одним ответом: у частей — edge (новейшая версия) и stable (выложенная), где живут (machine или cloud); у машин — что реально стоит и работает по ответу их keeper, даже когда Host мёртв. keeper не ответил — у машины error. part — только эта часть.",
+        "Части флота и машины одним ответом: у частей — edge (новейшая версия) и stable (выложенная), где живут (machine или cloud); у машин — что реально стоит и работает по ответу их keeper, даже когда Host мёртв. error: timeout у машины значит: она не ответила, остальные верны, повтори вызов. Каталог не ответил — вместо parts стоит error, машины показаны без закреплений. part — только эта часть.",
         { part: z.string().optional().describe("имя части: host, keeper, relay, приложение") },
         async ({ part }) => {
-          const r = await ask("releases.list", part ? { part } : {});
-          if (!r.ok) return failed("releases.list", r);
-          const l = r.result as Listed;
-          const machines = await Promise.all(
-            l.machines.map(async ({ machine, plan }) => {
-              const s = await ask("keeper.state", { to: `.keeper@${machine}` });
-              if (!s.ok) return { machine, error: s.error };
-              const st = s.result as KeeperState;
-              const parts = st.parts.filter((p) => !part || p.part === part).map((p) => (plan[p.part]?.pin ? { ...p, pin: plan[p.part].pin } : p));
-              return { machine, keeper: st.keeper, rev: st.rev, os: st.os, parts };
-            }),
-          );
-          return json({ parts: l.parts, machines });
+          // список машин — у того, кто его знает; без него спрашивать некого
+          const who = await read("keys.list", { role: "host" });
+          if (!who.ok) return text(`список машин неизвестен: keys.list — ${who.error}`, true);
+          const names = (who.result as Passes).passes.map((p) => p.name);
+          // каталог и машины разом: у каждого свой предел, опоздавший не держит остальных
+          const [listed, states] = await Promise.all([read("releases.list", part ? { part } : {}), Promise.all(names.map((machine) => read("keeper.state", { to: `.keeper@${machine}` })))]);
+          const l = listed.ok ? (listed.result as Listed) : null;
+          const machines = names.map((machine, i) => {
+            const s = states[i];
+            if (!s.ok) return { machine, error: s.error };
+            const st = s.result as KeeperState;
+            const plan = l?.machines.find((x) => x.machine === machine)?.plan ?? {};
+            const parts = st.parts.filter((p) => !part || p.part === part).map((p) => (plan[p.part]?.pin ? { ...p, pin: plan[p.part].pin } : p));
+            return { machine, keeper: st.keeper, rev: st.rev, os: st.os, parts };
+          });
+          if (l) return json({ parts: l.parts, machines });
+          const word = (listed as Result & { ok: false }).error;
+          return json({ error: word === "timeout" ? "каталог не ответил за 10 с: edge, stable и закрепления неизвестны" : `каталог отказал (${word}): edge, stable и закрепления неизвестны`, machines });
         },
       ),
       tool(
@@ -68,7 +76,7 @@ export function make() {
               version,
               data,
               fetch,
-              async () => (await ask("releases.fetch", { part, version })) as FetchReply,
+              async () => (await read("releases.fetch", { part, version })) as FetchReply,
             );
             return json({ part, version, bytes: data.length, sha256: r.sha256, ...(r.done === "same" ? { same: true } : {}) });
           } catch (e) {
@@ -85,7 +93,7 @@ export function make() {
           dir: z.string().describe("корень репо; относительный — от рабочей папки сессии"),
         },
         async ({ part, version, dir }, extra) => {
-          const r = await ask("releases.fetch", { part, ...(version ? { version } : {}) });
+          const r = await read("releases.fetch", { part, ...(version ? { version } : {}) });
           if (!r.ok) return failed("releases.fetch", r);
           const got = r.result as { version: string; url: string };
           // предел скачивания — как у загрузки; сессия прервала ход — отмена
@@ -150,7 +158,7 @@ export function make() {
           limit: z.number().int().positive().optional().describe("сколько строк, по умолчанию 50"),
         },
         async ({ machine, part, since, limit }) => {
-          const r = await ask("machine.journal", { machine, part, since: since ?? new Date(Date.now() - 3600_000).toISOString(), limit: limit ?? 50 });
+          const r = await read("machine.journal", { machine, part, since: since ?? new Date(Date.now() - 3600_000).toISOString(), limit: limit ?? 50 });
           return r.ok ? json(r.result) : failed("machine.journal", r);
         },
       ),

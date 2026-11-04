@@ -2,7 +2,7 @@
 import type { ProfilesAnswer } from "@switchboard/web-ui";
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { CommitIn, Outcome, profileIdOf, profileName, useMachineLoad, useApp, useOutcome, slotOf, Btn } from "@switchboard/web-ui";
+import { CommitIn, Note, Outcome, profileIdOf, profileName, useMachineLoad, useApp, useOutcome, slotOf, Btn } from "@switchboard/web-ui";
 import { useSessionActions } from "./hooks.ts";
 import { isDown, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
@@ -47,13 +47,17 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
       {can("session.profile") ? (
         <div className="cw-fs" data-sec="profile">
           <span className="lb">Профиль</span>
-          <div className="cw-opts flat">
-            {[...profileList, ""].map((p) => (
-              <Btn key={p} aria-pressed={profNow === p ? "true" : "false"} data-profile={p} onClick={() => (p === profNow ? null : void move("session.profile", p || null))}>
-                {p ? profileName(p) : "без профиля"}
-              </Btn>
-            ))}
-          </div>
+          {profiles.error && !profiles.data ? (
+            <Note tone="bad" data-refused="profile">{`${profNow ? `${profileName(profNow)} · ` : ""}${profiles.error}`}</Note>
+          ) : (
+            <div className="cw-opts flat">
+              {[...profileList, ""].map((p) => (
+                <Btn key={p} aria-pressed={profNow === p ? "true" : "false"} data-profile={p} onClick={() => (p === profNow ? null : void move("session.profile", p || null))}>
+                  {p ? profileName(p) : "без профиля"}
+                </Btn>
+              ))}
+            </div>
+          )}
           <Outcome className="cw-note" note={notes.profile} />
         </div>
       ) : null}
@@ -68,20 +72,28 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
       {can("session.update") ? (
         <div className="cw-fs" data-sec="title">
           <span className="lb">Заголовок</span>
-          <CommitIn className="cw-in" data-f="title" placeholder="Заголовок в claude.ai" value={spec.data?.title ?? ""} onCommit={(v) => void saveTitle(v)} />
+          {spec.error && !spec.data ? (
+            <Note tone="bad" data-refused="title">{spec.error}</Note>
+          ) : (
+            <CommitIn className="cw-in" data-f="title" placeholder="Заголовок в claude.ai" value={spec.data?.title ?? ""} onCommit={(v) => void saveTitle(v)} />
+          )}
           <Outcome className="cw-note" note={notes.title} />
         </div>
       ) : null}
       {can("session.slot") ? (
         <div className="cw-fs" data-sec="slot">
           <span className="lb">Слот</span>
-          <div className="cw-opts flat">
-            {[...Object.keys(data.slots ?? (slotNow ? { [slotNow]: 1 } : {})), ""].map((v) => (
-              <Btn key={v} aria-pressed={slotNow === v ? "true" : "false"} data-slot={v} onClick={() => (v === slotNow ? null : void move("session.slot", v || null))}>
-                {v || "без слота"}
-              </Btn>
-            ))}
-          </div>
+          {data.word && !data.slots ? (
+            <Note tone="bad" data-refused="slot">{`${slotNow ? `${slotNow} · ` : ""}${data.word}`}</Note>
+          ) : (
+            <div className="cw-opts flat">
+              {[...Object.keys(data.slots ?? (slotNow ? { [slotNow]: 1 } : {})), ""].map((v) => (
+                <Btn key={v} aria-pressed={slotNow === v ? "true" : "false"} data-slot={v} onClick={() => (v === slotNow ? null : void move("session.slot", v || null))}>
+                  {v || "без слота"}
+                </Btn>
+              ))}
+            </div>
+          )}
           <Outcome className="cw-note" note={notes.slot} />
         </div>
       ) : null}

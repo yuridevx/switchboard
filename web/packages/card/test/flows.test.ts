@@ -17,7 +17,7 @@ const parts = () => [
 ];
 
 /** Имена Host, которыми пользуется карточка пульта. */
-const CARD = ["session.update", "session.spec", "session.call", "session.remove", "session.slot", "machine.slots", "session.profile", "machine.profiles", "machine.accounts", "machine.journal"];
+const CARD = ["session.update", "session.spec", "session.call", "session.remove", "session.slot", "session.profile", "machine.profiles", "machine.accounts", "machine.journal"];
 
 /** Флот home с контрактом машины без names (по умолчанию — со всеми именами карточки). */
 function roster(without: string[] = [], tweak: (r: Roster) => void = () => {}): Roster {
@@ -155,8 +155,7 @@ describe("карточка в широком виде", () => {
     const reset = Math.floor(new Date(2026, 10, 2, 16, 40).getTime() / 1000);
     const r = roster([], (x) => Object.assign(x.sessions[0], { slot: { name: "night", wait: reset } }));
     const relay = relayFor(r);
-    relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "night@mail", plan: "Max 5×", limits: { five_hour: { utilization: 0.98, resetsAt: reset } } } } } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { night: { account: "y0902", order: ["y0902", "spare"], wait: reset, sessions: ["site@laptop"] } } } });
+    relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "night@mail", plan: "Max 5×", limits: { five_hour: { utilization: 0.98, resetsAt: reset } } } }, slots: { night: { account: "y0902", order: ["y0902", "spare"], wait: reset, sessions: ["site@laptop"] } } } });
     const t = await wideCard("site@laptop", r, relay);
     const b = t.$('[data-pop="acc"]')!;
     expect(b.textContent).toBe("y0902 · ждёт сброса 16:40 ▾");
@@ -296,7 +295,7 @@ describe("настройки карточки", () => {
   it("5307 · профиль и слот — чипами (session.profile, session.slot), отказ — «Не вышло: слово»; «Убрать…» — подтверждение, session.remove", async () => {
     const relay = relayFor(roster());
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": {}, "team/profiles/writer": {} } } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"] }, bot: { account: "work3", order: ["work3"] } } } });
+    relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: {}, slots: { main: { account: "y0902", order: ["y0902"] }, bot: { account: "work3", order: ["work3"] } } } });
     relay.handlers["session.profile"] = () => ({ ok: false, error: "no_profile" });
     relay.handlers["session.slot"] = () => ({ ok: true, result: { restart: true } });
     relay.handlers["session.remove"] = () => ({ ok: true });

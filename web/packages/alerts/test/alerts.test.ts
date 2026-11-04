@@ -170,6 +170,10 @@ describe("предел обработчика пушей", () => {
         calls.push(name);
         return { ok: true, result: { key: "AAAA" } };
       },
+      read: async (name: string) => {
+        calls.push(name);
+        return { ok: true, result: { key: "AAAA" } };
+      },
     };
     const store = createAlertsStore(app as never, browser);
     await store.start();

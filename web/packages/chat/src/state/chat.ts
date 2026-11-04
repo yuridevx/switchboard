@@ -117,7 +117,7 @@ export function createChatStore(app: App) {
       c.watching = false;
     });
     if (can(cs, "session.watch")) {
-      const r = await app.request("session.watch", { callsign: cs });
+      const r = await app.read("session.watch", { callsign: cs });
       edit(cs, (c) => {
         c.refused = r.ok ? undefined : `session.watch: ${r.error}`;
         if (r.ok) {
@@ -137,7 +137,7 @@ export function createChatStore(app: App) {
   async function unwatch(cs: string) {
     if (!read(cs).watching) return;
     edit(cs, (c) => void (c.watching = false));
-    await app.request("session.unwatch", { callsign: cs });
+    await app.read("session.unwatch", { callsign: cs });
   }
 
   async function saveDrafts() {
@@ -152,8 +152,13 @@ export function createChatStore(app: App) {
 
   const setMine = (cs: string, id: string, change: (it: UserItem) => void) => fold(cs, (f) => editMine(f, id, change));
 
-  /** Метод query() сессии как есть: отказ словом для человека достаётся вызывающему. */
+  /** Метод query() сессии, который только читает: предел чтения. Отказ словом для человека достаётся вызывающему. */
   const ask = async <T,>(cs: string, method: string, args: unknown[] = []) => {
+    const r = (await app.read<T>("session.call", { callsign: cs, method, args })) as Result<T>;
+    return r.ok ? r : { ...r, error: refusalText(cs, r.error) };
+  };
+  /** Метод query() сессии, который меняет её или идёт долго: вопрос сбоку, откат, снятие из очереди. */
+  const act = async <T,>(cs: string, method: string, args: unknown[] = []) => {
     const r = (await app.request<T>("session.call", { callsign: cs, method, args })) as Result<T>;
     return r.ok ? r : { ...r, error: refusalText(cs, r.error) };
   };
@@ -306,7 +311,7 @@ export function createChatStore(app: App) {
     },
     /** Снять своё сообщение из очереди: снято — пузыря нет, текст и вложения обратно в поле; Claude уже взял — пузырь остаётся. */
     async unqueue(cs: string, id: string, text: string) {
-      const r = await ask<boolean>(cs, "cancelAsyncMessage", [id]);
+      const r = await act<boolean>(cs, "cancelAsyncMessage", [id]);
       if (!r.ok) return app.toast(`${cs}: cancelAsyncMessage — ${r.error}`);
       if (!r.result) return app.toast("Claude уже взял это сообщение");
       giveBack(cs, id, text, [...(read(cs).held[id] ?? [])]);
@@ -315,7 +320,7 @@ export function createChatStore(app: App) {
     async askSide(cs: string, q: string) {
       const id = uuid();
       edit(cs, (c) => void c.sides.push({ id, q }));
-      const r = await ask<{ response?: string | null } | null>(cs, "askSideQuestion", [q]);
+      const r = await act<{ response?: string | null } | null>(cs, "askSideQuestion", [q]);
       edit(cs, (c) => {
         const s = c.sides.find((x) => x.id === id);
         if (!s) return;
@@ -328,7 +333,7 @@ export function createChatStore(app: App) {
     inTurn,
     /** Перечитать плагины: команды спросятся заново. */
     async reloadPlugins(cs: string) {
-      const r = await ask(cs, "reloadPlugins");
+      const r = await act(cs, "reloadPlugins");
       if (!r.ok) return app.toast(`${cs}: reloadPlugins — ${r.error}`);
       edit(cs, (c) => void (c.commands = undefined));
     },
@@ -356,7 +361,7 @@ export function createChatStore(app: App) {
       });
     },
     /** Файлы папки сессии для «@». */
-    files: (cs: string, query: string) => app.request<string[]>("session.files", { callsign: cs, query, limit: 20 }),
+    files: (cs: string, query: string) => app.read<string[]>("session.files", { callsign: cs, query, limit: 20 }),
 
     // ───── лента ─────
     /** Более ранняя страница истории. */
@@ -375,9 +380,9 @@ export function createChatStore(app: App) {
     toggleFocus: (cs: string) => edit(cs, (c) => void (c.focus = !c.focus)),
     exportMd: (cs: string) => exportMarkdown(read(cs).feed, cs),
 
-    /** Метод query() сессии; отказ — тост словом. Возврат — ответ или undefined. */
+    /** Действие методом query() сессии; отказ — тост словом. Возврат — ответ или undefined. */
     async call<T = unknown>(cs: string, method: string, args: unknown[] = []): Promise<T | undefined> {
-      const r = await ask<T>(cs, method, args);
+      const r = await act<T>(cs, method, args);
       if (r.ok) return r.result;
       app.toast(`${cs}: ${method} — ${r.error}`);
       return undefined;
@@ -397,7 +402,7 @@ export function createChatStore(app: App) {
       });
     },
     async applyRewind(cs: string, id: string) {
-      const r = await ask(cs, "rewindFiles", [id]);
+      const r = await act(cs, "rewindFiles", [id]);
       edit(cs, (c) => void (c.rewind = { uuid: id, text: r.ok ? "Файлы откачены к этому сообщению." : `Не откатилось: ${r.error}`, tone: r.ok ? "ok" : "bad", ready: false }));
     },
     cancelRewind: (cs: string) => edit(cs, (c) => void (c.rewind = undefined)),

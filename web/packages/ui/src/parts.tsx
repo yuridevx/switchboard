@@ -1,7 +1,7 @@
 // Компоненты набора: один компонент — один класс основания. Лишние свойства (data-*, aria-*, обработчики) идут на элемент.
 import { useRef, useState, type ComponentProps, type ReactNode } from "react";
 import type { OutcomeNote } from "./hooks.ts";
-import { at, LIMIT_BAD, LIMIT_WARN, type Tone } from "./format.ts";
+import { at, LIMIT_BAD, LIMIT_WARN, slotWait, type Tone } from "./format.ts";
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
 
@@ -48,6 +48,33 @@ export function Chips({ quiet, className, ...p }: ComponentProps<"div"> & { quie
 /** Чип выбора: on — выбран. */
 export function Chip({ on, className, ...p }: ComponentProps<"button"> & { on: boolean }) {
   return <button {...p} className={cx("sb-chip", className)} aria-pressed={on ? "true" : "false"} />;
+}
+
+/**
+ * Строка выбора слота: при двух слотах и больше. Отмеченный считает slotChoice; один слот — только подпись, если он ждёт сброса.
+ * Один компонент на форму новой сессии и окна подъёма точки.
+ */
+export function SlotPick({ slots, value, on, label = "Слот" }: { slots: Record<string, { wait: number | null }>; value: string; on(slot: string): void; label?: string }) {
+  const list = Object.entries(slots);
+  if (list.length < 2) {
+    const wait = slotWait(slots);
+    return wait ? (
+      <Note tone="wait" data-slot-wait="">
+        {`Слот ${wait}`}
+      </Note>
+    ) : null;
+  }
+  return (
+    <Row label={label} data-slot-pick="">
+      <Chips>
+        {list.map(([n, s]) => (
+          <Chip key={n} on={value === n} data-slot={n} onClick={() => on(n)}>
+            {s.wait ? `${n} · ждёт сброса ${at(s.wait)}` : n}
+          </Chip>
+        ))}
+      </Chips>
+    </Row>
+  );
 }
 
 /** Вкладки: tabs — [ключ, подпись]; вид — у className места. */

@@ -18,6 +18,9 @@ export function say(w: string, cs = "", target = "", src = ""): string {
     not_r2: "Сессия не в R2",
     running: "Сессия ещё идёт — сначала точка со стопом",
     name_taken: "Имя занято на этой машине",
+    slot_required: "Выберите слот",
+    no_slot: `Такого слота нет на ${target || "машине"}`,
+    not_logged_in: "В слоте нет вошедшего аккаунта",
   };
   return t[w] ?? linkText(w);
 }

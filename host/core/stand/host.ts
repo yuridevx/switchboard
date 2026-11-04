@@ -85,7 +85,7 @@ export type Stand = {
   /** сессия глазами модуля */
   session(module: string, callsign: string): Session | undefined;
   /** host.open от имени модуля */
-  open(callsign: string, o?: { module?: string; cwd?: string }): Promise<Session>;
+  open(callsign: string, o?: { module?: string; cwd?: string; opening?: Record<string, unknown>; mkdir?: boolean }): Promise<Session>;
   /** процесс сессии у держателя */
   proc(callsign: string): FakeProc;
   /** нынешний query() сессии */
@@ -179,7 +179,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
       return st.host(name).session(callsign);
     },
     async open(callsign, oo = {}) {
-      const s = await kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", callsign.split("@")[0]) });
+      const s = await kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", callsign.split("@")[0]), ...(oo.opening ? { opening: oo.opening } : {}), ...(oo.mkdir ? { mkdir: true } : {}) });
       const m = oo.module ? kernel.byName.get(oo.module) : undefined;
       return s.facade(m ?? standMod);
     },

@@ -94,6 +94,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
               machine={machine}
               accounts={data.accounts}
               slots={data.slots}
+              word={data.word}
               canSlot={can("session.slot")}
               changeSlot={() => {
                 setPop("");

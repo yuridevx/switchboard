@@ -166,7 +166,7 @@ describe("служебный обработчик", () => {
 });
 
 describe("предел разрешения и подписки", () => {
-  const app = { changed() {}, toast() {}, deliver() {}, store: () => ({ update: async () => [] }), request: async () => ({ ok: true, result: { key: "AQAB" } }) } as never;
+  const app = { changed() {}, toast() {}, deliver() {}, store: () => ({ update: async () => [] }), request: async () => ({ ok: true, result: { key: "AQAB" } }), read: async () => ({ ok: true, result: { key: "AQAB" } }) } as never;
 
   it("7287 · браузер молчит: разрешение — кнопка снова доступна; подписка — отказ словом, не вечное «включаю»", async () => {
     // источник: устав — у всех операций лимит; отчёт архитектора, мерка 3

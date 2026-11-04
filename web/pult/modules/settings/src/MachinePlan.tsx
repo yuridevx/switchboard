@@ -2,10 +2,10 @@
 import { useState } from "react";
 import { Btn, In, M, Note, Opts, Outcome, type OutcomeNote, PageHead, type Result, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { cellOf, type Listed, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
+import { cellOf, type KState, type Listed, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
 
 /** Часть в плане машины. Введённая версия живёт в поле. */
-function PlanPart({ list, m, p, done }: { list: Listed; m: string; p: string; done(r: Result<string>): void }) {
+function PlanPart({ list, m, p, done }: { list: Listed | null; m: string; p: string; done(r: Result<string>): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(() => settings.releaseData(list));
@@ -58,7 +58,7 @@ function PlanPart({ list, m, p, done }: { list: Listed; m: string; p: string; do
   );
 }
 
-export function MachinePlan({ list, m, close, note, done }: { list: Listed; m: string; close(): void; note?: OutcomeNote; done(r: Result<string>): void }) {
+export function MachinePlan({ list, m, close, note, done }: { list: Listed | null; m: string; close(): void; note?: OutcomeNote; done(r: Result<string>): void }) {
   const app = useApp();
   const settings = useSettings();
   const d = app.use(() => settings.releaseData(list));
@@ -69,12 +69,12 @@ export function MachinePlan({ list, m, close, note, done }: { list: Listed; m: s
         <M className="st-grow">
           <b>{`@${m}`}</b>
         </M>
-        {okOf(st)?.os ? <Note>{okOf(st)!.os}</Note> : null}
+        {okOf<KState>(st)?.os ? <Note>{okOf<KState>(st)!.os}</Note> : null}
         <Btn aria-label="Закрыть" onClick={close}>
           ✕
         </Btn>
       </PageHead>
-      <Note>{`план rev ${okOf(st) ? (okOf(st)!.rev ?? 0) : "—"}${d.online.includes(m) ? "" : " · не на связи"}`}</Note>
+      <Note>{`план rev ${okOf<KState>(st) ? (okOf<KState>(st)!.rev ?? 0) : "—"}${d.online.includes(m) ? "" : " · не на связи"}`}</Note>
       {machineParts(d)
         .filter((p) => cellOf(d, m, p))
         .map((p) => (

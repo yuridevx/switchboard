@@ -1,7 +1,7 @@
 {
   "name": "pult-points",
   "type": "web",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "into": [
     "pult"
   ],
@@ -23,7 +23,7 @@
     "session.r2@host-points": 1,
     "session.remove@host-manage": 1,
     "points.raise@host-points": 1,
-    "machine.slots@host-slots": 1,
+    "machine.accounts@host-logins": 1,
     "machines.left@pult-machines": 1,
     "machines.left.read@pult-machines": 1,
     "card.tab@web-card": 1,

@@ -43,7 +43,7 @@ function useLedger(machine: string) {
     const r = app.roster();
     return `${app.link()}|${(r?.machines ?? []).map((m) => `${m.machine}:${m.since}`).join()}|${(r?.sessions ?? []).map((s) => s.callsign).join()}`;
   });
-  const q = useLoad<Answer>(() => app.request<Answer>("ledger.read", evs.length ? { ...body, after: Math.max(...evs.map((e) => e.id)) } : body), [machine], crew);
+  const q = useLoad<Answer>(() => app.read<Answer>("ledger.read", evs.length ? { ...body, after: Math.max(...evs.map((e) => e.id)) } : body), [machine], crew);
   // ответ вливается в записи при рисовании: новые сверху, без повторов
   if (q.data && q.data !== merged) {
     const fresh = q.data;
@@ -54,7 +54,7 @@ function useLedger(machine: string) {
     setEvs([...fresh.events.filter((e) => !ids.has(e.id)), ...evs].sort((a, b) => b.id - a.id));
   }
   async function older() {
-    const r = await app.request<Answer>("ledger.read", { ...body, before: Math.min(...evs.map((e) => e.id)) });
+    const r = await app.read<Answer>("ledger.read", { ...body, before: Math.min(...evs.map((e) => e.id)) });
     if (!r.ok) return setOlderRefused(r.error);
     setOlderRefused("");
     setEvs((old) => [...old, ...r.result.events]);

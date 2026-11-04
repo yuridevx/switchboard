@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { isLive, profileNameOf, remoteOf, useApp, useMachineLoad, Btn, LinkBtn } from "@switchboard/web-ui";
+import { isLive, Note, profileNameOf, remoteOf, useApp, useMachineLoad, Btn, LinkBtn } from "@switchboard/web-ui";
 import type { Mcp } from "./session.ts";
 import { Kv } from "./WidePops.tsx";
 
@@ -20,6 +20,8 @@ function useMcp(callsign: string, live: boolean) {
   }
   return {
     list: Array.isArray(q.data) ? q.data : null,
+    /** отказ чтения: блок серверов на месте, вместо списка — слово */
+    word: q.error,
     toggleMcp: (m: Mcp) => change("toggleMcpServer", [m.name, m.status === "disabled"]),
     reconnectMcp: (m: Mcp) => change("reconnectMcpServer", [m.name]),
     /** Вход сервера MCP: адрес страницы входа. Окно после ответа запроса браузер блокирует: страницу открывает ссылка. */
@@ -69,7 +71,7 @@ function McpRow({ m, toggleMcp, reconnectMcp, loginMcp }: McpActs & { m: Mcp }) 
 
 export function WideAside({ callsign, s }: { callsign: string; s: SessionRecord | undefined }) {
   const app = useApp();
-  const { list: mcp, toggleMcp, reconnectMcp, loginMcp } = useMcp(callsign, isLive(s?.state));
+  const { list: mcp, word: mcpWord, toggleMcp, reconnectMcp, loginMcp } = useMcp(callsign, isLive(s?.state));
   const kids = app.use(() => (app.roster()?.sessions ?? []).filter((x) => x.parent === callsign).map((x) => x.callsign));
   const remote = remoteOf(s);
   const from = typeof s?.by === "string" ? s.by : "";
@@ -105,10 +107,11 @@ export function WideAside({ callsign, s }: { callsign: string; s: SessionRecord 
               </dl>
             </div>
           ) : null}
-          {mcp?.length ? (
-            <div>
+          {mcp?.length || mcpWord ? (
+            <div data-sec="mcp">
               <h4>Серверы MCP</h4>
-              {mcp.map((m) => (
+              {mcpWord ? <Note tone="bad" data-refused="mcp">{mcpWord}</Note> : null}
+              {(mcp ?? []).map((m) => (
                 <McpRow key={m.name} m={m} toggleMcp={toggleMcp} reconnectMcp={reconnectMcp} loginMcp={loginMcp} />
               ))}
             </div>

@@ -21,6 +21,7 @@ beforeEach(() => {
   process.env.SWITCHBOARD_HOME = home;
 });
 afterEach(async () => {
+  chosen.clear();
   await st?.close();
   st = null;
   vi.useRealTimers();
@@ -86,13 +87,15 @@ async function bench(o: { git: Git; manage?: Module }) {
       module("host-manage", o.manage ?? {}, { uses: { "session.profile@host-profiles": 1 } }),
     ],
   });
+  const open = st.open.bind(st);
+  st.open = (cs, oo = {}) => open(cs, { ...oo, ...(chosen.has(cs) ? { opening: { profile: chosen.get(cs) } } : {}) });
   return { st, mod };
 }
 
-/** session.profile до открытия сессии: ядро сейчас отвечает offline на запрос к сессии, которой нет, — зовём обработчик модуля. */
-async function preOpen(mod: Module, callsign: string, profile: string | null) {
-  const ctx = { host: st!.host("host-profiles"), from: "@laptop", signal: new AbortController().signal };
-  return mod.requests!["session.profile"]({ type: "session.profile", v: 1, callsign, profile }, ctx);
+/** Профиль следующего открытия этой сессии: st.open стенда передаст его запросом открытия. */
+const chosen = new Map<string, string | null>();
+function preOpen(_mod: Module, callsign: string, profile: string | null) {
+  chosen.set(callsign, profile);
 }
 
 const ask = async (f: Record<string, unknown>) => (await st!.relay.request({ v: 1, machine: "laptop", ...f } as Frame)) as Frame & { ok: boolean; result: any; error?: string };
@@ -102,7 +105,7 @@ describe("эталоны profiles", () => {
   it("172 · профиль ops: append из CLAUDE.md, settings из profile.yaml и свой путь памяти; модель клиента — опцией manage", async () => {
     repo();
     const { mod } = await bench({ git: fakeGit().git, manage: { session: (s) => (s.info.callsign === "two@laptop" ? { model: "sonnet" } : undefined) } });
-    expect(await preOpen(mod, "site@laptop", OPS)).toEqual({ restart: false });
+    preOpen(mod, "site@laptop", OPS);
     await st!.open("site@laptop");
     const o = st!.query("site@laptop").options as Record<string, any>;
     expect(o.systemPrompt.append).toContain("Ты ведёшь эксплуатацию.");
@@ -367,18 +370,6 @@ describe("profiles: покрытие плана host-modules", () => {
     p.send(stand.msg.state("idle"));
     await until(() => st!.sdk.of("site@laptop").length === 2);
     expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
-  });
-
-  it("3059 · профиль неоткрытой сессии переживает перезапуск Host", async () => {
-    // источник: слово пользователя (устав: «после перезапуска Host модуль поднимает своё из хранилища»)
-    repo();
-    const a = await bench({ git: fakeGit().git });
-    await preOpen(a.mod, "n@laptop", OPS);
-    await st!.close();
-    st = null;
-    await bench({ git: fakeGit().git });
-    await st!.open("n@laptop");
-    expect(st!.proc("n@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
   });
 
   it("5606 · machine.profiles: about из profile.yaml; нет строки — поля нет; сессий в ответе нет", async () => {

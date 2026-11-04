@@ -45,7 +45,19 @@ export type Fetched = { version: string; url: string };
  * Модуль сборки (into) — новая сборка каждого его приложения: текущий список + модуль, проверка набора флота
  * (check_failed с причинами); latest: true у модуля — то же для всех приложений его into разом, одной проверкой; у корня — набор выложенной сборки и его новые зависимости на новейших версиях, одной сборкой; корень сборки с версией каталога — сборка с этим ядром, со сборкой «+n» — откат на неё.
  */
-export type ReleasesDeploy = { type: "releases.deploy"; id: string; v?: 1; to: ".releases"; part: string; version?: string; latest?: true };
+export type ReleasesDeploy = {
+  type: "releases.deploy";
+  id: string;
+  v?: 1;
+  to: ".releases";
+  part: string;
+  version?: string;
+  latest?: true;
+  /** только с latest: модули, которые уходят из собираемых сборок */
+  without?: string[];
+  /** только с latest: приложения, которые проверяются на новейших списках, но не собираются и не выкладываются */
+  check_with?: string[];
+};
 export type Deployed = { parts: Record<string, { from: string | null; to: string }> };
 
 /** releases.set — единственная правка плана машины. pin: null — снять. У keeper — только pin. */

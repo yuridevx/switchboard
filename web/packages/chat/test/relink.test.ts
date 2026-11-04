@@ -110,3 +110,27 @@ it("7241 · прежний Host отказал подписке, новый пр
   await flush(10);
   expect(relay.sent("session.watch").length - was).toBe(2);
 });
+
+it("E6 · открытие разговора: подписка молчит — через 10 с слово, история спрошена и ждёт ответа дальше 10 с", async () => {
+  // источник: слово пользователя 4 нояб.; дизайн: подписка — чтение, история — содержимое, предел 120 с
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+  try {
+    const relay = new FakeRelay(homeRoster());
+    relay.handlers["session.watch"] = () => undefined as never;
+    relay.handlers["session.history"] = () => undefined as never;
+    relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    const t = await stand(parts(), { relay, url: `/#chat?callsign=${encodeURIComponent("site@laptop")}` });
+    await flush();
+    expect(relay.sent("session.watch")).toHaveLength(1);
+    expect(relay.sent("session.history")).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(10_500);
+    await flush();
+    expect(relay.sent("session.history")).toHaveLength(1);
+    expect(t.text()).toContain("session.watch: timeout");
+    await vi.advanceTimersByTimeAsync(30_000);
+    await flush();
+    expect(t.text()).not.toContain("session.history: timeout");
+  } finally {
+    vi.useRealTimers();
+  }
+});

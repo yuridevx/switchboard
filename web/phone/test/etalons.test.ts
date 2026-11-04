@@ -66,7 +66,6 @@ describe("эталоны телефона", () => {
     for (const m of r.machines) m.contract = { ...m.contract, "session.open": 1, "machine.dirs": 1 };
     const relay = homeRelay(r);
     relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: ["src"] } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: {} } });
     const t = await stand(phoneParts(fakeBrowser()), { relay, url: "/#open" });
     await flush(5);

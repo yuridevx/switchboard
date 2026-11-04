@@ -4,7 +4,7 @@ import { settings } from "@switchboard/records";
 import type { App, ConnState } from "./app.ts";
 
 /** Что цикл настроек берёт у app модуля. */
-type AppLike = Pick<App, "application" | "request" | "toast">;
+type AppLike = Pick<App, "application" | "read" | "request" | "toast">;
 
 export type Scope = "user" | "global" | "app";
 
@@ -24,6 +24,7 @@ export type Personal = {
 export function personal(app: AppLike, prefix: string, changed: () => void, scope: Scope = "user"): Personal {
   const s = settings({
     ask: <T,>(name: string, body: Record<string, unknown>) => app.request<T>(name, body),
+    read: <T,>(name: string, body: Record<string, unknown>) => app.read<T>(name, body),
     prefix,
     scope: scope === "user" ? undefined : scope === "global" ? "global" : `app:${app.application ?? ""}`,
     changed,

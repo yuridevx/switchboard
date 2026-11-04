@@ -19,8 +19,8 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
   const [notes, say] = useOutcome();
 
   // машина из адреса может прийти позже первого roster: выбрать её, пока человек не выбрал другую
-  const fromAddress = app.use(() => (params.machine && app.can(params.machine, "machine.slots") ? params.machine : ""));
-  const first = app.use(() => store.machines("machine.slots")[0] ?? "");
+  const fromAddress = app.use(() => (params.machine && app.can(params.machine, "machine.accounts") ? params.machine : ""));
+  const first = app.use(() => store.machines("machine.accounts")[0] ?? "");
   const slotMachine = picked ?? (fromAddress || first);
 
   const proj = app.use(() => app.mark("project.current"));
@@ -53,8 +53,9 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
       moveSessions: (m: string, list: string[], target: string) => void store.moveSessions(m, list, target).then(put(`move:${m}`)),
       remove: (m: string, account: string, next: string) => {
         const k = `rm:${m}:${account}`;
+        say(k, "Удаляю…");
         void store
-          .remove(m, account, next, (step) => say(k, step))
+          .remove(m, account, next)
           .then((r) => {
             if (r.ok) setDlg(null);
             put(k)(r);

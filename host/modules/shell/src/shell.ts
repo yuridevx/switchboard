@@ -109,6 +109,7 @@ function failed(machine: string, run: string | null, r: Result & { ok: false }):
     disconnected: `связь с машиной ${machine} оборвалась, пока ход ждал; если её Host жив — итог отдаст wait по run`,
     shutting_down: `Host машины ${machine} останавливается и новых запросов не берёт`,
     unknown_request: `на машине ${machine} нет модуля shell`,
+    timeout: run ? `запуск ${run} мог начаться, смотри wait по run` : `машина ${machine} не ответила за 10 с, повтори`,
   };
   return textResult(`${r.error}: ${why[r.error] ?? "отказ"}`, true);
 }
@@ -273,7 +274,7 @@ export function make() {
     const machine = z.string().describe("машина флота: win, wsl…; своя тоже");
     return [
       tool("info", "Какие шеллы есть на машине: версия и путь. Список машин и их ОС — mcp__parts__list.", { machine }, async (a) => {
-        const r = await call("shell.info", { machine: a.machine });
+        const r = await host.read("shell.info", { machine: a.machine });
         return r.ok ? textResult(JSON.stringify((r.result as { shells: unknown }).shells, null, 1)) : failed(a.machine, null, r);
       }),
       tool(

@@ -9,7 +9,7 @@ import type { Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stand } from "@switchboard/host";
+import { refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, rule, wrap } from "../src/incidents.ts";
@@ -73,7 +73,7 @@ const said = (p: stand.FakeProc, i = 0) => {
 };
 
 /** Host win: incidents с типами disk-full, build-red, nodir (папки нет), noprof (профиля нет). */
-async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number; start?: boolean } = {}) {
+async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number; start?: boolean; slots?: string[] } = {}) {
   const port = o.port ?? (await freePort());
   const work = mkdtempSync(join(tmpdir(), "switchboard-incidents-"));
   const st = await standHost({
@@ -91,12 +91,23 @@ async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: num
             "build-red": { profile: "you/profiles/ci", dir: work },
             nodir: { dir: join(work, "нет") },
             noprof: { profile: "you/profiles/missing", dir: work },
+            named: { dir: work, slot: "bot" },
+            plain: { dir: work },
           },
         },
       },
     },
     modules: [
-      module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } }),
+      // правило слота — у настоящего модуля; здесь только то, что инциденты передают и получают
+      module("host-logins", {
+        fields: { slot: (s) => { const n = s.store<{ slot?: string }>().get()?.slot; return n ? { name: n } : undefined; } },
+        opening(s, req) {
+          const list = o.slots ?? [];
+          if (typeof req.slot === "string") return s.store<{ slot: string }>().set({ slot: req.slot });
+          if (list.length > 1) throw refuse("slot_required", `Слоты машины: ${list.join(", ")}`);
+          if (list.length === 1) s.store<{ slot: string }>().set({ slot: list[0] });
+        },
+      }),
       { manifest: json("profiles"), module: makeProfiles({ git: async () => ({ code: 0, out: "" }) }) },
       { manifest: json("watch"), module: makeWatch() },
       { manifest: json("push"), module: makePush() },
@@ -270,6 +281,24 @@ describe("эталоны incidents: ожидаемые ветки", () => {
     const q = await until(() => st.holders.procs.get("disk-full-1@win"));
     await until(() => q.inputs.length === 1);
     expect(q.inputs[0].uuid).toBe(r.body.id);
+  });
+
+  it("E17 · инцидент открывает сессию тем же запросом: 1 слот — в нём; слот в настройке типа — в названном; 2 слота без настройки — отказ в журнале, обращение ждёт; тип и ключ пришли запросом открытия", async () => {
+    // источник: факт — инциденты открывают сессии тем же запросом (находка архитектора: иначе обращения стояли бы навсегда)
+    const one = await bench({ slots: ["main"], home: mkdtempSync(join(tmpdir(), "switchboard-incidents-")) });
+    const a = await one.post({ type: "plain", key: "k1", text: "x" });
+    expect(a.status).toBe(202);
+    await until(() => one.st.kernel.sessions.get("plain-1@win")?.state === "idle");
+    expect(one.st.states("plain-1@win").at(-1)).toMatchObject({ incident: { type: "plain", key: "k1" }, slot: { name: "main" } });
+    const two = await bench({ slots: ["main", "bot"], home: mkdtempSync(join(tmpdir(), "switchboard-incidents-")) });
+    await two.post({ type: "named", text: "x" });
+    await until(() => two.st.kernel.sessions.get("named-1@win")?.state === "idle");
+    expect(two.st.states("named-1@win").at(-1)).toMatchObject({ incident: { type: "named" }, slot: { name: "bot" } });
+    const b = await two.post({ type: "plain", text: "x" });
+    const why = await until(() => two.st.journal().find((l) => l.ev === "incident" && l.kind === "refuse" && l.id === b.body.id));
+    expect(why).toMatchObject({ word: "slot_required" });
+    expect(two.st.kernel.sessions.has("plain-1@win")).toBe(false);
+    expect(two.disk().some((x) => x.id === b.body.id)).toBe(true);
   });
 
   it("340 · папки типа нет — отказ bad_dir; профиля типа нет — no_profile; POST оба 202, сессий нет, причина в журнале, обращения ждут на диске", async () => {

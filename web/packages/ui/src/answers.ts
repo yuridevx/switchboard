@@ -3,13 +3,10 @@
 
 /** Окно лимита аккаунта: как прислал accounts машины. */
 export type AccountWindow = { utilization: number; resetsAt?: number; at?: number; src?: string };
-export type AccountInfo = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, AccountWindow>; err?: string };
-/** Ответ machine.accounts. */
-export type AccountsAnswer = { accounts: Record<string, AccountInfo> };
-
+export type AccountInfo = { login: "ok" | "none" | "pending"; email?: string; plan?: string; checked?: number; limits?: Record<string, AccountWindow> };
 export type SlotInfo = { account: string | null; order: string[]; wait: number | null; sessions: string[] };
-/** Ответ machine.slots. */
-export type SlotsAnswer = { slots: Record<string, SlotInfo> };
+/** Ответ machine.accounts: аккаунты и слоты машины. Прежний Host слотов не присылает. */
+export type AccountsAnswer = { accounts: Record<string, AccountInfo>; slots?: Record<string, SlotInfo> };
 
 export type ProfileInfo = { model?: string | null; effort?: string | null; about?: string };
 export type ProfileRepo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };

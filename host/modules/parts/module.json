@@ -1,7 +1,7 @@
 {
   "name": "host-parts",
   "type": "sdk",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "into": ["host"],
   "provides": {},
   "uses": {
@@ -11,6 +11,7 @@
     "releases.fetch@releases": 1,
     "releases.deploy@releases": 1,
     "releases.set@releases": 1,
+    "keys.list@gate": 1,
     "keeper.state@keeper": 1,
     "machine.journal@host-journal": 2,
     "release.format@release": 1

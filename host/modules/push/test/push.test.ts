@@ -121,7 +121,7 @@ describe("push: юнит", () => {
   it("notify без frame — bad_frame", async () => {
     const s = await bench();
     const r = await s.host("host-questions").request("notify", { v: 1, clients: ["phone~owner@example.com"] });
-    expect(r).toEqual({ ok: false, error: "bad_frame" });
+    expect(r).toMatchObject({ ok: false, error: "bad_frame" });
   });
 
   it("roster ещё не пришёл: notify отвечает pushed пуст", async () => {

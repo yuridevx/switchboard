@@ -4,7 +4,7 @@ import type { App, SessionRecord } from "@switchboard/web-core";
 import type {} from "@switchboard/web-board";
 import type {} from "../../machines/contract.ts";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, machinesWith, sessionOf, type SlotsAnswer, useModule } from "@switchboard/web-ui";
+import { type AccountsAnswer, createStore, machinesWith, sessionOf, type SlotInfo, useModule } from "@switchboard/web-ui";
 
 export type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
 export type Fleet = { sessions: FleetSession[]; r2: { bytes: number; blocks: number }; sweep: { at: number; blocks: number; bytes: number } | null };
@@ -14,6 +14,7 @@ export type Line = { owner: string | null; head: number | null; points: LPoint[]
 export type Full = { id: number; last?: unknown[] };
 export type Check = { folder: string; files?: number; branch?: string | null; sessions?: string[] };
 export type CheckResult = Check | { error: string };
+export type Slots = Record<string, SlotInfo>;
 
 type State = {
   fleet: Fleet | null;
@@ -40,7 +41,7 @@ export function createPointsStore(app: App) {
   const onlineMachines = () => new Set(machinesWith(app));
 
   async function readRegistry() {
-    const r = await app.request<Fleet>("points.list", {});
+    const r = await app.read<Fleet>("points.list", {});
     store.set((s) => {
       if (r.ok) s.fleet = r.result;
       s.fleetRefused = r.ok ? "" : r.error;
@@ -61,8 +62,14 @@ export function createPointsStore(app: App) {
 
   /** Проверка подъёма: что будет с папкой на целевой машине. */
   async function dry(m: string, sid: string, point: number, dir: string): Promise<CheckResult> {
-    const r = await app.request<Check>("points.raise", { machine: m, sid, point, dir, files: "point", dryRun: true });
+    const r = await app.read<Check>("points.raise", { machine: m, sid, point, dir, files: "point", dryRun: true });
     return r.ok ? r.result : { error: r.error };
+  }
+
+  async function slotsAt(m: string): Promise<{ slots: Slots } | { error: string }> {
+    if (!app.can(m, "machine.accounts")) return { slots: {} };
+    const r = await app.read<AccountsAnswer>("machine.accounts", { machine: m });
+    return r.ok ? { slots: r.result.slots ?? {} } : { error: `machine.accounts: ${r.error}` };
   }
 
   return {
@@ -99,7 +106,7 @@ export function createPointsStore(app: App) {
     },
     /** Линия сессии и первые слова её последних точек. Возврат — слово отказа. */
     async loadLine(sid: string) {
-      const r = await app.request<Line>("points.list", { sid });
+      const r = await app.read<Line>("points.list", { sid });
       if (r.ok) store.set((s) => void (s.lines[sid] = r.result));
       let word = r.ok ? "" : `points.list: ${r.error}`;
       // первые слова — поле last точек на экране; машина для этого не нужна
@@ -109,7 +116,7 @@ export function createPointsStore(app: App) {
         .map((p) => p.id)
         .filter((id) => !known[id]);
       if (ids.length) {
-        const g = await app.request<{ points: Full[] }>("points.get", { ids });
+        const g = await app.read<{ points: Full[] }>("points.get", { ids });
         if (g.ok) {
           store.set((s) => {
             for (const p of g.result.points) s.full[p.id] = p;
@@ -143,14 +150,13 @@ export function createPointsStore(app: App) {
     },
     forget: (callsign: string) => app.request("session.remove", { callsign }),
     dry,
-    /** Что будет на целевой машине: её слоты и проверка папки каждого подъёма. Отказ слотов — словом проверки: без него подъём ушёл бы без слота, на вход машины. */
-    async probe(m: string, raises: Array<{ sid: string; point: number | null | undefined; dir: string }>): Promise<{ slots: string[] | null; checks: CheckResult[] }> {
-      let slots: string[] = [];
-      if (app.can(m, "machine.slots")) {
-        const r = await app.request<SlotsAnswer>("machine.slots", { machine: m });
-        if (!r.ok) return { slots: null, checks: raises.map(() => ({ error: `machine.slots: ${r.error}` })) };
-        slots = Object.keys(r.result.slots ?? {});
-      }
+    /** Слоты машины: в ответе аккаунтов, без опроса окон. Отказ — словом: подъём без списка ждёт, отказ машины пришёл бы после раскладки файлов. */
+    slotsAt,
+    /** Что будет на целевой машине: её слоты и проверка папки каждого подъёма. */
+    async probe(m: string, raises: Array<{ sid: string; point: number | null | undefined; dir: string }>): Promise<{ slots: Slots | null; checks: CheckResult[] }> {
+      const got = await slotsAt(m);
+      if ("error" in got) return { slots: null, checks: raises.map(() => ({ error: got.error })) };
+      const slots = got.slots;
       const checks = await Promise.all(raises.map((x) => (typeof x.point === "number" ? dry(m, x.sid, x.point, x.dir) : { error: "bad_point" })));
       return { slots, checks };
     },

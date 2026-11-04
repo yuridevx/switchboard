@@ -1,7 +1,7 @@
 // Клиент флота: соединение с relay каждой машины, кадр — по адресу, к Worker'у — POST напрямую.
 // Машины — из keys.list у gate; машина, которую клиент ещё не знает, видна гостем @машина в roster любого объекта.
 // Им пользуются Host, keeper, страницы и программы; Node 24 и браузер.
-import { fail, kindOf, machineOf, hostOf, type Frame, type Reply } from "@switchboard/protocol";
+import { CALL_MS, READ_MS, fail, kindOf, machineOf, hostOf, type Frame, type Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
 import { link, type Link, type LinkState, type WsCtor } from "./link.ts";
 
@@ -23,7 +23,7 @@ export type FleetOptions = {
   onState?: (machine: string, state: LinkState, why?: string, retryAt?: number) => void;
   /** кадр без ожидания к Worker'у не дошёл: слово отказа — держатель пишет его в свой журнал */
   onLost?: (f: Frame, word: string) => void;
-  /** предел запроса, мс — и к relay, и к Worker'у. По умолчанию 120 000 */
+  /** предел запроса, мс — и к relay, и к Worker'у. По умолчанию CALL_MS */
   requestMs?: number;
   pingMs?: number;
   pauseMs?: number;
@@ -41,8 +41,8 @@ export interface FleetClient {
   readonly addr: string | null;
   /** соединения по машинам */
   links(): ReadonlyMap<string, Link>;
-  /** Запрос по адресу: машина — в её соединение, Worker — POST. Не бросает: отказ — reply { ok: false, error }. */
-  request(f: Frame): Promise<Reply>;
+  /** Запрос по адресу: машина — в её соединение, Worker — POST. Не бросает: отказ — reply { ok: false, error }. read — только читает: предел READ_MS. */
+  request(f: Frame, read?: boolean): Promise<Reply>;
   /** Кадр без ожидания ответа по тем же правилам. */
   send(f: Frame): { ok: true } | { ok: false; error: string };
   /** Штатная остановка: ждущие — disconnected на всех соединениях и запросах к Worker'ам, переподключений нет. */
@@ -58,7 +58,7 @@ export const relayWs = (workers: Record<string, string>): string => (workers.rel
 export function fleet(o: FleetOptions): FleetClient {
   const relay = relayWs(o.workers);
   const doFetch = o.fetch ?? fetch;
-  const requestMs = o.requestMs ?? 120_000;
+  const requestMs = o.requestMs ?? CALL_MS;
   const firstPause = o.pauseMs ?? 1_000;
   const maxPause = o.maxPauseMs ?? 60_000;
   const links = new Map<string, Link>();
@@ -99,7 +99,7 @@ export function fleet(o: FleetOptions): FleetClient {
 
   /** keys.list роли host у gate → соединение с каждой машиной; сбой — повтор с растущей паузой, отказ пропуску — стоп. */
   async function list() {
-    const r = await post(o.workers.gate, { type: "keys.list", id: `${prefix}-list`, v: 1, role: "host" });
+    const r = await post(o.workers.gate, { type: "keys.list", id: `${prefix}-list`, v: 1, role: "host" }, true);
     if (stopped) return;
     if (r.ok) {
       pause = firstPause;
@@ -120,7 +120,7 @@ export function fleet(o: FleetOptions): FleetClient {
    * POST кадра с пропуском; ответ — reply. Нет ответа за предел — timeout, close() — disconnected, сеть или ответ не JSON
    * (страница ошибки Cloudflare) — offline; причина — в why отказа: исключение сети или статус и начало тела.
    */
-  async function post(url: string, f: Frame): Promise<Reply> {
+  async function post(url: string, f: Frame, read = false): Promise<Reply> {
     const id = f.id ?? "";
     if (stopped) return fail(id, "disconnected");
     const ac = new AbortController();
@@ -129,7 +129,7 @@ export function fleet(o: FleetOptions): FleetClient {
     const timer = setTimeout(() => {
       late = true;
       ac.abort();
-    }, requestMs);
+    }, read ? Math.min(READ_MS, requestMs) : requestMs);
     try {
       const res = await doFetch(url, { method: "POST", body: JSON.stringify({ ...f, key: o.key }), signal: ac.signal });
       if (res.status === 204) return { type: "reply", id, ok: true };
@@ -235,11 +235,11 @@ export function fleet(o: FleetOptions): FleetClient {
       return r;
     },
     links: () => links,
-    request(f: Frame): Promise<Reply> {
+    request(f: Frame, read = false): Promise<Reply> {
       const g = { ...f, id: f.id ?? `${prefix}-${++seq}` };
       const t = target(g);
       if ("error" in t) return Promise.resolve(fail(g.id, t.error));
-      return "url" in t ? post(t.url, g) : t.link.request(g);
+      return "url" in t ? post(t.url, g, read) : t.link.request(g, read);
     },
     send(f: Frame) {
       // ответ на запрос — тем же соединением, по которому пришёл запрос: там его ждёт спросивший

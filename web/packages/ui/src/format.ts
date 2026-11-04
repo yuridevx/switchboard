@@ -99,6 +99,22 @@ export function hhmm(t: number | Date = Date.now()): string {
 
 /** ЧЧ:ММ момента: секунды или миллисекунды эпохи. */
 export const at = (t: number) => hhmm(t < 1e12 ? t * 1000 : t);
+
+/**
+ * Какой слот отмечен в строке выбора: выбранный, если он есть на машине; иначе первый (слово пользователя 4 нояб.).
+ * Один слот или ни одного — выбирать нечего, поля нет: решает машина.
+ */
+export function slotChoice(names: string[], chosen = ""): string {
+  if (names.length < 2) return "";
+  return names.includes(chosen) ? chosen : names[0];
+}
+
+/** Единственный слот машины ждёт сброса лимита: строки выбора нет, подпись — эта. */
+export function slotWait(slots: Record<string, { wait: number | null }> | null | undefined): string {
+  const list = Object.entries(slots ?? {});
+  const wait = list.length === 1 ? list[0][1].wait : null;
+  return wait ? `${list[0][0]} · ждёт сброса ${at(wait)}` : "";
+}
 /** «3 нояб.» */
 export const day = (t: number) => new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
 /** Сколько прошло: «только что», «5 мин назад», «2 ч 5 мин назад»; с суток — день. */

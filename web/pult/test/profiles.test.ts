@@ -80,6 +80,34 @@ describe("профили", () => {
     expect(t.$(".pf-e")!.textContent).toBe("@laptop: machine.profiles: no_app");
   });
 
+  it("E19 · синхронизация профилей: git отвечает 30 с — ответ приходит, timeout нет; обычное чтение профилей отказывает на 10 с", async () => {
+    // источник: чьё: код — синхронизация это git pull и push; предел чтения её не касается
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"], shouldAdvanceTime: true });
+    try {
+      const x = relay();
+      const plain = x.handlers["machine.profiles"];
+      const t = await screen(x);
+      x.handlers["machine.profiles"] = (f) => (f.sync === true ? (undefined as never) : plain(f));
+      await t.click(t.$('[data-act="sync"]'));
+      await flush(5);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await flush();
+      expect(t.$(".pf-e")?.textContent ?? "").not.toContain("timeout");
+      for (const f of x.sent("machine.profiles").filter((q) => q.sync === true)) x.reply(f.id as string, { ok: true, result: { profiles: {}, repos: {} } });
+      await flush(10);
+      expect(t.$(".sb-toast")!.textContent).toBe("Сведено");
+      expect(t.$(".pf-e")?.textContent ?? "").not.toContain("timeout");
+      // то же имя без синхронизации — чтение: экран открылся заново, машина молчит
+      x.handlers["machine.profiles"] = () => undefined as never;
+      const t2 = await screen(x);
+      await vi.advanceTimersByTimeAsync(10_500);
+      await flush();
+      expect(t2.$(".pf-e")!.textContent).toContain("machine.profiles: timeout");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("5604 · профилей нет на «Машинах» и в «Настройках»: synchronizing — только здесь", async () => {
     const t = await pult({ relay: relay(), url: "/#machines" });
     await flush(10);

@@ -3,7 +3,7 @@ import type { SessionRecord } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
 
 /** Запросы, от которых зависят кнопки карточки. */
-export const NAMES = ["session.stop", "session.start", "session.update", "session.spec", "session.call", "session.remove", "session.slot", "session.profile", "machine.slots", "machine.profiles", "machine.accounts", "machine.journal"] as const;
+export const NAMES = ["session.stop", "session.start", "session.update", "session.spec", "session.call", "session.remove", "session.slot", "session.profile", "machine.profiles", "machine.accounts", "machine.journal"] as const;
 export type Name = (typeof NAMES)[number];
 export type Can = (name: Name) => boolean;
 

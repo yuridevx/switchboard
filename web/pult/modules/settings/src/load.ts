@@ -11,14 +11,14 @@ export function useCatalog() {
     const d = settings.get().deployed;
     return d?.tone === "ok" ? d.text : "";
   });
-  return useLoad<Listed>(() => app.request<Listed>("releases.list"), [], deployed);
+  return useLoad<Listed>(() => app.read<Listed>("releases.list"), [], deployed);
 }
 
 /** Пропуска флота; отозванные не показываем (слово пользователя 3 нояб.). */
 export function usePasses() {
   const app = useApp();
   return useLoad<Pass[]>(async () => {
-    const r = await app.request<{ passes: Array<Omit<Pass, "state"> & { state: Pass["state"] | "revoked" }> }>("keys.list");
+    const r = await app.read<{ passes: Array<Omit<Pass, "state"> & { state: Pass["state"] | "revoked" }> }>("keys.list");
     return r.ok ? { ok: true, result: r.result.passes.filter((p): p is Pass => p.state !== "revoked") } : r;
   }, []);
 }
@@ -26,7 +26,7 @@ export function usePasses() {
 /** Приложение GitHub флота. */
 export function useGithub() {
   const app = useApp();
-  return useLoad<Gh>(() => app.request<Gh>("github.app", { redirect: location.origin + location.pathname }), []);
+  return useLoad<Gh>(() => app.read<Gh>("github.app", { redirect: location.origin + location.pathname }), []);
 }
 
 /** Пропуск этого устройства: страница работает по действующему. */

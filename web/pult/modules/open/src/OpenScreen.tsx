@@ -1,6 +1,6 @@
 // Экран новой сессии: имя, проводник, чипы профиля и модели, задача.
 import type { ScreenProps } from "@switchboard/web-core";
-import { Area, Btn, effortName, IconBtn, In, profileName as short, useApp } from "@switchboard/web-ui";
+import { Area, Btn, effortName, IconBtn, In, profileName as short, slotWait, useApp } from "@switchboard/web-ui";
 import { FolderPane, MachinesPane } from "./Browser.tsx";
 import { addrView } from "./form.ts";
 import { ModelPop, ProfilePop } from "./Pops.tsx";
@@ -81,7 +81,7 @@ export function OpenScreen({ params }: ScreenProps) {
           </Btn>
           <Btn className="op-cx" data-pop="model" aria-expanded={f.pop === "model"} onClick={chip("model")}>
             {f.model ? <b>{f.model}</b> : null}
-            <span className="k">{[f.model ? null : "Модель", f.effort ? effortName(f.effort) : null, f.slot, f.r2 ? "R2" : null].filter(Boolean).join(" · ")}</span>
+            <span className="k">{[f.model ? null : "Модель", f.effort ? effortName(f.effort) : null, f.slot || slotWait(f.slots), f.r2 ? "R2" : null].filter(Boolean).join(" · ")}</span>
           </Btn>
         </div>
         <Area

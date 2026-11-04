@@ -20,7 +20,7 @@ export type RepoState = {
   error?: string;
   last?: string;
 };
-type Machine = { repos?: Record<string, RepoState>; pending?: Record<string, string | null> };
+type Machine = { repos?: Record<string, RepoState> };
 type Mine = { profile: string | null };
 type Config = { repos?: string[] };
 
@@ -261,13 +261,7 @@ export function make(deps: { git?: Git } = {}): Module {
         const callsign = String(f.callsign ?? "");
         const id = f.profile === null || f.profile === undefined ? null : String(f.profile);
         if (id !== null && !dirOf(id)) throw refuse("no_profile", `${id}: в клонах нет папки профиля с CLAUDE.md или profile.yaml`);
-        const s = ctx.host.session(callsign);
-        if (!s) {
-          // сессия ещё не открыта: профиль — до старта, в query() он уйдёт из session()
-          mstore().update((m) => ({ ...m, pending: { ...(m?.pending ?? {}), [callsign]: id } }));
-          return { restart: false };
-        }
-        return { restart: setProfile(s, id) };
+        return { restart: setProfile(ctx.host.session(callsign)!, id) };
       },
       async "machine.profiles"(f) {
         if (f.sync === true) await Promise.all(repos().map((r) => sync(r)));
@@ -292,18 +286,15 @@ export function make(deps: { git?: Git } = {}): Module {
         return { id, state: !p || !dirOf(id) ? "error" : stateOf(p.repo).state };
       },
     },
-    session(s) {
-      const pend = mstore().get()?.pending;
-      if (pend && s.info.callsign in pend) {
-        s.store<Mine>().set({ profile: pend[s.info.callsign] });
-        mstore().update((m) => {
-          const pending = { ...(m?.pending ?? {}) };
-          delete pending[s.info.callsign];
-          return { ...m, pending };
-        });
-      }
-      return part(s);
+    // профиль новой сессии — из запроса открытия; при следующих запусках запроса нет, берётся сохранённый
+    opening(s, req) {
+      if (req.profile === undefined || req.profile === null) return;
+      const id = String(req.profile);
+      if (!dirOf(id)) throw refuse("no_profile", `${s.info.callsign}: ${id}: в клонах нет папки профиля с CLAUDE.md или profile.yaml`);
+      s.store<Mine>().set({ profile: id });
     },
+    openingReads: ["profile"],
+    session: part,
     start(h) {
       host = h;
       stopping = false;

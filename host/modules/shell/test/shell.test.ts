@@ -440,6 +440,23 @@ describe("shell: покрытие плана host-modules", { timeout: 30_000 },
     }
   });
 
+  it("E21 · timeout в тексте инструмента: info — повтори; run — запуск мог начаться, смотри wait", async () => {
+    // источник: находка архитектора: у долгого run скрипт ещё работает, повтор запустил бы его второй раз
+    const m = await machine("win");
+    const recv = m.st.relay.receive.bind(m.st.relay);
+    m.st.relay.receive = (ws, text) => {
+      recv(ws, text);
+      if (text === "ping") return;
+      const f = JSON.parse(text) as Frame;
+      if (f.machine === "far" && typeof f.id === "string") queueMicrotask(() => m.st.relay.deliver({ type: "reply", id: f.id as string, from: "@far", ok: false, error: "timeout" } as Frame));
+    };
+    const info = await m.tool("lead@win", "info", { machine: "far" });
+    expect([info.isError, info.content[0].text]).toEqual([true, "timeout: машина far не ответила за 10 с, повтори"]);
+    const run = await m.tool("lead@win", "run", { machine: "far", shell: "bash", script: "sleep 1", background: false });
+    expect(run.isError).toBe(true);
+    expect(run.content[0].text).toMatch(/^timeout: запуск \S+ мог начаться, смотри wait по run$/);
+  });
+
   it("3081 · info: на машине нет модуля shell — текст модели unknown_request", async () => {
     // источник: чьё: код (shell.ts:111)
     const { st, tool } = await machine("win");

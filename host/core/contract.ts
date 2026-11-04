@@ -133,6 +133,13 @@ export interface Module {
   frames?: Record<string, (frame: Frame, ctx: Ctx) => void | Promise<void>>;
   /** Поля записи сессии в roster — имена из provides. Ядро собирает их после каждого сообщения SDK. */
   fields?: Record<string, (s: Session) => unknown>;
+  /**
+   * Запрос открытия сессии (OpenSpec.opening): зовётся ядром только в host.open, до session(). Модуль пишет своё в раздел сессии
+   * или отказывает refuse: отказ идёт наружу, разделы несостоявшейся сессии стёрты, папки и процесса нет. Модуль с opening выключен — отказ module_error.
+   */
+  opening?: (s: Session, req: Record<string, unknown>) => void | Promise<void>;
+  /** Поля запроса открытия, которые читает opening: модуль выключен, а этих полей в запросе нет — открытие идёт. Без списка — выключенный модуль отказывает всегда. */
+  openingReads?: string[];
   /** Вклад в query() сессии; зовётся на каждом старте процесса сессии, s.info.start уже выставлен. Может быть асинхронным. */
   session?: (s: Session) => QueryPart | undefined | Promise<QueryPart | undefined>;
   /** Решение по инструменту из canUseTool; у инструмента один владелец. Владельца нет — AskUserQuestion: deny unknown_request, прочее — allow. */
@@ -235,6 +242,10 @@ export type OpenSpec = {
   fork?: boolean;
   /** старт из точки с этим номером: s.info.start — point */
   point?: number;
+  /** создать папку cwd после сборки вкладов: отказ модуля папки не оставляет */
+  mkdir?: boolean;
+  /** запрос открытия как есть: его читают модули с opening */
+  opening?: Record<string, unknown>;
 };
 
 export type SessionSummary = { callsign: string; cwd: string; state: SessionState };
@@ -274,8 +285,11 @@ export interface Host {
    * (другая машина по callsign/machine/to или Worker-модуль: to = имя владельца).
    * Имени нет в uses — ошибка модуля.
    * Отправитель — payload.from (адрес), иначе @машина: владелец видит его в ctx.from, как у запроса через relay.
+   * Отказ несёт слово error и причину why, если владелец её назвал. На своей машине предела нет: действие ограничено своим пределом.
    */
   request(name: string, payload: Record<string, unknown>): Promise<Result>;
+  /** То же, но запрос только читает состояние: нет ответа за READ_MS — timeout, и на своей машине, и через relay. Поздний ответ отброшен. */
+  read(name: string, payload: Record<string, unknown>): Promise<Result>;
   /** Кадр без ответа в relay (type — из своих provides или uses). Обрыв — disconnected; очереди нет; больше предела кадра — too_large. */
   emit(frame: Frame): Result;
   /** Свой раздел машины. */

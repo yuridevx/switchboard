@@ -1,14 +1,14 @@
 // «Только в R2»: сессии без живого процесса. Поиск, удаление после ввода имени и подъём на машину из последней точки.
 import { useState } from "react";
-import { Btn, day, H4, In, M, Note, Opts, Outcome, PageHead, plural, Row, Sec, useApp, useOutcome } from "@switchboard/web-ui";
+import { Btn, day, H4, In, M, Note, Opts, Outcome, PageHead, plural, Row, Sec, slotChoice, slotOf, SlotPick, useApp, useOutcome } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { canRaise, nameOf, say } from "./format.ts";
 import { CheckLine, PickMachine } from "./parts.tsx";
-import type { CheckResult, FleetSession } from "./store.ts";
+import type { CheckResult, FleetSession, Slots } from "./store.ts";
 import { useTargetPick } from "./useTargetPick.ts";
 
 type Del = { sid: string; name: string; typed: string };
-type Move = { s: FleetSession; target: string; slot: string; dir: string; check: CheckResult | null; phase: "" | "run" | "done" | "err"; msg: string };
+type Move = { s: FleetSession; target: string; slots: Slots | null; slot: string; dir: string; check: CheckResult | null; phase: "" | "run" | "done" | "err"; msg: string };
 
 function DeleteDialog({ d, type, cancel, remove }: { d: Del; type(v: string): void; cancel(): void; remove(): void }) {
   return (
@@ -29,16 +29,14 @@ function DeleteDialog({ d, type, cancel, remove }: { d: Del; type(v: string): vo
   );
 }
 
-function MoveDialog({ d, pick, run, close }: { d: Move; pick(m: string): void; run(): void; close(): void }) {
+function MoveDialog({ d, pick, chooseSlot, run, close }: { d: Move; pick(m: string): void; chooseSlot(slot: string): void; run(): void; close(): void }) {
   return (
     <Sec dlg data-dlg="raise">
       <b>{`Поднять ${nameOf(d.s.callsign ?? "")} из точки №${d.s.head.id}`}</b>
       <Row label="Машина">
         <PickMachine cur={d.target} callsign={d.s.callsign ?? undefined} on={pick} />
       </Row>
-      <Row label="Слот">
-        <span>{d.slot || "без слота"}</span>
-      </Row>
+      {d.slots ? <SlotPick slots={d.slots} value={d.slot} on={chooseSlot} /> : null}
       <Row label="Папка">
         <M>{d.dir}</M>
       </Row>
@@ -77,12 +75,12 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
     say2("delete", `${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`, "ok");
   }
 
-  const pickTarget = (target: string, s: FleetSession, dir: string) => pick(target, [{ sid: s.sid, point: s.head.id, dir }], (m, { slots, checks }) => ({ ...m, slot: slots?.[0] ?? "", check: checks[0] }));
+  const pickTarget = (target: string, s: FleetSession, dir: string) => pick(target, [{ sid: s.sid, point: s.head.id, dir }], (m, { slots, checks }) => ({ ...m, slots, slot: slots ? slotChoice(Object.keys(slots), slotOf(points.session(s.callsign ?? ""))?.name) : "", check: checks[0] }));
 
   function openMove(s: FleetSession) {
     const target = points.raisers()[0] ?? "";
     const dir = s.dir ?? "~";
-    setMove({ s, target, slot: "", dir, check: null, phase: "", msg: "" });
+    setMove({ s, target, slots: null, slot: "", dir, check: null, phase: "", msg: "" });
     void pickTarget(target, s, dir);
   }
 
@@ -123,7 +121,7 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
               {hasRaisers ? <Btn onClick={() => openMove(s)}>Перенести на машину…</Btn> : null}
             </Opts>
             {del?.sid === s.sid ? <DeleteDialog d={del} type={(typed) => setDel((x) => x && { ...x, typed })} cancel={() => setDel(null)} remove={() => void remove(del)} /> : null}
-            {move?.s.sid === s.sid ? <MoveDialog d={move} pick={(m) => void pickTarget(m, move.s, move.dir)} run={() => void runMove(move)} close={() => setMove(null)} /> : null}
+            {move?.s.sid === s.sid ? <MoveDialog d={move} pick={(m) => void pickTarget(m, move.s, move.dir)} chooseSlot={(slot) => setMove((x) => x && { ...x, slot })} run={() => void runMove(move)} close={() => setMove(null)} /> : null}
           </div>
         );
       })}

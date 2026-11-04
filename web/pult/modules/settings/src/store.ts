@@ -31,7 +31,7 @@ export const useSettings = (): SettingsStore => useModule<SettingsStore>();
 export function createSettingsStore(app: App) {
   const store = createStore<State>({ rtab: "machines", rsel: {}, invited: null, busy: "", deployed: null }, () => app.changed());
   /** Ответы keeper'ов: один владелец на все экраны, «Машины» берут их меткой keeper.answers; keeper машины отвечает сам, даже когда Host мёртв. */
-  const keeper: MachineAnswers<KState> = machineAnswers<KState>(app, (m) => app.request<KState>("keeper.state", { to: `.keeper@${m}` }));
+  const keeper: MachineAnswers<KState> = machineAnswers<KState>(app, (m) => app.read<KState>("keeper.state", { to: `.keeper@${m}` }));
   const machines = () => machinesWith(app);
   const loadKeeper = (m: string) => keeper.reload(m);
   /** Открытые чужие экраны с ответами keeper: снятие каждого — команда keeper.close. */

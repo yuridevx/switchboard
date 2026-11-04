@@ -1,10 +1,11 @@
 // Ядро Host: модули, сессии, держатели процессов claude, связь с relay, реестр владельцев, ловушка ошибок,
 // штатная остановка. Само ничего не решает: находит владельца и передаёт ему.
+import { mkdirSync } from "node:fs";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import type { ElicitationResult, Options, PermissionResult, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { accepts, fail, hostOf, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
+import { READ_MS, accepts, fail, hostOf, isReply, kindOf, machineOf, ok, serviceAddress } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import { fleet } from "@switchboard/relay";
 import type { FleetClient, LinkState, Roster, WsCtor } from "@switchboard/relay";
@@ -100,6 +101,12 @@ export function handled<T>(p: Promise<T>): Promise<T> {
   p.catch(() => {});
   return p;
 }
+
+/** Причина отказа из ответа, если владелец её назвал. */
+const whyOf = (r: Reply) => {
+  const why = (r as { why?: unknown }).why;
+  return typeof why === "string" ? { why } : {};
+};
 
 /** Загруженная версия модуля. */
 export class Mod {
@@ -489,29 +496,13 @@ export class Kernel {
     let s: Sess | null = null;
     if (typeof f.callsign === "string") {
       s = this.sessions.get(f.callsign) ?? null;
-      // сессии ещё нет: запрос модуля этой машины (manage спрашивает slots до host.open) — решает модуль-владелец;
-      // запрос клиента через relay — offline, адресата нет
-      if (!s && (from === undefined || machineOf(f.callsign) !== this.machine)) {
+      // запрос о сессии, которой нет: адресата нет, обработчик не вызывается
+      if (!s) {
         this.log("core", { kind: "refuse", ev: "request", word: "offline", id: f.id, from: f.from, why: `${f.type}: сессии ${f.callsign} нет на машине` });
         return fail(f.id, "offline");
       }
     }
-    // запрос о сессии, которой нет (модуль этой машины спросил про только что убранную): сбой владельца — отказ
-    // module_error с причиной в журнале, а не выключение модуля на всей машине (живой прогон 31 окт.: session.spec
-    // про убранную сессию выключил host-manage на машине до перезапуска Host)
-    const orphan = typeof f.callsign === "string" && !s;
-    const run = (m: Module, mod: Mod) => {
-      const call = () => m.requests![f.type](f, this.ctx(mod, from ?? f.from));
-      if (!orphan) return call();
-      return Promise.resolve()
-        .then(call)
-        .catch((e: unknown) => {
-          if (isRefusal(e)) throw e;
-          const stack = e instanceof Error && e.stack ? e.stack : String(e);
-          this.log("core", { kind: "refuse", ev: "request", word: MODULE_ERROR, id: f.id, module: owner.name, why: `${f.type} о сессии ${f.callsign}, которой нет: ${stack}` });
-          throw refuse(MODULE_ERROR, `${f.type}: сессии ${f.callsign} нет`);
-        });
-    };
+    const run = (m: Module, mod: Mod) => m.requests![f.type](f, this.ctx(mod, from ?? f.from));
     try {
       const r = await this.call(owner.name, `requests.${f.type}`, s, run, () => SKIP);
       if (r === SKIP) {
@@ -523,7 +514,8 @@ export class Kernel {
       if (!isRefusal(e)) throw e;
       const word = e.word;
       this.log(owner.name, { kind: "refuse", ev: "request", word, id: f.id, from: f.from, why: e.why ?? `${f.type}: ${word}` });
-      return fail(f.id, word);
+      // причина — в ответ: и через relay, и на своей машине; так уже отвечают службы флота
+      return { ...fail(f.id, word), ...(e.why ? { why: e.why } : {}) } as Reply;
     }
   }
 
@@ -550,6 +542,7 @@ export class Kernel {
       sessions: () => [...k.sessions.values()].map((s) => ({ callsign: s.callsign, cwd: s.rec.cwd, state: s.state })),
       open: async (spec) => (await k.open(spec)).facade(m),
       request: (name, payload) => handled(k.request(m, name, payload)),
+      read: (name, payload) => handled(k.request(m, name, payload, true)),
       emit: (frame) => k.emit(m, frame),
       store: <T>() => k.stores.machine<T>(m.name) as Store<T>,
       config: <T>() => (k.deps.config.modules?.[m.name] ?? {}) as T,
@@ -562,8 +555,8 @@ export class Kernel {
     return h;
   }
 
-  /** host.request: имя из uses или своё; владелец — модуль этой машины или через relay: другая машина, часть машины, служба. */
-  async request(m: Mod, name: string, payload: Record<string, unknown>): Promise<Result> {
+  /** host.request и host.read: имя из uses или своё; владелец — модуль этой машины или через relay: другая машина, часть машины, служба. */
+  async request(m: Mod, name: string, payload: Record<string, unknown>, read = false): Promise<Result> {
     const caller = this.callerSession(m);
     const own = m.manifest.provides?.[name] !== undefined;
     const ref = Object.keys(m.manifest.uses ?? {}).find((r) => nameOf(r) === name);
@@ -578,8 +571,9 @@ export class Kernel {
       const id = `${this.idPrefix}-${++this.reqSeq}`;
       // отправитель — как через relay: from запроса, иначе машина; владелец видит его в ctx.from и не выбирает сам
       const from = kindOf(payload.from) ? (payload.from as string) : `@${this.machine}`;
-      const r = await this.handleRequest({ ...payload, type: name, id, from } as Frame & { id: string }, from);
-      return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error };
+      const answer = this.handleRequest({ ...payload, type: name, id, from } as Frame & { id: string }, from);
+      const r = read ? await this.readLimit(answer, id) : await answer;
+      return r.ok ? { ok: true, result: r.result } : { ok: false, error: r.error, ...whyOf(r) };
     }
     if (!this.relay) return { ok: false, error: "disconnected" };
     const frame: Frame = { ...payload, type: name };
@@ -587,8 +581,15 @@ export class Kernel {
     // keeper машины адресуется явно: .keeper@машина
     if (this.release.workers[owner] && payload.to === undefined) frame.to = serviceAddress(owner);
     // отказ несёт все поля reply владельца (missing, owner, creds…), без конверта
-    const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame)) as Frame & Reply;
+    const { type: _t, id: _i, to: _to, from: _f, ...r } = (await this.relay.request(frame, read)) as Frame & Reply;
     return r as Result;
+  }
+
+  /** Предел чтения на своей машине — по часам ядра; обработчик работает дальше, его ответ отброшен. */
+  private readLimit(answer: Promise<Reply>, id: string): Promise<Reply> {
+    let t: unknown;
+    const late = new Promise<Reply>((ok) => (t = this.clock.setTimeout(() => ok(fail(id, "timeout")), READ_MS)));
+    return Promise.race([answer, late]).finally(() => this.clock.clearTimeout(t));
   }
 
   /** s.field: поле записи сессии этой машины у владельца — имя из своих provides или uses, как у запроса. */
@@ -668,9 +669,20 @@ export class Kernel {
     s.prepare(kind, spec.point);
     let parts;
     try {
+      await s.collectOpening(spec.opening ?? {});
       parts = await s.collectParts();
+      // папка — последним шагом сборки: отказ модуля её не оставляет
+      if (spec.mkdir) {
+        try {
+          mkdirSync(spec.cwd, { recursive: true });
+        } catch (e) {
+          throw refuse("bad_dir", `${spec.callsign}: папка ${spec.cwd} не создана — ${(e as Error).message}`);
+        }
+      }
     } catch (e) {
-      this.log("core", { kind: "stop", ev: "open", callsign: spec.callsign, why: (e as Error).message });
+      // разделы несостоявшейся сессии стёрты: повторное открытие того же имени начинает с чистого
+      this.stores.removeSession(spec.callsign);
+      if (!isRefusal(e)) this.log("core", { kind: "stop", ev: "open", callsign: spec.callsign, why: (e as Error).message });
       throw e;
     }
     this.sessions.set(rec.callsign, s);

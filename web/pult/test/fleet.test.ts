@@ -2,7 +2,7 @@
 // и ответами владельцев; код пульта настоящий. Номер эталона — номер теста.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, flush, pointsRelay, pult, SID } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, pointsRelay, pult, SID, SLOTS } from "./stand.ts";
 
 const T = (hh: number, mm: number) => Math.floor(Date.UTC(2026, 9, 31, hh, mm) / 1000);
 
@@ -15,7 +15,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("эталоны пульта: аккаунты и слоты", () => {
   async function newLogin(code: { ok: true; result: unknown } | { ok: false; error: string }) {
     const relay = fleetRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/authorize?x" } });
     relay.handlers["machine.login_code"] = () => code;
     const t = await pult({ relay });
@@ -53,7 +53,7 @@ describe("эталоны пульта: аккаунты и слоты", () => {
   it("192 · лимиты по почте: machine.accounts { max_age: 120 } каждой машине; расход между машинами пульт не пересылает — его читает Host у Claude", async () => {
     // источник: дизайн «Пульт и телефон» (подписан 2 нояб.): «пересылки account.usage нет»; Host — эталон slots 3047
     const relay = fleetRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["machine.accounts"] = (f) => ({
       ok: true,
       result: {
@@ -87,7 +87,7 @@ describe("эталоны пульта: аккаунты и слоты", () => {
 
   async function slots(swap: { ok: true; result: unknown } | { ok: false; error: string }) {
     const relay = fleetRelay();
-    relay.handlers["machine.slots"] = (f) =>
+    relay.handlers[SLOTS] = (f) =>
       ({ ok: true, result: { slots: f.machine === "laptop" ? { main: { account: "y0902", order: ["y0902", "infirex", "work3"], wait: null, sessions: ["site@laptop", "profiles@laptop"] } } : {} } });
     relay.handlers["slot.swap"] = () => swap;
     const t = await pult({ relay });
@@ -110,13 +110,13 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     const relay = fleetRelay();
     const both = { main: ["infirex", "y0902"], bot: ["infirex", "y0902"] };
     const current: Record<string, string> = { main: "infirex", bot: "infirex" };
-    relay.handlers["machine.slots"] = (f) => ({
+    relay.handlers[SLOTS] = (f) => ({
       ok: true,
       result: { slots: f.machine === "laptop" ? Object.fromEntries(Object.entries(both).map(([n, o]) => [n, { account: current[n], order: o, wait: null, sessions: [`${n}-s@laptop`] }])) : {} },
     });
     relay.handlers["machine.accounts"] = (f) => ({
       ok: true,
-      result: { accounts: f.machine === "laptop" ? { infirex: { login: "ok", links: ["/s/main", "/s/bot"], limits: {} }, y0902: { login: "ok", links: [], limits: {} } } : {} },
+      result: { accounts: f.machine === "laptop" ? { infirex: { login: "ok", limits: {} }, y0902: { login: "ok", limits: {} } } : {} },
     });
     relay.handlers["slot.swap"] = (f) => ((current[f.slot as string] = "y0902"), { ok: true, result: { from: "infirex", to: "y0902" } });
     relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "y0902" } });
@@ -135,20 +135,18 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     expect(t.$('[data-dlg="rm"]')!.textContent).toContain("infirex сейчас в слотах main, bot");
     await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
     await flush(10);
-    expect(relay.sent("slot.swap").map((f) => f.slot)).toEqual(["main", "bot"]);
-    expect(relay.sent("slot.set").map((f) => [f.slot, f.order])).toEqual([
-      ["main", ["y0902"]],
-      ["bot", ["y0902"]],
-    ]);
+    // шаги выполняет машина: один запрос (слово пользователя 4 нояб.)
+    expect(relay.sent("slot.swap")).toHaveLength(0);
+    expect(relay.sent("slot.set")).toHaveLength(0);
     expect(relay.sent("machine.account_remove")).toEqual([expect.objectContaining({ machine: "laptop", account: "infirex" })]);
   });
 
-  it("194 · подмену делает Host: до roster запросов нет; сменился account — один machine.slots и один machine.accounts к laptop; «в слоте: y0902»; в чате site — «⇄ аккаунт: infirex → y0902»", async () => {
+  it("194 · подмену делает Host: до roster запросов нет; сменился account — один machine.accounts к laptop; «в слоте: y0902»; в чате site — «⇄ аккаунт: infirex → y0902»", async () => {
     const r = fleetRoster();
     for (const s of r.sessions) if (s.callsign.endsWith("@laptop")) Object.assign(s, { account: "infirex", slot: { name: "main", wait: null } });
     const relay = fleetRelay(r);
     let inSlot = "infirex";
-    relay.handlers["machine.slots"] = (f) => ({ ok: true, result: { slots: f.machine === "laptop" ? { main: { account: inSlot, order: ["infirex", "y0902"], wait: null, sessions: ["site@laptop", "wiki@laptop", "profiles@laptop"] } } : {} } });
+    relay.handlers[SLOTS] = (f) => ({ ok: true, result: { slots: f.machine === "laptop" ? { main: { account: inSlot, order: ["infirex", "y0902"], wait: null, sessions: ["site@laptop", "wiki@laptop", "profiles@laptop"] } } : {} } });
     const t = await pult({ relay });
     await t.click(t.$('[data-callsign="site@laptop"]'));
     await t.go("#accounts?view=slots");
@@ -161,7 +159,7 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     relay.setRoster(r2);
     await flush(10);
     const after = relay.got.slice(before);
-    expect(after.map((f) => `${f.type} ${f.machine}`)).toEqual(["machine.slots laptop", "machine.accounts laptop"]);
+    expect(after.map((f) => `${f.type} ${f.machine}`)).toEqual(["machine.accounts laptop"]);
     expect(t.$('[data-slot="laptop:main"] [data-current]')!.textContent).toBe("в слоте: y0902");
     await t.click(t.$('.sb-navcol button[data-screen="board"]'));
     await t.click(t.$('[data-callsign="site@laptop"]'));
@@ -240,7 +238,7 @@ describe("эталоны пульта: точки", () => {
     const steps = relay.got.filter((f) => f.type === "points.save" || (f.type === "points.raise" && !f.dryRun));
     expect(steps.map(({ id: _, ...f }) => f)).toEqual([
       { type: "points.save", v: 1, callsign: "site@laptop", stop: true },
-      { type: "points.raise", v: 1, machine: "pc", sid: SID, point: 42, dir: "~/Projects/site", slot: "main", files: "point" },
+      { type: "points.raise", v: 1, machine: "pc", sid: SID, point: 42, dir: "~/Projects/site", files: "point" },
     ]);
     expect(t.$('[data-dlg="move"] [data-phase="done"]')!.textContent).toContain("site перенесена на pc: site@pc");
     const again = await run(true);
@@ -265,7 +263,7 @@ describe("эталоны пульта: точки", () => {
       },
     });
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [{ id: 812, t: left, ev: "machine.left", from: "ledger", machine: "mac", text: "mac пропала" }], more: true } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
     relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "empty", sessions: [] } } : f.sid === "51cd" ? { ok: false, error: "open_failed" } : undefined);
     const t = await pult({ relay });
     await t.click(t.$('.sb-navcol button[data-screen="points"]'));
@@ -288,8 +286,8 @@ describe("эталоны пульта: точки", () => {
     relay.reply(String(real()[0].id), { ok: true, result: { callsign: "notes@laptop", point: 89, folder: "empty" } });
     await flush(10);
     expect(real().map((f) => [f.sid, f.point, f.slot, f.files])).toEqual([
-      ["77ae", 88, "main", "point"],
-      ["51cd", 61, "main", "point"],
+      ["77ae", 88, undefined, "point"],
+      ["51cd", 61, undefined, "point"],
     ]);
     expect(relay.sent("points.save")).toHaveLength(0);
     expect(t.$('[data-dlg="fire"] [data-progress]')!.textContent).toContain("1 из 2 готовы");
@@ -311,7 +309,7 @@ describe("эталоны пульта: точки", () => {
       },
     });
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [], more: false } });
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
     relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "empty", sessions: [] } } : undefined);
     return relay;
   };
@@ -465,7 +463,7 @@ describe("эталоны пульта: точки", () => {
     const steps = relay.got.filter((f) => ["points.save", "points.raise", "session.remove"].includes(f.type)).map(({ id: _, ...f }) => f);
     expect(steps).toEqual([
       { type: "points.save", v: 1, callsign: "site@laptop", stop: true },
-      { type: "points.raise", v: 1, machine: "laptop", sid: SID, point: 42, dir: "~/Projects/site-v2", files: "keep", copy: true, name: "site-v2" },
+      { type: "points.raise", v: 1, machine: "laptop", sid: SID, point: 42, dir: "~/Projects/site-v2", files: "keep", copy: true, name: "site-v2", slot: "main" },
       { type: "session.remove", v: 1, callsign: "site@laptop" },
     ]);
     const bad = await run({ ok: false, error: "open_failed" });

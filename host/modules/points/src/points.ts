@@ -123,7 +123,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       } catch (e) {
         host.log({ kind: "note", ev: "messages", callsign, why: (e as Error).message });
       }
-      const sp = await host.request("session.spec", { callsign });
+      const sp = await host.read("session.spec", { callsign });
       const frame: Record<string, unknown> = {
         sid,
         why,
@@ -339,7 +339,7 @@ export function make(deps: { git?: Git; fetch?: Fetch } = {}): Module {
       // «~/папка» с пульта — от домашней папки машины (живой прогон 31 окт.: resolve давал путь от папки выпуска Host)
       const dir = clientPath(String(fr.dir ?? ""));
       if (!dir) throw refuse("bad_dir", `${String(fr.dir)}: папка не от ~ и не полная`);
-      const g = await host.request("points.get", { ids: [point] });
+      const g = await host.read("points.get", { ids: [point] });
       if (!g.ok) throw refuse(g.error, `points.get ${point}: ${g.error}`);
       const res = g.result as { owner: string | null; points: Row[]; links: Links };
       const row = res.points[0];

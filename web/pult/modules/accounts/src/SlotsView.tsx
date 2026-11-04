@@ -137,20 +137,22 @@ export function SlotsView() {
   const app = useApp();
   const store = useAccounts();
   const sc = useScreen();
-  const ms = app.use(() => store.machines("machine.slots"));
+  const ms = app.use(() => store.machines("machine.accounts"));
   const m = sc.slotMachine;
   const list = app.use(() => store.slotsOf(m));
+  const waiting = app.use(() => !!m && store.waiting(m));
   return (
     <>
       {/* кнопками — выбранная и машины открытого проекта, остальные — списком */}
       <Opts data-slot-machines="">
         <PickOne all={ms} near={sc.near} cur={m} on={sc.pickSlotMachine} select={{ "data-f": "slotm", "aria-label": "Другая машина" }} />
       </Opts>
-      <Refused only={(k) => k === `${m} · machine.slots`} />
+      <Refused only={(k) => k === `${m} · machine.accounts`} />
+      {waiting ? <Note data-slots-wait="">…</Note> : null}
       {Object.entries(list ?? {}).map(([name, s]) => (
         <SlotCard key={`${m}:${name}`} m={m} name={name} s={s} />
       ))}
-      {m ? <NewSlot key={m} m={m} /> : null}
+      {m && !waiting ? <NewSlot key={m} m={m} /> : null}
       {ms.length ? null : <Note>Нет машин со слотами на связи.</Note>}
     </>
   );

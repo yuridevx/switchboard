@@ -4,9 +4,10 @@
 import type { HookCallbackMatcher, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryPart, Session, SessionState, StartKind, Store } from "../contract.ts";
 import type { Exited, HeldProcess } from "./holders.ts";
-import { handled, INIT_MS, START_MS } from "./kernel.ts";
+import { handled, INIT_MS, MODULE_ERROR, START_MS } from "./kernel.ts";
 import type { Kernel, Mod } from "./kernel.ts";
 import { tildePath } from "./paths.ts";
+import { isRefusal, refuse } from "./refusal.ts";
 import { InputQueue } from "./queue.ts";
 import type { CoreRecord } from "./store.ts";
 
@@ -68,6 +69,17 @@ export class Sess {
     if (kind === "point") this.point = point;
   }
 
+  /** Запрос открытия — модулям с opening, один проход до session(). Отказ словом идёт наружу; модуль выключен или упал — module_error, а не тихий запуск без его выбора. */
+  async collectOpening(req: Record<string, unknown>): Promise<void> {
+    for (const m of this.k.mods) {
+      if (!m.module.opening) continue;
+      const reads = m.module.openingReads;
+      if (this.k.isDown(m, this) && reads && !reads.some((k) => req[k] !== undefined)) continue;
+      const done = await this.k.call(m.name, "opening", this, async (x, mod) => (await this.k.within(x.opening!(this.facade(mod), req), `opening() не вернулся за ${START_MS / 1000} с`), true), () => false);
+      if (!done) throw refuse(MODULE_ERROR, `${m.name} выключен: запрос открытия ${this.callsign} не прочитан`);
+    }
+  }
+
   async collectParts(): Promise<Parts> {
     const parts: Parts = new Map();
     const owners = new Map<string, string>();
@@ -78,7 +90,15 @@ export class Sess {
     };
     for (const m of this.k.mods) {
       if (!m.module.session || this.k.isDown(m, this)) continue;
-      const p = (await this.k.call(m.name, "session", this, (x, mod) => this.k.within(x.session!(this.facade(mod)), `session() не вернулся за ${START_MS / 1000} с`), () => undefined)) as QueryPart | undefined;
+      let p: QueryPart | undefined;
+      try {
+              p = (await this.k.call(m.name, "session", this, (x, mod) => this.k.within(x.session!(this.facade(mod)), `session() не вернулся за ${START_MS / 1000} с`), () => undefined)) as QueryPart | undefined;
+      } catch (e) {
+        // отказывает только opening: запуск сохранённой сессии остановить нельзя, иначе одна сессия держала бы старт Host на всей машине
+        if (!isRefusal(e)) throw e;
+        this.k.disable(m, this, "session", new Error(`отказ ${e.word} в session(): ${e.why ?? ""}`));
+        continue;
+      }
       if (!p) continue;
       const bad = Object.keys(p).find((key) => CORE_OPTIONS.has(key));
       if (bad) {

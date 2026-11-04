@@ -73,7 +73,7 @@ export function createAskStore(app: App) {
       s.listed[callsign] = true;
       s.loading[callsign] = true;
     });
-    const r = await app.request<Array<Record<string, unknown>>>("question.list", { callsign });
+    const r = await app.read<Array<Record<string, unknown>>>("question.list", { callsign });
     store.set((s) => {
       delete s.loading[callsign];
       if (!r.ok) {

@@ -73,7 +73,7 @@ export function createMachinesStore(app: App) {
       const s = store.get();
       if (!m || s.asked[m] || s.gone[m] !== undefined) return;
       store.set((x) => void (x.asked[m] = true));
-      const j = await app.request<{ events: Array<{ t: number; ev: string }> }>("ledger.read", { machine: m, limit: 1 });
+      const j = await app.read<{ events: Array<{ t: number; ev: string }> }>("ledger.read", { machine: m, limit: 1 });
       const e = j.ok ? j.result.events.find((x) => x.ev === "machine.left") : undefined;
       if (e) store.set((x) => void (x.earlier[m] = e.t));
     },

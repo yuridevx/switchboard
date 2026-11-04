@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { content, isRefusal } from "../contract.ts";
+import { content, isRefusal, refuse } from "../contract.ts";
 import type { Host } from "../contract.ts";
 import { Kernel } from "../src/kernel.ts";
 import { realHolders } from "../src/holders.ts";
@@ -372,6 +372,54 @@ describe("договор модуля: Host", () => {
     await until(() => lines(st2, "relay_stopped").length === 1);
     expect(await host2.request("session.prompt", { v: 1, callsign: "x@pc" })).toEqual({ ok: false, error: "disconnected" });
     expect([...lines(st, "module_failed"), ...lines(st2, "module_failed")]).toEqual([]);
+  });
+
+  it("E3 · обработчик на своей машине завис: host.read → timeout на 10 с по часам ядра, модуль не выключен", async () => {
+    // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»
+    let host!: Host;
+    const a = module("host-a", { start: (h) => void (host = h) }, { uses: { "x.read@host-b": 1 } });
+    const b = module("host-b", { requests: { "x.read": () => new Promise(() => {}) } });
+    const st = await stand({ modules: [a, b] });
+    let got: unknown;
+    void host.read("x.read", {}).then((r) => (got = r));
+    await new Promise((r) => setTimeout(r, 5));
+    st.clock.advance(9_999);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(got).toBeUndefined();
+    st.clock.advance(1);
+    await until(() => got !== undefined);
+    expect(got).toEqual({ ok: false, error: "timeout" });
+    expect(lines(st, "module_failed")).toEqual([]);
+  });
+
+  it("E31 · действие на своей машине идёт 150 с: ответ пришёл, timeout нет", async () => {
+    // чьё: код — у запроса на своей машине предела нет: скрипт и запуск сессии ограничены своими пределами
+    let host!: Host;
+    let finish!: (v: unknown) => void;
+    const a = module("host-a", { start: (h) => void (host = h) }, { uses: { "x.do@host-b": 1 } });
+    const b = module("host-b", { requests: { "x.do": () => new Promise((ok) => (finish = ok)) } });
+    const st = await stand({ modules: [a, b] });
+    let got: unknown;
+    void host.request("x.do", {}).then((r) => (got = r));
+    await until(() => !!finish);
+    st.clock.advance(150_000);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(got).toBeUndefined();
+    finish("готово");
+    await until(() => got !== undefined);
+    expect(got).toEqual({ ok: true, result: "готово" });
+  });
+
+  it("E21 · служба машины отказала с причиной: why в ответе и на своей машине, и через relay", async () => {
+    // факт: так уже отвечают службы флота; решение пользователя «отказ со списком» требует, чтобы причина дошла
+    let host!: Host;
+    const a = module("host-a", { start: (h) => void (host = h) }, { uses: { "x.do@host-b": 1 } });
+    const b = module("host-b", { requests: { "x.do": () => { throw refuse("slot_required", "Слоты машины: main, bot"); } } });
+    const st = await stand({ modules: [a, b] });
+    expect(await host.request("x.do", {})).toEqual({ ok: false, error: "slot_required", why: "Слоты машины: main, bot" });
+    await until(() => st.relay.hellos.length === 1);
+    expect(await st.relay.request({ type: "x.do", v: 1, machine: "laptop" })).toMatchObject({ ok: false, error: "slot_required", why: "Слоты машины: main, bot" });
+    expect(lines(st, "module_failed")).toEqual([]);
   });
 
   it("5174 · владелец имени — Worker, когда он есть в адресах сборки: запрос — POST по адресу .имя; нет в адресах — к Worker'у не адресуется", async () => {

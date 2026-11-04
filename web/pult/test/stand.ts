@@ -45,14 +45,35 @@ export function joinedRoster(): Roster {
   return { ...r, sessions: [...r.sessions, { callsign: "new@laptop", dir: "~", by: "panel-desk~owner@example.com", state: "idle" }] };
 }
 
+/** Часть ответа machine.accounts о слотах: тест задаёт её отдельно от аккаунтов. Не задана — ответ без слотов, как у прежнего Host. */
+export const SLOTS = "слоты в ответе machine.accounts";
+type Answer = { ok: boolean; result?: unknown; error?: string } | undefined;
+
+/** Обработчики стенда: machine.accounts собирается из аккаунтов и слотов; отказ или молчание любой части — ответ целиком. */
+function composeAccounts(relay: FakeRelay) {
+  let accounts: (f: Parameters<FakeRelay["handlers"][string]>[0]) => Answer = () => ({ ok: true, result: { accounts: {} } });
+  Object.defineProperty(relay.handlers, "machine.accounts", {
+    enumerable: true,
+    set: (h) => void (accounts = h),
+    get: () => (x: Parameters<FakeRelay["handlers"][string]>[0]) => {
+      const a = accounts(x);
+      const hs = relay.handlers[SLOTS];
+      if (!hs || !a?.ok) return a;
+      const sl = hs(x) as Answer;
+      if (!sl?.ok) return sl;
+      return { ok: true, result: { ...(a.result as object), slots: (sl.result as { slots: unknown }).slots } };
+    },
+  });
+}
+
 /** relay с ответами владельцев по умолчанию: лента, история, вопросы. */
 export function fleetRelay(roster = fleetRoster()): FakeRelay {
   const relay = new FakeRelay(roster);
+  composeAccounts(relay);
   relay.handlers["session.watch"] = () => ({ ok: true });
   relay.handlers["session.unwatch"] = () => ({ ok: true });
   relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [], more: false } });
   relay.handlers["question.list"] = () => ({ ok: true, result: [] });
-  relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: {} } });
   return relay;
 }
 
@@ -117,7 +138,7 @@ export function pointsRelay(over: (r: Roster) => void = () => {}) {
           },
         };
   relay.handlers["points.get"] = (f) => ({ ok: true, result: { owner: "laptop", points: (f.ids as number[]).map((id) => ({ id, last: [["обнови зависимости и прогони тесты", "Обновил 14 пакетов"]] })) } });
-  relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
+  relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
   return relay;
 }
 

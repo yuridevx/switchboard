@@ -99,7 +99,7 @@ export function createAlertsStore(app: App, browser?: BrowserPush) {
       // разрешение спрашивается только по нажатию
       const perm = await withLimit(e.Notification!.requestPermission(), ASK_MS, () => "default" as const);
       if (perm !== "granted") return setState(perm === "denied" ? "denied" : "ask");
-      const k = await app.request<{ key: string }>("push.key");
+      const k = await app.read<{ key: string }>("push.key");
       if (!k.ok) return fail(k.error);
       const reg = await ready(e);
       if (!reg) return fail("обработчик пушей не поднялся");

@@ -2,9 +2,9 @@
 // остановить, поднять, убрать. Всё — методами Agent SDK через ядро; поток сообщений не читает.
 // Своё хранит в разделе сессии: спецификацию — что выбрал клиент (модель, усилие, флаги ответа), кто открыл сессию
 // (родитель) и отметку «убрать после хода». Папку держит ядро, слот — slots, профиль — profiles, заголовок — файл разговора.
-import { mkdirSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { clientPath, refuse, tildePath } from "@switchboard/host";
+import { clientPath, isRefusal, refuse, tildePath } from "@switchboard/host";
 import type { Ctx, Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
 
 /** Спецификация сессии: выбор клиента. Нет поля — значение по умолчанию claude. */
@@ -74,8 +74,8 @@ export type ManageOptions = { home?: string };
 export function manage(o: ManageOptions = {}): Module {
   const home = o.home ?? homedir();
   let host!: Host;
-  /** Спецификация, заголовок и родитель новой сессии: от session.open до её первого session() внутри host.open. Имя занято, пока открывается. */
-  const pending = new Map<string, { spec: Spec; title: string; parent?: string }>();
+  /** Имена, которые открываются сейчас: заняты до записи ядра. */
+  const opening = new Set<string>();
 
   const recOf = (s: Session) => s.store<Rec>().get() ?? {};
   const specOfSession = (s: Session): Spec => {
@@ -118,14 +118,14 @@ export function manage(o: ManageOptions = {}): Module {
   };
 
   return {
+    // запись новой сессии — из запроса открытия; родитель — его отправитель: сессия, устройство или машина
+    opening(s, req) {
+      const rec: Rec = { ...specOf(req as Frame), ...(typeof req.from === "string" ? { parent: req.from } : {}) };
+      if (Object.keys(rec).length) s.store<Rec>().set(rec);
+    },
+
     session(s) {
-      // первый старт: запись — из session.open; pending снимает сам session.open, чтобы имя было занято до записи ядра
-      const first = pending.get(s.info.callsign);
-      if (first) {
-        const rec: Rec = { ...first.spec, ...(first.parent ? { parent: first.parent } : {}) };
-        if (Object.keys(rec).length) s.store<Rec>().set(rec);
-      }
-      const spec = first?.spec ?? specOfSession(s);
+      const spec = specOfSession(s);
       const mode = recOf(s).mode;
       const part: QueryPart = {
         enableFileCheckpointing: true,
@@ -137,7 +137,7 @@ export function manage(o: ManageOptions = {}): Module {
       if (mode) part.permissionMode = mode;
       const { effortLevel: _e, ...settings } = flags(spec);
       if (Object.keys(settings).length) part.settings = settings;
-      if (first) part.title = first.title;
+      if (opening.has(s.info.callsign)) part.title = s.info.callsign.slice(0, s.info.callsign.indexOf("@"));
       return part;
     },
 
@@ -167,53 +167,43 @@ export function manage(o: ManageOptions = {}): Module {
         }
         // создать папку можно только по просьбе: опечатка агента даёт отказ
         if (!isDir && req.mkdir !== true) throw refuse("bad_dir", `session.open ${asked}: папки ${dir} нет`);
-        const spec = specOf(req);
+        specOf(req);
         if (req.resume !== undefined && typeof req.resume !== "string") throw refuse("bad_spec", `session.open ${asked}: resume`);
         if (req.fork !== undefined && typeof req.fork !== "boolean") throw refuse("bad_spec", `session.open ${asked}: fork`);
         if (req.point !== undefined && typeof req.point !== "number") throw refuse("bad_spec", `session.open ${asked}: point`);
         // имя: с number — первый свободный номер на машине (disk-full-1, disk-full-2); открываемое уже занято
-        const taken = (cs: string) => !!host.session(cs) || pending.has(cs);
+        const taken = (cs: string) => !!host.session(cs) || opening.has(cs);
         let callsign = asked;
         if (req.number === true) {
           let n = 1;
           while (taken(`${name}-${n}@${host.machine}`)) n++;
           callsign = `${name}-${n}@${host.machine}`;
         } else if (taken(callsign)) throw refuse("name_taken", `session.open: ${callsign} уже есть`);
-        // родитель — отправитель запроса: сессия, устройство или машина
-        pending.set(callsign, { spec, title: callsign.slice(0, callsign.indexOf("@")), ...(ctx.from ? { parent: ctx.from } : {}) });
+        opening.add(callsign);
         try {
-          // профиль и слот — их владельцам, до старта
-          for (const [type, key] of [["session.profile", "profile"], ["session.slot", "slot"]] as const) {
-            if (req[key] === undefined) continue;
-            const r = await host.request(type, { callsign, [key]: req[key] });
-            if (!r.ok) throw refuse(r.error, `session.open ${callsign}: ${type} — ${r.error}`);
-          }
-          // путь строится последним шагом перед стартом: имя занято, профиль или слот не подошли — папки не появится
-          if (!isDir) {
-            try {
-              mkdirSync(cwd, { recursive: true });
-            } catch (e) {
-              throw refuse("bad_dir", `session.open ${callsign}: папка ${dir} не создана — ${(e as Error).message}`);
-            }
-          }
           let s: Session;
           try {
+            // профиль, слот и прочее читают свои владельцы из запроса открытия; папку создаёт ядро после сборки
             s = await host.open({
               callsign,
               cwd,
+              ...(isDir ? {} : { mkdir: true }),
+              opening: { ...req, ...(ctx.from ? { from: ctx.from } : {}) },
               ...(req.resume !== undefined ? { resume: req.resume as string } : {}),
               ...(req.fork !== undefined ? { fork: req.fork as boolean } : {}),
               ...(req.point !== undefined ? { point: req.point as number } : {}),
             });
           } catch (e) {
+            if (isRefusal(e)) throw e;
             const why = (e as Error).message;
             if (why.includes("имя занято")) throw refuse("name_taken", why);
             throw refuse("open_failed", `${callsign}: ${why}`);
           }
-          ledger(host, "session.opened", `${callsign} создана · ${dir}${typeof req.slot === "string" ? ` · слот ${req.slot}` : ""}`, ctx, callsign);
-          return { callsign, session_id: s.info.session_id };
+          const slot = (s.field("slot") as { name: string } | undefined)?.name ?? null;
+          ledger(host, "session.opened", `${callsign} создана · ${dir}${slot ? ` · слот ${slot}` : ""}`, ctx, callsign);
+          return { callsign, session_id: s.info.session_id, slot };
         } finally {
-          pending.delete(callsign);
+          opening.delete(callsign);
         }
       },
 

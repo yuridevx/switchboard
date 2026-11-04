@@ -8,7 +8,7 @@ import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { appGate } from "@switchboard/web-core";
 import { OWN, pultParts } from "../stand/parts.ts";
 import { defined } from "../../packages/core/stand/app.ts";
-import { fleetRelay, fleetRoster, joinedRoster, flush, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, pult, SLOTS } from "./stand.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../../..");
@@ -220,10 +220,10 @@ describe("чат и карточка на стыках", () => {
 });
 
 describe("аккаунты: шаги по контракту", () => {
-  it("«Удалить…» аккаунт в слоте: slot.swap → slot.set без него → machine.account_remove, каждый после ответа", async () => {
+  it("«Удалить…» аккаунт в слоте: один запрос machine.account_remove, шаги выполняет машина", async () => {
     const relay = fleetRelay();
     relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { y0902: { email: "y0902@x.io", login: "ok", limits: {} }, work3: { email: "w@x.io", login: "ok", limits: {} } } : {} } });
-    relay.handlers["machine.slots"] = (f) => ({ ok: true, result: { slots: f.machine === "laptop" ? { main: { account: "y0902", order: ["y0902", "infirex", "work3"], wait: null, sessions: ["site@laptop"] } } : {} } });
+    relay.handlers[SLOTS] = (f) => ({ ok: true, result: { slots: f.machine === "laptop" ? { main: { account: "y0902", order: ["y0902", "infirex", "work3"], wait: null, sessions: ["site@laptop"] } } : {} } });
     relay.handlers["slot.swap"] = () => ({ ok: true, result: { from: "y0902", to: "work3" } });
     relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "work3" } });
     relay.handlers["machine.account_remove"] = () => ({ ok: true, result: { wiped: true } });
@@ -236,8 +236,6 @@ describe("аккаунты: шаги по контракту", () => {
     await flush(10);
     const steps = relay.got.filter((f) => ["slot.swap", "slot.set", "machine.account_remove"].includes(f.type)).map(({ id: _, ...f }) => f);
     expect(steps).toEqual([
-      { type: "slot.swap", v: 1, machine: "laptop", slot: "main" },
-      { type: "slot.set", v: 1, machine: "laptop", slot: "main", order: ["infirex", "work3"] },
       { type: "machine.account_remove", v: 1, machine: "laptop", account: "y0902" },
     ]);
   });
@@ -288,7 +286,7 @@ describe("журнал флота и машины", () => {
 
   it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине", async () => {
     const relay = fleetRelay();
-    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
     relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "0.5.0", rev: 1, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", restarts: 0 }] } });
     const t = await pult({ relay, url: "/#machines" });
     await flush(10);

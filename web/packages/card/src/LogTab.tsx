@@ -19,7 +19,7 @@ export function LogTab({ machine, callsign }: { machine: string; callsign: strin
   /** страницы до текущей и откуда читать текущую: «дальше» их наращивает, смена выборки сбрасывает */
   const [paged, setPaged] = useState<{ recs: Rec[]; from: string | null }>({ recs: [], from: null });
   const q = useLoad(
-    () => app.request<JournalAnswer>("machine.journal", { machine, session: callsign, since: paged.from ?? midnight(days), limit: 50, ...(kind ? { kind: [kind] } : {}) }),
+    () => app.read<JournalAnswer>("machine.journal", { machine, session: callsign, since: paged.from ?? midnight(days), limit: 50, ...(kind ? { kind: [kind] } : {}) }),
     [machine, callsign, kind, days, paged.from],
   );
   // пока читается «дальше», прошлая страница уже в paged.recs; смена выборки оставляет прошлое до ответа

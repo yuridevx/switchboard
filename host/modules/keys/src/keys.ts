@@ -29,7 +29,7 @@ export function make() {
         "list",
         "Пропуска флота: номер, роль, имя, человек, адрес, состояние (wait — приглашение не принято, ok), кем выдан и когда. role — только принятые этой роли.",
         { role: z.enum(["host", "client"]).optional() },
-        async ({ role }) => answer("keys.list", await host.request("keys.list", role ? { role } : {})),
+        async ({ role }) => answer("keys.list", await host.read("keys.list", role ? { role } : {})),
       ),
       tool(
         "revoke",

@@ -1,16 +1,16 @@
 // «Пожар»: машины хозяина нет в roster. Плашка на машину и перенос её сессий: по одной, следующая — после ответа на предыдущую; points.save не шлётся.
 import { useEffect, useRef, useState } from "react";
-import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec, slotChoice, SlotPick, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { canRaise, folderText, nameOf, say } from "./format.ts";
 import { PickMachine } from "./parts.tsx";
-import type { CheckResult, FleetSession } from "./store.ts";
+import type { CheckResult, FleetSession, Slots } from "./store.ts";
 import { useTargetPick } from "./useTargetPick.ts";
 
-type FireRow = { s: FleetSession; dir: string; slot: string; check: CheckResult | null; st: string };
-type Fire = { from: string; target: string; rows: FireRow[]; run: boolean; done: number };
+type FireRow = { s: FleetSession; dir: string; check: CheckResult | null; st: string };
+type Fire = { from: string; target: string; slots: Slots | null; slot: string; rows: FireRow[]; run: boolean; done: number };
 
-function FireDialog({ f, pick, run, close }: { f: Fire; pick(m: string): void; run(): void; close(): void }) {
+function FireDialog({ f, pick, chooseSlot, run, close }: { f: Fire; pick(m: string): void; chooseSlot(slot: string): void; run(): void; close(): void }) {
   const ready = f.rows.every((r) => canRaise(r.check));
   return (
     <Sec dlg data-dlg="fire">
@@ -24,6 +24,7 @@ function FireDialog({ f, pick, run, close }: { f: Fire; pick(m: string): void; r
           <PickMachine cur={f.target} callsign={f.rows[0]?.s.callsign ?? undefined} on={pick} />
         </Row>
       )}
+      {!f.run && f.slots ? <SlotPick label={`Слот на ${f.target}`} slots={f.slots} value={f.slot} on={chooseSlot} /> : null}
       {f.rows.map((r) => (
         <Sec key={r.s.sid} data-row={nameOf(r.s.callsign ?? r.s.sid)}>
           <b>{nameOf(r.s.callsign ?? r.s.sid)}</b>
@@ -32,7 +33,6 @@ function FireDialog({ f, pick, run, close }: { f: Fire; pick(m: string): void; r
             <Note>{r.st}</Note>
           ) : (
             <Opts>
-              <Note>{`Слот на ${f.target}: ${r.slot || "без слота"}`}</Note>
               <M>{r.dir}</M>
             </Opts>
           )}
@@ -90,12 +90,12 @@ export function FireSection({ fires }: { fires: Array<[string, FleetSession[]]> 
   const pickTarget = useTargetPick(setFire);
 
   const pick = (target: string, rows: FireRow[]) =>
-    pickTarget(target, rows.map((r) => ({ sid: r.s.sid, point: r.s.head.id, dir: r.dir })), (f, { slots, checks }) => ({ ...f, rows: f.rows.map((r, i) => ({ ...r, slot: slots ? (slots[0] ?? "") : r.slot, check: checks[i] })) }));
+    pickTarget(target, rows.map((r) => ({ sid: r.s.sid, point: r.s.head.id, dir: r.dir })), (f, { slots, checks }) => ({ ...f, slots, slot: slots ? slotChoice(Object.keys(slots)) : "", rows: f.rows.map((r, i) => ({ ...r, check: checks[i] })) }));
 
   function open(from: string, list: FleetSession[]) {
     const target = points.raisers()[0] ?? "";
-    const rows: FireRow[] = list.map((s) => ({ s, dir: s.dir ?? "~", slot: "", check: null, st: "" }));
-    setFire({ from, target, rows, run: false, done: 0 });
+    const rows: FireRow[] = list.map((s) => ({ s, dir: s.dir ?? "~", check: null, st: "" }));
+    setFire({ from, target, slots: null, slot: "", rows, run: false, done: 0 });
     void pick(target, rows);
   }
 
@@ -107,7 +107,7 @@ export function FireSection({ fires }: { fires: Array<[string, FleetSession[]]> 
     for (const [i, r] of f.rows.entries()) {
       if (stopped.current) break;
       setSt(i, "поднимается…");
-      const x = await points.raise({ machine: f.target, sid: r.s.sid, point: r.s.head.id, dir: r.dir, ...(r.slot ? { slot: r.slot } : {}), files: "point" }, r.s.callsign);
+      const x = await points.raise({ machine: f.target, sid: r.s.sid, point: r.s.head.id, dir: r.dir, ...(f.slot ? { slot: f.slot } : {}), files: "point" }, r.s.callsign);
       setSt(i, x.ok ? `готова — ${x.result.callsign}` : x.error === "not_owner" ? "уже подняли на другой машине" : `не поднялась: ${say(x.error)}`, x.ok ? 1 : 0);
     }
     setRunning(false);
@@ -124,7 +124,7 @@ export function FireSection({ fires }: { fires: Array<[string, FleetSession[]]> 
       {fires.map(([m, list]) => (
         <FirePlate key={m} m={m} list={list} open={!fire && !running && hasRaisers ? () => open(m, list) : null} />
       ))}
-      {fire ? <FireDialog f={fire} pick={(m) => void pick(m, fire.rows)} run={() => void run(fire)} close={close} /> : null}
+      {fire ? <FireDialog f={fire} pick={(m) => void pick(m, fire.rows)} chooseSlot={(slot) => setFire((x) => x && { ...x, slot })} run={() => void run(fire)} close={close} /> : null}
     </>
   );
 }

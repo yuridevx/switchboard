@@ -63,7 +63,9 @@ export function SessionPointsScreen({ params }: ScreenProps) {
   const load = useCallback(async () => {
     const found = await points.sidOf(callsign);
     setSid(found);
-    if (found) setRefused(await points.loadLine(found));
+    // реестр не ответил — слово на месте точек, а не «Точек ещё нет»
+    const word = points.fleetRefused();
+    setRefused(found ? await points.loadLine(found) : word && `points.list: ${word}`);
   }, [points, callsign]);
   const c = usePointDialog(callsign, sid, () => void load());
 
