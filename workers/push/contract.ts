@@ -24,7 +24,7 @@ export type PushSubscribe = { type: "push.subscribe"; id: string; to: ".push"; s
 /**
  * push.send — пуш подпискам, до которых доходит push.to: адрес устройства — ему, адрес человека ~email — каждому его устройству,
  * кроме skip (устройства на связи). Внутри уведомления — type, from и notify; строка журнала на каждое устройство.
- * Ответ: { cut } — укорачивал ли push notify.body, чтобы тело влезло в 4 096 Б; ok — пуш ушёл хотя бы одному.
+ * Ответ: ok — пуш ушёл хотя бы одному. Текст, который не влез в 4 096 Б, укорочен; cut — в строке журнала.
  */
 export type PushSend = {
   type: "push.send";
@@ -32,7 +32,6 @@ export type PushSend = {
   to: ".push";
   push: { to: string; skip?: string[]; type: string; from?: string; notify: Notify };
 };
-export type PushSendResult = { cut: boolean };
 
 /** Слова отказа push (кроме общих bad_frame, unknown_request, contract_mismatch). */
 export type PushWord = "gone" | "push_failed";

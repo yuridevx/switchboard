@@ -126,6 +126,6 @@ async function send(t: Turn): Promise<Frame[]> {
   const plain = fit({ type, from: typeof p.from === "string" ? p.from : undefined, notify: p.notify as Record<string, unknown> });
   if (!plain) return refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
   const outcomes = await Promise.all(subs.map((s) => deliver(t, s, plain, type)));
-  if (outcomes.includes("sent")) return answer(ok(f.id ?? "", { cut: plain.cut }));
+  if (outcomes.includes("sent")) return answer(ok(f.id ?? ""));
   return answer(fail(f.id ?? "", outcomes.includes("push_failed") ? "push_failed" : "gone"));
 }

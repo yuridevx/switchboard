@@ -187,7 +187,7 @@ describe("push.send устройству", () => {
     const log = journal();
     const now = Date.now();
     const out = await worker.frame(send("s-4", "phone"));
-    expect(out).toEqual([{ type: "reply", id: "s-4", ok: true, result: { cut: false }, to: "@laptop" }]);
+    expect(out).toEqual([{ type: "reply", id: "s-4", ok: true, to: "@laptop" }]);
     expect(posts.map((p) => p.url)).toEqual(["https://web.push.apple.com/QK2s-5"]);
     expect(JSON.parse(await decrypt(posts[0].body, phone.keys, unb64u(phone.auth)))).toEqual({ type: "question", from: "profiles@laptop", notify: NOTIFY });
     expect(await row("phone")).toEqual(before);
@@ -225,17 +225,19 @@ describe("push.send устройству", () => {
   it.each<[string, string, string]>([
     ["кириллица 6 000 байт (48)", "ж", "ж".repeat(3000)],
     ["кавычки и бэкслеши: JSON длиннее текста", "а", 'а"\\'.repeat(2000)],
-  ])("48 · длинный текст, %s: тело службе не больше 4 096 Б и заполнено до предела, начало текста и «…», cut: true", async (_n, _c, long) => {
+  ])("48 · длинный текст, %s: тело службе не больше 4 096 Б и заполнено до предела, начало текста и «…», cut: true в журнале", async (_n, _c, long) => {
     const phone = await ua();
     await subscribe("phone48", phone, "https://fcm.googleapis.com/fcm/send/48");
     const posts = service(201);
+    const log = journal();
     const out = await worker.frame(send("s-5", "phone48", { ...NOTIFY, body: long }));
     expect(posts[0].body.length).toBeLessThanOrEqual(4096);
     expect(posts[0].body.length).toBeGreaterThan(4096 - 8);
     const shown = JSON.parse(await decrypt(posts[0].body, phone.keys, unb64u(phone.auth)));
     expect(shown.notify.body.endsWith("…")).toBe(true);
     expect(long.startsWith(shown.notify.body.slice(0, -1))).toBe(true);
-    expect(out).toEqual([{ type: "reply", id: "s-5", ok: true, result: { cut: true }, to: "@laptop" }]);
+    expect(out).toEqual([{ type: "reply", id: "s-5", ok: true, to: "@laptop" }]);
+    expect(log).toContainEqual(expect.objectContaining({ ev: "sent", cut: true }));
   });
 
   it("43 · служба ответила 410 или 404: gone, строка удалена, в журнале статус и адрес; следующий пуш — gone без POST", async () => {
@@ -324,7 +326,7 @@ describe("push.send человеку ~email", () => {
     const posts = service(201);
     const out = await worker.frame(send("s-2083", "~yuri2083@example.com", NOTIFY, ["pult~yuri2083@example.com"]));
     expect(posts.map((p) => p.url).sort()).toEqual(["https://push.example/2083-laptop", "https://push.example/2083-phone"]);
-    expect(out).toEqual([{ type: "reply", id: "s-2083", ok: true, result: { cut: false }, to: "@laptop" }]);
+    expect(out).toEqual([{ type: "reply", id: "s-2083", ok: true, to: "@laptop" }]);
   });
 
   it("2084 · подписок нет или все в skip — gone со своей причиной, службу не зовёт", async () => {
@@ -339,7 +341,7 @@ describe("push.send человеку ~email", () => {
   });
 
   it.each<[string, number, number, unknown]>([
-    ["2086 ушёл хоть одному — ok; строка 410 удалена", 201, 410, { ok: true, result: { cut: false } }],
+    ["2086 ушёл хоть одному — ok; строка 410 удалена", 201, 410, { ok: true }],
     ["2088 одному 503, другому 410 — push_failed, а не gone; строка 410 удалена", 503, 410, { ok: false, error: "push_failed" }],
   ])("%s; строка журнала на каждое устройство", async (_n, a, b, want) => {
     const m = `${a}${b}`;

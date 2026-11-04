@@ -51,8 +51,8 @@ describe("кому пуш", () => {
     const s = await bench([PULT]);
     const p = notify(s, [PHONE, PULT]);
     const f = await until(() => sends(s)[0]);
-    reply(s, f, { ok: true, result: { cut: false } });
-    expect(await p).toEqual({ ok: true, result: { pushed: [PHONE] } });
+    reply(s, f, { ok: true });
+    expect(await p).toEqual({ ok: true });
     expect(sends(s)).toHaveLength(1);
     const { id: _id, ...rest } = f;
     expect(rest).toEqual({ type: "push.send", v: 1, to: ".push", push: { to: PHONE, type: "question", from: "profiles@laptop", notify: question.notify } });
@@ -71,17 +71,17 @@ describe("кому пуш", () => {
   it.each<[string, string[], string[]]>([
     ["155 · устройство на связи", [PHONE], [PHONE]],
     ["сессии и машины не пушатся", ["api@pc", "@pc"], []],
-  ])("%s: push.send нет, pushed пуст", async (_n, clients, online) => {
+  ])("%s: push.send нет", async (_n, clients, online) => {
     const s = await bench(online);
-    expect(await notify(s, clients)).toEqual({ ok: true, result: { pushed: [] } });
+    expect(await notify(s, clients)).toEqual({ ok: true });
     expect(sends(s)).toHaveLength(0);
   });
 
-  it("roster ещё не приходил: пуша нет, pushed пуст, строка в журнале", async () => {
+  it("roster ещё не приходил: пуша нет, строка в журнале", async () => {
     // на стенде первый roster приходит при связи: ядро без него — поддельное
     const logs: Array<{ ev?: string; why?: string }> = [];
     await push.start!({ log: (r: { ev?: string; why?: string }) => logs.push(r), roster: () => null } as never);
-    expect(await push.requests!.notify({ type: "notify", clients: [PHONE], frame: question }, {} as never)).toEqual({ pushed: [] });
+    expect(await push.requests!.notify({ type: "notify", clients: [PHONE], frame: question }, {} as never)).toBeUndefined();
     expect(logs.map((l) => [l.ev, l.why])).toEqual([["notify", `question → ${PHONE}: roster ещё не пришёл — пуша нет`]]);
   });
 
@@ -89,30 +89,30 @@ describe("кому пуш", () => {
     const s = await bench([PULT, "phone~anna@example.com"]);
     const p = notify(s, [OWNER]);
     const f = await until(() => sends(s)[0]);
-    reply(s, f, { ok: true, result: { cut: false } });
+    reply(s, f, { ok: true });
     expect(f.push).toEqual({ to: OWNER, skip: [PULT], type: "question", from: "profiles@laptop", notify: question.notify });
-    expect(await p).toEqual({ ok: true, result: { pushed: [OWNER] } });
+    expect(await p).toEqual({ ok: true });
     expect(sends(s)).toHaveLength(1);
   });
 
-  it("3107 · все устройства человека на связи: пуш уходит со skip всех, gone — pushed пуст, остановки нет", async () => {
+  it("3107 · все устройства человека на связи: пуш уходит со skip всех, gone — остановки нет", async () => {
     const s = await bench([PULT, PHONE, "phone~anna@example.com"]);
     const p = notify(s, [OWNER]);
     const f = await until(() => sends(s)[0]);
     reply(s, f, { ok: false, error: "gone" });
     expect((f.push as { skip: string[] }).skip).toEqual([PULT, PHONE]);
-    expect(await p).toEqual({ ok: true, result: { pushed: [] } });
+    expect(await p).toEqual({ ok: true });
     expect(lines(s).some((l) => l.kind === "stop")).toBe(false);
   });
 });
 
 describe("исход пуша", () => {
-  it("154 · подписки нет: строка gone без остановки, pushed пуст; следующий notify снова шлёт; на диск ничего", async () => {
+  it("154 · подписки нет: строка gone без остановки; следующий notify снова шлёт; на диск ничего", async () => {
     const s = await bench([]);
     for (const n of [0, 1]) {
       const p = notify(s, [PHONE]);
       reply(s, await until(() => sends(s)[n]), { ok: false, error: "gone" });
-      expect(await p).toEqual({ ok: true, result: { pushed: [] } });
+      expect(await p).toEqual({ ok: true });
     }
     const gone = lines(s).filter((l) => l.word === "gone");
     expect(gone.map((l) => [l.ev, l.why])).toEqual(Array(2).fill(["push.send", `${PHONE}: подписки нет — question без пуша`]));
@@ -123,21 +123,22 @@ describe("исход пуша", () => {
   it.each<[string, object[]]>([
     ["148 · Worker на связи ответил offline", [WORKER]],
     ["149 · Worker нет в roster, relay отказал offline", []],
-  ])("%s: строка stop со словом, pushed пуст, повтора нет", async (_n, workers) => {
+  ])("%s: строка stop со словом, повтора нет", async (_n, workers) => {
     const s = await bench([], workers);
     const p = notify(s, [PHONE]);
     reply(s, await until(() => sends(s)[0]), { ok: false, error: "offline" });
-    expect(await p).toEqual({ ok: true, result: { pushed: [] } });
+    expect(await p).toEqual({ ok: true });
     expect(lines(s).filter((l) => l.kind === "stop").map((l) => [l.ev, l.word, l.why])).toEqual([["push.send", "offline", `push.send ${PHONE}: offline — question без пуша`]]);
     expect(sends(s)).toHaveLength(1);
   });
 
-  it("3012 · одному устройству ушёл, другому подписки нет — pushed только первый", async () => {
+  it("3012 · одному устройству ушёл, другому подписки нет — строка только про второе", async () => {
     const s = await bench([]);
     const r = notify(s, [PHONE, TABLET]);
     const fs = [await until(() => sends(s)[0]), await until(() => sends(s)[1])];
     for (const f of fs) reply(s, f, (f.push as { to: string }).to === PHONE ? { ok: true } : { ok: false, error: "gone" });
-    expect(await r).toEqual({ ok: true, result: { pushed: [PHONE] } });
+    expect(await r).toEqual({ ok: true });
+    expect(lines(s).filter((l) => l.word === "gone").map((l) => l.why)).toEqual([`${TABLET}: подписки нет — question без пуша`]);
   });
 });
 
