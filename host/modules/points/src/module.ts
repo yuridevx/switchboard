@@ -54,6 +54,8 @@ export function make(): Module {
         const cs = s.info.callsign;
         if (fr.on === true) {
           s.store<Mark>().set({ r2: true });
+          // новая сессия до первого хода: снимать нечего, первая точка — на первом конце хода
+          if (!capture.hasConversation(s)) return { point: null };
           const out = await capture.take(s, "save");
           if ("error" in out) throw refuse(out.error, `${cs}: первая точка не снята`);
           return { point: out.point };

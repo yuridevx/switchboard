@@ -1462,4 +1462,12 @@ describe("спорные места", () => {
     await t.click(t.$('[data-point="41"]'));
     expect(t.$('[data-card="41"]')!.textContent).toContain(`папкаgit: ${text} · main`);
   });
+  it("«Хранить в R2» у сессии без хода: машина ответила без номера — первая точка на первом конце хода", async () => {
+    const relay = pointsRelay();
+    relay.handlers["session.r2"] = () => ({ ok: true, result: { point: null } });
+    const t = await sessionTab(relay, "wiki@laptop");
+    t.$<HTMLInputElement>('[data-act="r2"]')!.click();
+    await flush();
+    expect(t.$("[data-note]")!.textContent).toBe("Первая точка — на первом конце хода.");
+  });
 });

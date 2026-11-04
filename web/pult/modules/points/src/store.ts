@@ -111,7 +111,7 @@ export function createPointsStore(app: App) {
       return r;
     },
 
-    setR2: (callsign: string, on: boolean) => app.request<{ point?: number; deleted?: number }>("session.r2", { callsign, on }),
+    setR2: (callsign: string, on: boolean) => app.request<{ point?: number | null; deleted?: number }>("session.r2", { callsign, on }),
     save: (callsign: string, o: { stop?: boolean; interrupt?: boolean } = {}) => app.request<{ point: number; same: boolean }>("points.save", { callsign, ...(o.stop ? { stop: true } : {}), ...(o.interrupt ? { interrupt: true } : {}) }),
     /** Подъём; from — исходная сессия: поднятая встаёт в её проект. */
     async raise(body: Record<string, unknown>, from: string | undefined) {

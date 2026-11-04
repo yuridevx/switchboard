@@ -81,7 +81,7 @@ export function SessionPointsScreen({ params }: ScreenProps) {
       return false;
     }
     if (on) {
-      note("point", `Первая точка — №${r.result.point}, только что; дальше Host кладёт их сам.`, "ok");
+      note("point", typeof r.result.point === "number" ? `Первая точка — №${r.result.point}, только что; дальше Host кладёт их сам.` : "Первая точка — на первом конце хода.", "ok");
       return true;
     }
     if (sid) points.dropLine(sid);

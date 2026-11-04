@@ -522,11 +522,28 @@ describe("поля точки", () => {
 });
 
 describe("points: покрытие плана host-modules", () => {
-  it("3082 · пометка без файла разговора — отказ no_file, поле r2 { error, at }", async () => {
-    // источник: чьё: код (points.ts:115, :176-178, :303)
+  it("3082 · пометка без файла разговора: новая сессия до первого хода — пометка стоит, номера нет, ошибки нет; первая точка — на первом конце хода", async () => {
+    // источник: опыт на настоящем SDK 5 нояб. — до первого сообщения файла разговора нет: экран новой сессии показывал «в R2 не включилось»
     b = await bench({ home });
-    await b.st.open("site@laptop", { module: "host-points" });
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "no_file" });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: null } });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({ r2: true });
+    expect(b.reg.puts).toEqual([]);
+    const p = b.st.proc("site@laptop");
+    p.send(msg.state("idle"));
+    await until(() => JSON.stringify(last("site@laptop").r2) === "{}");
+    write(s.info.cwd, s.info.session_id, conv(2));
+    p.send(msg.state("running"));
+    await until(() => s.state === "busy");
+    p.send(msg.state("idle"));
+    await until(() => puts("rule").length === 1);
+  });
+
+  it("3082 · сохранение помеченной без файла разговора — отказ no_file, поле r2 { error, at }", async () => {
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    expect(await ask({ type: "points.save", callsign: s.info.callsign })).toMatchObject({ ok: false, error: "no_file" });
     b.st.proc("site@laptop").send(msg.state("idle"));
     await until(() => (last("site@laptop").r2 as { error?: string })?.error === "no_file");
     expect(b.st.journal().some((l) => l.ev === "point" && l.kind === "refuse" && l.word === "no_file")).toBe(true);

@@ -65,10 +65,13 @@ export function makeCapture(host: () => Host, fetcher: Fetch, onTaken: (s: Sessi
     }
   }
 
+  /** Файл разговора: claude пишет его на первом ходу. */
+  const hasConversation = (s: Session) => existsSync(join(projectDir(s.info.cwd), `${s.info.session_id}.jsonl`));
+
   async function takeNow(s: Session, why: Why, more: Record<string, unknown>): Promise<Taken> {
     const { callsign, session_id: sid, cwd } = s.info;
     const proj = projectDir(cwd);
-    if (!existsSync(join(proj, `${sid}.jsonl`))) return { error: "no_file" };
+    if (!hasConversation(s)) return { error: "no_file" };
     const scan = scanSession(proj, sid);
     const bytes = scan.bytes;
     const git = await snapshot(cwd);
@@ -129,6 +132,7 @@ export function makeCapture(host: () => Host, fetcher: Fetch, onTaken: (s: Sessi
 
   return {
     take,
+    hasConversation,
     failure: (cs: string) => failures.get(cs),
     forget: (cs: string) => void failures.delete(cs),
     silent,
