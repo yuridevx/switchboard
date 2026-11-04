@@ -1,4 +1,5 @@
 // Тело карточки инструмента: что делалось и что вышло — по виду инструмента.
+import { useCards } from "../../context.ts";
 import { langOfPath, useHighlighted, HtmlFrame, Markdown } from "@switchboard/web-ui";
 import type { ReactNode } from "react";
 import { isHtmlDocument } from "../../state/parse.ts";
@@ -19,7 +20,9 @@ const Failed = ({ t }: { t: Tool }) => (t.result?.isError ? <Pre text={t.result.
 
 /** Вывод инструмента; ошибка — красным; картинки — следом. */
 function Result({ t }: { t: Tool }) {
-  if (!t.result) return <div className="tb-wait">ждём результата…</div>;
+  const v = useCards();
+  const asking = v.useAsking(t.id);
+  if (!t.result) return <div className="tb-wait">{asking ? "выполнится после разрешения" : "ждём результата…"}</div>;
   return (
     <>
       {t.result.text || !t.result.images.length ? <Pre text={t.result.text || "без вывода"} tone={t.result.isError ? "bad" : undefined} /> : null}

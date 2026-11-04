@@ -33,7 +33,7 @@ describe("полоса «Включить уведомления»", () => {
     relay.handlers["push.subscribe"] = () => ({ ok: true });
     const t = await stand(parts(br), { relay });
     expect(br.calls).toEqual(["register sw.js"]);
-    expect(t.$(".al-card")!.textContent).toBe("Включить уведомленияСессии достучатся, когда приложение закрыто.Включить");
+    expect(t.$(".al-card")!.textContent).toBe("Включить уведомленияВключить");
     await t.click(t.button("Включить"));
     expect(br.calls).toEqual(["register sw.js", "requestPermission", `subscribe ${b64url(key).length}`]);
     expect(relay.sent("push.key")[0]).toMatchObject({ v: 1, to: ".push" });

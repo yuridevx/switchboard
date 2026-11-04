@@ -43,7 +43,7 @@
 @media (hover:hover){.chat-rw{position:absolute;right:100%;bottom:4px;margin:0 8px 0 0;white-space:nowrap;color:var(--muted);opacity:0}.chat-me:hover>.chat-rw,.chat-rw:focus-visible{opacity:1}}
 .chat-pics{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 .chat-pics img{max-height:160px;max-width:240px;min-width:40px;min-height:40px;border-radius:9px;display:block;image-rendering:auto}
-.chat-att{display:inline-flex;align-items:center;gap:4px;font:500 12px var(--mono);padding:2px 8px;margin:0 6px 6px 0;border-radius:7px;background:color-mix(in srgb,var(--on-accent) 16%,transparent)}
+.chat-att{display:flex;width:fit-content;align-items:center;gap:4px;font:500 12px var(--mono);padding:2px 8px;margin:0 6px 6px 0;border-radius:7px;background:color-mix(in srgb,var(--on-accent) 16%,transparent)}
 .chat-in{align-self:flex-start;max-width:min(92%,680px);background:var(--surface);border:1px solid var(--line);padding:9px 13px;border-radius:14px;font-size:15px}
 .chat-in.fleet{border-style:dashed}
 .chat-from{display:flex;gap:6px;align-items:center;font:600 11.5px/1.4 var(--mono);color:var(--muted);margin-bottom:4px;min-width:0}
@@ -177,7 +177,8 @@
 .chat-pn-w em{font:500 12px var(--mono);font-style:normal}
 .chat-pn-k{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;color:var(--muted)}
 .chat-pn-k dd{margin:0;overflow-wrap:anywhere;color:var(--ink)}
-.chat-pn-r{display:grid;grid-template-columns:minmax(58px,auto) minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:12.5px}
+.chat-pn-r{display:grid;grid-template-columns:minmax(58px,auto) minmax(0,1fr);gap:0 8px;align-items:baseline;font-size:12.5px}
+.chat-pn-r em{grid-column:2}
 .chat-pn-r b{font-weight:600;color:var(--ok)}
 .chat-pn-r[data-behavior="deny"] b{color:var(--bad)}
 .chat-pn-r[data-behavior="ask"] b{color:var(--wait)}
@@ -262,6 +263,9 @@
 .chat-nb{white-space:nowrap}
 @media (pointer:coarse){
   .chat-mode{min-height:36px}
+  .chat-mini,.chat-older,.chat-hint{min-height:32px}
+  .chat-side-x{min-width:32px;min-height:32px}
+  .dis-h{min-height:32px}
   .chat-cancel,.chat-again,.chat-more,.chat-file button{min-height:32px;align-items:center}
   .chat-file button{min-width:32px}
   .chat-acts .cb-b,.cb-h .cb-b{min-height:32px;min-width:32px;justify-content:center}

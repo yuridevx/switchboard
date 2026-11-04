@@ -26,7 +26,6 @@ const R2Row = memo(function R2Row({ s, save }: { s: FleetSession; save(callsign:
 function PageTitle() {
   return (
     <PageHead title="Точки">
-      <Note>сохранённые состояния сессий — из них сессию поднимают на любой машине</Note>
     </PageHead>
   );
 }

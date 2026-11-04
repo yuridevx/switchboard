@@ -112,7 +112,7 @@ export function ToolCard({ id }: { id: string }) {
         {t.name === "Edit" || t.name === "MultiEdit" ? <DiffCount t={t} /> : null}
         {wentBg ? <span className="tc-chip">в фоне</span> : null}
         {isAgent(t) && t.input.subagent_type ? <span className="tc-chip">{t.input.subagent_type}</span> : null}
-        <StateMark st={st} secs={t.secs} />
+        {t.name === "TodoWrite" && st === "ok" ? null : <StateMark st={st} secs={t.secs} />}
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {task?.status === "running" ? <TaskBar task={task} t={t} /> : !task && st === "running" && isShell(t) && v.background ? (

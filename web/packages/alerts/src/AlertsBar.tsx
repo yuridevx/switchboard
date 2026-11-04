@@ -22,7 +22,7 @@ export function AlertsBar() {
     <div className="al-card">
       <span>
         <b>Включить уведомления</b>
-        <span>{state === "error" ? `Не вышло: ${error}` : "Сессии достучатся, когда приложение закрыто."}</span>
+        {state === "error" ? <span>{`Не вышло: ${error}`}</span> : null}
       </span>
       <button className="al-on" disabled={state === "working"} onClick={() => void alerts.enable()}>
         {state === "working" ? "…" : state === "error" ? "Ещё раз" : "Включить"}

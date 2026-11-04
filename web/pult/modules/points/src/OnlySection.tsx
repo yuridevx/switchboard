@@ -106,7 +106,7 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
     <Sec data-only="">
       <PageHead>
         <H4>{`Только в R2 · ${only.length}`}</H4>
-        <In data-f="q" placeholder="⌕ имя, папка или месяц…" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+        <In data-f="q" size={26} placeholder="⌕ имя, папка или месяц…" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
       </PageHead>
       {shown.map((s) => {
         const name = nameOf(s.callsign ?? s.sid);
