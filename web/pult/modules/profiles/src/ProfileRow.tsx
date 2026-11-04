@@ -1,38 +1,39 @@
 // Строка профиля: имя, модель, сколько машин и сессий; раскрывается в машины, идущие сессии и конфликты.
-import { DisclosureBtn, Dot, effortName, plural, profileName as short, RowBtn, useApp } from "@switchboard/web-ui";
+import { DisclosureBtn, Dot, effortName, plural, profileName, RowBtn, useApp } from "@switchboard/web-ui";
 import type { ProfileRowData } from "./store.ts";
 
-export function ProfileRow({ r, machines, open, toggle }: { r: ProfileRowData; machines: number; open: boolean; toggle(id: string): void }) {
+export function ProfileRow({ row, machines, open, toggle }: { row: ProfileRowData; machines: number; open: boolean; toggle(): void }) {
   const app = useApp();
+  const conflicted = row.conflicts.length > 0;
+  const runs = row.running.length;
   return (
-    <div className={"pf-w" + (r.cf.length ? " cf" : "")} data-profile={r.id}>
-      <DisclosureBtn className="pf-r" open={open} onClick={() => toggle(r.id)}>
+    <div className={"pf-w" + (conflicted ? " cf" : "")} data-profile={row.id}>
+      <DisclosureBtn className="pf-r" open={open} onClick={toggle}>
         <span className="pf-n">
-          <b>{short(r.id)}</b>
-          {r.about ? <span>{r.about}</span> : null}
+          <b>{profileName(row.id)}</b>
+          {row.about ? <span>{row.about}</span> : null}
         </span>
         <span className="pf-m">
-          <span>{[r.model, r.effort ? effortName(r.effort) : null].filter(Boolean).join(" · ")}</span>
-          <span className="c">{`${r.ms.length}/${machines} ${plural(machines, "машины", "машин", "машин")} · ${r.run.length} ${plural(r.run.length, "сессия", "сессии", "сессий")}`}</span>
-          {r.cf.length ? <span className="pf-p bad">{`конфликт ${r.cf.map((x) => x.label).join(", ")}`}</span> : null}
+          <span>{[row.model, row.effort ? effortName(row.effort) : null].filter(Boolean).join(" · ")}</span>
+          <span className="c">{`${row.machines.length}/${machines} ${plural(machines, "машины", "машин", "машин")} · ${runs} ${plural(runs, "сессия", "сессии", "сессий")}`}</span>
+          {conflicted ? <span className="pf-p bad">{`конфликт ${row.conflicts.map((c) => c.label).join(", ")}`}</span> : null}
         </span>
       </DisclosureBtn>
       {open ? (
         <div className="pf-d">
           <div className="pf-ms">
-            {r.ms.map(({ m, label }) =>
-              r.cf.some((x) => x.m === m) ? (
-                <span key={m} className="pf-p bad">{`${label} конфликт`}</span>
-              ) : (
-                <span key={m} className="pf-p ok">
-                  {label}
+            {row.machines.map(({ m, label }) => {
+              const bad = row.conflicts.some((c) => c.m === m);
+              return (
+                <span key={m} className={`pf-p ${bad ? "bad" : "ok"}`}>
+                  {bad ? `${label} конфликт` : label}
                 </span>
-              ),
-            )}
+              );
+            })}
           </div>
-          {r.run.length ? (
+          {runs ? (
             <div className="pf-ss">
-              {r.run.map((s) => (
+              {row.running.map((s) => (
                 <RowBtn key={s.callsign} data-callsign={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
                   <Dot kind={s.lamp} />
                   <span className={"nm" + (s.human ? " hum" : "")}>{s.text}</span>
@@ -41,11 +42,11 @@ export function ProfileRow({ r, machines, open, toggle }: { r: ProfileRowData; m
               ))}
             </div>
           ) : null}
-          {r.cf.map((x) => (
-            <div key={x.m} className="pf-cf">
-              <b>{`${x.label}: ${x.repo.state === "conflict" ? "конфликт" : "ошибка"}`}</b>
-              {x.repo.error ? <span>{x.repo.error}</span> : null}
-              {(x.repo.files ?? []).map((f) => (
+          {row.conflicts.map((c) => (
+            <div key={c.m} className="pf-cf">
+              <b>{`${c.label}: ${c.repo.state === "conflict" ? "конфликт" : "ошибка"}`}</b>
+              {c.repo.error ? <span>{c.repo.error}</span> : null}
+              {(c.repo.files ?? []).map((f) => (
                 <code key={f}>{f}</code>
               ))}
             </div>

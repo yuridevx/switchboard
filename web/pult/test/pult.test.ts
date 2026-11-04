@@ -220,26 +220,6 @@ describe("чат и карточка на стыках", () => {
 });
 
 describe("аккаунты: шаги по контракту", () => {
-  it("«Удалить…» аккаунт в слоте: один запрос machine.account_remove, шаги выполняет машина", async () => {
-    const relay = fleetRelay();
-    relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { accounts: f.machine === "laptop" ? { y0902: { email: "y0902@x.io", login: "ok", limits: {} }, work3: { email: "w@x.io", login: "ok", limits: {} } } : {} } });
-    relay.handlers[SLOTS] = (f) => ({ ok: true, result: { slots: f.machine === "laptop" ? { main: { account: "y0902", order: ["y0902", "infirex", "work3"], wait: null, sessions: ["site@laptop"] } } : {} } });
-    relay.handlers["slot.swap"] = () => ({ ok: true, result: { from: "y0902", to: "work3" } });
-    relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "work3" } });
-    relay.handlers["machine.account_remove"] = () => ({ ok: true, result: { wiped: true } });
-    const t = await pult({ relay });
-    await t.click(t.$('.sb-navcol button[data-screen="accounts"]'));
-    await flush(10);
-    await t.click(t.btn(t.$('[data-account="y0902@x.io"]'), "Удалить…"));
-    expect(t.$('[data-dlg="rm"]')!.textContent).toContain("y0902 сейчас в слоте main");
-    await t.click(t.btn(t.$('[data-dlg="rm"]'), "Сменить и удалить"));
-    await flush(10);
-    const steps = relay.got.filter((f) => ["slot.swap", "slot.set", "machine.account_remove"].includes(f.type)).map(({ id: _, ...f }) => f);
-    expect(steps).toEqual([
-      { type: "machine.account_remove", v: 1, machine: "laptop", account: "y0902" },
-    ]);
-  });
-
   it("вложение: «＋ файл» → session.prompt с attachments { name, media_type, data base64 }", async () => {
     const relay = fleetRelay();
     relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });

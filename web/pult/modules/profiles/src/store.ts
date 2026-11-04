@@ -1,77 +1,79 @@
-// Состояние профилей: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
-import type { App } from "@switchboard/web-core";
+// Ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
 import { machineOf } from "@switchboard/protocol";
-import { folderOf, lamp, type ProfileRepo, type ProfilesAnswer, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule, machinesWith, okOf } from "@switchboard/web-ui";
+import type { App } from "@switchboard/web-core";
+import { folderOf, lamp, machineAnswers, machineLabel, machinesWith, okOf, type MachineAnswer, type ProfileRepo, type ProfilesAnswer, profileIdOf, profileName, sessionLabel, useModule } from "@switchboard/web-ui";
 
-type Repo = ProfileRepo;
-type Answer = ProfilesAnswer;
+type Raw = { id: string; about: string; model: string; effort: string; machines: string[]; conflicts: Array<{ m: string; repo: ProfileRepo }> };
 
 const repoOf = (id: string) => id.slice(0, id.lastIndexOf("/"));
 
-/** Строки: id → машины, описание и модель первой ответившей, машины с конфликтом. */
-function rowsOf(answers: Readonly<Record<string, MachineAnswer<Answer>>>) {
-  const out = new Map<string, { id: string; about: string; model: string; effort: string; ms: string[]; cf: Array<{ m: string; repo: Repo }> }>();
-  for (const [m, a] of Object.entries(answers)) {
-    const ok = okOf(a);
+/** Чей конфликт: файлы под папкой профиля — только у него; ни под чьей — у всех профилей репозитория. */
+function conflictOf(id: string, repo: ProfileRepo, all: string[]): ProfileRepo | null {
+  const files = repo.files ?? [];
+  const under = (p: string) => files.filter((f) => f.startsWith(`${profileName(p)}/`));
+  const own = under(id);
+  if (own.length) return { ...repo, files: own };
+  return all.some((p) => under(p).length) ? null : { ...repo, files };
+}
+
+function rowsOf(answers: Readonly<Record<string, MachineAnswer<ProfilesAnswer>>>): Raw[] {
+  const rows = new Map<string, Raw>();
+  for (const [m, answer] of Object.entries(answers)) {
+    const ok = okOf(answer);
     if (!ok) continue;
     for (const [id, p] of Object.entries(ok.profiles)) {
-      const row = out.get(id) ?? { id, about: p.about ?? "", model: p.model ?? "", effort: p.effort ?? "", ms: [], cf: [] };
-      row.ms.push(m);
-      out.set(id, row);
+      const row = rows.get(id) ?? { id, about: p.about ?? "", model: p.model ?? "", effort: p.effort ?? "", machines: [], conflicts: [] };
+      rows.set(id, row);
+      row.machines.push(m);
       const repo = ok.repos[repoOf(id)];
       if (!repo || repo.state === "ok") continue;
-      // файлы конфликта — под папками профилей: конфликт у того, чьи файлы; ни под чьей — у всех профилей репозитория
-      const files = repo.files ?? [];
-      const own = files.filter((f) => f.startsWith(`${short(id)}/`));
-      const anyone = files.some((f) => Object.keys(ok.profiles).some((x) => f.startsWith(`${short(x)}/`)));
-      if (own.length || !anyone) row.cf.push({ m, repo: { ...repo, files: own.length ? own : files } });
+      const conflict = conflictOf(id, repo, Object.keys(ok.profiles));
+      if (conflict) row.conflicts.push({ m, repo: conflict });
     }
   }
-  return [...out.values()];
+  return [...rows.values()];
 }
 
 export type ProfilesStore = ReturnType<typeof createProfilesStore>;
-/** Стор модуля в экранах. */
 export const useProfiles = (): ProfilesStore => useModule<ProfilesStore>();
-export type ProfileRowData = ReturnType<ProfilesStore["summary"]>["all"][number];
+export type ProfileRowData = ReturnType<ProfilesStore["summary"]>["rows"][number];
 
 export function createProfilesStore(app: App) {
   const machines = () => machinesWith(app, "machine.profiles");
-  const mLabel = (m: string) => machineLabel(app, m).text;
-  const replies: MachineAnswers<Answer> = machineAnswers<Answer>(app, (m) => app.read<Answer>("machine.profiles", { machine: m }), machines);
+  const label = (m: string) => machineLabel(app, m).text;
+  const answers = machineAnswers<ProfilesAnswer>(app, (m) => app.read<ProfilesAnswer>("machine.profiles", { machine: m }), machines);
 
   return {
     /** Машина пришла или вернулась при открытом экране — спросить и её. */
-    onLink: replies.onLink,
+    onLink: answers.onLink,
     /** Экран открыт: спросить машины; возврат — экран закрыт. */
-    mount: () => replies.mount(),
+    mount: () => answers.mount(),
     /** Всё, что показывает экран: простые данные, сравниваются по содержимому. */
     summary() {
       const sessions = app.roster()?.sessions ?? [];
-      const answers = replies.get();
-      const list = Object.values(answers);
+      const all = answers.get();
       return {
-        all: rowsOf(answers).map((r) => ({
+        rows: rowsOf(all).map((r) => ({
           ...r,
-          ms: r.ms.map((m) => ({ m, label: mLabel(m) })),
-          cf: r.cf.map((x) => ({ ...x, label: mLabel(x.m) })),
-          run: sessions
+          machines: r.machines.map((m) => ({ m, label: label(m) })),
+          conflicts: r.conflicts.map((c) => ({ ...c, label: label(c.m) })),
+          running: sessions
             .filter((s) => profileIdOf(s) === r.id)
             .map((s) => {
-              const n = sessionLabel(app, s.callsign);
-              return { callsign: s.callsign, lamp: lamp(s), text: n.text, human: n.human, place: `${mLabel(machineOf(s.callsign) ?? "")} · ${folderOf(s.dir)}` };
+              const name = sessionLabel(app, s.callsign);
+              return { callsign: s.callsign, lamp: lamp(s), text: name.text, human: name.human, place: `${label(machineOf(s.callsign) ?? "")} · ${folderOf(s.dir)}` };
             }),
         })),
-        repos: [...new Set(list.flatMap((a) => Object.keys(okOf(a)?.repos ?? {})))],
-        errors: Object.entries(answers).flatMap(([m, a]) => ("error" in a ? [`${mLabel(m)}: machine.profiles: ${a.error}`] : [])),
+        repos: [...new Set(Object.values(all).flatMap((a) => Object.keys(okOf(a)?.repos ?? {})))],
+        errors: Object.entries(all).flatMap(([m, a]) => ("error" in a ? [`${label(m)}: machine.profiles: ${a.error}`] : [])),
         machines: machines().length,
       };
     },
     /** Свести репозитории профилей на всех машинах; конфликт — отказ словами. */
     async syncAll() {
-      await Promise.all(machines().map((m) => replies.reload(m, (x) => app.request<Answer>("machine.profiles", { machine: x, sync: true }))));
-      const cf = rowsOf(replies.get()).flatMap((r) => r.cf.map((x) => `${short(r.id)} ${mLabel(x.m)}`));
-      return cf.length ? ({ ok: false, error: `Сведено. Конфликт: ${cf.join(", ")}` } as const) : ({ ok: true, result: "Сведено" } as const);
+      await Promise.all(machines().map((m) => answers.reload(m, (x) => app.request<ProfilesAnswer>("machine.profiles", { machine: x, sync: true }))));
+      const conflicts = rowsOf(answers.get()).flatMap((r) => r.conflicts.map((c) => `${profileName(r.id)} ${label(c.m)}`));
+      return conflicts.length ? ({ ok: false, error: `Сведено. Конфликт: ${conflicts.join(", ")}` } as const) : ({ ok: true, result: "Сведено" } as const);
     },
   };
 }

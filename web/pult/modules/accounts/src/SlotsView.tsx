@@ -1,70 +1,70 @@
 // Вид «Слоты»: слоты выбранной машины, запас по порядку, смена сейчас и новый слот.
 import { nameOf } from "@switchboard/protocol";
 import { useState } from "react";
-import { Btn, H4, Hint, hhmm, In, M, Note, Opts, PickOne, plural, Sec, Sel, LIMIT_NAMES, useApp } from "@switchboard/web-ui";
-import { useScreen } from "./context.ts";
-import { useAccounts } from "./store.ts";
+import { Btn, H4, Hint, hhmm, In, LIMIT_NAMES, M, Note, Opts, PickOne, plural, Sec, Sel, useApp } from "@switchboard/web-ui";
 import { NoteLine, Refused, Shared, Windows } from "./parts.tsx";
-import type { Account, Slot } from "./store.ts";
+import { useScreen } from "./screen.tsx";
+import { type Account, type Slot, useAccounts } from "./store.ts";
 
 const NONE: Record<string, Account> = {};
+const usageWord = (a: Account | undefined) => Object.entries(a?.limits ?? {}).map(([name, w]) => `${LIMIT_NAMES[name] ?? name} ${Math.round(w.utilization * 100)} %`).join(" · ");
 
-function SlotCard({ m, name, s }: { m: string; name: string; s: Slot }) {
+function SlotCard({ m, name, slot }: { m: string; name: string; slot: Slot }) {
   const app = useApp();
   const store = useAccounts();
-  const sc = useScreen();
-  const a = app.use(() => store.accsOf(m)) ?? NONE;
-  const [pick, setPick] = useState("");
-  const others = s.order.filter((x) => x !== s.account);
-  const now = others.includes(pick) ? pick : "";
-  const free = Object.keys(a).filter((x) => !s.order.includes(x) && a[x].login === "ok");
-  const move = (i: number, d: number) => {
-    const o = [...s.order];
-    const j = i + d;
-    if (j < 0 || j >= o.length) return;
-    [o[i], o[j]] = [o[j], o[i]];
-    sc.setOrder(m, name, o);
-  };
+  const screen = useScreen();
+  const accounts = app.use(() => store.accountsOf(m)) ?? NONE;
+  const [picked, setPicked] = useState("");
+  const reserve = slot.order.filter((x) => x !== slot.account);
+  const next = reserve.includes(picked) ? picked : "";
+  const free = Object.keys(accounts).filter((x) => !slot.order.includes(x) && accounts[x].login === "ok");
+  const setOrder = (order: string[]) => screen.setOrder(m, name, order);
+  function move(i: number, j: number) {
+    const order = [...slot.order];
+    [order[i], order[j]] = [order[j], order[i]];
+    setOrder(order);
+  }
+  const count = slot.sessions.length;
   return (
     <Sec data-slot={`${m}:${name}`}>
-      {s.wait ? (
+      {slot.wait ? (
         <Sec tone="wait">
-          <b>{`Слот ${name} ждёт сброса · ${hhmm(s.wait * 1000)}`}</b>
+          <b>{`Слот ${name} ждёт сброса · ${hhmm(slot.wait * 1000)}`}</b>
         </Sec>
       ) : null}
       <div className="ac-hd">
         <b>{`Слот ${name}`}</b>
-        <Hint>{`${s.sessions.length} ${plural(s.sessions.length, "сессия", "сессии", "сессий")}${s.sessions.length ? ": " + s.sessions.map(nameOf).join(", ") : ""}`}</Hint>
+        <Hint>{`${count} ${plural(count, "сессия", "сессии", "сессий")}${count ? `: ${slot.sessions.map(nameOf).join(", ")}` : ""}`}</Hint>
       </div>
-      <div data-current={s.account ?? ""}>
+      <div data-current={slot.account ?? ""}>
         <Hint>в слоте: </Hint>
         <M>
-          <b>{s.account ?? "—"}</b>
+          <b>{slot.account ?? "—"}</b>
         </M>
-        {s.account ? <Shared m={m} account={s.account} except={name} /> : null}
+        {slot.account ? <Shared m={m} account={slot.account} except={name} /> : null}
       </div>
-      <Windows a={s.account ? a[s.account] : undefined} />
+      <Windows account={slot.account ? accounts[slot.account] : undefined} />
       <H4>Запас — по порядку</H4>
-      {s.order.map((x, i) => (
+      {slot.order.map((x, i) => (
         <div key={x} className="ac-ord">
           <b>{x}</b>
-          <Hint>{Object.entries(a[x]?.limits ?? {}).map(([k, w]) => `${LIMIT_NAMES[k] ?? k} ${Math.round(w.utilization * 100)} %`).join(" · ")}</Hint>
+          <Hint>{usageWord(accounts[x])}</Hint>
           <Shared m={m} account={x} except={name} />
-          <Btn aria-label={`${x} выше`} disabled={i === 0} onClick={() => move(i, -1)}>
+          <Btn aria-label={`${x} выше`} disabled={i === 0} onClick={() => move(i, i - 1)}>
             ↑
           </Btn>
-          <Btn aria-label={`${x} ниже`} disabled={i === s.order.length - 1} onClick={() => move(i, 1)}>
+          <Btn aria-label={`${x} ниже`} disabled={i === slot.order.length - 1} onClick={() => move(i, i + 1)}>
             ↓
           </Btn>
-          {x !== s.account ? (
-            <Btn aria-label={`убрать ${x}`} onClick={() => sc.setOrder(m, name, s.order.filter((y) => y !== x))}>
+          {x !== slot.account ? (
+            <Btn aria-label={`убрать ${x}`} onClick={() => setOrder(slot.order.filter((y) => y !== x))}>
               ✕
             </Btn>
           ) : null}
         </div>
       ))}
       <Opts>
-        <Sel data-f={`add:${name}`} value="" onChange={(e) => e.currentTarget.value && sc.setOrder(m, name, [...s.order, e.currentTarget.value])}>
+        <Sel data-f={`add:${name}`} value="" onChange={(e) => e.currentTarget.value && setOrder([...slot.order, e.currentTarget.value])}>
           <option value="">+ аккаунт в запас</option>
           {free.map((x) => (
             <option key={x} value={x}>
@@ -72,23 +72,23 @@ function SlotCard({ m, name, s }: { m: string; name: string; s: Slot }) {
             </option>
           ))}
         </Sel>
-        {!s.sessions.length ? (
-          <Btn bad onClick={() => sc.setOrder(m, name, [])}>
+        {count ? null : (
+          <Btn bad onClick={() => setOrder([])}>
             Удалить слот
           </Btn>
-        ) : null}
+        )}
       </Opts>
       <NoteLine k={`set:${m}:${name}`} />
       <Opts>
-        <Sel data-f={`now:${name}`} value={now} onChange={(e) => setPick(e.currentTarget.value)}>
+        <Sel data-f={`now:${name}`} value={next} onChange={(e) => setPicked(e.currentTarget.value)}>
           <option value="">следующего по порядку — выберет Host</option>
-          {others.map((x) => (
+          {reserve.map((x) => (
             <option key={x} value={x}>
               {x}
             </option>
           ))}
         </Sel>
-        <Btn pri data-act="swap" onClick={() => sc.swap(m, name, now)}>
+        <Btn pri data-act="swap" onClick={() => screen.swap(m, name, next)}>
           Сменить сейчас
         </Btn>
       </Opts>
@@ -97,15 +97,14 @@ function SlotCard({ m, name, s }: { m: string; name: string; s: Slot }) {
   );
 }
 
-/** Новый слот на машине. */
 function NewSlot({ m }: { m: string }) {
   const app = useApp();
   const store = useAccounts();
-  const sc = useScreen();
-  const a = app.use(() => store.accsOf(m)) ?? NONE;
+  const screen = useScreen();
+  const accounts = app.use(() => store.accountsOf(m)) ?? NONE;
   const [name, setName] = useState("");
   const [chosen, setChosen] = useState("");
-  const ready = Object.keys(a).filter((x) => a[x].login === "ok");
+  const ready = Object.keys(accounts).filter((x) => accounts[x].login === "ok");
   const account = ready.includes(chosen) ? chosen : (ready[0] ?? "");
   return (
     <Sec>
@@ -123,7 +122,7 @@ function NewSlot({ m }: { m: string }) {
           onClick={() => {
             if (!name || !account) return;
             setName("");
-            sc.setOrder(m, name, [account]);
+            screen.setOrder(m, name, [account]);
           }}
         >
           Создать
@@ -136,24 +135,24 @@ function NewSlot({ m }: { m: string }) {
 export function SlotsView() {
   const app = useApp();
   const store = useAccounts();
-  const sc = useScreen();
-  const ms = app.use(() => store.machines("machine.accounts"));
-  const m = sc.slotMachine;
-  const list = app.use(() => store.slotsOf(m));
+  const screen = useScreen();
+  const machines = app.use(() => store.machines("machine.accounts"));
+  const m = screen.slotMachine;
+  const slots = app.use(() => store.slotsOf(m));
   const waiting = app.use(() => !!m && store.waiting(m));
   return (
     <>
       {/* кнопками — выбранная и машины открытого проекта, остальные — списком */}
       <Opts data-slot-machines="">
-        <PickOne all={ms} near={sc.near} cur={m} on={sc.pickSlotMachine} select={{ "data-f": "slotm", "aria-label": "Другая машина" }} />
+        <PickOne all={machines} near={screen.near} cur={m} on={screen.pickSlotMachine} select={{ "data-f": "slotm", "aria-label": "Другая машина" }} />
       </Opts>
       <Refused only={(k) => k === `${m} · machine.accounts`} />
       {waiting ? <Note data-slots-wait="">…</Note> : null}
-      {Object.entries(list ?? {}).map(([name, s]) => (
-        <SlotCard key={`${m}:${name}`} m={m} name={name} s={s} />
+      {Object.entries(slots ?? {}).map(([name, slot]) => (
+        <SlotCard key={`${m}:${name}`} m={m} name={name} slot={slot} />
       ))}
       {m && !waiting ? <NewSlot key={m} m={m} /> : null}
-      {ms.length ? null : <Note>Нет машин со слотами на связи.</Note>}
+      {machines.length ? null : <Note>Нет машин со слотами на связи.</Note>}
     </>
   );
 }
