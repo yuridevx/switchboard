@@ -11,5 +11,6 @@
 // refresh_locked, slot_dir_busy, account_dir_busy, shutting_down; у no_slot и slot_required причина называет слоты машины.
 import { make } from "./src/logins.ts";
 
+export { make };
 export type { Account, Accounts, Machine, Window } from "./src/logins.ts";
 export default make();

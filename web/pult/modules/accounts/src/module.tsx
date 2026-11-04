@@ -11,14 +11,7 @@ export function createAccounts(app: App): AppModule {
     state: accounts,
     on: { roster: accounts.onRoster, link: accounts.onLink },
     screens: {
-      accounts: {
-        nav: "Аккаунты",
-        group: "Флот",
-        mark: "logins",
-        label: "Аккаунты",
-        view: AccountsScreen,
-        head: () => ({ title: "Аккаунты" }),
-      },
+      accounts: { nav: "Аккаунты", group: "Флот", mark: "logins", label: "Аккаунты", view: AccountsScreen, head: () => ({ title: "Аккаунты" }) },
     },
     marks: { logins: () => accounts.pending() },
     css,

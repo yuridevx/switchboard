@@ -3,29 +3,33 @@ import { useEffect } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
 import { AccountsView } from "./AccountsView.tsx";
-import { ScreenCtx } from "./context.ts";
-import { useAccounts } from "./store.ts";
-import { useAccountsScreen } from "./screen.ts";
+import { ScreenProvider, useAccountsScreen } from "./screen.tsx";
 import { SlotsView } from "./SlotsView.tsx";
+import { useAccounts } from "./store.ts";
 
 export function AccountsScreen({ params }: ScreenProps) {
   const app = useApp();
   const store = useAccounts();
-  const sc = useAccountsScreen(params);
-  const canLogin = app.use(() => store.machines("machine.login")[0]);
+  const screen = useAccountsScreen(params);
+  const loginMachine = app.use(() => store.machines("machine.login")[0]);
   useEffect(() => store.mount(), [store]);
-  const newBtn = canLogin ? (
-    <Btn pri onClick={() => sc.openNew(canLogin)}>
+  const newAccount = loginMachine ? (
+    <Btn pri onClick={() => screen.openNew(loginMachine)}>
       + Новый аккаунт
     </Btn>
   ) : null;
+  const tab = (view: string, label: string) => (
+    <Btn aria-pressed={screen.view === view ? "true" : "false"} onClick={() => screen.setView(view)}>
+      {label}
+    </Btn>
+  );
   return (
-    <ScreenCtx.Provider value={sc}>
+    <ScreenProvider value={screen}>
       {app.wide ? (
         <Page>
           <div className="ac-cols">
             <div className="ac-col" data-col="accounts">
-              <PageHead title="Аккаунты">{newBtn}</PageHead>
+              <PageHead title="Аккаунты">{newAccount}</PageHead>
               <AccountsView />
             </div>
             <div className="ac-col" data-col="slots">
@@ -37,17 +41,13 @@ export function AccountsScreen({ params }: ScreenProps) {
       ) : (
         <Page>
           <PageHead>
-            <Btn aria-pressed={sc.view === "accounts" ? "true" : "false"} onClick={() => sc.setView("accounts")}>
-              Аккаунты
-            </Btn>
-            <Btn aria-pressed={sc.view === "slots" ? "true" : "false"} onClick={() => sc.setView("slots")}>
-              Слоты
-            </Btn>
-            {sc.view === "accounts" ? newBtn : null}
+            {tab("accounts", "Аккаунты")}
+            {tab("slots", "Слоты")}
+            {screen.view === "accounts" ? newAccount : null}
           </PageHead>
-          {sc.view === "slots" ? <SlotsView /> : <AccountsView />}
+          {screen.view === "slots" ? <SlotsView /> : <AccountsView />}
         </Page>
       )}
-    </ScreenCtx.Provider>
+    </ScreenProvider>
   );
 }

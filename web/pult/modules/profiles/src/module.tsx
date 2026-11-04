@@ -1,4 +1,4 @@
-// pult-profiles — профили флота, единственный экран профилей. Здесь — только связка с ядром; состояние — store.ts, вид — компоненты.
+// pult-profiles — профили флота, единственный экран профилей. Здесь — только связка с ядром.
 import type { App, AppModule } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
 import css from "./profiles.css";
@@ -12,14 +12,7 @@ export function createProfiles(app: App): AppModule {
     state: profiles,
     on: { link: profiles.onLink },
     screens: {
-      profiles: {
-        nav: "Профили",
-        group: "Флот",
-        label: "Профили",
-        path: "profiles",
-        view: ProfilesScreen,
-        head: () => ({ title: "Профили" }),
-      },
+      profiles: { nav: "Профили", group: "Флот", label: "Профили", path: "profiles", view: ProfilesScreen, head: () => ({ title: "Профили" }) },
     },
     css,
   };
