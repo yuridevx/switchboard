@@ -16,7 +16,7 @@ const MAX_H = 640;
  * скрипт идёт первым и убирает себя, поэтому знак сигнала документу не виден и чужая страница его не подделает.
  */
 export const framed = (html: string, sign = "") =>
-  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(!e.isTrusted)return;p.postMessage(${JSON.stringify(sign)},"*");const d=document.documentElement,h=()=>p.postMessage({height:d.scrollHeight},"*");h();new ResizeObserver(h).observe(d)})})()</script>${html}`;
+  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(!e.isTrusted)return;p.postMessage(${JSON.stringify(sign)},"*");const b=document.body,h=()=>p.postMessage({height:b.getBoundingClientRect().bottom+parseFloat(getComputedStyle(b).marginBottom)},"*");h();new ResizeObserver(h).observe(b)})})()</script>${html}`;
 
 function Shown({ html, title }: { html: string; title: string }) {
   const [left, setLeft] = useState(false);

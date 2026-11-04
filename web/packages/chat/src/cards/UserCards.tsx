@@ -47,14 +47,11 @@ export function MeCard({ it }: { it: UserItem }) {
       {it.text}
       {lost ? (
         <small>
-          связь оборвалась до ответа — не подтверждено{" "}
-          <span className="chat-nb">
-            ·{" "}
-            <button type="button" className="chat-again" onClick={() => v.resend?.(it.id, it.text)}>
-              <RotateCw size={11} />
-              отправить ещё раз
-            </button>
-          </span>
+          связь оборвалась до ответа — <span className="chat-nb">не подтверждено ·</span>{" "}
+          <button type="button" className="chat-again" onClick={() => v.resend?.(it.id, it.text)}>
+            <RotateCw size={11} />
+            отправить ещё раз
+          </button>
         </small>
       ) : tail ? (
         <small>{tail}</small>
