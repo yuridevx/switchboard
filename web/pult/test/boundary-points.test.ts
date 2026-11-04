@@ -630,7 +630,6 @@ describe("эталоны пульта: точки", () => {
     await t.click(t.$('[data-act="delete"]'));
     await flush(10);
     expect(t.$('[data-only] [role="alert"]')!.textContent).toBe("points.delete: not_owner");
-    expect(t.$("[data-only]")!.textContent).not.toContain("Журнале флота");
   });
 
   it("7294 · вкладка точек сессии: реестр без журнала флота", async () => {
@@ -909,7 +908,7 @@ describe("видимое: обзор", () => {
     await flush(10);
     const ok = t.$('[data-only] [role="status"]')!;
     expect(ok.textContent).toContain("alpha удалена — 2 точки");
-    expect(ok.textContent).toContain("Запись — в «Журнале флота».");
+    expect(ok.textContent).not.toContain("Запись — в «Журнале флота».");
     expect(t.$("[data-only]")!.textContent).toContain("Только в R2 · 1");
   });
 
@@ -973,7 +972,7 @@ describe("видимое: «пожар»", () => {
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [], more: false } });
     const t = await points(relay);
     expect(t.$('[data-fire="mac"] b')!.textContent).toBe("mac не на связи · 2 сессии ждут на последних точках");
-    expect(t.$('[data-fire="mac"]')!.textContent).toContain("Что mac допишет после точек, вернётся веткой, если он появится.");
+    expect(t.$('[data-fire="mac"]')!.textContent).not.toContain("Что mac допишет после точек, вернётся веткой, если он появится.");
     expect(t.$("[data-summary]")!.textContent).toContain("· 2 на mac — нет связи");
     relay.handlers["points.raise"] = () => undefined;
     await t.click(t.btn(null, "Перенести на другую машину…"));
@@ -983,7 +982,7 @@ describe("видимое: «пожар»", () => {
     expect(d.textContent).toContain("Куда");
     expect(d.textContent).toContain("проверяю папку…");
     expect(d.querySelector('[data-row="one"]')!.textContent).toMatch(/^oneточка \d\d:\d\d · №5~\/p1/);
-    expect(d.textContent).toContain("Каждая поднимется из своей последней точки, по одной, пока страница открыта. Закроете — оставшиеся ждут на точках, плашка останется.");
+    expect(d.textContent).not.toContain("Каждая поднимется из своей последней точки, по одной, пока страница открыта. Закроете — оставшиеся ждут на точках, плашка останется.");
     await t.click(t.btn(d, "Отмена"));
     expect(t.$('[data-dlg="fire"]')).toBeNull();
   });
@@ -1098,9 +1097,9 @@ describe("видимое: вкладка «Точки»", () => {
     relay.handlers["session.r2"] = () => undefined;
     const t = await sessionTab(relay, "wiki@laptop");
     const off = t.$('[data-r2="off"]')!;
-    expect(off.textContent).toContain("Точек нет: перенос, копия, откат, смена папки и «пожар» — только у сессий в R2.");
+    expect(off.textContent).not.toContain("Точек нет: перенос, копия, откат, смена папки и «пожар» — только у сессий в R2.");
     expect(off.textContent).toContain("Хранить в R2");
-    expect(off.textContent).toContain("Включите — Host сразу положит первую точку.");
+    expect(off.textContent).not.toContain("Включите — Host сразу положит первую точку.");
     t.$<HTMLInputElement>('[data-act="r2"]')!.click();
     await flush();
     expect(t.$("[data-note]")!.textContent).toBe("Включаю…");
@@ -1120,7 +1119,7 @@ describe("видимое: вкладка «Точки»", () => {
     const t = await sessionTab(relay);
     const on = t.$('[data-r2="on"]')!;
     expect(on.querySelector(".sb-ph b")!.textContent).toMatch(/^Точка .+ · №41 · 1,5 МБ$/);
-    expect(on.textContent).toContain("сохраняются сами: в разговоре новое и ответ кончился — Host кладёт точку сам");
+    expect(on.textContent).not.toContain("сохраняются сами: в разговоре новое и ответ кончился — Host кладёт точку сам");
     for (const b of ["Сохранить точку", "Перенести…", "Скопировать…", "Сменить папку…"]) expect(t.btn(on, b)!.disabled).toBe(false);
     expect(t.$("[data-points] h4")!.textContent).toBe("Линия и ветки");
 
@@ -1245,7 +1244,7 @@ describe("видимое: окна точки", () => {
     expect(t.btn(d, "сейчас — сохранится свежая")!.getAttribute("aria-pressed")).toBe("true");
     expect(d.textContent).toContain("Папка на pc");
     expect(d.textContent).toContain("Слот на pc");
-    expect(d.textContent).toContain("Сначала laptop остановит сессию и снимет точку, потом pc поднимет её. Сорвётся подъём — сессия снова пойдёт на laptop.");
+    expect(d.textContent).not.toContain("Сначала laptop остановит сессию и снимет точку, потом pc поднимет её. Сорвётся подъём — сессия снова пойдёт на laptop.");
     expect(d.textContent).toContain("прервать ответ и сделать сразу");
     expect(d.querySelector('[data-act="run"]')!.textContent).toBe("Перенести на pc");
     await t.click(t.btn(d, "laptop"));
@@ -1292,7 +1291,7 @@ describe("видимое: окна точки", () => {
     expect(d.querySelector("h4")!.textContent).toBe("Скопировать site@laptop");
     expect(d.textContent).toContain("Имя копии");
     expect(d.textContent).toContain("→ site-copy@pc");
-    expect(d.textContent).toContain("Исходная сессия не меняется. У копии своё имя и своя сессия в claude.ai.");
+    expect(d.textContent).not.toContain("Исходная сессия не меняется. У копии своё имя и своя сессия в claude.ai.");
     expect(d.textContent).not.toContain("прервать ответ");
     expect(d.querySelector('[data-act="run"]')!.textContent).toBe("Скопировать на pc");
     await t.type(d.querySelector('[data-f="name"]'), "my");
@@ -1330,7 +1329,7 @@ describe("видимое: окна точки", () => {
     expect(d.textContent).toContain("laptop — та же");
     expect(d.textContent).toContain("Новая папка");
     expect(d.textContent).toContain("Имя");
-    expect(d.textContent).toContain("папка — как есть: правки точки не применяются. Папку живой сессии не меняют: claude держит её с запуска. Не поднялась копия — «Забыть» не шлётся.");
+    expect(d.textContent).not.toContain("папка — как есть: правки точки не применяются. Папку живой сессии не меняют: claude держит её с запуска. Не поднялась копия — «Забыть» не шлётся.");
     expect(d.querySelector('[data-act="run"]')!.textContent).toBe("Скопировать и забыть");
     expect(relay.sent("points.raise").filter((f) => f.dryRun)).toHaveLength(0);
     relay.handlers["session.remove"] = () => undefined;
@@ -1362,7 +1361,7 @@ describe("видимое: окна точки", () => {
     expect(d.textContent).toContain("~/Projects/site");
     expect(t.btn(d, "Оставить как есть")!.getAttribute("aria-pressed")).toBe("true");
     expect(t.btn(d, "Вернуть к папке точки")!.getAttribute("aria-pressed")).toBe("false");
-    expect(d.textContent).toContain("Нынешнее сначала сохранится веткой «до отката» — из неё можно скопировать или продолжить ею.");
+    expect(d.textContent).not.toContain("Нынешнее сначала сохранится веткой «до отката» — из неё можно скопировать или продолжить ею.");
     expect(d.textContent).toContain("прервать идущий ответ и откатить сразу (иначе — после конца ответа)");
     expect(d.querySelector("[data-remote]")!.textContent).toContain("После отката в claude.ai — новая сессия без прежней истории, кнопка «В claude.ai» поведёт на неё. Прежняя сессия в claude.ai останется как была.");
     expect(d.querySelector('[data-act="run"]')!.textContent).toBe("Откатить к №38");

@@ -49,7 +49,6 @@ function RollbackFields({ d, c, remote }: { d: Dialog; c: DialogControl; remote:
           Вернуть к папке точки
         </Btn>
       </Opts>
-      <Note>Нынешнее сначала сохранится веткой «до отката» — из неё можно скопировать или продолжить ею.</Note>
       {remote ? (
         <Sec tone="wait" data-remote="">
           <b>Привязка к claude.ai снимется</b>
@@ -97,7 +96,6 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
         </Row>
       ) : null}
       <CheckLine check={d.check} target={d.target} />
-      {d.kind === "dir" ? <Note>папка — как есть: правки точки не применяются. Папку живой сессии не меняют: claude держит её с запуска. Не поднялась копия — «Забыть» не шлётся.</Note> : null}
       {d.kind === "rb" ? <RollbackFields d={d} c={c} remote={remote} /> : null}
       {d.kind === "copy" ? null : (
         <OptsLabel>
@@ -105,8 +103,6 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
           {d.kind === "rb" ? "прервать идущий ответ и откатить сразу (иначе — после конца ответа)" : "прервать ответ и сделать сразу"}
         </OptsLabel>
       )}
-      {d.kind === "move" ? <Note>{`Сначала ${machine} остановит сессию и снимет точку, потом ${d.target} поднимет её. Сорвётся подъём — сессия снова пойдёт на ${machine}.`}</Note> : null}
-      {d.kind === "copy" ? <Note>Исходная сессия не меняется. У копии своё имя и своя сессия в claude.ai.</Note> : null}
       {d.msg ? (
         <Note tone={d.phase === "err" ? "bad" : d.phase === "done" ? "ok" : "wait"} role="status" data-phase={d.phase}>
           {d.msg}

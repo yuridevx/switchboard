@@ -128,7 +128,6 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
       {notes.delete?.tone === "ok" ? (
         <Sec tone="ok" role="status">
           <b>{notes.delete.text}</b>
-          <Note>Запись — в «Журнале флота».</Note>
         </Sec>
       ) : (
         <Outcome note={notes.delete} />

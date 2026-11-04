@@ -55,7 +55,6 @@ function MoveDialog({ m, pick, chooseSlot, run, close }: { m: Moving; pick(machi
           )}
         </Sec>
       ))}
-      <Note>Каждая поднимется из своей последней точки, по одной, пока страница открыта. Закроете — оставшиеся ждут на точках, плашка останется.</Note>
       {m.started ? (
         <Opts>
           <Btn onClick={close}>Закрыть</Btn>
@@ -77,7 +76,6 @@ function LostMachine({ machine, list, open }: { machine: string; list: FleetSess
   return (
     <Sec tone="bad" data-fire={machine}>
       <b>{`${machine} не на связи${left ? ` с ${hhmm(left)}` : ""} · ${list.length} ${plural(list.length, "сессия ждёт", "сессии ждут", "сессий ждут")} на последних точках`}</b>
-      <Note>{`Что ${machine} допишет после точек, вернётся веткой, если он появится.`}</Note>
       {open ? (
         <Opts>
           <Btn pri onClick={open}>

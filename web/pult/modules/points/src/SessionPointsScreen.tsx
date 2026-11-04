@@ -104,14 +104,12 @@ export function SessionPointsScreen({ params }: ScreenProps) {
       <Page>
         <Sec data-r2="off">
           <b>{`${callsign} не в R2`}</b>
-          <Note>Точек нет: перенос, копия, откат, смена папки и «пожар» — только у сессий в R2.</Note>
           {canMark ? (
             <OptsLabel>
               <Check data-act="r2" checked={false} onChange={() => void setMark(true)} />
               Хранить в R2
             </OptsLabel>
           ) : null}
-          <Note>Включите — Host сразу положит первую точку.</Note>
           <Outcome note={notes.point} data-note="" />
         </Sec>
       </Page>
@@ -142,7 +140,6 @@ export function SessionPointsScreen({ params }: ScreenProps) {
             </Btn>
           ) : null}
         </PageHead>
-        <Note>сохраняются сами: в разговоре новое и ответ кончился — Host кладёт точку сам</Note>
         {r2.error ? <Note tone="bad">{`последняя точка не удалась: ${r2.error}`}</Note> : null}
         {refused && head ? (
           <Note tone="bad" role="alert">
