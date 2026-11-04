@@ -48,7 +48,8 @@ describe("вход и уход машины", () => {
     expect((await rows()).map((r) => [r.ev, r.machine, r.t, r.from, r.text])).toEqual([
       ["machine.back", "laptop", at("14:00"), ".relay", "laptop на связи"],
       ["machine.back", "pc", at("14:00"), ".relay", "pc на связи"],
-      ["machine.left", "laptop", at("14:02"), ".relay", "laptop пропала · была на связи с 14:00"],
+      // время в тексте пишет Worker, его часы — UTC; рядом на экране время страницы, поэтому пояс назван
+      ["machine.left", "laptop", at("14:02"), ".relay", "laptop пропала · была на связи с 14:00 UTC"],
       ["machine.back", "laptop", at("14:44"), ".relay", "laptop вернулась · не было 42 мин"],
     ]);
   });

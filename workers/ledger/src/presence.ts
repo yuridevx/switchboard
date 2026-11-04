@@ -10,8 +10,8 @@ export function presenceText(ev: string, machine: string, last: { ev: string; t:
   return last?.ev === LEFT ? `${machine} вернулась · не было ${span(now - last.t)}` : `${machine} на связи`;
 }
 
-/** Время UTC: «14:00». */
-const clock = (t: number) => new Date(t).toISOString().slice(11, 16);
+/** Время с поясом: «14:00 UTC». Worker не знает пояса читателя, а рядом на экране — время страницы. */
+const clock = (t: number) => `${new Date(t).toISOString().slice(11, 16)} UTC`;
 
 /** Длительность словами: «3 с», «42 мин», «2 ч 5 мин», «3 дн». */
 function span(ms: number): string {
