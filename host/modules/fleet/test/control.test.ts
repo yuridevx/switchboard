@@ -7,12 +7,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { make, task, wrap } from "../src/fleet.ts";
+import { make } from "../src/fleet.ts";
 import { manage } from "../../manage/src/manage.ts";
-import { make as makeChat } from "../../chat/src/chat.ts";
+import { make as makeChat, task, wrap } from "../../chat/contract.ts";
 import { make as makePush } from "../../push/src/push.ts";
-import { make as makeQuestions } from "../../questions/src/questions.ts";
-import { make as makeWatch } from "../../watch/src/watch.ts";
 
 const { FakeHolders, FakeRelay, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
@@ -34,19 +32,13 @@ async function bench(machine = "win", o: { home?: string; holders?: stand.FakeHo
   const profiles = module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
   const relay = new FakeRelay();
   relay.holdRoster = !!o.holdRoster;
-  const ask = o.withQuestions
-    ? [
-        { manifest: json("watch"), module: makeWatch() },
-        { manifest: json("push"), module: makePush() },
-        { manifest: json("questions"), module: makeQuestions() },
-      ]
-    : [];
+  const ask = o.withQuestions ? [{ manifest: json("push"), module: makePush() }] : [];
   const st = await standHost({
     machine,
     home: o.home,
     holders: o.holders,
     relayStand: relay,
-    modules: [slots, profiles, ...ask, { manifest: manageManifest, module: manage({ home: dir }) }, { manifest: manifest as Manifest, module: f.module }],
+    modules: [slots, profiles, ...ask, { manifest: manageManifest, module: manage({ home: dir }) }, { manifest: json("chat"), module: makeChat() }, { manifest: manifest as Manifest, module: f.module }],
   });
   stands.push(st);
   const call = async (me: string, name: string, args: Record<string, unknown>) => {

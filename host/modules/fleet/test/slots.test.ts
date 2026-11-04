@@ -4,6 +4,8 @@ import { refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make } from "../src/fleet.ts";
+import chatManifest from "../../chat/module.json" with { type: "json" };
+import { make as makeChat } from "../../chat/contract.ts";
 
 const { module, standHost } = stand;
 const stands: stand.Stand[] = [];
@@ -29,12 +31,12 @@ async function bench(serve: (f: Frame) => Record<string, unknown> | undefined = 
         "session.update": (r) => (seen.push(["session.update", r]), { now: ["model"] }),
         "session.remove": () => ({}),
       },
-      fields: { parent: () => undefined },
+      fields: { parent: () => undefined, mode: () => undefined },
     },
-    { provides: { "session.open": 1, "session.update": 1, "session.remove": 1, parent: 1 } },
+    { provides: { "session.open": 1, "session.update": 1, "session.remove": 1, parent: 1, mode: 1 } },
   );
   const logins = module("host-logins", { requests: { "session.slot": (r) => (seen.push(["session.slot", r]), slotReply() as never) } }, { provides: { "session.slot": 1 } });
-  const st = await standHost({ machine: "win", modules: [manage, logins, { manifest: manifest as Manifest, module: f.module }] });
+  const st = await standHost({ machine: "win", modules: [manage, logins, { manifest: chatManifest as Manifest, module: makeChat() }, { manifest: manifest as Manifest, module: f.module }] });
   stands.push(st);
   const recv = st.relay.receive.bind(st.relay);
   st.relay.receive = (ws, text) => {

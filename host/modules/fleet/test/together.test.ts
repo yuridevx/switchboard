@@ -1,25 +1,19 @@
-// Шесть модулей вместе на стенде Host: fleet, questions, push, watch, chat, journal.
+// Четыре модуля вместе на стенде Host: fleet, push, chat, journal.
 // Гейт ядра пропускает набор; вопрос сессии, давшей задачу, проходит путь fleet → questions → fleet.answer → SDK.
 import { afterEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest, Module } from "@switchboard/host";
 import fleetPkg from "@switchboard/host-fleet";
-import questionsPkg from "@switchboard/host-questions";
 import pushPkg from "@switchboard/host-push";
-import watchPkg from "@switchboard/host-watch";
 import chatPkg from "@switchboard/host-chat";
 import journalPkg from "@switchboard/host-journal";
 import fleetJson from "../module.json" with { type: "json" };
-import questionsJson from "../../questions/module.json" with { type: "json" };
 import pushJson from "../../push/module.json" with { type: "json" };
-import watchJson from "../../watch/module.json" with { type: "json" };
 import chatJson from "../../chat/module.json" with { type: "json" };
 import journalJson from "../../journal/module.json" with { type: "json" };
 import { make as makeFleet } from "../src/fleet.ts";
-import { make as makeQuestions } from "../../questions/src/questions.ts";
 import { make as makePush } from "../../push/src/push.ts";
-import { make as makeWatch } from "../../watch/src/watch.ts";
-import { make as makeChat } from "../../chat/src/chat.ts";
+import { make as makeChat } from "../../chat/contract.ts";
 import { make as makeJournal } from "../../journal/src/journal.ts";
 
 const { standHost, until } = stand;
@@ -33,15 +27,13 @@ afterEach(async () => {
 
 const entry = (m: unknown, mod: Module) => ({ manifest: m as Manifest, module: mod });
 
-describe("шесть модулей вместе", () => {
+describe("четыре модуля вместе", () => {
   it("пакеты отдают объект модуля; гейт ядра пропускает набор; hello несёт контракт всех шести", async () => {
-    for (const m of [fleetPkg, questionsPkg, pushPkg, watchPkg, chatPkg, journalPkg]) expect(typeof m).toBe("object");
+    for (const m of [fleetPkg, pushPkg, chatPkg, journalPkg]) expect(typeof m).toBe("object");
     const fleet = makeFleet();
     st = await standHost({
       modules: [
-        entry(watchJson, makeWatch()),
         entry(pushJson, makePush()),
-        entry(questionsJson, makeQuestions()),
         entry(fleetJson, fleet.module),
         entry(chatJson, makeChat()),
         entry(journalJson, makeJournal()),
@@ -49,7 +41,7 @@ describe("шесть модулей вместе", () => {
     });
     expect(st.startError).toBeNull();
     expect(Object.keys(st.relay.hellos[0].contract as object).sort()).toEqual(
-      ["answer", "answered", "decide.*", "decide.AskUserQuestion", "elicit", "machine.journal", "message", "notify", "question", "question.list", "session.events", "session.files", "session.history", "session.prompt", "session.unwatch", "session.watch", "session.watchers"],
+      ["answer", "answered", "decide.*", "decide.AskUserQuestion", "elicit", "machine.journal", "message", "notify", "question", "question.list", "session.events", "session.files", "session.history", "session.prompt", "session.unwatch", "session.watch"],
     );
     const call = async (me: string, name: string, args: Record<string, unknown>) =>
       (await fleet.tools(me).find((t) => t.name === name)!.handler(args as never, {})) as { content: Array<{ text: string }> };

@@ -4,6 +4,8 @@ import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make } from "../src/fleet.ts";
+import chatManifest from "../../chat/module.json" with { type: "json" };
+import { make as makeChat } from "../../chat/contract.ts";
 import manageManifest from "../../manage/module.json" with { type: "json" };
 import { manage } from "../../manage/src/manage.ts";
 import { mkdirSync, mkdtempSync } from "node:fs";
@@ -44,7 +46,7 @@ async function bench() {
   const home = mkdtempSync(join(tmpdir(), "switchboard-fleet-"));
   mkdirSync(join(home, "p"));
   const f = make();
-  const st = await standHost({ machine: "win", home, modules: [{ manifest: manifest as Manifest, module: f.module }, { manifest: manageManifest as Manifest, module: manage({ home }) }] });
+  const st = await standHost({ machine: "win", home, modules: [{ manifest: chatManifest as Manifest, module: makeChat() }, { manifest: manifest as Manifest, module: f.module }, { manifest: manageManifest as Manifest, module: manage({ home }) }] });
   stands.push(st);
   const svc = prefs(st);
   const call = async (me: string, name: string, args: Record<string, unknown>) => {

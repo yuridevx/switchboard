@@ -1,7 +1,11 @@
-// Снесено: экран отвечает словом до новой реализации.
+// Контракт web-ask — вопросы сессий (общий пакет телефона и пульта).
+// Кадры question и answered, запросы answer и question.list к Host.
+// Экран ask (параметр callsign): узко — на весь экран, широко — в месте над вводом чата (app.Slot).
+// Метка asked(callsign) — текст первого ждущего вопроса для строки списка, и запроса разрешения тоже.
+// Метка asked.tool(callsign, toolUseId) — запрос разрешения этого инструмента ждёт человека.
 import type { AppPart, Manifest } from "@switchboard/web-core";
-
 import json from "./module.json" with { type: "json" };
+import { createAsk } from "./src/module.tsx";
 
 declare module "@switchboard/web-ui" {
   interface Marks {
@@ -10,9 +14,7 @@ declare module "@switchboard/web-ui" {
   }
 }
 
-const Gone = () => "снесено";
-export const createAsk: AppPart["module"] = () => ({
-  screens: { ask: { label: "Вопрос", path: "ask", view: Gone, head: () => ({ title: "снесено" }) } },
-});
+export type { Question } from "./src/store.ts";
+export { createAsk };
 export const manifest: Manifest = json;
-export default createAsk;
+export default createAsk satisfies AppPart["module"];

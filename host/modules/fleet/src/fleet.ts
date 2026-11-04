@@ -1,17 +1,15 @@
 // Модуль fleet: сессии флота видят друг друга, пишут, открывают и ведут других — как в десктоп-приложении Claude.
 // Каждой сессии — сервер MCP fleet: list, send, answer, open, history, update, remove; открыть, прочитать, сменить модель
-// и закрыть — запросы manage и chat, fleet их только зовёт. Чужое сообщение — запрос message: текст с отправителем
-// ложится во ввод с priority "next" (простаивающая просыпается, занятая читает на границе шага). Адресата нет — отказ сразу.
+// и закрыть — запросы manage и chat, fleet их только зовёт. Чужое сообщение — запрос message модуля chat. Адресата нет — отказ сразу.
 // Итог хода: ход кончился, отправитель последнего ввода — родитель сессии (поле parent от manage этой машины), и это сессия, —
 // текст result уходит родителю тем же message. Своего хранения нет: проекты и имена — записи области флота у службы настроек, формат — у records.
 import { randomUUID } from "node:crypto";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import type { Ctx, Frame, Host, Module, Result, SDKMessage, Session } from "@switchboard/host";
+import type { Host, Module, Result, SDKMessage, Session } from "@switchboard/host";
 import { addProject, FLEET_PREFIX, LABELS, labelOf, NONE, placeSessions, PROJECTS, projectByName, projectIdOf, setLabel, settings, type Labels, type ProjectRec, type Settings } from "@switchboard/records";
 import { kindOf } from "@switchboard/protocol";
-import { refuse } from "@switchboard/host";
 
 type RosterSession = { callsign: string; state?: string | null; parent?: string; model?: string };
 type Roster = { sessions?: RosterSession[]; machines?: Array<{ machine: string }>; clients?: string[] };

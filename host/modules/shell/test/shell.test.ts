@@ -10,6 +10,8 @@ import type { Frame, Manifest } from "@switchboard/host";
 import { machineOf, MAX_FRAME } from "@switchboard/protocol";
 import fleetManifest from "../../fleet/module.json" with { type: "json" };
 import { make as makeFleet } from "../../fleet/src/fleet.ts";
+import chatManifest from "../../chat/module.json" with { type: "json" };
+import { make as makeChat } from "../../chat/contract.ts";
 import manifest from "../module.json" with { type: "json" };
 import { shellPath } from "../src/run.ts";
 import { make, TTL_MS } from "../src/shell.ts";
@@ -33,7 +35,7 @@ afterEach(async () => {
 
 async function machine(name: string) {
   const f = make();
-  const st = await standHost({ machine: name, modules: [{ manifest: fleetManifest as Manifest, module: makeFleet().module }, { manifest: manifest as Manifest, module: f.module }] });
+  const st = await standHost({ machine: name, modules: [{ manifest: chatManifest as Manifest, module: makeChat() }, { manifest: fleetManifest as Manifest, module: makeFleet().module }, { manifest: manifest as Manifest, module: f.module }] });
   stands.push(st);
   /** Вызов инструмента MCP сессии me — как его зовёт SDK. */
   const tool = async (me: string, name: string, args: Record<string, unknown>, signal?: AbortSignal) => {

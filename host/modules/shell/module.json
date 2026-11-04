@@ -1,7 +1,7 @@
 {
   "name": "host-shell",
   "type": "sdk",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "into": ["host"],
   "provides": {
     "shell.run": 1,
@@ -11,7 +11,7 @@
   },
   "uses": {
     "host.module@host": 1,
-    "message@host-fleet": 1
+    "message@host-chat": 1
   },
   "calls": [],
   "config": {}

@@ -1,12 +1,13 @@
 {
   "name": "host-fleet",
   "type": "sdk",
-  "version": "1.5.1",
+  "version": "2.0.0",
   "into": ["host"],
-  "provides": { "message": 1 },
+  "provides": {},
   "uses": {
     "host.module@host": 1,
-    "answer@host-questions": 1,
+    "answer@host-chat": 1,
+    "message@host-chat": 1,
     "notify@host-push": 1,
     "session.open@host-manage": 1,
     "session.update@host-manage": 1,

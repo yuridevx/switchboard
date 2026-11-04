@@ -14,10 +14,8 @@ import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
 import { make, rule, wrap } from "../src/incidents.ts";
 import { manage } from "../../manage/src/manage.ts";
-import { make as makeChat } from "../../chat/src/chat.ts";
-import { make as makeQuestions } from "../../questions/src/questions.ts";
+import { make as makeChat } from "../../chat/contract.ts";
 import { make as makeProfiles } from "../../profiles/src/profiles.ts";
-import { make as makeWatch } from "../../watch/src/watch.ts";
 import { make as makePush } from "../../push/src/push.ts";
 
 const { FakeHolders, module, standHost, turn, until } = stand;
@@ -109,11 +107,9 @@ async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: num
         },
       }),
       { manifest: json("profiles"), module: makeProfiles({ git: async () => ({ code: 0, out: "" }) }) },
-      { manifest: json("watch"), module: makeWatch() },
       { manifest: json("push"), module: makePush() },
       { manifest: json("manage"), module: manage({ home: work }) },
       { manifest: json("chat"), module: makeChat() },
-      { manifest: json("questions"), module: makeQuestions() },
       { manifest: manifest as Manifest, module: make() },
     ],
   });

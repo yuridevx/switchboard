@@ -17,10 +17,10 @@
     "label.session@web-labels": 1,
     "app@web-core": 2,
     "roster@relay": 1,
-    "question@host-questions": 1,
-    "answered@host-questions": 1,
-    "answer@host-questions": 1,
-    "question.list@host-questions": 1
+    "question@host-chat": 1,
+    "answered@host-chat": 1,
+    "answer@host-chat": 1,
+    "question.list@host-chat": 1
   },
   "config": {}
 }
