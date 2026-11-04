@@ -16,7 +16,7 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
 
   async revoke(kid: string): Promise<{ addr: string } | { error: "unknown_key" }> {
     const r = await revoke(this.env, kid);
-    log("error" in r ? `unknown_key ${kid} · отзыв` : `revoked ${kid} ${r.addr} · отметка`);
+    log("error" in r ? `unknown_key ${kid} · отзыв` : `revoked ${kid} ${r.addr} · строка удалена`);
     return r;
   }
 

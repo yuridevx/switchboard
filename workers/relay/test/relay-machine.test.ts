@@ -132,9 +132,9 @@ describe("эталоны relay: объект на машину", () => {
     expect(await r.json()).toEqual({ type: "reply", id: "r1", ok: true, result: { addr: "phone~owner@example.com", closed: 2 }, to: "@win" });
     expect(await onWin.waitClose()).toEqual({ code: 1008, reason: "revoked" });
     expect(await onWsl.waitClose()).toEqual({ code: 1008, reason: "revoked" });
-    expect(await env.GATE_DB.prepare("SELECT state FROM passes WHERE id = ?").bind(phone.kid).first("state")).toBe("revoked");
+    expect(await env.GATE_DB.prepare("SELECT state FROM passes WHERE id = ?").bind(phone.kid).first("state")).toBeNull();
     const again = await enter("win", phone.key);
-    expect(await again.waitClose()).toEqual({ code: 1008, reason: "revoked" });
+    expect(await again.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
     // без пропуска — слово gate; незнакомый номер — unknown_key
     const bad = await SELF.fetch("https://switchboard.test/", { method: "POST", body: JSON.stringify({ type: "keys.revoke", id: "r2", v: 1, kid: phone.kid }) });
     expect(await bad.json()).toMatchObject({ ok: false, error: "bad_key" });

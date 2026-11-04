@@ -183,7 +183,7 @@ describe("эталоны relay", () => {
     expect(await phone.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
     const again = await open();
     again.send({ type: "hello", proto: 1, key: await key("client", "phone", "k8e1") });
-    expect(await again.waitClose()).toMatchObject({ code: 1008, reason: "revoked" });
+    expect(await again.waitClose()).toMatchObject({ code: 1008, reason: "bad_key" });
     expect(panel.closed).toBeNull();
   });
 
@@ -371,11 +371,11 @@ describe("эталоны relay", () => {
     expect(a.closed ?? b.closed).toBeNull();
   });
 
-  it("133 · отозванный client.phone.k2a9 — закрыт 1008 revoked, слово gate как есть; у relay нет секрета флота", async () => {
+  it("133 · отозванный client.phone.k2a9 — закрыт 1008 bad_key, слово gate как есть; у relay нет секрета флота", async () => {
     const phone = await open();
     phone.send({ type: "hello", proto: 1, key: await key("client", "phone", "k2a9") });
-    expect(await phone.waitClose()).toEqual({ code: 1008, reason: "revoked" });
-    expect(logs).toContain("revoked client.phone.k2a9");
+    expect(await phone.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
+    expect(logs).toContain("bad_key client.phone.k2a9");
     expect((env as unknown as F).FLEET_SECRET).toBeUndefined();
     expect((env as unknown as F).REVOKED).toBeUndefined();
   });
@@ -393,14 +393,14 @@ describe("эталоны экосистемы · relay", () => {
     expect(await phone.quiet()).toEqual([]);
   });
 
-  it("31 · после перезапуска relay все входят заново; отозванный k2a9 — revoked, новый ключ k8e1 проходит", async () => {
+  it("31 · после перезапуска relay все входят заново; отозванный k2a9 — bad_key, новый ключ k8e1 проходит", async () => {
     await laptop();
     const panel = await hello("client", "panel-desk");
     await abortAllDurableObjects(); // выпуск relay: объект перезапущен, соединения рвутся
     await panel.waitClose();
     const old = await open();
     old.send({ type: "hello", proto: 1, key: await key("client", "phone", "k2a9") });
-    expect(await old.waitClose()).toEqual({ code: 1008, reason: "revoked" });
+    expect(await old.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
     await laptop();
     const panel2 = await hello("client", "panel-desk");
     await hello("client", "phone", {}, "k8e1");

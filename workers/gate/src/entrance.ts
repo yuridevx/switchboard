@@ -15,7 +15,7 @@ function answer(r: Reply | null, status = 200): Response {
  * отправителя — поле fromKid (kid остаётся полем запроса: keys.revoke {kid} — номер отзываемого пропуска).
  * Ответ на кадр с id — reply телом; кадр без id — 204 без тела. Кадры другим адресатам из frame не уходят:
  * их доставляет только relay — строка relay_only в журнале.
- * Слова отказа: bad_frame, too_large, bad_key, revoked (от gate), gate_unavailable, failed — frame бросил.
+ * Слова отказа: bad_frame, too_large, bad_key (от gate), gate_unavailable, failed — frame бросил.
  */
 export async function entrance(req: Request, gate: GateApi, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: (line: string) => void = (l) => console.log(l)): Promise<Response> {
   if (req.method !== "POST") return new Response(null, { status: 404 });

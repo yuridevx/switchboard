@@ -114,13 +114,13 @@ describe("link · насквозь через relay и gate", () => {
     expect(l.state).toBe("open");
   }, 30_000);
 
-  it("отказ gate — stopped со словом, без переподключений: чужой секрет bad_key, отозванный revoked", async () => {
+  it("отказ gate — stopped со словом, без переподключений: чужой секрет и отозванный — bad_key", async () => {
     const bad = open(await sign("чужой", "client", "phone", "k8e1"));
     await until(() => bad.l.state === "stopped");
     expect(bad.states.at(-1)).toEqual(["stopped", "bad_key"]);
     const old = open(await sign(SECRET, "client", "phone", "k2a9"));
     await until(() => old.l.state === "stopped");
-    expect(old.states.at(-1)).toEqual(["stopped", "revoked"]);
+    expect(old.states.at(-1)).toEqual(["stopped", "bad_key"]);
   }, 30_000);
 
   it("второй Host той же машины вытесняет первый: replaced — stopped, без переподключения", async () => {

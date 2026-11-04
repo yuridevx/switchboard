@@ -1,7 +1,7 @@
 {
   "name": "push",
   "type": "worker",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "provides": {
     "push.key": 1,
     "push.send": 1,

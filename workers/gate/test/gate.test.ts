@@ -76,13 +76,23 @@ describe("эталоны gate: пропуска в базе D1", () => {
     expect(logs).toContainEqual(expect.stringMatching(new RegExp(`^ok host\\.laptop\\.${inv.result.kid} → @laptop · \\d+ мс$`)));
   });
 
-  it("5004 · verify: секрет не тот → bad_key; строка «отозван» → revoked", async () => {
+  it("5004 · verify: секрет не тот → bad_key; отозванный → bad_key", async () => {
     const inv = await post({ type: "keys.invite", key: await agent(), role: "host", name: "laptop" });
     const { key } = (await post({ type: "gate.redeem", invite: inv.result.invite })).result;
     const other = key.slice(0, key.lastIndexOf(".") + 1) + "A".repeat(43);
     expect(await gate.verify(other)).toEqual({ error: "bad_key" });
     await gate.revoke(inv.result.kid);
-    expect(await gate.verify(key)).toEqual({ error: "revoked" });
+    expect(await gate.verify(key)).toEqual({ error: "bad_key" });
+  });
+
+  it("7305 · отзыв удаляет строку: номера нет в базе, второй отзыв — unknown_key, адрес свободен", async () => {
+    // источник: рекомендация бэклога, принята словом пользователя 4 нояб. («всю бекенд работу»); устав — удаление раньше добавления
+    const by = await agent();
+    const a = await post({ type: "keys.invite", key: by, role: "host", name: "laptop" });
+    expect(await gate.revoke(a.result.kid)).toEqual({ addr: "@laptop" });
+    expect(await env.DB.prepare("SELECT COUNT(*) AS n FROM passes WHERE id = ?").bind(a.result.kid).first("n")).toBe(0);
+    expect(await gate.revoke(a.result.kid)).toEqual({ error: "unknown_key" });
+    expect(await post({ type: "keys.invite", key: by, role: "host", name: "laptop" })).toMatchObject({ ok: true });
   });
 
   it("5005 · verify: роль или имя в пропуске не как в строке базы → bad_key", async () => {
@@ -133,12 +143,12 @@ describe("эталоны gate: пропуска в базе D1", () => {
     expect(logs.some((l) => l.startsWith("bad_key host.laptop.k7f3 · номера нет в базе"))).toBe(true);
   });
 
-  it("5011 · revoked(номера) → отозванные из них; живые и незнакомые не попадают", async () => {
+  it("5011 · revoked(номера) → которых нет в базе; живые не попадают", async () => {
     const by = await agent();
     const a = await post({ type: "keys.invite", key: by, role: "host", name: "a" });
     const b = await post({ type: "keys.invite", key: by, role: "host", name: "b" });
     await gate.revoke(a.result.kid);
-    expect(await gate.revoked([a.result.kid, b.result.kid, "zzzz", "client.phone.k2a9", `host.a.${a.result.kid}`])).toEqual([a.result.kid, `host.a.${a.result.kid}`]);
+    expect(await gate.revoked([a.result.kid, b.result.kid, "client.phone.zzzz", `host.a.${a.result.kid}`])).toEqual([a.result.kid, "client.phone.zzzz", `host.a.${a.result.kid}`]);
     expect(await gate.revoked([])).toEqual([]);
     expect(await gate.revoke("nope")).toEqual({ error: "unknown_key" });
   });
@@ -153,7 +163,7 @@ describe("эталоны gate: пропуска в базе D1", () => {
     const hosts: Pass[] = (await post({ type: "keys.list", key: by, role: "host" })).result.passes;
     expect(hosts.map((p) => p.addr)).toEqual([expect.stringMatching(/^@agent/)]);
     const all: Pass[] = (await post({ type: "keys.list", key: by })).result.passes;
-    expect(all.map((p) => p.state).sort()).toEqual(["ok", "revoked", "wait", "wait"]);
+    expect(all.map((p) => p.state).sort()).toEqual(["ok", "wait", "wait"]);
     expect(JSON.stringify(all)).not.toContain("hash");
     // привязка list — то же: машины флота для входа relay
     expect((await gate.list("host")).map((p) => p.addr)).toEqual(hosts.map((p) => p.addr));

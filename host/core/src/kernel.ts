@@ -418,8 +418,13 @@ export class Kernel {
     if (st === "stopped") {
       if (why === "shutting_down") return;
       this.log("core", { kind: "stop", ev: "relay_stopped", word: why, why: `relay закрыл соединение: ${why} — Host не переподключается` });
+      // пропуск в памяти больше не принимают: чистый перезапуск — keeper поднимет Host с нынешним machine.key; не примут и его — второе падение, failed
+      if (why === "revoked" || why === "bad_key") void this.shutdown(`relay не принял пропуск машины: ${why}`);
     } else if (st === "closed") this.log("core", { ev: "relay_closed", why: why ?? "" });
-    else if (st === "open") this.log("core", { ev: "hello", why: "hello принят" });
+    else if (st === "open") {
+      this.log("core", { ev: "hello", why: "hello принят" });
+      for (const s of this.sessions.values()) s.push();
+    }
   }
 
   /** Кадр в relay; связи нет — disconnected, больше предела кадра — too_large (слово ставит клиент рации). */

@@ -435,8 +435,8 @@ export class Sess {
     const r = this.record();
     const j = JSON.stringify(r);
     if (j === this.lastSent) return;
-    this.lastSent = j;
-    this.k.send({ type: "session.state", ...r } as never);
+    // связи нет или hello ещё не принят — кадр не ушёл: запомнить нельзя, иначе смена не дойдёт и после roster
+    if (this.k.send({ type: "session.state", ...r } as never).ok) this.lastSent = j;
   }
 
   // ───────────── сессия глазами модуля ─────────────
@@ -456,6 +456,7 @@ export class Sess {
           model: s.model,
           sdk: s.rec.sdk,
           from: s.rec.from ?? null,
+          stopped: s.rec.stopped,
           start,
           ...(start === "point" && s.point !== undefined ? { point: s.point } : {}),
         };

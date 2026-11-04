@@ -403,7 +403,7 @@ describe("эталоны releases", () => {
     await workersIn(NONE);
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ success: false, errors: [{ code: 10000, message: "Authentication error" }] }, { status: 403 }));
     const log = journal();
-    expect(await req(s, "~x", "releases.list")).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" }]);
+    expect(await req(s, "~x", "releases.list")).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", why: "API Cloudflare ответил 403", to: "~x" }]);
     expect(log).toContainEqual(expect.objectContaining({ ev: "releases.list", word: "cf_failed", status: 403 }));
     expect(JSON.stringify(log)).not.toContain("test-token");
   });
@@ -557,7 +557,7 @@ describe("эталоны releases", () => {
       new Request(input, init).url.includes("/switchboard-push/") ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
     );
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
-    expect(out).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" }]);
+    expect(out).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", why: "API Cloudflare ответил 500", to: "~x" }]);
     vi.restoreAllMocks();
     await fakeCf(NONE);
     const l = await result(req(s, "~x", "releases.list", { part: "host" }));
@@ -575,7 +575,7 @@ describe("эталоны releases", () => {
       new Request(input, init).url.includes("/switchboard-points/") ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
     );
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
-    expect(out[0]).toEqual({ type: "reply", id: "r", ok: false, error: "cf_failed", to: "~x" });
+    expect(out[0]).toEqual({ type: "reply", id: "r", ok: false, error: "cf_failed", why: "API Cloudflare ответил 500", to: "~x" });
     // порядок выкладки — части Cloudflare по имени, relay последним: до points выложены gate, github, ledger, phone
     expect(out.slice(1).map((f) => [f.type, f.to, f.text])).toEqual([
       ["ledger.add", ".ledger", "gate 1.1.58 → 1.1.59"],
@@ -757,7 +757,8 @@ describe("сборка Host «Выпусками»", () => {
     await mod("host-dup", "1.0.0", { provides: { notify: 1 } });
     const log = journal();
     const bad = await req(s, "~x", "releases.deploy", { part: "host-dup" });
-    expect(bad).toEqual([{ type: "reply", id: "r", ok: false, error: "check_failed", to: "~x" }]);
+    // 7306: причина в ответе, как обещает контракт releases.deploy (бэклог 3 нояб.: причину пришлось выводить из module.json)
+    expect(bad).toEqual([{ type: "reply", id: "r", ok: false, error: "check_failed", why: expect.stringContaining("имя notify: два владельца"), to: "~x" }]);
     expect(log).toContainEqual(expect.objectContaining({ word: "check_failed", why: expect.stringContaining("имя notify: два владельца") }));
     expect((await result(req(s, "~x", "releases.list", { part: "host" }))).parts.host).toMatchObject({ where: "machine", edge: "1.2.0+1", stable: "1.2.0+1" });
     await mod("host-dup", "1.0.1", { provides: { "dup.ping": 1 } });

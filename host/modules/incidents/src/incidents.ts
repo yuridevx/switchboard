@@ -192,9 +192,10 @@ export function make(): Module {
       open(s) {
         if (s.info.start === "resume" || s.info.start === "point") resend(s.info.callsign);
       },
-      // сессия остановлена или удалена: её обращения — живой сессии инцидента или новой; сбой и restart ведёт open
+      // сессия остановлена или удалена: её обращения — живой сессии инцидента или новой; сбой и restart ведёт open.
+      // Остановка ОС запись не трогает: сессию поднимет следующий Host, обращения дождутся её на диске
       close(s) {
-        if (s.state === "stopped") resend(s.info.callsign);
+        if (s.state === "stopped" && s.info.stopped) resend(s.info.callsign);
       },
       ready() {
         live = true;

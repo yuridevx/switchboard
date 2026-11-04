@@ -104,7 +104,7 @@ mHost.close(1000, "done");
 // живых пропусков эталона после прогона — 0: отзыв своих, последним — пропуск агента
 for (const kid of mine.reverse()) await post(relayUrl, { type: "keys.revoke", key: agent, kid });
 const left = (await post(gateUrl, { type: "keys.list", key: agent })).error;
-check("живых пропусков эталона после прогона 0", left === "revoked", left);
+check("живых пропусков эталона после прогона 0", left === "bad_key", left);
 
 for (const l of [host, phone, phone2, victim]) l.close(1000, "done");
 console.log(fails.length ? `live-etalons: ${fails.length} провалов` : "live-etalons: ok");

@@ -367,7 +367,7 @@ describe("договор модуля: Host", () => {
     let host2!: Host;
     const b = module("host-b", { start: (h) => void (host2 = h) }, { uses: { "session.prompt@host-chat": 1 } });
     const st2 = await stand({ modules: [b], start: false });
-    st2.relay.refuse = ["revoked"];
+    st2.relay.refuse = ["contract_mismatch"];
     await st2.start();
     await until(() => lines(st2, "relay_stopped").length === 1);
     expect(await host2.request("session.prompt", { v: 1, callsign: "x@pc" })).toEqual({ ok: false, error: "disconnected" });
