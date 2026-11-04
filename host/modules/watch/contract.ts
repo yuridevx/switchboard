@@ -1,8 +1,9 @@
-// Контракт модуля Host watch: живая лента сессии. Версия 1.
-//   session.watch / session.unwatch { callsign } — зритель — from запроса; ответ ok.
-//   session.watchers { callsign } → ["phone", "panel-desk"] — кто смотрит сейчас (им пользуется questions).
-//   session.events { from, to: [зрители], seq, events: [сообщения SDK как есть] } — кадр без ответа, пачка за 100 мс.
-import { make } from "./src/watch.ts";
+// Снесено: вход контракта отказывает словом до новой реализации.
+import type { Module } from "@switchboard/host";
+import { refuse } from "@switchboard/host";
 
-export type { EventsFrame } from "./src/watch.ts";
-export default make();
+const gone = () => {
+  throw refuse("demolished", "снесено");
+};
+
+export default { requests: Object.fromEntries(["session.watch","session.unwatch","session.watchers"].map((n) => [n, gone])), start() {}, stop() {} } as Module;

@@ -1,8 +1,9 @@
-// Контракт модуля Host chat: человек пишет сессии. Версия 1; запросы адресованы callsign сессии.
-//   session.prompt { callsign, uuid?, text, attachments?: [{ name, media_type, data(base64) }] } → { uuid }
-//   session.history { callsign, before: uuid | null, limit } → { messages: SessionMessage[], more }
-//   session.files { callsign, query, limit } → ["src/worker.ts", …] — пути от папки сессии
-// Слова: bad_attachment — у типа вложения нет блока; stopped — сессия остановлена (поднимает session.start).
-import { make } from "./src/chat.ts";
+// Снесено: вход контракта отказывает словом до новой реализации.
+import type { Module } from "@switchboard/host";
+import { refuse } from "@switchboard/host";
 
-export default make();
+const gone = () => {
+  throw refuse("demolished", "снесено");
+};
+
+export default { requests: Object.fromEntries(["session.prompt","session.history","session.files"].map((n) => [n, gone])), start() {}, stop() {} } as Module;

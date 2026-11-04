@@ -19,12 +19,6 @@ type Text = { content: Array<{ type: "text"; text: string }>; isError?: boolean 
 
 const text = (t: string, isError = false): Text => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
 
-/** Что видит модель адресата: отправитель в тексте — поле origin модель не видит (опыт 12). */
-export const wrap = (from: string, body: string) => `<fleet-message from="${from}">\n${body}\n</fleet-message>`;
-
-/** Задача от родителя: подсказка рядом с ней — строку системного промпта модель пропускает и отвечает fleet.send (живой прогон 1 нояб.). */
-export const task = (from: string, body: string) => `${wrap(from, body)}\n(Задача от родителя ${from}: итог этого хода уйдёт ему сам — fleet.send ему не нужен.)`;
-
 /** Строка в системный промпт: модель знает свой позывной (опыт 13) и как вести другие сессии. */
 export const prompt = (me: string) =>
   `Ты во флоте как ${me}. Кто на связи — fleet.list; написать сессии или человеку — fleet.send. ` +
@@ -209,20 +203,6 @@ export function make() {
     ];
   }
 
-  /**
-   * Сообщение во ввод сессии этой машины; отправитель — от Host или relay. report: true — итог хода дочери:
-   * отправитель последнего ввода у адресата прежний — вопрос родителя уходит тому, кто дал ему задачу, а не дочери.
-   */
-  function message(req: Frame, ctx: Ctx): void {
-    const to = req.to;
-    if (typeof to !== "string" || typeof req.text !== "string") throw refuse("bad_frame", "message: нужны to — callsign и text");
-    const s = host.session(to);
-    if (!s || s.state === "stopped" || s.state === "failed") throw refuse("offline", `${to}: ${s ? `сессия ${s.state}` : "сессии нет на машине"}`);
-    const from = ctx.from ?? "";
-    const fromParent = req.report !== true && !!from && s.field("parent") === from;
-    s.input(fromParent ? task(from, req.text) : wrap(from, req.text), { ...(req.report === true ? {} : { from }), priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
-  }
-
   /** Конец хода: последний ввод от родителя-сессии — итог ему тем же message. Родитель — поле manage этой машины: relay не нужен. */
   function report(s: Session, m: SDKMessage): void {
     const me = s.info.callsign;
@@ -245,7 +225,6 @@ export function make() {
       // SendMessage чужим сессиям в обе стороны; SendMessage своим субагентам остаётся (исключение устава, слово 1 нояб.)
       env: { CLAUDE_CODE_HARBOR_KITE: "0" },
     }),
-    requests: { message },
     on: {
       event(s, m) {
         if (m.type === "result") report(s, m);
