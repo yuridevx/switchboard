@@ -65,7 +65,7 @@ async function handle(env: Env, text: string): Promise<Reply> {
     return fail(f.id, r.error);
   }
   if ("invite" in r) log(`invite ${r.kid} ${r.addr} · выдал ${who.addr}`);
-  return ok(f.id, r);
+  return ok(f.id, "passes" in r ? { ...r, you: who.addr } : r);
 }
 
 export default {

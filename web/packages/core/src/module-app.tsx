@@ -40,6 +40,7 @@ export function moduleApp(x: Mod, d: AppDeps): App {
     get state() {
       return x.mod.state;
     },
+    address: () => link.address(),
     wide: !!o.wide,
     application: o.application,
     request: request as App["request"],

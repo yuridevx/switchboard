@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addProject, arrange, dropSessions, firstFill, labelOf, moveProject, NONE, placeSessions, projectByName, projectIdOf, removeProject, renameProject, setLabel, settings, type Ask, type ProjectRec } from "../contract.ts";
+import { addProject, arrange, dropSessions, labelOf, moveProject, NONE, placeSessions, projectByName, projectIdOf, removeProject, renameProject, setLabel, settings, type Ask, type ProjectRec } from "../contract.ts";
 
 const REC: ProjectRec[] = [
   { id: "shop", name: "Магазин", sessions: ["api@a", "site@a", "deploy@vps"] },
@@ -70,11 +70,6 @@ describe("проекты", () => {
     expect(dropSessions(REC, ["site@a"], "shop", "api@a", ["api@a", "site@a"])[0].sessions).toEqual(["site@a", "api@a", "deploy@vps"]);
   });
 
-  it("6108 · первое заполнение: папки — проекты с тем же номером, top — начальный порядок, домашняя — вне записи; пустой состав — пусто", () => {
-    const list = [{ callsign: "a@w", folder: "bot" }, { callsign: "b@w", folder: "shop" }, { callsign: "c@w", folder: "shop" }, { callsign: "h@w", folder: NONE }];
-    expect(firstFill(list, ["shop"])).toEqual([{ id: "shop", name: "shop", sessions: ["b@w", "c@w"] }, { id: "bot", name: "bot", sessions: ["a@w"] }]);
-    expect(firstFill([])).toEqual([]);
-  });
 });
 
 describe("имена", () => {

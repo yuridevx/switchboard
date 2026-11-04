@@ -72,10 +72,10 @@ export const failText = (s: SessionRecord) =>
         .join("; ")
     : "";
 
-/** Мой адрес ~почта: среди клиентов roster — устройство с именем этого приложения. */
-export function myAddress(app: Pick<App, "name" | "roster">): string | null {
-  const c = (app.roster()?.clients ?? []).find((x) => x.startsWith(`${app.name}~`));
-  return c ? userOf(c) : null;
+/** Мой адрес ~почта — из адреса пропуска. */
+export function myAddress(app: Pick<App, "address">): string | null {
+  const a = app.address();
+  return a ? userOf(a) : null;
 }
 
 /** Имя папки сессии — последнее имя dir в нижнем регистре; домашняя папка — «~». Папка — свойство сессии, проект с ней не связан. */

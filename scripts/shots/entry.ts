@@ -1,7 +1,6 @@
 // Настоящий код страниц на подделке relay: большой и малый флот — для снимков глазами. ?app=pult|phone&kind=small|big
 import { memoryStore, startApp } from "../../web/packages/core/contract.ts";
 import { FakeRelay } from "../../web/packages/core/stand/relay.ts";
-import { firstFill } from "../../tools/records/contract.ts";
 import { folderOf } from "../../web/packages/ui/contract.ts";
 import { PULT, pultParts } from "../../web/pult/stand/parts.ts";
 import { phoneParts } from "../../web/phone/stand/parts.ts";
@@ -121,7 +120,15 @@ const relay = new FakeRelay(roster as never);
 (window as unknown as { __relay: FakeRelay }).__relay = relay;
 // проекты — запись области флота, как после заполнения при выкладке: папка каждой сессии стала проектом
 const TOP = kind === "small" ? ["pfarm", "switchboard"] : ["switchboard", "pfarm"];
-relay.scoped.global = { "fleet.projects": firstFill(F.ss.map((s) => ({ callsign: s.cs, folder: folderOf(s.dir) })), TOP) };
+const byFolder = new Map<string, string[]>();
+for (const s of [...F.ss].sort((a, b) => a.cs.localeCompare(b.cs))) {
+  const folder = folderOf(s.dir);
+  if (folder !== "~") byFolder.set(folder, [...(byFolder.get(folder) ?? []), s.cs]);
+}
+const topAt = (n: string) => (TOP.includes(n) ? TOP.indexOf(n) : Infinity);
+relay.scoped.global = {
+  "fleet.projects": [...byFolder].sort((a, b) => (topAt(a[0]) === topAt(b[0]) ? a[0].localeCompare(b[0]) : topAt(a[0]) - topAt(b[0]))).map(([id, sessions]) => ({ id, name: id, sessions })),
+};
 if (kind === "small") {
   relay.scoped.global["fleet.labels"] = { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } };
   relay.values["web-board.filters"] = [{ id: "f1", name: "pfarm", projects: ["pfarm"] }];

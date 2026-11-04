@@ -153,6 +153,18 @@ describe("эталоны gate: пропуска в базе D1", () => {
     expect(await gate.revoke("nope")).toEqual({ error: "unknown_key" });
   });
 
+  it("7309 · keys.list отдаёт адрес предъявленного пропуска: два phone разных почт — у каждого свой", async () => {
+    // источник: бэклог 3 нояб.: страница не получает свой адрес ни от одной части; адрес отдаёт тот, кто проверяет пропуск
+    const by = await agent();
+    const keys = [];
+    for (const person of ["a@x", "b@y"]) {
+      const inv = await post({ type: "keys.invite", key: by, role: "client", name: "phone", person });
+      keys.push((await post({ type: "gate.redeem", invite: inv.result.invite })).result.key);
+    }
+    expect((await post({ type: "keys.list", key: keys[0], role: "host" })).result.you).toBe("phone~a@x");
+    expect((await post({ type: "keys.list", key: keys[1], role: "host" })).result.you).toBe("phone~b@y");
+  });
+
   it("5012 · keys.list с ролью host → машины флота: только строки «принят»; без роли — все, без хэшей", async () => {
     const by = await agent();
     await post({ type: "keys.invite", key: by, role: "host", name: "wait-machine" });

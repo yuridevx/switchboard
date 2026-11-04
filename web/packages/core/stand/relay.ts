@@ -18,6 +18,8 @@ export class FakeRelay {
   /** отказ следующим hello: слово закрытия 1008 (revoked, contract_mismatch, gate_unavailable…) */
   refuse: string[] = [];
   roster: Roster;
+  /** адрес пропуска страницы, который отдаёт gate; не задан — устройство с именем из пропуска среди клиентов roster */
+  you?: string;
   readonly WebSocket: new (url: string) => FakeSock;
   /** POST к Worker'ам, ждущие ответа теста relay.reply */
   private posts = new Map<string, (r: Response) => void>();
@@ -28,9 +30,9 @@ export class FakeRelay {
 
   /** fetch приложения: keys.list у gate — машины roster; прочее — обработчик по type, как у кадра через relay. */
   readonly fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-    const { key: _k, ...f } = JSON.parse(String(init?.body)) as Frame;
+    const { key, ...f } = JSON.parse(String(init?.body)) as Frame;
     if (String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list") {
-      return Response.json({ type: "reply", id: f.id, ok: true, result: { passes: this.roster.machines.map((m) => ({ name: m.machine, role: "host", state: "ok" })) } });
+      return Response.json({ type: "reply", id: f.id, ok: true, result: { you: this.you ?? this.roster.clients.find((c) => c.startsWith(`${String(key).split(".")[1]}~`)), passes: this.roster.machines.map((m) => ({ name: m.machine, role: "host", state: "ok" })) } });
     }
     this.got.push(f as Frame);
     if (typeof f.id !== "string") return new Response(null, { status: 204 });

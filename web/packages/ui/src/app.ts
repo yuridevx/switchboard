@@ -31,6 +31,8 @@ export type SlotProps = { screen: string; params?: Params; close?: () => void };
 export interface App {
   /** имя клиента во флоте — из ключа: client.phone.k2a9… → phone */
   readonly name: string;
+  /** свой адрес во флоте: его отдаёт gate, проверяя пропуск; до ответа gate — null */
+  address(): string | null;
   /** имя приложения из списка сборки: pult, phone; вне сборки — нет */
   readonly application?: string;
   /** широкий вид (пульт): экраны в местах; узкий (телефон): каждый экран на весь экран */

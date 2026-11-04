@@ -37,6 +37,8 @@ export interface FleetClient {
   readonly state: LinkState;
   /** roster флота — объединение roster объектов машин */
   readonly roster: Roster;
+  /** адрес своего пропуска от gate при входе; до ответа gate — null */
+  readonly addr: string | null;
   /** соединения по машинам */
   links(): ReadonlyMap<string, Link>;
   /** Запрос по адресу: машина — в её соединение, Worker — POST. Не бросает: отказ — reply { ok: false, error }. */
@@ -64,6 +66,7 @@ export function fleet(o: FleetOptions): FleetClient {
   const origin = new Map<string, Link>();
   const posts = new Set<AbortController>();
   let stopped = false;
+  let addr: string | null = null;
   let pause = firstPause;
   let listTimer: ReturnType<typeof setTimeout> | undefined;
   let seq = 0;
@@ -100,7 +103,9 @@ export function fleet(o: FleetOptions): FleetClient {
     if (stopped) return;
     if (r.ok) {
       pause = firstPause;
-      for (const p of (r.result as { passes: Array<{ name: string }> }).passes) open(p.name);
+      const got = r.result as { passes: Array<{ name: string }>; you?: string };
+      addr = got.you ?? null;
+      for (const p of got.passes) open(p.name);
       // машин нет и не будет: держателю без своей машины больше нечего ждать
       if (!links.size) o.onState?.("", "open");
       return;
@@ -210,6 +215,9 @@ export function fleet(o: FleetOptions): FleetClient {
   if (o.workers.gate) void list();
 
   return {
+    get addr() {
+      return addr;
+    },
     get state(): LinkState {
       if (o.machine) return links.get(o.machine)?.state ?? "connecting";
       const all = [...links.values()];

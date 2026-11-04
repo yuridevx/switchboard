@@ -41,7 +41,7 @@ export interface GateApi {
  * Запросы POST по адресу gate. Тело — кадр JSON (Content-Type любой: страница шлёт text/plain без предзапроса),
  * ответ — reply {id, ok, result | error}.
  *   keys.invite {key, role, name, person?} → {kid, invite, addr}; person обязателен у client
- *   keys.list {key, role?} → {passes: Pass[]}; с role — только принятые этой роли
+ *   keys.list {key, role?} → {passes: Pass[], you}; с role — только принятые этой роли; you — адрес предъявленного пропуска
  *   gate.redeem {invite} → {key}; пропуска не нужно
  * Слова отказа: bad_key — пропуск; bad_request — поля не того вида; name_taken — у адреса есть живой пропуск;
  * bad_invite — приглашения нет, оно принято или отозвано; gate_unavailable — база не ответила.
