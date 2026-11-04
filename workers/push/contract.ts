@@ -1,6 +1,6 @@
 // Контракт push: веб-пуши клиентам рации. Запросы — кадры с to: ".push", ответ — reply через relay.
 
-/** Имена и версии, которые push обслуживает; их же он отдаёт relay в hello(). */
+/** Имена и версии, которые push обслуживает. */
 export const CONTRACT = { "push.key": 1, "push.send": 1, "push.subscribe": 1 } as const;
 
 /** Что показать: заголовок, текст и кнопки. push его не разбирает, только укорачивает body. */
@@ -24,7 +24,7 @@ export type PushSubscribe = { type: "push.subscribe"; id: string; to: ".push"; s
 /**
  * push.send — пуш подпискам, до которых доходит push.to: адрес устройства — ему, адрес человека ~email — каждому его устройству,
  * кроме skip (устройства на связи). Внутри уведомления — type, from и notify; строка журнала на каждое устройство.
- * Ответ: { cut } — укорачивал ли push notify.body, чтобы тело влезло в 4 096 Б; ok — пуш ушёл хотя бы одному.
+ * Ответ: ok — пуш ушёл хотя бы одному. Текст, который не влез в 4 096 Б, укорочен; cut — в строке журнала.
  */
 export type PushSend = {
   type: "push.send";
@@ -32,7 +32,6 @@ export type PushSend = {
   to: ".push";
   push: { to: string; skip?: string[]; type: string; from?: string; notify: Notify };
 };
-export type PushSendResult = { cut: boolean };
 
 /** Слова отказа push (кроме общих bad_frame, unknown_request, contract_mismatch). */
 export type PushWord = "gone" | "push_failed";
