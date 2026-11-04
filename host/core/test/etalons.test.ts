@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { check } from "@switchboard/manifest-gate";
 import { FakeHolders, FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
+import { STOP_MS } from "../src/kernel.ts";
 import type { Host, Module } from "../contract.ts";
 
 const stands: Stand[] = [];
@@ -256,6 +257,54 @@ describe("эталоны ядра Host", () => {
     expect(site.state).toBe("stopped");
   });
 
+  it("7350 · ход завис: процесс не отвечает на прерывание — за предел stop убивает его, сессия stopped, причина в журнале, resume нет", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; бэклог — после 24 ч stop не завершился
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    p.noInterrupt = true;
+    const stopping = site.stop();
+    await until(() => p.interrupts === 1);
+    st.clock.advance(STOP_MS - 1);
+    expect(st.holders.ops.some((o) => o.op === "kill")).toBe(false);
+    st.clock.advance(1);
+    await stopping;
+    expect(site.state).toBe("stopped");
+    expect(st.holders.ops.filter((o) => o.op === "kill")).toHaveLength(1);
+    expect(lines(st, "stop_late")[0]).toMatchObject({ callsign: "site@laptop", why: expect.stringContaining("kill") });
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+  });
+
+  it("7351 · процесс не вышел после закрытия ввода: за предел убит, stop и restart доходят до конца", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.noClose = true;
+    const restarting = site.restart();
+    await until(() => st.holders.ops.some((o) => o.op === "close_input"));
+    st.clock.advance(STOP_MS);
+    await restarting;
+    expect(st.holders.ops.filter((o) => o.op === "kill")).toHaveLength(1);
+    expect(st.sdk.of("site@laptop")).toHaveLength(2);
+  });
+
+  it("7352 · restart ждёт конца хода, а stop пришёл: сессия остаётся stopped, новый процесс не поднимается", async () => {
+    // источник: слово пользователя 2 нояб. — операцию можно остановить; чьё: код — restart ждёт конца хода
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    const restarting = site.restart();
+    await site.stop();
+    await restarting;
+    expect(site.state).toBe("stopped");
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+  });
+
   it("5528 · сессия встала по сигналу ОС, Host остановился — новый Host поднимает её resume тем же разговором, без session.start", async () => {
     // источник: устав «чистый перезапуск начинает с хранилища»; чьё: код — session.ts onExited «новый Host поднимет её сам»
     const k = await keeper();
@@ -486,6 +535,20 @@ describe("эталоны ядра Host", () => {
     await run;
     expect(lines(st, "module_failed")[0]).toMatchObject({ module: "host-stuck", callsign: "site@laptop", why: expect.stringContaining("session() не вернулся за 12 с") });
     expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
+  });
+
+  it("7353 · процесс молчит на initialize первый раз: kill даёт один выход — один resume, сессия поднялась, а не failed", async () => {
+    // источник: устав, ожидаемые ветки — «процесс claude умер — один resume, второй сбой до готовности — failed»
+    const st = await stand({ modules: [] });
+    st.holders.failInitNext = 1;
+    void st.open("site@laptop").catch(() => {});
+    await until(() => st.holders.procs.get("site@laptop")?.initializes === 1);
+    st.clock.advance(60_000);
+    await until(() => st.sdk.of("site@laptop").length === 2 || lines(st, "session_failed").length > 0);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(lines(st, "session_failed")).toEqual([]);
+    expect(lines(st, "session_exited")).toHaveLength(1);
+    expect(st.states("site@laptop").at(-1)!.state).toBe("idle");
   });
 
   it("3151 · процесс жив, но молчит на initialize — за 60 с строка initialize_late и kill; дальше ветка «умер»: один resume, второй сбой — failed", async () => {

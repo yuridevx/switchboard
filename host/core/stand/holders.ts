@@ -25,6 +25,8 @@ export class FakeProc {
   interrupts = 0;
   /** процесс не отвечает на прерывание итогом хода */
   noInterrupt = false;
+  /** закрытие ввода не завершает процесс: выйдет только от kill */
+  noClose = false;
   /** не отвечать на initialize: процесс выйдет до готовности */
   failInit = false;
   /** состояние хода, как его показал тест: на interrupt процесс сам отдаёт result и idle */
@@ -95,7 +97,7 @@ export class FakeProc {
         else if (t === "c") {
           this.holders.ops.push({ op: "close_input", id: this.id });
           // ввод закрыт — claude выходит сам с кодом 0
-          this.exit(0);
+          if (!this.noClose) this.exit(0);
         } else if (t === "k") {
           this.holders.ops.push({ op: "kill", id: this.id });
           this.exit(null, "", "SIGKILL");

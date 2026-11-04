@@ -1,6 +1,6 @@
 // План машины сбоку: части, версии, закрепление, включение.
 import { useState } from "react";
-import { Btn, In, M, Note, Opts, Outcome, type OutcomeNote, PageHead, type Result, Sec, useApp, okOf } from "@switchboard/web-ui";
+import { Btn, In, M, machineLabel, Note, Opts, Outcome, type OutcomeNote, PageHead, type Result, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
 import { cellOf, type KState, type Listed, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
 
@@ -63,11 +63,12 @@ export function MachinePlan({ list, m, close, note, done }: { list: Listed | nul
   const settings = useSettings();
   const d = app.use(() => settings.releaseData(list));
   const st = d.kst[m];
+  const name = app.use(() => machineLabel(app, m).text);
   return (
     <Sec className="st-side" data-plan={m}>
       <PageHead>
         <M className="st-grow">
-          <b>{`@${m}`}</b>
+          <b>{name}</b>
         </M>
         {okOf<KState>(st)?.os ? <Note>{okOf<KState>(st)!.os}</Note> : null}
         <Btn aria-label="Закрыть" onClick={close}>

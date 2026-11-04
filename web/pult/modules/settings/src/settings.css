@@ -1,7 +1,8 @@
 .st-tabs{display:flex;gap:6px;flex-wrap:nowrap}
 .st-tabs button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.st-roll{display:flex;align-items:center;gap:10px;font-size:13px}
+.st-roll{display:grid;grid-template-columns:minmax(0,1fr) 120px 92px 104px;align-items:center;gap:10px;font-size:13px}
 .st-roll .st-bar{width:120px}
+.st-roll > button{justify-self:end}
 .st-bulk{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:var(--busy-weak);border:1px solid var(--busy);border-radius:10px;padding:8px 12px;font-size:13px}
 .st-grid{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:14px;align-items:start}
 .st-side{position:sticky;top:0}

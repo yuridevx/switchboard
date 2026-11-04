@@ -1,7 +1,7 @@
 {
   "name": "pult-journal",
   "type": "web",
-  "version": "2.1.1",
+  "version": "2.1.2",
   "into": [
     "pult"
   ],
@@ -9,6 +9,7 @@
     "journal": 1
   },
   "uses": {
+    "label.machine@web-labels": 1,
     "view@web-view": 19,
     "ui@web-ui": 1,
     "app@web-core": 2,

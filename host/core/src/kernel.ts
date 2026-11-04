@@ -93,6 +93,8 @@ export const MODULE_ERROR = "module_error";
 export const START_MS = 12_000;
 /** Предел ответа процесса claude на initialize — тот же, что у startup() SDK (initializeTimeoutMs по умолчанию 60 с). */
 export const INIT_MS = 60_000;
+/** Предел одной ступени остановки процесса claude: итог хода после прерывания, выход после закрытия ввода. Две ступени вместе — меньше предела запроса клиента. */
+export const STOP_MS = 30_000;
 const HANDLED = Symbol("handled");
 const SKIP = Symbol("skip");
 

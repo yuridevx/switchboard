@@ -1,7 +1,7 @@
 // Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger. Записи живут только на экране.
 // Первое чтение при открытии и выборе машины; пока экран открыт, смена состава флота дочитывает новые записи.
 import { useState } from "react";
-import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel, useApp, useLoad, machinesWith } from "@switchboard/web-ui";
+import { Btn, hhmm, In, machineLabel, Note, Opts, Page, PageHead, Sec, Sel, useApp, useLoad, machinesWith } from "@switchboard/web-ui";
 
 export type Ev = { id: number; t: number; ev: string; from: string; by?: string; machine?: string; callsign?: string; text: string };
 type Answer = { events: Ev[]; more: boolean };
@@ -15,6 +15,8 @@ function dayOf(t: number): string {
 }
 
 function EvRow({ e, day }: { e: Ev; day: string | null }) {
+  const app = useApp();
+  const label = app.use(() => (e.machine ? machineLabel(app, e.machine).text : ""));
   return (
     <div style={{ display: "contents" }}>
       {day ? <div className="jr-day">{day}</div> : null}
@@ -24,7 +26,7 @@ function EvRow({ e, day }: { e: Ev; day: string | null }) {
           {e.text}
           {e.by ? <span className="by">{` · by ${e.by}`}</span> : null}
         </span>
-        <em>{e.callsign ?? e.machine ?? e.from}</em>
+        <em>{e.callsign ?? (e.machine ? label : e.from)}</em>
       </div>
     </div>
   );
@@ -69,6 +71,7 @@ function Ledger({ machine, pick, q, setQ }: { machine: string; pick(m: string): 
   const online = app.use(() => machinesWith(app));
   const names = [...new Set([...online, ...evs.map((e) => e.machine).filter((x): x is string => !!x)])].sort();
   const t = q.trim().toLowerCase();
+  const labels = app.use(() => Object.fromEntries(names.map((m) => [m, machineLabel(app, m).text])));
   const shown = evs.filter((e) => !t || [e.text, e.ev, e.machine, e.callsign, e.by].some((x) => x?.toLowerCase().includes(t)));
   return (
     <Page>
@@ -78,7 +81,7 @@ function Ledger({ machine, pick, q, setQ }: { machine: string; pick(m: string): 
           <option value="">все машины</option>
           {names.map((m) => (
             <option key={m} value={m}>
-              {m}
+              {labels[m] ?? m}
             </option>
           ))}
         </Sel>

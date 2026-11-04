@@ -4,7 +4,7 @@
 import type { HookCallbackMatcher, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryPart, Session, SessionState, StartKind, Store } from "../contract.ts";
 import type { Exited, HeldProcess } from "./holders.ts";
-import { handled, INIT_MS, MODULE_ERROR, START_MS } from "./kernel.ts";
+import { handled, INIT_MS, MODULE_ERROR, START_MS, STOP_MS } from "./kernel.ts";
 import type { Kernel, Mod } from "./kernel.ts";
 import { tildePath } from "./paths.ts";
 import { isRefusal, refuse } from "./refusal.ts";
@@ -213,7 +213,8 @@ export class Sess {
     // процесс жив, но молчит на initialize: убить — дальше ветка «процесс умер»: один resume, второй сбой — failed
     const late = k.clock.setTimeout(() => {
       k.log("core", { kind: "stop", ev: "initialize_late", callsign: this.callsign, why: `процесс не ответил на initialize за ${INIT_MS / 1000} с — kill` });
-      void k.holders.kill(this.callsign);
+      // своим соединением: holders.kill — для ничьих, второе соединение дало бы второй выход
+      this.proc?.kill("SIGKILL");
     }, INIT_MS);
     try {
       await q.initializationResult();
@@ -253,7 +254,8 @@ export class Sess {
     }
     if (m.type === "system" && m.subtype === "session_state_changed") {
       const st = SDK_STATE[(m as { state: string }).state];
-      if (st && (LIVE.has(this.state) || this.state === "starting")) this.setState(st);
+      // сессию закрывают: что процесс говорит о ходе, больше не важно
+      if (st && !this.closing && (LIVE.has(this.state) || this.state === "starting")) this.setState(st);
     }
     for (const mod of k.mods) {
       if (mod.module.on?.event) k.call(mod.name, "on.event", this, (x, cur) => x.on!.event!(this.facade(cur), m), () => undefined);
@@ -343,15 +345,33 @@ export class Sess {
     const exited = new Promise<void>((r) => this.exitWaiters.push(r));
     this.q = null;
     q.close();
-    await exited;
+    await this.orKill(exited, "выхода процесса после закрытия ввода");
     this.proc = null;
+  }
+
+  /** Ступень остановки с пределом: не дождались — процесс убит, ждущих отпускает его выход; не вышел и тогда — отказ словом. */
+  private orKill(wait: Promise<void>, what: string): Promise<void> {
+    const k = this.k;
+    return new Promise((done, refused) => {
+      const kill = k.clock.setTimeout(() => {
+        k.log("core", { kind: "stop", ev: "stop_late", callsign: this.callsign, why: `нет ${what} за ${STOP_MS / 1000} с — kill` });
+        this.proc?.kill("SIGKILL");
+      }, STOP_MS);
+      const gone = k.clock.setTimeout(() => refused(new Error(`${this.callsign}: процесс не вышел и через ${STOP_MS / 1000} с после kill`)), 2 * STOP_MS);
+      void wait.then(() => {
+        k.clock.clearTimeout(kill);
+        k.clock.clearTimeout(gone);
+        done();
+      });
+    });
   }
 
   private async interruptTurn(): Promise<void> {
     if (!this.q || (this.state !== "busy" && this.state !== "waiting")) return;
     const r = this.nextResult();
-    await this.q.interrupt().catch(() => {});
-    await r;
+    // ответа на прерывание не ждём: важен итог хода, а молчащий процесс не ответит
+    void this.q.interrupt().catch(() => {});
+    await this.orKill(r, "итога хода после прерывания");
   }
 
   async stop(): Promise<void> {
@@ -379,6 +399,8 @@ export class Sess {
   async restart(): Promise<void> {
     if (!this.q) return this.start();
     if (this.state === "busy" || this.state === "waiting") await this.nextResult();
+    // пока ждали конца хода, сессию начали закрывать: stop важнее перезапуска
+    if (this.closing) return;
     this.closing = "restart";
     try {
       await this.closeQuery();

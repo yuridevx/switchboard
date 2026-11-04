@@ -1,7 +1,7 @@
 // Вид «Аккаунты»: идущие входы, диалог нового аккаунта и карточка на почту со всех машин.
 import { useMemo } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { ago, Btn, Hint, Note, Opts, OptsInline, Pill, plural, Sec, useApp } from "@switchboard/web-ui";
+import { ago, Btn, Hint, machineLabel, Note, Opts, OptsInline, Pill, plural, Sec, useApp } from "@switchboard/web-ui";
 import { useScreen } from "./context.ts";
 import { useAccounts } from "./store.ts";
 import { NewDlg, RmDlg, SessDlg } from "./Dialogs.tsx";
@@ -56,13 +56,14 @@ function MachineRow({ m, name, a }: Entry & { m: string }) {
   const store = useAccounts();
   const sc = useScreen();
   const list = app.use(() => store.slotsOf(m)) ?? {};
+  const label = app.use(() => machineLabel(app, m).text);
   const can = app.use(() => ({ swap: app.can(m, "slot.swap"), login: app.can(m, "machine.login"), remove: app.can(m, "machine.account_remove") }));
   const inSlots = slotsWith(list, name);
   const reserve = Object.entries(list).find(([, s]) => s.account !== name && s.order.includes(name))?.[0];
   const st = a.login === "ok" ? "вошёл" : a.login === "pending" ? "вход идёт" : "нет входа";
   return (
     <div className="ac-m" data-machine={m}>
-      <b>{m}</b>
+      <b>{label}</b>
       <span>
         <Hint tone={a.login === "ok" ? "ok" : "wait"}>{st}</Hint> {inSlots.length ? `${inSlots.length > 1 ? "в слотах" : "в слоте"} ${inSlots.join(", ")}` : reserve ? `запас ${reserve}` : ""}
       </span>
@@ -93,6 +94,7 @@ function AccountCard({ id, list, sessions }: { id: string; list: Entry[]; sessio
   const first = list[0].a;
   // окна — запись одной машины, как пришла: первая машина, у которой они есть
   const src = list.find((x) => Object.keys(x.a.limits ?? {}).length);
+  const srcName = app.use(() => (src ? machineLabel(app, src.machine).text : ""));
   const w0 = src ? Object.values(src.a.limits ?? {})[0] : undefined;
   return (
     <Sec data-account={id}>
@@ -102,7 +104,7 @@ function AccountCard({ id, list, sessions }: { id: string; list: Entry[]; sessio
         <Hint>{`${sessions} ${plural(sessions, "сессия", "сессии", "сессий")}`}</Hint>
       </div>
       {src ? <Windows a={src.a} /> : null}
-      {src && w0 && (w0.src || w0.at) ? <Note>{[w0.src ? (SRC[w0.src] ?? `от ${w0.src}`) : null, src.machine, w0.at ? ago(w0.at * 1000) : ""].filter(Boolean).join(" · ")}</Note> : null}
+      {src && w0 && (w0.src || w0.at) ? <Note>{[w0.src ? (SRC[w0.src] ?? `от ${w0.src}`) : null, srcName, w0.at ? ago(w0.at * 1000) : ""].filter(Boolean).join(" · ")}</Note> : null}
       {list.map((x) => (
         <MachineRow key={x.machine} m={x.machine} machine={x.machine} name={x.name} a={x.a} />
       ))}

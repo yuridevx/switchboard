@@ -106,6 +106,25 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     expect(t2.relay.sent("slot.swap")).toHaveLength(1);
   });
 
+  it("7354 · имя машины вместо адреса: аккаунты, журнал и выпуски", async () => {
+    // источник: дизайн «Сессии, проекты и профили» — имя заменяет адрес в интерфейсе; бэклог: сырые win, wsl на этих экранах
+    const relay = Object.assign(fleetRelay(), { scoped: { global: { "fleet.labels": { sessions: {}, machines: { laptop: "Домашний ПК" } } } } });
+    relay.handlers["machine.accounts"] = (f) => ({ ok: true, result: { slots: {}, accounts: f.machine === "laptop" ? { infirex: { login: "ok", limits: {} } } : {} } });
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [{ id: 1, t: Date.now(), ev: "x", from: "@laptop", machine: "laptop", text: "событие" }], more: false } });
+    relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [], rev: 1, modules: {} } });
+    const t = await pult({ relay });
+    await t.go("#accounts?view=accounts");
+    await flush(10);
+    expect(t.$$('[data-machine="laptop"]').some((x) => x.textContent!.startsWith("Домашний ПК"))).toBe(true);
+    await t.go("#journal");
+    await flush(10);
+    expect(t.$(".jr-r em")!.textContent).toBe("Домашний ПК");
+    expect(t.$$('[data-f="machine"] option').map((o) => o.textContent)).toContain("Домашний ПК");
+    await t.go("#settings");
+    await flush(10);
+    expect(t.$('tr[data-machine="laptop"]')!.textContent).toContain("Домашний ПК");
+  });
+
   it("268 · один аккаунт в двух слотах: «в слотах main, bot» и «Сессии main/bot»; в слоте — «сейчас и в слоте bot»; удаление меняет его в обоих слотах по очереди", async () => {
     const relay = fleetRelay();
     const both = { main: ["infirex", "y0902"], bot: ["infirex", "y0902"] };
@@ -128,7 +147,7 @@ describe("эталоны пульта: аккаунты и слоты", () => {
     expect(t.$('[data-slot="laptop:bot"] [data-current]')!.textContent).toBe("в слоте: infirex · сейчас и в слоте main");
     await t.go("#accounts?view=accounts");
     await flush(10);
-    const row = t.$$('[data-machine="laptop"]').find((x) => x.textContent!.startsWith("laptop") && x.textContent!.includes("в слотах"))!;
+    const row = t.$$('[data-machine="laptop"]').find((x) => x.textContent!.startsWith("@laptop") && x.textContent!.includes("в слотах"))!;
     expect(row.textContent).toContain("в слотах main, bot");
     expect(t.$$("[data-sess]").map((b) => b.textContent)).toEqual(["Сессии main (1)…", "Сессии bot (1)…"]);
     await t.click(t.btn(row, "Удалить…"));

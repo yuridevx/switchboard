@@ -1,6 +1,6 @@
 // Матрица выпусков: машина × часть по ответам keeper'ов и плану; поиск, отметка машин, выбор машины для её плана.
 import { useState } from "react";
-import { Dot, In, Note, okOf, PageHead, plural, RowBtn, Sec, Switch, useApp } from "@switchboard/web-ui";
+import { Dot, In, machineLabel, Note, okOf, PageHead, plural, RowBtn, Sec, Switch, useApp } from "@switchboard/web-ui";
 import { useHosts } from "./load.ts";
 import { useSettings } from "./store.ts";
 import { cellOf, type KState, type Listed, machineParts, relMachines } from "./rules.ts";
@@ -14,7 +14,9 @@ export function Matrix({ list, rm, pick }: { list: Listed | null; rm: string | n
   const rsel = app.use(() => settings.get().rsel);
   const parts = machineParts(d);
   const q = rq.trim().toLowerCase();
-  const ms = relMachines(d, hosts ?? []).filter((m) => !q || m.toLowerCase().includes(q));
+  const all = relMachines(d, hosts ?? []);
+  const names = app.use(() => Object.fromEntries(all.map((m) => [m, machineLabel(app, m).text])));
+  const ms = all.filter((m) => !q || m.toLowerCase().includes(q) || names[m]?.toLowerCase().includes(q));
   return (
     <Sec className="st-matrix">
       <PageHead>
@@ -50,7 +52,7 @@ export function Matrix({ list, rm, pick }: { list: Listed | null; rm: string | n
                   <td>
                     <RowBtn className="st-mn" onClick={() => pick(rm === m ? null : m)}>
                       <Dot kind={tone} />
-                      {`@${m}`}
+                      {names[m] ?? `@${m}`}
                     </RowBtn>
                   </td>
                   {parts.map((p) => {

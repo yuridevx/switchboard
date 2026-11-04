@@ -1,7 +1,7 @@
 {
   "name": "pult-accounts",
   "type": "web",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "into": [
     "pult",
     "phone"
@@ -11,6 +11,7 @@
     "logins": 1
   },
   "uses": {
+    "label.machine@web-labels": 1,
     "view@web-view": 19,
     "ui@web-ui": 1,
     "app@web-core": 2,
