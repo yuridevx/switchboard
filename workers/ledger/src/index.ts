@@ -1,19 +1,14 @@
-// Вход Worker'а ledger: POST кадра с пропуском (fetch — обёртка entrance) и frame(кадр) по привязке внутри аккаунта.
+// Снесено: вход контракта отказывает словом.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import type { Frame } from "@switchboard/protocol";
-import { entrance } from "@switchboard/gate";
+import { fail, type Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
-import { frame } from "./journal.ts";
 
 export class Participant extends WorkerEntrypoint<Env> {
-  /** Прямой вход: POST кадра с пропуском — тот же frame. */
-  fetch(req: Request): Promise<Response> {
-    return entrance(req, this.env.GATE, (f) => this.frame(f));
+  fetch(): Response {
+    return new Response(null, { status: 503 });
   }
-
-  /** Записи — в базе D1 журнала; ответ — кадры вызывающему. */
-  frame(f: Frame): Promise<Frame[]> {
-    return frame(this.env, f);
+  async frame(f: Frame): Promise<Frame[]> {
+    return f.id ? [{ ...fail(f.id, "demolished"), to: f.from ?? "" }] : [];
   }
 }
 
