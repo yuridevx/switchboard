@@ -10,6 +10,8 @@ export type Suggest = { kind: "cmd" | "file"; items: Suggestion[]; sel: number; 
 const AT = /(?:^|\s)@([^\s@]*)$/;
 const SLASH = /^\/(\S*)$/;
 const MAX = 20;
+/** Вопрос сбоку — своя команда чата: в списке claude его нет. */
+const BTW = { name: "btw", description: "вопрос сбоку: ответ по разговору, в разговор не попадёт" };
 const NO_FILES = { ok: true as const, result: [] as string[] };
 
 export function useSuggest(callsign: string, text: string): Suggest | null {
@@ -30,7 +32,7 @@ export function useSuggest(callsign: string, text: string): Suggest | null {
   const kind: Suggest["kind"] = slash !== undefined ? "cmd" : "file";
   const items: Suggestion[] =
     slash !== undefined
-      ? (commands ?? [])
+      ? [...(commands ?? []), BTW]
           .filter((c) => c.name.startsWith(slash))
           .slice(0, MAX)
           .map((c) => ({ key: c.name, label: `/${c.name}`, hint: c.description, insert: `/${c.name} ` }))

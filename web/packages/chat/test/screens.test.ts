@@ -14,7 +14,7 @@ const parts = () => [
   { manifest: askM, module: createAsk() },
   { manifest: alertsM, module: createAlerts({}) },
 ];
-const SECTIONS = ["Сообщения", "Ответ Claude", "Инструменты", "Служебные строки"];
+const SECTIONS = ["Сообщения", "Ответ Claude", "Инструменты", "Служебные строки", "Над вводом и своё"];
 const SESSION_FRAMES = /^session\.|^answer$/;
 
 beforeEach(() => {
@@ -25,7 +25,7 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("галерея", () => {
   for (const [number, app, wide] of [["6750", "пульт", true], ["6752", "телефон", false]] as const) {
-    it(`${number} · ${app}: четыре раздела, кадров сессиям нет`, async () => {
+    it(`${number} · ${app}: пять разделов, кадров сессиям нет`, async () => {
       const t = await stand(parts(), { url: "/#gallery", wide });
       await flush();
       expect(t.$$(".chat-gals h3").map((x) => x.textContent)).toEqual(SECTIONS);
@@ -70,7 +70,7 @@ describe("галерея", () => {
     const t = await started;
     await flush();
     expect(seen).not.toContain("Сообщения");
-    expect(t.$$(".chat-gals h3")).toHaveLength(4);
+    expect(t.$$(".chat-gals h3")).toHaveLength(5);
   });
 });
 

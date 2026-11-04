@@ -9,6 +9,9 @@ import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";
 import { useSuggest, type Suggest } from "./useSuggest.ts";
 
+/** «/btw вопрос»: вопрос сбоку, а не сообщение. */
+const SIDE = /^\/btw\s+([\s\S]+)/;
+
 function SuggestList({ s, pick }: { s: Suggest; pick(insert: string): void }) {
   return (
     <div className="chat-sug" role="listbox" data-kind={s.kind}>
@@ -83,6 +86,13 @@ export function Composer({ callsign }: { callsign: string }) {
   function send() {
     const value = text.trim();
     if (!value && !pending.length) return;
+    const side = canCall && !pending.length ? SIDE.exec(value) : null;
+    if (side) {
+      chat.setDraft(callsign, "");
+      void chat.askSide(callsign, side[1].trim());
+      setText("");
+      return;
+    }
     chat.send(callsign, value, pending);
     setPending([]);
     setText("");

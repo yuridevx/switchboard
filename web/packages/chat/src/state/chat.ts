@@ -15,6 +15,10 @@ export type Rewind = { uuid: string; text: string; tone: "" | "bad" | "ok"; read
 export type Command = { name: string; description?: string; argumentHint?: string };
 /** Что отправка вернула в поле: отказ session.prompt. id — чьё: второй такой же отказ тоже возвращает. */
 export type Returned = { id: string; text: string; attachments: Attachment[] };
+/** Вопрос сбоку: в разговор не попадает. Нет ни ответа, ни отказа — Claude думает. */
+export type Side = { id: string; q: string; a?: string; err?: string };
+/** Ответ запроса: результат или слово отказа. */
+export type Answer<T> = { ok: true; result: T } | { ok: false; error: string };
 
 export type Conv = {
   feed: Feed;
@@ -42,9 +46,10 @@ export type Conv = {
   since?: number;
   /** вложения сообщений без ответа: «отправить ещё раз» шлёт их снова */
   held: Record<string, Attachment[]>;
+  sides: Side[];
 };
 
-const newConv = (): Conv => ({ feed: emptyFeed(), seq: null, fresh: true, watching: false, noFeed: false, unread: 0, mounted: 0, focus: false, more: false, before: null, held: {} });
+const newConv = (): Conv => ({ feed: emptyFeed(), seq: null, fresh: true, watching: false, noFeed: false, unread: 0, mounted: 0, focus: false, more: false, before: null, held: {}, sides: [] });
 const EMPTY = newConv();
 const PAGE = 50;
 const uuid = (): string => crypto.randomUUID();
@@ -54,10 +59,10 @@ export type ChatStore = ReturnType<typeof createChatStore>;
 
 export function createChatStore() {
   let app: App;
-  const store = createStore<{ convs: Record<string, Conv> }>({ convs: {} }, () => app.changed());
-  /** черновики: поле ввода владеет текстом, пока открыто; здесь — что сохранить в хранилище */
-  let drafts: Record<string, string> = {};
-  let draftsLoaded = false;
+  /** drafts — черновики: поле ввода владеет текстом, пока открыто; здесь — что сохранить в хранилище */
+  const store = createStore<{ convs: Record<string, Conv>; drafts: Record<string, string>; draftsLoaded: boolean }>({ convs: {}, drafts: {}, draftsLoaded: false }, () => app.changed());
+  const setDraftOf = (cs: string, text: string) => store.set((s) => void (s.drafts[cs] = text));
+  const dropDraft = (cs: string) => store.set((s) => void delete s.drafts[cs]);
 
   const read = (cs: string): Conv => store.get().convs[cs] ?? EMPTY;
   const edit = (cs: string, change: (c: Conv) => void) =>
@@ -117,7 +122,7 @@ export function createChatStore() {
   }
 
   async function saveDrafts() {
-    await app.store<Record<string, string>>("drafts").set(Object.fromEntries(Object.entries(drafts).filter(([, v]) => v)));
+    await app.store<Record<string, string>>("drafts").set(Object.fromEntries(Object.entries(store.get().drafts).filter(([, v]) => v)));
   }
 
   function refusalText(cs: string, word: string): string {
@@ -139,7 +144,9 @@ export function createChatStore() {
         if (it.state === "sending") it.state = "ok";
         it.at = Date.now();
       });
-      edit(cs, (c) => void delete c.held[id]);
+      // в занятой сессии вложения ждут эха: снятое из очереди возвращает их в поле
+      const queued = read(cs).feed.items.some((i) => i.id === id && i.kind === "user" && i.queued);
+      if (!queued) edit(cs, (c) => void delete c.held[id]);
     } else if (r.error === "disconnected" || r.error === "timeout") {
       // ответа не было: дошло или нет — неизвестно; после hello история покажет uuid
       setMine(cs, id, (it) => {
@@ -147,14 +154,14 @@ export function createChatStore() {
       });
     } else {
       // поле занято новым текстом — отказанный туда не вернётся; экран закрыт — вложениям негде ждать: сказать, а не обещать
-      const typed = !!drafts[cs];
+      const typed = !!store.get().drafts[cs];
       const closed = !read(cs).mounted && attachments.length > 0;
       edit(cs, (c) => {
         c.feed.items = c.feed.items.filter((i) => i.id !== id);
         c.returned = { id, text, attachments };
         delete c.held[id];
       });
-      drafts[cs] ||= text;
+      if (!typed) setDraftOf(cs, text);
       app.toast(`${cs}: не доставлено — ${refusalText(cs, r.error)}. ${typed ? "В поле новый текст, отправленный текст не возвращён." : closed ? "Черновик цел, вложения не сохранены." : "Черновик цел."}`);
     }
   }
@@ -167,8 +174,8 @@ export function createChatStore() {
     sessionOf,
     isLive,
     can,
-    draft: (cs: string) => drafts[cs] ?? "",
-    setDraft: (cs: string, text: string) => void (drafts[cs] = text),
+    draft: (cs: string) => store.get().drafts[cs] ?? "",
+    setDraft: setDraftOf,
     /** Счётчик непрочитанного для метки unread. */
     unread(cs: string) {
       const c = store.get().convs[cs];
@@ -178,10 +185,12 @@ export function createChatStore() {
     // ───── жизненный цикл ─────
     async start(a: App) {
       app = a;
-      if (!draftsLoaded) {
-        drafts = { ...((await app.store<Record<string, string>>("drafts").get()) ?? {}), ...drafts };
-        draftsLoaded = true;
-      }
+      if (store.get().draftsLoaded) return;
+      const saved = (await app.store<Record<string, string>>("drafts").get()) ?? {};
+      store.set((s) => {
+        s.drafts = { ...saved, ...s.drafts };
+        s.draftsLoaded = true;
+      });
     },
     async stop() {
       await saveDrafts();
@@ -213,6 +222,10 @@ export function createChatStore() {
         x.fresh = false;
         x.seq = seq;
         x.feed = applyEvents(read(cs).feed, (f.events as WireMessage[]) ?? []);
+        for (const id of Object.keys(x.held)) {
+          const it = x.feed.items.find((i) => i.id === id);
+          if (it?.kind === "user" && it.state === "echo") delete x.held[id];
+        }
       });
       // разрыв (Host перезапущен, пачка пропала) — снова история
       if (gap) void history(cs);
@@ -274,7 +287,7 @@ export function createChatStore() {
       const files = attachments.filter((a) => !a.media_type.startsWith("image/"));
       fold(cs, (f) => addMine(f, { id, text, images: images.map(dataUrl), files: files.map((a) => a.name), at: Date.now(), queued: sessionOf(cs)?.state === "busy" }));
       if (attachments.length) edit(cs, (c) => void (c.held[id] = attachments));
-      delete drafts[cs];
+      dropDraft(cs);
       void deliver(cs, id, text, attachments);
     },
     /** «Отправить ещё раз» пузыря без ответа: тот же uuid. */
@@ -282,9 +295,42 @@ export function createChatStore() {
       setMine(cs, id, (it) => void (it.state = "sending"));
       void deliver(cs, id, text, read(cs).held[id] ?? []);
     },
+    /** Снять своё сообщение из очереди: снято — пузыря нет, текст и вложения обратно в поле; Claude уже взял — пузырь остаётся. */
+    async unqueue(cs: string, id: string, text: string) {
+      const r = await app.request<boolean>("session.call", { callsign: cs, method: "cancelAsyncMessage", args: [id] });
+      if (!r.ok) return app.toast(`${cs}: cancelAsyncMessage — ${r.error}`);
+      if (!r.result) return app.toast("Claude уже взял это сообщение");
+      if (!store.get().drafts[cs]) setDraftOf(cs, text);
+      edit(cs, (c) => {
+        c.feed.items = c.feed.items.filter((i) => i.id !== id);
+        c.returned = { id, text, attachments: [...(c.held[id] ?? [])] };
+        delete c.held[id];
+      });
+    },
+    /** Вопрос сбоку: ответ по разговору без хода и без записи в разговор. Отказ — слово на его карточке. */
+    async askSide(cs: string, q: string) {
+      const id = uuid();
+      edit(cs, (c) => void c.sides.push({ id, q }));
+      const r = await app.request<{ response?: string | null } | null>("session.call", { callsign: cs, method: "askSideQuestion", args: [q] });
+      edit(cs, (c) => {
+        const s = c.sides.find((x) => x.id === id);
+        if (!s) return;
+        if (r.ok) s.a = r.result?.response ?? "Claude не ответил";
+        else s.err = r.error;
+      });
+    },
+    dropSide: (cs: string, id: string) => edit(cs, (c) => void (c.sides = c.sides.filter((x) => x.id !== id))),
+    /** Метод query() сессии как есть: отказ словом достаётся вызывающему. */
+    ask: <T,>(cs: string, method: string, args: unknown[] = []) => app.request<T>("session.call", { callsign: cs, method, args }) as Promise<Answer<T>>,
+    /** Перечитать плагины: команды спросятся заново. */
+    async reloadPlugins(cs: string) {
+      const r = await app.request("session.call", { callsign: cs, method: "reloadPlugins", args: [] });
+      if (!r.ok) return app.toast(`${cs}: reloadPlugins — ${r.error}`);
+      edit(cs, (c) => void (c.commands = undefined));
+    },
     /** Текст обратно в поле ввода: «Изменить сообщение» после отказа модели. */
     returnText(cs: string, text: string) {
-      drafts[cs] ||= text;
+      if (!store.get().drafts[cs]) setDraftOf(cs, text);
       edit(cs, (c) => void (c.returned = { id: uuid(), text, attachments: [] }));
     },
     /** Команды сессии — в снимок разговора: один запрос на разговор. */

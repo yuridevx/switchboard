@@ -25,6 +25,20 @@ export function useWideData(callsign: string, machine: string, live: boolean, in
     mcp.reload();
   }
 
+  async function reconnectMcp(m: Mcp) {
+    const r = await app.request("session.call", { callsign, method: "reconnectMcpServer", args: [m.name] });
+    if (!r.ok) return app.toast(`reconnectMcpServer: ${r.error}`);
+    mcp.reload();
+  }
+
+  /** Вход сервера MCP: адрес страницы входа. Окно после ответа запроса браузер блокирует: страницу открывает ссылка. */
+  async function loginMcp(m: Mcp): Promise<string | undefined> {
+    const r = await app.request<{ authUrl?: string } | null>("session.call", { callsign, method: "mcpAuthenticate", args: [m.name] });
+    if (!r.ok) return void app.toast(`mcpAuthenticate: ${r.error}`);
+    if (!r.result?.authUrl) app.toast("mcpAuthenticate: ссылки нет");
+    return r.result?.authUrl;
+  }
+
   async function update(body: Record<string, unknown>, what: string) {
     const r = await app.request("session.update", { callsign, ...body });
     if (!r.ok) app.toast(`${callsign}: ${what} — ${r.error}`);
@@ -46,6 +60,8 @@ export function useWideData(callsign: string, machine: string, live: boolean, in
     loadModels: () => setModelsAsked(true),
     mcp: Array.isArray(mcp.data) ? mcp.data : null,
     toggleMcp,
+    reconnectMcp,
+    loginMcp,
     update,
     start,
   };

@@ -1,6 +1,6 @@
 // Сообщения людей и сессий: свой пузырь с доставкой, сообщение другой сессии или субагента, сообщение сессии владельцу.
 import { useState } from "react";
-import { Bot, ChevronDown, ChevronUp, FileText, History, MessagesSquare, RotateCw } from "lucide-react";
+import { Bot, ChevronDown, ChevronUp, FileText, History, MessagesSquare, RotateCw, Undo2 } from "lucide-react";
 import { hhmm } from "@switchboard/web-ui";
 import { useCards } from "../context.ts";
 import type { InItem, UserItem } from "../state/types.ts";
@@ -16,9 +16,9 @@ function tailOf(it: UserItem, wide: boolean): string | null {
   if (!it.state) return null;
   const at = it.at ? hhmm(it.at) : "";
   if (it.state === "sending") return "отправляю…";
-  if (!wide) return `${at} · доставлено`;
-  if (it.state === "echo") return `${at} · ✓✓`;
-  return it.queued ? "в очереди · ✓" : `${at} · ✓`;
+  if (it.state === "echo") return wide ? `${at} · ✓✓` : `${at} · доставлено`;
+  if (it.queued) return wide ? "в очереди · ✓" : "в очереди";
+  return wide ? `${at} · ✓` : `${at} · доставлено`;
 }
 
 export function MeCard({ it }: { it: UserItem }) {
@@ -26,6 +26,7 @@ export function MeCard({ it }: { it: UserItem }) {
   const lost = it.state === "lost";
   const tail = tailOf(it, v.wide);
   const canRewind = v.rewind && it.state !== "lost" && it.state !== "sending";
+  const canCancel = v.unqueue && it.queued && it.state === "ok";
   return (
     <div className={lost ? "chat-me pend" : "chat-me"} data-state={it.state}>
       {it.images.length ? (
@@ -54,6 +55,12 @@ export function MeCard({ it }: { it: UserItem }) {
         </small>
       ) : tail ? (
         <small>{tail}</small>
+      ) : null}
+      {canCancel ? (
+        <button type="button" className="chat-again chat-cancel" onClick={() => v.unqueue!(it.id, it.text)}>
+          <Undo2 size={11} />
+          отменить
+        </button>
       ) : null}
       {canRewind ? (
         <button type="button" className="chat-rw" onClick={() => v.rewind!(it.id)}>

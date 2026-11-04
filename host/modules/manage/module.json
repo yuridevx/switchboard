@@ -1,7 +1,7 @@
 {
   "name": "host-manage",
   "type": "sdk",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "into": ["host"],
   "provides": {
     "session.open": 1,
@@ -38,6 +38,13 @@
     "stopTask",
     "backgroundTasks",
     "reloadPlugins",
+    "askSideQuestion",
+    "getTaskOutput",
+    "cancelAsyncMessage",
+    "mcpAuthenticate",
+    "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+    "getStatus",
+    "getHooksListing",
     "renameSession",
     "getSessionInfo"
   ],

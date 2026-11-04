@@ -1,11 +1,15 @@
-// Над полем ввода: задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
-import { useState } from "react";
-import { useApp } from "@switchboard/web-ui";
-import { Bot, Layers, ListChecks, Square, Terminal } from "lucide-react";
+// Над полем ввода: вопросы сбоку, задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
+import { useEffect, useState } from "react";
+import { useApp, useLoad, useNow } from "@switchboard/web-ui";
+import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
 import { useChat } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
+import type { Side } from "../state/chat.ts";
 import type { Feed, Task } from "../state/types.ts";
+import { Markdown } from "../ui/Markdown.tsx";
 import { Disclosure } from "../ui/Disclosure.tsx";
+
+export type TaskOutput = { output: string; total_bytes: number; truncated: boolean };
 
 /** Последний список задач Claude в ленте; весь выполнен — полосы нет. */
 function todosOf(f: Feed) {
@@ -37,22 +41,99 @@ export function TodoDock({ callsign }: { callsign: string }) {
   );
 }
 
+/** Хвост вывода фоновой команды: файл или строка отказа. Что показать — считается из ответа. */
+export function OutputView({ data, error }: { data?: TaskOutput; error?: string }) {
+  return (
+    <div className="chat-out">
+      {error ? (
+        <div className="chat-out-e">{error}</div>
+      ) : (
+        <>
+          {data?.truncated ? <div className="chat-out-h">{`последние 8 КБ из ${Math.round(data.total_bytes / 1024)} КБ`}</div> : null}
+          <pre>{data ? data.output || "пока пусто" : "читаю…"}</pre>
+        </>
+      )}
+    </div>
+  );
+}
+
+const OUTPUT_MS = 2000;
+
+/** Вывод идущей команды: перечитывается раз в 2 с, пока открыт. */
+function TaskOutputBox({ t, callsign }: { t: Task; callsign: string }) {
+  const chat = useChat();
+  const { data, error, reload } = useLoad<TaskOutput>(() => chat.ask<TaskOutput>(callsign, "getTaskOutput", [t.id]), [chat, callsign, t.id]);
+  const now = useNow(OUTPUT_MS);
+  const [opened] = useState(now);
+  useEffect(() => {
+    if (now !== opened) reload();
+  }, [now, opened, reload]);
+  return <OutputView data={data} error={error} />;
+}
+
 function BackgroundRow({ t, callsign }: { t: Task; callsign: string }) {
   const app = useApp();
   const chat = useChat();
-  const canStop = app.use(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
+  const canCall = app.use(() => chat.isLive(callsign) && chat.can(callsign, "session.call"));
+  const [out, setOut] = useState(false);
+  const shell = t.type === "local_bash" || t.type === "monitor";
   return (
-    <div className="chat-bgr">
-      {t.type === "local_agent" ? <Bot size={14} /> : <Terminal size={14} />}
-      <span title={t.description}>{t.description || t.id}</span>
-      {t.summary ? <em>{t.summary}</em> : null}
-      {canStop ? (
-        <button type="button" className="chat-mini" onClick={() => void chat.call(callsign, "stopTask", [t.id])}>
-          <Square size={11} />
-          Стоп
-        </button>
-      ) : null}
+    <div className="chat-bgw">
+      <div className="chat-bgr">
+        {t.type === "local_agent" ? <Bot size={14} /> : <Terminal size={14} />}
+        <span title={t.description}>{t.description || t.id}</span>
+        {t.summary ? <em>{t.summary}</em> : null}
+        {canCall && shell ? (
+          <button type="button" className="chat-mini" onClick={() => setOut(!out)}>
+            {out ? "Скрыть" : "Вывод"}
+          </button>
+        ) : null}
+        {canCall ? (
+          <button type="button" className="chat-mini" onClick={() => void chat.call(callsign, "stopTask", [t.id])}>
+            <Square size={11} />
+            Стоп
+          </button>
+        ) : null}
+      </div>
+      {out && canCall && shell ? <TaskOutputBox t={t} callsign={callsign} /> : null}
     </div>
+  );
+}
+
+/** Вопрос сбоку: вопрос и ответ; в разговор не попадают, закрываются крестиком. */
+export function SideCard({ s, drop }: { s: Side; drop(): void }) {
+  const state = s.err ? "bad" : s.a !== undefined ? "done" : "wait";
+  return (
+    <div className="chat-side" data-state={state}>
+      <MessageSquareQuote size={14} />
+      <div className="chat-side-b">
+        <div className="chat-side-q">{s.q}</div>
+        {s.err ? (
+          <div className="chat-side-e">{s.err}</div>
+        ) : s.a !== undefined ? (
+          <div className="chat-side-a">
+            <Markdown text={s.a} />
+          </div>
+        ) : (
+          <div className="chat-side-w">думает…</div>
+        )}
+      </div>
+      <button type="button" className="chat-side-x" aria-label="Закрыть" onClick={drop}>
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+export function SideDock({ callsign }: { callsign: string }) {
+  const chat = useChat();
+  const sides = chat.useConv(callsign, (c) => c.sides);
+  return (
+    <>
+      {sides.map((s) => (
+        <SideCard key={s.id} s={s} drop={() => chat.dropSide(callsign, s.id)} />
+      ))}
+    </>
   );
 }
 

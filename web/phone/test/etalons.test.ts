@@ -170,7 +170,8 @@ describe("эталоны телефона", () => {
     expect(relay.got.slice(before).map((f) => f.type)).toEqual(["session.unwatch"]);
     expect(store.data.drafts).toEqual({ "site@laptop": "и потом" });
     expect(relay.socks[0].closedWith).toEqual({ code: 1000, reason: "hidden" });
-    expect(t.$(".chat-me small")!.textContent).toMatch(/доставлено$/);
+    // сессия занята: reply дошёл — сообщение в очереди (эталон 7023)
+    expect(t.$(".chat-me small")!.textContent).toBe("в очереди");
   });
 
   it("158 · у pc нет session.watch: ленту не просим, «pc не отдаёт ленту»; «Катим» — session.prompt, reply ok", async () => {

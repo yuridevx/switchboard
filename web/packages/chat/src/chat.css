@@ -36,6 +36,7 @@
 .chat-me.pend small{color:var(--wait);opacity:1;text-align:left}
 .chat-again,.chat-rw{display:inline-flex;align-items:center;gap:3px;background:none;border:0;padding:0;color:inherit;font:inherit}
 .chat-again{text-decoration:underline;text-underline-offset:2px}
+.chat-cancel{display:flex;margin:3px 0 0 auto;font:500 11.5px var(--body);opacity:.85}
 .chat-me{position:relative}
 .chat-rw{display:flex;margin:3px 0 0 auto;opacity:.75;font:500 11.5px var(--body);text-decoration:underline;text-underline-offset:2px}
 @media (hover:hover){.chat-rw{position:absolute;right:100%;bottom:4px;margin:0 8px 0 0;white-space:nowrap;color:var(--muted);opacity:0}.chat-me:hover>.chat-rw,.chat-rw:focus-visible{opacity:1}}
@@ -156,7 +157,7 @@
 
 /* полоса над лентой и панель контекста */
 .chat-bar{flex:none;display:flex;gap:6px;justify-content:flex-end;padding:6px 14px 0}
-.chat-panel{position:absolute;top:38px;right:14px;z-index:6;width:min(100% - 28px,360px);padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-size:13px;max-height:45vh;overflow-y:auto}
+.chat-panel{position:absolute;top:38px;right:14px;z-index:6;width:min(100% - 28px,360px);padding:10px 12px;display:flex;flex-direction:column;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);font-size:13px;max-height:min(70vh,calc(100% - 46px));overflow-y:auto}
 .chat-panel .chat-mini{align-self:flex-start}
 .chat-pn-h{display:flex;align-items:center;gap:6px}
 .chat-pn-h em{margin-left:auto;font:600 12px var(--mono);font-style:normal;color:var(--muted)}
@@ -167,6 +168,18 @@
 .chat-pn-a{border-top:1px solid var(--line2);padding-top:8px;gap:6px}
 .chat-pn-a dt{font-weight:600}
 .chat-pn-a dd{color:var(--muted);font-size:12.5px}
+.chat-pn-s{display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--line2);padding-top:8px}
+.chat-pn-s h4{margin:0;font:600 12.5px var(--body)}
+.chat-pn-s .bad{color:var(--bad);font-size:12.5px}
+.chat-pn-w{display:grid;grid-template-columns:minmax(60px,auto) minmax(40px,1fr) auto;gap:8px;align-items:center;font-size:12.5px;color:var(--muted)}
+.chat-pn-w em{font:500 12px var(--mono);font-style:normal}
+.chat-pn-k{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;color:var(--muted)}
+.chat-pn-k dd{margin:0;overflow-wrap:anywhere;color:var(--ink)}
+.chat-pn-h2{display:flex;flex-direction:column}
+.chat-pn-h2 b{font-weight:600}
+.chat-pn-h2 span{font:500 12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
+.chat-pn-plus{color:var(--ok)}
+.chat-pn-minus{color:var(--bad)}
 
 /* над вводом */
 .chat-dock:empty{display:none}
@@ -178,6 +191,19 @@
 .chat-bgr{display:flex;align-items:center;gap:7px;padding:3px 0}
 .chat-bgr>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chat-bgr em{font-style:normal;color:var(--muted);font-size:12px}
+.chat-side{display:flex;gap:8px;align-items:flex-start;border:1px solid var(--line2);border-radius:10px;background:var(--surface);padding:7px 10px;font-size:13px}
+.chat-side>svg{flex:none;margin-top:3px;color:var(--muted)}
+.chat-side-b{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.chat-side-q{color:var(--muted);overflow-wrap:anywhere}
+.chat-side-a{max-height:30vh;overflow-y:auto}
+.chat-side-w{color:var(--muted)}
+.chat-side-e{color:var(--bad)}
+.chat-side-x{flex:none;display:grid;place-items:center;padding:2px;border:0;background:none;color:var(--muted)}
+.chat-bgw{display:flex;flex-direction:column}
+.chat-out{margin:2px 0 6px;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.chat-out-h{padding:3px 8px;font-size:12px;color:var(--muted);background:var(--surface2)}
+.chat-out pre{margin:0;padding:6px 8px;max-height:220px;overflow:auto;font:500 12px/1.45 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.chat-out-e{padding:6px 8px;font-size:12.5px;color:var(--bad)}
 .chat-ask:empty{display:none}
 .chat-askbar{width:100%;display:flex;gap:10px;align-items:center;text-align:left;background:var(--wait-weak);color:var(--wait);border:0;border-radius:12px;padding:10px 12px}
 .chat-askbar b{font:700 15px/1 var(--mono)}

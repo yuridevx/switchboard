@@ -21,6 +21,8 @@ export type CardsView = {
   rewind?(uuid: string): void;
   /** «Отправить ещё раз» своего сообщения без ответа */
   resend?(uuid: string, text: string): void;
+  /** снять своё сообщение из очереди; нет — кнопки нет */
+  unqueue?(uuid: string, text: string): void;
   /** текст обратно в поле ввода */
   edit?(text: string): void;
 };

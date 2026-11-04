@@ -26,6 +26,13 @@ export const OPEN = new Set([
   "stopTask",
   "backgroundTasks",
   "reloadPlugins",
+  "askSideQuestion",
+  "getTaskOutput",
+  "cancelAsyncMessage",
+  "mcpAuthenticate",
+  "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+  "getStatus",
+  "getHooksListing",
 ]);
 
 const EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);

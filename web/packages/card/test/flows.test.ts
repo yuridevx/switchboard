@@ -218,6 +218,53 @@ describe("карточка в широком виде", () => {
     expect(toggled()).toHaveLength(1);
   });
 
+  it("7030 · сервер MCP: состояние словом, «Переподключить» — reconnectMcpServer и список заново; отказ — тост", async () => {
+    // источник: устав — все функции claude-fleet: состояние, переподключение и вход сервера MCP
+    const r = roster();
+    const relay = relayFor(r);
+    relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "failed" }] } : f.method === "reconnectMcpServer" ? { ok: false, error: "sdk_error" } : { ok: true, result: null });
+    const t = await wideCard("site@laptop", r, relay);
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('.cw-pop [data-act="info"]'));
+    await flush();
+    expect(t.$(".cw-sw")!.textContent).toContain("ошибка");
+    const asked = () => relay.sent("session.call").filter((f) => f.method === "mcpServerStatus").length;
+    const before = asked();
+    await t.click(t.$('[data-mcp-re="fleet"]'));
+    await flush();
+    expect(relay.sent("session.call").find((f) => f.method === "reconnectMcpServer")).toMatchObject({ args: ["fleet"] });
+    expect(t.$(".sb-toast")!.textContent).toContain("reconnectMcpServer: sdk_error");
+    expect(asked()).toBe(before);
+    relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "fleet", status: "connected" }] } : { ok: true, result: null });
+    await t.click(t.$('[data-mcp-re="fleet"]'));
+    await flush();
+    expect(asked()).toBe(before + 1);
+    expect(t.$(".cw-sw")!.textContent).toContain("подключён");
+  });
+
+  it("7031 · нужен вход: «Войти» — mcpAuthenticate, ссылка в новой вкладке; у подключённого кнопки нет; ссылки нет — тост", async () => {
+    // источник: устав — все функции claude-fleet; ссылка, а не окно: окно после ответа запроса браузер блокирует
+    const r = roster();
+    const relay = relayFor(r);
+    let url: string | undefined = "https://example.com/login";
+    relay.handlers["session.call"] = (f) => (f.method === "mcpServerStatus" ? { ok: true, result: [{ name: "gh", status: "needs-auth" }, { name: "fleet", status: "connected" }] } : f.method === "mcpAuthenticate" ? { ok: true, result: { authUrl: url } } : { ok: true, result: null });
+    const t = await wideCard("site@laptop", r, relay);
+    await t.click(t.$('[data-pop="menu"]'));
+    await t.click(t.$('.cw-pop [data-act="info"]'));
+    await flush();
+    expect(t.$('[data-mcp-login="fleet"]')).toBeNull();
+    await t.click(t.$('[data-mcp-login="gh"]'));
+    await flush();
+    expect(relay.sent("session.call").find((f) => f.method === "mcpAuthenticate")).toMatchObject({ args: ["gh"] });
+    const a = t.$<HTMLAnchorElement>('a[data-mcp-url="gh"]')!;
+    expect(a.href).toBe("https://example.com/login");
+    expect(a.target).toBe("_blank");
+    url = undefined;
+    await t.click(t.$('[data-mcp-login="gh"]'));
+    await flush();
+    expect(t.$(".sb-toast")!.textContent).toContain("mcpAuthenticate: ссылки нет");
+  });
+
   it("4085 · сессии нет в roster — «pc не на связи», плашки нет", async () => {
     const r = roster([], (x) => {
       x.machines = x.machines.filter((m) => m.machine !== "pc");

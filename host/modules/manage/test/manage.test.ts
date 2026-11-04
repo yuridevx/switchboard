@@ -43,6 +43,39 @@ describe("эталоны manage", () => {
     expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
   });
 
+  it("7000 · методы fleet открыты: вопрос сбоку, вывод задачи, снятие из очереди, вход MCP, расход, /status, хуки — ответ SDK как есть", async () => {
+    // источник: устав — Switchboard заменяет claude-fleet, все его функции (слово пользователя 31 окт.); цель 3 нояб.: «со всеми фичами claude»
+    const { st } = await laptop();
+    await st.open("site@laptop");
+    const q = st.query("site@laptop") as unknown as Record<string, unknown>;
+    const table: Array<[string, unknown[], unknown]> = [
+      ["askSideQuestion", ["что?"], { response: "ответ", synthetic: false }],
+      ["getTaskOutput", ["t1"], { output: "хвост", total_bytes: 5, truncated: false }],
+      ["cancelAsyncMessage", ["u1"], true],
+      ["mcpAuthenticate", ["github"], { authUrl: "https://example.com/login" }],
+      ["usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", [{ skipBehaviors: true }], { session: { total_cost_usd: 1 } }],
+      ["getStatus", [], { sections: [] }],
+      ["getHooksListing", [], { hooks: [] }],
+    ];
+    for (const [method, args, result] of table) {
+      let got: unknown[] = [];
+      q[method] = async (...a: unknown[]) => ((got = a), result);
+      expect(await req(st, { type: "session.call", callsign: "site@laptop", method, args }), method).toMatchObject({ ok: true, result });
+      expect(got, method).toEqual(args);
+    }
+  });
+
+  it("7001 · метода нет у SDK во время исполнения (другая версия) — отказ словом, причина названа, модуль и сессия живы", async () => {
+    // источник: устав — система ловит: отказ словом и причина в журнале; часть методов есть только во время исполнения SDK
+    const { st } = await laptop();
+    await st.open("site@laptop");
+    const q = st.query("site@laptop") as unknown as Record<string, unknown>;
+    q.askSideQuestion = undefined;
+    expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "askSideQuestion", args: ["что?"] })).toMatchObject({ ok: false, error: "sdk_error" });
+    expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
+    expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "supportedModels" })).toMatchObject({ ok: true });
+  });
+
   it("85 · update посреди хода: setModel и applyFlagSettings сразу, ход не прерван; после resume query() с sonnet и medium", async () => {
     const { st } = await laptop();
     await st.open("site@laptop");

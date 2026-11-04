@@ -6,7 +6,7 @@ import { Pad, useApp } from "@switchboard/web-ui";
 import { ItemView, StepsRow } from "./cards/ItemView.tsx";
 import { Composer } from "./composer/Composer.tsx";
 import { CardsCtx, useChat, type CardsView } from "./context.ts";
-import { AskDock, BackgroundDock, TodoDock } from "./docks/Docks.tsx";
+import { AskDock, BackgroundDock, SideDock, TodoDock } from "./docks/Docks.tsx";
 import { ContextPanel } from "./panel/ContextPanel.tsx";
 import { focusRows, type Row, type Steps } from "./state/focus.ts";
 import type { Feed, Item } from "./state/types.ts";
@@ -158,6 +158,7 @@ export function ChatScreen({ callsign }: { callsign: string }) {
       stopTask: canCall ? (id) => void chat.call(callsign, "stopTask", [id]) : undefined,
       rewind: app.wide && canCall ? (id) => void chat.probeRewind(callsign, id) : undefined,
       resend: (id, text) => chat.resend(callsign, id, text),
+      unqueue: canCall ? (id, text) => void chat.unqueue(callsign, id, text) : undefined,
       edit: (text) => chat.returnText(callsign, text),
     }),
     [app.wide, chat, callsign, name, canCall],
@@ -169,6 +170,7 @@ export function ChatScreen({ callsign }: { callsign: string }) {
         {panel ? <ContextPanel callsign={callsign} close={() => setPanel(false)} /> : null}
         <FeedView callsign={callsign} />
         <div className="chat-dock">
+          <SideDock callsign={callsign} />
           <BackgroundDock callsign={callsign} />
           <TodoDock callsign={callsign} />
           <AskDock callsign={callsign} />

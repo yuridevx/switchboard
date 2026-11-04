@@ -38,12 +38,19 @@ const WINDOWS = [
   ["streaming", "refactor@win", async (p) => { await p.evaluate(() => window.__relay.push({ type: "session.events", from: "refactor@win", seq: 901, events: [{ type: "stream_event", event: { type: "message_start", message: { id: "m-live" } } }, { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Пишу итог: **сборка зелёная**, осталось обновить" } } }] })); await pause(p); }],
   ["todo-open", "refactor@win", async (p) => { await p.click(".chat-todo .dis-h"); await pause(p); }],
   ["background-open", "refactor@win", async (p) => { await p.click(".chat-bg .dis-h"); await pause(p); }],
+  ["side-wait", "tests@wsl", async (p) => { await type(p, "/btw это долго?"); await p.click(".chat-send"); await pause(p); }],
+  ["side-answer", "tests@wsl", async (p) => { await type(p, "/btw какая версия?"); await p.click(".chat-send"); await pause(p); }],
+  ["side-refused", "tests@wsl", async (p) => { await type(p, "/btw нельзя?"); await p.click(".chat-send"); await pause(p); }],
+  ["btw-hint", "tests@wsl", async (p) => type(p, "/b")],
+  ["task-output", "refactor@win", async (p) => { await p.click(".chat-bg .dis-h"); await pause(p); await p.click('.chat-bg .chat-mini:has-text("Вывод")'); await pause(p, 350); }],
+  ["queued", "refactor@win", async (p) => { await type(p, "И обнови README по итогам"); await p.click(".chat-send"); await pause(p, 350); }],
   ["scrolled-up", "tests@wsl", async (p) => { await p.evaluate(() => { const f = document.querySelector(".chat-feed"); f.scrollTop = 0; f.dispatchEvent(new Event("scroll")); }); await pause(p); }],
 ];
 const WIDE_ONLY = [
   ["context", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("контекст")'); await pause(p, 350); }],
   ["focus", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("фокус")'); await pause(p); }],
   ["focus-steps", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("фокус")'); await pause(p); await p.click(".chat-steps .dis-h"); await pause(p); }],
+  ["mcp", "tests@wsl", async (p) => { await p.evaluate(() => (location.hash = "#card?callsign=tests%40wsl")); await pause(p, 400); await p.click('[data-pop="menu"]'); await pause(p); await p.click('.cw-pop [data-act="info"]'); await pause(p, 400); await p.click('[data-mcp-login="linear"]'); await pause(p, 300); }],
   ["rewind", "tests@wsl", async (p) => { await p.click(".chat-rw"); await pause(p, 350); }],
 ];
 

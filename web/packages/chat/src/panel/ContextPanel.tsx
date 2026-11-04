@@ -1,8 +1,9 @@
-// Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты сессии. Открытая панель спрашивает session.call один раз.
-import { Archive, Gauge } from "lucide-react";
+// Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты; расход, сведения claude, хуки; «Перечитать плагины». Открытая панель спрашивает session.call один раз.
+import { Archive, Gauge, RefreshCw } from "lucide-react";
 import { Meter, useLoad } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import { kTokens } from "../cards/format.ts";
+import { AboutSection, HooksSection, UsageSection } from "./Sections.tsx";
 
 type Usage = { totalTokens?: number; maxTokens?: number; percentage?: number; categories?: Array<{ name: string; tokens: number }> };
 type Agent = { name: string; description?: string };
@@ -61,6 +62,13 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
           ))}
         </dl>
       ) : null}
+      <UsageSection callsign={callsign} />
+      <AboutSection callsign={callsign} />
+      <HooksSection callsign={callsign} />
+      <button type="button" className="chat-mini" onClick={() => void chat.reloadPlugins(callsign)}>
+        <RefreshCw size={13} />
+        Перечитать плагины
+      </button>
     </section>
   );
 }

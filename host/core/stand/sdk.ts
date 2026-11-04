@@ -133,7 +133,7 @@ const RECORDED = [
   "setModel", "applyFlagSettings", "getContextUsage", "supportedCommands", "supportedModels", "supportedAgents",
   "mcpServerStatus", "setPermissionMode", "setMaxThinkingTokens", "toggleMcpServer", "reconnectMcpServer", "rewindFiles",
   "stopTask", "backgroundTasks", "renameSession", "enableRemoteControl", "claudeAuthenticate", "claudeOAuthCallback", "claudeOAuthWaitForCompletion", "accountInfo",
-  "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+  "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", "askSideQuestion", "getTaskOutput", "cancelAsyncMessage", "mcpAuthenticate", "getStatus", "getHooksListing",
 ];
 for (const name of RECORDED) {
   (FakeQuery.prototype as unknown as Record<string, unknown>)[name] = async function (this: FakeQuery, ...args: unknown[]) {

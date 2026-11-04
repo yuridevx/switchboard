@@ -28,6 +28,14 @@ export const QUERY_METHODS = new Set([
   "stopTask",
   "backgroundTasks",
   "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
+  // в типах SDK их нет, есть во время исполнения закреплённой версии; ими работал claude-fleet — Switchboard заменяет все его функции
+  // (слово пользователя 31 окт.): вопрос сбоку, вывод задачи, снятие из очереди, вход MCP, /status, хуки. Другая версия SDK без метода — отказ словом.
+  "askSideQuestion",
+  "getTaskOutput",
+  "cancelAsyncMessage",
+  "mcpAuthenticate",
+  "getStatus",
+  "getHooksListing",
   // исключение устава: в типах SDK их нет
   "enableRemoteControl",
   "claudeAuthenticate",

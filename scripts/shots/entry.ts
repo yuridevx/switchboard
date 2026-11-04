@@ -176,7 +176,21 @@ h["session.call"] = (f) => {
     getContextUsage: { totalTokens: 84200, maxTokens: 200000, percentage: 42, categories: [{ name: "System prompt", tokens: 3700 }, { name: "System tools", tokens: 21500 }, { name: "Memory files", tokens: 2100 }, { name: "Skills", tokens: 5700 }, { name: "Messages", tokens: 51200 }, { name: "Free space", tokens: 115800 }] },
     supportedAgents: [{ name: "general-purpose", description: "Агент общего назначения для поиска и многошаговых задач" }, { name: "Explore", description: "Быстрый поиск по коду" }],
     rewindFiles: { canRewind: true, filesChanged: ["vitest.config.ts", "README.md"], insertions: 4, deletions: 1 },
+    getTaskOutput: { output: "VITE ready in 412 ms\n  Local: http://localhost:5173/\n  ready for changes", total_bytes: 20480, truncated: true },
+    cancelAsyncMessage: true,
+    usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: { session: { total_cost_usd: 1.84, total_api_duration_ms: 312000, total_lines_added: 148, total_lines_removed: 37 }, rate_limits: { five_hour: { utilization: 34, resets_at: new Date(Date.now() + 7200000).toISOString() }, seven_day: { utilization: 72, resets_at: new Date(Date.now() + 172800000).toISOString() }, seven_day_opus: null } },
+    getStatus: { sections: [{ title: "Session", rows: [{ label: "Version", value: "2.1.310" }, { label: "cwd", value: "~/projects/switchboard" }, { label: "Login method", value: "Claude Max" }, { label: "Peer address", value: "скрыт" }] }, { title: "Environment", rows: [{ label: "Model", value: "claude-opus-5-5" }, { label: "MCP servers", value: "2 connected" }] }] },
+    getHooksListing: { hooks: [{ event: "PostToolUse", matcher: "Edit|Write", source: "projectSettings", displayText: "cargo fmt" }, { event: "SessionStart", source: "userSettings", displayText: "node ~/hooks/start.mjs" }] },
+    mcpServerStatus: [{ name: "github", status: "connected" }, { name: "linear", status: "needs-auth" }, { name: "postgres", status: "failed" }, { name: "figma", status: "disabled" }],
+    mcpAuthenticate: { authUrl: "https://example.com/oauth/linear" },
   };
+  // вопрос сбоку: «долго» — ответа нет, «нельзя» — отказ, иначе ответ разметкой
+  if (f.method === "askSideQuestion") {
+    const q = String((f.args as string[])[0]);
+    if (q.includes("долго")) return undefined as never;
+    if (q.includes("нельзя")) return { ok: false, error: "sdk_error" };
+    return { ok: true, result: { response: "На тесте **2.0.0+5**, на проде `2.0.0+3`." } };
+  }
   return { ok: true, result: answers[String(f.method)] ?? [] };
 };
 h["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { login: "ok", email: "dev@mail.ru", plan: "Max 20×", limits: { five_hour: { utilization: 0.42, resetsAt: Date.now() / 1000 + 7200 }, seven_day: { utilization: 0.61, resetsAt: Date.now() / 1000 + 86400 } } }, night: { login: "ok", email: "night@x.io", plan: "Max 5×", limits: { five_hour: { utilization: 0.82, resetsAt: Date.now() / 1000 + 3600 } } } } } });

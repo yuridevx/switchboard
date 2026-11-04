@@ -613,7 +613,8 @@ describe("action-chat-view", () => {
     await t.events(IDLE, [asst("a1", [{ type: "text", text: "ход" }])], 1);
     expect(relay.sent("session.call").length).toBe(before);
     await t.click(panelBtn(t));
-    expect(relay.sent("session.call").length).toBe(before + 2);
+    // контекст, субагенты, расход, сведения claude, хуки
+    expect(relay.sent("session.call").length).toBe(before + 5);
   });
 
   it("6693 · контекст недоступен", async () => {

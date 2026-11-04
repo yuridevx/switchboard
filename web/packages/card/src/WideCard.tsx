@@ -67,7 +67,7 @@ export function WideCard({ params }: { params: Params }) {
               <app.Slot key={tab} screen={tab} params={{ callsign }} />
             )}
           </div>
-          {info ? <WideAside callsign={callsign} s={s} mcp={data.mcp} toggleMcp={data.toggleMcp} /> : null}
+          {info ? <WideAside callsign={callsign} s={s} mcp={data.mcp} toggleMcp={data.toggleMcp} reconnectMcp={data.reconnectMcp} loginMcp={data.loginMcp} /> : null}
         </div>
       </div>
       {names ? <Names callsign={callsign} close={() => setNames(false)} /> : null}

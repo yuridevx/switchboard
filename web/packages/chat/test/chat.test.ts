@@ -73,7 +73,8 @@ describe("лента сессии", () => {
   });
 
   it("ввод: session.prompt с uuid → «доставлено»", async () => {
-    const t = await feed();
+    // простаивающая сессия: в занятой сообщение «в очереди» (эталон 7023)
+    const t = await feed("poe-bot@pc");
     t.relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
     const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
     inp.value = "Задеплой на стенд";
@@ -81,7 +82,7 @@ describe("лента сессии", () => {
     await flush();
     await t.click(t.$(".chat-send"));
     const p = t.relay.sent("session.prompt")[0];
-    expect(p).toMatchObject({ v: 1, callsign: "site@laptop", text: "Задеплой на стенд" });
+    expect(p).toMatchObject({ v: 1, callsign: "poe-bot@pc", text: "Задеплой на стенд" });
     expect(typeof p.uuid).toBe("string");
     expect(t.$(".chat-me")!.textContent).toMatch(/^Задеплой на стенд\d\d:\d\d · доставлено$/);
     expect(inp.value).toBe("");
