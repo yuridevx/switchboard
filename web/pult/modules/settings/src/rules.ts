@@ -84,4 +84,4 @@ export function machineParts(d: ReleaseData): string[] {
 }
 
 /** Машины матрицы: на связи и те, у кого есть план. */
-export const relMachines = (d: ReleaseData): string[] => [...new Set([...d.online, ...(listed(d)?.machines.map((x) => x.machine) ?? [])])].sort();
+export const relMachines = (d: ReleaseData, hosts: readonly string[]): string[] => [...new Set([...d.online, ...hosts])].sort();

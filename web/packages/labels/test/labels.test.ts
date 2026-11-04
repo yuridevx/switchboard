@@ -57,6 +57,20 @@ const fill = async (t: Awaited<ReturnType<typeof stand>>, f: string, v: string) 
 };
 
 describe("имена", () => {
+  it("7342 · экран открыт по адресу: «Отмена» уводит с него, а не молчит", async () => {
+    // источник: бэклог — «Отмена» ничего не делает, нет close; у окна в месте close передаёт вызывающий
+    const relay = Object.assign(new FakeRelay(homeRoster()), { scoped: { global: {} } });
+    const x = host();
+    const t = await stand([{ manifest, module: createLabels }, { manifest: x.own, module: (a) => (x.app(a), x.module) }], { relay, url: "/#labels?machine=laptop" });
+    await flush(5);
+    const cancel = [...t.root.querySelectorAll("button")].find((b) => b.textContent === "Отмена");
+    expect(cancel).toBeTruthy();
+    await t.click(cancel!);
+    await flush(5);
+    expect(location.hash).toBe("#names");
+    expect(t.$(".lb-dlg")).toBeNull();
+  });
+
   it("7264 · окно открылось: фокус на первом поле — имя сессии, а без сессии имя машины", async () => {
     // источник: чьё: код
     const a = await open();

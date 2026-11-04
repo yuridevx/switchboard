@@ -234,20 +234,20 @@ describe("эталоны клиента флота", () => {
     const f = (async (_u: string, init: RequestInit) => {
       const b = JSON.parse(String(init.body));
       n++;
-      return n === 1 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "revoked" });
+      return n === 1 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "bad_key" });
     }) as unknown as typeof fetch;
     start({ fetch: f, pauseMs: 1000, onState: (m, st, why) => states.push(`${m}:${st}:${why}`) });
     await tick();
     expect(states).toEqual([":closed:gate_unavailable"]);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(states).toEqual([":closed:gate_unavailable", ":stopped:revoked"]);
+    expect(states).toEqual([":closed:gate_unavailable", ":stopped:bad_key"]);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(n).toBe(2);
   });
 
-  it("5542 · отказ Worker'а телом-кадром — то же слово у клиента при любом статусе, а не offline: bad_key, revoked, gate_unavailable, failed", async () => {
+  it("5542 · отказ Worker'а телом-кадром — то же слово у клиента при любом статусе, а не offline: bad_key, gate_unavailable, failed", async () => {
     // источник: устав «прямой запрос к Worker'у не прошёл — отказ словом»; бэклог «push.subscribe иногда отвечает offline»
-    const words: Array<[string, number]> = [["bad_key", 200], ["revoked", 200], ["gate_unavailable", 503], ["failed", 500]];
+    const words: Array<[string, number]> = [["bad_key", 200], ["gate_unavailable", 503], ["failed", 500]];
     const answers = [...words];
     const s = stand([], {
       "https://push.test/": (b) => {

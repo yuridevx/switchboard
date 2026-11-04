@@ -46,6 +46,8 @@ export const POLL_MS = READ_MS - 2_000;
 export const STATUS_MS = READ_MS;
 /** Предел вызова входа у процесса claude. */
 export const LOGIN_MS = CALL_MS;
+/** Сколько процесс входа ждёт код: человек открывает ссылку, входит и вставляет код. Срока ссылки SDK не называет; повтор входа даёт новую. */
+export const LOGIN_WAIT_MS = 30 * 60_000;
 /** Окна моложе двух минут — свежие: то же, что спрашивает страница аккаунтов (max_age 120). */
 const FRESH_S = 120;
 /** Порог: 95 % за 5 ч, 98 % за неделю (и прочие окна). */
@@ -145,7 +147,7 @@ export function make() {
   let stopping = false;
   let checking = false;
   /** процессы входа: имя → короткий claude, ждущий код */
-  const logins = new Map<string, { p: Probe; state: string | null }>();
+  const logins = new Map<string, { p: Probe; state: string | null; late?: ReturnType<typeof setTimeout> }>();
   /** идущие опросы окон: стирание папки аккаунта закрывает их раньше */
   const polls = new Map<string, Set<Probe>>();
   /** подмена, сброс, правка порядка и удаление идут по одной */
@@ -207,8 +209,17 @@ export function make() {
   }
 
   function closeLogin(name: string): void {
-    logins.get(name)?.p.close();
+    const l = logins.get(name);
+    if (l?.late) clearTimeout(l.late);
+    l?.p.close();
     logins.delete(name);
+  }
+
+  /** Код не пришёл за срок: процесс закрыт, вход не начат. */
+  function loginExpired(name: string): void {
+    closeLogin(name);
+    save(name, (cur) => cur && { ...cur, login: "none" });
+    host.log({ kind: "refuse", ev: "login", account: name, why: `${name}: срок входа вышел — кода нет за ${LOGIN_WAIT_MS / 60_000} мин` });
   }
 
   /** claude auth status с папкой аккаунта: вошёл ли. Не ответил за предел — исключение: что с входом, неизвестно. */
@@ -524,7 +535,7 @@ export function make() {
         throw refuse("login_failed", `${name}: claudeAuthenticate — ${(e as Error).message}`);
       }
       const url = r.manualUrl ?? "";
-      logins.set(name, { p, state: new URL(url, "https://claude.ai").searchParams.get("state") });
+      logins.set(name, { p, state: new URL(url, "https://claude.ai").searchParams.get("state"), late: setTimeout(() => loginExpired(name), LOGIN_WAIT_MS) });
       save(name, (cur) => ({ ...(cur ?? { limits: {} }), login: "pending" }));
       host.log({ ev: "login", account: name, why: `${name}: вход начат` });
       return { url };
@@ -533,7 +544,7 @@ export function make() {
     async "machine.login_code"(f) {
       const name = f.account as string;
       const l = typeof name === "string" ? logins.get(name) : undefined;
-      if (!l) throw refuse("not_started", `${String(name)}: входа нет — Host перезапускался или вход начат заново`);
+      if (!l) throw refuse("not_started", `${String(name)}: входа нет — Host перезапускался, вход начат заново или срок вышел`);
       // код — секрет: только в тело вызова SDK, не в журнал и не в аргументы процессов
       const raw = String(f.code ?? "");
       const i = raw.indexOf("#");

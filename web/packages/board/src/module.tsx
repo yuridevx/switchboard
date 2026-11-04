@@ -66,7 +66,7 @@ export function createBoard(app: App): AppModule {
         return id ? { id, name: board.projectName(id) } : null;
       },
     },
-    store: ["flt", "collapsed", "view", "pins"],
+    store: ["flt", "collapsed", "view"],
     css,
     start: board.start,
     stop: board.stop,

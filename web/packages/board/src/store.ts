@@ -71,14 +71,6 @@ export function createBoardStore(app: App) {
     settle();
   }
 
-  /** Закрепления прежней версии лежали на устройстве: один раз переходят к почте. Пересмотр — 1 дек. 2026: устройства перешли, убрать вместе с разделом pins. */
-  async function movePins() {
-    const old = await app.store<string[]>("pins").get();
-    if (!old?.length) return;
-    user.edit<string[]>("pins", (cur) => [...new Set([...(cur ?? []), ...old])]);
-    await app.store<string[]>("pins").set([]);
-  }
-
   return {
     ...model,
     view: () => state().view,
@@ -102,7 +94,7 @@ export function createBoardStore(app: App) {
       await fleet.stop();
     },
     onLink(link: ConnState, machine?: string) {
-      void user.onLink(link, machine)?.then(movePins);
+      void user.onLink(link, machine);
       void fleet.onLink(link, machine);
     },
     onRoster: settle,

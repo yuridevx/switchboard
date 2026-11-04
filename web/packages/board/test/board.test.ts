@@ -438,18 +438,6 @@ describe("порядок проектов", () => {
     expect(t.$('.fc[aria-selected="true"]')!.dataset.fid).toBe("f1");
   });
 
-  it("5246 · закрепления прежней версии с устройства переходят к почте один раз; закреплённое на другом устройстве остаётся", async () => {
-    const store = memoryStore({ key: KEY, pins: ["docs@pc"] });
-    const relay = relayWith({ "web-board.pins": ["note@pc"] });
-    const t = await start({ relay, store });
-    await flush(5);
-    expect(relay.values["web-board.pins"]).toEqual(["note@pc", "docs@pc"]);
-    expect(await store.get("pins")).toEqual([]);
-    await t.expand();
-    expect(rows(t)).toContain("docs@pc");
-    expect(relay.sent("prefs.set")).toHaveLength(1);
-  });
-
   it("5242 · prefs отказал: «Моё» и «Всё» работают, своих нет; изменение — отказ словом, prefs.set не уходит", async () => {
     const relay = relayWith();
     relay.handlers["prefs.get"] = () => ({ ok: false, error: "not_user" });

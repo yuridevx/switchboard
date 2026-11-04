@@ -1,7 +1,7 @@
 {
   "name": "releases",
   "type": "worker",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "provides": {
     "releases.plan": 1,
     "releases.list": 1,

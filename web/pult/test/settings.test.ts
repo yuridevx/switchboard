@@ -24,13 +24,12 @@ const roster = (): Roster => ({
 
 type Plan = Record<string, { pin?: string; on?: boolean }>;
 /** Флот «Выпусков»: stable host +7, keeper 1.0.5; laptop держит keeper 1.0.4 закреплённым, pc отстал по host и уронил hello-daemon; old ушла. */
-function fleet() {
+function fleet(offline: string[] = []) {
   const plans: Record<string, Plan> = { laptop: { keeper: { pin: "1.0.4" } }, pc: {}, old: {} };
   const passes = [
     { id: "kh1", role: "host", name: "laptop", person: null, addr: "@laptop", state: "ok", by: "агент", at: Date.UTC(2026, 10, 1) },
     { id: "kc1", role: "client", name: "pult", person: "you@mail", addr: "pult~you@mail", state: "ok", by: "@laptop", at: Date.UTC(2026, 10, 2) },
     { id: "kc2", role: "client", name: "phone", person: "you@mail", addr: "phone~you@mail", state: "ok", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
-    { id: "kr1", role: "client", name: "old", person: "you@mail", addr: "old~you@mail", state: "revoked", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
   ];
   const relay = new FakeRelay(roster());
   relay.handlers["releases.list"] = () => ({
@@ -77,13 +76,19 @@ function fleet() {
       relay.got.push(f);
       return Response.json({ type: "reply", id: f.id, ...(relay.handlers["keys.list"]?.(f) ?? { ok: true, result: { passes } }) });
     }
-    return relay.fetch(url, init);
+    const r = await relay.fetch(url, init);
+    // машина с пропуском, которой нет на связи: её знает только gate
+    if (offline.length && String(url) === FakeRelay.WORKERS.gate && f.type === "keys.list" && f.role === "host") {
+      const b = await r.json();
+      return Response.json({ ...b, result: { ...b.result, passes: [...b.result.passes, ...offline.map((name) => ({ name, role: "host", state: "ok" }))] } });
+    }
+    return r;
   }) as typeof globalThis.fetch;
   return { relay, plans, fetch };
 }
 
-async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string>; browser?: BrowserPush; hooks?(relay: FakeRelay): void } = {}) {
-  const fl = fleet();
+async function settings(o: { wide?: boolean; url?: string; workers?: Record<string, string>; browser?: BrowserPush; hooks?(relay: FakeRelay): void; offline?: string[] } = {}) {
+  const fl = fleet(o.offline);
   o.hooks?.(fl.relay);
   const parts: AppPart[] = [
     { manifest: settingsM, module: createSettings },
@@ -105,7 +110,7 @@ async function settings(o: { wide?: boolean; url?: string; workers?: Record<stri
 
 describe("pult-settings", () => {
   it("5501 · выпуски по машинам: stable и сколько машин его держат; матрица машина × часть — stable, отстаёт, 📌, сбой, ушла; план машины сбоку — закрепить версию", async () => {
-    const t = await settings();
+    const t = await settings({ offline: ["old"] });
     expect(t.$('[data-tab="releases"]')!.getAttribute("aria-selected")).toBe("true");
     expect(t.$('[data-roll="host"]')!.textContent).toContain("1.2.0+7");
     expect(t.$('[data-roll="host"]')!.textContent).toContain("1 из 2");
@@ -169,8 +174,6 @@ describe("pult-settings", () => {
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (s: string) => void writes.push(s) } });
     const t = await settings({ url: "/#settings?tab=passes", workers: { ...FakeRelay.WORKERS, phone: "https://phone.test/" } });
     expect(t.$('[data-passes="Машины"]')!.textContent).toContain("@laptop");
-    // отозванных не показываем (слово пользователя 3 нояб.)
-    expect(t.$('tr[data-pass="kr1"]')).toBeNull();
     const me = t.$('tr[data-pass="kc1"]')!;
     expect(me.textContent).toContain("это устройство");
     expect(t.btn("Отозвать…", me)).toBeNull();
@@ -305,11 +308,13 @@ describe("pult-settings", () => {
     expect(t.$("[data-device]")).not.toBeNull();
   });
 
-  it("6948 · отозванные пропуска не показаны", async () => {
-    // источник: слово пользователя 3 нояб.: отозванные не показываем
-    const t = await settings({ url: "/#settings?tab=passes" });
-    expect(t.text()).toContain("phone~you@mail");
-    expect(t.text()).not.toContain("old~you@mail");
+  it("7343 · матрица: машины — пропуска у gate и roster; ушедшая машина без плана видна, строка плана без пропуска — нет", async () => {
+    // источник: бэклог — «ответ releases.list несёт имена машин, хотя их знает gate»; машину не на связи матрица показывает (чьё: код)
+    const t = await settings({ offline: ["gone"], hooks: (r) => (r.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [{ machine: "ghost", plan: {} }], rev: 1, modules: {} } })) });
+    const mx = t.$(".st-mx")!;
+    expect(mx.querySelector('[data-machine="laptop"]')).not.toBeNull();
+    expect(mx.querySelector('[data-machine="gone"]')).not.toBeNull();
+    expect(mx.querySelector('[data-machine="ghost"]')).toBeNull();
   });
 
   it("E33 · каталог молчит: слово над таблицей, машины и ответы keeper на месте", async () => {

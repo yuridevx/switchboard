@@ -14,12 +14,21 @@ export function useCatalog() {
   return useLoad<Listed>(() => app.read<Listed>("releases.list"), [], deployed);
 }
 
-/** Пропуска флота; отозванные не показываем (слово пользователя 3 нояб.). */
+/** Пропуска флота: отзыв удаляет строку у gate. */
 export function usePasses() {
   const app = useApp();
   return useLoad<Pass[]>(async () => {
-    const r = await app.read<{ passes: Array<Omit<Pass, "state"> & { state: Pass["state"] | "revoked" }> }>("keys.list");
-    return r.ok ? { ok: true, result: r.result.passes.filter((p): p is Pass => p.state !== "revoked") } : r;
+    const r = await app.read<{ passes: Pass[] }>("keys.list");
+    return r.ok ? { ok: true, result: r.result.passes } : r;
+  }, []);
+}
+
+/** Машины флота: их знает gate, на связи или нет. */
+export function useHosts() {
+  const app = useApp();
+  return useLoad<string[]>(async () => {
+    const r = await app.read<{ passes: Array<{ name: string }> }>("keys.list", { role: "host" });
+    return r.ok ? { ok: true, result: r.result.passes.map((p) => p.name) } : r;
   }, []);
 }
 

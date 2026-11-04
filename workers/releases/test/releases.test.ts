@@ -143,7 +143,7 @@ describe("эталоны releases", () => {
       ["host", "1.1.57", sha256hex(tgzOf("host", "1.1.57"))],
     ]);
     expect(p.parts[1].url).toMatch(/^https:\/\/acc0\.r2\.cloudflarestorage\.com\/switchboard-releases\/host\/1\.1\.57\.tgz\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AK%2F\d{8}%2Fauto%2Fs3%2Faws4_request&X-Amz-Date=\d{8}T\d{6}Z&X-Amz-Expires=3600&X-Amz-SignedHeaders=host&X-Amz-Signature=[0-9a-f]{64}$/);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
   });
 
   it("3 · 5071 · план спрашивает машина: POST пропуском машины (@win) и keeper кадром (.keeper@win); часть не keeper и клиент — bad_frame", async () => {
@@ -151,11 +151,10 @@ describe("эталоны releases", () => {
     expect((await req(s, "@win", "releases.plan"))[0]).toMatchObject({ type: "reply", id: "r", ok: true, to: "@win" });
     expect((await req(s, ".host@win", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
     expect((await req(s, "panel~o", "releases.plan"))[0]).toMatchObject({ ok: false, error: "bad_frame" });
-    // машины флота — пропуска роли host у gate: своего списка машин у «Выпусков» нет
+    // машины флота — пропуска роли host у gate: своего списка машин у «Выпусков» нет, и каталог их не перечисляет
     await fakeCf(NONE);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
     await hosts("win");
-    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([{ machine: "win", plan: {} }]);
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
   });
 
   it("4 · вся сборка одним вызовом: части сборки на свою edge, план на .keeper@ каждой машины, приложение не тронуто", async () => {
@@ -504,7 +503,7 @@ describe("эталоны releases", () => {
     await req(s, "~x", "releases.set", { machine: "win", part: "host", on: false });
     const out = await req(s, "~x", "releases.set", { machine: "win", part: "host", remove: true });
     expect(brief(plans(out)[0]).parts).toEqual([{ part: "host", version: "1.1.82" }]);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toContainEqual({ machine: "win", plan: {} });
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
   });
 
   it("3131 · окружение задать и снять: второй шаг — rev +1, в плане часть без env", async () => {
@@ -518,7 +517,7 @@ describe("эталоны releases", () => {
     expect(brief(plans(out)[0])).toEqual({ to: ".keeper@win", rev: 3, parts: [{ part: "capture", version: "1.4.0" }] });
   });
 
-  it("3132 · правка машины без отличий, которая ничего не меняет, — «уже так»: rev прежняя, плана нет; машина в списке — по пропуску у gate", async () => {
+  it("3132 · правка машины без отличий, которая ничего не меняет, — «уже так»: rev прежняя, плана нет, записи плана нет", async () => {
     // источник: дизайн «Открытый флот» — своего списка машин у «Выпусков» нет, машины — пропуска роли host
     const s = fresh();
     await fakeCf(NONE);
@@ -528,7 +527,7 @@ describe("эталоны releases", () => {
     const out = await req(s, "~x", "releases.set", { machine: "pc3", part: "host", on: true });
     expect(out[0]).toMatchObject({ ok: true, result: { machine: "pc3", rev: 1 } });
     expect(plans(out)).toEqual([]);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toContainEqual({ machine: "pc3", plan: {} });
+    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
   });
 
   it("3133 · pin на версию без хэша (загрузка оборвалась между архивом и хэшем) — no_release, план и rev прежние", async () => {
@@ -1020,6 +1019,17 @@ describe("список выпусков в пределе чтения", () => {
     return r.result as any;
   };
 
+  it("7344 · каталог не спрашивает службу пропусков: gate молчит — ответ целиком и о части", async () => {
+    // источник: проход архитектора 4 нояб. — «медленный gate делает медленным каталог»; лишняя коммуникация по гейту
+    await fakeCf({ push: { tags: ["1.0.0"], live: "1.0.0" } });
+    await inCatalog("host", "1.2.0", { type: "sdk-core" });
+    let asked = 0;
+    const silent = new Proxy(E, { get: (t, k) => (k === "GATE" ? { list: () => (asked++, new Promise(() => {})) } : Reflect.get(t, k)) }) as Env;
+    await listOf(silent);
+    await listOf(silent, "host");
+    expect(asked).toBe(0);
+  });
+
   it("E7 · вопрос об одной части при 60 модулях: не больше 3 чтений хранилища, ответ тот же", async () => {
     // источник: факт — замер 2,5 с на одну часть при обходе всего хранилища
     await fakeCf({ push: { tags: ["1.0.0"], live: "1.0.0" } });
@@ -1039,7 +1049,7 @@ describe("список выпусков в пределе чтения", () => {
     const push = counted();
     const pushed = await listOf(push.env, "push");
     expect(pushed.parts.push).toMatchObject({ where: "cloud", edge: "1.0.0", stable: "1.0.0" });
-    expect(pushed.machines).toEqual([{ machine: "win", plan: {} }]);
+    expect(pushed.machines).toEqual([]);
     expect(push.c.reads).toBeLessThanOrEqual(3);
     // той же формы, что и ответ о всём флоте
     const all = await listOf(E);

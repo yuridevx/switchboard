@@ -32,7 +32,7 @@ export type { FleetClient, FleetOptions } from "./src/fleet-client.ts";
  */
 export const CONTRACT = { "keys.revoke": 1 } as const;
 
-/** Слова отказа relay. Слова gate (bad_key, revoked) relay передаёт как есть. */
+/** Слова отказа relay. Слово gate bad_key relay передаёт как есть. */
 export type RelayWord = "bad_frame" | "bad_from" | "offline" | "contract_mismatch" | "gate_unavailable";
 
 /**

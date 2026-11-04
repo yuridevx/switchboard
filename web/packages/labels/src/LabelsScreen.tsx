@@ -1,4 +1,4 @@
-// Окно «Имена» в месте вызывающего: закрылось — вызывающий получает close через app.Slot.
+// Окно «Имена» в месте вызывающего: закрылось — вызывающий получает close через app.Slot; открыто по адресу — шаг назад.
 import { useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf, nameOf } from "@switchboard/protocol";
@@ -13,7 +13,7 @@ export function LabelsScreen({ params, close }: ScreenProps) {
   const [sessionName, setSessionName] = useState(() => (callsign ? labels.nameOf(callsign) : ""));
   const [machineName, setMachineName] = useState(() => labels.nameOf(`@${machine}`));
 
-  const done = () => close?.();
+  const done = () => (close ? close() : app.back());
   const save = () => {
     labels.save(callsign, machine, sessionName.trim(), machineName.trim());
     done();

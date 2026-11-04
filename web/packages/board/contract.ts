@@ -1,5 +1,5 @@
 // Контракт web-board — «Работа» (общий пакет телефона и пульта). Экран board (#sessions): сессии по проектам, ряд фильтров «Моё», «Всё» и свои; порядок проектов и строк — перетаскиванием.
-// Проекты — запись области флота fleet.projects, формат у records. У почты: web-board.filters, .row, .pins. На устройстве: flt, collapsed, view; pins — только переход.
+// Проекты — запись области флота fleet.projects, формат у records. У почты: web-board.filters, .row, .pins. На устройстве: flt, collapsed, view.
 // Метки: mine(callsign) — почему сессия моя или ""; project.machines(номер) — машины сессий проекта; project.current() — номер открытого или последнего; project.of(callsign) — номер и имя.
 // Команды board.pin и board.unpin — в месте card.menu; board.assign — в месте open.after: Screen.run, своего вида нет.
 // Нажатие строки — карточка card; «Новая» и «+» у проекта — open (с machine, dir места проекта и номером project).

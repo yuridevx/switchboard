@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { CHECK_MS, CONTINUE, CREDENTIALS, LOCK_WAIT_MS, LOGIN_MS, POLL_MS, REFRESH_LOCK, STATUS_MS, linkSlot, make } from "../src/logins.ts";
+import { CHECK_MS, CONTINUE, CREDENTIALS, LOCK_WAIT_MS, LOGIN_MS, LOGIN_WAIT_MS, POLL_MS, REFRESH_LOCK, STATUS_MS, linkSlot, make } from "../src/logins.ts";
 
 const { msg, module, standHost, turn, until } = stand;
 type Stand = stand.Stand;
@@ -327,6 +327,37 @@ describe("входы: ветки и стыки", () => {
     expect(probes).toHaveLength(1);
     expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
     expect(JSON.stringify(st!.journal())).not.toContain("WRONG");
+  });
+
+  it("7340 · код не пришёл за срок входа: процесс закрыт, login none, причина в журнале, поздний код — not_started", async () => {
+    // источник: устав — у всех операций лимит; бэклог «процесс входа, ждущий код, без срока»
+    await bench();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await ask({ type: "machine.login", account: "corp" });
+    expect((await accounts()).corp.login).toBe("pending");
+    await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS - 1);
+    expect((await accounts()).corp.login).toBe("pending");
+    await vi.advanceTimersByTimeAsync(1);
+    vi.useRealTimers();
+    expect((await accounts()).corp.login).toBe("none");
+    expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
+    expect(st!.journal().some((l) => l.ev === "login" && String(l.why).includes("срок"))).toBe(true);
+    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
+  });
+
+  it("7341 · вход завершён или начат заново: прежний срок не закрывает новое", async () => {
+    // источник: устав — у всех операций лимит; чьё: код — повтор machine.login закрывает прежний процесс
+    await bench();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    await ask({ type: "machine.login", account: "corp" });
+    await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS - 1);
+    await ask({ type: "machine.login", account: "corp" });
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await accounts()).corp.login).toBe("pending");
+    expect((await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).ok).toBe(true);
+    await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS);
+    vi.useRealTimers();
+    expect((await accounts()).corp.login).toBe("ok");
   });
 
   it("код без # — состояние из ссылки; повтор machine.login закрывает прежний процесс", async () => {

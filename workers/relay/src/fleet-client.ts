@@ -49,9 +49,6 @@ export interface FleetClient {
   close(code?: number, reason?: string): void;
 }
 
-/** Слова gate, после которых список машин не спрашивают заново: пропуск не принят. */
-const FATAL = new Set(["bad_key", "revoked"]);
-
 /** Адрес объектов relay из адреса Worker'а relay: https://… → wss://…, без «/» в конце. */
 export const relayWs = (workers: Record<string, string>): string => (workers.relay ?? "").replace(/^http/, "ws").replace(/\/$/, "");
 
@@ -110,7 +107,8 @@ export function fleet(o: FleetOptions): FleetClient {
       if (!links.size) o.onState?.("", "open");
       return;
     }
-    if (FATAL.has(r.error)) return o.onState?.("", "stopped", r.error);
+    // пропуск не принят: список машин не спрашивают заново
+    if (r.error === "bad_key") return o.onState?.("", "stopped", r.error);
     o.onState?.("", "closed", r.error, Date.now() + pause);
     listTimer = setTimeout(list, pause);
     pause = Math.min(pause * 2, maxPause);

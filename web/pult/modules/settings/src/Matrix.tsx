@@ -1,6 +1,7 @@
 // Матрица выпусков: машина × часть по ответам keeper'ов и плану; поиск, отметка машин, выбор машины для её плана.
 import { useState } from "react";
 import { Dot, In, Note, okOf, PageHead, plural, RowBtn, Sec, Switch, useApp } from "@switchboard/web-ui";
+import { useHosts } from "./load.ts";
 import { useSettings } from "./store.ts";
 import { cellOf, type KState, type Listed, machineParts, relMachines } from "./rules.ts";
 
@@ -8,11 +9,12 @@ export function Matrix({ list, rm, pick }: { list: Listed | null; rm: string | n
   const app = useApp();
   const settings = useSettings();
   const d = app.use(() => settings.releaseData(list));
+  const { data: hosts } = useHosts();
   const [rq, setRq] = useState("");
   const rsel = app.use(() => settings.get().rsel);
   const parts = machineParts(d);
   const q = rq.trim().toLowerCase();
-  const ms = relMachines(d).filter((m) => !q || m.toLowerCase().includes(q));
+  const ms = relMachines(d, hosts ?? []).filter((m) => !q || m.toLowerCase().includes(q));
   return (
     <Sec className="st-matrix">
       <PageHead>

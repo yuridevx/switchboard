@@ -25,6 +25,7 @@ export type Listed = {
   parts: Record<string, { where: "machine" | "cloud"; edge: string | null; stable: string | null; versions: string[] }>;
   /** модули сборок (into): в какие приложения входят, номер в выложенной сборке каждого, новейший в каталоге; без part */
   modules?: Record<string, { into: string[]; built: Record<string, string>; edge: string | null }>;
+  /** записанные планы машин; какие машины есть — keys.list у gate */
   machines: Array<{ machine: string; plan: Record<string, PlanEntry> }>;
   rev: number;
 };

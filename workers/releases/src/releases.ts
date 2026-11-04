@@ -321,29 +321,28 @@ class Releases {
       const own = k.app ? await this.readyUnder(`${this.env.FLEET}/${p}/`) : [...vs.keys()];
       return { where: "cloud", edge: newest(own), stable: [...vs].find(([, id]) => id === cur)?.[0] ?? null, versions: last(own) };
     };
-    const planned = (names: string[]): Listed["machines"] =>
-      names.map((m) => {
-        const plan = s.plans[m] ?? {};
-        return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
-      });
+    // только записанные планы: какие машины есть, знает gate
+    const planned = (): Listed["machines"] =>
+      Object.keys(s.plans)
+        .sort()
+        .map((m) => {
+          const plan = s.plans[m];
+          return { machine: m, plan: part ? (plan[part] ? { [part]: plan[part] } : {}) : plan };
+        });
     if (part) {
       // одна часть — только её папка и манифест новейшей версии: каталог целиком не обходится
       const own = await this.readyUnder(`${part}/`);
       const top = newest(own.filter((v) => !isBuild(v)));
       const k = top ? this.kindBy(await this.manifest(part, top)) : null;
-      const [line, names] = await Promise.all([
-        k?.where === "cloud" ? inCloud(part, k) : k?.app ? this.readyUnder(`${this.env.FLEET}/${part}/`).then((vs) => onMachine(part, vs)) : onMachine(part, own),
-        this.machines(),
-      ]);
-      return { parts: { [part]: line }, machines: planned(names), rev: s.rev };
+      const line = await (k?.where === "cloud" ? inCloud(part, k) : k?.app ? this.readyUnder(`${this.env.FLEET}/${part}/`).then((vs) => onMachine(part, vs)) : onMachine(part, own));
+      return { parts: { [part]: line }, machines: planned(), rev: s.rev };
     }
     const kinds = await this.partKinds();
     const cloud = [...kinds].filter(([, k]) => k.where === "cloud").map(([p]) => p).sort();
     const machine = [...new Set([...kinds.keys(), ...Object.keys(s.stable)])].filter((p) => kinds.get(p)?.where !== "cloud" && (kinds.has(p) || s.stable[p])).sort();
-    const [onMachines, inClouds, names] = await Promise.all([
+    const [onMachines, inClouds] = await Promise.all([
       Promise.all(machine.map(async (p) => [p, onMachine(p, await this.machineVersions(p))] as const)),
       Promise.all(cloud.map(async (p) => [p, await inCloud(p, kinds.get(p) as Kind & { where: "cloud" })] as const)),
-      this.machines(),
     ]);
     const parts: Listed["parts"] = Object.fromEntries([...onMachines, ...inClouds]);
     // модули сборок: номер в выложенной сборке каждого приложения — из её списка, новейший — из каталога
@@ -359,7 +358,7 @@ class Releases {
         }),
     );
     for (const [app, list] of builds) for (const [n, v] of list) if (modules[n]) modules[n].built[app] = v;
-    return { parts, machines: planned(names), rev: s.rev, modules };
+    return { parts, machines: planned(), rev: s.rev, modules };
   }
 
   /**
