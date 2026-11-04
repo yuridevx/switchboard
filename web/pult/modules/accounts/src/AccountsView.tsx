@@ -100,7 +100,7 @@ function AccountCard({ id, entries, sessions }: { id: string; entries: Entry[]; 
     <Sec data-account={id}>
       <div className="ac-hd">
         <b>{first.email ?? entries[0].name}</b>
-        {first.plan ? <Pill tone="busy">{first.plan}</Pill> : first.email ? null : <Hint>почта — после входа</Hint>}
+        {first.plan ? <Pill tone="busy">{first.plan}</Pill> : null}
         <Hint>{`${sessions} ${plural(sessions, "сессия", "сессии", "сессий")}`}</Hint>
       </div>
       {source ? <Windows account={source.account} /> : null}

@@ -848,7 +848,7 @@ describe("видимое: аккаунты", () => {
     expect(row.textContent).toContain("в слотах main, bot");
     expect(t.$('[data-account="b@x.io"] [data-machine="laptop"]')!.textContent).toContain("запас main");
     const pending = t.$('[data-account="name:c"]')!;
-    expect(pending.querySelector(".ac-hd")!.textContent).toBe("cпочта — после входа0 сессий");
+    expect(pending.querySelector(".ac-hd")!.textContent).toBe("c0 сессий");
     expect(pending.textContent).toContain("вход идёт");
   });
 
