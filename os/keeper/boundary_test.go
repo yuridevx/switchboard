@@ -2490,3 +2490,38 @@ func TestEtNoWorkerAddress(t *testing.T) {
 		return journalHas(s.home, "нет адреса журнала (workers.ledger): capture 1.3.2 — второе падение: ")
 	})
 }
+
+// Спорное место: остановка keeper прерывает зависшее скачивание — выход сразу, работающая версия жива, сбоя части нет (устав: «у всех операций лимит и graceful
+// shutdown»; опыт 5 нояб.: остановка ждала зависшее скачивание, сколько сервер держал соединение, — 20 с, предел скачивания 10 мин).
+func TestEtStopDuringDownload(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	waitFor(t, "на связи", func() bool { return s.relay.planAsks() > 0 })
+	pid := partOf(k, "capture").Pid
+	hit := make(chan struct{}, 1)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		hit <- struct{}{}
+		select {
+		case <-r.Context().Done():
+		case <-time.After(30 * time.Second):
+		}
+	}))
+	t.Cleanup(slow.Close)
+	p := s.links.part("capture", "1.4.0", appFiles(""), on)
+	p["url"] = slow.URL + "/x.tgz"
+	s.relay.push(planMsg(2, p))
+	<-hit
+	start := time.Now()
+	k.Stop()
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("остановка ждала скачивание %v", d)
+	}
+	if !alive(pid) || s.relay.ledgerHas("part.failed") || journalHas(s.home, `"kind":"stop","ev":"install"`) || journalHas(s.home, `"ev":"part_failed"`) {
+		t.Fatal("прерванное скачивание принято за сбой части или работающая версия снята")
+	}
+}

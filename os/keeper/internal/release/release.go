@@ -70,8 +70,8 @@ type Installer struct {
 
 func stamp(dir string) string { return filepath.Join(dir, "release.sha256") }
 
-// Install — папка версии; уже стоит из того же архива — без скачивания.
-func (in *Installer) Install(s Source) (string, error) {
+// Install — папка версии; уже стоит из того же архива — без скачивания. Отмена ctx прерывает скачивание: остановка keeper его не ждёт; начатый setup доводится.
+func (in *Installer) Install(ctx context.Context, s Source) (string, error) {
 	if !machine.ValidName(s.Part) || !machine.ValidName(s.Version) {
 		return "", fmt.Errorf("bad_plan: часть «%s» версия «%s»", s.Part, s.Version)
 	}
@@ -79,7 +79,7 @@ func (in *Installer) Install(s Source) (string, error) {
 	if b, err := os.ReadFile(stamp(dir)); err == nil && strings.TrimSpace(string(b)) == s.Sha256 {
 		return dir, nil
 	}
-	body, err := in.download(s)
+	body, err := in.download(ctx, s)
 	if err != nil {
 		return "", err
 	}
@@ -109,11 +109,15 @@ func (in *Installer) Install(s Source) (string, error) {
 	return dir, nil
 }
 
-func (in *Installer) download(s Source) ([]byte, error) {
+func (in *Installer) download(ctx context.Context, s Source) ([]byte, error) {
 	if s.URL == "" {
 		return nil, fmt.Errorf("download_failed: %s %s нет на диске и нет ссылки", s.Part, s.Version)
 	}
-	resp, err := in.Client.Get(s.URL)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.URL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("download_failed: %v", err)
+	}
+	resp, err := in.Client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download_failed: %v", err)
 	}

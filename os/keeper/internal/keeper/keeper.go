@@ -427,7 +427,11 @@ func (k *Keeper) applyPart(e, prev Entry, had bool) {
 		return
 	}
 	// версия годна, когда стоит и её app.json разобран: только тогда прежняя останавливается
-	dir, err := k.in.Install(e.source())
+	dir, err := k.in.Install(k.bg, e.source())
+	// остановка keeper, пока шла установка: работающая версия живёт дальше, переход — у следующего keeper
+	if k.stopping() {
+		return
+	}
 	if err == nil {
 		_, err = release.ReadApp(dir)
 	}
@@ -442,10 +446,6 @@ func (k *Keeper) applyPart(e, prev Entry, had bool) {
 		k.mu.Unlock()
 		k.j.For(e.Part).Stop("install", err.Error(), "version", e.Version)
 		k.ledger("part.failed", fmt.Sprintf("%s %s — %s", e.Part, e.Version, err.Error()))
-		return
-	}
-	// остановка keeper, пока шла установка: работающая версия живёт дальше, переход — у следующего keeper
-	if k.stopping() {
 		return
 	}
 	if alive {
@@ -679,7 +679,10 @@ func (k *Keeper) restartExited() {
 			k.mu.Lock()
 			p.restarts, p.err = 1, ""
 			k.mu.Unlock()
-			dir, err := k.in.Install(e.source())
+			dir, err := k.in.Install(k.bg, e.source())
+			if k.stopping() {
+				return
+			}
 			if err == nil {
 				err = k.startPart(p, e, dir)
 			}

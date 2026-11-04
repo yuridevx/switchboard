@@ -15,7 +15,10 @@ import (
 // подключится к ним. Сбой — keeper failed, как у любой части.
 func (k *Keeper) selfUpdate(e Entry) {
 	fail := func(why string) { k.fail(k.slot("keeper"), e.Version, why) }
-	dir, err := k.in.Install(e.source())
+	dir, err := k.in.Install(k.bg, e.source())
+	if k.stopping() {
+		return
+	}
 	if err != nil {
 		fail(err.Error())
 		return
