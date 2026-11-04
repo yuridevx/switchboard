@@ -47,9 +47,12 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
   );
 }
 
+/** Шаг внутри карточки субагента — та же часть: карточки не знают PartView, цикла файлов нет. */
+const renderPart = (p: Part, key: number) => <PartView key={key} p={p} />;
+
 export function PartView({ p }: { p: Part }) {
   if (p.kind === "think") return <Thinking text={p.text} live={p.live} />;
-  if (p.kind === "tool") return <ToolCard id={p.id} />;
+  if (p.kind === "tool") return <ToolCard id={p.id} renderPart={renderPart} />;
   // полный HTML-документ показывается страницей, а не разбирается как разметка
   if (!p.live && isHtmlDocument(p.text)) return <CodeBlock code={p.text.trim()} lang="html" />;
   return (

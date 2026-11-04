@@ -1,4 +1,5 @@
 // Свёртка → карточка: сообщение SDK на входе, на выходе — что видно в ленте. Настоящая свёртка и настоящие карточки, без стенда.
+import { AppCtx } from "@switchboard/web-ui";
 import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,13 +13,13 @@ import type { WireMessage } from "../src/state/wire.ts";
 let root: Root | null = null;
 
 function View({ feed }: { feed: Feed }) {
-  const view: CardsView = { useFeed: (select) => select(feed), useAsking: () => false, name: "site@laptop", wide: true, background: () => {}, stopTask: () => {} };
+  const view: CardsView = { feed: () => feed, asking: () => false, name: "site@laptop", wide: true, background: () => {}, stopTask: () => {} };
   return (
-    <CardsCtx.Provider value={view}>
+    <AppCtx.Provider value={{ use: (f: () => unknown) => f() } as never}><CardsCtx.Provider value={view}>
       {feed.items.map((it) => (
         <ItemView key={it.id} it={it} />
       ))}
-    </CardsCtx.Provider>
+    </CardsCtx.Provider></AppCtx.Provider>
   );
 }
 

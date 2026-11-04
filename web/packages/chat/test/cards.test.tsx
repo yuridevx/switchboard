@@ -1,4 +1,5 @@
 // Карточки инструментов: сообщение SDK → шапка и тело. Свёртка и компоненты настоящие, соседей нет.
+import { AppCtx } from "@switchboard/web-ui";
 import { createRoot, type Root } from "react-dom/client";
 import { act, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,14 +24,14 @@ afterEach(async () => {
   root = null;
 });
 
-const view = (feed: Feed, more: Partial<CardsView> = {}): CardsView => ({ useFeed: <T,>(select: (f: Feed) => T) => select(feed), useAsking: () => false, name: "site@laptop", wide: true, ...more });
+const view = (feed: Feed, more: Partial<CardsView> = {}): CardsView => ({ feed: () => feed, asking: () => false, name: "site@laptop", wide: true, ...more });
 function Cards({ feed, more }: { feed: Feed; more?: Partial<CardsView> }) {
   return (
-    <CardsCtx.Provider value={view(feed, more)}>
+    <AppCtx.Provider value={{ use: (f: () => unknown) => f() } as never}><CardsCtx.Provider value={view(feed, more)}>
       {feed.items.map((it) => (
         <ItemView key={it.id} it={it} />
       ))}
-    </CardsCtx.Provider>
+    </CardsCtx.Provider></AppCtx.Provider>
   );
 }
 const call = (id: string, name: string, input: ToolInput = {}): WireMessage => ({ type: "assistant", uuid: `a-${id}`, message: { id: `m-${id}`, content: [{ type: "tool_use", id, name, input }] } });

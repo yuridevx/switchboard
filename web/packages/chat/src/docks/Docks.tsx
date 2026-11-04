@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { useApp, useLoad, Markdown } from "@switchboard/web-ui";
 import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
-import { useChat } from "../context.ts";
+import { useChat, useConv } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
 import type { Side } from "../state/chat.ts";
 import type { Feed, Task } from "../state/types.ts";
@@ -19,8 +19,7 @@ function todosOf(f: Feed) {
 }
 
 export function TodoDock({ callsign }: { callsign: string }) {
-  const chat = useChat();
-  const todos = chat.useConv(callsign, (c) => todosOf(c.feed));
+  const todos = useConv(callsign, (c) => todosOf(c.feed));
   if (!todos) return null;
   const done = todos.filter((t) => t.status === "completed").length;
   const now = todos.find((t) => t.status === "in_progress");
@@ -125,7 +124,7 @@ export function SideCard({ s, drop }: { s: Side; drop(): void }) {
 
 export function SideDock({ callsign }: { callsign: string }) {
   const chat = useChat();
-  const sides = chat.useConv(callsign, (c) => c.sides);
+  const sides = useConv(callsign, (c) => c.sides);
   return (
     <>
       {sides.map((s) => (
@@ -136,8 +135,7 @@ export function SideDock({ callsign }: { callsign: string }) {
 }
 
 export function BackgroundDock({ callsign }: { callsign: string }) {
-  const chat = useChat();
-  const tasks = chat.useConv(callsign, (c) => Object.values(c.feed.tasks).filter((t) => t.background && t.status === "running"));
+  const tasks = useConv(callsign, (c) => Object.values(c.feed.tasks).filter((t) => t.background && t.status === "running"));
   if (!tasks.length) return null;
   return (
     <Disclosure

@@ -13,7 +13,7 @@ const noop = () => {};
 
 function SampleRow({ s }: { s: Sample }) {
   const feed = useMemo(() => applyEvents(emptyFeed(), s.msgs), [s]);
-  const view = useMemo<CardsView>(() => ({ useFeed: <T,>(select: (f: Feed) => T) => select(feed), useAsking: (id) => !!s.asking?.includes(id), name: "site@laptop", wide: true, background: noop, stopTask: noop, rewind: noop, resend: noop, edit: noop }), [feed]);
+  const view = useMemo<CardsView>(() => ({ feed: () => feed, asking: (id) => !!s.asking?.includes(id), name: "site@laptop", wide: true, background: noop, stopTask: noop, rewind: noop, resend: noop, edit: noop }), [feed]);
   return (
     <div className="chat-galr" data-sample={s.title}>
       <div className="chat-galn">{s.title}</div>
@@ -29,7 +29,7 @@ function SampleRow({ s }: { s: Sample }) {
 }
 
 const noop2 = () => {};
-const OWN: CardsView = { useFeed: <T,>(select: (f: Feed) => T) => select(emptyFeed()), useAsking: () => false, name: "site@laptop", wide: true, background: noop2, stopTask: noop2, rewind: noop2, resend: noop2, unqueue: noop2, edit: noop2 };
+const OWN: CardsView = { feed: emptyFeed, asking: () => false, name: "site@laptop", wide: true, background: noop2, stopTask: noop2, rewind: noop2, resend: noop2, unqueue: noop2, edit: noop2 };
 
 /** Состояния вне свёртки SDK: они зависят от ответа запроса, а не от сообщения. */
 function OwnStates() {

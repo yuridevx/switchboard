@@ -4,7 +4,7 @@
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
 import { useApp } from "@switchboard/web-ui";
-import { useChat } from "../context.ts";
+import { useChat, useConv } from "../context.ts";
 import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";
 import { ModeSelect } from "./ModeSelect.tsx";
@@ -58,17 +58,17 @@ export function Composer({ callsign }: { callsign: string }) {
   const live = app.use(() => chat.isLive(callsign));
   const canFiles = app.use(() => chat.can(callsign, "session.files"));
   const canCall = app.use(() => chat.can(callsign, "session.call"));
-  const suggestion = chat.useConv(callsign, (c) => c.feed.suggestion);
+  const suggestion = useConv(callsign, (c) => c.feed.suggestion);
   const mode = app.use(() => chat.sessionOf(callsign)?.mode as string | undefined);
-  const returned = chat.useConv(callsign, (c) => c.returned);
+  const returned = useConv(callsign, (c) => c.returned);
   const suggest = useSuggest(callsign, text);
 
-  // отказ отправки: текст и вложения обратно в поле; напечатанное человеком не затирается
+  // отказ отправки: что вернулось в поле, решил стор, — черновик; вложения возвращаются к набранным
   const [returnedSeen, setReturnedSeen] = useState(returned);
   if (returned !== returnedSeen) {
     setReturnedSeen(returned);
     if (returned) {
-      if (!text) setText(returned.text);
+      setText(chat.draft(callsign));
       setPending([...pending, ...returned.attachments]);
     }
   }

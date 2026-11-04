@@ -1,6 +1,6 @@
 // Режим разрешений сессии: выбор в ряду под полем ввода — на широком и узком экране. Значение — поле roster: его меняет Host, а не выбор.
 import { PERM_MODES, useLoad } from "@switchboard/web-ui";
-import { useChat } from "../context.ts";
+import { useChat, useConv } from "../context.ts";
 
 type Model = { value: string; supportsAutoMode?: boolean };
 
@@ -13,7 +13,7 @@ function modelOf(models: Model[], model: string | undefined): Model | undefined 
 
 export function ModeSelect({ callsign, mode }: { callsign: string; mode: string }) {
   const chat = useChat();
-  const model = chat.useConv(callsign, (c) => c.feed.model);
+  const model = useConv(callsign, (c) => c.feed.model);
   const { data } = useLoad<Model[] | null>(() => chat.ask<Model[] | null>(callsign, "supportedModels"), [chat, callsign]);
   const auto = !!modelOf(Array.isArray(data) ? data : [], model)?.supportsAutoMode;
   const known = PERM_MODES.some(([v]) => v === mode);

@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 import { AlertTriangle, Anchor, Archive, ArrowLeftRight, Ban, BookOpen, Bot, FileUp, Gauge, Info, Pencil, RefreshCw, RotateCcw, ShieldOff, Shuffle, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
 import { hhmm, Markdown, LIMIT_NAMES } from "@switchboard/web-ui";
-import { useCards } from "../context.ts";
+import { useCards, useFeed } from "../context.ts";
 import type { Sys, Task } from "../state/types.ts";
 import { Disclosure } from "../ui/Disclosure.tsx";
 import { baseName, duration, kTokens, modelName, money, steps } from "./format.ts";
@@ -95,7 +95,7 @@ function CommandRow({ sys }: { sys: Of<"command"> }) {
 /** Задача без вызова инструмента: идёт — со «Стоп»; конец фоновой — чем кончилась. */
 function TaskRow({ sys }: { sys: Of<"task"> }) {
   const v = useCards();
-  const task: Task | undefined = v.useFeed((f) => (sys.id ? f.tasks[sys.id] : undefined));
+  const task: Task | undefined = useFeed((f) => (sys.id ? f.tasks[sys.id] : undefined));
   const status = task?.status ?? sys.status;
   const agent = (task?.type ?? sys.kind) === "local_agent";
   const icon = agent ? <Bot size={13} /> : <Terminal size={13} />;

@@ -3,10 +3,11 @@
 import { useState } from "react";
 import { ArrowDownToLine, Check, ChevronDown, ChevronRight, Loader2, Square, X } from "lucide-react";
 import { useNow } from "@switchboard/web-ui";
-import { useCards } from "../../context.ts";
+import { useAsking, useCards, useFeed } from "../../context.ts";
 import type { Task, Tool } from "../../state/types.ts";
 import { DiffCount } from "./Diff.tsx";
 import { isAgent, isRefused, isShell, kindOf } from "./kinds.tsx";
+import type { RenderPart } from "./SubAgent.tsx";
 import { ToolBody } from "./ToolBody.tsx";
 
 /** Результат «ушла в фон» — и в истории, где задач claude уже нет. */
@@ -87,11 +88,11 @@ function TaskBar({ task, t }: { task: Task; t: Tool }) {
   );
 }
 
-export function ToolCard({ id }: { id: string }) {
+export function ToolCard({ id, renderPart }: { id: string; renderPart: RenderPart }) {
   const v = useCards();
-  const t = v.useFeed((f) => f.tools[id]);
-  const task = v.useFeed((f) => Object.values(f.tasks).find((x) => x.toolUseId === id));
-  const asking = v.useAsking(id);
+  const t = useFeed((f) => f.tools[id]);
+  const task = useFeed((f) => Object.values(f.tasks).find((x) => x.toolUseId === id));
+  const asking = useAsking(id);
   const [picked, setPicked] = useState<boolean | null>(null);
   if (!t) return null;
   const k = kindOf(t);
@@ -124,7 +125,7 @@ export function ToolCard({ id }: { id: string }) {
       {t.summary ? <div className="tc-note">{t.summary}</div> : null}
       {open ? (
         <div className="tc-b">
-          <ToolBody t={t} task={task} />
+          <ToolBody t={t} task={task} renderPart={renderPart} />
         </div>
       ) : null}
     </div>

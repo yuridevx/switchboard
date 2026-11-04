@@ -14,10 +14,11 @@ export type Attachment = { name: string; media_type: string; data: string };
 export type Rewind = { uuid: string; text: string; tone: "" | "bad" | "ok"; ready: boolean };
 export type Command = { name: string; description?: string; argumentHint?: string };
 /** Что отправка вернула в поле: отказ session.prompt. id — чьё: второй такой же отказ тоже возвращает. */
-export type Returned = { id: string; text: string; attachments: Attachment[] };
 /** Вопрос сбоку: в разговор не попадает. Нет ни ответа, ни отказа — Claude думает. */
 export type Side = { id: string; q: string; a?: string; err?: string };
-/** Ответ запроса: результат или слово отказа. */
+
+/** Что вернулось в поле: id делает каждый возврат новым значением выборки. */
+export type Returned = { id: string; attachments: Attachment[] };
 
 export type Conv = {
   feed: Feed;
@@ -25,6 +26,8 @@ export type Conv = {
   seq: number | null;
   fresh: boolean;
   watching: boolean;
+  /** подписка и чтение истории в пути: второй такой же обмен не нужен */
+  opening?: boolean;
   /** машина не отдаёт ленту (нет session.watch в её contract) */
   noFeed: boolean;
   /** отказ session.watch или session.history — словом в ленте */
@@ -97,9 +100,16 @@ export function createChatStore(app: App) {
 
   /** Открыть ленту: сначала session.watch, потом session.history. */
   async function watch(cs: string) {
+    const was = read(cs);
+    if (was.opening) return;
+    const since = was.since;
     const m = machineOf(cs) ?? "";
     // возможности — по roster: нет session.watch — ленты нет, переписка и ввод работают
-    edit(cs, (c) => void (c.noFeed = app.can(m, "session.watch") === false));
+    edit(cs, (c) => {
+      c.noFeed = app.can(m, "session.watch") === false;
+      c.opening = true;
+      c.watching = false;
+    });
     if (can(cs, "session.watch")) {
       const r = await app.request("session.watch", { callsign: cs });
       edit(cs, (c) => {
@@ -111,6 +121,9 @@ export function createChatStore(app: App) {
       });
     }
     await history(cs);
+    edit(cs, (c) => void (c.opening = false));
+    // отказал прежний Host, а новый уже в roster: его подписку пропустили, пока шла эта
+    if (read(cs).refused && read(cs).mounted && read(cs).since !== since) await watch(cs);
   }
 
   async function unwatch(cs: string) {
@@ -152,7 +165,7 @@ export function createChatStore(app: App) {
     if (!store.get().drafts[cs]) setDraftOf(cs, text);
     edit(cs, (c) => {
       c.feed.items = c.feed.items.filter((i) => i.id !== id);
-      c.returned = { id, text, attachments };
+      c.returned = { id, attachments };
       delete c.held[id];
     });
   }
@@ -183,8 +196,7 @@ export function createChatStore(app: App) {
 
   return {
     // ───── выборки ─────
-    /** Выборка из разговора: компонент перерисуется, когда изменился её ответ. */
-    useConv: <T,>(cs: string, select: (c: Conv) => T): T => app.use(() => select(read(cs))),
+    conv: read,
     nameOf: (cs: string) => sessionLabel(app, cs).text,
     sessionOf,
     isLive,
@@ -260,10 +272,7 @@ export function createChatStore(app: App) {
         if (!c.mounted) continue;
         const since = r.machines.find((m) => m.machine === machineOf(cs))?.since;
         if (since === c.since) continue;
-        edit(cs, (x) => {
-          x.since = since;
-          if (since !== undefined) x.watching = false;
-        });
+        edit(cs, (x) => void (x.since = since));
         if (since !== undefined) void watch(cs);
       }
       for (const s of r.sessions) {
@@ -284,7 +293,6 @@ export function createChatStore(app: App) {
       if (state !== "open") return;
       for (const [cs, c] of Object.entries(store.get().convs)) {
         if (!c.mounted || (machine && machineOf(cs) !== machine)) continue;
-        edit(cs, (x) => void (x.watching = false));
         void watch(cs);
       }
     },

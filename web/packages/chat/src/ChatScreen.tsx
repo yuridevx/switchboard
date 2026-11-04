@@ -6,17 +6,17 @@ import { machineOf } from "@switchboard/protocol";
 import { Pad, useApp } from "@switchboard/web-ui";
 import { ItemView, StepsRow } from "./cards/ItemView.tsx";
 import { Composer } from "./composer/Composer.tsx";
-import { CardsCtx, useChat, type CardsView } from "./context.ts";
+import { CardsCtx, useChat, type CardsView, useConv } from "./context.ts";
 import { AskDock, BackgroundDock, SideDock, TodoDock } from "./docks/Docks.tsx";
 import { ContextPanel } from "./panel/ContextPanel.tsx";
 import { focusRows, type Row, type Steps } from "./state/focus.ts";
-import type { Feed, Item } from "./state/types.ts";
+import type { Item } from "./state/types.ts";
 import { useStickToBottom } from "./ui/useStickToBottom.ts";
 
 /** Плашка отката под сообщением. */
 function RewindCard({ callsign, id }: { callsign: string; id: string }) {
   const chat = useChat();
-  const r = chat.useConv(callsign, (c) => (c.rewind?.uuid === id ? c.rewind : null));
+  const r = useConv(callsign, (c) => (c.rewind?.uuid === id ? c.rewind : null));
   if (!r) return null;
   return (
     <div className={`chat-rwc ${r.tone}`} role="status">
@@ -49,8 +49,8 @@ const FeedRow = memo(function FeedRow({ id, item, steps, callsign }: { id: strin
 function Working({ callsign }: { callsign: string }) {
   const app = useApp();
   const chat = useChat();
-  const compacting = chat.useConv(callsign, (c) => c.feed.compacting);
-  const thinking = chat.useConv(callsign, (c) => c.feed.thinking);
+  const compacting = useConv(callsign, (c) => c.feed.compacting);
+  const thinking = useConv(callsign, (c) => c.feed.thinking);
   const busy = app.use(() => chat.sessionOf(callsign)?.state === "busy");
   if (compacting) return <div className="chat-work">Сжимаю контекст…</div>;
   if (!busy) return null;
@@ -67,12 +67,12 @@ function Working({ callsign }: { callsign: string }) {
 function FeedView({ callsign }: { callsign: string }) {
   const app = useApp();
   const chat = useChat();
-  const items = chat.useConv(callsign, (c) => c.feed.items);
-  const tools = chat.useConv(callsign, (c) => c.feed.tools);
-  const focus = chat.useConv(callsign, (c) => c.focus);
-  const noFeed = chat.useConv(callsign, (c) => c.noFeed);
-  const refused = chat.useConv(callsign, (c) => c.refused);
-  const more = chat.useConv(callsign, (c) => c.more);
+  const items = useConv(callsign, (c) => c.feed.items);
+  const tools = useConv(callsign, (c) => c.feed.tools);
+  const focus = useConv(callsign, (c) => c.focus);
+  const noFeed = useConv(callsign, (c) => c.noFeed);
+  const refused = useConv(callsign, (c) => c.refused);
+  const more = useConv(callsign, (c) => c.more);
   const rows = useMemo<Row[]>(() => (app.wide && focus ? focusRows(items, tools) : items.map((item) => ({ id: item.id, item }))), [app.wide, focus, items, tools]);
   const box = useRef<HTMLDivElement>(null);
   const col = useRef<HTMLDivElement>(null);
@@ -113,7 +113,7 @@ function FeedView({ callsign }: { callsign: string }) {
 function Bar({ callsign, panel, setPanel }: { callsign: string; panel: boolean; setPanel(v: boolean): void }) {
   const app = useApp();
   const chat = useChat();
-  const focus = chat.useConv(callsign, (c) => c.focus);
+  const focus = useConv(callsign, (c) => c.focus);
   const canCall = app.use(() => chat.can(callsign, "session.call") && chat.isLive(callsign));
   return (
     <div className="chat-bar">
@@ -153,8 +153,8 @@ export function ChatScreen({ params }: ScreenProps) {
   // что карточкам ленты: выборка из этого разговора и кнопки, если сессия жива и машина умеет session.call
   const view = useMemo<CardsView>(
     () => ({
-      useFeed: <T,>(select: (f: Feed) => T) => chat.useConv(callsign, (c) => select(c.feed)),
-      useAsking: (id) => app.use(() => !!app.mark("asked.tool", callsign, id)),
+      feed: () => chat.conv(callsign).feed,
+      asking: (id) => !!app.mark("asked.tool", callsign, id),
       name,
       wide: app.wide,
       background: canCall ? (id) => void chat.call(callsign, "backgroundTasks", [id]) : undefined,

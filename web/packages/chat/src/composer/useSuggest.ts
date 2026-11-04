@@ -1,8 +1,8 @@
 // Подсказки поля ввода: «/» в начале — команды сессии, «@часть» в конце — файлы её папки.
 // Стрелки выбирают, Tab и Enter подставляют, Esc закрывает до следующей правки текста. Что показать — считается из текста при рисовании.
 import { useEffect, useState } from "react";
-import { useLoad } from "@switchboard/web-ui";
-import { useChat } from "../context.ts";
+import { useApp, useLoad } from "@switchboard/web-ui";
+import { useChat, useConv } from "../context.ts";
 
 export type Suggestion = { key: string; label: string; hint?: string; insert: string };
 export type Suggest = { kind: "cmd" | "file"; items: Suggestion[]; sel: number; move(d: 1 | -1): void; close(): void };
@@ -15,10 +15,13 @@ const BTW = { name: "btw", description: "вопрос сбоку: ответ п�
 const NO_FILES = { ok: true as const, result: [] as string[] };
 
 export function useSuggest(callsign: string, text: string): Suggest | null {
+  const app = useApp();
   const chat = useChat();
-  const slash = chat.can(callsign, "session.call") ? SLASH.exec(text)?.[1] : undefined;
-  const at = chat.can(callsign, "session.files") && slash === undefined ? AT.exec(text)?.[1] : undefined;
-  const commands = chat.useConv(callsign, (c) => c.commands);
+  const canCall = app.use(() => chat.can(callsign, "session.call"));
+  const canFiles = app.use(() => chat.can(callsign, "session.files"));
+  const slash = canCall ? SLASH.exec(text)?.[1] : undefined;
+  const at = canFiles && slash === undefined ? AT.exec(text)?.[1] : undefined;
+  const commands = useConv(callsign, (c) => c.commands);
   const files = useLoad(() => (at === undefined ? Promise.resolve(NO_FILES) : chat.files(callsign, at)), [chat, callsign, at]);
   /** выбор и закрытие относятся к тексту, при котором сделаны: новая буква их сбрасывает */
   const [picked, setPicked] = useState({ text: "", sel: 0 });

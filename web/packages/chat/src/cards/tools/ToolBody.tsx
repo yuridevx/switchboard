@@ -1,5 +1,5 @@
 // Тело карточки инструмента: что делалось и что вышло — по виду инструмента.
-import { useCards } from "../../context.ts";
+import { useAsking } from "../../context.ts";
 import { langOfPath, useHighlighted, HtmlFrame, Markdown } from "@switchboard/web-ui";
 import type { ReactNode } from "react";
 import { isHtmlDocument } from "../../state/parse.ts";
@@ -7,7 +7,7 @@ import type { Task, Tool } from "../../state/types.ts";
 import { baseName } from "../format.ts";
 import { Diff } from "./Diff.tsx";
 import { isRefused, refusalReason } from "./kinds.tsx";
-import { SubAgent } from "./SubAgent.tsx";
+import { SubAgent, type RenderPart } from "./SubAgent.tsx";
 import { Todos } from "./Todos.tsx";
 
 const Hint = ({ children }: { children: ReactNode }) => <div className="tb-hint">{children}</div>;
@@ -26,8 +26,7 @@ function Failed({ t }: { t: Tool }) {
 
 /** Вывод инструмента; ошибка — красным; картинки — следом. */
 function Result({ t }: { t: Tool }) {
-  const v = useCards();
-  const asking = v.useAsking(t.id);
+  const asking = useAsking(t.id);
   if (!t.result) return asking ? null : <div className="tb-wait">ждём результата…</div>;
   return (
     <>
@@ -63,7 +62,7 @@ function WriteBody({ t }: { t: Tool }) {
   );
 }
 
-export function ToolBody({ t, task }: { t: Tool; task?: Task }) {
+export function ToolBody({ t, task, renderPart }: { t: Tool; task?: Task; renderPart: RenderPart }) {
   const i = t.input;
   switch (t.name) {
     case "Bash":
@@ -112,7 +111,7 @@ export function ToolBody({ t, task }: { t: Tool; task?: Task }) {
       );
     case "Task":
     case "Agent":
-      return <SubAgent t={t} task={task} />;
+      return <SubAgent t={t} task={task} renderPart={renderPart} />;
     case "ExitPlanMode":
       return (
         <>

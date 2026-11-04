@@ -50,14 +50,16 @@ type State = {
 /** Ответ ещё можно менять: ждёт или не дошёл. */
 export const isLocked = (r: Rec) => r.status !== "waiting" && r.status !== "error";
 
+/** Вопрос ещё открыт: ждёт человека, ответ в пути или не дошёл. */
+const isOpen = (r: Rec) => r.status === "waiting" || r.status === "sending" || r.status === "error";
+
 /** Закрытый вопрос нужен только как итог последнего: новый вопрос сессии вытесняет закрытые, память не растёт. */
-const isClosed = (r: Rec) => isLocked(r) && r.status !== "sending";
 
 export function added(recs: Rec[], callsign: string, f: Frame | Record<string, unknown>, to: string[] = []): Rec[] {
   const id = String(f.question);
   if (recs.some((r) => r.id === id)) return recs;
   return [
-    ...recs.filter((r) => r.callsign !== callsign || !isClosed(r)),
+    ...recs.filter((r) => r.callsign !== callsign || isOpen(r)),
     {
       id,
       callsign,
@@ -123,7 +125,7 @@ export function createAskStore(app: App) {
   /** Вопрос на экране: первый ещё не закрытый; все закрыты — итог последнего. Одна чистая выборка для всех мест экрана. */
   function current(callsign: string): Rec | undefined {
     const own = store.get().recs.filter((r) => r.callsign === callsign);
-    return own.find((r) => r.status === "waiting" || r.status === "sending" || r.status === "error") ?? own.at(-1);
+    return own.find(isOpen) ?? own.at(-1);
   }
 
   return {
@@ -214,7 +216,7 @@ export function createAskStore(app: App) {
       const callsign = params.callsign ?? "";
       const r = current(callsign);
       const pill =
-        !r || r.status === "waiting" || r.status === "sending" || r.status === "error"
+        !r || isOpen(r)
           ? { text: "ждёт ответа", tone: "wait" as const }
           : r.status === "ok"
             ? { text: "ответ принят", tone: "ok" as const }

@@ -8,7 +8,7 @@ import { CardsCtx, type CardsView } from "../src/context.ts";
 import { applyEvents, emptyFeed } from "../src/state/feed.ts";
 import type { Feed } from "../src/state/types.ts";
 import type { WireMessage } from "../src/state/wire.ts";
-import { framed, HtmlFrame } from "@switchboard/web-ui";
+import { AppCtx, framed, HtmlFrame } from "@switchboard/web-ui";
 import { CodeBlock } from "@switchboard/web-ui";
 import { Markdown } from "@switchboard/web-ui";
 
@@ -27,13 +27,13 @@ const button = (el: Element, text: string) => [...el.querySelectorAll("button")]
 
 /** Записи ленты как на экране: свёртка настоящая, карточки настоящие. */
 function FeedView({ feed }: { feed: Feed }) {
-  const view: CardsView = { useFeed: <T,>(select: (f: Feed) => T) => select(feed), useAsking: () => false, name: "site@laptop", wide: true };
+  const view: CardsView = { feed: () => feed, asking: () => false, name: "site@laptop", wide: true };
   return (
-    <CardsCtx.Provider value={view}>
+    <AppCtx.Provider value={{ use: (f: () => unknown) => f() } as never}><CardsCtx.Provider value={view}>
       {feed.items.map((it) => (
         <ItemView key={it.id} it={it} />
       ))}
-    </CardsCtx.Provider>
+    </CardsCtx.Provider></AppCtx.Provider>
   );
 }
 const fold = (msgs: WireMessage[]) => applyEvents(emptyFeed(), msgs);
