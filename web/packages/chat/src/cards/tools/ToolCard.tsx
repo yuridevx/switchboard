@@ -12,11 +12,12 @@ import { ToolBody } from "./ToolBody.tsx";
 /** Результат «ушла в фон» — и в истории, где задач claude уже нет. */
 const BG_RESULT = /^(Async agent launched|Command running in background|Command was manually backgrounded)/;
 /** Отказ человека словами claude — не «Permission denied» в выводе команды. */
-const REFUSED = /^(The user doesn't want to proceed|User rejected|Permission to use .+ has been denied)/;
+const REFUSED = /^(The user doesn't want to proceed|User rejected|Permission to use .+ has been denied|Пользователь отклонил|Пользователь вернул план)/;
 
-type State = "running" | "bg" | "stopped" | "ok" | "denied" | "error";
+type State = "wait" | "running" | "bg" | "stopped" | "ok" | "denied" | "error";
 
-function stateOf(t: Tool, task?: Task): State {
+function stateOf(t: Tool, asking: boolean, task?: Task): State {
+  if (asking && !t.result) return "wait";
   if (task?.status === "stopped" || task?.status === "killed") return "stopped";
   if (task?.background && task.status === "running") return "bg";
   if (!t.result) return "running";
@@ -26,6 +27,8 @@ function stateOf(t: Tool, task?: Task): State {
 
 function StateMark({ st, secs }: { st: State; secs?: number }) {
   switch (st) {
+    case "wait":
+      return <em className="tc-st wait">ждёт разрешения</em>;
     case "running":
       return (
         <em className="tc-st run">
@@ -90,10 +93,11 @@ export function ToolCard({ id }: { id: string }) {
   const v = useCards();
   const t = v.useFeed((f) => f.tools[id]);
   const task = v.useFeed((f) => Object.values(f.tasks).find((x) => x.toolUseId === id));
+  const asking = v.useAsking(id);
   const [picked, setPicked] = useState<boolean | null>(null);
   if (!t) return null;
   const k = kindOf(t);
-  const st = stateOf(t, task);
+  const st = stateOf(t, asking, task);
   const open = picked ?? !!k.open;
   const wentBg = (isShell(t) || isAgent(t)) && st !== "bg" && (t.input.run_in_background || task?.background || BG_RESULT.test(t.result?.text ?? ""));
   return (
@@ -110,7 +114,7 @@ export function ToolCard({ id }: { id: string }) {
         <StateMark st={st} secs={t.secs} />
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
-      {task?.status === "running" ? <TaskBar task={task} t={t} /> : !task && isShell(t) && !t.result && v.background ? (
+      {task?.status === "running" ? <TaskBar task={task} t={t} /> : !task && st === "running" && isShell(t) && v.background ? (
         <div className="tc-bar">
           <span />
           <button type="button" className="chat-mini" onClick={() => v.background!(t.id)}>

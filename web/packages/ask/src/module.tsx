@@ -24,7 +24,7 @@ export function createAsk(): AppModule {
         head: ask.head,
       },
     },
-    marks: { asked: ask.asked },
+    marks: { asked: ask.asked, "asked.tool": ask.askedTool },
     css,
     start: ask.start,
   };

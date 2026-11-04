@@ -8,9 +8,9 @@ import { CardsCtx, type CardsView } from "../src/context.ts";
 import { applyEvents, emptyFeed } from "../src/state/feed.ts";
 import type { Feed } from "../src/state/types.ts";
 import type { WireMessage } from "../src/state/wire.ts";
-import { framed, HtmlFrame } from "../src/ui/HtmlFrame.tsx";
-import { CodeBlock } from "../src/ui/CodeBlock.tsx";
-import { Markdown } from "../src/ui/Markdown.tsx";
+import { framed, HtmlFrame } from "@switchboard/web-ui";
+import { CodeBlock } from "@switchboard/web-ui";
+import { Markdown } from "@switchboard/web-ui";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -27,7 +27,7 @@ const button = (el: Element, text: string) => [...el.querySelectorAll("button")]
 
 /** Записи ленты как на экране: свёртка настоящая, карточки настоящие. */
 function FeedView({ feed }: { feed: Feed }) {
-  const view: CardsView = { useFeed: <T,>(select: (f: Feed) => T) => select(feed), name: "site@laptop", wide: true };
+  const view: CardsView = { useFeed: <T,>(select: (f: Feed) => T) => select(feed), useAsking: () => false, name: "site@laptop", wide: true };
   return (
     <CardsCtx.Provider value={view}>
       {feed.items.map((it) => (

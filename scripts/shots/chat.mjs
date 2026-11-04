@@ -22,6 +22,11 @@ const attach = (p) =>
   ]);
 
 /** Окна живого экрана: адрес и что сделать перед снимком. */
+/** Запрос разрешения и план: кадр и строка инструмента в ленте; узко — полоса, по ней экран. */
+const PERM = { question: "toolu_perm", from: "tests@wsl", kind: "perm", tool: "Bash", input: { command: "npm run deploy -- --target=test", description: "Выкладка на тестовый флот" }, title: "Claude хочет выполнить npm run deploy", reason: "Нет правила для этой команды", blockedPath: "~/projects/switchboard/dist", suggestions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm run deploy:*" }], behavior: "allow", destination: "localSettings" }] };
+const PLAN = { question: "toolu_plan", from: "tests@wsl", kind: "perm", tool: "ExitPlanMode", input: { plan: "## План\n\nСборка падает на **таймауте** эталона 4187.\n\n1. Поднять `testTimeout` до 15 с\n2. Прогнать эталоны\n3. Обновить README\n\n| Шаг | Файл |\n|---|---|\n| 1 | `vitest.config.ts` |\n| 3 | `README.md` |" } };
+const ask = async (p, q) => { await p.evaluate((x) => window.__ask(x), q); await pause(p, 350); };
+const toScreen = async (p) => { if (await p.locator(".chat-askbar").count()) { await p.click(".chat-askbar"); await pause(p, 350); } };
 const WINDOWS = [
   ["idle", "tests@wsl"],
   ["busy", "refactor@win"],
@@ -44,10 +49,19 @@ const WINDOWS = [
   ["btw-hint", "tests@wsl", async (p) => type(p, "/b")],
   ["task-output", "refactor@win", async (p) => { await p.click(".chat-bg .dis-h"); await pause(p); await p.click('.chat-bg .chat-mini:has-text("Вывод")'); await pause(p, 350); }],
   ["queued", "refactor@win", async (p) => { await type(p, "И обнови README по итогам"); await p.click(".chat-send"); await pause(p, 350); }],
+  ["perm", "tests@wsl", async (p) => ask(p, PERM)],
+  ["perm-screen", "tests@wsl", async (p) => { await ask(p, PERM); await toScreen(p); }],
+  ["perm-deny", "tests@wsl", async (p) => { await ask(p, PERM); await toScreen(p); await p.click('.ask .ask-decline:has-text("Отклонить")'); await pause(p); await p.fill(".ask textarea", "Сначала покажи, что выложится"); await pause(p); }],
+  ["perm-done", "tests@wsl", async (p) => { await ask(p, PERM); await toScreen(p); await p.click('.ask .sb-cta'); await pause(p, 350); }],
+  ["plan", "tests@wsl", async (p) => ask(p, PLAN)],
+  ["plan-screen", "tests@wsl", async (p) => { await ask(p, PLAN); await toScreen(p); }],
+  ["plan-return", "tests@wsl", async (p) => { await ask(p, PLAN); await toScreen(p); await p.click('.ask .ask-decline:has-text("Вернуть")'); await pause(p); await p.fill(".ask textarea", "Добавь регрессионный тест"); await pause(p); }],
+  ["mode", "tests@wsl", async (p) => { await p.selectOption(".chat-mode", "plan"); await pause(p, 350); }],
   ["scrolled-up", "tests@wsl", async (p) => { await p.evaluate(() => { const f = document.querySelector(".chat-feed"); f.scrollTop = 0; f.dispatchEvent(new Event("scroll")); }); await pause(p); }],
 ];
 const WIDE_ONLY = [
   ["context", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("контекст")'); await pause(p, 350); }],
+  ["rules", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("контекст")'); await pause(p, 350); await p.evaluate(() => document.querySelector('[data-sec="rules"]').scrollIntoView()); await pause(p); }],
   ["focus", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("фокус")'); await pause(p); }],
   ["focus-steps", "tests@wsl", async (p) => { await p.click('.chat-bar .chat-mini:has-text("фокус")'); await pause(p); await p.click(".chat-steps .dis-h"); await pause(p); }],
   ["mcp", "tests@wsl", async (p) => { await p.evaluate(() => (location.hash = "#card?callsign=tests%40wsl")); await pause(p, 400); await p.click('[data-pop="menu"]'); await pause(p); await p.click('.cw-pop [data-act="info"]'); await pause(p, 400); await p.click('[data-mcp-login="linear"]'); await pause(p, 300); }],

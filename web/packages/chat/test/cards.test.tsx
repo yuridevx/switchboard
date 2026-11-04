@@ -23,7 +23,7 @@ afterEach(async () => {
   root = null;
 });
 
-const view = (feed: Feed, more: Partial<CardsView> = {}): CardsView => ({ useFeed: <T,>(select: (f: Feed) => T) => select(feed), name: "site@laptop", wide: true, ...more });
+const view = (feed: Feed, more: Partial<CardsView> = {}): CardsView => ({ useFeed: <T,>(select: (f: Feed) => T) => select(feed), useAsking: () => false, name: "site@laptop", wide: true, ...more });
 function Cards({ feed, more }: { feed: Feed; more?: Partial<CardsView> }) {
   return (
     <CardsCtx.Provider value={view(feed, more)}>

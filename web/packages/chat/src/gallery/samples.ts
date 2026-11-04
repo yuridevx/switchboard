@@ -1,7 +1,7 @@
 // Образцы галереи: сообщения SDK той же формы, что приходят в session.events. Рисуются тем же кодом, что живая лента.
 import type { WireBlock, WireMessage } from "../state/wire.ts";
 
-export type Sample = { title: string; msgs: WireMessage[] };
+export type Sample = { title: string; msgs: WireMessage[]; /** инструменты, чей запрос разрешения ждёт человека */ asking?: string[] };
 export type Section = { title: string; samples: Sample[] };
 
 let n = 0;
@@ -129,6 +129,10 @@ export const SECTIONS: Section[] = [
       { title: "Скил", msgs: [tool("t-sk", "Skill", { skill: "deliver" }), res("t-sk", "Launching skill: deliver")] },
       { title: "Инструмент MCP", msgs: [tool("t-mc", "mcp__github__create_issue", { title: "Таймаут на CI", body: "Падает эталон 4187" }), res("t-mc", '{"number": 42}')] },
       { title: "Вопрос в ленте", msgs: [tool("t-as", "AskUserQuestion", { questions: [{ question: "Какую базу мигрировать первой?", header: "База", options: [{ label: "стенд" }, { label: "прод" }] }] }), res("t-as", "стенд")] },
+      { title: "Ждёт разрешения", asking: ["t-wait"], msgs: [tool("t-wait", "Bash", { command: "npm run deploy", description: "Выкладка на стенд" })] },
+      { title: "Ждёт одобрения плана", asking: ["t-wpl"], msgs: [tool("t-wpl", "ExitPlanMode", { plan: "## План\n\n1. Найти формулу\n2. Поправить" })] },
+      { title: "Отклонено человеком", msgs: [tool("t-den", "Bash", { command: "rm -rf build" }), res("t-den", "Пользователь отклонил: не трогай сборку", true)] },
+      { title: "План вернули", msgs: [tool("t-ret", "ExitPlanMode", { plan: "## План\n\n1. Поправить" }), res("t-ret", "Пользователь вернул план: добавь тест", true)] },
       { title: "План", msgs: [tool("t-pl", "ExitPlanMode", { plan: "## План\n\n1. Найти формулу\n2. Перевести в проценты\n3. Прогнать `npm test`" }), res("t-pl", "ok")] },
       { title: "Сводка шагов", msgs: [tool("t-su", "Read", { file_path: "src/a.ts" }), res("t-su", "a"), { type: "tool_use_summary", uuid: id(), summary: "Прочитал конфиг: таймаут 5 с", preceding_tool_use_ids: ["t-su"] }] },
       {

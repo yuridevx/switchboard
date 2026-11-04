@@ -1,10 +1,8 @@
 // Тело карточки инструмента: что делалось и что вышло — по виду инструмента.
+import { langOfPath, useHighlighted, HtmlFrame, Markdown } from "@switchboard/web-ui";
 import type { ReactNode } from "react";
 import { isHtmlDocument } from "../../state/parse.ts";
 import type { Task, Tool } from "../../state/types.ts";
-import { langOfPath, useHighlighted } from "../../ui/highlight.tsx";
-import { HtmlFrame } from "../../ui/HtmlFrame.tsx";
-import { Markdown } from "../../ui/Markdown.tsx";
 import { baseName } from "../format.ts";
 import { Diff } from "./Diff.tsx";
 import { SubAgent } from "./SubAgent.tsx";

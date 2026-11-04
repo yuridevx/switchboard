@@ -152,6 +152,7 @@ export function ChatScreen({ callsign }: { callsign: string }) {
   const view = useMemo<CardsView>(
     () => ({
       useFeed: <T,>(select: (f: Feed) => T) => chat.useConv(callsign, (c) => select(c.feed)),
+      useAsking: (id) => app.use(() => !!app.mark("asked.tool", callsign, id)),
       name,
       wide: app.wide,
       background: canCall ? (id) => void chat.call(callsign, "backgroundTasks", [id]) : undefined,

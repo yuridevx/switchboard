@@ -1,10 +1,9 @@
 // Сообщения людей и сессий: свой пузырь с доставкой, сообщение другой сессии или субагента, сообщение сессии владельцу.
 import { useState } from "react";
 import { Bot, ChevronDown, ChevronUp, FileText, History, MessagesSquare, RotateCw, Undo2 } from "lucide-react";
-import { hhmm } from "@switchboard/web-ui";
+import { hhmm, Markdown } from "@switchboard/web-ui";
 import { useCards } from "../context.ts";
 import type { InItem, UserItem } from "../state/types.ts";
-import { Markdown } from "../ui/Markdown.tsx";
 
 /** Режимы отправителя, о которых стоит сказать. */
 const MODE: Record<string, string> = { bypass: "без вопросов", bypassPermissions: "без вопросов", plan: "план", acceptEdits: "правки сами", auto: "авто" };

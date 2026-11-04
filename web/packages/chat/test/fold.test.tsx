@@ -12,7 +12,7 @@ import type { WireMessage } from "../src/state/wire.ts";
 let root: Root | null = null;
 
 function View({ feed }: { feed: Feed }) {
-  const view: CardsView = { useFeed: (select) => select(feed), name: "site@laptop", wide: true, background: () => {}, stopTask: () => {} };
+  const view: CardsView = { useFeed: (select) => select(feed), useAsking: () => false, name: "site@laptop", wide: true, background: () => {}, stopTask: () => {} };
   return (
     <CardsCtx.Provider value={view}>
       {feed.items.map((it) => (

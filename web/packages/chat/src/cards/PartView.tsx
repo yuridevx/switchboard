@@ -1,10 +1,9 @@
 // Часть ответа Claude: текст, размышление или карточка инструмента. Шаги субагента — те же части (рекурсия PartView → ToolCard → SubAgent).
+import { CodeBlock, Markdown } from "@switchboard/web-ui";
 import { BrainCircuit } from "lucide-react";
 import { isHtmlDocument } from "../state/parse.ts";
 import type { Part } from "../state/types.ts";
-import { CodeBlock } from "../ui/CodeBlock.tsx";
 import { Disclosure } from "../ui/Disclosure.tsx";
-import { Markdown } from "../ui/Markdown.tsx";
 import { ToolCard } from "./tools/ToolCard.tsx";
 
 function Thinking({ text, live }: { text: string; live?: boolean }) {

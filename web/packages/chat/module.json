@@ -1,7 +1,7 @@
 {
   "name": "web-chat",
   "type": "web",
-  "version": "3.0.3",
+  "version": "3.0.4",
   "into": [
     "pult",
     "phone"
@@ -26,7 +26,9 @@
     "asked@web-ask": 1,
     "roster@relay": 1,
     "session.files@host-chat": 1,
-    "session.call@host-manage": 1
+    "session.call@host-manage": 1,
+    "asked.tool@web-ask": 1,
+    "session.spec@host-manage": 1
   },
   "config": {}
 }

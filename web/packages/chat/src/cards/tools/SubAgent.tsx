@@ -1,7 +1,7 @@
 // Субагент: задание свёрнуто, внутри — его шаги (те же карточки) и итог.
+import { Markdown } from "@switchboard/web-ui";
 import type { Task, Tool } from "../../state/types.ts";
 import { Disclosure } from "../../ui/Disclosure.tsx";
-import { Markdown } from "../../ui/Markdown.tsx";
 import { PartView } from "../PartView.tsx";
 
 export function SubAgent({ t, task }: { t: Tool; task?: Task }) {

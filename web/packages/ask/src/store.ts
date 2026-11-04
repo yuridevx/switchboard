@@ -3,6 +3,7 @@
 import type { App, Frame, Params, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { createStore, hhmm, sessionLabel } from "@switchboard/web-ui";
+import { permLine, type PermFrame } from "./perm.ts";
 
 /** Вопрос AskUserQuestion: 1–4 на кадр, по 2–4 варианта; «Свой ответ» есть всегда. */
 export type Question = {
@@ -154,7 +155,7 @@ export function createAskStore() {
 
     onQuestion(f: Frame, ctx: { open: boolean }) {
       const callsign = String(f.from);
-      if (Array.isArray(f.questions) || f.kind === "form") {
+      if (Array.isArray(f.questions) || f.kind === "form" || f.kind === "perm") {
         store.set((s) => void ((s as State).recs = added(s.recs as Rec[], callsign, f, Array.isArray(f.to) ? (f.to as string[]) : [])));
       } else {
         // из уведомления: в пуше только notify — сам вопрос берём у Host
@@ -188,8 +189,11 @@ export function createAskStore() {
     asked(callsign: string): string | undefined {
       const r = waitingOf(callsign)[0];
       if (!r) return undefined;
+      if (r.kind === "perm") return permLine(r.frame as unknown as PermFrame);
       return r.questions[0]?.question ?? (typeof r.frame.message === "string" ? r.frame.message : "форма");
     },
+    /** Метка для карточки инструмента: его запрос разрешения ждёт ответа человека. */
+    askedTool: (callsign: string, toolUseId: string) => waitingOf(callsign).some((r) => r.id === toolUseId && r.kind === "perm"),
     /** Шапка экрана вопроса. */
     head(params: Params) {
       const callsign = params.callsign ?? "";

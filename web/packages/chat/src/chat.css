@@ -58,6 +58,7 @@
 .chat-tool{border:1px solid var(--line2);border-radius:9px;background:var(--surface);min-width:0;overflow:hidden}
 .chat-tool[data-state="running"],.chat-tool[data-state="bg"]{border-color:color-mix(in srgb,var(--busy) 45%,var(--line2))}
 .chat-tool[data-state="error"]{border-color:color-mix(in srgb,var(--bad) 45%,var(--line2))}
+.chat-tool[data-state="wait"]{border-color:var(--wait);box-shadow:0 0 0 1px var(--wait)}
 .tc-h{display:flex;align-items:center;gap:7px;width:100%;min-height:32px;padding:4px 9px;border:0;background:none;color:var(--ink);font:500 13px var(--body);text-align:left}
 .tc-h>svg:last-child{flex:none;color:var(--muted)}
 @media (hover:hover){.tc-h:hover{background:var(--surface2)}}
@@ -176,6 +177,12 @@
 .chat-pn-w em{font:500 12px var(--mono);font-style:normal}
 .chat-pn-k{margin:0;display:grid;grid-template-columns:auto minmax(0,1fr);gap:2px 10px;color:var(--muted)}
 .chat-pn-k dd{margin:0;overflow-wrap:anywhere;color:var(--ink)}
+.chat-pn-r{display:grid;grid-template-columns:minmax(58px,auto) minmax(0,1fr) auto;gap:8px;align-items:baseline;font-size:12.5px}
+.chat-pn-r b{font-weight:600;color:var(--ok)}
+.chat-pn-r[data-behavior="deny"] b{color:var(--bad)}
+.chat-pn-r[data-behavior="ask"] b{color:var(--wait)}
+.chat-pn-r span{font:500 12px var(--mono);overflow-wrap:anywhere}
+.chat-pn-r em{font-style:normal;color:var(--muted)}
 .chat-pn-h2{display:flex;flex-direction:column}
 .chat-pn-h2 b{font-weight:600}
 .chat-pn-h2 span{font:500 12px var(--mono);color:var(--muted);overflow-wrap:anywhere}
@@ -229,6 +236,9 @@
 .chat-inp{display:block;width:100%;border:0;background:none;padding:3px 6px;font:15px/1.4 var(--body);color:var(--ink);resize:none;max-height:40vh;outline:none!important}
 .chat-tools{display:flex;align-items:center;gap:2px}
 .chat-grow{flex:1}
+.chat-mode{field-sizing:content;height:30px;max-width:130px;border:0;border-radius:8px;background:none;color:var(--muted);font:500 12.5px var(--body);padding:0 2px;cursor:pointer}
+.chat-mode:not([data-mode="bypassPermissions"]){color:var(--wait)}
+@media (hover:hover){.chat-mode:hover{background:var(--surface2);color:var(--ink)}}
 .chat-tb{width:30px;height:30px;display:grid;place-items:center;padding:0;border:0;border-radius:8px;background:none;color:var(--muted)}
 @media (hover:hover){.chat-tb:hover{background:var(--surface2);color:var(--ink)}}
 .chat-stop{display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 10px;margin-right:4px;border:1px solid var(--bad);background:none;color:var(--bad);border-radius:8px;font:600 12.5px var(--body)}
@@ -251,6 +261,7 @@
 /* палец: цели нажатия не меньше 32 точек, подсказка клавиши ни о чём не говорит, описание команды читается целиком */
 .chat-nb{white-space:nowrap}
 @media (pointer:coarse){
+  .chat-mode{min-height:36px}
   .chat-cancel,.chat-again,.chat-more,.chat-file button{min-height:32px;align-items:center}
   .chat-file button{min-width:32px}
   .chat-acts .cb-b,.cb-h .cb-b{min-height:32px;min-width:32px;justify-content:center}

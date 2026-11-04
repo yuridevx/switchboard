@@ -132,7 +132,19 @@ if (kind === "small") {
 }
 const h = relay.handlers;
 const Q = (s: S) => ({ question: `q-${s.cs}`, kind: "ask", questions: [{ question: s.q, header: "Вопрос", multiSelect: false, options: [{ label: "Да", description: "Выполнить сейчас." }, { label: "Нет, подожди" }] }] });
-h["question.list"] = (f) => ({ ok: true, result: F.ss.filter((s) => s.cs === f.callsign && s.q).map(Q) });
+// запросы разрешения, которые окно снимка поставило само (window.__ask): их помнит и question.list, как настоящий Host
+const asks: Array<Record<string, unknown>> = [];
+(window as unknown as { __ask(q: Record<string, unknown>): void }).__ask = (q) => {
+  asks.push(q);
+  relay.push({ type: "session.events", from: q.from, seq: 950 + asks.length, events: [{ type: "assistant", uuid: `perm-${q.question}`, message: { id: `perm-${q.question}`, model: "claude-opus-5-5", content: [{ type: "tool_use", id: q.question, name: q.tool, input: q.input }] } }] });
+  relay.push({ type: "question", to: ["pult", "phone"], ...q });
+};
+h["question.list"] = (f) => ({ ok: true, result: [...F.ss.filter((s) => s.cs === f.callsign && s.q).map(Q), ...asks.filter((q) => q.from === f.callsign)] });
+h["answer"] = (f) => {
+  const i = asks.findIndex((q) => q.question === f.question);
+  if (i >= 0) asks.splice(i, 1);
+  return { ok: true };
+};
 h["session.watch"] = () => ({ ok: true });
 h["session.unwatch"] = () => ({ ok: true });
 // разговор стенда: что видно в ленте живой сессии
@@ -170,7 +182,7 @@ h["session.history"] = (f) => ({ ok: true, result: { more: String(f.callsign).st
 h["session.files"] = (f) => ({ ok: true, result: ["src/worker.ts", "src/combat/damage.ts", "test/worker.test.ts", "README.md"].filter((x) => x.includes(String(f.query))) });
 h["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
 h["session.update"] = () => ({ ok: true, result: {} });
-h["session.spec"] = () => ({ ok: true, result: { title: "" } });
+h["session.spec"] = () => ({ ok: true, result: { title: "", mode: "bypassPermissions" } });
 h["session.call"] = (f) => {
   const answers: Record<string, unknown> = {
     supportedCommands: [{ name: "compact", description: "Сжать разговор, оставив краткое содержание" }, { name: "context", description: "Сколько занято в контексте" }, { name: "review", description: "Ревью изменений" }, { name: "clear", description: "Начать разговор заново" }],
@@ -184,7 +196,14 @@ h["session.call"] = (f) => {
     getHooksListing: { hooks: [{ event: "PostToolUse", matcher: "Edit|Write", source: "projectSettings", displayText: "cargo fmt" }, { event: "SessionStart", source: "userSettings", displayText: "node ~/hooks/start.mjs" }] },
     mcpServerStatus: [{ name: "github", status: "connected" }, { name: "linear", status: "needs-auth" }, { name: "postgres", status: "failed" }, { name: "figma", status: "disabled" }],
     mcpAuthenticate: { authUrl: "https://example.com/oauth/linear" },
+    supportedModels: [{ value: "opus", supportsAutoMode: true }, { value: "sonnet", supportsAutoMode: true }, { value: "haiku" }],
+    listPermissionRules: { state: { rules: [{ behavior: "allow", source: "localSettings", rule: "Bash(npm test:*)" }, { behavior: "allow", source: "projectSettings", rule: "Edit(src/**)" }, { behavior: "deny", source: "projectSettings", rule: "Read(.env)" }, { behavior: "ask", source: "userSettings", rule: "WebFetch(domain:example.com)" }] } },
   };
+  // режим меняет кадр status, как у настоящего процесса
+  if (f.method === "setPermissionMode") {
+    relay.push({ type: "session.events", from: f.callsign, seq: 990, events: [{ type: "system", subtype: "status", status: null, uuid: crypto.randomUUID(), permissionMode: (f.args as string[])[0] }] });
+    return { ok: true, result: null };
+  }
   // вопрос сбоку: «долго» — ответа нет, «нельзя» — отказ, иначе ответ разметкой
   if (f.method === "askSideQuestion") {
     const q = String((f.args as string[])[0]);

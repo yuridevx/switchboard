@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { BadCard, OkCard, Pad, WaitCard, useApp } from "@switchboard/web-ui";
 import { AskForm } from "./AskForm.tsx";
+import { AskPerm } from "./AskPerm.tsx";
 import { AskQuestions } from "./AskQuestions.tsx";
 import { useAsk } from "./context.ts";
 import type { Rec } from "./store.ts";
@@ -71,7 +72,7 @@ export function AskScreen({ params }: ScreenProps) {
   const others = ask.othersOf(r);
   return (
     <Pad className="ask">
-      {r.kind === "form" ? <AskForm key={r.id} rec={r} /> : <AskQuestions key={r.id} rec={r} />}
+      {r.kind === "form" ? <AskForm key={r.id} rec={r} /> : r.kind === "perm" ? <AskPerm key={r.id} rec={r} /> : <AskQuestions key={r.id} rec={r} />}
       <Result rec={r} />
       {r.to.length ? <div className="ask-hint">{`Вопрос видят: вы${others.length ? ` и ${others.join(", ")}` : ""}`}</div> : null}
     </Pad>

@@ -97,6 +97,13 @@ export function createChatStore() {
     });
   }
 
+  /** Режим простаивающей сессии: кадров о нём может не быть, его помнит Host. Нет ответа или поля — выбора режима нет. */
+  async function readMode(cs: string) {
+    if (!can(cs, "session.spec")) return;
+    const r = await app.request<{ mode?: string }>("session.spec", { callsign: cs });
+    if (r.ok && r.result.mode) fold(cs, (f) => ({ ...f, mode: r.result.mode }));
+  }
+
   /** Открыть ленту: сначала session.watch, потом session.history. */
   async function watch(cs: string) {
     const m = machineOf(cs) ?? "";
@@ -113,6 +120,7 @@ export function createChatStore() {
       });
     }
     await history(cs);
+    await readMode(cs);
   }
 
   async function unwatch(cs: string) {

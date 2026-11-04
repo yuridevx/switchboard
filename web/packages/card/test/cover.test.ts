@@ -81,11 +81,12 @@ describe("настройки сессии", () => {
     const f = t.$<HTMLInputElement>('[data-f="title"]')!;
     expect(f.value).toBe("старый");
     t.relay.handlers["session.spec"] = () => ({ ok: true, result: { title: "новый" } });
+    const read = t.relay.sent("session.spec").length;
     await typeIn(f, "новый");
     await leave(f);
     await leave(f);
     expect(t.relay.sent("session.update").filter((x) => x.title)).toEqual([expect.objectContaining({ callsign: "poe-bot@pc", title: "новый" })]);
-    expect(t.relay.sent("session.spec")).toHaveLength(2);
+    expect(t.relay.sent("session.spec")).toHaveLength(read + 1);
   });
 
   it("6992 · заголовок отказал: «Не вышло: слово»", async () => {

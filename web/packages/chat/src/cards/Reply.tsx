@@ -1,6 +1,6 @@
 // Ответ Claude: части по порядку; под готовым — «копировать ответ».
+import { CopyButton } from "@switchboard/web-ui";
 import type { AsstItem } from "../state/types.ts";
-import { CopyButton } from "../ui/CopyButton.tsx";
 import { PartView } from "./PartView.tsx";
 
 export function Reply({ it }: { it: AsstItem }) {

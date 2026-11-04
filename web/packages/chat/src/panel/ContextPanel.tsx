@@ -1,9 +1,9 @@
-// Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты; расход, сведения claude, хуки; «Перечитать плагины». Открытая панель спрашивает session.call один раз.
+// Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты; расход, сведения claude, правила разрешений, хуки; «Перечитать плагины». Открытая панель спрашивает session.call один раз.
 import { Archive, Gauge, RefreshCw } from "lucide-react";
 import { Meter, useLoad } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import { kTokens } from "../cards/format.ts";
-import { AboutSection, HooksSection, UsageSection } from "./Sections.tsx";
+import { AboutSection, HooksSection, RulesSection, UsageSection } from "./Sections.tsx";
 
 type Usage = { totalTokens?: number; maxTokens?: number; percentage?: number; categories?: Array<{ name: string; tokens: number }> };
 type Agent = { name: string; description?: string };
@@ -54,6 +54,7 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
       ) : null}
       <UsageSection callsign={callsign} />
       <AboutSection callsign={callsign} />
+      <RulesSection callsign={callsign} />
       <HooksSection callsign={callsign} />
       {agents.length ? (
         <dl className="chat-pn-a">

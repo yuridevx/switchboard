@@ -10,6 +10,8 @@ export const useChat = (): ChatStore => useContext(ChatCtx)!;
 export type CardsView = {
   /** выборка из ленты: карточка перерисуется, когда изменился её ответ */
   useFeed<T>(select: (f: Feed) => T): T;
+  /** запрос разрешения этого инструмента ждёт человека */
+  useAsking(toolUseId: string): boolean;
   /** имя сессии этой ленты */
   name: string;
   wide: boolean;

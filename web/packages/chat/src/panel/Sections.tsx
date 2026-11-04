@@ -12,6 +12,11 @@ type Usage = {
 };
 type Status = { sections?: Array<{ title: string; rows?: Array<{ label: string; value: string }> }> };
 type Hook = { event: string; matcher?: string; displayText?: string };
+type Rule = { behavior: string; source: string; rule: string };
+
+/** Подписи правил разрешений: что делает и откуда. */
+const BEHAVIOR: Record<string, string> = { allow: "можно", deny: "нельзя", ask: "спросить" };
+const SOURCE: Record<string, string> = { localSettings: "локально", projectSettings: "проект", userSettings: "пользователь", policySettings: "организация", flagSettings: "запуск", cliArg: "запуск", command: "команда", session: "сессия" };
 
 /** Подписи строк /status. */
 const STATUS: Record<string, string> = { Version: "Версия", "Session name": "Имя", "Session ID": "Номер", "Session kind": "Вид", cwd: "Папка", "Login method": "Вход", Organization: "Организация", Email: "Почта", Model: "Модель", "MCP servers": "MCP", "Setting sources": "Настройки", Memory: "Память" };
@@ -73,6 +78,23 @@ export function AboutSection({ callsign }: { callsign: string }) {
           </div>
         ))}
       </dl>
+    </Sec>
+  );
+}
+
+export function RulesSection({ callsign }: { callsign: string }) {
+  const { data, error } = useMethod<{ state?: { rules?: Rule[] } }>(callsign, "listPermissionRules");
+  const rules = data?.state?.rules ?? [];
+  if (!error && !rules.length) return null;
+  return (
+    <Sec name="rules" title="Разрешения" error={error}>
+      {rules.map((r, i) => (
+        <div key={`${r.rule}:${i}`} className="chat-pn-r" data-behavior={r.behavior}>
+          <b>{BEHAVIOR[r.behavior] ?? r.behavior}</b>
+          <span>{r.rule}</span>
+          <em>{SOURCE[r.source] ?? r.source}</em>
+        </div>
+      ))}
     </Sec>
   );
 }

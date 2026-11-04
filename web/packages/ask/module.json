@@ -1,14 +1,15 @@
 {
   "name": "web-ask",
   "type": "web",
-  "version": "2.0.2",
+  "version": "2.1.0",
   "into": [
     "pult",
     "phone"
   ],
   "provides": {
     "ask": 1,
-    "asked": 1
+    "asked": 1,
+    "asked.tool": 1
   },
   "uses": {
     "view@web-view": 19,

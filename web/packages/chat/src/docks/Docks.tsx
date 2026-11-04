@@ -1,12 +1,11 @@
 // Над полем ввода: вопросы сбоку, задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
 import { useEffect, useState } from "react";
-import { useApp, useLoad, useNow } from "@switchboard/web-ui";
+import { useApp, useLoad, useNow, Markdown } from "@switchboard/web-ui";
 import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
 import { useChat } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
 import type { Side } from "../state/chat.ts";
 import type { Feed, Task } from "../state/types.ts";
-import { Markdown } from "../ui/Markdown.tsx";
 import { Disclosure } from "../ui/Disclosure.tsx";
 
 export type TaskOutput = { output: string; total_bytes: number; truncated: boolean };

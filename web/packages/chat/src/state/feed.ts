@@ -303,6 +303,7 @@ function system(d: D, m: WireMessage, at: number) {
     category: (m.api_refusal_category ?? m.apiRefusalCategory) || undefined,
     text: (m.api_refusal_explanation ?? m.apiRefusalExplanation) || undefined,
   });
+  if ((m.subtype === "init" || m.subtype === "status") && m.permissionMode) d.mode = m.permissionMode;
   switch (m.subtype) {
     case "init":
       if (m.model && d.model && m.model !== d.model && !m.model.startsWith(d.model)) addSys(d, { type: "model", from: d.model, to: m.model }, at, m.uuid);
@@ -505,6 +506,7 @@ export function withHistory(cur: Feed, msgs: WireMessage[]): Feed {
     compacting: cur.compacting,
     thinking: cur.thinking,
     model: cur.model ?? h.model,
+    mode: cur.mode ?? h.mode,
   };
 }
 

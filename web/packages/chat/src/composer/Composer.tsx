@@ -7,6 +7,7 @@ import { useApp } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";
+import { ModeSelect } from "./ModeSelect.tsx";
 import { useSuggest, type Suggest } from "./useSuggest.ts";
 
 /** «/btw вопрос»: вопрос сбоку, а не сообщение. */
@@ -58,6 +59,7 @@ export function Composer({ callsign }: { callsign: string }) {
   const canFiles = app.use(() => chat.can(callsign, "session.files"));
   const canCall = app.use(() => chat.can(callsign, "session.call"));
   const suggestion = chat.useConv(callsign, (c) => c.feed.suggestion);
+  const mode = chat.useConv(callsign, (c) => c.feed.mode);
   const returned = chat.useConv(callsign, (c) => c.returned);
   const suggest = useSuggest(callsign, text);
 
@@ -205,6 +207,7 @@ export function Composer({ callsign }: { callsign: string }) {
               <Slash size={16} />
             </button>
           ) : null}
+          {canCall && live && mode ? <ModeSelect callsign={callsign} mode={mode} /> : null}
           <span className="chat-grow" />
           {busy && canCall ? (
             <button type="button" className="chat-stop" onClick={() => void chat.call(callsign, "interrupt")}>

@@ -5,7 +5,6 @@ import type {} from "@switchboard/web-labels";
 import { machineOf } from "@switchboard/protocol";
 import { sessionLine, stateLabel } from "@switchboard/web-ui";
 import base from "./chat.css";
-import md from "./ui/markdown.css";
 import { ChatCtx } from "./context.ts";
 import { ChatScreen } from "./ChatScreen.tsx";
 import { Gallery } from "./gallery/Gallery.tsx";
@@ -38,7 +37,7 @@ export function createChat(): AppModule {
     },
     marks: { unread: chat.unread },
     store: ["drafts"],
-    css: base + md,
+    css: base,
     start: chat.start,
     stop: chat.stop,
   };

@@ -77,6 +77,8 @@ export type Feed = {
   suggestion: string;
   compacting: boolean;
   model?: string;
+  /** режим разрешений сессии */
+  mode?: string;
   /** оценка токенов размышления идущего хода */
   thinking?: number;
   n: number;

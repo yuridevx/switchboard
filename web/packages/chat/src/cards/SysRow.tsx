@@ -1,11 +1,10 @@
 // Служебные строки ленты: итог хода, сжатие, прерывание, повтор API, лимит, команда, ошибки, задачи, отказ модели, хук, память, файлы.
 import type { ReactNode } from "react";
 import { AlertTriangle, Anchor, Archive, ArrowLeftRight, Ban, BookOpen, Bot, FileUp, Gauge, Info, Pencil, RefreshCw, RotateCcw, ShieldOff, Shuffle, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
-import { hhmm } from "@switchboard/web-ui";
+import { hhmm, Markdown } from "@switchboard/web-ui";
 import { useCards } from "../context.ts";
 import type { Sys, Task } from "../state/types.ts";
 import { Disclosure } from "../ui/Disclosure.tsx";
-import { Markdown } from "../ui/Markdown.tsx";
 import { baseName, duration, kTokens, modelName, money, steps } from "./format.ts";
 
 type Of<T extends Sys["type"]> = Extract<Sys, { type: T }>;
