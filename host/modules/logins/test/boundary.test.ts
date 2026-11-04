@@ -511,11 +511,14 @@ describe("входы: ветки и стыки", () => {
   it("3055 · штатная остановка закрывает процесс входа", async () => {
     // источник: слово пользователя (устав, graceful shutdown: «закрывает соединения … выходит»)
     await bench();
-    await ask({ type: "machine.login", account: "corp" });
+    expect((await ask({ type: "machine.login", account: "corp" })).ok).toBe(true);
     const s = st!;
     st = null;
+    const probe = s.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess);
+    expect(probe).toHaveLength(1);
+    expect(probe[0].closed).toBe(false);
     await s.close();
-    expect(s.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
+    expect(probe[0].closed).toBe(true);
     expect(s.exits).toEqual([0]);
   });
 });

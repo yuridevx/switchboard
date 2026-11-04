@@ -234,19 +234,21 @@ describe("аккаунты", () => {
 
   it("4134 · подмена при закрытом экране — machine.slots и machine.accounts не шлются", async () => {
     const relay = fleetAccounts({});
-    const t = await pult({ relay });
+    const t = await accountsScreen(relay, "/#accounts");
+    const open = relay.sent("machine.accounts").length;
+    expect(open).toBeGreaterThan(0);
+    await t.go("#sessions");
     const r = fleetRoster();
     r.sessions[0].account = "yurianrun";
     relay.setRoster(r);
     await flush();
-    expect(relay.sent("machine.accounts")).toHaveLength(0);
-    expect(relay.sent("machine.accounts")).toHaveLength(0);
-    void t;
+    expect(relay.sent("machine.accounts")).toHaveLength(open);
   });
 
   it("4135 · сессия впервые в roster или без account — перечитываний нет", async () => {
     const relay = fleetAccounts({});
     await accountsScreen(relay);
+    expect(relay.sent("machine.accounts").length).toBeGreaterThan(0);
     const n = relay.got.length;
     const r = fleetRoster();
     r.sessions.push({ callsign: "c@pc", state: "idle", account: "work" });
@@ -810,6 +812,9 @@ describe("профили", () => {
     await flush(10);
     expect(t.btn(null, "Синхронизировать профили")).toBeNull();
     expect(t.relay.sent("machine.profiles")).toHaveLength(0);
+    await t.go("#profiles");
+    await flush(10);
+    expect(t.$('[data-act="sync"]')!.textContent).toBe("Синхронизировать");
   });
 });
 
