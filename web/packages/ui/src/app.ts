@@ -1,7 +1,8 @@
 // Что ядро даёт модулю: интерфейс App и его типы. Объявлены здесь, реализует ядро: набор не знает ядра, модуль видит один тип.
 import type { ComponentType } from "react";
 import type { Frame, Roster } from "@switchboard/relay";
-import type { Result } from "./hooks.ts";
+/** Ответ запроса: результат или отказ словом. */
+export type Result<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
 /** Параметры экрана — пары в адресе после #: #card?callsign=site%40laptop. */
 export type Params = Record<string, string>;

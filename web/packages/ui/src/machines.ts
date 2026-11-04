@@ -3,7 +3,7 @@
 // Один цикл на все экраны с ответом от каждой машины. Состояние — неизменяемый снимок: его читает выборка app.use.
 import { machinesWith } from "./format.ts";
 import type { App, ConnState } from "./app.ts";
-import type { Result } from "./hooks.ts";
+import type { Result } from "./app.ts";
 import { createStore } from "./store.ts";
 
 type AppLike = Pick<App, "roster" | "changed">;

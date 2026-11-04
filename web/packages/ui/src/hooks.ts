@@ -1,6 +1,6 @@
 // Общие хуки экранов: чтение данных экрана с отменой устаревшего ответа.
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
-import type { App } from "./app.ts";
+import type { App, Result } from "./app.ts";
 
 /** App модуля, чей экран рисуется: значение ставит место экрана. */
 export const AppCtx = createContext<App | null>(null);
@@ -39,7 +39,6 @@ export function useOutcome() {
   return [notes, say] as const;
 }
 
-export type Result<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
 
 const sameDeps = (a: readonly unknown[], b: readonly unknown[]) => a.length === b.length && a.every((x, i) => Object.is(x, b[i]));
 
