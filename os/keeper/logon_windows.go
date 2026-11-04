@@ -2,11 +2,10 @@
 
 package main
 
-// Вид установки «при входе пользователя» — для машин с оконными приложениями: служба живёт в сессии 0 без рабочего
-// стола. Задача планировщика запускает keeper в сессии пользователя и повторяет запуск раз в минуту без второго
-// экземпляра: вышедший keeper (сбой или подмена себя) поднимается на следующей минуте (замер 1 нояб.).
-// Повтор висит на двух триггерах: «при регистрации» — с установки, «при входе» — после перезагрузки. Только у входа
-// повтор не шёл до первого входа: keeper после подмены себя не поднимался (живой прогон 1 нояб., win).
+// Вид установки «при входе пользователя» — для машин с оконными приложениями: служба живёт в сессии 0 без рабочего стола. Задача планировщика запускает keeper
+// в сессии пользователя и повторяет запуск раз в минуту без второго экземпляра: вышедший keeper (сбой или подмена себя) поднимается на следующей минуте (замер
+// 1 нояб.). Повтор висит на двух триггерах: «при регистрации» — с установки, «при входе» — после перезагрузки. Только у входа повтор не шёл до первого входа:
+// keeper после подмены себя не поднимался (живой прогон 1 нояб., win).
 import (
 	"fmt"
 	"os"
@@ -55,44 +54,34 @@ func installLogonTask() error {
 	if err != nil {
 		return err
 	}
-	tu, err := windows.GetCurrentProcessToken().GetTokenUser()
+	user, _, err := account()
 	if err != nil {
 		return err
 	}
-	acc, dom, _, err := tu.User.Sid.LookupAccount("")
-	if err != nil {
-		return err
-	}
-	xml := fmt.Sprintf(logonTaskXML, xmlEscape(dom+`\`+acc), xmlEscape(exe), xmlEscape(strings.Join(runArgs(), " ")))
+	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace
+	xml := fmt.Sprintf(logonTaskXML, esc(user), esc(exe), esc(strings.Join(runArgs(), " ")))
 	// schtasks ждёт файл XML в UTF-16 с меткой порядка байт
-	u := utf16.Encode([]rune(xml))
 	b := []byte{0xFF, 0xFE}
-	for _, c := range u {
+	for _, c := range utf16.Encode([]rune(xml)) {
 		b = append(b, byte(c), byte(c>>8))
 	}
-	tmp := filepath.Join(os.TempDir(), serviceName+"-task.xml")
+	tmp := filepath.Join(os.TempDir(), serviceName()+"-task.xml")
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
-	if out, err := exec.Command("schtasks", "/Create", "/TN", serviceName, "/XML", tmp, "/F").CombinedOutput(); err != nil {
+	if out, err := exec.Command("schtasks", "/Create", "/TN", serviceName(), "/XML", tmp, "/F").CombinedOutput(); err != nil {
 		return fmt.Errorf("schtasks /Create: %v: %s", err, out)
 	}
-	if out, err := exec.Command("schtasks", "/Run", "/TN", serviceName).CombinedOutput(); err != nil {
+	if out, err := exec.Command("schtasks", "/Run", "/TN", serviceName()).CombinedOutput(); err != nil {
 		return fmt.Errorf("schtasks /Run: %v: %s", err, out)
 	}
 	return nil
 }
 
-func xmlEscape(s string) string {
-	return strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace(s)
-}
-
 // hideConsole — окно консоли keeper под задачей не нужно.
 func hideConsole() {
-	k := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow")
-	u := windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow")
-	if h, _, _ := k.Call(); h != 0 {
-		u.Call(h, 0) // SW_HIDE
+	if h, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow").Call(); h != 0 {
+		windows.NewLazySystemDLL("user32.dll").NewProc("ShowWindow").Call(h, 0) // SW_HIDE
 	}
 }

@@ -1,12 +1,14 @@
-package main
-
-// Протокол держателя — заморожен: держатели переживают версии keeper и Host.
-// Соединение TCP на 127.0.0.1; в обе стороны — кадры [тип 1 байт][длина 4 байта, big-endian][данные].
+// Package holder — держатель: режим файла keeper, который держит один процесс и переживает своего хозяина. Хозяева — keeper (части машины) и Host
+// (сессии). Протокол заморожен: держатели переживают версии keeper и Host.
+//
+// Соединение TCP на 127.0.0.1; в обе стороны кадры [тип 1 байт][длина 4 байта, big-endian][данные].
 //
 //	хозяин → держатель: 'a' ключ (первым кадром), 'i' байты ввода, 'c' закрыть ввод, 'k' убить дерево процесса
 //	держатель → хозяин: 'h' {"pid","buffered"} (ответ на ключ), 'o' байты вывода, 'x' {"code","signal","stderr","os_stop"?}
 //	                    (процесс вышел; os_stop — после сигнала остановки от ОС), 'e' слово отказа (bad_key) — затем
 //	                    соединение закрыто; новый хозяин вытесняет прежнего
+package holder
+
 import (
 	"encoding/binary"
 	"encoding/json"
@@ -28,6 +30,9 @@ const (
 // frameMax — предел одного кадра: вывод режется на куски, кадр больше — сбой соединения.
 const frameMax = 4 << 20
 
+// chunk — кусок вывода в одном кадре.
+const chunk = 32 * 1024
+
 func writeFrame(w io.Writer, t byte, data []byte) error {
 	b := make([]byte, 5+len(data))
 	b[0] = t
@@ -37,7 +42,7 @@ func writeFrame(w io.Writer, t byte, data []byte) error {
 	return err
 }
 
-func writeJSONFrame(w io.Writer, t byte, v any) error {
+func writeJSON(w io.Writer, t byte, v any) error {
 	b, _ := json.Marshal(v)
 	return writeFrame(w, t, b)
 }
@@ -58,16 +63,16 @@ func readFrame(r io.Reader) (byte, []byte, error) {
 	return h[0], b, nil
 }
 
-// exitInfoJSON — код выхода процесса в кадре 'x'.
-type exitInfoJSON struct {
+// Exit — выход процесса в кадре 'x'.
+type Exit struct {
 	Code   *int    `json:"code"`
 	OSStop bool    `json:"os_stop,omitempty"` // держатель закрыл ввод по сигналу остановки от ОС — выход не падение
 	Signal *string `json:"signal"`
 	Stderr string  `json:"stderr"`
 }
 
-// holderHello — ответ держателя на ключ.
-type holderHello struct {
+// Hello — ответ держателя на ключ.
+type Hello struct {
 	Pid      int `json:"pid"`
 	Buffered int `json:"buffered"`
 }
