@@ -66,8 +66,8 @@ export function moduleApp(x: Mod, d: AppDeps): App {
     roster: () => state.get().roster,
     worker: (n) => (Object.hasOwn(o.workers, n) ? o.workers[n] : null),
     current: () => {
-      const c = state.get().current;
-      return c ? { screen: c.screen, params: { ...c.params } } : null;
+      const { current: c, master } = state.get();
+      return c ? { screen: c.screen, params: { ...c.params }, master } : null;
     },
     link: () => state.get().conn,
     mark: ((n: string, ...args: string[]) => {

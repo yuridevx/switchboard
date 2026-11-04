@@ -33,14 +33,14 @@ export function createBoard(app: App): AppModule {
         label: "Закрепить",
         path: "pin",
         show: (x) => board.canPin(x.callsign ?? ""),
-        run: (x) => board.pin(x.from ?? ""),
+        run: (x) => board.pin(x.callsign ?? ""),
       },
       "board.unpin": {
         place: "card.menu",
         label: "Закреплена",
         path: "unpin",
         show: (x) => board.pins().includes(x.callsign ?? ""),
-        run: (x) => board.unpin(x.from ?? ""),
+        run: (x) => board.unpin(x.callsign ?? ""),
       },
       board: {
         nav: "Работа",

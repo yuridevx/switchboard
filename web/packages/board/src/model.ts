@@ -21,8 +21,6 @@ export type State = {
   lastProject: string | null;
   /** открытая сессия ждёт первого ответа prefs: её проект ещё неизвестен */
   follow: string | null;
-  /** список на экране: первый показ проекта запоминается, только пока его видно */
-  listShown: boolean;
   /** прокрутка списка: телефон строит экран заново при каждом возврате */
   bodyTop: number;
   /** идёт перестановка: жест меняет элементы списка напрямую, рисовать нельзя */
@@ -59,6 +57,8 @@ export function createModel({ app, user, fleet, state }: Env) {
   const projectName = (id: string) => recs()?.find((r) => r.id === id)?.name ?? (id === NONE ? "Без проекта" : id);
 
   const me = () => myAddress(app);
+  /** Кто над сессией: открывшая её или давшая задачу сессия. */
+  const upOf = (s: SessionRecord) => parentOf(s) ?? (typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null);
 
   /** Почему сессия моя: задачу дали вы, открыли вы, открыла ваша сессия; не моя — "". */
   function whyMine(s: SessionRecord, mail = me(), depth = 0): string {
@@ -66,8 +66,7 @@ export function createModel({ app, user, fleet, state }: Env) {
     if (isMe(s.by, mail)) return "задачу дали вы";
     if (isMe(s.parent, mail)) return "открыли вы";
     // открыла или дала задачу сессия — моя, если моя она
-    const sender = typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null;
-    const up = parentOf(s) ?? sender;
+    const up = upOf(s);
     const ps = up ? session(up) : undefined;
     if (ps && depth < 8 && whyMine(ps, mail, depth + 1)) return `открыла ваша ${ps.callsign}`;
     return "";
@@ -76,7 +75,7 @@ export function createModel({ app, user, fleet, state }: Env) {
   /** Чья сессия: ~почта того, кто её завёл; завела сессия — её владелец. */
   function ownerOf(s: SessionRecord, depth = 0): string | null {
     for (const a of [s.by, s.parent]) if (typeof a === "string" && userOf(a)) return userOf(a);
-    const up = parentOf(s) ?? (typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null);
+    const up = upOf(s);
     const ps = up ? session(up) : undefined;
     return ps && depth < 8 ? ownerOf(ps, depth + 1) : null;
   }

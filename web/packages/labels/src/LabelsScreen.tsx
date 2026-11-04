@@ -1,5 +1,5 @@
 // Окно «Имена» в месте вызывающего: закрылось — вызывающий получает close через app.Slot.
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf, nameOf } from "@switchboard/protocol";
 import { Btn, useApp } from "@switchboard/web-ui";
@@ -12,9 +12,6 @@ export function LabelsScreen({ params, close }: ScreenProps) {
   const machine = params.machine ?? machineOf(callsign) ?? "";
   const [sessionName, setSessionName] = useState(() => (callsign ? labels.nameOf(callsign) : ""));
   const [machineName, setMachineName] = useState(() => labels.nameOf(`@${machine}`));
-  const session = useRef<HTMLInputElement>(null);
-  const host = useRef<HTMLInputElement>(null);
-  useEffect(() => (session.current ?? host.current)?.focus(), []);
 
   const done = () => close?.();
   const save = () => {
@@ -33,12 +30,12 @@ export function LabelsScreen({ params, close }: ScreenProps) {
         {callsign ? (
           <label className="lb-f">
             <span>Имя сессии</span>
-            <input ref={session} data-f="session" value={sessionName} placeholder={nameOf(callsign)} autoComplete="off" onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={keys} />
+            <input autoFocus data-f="session" value={sessionName} placeholder={nameOf(callsign)} autoComplete="off" onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={keys} />
           </label>
         ) : null}
         <label className="lb-f">
           <span>Имя машины</span>
-          <input ref={host} data-f="machine" value={machineName} placeholder={`@${machine}`} autoComplete="off" onInput={(e) => setMachineName(e.currentTarget.value)} onKeyDown={keys} />
+          <input autoFocus={!callsign} data-f="machine" value={machineName} placeholder={`@${machine}`} autoComplete="off" onInput={(e) => setMachineName(e.currentTarget.value)} onKeyDown={keys} />
         </label>
         <div className="lb-ft">
           <Btn onClick={done}>Отмена</Btn>

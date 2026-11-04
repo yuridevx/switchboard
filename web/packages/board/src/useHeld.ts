@@ -1,5 +1,5 @@
 // Выборка вида: пока рисовать нельзя (ждём prefs, идёт перестановка) — прошлый ответ.
-import { useRef } from "react";
+import { useState } from "react";
 import { useApp } from "@switchboard/web-ui";
 import { useBoard } from "./store.ts";
 
@@ -8,9 +8,9 @@ const HOLD = Symbol("hold");
 export function useHeld<T>(select: () => T): T | undefined {
   const app = useApp();
   const board = useBoard();
-  const last = useRef<T | undefined>(undefined);
   const v = app.use<T | typeof HOLD>(() => (board.held() ? HOLD : select()));
-  // прошлый ответ — не состояние: от него не зависит, рисовать ли заново
-  if (v !== HOLD) last.current = v as T;
-  return last.current;
+  const [last, setLast] = useState<T | undefined>(undefined);
+  // поправка при рисовании: равные ответы выборка отдаёт той же ссылкой, поэтому она одна на новый ответ
+  if (v !== HOLD && v !== last) setLast(v as T);
+  return v === HOLD ? last : (v as T);
 }

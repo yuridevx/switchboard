@@ -1,5 +1,4 @@
 // Экран новой сессии: имя, проводник, чипы профиля и модели, задача.
-import { useEffect, useRef } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, effortName, profileName as short, useApp } from "@switchboard/web-ui";
 import { FolderPane, MachinesPane } from "./Browser.tsx";
@@ -11,8 +10,6 @@ export function OpenScreen({ params }: ScreenProps) {
   const app = useApp();
   const form = useOpenForm(params);
   const { f, set, start } = form;
-  const nameRef = useRef<HTMLInputElement>(null);
-  useEffect(() => nameRef.current?.focus(), []);
 
   const { isNew } = addrView(f);
   const disabled = f.sending || !f.machine;
@@ -33,7 +30,7 @@ export function OpenScreen({ params }: ScreenProps) {
         <div className={"op-nm" + (f.nameErr ? " bad" : "")}>
           <label htmlFor="op-name">Имя</label>
           <input
-            ref={nameRef}
+            autoFocus
             id="op-name"
             data-f="name"
             value={f.name}

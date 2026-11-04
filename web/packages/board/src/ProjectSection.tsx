@@ -1,5 +1,5 @@
 // Проект в списке: заголовок с ручкой, лампами и «+», меню имени и строки. И последняя строка списка — новый проект.
-import { memo, useLayoutEffect, useRef, useState } from "react";
+import { memo, useState } from "react";
 import { Btn, Dot } from "@switchboard/web-ui";
 import { useBoard } from "./store.ts";
 import type { Section } from "./model.ts";
@@ -8,8 +8,6 @@ import { SessionRow } from "./SessionRow.tsx";
 /** Меню проекта: имя и «Удалить». Значение нужно только при вводе — Enter или уход с поля; пока правят, оно живёт в поле. */
 function ProjectMenu({ id, name }: { id: string; name: string }) {
   const board = useBoard();
-  const input = useRef<HTMLInputElement>(null);
-  useLayoutEffect(() => input.current?.focus(), []);
   const save = (value: string) => {
     const v = value.trim();
     if (v && v !== name) board.renameProject(id, v);
@@ -18,7 +16,7 @@ function ProjectMenu({ id, name }: { id: string; name: string }) {
   return (
     <div className="pj-menu" data-menu={id}>
       <input
-        ref={input}
+        autoFocus
         data-f="project-name"
         defaultValue={name}
         aria-label="Имя проекта"

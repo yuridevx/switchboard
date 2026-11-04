@@ -59,7 +59,7 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
       </button>
       {/* пункты места card.menu: закрепление (web-board) */}
       {menu.map((x) => (
-        <button key={x.screen} className="card-act" data-screen={x.screen} onClick={() => app.open(x.screen, { from: callsign })}>
+        <button key={x.screen} className="card-act" data-screen={x.screen} onClick={() => app.open(x.screen, { callsign })}>
           {x.label}
         </button>
       ))}

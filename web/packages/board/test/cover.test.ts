@@ -149,6 +149,51 @@ describe("проект открытой сессии", () => {
   });
 });
 
+describe("окна доски", () => {
+  const press = (el: Element | null, key: string) => el!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+
+  it("7260 · новый фильтр: фокус на имени; правка своего — фокус не трогает", async () => {
+    // источник: чьё: код — у нового имя вводится первым, у своего обычно меняют условия
+    const t = await start();
+    await t.click(t.$(".fc.add"));
+    expect(document.activeElement).toBe(t.$('[data-editor] [data-f="name"]'));
+    const name = t.$<HTMLInputElement>('[data-editor] [data-f="name"]')!;
+    name.value = "Ф";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    await t.click(t.$('[data-act="fsave"]'));
+    await flush(5);
+    (document.activeElement as HTMLElement).blur();
+    await t.click(t.$('[data-fid="mine"]'));
+    await t.click(t.$('[data-fid^="f"]'));
+    await t.click(t.$('[data-fid^="f"]'));
+    expect(t.$("[data-editor]")).not.toBeNull();
+    expect(document.activeElement).not.toBe(t.$('[data-editor] [data-f="name"]'));
+  });
+
+  it("7261 · меню проекта: фокус на имени", async () => {
+    // источник: чьё: код — переименование с клавиатуры
+    const t = await start();
+    press(t.$('.grip[data-proj="pfarm"]'), "Enter");
+    await flush(3);
+    expect(document.activeElement).toBe(t.$('[data-f="project-name"]'));
+  });
+
+  it("7262 · окно фильтра открыто, сессия сменила состояние: «подходит» считает заново", async () => {
+    // источник: факт — строка показывает, сколько сессий подойдёт сейчас; чипы при этом не меняются
+    const relay = relayWith();
+    const t = await start({ relay });
+    await t.click(t.$(".fc.add"));
+    await t.click(t.$('[data-field="states"] [data-v="waiting"]'));
+    expect(t.$(".fe-n")!.textContent).toBe("подходит 1 сессия · 1 проект");
+    const r = fleet();
+    r.sessions[1].state = "waiting";
+    relay.setRoster(r);
+    await flush(5);
+    expect(t.$(".fe-n")!.textContent).toBe("подходит 2 сессии · 2 проекта");
+  });
+});
+
 describe("первый показ", () => {
   it("6978 · настройки не ответили: collapsed не пишется; после ответа — решение по проектам из ответа", async () => {
     // источник: факт — первый рисунок ждёт ответа prefs
@@ -177,6 +222,20 @@ describe("первый показ", () => {
     const store2 = memoryStore({ key: KEY, view: { projects: false } });
     await start({ store: store2 });
     expect(await store2.get("collapsed")).toBeUndefined();
+  });
+
+  it("7263 · широкий вид: карточка рядом со списком — первый показ запомнен, у телефона — только при возврате к списку", async () => {
+    // источник: факт — первый показ проекта запоминается, только пока его видно
+    const wide = memoryStore({ key: KEY });
+    await start({ store: wide, wide: true, options: { beside: { card: ["board"] } }, url: "/#card?callsign=note%40pc" });
+    expect(await wide.get("collapsed")).toMatchObject({ switchboard: false, pfarm: true });
+
+    const phone = memoryStore({ key: KEY });
+    const t = await start({ store: phone, url: "/#card?callsign=note%40pc" });
+    expect(await phone.get<Record<string, boolean>>("collapsed")).not.toHaveProperty("switchboard");
+    await t.go("#sessions");
+    await flush(5);
+    expect(await phone.get("collapsed")).toMatchObject({ switchboard: false, pfarm: true });
   });
 
   it("6980 · новый проект в roster: развёрнут, если в нём ждут; прежние как оставил человек", async () => {

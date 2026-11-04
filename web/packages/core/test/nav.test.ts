@@ -90,6 +90,8 @@ describe("разделы страницы", () => {
     await flush();
     const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
     expect(input).not.toBeNull();
+    // поиск открылся — ввод сразу в поле
+    expect(document.activeElement).toBe(input);
     expect(texts(".sb-palit .l")).toEqual(["Работа", "refactor@win", "api@wsl", "Машины", "Аккаунты"]);
     input.value = "api";
     input.dispatchEvent(new Event("input", { bubbles: true }));

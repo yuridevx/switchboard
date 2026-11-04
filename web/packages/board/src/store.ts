@@ -12,7 +12,7 @@ export type BoardStore = ReturnType<typeof createBoardStore>;
 export const useBoard = (): BoardStore => useModule<BoardStore>();
 
 export function createBoardStore(app: App) {
-  const store = createStore<State>({ menuOf: null, flt: "mine", col: {}, view: { ...VIEW0 }, lastProject: null, follow: null, listShown: false, bodyTop: 0, reordering: false }, () => app.changed());
+  const store = createStore<State>({ menuOf: null, flt: "mine", col: {}, view: { ...VIEW0 }, lastProject: null, follow: null, bodyTop: 0, reordering: false }, () => app.changed());
   const state = () => store.get();
   // циклы настроек — службы, как app: своё состояние они держат сами
   const prefs = () => {
@@ -41,6 +41,12 @@ export function createBoardStore(app: App) {
     if (unfold) saveCol();
   }
 
+  /** Список на экране: открыт сам или стоит слева от открытого. */
+  function listOnScreen() {
+    const c = app.current();
+    return c?.screen === "board" || c?.master === "board";
+  }
+
   /** Данные списка изменились: ждавшая открытая сессия находит проект; первый показ проекта запоминается — дальше как оставил человек. */
   function settle() {
     if (model.held()) return;
@@ -49,7 +55,7 @@ export function createBoardStore(app: App) {
       store.set((d) => void (d.follow = null));
       follow(waiting);
     }
-    if (!state().listShown || !state().view.projects) return;
+    if (!listOnScreen() || !state().view.projects) return;
     // без сессий решать не о чем: запись проектов может прийти раньше roster, а решение — одно на проект
     const unseen = model.projects().filter((x) => state().col[x.id] === undefined && x.ss.length);
     if (!unseen.length) return;
@@ -107,6 +113,7 @@ export function createBoardStore(app: App) {
       const callsign = c.params.callsign ?? null;
       if (callsign && !model.held()) follow(callsign);
       store.set((d) => void (d.follow = callsign && model.held() ? callsign : null));
+      settle();
     },
 
     // ───── список ─────
@@ -114,10 +121,6 @@ export function createBoardStore(app: App) {
     toggleProject(id: string) {
       store.set((s) => void (s.col[id] = !s.col[id]));
       saveCol();
-    },
-    setListShown(on: boolean) {
-      store.set((s) => void (s.listShown = on));
-      if (on) settle();
     },
     setBodyTop: (top: number) => store.set((s) => void (s.bodyTop = top)),
     setReordering: (on: boolean) => store.set((s) => void (s.reordering = on)),

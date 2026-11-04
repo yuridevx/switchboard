@@ -162,7 +162,7 @@ export interface App {
   /** Адрес Worker'а или страницы флота с этим именем — из списка адресов сборки, а не из roster; нет — null. */
   worker(name: string): string | null;
   /** Экран на весь экран сейчас и его параметры (в широком виде — правая часть); до первого roster — null. */
-  current(): { screen: string; params: Params } | null;
+  current(): { screen: string; params: Params; master: string | null } | null;
   /** Связь сейчас. */
   link(): ConnState;
   /** Метка другого модуля из uses: app.mark("asked", "profiles@laptop"). Выключенный владелец — undefined. */

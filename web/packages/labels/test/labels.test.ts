@@ -12,7 +12,7 @@ beforeEach(() => vi.spyOn(console, "error").mockImplementation(() => {}));
 afterEach(() => vi.restoreAllMocks());
 
 /** Хозяин окна: своего экрана у web-labels нет, окно открывает вызывающий. */
-function host() {
+function host(params: Record<string, string> = { callsign: "site@laptop" }) {
   let app: App;
   const own: Manifest = { name: "host-screen", type: "web", version: "1.0.0", provides: { names: 1 }, uses: { "app@web-core": 2, "labels@web-labels": 1, "label.session@web-labels": 1, "label.machine@web-labels": 1 } };
   const module: AppModule = {
@@ -26,7 +26,7 @@ function host() {
             Fragment,
             null,
             createElement("button", { "data-open": "1", onClick: () => set("open") }),
-            createElement("div", { "data-place": "1" }, state === "open" ? createElement(app.Slot, { screen: "labels", params: { callsign: "site@laptop" }, close: () => set("closed") }) : state),
+            createElement("div", { "data-place": "1" }, state === "open" ? createElement(app.Slot, { screen: "labels", params, close: () => set("closed") }) : state),
           );
         },
       },
@@ -35,9 +35,9 @@ function host() {
   return { own, module, app: (a: App) => void (app = a), session: (c: string) => app.mark("label.session", c) as Shown, machine: (m: string) => app.mark("label.machine", m) as Shown };
 }
 
-async function open(values: Record<string, unknown> = {}) {
+async function open(values: Record<string, unknown> = {}, params?: Record<string, string>) {
   const relay = Object.assign(new FakeRelay(homeRoster()), { scoped: { global: values } });
-  const x = host();
+  const x = host(params);
   const t = await stand([{ manifest, module: createLabels }, {
       manifest: x.own,
       module: (a) => {
@@ -57,6 +57,14 @@ const fill = async (t: Awaited<ReturnType<typeof stand>>, f: string, v: string) 
 };
 
 describe("имена", () => {
+  it("7264 · окно открылось: фокус на первом поле — имя сессии, а без сессии имя машины", async () => {
+    // источник: чьё: код
+    const a = await open();
+    expect(document.activeElement).toBe(a.t.$('[data-f="session"]'));
+    const b = await open({}, { machine: "laptop" });
+    expect(document.activeElement).toBe(b.t.$('[data-f="machine"]'));
+  });
+
   it("5270 · имени нет — короткий адрес; окно показывает настоящий адрес; задано — вместо адреса, пишется у почты", async () => {
     const { t, relay, x } = await open();
     expect(x.session("site@laptop")).toEqual({ text: "site", human: false });

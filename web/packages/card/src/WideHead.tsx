@@ -124,7 +124,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
         ) : null}
         {/* пункты места card.menu: закрепление (web-board) */}
         {menuItems.map((m) => (
-          <button key={m.screen} className="cw-b" data-screen={m.screen} onClick={() => app.open(m.screen, { from: callsign })}>
+          <button key={m.screen} className="cw-b" data-screen={m.screen} onClick={() => app.open(m.screen, { callsign })}>
             {m.label}
           </button>
         ))}

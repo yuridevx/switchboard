@@ -16,12 +16,6 @@ export const ListView = memo(function ListView({ gen }: { gen: number }) {
   const shown = useRef<string | undefined>(undefined);
   const ready = !!m;
 
-  // список на экране: store запоминает первый показ проектов
-  useLayoutEffect(() => {
-    board.setListShown(true);
-    return () => board.setListShown(false);
-  }, [board]);
-
   // строка появляется, когда её проект развернулся: показать, как только она есть
   useLayoutEffect(() => {
     if (!ready || current === shown.current) return;
