@@ -1,11 +1,11 @@
-// Диалог действия над точкой вкладки: перенос, копия, смена папки, откат. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
-import { slotChoice, slotOf } from "@switchboard/web-ui";
+// Окно действия над точкой: перенос, копия, смена папки, откат. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
+import { slotChoice, slotOf } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
-import { nameOf, say } from "./format.ts";
 import type { CheckResult, Slots } from "./store.ts";
-import { useTargetPick } from "./useTargetPick.ts";
+import { useChooseTarget } from "./target.tsx";
+import { nameOf, refusal } from "./words.ts";
 
 export type DialogKind = "move" | "copy" | "dir" | "rb";
 export type Dialog = {
@@ -24,105 +24,114 @@ export type Dialog = {
 };
 export type DialogControl = ReturnType<typeof usePointDialog>;
 
+const movesMachine = (kind: DialogKind) => kind === "move" || kind === "copy";
+
 export function usePointDialog(callsign: string, sid: string, reload: () => void) {
   const points = usePoints();
   const machine = machineOf(callsign) ?? "";
-  const [dlg, setDlg] = useState<Dialog | null>(null);
-  const pick = useTargetPick(setDlg);
+  const name = nameOf(callsign);
+  const [current, setCurrent] = useState<Dialog | null>(null);
+  const choose = useChooseTarget(setCurrent);
 
-  async function check(d: Dialog) {
-    // слоты цели не пришли — проверка остаётся отказом, подъём недоступен
-    if ((d.kind !== "move" && d.kind !== "copy") || d.slots === null) return;
-    const point = d.from === "fresh" ? points.line(sid)?.head : d.from;
-    const c: CheckResult = typeof point === "number" ? await points.dry(d.target, sid, point, d.dir) : { error: "bad_point" };
-    setDlg((x) => x && { ...x, check: c });
+  const pointOf = (d: Dialog) => (d.from === "fresh" ? points.line(sid)?.head : d.from);
+  const slotNow = () => slotOf(points.session(callsign))?.name;
+
+  function chooseTarget(d: Dialog, target: string) {
+    return choose(target, [{ sid, point: pointOf(d), dir: d.dir }], (x, { slots, checks }) => ({ ...x, slots, slot: slots ? slotChoice(Object.keys(slots), slotNow()) : "", check: checks[0] }));
   }
 
-  function pickTarget(d: Dialog, m: string) {
-    const point = d.from === "fresh" ? points.line(sid)?.head : d.from;
-    const cur = slotOf(points.session(callsign))?.name;
-    return pick(m, [{ sid, point, dir: d.dir }], (x, { slots, checks }) => ({ ...x, slots, slot: slots ? slotChoice(Object.keys(slots), cur) : "", check: checks[0] }));
+  /** Заново проверить подъём: слоты цели не пришли — проверка остаётся отказом. */
+  async function recheck(d: Dialog) {
+    if (!movesMachine(d.kind) || d.slots === null) return;
+    const point = pointOf(d);
+    const check: CheckResult = typeof point === "number" ? await points.dryRun(d.target, sid, point, d.dir) : { error: "bad_point" };
+    setCurrent((x) => x && { ...x, check });
   }
 
   function open(kind: DialogKind, from: "fresh" | number = "fresh") {
-    const name = nameOf(callsign);
     const dir = points.dirOf(sid);
-    const target = kind === "dir" || kind === "rb" ? machine : (points.raisers().find((m) => m !== machine) ?? machine);
+    const suffix = kind === "copy" ? "-copy" : kind === "dir" ? "-v2" : "";
     const d: Dialog = {
       kind,
-      target,
+      target: movesMachine(kind) ? (points.raisers().find((m) => m !== machine) ?? machine) : machine,
       from,
       slot: "",
       slots: null,
-      dir: kind === "copy" ? `${dir}-copy` : kind === "dir" ? `${dir}-v2` : dir,
-      name: kind === "copy" ? `${name}-copy` : kind === "dir" ? `${name}-v2` : name,
-      files: kind === "dir" || kind === "rb" ? "keep" : "point",
+      dir: `${dir}${suffix}`,
+      name: `${name}${suffix}`,
+      files: movesMachine(kind) ? "point" : "keep",
       interrupt: false,
       check: null,
       phase: "",
       msg: "",
     };
-    setDlg(d);
-    if (kind === "move" || kind === "copy") void pickTarget(d, target);
+    setCurrent(d);
+    if (movesMachine(kind)) void chooseTarget(d, d.target);
   }
 
-  /** Слот копии в новой папке: строки выбора нет — текущий слот сессии, у сессии без слота — как в строке выбора. */
-  async function dirSlot(): Promise<{ slot: string } | { error: string }> {
-    const cur = slotOf(points.session(callsign))?.name;
-    if (cur) return { slot: cur };
-    const got = await points.slotsAt(machine);
+  /** Слот копии в новой папке: текущий слот сессии, без него — как в строке выбора. */
+  async function slotForNewDir(): Promise<{ slot: string } | { error: string }> {
+    const now = slotNow();
+    if (now) return { slot: now };
+    const got = await points.slotsOf(machine);
     return "error" in got ? got : { slot: slotChoice(Object.keys(got.slots)) };
   }
 
-  /** Шаги диалога: точка (со стопом, кроме копии), затем подъём; смена папки — ещё «Забыть» прежнюю. */
+  const doneText = (d: Dialog, raised: { callsign: string; branch: string | null }, point: number) => {
+    switch (d.kind) {
+      case "move":
+        return `${name} перенесена на ${d.target}: ${raised.callsign}. ${machine} её отпустил.`;
+      case "copy":
+        return `Копия поднята: ${raised.callsign}. Исходная сессия не менялась.`;
+      case "dir":
+        return `Копия в новой папке: ${raised.callsign}; ${callsign} забыта, её точки остались в R2.`;
+      case "rb":
+        return `Откат: ${callsign} поднята из точки №${point}; нынешнее — веткой «до отката»${raised.branch ? `, папка на ветке git ${raised.branch}` : ""}. Новая ссылка claude.ai придёт в roster.`;
+    }
+  };
+
+  /** Шаги: точка (со стопом, кроме копии), подъём; смена папки — ещё «Забыть» прежнюю. */
   async function run(d: Dialog) {
-    const step = (msg: string) => setDlg((x) => x && { ...x, phase: "run", msg });
-    const fail = (w: string) => setDlg((x) => x && { ...x, phase: "err", msg: d.kind === "dir" && w === "open_failed" ? `Копия не поднялась — «Забыть» не отправлен, ${callsign} остаётся остановленной` : say(w, nameOf(callsign), d.target, machine) });
-    let point = typeof d.from === "number" ? d.from : 0;
+    const step = (msg: string) => setCurrent((x) => x && { ...x, phase: "run", msg });
+    const fail = (word: string) => setCurrent((x) => x && { ...x, phase: "err", msg: d.kind === "dir" && word === "open_failed" ? `Копия не поднялась — «Забыть» не отправлен, ${callsign} остаётся остановленной` : refusal(word, name, d.target, machine) });
+
     // до остановки сессии: без списка слотов смена папки не начинается
-    const kept = d.kind === "dir" ? await dirSlot() : null;
-    if (kept && "error" in kept) return fail(kept.error);
+    const dirSlot = d.kind === "dir" ? await slotForNewDir() : null;
+    if (dirSlot && "error" in dirSlot) return fail(dirSlot.error);
+
+    let point = typeof d.from === "number" ? d.from : 0;
     const stop = d.kind !== "copy";
     if (stop || d.from === "fresh") {
       step(stop ? `${machine} дожидается конца ответа, останавливает сессию и кладёт точку…` : `${machine} кладёт свежую точку…`);
-      const s = await points.savePoint(callsign, { stop, interrupt: d.interrupt });
-      if (!s.ok) return fail(s.error);
-      if (d.from === "fresh") point = s.result.point;
+      const saved = await points.save(callsign, { stop, interrupt: d.interrupt });
+      if (!saved.ok) return fail(saved.error);
+      if (d.from === "fresh") point = saved.result.point;
     }
+
     step(`${d.target} поднимает сессию из точки №${point}…`);
-    const body: Record<string, unknown> = { machine: d.target, sid, point, dir: d.dir, files: d.files };
-    if (d.kind === "copy" || d.kind === "dir") Object.assign(body, { copy: true, name: d.name });
-    if (d.slot && (d.kind === "move" || d.kind === "copy")) body.slot = d.slot;
-    if (kept && "slot" in kept && kept.slot) body.slot = kept.slot;
-    const r = await points.raise(body, callsign);
-    if (!r.ok) return fail(r.error);
+    const slot = movesMachine(d.kind) ? d.slot : dirSlot && "slot" in dirSlot ? dirSlot.slot : "";
+    const raised = await points.raise({ machine: d.target, sid, point, dir: d.dir, files: d.files, ...(d.kind === "copy" || d.kind === "dir" ? { copy: true, name: d.name } : {}), ...(slot ? { slot } : {}) }, callsign);
+    if (!raised.ok) return fail(raised.error);
+
     if (d.kind === "dir") {
       step(`«Забыть» ${callsign}…`);
-      const rm = await points.forget(callsign);
-      if (!rm.ok) return fail(rm.error);
+      const gone = await points.forget(callsign);
+      if (!gone.ok) return fail(gone.error);
     }
-    const msg =
-      d.kind === "move"
-        ? `${nameOf(callsign)} перенесена на ${d.target}: ${r.result.callsign}. ${machine} её отпустил.`
-        : d.kind === "copy"
-          ? `Копия поднята: ${r.result.callsign}. Исходная сессия не менялась.`
-          : d.kind === "dir"
-            ? `Копия в новой папке: ${r.result.callsign}; ${callsign} забыта, её точки остались в R2.`
-            : `Откат: ${callsign} поднята из точки №${point}; нынешнее — веткой «до отката»${r.result.branch ? `, папка на ветке git ${r.result.branch}` : ""}. Новая ссылка claude.ai придёт в roster.`;
-    setDlg((x) => x && { ...x, phase: "done", msg });
+    setCurrent((x) => x && { ...x, phase: "done", msg: doneText(d, raised.result, point) });
     reload();
   }
 
   return {
-    dlg,
+    current,
     open,
-    close: () => setDlg(null),
-    patch: (p: Partial<Dialog>) => setDlg((x) => x && { ...x, ...p }),
-    pickTarget: (d: Dialog, m: string) => void pickTarget(d, m),
-    /** Выбор откуда и готовая папка: заново проверить подъём. */
-    recheck: (d: Dialog, p: Partial<Dialog>) => {
-      setDlg((x) => x && { ...x, ...p });
-      void check({ ...d, ...p });
+    close: () => setCurrent(null),
+    patch: (p: Partial<Dialog>) => setCurrent((x) => x && { ...x, ...p }),
+    chooseTarget: (d: Dialog, target: string) => void chooseTarget(d, target),
+    /** Поменяли откуда или папку: проверить заново. */
+    change: (d: Dialog, p: Partial<Dialog>) => {
+      setCurrent((x) => x && { ...x, ...p });
+      void recheck({ ...d, ...p });
     },
     run: (d: Dialog) => void run(d),
   };

@@ -1,386 +1,226 @@
-// Реестр точек над базой D1 модуля. Хозяин сессии, линия и ветки, правило хранения,
-// какие блоки уже в R2, ссылки машине на блоки, уборка раз в сутки (расписание Worker'а) и удаление сессии сразу.
-// Строки журнала флота — ledger.add по своей привязке.
-import { accepts, fail, machineOf, ok, within, type Frame } from "@switchboard/protocol";
+// Реестр точек: хозяин сессии, линия и ветки, какие блоки уже в R2, ссылки машине, уборка и удаление сессии.
 import type { LedgerAdd } from "@switchboard/ledger";
-import { CONTRACT, type ListedPoint, type Point, type PointFile, type Why } from "../contract.ts";
+import type { Frame } from "@switchboard/protocol";
 import { presign } from "@switchboard/release";
+import type { ListedPoint, PointFile, Why } from "../contract.ts";
+import * as db from "./db.ts";
 import type { Env } from "./env.ts";
-import { gone, lineOf, untilOf } from "./keep.ts";
 import { log } from "./log.ts";
+import { expired, expiry, lineOf } from "./retention.ts";
 
-const WHY = new Set<Why>(["rule", "save", "start", "raise", "yield"]);
-const HASH = /^[0-9a-f]{2,128}$/;
-
-type Row = {
-  id: number;
-  sid: string;
-  machine: string;
-  at: number;
-  why: Why;
-  base: number | null;
-  callsign: string | null;
-  dir: string | null;
-  msgs: number | null;
-  bytes: number | null;
-  git: string | null;
-  files: string;
-  spec: string | null;
-  last: string | null;
-};
-type Session = { sid: string; owner: string; head: number };
-
-/** Отказ словом с полями ответа (owner, ids, missing) и причиной для журнала. */
-class Refusal {
+/** Отказ словом: поля ответа (owner, ids, missing, links) и причина для журнала. */
+export class Refused extends Error {
   word: string;
-  why: string;
-  extra: Record<string, unknown>;
-  constructor(word: string, why: string, extra: Record<string, unknown> = {}) {
+  fields: Record<string, unknown>;
+  constructor(word: string, why: string, fields: Record<string, unknown> = {}) {
+    super(why);
     this.word = word;
-    this.why = why;
-    this.extra = extra;
+    this.fields = fields;
   }
 }
 
-/** Решение по points.put: куда встанет точка и что станет с хозяином. */
-type Plan = { base: number | null; owner: string; moveHead: boolean; event?: LedgerAdd; same?: number };
+const WHY: readonly Why[] = ["rule", "save", "start", "raise", "yield"];
+const HASH = /^[0-9a-f]{2,128}$/;
+const BATCH = 1000;
 
-/** Кадр с to: ".points" → reply тому, кто спросил. */
-export function frame(env: Env, f: Frame): Promise<Frame[]> {
-  return new Registry(env).frame(f);
+const shortName = (callsign: string | null | undefined, sid: string) => (callsign ? callsign.split("@")[0] : sid.slice(0, 8));
+
+function ledgerLine(ev: string, text: string, who: { machine?: string; callsign?: string | null; by?: string }): LedgerAdd {
+  const { machine, callsign, by } = who;
+  return { type: "ledger.add", v: 1, to: ".ledger", ev, text, ...(machine ? { machine } : {}), ...(callsign ? { callsign } : {}), ...(by ? { by } : {}) };
 }
 
-/** Уборка раз в сутки — расписанием Worker'а. */
-export function sweep(env: Env): Promise<{ points: number; blocks: number; bytes: number }> {
-  return new Registry(env).sweep();
-}
-
-type Arg = string | number | null;
-
-class Registry {
-  private env: Env;
-  constructor(env: Env) {
-    this.env = env;
-  }
-
-  async frame(f: Frame): Promise<Frame[]> {
-    const from = f.from ?? "";
-    const machine = from ? machineOf(from) : null;
-    const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);
-    const refuse = (r: Refusal): Frame[] => {
-      log({ kind: "refuse", ev: f.type, word: r.word, why: r.why, from, sid: typeof f.sid === "string" ? f.sid : undefined });
-      return f.id ? answer({ ...fail(f.id, r.word), ...r.extra }) : [];
-    };
-
-    if (f.type === "reply") {
-      log({ kind: "note", ev: "reply", from, why: "points ответов не ждёт" });
-      return [];
-    }
-    const bad = accepts(f, CONTRACT);
-    if (bad) return refuse(new Refusal(bad.word, bad.why));
-    if (!f.id) return refuse(new Refusal("bad_frame", `${f.type} без id — ответить некому`));
-    const id = f.id;
-
-    try {
-      switch (f.type) {
-        case "points.put": {
-          if (!machine) throw new Refusal("bad_frame", "точку кладёт только машина");
-          const r = await this.put(f, machine);
-          if (r.event) await this.journal(r.event);
-          return answer(ok(id, r.result));
-        }
-        case "points.get": {
-          const ids = f.ids;
-          if (!Array.isArray(ids) || !ids.length || !ids.every((x) => Number.isInteger(x))) throw new Refusal("bad_frame", "ids — непустой список номеров");
-          const rows = await this.all<Row>("SELECT * FROM points WHERE id IN (SELECT value FROM json_each(?)) ORDER BY id", JSON.stringify(ids));
-          const lost = (ids as number[]).filter((x) => !rows.some((r) => r.id === x));
-          if (lost.length) throw new Refusal("no_point", `точек ${lost.join(", ")} нет`, { ids: lost });
-          const s = await this.session(rows[0].sid);
-          const result: Record<string, unknown> = { owner: s?.owner ?? null, points: rows.map(full) };
-          // машине — ссылки GET на блоки этих точек; пульту блоки не нужны
-          if (machine) result.links = await this.links("GET", [...new Set(rows.flatMap((r) => (JSON.parse(r.files) as PointFile[]).flatMap((x) => x.b)))]);
-          return answer(ok(id, result));
-        }
-        case "points.list":
-          return answer(ok(id, typeof f.sid === "string" ? await this.listSession(f.sid) : await this.listFleet()));
-        case "points.delete": {
-          if (typeof f.sid !== "string" || !f.sid) throw new Refusal("bad_frame", "нет sid");
-          const r = await this.remove(f.sid, machine, typeof f.by === "string" ? f.by : from);
-          if (r.event) await this.journal(r.event);
-          return answer(ok(id, r.result));
-        }
-      }
-    } catch (e) {
-      if (e instanceof Refusal) return refuse(e);
-      throw e;
-    }
-    return refuse(new Refusal("unknown_request", `points не обслуживает ${f.type}`));
-  }
-
-  /** Строка журнала флота по своей привязке; журнал не ответил — строка здесь. */
-  private async journal(e: LedgerAdd): Promise<void> {
-    try {
-      await within(this.env.LEDGER.frame({ ...(e as unknown as Frame), from: ".points" }), "журнал не ответил");
-    } catch (err) {
-      log({ kind: "refuse", ev: "ledger.add", word: "offline", why: `${e.ev}: ${err}` });
-    }
-  }
-
-  /** Ссылки на блоки f/<отпечаток>: один блок, один метод, час; подпись — общей функцией формата выпуска. */
-  private async links(method: "GET" | "PUT", hashes: string[]): Promise<Record<string, string>> {
-    const key = { accessKeyId: this.env.R2_KEY_ID, secretAccessKey: this.env.R2_KEY_SECRET };
-    const host = `${this.env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-    const now = new Date();
-    const out: Record<string, string> = {};
-    for (const h of hashes) out[h] = await presign(key, { method, host, path: `/${this.env.POINTS_BUCKET}/f/${h}`, now });
-    return out;
-  }
-
-  // ---------- points.put ----------
-
-  private async put(f: Frame, machine: string): Promise<{ result: Record<string, unknown>; event?: LedgerAdd }> {
-    const sid = f.sid;
-    if (typeof sid !== "string" || !sid) throw new Refusal("bad_frame", "нет sid");
-    if (typeof f.why !== "string" || !WHY.has(f.why as Why)) throw new Refusal("bad_frame", `why — одно из ${[...WHY].join(", ")}`);
-    const files = checkFiles(f.files);
-    if (f.base !== undefined && !Number.isInteger(f.base)) throw new Refusal("bad_frame", "base — номер точки");
-    if (f.why === "raise" && f.base === undefined) throw new Refusal("bad_frame", "у raise нет base");
-    const stored = JSON.stringify(files);
-
-    // хозяин до похода в R2 — чтобы не просить блоки у того, чью точку реестр не примет
-    const early = await this.plan(f, sid, machine, stored);
-    if (early.same !== undefined) return { result: { id: early.same, same: true } };
-
-    // какие блоки уже в R2: в реестре или лежат в бакете (положены, а точку машина не прислала)
-    const hashes = [...new Set(files.flatMap((x) => x.b))];
-    const known = new Set((await this.all<{ hash: string }>("SELECT hash FROM blocks WHERE hash IN (SELECT value FROM json_each(?))", JSON.stringify(hashes))).map((r) => r.hash));
-    const unknown = hashes.filter((h) => !known.has(h));
-    const heads = await Promise.all(unknown.map(async (h) => ({ h, o: await this.env.BUCKET.head(`f/${h}`) })));
-    const missing = heads.filter((x) => !x.o).map((x) => x.h);
-    if (missing.length) {
-      throw new Refusal("missing", `${missing.length} блоков нет в R2`, { missing, links: await this.links("PUT", missing) });
-    }
-
-    // решение заново после похода в R2; запись — точка, затем блоки, ссылки и хозяин одной пачкой
-    const plan = await this.plan(f, sid, machine, stored);
-    if (plan.same !== undefined) return { result: { id: plan.same, same: true } };
-    const db = this.env.DB;
-    const json = (x: unknown) => (x === undefined ? null : JSON.stringify(x));
-    const num = (x: unknown) => (typeof x === "number" ? x : null);
-    const str = (x: unknown) => (typeof x === "string" ? x : null);
-    const row = (await db
-      .prepare(
-        `INSERT INTO points (sid, machine, at, why, base, callsign, dir, msgs, bytes, git, files, spec, last)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
-      )
-      .bind(sid, machine, Date.now(), f.why as string, plan.base, str(f.callsign), str(f.dir), num(f.msgs), num(f.bytes), json(f.git), stored, json(f.spec), json(f.last))
-      .first<{ id: number }>())!;
-    await db.batch([
-      ...heads.map((x) => db.prepare("INSERT OR IGNORE INTO blocks (hash, size) VALUES (?, ?)").bind(x.h, x.o!.size)),
-      db.prepare("INSERT OR IGNORE INTO refs (point, hash) SELECT ?, value FROM json_each(?)").bind(row.id, JSON.stringify(hashes)),
-      ...(plan.moveHead ? [db.prepare("INSERT OR REPLACE INTO sessions (sid, owner, head) VALUES (?, ?, ?)").bind(sid, plan.owner, row.id)] : []),
-    ]);
-    log({ kind: "note", ev: "points.put", from: machine, sid, point: row.id, why: f.why, base: plan.base, blocks: hashes.length });
-    return { result: { id: row.id }, event: plan.event };
-  }
-
-  /** Как реестр принимает точку: хозяин, expect, yield, «те же файлы». Отказ — Refusal. */
-  private async plan(f: Frame, sid: string, machine: string, stored: string): Promise<Plan> {
-    const s = await this.session(sid);
-    const by = typeof f.by === "string" ? f.by : undefined;
-    const callsign = typeof f.callsign === "string" ? f.callsign : undefined;
-    const base = typeof f.base === "number" ? f.base : null;
-
-    if (!s) {
-      // новая сессия: хозяин — та, что прислала; base из другой сессии — копия
-      if (base === null) return { base: null, owner: machine, moveHead: true };
-      const src = await this.point(base);
-      if (!src) throw new Refusal("no_point", `точки ${base} нет`, { ids: [base] });
-      const event = ledger("session.copied", `${name(src.callsign, src.sid)} → ${callsign ?? sid.slice(0, 8)} · из точки ${base}`, machine, callsign, by);
-      return { base, owner: machine, moveHead: true, event };
-    }
-
-    if (f.why === "raise") {
-      // подъём: хозяин меняется одной записью — точкой с expect
-      if (f.expect !== s.owner) throw new Refusal("not_owner", `хозяин ${s.owner}, expect ${String(f.expect)}`, { owner: s.owner });
-      const src = base === null ? null : await this.point(base);
-      if (!src) throw new Refusal("no_point", `точки ${base} нет`, { ids: [base] });
-      if (src.sid !== sid) throw new Refusal("bad_frame", `точка ${base} — не этой сессии`);
-      let event: LedgerAdd | undefined;
-      const who = name(callsign ?? src.callsign, sid);
-      if (s.owner !== machine) event = ledger("session.moved", `${who}: ${s.owner} → ${machine} · из точки ${base}`, machine, callsign, by);
-      else if (base !== s.head) event = ledger("session.rolled_back", `${callsign ?? who} откатана к точке ${base}`, machine, callsign, by);
-      return { base, owner: machine, moveHead: true, event };
-    }
-
-    let from: number | null;
-    let plan: Plan;
-    if (machine === s.owner) {
-      from = s.head;
-      plan = { base: from, owner: machine, moveHead: true };
-    } else if (f.why === "yield") {
-      // вернувшийся прежний хозяин: дописанное — ветка от его последней точки этой сессии
-      from = (await this.one<{ id: number | null }>("SELECT MAX(id) AS id FROM points WHERE sid = ? AND machine = ?", sid, machine))?.id ?? null;
-      plan = { base: from, owner: s.owner, moveHead: false };
-    } else {
-      throw new Refusal("not_owner", `хозяин ${s.owner}`, { owner: s.owner });
-    }
-    // пустых точек и пустых веток не бывает
-    if (from !== null && (await this.point(from))?.files === stored) plan.same = from;
-    return plan;
-  }
-
-  // ---------- points.delete и уборка ----------
-
-  private async remove(sid: string, machine: string | null, by: string): Promise<{ result: Record<string, unknown>; event?: LedgerAdd }> {
-    const s = await this.session(sid);
-    if (s && machine && machine !== s.owner) throw new Refusal("not_owner", `хозяин ${s.owner}`, { owner: s.owner });
-    const head = s ? await this.point(s.head) : null;
-    const ids = (await this.all<{ id: number }>("SELECT id FROM points WHERE sid = ?", sid)).map((r) => r.id);
-    if (!ids.length) return { result: { points: 0, blocks: 0, bytes: 0 } };
-    await this.drop(ids);
-    await this.env.DB.prepare("DELETE FROM sessions WHERE sid = ?").bind(sid).run();
-    const freed = await this.collect();
-    log({ kind: "note", ev: "points.delete", sid, by, points: ids.length, ...freed });
-    const who = name(head?.callsign ?? null, sid);
-    const event = ledger("session.deleted", `${who} удалена из R2 · ${ids.length} точек`, s?.owner, head?.callsign ?? undefined, by);
-    return { result: { points: ids.length, ...freed }, event };
-  }
-
-  /** Уборка: правило хранения по каждой сессии, затем блоки без ссылок — из R2 и из реестра. */
-  async sweep(): Promise<{ points: number; blocks: number; bytes: number }> {
-    const db = this.env.DB;
-    const now = Date.now();
-    let points = 0;
-    for (const s of await this.all<Session>("SELECT * FROM sessions")) {
-      const all = await this.all<{ id: number; at: number; base: number | null }>("SELECT id, at, base FROM points WHERE sid = ?", s.sid);
-      const out = gone(all, s.head, now);
-      await this.drop(out);
-      points += out.length;
-      if (out.length === all.length) await db.prepare("DELETE FROM sessions WHERE sid = ?").bind(s.sid).run();
-    }
-    const freed = await this.collect();
-    const sweep = { at: now, ...freed };
-    await db.prepare("INSERT OR REPLACE INTO meta (k, v) VALUES ('sweep', ?)").bind(JSON.stringify(sweep)).run();
-    log({ kind: "note", ev: "sweep", points, ...freed });
-    return { points, ...freed };
-  }
-
-  /** Стереть точки; их дети переходят к основе стёртой — линия и ветки остаются связными. */
-  private async drop(ids: number[]): Promise<void> {
-    const db = this.env.DB;
-    if (!ids.length) return;
-    await db.batch(
-      ids.flatMap((id) => [
-        db.prepare("UPDATE points SET base = (SELECT base FROM points WHERE id = ?) WHERE base = ?").bind(id, id),
-        db.prepare("DELETE FROM refs WHERE point = ?").bind(id),
-        db.prepare("DELETE FROM points WHERE id = ?").bind(id),
-      ]),
-    );
-  }
-
-  /** Блоки без ссылок: сначала из R2, затем строка блока — оборвалось посередине, следующий раз доделает. */
-  private async collect(): Promise<{ blocks: number; bytes: number }> {
-    const orphans = await this.all<{ hash: string; size: number }>("SELECT hash, size FROM blocks WHERE NOT EXISTS (SELECT 1 FROM refs WHERE refs.hash = blocks.hash)");
-    let bytes = 0;
-    for (let i = 0; i < orphans.length; i += 1000) {
-      const part = orphans.slice(i, i + 1000);
-      await this.env.BUCKET.delete(part.map((b) => `f/${b.hash}`));
-      await this.env.DB.prepare("DELETE FROM blocks WHERE hash IN (SELECT value FROM json_each(?))").bind(JSON.stringify(part.map((b) => b.hash))).run();
-      for (const b of part) bytes += b.size;
-    }
-    return { blocks: orphans.length, bytes };
-  }
-
-  // ---------- points.list ----------
-
-  private async listSession(sid: string) {
-    const s = await this.session(sid);
-    if (!s) return { owner: null, head: null, points: [] };
-    const rows = await this.all<Row>("SELECT * FROM points WHERE sid = ? ORDER BY id DESC", sid);
-    const line = lineOf(rows, s.head);
-    const until = untilOf(rows, s.head);
-    const points: ListedPoint[] = rows.map((r) => {
-      const { files: _f, spec: _s, last: _l, sid: _sid, ...rest } = full(r);
-      return { ...rest, line: line.has(r.id), until: until.get(r.id) ?? null };
-    });
-    return { owner: s.owner, head: s.head, points };
-  }
-
-  private async listFleet() {
-    const sessions = (
-      await this.all<{ sid: string; owner: string; head: number; at: number; callsign: string | null; dir: string | null; n: number; branches: number }>(
-        `SELECT s.sid, s.owner, s.head, h.at, h.callsign, h.dir,
-           (SELECT COUNT(*) FROM points p WHERE p.sid = s.sid) AS n,
-           (SELECT COUNT(*) FROM points p WHERE p.sid = s.sid AND p.id != s.head
-              AND NOT EXISTS (SELECT 1 FROM points c WHERE c.base = p.id)) AS branches
-         FROM sessions s JOIN points h ON h.id = s.head ORDER BY h.at DESC`,
-      )
-    ).map((r) => ({
-        sid: r.sid,
-        ...(r.callsign !== null ? { callsign: r.callsign } : {}),
-        ...(r.dir !== null ? { dir: r.dir } : {}),
-        owner: r.owner,
-        head: { id: r.head, at: r.at },
-        points: r.n,
-        branches: r.branches,
-      }));
-    const r2 = (await this.one<{ blocks: number; bytes: number }>("SELECT COUNT(*) AS blocks, COALESCE(SUM(size), 0) AS bytes FROM blocks"))!;
-    const sw = await this.one<{ v: string }>("SELECT v FROM meta WHERE k = 'sweep'");
-    return { sessions, r2: { bytes: r2.bytes, blocks: r2.blocks }, sweep: sw ? JSON.parse(sw.v) : null };
-  }
-
-  // ---------- мелочи ----------
-
-  private session(sid: string): Promise<Session | undefined> {
-    return this.one<Session>("SELECT * FROM sessions WHERE sid = ?", sid);
-  }
-
-  private point(id: number): Promise<Row | undefined> {
-    return this.one<Row>("SELECT * FROM points WHERE id = ?", id);
-  }
-
-  private async one<T>(q: string, ...args: Arg[]): Promise<T | undefined> {
-    return (await this.env.DB.prepare(q).bind(...args).first<T>()) ?? undefined;
-  }
-
-  private async all<T>(q: string, ...args: Arg[]): Promise<T[]> {
-    return (await this.env.DB.prepare(q).bind(...args).all<T>()).results;
-  }
-}
-
-/** Файлы точки по контракту: путь, размер, отпечатки hex. Хранятся в одном порядке полей — для сравнения «те же файлы». */
-function checkFiles(x: unknown): PointFile[] {
-  if (!Array.isArray(x) || !x.length) throw new Refusal("bad_frame", "files — непустой список");
+/** Файлы по контракту; порядок полей один — для сравнения «те же файлы». */
+function parseFiles(x: unknown): PointFile[] {
+  if (!Array.isArray(x) || !x.length) throw new Refused("bad_frame", "files — непустой список");
   return x.map((f: { p?: unknown; size?: unknown; b?: unknown }) => {
-    if (!f || typeof f.p !== "string" || typeof f.size !== "number" || !Array.isArray(f.b) || !f.b.every((h) => typeof h === "string" && HASH.test(h)))
-      throw new Refusal("bad_frame", "файл точки — { p, size, b: [отпечатки hex] }");
-    return { p: f.p, size: f.size, b: f.b as string[] };
+    const ok = f && typeof f.p === "string" && typeof f.size === "number" && Array.isArray(f.b) && f.b.every((h) => typeof h === "string" && HASH.test(h));
+    if (!ok) throw new Refused("bad_frame", "файл точки — { p, size, b: [отпечатки hex] }");
+    return { p: f.p as string, size: f.size as number, b: f.b as string[] };
   });
 }
 
-function full(r: Row): Point {
-  const p: Point = { id: r.id, sid: r.sid, machine: r.machine, at: r.at, why: r.why, base: r.base, files: JSON.parse(r.files) };
-  if (r.callsign !== null) p.callsign = r.callsign;
-  if (r.dir !== null) p.dir = r.dir;
-  if (r.msgs !== null) p.msgs = r.msgs;
-  if (r.bytes !== null) p.bytes = r.bytes;
-  if (r.git !== null) p.git = JSON.parse(r.git);
-  if (r.spec !== null) p.spec = JSON.parse(r.spec);
-  if (r.last !== null) p.last = JSON.parse(r.last);
-  return p;
+/** Ссылки на блоки f/<отпечаток>: один блок, один метод, час. */
+async function links(env: Env, method: "GET" | "PUT", hashes: string[]): Promise<Record<string, string>> {
+  const key = { accessKeyId: env.R2_KEY_ID, secretAccessKey: env.R2_KEY_SECRET };
+  const host = `${env.CF_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+  const now = new Date();
+  const signed = await Promise.all(hashes.map(async (h) => [h, await presign(key, { method, host, path: `/${env.POINTS_BUCKET}/f/${h}`, now })] as const));
+  return Object.fromEntries(signed);
 }
 
-/** Имя сессии для журнала флота: site из site@laptop, иначе начало sid. */
-function name(callsign: string | null | undefined, sid: string): string {
-  return callsign ? callsign.split("@")[0] : sid.slice(0, 8);
+/** Куда встанет новая точка; same — файлы те же, что у основы: строки не будет. */
+type Placement = { base: number | null; moveTo: string | null; line?: LedgerAdd; same?: number };
+
+async function place(env: Env, f: Frame, sid: string, machine: string, stored: string): Promise<Placement> {
+  const current = await db.session(env.DB, sid);
+  const by = typeof f.by === "string" ? f.by : undefined;
+  const callsign = typeof f.callsign === "string" ? f.callsign : undefined;
+  const base = typeof f.base === "number" ? f.base : null;
+  const need = async (id: number | null) => {
+    const row = id === null ? undefined : await db.point(env.DB, id);
+    if (!row) throw new Refused("no_point", `точки ${id} нет`, { ids: [id] });
+    return row;
+  };
+
+  if (!current) {
+    if (base === null) return { base, moveTo: machine };
+    const from = await need(base);
+    return { base, moveTo: machine, line: ledgerLine("session.copied", `${shortName(from.callsign, from.sid)} → ${callsign ?? sid.slice(0, 8)} · из точки ${base}`, { machine, callsign, by }) };
+  }
+
+  if (f.why === "raise") {
+    if (f.expect !== current.owner) throw new Refused("not_owner", `хозяин ${current.owner}, expect ${String(f.expect)}`, { owner: current.owner });
+    const from = await need(base);
+    if (from.sid !== sid) throw new Refused("bad_frame", `точка ${base} — не этой сессии`);
+    const who = shortName(callsign ?? from.callsign, sid);
+    const line =
+      current.owner !== machine
+        ? ledgerLine("session.moved", `${who}: ${current.owner} → ${machine} · из точки ${base}`, { machine, callsign, by })
+        : base !== current.head
+          ? ledgerLine("session.rolled_back", `${callsign ?? who} откатана к точке ${base}`, { machine, callsign, by })
+          : undefined;
+    return { base, moveTo: machine, line };
+  }
+
+  // вернувшийся прежний хозяин отдаёт дописанное веткой от своей последней точки; голова остаётся у нового
+  const yielding = machine !== current.owner;
+  if (yielding && f.why !== "yield") throw new Refused("not_owner", `хозяин ${current.owner}`, { owner: current.owner });
+  const from = yielding ? await db.lastPointOf(env.DB, sid, machine) : current.head;
+  const unchanged = from !== null && (await db.point(env.DB, from))?.files === stored;
+  return { base: from, moveTo: yielding ? null : machine, same: unchanged ? from! : undefined };
 }
 
-function ledger(ev: string, text: string, machine?: string, callsign?: string, by?: string): LedgerAdd {
-  const f: LedgerAdd = { type: "ledger.add", v: 1, to: ".ledger", ev, text };
-  if (machine) f.machine = machine;
-  if (callsign) f.callsign = callsign;
-  if (by) f.by = by;
-  return f;
+async function put(env: Env, f: Frame, machine: string): Promise<{ result: Record<string, unknown>; line?: LedgerAdd }> {
+  const sid = f.sid;
+  if (typeof sid !== "string" || !sid) throw new Refused("bad_frame", "нет sid");
+  if (!WHY.includes(f.why as Why)) throw new Refused("bad_frame", `why — одно из ${WHY.join(", ")}`);
+  const files = parseFiles(f.files);
+  if (f.base !== undefined && !Number.isInteger(f.base)) throw new Refused("bad_frame", "base — номер точки");
+  if (f.why === "raise" && f.base === undefined) throw new Refused("bad_frame", "у raise нет base");
+  const stored = JSON.stringify(files);
+
+  // хозяин — до похода в R2: не просить блоки у того, чью точку реестр не примет
+  const early = await place(env, f, sid, machine, stored);
+  if (early.same !== undefined) return { result: { id: early.same, same: true } };
+
+  // блок есть, если он в базе или лежит в бакете: машина положила его, а точку ещё не прислала
+  const hashes = [...new Set(files.flatMap((x) => x.b))];
+  const known = await db.knownBlocks(env.DB, hashes);
+  const fresh = await Promise.all(hashes.filter((h) => !known.has(h)).map(async (hash) => ({ hash, object: await env.BUCKET.head(`f/${hash}`) })));
+  const missing = fresh.filter((x) => !x.object).map((x) => x.hash);
+  if (missing.length) throw new Refused("missing", `${missing.length} блоков нет в R2`, { missing, links: await links(env, "PUT", missing) });
+
+  // за время похода в R2 хозяин мог смениться: решение заново
+  const final = await place(env, f, sid, machine, stored);
+  if (final.same !== undefined) return { result: { id: final.same, same: true } };
+  const json = (x: unknown) => (x === undefined ? null : JSON.stringify(x));
+  const num = (x: unknown) => (typeof x === "number" ? x : null);
+  const str = (x: unknown) => (typeof x === "string" ? x : null);
+  const id = await db.insertPoint(
+    env.DB,
+    { sid, machine, at: Date.now(), why: f.why as Why, base: final.base, callsign: str(f.callsign), dir: str(f.dir), msgs: num(f.msgs), bytes: num(f.bytes), git: json(f.git), files: stored, spec: json(f.spec), last: json(f.last) },
+    fresh.map((x) => ({ hash: x.hash, size: x.object!.size })),
+    hashes,
+    final.moveTo,
+  );
+  log({ kind: "note", ev: "points.put", from: machine, sid, point: id, why: f.why, base: final.base, blocks: hashes.length });
+  return { result: { id }, line: final.line };
 }
 
+async function get(env: Env, f: Frame, machine: string | null): Promise<Record<string, unknown>> {
+  const ids = f.ids;
+  if (!Array.isArray(ids) || !ids.length || !ids.every((x) => Number.isInteger(x))) throw new Refused("bad_frame", "ids — непустой список номеров");
+  const rows = await db.pointsIn(env.DB, ids as number[]);
+  const lost = (ids as number[]).filter((x) => !rows.some((r) => r.id === x));
+  if (lost.length) throw new Refused("no_point", `точек ${lost.join(", ")} нет`, { ids: lost });
+  const owner = (await db.session(env.DB, rows[0].sid))?.owner ?? null;
+  const points = rows.map(db.toPoint);
+  // блоки нужны только машине
+  return { owner, points, ...(machine ? { links: await links(env, "GET", [...new Set(points.flatMap((p) => p.files.flatMap((x) => x.b)))]) } : {}) };
+}
+
+async function listSession(env: Env, sid: string) {
+  const current = await db.session(env.DB, sid);
+  if (!current) return { owner: null, head: null, points: [] };
+  const rows = await db.pointsOf(env.DB, sid);
+  const line = lineOf(rows, current.head);
+  const until = expiry(rows, current.head);
+  const points: ListedPoint[] = rows.map((r) => {
+    const { files: _f, spec: _s, last: _l, sid: _sid, ...rest } = db.toPoint(r);
+    return { ...rest, line: line.has(r.id), until: until.get(r.id) ?? null };
+  });
+  return { owner: current.owner, head: current.head, points };
+}
+
+async function listFleet(env: Env) {
+  const [rows, r2, sweepAt] = await Promise.all([db.fleetRows(env.DB), db.blockTotals(env.DB), db.lastSweep(env.DB)]);
+  const sessions = rows.map((r) => ({
+    sid: r.sid,
+    ...(r.callsign !== null ? { callsign: r.callsign } : {}),
+    ...(r.dir !== null ? { dir: r.dir } : {}),
+    owner: r.owner,
+    head: { id: r.head, at: r.at },
+    points: r.n,
+    branches: r.branches,
+  }));
+  return { sessions, r2: { bytes: r2.bytes, blocks: r2.blocks }, sweep: sweepAt };
+}
+
+/** Блоки без ссылок: сначала из R2, затем из базы — оборвалось посередине, следующий раз доделает. */
+async function collectOrphans(env: Env): Promise<{ blocks: number; bytes: number }> {
+  const orphans = await db.orphanBlocks(env.DB);
+  for (let i = 0; i < orphans.length; i += BATCH) {
+    const part = orphans.slice(i, i + BATCH);
+    await env.BUCKET.delete(part.map((b) => `f/${b.hash}`));
+    await db.dropBlocks(env.DB, part.map((b) => b.hash));
+  }
+  return { blocks: orphans.length, bytes: orphans.reduce((n, b) => n + b.size, 0) };
+}
+
+async function remove(env: Env, sid: string, machine: string | null, by: string): Promise<{ result: Record<string, unknown>; line?: LedgerAdd }> {
+  const current = await db.session(env.DB, sid);
+  if (current && machine && machine !== current.owner) throw new Refused("not_owner", `хозяин ${current.owner}`, { owner: current.owner });
+  const rows = await db.pointsOf(env.DB, sid);
+  if (!rows.length) return { result: { points: 0, blocks: 0, bytes: 0 } };
+  const callsign = rows.find((r) => r.id === current?.head)?.callsign ?? null;
+  await db.dropPoints(env.DB, rows.map((r) => r.id));
+  await db.dropSession(env.DB, sid);
+  const freed = await collectOrphans(env);
+  log({ kind: "note", ev: "points.delete", sid, by, points: rows.length, ...freed });
+  return { result: { points: rows.length, ...freed }, line: ledgerLine("session.deleted", `${shortName(callsign, sid)} удалена из R2 · ${rows.length} точек`, { machine: current?.owner, callsign, by }) };
+}
+
+/** Уборка: правило хранения по каждой сессии, затем блоки без ссылок. */
+export async function sweep(env: Env): Promise<void> {
+  const now = Date.now();
+  let points = 0;
+  for (const s of await db.sessions(env.DB)) {
+    const rows = await db.pointsOf(env.DB, s.sid);
+    const out = expired(rows, s.head, now);
+    await db.dropPoints(env.DB, out);
+    points += out.length;
+    if (out.length === rows.length) await db.dropSession(env.DB, s.sid);
+  }
+  const freed = await collectOrphans(env);
+  await db.saveSweep(env.DB, { at: now, ...freed });
+  log({ kind: "note", ev: "sweep", points, ...freed });
+}
+
+/** Запрос контракта → результат или Refused; строка журнала флота уходит отдельно. */
+export async function serve(env: Env, f: Frame, machine: string | null): Promise<{ result: Record<string, unknown>; line?: LedgerAdd }> {
+  switch (f.type) {
+    case "points.put":
+      if (!machine) throw new Refused("bad_frame", "точку кладёт только машина");
+      return put(env, f, machine);
+    case "points.get":
+      return { result: await get(env, f, machine) };
+    case "points.list":
+      return { result: typeof f.sid === "string" ? await listSession(env, f.sid) : await listFleet(env) };
+    case "points.delete":
+      if (typeof f.sid !== "string" || !f.sid) throw new Refused("bad_frame", "нет sid");
+      return remove(env, f.sid, machine, typeof f.by === "string" ? f.by : (f.from ?? ""));
+    default:
+      throw new Refused("unknown_request", `points не обслуживает ${f.type}`);
+  }
+}

@@ -2,15 +2,14 @@
 import { useState } from "react";
 import { Btn, day, H4, In, M, Note, Opts, Outcome, PageHead, plural, Row, Sec, slotChoice, slotOf, SlotPick, useApp, useOutcome } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
-import { canRaise, nameOf, say } from "./format.ts";
-import { CheckLine, PickMachine } from "./parts.tsx";
 import type { CheckResult, FleetSession, Slots } from "./store.ts";
-import { useTargetPick } from "./useTargetPick.ts";
+import { CheckLine, PickMachine, useChooseTarget } from "./target.tsx";
+import { canRaise, nameOf, refusal } from "./words.ts";
 
-type Del = { sid: string; name: string; typed: string };
-type Move = { s: FleetSession; target: string; slots: Slots | null; slot: string; dir: string; check: CheckResult | null; phase: "" | "run" | "done" | "err"; msg: string };
+type Deleting = { sid: string; name: string; typed: string };
+type Raising = { s: FleetSession; target: string; slots: Slots | null; slot: string; dir: string; check: CheckResult | null; phase: "" | "run" | "done" | "err"; msg: string };
 
-function DeleteDialog({ d, type, cancel, remove }: { d: Del; type(v: string): void; cancel(): void; remove(): void }) {
+function DeleteDialog({ d, type, cancel, remove }: { d: Deleting; type(v: string): void; cancel(): void; remove(): void }) {
   return (
     <Sec dlg data-dlg="delete">
       <b>{`Удалить точки «${d.name}» насовсем`}</b>
@@ -29,12 +28,12 @@ function DeleteDialog({ d, type, cancel, remove }: { d: Del; type(v: string): vo
   );
 }
 
-function MoveDialog({ d, pick, chooseSlot, run, close }: { d: Move; pick(m: string): void; chooseSlot(slot: string): void; run(): void; close(): void }) {
+function RaiseDialog({ d, pick, chooseSlot, run, close }: { d: Raising; pick(m: string): void; chooseSlot(slot: string): void; run(): void; close(): void }) {
   return (
     <Sec dlg data-dlg="raise">
       <b>{`Поднять ${nameOf(d.s.callsign ?? "")} из точки №${d.s.head.id}`}</b>
       <Row label="Машина">
-        <PickMachine cur={d.target} callsign={d.s.callsign ?? undefined} on={pick} />
+        <PickMachine cur={d.target} callsign={d.s.callsign} on={pick} />
       </Row>
       {d.slots ? <SlotPick slots={d.slots} value={d.slot} on={chooseSlot} /> : null}
       <Row label="Папка">
@@ -48,11 +47,11 @@ function MoveDialog({ d, pick, chooseSlot, run, close }: { d: Move; pick(m: stri
       ) : null}
       <Opts>
         <Btn onClick={close}>{d.phase === "done" ? "Закрыть" : "Отмена"}</Btn>
-        {d.phase !== "done" ? (
+        {d.phase === "done" ? null : (
           <Btn pri disabled={d.phase === "run" || !canRaise(d.check)} onClick={run}>
             {`Поднять на ${d.target}`}
           </Btn>
-        ) : null}
+        )}
       </Opts>
     </Sec>
   );
@@ -62,43 +61,44 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
   const app = useApp();
   const points = usePoints();
   const hasRaisers = app.use(() => points.raisers().length > 0);
-  const [q, setQ] = useState("");
-  const [del, setDel] = useState<Del | null>(null);
-  const [notes, say2] = useOutcome();
-  const [move, setMove] = useState<Move | null>(null);
-  const pick = useTargetPick(setMove);
+  const [query, setQuery] = useState("");
+  const [deleting, setDeleting] = useState<Deleting | null>(null);
+  const [notes, note] = useOutcome();
+  const [raising, setRaising] = useState<Raising | null>(null);
+  const choose = useChooseTarget(setRaising);
 
-  async function remove(d: Del) {
+  async function remove(d: Deleting) {
     const r = await points.deleteSession(d.sid);
-    if (!r.ok) return say2("delete", `points.delete: ${r.error}`, "bad");
-    setDel(null);
-    say2("delete", `${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`, "ok");
+    if (!r.ok) return note("delete", `points.delete: ${r.error}`, "bad");
+    setDeleting(null);
+    note("delete", `${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`, "ok");
   }
 
-  const pickTarget = (target: string, s: FleetSession, dir: string) => pick(target, [{ sid: s.sid, point: s.head.id, dir }], (m, { slots, checks }) => ({ ...m, slots, slot: slots ? slotChoice(Object.keys(slots), slotOf(points.session(s.callsign ?? ""))?.name) : "", check: checks[0] }));
+  const chooseTarget = (target: string, s: FleetSession, dir: string) =>
+    choose(target, [{ sid: s.sid, point: s.head.id, dir }], (d, { slots, checks }) => ({ ...d, slots, slot: slots ? slotChoice(Object.keys(slots), slotOf(points.session(s.callsign ?? ""))?.name) : "", check: checks[0] }));
 
-  function openMove(s: FleetSession) {
+  function openRaise(s: FleetSession) {
     const target = points.raisers()[0] ?? "";
     const dir = s.dir ?? "~";
-    setMove({ s, target, slots: null, slot: "", dir, check: null, phase: "", msg: "" });
-    void pickTarget(target, s, dir);
+    setRaising({ s, target, slots: null, slot: "", dir, check: null, phase: "", msg: "" });
+    void chooseTarget(target, s, dir);
   }
 
-  async function runMove(d: Move) {
-    setMove((m) => m && { ...m, phase: "run", msg: `${d.target} поднимает сессию из точки…` });
-    const x = await points.raise({ machine: d.target, sid: d.s.sid, point: d.s.head.id, dir: d.dir, ...(d.slot ? { slot: d.slot } : {}), files: "point" }, d.s.callsign);
-    setMove((m) => m && { ...m, phase: x.ok ? "done" : "err", msg: x.ok ? `${nameOf(d.s.callsign ?? "")} поднята: ${x.result.callsign}` : say(x.error, "", d.target) });
-    if (x.ok) void points.loadFleet();
+  async function runRaise(d: Raising) {
+    setRaising((x) => x && { ...x, phase: "run", msg: `${d.target} поднимает сессию из точки…` });
+    const r = await points.raise({ machine: d.target, sid: d.s.sid, point: d.s.head.id, dir: d.dir, ...(d.slot ? { slot: d.slot } : {}), files: "point" }, d.s.callsign);
+    setRaising((x) => x && { ...x, phase: r.ok ? "done" : "err", msg: r.ok ? `${nameOf(d.s.callsign ?? "")} поднята: ${r.result.callsign}` : refusal(r.error, "", d.target) });
+    if (r.ok) void points.loadFleet();
   }
 
-  const low = q.toLowerCase();
-  const shown = only.filter((s) => !q || [s.callsign, s.dir, day(s.head.at)].some((x) => x?.toLowerCase().includes(low))).sort((a, b) => b.head.at - a.head.at);
+  const q = query.toLowerCase();
+  const shown = only.filter((s) => !q || [s.callsign, s.dir, day(s.head.at)].some((x) => x?.toLowerCase().includes(q))).sort((a, b) => b.head.at - a.head.at);
 
   return (
     <Sec data-only="">
       <PageHead>
         <H4>{`Только в R2 · ${only.length}`}</H4>
-        <In data-f="q" size={26} placeholder="⌕ имя, папка или месяц…" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+        <In data-f="q" size={26} placeholder="⌕ имя, папка или месяц…" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
       </PageHead>
       {shown.map((s) => {
         const name = nameOf(s.callsign ?? s.sid);
@@ -112,23 +112,22 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
               <Btn
                 bad
                 onClick={() => {
-                  setDel({ sid: s.sid, name, typed: "" });
-                  say2("delete", "");
+                  setDeleting({ sid: s.sid, name, typed: "" });
+                  note("delete", "");
                 }}
               >
                 Удалить…
               </Btn>
-              {hasRaisers ? <Btn onClick={() => openMove(s)}>Перенести на машину…</Btn> : null}
+              {hasRaisers ? <Btn onClick={() => openRaise(s)}>Перенести на машину…</Btn> : null}
             </Opts>
-            {del?.sid === s.sid ? <DeleteDialog d={del} type={(typed) => setDel((x) => x && { ...x, typed })} cancel={() => setDel(null)} remove={() => void remove(del)} /> : null}
-            {move?.s.sid === s.sid ? <MoveDialog d={move} pick={(m) => void pickTarget(m, move.s, move.dir)} chooseSlot={(slot) => setMove((x) => x && { ...x, slot })} run={() => void runMove(move)} close={() => setMove(null)} /> : null}
+            {deleting?.sid === s.sid ? <DeleteDialog d={deleting} type={(typed) => setDeleting((x) => x && { ...x, typed })} cancel={() => setDeleting(null)} remove={() => void remove(deleting)} /> : null}
+            {raising?.s.sid === s.sid ? <RaiseDialog d={raising} pick={(m) => void chooseTarget(m, raising.s, raising.dir)} chooseSlot={(slot) => setRaising((x) => x && { ...x, slot })} run={() => void runRaise(raising)} close={() => setRaising(null)} /> : null}
           </div>
         );
       })}
       {notes.delete?.tone === "ok" ? (
         <Sec tone="ok" role="status">
           <b>{notes.delete.text}</b>
-          <Note>Запись — в «Журнале флота».</Note>
         </Sec>
       ) : (
         <Outcome note={notes.delete} />

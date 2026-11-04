@@ -1,7 +1,7 @@
 // Покрытие плана screen-machine-answers: ответы машин одним циклом, фильтры по вычислению, части и отказы. Настройки — в settings.test.ts.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, flush, pointsRelay, pult, SLOTS } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, pult, SLOTS } from "./stand.ts";
 
 type T = Awaited<ReturnType<typeof pult>>;
 
@@ -149,30 +149,5 @@ describe("машины", () => {
     expect(t.$('[data-machine="pc"]')!.textContent).toContain("keeper.state: offline");
     await t.click(t.$('[data-row="laptop"] .mc-head'));
     expect(t.$('[data-machine="laptop"] [data-part="host"]')!.textContent).toContain("1.2.0");
-  });
-});
-
-describe("поле папки в точках", () => {
-  it("6939 · папку набрали и ушли с поля: проба по новому значению, запрос один", async () => {
-    // источник: чьё: код
-    const relay = pointsRelay();
-    relay.handlers["points.raise"] = () => ({ ok: true, result: { folder: "same" } });
-    const t = await pult({ relay });
-    await t.expand();
-    await t.click(t.$('[data-callsign="site@laptop"]'));
-    await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
-    await flush(10);
-    await t.click(t.btn(null, "Перенести…"));
-    await flush(10);
-    const dir = t.$<HTMLInputElement>('[data-f="dir"]')!;
-    const before = relay.sent("points.raise").length;
-    dir.value = "~/новая";
-    dir.dispatchEvent(new Event("input", { bubbles: true }));
-    await flush();
-    dir.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
-    await flush(5);
-    const asked = relay.sent("points.raise").slice(before);
-    expect(asked).toHaveLength(1);
-    expect(asked[0]).toMatchObject({ dryRun: true, dir: "~/новая" });
   });
 });

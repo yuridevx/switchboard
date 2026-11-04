@@ -1,14 +1,15 @@
-// Обзор реестра: «пожар», сессии в R2 на связи, «только в R2», занято в R2.
+// Обзор реестра: машины не на связи, сессии в R2, «только в R2», занято в R2.
 import { memo, useCallback, useEffect, useMemo } from "react";
 import { ago, Btn, day, H4, hhmm, Note, Opts, Page, PageHead, plural, Sec, useApp } from "@switchboard/web-ui";
-import { usePoints } from "./store.ts";
+import type { Roster } from "@switchboard/web-core";
 import { FireSection } from "./FireSection.tsx";
-import { mb, r2Of, say } from "./format.ts";
 import { OnlySection } from "./OnlySection.tsx";
-import type { FleetSession } from "./store.ts";
+import { usePoints } from "./store.ts";
+import type { Fleet, FleetSession } from "./store.ts";
+import { mb, r2Of, refusal } from "./words.ts";
 
 /** Строка сессии в R2: имя — своей выборкой, правка имени перерисует только её. */
-const R2Row = memo(function R2Row({ s, save }: { s: FleetSession; save(callsign: string): Promise<void> }) {
+const SessionRow = memo(function SessionRow({ s, save }: { s: FleetSession; save(callsign: string): Promise<void> }) {
   const app = useApp();
   const label = app.use(() => app.mark("label.session", s.callsign ?? ""));
   const canSave = app.use(() => !!app.can(s.owner, "points.save"));
@@ -23,45 +24,41 @@ const R2Row = memo(function R2Row({ s, save }: { s: FleetSession; save(callsign:
   );
 });
 
-function PageTitle() {
-  return (
-    <PageHead title="Точки">
-    </PageHead>
-  );
+/** Раскладка реестра: хозяин пропал, сессия живёт на машине, осталась только в R2. */
+function sortFleet(fleet: Fleet | null, roster: Roster | null) {
+  const online = new Set((roster?.machines ?? []).map((m) => m.machine));
+  const live = new Set((roster?.sessions ?? []).map((s) => s.callsign));
+  const lost = new Map<string, FleetSession[]>();
+  const only: FleetSession[] = [];
+  const running: FleetSession[] = [];
+  for (const s of fleet?.sessions ?? []) {
+    if (!online.has(s.owner)) lost.set(s.owner, [...(lost.get(s.owner) ?? []), s]);
+    else if (s.callsign && live.has(s.callsign)) running.push(s);
+    else only.push(s);
+  }
+  return { fires: [...lost], only, running: running.sort((a, b) => a.head.at - b.head.at) };
 }
 
 export function OverviewScreen() {
   const app = useApp();
   const points = usePoints();
   const fleet = app.use(points.fleet);
-  const refused = app.use(points.fleetRefused);
+  const refused = app.use(points.refused);
   const roster = app.use(() => app.roster());
-
   useEffect(() => void points.loadFleet(), [points]);
+  const { fires, only, running } = useMemo(() => sortFleet(fleet, roster), [fleet, roster]);
 
-  const save = useCallback(async (callsign: string) => {
-    const r = await points.savePoint(callsign);
-    app.toast(r.ok ? `${callsign}: точка №${r.result.point}${r.result.same ? " — та же" : ""}` : `${callsign}: ${say(r.error, callsign)}`, r.ok ? "ok" : "bad");
-    if (r.ok) await points.loadFleet();
-  }, [app, points]);
+  const save = useCallback(
+    async (callsign: string) => {
+      const r = await points.save(callsign);
+      if (!r.ok) return app.toast(`${callsign}: ${refusal(r.error, callsign)}`, "bad");
+      app.toast(`${callsign}: точка №${r.result.point}${r.result.same ? " — та же" : ""}`, "ok");
+      await points.loadFleet();
+    },
+    [app, points],
+  );
 
-  // раскладка реестра: хозяин пропал, сессия живёт на машине, осталась только в R2
-  const { fires, only, inR2 } = useMemo(() => {
-    const on = new Set((roster?.machines ?? []).map((m) => m.machine));
-    const live = new Set((roster?.sessions ?? []).map((s) => s.callsign));
-    const byOwner = new Map<string, FleetSession[]>();
-    const only: FleetSession[] = [];
-    const inR2: FleetSession[] = [];
-    for (const s of fleet?.sessions ?? []) {
-      if (!on.has(s.owner)) byOwner.set(s.owner, [...(byOwner.get(s.owner) ?? []), s]);
-      else if (s.callsign && live.has(s.callsign)) inR2.push(s);
-      else only.push(s);
-    }
-    inR2.sort((a, b) => a.head.at - b.head.at);
-    return { fires: [...byOwner], only, inR2 };
-  }, [fleet, roster]);
-
-  const refusal = refused ? (
+  const alert = refused ? (
     <Note tone="bad" role="alert">
       {`points.list: ${refused}`}
     </Note>
@@ -69,35 +66,34 @@ export function OverviewScreen() {
   if (!fleet) {
     return (
       <Page>
-        <PageTitle />
-        {refusal}
-        {refused ? null : <Note>…</Note>}
+        <PageHead title="Точки" />
+        {alert ?? <Note>…</Note>}
       </Page>
     );
   }
 
-  const total = roster?.sessions.length ?? 0;
-  const outside = (roster?.sessions ?? []).filter((s) => !r2Of(s)).map((s) => s.callsign);
+  const sessions = roster?.sessions ?? [];
+  const unmarked = sessions.filter((s) => !r2Of(s)).map((s) => s.callsign);
   return (
     <Page>
-      <PageTitle />
-      {refusal}
+      <PageHead title="Точки" />
+      {alert}
       <FireSection fires={fires} />
       <Opts data-summary="">
-        <b>{`${inR2.length} ${plural(inR2.length, "сессия", "сессии", "сессий")} в R2 из ${total} на машинах`}</b>
-        {fires.map(([m, l]) => (
-          <Note key={m} tone="bad">{`· ${l.length} на ${m} — нет связи`}</Note>
+        <b>{`${running.length} ${plural(running.length, "сессия", "сессии", "сессий")} в R2 из ${sessions.length} на машинах`}</b>
+        {fires.map(([m, list]) => (
+          <Note key={m} tone="bad">{`· ${list.length} на ${m} — нет связи`}</Note>
         ))}
         <Note>{`· ${only.length} только в R2`}</Note>
       </Opts>
       <Sec>
         <H4>Последняя точка</H4>
-        {inR2.map((s) => (
-          <R2Row key={s.sid} s={s} save={save} />
+        {running.map((s) => (
+          <SessionRow key={s.sid} s={s} save={save} />
         ))}
-        {inR2.length ? null : <Note>Сессий в R2 на связи нет.</Note>}
+        {running.length ? null : <Note>Сессий в R2 на связи нет.</Note>}
       </Sec>
-      {outside.length ? <Note>{`${outside.join(", ")} не в R2`}</Note> : null}
+      {unmarked.length ? <Note>{`${unmarked.join(", ")} не в R2`}</Note> : null}
       <OnlySection only={only} />
       <Note>
         {`В R2 ${mb(fleet.r2.bytes)}`}

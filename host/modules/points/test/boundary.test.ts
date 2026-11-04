@@ -1,17 +1,21 @@
-// Эталоны и стыки модуля points на стенде Host: поддельные SDK, relay, keeper и часы;
-// Worker points, manage соседней машины и R2 — подделки. Файл разговора — заданные байты. Номер эталона — номер теста.
+// Леса границы «точка сессии», сторона Host: настоящее ядро на поддельных SDK, relay, keeper и часах; реестр Worker'а, manage и R2 — подделки.
+// Только вход контракта: запросы, сессии ядра и файлы на диске; исход — кадры к реестру, файлы, поле roster, журнал. Номер — эталон-источник; без номера — чьё: код.
 import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { stand } from "@switchboard/host";
+import { claudeDir, stand } from "@switchboard/host";
 import type { Frame, Session } from "@switchboard/host";
-import { BLOCK, projectDir } from "../src/blocks.ts";
-import { GAP_MS, lastOf, LONG_MS } from "../src/points.ts";
-import { bench, FakeRegistry, tmpHome } from "./bench.ts";
+import { bench, BLOCK, FakeRegistry, tmpHome } from "./bench.ts";
 import type { Bench } from "./bench.ts";
 
 const { msg, turn, until } = stand;
+
+/** Правило точек: конец хода — не чаще раза в 2 мин; ход идёт 10 мин без точки — точка посреди хода. */
+const GAP_MS = 2 * 60_000;
+const LONG_MS = 10 * 60_000;
+/** Папка проекта рабочей папки: так её называет Claude Code. */
+const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 
 let b: Bench | null = null;
 let home = "";
@@ -25,6 +29,7 @@ afterEach(async () => {
   await b?.st.close();
   b = null;
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   process.env = { ...saved };
 });
 
@@ -470,25 +475,75 @@ describe("points: ветки и стыки", () => {
     expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(r.result.branch);
   });
 
-  it("«первые слова»: 10 последних обменов по 160 знаков", () => {
-    const m = Array.from({ length: 12 }, (_, i) => [
+});
+
+describe("поля точки", () => {
+  it("«первые слова»: 10 последних обменов по 160 знаков, сообщений столько, сколько отдал SDK", async () => {
+    b = await bench({ home });
+    const messages = Array.from({ length: 12 }, (_, i) => [
       { type: "user", message: { content: `вопрос ${i}` } },
-      { type: "assistant", message: { content: [{ type: "text", text: "о".repeat(200) }] } },
+      { type: "assistant", message: { content: [{ type: "text", text: "о".repeat(200) }, { type: "tool_use" }] } },
+      { type: "user", message: { content: [{ type: "tool_result" }] } },
     ]).flat();
-    const l = lastOf(m);
-    expect(l).toHaveLength(10);
-    expect(l[0][0]).toBe("вопрос 2");
-    expect(l[9][1]).toHaveLength(160);
+    b.st.sdk.functions = { getSessionInfo: async () => ({}), importSessionToStore: async () => {}, getSessionMessages: async () => messages } as never;
+    await marked();
+    const p = puts().at(-1)!;
+    expect(p.msgs).toBe(36);
+    const last = p.last as string[][];
+    expect(last).toHaveLength(10);
+    expect(last[0][0]).toBe("вопрос 2");
+    expect(last[9][1]).toHaveLength(160);
   });
 
+  it("строка точки: sid, повод, callsign, папка, байты, спецификация; файлы — разговор и файлы рядом, блоками", async () => {
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    write(s.info.cwd, s.info.session_id, conv(3));
+    const sideDir = join(projectDir(s.info.cwd), s.info.session_id, "subagents");
+    mkdirSync(sideDir, { recursive: true });
+    writeFileSync(join(sideDir, "a.jsonl"), "{}\n");
+    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    const p = puts("save").at(-1)!;
+    const files = p.files as Array<{ p: string; size: number; b: string[] }>;
+    expect(files.map((x) => x.p)).toEqual([`${s.info.session_id}.jsonl`, `${s.info.session_id}/subagents/a.jsonl`]);
+    expect(p).toMatchObject({ sid: s.info.session_id, why: "save", callsign: "site@laptop", dir: s.info.cwd, bytes: conv(3).length + 3, spec: { title: "Сайт" }, to: ".points" });
+    expect(p.git).toBeUndefined();
+    expect(b.reg.bytes(b.reg.sessions.get(s.info.session_id)!.head, files[0].p)).toEqual(conv(3));
+  });
+
+  it("журнал: снятие пометки и подъём пишут причину строкой", async () => {
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
+    await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir: join(home, "Projects", "site"), files: "point" });
+    expect(b.st.journal()).toContainEqual(expect.objectContaining({ ev: "raise", callsign: "site@pc", sid: SID, point: 318, copy: false, why: "site@pc: поднята из точки 318" }));
+    await ask({ type: "session.r2", callsign: "site@pc", on: false });
+    expect(b.st.journal()).toContainEqual(expect.objectContaining({ ev: "r2_off", callsign: "site@pc", why: "site@pc: пометка «в R2» снята, точки удалены из R2" }));
+  });
 });
 
 describe("points: покрытие плана host-modules", () => {
-  it("3082 · пометка без файла разговора — отказ no_file, поле r2 { error, at }", async () => {
-    // источник: чьё: код (points.ts:115, :176-178, :303)
+  it("3082 · пометка без файла разговора: новая сессия до первого хода — пометка стоит, номера нет, ошибки нет; первая точка — на первом конце хода", async () => {
+    // источник: опыт на настоящем SDK 5 нояб. — до первого сообщения файла разговора нет: экран новой сессии показывал «в R2 не включилось»
     b = await bench({ home });
-    await b.st.open("site@laptop", { module: "host-points" });
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "no_file" });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: null } });
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site@laptop"]).toEqual({ r2: true });
+    expect(b.reg.puts).toEqual([]);
+    const p = b.st.proc("site@laptop");
+    p.send(msg.state("idle"));
+    await until(() => JSON.stringify(last("site@laptop").r2) === "{}");
+    write(s.info.cwd, s.info.session_id, conv(2));
+    p.send(msg.state("running"));
+    await until(() => s.state === "busy");
+    p.send(msg.state("idle"));
+    await until(() => puts("rule").length === 1);
+  });
+
+  it("3082 · сохранение помеченной без файла разговора — отказ no_file, поле r2 { error, at }", async () => {
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points" });
+    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    expect(await ask({ type: "points.save", callsign: s.info.callsign })).toMatchObject({ ok: false, error: "no_file" });
     b.st.proc("site@laptop").send(msg.state("idle"));
     await until(() => (last("site@laptop").r2 as { error?: string })?.error === "no_file");
     expect(b.st.journal().some((l) => l.ev === "point" && l.kind === "refuse" && l.word === "no_file")).toBe(true);
@@ -515,31 +570,39 @@ describe("points: покрытие плана host-modules", () => {
     expect(c.result).toEqual({ point: a.result.point, same: true });
   });
 
-  it("3085 · R2 не принял блок — r2_failed, поле r2 { error }", async () => {
-    // источник: чьё: код (points.ts:100-104)
+  it.each([
+    ["3085 · R2 не принял блок", (x: FakeRegistry) => {
+      x.r2 = new (class extends Map<string, Buffer> {
+        set(): this {
+          throw new Error("R2 недоступен");
+        }
+      })();
+    }],
+    ["3115 · сеть до R2 оборвалась", (x: FakeRegistry) => void (x.netDown = true)],
+  ])("%s при сохранении — r2_failed, строка журнала, поле r2 { error }", async (_n, down) => {
     b = await bench({ home });
     const s = await b.st.open("site@laptop", { module: "host-points" });
     write(s.info.cwd, s.info.session_id, conv(4));
-    b.reg.r2 = new (class extends Map<string, Buffer> {
-      set(): this {
-        throw new Error("R2 недоступен");
-      }
-    })();
+    down(b.reg);
     expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "r2_failed" });
     expect(b.st.journal().some((l) => l.ev === "r2" && l.word === "r2_failed")).toBe(true);
     b.st.proc("site@laptop").send(msg.state("idle"));
     await until(() => (last("site@laptop").r2 as { error?: string })?.error === "r2_failed");
   });
 
-  it("3109 · R2 не отдал блок при подъёме — отказ r2_failed, модуль точек остаётся включён", async () => {
+  it.each([
+    ["3109 · R2 не отдал блок", (x: FakeRegistry, h: string) => void x.r2.delete(`f/${h}`)],
+    ["3114 · сеть до R2 оборвалась", (x: FakeRegistry) => void (x.netDown = true)],
+  ])("%s при подъёме — r2_failed, файла нет, модуль точек остаётся включён", async (_n, down) => {
     // источник: факт цикла тестов 2 нояб. — один сбой R2: при save слово r2_failed, при raise модуль выключался на машине
     b = await bench({ home, machine: "pc" });
     const row = b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
-    b.reg.r2.delete(`f/${row.files[0].b[0]}`);
+    down(b.reg, row.files[0].b[0]);
     const dir = join(home, "Projects", "site");
     expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "r2_failed" });
     expect(existsSync(fileOf(dir, SID))).toBe(false);
     expect(b.st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+    b.reg.netDown = false;
     // модуль жив: следующий запрос обслуживается им, а не отказом module_error
     expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, dryRun: true })).toMatchObject({ ok: true });
   });
@@ -558,25 +621,6 @@ describe("points: покрытие плана host-modules", () => {
     const dir = join(home, "Projects", "site");
     expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", from: "pult~owner@example.com" })).toMatchObject({ ok: true });
     expect(b.reg.puts.filter((f) => f.why === "raise").at(-1)).toMatchObject({ by: "pult~owner@example.com" });
-  });
-
-  it("3114 · сеть до R2 оборвалась посреди подъёма — r2_failed, как у сохранения; модуль включён", async () => {
-    // источник: итерация 4 ревью «один сбой R2 — один исход r2_failed»; факт слепого расширения 2 нояб. — обрыв сети давал bad_point
-    b = await bench({ home, machine: "pc" });
-    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) });
-    b.reg.netDown = true;
-    const dir = join(home, "Projects", "site");
-    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: false, error: "r2_failed" });
-    expect(b.st.journal().some((l) => l.ev === "module_failed")).toBe(false);
-  });
-
-  it("3115 · сеть до R2 оборвалась при сохранении — r2_failed, поле r2 { error }", async () => {
-    // источник: чьё: код (сбой PUT по ссылке — r2_failed); итерация 4 ревью — один исход сбоя R2
-    b = await bench({ home });
-    const s = await b.st.open("site@laptop", { module: "host-points" });
-    write(s.info.cwd, s.info.session_id, conv(4));
-    b.reg.netDown = true;
-    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: false, error: "r2_failed" });
   });
 
   it("3116 · реестр отказал точке своим словом — тот же отказ, поле r2 { error } с этим словом", async () => {
@@ -767,5 +811,85 @@ describe("points: покрытие плана host-modules", () => {
     // после начала остановки — только начатая точка (её повтор после missing — та же точка), новых поводов нет
     expect(b0.reg.puts.slice(before).every((p) => p.why === "save")).toBe(true);
     expect(b0.reg.puts.slice(before).some((p) => p.result === "ok")).toBe(true);
+  });
+});
+
+describe("папка подъёма и git", () => {
+  const SUMMARY = { state: "clean", files: 0, unpushed: 0, url: "https://github.com/me/site.git", branch: "main", commit: "abc" };
+  const repoAt = (dir: string, url = SUMMARY.url) => {
+    mkdirSync(dir, { recursive: true });
+    git(dir, "init", "-q");
+    git(dir, "remote", "add", "origin", url);
+    writeFileSync(join(dir, "a"), "1");
+    git(dir, "add", "a");
+    git(dir, "commit", "-qm", "init");
+  };
+
+  it.each([
+    ["точка без git — nogit", undefined, () => {}, { folder: "nogit", files: 0, branch: null, sessions: [] }],
+    ["папки нет — empty", SUMMARY, () => {}, { folder: "empty", files: 0, branch: null, sessions: [] }],
+    ["папка не репозиторий — other", SUMMARY, (d: string) => void mkdirSync(d, { recursive: true }), { folder: "other", files: 0, branch: null, sessions: [] }],
+    ["тот же репозиторий без правок — same и ветка", SUMMARY, (d: string) => repoAt(d), { folder: "same", files: 0, sessions: [] }],
+  ])("dryRun: %s", async (_n, g, prepare, want) => {
+    const dir = join(home, "Projects", "dry");
+    prepare(dir);
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) }, { git: g });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", dryRun: true });
+    expect(r.result).toMatchObject(want);
+    if (want.folder === "same") expect(r.result.branch).toBeTypeOf("string");
+  });
+
+  it("dryRun: в папке идёт другая сессия — shared, называет её; файлы и git не трогает", async () => {
+    const dir = join(home, "Projects", "shared");
+    repoAt(dir);
+    b = await bench({ home, machine: "pc" });
+    await b.st.open("near@pc", { module: "host-points", cwd: dir });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) }, { git: SUMMARY });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point", dryRun: true });
+    expect(r.result).toMatchObject({ folder: "shared", files: 0, sessions: ["near@pc"] });
+    expect(r.result.branch).toBeTypeOf("string");
+  });
+
+  it("неотправленный коммит без правок: state clean, unpushed, снимок — пакет; файлы папки не тронуты", async () => {
+    const origin = join(home, "origin.git");
+    mkdirSync(origin);
+    git(origin, "init", "-q", "--bare");
+    const work = join(home, "work", "site");
+    repoAt(work, origin);
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    writeFileSync(join(work, "b"), "2");
+    git(work, "add", "b");
+    git(work, "commit", "-qm", "ещё");
+    const head = git(work, "rev-parse", "HEAD");
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
+    write(work, s.info.session_id, conv(3));
+    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    const pt = puts("save").at(-1)!;
+    expect(pt.git).toMatchObject({ state: "clean", files: 0, unpushed: 1, url: origin, commit: head, snap: head });
+    expect((pt.files as Array<{ p: string }>).map((x) => x.p)).toContain("git.bundle");
+    expect(git(work, "rev-parse", "HEAD")).toBe(head);
+    expect(git(work, "for-each-ref", "refs/points")).toBe("");
+  });
+
+  it("подъём в тот же чистый репозиторий: fetch origin, новая ветка от коммита точки; пакет в папку проекта не кладётся", async () => {
+    const origin = join(home, "origin.git");
+    mkdirSync(origin);
+    git(origin, "init", "-q", "--bare");
+    const work = join(home, "work", "site");
+    repoAt(work, origin);
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    const commit = git(work, "rev-parse", "HEAD");
+    b = await bench({ home, machine: "pc" });
+    const dir = join(home, "Projects", "site");
+    git(join(home, "Projects", ".."), "clone", "-q", origin, dir);
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) }, { git: { ...SUMMARY, url: origin, commit } });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" });
+    expect(r.result).toMatchObject({ folder: "same" });
+    expect(r.result.branch).toMatch(/^points-\d{4}-\d\d-\d\d-\d{4}$/);
+    expect(git(dir, "rev-parse", "HEAD")).toBe(commit);
+    expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(r.result.branch);
+    expect(existsSync(join(projectDir(dir), "git.bundle"))).toBe(false);
   });
 });

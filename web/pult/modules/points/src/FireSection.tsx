@@ -1,67 +1,81 @@
-// «Пожар»: машины хозяина нет в roster. Плашка на машину и перенос её сессий: по одной, следующая — после ответа на предыдущую; points.save не шлётся.
+// Машина хозяина не на связи: плашка на машину и перенос её сессий по одной, следующая — после ответа на предыдущую.
 import { useEffect, useRef, useState } from "react";
 import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec, slotChoice, SlotPick, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
-import { canRaise, folderText, nameOf, say } from "./format.ts";
-import { PickMachine } from "./parts.tsx";
 import type { CheckResult, FleetSession, Slots } from "./store.ts";
-import { useTargetPick } from "./useTargetPick.ts";
+import { PickMachine, useChooseTarget } from "./target.tsx";
+import { canRaise, folderText, nameOf, refusal } from "./words.ts";
 
-type FireRow = { s: FleetSession; dir: string; check: CheckResult | null; st: string };
-type Fire = { from: string; target: string; slots: Slots | null; slot: string; rows: FireRow[]; run: boolean; done: number };
+type Item = { s: FleetSession; dir: string; check: CheckResult | null; status: string };
+type Moving = { from: string; target: string; slots: Slots | null; slot: string; items: Item[]; started: boolean; done: number };
 
-function FireDialog({ f, pick, chooseSlot, run, close }: { f: Fire; pick(m: string): void; chooseSlot(slot: string): void; run(): void; close(): void }) {
-  const ready = f.rows.every((r) => canRaise(r.check));
+const nameOfItem = (s: FleetSession) => nameOf(s.callsign ?? s.sid);
+
+function ProgressHead({ m }: { m: Moving }) {
+  const total = m.items.length;
+  const going = m.done < total && m.items.some((i) => !i.status || i.status.endsWith("…"));
+  return (
+    <Sec tone={m.done === total ? "ok" : "wait"} role="status" data-progress={`${m.done}/${total}`}>
+      <b>{`Перенос с ${m.from} на ${m.target}: ${m.done} из ${total} готовы${going ? " — не закрывайте страницу" : ""}`}</b>
+    </Sec>
+  );
+}
+
+function ItemCheck({ check, target }: { check: CheckResult | null; target: string }) {
+  if (!check) return <Note>проверяю папку…</Note>;
+  return "error" in check ? <Note tone="bad">{refusal(check.error)}</Note> : <Note>{folderText(check, target)}</Note>;
+}
+
+function MoveDialog({ m, pick, chooseSlot, run, close }: { m: Moving; pick(machine: string): void; chooseSlot(slot: string): void; run(): void; close(): void }) {
+  const total = m.items.length;
   return (
     <Sec dlg data-dlg="fire">
-      <H4>{`Перенести сессии ${f.from} на другую машину`}</H4>
-      {f.run ? (
-        <Sec tone={f.done === f.rows.length ? "ok" : "wait"} role="status" data-progress={`${f.done}/${f.rows.length}`}>
-          <b>{`Перенос с ${f.from} на ${f.target}: ${f.done} из ${f.rows.length} готовы${f.done < f.rows.length && f.rows.some((r) => !r.st || r.st.endsWith("…")) ? " — не закрывайте страницу" : ""}`}</b>
-        </Sec>
+      <H4>{`Перенести сессии ${m.from} на другую машину`}</H4>
+      {m.started ? (
+        <ProgressHead m={m} />
       ) : (
         <Row label="Куда">
-          <PickMachine cur={f.target} callsign={f.rows[0]?.s.callsign ?? undefined} on={pick} />
+          <PickMachine cur={m.target} callsign={m.items[0]?.s.callsign} on={pick} />
         </Row>
       )}
-      {!f.run && f.slots ? <SlotPick label={`Слот на ${f.target}`} slots={f.slots} value={f.slot} on={chooseSlot} /> : null}
-      {f.rows.map((r) => (
-        <Sec key={r.s.sid} data-row={nameOf(r.s.callsign ?? r.s.sid)}>
-          <b>{nameOf(r.s.callsign ?? r.s.sid)}</b>
-          <Note>{`точка ${hhmm(r.s.head.at)} · №${r.s.head.id}`}</Note>
-          {f.run ? (
-            <Note>{r.st}</Note>
+      {!m.started && m.slots ? <SlotPick label={`Слот на ${m.target}`} slots={m.slots} value={m.slot} on={chooseSlot} /> : null}
+      {m.items.map((i) => (
+        <Sec key={i.s.sid} data-row={nameOfItem(i.s)}>
+          <b>{nameOfItem(i.s)}</b>
+          <Note>{`точка ${hhmm(i.s.head.at)} · №${i.s.head.id}`}</Note>
+          {m.started ? (
+            <Note>{i.status}</Note>
           ) : (
-            <Opts>
-              <M>{r.dir}</M>
-            </Opts>
+            <>
+              <Opts>
+                <M>{i.dir}</M>
+              </Opts>
+              <ItemCheck check={i.check} target={m.target} />
+            </>
           )}
-          {f.run ? null : r.check ? "error" in r.check ? <Note tone="bad">{say(r.check.error)}</Note> : <Note>{folderText(r.check, f.target)}</Note> : <Note>проверяю папку…</Note>}
         </Sec>
       ))}
-      <Note>Каждая поднимется из своей последней точки, по одной, пока страница открыта. Закроете — оставшиеся ждут на точках, плашка останется.</Note>
-      {f.run ? (
+      {m.started ? (
         <Opts>
           <Btn onClick={close}>Закрыть</Btn>
         </Opts>
       ) : (
         <Opts>
           <Btn onClick={close}>Отмена</Btn>
-          <Btn pri disabled={!ready || !f.target} onClick={run}>{`Перенести ${f.rows.length} из ${f.rows.length} на ${f.target}`}</Btn>
+          <Btn pri disabled={!m.target || !m.items.every((i) => canRaise(i.check))} onClick={run}>{`Перенести ${total} из ${total} на ${m.target}`}</Btn>
         </Opts>
       )}
     </Sec>
   );
 }
 
-/** Плашка машины: когда ушла — знает модуль машин; идёт перенос — второй не начать. */
-function FirePlate({ m, list, open }: { m: string; list: FleetSession[]; open: (() => void) | null }) {
+/** Плашка машины: когда ушла, знает модуль машин; идёт перенос — второй не начать. */
+function LostMachine({ machine, list, open }: { machine: string; list: FleetSession[]; open: (() => void) | null }) {
   const app = useApp();
-  const left = app.use(() => app.mark("machines.left", m));
+  const left = app.use(() => app.mark("machines.left", machine));
   return (
-    <Sec tone="bad" data-fire={m}>
-      <b>{`${m} не на связи${left ? ` с ${hhmm(left)}` : ""} · ${list.length} ${plural(list.length, "сессия ждёт", "сессии ждут", "сессий ждут")} на последних точках`}</b>
-      <Note>{`Что ${m} допишет после точек, вернётся веткой, если он появится.`}</Note>
+    <Sec tone="bad" data-fire={machine}>
+      <b>{`${machine} не на связи${left ? ` с ${hhmm(left)}` : ""} · ${list.length} ${plural(list.length, "сессия ждёт", "сессии ждут", "сессий ждут")} на последних точках`}</b>
       {open ? (
         <Opts>
           <Btn pri onClick={open}>
@@ -77,54 +91,55 @@ export function FireSection({ fires }: { fires: Array<[string, FleetSession[]]> 
   const app = useApp();
   const points = usePoints();
   const hasRaisers = app.use(() => points.raisers().length > 0);
-  const [fire, setFire] = useState<Fire | null>(null);
+  const [moving, setMoving] = useState<Moving | null>(null);
   const [running, setRunning] = useState(false);
-  // закрыли окно или ушли с экрана — текущая доходит, оставшиеся ждут на точках
-  const stopped = useRef(false);
+  // закрыли окно или ушли с экрана: текущая доходит, оставшиеся ждут на точках
+  const halted = useRef(false);
   useEffect(() => {
-    stopped.current = false;
+    halted.current = false;
     return () => {
-      stopped.current = true;
+      halted.current = true;
     };
   }, []);
-  const pickTarget = useTargetPick(setFire);
+  const choose = useChooseTarget(setMoving);
 
-  const pick = (target: string, rows: FireRow[]) =>
-    pickTarget(target, rows.map((r) => ({ sid: r.s.sid, point: r.s.head.id, dir: r.dir })), (f, { slots, checks }) => ({ ...f, slots, slot: slots ? slotChoice(Object.keys(slots)) : "", rows: f.rows.map((r, i) => ({ ...r, check: checks[i] })) }));
+  const chooseTarget = (target: string, items: Item[]) =>
+    choose(target, items.map((i) => ({ sid: i.s.sid, point: i.s.head.id, dir: i.dir })), (m, { slots, checks }) => ({ ...m, slots, slot: slots ? slotChoice(Object.keys(slots)) : "", items: m.items.map((i, n) => ({ ...i, check: checks[n] })) }));
 
   function open(from: string, list: FleetSession[]) {
     const target = points.raisers()[0] ?? "";
-    const rows: FireRow[] = list.map((s) => ({ s, dir: s.dir ?? "~", check: null, st: "" }));
-    setFire({ from, target, slots: null, slot: "", rows, run: false, done: 0 });
-    void pick(target, rows);
+    const items: Item[] = list.map((s) => ({ s, dir: s.dir ?? "~", check: null, status: "" }));
+    setMoving({ from, target, slots: null, slot: "", items, started: false, done: 0 });
+    void chooseTarget(target, items);
   }
 
-  async function run(f: Fire) {
-    stopped.current = false;
+  async function run(m: Moving) {
+    halted.current = false;
     setRunning(true);
-    setFire((x) => x && { ...x, run: true });
-    const setSt = (i: number, st: string, done = 0) => setFire((x) => x && { ...x, done: x.done + done, rows: x.rows.map((r, n) => (n === i ? { ...r, st } : r)) });
-    for (const [i, r] of f.rows.entries()) {
-      if (stopped.current) break;
-      setSt(i, "поднимается…");
-      const x = await points.raise({ machine: f.target, sid: r.s.sid, point: r.s.head.id, dir: r.dir, ...(f.slot ? { slot: f.slot } : {}), files: "point" }, r.s.callsign);
-      setSt(i, x.ok ? `готова — ${x.result.callsign}` : x.error === "not_owner" ? "уже подняли на другой машине" : `не поднялась: ${say(x.error)}`, x.ok ? 1 : 0);
+    setMoving((x) => x && { ...x, started: true });
+    const report = (n: number, status: string, done = 0) => setMoving((x) => x && { ...x, done: x.done + done, items: x.items.map((i, k) => (k === n ? { ...i, status } : i)) });
+    for (const [n, i] of m.items.entries()) {
+      if (halted.current) break;
+      report(n, "поднимается…");
+      const r = await points.raise({ machine: m.target, sid: i.s.sid, point: i.s.head.id, dir: i.dir, ...(m.slot ? { slot: m.slot } : {}), files: "point" }, i.s.callsign);
+      if (r.ok) report(n, `готова — ${r.result.callsign}`, 1);
+      else report(n, r.error === "not_owner" ? "уже подняли на другой машине" : `не поднялась: ${refusal(r.error)}`);
     }
     setRunning(false);
     void points.loadFleet();
   }
 
   function close() {
-    stopped.current = true;
-    setFire(null);
+    halted.current = true;
+    setMoving(null);
   }
 
   return (
     <>
-      {fires.map(([m, list]) => (
-        <FirePlate key={m} m={m} list={list} open={!fire && !running && hasRaisers ? () => open(m, list) : null} />
+      {fires.map(([machine, list]) => (
+        <LostMachine key={machine} machine={machine} list={list} open={!moving && !running && hasRaisers ? () => open(machine, list) : null} />
       ))}
-      {fire ? <FireDialog f={fire} pick={(m) => void pick(m, fire.rows)} chooseSlot={(slot) => setFire((x) => x && { ...x, slot })} run={() => void run(fire)} close={close} /> : null}
+      {moving ? <MoveDialog m={moving} pick={(machine) => void chooseTarget(machine, moving.items)} chooseSlot={(slot) => setMoving((x) => x && { ...x, slot })} run={() => void run(moving)} close={close} /> : null}
     </>
   );
 }

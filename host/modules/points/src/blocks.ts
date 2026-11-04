@@ -1,66 +1,108 @@
-// Блоки точки: каждый файл — куски по 1 МиБ от начала, имя блока — SHA-256 содержимого, в R2 — сжатый zstd.
-// Файлы разговора (.jsonl) режутся до последнего перевода строки: посреди хода последняя строка может быть недописана.
-// Своего списка «что уже в R2» нет: отпечатки считаются каждый раз заново, что есть в R2 — знает реестр.
+// Блоки точки: файл режется на куски по 1 МиБ, имя блока — SHA-256 содержимого, в R2 блок лежит сжатым zstd.
+// Файл разговора (.jsonl) берётся до последнего перевода строки: посреди хода последняя строка бывает недописана.
+// Что уже в R2, знает реестр; модуль считает отпечатки заново на каждую точку и ходит в R2 по его ссылкам, без ключа и подписи.
 import { createHash } from "node:crypto";
-import { existsSync, openSync, readdirSync, readFileSync, readSync, closeSync, statSync } from "node:fs";
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { claudeDir } from "@switchboard/host";
 import { zstdCompressSync, zstdDecompressSync } from "node:zlib";
+import { claudeDir } from "@switchboard/host";
 
-export const BLOCK = 1 << 20;
+const BLOCK = 1 << 20;
 
-/** Файл точки, как его хранит реестр: путь относительно папки проекта, размер и отпечатки блоков. */
 export type PointFile = { p: string; size: number; b: string[] };
-/** Где лежат байты блока на машине. */
-export type Ref = { file: string; off: number; len: number };
-export type Scan = { files: PointFile[]; refs: Map<string, Ref>; bytes: number };
+export type Links = Record<string, string>;
+export type Fetch = typeof fetch;
+type Place = { file: string; off: number; len: number };
+/** Файлы точки и где лежат байты каждого блока. */
+export type Scan = { files: PointFile[]; places: Map<string, Place>; bytes: number };
 
 /** Папка проекта рабочей папки: так её называет Claude Code — каждый знак не буква и не цифра — «-». */
 export const projectDir = (cwd: string) => join(claudeDir(), "projects", cwd.replace(/[^a-zA-Z0-9]/g, "-"));
 
-export const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
-export const pack = (b: Buffer) => zstdCompressSync(b);
-export const unpack = (b: Buffer) => zstdDecompressSync(b);
+const sha256 = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 
-/** Блоки одного файла. */
-export function blocksOf(abs: string, rel: string, refs: Map<string, Ref>): PointFile {
+/** Нарезать файл и запомнить, где лежат новые блоки. */
+export function addFile(scan: Scan, abs: string, rel: string): void {
   const buf = readFileSync(abs);
-  let size = buf.length;
-  if (rel.endsWith(".jsonl")) size = buf.lastIndexOf(0x0a) + 1;
+  const size = rel.endsWith(".jsonl") ? buf.lastIndexOf(0x0a) + 1 : buf.length;
   const b: string[] = [];
   for (let off = 0; off < size; off += BLOCK) {
     const len = Math.min(BLOCK, size - off);
-    const h = sha256(buf.subarray(off, off + len));
-    b.push(h);
-    if (!refs.has(h)) refs.set(h, { file: abs, off, len });
+    const hash = sha256(buf.subarray(off, off + len));
+    b.push(hash);
+    if (!scan.places.has(hash)) scan.places.set(hash, { file: abs, off, len });
   }
-  return { p: rel, size, b };
+  scan.files.push({ p: rel, size, b });
+  scan.bytes += size;
 }
 
-/** Файл разговора <sid>.jsonl и папка <sid>/ рядом — по файлам. */
-export function scan(proj: string, sid: string): Scan {
-  const refs = new Map<string, Ref>();
-  const files: PointFile[] = [blocksOf(join(proj, `${sid}.jsonl`), `${sid}.jsonl`, refs)];
+/** Файл разговора <sid>.jsonl и всё в папке <sid>/ рядом с ним. */
+export function scanSession(proj: string, sid: string): Scan {
+  const scan: Scan = { files: [], places: new Map(), bytes: 0 };
+  addFile(scan, join(proj, `${sid}.jsonl`), `${sid}.jsonl`);
   const walk = (dir: string, rel: string) => {
     for (const e of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-      const r = `${rel}/${e.name}`;
-      if (e.isDirectory()) walk(join(dir, e.name), r);
-      else if (e.isFile()) files.push(blocksOf(join(dir, e.name), r, refs));
+      if (e.isDirectory()) walk(join(dir, e.name), `${rel}/${e.name}`);
+      else if (e.isFile()) addFile(scan, join(dir, e.name), `${rel}/${e.name}`);
     }
   };
   const side = join(proj, sid);
   if (existsSync(side) && statSync(side).isDirectory()) walk(side, sid);
-  return { files, refs, bytes: files.reduce((n, f) => n + f.size, 0) };
+  return scan;
 }
 
-/** Байты блока с диска. */
-export function readRef(r: Ref): Buffer {
-  const fd = openSync(r.file, "r");
+function readPlace({ file, off, len }: Place): Buffer {
+  const fd = openSync(file, "r");
   try {
-    const buf = Buffer.alloc(r.len);
-    readSync(fd, buf, 0, r.len, r.off);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, off);
     return buf;
   } finally {
     closeSync(fd);
   }
+}
+
+/** Запрос по ссылке: нет ссылки, обрыв сети или статус не 2xx — одна ошибка «R2 <метод> f/<отпечаток>: причина». */
+export class R2Error extends Error {}
+
+async function call(method: "GET" | "PUT", links: Links, hash: string, f: Fetch, body?: Buffer): Promise<Response> {
+  const fail = (why: unknown) => new R2Error(`R2 ${method} f/${hash}: ${String(why)}`);
+  const url = links[hash];
+  if (!url) throw fail("ссылки нет");
+  let r: Response;
+  try {
+    r = await f(url, { method, ...(body ? { body: new Uint8Array(body) } : {}) });
+  } catch (e) {
+    throw fail(e);
+  }
+  if (!r.ok) throw fail(r.status);
+  return r;
+}
+
+/** Положить в R2 блоки, которых там нет. */
+export async function upload(missing: string[], links: Links, scan: Scan, f: Fetch): Promise<void> {
+  for (const hash of missing) {
+    const place = scan.places.get(hash);
+    if (!place) throw new R2Error(`блока ${hash} нет на машине`);
+    await call("PUT", links, hash, f, zstdCompressSync(readPlace(place)));
+  }
+}
+
+/** Байты файла точки из R2, сверенные по отпечаткам и длине. Несовпадение — Error с причиной, сбой R2 — R2Error. */
+export async function download(file: PointFile, links: Links, f: Fetch): Promise<Buffer> {
+  const parts: Buffer[] = [];
+  for (const hash of file.b) {
+    const packed = Buffer.from(await (await call("GET", links, hash, f)).arrayBuffer());
+    let raw: Buffer;
+    try {
+      raw = zstdDecompressSync(packed);
+    } catch {
+      throw new Error(`блок ${hash} не распаковался`);
+    }
+    if (sha256(raw) !== hash) throw new Error(`блок ${hash} — другое содержимое`);
+    parts.push(raw);
+  }
+  const body = Buffer.concat(parts);
+  if (body.length !== file.size) throw new Error(`длина ${body.length}, в точке ${file.size}`);
+  return body;
 }
