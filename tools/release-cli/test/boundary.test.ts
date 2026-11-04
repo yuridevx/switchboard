@@ -302,6 +302,7 @@ describe("CLI выпуска", () => {
     ["незнакомый аргумент", ["release", "core", "--to", "x"], ENV, "незнакомый аргумент: --to"],
     ["2077 нет адреса", ["release", "keeper"], {}, "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы"],
     ["2077 нет пропуска", ["release", "keeper"], { SWITCHBOARD_RELEASES: "https://x" }, "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы"],
+    ["check спрашивает каталог и с --dry-run (спорное место: было «cat is not a function»)", ["release", "check", "--dry-run"], {}, "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы"],
   ])("2077 · аргументы и окружение — отказ словом: %s", async (_n, argv, env, word) => {
     const fl = fakeFleet();
     await expect(main(argv, env, execOk(), go, fl.f)).rejects.toThrow(word);

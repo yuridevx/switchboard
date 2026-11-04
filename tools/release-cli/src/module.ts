@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { buildSync } from "esbuild";
 import { MANIFEST, packModule, type ModuleJson, type PackedModule } from "@switchboard/release";
 import { importsOf, readJson } from "./graph.ts";
+import { STEP_MS } from "./spawn.ts";
 
 /** Рантайм страницы: модуль пишет импорт из "react", в файле модуля остаётся импорт этого модуля. */
 const VIEW = "@switchboard/web-view";
@@ -49,6 +50,6 @@ function bundleWeb(dir: string, m: ModuleJson): Buffer {
 /** Упаковать модуль монорепо: оболочке — собрать статику, модулю страницы — бандл. */
 export function packFromRepo(at: string): PackedModule {
   const dir = resolve(at);
-  if (readJson<ModuleJson>(join(dir, MANIFEST)).type === "web-app") execFileSync(process.execPath, ["build.mjs"], { cwd: dir, stdio: "pipe" });
+  if (readJson<ModuleJson>(join(dir, MANIFEST)).type === "web-app") execFileSync(process.execPath, ["build.mjs"], { cwd: dir, stdio: "pipe", timeout: STEP_MS });
   return packModule(dir, { bundle: bundleWeb });
 }

@@ -108,7 +108,8 @@ const exec: Exec = (cmd, args, cwd) => (cmd === "npm" ? runNpm(args, cwd) : runN
 
 export async function main(argv: string[], env: Record<string, string | undefined>, x: Exec = exec, go: GoExec = runGo, f: Fetch = fetch as unknown as Fetch): Promise<number> {
   const a = parseArgs(argv);
-  const cat = a.dryRun ? null : catalog(env, f);
+  // check ничего не загружает: --dry-run ему ничего не меняет, каталог он спрашивает всегда
+  const cat = a.dryRun && a.part !== "check" ? null : catalog(env, f);
   const net = f as unknown as Net;
   if (a.part === "check") return check(cat!, net);
   if (a.part === "modules") return modules(cat, net);

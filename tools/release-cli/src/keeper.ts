@@ -8,7 +8,7 @@ import { pack, sha256hex, type TarFile } from "@switchboard/release";
 import { run, type Ran } from "./spawn.ts";
 
 export type GoExec = (args: string[], cwd: string, env: Record<string, string>) => Promise<Ran>;
-export const runGo: GoExec = (args, cwd, env) => run("go", args, cwd, env);
+export const runGo: GoExec = (args, cwd, env) => run("go", args, cwd, { env });
 
 const TARGETS = [
   { goos: "windows", file: "windows-amd64/keeper.exe" },
