@@ -5,4 +5,5 @@
 // Вклад в каждую сессию — env CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1; сбои из сообщений SDK — строками журнала машины.
 import { make } from "./src/journal.ts";
 
+export { make };
 export default make();

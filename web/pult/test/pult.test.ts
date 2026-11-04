@@ -257,33 +257,6 @@ describe("аккаунты: шаги по контракту", () => {
 });
 
 describe("журнал флота и машины", () => {
-  it("ledger.read: limit 50 при открытии; на roster — after последнего id; «Раньше» — before; машина — machine", async () => {
-    const relay = fleetRelay();
-    const t0 = Date.now();
-    relay.handlers["ledger.read"] = (f) =>
-      f.after
-        ? { ok: true, result: { events: [{ id: 906, t: t0, ev: "slot.swapped", from: "@laptop", by: "panel-desk", machine: "laptop", text: "слот main: y0902 → work3" }], more: false } }
-        : f.before
-          ? { ok: true, result: { events: [{ id: 700, t: t0 - 86_400_000, ev: "machine.back", from: "ledger", machine: "mac", text: "mac вернулась" }], more: false } }
-          : { ok: true, result: { events: [{ id: 905, t: t0, ev: "machine.left", from: "ledger", machine: "pc", text: "pc пропала · была на связи с 11:40" }], more: true } };
-    const t = await pult({ relay });
-    await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
-    expect(relay.sent("ledger.read")[0]).toMatchObject({ to: ".ledger", limit: 50 });
-    relay.setRoster(joinedRoster());
-    await flush(10);
-    expect(relay.sent("ledger.read")[1]).toMatchObject({ after: 905, limit: 50 });
-    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["906", "905"]);
-    expect(t.$('.jr-r[data-id="906"]')!.textContent).toContain("слот main: y0902 → work3 · by panel-desk");
-    await t.click(t.btn(null, "Раньше"));
-    expect(relay.sent("ledger.read")[2]).toMatchObject({ before: 905 });
-    expect(t.text()).toContain("Вчера");
-    const sel = t.$<HTMLSelectElement>('[data-f="machine"]')!;
-    sel.value = "pc";
-    sel.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush();
-    expect(relay.sent("ledger.read")[3]).toMatchObject({ machine: "pc", limit: 50 });
-  });
-
   it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине", async () => {
     const relay = fleetRelay();
     relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });

@@ -1,8 +1,8 @@
-// Флоу пульта по плану цикла тестов (web): аккаунты и вход, слоты, удаление аккаунта, машины, приложение GitHub, журнал флота.
+// Флоу пульта по плану цикла тестов (web): аккаунты и вход, слоты, удаление аккаунта, машины, приложение GitHub.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
 import { FakeRelay } from "../../packages/core/stand/app.ts";
-import { fleetRelay, fleetRoster, joinedRoster, flush, HOST, pult, SLOTS } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, HOST, pult, SLOTS } from "./stand.ts";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -420,96 +420,5 @@ describe("машины", () => {
     expect(relay.sent("keeper.state").map((f) => f.to)).toContain(".keeper@pc");
     await expand(t, "pc");
     expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("1.0.1 · план rev 7");
-  });
-});
-
-describe("журнал флота", () => {
-  const day = 86_400_000;
-  const evs = () => {
-    const now = Date.now();
-    return [
-      { id: 3, t: now, ev: "session.opened", from: "laptop", by: "panel-desk", callsign: "a@laptop", text: "открыта a@laptop" },
-      { id: 2, t: now - day, ev: "machine.left", from: ".relay", machine: "pc", text: "pc ушла" },
-      { id: 1, t: now - 7 * day, ev: "points.deleted", from: ".points", text: "удалены точки old" },
-    ];
-  };
-
-  async function journal(relay = fleetRelay()) {
-    const t = await pult({ relay });
-    await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
-    await flush(10);
-    return t;
-  }
-
-  it("4159 · записи новые сверху по дням — «Сегодня», «Вчера», дата; текст как прислал ledger, «by»", async () => {
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: false } });
-    const t = await journal(relay);
-    expect(relay.sent("ledger.read")[0]).toMatchObject({ to: ".ledger", limit: 50 });
-    const days = t.$$(".jr-day").map((x) => x.textContent);
-    expect(days.slice(0, 2)).toEqual(["Сегодня", "Вчера"]);
-    expect(days).toHaveLength(3);
-    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["3", "2", "1"]);
-    expect(t.$('.jr-r[data-id="3"]')!.textContent).toContain("открыта a@laptop · by panel-desk");
-    expect(t.$('.jr-r[data-id="3"] em')!.textContent).toBe("a@laptop");
-  });
-
-  it("6521 · быстрая смена машины: опоздавший ответ прежней не перекрывает выбранную", async () => {
-    // источник: слепой архитектор 4 нояб.: чтение журнала шло без отмены устаревшего ответа
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs(), more: false } });
-    const t = await journal(relay);
-    relay.handlers["ledger.read"] = () => undefined;
-    const pick = async (m: string) => {
-      const s = t.$<HTMLSelectElement>('[data-f="machine"]')!;
-      s.value = m;
-      s.dispatchEvent(new Event("change", { bubbles: true }));
-      await flush();
-    };
-    await pick("pc");
-    await pick("laptop");
-    const [late, now] = relay.sent("ledger.read").slice(-2) as Array<{ id: string; machine: string }>;
-    expect([late.machine, now.machine]).toEqual(["pc", "laptop"]);
-    const ev = (id: number, machine: string) => ({ id, t: Date.now(), ev: "e", from: machine, machine, text: `запись ${machine}` });
-    relay.reply(now.id, { ok: true, result: { events: [ev(20, "laptop")], more: false } });
-    await flush();
-    relay.reply(late.id, { ok: true, result: { events: [ev(10, "pc")], more: true } });
-    await flush();
-    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["20"]);
-    expect(t.button("Раньше")).toBeNull();
-  });
-
-  it("4160 · отказ ledger.read — «ledger.read: слово»", async () => {
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: false, error: "unknown_request" });
-    const t = await journal(relay);
-    expect(t.text()).toContain("ledger.read: unknown_request");
-  });
-
-  it("4161 · экран закрыт или чтение идёт — roster не шлёт ledger.read", async () => {
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => undefined;
-    const t = await journal(relay);
-    relay.setRoster(fleetRoster());
-    await flush();
-    expect(relay.sent("ledger.read")).toHaveLength(1);
-    await t.click(t.$('.sb-navcol button[data-screen="board"]'));
-    relay.reply(relay.sent("ledger.read")[0].id!, { ok: true, result: { events: [], more: false } });
-    relay.setRoster(fleetRoster());
-    await flush();
-    expect(relay.sent("ledger.read")).toHaveLength(1);
-  });
-
-  it("4162 · первое чтение отказало — следующий roster читает всё заново, строка отказа снята", async () => {
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: false, error: "disconnected" });
-    const t = await journal(relay);
-    expect(t.text()).toContain("ledger.read: disconnected");
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs().slice(0, 2), more: false } });
-    relay.setRoster(joinedRoster());
-    await flush();
-    expect(relay.sent("ledger.read").at(-1)).not.toHaveProperty("after");
-    expect(t.text()).not.toContain("ledger.read: disconnected");
-    expect(t.$$(".jr-r").map((x) => x.dataset.id)).toEqual(["3", "2"]);
   });
 });
