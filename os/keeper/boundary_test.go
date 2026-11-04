@@ -2525,3 +2525,17 @@ func TestEtStopDuringDownload(t *testing.T) {
 		t.Fatal("прерванное скачивание принято за сбой части или работающая версия снята")
 	}
 }
+
+// Спорное место: последняя строка вывода без перевода строки доходит до журнала, когда процесс вышел: причина падения часто в ней (устав: «причина в журнале»;
+// опыт 5 нояб.: строки в журнале не было, хвост stderr при этом пишется).
+func TestEtOutputTailOnExit(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	b, _ := json.Marshal(map[string]any{"run": []string{self, "tailapp"}})
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.0.0", files{"app.json": string(b)}, on)))
+	k := s.start()
+	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
+	if !journalHas(s.home, `"ev":"out","line":"последние слова"`) {
+		t.Fatal("хвост вывода пропал")
+	}
+}

@@ -76,6 +76,10 @@ func TestMain(m *testing.M) {
 			// setup завис, как npm ci без сети
 			time.Sleep(10 * time.Minute)
 			return
+		case "tailapp":
+			// последняя строка без перевода строки — и выход с ошибкой
+			fmt.Print("последние слова")
+			os.Exit(1)
 		case "badsetup":
 			// setup упал, как npm ci без пакета
 			fmt.Fprintln(os.Stderr, "npm ERR! нет пакета")

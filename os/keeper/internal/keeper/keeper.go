@@ -597,6 +597,10 @@ func (k *Keeper) attach(p *part, c *holder.Conn, pid int, version string) {
 		if x == nil && k.stopping() {
 			return // keeper останавливается: держатель живёт дальше
 		}
+		// вывод кончился: хвост без перевода строки — тоже строка, причина падения часто в ней
+		if x != nil && len(tail) > 0 {
+			j.Note("out", "line", strings.TrimRight(string(tail), "\r"))
+		}
 		if x == nil {
 			x = &holder.Exit{Stderr: "связь с держателем оборвалась: " + err.Error()}
 		}
