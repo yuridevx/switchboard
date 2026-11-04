@@ -19,7 +19,7 @@ const LostRow = memo(function LostRow({ x, open, toggle }: { x: Lost; open: bool
             <b>{machine}</b>
             <span className="s bad">{x.word}</span>
           </span>
-          <span className="t2">{`с ${hhmm(new Date(x.t))}`}</span>
+          <span className="t2">{x.t ? `с ${hhmm(new Date(x.t))}` : x.what}</span>
         </span>
       </DisclosureBtn>
       {open ? (

@@ -2,9 +2,11 @@
 import type { App, SessionRecord } from "@switchboard/web-core";
 import { createStore, incidentOf, type JournalAnswer, type JournalRecord, machinesWith, midnight, useModule } from "@switchboard/web-ui";
 
-export type Lost = { machine: string; id: string; word: string; why: string; t: string };
+/** t — отказ с полуночи; нет — вместо времени что ждёт. */
+export type Lost = { machine: string; id: string; word: string; why: string; t?: string; what?: string };
 export type Incident = { type: string; key?: string };
-type Pending = { appeals: Array<{ id: string; callsign: string | null }> };
+type Appeal = { id: string; type: string; key: string | null; callsign: string | null };
+type Pending = { appeals: Appeal[] };
 type State = {
   lost: Record<string, Lost[]>;
   refused: Record<string, string>;
@@ -18,14 +20,18 @@ export const incident = (s: SessionRecord): Incident | null => {
 };
 export const isOpen = (s: SessionRecord) => s.state !== "stopped";
 
-/** Недоставленное — отказ доставки, чьё обращение на диске без сессии; у обращения — последний отказ, новые обращения сверху. */
-function lostOf(machine: string, records: JournalRecord[], appeals: Pending["appeals"]): Lost[] {
-  const waiting = new Set(appeals.filter((a) => !a.callsign).map((a) => a.id));
-  const last = new Map<string, Lost>();
+/** Недоставленное — обращение на диске без сессии. Причина — последний отказ в журнале с полуночи, новые сверху; отказа нет (вчерашний или за пределом чтения) — обращение всё равно видно. */
+function lostOf(machine: string, records: JournalRecord[], appeals: Appeal[]): Lost[] {
+  const waiting = appeals.filter((a) => !a.callsign);
+  const ids = new Set(waiting.map((a) => a.id));
+  const refused = new Map<string, Lost>();
   for (const r of records) {
-    if (r.ev === "incident" && r.id && waiting.has(r.id)) last.set(r.id, { machine, id: r.id, word: r.word ?? "", why: r.why ?? "", t: r.t });
+    if (r.ev === "incident" && r.id && ids.has(r.id)) refused.set(r.id, { machine, id: r.id, word: r.word ?? "", why: r.why ?? "", t: r.t });
   }
-  return [...last.values()].reverse();
+  const silent = waiting
+    .filter((a) => !refused.has(a.id))
+    .map((a) => ({ machine, id: a.id, word: "ждёт", why: "Отказа с полуночи нет: причина — в журнале машины за прошлые дни.", what: a.key === null ? a.type : `${a.type} · ${a.key}` }));
+  return [...refused.values(), ...silent].reverse();
 }
 
 export type IncidentsStore = ReturnType<typeof createIncidentsStore>;

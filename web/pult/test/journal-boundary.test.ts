@@ -425,6 +425,21 @@ describe("инциденты", () => {
     expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты1");
   });
 
+  it("обращение ждёт на диске, а отказа с полуночи в журнале нет (вчерашний или за пределом 200): строка есть, в метке считается, тип и ключ вместо времени", async () => {
+    // источник: опыт 5 нояб. — обращение лежало на диске, экран говорил «Открытых инцидентов нет»
+    const relay = fleetRelay();
+    relay.handlers["machine.journal"] = () => ({ ok: true, result: { records: [], more: false } });
+    relay.handlers["incident.pending"] = (f) => ({ ok: true, result: { appeals: f.machine === "pc" ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null }, { id: "a2", type: "disk", key: null, callsign: null }, { id: "a3", type: "x", key: null, callsign: "x@pc" }] : [] } });
+    const t = await incidents(relay);
+    expect(t.$$("[data-lost]").map((x) => x.getAttribute("data-lost"))).toEqual(["pc:a2", "pc:a1"]);
+    expect(t.$('[data-lost="pc:a1"] .s.bad')!.textContent).toBe("ждёт");
+    expect(t.$('[data-lost="pc:a1"] .t2')!.textContent).toBe("gpu-temp · gpu-b");
+    expect(t.$('[data-lost="pc:a2"] .t2')!.textContent).toBe("disk");
+    expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты2");
+    await t.click(t.$('[data-lost="pc:a1"]'));
+    expect(t.$('[data-why="pc:a1"]')!.textContent).toBe("Отказа с полуночи нет: причина — в журнале машины за прошлые дни.");
+  });
+
   it("пусто: «Открытых инцидентов нет», во «все» — «Инцидентов нет»", async () => {
     const relay = fleetRelay();
     relay.handlers["machine.journal"] = () => ({ ok: true, result: { records: [], more: false } });
