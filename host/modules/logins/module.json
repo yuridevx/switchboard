@@ -1,7 +1,7 @@
 {
   "name": "host-logins",
   "type": "sdk",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "into": [
     "host"
   ],
