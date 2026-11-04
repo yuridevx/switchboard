@@ -1,87 +1,55 @@
-// Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger. Записи живут только на экране.
-// Первое чтение при открытии и выборе машины; пока экран открыт, смена состава флота дочитывает новые записи.
-import { useState } from "react";
-import { Btn, hhmm, In, machineLabel, Note, Opts, Page, PageHead, Sec, Sel, useApp, useLoad, machinesWith } from "@switchboard/web-ui";
+// Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger.
+import { Fragment, useState } from "react";
+import { Btn, hhmm, In, machineLabel, machinesWith, Note, Opts, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
+import { type LedgerEvent, useLedger } from "./ledger.ts";
 
-export type Ev = { id: number; t: number; ev: string; from: string; by?: string; machine?: string; callsign?: string; text: string };
-type Answer = { events: Ev[]; more: boolean };
+const DAY_MS = 86_400_000;
 
-function dayOf(t: number): string {
+function dayName(t: number): string {
   const d = new Date(t);
-  const today = new Date();
-  const yest = new Date(today.getTime() - 86_400_000);
-  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  return same(d, today) ? "Сегодня" : same(d, yest) ? "Вчера" : d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  const now = Date.now();
+  if (d.toDateString() === new Date(now).toDateString()) return "Сегодня";
+  if (d.toDateString() === new Date(now - DAY_MS).toDateString()) return "Вчера";
+  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
-function EvRow({ e, day }: { e: Ev; day: string | null }) {
+function Row({ e }: { e: LedgerEvent }) {
   const app = useApp();
-  const label = app.use(() => (e.machine ? machineLabel(app, e.machine).text : ""));
+  const machine = app.use(() => (e.machine ? machineLabel(app, e.machine).text : ""));
   return (
-    <div style={{ display: "contents" }}>
-      {day ? <div className="jr-day">{day}</div> : null}
-      <div className="jr-r" data-id={e.id}>
-        <span>{hhmm(e.t)}</span>
-        <span>
-          {e.text}
-          {e.by ? <span className="by">{` · by ${e.by}`}</span> : null}
-        </span>
-        <em>{e.callsign ?? (e.machine ? label : e.from)}</em>
-      </div>
+    <div className="jr-r" data-id={e.id}>
+      <span>{hhmm(e.t)}</span>
+      <span>
+        {e.text}
+        {e.by ? <span className="by">{` · by ${e.by}`}</span> : null}
+      </span>
+      <em>{e.callsign ?? (machine || e.from)}</em>
     </div>
   );
 }
 
-/** Записи одной выборки: другая машина — новый компонент, ответы прежней до него не дойдут. */
-function useLedger(machine: string) {
-  const app = useApp();
-  const [evs, setEvs] = useState<Ev[]>([]);
-  const [more, setMore] = useState(false);
-  const [olderRefused, setOlderRefused] = useState("");
-  const [merged, setMerged] = useState<Answer | undefined>();
-  const body = machine ? { limit: 50, machine } : { limit: 50 };
-  // журнал пишется при входе и уходе машин и сессий: смена состава или возврат связи — дочитать
-  const crew = app.use(() => {
-    const r = app.roster();
-    return `${app.link()}|${(r?.machines ?? []).map((m) => `${m.machine}:${m.since}`).join()}|${(r?.sessions ?? []).map((s) => s.callsign).join()}`;
-  });
-  const q = useLoad<Answer>(() => app.read<Answer>("ledger.read", evs.length ? { ...body, after: Math.max(...evs.map((e) => e.id)) } : body), [machine], crew);
-  // ответ вливается в записи при рисовании: новые сверху, без повторов
-  if (q.data && q.data !== merged) {
-    const fresh = q.data;
-    setMerged(fresh);
-    setOlderRefused("");
-    if (!evs.length) setMore(fresh.more);
-    const ids = new Set(evs.map((e) => e.id));
-    setEvs([...fresh.events.filter((e) => !ids.has(e.id)), ...evs].sort((a, b) => b.id - a.id));
-  }
-  async function older() {
-    const r = await app.read<Answer>("ledger.read", { ...body, before: Math.min(...evs.map((e) => e.id)) });
-    if (!r.ok) return setOlderRefused(r.error);
-    setOlderRefused("");
-    setEvs((old) => [...old, ...r.result.events]);
-    setMore(r.result.more);
-  }
-  return { evs, more, older, busy: q.loading, refused: olderRefused || q.error };
+/** Поиск — по уже загруженным записям. */
+function found(e: LedgerEvent, q: string): boolean {
+  return !q || [e.text, e.ev, e.machine, e.callsign, e.by].some((x) => x?.toLowerCase().includes(q));
 }
 
 function Ledger({ machine, pick, q, setQ }: { machine: string; pick(m: string): void; q: string; setQ(v: string): void }) {
   const app = useApp();
-  const { evs, more, older, busy, refused } = useLedger(machine);
+  const { events, more, reading, refused, older } = useLedger(machine);
   const online = app.use(() => machinesWith(app));
-  const names = [...new Set([...online, ...evs.map((e) => e.machine).filter((x): x is string => !!x)])].sort();
-  const t = q.trim().toLowerCase();
-  const labels = app.use(() => Object.fromEntries(names.map((m) => [m, machineLabel(app, m).text])));
-  const shown = evs.filter((e) => !t || [e.text, e.ev, e.machine, e.callsign, e.by].some((x) => x?.toLowerCase().includes(t)));
+  const machines = [...new Set([...online, ...events.flatMap((e) => (e.machine ? [e.machine] : []))])].sort();
+  const names = app.use(() => Object.fromEntries(machines.map((m) => [m, machineLabel(app, m).text])));
+  const needle = q.trim().toLowerCase();
+  const shown = events.filter((e) => found(e, needle));
   return (
     <Page>
       <PageHead title="Журнал флота">
         <In data-f="q" type="search" placeholder="⌕ поиск по записям" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
         <Sel data-f="machine" value={machine} onChange={(e) => pick(e.currentTarget.value)}>
           <option value="">все машины</option>
-          {names.map((m) => (
+          {machines.map((m) => (
             <option key={m} value={m}>
-              {labels[m] ?? m}
+              {names[m] ?? m}
             </option>
           ))}
         </Sel>
@@ -93,10 +61,15 @@ function Ledger({ machine, pick, q, setQ }: { machine: string; pick(m: string): 
       ) : null}
       <Sec data-ledger="">
         {shown.map((e, i) => {
-          const d = dayOf(e.t);
-          return <EvRow key={e.id} e={e} day={i === 0 || dayOf(shown[i - 1].t) !== d ? d : null} />;
+          const day = dayName(e.t);
+          return (
+            <Fragment key={e.id}>
+              {i === 0 || dayName(shown[i - 1].t) !== day ? <div className="jr-day">{day}</div> : null}
+              <Row e={e} />
+            </Fragment>
+          );
         })}
-        {shown.length ? null : <Note>{busy ? "…" : "Записей нет."}</Note>}
+        {shown.length ? null : <Note>{reading ? "…" : "Записей нет."}</Note>}
       </Sec>
       {more ? (
         <Opts>

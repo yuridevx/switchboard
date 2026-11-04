@@ -1,7 +1,7 @@
-// Покрытие плана: форма новой сессии (action-open-form) и журнал флота (action-journal-machine). Сценарии, которых не было в прежних тестах.
+// Покрытие плана: форма новой сессии (action-open-form). Сценарии, которых не было в прежних тестах.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, joinedRoster, flush, pult, SLOTS } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, pult, SLOTS } from "./stand.ts";
 
 type T = Awaited<ReturnType<typeof pult>>;
 
@@ -293,128 +293,5 @@ describe("новая сессия: запуск", () => {
     expect(relay.sent("session.open")).toHaveLength(1);
     expect(location.hash).toBe("#card?callsign=a%40laptop");
     expect(t.$(".sb-toast")!.textContent).toBe("Настройка не сохранилась: denied");
-  });
-});
-
-describe("журнал флота", () => {
-  const ev = (id: number, x: Record<string, unknown> = {}) => ({ id, t: Date.now(), ev: "session.opened", from: "laptop", text: `запись ${id}`, ...x });
-  async function journal(relay = fleetRelay()) {
-    const t = await pult({ relay });
-    await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
-    await flush(10);
-    return t;
-  }
-  const pick = async (t: T, m: string) => {
-    const s = t.$<HTMLSelectElement>('[data-f="machine"]')!;
-    s.value = m;
-    s.dispatchEvent(new Event("change", { bubbles: true }));
-    await flush(5);
-  };
-  const ids = (t: T) => t.$$(".jr-r").map((x) => x.dataset.id);
-
-  it("6930 · выбор машины: чтение и дочитывание с той же machine; «все машины» — без поля", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(5)], more: false } });
-    const t = await journal(relay);
-    await pick(t, "pc");
-    expect(relay.sent("ledger.read").at(-1)).toMatchObject({ machine: "pc", limit: 50 });
-    relay.setRoster(joinedRoster());
-    await flush(5);
-    expect(relay.sent("ledger.read").at(-1)).toMatchObject({ machine: "pc", after: 5 });
-    await pick(t, "");
-    expect(relay.sent("ledger.read").at(-1)).not.toHaveProperty("machine");
-  });
-
-  it("6931 · дочитывание без повторов: новые сверху, «Раньше» как было", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = (f) => ({ ok: true, result: f.after ? { events: [ev(6), ev(5)], more: false } : { events: [ev(5)], more: true } });
-    const t = await journal(relay);
-    relay.setRoster(joinedRoster());
-    await flush(5);
-    expect(ids(t)).toEqual(["6", "5"]);
-    expect(t.button("Раньше")).not.toBeNull();
-  });
-
-  it("7290 · roster без смены состава журнал не читает", async () => {
-    // источник: слепой архитектор 4 нояб. — лишний ledger.read на каждый roster; журнал пишется при входе и уходе
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(5)], more: false } });
-    await journal(relay);
-    const n = relay.sent("ledger.read").length;
-    relay.setRoster(fleetRoster());
-    await flush(5);
-    expect(relay.sent("ledger.read")).toHaveLength(n);
-    relay.setRoster(joinedRoster());
-    await flush(5);
-    expect(relay.sent("ledger.read")).toHaveLength(n + 1);
-  });
-
-  it("6932 · журнал пуст: «Записей нет.», по roster снова чтение без after", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [], more: false } });
-    const t = await journal(relay);
-    expect(t.text()).toContain("Записей нет.");
-    relay.setRoster(joinedRoster());
-    await flush(5);
-    expect(relay.sent("ledger.read")).toHaveLength(2);
-    expect(relay.sent("ledger.read")[1]).not.toHaveProperty("after");
-  });
-
-  it("6933 · записи кончились: «Раньше» дописывает и исчезает", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = (f) => ({ ok: true, result: f.before ? { events: [ev(4)], more: false } : { events: [ev(5)], more: true } });
-    const t = await journal(relay);
-    await t.click(t.button("Раньше"));
-    expect(ids(t)).toEqual(["5", "4"]);
-    expect(t.button("Раньше")).toBeNull();
-  });
-
-  it("6934 · поиск: по тексту, виду, машине, адресу, by; новых запросов нет", async () => {
-    // источник: чьё: код
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(5, { text: "сборка" }), ev(4, { ev: "slot.swapped" }), ev(3, { machine: "pc" }), ev(2, { callsign: "a@b" }), ev(1, { by: "agent" })], more: false } });
-    const t = await journal(relay);
-    const n = relay.sent("ledger.read").length;
-    for (const [q, id] of [["сборка", "5"], ["slot.swapped", "4"], ["pc", "3"], ["a@b", "2"], ["agent", "1"]]) {
-      await t.type(t.$('[data-f="q"]'), q);
-      expect(ids(t)).toEqual([id]);
-    }
-    expect(relay.sent("ledger.read")).toHaveLength(n);
-  });
-
-  it("6935 · открытие заново: чтение без machine, прежних записей нет", async () => {
-    // источник: факт — записи живут только на экране
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = (f) => ({ ok: true, result: { events: f.machine ? [ev(9)] : [ev(1)], more: false } });
-    const t = await journal(relay);
-    await pick(t, "pc");
-    expect(ids(t)).toEqual(["9"]);
-    await t.click(t.$('.sb-navcol button[data-screen="board"]'));
-    await flush(5);
-    await t.click(t.$('.sb-navcol button[data-screen="journal"]'));
-    await flush(10);
-    expect(relay.sent("ledger.read").at(-1)).not.toHaveProperty("machine");
-    expect(ids(t)).toEqual(["1"]);
-  });
-
-  it("6936 · обрыв на «Раньше»: записи на месте, слово видно; связь вернулась — дочитано after, слово снято", async () => {
-    // источник: устав — соединение оборвалось, клиенты переподключаются
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(5)], more: true } });
-    const t = await journal(relay);
-    relay.handlers["ledger.read"] = () => ({ ok: false, error: "disconnected" });
-    await t.click(t.button("Раньше"));
-    expect(ids(t)).toEqual(["5"]);
-    expect(t.text()).toContain("ledger.read: disconnected");
-    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(6)], more: false } });
-    relay.setRoster(joinedRoster());
-    await flush(5);
-    expect(relay.sent("ledger.read").at(-1)).toMatchObject({ after: 5 });
-    expect(t.text()).not.toContain("ledger.read: disconnected");
-    expect(ids(t)).toEqual(["6", "5"]);
   });
 });

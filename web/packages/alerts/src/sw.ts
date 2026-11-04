@@ -1,27 +1,22 @@
 // Служебный обработчик пушей: работает без открытого окна приложения.
-// push — показать notify и сохранить type, from и notify в раздел pushes (кадр больше нигде не хранится).
-// Нажатие — открыть приложение (пуш уйдёт модулю-владельцу); кнопка (Android) — короткое wss:
-// hello с ключом из хранилища, кадр кнопки, reply, close(1000).
-import { link, type Frame, type Reply, type WsCtor } from "@switchboard/relay";
+// Пуш — сохранить в раздел pushes (кадр больше нигде не хранится) и показать. Нажатие — открыть приложение; кнопка (Android) — ответ коротким соединением.
 import { hostOf, withLimit } from "@switchboard/protocol";
+import { link, type Frame, type Reply, type WsCtor } from "@switchboard/relay";
 import type { Store } from "@switchboard/web-core";
 
-/** То, что показать: заголовок, текст, кнопки с кадром; tag — id вопроса, тот же tag заменяет уведомление. */
-export type Notify = { title?: string; body?: string; tag?: string; actions?: Array<{ title: string; frame?: Frame }> };
-/** Пуш в разделе pushes: type, from и notify кадра; clicked — его уведомление нажали. */
+/** Что показать: кнопки с кадром; tag — id вопроса, тот же tag заменяет уведомление. */
+type Notify = { title?: string; body?: string; tag?: string; actions?: Array<{ title: string; frame?: Frame }> };
+/** Пуш в разделе pushes; clicked — его уведомление нажали. */
 export type StoredPush = { id: string; type: string; from?: string; notify?: Notify; at: number; clicked?: boolean };
-
-type NotificationData = { id: string; type: string; from?: string; notify: Notify };
+/** Данные уведомления: пуш без времени и отметки. */
+type Shown = { id: string; type: string; from?: string; notify: Notify };
 
 /** Минимум ServiceWorkerGlobalScope, которым пользуется обработчик (в тестах — подделка). */
 export interface SwScope {
   addEventListener(t: "install", fn: (e: { waitUntil(p: Promise<unknown>): void }) => void): void;
   addEventListener(t: "activate", fn: (e: { waitUntil(p: Promise<unknown>): void }) => void): void;
   addEventListener(t: "push", fn: (e: { data: { json(): unknown } | null; waitUntil(p: Promise<unknown>): void }) => void): void;
-  addEventListener(
-    t: "notificationclick",
-    fn: (e: { action: string; notification: { data: unknown; close(): void }; waitUntil(p: Promise<unknown>): void }) => void,
-  ): void;
+  addEventListener(t: "notificationclick", fn: (e: { action: string; notification: { data: unknown; close(): void }; waitUntil(p: Promise<unknown>): void }) => void): void;
   skipWaiting(): Promise<void>;
   registration: {
     scope: string;
@@ -35,7 +30,7 @@ export interface SwScope {
 }
 
 export type SwOptions = {
-  /** адрес relay из списка сборки (build.json рядом с обработчиком): обещание — обработчик читает его при старте */
+  /** адрес relay из списка сборки: обещание — обработчик читает его при старте */
   relayUrl: string | Promise<string>;
   /** хранилище приложения: key и pushes */
   store: Store;
@@ -44,45 +39,37 @@ export type SwOptions = {
   WebSocket?: WsCtor;
 };
 
-/** Предел короткого соединения обработчика: соединиться и получить ответ. */
+/** Предел короткого соединения: соединиться и получить ответ. */
 const SEND_MS = 30_000;
 
-/** Отправить кадр по короткому соединению с relay машины адресата: hello с пропуском, кадр, reply, close(1000). */
-export async function sendOnce(o: Pick<SwOptions, "relayUrl" | "store" | "WebSocket">, frame: Frame): Promise<Reply> {
+const refusal = (error: string): Reply => ({ type: "reply", id: "", ok: false, error });
+
+/** Кадр по короткому соединению с relay машины адресата: hello с пропуском, кадр, ответ, закрытие. Обрыв и отказ — без переподключений. */
+async function sendOnce(o: SwOptions, frame: Frame): Promise<Reply> {
   const key = await o.store.get<string>("key");
-  if (!key) return { type: "reply", id: "", ok: false, error: "no_key" };
+  if (!key) return refusal("no_key");
   const machine = hostOf(frame);
-  if (!machine) return { type: "reply", id: "", ok: false, error: "bad_frame" };
-  const relay = await o.relayUrl;
-  let l: ReturnType<typeof link> | undefined;
-  const sent = new Promise<Reply>((resolve) => {
-    let done = false;
-    const one = link({
-      url: `${relay.replace(/\/$/, "")}/m/${machine}`,
+  if (!machine) return refusal("bad_frame");
+  const base = (await o.relayUrl).replace(/\/$/, "");
+  let close = () => {};
+  const answer = new Promise<Reply>((resolve) => {
+    let settled = false;
+    const conn = link({
+      url: `${base}/m/${machine}`,
       key,
       WebSocket: o.WebSocket,
-      onState(s, why) {
-        if (done) return;
-        if (s === "open") {
-          done = true;
-          void one.request(frame).then((r) => {
-            one.close(1000, "done");
-            resolve(r);
-          });
-        } else if (s === "closed" || s === "stopped") {
-          // обрыв или отказ — без переподключений: ответ не ушёл, человек увидит это в уведомлении
-          done = true;
-          one.close(1000, "done");
-          resolve({ type: "reply", id: "", ok: false, error: why || "disconnected" });
-        }
+      onState(state, why) {
+        if (settled || (state !== "open" && state !== "closed" && state !== "stopped")) return;
+        settled = true;
+        if (state === "open") void conn.request(frame).then(resolve);
+        else resolve(refusal(why || "disconnected"));
       },
     });
-    l = one;
+    close = () => conn.close(1000, "done");
   });
-  return withLimit(sent, SEND_MS, () => {
-    l?.close(1000, "done");
-    return { type: "reply", id: "", ok: false, error: "timeout" };
-  });
+  const r = await withLimit(answer, SEND_MS, () => refusal("timeout"));
+  close();
+  return r;
 }
 
 /** Поставить обработчики пушей на scope служебного обработчика. */
@@ -90,58 +77,58 @@ export function serviceWorker(scope: SwScope, o: SwOptions) {
   scope.addEventListener("install", (e) => e.waitUntil(scope.skipWaiting()));
   scope.addEventListener("activate", (e) => e.waitUntil(scope.clients.claim()));
 
-  scope.addEventListener("push", (e) => {
-    type Raw = { type?: unknown; from?: unknown; notify?: Notify } | null;
-    let p: Raw;
+  /** Тело пуша; не по форме — null. */
+  function parse(data: { json(): unknown } | null): { type: string; from?: string; notify: Notify } | null {
+    let raw: { type?: unknown; from?: unknown; notify?: Notify } | null;
     try {
-      p = (e.data?.json() ?? null) as Raw;
+      raw = (data?.json() ?? null) as typeof raw;
     } catch {
-      p = null;
+      return null;
     }
-    if (!p || typeof p.type !== "string") {
-      console.error("switchboard: пуш не по форме — нет type");
-      return;
-    }
-    e.waitUntil(onPush({ type: p.type, from: typeof p.from === "string" ? p.from : undefined, notify: p.notify ?? {} }));
-  });
+    if (typeof raw?.type !== "string") return null;
+    return { type: raw.type, from: typeof raw.from === "string" ? raw.from : undefined, notify: raw.notify ?? {} };
+  }
 
-  async function onPush(p: { type: string; from?: string; notify: Notify }) {
-    const rec: StoredPush = { id: crypto.randomUUID(), type: p.type, from: p.from, notify: p.notify, at: Date.now() };
-    await o.store.update<StoredPush[]>("pushes", (a) => [...(a ?? []), rec]);
-    const n = p.notify;
-    const acts = n.actions ?? [];
-    // кнопки — только если все варианты помещаются и у каждой есть кадр; иначе нажатие откроет приложение
-    const buttons = acts.length > 0 && acts.length <= o.maxActions() && acts.every((a) => a.frame);
-    const data: NotificationData = { id: rec.id, type: p.type, from: p.from, notify: n };
-    await scope.registration.showNotification(n.title ?? p.from ?? "Switchboard", {
-      body: n.body,
-      tag: n.tag,
-      data,
-      actions: buttons ? acts.map((a, i) => ({ action: String(i), title: a.title })) : [],
+  async function onPush(p: { type: string; from?: string; notify: Notify }): Promise<void> {
+    const id = crypto.randomUUID();
+    await o.store.update<StoredPush[]>("pushes", (saved) => [...(saved ?? []), { id, ...p, at: Date.now() }]);
+    const { title, body, tag, actions = [] } = p.notify;
+    // кнопки — только если помещаются все и у каждой есть кадр; иначе нажатие откроет приложение
+    const buttons = actions.length > 0 && actions.length <= o.maxActions() && actions.every((a) => a.frame);
+    await scope.registration.showNotification(title ?? p.from ?? "Switchboard", {
+      body,
+      tag,
+      data: { id, ...p } satisfies Shown,
+      actions: buttons ? actions.map((a, i) => ({ action: String(i), title: a.title })) : [],
       icon: "icon-192.png",
     });
   }
 
-  scope.addEventListener("notificationclick", (e) => {
-    e.notification.close();
-    const d = e.notification.data as NotificationData;
-    const frame = e.action !== "" ? d.notify.actions?.[Number(e.action)]?.frame : undefined;
-    e.waitUntil(frame ? onButton(d, frame) : onOpen(d));
-  });
-
-  async function onButton(d: NotificationData, frame: Frame) {
+  async function onButton(shown: Shown, frame: Frame): Promise<void> {
     const r = await sendOnce(o, frame);
     if (r.ok) return;
     console.error(`switchboard: ответ из уведомления не отправлен — ${r.error}`);
-    await scope.registration.showNotification(`Ответ не отправлен: ${r.error}`, { body: d.notify.body, tag: d.notify.tag, data: d });
+    await scope.registration.showNotification(`Ответ не отправлен: ${r.error}`, { body: shown.notify.body, tag: shown.notify.tag, data: shown });
   }
 
-  async function onOpen(d: NotificationData) {
-    await o.store.update<StoredPush[]>("pushes", (a) => (a ?? []).map((p) => (p.id === d.id ? { ...p, clicked: true } : p)));
-    const wins = await scope.clients.matchAll({ type: "window", includeUncontrolled: true });
-    if (wins.length) {
-      wins[0].postMessage("pushes");
-      await wins[0].focus();
-    } else await scope.clients.openWindow(scope.registration.scope);
+  async function onOpen(shown: Shown): Promise<void> {
+    await o.store.update<StoredPush[]>("pushes", (saved) => (saved ?? []).map((p) => (p.id === shown.id ? { ...p, clicked: true } : p)));
+    const [win] = await scope.clients.matchAll({ type: "window", includeUncontrolled: true });
+    if (!win) return void (await scope.clients.openWindow(scope.registration.scope));
+    win.postMessage("pushes");
+    await win.focus();
   }
+
+  scope.addEventListener("push", (e) => {
+    const p = parse(e.data);
+    if (p) e.waitUntil(onPush(p));
+    else console.error("switchboard: пуш не по форме — нет type");
+  });
+
+  scope.addEventListener("notificationclick", (e) => {
+    e.notification.close();
+    const shown = e.notification.data as Shown;
+    const frame = e.action !== "" ? shown.notify.actions?.[Number(e.action)]?.frame : undefined;
+    e.waitUntil(frame ? onButton(shown, frame) : onOpen(shown));
+  });
 }
