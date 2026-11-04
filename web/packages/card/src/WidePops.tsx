@@ -1,6 +1,6 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
 import type { SessionRecord } from "@switchboard/web-core";
-import { EFFORTS, LIMIT_NAMES, LimitRow, MODELS, profileName, profileNameOf, remoteOf, incidentOf, slotOf } from "@switchboard/web-ui";
+import { EFFORTS, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, incidentOf, slotOf, useMachineLoad } from "@switchboard/web-ui";
 import type { Acc, Model, SlotInfo } from "./session.ts";
 
 /** Строка «подпись — значение» списка сведений. */
@@ -13,8 +13,10 @@ export function Kv({ k, v }: { k: string; v: string }) {
   );
 }
 
-export function ModelPop({ s, models, update }: { s: SessionRecord; models: Model[] | null; update(body: Record<string, unknown>, what: string): void }) {
-  const list: Model[] = models ?? MODELS.map((m) => ({ value: m }));
+export function ModelPop({ s, machine, callsign, update }: { s: SessionRecord; machine: string; callsign: string; update(body: Record<string, unknown>, what: string): void }) {
+  // модели — ответ SDK на открытие окна; пока ответа нет или сессия не живая — известный список
+  const { data } = useMachineLoad<Model[]>(machine, "session.call", { callsign, method: "supportedModels", args: [] }, isLive(s.state));
+  const list: Model[] = Array.isArray(data) ? data : MODELS.map((m) => ({ value: m }));
   return (
     <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
       <span className="lb">Модель</span>

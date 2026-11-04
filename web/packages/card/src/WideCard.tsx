@@ -9,6 +9,7 @@ import { useCan, useCard, useSession } from "./hooks.ts";
 import { LogTab } from "./LogTab.tsx";
 import { Names } from "./Names.tsx";
 import { SetTab } from "./SetTab.tsx";
+import { tabIn } from "./session.ts";
 import { useWideData } from "./useWideData.ts";
 import { WideAside } from "./WideAside.tsx";
 import { WideHead } from "./WideHead.tsx";
@@ -24,21 +25,12 @@ export function WideCard({ params }: { params: Params }) {
   const info = app.use(card.info);
   const placedTabs = app.use(() => app.placed("card.tab", { callsign }));
   const live = isLive(s?.state);
-  const data = useWideData(callsign, machine, live, info);
-
-  /** вкладка: разговор и вставка места — экран в месте, остальное — настройки или журнал */
-  const resolve = (k: string) => {
-    if (k === "chat" || app.placed("card.tab", { callsign }).some((t) => t.name === k)) return k;
-    if (k === "log" && app.can(machine, "machine.journal") === true) return k;
-    return "set";
-  };
-  const [tab, setTab] = useState(() => resolve(params.tab ?? "chat"));
-  const select = (k: string) => {
-    if (k !== tab) setTab(resolve(k));
-  };
+  const data = useWideData(machine);
+  const [picked, select] = useState(params.tab ?? "chat");
   const [names, setNames] = useState(false);
 
   const tabs: Array<[string, string]> = [["chat", "Разговор"], ...placedTabs.map((t): [string, string] => [t.name, t.label]), ["set", "Настройки"], ...(can("machine.journal") ? ([["log", "Журнал"]] as Array<[string, string]>) : [])];
+  const tab = tabIn(picked, tabs, "set");
   const failed = s?.state === "failed";
   return (
     <>
@@ -67,7 +59,7 @@ export function WideCard({ params }: { params: Params }) {
               <app.Slot key={tab} screen={tab} params={{ callsign }} />
             )}
           </div>
-          {info ? <WideAside callsign={callsign} s={s} mcp={data.mcp} toggleMcp={data.toggleMcp} reconnectMcp={data.reconnectMcp} loginMcp={data.loginMcp} /> : null}
+          {info ? <WideAside callsign={callsign} s={s} /> : null}
         </div>
       </div>
       {names ? <Names callsign={callsign} close={() => setNames(false)} /> : null}

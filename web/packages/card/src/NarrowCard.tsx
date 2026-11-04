@@ -5,7 +5,7 @@ import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remote
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useSession, useSessionActions } from "./hooks.ts";
 import { Names } from "./Names.tsx";
-import { isDown } from "./session.ts";
+import { isDown, tabIn } from "./session.ts";
 
 /** «Ещё» на телефоне. */
 function Info({ callsign, openNames }: { callsign: string; openNames(): void }) {
@@ -95,7 +95,7 @@ export function NarrowCard({ params }: { params: Params }) {
   const [names, setNames] = useState(false);
   const placed = app.use(() => app.placed("card.tab", { callsign }));
   const list: Array<[string, string]> = [["chat", "Чат"], ...placed.map((t): [string, string] => [t.name, t.label]), ["info", "Ещё"]];
-  const tab = list.some(([k]) => k === picked) ? picked : "chat";
+  const tab = tabIn(picked, list, "chat");
   return (
     <>
       <div className="card-tabs" role="tablist">

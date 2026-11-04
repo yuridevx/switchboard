@@ -123,7 +123,6 @@ export function createBoardStore(app: App) {
     setBodyTop: (top: number) => store.set((s) => void (s.bodyTop = top)),
     setReordering: (on: boolean) => store.set((s) => void (s.reordering = on)),
     openSession(s: SessionRecord) {
-      store.set((d) => void (d.lastProject = model.realProject(s.callsign)));
       // телефон: сессия с вопросом — сразу вопрос; пульт — карточка, вопрос в разговоре
       if (!app.wide && app.mark("asked", s.callsign)) app.open("ask", { callsign: s.callsign });
       else app.open("card", { callsign: s.callsign });

@@ -17,8 +17,6 @@ type State = {
   states: Record<string, unknown>;
   /** закончили ход, пока их не смотрели */
   done: Record<string, true>;
-  /** «прочитано» на карточке «готово» — до следующего хода */
-  seen: Record<string, true>;
   /** мои сессии машин по последнему roster, где машина была: сессий ушедшей в roster уже нет, «моё» о них — отсюда */
   mineOn: Record<string, string[]>;
 };
@@ -28,7 +26,7 @@ export type InboxStore = ReturnType<typeof createInboxStore>;
 export const useInbox = (): InboxStore => useModule<InboxStore>();
 
 export function createInboxStore(app: App) {
-  const store = createStore<State>({ states: {}, done: {}, seen: {}, mineOn: {} }, () => app.changed());
+  const store = createStore<State>({ states: {}, done: {}, mineOn: {} }, () => app.changed());
 
   const viewing = (callsign: string) => {
     const c = app.current();
@@ -45,7 +43,6 @@ export function createInboxStore(app: App) {
         const was = d.states[s.callsign];
         if (s.state === "busy" || s.state === "starting" || s.state === "waiting") {
           delete d.done[s.callsign];
-          delete d.seen[s.callsign];
         } else if ((was === "busy" || was === "starting") && s.state === "idle" && !viewed.has(s.callsign)) d.done[s.callsign] = true;
       }
       Object.assign(d.mineOn, mineOn);
@@ -58,7 +55,7 @@ export function createInboxStore(app: App) {
     const out: Item[] = [];
     const r = app.roster();
     if (!r) return out;
-    const { done, seen, mineOn } = store.get();
+    const { done, mineOn } = store.get();
     for (const s of r.sessions) {
       const callsign = s.callsign;
       if (app.mark("asked", callsign)) out.push({ kind: "q", g: 0, callsign });
@@ -67,7 +64,7 @@ export function createInboxStore(app: App) {
       if (s.state === "failed") out.push({ kind: "fail", g: 1, callsign });
       const wait = slotOf(s)?.wait;
       if (typeof wait === "number" && wait > 0) out.push({ kind: "wait", g: 1, callsign, at: wait * 1000 });
-      if (s.state === "idle" && done[callsign] && !seen[callsign]) out.push({ kind: "done", g: 2, callsign });
+      if (s.state === "idle" && done[callsign]) out.push({ kind: "done", g: 2, callsign });
     }
     // когда машина ушла, знает её владелец — модуль машин
     const gone = (app.mark("machines.gone") ?? {}) as Record<string, number>;
@@ -91,7 +88,7 @@ export function createInboxStore(app: App) {
     items,
     count: () => items().length,
     /** «Прочитано» на карточке «готово». */
-    markSeen: (callsign: string) => store.set((d) => void (d.seen[callsign] = true)),
+    markSeen: (callsign: string) => store.set((d) => void delete d.done[callsign]),
     /** «Запустить снова»: отказ — тост словом. */
     async restart(callsign: string) {
       const r = await app.request("session.start", { callsign });

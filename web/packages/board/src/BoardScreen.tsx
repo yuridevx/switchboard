@@ -19,7 +19,7 @@ export function BoardScreen() {
   const side = app.use(() => app.wide && app.current()?.screen !== "board");
   const list = useRef<HTMLDivElement>(null);
   const body = useRef<HTMLDivElement>(null);
-  const { gen, clicked } = useBoardDrag(list);
+  const gen = useBoardDrag(list);
 
   useLayoutEffect(() => {
     const el = body.current!;
@@ -31,11 +31,10 @@ export function BoardScreen() {
   const closeEditor = useCallback(() => setEditor(null), []);
   const chip = useCallback(
     (id: string, on: boolean, fixed: boolean) => {
-      if (!clicked()) return;
       if (on && !fixed) openEditor(board.filters().find((f) => f.id === id) ?? null);
       else board.pick(id);
     },
-    [board, clicked, openEditor],
+    [board, openEditor],
   );
   const addFilter = useCallback(() => openEditor(null), [openEditor]);
   const togglePanel = useCallback(() => setPanel((v) => !v), []);

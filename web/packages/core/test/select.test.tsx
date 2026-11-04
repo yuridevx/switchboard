@@ -26,6 +26,32 @@ describe("share", () => {
   });
 });
 
+describe("выборка", () => {
+  it("7292 · выборка получает свой прошлый ответ аргументом", async () => {
+    // источник: чьё: код — удержание ответа без своей копии в экране
+    const prevs: unknown[] = [];
+    let app!: App;
+    function Screen() {
+      app.use((prev?: number) => {
+        prevs.push(prev);
+        return 5;
+      });
+      return null;
+    }
+    const part: AppPart = {
+      manifest: { name: "m", type: "web", version: "1.0.0", provides: { a: 1 }, uses: {} },
+      module: (x) => {
+        app = x;
+        return { screens: { a: { nav: "А", view: Screen } } };
+      },
+    };
+    await stand([part], { relay: new FakeRelay(homeRoster()) });
+    await flush();
+    expect(prevs[0]).toBeUndefined();
+    expect(prevs.at(-1)).toBe(5);
+  });
+});
+
 describe("on.current", () => {
   it("6804 · открытый экран приходит модулю с параметрами на каждый переход; экран в снимке уже новый", async () => {
     const seen: Array<{ screen: string; params: Params }> = [];

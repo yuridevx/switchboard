@@ -27,8 +27,8 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
 
   /** Заголовок уходит, когда ввод подтверждён; владелец значения — session.spec. */
   async function saveTitle(title: string) {
-    const r = await app.request("session.update", { callsign, title });
-    if (!r.ok) return note("title", `Не вышло: ${r.error}`, "bad");
+    const word = await actions.send("session.update", { title });
+    if (word) return note("title", `Не вышло: ${word}`, "bad");
     spec.reload();
     note("title", "");
   }
@@ -59,7 +59,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
       ) : null}
       {can("session.update") ? (
         <label className="cw-sw" data-sec="fast">
-          <button className="cw-b" role="switch" aria-checked={fast ? "true" : "false"} aria-pressed={fast ? "true" : "false"} onClick={() => void data.update({ fast: !fast }, "быстрый режим")}>
+          <button className="cw-b" role="switch" aria-checked={fast ? "true" : "false"} aria-pressed={fast ? "true" : "false"} onClick={() => void actions.update({ fast: !fast }, "быстрый режим")}>
             {fast ? "вкл" : "выкл"}
           </button>
           <span>Быстрый режим</span>

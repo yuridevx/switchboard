@@ -1,14 +1,38 @@
 // Сведения сбоку широкой карточки: кто дал задачу, папка, профиль, дерево сессий, серверы MCP, ссылка в claude.ai.
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { profileName, profileNameOf, remoteOf, useApp } from "@switchboard/web-ui";
+import { machineOf } from "@switchboard/protocol";
+import { isLive, profileNameOf, remoteOf, useApp, useMachineLoad } from "@switchboard/web-ui";
 import type { Mcp } from "./session.ts";
 import { Kv } from "./WidePops.tsx";
 
 /** Состояние сервера MCP словом. */
 const MCP_WORD: Record<string, string> = { connected: "подключён", failed: "ошибка", "needs-auth": "нужен вход", pending: "подключается", disabled: "выключен" };
 
-type McpActs = { toggleMcp(m: Mcp): Promise<void>; reconnectMcp(m: Mcp): Promise<void>; loginMcp(m: Mcp): Promise<string | undefined> };
+/** Серверы MCP сессии на время открытых сведений и действия над ними; отказ — тост. */
+function useMcp(callsign: string, live: boolean) {
+  const app = useApp();
+  const q = useMachineLoad<Mcp[]>(machineOf(callsign) ?? "", "session.call", { callsign, method: "mcpServerStatus", args: [] }, live);
+  async function change(method: string, args: unknown[]) {
+    const r = await app.request("session.call", { callsign, method, args });
+    if (!r.ok) return app.toast(`${method}: ${r.error}`);
+    q.reload();
+  }
+  return {
+    list: Array.isArray(q.data) ? q.data : null,
+    toggleMcp: (m: Mcp) => change("toggleMcpServer", [m.name, m.status === "disabled"]),
+    reconnectMcp: (m: Mcp) => change("reconnectMcpServer", [m.name]),
+    /** Вход сервера MCP: адрес страницы входа. Окно после ответа запроса браузер блокирует: страницу открывает ссылка. */
+    async loginMcp(m: Mcp): Promise<string | undefined> {
+      const r = await app.request<{ authUrl?: string } | null>("session.call", { callsign, method: "mcpAuthenticate", args: [m.name] });
+      if (!r.ok) return void app.toast(`mcpAuthenticate: ${r.error}`);
+      if (!r.result?.authUrl) app.toast("mcpAuthenticate: ссылки нет");
+      return r.result?.authUrl;
+    },
+  };
+}
+
+type McpActs = Pick<ReturnType<typeof useMcp>, "toggleMcp" | "reconnectMcp" | "loginMcp">;
 
 function McpRow({ m, toggleMcp, reconnectMcp, loginMcp }: McpActs & { m: Mcp }) {
   const [url, setUrl] = useState<string | undefined>();
@@ -43,8 +67,9 @@ function McpRow({ m, toggleMcp, reconnectMcp, loginMcp }: McpActs & { m: Mcp }) 
   );
 }
 
-export function WideAside({ callsign, s, mcp, toggleMcp, reconnectMcp, loginMcp }: McpActs & { callsign: string; s: SessionRecord | undefined; mcp: Mcp[] | null }) {
+export function WideAside({ callsign, s }: { callsign: string; s: SessionRecord | undefined }) {
   const app = useApp();
+  const { list: mcp, toggleMcp, reconnectMcp, loginMcp } = useMcp(callsign, isLive(s?.state));
   const kids = app.use(() => (app.roster()?.sessions ?? []).filter((x) => x.parent === callsign).map((x) => x.callsign));
   const remote = remoteOf(s);
   const from = typeof s?.by === "string" ? s.by : "";

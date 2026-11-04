@@ -20,3 +20,5 @@ export type Model = { value: string; displayName?: string };
 /** Сессия не идёт: её можно запустить, но не остановить. Одно правило для узкого и широкого вида и шапки. */
 export const isDown = (s?: SessionRecord) => s?.state === "stopped" || s?.state === "failed";
 
+/** Вкладка при рисовании: выбранная, пока она есть; пропала или такой нет — запасная. Одно правило узкого и широкого вида. */
+export const tabIn = (picked: string, tabs: Array<[string, string]>, fallback: string) => (tabs.some(([k]) => k === picked) ? picked : fallback);

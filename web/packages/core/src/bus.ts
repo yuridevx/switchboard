@@ -20,11 +20,11 @@ export function createBus() {
     });
   }
 
-  /** Хук выборки: ответ сравнивается с прошлым, тот же — компонент не перерисовывается; равные ветви нового ответа — прежние ссылки. */
-  function useSelect<T>(select: () => T): T {
+  /** Хук выборки: ответ сравнивается с прошлым, тот же — компонент не перерисовывается; равные ветви нового ответа — прежние ссылки. Прошлый ответ выборка получает аргументом: удержать его можно без своей копии. */
+  function useSelect<T>(select: (prev?: T) => T): T {
     const last = useRef<{ v: T } | null>(null);
     const snap = () => {
-      const v = select();
+      const v = select(last.current?.v);
       if (!last.current) last.current = { v };
       else last.current = { v: share(last.current.v, v) };
       return last.current.v;

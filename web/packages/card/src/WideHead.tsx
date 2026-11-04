@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN, slotOf } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
-import { useCard } from "./hooks.ts";
+import { useCard, useSessionActions } from "./hooks.ts";
 import { isDown, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 import { AccPop, MenuPop, ModelPop } from "./WidePops.tsx";
@@ -52,11 +52,11 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
   const info = app.use(card.info);
   const myAddr = app.use(() => myAddress(app));
   const menuItems = app.use(() => app.placed("card.menu", { callsign }));
+  const actions = useSessionActions(callsign);
 
   function toggle(p: "model" | "acc" | "menu") {
     const next = pop === p ? "" : p;
     setPop(next);
-    if (next === "model") void data.loadModels();
     if (next === "acc") data.reloadAccounts();
   }
 
@@ -94,10 +94,11 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
           {pop === "model" ? (
             <ModelPop
               s={x}
-              models={data.models}
+              machine={machine}
+              callsign={callsign}
               update={(body, what) => {
                 setPop("");
-                void data.update(body, what);
+                void actions.update(body, what);
               }}
             />
           ) : pop === "acc" ? (
@@ -118,7 +119,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
       <div className="cw-hr">
         <Tabs tabs={tabs} tab={tab} select={select} />
         {stopped && can("session.start") ? (
-          <button className="cw-b pri" onClick={() => void data.start()}>
+          <button className="cw-b pri" onClick={() => void actions.start()}>
             Запустить
           </button>
         ) : null}

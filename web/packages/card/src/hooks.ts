@@ -21,20 +21,32 @@ export function useSession(callsign: string): SessionRecord | undefined {
 }
 
 /**
- * Действия над сессией: запрос, что идёт сейчас и отказ. Один путь на узкий и широкий вид; показывает отказ тот, кто нажал.
- * act возвращает слово отказа, успех — пусто.
+ * Действия над сессией — один путь на узкий и широкий вид. Все возвращают слово отказа, успех — пусто.
+ * send — только запрос; act — ещё что идёт сейчас и отказ на месте кнопки; update и start — отказ тостом.
  */
 export function useSessionActions(callsign: string) {
   const app = useApp();
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  async function send(name: string, body: Record<string, unknown> = {}): Promise<string> {
+    const r = await app.request(name, { callsign, ...body });
+    return r.ok ? "" : r.error;
+  }
   async function act(name: string, body: Record<string, unknown> = {}): Promise<string> {
     setBusy(name);
     setError("");
-    const r = await app.request(name, { callsign, ...body });
+    const word = await send(name, body);
     setBusy("");
-    if (!r.ok) setError(`${name}: ${r.error}`);
-    return r.ok ? "" : r.error;
+    if (word) setError(`${name}: ${word}`);
+    return word;
   }
-  return { busy, error, act };
+  async function update(body: Record<string, unknown>, what: string) {
+    const word = await send("session.update", body);
+    if (word) app.toast(`${callsign}: ${what} — ${word}`);
+  }
+  async function start() {
+    const word = await act("session.start");
+    if (word) app.toast(`${callsign}: «Запустить» — ${word}`);
+  }
+  return { busy, error, send, act, update, start };
 }

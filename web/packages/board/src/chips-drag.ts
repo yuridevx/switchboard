@@ -3,7 +3,7 @@
 // Пока чип в руке, DOM ряда не меняется: призрак — поверх списка (вне маски ряда), на месте чипа — пустое гнездо; гнездо и соседи едут
 // transform'ом к посадочным местам. Отпустили — призрак садится в гнездо, порядок сохраняется. Выбранный фильтр не меняется.
 import { startPress, type Press } from "./gesture.ts";
-import { calm } from "./projects-drag.ts";
+import { calm, edges, swallowClick } from "./drag-edge.ts";
 
 const EDGE = 44;
 const SPEED = 14;
@@ -17,8 +17,6 @@ export type ChipsApi = {
   /** перестановка началась или кончилась: пока идёт, виды не рисуют */
   reordering(on: boolean): void;
   redraw(): void;
-  /** следующий click по чипу не считать выбором */
-  swallow(): void;
 };
 
 type Gesture = {
@@ -65,7 +63,8 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     const s = S;
     if (!s || s.landing) return;
     const rr = s.row.getBoundingClientRect();
-    const depth = s.x < rr.left + EDGE ? s.x - (rr.left + EDGE) : s.x > rr.right - EDGE ? s.x - (rr.right - EDGE) : 0;
+    const { near, far } = edges(s.x, rr.left, rr.right, EDGE);
+    const depth = near > 0 ? -near : far > 0 ? far : 0;
     if (depth) {
       const f = Math.min(1, Math.abs(depth) / EDGE);
       s.row.scrollLeft += Math.sign(depth) * Math.ceil(f * f * SPEED);
@@ -179,7 +178,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
     (e) => {
       if (e.pointerId === deadPid) {
         deadPid = null;
-        api.swallow();
+        swallowClick(api.root, signal); // следующий click по чипу не выбор
         return;
       }
       const s = S;
@@ -189,7 +188,7 @@ export function attachChipDrag(api: ChipsApi, signal: AbortSignal) {
         S = null; // нажатие без перетаскивания — обычный клик
         return;
       }
-      api.swallow();
+      swallowClick(api.root, signal); // следующий click по чипу не выбор
       land(true);
     },
     on,
