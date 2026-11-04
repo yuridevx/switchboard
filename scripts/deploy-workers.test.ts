@@ -9,8 +9,8 @@ import { describe, expect, it } from "vitest";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "deploy-workers.mjs");
 
-/** Предзагрузка: дочерний процесс заменён на код child, предел 45 с — на 300 мс. */
-function preload(child: { wrangler: string; build: string }): string {
+/** Предзагрузка: дочерний процесс заменён на код child; hang — предел 45 с заменён на 300 мс: только для зависшего, живой под нагрузкой столько не успевает. */
+function preload(child: { wrangler: string; build: string; hang?: boolean }): string {
   const f = join(mkdtempSync(join(tmpdir(), "deploy-pre-")), "pre.mjs");
   writeFileSync(
     f,
@@ -19,7 +19,7 @@ import { syncBuiltinESMExports } from "node:module";
 const orig = cp.spawnSync;
 cp.spawnSync = (cmd, args, o = {}) => {
   const code = String(args[0]).endsWith("build.mjs") ? ${JSON.stringify(child.build)} : ${JSON.stringify(child.wrangler)};
-  return orig(cmd, ["-e", code], { ...o, stdio: "ignore", input: undefined, timeout: o.timeout === 45000 ? 300 : o.timeout });
+  return orig(cmd, ["-e", code], { ...o, stdio: "ignore", input: undefined, timeout: ${child.hang ? "o.timeout === 45000 ? 300 : o.timeout" : "o.timeout"} });
 };
 syncBuiltinESMExports();
 `,
@@ -36,7 +36,8 @@ function deploy(args: string[], o: { token?: boolean; pre?: string } = {}) {
   return { code: r.status, err: r.stderr, out: r.stdout };
 }
 
-describe("deploy-workers: загрузка из CI", () => {
+// предел теста — как у запуска скрипта в deploy(): дочерний процесс под нагрузкой идёт дольше 5 с
+describe("deploy-workers: загрузка из CI", { timeout: 60_000 }, () => {
   it("3153 · номер не того вида — отказ словами, выход 1, ничего не загружено", () => {
     // источник: чьё: код (deploy-workers.mjs — номер вида 1.1.58)
     const r = deploy(["--upload", "1.1"], { token: true });
@@ -53,7 +54,7 @@ describe("deploy-workers: загрузка из CI", () => {
 
   it("3155 · wrangler не завершился за предел — убит, причина словами, выход 1: прогон CI красный", () => {
     // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — вдвое выше самого долгого шага (22 с)
-    const r = deploy(["--upload", "1.1.99"], { token: true, pre: preload({ wrangler: "setTimeout(() => {}, 60000)", build: "" }) });
+    const r = deploy(["--upload", "1.1.99"], { token: true, pre: preload({ wrangler: "setTimeout(() => {}, 60000)", build: "", hang: true }) });
     expect(r.code).toBe(1);
     expect(r.err).toMatch(/deploy: wrangler versions upload .* — не завершился за 45 с/);
   });
