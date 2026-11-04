@@ -43,12 +43,12 @@ describe("эталоны manage", () => {
     expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
   });
 
-  it("7120 · режим разрешений: setPermissionMode и listPermissionRules открыты; session.spec отдаёт режим из кадров SDK, по умолчанию bypassPermissions", async () => {
+  it("7120 · режим разрешений: setPermissionMode и listPermissionRules открыты; поле roster mode — режим из кадров SDK, по умолчанию bypassPermissions", async () => {
     // источник: цель пользователя 4 нояб. «чат со всеми фичами»; настоящий процесс: кадр status и init несут permissionMode, смена из bypass работает
     const { st } = await laptop();
     await st.open("site@laptop");
-    const spec = async () => (await req(st, { type: "session.spec", callsign: "site@laptop" })) as unknown as { result: { mode: string } };
-    expect((await spec()).result.mode).toBe("bypassPermissions");
+    const mode = () => st.states("site@laptop").at(-1)?.mode;
+    await stand.until(() => mode() === "bypassPermissions");
     const q = st.query("site@laptop") as unknown as Record<string, unknown>;
     let got: unknown[] = [];
     q.setPermissionMode = async (...a: unknown[]) => void (got = a);
@@ -57,9 +57,58 @@ describe("эталоны manage", () => {
     expect(got).toEqual(["plan"]);
     expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "listPermissionRules", args: [] })).toMatchObject({ ok: true, result: { state: { rules: [{ rule: "Bash(echo:*)" }] } } });
     st.proc("site@laptop").send({ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "u1", session_id: "s" });
-    await stand.until(async () => (await spec()).result.mode === "plan");
+    await stand.until(() => mode() === "plan");
     st.proc("site@laptop").send({ type: "system", subtype: "init", permissionMode: "bypassPermissions", uuid: "u2", session_id: "s" });
-    await stand.until(async () => (await spec()).result.mode === "bypassPermissions");
+    await stand.until(() => mode() === "bypassPermissions");
+  });
+
+  const inPlan = async (st: stand.Stand) => {
+    await st.open("site@laptop");
+    st.proc("site@laptop").send({ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "u1", session_id: "s" });
+    await stand.until(() => st.states("site@laptop").at(-1)?.mode === "plan");
+  };
+
+  it("7200 · режим переживает новый процесс: процесс умер — resume с тем же режимом", async () => {
+    // источник: цель пользователя 4 нояб. «чат со всеми фичами»: режим, выбранный человеком, не сбрасывается сам в «без вопросов»
+    const { st } = await laptop();
+    await inPlan(st);
+    expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
+    st.proc("site@laptop").exit(1, "boom");
+    await stand.until(() => st.sdk.of("site@laptop").length === 2 && st.kernel.sessions.get("site@laptop")!.state === "idle");
+    expect(st.query("site@laptop").options.permissionMode).toBe("plan");
+  });
+
+  it("7201 · режим переживает session.stop и session.start", async () => {
+    // источник: то же
+    const { st } = await laptop();
+    await inPlan(st);
+    await req(st, { type: "session.stop", callsign: "site@laptop" });
+    expect(await req(st, { type: "session.start", callsign: "site@laptop" })).toMatchObject({ ok: true });
+    expect(st.query("site@laptop").options.permissionMode).toBe("plan");
+  });
+
+  it("7202 · режим переживает перезапуск Host: новый Host поднимает сессию с тем же режимом", async () => {
+    // источник: то же
+    const a = await laptop();
+    await inPlan(a.st);
+    await a.st.close();
+    stands.splice(stands.indexOf(a.st), 1);
+    const slots = stand.module("host-slots", { requests: { "session.slot": () => ({ restart: false }) } });
+    const profiles = stand.module("host-profiles", { requests: { "session.profile": () => ({ restart: false }) } });
+    const st = await stand.standHost({ home: a.st.home, modules: [slots, profiles, { manifest, module: manage({ home: a.home }) }] });
+    stands.push(st);
+    await stand.until(() => st.kernel.sessions.get("site@laptop")?.state === "idle");
+    expect(st.query("site@laptop").options.permissionMode).toBe("plan");
+  });
+
+  it("7203 · новая сессия и сессия в «без вопросов»: query() с bypassPermissions — режим устава", async () => {
+    // источник: устав «Режим „разрешено всё“»
+    const { st } = await laptop();
+    await st.open("site@laptop");
+    expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
+    await req(st, { type: "session.stop", callsign: "site@laptop" });
+    await req(st, { type: "session.start", callsign: "site@laptop" });
+    expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
   });
 
   it("7000 · методы fleet открыты: вопрос сбоку, вывод задачи, снятие из очереди, вход MCP, расход, /status, хуки — ответ SDK как есть", async () => {
@@ -174,7 +223,7 @@ describe("эталоны manage", () => {
     expect(stores.get("board@laptop")).toEqual({ parent: "panel-desk~owner@example.com" });
     expect(log[4][1]).toMatchObject({ type: "ledger.add", to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", machine: "laptop", callsign: "board@laptop" });
     const spec = await mod.requests!["session.spec"]({ type: "session.spec", id: "k-6", v: 1, callsign: "board@laptop" }, ctx);
-    expect(spec).toEqual({ mode: "bypassPermissions", dir, model: null, effort: null, title: "board" });
+    expect(spec).toEqual({ dir, model: null, effort: null, title: "board" });
   });
 
   it("87 · то же на стенде без профиля и слота: ответ после initialize, query() без модели, ledger.add, spec — папка у ядра, заголовок из файла", async () => {

@@ -157,9 +157,9 @@ describe("эталоны ядра Host", () => {
     const r2 = await st2.proc("site@laptop").ask("AskUserQuestion", { questions: [] });
     expect(r2).toEqual({ behavior: "deny", message: "unknown_request" });
     expect(lines(st2, "decide")[0]).toMatchObject({ kind: "refuse", word: "unknown_request" });
-    // прочие инструменты — по режиму «разрешено всё», строкой в журнале
-    expect(await st2.proc("site@laptop").ask("Bash", { command: "ls" })).toEqual({ behavior: "allow", updatedInput: { command: "ls" } });
-    expect(lines(st2, "allow")[0]).toMatchObject({ tool: "Bash", callsign: "site@laptop" });
+    // прочие инструменты тоже: «разрешено всё» решает один владелец — questions; его нет — отказ со строкой журнала
+    expect(await st2.proc("site@laptop").ask("Bash", { command: "ls" })).toEqual({ behavior: "deny", message: "unknown_request" });
+    expect(lines(st2, "decide")[1]).toMatchObject({ kind: "refuse", word: "unknown_request", tool: "Bash", callsign: "site@laptop" });
   });
 
   it("62 · хук guard бросил: отвечает {}, хук audit вызван, guard выключен в site, ход идёт", async () => {

@@ -348,12 +348,8 @@ export class Kernel {
     // своё решение у инструмента или общее decide.*: запрос разрешения в режимах, где claude спрашивает
     const owner = this.decideOwner.get(tool) ?? this.decideOwner.get("*");
     if (!owner) {
-      if (tool === "AskUserQuestion") {
-        this.log("core", { kind: "refuse", ev: "decide", word: "unknown_request", callsign: s.callsign, why: "AskUserQuestion: у решения нет владельца — ответ за человека не выбран" });
-        return Promise.resolve({ behavior: "deny" as const, message: "unknown_request" });
-      }
-      this.log("core", { ev: "allow", callsign: s.callsign, tool, why: "владельца решения нет — режим «разрешено всё»" });
-      return Promise.resolve({ behavior: "allow" as const, updatedInput: input });
+      this.log("core", { kind: "refuse", ev: "decide", word: "unknown_request", callsign: s.callsign, tool, why: `${tool}: у решения нет владельца — ответ за человека не выбран` });
+      return Promise.resolve({ behavior: "deny" as const, message: "unknown_request" });
     }
     const deny = (): PermissionResult => {
       this.log("core", { kind: "refuse", ev: "decide", word: MODULE_ERROR, callsign: s.callsign, module: owner, tool });

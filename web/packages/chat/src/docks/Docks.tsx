@@ -1,6 +1,6 @@
 // Над полем ввода: вопросы сбоку, задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
 import { useEffect, useState } from "react";
-import { useApp, useLoad, useNow, Markdown } from "@switchboard/web-ui";
+import { useApp, useLoad, Markdown } from "@switchboard/web-ui";
 import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
 import { useChat } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
@@ -62,11 +62,10 @@ const OUTPUT_MS = 2000;
 function TaskOutputBox({ t, callsign }: { t: Task; callsign: string }) {
   const chat = useChat();
   const { data, error, reload } = useLoad<TaskOutput>(() => chat.ask<TaskOutput>(callsign, "getTaskOutput", [t.id]), [chat, callsign, t.id]);
-  const now = useNow(OUTPUT_MS);
-  const [opened] = useState(now);
   useEffect(() => {
-    if (now !== opened) reload();
-  }, [now, opened, reload]);
+    const h = setInterval(reload, OUTPUT_MS);
+    return () => clearInterval(h);
+  }, [reload]);
   return <OutputView data={data} error={error} />;
 }
 

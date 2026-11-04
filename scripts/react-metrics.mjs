@@ -14,34 +14,48 @@ const walk = (d) =>
     return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(n) ? [p] : [];
   });
 
-/** Что служебное и почему. */
+/** Что служебное и почему: ключ — файл и имя, новое имя с тем же словом в другом файле служебным само не становится. */
 const SERVICE = {
-  app: "app модуля",
-  p: "клиент настроек",
-  user: "клиент настроек",
-  fleet: "клиент настроек",
-  accs: "цикл опроса машин",
-  slots: "цикл опроса машин",
-  replies: "цикл опроса машин",
-  keeper: "цикл опроса машин",
-  state: "сам снимок",
-  subs: "подписчики выборок",
-  rev: "номер уведомления",
-  queued: "уведомление в такте",
-  lk: "соединение",
-  pause: "пауза переподключения",
-  pending: "начатые запросы",
-  hidden: "страница скрыта",
-  life: "очередь ухода и возврата",
-  routed: "адрес маршрута",
-  depth: "глубина истории",
-  epoch: "защита от устаревшего ответа",
-  listening: "слушатель обработчика пушей",
-  timer: "таймер",
-  frameOwner: "реестр модулей",
-  screenOwner: "реестр модулей",
-  markOwner: "реестр модулей",
-  opened: "открытая база",
+  "web/packages/alerts/src/store.ts:app": "app модуля",
+  "web/packages/alerts/src/store.ts:listening": "слушатель обработчика пушей",
+  "web/packages/ask/src/store.ts:app": "app модуля",
+  "web/packages/board/src/store.ts:app": "app модуля",
+  "web/packages/board/src/store.ts:user": "клиент настроек",
+  "web/packages/board/src/store.ts:fleet": "клиент настроек",
+  "web/packages/card/src/store.ts:app": "app модуля",
+  "web/packages/chat/src/state/chat.ts:app": "app модуля",
+  "web/packages/core/src/bus.ts:subs": "подписчики выборок",
+  "web/packages/core/src/bus.ts:rev": "номер уведомления",
+  "web/packages/core/src/bus.ts:queued": "уведомление в такте",
+  "web/packages/core/src/lifecycle.ts:hidden": "страница скрыта",
+  "web/packages/core/src/lifecycle.ts:life": "очередь ухода и возврата",
+  "web/packages/core/src/link.ts:pending": "начатые запросы",
+  "web/packages/core/src/link.ts:lk": "соединение",
+  "web/packages/core/src/link.ts:pause": "пауза переподключения",
+  "web/packages/core/src/registry.ts:frameOwner": "реестр модулей",
+  "web/packages/core/src/registry.ts:screenOwner": "реестр модулей",
+  "web/packages/core/src/registry.ts:markOwner": "реестр модулей",
+  "web/packages/core/src/router.ts:routed": "адрес маршрута",
+  "web/packages/core/src/router.ts:depth": "глубина истории",
+  "web/packages/core/src/state.ts:state": "сам снимок",
+  "web/packages/core/src/state.ts:timer": "таймер",
+  "web/packages/inbox/src/store.ts:app": "app модуля",
+  "web/packages/labels/src/store.ts:app": "app модуля",
+  "web/packages/labels/src/store.ts:p": "клиент настроек",
+  "web/pult/modules/accounts/src/store.ts:app": "app модуля",
+  "web/pult/modules/accounts/src/store.ts:accs": "цикл опроса машин",
+  "web/pult/modules/accounts/src/store.ts:slots": "цикл опроса машин",
+  "web/pult/modules/incidents/src/store.ts:app": "app модуля",
+  "web/pult/modules/journal/src/store.ts:app": "app модуля",
+  "web/pult/modules/journal/src/store.ts:epoch": "защита от устаревшего ответа",
+  "web/pult/modules/machines/src/store.ts:app": "app модуля",
+  "web/pult/modules/open/src/store.ts:app": "app модуля",
+  "web/pult/modules/open/src/store.ts:p": "клиент настроек",
+  "web/pult/modules/points/src/store.ts:app": "app модуля",
+  "web/pult/modules/profiles/src/store.ts:app": "app модуля",
+  "web/pult/modules/profiles/src/store.ts:replies": "цикл опроса машин",
+  "web/pult/modules/settings/src/store.ts:app": "app модуля",
+  "web/pult/modules/settings/src/store.ts:keeper": "цикл опроса машин",
 };
 const NAME = /^ {2}(?:let (\w+)|const (\w+)(?:: [^=]+)? = new (?:Map|Set)\b)/;
 
@@ -68,8 +82,8 @@ for (const f of walk(join(root, "web"))) {
   const lines = s.split("\n");
   const file = relative(root, f).replaceAll("\\", "/");
   const names = inFactories(lines);
-  const view = names.filter((n) => !(n in SERVICE));
-  for (const n of names) if (n in SERVICE) services[n] = (services[n] ?? 0) + 1;
+  const view = names.filter((n) => !(`${file}:${n}` in SERVICE));
+  for (const n of names) if (`${file}:${n}` in SERVICE) services[`${n} (${SERVICE[`${file}:${n}`]})`] = (services[`${n} (${SERVICE[`${file}:${n}`]})`] ?? 0) + 1;
   for (const n of view) viewState.push(`${file}: ${n}`);
   const m = {
     file,
@@ -89,6 +103,6 @@ rows.sort((a, b) => b.inner + b.view + b.service + b.changed - (a.inner + a.view
 const sum = (k) => rows.reduce((n, r) => n + r[k], 0);
 const p = (n, w = 3) => String(n).padStart(w);
 for (const r of rows) console.log(`${r.file.padEnd(52)} строк ${p(r.lines, 5)} · внутр.комп ${p(r.inner)} · состояние вида ${p(r.view)} · служебные ${p(r.service)} · changed ${p(r.changed)} · DOM ${p(r.dom)} · useState ${p(r.states)} · useEffect ${p(r.effects, 2)}`);
-console.log("служебные ссылки:", Object.entries(services).sort((a, b) => b[1] - a[1]).map(([n, k]) => `${n} ×${k} (${SERVICE[n]})`).join(", "));
+console.log("служебные ссылки:", Object.entries(services).sort((a, b) => b[1] - a[1]).map(([n, k]) => `${n} ×${k}`).join(", "));
 if (viewState.length) console.log("состояние вида:", viewState.join(", "));
 console.log(`ИТОГО: файлов ${rows.length} · внутренних компонентов ${sum("inner")} · состояние вида в замыканиях ${sum("view")} · служебные ссылки ${sum("service")} · app.changed ${sum("changed")} · ручной DOM ${sum("dom")} · файлов > 400 строк ${rows.filter((r) => r.lines > 400).length}`);

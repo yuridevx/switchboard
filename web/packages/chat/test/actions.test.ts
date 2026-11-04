@@ -617,14 +617,14 @@ describe("action-chat-view", () => {
     expect(relay.sent("session.call").length).toBe(before + 6);
   });
 
-  it("6693 · контекст недоступен", async () => {
+  it("6693 · контекст недоступен: отказ — словом в панели, панель открыта", async () => {
     const stopped = await chat("wiki@pc", { wide: true });
     expect(panelBtn(stopped)).toBeNull();
     const relay = relayFor();
     relay.handlers["session.call"] = () => ({ ok: false, error: "stopped" });
     const t = await chat(IDLE, { relay, wide: true });
     await t.click(panelBtn(t));
-    expect(t.$(".sb-toast")!.textContent).toContain("— stopped");
+    expect(t.$(".chat-panel > .bad")!.textContent).toBe("stopped");
     expect(t.$(".chat-panel")).not.toBeNull();
   });
 

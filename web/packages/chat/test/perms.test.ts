@@ -1,20 +1,22 @@
 // Режимы разрешений и запрос разрешения в чате. Источник: цель пользователя 4 нояб. «чат со всеми фичами Claude»;
 // кадры и ответы — настоящий процесс claude 0.3.311. По умолчанию ничего не меняется: режим «без вопросов» — решение устава.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { applyEvents, emptyFeed, withHistory } from "../src/state/feed.ts";
-import type { WireMessage } from "../src/state/wire.ts";
 import { asst, chat, relayFor, roster } from "./stand.ts";
 import { flush } from "../../core/stand/app.ts";
 
 const CS = "site@laptop";
-const status = (permissionMode: string) => ({ type: "system", subtype: "status", status: null, permissionMode, uuid: crypto.randomUUID() });
-const withSpec = () => roster((r) => r.machines.forEach((m) => (m.contract = { ...m.contract, "session.spec": 1 })));
+/** Roster, где у сессии CS нынешний режим и состояние. */
+const rosterOf = (o: { mode?: string; state?: string }) =>
+  roster((r) => {
+    const s = r.sessions.find((x) => x.callsign === CS) as unknown as Record<string, unknown>;
+    if (o.mode) s.mode = o.mode;
+    if (o.state) s.state = o.state;
+  });
 
 /** Стенд, где Host знает режим и отвечает на session.call. */
 function bench(mode = "bypassPermissions", answers: Record<string, unknown> = {}) {
-  const relay = relayFor(withSpec());
+  const relay = relayFor(rosterOf({ mode }));
   const calls: Array<Record<string, unknown>> = [];
-  relay.handlers["session.spec"] = () => ({ ok: true, result: { mode, title: "" } });
   relay.handlers["session.call"] = (f) => {
     calls.push(f);
     const a = answers[String(f.method)];
@@ -22,6 +24,9 @@ function bench(mode = "bypassPermissions", answers: Record<string, unknown> = {}
   };
   return { relay, calls };
 }
+
+/** question.list: ждущие вопросы только у сессии CS, у остальных пусто. */
+const listOf = (get: () => unknown[]) => (f: { callsign?: unknown }) => ({ ok: true as const, result: f.callsign === CS ? get() : [] });
 
 const select = (t: { $<T extends Element>(s: string): T | null }) => t.$<HTMLSelectElement>('select[aria-label="Режим разрешений"]');
 const pick = async (el: HTMLSelectElement, value: string) => {
@@ -37,20 +42,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-describe("режим в свёртке", () => {
-  it("7150 · permissionMode из init и status — feed.mode; прочие кадры его не трогают; история его не затирает", () => {
-    let f = applyEvents(emptyFeed(), [{ type: "system", subtype: "init", permissionMode: "default", uuid: "i1" } as WireMessage]);
-    expect(f.mode).toBe("default");
-    f = applyEvents(f, [status("plan") as unknown as WireMessage]);
-    expect(f.mode).toBe("plan");
-    f = applyEvents(f, [{ type: "system", subtype: "status", status: "compacting", uuid: "s2" } as WireMessage]);
-    expect(f.mode).toBe("plan");
-    expect(withHistory(f, []).mode).toBe("plan");
-  });
-});
-
 describe("выбор режима", () => {
-  it("7151 · режим из session.spec: четыре режима, нынешний выбран; Авто нет, пока модель не умеет", async () => {
+  it("7151 · режим из поля roster: четыре режима, нынешний выбран; Авто нет, пока модель не умеет", async () => {
     const { relay } = bench("default");
     const t = await chat(CS, { relay, wide: true });
     const el = select(t)!;
@@ -72,13 +65,16 @@ describe("выбор режима", () => {
     expect(labels(select(u)!)).not.toContain("Авто");
   });
 
-  it("7153 · смена — session.call setPermissionMode; значение меняет кадр status, а не клик", async () => {
+  it("7153 · смена — session.call setPermissionMode; значение меняет поле roster, а не клик и не кадр ленты", async () => {
     const { relay, calls } = bench();
     const t = await chat(CS, { relay, wide: true });
     await pick(select(t)!, "plan");
     expect(calls.filter((c) => c.method === "setPermissionMode")).toEqual([expect.objectContaining({ callsign: CS, args: ["plan"] })]);
     expect(select(t)!.value).toBe("bypassPermissions");
-    await t.events(CS, [status("plan")]);
+    await t.events(CS, [{ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "s1" }]);
+    expect(select(t)!.value).toBe("bypassPermissions");
+    relay.setRoster(rosterOf({ mode: "plan" }));
+    await flush();
     expect(select(t)!.value).toBe("plan");
   });
 
@@ -97,17 +93,13 @@ describe("выбор режима", () => {
     expect(select(t)!.value).toBe("acceptEdits");
   });
 
-  it("7156 · Host не знает режима — выбора нет; session.spec не спрашиваем без контракта", async () => {
-    const relay = relayFor();
+  it("7156 · Host не знает режима — поля нет, выбора нет; session.spec чат не спрашивает", async () => {
+    const relay = relayFor(roster((r) => r.machines.forEach((m) => (m.contract = { ...m.contract, "session.spec": 1 }))));
     const asked: string[] = [];
-    relay.handlers["session.spec"] = () => (asked.push("x"), { ok: true, result: {} });
+    relay.handlers["session.spec"] = () => (asked.push("x"), { ok: true, result: { mode: "plan" } });
     const t = await chat(CS, { relay, wide: true });
     expect(select(t)).toBeNull();
     expect(asked).toEqual([]);
-    const b = relayFor(withSpec());
-    b.handlers["session.spec"] = () => ({ ok: true, result: { title: "" } });
-    const u = await chat(CS, { relay: b, wide: true });
-    expect(select(u)).toBeNull();
   });
 });
 
@@ -146,9 +138,9 @@ describe("карточка инструмента", () => {
     const res = (id: string, text: string) => ({ type: "user", uuid: `r${id}`, message: { content: [{ type: "tool_result", tool_use_id: id, content: text, is_error: true }] } });
     const relay = relayFor(roster(), [
       tool,
-      res("toolu_p1", "Пользователь отклонил: не трогай"),
+      res("toolu_p1", "The user doesn't want to proceed with this tool use. Reason: не трогай"),
       asst("a2", [{ type: "tool_use", id: "toolu_e", name: "ExitPlanMode", input: { plan: "1. шаг" } }]),
-      res("toolu_e", "Пользователь вернул план: добавь тест"),
+      res("toolu_e", "The user doesn't want to proceed with this tool use. Reason: добавь тест"),
     ]);
     const t = await chat(CS, { relay, wide: true });
     for (const name of ["Bash", "ExitPlanMode"]) {
@@ -218,5 +210,161 @@ describe("правила в панели контекста", () => {
     const u = await chat(CS, { relay: refused.relay, wide: true });
     await open(u);
     expect(u.$('[data-sec="rules"] .bad')!.textContent).toBe("sdk_error");
+  });
+});
+
+describe("сессия ждёт человека", () => {
+  const waiting = () => relayFor(rosterOf({ state: "waiting" }));
+
+  it("7208 · waiting: «Прервать» есть; сообщение — в очередь и его можно снять", async () => {
+    // источник: цель пользователя 4 нояб. и решение главной сессии: предел ожидания человека — «Прервать» и session.stop; ход идёт, ввод ждёт в очереди, как в busy
+    const relay = waiting();
+    const asked: unknown[] = [];
+    relay.handlers["session.call"] = (f) => (asked.push(f.method), { ok: true, result: null });
+    const t = await chat(CS, { relay, wide: true });
+    const stop = t.$<HTMLButtonElement>(".chat-stop")!;
+    expect(stop.textContent).toBe("Прервать");
+    await t.click(stop);
+    expect(asked).toEqual(["interrupt"]);
+    await t.type("ещё");
+    await t.key("Enter");
+    await flush();
+    expect(t.$(".chat-me small")!.textContent).toContain("в очереди");
+    expect(t.btn(".chat-me", "отменить")).not.toBeNull();
+  });
+
+  const q = { question: "toolu_w1", kind: "perm", tool: "Bash", input: { command: "ls" } };
+
+  it("7209 · ждала и перестала, ответа не видели: запись снята по question.list; следующее ожидание снова спрашивает", async () => {
+    // источник: цель 4 нояб.: запрос, на который ответили на другом устройстве без кадра до этого клиента, не висит; чьё: код — question.list держит правду
+    const relay = waiting();
+    let list: unknown[] = [q];
+    let n = 0;
+    relay.handlers["question.list"] = listOf(() => (n++, list));
+    const t = await chat(CS, { relay, wide: true });
+    await flush();
+    expect(t.$(".chat-ask")!.textContent).toContain("Claude просит разрешения");
+    const opened = n;
+    // тот же waiting в новом roster — запрос один раз на ожидание
+    relay.setRoster(rosterOf({ state: "waiting", mode: "default" }));
+    await flush();
+    expect(n).toBe(opened);
+    list = [];
+    relay.setRoster(rosterOf({ state: "idle" }));
+    await flush(5);
+    expect(t.$(".chat-ask .ask-acts")).toBeNull();
+    expect(n).toBe(opened + 1);
+    // кадра нового вопроса не было — видно по waiting
+    list = [{ ...q, question: "toolu_w2" }];
+    relay.setRoster(rosterOf({ state: "waiting" }));
+    await flush(5);
+    expect(n).toBe(opened + 2);
+    expect(t.$(".chat-ask .ask-acts")).not.toBeNull();
+  });
+
+  it("7210 · вопрос пришёл кадром раньше waiting в roster: лишнего question.list на каждый roster нет", async () => {
+    // источник: то же; запрос один раз на ожидание
+    const relay = relayFor(rosterOf({ state: "busy" }));
+    let n = 0;
+    relay.handlers["question.list"] = listOf(() => (n++, [q]));
+    await chat(CS, { relay, wide: true });
+    relay.push({ type: "question", from: CS, to: ["phone"], ...q });
+    await flush();
+    const before = n;
+    for (let i = 0; i < 3; i++) {
+      relay.setRoster(rosterOf({ state: "busy", mode: `m${i}` }));
+      await flush();
+    }
+    expect(n - before).toBeLessThanOrEqual(1);
+  });
+
+  it("7213 · вопросы сессии идут один за другим: на экране новый, а не итог прежнего", async () => {
+    // источник: второй проход архитектора — закрытые вытесняются (7215), экран от этого не меняется; чьё: код — current
+    const relay = relayFor(rosterOf({ state: "busy" }));
+    const frame = (id: string) => ({ question: id, kind: "perm", tool: "Bash", input: { command: id } });
+    let now = "";
+    relay.handlers["question.list"] = listOf(() => (now ? [frame(now)] : []));
+    const t = await chat(CS, { relay, wide: true });
+    for (const id of ["a", "b", "c"]) {
+      now = id;
+      relay.push({ type: "question", from: CS, to: ["phone"], ...frame(id) });
+      await flush();
+      expect(t.$(".chat-ask code")!.textContent).toBe(id);
+      now = "";
+      relay.push({ type: "answered", from: CS, question: id, by: "phone", action: "allow" });
+      await flush();
+    }
+  });
+});
+
+describe("Разрешать всегда", () => {
+  const frame = (suggestions: unknown[]) => ({ type: "question", from: CS, to: ["phone"], question: "toolu_s", kind: "perm", tool: "Bash", input: { command: "npm test" }, suggestions });
+  const shown = async (suggestions: unknown[]) => {
+    const relay = relayFor();
+    const f = frame(suggestions);
+    relay.handlers["question.list"] = listOf(() => [{ ...f, type: undefined, from: undefined, to: undefined }]);
+    const t = await chat(CS, { relay, wide: true });
+    relay.push(f);
+    await flush();
+    return t;
+  };
+
+  it("7211 · правило и куда ляжет видно до нажатия", async () => {
+    // источник: цель 4 нояб. «чат со всеми фичами»: человек видит, что разрешает навсегда; форма suggestions — настоящий процесс 0.3.311
+    const t = await shown([{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm test:*" }], behavior: "allow", destination: "localSettings" }]);
+    expect(t.$(".chat-ask")!.textContent).toContain("Bash(npm test:*) · локально");
+    const u = await shown([{ type: "setMode", mode: "acceptEdits", destination: "session" }, { type: "addDirectories", directories: ["/tmp/a"], destination: "session" }]);
+    expect(u.$(".chat-ask")!.textContent).toContain("Правки сами · сессия");
+    expect(u.$(".chat-ask")!.textContent).toContain("/tmp/a · сессия");
+  });
+
+  it("7214 · нет предложений SDK — ни кнопки, ни строки", async () => {
+    // источник: комментарий кода «разрешить всегда — только если предложил SDK», чьё: код
+    const t = await shown([]);
+    expect(t.btn(".chat-ask", "Разрешать всегда")).toBeNull();
+    expect(t.$(".chat-ask")!.textContent).not.toContain("·");
+  });
+});
+
+describe("план один раз", () => {
+  it("7212 · пока план ждёт одобрения, в карточке инструмента он свёрнут; ответили — раскрыт; правка Edit раскрыта и пока ждёт", async () => {
+    // источник: цель 4 нояб., просмотр окон: один и тот же план двумя блоками один над другим; чьё: код — у плана своё место над вводом
+    const relay = relayFor(roster(), [asst("a1", [{ type: "tool_use", id: "toolu_pl", name: "ExitPlanMode", input: { plan: "## План один" } }])]);
+    const plan = { question: "toolu_pl", kind: "perm", tool: "ExitPlanMode", input: { plan: "## План один" } };
+    relay.handlers["question.list"] = listOf(() => [plan]);
+    const t = await chat(CS, { relay, wide: true });
+    relay.push({ type: "question", from: CS, to: ["phone"], ...plan });
+    await flush();
+    expect(t.$(".chat-ask")!.textContent).toContain("План один");
+    expect(t.$('.chat-tool[data-tool="ExitPlanMode"] .tc-h')!.getAttribute("aria-expanded")).toBe("false");
+    relay.push({ type: "answered", from: CS, question: "toolu_pl", by: "phone", action: "allow" });
+    await flush();
+    expect(t.$('.chat-tool[data-tool="ExitPlanMode"] .tc-h')!.getAttribute("aria-expanded")).toBe("true");
+
+    const b = relayFor(roster(), [asst("a2", [{ type: "tool_use", id: "toolu_ed", name: "Edit", input: { file_path: "a.ts", old_string: "a", new_string: "b" } }])]);
+    const edit = { question: "toolu_ed", kind: "perm", tool: "Edit", input: { file_path: "a.ts", old_string: "a", new_string: "b" } };
+    b.handlers["question.list"] = listOf(() => [edit]);
+    const u = await chat(CS, { relay: b, wide: true });
+    b.push({ type: "question", from: CS, to: ["phone"], ...edit });
+    await flush();
+    expect(u.$('.chat-tool[data-tool="Edit"] .tc-h')!.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+describe("панель контекста на одном ходе к методам", () => {
+  it("7216 · отказ getContextUsage и supportedAgents — слово в панели, без тоста; по одному запросу", async () => {
+    // источник: устав «ошибка словом»; второй проход — один путь отказа у панели; чьё: код — разделы панели показывают слово
+    const relay = relayFor();
+    const asked: unknown[] = [];
+    relay.handlers["session.call"] = (f) => {
+      asked.push(f.method);
+      return f.method === "getContextUsage" ? { ok: false, error: "sdk_error" } : f.method === "supportedAgents" ? { ok: false, error: "unknown_method" } : { ok: true, result: null };
+    };
+    const t = await chat(CS, { relay, wide: true });
+    await t.click(t.btn(".chat-bar", "контекст")!);
+    await flush(10);
+    expect(t.$(".chat-panel > .bad")!.textContent).toBe("sdk_error");
+    expect(t.$(".sb-toast")!.hidden).toBe(true);
+    expect(asked.filter((m) => m === "getContextUsage")).toHaveLength(1);
   });
 });

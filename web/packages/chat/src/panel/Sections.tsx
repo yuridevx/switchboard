@@ -1,6 +1,6 @@
 // Разделы панели контекста: расход и лимиты, сведения claude, хуки. Метода нет на Host — раздела нет; другой отказ — слово в разделе.
 import type { ReactNode } from "react";
-import { LIMIT_NAMES, LimitRow, useLoad } from "@switchboard/web-ui";
+import { LIMIT_NAMES, LimitRow, PERM_PLACES, useLoad } from "@switchboard/web-ui";
 import { duration, money } from "../cards/format.ts";
 import { useChat } from "../context.ts";
 
@@ -14,9 +14,8 @@ type Status = { sections?: Array<{ title: string; rows?: Array<{ label: string; 
 type Hook = { event: string; matcher?: string; displayText?: string };
 type Rule = { behavior: string; source: string; rule: string };
 
-/** Подписи правил разрешений: что делает и откуда. */
+/** Подписи правил разрешений: что делает. */
 const BEHAVIOR: Record<string, string> = { allow: "можно", deny: "нельзя", ask: "спросить" };
-const SOURCE: Record<string, string> = { localSettings: "локально", projectSettings: "проект", userSettings: "пользователь", policySettings: "организация", flagSettings: "запуск", cliArg: "запуск", command: "команда", session: "сессия" };
 
 /** Подписи строк /status. */
 const STATUS: Record<string, string> = { Version: "Версия", "Session name": "Имя", "Session ID": "Номер", "Session kind": "Вид", cwd: "Папка", "Login method": "Вход", Organization: "Организация", Email: "Почта", Model: "Модель", "MCP servers": "MCP", "Setting sources": "Настройки", Memory: "Память" };
@@ -24,7 +23,7 @@ const STATUS: Record<string, string> = { Version: "Версия", "Session name"
 const HIDDEN = new Set(["Peer address"]);
 
 /** Раздел одного метода: ответ — children, unknown_method — ничего, отказ — слово. */
-function useMethod<T>(callsign: string, method: string, args: unknown[] = []) {
+export function useMethod<T>(callsign: string, method: string, args: unknown[] = []) {
   const chat = useChat();
   return useLoad<T>(() => chat.ask<T>(callsign, method, args), [chat, callsign, method]);
 }
@@ -92,7 +91,7 @@ export function RulesSection({ callsign }: { callsign: string }) {
         <div key={`${r.rule}:${i}`} className="chat-pn-r" data-behavior={r.behavior}>
           <b>{BEHAVIOR[r.behavior] ?? r.behavior}</b>
           <span>{r.rule}</span>
-          <em>{SOURCE[r.source] ?? r.source}</em>
+          <em>{PERM_PLACES[r.source] ?? r.source}</em>
         </div>
       ))}
     </Sec>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Cta, Markdown } from "@switchboard/web-ui";
 import { useAsk } from "./context.ts";
-import { isPlan, permFrame, subjectOf } from "./perm.ts";
+import { alwaysLines, isPlan, permFrame, subjectOf } from "./perm.ts";
 import { isLocked, type Rec } from "./store.ts";
 
 /** Вход целиком — если суть говорит не всё. */
@@ -66,19 +66,28 @@ export function AskPerm({ rec }: { rec: Rec }) {
           </div>
         </>
       ) : (
-        <div className="ask-acts">
-          <Cta disabled={sending} onClick={() => say(plan ? "Одобрить" : "Разрешить", { action: "allow" })}>
-            {plan ? "Одобрить" : "Разрешить"}
-          </Cta>
-          {plan || f.suggestions?.length ? (
-            <button type="button" className="ask-decline" disabled={sending} onClick={() => say(plan ? "Одобрить и разрешать правки" : "Разрешать всегда", { action: "allow", always: true })}>
-              {plan ? "Одобрить и разрешать правки" : "Разрешать всегда"}
+        <>
+          {plan
+            ? null
+            : alwaysLines(f).map((l) => (
+                <div className="ask-note" key={l}>
+                  {l}
+                </div>
+              ))}
+          <div className="ask-acts">
+            <Cta disabled={sending} onClick={() => say(plan ? "Одобрить" : "Разрешить", { action: "allow" })}>
+              {plan ? "Одобрить" : "Разрешить"}
+            </Cta>
+            {plan || f.suggestions?.length ? (
+              <button type="button" className="ask-decline" disabled={sending} onClick={() => say(plan ? "Одобрить и разрешать правки" : "Разрешать всегда", { action: "allow", always: true })}>
+                {plan ? "Одобрить и разрешать правки" : "Разрешать всегда"}
+              </button>
+            ) : null}
+            <button type="button" className="ask-decline" disabled={sending} onClick={() => setDenying(true)}>
+              {plan ? "Вернуть с замечаниями" : "Отклонить"}
             </button>
-          ) : null}
-          <button type="button" className="ask-decline" disabled={sending} onClick={() => setDenying(true)}>
-            {plan ? "Вернуть с замечаниями" : "Отклонить"}
-          </button>
-        </div>
+          </div>
+        </>
       )}
     </>
   );

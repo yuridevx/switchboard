@@ -1,7 +1,7 @@
 {
   "name": "host-questions",
   "type": "sdk",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "into": [
     "host"
   ],
@@ -18,7 +18,7 @@
     "host.module@host": 1,
     "session.watchers@host-watch": 1,
     "notify@host-push": 1,
-    "session.spec@host-manage": 1
+    "mode@host-manage": 1
   },
   "calls": [],
   "config": {}

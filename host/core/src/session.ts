@@ -14,7 +14,7 @@ const SDK_STATE: Record<string, SessionState> = { idle: "idle", running: "busy",
 const LIVE = new Set<SessionState>(["idle", "busy", "waiting"]);
 /** Опции query(), которые держит ядро: модулю их не взять. */
 const CORE_OPTIONS = new Set([
-  "prompt", "cwd", "resume", "sessionId", "forkSession", "continue", "permissionMode", "allowDangerouslySkipPermissions",
+  "prompt", "cwd", "resume", "sessionId", "forkSession", "continue", "allowDangerouslySkipPermissions",
   "spawnClaudeCodeProcess", "canUseTool", "onElicitation", "systemPrompt", "abortController", "pathToClaudeCodeExecutable",
   "executable", "persistSession", "sessionStore",
 ]);
@@ -135,11 +135,12 @@ export class Sess {
     else if (first?.resume && first.fork) Object.assign(start, { resume: first.resume, forkSession: true, sessionId: this.rec.session_id });
     else start.resume = this.rec.session_id;
     return {
+      // режим устава; сессию в другом режиме поднимает её владелец — manage, вкладом
+      permissionMode: "bypassPermissions",
       ...extra,
       ...start,
       cwd: this.rec.cwd,
       ...(this.k.deps.sdk.bin ? { pathToClaudeCodeExecutable: this.k.deps.sdk.bin } : {}),
-      permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,
       // состояние сессии — только из session_state_changed; SDK шлёт его лишь с этим ключом
       env: { ...process.env, ...env, DISABLE_UPDATES: "1", CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1" },

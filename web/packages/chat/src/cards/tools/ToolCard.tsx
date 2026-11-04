@@ -12,7 +12,7 @@ import { ToolBody } from "./ToolBody.tsx";
 /** Результат «ушла в фон» — и в истории, где задач claude уже нет. */
 const BG_RESULT = /^(Async agent launched|Command running in background|Command was manually backgrounded)/;
 /** Отказ человека словами claude — не «Permission denied» в выводе команды. */
-const REFUSED = /^(The user doesn't want to proceed|User rejected|Permission to use .+ has been denied|Пользователь отклонил|Пользователь вернул план)/;
+const REFUSED = /^(The user doesn't want to proceed|User rejected|Permission to use .+ has been denied)/;
 
 type State = "wait" | "running" | "bg" | "stopped" | "ok" | "denied" | "error";
 
@@ -98,7 +98,8 @@ export function ToolCard({ id }: { id: string }) {
   if (!t) return null;
   const k = kindOf(t);
   const st = stateOf(t, asking, task);
-  const open = picked ?? !!k.open;
+  // план на одобрении уже развёрнут над вводом: второй раз в карточке он не нужен
+  const open = picked ?? (!!k.open && !(asking && t.name === "ExitPlanMode"));
   const wentBg = (isShell(t) || isAgent(t)) && st !== "bg" && (t.input.run_in_background || task?.background || BG_RESULT.test(t.result?.text ?? ""));
   return (
     <div className="chat-tool" data-tool={t.name} data-state={st}>

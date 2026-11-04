@@ -1,9 +1,9 @@
 // Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты; расход, сведения claude, правила разрешений, хуки; «Перечитать плагины». Открытая панель спрашивает session.call один раз.
 import { Archive, Gauge, RefreshCw } from "lucide-react";
-import { Meter, useLoad } from "@switchboard/web-ui";
+import { Meter } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import { kTokens } from "../cards/format.ts";
-import { AboutSection, HooksSection, RulesSection, UsageSection } from "./Sections.tsx";
+import { AboutSection, HooksSection, RulesSection, UsageSection, useMethod } from "./Sections.tsx";
 
 type Usage = { totalTokens?: number; maxTokens?: number; percentage?: number; categories?: Array<{ name: string; tokens: number }> };
 type Agent = { name: string; description?: string };
@@ -13,14 +13,16 @@ const NAMES: Record<string, string> = { "System prompt": "Системная п�
 
 export function ContextPanel({ callsign, close }: { callsign: string; close(): void }) {
   const chat = useChat();
-  // отказ метода — тост словом (chat.call); панель остаётся с тем, что ответили
-  const { data: usage } = useLoad<Usage>(() => chat.call<Usage>(callsign, "getContextUsage").then((u) => ({ ok: true as const, result: u ?? {} })), [chat, callsign]);
-  const { data: agentList } = useLoad<Agent[] | undefined>(() => chat.call<Agent[]>(callsign, "supportedAgents").then((a) => ({ ok: true as const, result: a })), [chat, callsign]);
+  const { data: usage, error: usageWord } = useMethod<Usage | null>(callsign, "getContextUsage");
+  const { data: agentList, error: agentsWord } = useMethod<Agent[] | null>(callsign, "supportedAgents");
   const agents = Array.isArray(agentList) ? agentList : [];
+  // отказ метода — слово в панели; панель остаётся с тем, что ответили
+  const word = [usageWord, agentsWord].find((w) => w && w !== "unknown_method");
 
   const pct = Math.round(usage?.percentage ?? 0);
   return (
     <section className="chat-panel" aria-label="Контекст">
+      {word ? <div className="bad">{word}</div> : null}
       {usage ? (
         <>
           <div className="chat-pn-h">

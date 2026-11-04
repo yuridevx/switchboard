@@ -131,8 +131,8 @@ export const SECTIONS: Section[] = [
       { title: "Вопрос в ленте", msgs: [tool("t-as", "AskUserQuestion", { questions: [{ question: "Какую базу мигрировать первой?", header: "База", options: [{ label: "стенд" }, { label: "прод" }] }] }), res("t-as", "стенд")] },
       { title: "Ждёт разрешения", asking: ["t-wait"], msgs: [tool("t-wait", "Bash", { command: "npm run deploy", description: "Выкладка на стенд" })] },
       { title: "Ждёт одобрения плана", asking: ["t-wpl"], msgs: [tool("t-wpl", "ExitPlanMode", { plan: "## План\n\n1. Найти формулу\n2. Поправить" })] },
-      { title: "Отклонено человеком", msgs: [tool("t-den", "Bash", { command: "rm -rf build" }), res("t-den", "Пользователь отклонил: не трогай сборку", true)] },
-      { title: "План вернули", msgs: [tool("t-ret", "ExitPlanMode", { plan: "## План\n\n1. Поправить" }), res("t-ret", "Пользователь вернул план: добавь тест", true)] },
+      { title: "Отклонено человеком", msgs: [tool("t-den", "Bash", { command: "rm -rf build" }), res("t-den", "The user doesn't want to proceed with this tool use. Reason: не трогай сборку", true)] },
+      { title: "План вернули", msgs: [tool("t-ret", "ExitPlanMode", { plan: "## План\n\n1. Поправить" }), res("t-ret", "The user doesn't want to proceed with this tool use. Reason: добавь тест", true)] },
       { title: "План", msgs: [tool("t-pl", "ExitPlanMode", { plan: "## План\n\n1. Найти формулу\n2. Перевести в проценты\n3. Прогнать `npm test`" }), res("t-pl", "ok")] },
       { title: "Сводка шагов", msgs: [tool("t-su", "Read", { file_path: "src/a.ts" }), res("t-su", "a"), { type: "tool_use_summary", uuid: id(), summary: "Прочитал конфиг: таймаут 5 с", preceding_tool_use_ids: ["t-su"] }] },
       {

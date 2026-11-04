@@ -78,8 +78,6 @@ export type WireMessage = WireTask & {
   model?: string;
   status?: string;
   compact_result?: string;
-  /** режим разрешений: system init и status */
-  permissionMode?: string;
   compact_error?: string;
   compact_metadata?: WireCompact;
   compactMetadata?: WireCompact;

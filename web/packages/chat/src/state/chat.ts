@@ -97,13 +97,6 @@ export function createChatStore() {
     });
   }
 
-  /** Режим простаивающей сессии: кадров о нём может не быть, его помнит Host. Нет ответа или поля — выбора режима нет. */
-  async function readMode(cs: string) {
-    if (!can(cs, "session.spec")) return;
-    const r = await app.request<{ mode?: string }>("session.spec", { callsign: cs });
-    if (r.ok && r.result.mode) fold(cs, (f) => ({ ...f, mode: r.result.mode }));
-  }
-
   /** Открыть ленту: сначала session.watch, потом session.history. */
   async function watch(cs: string) {
     const m = machineOf(cs) ?? "";
@@ -120,7 +113,6 @@ export function createChatStore() {
       });
     }
     await history(cs);
-    await readMode(cs);
   }
 
   async function unwatch(cs: string) {
@@ -145,6 +137,25 @@ export function createChatStore() {
       if (it?.kind === "user") change(it);
     });
 
+  /** Метод query() сессии как есть: отказ словом достаётся вызывающему. */
+  const ask = <T,>(cs: string, method: string, args: unknown[] = []) => app.request<T>("session.call", { callsign: cs, method, args }) as Promise<Answer<T>>;
+
+  /** Ход идёт: ввод ждёт в очереди, ход можно прервать. Сессия, ждущая человека, — тоже посреди хода. */
+  const inTurn = (cs: string) => {
+    const st = sessionOf(cs)?.state;
+    return st === "busy" || st === "waiting";
+  };
+
+  /** Текст и вложения обратно в поле, своего пузыря больше нет. Напечатанное человеком не затирается. */
+  function giveBack(cs: string, id: string, text: string, attachments: Attachment[] = []) {
+    if (!store.get().drafts[cs]) setDraftOf(cs, text);
+    edit(cs, (c) => {
+      c.feed.items = c.feed.items.filter((i) => i.id !== id);
+      c.returned = { id, text, attachments };
+      delete c.held[id];
+    });
+  }
+
   async function deliver(cs: string, id: string, text: string, attachments: Attachment[]) {
     const r = await app.request("session.prompt", { callsign: cs, text, uuid: id, ...(attachments.length ? { attachments } : {}) });
     if (r.ok) {
@@ -164,12 +175,7 @@ export function createChatStore() {
       // поле занято новым текстом — отказанный туда не вернётся; экран закрыт — вложениям негде ждать: сказать, а не обещать
       const typed = !!store.get().drafts[cs];
       const closed = !read(cs).mounted && attachments.length > 0;
-      edit(cs, (c) => {
-        c.feed.items = c.feed.items.filter((i) => i.id !== id);
-        c.returned = { id, text, attachments };
-        delete c.held[id];
-      });
-      if (!typed) setDraftOf(cs, text);
+      giveBack(cs, id, text, attachments);
       app.toast(`${cs}: не доставлено — ${refusalText(cs, r.error)}. ${typed ? "В поле новый текст, отправленный текст не возвращён." : closed ? "Черновик цел, вложения не сохранены." : "Черновик цел."}`);
     }
   }
@@ -293,7 +299,7 @@ export function createChatStore() {
       const id = uuid();
       const images = attachments.filter((a) => a.media_type.startsWith("image/"));
       const files = attachments.filter((a) => !a.media_type.startsWith("image/"));
-      fold(cs, (f) => addMine(f, { id, text, images: images.map(dataUrl), files: files.map((a) => a.name), at: Date.now(), queued: sessionOf(cs)?.state === "busy" }));
+      fold(cs, (f) => addMine(f, { id, text, images: images.map(dataUrl), files: files.map((a) => a.name), at: Date.now(), queued: inTurn(cs) }));
       if (attachments.length) edit(cs, (c) => void (c.held[id] = attachments));
       dropDraft(cs);
       void deliver(cs, id, text, attachments);
@@ -305,21 +311,16 @@ export function createChatStore() {
     },
     /** Снять своё сообщение из очереди: снято — пузыря нет, текст и вложения обратно в поле; Claude уже взял — пузырь остаётся. */
     async unqueue(cs: string, id: string, text: string) {
-      const r = await app.request<boolean>("session.call", { callsign: cs, method: "cancelAsyncMessage", args: [id] });
+      const r = await ask<boolean>(cs, "cancelAsyncMessage", [id]);
       if (!r.ok) return app.toast(`${cs}: cancelAsyncMessage — ${r.error}`);
       if (!r.result) return app.toast("Claude уже взял это сообщение");
-      if (!store.get().drafts[cs]) setDraftOf(cs, text);
-      edit(cs, (c) => {
-        c.feed.items = c.feed.items.filter((i) => i.id !== id);
-        c.returned = { id, text, attachments: [...(c.held[id] ?? [])] };
-        delete c.held[id];
-      });
+      giveBack(cs, id, text, [...(read(cs).held[id] ?? [])]);
     },
     /** Вопрос сбоку: ответ по разговору без хода и без записи в разговор. Отказ — слово на его карточке. */
     async askSide(cs: string, q: string) {
       const id = uuid();
       edit(cs, (c) => void c.sides.push({ id, q }));
-      const r = await app.request<{ response?: string | null } | null>("session.call", { callsign: cs, method: "askSideQuestion", args: [q] });
+      const r = await ask<{ response?: string | null } | null>(cs, "askSideQuestion", [q]);
       edit(cs, (c) => {
         const s = c.sides.find((x) => x.id === id);
         if (!s) return;
@@ -328,24 +329,23 @@ export function createChatStore() {
       });
     },
     dropSide: (cs: string, id: string) => edit(cs, (c) => void (c.sides = c.sides.filter((x) => x.id !== id))),
-    /** Метод query() сессии как есть: отказ словом достаётся вызывающему. */
-    ask: <T,>(cs: string, method: string, args: unknown[] = []) => app.request<T>("session.call", { callsign: cs, method, args }) as Promise<Answer<T>>,
+    ask,
+    inTurn,
     /** Перечитать плагины: команды спросятся заново. */
     async reloadPlugins(cs: string) {
-      const r = await app.request("session.call", { callsign: cs, method: "reloadPlugins", args: [] });
+      const r = await ask(cs, "reloadPlugins");
       if (!r.ok) return app.toast(`${cs}: reloadPlugins — ${r.error}`);
       edit(cs, (c) => void (c.commands = undefined));
     },
     /** Текст обратно в поле ввода: «Изменить сообщение» после отказа модели. */
     returnText(cs: string, text: string) {
-      if (!store.get().drafts[cs]) setDraftOf(cs, text);
-      edit(cs, (c) => void (c.returned = { id: uuid(), text, attachments: [] }));
+      giveBack(cs, uuid(), text);
     },
     /** Команды сессии — в снимок разговора: один запрос на разговор. */
     async loadCommands(cs: string) {
       if (read(cs).commands !== undefined) return;
       edit(cs, (c) => void (c.commands = null));
-      const r = await app.request<Command[]>("session.call", { callsign: cs, method: "supportedCommands", args: [] });
+      const r = await ask<Command[]>(cs, "supportedCommands");
       edit(cs, (c) => void (c.commands = r.ok && Array.isArray(r.result) ? r.result : []));
     },
     /** Файлы папки сессии для «@». */
@@ -370,7 +370,7 @@ export function createChatStore() {
 
     /** Метод query() сессии; отказ — тост словом. Возврат — ответ или undefined. */
     async call<T = unknown>(cs: string, method: string, args: unknown[] = []): Promise<T | undefined> {
-      const r = await app.request<T>("session.call", { callsign: cs, method, args });
+      const r = await ask<T>(cs, method, args);
       if (r.ok) return r.result;
       app.toast(`${cs}: ${method} — ${r.error}`);
       return undefined;
@@ -378,7 +378,7 @@ export function createChatStore() {
     // ───── откат файлов ─────
     async probeRewind(cs: string, id: string) {
       edit(cs, (c) => void (c.rewind = { uuid: id, text: "Проба отката…", tone: "", ready: false }));
-      const r = await app.request<{ canRewind?: boolean; filesChanged?: string[]; insertions?: number; deletions?: number; error?: string }>("session.call", { callsign: cs, method: "rewindFiles", args: [id, { dryRun: true }] });
+      const r = await ask<{ canRewind?: boolean; filesChanged?: string[]; insertions?: number; deletions?: number; error?: string }>(cs, "rewindFiles", [id, { dryRun: true }]);
       if (read(cs).rewind?.uuid !== id) return;
       edit(cs, (c) => {
         if (!r.ok || r.result?.canRewind === false) {
@@ -390,7 +390,7 @@ export function createChatStore() {
       });
     },
     async applyRewind(cs: string, id: string) {
-      const r = await app.request("session.call", { callsign: cs, method: "rewindFiles", args: [id] });
+      const r = await ask(cs, "rewindFiles", [id]);
       edit(cs, (c) => void (c.rewind = { uuid: id, text: r.ok ? "Файлы откачены к этому сообщению." : `Не откатилось: ${r.error}`, tone: r.ok ? "ok" : "bad", ready: false }));
     },
     cancelRewind: (cs: string) => edit(cs, (c) => void (c.rewind = undefined)),

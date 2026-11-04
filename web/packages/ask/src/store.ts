@@ -37,8 +37,10 @@ type State = {
   recs: Rec[];
   /** позывные, у которых надо взять question.list: пришёл пуш без вопросов */
   need: Record<string, true>;
-  /** у кого question.list уже взят после этого hello */
+  /** у кого question.list уже взят после этого hello и этого ожидания */
   listed: Record<string, true>;
+  /** чьё состояние в прошлом roster — waiting: вход в ожидание и выход из него снимают listed */
+  waits: Record<string, true>;
   /** позывной → идёт загрузка списка */
   loading: Record<string, true>;
   /** позывной → слово отказа последнего question.list */
@@ -48,11 +50,14 @@ type State = {
 /** Ответ ещё можно менять: ждёт или не дошёл. */
 export const isLocked = (r: Rec) => r.status !== "waiting" && r.status !== "error";
 
-function added(recs: Rec[], callsign: string, f: Frame | Record<string, unknown>, to: string[] = []): Rec[] {
+/** Закрытый вопрос нужен только как итог последнего: новый вопрос сессии вытесняет закрытые, память не растёт. */
+const isClosed = (r: Rec) => isLocked(r) && r.status !== "sending";
+
+export function added(recs: Rec[], callsign: string, f: Frame | Record<string, unknown>, to: string[] = []): Rec[] {
   const id = String(f.question);
   if (recs.some((r) => r.id === id)) return recs;
   return [
-    ...recs,
+    ...recs.filter((r) => r.callsign !== callsign || !isClosed(r)),
     {
       id,
       callsign,
@@ -70,7 +75,7 @@ export type AskStore = ReturnType<typeof createAskStore>;
 
 export function createAskStore() {
   let app: App;
-  const store = createStore<State>({ recs: [], need: {}, listed: {}, loading: {}, refused: {} }, () => app.changed());
+  const store = createStore<State>({ recs: [], need: {}, listed: {}, waits: {}, loading: {}, refused: {} }, () => app.changed());
 
   const waitingOf = (callsign: string) => store.get().recs.filter((r) => r.callsign === callsign && r.status === "waiting");
   const editRec = (id: string, change: (r: Rec) => void) =>
@@ -175,6 +180,15 @@ export function createAskStore() {
       });
     },
     onRoster(ro: Roster) {
+      store.set((d) => {
+        for (const s of ro.sessions) {
+          const waits = s.state === "waiting";
+          if (waits === !!d.waits[s.callsign]) continue;
+          if (waits) d.waits[s.callsign] = true;
+          else delete d.waits[s.callsign];
+          delete d.listed[s.callsign];
+        }
+      });
       // машина появилась в roster флота — спросить вопросы её сессий, которых ждём
       for (const c of wanted()) if (present(c)) void list(c);
       for (const s of ro.sessions) if (s.state === "waiting" && !waitingOf(s.callsign).length) void list(s.callsign);

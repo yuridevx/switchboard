@@ -126,12 +126,15 @@ export function manage(o: ManageOptions = {}): Module {
         if (Object.keys(rec).length) s.store<Rec>().set(rec);
       }
       const spec = first?.spec ?? specOfSession(s);
+      const mode = recOf(s).mode;
       const part: QueryPart = {
         enableFileCheckpointing: true,
         hooks: { PostModelSwitch: [{ hooks: [onModelSwitch(s)] }] },
       };
       if (spec.model) part.model = spec.model;
       if (spec.effort) part.effort = spec.effort;
+      // режим переживает новый процесс; без отметки — режим устава у ядра
+      if (mode) part.permissionMode = mode;
       const { effortLevel: _e, ...settings } = flags(spec);
       if (Object.keys(settings).length) part.settings = settings;
       if (first) part.title = first.title;
@@ -142,6 +145,7 @@ export function manage(o: ManageOptions = {}): Module {
       model: (s) => specOfSession(s).model ?? s.info.model ?? undefined,
       effort: (s) => specOfSession(s).effort,
       parent: (s) => recOf(s).parent,
+      mode: (s) => recOf(s).mode ?? BYPASS,
     },
 
     requests: {
@@ -253,7 +257,7 @@ export function manage(o: ManageOptions = {}): Module {
         const s = host.session(req.callsign as string)!;
         const spec = specOfSession(s);
         const info = (await call(s, "getSessionInfo")) as { customTitle?: string; summary?: string } | undefined;
-        return { mode: recOf(s).mode ?? BYPASS, dir: tildePath(s.info.cwd, home), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
+        return { dir: tildePath(s.info.cwd, home), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
       },
 
       async "session.stop"(req, { host }) {
@@ -284,7 +288,8 @@ export function manage(o: ManageOptions = {}): Module {
     },
 
     on: {
-      // режим сессии виден только в кадрах SDK: init в начале хода и status при смене; запоминается и для простаивающей сессии
+      // режим сессии виден только в кадрах SDK: init в начале хода и status при смене; запоминается и для простаивающей сессии.
+      // Проба настоящего процесса 4 нояб.: status приходит в той же миллисекунде, что возврат setPermissionMode, раньше любого запроса разрешения
       event(s, m) {
         const x = m as { type?: string; subtype?: string; permissionMode?: unknown };
         if (x.type !== "system" || (x.subtype !== "init" && x.subtype !== "status") || typeof x.permissionMode !== "string") return;

@@ -1,7 +1,7 @@
 {
   "name": "host-manage",
   "type": "sdk",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "into": [
     "host"
   ],
@@ -16,6 +16,7 @@
     "model": 1,
     "effort": 1,
     "parent": 1,
+    "mode": 1,
     "session.opened": 1,
     "session.removed": 1
   },

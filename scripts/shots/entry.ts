@@ -107,6 +107,7 @@ const roster = {
     parent: s.parent,
     slot: { name: "main" },
     account: "y0902",
+    mode: "bypassPermissions",
     ...(s.prof ? { profile: { id: `team/profiles/${s.prof}`, state: "ok" } } : {}),
     ...(s.fail ? { failed: { start: s.fail } } : {}),
     ...(s.inc ? { incident: { type: s.inc, key: "switchboard#main", state: "open" } } : {}),
@@ -182,7 +183,7 @@ h["session.history"] = (f) => ({ ok: true, result: { more: String(f.callsign).st
 h["session.files"] = (f) => ({ ok: true, result: ["src/worker.ts", "src/combat/damage.ts", "test/worker.test.ts", "README.md"].filter((x) => x.includes(String(f.query))) });
 h["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
 h["session.update"] = () => ({ ok: true, result: {} });
-h["session.spec"] = () => ({ ok: true, result: { title: "", mode: "bypassPermissions" } });
+h["session.spec"] = () => ({ ok: true, result: { title: "" } });
 h["session.call"] = (f) => {
   const answers: Record<string, unknown> = {
     supportedCommands: [{ name: "compact", description: "Сжать разговор, оставив краткое содержание" }, { name: "context", description: "Сколько занято в контексте" }, { name: "review", description: "Ревью изменений" }, { name: "clear", description: "Начать разговор заново" }],
@@ -199,9 +200,10 @@ h["session.call"] = (f) => {
     supportedModels: [{ value: "opus", supportsAutoMode: true }, { value: "sonnet", supportsAutoMode: true }, { value: "haiku" }],
     listPermissionRules: { state: { rules: [{ behavior: "allow", source: "localSettings", rule: "Bash(npm test:*)" }, { behavior: "allow", source: "projectSettings", rule: "Edit(src/**)" }, { behavior: "deny", source: "projectSettings", rule: "Read(.env)" }, { behavior: "ask", source: "userSettings", rule: "WebFetch(domain:example.com)" }] } },
   };
-  // режим меняет кадр status, как у настоящего процесса
+  // режим меняет поле roster, как на настоящем Host
   if (f.method === "setPermissionMode") {
-    relay.push({ type: "session.events", from: f.callsign, seq: 990, events: [{ type: "system", subtype: "status", status: null, uuid: crypto.randomUUID(), permissionMode: (f.args as string[])[0] }] });
+    const mode = (f.args as string[])[0];
+    relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === f.callsign ? { ...x, mode } : x)) });
     return { ok: true, result: null };
   }
   // вопрос сбоку: «долго» — ответа нет, «нельзя» — отказ, иначе ответ разметкой

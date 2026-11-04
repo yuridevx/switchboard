@@ -1,12 +1,12 @@
 // Сообщения людей и сессий: свой пузырь с доставкой, сообщение другой сессии или субагента, сообщение сессии владельцу.
 import { useState } from "react";
 import { Bot, ChevronDown, ChevronUp, FileText, History, MessagesSquare, RotateCw, Undo2 } from "lucide-react";
-import { hhmm, Markdown } from "@switchboard/web-ui";
+import { hhmm, Markdown, permModeName } from "@switchboard/web-ui";
 import { useCards } from "../context.ts";
 import type { InItem, UserItem } from "../state/types.ts";
 
-/** Режимы отправителя, о которых стоит сказать. */
-const MODE: Record<string, string> = { bypass: "без вопросов", bypassPermissions: "без вопросов", plan: "план", acceptEdits: "правки сами", auto: "авто" };
+/** Режим отправителя, о котором стоит сказать: обычный «Спрашивать» — нет; bypass — так его пишет claude у субагентов. */
+const peerMode = (m: string) => (m === "default" ? undefined : permModeName(m === "bypass" ? "bypassPermissions" : m)?.toLowerCase());
 /** Длиннее — свёрнуто. */
 const LONG = 700;
 
@@ -76,7 +76,7 @@ export function PeerCard({ it }: { it: UserItem }) {
   const agent = f.kind === "agent";
   const long = it.text.length > LONG;
   const [open, setOpen] = useState(!long);
-  const mode = f.mode ? MODE[f.mode] : undefined;
+  const mode = f.mode ? peerMode(f.mode) : undefined;
   return (
     <div className="chat-in fleet" data-from={f.kind}>
       <div className="chat-from">

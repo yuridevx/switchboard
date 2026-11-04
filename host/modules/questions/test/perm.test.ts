@@ -46,13 +46,48 @@ const answer = (st: stand.Stand, o: Record<string, unknown>) => st.relay.request
 const asked = (st: stand.Stand) => st.relay.frames("question");
 const waitAsked = (st: stand.Stand) => until(() => asked(st).length > 0);
 
-/** Режим уже виден модулю: session.spec его отдаёт. */
+/** Режим уже виден модулю: поле roster mode у manage. */
 async function inMode(st: stand.Stand, p: { send(m: Record<string, unknown>): void }, m: string) {
   mode(p, m);
-  await until(async () => ((await st.relay.request({ type: "session.spec", v: 1, callsign: CS })) as unknown as { result?: { mode?: string } }).result?.mode === m);
+  await until(() => st.states(CS).at(-1)?.mode === m);
 }
 
 describe("запрос разрешения", () => {
+  it("7204 · на запрос разрешения отвечает только клиент-человек: ответ сессии — not_client, вопрос ждёт дальше", async () => {
+    // источник: устав «вопросы человеку — наружу»; цель 4 нояб.: разрешение решает человек
+    const { st, p } = await bench();
+    await inMode(st, p, "default");
+    const a = p.ask("Bash", { command: "rm x" }, "toolu_c1");
+    await waitAsked(st);
+    expect(await st.relay.request({ type: "answer", v: 1, callsign: CS, from: "agent@laptop", question: "toolu_c1", action: "allow" })).toMatchObject({ ok: false, error: "not_client" });
+    expect(await answer(st, { question: "toolu_c1", action: "deny" })).toMatchObject({ ok: true });
+    expect(await a).toMatchObject({ behavior: "deny" });
+  });
+
+  it("7205 · задачу дала сессия: запрос разрешения ей не уходит, только клиентам; AskUserQuestion — и ей", async () => {
+    // источник: то же; AskUserQuestion получает тот, кто дал задачу (устав)
+    const { st, p } = await bench();
+    st.session("host-questions", CS)!.input("задача", { from: "lead@laptop" });
+    await inMode(st, p, "default");
+    void p.ask("Bash", { command: "rm x" }, "toolu_c2");
+    await waitAsked(st);
+    expect(asked(st)[0].to).toEqual(["pult~a@b"]);
+    void p.ask("AskUserQuestion", { questions: [{ question: "Куда?" }] }, "toolu_c3");
+    await until(() => asked(st).length > 1);
+    expect(asked(st)[1].to).toEqual(["lead@laptop", "pult~a@b"]);
+  });
+
+  it("7206 · режима не видно (нет manage): запрос идёт человеку, сам не разрешён", async () => {
+    // источник: комментарий кода «не ответил — спрашиваем человека», чьё: код; цель 4 нояб.
+    const st = await standHost({ modules: [{ manifest: watchManifest as Manifest, module: makeWatch() }, module("host-push", { requests: { notify: () => ({ pushed: [] }) } }), { manifest: manifest as Manifest, module: make() }] });
+    stands.push(st);
+    await st.open(CS);
+    await st.relay.request({ type: "session.watch", v: 1, callsign: CS, from: "pult~a@b" });
+    void st.proc(CS).ask("Bash", { command: "ls" }, "toolu_c4");
+    await waitAsked(st);
+    expect(asked(st)[0]).toMatchObject({ kind: "perm", question: "toolu_c4" });
+  });
+
   it("7100 · без вопросов (режим по умолчанию): запроса нет, инструмент разрешён сам — решение устава", async () => {
     const { st, p } = await bench();
     expect(await p.ask("Bash", { command: "npm test" })).toMatchObject({ behavior: "allow", updatedInput: { command: "npm test" } });
@@ -96,17 +131,17 @@ describe("запрос разрешения", () => {
     expect((await a).updatedPermissions).toEqual(SUGGEST);
   });
 
-  it("7104 · «Отклонить» с причиной: deny со словами человека; без причины — своё слово; ход не прерван", async () => {
+  it("7104 · «Отклонить» с причиной: deny словами claude и причиной человека; без причины — только слова claude; ход не прерван", async () => {
     const { st, p } = await bench();
     await inMode(st, p, "default");
     const a = p.ask("Bash", { command: "rm x" }, "toolu_p4");
     await waitAsked(st);
     await answer(st, { question: "toolu_p4", action: "deny", message: "не трогай" });
-    expect(await a).toEqual({ behavior: "deny", message: "Пользователь отклонил: не трогай" });
+    expect(await a).toEqual({ behavior: "deny", message: "The user doesn't want to proceed with this tool use. Reason: не трогай" });
     const b = p.ask("Bash", { command: "rm y" }, "toolu_p5");
     await until(() => asked(st).length > 1);
     await answer(st, { question: "toolu_p5", action: "deny" });
-    expect(await b).toEqual({ behavior: "deny", message: "Пользователь отклонил" });
+    expect(await b).toEqual({ behavior: "deny", message: "The user doesn't want to proceed with this tool use." });
   });
 
   it("7105 · второй ответ — already_answered; неизвестное действие — bad_frame, вопрос остаётся открытым", async () => {
@@ -165,6 +200,6 @@ describe("план", () => {
     const a = p.ask("ExitPlanMode", PLAN, "toolu_e3");
     await waitAsked(st);
     await answer(st, { question: "toolu_e3", action: "deny", message: "добавь тест" });
-    expect(await a).toEqual({ behavior: "deny", message: "Пользователь вернул план: добавь тест" });
+    expect(await a).toEqual({ behavior: "deny", message: "The user doesn't want to proceed with this tool use. Reason: добавь тест" });
   });
 });

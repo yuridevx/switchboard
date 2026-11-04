@@ -7,6 +7,7 @@ import { createCard, manifest as cardM } from "@switchboard/web-card";
 import { createChat, manifest as chatM } from "@switchboard/web-chat";
 import { createInbox, manifest as inboxM } from "@switchboard/web-inbox";
 import { createAsk, manifest as askM } from "../contract.ts";
+import { added, type Rec } from "../src/store.ts";
 import { flush, stand } from "../../core/stand/app.ts";
 
 const CS = "profiles@laptop";
@@ -179,5 +180,15 @@ describe("план на одобрение", () => {
     await t.reason("добавь тест");
     await t.press("Вернуть");
     expect(t.sent[0]).toMatchObject({ action: "deny", message: "добавь тест" });
+  });
+});
+
+describe("память вопросов", () => {
+  it("7215 · новый вопрос вытесняет закрытые той же сессии; ждущие и чужие остаются", () => {
+    // источник: второй проход архитектора — память экрана не растёт за длинную сессию; чьё: код — закрытый нужен только как итог последнего
+    const rec = (id: string, callsign: string, status: Rec["status"]) => ({ id, callsign, status }) as Rec;
+    const was = [rec("a", "s@m", "ok"), rec("b", "s@m", "late"), rec("c", "s@m", "cancelled"), rec("d", "s@m", "gone"), rec("e", "s@m", "waiting"), rec("f", "s@m", "sending"), rec("g", "t@m", "ok")];
+    expect(added(was, "s@m", { question: "n" }).map((r) => r.id)).toEqual(["e", "f", "g", "n"]);
+    expect(added(was, "s@m", { question: "e" })).toBe(was);
   });
 });

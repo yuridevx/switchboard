@@ -39,7 +39,7 @@ async function bench(o: { holders?: stand.FakeHolders; home?: string; mod?: Modu
   const notifies: Frame[] = [];
   const push = module("host-push", { requests: { notify: (req) => (notifies.push(req), { pushed: [] }) } });
   // режим держит manage: эти эталоны — про режим по умолчанию
-  const manage = module("host-manage", { requests: { "session.spec": () => ({ mode: "bypassPermissions" }) } });
+  const manage = module("host-manage", { fields: { mode: () => "bypassPermissions" } });
   const st = await standHost({
     ...o,
     modules: [manage, { manifest: watchManifest as Manifest, module: makeWatch() }, push, { manifest: manifest as Manifest, module: o.mod ?? make() }],
@@ -217,18 +217,16 @@ describe("questions: стыки и юнит", () => {
     expect(await answer(st, "phone~owner@example.com", { question: "toolu_c", answers: pick("прод") })).toMatchObject({ ok: false, error: "already_answered" });
   });
 
-  it("question.list — ждущие вопросы сессии; после ответа пусто; запись в хранилище стёрта", async () => {
+  it("question.list — ждущие вопросы сессии; после ответа пусто", async () => {
     const { st } = await bench();
     const s = await st.open(CS);
     s.input("задача", { from: "phone~owner@example.com" });
     const asked = st.proc(CS).ask("AskUserQuestion", ASK, "toolu_l");
     await until(() => questions(st)[0]);
-    expect(st.session("host-questions", CS)!.store().get()).toEqual({ toolu_l: ["phone~owner@example.com"] });
     expect(await st.relay.request({ type: "question.list", v: 1, callsign: CS })).toMatchObject({ ok: true, result: [{ question: "toolu_l", kind: "ask", questions: ASK.questions }] });
     await answer(st, "phone~owner@example.com", { question: "toolu_l", answers: pick("прод") });
     await asked;
     expect(await st.relay.request({ type: "question.list", v: 1, callsign: CS })).toMatchObject({ ok: true, result: [] });
-    expect(st.session("host-questions", CS)!.store().get()).toBeUndefined();
   });
 
   it("задачу дала сессия: кадр question для неё — в её ввод тегом fleet-question с priority next", async () => {
@@ -255,14 +253,6 @@ describe("questions: стыки и юнит", () => {
     expect(await st.relay.request({ type: "answer", v: 1, callsign: "wiki@laptop", question: "toolu_b", answers: pick("прод") })).toMatchObject({ ok: false, error: "unknown_question" });
     await answer(st, "phone~owner@example.com", { question: "toolu_b", answers: pick("прод") });
     await asked;
-  });
-
-  it("result сессии стирает её записи в разделе", async () => {
-    const { st } = await bench();
-    await st.open(CS);
-    st.session("host-questions", CS)!.store().set({ toolu_old: ["phone~owner@example.com"] });
-    stand.turn(st.proc(CS));
-    await until(() => st.session("host-questions", CS)!.store().get() === undefined);
   });
 });
 
@@ -292,13 +282,16 @@ describe("эталоны questions: вложенные сессии", () => {
     expect(q).toMatchObject({ from: "lead@win", question: "toolu_l1", to: ["phone~owner@example.com"] });
   });
 
-  it("338 · форма MCP дочери — во ввод родителя не кладётся; строка журнала questions с причиной", async () => {
+  it("338 · форма MCP дочери родителю-сессии не адресуется и в его ввод не кладётся: только клиенты", async () => {
     // источник: чьё: код (questions: форма и ссылка — только человеку)
     const st = await nest();
     await st.open("lead@win");
-    st.relay.deliver({ type: "question", from: "docs@win", to: ["lead@win"], question: "elic_1", kind: "form", server: "github", message: "Войти в GitHub", schema: {} });
-    const line = await until(() => st.journal().find((l) => l.ev === "question" && String(l.why).includes("elic_1")));
-    expect(line.why).toContain("вид form — только человеку, во ввод сессии не кладётся");
+    const docs = await st.open("docs@win");
+    await st.relay.request({ type: "session.watch", v: 1, callsign: "docs@win", from: "pult~a@b" });
+    docs.input("задача", { from: "lead@win" });
+    void st.proc("docs@win").elicit({ serverName: "github", message: "Войти в GitHub", mode: "form", requestedSchema: {} });
+    const q = await until(() => st.relay.frames("question")[0]);
+    expect(q).toMatchObject({ kind: "form", to: ["pult~a@b"] });
     await new Promise((r) => setTimeout(r, 20));
     expect(st.proc("lead@win").inputs).toHaveLength(0);
   });

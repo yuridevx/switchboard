@@ -12,6 +12,7 @@ export { CopyButton } from "./src/md/CopyButton.tsx";
 export { langOfPath, useHighlighted } from "./src/md/highlight.tsx";
 export * from "./src/parts.tsx";
 export * from "./src/format.ts";
+export * from "./src/perms.ts";
 export { personal } from "./src/personal.ts";
 export { AppCtx, useApp } from "./src/hooks.ts";
 export type { AppHandle } from "./src/hooks.ts";

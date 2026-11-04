@@ -54,12 +54,12 @@ export function Composer({ callsign }: { callsign: string }) {
   const [dragging, setDragging] = useState(false);
 
   const name = app.use(() => chat.nameOf(callsign));
-  const busy = app.use(() => chat.sessionOf(callsign)?.state === "busy");
+  const busy = app.use(() => chat.inTurn(callsign));
   const live = app.use(() => chat.isLive(callsign));
   const canFiles = app.use(() => chat.can(callsign, "session.files"));
   const canCall = app.use(() => chat.can(callsign, "session.call"));
   const suggestion = chat.useConv(callsign, (c) => c.feed.suggestion);
-  const mode = chat.useConv(callsign, (c) => c.feed.mode);
+  const mode = app.use(() => chat.sessionOf(callsign)?.mode as string | undefined);
   const returned = chat.useConv(callsign, (c) => c.returned);
   const suggest = useSuggest(callsign, text);
 

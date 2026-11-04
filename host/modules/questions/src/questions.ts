@@ -1,7 +1,7 @@
 // Модуль questions: вопрос сессии человеку. AskUserQuestion и запрос разрешения (decide) и форма MCP (elicit) уходят тому, кто дал задачу,
 // и зрителям сессии; первый ответ выигрывает, остальные получают already_answered. Ждущий вопрос держит SDK:
-// пока decide не вернулся, ход стоит. В хранилище — только кому ушёл вопрос: после перезапуска Host SDK вернёт
-// тот же toolUseID, и вопрос уйдёт тем же адресатам. Модуль никогда не отвечает за человека.
+// пока decide не вернулся, ход стоит. После перезапуска Host SDK вернёт тот же toolUseID, и вопрос уйдёт нынешним адресатам.
+// Модуль никогда не отвечает за человека.
 import type { DecideOpts, ElicitationRequest, ElicitationResult, Frame, Host, Module, PermissionResult, Session } from "@switchboard/host";
 type PermissionUpdate = NonNullable<DecideOpts["suggestions"]>[number];
 import { kindOf } from "@switchboard/protocol";
@@ -28,14 +28,13 @@ type Pending = {
   resolve: (a: Answer) => void;
 };
 
-/** Раздел сессии: id вопроса → кому ушёл. Только ждущие AskUserQuestion. */
-type Sent = Record<string, string[]>;
-
 const isClient = (a: string) => kindOf(a) === "device" || kindOf(a) === "user";
 const isStrMap = (x: unknown): x is Record<string, string> => !!x && typeof x === "object" && !Array.isArray(x) && Object.values(x).every((v) => typeof v === "string");
 
 /** Режим, в котором claude не спрашивает: запроса разрешения человеку нет. */
 const BYPASS = "bypassPermissions";
+/** Отказ словами самого claude: модель и чат понимают его одинаково; причина человека — следом. */
+const REFUSAL = "The user doesn't want to proceed with this tool use.";
 /** План: «всегда» значит одобрить и дальше править без вопросов. */
 const PLAN_TOOL = "ExitPlanMode";
 const ACCEPT_EDITS = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
@@ -94,13 +93,9 @@ export function make(): Module {
   /** Вопрос наружу и ожидание первого ответа или отмены хода. */
   async function open(s: Session, id: string, kind: Kind, body: Record<string, unknown>, signal: AbortSignal): Promise<Answer> {
     const cs = s.info.callsign;
-    let to: string[];
-    if (kind === "ask") {
-      const store = s.store<Sent>();
-      const was = store.get()?.[id];
-      to = was ?? (await recipients(s));
-      if (!was) store.update((cur = {}) => ({ ...cur, [id]: to }));
-    } else to = await recipients(s);
+    // разрешение и форма — только человеку; на AskUserQuestion может ответить и сессия, давшая задачу
+    const all = await recipients(s);
+    const to = kind === "ask" ? all : all.filter(isClient);
     const answer = new Promise<Answer>((resolve) => pending.set(id, { id, s, kind, to, body, resolve }));
     if (to.length) host.emit({ type: "question", from: cs, to, question: id, kind, ...body } satisfies QuestionFrame);
     notify(cs, to, { type: "question", notify: askNotify(cs, id, kind, body) });
@@ -110,17 +105,13 @@ export function make(): Module {
     return answer;
   }
 
-  /** Закрыть вопрос: запись стёрта, всем адресатам answered, SDK получает ответ. Ответ null — ход прервали. */
+  /** Закрыть вопрос: всем адресатам answered, SDK получает ответ. Ответ null — ход прервали. */
   function close(id: string, a: Answer): void {
     const p = pending.get(id);
     if (!p) return;
     pending.delete(id);
     closed.add(id);
     const cs = p.s.info.callsign;
-    if (p.kind === "ask") p.s.store<Sent>().update((cur = {}) => {
-      const { [id]: _gone, ...rest } = cur;
-      return Object.keys(rest).length ? rest : undefined;
-    });
     const what = a === null ? { cancelled: true as const } : { by: a.by, ...(a.answers ? { answers: a.answers } : { action: a.action, ...(a.content ? { content: a.content } : {}) }) };
     if (p.to.length) host.emit({ type: "answered", from: cs, to: p.to, question: id, ...what } satisfies AnsweredFrame);
     const text = a === null ? "" : `${a.by}: ${a.answers ? Object.values(a.answers).join(", ") : a.action}`;
@@ -132,10 +123,10 @@ export function make(): Module {
   return {
     decide: {
       // Запрос разрешения: в режиме «без вопросов» его нет (решение устава), в остальных решает только человек.
-      // Настоящий режим держит manage: не ответил — спрашиваем человека, а не разрешаем сами.
+      // Режим держит manage: не знает — спрашиваем человека, а не разрешаем сами.
+      // Таймера на ожидание человека нет: он решал бы за человека. Предел — «Прервать» и session.stop, оба дают cancelled (решение 4 нояб.).
       async "*"(s, input, opts: DecideOpts): Promise<PermissionResult> {
-        const spec = await host.request("session.spec", { callsign: s.info.callsign });
-        if (spec.ok && (spec.result as { mode?: string }).mode === BYPASS) {
+        if (s.field("mode") === BYPASS) {
           host.log({ ev: "allow", callsign: s.info.callsign, tool: opts.tool, why: `режим ${BYPASS}` });
           return { behavior: "allow", updatedInput: input };
         }
@@ -147,8 +138,7 @@ export function make(): Module {
           const always = !a.always ? undefined : tool === PLAN_TOOL ? ACCEPT_EDITS : suggestions;
           return { behavior: "allow", updatedInput: input, ...(always?.length ? { updatedPermissions: always as PermissionUpdate[] } : {}) };
         }
-        const word = tool === PLAN_TOOL ? "Пользователь вернул план" : "Пользователь отклонил";
-        return { behavior: "deny", message: a.message ? `${word}: ${a.message}` : word };
+        return { behavior: "deny", message: a.message ? `${REFUSAL} Reason: ${a.message}` : REFUSAL };
       },
       async AskUserQuestion(s, input, opts: DecideOpts): Promise<PermissionResult> {
         const a = await open(s, opts.toolUseID, "ask", { questions: (input.questions ?? []) as AskItem[] }, opts.signal);
@@ -176,6 +166,7 @@ export function make(): Module {
           return undefined;
         }
         if (p.kind === "perm") {
+          if (!isClient(by)) throw refuse("not_client", `${id}: разрешение решает человек, а не ${by || "отправитель без адреса"}`);
           if (req.action !== "allow" && req.action !== "deny") throw refuse("bad_frame", `answer: action ${String(req.action)} — allow или deny`);
           if (req.message !== undefined && typeof req.message !== "string") throw refuse("bad_frame", "answer: message — строка");
           close(id, { by, action: req.action, always: req.always === true, ...(req.message ? { message: req.message as string } : {}) });
@@ -195,33 +186,21 @@ export function make(): Module {
     frames: {
       // вопрос, адресованный сессии этой машины, — в её ввод: она ответит инструментом fleet.answer
       question(f: Frame) {
-        if (f.kind !== "ask" || typeof f.from !== "string") {
-          host.log({ ev: "question", why: `${String(f.question)}: вид ${String(f.kind)} — только человеку, во ввод сессии не кладётся` });
-          return;
-        }
         const to = Array.isArray(f.to) ? f.to : [f.to];
         for (const a of to) {
           const s = kindOf(a) === "session" ? host.session(a as string) : undefined;
           if (!s) continue;
           // вопрос дочери — не новая задача: отправитель последнего ввода родителя прежний, его вопросы — тому, кто дал ему задачу
-          s.input(questionText(f.from, String(f.question), (f.questions ?? []) as AskItem[]), { priority: "next", origin: { kind: "peer", from: f.from, name: f.from } });
+          s.input(questionText(f.from as string, String(f.question), (f.questions ?? []) as AskItem[]), { priority: "next", origin: { kind: "peer", from: f.from as string, name: f.from as string } });
         }
       },
       // сессии закрытый вопрос не нужен: её fleet.answer уже получил ответ
       answered() {},
     },
-    on: {
-      // конец хода: ждущих вопросов у сессии нет — её записи стёрты
-      event(s, m) {
-        if (m.type !== "result") return;
-        const store = s.store<Sent>();
-        if (store.get() !== undefined) store.set(undefined);
-      },
-    },
     start(h) {
       host = h;
     },
-    // ждущие вопросы не трогать — ни allow, ни deny: это был бы ответ за человека; раздел уже на диске
+    // ждущие вопросы не трогать — ни allow, ни deny: это был бы ответ за человека
     stop() {},
   };
 }

@@ -28,7 +28,7 @@
     "session.files@host-chat": 1,
     "session.call@host-manage": 1,
     "asked.tool@web-ask": 1,
-    "session.spec@host-manage": 1
+    "mode@host-manage": 1
   },
   "config": {}
 }
