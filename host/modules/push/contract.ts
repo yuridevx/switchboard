@@ -4,5 +4,4 @@
 // Пуш шлёт Worker-модуль push (push.send) по последнему roster; хранилища у модуля нет.
 import { make } from "./src/push.ts";
 
-export type { Notify, NotifyRequest, NotifyResult } from "./src/push.ts";
 export default make();
