@@ -6,7 +6,7 @@ import type { Plan, PlanPart } from "../contract.ts";
 import type { Catalog } from "./catalog.ts";
 import type { Env } from "./env.ts";
 import type { Fleet } from "./fleet.ts";
-import { log } from "./refusal.ts";
+import { log, Refusal } from "./refusal.ts";
 
 /** Части каждой машины: без записи в плане — за stable. */
 export const EVERY_MACHINE = ["keeper", "host"];
@@ -33,9 +33,20 @@ export async function planFrame(cat: Catalog, fleet: Fleet, machine: string): Pr
   return { type: "releases.plan", v: 1, to: `.keeper@${machine}`, from: ".releases", ...(await planOf(cat, fleet, machine)) } as unknown as Frame;
 }
 
+/**
+ * Машины флота. Спрашивается до записи stable: записанный stable без планов повтор выкладки уже не исправит — from = to, планов нет,
+ * и keeper'ы на связи остаются на старой версии. gate не ответил — отказ, строка флота не тронута.
+ */
+export async function fleetMachines(env: Env): Promise<string[]> {
+  try {
+    return (await within(env.GATE.list("host"), "gate не ответил на list")).map((p) => p.name).sort();
+  } catch (e) {
+    throw new Refusal("gate_unavailable", String(e));
+  }
+}
+
 /** Планы машин, у которых сдвинутая часть идёт за stable: она в плане без pin или своя для каждой машины. */
-export async function plansAfterMove(env: Env, cat: Catalog, fleet: Fleet, moved: string[]): Promise<Frame[]> {
-  const machines = (await within(env.GATE.list("host"), "gate не ответил на list")).map((p) => p.name).sort();
+export async function plansAfterMove(cat: Catalog, fleet: Fleet, machines: string[], moved: string[]): Promise<Frame[]> {
   const follows = (machine: string) => moved.some((part) => {
     const entry = fleet.plans[machine]?.[part];
     return entry ? !entry.pin : EVERY_MACHINE.includes(part);

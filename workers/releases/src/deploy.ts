@@ -7,7 +7,7 @@ import { type Catalog, NAME, newest } from "./catalog.ts";
 import { deploy as deployVersion } from "./cloudflare.ts";
 import type { Env } from "./env.ts";
 import { readFleet, writeFleet } from "./fleet.ts";
-import { EVERY_MACHINE, journal, plansAfterMove } from "./plans.ts";
+import { EVERY_MACHINE, fleetMachines, journal, plansAfterMove } from "./plans.ts";
 import { Refusal } from "./refusal.ts";
 
 type Moved = { result: Deployed; plans: Frame[] };
@@ -84,7 +84,8 @@ async function moveParts(env: Env, cat: Catalog, targets: string[], by: string, 
     }
   }
   if (!moved.size) return { result, plans: [] };
+  const machines = await fleetMachines(env);
   const next = await writeFleet(env, fleet, { stable: { ...fleet.stable, ...Object.fromEntries(moved) } });
   for (const [name, to] of moved) await journal(env, `${name} ${fleet.stable[name] ?? "—"} → ${to}`, by);
-  return { result, plans: await plansAfterMove(env, cat, next, [...moved.keys()]) };
+  return { result, plans: await plansAfterMove(cat, next, machines, [...moved.keys()]) };
 }

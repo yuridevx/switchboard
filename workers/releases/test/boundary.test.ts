@@ -658,6 +658,21 @@ describe("эталоны releases", () => {
     expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "releases.plan", word: "offline", why: expect.stringContaining("relay.deliver → .keeper@win") }));
   });
 
+  it("gate молчит при выкладке части машины: отказ словом, stable и rev прежние; повтор — новая rev и план (спорное место: опыт на D1 стенда)", async () => {
+    await fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await hosts("win");
+    const silent = new Proxy(E, { get: (o, k) => (k === "GATE" ? { list: async () => { throw new Error("gate молчит"); } } : Reflect.get(o, k)) }) as Env;
+    const [r] = await frame(silent, { type: "releases.deploy", v: 1, id: "r", to: ".releases", from: "~x", part: "host" });
+    expect(r).toMatchObject({ ok: false, error: "gate_unavailable" });
+    const s = fresh();
+    const before = await result(req(s, "~x", "releases.list", { part: "host" }));
+    expect([before.parts.host.stable, before.rev]).toEqual([null, 0]);
+    const again = await req(s, "~x", "releases.deploy", { part: "host" });
+    expect((again[0].result as any).parts.host).toEqual({ from: null, to: "1.1.82" });
+    expect(plans(again).map((f) => [f.to, f.rev])).toEqual([[".keeper@win", 1]]);
+  });
+
   it("13 · план keeper — ровно поля v1: keeper заморожен с 1.0.0 и отказывает плану с чужим полем", async () => {
     const s = fresh();
     await fakeCf(NONE);
@@ -722,6 +737,19 @@ describe("сборка Host «Выпусками»", () => {
     expect(plans(out).map((p) => [p.to, (p.parts as any[]).find((x) => x.part === "host").version])).toEqual([[".keeper@win", "1.2.0+1"], [".keeper@wsl", "1.2.0+1"]]);
     expect(((plans(out)[0].parts as any[]).find((x) => x.part === "host").url as string)).toContain("/switchboard-releases/test/host/1.2.0%2B1.tgz?");
     expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["host 1.1.85 → 1.2.0+1 (host-push 3.0.0)"]);
+  });
+
+  it("gate молчит при новой сборке Host: отказ словом, архива и новой rev нет (спорное место)", async () => {
+    const s = fresh();
+    await setup();
+    await req(s, "~x", "releases.deploy", { part: "host-watch" });
+    const rev = (await result(req(s, "~x", "releases.list", { part: "host" }))).rev;
+    await mod("host-watch", "1.0.1", { provides: { "session.watchers": 1 } });
+    const silent = new Proxy(E, { get: (o, k) => (k === "GATE" ? { list: async () => { throw new Error("gate молчит"); } } : Reflect.get(o, k)) }) as Env;
+    const [r] = await frame(silent, { type: "releases.deploy", v: 1, id: "r", to: ".releases", from: "~x", part: "host-watch" });
+    expect(r).toMatchObject({ ok: false, error: "gate_unavailable" });
+    expect(await env.BUCKET.get("test/host/1.2.0+2.tgz")).toBeNull();
+    expect((await result(req(s, "~x", "releases.list", { part: "host" }))).rev).toBe(rev);
   });
 
   it("5116 · «два владельца»: модуль со вторым владельцем имени — check_failed с причиной, stable и сборки прежние; исправленная версия — новая сборка", async () => {

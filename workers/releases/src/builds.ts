@@ -9,7 +9,7 @@ import type { Catalog, Entry, Mod, Part } from "./catalog.ts";
 import { deploy, publishStatic, urlsOf } from "./cloudflare.ts";
 import type { Env } from "./env.ts";
 import { readFleet, writeFleet, type Fleet } from "./fleet.ts";
-import { journal, plansAfterMove } from "./plans.ts";
+import { fleetMachines, journal, plansAfterMove } from "./plans.ts";
 import { log, Refusal } from "./refusal.ts";
 
 export type Rebuild = {
@@ -124,6 +124,7 @@ export async function rebuild(env: Env, cat: Catalog, r: Rebuild): Promise<{ res
   const errors = check(setToCheck(lists, checked, roots, all, fleet));
   if (errors.length) throw new Refusal("check_failed", errors.join("; "));
 
+  const machines = apps.some((app) => parts.get(app)?.where === "machine") ? await fleetMachines(env) : [];
   const changed = `${change.name} ${change.version ?? "снят"}${without.length ? `; сняты ${without.join(", ")}` : ""}`;
   const result: Deployed = { parts: {} };
   const onMachines: Array<[string, string]> = [];
@@ -151,5 +152,5 @@ export async function rebuild(env: Env, cat: Catalog, r: Rebuild): Promise<{ res
   if (!onMachines.length) return { result, plans: [] };
   const next = await writeFleet(env, fleet, { stable: { ...fleet.stable, ...Object.fromEntries(onMachines) } });
   for (const [app, version] of onMachines) await journal(env, `${app} ${fleet.stable[app] ?? "—"} → ${version} (${changed})`, by);
-  return { result, plans: await plansAfterMove(env, cat, next, onMachines.map(([app]) => app)) };
+  return { result, plans: await plansAfterMove(cat, next, machines, onMachines.map(([app]) => app)) };
 }
