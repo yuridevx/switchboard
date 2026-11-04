@@ -3,6 +3,7 @@
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import { join } from "node:path";
+import { CALL_MS, within } from "@switchboard/protocol";
 import type { Host } from "@switchboard/host";
 
 /** Запуск git: аргументы, папка, своё окружение поверх окружения Host. */
@@ -29,14 +30,21 @@ const NO_PROMPT = ["-c", "credential.interactive=never"];
 
 const lastLine = (s: string) => s.trim().split("\n").pop();
 
-/** Настоящий git ОС. */
-export const realGit: Git = (args, o) =>
-  new Promise((done) => {
-    execFile("git", args, { cwd: o.cwd, env: { ...process.env, ...o.env }, windowsHide: true, maxBuffer: 16 << 20 }, (e, out, err) => {
-      const code = e ? (typeof (e as { code?: unknown }).code === "number" ? (e as { code: number }).code : 1) : 0;
-      done({ code, out: `${out}${err}` });
-    });
-  });
+/** Настоящий git ОС с пределом на команду: процесс убит, ответ не ждём: дочерний процесс git может держать его вывод. */
+export const gitWithin = (ms: number): Git => (args, o) =>
+  within(
+    new Promise((done) => {
+      execFile("git", args, { cwd: o.cwd, env: { ...process.env, ...o.env }, windowsHide: true, maxBuffer: 16 << 20, timeout: ms }, (e, out, err) => {
+        const code = e ? (typeof (e as { code?: unknown }).code === "number" ? (e as { code: number }).code : 1) : 0;
+        done({ code, out: `${out}${err}` });
+      });
+    }),
+    `git не ответил за ${ms / 1000} с`,
+    ms,
+  );
+
+/** Предел команды — как у вызова со страницы: дольше ответ всё равно никто не ждёт. */
+export const realGit = gitWithin(CALL_MS);
 
 export const syncedDirs = () => SYNCED.map(([s]) => s);
 
