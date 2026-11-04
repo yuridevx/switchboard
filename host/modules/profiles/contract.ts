@@ -6,5 +6,6 @@
 // Слово: no_profile. Настройка машины — host.json: "modules": { "host-profiles": { "repos": ["team/profiles"] } }.
 import { make } from "./src/profiles.ts";
 
-export type { RepoState } from "./src/profiles.ts";
+export { make };
+export type { Git, RepoState } from "./src/profiles.ts";
 export default make();

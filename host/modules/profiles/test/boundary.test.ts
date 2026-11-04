@@ -1,4 +1,4 @@
-// Эталоны и стыки модуля profiles на стенде Host: поддельные SDK, relay, keeper и часы;
+// Леса границы «вход и профиль сессии», сторона Host, профиль. Снаружи: поддельные SDK, relay, keeper и часы;
 // git — поддельный, пишет свои вызовы с окружением; github — поддельный участник рации. Номер эталона — номер теста.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -7,8 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest, Module } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { make, parseYaml, SYNC_MS } from "../src/profiles.ts";
-import type { Git } from "../src/profiles.ts";
+import { make } from "../contract.ts";
+import type { Git } from "../contract.ts";
+
+/** Память и скилы сводятся раз в минуту. */
+const SYNC_MS = 60_000;
 
 const { module, standHost, until } = stand;
 type Stand = stand.Stand;
@@ -300,9 +303,6 @@ describe("profiles: ветки и стыки", () => {
     expect(g.calls[0].env.GIT_CONFIG_VALUE_0).toContain("basic ");
   });
 
-  it("profile.yaml: строки и списки", () => {
-    expect(parseYaml("model: opus\nfallback_model: [sonnet, haiku]\n# x\neffort: 'high'")).toEqual({ model: "opus", fallback_model: ["sonnet", "haiku"], effort: "high" });
-  });
 });
 
 /** Поддельный git с ручками: fail — команда и её ответ, hold — команда ждёт release(). */
@@ -502,16 +502,6 @@ describe("profiles: покрытие плана host-modules", () => {
     expect(g.cmds().filter((x) => x.startsWith("add"))).toHaveLength(1);
   });
 
-  it("3067 · таймер раз в минуту — синхронизация каждого репозитория", async () => {
-    // источник: чьё: код (profiles.ts:34, :316-318)
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    const g = fakeGit();
-    await bench({ git: g.git });
-    github(st!, () => TOKEN);
-    vi.advanceTimersByTime(SYNC_MS);
-    await until(() => g.cmds().length === 1);
-    expect(g.cmds()).toEqual([`clone https://github.com/team/profiles.git ${clone()}`]);
-  });
 });
 
 describe("profiles: покрытие плана host-modules — живое на стенде", () => {
@@ -519,5 +509,47 @@ describe("profiles: покрытие плана host-modules — живое на
     // источник: чьё: код (profiles.ts:79, :273-291)
     st = await standHost({ home, modules: [{ manifest: manifest as Manifest, module: make({ git: fakeGit().git }) }] });
     expect(await ask({ type: "machine.profiles" })).toMatchObject({ ok: true, result: { profiles: {}, repos: {} } });
+  });
+});
+
+describe("видимое: задания модели и причины", () => {
+  const context = async (event: "SessionStart" | "UserPromptSubmit") => {
+    const out = (await st!.proc("site@laptop").hook(event, {})) as Array<{ hookSpecificOutput?: { additionalContext?: string } }>;
+    return out[0].hookSpecificOutput?.additionalContext;
+  };
+
+  it("конфликт, ошибка и пропавший профиль: задание дословно; после свода — строка журнала", async () => {
+    repo();
+    const g = fakeGit();
+    g.o.pull = { code: 1, out: "CONFLICT (content): Merge conflict in ops/memory/testing.md" };
+    const { mod } = await bench({ git: g.git });
+    let answer: { ok: true; result: unknown } | { ok: false; error: string } = TOKEN;
+    github(st!, () => answer);
+    await preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    await ask({ type: "machine.profiles", sync: true });
+    expect(await context("UserPromptSubmit")).toBe(`Память профиля ops не сведена: git pull --no-rebase — конфликт в ops/memory/testing.md (клон ${clone()}). Сведи обе версии, закоммить и отправь. Без человека не решить — спроси.`);
+    answer = { ok: false, error: "not_installed" };
+    await ask({ type: "machine.profiles", sync: true });
+    expect(await context("SessionStart")).toBe(`Память профиля ops не отправлена: github.token — not_installed (клон ${clone()}). Без человека не решить — спроси.`);
+    answer = TOKEN;
+    g.o.pull = { code: 0, out: "ok" };
+    await ask({ type: "machine.profiles", sync: true });
+    expect(st!.journal().some((l) => l.ev === "sync" && l.why === "team/profiles: память сведена — ok")).toBe(true);
+    rmSync(join(clone(), "ops"), { recursive: true });
+    expect(await context("SessionStart")).toBe(`Профиля ${OPS} нет в клоне (клон ${clone()}). Без человека не решить — спроси.`);
+  });
+
+  it("отказы и журнал о пропавшем профиле называют его", async () => {
+    repo();
+    const { mod } = await bench({ git: fakeGit().git });
+    await st!.open("wiki@laptop");
+    expect((await ask({ type: "session.profile", callsign: "wiki@laptop", profile: "team/profiles/nope" })).why).toBe("team/profiles/nope: в клонах нет папки профиля с CLAUDE.md или profile.yaml");
+    await preOpen(mod, "site@laptop", OPS);
+    const s = await st!.open("site@laptop");
+    rmSync(join(clone(), "ops"), { recursive: true });
+    await s.stop();
+    await s.start();
+    expect(st!.journal().some((l) => l.ev === "profile" && l.why === `${OPS}: профиля нет в клоне — сессия без его части`)).toBe(true);
   });
 });
