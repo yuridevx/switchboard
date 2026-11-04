@@ -902,8 +902,58 @@ describe("сборка страницы «Выпусками»", () => {
     expect(sent.uploads).toBe(uploads + 1);
     const third = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.0+3.tgz"))!.arrayBuffer()));
     expect(JSON.parse(third.find((x) => x.path === "build.json")!.data!.toString("utf8")).modules).toEqual([{ name: "web-dep", version: "1.0.0" }, { name: "web-core", version: "1.2.0" }, { name: "web-x", version: "1.1.0" }]);
-    const refused = await req(s, "agent~x", "releases.deploy", { part: "web-x", latest: true });
+    const refused = await req(s, "agent~x", "releases.deploy", { part: "нет-такого", latest: true });
     expect(refused[0]).toMatchObject({ ok: false, error: "bad_frame" });
+  });
+
+  it("7300 · latest у модуля: смена контракта, общего для двух приложений, выкладывается одной проверкой; порознь — отказ", async () => {
+    // источник: факт 4 нояб. — app@web-core 1 → 2: пульт и телефон поодиночке дают check_failed, старая сборка соседа держит старый номер
+    const s = fresh();
+    const put = async (name: string, version: string, manifest: Record<string, unknown>) => {
+      const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) }, { path: name === "web-core" ? "module.js" : "index.html", data: Buffer.from("x") }]);
+      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
+      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
+    };
+    const scripts = { pult: { test: "switchboard-pult" }, phone: { test: "switchboard-phone" } };
+    await put("pult", "1.0.0", { type: "web-app", uses: { "app@web-core": 1 }, workers: scripts.pult });
+    await put("phone", "1.0.0", { type: "web-app", uses: { "app@web-core": 1 }, workers: scripts.phone });
+    await put("web-core", "1.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 1 } });
+    const tags: Record<string, string[]> = {};
+    let live: Record<string, string> = {};
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      const p = new URL(req.url).pathname.replace("/client/v4/accounts/acc0", "");
+      const ok = (result: unknown) => Response.json({ success: true, result });
+      if (p === "/workers/assets/upload") return ok({ jwt: "done" });
+      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
+      if (p === "/workers/domains") return ok([]);
+      const m = /^\/workers\/scripts\/([^/]+)\/(assets-upload-session|versions|deployments)$/.exec(p);
+      if (!m) return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
+      const [, script, what] = m;
+      if (what === "assets-upload-session") {
+        const manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
+        return ok({ jwt: "up", buckets: [Object.values(manifest).map((x) => x.hash)] });
+      }
+      if (what === "versions" && req.method === "POST") {
+        const meta = JSON.parse(await ((await req.formData()).get("metadata") as Blob).text());
+        (tags[script] ??= []).push(meta.annotations["workers/tag"]);
+        return ok({ id: `v-${tags[script].at(-1)}` });
+      }
+      if (what === "versions") return ok({ items: [...(tags[script] ?? [])].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
+      if (req.method === "POST") return (live = { ...live, [script]: ((await req.json()) as any).versions[0].version_id }), ok({});
+      return ok({ deployments: live[script] ? [{ versions: [{ version_id: live[script], percentage: 100 }] }] : [] });
+    });
+    expect((await result(req(s, "agent~x", "releases.deploy", { part: "web-core", latest: true }))).parts).toMatchObject({ pult: { to: "1.0.0+1" }, phone: { to: "1.0.0+1" } });
+    await put("pult", "2.0.0", { type: "web-app", uses: { "app@web-core": 2 }, workers: scripts.pult });
+    await put("phone", "2.0.0", { type: "web-app", uses: { "app@web-core": 2 }, workers: scripts.phone });
+    await put("web-core", "2.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 2 } });
+    // порознь — старая сборка соседа держит старый номер контракта
+    expect((await req(s, "agent~x", "releases.deploy", { part: "pult", latest: true }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+    expect((await req(s, "agent~x", "releases.deploy", { part: "phone", latest: true }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+    // разом — одной проверкой
+    const parts = (await result(req(s, "agent~x", "releases.deploy", { part: "web-core", latest: true }))).parts;
+    expect(parts.pult.to).toBe("2.0.0+1");
+    expect(parts.phone.to).toBe("2.0.0+1");
   });
 
   it("5194 · снять модуль страницы: оболочка пользуется только ядром страницы — сборка без модуля проходит проверку", async () => {

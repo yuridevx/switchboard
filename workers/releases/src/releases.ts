@@ -371,8 +371,10 @@ class Releases {
     const cat = part === "*" ? undefined : (await this.catalog()).get(part);
     // latest: корень и все его модули — на новейшие версии каталога одной сборкой: смена, которую нельзя выложить по модулю
     if (f.latest !== undefined) {
-      if (f.latest !== true || want !== undefined || !kind?.app) throw new Refusal("bad_frame", "latest: true — только у корня сборки и без version");
-      return this.rebuild([part as string], { name: part as string, version: cat!.versions[cat!.versions.length - 1] }, by, true);
+      // у модуля — все приложения его into сразу, одной проверкой: смену контракта, общего для приложений, порознь не выложить
+      const apps = kind?.app ? [part as string] : (cat?.manifest?.into ?? []);
+      if (f.latest !== true || want !== undefined || !apps.length) throw new Refusal("bad_frame", "latest: true — только у корня сборки или модуля сборки и без version");
+      return this.rebuild(apps, { name: part as string, version: cat!.versions[cat!.versions.length - 1] }, by, true);
     }
     // модуль сборки: новая сборка каждого приложения из его into; version: null — сборки без него
     if (part !== "*" && !kind && cat?.manifest?.into?.length) {
