@@ -1,6 +1,6 @@
 // Состояние ядра, которое читают вид и модули: один неизменяемый снимок. Правка заменяет снимок и будит вид.
-// Не createStore: roster принадлежит клиенту флота и не замораживается.
 import type { Roster } from "@switchboard/relay";
+import { createStore } from "@switchboard/web-ui";
 import type { ConnState, Params } from "./types.ts";
 
 /** Экран на всю страницу: что случилось и данные для него; рисует его вид (view/stops.tsx). */
@@ -47,12 +47,16 @@ export type CoreStore = {
 };
 
 export function createCoreState(css: string, changed: () => void): CoreStore {
-  let state: CoreState = { full: null, css, key: "", fresh: false, conn: "connecting", roster: null, rosterAt: 0, retryAt: 0, current: null, master: null, tops: [], toast: null };
+  let quiet = false;
+  const store = createStore<CoreState>({ full: null, css, key: "", fresh: false, conn: "connecting", roster: null, rosterAt: 0, retryAt: 0, current: null, master: null, tops: [], toast: null }, () => {
+    if (!quiet) changed();
+  });
   return {
-    get: () => state,
+    get: store.get,
     set(patch, o) {
-      state = { ...state, ...patch };
-      if (!o?.quiet) changed();
+      quiet = !!o?.quiet;
+      store.set((d) => void Object.assign(d, patch));
+      quiet = false;
     },
   };
 }

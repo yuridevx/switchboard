@@ -1,6 +1,6 @@
 // Окно действия над точкой: перенос, копия, смена папки, откат. Поля и шаги — usePointDialog.
 import { machineOf } from "@switchboard/protocol";
-import { Btn, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, Check, CommitIn, H4, In, M, Note, Opts, OptsLabel, remoteOf, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { canRaise } from "./format.ts";
 import { CheckLine } from "./parts.tsx";
@@ -99,7 +99,7 @@ export function PointDialog({ d, c, callsign, sid }: { d: Dialog; c: DialogContr
       ) : null}
       {d.kind !== "copy" ? (
         <OptsLabel>
-          <input type="checkbox" checked={d.interrupt} onChange={(e) => c.patch({ interrupt: e.currentTarget.checked })} />
+          <Check checked={d.interrupt} onChange={(e) => c.patch({ interrupt: e.currentTarget.checked })} />
           {d.kind === "rb" ? "прервать идущий ответ и откатить сразу (иначе — после конца ответа)" : "прервать ответ и сделать сразу"}
         </OptsLabel>
       ) : null}

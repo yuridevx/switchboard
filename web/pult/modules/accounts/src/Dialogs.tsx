@@ -1,7 +1,7 @@
 // Диалоги аккаунтов: новый аккаунт, сессии слота, удаление.
 import { nameOf } from "@switchboard/protocol";
 import { useState } from "react";
-import { Btn, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
+import { Btn, Check, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
 import { useScreen } from "./context.ts";
 import { useAccounts } from "./store.ts";
 import { NoteLine } from "./parts.tsx";
@@ -77,8 +77,7 @@ export function SessDlg({ m, slot, s, targets }: { m: string; slot: string; s: S
       <Opts>
         {s.sessions.map((c) => (
           <OptsLabel key={c}>
-            <input
-              type="checkbox"
+            <Check
               value={c}
               checked={checked.includes(c)}
               onChange={(e) => {

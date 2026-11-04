@@ -1,7 +1,7 @@
 // Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
 import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN, slotOf, Btn, Tabs } from "@switchboard/web-ui";
+import { at, Btn, Dot, effortName, failText, IconBtn, LIMIT_WARN, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, slotOf, stateLabel, Tabs, useApp } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard, useSessionActions } from "./hooks.ts";
 import { isDown, type Can } from "./session.ts";
@@ -19,7 +19,7 @@ function NameButton({ callsign, machine, openNames }: { callsign: string; machin
   const name = app.use(() => sessionLabel(app, callsign));
   const host = app.use(() => machineLabel(app, machine));
   return (
-    <button className="cw-nm" data-act="names" aria-label="Имена сессии и машины" onClick={openNames}>
+    <IconBtn className="cw-nm" data-act="names" aria-label="Имена сессии и машины" onClick={openNames}>
       <span className="cw-nm1">
         <b className={"cw-cs" + (name.human ? " hum" : "")}>{name.text}</b>
         <span className={"cw-at" + (host.human ? " hum" : "")}>{host.text}</span>
@@ -28,7 +28,7 @@ function NameButton({ callsign, machine, openNames }: { callsign: string; machin
         </span>
       </span>
       {view.haddr && (name.human || host.human) ? <span className="cw-real">{callsign}</span> : null}
-    </button>
+    </IconBtn>
   );
 }
 

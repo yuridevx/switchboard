@@ -3,7 +3,7 @@
 // Текст — состояние этого компонента (курсор при наборе не прыгает); в хранилище уходит черновик, отказ отправки возвращает текст и вложения.
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
-import { useApp, Btn, Area } from "@switchboard/web-ui";
+import { Area, Btn, IconBtn, RowBtn, useApp } from "@switchboard/web-ui";
 import { useChat, useConv } from "../context.ts";
 import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";
@@ -17,11 +17,11 @@ function SuggestList({ s, pick }: { s: Suggest; pick(insert: string): void }) {
   return (
     <div className="chat-sug" role="listbox" data-kind={s.kind}>
       {s.items.map((x, i) => (
-        <button key={x.key} type="button" className="chat-sugi" role="option" aria-selected={i === s.sel} onClick={() => pick(x.insert)}>
+        <RowBtn key={x.key} className="chat-sugi" role="option" aria-selected={i === s.sel} onClick={() => pick(x.insert)}>
           {s.kind === "file" ? <FileText size={13} /> : null}
           <b>{x.label}</b>
           {x.hint ? <span>{x.hint}</span> : null}
-        </button>
+        </RowBtn>
       ))}
     </div>
   );
@@ -35,9 +35,9 @@ function Chips({ list, drop }: { list: Attachment[]; drop(a: Attachment): void }
         <span key={i} className="chat-file">
           {a.media_type.startsWith("image/") ? <img src={`data:${a.media_type};base64,${a.data}`} alt="" /> : <FileText size={13} />}
           {a.name}
-          <button type="button" aria-label={`убрать ${a.name}`} onClick={() => drop(a)}>
+          <IconBtn aria-label={`убрать ${a.name}`} onClick={() => drop(a)}>
             <X size={12} />
-          </button>
+          </IconBtn>
         </span>
       ))}
     </div>
@@ -184,12 +184,11 @@ export function Composer({ callsign }: { callsign: string }) {
           onPaste={onPaste}
         />
         <div className="chat-tools">
-          <button type="button" className="chat-tb" aria-label="Вложить файл" title="Вложить файл" onClick={() => picker.current!.click()}>
+          <IconBtn className="chat-tb" aria-label="Вложить файл" title="Вложить файл" onClick={() => picker.current!.click()}>
             <Paperclip size={16} />
-          </button>
+          </IconBtn>
           {canFiles ? (
-            <button
-              type="button"
+            <IconBtn
               className="chat-tb"
               aria-label="Файл папки"
               title="Файл папки"
@@ -199,12 +198,12 @@ export function Composer({ callsign }: { callsign: string }) {
               }}
             >
               <AtSign size={16} />
-            </button>
+            </IconBtn>
           ) : null}
           {canCall ? (
-            <button type="button" className="chat-tb" aria-label="Команда" title="Команда" onClick={() => pick("/")}>
+            <IconBtn className="chat-tb" aria-label="Команда" title="Команда" onClick={() => pick("/")}>
               <Slash size={16} />
-            </button>
+            </IconBtn>
           ) : null}
           {canCall && mode ? <ModeSelect callsign={callsign} mode={mode} /> : null}
           <span className="chat-grow" />
@@ -214,9 +213,9 @@ export function Composer({ callsign }: { callsign: string }) {
               Прервать
             </Btn>
           ) : null}
-          <button className="chat-send" aria-label="Отправить" type="submit" disabled={!text.trim() && !pending.length}>
+          <IconBtn className="chat-send" aria-label="Отправить" type="submit" disabled={!text.trim() && !pending.length}>
             <ArrowUp size={18} />
-          </button>
+          </IconBtn>
         </div>
         <input
           ref={picker}

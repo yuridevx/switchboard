@@ -1,6 +1,6 @@
 // Над полем ввода: вопросы сбоку, задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
 import { useEffect, useState } from "react";
-import { useApp, useLoad, Markdown, Btn } from "@switchboard/web-ui";
+import { Btn, IconBtn, Markdown, TextBtn, useApp, useLoad } from "@switchboard/web-ui";
 import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
 import { useChat, useConv } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
@@ -115,9 +115,9 @@ export function SideCard({ s, drop }: { s: Side; drop(): void }) {
           <div className="chat-side-w">думает…</div>
         )}
       </div>
-      <button type="button" className="chat-side-x" aria-label="Закрыть" onClick={drop}>
+      <IconBtn className="chat-side-x" aria-label="Закрыть" onClick={drop}>
         <X size={14} />
-      </button>
+      </IconBtn>
     </div>
   );
 }
@@ -171,11 +171,11 @@ export function AskDock({ callsign }: { callsign: string }) {
           <app.Slot screen="ask" params={{ callsign }} />
         ) : null
       ) : asked ? (
-        <button type="button" className="chat-askbar" onClick={() => app.open("ask", { callsign })}>
+        <TextBtn className="chat-askbar" onClick={() => app.open("ask", { callsign })}>
           <b>?</b>
           <span>{asked}</span>
           <em>Ответить</em>
-        </button>
+        </TextBtn>
       ) : null}
     </div>
   );

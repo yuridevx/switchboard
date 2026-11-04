@@ -30,6 +30,19 @@ describe("эталоны prefs", () => {
     expect((await get(PULT)).result).toEqual({ values: { "web-board.top": ["switchboard"], "web-board.pins": ["a@b"] } });
   });
 
+  it("7320 · prefix: только ключи с этим началом; знаки шаблона буквальны; пустой — отказ словом; без него — все", async () => {
+    // источник: отчёт слепого архитектора 4 нояб.: страница читает всю область, хотя ей нужны только свои ключи
+    await set(PHONE, "web-board.top", 1);
+    await set(PHONE, "web-labels.names", 2);
+    await set(PHONE, "web_board.top", 3);
+    const only = (prefix: unknown) => ask(PHONE, { type: "prefs.get", prefix });
+    expect((await only("web-board.")).result?.values).toEqual({ "web-board.top": 1 });
+    expect((await only("web_")).result?.values).toEqual({ "web_board.top": 3 });
+    expect((await only("нет.")).result?.values).toEqual({});
+    expect((await only("")).error).toBe("bad_frame");
+    expect(Object.keys((await get(PHONE)).result?.values ?? {})).toHaveLength(3);
+  });
+
   it("5601 · запись по ключу целиком: последняя побеждает, другие ключи не трогает", async () => {
     await set(PHONE, "k", { x: 1 });
     await set(PHONE, "other", 1);

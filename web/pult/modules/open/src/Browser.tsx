@@ -3,7 +3,7 @@ import type {} from "@switchboard/web-labels";
 import { useOpen } from "./store.ts";
 import { addrView, dirOfAddr, HOME, into } from "./form.ts";
 import type { OpenForm } from "./useOpenForm.ts";
-import { machineLabel, useApp, In, Chip, Chips } from "@switchboard/web-ui";
+import { Chip, Chips, DisclosureBtn, In, machineLabel, RowBtn, useApp } from "@switchboard/web-ui";
 
 /** Имя машины: человеческое из меток, иначе адрес. Выборка: новое имя перерисует вызвавшего. */
 export function useMachineLabels() {
@@ -25,9 +25,9 @@ export function MachinesPane({ form }: { form: OpenForm }) {
         sorted.map((m) => {
           const l = label(m);
           return (
-            <button key={m} role="option" aria-selected={f.machine === m} data-machine={m} onClick={() => pick(m, m === f.machine ? f.addr : HOME)}>
+            <RowBtn key={m} role="option" aria-selected={f.machine === m} data-machine={m} onClick={() => pick(m, m === f.machine ? f.addr : HOME)}>
               <b className={l.human ? "hum" : undefined}>{l.text}</b>
-            </button>
+            </RowBtn>
           );
         })
       ) : (
@@ -48,9 +48,9 @@ export function FolderPane({ form }: { form: OpenForm }) {
   return (
     <div className="op-bf">
       {app.wide ? null : (
-        <button className="op-bk" data-act="pick-machine" aria-expanded={f.pickM} onClick={() => set({ pickM: !f.pickM })}>
+        <DisclosureBtn className="op-bk" data-act="pick-machine" open={f.pickM} onClick={() => set({ pickM: !f.pickM })}>
           {f.machine ? label(f.machine).text : "машина"}
-        </button>
+        </DisclosureBtn>
       )}
       {app.wide || !f.pickM ? null : <MachinesPane form={form} />}
       {places.length > 1 ? (
@@ -81,9 +81,9 @@ export function FolderPane({ form }: { form: OpenForm }) {
       {listed?.word && listed.word !== "not_found" ? <div className="op-new">{listed.word === "no_access" ? "нет доступа к этой папке" : `machine.dirs: ${listed.word}`}</div> : null}
       <div className="op-dl">
         {shown.map((d) => (
-          <button key={d} data-dir={d} onClick={() => setAddr(into(parent, d))}>
+          <RowBtn key={d} data-dir={d} onClick={() => setAddr(into(parent, d))}>
             <span>{`▸ ${d}`}</span>
-          </button>
+          </RowBtn>
         ))}
         {!shown.length && listed && !listed.word && !isNew ? <span className="op-none">пусто</span> : null}
       </div>

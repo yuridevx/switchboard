@@ -1,6 +1,6 @@
 // Проект в списке: заголовок с ручкой, лампами и «+», меню имени и строки. И последняя строка списка — новый проект.
 import { memo, useState } from "react";
-import { Btn, Dot, In } from "@switchboard/web-ui";
+import { Btn, DisclosureBtn, Dot, IconBtn, In, TextBtn } from "@switchboard/web-ui";
 import { useBoard } from "./store.ts";
 import type { Section } from "./model.ts";
 import { SessionRow } from "./SessionRow.tsx";
@@ -48,9 +48,9 @@ export function NewProject() {
   const [on, setOn] = useState(false);
   if (!on) {
     return (
-      <button className="pj-new" data-act="project-new" onClick={() => setOn(true)}>
+      <TextBtn className="pj-new" data-act="project-new" onClick={() => setOn(true)}>
         Новый проект
-      </button>
+      </TextBtn>
     );
   }
   const done = (v: string) => {
@@ -83,7 +83,7 @@ export const ProjectSection = memo(function ProjectSection({ x }: { x: Section }
             ⠿
           </span>
         ) : null}
-        <button className="pj-t" aria-expanded={x.open} data-proj={x.id} onClick={() => board.toggleProject(x.id)}>
+        <DisclosureBtn className="pj-t" open={x.open} data-proj={x.id} onClick={() => board.toggleProject(x.id)}>
           <span className="car">▼</span>
           <span className="nm">{x.name}</span>
           <span className="lamps">
@@ -91,11 +91,11 @@ export const ProjectSection = memo(function ProjectSection({ x }: { x: Section }
               <Dot key={l.callsign} kind={l.kind} />
             ))}
           </span>
-        </button>
+        </DisclosureBtn>
         {x.add ? (
-          <button className="pj-add" data-proj={x.id} aria-label={`Новая сессия в ${x.name}`} onClick={() => board.newIn(x.id)}>
+          <IconBtn className="pj-add" data-proj={x.id} aria-label={`Новая сессия в ${x.name}`} onClick={() => board.newIn(x.id)}>
             +
-          </button>
+          </IconBtn>
         ) : null}
       </div>
       {x.menu ? <ProjectMenu id={x.id} name={x.name} /> : null}

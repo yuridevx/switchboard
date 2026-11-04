@@ -1,6 +1,6 @@
 // Форма MCP-сервера: поля по схеме или ссылка. Значения — местное состояние формы; число идёт в ответ числом.
 import { useState } from "react";
-import { Cta, Btn, Sel, In } from "@switchboard/web-ui";
+import { Btn, Check, Cta, In, Sel } from "@switchboard/web-ui";
 import { useAsk } from "./store.ts";
 import { isLocked, type Rec } from "./store.ts";
 
@@ -46,7 +46,7 @@ export function AskForm({ rec }: { rec: Rec }) {
                   ))}
                 </Sel>
               ) : p.type === "boolean" ? (
-                <input type="checkbox" disabled={locked} checked={vals[k] === true} onChange={(e) => set(k, e.currentTarget.checked)} />
+                <Check disabled={locked} checked={vals[k] === true} onChange={(e) => set(k, e.currentTarget.checked)} />
               ) : (
                 <In className="ask-own" type={isNumber(p) ? "number" : "text"} disabled={locked} value={typeof vals[k] === "string" ? vals[k] : ""} onInput={(e) => set(k, e.currentTarget.value)} />
               )}

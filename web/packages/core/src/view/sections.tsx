@@ -1,6 +1,6 @@
 // Разделы: колонка широкого вида, лента и вкладки узкого; модель раскладки считается из разделов и текущего экрана.
 import { useEffect, useRef } from "react";
-import { Badge, Pill } from "@switchboard/web-ui";
+import { Badge, Pill, RowBtn, TextBtn } from "@switchboard/web-ui";
 import { connPill, useCore } from "./core.ts";
 
 /** Раскладка разделов — имена: без группы, группы с их разделами, разделы открытой группы, видны ли вкладки, открытые. */
@@ -34,10 +34,10 @@ function Item({ n, model }: { n: string; model: SectionsModel }) {
     if (on) self.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [on]);
   return (
-    <button ref={self} className="sb-nv" aria-current={on ? "page" : undefined} data-screen={n} onClick={() => core.go(n, {})}>
+    <RowBtn ref={self} className="sb-nv" aria-current={on ? "page" : undefined} data-screen={n} onClick={() => core.go(n, {})}>
       <span>{s.def.nav}</span>
       {count !== null ? <Badge wait>{count}</Badge> : null}
-    </button>
+    </RowBtn>
   );
 }
 
@@ -57,10 +57,10 @@ export function NavColumn({ model, openPal }: { model: SectionsModel; openPal():
             <b>{core.brand ?? "Switchboard"}</b>
             <Pill conn tone={cp.tone} title={cp.text} aria-label={cp.text} />
           </div>
-          <button className="sb-goto" onClick={openPal}>
+          <TextBtn className="sb-goto" onClick={openPal}>
             <span>Перейти…</span>
             <kbd>Ctrl K</kbd>
-          </button>
+          </TextBtn>
           {model.solo.map((n) => (
             <Item key={n} n={n} model={model} />
           ))}
@@ -92,10 +92,10 @@ function GroupTab({ name, items, active }: { name: string; items: string[]; acti
   const cur = items.some((n) => active.includes(n));
   const count = core.use(() => items.reduce((acc, n) => acc + (core.countOf(core.lookup(n)!) ?? 0), 0));
   return (
-    <button key={`g:${name}`} className="sb-nv" aria-current={cur ? "page" : undefined} data-group={name} onClick={() => (cur ? null : core.go(items[0], {}))}>
+    <RowBtn key={`g:${name}`} className="sb-nv" aria-current={cur ? "page" : undefined} data-group={name} onClick={() => (cur ? null : core.go(items[0], {}))}>
       <span>{name}</span>
       {count ? <Badge wait>{count}</Badge> : null}
-    </button>
+    </RowBtn>
   );
 }
 

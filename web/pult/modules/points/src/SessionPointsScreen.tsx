@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { ago, Btn, In, Note, Opts, OptsLabel, Outcome, type OutcomeNote, Page, PageHead, plural, Sec, useApp, useOutcome } from "@switchboard/web-ui";
+import { ago, Btn, Check, In, Note, Opts, OptsLabel, Outcome, Page, PageHead, plural, Sec, type OutcomeNote, useApp, useOutcome } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { nameOf, r2Of, say } from "./format.ts";
 import { PointDialog } from "./PointDialog.tsx";
@@ -17,7 +17,7 @@ function Unmark({ callsign, machine, confirm }: { callsign: string; machine: str
   return (
     <Sec>
       <OptsLabel>
-        <input type="checkbox" checked={typed === null} data-act="r2" onChange={() => setTyped(typed === null ? "" : null)} />
+        <Check checked={typed === null} data-act="r2" onChange={() => setTyped(typed === null ? "" : null)} />
         Хранить в R2
       </OptsLabel>
       <Note>Снять — точки сессии удалятся из R2 сразу, без отмены.</Note>
@@ -106,7 +106,7 @@ export function SessionPointsScreen({ params }: ScreenProps) {
           <Note>Точек нет: перенос, копия, откат, смена папки и «пожар» — только у сессий в R2.</Note>
           {canR2 ? (
             <OptsLabel>
-              <input type="checkbox" data-act="r2" checked={false} onChange={() => void mark(true)} />
+              <Check data-act="r2" checked={false} onChange={() => void mark(true)} />
               Хранить в R2
             </OptsLabel>
           ) : null}

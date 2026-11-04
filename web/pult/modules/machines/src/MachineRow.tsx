@@ -1,7 +1,7 @@
 // Строка машины и её карточка: части по ответу keeper, перезапуск упавшей части. Строка читает только своё: изменилась другая машина — эта не перерисовывается.
 import { memo } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, machineLabel, Note, Opts, Outcome, type OutcomeNote, plural, useApp, useOutcome, okOf } from "@switchboard/web-ui";
+import { Btn, DisclosureBtn, Dot, hhmm, machineLabel, Note, okOf, Opts, Outcome, plural, type OutcomeNote, useApp, useOutcome } from "@switchboard/web-ui";
 import { useMachines } from "./store.ts";
 import { stateOf, type Part } from "./store.ts";
 
@@ -92,14 +92,14 @@ export const MachineRow = memo(function MachineRow({ m, open, toggle }: { m: str
   return (
     <>
       <div className="mc-row" data-row={m} data-state={d.st}>
-        <button className="mc-head" aria-expanded={open ? "true" : "false"} onClick={() => toggle(m)}>
+        <DisclosureBtn className="mc-head" open={open} onClick={() => toggle(m)}>
           <Dot kind={d.st === "ok" ? "idle" : d.st === "gone" ? "gone" : "bad"} />
           <span className="n">{d.name}</span>
           <span className="os">{d.os}</span>
           <span className="v">{d.host ? `host ${d.host}` : ""}</span>
           <span className="v">{d.keeper ? `keeper ${d.keeper}` : ""}</span>
           <span className="st">{[d.n ? `${d.n} ${plural(d.n, "сессия", "сессии", "сессий")}` : "", text].filter(Boolean).join(" · ")}</span>
-        </button>
+        </DisclosureBtn>
       </div>
       {open ? <Detail m={m} notes={notes} restart={restart} /> : null}
     </>

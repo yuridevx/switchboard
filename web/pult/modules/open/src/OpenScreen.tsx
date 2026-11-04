@@ -1,6 +1,6 @@
 // Экран новой сессии: имя, проводник, чипы профиля и модели, задача.
 import type { ScreenProps } from "@switchboard/web-core";
-import { Btn, effortName, profileName as short, useApp, In, Area } from "@switchboard/web-ui";
+import { Area, Btn, effortName, IconBtn, In, profileName as short, useApp } from "@switchboard/web-ui";
 import { FolderPane, MachinesPane } from "./Browser.tsx";
 import { addrView } from "./form.ts";
 import { ModelPop, ProfilePop } from "./Pops.tsx";
@@ -21,9 +21,9 @@ export function OpenScreen({ params }: ScreenProps) {
       {app.wide ? (
         <div className="op-h">
           <b>Новая сессия</b>
-          <button className="op-x" aria-label="Закрыть" onClick={() => app.back()}>
+          <IconBtn className="op-x" aria-label="Закрыть" onClick={() => app.back()}>
             ✕
-          </button>
+          </IconBtn>
         </div>
       ) : null}
       <div className="op-body">

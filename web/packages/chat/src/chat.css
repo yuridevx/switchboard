@@ -259,10 +259,6 @@
 @media (pointer:coarse){
   .chat-mode{min-height:36px}
   .chat-mini,.chat-older,.chat-hint{min-height:32px}
-  .chat-side-x{min-width:32px;min-height:32px}
-  .dis-h{min-height:32px}
-  .chat-cancel,.chat-again,.chat-more,.chat-file button{min-height:32px;align-items:center}
-  .chat-file button{min-width:32px}
   .chat-acts .cb-b,.cb-h .cb-b{min-height:32px;min-width:32px;justify-content:center}
   .chat-hint kbd{display:none}
   .chat-sugi{flex-wrap:wrap;min-height:36px;align-items:center}

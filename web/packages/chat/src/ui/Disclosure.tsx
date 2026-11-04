@@ -1,4 +1,5 @@
 // Свёрнутая строка: заголовок-кнопка и содержимое по нажатию.
+import { DisclosureBtn } from "@switchboard/web-ui";
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
@@ -6,10 +7,10 @@ export function Disclosure({ title, className, open: initial = false, children }
   const [open, setOpen] = useState(initial);
   return (
     <div className={className ? `dis ${className}` : "dis"}>
-      <button type="button" className="dis-h" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <DisclosureBtn className="dis-h" open={open} onClick={() => setOpen(!open)}>
         {title}
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-      </button>
+      </DisclosureBtn>
       {open ? <div className="dis-b">{children}</div> : null}
     </div>
   );

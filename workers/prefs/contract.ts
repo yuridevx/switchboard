@@ -6,8 +6,8 @@
 
 export const CONTRACT = { "prefs.get": 1, "prefs.set": 1 } as const;
 
-/** prefs.get — все ключи пользователя. Ключа нет — его нет и в ответе. */
-export type PrefsGet = { type: "prefs.get"; id: string; v?: 1; to: ".prefs"; scope?: PrefsScope };
+/** prefs.get — ключи пользователя, с prefix — только начинающиеся с него. Ключа нет — его нет и в ответе. */
+export type PrefsGet = { type: "prefs.get"; id: string; v?: 1; to: ".prefs"; scope?: PrefsScope; prefix?: string };
 /** Область: ключа нет — почта отправителя; любое другое значение, чем global и app:<приложение>, — bad_frame. */
 export type PrefsScope = "global" | `app:${string}`;
 export type PrefsGetResult = { values: Record<string, unknown> };

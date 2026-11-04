@@ -1,6 +1,6 @@
 // Строка сессии: читает только своё; на изменение одной сессии перерисовывается она одна.
 import { memo } from "react";
-import { Badge, Dot } from "@switchboard/web-ui";
+import { Badge, Dot, RowBtn } from "@switchboard/web-ui";
 import { useBoard } from "./store.ts";
 import type { RowItem } from "./model.ts";
 import { useHeld } from "./useHeld.ts";
@@ -10,7 +10,7 @@ export const SessionRow = memo(function SessionRow({ callsign, depth, noAt, proj
   const d = useHeld(() => board.rowData(callsign, noAt, project));
   if (!d) return null;
   return (
-    <button
+    <RowBtn
       className={"bd-row" + (depth ? " kid" : "")}
       data-callsign={callsign}
       aria-current={d.current ? "true" : "false"}
@@ -50,6 +50,6 @@ export const SessionRow = memo(function SessionRow({ callsign, depth, noAt, proj
       ) : d.badge ? (
         <Badge>{d.badge}</Badge>
       ) : null}
-    </button>
+    </RowBtn>
   );
 });

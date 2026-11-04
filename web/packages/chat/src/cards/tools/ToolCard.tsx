@@ -2,7 +2,7 @@
 // Состояние выбирает сама: секунды и итог перерисовывают только её.
 import { useState } from "react";
 import { ArrowDownToLine, Check, ChevronDown, ChevronRight, Loader2, Square, X } from "lucide-react";
-import { useNow, Btn } from "@switchboard/web-ui";
+import { Btn, DisclosureBtn, useNow } from "@switchboard/web-ui";
 import { useAsking, useCards, useFeed } from "../../context.ts";
 import type { Task, Tool } from "../../state/types.ts";
 import { DiffCount } from "./Diff.tsx";
@@ -102,7 +102,7 @@ export function ToolCard({ id, renderPart }: { id: string; renderPart: RenderPar
   const wentBg = (isShell(t) || isAgent(t)) && st !== "bg" && (t.input.run_in_background || task?.background || BG_RESULT.test(t.result?.text ?? ""));
   return (
     <div className="chat-tool" data-tool={t.name} data-state={st}>
-      <button type="button" className="tc-h" aria-expanded={open} onClick={() => setPicked(!open)}>
+      <DisclosureBtn className="tc-h" open={open} onClick={() => setPicked(!open)}>
         <span className="tc-i">{k.icon}</span>
         <b>{k.label}</b>
         <span className="tc-sum" title={k.summary}>
@@ -113,7 +113,7 @@ export function ToolCard({ id, renderPart }: { id: string; renderPart: RenderPar
         {isAgent(t) && t.input.subagent_type ? <span className="tc-chip">{t.input.subagent_type}</span> : null}
         {t.name === "TodoWrite" && st === "ok" ? null : <StateMark st={st} secs={t.secs} plan={t.name === "ExitPlanMode"} />}
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-      </button>
+      </DisclosureBtn>
       {task?.status === "running" ? <TaskBar task={task} t={t} /> : !task && st === "running" && isShell(t) && v.background ? (
         <div className="tc-bar">
           <span />

@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Pad, useApp, Btn } from "@switchboard/web-ui";
+import { Btn, IconBtn, Pad, useApp } from "@switchboard/web-ui";
 import { ItemView, StepsRow } from "./cards/ItemView.tsx";
 import { Composer } from "./composer/Composer.tsx";
 import { CardsCtx, useChat, type CardsView, useConv } from "./context.ts";
@@ -101,9 +101,9 @@ function FeedView({ callsign }: { callsign: string }) {
         </div>
       </Pad>
       {away ? (
-        <button type="button" className="chat-jump" aria-label="К последнему" onClick={toBottom}>
+        <IconBtn className="chat-jump" aria-label="К последнему" onClick={toBottom}>
           <ArrowDown size={16} />
-        </button>
+        </IconBtn>
       ) : null}
     </div>
   );

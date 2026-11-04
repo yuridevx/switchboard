@@ -1,7 +1,7 @@
 // Линия и ветки сессии: точки по дням; нажатая точка раскрывает карточку с действиями.
 import { Fragment, useMemo, useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, day, H4, hhmm, Note, Opts, plural, Row, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, day, H4, hhmm, Note, Opts, plural, Row, RowBtn, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import type { Line, LPoint } from "./store.ts";
 import type { DialogKind } from "./usePointDialog.ts";
@@ -55,12 +55,12 @@ function PointRow({ p, picked, toggle }: { p: LPoint; picked: boolean; toggle():
   const first = app.use(() => points.full(p.id)?.last?.[0] as unknown[] | undefined);
   const words = typeof first?.[0] === "string" ? `«${first[0]}»` : p.why;
   return (
-    <button className={p.line ? "pt-pt" : "pt-pt br"} aria-pressed={picked ? "true" : "false"} data-point={p.id} onClick={toggle}>
+    <RowBtn className={p.line ? "pt-pt" : "pt-pt br"} aria-pressed={picked ? "true" : "false"} data-point={p.id} onClick={toggle}>
       <span>{hhmm(p.at)}</span>
       <i />
       <span>{words}</span>
       <em>{p.line ? `№${p.id}` : `ветка · №${p.id}`}</em>
-    </button>
+    </RowBtn>
   );
 }
 

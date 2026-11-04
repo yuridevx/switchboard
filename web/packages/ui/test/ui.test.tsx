@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CommitIn, failText, lamp, LimitRow, linkText, machineAnswers, machineLabel, machinesWith, remoteOf, sessionLabel, stateLabel, useNow } from "../contract.ts";
+import { Check, CommitIn, DisclosureBtn, failText, IconBtn, RowBtn, Switch, TextBtn, lamp, LimitRow, linkText, machineAnswers, machineLabel, machinesWith, remoteOf, sessionLabel, stateLabel, useNow } from "../contract.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -195,5 +195,30 @@ describe("таймер и подписи", () => {
     expect(cls("b")).toContain("warn");
     expect(cls("c")).toContain("bad");
     expect(el.querySelector('[data-p="c"] em')!.textContent).toMatch(/^90 % · до \d\d:\d\d$/);
+  });
+
+  it("7322 · кнопки набора в форме её не отправляют, отправка — только явным type; раскрытие, переключатель и флажок говорят состояние", async () => {
+    // источник: факт 4 нояб. — голая <button> в форме отправляет её; кнопки набора заменили голые
+    const send = vi.fn((e: Event) => e.preventDefault());
+    const el = await draw(
+      <form onSubmit={(e) => send(e.nativeEvent)}>
+        <RowBtn data-k="r" />
+        <IconBtn data-k="i" aria-label="значок" />
+        <DisclosureBtn data-k="d" open />
+        <TextBtn data-k="t" />
+        <Switch data-k="s" on={false} />
+        <Check data-k="c" readOnly checked />
+        <IconBtn data-k="go" aria-label="отправить" type="submit" />
+      </form>,
+    );
+    const at = (k: string) => el.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
+    for (const k of ["r", "i", "d", "t", "s"]) await act(async () => at(k).click());
+    expect(send).not.toHaveBeenCalled();
+    expect(at("d").getAttribute("aria-expanded")).toBe("true");
+    expect(at("s").getAttribute("role")).toBe("switch");
+    expect(at("s").getAttribute("aria-checked")).toBe("false");
+    expect(at("c").type).toBe("checkbox");
+    await act(async () => at("go").click());
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });

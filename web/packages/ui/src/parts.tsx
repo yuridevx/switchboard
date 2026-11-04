@@ -10,6 +10,36 @@ export function Btn({ pri, bad, dash, ghost, className, ...p }: ComponentProps<"
   return <button {...p} className={cx("sb-b", pri && "pri", bad && "bad", dash && "dash", ghost && "ghost", className)} />;
 }
 
+/** Строка или пункт списка и меню: своя разметка внутри, вид — у className места. */
+export function RowBtn({ className, ...p }: ComponentProps<"button">) {
+  return <button type="button" {...p} className={cx("sb-rw", className)} />;
+}
+
+/** Кнопка-значок: подпись обязательна. */
+export function IconBtn({ className, ...p }: ComponentProps<"button"> & { "aria-label": string }) {
+  return <button type="button" {...p} className={cx("sb-ic", className)} />;
+}
+
+/** Заголовок раскрытия: open — раскрыто. */
+export function DisclosureBtn({ open, className, ...p }: ComponentProps<"button"> & { open: boolean }) {
+  return <button type="button" {...p} className={cx("sb-ds", className)} aria-expanded={open} />;
+}
+
+/** Действие текстом: ссылка в строке или полоса. */
+export function TextBtn({ className, ...p }: ComponentProps<"button">) {
+  return <button type="button" {...p} className={cx("sb-tx", className)} />;
+}
+
+/** Переключатель: on — включён; role можно заменить на checkbox. */
+export function Switch({ on, ...p }: ComponentProps<"button"> & { on: boolean }) {
+  return <button type="button" role="switch" {...p} aria-checked={on} />;
+}
+
+/** Флажок. */
+export function Check(p: Omit<ComponentProps<"input">, "type">) {
+  return <input {...p} type="checkbox" />;
+}
+
 /** Ряд чипов выбора: quiet — невыбранные без заливки. */
 export function Chips({ quiet, className, ...p }: ComponentProps<"div"> & { quiet?: boolean }) {
   return <div {...p} className={cx("sb-chips", quiet && "quiet", className)} />;

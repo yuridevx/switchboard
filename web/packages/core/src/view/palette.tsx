@@ -1,6 +1,6 @@
 // Поиск Ctrl K: разделы и то, что экраны отдают в find.
 import { useState } from "react";
-import { Dot, In } from "@switchboard/web-ui";
+import { Dot, In, RowBtn } from "@switchboard/web-ui";
 import { useCore, type Hit } from "./core.ts";
 
 export function Palette({ close }: { close(): void }) {
@@ -33,11 +33,11 @@ export function Palette({ close }: { close(): void }) {
         />
         <div className="sb-palres" role="listbox">
           {list.map((x, i) => (
-            <button key={`${x.screen}?${JSON.stringify(x.params)}?${x.label}`} className={"sb-palit" + (i === 0 ? " first" : "")} role="option" onClick={() => pick(x)}>
+            <RowBtn key={`${x.screen}?${JSON.stringify(x.params)}?${x.label}`} className={"sb-palit" + (i === 0 ? " first" : "")} role="option" onClick={() => pick(x)}>
               {x.dot ? <Dot kind={x.dot} /> : null}
               <span className="l">{x.label}</span>
               {x.hint ? <span className="k">{x.hint}</span> : null}
-            </button>
+            </RowBtn>
           ))}
           {list.length ? null : (
             <div className="sb-note" style={{ padding: "10px 12px" }}>

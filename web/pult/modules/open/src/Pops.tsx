@@ -1,5 +1,5 @@
 // Окна чипов новой сессии: профиль; модель, усилие, слот и «Точки в R2».
-import { at, effortName, EFFORTS, MODELS, profileName as short, useApp, Chip, Chips, In } from "@switchboard/web-ui";
+import { at, Chip, Chips, effortName, EFFORTS, In, MODELS, profileName as short, RowBtn, Switch, useApp } from "@switchboard/web-ui";
 import { useOpen } from "./store.ts";
 import { useMachineLabels } from "./Browser.tsx";
 import type { OpenForm } from "./useOpenForm.ts";
@@ -28,20 +28,20 @@ export function ProfilePop({ form }: { form: OpenForm }) {
         .map((id) => {
           const p = profiles[id];
           return (
-            <button key={id} className="op-pr" role="radio" aria-checked={f.profile === id} data-profile={id} onClick={() => choose(id)}>
+            <RowBtn key={id} className="op-pr" role="radio" aria-checked={f.profile === id} data-profile={id} onClick={() => choose(id)}>
               <span className="r1">
                 <b>{short(id)}</b>
                 <span className="sp">{[p.model, p.effort ? effortName(p.effort) : null].filter(Boolean).join(" · ")}</span>
               </span>
               {p.about ? <span className="r2">{p.about}</span> : null}
-            </button>
+            </RowBtn>
           );
         })}
-      <button className="op-pr" role="radio" aria-checked={f.profile === null} data-profile="" onClick={() => choose(null)}>
+      <RowBtn className="op-pr" role="radio" aria-checked={f.profile === null} data-profile="" onClick={() => choose(null)}>
         <span className="r1">
           <b>без профиля</b>
         </span>
-      </button>
+      </RowBtn>
     </>
   );
 }
@@ -88,7 +88,7 @@ export function ModelPop({ form }: { form: OpenForm }) {
       {r2 ? (
         <div className="op-sw">
           <span>Точки в R2</span>
-          <button role="switch" aria-label="Точки в R2" aria-checked={f.r2} data-r2="1" onClick={() => set({ r2: !f.r2 })} />
+          <Switch aria-label="Точки в R2" on={f.r2} data-r2="1" onClick={() => set({ r2: !f.r2 })} />
         </div>
       ) : null}
     </>

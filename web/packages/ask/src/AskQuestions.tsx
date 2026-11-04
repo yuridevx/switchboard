@@ -1,6 +1,6 @@
 // Вопросы AskUserQuestion: варианты плитками, «Свой ответ» текстом, кнопка ответа. Выбор — местное состояние вопроса.
 import { useState } from "react";
-import { Cta, In } from "@switchboard/web-ui";
+import { Cta, In, RowBtn } from "@switchboard/web-ui";
 import { useAsk } from "./store.ts";
 import { isLocked, type Question, type Rec } from "./store.ts";
 
@@ -59,18 +59,18 @@ export function AskQuestions({ rec }: { rec: Rec }) {
           <div className="ask-qt">{q.question}</div>
           <div className="ask-opts">
             {q.options.map((o) => (
-              <button key={o.label} className={q.multiSelect ? "ask-opt multi" : "ask-opt"} aria-pressed={picks[q.question]?.includes(o.label) ? "true" : "false"} disabled={locked} onClick={() => pick(q, o.label)}>
+              <RowBtn key={o.label} className={q.multiSelect ? "ask-opt multi" : "ask-opt"} aria-pressed={picks[q.question]?.includes(o.label) ? "true" : "false"} disabled={locked} onClick={() => pick(q, o.label)}>
                 <span>
                   <b>{o.label}</b>
                   {o.description ? <span>{o.description}</span> : null}
                 </span>
-              </button>
+              </RowBtn>
             ))}
-            <button className="ask-opt own" aria-pressed={ownOn.includes(q.question) ? "true" : "false"} disabled={locked} onClick={() => toggleOwn(q)}>
+            <RowBtn className="ask-opt own" aria-pressed={ownOn.includes(q.question) ? "true" : "false"} disabled={locked} onClick={() => toggleOwn(q)}>
               <span>
                 <b>Свой ответ</b>
               </span>
-            </button>
+            </RowBtn>
             {ownOn.includes(q.question) ? (
               <In className="ask-own" type="text" data-own={q.question} placeholder="Ваш ответ" disabled={locked} autoFocus value={own[q.question] ?? ""} onInput={(e) => setOwn({ ...own, [q.question]: e.currentTarget.value })} />
             ) : null}

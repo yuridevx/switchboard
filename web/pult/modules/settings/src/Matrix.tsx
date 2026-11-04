@@ -1,6 +1,6 @@
 // Матрица выпусков: машина × часть по ответам keeper'ов и плану; поиск, отметка машин, выбор машины для её плана.
 import { useState } from "react";
-import { Dot, In, Note, PageHead, plural, Sec, useApp, okOf } from "@switchboard/web-ui";
+import { Dot, In, Note, okOf, PageHead, plural, RowBtn, Sec, Switch, useApp } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
 import { cellOf, type Listed, machineParts, relMachines } from "./rules.ts";
 
@@ -40,15 +40,15 @@ export function Matrix({ list, rm, pick }: { list: Listed; rm: string | null; pi
               return (
                 <tr key={m} data-machine={m} aria-current={rm === m ? "true" : undefined}>
                   <td>
-                    <button className="st-ck" role="checkbox" aria-checked={rsel[m] ? "true" : "false"} aria-label={`Выбрать ${m}`} onClick={() => settings.toggleSelected(m)}>
+                    <Switch className="st-ck" role="checkbox" on={!!rsel[m]} aria-label={`Выбрать ${m}`} onClick={() => settings.toggleSelected(m)}>
                       {rsel[m] ? "✓" : ""}
-                    </button>
+                    </Switch>
                   </td>
                   <td>
-                    <button className="st-mn" onClick={() => pick(rm === m ? null : m)}>
+                    <RowBtn className="st-mn" onClick={() => pick(rm === m ? null : m)}>
                       <Dot kind={tone} />
                       {`@${m}`}
-                    </button>
+                    </RowBtn>
                   </td>
                   {parts.map((p) => {
                     const c = cellOf(d, m, p);

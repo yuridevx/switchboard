@@ -1,7 +1,7 @@
 // Карточки «Вам»: вопрос, сообщение, сбой, ожидание лимита, готово, ушедшая машина. Каждая выбирает своё и меняется одна.
 import { memo } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp, slotOf, Btn } from "@switchboard/web-ui";
+import { Btn, Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, slotOf, TextBtn, useApp } from "@switchboard/web-ui";
 import { useInbox } from "./store.ts";
 import type { Item, Kind } from "./store.ts";
 
@@ -13,9 +13,9 @@ function CardHead({ s, dot, label }: { s: SessionRecord; dot: string; label: str
   return (
     <div className="ib-ih">
       <Dot kind={dot} />
-      <button className="ib-cs" onClick={() => app.open("card", { callsign: s.callsign })}>
+      <TextBtn className="ib-cs" onClick={() => app.open("card", { callsign: s.callsign })}>
         {name}
-      </button>
+      </TextBtn>
       <span className="ib-lb">{[label, project].filter(Boolean).join(" · ")}</span>
     </div>
   );

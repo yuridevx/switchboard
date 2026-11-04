@@ -31,7 +31,10 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
   if (!user) return refuse("not_user", `${from} — не человек и не его устройство`);
 
   if (f.type === "prefs.get") {
-    const rows = (await env.DB.prepare("SELECT key, value FROM prefs WHERE user = ?").bind(user).all<{ key: string; value: string }>()).results;
+    const prefix = f.prefix;
+    if (prefix !== undefined && (typeof prefix !== "string" || !prefix)) return refuse("bad_frame", "prefix — непустая строка");
+    const q = prefix === undefined ? env.DB.prepare("SELECT key, value FROM prefs WHERE user = ?").bind(user) : env.DB.prepare("SELECT key, value FROM prefs WHERE user = ? AND substr(key, 1, ?) = ?").bind(user, (prefix as string).length, prefix);
+    const rows = (await q.all<{ key: string; value: string }>()).results;
     return [{ ...ok(f.id, { values: Object.fromEntries(rows.map((r) => [r.key, JSON.parse(r.value)])) }), to: from }];
   }
 

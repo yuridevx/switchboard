@@ -1,5 +1,5 @@
 // Шапка экрана и полоса «Нет связи».
-import { Dot, hhmm, Pill, useNow } from "@switchboard/web-ui";
+import { Dot, hhmm, IconBtn, Pill, TextBtn, useNow } from "@switchboard/web-ui";
 import type { Head } from "../types.ts";
 import { connPill, useCore } from "./core.ts";
 
@@ -31,9 +31,9 @@ export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
               S
             </div>
           ) : (
-            <button className="sb-back" aria-label="Назад" onClick={core.back}>
+            <IconBtn className="sb-back" aria-label="Назад" onClick={core.back}>
               ‹
-            </button>
+            </IconBtn>
           )}
           {v.dot ? <Dot kind={v.dot} /> : null}
           <div className="sb-bt">
@@ -41,17 +41,17 @@ export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
             {v.sub ? <span>{v.sub}</span> : null}
           </div>
           {!core.wide && v.nav ? (
-            <button className="sb-find" aria-label="Найти" data-find="1" onClick={openPal}>
+            <IconBtn className="sb-find" aria-label="Найти" data-find="1" onClick={openPal}>
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <circle cx="11" cy="11" r="6" />
                 <path d="m16 16 4 4" />
               </svg>
-            </button>
+            </IconBtn>
           ) : null}
           {!core.wide && v.action ? (
-            <button className="sb-find pri" aria-label={v.action.label} data-new="1" onClick={runAction}>
+            <IconBtn className="sb-find pri" aria-label={v.action.label} data-new="1" onClick={runAction}>
               {v.action.text}
-            </button>
+            </IconBtn>
           ) : null}
           {v.pill ? <Pill conn={v.off || v.nav} tone={v.pill.tone ?? ""}>{v.pill.text}</Pill> : null}
         </>
@@ -68,7 +68,7 @@ function OfflineBody({ retryAt, rosterAt }: { retryAt: number; rosterAt: number 
   return (
     <>
       <span>{`Нет связи с relay${core.wide && rosterAt ? ` · данные на ${hhmm(rosterAt)}` : ""}${left > 0 ? ` · снова через ${left} с` : " · подключаюсь"}`}</span>
-      <button onClick={core.reconnectNow}>Сейчас</button>
+      <TextBtn onClick={core.reconnectNow}>Сейчас</TextBtn>
     </>
   );
 }

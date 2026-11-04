@@ -2,7 +2,7 @@
 import type { AccountsAnswer, ModelInfo, SlotsAnswer } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/web-core";
 import { useEffect } from "react";
-import { EFFORTS, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, incidentOf, slotOf, Btn, useApp } from "@switchboard/web-ui";
+import { Btn, EFFORTS, incidentOf, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, RowBtn, slotOf, useApp } from "@switchboard/web-ui";
 
 /** Строка «подпись — значение» списка сведений. */
 export function Kv({ k, v }: { k: string; v: string }) {
@@ -27,9 +27,9 @@ export function ModelPop({ s, callsign, update }: { s: SessionRecord; callsign: 
     <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
       <span className="lb">Модель</span>
       {list.map((m) => (
-        <button key={m.value} className="cw-mi" role="menuitemradio" aria-checked={m.value === s.model ? "true" : "false"} data-model={m.value} onClick={() => update({ model: m.value }, "модель")}>
+        <RowBtn key={m.value} className="cw-mi" role="menuitemradio" aria-checked={m.value === s.model ? "true" : "false"} data-model={m.value} onClick={() => update({ model: m.value }, "модель")}>
           {`${m.value === s.model ? "✓ " : ""}${m.displayName ?? m.value}`}
-        </button>
+        </RowBtn>
       ))}
       <span className="lb">Усилие</span>
       <div className="cw-opts">
@@ -81,9 +81,9 @@ export function MenuPop({ s, machine, callsign, info, toggleInfo }: { s: Session
         {inc?.type ? <Kv k="инцидент" v={[inc.type, inc.key].filter(Boolean).join(" · ")} /> : null}
       </dl>
       <hr />
-      <button className="cw-mi" role="menuitemcheckbox" aria-checked={info ? "true" : "false"} data-act="info" onClick={toggleInfo}>
+      <RowBtn className="cw-mi" role="menuitemcheckbox" aria-checked={info ? "true" : "false"} data-act="info" onClick={toggleInfo}>
         {`${info ? "✓ " : ""}Сведения сбоку`}
-      </button>
+      </RowBtn>
       {remote ? (
         <a className="cw-mi" role="menuitem" href={remote} target="_blank" rel="noopener">
           Открыть в claude.ai ↗

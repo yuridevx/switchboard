@@ -1,7 +1,7 @@
 // Сообщения людей и сессий: свой пузырь с доставкой, сообщение другой сессии или субагента, сообщение сессии владельцу.
 import { useState } from "react";
 import { Bot, ChevronDown, ChevronUp, FileText, History, MessagesSquare, RotateCw, Undo2 } from "lucide-react";
-import { hhmm, Markdown, permModeName } from "@switchboard/web-ui";
+import { DisclosureBtn, hhmm, Markdown, permModeName, TextBtn } from "@switchboard/web-ui";
 import { useCards } from "../context.ts";
 import type { InItem, UserItem } from "../state/types.ts";
 
@@ -47,25 +47,25 @@ export function MeCard({ it }: { it: UserItem }) {
       {lost ? (
         <small>
           связь оборвалась до ответа — <span className="chat-nb">не подтверждено ·</span>{" "}
-          <button type="button" className="chat-again" onClick={() => v.resend?.(it.id, it.text)}>
+          <TextBtn className="chat-again" onClick={() => v.resend?.(it.id, it.text)}>
             <RotateCw size={11} />
             отправить ещё раз
-          </button>
+          </TextBtn>
         </small>
       ) : tail ? (
         <small>{tail}</small>
       ) : null}
       {canCancel ? (
-        <button type="button" className="chat-again chat-cancel" onClick={() => v.unqueue!(it.id, it.text)}>
+        <TextBtn className="chat-again chat-cancel" onClick={() => v.unqueue!(it.id, it.text)}>
           <Undo2 size={11} />
           отменить
-        </button>
+        </TextBtn>
       ) : null}
       {canRewind ? (
-        <button type="button" className="chat-rw" onClick={() => v.rewind!(it.id)}>
+        <TextBtn className="chat-rw" onClick={() => v.rewind!(it.id)}>
           <History size={11} />
           откатить файлы
-        </button>
+        </TextBtn>
       ) : null}
     </div>
   );
@@ -88,10 +88,10 @@ export function PeerCard({ it }: { it: UserItem }) {
         <Markdown text={it.text} />
       </div>
       {long ? (
-        <button type="button" className="chat-more" onClick={() => setOpen(!open)}>
+        <DisclosureBtn open={open} className="chat-more" onClick={() => setOpen(!open)}>
           {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
           {open ? "свернуть" : "показать всё"}
-        </button>
+        </DisclosureBtn>
       ) : null}
     </div>
   );

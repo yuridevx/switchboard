@@ -1,7 +1,7 @@
 // Экран инцидентов: не доставленные обращения и сессии с инцидентом. Строка читает только своё и перерисовывается одна.
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, Dot, hhmm, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
+import { Btn, DisclosureBtn, Dot, hhmm, machineLabel, Note, Page, PageHead, RowBtn, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
 import { useIncidents } from "./store.ts";
 import { incOf, isOpen, type Lost } from "./store.ts";
 
@@ -11,7 +11,7 @@ const LostRow = memo(function LostRow({ x, picked, pick }: { x: Lost; picked: bo
   const name = app.use(() => machineLabel(app, x.machine).text);
   return (
     <>
-      <button className="in-row in-lost" data-lost={k} aria-expanded={picked ? "true" : "false"} onClick={() => pick(k)}>
+      <DisclosureBtn className="in-row in-lost" data-lost={k} open={picked} onClick={() => pick(k)}>
         <Dot kind="bad" className="d" />
         <span className="g">
           <span className="t1">
@@ -20,7 +20,7 @@ const LostRow = memo(function LostRow({ x, picked, pick }: { x: Lost; picked: bo
           </span>
           <span className="t2">{`с ${hhmm(new Date(x.t))}`}</span>
         </span>
-      </button>
+      </DisclosureBtn>
       {picked ? (
         <div className="in-why" data-why={k}>
           {x.why || x.word}
@@ -41,7 +41,7 @@ const SessionRow = memo(function SessionRow({ callsign }: { callsign: string }) 
   const inc = incOf(s)!;
   const st = s.state === "stopped" ? { text: "закрыт", dot: "stop" } : stateLabel(s.state);
   return (
-    <button className="in-row" data-incident={callsign} onClick={() => app.open("card", { callsign })}>
+    <RowBtn className="in-row" data-incident={callsign} onClick={() => app.open("card", { callsign })}>
       <Dot kind={st.dot} className="d" />
       <span className="g">
         <span className="t1">
@@ -54,7 +54,7 @@ const SessionRow = memo(function SessionRow({ callsign }: { callsign: string }) 
           {` · ${host}`}
         </span>
       </span>
-    </button>
+    </RowBtn>
   );
 });
 

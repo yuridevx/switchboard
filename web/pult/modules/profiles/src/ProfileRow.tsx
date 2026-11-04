@@ -1,12 +1,12 @@
 // Строка профиля: имя, модель, сколько машин и сессий; раскрывается в машины, идущие сессии и конфликты.
-import { Dot, effortName, plural, profileName as short, useApp } from "@switchboard/web-ui";
+import { DisclosureBtn, Dot, effortName, plural, profileName as short, RowBtn, useApp } from "@switchboard/web-ui";
 import type { ProfileRowData } from "./store.ts";
 
 export function ProfileRow({ r, machines, open, toggle }: { r: ProfileRowData; machines: number; open: boolean; toggle(id: string): void }) {
   const app = useApp();
   return (
     <div className={"pf-w" + (r.cf.length ? " cf" : "")} data-profile={r.id}>
-      <button className="pf-r" aria-expanded={open} onClick={() => toggle(r.id)}>
+      <DisclosureBtn className="pf-r" open={open} onClick={() => toggle(r.id)}>
         <span className="pf-n">
           <b>{short(r.id)}</b>
           {r.about ? <span>{r.about}</span> : null}
@@ -16,7 +16,7 @@ export function ProfileRow({ r, machines, open, toggle }: { r: ProfileRowData; m
           <span className="c">{`${r.ms.length}/${machines} ${plural(machines, "машины", "машин", "машин")} · ${r.run.length} ${plural(r.run.length, "сессия", "сессии", "сессий")}`}</span>
           {r.cf.length ? <span className="pf-p bad">{`конфликт ${r.cf.map((x) => x.label).join(", ")}`}</span> : null}
         </span>
-      </button>
+      </DisclosureBtn>
       {open ? (
         <div className="pf-d">
           <div className="pf-ms">
@@ -33,11 +33,11 @@ export function ProfileRow({ r, machines, open, toggle }: { r: ProfileRowData; m
           {r.run.length ? (
             <div className="pf-ss">
               {r.run.map((s) => (
-                <button key={s.callsign} data-callsign={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
+                <RowBtn key={s.callsign} data-callsign={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
                   <Dot kind={s.lamp} />
                   <span className={"nm" + (s.human ? " hum" : "")}>{s.text}</span>
                   <span className="k">{s.place}</span>
-                </button>
+                </RowBtn>
               ))}
             </div>
           ) : null}

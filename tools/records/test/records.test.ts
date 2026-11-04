@@ -117,6 +117,19 @@ describe("цикл настроек", () => {
     expect(await c.edit("k", () => 1)).toBe("gate_unavailable");
     const s = service();
     await settings({ ask: s.ask, prefix: "x" }).read();
-    expect(s.log[0][1]).toEqual({});
+    expect(s.log[0][1]).toEqual({ prefix: "x." });
+  });
+
+  it("7321 · чтение и цикл правки спрашивают только свои ключи области", async () => {
+    // источник: отчёт слепого архитектора 4 нояб.: каждая страница читала всю область, чужие ключи ей не нужны
+    const s = service();
+    const c = settings({ ask: s.ask, prefix: "web-board", scope: "global" });
+    await c.read();
+    await c.edit("top", () => 1);
+    await c.settled();
+    const gets = s.log.filter(([n]) => n === "prefs.get").map(([, b]) => b);
+    expect(gets.length).toBe(2);
+    for (const b of gets) expect(b).toEqual({ prefix: "web-board.", scope: "global" });
+    expect(s.log.find(([n]) => n === "prefs.set")![1]).toEqual({ name: "web-board.top", value: 1, scope: "global" });
   });
 });
