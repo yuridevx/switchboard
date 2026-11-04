@@ -1,30 +1,63 @@
 package main
 
-// Вход лесов: на время сноса всё отказывает словом.
+// Что стенд берёт из кода мимо процесса: keeper в процессе теста с короткими пределами, выбор флота и подготовка машины без регистрации в ОС.
+// Всё остальное стенд видит снаружи: кадры, POST, файлы, протокол держателя, команды файла. Этот файл — вход лесов; других имён они не знают.
 import (
 	"bufio"
-	"errors"
+	"encoding/json"
 	"time"
+
+	"switchboard/keeper/internal/holder"
+	"switchboard/keeper/internal/keeper"
+	"switchboard/keeper/internal/machine"
 )
 
+// tuning — пределы стенда; ноль — как в работе.
 type tuning struct {
 	stop, planWait, ping, pauseFirst, pauseMax, download, holderWait time.Duration
 	self                                                             func() (string, error)
 }
 
+// keeperHandle — запущенный keeper.
 type keeperHandle interface {
 	Stop()
 	Done() <-chan struct{}
 	StateJSON() []byte
 }
 
-var errGone = errors.New("снесено")
+type runningKeeper struct{ *keeper.Keeper }
 
-func bootKeeper(string, tuning) (keeperHandle, error)        { return nil, errGone }
-func setOwnerWait(time.Duration)                             {}
-func chooseFleet([]string) ([]string, error)                 { return nil, errGone }
-func fleetCommand() []string                                 { return nil }
-func fleetService() string                                   { return "" }
-func fleetHome() (string, error)                             { return "", errGone }
-func clearFleet()                                            {}
-func prepareMachine([]string, *bufio.Reader) (string, error) { return "", errGone }
+func (r runningKeeper) StateJSON() []byte { b, _ := json.Marshal(r.State()); return b }
+
+// bootKeeper — keeper на папке home: тот же старт, что у службы.
+func bootKeeper(home string, t tuning) (keeperHandle, error) {
+	k, err := keeper.New(home, nil, keeper.Options{Version: version(), StopLimit: t.stop, PlanWait: t.planWait, Ping: t.ping, PauseFirst: t.pauseFirst, PauseMax: t.pauseMax, Download: t.download, HolderWait: t.holderWait, Self: t.self})
+	if err != nil {
+		return nil, err
+	}
+	k.Run()
+	return runningKeeper{k}, nil
+}
+
+// setOwnerWait — предел ожидания хозяина в процессе держателя.
+func setOwnerWait(d time.Duration) { holder.OwnerWait = d }
+
+func chooseFleet(args []string) ([]string, error) { return useName(args) }
+func fleetCommand() []string                      { return runArgs() }
+func fleetService() string                        { return serviceName() }
+func fleetHome() (string, error)                  { return machine.Home() }
+
+// clearFleet — флот без имени.
+func clearFleet() { fleetName = "" }
+
+// prepareMachine — всё, что установка делает до регистрации в ОС: keeper.json, machine.key, файл keeper на месте.
+func prepareMachine(args []string, in *bufio.Reader) (string, error) {
+	f, err := parseInstall(args)
+	if err != nil {
+		return "", err
+	}
+	if err := prepareConf(f, in); err != nil {
+		return "", err
+	}
+	return placeSelf()
+}
