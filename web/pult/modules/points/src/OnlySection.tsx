@@ -1,6 +1,6 @@
 // «Только в R2»: сессии без живого процесса. Поиск, удаление после ввода имени и подъём на машину из последней точки.
 import { useState } from "react";
-import { Btn, day, H4, In, M, Note, Opts, PageHead, plural, Row, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, day, H4, In, M, Note, Opts, Outcome, PageHead, plural, Row, Sec, useApp, useOutcome } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { canRaise, nameOf, say } from "./format.ts";
 import { CheckLine, PickMachine } from "./parts.tsx";
@@ -66,15 +66,15 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
   const hasRaisers = app.use(() => points.raisers().length > 0);
   const [q, setQ] = useState("");
   const [del, setDel] = useState<Del | null>(null);
-  const [done, setDone] = useState("");
+  const [notes, say2] = useOutcome();
   const [move, setMove] = useState<Move | null>(null);
   const pick = useTargetPick(setMove);
 
   async function remove(d: Del) {
     const r = await points.deleteSession(d.sid);
-    if (!r.ok) return setDone(`points.delete: ${r.error}`);
+    if (!r.ok) return say2("delete", `points.delete: ${r.error}`, "bad");
     setDel(null);
-    setDone(`${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`);
+    say2("delete", `${d.name} удалена — ${r.result.points} ${plural(r.result.points, "точка", "точки", "точек")}`, "ok");
   }
 
   const pickTarget = (target: string, s: FleetSession, dir: string) => pick(target, [{ sid: s.sid, point: s.head.id, dir }], (m, { slots, checks }) => ({ ...m, slot: slots?.[0] ?? "", check: checks[0] }));
@@ -88,12 +88,9 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
 
   async function runMove(d: Move) {
     setMove((m) => m && { ...m, phase: "run", msg: `${d.target} поднимает сессию из точки…` });
-    const x = await points.raise({ machine: d.target, sid: d.s.sid, point: d.s.head.id, dir: d.dir, ...(d.slot ? { slot: d.slot } : {}), files: "point" });
+    const x = await points.raise({ machine: d.target, sid: d.s.sid, point: d.s.head.id, dir: d.dir, ...(d.slot ? { slot: d.slot } : {}), files: "point" }, d.s.callsign);
     setMove((m) => m && { ...m, phase: x.ok ? "done" : "err", msg: x.ok ? `${nameOf(d.s.callsign ?? "")} поднята: ${x.result.callsign}` : say(x.error, "", d.target) });
-    if (x.ok) {
-      points.keepProject(d.s.callsign, x.result.callsign);
-      void points.loadFleet();
-    }
+    if (x.ok) void points.loadFleet();
   }
 
   const low = q.toLowerCase();
@@ -118,7 +115,7 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
                 bad
                 onClick={() => {
                   setDel({ sid: s.sid, name, typed: "" });
-                  setDone("");
+                  say2("delete", "");
                 }}
               >
                 Удалить…
@@ -130,12 +127,14 @@ export function OnlySection({ only }: { only: FleetSession[] }) {
           </div>
         );
       })}
-      {done ? (
+      {notes.delete?.tone === "ok" ? (
         <Sec tone="ok" role="status">
-          <b>{done}</b>
+          <b>{notes.delete.text}</b>
           <Note>Запись — в «Журнале флота».</Note>
         </Sec>
-      ) : null}
+      ) : (
+        <Outcome note={notes.delete} />
+      )}
     </Sec>
   );
 }

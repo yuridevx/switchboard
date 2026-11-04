@@ -1,10 +1,11 @@
 // Форма новой сессии: снимок и чистые правила адреса. Папка в адресе и есть место сессии; список папок только подсказывает.
 import type { SessionRecord } from "@switchboard/web-core";
+import type { ProfilesAnswer, SlotsAnswer } from "@switchboard/web-ui";
 
 export const HOME = "~";
 
-export type Slots = Record<string, { account: string | null; wait?: number | null; sessions: string[] }>;
-export type Profiles = Record<string, { model?: string | null; effort?: string | null; about?: string }>;
+export type Slots = SlotsAnswer["slots"];
+export type Profiles = ProfilesAnswer["profiles"];
 export type Place = { m: string; dir: string };
 /** Ответ о родителе адреса: что в нём лежит или слово отказа. */
 export type Listing = { m: string; parent: string; dirs: string[]; word: string } | null;

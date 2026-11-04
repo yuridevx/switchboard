@@ -74,7 +74,7 @@ export const MachineRow = memo(function MachineRow({ m, open, toggle }: { m: str
   const [notes, say] = useOutcome();
   const restart = (part: string) => {
     say(part, "Перезапускаю…");
-    void machines.restart(m, part).then((n) => say(part, n.text, n.tone));
+    void machines.restart(m, part).then((r) => say(part, r.ok ? r.result : r.error, r.ok ? "ok" : "bad"));
   };
   const d = app.use(() => {
     const ok = okOf(machines.states()[m]);

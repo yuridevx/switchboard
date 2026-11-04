@@ -66,11 +66,6 @@ export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }:
   );
 }
 
-/** Многострочное поле. */
-export function Area({ mono, className, ...p }: ComponentProps<"textarea"> & { mono?: boolean }) {
-  return <textarea {...p} className={cx("sb-in", mono && "m", className)} />;
-}
-
 /** Выпадающий список. */
 export function Sel({ className, ...p }: ComponentProps<"select">) {
   return <select {...p} className={cx("sb-in", className)} />;

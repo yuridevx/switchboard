@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
 import { AccountsView } from "./AccountsView.tsx";
-import { ScreenCtx, useAccounts } from "./context.ts";
+import { ScreenCtx } from "./context.ts";
+import { useAccounts } from "./store.ts";
 import { useAccountsScreen } from "./screen.ts";
 import { SlotsView } from "./SlotsView.tsx";
 

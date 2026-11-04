@@ -1,5 +1,5 @@
 // «Пожар»: машины хозяина нет в roster. Плашка на машину и перенос её сессий: по одной, следующая — после ответа на предыдущую; points.save не шлётся.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Btn, H4, hhmm, M, Note, Opts, plural, Row, Sec, useApp } from "@switchboard/web-ui";
 import { usePoints } from "./store.ts";
 import { canRaise, folderText, nameOf, say } from "./format.ts";
@@ -54,11 +54,39 @@ function FireDialog({ f, pick, run, close }: { f: Fire; pick(m: string): void; r
   );
 }
 
-export function FireSection({ fires, left }: { fires: Array<[string, FleetSession[]]>; left: Record<string, number> }) {
+/** Плашка машины: когда ушла — знает модуль машин; идёт перенос — второй не начать. */
+function FirePlate({ m, list, open }: { m: string; list: FleetSession[]; open: (() => void) | null }) {
+  const app = useApp();
+  const left = app.use(() => app.mark("machines.left", m));
+  return (
+    <Sec tone="bad" data-fire={m}>
+      <b>{`${m} не на связи${left ? ` с ${hhmm(left)}` : ""} · ${list.length} ${plural(list.length, "сессия ждёт", "сессии ждут", "сессий ждут")} на последних точках`}</b>
+      <Note>{`Что ${m} допишет после точек, вернётся веткой, если он появится.`}</Note>
+      {open ? (
+        <Opts>
+          <Btn pri onClick={open}>
+            Перенести на другую машину…
+          </Btn>
+        </Opts>
+      ) : null}
+    </Sec>
+  );
+}
+
+export function FireSection({ fires }: { fires: Array<[string, FleetSession[]]> }) {
   const app = useApp();
   const points = usePoints();
   const hasRaisers = app.use(() => points.raisers().length > 0);
   const [fire, setFire] = useState<Fire | null>(null);
+  const [running, setRunning] = useState(false);
+  // закрыли окно или ушли с экрана — текущая доходит, оставшиеся ждут на точках
+  const stopped = useRef(false);
+  useEffect(() => {
+    stopped.current = false;
+    return () => {
+      stopped.current = true;
+    };
+  }, []);
   const pickTarget = useTargetPick(setFire);
 
   const pick = (target: string, rows: FireRow[]) =>
@@ -72,33 +100,31 @@ export function FireSection({ fires, left }: { fires: Array<[string, FleetSessio
   }
 
   async function run(f: Fire) {
+    stopped.current = false;
+    setRunning(true);
     setFire((x) => x && { ...x, run: true });
     const setSt = (i: number, st: string, done = 0) => setFire((x) => x && { ...x, done: x.done + done, rows: x.rows.map((r, n) => (n === i ? { ...r, st } : r)) });
     for (const [i, r] of f.rows.entries()) {
+      if (stopped.current) break;
       setSt(i, "поднимается…");
-      const x = await points.raise({ machine: f.target, sid: r.s.sid, point: r.s.head.id, dir: r.dir, ...(r.slot ? { slot: r.slot } : {}), files: "point" });
-      if (x.ok) points.keepProject(r.s.callsign, x.result.callsign);
+      const x = await points.raise({ machine: f.target, sid: r.s.sid, point: r.s.head.id, dir: r.dir, ...(r.slot ? { slot: r.slot } : {}), files: "point" }, r.s.callsign);
       setSt(i, x.ok ? `готова — ${x.result.callsign}` : x.error === "not_owner" ? "уже подняли на другой машине" : `не поднялась: ${say(x.error)}`, x.ok ? 1 : 0);
     }
+    setRunning(false);
     void points.loadFleet();
+  }
+
+  function close() {
+    stopped.current = true;
+    setFire(null);
   }
 
   return (
     <>
       {fires.map(([m, list]) => (
-        <Sec key={m} tone="bad" data-fire={m}>
-          <b>{`${m} не на связи${left[m] ? ` с ${hhmm(left[m])}` : ""} · ${list.length} ${plural(list.length, "сессия ждёт", "сессии ждут", "сессий ждут")} на последних точках`}</b>
-          <Note>{`Что ${m} допишет после точек, вернётся веткой, если он появится.`}</Note>
-          {!fire && hasRaisers ? (
-            <Opts>
-              <Btn pri onClick={() => open(m, list)}>
-                Перенести на другую машину…
-              </Btn>
-            </Opts>
-          ) : null}
-        </Sec>
+        <FirePlate key={m} m={m} list={list} open={!fire && !running && hasRaisers ? () => open(m, list) : null} />
       ))}
-      {fire ? <FireDialog f={fire} pick={(m) => void pick(m, fire.rows)} run={() => void run(fire)} close={() => setFire(null)} /> : null}
+      {fire ? <FireDialog f={fire} pick={(m) => void pick(m, fire.rows)} run={() => void run(fire)} close={close} /> : null}
     </>
   );
 }

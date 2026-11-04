@@ -2,12 +2,12 @@
 import { useState } from "react";
 import { Dot, In, Note, PageHead, plural, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { cellOf, machineParts, relMachines } from "./rules.ts";
+import { cellOf, type Listed, machineParts, relMachines } from "./rules.ts";
 
-export function Matrix({ rm, pick }: { rm: string | null; pick(m: string | null): void }) {
+export function Matrix({ list, rm, pick }: { list: Listed; rm: string | null; pick(m: string | null): void }) {
   const app = useApp();
   const settings = useSettings();
-  const d = app.use(settings.releaseData);
+  const d = app.use(() => settings.releaseData(list));
   const [rq, setRq] = useState("");
   const rsel = app.use(() => settings.get().rsel);
   const parts = machineParts(d);

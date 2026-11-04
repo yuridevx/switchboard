@@ -2,7 +2,8 @@
 import { useMemo } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { ago, Btn, Hint, Note, Opts, OptsInline, Pill, plural, Sec, useApp } from "@switchboard/web-ui";
-import { useAccounts, useScreen } from "./context.ts";
+import { useScreen } from "./context.ts";
+import { useAccounts } from "./store.ts";
 import { NewDlg, RmDlg, SessDlg } from "./Dialogs.tsx";
 import { LoginCard } from "./LoginCard.tsx";
 import { NoteLine, Refused, Windows } from "./parts.tsx";

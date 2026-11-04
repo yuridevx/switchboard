@@ -1,7 +1,7 @@
 // Общие части карточек: окна лимитов, строка итога, пометка общего аккаунта, отказы владельцев.
 import { Hint, LIMIT_NAMES, LimitRow, Note, Outcome, useApp } from "@switchboard/web-ui";
-import { useAccounts, useScreen } from "./context.ts";
-import { slotsWith, type Account } from "./store.ts";
+import { useScreen } from "./context.ts";
+import { slotsWith, type Account, useAccounts } from "./store.ts";
 
 export function Windows({ a }: { a: Account | undefined }) {
   return (

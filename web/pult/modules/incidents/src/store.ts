@@ -1,8 +1,7 @@
 // Состояние инцидентов: недоставленные обращения по машинам и отказы чтения. Сессии с инцидентом — из roster, здесь их нет.
 import type { App, SessionRecord } from "@switchboard/web-core";
-import { createStore, machinesWith, midnight, useModule, incidentOf } from "@switchboard/web-ui";
+import { createStore, type JournalAnswer, machinesWith, midnight, useModule, incidentOf } from "@switchboard/web-ui";
 
-type Rec = { t: string; kind?: string; ev?: string; word?: string; why?: string; id?: string };
 export type Lost = { machine: string; id: string; word: string; why: string; t: string };
 export type Inc = { type: string; key?: string };
 
@@ -32,7 +31,7 @@ export function createIncidentsStore(app: App) {
 
   async function loadMachine(m: string) {
     store.set((s) => void (s.asked[m] = true));
-    const r = await app.request<{ records: Rec[]; more: boolean }>("machine.journal", { machine: m, since: midnight(), kind: ["refuse"], limit: 200 });
+    const r = await app.request<JournalAnswer>("machine.journal", { machine: m, since: midnight(), kind: ["refuse"], limit: 200 });
     if (!r.ok) return store.set((s) => void (s.refused[m] = r.error));
     // недоставленные — отказы, чьё обращение ещё на диске без сессии: доставленное потом уходит из списка само
     const p = await app.request<{ appeals: Array<{ id: string; callsign: string | null }> }>("incident.pending", { machine: m });

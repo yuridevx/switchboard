@@ -2,8 +2,9 @@
 // подъём и точки — host-points машины. Состояние окон — у самих экранов.
 import type { App, SessionRecord } from "@switchboard/web-core";
 import type {} from "@switchboard/web-board";
+import type {} from "../../machines/contract.ts";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, machinesWith, sessionOf, useModule } from "@switchboard/web-ui";
+import { createStore, machinesWith, sessionOf, type SlotsAnswer, useModule } from "@switchboard/web-ui";
 
 export type FleetSession = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
 export type Fleet = { sessions: FleetSession[]; r2: { bytes: number; blocks: number }; sweep: { at: number; blocks: number; bytes: number } | null };
@@ -22,8 +23,6 @@ type State = {
   fleetAsked: boolean;
   lines: Record<string, Line>;
   full: Record<number, Full>;
-  /** когда машина ушла из флота: журнал флота */
-  left: Record<string, number>;
 };
 
 type Raised = { callsign: string; point: number; folder: string; branch: string | null };
@@ -34,7 +33,7 @@ export type PointsStore = ReturnType<typeof createPointsStore>;
 export const usePoints = (): PointsStore => useModule<PointsStore>();
 
 export function createPointsStore(app: App) {
-  const store = createStore<State>({ fleet: null, fleetRefused: "", fleetAsked: false, lines: {}, full: {}, left: {} }, () => app.changed());
+  const store = createStore<State>({ fleet: null, fleetRefused: "", fleetAsked: false, lines: {}, full: {} }, () => app.changed());
 
   const fleet = () => store.get().fleet;
   const session = (callsign: string): SessionRecord | undefined => sessionOf(app, callsign);
@@ -54,19 +53,10 @@ export function createPointsStore(app: App) {
     return [...new Set((fleet()?.sessions ?? []).map((s) => s.owner))].filter((m) => !on.has(m));
   }
 
+  /** Обзор: реестр; когда ушли машины хозяев, знает модуль машин. */
   async function loadFleet() {
     await readRegistry();
-    // когда машина хозяина ушла, скажет журнал флота
-    const gone = fireMachines();
-    const left: Record<string, number> = {};
-    await Promise.all(
-      gone.map(async (m) => {
-        const j = await app.request<{ events: Array<{ t: number; ev: string }> }>("ledger.read", { machine: m, limit: 1 });
-        const e = j.ok ? j.result.events.find((x) => x.ev === "machine.left") : undefined;
-        if (e) left[m] = e.t;
-      }),
-    );
-    store.set((s) => void Object.assign(s.left, left));
+    for (const machine of fireMachines()) app.run("machines.left.read", { machine });
   }
 
   /** Проверка подъёма: что будет с папкой на целевой машине. */
@@ -79,7 +69,6 @@ export function createPointsStore(app: App) {
     // ───── выборки ─────
     fleet,
     fleetRefused: () => store.get().fleetRefused,
-    left: () => store.get().left,
     line: (sid: string) => (sid ? store.get().lines[sid] : undefined),
     full: (id: number) => store.get().full[id],
     session,
@@ -105,7 +94,7 @@ export function createPointsStore(app: App) {
     loadFleet,
     /** Сессия в реестре; нет в памяти — обзор перечитывается. */
     async sidOf(callsign: string) {
-      if (!fleet()?.sessions.some((s) => s.callsign === callsign)) await loadFleet();
+      if (!fleet()?.sessions.some((s) => s.callsign === callsign)) await readRegistry();
       return fleet()?.sessions.find((s) => s.callsign === callsign)?.sid ?? "";
     },
     /** Линия сессии и первые слова её последних точек. Возврат — слово отказа. */
@@ -137,7 +126,7 @@ export function createPointsStore(app: App) {
         store.set((s) => {
           if (s.fleet) s.fleet.sessions = s.fleet.sessions.filter((x) => x.sid !== sid);
         });
-        void loadFleet();
+        void readRegistry();
       }
       return r;
     },
@@ -145,24 +134,25 @@ export function createPointsStore(app: App) {
     // ───── машина ─────
     setR2: (callsign: string, on: boolean) => app.request<{ point?: number; deleted?: number }>("session.r2", { callsign, on }),
     savePoint: (callsign: string, o: SaveOptions = {}) => app.request<{ point: number; same: boolean }>("points.save", { callsign, ...(o.stop ? { stop: true } : {}), ...(o.interrupt ? { interrupt: true } : {}) }),
-    raise: (body: Record<string, unknown>) => app.request<Raised>("points.raise", body),
+    /** Подъём; from — исходная сессия: поднятая встаёт в её проект, команду записи держит «Работа». */
+    async raise(body: Record<string, unknown>, from: string | null | undefined) {
+      const r = await app.request<Raised>("points.raise", body);
+      const project = r.ok && from ? app.mark("project.of", from)?.id : undefined;
+      if (r.ok && project) app.run("board.assign", { callsign: r.result.callsign, project });
+      return r;
+    },
     forget: (callsign: string) => app.request("session.remove", { callsign }),
     dry,
     /** Что будет на целевой машине: её слоты и проверка папки каждого подъёма. Отказ слотов — словом проверки: без него подъём ушёл бы без слота, на вход машины. */
     async probe(m: string, raises: Array<{ sid: string; point: number | null | undefined; dir: string }>): Promise<{ slots: string[] | null; checks: CheckResult[] }> {
       let slots: string[] = [];
       if (app.can(m, "machine.slots")) {
-        const r = await app.request<{ slots: Record<string, unknown> }>("machine.slots", { machine: m });
+        const r = await app.request<SlotsAnswer>("machine.slots", { machine: m });
         if (!r.ok) return { slots: null, checks: raises.map(() => ({ error: `machine.slots: ${r.error}` })) };
         slots = Object.keys(r.result.slots ?? {});
       }
       const checks = await Promise.all(raises.map((x) => (typeof x.point === "number" ? dry(m, x.sid, x.point, x.dir) : { error: "bad_point" })));
       return { slots, checks };
-    },
-    /** Поднятая сессия встаёт в проект исходной: команду записи держит «Работа». */
-    keepProject(from: string | null | undefined, to: string) {
-      const project = from ? app.mark("project.of", from)?.id : undefined;
-      if (project) app.run("board.assign", { callsign: to, project });
     },
   };
 }

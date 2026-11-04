@@ -1,14 +1,14 @@
 // План машины сбоку: части, версии, закрепление, включение.
 import { useState } from "react";
-import { Btn, In, M, Note, Opts, Outcome, type OutcomeNote, PageHead, Sec, useApp, okOf } from "@switchboard/web-ui";
+import { Btn, In, M, Note, Opts, Outcome, type OutcomeNote, PageHead, type Result, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
-import { cellOf, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
+import { cellOf, type Listed, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
 
 /** Часть в плане машины. Введённая версия живёт в поле. */
-function PlanPart({ m, p, refused }: { m: string; p: string; refused(text: string | null): void }) {
+function PlanPart({ list, m, p, done }: { list: Listed; m: string; p: string; done(r: Result<string>): void }) {
   const app = useApp();
   const settings = useSettings();
-  const d = app.use(settings.releaseData);
+  const d = app.use(() => settings.releaseData(list));
   const [version, setVersion] = useState("");
   const c = cellOf(d, m, p);
   if (!c) return null;
@@ -27,12 +27,12 @@ function PlanPart({ m, p, refused }: { m: string; p: string; refused(text: strin
       {stable || choices.length ? (
         <Opts>
           {stable ? (
-            <Btn aria-pressed={pinned ? "false" : "true"} onClick={() => void settings.pin(m, p, null).then(refused)}>
+            <Btn aria-pressed={pinned ? "false" : "true"} onClick={() => void settings.setPlan(m, p, { pin: null }).then(done)}>
               {`stable ${short(stable)}`}
             </Btn>
           ) : null}
           {choices.map((v) => (
-            <Btn key={v} aria-pressed={pinned === v ? "true" : "false"} onClick={() => void settings.pin(m, p, v).then(refused)}>
+            <Btn key={v} aria-pressed={pinned === v ? "true" : "false"} onClick={() => void settings.setPlan(m, p, { pin: v }).then(done)}>
               {`📌 ${short(v)}`}
             </Btn>
           ))}
@@ -40,7 +40,7 @@ function PlanPart({ m, p, refused }: { m: string; p: string; refused(text: strin
           <Btn
             onClick={() => {
               const v = version.trim();
-              if (v) void settings.pin(m, p, v).then(refused);
+              if (v) void settings.setPlan(m, p, { pin: v }).then(done);
             }}
           >
             Закрепить
@@ -49,7 +49,7 @@ function PlanPart({ m, p, refused }: { m: string; p: string; refused(text: strin
       ) : null}
       {p === "keeper" ? null : (
         <Opts>
-          <Btn role="switch" aria-checked={off ? "false" : "true"} aria-pressed={off ? "false" : "true"} onClick={() => void settings.togglePart(m, p).then(refused)}>
+          <Btn role="switch" aria-checked={off ? "false" : "true"} aria-pressed={off ? "false" : "true"} onClick={() => void settings.setPlan(m, p, { on: off }).then(done)}>
             {off ? "выключена" : "включена"}
           </Btn>
         </Opts>
@@ -58,10 +58,10 @@ function PlanPart({ m, p, refused }: { m: string; p: string; refused(text: strin
   );
 }
 
-export function MachinePlan({ m, close, note, refused }: { m: string; close(): void; note?: OutcomeNote; refused(text: string | null): void }) {
+export function MachinePlan({ list, m, close, note, done }: { list: Listed; m: string; close(): void; note?: OutcomeNote; done(r: Result<string>): void }) {
   const app = useApp();
   const settings = useSettings();
-  const d = app.use(settings.releaseData);
+  const d = app.use(() => settings.releaseData(list));
   const st = d.kst[m];
   return (
     <Sec className="st-side" data-plan={m}>
@@ -78,7 +78,7 @@ export function MachinePlan({ m, close, note, refused }: { m: string; close(): v
       {machineParts(d)
         .filter((p) => cellOf(d, m, p))
         .map((p) => (
-          <PlanPart key={p} m={m} p={p} refused={refused} />
+          <PlanPart key={p} list={list} m={m} p={p} done={done} />
         ))}
       <Outcome note={note} />
     </Sec>

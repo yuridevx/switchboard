@@ -1,16 +1,16 @@
 // Вкладка «Пропуска»: машины и устройства, приглашение и отзыв. Это устройство не отзывается.
 import { useState } from "react";
-import { Btn, M, Note, Opts, Outcome, Pill, Sec, useApp, useOutcome, okOf } from "@switchboard/web-ui";
+import { Btn, M, Note, Opts, Outcome, Pill, type Result, Sec, useApp, useOutcome } from "@switchboard/web-ui";
+import { thisDevice, usePasses } from "./load.ts";
 import { useSettings } from "./store.ts";
 import { Invited, InviteForm } from "./Invite.tsx";
 import type { Pass } from "./store.ts";
 
 const WORD = { ok: ["действует", "ok"], wait: ["ждёт приёма", "wait"] } as const;
 
-function PassRow({ p, mine, refused }: { p: Pass; mine: boolean; refused(text: string | null): void }) {
-  const app = useApp();
+function PassRow({ p, mine, done }: { p: Pass; mine: boolean; done(r: Result<string>): void }) {
   const settings = useSettings();
-  const asking = app.use(() => settings.get().confirm === p.id);
+  const [asking, setAsking] = useState(false);
   return (
     <tr data-pass={p.id}>
       <td>
@@ -28,13 +28,21 @@ function PassRow({ p, mine, refused }: { p: Pass; mine: boolean; refused(text: s
           <Note>это устройство</Note>
         ) : asking ? (
           <Opts>
-            <Btn bad onClick={() => void settings.revoke(p).then(refused)}>
+            <Btn
+              bad
+              onClick={() =>
+                void settings.revoke(p).then((r) => {
+                  setAsking(false);
+                  done(r);
+                })
+              }
+            >
               Отозвать
             </Btn>
-            <Btn onClick={() => settings.askRevoke(null)}>Отмена</Btn>
+            <Btn onClick={() => setAsking(false)}>Отмена</Btn>
           </Opts>
         ) : (
-          <Btn bad onClick={() => settings.askRevoke(p.id)}>
+          <Btn bad onClick={() => setAsking(true)}>
             Отозвать…
           </Btn>
         )}
@@ -43,7 +51,7 @@ function PassRow({ p, mine, refused }: { p: Pass; mine: boolean; refused(text: s
   );
 }
 
-function PassTable({ title, rows, me, refused }: { title: string; rows: Pass[]; me: Pass | undefined; refused(text: string | null): void }) {
+function PassTable({ title, rows, me, done }: { title: string; rows: Pass[]; me: Pass | undefined; done(r: Result<string>): void }) {
   if (!rows.length) return null;
   return (
     <Sec data-passes={title}>
@@ -67,7 +75,7 @@ function PassTable({ title, rows, me, refused }: { title: string; rows: Pass[]; 
         </thead>
         <tbody>
           {rows.map((p) => (
-            <PassRow key={p.id} p={p} mine={p.id === me?.id} refused={refused} />
+            <PassRow key={p.id} p={p} mine={p.id === me?.id} done={done} />
           ))}
         </tbody>
       </table>
@@ -78,15 +86,16 @@ function PassTable({ title, rows, me, refused }: { title: string; rows: Pass[]; 
 export function Passes() {
   const app = useApp();
   const settings = useSettings();
-  const passes = app.use(() => settings.get().passes);
+  const { data: ps = [], error, loading, reload } = usePasses();
   const [inviting, setInviting] = useState(false);
   const invited = app.use(() => settings.get().invited);
   const [notes, say] = useOutcome();
-  const refused = (text: string | null) => {
-    if (text) say("revoke", text, "bad");
+  const done = (r: Result<string>) => {
+    if (!r.ok) return say("revoke", r.error, "bad");
+    app.toast(r.result, "ok");
+    reload();
   };
-  const ps = okOf(passes) ?? [];
-  const me = ps.find((p) => p.role === "client" && p.name === app.name && p.state === "ok");
+  const me = thisDevice(ps, app.name);
   return (
     <>
       <Opts>
@@ -96,14 +105,10 @@ export function Passes() {
           </Btn>
         )}
       </Opts>
-      {inviting ? <InviteForm close={() => setInviting(false)} /> : invited ? <Invited x={invited} /> : null}
-      {passes && "error" in passes ? (
-        <Note tone="bad" role="alert">{`keys.list: ${passes.error}`}</Note>
-      ) : passes ? null : (
-        <Note>…</Note>
-      )}
-      <PassTable title="Машины" rows={ps.filter((p) => p.role === "host")} me={me} refused={refused} />
-      <PassTable title="Устройства и программы" rows={ps.filter((p) => p.role === "client")} me={me} refused={refused} />
+      {inviting ? <InviteForm close={() => setInviting(false)} invited={reload} /> : invited ? <Invited x={invited} /> : null}
+      {error ? <Note tone="bad" role="alert">{`keys.list: ${error}`}</Note> : !ps.length && loading ? <Note>…</Note> : null}
+      <PassTable title="Машины" rows={ps.filter((p) => p.role === "host")} me={me} done={done} />
+      <PassTable title="Устройства и программы" rows={ps.filter((p) => p.role === "client")} me={me} done={done} />
       <Outcome note={notes.revoke} />
     </>
   );

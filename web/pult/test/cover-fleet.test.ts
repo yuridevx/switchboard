@@ -38,6 +38,17 @@ const screen = async (relay: ReturnType<typeof fleetRelay>, url: string) => {
 };
 
 describe("аккаунты", () => {
+  it("7291 · подмена аккаунта при открытом экране: окна свежие, max_age 0", async () => {
+    // источник: факт — host/modules/accounts: без max_age чтение кэша без опроса; комментарий стора обещает свежие окна
+    const r = fleetRoster();
+    const relay = fleetRelay(r);
+    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: {} } });
+    await screen(relay, "/#accounts");
+    relay.setRoster({ ...r, sessions: r.sessions.map((s) => (s.callsign === "site@laptop" ? { ...s, account: "work3" } : s)) });
+    await flush(10);
+    expect(relay.sent("machine.accounts").at(-1)).toMatchObject({ machine: "laptop", max_age: 0 });
+  });
+
   it("6940 · машина пришла при открытом экране: ей machine.accounts max_age 120 и machine.slots", async () => {
     // источник: чьё: код
     const relay = fleetRelay(withoutPc());

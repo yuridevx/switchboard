@@ -1,8 +1,6 @@
 // Экран настроек: заголовок с вкладками и содержимое вкладки. Новые параметры адреса — экран начат заново.
-import { useEffect } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Btn, Page, PageHead, useApp } from "@switchboard/web-ui";
-import { useSettings } from "./store.ts";
 import { Device, Github } from "./General.tsx";
 import { Passes } from "./Passes.tsx";
 import { Releases } from "./ReleasesTab.tsx";
@@ -30,11 +28,7 @@ function Tabs({ tab }: { tab: Tab }) {
 
 export function SettingsScreen({ params }: ScreenProps) {
   const app = useApp();
-  const settings = useSettings();
   const tab: Tab = !app.wide ? "general" : params.tab === "passes" || params.tab === "general" ? params.tab : "releases";
-
-  // при открытии — ответы владельцев своей вкладки
-  useEffect(() => settings.openTab(tab), [settings, tab]);
 
   return (
     <Page>

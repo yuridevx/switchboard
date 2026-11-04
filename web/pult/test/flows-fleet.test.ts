@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
 import { FakeRelay } from "../../packages/core/stand/app.ts";
-import { fleetRelay, fleetRoster, flush, HOST, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, HOST, pult } from "./stand.ts";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -495,7 +495,7 @@ describe("журнал флота", () => {
     const t = await journal(relay);
     expect(t.text()).toContain("ledger.read: disconnected");
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs().slice(0, 2), more: false } });
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush();
     expect(relay.sent("ledger.read").at(-1)).not.toHaveProperty("after");
     expect(t.text()).not.toContain("ledger.read: disconnected");

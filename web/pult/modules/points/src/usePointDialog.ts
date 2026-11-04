@@ -82,9 +82,8 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
     const body: Record<string, unknown> = { machine: d.target, sid, point, dir: d.dir, files: d.files };
     if (d.kind === "copy" || d.kind === "dir") Object.assign(body, { copy: true, name: d.name });
     if (d.slot && (d.kind === "move" || d.kind === "copy")) body.slot = d.slot;
-    const r = await points.raise(body);
+    const r = await points.raise(body, callsign);
     if (!r.ok) return fail(r.error);
-    points.keepProject(callsign, r.result.callsign);
     if (d.kind === "dir") {
       step(`«Забыть» ${callsign}…`);
       const rm = await points.forget(callsign);

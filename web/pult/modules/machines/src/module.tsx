@@ -14,6 +14,7 @@ export function createMachines(app: App): AppModule {
   return {
     state: machines,
     on: { roster: machines.onRoster },
+    commands: { "machines.left.read": { run: (p) => void machines.readLeft(p.machine ?? "") } },
     screens: {
       machines: {
         nav: "Машины",
@@ -23,7 +24,7 @@ export function createMachines(app: App): AppModule {
         head: () => ({ title: "Машины" }),
       },
     },
-    marks: { "machines.gone": machines.gone },
+    marks: { "machines.gone": machines.gone, "machines.left": machines.left },
     css,
   };
 }

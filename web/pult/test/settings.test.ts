@@ -276,6 +276,12 @@ describe("pult-settings", () => {
     expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toContain("Настройки: пропуска");
   });
 
+  it("7295 · GitHub вернул ?code= без адреса экрана — страница сама открывает «GitHub и устройство»", async () => {
+    // источник: чьё: код — раньше это знала оболочка пульта; устав: оболочка модулей не знает
+    const t = await settings({ url: "/?code=gh123" });
+    expect(t.btn("Сохранить приложение")).toBeTruthy();
+  });
+
   it("6946 · вкладки: «Выпуски» — releases.list и keeper.state; «Пропуска» — keys.list; «GitHub и устройство» — keys.list и github.app", async () => {
     // источник: факт — при открытии ответы владельцев своей вкладки
     const t = await settings();

@@ -1,10 +1,9 @@
 // Состояние открытого экрана: вид, диалог, выбранная машина слотов, строки итогов. Живёт, пока экран открыт; карточки берут его из контекста.
 import { useMemo, useRef, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { useApp, useOutcome } from "@switchboard/web-ui";
+import { type Result, useApp, useOutcome } from "@switchboard/web-ui";
 import type {} from "@switchboard/web-board";
-import { useAccounts } from "./context.ts";
-import type { Say } from "./store.ts";
+import { useAccounts } from "./store.ts";
 
 export type Dlg = null | { kind: "new"; id: number; machine: string } | { kind: "sess"; machine: string; slot: string } | { kind: "rm"; machine: string; account: string };
 
@@ -28,10 +27,8 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
   const near = app.use(() => (proj ? (app.mark("project.machines", proj) ?? []) : []));
 
   return useMemo(() => {
-    const note =
-      (k: string): Say =>
-      (text, tone) =>
-        say(k, text, tone);
+    /** Итог действия — в строку экрана. */
+    const put = (k: string) => (r: Result<string>) => say(k, r.ok ? r.result : r.error, r.ok ? "ok" : "bad");
     return {
       view,
       setView,
@@ -45,10 +42,24 @@ export function useAccountsScreen(params: ScreenProps["params"]) {
       notes,
       /** машины открытого проекта */
       near,
-      swap: (m: string, slot: string, account: string) => void store.swap(m, slot, account, note(`swap:${m}:${slot}`)),
-      setOrder: (m: string, slot: string, order: string[]) => void store.setOrder(m, slot, order, note(`set:${m}:${slot}`)),
-      moveSessions: (m: string, list: string[], target: string) => void store.moveSessions(m, list, target, note(`move:${m}`)),
-      remove: (m: string, account: string, next: string) => void store.remove(m, account, next, note(`rm:${m}:${account}`), () => setDlg(null)),
+      swap: (m: string, slot: string, account: string) => {
+        say(`swap:${m}:${slot}`, "Меняю…");
+        void store.swap(m, slot, account).then(put(`swap:${m}:${slot}`));
+      },
+      setOrder: (m: string, slot: string, order: string[]) => {
+        say(`set:${m}:${slot}`, "Сохраняю…");
+        void store.setOrder(m, slot, order).then(put(`set:${m}:${slot}`));
+      },
+      moveSessions: (m: string, list: string[], target: string) => void store.moveSessions(m, list, target).then(put(`move:${m}`)),
+      remove: (m: string, account: string, next: string) => {
+        const k = `rm:${m}:${account}`;
+        void store
+          .remove(m, account, next, (step) => say(k, step))
+          .then((r) => {
+            if (r.ok) setDlg(null);
+            put(k)(r);
+          });
+      },
     };
   }, [store, view, dlg, slotMachine, pickFor, notes, say, near]);
 }

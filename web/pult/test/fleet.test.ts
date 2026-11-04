@@ -297,6 +297,79 @@ describe("эталоны пульта: точки", () => {
     expect(t.$('[data-row="scrape"]')!.textContent).toContain("не поднялась");
   });
 
+  const fireRelay = () => {
+    const relay = fleetRelay();
+    relay.handlers["points.list"] = () => ({
+      ok: true,
+      result: {
+        sessions: [
+          { sid: "77ae", callsign: "notes@mac", dir: "~/notes", owner: "mac", head: { id: 88, at: Date.UTC(2026, 9, 31, 3, 5) }, points: 88, branches: 0 },
+          { sid: "51cd", callsign: "scrape@mac", dir: "~/scrape", owner: "mac", head: { id: 61, at: Date.UTC(2026, 9, 31, 2, 50) }, points: 61, branches: 0 },
+        ],
+        r2: { bytes: 1, blocks: 1 },
+        sweep: null,
+      },
+    });
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [], more: false } });
+    relay.handlers["machine.slots"] = () => ({ ok: true, result: { slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: [] } } } });
+    relay.handlers["points.raise"] = (f) => (f.dryRun ? { ok: true, result: { folder: "empty", sessions: [] } } : undefined);
+    return relay;
+  };
+
+  it("7292 · закрыли окно переноса: идущая доходит, оставшиеся ждут, второй перенос не начать, пока идёт", async () => {
+    // источник: слово интерфейса «Закроете — оставшиеся ждут на точках, плашка останется»; слепой архитектор 4 нояб.
+    const relay = fireRelay();
+    const t = await pult({ relay });
+    await t.click(t.$('.sb-navcol button[data-screen="points"]'));
+    await flush(10);
+    await t.click(t.btn(null, "Перенести на другую машину…"));
+    await flush(10);
+    await t.click(t.btn(null, "Перенести 2 из 2 на laptop"));
+    const real = () => relay.sent("points.raise").filter((f) => !f.dryRun);
+    expect(real().map((f) => f.sid)).toEqual(["77ae"]);
+    await t.click(t.btn(t.$('[data-dlg="fire"]'), "Закрыть"));
+    expect(t.btn(null, "Перенести на другую машину…")).toBeFalsy();
+    relay.reply(String(real()[0].id), { ok: true, result: { callsign: "notes@laptop", point: 89, folder: "empty" } });
+    await flush(10);
+    expect(real().map((f) => f.sid)).toEqual(["77ae"]);
+    expect(t.btn(null, "Перенести на другую машину…")).toBeTruthy();
+  });
+
+  it("7293 · отказ удаления точек — словом отказа, а не зелёной карточкой", async () => {
+    // источник: устав — отказ словом; слепой архитектор 4 нояб.: зелёная карточка «Запись — в „Журнале флота“» на отказ
+    const relay = fleetRelay();
+    relay.handlers["points.list"] = () => ({
+      ok: true,
+      result: { sessions: [{ sid: "9f03", callsign: "old-bot@laptop", dir: "~/Projects/bot", owner: "laptop", head: { id: 212, at: Date.UTC(2026, 8, 2) }, points: 57, branches: 0 }], r2: { bytes: 1, blocks: 1 }, sweep: null },
+    });
+    relay.handlers["points.delete"] = () => ({ ok: false, error: "not_owner" });
+    const t = await pult({ relay });
+    await t.click(t.$('.sb-navcol button[data-screen="points"]'));
+    await flush(10);
+    await t.click(t.btn(t.$('[data-sid="9f03"]'), "Удалить…"));
+    await t.type(t.$('[data-f="del:9f03"]'), "old-bot");
+    await t.click(t.$('[data-act="delete"]'));
+    await flush(10);
+    expect(t.$('[data-only] [role="alert"]')!.textContent).toBe("points.delete: not_owner");
+    expect(t.$("[data-only]")!.textContent).not.toContain("Журнале флота");
+  });
+
+  it("7294 · вкладка точек сессии: реестр без журнала флота", async () => {
+    // источник: слепой архитектор 4 нояб. — sidOf звал обзор и лишние ledger.read
+    const relay = pointsRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [], more: false } });
+    relay.handlers["points.list"] = (f) =>
+      f.sid
+        ? { ok: true, result: { owner: "laptop", head: null, points: [] } }
+        : { ok: true, result: { sessions: [{ sid: "77ae", callsign: "notes@mac", dir: "~/notes", owner: "mac", head: { id: 88, at: 1 }, points: 88, branches: 0 }], r2: { bytes: 1, blocks: 1 }, sweep: null } };
+    const t = await pult({ relay });
+    await t.click(t.$('[data-callsign="site@laptop"]'));
+    await t.click(t.$('.cw-tabs [data-tab="session.points"]'));
+    await flush(10);
+    expect(relay.sent("points.list").length).toBeGreaterThan(0);
+    expect(relay.sent("ledger.read")).toHaveLength(0);
+  });
+
   it("198 · «только в R2»: с «old-bo» кнопка недоступна, запросов нет; с «old-bot» — points.delete { sid } → строка пропала, «old-bot удалена — 57 точек»", async () => {
     const relay = fleetRelay();
     let gone = false;

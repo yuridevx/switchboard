@@ -8,7 +8,9 @@
   ],
   "provides": {
     "machines": 1,
-    "machines.gone": 1
+    "machines.gone": 1,
+    "machines.left": 1,
+    "machines.left.read": 1
   },
   "uses": {
     "view@web-view": 19,
@@ -20,6 +22,7 @@
     "keeper.answers@pult-settings": 3,
     "keeper.reload@pult-settings": 1,
     "releases.set@releases": 1,
+    "ledger.read@ledger": 1,
     "project.current@web-board": 2,
     "project.machines@web-board": 2,
     "settings@pult-settings": 1,

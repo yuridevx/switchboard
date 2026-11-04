@@ -1,10 +1,10 @@
 // Состояние профилей: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
 import type { App } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { folderOf, lamp, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule, machinesWith, okOf } from "@switchboard/web-ui";
+import { folderOf, lamp, type ProfileRepo, type ProfilesAnswer, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule, machinesWith, okOf } from "@switchboard/web-ui";
 
-type Repo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };
-type Answer = { profiles: Record<string, { model?: string | null; effort?: string | null; about?: string }>; repos: Record<string, Repo> };
+type Repo = ProfileRepo;
+type Answer = ProfilesAnswer;
 
 const repoOf = (id: string) => id.slice(0, id.lastIndexOf("/"));
 
@@ -67,11 +67,11 @@ export function createProfilesStore(app: App) {
         machines: machines().length,
       };
     },
-    /** Свести репозитории профилей на всех машинах; итог — тостом. */
+    /** Свести репозитории профилей на всех машинах; конфликт — отказ словами. */
     async syncAll() {
       await Promise.all(machines().map((m) => replies.reload(m, (x) => app.request<Answer>("machine.profiles", { machine: x, sync: true }))));
       const cf = rowsOf(replies.get()).flatMap((r) => r.cf.map((x) => `${short(r.id)} ${mLabel(x.m)}`));
-      app.toast(cf.length ? `Сведено. Конфликт: ${cf.join(", ")}` : "Сведено", cf.length ? "bad" : "ok");
+      return cf.length ? ({ ok: false, error: `Сведено. Конфликт: ${cf.join(", ")}` } as const) : ({ ok: true, result: "Сведено" } as const);
     },
   };
 }

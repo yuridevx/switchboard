@@ -39,6 +39,12 @@ export function fleetRoster(over: Partial<Roster> = {}): Roster {
   };
 }
 
+/** Флот home, в который вошла новая сессия: состав сменился. */
+export function joinedRoster(): Roster {
+  const r = fleetRoster();
+  return { ...r, sessions: [...r.sessions, { callsign: "new@laptop", dir: "~", by: "panel-desk~owner@example.com", state: "idle" }] };
+}
+
 /** relay с ответами владельцев по умолчанию: лента, история, вопросы. */
 export function fleetRelay(roster = fleetRoster()): FakeRelay {
   const relay = new FakeRelay(roster);

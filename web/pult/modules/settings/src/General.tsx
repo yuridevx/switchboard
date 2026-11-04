@@ -1,7 +1,8 @@
 // Вкладка «GitHub и устройство»: приложение GitHub флота и его репозитории; адрес, пропуск и уведомления этого устройства.
 import { useEffect, useRef, useState } from "react";
 import type {} from "@switchboard/web-alerts";
-import { Btn, In, LinkBtn, M, Note, Opts, Outcome, PageHead, Pill, plural, Row, Sec, useApp, useOutcome, okOf } from "@switchboard/web-ui";
+import { Btn, In, LinkBtn, M, Note, Opts, Outcome, PageHead, Pill, plural, Row, Sec, useApp, useOutcome } from "@switchboard/web-ui";
+import { thisDevice, useGithub, usePasses } from "./load.ts";
 import { useSettings } from "./store.ts";
 import type { Form, Gh } from "./store.ts";
 
@@ -18,17 +19,21 @@ function PostForm({ form }: { form: Form }) {
   );
 }
 
-function GhCreate({ refused }: { refused(text: string): void }) {
+function GhCreate({ base, refused }: { base: Form | undefined; refused(text: string): void }) {
   const settings = useSettings();
   const [org, setOrg] = useState("");
   const [form, setForm] = useState<Form | undefined>();
   return (
     <Opts>
       <In mono data-f="org" placeholder="организация" aria-label="Организация" value={org} onInput={(e) => setOrg(e.currentTarget.value)} />
-      <Btn pri onClick={() => void settings.create(org.trim()).then((x) => {
-          setForm(x.form);
-          if (x.refused) refused(x.refused);
-        })}>
+      <Btn
+        pri
+        onClick={() => {
+          const name = org.trim();
+          if (!name) return setForm(base);
+          void settings.create(name).then((r) => (r.ok ? setForm(r.result) : refused(r.error)));
+        }}
+      >
         Создать приложение GitHub
       </Btn>
       {form ? <PostForm form={form} /> : null}
@@ -76,21 +81,20 @@ function GhApp({ value }: { value: Gh }) {
   );
 }
 
-export function Github() {
-  const app = useApp();
+function GithubBody() {
   const settings = useSettings();
-  const gh = app.use(() => settings.get().gh);
+  const { data: gh, error, reload } = useGithub();
   // GitHub вернул код нового приложения в адресе; сохранено — адрес очищен
   const [ghCode, setGhCode] = useState(() => new URLSearchParams(location.search).get("code") ?? "");
   const [notes, say] = useOutcome();
   async function save() {
     say("gh", "Сохраняю приложение…");
-    const refused = await settings.setup(ghCode);
-    if (refused) return say("gh", refused, "bad");
+    const r = await settings.setup(ghCode);
+    if (!r.ok) return say("gh", r.error, "bad");
     setGhCode("");
+    reload();
     say("gh", "Приложение сохранено — установите его на репозитории.", "ok");
   }
-  if (!app.worker("github")) return null;
   return (
     <Sec data-github="">
       <b>Приложение GitHub флота</b>
@@ -103,29 +107,32 @@ export function Github() {
             </Btn>
           </Opts>
         </>
+      ) : error ? (
+        <Note tone="bad">{`github.app: ${error}`}</Note>
       ) : !gh ? (
         <Note>…</Note>
-      ) : "error" in gh ? (
-        <Note tone="bad">{`github.app: ${gh.error}`}</Note>
       ) : gh.app ? (
         <GhApp value={gh} />
       ) : (
-        <GhCreate refused={(text) => say("gh", text, "bad")} />
+        <GhCreate base={gh.form} refused={(text) => say("gh", text, "bad")} />
       )}
       <Outcome note={notes.gh} />
     </Sec>
   );
 }
 
+export function Github() {
+  const app = useApp();
+  return app.worker("github") ? <GithubBody /> : null;
+}
+
 const PUSH: Record<string, string> = { on: "включены", ask: "выключены", error: "не включились", working: "включаю…", denied: "запрещены в браузере", off: "браузер не умеет" };
 
 export function Device() {
   const app = useApp();
-  const settings = useSettings();
-  const passes = app.use(() => settings.get().passes);
+  const { data: ps = [] } = usePasses();
   const push = app.use(() => app.mark("alerts.state"));
-  const ps = okOf(passes) ?? [];
-  const me = ps.find((p) => p.role === "client" && p.name === app.name);
+  const me = thisDevice(ps, app.name);
   return (
     <Sec data-device="">
       <b>Это устройство</b>
@@ -134,7 +141,7 @@ export function Device() {
       </Row>
       <Row label="пропуск">
         <span>
-          {me ? (me.state === "ok" ? "действует" : "ждёт приёма") : "—"}
+          {me ? "действует" : "—"}
           {app.wide ? (
             <Btn className="st-ml8" onClick={() => app.open("settings", { tab: "passes" })}>
               Пропуска

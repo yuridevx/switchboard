@@ -59,9 +59,9 @@ export type { Store } from "./src/store.ts";
 export type { Frame, Roster, RosterMachine, SessionRecord } from "@switchboard/relay";
 
 /** Запустить приложение. */
-export { startApp, detectPlatform, keyId } from "./src/app.tsx";
+export { startApp, keyId } from "./src/app.tsx";
 /** Запустить сборку страницы по build.json. */
-export { startBuild, LOAD_MS } from "./src/build.ts";
+export { startBuild } from "./src/build.ts";
 export type { BuildOptions } from "./src/build.ts";
 /** Гейт набора модулей выпуска (зовёт startApp; отдельно — для тестов выпуска). */
 export { appGate, CORE } from "./src/gate.ts";

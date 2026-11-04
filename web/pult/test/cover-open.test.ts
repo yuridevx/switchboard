@@ -1,7 +1,7 @@
 // Покрытие плана: форма новой сессии (action-open-form) и журнал флота (action-journal-machine). Сценарии, которых не было в прежних тестах.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Roster } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, flush, pult } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, pult } from "./stand.ts";
 
 type T = Awaited<ReturnType<typeof pult>>;
 
@@ -319,7 +319,7 @@ describe("журнал флота", () => {
     const t = await journal(relay);
     await pick(t, "pc");
     expect(relay.sent("ledger.read").at(-1)).toMatchObject({ machine: "pc", limit: 50 });
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush(5);
     expect(relay.sent("ledger.read").at(-1)).toMatchObject({ machine: "pc", after: 5 });
     await pick(t, "");
@@ -331,10 +331,24 @@ describe("журнал флота", () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = (f) => ({ ok: true, result: f.after ? { events: [ev(6), ev(5)], more: false } : { events: [ev(5)], more: true } });
     const t = await journal(relay);
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush(5);
     expect(ids(t)).toEqual(["6", "5"]);
     expect(t.button("Раньше")).not.toBeNull();
+  });
+
+  it("7290 · roster без смены состава журнал не читает", async () => {
+    // источник: слепой архитектор 4 нояб. — лишний ledger.read на каждый roster; журнал пишется при входе и уходе
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(5)], more: false } });
+    await journal(relay);
+    const n = relay.sent("ledger.read").length;
+    relay.setRoster(fleetRoster());
+    await flush(5);
+    expect(relay.sent("ledger.read")).toHaveLength(n);
+    relay.setRoster(joinedRoster());
+    await flush(5);
+    expect(relay.sent("ledger.read")).toHaveLength(n + 1);
   });
 
   it("6932 · журнал пуст: «Записей нет.», по roster снова чтение без after", async () => {
@@ -343,7 +357,7 @@ describe("журнал флота", () => {
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [], more: false } });
     const t = await journal(relay);
     expect(t.text()).toContain("Записей нет.");
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush(5);
     expect(relay.sent("ledger.read")).toHaveLength(2);
     expect(relay.sent("ledger.read")[1]).not.toHaveProperty("after");
@@ -397,7 +411,7 @@ describe("журнал флота", () => {
     expect(ids(t)).toEqual(["5"]);
     expect(t.text()).toContain("ledger.read: disconnected");
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(6)], more: false } });
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush(5);
     expect(relay.sent("ledger.read").at(-1)).toMatchObject({ after: 5 });
     expect(t.text()).not.toContain("ledger.read: disconnected");

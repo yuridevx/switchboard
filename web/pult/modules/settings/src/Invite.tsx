@@ -34,7 +34,7 @@ function KindButton({ k, label, cur, pick }: { k: Kind; label: string; cur: Kind
 }
 
 /** Форма живёт, пока открыта; выдано или отмена — close. */
-export function InviteForm({ close }: { close(): void }) {
+export function InviteForm({ close, invited }: { close(): void; invited(): void }) {
   const settings = useSettings();
   const [f, setF] = useState<Inviting>({ kind: "device", name: "", person: "" });
   const [notes, say] = useOutcome();
@@ -51,7 +51,16 @@ export function InviteForm({ close }: { close(): void }) {
         {f.kind === "machine" ? null : <In data-f="iwho" placeholder="почта" aria-label="Почта" value={f.person} onInput={(e) => { const person = e.currentTarget.value; setF((x) => ({ ...x, person })); }} />}
       </Opts>
       <Opts>
-        <Btn pri onClick={() => void settings.invite(f).then((refused) => (refused ? say("invite", refused, "bad") : close()))}>
+        <Btn
+          pri
+          onClick={() =>
+            void settings.invite(f).then((r) => {
+              if (!r.ok) return say("invite", r.error, "bad");
+              close();
+              invited();
+            })
+          }
+        >
           Пригласить
         </Btn>
         <Btn onClick={close}>Отмена</Btn>

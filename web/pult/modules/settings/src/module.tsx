@@ -15,6 +15,7 @@ export function createSettings(app: App): AppModule {
   const settings = createSettingsStore(app);
   return {
     state: settings,
+    start: settings.start,
     on: { link: settings.onLink },
     commands: {
       "keeper.open": { run: settings.openKeeper },

@@ -35,7 +35,6 @@ export function OverviewScreen() {
   const points = usePoints();
   const fleet = app.use(points.fleet);
   const refused = app.use(points.fleetRefused);
-  const left = app.use(points.left);
   const roster = app.use(() => app.roster());
 
   useEffect(() => void points.loadFleet(), [points]);
@@ -83,7 +82,7 @@ export function OverviewScreen() {
     <Page>
       <PageTitle />
       {refusal}
-      <FireSection fires={fires} left={left} />
+      <FireSection fires={fires} />
       <Opts data-summary="">
         <b>{`${inR2.length} ${plural(inR2.length, "сессия", "сессии", "сессий")} в R2 из ${total} на машинах`}</b>
         {fires.map(([m, l]) => (

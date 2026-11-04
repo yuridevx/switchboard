@@ -17,7 +17,8 @@ export function ProfilesScreen() {
 
   async function syncAll() {
     setSyncing(true);
-    await profiles.syncAll();
+    const r = await profiles.syncAll();
+    app.toast(r.ok ? r.result : r.error, r.ok ? "ok" : "bad");
     setSyncing(false);
   }
 

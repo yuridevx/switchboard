@@ -3,17 +3,11 @@
 // перед подменой; пульт его не пересылает.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { type ConnState, createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type OutcomeNote } from "@switchboard/web-ui";
+import { type AccountInfo, type AccountsAnswer, accountChanged, type ConnState, createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type Result, type SlotInfo, type SlotsAnswer, useModule } from "@switchboard/web-ui";
 
-export type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
-export type Account = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
-export type Slot = { account: string | null; order: string[]; wait: number | null; sessions: string[] };
+export type Account = AccountInfo;
+export type Slot = SlotInfo;
 export type Login = { machine: string; account: string; phase: "wait" | "url" | "code" | "ok" | "bad" | "err"; url?: string; email?: string; plan?: string; err?: string };
-/** Строка итога действия: её держит открытый экран. */
-export type Say = (text: string, tone?: OutcomeNote["tone"]) => void;
-
-type Accounts = { accounts: Record<string, Account> };
-type Slots = { slots: Record<string, Slot> };
 
 type State = {
   logins: Record<string, Login>;
@@ -46,24 +40,26 @@ export function slotsWith(list: Record<string, Slot>, account: string): string[]
 }
 
 export type AccountsStore = ReturnType<typeof createAccountsStore>;
+/** Стор модуля в экранах. */
+export const useAccounts = (): AccountsStore => useModule<AccountsStore>();
 
 export function createAccountsStore(app: App) {
   const store = createStore<State>({ logins: {}, prevAccount: {} }, () => app.changed());
   const machines = (n: string) => machinesWith(app, n);
 
   async function askAccounts(m: string, body: Record<string, unknown>) {
-    const r = await app.request<Partial<Accounts>>("machine.accounts", { machine: m, ...body });
+    const r = await app.request<Partial<AccountsAnswer>>("machine.accounts", { machine: m, ...body });
     return r.ok ? { ok: true as const, result: { accounts: r.result.accounts ?? {} } } : r;
   }
   async function askSlots(m: string) {
-    const r = await app.request<Partial<Slots>>("machine.slots", { machine: m });
+    const r = await app.request<Partial<SlotsAnswer>>("machine.slots", { machine: m });
     return r.ok ? { ok: true as const, result: { slots: r.result.slots ?? {} } } : r;
   }
   /** Ответы машин: цикл «экран открыт — спросить, машина пришла — доспросить» у обоих один; открыли экран — machine.accounts { max_age: 120 } и machine.slots. */
-  const accs: MachineAnswers<Accounts> = machineAnswers<Accounts>(app, (m) => askAccounts(m, { max_age: 120 }), () => machines("machine.accounts"));
-  const slots: MachineAnswers<Slots> = machineAnswers<Slots>(app, askSlots, () => machines("machine.slots"));
+  const accs: MachineAnswers<AccountsAnswer> = machineAnswers<AccountsAnswer>(app, (m) => askAccounts(m, { max_age: 120 }), () => machines("machine.accounts"));
+  const slots: MachineAnswers<SlotsAnswer> = machineAnswers<SlotsAnswer>(app, askSlots, () => machines("machine.slots"));
   /** Свежие окна: после своего действия и подмены кэш Host не годится. */
-  const loadAccounts = (m: string) => accs.reload(m, (x) => askAccounts(x, {}));
+  const loadAccounts = (m: string) => accs.reload(m, (x) => askAccounts(x, { max_age: 0 }));
   const loadSlots = (m: string) => slots.reload(m);
 
   const accsOf = (m: string) => okOf(accs.get()[m])?.accounts;
@@ -126,15 +122,8 @@ export function createAccountsStore(app: App) {
 
     /** Подмену делает Host: у сессий машины сменился account — перечитать её слоты и окна. */
     onRoster(r: Roster) {
-      const changed = new Set<string>();
-      store.set((s) => {
-        for (const x of r.sessions) {
-          if (typeof x.account !== "string") continue;
-          const was = s.prevAccount[x.callsign];
-          if (was !== undefined && was !== x.account) changed.add(machineOf(x.callsign) ?? "");
-          s.prevAccount[x.callsign] = x.account;
-        }
-      });
+      let changed = new Set<string>();
+      store.set((s) => void (changed = new Set(accountChanged(s.prevAccount, r.sessions).map((c) => machineOf(c) ?? ""))));
       if (!accs.isOpen()) return;
       for (const m of changed) {
         if (!m) continue;
@@ -163,49 +152,46 @@ export function createAccountsStore(app: App) {
     },
 
     // ───── действия слотов ─────
-    async swap(m: string, slot: string, account: string, note: Say) {
-      note("Меняю…");
+    async swap(m: string, slot: string, account: string): Promise<Result<string>> {
       const r = await app.request<{ from: string | null; to: string }>("slot.swap", { machine: m, slot, ...(account ? { account } : {}) });
-      if (!r.ok) return note(say(r.error), "bad");
+      if (!r.ok) return { ok: false, error: say(r.error) };
       const list = slotsOf(m);
       if (list?.[slot]) slots.put(m, { slots: { ...list, [slot]: { ...list[slot], account: r.result.to } } });
-      note(`${r.result.from ?? "—"} → ${r.result.to}`, "ok");
+      return { ok: true, result: `${r.result.from ?? "—"} → ${r.result.to}` };
     },
-    async setOrder(m: string, slot: string, order: string[], note: Say) {
-      note("Сохраняю…");
+    async setOrder(m: string, slot: string, order: string[]): Promise<Result<string>> {
       const r = await app.request<{ account: string | null }>("slot.set", { machine: m, slot, order });
-      if (!r.ok) return note(say(r.error), "bad");
+      if (!r.ok) return { ok: false, error: say(r.error) };
       await loadSlots(m);
-      note(order.length ? "порядок сохранён" : `слот ${slot} удалён`, "ok");
+      return { ok: true, result: order.length ? "порядок сохранён" : `слот ${slot} удалён` };
     },
-    async moveSessions(m: string, list: string[], target: string, note: Say) {
+    async moveSessions(m: string, list: string[], target: string): Promise<Result<string>> {
       const out: string[] = [];
       for (const callsign of list) {
         const r = await app.request<{ restart: boolean }>("session.slot", { callsign, slot: target || null });
         out.push(`${callsign}: ${r.ok ? (r.result.restart ? "перейдёт между ходами" : "перешла") : say(r.error)}`);
       }
       await loadSlots(m);
-      note(out.join(" · "), "ok");
+      return { ok: true, result: out.join(" · ") };
     },
     /** Удалить аккаунт: сменить его в слотах, убрать из порядка, стереть. Пульт складывает шаги сам — каждый после ответа предыдущего. */
-    async remove(m: string, account: string, pickNext: string, note: Say, removed: () => void) {
+    async remove(m: string, account: string, pickNext: string, step: (text: string) => void): Promise<Result<string>> {
       const list = slotsOf(m) ?? {};
       for (const inSlot of slotsWith(list, account)) {
-        note(`слот ${inSlot}: смена аккаунта…`);
+        step(`слот ${inSlot}: смена аккаунта…`);
         const next = pickNext && list[inSlot].order.includes(pickNext) ? pickNext : "";
         const r = await app.request<{ from: string; to: string }>("slot.swap", { machine: m, slot: inSlot, ...(next ? { account: next } : {}) });
-        if (!r.ok) return note(`слот ${inSlot}: ${say(r.error)}`, "bad");
+        if (!r.ok) return { ok: false, error: `слот ${inSlot}: ${say(r.error)}` };
       }
       for (const [name, s] of Object.entries(list)) {
         if (!s.order.includes(account)) continue;
         const r = await app.request("slot.set", { machine: m, slot: name, order: s.order.filter((x) => x !== account) });
-        if (!r.ok) return note(`slot.set ${name}: ${say(r.error)}`, "bad");
+        if (!r.ok) return { ok: false, error: `slot.set ${name}: ${say(r.error)}` };
       }
       const r = await app.request<{ wiped: boolean }>("machine.account_remove", { machine: m, account });
-      if (!r.ok) return note(say(r.error), "bad");
-      removed();
+      if (!r.ok) return { ok: false, error: say(r.error) };
       await Promise.all([loadAccounts(m), loadSlots(m)]);
-      note(`${account} удалён с ${m}`, "ok");
+      return { ok: true, result: `${account} удалён с ${m}` };
     },
   };
 }

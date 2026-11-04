@@ -2,7 +2,8 @@
 import { nameOf } from "@switchboard/protocol";
 import { useState } from "react";
 import { Btn, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
-import { useAccounts, useScreen } from "./context.ts";
+import { useScreen } from "./context.ts";
+import { useAccounts } from "./store.ts";
 import { NoteLine } from "./parts.tsx";
 import { slotsWith, type Slot } from "./store.ts";
 

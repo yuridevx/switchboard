@@ -1,18 +1,19 @@
 // Вкладка «Выпуски»: по машинам (stable флота, отмеченные, матрица и план машины) или каталог и сборки.
-import { useCallback, useState } from "react";
-import { Btn, M, Meter, Note, Outcome, plural, Sec, useApp, useOutcome } from "@switchboard/web-ui";
+import { useCallback, useEffect, useState } from "react";
+import { Btn, M, Meter, Note, Outcome, plural, type Result, Sec, useApp, useOutcome } from "@switchboard/web-ui";
 import { Catalog } from "./Catalog.tsx";
+import { useCatalog } from "./load.ts";
 import { useSettings } from "./store.ts";
 import { MachinePlan } from "./MachinePlan.tsx";
 import { Matrix } from "./Matrix.tsx";
-import { cellOf, prevBuild, short, stableOf, versionsOf } from "./rules.ts";
+import { cellOf, type Listed, prevBuild, short, stableOf, versionsOf } from "./rules.ts";
 import type { State } from "./store.ts";
 
 /** Stable частей машин и сколько машин на связи его держат. */
-function Roll() {
+function Roll({ list }: { list: Listed }) {
   const app = useApp();
   const settings = useSettings();
-  const d = app.use(settings.releaseData);
+  const d = app.use(() => settings.releaseData(list));
   const busy = app.use(() => settings.get().busy);
   return (
     <Sec>
@@ -43,10 +44,10 @@ function Roll() {
 }
 
 /** Отмеченные машины: закрепить host разом или вернуть к stable. */
-function Bulk({ refused }: { refused(text: string | null): void }) {
+function Bulk({ list, done }: { list: Listed; done(r: Result<string>): void }) {
   const app = useApp();
   const settings = useSettings();
-  const d = app.use(settings.releaseData);
+  const d = app.use(() => settings.releaseData(list));
   const selected = Object.keys(app.use(() => settings.get().rsel));
   if (!selected.length) return null;
   const stable = stableOf(d, "host");
@@ -57,11 +58,11 @@ function Bulk({ refused }: { refused(text: string | null): void }) {
       <Note>{selected.map((m) => `@${m}`).join(", ")}</Note>
       <span className="st-grow" />
       {vs.map((v) => (
-        <Btn key={v} onClick={() => void settings.bulk(v).then(refused)}>
+        <Btn key={v} onClick={() => void settings.bulk(v).then(done)}>
           {`host: закрепить ${short(v)}`}
         </Btn>
       ))}
-      <Btn onClick={() => void settings.bulk(null).then(refused)}>host: к stable</Btn>
+      <Btn onClick={() => void settings.bulk(null).then(done)}>host: к stable</Btn>
       <Btn onClick={settings.clearSelected}>Снять</Btn>
     </div>
   );
@@ -76,40 +77,50 @@ function SubTab({ k, label, cur }: { k: State["rtab"]; label: string; cur: State
   );
 }
 
-export function Releases({ machine }: { machine?: string }) {
+function ReleasesBody({ machine }: { machine?: string }) {
   const app = useApp();
   const settings = useSettings();
-  const list = app.use(() => settings.get().list);
+  const { data: list, error, reload } = useCatalog();
+  useEffect(() => settings.mountKeeper(), [settings]);
   const rtab = app.use(() => settings.get().rtab);
   // машина из адреса — выбрана при открытии: новые параметры адреса открывают экран заново
   const [rm, setRm] = useState<string | null>(machine ?? null);
   const [notes, say] = useOutcome();
-  const refused = useCallback((text: string | null) => {
-    if (text) say("plan", text, "bad");
-  }, [say]);
-  if (!app.worker("releases")) return <Note>«Выпусков» во флоте нет</Note>;
+  const done = useCallback(
+    (r: Result<string>) => {
+      if (r.ok) app.toast(r.result, "ok");
+      else say("plan", r.error, "bad");
+      reload();
+    },
+    [app, say, reload],
+  );
   return (
     <>
       <div className="st-tabs">
         <SubTab k="machines" label="По машинам" cur={rtab} />
         <SubTab k="catalog" label="Каталог и сборки" cur={rtab} />
       </div>
-      {list && "error" in list ? (
-        <Note tone="bad" role="alert">{`releases.list: ${list.error}`}</Note>
+      {error ? (
+        <Note tone="bad" role="alert">{`releases.list: ${error}`}</Note>
       ) : !list ? (
         <Note>…</Note>
       ) : rtab === "catalog" ? (
         <Catalog list={list} />
       ) : (
         <>
-          <Roll />
-          <Bulk refused={refused} />
+          <Roll list={list} />
+          <Bulk list={list} done={done} />
           <div className="st-grid">
-            <Matrix rm={rm} pick={setRm} />
-            {rm ? <MachinePlan key={rm} m={rm} close={() => setRm(null)} note={notes.plan} refused={refused} /> : <span />}
+            <Matrix list={list} rm={rm} pick={setRm} />
+            {rm ? <MachinePlan key={rm} list={list} m={rm} close={() => setRm(null)} note={notes.plan} done={done} /> : <span />}
           </div>
         </>
       )}
     </>
   );
+}
+
+export function Releases({ machine }: { machine?: string }) {
+  const app = useApp();
+  return app.worker("releases") ? <ReleasesBody machine={machine} /> : <Note>«Выпусков» во флоте нет</Note>;
 }

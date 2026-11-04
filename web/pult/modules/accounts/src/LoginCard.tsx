@@ -1,7 +1,7 @@
 // Карточка входа: запуск, ссылка и код, итог.
 import { useState } from "react";
 import { Btn, In, LinkBtn, Note, Opts, PageHead, Sec, CopyButton } from "@switchboard/web-ui";
-import { useAccounts } from "./context.ts";
+import { useAccounts } from "./store.ts";
 import { say, type Login } from "./store.ts";
 
 /** Ссылка и поле кода: живут на шагах url и code; ошибка убирает их вместе с текстом. */
