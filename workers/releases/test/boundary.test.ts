@@ -1,9 +1,11 @@
-import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
+// Леса границы «Каталог модулей», среда Worker'а: вход — Participant (привязка) и POST; снаружи — gate, relay, журнал, API Cloudflare.
+// Проверка — наблюдаемый исход: ответ, кадры журнала и плана, строка флота, объекты R2, запросы к API. Номер — эталон-источник.
+import { applyD1Migrations, createExecutionContext, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Frame } from "@switchboard/protocol";
 import { entries, pack, sha256hex, shaLine } from "@switchboard/release";
-import { frame } from "../src/releases.ts";
+import { Participant } from "../src/index.ts";
 import type { Env } from "../src/env.ts";
 import type { Deployed } from "../contract.ts";
 
@@ -16,7 +18,9 @@ function journal() {
   return lines;
 }
 
-const participant = (exports as unknown as { default: { frame(f: Frame): Promise<Frame[]> } }).default;
+const participant = (exports as unknown as { default: { frame(f: Frame): Promise<Frame[]>; fetch(r: Request): Promise<Response> } }).default;
+/** Вход со своим окружением: подмена привязок и счёт чтений. */
+const frame = (e: Env, f: Frame) => new Participant(createExecutionContext(), e).frame(f);
 type Stand<T> = { got(): Promise<T[]>; delivered(): Promise<T[]>; clear(): Promise<void>; setHosts(n: string[]): Promise<void> };
 const E = env as unknown as Env & { TEST_MIGRATIONS: D1Migration[] };
 const RELAY = E.RELAY as unknown as Stand<Frame>;
@@ -68,34 +72,61 @@ async function workersIn(parts: Record<string, unknown>) {
 }
 
 /**
- * Поддельный API Cloudflare: версии Worker'ов с метками, выложенная версия; записывает выкладки.
- * Части — модули каталога с именами Worker'а по флотам: их вид «Выпуски» берут из каталога.
+ * Поддельный API Cloudflare: версии Worker'ов с метками, выложенные, адреса, загрузка статики. Записывает выкладки и то, что ушло страницей.
+ * any — Worker без записи есть и пока без версий; иначе его нет (10007).
  */
-async function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
-  await workersIn(parts);
-  const scripts = Object.fromEntries(Object.entries(parts).map(([p, x]) => [scriptOf(p), x]));
-  const deploys: Array<{ script: string; tag: string }> = [];
+function cloudflare(scripts: Record<string, { tags: string[]; live?: string }> = {}, o: { any?: boolean; domains?: Array<{ hostname: string; service: string }> } = {}) {
   const id = (s: string, tag: string) => `${s}-v${tag}`;
+  const tags = new Map(Object.entries(scripts).map(([s, x]) => [s, [...x.tags]]));
   const live = new Map(Object.entries(scripts).map(([s, x]) => [s, x.live ? id(s, x.live) : null]));
+  const deploys: Array<{ script: string; tag: string }> = [];
+  const sent: { manifest?: Record<string, { hash: string }>; meta?: any; uploads: number; live: Map<string, string | null> } = { uploads: 0, live };
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init);
-    // адрес Worker'а: своих доменов нет — workers.dev поддомена sub
-    const path = new URL(req.url).pathname;
-    if (path === "/client/v4/accounts/acc0/workers/domains") return Response.json({ success: true, result: [] });
-    if (path === "/client/v4/accounts/acc0/workers/subdomain") return Response.json({ success: true, result: { subdomain: "sub" } });
-    const m = path.match(/^\/client\/v4\/accounts\/acc0\/workers\/scripts\/([^/]+)\/(versions|deployments)$/);
-    if (!m || req.headers.get("authorization") !== "Bearer test-token") return Response.json({ success: false, errors: [{ message: "not found" }] }, { status: 404 });
+    const p = new URL(req.url).pathname.replace("/client/v4/accounts/acc0", "");
+    const ok = (result: unknown) => Response.json({ success: true, result });
+    const token = req.headers.get("authorization");
+    if (p === "/workers/assets/upload") return token === "Bearer up" ? (sent.uploads++, ok({ jwt: "done" })) : new Response(null, { status: 401 });
+    if (token !== "Bearer test-token") return Response.json({ success: false, errors: [{ message: "not found" }] }, { status: 404 });
+    if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
+    if (p === "/workers/domains") return ok(o.domains ?? []);
+    const m = /^\/workers\/scripts\/([^/]+)\/(assets-upload-session|versions|deployments)$/.exec(p);
+    if (!m) return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
     const [, s, what] = m;
-    const x = scripts[s];
-    if (!x) return Response.json({ success: false, errors: [{ code: 10007, message: "no script" }] }, { status: 404 });
-    if (what === "versions") return Response.json({ success: true, result: { items: [...x.tags].reverse().map((t) => ({ id: id(s, t), annotations: { "workers/tag": t } })) } });
-    if (req.method === "GET") return Response.json({ success: true, result: { deployments: live.get(s) ? [{ versions: [{ version_id: live.get(s), percentage: 100 }] }] : [] } });
-    const body = (await req.json()) as { versions: Array<{ version_id: string; percentage: number }> };
-    live.set(s, body.versions[0].version_id);
-    deploys.push({ script: s, tag: body.versions[0].version_id.slice(s.length + 2) });
-    return Response.json({ success: true, result: { id: "dep" } });
+    if (!tags.has(s) && !o.any) return Response.json({ success: false, errors: [{ code: 10007, message: "no script" }] }, { status: 404 });
+    if (what === "assets-upload-session") {
+      sent.manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
+      return ok({ jwt: "up", buckets: [Object.values(sent.manifest).map((x) => x.hash)] });
+    }
+    if (what === "versions" && req.method === "POST") {
+      sent.meta = JSON.parse(await ((await req.formData()).get("metadata") as Blob).text());
+      const tag = sent.meta.annotations["workers/tag"];
+      tags.set(s, [...(tags.get(s) ?? []), tag]);
+      return ok({ id: id(s, tag) });
+    }
+    if (what === "versions") return ok({ items: [...(tags.get(s) ?? [])].reverse().map((tag) => ({ id: id(s, tag), annotations: { "workers/tag": tag } })) });
+    if (req.method === "POST") {
+      const version = ((await req.json()) as { versions: Array<{ version_id: string }> }).versions[0].version_id;
+      live.set(s, version);
+      deploys.push({ script: s, tag: version.slice(s.length + 2) });
+      return ok({ id: "dep" });
+    }
+    return ok({ deployments: live.get(s) ? [{ versions: [{ version_id: live.get(s), percentage: 100 }] }] : [] });
   });
-  return deploys;
+  return { deploys, sent };
+}
+
+/** Части Cloudflare: модули каталога с именами Worker'а по флотам и подделка API. Вид части «Выпуски» берут из каталога. */
+async function fakeCf(parts: Record<string, { tags: string[]; live?: string }>) {
+  await workersIn(parts);
+  return cloudflare(Object.fromEntries(Object.entries(parts).map(([p, x]) => [scriptOf(p), x]))).deploys;
+}
+
+/** Модуль в каталоге с полями манифеста и файлами архива. */
+async function put(name: string, version: string, manifest: Record<string, unknown>, extra: Array<[string, string]> = []) {
+  const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) }, ...extra.map(([path, d]) => ({ path, data: Buffer.from(d) }))]);
+  await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
+  await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
 }
 
 /** Готовая версия части машины в R2: архив без манифеста (как сборка Host) и хэш. */
@@ -287,9 +318,12 @@ describe("эталоны releases", () => {
     await inR2("keeper", "0.5.0", "0.6.0");
     await req(s, "~x", "releases.deploy", { part: "capture" });
     expect(await result(req(s, "~x", "releases.set", { machine: "win", part: "capture", env: { SITE: "lab" } }))).toEqual({ machine: "win", rev: 2 });
+    // 3131 · снять окружение: rev +1, в плане часть без env; вернуть — снова в плане
+    expect(brief(plans(await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: {} }))[0]).parts).toEqual([{ part: "capture", version: "1.4.0" }]);
+    await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: { SITE: "lab" } });
     const off = await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: false, force: true });
-    expect(plans(off).map(brief)).toEqual([{ to: ".keeper@win", rev: 3, parts: [{ part: "capture", version: "1.4.0", on: false, force: true, env: { SITE: "lab" } }] }]);
-    expect(await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: false, force: true })).toEqual([{ type: "reply", id: "r", ok: true, result: { machine: "win", rev: 3 }, to: "~x" }]);
+    expect(plans(off).map(brief)).toEqual([{ to: ".keeper@win", rev: 5, parts: [{ part: "capture", version: "1.4.0", on: false, force: true, env: { SITE: "lab" } }] }]);
+    expect(await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: false, force: true })).toEqual([{ type: "reply", id: "r", ok: true, result: { machine: "win", rev: 5 }, to: "~x" }]);
     const on = await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: true });
     expect(brief(plans(on)[0]).parts).toEqual([{ part: "capture", version: "1.4.0", env: { SITE: "lab" } }]);
     expect((await req(s, "~x", "releases.set", { machine: "win", part: "keeper", on: false }))[0]).toMatchObject({ error: "bad_frame" });
@@ -330,6 +364,12 @@ describe("эталоны releases", () => {
     expect((await req(s, "~x", "releases.deploy", { part: "push" }))[0]).toMatchObject({ ok: false, error: "no_release" });
     const l = await result(req(s, "~x", "releases.list", { part: "host" }));
     expect([l.parts.host.stable, l.rev]).toEqual(["1.1.57", 1]);
+    // 3128 · 3133 · загрузка не дописана: версия без хэша не годится ни для выкладки, ни для закрепления, edge — последняя с хэшем
+    await env.BUCKET.put("host/1.1.58.tgz", "half");
+    expect((await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.58" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    expect((await req(s, "~x", "releases.set", { machine: "win", part: "host", pin: "1.1.58" }))[0]).toMatchObject({ ok: false, error: "no_release" });
+    const after = await result(req(s, "~x", "releases.list", { part: "host" }));
+    expect([after.parts.host.stable, after.parts.host.edge, after.rev]).toEqual(["1.1.57", "1.1.57", 1]);
   });
 
   it("12 · вход по привязке: ответом — только reply; строка журнала — по привязке LEDGER с from .releases, план — relay.deliver", async () => {
@@ -461,121 +501,21 @@ describe("эталоны releases", () => {
     expect(out.filter((f) => f.type === "ledger.add").map((f) => [f.text, f.by])).toContainEqual(["gate — → 1.1.82", "~yuri"]);
   });
 
-  it("3128 · загрузка не дописана: edge части машины — последняя версия с хэшем; названная версия без хэша — no_release, stable и rev прежние", async () => {
-    // источник: чьё: код («готова та, у которой лежит .sha256»); факт — загрузка кладёт .tgz, затем .sha256
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("host", "1.1.81", "1.1.82");
-    await env.BUCKET.put("host/1.1.83.tgz", "host 1.1.83");
-    await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.81" });
-    await req(s, ".keeper@win", "releases.plan");
-    expect((await result(req(s, "~x", "releases.deploy", { part: "host" }))).parts.host).toEqual({ from: "1.1.81", to: "1.1.82" });
-    const rev = (await result(req(s, "~x", "releases.list"))).rev;
-    const out = await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.83" });
-    expect(out).toEqual([expect.objectContaining({ type: "reply", ok: false, error: "no_release" })]);
-    const l = await result(req(s, "~x", "releases.list"));
-    expect([l.parts.host.stable, l.parts.host.edge, l.rev]).toEqual(["1.1.82", "1.1.82", rev]);
-  });
-
-  it("3129 · приложение на версию — план только машинам, где оно за stable; запись в журнал флота", async () => {
-    // источник: чьё: код (план меняется у машин, где часть идёт за stable)
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("capture", "1.4.0", "1.5.0");
-    await inR2("keeper", "0.5.0");
-    await req(s, "~x", "releases.deploy", { part: "keeper" });
-    await req(s, "~x", "releases.deploy", { part: "capture", version: "1.4.0" });
-    await req(s, ".keeper@win", "releases.plan");
-    await req(s, ".keeper@wsl", "releases.plan");
-    await req(s, "~x", "releases.set", { machine: "win", part: "capture", on: true });
-    const out = await req(s, "~x", "releases.deploy", { part: "capture", version: "1.5.0" });
-    expect(plans(out).map((f) => f.to)).toEqual([".keeper@win"]);
-    expect(out.filter((f) => f.type === "ledger.add").map((f) => f.text)).toEqual(["capture 1.4.0 → 1.5.0"]);
-  });
-
-  it("3130 · убрать запись host — host снова за stable и в плане остаётся", async () => {
-    // источник: чьё: код (keeper и host в плане всегда)
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("host", "1.1.82");
-    await req(s, "~x", "releases.deploy", { part: "host" });
-    await hosts("win");
-    await req(s, "~x", "releases.set", { machine: "win", part: "host", on: false });
-    const out = await req(s, "~x", "releases.set", { machine: "win", part: "host", remove: true });
-    expect(brief(plans(out)[0]).parts).toEqual([{ part: "host", version: "1.1.82" }]);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
-  });
-
-  it("3131 · окружение задать и снять: второй шаг — rev +1, в плане часть без env", async () => {
-    // источник: чьё: код
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("capture", "1.4.0");
-    await req(s, "~x", "releases.deploy", { part: "capture" });
-    await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: { SITE: "lab" } });
-    const out = await req(s, "~x", "releases.set", { machine: "win", part: "capture", env: {} });
-    expect(brief(plans(out)[0])).toEqual({ to: ".keeper@win", rev: 3, parts: [{ part: "capture", version: "1.4.0" }] });
-  });
-
-  it("3132 · правка машины без отличий, которая ничего не меняет, — «уже так»: rev прежняя, плана нет, записи плана нет", async () => {
-    // источник: дизайн «Открытый флот» — своего списка машин у «Выпусков» нет, машины — пропуска роли host
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("host", "1.1.82");
-    await req(s, "~x", "releases.deploy", { part: "host" });
-    await hosts("pc3");
-    const out = await req(s, "~x", "releases.set", { machine: "pc3", part: "host", on: true });
-    expect(out[0]).toMatchObject({ ok: true, result: { machine: "pc3", rev: 1 } });
-    expect(plans(out)).toEqual([]);
-    expect((await result(req(s, "~x", "releases.list"))).machines).toEqual([]);
-  });
-
-  it("3133 · pin на версию без хэша (загрузка оборвалась между архивом и хэшем) — no_release, план и rev прежние", async () => {
-    // источник: чьё: код («готова та, у которой лежит .sha256»)
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("host", "1.1.82");
-    await req(s, "~x", "releases.deploy", { part: "host" });
-    await env.BUCKET.put("sbprobe/1.0.1.tgz", "x");
-    const out = await req(s, "~x", "releases.set", { machine: "win", part: "sbprobe", pin: "1.0.1" });
-    expect(out).toEqual([expect.objectContaining({ ok: false, error: "no_release" })]);
-    expect((await result(req(s, "~x", "releases.list"))).rev).toBe(1);
-  });
-
-  it("2037 · Cloudflare отказал посреди «*» — cf_failed, stable частей машины и rev прежние, планов нет", async () => {
-    const s = fresh();
-    await fakeCf(NONE);
-    await inR2("keeper", "1.0.1");
-    await inR2("host", "1.1.58", "1.1.59");
-    await req(s, "~x", "releases.deploy", { part: "keeper" });
-    await req(s, "~x", "releases.deploy", { part: "host", version: "1.1.58" });
-    await req(s, ".keeper@win", "releases.plan");
-    const okCf = await fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58"], live: "1.1.58" }])));
-    void okCf;
-    const real = vi.mocked(fetch).getMockImplementation()!;
-    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
-      new Request(input, init).url.includes("/switchboard-push/") ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
-    );
-    const out = await req(s, "~x", "releases.deploy", { part: "*" });
-    expect(out).toEqual([{ type: "reply", id: "r", ok: false, error: "cf_failed", why: "API Cloudflare ответил 500", to: "~x" }]);
-    vi.restoreAllMocks();
-    await fakeCf(NONE);
-    const l = await result(req(s, "~x", "releases.list", { part: "host" }));
-    expect([l.parts.host.stable, l.rev]).toEqual(["1.1.58", 2]);
-  });
-
-  it("2092 · Cloudflare отказал посреди «*» — уже выложенные части Cloudflare в журнале флота, отказ cf_failed", async () => {
+  it.each([
+    ["2092 · Cloudflare отказал", { error: "cf_failed", why: "API Cloudflare ответил 500" }, {}, (u: string) => u.includes("/switchboard-points/")],
+    ["2094 · у Worker'а нет версии", { error: "no_release", why: "у points нет версии с меткой" }, { points: { tags: [] } }, () => false],
+  ])("посреди «*»: %s — отказ словом, уже выложенные части Cloudflare в журнале флота", async (_n, word, over, broken) => {
     // источник: устав «система ловит»: отказ — словом, причина — в журнале; факт цикла тестов 2 нояб. — записи выложенных частей терялись
     const s = fresh();
-    await fakeCf(Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])));
+    await fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])), ...over });
     await inR2("keeper", "1.0.1");
     await inR2("host", "1.1.58");
     const real = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) =>
-      new Request(input, init).url.includes("/switchboard-points/") ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
+      broken(new Request(input, init).url) ? Response.json({ success: false, errors: [{ code: 10013 }] }, { status: 500 }) : real(input, init),
     );
     const out = await req(s, "~x", "releases.deploy", { part: "*" });
-    expect(out[0]).toEqual({ type: "reply", id: "r", ok: false, error: "cf_failed", why: "API Cloudflare ответил 500", to: "~x" });
+    expect(out[0]).toEqual({ type: "reply", id: "r", ok: false, ...word, to: "~x" });
     // порядок выкладки — части Cloudflare по имени, relay последним: до points выложены gate, github, ledger, phone
     expect(out.slice(1).map((f) => [f.type, f.to, f.text])).toEqual([
       ["ledger.add", ".ledger", "gate 1.1.58 → 1.1.59"],
@@ -583,17 +523,6 @@ describe("эталоны releases", () => {
       ["ledger.add", ".ledger", "ledger 1.1.58 → 1.1.59"],
       ["ledger.add", ".ledger", "phone 1.1.58 → 1.1.59"],
     ]);
-  });
-
-  it("2094 · у Worker'а нет версии посреди «*» — no_release, выложенные до него части Cloudflare в журнале флота", async () => {
-    // источник: устав «система ловит»: отказ — словом, причина — в журнале
-    const s = fresh();
-    await fakeCf({ ...Object.fromEntries(Object.keys(NONE).map((k) => [k, { tags: ["1.1.58", "1.1.59"], live: "1.1.58" }])), points: { tags: [] } });
-    await inR2("keeper", "1.0.1");
-    await inR2("host", "1.1.58");
-    const out = await req(s, "~x", "releases.deploy", { part: "*" });
-    expect(out[0]).toMatchObject({ type: "reply", ok: false, error: "no_release" });
-    expect(out.slice(1).map((f) => f.text)).toEqual(["gate 1.1.58 → 1.1.59", "github 1.1.58 → 1.1.59", "ledger 1.1.58 → 1.1.59", "phone 1.1.58 → 1.1.59"]);
   });
 
   it("5112 · вид части — из каталога: Worker — по workers.<FLEET> модуля, сборка Host и os — части машины, модуль Host частью не бывает", async () => {
@@ -634,14 +563,6 @@ describe("эталоны releases", () => {
     expect((await result(req(s, "~x", "releases.list", { part: "host" }))).rev).toBe(rev + 1);
   });
 
-  it("2040 · deploy: вход отклонён — part не имя, версия не три числа, у «*» версии нет", async () => {
-    const s = fresh();
-    expect((await req(s, "~x", "releases.deploy", { part: "Ho st" }))[0]).toMatchObject({ error: "bad_frame" });
-    expect((await req(s, "~x", "releases.deploy", {}))[0]).toMatchObject({ error: "bad_frame" });
-    expect((await req(s, "~x", "releases.deploy", { part: "host", version: "1.5" }))[0]).toMatchObject({ error: "bad_version" });
-    expect((await req(s, "~x", "releases.deploy", { part: "*", version: "1.1.1" }))[0]).toMatchObject({ error: "bad_frame" });
-  });
-
   it("2041 · set: Host выключен силой и снова за stable; уже за stable — ok без плана; часть за stable — пустая запись; keeper закреплён и снят", async () => {
     const s = fresh();
     await fakeCf(NONE);
@@ -665,23 +586,76 @@ describe("эталоны releases", () => {
     expect((await result(req(s, "~x", "releases.list", { part: "app" }))).machines).toEqual([{ machine: "laptop", plan: { app: {} } }]);
     const pin = await req(s, "~x", "releases.set", { machine: "laptop", part: "keeper", pin: "1.0.0" });
     expect(brief(plans(pin)[0]).parts[0]).toEqual({ part: "keeper", version: "1.0.0" });
+    // force false снимает силу, выключенной часть остаётся
+    await req(s, "~x", "releases.set", { machine: "laptop", part: "app", on: false, force: true });
+    const soft = await req(s, "~x", "releases.set", { machine: "laptop", part: "app", force: false });
+    expect(brief(plans(soft)[0]).parts.find((p) => p.part === "app")).toEqual({ part: "app", version: "1.0.0", on: false });
+    await req(s, "~x", "releases.set", { machine: "laptop", part: "app", on: true });
     const unpin = await req(s, "~x", "releases.set", { machine: "laptop", part: "keeper", pin: null });
     expect(brief(plans(unpin)[0]).parts[0]).toEqual({ part: "keeper", version: "1.0.1" });
     expect((await result(req(s, "~x", "releases.list", { part: "keeper" }))).machines).toEqual([{ machine: "laptop", plan: {} }]);
+    // 3130 · убрать запись host — host снова за stable и в плане остаётся; пустая запись машины не хранится
+    await req(s, "~x", "releases.set", { machine: "pc3", part: "host", on: false });
+    expect(brief(plans(await req(s, "~x", "releases.set", { machine: "pc3", part: "host", remove: true }))[0]).parts.find((p) => p.part === "host")).toEqual({ part: "host", version: "1.1.58" });
+    expect((await result(req(s, "~x", "releases.list"))).machines.map((x: any) => x.machine)).toEqual(["laptop"]);
   });
 
-  it("2042 · set: вход отклонён — machine и part не имена, часть Cloudflare, pin не три числа, env не строки", async () => {
+  it.each<[string, string, Record<string, unknown>, string, string]>([
+    ["2040 deploy: part не имя", "releases.deploy", { part: "Ho st" }, "bad_frame", "part — имя части или *"],
+    ["2040 deploy: нет part", "releases.deploy", {}, "bad_frame", "part — имя части или *"],
+    ["2040 deploy: версия не три числа", "releases.deploy", { part: "host", version: "1.5" }, "bad_version", "версия — три числа, сборка «+n» или null — снять модуль"],
+    ["2040 deploy: у * версии нет", "releases.deploy", { part: "*", version: "1.1.1" }, "bad_frame", "у * версии нет: каждая часть — на свою edge"],
+    ["deploy: без latest полей нет", "releases.deploy", { part: "host", without: ["x"] }, "bad_frame", "without и check_with — только вместе с latest: true"],
+    ["deploy: without не список", "releases.deploy", { part: "host", latest: true, without: "x" }, "bad_frame", "without — список имён"],
+    ["deploy: check_with не имена", "releases.deploy", { part: "host", latest: true, check_with: ["Не имя"] }, "bad_frame", "check_with — список имён"],
+    ["deploy: latest не у сборки", "releases.deploy", { part: "app", latest: true }, "bad_frame", "latest: true — только у корня сборки или модуля сборки и без version"],
+    ["deploy: снять не модуль", "releases.deploy", { part: "app", version: null }, "bad_frame", "app — не модуль сборки: снимать нечего"],
+    ["2042 set: machine не имя", "releases.set", { machine: "Win 1", part: "app" }, "bad_frame", "machine — имя машины"],
+    ["2042 set: part не имя", "releases.set", { machine: "win", part: "A pp" }, "bad_frame", "part — имя части машины"],
+    ["2042 set: часть Cloudflare", "releases.set", { machine: "win", part: "relay", on: false }, "bad_frame", "part — имя части машины"],
+    ["2042 set: pin не три числа", "releases.set", { machine: "win", part: "app", pin: "1.0" }, "bad_version", "pin — три числа или null"],
+    ["2042 set: env не строки", "releases.set", { machine: "win", part: "app", env: { A: 1 } }, "bad_frame", "env — строки"],
+    ["set: у keeper только pin", "releases.set", { machine: "win", part: "keeper", env: {} }, "bad_frame", "у keeper — только pin"],
+    ["set: убрать то, чего нет", "releases.set", { machine: "win", part: "app", remove: true }, "no_part", "app нет в плане win"],
+    ["set: новая часть без stable", "releases.set", { machine: "win", part: "probe", on: true }, "no_release", "у probe нет stable — закрепи версию"],
+    ["upload: part не имя", "releases.upload", { part: "Cap ture", version: "1.5.0" }, "bad_frame", "part — имя части"],
+    ["upload: версия не три числа", "releases.upload", { part: "capture", version: "1.5" }, "bad_version", "версия — три числа"],
+    ["upload: хэш не того вида", "releases.upload", { part: "capture", version: "1.7.0", sha256: "abc" }, "bad_frame", "sha256 — хэш архива, 64 знака hex"],
+    ["5163 fetch: имя не того вида", "releases.fetch", { part: "Bad Name" }, "bad_frame", "part — имя модуля"],
+    ["5163 fetch: сборка «+n» — не каталог", "releases.fetch", { part: "host", version: "1.2.0+1" }, "bad_version", "версия каталога — три числа, без «+»"],
+    ["5162 fetch: нет такой версии", "releases.fetch", { part: "app", version: "9.9.9" }, "no_release", "у app нет версии 9.9.9"],
+    ["5162 fetch: нет модуля", "releases.fetch", { part: "nobody" }, "no_release", "у nobody нет версии в каталоге"],
+  ])("вход отклонён, строка флота не тронута: %s", async (_n, type, f, word, why) => {
     const s = fresh();
     await fakeCf(NONE);
     await inR2("app", "1.0.0");
     await req(s, "~x", "releases.deploy", { part: "app" });
-    const bad = async (f: Record<string, unknown>) => (await req(s, "~x", "releases.set", f))[0];
-    expect(await bad({ machine: "Win 1", part: "app" })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ machine: "win", part: "A pp" })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ machine: "win", part: "relay", on: false })).toMatchObject({ error: "bad_frame" });
-    expect(await bad({ machine: "win", part: "app", pin: "1.0" })).toMatchObject({ error: "bad_version" });
-    expect(await bad({ machine: "win", part: "app", env: { A: 1 } })).toMatchObject({ error: "bad_frame" });
-    expect((await result(req(s, "~x", "releases.list", { part: "app" }))).machines).toEqual([]);
+    const rev = (await result(req(s, "~x", "releases.list", { part: "app" }))).rev;
+    expect((await req(s, "~x", type, f))[0]).toMatchObject({ ok: false, error: word, why });
+    const l = await result(req(s, "~x", "releases.list", { part: "app" }));
+    expect([l.rev, l.machines]).toEqual([rev, []]);
+  });
+
+  it("прямой вход: POST кадра с пропуском — ответ телом, машина спрашивает свой план; плохой пропуск — bad_key (чьё: код)", async () => {
+    const post = (body: unknown) => participant.fetch(new Request("https://releases.test/", { method: "POST", body: JSON.stringify(body) }));
+    const good = await (await post({ type: "releases.plan", v: 1, id: "p", key: "host.win.k1.s" })).json();
+    expect(good).toMatchObject({ type: "reply", id: "p", ok: true, result: { rev: 0, parts: [] } });
+    expect(await (await post({ type: "releases.plan", v: 1, id: "p", key: "host.win.k1.bad" })).json()).toMatchObject({ ok: false, error: "bad_key" });
+    expect((await participant.fetch(new Request("https://releases.test/"))).status).toBe(404);
+  });
+
+  it("сосед молчит: relay не взял план, журнал не взял строку — выкладка состоялась, ответ ok, причина строкой (чьё: код)", async () => {
+    await fakeCf(NONE);
+    await inR2("host", "1.1.82");
+    await hosts("win");
+    const broken = new Proxy(E, {
+      get: (o, k) => (k === "RELAY" ? { deliver: async () => { throw new Error("нет связи"); } } : k === "LEDGER" ? { frame: async () => { throw new Error("нет базы"); } } : Reflect.get(o, k)),
+    }) as Env;
+    const log = journal();
+    const [r] = await frame(broken, { type: "releases.deploy", v: 1, id: "r", to: ".releases", from: "~x", part: "host" });
+    expect(r).toMatchObject({ ok: true, result: { parts: { host: { from: null, to: "1.1.82" } } } });
+    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "ledger.add", word: "offline", why: expect.stringContaining("host — → 1.1.82") }));
+    expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", ev: "releases.plan", word: "offline", why: expect.stringContaining("relay.deliver → .keeper@win") }));
   });
 
   it("13 · план keeper — ровно поля v1: keeper заморожен с 1.0.0 и отказывает плану с чужим полем", async () => {
@@ -827,11 +801,6 @@ describe("сборка страницы «Выпусками»", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Выпуски» собирают версию Worker'а со
     // статикой и выкладывают; адреса relay и Worker'ов страница берёт из списка сборки
     const s = fresh();
-    const put = async (name: string, version: string, manifest: Record<string, unknown>, extra: Array<[string, string]> = []) => {
-      const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) }, ...extra.map(([path, d]) => ({ path, data: Buffer.from(d) }))]);
-      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
-      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
-    };
     await put("relay", "1.0.0", { type: "worker", provides: { roster: 1 }, workers: { test: "switchboard" } });
     await put("push", "1.0.0", { type: "worker", provides: { "push.send": 1 }, workers: { test: "switchboard-push" } });
     await put("pult", "1.1.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
@@ -839,41 +808,13 @@ describe("сборка страницы «Выпусками»", () => {
     await put("phone", "1.0.0", { type: "web-app", provides: { page: 1 }, workers: { test: "switchboard-phone" } }, [["index.html", "<!doctype html>"]]);
     await put("web-core", "1.1.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "export default {}"]]);
     await put("web-x", "1.0.0", { type: "web", into: ["pult"], uses: { "app@web-core": 1, "push.send@push": 1, "roster@relay": 1, "page@phone": 1 } }, [["module.js", "export default {x:1}"]]);
-    const tags: string[] = ["1.1.85"];
-    let live = "v-1.1.85";
-    const sent: { manifest?: Record<string, { hash: string }>; meta?: any; uploads: number } = { uploads: 0 };
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const req = new Request(input, init);
-      const u = new URL(req.url);
-      const p = u.pathname.replace("/client/v4/accounts/acc0", "");
-      const ok = (result: unknown) => Response.json({ success: true, result });
-      if (p === "/workers/assets/upload") return req.headers.get("authorization") === "Bearer up" ? (sent.uploads++, ok({ jwt: "done" })) : new Response(null, { status: 401 });
-      if (req.headers.get("authorization") !== "Bearer test-token") return new Response(null, { status: 401 });
-      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
-      if (p === "/workers/domains") return ok([{ hostname: "relay.example", service: "switchboard" }, { hostname: "other.example", service: "чужой" }]);
-      if (p === "/workers/scripts/switchboard-pult/assets-upload-session") {
-        sent.manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
-        return ok({ jwt: "up", buckets: [Object.values(sent.manifest).map((x) => x.hash)] });
-      }
-      if (p === "/workers/scripts/switchboard-pult/versions" && req.method === "POST") {
-        sent.meta = JSON.parse(await ((await req.formData()).get("metadata") as Blob).text());
-        tags.push(sent.meta.annotations["workers/tag"]);
-        return ok({ id: `v-${tags.at(-1)}` });
-      }
-      if (p === "/workers/scripts/switchboard-pult/versions") return ok({ items: [...tags].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
-      if (p === "/workers/scripts/switchboard-pult/deployments" && req.method === "POST") return (live = ((await req.json()) as any).versions[0].version_id), ok({});
-      if (p === "/workers/scripts/switchboard-pult/deployments") return ok({ deployments: [{ versions: [{ version_id: live, percentage: 100 }] }] });
-      // остальные Worker'ы флота — без версий: так отвечает Cloudflare, пока версий нет (их спрашивает полный list)
-      if (/^\/workers\/scripts\/[^/]+\/versions$/.test(p)) return ok({ items: [] });
-      if (/^\/workers\/scripts\/[^/]+\/deployments$/.test(p)) return ok({ deployments: [] });
-      return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
-    });
+    const { sent } = cloudflare({ "switchboard-pult": { tags: ["1.1.85"], live: "1.1.85" } }, { any: true, domains: [{ hostname: "relay.example", service: "switchboard" }, { hostname: "other.example", service: "чужой" }] });
     const out = await req(s, "agent~x", "releases.deploy", { part: "web-x" });
     expect(out[0].result).toEqual({ parts: { pult: { from: "1.1.85", to: "1.1.0+1" } } });
     expect(Object.keys(sent.manifest!).sort()).toEqual(["/build.json", "/index.html", "/m/web-core.1.1.0.js", "/m/web-x.1.0.0.js"]);
     expect(sent.uploads).toBe(1);
     expect(sent.meta).toMatchObject({ assets: { jwt: "done", config: { _headers: "/m/*\n  Cache-Control: public, max-age=31536000, immutable\n/app.*.js\n  Cache-Control: public, max-age=31536000, immutable\n" } }, annotations: { "workers/tag": "1.1.0+1" } });
-    expect(live).toBe("v-1.1.0+1");
+    expect(sent.live.get("switchboard-pult")).toBe("switchboard-pult-v1.1.0+1");
     const files = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.0+1.tgz"))!.arrayBuffer()));
     expect(JSON.parse(files.find((x) => x.path === "build.json")!.data!.toString("utf8"))).toEqual({
       app: "pult",
@@ -892,6 +833,8 @@ describe("сборка страницы «Выпусками»", () => {
     const l = await result(req(s, "agent~x", "releases.list"));
     expect(l.modules["web-x"]).toEqual({ into: ["pult"], built: { pult: "1.0.0" }, edge: "1.1.0" });
     expect(l.parts.pult.versions).toEqual(["1.1.0+1", "1.1.0+2"]);
+    // вопрос об одной странице: та же строка, что в ответе о всём флоте
+    expect((await result(req(s, "agent~x", "releases.list", { part: "pult" }))).parts.pult).toEqual(l.parts.pult);
     // 5717 · latest: все модули на новейшие одной сборкой — страница меняется разом (источник: переход фронта на React:
     // старые модули не стартуют с новым ядром, выкладка по модулю оставила бы страницу сломанной на всё время выкладки)
     // новая зависимость ядра входит в сборку, чужой модуль каталога с into — нет
@@ -910,44 +853,16 @@ describe("сборка страницы «Выпусками»", () => {
   it("7300 · latest у модуля: смена контракта, общего для двух приложений, выкладывается одной проверкой; порознь — отказ", async () => {
     // источник: факт 4 нояб. — app@web-core 1 → 2: пульт и телефон поодиночке дают check_failed, старая сборка соседа держит старый номер
     const s = fresh();
-    const put = async (name: string, version: string, manifest: Record<string, unknown>) => {
-      const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) }, { path: name === "web-core" ? "module.js" : "index.html", data: Buffer.from("x") }]);
-      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
-      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
-    };
+    const file = (name: string): Array<[string, string]> => [[name === "web-core" ? "module.js" : "index.html", "x"]];
     const scripts = { pult: { test: "switchboard-pult" }, phone: { test: "switchboard-phone" } };
-    await put("pult", "1.0.0", { type: "web-app", uses: { "app@web-core": 1 }, workers: scripts.pult });
-    await put("phone", "1.0.0", { type: "web-app", uses: { "app@web-core": 1 }, workers: scripts.phone });
-    await put("web-core", "1.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 1 } });
-    const tags: Record<string, string[]> = {};
-    let live: Record<string, string> = {};
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const req = new Request(input, init);
-      const p = new URL(req.url).pathname.replace("/client/v4/accounts/acc0", "");
-      const ok = (result: unknown) => Response.json({ success: true, result });
-      if (p === "/workers/assets/upload") return ok({ jwt: "done" });
-      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
-      if (p === "/workers/domains") return ok([]);
-      const m = /^\/workers\/scripts\/([^/]+)\/(assets-upload-session|versions|deployments)$/.exec(p);
-      if (!m) return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
-      const [, script, what] = m;
-      if (what === "assets-upload-session") {
-        const manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
-        return ok({ jwt: "up", buckets: [Object.values(manifest).map((x) => x.hash)] });
-      }
-      if (what === "versions" && req.method === "POST") {
-        const meta = JSON.parse(await ((await req.formData()).get("metadata") as Blob).text());
-        (tags[script] ??= []).push(meta.annotations["workers/tag"]);
-        return ok({ id: `v-${tags[script].at(-1)}` });
-      }
-      if (what === "versions") return ok({ items: [...(tags[script] ?? [])].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
-      if (req.method === "POST") return (live = { ...live, [script]: ((await req.json()) as any).versions[0].version_id }), ok({});
-      return ok({ deployments: live[script] ? [{ versions: [{ version_id: live[script], percentage: 100 }] }] : [] });
-    });
+    await put("pult", "1.0.0", { type: "web-app", uses: { "app@web-core": 1 }, workers: scripts.pult }, file("pult"));
+    await put("phone", "1.0.0", { type: "web-app", uses: { "app@web-core": 1 }, workers: scripts.phone }, file("phone"));
+    await put("web-core", "1.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 1 } }, file("web-core"));
+    cloudflare({}, { any: true });
     expect((await result(req(s, "agent~x", "releases.deploy", { part: "web-core", latest: true }))).parts).toMatchObject({ pult: { to: "1.0.0+1" }, phone: { to: "1.0.0+1" } });
-    await put("pult", "2.0.0", { type: "web-app", uses: { "app@web-core": 2 }, workers: scripts.pult });
-    await put("phone", "2.0.0", { type: "web-app", uses: { "app@web-core": 2 }, workers: scripts.phone });
-    await put("web-core", "2.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 2 } });
+    await put("pult", "2.0.0", { type: "web-app", uses: { "app@web-core": 2 }, workers: scripts.pult }, file("pult"));
+    await put("phone", "2.0.0", { type: "web-app", uses: { "app@web-core": 2 }, workers: scripts.phone }, file("phone"));
+    await put("web-core", "2.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 2 } }, file("web-core"));
     // порознь — старая сборка соседа держит старый номер контракта
     expect((await req(s, "agent~x", "releases.deploy", { part: "pult", latest: true }))[0]).toMatchObject({ ok: false, error: "check_failed" });
     expect((await req(s, "agent~x", "releases.deploy", { part: "phone", latest: true }))[0]).toMatchObject({ ok: false, error: "check_failed" });
@@ -960,35 +875,11 @@ describe("сборка страницы «Выпусками»", () => {
   it("5194 · снять модуль страницы: оболочка пользуется только ядром страницы — сборка без модуля проходит проверку", async () => {
     // источник: отчёт слепого архитектора 2 нояб.: пункт 4 — снять web-chat упиралось в uses оболочки (check_failed)
     const s = fresh();
-    const put = async (name: string, version: string, manifest: Record<string, unknown>, extra: Array<[string, string]> = []) => {
-      const tgz = pack([{ path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) }, ...extra.map(([path, d]) => ({ path, data: Buffer.from(d) }))]);
-      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
-      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
-    };
     await put("relay", "1.0.0", { type: "worker", provides: { roster: 1 }, workers: { test: "switchboard" } });
     await put("pult", "1.1.2", { type: "web-app", uses: { "app@web-core": 1 }, workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
     await put("web-core", "1.1.0", { type: "web", into: ["pult"], provides: { app: 1 } }, [["module.js", "export default {}"]]);
     await put("web-chat", "1.0.0", { type: "web", into: ["pult"], provides: { chat: 1 }, uses: { "app@web-core": 1 } }, [["module.js", "export default {}"]]);
-    const tags: string[] = [];
-    let live = "";
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const req = new Request(input, init);
-      const u = new URL(req.url);
-      const p = u.pathname.replace("/client/v4/accounts/acc0", "");
-      const ok = (result: unknown) => Response.json({ success: true, result });
-      if (p === "/workers/assets/upload") return ok({ jwt: "done" });
-      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
-      if (p === "/workers/domains") return ok([]);
-      if (p.endsWith("/assets-upload-session")) return ok({ jwt: "up", buckets: [] });
-      if (p.endsWith("/versions") && req.method === "POST") {
-        tags.push(JSON.parse(await ((await req.formData()).get("metadata") as Blob).text()).annotations["workers/tag"]);
-        return ok({ id: `v-${tags.at(-1)}` });
-      }
-      if (p.endsWith("/versions")) return ok({ items: [...tags].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
-      if (p.endsWith("/deployments") && req.method === "POST") return (live = ((await req.json()) as any).versions[0].version_id), ok({});
-      if (p.endsWith("/deployments")) return ok({ deployments: live ? [{ versions: [{ version_id: live, percentage: 100 }] }] : [] });
-      return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
-    });
+    cloudflare({}, { any: true });
     expect((await result(req(s, "~x", "releases.deploy", { part: "web-chat" }))).parts.pult.to).toBe("1.1.2+1");
     expect(await result(req(s, "~x", "releases.deploy", { part: "web-chat", version: null }))).toEqual({ parts: { pult: { from: "1.1.2+1", to: "1.1.2+2" } } });
     const files = entries(Buffer.from(await (await env.BUCKET.get("test/pult/1.1.2+2.tgz"))!.arrayBuffer()));
@@ -1056,6 +947,19 @@ describe("список выпусков в пределе чтения", () => {
     expect(all.parts.keeper).toEqual({ where: "machine", edge: "1.1.5", stable: null, versions: ["1.1.4", "1.1.5"] });
   });
 
+  it("хранилище отдаёт списки кусками: каталог и версии части обходятся до конца (чьё: код; лимит R2 — 1000 ключей на ответ)", async () => {
+    await fakeCf({});
+    for (let i = 0; i < 5; i++) await inCatalog(`mod-${i}`, "1.0.0", { type: "sdk", into: ["host"] });
+    await inCatalog("host", "1.2.0", { type: "sdk-core" });
+    await inR2("keeper", "1.0.0", "1.0.1", "1.0.2", "1.0.3");
+    const BUCKET = { get: (k: string, o?: R2GetOptions) => E.BUCKET.get(k, o as never), list: (o?: R2ListOptions) => E.BUCKET.list({ ...o, limit: 2 }) };
+    const pieces = new Proxy(E, { get: (t, k) => (k === "BUCKET" ? BUCKET : Reflect.get(t, k)) }) as Env;
+    const l = await listOf(pieces);
+    expect(Object.keys(l.modules).sort()).toEqual(["mod-0", "mod-1", "mod-2", "mod-3", "mod-4"]);
+    expect(l.parts.keeper.versions).toEqual(["1.0.0", "1.0.1", "1.0.2", "1.0.3"]);
+    expect((await listOf(pieces, "keeper")).parts.keeper.edge).toBe("1.0.3");
+  });
+
   it("E7 · ответ о всём флоте: части читаются одновременно", async () => {
     // источник: замер 6,3 с и замечание архитектора: части машин читались по одной
     await fakeCf({});
@@ -1073,41 +977,11 @@ describe("смена границы модулей: снять модуль и �
   const LOGIN = { "machine.accounts": 1, "machine.login": 1, "machine.login_code": 1, "machine.account_remove": 1 };
   const SLOT = { "slot.set": 1, "slot.swap": 1, "session.slot": 1 };
   const setup = async () => {
-    const put = async (name: string, version: string, manifest: Record<string, unknown>) => {
-      const tgz = pack([
-        { path: "module.json", data: Buffer.from(JSON.stringify({ name, version, provides: {}, uses: {}, config: {}, ...manifest })) },
-        { path: manifest.type === "web-app" ? "index.html" : "module.js", data: Buffer.from("x") },
-      ]);
-      await env.BUCKET.put(`${name}/${version}.tgz`, tgz);
-      await env.BUCKET.put(`${name}/${version}.sha256`, shaLine(sha256hex(tgz), version));
-    };
-    const live: Record<string, string> = {};
-    const tags: Record<string, string[]> = {};
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const req = new Request(input, init);
-      const p = new URL(req.url).pathname.replace("/client/v4/accounts/acc0", "");
-      const ok = (result: unknown) => Response.json({ success: true, result });
-      if (p === "/workers/assets/upload") return ok({ jwt: "done" });
-      if (p === "/workers/subdomain") return ok({ subdomain: "sub" });
-      if (p === "/workers/domains") return ok([]);
-      const m = /^\/workers\/scripts\/([^/]+)\/(assets-upload-session|versions|deployments)$/.exec(p);
-      if (!m) return Response.json({ success: false, errors: [{ message: `нет ${p}` }] }, { status: 404 });
-      const [, script, what] = m;
-      if (what === "assets-upload-session") {
-        const manifest = ((await req.json()) as { manifest: Record<string, { hash: string }> }).manifest;
-        return ok({ jwt: "up", buckets: [Object.values(manifest).map((x) => x.hash)] });
-      }
-      if (what === "versions" && req.method === "POST") {
-        const meta = JSON.parse(await ((await req.formData()).get("metadata") as Blob).text());
-        (tags[script] ??= []).push(meta.annotations["workers/tag"]);
-        return ok({ id: `v-${tags[script].at(-1)}` });
-      }
-      if (what === "versions") return ok({ items: [...(tags[script] ?? [])].reverse().map((t) => ({ id: `v-${t}`, annotations: { "workers/tag": t } })) });
-      if (req.method === "POST") return (live[script] = ((await req.json()) as any).versions[0].version_id), ok({});
-      return ok({ deployments: live[script] ? [{ versions: [{ version_id: live[script], percentage: 100 }] }] : [] });
-    });
+    cloudflare({}, { any: true });
+    const file = (m: Record<string, unknown>): Array<[string, string]> => [[m.type === "web-app" ? "index.html" : "module.js", "x"]];
+    const place = (name: string, version: string, m: Record<string, unknown>) => put(name, version, m, file(m));
     const page = (name: string, version: string, owner: { accounts: string; slots: string; old: boolean }) =>
-      put(name, version, {
+      place(name, version, {
         type: "web",
         into: ["pult", "phone"],
         uses: {
@@ -1117,27 +991,27 @@ describe("смена границы модулей: снять модуль и �
           ...(owner.old ? { "machine.slots@host-slots": 1 } : {}),
         },
       });
-    await put("host", "1.2.22", { type: "sdk-core", provides: { "host.module": 1 } });
-    await put("host-accounts", "2.1.0", { type: "sdk", into: ["host"], provides: { ...LOGIN, "account.usage": 1, "account.place": 2 }, uses: { "host.module@host": 1 } });
-    await put("host-slots", "3.1.0", {
+    await place("host", "1.2.22", { type: "sdk-core", provides: { "host.module": 1 } });
+    await place("host-accounts", "2.1.0", { type: "sdk", into: ["host"], provides: { ...LOGIN, "account.usage": 1, "account.place": 2 }, uses: { "host.module@host": 1 } });
+    await place("host-slots", "3.1.0", {
       type: "sdk",
       into: ["host"],
       provides: { "machine.slots": 1, ...SLOT, slot: 1, account: 1 },
       uses: { "host.module@host": 1, "machine.accounts@host-accounts": 1, "account.place@host-accounts": 2, "account.usage@host-accounts": 1 },
     });
-    await put("host-remote", "1.1.0", { type: "sdk", into: ["host"], uses: { "host.module@host": 1, "account@host-slots": 1 } });
-    await put("web-core", "3.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 1 } });
+    await place("host-remote", "1.1.0", { type: "sdk", into: ["host"], uses: { "host.module@host": 1, "account@host-slots": 1 } });
+    await place("web-core", "3.0.0", { type: "web", into: ["pult", "phone"], provides: { app: 1 } });
     await page("pult-accounts", "3.1.1", { accounts: "host-accounts", slots: "host-slots", old: true });
-    await put("pult", "2.1.0", { type: "web-app", workers: { test: "switchboard-pult" } });
-    await put("phone", "2.1.0", { type: "web-app", workers: { test: "switchboard-phone" } });
+    await place("pult", "2.1.0", { type: "web-app", workers: { test: "switchboard-pult" } });
+    await place("phone", "2.1.0", { type: "web-app", workers: { test: "switchboard-phone" } });
     await GATE.setHosts(["win"]);
     const s = fresh();
     await result(req(s, "~x", "releases.deploy", { part: "host", latest: true }));
     await result(req(s, "~x", "releases.deploy", { part: "web-core", latest: true }));
     // новая граница: один модуль; прежние имена читателей — на него
-    await put("host", "1.2.23", { type: "sdk-core", provides: { "host.module": 1 } });
-    await put("host-logins", "1.0.0", { type: "sdk", into: ["host"], provides: { ...LOGIN, ...SLOT, slot: 1, account: 1 }, uses: { "host.module@host": 1 } });
-    await put("host-remote", "1.2.0", { type: "sdk", into: ["host"], uses: { "host.module@host": 1, "account@host-logins": 1 } });
+    await place("host", "1.2.23", { type: "sdk-core", provides: { "host.module": 1 } });
+    await place("host-logins", "1.0.0", { type: "sdk", into: ["host"], provides: { ...LOGIN, ...SLOT, slot: 1, account: 1 }, uses: { "host.module@host": 1 } });
+    await place("host-remote", "1.2.0", { type: "sdk", into: ["host"], uses: { "host.module@host": 1, "account@host-logins": 1 } });
     await page("pult-accounts", "4.0.0", { accounts: "host-logins", slots: "host-logins", old: false });
     return s;
   };
@@ -1193,20 +1067,7 @@ describe("releases.fetch", () => {
     const r = await result(req(s, "repo~x", "releases.fetch", { part: "web-card" }));
     expect(r.version).toBe("1.10.0");
     expect(r.url).toMatch(/^https:\/\/acc0\.r2\.cloudflarestorage\.com\/switchboard-releases\/web-card\/1\.10\.0\.tgz\?X-Amz-Algorithm=AWS4-HMAC-SHA256&.*X-Amz-Expires=3600&/);
-  });
-
-  it("5162 · с version — эта версия; нет такой версии или модуля — no_release", async () => {
-    const s = fresh();
-    await inCatalog("web-card", "1.0.0", { type: "web" });
-    await inCatalog("web-card", "1.1.0", { type: "web" });
+    // 5162 · с version — эта версия
     expect((await result(req(s, "repo~x", "releases.fetch", { part: "web-card", version: "1.0.0" }))).url).toContain("/web-card/1.0.0.tgz?");
-    expect((await req(s, "repo~x", "releases.fetch", { part: "web-card", version: "9.9.9" }))[0]).toMatchObject({ ok: false, error: "no_release" });
-    expect((await req(s, "repo~x", "releases.fetch", { part: "nobody" }))[0]).toMatchObject({ ok: false, error: "no_release" });
-  });
-
-  it("5163 · сборка «+n» — не каталог: bad_version; имя не того вида — bad_frame", async () => {
-    const s = fresh();
-    expect((await req(s, "repo~x", "releases.fetch", { part: "host", version: "1.2.0+1" }))[0]).toMatchObject({ ok: false, error: "bad_version" });
-    expect((await req(s, "repo~x", "releases.fetch", { part: "Bad Name" }))[0]).toMatchObject({ ok: false, error: "bad_frame" });
   });
 });
