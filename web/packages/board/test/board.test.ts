@@ -112,11 +112,11 @@ describe("список", () => {
     // дочерняя без своего места — в проекте родителя, под ним
     expect(rows(t).slice(0, 4)).toEqual(["migrate@laptop", "refactor@laptop", "tests@laptop", "build@build"]);
     const kid = t.$('[data-callsign="tests@laptop"]')!;
-    expect(kid.className).toBe("bd-row kid");
+    expect(kid.classList.contains("kid")).toBe(true);
     expect(kid.style.paddingLeft).toBe("32px");
     await t.click(t.$(".fc.vw"));
     await t.click(t.$('[data-v="tree"]'));
-    expect(t.$('[data-callsign="tests@laptop"]')!.className).toBe("bd-row");
+    expect(t.$('[data-callsign="tests@laptop"]')!.classList.contains("kid")).toBe(false);
   });
 
   it("5214 · в строках нет слов о состоянии — только лампа; под списком нет строки «ещё N»; вторая строка: вопрос → сбой → профиль и модель (чьё: код — line)", async () => {
