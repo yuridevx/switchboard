@@ -6,7 +6,7 @@ import { usePoints } from "./store.ts";
 import type { Line, LinePoint } from "./store.ts";
 import type { DialogKind } from "./usePointDialog.ts";
 
-const gitText = (g: NonNullable<LinePoint["git"]>) => `git: ${g.state === "dirty" ? `${g.files} файла не закоммичено` : "чисто"}${g.branch ? ` · ${g.branch}` : ""}`;
+const gitText = (g: NonNullable<LinePoint["git"]>) => `git: ${g.state === "dirty" ? `${g.files} ${plural(g.files ?? 0, "файл не закоммичен", "файла не закоммичено", "файлов не закоммичено")}` : "чисто"}${g.branch ? ` · ${g.branch}` : ""}`;
 const keptText = (until: number | null) => (until ? `хранится до ${day(until)} ${new Date(until).getFullYear()}` : "хранится, пока есть сессия");
 
 function PointCard({ p, head, machine, open }: { p: LinePoint; head: number | null; machine: string; open(kind: DialogKind, from: number): void }) {

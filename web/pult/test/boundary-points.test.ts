@@ -1448,3 +1448,18 @@ describe("видимое: остатки", () => {
     expect(t.$('[data-dlg="dir"] [data-phase="err"]')!.textContent).toBe("Копия не поднялась — «Забыть» не отправлен, site@laptop остаётся остановленной");
   });
 });
+
+describe("спорные места", () => {
+  it.each([[1, "1 файл не закоммичен"], [5, "5 файлов не закоммичено"]])("карточка точки: %i правок — число склоняется", async (files, text) => {
+    const relay = pointsRelay();
+    const list = relay.handlers["points.list"];
+    relay.handlers["points.list"] = (f) => {
+      const a = list(f) as { ok: true; result: { points?: Array<{ git?: { files?: number } }> } };
+      if (f.sid) a.result.points![0].git!.files = files;
+      return a;
+    };
+    const t = await sessionTab(relay);
+    await t.click(t.$('[data-point="41"]'));
+    expect(t.$('[data-card="41"]')!.textContent).toContain(`папкаgit: ${text} · main`);
+  });
+});
