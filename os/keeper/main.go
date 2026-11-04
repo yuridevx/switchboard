@@ -1,60 +1,56 @@
-// keeper — служба ОС Switchboard: исполнитель плана машины. Держит части машины (Host и приложения) через держатели,
-// отвечает keeper.state, подменяет себя по плану.
+// keeper — служба ОС Switchboard: исполнитель плана машины. Держит части машины (Host и приложения) через держатели, отвечает keeper.state, подменяет себя
+// по плану.
 //
 //	keeper run [--hide]   — в консоли; Ctrl+C — штатная остановка keeper (держатели и их процессы живут)
 //	--name <имя>          — у run, install, uninstall: второй флот на этом компьютере — своя служба и своя папка
-//	keeper install        — приглашение машины — первой строкой stdin: keeper принимает его у gate (--worker gate=…)
-//	                        и кладёт пропуск в machine.key; --worker <имя>=<https> — адреса в keeper.json (relay, gate,
-//	                        releases, ledger; relay — объект своей машины);
-//	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача
-//	                        «при входе пользователя» с повтором раз в минуту; Linux — systemd --user с linger
+//	keeper install        — приглашение машины — первой строкой stdin: keeper принимает его у gate (--worker gate=…) и кладёт пропуск в machine.key;
+//	                        --worker <имя>=<https> — адреса в keeper.json (relay, gate, releases, ledger; relay — объект своей машины);
+//	                        Windows: служба под пользователем (пароль — второй строкой stdin) или --logon — задача «при входе пользователя» с повтором раз
+//	                        в минуту; Linux — systemd --user с linger
 //	keeper uninstall      — убрать службу или задачу
 //	keeper hold …         — режим держателя (запускают keeper и Host)
 //	keeper version        — версия
 package main
 
 import (
-	"bufio"
+	_ "embed"
 	"encoding/json"
-	"flag"
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
-	"time"
+
+	"switchboard/keeper/internal/holder"
+	"switchboard/keeper/internal/keeper"
+	"switchboard/keeper/internal/machine"
 )
 
-// serviceName — служба и задача keeper; fleetName — имя второго флота на компьютере, его ставит useName.
-var (
-	serviceName = "switchboard-keeper"
-	fleetName   = ""
-)
+//go:embed module.json
+var manifest []byte
 
-// useName — --name <имя> из аргументов: служба switchboard-keeper-<имя>, папка ~/.switchboard-<имя>. Правило одно и только
-// здесь; папка — в SWITCHBOARD_HOME: homeDir читает его, держатели и части наследуют. Возвращает остальные аргументы.
-func useName(args []string) ([]string, error) {
-	rest := []string{}
-	for i := 0; i < len(args); i++ {
-		if args[i] != "--name" {
-			rest = append(rest, args[i])
-			continue
-		}
-		i++
-		if i == len(args) || !validID(args[i]) {
-			return nil, fmt.Errorf("--name <имя> — без путей")
-		}
-		u, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
-		fleetName = args[i]
-		serviceName = "switchboard-keeper-" + fleetName
-		os.Setenv("SWITCHBOARD_HOME", filepath.Join(u, ".switchboard-"+fleetName))
+// buildVersion — номер выпуска: его ставит сборка -ldflags "-X main.buildVersion=…".
+var buildVersion string
+
+// version — номер выпуска или версия из module.json.
+func version() string {
+	if buildVersion != "" {
+		return buildVersion
 	}
-	return rest, nil
+	var m struct{ Version string }
+	json.Unmarshal(manifest, &m)
+	return m.Version
+}
+
+// fleetName — имя второго флота на компьютере; служба и папка выводятся из него.
+var fleetName string
+
+func serviceName() string {
+	if fleetName == "" {
+		return "switchboard-keeper"
+	}
+	return "switchboard-keeper-" + fleetName
 }
 
 // runArgs — команда службы и задачи: имя флота они несут в своей командной строке.
@@ -65,6 +61,29 @@ func runArgs() []string {
 	return []string{"run", "--name", fleetName}
 }
 
+// useName — --name <имя> из аргументов: служба switchboard-keeper-<имя>, папка ~/.switchboard-<имя> в SWITCHBOARD_HOME: держатели и части наследуют её и
+// имени не знают. Возвращает остальные аргументы.
+func useName(args []string) ([]string, error) {
+	rest := []string{}
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--name" {
+			rest = append(rest, args[i])
+			continue
+		}
+		i++
+		if i == len(args) || !machine.ValidName(args[i]) {
+			return nil, fmt.Errorf("--name <имя> — без путей")
+		}
+		u, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		fleetName = args[i]
+		os.Setenv("SWITCHBOARD_HOME", filepath.Join(u, ".switchboard-"+fleetName))
+	}
+	return rest, nil
+}
+
 func main() {
 	cmd := ""
 	if len(os.Args) > 1 {
@@ -72,12 +91,13 @@ func main() {
 	}
 	args := os.Args[min(2, len(os.Args)):]
 	// у держателя свои аргументы и команда процесса после --: папку он получает в окружении
-	if cmd != "hold" {
-		var err error
-		if args, err = useName(args); err != nil {
-			fmt.Fprintln(os.Stderr, "keeper:", err)
-			os.Exit(2)
-		}
+	if cmd == "hold" {
+		os.Exit(holder.Main(args))
+	}
+	args, err := useName(args)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "keeper:", err)
+		os.Exit(2)
 	}
 	if isService() {
 		runService()
@@ -86,8 +106,6 @@ func main() {
 	switch cmd {
 	case "run":
 		os.Exit(runConsole(args))
-	case "hold":
-		os.Exit(runHold(args))
 	case "install":
 		if err := install(args); err != nil {
 			fmt.Fprintln(os.Stderr, "install:", err)
@@ -99,26 +117,35 @@ func main() {
 			os.Exit(1)
 		}
 	case "version":
-		fmt.Println(keeperVersion)
+		fmt.Println(version())
 	default:
-		fmt.Fprintln(os.Stderr, "keeper "+keeperVersion+": run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version; у run, install, uninstall — [--name <имя>]")
+		fmt.Fprintln(os.Stderr, "keeper "+version()+": run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version; у run, install, uninstall — [--name <имя>]")
 		os.Exit(2)
 	}
 }
 
-// runConsole — keeper в консоли; SIGINT или SIGTERM — штатная остановка.
+// start — keeper на своей папке: вход службы, задачи и консоли.
+func start(echo io.Writer) (*keeper.Keeper, error) {
+	home, err := machine.Home()
+	if err != nil {
+		return nil, err
+	}
+	k, err := keeper.New(home, echo, keeper.Options{Version: version()})
+	if err != nil {
+		return nil, err
+	}
+	k.Run()
+	return k, nil
+}
+
+// runConsole — keeper в консоли; SIGINT или SIGTERM — штатная остановка; остановился сам — только после подмены себя: ОС поднимет новый файл.
 func runConsole(args []string) int {
 	for _, a := range args {
 		if a == "--hide" {
 			hideConsole()
 		}
 	}
-	home, err := homeDir()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "keeper:", err)
-		return 1
-	}
-	k, err := Start(home, os.Stderr)
+	k, err := start(os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "keeper:", err)
 		return 1
@@ -130,121 +157,6 @@ func runConsole(args []string) int {
 		k.Stop()
 		return 0
 	case <-k.Done():
-		// keeper остановился сам — только после подмены себя: ОС поднимет новый файл
 		return 3
 	}
-}
-
-// installFlags — флаги установки.
-type installFlags struct {
-	workers map[string]string
-	logon   bool
-}
-
-// workerFlag — --worker <имя>=<https>, сколько угодно раз.
-type workerFlag map[string]string
-
-func (w workerFlag) String() string { return "" }
-func (w workerFlag) Set(v string) error {
-	name, url, ok := strings.Cut(v, "=")
-	if !ok || name == "" || !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
-		return fmt.Errorf("--worker <имя>=<https://…>, а не %q", v)
-	}
-	w[name] = url
-	return nil
-}
-
-func parseInstall(args []string) (installFlags, error) {
-	f := installFlags{workers: map[string]string{}}
-	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	fs.Var(workerFlag(f.workers), "worker", "адрес Worker'а флота <имя>=<https://…>: relay, gate, releases, ledger")
-	fs.BoolVar(&f.logon, "logon", false, "Windows: задача «при входе пользователя» вместо службы")
-	return f, fs.Parse(args)
-}
-
-// prepareConf — keeper.json (node, workers) и пропуск машины machine.key: приглашение — первой строкой stdin,
-// keeper принимает его у gate (POST gate.redeem); погашенное или чужое — отказ словом, machine.key не тронут.
-// Пропуском входят Host и keeper, из него же — имя машины.
-func prepareConf(f installFlags, in *bufio.Reader) error {
-	home, err := homeDir()
-	if err != nil {
-		return err
-	}
-	m, err := readConf(home)
-	if err != nil {
-		return err
-	}
-	if confStr(m, "node") == "" {
-		node, err := exec.LookPath("node")
-		if err != nil {
-			return fmt.Errorf("node не найден в PATH: %w", err)
-		}
-		if node, err = filepath.Abs(node); err != nil {
-			return err
-		}
-		m["node"] = node
-	}
-	workers := confMap(m, "workers")
-	for k, v := range f.workers {
-		workers[k] = v
-	}
-	if len(workers) > 0 {
-		m["workers"] = workers
-	}
-	invite, err := readSecretLine(in)
-	if err != nil {
-		return fmt.Errorf("приглашение машины — первой строкой stdin: %w", err)
-	}
-	if workers["gate"] == "" {
-		return fmt.Errorf("нет адреса gate: --worker gate=https://…")
-	}
-	r := post(workers["gate"], "", frameMsg{"type": "gate.redeem", "id": "install", "v": 1, "invite": invite}, 30*time.Second, nil)
-	if !r.OK {
-		return fmt.Errorf("приглашение не принято: %s", r.Error)
-	}
-	var got struct{ Key string }
-	json.Unmarshal(r.Result, &got)
-	key := got.Key
-	if !strings.HasPrefix(key, "host.") {
-		return fmt.Errorf("приглашение не машины: пропуск %s", strings.Join(strings.SplitN(key, ".", 4)[:min(3, len(strings.SplitN(key, ".", 4)))], "."))
-	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(home, "machine.key"), []byte(key+"\n"), 0o600); err != nil {
-		return err
-	}
-	if workers["relay"] == "" {
-		fmt.Fprintln(os.Stderr, "install: в keeper.json нет адреса relay — keeper будет исполнять сохранённый план без связи (--worker relay=https://…)")
-	}
-	return writeConf(home, m)
-}
-
-// readSecretLine — одна строка из stdin: не из аргументов.
-func readSecretLine(in *bufio.Reader) (string, error) {
-	s, err := in.ReadString('\n')
-	if err != nil && s == "" {
-		return "", fmt.Errorf("нет строки в stdin: %w", err)
-	}
-	return strings.TrimRight(s, "\r\n"), nil
-}
-
-// placeSelf — файл keeper на постоянное место ~/.switchboard/keeper(.exe): его запускают служба или задача,
-// самообновление ставит новый файл туда же. Прежний файл на месте уходит в .old с новым именем: запущенный не удалить.
-func placeSelf() (string, error) {
-	home, err := homeDir()
-	if err != nil {
-		return "", err
-	}
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	dst := filepath.Join(home, exeName("keeper"))
-	a, errA := os.Stat(exe)
-	b, errB := os.Stat(dst)
-	if errA == nil && errB == nil && os.SameFile(a, b) {
-		return dst, nil
-	}
-	return dst, replaceFile(exe, dst, fmt.Sprintf("%s.prev.%d.old", dst, os.Getpid()))
 }
