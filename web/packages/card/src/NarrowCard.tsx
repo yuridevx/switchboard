@@ -1,11 +1,11 @@
 // Карточка на телефоне: вкладки чат, вставки места card.tab, видные этой сессии, и «Ещё» — сведения, модель и усилие, действия.
 import { useState } from "react";
 import type { Params } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, useApp } from "@switchboard/web-ui";
+import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, slotOf, useApp } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useSession, useSessionActions } from "./hooks.ts";
 import { Names } from "./Names.tsx";
-import { isDown, slotOf } from "./session.ts";
+import { isDown } from "./session.ts";
 
 /** «Ещё» на телефоне. */
 function Info({ callsign, openNames }: { callsign: string; openNames(): void }) {
@@ -59,7 +59,7 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
       </button>
       {/* пункты места card.menu: закрепление (web-board) */}
       {menu.map((x) => (
-        <button key={x.screen} className="card-act" data-screen={x.screen} onClick={() => app.open(x.screen, { callsign })}>
+        <button key={x.name} className="card-act" data-screen={x.name} onClick={() => app.run(x.name, { callsign })}>
           {x.label}
         </button>
       ))}
@@ -94,7 +94,7 @@ export function NarrowCard({ params }: { params: Params }) {
   const [picked, setPicked] = useState(params.tab ?? "chat");
   const [names, setNames] = useState(false);
   const placed = app.use(() => app.placed("card.tab", { callsign }));
-  const list: Array<[string, string]> = [["chat", "Чат"], ...placed.map((t): [string, string] => [t.screen, t.label]), ["info", "Ещё"]];
+  const list: Array<[string, string]> = [["chat", "Чат"], ...placed.map((t): [string, string] => [t.name, t.label]), ["info", "Ещё"]];
   const tab = list.some(([k]) => k === picked) ? picked : "chat";
   return (
     <>

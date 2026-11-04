@@ -1,7 +1,7 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
 import type { SessionRecord } from "@switchboard/web-core";
-import { EFFORTS, LIMIT_NAMES, LimitRow, MODELS, profileName, profileNameOf, remoteOf } from "@switchboard/web-ui";
-import { slotOf, type Acc, type Model, type SlotInfo } from "./session.ts";
+import { EFFORTS, LIMIT_NAMES, LimitRow, MODELS, profileName, profileNameOf, remoteOf, incidentOf, slotOf } from "@switchboard/web-ui";
+import type { Acc, Model, SlotInfo } from "./session.ts";
 
 /** Строка «подпись — значение» списка сведений. */
 export function Kv({ k, v }: { k: string; v: string }) {
@@ -63,7 +63,7 @@ export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s
 
 export function MenuPop({ s, machine, callsign, info, toggleInfo }: { s: SessionRecord; machine: string; callsign: string; info: boolean; toggleInfo(): void }) {
   const remote = remoteOf(s);
-  const inc = s.incident as { type?: string; key?: string } | null | undefined;
+  const inc = incidentOf(s);
   return (
     <div className="cw-pop r" role="menu" aria-label={`Сессия ${callsign}`}>
       <dl className="cw-kv">

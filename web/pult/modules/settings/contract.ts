@@ -11,8 +11,8 @@
 //     репозитории с поиском;
 //     это устройство: адрес, пропуск, уведомления — метка alerts.state модуля web-alerts.
 // Телефон (узкий вид) — только «Это устройство».
-// Команда keeper.reload {machine} — перечитать ответ keeper этой машины.
-// Метка keeper.answers — ответы keeper'ов всех машин: get и mount; их единственный владелец; другой экран читает get(), открыт — mount().
+// Команды keeper.open и keeper.close — чужой экран открыт и закрыт: ответы держать свежими; keeper.reload {machine} — перечитать ответ этой машины.
+// Метка keeper.answers — ответы keeper'ов всех машин, только данные; их единственный владелец; другой экран читает get(), открыт — mount().
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import type { KeeperAnswers } from "./src/store.ts";
@@ -21,7 +21,7 @@ import { createSettings } from "./src/module.tsx";
 export type { KeeperAnswers };
 export type { KPart as KeeperPart, KState as KeeperState } from "./src/rules.ts";
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     "keeper.answers"(): KeeperAnswers;
   }

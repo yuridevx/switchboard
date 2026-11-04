@@ -7,7 +7,7 @@ import json from "./module.json" with { type: "json" };
 import { createLabels } from "./src/module.tsx";
 import type { Shown } from "./src/store.ts";
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     "label.session"(callsign: string): Shown;
     "label.machine"(machine: string): Shown;

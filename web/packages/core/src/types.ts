@@ -1,7 +1,7 @@
 // Договор модуля веб-приложения: что модуль отдаёт ядру и что ядро даёт модулю.
 import type { ComponentType, ReactNode } from "react";
 import type { Frame, Roster } from "@switchboard/relay";
-import type { Result } from "@switchboard/web-ui";
+import type { App, ConnState, Ctx, Params } from "@switchboard/web-ui";
 import type { Store } from "./store.ts";
 
 /** module.json модуля приложения. provides — экраны и метки; uses — "имя@владелец": версия. */
@@ -13,15 +13,6 @@ export type Manifest = {
   uses: Record<string, number>;
   config?: Record<string, "secret" | "var" | "binding">;
 };
-
-/** Параметры экрана — пары в адресе после #: #card?callsign=site%40laptop. */
-export type Params = Record<string, string>;
-
-/** Как пришёл кадр: open — пользователь нажал уведомление с этим кадром, владелец открывает свой экран. */
-export type Ctx = { open: boolean };
-
-/** Состояние связи для модулей и шапки. */
-export type ConnState = "connecting" | "open" | "closed" | "stopped";
 
 /** Шапка экрана, когда он открыт на весь экран. */
 export type Head = {
@@ -71,12 +62,21 @@ export type Screen = {
   path?: string;
   /** человеческое имя: подпись вставки в месте (вкладка «Точки») и экран упавшего модуля — «Лента выключена» */
   label?: string;
-  /** компонент экрана; у команды его нет */
+  /** компонент экрана; нет только у заглушки выключенного модуля */
   view?: ComponentType<ScreenProps>;
   /** шапка экрана на весь экран; у экрана в месте не спрашивается */
   head?(params: Params): Head;
-  /** команда вместо экрана (пункт меню в чужом месте): app.open зовёт run и никуда не переходит */
-  run?(params: Params): void;
+};
+
+/** Команда модуля: действие без экрана и адреса; зовётся app.run. Имя — ключ в commands и имя в provides. */
+export type Command = {
+  /** место, куда команда встаёт пунктом (card.menu, open.after); имя места — в uses модуля */
+  place?: string;
+  /** подпись пункта в месте */
+  label?: string;
+  /** виден ли пункт с этими параметрами; учитывает app.placed */
+  show?(params: Params): boolean;
+  run(params: Params): void;
 };
 
 /**
@@ -92,7 +92,7 @@ export interface AppModule {
   on?: {
     /** roster от relay — модулям, у которых roster@relay в uses */
     roster?(r: Roster): void;
-    /** смена связи; open — hello принят: открытые экраны заново шлют свои подписки; machine — вернулась только эта машина внутри открытого флота */
+    /** смена связи; open — hello принят: открытые экраны заново шлют свои подписки; machine — внутри открытого флота вернулась, пришла или перезапустилась только эта машина */
     link?(state: ConnState, machine?: string): void;
     /** открыт экран: человек перешёл, новый адрес или команда app.open */
     current?(c: { screen: string; params: Params }): void;
@@ -101,6 +101,8 @@ export interface AppModule {
   };
   /** Экраны — имена из provides. */
   screens?: Record<string, Screen>;
+  /** Команды — имена из provides. */
+  commands?: Record<string, Command>;
   /** Метки для других модулей (asked, unread, need) — имена из provides. */
   marks?: Record<string, (...args: string[]) => unknown>;
   /** Разделы хранилища модуля; у раздела один владелец, key — раздел ядра. */
@@ -111,80 +113,6 @@ export interface AppModule {
   start?(): void | Promise<void>;
   /** Штатная остановка при уходе с экрана: дописать хранилище, снять подписки. Порядок обратный. */
   stop?(): void | Promise<void>;
-}
-
-/** Ответ на запрос: результат или слово ошибки (offline, disconnected, already_answered, …). */
-export type { Result };
-
-/** Раздел хранилища модуля. */
-export interface Section<T> {
-  get(): Promise<T | undefined>;
-  set(value: T): Promise<void>;
-  update(fn: (old: T | undefined) => T): Promise<T>;
-}
-
-/** Типы меток: владелец дописывает свои в своём contract.ts (declare module "@switchboard/web-core"). */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface Marks {}
-
-/** Что принимает app.Slot. */
-export type SlotProps = { screen: string; params?: Params; close?: () => void };
-
-/** Что ядро даёт модулю. У каждого модуля свой объект: ядро знает, кто зовёт. */
-export interface App {
-  /** имя клиента во флоте — из ключа: client.phone.k2a9… → phone */
-  readonly name: string;
-  /** имя приложения из списка сборки: pult, phone; вне сборки — нет */
-  readonly application?: string;
-  /** широкий вид (пульт): экраны в местах; узкий (телефон): каждый экран на весь экран */
-  readonly wide: boolean;
-  /**
-   * Запрос к Host или Worker-модулю: app.request("answer", { callsign, question, answers }).
-   * Имя — только из uses модуля (иначе ошибка модуля); v ставит ядро из uses.
-   * Владелец имени — Worker-модуль из roster (push) → to: .владелец; иначе адрес — callsign или machine кадра,
-   * и ядро сверяет имя с contract машины в roster: нет — unknown_request, другая версия — contract_mismatch.
-   * Не бросает: отказ — { ok: false, error }. Связи нет — disconnected сразу.
-   */
-  request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
-  /**
-   * Открыть экран на весь экран с переходом в адресе; у команды — вызвать её run.
-   * Экран — свой, из uses модуля или вставленный в место, которым модуль владеет.
-   */
-  open(screen: string, params?: Params): void;
-  /** Экраны, вставленные в место модуля и видимые с этими параметрами: имя места — из его provides (card.tab). */
-  placed(place: string, params?: Params): Array<{ screen: string; label: string }>;
-  /** Назад: на прошлый экран или на домашний раздел. */
-  back(): void;
-  /** Умеет ли машина запрос: true/false по её contract из последнего roster; машины нет в roster — null. */
-  can(machine: string, name: string): boolean | null;
-  /** Последний roster; ядро держит его в памяти. */
-  roster(): Roster | null;
-  /** Адрес Worker'а или страницы флота с этим именем — из списка адресов сборки, а не из roster; нет — null. */
-  worker(name: string): string | null;
-  /** Экран на весь экран сейчас и его параметры (в широком виде — правая часть); до первого roster — null. */
-  current(): { screen: string; params: Params; master: string | null } | null;
-  /** Связь сейчас. */
-  link(): ConnState;
-  /** Метка другого модуля из uses: app.mark("asked", "profiles@laptop"). Выключенный владелец — undefined. */
-  mark<K extends keyof Marks>(name: K, ...args: Marks[K] extends (...a: infer A) => unknown ? A : never): (Marks[K] extends (...a: never[]) => infer R ? R : never) | undefined;
-  mark(name: string, ...args: string[]): unknown;
-  /** Свой раздел хранилища (из store модуля). */
-  store<T = unknown>(section: string): Section<T>;
-  /** Кадр — модулю-владельцу его type, как пришедший с relay. */
-  deliver(frame: Frame, ctx?: Ctx): void;
-  /** Метки или данные модуля изменились: ядро заново считает выборки app.use (один раз за такт). */
-  changed(): void;
-  /** Короткая строка внизу экрана: отказ, который надо увидеть. */
-  toast(text: string, tone?: "ok" | "bad"): void;
-  /**
-   * Хук: выборка из данных ядра и модуля. Компонент перерисуется, только когда ответ изменился.
-   * Сравниваются простые объекты и массивы по содержимому, остальное — по ссылке; выборка отдаёт данные, а не функции.
-   */
-  use<T>(select: () => T): T;
-  /** Экран другого модуля внутри своего: своя граница ошибки и область стилей. Экран — как в app.open. */
-  Slot: ComponentType<SlotProps>;
-  /** Стор этого модуля — поле state его определения; экраны берут его хуком useModule. */
-  readonly state: unknown;
 }
 
 /** Модуль выпуска: манифест и функция модуля. Ядро зовёт её один раз со своим app; бросила — модуль выключен. */
@@ -251,9 +179,5 @@ export interface Running {
 }
 
 export type { ReactNode };
-
-// App модуля в контексте экрана: значение и хук — в наборе, тип дописывает ядро.
-declare module "@switchboard/web-ui" {
-  // eslint-disable-next-line @typescript-eslint/no-empty-object-type
-  interface AppHandle extends App {}
-}
+// App и его типы объявлены в наборе: стрелка ui ← core, ядро их реализует.
+export type { App, ConnState, Ctx, Marks, Params, Result, Section, SlotProps } from "@switchboard/web-ui";

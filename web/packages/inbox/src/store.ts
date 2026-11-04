@@ -6,7 +6,7 @@ import type {} from "@switchboard/web-board";
 import type {} from "@switchboard/web-chat";
 import type {} from "@switchboard/web-labels";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, useModule } from "@switchboard/web-ui";
+import { createStore, useModule, slotOf } from "@switchboard/web-ui";
 
 export type Kind = "q" | "msg" | "fail" | "wait" | "away" | "fire" | "done";
 /** Карточка: только простые поля — строка списка перерисовывается, когда изменились они или её выборка. */
@@ -65,7 +65,7 @@ export function createInboxStore(app: App) {
       else if (app.mark("unread", callsign)) out.push({ kind: "msg", g: 0, callsign });
       if (!mine(callsign)) continue;
       if (s.state === "failed") out.push({ kind: "fail", g: 1, callsign });
-      const wait = (s.slot as { wait?: number | null } | null | undefined)?.wait;
+      const wait = slotOf(s)?.wait;
       if (typeof wait === "number" && wait > 0) out.push({ kind: "wait", g: 1, callsign, at: wait * 1000 });
       if (s.state === "idle" && done[callsign] && !seen[callsign]) out.push({ kind: "done", g: 2, callsign });
     }

@@ -107,7 +107,7 @@ export function useOpenForm(params: Params) {
     }
     const callsign = r.result.callsign;
     open.remember({ m: machine, dir });
-    for (const it of app.placed("open.after", params)) app.open(it.screen, { ...params, callsign });
+    for (const it of app.placed("open.after", params)) app.run(it.name, { ...params, callsign });
     // пометку «в R2» держит host-points машины новой сессии; manage о ней не знает
     if (r2 && open.can(machine, "session.r2")) {
       const m = await app.request("session.r2", { callsign, on: true });

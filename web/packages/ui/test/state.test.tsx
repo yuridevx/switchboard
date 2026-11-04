@@ -209,9 +209,15 @@ describe("ответы машин", () => {
       },
       machines,
     );
+    // сравнение since — у ядра (link.ts): здесь то же, что оно сообщает
+    const known: Record<string, number> = Object.fromEntries(first);
     const set = (ms: Array<[string, number]>) => {
       r = rosterOf(ms);
-      m.onRoster(r);
+      for (const [x, since] of ms) {
+        if (known[x] === since) continue;
+        known[x] = since;
+        m.onLink("open", x);
+      }
     };
     return { m, asked, changed, words, set };
   }
@@ -224,17 +230,6 @@ describe("ответы машин", () => {
     await settle();
     expect(t.asked).toEqual(["a", "b"]);
     expect(t.m.get()).toEqual({ a: 1, b: 2 });
-  });
-
-  it("6821 · roster без новых машин: сменились только сессии — лишнего запроса нет", async () => {
-    // источник: гейт архитектора — лишняя коммуникация; факт: machines.ts «пришла или вернулась машина — доспросить её»
-    const t = setup();
-    t.set([["a", 1], ["b", 1]]);
-    t.m.mount();
-    await settle();
-    t.set([["a", 1], ["b", 1]]);
-    await settle();
-    expect(t.asked).toEqual(["a", "b"]);
   });
 
   it("6822 · закрыт и открыт снова: все спрошены заново, прежние ответы видны до новых", async () => {
@@ -292,7 +287,7 @@ describe("ответы машин", () => {
     await settle();
     expect(t.m.get().a).toEqual({ error: "disconnected" });
     delete t.words.a;
-    t.set([["a", 1], ["b", 1]]);
+    t.m.onLink("open");
     await settle();
     expect(t.asked).toEqual(["a", "b", "a"]);
     expect(t.m.get().a).toBe(3);

@@ -1,7 +1,7 @@
 // Состояние «Работы» и его действия: выбор устройства — в снимке и хранилище страницы, настройки человека и запись проектов — в циклах prefs.
 // Виды читают выборкой, меняют только действия отсюда. Выборки — model.ts.
 import type { App, Params, SessionRecord } from "@switchboard/web-core";
-import { createStore, folderOf, lamp, personal, type Personal, useModule, machinesWith } from "@switchboard/web-ui";
+import { type ConnState, createStore, folderOf, lamp, personal, type Personal, useModule, machinesWith } from "@switchboard/web-ui";
 import { addProject, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { machineOf } from "@switchboard/protocol";
 import { createModel, type State } from "./model.ts";
@@ -98,14 +98,12 @@ export function createBoardStore(app: App) {
       settle();
     },
     async stop() {
-      await user.settled();
-      await fleet.settled();
+      await user.stop();
+      await fleet.stop();
     },
-    // настройки — у Worker'а: возврат одной машины их не трогает
-    onLink(link: string, machine?: string) {
-      if (link !== "open" || machine) return;
-      void user.read().then(movePins);
-      void fleet.read();
+    onLink(link: ConnState, machine?: string) {
+      void user.onLink(link, machine)?.then(movePins);
+      void fleet.onLink(link, machine);
     },
     onRoster: settle,
     /** Открыт экран сессии: пока нет ответа prefs, проект неизвестен — ждёт его. */

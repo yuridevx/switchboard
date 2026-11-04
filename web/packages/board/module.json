@@ -33,7 +33,8 @@
     "ask@web-ask": 1,
     "card.menu@web-card": 2,
     "open.after@pult-open": 1,
-    "records.format@records": 1
+    "records.format@records": 1,
+    "card.head.reset@web-card": 1
   },
   "config": {}
 }

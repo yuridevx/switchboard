@@ -162,7 +162,7 @@ export function createPointsStore(app: App) {
     /** Поднятая сессия встаёт в проект исходной: команду записи держит «Работа». */
     keepProject(from: string | null | undefined, to: string) {
       const project = from ? app.mark("project.of", from)?.id : undefined;
-      if (project) app.open("board.assign", { callsign: to, project });
+      if (project) app.run("board.assign", { callsign: to, project });
     },
   };
 }

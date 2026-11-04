@@ -7,7 +7,7 @@ import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createAsk } from "./src/module.tsx";
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     asked(callsign: string): string | undefined;
     "asked.tool"(callsign: string, toolUseId: string): boolean;

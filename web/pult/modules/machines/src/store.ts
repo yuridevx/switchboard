@@ -30,8 +30,6 @@ export type MachinesStore = ReturnType<typeof createMachinesStore>;
 export const useMachines = (): MachinesStore => useModule<MachinesStore>();
 
 export function createMachinesStore(app: App) {
-  /** Ответы keeper'ов — у владельца, модуля настроек; своей копии нет. */
-  const keeper = () => app.mark("keeper.answers");
   const store = createStore<State>({ seen: {}, gone: {} }, () => app.changed());
 
   return {
@@ -46,17 +44,21 @@ export function createMachinesStore(app: App) {
       });
     },
     /** Экран открыт: спросить keeper всех машин; возврат — экран закрыт. */
-    mount: () => keeper()?.mount() ?? (() => {}),
+    mount() {
+      app.run("keeper.open");
+      return () => app.run("keeper.close");
+    },
     /** Перезапуск упавшей части — планом машины: выключить и включить; keeper исполняет. */
     async restart(m: string, part: string): Promise<OutcomeNote> {
       const off = await app.request("releases.set", { machine: m, part, on: false });
       if (!off.ok) return { text: `releases.set: ${off.error}`, tone: "bad" };
       const on = await app.request("releases.set", { machine: m, part, on: true });
       if (!on.ok) return { text: `releases.set: ${on.error}`, tone: "bad" };
-      if (keeper()) app.open("keeper.reload", { machine: m });
+      app.run("keeper.reload", { machine: m });
       return { text: "выключена и включена по плану", tone: "ok" };
     },
-    states: () => keeper()?.get() ?? NONE,
+    /** Ответы keeper'ов — у владельца, модуля настроек; своей копии нет. */
+    states: () => app.mark("keeper.answers") ?? NONE,
     gone: () => store.get().gone,
   };
 }

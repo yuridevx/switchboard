@@ -18,12 +18,11 @@ export function createBoard(app: App): AppModule {
     state: board,
     // show — настройка могла измениться в другой вкладке: возвращение страницы читает её заново
     on: { link: board.onLink, roster: board.onRoster, current: board.onCurrent, show: board.start },
-    screens: {
+    commands: {
       // вставка места «после открытия»: страница новой сессии возвращает номер проекта, не читая его
       "board.assign": {
         place: "open.after",
         label: "Проект",
-        path: "assign",
         show: (x) => !!x.project,
         run: (x) => board.assign(x),
       },
@@ -31,17 +30,17 @@ export function createBoard(app: App): AppModule {
       "board.pin": {
         place: "card.menu",
         label: "Закрепить",
-        path: "pin",
         show: (x) => board.canPin(x.callsign ?? ""),
         run: (x) => board.pin(x.callsign ?? ""),
       },
       "board.unpin": {
         place: "card.menu",
         label: "Закреплена",
-        path: "unpin",
         show: (x) => board.pins().includes(x.callsign ?? ""),
         run: (x) => board.unpin(x.callsign ?? ""),
       },
+    },
+    screens: {
       board: {
         nav: "Работа",
         label: "Работа",

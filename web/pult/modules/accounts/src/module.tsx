@@ -9,7 +9,7 @@ export function createAccounts(app: App): AppModule {
   const accounts = createAccountsStore(app);
   return {
     state: accounts,
-    on: { roster: accounts.onRoster },
+    on: { roster: accounts.onRoster, link: accounts.onLink },
     screens: {
       accounts: {
         nav: "Аккаунты",

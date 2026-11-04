@@ -3,7 +3,7 @@
 // перед подменой; пульт его не пересылает.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type OutcomeNote } from "@switchboard/web-ui";
+import { type ConnState, createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf, type OutcomeNote } from "@switchboard/web-ui";
 
 export type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
 export type Account = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
@@ -118,6 +118,12 @@ export function createAccountsStore(app: App) {
       };
     },
 
+    /** Машина вернулась, пришла или перезапустилась — её аккаунты и слоты. */
+    onLink(state: ConnState, machine?: string) {
+      accs.onLink(state, machine);
+      slots.onLink(state, machine);
+    },
+
     /** Подмену делает Host: у сессий машины сменился account — перечитать её слоты и окна. */
     onRoster(r: Roster) {
       const changed = new Set<string>();
@@ -129,9 +135,6 @@ export function createAccountsStore(app: App) {
           s.prevAccount[x.callsign] = x.account;
         }
       });
-      // машина пришла или вернулась своим соединением — её аккаунты и слоты
-      accs.onRoster(r);
-      slots.onRoster(r);
       if (!accs.isOpen()) return;
       for (const m of changed) {
         if (!m) continue;

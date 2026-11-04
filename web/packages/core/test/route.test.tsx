@@ -28,8 +28,8 @@ function part(over: { current?(c: Seen): void; roster?(): void; run?(): void } =
         a: { nav: "А", label: "А", view: () => <div data-s="a">а</div> },
         b: { path: "b", label: "Б", view: ({ params }) => <div data-s="b">{`б ${params.x ?? ""}`}</div> },
         c: { path: "c", label: "В", view: () => <div data-s="c">в</div> },
-        cmd: { run: () => over.run?.() },
       },
+      commands: { cmd: { run: () => over.run?.() } },
       start: () => void (box.app = a),
     }),
   };
@@ -105,7 +105,7 @@ describe("on.current", () => {
     await flush();
     expect(location.hash).toBe("#b?x=1");
     expect(m.seen).toEqual([{ screen: "b", params: { x: "1" } }]);
-    m.box.app.open("cmd");
+    m.box.app.run("cmd");
     await flush();
     expect(run).toHaveBeenCalledOnce();
     expect(location.hash).toBe("#b?x=1");

@@ -28,7 +28,7 @@ export function WideCard({ params }: { params: Params }) {
 
   /** вкладка: разговор и вставка места — экран в месте, остальное — настройки или журнал */
   const resolve = (k: string) => {
-    if (k === "chat" || app.placed("card.tab", { callsign }).some((t) => t.screen === k)) return k;
+    if (k === "chat" || app.placed("card.tab", { callsign }).some((t) => t.name === k)) return k;
     if (k === "log" && app.can(machine, "machine.journal") === true) return k;
     return "set";
   };
@@ -38,7 +38,7 @@ export function WideCard({ params }: { params: Params }) {
   };
   const [names, setNames] = useState(false);
 
-  const tabs: Array<[string, string]> = [["chat", "Разговор"], ...placedTabs.map((t): [string, string] => [t.screen, t.label]), ["set", "Настройки"], ...(can("machine.journal") ? ([["log", "Журнал"]] as Array<[string, string]>) : [])];
+  const tabs: Array<[string, string]> = [["chat", "Разговор"], ...placedTabs.map((t): [string, string] => [t.name, t.label]), ["set", "Настройки"], ...(can("machine.journal") ? ([["log", "Журнал"]] as Array<[string, string]>) : [])];
   const failed = s?.state === "failed";
   return (
     <>

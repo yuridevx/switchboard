@@ -276,3 +276,22 @@ describe("эталоны клиента флота", () => {
     expect(s.calls.map((c) => c.url)).toEqual(["https://gate.test/"]);
   });
 });
+
+describe("список машин пуст", () => {
+  const empty = (async (_u: string, init?: RequestInit) => Response.json({ type: "reply", id: JSON.parse(String(init?.body)).id, ok: true, result: { passes: [] } })) as typeof fetch;
+
+  it("7285 · без своей машины: onState(\"\", \"open\"), соединений нет; со своей — молчит", async () => {
+    vi.useRealTimers();
+    const seen: Array<[string, string]> = [];
+    const workers = { relay: "https://relay.test", gate: "https://gate.test" };
+    const c = fleet({ workers, key: "k", fetch: empty, WebSocket: FakeWs as never, onState: (m, s) => void seen.push([m, s]) });
+    await vi.waitFor(() => expect(seen).toEqual([["", "open"]]));
+    expect(c.links().size).toBe(0);
+    c.close();
+    seen.length = 0;
+    const own = fleet({ workers, key: "k", machine: "pc", fetch: empty, WebSocket: FakeWs as never, onState: (m, s) => void seen.push([m, s]) });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(seen.filter(([m]) => m === "")).toEqual([]);
+    own.close();
+  });
+});

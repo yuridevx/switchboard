@@ -1,4 +1,5 @@
 // Диалог действия над точкой вкладки: перенос, копия, смена папки, откат. Шаги ведёт страница: каждый запрос — после ответа предыдущего.
+import { slotOf } from "@switchboard/web-ui";
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { usePoints } from "./store.ts";
@@ -39,7 +40,7 @@ export function usePointDialog(callsign: string, sid: string, reload: () => void
 
   function pickTarget(d: Dialog, m: string) {
     const point = d.from === "fresh" ? points.line(sid)?.head : d.from;
-    const cur = String((points.session(callsign)?.slot as { name?: string } | undefined)?.name);
+    const cur = String(slotOf(points.session(callsign))?.name);
     return pick(m, [{ sid, point, dir: d.dir }], (x, { slots, checks }) => ({ ...x, slots, slot: slots ? (slots.includes(cur) ? cur : (slots[0] ?? "")) : x.slot, check: checks[0] }));
   }
 

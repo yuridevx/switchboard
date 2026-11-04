@@ -22,12 +22,15 @@
 //     frames: { question: onQuestion },             // кадры по type (имена — из uses)
 //     on: { roster: draw, link: (s, machine) => …, current: (c) => …, show: () => … }, // roster, смена связи (machine — вернулась одна машина), открытый экран, возврат страницы
 //     screens: { ask: { label: "Вопрос", view: Ask, head: (params) => ({ title: "Вопрос" }) } },
+//     commands: { "board.pin": { place: "card.menu", label: "Закрепить", show: (p) => …, run: (p) => … } }, // без экрана и адреса: app.run
 //     marks: { asked: (callsign) => text },          // метки для других модулей
 //     store: ["drafts"],                             // свои разделы хранилища
 //     css,                                           // свои стили: текст своего .css, ядро ограничивает его местом модуля
 //     start() { … }, stop() { … },
 //   }) satisfies AppPart["module"];
-// Что даёт ядро — интерфейс App (app.request, app.open, app.can, app.store, app.deliver, app.mark, app.use, app.Slot, …).
+// Что даёт ядро — интерфейс App, объявленный в web-ui (app.request, app.open, app.run, app.can, app.store, app.deliver, app.mark, app.use, app.Slot, …).
+// Машина вернулась, пришла или перезапустилась — on.link("open", machine); своего сравнения since у модулей нет.
+// Отказ gate: пустой список машин — связь открыта, roster пуст, страница работает; недоступен — полоса «Нет связи».
 // Вид: модуль получает app в своей функции и рисует компоненты; app.use(select) — выборка, компонент перерисуется, когда изменился ответ;
 // app.Slot — чужой экран в своём; ядро модуль не импортирует, отсюда — только типы; useApp() для компонентов экрана — в web-ui.
 export type {
@@ -45,6 +48,7 @@ export type {
   Result,
   Running,
   Screen,
+  Command,
   ScreenProps,
   SlotProps,
   Marks,

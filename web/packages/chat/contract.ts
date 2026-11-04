@@ -10,7 +10,7 @@ import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createChat } from "./src/module.tsx";
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     unread(callsign: string): { count: number; text: string } | undefined;
   }

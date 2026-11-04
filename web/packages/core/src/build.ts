@@ -1,5 +1,6 @@
 // Старт сборки страницы: модули — по списку build.json, адреса Worker'ов (и relay) — из него же; своих адресов у
 // страницы нет. Модуль не загрузился за предел — выключен только он: его функция бросает причину, ловушка ядра его выключает.
+import { withLimit } from "@switchboard/protocol";
 import { startApp } from "./app.tsx";
 import { CORE } from "./gate.ts";
 import type { AppPart, BuildList, Manifest, Running, StartOptions } from "./types.ts";
@@ -25,12 +26,10 @@ export async function startBuild(o: BuildOptions): Promise<Running> {
     build.modules
       .filter((m) => m.name !== CORE.name)
       .map(async ({ name, version }): Promise<AppPart> => {
-        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          const limit = new Promise<never>((_, no) => {
-            timer = setTimeout(() => no(new Error(`не загрузился за ${loadMs} мс`)), loadMs);
-          });
-          const x = (await Promise.race([load(name), limit])) as { default?: AppPart["module"] | object; manifest?: Manifest };
+          const x = (await withLimit(load(name), loadMs, () => {
+            throw new Error(`не загрузился за ${loadMs} мс`);
+          })) as { default?: AppPart["module"] | object; manifest?: Manifest };
           if (!x.default || !x.manifest) throw new Error("в файле модуля нет default или manifest");
           // библиотека страницы (web-view, web-ui) отдаёт только экспорты: default — пустой объект, модуля нет
           return { manifest: x.manifest, module: typeof x.default === "function" ? (x.default as AppPart["module"]) : () => ({}) };
@@ -43,8 +42,6 @@ export async function startBuild(o: BuildOptions): Promise<Running> {
               throw new Error(why);
             },
           };
-        } finally {
-          clearTimeout(timer);
         }
       }),
   );

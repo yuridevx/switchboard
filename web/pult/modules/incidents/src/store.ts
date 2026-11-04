@@ -1,6 +1,6 @@
 // Состояние инцидентов: недоставленные обращения по машинам и отказы чтения. Сессии с инцидентом — из roster, здесь их нет.
 import type { App, SessionRecord } from "@switchboard/web-core";
-import { createStore, machinesWith, midnight, useModule } from "@switchboard/web-ui";
+import { createStore, machinesWith, midnight, useModule, incidentOf } from "@switchboard/web-ui";
 
 type Rec = { t: string; kind?: string; ev?: string; word?: string; why?: string; id?: string };
 export type Lost = { machine: string; id: string; word: string; why: string; t: string };
@@ -15,8 +15,8 @@ type State = {
 };
 
 export const incOf = (s: SessionRecord): Inc | null => {
-  const x = s.incident as Inc | undefined;
-  return x && typeof x.type === "string" ? x : null;
+  const x = incidentOf(s);
+  return x && typeof x.type === "string" ? (x as Inc) : null;
 };
 export const isOpen = (s: SessionRecord) => s.state !== "stopped";
 

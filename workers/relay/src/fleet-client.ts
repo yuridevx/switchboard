@@ -19,7 +19,7 @@ export type FleetOptions = {
   hello?: () => Record<string, unknown>;
   /** входящий кадр с машины, кроме ответов на свои запросы */
   onFrame?: (f: Frame, machine: string) => void;
-  /** смена состояния соединения с машиной; машина "" — список машин у gate: stopped со словом — пропуск не принят */
+  /** смена состояния соединения с машиной; машина "" — список машин у gate: stopped со словом — пропуск не принят; open — машин нет */
   onState?: (machine: string, state: LinkState, why?: string, retryAt?: number) => void;
   /** кадр без ожидания к Worker'у не дошёл: слово отказа — держатель пишет его в свой журнал */
   onLost?: (f: Frame, word: string) => void;
@@ -101,6 +101,8 @@ export function fleet(o: FleetOptions): FleetClient {
     if (r.ok) {
       pause = firstPause;
       for (const p of (r.result as { passes: Array<{ name: string }> }).passes) open(p.name);
+      // машин нет и не будет: держателю без своей машины больше нечего ждать
+      if (!links.size) o.onState?.("", "open");
       return;
     }
     if (FATAL.has(r.error)) return o.onState?.("", "stopped", r.error);

@@ -1,12 +1,12 @@
 // Модель «Работы»: чистые выборки из снимка модуля, roster и записей настроек. Ничего не меняет; состояние и действия — store.ts.
 import type { App, SessionRecord } from "@switchboard/web-core";
-import { failText, lamp, machineLabel, myAddress, profileNameOf, sessionLabel, stateLabel, type Personal, machinesWith } from "@switchboard/web-ui";
+import { failText, incidentOf, lamp, machineLabel, myAddress, profileNameOf, sessionLabel, stateLabel, type Personal, machinesWith } from "@switchboard/web-ui";
 import { arrange, NONE, PROJECTS, projectIdOf, type ProjectRec } from "@switchboard/records";
 import { kindOf, machineOf, userOf } from "@switchboard/protocol";
 import type {} from "@switchboard/web-ask";
 import type {} from "@switchboard/web-chat";
 import type {} from "@switchboard/web-labels";
-import { BUILT, firstOpen, incidentOf, match, orderFilters, parentOf, rank, tree, type Filter, type Project, type View } from "./rules.ts";
+import { BUILT, firstOpen, match, orderFilters, parentOf, rank, tree, type Filter, type Project, type View } from "./rules.ts";
 
 /** Снимок модуля. */
 export type State = {
@@ -128,7 +128,7 @@ export function createModel({ app, user, fleet, state }: Env) {
       name: sName(callsign),
       human: sLabel(callsign).human,
       owner: owner ? owner.slice(1, owner.indexOf("@")) : null,
-      inc: (view.inc ? incidentOf(s) : undefined) ?? null,
+      inc: (view.inc ? incidentOf(s)?.type : undefined) ?? null,
       pin: view.pin && pins().includes(callsign),
       at: view.at && !noAt ? mName(machine) : null,
       atHuman: mLabel(machine).human,

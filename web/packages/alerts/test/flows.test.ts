@@ -8,6 +8,7 @@ import { memoryStore } from "@switchboard/web-core";
 import { createAlerts, manifest as alertsM, serviceWorker, type BrowserPush } from "../contract.ts";
 import { FakeRelay, flush, homeRoster, KEY, stand } from "../../core/stand/app.ts";
 import { fakeBrowser, fakeScope } from "../stand/fakes.ts";
+import { ASK_MS, createAlertsStore } from "../src/store.ts";
 
 beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -161,5 +162,34 @@ describe("служебный обработчик", () => {
     expect(scope.shown[1].title).toBe("Ответ не отправлен: no_key");
     expect(scope.shown[1].o.tag).toBe("q1");
     expect(relay.socks).toHaveLength(0);
+  });
+});
+
+describe("предел разрешения и подписки", () => {
+  const app = { changed() {}, toast() {}, deliver() {}, store: () => ({ update: async () => [] }), request: async () => ({ ok: true, result: { key: "AQAB" } }) } as never;
+
+  it("7287 · браузер молчит: разрешение — кнопка снова доступна; подписка — отказ словом, не вечное «включаю»", async () => {
+    // источник: устав — у всех операций лимит; отчёт архитектора, мерка 3
+    vi.useFakeTimers();
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const b = fakeBrowser("default");
+    b.Notification!.requestPermission = () => new Promise(() => {});
+    const a = createAlertsStore(app, b);
+    void a.enable();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(a.state()).toBe("working");
+    await vi.advanceTimersByTimeAsync(ASK_MS);
+    expect(a.state()).toBe("ask");
+    const c = fakeBrowser("default");
+    c.Notification!.requestPermission = async () => "granted";
+    const reg = await c.sw!.ready;
+    reg.pushManager.subscribe = () => new Promise(() => {});
+    const d = createAlertsStore(app, c);
+    void d.enable();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(d.state()).toBe("working");
+    await vi.advanceTimersByTimeAsync(ASK_MS);
+    expect(d.state()).toBe("error");
+    vi.useRealTimers();
   });
 });

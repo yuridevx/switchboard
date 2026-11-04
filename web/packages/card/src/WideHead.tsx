@@ -1,10 +1,10 @@
 // Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
 import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN } from "@switchboard/web-ui";
+import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN, slotOf } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard } from "./hooks.ts";
-import { isDown, slotOf, type Can } from "./session.ts";
+import { isDown, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 import { AccPop, MenuPop, ModelPop } from "./WidePops.tsx";
 
@@ -124,7 +124,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
         ) : null}
         {/* пункты места card.menu: закрепление (web-board) */}
         {menuItems.map((m) => (
-          <button key={m.screen} className="cw-b" data-screen={m.screen} onClick={() => app.open(m.screen, { callsign })}>
+          <button key={m.name} className="cw-b" data-screen={m.name} onClick={() => app.run(m.name, { callsign })}>
             {m.label}
           </button>
         ))}

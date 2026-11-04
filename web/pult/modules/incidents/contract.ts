@@ -10,7 +10,7 @@ import { createIncidents } from "./src/module.tsx";
 
 export { createIncidents };
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     /** открытые инциденты и недоставленные обращения */
     "incidents.open"(): number;

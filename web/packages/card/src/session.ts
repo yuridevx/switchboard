@@ -20,4 +20,3 @@ export type Model = { value: string; displayName?: string };
 /** Сессия не идёт: её можно запустить, но не остановить. Одно правило для узкого и широкого вида и шапки. */
 export const isDown = (s?: SessionRecord) => s?.state === "stopped" || s?.state === "failed";
 
-export const slotOf = (s?: SessionRecord) => s?.slot as { name?: string; wait?: number | null } | null | undefined;

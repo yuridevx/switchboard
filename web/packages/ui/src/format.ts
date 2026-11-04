@@ -1,5 +1,6 @@
 // Мелочи вида, общие для модулей приложения: подписи состояний, модели и усилия, время, склонение.
-import type { SessionRecord, Roster } from "@switchboard/relay";
+import type { SessionRecord } from "@switchboard/relay";
+import type { App } from "./app.ts";
 import { nameOf, userOf } from "@switchboard/protocol";
 
 /** Тон метки: цвет пилюли и точки строки. */
@@ -40,17 +41,25 @@ export const profileNameOf = (s?: SessionRecord) => {
   return id ? profileName(id) : undefined;
 };
 
-type Marks = { mark(name: string, ...args: string[]): unknown };
-type Rostered = { roster(): Roster | null };
+type Marked = Pick<App, "mark">;
+type Rostered = Pick<App, "roster">;
 /** Подпись имени: человеческое имя или адрес. */
 export type Shown = { text: string; human: boolean };
 
 /** Запись сессии из roster. */
 export const sessionOf = (app: Rostered, callsign: string) => app.roster()?.sessions.find((s) => s.callsign === callsign);
-/** Имя сессии; модуля имён нет или он упал — то же, что без своего имени: имя из позывного. */
-export const sessionLabel = (app: Marks, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? { text: nameOf(callsign), human: false };
-/** Имя машины; модуля имён нет или он упал — адрес. */
-export const machineLabel = (app: Marks, machine: string) => (app.mark("label.machine", machine) as Shown | undefined) ?? { text: `@${machine}`, human: false };
+/** Подпись сессии без своего имени: имя из позывного. */
+export const plainSession = (callsign: string): Shown => ({ text: nameOf(callsign), human: false });
+/** Подпись машины без своего имени: адрес. */
+export const plainMachine = (machine: string): Shown => ({ text: `@${machine}`, human: false });
+/** Имя сессии; модуля имён нет или он упал — как без своего имени. */
+export const sessionLabel = (app: Marked, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? plainSession(callsign);
+/** Имя машины; модуля имён нет или он упал — как без своего имени. */
+export const machineLabel = (app: Marked, machine: string) => (app.mark("label.machine", machine) as Shown | undefined) ?? plainMachine(machine);
+/** Поле slot записи сессии. */
+export const slotOf = (s?: SessionRecord) => s?.slot as { name?: string; wait?: number | null } | null | undefined;
+/** Поле incident записи сессии. */
+export const incidentOf = (s?: SessionRecord) => s?.incident as { type?: string; key?: string } | null | undefined;
 /** Машины на связи, у которых в contract есть все эти запросы; без запросов — все. */
 export const machinesWith = (app: Rostered, ...names: string[]) => (app.roster()?.machines ?? []).filter((m) => names.every((n) => m.contract?.[n] !== undefined)).map((m) => m.machine);
 /** Ссылка Remote Control сессии. */
@@ -64,7 +73,7 @@ export const failText = (s: SessionRecord) =>
     : "";
 
 /** Мой адрес ~почта: среди клиентов roster — устройство с именем этого приложения. */
-export function myAddress(app: { name: string; roster(): Roster | null }): string | null {
+export function myAddress(app: Pick<App, "name" | "roster">): string | null {
   const c = (app.roster()?.clients ?? []).find((x) => x.startsWith(`${app.name}~`));
   return c ? userOf(c) : null;
 }
@@ -79,8 +88,7 @@ export function folderOf(dir: unknown): string {
 /** Строка «opus · high · main» из записи сессии: модель, усилие, слот. */
 export function sessionLine(s: SessionRecord | undefined, withEffort = false): string {
   if (!s) return "";
-  const slot = s.slot as { name?: string } | null | undefined;
-  return [s.model, withEffort && s.effort ? effortName(s.effort) : null, slot?.name].filter((x) => typeof x === "string" && x).join(" · ");
+  return [s.model, withEffort && s.effort ? effortName(s.effort) : null, slotOf(s)?.name].filter((x) => typeof x === "string" && x).join(" · ");
 }
 
 /** ЧЧ:ММ по местному времени. */

@@ -18,11 +18,8 @@ export function createOpenStore(app: App) {
   const machineUse = (m: string) => sessions().filter((s) => machineOf(s.callsign) === m).length;
 
   return {
-    stop: p.settled,
-    // места — у Worker'а: возврат одной машины их не трогает
-    onLink(state: string, machine?: string) {
-      if (state === "open" && !machine) void p.read();
-    },
+    stop: p.stop,
+    onLink: p.onLink,
     sessions,
     /** Машины, на которых можно открыть сессию. */
     machines: () => machinesWith(app, "session.open"),

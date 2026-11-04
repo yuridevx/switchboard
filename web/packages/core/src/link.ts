@@ -23,6 +23,18 @@ export function createLink(d: {
   const { o, state, registry, changed, route, toast, refused } = d;
   const pending = new Set<Promise<unknown>>();
   let lk: FleetClient | null = null;
+  /** since машин по roster: новый или машина пришла — её экраны спрашивают заново; других копий нет */
+  let since: Map<string, unknown> | null = null;
+  /** машины, чьё соединение вернулось внутри открытого флота: подписки на них пропали, сообщит их roster */
+  const returned = new Set<string>();
+
+  /** Машины этого roster, вернувшиеся, пришедшие или перезапустившиеся; первый roster — точка отсчёта. */
+  function backOf(r: Roster): string[] {
+    const was = since;
+    since = new Map(r.machines.map((m) => [m.machine, m.since]));
+    if (!was) return [];
+    return r.machines.filter((m) => returned.delete(m.machine) || was.get(m.machine) !== m.since).map((m) => m.machine);
+  }
 
   function setConn(conn: ConnState, machine?: string) {
     state.set({ conn });
@@ -70,9 +82,11 @@ export function createLink(d: {
     // roster флота — объединение roster объектов машин
     const roster = lk?.roster ?? (f as unknown as Roster);
     state.set({ roster, rosterAt: Date.now() });
+    const back = backOf(roster);
     for (const x of registry.mods) {
       if (x.mod.on?.roster && x.m.uses["roster@relay"] !== undefined) registry.call(x, "кадре roster", () => x.mod.on!.roster!(roster));
     }
+    if (state.get().conn === "open") for (const m of back) setConn("open", m);
     if (!first) return changed();
     route();
     if (state.get().fresh) {
@@ -100,16 +114,24 @@ export function createLink(d: {
       // модули узнают о смене состояния флота, а не каждого соединения
       onState: (m, s, why, retryAt) => {
         if (s === "stopped" && why !== undefined && !OWN.has(why)) return onState("stopped", why);
+        // список машин у gate: не ответил и соединений нет — полоса «Нет связи», fleet спросит снова
+        if (m === "" && s === "closed") return lk?.links().size ? undefined : onState("closed", why, retryAt);
+        // ответил, что машин нет: флот честно пуст, страница работает, Worker'ы — напрямую
+        if (m === "" && s === "open") {
+          onState("open");
+          return onFrame({ type: "roster" });
+        }
         const was = whole();
         if (m && s === "closed") gone.add(m);
         if (m && s !== "connecting") settled.add(m);
         if (!whole()) return;
         const now = lk?.state ?? s;
         if (now !== state.get().conn) {
-          gone.clear();
+          // открылась первая машина: о ней — состояние флота; остальные оборвавшиеся сообщат своим возвращением
+          if (m) gone.delete(m);
           onState(now, why, retryAt);
-          // одна машина вернулась внутри открытого флота: её hello принят, подписки на ней пропали — её экраны шлют заново
-        } else if (m && s === "open" && gone.delete(m)) setConn("open", m);
+          // одна машина вернулась внутри открытого флота: её hello принят, подписки на ней пропали — сообщит её roster
+        } else if (m && s === "open" && gone.delete(m)) returned.add(m);
         // флот без связи: отсчёт — до ближайшей попытки любого соединения
         else if (s === "closed" && now === "closed" && retryAt) {
           const was = state.get().retryAt;

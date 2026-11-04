@@ -17,7 +17,7 @@ export type AppDeps = { o: StartOptions; store: NonNullable<StartOptions["store"
 
 export function moduleApp(x: Mod, d: AppDeps): App {
   const { o, store, state, registry, router, link, bus, toast, core } = d;
-  const { fail, call, usesRef, mayOpen, lookup } = registry;
+  const { fail, call, usesRef, mayOpen } = registry;
 
   async function request(n: string, body: Record<string, unknown> = {}): Promise<Result> {
     const ref = usesRef(x, n);
@@ -45,18 +45,21 @@ export function moduleApp(x: Mod, d: AppDeps): App {
     request: request as App["request"],
     open: (screen, params = {}) => {
       if (!mayOpen(x, screen)) return fail(x, `открытии ${screen}`, new Error(`экрана ${screen} нет в uses`));
-      const s = lookup(screen);
-      if (s?.def.run) return void call(s.owner, `команде ${screen}`, () => s.def.run!(params));
       router.go(screen, params);
+    },
+    run: (command, params = {}) => {
+      if (!mayOpen(x, command)) return fail(x, `команде ${command}`, new Error(`команды ${command} нет в uses`));
+      const c = registry.commands.get(command);
+      if (c) call(c.owner, `команде ${command}`, () => c.def.run(params));
     },
     placed: (at, params = {}) => {
       if (x.m.provides[at] === undefined) {
         fail(x, `месте ${at}`, new Error(`места ${at} нет в provides`));
         return [];
       }
-      return [...registry.screens]
-        .filter(([n, s]) => s.def.place === at && !s.owner.failed && (!s.def.show || call(s.owner, `экране ${n}`, () => s.def.show!(params)) === true))
-        .map(([n, s]) => ({ screen: n, label: s.def.label ?? n }));
+      return [...registry.screens, ...registry.commands]
+        .filter(([n, s]) => s.def.place === at && !s.owner.failed && (!s.def.show || call(s.owner, `месте ${n}`, () => s.def.show!(params)) === true))
+        .map(([n, s]) => ({ name: n, label: s.def.label ?? n }));
     },
     back: router.back,
     can: (machine, n) => {

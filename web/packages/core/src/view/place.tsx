@@ -1,7 +1,7 @@
 // Место экрана: граница ошибки и область стилей вокруг компонента модуля. Новые параметры — экран начат заново.
 import { Component, memo, type ReactNode } from "react";
 import { BadCard, Cta, Pad, AppCtx, useApp } from "@switchboard/web-ui";
-import { same } from "../same.ts";
+import { share } from "../same.ts";
 import type { Params, Screen, SlotProps } from "../types.ts";
 import { useCore } from "./core.ts";
 
@@ -55,7 +55,7 @@ function PlaceView({ screen, params, close }: SlotProps) {
 }
 
 /** Экран по имени, без проверки uses (её делают app.Slot и app.open). Родитель перерисовался с теми же параметрами — экран не трогается. */
-export const Place = memo(PlaceView, (a, b) => a.screen === b.screen && a.close === b.close && same(a.params ?? NONE, b.params ?? NONE));
+export const Place = memo(PlaceView, (a, b) => a.screen === b.screen && a.close === b.close && share(a.params ?? NONE, b.params ?? NONE) === (a.params ?? NONE));
 
 /** app.Slot: чужой экран внутри экрана модуля. Экран вне uses — ошибка вызывающего: её ловит граница его экрана. */
 export function Slot(p: SlotProps) {

@@ -19,7 +19,7 @@ function sample(log: string[] = [], over: Partial<AppModule> = {}) {
   const box: { app: App } = { app: null as unknown as App };
   const mod: AppModule = {
     frames: { question: (f) => void log.push(`question ${f.from}`) },
-    on: { roster: (r) => log.push(`roster ${r.sessions.length}`), link: (s) => log.push(`link ${s}`) },
+    on: { roster: (r) => log.push(`roster ${r.sessions.length}`), link: (s, m) => log.push(m ? `link ${s} @${m}` : `link ${s}`) },
     screens: {
       list: {
         nav: "Сессии",
@@ -466,7 +466,7 @@ describe("уход с экрана", () => {
     relay.refuse = ["", "gate_unavailable"];
     await run.show();
     await flush(10);
-    expect(log.filter((x) => x.startsWith("link"))).toEqual(["link open"]);
+    expect(log.filter((x) => x.startsWith("link") && !x.includes("@"))).toEqual(["link open"]);
     // pc закрылся — флот собран: видна laptop; pc вернулся своим переподключением — снова все
     expect(log.filter((x) => x.startsWith("roster"))[0]).toBe("roster 2");
   });
@@ -555,7 +555,7 @@ describe("места в странице", () => {
     const box: { app?: App } = {};
     history.replaceState(null, "", "/#card");
     await boot({ parts: [owner(box, { screen: "hello.tab", params: { callsign: "site@laptop" } }), tab("hello", (p) => p.callsign === "site@laptop"), tab("bye", () => false)] });
-    expect(box.app!.placed("card.tab", { callsign: "site@laptop" })).toEqual([{ screen: "hello.tab", label: "hello" }]);
+    expect(box.app!.placed("card.tab", { callsign: "site@laptop" })).toEqual([{ name: "hello.tab", label: "hello" }]);
     expect(box.app!.placed("card.tab", { callsign: "x@pc" })).toEqual([]);
     expect(root.querySelector('[data-screen="card"]')!.textContent).toBe("вкладка hello");
   });

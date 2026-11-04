@@ -1,7 +1,7 @@
 // Карточки «Вам»: вопрос, сообщение, сбой, ожидание лимита, готово, ушедшая машина. Каждая выбирает своё и меняется одна.
 import { memo } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp } from "@switchboard/web-ui";
+import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp, slotOf } from "@switchboard/web-ui";
 import { useInbox } from "./store.ts";
 import type { Item, Kind } from "./store.ts";
 
@@ -110,7 +110,7 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
       );
     }
     case "wait": {
-      const slot = (s.slot as { name?: string }).name ?? "";
+      const slot = slotOf(s)?.name ?? "";
       return (
         <div className="ib-it bad" data-kind="wait" data-callsign={callsign}>
           <CardHead s={s} dot="idle" label="ждёт сброса лимита" />

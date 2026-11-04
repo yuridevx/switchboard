@@ -1,5 +1,6 @@
 // Состояние уведомлений устройства и путь включения: разрешение → push.key → подписка браузера → push.subscribe.
 // Пуши, сохранённые обработчиком, — ядру при старте и возвращении на экран (кадр уходит владельцу по type).
+import { withLimit } from "@switchboard/protocol";
 import type { App } from "@switchboard/web-core";
 import { createStore, useModule } from "@switchboard/web-ui";
 import type { StoredPush } from "./sw.ts";
@@ -27,6 +28,8 @@ export function b64url(s: string): Uint8Array {
 
 /** Предел ожидания обработчика пушей: он не поднялся — отказ словом, а не вечное «включаю». */
 export const READY_MS = 10_000;
+/** Предел разрешения и подписки браузера: ни ответа, ни отказа — кнопка снова доступна. */
+export const ASK_MS = 120_000;
 
 export type AlertsStore = ReturnType<typeof createAlertsStore>;
 /** Стор модуля в экранах. */
@@ -48,15 +51,7 @@ export function createAlertsStore(app: App, browser?: BrowserPush) {
   const setState = (state: AlertsState) => store.set((s) => void (s.state = state));
 
   /** Регистрация обработчика с пределом; не успел — null. */
-  async function ready(e: BrowserPush) {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = new Promise<null>((resolve) => (timer = setTimeout(() => resolve(null), READY_MS)));
-    try {
-      return await Promise.race([e.sw!.ready, late]);
-    } finally {
-      clearTimeout(timer);
-    }
-  }
+  const ready = (e: BrowserPush) => withLimit(e.sw!.ready, READY_MS, () => null);
 
   /** Пуши из раздела pushes — ядру: владелец кадра рисует его как пришедший по связи. */
   async function takePushes() {
@@ -102,7 +97,7 @@ export function createAlertsStore(app: App, browser?: BrowserPush) {
         s.error = "";
       });
       // разрешение спрашивается только по нажатию
-      const perm = await e.Notification!.requestPermission();
+      const perm = await withLimit(e.Notification!.requestPermission(), ASK_MS, () => "default" as const);
       if (perm !== "granted") return setState(perm === "denied" ? "denied" : "ask");
       const k = await app.request<{ key: string }>("push.key");
       if (!k.ok) return fail(k.error);
@@ -110,7 +105,9 @@ export function createAlertsStore(app: App, browser?: BrowserPush) {
       if (!reg) return fail("обработчик пушей не поднялся");
       let sub: { toJSON(): unknown };
       try {
-        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(k.result.key) });
+        sub = await withLimit(reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64url(k.result.key) }), ASK_MS, () => {
+          throw new Error("браузер не подписал за предел");
+        });
       } catch (x) {
         return fail(x instanceof Error ? x.message : String(x));
       }

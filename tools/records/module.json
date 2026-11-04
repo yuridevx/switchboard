@@ -1,7 +1,7 @@
 {
   "name": "records",
   "type": "tool",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "provides": {
     "records.format": 1
   },

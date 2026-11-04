@@ -1,15 +1,10 @@
 // Настройки в модуле страницы: цикл над Worker'ом prefs из библиотеки records. Ключи — «префикс.раздел». Область: человек (по умолчанию), весь флот или это приложение.
 // Отказ записи — словом на экране. Цикл один на модуль и область; остановка модуля ждёт его. Модуль объявляет prefs.get и prefs.set в uses.
 import { settings } from "@switchboard/records";
-import type { Result } from "./hooks.ts";
+import type { App, ConnState } from "./app.ts";
 
 /** Что цикл настроек берёт у app модуля. */
-type AppLike = {
-  /** имя приложения из списка сборки: pult, phone */
-  readonly application?: string;
-  request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
-  toast(text: string, tone?: "ok" | "bad"): void;
-};
+type AppLike = Pick<App, "application" | "request" | "toast">;
 
 export type Scope = "user" | "global" | "app";
 
@@ -20,10 +15,10 @@ export type Personal = {
   get<T>(section: string): T | undefined;
   /** правка раздела: на экране сразу, в prefs — циклом; отказ — словом */
   edit<T>(section: string, fn: (old: T | undefined) => T): void;
-  /** прочитать все ключи области: связь открылась */
-  read(): Promise<void>;
-  /** дождаться цикла записи: остановка модуля */
-  settled(): Promise<void>;
+  /** on.link: связь открылась — прочитать свои ключи; возврат одной машины настройки не трогает. Промис — чтение пошло. */
+  onLink(state: ConnState, machine?: string): Promise<void> | undefined;
+  /** остановка модуля: дождаться цикла записи */
+  stop(): Promise<void>;
 };
 
 export function personal(app: AppLike, prefix: string, changed: () => void, scope: Scope = "user"): Personal {
@@ -41,9 +36,7 @@ export function personal(app: AppLike, prefix: string, changed: () => void, scop
         if (word) app.toast(`Настройка не сохранилась: ${word}`, "bad");
       });
     },
-    read: async () => {
-      await s.read();
-    },
-    settled: s.settled,
+    onLink: (state, machine) => (state === "open" && !machine ? s.read().then(() => {}) : undefined),
+    stop: s.settled,
   };
 }

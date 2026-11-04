@@ -15,9 +15,13 @@ export function createSettings(app: App): AppModule {
   const settings = createSettingsStore(app);
   return {
     state: settings,
-    on: { roster: settings.onRoster },
+    on: { link: settings.onLink },
+    commands: {
+      "keeper.open": { run: settings.openKeeper },
+      "keeper.close": { run: settings.closeKeeper },
+      "keeper.reload": { run: (p) => void settings.reloadKeeper(p.machine ?? "") },
+    },
     screens: {
-      "keeper.reload": { label: "Ответ keeper", path: "keeper-reload", run: (p) => settings.reloadKeeper(p.machine ?? "") },
       settings: {
         nav: "Настройки",
         group: "Флот",
@@ -28,7 +32,7 @@ export function createSettings(app: App): AppModule {
           TABS.filter(([, l]) => !q || l.toLowerCase().includes(q)).map(([tab, l]) => ({ label: `Настройки: ${l.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
       },
     },
-    marks: { "keeper.answers": () => settings.keeperAnswers },
+    marks: { "keeper.answers": settings.keeperAnswers },
     css,
   };
 }

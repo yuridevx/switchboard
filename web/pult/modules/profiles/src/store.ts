@@ -1,5 +1,5 @@
 // Состояние профилей: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
-import type { App, Roster } from "@switchboard/web-core";
+import type { App } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { folderOf, lamp, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule, machinesWith, okOf } from "@switchboard/web-ui";
 
@@ -42,7 +42,7 @@ export function createProfilesStore(app: App) {
 
   return {
     /** Машина пришла или вернулась при открытом экране — спросить и её. */
-    onRoster: (r: Roster) => replies.onRoster(r),
+    onLink: replies.onLink,
     /** Экран открыт: спросить машины; возврат — экран закрыт. */
     mount: () => replies.mount(),
     /** Всё, что показывает экран: простые данные, сравниваются по содержимому. */

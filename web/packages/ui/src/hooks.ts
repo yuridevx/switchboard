@@ -1,17 +1,12 @@
 // Общие хуки экранов: чтение данных экрана с отменой устаревшего ответа.
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import type { App } from "./app.ts";
 
-/** App модуля. Набор ядра не знает: тип дописывает ядро (declare module), значение ставит место экрана. */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface AppHandle {}
-
-/** Что useModule берёт у App (поле дописывает и ядро). */
-type WithState = { readonly state: unknown };
-
-export const AppCtx = createContext<AppHandle | null>(null);
+/** App модуля, чей экран рисуется: значение ставит место экрана. */
+export const AppCtx = createContext<App | null>(null);
 
 /** App модуля, чей экран рисуется. */
-export function useApp(): AppHandle {
+export function useApp(): App {
   const app = useContext(AppCtx);
   if (!app) throw new Error("useApp вне экрана модуля");
   return app;
@@ -19,7 +14,7 @@ export function useApp(): AppHandle {
 
 /** Стор модуля, чей экран рисуется: поле state его определения. */
 export function useModule<T>(): T {
-  return (useApp() as WithState).state as T;
+  return useApp().state as T;
 }
 
 /** Текущее время с шагом ms: таймер живёт, пока компонент на экране; ms 0 — стоит. Отсчёт виден только там, где он нужен. */
@@ -74,15 +69,6 @@ export function useLoad<T>(load: () => Promise<Result<T>>, deps: readonly unknow
   return { data: done?.data, error: done && !stale ? done.error : "", stale, loading: !done || stale || done.turn !== turn || done.again !== again, reload };
 }
 
-/** Что useMachineLoad берёт у App (поля дописывает ядро). */
-type MachineApp = {
-  use<R>(pick: () => R): R;
-  can(machine: string, name: string): boolean | null;
-  roster(): { machines: Array<{ machine: string; since?: unknown }> } | null;
-  link(): string;
-  request<T>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
-};
-
 /** Не спрашиваем: данных нет, отказа нет. */
 const NOT_ASKED = Promise.resolve({ ok: false, error: "" } as const);
 
@@ -91,8 +77,8 @@ const NOT_ASKED = Promise.resolve({ ok: false, error: "" } as const);
  * Машина вернулась, перезапустилась или связь открылась снова — перечитывает сам; пока спросить нельзя, данные прежние.
  */
 export function useMachineLoad<T>(machine: string, name: string, body: Record<string, unknown> = { machine }, when = true) {
-  const app = useApp() as unknown as MachineApp;
+  const app = useApp();
   const asked = app.use(() => when && app.link() === "open" && app.can(machine, name) === true);
   const since = app.use(() => app.roster()?.machines.find((m) => m.machine === machine)?.since);
-  return useLoad<T>(() => (asked ? app.request<T>(name, body) : NOT_ASKED), [machine, name, JSON.stringify(body)], `${asked}:${String(since)}`);
+  return useLoad<T>(() => (asked ? app.request<T>(name, body) : (NOT_ASKED as Promise<Result<T>>)), [machine, name, JSON.stringify(body)], `${asked}:${String(since)}`);
 }

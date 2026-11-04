@@ -28,7 +28,7 @@ export function ViewPanel({ onClose }: { onClose(): void }) {
           onClick={() => {
             board.resetView();
             // настройки шапки — у карточки: её команда возвращает свои; вне широкого вида группы нет
-            if (app.wide) app.open("card.view");
+            if (app.wide) app.run("card.head.reset");
           }}
         >
           Вернуть

@@ -10,7 +10,7 @@ export function createProfiles(app: App): AppModule {
   const profiles = createProfilesStore(app);
   return {
     state: profiles,
-    on: { roster: profiles.onRoster },
+    on: { link: profiles.onLink },
     screens: {
       profiles: {
         nav: "Профили",

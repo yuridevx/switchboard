@@ -51,7 +51,7 @@ describe("гейт выпуска пульта", () => {
       expect(text).not.toMatch(/wss:\/\/|workers\.dev|RELAY_URL|WORKERS/);
       expect(text).not.toMatch(/client\.[a-z-]+\.[a-z0-9]+\./);
       // модулей страниц оболочка не импортирует; правило карты импорта — у владельца формата выпуска
-      expect(text).not.toMatch(/from\s*["']@switchboard\/(?!web-core"|release\/importmap")/);
+      expect(text).not.toMatch(/from\s*["']@switchboard\/(?!web-core"|protocol"|release\/importmap")/);
     }
   });
 

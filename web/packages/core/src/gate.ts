@@ -26,11 +26,15 @@ export function appGate(parts: DefinedPart[]): string[] {
       for (const n of names) if (m.provides[n] === undefined) errors.push(`модуль ${m.name}: ${kind} ${n} нет в provides`);
     };
     own("экрана", Object.keys(mod.screens ?? {}));
+    own("команды", Object.keys(mod.commands ?? {}));
     own("метки", Object.keys(mod.marks ?? {}));
     for (const [s, def] of Object.entries(mod.screens ?? {})) {
       if (def.mark && !mod.marks?.[def.mark]) errors.push(`модуль ${m.name}: экран ${s} — метки ${def.mark} нет в marks`);
       // место — имя владельца места: в uses встраивающегося, владельца сверяет общий гейт
       if (def.place && !Object.keys(m.uses).some((r) => nameOf(r) === def.place)) errors.push(`модуль ${m.name}: экран ${s} — места ${def.place} нет в uses`);
+    }
+    for (const [c, def] of Object.entries(mod.commands ?? {})) {
+      if (def.place && !Object.keys(m.uses).some((r) => nameOf(r) === def.place)) errors.push(`модуль ${m.name}: команда ${c} — места ${def.place} нет в uses`);
     }
     // принимаемый кадр — имя чужого владельца из uses; у кадра один принимающий модуль
     const accepts: Record<string, number> = {};

@@ -41,9 +41,8 @@ describe("ответы машин", () => {
     expect(asked).toEqual(["a"]);
     expect(m.get().a).toBe(1);
     close();
-    const next = rosterOf([["a", 1], ["b", 1]]);
-    setRoster(next);
-    m.onRoster(next);
+    setRoster(rosterOf([["a", 1], ["b", 1]]) as never);
+    m.onLink("open", "b");
     await act(async () => {});
     expect(asked).toEqual(["a"]);
   });
@@ -75,19 +74,17 @@ describe("ответы машин", () => {
 
   it("6231 · при открытом экране: пришла новая и вернулась прежняя — спрошены; та же — нет; отказ — словом", async () => {
     const { m, asked, setRoster } = setup();
-    const r0 = rosterOf([["a", 1]]);
-    m.onRoster(r0);
     m.mount();
     await act(async () => {});
     const r1 = rosterOf([["a", 1], ["bad", 1]]);
-    setRoster(r1);
-    m.onRoster(r1);
+    setRoster(r1 as never);
+    m.onLink("open", "bad");
     await act(async () => {});
     expect(asked).toEqual(["a", "bad"]);
     expect(m.get().bad).toEqual({ error: "offline" });
     const r2 = rosterOf([["a", 2], ["bad", 1]]);
-    setRoster(r2);
-    m.onRoster(r2);
+    setRoster(r2 as never);
+    m.onLink("open", "a");
     await act(async () => {});
     expect(asked).toEqual(["a", "bad", "a"]);
   });

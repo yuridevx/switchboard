@@ -8,8 +8,10 @@
   ],
   "provides": {
     "settings": 1,
-    "keeper.answers": 2,
-    "keeper.reload": 1
+    "keeper.answers": 3,
+    "keeper.reload": 1,
+    "keeper.open": 1,
+    "keeper.close": 1
   },
   "uses": {
     "view@web-view": 19,

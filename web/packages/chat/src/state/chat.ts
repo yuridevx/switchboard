@@ -44,8 +44,8 @@ export type Conv = {
   /** уже есть более ранние записи и с какой продолжать */
   more: boolean;
   before: string | null;
-  /** since машины, на которой открыта подписка; машины нет в roster — нет */
-  since?: number;
+  /** машина вернулась, пока подписка шла: отказ прежнего Host — спросить заново */
+  again?: boolean;
   /** вложения сообщений без ответа: «отправить ещё раз» шлёт их снова */
   held: Record<string, Attachment[]>;
   sides: Side[];
@@ -102,7 +102,6 @@ export function createChatStore(app: App) {
   async function watch(cs: string) {
     const was = read(cs);
     if (was.opening) return;
-    const since = was.since;
     const m = machineOf(cs) ?? "";
     // возможности — по roster: нет session.watch — ленты нет, переписка и ввод работают
     edit(cs, (c) => {
@@ -123,7 +122,9 @@ export function createChatStore(app: App) {
     await history(cs);
     edit(cs, (c) => void (c.opening = false));
     // отказал прежний Host, а новый уже в roster: его подписку пропустили, пока шла эта
-    if (read(cs).refused && read(cs).mounted && read(cs).since !== since) await watch(cs);
+    const again = read(cs).again;
+    if (again) edit(cs, (c) => void (c.again = false));
+    if (again && read(cs).refused && read(cs).mounted) await watch(cs);
   }
 
   async function unwatch(cs: string) {
@@ -224,7 +225,6 @@ export function createChatStore(app: App) {
         c.mounted++;
         c.unread = 0;
         c.account ??= sessionOf(cs)?.account as string | undefined;
-        c.since = app.roster()?.machines.find((m) => m.machine === machineOf(cs))?.since;
       });
       void watch(cs);
       return () => {
@@ -268,13 +268,6 @@ export function createChatStore(app: App) {
     },
     /** Подмена аккаунта слота видна по roster: у сессии сменилось поле account — строка в ленте. Машина появилась или поднялась заново — открытая лента подписывается снова. */
     onRoster(r: Roster) {
-      for (const [cs, c] of Object.entries(store.get().convs)) {
-        if (!c.mounted) continue;
-        const since = r.machines.find((m) => m.machine === machineOf(cs))?.since;
-        if (since === c.since) continue;
-        edit(cs, (x) => void (x.since = since));
-        if (since !== undefined) void watch(cs);
-      }
       for (const s of r.sessions) {
         const known = store.get().convs[s.callsign];
         if (!known || typeof s.account !== "string" || known.account === s.account) continue;
@@ -293,6 +286,7 @@ export function createChatStore(app: App) {
       if (state !== "open") return;
       for (const [cs, c] of Object.entries(store.get().convs)) {
         if (!c.mounted || (machine && machineOf(cs) !== machine)) continue;
+        if (c.opening) edit(cs, (x) => void (x.again = true));
         void watch(cs);
       }
     },

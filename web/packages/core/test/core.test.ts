@@ -25,7 +25,7 @@ function sample(log: string[] = []) {
         app.changed();
       },
     },
-    on: { roster: (r) => log.push(`roster ${r.sessions.length}`), link: (s) => log.push(`link ${s}`), show: () => void log.push("show sample") },
+    on: { roster: (r) => log.push(`roster ${r.sessions.length}`), link: (s, m) => log.push(m ? `link ${s} @${m}` : `link ${s}`), show: () => void log.push("show sample") },
     screens: {
       list: {
         nav: "Сессии",
@@ -277,7 +277,7 @@ describe("ключ и связь", () => {
     expect(root.querySelector(".sb-bt span")!.textContent).toMatch(/^данные на \d\d:\d\d$/);
     await new Promise((r) => setTimeout(r, 120));
     await flush();
-    expect(log.filter((x) => x.startsWith("link"))).toEqual(["link open", "link closed", "link connecting", "link open"]);
+    expect(log.filter((x) => x.startsWith("link") && !x.includes("@"))).toEqual(["link open", "link closed", "link connecting", "link open"]);
   });
 });
 

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, nameOf, ok, oversize, parseFrame, reaches, serviceAddress, userOf, within } from "./contract.ts";
+import { describe, expect, it, vi } from "vitest";
+import { withLimit, accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, nameOf, ok, oversize, parseFrame, reaches, serviceAddress, userOf, within } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -115,5 +115,22 @@ describe("protocol: конверт кадра", () => {
     expect(await within(Promise.resolve(7), "не дождался", 50)).toBe(7);
     expect(await within(3, "не дождался", 50)).toBe(3);
     await expect(within(new Promise(() => {}), "gate не ответил за 0,05 с", 50)).rejects.toThrow("gate не ответил за 0,05 с");
+  });
+});
+
+describe("protocol: предел операции", () => {
+  it("7286 · успела: её ответ; нет: ответ late; late бросил: отказ", async () => {
+    vi.useFakeTimers();
+    await expect(withLimit(Promise.resolve(1), 10, () => 2)).resolves.toBe(1);
+    const never = new Promise<number>(() => {});
+    const late = withLimit(never, 10, () => 2);
+    const refused = withLimit(never, 10, () => {
+      throw new Error("долго");
+    });
+    const seen = expect(refused).rejects.toThrow("долго");
+    await vi.advanceTimersByTimeAsync(10);
+    await expect(late).resolves.toBe(2);
+    await seen;
+    vi.useRealTimers();
   });
 });

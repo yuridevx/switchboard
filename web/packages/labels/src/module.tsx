@@ -20,6 +20,6 @@ export function createLabels(app: App): AppModule {
     },
     marks: { "label.session": labels.session, "label.machine": labels.machine },
     css,
-    stop: labels.settled,
+    stop: labels.stop,
   };
 }

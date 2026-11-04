@@ -3,7 +3,7 @@
 // Нажатие — открыть приложение (пуш уйдёт модулю-владельцу); кнопка (Android) — короткое wss:
 // hello с ключом из хранилища, кадр кнопки, reply, close(1000).
 import { link, type Frame, type Reply, type WsCtor } from "@switchboard/relay";
-import { hostOf } from "@switchboard/protocol";
+import { hostOf, withLimit } from "@switchboard/protocol";
 import type { Store } from "@switchboard/web-core";
 
 /** То, что показать: заголовок, текст, кнопки с кадром; tag — id вопроса, тот же tag заменяет уведомление. */
@@ -44,6 +44,9 @@ export type SwOptions = {
   WebSocket?: WsCtor;
 };
 
+/** Предел короткого соединения обработчика: соединиться и получить ответ. */
+const SEND_MS = 30_000;
+
 /** Отправить кадр по короткому соединению с relay машины адресата: hello с пропуском, кадр, reply, close(1000). */
 export async function sendOnce(o: Pick<SwOptions, "relayUrl" | "store" | "WebSocket">, frame: Frame): Promise<Reply> {
   const key = await o.store.get<string>("key");
@@ -51,9 +54,10 @@ export async function sendOnce(o: Pick<SwOptions, "relayUrl" | "store" | "WebSoc
   const machine = hostOf(frame);
   if (!machine) return { type: "reply", id: "", ok: false, error: "bad_frame" };
   const relay = await o.relayUrl;
-  return new Promise<Reply>((resolve) => {
+  let l: ReturnType<typeof link> | undefined;
+  const sent = new Promise<Reply>((resolve) => {
     let done = false;
-    const l = link({
+    const one = link({
       url: `${relay.replace(/\/$/, "")}/m/${machine}`,
       key,
       WebSocket: o.WebSocket,
@@ -61,18 +65,23 @@ export async function sendOnce(o: Pick<SwOptions, "relayUrl" | "store" | "WebSoc
         if (done) return;
         if (s === "open") {
           done = true;
-          void l.request(frame).then((r) => {
-            l.close(1000, "done");
+          void one.request(frame).then((r) => {
+            one.close(1000, "done");
             resolve(r);
           });
         } else if (s === "closed" || s === "stopped") {
           // обрыв или отказ — без переподключений: ответ не ушёл, человек увидит это в уведомлении
           done = true;
-          l.close(1000, "done");
+          one.close(1000, "done");
           resolve({ type: "reply", id: "", ok: false, error: why || "disconnected" });
         }
       },
     });
+    l = one;
+  });
+  return withLimit(sent, SEND_MS, () => {
+    l?.close(1000, "done");
+    return { type: "reply", id: "", ok: false, error: "timeout" };
   });
 }
 

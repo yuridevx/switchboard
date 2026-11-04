@@ -10,7 +10,7 @@ import type { AlertsState } from "./src/store.ts";
 import json from "./module.json" with { type: "json" };
 import { createAlerts } from "./src/module.tsx";
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     "alerts.state"(): AlertsState;
   }

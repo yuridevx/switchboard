@@ -14,7 +14,7 @@ import { createAccounts } from "./src/module.tsx";
 
 export { createAccounts };
 
-declare module "@switchboard/web-core" {
+declare module "@switchboard/web-ui" {
   interface Marks {
     /** число идущих входов */
     logins(): number;

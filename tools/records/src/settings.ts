@@ -22,6 +22,8 @@ export function settings(o: { ask: Ask; prefix: string; scope?: string; changed?
   const key = (section: string) => `${o.prefix}.${section}`;
   const scope = o.scope ? { scope: o.scope } : {};
   const changed = o.changed ?? (() => {});
+  /** Значения только этого цикла: служба отдаёт всю область, чужие ключи здесь не хранятся. */
+  const own = (all: Record<string, unknown>) => Object.fromEntries(Object.entries(all).filter(([k]) => k.startsWith(`${o.prefix}.`)));
   let values: Record<string, unknown> = {};
   let answered = false;
   let queue: Edit[] = [];
@@ -29,7 +31,7 @@ export function settings(o: { ask: Ask; prefix: string; scope?: string; changed?
 
   async function read(): Promise<string | null> {
     const r = await o.ask<{ values: Record<string, unknown> }>("prefs.get", scope);
-    if (r.ok) values = r.result.values;
+    if (r.ok) values = own(r.result.values);
     // связи нет — ответит следующее открытие; отказ службы — рисуем встроенное
     if (r.ok || r.error !== "disconnected") answered = true;
     changed();
@@ -59,7 +61,7 @@ export function settings(o: { ask: Ask; prefix: string; scope?: string; changed?
       }
       for (const e of batch) e.done(words.get(e.name) ?? null);
       // правки, пришедшие за время цикла, остаются поверх
-      values = next;
+      values = own(next);
       for (const e of queue) values[e.name] = e.fn(values[e.name]);
       changed();
     }

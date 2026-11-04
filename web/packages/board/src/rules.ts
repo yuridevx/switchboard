@@ -6,7 +6,6 @@ import { kindOf, machineOf } from "@switchboard/protocol";
 /** Ранг состояния: ждёт вас и сбой, работает, остальные. Порядок списка от него не зависит. */
 export const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 export const byRank = (a: SessionRecord, b: SessionRecord) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign);
-export const incidentOf = (s: SessionRecord) => (s.incident as { type?: string } | null | undefined)?.type;
 
 /** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */
 export const parentOf = (s: SessionRecord) => (typeof s.parent === "string" && kindOf(s.parent) === "session" && s.parent !== s.callsign ? s.parent : null);

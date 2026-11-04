@@ -10,7 +10,8 @@
     "card": 1,
     "card.tab": 1,
     "card.menu": 2,
-    "card.view": 1
+    "card.view": 1,
+    "card.head.reset": 1
   },
   "uses": {
     "view@web-view": 19,

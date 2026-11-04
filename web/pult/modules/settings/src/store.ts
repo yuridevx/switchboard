@@ -1,6 +1,6 @@
 // Состояние настроек: ответы владельцев («Выпуски», keeper'ы, gate, github) и вид экрана, который переживает закрытие экрана
 // (подвкладка, отмеченные машины, выданное приглашение). Каждая цифра — ответ владельца; своего модуль не считает.
-import type { App, Roster } from "@switchboard/web-core";
+import type { App } from "@switchboard/web-core";
 import { createStore, machineAnswers, type MachineAnswers, type OutcomeNote, plural, useModule, machinesWith, okOf } from "@switchboard/web-ui";
 import { planOf, say, type Err, type KState, type Listed, type ReleaseData } from "./rules.ts";
 
@@ -24,8 +24,8 @@ export type State = {
   deployed: OutcomeNote | null;
 };
 
-/** Ответы keeper'ов для других модулей: читать и держать открытыми; перечитать — команда keeper.reload. */
-export type KeeperAnswers = Pick<MachineAnswers<KState>, "get" | "mount">;
+/** Ответы keeper'ов для других модулей — только данные; держать свежими и перечитать — команды keeper.open, keeper.close, keeper.reload. */
+export type KeeperAnswers = ReturnType<MachineAnswers<KState>["get"]>;
 
 export type SettingsStore = ReturnType<typeof createSettingsStore>;
 /** Стор модуля в экранах. */
@@ -49,6 +49,8 @@ export function createSettingsStore(app: App) {
     store.set((s) => void (s.list = r.ok ? r.result : { error: r.error }));
   }
   const loadKeeper = (m: string) => keeper.reload(m);
+  /** Открытые чужие экраны с ответами keeper: снятие каждого — команда keeper.close. */
+  const keeperOpen: Array<() => void> = [];
   async function loadReleases() {
     await Promise.all([loadList(), ...machines().map(loadKeeper)]);
   }
@@ -76,10 +78,14 @@ export function createSettingsStore(app: App) {
     get: store.get,
     releaseData,
     machines,
-    /** Машина пришла или вернулась при открытом экране — её keeper. */
-    onRoster: (r: Roster) => keeper.onRoster(r),
+    /** Машина вернулась, пришла или перезапустилась при открытом экране — её keeper. */
+    onLink: keeper.onLink,
     /** Метка keeper.answers. */
-    keeperAnswers: { get: keeper.get, mount: keeper.mount } satisfies KeeperAnswers,
+    keeperAnswers: (): KeeperAnswers => keeper.get(),
+    /** Команда keeper.open: чужой экран открыт — ответы держать свежими. */
+    openKeeper: () => void keeperOpen.push(keeper.mount()),
+    /** Команда keeper.close: чужой экран закрыт. */
+    closeKeeper: () => keeperOpen.pop()?.(),
     /** Команда keeper.reload. */
     reloadKeeper: loadKeeper,
 

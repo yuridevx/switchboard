@@ -1,6 +1,6 @@
 // Реестр модулей: кто владеет экраном, кадром и меткой; ловушка ошибок модуля — бросил, значит выключен до перезапуска приложения.
 import { nameOf } from "./gate.ts";
-import type { Mod, ScreenEntry } from "./mod.ts";
+import type { CommandEntry, Mod, ScreenEntry } from "./mod.ts";
 import type { App, AppPart } from "./types.ts";
 
 export type Registry = ReturnType<typeof createRegistry>;
@@ -9,6 +9,7 @@ export function createRegistry(changed: () => void) {
   const mods: Mod[] = [];
   const frameOwner = new Map<string, Mod>();
   const screenOwner = new Map<string, ScreenEntry>();
+  const commandOwner = new Map<string, CommandEntry>();
   const markOwner = new Map<string, Mod>();
 
   function fail(x: Mod, where: string, e: unknown) {
@@ -42,6 +43,7 @@ export function createRegistry(changed: () => void) {
   return {
     mods,
     screens: screenOwner,
+    commands: commandOwner,
     /** Определения модулей выпуска: сначала App, затем функция модуля. Бросила — модуль выключен, на его экранах — причина. */
     define(parts: AppPart[], appFor: (x: Mod) => App) {
       for (const p of parts) {
@@ -56,6 +58,7 @@ export function createRegistry(changed: () => void) {
       for (const x of mods) {
         for (const t of Object.keys(x.mod.frames ?? {})) frameOwner.set(t, x);
         for (const [n, def] of Object.entries(x.mod.screens ?? {})) screenOwner.set(n, { owner: x, def });
+        for (const [n, def] of Object.entries(x.mod.commands ?? {})) commandOwner.set(n, { owner: x, def });
         for (const n of Object.keys(x.mod.marks ?? {})) markOwner.set(n, x);
       }
     },
@@ -68,10 +71,10 @@ export function createRegistry(changed: () => void) {
     lookup: (screen: string) => screenOwner.get(screen),
     /** Модуль этого App. */
     modOf: (app: App) => mods.find((x) => x.app === app),
-    /** Может ли модуль открыть экран: свой, из uses или вставленный в его место. */
-    mayOpen(x: Mod, screen: string): boolean {
-      const at = screenOwner.get(screen)?.def.place;
-      return x.mod.screens?.[screen] !== undefined || (at !== undefined && x.m.provides[at] !== undefined) || !!usesRef(x, screen);
+    /** Может ли модуль открыть экран или выполнить команду: свои, из uses или вставленные в его место. */
+    mayOpen(x: Mod, name: string): boolean {
+      const at = screenOwner.get(name)?.def.place ?? commandOwner.get(name)?.def.place;
+      return x.mod.screens?.[name] !== undefined || x.mod.commands?.[name] !== undefined || (at !== undefined && x.m.provides[at] !== undefined) || !!usesRef(x, name);
     },
     /** Запустить start модулей по порядку. */
     async startAll() {

@@ -158,3 +158,18 @@ export function within<T>(p: T | Promise<T>, why: string, ms: number = CALL_MS):
   });
   return Promise.race([Promise.resolve(p), late]).finally(() => stop());
 }
+
+/** Предел операции: не успела за ms — ответ late (бросила — отказ). Саму операцию не прерывает: что прервать, знает вызывающий. */
+export function withLimit<T>(p: Promise<T>, ms: number, late: () => T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<T>((ok, no) => {
+    timer = setTimeout(() => {
+      try {
+        ok(late());
+      } catch (e) {
+        no(e);
+      }
+    }, ms);
+  });
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
+}

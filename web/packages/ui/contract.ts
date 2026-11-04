@@ -1,4 +1,4 @@
-// Контракт web-ui — набор страницы: компоненты, форматы и стиль основания. Состояния не держит, ядра не знает; createStore — основа состояния модуля; Markdown — текст Claude и песочница HTML.
+// Контракт web-ui — набор страницы: компоненты, форматы, стиль основания и тип App, который реализует ядро. Состояния не держит, ядра не знает; createStore — основа состояния модуля; Markdown — текст Claude и песочница HTML.
 // Модуль пользуется им через "ui@web-ui" в uses. Основание UI_CSS ставит ядро, без области.
 import json from "./module.json" with { type: "json" };
 import css from "./src/ui.css";
@@ -15,7 +15,8 @@ export * from "./src/format.ts";
 export * from "./src/perms.ts";
 export { personal } from "./src/personal.ts";
 export { AppCtx, useApp, useModule } from "./src/hooks.ts";
-export type { AppHandle, OutcomeNote, Result } from "./src/hooks.ts";
+export type { OutcomeNote, Result } from "./src/hooks.ts";
+export type { App, ConnState, Ctx, Marks, Params, Section, SlotProps } from "./src/app.ts";
 export { useLoad, useMachineLoad, useNow, useOutcome } from "./src/hooks.ts";
 export { machineAnswers, okOf } from "./src/machines.ts";
 export type { MachineAnswer, MachineAnswers } from "./src/machines.ts";
