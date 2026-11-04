@@ -1,25 +1,17 @@
-// Контракт release: формат выпуска частей машины в бакете switchboard-releases — один владелец для CI (switchboard
-// release), Worker «выпуски» (ключи, хэш, подписанные ссылки) и модуля Host «части» (упаковка папки приложения).
+// Контракт release: формат выпуска в бакете switchboard-releases — один владелец для CI, Worker'а «Выпусков» и модуля Host parts.
 // Импорт отсюда — с "release.format@release": 1 в uses.
 //
-//   <часть>/<версия>.tgz      архив части: у Host — папка выпуска с app.json, у keeper — windows-amd64/keeper.exe и linux-amd64/keeper
+//   <часть>/<версия>.tgz      архив; у модуля каталога module.json — первая запись, у Worker'а и оболочки страницы в нём workers — имя Worker'а по флотам
 //   <часть>/<версия>.sha256   «<sha256 архива>  <версия>.tgz»; пишется вторым — версия готова
-// Каталог модулей — та же раскладка: <модуль>/<версия>.tgz, module.json — первой записью архива; у Worker'а и оболочки
-// страницы в нём workers — имя Worker'а по флотам. Модуль страницы — module.json и один ES-файл (WEB_FILE);
-// сборка страницы — раскладка webBuild: оболочка в корне, m/<модуль>.<версия>.js, build.json, _headers. Список сборки (BuildList,
-// buildFile) — один для Host и страниц: модули и адреса Worker'ов флота.
-export { parseSha, RELEASES_BUCKET, shaKey, shaLine, tgzKey, VERSION_RE } from "./src/format.ts";
-export { presign } from "./src/presign.ts";
-export type { LinkKey } from "./src/presign.ts";
-export { sha256hex } from "./src/hash.ts";
-export { entries, manifestOf, MANIFEST, pack } from "./src/tar.ts";
-export type { TarFile } from "./src/tar.ts";
-// упаковка модуля из папки по module.json — монорепо (release-cli) и чужой репо (parts.upload)
-export { packageFiles, packModule } from "./src/pack.ts";
-export type { ModuleJson, PackedModule } from "./src/pack.ts";
-export { upload, PUT_MS } from "./src/upload.ts";
-export type { FetchReply, Get, Put, UploadReply } from "./src/upload.ts";
-export { WEB_FILE, webBuild } from "./src/web.ts";
-export { importMap, withImportMap } from "./src/importmap.ts";
-export { BUILD_FILE, buildFile } from "./src/build-list.ts";
-export type { BuildList } from "./src/build-list.ts";
+// Модуль страницы — module.json и один ES-файл (WEB_FILE). Список сборки (BuildList, buildFile) — один для Host и страниц.
+export { entries, manifestOf, MANIFEST, pack } from "./src/archive.ts";
+export type { TarEntry, TarFile } from "./src/archive.ts";
+export { byVersion, isBuild, isVersion, parseSha, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey } from "./src/layout.ts";
+export { presign } from "./src/link.ts";
+export type { LinkKey } from "./src/link.ts";
+export { packageFiles, packModule } from "./src/folder.ts";
+export type { ModuleJson, PackedModule } from "./src/folder.ts";
+export { download, upload } from "./src/transfer.ts";
+export type { Answer, FetchReply, Net, UploadReply } from "./src/transfer.ts";
+export { BUILD_FILE, buildFile, WEB_FILE, webBuild } from "./src/page.ts";
+export type { BuildList } from "./src/page.ts";

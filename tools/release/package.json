@@ -7,6 +7,6 @@
     ".": "./contract.ts"
   },
   "scripts": {
-    "test": "cd ../.. && vitest run tools/release"
+    "test": "cd ../.. && vitest run tools/release-cli"
   }
 }
