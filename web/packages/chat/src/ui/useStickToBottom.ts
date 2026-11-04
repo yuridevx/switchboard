@@ -31,6 +31,8 @@ export function useStickToBottom(box: RefObject<HTMLElement | null>, content: Re
       if (stuck.current) el.scrollTop = el.scrollHeight;
     });
     grow.observe(inner);
+    // лента сжалась (полосы над вводом, выросшее поле): низ тоже должен остаться на месте
+    grow.observe(el);
     return () => {
       el.removeEventListener("scroll", onScroll);
       grow.disconnect();

@@ -1,4 +1,5 @@
 // Разделы: колонка широкого вида, лента и вкладки узкого; модель раскладки считается из разделов и текущего экрана.
+import { useEffect, useRef } from "react";
 import { Badge, Pill } from "@switchboard/web-ui";
 import type { ScreenEntry } from "../mod.ts";
 import { useCore, type Core } from "./core.ts";
@@ -24,8 +25,13 @@ export function sectionsModel(core: Core): SectionsModel {
 function Item({ n, s, on }: { n: string; s: ScreenEntry; on: boolean }) {
   const core = useCore();
   const count = core.countOf(s);
+  const self = useRef<HTMLButtonElement>(null);
+  // лента разделов прокручивается: открытый раздел всегда виден
+  useEffect(() => {
+    if (on) self.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  }, [on]);
   return (
-    <button className="sb-nv" aria-current={on ? "page" : undefined} data-screen={n} onClick={() => core.go(n, {})}>
+    <button ref={self} className="sb-nv" aria-current={on ? "page" : undefined} data-screen={n} onClick={() => core.go(n, {})}>
       <span>{s.def.nav}</span>
       {count !== null ? <Badge wait>{count}</Badge> : null}
     </button>

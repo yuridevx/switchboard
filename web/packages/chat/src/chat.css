@@ -6,15 +6,16 @@
 .chat-col>*{min-width:0}
 .chat-note{font-size:13px;color:var(--muted);text-align:center;padding:24px 8px}
 .chat-older{align-self:center;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 14px;font:500 12.5px var(--body);color:var(--muted)}
-.chat-jump{position:absolute;right:18px;bottom:12px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);background:var(--surface);color:var(--ink);box-shadow:var(--shadow);padding:0}
+.chat-jump{position:absolute;left:50%;transform:translateX(-50%);bottom:12px;width:34px;height:34px;border-radius:50%;display:grid;place-items:center;border:1px solid var(--line);background:var(--surface);color:var(--ink);box-shadow:var(--shadow);padding:0}
 
 /* ответ Claude: текст без рамки, шаги — плотным столбцом */
 .chat-reply{display:flex;flex-direction:column;gap:6px;min-width:0}
 .chat-txt{font-size:15px;min-width:0}
 .chat-txt+.chat-tool,.chat-tool+.chat-txt,.chat-think+.chat-txt,.chat-txt+.chat-think{margin-top:4px}
-.chat-acts{display:flex;height:20px;margin-top:-4px}
-.chat-reply+.chat-res{margin-top:-12px}
-@media (hover:hover){.chat-acts{opacity:0}.chat-reply:hover>.chat-acts,.chat-acts:focus-within{opacity:1}}
+.chat-reply{position:relative}
+/* «копировать» не держит место в ленте: с мышью появляется в зазоре под ответом, на пальце стоит строкой */
+.chat-acts{display:flex}
+@media (hover:hover){.chat-acts{position:absolute;left:0;top:100%;z-index:1;opacity:0}.chat-reply:hover>.chat-acts,.chat-acts:focus-within{opacity:1}}
 
 /* размышление */
 .chat-think{font-size:13px;color:var(--muted)}
@@ -246,3 +247,14 @@
 .chat-galn{font-size:12.5px;color:var(--muted);padding-top:2px}
 .chat-galc{display:flex;flex-direction:column;gap:8px;min-width:0}
 @media (max-width:640px){.chat-galr{grid-template-columns:minmax(0,1fr);gap:4px}}
+
+/* палец: цели нажатия не меньше 32 точек, подсказка клавиши ни о чём не говорит, описание команды читается целиком */
+.chat-nb{white-space:nowrap}
+@media (pointer:coarse){
+  .chat-cancel,.chat-again,.chat-more,.chat-file button{min-height:32px;align-items:center}
+  .chat-file button{min-width:32px}
+  .chat-acts .cb-b,.cb-h .cb-b{min-height:32px;min-width:32px;justify-content:center}
+  .chat-hint kbd{display:none}
+  .chat-sugi{flex-wrap:wrap;min-height:36px;align-items:center}
+  .chat-sugi span{white-space:normal;overflow:visible}
+}

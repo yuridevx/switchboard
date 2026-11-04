@@ -110,6 +110,7 @@ const roster = {
     ...(s.prof ? { profile: { id: `team/profiles/${s.prof}`, state: "ok" } } : {}),
     ...(s.fail ? { failed: { start: s.fail } } : {}),
     ...(s.inc ? { incident: { type: s.inc, key: "switchboard#main", state: "open" } } : {}),
+    ...(s.cs === "refactor@win" ? { r2: { at: Date.now() - 60000 } } : {}),
   })),
   clients: [`pult~${ME}`, `phone~${ME}`, "laptop~anna@mail.ru", "laptop~oleg@mail.ru"],
 };

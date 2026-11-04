@@ -90,3 +90,4 @@
 .sb-errs{margin:0;padding:0;list-style:none;font:500 12.5px/1.45 var(--mono);text-align:left;color:var(--bad)}
 
 .sb-main:has([data-hide-tabs]) .sb-tabs{display:none}
+.sb-palin:focus-visible{outline-offset:-3px;border-radius:14px 14px 0 0}

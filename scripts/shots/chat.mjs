@@ -69,7 +69,16 @@ async function shot(app, viewport, scheme, id, hash, act) {
     await p.waitForSelector(".chat, .chat-gal", { timeout: 5000 });
     await pause(p, 500);
     if (act) await act(p);
+    await pause(p, 150);
     await p.screenshot({ path: path.join(OUT, `${id}.png`) });
+    // лента у низа остаётся у низа, что бы ни выросло над вводом; уводят от низа только прокрутка вверх и откат к первому сообщению
+    if (!/scrolled-up|rewind/.test(id)) {
+      const gap = await p.evaluate(() => {
+        const f = document.querySelector(".chat-feed");
+        return f ? f.scrollHeight - f.scrollTop - f.clientHeight : 0;
+      });
+      if (gap > 4) fails.push(`${id}: лента не у низа, ${Math.round(gap)} точек`);
+    }
     const over = await p.evaluate(() => {
       const de = document.documentElement;
       const bad = [...document.querySelectorAll(".chat *, .chat-gal *")]

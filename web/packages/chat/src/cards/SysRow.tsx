@@ -45,12 +45,15 @@ const FALLBACK: Record<string, string> = { model_not_found: "недоступн�
 const AREA: Record<string, string> = { cyber: "кибербезопасность", bio: "биология и химия", chem: "химия", weapons: "оружие", self_harm: "самоповреждение" };
 const TASK_END: Record<string, [string, string]> = { completed: ["завершена", "ok"], failed: ["упала", "bad"], stopped: ["остановлена", "wait"], killed: ["оборвана", "wait"] };
 
+/** Почему оборвался ход: подтипы result у SDK; незнакомый — как есть. */
+const RESULT: Record<string, string> = { error_during_execution: "сбой при выполнении", error_max_turns: "предел шагов", error_max_budget_usd: "предел бюджета", error_max_structured_output_retries: "предел повторов ответа" };
+
 function ResultRow({ sys }: { sys: Of<"result"> }) {
   if (!sys.ok) {
     return (
       <div className="chat-res err">
         <AlertTriangle size={13} />
-        {`ход оборвался: ${sys.subtype ?? "ошибка"}`}
+        {`ход оборвался: ${RESULT[sys.subtype ?? ""] ?? sys.subtype ?? "ошибка"}`}
         {sys.error ? <p>{sys.error}</p> : null}
       </div>
     );

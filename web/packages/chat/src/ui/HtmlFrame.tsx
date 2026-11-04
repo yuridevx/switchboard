@@ -7,16 +7,20 @@ import { useEffect, useRef, useState } from "react";
 const CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; webrtc 'block'";
 /** Сколько ждать сигнал своего документа после загрузки: сообщение приходит следом за load. */
 const SIGNAL_MS = 500;
+/** Просмотр по высоте документа в этих пределах; дальше — прокрутка внутри и ручка размера. */
+const MIN_H = 60;
+const MAX_H = 640;
 
 /**
  * Документ с правилом CSP в начале: оно действует раньше всего, что написано в документе. Следом — сигнал «загрузился именно он»:
  * скрипт идёт первым и убирает себя, поэтому знак сигнала документу не виден и чужая страница его не подделает.
  */
 export const framed = (html: string, sign = "") =>
-  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(e.isTrusted)p.postMessage(${JSON.stringify(sign)},"*")})})()</script>${html}`;
+  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(!e.isTrusted)return;p.postMessage(${JSON.stringify(sign)},"*");const d=document.documentElement,h=()=>p.postMessage({height:d.scrollHeight},"*");h();new ResizeObserver(h).observe(d)})})()</script>${html}`;
 
 function Shown({ html, title }: { html: string; title: string }) {
   const [left, setLeft] = useState(false);
+  const [height, setHeight] = useState<number>();
   const [sign] = useState(() => crypto.randomUUID());
   const frame = useRef<HTMLIFrameElement>(null);
   const loads = useRef(0);
@@ -24,7 +28,10 @@ function Shown({ html, title }: { html: string; title: string }) {
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.data === sign && e.source === frame.current?.contentWindow) signed.current = true;
+      if (e.source !== frame.current?.contentWindow) return;
+      if (e.data === sign) signed.current = true;
+      // высота от документа — только размер рамки: он не выйдет за пределы и больше ни на что не влияет
+      else if (typeof e.data?.height === "number") setHeight(Math.min(MAX_H, Math.max(MIN_H, Math.ceil(e.data.height))));
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
@@ -65,7 +72,7 @@ function Shown({ html, title }: { html: string; title: string }) {
     );
   }
   return (
-    <div className="html-frame">
+    <div className="html-frame" style={height ? { height } : undefined}>
       <iframe ref={frame} title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={framed(html, sign)} />
     </div>
   );

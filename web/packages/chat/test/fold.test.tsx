@@ -257,7 +257,7 @@ describe("frame-session-events-system", () => {
 
   it("6627 · ход оборвался", async () => {
     const t = await draw([{ type: "result", uuid: uid(), subtype: "error_during_execution", is_error: true, errors: ["процесс упал"] }]);
-    expect(t.el.querySelector(".chat-res.err")!.textContent).toContain("ход оборвался: error_during_execution");
+    expect(t.el.querySelector(".chat-res.err")!.textContent).toContain("ход оборвался: сбой при выполнении");
     expect(t.el.querySelector(".chat-res.err p")!.textContent).toBe("процесс упал");
     const ok = await draw([{ type: "result", uuid: uid(), subtype: "success", is_error: true, result: "API упал" }]);
     expect(ok.el.querySelector(".chat-res.err p")!.textContent).toBe("API упал");

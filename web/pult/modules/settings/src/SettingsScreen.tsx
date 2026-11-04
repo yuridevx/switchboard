@@ -41,7 +41,7 @@ export function SettingsScreen({ params }: ScreenProps) {
 
   return (
     <Page>
-      <PageHead title="Настройки">{app.wide ? <Tabs tab={tab} /> : null}</PageHead>
+      {app.wide ? <PageHead title="Настройки"><Tabs tab={tab} /></PageHead> : null}
       {tab === "releases" ? (
         <Releases />
       ) : tab === "passes" ? (
