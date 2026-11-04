@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: plan-slice
+expected_outcome: |
+  Граница — весь срез счетов без общей библиотеки и отчётов; тесты прошли триаж; заморозка раньше сноса.
+context:
+  scaffold_script: place-files.sh

@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: block-offers-half
+expected_outcome: |
+  Хук Stop видит отступление и возвращает агента к работе.

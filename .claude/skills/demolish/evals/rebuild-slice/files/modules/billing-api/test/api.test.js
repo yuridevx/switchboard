@@ -1,0 +1,13 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createInvoice, getInvoice, refund } from "../index.js";
+test("НДС 20% на 10", () => { assert.equal(createInvoice(10).total, 12); });
+test("НДС 20% на 10 ещё раз", () => { const i = createInvoice(10); assert.equal(i.total, 12); });
+test("НДС на 5", () => { assert.equal(createInvoice(5).total, 6); });
+test("НДС на 7.77", () => { assert.equal(createInvoice(7.77).total, 9.32); });
+test("отрицательная сумма", () => { assert.throws(() => createInvoice(-1), /bad_amount/); });
+test("отрицательная сумма снова", () => { assert.throws(() => createInvoice(-5), /bad_amount/); });
+test("нет счёта", () => { assert.throws(() => getInvoice(-1), /not_found/); });
+test("возврат", () => { const i = createInvoice(1); refund(i.id); assert.equal(getInvoice(i.id).refunded, true); });
+test("второй возврат отказывает", () => { const i = createInvoice(1); refund(i.id); assert.throws(() => refund(i.id), /already_refunded/); });
+test("модуль загружается", () => { assert.ok(true); });

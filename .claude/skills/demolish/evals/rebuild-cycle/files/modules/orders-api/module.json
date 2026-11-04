@@ -1,0 +1,1 @@
+{ "name": "orders-api", "provides": ["placeOrder", "listOrders", "_lastRaw"], "uses": ["putOrder@orders-store", "allOrders@orders-store", "_rows@orders-store", "_validate@orders-store", "send@shared-http"] }

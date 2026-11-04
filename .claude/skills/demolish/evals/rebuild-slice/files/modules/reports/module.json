@@ -1,0 +1,1 @@
+{ "name": "reports", "provides": ["monthlyTotal"], "uses": ["getInvoice@billing-api", "listOrders@orders-api", "send@shared-http"] }

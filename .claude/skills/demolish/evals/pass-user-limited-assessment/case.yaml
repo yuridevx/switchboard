@@ -1,0 +1,4 @@
+schema_version: "1.1"
+name: pass-user-limited-assessment
+expected_outcome: |
+  Хук Stop видит законное сообщение и не вмешивается.
