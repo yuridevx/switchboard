@@ -9,7 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import manifest from "../module.json" with { type: "json" };
-import { CHECK_MS, CONTINUE, CREDENTIALS, LOCK_WAIT_MS, LOGIN_MS, POLL_MS, REFRESH_LOCK, STATUS_MS, linkSlot, make, migrate } from "../src/logins.ts";
+import { CHECK_MS, CONTINUE, CREDENTIALS, LOCK_WAIT_MS, LOGIN_MS, POLL_MS, REFRESH_LOCK, STATUS_MS, linkSlot, make } from "../src/logins.ts";
 
 const { msg, module, standHost, turn, until } = stand;
 type Stand = stand.Stand;
@@ -968,54 +968,6 @@ describe("эталоны дизайна «Предел чтений и слот�
     st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.96, resetsAt: R }));
     await until(() => swaps().length === 1);
     expect(read(slotDir("main"))).toContain("tok-corp");
-  });
-
-  it("E27 · записи прежнего вида: порядок слотов, слоты сессий и входы на месте, оба прежних файла байт в байт; второй старт ничего не меняет", async () => {
-    // источник: факт: слоты и сессии в них есть на проде
-    const store = join(home, "store");
-    mkdirSync(store, { recursive: true });
-    cred(accDir("infirex"), "infirex");
-    cred(accDir("y0902"), "y0902");
-    linkSlot(slotDir("main"), accDir("infirex"));
-    linkSlot(slotDir("bot"), accDir("y0902"));
-    const oldAcc = JSON.stringify({ machine: { infirex: { login: "ok", links: [slotDir("main")], limits: {}, err: "старая" }, y0902: { login: "ok", links: [slotDir("bot")], email: "y@x", limits: {} } } });
-    const oldSlots = JSON.stringify({ machine: { slots: { main: ["infirex", "y0902"], bot: ["y0902"] }, pending: { "ghost@laptop": "main" } }, sessions: { "site@laptop": { slot: "main" }, "poe@laptop": { slot: "bot", cut: "y0902" }, "doc@laptop": { slot: null } } });
-    writeFileSync(join(store, "host-accounts.json"), oldAcc);
-    writeFileSync(join(store, "host-slots.json"), oldSlots);
-    expect(existsSync(join(store, "host-logins.json"))).toBe(false);
-    mod = make();
-    st = await standHost({
-      home,
-      sessions: ["site@laptop", "poe@laptop", "doc@laptop"].map((callsign) => ({ callsign })),
-      modules: [{ manifest: manifest as Manifest, module: mod }],
-    });
-    await until(() => st!.kernel.sessions.get("site@laptop")?.state === "idle");
-    expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
-    expect(st!.proc("poe@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("bot"));
-    expect(st!.proc("doc@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
-    const r = (await st!.relay.request({ v: 1, machine: "laptop", type: "machine.accounts" } as Frame)) as Frame & { result: any };
-    expect(r.result.slots.main).toMatchObject({ account: "infirex", order: ["infirex", "y0902"], sessions: ["site@laptop"] });
-    expect(r.result.slots.bot.account).toBe("y0902");
-    expect(r.result.accounts.y0902).toMatchObject({ login: "ok", email: "y@x" });
-    expect(r.result.accounts.infirex.err).toBeUndefined();
-    expect(r.result.accounts.infirex.links).toBeUndefined();
-    expect(readFileSync(join(store, "host-accounts.json"), "utf8")).toBe(oldAcc);
-    expect(readFileSync(join(store, "host-slots.json"), "utf8")).toBe(oldSlots);
-    expect(raw().machine.pending).toBeUndefined();
-    // второй старт ничего не меняет
-    const was = readFileSync(join(store, "host-logins.json"), "utf8");
-    expect(migrate(store)).toBe(false);
-    expect(readFileSync(join(store, "host-logins.json"), "utf8")).toBe(was);
-  });
-
-  it("E27 · падение до замены файла: нового файла нет, прежние целы, следующий старт переносит заново", () => {
-    // источник: дизайн: падение посреди переноса повторяет его
-    const store = join(home, "store");
-    mkdirSync(store, { recursive: true });
-    writeFileSync(join(store, "host-accounts.json"), JSON.stringify({ machine: { a: { login: "ok", links: [], limits: {} } } }));
-    writeFileSync(join(store, "host-logins.json.tmp"), "обрыв");
-    expect(migrate(store)).toBe(true);
-    expect(JSON.parse(readFileSync(join(store, "host-logins.json"), "utf8")).machine.accounts.a.login).toBe("ok");
   });
 
   it("E28 · удаление аккаунта в двух слотах одним запросом: слоты сменили аккаунт, порядок без него, папка стёрта", async () => {

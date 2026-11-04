@@ -45,7 +45,7 @@ export function joinedRoster(): Roster {
   return { ...r, sessions: [...r.sessions, { callsign: "new@laptop", dir: "~", by: "panel-desk~owner@example.com", state: "idle" }] };
 }
 
-/** Часть ответа machine.accounts о слотах: тест задаёт её отдельно от аккаунтов. Не задана — ответ без слотов, как у прежнего Host. */
+/** Часть ответа machine.accounts о слотах: тест задаёт её отдельно от аккаунтов. Не задана — на машине слотов нет. */
 export const SLOTS = "слоты в ответе machine.accounts";
 type Answer = { ok: boolean; result?: unknown; error?: string } | undefined;
 
@@ -58,7 +58,8 @@ function composeAccounts(relay: FakeRelay) {
     get: () => (x: Parameters<FakeRelay["handlers"][string]>[0]) => {
       const a = accounts(x);
       const hs = relay.handlers[SLOTS];
-      if (!hs || !a?.ok) return a;
+      if (!a?.ok) return a;
+      if (!hs) return { ok: true, result: { slots: {}, ...(a.result as object) } };
       const sl = hs(x) as Answer;
       if (!sl?.ok) return sl;
       return { ok: true, result: { ...(a.result as object), slots: (sl.result as { slots: unknown }).slots } };

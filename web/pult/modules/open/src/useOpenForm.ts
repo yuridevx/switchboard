@@ -47,7 +47,7 @@ export function useOpenForm(params: Params) {
   const listQ = useMachineLoad<{ path: string; dirs: string[] }>(machine, "machine.dirs", { machine, path: parent });
   const list: Listing = listQ.stale || (!listQ.data && !listQ.error) ? null : { m: machine, parent, dirs: listQ.data?.dirs ?? [], word: listQ.error };
 
-  const slots: Slots | null = slotsQ.data ? (slotsQ.data.slots ?? {}) : null;
+  const slots: Slots | null = slotsQ.data ? slotsQ.data.slots : null;
   const profiles = profilesQ.data ? (profilesQ.data.profiles ?? {}) : null;
 
   /** Профиль по умолчанию — только от сессии в этой же папке: имя папки ничего не значит. */

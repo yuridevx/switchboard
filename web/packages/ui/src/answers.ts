@@ -6,7 +6,7 @@ export type AccountWindow = { utilization: number; resetsAt?: number; at?: numbe
 export type AccountInfo = { login: "ok" | "none" | "pending"; email?: string; plan?: string; checked?: number; limits?: Record<string, AccountWindow> };
 export type SlotInfo = { account: string | null; order: string[]; wait: number | null; sessions: string[] };
 /** Ответ machine.accounts: аккаунты и слоты машины. Прежний Host слотов не присылает. */
-export type AccountsAnswer = { accounts: Record<string, AccountInfo>; slots?: Record<string, SlotInfo> };
+export type AccountsAnswer = { accounts: Record<string, AccountInfo>; slots: Record<string, SlotInfo> };
 
 export type ProfileInfo = { model?: string | null; effort?: string | null; about?: string };
 export type ProfileRepo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };

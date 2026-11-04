@@ -93,20 +93,6 @@ describe("строка выбора слота", () => {
     await flush(5);
     expect(t.text()).toContain("session.open: not_logged_in — в слоте main никого");
   });
-
-  it("E39 · ответ аккаунтов без слотов от прежнего Host: экраны живы, поле слота не уходит", async () => {
-    // источник: чьё: код; выпуск: новая страница на прежнем Host
-    const relay = openRelay(null);
-    const t = await openForm(relay);
-    await t.click(t.$('[data-pop="model"]'));
-    expect(t.$("[data-slot-pick]")).toBeNull();
-    await named(t, "a");
-    await start(t);
-    expect(relay.sent("session.open")[0]).not.toHaveProperty("slot");
-    await t.go("#accounts?view=slots");
-    await flush(10);
-    expect(t.text()).toContain("Новый слот на laptop");
-  });
 });
 
 describe("ответы машин", () => {

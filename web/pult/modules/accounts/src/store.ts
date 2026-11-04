@@ -50,8 +50,8 @@ export function createAccountsStore(app: App) {
   const machines = (n: string) => machinesWith(app, n);
 
   async function askAccounts(m: string, body: Record<string, unknown>) {
-    const r = await app.read<Partial<AccountsAnswer>>("machine.accounts", { machine: m, ...body });
-    return r.ok ? { ok: true as const, result: { accounts: r.result.accounts ?? {}, slots: r.result.slots ?? {} } } : r;
+    const r = await app.read<AccountsAnswer>("machine.accounts", { machine: m, ...body });
+    return r;
   }
   /** Ответы машин: открыли экран — machine.accounts { max_age: 120 }, в нём и слоты; машина пришла — доспросить. */
   const accs: MachineAnswers<AccountsAnswer> = machineAnswers<AccountsAnswer>(app, (m) => askAccounts(m, { max_age: 120 }), () => machines("machine.accounts"));
@@ -91,7 +91,7 @@ export function createAccountsStore(app: App) {
     accsOf,
     slotsOf,
     allAccs,
-    allSlots: () => okAnswers(accs.get(), (a) => a.slots ?? {}),
+    allSlots: () => okAnswers(accs.get(), (a) => a.slots),
     /** Отказы владельцев: «машина · запрос» → слово; ответ снимает его. Экран пишет слово, а не «аккаунтов нет». */
     refused() {
       const out: Record<string, string> = {};

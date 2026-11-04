@@ -69,7 +69,7 @@ export function createPointsStore(app: App) {
   async function slotsAt(m: string): Promise<{ slots: Slots } | { error: string }> {
     if (!app.can(m, "machine.accounts")) return { slots: {} };
     const r = await app.read<AccountsAnswer>("machine.accounts", { machine: m });
-    return r.ok ? { slots: r.result.slots ?? {} } : { error: `machine.accounts: ${r.error}` };
+    return r.ok ? { slots: r.result.slots } : { error: `machine.accounts: ${r.error}` };
   }
 
   return {

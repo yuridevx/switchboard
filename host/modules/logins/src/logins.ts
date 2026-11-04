@@ -6,7 +6,7 @@
 // порядка и удаление идут одной очередью. Ссылку перевешиваем под блокировкой обновления входа claude
 // (.oauth_refresh.lock в папке входа): claude держит её на время обновления (опыт 1 ноя: ~0,7 с), свежую чужую ждёт.
 // С claude говорит короткими процессами без сессии (host.probe) и командой claude auth status (host.cli).
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import type { Stats } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { CALL_MS, READ_MS, within } from "@switchboard/protocol";
@@ -137,32 +137,6 @@ async function locked<T>(dir: string | null, fn: () => T): Promise<T> {
   } finally {
     rmdirSync(lock);
   }
-}
-
-/**
- * Перенос двух прежних файлов в один новый. Временный код: снимается следующей версией вместе с прежними файлами.
- * Идёт до первого host.store(); прежние файлы не трогает, поэтому откат — одна выкладка. Падение до rename — перенос повторится.
- */
-export function migrate(dir: string): boolean {
-  const f = join(dir, "host-logins.json");
-  if (existsSync(f)) return false;
-  const read = (name: string) => {
-    const p = join(dir, name);
-    return existsSync(p) ? (JSON.parse(readFileSync(p, "utf8")) as { machine?: Record<string, unknown>; sessions?: Record<string, Mine> }) : null;
-  };
-  const was = read("host-accounts.json");
-  const slots = read("host-slots.json");
-  if (!was && !slots) return false;
-  const accounts: Accounts = {};
-  for (const [name, a] of Object.entries((was?.machine ?? {}) as Record<string, Account & { links?: unknown; err?: unknown }>)) {
-    const { links: _l, err: _e, ...rest } = a;
-    accounts[name] = rest;
-  }
-  const next = { machine: { accounts, slots: (slots?.machine?.slots ?? {}) as Machine["slots"] }, sessions: slots?.sessions ?? {} };
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(`${f}.tmp`, JSON.stringify(next, null, 1), { flush: true });
-  renameSync(`${f}.tmp`, f);
-  return true;
 }
 
 export function make() {
@@ -746,8 +720,6 @@ export function make() {
     },
     start(h: Host) {
       host = h;
-      // перенос — до первого обращения к хранилищу: у него свой кэш
-      if (migrate(join(h.dataDir, "store"))) host.log({ ev: "migrate", why: "записи аккаунтов и слотов перенесены в один файл, прежние файлы рядом" });
       // процесс входа умер вместе с прежним Host
       for (const [name, a] of Object.entries(all())) if (a.login === "pending") save(name, (cur) => cur && { ...cur, login: "none" });
       timer = setInterval(() => void check().catch((e) => host.log({ kind: "refuse", ev: "check", why: (e as Error).message })), CHECK_MS);
