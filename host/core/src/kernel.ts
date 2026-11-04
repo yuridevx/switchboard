@@ -345,7 +345,8 @@ export class Kernel {
   // ───────────── вклады в query() ─────────────
 
   canUseTool(s: Sess, tool: string, input: Record<string, unknown>, o: Record<string, unknown>) {
-    const owner = this.decideOwner.get(tool);
+    // своё решение у инструмента или общее decide.*: запрос разрешения в режимах, где claude спрашивает
+    const owner = this.decideOwner.get(tool) ?? this.decideOwner.get("*");
     if (!owner) {
       if (tool === "AskUserQuestion") {
         this.log("core", { kind: "refuse", ev: "decide", word: "unknown_request", callsign: s.callsign, why: "AskUserQuestion: у решения нет владельца — ответ за человека не выбран" });
@@ -359,9 +360,9 @@ export class Kernel {
       return { behavior: "deny" as const, message: MODULE_ERROR };
     };
     return this.waitHuman<PermissionResult>(s, owner, (m, mod) => {
-      const d = m.decide?.[tool];
+      const d = m.decide?.[tool] ?? m.decide?.["*"];
       if (!d) throw new Error(`decide.${tool} нет в новой версии`);
-      return d(s.facade(mod), input, o as never);
+      return d(s.facade(mod), input, { ...o, tool } as never);
     }, `decide.${tool}`, deny);
   }
 

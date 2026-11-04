@@ -8,6 +8,8 @@ import type { Wire } from "./wire.ts";
 type Params = { prompt: AsyncIterable<SDKUserMessage>; options?: Options };
 
 export class FakeQuery {
+  /** ждущие запросы разрешения: сигнал отмены хода */
+  private asking = new Map<string, AbortController>();
   readonly options: Options;
   readonly calls: Array<{ name: string; args: unknown[] }> = [];
   proc: SpawnedProcess | null = null;
@@ -78,8 +80,13 @@ export class FakeQuery {
       this.initDone = true;
       this.initOk({ commands: [], models: [], account: {} });
     } else if (x.$ === "can_use_tool") {
-      const r = await o.canUseTool!(x.tool, x.input, { signal: new AbortController().signal, toolUseID: x.toolUseID } as never);
+      const abort = new AbortController();
+      this.asking.set(x.toolUseID, abort);
+      const r = await o.canUseTool!(x.tool, x.input, { ...x.opts, signal: abort.signal, toolUseID: x.toolUseID } as never);
+      this.asking.delete(x.toolUseID);
       this.write({ $: "permission", toolUseID: x.toolUseID, result: r });
+    } else if (x.$ === "can_use_tool_abort") {
+      this.asking.get(x.toolUseID)?.abort();
     } else if (x.$ === "hook") {
       const out: unknown[] = [];
       for (const m of o.hooks?.[x.event as keyof NonNullable<Options["hooks"]>] ?? []) {
@@ -131,7 +138,7 @@ export class FakeQuery {
 
 const RECORDED = [
   "setModel", "applyFlagSettings", "getContextUsage", "supportedCommands", "supportedModels", "supportedAgents",
-  "mcpServerStatus", "setPermissionMode", "setMaxThinkingTokens", "toggleMcpServer", "reconnectMcpServer", "rewindFiles",
+  "mcpServerStatus", "setPermissionMode", "listPermissionRules", "setMaxThinkingTokens", "toggleMcpServer", "reconnectMcpServer", "rewindFiles",
   "stopTask", "backgroundTasks", "renameSession", "enableRemoteControl", "claudeAuthenticate", "claudeOAuthCallback", "claudeOAuthWaitForCompletion", "accountInfo",
   "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", "askSideQuestion", "getTaskOutput", "cancelAsyncMessage", "mcpAuthenticate", "getStatus", "getHooksListing",
 ];

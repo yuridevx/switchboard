@@ -1,12 +1,13 @@
-// Модуль questions: вопрос сессии человеку. AskUserQuestion (decide) и форма MCP (elicit) уходят тому, кто дал задачу,
+// Модуль questions: вопрос сессии человеку. AskUserQuestion и запрос разрешения (decide) и форма MCP (elicit) уходят тому, кто дал задачу,
 // и зрителям сессии; первый ответ выигрывает, остальные получают already_answered. Ждущий вопрос держит SDK:
 // пока decide не вернулся, ход стоит. В хранилище — только кому ушёл вопрос: после перезапуска Host SDK вернёт
 // тот же toolUseID, и вопрос уйдёт тем же адресатам. Модуль никогда не отвечает за человека.
 import type { DecideOpts, ElicitationRequest, ElicitationResult, Frame, Host, Module, PermissionResult, Session } from "@switchboard/host";
+type PermissionUpdate = NonNullable<DecideOpts["suggestions"]>[number];
 import { kindOf } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
 
-export type Kind = "ask" | "form" | "url";
+export type Kind = "ask" | "form" | "url" | "perm";
 export type AskItem = { question: string; header?: string; multiSelect?: boolean; options?: Array<{ label: string; description?: string }> };
 
 /** Кадр question: вопрос с id, видом и содержимым. */
@@ -15,7 +16,7 @@ export type QuestionFrame = { type: "question"; from: string; to: string[]; ques
 export type AnsweredFrame = { type: "answered"; from: string; to: string[]; question: string; by?: string; answers?: Record<string, string>; action?: string; content?: unknown; cancelled?: true };
 
 /** Ответ человека: ask — answers; form и url — action и content. null — вопрос снят (ход прервали). */
-type Answer = { by: string; answers?: Record<string, string>; action?: "accept" | "decline" | "cancel"; content?: Record<string, unknown> } | null;
+type Answer = { by: string; answers?: Record<string, string>; action?: "accept" | "decline" | "cancel" | "allow" | "deny"; content?: Record<string, unknown>; always?: boolean; message?: string } | null;
 
 type Pending = {
   id: string;
@@ -32,6 +33,12 @@ type Sent = Record<string, string[]>;
 
 const isClient = (a: string) => kindOf(a) === "device" || kindOf(a) === "user";
 const isStrMap = (x: unknown): x is Record<string, string> => !!x && typeof x === "object" && !Array.isArray(x) && Object.values(x).every((v) => typeof v === "string");
+
+/** Режим, в котором claude не спрашивает: запроса разрешения человеку нет. */
+const BYPASS = "bypassPermissions";
+/** План: «всегда» значит одобрить и дальше править без вопросов. */
+const PLAN_TOOL = "ExitPlanMode";
+const ACCEPT_EDITS = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
 
 /** Текст вопроса во ввод сессии, давшей задачу: она ответит инструментом fleet.answer. */
 export function questionText(from: string, id: string, questions: AskItem[]): string {
@@ -70,6 +77,7 @@ export function make(): Module {
   }
 
   function askNotify(cs: string, id: string, kind: Kind, body: Record<string, unknown>) {
+    if (kind === "perm") return { title: `${cs} просит разрешения`, body: String(body.title ?? body.tool ?? ""), tag: id };
     if (kind !== "ask") return { title: `${cs} · форма ${body.server}`, body: String(body.message ?? ""), tag: id };
     const qs = body.questions as AskItem[];
     const one = qs.length === 1 && !qs[0].multiSelect ? qs[0] : null;
@@ -123,6 +131,25 @@ export function make(): Module {
 
   return {
     decide: {
+      // Запрос разрешения: в режиме «без вопросов» его нет (решение устава), в остальных решает только человек.
+      // Настоящий режим держит manage: не ответил — спрашиваем человека, а не разрешаем сами.
+      async "*"(s, input, opts: DecideOpts): Promise<PermissionResult> {
+        const spec = await host.request("session.spec", { callsign: s.info.callsign });
+        if (spec.ok && (spec.result as { mode?: string }).mode === BYPASS) {
+          host.log({ ev: "allow", callsign: s.info.callsign, tool: opts.tool, why: `режим ${BYPASS}` });
+          return { behavior: "allow", updatedInput: input };
+        }
+        const { toolUseID, suggestions, blockedPath, title, description, displayName, decisionReason } = opts;
+        const tool = String(opts.tool);
+        const a = await open(s, toolUseID, "perm", { tool, input, title, description, displayName, reason: decisionReason, blockedPath, suggestions }, opts.signal);
+        if (a === null) return { behavior: "deny", message: "cancelled" };
+        if (a.action === "allow") {
+          const always = !a.always ? undefined : tool === PLAN_TOOL ? ACCEPT_EDITS : suggestions;
+          return { behavior: "allow", updatedInput: input, ...(always?.length ? { updatedPermissions: always as PermissionUpdate[] } : {}) };
+        }
+        const word = tool === PLAN_TOOL ? "Пользователь вернул план" : "Пользователь отклонил";
+        return { behavior: "deny", message: a.message ? `${word}: ${a.message}` : word };
+      },
       async AskUserQuestion(s, input, opts: DecideOpts): Promise<PermissionResult> {
         const a = await open(s, opts.toolUseID, "ask", { questions: (input.questions ?? []) as AskItem[] }, opts.signal);
         if (a === null) return { behavior: "deny", message: "cancelled" };
@@ -146,6 +173,12 @@ export function make(): Module {
         if (p.kind === "ask") {
           if (!isStrMap(req.answers)) throw refuse("bad_frame", "answer: answers — «текст вопроса → ответ»");
           close(id, { by, answers: req.answers });
+          return undefined;
+        }
+        if (p.kind === "perm") {
+          if (req.action !== "allow" && req.action !== "deny") throw refuse("bad_frame", `answer: action ${String(req.action)} — allow или deny`);
+          if (req.message !== undefined && typeof req.message !== "string") throw refuse("bad_frame", "answer: message — строка");
+          close(id, { by, action: req.action, always: req.always === true, ...(req.message ? { message: req.message as string } : {}) });
           return undefined;
         }
         const action = (req.action ?? "accept") as string;

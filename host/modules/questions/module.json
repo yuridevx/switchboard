@@ -1,20 +1,24 @@
 {
   "name": "host-questions",
   "type": "sdk",
-  "version": "1.1.1",
-  "into": ["host"],
+  "version": "1.2.0",
+  "into": [
+    "host"
+  ],
   "provides": {
     "answer": 1,
     "question.list": 1,
     "question": 1,
     "answered": 1,
     "decide.AskUserQuestion": 1,
-    "elicit": 1
+    "elicit": 1,
+    "decide.*": 1
   },
   "uses": {
     "host.module@host": 1,
     "session.watchers@host-watch": 1,
-    "notify@host-push": 1
+    "notify@host-push": 1,
+    "session.spec@host-manage": 1
   },
   "calls": [],
   "config": {}

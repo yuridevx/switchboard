@@ -105,6 +105,8 @@ export type DecideOpts = {
   toolUseID: string;
   signal: AbortSignal;
   suggestions?: PermissionUpdate[];
+  /** инструмент: ядро ставит его для общего решения decide.* */
+  tool?: string;
   [k: string]: unknown;
 };
 

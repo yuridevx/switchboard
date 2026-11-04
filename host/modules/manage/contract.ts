@@ -3,8 +3,9 @@
 //     → { callsign, session_id }; number: true — к имени первый свободный номер на машине (disk-full-1);
 //     родитель — отправитель запроса (поле parent); профиль и слот — их владельцам до старта
 //   session.update { callsign, model?, effort?, fast?, style?, thinking?, title? } → { now: [что подействовало сразу] }
-//   session.call { callsign, method, args? } → ответ метода SDK как есть; только методы из OPEN; часть есть только во время исполнения закреплённого SDK (claude-fleet ими работал): нет метода — sdk_error
-//   session.spec { callsign } → { dir, model, effort, title }
+//   session.call { callsign, method, args? } → ответ метода SDK как есть; только методы из OPEN
+//   режим разрешений: session.call setPermissionMode и listPermissionRules; нынешний режим — поле mode в session.spec; часть есть только во время исполнения закреплённого SDK (claude-fleet ими работал): нет метода — sdk_error
+//   session.spec { callsign } → { mode, dir, model, effort, title }
 //   session.stop · session.start { point? } · session.remove { callsign, after_turn? } → ok;
 //     after_turn: true посреди хода — убрать после его конца: { after_turn: true }
 //   поля roster: model, effort, parent; в журнал флота — ledger.add session.opened, session.removed

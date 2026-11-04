@@ -10,7 +10,9 @@ import type { Ctx, Frame, Host, Module, QueryPart, Session } from "@switchboard/
 /** Спецификация сессии: выбор клиента. Нет поля — значение по умолчанию claude. */
 export type Spec = { model?: string; effort?: string; fast?: boolean; style?: string; thinking?: boolean };
 /** Раздел сессии: спецификация, родитель — отправитель session.open (сессия, устройство или машина), «убрать после хода». */
-type Rec = Spec & { parent?: string; remove_after_turn?: string };
+type Rec = Spec & { parent?: string; remove_after_turn?: string; mode?: string };
+/** Режим новой сессии и сессии без отметки: решение устава. */
+const BYPASS = "bypassPermissions";
 
 /** Методы query(), которые клиент зовёт по имени. Остальное — unknown_method, метод не вызван. */
 export const OPEN = new Set([
@@ -33,6 +35,8 @@ export const OPEN = new Set([
   "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET",
   "getStatus",
   "getHooksListing",
+  "setPermissionMode",
+  "listPermissionRules",
 ]);
 
 const EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
@@ -75,7 +79,7 @@ export function manage(o: ManageOptions = {}): Module {
 
   const recOf = (s: Session) => s.store<Rec>().get() ?? {};
   const specOfSession = (s: Session): Spec => {
-    const { parent: _p, remove_after_turn: _r, ...spec } = recOf(s);
+    const { parent: _p, remove_after_turn: _r, mode: _m, ...spec } = recOf(s);
     return spec;
   };
 
@@ -249,7 +253,7 @@ export function manage(o: ManageOptions = {}): Module {
         const s = host.session(req.callsign as string)!;
         const spec = specOfSession(s);
         const info = (await call(s, "getSessionInfo")) as { customTitle?: string; summary?: string } | undefined;
-        return { dir: tildePath(s.info.cwd, home), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
+        return { mode: recOf(s).mode ?? BYPASS, dir: tildePath(s.info.cwd, home), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
       },
 
       async "session.stop"(req, { host }) {
@@ -280,6 +284,17 @@ export function manage(o: ManageOptions = {}): Module {
     },
 
     on: {
+      // режим сессии виден только в кадрах SDK: init в начале хода и status при смене; запоминается и для простаивающей сессии
+      event(s, m) {
+        const x = m as { type?: string; subtype?: string; permissionMode?: unknown };
+        if (x.type !== "system" || (x.subtype !== "init" && x.subtype !== "status") || typeof x.permissionMode !== "string") return;
+        const mode = x.permissionMode === BYPASS ? undefined : x.permissionMode;
+        if (recOf(s).mode === mode) return;
+        s.store<Rec>().update((cur = {}) => {
+          const { mode: _old, ...rest } = cur;
+          return mode ? { ...rest, mode } : rest;
+        });
+      },
       state(s, st) {
         const by = recOf(s).remove_after_turn;
         if (st === "idle" && by !== undefined) return remove(s, by || undefined);

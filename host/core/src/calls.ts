@@ -36,6 +36,7 @@ export const QUERY_METHODS = new Set([
   "mcpAuthenticate",
   "getStatus",
   "getHooksListing",
+  "listPermissionRules",
   // исключение устава: в типах SDK их нет
   "enableRemoteControl",
   "claudeAuthenticate",

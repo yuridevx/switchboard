@@ -38,9 +38,11 @@ const ASK = {
 async function bench(o: { holders?: stand.FakeHolders; home?: string; mod?: Module } = {}) {
   const notifies: Frame[] = [];
   const push = module("host-push", { requests: { notify: (req) => (notifies.push(req), { pushed: [] }) } });
+  // режим держит manage: эти эталоны — про режим по умолчанию
+  const manage = module("host-manage", { requests: { "session.spec": () => ({ mode: "bypassPermissions" }) } });
   const st = await standHost({
     ...o,
-    modules: [{ manifest: watchManifest as Manifest, module: makeWatch() }, push, { manifest: manifest as Manifest, module: o.mod ?? make() }],
+    modules: [manage, { manifest: watchManifest as Manifest, module: makeWatch() }, push, { manifest: manifest as Manifest, module: o.mod ?? make() }],
   });
   stands.push(st);
   return { st, notifies };

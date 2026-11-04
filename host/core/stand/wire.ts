@@ -10,7 +10,8 @@ export type Wire =
   | { $: "hook_result"; id: string; result: unknown[] }
   | { $: "elicit_result"; id: string; result: unknown }
   | { $: "initialized" }
-  | { $: "can_use_tool"; tool: string; input: Record<string, unknown>; toolUseID: string }
+  | { $: "can_use_tool"; tool: string; input: Record<string, unknown>; toolUseID: string; opts?: Record<string, unknown> }
+  | { $: "can_use_tool_abort"; toolUseID: string }
   | { $: "hook"; id: string; event: string; input: Record<string, unknown>; toolUseID?: string }
   | { $: "elicit"; id: string; request: unknown };
 

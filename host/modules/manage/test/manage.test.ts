@@ -43,6 +43,25 @@ describe("эталоны manage", () => {
     expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
   });
 
+  it("7120 · режим разрешений: setPermissionMode и listPermissionRules открыты; session.spec отдаёт режим из кадров SDK, по умолчанию bypassPermissions", async () => {
+    // источник: цель пользователя 4 нояб. «чат со всеми фичами»; настоящий процесс: кадр status и init несут permissionMode, смена из bypass работает
+    const { st } = await laptop();
+    await st.open("site@laptop");
+    const spec = async () => (await req(st, { type: "session.spec", callsign: "site@laptop" })) as unknown as { result: { mode: string } };
+    expect((await spec()).result.mode).toBe("bypassPermissions");
+    const q = st.query("site@laptop") as unknown as Record<string, unknown>;
+    let got: unknown[] = [];
+    q.setPermissionMode = async (...a: unknown[]) => void (got = a);
+    q.listPermissionRules = async () => ({ state: { rules: [{ behavior: "allow", source: "localSettings", rule: "Bash(echo:*)" }] } });
+    expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "setPermissionMode", args: ["plan"] })).toMatchObject({ ok: true });
+    expect(got).toEqual(["plan"]);
+    expect(await req(st, { type: "session.call", callsign: "site@laptop", method: "listPermissionRules", args: [] })).toMatchObject({ ok: true, result: { state: { rules: [{ rule: "Bash(echo:*)" }] } } });
+    st.proc("site@laptop").send({ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "u1", session_id: "s" });
+    await stand.until(async () => (await spec()).result.mode === "plan");
+    st.proc("site@laptop").send({ type: "system", subtype: "init", permissionMode: "bypassPermissions", uuid: "u2", session_id: "s" });
+    await stand.until(async () => (await spec()).result.mode === "bypassPermissions");
+  });
+
   it("7000 · методы fleet открыты: вопрос сбоку, вывод задачи, снятие из очереди, вход MCP, расход, /status, хуки — ответ SDK как есть", async () => {
     // источник: устав — Switchboard заменяет claude-fleet, все его функции (слово пользователя 31 окт.); цель 3 нояб.: «со всеми фичами claude»
     const { st } = await laptop();
@@ -155,7 +174,7 @@ describe("эталоны manage", () => {
     expect(stores.get("board@laptop")).toEqual({ parent: "panel-desk~owner@example.com" });
     expect(log[4][1]).toMatchObject({ type: "ledger.add", to: ".ledger", ev: "session.opened", by: "panel-desk~owner@example.com", machine: "laptop", callsign: "board@laptop" });
     const spec = await mod.requests!["session.spec"]({ type: "session.spec", id: "k-6", v: 1, callsign: "board@laptop" }, ctx);
-    expect(spec).toEqual({ dir, model: null, effort: null, title: "board" });
+    expect(spec).toEqual({ mode: "bypassPermissions", dir, model: null, effort: null, title: "board" });
   });
 
   it("87 · то же на стенде без профиля и слота: ответ после initialize, query() без модели, ledger.add, spec — папка у ядра, заголовок из файла", async () => {

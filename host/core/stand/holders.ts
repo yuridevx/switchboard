@@ -176,6 +176,19 @@ export class FakeProc {
     });
   }
 
+  /** То же с опциями canUseTool от SDK: suggestions, blockedPath, title, decisionReason. */
+  askWith(tool: string, input: Record<string, unknown>, opts: Record<string, unknown>, toolUseID = `toolu_${++this.seq}`): Promise<any> {
+    return new Promise((resolve) => {
+      this.asks.set(toolUseID, { tool, input, resolve });
+      this.write({ $: "can_use_tool", tool, input, toolUseID, opts });
+    });
+  }
+
+  /** Ход прервали, пока запрос разрешения ждёт: сигнал опций canUseTool. */
+  abortAsk(toolUseID: string): void {
+    this.write({ $: "can_use_tool_abort", toolUseID });
+  }
+
   /** Событие хука: ответы всех подходящих хуков. */
   hook(event: string, input: Record<string, unknown>, toolUseID?: string): Promise<unknown[]> {
     const id = `h${++this.seq}`;
