@@ -1571,7 +1571,7 @@ func TestEtLedgerWithoutLink(t *testing.T) {
 	killPid(t, partOf(k, "capture").Pid)
 	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
 	waitFor(t, "строка ledger без связи", func() bool {
-		return journalHas(s.home, `"ev":"ledger","ev":"part.failed","why":"offline: capture 1.3.2 — второе падение`)
+		return journalHas(s.home, `"ev":"ledger","event":"part.failed","why":"offline: capture 1.3.2 — второе падение`)
 	})
 }
 

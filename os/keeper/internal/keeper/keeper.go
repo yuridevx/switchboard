@@ -248,7 +248,7 @@ func (k *Keeper) onFrame(f link.Frame) {
 func (k *Keeper) ledger(ev, text string) {
 	url := k.workers["ledger"]
 	if url == "" {
-		k.j.Note("ledger", "ev", ev, "why", "нет адреса журнала (workers.ledger): "+text)
+		k.j.Note("ledger", "event", ev, "why", "нет адреса журнала (workers.ledger): "+text)
 		return
 	}
 	k.work.Add(1)
@@ -256,7 +256,7 @@ func (k *Keeper) ledger(ev, text string) {
 		defer k.work.Done()
 		f := link.Frame{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}
 		if r := link.Post(context.Background(), url, k.key, f, k.o.PlanWait); !r.OK {
-			k.j.Note("ledger", "ev", ev, "why", r.Error+": "+text)
+			k.j.Note("ledger", "event", ev, "why", r.Error+": "+text)
 		}
 	}()
 }
