@@ -1016,6 +1016,7 @@ describe("подписка и связь", () => {
     await chat(BUSY, { relay });
     const other = relay.open.find((s) => !s.url.endsWith("/m/laptop"))!;
     const was = { watch: relay.sent("session.watch").length, prefs: relay.sent("prefs.get").length };
+    expect(was.watch).toBe(1);
     other.serverClose(1006, "");
     await reconnect();
     expect(relay.open.some((s) => s.url === other.url)).toBe(true);
@@ -1581,6 +1582,7 @@ describe("действия над ходом", () => {
 
   it("6683 неживая сессия: ни «Стоп», ни «В фон»", async () => {
     const stopped = await chat(STOPPED, { relay: relayFor(roster(), [toolAt("a1", "t1"), { type: "system", subtype: "task_started", uuid: "k1", task_id: "k", tool_use_id: "t1", description: "сборка" }]), wide: true });
+    expect(stopped.$(".chat-feed")!.textContent).toContain("Команда");
     expect(stopped.btn(".chat-feed", "Стоп")).toBeNull();
     expect(stopped.btn(".chat-feed", "В фон")).toBeNull();
   });
@@ -1923,6 +1925,7 @@ describe("режим разрешений", () => {
     const asked: string[] = [];
     relay.handlers["session.spec"] = () => (asked.push("x"), { ok: true, result: { mode: "plan" } });
     const t = await chat(BUSY, { relay, wide: true });
+    expect(t.$(".chat-inp")).not.toBeNull();
     expect(select(t)).toBeNull();
     expect(asked).toEqual([]);
   });

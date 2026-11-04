@@ -415,12 +415,16 @@ describe("живая лента", () => {
     await watch(st, PHONE);
     st.proc(CS).send(msg.state("running"));
     await until(() => seen.length === 1);
+    vi.advanceTimersByTime(WINDOW_MS);
+    expect(events(st)).toHaveLength(1);
+    st.proc(CS).send(msg.state("running"));
+    await until(() => seen.length === 2);
     st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
     // окно поддельное: несколько настоящих проходов, чтобы roster дошёл до модулей
     let spins = 0;
     await until(() => ++spins > 5);
     vi.advanceTimersByTime(WINDOW_MS * 3);
-    expect(events(st)).toHaveLength(0);
+    expect(events(st)).toHaveLength(1);
     expect(s.state).toBe("busy");
   });
 
