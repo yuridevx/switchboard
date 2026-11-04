@@ -346,6 +346,19 @@ describe("эталоны incidents: ожидаемые ветки", () => {
     await until(() => disk().length === 0);
   });
 
+  it("7302 · остановка ОС: процесс вышел с os_stop, обращение в его вводе — новой сессии посреди выключения нет, обращение на диске; следующий старт доставит его той же сессии", async () => {
+    // источник: устав «каждая часть останавливается штатно»; чьё: код — session.ts: при os_stop запись сессии не остановлена, новый Host поднимет её сам
+    const { st, post, disk } = await bench();
+    const r = await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await until(() => st.holders.procs.get("disk-full-1@win"));
+    await until(() => p.inputs.length === 1);
+    p.exit(0, "", null, true);
+    await until(() => st.session("host-incidents", "disk-full-1@win")!.state === "stopped");
+    await new Promise((r) => setTimeout(r, 50));
+    expect(st.holders.procs.has("disk-full-2@win")).toBe(false);
+    expect(disk().map((a) => a.id)).toEqual([r.body.id]);
+  });
+
   it("345 · ход взял обращение — снято с диска; процесс потом умер — после resume повтора нет", async () => {
     // источник: слово пользователя 1 нояб. — «хотя бы 1 раз»: взятое ходом доставлено
     const { st, post, disk } = await bench();

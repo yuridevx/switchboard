@@ -77,7 +77,7 @@ class Releases {
     const answer = (r: Frame): Frame[] => (f.id ? [{ ...r, to: from }] : []);
     const refuse = (r: Refusal): Frame[] => {
       log({ kind: "refuse", ev: f.type, word: r.word, why: r.why, from });
-      return f.id ? answer(fail(f.id, r.word)) : [];
+      return f.id ? answer({ ...fail(f.id, r.word), why: r.why }) : [];
     };
 
     if (f.type === "reply") {
@@ -117,7 +117,7 @@ class Releases {
       if (e instanceof Refusal) return refuse(e);
       if (e instanceof CfFailed) {
         log({ kind: "refuse", ev: f.type, word: "cf_failed", why: e.message, from, status: e.status, text: e.text });
-        return answer(fail(id, "cf_failed"));
+        return answer({ ...fail(id, "cf_failed"), why: e.message });
       }
       throw e;
     }

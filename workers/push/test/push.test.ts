@@ -185,6 +185,8 @@ describe("push: отказы и стык с relay", () => {
     const good = sub(tab, "https://x.example/1");
     const bad: Array<[unknown, string]> = [
       [undefined, "нет sub"],
+      // 7301: https:// без узла — new URL бросает на отправке и проваливает весь пуш на ~email (чьё: код, контракт checkSub «https-адрес»)
+      [{ ...good, endpoint: "https://" }, "в подписке нет https-адреса"],
       [{ ...good, endpoint: "http://x.example/1" }, "в подписке нет https-адреса"],
       [{ endpoint: "https://x.example/1" }, "в подписке нет ключей"],
       [{ ...good, keys: { ...good.keys, p256dh: b64u(new Uint8Array(33)) } }, "p256dh — не точка P-256 в 65 Б"],

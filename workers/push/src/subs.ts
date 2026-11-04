@@ -120,11 +120,16 @@ export async function frame(env: Env, f: Frame): Promise<Frame[]> {
   return refuse("unknown_request", `push не обслуживает ${f.type}`);
 }
 
+/** https-адрес, который примет отправка: её new URL бросает на всём, что не разбирается. */
+function isHttps(x: unknown): boolean {
+  return typeof x === "string" && URL.canParse(x) && new URL(x).protocol === "https:";
+}
+
 /** Подписка по контракту: https-адрес, p256dh — точка P-256 65 Б, auth — 16 Б. Иначе — причина словами. */
 function checkSub(sub: unknown): string | null {
   const s = sub as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } } | undefined;
   if (!s || typeof s !== "object") return "нет sub";
-  if (typeof s.endpoint !== "string" || !s.endpoint.startsWith("https://")) return "в подписке нет https-адреса";
+  if (!isHttps(s.endpoint)) return "в подписке нет https-адреса";
   if (!s.keys || typeof s.keys.p256dh !== "string" || typeof s.keys.auth !== "string") return "в подписке нет ключей";
   try {
     if (unb64u(s.keys.p256dh).length !== 65) return "p256dh — не точка P-256 в 65 Б";

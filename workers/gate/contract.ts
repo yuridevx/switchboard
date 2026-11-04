@@ -6,10 +6,10 @@ export type Verified = { role: "host" | "client"; name: string; kid: string; add
 
 /**
  * Ответ verify. Отказ — значением со словом:
- * bad_key — пропуск не того вида, номера нет в базе, секрет, роль или имя не сошлись; revoked — пропуск отозван.
+ * bad_key — пропуск не того вида, номера нет в базе (отзыв удаляет строку), секрет, роль или имя не сошлись.
  * Исключение значит «gate не ответил» (база не ответила, ошибка в коде) — двери отвечают словом gate_unavailable.
  */
-export type VerifyResult = Verified | { error: "bad_key" | "revoked" };
+export type VerifyResult = Verified | { error: "bad_key" };
 
 /** Строка пропуска в keys.list: без хэша. */
 export type Pass = {
@@ -18,7 +18,7 @@ export type Pass = {
   name: string;
   person: string | null;
   addr: string;
-  state: "wait" | "ok" | "revoked";
+  state: "wait" | "ok";
   by: string;
   at: number;
 };
@@ -26,10 +26,10 @@ export type Pass = {
 /** gate.verify, gate.revoke, gate.revoked, gate.list — методы входа Gate (привязка с "entrypoint": "Gate"). */
 export interface GateApi {
   verify(key: string): Promise<VerifyResult>;
-  /** Отметка «отозван» по номеру. Отозванный раньше — тот же ответ; номера нет — unknown_key. */
+  /** Отзыв по номеру: строка удаляется. Номера нет — unknown_key. */
   revoke(kid: string): Promise<{ addr: string } | { error: "unknown_key" }>;
   /**
-   * Какие из номеров отозваны. Номер — kid или role.name.kid; живые и незнакомые не попадают.
+   * Какие из номеров отозваны: строки в базе больше нет. Номер — kid или role.name.kid.
    * push сверяет номера подписок на отправке.
    */
   revoked(ids: string[]): Promise<string[]>;
@@ -43,7 +43,7 @@ export interface GateApi {
  *   keys.invite {key, role, name, person?} → {kid, invite, addr}; person обязателен у client
  *   keys.list {key, role?} → {passes: Pass[]}; с role — только принятые этой роли
  *   gate.redeem {invite} → {key}; пропуска не нужно
- * Слова отказа: bad_key, revoked — пропуск; bad_request — поля не того вида; name_taken — у адреса есть живой пропуск;
+ * Слова отказа: bad_key — пропуск; bad_request — поля не того вида; name_taken — у адреса есть живой пропуск;
  * bad_invite — приглашения нет, оно принято или отозвано; gate_unavailable — база не ответила.
  */
 export const CONTRACT = { "keys.invite": 1, "keys.list": 1, "gate.redeem": 1 } as const;

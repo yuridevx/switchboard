@@ -27,7 +27,7 @@ export function make() {
       ),
       tool(
         "list",
-        "Пропуска флота: номер, роль, имя, человек, адрес, состояние (wait — приглашение не принято, ok, revoked), кем выдан и когда. role — только принятые этой роли.",
+        "Пропуска флота: номер, роль, имя, человек, адрес, состояние (wait — приглашение не принято, ok), кем выдан и когда. role — только принятые этой роли.",
         { role: z.enum(["host", "client"]).optional() },
         async ({ role }) => answer("keys.list", await host.request("keys.list", role ? { role } : {})),
       ),

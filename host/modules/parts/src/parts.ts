@@ -17,7 +17,7 @@ type KeeperState = { keeper: string; rev: number; os: string; parts: Array<{ par
 
 const text = (t: string, isError = false): Text => ({ content: [{ type: "text", text: t }], ...(isError ? { isError: true } : {}) });
 const json = (x: unknown) => text(JSON.stringify(x, null, 2));
-const failed = (what: string, r: Result & { ok: false }) => text(`${what}: ${r.error}`, true);
+const failed = (what: string, r: Result & { ok: false; why?: string }) => text(`${what}: ${r.error}${r.why ? ` — ${r.why}` : ""}`, true);
 
 export function make() {
   let host: Host;

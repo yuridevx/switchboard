@@ -12,7 +12,7 @@ export class Gate extends WorkerEntrypoint {
     calls.push(key);
     if (mode === "throw") throw new Error("gate сломан");
     // отзыв «новым выпуском gate» — и на входе, как у настоящего gate
-    if (revokedLater.includes(String(key).split(".").slice(0, 3).join("."))) return { error: "revoked" };
+    if (revokedLater.includes(String(key).split(".").slice(0, 3).join("."))) return { error: "bad_key" };
     return this.env.REAL.verify(key);
   }
   async revoked(ids) {

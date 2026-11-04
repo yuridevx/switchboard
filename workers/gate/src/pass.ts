@@ -29,10 +29,6 @@ export async function verify(env: Env, key: unknown, log: Log): Promise<VerifyRe
     log(`bad_key ${p.id} · ${row.state === "wait" ? "пропуск не принят" : "не сошлись секрет, роль или имя"} · ${ms} мс`);
     return { error: "bad_key" };
   }
-  if (row.state === "revoked") {
-    log(`revoked ${p.id} · ${ms} мс`);
-    return { error: "revoked" };
-  }
   log(`ok ${p.id} → ${row.addr} · ${ms} мс`);
   return { role: p.role, name: p.name, kid: p.kid, addr: row.addr };
 }
@@ -90,20 +86,19 @@ export async function list(env: Env, f: Record<string, unknown>): Promise<{ pass
   return { passes: (await q.all<Pass>()).results };
 }
 
-/** gate.revoke: отметка «отозван». Отозванный раньше — тот же ответ. */
+/** gate.revoke: строка удаляется; номера нет — unknown_key. */
 export async function revoke(env: Env, kid: string): Promise<{ addr: string } | { error: "unknown_key" }> {
-  await env.DB.prepare("UPDATE passes SET state = 'revoked', at = ? WHERE id = ? AND state != 'revoked'").bind(Date.now(), kid).run();
-  const row = await env.DB.prepare("SELECT addr FROM passes WHERE id = ?").bind(kid).first<{ addr: string }>();
+  const row = await env.DB.prepare("DELETE FROM passes WHERE id = ? RETURNING addr").bind(kid).first<{ addr: string }>();
   return row ? { addr: row.addr } : { error: "unknown_key" };
 }
 
-/** gate.revoked: из номеров — отозванные; номер — kid или role.name.kid. */
+/** gate.revoked: из номеров — которых в базе больше нет; номер — kid или role.name.kid. */
 export async function revoked(env: Env, ids: string[]): Promise<string[]> {
   if (!ids.length) return [];
   const kid = (id: string) => id.slice(id.lastIndexOf(".") + 1);
-  const rows = await env.DB.prepare(`SELECT id FROM passes WHERE state = 'revoked' AND id IN (${ids.map(() => "?").join(",")})`)
+  const rows = await env.DB.prepare(`SELECT id FROM passes WHERE id IN (${ids.map(() => "?").join(",")})`)
     .bind(...ids.map(kid))
     .all<{ id: string }>();
-  const gone = new Set(rows.results.map((r) => r.id));
-  return ids.filter((id) => gone.has(kid(id)));
+  const live = new Set(rows.results.map((r) => r.id));
+  return ids.filter((id) => !live.has(kid(id)));
 }

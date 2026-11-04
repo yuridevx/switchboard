@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { check } from "@switchboard/manifest-gate";
-import { FakeHolders, msg, module, standHost, turn, until } from "../stand/index.ts";
+import { FakeHolders, FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
 import type { Host, Module } from "../contract.ts";
 
@@ -195,6 +195,38 @@ describe("эталоны ядра Host", () => {
     expect(closed).toEqual(["site@laptop"]);
     // в записи не остановлена: новый Host поднимает её resume (эталон 3174)
     expect(st.kernel.sessions.get("site@laptop")!.rec.stopped).toBeFalsy();
+  });
+
+  it("7303 · relay отказал пропуску машины (revoked, bad_key) — Host выходит штатно, процессы claude живут у держателей: keeper поднимет Host с нынешним machine.key", async () => {
+    // источник: устав — часть машины умерла: один перезапуск, второе падение — failed; бэклог 3 нояб. «Host держит старый пропуск в памяти»
+    for (const word of ["revoked", "bad_key"]) {
+      const st = await stand({ modules: [] });
+      const site = await st.open("site@laptop");
+      const p = st.proc("site@laptop");
+      st.relay.conns.at(-1)!.drop(1008, word);
+      await until(() => st.exits.length === 1);
+      expect(st.exits).toEqual([0]);
+      expect(lines(st, "relay_stopped")[0].word).toBe(word);
+      expect(p.alive).toBe(true);
+      expect(site.state).not.toBe("stopped");
+    }
+  });
+
+  it("7304 · состояние, сменившееся между hello и первым roster, доходит до relay после roster: сессия не остаётся starting", async () => {
+    // источник: бэклог 3 нояб. — flow@wsl 20+ мин показывала starting при idle в записи, на ввод стала idle; чьё: код — relay заменяет запись кадром session.state
+    const k = await keeper();
+    const a = await stand({ modules: [], holders: k });
+    await a.open("site@laptop");
+    await a.kernel.shutdown("смена версии");
+    const relayStand = new FakeRelay();
+    relayStand.holdRoster = true;
+    const b = await stand({ modules: [], holders: k, home: a.home, relayStand });
+    const site = b.kernel.sessions.get("site@laptop")!;
+    await until(() => relayStand.hellos.length === 1 && site.state === "idle");
+    const inHello = (relayStand.hellos[0].sessions as Array<{ callsign: string; state: string }>).find((s) => s.callsign === "site@laptop")!;
+    expect(inHello.state).toBe("starting");
+    relayStand.releaseRoster();
+    await until(() => relayStand.sent.some((f) => f.type === "session.state" && f.callsign === "site@laptop" && f.state === "idle"));
   });
 
   it("5526 · после выхода с os_stop session.start поднимает сессию resume тем же разговором: Host пережил сигнал — сессия не потеряна", async () => {
@@ -609,7 +641,7 @@ describe("эталоны ядра Host", () => {
     expect(check([base, m("host-peek", { peek: 1 }, {}, ["@switchboard/host-cost/src/store.ts"])]).join()).toContain("модуль host-peek: импорт @switchboard/host-cost/src/store.ts");
   });
 
-  it("152 · hello закрыт gate_unavailable дважды — переподключение, третий принят, строк stop нет; bad_key — без переподключений, stop в журнале, сессии работают", async () => {
+  it("152 · hello закрыт gate_unavailable дважды — переподключение, третий принят, строк stop нет; contract_mismatch — без переподключений, stop в журнале, сессии работают", async () => {
     const st = await stand({ modules: [cost()], start: false, pauseMs: 5 });
     st.relay.refuse = ["gate_unavailable", "gate_unavailable"];
     await st.start();
@@ -618,12 +650,12 @@ describe("эталоны ядра Host", () => {
     expect(st.relay.hellos[2].contract).toEqual(st.relay.hellos[0].contract);
 
     const st2 = await stand({ modules: [cost()], start: false, pauseMs: 5 });
-    st2.relay.refuse = ["bad_key"];
+    st2.relay.refuse = ["contract_mismatch"];
     await st2.start();
     await until(() => lines(st2, "relay_stopped").length === 1);
     await new Promise((r) => setTimeout(r, 100));
     expect(st2.relay.conns).toHaveLength(1);
-    expect(lines(st2, "relay_stopped")[0]).toMatchObject({ kind: "stop", word: "bad_key" });
+    expect(lines(st2, "relay_stopped")[0]).toMatchObject({ kind: "stop", word: "contract_mismatch" });
     await st2.open("site@laptop");
     turn(st2.proc("site@laptop"));
     await until(() => st2.session("host-cost", "site@laptop")!.store<{ turns: number }>().get()?.turns === 1);
