@@ -11,11 +11,7 @@ export type Can = (name: Name) => boolean;
 export const HEAD0 = { haddr: false, howner: true, hprof: true, hmodel: true };
 export type HeadView = typeof HEAD0;
 
-export type Win = { utilization: number; resetsAt?: number };
-export type Acc = { email?: string; plan?: string; limits?: Record<string, Win> };
-export type SlotInfo = { account: string | null; order?: string[] };
 export type Mcp = { name: string; status?: string };
-export type Model = { value: string; displayName?: string };
 
 /** Сессия не идёт: её можно запустить, но не остановить. Одно правило для узкого и широкого вида и шапки. */
 export const isDown = (s?: SessionRecord) => s?.state === "stopped" || s?.state === "failed";

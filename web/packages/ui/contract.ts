@@ -16,7 +16,7 @@ export * from "./src/perms.ts";
 export { personal } from "./src/personal.ts";
 export { AppCtx, useApp, useModule } from "./src/hooks.ts";
 export type { OutcomeNote, Result } from "./src/hooks.ts";
-export type { AccountInfo, AccountWindow, AccountsAnswer, JournalAnswer, JournalRecord, ProfileInfo, ProfileRepo, ProfilesAnswer, SlotInfo, SlotsAnswer } from "./src/answers.ts";
+export type { AccountInfo, AccountWindow, AccountsAnswer, JournalAnswer, JournalRecord, ModelInfo, ProfileInfo, ProfileRepo, ProfilesAnswer, SlotInfo, SlotsAnswer } from "./src/answers.ts";
 export type { App, ConnState, Ctx, Marks, Params, Section, SlotProps } from "./src/app.ts";
 export { useLoad, useMachineLoad, useNow, useOutcome } from "./src/hooks.ts";
 export { machineAnswers, okOf } from "./src/machines.ts";

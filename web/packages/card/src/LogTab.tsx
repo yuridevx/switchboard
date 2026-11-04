@@ -1,8 +1,9 @@
 // Вкладка «Журнал» широкой карточки: записи машины об этой сессии; фильтр по виду, «дальше» и «раньше».
+import type { JournalAnswer, JournalRecord } from "@switchboard/web-ui";
 import { useState } from "react";
 import { hhmm, midnight, useLoad, useApp } from "@switchboard/web-ui";
 
-type Rec = { t: string; part?: string; who?: string; kind?: string; ev?: string; word?: string; why?: string };
+type Rec = JournalRecord;
 
 const KINDS = ["", "stop", "refuse", "note"];
 
@@ -18,7 +19,7 @@ export function LogTab({ machine, callsign }: { machine: string; callsign: strin
   /** страницы до текущей и откуда читать текущую: «дальше» их наращивает, смена выборки сбрасывает */
   const [paged, setPaged] = useState<{ recs: Rec[]; from: string | null }>({ recs: [], from: null });
   const q = useLoad(
-    () => app.request<{ records: Rec[]; more: boolean }>("machine.journal", { machine, session: callsign, since: paged.from ?? midnight(days), limit: 50, ...(kind ? { kind: [kind] } : {}) }),
+    () => app.request<JournalAnswer>("machine.journal", { machine, session: callsign, since: paged.from ?? midnight(days), limit: 50, ...(kind ? { kind: [kind] } : {}) }),
     [machine, callsign, kind, days, paged.from],
   );
   // пока читается «дальше», прошлая страница уже в paged.recs; смена выборки оставляет прошлое до ответа

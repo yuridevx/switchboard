@@ -16,6 +16,9 @@ export type ProfileRepo = { state: "ok" | "error" | "conflict"; files?: string[]
 /** Ответ machine.profiles. */
 export type ProfilesAnswer = { profiles: Record<string, ProfileInfo>; repos: Record<string, ProfileRepo> };
 
-export type JournalRecord = { t: string; kind?: string; ev?: string; word?: string; why?: string; id?: string };
+export type JournalRecord = { t: string; part?: string; who?: string; kind?: string; ev?: string; word?: string; why?: string; id?: string };
 /** Ответ machine.journal. */
 export type JournalAnswer = { records: JournalRecord[]; more: boolean };
+
+/** Модель из ответа supportedModels. */
+export type ModelInfo = { value: string; displayName?: string; supportsAutoMode?: boolean };

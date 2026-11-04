@@ -1,7 +1,7 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
+import type { AccountsAnswer, ModelInfo, SlotsAnswer } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/web-core";
 import { EFFORTS, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, incidentOf, slotOf, useMachineLoad } from "@switchboard/web-ui";
-import type { Acc, Model, SlotInfo } from "./session.ts";
 
 /** Строка «подпись — значение» списка сведений. */
 export function Kv({ k, v }: { k: string; v: string }) {
@@ -15,8 +15,8 @@ export function Kv({ k, v }: { k: string; v: string }) {
 
 export function ModelPop({ s, machine, callsign, update }: { s: SessionRecord; machine: string; callsign: string; update(body: Record<string, unknown>, what: string): void }) {
   // модели — ответ SDK на открытие окна; пока ответа нет или сессия не живая — известный список
-  const { data } = useMachineLoad<Model[]>(machine, "session.call", { callsign, method: "supportedModels", args: [] }, isLive(s.state));
-  const list: Model[] = Array.isArray(data) ? data : MODELS.map((m) => ({ value: m }));
+  const { data } = useMachineLoad<ModelInfo[]>(machine, "session.call", { callsign, method: "supportedModels", args: [] }, isLive(s.state));
+  const list: ModelInfo[] = Array.isArray(data) ? data : MODELS.map((m) => ({ value: m }));
   return (
     <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
       <span className="lb">Модель</span>
@@ -37,7 +37,7 @@ export function ModelPop({ s, machine, callsign, update }: { s: SessionRecord; m
   );
 }
 
-export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s: SessionRecord; machine: string; accounts: Record<string, Acc> | null; slots: Record<string, SlotInfo> | null; canSlot: boolean; changeSlot(): void }) {
+export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s: SessionRecord; machine: string; accounts: AccountsAnswer["accounts"] | null; slots: SlotsAnswer["slots"] | null; canSlot: boolean; changeSlot(): void }) {
   const name = String(s.account ?? "");
   const a = accounts?.[name];
   const sl = slotOf(s);

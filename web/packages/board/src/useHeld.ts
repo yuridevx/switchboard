@@ -5,5 +5,5 @@ import { useBoard } from "./store.ts";
 export function useHeld<T>(select: () => T): T | undefined {
   const app = useApp();
   const board = useBoard();
-  return app.use((prev?: T) => (board.held() ? prev : select()));
+  return app.use<T | undefined>((prev?: T) => (board.held() ? prev : select()));
 }

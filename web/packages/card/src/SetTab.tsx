@@ -1,4 +1,5 @@
 // Вкладка «Настройки» широкой карточки: профиль, быстрый режим, заголовок, слот, остановка и удаление.
+import type { ProfilesAnswer } from "@switchboard/web-ui";
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { CommitIn, Outcome, profileIdOf, profileName, useMachineLoad, useApp, useOutcome, slotOf } from "@switchboard/web-ui";
@@ -7,14 +8,13 @@ import { isDown, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 
 type Spec = { title?: string | null };
-type Profiles = { profiles: Record<string, unknown> };
 
 export function SetTab({ machine, callsign, s, can, live, data }: { machine: string; callsign: string; s: SessionRecord | undefined; can: Can; live: boolean; data: WideData }) {
   const app = useApp();
   const actions = useSessionActions(callsign);
   const [notes, note] = useOutcome();
   const spec = useMachineLoad<Spec>(machine, "session.spec", { callsign });
-  const profiles = useMachineLoad<Profiles>(machine, "machine.profiles");
+  const profiles = useMachineLoad<ProfilesAnswer>(machine, "machine.profiles");
   const [removing, setRemoving] = useState(false);
 
   async function move(name: "session.slot" | "session.profile", value: string | null) {

@@ -1,12 +1,12 @@
 // Данные широкой карточки на время экрана: аккаунты и слоты читают и шапка, и настройки.
+import type { AccountsAnswer, SlotsAnswer } from "@switchboard/web-ui";
 import { useMachineLoad } from "@switchboard/web-ui";
-import type { Acc, SlotInfo } from "./session.ts";
 
 export type WideData = ReturnType<typeof useWideData>;
 
 export function useWideData(machine: string) {
-  const accounts = useMachineLoad<{ accounts: Record<string, Acc> }>(machine, "machine.accounts");
-  const slots = useMachineLoad<{ slots: Record<string, SlotInfo> }>(machine, "machine.slots");
+  const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts");
+  const slots = useMachineLoad<SlotsAnswer>(machine, "machine.slots");
   return {
     accounts: accounts.data ? (accounts.data.accounts ?? {}) : null,
     reloadAccounts() {
