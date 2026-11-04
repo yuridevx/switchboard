@@ -1,17 +1,17 @@
-// Снесено: каталог модулей пишется заново. Входы контракта отказывают словом.
-const gone = (): never => {
-  throw new Error("снесено");
-};
-export type TarFile = { path: string; data: Buffer; mode?: number };
-export type BuildList = { app: string; version: string; fleet: string; modules: Array<{ name: string; version: string }>; workers: Record<string, string> };
-export const BUILD_FILE = "build.json";
-export const MANIFEST = "module.json";
-export const WEB_FILE = "module.js";
-export const pack: (files: TarFile[]) => Buffer = () => Buffer.alloc(0);
-export const entries: (tgz: Buffer) => Array<{ path: string; data: Buffer | null; mode: number }> = gone;
-export const manifestOf: (head: Uint8Array) => Promise<Record<string, unknown> | null> = gone;
-export const sha256hex: (b: Uint8Array | string) => string = gone;
-export const shaLine: (hex: string, v: string) => string = gone;
-export const presign: (k: { accessKeyId: string; secretAccessKey: string; region?: string }, o: { method: "GET" | "PUT"; host: string; path: string; now: Date; expires?: number }) => Promise<string> = gone;
-export const packModule: (at: string, o?: { bundle?: (dir: string, m: { name: string; version: string; type: string }) => Buffer }) => { name: string; version: string; tgz: Buffer; sha: string } = gone;
-export const webBuild: (shell: Buffer, modules: Array<{ name: string; tgz: Buffer }>, list: BuildList) => TarFile[] = gone;
+// Контракт release: формат выпуска в бакете switchboard-releases — один владелец для CI, Worker'а «Выпусков» и модуля Host parts.
+// Импорт отсюда — с "release.format@release": 1 в uses.
+//
+//   <часть>/<версия>.tgz      архив; у модуля каталога module.json — первая запись, у Worker'а и оболочки страницы в нём workers — имя Worker'а по флотам
+//   <часть>/<версия>.sha256   «<sha256 архива>  <версия>.tgz»; пишется вторым — версия готова
+// Модуль страницы — module.json и один ES-файл (WEB_FILE). Список сборки (BuildList, buildFile) — один для Host и страниц.
+export { entries, manifestOf, MANIFEST, pack } from "./src/archive.ts";
+export type { TarEntry, TarFile } from "./src/archive.ts";
+export { byVersion, isBuild, isVersion, parseSha, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey } from "./src/layout.ts";
+export { presign } from "./src/link.ts";
+export type { LinkKey } from "./src/link.ts";
+export { packageFiles, packModule } from "./src/folder.ts";
+export type { ModuleJson, PackedModule } from "./src/folder.ts";
+export { download, upload } from "./src/transfer.ts";
+export type { Answer, FetchReply, Net, UploadReply } from "./src/transfer.ts";
+export { BUILD_FILE, buildFile, WEB_FILE, webBuild } from "./src/page.ts";
+export type { BuildList } from "./src/page.ts";
