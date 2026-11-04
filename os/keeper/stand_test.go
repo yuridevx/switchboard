@@ -1,23 +1,29 @@
 package main
 
-// Стенд keeper: настоящие keeper и держатели на временной папке, поддельный relay (вебсокет), поддельные ссылки
-// на архивы. Приложение, держатель и новый файл keeper — этот же тестовый бинарь в другой роли.
+// Стенд keeper: настоящие keeper и держатели на временной папке, поддельный relay (вебсокет), поддельные ссылки на архивы. Приложение, держатель
+// и новый файл keeper — этот же тестовый файл в другой роли. Раскладка папки, файлы держателей и протокол держателя здесь записаны заново, по
+// контракту: стенд с кодом их не делит, настоящий код проверяется на тех же байтах, что видит Host.
 import (
 	"archive/tar"
 	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -33,15 +39,15 @@ func TestMain(m *testing.M) {
 		case "hold":
 			// предел ожидания хозяина — короче для эталонов держателя без хозяина
 			if d, err := time.ParseDuration(os.Getenv("KEEPER_TEST_OWNER_WAIT")); err == nil {
-				ownerWait = d
+				setOwnerWait(d)
 			}
 			// держатель завис до строки о себе: pid — в файл для проверки, что хозяин его убил
 			if os.Getenv("KEEPER_TEST_HOLD_SILENT") == "1" {
-				home, _ := homeDir()
-				os.WriteFile(filepath.Join(home, "silent-pid"), []byte(strconv.Itoa(os.Getpid())), 0o644)
+				os.WriteFile(filepath.Join(os.Getenv("SWITCHBOARD_HOME"), "silent-pid"), []byte(strconv.Itoa(os.Getpid())), 0o644)
 				time.Sleep(10 * time.Minute)
 			}
-			os.Exit(runHold(os.Args[2:]))
+			main()
+			return
 		case "keeper":
 			// настоящий вход файла keeper: аргументы — как у него
 			os.Args = append([]string{os.Args[0]}, os.Args[2:]...)
@@ -75,6 +81,14 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "npm ERR! нет пакета")
 			os.Exit(1)
 		}
+		// под именем Node: свои аргументы — в файл; ввод закрыт — выход
+		if f := os.Getenv("KEEPER_TEST_NODE"); f != "" {
+			h, _ := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+			fmt.Fprintln(h, strings.Join(os.Args[1:], "|"))
+			h.Close()
+			io.Copy(io.Discard, os.Stdin)
+			return
+		}
 	}
 	os.Setenv("KEEPER_TEST_CHILD", "1")
 	os.Exit(m.Run())
@@ -105,8 +119,7 @@ func fakeApp(args []string) {
 	if mode == "host" {
 		// как Host: держатель сессии запускает сама часть, он переживает её смену версии
 		self, _ := os.Executable()
-		home, _ := homeDir()
-		if f, err := spawnHolder(home, holdSpec{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}}); err == nil {
+		if f, err := holdProc(os.Getenv("SWITCHBOARD_HOME"), holdReq{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}}); err == nil {
 			fmt.Printf("session %d\n", f.Pid)
 		}
 	}
@@ -144,6 +157,225 @@ func fakeApp(args []string) {
 		time.Sleep(10 * time.Minute)
 	}
 	fmt.Println("bye")
+}
+
+/* ===== папка машины и файл держателя: контракт на диске ===== */
+
+func planFile(home string) string      { return filepath.Join(home, "plan.json") }
+func confFile(home string) string      { return filepath.Join(home, "keeper.json") }
+func partFolder(home, n string) string { return filepath.Join(home, "parts", n) }
+func verDir(home, n, v string) string  { return filepath.Join(partFolder(home, n), v) }
+func stampFile(dir string) string      { return filepath.Join(dir, "release.sha256") }
+func heldDir(home string) string       { return filepath.Join(home, "procs") }
+func heldPath(home, id string) string  { return filepath.Join(heldDir(home), id+".json") }
+func isThere(p string) bool            { _, err := os.Stat(p); return err == nil }
+func archDir() string                  { return runtime.GOOS + "-" + runtime.GOARCH }
+
+func binName(s string) string {
+	if runtime.GOOS == "windows" {
+		return s + ".exe"
+	}
+	return s
+}
+
+// ourVersion — версия из манифеста: так отвечает файл, собранный без номера.
+var ourVersion = func() string {
+	var m struct{ Version string }
+	b, _ := os.ReadFile("module.json")
+	json.Unmarshal(b, &m)
+	return m.Version
+}()
+
+func saveConf(home string, m map[string]any) {
+	os.MkdirAll(home, 0o700)
+	b, _ := json.MarshalIndent(m, "", "  ")
+	os.WriteFile(confFile(home), append(b, '\n'), 0o600)
+}
+
+func loadConf(home string) (map[string]any, error) {
+	m := map[string]any{}
+	b, err := os.ReadFile(confFile(home))
+	if err != nil {
+		return m, err
+	}
+	return m, json.Unmarshal(b, &m)
+}
+
+func confWorkers(m map[string]any) map[string]any {
+	w, _ := m["workers"].(map[string]any)
+	return w
+}
+
+type heldFile struct {
+	ID     string `json:"id"`
+	Owner  string `json:"owner"`
+	Pid    int    `json:"pid"`
+	Holder int    `json:"holder"`
+	Port   int    `json:"port"`
+	Key    string `json:"key"`
+	Tag    string `json:"tag,omitempty"`
+}
+
+func putHeldFile(home string, f heldFile) {
+	os.MkdirAll(heldDir(home), 0o700)
+	b, _ := json.Marshal(f)
+	os.WriteFile(heldPath(home, f.ID), b, 0o600)
+}
+
+func heldFiles(home string) []heldFile {
+	es, _ := os.ReadDir(heldDir(home))
+	var out []heldFile
+	for _, e := range es {
+		var f heldFile
+		b, err := os.ReadFile(filepath.Join(heldDir(home), e.Name()))
+		if err == nil && json.Unmarshal(b, &f) == nil && f.ID != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+/* ===== протокол держателя: заморожен, Host говорит на тех же байтах ===== */
+
+const (
+	kAuth  = 'a'
+	kInput = 'i'
+	kClose = 'c'
+	kKill  = 'k'
+	kHello = 'h'
+	kOut   = 'o'
+	kExit  = 'x'
+	kError = 'e'
+)
+
+func putFrame(w io.Writer, t byte, data []byte) error {
+	b := make([]byte, 5+len(data))
+	b[0] = t
+	binary.BigEndian.PutUint32(b[1:5], uint32(len(data)))
+	copy(b[5:], data)
+	_, err := w.Write(b)
+	return err
+}
+
+func getFrame(r io.Reader) (byte, []byte, error) {
+	var h [5]byte
+	if _, err := io.ReadFull(r, h[:]); err != nil {
+		return 0, nil, err
+	}
+	b := make([]byte, binary.BigEndian.Uint32(h[1:5]))
+	if _, err := io.ReadFull(r, b); err != nil {
+		return 0, nil, err
+	}
+	return h[0], b, nil
+}
+
+type heldHello struct {
+	Pid      int `json:"pid"`
+	Buffered int `json:"buffered"`
+}
+
+type heldExit struct {
+	Code   *int    `json:"code"`
+	OSStop bool    `json:"os_stop,omitempty"`
+	Signal *string `json:"signal"`
+	Stderr string  `json:"stderr"`
+}
+
+// ownerConn — хозяин держателя глазами Host.
+type ownerConn struct{ c net.Conn }
+
+func (o *ownerConn) send(t byte, b []byte) error { return putFrame(o.c, t, b) }
+func (o *ownerConn) closeInput() error           { return putFrame(o.c, kClose, nil) }
+func (o *ownerConn) kill() error                 { return putFrame(o.c, kKill, nil) }
+func (o *ownerConn) Close()                      { o.c.Close() }
+
+func (o *ownerConn) read(onOut func([]byte)) (*heldExit, error) {
+	br := bufio.NewReader(o.c)
+	for {
+		t, b, err := getFrame(br)
+		if err != nil {
+			return nil, err
+		}
+		switch t {
+		case kOut:
+			onOut(b)
+		case kExit:
+			var x heldExit
+			json.Unmarshal(b, &x)
+			return &x, nil
+		}
+	}
+}
+
+// holdReq — что запустить под держателем.
+type holdReq struct {
+	ID    string
+	Owner string
+	Tag   string
+	Env   []string
+	Cmd   []string
+}
+
+// holdProc — держатель командой файла, как его запускает Host: первая строка stdout — о себе.
+func holdProc(home string, s holdReq) (heldFile, error) {
+	self, err := os.Executable()
+	if err != nil {
+		return heldFile{}, err
+	}
+	args := []string{"hold", "--id", s.ID, "--owner", s.Owner}
+	if s.Tag != "" {
+		args = append(args, "--tag", s.Tag)
+	}
+	cmd := exec.Command(self, append(append(args, "--"), s.Cmd...)...)
+	cmd.Env = append(append([]string{}, s.Env...), "SWITCHBOARD_HOME="+home)
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return heldFile{}, err
+	}
+	detachProc(cmd)
+	if err := cmd.Start(); err != nil {
+		return heldFile{}, err
+	}
+	l, err := bufio.NewReader(out).ReadString('\n')
+	go cmd.Wait()
+	if err != nil {
+		return heldFile{}, fmt.Errorf("держатель не запустился: %w", err)
+	}
+	var r struct {
+		Port int    `json:"port"`
+		Key  string `json:"key"`
+		Pid  int    `json:"pid"`
+	}
+	if err := json.Unmarshal([]byte(l), &r); err != nil {
+		return heldFile{}, err
+	}
+	return heldFile{ID: s.ID, Owner: s.Owner, Tag: s.Tag, Pid: r.Pid, Port: r.Port, Key: r.Key}, nil
+}
+
+// attachHeld — подключиться хозяином: ключ, ответ — pid и накопленное.
+func attachHeld(f heldFile) (*ownerConn, heldHello, error) {
+	c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", f.Port), 5*time.Second)
+	if err != nil {
+		return nil, heldHello{}, err
+	}
+	c.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := putFrame(c, kAuth, []byte(f.Key)); err != nil {
+		c.Close()
+		return nil, heldHello{}, err
+	}
+	t, b, err := getFrame(c)
+	if err != nil {
+		c.Close()
+		return nil, heldHello{}, err
+	}
+	c.SetDeadline(time.Time{})
+	if t == kError {
+		c.Close()
+		return nil, heldHello{}, fmt.Errorf("держатель отказал: %s", b)
+	}
+	var hh heldHello
+	json.Unmarshal(b, &hh)
+	return &ownerConn{c: c}, hh, nil
 }
 
 /* ===== поддельный relay ===== */
@@ -252,7 +484,10 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		r.path = req.URL.Path
 		r.mu.Unlock()
 		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster","machines":[],"sessions":[],"clients":[],"workers":[]}`))
-		r.opened <- struct{}{}
+		select {
+		case r.opened <- struct{}{}:
+		default:
+		}
 		for {
 			_, b, err := ws.Read(ctx)
 			if err != nil {
@@ -296,9 +531,15 @@ func (r *fakeRelay) push(f map[string]any) {
 	ws.Write(context.Background(), websocket.MessageText, b)
 }
 
+func testID() string {
+	b := make([]byte, 8)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 // ask — запрос keeper и его ответ.
 func (r *fakeRelay) ask(f map[string]any) map[string]any {
-	id := newID()
+	id := testID()
 	c := make(chan map[string]any, 1)
 	r.mu.Lock()
 	r.reply[id] = c
@@ -374,6 +615,24 @@ func (r *fakeRelay) ledgerEvs() []string {
 	return out
 }
 
+// seen — что relay видел от keeper: последний hello и сколько hello принято.
+func (r *fakeRelay) seen() (map[string]any, int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.hello, r.opens
+}
+
+// ledgerCount — строк журнала флота ev text, начинающихся с prefix.
+func (r *fakeRelay) ledgerCount(prefix string) int {
+	n := 0
+	for _, e := range r.ledgerEvs() {
+		if strings.HasPrefix(e, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
 /* ===== архивы и ссылки ===== */
 
 type files map[string]string
@@ -443,7 +702,7 @@ func (l *links) partTgz(name, version string, b []byte, extra map[string]any) ma
 	return p
 }
 
-// appFiles — app.json приложения: этот тестовый бинарь в роли app.
+// appFiles — app.json приложения: этот тестовый файл в роли app.
 func appFiles(mode string) files {
 	self, _ := os.Executable()
 	run := []string{self, "app"}
@@ -468,33 +727,43 @@ func newStand(t *testing.T) *stand {
 	s := &stand{t: t, home: home, relay: newFakeRelay(t), links: newLinks(t)}
 	os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.ab12.sig\n"), 0o600)
 	// одна карта адресов: relay — адрес Worker'а relay (http стенда), объект машины — ws того же адреса
-	writeConf(home, map[string]any{"workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws"), "releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})
+	saveConf(home, map[string]any{"workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws"), "releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	return s
 }
 
 // start — keeper; подмена себя не выходит из процесса теста.
-func (s *stand) start() *Keeper { return s.startWith(nil) }
+func (s *stand) start() keeperHandle { return s.startWith(tuning{}) }
 
-// startWith — keeper с подменами стенда, поставленными до того, как пошли его горутины.
-func (s *stand) startWith(set func(k *Keeper)) *Keeper {
-	k, err := newKeeper(s.home, nil)
+// startWith — keeper с пределами стенда.
+func (s *stand) startWith(tn tuning) keeperHandle { return bootOn(s.t, s.home, tn) }
+
+// bootOn — keeper на папке home; остановка — в конце теста.
+func bootOn(t *testing.T, home string, tn tuning) keeperHandle {
+	t.Helper()
+	k, err := bootKeeper(home, tn)
 	if err != nil {
-		s.t.Fatal(err)
+		t.Fatal(err)
 	}
-	if set != nil {
-		set(k)
-	}
-	k.run()
-	s.t.Cleanup(k.Stop)
+	t.Cleanup(k.Stop)
 	return k
+}
+
+// relayHome — папка машины с relay по адресу url и без других Worker'ов.
+func relayHome(t *testing.T, url string) string {
+	t.Helper()
+	home := t.TempDir()
+	os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.ab12.sig\n"), 0o600)
+	saveConf(home, map[string]any{"workers": map[string]any{"relay": url}})
+	t.Setenv("SWITCHBOARD_HOME", home)
+	return home
 }
 
 func killHolders(home string) {
 	var pids []int
-	for _, f := range readHoldFiles(home) {
-		if c, _, err := dialHolder(f); err == nil {
+	for _, f := range heldFiles(home) {
+		if c, _, err := attachHeld(f); err == nil {
 			c.kill()
 			c.read(func([]byte) {})
 			c.Close()
@@ -528,13 +797,35 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("не дождался: %s", what)
 }
 
-func partOf(k *Keeper, name string) partState {
-	for _, p := range k.state().Parts {
+// partView — часть в ответе keeper.state.
+type partView struct {
+	Part     string `json:"part"`
+	Version  string `json:"version"`
+	State    string `json:"state"`
+	Pid      int    `json:"pid"`
+	Restarts int    `json:"restarts"`
+	Error    string `json:"error"`
+}
+
+type stateView struct {
+	Rev   int        `json:"rev"`
+	Parts []partView `json:"parts"`
+}
+
+// stateOf — keeper.state: те же байты, что уходят в ответ по relay (связи может не быть).
+func stateOf(k keeperHandle) stateView {
+	var s stateView
+	json.Unmarshal(k.StateJSON(), &s)
+	return s
+}
+
+func partOf(k keeperHandle, name string) partView {
+	for _, p := range stateOf(k).Parts {
 		if p.Part == name {
 			return p
 		}
 	}
-	return partState{}
+	return partView{}
 }
 
 func journalHas(home, s string) bool {
@@ -553,6 +844,14 @@ func planMsg(rev int, parts ...map[string]any) map[string]any {
 	f := plan1(rev, parts...)
 	f["type"], f["v"], f["to"], f["from"] = "releases.plan", 1, ".keeper@win", ".releases"
 	return f
+}
+
+// savedPlan — plan.json на диске.
+type savedPlan struct {
+	Rev   int `json:"rev"`
+	Parts []struct {
+		Version string `json:"version"`
+	} `json:"parts"`
 }
 
 func plan1(rev int, parts ...map[string]any) map[string]any {
@@ -579,25 +878,7 @@ func journalLine(home, s string) map[string]any {
 	return nil
 }
 
-// seen — что relay видел от keeper: последний hello и сколько hello принято.
-func (r *fakeRelay) seen() (map[string]any, int) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.hello, r.opens
-}
-
-// ledgerCount — строк журнала флота ev text, начинающихся с prefix.
-func (r *fakeRelay) ledgerCount(prefix string) int {
-	n := 0
-	for _, e := range r.ledgerEvs() {
-		if strings.HasPrefix(e, prefix) {
-			n++
-		}
-	}
-	return n
-}
-
-// runKeeper — этот тестовый бинарь в роли файла keeper: настоящий main с args, SWITCHBOARD_HOME — home, stdin — in.
+// runKeeper — этот тестовый файл в роли файла keeper: настоящий main с args, SWITCHBOARD_HOME — home, stdin — in.
 func runKeeper(t *testing.T, home, in string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	self, _ := os.Executable()

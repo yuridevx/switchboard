@@ -4,10 +4,10 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -21,15 +21,15 @@ func TestEtHolderSignalClosesInput(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "s"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "s"))
 	json.Unmarshal(b, &hf)
 	// подключение принято — держатель уже слушает сигналы
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,20 +45,20 @@ func TestEtHolderSignalClosesInput(t *testing.T) {
 }
 
 // 5508 · Вышедший держатель не остаётся зомби у того, кто его запустил (wsl 3 нояб.: 23 зомби [keeper] под keeper run
-// за 11 ч — spawnHolder отпускал держателя без Wait).
+// за 11 ч — holdProc отпускал держателя без Wait).
 func TestEtHolderReaped(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "s"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "s"))
 	json.Unmarshal(b, &hf)
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,37 +78,17 @@ func TestEtHolderSignalNoOwner(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	if _, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}}); err != nil {
+	if _, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}}); err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "s"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "s"))
 	json.Unmarshal(b, &hf)
 	time.Sleep(300 * time.Millisecond) // держатель слушает сигналы
 	syscall.Kill(hf.Holder, syscall.SIGTERM)
-	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(home, "s")) && !alive(hf.Holder) })
+	waitFor(t, "держатель вышел", func() bool { return !isThere(heldPath(home, "s")) && !alive(hf.Holder) })
 	if !journalHas(home, `"ev":"hold_signal"`) || !journalHas(home, `"ev":"held_unclaimed"`) {
 		t.Fatal("нет hold_signal или held_unclaimed")
-	}
-}
-
-// 5516 · ОС шлёт остановку сразу держателю и процессу (выключение: SIGTERM всей cgroup) — выход всё равно остановка:
-// часть stopped, restarts 0, part.failed нет (ВМ win11-2 1 нояб.: keeper перезапустил часть посреди выключения и
-// поставил failed; чьё: код — serve «хозяин узнает из выхода, что это не падение»).
-func TestEtOSStopBothSignalled(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(s.home, "capture"))
-	json.Unmarshal(b, &hf)
-	syscall.Kill(hf.Holder, syscall.SIGTERM)
-	syscall.Kill(hf.Pid, syscall.SIGTERM)
-	waitFor(t, "часть вышла", func() bool { st := partOf(k, "capture").State; return st == "stopped" || st == "failed" || partOf(k, "capture").Restarts > 0 })
-	time.Sleep(time.Second)
-	if p := partOf(k, "capture"); p.State != "stopped" || p.Restarts != 0 || s.relay.ledgerHas("part.failed") {
-		t.Fatalf("остановка ОС принята за падение: %+v", p)
 	}
 }
 
@@ -120,12 +100,12 @@ func TestEtSignalDeafProcessOSKills(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app", "deaf"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app", "deaf"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "s"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "s"))
 	json.Unmarshal(b, &hf)
 	time.Sleep(300 * time.Millisecond)
 	syscall.Kill(hf.Holder, syscall.SIGTERM)
@@ -136,26 +116,6 @@ func TestEtSignalDeafProcessOSKills(t *testing.T) {
 	}
 	syscall.Kill(hf.Holder, syscall.SIGKILL)
 	waitFor(t, "процесс умер с держателем", func() bool { return !alive(f.Pid) })
-}
-
-// Остановка ОС: держатель закрыл ввод части по сигналу — keeper считает выход остановкой, а не падением: без
-// перезапуска и без part.failed (ВМ win11-2 1 нояб.: на перезагрузке держатель узнал об остановке на 5 с раньше службы,
-// keeper перезапустил часть посреди выключения и поставил failed).
-func TestEtOSStopIsNotCrash(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(s.home, "capture"))
-	json.Unmarshal(b, &hf)
-	syscall.Kill(hf.Holder, syscall.SIGTERM)
-	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
-	time.Sleep(time.Second)
-	starts := strings.Count(readJournal(s.home), `"ev":"part_start"`)
-	if p := partOf(k, "capture"); p.State != "stopped" || p.Restarts != 0 || starts != 1 || s.relay.ledgerHas("part.failed") {
-		t.Fatalf("выход по остановке ОС принят за падение: %+v, стартов %d", p, starts)
-	}
 }
 
 // 5524 · uninstall --name снимает только свою службу: свой юнит удалён, чужой на месте; юнит своего имени запускает
@@ -185,11 +145,6 @@ func TestEtNameOwnUnitOnly(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(log); !strings.Contains(string(b), "disable --now switchboard-keeper-prod.service") || strings.Contains(string(b), "switchboard-keeper.service") {
 		t.Fatalf("вызовы systemctl: %s", b)
-	}
-	fleetName = "prod"
-	defer func() { fleetName = "" }()
-	if text := fmt.Sprintf(unitText, "/k", strings.Join(runArgs(), " ")); !strings.Contains(text, `ExecStart="/k" run --name prod`) {
-		t.Fatalf("юнит: %s", text)
 	}
 }
 
@@ -254,7 +209,7 @@ func TestEtNameInstallOverOwn(t *testing.T) {
 	if code, _, e := runKeeper(t, t.TempDir(), "invite\n", "install", "--name", "prod", "--worker", "gate="+gate); code != 0 {
 		t.Fatalf("install: код %d, %q", code, e)
 	}
-	if b, _ := os.ReadFile(own); !strings.Contains(string(b), "KillMode=process") {
+	if b, _ := os.ReadFile(own); !strings.Contains(string(b), "KillMode=process") || !strings.Contains(string(b), "Restart=always") || !strings.Contains(string(b), "StartLimitIntervalSec=0") || !strings.Contains(string(b), "RestartSec=1") {
 		t.Fatalf("юнит: %s", b)
 	}
 	if b, _ := os.ReadFile(other); string(b) != "чужой" {
@@ -301,5 +256,59 @@ func TestEtNameGracefulStop(t *testing.T) {
 	}
 	if !alive(pidA) || !alive(pidB) || b.cmd.ProcessState != nil {
 		t.Fatalf("задеты: часть a %v, часть b %v", alive(pidA), alive(pidB))
+	}
+}
+
+// alive — процесс жив и не зомби.
+func alive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	b, err := os.ReadFile("/proc/" + itoa(pid) + "/stat")
+	return err == nil && !strings.Contains(string(b), ") Z ")
+}
+
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	s := ""
+	for n > 0 {
+		s = string(rune('0'+n%10)) + s
+		n /= 10
+	}
+	return s
+}
+
+func killPid(t *testing.T, pid int) {
+	t.Helper()
+	syscall.Kill(pid, syscall.SIGKILL)
+}
+
+// detachProc — держатель без хозяина: своя сессия.
+func detachProc(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
+
+// Остановка ОС: держатель закрыл ввод части по сигналу — выход не падение: без перезапуска и без part.failed, в том числе когда сигнал
+// пришёл и самому процессу (ВМ win11-2 1 нояб.: на перезагрузке держатель узнал об остановке на 5 с раньше службы; выключение шлёт SIGTERM
+// всей cgroup).
+func TestEtOSStopIsNotCrash(t *testing.T) {
+	for _, both := range []bool{false, true} {
+		s := newStand(t)
+		s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+		k := s.start()
+		waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+		var hf heldFile
+		b, _ := os.ReadFile(heldPath(s.home, "capture"))
+		json.Unmarshal(b, &hf)
+		syscall.Kill(hf.Holder, syscall.SIGTERM)
+		if both {
+			syscall.Kill(hf.Pid, syscall.SIGTERM)
+		}
+		waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+		time.Sleep(time.Second)
+		starts := strings.Count(readJournal(s.home), `"ev":"part_start"`)
+		if p := partOf(k, "capture"); p.State != "stopped" || p.Restarts != 0 || starts != 1 || s.relay.ledgerHas("part.failed") || !journalHas(s.home, `"why":"остановка ОС: `) {
+			t.Fatalf("выход по остановке ОС принят за падение: %+v, стартов %d", p, starts)
+		}
 	}
 }

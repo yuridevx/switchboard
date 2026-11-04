@@ -1,7 +1,8 @@
 package main
 
-// Эталоны keeper — исполнителя плана, и держателя. Источники свойств — дизайн «Выпуски флота» (слово пользователя
-// 1 нояб.: состояние машины спускается сверху, keeper исполняет и отвечает состояние, держатели) и замеры 1 нояб.
+// Леса границы keeper: исполнить план машины. Снаружи: relay, «Выпуски», журнал и gate — поддельные; ОС, держатели и части — настоящие
+// процессы этого тестового файла в другой роли. Говорят с кодом через контракт: кадры, POST, файлы на диске, протокол держателя, команды
+// файла keeper; мимо процесса — только seam.go. Источники свойств — в комментариях; без пометки — чьё: код.
 import (
 	"archive/tar"
 	"bufio"
@@ -18,6 +19,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -44,46 +47,15 @@ func TestEtPlanInstallAndRun(t *testing.T) {
 	if p.Version != "1.3.2" || p.Pid == 0 {
 		t.Fatalf("state %+v", p)
 	}
-	if !exists(filepath.Join(s.home, "parts", "capture", "data")) || !exists(filepath.Join(s.home, "parts", "capture", "1.3.2", "release.sha256")) {
+	if !isThere(filepath.Join(s.home, "parts", "capture", "data")) || !isThere(filepath.Join(s.home, "parts", "capture", "1.3.2", "release.sha256")) {
 		t.Fatal("нет папки версии или data/")
 	}
 	waitFor(t, "вывод в журнале", func() bool { return journalHas(s.home, `"line":"app 1.3.2 start`) })
-	var saved plan
-	b, _ := os.ReadFile(planPath(s.home))
+	var saved savedPlan
+	b, _ := os.ReadFile(planFile(s.home))
 	if json.Unmarshal(b, &saved) != nil || saved.Rev != 1 || len(saved.Parts) != 1 || saved.Parts[0].Version != "1.3.2" {
 		t.Fatalf("plan.json — не ответ «выпусков»: %s", b)
 	}
-}
-
-// Хэш не сошёлся: download_failed в keeper.state, прежняя версия работает.
-func TestEtBadHashKeepsOld(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
-	pid := partOf(k, "capture").Pid
-	bad := s.links.part("capture", "1.4.0", appFiles(""), on)
-	bad["sha256"] = strings.Repeat("0", 64)
-	s.relay.push(planMsg(2, bad))
-	waitFor(t, "download_failed", func() bool { return strings.Contains(partOf(k, "capture").Error, "download_failed") })
-	p := partOf(k, "capture")
-	if p.State != "running" || p.Pid != pid || p.Version != "1.3.2" {
-		t.Fatalf("прежняя версия тронута: %+v", p)
-	}
-	if exists(versionDir(s.home, "capture", "1.4.0")) {
-		t.Fatal("папка битой версии осталась")
-	}
-	// выкладка не доехала — это видно и в журнале флота
-	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.4.0 — download_failed") })
-	// app.json новой версии с чужим полем — версия негодна до остановки прежней (ревью архитектора 1 нояб.)
-	app := appFiles("")
-	app["app.json"] = `{"run":["x"],"user":"admin"}`
-	s.relay.push(planMsg(3, s.links.part("capture", "1.5.0", app, on)))
-	waitFor(t, "contract_mismatch", func() bool { return strings.Contains(partOf(k, "capture").Error, "contract_mismatch") })
-	if p := partOf(k, "capture"); p.State != "running" || p.Pid != pid || p.Version != "1.3.2" {
-		t.Fatalf("прежняя версия остановлена ради негодной: %+v", p)
-	}
-	waitFor(t, "part.failed 1.5.0", func() bool { return s.relay.ledgerHas("part.failed capture 1.5.0 — contract_mismatch") })
 }
 
 // Смена версии без наложения: новая стартует после выхода старой; part.updated; на диске — новая и предыдущая
@@ -93,15 +65,15 @@ func TestEtVersionSwitchNoOverlap(t *testing.T) {
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	k := s.start()
 	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
-	os.MkdirAll(versionDir(s.home, "capture", "0.9.0"), 0o700) // версия позапрошлой выкладки
+	os.MkdirAll(verDir(s.home, "capture", "0.9.0"), 0o700) // версия позапрошлой выкладки
 	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
 	waitFor(t, "1.4.0 running", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Version == "1.4.0" })
 	waitFor(t, "part.updated", func() bool { return s.relay.ledgerHas("part.updated capture 1.3.2 → 1.4.0") })
 	// новый план исполнен целиком: keeper.state и plan.json — rev 2 (план заморозки: «хранить на диске»)
-	var saved plan
-	b0, _ := os.ReadFile(planPath(s.home))
-	if json.Unmarshal(b0, &saved) != nil || saved.Rev != 2 || k.state().Rev != 2 {
-		t.Fatalf("rev после кадра плана: plan.json %d, keeper.state %d", saved.Rev, k.state().Rev)
+	var saved savedPlan
+	b0, _ := os.ReadFile(planFile(s.home))
+	if json.Unmarshal(b0, &saved) != nil || saved.Rev != 2 || stateOf(k).Rev != 2 {
+		t.Fatalf("rev после кадра плана: plan.json %d, keeper.state %d", saved.Rev, stateOf(k).Rev)
 	}
 	// старая вышла сама после закрытого ввода («bye») раньше, чем стартовала новая
 	waitFor(t, "строка старта 1.4.0", func() bool { return journalHas(s.home, `"line":"app 1.4.0 start`) })
@@ -110,11 +82,11 @@ func TestEtVersionSwitchNoOverlap(t *testing.T) {
 	if bye < 0 || start < 0 || bye > start {
 		t.Fatalf("наложение версий: bye=%d start=%d", bye, start)
 	}
-	if !exists(versionDir(s.home, "capture", "1.3.2")) {
+	if !isThere(verDir(s.home, "capture", "1.3.2")) {
 		t.Fatal("предыдущая версия убрана — отката без скачивания не будет")
 	}
-	waitFor(t, "позапрошлая версия убрана", func() bool { return !exists(versionDir(s.home, "capture", "0.9.0")) })
-	es, _ := os.ReadDir(partDir(s.home, "capture"))
+	waitFor(t, "позапрошлая версия убрана", func() bool { return !isThere(verDir(s.home, "capture", "0.9.0")) })
+	es, _ := os.ReadDir(partFolder(s.home, "capture"))
 	var got []string
 	for _, e := range es {
 		got = append(got, e.Name())
@@ -158,7 +130,7 @@ func TestEtStubbornForce(t *testing.T) {
 func TestEtStopLimitKills(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles("stubborn"), on)))
-	k := s.startWith(func(k *Keeper) { k.limit = 1500 * time.Millisecond })
+	k := s.startWith(tuning{stop: 1500 * time.Millisecond})
 	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
 	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
 	waitFor(t, "1.3.2 stopping", func() bool { return partOf(k, "capture").State == "stopping" })
@@ -183,7 +155,7 @@ func TestEtStopLimitKills(t *testing.T) {
 func TestEtSetupLimit(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.startWith(func(k *Keeper) { k.limit = 1500 * time.Millisecond })
+	k := s.startWith(tuning{stop: 1500 * time.Millisecond})
 	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
 	pid := partOf(k, "capture").Pid
 	self, _ := os.Executable()
@@ -198,7 +170,7 @@ func TestEtSetupLimit(t *testing.T) {
 	if p.State != "running" || p.Version != "1.3.2" || p.Pid != pid {
 		t.Fatalf("прежняя версия не работает: %+v", p)
 	}
-	if exists(stampPath(versionDir(s.home, "capture", "1.4.0"))) {
+	if isThere(stampFile(verDir(s.home, "capture", "1.4.0"))) {
 		t.Fatal("версия с зависшим setup отмечена готовой")
 	}
 }
@@ -209,9 +181,9 @@ func TestEtSelfCheckLimit(t *testing.T) {
 	self, _ := os.Executable()
 	bin, _ := os.ReadFile(self)
 	t.Setenv("KEEPER_TEST_VERSION_HANG", "1")
-	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
+	kp := s.links.part("keeper", "9.9.9", files{archDir() + "/" + binName("keeper"): string(bin)}, nil)
 	s.relay.setPlan(plan1(1, kp))
-	k := s.startWith(func(k *Keeper) { k.limit = 1500 * time.Millisecond })
+	k := s.startWith(tuning{stop: 1500 * time.Millisecond})
 	waitFor(t, "check_failed за предел", func() bool {
 		return strings.Contains(partOf(k, "keeper").Error, "check_failed: новый файл не ответил за 1.5s")
 	})
@@ -256,11 +228,11 @@ func deafHolder(t *testing.T, pid int) int {
 			}
 			t.Cleanup(func() { c.Close() })
 			go func() {
-				readFrame(c)
+				getFrame(c)
 				b, _ := json.Marshal(map[string]any{"pid": pid, "buffered": 0})
-				writeFrame(c, frHello, b)
+				putFrame(c, kHello, b)
 				for {
-					if _, _, err := readFrame(c); err != nil {
+					if _, _, err := getFrame(c); err != nil {
 						return
 					}
 				}
@@ -274,8 +246,8 @@ func deafHolder(t *testing.T, pid int) int {
 // с причиной, keeper исполняет план дальше (слово пользователя 2 нояб.: «у всех операций должен быть лимит»).
 func TestEtHolderSilentAdopt(t *testing.T) {
 	s := newStand(t)
-	os.MkdirAll(procsDir(s.home), 0o700)
-	writeHoldFile(s.home, holdFile{ID: "capture", Owner: "keeper", Pid: os.Getpid(), Port: silentHolder(t), Key: "k", Tag: "1.3.2"})
+	os.MkdirAll(heldDir(s.home), 0o700)
+	putHeldFile(s.home, heldFile{ID: "capture", Owner: "keeper", Pid: os.Getpid(), Port: silentHolder(t), Key: "k", Tag: "1.3.2"})
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	start := time.Now()
 	k := s.start()
@@ -292,7 +264,7 @@ func TestEtHolderSilentAdopt(t *testing.T) {
 // версии разом нельзя); правка плана решает (слово пользователя 2 нояб.: «у всех операций должен быть лимит»).
 func TestEtKillWaitLimit(t *testing.T) {
 	s := newStand(t)
-	os.MkdirAll(procsDir(s.home), 0o700)
+	os.MkdirAll(heldDir(s.home), 0o700)
 	// процесс части — отдельный: уборка стенда убивает держателей по pid из их файлов
 	self, _ := os.Executable()
 	child := exec.Command(self, "app", "deaf")
@@ -300,57 +272,18 @@ func TestEtKillWaitLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { child.Process.Kill(); child.Wait() })
-	writeHoldFile(s.home, holdFile{ID: "capture", Owner: "keeper", Pid: child.Process.Pid, Port: deafHolder(t, child.Process.Pid), Key: "k", Tag: "1.3.2"})
+	putHeldFile(s.home, heldFile{ID: "capture", Owner: "keeper", Pid: child.Process.Pid, Port: deafHolder(t, child.Process.Pid), Key: "k", Tag: "1.3.2"})
 	p1 := plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on))
 	b, _ := json.Marshal(p1)
-	os.WriteFile(planPath(s.home), b, 0o600)
+	os.WriteFile(planFile(s.home), b, 0o600)
 	s.relay.setPlan(p1)
-	k := s.startWith(func(k *Keeper) { k.limit = 700 * time.Millisecond })
+	k := s.startWith(tuning{stop: 700 * time.Millisecond})
 	waitFor(t, "adopt", func() bool { return partOf(k, "capture").State == "running" })
 	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
 	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
 	waitFor(t, "failed после «убей»", func() bool { return partOf(k, "capture").State == "failed" })
 	if !journalHas(s.home, `не вышла и за 700ms после «убей»`) || journalHas(s.home, `"ev":"part_start","version":"1.4.0"`) {
 		t.Fatal("нет stop_late после «убей» или новая версия запущена рядом с прежней")
-	}
-}
-
-// 3157 · Новая версия отклонена до остановки прежней (404, setup упал, чужой хэш) — прежняя работает, ошибка словом
-// в keeper.state, part.failed в журнал флота; другие части плана исполняются (чьё: код — «версия годна, когда стоит
-// и её app.json разобран: только тогда прежняя останавливается»).
-func TestEtRejectedKeepsOld(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
-	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
-	pid := partOf(k, "capture").Pid
-	self, _ := os.Executable()
-	missing := s.links.part("capture", "1.4.0", appFiles(""), on)
-	missing["url"] = missing["url"].(string) + "-нет"
-	setup := appFiles("")
-	sb, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "badsetup"}})
-	setup["app.json"] = string(sb)
-	foreign := s.links.part("capture", "1.4.2", appFiles(""), on)
-	foreign["sha256"] = strings.Repeat("0", 64)
-	for i, c := range []struct {
-		p    map[string]any
-		word string
-	}{{missing, "download_failed"}, {s.links.part("capture", "1.4.1", setup, on), "setup_failed"}, {foreign, "download_failed"}} {
-		probe := s.links.part("probe", fmt.Sprintf("1.0.%d", i), appFiles(""), on)
-		s.relay.push(planMsg(2+i, c.p, probe))
-		waitFor(t, c.word+" у работающей", func() bool {
-			return strings.Contains(partOf(k, "capture").Error, c.word) && partOf(k, "probe").Version == probe["version"]
-		})
-		if p := partOf(k, "capture"); p.State != "running" || p.Version != "1.3.2" || p.Pid != pid {
-			t.Fatalf("прежняя версия не работает: %+v", p)
-		}
-		waitFor(t, "part.failed "+c.word, func() bool {
-			return s.relay.ledgerHas("part.failed capture " + c.p["version"].(string) + " — " + c.word)
-		})
-	}
-	if exists(versionDir(s.home, "capture", "1.4.1")) {
-		t.Fatal("папка версии с упавшим setup осталась")
 	}
 }
 
@@ -399,22 +332,6 @@ func TestEtRollbackFromDisk(t *testing.T) {
 	waitFor(t, "part.updated в журнал флота", func() bool { return s.relay.ledgerHas("part.updated capture 1.4.0 → 1.3.2") })
 }
 
-// 3160 · Тот же план повторно (переподключение) — ни строки plan, ни остановки, pid прежний (чьё: код — «та же rev»).
-func TestEtSamePlanAgain(t *testing.T) {
-	s := newStand(t)
-	p5 := plan1(5, s.links.part("capture", "1.3.2", appFiles(""), on))
-	s.relay.setPlan(p5)
-	k := s.start()
-	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
-	pid := partOf(k, "capture").Pid
-	s.relay.push(planMsg(5, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	time.Sleep(700 * time.Millisecond)
-	if strings.Count(readJournal(s.home), `"ev":"plan","rev":5`) != 1 || partOf(k, "capture").Pid != pid {
-		t.Fatal("тот же план исполнен заново")
-	}
-}
-
 // 3161 · В новом плане запись части не менялась — часть не трогается, меняется только другая (устав: «обновление Host —
 // по плану, сессии не останавливает»; чьё: код — «та же версия с тем же окружением — делать нечего»).
 func TestEtUnchangedEntryUntouched(t *testing.T) {
@@ -430,40 +347,6 @@ func TestEtUnchangedEntryUntouched(t *testing.T) {
 	if partOf(k, "host").Pid != pid || linesWith(readJournal(s.home), `"part":"host"`, `"ev":"part_start"`) != 1 {
 		t.Fatal("host тронут планом, где его запись не менялась")
 	}
-}
-
-// 3162 · Скачивание не уложилось в предел — download_failed с причиной, прежняя работает, part.failed (слово
-// пользователя 2 нояб.: «у всех операций должен быть лимит»; предел скачивания — у клиента HTTP keeper).
-func TestEtDownloadLimit(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
-	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
-	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "1000")
-		w.WriteHeader(200)
-		w.(http.Flusher).Flush()
-		select {
-		case <-r.Context().Done():
-		case <-time.After(10 * time.Second):
-		}
-	}))
-	t.Cleanup(slow.Close)
-	saved := httpClient
-	httpClient = &http.Client{Timeout: time.Second}
-	t.Cleanup(func() { httpClient = saved })
-	p := s.links.part("capture", "1.4.0", appFiles(""), on)
-	p["url"] = slow.URL + "/capture/1.4.0.tgz"
-	s.relay.push(planMsg(2, p))
-	waitFor(t, "download_failed за предел", func() bool {
-		e := partOf(k, "capture").Error
-		return strings.Contains(e, "download_failed") && strings.Contains(e, "Timeout")
-	})
-	if p := partOf(k, "capture"); p.State != "running" || p.Version != "1.3.2" {
-		t.Fatalf("прежняя не работает: %+v", p)
-	}
-	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.4.0 — download_failed") })
 }
 
 // 3163 · keeper не был на связи, пока план менялся: после переподключения — план с новой rev, часть на новой версии
@@ -513,31 +396,10 @@ func TestEtStopWhileAsking(t *testing.T) {
 	}
 }
 
-// 3166 · План меняет и часть, и keeper — keeper последним: новая версия части running раньше подмены себя (чьё: код).
-func TestEtSelfUpdateLast(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
-	os.WriteFile(target, []byte("old"), 0o755)
-	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil), s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
-	select {
-	case <-k.Done():
-	case <-time.After(30 * time.Second):
-		t.Fatal("keeper не подменил себя")
-	}
-	j := readJournal(s.home)
-	if a, b := strings.Index(j, `"ev":"part_start","version":"1.3.2"`), strings.Index(j, `"ev":"self_update"`); a < 0 || b < 0 || a > b {
-		t.Fatalf("порядок: part_start capture %d, self_update %d", a, b)
-	}
-}
-
 // 3167 · Запись keeper с работающей версией — без подмены себя и без строк о ней (чьё: код).
 func TestEtKeeperSameVersionNoUpdate(t *testing.T) {
 	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("keeper", keeperVersion, files{"x": "y"}, nil), s.links.part("capture", "1.3.2", appFiles(""), on)))
+	s.relay.setPlan(plan1(1, s.links.part("keeper", ourVersion, files{"x": "y"}, nil), s.links.part("capture", "1.3.2", appFiles(""), on)))
 	k := s.start()
 	waitFor(t, "capture running", func() bool { return partOf(k, "capture").State == "running" })
 	time.Sleep(500 * time.Millisecond)
@@ -546,7 +408,7 @@ func TestEtKeeperSameVersionNoUpdate(t *testing.T) {
 		t.Fatal("keeper вышел")
 	default:
 	}
-	if journalHas(s.home, `"ev":"self_update"`) || journalHas(s.home, `"part":"keeper","version":"`+keeperVersion+`"`) && partOf(k, "keeper").State == "failed" {
+	if journalHas(s.home, `"ev":"self_update"`) || journalHas(s.home, `"part":"keeper","version":"`+ourVersion+`"`) && partOf(k, "keeper").State == "failed" {
 		t.Fatal("подмена себя на ту же версию")
 	}
 }
@@ -570,53 +432,6 @@ func TestEtSelfDownloadFailed(t *testing.T) {
 	case <-k.Done():
 		t.Fatal("keeper вышел")
 	default:
-	}
-}
-
-// 3169 · Сбой подмены и следующий план с той же записью keeper — подмена пробуется снова (чьё: код — решение
-// архитектора 2 нояб.: повтор с диска дешёвый, каждый сбой в журнале флота).
-func TestEtSelfFailRepeatsOnPlan(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "1.0.0")
-	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
-	s.relay.setPlan(plan1(1, kp))
-	k := s.start()
-	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
-	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
-	s.relay.push(planMsg(2, kp, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	waitFor(t, "второй сбой", func() bool { return s.relay.ledgerCount("part.failed keeper 9.9.9 — check_failed") == 2 })
-}
-
-// 3171 · Битый plan.json — держатели частей сняты как ничьи, части подняты по плану «выпусков» заново (чьё: код).
-func TestEtBrokenPlanOrphans(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	pid := partOf(k, "capture").Pid
-	k.Stop()
-	os.WriteFile(planPath(s.home), []byte("{битый"), 0o600)
-	k2 := s.start()
-	waitFor(t, "часть поднята заново", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Pid != pid })
-	if !journalHas(s.home, `"ev":"orphan_kill","id":"capture"`) {
-		t.Fatal("держатель части не снят как ничей")
-	}
-}
-
-// 3172 · keeper.json не прочитан — старт отказан, держатели частей не тронуты (чьё: код).
-func TestEtBadConfHoldersAlive(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	pid := partOf(k, "capture").Pid
-	k.Stop()
-	os.WriteFile(confPath(s.home), []byte("{битый"), 0o600)
-	code, _, _ := runKeeper(t, s.home, "", "run")
-	if code != 1 || !alive(pid) {
-		t.Fatalf("код %d, часть жива %v", code, alive(pid))
 	}
 }
 
@@ -651,7 +466,7 @@ func TestEtOneRestartThenFailed(t *testing.T) {
 	}
 	killPid(t, partOf(k, "capture").Pid)
 	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
-	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.3.2 — второе падение") })
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.3.2 — второе падение: ") })
 	// та же запись части с новой rev — keeper failed не трогает: решает тот, кто правит план
 	same := s.links.part("capture", "1.3.2", appFiles(""), on)
 	s.relay.push(planMsg(2, same))
@@ -673,15 +488,15 @@ func TestEtSavedPlanWithoutRelay(t *testing.T) {
 	s := newStand(t)
 	pl := plan1(7, s.links.part("capture", "1.3.2", appFiles(""), on))
 	b, _ := json.Marshal(pl)
-	os.WriteFile(planPath(s.home), b, 0o600)
-	writeConf(s.home, map[string]any{}) // relay нет
+	os.WriteFile(planFile(s.home), b, 0o600)
+	saveConf(s.home, map[string]any{}) // relay нет
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
-	writeHoldFile(s.home, holdFile{ID: "capture", Owner: "keeper", Port: port, Key: "dead", Tag: "1.3.2"})
+	putHeldFile(s.home, heldFile{ID: "capture", Owner: "keeper", Port: port, Key: "dead", Tag: "1.3.2"})
 	k := s.start()
 	waitFor(t, "running без связи", func() bool { return partOf(k, "capture").State == "running" })
-	for _, want := range []string{`"kind":"stop","ev":"relay","why":"в keeper.json нет адреса relay`,
+	for _, want := range []string{`"kind":"stop","ev":"relay","why":"в keeper.json нет адреса relay (workers.relay) или нет machine.key — исполняю сохранённый план без связи"`,
 		`"ev":"adopt","id":"capture","why":"держатель не отвечает — файл убран`, `"ev":"plan","rev":7`, `"ev":"part_start","version":"1.3.2","pid":`} {
 		if !journalHas(s.home, want) {
 			t.Fatalf("нет строки %s", want)
@@ -738,17 +553,17 @@ func TestEtHolderUnclaimedExit(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "s"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "s"))
 	json.Unmarshal(b, &hf)
 	killPid(t, f.Pid)
-	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(home, "s")) && !alive(hf.Holder) })
-	if !journalHas(home, `"ev":"held_unclaimed"`) {
-		t.Fatal("нет строки held_unclaimed")
+	waitFor(t, "держатель вышел", func() bool { return !isThere(heldPath(home, "s")) && !alive(hf.Holder) })
+	if !journalHas(home, `"ev":"held_unclaimed"`) || !journalHas(home, "хозяин не забрал выход за 300ms — держатель вышел") || !journalHas(home, `"ev":"held_exit"`) {
+		t.Fatal("нет строки held_exit или held_unclaimed с причиной")
 	}
 }
 
@@ -759,14 +574,14 @@ func TestEtHolderExitTakenOwnerStays(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "s"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "s"))
 	json.Unmarshal(b, &hf)
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -776,34 +591,9 @@ func TestEtHolderExitTakenOwnerStays(t *testing.T) {
 		t.Fatalf("выход %+v %v", x, err)
 	}
 	// соединение остаётся открытым
-	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(home, "s")) && !alive(hf.Holder) })
+	waitFor(t, "держатель вышел", func() bool { return !isThere(heldPath(home, "s")) && !alive(hf.Holder) })
 	if journalHas(home, `"ev":"held_unclaimed"`) {
 		t.Fatal("held_unclaimed при забранном выходе")
-	}
-}
-
-// 5510 · Держатель не прислал строку о себе за holderWait — хозяин получает отказ «держатель не ответил за …», держатель
-// убит, файла о нём нет (устав: «у всех операций лимит», слово пользователя 2 нояб.).
-func TestEtSpawnHolderSilent(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("SWITCHBOARD_HOME", home)
-	old := holderWait
-	holderWait = 500 * time.Millisecond
-	t.Cleanup(func() { holderWait = old })
-	self, _ := os.Executable()
-	_, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_HOLD_SILENT=1"), Cmd: []string{self, "app"}})
-	if err == nil || !strings.Contains(err.Error(), "держатель не ответил за") {
-		t.Fatalf("отказ %v", err)
-	}
-	b, _ := os.ReadFile(filepath.Join(home, "silent-pid"))
-	pid := 0
-	fmt.Sscan(string(b), &pid)
-	if pid == 0 {
-		t.Fatal("молчащий держатель не записал pid")
-	}
-	waitFor(t, "молчащий держатель убит", func() bool { return !alive(pid) })
-	if exists(holdPath(home, "s")) {
-		t.Fatal("файл о держателе есть")
 	}
 }
 
@@ -819,7 +609,9 @@ func TestEtKeeperBackAfterUnclaimed(t *testing.T) {
 	pid := partOf(k, "capture").Pid
 	k.Stop()
 	killPid(t, pid)
-	waitFor(t, "held_unclaimed", func() bool { return journalHas(s.home, `"ev":"held_unclaimed"`) && !exists(holdPath(s.home, "capture")) })
+	waitFor(t, "held_unclaimed", func() bool {
+		return journalHas(s.home, `"ev":"held_unclaimed"`) && !isThere(heldPath(s.home, "capture"))
+	})
 	k2 := s.start()
 	waitFor(t, "часть запущена заново", func() bool {
 		p := partOf(k2, "capture")
@@ -838,62 +630,19 @@ func TestEtHolderLiveProcessOutlastsOwnerWait(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=300ms"), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second)
-	if !exists(holdPath(home, "s")) || journalHas(home, `"ev":"held_unclaimed"`) {
+	if !isThere(heldPath(home, "s")) || journalHas(home, `"ev":"held_unclaimed"`) {
 		t.Fatal("держатель живого процесса ушёл")
 	}
-	c, hh, err := dialHolder(f)
+	c, hh, err := attachHeld(f)
 	if err != nil || hh.Pid != f.Pid {
 		t.Fatalf("hello %+v %v", hh, err)
 	}
 	c.Close()
-}
-
-// 5514 · keeper на старте не берёт вышедший держатель Host: строк adopt и orphan_kill по нему нет; держатель уходит сам
-// по ownerWait (устав: «Keeper без решений. Процессы claude держит Host через свои держатели»; чьё: код — adopt берёт
-// только держатели с хозяином keeper).
-func TestEtKeeperLeavesExitedHostHolder(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	f, err := spawnHolder(s.home, holdSpec{ID: "site@win", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=1s"), Cmd: []string{self, "app"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	killPid(t, f.Pid)
-	s.relay.setPlan(plan1(1))
-	k := s.start()
-	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
-	waitFor(t, "held_unclaimed", func() bool { return journalHas(s.home, `"ev":"held_unclaimed","callsign":"site@win"`) && !exists(holdPath(s.home, "site@win")) })
-	if journalHas(s.home, `"ev":"adopt","id":"site@win"`) || journalHas(s.home, `"ev":"orphan_kill","id":"site@win"`) {
-		t.Fatal("keeper взялся за держатель Host")
-	}
-}
-
-// 5515 · keeper вернулся до ownerWait, части нет в плане: держатель keeper с вышедшим процессом снят как ничей —
-// orphan_kill, выход отдан keeper, файл убран, держатель вышел, held_unclaimed нет, part_start нет (чьё: код — adopt
-// «Есть в плане — подключиться, нет — убить»; устав: «Keeper без решений… исполняет план»).
-func TestEtKeeperOrphanExitedHolder(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	f, err := spawnHolder(s.home, holdSpec{ID: "old", Owner: "keeper", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=10s"), Cmd: []string{self, "app"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(s.home, "old"))
-	json.Unmarshal(b, &hf)
-	killPid(t, f.Pid)
-	waitFor(t, "процесс вышел", func() bool { return !alive(f.Pid) })
-	s.relay.setPlan(plan1(1))
-	s.start()
-	waitFor(t, "держатель вышел", func() bool { return !exists(holdPath(s.home, "old")) && !alive(hf.Holder) })
-	if !journalHas(s.home, `"ev":"orphan_kill","id":"old"`) || journalHas(s.home, `"ev":"held_unclaimed"`) || journalHas(s.home, `"ev":"part_start","part":"old"`) {
-		t.Fatal("ничей держатель снят не так")
-	}
 }
 
 // 5518 · Соединение без кадра ключа держатель закрывает за 10 с словом bad_key; держатель и процесс живут, хозяин с
@@ -903,7 +652,7 @@ func TestEtHolderNoKeyClosed(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "s", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -914,14 +663,14 @@ func TestEtHolderNoKeyClosed(t *testing.T) {
 	defer raw.Close()
 	start := time.Now()
 	raw.SetReadDeadline(time.Now().Add(15 * time.Second))
-	ty, body, err := readFrame(raw)
-	if err != nil || ty != frError || string(body) != "bad_key" || time.Since(start) < 9*time.Second {
+	ty, body, err := getFrame(raw)
+	if err != nil || ty != kError || string(body) != "bad_key" || time.Since(start) < 9*time.Second {
 		t.Fatalf("кадр %q %q %v за %v", ty, body, err, time.Since(start))
 	}
 	if !alive(f.Pid) {
 		t.Fatal("процесс умер")
 	}
-	c, hh, err := dialHolder(f)
+	c, hh, err := attachHeld(f)
 	if err != nil || hh.Pid != f.Pid {
 		t.Fatalf("хозяин не подключился: %+v %v", hh, err)
 	}
@@ -939,7 +688,7 @@ func TestEtKeeperState(t *testing.T) {
 		t.Fatalf("ответ %v", r)
 	}
 	res := r["result"].(map[string]any)
-	if res["keeper"] != keeperVersion || res["rev"].(float64) != 3 || res["os"] == "" {
+	if res["keeper"] != ourVersion || res["rev"].(float64) != 3 || res["os"] == "" {
 		t.Fatalf("ответ %v", res)
 	}
 	ps := res["parts"].([]any)
@@ -957,43 +706,6 @@ func TestEtKeeperState(t *testing.T) {
 	// незнакомый запрос — отказ словом (устав: «ошибки — словами»)
 	if u := s.relay.ask(map[string]any{"type": "keeper.nope", "to": ".keeper@win"}); u["ok"] != false || u["error"] != "unknown_request" {
 		t.Fatalf("ответ на незнакомый запрос %v", u)
-	}
-}
-
-// Ничей держатель убит: часть не из плана — на старте kill.
-func TestEtOrphanHolderKilled(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	f, err := spawnHolder(s.home, holdSpec{ID: "old", Owner: "keeper", Env: os.Environ(), Cmd: []string{self, "app"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.relay.setPlan(plan1(1))
-	s.start()
-	waitFor(t, "ничей убит", func() bool { return !exists(holdPath(s.home, "old")) })
-	waitFor(t, "процесс ничьего держателя умер", func() bool { return !alive(f.Pid) })
-	if !journalHas(s.home, `"ev":"orphan_kill","id":"old"`) {
-		t.Fatal("нет строки orphan_kill")
-	}
-}
-
-// Держатели Host keeper не трогает: ни подключения, ни снятия (устав: «Процессы claude держит Host через свои держатели»).
-func TestEtHostHoldersUntouched(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	f, err := spawnHolder(s.home, holdSpec{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	s.relay.setPlan(plan1(1))
-	k := s.start()
-	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
-	time.Sleep(700 * time.Millisecond)
-	if !exists(holdPath(s.home, "site@win")) || !alive(f.Pid) {
-		t.Fatal("держатель Host тронут")
-	}
-	if journalHas(s.home, `"ev":"adopt","id":"site@win"`) || journalHas(s.home, `"ev":"orphan_kill","id":"site@win"`) {
-		t.Fatal("keeper взялся за держатель Host")
 	}
 }
 
@@ -1020,60 +732,6 @@ func TestEtEnvChangeRestarts(t *testing.T) {
 	}
 }
 
-// Самообновление: последним шагом плана, где бы ни стояла запись keeper; новый файл ответил своей версией → подмена
-// своего файла, part.updated и выход; держатели живут (план заморозки, «Подмена себя»: «По плану, последним шагом;
-// держатели живут»).
-func TestEtSelfUpdate(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
-	os.WriteFile(target, []byte("old"), 0o755)
-	app := s.links.part("capture", "1.3.2", appFiles(""), on)
-	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
-	s.relay.setPlan(plan1(1, kp, app))
-	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
-	select {
-	case <-k.Done():
-	case <-time.After(30 * time.Second):
-		t.Fatal("keeper не подменил себя")
-	}
-	b, _ := os.ReadFile(target)
-	if len(b) != len(bin) {
-		t.Fatal("файл keeper не подменён")
-	}
-	if ms, _ := filepath.Glob(target + "." + keeperVersion + ".*.old"); len(ms) != 1 {
-		t.Fatalf("старый файл не переименован: %v", ms)
-	}
-	if f := readHoldFiles(s.home); len(f) != 1 || !alive(f[0].Pid) {
-		t.Fatal("держатель приложения не пережил подмену keeper")
-	}
-	waitFor(t, "part.updated keeper", func() bool { return s.relay.ledgerHas("part.updated keeper " + keeperVersion + " → 9.9.9") })
-}
-
-// Новый файл keeper не тот: check_failed, keeper не выходит.
-func TestEtSelfUpdateCheckFailed(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "1.0.0")
-	kp := s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)
-	s.relay.setPlan(plan1(1, kp))
-	k := s.start()
-	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
-	select {
-	case <-k.Done():
-		t.Fatal("keeper остановился после check_failed")
-	default:
-	}
-	if !journalHas(s.home, `"ev":"part_failed","why":"keeper 9.9.9: check_failed`) {
-		t.Fatal("сбой подмены не в журнале машины")
-	}
-	// сбой подмены — как у любой части: и в журнале флота (чьё: код, install.go «как у любой части»)
-	waitFor(t, "part.failed keeper", func() bool { return s.relay.ledgerHas("part.failed keeper 9.9.9 — check_failed") })
-}
-
 /* ===== держатель ===== */
 
 // Держатель копит вывод без хозяина и отдаёт его хозяину; второй хозяин вытесняет первого; чужой ключ — bad_key
@@ -1082,7 +740,7 @@ func TestEtSelfUpdateCheckFailed(t *testing.T) {
 func TestEtHolderBufferAndOwner(t *testing.T) {
 	// байты кадра — образец замороженного протокола; тот же образец проверяет Host
 	var gb bytes.Buffer
-	writeFrame(&gb, frAuth, []byte("key"))
+	putFrame(&gb, kAuth, []byte("key"))
 	if gb.String() != "a\x00\x00\x00\x03key" {
 		t.Fatalf("кадр %q", gb.String())
 	}
@@ -1090,7 +748,7 @@ func TestEtHolderBufferAndOwner(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "x", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "x", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1115,7 +773,7 @@ func TestEtHolderBufferAndOwner(t *testing.T) {
 	if len(hello) != 2 || hello["pid"] != float64(f.Pid) || hello["buffered"] == float64(0) || hello["buffered"] == nil {
 		t.Fatalf("hello %s", body)
 	}
-	c1 := &heldConn{c: raw}
+	c1 := &ownerConn{c: raw}
 	var first strings.Builder
 	firstDone := make(chan error, 1)
 	go func() {
@@ -1125,17 +783,17 @@ func TestEtHolderBufferAndOwner(t *testing.T) {
 		}
 		firstDone <- err
 	}()
-	c2, hh, err := dialHolder(f)
+	c2, hh, err := attachHeld(f)
 	if err != nil || hh.Pid != f.Pid {
 		t.Fatalf("второй хозяин: %+v %v", hh, err)
 	}
 	if err := <-firstDone; err == nil || !strings.Contains(first.String(), "app 1 start") {
 		t.Fatalf("прежний хозяин не вытеснен или без накопленного: %v %q", err, first.String())
 	}
-	waitFor(t, "строка held_replaced", func() bool { return journalHas(home, `"ev":"held_replaced"`) })
+	waitFor(t, "строка held_replaced", func() bool { return journalHas(home, `"ev":"held_replaced"`) && journalHas(home, `"ev":"held_attach"`) })
 	bad := f
 	bad.Key = "nope"
-	if _, _, err := dialHolder(bad); err == nil || !strings.Contains(err.Error(), "bad_key") {
+	if _, _, err := attachHeld(bad); err == nil || !strings.Contains(err.Error(), "bad_key") {
 		t.Fatalf("чужой ключ: %v", err)
 	}
 	// выход процесса — у второго хозяина
@@ -1143,22 +801,6 @@ func TestEtHolderBufferAndOwner(t *testing.T) {
 	if x, err := c2.read(func([]byte) {}); err != nil || x == nil {
 		t.Fatalf("выход второму хозяину %v %v", x, err)
 	}
-}
-
-// Умер держатель — умер процесс: ничьих процессов не бывает.
-func TestEtHolderDiesChildDies(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("SWITCHBOARD_HOME", home)
-	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "y", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "y"))
-	json.Unmarshal(b, &hf)
-	killPid(t, hf.Holder)
-	waitFor(t, "процесс умер с держателем", func() bool { return !alive(f.Pid) })
 }
 
 func readJournal(home string) string {
@@ -1169,30 +811,6 @@ func readJournal(home string) string {
 		s.Write(b)
 	}
 	return s.String()
-}
-
-// npm из app.json — npm-cli.js рядом с Node из keeper.json под тем же Node: на Windows npm — это npm.cmd,
-// а у службы может не быть PATH (чьё: дизайн «npm — npm рядом с ним»).
-func TestNpmNextToNode(t *testing.T) {
-	d := t.TempDir()
-	node := filepath.Join(d, exeName("node"))
-	cli := filepath.Join(d, "node_modules", "npm", "bin", "npm-cli.js")
-	os.MkdirAll(filepath.Dir(cli), 0o755)
-	os.WriteFile(node, nil, 0o755)
-	os.WriteFile(cli, nil, 0o644)
-	k := &Keeper{node: node}
-	got := k.command([]string{"npm", "ci", "--omit=dev"}, d)
-	if strings.Join(got, "|") != strings.Join([]string{node, cli, "ci", "--omit=dev"}, "|") {
-		t.Fatalf("команда %v", got)
-	}
-	if got := (&Keeper{}).command([]string{"npm", "ci"}, d); got[0] != "npm" {
-		t.Fatalf("без node в keeper.json — npm как есть: %v", got)
-	}
-	// node — Node из keeper.json; путь, который есть в папке версии, — полный (чьё: код — keeper.go command)
-	os.WriteFile(filepath.Join(d, "main.cjs"), nil, 0o644)
-	if got := k.command([]string{"node", "main.cjs", "x"}, d); strings.Join(got, "|") != strings.Join([]string{node, filepath.Join(d, "main.cjs"), "x"}, "|") {
-		t.Fatalf("команда node %v", got)
-	}
 }
 
 // setup — в папке версии, а не во временной: npm на Windows связывает пакеты workspaces ссылками с полным путём,
@@ -1206,7 +824,7 @@ func TestSetupInVersionDir(t *testing.T) {
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", app, on)))
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	dir := versionDir(s.home, "capture", "1.3.2")
+	dir := verDir(s.home, "capture", "1.3.2")
 	got, _ := os.ReadFile(filepath.Join(dir, "setup-dir"))
 	a, _ := os.Stat(string(got))
 	d, _ := os.Stat(dir)
@@ -1224,7 +842,7 @@ func TestEtPlanContractMismatch(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1))
 	k := s.start()
-	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
+	waitFor(t, "план rev 1", func() bool { return stateOf(k).Rev == 1 })
 	foreign := planMsg(5, s.links.part("capture", "1.0.0", appFiles(""), on))
 	foreign["from"] = "phone~x@y"
 	s.relay.push(foreign)
@@ -1238,9 +856,14 @@ func TestEtPlanContractMismatch(t *testing.T) {
 		j := readJournal(s.home)
 		return strings.Count(j, `"word":"contract_mismatch"`) == 2 && strings.Count(j, `"word":"bad_from"`) == 1
 	})
+	for _, w := range []string{"план не от .releases: phone~x@y", "кадр releases.plan v 2 — не v1", "кадр releases.plan — не план v1: "} {
+		if !journalHas(s.home, w) {
+			t.Fatalf("нет причины %q", w)
+		}
+	}
 	time.Sleep(300 * time.Millisecond)
-	if k.state().Rev != 1 || partOf(k, "capture").State != "" {
-		t.Fatalf("отклонённый план исполнен: %+v", k.state())
+	if stateOf(k).Rev != 1 || partOf(k, "capture").State != "" {
+		t.Fatalf("отклонённый план исполнен: %+v", stateOf(k))
 	}
 }
 
@@ -1250,24 +873,15 @@ func TestEtPlanOldRev(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(5))
 	k := s.start()
-	waitFor(t, "rev 5", func() bool { return k.state().Rev == 5 })
+	waitFor(t, "rev 5", func() bool { return stateOf(k).Rev == 5 })
 	s.relay.push(planMsg(3, s.links.part("capture", "1.0.0", appFiles(""), on)))
 	waitFor(t, "old_rev", func() bool { return journalHas(s.home, `"word":"old_rev"`) })
-	if n := strings.Count(readJournal(s.home), `"word":"old_rev"`); n != 1 || k.state().Rev != 5 || partOf(k, "capture").State != "" {
-		t.Fatalf("строк old_rev %d, rev %d", n, k.state().Rev)
+	if n := strings.Count(readJournal(s.home), `"word":"old_rev"`); n != 1 || stateOf(k).Rev != 5 || partOf(k, "capture").State != "" {
+		t.Fatalf("строк old_rev %d, rev %d", n, stateOf(k).Rev)
 	}
-}
-
-// Битый plan.json — строка stop с причиной; keeper живёт и берёт план у «выпусков».
-func TestEtBrokenPlanFile(t *testing.T) {
-	s := newStand(t)
-	os.WriteFile(planPath(s.home), []byte("{битый"), 0o600)
-	s.relay.setPlan(plan1(2, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	if r := journalLine(s.home, `"ev":"plan","why":"plan.json`); r == nil || r["kind"] != "stop" {
-		t.Fatalf("строка о битом plan.json: %v", r)
+	if !journalHas(s.home, "план rev 3 старше исполняемого rev 5") {
+		t.Fatal("нет причины old_rev")
 	}
-	waitFor(t, "план от «выпусков»", func() bool { return partOf(k, "capture").State == "running" })
 }
 
 // Старая версия упала, пока ставится новая: работает один экземпляр новой версии, перезапусков 0
@@ -1283,7 +897,7 @@ func TestEtCrashDuringInstall(t *testing.T) {
 	b, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "slowsetup"}})
 	app["app.json"] = string(b)
 	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", app, on)))
-	waitFor(t, "setup идёт", func() bool { return exists(filepath.Join(versionDir(s.home, "capture", "1.4.0"), "setup-started")) })
+	waitFor(t, "setup идёт", func() bool { return isThere(filepath.Join(verDir(s.home, "capture", "1.4.0"), "setup-started")) })
 	killPid(t, old)
 	waitFor(t, "1.4.0 running", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Version == "1.4.0" })
 	time.Sleep(time.Second) // выход старой версии разобран
@@ -1343,7 +957,13 @@ func TestEtInstallFailedToLedger(t *testing.T) {
 	noApp := s.links.part("radar", "1.0.0", files{"main.cjs": "x"}, on)
 	badName := s.links.part("sonar", "1.0.0", appFiles(""), on)
 	badName["version"] = "1.0.0/../x"
-	s.relay.setPlan(plan1(1, bad, link, s.links.part("meter", "1.0.0", foreign, on), s.links.part("web", "1.0.0", setup, on), noApp, badName))
+	noRun := s.links.part("tuner", "1.0.0", files{"app.json": "{}"}, on)
+	noLink := s.links.part("gauge", "1.0.0", appFiles(""), on)
+	delete(noLink, "url")
+	gone := s.links.part("dial", "1.0.0", appFiles(""), on)
+	gone["url"] = gone["url"].(string) + "-нет"
+	escape := s.links.part("relay", "1.0.0", files{"../x": "y"}, on)
+	s.relay.setPlan(plan1(1, bad, link, s.links.part("meter", "1.0.0", foreign, on), s.links.part("web", "1.0.0", setup, on), noApp, badName, noRun, noLink, gone, escape))
 	k := s.start()
 	waitFor(t, "sonar failed bad_plan", func() bool {
 		p := partOf(k, "sonar")
@@ -1354,10 +974,24 @@ func TestEtInstallFailedToLedger(t *testing.T) {
 		waitFor(t, c.part+" failed "+c.word, func() bool { p := partOf(k, c.part); return p.State == "failed" && strings.Contains(p.Error, c.word) })
 		waitFor(t, "part.failed "+c.part, func() bool { return s.relay.ledgerHas("part.failed " + c.part + " 1.0.0 — " + c.word) })
 	}
-	if !strings.Contains(partOf(k, "probe").Error, "только файлы и папки") || !strings.Contains(partOf(k, "web").Error, "npm ERR! нет пакета") {
-		t.Fatalf("причины: %q · %q", partOf(k, "probe").Error, partOf(k, "web").Error)
+	for part, want := range map[string]string{
+		"capture": "download_failed: sha256 capture 1.0.0 — ",
+		"probe":   "download_failed: распаковка: запись link вида '2' — в архиве части только файлы и папки",
+		"meter":   "contract_mismatch: app.json: ",
+		"web":     "setup_failed: ",
+		"radar":   "no_app_json: ",
+		"sonar":   "bad_plan: часть «sonar» версия «1.0.0/../x»",
+		"tuner":   "app.json без run",
+		"gauge":   "download_failed: gauge 1.0.0 нет на диске и нет ссылки",
+		"dial":    "download_failed: GET dial 1.0.0: 404",
+		"relay":   "download_failed: распаковка: путь вне папки: ../x",
+	} {
+		waitFor(t, part+" failed", func() bool { return strings.HasPrefix(partOf(k, part).Error, want) })
 	}
-	if exists(versionDir(s.home, "web", "1.0.0")) {
+	if !strings.Contains(partOf(k, "web").Error, "npm ERR! нет пакета") {
+		t.Fatalf("причина setup: %q", partOf(k, "web").Error)
+	}
+	if isThere(verDir(s.home, "web", "1.0.0")) {
 		t.Fatal("папка версии с упавшим setup осталась")
 	}
 }
@@ -1368,17 +1002,17 @@ func TestEtPartRemoved(t *testing.T) {
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	keep := filepath.Join(partDir(s.home, "capture"), "data", "keep")
+	keep := filepath.Join(partFolder(s.home, "capture"), "data", "keep")
 	os.WriteFile(keep, []byte("1"), 0o600)
 	s.relay.push(planMsg(2))
-	waitFor(t, "снята", func() bool { return len(k.state().Parts) == 0 })
+	waitFor(t, "снята", func() bool { return len(stateOf(k).Parts) == 0 })
 	// папки версий keeper убирает после того, как снял часть из keeper.state
-	waitFor(t, "папка версии убрана", func() bool { return !exists(versionDir(s.home, "capture", "1.3.2")) })
-	if !exists(keep) {
+	waitFor(t, "папка версии убрана", func() bool { return !isThere(verDir(s.home, "capture", "1.3.2")) })
+	if !isThere(keep) {
 		t.Fatal("data/ убрана")
 	}
-	if !journalHas(s.home, `"line":"bye"`) {
-		t.Fatal("часть не остановлена закрытием ввода")
+	if !journalHas(s.home, `"line":"bye"`) || !journalHas(s.home, `"part":"capture"`) || !journalHas(s.home, `"ev":"part_removed"`) {
+		t.Fatal("часть не остановлена закрытием ввода или нет строки part_removed")
 	}
 }
 
@@ -1393,7 +1027,7 @@ func TestEtPartEnv(t *testing.T) {
 	waitFor(t, "строка env", func() bool { return journalHas(s.home, `"line":"env `) })
 	line, _ := journalLine(s.home, `"line":"env `)["line"].(string)
 	self, _ := os.Executable()
-	data := filepath.Join(partDir(s.home, "capture"), "data")
+	data := filepath.Join(partFolder(s.home, "capture"), "data")
 	for _, want := range []string{"SWITCHBOARD_MACHINE=win", "SWITCHBOARD_VERSION=1.3.2", "SWITCHBOARD_DATA=" + data,
 		"SWITCHBOARD_HOME=" + s.home, "SWITCHBOARD_HOLDER=" + self, "SWITCHBOARD_RELAY= ", "SWITCHBOARD_WORKERS={", "SITE=lab", "CWD=" + data} {
 		if !strings.Contains(line, want) {
@@ -1409,11 +1043,11 @@ func TestEtHolderKillBehindInput(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "d", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app", "deaf"}})
+	f, err := holdProc(home, holdReq{ID: "d", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app", "deaf"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1421,7 +1055,7 @@ func TestEtHolderKillBehindInput(t *testing.T) {
 	go func() {
 		chunk := make([]byte, 32*1024)
 		for i := 0; i < 8; i++ {
-			if c.send(frInput, chunk) != nil {
+			if c.send(kInput, chunk) != nil {
 				return
 			}
 		}
@@ -1439,35 +1073,6 @@ func TestEtHolderKillBehindInput(t *testing.T) {
 	waitFor(t, "процесс снят", func() bool { return !alive(f.Pid) })
 }
 
-// После подмены себя версии keeper на диске — новая и та, с которой ушли: прежний файл для отката лежит рядом
-// (машины 1 нояб.: 6 версий, 77 МБ).
-func TestEtSelfUpdateCleansVersions(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
-	os.WriteFile(target, []byte("old"), 0o755)
-	for _, v := range []string{"0.0.1", keeperVersion} {
-		os.MkdirAll(versionDir(s.home, "keeper", v), 0o700)
-	}
-	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
-	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
-	select {
-	case <-k.Done():
-	case <-time.After(30 * time.Second):
-		t.Fatal("keeper не подменил себя")
-	}
-	es, _ := os.ReadDir(partDir(s.home, "keeper"))
-	var got []string
-	for _, e := range es {
-		got = append(got, e.Name())
-	}
-	if strings.Join(got, " ") != keeperVersion+" 9.9.9" {
-		t.Fatalf("версии keeper: %v", got)
-	}
-}
-
 // Остановка keeper, пока ставится новая версия: работающая живёт дальше с тем же pid, переход — у следующего keeper
 // (ревью архитектора 1 нояб.: цикл доводил установку и гасил прежнюю версию).
 func TestEtStopDuringInstallKeepsRunning(t *testing.T) {
@@ -1481,7 +1086,7 @@ func TestEtStopDuringInstallKeepsRunning(t *testing.T) {
 	b, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "slowsetup"}})
 	app["app.json"] = string(b)
 	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", app, on)))
-	waitFor(t, "setup идёт", func() bool { return exists(filepath.Join(versionDir(s.home, "capture", "1.4.0"), "setup-started")) })
+	waitFor(t, "setup идёт", func() bool { return isThere(filepath.Join(verDir(s.home, "capture", "1.4.0"), "setup-started")) })
 	k.Stop()
 	if !alive(pid) || journalHas(s.home, `"line":"bye"`) {
 		t.Fatal("работающая версия остановлена вместе с keeper")
@@ -1503,34 +1108,6 @@ func TestEtStopDuringInstallKeepsRunning(t *testing.T) {
 	}
 }
 
-// Прежний файл keeper с тем же именем ещё занят (откат и новая выкладка, держатель прошлой эпохи) — подмена себя
-// проходит (ревью 1 нояб.: Access is denied на Windows).
-func TestEtSelfUpdateOldNameBusy(t *testing.T) {
-	s := newStand(t)
-	self, _ := os.Executable()
-	bin, _ := os.ReadFile(self)
-	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
-	os.WriteFile(target, []byte("old"), 0o755)
-	busy := target + "." + keeperVersion + ".old"
-	os.WriteFile(busy, []byte("epoch 1"), 0o755)
-	h, err := os.Open(busy)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer h.Close()
-	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
-	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
-	select {
-	case <-k.Done():
-	case <-time.After(30 * time.Second):
-		t.Fatal("keeper не подменил себя")
-	}
-	if b, _ := os.ReadFile(target); len(b) != len(bin) {
-		t.Fatal("файл keeper не подменён")
-	}
-}
-
 // Штатная остановка: keeper дописал своё — keeper_exit последняя его строка в журнале, после Stop он не пишет;
 // держатель и процесс части живут (находка пользователя 1 нояб.: CI на ubuntu — «journal: directory not empty» при
 // уборке после Stop; устав: штатная остановка, «держатели живут»).
@@ -1541,7 +1118,7 @@ func TestEtStopLastLine(t *testing.T) {
 	waitFor(t, "вывод идёт", func() bool { return journalHas(s.home, `"line":"tick 20"`) })
 	pid := partOf(k, "capture").Pid
 	k.Stop()
-	if !alive(pid) || !exists(holdPath(s.home, "capture")) {
+	if !alive(pid) || !isThere(heldPath(s.home, "capture")) {
 		t.Fatal("остановка keeper остановила часть")
 	}
 	time.Sleep(300 * time.Millisecond)
@@ -1563,10 +1140,10 @@ func TestEtKeeperRollbackClearsFailed(t *testing.T) {
 	self, _ := os.Executable()
 	bin, _ := os.ReadFile(self)
 	t.Setenv("KEEPER_TEST_VERSION", "0.0.0-wrong")
-	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{archDir() + "/" + binName("keeper"): string(bin)}, nil)))
 	k := s.start()
 	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
-	s.relay.push(planMsg(2, s.links.part("keeper", keeperVersion, files{"x": "x"}, nil)))
+	s.relay.push(planMsg(2, s.links.part("keeper", ourVersion, files{"x": "x"}, nil)))
 	waitFor(t, "failed снят", func() bool { return partOf(k, "keeper").State == "" })
 }
 
@@ -1586,39 +1163,13 @@ func TestEtFailedUntilKeeperRestart(t *testing.T) {
 	waitFor(t, "снова running", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Restarts == 0 })
 }
 
-// Обрыв связи с relay — keeper переподключается тем же hello и спрашивает план снова; тот же план части не трогает:
-// pid тот же, строк plan нет (устав, закрытый список: «соединение… оборвалось — клиенты переподключаются»; чьё: код —
-// relay.go «ключом машины и part: "keeper" в hello», keeper.go «Та же rev — переподключение»).
-func TestEtRelayDropReasks(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	k := s.start()
-	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
-	pid := partOf(k, "capture").Pid
-	s.relay.drop()
-	waitFor(t, "вопрос после переподключения", func() bool { return s.relay.planAsks() == 2 })
-	time.Sleep(500 * time.Millisecond)
-	hello, opens := s.relay.seen()
-	if opens != 2 || hello["key"] != "host.win.ab12.sig" || hello["proto"] != float64(1) || hello["part"] != "keeper" {
-		t.Fatalf("hello %v, входов %d", hello, opens)
-	}
-	if p := partOf(k, "capture"); p.Pid != pid || p.Restarts != 0 || p.State != "running" {
-		t.Fatalf("переподключение тронуло часть: %+v", p)
-	}
-	j := readJournal(s.home)
-	if strings.Count(j, `"ev":"plan","rev":1`) != 1 || strings.Contains(j, `"word":"old_rev"`) ||
-		strings.Count(j, `"ev":"relay_open"`) != 2 || !strings.Contains(j, `"ev":"relay_closed"`) {
-		t.Fatal("строки журнала о переподключении: нужны relay_open ×2, relay_closed, одна строка plan, без old_rev")
-	}
-}
-
 // 5175 · «Выпуски» не ответили на вопрос о плане — строка журнала, соединение с relay своей машины не трогается;
 // план приходит кадром releases.plan (источник: отчёт слепого архитектора 2 нояб., пункт 7 — лишняя коммуникация:
 // повтор через переподключение relay; устав «система ловит, агент чинит» — без обходных путей).
 func TestEtPlanNoAnswerNoReconnect(t *testing.T) {
 	s := newStand(t)
 	s.relay.setSilent(1)
-	k := s.startWith(func(k *Keeper) { k.planWait = 500 * time.Millisecond })
+	k := s.startWith(tuning{planWait: 500 * time.Millisecond})
 	waitFor(t, "отказ timeout в журнале", func() bool { return journalHas(s.home, `"word":"timeout"`) })
 	time.Sleep(time.Second)
 	if _, opens := s.relay.seen(); opens != 1 || s.relay.planAsks() != 1 {
@@ -1634,21 +1185,21 @@ func TestEtPlanNoAnswerNoReconnect(t *testing.T) {
 // (план заморозки, находка «Подмена себя после отката»: «Уборка на старте находит их тем же шаблоном»).
 func TestEtOldSelfCleanedOnStart(t *testing.T) {
 	s := newStand(t)
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
+	target := filepath.Join(t.TempDir(), binName("keeper"))
 	os.WriteFile(target, []byte("cur"), 0o755)
 	olds := []string{target + ".0.9.0.4242.old", target + ".prev.77.old"}
 	for _, o := range olds {
 		os.WriteFile(o, []byte("old"), 0o755)
 	}
 	s.relay.setPlan(plan1(1))
-	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
-	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
+	k := s.startWith(tuning{self: func() (string, error) { return target, nil }})
+	waitFor(t, "план rev 1", func() bool { return stateOf(k).Rev == 1 })
 	for _, o := range olds {
-		if exists(o) {
+		if isThere(o) {
 			t.Fatalf("прежний файл не убран: %s", o)
 		}
 	}
-	if !exists(target) {
+	if !isThere(target) {
 		t.Fatal("убран сам файл keeper")
 	}
 }
@@ -1679,94 +1230,17 @@ func TestEtStopDuringStubbornSwitch(t *testing.T) {
 func TestEtPlanReplyRefused(t *testing.T) {
 	s := newStand(t)
 	b, _ := json.Marshal(plan1(3, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	os.WriteFile(planPath(s.home), b, 0o600)
+	os.WriteFile(planFile(s.home), b, 0o600)
 	s.relay.setRefuse("cf_failed")
 	k := s.start()
 	waitFor(t, "строка отказа", func() bool { return journalHas(s.home, `"kind":"refuse","ev":"plan","word":"cf_failed"`) })
 	waitFor(t, "сохранённый план", func() bool { return partOf(k, "capture").State == "running" })
 	time.Sleep(700 * time.Millisecond)
-	if k.state().Rev != 3 || s.relay.planAsks() != 1 {
-		t.Fatalf("rev %d, вопросов %d", k.state().Rev, s.relay.planAsks())
+	if stateOf(k).Rev != 3 || s.relay.planAsks() != 1 {
+		t.Fatalf("rev %d, вопросов %d", stateOf(k).Rev, s.relay.planAsks())
 	}
-}
-
-// Связь с relay: relay недоступен — keeper повторяет подключение, пока тот не поднимется; принял hello, но на ping
-// молчит — соединение мёртвое: keeper закрывает его и подключается снова (устав, закрытый список: «соединение…
-// оборвалось — клиенты переподключаются»; факт: сеть WSL теряет пакеты; чьё: код — «нет pong к следующему —
-// соединение мёртвое»).
-// Паузы между попытками — от первой вдвое до предела; после принятого hello — снова первая (чьё: код — relay.go
-// «переподключение с паузой от 1 с, вдвое до 60 с»): 4 неудачи — паузы 50, 100, 200, 400 мс; после мёртвого
-// соединения — 50 мс, а не 800.
-func TestEtRelayReconnects(t *testing.T) {
-	var mu sync.Mutex
-	tries, hellos := 0, 0
-	var at []time.Time  // начало каждой попытки
-	var ended time.Time // конец принятого соединения
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		mu.Lock()
-		tries++
-		n := tries
-		at = append(at, time.Now())
-		mu.Unlock()
-		if n <= 4 {
-			w.WriteHeader(http.StatusServiceUnavailable) // relay ещё не поднялся
-			return
-		}
-		ws, err := websocket.Accept(w, req, nil)
-		if err != nil {
-			return
-		}
-		ctx := context.Background()
-		if _, _, err := ws.Read(ctx); err != nil {
-			return
-		}
-		mu.Lock()
-		hellos++
-		mu.Unlock()
-		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster"}`))
-		for {
-			if _, _, err := ws.Read(ctx); err != nil { // ping читается, pong не уходит
-				mu.Lock()
-				if ended.IsZero() {
-					ended = time.Now()
-				}
-				mu.Unlock()
-				return
-			}
-		}
-	}))
-	t.Cleanup(srv.Close)
-	r := newRadio("ws"+strings.TrimPrefix(srv.URL, "http"), "host.win.ab12.sig")
-	r.pingMs, r.pause0, r.pauseMax = 100*time.Millisecond, 50*time.Millisecond, time.Second
-	var whys []string
-	r.onState = func(open bool, why string) {
-		if !open {
-			mu.Lock()
-			whys = append(whys, why)
-			mu.Unlock()
-		}
-	}
-	go r.run()
-	t.Cleanup(r.close)
-	waitFor(t, "второе подключение после молчания на ping", func() bool { mu.Lock(); defer mu.Unlock(); return hellos >= 2 })
-	mu.Lock()
-	defer mu.Unlock()
-	dial := 0
-	for _, w := range whys {
-		if strings.HasPrefix(w, "dial: ") {
-			dial++
-		}
-	}
-	if dial != 4 {
-		t.Fatalf("неудачных подключений %d: %q", dial, whys)
-	}
-	for i, min := range []time.Duration{50, 100, 200, 400} {
-		if gap := at[i+1].Sub(at[i]); gap < min*time.Millisecond {
-			t.Fatalf("пауза после неудачи %d — %v, меньше %v мс", i+1, gap, min)
-		}
-	}
-	if gap := at[5].Sub(ended); gap > 500*time.Millisecond {
-		t.Fatalf("после принятого hello пауза %v — не сброшена к первой", gap)
+	if !journalHas(s.home, "releases.plan не ответил: cf_failed") {
+		t.Fatal("нет причины отказа")
 	}
 }
 
@@ -1795,19 +1269,6 @@ func TestEtPartOffOn(t *testing.T) {
 	}
 }
 
-// Команды run нет на машине — держатель не запустил её: часть failed с причиной «запуск: …» и part.failed в журнале
-// флота (устав: система ловит; чьё: код).
-func TestEtRunFailsToStart(t *testing.T) {
-	s := newStand(t)
-	s.relay.setPlan(plan1(1, s.links.part("capture", "1.0.0", files{"app.json": `{"run":["switchboard-no-such-program"]}`}, on)))
-	k := s.start()
-	waitFor(t, "failed", func() bool {
-		p := partOf(k, "capture")
-		return p.State == "failed" && strings.HasPrefix(p.Error, "запуск: ")
-	})
-	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.0.0 — запуск: ") })
-}
-
 // Умер держатель части — связь с ним оборвалась без кадра выхода: это падение части, один перезапуск с причиной
 // «связь с держателем оборвалась»; процесс ушёл вместе с держателем (устав, закрытый список: «умерла — один перезапуск»).
 func TestEtHolderDiedPartRestarts(t *testing.T) {
@@ -1816,8 +1277,8 @@ func TestEtHolderDiedPartRestarts(t *testing.T) {
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
 	pid := partOf(k, "capture").Pid
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(s.home, "capture"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(s.home, "capture"))
 	json.Unmarshal(b, &hf)
 	killPid(t, hf.Holder)
 	waitFor(t, "один перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 && p.Pid != pid })
@@ -1836,17 +1297,17 @@ func TestEtHolderJournalOwner(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	fp, err := spawnHolder(home, holdSpec{ID: "capture", Owner: "keeper", Tag: "1.3.2", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1.3.2"), Cmd: []string{self, "app"}})
+	fp, err := holdProc(home, holdReq{ID: "capture", Owner: "keeper", Tag: "1.3.2", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1.3.2"), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	fh, err := spawnHolder(home, holdSpec{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
+	fh, err := holdProc(home, holdReq{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range []holdFile{fp, fh} {
-		var disk holdFile
-		b, _ := os.ReadFile(holdPath(home, f.ID))
+	for _, f := range []heldFile{fp, fh} {
+		var disk heldFile
+		b, _ := os.ReadFile(heldPath(home, f.ID))
 		json.Unmarshal(b, &disk)
 		if f.Port == 0 || len(f.Key) != 64 || !alive(f.Pid) || disk.Port != f.Port || disk.Key != f.Key || disk.Pid != f.Pid || disk.Owner != f.Owner {
 			t.Fatalf("о себе %+v, в файле %+v", f, disk)
@@ -1861,23 +1322,6 @@ func TestEtHolderJournalOwner(t *testing.T) {
 	}
 }
 
-// Держатель не запустил команду — хозяин получает отказ «держатель не запустился: …», в журнале — hold_failed с
-// причиной, файла о держателе нет (устав: система ловит).
-func TestEtHoldRefused(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("SWITCHBOARD_HOME", home)
-	_, err := spawnHolder(home, holdSpec{ID: "z", Owner: "host", Env: os.Environ(), Cmd: []string{"switchboard-no-such-program"}})
-	if err == nil || !strings.Contains(err.Error(), "держатель не запустился") {
-		t.Fatalf("отказ хозяину: %v", err)
-	}
-	if r := journalLine(home, `"ev":"hold_failed"`); r == nil || r["kind"] != "stop" || r["why"] == "" || r["why"] == nil {
-		t.Fatalf("строка hold_failed %v", r)
-	}
-	if exists(holdPath(home, "z")) {
-		t.Fatal("файл держателя остался")
-	}
-}
-
 // Ввод доходит до процесса по порядку, «закрой ввод» — после всего ввода из очереди; процесс вышел кодом 0
 // (план заморозки, «Держатель»: «процесс, его ввод и вывод… Им же пользуется Host для сессий»; находка «Убей»:
 // «„Закрой ввод“ встаёт в очередь за вводом»).
@@ -1886,16 +1330,16 @@ func TestEtHolderInputInOrder(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "e", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app", "echo"}})
+	f, err := holdProc(home, holdReq{ID: "e", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app", "echo"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, l := range []string{"a\n", "b\n", "c\n"} {
-		c.send(frInput, []byte(l))
+		c.send(kInput, []byte(l))
 	}
 	c.closeInput()
 	var out strings.Builder
@@ -1915,11 +1359,11 @@ func TestEtHolderOwnerLeftBuffers(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "w", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app", "chatty"}})
+	f, err := holdProc(home, holdReq{ID: "w", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app", "chatty"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1927,7 +1371,7 @@ func TestEtHolderOwnerLeftBuffers(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 	c.Close()
 	time.Sleep(300 * time.Millisecond)
-	c2, hh, err := dialHolder(f)
+	c2, hh, err := attachHeld(f)
 	if err != nil || hh.Pid != f.Pid || hh.Buffered == 0 {
 		t.Fatalf("новый хозяин: %+v %v", hh, err)
 	}
@@ -1957,21 +1401,21 @@ func TestEtHolderExitKillsDescendants(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "p", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app", "parent"}})
+	f, err := holdProc(home, holdReq{ID: "p", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app", "parent"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "p"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "p"))
 	json.Unmarshal(b, &hf)
-	c, _, err := dialHolder(f)
+	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var mu sync.Mutex
 	var out strings.Builder
 	type res struct {
-		x   *exitInfoJSON
+		x   *heldExit
 		err error
 	}
 	done := make(chan res, 1)
@@ -2012,7 +1456,7 @@ func TestEtHolderExitKillsDescendants(t *testing.T) {
 	}
 	waitFor(t, "потомок снят", func() bool { return !alive(child) })
 	c.Close() // хозяин получил выход и закрыл соединение, как keeper и Host
-	waitFor(t, "файл держателя убран", func() bool { return !exists(holdPath(home, "p")) })
+	waitFor(t, "файл держателя убран", func() bool { return !isThere(heldPath(home, "p")) })
 	waitFor(t, "держатель вышел", func() bool { return !alive(hf.Holder) })
 }
 
@@ -2027,63 +1471,48 @@ func TestEtHolderKeepsExitForOwner(t *testing.T) {
 	t.Setenv("SWITCHBOARD_HOME", home)
 	t.Cleanup(func() { killHolders(home) })
 	self, _ := os.Executable()
-	f, err := spawnHolder(home, holdSpec{ID: "slow", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app"}})
+	f, err := holdProc(home, holdReq{ID: "slow", Owner: "host", Env: append(os.Environ(), "SWITCHBOARD_VERSION=1"), Cmd: []string{self, "app"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var hf holdFile
-	b, _ := os.ReadFile(holdPath(home, "slow"))
+	var hf heldFile
+	b, _ := os.ReadFile(heldPath(home, "slow"))
 	json.Unmarshal(b, &hf)
 	time.Sleep(500 * time.Millisecond) // строка о старте написана
 	killPid(t, f.Pid)
 	waitFor(t, "процесс убит", func() bool { return !alive(f.Pid) })
 	time.Sleep(500 * time.Millisecond)
-	if !exists(holdPath(home, "slow")) || !alive(hf.Holder) {
+	if !isThere(heldPath(home, "slow")) || !alive(hf.Holder) {
 		t.Fatal("держатель не дождался хозяина")
 	}
 	raw, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", f.Port))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeFrame(raw, frAuth, []byte(f.Key)); err != nil {
+	if err := putFrame(raw, kAuth, []byte(f.Key)); err != nil {
 		t.Fatal(err)
 	}
 	// хозяин занят: держатель успевает отдать hello, накопленное и выход раньше, чем хозяин читает
 	time.Sleep(time.Second)
-	ty, body, err := readFrame(raw)
-	if err != nil || ty != frHello {
+	ty, body, err := getFrame(raw)
+	if err != nil || ty != kHello {
 		t.Fatalf("hello: %q %v", ty, err)
 	}
-	var hh holderHello
+	var hh heldHello
 	json.Unmarshal(body, &hh)
 	var out strings.Builder
-	x, err := (&heldConn{c: raw}).read(func(b []byte) { out.Write(b) })
+	x, err := (&ownerConn{c: raw}).read(func(b []byte) { out.Write(b) })
 	killed := x != nil && ((x.Code != nil && *x.Code == 3) || (x.Signal != nil && *x.Signal == "SIGKILL"))
 	if hh.Pid != f.Pid || err != nil || !killed || !strings.Contains(out.String(), "app 1 start") {
 		t.Fatalf("hello %+v, выход %+v %v, вывод %q", hh, x, err, out.String())
 	}
 	// хозяин закрыл соединение — держатель убрал файл и вышел
 	raw.Close()
-	waitFor(t, "файл держателя убран", func() bool { return !exists(holdPath(home, "slow")) })
+	waitFor(t, "файл держателя убран", func() bool { return !isThere(heldPath(home, "slow")) })
 	waitFor(t, "держатель вышел", func() bool { return !alive(hf.Holder) })
 }
 
 /* ===== цикл тестов 1–2 нояб. (ночь): сценарии плана без эталона ===== */
-
-// keeper.json не прочитан — keeper не стартует: код 1, «keeper: …» в stderr, строка stop keeper_start с причиной
-// (устав: система ловит — «останавливает, отказывает, пишет в журнал с причиной»; код — чьё: код, main.go runConsole).
-func TestEtBadConfStartRefused(t *testing.T) {
-	home := t.TempDir()
-	os.WriteFile(confPath(home), []byte("{битый"), 0o600)
-	code, _, stderr := runKeeper(t, home, "", "run")
-	// консольный keeper повторяет журнал в stderr — слова причины отдельной строкой
-	if code != 1 || !strings.Contains("\n"+stderr, "\nkeeper: ") {
-		t.Fatalf("код %d, stderr %q", code, stderr)
-	}
-	if r := journalLine(home, `"ev":"keeper_start"`); r == nil || r["kind"] != "stop" || !strings.HasPrefix(fmt.Sprint(r["why"]), "keeper.json не прочитан: ") {
-		t.Fatalf("строка keeper_start %v", r)
-	}
-}
 
 // Штатная остановка закрывает связь с relay, и keeper больше не подключается (устав: «Каждая часть… останавливается
 // штатно: …закрывает соединения… → выходит»). Слова причины закрытия relay пишет только в свой журнал — их не
@@ -2092,7 +1521,7 @@ func TestEtStopClosesLink(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1))
 	k := s.start()
-	waitFor(t, "план rev 1", func() bool { return k.state().Rev == 1 })
+	waitFor(t, "план rev 1", func() bool { return stateOf(k).Rev == 1 })
 	k.Stop()
 	time.Sleep(1500 * time.Millisecond)
 	if _, opens := s.relay.seen(); opens != 1 {
@@ -2100,70 +1529,8 @@ func TestEtStopClosesLink(t *testing.T) {
 	}
 }
 
-// 5084 · Установка: приглашение машины — первой строкой stdin; keeper принимает его POST gate.redeem и кладёт пропуск
-// в machine.key; keeper.json — node из PATH полным путём, relay и Worker'ы из флагов, незнакомые поля целы; файл keeper —
-// на постоянном месте (дизайн «Открытый флот»: «установка keeper принимает приглашение сама»; устав: секреты через stdin;
-// чьё: код — main.go prepareConf, placeSelf, conf.go «Незнакомые поля сохраняются как есть»).
-func TestEtInstallConf(t *testing.T) {
-	r := newFakeRelay(t)
-	home := t.TempDir()
-	t.Setenv("SWITCHBOARD_HOME", home)
-	bin := t.TempDir()
-	node := filepath.Join(bin, exeName("node"))
-	os.WriteFile(node, []byte("#!/bin/sh\n"), 0o755)
-	t.Setenv("PATH", bin)
-	writeConf(home, map[string]any{"site": "lab"})
-	f, _ := parseInstall([]string{"--worker", "relay=https://relay.test/", "--worker", "gate=" + r.workerURL("gate"), "--worker", "releases=https://releases.test/", "--worker", "ledger=https://ledger.test/"})
-	if err := prepareConf(f, bufio.NewReader(strings.NewReader("win1.INVITE\r\npassword\n"))); err != nil {
-		t.Fatal(err)
-	}
-	if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); string(b) != "host.win.win1.SECRET\n" {
-		t.Fatalf("machine.key %q", b)
-	}
-	m, _ := readConf(home)
-	w := confMap(m, "workers")
-	if m["node"] != node || m["relay"] != nil || w["relay"] != "https://relay.test/" || m["site"] != "lab" || w["releases"] != "https://releases.test/" || w["ledger"] != "https://ledger.test/" {
-		t.Fatalf("keeper.json %v", m)
-	}
-	dst, err := placeSelf()
-	self, _ := os.Executable()
-	a, _ := os.Stat(self)
-	b, _ := os.Stat(dst)
-	if err != nil || dst != filepath.Join(home, exeName("keeper")) || b == nil || a.Size() != b.Size() {
-		t.Fatalf("файл keeper %q: %v", dst, err)
-	}
-}
-
-// 5084 · Погашенное приглашение, приглашение не машины, нет адреса gate или пустой stdin — отказ словами,
-// machine.key не тронут (устав: система ловит — отказывает; чьё: код — main.go prepareConf).
-func TestEtInstallKeyRefused(t *testing.T) {
-	r := newFakeRelay(t)
-	cases := []struct {
-		in, gate, word string
-	}{
-		{"used.INVITE\n", r.workerURL("gate"), "bad_invite"},
-		{"phn1.INVITE\n", r.workerURL("gate"), "не машины"},
-		{"win1.INVITE\n", "", "нет адреса gate"},
-		{"", r.workerURL("gate"), "stdin"},
-	}
-	for _, c := range cases {
-		home := t.TempDir()
-		t.Setenv("SWITCHBOARD_HOME", home)
-		writeConf(home, map[string]any{"node": "/x/node"})
-		os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.old1.OLD\n"), 0o600)
-		f := installFlags{workers: map[string]string{}}
-		if c.gate != "" {
-			f.workers["gate"] = c.gate
-		}
-		err := prepareConf(f, bufio.NewReader(strings.NewReader(c.in)))
-		if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); err == nil || !strings.Contains(err.Error(), c.word) || string(b) != "host.win.old1.OLD\n" {
-			t.Fatalf("stdin %q: %v, machine.key %q", c.in, err, b)
-		}
-	}
-}
-
 // version — номер выпуска: собранный с -ldflags отвечает им, без него — версией из module.json; неизвестная команда —
-// подсказка и код 2 (чьё: код — keeper.go keeperVersion; подмена себя сверяет ответ version с планом).
+// подсказка и код 2 (чьё: код — keeper.go ourVersion; подмена себя сверяет ответ version с планом).
 func TestEtVersionAndUsage(t *testing.T) {
 	var m struct{ Version string }
 	b, _ := os.ReadFile("module.json")
@@ -2171,14 +1538,14 @@ func TestEtVersionAndUsage(t *testing.T) {
 	if code, out, _ := runKeeper(t, t.TempDir(), "", "version"); code != 0 || strings.TrimSpace(out) != m.Version {
 		t.Fatalf("version: код %d, %q, а в module.json %s", code, out, m.Version)
 	}
-	if code, _, e := runKeeper(t, t.TempDir(), "", "nope"); code != 2 || !strings.Contains(e, "run [--hide]") {
+	if code, _, e := runKeeper(t, t.TempDir(), "", "nope"); code != 2 || !strings.Contains(e, "run [--hide] | install [--worker <имя>=<https>]… [--logon] | uninstall | hold … | version; у run, install, uninstall — [--name <имя>]") {
 		t.Fatalf("неизвестная команда: код %d, %q", code, e)
 	}
 	gobin, err := exec.LookPath("go")
 	if err != nil {
 		t.Skip("go нет на машине — сборка с -ldflags не проверена")
 	}
-	out := filepath.Join(t.TempDir(), exeName("keeper"))
+	out := filepath.Join(t.TempDir(), binName("keeper"))
 	if o, err := exec.Command(gobin, "build", "-ldflags", "-X main.buildVersion=7.7.7", "-o", out, ".").CombinedOutput(); err != nil {
 		t.Fatalf("сборка: %v %s", err, o)
 	}
@@ -2194,9 +1561,9 @@ func TestEtLedgerWithoutLink(t *testing.T) {
 	ln, _ := net.Listen("tcp", "127.0.0.1:0")
 	dead := ln.Addr().String()
 	ln.Close()
-	writeConf(s.home, map[string]any{"workers": map[string]any{"relay": "http://" + dead, "ledger": "http://" + dead + "/ledger"}})
+	saveConf(s.home, map[string]any{"workers": map[string]any{"relay": "http://" + dead, "ledger": "http://" + dead + "/ledger"}})
 	b, _ := json.Marshal(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	os.WriteFile(planPath(s.home), b, 0o600)
+	os.WriteFile(planFile(s.home), b, 0o600)
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
 	killPid(t, partOf(k, "capture").Pid)
@@ -2208,60 +1575,12 @@ func TestEtLedgerWithoutLink(t *testing.T) {
 	})
 }
 
-// relay не принял hello — причина в журнале, вопроса о плане нет, паузы растут и не сбрасываются (устав: система
-// ловит — пишет с причиной; «клиенты переподключаются»; чьё: код — relay.go «roster — знак, что hello принят»,
-// пауза сбрасывается только после принятого hello).
-func TestEtRelayHelloRefused(t *testing.T) {
-	var mu sync.Mutex
-	var at []time.Time
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		mu.Lock()
-		at = append(at, time.Now())
-		mu.Unlock()
-		ws, err := websocket.Accept(w, req, nil)
-		if err != nil {
-			return
-		}
-		if _, _, err := ws.Read(context.Background()); err == nil {
-			ws.Close(websocket.StatusPolicyViolation, "bad_key")
-		}
-	}))
-	t.Cleanup(srv.Close)
-	r := newRadio("ws"+strings.TrimPrefix(srv.URL, "http"), "host.win.ab12.sig")
-	r.pause0, r.pauseMax = 50*time.Millisecond, time.Second
-	opened := false
-	var whys []string
-	r.onOpen = func() { mu.Lock(); opened = true; mu.Unlock() }
-	r.onState = func(open bool, why string) {
-		mu.Lock()
-		defer mu.Unlock()
-		if open {
-			opened = true
-		} else {
-			whys = append(whys, why)
-		}
-	}
-	go r.run()
-	t.Cleanup(r.close)
-	waitFor(t, "пять попыток", func() bool { mu.Lock(); defer mu.Unlock(); return len(at) >= 5 })
-	mu.Lock()
-	defer mu.Unlock()
-	if opened || len(whys) == 0 || !strings.Contains(whys[0], "bad_key") {
-		t.Fatalf("открыто %v, причины %q", opened, whys)
-	}
-	for i, min := range []time.Duration{50, 100, 200, 400} {
-		if gap := at[i+1].Sub(at[i]); gap < min*time.Millisecond {
-			t.Fatalf("пауза после отказа %d — %v, меньше %v мс: сброшена без принятого hello", i+1, gap, min)
-		}
-	}
-}
-
 // Ответ «выпусков» — не план v1 (чужое поле части): отказ contract_mismatch, исполняется сохранённый план (план
 // заморозки, контракт «план машины v1»: «чужое поле или v≠1 — отказ»; память keeper-freeze: «план… строгие»).
 func TestEtPlanReplyNotV1(t *testing.T) {
 	s := newStand(t)
 	b, _ := json.Marshal(plan1(3, s.links.part("capture", "1.3.2", appFiles(""), on)))
-	os.WriteFile(planPath(s.home), b, 0o600)
+	os.WriteFile(planFile(s.home), b, 0o600)
 	extra := s.links.part("capture", "1.4.0", appFiles(""), on)
 	extra["args"] = []string{"--x"}
 	s.relay.setPlan(plan1(4, extra))
@@ -2270,8 +1589,8 @@ func TestEtPlanReplyNotV1(t *testing.T) {
 		return journalHas(s.home, `"kind":"refuse","ev":"plan","word":"contract_mismatch","why":"ответ releases.plan — не план v1`)
 	})
 	waitFor(t, "сохранённый план", func() bool { return partOf(k, "capture").State == "running" })
-	if k.state().Rev != 3 || partOf(k, "capture").Version != "1.3.2" {
-		t.Fatalf("исполнен чужой план: %+v", k.state())
+	if stateOf(k).Rev != 3 || partOf(k, "capture").Version != "1.3.2" {
+		t.Fatalf("исполнен чужой план: %+v", stateOf(k))
 	}
 }
 
@@ -2281,23 +1600,23 @@ func TestEtPlanQueueTakesNewest(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1))
 	k := s.start()
-	waitFor(t, "rev 1", func() bool { return k.state().Rev == 1 })
+	waitFor(t, "rev 1", func() bool { return stateOf(k).Rev == 1 })
 	self, _ := os.Executable()
 	app := appFiles("")
 	b, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "slowsetup"}})
 	app["app.json"] = string(b)
 	a := s.links.part("capture", "1.0.0", app, on)
 	s.relay.push(planMsg(2, a))
-	waitFor(t, "setup идёт", func() bool { return exists(filepath.Join(versionDir(s.home, "capture", "1.0.0"), "setup-started")) })
+	waitFor(t, "setup идёт", func() bool { return isThere(filepath.Join(verDir(s.home, "capture", "1.0.0"), "setup-started")) })
 	s.relay.push(planMsg(4, a, s.links.part("probe", "1.0.0", appFiles(""), on)))
 	s.relay.push(planMsg(3, a, s.links.part("meter", "1.0.0", appFiles(""), on)))
 	waitFor(t, "probe running", func() bool { return partOf(k, "probe").State == "running" })
 	time.Sleep(500 * time.Millisecond)
-	var saved plan
-	b, _ = os.ReadFile(planPath(s.home))
+	var saved savedPlan
+	b, _ = os.ReadFile(planFile(s.home))
 	json.Unmarshal(b, &saved)
-	if k.state().Rev != 4 || saved.Rev != 4 || partOf(k, "meter").State != "" || journalHas(s.home, `"word":"old_rev"`) {
-		t.Fatalf("rev %d, plan.json %d, meter %+v", k.state().Rev, saved.Rev, partOf(k, "meter"))
+	if stateOf(k).Rev != 4 || saved.Rev != 4 || partOf(k, "meter").State != "" || journalHas(s.home, `"word":"old_rev"`) {
+		t.Fatalf("rev %d, plan.json %d, meter %+v", stateOf(k).Rev, saved.Rev, partOf(k, "meter"))
 	}
 }
 
@@ -2317,14 +1636,14 @@ func TestEtHostSwitchKeepsSessions(t *testing.T) {
 	}
 	s.relay.setPlan(plan1(1, s.links.part("host", "1.0.0", host("host"), on)))
 	k := s.start()
-	waitFor(t, "держатель сессии", func() bool { return exists(holdPath(s.home, "site@win")) })
-	var sess holdFile
-	b, _ := os.ReadFile(holdPath(s.home, "site@win"))
+	waitFor(t, "держатель сессии", func() bool { return isThere(heldPath(s.home, "site@win")) })
+	var sess heldFile
+	b, _ := os.ReadFile(heldPath(s.home, "site@win"))
 	json.Unmarshal(b, &sess)
 	s.relay.push(planMsg(2, s.links.part("host", "1.1.0", host(""), on)))
 	waitFor(t, "1.1.0 running", func() bool { p := partOf(k, "host"); return p.State == "running" && p.Version == "1.1.0" })
 	time.Sleep(500 * time.Millisecond)
-	if !alive(sess.Pid) || !alive(sess.Holder) || !exists(holdPath(s.home, "site@win")) {
+	if !alive(sess.Pid) || !alive(sess.Holder) || !isThere(heldPath(s.home, "site@win")) {
 		t.Fatal("смена версии Host сняла держатель сессии")
 	}
 }
@@ -2336,13 +1655,13 @@ func TestEtSelfUpdateReplaceFails(t *testing.T) {
 	self, _ := os.Executable()
 	bin, _ := os.ReadFile(self)
 	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
-	target := filepath.Join(t.TempDir(), exeName("keeper"))
+	target := filepath.Join(t.TempDir(), binName("keeper"))
 	os.WriteFile(target, []byte("old"), 0o755)
 	// копию рядом не записать: на её месте непустая папка
 	os.Mkdir(target+".new", 0o700)
 	os.WriteFile(filepath.Join(target+".new", "x"), nil, 0o600)
-	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{osArch() + "/" + exeName("keeper"): string(bin)}, nil)))
-	k := s.startWith(func(k *Keeper) { k.self = func() (string, error) { return target, nil } })
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", files{archDir() + "/" + binName("keeper"): string(bin)}, nil)))
+	k := s.startWith(tuning{self: func() (string, error) { return target, nil }})
 	waitFor(t, "failed подмена", func() bool {
 		p := partOf(k, "keeper")
 		return p.State == "failed" && strings.HasPrefix(p.Error, "подмена: ")
@@ -2390,7 +1709,7 @@ func TestEtRestartInstallFails(t *testing.T) {
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
 	s.links.expire()
-	if err := os.RemoveAll(versionDir(s.home, "capture", "1.3.2")); err != nil {
+	if err := os.RemoveAll(verDir(s.home, "capture", "1.3.2")); err != nil {
 		t.Fatal(err)
 	}
 	killPid(t, partOf(k, "capture").Pid)
@@ -2415,31 +1734,759 @@ func TestEtHoldBadArgs(t *testing.T) {
 		var e strings.Builder
 		cmd.Stderr = &e
 		cmd.Run()
-		if cmd.ProcessState.ExitCode() != 2 || !strings.Contains(e.String(), "нужны --id") || len(readHoldFiles(home)) != 0 {
+		if cmd.ProcessState.ExitCode() != 2 || !strings.Contains(e.String(), "hold: нужны --id, --owner keeper|host и команда после --") || len(heldFiles(home)) != 0 {
 			t.Fatalf("hold %v: код %d, %q", args, cmd.ProcessState.ExitCode(), e.String())
 		}
 	}
 }
 
-// 5081 · 5082 · 5083 · Соединение — с relay своей машины (/m/<машина> из имени в пропуске); план — POST «Выпускам»
-// пропуском машины на каждом соединении; part.failed — POST журналу; адреса — из keeper.json (дизайн «Открытый флот»:
-// «keeper — relay своей машины, план на каждом соединении, журнал и приём — POST, адреса — в его настройке»).
-func TestEtMachineRelayAndPost(t *testing.T) {
+// nameStand — домашняя папка пользователя в temp и прежние правила имени после эталона.
+func nameStand(t *testing.T) string {
+	t.Helper()
+	u := t.TempDir()
+	t.Setenv("HOME", u)
+	t.Setenv("USERPROFILE", u)
+	t.Setenv("SWITCHBOARD_HOME", "")
+	clearFleet()
+	t.Cleanup(clearFleet)
+	return u
+}
+
+// 5522 · Без имени — служба и папка прежние, команда run; имя с путём — отказ словом (дизайн этапа 0).
+func TestEtNameAbsentSameAsBefore(t *testing.T) {
+	u := nameStand(t)
+	rest, err := chooseFleet([]string{"--hide"})
+	if err != nil || !reflect.DeepEqual(rest, []string{"--hide"}) {
+		t.Fatalf("%v %v", rest, err)
+	}
+	home, _ := fleetHome()
+	if fleetService() != "switchboard-keeper" || home != filepath.Join(u, ".switchboard") || !reflect.DeepEqual(fleetCommand(), []string{"run"}) {
+		t.Fatalf("служба %q, папка %q, команда %v", fleetService(), home, fleetCommand())
+	}
+	for _, bad := range [][]string{{"--name"}, {"--name", "../x"}, {"--name", ""}} {
+		if _, err := chooseFleet(bad); err == nil || err.Error() != "--name <имя> — без путей" {
+			t.Fatalf("%v: %v", bad, err)
+		}
+	}
+	if code, _, e := runKeeper(t, t.TempDir(), "", "install", "--worker", "x"); code != 1 || !strings.Contains(e, `--worker <имя>=<https://…>, а не "x"`) {
+		t.Fatalf("плохой --worker: код %d, %q", code, e)
+	}
+}
+
+// journalText — весь журнал папки одной строкой.
+func journalText(home string) string {
+	ms, _ := filepath.Glob(filepath.Join(home, "journal", "*.jsonl"))
+	var out strings.Builder
+	for _, m := range ms {
+		b, _ := os.ReadFile(m)
+		out.Write(b)
+	}
+	return out.String()
+}
+
+// namedKeeper — keeper run --name отдельным процессом: папка ~/.switchboard-<имя>, relay и «Выпуски» со своего стенда, одна часть.
+type namedKeeper struct {
+	t    *testing.T
+	own  string
+	name string
+	cmd  *exec.Cmd
+}
+
+func newNamedKeeper(t *testing.T, u, name string) *namedKeeper {
+	t.Helper()
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	own := filepath.Join(u, ".switchboard-"+name)
+	os.MkdirAll(own, 0o700)
+	for _, f := range []string{"machine.key", "keeper.json"} {
+		b, err := os.ReadFile(filepath.Join(s.home, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(own, f), b, 0o600)
+	}
+	t.Cleanup(func() { killHolders(own) })
+	n := &namedKeeper{t: t, own: own, name: name}
+	t.Cleanup(n.kill)
+	n.run()
+	return n
+}
+
+// run — та же команда, какой его поднимает ОС.
+func (n *namedKeeper) run() {
+	n.t.Helper()
+	self, _ := os.Executable()
+	n.cmd = exec.Command(self, "keeper", "run", "--name", n.name)
+	n.cmd.Env = os.Environ()
+	if err := n.cmd.Start(); err != nil {
+		n.t.Fatal(err)
+	}
+}
+
+func (n *namedKeeper) kill() {
+	if n.cmd.ProcessState == nil {
+		n.cmd.Process.Kill()
+		n.cmd.Wait()
+	}
+}
+
+// partPid — pid части: из строки part_start своего журнала.
+func (n *namedKeeper) partPid() int {
+	n.t.Helper()
+	waitFor(n.t, "часть "+n.name, func() bool { return journalHas(n.own, `"ev":"part_start"`) })
+	return int(journalLine(n.own, `"ev":"part_start"`)["pid"].(float64))
+}
+
+// 5564 · Держатель имя не разбирает: --name в команде процесса доходит до процесса как есть, папка держателя — из
+// SWITCHBOARD_HOME (дизайн этапа 0: «Host и держателям папку передаёт в SWITCHBOARD_HOME — они её не выводят»).
+func TestEtHoldDoesNotParseName(t *testing.T) {
+	u := nameStand(t)
+	home := t.TempDir()
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	cmd := exec.Command(self, "keeper", "hold", "--id", "s", "--owner", "keeper", "--", self, "app", "args", "--name", "y")
+	cmd.Env = append(os.Environ(), "SWITCHBOARD_HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	waitFor(t, "файл держателя", func() bool { return len(heldFiles(home)) == 1 })
+	c, _, err := attachHeld(heldFiles(home)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.closeInput()
+	var out strings.Builder
+	c.read(func(b []byte) { out.Write(b) })
+	if !strings.Contains(out.String(), "args args --name y") {
+		t.Fatalf("вывод процесса: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(u, ".switchboard-y")); !os.IsNotExist(err) {
+		t.Fatalf("папка по имени из команды процесса: %v", err)
+	}
+}
+
+// 5565 · Приглашение не принято — отказ словом с причиной от gate; службы, задачи, юнита и папки этого имени нет, первый
+// флот не тронут (устав «система ловит»; чьё: код — prepareConf «погашенное или чужое — отказ словом»).
+func TestEtNameInviteRefused(t *testing.T) {
+	u := nameStand(t)
+	t.Setenv("XDG_CONFIG_HOME", u)
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": "install", "ok": false, "error": "bad_invite"})
+	}))
+	defer gate.Close()
+	name := fmt.Sprintf("t%dr", os.Getpid())
+	code, _, e := runKeeper(t, t.TempDir(), "invite\n", "install", "--name", name, "--worker", "gate="+gate.URL)
+	if code != 1 || !strings.Contains(e, "приглашение не принято") || !strings.Contains(e, "bad_invite") {
+		t.Fatalf("код %d, %q", code, e)
+	}
+	for _, p := range []string{".switchboard-" + name, ".switchboard", filepath.Join("systemd", "user", "switchboard-keeper-"+name+".service")} {
+		if _, err := os.Stat(filepath.Join(u, p)); !os.IsNotExist(err) {
+			t.Fatalf("%s появилось: %v", p, err)
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if exec.Command("schtasks", "/Query", "/TN", "switchboard-keeper-"+name).Run() == nil || exec.Command("sc", "query", "switchboard-keeper-"+name).Run() == nil {
+			t.Fatal("служба или задача создана")
+		}
+	}
+}
+
+/* ===== слитые при триаже: один флоу — один тест ===== */
+
+// Новая версия отклонена до остановки прежней (404, setup упал, чужой хэш, чужое поле app.json) — прежняя работает с тем же pid, ошибка
+// словом в keeper.state, part.failed в журнал флота; другие части плана исполняются; папки битой версии нет (чьё: код — «версия годна, когда
+// стоит и её app.json разобран: только тогда прежняя останавливается»; ревью архитектора 1 нояб.).
+func TestEtRejectedKeepsOld(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
+	pid := partOf(k, "capture").Pid
+	self, _ := os.Executable()
+	missing := s.links.part("capture", "1.4.0", appFiles(""), on)
+	missing["url"] = missing["url"].(string) + "-нет"
+	setup := appFiles("")
+	sb, _ := json.Marshal(map[string]any{"run": []string{self, "app"}, "setup": []string{self, "badsetup"}})
+	setup["app.json"] = string(sb)
+	foreign := s.links.part("capture", "1.4.2", appFiles(""), on)
+	foreign["sha256"] = strings.Repeat("0", 64)
+	alien := appFiles("")
+	alien["app.json"] = `{"run":["x"],"user":"admin"}`
+	for i, c := range []struct {
+		p    map[string]any
+		word string
+	}{{missing, "download_failed"}, {s.links.part("capture", "1.4.1", setup, on), "setup_failed"}, {foreign, "download_failed"}, {s.links.part("capture", "1.5.0", alien, on), "contract_mismatch"}} {
+		probe := s.links.part("probe", fmt.Sprintf("1.0.%d", i), appFiles(""), on)
+		s.relay.push(planMsg(2+i, c.p, probe))
+		waitFor(t, c.word+" у работающей", func() bool {
+			return strings.Contains(partOf(k, "capture").Error, c.word) && partOf(k, "probe").Version == probe["version"]
+		})
+		if p := partOf(k, "capture"); p.State != "running" || p.Version != "1.3.2" || p.Pid != pid {
+			t.Fatalf("прежняя версия не работает: %+v", p)
+		}
+		waitFor(t, "part.failed "+c.word, func() bool {
+			return s.relay.ledgerHas("part.failed capture " + c.p["version"].(string) + " — " + c.word)
+		})
+	}
+	for _, v := range []string{"1.4.0", "1.4.1", "1.4.2"} {
+		if isThere(verDir(s.home, "capture", v)) {
+			t.Fatalf("папка негодной версии %s осталась", v)
+		}
+	}
+}
+
+// 3162 · Скачивание не уложилось в предел — download_failed с причиной, прежняя работает, part.failed (слово пользователя 2 нояб.: «у всех
+// операций должен быть лимит»).
+func TestEtDownloadLimit(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.startWith(tuning{download: time.Second})
+	waitFor(t, "1.3.2 running", func() bool { return partOf(k, "capture").State == "running" })
+	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(200)
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-time.After(10 * time.Second):
+		}
+	}))
+	t.Cleanup(slow.Close)
+	p := s.links.part("capture", "1.4.0", appFiles(""), on)
+	p["url"] = slow.URL + "/capture/1.4.0.tgz"
+	s.relay.push(planMsg(2, p))
+	waitFor(t, "download_failed за предел", func() bool {
+		e := partOf(k, "capture").Error
+		return strings.Contains(e, "download_failed") && strings.Contains(e, "Timeout")
+	})
+	if p := partOf(k, "capture"); p.State != "running" || p.Version != "1.3.2" {
+		t.Fatalf("прежняя не работает: %+v", p)
+	}
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.4.0 — download_failed") })
+}
+
+// Подмена себя: последним шагом плана, где бы ни стояла запись keeper; новый файл ответил своей версией → часть уже на новой версии, свой файл
+// подменён, part.updated и выход; держатели живут; версии keeper на диске — новая и та, с которой ушли; занятое прежнее имя файла не мешает
+// (план заморозки, «Подмена себя»: «По плану, последним шагом; держатели живут»; машины 1 нояб.: 6 версий, 77 МБ; ревью 1 нояб.: Access is
+// denied на Windows).
+func TestEtSelfUpdate(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	target := filepath.Join(t.TempDir(), binName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	busy := target + "." + ourVersion + ".old"
+	os.WriteFile(busy, []byte("epoch 1"), 0o755)
+	h, err := os.Open(busy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	for _, v := range []string{"0.0.1", ourVersion} {
+		os.MkdirAll(verDir(s.home, "keeper", v), 0o700)
+	}
+	app := s.links.part("capture", "1.3.2", appFiles(""), on)
+	kp := s.links.part("keeper", "9.9.9", files{archDir() + "/" + binName("keeper"): string(bin)}, nil)
+	s.relay.setPlan(plan1(1, kp, app))
+	k := s.startWith(tuning{self: func() (string, error) { return target, nil }})
+	select {
+	case <-k.Done():
+	case <-time.After(30 * time.Second):
+		t.Fatal("keeper не подменил себя")
+	}
+	if b, _ := os.ReadFile(target); len(b) != len(bin) {
+		t.Fatal("файл keeper не подменён")
+	}
+	if ms, _ := filepath.Glob(target + "." + ourVersion + ".*.old"); len(ms) != 1 {
+		t.Fatalf("старый файл не переименован: %v", ms)
+	}
+	if f := heldFiles(s.home); len(f) != 1 || !alive(f[0].Pid) {
+		t.Fatal("держатель приложения не пережил подмену keeper")
+	}
+	waitFor(t, "part.updated keeper", func() bool { return s.relay.ledgerHas("part.updated keeper " + ourVersion + " → 9.9.9") })
+	j := readJournal(s.home)
+	if !strings.Contains(j, `"ev":"self_update","from":"`+ourVersion+`","to":"9.9.9","why":"файл подменён — выход, ОС поднимет новый"`) {
+		t.Fatal("нет строки self_update с причиной")
+	}
+	if a, b := strings.Index(j, `"ev":"part_start","version":"1.3.2"`), strings.Index(j, `"ev":"self_update"`); a < 0 || b < 0 || a > b {
+		t.Fatalf("порядок: part_start capture %d, self_update %d", a, b)
+	}
+	es, _ := os.ReadDir(partFolder(s.home, "keeper"))
+	var got []string
+	for _, e := range es {
+		got = append(got, e.Name())
+	}
+	if strings.Join(got, " ") != ourVersion+" 9.9.9" {
+		t.Fatalf("версии keeper: %v", got)
+	}
+}
+
+// Новый файл keeper не тот: check_failed в журнале машины и флота, keeper не выходит; следующий план с той же записью пробует подмену снова
+// (чьё: код — решение архитектора 2 нояб.: повтор с диска дешёвый, каждый сбой в журнале флота).
+func TestEtSelfCheckFailedRepeats(t *testing.T) {
+	s := newStand(t)
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	t.Setenv("KEEPER_TEST_VERSION", "1.0.0")
+	kp := s.links.part("keeper", "9.9.9", files{archDir() + "/" + binName("keeper"): string(bin)}, nil)
+	s.relay.setPlan(plan1(1, kp))
+	k := s.start()
+	waitFor(t, "check_failed", func() bool { return strings.Contains(partOf(k, "keeper").Error, "check_failed") })
+	waitFor(t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
+	if !journalHas(s.home, `"ev":"part_failed","why":"keeper 9.9.9: check_failed: новый файл ответил «1.0.0» (<nil>), а в плане 9.9.9"`) {
+		t.Fatal("сбой подмены не в журнале машины")
+	}
+	s.relay.push(planMsg(2, kp, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	waitFor(t, "второй сбой", func() bool { return s.relay.ledgerCount("part.failed keeper 9.9.9 — check_failed") == 2 })
+	select {
+	case <-k.Done():
+		t.Fatal("keeper остановился после check_failed")
+	default:
+	}
+}
+
+// Ничей держатель keeper на старте снят: процесс жив или уже вышел — orphan_kill, файл убран, держатель вышел, held_unclaimed нет, part_start нет
+// (чьё: код — «Есть в плане — подключиться, нет — убить»; устав: «Keeper без решений… исполняет план»).
+func TestEtOrphanHolder(t *testing.T) {
+	for _, exited := range []bool{false, true} {
+		s := newStand(t)
+		self, _ := os.Executable()
+		f, err := holdProc(s.home, holdReq{ID: "old", Owner: "keeper", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=10s"), Cmd: []string{self, "app"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var hf heldFile
+		b, _ := os.ReadFile(heldPath(s.home, "old"))
+		json.Unmarshal(b, &hf)
+		if exited {
+			killPid(t, f.Pid)
+			waitFor(t, "процесс вышел", func() bool { return !alive(f.Pid) })
+		}
+		s.relay.setPlan(plan1(1))
+		s.start()
+		waitFor(t, "держатель вышел", func() bool { return !isThere(heldPath(s.home, "old")) && !alive(hf.Holder) && !alive(f.Pid) })
+		if !journalHas(s.home, `"ev":"orphan_kill","id":"old"`) || journalHas(s.home, `"ev":"held_unclaimed"`) || journalHas(s.home, `"ev":"part_start","part":"old"`) {
+			t.Fatal("ничей держатель снят не так")
+		}
+	}
+}
+
+// Держатели Host keeper не трогает: ни подключения, ни снятия; вышедший такой держатель уходит сам по пределу ожидания хозяина (устав: «Keeper
+// без решений. Процессы claude держит Host через свои держатели»; ubuntu-db 3 нояб.).
+func TestEtHostHoldersUntouched(t *testing.T) {
+	for _, exited := range []bool{false, true} {
+		s := newStand(t)
+		self, _ := os.Executable()
+		f, err := holdProc(s.home, holdReq{ID: "site@win", Owner: "host", Env: append(os.Environ(), "KEEPER_TEST_OWNER_WAIT=1s"), Cmd: []string{self, "app"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exited {
+			killPid(t, f.Pid)
+		}
+		s.relay.setPlan(plan1(1))
+		k := s.start()
+		waitFor(t, "план rev 1", func() bool { return stateOf(k).Rev == 1 })
+		if exited {
+			waitFor(t, "held_unclaimed", func() bool {
+				return journalHas(s.home, `"ev":"held_unclaimed","callsign":"site@win"`) && !isThere(heldPath(s.home, "site@win"))
+			})
+		} else {
+			time.Sleep(700 * time.Millisecond)
+			if !isThere(heldPath(s.home, "site@win")) || !alive(f.Pid) {
+				t.Fatal("держатель Host тронут")
+			}
+		}
+		if journalHas(s.home, `"ev":"adopt","id":"site@win"`) || journalHas(s.home, `"ev":"orphan_kill","id":"site@win"`) {
+			t.Fatal("keeper взялся за держатель Host")
+		}
+	}
+}
+
+// 3171 · Битый plan.json — строка stop с причиной, держатели частей сняты как ничьи, keeper живёт и поднимает части по плану «выпусков» заново.
+func TestEtBrokenPlanOrphans(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	k := s.start()
 	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	k.Stop()
+	os.WriteFile(planFile(s.home), []byte("{битый"), 0o600)
+	k2 := s.start()
+	if r := journalLine(s.home, `"ev":"plan","why":"plan.json`); r == nil || r["kind"] != "stop" {
+		t.Fatalf("строка о битом plan.json: %v", r)
+	}
+	waitFor(t, "часть поднята заново", func() bool { p := partOf(k2, "capture"); return p.State == "running" && p.Pid != pid })
+	if !journalHas(s.home, `"ev":"orphan_kill","id":"capture"`) {
+		t.Fatal("держатель части не снят как ничей")
+	}
+}
+
+// 3172 · keeper.json не прочитан — старт отказан: код 1, «keeper: …» в stderr, строка stop keeper_start с причиной; держатели частей не тронуты
+// (устав: система ловит — «останавливает, отказывает, пишет в журнал с причиной»).
+func TestEtBadConfRefused(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	k.Stop()
+	os.WriteFile(confFile(s.home), []byte("{битый"), 0o600)
+	code, _, stderr := runKeeper(t, s.home, "", "run")
+	if code != 1 || !strings.Contains("\n"+stderr, "\nkeeper: ") || !alive(pid) {
+		t.Fatalf("код %d, stderr %q, часть жива %v", code, stderr, alive(pid))
+	}
+	if r := journalLine(s.home, `"ev":"keeper_start","why"`); r == nil || r["kind"] != "stop" || !strings.HasPrefix(fmt.Sprint(r["why"]), "keeper.json не прочитан: ") {
+		t.Fatalf("строка keeper_start %v", r)
+	}
+}
+
+// 5081 · 5082 · Обрыв связи с relay — keeper переподключается к relay своей машины (/m/<машина> из пропуска) тем же hello и спрашивает план снова
+// POST «Выпускам» пропуском машины; тот же план, в том числе кадром, части не трогает: pid тот же, строк plan нет (устав, закрытый список:
+// «соединение… оборвалось — клиенты переподключаются»; дизайн «Открытый флот»; чьё: код — «Та же rev — переподключение»).
+func TestEtRelayDropReasks(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	pid := partOf(k, "capture").Pid
+	s.relay.drop()
+	waitFor(t, "вопрос после переподключения", func() bool { return s.relay.planAsks() == 2 })
+	time.Sleep(500 * time.Millisecond)
+	s.relay.push(planMsg(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	time.Sleep(500 * time.Millisecond)
+	hello, opens := s.relay.seen()
+	if opens != 2 || hello["key"] != "host.win.ab12.sig" || hello["proto"] != float64(1) || hello["part"] != "keeper" {
+		t.Fatalf("hello %v, входов %d", hello, opens)
+	}
 	s.relay.mu.Lock()
 	path, keys := s.relay.path, append([]string(nil), s.relay.keys...)
 	s.relay.mu.Unlock()
 	if path != "/m/win" || len(keys) == 0 || keys[0] != "host.win.ab12.sig" {
 		t.Fatalf("путь relay %q, пропуска POST %v", path, keys)
 	}
-	asks := s.relay.planAsks()
-	s.relay.drop()
-	waitFor(t, "план на новом соединении", func() bool { return s.relay.planAsks() > asks })
+	if p := partOf(k, "capture"); p.Pid != pid || p.Restarts != 0 || p.State != "running" {
+		t.Fatalf("переподключение тронуло часть: %+v", p)
+	}
+	j := readJournal(s.home)
+	if strings.Count(j, `"ev":"plan","rev":1`) != 1 || strings.Contains(j, `"word":"old_rev"`) ||
+		strings.Count(j, `"ev":"relay_open"`) != 2 || !strings.Contains(j, `"ev":"relay_closed"`) {
+		t.Fatal("строки журнала о переподключении: нужны relay_open ×2, relay_closed, одна строка plan, без old_rev")
+	}
+}
+
+// Команды run нет на машине — держатель не запустил её: часть failed с причиной «запуск: держатель не запустился: …», part.failed в журнале флота,
+// в журнале машины hold_failed с причиной, файла о держателе нет (устав: система ловит).
+func TestEtRunFailsToStart(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.0.0", files{"app.json": `{"run":["switchboard-no-such-program"]}`}, on)))
+	k := s.start()
+	waitFor(t, "failed", func() bool {
+		p := partOf(k, "capture")
+		return p.State == "failed" && strings.HasPrefix(p.Error, "запуск: держатель не запустился")
+	})
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.0.0 — запуск: ") })
+	if r := journalLine(s.home, `"ev":"hold_failed"`); r == nil || r["kind"] != "stop" || r["why"] == "" || r["why"] == nil {
+		t.Fatalf("строка hold_failed %v", r)
+	}
+	if isThere(heldPath(s.home, "capture")) {
+		t.Fatal("файл держателя остался")
+	}
+}
+
+// 5510 · Держатель не прислал строку о себе за предел — запуск части отказан «держатель не ответил за …», держатель убит, файла о нём нет (устав:
+// «у всех операций лимит», слово пользователя 2 нояб.).
+func TestEtHolderSilentOnSpawn(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	t.Setenv("KEEPER_TEST_HOLD_SILENT", "1")
+	k := s.startWith(tuning{holderWait: 500 * time.Millisecond})
+	waitFor(t, "failed", func() bool {
+		p := partOf(k, "capture")
+		return p.State == "failed" && strings.Contains(p.Error, "держатель не ответил за 500ms")
+	})
+	b, _ := os.ReadFile(filepath.Join(s.home, "silent-pid"))
+	pid := 0
+	fmt.Sscan(string(b), &pid)
+	if pid == 0 {
+		t.Fatal("молчащий держатель не записал pid")
+	}
+	waitFor(t, "молчащий держатель убит", func() bool { return !alive(pid) })
+	if isThere(heldPath(s.home, "capture")) {
+		t.Fatal("файл о держателе есть")
+	}
+}
+
+// node из app.json — Node из keeper.json; npm — npm-cli.js рядом с ним под тем же Node: на Windows npm — это npm.cmd, а у службы может не быть PATH;
+// путь, который есть в папке версии, — полный (чьё: дизайн «npm — npm рядом с ним»).
+func TestEtNodeAndNpmFromConf(t *testing.T) {
+	s := newStand(t)
+	d := t.TempDir()
+	self, _ := os.Executable()
+	bin, _ := os.ReadFile(self)
+	node := filepath.Join(d, binName("node"))
+	os.WriteFile(node, bin, 0o755)
+	cli := filepath.Join(d, "node_modules", "npm", "bin", "npm-cli.js")
+	os.MkdirAll(filepath.Dir(cli), 0o755)
+	os.WriteFile(cli, nil, 0o644)
+	saveConf(s.home, map[string]any{"node": node, "workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws"), "releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})
+	t.Setenv("KEEPER_TEST_NODE", filepath.Join(d, "calls"))
+	s.relay.setPlan(plan1(1, s.links.part("web", "1.0.0", files{"app.json": `{"run":["node","main.cjs","x"],"setup":["npm","ci","--omit=dev"]}`, "main.cjs": "//"}, on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "web").State == "running" })
+	dir := verDir(s.home, "web", "1.0.0")
+	waitFor(t, "оба вызова", func() bool {
+		b, _ := os.ReadFile(filepath.Join(d, "calls"))
+		return strings.Count(string(b), "\n") == 2
+	})
+	b, _ := os.ReadFile(filepath.Join(d, "calls"))
+	want := cli + "|ci|--omit=dev\n" + filepath.Join(dir, "main.cjs") + "|x\n"
+	if string(b) != want {
+		t.Fatalf("вызовы %q, а надо %q", b, want)
+	}
+}
+
+// Связь с relay: недоступен — keeper повторяет подключение с паузой от первой вдвое до предела; принял hello, но на ping молчит — соединение мёртвое:
+// закрывает и подключается снова, пауза после принятого hello снова первая (устав, закрытый список: «соединение… оборвалось — клиенты
+// переподключаются»; факт: сеть WSL теряет пакеты; чьё: код — «нет pong к следующему — соединение мёртвое», «от 1 с, вдвое до 60 с»).
+func TestEtRelayReconnects(t *testing.T) {
+	var mu sync.Mutex
+	tries, hellos := 0, 0
+	var at []time.Time  // начало каждой попытки
+	var ended time.Time // конец принятого соединения
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		tries++
+		n := tries
+		at = append(at, time.Now())
+		mu.Unlock()
+		if n <= 4 {
+			w.WriteHeader(http.StatusServiceUnavailable) // relay ещё не поднялся
+			return
+		}
+		ws, err := websocket.Accept(w, req, nil)
+		if err != nil {
+			return
+		}
+		ctx := context.Background()
+		if _, _, err := ws.Read(ctx); err != nil {
+			return
+		}
+		mu.Lock()
+		hellos++
+		mu.Unlock()
+		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster"}`))
+		for {
+			if _, _, err := ws.Read(ctx); err != nil { // ping читается, pong не уходит
+				mu.Lock()
+				if ended.IsZero() {
+					ended = time.Now()
+				}
+				mu.Unlock()
+				return
+			}
+		}
+	}))
+	t.Cleanup(srv.Close)
+	home := relayHome(t, srv.URL)
+	k := bootOn(t, home, tuning{ping: 100 * time.Millisecond, pauseFirst: 50 * time.Millisecond, pauseMax: time.Second})
+	_ = k
+	waitFor(t, "второе подключение после молчания на ping", func() bool { mu.Lock(); defer mu.Unlock(); return hellos >= 2 })
+	mu.Lock()
+	defer mu.Unlock()
+	if n := strings.Count(readJournal(home), `"ev":"relay_closed","why":"dial: `); n < 4 {
+		t.Fatalf("неудачных подключений %d", n)
+	}
+	for i, min := range []time.Duration{50, 100, 200, 400} {
+		if gap := at[i+1].Sub(at[i]); gap < min*time.Millisecond {
+			t.Fatalf("пауза после неудачи %d — %v, меньше %v мс", i+1, gap, min)
+		}
+	}
+	if gap := at[5].Sub(ended); gap > 500*time.Millisecond {
+		t.Fatalf("после принятого hello пауза %v — не сброшена к первой", gap)
+	}
+}
+
+// relay не принял hello — причина в журнале, вопроса о плане нет, паузы растут и не сбрасываются (устав: система ловит; чьё: код — «roster — знак,
+// что hello принят», пауза сбрасывается только после принятого hello).
+func TestEtRelayHelloRefused(t *testing.T) {
+	var mu sync.Mutex
+	var at []time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		mu.Lock()
+		at = append(at, time.Now())
+		mu.Unlock()
+		ws, err := websocket.Accept(w, req, nil)
+		if err != nil {
+			return
+		}
+		if _, _, err := ws.Read(context.Background()); err == nil {
+			ws.Close(websocket.StatusPolicyViolation, "bad_key")
+		}
+	}))
+	t.Cleanup(srv.Close)
+	home := relayHome(t, srv.URL)
+	bootOn(t, home, tuning{pauseFirst: 50 * time.Millisecond, pauseMax: time.Second})
+	waitFor(t, "пять попыток", func() bool { mu.Lock(); defer mu.Unlock(); return len(at) >= 5 })
+	mu.Lock()
+	defer mu.Unlock()
+	j := readJournal(home)
+	if strings.Contains(j, `"ev":"relay_open"`) || !strings.Contains(j, "bad_key") {
+		t.Fatalf("журнал %s", j)
+	}
+	for i, min := range []time.Duration{50, 100, 200, 400} {
+		if gap := at[i+1].Sub(at[i]); gap < min*time.Millisecond {
+			t.Fatalf("пауза после отказа %d — %v, меньше %v мс: сброшена без принятого hello", i+1, gap, min)
+		}
+	}
+}
+
+// 5084 · Установка: приглашение машины — первой строкой stdin; keeper принимает его POST gate.redeem и кладёт пропуск в machine.key; keeper.json —
+// node из PATH полным путём, relay и Worker'ы из флагов, незнакомые поля целы; файл keeper — на постоянном месте (дизайн «Открытый флот»; устав:
+// секреты через stdin; conf.go «Незнакомые поля сохраняются как есть»).
+func TestEtInstallConf(t *testing.T) {
+	r := newFakeRelay(t)
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	bin := t.TempDir()
+	node := filepath.Join(bin, binName("node"))
+	os.WriteFile(node, []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", bin)
+	saveConf(home, map[string]any{"site": "lab"})
+	dst, err := prepareMachine([]string{"--worker", "relay=https://relay.test/", "--worker", "gate=" + r.workerURL("gate"), "--worker", "releases=https://releases.test/", "--worker", "ledger=https://ledger.test/"}, bufio.NewReader(strings.NewReader("win1.INVITE\r\npassword\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); string(b) != "host.win.win1.SECRET\n" {
+		t.Fatalf("machine.key %q", b)
+	}
+	m, _ := loadConf(home)
+	w := confWorkers(m)
+	if m["node"] != node || m["relay"] != nil || w["relay"] != "https://relay.test/" || m["site"] != "lab" || w["releases"] != "https://releases.test/" || w["ledger"] != "https://ledger.test/" {
+		t.Fatalf("keeper.json %v", m)
+	}
+	self, _ := os.Executable()
+	a, _ := os.Stat(self)
+	b, _ := os.Stat(dst)
+	if dst != filepath.Join(home, binName("keeper")) || b == nil || a.Size() != b.Size() {
+		t.Fatalf("файл keeper %q", dst)
+	}
+}
+
+// 5084 · Погашенное приглашение, приглашение не машины, нет адреса gate или пустой stdin — отказ словами, machine.key не тронут (устав: система
+// ловит — отказывает).
+func TestEtInstallKeyRefused(t *testing.T) {
+	r := newFakeRelay(t)
+	cases := []struct {
+		in, gate, word string
+	}{
+		{"used.INVITE\n", r.workerURL("gate"), "приглашение не принято: bad_invite"},
+		{"phn1.INVITE\n", r.workerURL("gate"), "приглашение не машины: пропуск client.phone.phn1"},
+		{"win1.INVITE\n", "", "нет адреса gate: --worker gate=https://…"},
+		{"", r.workerURL("gate"), "приглашение машины — первой строкой stdin: нет строки в stdin: "},
+	}
+	for _, c := range cases {
+		home := t.TempDir()
+		t.Setenv("SWITCHBOARD_HOME", home)
+		saveConf(home, map[string]any{"node": "/x/node"})
+		os.WriteFile(filepath.Join(home, "machine.key"), []byte("host.win.old1.OLD\n"), 0o600)
+		args := []string{}
+		if c.gate != "" {
+			args = append(args, "--worker", "gate="+c.gate)
+		}
+		_, err := prepareMachine(args, bufio.NewReader(strings.NewReader(c.in)))
+		if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); err == nil || !strings.Contains(err.Error(), c.word) || string(b) != "host.win.old1.OLD\n" {
+			t.Fatalf("stdin %q: %v, machine.key %q", c.in, err, b)
+		}
+	}
+}
+
+// 5521 · 5561 · install --name prod: служба switchboard-keeper-prod, папка ~/.switchboard-prod, команда службы run --name prod; пропуск, keeper.json и файл
+// keeper — в своей папке, файл первого флота не заменён (дизайн «Любой агент», этап 0: «keeper обновляет файл в своей папке»).
+func TestEtNameInstallOwnFolder(t *testing.T) {
+	u := nameStand(t)
+	first := filepath.Join(u, ".switchboard", binName("keeper"))
+	os.MkdirAll(filepath.Dir(first), 0o700)
+	os.WriteFile(first, []byte("первый флот"), 0o755)
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": "install", "ok": true, "result": map[string]string{"key": "host.pc.ab12.sig"}})
+	}))
+	defer gate.Close()
+	rest, err := chooseFleet([]string{"--name", "prod", "--worker", "gate=" + gate.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fleetService() != "switchboard-keeper-prod" || !reflect.DeepEqual(fleetCommand(), []string{"run", "--name", "prod"}) {
+		t.Fatalf("служба %q, команда %v", fleetService(), fleetCommand())
+	}
+	home, _ := fleetHome()
+	if want := filepath.Join(u, ".switchboard-prod"); home != want {
+		t.Fatalf("папка %q, а надо %q", home, want)
+	}
+	saveConf(home, map[string]any{"node": "/x/node"})
+	dst, err := prepareMachine(rest, bufio.NewReader(strings.NewReader("invite\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); strings.TrimSpace(string(b)) != "host.pc.ab12.sig" {
+		t.Fatalf("machine.key %q", b)
+	}
+	if want := filepath.Join(u, ".switchboard-prod", binName("keeper")); dst != want {
+		t.Fatalf("файл %q, а надо %q", dst, want)
+	}
+	if got, _ := os.ReadFile(first); string(got) != "первый флот" {
+		t.Fatalf("файл первого флота заменён: %d байт", len(got))
+	}
+}
+
+// 5523 · 5567 · keeper run --name работает в своей папке; под именем умер — та же команда подключается к держателям своей папки; второй keeper этого не
+// замечает (устав, закрытый список: «keeper умер… ОС поднимает его, держатели живут, keeper подключается к своим»; дизайн этапа 0 «ничего не знает о второй»).
+func TestEtNameAdoptOwnHolders(t *testing.T) {
+	u := nameStand(t)
+	a := newNamedKeeper(t, u, "a")
+	b := newNamedKeeper(t, u, "b")
+	pidA, pidB := a.partPid(), b.partPid()
+	if pidA == pidB {
+		t.Fatalf("одна часть на двоих: pid %d", pidA)
+	}
+	a.kill()
+	if !alive(pidA) {
+		t.Fatal("часть a умерла вместе с keeper")
+	}
+	a.run()
+	waitFor(t, "adopt своей части", func() bool { return journalHas(a.own, fmt.Sprintf(`"ev":"adopt","id":"capture","pid":%d`, pidA)) })
+	if n := strings.Count(journalText(a.own), `"ev":"part_start"`); n != 1 {
+		t.Fatalf("часть a запущена %d раз", n)
+	}
+	if journalHas(b.own, `"ev":"adopt"`) || strings.Count(journalText(b.own), `"ev":"part_start"`) != 1 || !alive(pidB) || b.cmd.ProcessState != nil {
+		t.Fatalf("второй keeper задет: %s", journalText(b.own))
+	}
+	if _, err := os.Stat(filepath.Join(u, ".switchboard")); !os.IsNotExist(err) {
+		t.Fatalf("прежняя папка появилась: %v", err)
+	}
+}
+
+// Адреса «Выпусков» и журнала нет в keeper.json — строки с причиной, сохранённый план исполняется (устав: система ловит — пишет с причиной).
+func TestEtNoWorkerAddress(t *testing.T) {
+	s := newStand(t)
+	saveConf(s.home, map[string]any{"workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws")}})
+	p := plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on))
+	b, _ := json.Marshal(p)
+	os.WriteFile(planFile(s.home), b, 0o600)
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+	waitFor(t, "строка о «Выпусках»", func() bool {
+		return journalHas(s.home, "в keeper.json нет адреса «Выпусков» (workers.releases) — исполняю сохранённый план")
+	})
 	killPid(t, partOf(k, "capture").Pid)
 	waitFor(t, "перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 })
 	killPid(t, partOf(k, "capture").Pid)
-	waitFor(t, "part.failed — POST журналу", func() bool { return s.relay.ledgerHas("part.failed capture 1.3.2") })
+	waitFor(t, "строка о журнале", func() bool {
+		return journalHas(s.home, "нет адреса журнала (workers.ledger): capture 1.3.2 — второе падение: ")
+	})
 }

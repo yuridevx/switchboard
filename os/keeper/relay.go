@@ -32,6 +32,9 @@ type reply struct {
 	Error  string          `json:"error"`
 }
 
+// Паузы связи: их укорачивает стенд через seam.go.
+var radioPing, radioPause0, radioPauseMax = 30 * time.Second, time.Second, time.Minute
+
 // radio — клиент рации keeper.
 type radio struct {
 	url, key string
@@ -53,7 +56,7 @@ type radio struct {
 
 func newRadio(url, key string) *radio {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &radio{url: url, key: key, pingMs: 30 * time.Second, pause0: time.Second, pauseMax: time.Minute,
+	return &radio{url: url, key: key, pingMs: radioPing, pause0: radioPause0, pauseMax: radioPauseMax,
 		waiting: map[string]chan reply{}, ctx: ctx, cancel: cancel, done: make(chan struct{})}
 }
 
