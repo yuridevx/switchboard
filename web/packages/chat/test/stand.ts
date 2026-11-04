@@ -1,4 +1,4 @@
-// Стенд чата для тестов: настоящие модули на поддельном relay; чат открыт по адресу.
+// Стенд разговора для тестов: настоящие модули на поддельном relay; экраны chat и ask — по адресу.
 import { createAlerts, manifest as alertsM } from "@switchboard/web-alerts";
 import { createAsk, manifest as askM } from "@switchboard/web-ask";
 import { createBoard, manifest as boardM } from "@switchboard/web-board";
@@ -32,6 +32,25 @@ export function relayFor(r = roster(), messages: unknown[] = []) {
   relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
   return relay;
 }
+
+/** Перейти на экран приложения по адресу. */
+export async function open(hash: string) {
+  history.pushState(null, "", hash);
+  window.dispatchEvent(new HashChangeEvent("hashchange"));
+  await flush();
+}
+
+/** Подождать переподключение после обрыва. */
+export async function reconnect() {
+  await new Promise((r) => setTimeout(r, 30));
+  await flush(10);
+}
+
+/** Набрать значение в поле как человек. */
+export const set = (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+  el.value = value;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+};
 
 /** Открыть чат сессии: узко — на весь экран, широко — справа от списка. */
 export async function chat(callsign: string, o: { relay?: FakeRelay; wide?: boolean; store?: StandOptions["store"] } = {}) {
