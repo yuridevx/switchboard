@@ -116,8 +116,8 @@ export function makeSlots(host: () => Host, book: Book, usage: Usage, sharedLogi
     for (const s of sessionsIn(slot)) s.refresh();
     const text = `слот ${slot}: ${from ?? "—"} → ${to} · ${why}`;
     host().log({ ev: "slot.swapped", slot, from, to, why: text });
-    const sent = host().emit({ type: "ledger.add", to: ".ledger", ev: "slot.swapped", machine: host().machine, text, ...(by ? { by } : {}) });
-    if (!sent.ok) host().log({ kind: "refuse", ev: "ledger.add", word: sent.error, why: `ledger.add не ушёл: ${sent.error}` });
+    // не дошёл — причину пишет ядро; подмена уже в журнале машины
+    host().emit({ type: "ledger.add", to: ".ledger", ev: "slot.swapped", machine: host().machine, text, ...(by ? { by } : {}) });
     return from;
   }
 
