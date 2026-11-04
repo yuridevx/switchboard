@@ -1,7 +1,7 @@
 // Шапка экрана и полоса «Нет связи».
 import { Dot, hhmm, Pill, useNow } from "@switchboard/web-ui";
 import type { Head } from "../types.ts";
-import { useCore } from "./core.ts";
+import { connPill, useCore } from "./core.ts";
 
 export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
   const core = useCore();
@@ -10,10 +10,10 @@ export function Bar({ ready, openPal }: { ready: boolean; openPal(): void }) {
     const { current, conn, rosterAt } = core.state();
     const def = current ? core.lookup(current.screen)?.def : undefined;
     const head: Partial<Head> = current && ready ? core.head(current.screen, current.params) : {};
-    let pill = head.pill ?? (def?.nav ? { text: "на связи", tone: "ok" as const } : undefined);
+    let pill: Head["pill"] = head.pill ?? (def?.nav ? connPill("open") : undefined);
     let sub = head.sub;
     if (conn !== "open") {
-      pill = conn === "closed" ? { text: "нет связи", tone: "bad" as const } : { text: "подключаюсь", tone: "wait" as const };
+      pill = connPill(conn);
       if (conn === "closed" && rosterAt) sub = `данные на ${hhmm(rosterAt)}`;
     }
     return { nav: !!def?.nav, off: conn !== "open", title: head.title ?? "", sub, pill, dot: head.dot, mono: head.mono, action: head.action ? { label: head.action.label, text: head.action.text } : null };

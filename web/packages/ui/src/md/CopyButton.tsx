@@ -1,20 +1,29 @@
-// «Копировать»: после нажатия — галочка на полторы секунды; буфер недоступен — без отметки.
+// «Копировать»: после нажатия — галочка на полторы секунды; буфер недоступен — словом у кнопки с подписью, у значка — без отметки.
 import { useEffect, useState } from "react";
 import { Check, Copy } from "lucide-react";
 
 const SHOWN_MS = 1500;
+const WORDS = { done: "скопировано", bad: "буфер недоступен" };
 
 export function CopyButton({ text, label }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false);
+  const [state, setState] = useState<"" | "done" | "bad">("");
   useEffect(() => {
-    if (!done) return;
-    const h = setTimeout(() => setDone(false), SHOWN_MS);
+    if (!state) return;
+    const h = setTimeout(() => setState(""), SHOWN_MS);
     return () => clearTimeout(h);
-  }, [done]);
+  }, [state]);
+  const copy = () => {
+    const clip = (globalThis.navigator as Navigator | undefined)?.clipboard;
+    if (!clip) return setState("bad");
+    void clip.writeText(text).then(
+      () => setState("done"),
+      () => setState("bad"),
+    );
+  };
   return (
-    <button type="button" className="cb-b" aria-label="Копировать" title="Копировать" onClick={() => void navigator.clipboard?.writeText(text).then(() => setDone(true), () => {})}>
-      {done ? <Check size={13} /> : <Copy size={13} />}
-      {label ? (done ? "скопировано" : label) : null}
+    <button type="button" className="cb-b" aria-label="Копировать" title="Копировать" onClick={copy}>
+      {state === "done" ? <Check size={13} /> : <Copy size={13} />}
+      {label ? (state ? WORDS[state] : label) : null}
     </button>
   );
 }

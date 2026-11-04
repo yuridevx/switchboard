@@ -1,4 +1,5 @@
 // Правила вкладки «Выпуски» и слова отказов: чистые функции над ответами владельцев, без состояния.
+import { linkText, okOf } from "@switchboard/web-ui";
 export type Entry = { pin?: string; on?: boolean; force?: boolean };
 export type Listed = {
   parts: Record<string, { where: "machine" | "cloud"; edge: string | null; stable: string | null; versions?: string[] }>;
@@ -28,7 +29,7 @@ export function say(w: string): string {
     not_installed: "приложение GitHub не допущено к репозиторию",
     app_exists: "приложение GitHub флота уже есть",
   };
-  return t[w] ?? w;
+  return t[w] ?? linkText(w);
 }
 
 /** Порядок номеров: 1.1.10 новее 1.1.9, 1.2.0+10 новее 1.2.0+9. */
@@ -46,7 +47,7 @@ export function prevBuild(v: string | null | undefined): string | null {
 }
 export const short = (v: string) => (v.includes("+") ? `+${v.split("+")[1]}` : v);
 
-const listed = (d: ReleaseData): Listed | null => (d.list && !("error" in d.list) ? d.list : null);
+const listed = (d: ReleaseData): Listed | null => okOf(d.list) ?? null;
 
 export const planOf = (d: ReleaseData, m: string): Record<string, Entry> => listed(d)?.machines.find((x) => x.machine === m)?.plan ?? {};
 export const stableOf = (d: ReleaseData, part: string): string | null => listed(d)?.parts[part]?.stable ?? null;

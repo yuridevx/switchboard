@@ -1,7 +1,7 @@
 // Окно «Имена» в месте вызывающего: закрылось — вызывающий получает close через app.Slot.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { machineOf } from "@switchboard/protocol";
+import { machineOf, nameOf } from "@switchboard/protocol";
 import { Btn, useApp } from "@switchboard/web-ui";
 import { useLabels } from "./store.ts";
 
@@ -33,7 +33,7 @@ export function LabelsScreen({ params, close }: ScreenProps) {
         {callsign ? (
           <label className="lb-f">
             <span>Имя сессии</span>
-            <input ref={session} data-f="session" value={sessionName} placeholder={callsign.slice(0, callsign.indexOf("@"))} autoComplete="off" onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={keys} />
+            <input ref={session} data-f="session" value={sessionName} placeholder={nameOf(callsign)} autoComplete="off" onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={keys} />
           </label>
         ) : null}
         <label className="lb-f">

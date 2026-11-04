@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, ok, oversize, parseFrame, reaches, serviceAddress, userOf, within } from "./contract.ts";
+import { accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, nameOf, ok, oversize, parseFrame, reaches, serviceAddress, userOf, within } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -48,6 +48,8 @@ describe("protocol: конверт кадра", () => {
     expect(kindOf("site@win")).toBe("session");
     expect(kindOf("~yuri@example.com")).toBe("user");
     expect(kindOf("phone~yuri@example.com")).toBe("device");
+    expect(nameOf("site@laptop")).toBe("site");
+    expect(nameOf("site")).toBe("site");
     expect(machineOf("site@laptop")).toBe("laptop");
     expect(machineOf("@pc")).toBe("pc");
     expect(machineOf(".keeper@win")).toBe("win");

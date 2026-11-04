@@ -1,10 +1,10 @@
 // Подписи точек: время, размер, слова отказа, что будет с папкой.
 import type { SessionRecord } from "@switchboard/web-core";
-import { plural } from "@switchboard/web-ui";
+import { plural, linkText } from "@switchboard/web-ui";
 import type { Check } from "./store.ts";
 
 export const r2Of = (s: SessionRecord | undefined) => s?.r2 as { error?: string; at?: number } | undefined;
-export const nameOf = (callsign: string) => callsign.split("@")[0];
+export { nameOf } from "@switchboard/protocol";
 export const mb = (b: number) => `${Math.round(b / 1048576)} МБ`;
 
 /** Слова отказа host-points и points → строка на экране. */
@@ -18,9 +18,8 @@ export function say(w: string, cs = "", target = "", src = ""): string {
     not_r2: "Сессия не в R2",
     running: "Сессия ещё идёт — сначала точка со стопом",
     name_taken: "Имя занято на этой машине",
-    offline: "Машины нет на связи",
   };
-  return t[w] ?? w;
+  return t[w] ?? linkText(w);
 }
 
 /** Что будет с папкой на целевой машине — ответ points.raise с dryRun. */

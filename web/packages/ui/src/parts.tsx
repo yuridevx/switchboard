@@ -31,17 +31,17 @@ export function In({ mono, className, ...p }: ComponentProps<"input"> & { mono?:
 export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }: Omit<ComponentProps<typeof In>, "value" | "defaultValue" | "onInput"> & { value: string; onCommit(text: string): void; onCancel?(): void }) {
   const [text, setText] = useState(value);
   const [outer, setOuter] = useState(value);
+  /** последнее отправленное: Enter и следующий уход с поля — одна фиксация */
+  const [sent, setSent] = useState(value);
   // значение снаружи изменилось: поправка при рисовании, эффект не нужен
   if (outer !== value) {
     setOuter(value);
     setText(value);
+    setSent(value);
   }
-  /** последнее отправленное: Enter и следующий уход с поля — одна фиксация */
-  const sent = useRef(value);
-  sent.current = outer === value ? sent.current : value;
   const commit = () => {
-    if (text === sent.current) return;
-    sent.current = text;
+    if (text === sent) return;
+    setSent(text);
     onCommit(text);
   };
   return (
@@ -56,7 +56,7 @@ export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }:
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
         if (e.key === "Escape") {
-          setText(sent.current);
+          setText(sent);
           onCancel?.();
         }
         onKeyDown?.(e);

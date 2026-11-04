@@ -1,7 +1,7 @@
 // Состояние «Работы» и его действия: выбор устройства — в снимке и хранилище страницы, настройки человека и запись проектов — в циклах prefs.
 // Виды читают выборкой, меняют только действия отсюда. Выборки — model.ts.
 import type { App, Params, SessionRecord } from "@switchboard/web-core";
-import { createStore, folderOf, lamp, personal, type Personal, useModule } from "@switchboard/web-ui";
+import { createStore, folderOf, lamp, personal, type Personal, useModule, machinesWith } from "@switchboard/web-ui";
 import { addProject, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { machineOf } from "@switchboard/protocol";
 import { createModel, type State } from "./model.ts";
@@ -131,7 +131,7 @@ export function createBoardStore(app: App) {
     /** «+» у проекта — место его верхней сессии, чья машина на связи; номер проекта страница новой сессии вернёт во вставку «после открытия», не читая. */
     newIn(id: string) {
       const x = model.projects().find((y) => y.id === id);
-      const online = new Set((app.roster()?.machines ?? []).filter((m) => m.contract?.["session.open"] !== undefined).map((m) => m.machine));
+      const online = new Set(machinesWith(app, "session.open"));
       const s = x && tree(x.ss).map(([y]) => y).find((y) => online.has(machineOf(y.callsign) ?? "") && typeof y.dir === "string");
       app.open("open", { ...(s ? { machine: machineOf(s.callsign)!, dir: s.dir as string } : {}), ...(id === NONE ? {} : { project: id }) });
     },

@@ -1,7 +1,7 @@
 // Служебные строки ленты: итог хода, сжатие, прерывание, повтор API, лимит, команда, ошибки, задачи, отказ модели, хук, память, файлы.
 import type { ReactNode } from "react";
 import { AlertTriangle, Anchor, Archive, ArrowLeftRight, Ban, BookOpen, Bot, FileUp, Gauge, Info, Pencil, RefreshCw, RotateCcw, ShieldOff, Shuffle, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
-import { hhmm, Markdown } from "@switchboard/web-ui";
+import { hhmm, Markdown, LIMIT_NAMES } from "@switchboard/web-ui";
 import { useCards } from "../context.ts";
 import type { Sys, Task } from "../state/types.ts";
 import { Disclosure } from "../ui/Disclosure.tsx";
@@ -38,7 +38,6 @@ const Line = ({ icon, tone, children }: { icon: ReactNode; tone?: string; childr
   </div>
 );
 
-const LIMIT: Record<string, string> = { five_hour: "окно 5 часов", seven_day: "неделя", seven_day_opus: "неделя Opus", seven_day_sonnet: "неделя Sonnet", overage: "сверх подписки" };
 /** Почему основная модель не ответила. */
 const FALLBACK: Record<string, string> = { model_not_found: "недоступна", permission_denied: "недоступна организации", overloaded: "перегружена", server_error: "не ответила (сбой сервера)", last_resort: "не ответила (ошибка)", model_blocked: "временно отключена" };
 const AREA: Record<string, string> = { cyber: "кибербезопасность", bio: "биология и химия", chem: "химия", weapons: "оружие", self_harm: "самоповреждение" };
@@ -152,7 +151,7 @@ export function SysRow({ sys, at }: { sys: Sys; at?: number }) {
     case "retry":
       return <Divider icon={<RefreshCw size={13} />} text={`повтор запроса к API · ${sys.attempt ?? "?"} из ${sys.max ?? "?"}${sys.error ? ` · ${sys.error}` : ""}${sys.delayMs ? ` · через ${Math.round(sys.delayMs / 1000)} с` : ""}`} tone="wait" />;
     case "limits":
-      return <Banner tone="wait" icon={<Gauge size={15} />} title={sys.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится"} text={[sys.window ? (LIMIT[sys.window] ?? sys.window) : null, sys.resets ? `сброс в ${hhmm(sys.resets * 1000)}` : null].filter(Boolean).join(", ") || undefined} />;
+      return <Banner tone="wait" icon={<Gauge size={15} />} title={sys.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится"} text={[sys.window ? (LIMIT_NAMES[sys.window] ?? sys.window) : null, sys.resets ? `сброс в ${hhmm(sys.resets * 1000)}` : null].filter(Boolean).join(", ") || undefined} />;
     case "command":
       return <CommandRow sys={sys} />;
     case "error":

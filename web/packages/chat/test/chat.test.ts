@@ -152,7 +152,7 @@ describe("переписка", () => {
     expect(row.textContent).toContain("Эталоны: 13 из 13. Катить в основную?");
     expect(row.querySelector(".sb-badge")!.textContent).toBe("1");
     await t.click(row);
-    expect(t.$(".chat-in")!.textContent).toMatch(/^poe-bot@pc → вамЭталоны: 13 из 13\. Катить в основную\?\d\d:\d\d$/);
+    expect(t.$(".chat-in")!.textContent).toMatch(/^poe-bot → вамЭталоны: 13 из 13\. Катить в основную\?\d\d:\d\d$/);
     await t.click(t.button("‹"));
     expect(t.$('[data-callsign="poe-bot@pc"] .sb-badge')).toBeNull();
   });

@@ -1,9 +1,10 @@
 // Имена сессий и машин: запись области флота fleet.labels, одна на всех и на агентов. Цикл записи — personal из web-ui.
+import { nameOf } from "@switchboard/protocol";
 import type { App } from "@switchboard/web-core";
-import { personal, type Personal, useModule } from "@switchboard/web-ui";
+import { personal, type Personal, useModule, type Shown } from "@switchboard/web-ui";
 import { FLEET_PREFIX, LABELS, labelOf, setLabel, type Labels } from "@switchboard/records";
 
-export type Shown = { text: string; human: boolean };
+export type { Shown };
 
 export type LabelsStore = ReturnType<typeof createLabelsStore>;
 /** Стор модуля в экранах. */
@@ -27,7 +28,7 @@ export function createLabelsStore(app: App) {
     },
     session(callsign: string): Shown {
       const name = labelOf(names(), callsign);
-      return { text: name ?? callsign.slice(0, callsign.indexOf("@")), human: !!name };
+      return { text: name ?? nameOf(callsign), human: !!name };
     },
     machine(machine: string): Shown {
       const name = labelOf(names(), `@${machine}`);

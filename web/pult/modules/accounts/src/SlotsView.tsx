@@ -1,4 +1,5 @@
 // Вид «Слоты»: слоты выбранной машины, запас по порядку, смена сейчас и новый слот.
+import { nameOf } from "@switchboard/protocol";
 import { useState } from "react";
 import { Btn, H4, Hint, hhmm, In, M, Note, Opts, PickOne, plural, Sec, Sel, LIMIT_NAMES, useApp } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
@@ -32,7 +33,7 @@ function SlotCard({ m, name, s }: { m: string; name: string; s: Slot }) {
       ) : null}
       <div className="ac-hd">
         <b>{`Слот ${name}`}</b>
-        <Hint>{`${s.sessions.length} ${plural(s.sessions.length, "сессия", "сессии", "сессий")}${s.sessions.length ? ": " + s.sessions.map((c) => c.split("@")[0]).join(", ") : ""}`}</Hint>
+        <Hint>{`${s.sessions.length} ${plural(s.sessions.length, "сессия", "сессии", "сессий")}${s.sessions.length ? ": " + s.sessions.map(nameOf).join(", ") : ""}`}</Hint>
       </div>
       <div data-current={s.account ?? ""}>
         <Hint>в слоте: </Hint>

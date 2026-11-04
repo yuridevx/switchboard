@@ -541,6 +541,20 @@ describe("вид списка", () => {
 });
 
 describe("имена", () => {
+  it("7235 · страница вернулась: свёрнутость проектов из другой вкладки прочитана заново", async () => {
+    // чьё: код — повторный start модулей при возвращении до 4 нояб.; start теперь один раз
+    const store = memoryStore({ key: KEY });
+    const relay = relayWith();
+    relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    const t = await start({ relay, store });
+    expect(t.$('.pj-t[data-proj="switchboard"]')!.getAttribute("aria-expanded")).toBe("true");
+    await t.run.hide();
+    store.data.collapsed = { switchboard: true };
+    await t.run.show();
+    await flush();
+    expect(t.$('.pj-t[data-proj="switchboard"]')!.getAttribute("aria-expanded")).toBe("false");
+  });
+
   it("5260 · заданное имя — вместо адреса в строке и поиске; поиск находит и по имени; адреса в основном виде нет", async () => {
     const relay = withLabels({ sessions: { "migrate@laptop": "Переезд" }, machines: { laptop: "Домашний ПК" } });
     const t = await start({ relay });

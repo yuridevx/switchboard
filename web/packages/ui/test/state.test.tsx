@@ -91,6 +91,39 @@ describe("данные экрана", () => {
     expect(seen(t.el)).toEqual({ data: "B", error: "", loading: true });
   });
 
+  it("7230 · первый рисунок с новыми deps: уже loading и stale, данных прежних deps как готовых нет", async () => {
+    // чьё: код — слепой архитектор, 4 нояб.: «дальше» в журнале карточки на один кадр показывал страницу дважды; источник свойства — web/packages/card/src/LogTab.tsx
+    const l = loader<string>();
+    const renders: Array<{ k: string; loading: boolean; stale: boolean }> = [];
+    function Seen({ k }: { k: string }) {
+      const r = useLoad(() => l.load(k), [k]);
+      renders.push({ k, loading: r.loading, stale: r.stale });
+      return null;
+    }
+    await draw(<Seen k="a" />);
+    await act(async () => l.calls[0].reply({ ok: true, result: "A" }));
+    expect(renders.at(-1)).toEqual({ k: "a", loading: false, stale: false });
+    renders.length = 0;
+    await act(async () => root!.render(<Seen k="b" />));
+    expect(renders[0]).toEqual({ k: "b", loading: true, stale: true });
+  });
+
+  it("7231 · again перечитывает, как reload: отказ держит данные", async () => {
+    // чьё: код — web/packages/ui/src/hooks.ts: машина вернулась, ответ не снимает прежний
+    const l = loader<string>();
+    let seenData: string | undefined;
+    function Seen({ again }: { again: number }) {
+      seenData = useLoad(() => l.load("a"), ["a"], again).data;
+      return null;
+    }
+    await draw(<Seen again={1} />);
+    await act(async () => l.calls[0].reply({ ok: true, result: "A" }));
+    await act(async () => root!.render(<Seen again={2} />));
+    expect(l.calls).toHaveLength(2);
+    await act(async () => l.calls[1].reply({ ok: false, error: "disconnected" }));
+    expect(seenData).toBe("A");
+  });
+
   it("6813 · устаревший ответ отброшен: deps сменились, пока шёл запрос", async () => {
     // чьё: код
     const t = await start();

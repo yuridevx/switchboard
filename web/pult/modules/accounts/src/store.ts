@@ -3,7 +3,7 @@
 // перед подменой; пульт его не пересылает.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers } from "@switchboard/web-ui";
+import { createStore, machineAnswers, machinesWith, type MachineAnswer, type MachineAnswers, linkText, okOf } from "@switchboard/web-ui";
 
 export type Window = { utilization: number; resetsAt?: number; at?: number; src?: string };
 export type Account = { login: "ok" | "none" | "pending"; links?: string[]; email?: string; plan?: string; checked?: number; limits?: Record<string, Window>; err?: string };
@@ -23,7 +23,6 @@ type State = {
 };
 
 /** Ответ без отказа, иначе undefined. */
-const okOf = <T extends object>(a: MachineAnswer<T> | undefined): T | undefined => (a && !("error" in a) ? a : undefined);
 
 /** Слова отказа slots и accounts → строка на экране. */
 const WORDS: Record<string, string> = {
@@ -38,7 +37,7 @@ const WORDS: Record<string, string> = {
   refresh_locked: "Claude сейчас обновляет вход этого аккаунта — повторите через минуту",
   slot_dir_busy: "На месте слота на машине папка с файлами — разберите её",
 };
-export const say = (w: string) => WORDS[w] ?? w;
+export const say = (w: string) => WORDS[w] ?? linkText(w);
 
 /** Слоты машины, где аккаунт стоит сейчас: один аккаунт может стоять в нескольких. */
 export function slotsWith(list: Record<string, Slot>, account: string): string[] {
@@ -159,15 +158,6 @@ export function createAccountsStore(app: App) {
         editLogin(key, { phase: "ok", email: r.result.email, plan: r.result.plan });
         await loadAccounts(l.machine);
       } else editLogin(key, { phase: r.error === "bad_code" ? "bad" : "err", err: r.error });
-    },
-    /** Ссылка входа — в буфер; браузер отказал — ссылка остаётся на кнопке. */
-    async copy(url: string) {
-      try {
-        await navigator.clipboard.writeText(url);
-        app.toast("Ссылка скопирована", "ok");
-      } catch {
-        app.toast("Буфер недоступен — откройте ссылку кнопкой");
-      }
     },
 
     // ───── действия слотов ─────

@@ -4,7 +4,7 @@
 // Чего нет в contract машины — того нет на экране и в кадрах.
 import type { App, Ctx, Frame, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { createStore, isLive as stateIsLive, sessionLabel, sessionOf as findSession } from "@switchboard/web-ui";
+import { createStore, isLive as stateIsLive, sessionLabel, sessionOf as findSession, linkText, type Result } from "@switchboard/web-ui";
 import { addMine, applyEvents, emptyFeed, withHistory, withOlder } from "./feed.ts";
 import type { Feed, UserItem } from "./types.ts";
 import type { WireMessage } from "./wire.ts";
@@ -18,7 +18,6 @@ export type Returned = { id: string; text: string; attachments: Attachment[] };
 /** Вопрос сбоку: в разговор не попадает. Нет ни ответа, ни отказа — Claude думает. */
 export type Side = { id: string; q: string; a?: string; err?: string };
 /** Ответ запроса: результат или слово отказа. */
-export type Answer<T> = { ok: true; result: T } | { ok: false; error: string };
 
 export type Conv = {
   feed: Feed;
@@ -125,10 +124,9 @@ export function createChatStore(app: App) {
   }
 
   function refusalText(cs: string, word: string): string {
-    if (word === "offline") return `${machineOf(cs)} не на связи`;
     if (word === "stopped") return "сессия остановлена";
     if (word === "sdk_error") return "Claude отказал, причина в журнале машины";
-    return word;
+    return linkText(word, machineOf(cs));
   }
 
   const setMine = (cs: string, id: string, change: (it: UserItem) => void) =>
@@ -139,7 +137,7 @@ export function createChatStore(app: App) {
 
   /** Метод query() сессии как есть: отказ словом для человека достаётся вызывающему. */
   const ask = async <T,>(cs: string, method: string, args: unknown[] = []) => {
-    const r = (await app.request<T>("session.call", { callsign: cs, method, args })) as Answer<T>;
+    const r = (await app.request<T>("session.call", { callsign: cs, method, args })) as Result<T>;
     return r.ok ? r : { ...r, error: refusalText(cs, r.error) };
   };
 

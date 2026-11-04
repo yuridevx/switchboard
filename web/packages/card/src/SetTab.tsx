@@ -1,9 +1,9 @@
 // Вкладка «Настройки» широкой карточки: профиль, быстрый режим, заголовок, слот, остановка и удаление.
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { CommitIn, Outcome, profileIdOf, profileName, useLoad, useApp } from "@switchboard/web-ui";
-import { useCard } from "./hooks.ts";
-import { isDown, notAsked, slotOf, type Can } from "./session.ts";
+import { CommitIn, Outcome, profileIdOf, profileName, useMachineLoad, useApp } from "@switchboard/web-ui";
+import { useSessionActions } from "./hooks.ts";
+import { isDown, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 
 type Note = { text: string; tone: "ok" | "bad" | "" };
@@ -12,10 +12,10 @@ type Profiles = { profiles: Record<string, unknown> };
 
 export function SetTab({ machine, callsign, s, can, live, data }: { machine: string; callsign: string; s: SessionRecord | undefined; can: Can; live: boolean; data: WideData }) {
   const app = useApp();
-  const card = useCard();
+  const actions = useSessionActions(callsign);
   const [notes, setNotes] = useState<Record<string, Note>>({});
-  const spec = useLoad(() => (app.can(machine, "session.spec") === true ? app.request<Spec>("session.spec", { callsign }) : notAsked<Spec>()), [callsign]);
-  const profiles = useLoad(() => (app.can(machine, "machine.profiles") === true ? app.request<Profiles>("machine.profiles", { machine }) : notAsked<Profiles>()), [machine]);
+  const spec = useMachineLoad<Spec>(machine, "session.spec", { callsign });
+  const profiles = useMachineLoad<Profiles>(machine, "machine.profiles");
   const [removing, setRemoving] = useState(false);
 
   const note = (k: string, text: string, tone: Note["tone"] = "") => setNotes((old) => ({ ...old, [k]: { text, tone } }));
@@ -37,11 +37,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
   }
 
   async function act(name: "session.stop" | "session.start" | "session.remove") {
-    note("ctl", "…");
-    const r = await card.control(callsign, name);
-    if (!r.ok) return note("ctl", `${name}: ${r.error}`, "bad");
-    if (name === "session.remove") return app.back();
-    note("ctl", "");
+    if (!(await actions.act(name)) && name === "session.remove") app.back();
   }
 
   const profNow = profileIdOf(s) ?? "";
@@ -124,7 +120,7 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
             </div>
           </div>
         ) : null}
-        <Outcome className="cw-note" note={notes.ctl} />
+        <Outcome className="cw-note" note={actions.busy ? { text: "…" } : actions.error ? { text: actions.error, tone: "bad" } : undefined} />
       </div>
     </div>
   );

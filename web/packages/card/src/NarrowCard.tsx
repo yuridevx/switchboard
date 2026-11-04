@@ -3,36 +3,19 @@ import { useState } from "react";
 import type { Params } from "@switchboard/web-core";
 import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, useApp } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
-import { useCan, useCard, useSession } from "./hooks.ts";
+import { useCan, useSession, useSessionActions } from "./hooks.ts";
 import { Names } from "./Names.tsx";
 import { isDown, slotOf } from "./session.ts";
 
 /** «Ещё» на телефоне. */
 function Info({ callsign, openNames }: { callsign: string; openNames(): void }) {
   const app = useApp();
-  const card = useCard();
   const s = useSession(callsign);
   const can = useCan(machineOf(callsign) ?? "");
   const menu = app.use(() => app.placed("card.menu", { callsign }));
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-
-  /** модель и усилие — session.update; отказ — словом ниже */
-  async function update(body: Record<string, string>) {
-    setBusy("session.update");
-    setError("");
-    const r = await app.request("session.update", { callsign, ...body });
-    setBusy("");
-    if (!r.ok) setError(`session.update: ${r.error}`);
-  }
-
-  async function act(name: "session.stop" | "session.start") {
-    setBusy(name);
-    setError("");
-    const r = await card.control(callsign, name);
-    setBusy("");
-    if (!r.ok) setError(`${name}: ${r.error}`);
-  }
+  // модель и усилие, пуск и остановка — один путь; отказ — словом ниже
+  const { busy, error, act } = useSessionActions(callsign);
+  const update = (body: Record<string, string>) => act("session.update", body);
 
   const rows: Array<[string, unknown]> = s
     ? [

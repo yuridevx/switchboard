@@ -16,7 +16,8 @@ export function createBoard(app: App): AppModule {
   const board = createBoardStore(app);
   return {
     state: board,
-    on: { link: board.onLink, roster: board.onRoster, current: board.onCurrent },
+    // show — настройка могла измениться в другой вкладке: возвращение страницы читает её заново
+    on: { link: board.onLink, roster: board.onRoster, current: board.onCurrent, show: board.start },
     screens: {
       // вставка места «после открытия»: страница новой сессии возвращает номер проекта, не читая его
       "board.assign": {

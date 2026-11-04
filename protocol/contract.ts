@@ -101,6 +101,12 @@ export function machineOf(address: string): string | null {
   return address.slice(address.indexOf("@") + 1);
 }
 
+/** Имя сессии адреса: site@laptop → site; без машины — как есть. */
+export function nameOf(address: string): string {
+  const i = address.indexOf("@");
+  return i < 0 ? address : address.slice(0, i);
+}
+
 /**
  * Машина, чьему Host адресован кадр: по to, иначе по callsign, иначе по machine — одно правило для рации, Host и веба.
  * to — не Host машины (служба, часть машины, человек, устройство) — null; callsign не адрес сессии — null; адреса нет — undefined.

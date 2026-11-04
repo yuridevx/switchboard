@@ -1,23 +1,22 @@
 // Данные широкой карточки на время экрана: аккаунты, слоты, модели и серверы MCP; запросы шапки и настроек.
 import { useState } from "react";
-import { useLoad, useApp } from "@switchboard/web-ui";
-import { useCard } from "./hooks.ts";
-import { notAsked, type Acc, type Mcp, type Model, type SlotInfo } from "./session.ts";
+import { useMachineLoad, useApp } from "@switchboard/web-ui";
+import { useSessionActions } from "./hooks.ts";
+import type { Acc, Mcp, Model, SlotInfo } from "./session.ts";
 
 export type WideData = ReturnType<typeof useWideData>;
 
 export function useWideData(callsign: string, machine: string, live: boolean, info: boolean) {
   const app = useApp();
-  const card = useCard();
-  const accounts = useLoad(() => (app.can(machine, "machine.accounts") === true ? app.request<{ accounts: Record<string, Acc> }>("machine.accounts", { machine }) : notAsked<{ accounts: Record<string, Acc> }>()), [machine]);
-  const slots = useLoad(() => (app.can(machine, "machine.slots") === true ? app.request<{ slots: Record<string, SlotInfo> }>("machine.slots", { machine }) : notAsked<{ slots: Record<string, SlotInfo> }>()), [machine]);
-  const canCall = live && app.can(machine, "session.call") === true;
+  const actions = useSessionActions(callsign);
+  const accounts = useMachineLoad<{ accounts: Record<string, Acc> }>(machine, "machine.accounts");
+  const slots = useMachineLoad<{ slots: Record<string, SlotInfo> }>(machine, "machine.slots");
   /** модели читаются при первом открытии окна, серверы MCP — при первом открытии сведений; отпущенные остаются */
   const [modelsAsked, setModelsAsked] = useState(false);
   const [mcpAsked, setMcpAsked] = useState(info);
   if (info && !mcpAsked) setMcpAsked(true);
-  const models = useLoad(() => (modelsAsked && canCall ? app.request<Model[]>("session.call", { callsign, method: "supportedModels", args: [] }) : notAsked<Model[]>()), [modelsAsked, canCall, callsign]);
-  const mcp = useLoad(() => (mcpAsked && canCall ? app.request<Mcp[]>("session.call", { callsign, method: "mcpServerStatus", args: [] }) : notAsked<Mcp[]>()), [mcpAsked, canCall, callsign]);
+  const models = useMachineLoad<Model[]>(machine, "session.call", { callsign, method: "supportedModels", args: [] }, modelsAsked && live);
+  const mcp = useMachineLoad<Mcp[]>(machine, "session.call", { callsign, method: "mcpServerStatus", args: [] }, mcpAsked && live);
 
   async function toggleMcp(m: Mcp) {
     const r = await app.request("session.call", { callsign, method: "toggleMcpServer", args: [m.name, m.status === "disabled"] });
@@ -45,8 +44,8 @@ export function useWideData(callsign: string, machine: string, live: boolean, in
   }
 
   async function start() {
-    const r = await card.control(callsign, "session.start");
-    if (!r.ok) app.toast(`${callsign}: «Запустить» — ${r.error}`);
+    const word = await actions.act("session.start");
+    if (word) app.toast(`${callsign}: «Запустить» — ${word}`);
   }
 
   return {

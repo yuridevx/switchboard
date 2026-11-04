@@ -1,6 +1,6 @@
 // Модель «Работы»: чистые выборки из снимка модуля, roster и записей настроек. Ничего не меняет; состояние и действия — store.ts.
 import type { App, SessionRecord } from "@switchboard/web-core";
-import { failText, lamp, machineLabel, myAddress, profileNameOf, sessionLabel, stateLabel, type Personal } from "@switchboard/web-ui";
+import { failText, lamp, machineLabel, myAddress, profileNameOf, sessionLabel, stateLabel, type Personal, machinesWith } from "@switchboard/web-ui";
 import { arrange, NONE, PROJECTS, projectIdOf, type ProjectRec } from "@switchboard/records";
 import { kindOf, machineOf, userOf } from "@switchboard/protocol";
 import type {} from "@switchboard/web-ask";
@@ -212,7 +212,7 @@ export function createModel({ app, user, fleet, state }: Env) {
     held,
     /** Проекты для окна фильтра: номер и имя. */
     projectOptions: () => [...(recs() ?? []).filter((r) => r.id !== NONE).map((r): [string, string] => [r.id, r.name]), [NONE, projectName(NONE)] as [string, string]],
-    machines: () => (app.roster()?.machines ?? []).map((m) => m.machine),
+    machines: () => machinesWith(app),
     owners: () => [...new Set(sessions().map((s) => ownerOf(s)).filter((x): x is string => !!x && x !== me()))].sort(),
   };
 }

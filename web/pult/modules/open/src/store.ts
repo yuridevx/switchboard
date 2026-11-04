@@ -1,7 +1,7 @@
 // Состояние новой сессии вне экрана: свои последние места у почты; машины и сессии — из roster. Форма живёт на экране.
 import type { App, SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { personal, type Personal, useModule } from "@switchboard/web-ui";
+import { personal, type Personal, useModule, machinesWith } from "@switchboard/web-ui";
 import type { Place } from "./form.ts";
 
 /** Сколько своих последних мест хранится. */
@@ -25,7 +25,7 @@ export function createOpenStore(app: App) {
     },
     sessions,
     /** Машины, на которых можно открыть сессию. */
-    machines: () => (app.roster()?.machines ?? []).map((m) => m.machine).filter((m) => app.can(m, "session.open") === true),
+    machines: () => machinesWith(app, "session.open"),
     /** Машины по числу сессий: больше — раньше. */
     byUse: (list: string[]) => [...list].sort((a, b) => machineUse(b) - machineUse(a) || a.localeCompare(b)),
     can: (m: string, n: string) => app.can(m, n) === true,

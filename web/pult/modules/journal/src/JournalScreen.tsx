@@ -1,6 +1,6 @@
 // Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger.
 import { useEffect, useState } from "react";
-import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
+import { Btn, hhmm, In, Note, Opts, Page, PageHead, Sec, Sel, useApp, machinesWith } from "@switchboard/web-ui";
 import { useJournal } from "./store.ts";
 import type { Ev } from "./store.ts";
 
@@ -34,7 +34,7 @@ export function JournalScreen() {
   const { evs, more, machine, err, busy } = app.use(journal.view);
   useEffect(() => journal.mount(), [journal]);
   const [q, setQ] = useState("");
-  const online = app.use(() => (app.roster()?.machines ?? []).map((m) => m.machine));
+  const online = app.use(() => machinesWith(app));
   const names = [...new Set([...online, ...evs.map((e) => e.machine).filter((x): x is string => !!x)])].sort();
   const t = q.trim().toLowerCase();
   const shown = evs.filter((e) => !t || [e.text, e.ev, e.machine, e.callsign, e.by].some((x) => x?.toLowerCase().includes(t)));

@@ -1,7 +1,7 @@
 // Вкладка «GitHub и устройство»: приложение GitHub флота и его репозитории; адрес, пропуск и уведомления этого устройства.
 import { useEffect, useRef, useState } from "react";
 import type {} from "@switchboard/web-alerts";
-import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
 import { NoteOf, StoredIn } from "./parts.tsx";
 import type { Form, Gh } from "./store.ts";
@@ -114,7 +114,7 @@ export function Device() {
   const settings = useSettings();
   const passes = app.use(() => settings.get().passes);
   const push = app.use(() => app.mark("alerts.state"));
-  const ps = passes && !("error" in passes) ? passes : [];
+  const ps = okOf(passes) ?? [];
   const me = ps.find((p) => p.role === "client" && p.name === app.name);
   return (
     <Sec data-device="">

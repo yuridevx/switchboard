@@ -1,5 +1,5 @@
 // Запись сессии из roster: подписи и разбор полей. Чистые функции; общие для узкого и широкого вида и шапки экрана.
-import type { Result, SessionRecord } from "@switchboard/web-core";
+import type { SessionRecord } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
 
 /** Запросы, от которых зависят кнопки карточки. */
@@ -16,9 +16,6 @@ export type Acc = { email?: string; plan?: string; limits?: Record<string, Win> 
 export type SlotInfo = { account: string | null; order?: string[] };
 export type Mcp = { name: string; status?: string };
 export type Model = { value: string; displayName?: string };
-
-/** Машина такого запроса не умеет: не спрашиваем, данных нет. */
-export const notAsked = <T,>(): Promise<Result<T>> => Promise.resolve({ ok: false, error: "" });
 
 /** Сессия не идёт: её можно запустить, но не остановить. Одно правило для узкого и широкого вида и шапки. */
 export const isDown = (s?: SessionRecord) => s?.state === "stopped" || s?.state === "failed";

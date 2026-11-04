@@ -4,9 +4,9 @@ import { createAlerts, manifest as alertsM } from "@switchboard/web-alerts";
 import { createAsk, manifest as askM } from "@switchboard/web-ask";
 import { createBoard, manifest as boardM } from "@switchboard/web-board";
 import { createChat, manifest as chatM } from "@switchboard/web-chat";
-import type { Roster } from "@switchboard/web-core";
+import { memoryStore, type Roster } from "@switchboard/web-core";
 import { createCard, manifest as cardM } from "../contract.ts";
-import { FakeRelay, flush, homeRoster, stand } from "../../core/stand/app.ts";
+import { FakeRelay, flush, homeRoster, KEY, stand } from "../../core/stand/app.ts";
 
 const parts = () => [
   { manifest: boardM, module: createBoard },
@@ -304,5 +304,51 @@ describe("телефон", () => {
     expect(t.text()).toContain("session.stop: stopping");
     await t.click(t.$('[data-pick="model"] button'));
     expect(t.text()).not.toContain("session.stop: stopping");
+  });
+});
+
+describe("возврат машины и страницы", () => {
+  it("7232 · карточка открыта при выключенной машине: машина вернулась — аккаунты и слоты дочитаны сами", async () => {
+    // чьё: код — слепой архитектор, 4 нояб.: deps не менялись, данные пусты до ручного действия; ветка устава «соединение оборвалось → переподключаются»
+    const r = roster(["machine.accounts"]);
+    const relay = relayFor(r);
+    const t = await wideCard(r, relay);
+    await flush();
+    expect(relay.sent("machine.accounts")).toHaveLength(0);
+    relay.setRoster(roster());
+    await flush();
+    expect(relay.sent("machine.accounts")).toHaveLength(1);
+    expect(relay.sent("machine.accounts")[0]).toMatchObject({ machine: "pc" });
+    expect(t.$(".cw-h")).not.toBeNull();
+  });
+
+  it("7233 · машина перезапустилась (новый since) — ответ перечитан, прежний показан до нового", async () => {
+    // чьё: код — web/packages/ui/src/hooks.ts useMachineLoad
+    const r = roster();
+    const relay = relayFor(r);
+    await wideCard(r, relay);
+    await flush();
+    expect(relay.sent("machine.accounts")).toHaveLength(1);
+    relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: 2 } : m)) });
+    await flush();
+    expect(relay.sent("machine.accounts")).toHaveLength(2);
+  });
+
+  it("7234 · страница вернулась: настройка карточки из другой вкладки прочитана заново", async () => {
+    // чьё: код — повторный start модулей при возвращении до 4 нояб.; start теперь один раз
+    const store = memoryStore({ key: KEY });
+    const r = roster();
+    const relay = relayFor(r);
+    const t = await stand(parts(), { relay, store, wide: true, url: "/#card?callsign=poe-bot%40pc" });
+    await flush();
+    expect(t.$("aside.cw-info")).toBeNull();
+    // уход с экрана доводит начатые запросы: ответить на те, что без подделки
+    for (const f of relay.got) if (typeof f.id === "string") relay.reply(f.id, { ok: true, result: null });
+    await flush();
+    await t.run.hide();
+    store.data["card.info"] = true;
+    await t.run.show();
+    await flush();
+    expect(t.$("aside.cw-info")).not.toBeNull();
   });
 });

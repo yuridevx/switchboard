@@ -2,14 +2,16 @@
 // доспросить тех, кому не дошло. Закрыт — не спрашивает.
 // Один цикл на все экраны с ответом от каждой машины. Состояние — неизменяемый снимок: его читает выборка app.use.
 import type { Roster } from "@switchboard/relay";
+import { machinesWith } from "./format.ts";
+import type { Result } from "./hooks.ts";
 import { createStore } from "./store.ts";
 
-/** Ответ запроса ядра (форма Result: ядро ui не знает). */
-type Answer<T> = { ok: true; result: T } | { ok: false; error: string };
 type AppLike = { roster(): Roster | null; changed(): void };
 
 /** Ответ машины: данные или слово отказа. */
 export type MachineAnswer<T> = T | { error: string };
+/** Данные ответа; отказа и ответа ещё нет — undefined. */
+export const okOf = <T extends object>(a: MachineAnswer<T> | null | undefined): T | undefined => (a && !("error" in a) ? a : undefined);
 
 export type MachineAnswers<T> = {
   /** снимок ответов по машинам */
@@ -21,13 +23,13 @@ export type MachineAnswers<T> = {
   /** новый roster: машину, которая пришла или вернулась, и ту, кому запрос не дошёл из-за обрыва, при открытом экране спросить */
   onRoster(r: Roster): void;
   /** спросить одну машину заново; how — другой запрос вместо обычного (с другими полями) */
-  reload(machine: string, how?: (machine: string) => Promise<Answer<T>>): Promise<void>;
+  reload(machine: string, how?: (machine: string) => Promise<Result<T>>): Promise<void>;
   /** положить ответ, известный без запроса: итог своего действия */
   put(machine: string, value: T): void;
 };
 
 /** machines — кого спрашивать; по умолчанию все машины roster. */
-export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promise<Answer<T>>, machines: () => string[] = () => (app.roster()?.machines ?? []).map((m) => m.machine)): MachineAnswers<T> {
+export function machineAnswers<T>(app: AppLike, ask: (machine: string) => Promise<Result<T>>, machines: () => string[] = () => machinesWith(app)): MachineAnswers<T> {
   const store = createStore<{ answers: Record<string, MachineAnswer<T>>; opened: number; seen: Record<string, unknown> }>({ answers: {}, opened: 0, seen: {} }, () => app.changed());
 
   const put = (machine: string, value: MachineAnswer<T>) =>

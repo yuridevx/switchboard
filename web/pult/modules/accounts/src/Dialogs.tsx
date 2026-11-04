@@ -1,4 +1,5 @@
 // Диалоги аккаунтов: новый аккаунт, сессии слота, удаление.
+import { nameOf } from "@switchboard/protocol";
 import { useState } from "react";
 import { Btn, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
 import { useAccounts, useScreen } from "./context.ts";
@@ -110,7 +111,7 @@ export function RmDlg({ m, account, list }: { m: string; account: string; list: 
   const [next, setNext] = useState("");
   const inSlots = slotsWith(list, account);
   const others = [...new Set(inSlots.flatMap((sl) => list[sl].order.filter((x) => x !== account)))];
-  const sess = inSlots.flatMap((sl) => list[sl].sessions.map((c) => c.split("@")[0]));
+  const sess = inSlots.flatMap((sl) => list[sl].sessions.map(nameOf));
   return (
     <Sec dlg data-dlg="rm">
       <H4>{`Удалить ${account} с ${m}`}</H4>

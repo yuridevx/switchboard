@@ -65,7 +65,7 @@ describe("карточка в узком виде", () => {
     r.sessions = r.sessions.filter((s) => !s.callsign.endsWith("@laptop"));
     const t = await stand(parts(), { relay: relayFor(r), url: "/#card?callsign=site%40laptop&tab=info" });
     await flush();
-    expect(t.$(".sb-bt")!.textContent).toBe("site@laptop@laptop не на связи");
+    expect(t.$(".sb-bt")!.textContent).toBe("site@laptop не на связи");
     expect(t.$(".card-info")!.textContent).toBe("адресsite@laptop");
     expect(t.button("Остановить")).toBeNull();
     expect(t.button("Запустить")).toBeNull();
@@ -82,7 +82,7 @@ describe("карточка в широком виде", () => {
     relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { y0902: { email: "dev@mail", plan: "Max 20×", limits: { five_hour: { utilization: 0.82, resetsAt: 1793660000 }, seven_day: { utilization: 0.41 } } } } } });
     const t = await wideCard("site@laptop", r, relay);
     const head = t.$(".cw-h")!;
-    expect(head.querySelector(".cw-cs")!.textContent).toBe("site@laptop");
+    expect(head.querySelector(".cw-cs")!.textContent).toBe("site");
     expect(head.querySelector('[data-pop="model"]')!.textContent).toBe("opus · высокое ▾");
     expect(head.querySelector('[data-pop="acc"]')!.textContent).toBe("y0902 · 82 % ▾");
     expect(head.querySelector('[data-pop="acc"]')!.classList.contains("lim")).toBe(true);
@@ -271,7 +271,7 @@ describe("карточка в широком виде", () => {
       x.sessions = x.sessions.filter((s) => !s.callsign.endsWith("@pc"));
     });
     const t = await wideCard("poe-bot@pc", r);
-    expect(t.$(".cw-h")!.textContent).toContain("poe-bot@pc@pc✎не на связи");
+    expect(t.$(".cw-h")!.textContent).toContain("poe-bot@pc✎не на связи");
     expect(t.$(".cw-pl")!.hidden).toBe(true);
   });
 });

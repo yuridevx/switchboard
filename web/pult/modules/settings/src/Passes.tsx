@@ -1,5 +1,5 @@
 // Вкладка «Пропуска»: машины и устройства, приглашение и отзыв. Это устройство не отзывается.
-import { Btn, M, Note, Opts, Pill, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, M, Note, Opts, Pill, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
 import { Invited, InviteForm } from "./Invite.tsx";
 import { NoteOf } from "./parts.tsx";
@@ -81,7 +81,7 @@ export function Passes() {
   const passes = app.use(() => settings.get().passes);
   const inviting = app.use(() => settings.get().inviting);
   const invited = app.use(() => settings.get().invited);
-  const ps = passes && !("error" in passes) ? passes : [];
+  const ps = okOf(passes) ?? [];
   const me = ps.find((p) => p.role === "client" && p.name === app.name && p.state === "ok");
   return (
     <>

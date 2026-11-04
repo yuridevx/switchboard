@@ -1,6 +1,6 @@
 // Приглашение: форма и итог. Устройству — ссылки на пульт и телефон (QR — на телефон), программе и машине — приглашение строкой.
 import { useMemo } from "react";
-import { Btn, Cmd, M, Opts, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, Cmd, M, Opts, Sec, useApp, CopyButton } from "@switchboard/web-ui";
 import qrcode from "qrcode-generator";
 import { useSettings } from "./store.ts";
 import { NoteOf, StoredIn } from "./parts.tsx";
@@ -84,9 +84,7 @@ export function Invited({ x }: { x: InvitedInfo }) {
             <Opts key={text} data-link={l ?? ""}>
               {l ? <b className="st-lbl">{l}</b> : null}
               <Cmd className="st-link">{text}</Cmd>
-              <Btn pri onClick={() => settings.copy(text)}>
-                Копировать
-              </Btn>
+              <CopyButton text={text} label="Копировать" />
             </Opts>
           ))}
           <Opts>

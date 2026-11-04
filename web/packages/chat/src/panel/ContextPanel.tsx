@@ -1,6 +1,6 @@
 // Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты; расход, сведения claude, правила разрешений, хуки; «Перечитать плагины». Открытая панель спрашивает session.call один раз.
 import { Archive, Gauge, RefreshCw } from "lucide-react";
-import { Meter } from "@switchboard/web-ui";
+import { Meter, LIMIT_BAD, LIMIT_WARN } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import { kTokens } from "../cards/format.ts";
 import { AboutSection, HooksSection, RulesSection, UsageSection, useMethod } from "./Sections.tsx";
@@ -30,7 +30,7 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
             <b>{`${kTokens(usage.totalTokens)} из ${kTokens(usage.maxTokens)}`}</b>
             <em>{`${pct}%`}</em>
           </div>
-          <Meter value={pct} warn={pct >= 70} bad={pct >= 90} />
+          <Meter value={pct} warn={pct >= LIMIT_WARN} bad={pct >= LIMIT_BAD} />
           <dl className="chat-pn-l">
             {(usage.categories ?? [])
               .filter((x) => x.tokens > 0)

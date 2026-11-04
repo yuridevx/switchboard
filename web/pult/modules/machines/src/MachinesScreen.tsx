@@ -1,9 +1,9 @@
 // Экран машин: строки, поиск и фильтры. Открыт проект — его машины: фильтр «в проекте» первым.
 import { useCallback, useEffect, useState } from "react";
-import { Btn, In, Note, Opts, Page, PageHead, useApp } from "@switchboard/web-ui";
+import { Btn, In, Note, Opts, Page, PageHead, useApp, machinesWith, okOf } from "@switchboard/web-ui";
 import { useMachines } from "./store.ts";
 import { MachineRow } from "./MachineRow.tsx";
-import { okOf, stateOf } from "./store.ts";
+import { stateOf } from "./store.ts";
 
 type Filter = "project" | "all" | "fail" | "gone";
 
@@ -16,7 +16,7 @@ export function MachinesScreen() {
   const toggle = useCallback((m: string) => setOpen((old) => (old === m ? null : m)), []);
   const states = app.use(machines.states);
   const gone = app.use(machines.gone);
-  const names = app.use(() => (app.roster()?.machines ?? []).map((m) => m.machine));
+  const names = app.use(() => machinesWith(app));
   const proj = app.use(() => app.mark("project.current"));
   const pm = app.use(() => (proj ? (app.mark("project.machines", proj) ?? []) : []));
   useEffect(() => machines.mount(), [machines]);

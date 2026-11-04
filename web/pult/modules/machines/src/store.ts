@@ -1,6 +1,6 @@
 // Состояние машин: ответы keeper, итоги перезапуска и ушедшие машины. Roster их больше не несёт — помнит, пока страница открыта.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, type MachineAnswers, useModule } from "@switchboard/web-ui";
+import { createStore, type MachineAnswers, useModule, okOf } from "@switchboard/web-ui";
 
 export type Part = { part: string; version?: string; state?: string; pid?: number; restarts?: number; error?: string };
 export type KeeperState = { keeper?: string; rev?: number; os?: string; parts?: Part[] };
@@ -18,7 +18,6 @@ type State = {
 };
 
 /** Ответ keeper, если он без отказа. */
-export const okOf = (st: KeeperReply | null | undefined): KeeperState | null => (st && !("error" in st) ? st : null);
 
 export function stateOf(m: string, states: Readonly<Record<string, KeeperReply>>, gone: State["gone"]): Mst {
   if (gone[m] !== undefined) return "gone";

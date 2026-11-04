@@ -1,7 +1,7 @@
 // Разделы: колонка широкого вида, лента и вкладки узкого; модель раскладки считается из разделов и текущего экрана.
 import { useEffect, useRef } from "react";
 import { Badge, Pill } from "@switchboard/web-ui";
-import { useCore } from "./core.ts";
+import { connPill, useCore } from "./core.ts";
 
 /** Раскладка разделов — имена: без группы, группы с их разделами, разделы открытой группы, видны ли вкладки, открытые. */
 export type SectionsModel = { solo: string[]; groups: Array<{ name: string; items: string[] }>; inOpen: string[]; tabsShown: boolean; active: string[] };
@@ -48,7 +48,7 @@ export function NavColumn({ model, openPal }: { model: SectionsModel; openPal():
     const st = core.state();
     return { conn: st.conn, shown: !!st.roster, stopped: !!st.full };
   });
-  const cp = conn === "open" ? { text: "на связи", tone: "ok" as const } : conn === "closed" ? { text: "нет связи", tone: "bad" as const } : { text: "подключаюсь", tone: "wait" as const };
+  const cp = connPill(conn);
   return (
     <nav className="sb-navcol" hidden={!core.wide || stopped}>
       {core.wide && shown ? (

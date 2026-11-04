@@ -1,7 +1,7 @@
 // Состояние настроек: ответы владельцев («Выпуски», keeper'ы, gate, github) и вид экрана, который переживает закрытие экрана
 // (вкладка, выбранная машина, отмеченные, поиск, приглашение). Каждая цифра — ответ владельца; своего модуль не считает.
 import type { App, Roster } from "@switchboard/web-core";
-import { createStore, machineAnswers, type MachineAnswers, plural, useModule } from "@switchboard/web-ui";
+import { createStore, machineAnswers, type MachineAnswers, plural, useModule, machinesWith, okOf } from "@switchboard/web-ui";
 import { planOf, say, type Err, type KState, type Listed, type ReleaseData } from "./rules.ts";
 
 export type Pass = { id: string; role: "host" | "client"; name: string; person: string | null; addr: string; state: "wait" | "ok"; by: string; at: number };
@@ -42,7 +42,7 @@ export function createSettingsStore(app: App) {
   /** Ответы keeper'ов: один владелец на все экраны, «Машины» берут их меткой keeper.answers; keeper машины отвечает сам, даже когда Host мёртв. */
   const keeper: MachineAnswers<KState> = machineAnswers<KState>(app, (m) => app.request<KState>("keeper.state", { to: `.keeper@${m}` }));
   const note = (k: string, text: string, tone?: Tone) => store.set((s) => void (s.notes[k] = { text, tone }));
-  const machines = () => (app.roster()?.machines ?? []).map((m) => m.machine);
+  const machines = () => machinesWith(app);
   /** Данные правил выпусков: выборка сравнивается по содержимому, ветви снимка — по ссылке. */
   const releaseData = (): ReleaseData => ({ list: store.get().list, kst: keeper.get(), online: machines() });
 
@@ -175,15 +175,6 @@ export function createSettingsStore(app: App) {
       app.toast(`${p.addr} отозван — соединения закрыты`, "ok");
       await loadPasses();
     },
-    copy(text: string) {
-      // буфер — по нажатию; отказ браузера — словом
-      const clip = (globalThis.navigator as Navigator | undefined)?.clipboard;
-      if (!clip) return app.toast("Буфер обмена недоступен — выделите строку");
-      clip.writeText(text).then(
-        () => app.toast("Скопировано", "ok"),
-        () => app.toast("Буфер обмена недоступен — выделите строку"),
-      );
-    },
 
     // ───────── GitHub ─────────
     async setup() {
@@ -199,7 +190,7 @@ export function createSettingsStore(app: App) {
     },
     async create(org: string) {
       const gh = store.get().gh;
-      let form = gh && !("error" in gh) ? gh.form : undefined;
+      let form = okOf(gh)?.form;
       if (org) {
         const r = await app.request<Gh>("github.app", { redirect: location.origin + location.pathname, org });
         if (!r.ok) return note("gh", say(r.error), "bad");

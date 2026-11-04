@@ -9,7 +9,7 @@ import { machineLabel, useApp } from "@switchboard/web-ui";
 export function useMachineLabels() {
   const app = useApp();
   const labels = app.use(() => Object.fromEntries((app.roster()?.machines ?? []).map((m) => [m.machine, machineLabel(app, m.machine)])));
-  return (m: string) => labels[m] ?? { text: `@${m}`, human: false };
+  return (m: string) => labels[m] ?? machineLabel(app, m);
 }
 
 export function MachinesPane({ form }: { form: OpenForm }) {

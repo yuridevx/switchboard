@@ -36,7 +36,7 @@ export function createPointsStore(app: App) {
 
   const fleet = () => store.get().fleet;
   const session = (callsign: string): SessionRecord | undefined => sessionOf(app, callsign);
-  const onlineMachines = () => new Set((app.roster()?.machines ?? []).map((m) => m.machine));
+  const onlineMachines = () => new Set(machinesWith(app));
 
   async function loadFleet() {
     const r = await app.request<Fleet>("points.list", {});

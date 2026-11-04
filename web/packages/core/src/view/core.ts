@@ -36,3 +36,6 @@ export type Core = {
 
 export const CoreCtx = createContext<Core | null>(null);
 export const useCore = (): Core => useContext(CoreCtx)!;
+
+/** Связь флота → пилюля. */
+export const connPill = (conn: string) => (conn === "open" ? { text: "на связи", tone: "ok" as const } : conn === "closed" ? { text: "нет связи", tone: "bad" as const } : { text: "подключаюсь", tone: "wait" as const });

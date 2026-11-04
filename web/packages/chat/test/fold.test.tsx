@@ -268,7 +268,7 @@ describe("frame-session-events-system", () => {
     const [a, b] = t.el.querySelectorAll(".chat-ban");
     expect(t.el.querySelectorAll(".chat-ban")).toHaveLength(2);
     expect(a.textContent).toContain("Лимит подписки скоро кончится");
-    expect(a.textContent).toContain("окно 5 часов, сброс в");
+    expect(a.textContent).toContain("5 ч, сброс в");
     expect(b.textContent).toContain("Лимит подписки исчерпаннеделя");
   });
 

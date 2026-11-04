@@ -24,6 +24,8 @@ export function createCard(app: App): AppModule {
       // группа «Шапка» в панели вида «Работы»: настройки шапки — у карточки
       "card.view": { label: "Шапка", path: "card-view", view: HeadPanel, run: card.resetHead },
     },
+    // настройка могла измениться в другой вкладке: возвращение страницы читает её заново
+    on: { show: card.start },
     css,
     store: ["card.info", "card.head"],
     start: card.start,

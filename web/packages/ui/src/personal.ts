@@ -1,12 +1,13 @@
 // Настройки в модуле страницы: цикл над Worker'ом prefs из библиотеки records. Ключи — «префикс.раздел». Область: человек (по умолчанию), весь флот или это приложение.
 // Отказ записи — словом на экране. Цикл один на модуль и область; остановка модуля ждёт его. Модуль объявляет prefs.get и prefs.set в uses.
 import { settings } from "@switchboard/records";
+import type { Result } from "./hooks.ts";
 
 /** Что цикл настроек берёт у app модуля. */
 type AppLike = {
   /** имя приложения из списка сборки: pult, phone */
   readonly application?: string;
-  request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<{ ok: true; result: T } | { ok: false; error: string }>;
+  request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;
   toast(text: string, tone?: "ok" | "bad"): void;
 };
 

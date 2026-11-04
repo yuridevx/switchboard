@@ -1,6 +1,6 @@
 // Карточка входа: запуск, ссылка и код, итог.
 import { useState } from "react";
-import { Btn, In, LinkBtn, Note, Opts, PageHead, Sec } from "@switchboard/web-ui";
+import { Btn, In, LinkBtn, Note, Opts, PageHead, Sec, CopyButton } from "@switchboard/web-ui";
 import { useAccounts } from "./context.ts";
 import { say, type Login } from "./store.ts";
 
@@ -15,7 +15,7 @@ function CodeForm({ k, l }: { k: string; l: Login }) {
         <LinkBtn pri href={l.url ?? "#"} target="_blank" rel="noopener">
           Открыть ссылку входа ↗
         </LinkBtn>
-        <Btn onClick={() => void store.copy(l.url ?? "")}>Копировать</Btn>
+        <CopyButton text={l.url ?? ""} label="Копировать" />
       </div>
       <Opts>
         <In mono data-f="code" placeholder="Код со страницы" autoComplete="off" disabled={busy} value={value} onInput={(e) => setValue(e.currentTarget.value)} />

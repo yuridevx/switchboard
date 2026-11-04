@@ -1,6 +1,6 @@
 // План машины сбоку: части, версии, закрепление, включение.
 import { useState } from "react";
-import { Btn, In, M, Note, Opts, PageHead, Sec, useApp } from "@switchboard/web-ui";
+import { Btn, In, M, Note, Opts, PageHead, Sec, useApp, okOf } from "@switchboard/web-ui";
 import { useSettings } from "./store.ts";
 import { NoteOf } from "./parts.tsx";
 import { cellOf, machineParts, planOf, short, stableOf, versionsOf } from "./rules.ts";
@@ -70,12 +70,12 @@ export function MachinePlan({ m }: { m: string }) {
         <M className="st-grow">
           <b>{`@${m}`}</b>
         </M>
-        {st && !("error" in st) && st.os ? <Note>{st.os}</Note> : null}
+        {okOf(st)?.os ? <Note>{okOf(st)!.os}</Note> : null}
         <Btn aria-label="Закрыть" onClick={() => settings.pickMachine(null)}>
           ✕
         </Btn>
       </PageHead>
-      <Note>{`план rev ${st && !("error" in st) ? (st.rev ?? 0) : "—"}${d.online.includes(m) ? "" : " · не на связи"}`}</Note>
+      <Note>{`план rev ${okOf(st) ? (okOf(st)!.rev ?? 0) : "—"}${d.online.includes(m) ? "" : " · не на связи"}`}</Note>
       {machineParts(d)
         .filter((p) => cellOf(d, m, p))
         .map((p) => (

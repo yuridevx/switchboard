@@ -1,6 +1,6 @@
 // Мелочи вида, общие для модулей приложения: подписи состояний, модели и усилия, время, склонение.
 import type { SessionRecord, Roster } from "@switchboard/relay";
-import { userOf } from "@switchboard/protocol";
+import { nameOf, userOf } from "@switchboard/protocol";
 
 /** Тон метки: цвет пилюли и точки строки. */
 export type Tone = "ok" | "wait" | "bad" | "busy" | "";
@@ -47,11 +47,11 @@ export type Shown = { text: string; human: boolean };
 
 /** Запись сессии из roster. */
 export const sessionOf = (app: Rostered, callsign: string) => app.roster()?.sessions.find((s) => s.callsign === callsign);
-/** Имя сессии; модуля имён нет или он упал — позывной. */
-export const sessionLabel = (app: Marks, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? { text: callsign, human: false };
+/** Имя сессии; модуля имён нет или он упал — то же, что без своего имени: имя из позывного. */
+export const sessionLabel = (app: Marks, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? { text: nameOf(callsign), human: false };
 /** Имя машины; модуля имён нет или он упал — адрес. */
 export const machineLabel = (app: Marks, machine: string) => (app.mark("label.machine", machine) as Shown | undefined) ?? { text: `@${machine}`, human: false };
-/** Машины на связи, у которых в contract есть все эти запросы. */
+/** Машины на связи, у которых в contract есть все эти запросы; без запросов — все. */
 export const machinesWith = (app: Rostered, ...names: string[]) => (app.roster()?.machines ?? []).filter((m) => names.every((n) => m.contract?.[n] !== undefined)).map((m) => m.machine);
 /** Ссылка Remote Control сессии. */
 export const remoteOf = (s?: SessionRecord) => (typeof s?.remote === "string" ? s.remote : (s?.remote as { url?: string } | undefined)?.url);
@@ -114,6 +114,14 @@ export const LIMIT_WARN = 70;
 export const LIMIT_BAD = 90;
 /** Окна лимитов: подпись. */
 export const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus", seven_day_sonnet: "неделя sonnet" };
+
+/** Слова пути до машины → строка на экране; machine — чья. Остальные слова — как есть: их переводит владелец. */
+export function linkText(word: string, machine?: string | null): string {
+  if (word === "offline") return `${machine || "Машина"} не на связи`;
+  if (word === "disconnected") return "нет связи";
+  if (word === "timeout") return "нет ответа";
+  return word;
+}
 
 /** «2 мин 14 с», «33 мин», «18 с» — длительность хода. */
 export function duration(ms: number): string {

@@ -1,22 +1,17 @@
 // Логика формы новой сессии. В снимке — только ввод человека; ответы машины читает useLoad, профиль, модель и слот вычисляются из них.
 import { useState } from "react";
-import type { Params, Result } from "@switchboard/web-core";
+import type { Params } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { profileIdOf, useLoad, useApp } from "@switchboard/web-ui";
+import { profileIdOf, useMachineLoad, useApp } from "@switchboard/web-ui";
 import { useOpen } from "./store.ts";
 import { dirOf, dirOfAddr, EMPTY, HOME, splitAddr, type Form, type FormView, type Listing, type Profiles, type Slots } from "./form.ts";
 
 export type OpenForm = ReturnType<typeof useOpenForm>;
 
-/** Машина такого запроса не умеет: не спрашиваем, данных нет. */
-const notAsked = <T,>(): Promise<Result<T>> => Promise.resolve({ ok: false, error: "" });
-
-/** Ответ машины этой формы. Ответ прежней машины не считается: выбранных там слотов и профилей здесь может не быть; пока идёт новый ответ — данных нет. */
+/** Ответ машины этой формы. Ответ прежней машины не считается: выбранных там слотов и профилей здесь может не быть. */
 function useMachineAnswer<T>(machine: string, name: string) {
-  const app = useApp();
-  const open = useOpen();
-  const q = useLoad<{ m: string; value: T }>(() => (open.can(machine, name) ? app.request<T>(name, { machine }).then((r) => (r.ok ? { ok: true as const, result: { m: machine, value: r.result } } : r)) : notAsked()), [machine]);
-  return { data: q.data?.m === machine ? q.data.value : null, error: q.loading ? "" : q.error };
+  const q = useMachineLoad<T>(machine, name);
+  return { data: q.stale ? null : (q.data ?? null), error: q.error };
 }
 
 export function useOpenForm(params: Params) {
@@ -48,13 +43,8 @@ export function useOpenForm(params: Params) {
   const slotsQ = useMachineAnswer<{ slots: Slots }>(machine, "machine.slots");
   const profilesQ = useMachineAnswer<{ profiles: Profiles }>(machine, "machine.profiles");
   // список — один запрос на родителя: буквы хвоста новых запросов не дают
-  const listQ = useLoad<NonNullable<Listing>>(
-    () =>
-      machine
-        ? app.request<{ path: string; dirs: string[] }>("machine.dirs", { machine, path: parent }).then((r) => ({ ok: true as const, result: { m: machine, parent, dirs: r.ok ? r.result.dirs : [], word: r.ok ? "" : r.error } }))
-        : notAsked(),
-    [machine, parent],
-  );
+  const listQ = useMachineLoad<{ path: string; dirs: string[] }>(machine, "machine.dirs", { machine, path: parent });
+  const list: Listing = listQ.stale || (!listQ.data && !listQ.error) ? null : { m: machine, parent, dirs: listQ.data?.dirs ?? [], word: listQ.error };
 
   const slots = slotsQ.data ? (slotsQ.data.slots ?? {}) : null;
   const profiles = profilesQ.data ? (profilesQ.data.profiles ?? {}) : null;
@@ -79,7 +69,7 @@ export function useOpenForm(params: Params) {
     slot: input.slot || Object.keys(slots ?? {})[0] || "",
     slots,
     profiles,
-    list: listQ.data ?? null,
+    list,
     refused: { ...(slotsQ.error ? { "machine.slots": slotsQ.error } : {}), ...(profilesQ.error ? { "machine.profiles": profilesQ.error } : {}) },
   };
 

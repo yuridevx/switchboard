@@ -1,15 +1,12 @@
 // Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
 import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
+import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard } from "./hooks.ts";
 import { isDown, slotOf, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
 import { AccPop, MenuPop, ModelPop } from "./WidePops.tsx";
-
-/** С этой доли окна 5 часов кнопка аккаунта жёлтая. */
-const LIMIT_HINT = 0.7;
 
 type Pop = "" | "model" | "acc" | "menu";
 type Props = { callsign: string; machine: string; s: SessionRecord | undefined; can: Can; data: WideData; tabs: Array<[string, string]>; tab: string; select(k: string): void; openNames(): void };
@@ -69,7 +66,7 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
   const sl = slotOf(x);
   const w5 = data.accounts?.[String(x.account ?? "")]?.limits?.five_hour;
   const accText = sl?.wait ? `ждёт сброса ${at(sl.wait)}` : w5 ? `${Math.round(w5.utilization * 100)} %` : "";
-  const accCls = sl?.wait ? "you" : w5 && w5.utilization >= LIMIT_HINT ? "lim" : "";
+  const accCls = sl?.wait ? "you" : w5 && w5.utilization * 100 >= LIMIT_WARN ? "lim" : "";
   const stopped = isDown(x);
   const owner = typeof x.by === "string" ? userOf(x.by) : null;
   const prof = profileNameOf(x);

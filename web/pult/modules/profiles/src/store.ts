@@ -1,7 +1,7 @@
 // Состояние профилей: ответы machine.profiles всех машин, сведённые в строки по id. Конфликт — состояние репозитория профиля на машине.
 import type { App, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { folderOf, lamp, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule } from "@switchboard/web-ui";
+import { folderOf, lamp, type MachineAnswer, machineAnswers, type MachineAnswers, machineLabel, profileIdOf, profileName as short, sessionLabel, useModule, machinesWith, okOf } from "@switchboard/web-ui";
 
 type Repo = { state: "ok" | "error" | "conflict"; files?: string[]; error?: string };
 type Answer = { profiles: Record<string, { model?: string | null; effort?: string | null; about?: string }>; repos: Record<string, Repo> };
@@ -35,8 +35,7 @@ export const useProfiles = (): ProfilesStore => useModule<ProfilesStore>();
 export type ProfileRowData = ReturnType<ProfilesStore["summary"]>["all"][number];
 
 export function createProfilesStore(app: App) {
-  const can = (m: string) => app.can(m, "machine.profiles") === true;
-  const machines = () => (app.roster()?.machines ?? []).map((m) => m.machine).filter(can);
+  const machines = () => machinesWith(app, "machine.profiles");
   const mLabel = (m: string) => machineLabel(app, m).text;
   const replies: MachineAnswers<Answer> = machineAnswers<Answer>(app, (m) => app.request<Answer>("machine.profiles", { machine: m }), machines);
 
@@ -62,7 +61,7 @@ export function createProfilesStore(app: App) {
               return { callsign: s.callsign, lamp: lamp(s), text: n.text, human: n.human, place: `${mLabel(machineOf(s.callsign) ?? "")} · ${folderOf(s.dir)}` };
             }),
         })),
-        repos: [...new Set(list.flatMap((a) => ("error" in a ? [] : Object.keys(a.repos))))],
+        repos: [...new Set(list.flatMap((a) => Object.keys(okOf(a)?.repos ?? {})))],
         errors: Object.entries(answers).flatMap(([m, a]) => ("error" in a ? [`${mLabel(m)}: machine.profiles: ${a.error}`] : [])),
         machines: machines().length,
       };

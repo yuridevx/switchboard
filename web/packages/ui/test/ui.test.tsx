@@ -2,7 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CommitIn, failText, lamp, LimitRow, machineAnswers, machineLabel, machinesWith, remoteOf, sessionLabel, stateLabel, useNow } from "../contract.ts";
+import { CommitIn, failText, lamp, LimitRow, linkText, machineAnswers, machineLabel, machinesWith, remoteOf, sessionLabel, stateLabel, useNow } from "../contract.ts";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | null = null;
@@ -164,13 +164,22 @@ describe("таймер и подписи", () => {
     expect(remoteOf({ remote: { url: "v" } } as never)).toBe("v");
   });
 
+  it("7236 · слова связи: offline — один текст, с машиной и без; слова владельца — как есть", () => {
+    // чьё: код — слепой архитектор, 4 нояб.: offline переводился в чате и точках по-разному
+    expect(linkText("offline", "pc")).toBe("pc не на связи");
+    expect(linkText("offline")).toBe("Машина не на связи");
+    expect(linkText("disconnected")).toBe("нет связи");
+    expect(linkText("timeout")).toBe("нет ответа");
+    expect(linkText("name_taken")).toBe("name_taken");
+  });
+
   it("6238 · имена: метка или адрес; машины с запросами: все названные в contract", () => {
     const app = {
       mark: (n: string, x: string) => (n === "label.session" && x === "a@b" ? { text: "Имя", human: true } : undefined),
       roster: () => ({ machines: [{ machine: "m1", contract: { p: 1, q: 1 } }, { machine: "m2", contract: { p: 1 } }] }) as never,
     };
     expect(sessionLabel(app, "a@b")).toEqual({ text: "Имя", human: true });
-    expect(sessionLabel(app, "c@d")).toEqual({ text: "c@d", human: false });
+    expect(sessionLabel(app, "c@d")).toEqual({ text: "c", human: false });
     expect(machineLabel(app, "m1")).toEqual({ text: "@m1", human: false });
     expect(machinesWith(app, "p")).toEqual(["m1", "m2"]);
     expect(machinesWith(app, "p", "q")).toEqual(["m1"]);

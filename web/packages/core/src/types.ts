@@ -1,6 +1,7 @@
 // Договор модуля веб-приложения: что модуль отдаёт ядру и что ядро даёт модулю.
 import type { ComponentType, ReactNode } from "react";
 import type { Frame, Roster } from "@switchboard/relay";
+import type { Result } from "@switchboard/web-ui";
 import type { Store } from "./store.ts";
 
 /** module.json модуля приложения. provides — экраны и метки; uses — "имя@владелец": версия. */
@@ -113,7 +114,7 @@ export interface AppModule {
 }
 
 /** Ответ на запрос: результат или слово ошибки (offline, disconnected, already_answered, …). */
-export type Result<T = unknown> = { ok: true; result: T } | { ok: false; error: string };
+export type { Result };
 
 /** Раздел хранилища модуля. */
 export interface Section<T> {

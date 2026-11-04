@@ -460,7 +460,7 @@ describe("перенос сессии «только в R2»", () => {
   it("4172 · проба: другой репозиторий или отказ — «Поднять» недоступна", async () => {
     for (const [answer, text] of [
       [{ ok: true, result: { folder: "other" } }, "Другой репозиторий — выберите другую папку"],
-      [{ ok: false, error: "offline" }, "Машины нет на связи"],
+      [{ ok: false, error: "offline" }, "Машина не на связи"],
     ] as const) {
       const relay = onlyRelay();
       relay.handlers["points.raise"] = () => answer;
@@ -512,14 +512,14 @@ describe("вкладка «Точки» сессии", () => {
     expect(t.$("[data-note]")!.textContent).toBe("Сессия ещё идёт — сначала точка со стопом");
   });
 
-  it("4175 · отказ session.r2 — «Машины нет на связи», пометки нет", async () => {
+  it("4175 · отказ session.r2 — «Машина не на связи», пометки нет", async () => {
     const relay = pointsRelay();
     relay.handlers["session.r2"] = () => ({ ok: false, error: "offline" });
     const t = await sessionTab(relay, "wiki@laptop");
     const box = t.$<HTMLInputElement>('[data-r2="off"] [data-act="r2"]')!;
     box.click();
     await flush();
-    expect(t.$("[data-note]")!.textContent).toBe("Машины нет на связи");
+    expect(t.$("[data-note]")!.textContent).toBe("Машина не на связи");
     expect(t.$('[data-r2="off"]')).not.toBeNull();
     // 6111 · после отказа галочка снята: следующий клик снова означает «включить»
     expect(box.checked).toBe(false);
