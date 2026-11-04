@@ -92,7 +92,7 @@ describe("вход аккаунта", () => {
     const t = await pult({ relay, url: "/#accounts" });
     await flush(10);
     const card = t.$('[data-account="night@x.io"]')!;
-    expect(card.querySelector("[data-in]")!.textContent).toBe("вошёл на 1 машине");
+    expect(card.querySelectorAll(".ac-m")).toHaveLength(1);
     await t.click(card.querySelector("[data-any]"));
     const pick = t.$('[data-any-pick="night@x.io"]')!;
     expect([...pick.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["pc", "Отмена"]);

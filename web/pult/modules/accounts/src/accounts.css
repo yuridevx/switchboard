@@ -10,7 +10,7 @@
 .ac-cols{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:16px;align-items:start}
 .ac-col{display:flex;flex-direction:column;gap:10px;min-width:0}
 .ac-col .ac-cards{grid-template-columns:minmax(0,1fr)}
-.ac-sum{font-size:12.5px;color:var(--muted)}
+@media (max-width:520px){.ac-m{grid-template-columns:70px minmax(0,1fr)}.ac-m>:nth-child(n+3){grid-column:1/-1}}
 .ac-link{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .ac-link a{text-decoration:none}
 @media (max-width:900px){.ac-cols{grid-template-columns:minmax(0,1fr)}}

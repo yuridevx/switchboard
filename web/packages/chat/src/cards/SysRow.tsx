@@ -57,7 +57,16 @@ function ResultRow({ sys }: { sys: Of<"result"> }) {
     );
   }
   const bits = ["ход закончен", sys.ms ? duration(sys.ms) : null, typeof sys.turns === "number" ? steps(sys.turns) : null, typeof sys.cost === "number" ? money(sys.cost) : null, sys.tokens ? `${kTokens(sys.tokens)} в контексте` : null];
-  return <div className="chat-res">{bits.filter(Boolean).join(" · ")}</div>;
+  return (
+    <div className="chat-res">
+      {bits.filter(Boolean).map((b, i) => (
+        <span key={i}>
+          {i ? " · " : null}
+          <span className="chat-nb">{b}</span>
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function CompactRow({ sys }: { sys: Of<"compact"> }) {
@@ -149,7 +158,7 @@ export function SysRow({ sys, at }: { sys: Sys; at?: number }) {
     case "interrupted":
       return <Divider icon={<Square size={11} />} text={`прервано${at ? ` · ${hhmm(at)}` : ""}`} tone="wait" />;
     case "retry":
-      return <Divider icon={<RefreshCw size={13} />} text={`повтор запроса к API · ${sys.attempt ?? "?"} из ${sys.max ?? "?"}${sys.error ? ` · ${sys.error}` : ""}${sys.delayMs ? ` · через ${Math.round(sys.delayMs / 1000)} с` : ""}`} tone="wait" />;
+      return <Divider icon={<RefreshCw size={13} />} text={`повтор запроса к API · ${sys.attempt ?? "?"} из ${sys.max ?? "?"}${sys.error ? ` · ${sys.error}` : ""}${sys.delayMs ? ` · через\u00a0${Math.round(sys.delayMs / 1000)}\u00a0с` : ""}`} tone="wait" />;
     case "limits":
       return <Banner tone="wait" icon={<Gauge size={15} />} title={sys.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится"} text={[sys.window ? (LIMIT_NAMES[sys.window] ?? sys.window) : null, sys.resets ? `сброс в ${hhmm(sys.resets * 1000)}` : null].filter(Boolean).join(", ") || undefined} />;
     case "command":

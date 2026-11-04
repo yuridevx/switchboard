@@ -119,7 +119,6 @@ describe("новая сессия", () => {
     expect(t.$('[data-act="open"]')!.textContent).toBe("Открыть");
     await go(t, "~/new/deep/path");
     expect(t.$('[data-act="open"]')!.textContent).toBe("Создать и открыть");
-    expect(t.$('[data-mark="new"]')).not.toBeNull();
     await named(t, "a");
     await t.click(t.$('[data-act="open"]'));
     expect(relay.sent("session.open")).toEqual([expect.objectContaining({ dir: "~/new/deep/path", mkdir: true })]);

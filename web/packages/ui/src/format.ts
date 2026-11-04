@@ -80,7 +80,7 @@ export function folderOf(dir: unknown): string {
 export function sessionLine(s: SessionRecord | undefined, withEffort = false): string {
   if (!s) return "";
   const slot = s.slot as { name?: string } | null | undefined;
-  return [s.model, withEffort ? s.effort : null, slot?.name].filter((x) => typeof x === "string" && x).join(" · ");
+  return [s.model, withEffort && s.effort ? effortName(s.effort) : null, slot?.name].filter((x) => typeof x === "string" && x).join(" · ");
 }
 
 /** ЧЧ:ММ по местному времени. */

@@ -168,7 +168,7 @@ describe("чат и карточка на стыках", () => {
     expect(relay.sent("session.call").at(-1)).toMatchObject({ callsign: "site@laptop", method: "backgroundTasks", args: ["toolu_01Bx"] });
     await t.click(t.btn(t.$(".chat-feed"), "откатить файлы"));
     expect(relay.sent("session.call").at(-1)).toMatchObject({ method: "rewindFiles", args: ["5b1e", { dryRun: true }] });
-    expect(t.$(".chat-rwc")!.textContent).toContain("Откатить файлы к этому сообщению? проба: 2 файла · +4 −1 · команды Bash не откатываются");
+    expect(t.$(".chat-rwc")!.textContent).toContain("Откатить файлы к этому сообщению? 2 файла · +4 −1 · команды Bash не откатываются");
     await t.click(t.btn(t.$(".chat-rwc"), "Откатить"));
     expect(relay.sent("session.call").at(-1)).toMatchObject({ method: "rewindFiles", args: ["5b1e"] });
   });

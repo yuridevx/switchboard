@@ -93,7 +93,6 @@ function AccountCard({ id, list, sessions }: { id: string; list: Entry[]; sessio
   // окна — запись одной машины, как пришла: первая машина, у которой они есть
   const src = list.find((x) => Object.keys(x.a.limits ?? {}).length);
   const w0 = src ? Object.values(src.a.limits ?? {})[0] : undefined;
-  const inN = list.filter((x) => x.a.login === "ok").length;
   return (
     <Sec data-account={id}>
       <div className="ac-hd">
@@ -103,7 +102,6 @@ function AccountCard({ id, list, sessions }: { id: string; list: Entry[]; sessio
       </div>
       {src ? <Windows a={src.a} /> : null}
       {src && w0 && (w0.src || w0.at) ? <Note>{[w0.src ? (SRC[w0.src] ?? `от ${w0.src}`) : null, src.machine, w0.at ? ago(w0.at * 1000) : ""].filter(Boolean).join(" · ")}</Note> : null}
-      <div className="ac-sum" data-in={inN}>{`вошёл на ${inN} ${plural(inN, "машине", "машинах", "машинах")}`}</div>
       {list.map((x) => (
         <MachineRow key={x.machine} m={x.machine} machine={x.machine} name={x.name} a={x.a} />
       ))}

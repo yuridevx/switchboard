@@ -78,11 +78,6 @@ export function FolderPane({ form }: { form: OpenForm }) {
           if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) void start();
         }}
       />
-      {isNew ? (
-        <div className="op-new" data-mark="new">
-          новая папка, будет создана
-        </div>
-      ) : null}
       {listed?.word && listed.word !== "not_found" ? <div className="op-new">{listed.word === "no_access" ? "нет доступа к этой папке" : `machine.dirs: ${listed.word}`}</div> : null}
       <div className="op-dl">
         {shown.map((d) => (

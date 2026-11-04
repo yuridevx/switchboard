@@ -83,6 +83,7 @@ code{font-family:var(--mono)}
 .sb-row>span:first-child{color:var(--muted)}
 .sb-opts{display:flex;flex-wrap:wrap;gap:5px;align-items:center}
 .sb-b{font:600 12.5px/1.2 var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 10px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+@media (pointer:coarse){.sb-b{min-height:32px}}
 .sb-b.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .sb-b.bad{color:var(--bad);border-color:var(--bad);background:transparent}
 .sb-b.dash{border-style:dashed;color:var(--muted);background:transparent}

@@ -73,7 +73,7 @@ export function AboutSection({ callsign }: { callsign: string }) {
         {rows.map((r) => (
           <div key={r.key} style={{ display: "contents" }}>
             <dt>{STATUS[r.label] ?? r.label}</dt>
-            <dd>{r.value}</dd>
+            <dd>{r.value.replace(/\bconnected\b/, "подключено")}</dd>
           </div>
         ))}
       </dl>

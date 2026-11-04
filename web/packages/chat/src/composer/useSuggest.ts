@@ -11,7 +11,7 @@ const AT = /(?:^|\s)@([^\s@]*)$/;
 const SLASH = /^\/(\S*)$/;
 const MAX = 20;
 /** Вопрос сбоку — своя команда чата: в списке claude его нет. */
-const BTW = { name: "btw", description: "вопрос сбоку: ответ по разговору, в разговор не попадёт" };
+const BTW = { name: "btw", description: "Вопрос сбоку, в разговор не попадёт" };
 const NO_FILES = { ok: true as const, result: [] as string[] };
 
 export function useSuggest(callsign: string, text: string): Suggest | null {

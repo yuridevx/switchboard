@@ -76,12 +76,12 @@ export function OpenScreen({ params }: ScreenProps) {
         ) : null}
         <div className="op-ctx">
           <button className="op-cx" data-pop="prof" aria-expanded={f.pop === "prof"} disabled={!f.machine} onClick={chip("prof")}>
-            <span className="k">Профиль</span>
+            {f.profile ? <span className="k">Профиль</span> : null}
             <b>{f.profile ? short(f.profile) : "без профиля"}</b>
           </button>
           <button className="op-cx" data-pop="model" aria-expanded={f.pop === "model"} onClick={chip("model")}>
-            <b>{f.model || "модель"}</b>
-            <span className="k">{[f.effort ? effortName(f.effort) : null, f.slot, f.r2 ? "R2" : null].filter(Boolean).join(" · ")}</span>
+            {f.model ? <b>{f.model}</b> : null}
+            <span className="k">{[f.model ? null : "Модель", f.effort ? effortName(f.effort) : null, f.slot, f.r2 ? "R2" : null].filter(Boolean).join(" · ")}</span>
           </button>
         </div>
         <textarea

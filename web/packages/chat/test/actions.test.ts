@@ -565,7 +565,7 @@ describe("action-chat-rewind", () => {
     relay.reply(asked[0], { ok: true, result: { canRewind: false, error: "поздно" } });
     await flush();
     expect(t.$$(".chat-rwc")).toHaveLength(1);
-    expect(t.$(".chat-rwc")!.textContent).toContain("проба: 1 файл");
+    expect(t.$(".chat-rwc")!.textContent).toContain("сообщению? 1 файл");
     await t.click(t.btn(".chat-rwc", "Отмена"));
     relay.handlers["session.call"] = () => ({ ok: false, error: "offline" });
     await t.click(t.$$(".chat-rw")[0]);

@@ -77,6 +77,9 @@ export type AskStore = ReturnType<typeof createAskStore>;
 /** Стор модуля в экранах. */
 export const useAsk = (): AskStore => useModule<AskStore>();
 
+/** Приложения словами для «Вопрос видят». */
+const APP_WORD: Record<string, string> = { pult: "пульт", phone: "телефон" };
+
 export function createAskStore(app: App) {
   const store = createStore<State>({ recs: [], need: {}, listed: {}, waits: {}, loading: {}, refused: {} }, () => app.changed());
 
@@ -134,7 +137,7 @@ export function createAskStore(app: App) {
     isLoading: (callsign: string) => !!store.get().loading[callsign],
     refusedOf: (callsign: string) => store.get().refused[callsign],
     /** Имя этого устройства и кто ещё видит вопрос: подпись под ответом. */
-    othersOf: (r: Rec) => r.to.filter((x) => x !== app.name),
+    othersOf: (r: Rec) => r.to.filter((x) => x !== app.name).map((x) => APP_WORD[x] ?? x),
 
     /** Ответ человека: первый ответ выигрывает, свой повторно не шлётся. */
     async answer(r: Rec, body: Record<string, unknown>, mine?: Record<string, string>) {

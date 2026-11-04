@@ -37,7 +37,7 @@ export function AskPerm({ rec }: { rec: Rec }) {
         <div className="ask-qt">{plan ? "План на одобрение" : "Claude просит разрешения"}</div>
         {plan ? (
           <div className="ask-plan">
-            <Markdown text={String(f.input.plan ?? "")} />
+            <Markdown text={String(f.input.plan ?? "").replace(/^\s*#{1,6}\s*план\s*\n+/i, "")} />
           </div>
         ) : (
           <>

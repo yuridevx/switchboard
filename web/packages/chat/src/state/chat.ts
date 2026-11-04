@@ -390,7 +390,7 @@ export function createChatStore(app: App) {
           return;
         }
         const n = r.result?.filesChanged?.length ?? 0;
-        c.rewind = { uuid: id, text: `Откатить файлы к этому сообщению? проба: ${n} файл${n === 1 ? "" : n < 5 ? "а" : "ов"} · +${r.result?.insertions ?? 0} −${r.result?.deletions ?? 0} · команды Bash не откатываются`, tone: "", ready: true };
+        c.rewind = { uuid: id, text: `Откатить файлы к этому сообщению? ${n} файл${n === 1 ? "" : n < 5 ? "а" : "ов"} · +${r.result?.insertions ?? 0} −${r.result?.deletions ?? 0} · команды Bash не откатываются`, tone: "", ready: true };
       });
     },
     async applyRewind(cs: string, id: string) {
