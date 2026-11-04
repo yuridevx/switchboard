@@ -28,51 +28,12 @@ jobs:
       - name: тесты Node (protocol, tools, host)
         run: npx vitest run
       - name: тесты пакетов (Worker-модули, веб)
-        run: npm run test --workspaces --if-present
-
-  keeper:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: os/keeper
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: os/keeper/go.mod
-          cache-dependency-path: os/keeper/go.sum
-      - run: go vet ./...
-      # на Linux — с детектором гонок
-      - run: go test -count=1 ${{ runner.os == 'Linux' && '-race' || '' }} ./...
-      # keeper заморожен: уязвимость Go или зависимости на его пути роняет сборку — повод пересобрать
-      - name: уязвимости
-        if: runner.os == 'Linux'
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
-      - uses: actions/setup-node@v4
-        if: runner.os == 'Linux'
-        with:
-          node-version: 24
-          cache: npm
-      # CLI выпуска — пакет монорепо: формат выпуска и гейт манифестов из workspaces
-      - if: runner.os == 'Linux'
-        working-directory: .
-        run: npm ci
-      - name: архив выпуска собран дважды — один хэш
-        if: runner.os == 'Linux'
-        working-directory: .
-        run: |
-          a=$(node tools/release-cli/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
-          (cd os/keeper && go clean -cache)
-          b=$(node tools/release-cli/cli.ts release keeper --dry-run | grep -o 'sha256 [0-9a-f]*')
-          echo "$a · $b"; [ -n "$a" ] && [ "$a" = "$b" ]
+        run: node scripts/test-packages.mjs
 
   upload:
     # загрузка без выкладки: stable двигают «выпуски» (releases.deploy) по слову человека или агента
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, keeper]
+    needs: [test]
     runs-on: ubuntu-latest
     # предел задания: вдвое выше самого долгого замера (2 мин 0 с) — зависшая загрузка не держит очередь upload
     timeout-minutes: 4
@@ -91,10 +52,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: os/keeper/go.mod
-          cache-dependency-path: os/keeper/go.sum
       - run: npm ci
       - name: Worker-модули — версии с меткой 1.1.<прогон>
         run: node scripts/deploy-workers.mjs --upload 1.1.${{ github.run_number }}
@@ -102,5 +59,3 @@ jobs:
         run: node tools/release-cli/cli.ts release core
       - name: модули в каталог — у каждого свой номер; тот же номер с другим кодом — отказ «подними номер»
         run: node tools/release-cli/cli.ts release modules
-      - name: keeper в каталог — когда поднят его номер
-        run: node tools/release-cli/cli.ts release keeper
