@@ -392,10 +392,11 @@ describe("служебный обработчик: пуш", () => {
     expect(errors).toHaveBeenCalledWith("switchboard: пуш не по форме — нет type");
   });
 
-  it("пуш без данных — не показан", async () => {
+  it("пуш без данных — не показан, причина в журнале браузера", async () => {
     const { scope } = worker();
     await scope.fire("push", { data: null });
     expect(scope.shown).toEqual([]);
+    expect(errors).toHaveBeenCalledWith("switchboard: пуш не по форме — нет type");
   });
 });
 
