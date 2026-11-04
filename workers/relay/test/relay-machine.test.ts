@@ -121,6 +121,17 @@ describe("эталоны relay: объект на машину", () => {
     expect((await pult.roster()).clients).toEqual(["pult~owner@example.com"]);
   });
 
+  it("7310 · отзыв пропуска машины закрывает и её собственные соединения: gate её больше не числит, объект — из адреса отозванного", async () => {
+    // источник: живая проверка 4 нояб.: closed 4 на гостевых, Host и keeper самой машины остались на отозванном пропуске; бэклог «Host держит старый пропуск в памяти»
+    const agent = await pass("host", "win");
+    const gone = await pass("host", "wsl");
+    await enter("win", agent.key);
+    const own = await enter("wsl", gone.key);
+    const r = await SELF.fetch("https://switchboard.test/", { method: "POST", body: JSON.stringify({ type: "keys.revoke", id: "r1", v: 1, key: agent.key, kid: gone.kid }) });
+    expect(await r.json()).toMatchObject({ ok: true, result: { addr: "@wsl", closed: 1 } });
+    expect(await own.waitClose()).toEqual({ code: 1008, reason: "revoked" });
+  });
+
   it("5027 · вход relay keys.revoke → gate отметил; close на объектах всех машин из списка gate; ответ — сколько закрыто", async () => {
     const agent = await pass("host", "win");
     await pass("host", "wsl");

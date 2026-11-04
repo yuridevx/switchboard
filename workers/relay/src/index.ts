@@ -28,7 +28,9 @@ async function revoke(env: Env, f: Frame): Promise<Reply> {
     log(`unknown_key ${kid} · отзыв от ${from}`);
     return reply(fail(f.id, r.error));
   }
-  const machines = (await within(call(env.GATE.list("host")), "gate не ответил на list")).map((p) => p.name);
+  // отозванная машина в списке gate уже не значится, а её соединения — на её объекте: объект берём из адреса
+  const own = machineOf(r.addr);
+  const machines = [...new Set([...(await within(call(env.GATE.list("host")), "gate не ответил на list")).map((p) => p.name), ...(own ? [own] : [])])];
   const closed = (await Promise.all(machines.map((m) => within(stub(env, machineObject(m)).close(kid), `объект ${m} не ответил на close`)))).reduce((a, b) => a + b, 0);
   log(`revoke ${kid} ${r.addr} · отозвал ${from} · закрыто соединений ${closed} на ${machines.length} машинах`);
   return reply(ok(f.id, { addr: r.addr, closed }));

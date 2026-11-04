@@ -1,7 +1,7 @@
 {
   "name": "relay",
   "type": "worker",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "provides": {
     "hello": 1,
     "roster": 1,
