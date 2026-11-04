@@ -263,9 +263,13 @@ describe("инцидент: приём", () => {
   });
 
   it("3102 · обычная сессия с именем, похожим на тип, — без правила и поля incident", async () => {
-    const { st, options } = await bench();
+    const { st, post, options } = await bench();
     await st.open("disk-full-x@win");
+    await post({ type: "disk-full", text: "x" });
+    await inputOf(st, "disk-full-1@win");
+    expect(options("disk-full-1@win").systemPrompt.append).toContain("Ты отрабатываешь инцидент");
     expect(options("disk-full-x@win").systemPrompt.append ?? "").not.toContain("Ты отрабатываешь инцидент");
+    await until(() => st.states("disk-full-1@win").at(-1)?.incident);
     expect(st.states("disk-full-x@win").every((f) => !("incident" in f))).toBe(true);
   });
 });
@@ -542,9 +546,16 @@ describe("журнал машины", () => {
   const mine = (s: Stand) => s.journal().filter((l) => l.who === "host-journal");
 
   it("env CLAUDE_CODE_STARTUP_FAILURE_RESULTS=1 — в процессе каждой сессии", async () => {
-    const s = await jbench();
-    await s.open("site@laptop");
-    expect(s.proc("site@laptop").env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS).toBe("1");
+    // сессия агента, который гоняет тесты, могла оставить переменную в окружении: проверяем вклад модуля
+    const was = process.env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS;
+    delete process.env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS;
+    try {
+      const s = await jbench();
+      await s.open("site@laptop");
+      expect(s.proc("site@laptop").env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS).toBe("1");
+    } finally {
+      if (was !== undefined) process.env.CLAUDE_CODE_STARTUP_FAILURE_RESULTS = was;
+    }
   });
 
   it("system/init — note только первый у процесса; после перезапуска сессии — снова", async () => {
@@ -707,6 +718,7 @@ describe("журнал машины", () => {
       const s = await jbench();
       await s.open("live@laptop");
       expect(await s.relay.request({ type: "machine.journal", v: 1, machine: "laptop", callsign: "live@laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 })).toMatchObject({ ok: false, error: "contract_mismatch" });
+      expect(await s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 })).toMatchObject({ ok: true });
     });
   });
 });
