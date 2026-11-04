@@ -13,7 +13,7 @@ import { tabIn } from "./session.ts";
 import { useWideData } from "./useWideData.ts";
 import { WideAside } from "./WideAside.tsx";
 import { WideHead } from "./WideHead.tsx";
-import { failText, isLive, useApp } from "@switchboard/web-ui";
+import { failText, isLive, useApp, Btn } from "@switchboard/web-ui";
 
 export function WideCard({ params }: { params: Params }) {
   const app = useApp();
@@ -42,9 +42,9 @@ export function WideCard({ params }: { params: Params }) {
             <>
               <b>{`Не запустилась${failText(s!) ? ": " + failText(s!) : ""}`}</b>
               {can("machine.journal") ? (
-                <button className="cw-b" onClick={() => select("log")}>
+                <Btn onClick={() => select("log")}>
                   Почему
-                </button>
+                </Btn>
               ) : null}
             </>
           ) : null}

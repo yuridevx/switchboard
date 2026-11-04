@@ -1,5 +1,5 @@
 // Полоса «Включить уведомления» над экранами разделов; включены или браузер не умеет — полосы нет.
-import { useApp } from "@switchboard/web-ui";
+import { useApp, Btn } from "@switchboard/web-ui";
 import { useAlerts } from "./store.ts";
 
 export function AlertsBar() {
@@ -24,9 +24,9 @@ export function AlertsBar() {
         <b>Включить уведомления</b>
         {state === "error" ? <span>{`Не вышло: ${error}`}</span> : null}
       </span>
-      <button className="al-on" disabled={state === "working"} onClick={() => void alerts.enable()}>
+      <Btn pri className="al-on" disabled={state === "working"} onClick={() => void alerts.enable()}>
         {state === "working" ? "…" : state === "error" ? "Ещё раз" : "Включить"}
-      </button>
+      </Btn>
     </div>
   );
 }

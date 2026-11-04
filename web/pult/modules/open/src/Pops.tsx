@@ -1,5 +1,5 @@
 // Окна чипов новой сессии: профиль; модель, усилие, слот и «Точки в R2».
-import { at, effortName, EFFORTS, MODELS, profileName as short, useApp } from "@switchboard/web-ui";
+import { at, effortName, EFFORTS, MODELS, profileName as short, useApp, Chip, Chips, In } from "@switchboard/web-ui";
 import { useOpen } from "./store.ts";
 import { useMachineLabels } from "./Browser.tsx";
 import type { OpenForm } from "./useOpenForm.ts";
@@ -17,7 +17,7 @@ export function ProfilePop({ form }: { form: OpenForm }) {
   return (
     <>
       <div className="lb">{`Профиль · ${label(f.machine).text} · ${ids.length}`}</div>
-      <input className="op-flt" data-f="pq" value={f.pq} placeholder="Найти профиль" autoComplete="off" aria-label="Найти профиль" onInput={(e) => set({ pq: e.currentTarget.value })} />
+      <In className="op-flt" data-f="pq" value={f.pq} placeholder="Найти профиль" autoComplete="off" aria-label="Найти профиль" onInput={(e) => set({ pq: e.currentTarget.value })} />
       {f.refused["machine.profiles"] ? (
         <div className="op-err" role="alert">
           {`machine.profiles: ${f.refused["machine.profiles"]}`}
@@ -55,30 +55,30 @@ export function ModelPop({ form }: { form: OpenForm }) {
   return (
     <>
       <div className="lb">Модель</div>
-      <div className="op-opts">
+      <Chips className="op-opts">
         {MODELS.map((m) => (
-          <button key={m} data-model={m} aria-pressed={f.model === m} onClick={() => chooseModel({ model: m })}>
+          <Chip key={m} on={f.model === m} data-model={m} onClick={() => chooseModel({ model: m })}>
             {m}
-          </button>
+          </Chip>
         ))}
-      </div>
+      </Chips>
       <div className="lb">Усилие</div>
-      <div className="op-opts">
+      <Chips className="op-opts">
         {EFFORTS.map(([k, l]) => (
-          <button key={k} data-effort={k} aria-pressed={f.effort === k} onClick={() => chooseModel({ effort: k })}>
+          <Chip key={k} on={f.effort === k} data-effort={k} onClick={() => chooseModel({ effort: k })}>
             {l}
-          </button>
+          </Chip>
         ))}
-      </div>
+      </Chips>
       {slots.length ? <div className="lb">Слот</div> : null}
       {slots.length ? (
-        <div className="op-opts">
+        <Chips className="op-opts">
           {slots.map(([n, sl]) => (
-            <button key={n} data-slot={n} aria-pressed={f.slot === n} onClick={() => set({ slot: n })}>
+            <Chip key={n} on={f.slot === n} data-slot={n} onClick={() => set({ slot: n })}>
               {sl.wait ? `${n} · ждёт сброса ${at(sl.wait)}` : n}
-            </button>
+            </Chip>
           ))}
-        </div>
+        </Chips>
       ) : null}
       {f.refused["machine.slots"] ? (
         <div className="op-err" role="alert">

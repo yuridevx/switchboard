@@ -155,7 +155,7 @@
 /* кнопка-малютка */
 .chat-mini{display:inline-flex;align-items:center;gap:4px;font:600 12px/1.2 var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:7px;padding:4px 9px;white-space:nowrap;text-decoration:none}
 .chat-mini[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.chat-mini.bad{color:var(--bad);border-color:var(--bad)}
+.chat-mini.bad{color:var(--bad);border-color:var(--bad);background:var(--surface)}
 
 /* полоса над лентой и панель контекста */
 .chat-bar{flex:none;display:flex;gap:6px;justify-content:flex-end;padding:6px 14px 0}

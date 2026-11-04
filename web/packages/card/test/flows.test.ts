@@ -114,6 +114,22 @@ describe("карточка в широком виде", () => {
     expect(t2.$(".cw-h .cw-lamp")!.getAttribute("title")).toBe("свободна");
   });
 
+  it("7310 · supportedModels — один запрос на экран: поле ввода чата и окно модели шапки берут один ответ", async () => {
+    // источник: отчёт архитектора, лишняя коммуникация 6: модели на одном экране спрашивают дважды
+    const r = roster([], (x) => void (x.sessions.find((v) => v.callsign === "poe-bot@pc")!.mode = "default"));
+    const relay = relayFor(r);
+    relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? { ok: true, result: [{ value: "opus", displayName: "Opus 5.5" }, { value: "sonnet", displayName: "Sonnet 5.5" }] } : { ok: true, result: null });
+    const t = await wideCard("poe-bot@pc", r, relay);
+    const asked = () => relay.sent("session.call").filter((f) => f.method === "supportedModels").length;
+    await flush(10);
+    expect(t.$(".chat-mode")).not.toBeNull();
+    expect(asked()).toBe(1);
+    await t.click(t.$('[data-pop="model"]'));
+    await flush(10);
+    expect(t.$$(".cw-pop [data-model]").map((b) => b.textContent)).toEqual(["Opus 5.5", "✓ Sonnet 5.5"]);
+    expect(asked()).toBe(1);
+  });
+
   it("5303 · модель и усилие — из шапки: модели — ответ SDK машины (supportedModels), выбор — session.update; отказ — тост", async () => {
     const relay = relayFor(roster());
     relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? { ok: true, result: [{ value: "opus", displayName: "Opus 5.5" }, { value: "sonnet", displayName: "Sonnet 5.5" }] } : { ok: true, result: null });

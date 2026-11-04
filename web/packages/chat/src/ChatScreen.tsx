@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Pad, useApp } from "@switchboard/web-ui";
+import { Pad, useApp, Btn } from "@switchboard/web-ui";
 import { ItemView, StepsRow } from "./cards/ItemView.tsx";
 import { Composer } from "./composer/Composer.tsx";
 import { CardsCtx, useChat, type CardsView, useConv } from "./context.ts";
@@ -23,12 +23,12 @@ function RewindCard({ callsign, id }: { callsign: string; id: string }) {
       <span>{r.text}</span>
       {r.ready ? (
         <>
-          <button type="button" className="chat-mini" onClick={() => chat.cancelRewind(callsign)}>
+          <Btn type="button" className="chat-mini" onClick={() => chat.cancelRewind(callsign)}>
             Отмена
-          </button>
-          <button type="button" className="chat-mini bad" onClick={() => void chat.applyRewind(callsign, r.uuid)}>
+          </Btn>
+          <Btn bad type="button" className="chat-mini" onClick={() => void chat.applyRewind(callsign, r.uuid)}>
             Откатить
-          </button>
+          </Btn>
         </>
       ) : null}
     </div>
@@ -83,9 +83,9 @@ function FeedView({ callsign }: { callsign: string }) {
         <div ref={col} className="chat-col">
           {noFeed ? <div className="chat-note">{`${machineOf(callsign)} не отдаёт ленту — только переписка и ввод`}</div> : null}
           {more ? (
-            <button type="button" className="chat-older" onClick={() => void chat.older(callsign)}>
+            <Btn type="button" className="chat-older" onClick={() => void chat.older(callsign)}>
               Раньше
-            </button>
+            </Btn>
           ) : null}
           {rows.map((row) => (
             <FeedRow key={row.id} id={row.id} item={"item" in row ? row.item : undefined} steps={"steps" in row ? row.steps : undefined} callsign={callsign} />
@@ -118,15 +118,15 @@ function Bar({ callsign, panel, setPanel }: { callsign: string; panel: boolean; 
   return (
     <div className="chat-bar">
       {canCall ? (
-        <button type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
+        <Btn type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
           <Gauge size={13} />
           контекст
-        </button>
+        </Btn>
       ) : null}
-      <button type="button" className="chat-mini" aria-pressed={focus} onClick={() => chat.toggleFocus(callsign)}>
+      <Btn type="button" className="chat-mini" aria-pressed={focus} onClick={() => chat.toggleFocus(callsign)}>
         <Focus size={13} />
         фокус
-      </button>
+      </Btn>
       <a
         className="chat-mini"
         download={`${callsign.replace("@", "-")}.md`}

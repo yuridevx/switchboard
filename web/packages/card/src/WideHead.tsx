@@ -1,7 +1,7 @@
 // Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
 import { useEffect, useRef, useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN, slotOf } from "@switchboard/web-ui";
+import { at, Dot, effortName, failText, machineLabel, myAddress, profileName, profileNameOf, sessionLabel, stateLabel, useApp, LIMIT_WARN, slotOf, Btn, Tabs } from "@switchboard/web-ui";
 import { userOf } from "@switchboard/protocol";
 import { useCard, useSessionActions } from "./hooks.ts";
 import { isDown, type Can } from "./session.ts";
@@ -29,18 +29,6 @@ function NameButton({ callsign, machine, openNames }: { callsign: string; machin
       </span>
       {view.haddr && (name.human || host.human) ? <span className="cw-real">{callsign}</span> : null}
     </button>
-  );
-}
-
-function Tabs({ tabs, tab, select }: Pick<Props, "tabs" | "tab" | "select">) {
-  return (
-    <div className="cw-tabs" role="tablist">
-      {tabs.map(([k, label]) => (
-        <button key={k} role="tab" aria-selected={tab === k ? "true" : "false"} data-tab={k} onClick={() => select(k)}>
-          {label}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -82,19 +70,18 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
         </span>
         <span className="cw-hpw">
           {view.hmodel && (x.model || can("session.update")) ? (
-            <button className="cw-hb" data-pop="model" aria-expanded={pop === "model" ? "true" : "false"} disabled={!can("session.update")} onClick={() => toggle("model")}>
+            <Btn className="cw-hb" data-pop="model" aria-expanded={pop === "model" ? "true" : "false"} disabled={!can("session.update")} onClick={() => toggle("model")}>
               {`${[x.model, x.effort ? effortName(x.effort) : null].filter(Boolean).join(" · ") || "модель"} ▾`}
-            </button>
+            </Btn>
           ) : null}
           {x.account ? (
-            <button className={`cw-hb ${accCls}`} data-pop="acc" aria-expanded={pop === "acc" ? "true" : "false"} onClick={() => toggle("acc")}>
+            <Btn className={`cw-hb ${accCls}`} data-pop="acc" aria-expanded={pop === "acc" ? "true" : "false"} onClick={() => toggle("acc")}>
               {`${[x.account, accText].filter(Boolean).join(" · ")} ▾`}
-            </button>
+            </Btn>
           ) : null}
           {pop === "model" ? (
             <ModelPop
               s={x}
-              machine={machine}
               callsign={callsign}
               update={(body, what) => {
                 setPop("");
@@ -117,22 +104,22 @@ function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openName
         </span>
       </div>
       <div className="cw-hr">
-        <Tabs tabs={tabs} tab={tab} select={select} />
+        <Tabs className="cw-tabs" tabs={tabs} cur={tab} pick={select} />
         {stopped && can("session.start") ? (
-          <button className="cw-b pri" onClick={() => void actions.start()}>
+          <Btn pri onClick={() => void actions.start()}>
             Запустить
-          </button>
+          </Btn>
         ) : null}
         {/* пункты места card.menu: закрепление (web-board) */}
         {menuItems.map((m) => (
-          <button key={m.name} className="cw-b" data-screen={m.name} onClick={() => app.run(m.name, { callsign })}>
+          <Btn key={m.name} data-screen={m.name} onClick={() => app.run(m.name, { callsign })}>
             {m.label}
-          </button>
+          </Btn>
         ))}
         <span className="cw-mw">
-          <button className="cw-b ghost cw-more" data-pop="menu" aria-haspopup="menu" aria-expanded={pop === "menu" ? "true" : "false"} aria-label="Действия сессии" onClick={() => toggle("menu")}>
+          <Btn ghost className="cw-more" data-pop="menu" aria-haspopup="menu" aria-expanded={pop === "menu" ? "true" : "false"} aria-label="Действия сессии" onClick={() => toggle("menu")}>
             ⋯
-          </button>
+          </Btn>
           {pop === "menu" ? (
             <MenuPop
               s={x}
@@ -182,7 +169,7 @@ export function WideHead(p: Props) {
             <span className="cw-note">не на связи</span>
           </div>
           <div className="cw-hr">
-            <Tabs tabs={p.tabs} tab={p.tab} select={p.select} />
+            <Tabs className="cw-tabs" tabs={p.tabs} cur={p.tab} pick={p.select} />
           </div>
         </>
       )}

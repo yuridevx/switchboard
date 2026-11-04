@@ -1,7 +1,7 @@
 // Вкладка «Журнал» широкой карточки: записи машины об этой сессии; фильтр по виду, «дальше» и «раньше».
 import type { JournalAnswer, JournalRecord } from "@switchboard/web-ui";
 import { useState } from "react";
-import { hhmm, midnight, useLoad, useApp } from "@switchboard/web-ui";
+import { hhmm, midnight, useLoad, useApp, Btn } from "@switchboard/web-ui";
 
 type Rec = JournalRecord;
 
@@ -30,9 +30,9 @@ export function LogTab({ machine, callsign }: { machine: string; callsign: strin
     <div className="cw-log">
       <div className="cw-opts flat">
         {KINDS.map((k) => (
-          <button
+          <Btn
             key={k}
-            className="cw-b"
+           
             aria-pressed={kind === k ? "true" : "false"}
             onClick={() => {
               setKind(k);
@@ -40,7 +40,7 @@ export function LogTab({ machine, callsign }: { machine: string; callsign: strin
             }}
           >
             {k || "все"}
-          </button>
+          </Btn>
         ))}
         <span className="cw-note">{`${machine} · ${days ? `с ${days} дн. назад` : "сегодня"}`}</span>
       </div>
@@ -59,19 +59,18 @@ export function LogTab({ machine, callsign }: { machine: string; callsign: strin
       ))}
       {!recs.length && !q.loading && !q.error ? <div className="cw-note">Записей нет.</div> : null}
       {q.data?.more && !q.loading ? (
-        <button className="cw-b" onClick={() => setPaged({ recs, from: recs.at(-1)!.t })}>
+        <Btn onClick={() => setPaged({ recs, from: recs.at(-1)!.t })}>
           дальше →
-        </button>
+        </Btn>
       ) : null}
-      <button
-        className="cw-b"
+      <Btn
         onClick={() => {
           setDays(days + 1);
           reset();
         }}
       >
         Раньше
-      </button>
+      </Btn>
     </div>
   );
 }

@@ -52,6 +52,7 @@ function inFactories(lines) {
 }
 
 const rows = [];
+const controls = { rawButtons: 0, rawFields: 0, kit: 0 };
 const services = {};
 const viewState = [];
 for (const f of walk(join(root, "web"))) {
@@ -75,8 +76,15 @@ for (const f of walk(join(root, "web"))) {
     changed: (s.match(/app\.changed\(\)/g) ?? []).length,
     dom: (s.match(/\.querySelector|document\.getElementById|\.value = |\.classList\.|\.style\.\w+ = /g) ?? []).length,
     states: (s.match(/useState[<(]/g) ?? []).length,
+    // кнопки и поля мимо набора: файлы самого набора не считаются
+    rawButtons: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<button\b/g) ?? []).length,
+    rawFields: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<(input|textarea|select)\b/g) ?? []).length,
+    kit: file.startsWith("web/packages/ui/") ? 0 : (s.match(/<(Btn|Cta|LinkBtn|Chip|Chips|Tabs|In|CommitIn|Area|Sel)\b/g) ?? []).length,
     effects: (s.match(/useEffect\(/g) ?? []).length,
   };
+  controls.rawButtons += m.rawButtons;
+  controls.rawFields += m.rawFields;
+  controls.kit += m.kit;
   if (m.inner || m.service || m.view || m.changed || m.dom || m.contexts || m.letApp || m.lines > 400) rows.push(m);
 }
 rows.sort((a, b) => b.inner + b.view + b.service + b.changed - (a.inner + a.view + a.service + a.changed));
@@ -85,4 +93,5 @@ const p = (n, w = 3) => String(n).padStart(w);
 for (const r of rows) console.log(`${r.file.padEnd(52)} строк ${p(r.lines, 5)} · внутр.комп ${p(r.inner)} · состояние вида ${p(r.view)} · служебные ${p(r.service)} · changed ${p(r.changed)} · DOM ${p(r.dom)} · useState ${p(r.states)} · useEffect ${p(r.effects, 2)}`);
 console.log("служебные ссылки:", Object.entries(services).sort((a, b) => b[1] - a[1]).map(([n, k]) => `${n} ×${k}`).join(", "));
 if (viewState.length) console.log("состояние вида:", viewState.join(", "));
+console.log(`компоненты набора ${controls.kit} · <button> вне набора ${controls.rawButtons} · <input|textarea|select> вне набора ${controls.rawFields}`);
 console.log(`ИТОГО: файлов ${rows.length} · внутренних компонентов ${sum("inner")} · createContext ${sum("contexts")} · let app ${sum("letApp")} · состояние вида в замыканиях ${sum("view")} · служебные ссылки ${sum("service")} · app.changed ${sum("changed")} · ручной DOM ${sum("dom")} · файлов > 400 строк ${rows.filter((r) => r.lines > 400).length}`);

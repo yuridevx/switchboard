@@ -1,7 +1,7 @@
 // Служебные строки ленты: итог хода, сжатие, прерывание, повтор API, лимит, команда, ошибки, задачи, отказ модели, хук, память, файлы.
 import type { ReactNode } from "react";
 import { AlertTriangle, Anchor, Archive, ArrowLeftRight, Ban, BookOpen, Bot, FileUp, Gauge, Info, Pencil, RefreshCw, RotateCcw, ShieldOff, Shuffle, Sparkles, Square, Terminal, X, Zap } from "lucide-react";
-import { hhmm, Markdown, LIMIT_NAMES } from "@switchboard/web-ui";
+import { hhmm, Markdown, LIMIT_NAMES, Btn } from "@switchboard/web-ui";
 import { useCards, useFeed } from "../context.ts";
 import type { Sys, Task } from "../state/types.ts";
 import { Disclosure } from "../ui/Disclosure.tsx";
@@ -115,10 +115,10 @@ function TaskRow({ sys }: { sys: Of<"task"> }) {
         <span>{[task?.description ?? sys.description, task?.summary].filter(Boolean).join(" · ")}</span>
         <em>{`${task?.toolUses ?? 0} ${steps(task?.toolUses ?? 0).split(" ")[1]}`}</em>
         {v.stopTask && sys.id ? (
-          <button type="button" className="chat-mini" onClick={() => v.stopTask!(sys.id!)}>
+          <Btn type="button" className="chat-mini" onClick={() => v.stopTask!(sys.id!)}>
             <Square size={11} />
             Стоп
-          </button>
+          </Btn>
         ) : null}
       </div>
     );
@@ -140,10 +140,10 @@ function RefusalRow({ sys }: { sys: Of<"refusal"> }) {
   return (
     <Banner tone="bad" icon={<ShieldOff size={15} />} title={`${from} отказалась отвечать`} text={why || undefined}>
       {sys.ask && v.edit ? (
-        <button type="button" className="chat-mini" onClick={() => v.edit!(sys.ask!)}>
+        <Btn type="button" className="chat-mini" onClick={() => v.edit!(sys.ask!)}>
           <Pencil size={12} />
           Изменить сообщение
-        </button>
+        </Btn>
       ) : null}
     </Banner>
   );

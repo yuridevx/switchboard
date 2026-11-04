@@ -1,6 +1,6 @@
 // Экран новой сессии: имя, проводник, чипы профиля и модели, задача.
 import type { ScreenProps } from "@switchboard/web-core";
-import { Btn, effortName, profileName as short, useApp } from "@switchboard/web-ui";
+import { Btn, effortName, profileName as short, useApp, In, Area } from "@switchboard/web-ui";
 import { FolderPane, MachinesPane } from "./Browser.tsx";
 import { addrView } from "./form.ts";
 import { ModelPop, ProfilePop } from "./Pops.tsx";
@@ -29,7 +29,7 @@ export function OpenScreen({ params }: ScreenProps) {
       <div className="op-body">
         <div className={"op-nm" + (f.nameErr ? " bad" : "")}>
           <label htmlFor="op-name">Имя</label>
-          <input
+          <In
             autoFocus
             id="op-name"
             data-f="name"
@@ -75,16 +75,16 @@ export function OpenScreen({ params }: ScreenProps) {
           </div>
         ) : null}
         <div className="op-ctx">
-          <button className="op-cx" data-pop="prof" aria-expanded={f.pop === "prof"} disabled={!f.machine} onClick={chip("prof")}>
+          <Btn className="op-cx" data-pop="prof" aria-expanded={f.pop === "prof"} disabled={!f.machine} onClick={chip("prof")}>
             {f.profile ? <span className="k">Профиль</span> : null}
             <b>{f.profile ? short(f.profile) : "без профиля"}</b>
-          </button>
-          <button className="op-cx" data-pop="model" aria-expanded={f.pop === "model"} onClick={chip("model")}>
+          </Btn>
+          <Btn className="op-cx" data-pop="model" aria-expanded={f.pop === "model"} onClick={chip("model")}>
             {f.model ? <b>{f.model}</b> : null}
             <span className="k">{[f.model ? null : "Модель", f.effort ? effortName(f.effort) : null, f.slot, f.r2 ? "R2" : null].filter(Boolean).join(" · ")}</span>
-          </button>
+          </Btn>
         </div>
-        <textarea
+        <Area
           data-f="text"
           rows={3}
           aria-label="Задача"

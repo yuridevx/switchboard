@@ -2,7 +2,7 @@
 // Состояние выбирает сама: секунды и итог перерисовывают только её.
 import { useState } from "react";
 import { ArrowDownToLine, Check, ChevronDown, ChevronRight, Loader2, Square, X } from "lucide-react";
-import { useNow } from "@switchboard/web-ui";
+import { useNow, Btn } from "@switchboard/web-ui";
 import { useAsking, useCards, useFeed } from "../../context.ts";
 import type { Task, Tool } from "../../state/types.ts";
 import { DiffCount } from "./Diff.tsx";
@@ -74,15 +74,15 @@ function TaskBar({ task, t }: { task: Task; t: Tool }) {
         {agent && task.toolUses ? ` · шагов ${task.toolUses}` : ""}
       </span>
       {!task.background && v.background ? (
-        <button type="button" className="chat-mini" onClick={() => v.background!(t.id)}>
+        <Btn type="button" className="chat-mini" onClick={() => v.background!(t.id)}>
           <ArrowDownToLine size={13} />В фон
-        </button>
+        </Btn>
       ) : null}
       {v.stopTask ? (
-        <button type="button" className="chat-mini" onClick={() => v.stopTask!(task.id)}>
+        <Btn type="button" className="chat-mini" onClick={() => v.stopTask!(task.id)}>
           <Square size={11} />
           Стоп
-        </button>
+        </Btn>
       ) : null}
     </div>
   );
@@ -117,9 +117,9 @@ export function ToolCard({ id, renderPart }: { id: string; renderPart: RenderPar
       {task?.status === "running" ? <TaskBar task={task} t={t} /> : !task && st === "running" && isShell(t) && v.background ? (
         <div className="tc-bar">
           <span />
-          <button type="button" className="chat-mini" onClick={() => v.background!(t.id)}>
+          <Btn type="button" className="chat-mini" onClick={() => v.background!(t.id)}>
             <ArrowDownToLine size={13} />В фон
-          </button>
+          </Btn>
         </div>
       ) : null}
       {t.summary ? <div className="tc-note">{t.summary}</div> : null}

@@ -1,7 +1,7 @@
 // Карточки «Вам»: вопрос, сообщение, сбой, ожидание лимита, готово, ушедшая машина. Каждая выбирает своё и меняется одна.
 import { memo } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp, slotOf } from "@switchboard/web-ui";
+import { Dot, failText, hhmm, machineLabel, sessionLabel, sessionOf, useApp, slotOf, Btn } from "@switchboard/web-ui";
 import { useInbox } from "./store.ts";
 import type { Item, Kind } from "./store.ts";
 
@@ -36,9 +36,9 @@ function Away({ machine, at, list }: { machine: string; at: number; list: string
       <div className="ib-tx">{list}</div>
       {points ? (
         <div className="ib-acts">
-          <button className="pri" onClick={() => app.open("points", {})}>
+          <Btn pri onClick={() => app.open("points", {})}>
             Поднять из точки
-          </button>
+          </Btn>
         </div>
       ) : null}
     </div>
@@ -55,9 +55,9 @@ function Fire({ n }: { n: number }) {
         <span className="ib-lb">{`машин не на связи: ${n}`}</span>
       </div>
       <div className="ib-acts">
-        <button className="pri" onClick={() => app.open("points", {})}>
+        <Btn pri onClick={() => app.open("points", {})}>
           Поднять из точки
-        </button>
+        </Btn>
       </div>
     </div>
   );
@@ -88,9 +88,9 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
           <CardHead s={s} dot="wait" label="пишет вам" />
           <div className="ib-tx">{unread?.text}</div>
           <div className="ib-acts">
-            <button className="pri" onClick={open}>
+            <Btn pri onClick={open}>
               Открыть
-            </button>
+            </Btn>
           </div>
         </div>
       );
@@ -101,10 +101,10 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
           <CardHead s={s} dot="bad" label="не запустилась" />
           {why ? <div className="ib-tx">{why}</div> : null}
           <div className="ib-acts">
-            <button className="pri" onClick={() => void inbox.restart(callsign)}>
+            <Btn pri onClick={() => void inbox.restart(callsign)}>
               Запустить снова
-            </button>
-            <button onClick={open}>Почему</button>
+            </Btn>
+            <Btn onClick={open}>Почему</Btn>
           </div>
         </div>
       );
@@ -116,7 +116,7 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
           <CardHead s={s} dot="idle" label="ждёт сброса лимита" />
           <div className="ib-tx">{`Аккаунты слота ${slot} у порога — продолжит после ${hhmm(at!)}`}</div>
           <div className="ib-acts">
-            <button onClick={open}>Открыть</button>
+            <Btn onClick={open}>Открыть</Btn>
           </div>
         </div>
       );
@@ -126,10 +126,10 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
         <div className="ib-it done" data-kind="done" data-callsign={callsign}>
           <CardHead s={s} dot="idle" label="готово" />
           <div className="ib-acts">
-            <button onClick={open}>Открыть</button>
-            <button className="ghost" onClick={() => inbox.markSeen(callsign)}>
+            <Btn onClick={open}>Открыть</Btn>
+            <Btn ghost onClick={() => inbox.markSeen(callsign)}>
               Прочитано
-            </button>
+            </Btn>
           </div>
         </div>
       );

@@ -1,7 +1,8 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
 import type { AccountsAnswer, ModelInfo, SlotsAnswer } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/web-core";
-import { EFFORTS, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, incidentOf, slotOf, useMachineLoad } from "@switchboard/web-ui";
+import { useEffect } from "react";
+import { EFFORTS, isLive, LIMIT_NAMES, LimitRow, MODELS, profileNameOf, remoteOf, incidentOf, slotOf, Btn, useApp } from "@switchboard/web-ui";
 
 /** Строка «подпись — значение» списка сведений. */
 export function Kv({ k, v }: { k: string; v: string }) {
@@ -13,10 +14,15 @@ export function Kv({ k, v }: { k: string; v: string }) {
   );
 }
 
-export function ModelPop({ s, machine, callsign, update }: { s: SessionRecord; machine: string; callsign: string; update(body: Record<string, unknown>, what: string): void }) {
-  // модели — ответ SDK на открытие окна; пока ответа нет или сессия не живая — известный список
-  const { data } = useMachineLoad<ModelInfo[]>(machine, "session.call", { callsign, method: "supportedModels", args: [] }, isLive(s.state));
-  const list: ModelInfo[] = Array.isArray(data) ? data : MODELS.map((m) => ({ value: m }));
+export function ModelPop({ s, callsign, update }: { s: SessionRecord; callsign: string; update(body: Record<string, unknown>, what: string): void }) {
+  // модели — ответ SDK, владелец — чат: один запрос на разговор; пока ответа нет или сессия не живая — известный список
+  const app = useApp();
+  const asked = app.use(() => app.mark("models", callsign));
+  const live = isLive(s.state);
+  useEffect(() => {
+    if (live) app.run("models.load", { callsign });
+  }, [app, callsign, live]);
+  const list: ModelInfo[] = asked?.length ? asked : MODELS.map((m) => ({ value: m }));
   return (
     <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
       <span className="lb">Модель</span>
@@ -28,9 +34,9 @@ export function ModelPop({ s, machine, callsign, update }: { s: SessionRecord; m
       <span className="lb">Усилие</span>
       <div className="cw-opts">
         {EFFORTS.map(([k, l]) => (
-          <button key={k} className="cw-b" aria-pressed={s.effort === k ? "true" : "false"} data-effort={k} onClick={() => update({ effort: k }, "усилие")}>
+          <Btn key={k} aria-pressed={s.effort === k ? "true" : "false"} data-effort={k} onClick={() => update({ effort: k }, "усилие")}>
             {l}
-          </button>
+          </Btn>
         ))}
       </div>
     </div>
@@ -54,9 +60,9 @@ export function AccPop({ s, machine, accounts, slots, canSlot, changeSlot }: { s
       {queue.length ? <div className="cw-note queue">{`очередь слота: ${queue.join(" → ")}`}</div> : null}
       {canSlot ? (
         <div className="cw-opts">
-          <button className="cw-b" onClick={changeSlot}>
+          <Btn onClick={changeSlot}>
             Сменить слот
-          </button>
+          </Btn>
         </div>
       ) : null}
     </div>

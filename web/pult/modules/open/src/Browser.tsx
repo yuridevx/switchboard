@@ -3,7 +3,7 @@ import type {} from "@switchboard/web-labels";
 import { useOpen } from "./store.ts";
 import { addrView, dirOfAddr, HOME, into } from "./form.ts";
 import type { OpenForm } from "./useOpenForm.ts";
-import { machineLabel, useApp } from "@switchboard/web-ui";
+import { machineLabel, useApp, In, Chip, Chips } from "@switchboard/web-ui";
 
 /** Имя машины: человеческое из меток, иначе адрес. Выборка: новое имя перерисует вызвавшего. */
 export function useMachineLabels() {
@@ -54,15 +54,15 @@ export function FolderPane({ form }: { form: OpenForm }) {
       )}
       {app.wide || !f.pickM ? null : <MachinesPane form={form} />}
       {places.length > 1 ? (
-        <div className="op-rec" aria-label="Последние места">
+        <Chips className="op-rec" aria-label="Последние места">
           {places.map((x) => (
-            <button key={`${x.m}|${x.dir}`} data-place={x.dir} data-place-machine={x.m} aria-pressed={x.m === f.machine && x.dir === dirOfAddr(f.addr)} onClick={() => pick(x.m, x.dir)}>
+            <Chip key={`${x.m}|${x.dir}`} on={x.m === f.machine && x.dir === dirOfAddr(f.addr)} data-place={x.dir} data-place-machine={x.m} onClick={() => pick(x.m, x.dir)}>
               {x.m === f.machine ? x.dir : `${label(x.m).text} ${x.dir}`}
-            </button>
+            </Chip>
           ))}
-        </div>
+        </Chips>
       ) : null}
-      <input
+      <In
         data-f="addr"
         value={f.addr}
         autoComplete="off"

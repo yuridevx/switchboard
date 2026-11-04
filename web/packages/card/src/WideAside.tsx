@@ -2,7 +2,7 @@
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { isLive, profileNameOf, remoteOf, useApp, useMachineLoad } from "@switchboard/web-ui";
+import { isLive, profileNameOf, remoteOf, useApp, useMachineLoad, Btn, LinkBtn } from "@switchboard/web-ui";
 import type { Mcp } from "./session.ts";
 import { Kv } from "./WidePops.tsx";
 
@@ -42,25 +42,25 @@ function McpRow({ m, toggleMcp, reconnectMcp, loginMcp }: McpActs & { m: Mcp }) 
       <div className="cw-sw">
         <span>{m.name}</span>
         {m.status ? <em className="cw-mcp-st" data-state={m.status}>{MCP_WORD[m.status] ?? m.status}</em> : null}
-        <button className="cw-b" data-mcp={m.name} onClick={() => void toggleMcp(m)}>
+        <Btn data-mcp={m.name} onClick={() => void toggleMcp(m)}>
           {off ? "вкл" : "выкл"}
-        </button>
+        </Btn>
       </div>
       <div className="cw-mcp-a">
         {off ? null : (
-          <button className="cw-b ghost" data-mcp-re={m.name} onClick={() => void reconnectMcp(m)}>
+          <Btn ghost data-mcp-re={m.name} onClick={() => void reconnectMcp(m)}>
             Переподключить
-          </button>
+          </Btn>
         )}
         {m.status === "needs-auth" ? (
-          <button className="cw-b ghost" data-mcp-login={m.name} onClick={() => void loginMcp(m).then(setUrl)}>
+          <Btn ghost data-mcp-login={m.name} onClick={() => void loginMcp(m).then(setUrl)}>
             Войти
-          </button>
+          </Btn>
         ) : null}
         {url ? (
-          <a className="cw-b ghost" data-mcp-url={m.name} href={url} target="_blank" rel="noopener noreferrer">
+          <LinkBtn ghost data-mcp-url={m.name} href={url} target="_blank" rel="noopener noreferrer">
             Открыть страницу входа ↗
-          </a>
+          </LinkBtn>
         ) : null}
       </div>
     </div>
@@ -95,9 +95,9 @@ export function WideAside({ callsign, s }: { callsign: string; s: SessionRecord 
                     <dt>ведёт</dt>
                     <dd>
                       {kids.map((k) => (
-                        <button key={k} className="cw-b ghost kid" onClick={() => app.open("card", { callsign: k })}>
+                        <Btn ghost key={k} className="kid" onClick={() => app.open("card", { callsign: k })}>
                           {k}
-                        </button>
+                        </Btn>
                       ))}
                     </dd>
                   </>

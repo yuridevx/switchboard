@@ -7,7 +7,7 @@
 .card-info{display:grid;grid-template-columns:auto minmax(0,1fr);gap:8px 14px;background:var(--surface);border:1px solid var(--line2);border-radius:14px;padding:12px 14px;font-size:14px}
 .card-info dt{color:var(--muted)}
 .card-info dd{margin:0;font-family:var(--mono);overflow-wrap:anywhere}
-.card-act{width:100%;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px;font:600 15px var(--body)}
+.card-act{width:100%;justify-content:center;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:11px;font:600 15px var(--body)}
 
 /* Карточка на пульте */
 .cw{flex:1;min-height:0;display:flex;flex-direction:column}
@@ -31,15 +31,9 @@
 .cw-hb.lim{background:var(--wait-weak);color:var(--wait);border-color:transparent}
 .cw-hb.you{background:var(--wait);color:var(--on-wait,#fff);border-color:transparent}
 .cw-tabs{display:flex;gap:2px;margin-right:auto;align-self:stretch;flex:none}
-.cw-tabs button{font:500 13.5px var(--body);padding:0 11px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);border-radius:0;white-space:nowrap}
+.cw-tabs button{gap:0;font:500 13.5px var(--body);padding:0 11px;border:0;border-bottom:2px solid transparent;background:none;color:var(--muted);border-radius:0;white-space:nowrap}
 .cw-tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--ink);font-weight:600}
 .cw-tabs button .n{font-size:11.5px;color:var(--muted);margin-left:3px}
-.cw-b{font:600 12.5px/1.2 var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:8px;padding:6px 10px;white-space:nowrap;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
-.cw-b.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.cw-b.bad{color:var(--bad);border-color:var(--bad);background:transparent}
-.cw-b.ghost{border-color:transparent;background:transparent}
-.cw-b[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
-.cw-b[disabled]{opacity:.45;cursor:default}
 .cw-why{font-size:12px;color:var(--bad);white-space:nowrap}
 .cw-mw{position:relative;flex:none}
 .cw-more{font-size:18px;line-height:1;padding:4px 10px}
@@ -85,7 +79,7 @@
 .cw-lr .x{overflow-wrap:anywhere}
 .cw-opts.flat{padding:0}
 .cw-note.queue{padding:2px 8px}
-.cw-b.kid{padding:0 4px}
+.sb-b.kid{padding:0 4px}
 .cw-mi.flat{padding:0}
 
 /* Группа «Шапка» в панели вида «Работы»: стили панели до вложенного модуля не доходят */

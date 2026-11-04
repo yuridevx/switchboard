@@ -18,7 +18,7 @@
 .ask-field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
 .ask-field small{font-size:12px}
 .ask-url{font:500 13px var(--mono);color:var(--accent);word-break:break-all}
-.ask-decline{width:100%;background:none;border:1px solid var(--line);border-radius:12px;padding:10px;font:600 14px var(--body)}
+.ask-decline{width:100%;justify-content:center;white-space:normal;background:none;border:1px solid var(--line);border-radius:12px;padding:10px;font:600 14px var(--body)}
 .ask-hint{font-size:12.5px;color:var(--muted);text-align:center;margin-top:auto;padding:6px 0 12px}
 .ask-empty{color:var(--muted);text-align:center;padding:40px 12px}
 .ask-note{font-size:13.5px;line-height:1.4;color:var(--muted);overflow-wrap:anywhere}

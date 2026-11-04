@@ -1,6 +1,6 @@
 // Поиск Ctrl K: разделы и то, что экраны отдают в find.
 import { useState } from "react";
-import { Dot } from "@switchboard/web-ui";
+import { Dot, In } from "@switchboard/web-ui";
 import { useCore, type Hit } from "./core.ts";
 
 export function Palette({ close }: { close(): void }) {
@@ -15,7 +15,7 @@ export function Palette({ close }: { close(): void }) {
     <>
       <div className="sb-palveil" onClick={close} />
       <div className="sb-pal" role="dialog" aria-label="Перейти">
-        <input
+        <In
           autoFocus
           className="sb-palin"
           placeholder="Сессия, проект, раздел или команда"

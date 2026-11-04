@@ -7,12 +7,15 @@
 // session.call: «/btw вопрос» — вопрос сбоку, вывод фоновой команды, снятие из очереди, разделы панели контекста; метода нет на Host — нет раздела.
 // Возможности — по contract машины в roster. Устройство: state/ — состояние и чистая свёртка, cards/, composer/, docks/, panel/ — вид.
 import type { AppPart, Manifest } from "@switchboard/web-core";
+import type { ModelInfo } from "@switchboard/web-ui";
 import json from "./module.json" with { type: "json" };
 import { createChat } from "./src/module.tsx";
 
 declare module "@switchboard/web-ui" {
   interface Marks {
     unread(callsign: string): { count: number; text: string } | undefined;
+    /** Модели сессии (supportedModels): один запрос на разговор, спрашивает команда models.load; нет ответа — null или undefined. */
+    models(callsign: string): ModelInfo[] | null | undefined;
   }
 }
 

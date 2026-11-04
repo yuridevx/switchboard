@@ -1,6 +1,6 @@
 // Форма MCP-сервера: поля по схеме или ссылка. Значения — местное состояние формы; число идёт в ответ числом.
 import { useState } from "react";
-import { Cta } from "@switchboard/web-ui";
+import { Cta, Btn, Sel, In } from "@switchboard/web-ui";
 import { useAsk } from "./store.ts";
 import { isLocked, type Rec } from "./store.ts";
 
@@ -37,18 +37,18 @@ export function AskForm({ rec }: { rec: Rec }) {
             <label key={k} className="ask-field">
               <span>{p.title ?? k}</span>
               {p.enum ? (
-                <select className="ask-own" disabled={locked} value={typeof vals[k] === "string" ? vals[k] : ""} onChange={(e) => set(k, e.currentTarget.value || undefined)}>
+                <Sel className="ask-own" disabled={locked} value={typeof vals[k] === "string" ? vals[k] : ""} onChange={(e) => set(k, e.currentTarget.value || undefined)}>
                   <option value="">—</option>
                   {p.enum.map((v) => (
                     <option key={v} value={v}>
                       {v}
                     </option>
                   ))}
-                </select>
+                </Sel>
               ) : p.type === "boolean" ? (
                 <input type="checkbox" disabled={locked} checked={vals[k] === true} onChange={(e) => set(k, e.currentTarget.checked)} />
               ) : (
-                <input className="ask-own" type={isNumber(p) ? "number" : "text"} disabled={locked} value={typeof vals[k] === "string" ? vals[k] : ""} onInput={(e) => set(k, e.currentTarget.value)} />
+                <In className="ask-own" type={isNumber(p) ? "number" : "text"} disabled={locked} value={typeof vals[k] === "string" ? vals[k] : ""} onInput={(e) => set(k, e.currentTarget.value)} />
               )}
               {p.description ? <small>{p.description}</small> : null}
             </label>
@@ -60,9 +60,9 @@ export function AskForm({ rec }: { rec: Rec }) {
           <Cta disabled={sending} onClick={() => void ask.answer(rec, url ? { action: "accept" } : { action: "accept", content: content() })}>
             {url ? "Перешёл" : "Отправить"}
           </Cta>
-          <button className="ask-decline" disabled={sending} onClick={() => void ask.answer(rec, { action: "decline" })}>
+          <Btn className="ask-decline" disabled={sending} onClick={() => void ask.answer(rec, { action: "decline" })}>
             Отклонить
-          </button>
+          </Btn>
         </>
       ) : null}
     </>

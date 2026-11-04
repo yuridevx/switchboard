@@ -2,7 +2,7 @@
 import type { ProfilesAnswer } from "@switchboard/web-ui";
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
-import { CommitIn, Outcome, profileIdOf, profileName, useMachineLoad, useApp, useOutcome, slotOf } from "@switchboard/web-ui";
+import { CommitIn, Outcome, profileIdOf, profileName, useMachineLoad, useApp, useOutcome, slotOf, Btn } from "@switchboard/web-ui";
 import { useSessionActions } from "./hooks.ts";
 import { isDown, type Can } from "./session.ts";
 import type { WideData } from "./useWideData.ts";
@@ -49,9 +49,9 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
           <span className="lb">Профиль</span>
           <div className="cw-opts flat">
             {[...profileList, ""].map((p) => (
-              <button key={p} className="cw-b" aria-pressed={profNow === p ? "true" : "false"} data-profile={p} onClick={() => (p === profNow ? null : void move("session.profile", p || null))}>
+              <Btn key={p} aria-pressed={profNow === p ? "true" : "false"} data-profile={p} onClick={() => (p === profNow ? null : void move("session.profile", p || null))}>
                 {p ? profileName(p) : "без профиля"}
-              </button>
+              </Btn>
             ))}
           </div>
           <Outcome className="cw-note" note={notes.profile} />
@@ -59,9 +59,9 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
       ) : null}
       {can("session.update") ? (
         <label className="cw-sw" data-sec="fast">
-          <button className="cw-b" role="switch" aria-checked={fast ? "true" : "false"} aria-pressed={fast ? "true" : "false"} onClick={() => void actions.update({ fast: !fast }, "быстрый режим")}>
+          <Btn role="switch" aria-checked={fast ? "true" : "false"} aria-pressed={fast ? "true" : "false"} onClick={() => void actions.update({ fast: !fast }, "быстрый режим")}>
             {fast ? "вкл" : "выкл"}
-          </button>
+          </Btn>
           <span>Быстрый режим</span>
         </label>
       ) : null}
@@ -77,9 +77,9 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
           <span className="lb">Слот</span>
           <div className="cw-opts flat">
             {[...Object.keys(data.slots ?? (slotNow ? { [slotNow]: 1 } : {})), ""].map((v) => (
-              <button key={v} className="cw-b" aria-pressed={slotNow === v ? "true" : "false"} data-slot={v} onClick={() => (v === slotNow ? null : void move("session.slot", v || null))}>
+              <Btn key={v} aria-pressed={slotNow === v ? "true" : "false"} data-slot={v} onClick={() => (v === slotNow ? null : void move("session.slot", v || null))}>
                 {v || "без слота"}
-              </button>
+              </Btn>
             ))}
           </div>
           <Outcome className="cw-note" note={notes.slot} />
@@ -89,31 +89,31 @@ export function SetTab({ machine, callsign, s, can, live, data }: { machine: str
         <span className="lb">Сессия</span>
         <div className="cw-opts flat">
           {s && live && can("session.stop") ? (
-            <button className="cw-b" onClick={() => void act("session.stop")}>
+            <Btn onClick={() => void act("session.stop")}>
               Остановить
-            </button>
+            </Btn>
           ) : null}
           {s && stopped && can("session.start") ? (
-            <button className="cw-b pri" onClick={() => void act("session.start")}>
+            <Btn pri onClick={() => void act("session.start")}>
               Запустить
-            </button>
+            </Btn>
           ) : null}
           {s && can("session.remove") && !removing ? (
-            <button className="cw-b bad" onClick={() => setRemoving(true)}>
+            <Btn bad onClick={() => setRemoving(true)}>
               Убрать…
-            </button>
+            </Btn>
           ) : null}
         </div>
         {removing ? (
           <div className="cw-confirm">
             <span>{`${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`}</span>
             <div className="cw-opts flat">
-              <button className="cw-b bad" onClick={() => void act("session.remove")}>
+              <Btn bad onClick={() => void act("session.remove")}>
                 Убрать
-              </button>
-              <button className="cw-b" onClick={() => setRemoving(false)}>
+              </Btn>
+              <Btn onClick={() => setRemoving(false)}>
                 Отмена
-              </button>
+              </Btn>
             </div>
           </div>
         ) : null}

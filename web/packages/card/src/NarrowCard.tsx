@@ -1,7 +1,7 @@
 // Карточка на телефоне: вкладки чат, вставки места card.tab, видные этой сессии, и «Ещё» — сведения, модель и усилие, действия.
 import { useState } from "react";
 import type { Params } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, slotOf, useApp } from "@switchboard/web-ui";
+import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, remoteOf, slotOf, useApp, Tabs } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { useCan, useSession, useSessionActions } from "./hooks.ts";
 import { Names } from "./Names.tsx";
@@ -54,14 +54,14 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
           </Opts>
         </div>
       ) : null}
-      <button className="card-act" data-act="names" onClick={openNames}>
+      <Btn className="card-act" data-act="names" onClick={openNames}>
         Имена
-      </button>
+      </Btn>
       {/* пункты места card.menu: закрепление (web-board) */}
       {menu.map((x) => (
-        <button key={x.name} className="card-act" data-screen={x.name} onClick={() => app.run(x.name, { callsign })}>
+        <Btn key={x.name} className="card-act" data-screen={x.name} onClick={() => app.run(x.name, { callsign })}>
           {x.label}
-        </button>
+        </Btn>
       ))}
       {remote ? (
         <a className="card-act" href={remote} target="_blank" rel="noopener">
@@ -69,14 +69,14 @@ function Info({ callsign, openNames }: { callsign: string; openNames(): void }) 
         </a>
       ) : null}
       {s && !down && can("session.stop") ? (
-        <button className="card-act" disabled={!!busy} onClick={() => void act("session.stop")}>
+        <Btn className="card-act" disabled={!!busy} onClick={() => void act("session.stop")}>
           {busy === "session.stop" ? "Останавливаю…" : "Остановить"}
-        </button>
+        </Btn>
       ) : null}
       {s && down && can("session.start") ? (
-        <button className="card-act" disabled={!!busy} onClick={() => void act("session.start")}>
+        <Btn className="card-act" disabled={!!busy} onClick={() => void act("session.start")}>
           {busy === "session.start" ? "Запускаю…" : "Запустить"}
-        </button>
+        </Btn>
       ) : null}
       {error ? (
         <BadCard role="alert">
@@ -98,13 +98,7 @@ export function NarrowCard({ params }: { params: Params }) {
   const tab = tabIn(picked, list, "chat");
   return (
     <>
-      <div className="card-tabs" role="tablist">
-        {list.map(([k, label]) => (
-          <button key={k} role="tab" aria-selected={tab === k ? "true" : "false"} data-tab={k} onClick={() => setPicked(k)}>
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs className="card-tabs" tabs={list} cur={tab} pick={setPicked} />
       <div className="card-place">{tab === "info" ? <Info callsign={callsign} openNames={() => setNames(true)} /> : <app.Slot key={tab} screen={tab} params={{ callsign }} />}</div>
       {names ? <Names callsign={callsign} close={() => setNames(false)} /> : null}
     </>

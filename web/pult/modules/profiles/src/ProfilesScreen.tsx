@@ -1,6 +1,6 @@
 // Экран профилей: поиск, конфликты первыми, «Синхронизировать» — свести на всех машинах.
 import { useEffect, useState } from "react";
-import { Btn, profileName as short, useApp } from "@switchboard/web-ui";
+import { Btn, profileName as short, useApp, In } from "@switchboard/web-ui";
 import { useProfiles } from "./store.ts";
 import { ProfileRow } from "./ProfileRow.tsx";
 
@@ -40,7 +40,7 @@ export function ProfilesScreen() {
       </div>
       <div className="pf-b">
         <div className="pf-t">
-          <input data-f="q" value={q} placeholder={`Найти профиль · ${all.length}`} autoComplete="off" aria-label="Найти профиль" onInput={(e) => setQ(e.currentTarget.value)} />
+          <In data-f="q" value={q} placeholder={`Найти профиль · ${all.length}`} autoComplete="off" aria-label="Найти профиль" onInput={(e) => setQ(e.currentTarget.value)} />
           {ncf ? (
             <Btn data-act="conflicts" aria-pressed={onlyCf} onClick={() => setOnlyCf(!onlyCf)}>
               {`конфликты ${ncf}`}

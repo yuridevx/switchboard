@@ -1,5 +1,5 @@
 // Группа «Шапка» в панели вида «Работы». Вернуть встроенное — команда card.view (app.open).
-import { Choices, useApp } from "@switchboard/web-ui";
+import { Choices, useApp, Chip } from "@switchboard/web-ui";
 import { useCard } from "./hooks.ts";
 import type { HeadView } from "./session.ts";
 
@@ -13,9 +13,9 @@ export function HeadPanel() {
   return (
     <Choices title="Шапка">
       {UNITS.map(([k, label, full]) => (
-        <button key={k} data-v={k} aria-label={full} aria-pressed={String(view[k]) as "true" | "false"} onClick={() => card.toggleHead(k)}>
+        <Chip key={k} on={!!view[k]} data-v={k} aria-label={full} onClick={() => card.toggleHead(k)}>
           {label}
-        </button>
+        </Chip>
       ))}
     </Choices>
   );

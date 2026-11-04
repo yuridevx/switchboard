@@ -1,7 +1,7 @@
 // Окно фильтра: имя, одна строка поиска на все поля, поля «Чьи · Проекты · Машины · Профили · Состояние». Совпадения поиска — в каждом поле;
 // выбранное видно всегда; поле без совпадений свёрнуто. Снизу — сколько подходит. Хранит список store, здесь — только правка копии.
 import { useState } from "react";
-import { Btn, plural, profileNameOf, stateLabel, useApp } from "@switchboard/web-ui";
+import { Btn, plural, profileNameOf, stateLabel, useApp, Chip, Chips, In } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { useBoard } from "./store.ts";
 import type { BoardStore } from "./store.ts";
@@ -56,8 +56,8 @@ export function FilterEditor({ base, close }: { base: Filter | null; close(): vo
           <b>{base ? "Фильтр" : "Новый фильтр"}</b>
         </div>
         <div className="fe-b">
-          <input autoFocus={!base} className="fe-name" data-f="name" value={f.name} placeholder="Имя фильтра" autoComplete="off" aria-label="Имя фильтра" onInput={(e) => setF({ ...f, name: e.currentTarget.value })} />
-          <input className="fe-q" data-f="q" value={q} placeholder="Найти: люди, проекты, машины…" autoComplete="off" aria-label="Найти в фильтре" onInput={(e) => setQ(e.currentTarget.value)} />
+          <In autoFocus={!base} className="fe-name" data-f="name" value={f.name} placeholder="Имя фильтра" autoComplete="off" aria-label="Имя фильтра" onInput={(e) => setF({ ...f, name: e.currentTarget.value })} />
+          <In className="fe-q" data-f="q" value={q} placeholder="Найти: люди, проекты, машины…" autoComplete="off" aria-label="Найти в фильтре" onInput={(e) => setQ(e.currentTarget.value)} />
           <div className="fe-fs">
             {fields
               .filter((x) => !ql || x.shown.length)
@@ -67,13 +67,13 @@ export function FilterEditor({ base, close }: { base: Filter | null; close(): vo
                     <b>{label}</b>
                     {sel.length ? <span>{String(sel.length)}</span> : null}
                   </div>
-                  <div className="fe-c">
+                  <Chips className="fe-c">
                     {shown.map(([v, l]) => (
-                      <button key={v} aria-pressed={String(sel.includes(v)) as "true" | "false"} data-v={v} onClick={() => setF({ ...f, [k]: sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v] })}>
+                      <Chip key={v} on={sel.includes(v)} data-v={v} onClick={() => setF({ ...f, [k]: sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v] })}>
                         {l}
-                      </button>
+                      </Chip>
                     ))}
-                  </div>
+                  </Chips>
                 </div>
               ))}
             {ql && !found ? <div className="fe-none">ничего</div> : null}

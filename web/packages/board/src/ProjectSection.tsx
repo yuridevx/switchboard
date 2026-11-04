@@ -1,6 +1,6 @@
 // Проект в списке: заголовок с ручкой, лампами и «+», меню имени и строки. И последняя строка списка — новый проект.
 import { memo, useState } from "react";
-import { Btn, Dot } from "@switchboard/web-ui";
+import { Btn, Dot, In } from "@switchboard/web-ui";
 import { useBoard } from "./store.ts";
 import type { Section } from "./model.ts";
 import { SessionRow } from "./SessionRow.tsx";
@@ -15,7 +15,7 @@ function ProjectMenu({ id, name }: { id: string; name: string }) {
   };
   return (
     <div className="pj-menu" data-menu={id}>
-      <input
+      <In
         autoFocus
         data-f="project-name"
         defaultValue={name}
@@ -58,7 +58,7 @@ export function NewProject() {
     setOn(false);
   };
   return (
-    <input
+    <In
       className="pj-newin"
       data-f="project-new"
       aria-label="Имя нового проекта"

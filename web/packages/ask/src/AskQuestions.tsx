@@ -1,6 +1,6 @@
 // Вопросы AskUserQuestion: варианты плитками, «Свой ответ» текстом, кнопка ответа. Выбор — местное состояние вопроса.
 import { useState } from "react";
-import { Cta } from "@switchboard/web-ui";
+import { Cta, In } from "@switchboard/web-ui";
 import { useAsk } from "./store.ts";
 import { isLocked, type Question, type Rec } from "./store.ts";
 
@@ -72,7 +72,7 @@ export function AskQuestions({ rec }: { rec: Rec }) {
               </span>
             </button>
             {ownOn.includes(q.question) ? (
-              <input className="ask-own" type="text" data-own={q.question} placeholder="Ваш ответ" disabled={locked} autoFocus value={own[q.question] ?? ""} onInput={(e) => setOwn({ ...own, [q.question]: e.currentTarget.value })} />
+              <In className="ask-own" type="text" data-own={q.question} placeholder="Ваш ответ" disabled={locked} autoFocus value={own[q.question] ?? ""} onInput={(e) => setOwn({ ...own, [q.question]: e.currentTarget.value })} />
             ) : null}
           </div>
         </div>

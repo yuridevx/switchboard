@@ -3,7 +3,7 @@
 // Текст — состояние этого компонента (курсор при наборе не прыгает); в хранилище уходит черновик, отказ отправки возвращает текст и вложения.
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
-import { useApp } from "@switchboard/web-ui";
+import { useApp, Btn, Area } from "@switchboard/web-ui";
 import { useChat, useConv } from "../context.ts";
 import type { Attachment } from "../state/chat.ts";
 import { toAttachment } from "./attach.ts";
@@ -150,11 +150,11 @@ export function Composer({ callsign }: { callsign: string }) {
   return (
     <div className="chat-under">
       {suggestion && !text ? (
-        <button type="button" className="chat-hint" onClick={() => pick(suggestion)}>
+        <Btn type="button" className="chat-hint" onClick={() => pick(suggestion)}>
           <Lightbulb size={13} />
           <span>{suggestion}</span>
           <kbd>Tab</kbd>
-        </button>
+        </Btn>
       ) : null}
       {suggest ? <SuggestList s={suggest} pick={pick} /> : null}
       <form
@@ -172,7 +172,7 @@ export function Composer({ callsign }: { callsign: string }) {
         }}
       >
         <Chips list={pending} drop={(a) => setPending((p) => p.filter((x) => x !== a))} />
-        <textarea
+        <Area
           ref={inp}
           className="chat-inp"
           rows={1}
@@ -209,10 +209,10 @@ export function Composer({ callsign }: { callsign: string }) {
           {canCall && mode ? <ModeSelect callsign={callsign} mode={mode} /> : null}
           <span className="chat-grow" />
           {busy && canCall ? (
-            <button type="button" className="chat-stop" onClick={() => void chat.call(callsign, "interrupt")}>
+            <Btn bad type="button" className="chat-stop" onClick={() => void chat.call(callsign, "interrupt")}>
               <Square size={11} />
               Прервать
-            </button>
+            </Btn>
           ) : null}
           <button className="chat-send" aria-label="Отправить" type="submit" disabled={!text.trim() && !pending.length}>
             <ArrowUp size={18} />

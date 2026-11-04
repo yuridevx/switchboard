@@ -1,7 +1,7 @@
 // Экраны входа и отказа: приложение не работает, причина и что делать. Один экран — один компонент; какой — по записи снимка ядра.
 import { useRef, useState } from "react";
 import { PROTO } from "@switchboard/relay";
-import { Btn, Cmd, Cta } from "@switchboard/web-ui";
+import { Btn, Cmd, Cta, In } from "@switchboard/web-ui";
 import type { Stop } from "../state.ts";
 import { useCore } from "./core.ts";
 
@@ -134,7 +134,7 @@ function KeyPrompt({ command }: { command: string }) {
       <p>Вход — только пропуском. Попросите агента флота выдать приглашение и откройте ссылку в этом приложении:</p>
       <Cmd>{command}</Cmd>
       <p>Или вставьте приглашение:</p>
-      <input className="sb-keyin" type="text" placeholder="приглашение или ссылка с #invite=" aria-label="Приглашение" ref={input} />
+      <In className="sb-keyin" type="text" placeholder="приглашение или ссылка с #invite=" aria-label="Приглашение" ref={input} />
       <Cta onClick={async () => setWhy((await core.acceptInvite(input.current?.value ?? "")) ?? "")}>Принять приглашение</Cta>
       <p role="alert">{why}</p>
     </>

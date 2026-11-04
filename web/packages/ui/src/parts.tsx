@@ -5,14 +5,37 @@ import { at, LIMIT_BAD, LIMIT_WARN, type Tone } from "./format.ts";
 
 const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
 
-/** Кнопка: pri — главная, bad — опасная, dash — необязательная. */
-export function Btn({ pri, bad, dash, className, ...p }: ComponentProps<"button"> & { pri?: boolean; bad?: boolean; dash?: boolean }) {
-  return <button {...p} className={cx("sb-b", pri && "pri", bad && "bad", dash && "dash", className)} />;
+/** Кнопка: pri — главная, bad — опасная, dash — необязательная, ghost — без рамки. */
+export function Btn({ pri, bad, dash, ghost, className, ...p }: ComponentProps<"button"> & { pri?: boolean; bad?: boolean; dash?: boolean; ghost?: boolean }) {
+  return <button {...p} className={cx("sb-b", pri && "pri", bad && "bad", dash && "dash", ghost && "ghost", className)} />;
+}
+
+/** Ряд чипов выбора: quiet — невыбранные без заливки. */
+export function Chips({ quiet, className, ...p }: ComponentProps<"div"> & { quiet?: boolean }) {
+  return <div {...p} className={cx("sb-chips", quiet && "quiet", className)} />;
+}
+
+/** Чип выбора: on — выбран. */
+export function Chip({ on, className, ...p }: ComponentProps<"button"> & { on: boolean }) {
+  return <button {...p} className={cx("sb-chip", className)} aria-pressed={on ? "true" : "false"} />;
+}
+
+/** Вкладки: tabs — [ключ, подпись]; вид — у className места. */
+export function Tabs<K extends string>({ tabs, cur, pick, ...p }: Omit<ComponentProps<"div">, "role"> & { tabs: ReadonlyArray<readonly [K, ReactNode]>; cur: K; pick(k: K): void }) {
+  return (
+    <div {...p} role="tablist">
+      {tabs.map(([k, label]) => (
+        <Btn key={k} role="tab" aria-selected={cur === k ? "true" : "false"} data-tab={k} onClick={() => pick(k)}>
+          {label}
+        </Btn>
+      ))}
+    </div>
+  );
 }
 
 /** Ссылка в виде кнопки. */
-export function LinkBtn({ pri, className, ...p }: ComponentProps<"a"> & { pri?: boolean }) {
-  return <a {...p} className={cx("sb-b", pri && "pri", className)} />;
+export function LinkBtn({ pri, ghost, className, ...p }: ComponentProps<"a"> & { pri?: boolean; ghost?: boolean }) {
+  return <a {...p} className={cx("sb-b", pri && "pri", ghost && "ghost", className)} />;
 }
 
 /** Широкая главная кнопка экрана. */
@@ -23,6 +46,11 @@ export function Cta({ className, ...p }: ComponentProps<"button">) {
 /** Поле ввода: mono — моноширинное. */
 export function In({ mono, className, ...p }: ComponentProps<"input"> & { mono?: boolean }) {
   return <input {...p} className={cx("sb-in", mono && "m", className)} />;
+}
+
+/** Многострочное поле. */
+export function Area({ className, ...p }: ComponentProps<"textarea">) {
+  return <textarea {...p} className={cx("sb-in", className)} />;
 }
 
 /**
@@ -161,7 +189,7 @@ export function Choices({ title, children }: { title: ReactNode; children: React
   return (
     <div className="vw-g">
       <span className="vw-t">{title}</span>
-      <div className="vw-c">{children}</div>
+      <Chips quiet>{children}</Chips>
     </div>
   );
 }

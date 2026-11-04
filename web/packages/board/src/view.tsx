@@ -1,6 +1,6 @@
 // Панель вида списка: каждая единица информации — свой переключатель.
 // Группа «Шапка» — экран card.view карточки в месте панели (только пульт): её настройки — у карточки.
-import { Choices, useApp } from "@switchboard/web-ui";
+import { Choices, useApp, Btn, Chip } from "@switchboard/web-ui";
 import { useBoard } from "./store.ts";
 import type { View } from "./rules.ts";
 
@@ -22,8 +22,7 @@ export function ViewPanel({ onClose }: { onClose(): void }) {
     <div className="bd-vw" role="dialog" aria-label="Вид списка" data-hide-tabs="">
       <div className="vw-h">
         <b>Вид списка</b>
-        <button
-          className="vw-x"
+        <Btn className="vw-x"
           data-act="view-reset"
           onClick={() => {
             board.resetView();
@@ -32,24 +31,24 @@ export function ViewPanel({ onClose }: { onClose(): void }) {
           }}
         >
           Вернуть
-        </button>
+        </Btn>
         {app.wide ? (
-          <button className="vw-x" aria-label="Закрыть" onClick={onClose}>
+          <Btn className="vw-x" aria-label="Закрыть" onClick={onClose}>
             ✕
-          </button>
+          </Btn>
         ) : (
-          <button className="vw-x pri" onClick={onClose}>
+          <Btn pri className="vw-x" onClick={onClose}>
             Готово
-          </button>
+          </Btn>
         )}
       </div>
       <div className="vw-b">
         {UNITS.map(([title, items]) => (
           <Choices key={title} title={title}>
               {items.map(([k, label, full]) => (
-                <button key={k} data-v={k} aria-label={full} aria-pressed={String(!!v[k]) as "true" | "false"} disabled={k === "group" && !v.projects} onClick={() => board.toggleView(k)}>
+                <Chip key={k} on={!!v[k]} data-v={k} aria-label={full} disabled={k === "group" && !v.projects} onClick={() => board.toggleView(k)}>
                   {label}
-                </button>
+                </Chip>
               ))}
             </Choices>
         ))}

@@ -4,6 +4,7 @@
 // Чего нет в contract машины — того нет на экране и в кадрах.
 import type { App, Ctx, Frame, Roster } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
+import type { ModelInfo } from "@switchboard/web-ui";
 import { accountChanges, createStore, isLive as stateIsLive, sessionLabel, sessionOf as findSession, linkText, type Result } from "@switchboard/web-ui";
 import { addIn, addMine, addSwap, applyEvents, dropItem, editMine, emptyFeed, withHistory, withOlder } from "./feed.ts";
 import type { Feed, UserItem } from "./types.ts";
@@ -13,7 +14,7 @@ import { exportMarkdown } from "./export.ts";
 export type Attachment = { name: string; media_type: string; data: string };
 export type Rewind = { uuid: string; text: string; tone: "" | "bad" | "ok"; ready: boolean };
 export type Command = { name: string; description?: string; argumentHint?: string };
-export type Model = { value: string; supportsAutoMode?: boolean };
+export type Model = ModelInfo;
 /** Что отправка вернула в поле: отказ session.prompt. id — чьё: второй такой же отказ тоже возвращает. */
 /** Вопрос сбоку: в разговор не попадает. Нет ни ответа, ни отказа — Claude думает. */
 export type Side = { id: string; q: string; a?: string; err?: string };
@@ -343,6 +344,8 @@ export function createChatStore(app: App) {
       edit(cs, (c) => void (c.commands = r.ok && Array.isArray(r.result) ? r.result : []));
     },
     /** Модели SDK — в снимок разговора: один запрос на разговор, а не на каждый показ экрана. */
+    /** Модели сессии для метки: ответ SDK за разговор. */
+    models: (cs: string) => read(cs).models,
     async loadModels(cs: string) {
       if (read(cs).models !== undefined) return;
       edit(cs, (c) => void (c.models = null));

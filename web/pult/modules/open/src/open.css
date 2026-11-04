@@ -43,9 +43,7 @@
 .op-pr .r1{display:flex;justify-content:space-between;gap:10px;font-size:13px}
 .op-pr .sp{font-size:12px;color:var(--muted);white-space:nowrap}
 .op-pr .r2{font-size:12px;color:var(--muted)}
-.op-opts{display:flex;flex-wrap:wrap;gap:4px;padding:2px 8px}
-.op-opts button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:3px 10px;font:500 12.5px var(--body)}
-.op-opts button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.op-opts{padding:2px 8px}
 .op-sw{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:6px 8px;font-size:13px}
 .op-sw button{width:34px;height:20px;border-radius:999px;background:var(--line);border:0;padding:0;position:relative;flex:none}
 .op-sw button::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:left .15s}
@@ -57,11 +55,9 @@
 .op:not(.wide) .op-dl{flex:none;overflow:visible}
 /* подвал шторки непрозрачен: список уходит под него и не торчит снизу */
 .op-done{position:sticky;bottom:8px;margin:8px;justify-content:center;box-shadow:0 0 0 8px var(--surface),0 calc(18px + env(safe-area-inset-bottom,0px)) 0 8px var(--surface)}
-@media (pointer:coarse){.op-opts button{min-height:32px}}
 .op-nm{flex:none}
-.op-rec{flex:none;display:flex;flex-wrap:wrap;gap:4px}
-.op-rec button{border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:3px 10px;font:500 12.5px var(--mono);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.op-rec button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.op-rec{flex:none}
+.op-rec .sb-chip{font:500 12.5px var(--mono);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .op-new{flex:none;font:500 12.5px var(--body);color:var(--muted)}
 .op:not(.wide) .op-rec{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
 .op:not(.wide) .op-rec button{flex:none}

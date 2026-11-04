@@ -1,6 +1,6 @@
 // Панель контекста: сколько занято, по частям; «Сжать» — команда /compact; субагенты; расход, сведения claude, правила разрешений, хуки; «Перечитать плагины». Открытая панель спрашивает session.call один раз.
 import { Archive, Gauge, RefreshCw } from "lucide-react";
-import { Meter, LIMIT_BAD, LIMIT_WARN } from "@switchboard/web-ui";
+import { Meter, LIMIT_BAD, LIMIT_WARN, Btn } from "@switchboard/web-ui";
 import { useChat } from "../context.ts";
 import { kTokens } from "../cards/format.ts";
 import { AboutSection, HooksSection, RulesSection, UsageSection, useMethod } from "./Sections.tsx";
@@ -41,7 +41,7 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
                 </div>
               ))}
           </dl>
-          <button
+          <Btn
             type="button"
             className="chat-mini"
             onClick={() => {
@@ -51,7 +51,7 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
           >
             <Archive size={13} />
             Сжать контекст
-          </button>
+          </Btn>
         </>
       ) : null}
       <UsageSection callsign={callsign} />
@@ -68,10 +68,10 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
           ))}
         </dl>
       ) : null}
-      <button type="button" className="chat-mini" onClick={() => void chat.reloadPlugins(callsign)}>
+      <Btn type="button" className="chat-mini" onClick={() => void chat.reloadPlugins(callsign)}>
         <RefreshCw size={13} />
         Перечитать плагины
-      </button>
+      </Btn>
     </section>
   );
 }

@@ -1,6 +1,6 @@
 // Над полем ввода: вопросы сбоку, задачи Claude, идущие в фоне и вопрос сессии. Каждая полоса выбирает своё и перерисовывается одна.
 import { useEffect, useState } from "react";
-import { useApp, useLoad, Markdown } from "@switchboard/web-ui";
+import { useApp, useLoad, Markdown, Btn } from "@switchboard/web-ui";
 import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
 import { useChat, useConv } from "../context.ts";
 import { Todos } from "../cards/tools/Todos.tsx";
@@ -81,15 +81,15 @@ function BackgroundRow({ t, callsign }: { t: Task; callsign: string }) {
         <span title={t.description}>{t.description || t.id}</span>
         {t.summary ? <em>{t.summary}</em> : null}
         {canCall && shell ? (
-          <button type="button" className="chat-mini" onClick={() => setOut(!out)}>
+          <Btn type="button" className="chat-mini" onClick={() => setOut(!out)}>
             {out ? "Скрыть" : "Вывод"}
-          </button>
+          </Btn>
         ) : null}
         {canCall ? (
-          <button type="button" className="chat-mini" onClick={() => void chat.call(callsign, "stopTask", [t.id])}>
+          <Btn type="button" className="chat-mini" onClick={() => void chat.call(callsign, "stopTask", [t.id])}>
             <Square size={11} />
             Стоп
-          </button>
+          </Btn>
         ) : null}
       </div>
       {out && canCall && shell ? <TaskOutputBox t={t} callsign={callsign} /> : null}
