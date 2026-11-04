@@ -27,6 +27,8 @@ export class FakeProc {
   noInterrupt = false;
   /** закрытие ввода не завершает процесс: выйдет только от kill */
   noClose = false;
+  /** и kill не завершает процесс: держатель не отвечает */
+  noKill = false;
   /** не отвечать на initialize: процесс выйдет до готовности */
   failInit = false;
   /** состояние хода, как его показал тест: на interrupt процесс сам отдаёт result и idle */
@@ -100,7 +102,7 @@ export class FakeProc {
           if (!this.noClose) this.exit(0);
         } else if (t === "k") {
           this.holders.ops.push({ op: "kill", id: this.id });
-          this.exit(null, "", "SIGKILL");
+          if (!this.noKill) this.exit(null, "", "SIGKILL");
         }
       }),
     );

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { check } from "@switchboard/manifest-gate";
 import { FakeHolders, FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { Stand } from "../stand/index.ts";
-import { STOP_MS } from "../src/kernel.ts";
+import { RESTART_WAIT_MS, STOP_MS } from "../src/kernel.ts";
 import type { Host, Module } from "../contract.ts";
 
 const stands: Stand[] = [];
@@ -303,6 +303,64 @@ describe("эталоны ядра Host", () => {
     await restarting;
     expect(site.state).toBe("stopped");
     expect(st.sdk.of("site@laptop")).toHaveLength(1);
+  });
+
+  it("7356 · процесс не вышел и от kill: за вторую ступень stop отказывает словом, а не висит", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; устав — отказ словом
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    p.noInterrupt = true;
+    p.noKill = true;
+    const stopping = site.stop().then(() => "ok", (e: Error) => e.message);
+    await until(() => p.interrupts === 1);
+    st.clock.advance(STOP_MS);
+    await until(() => st.holders.ops.some((o) => o.op === "kill"));
+    st.clock.advance(STOP_MS);
+    expect(await stopping).toContain("не вышел");
+    p.noKill = false;
+  });
+
+  it("7357 · ход не кончился за предел restart: перезапуск отменён с причиной в журнале, ход идёт дальше, его итог новый процесс не поднимает", async () => {
+    // источник: слово пользователя 4 нояб. — таймер с отменой, предел 6 часов
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    let done = false;
+    const restarting = site.restart().then(() => void (done = true));
+    st.clock.advance(RESTART_WAIT_MS - 1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(done).toBe(false);
+    st.clock.advance(1);
+    await restarting;
+    expect(lines(st, "restart_late")[0]).toMatchObject({ callsign: "site@laptop", why: expect.stringContaining("отменён") });
+    expect(site.state).toBe("busy");
+    expect(st.holders.ops.some((o) => o.op === "close_input" || o.op === "kill")).toBe(false);
+    p.send(msg.result());
+    p.send(msg.state("idle"));
+    await until(() => site.state === "idle");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(st.sdk.of("site@laptop")).toHaveLength(1);
+  });
+
+  it("7358 · ход кончился в пределе: перезапуск идёт, таймер предела снят", async () => {
+    // источник: слово пользователя 4 нояб.; чьё: код — restart между ходами
+    const st = await stand({ modules: [] });
+    const site = await st.open("site@laptop");
+    const p = st.proc("site@laptop");
+    p.send(msg.state("running"));
+    await until(() => site.state === "busy");
+    const restarting = site.restart();
+    st.clock.advance(RESTART_WAIT_MS - 1);
+    p.send(msg.result());
+    await restarting;
+    expect(st.sdk.of("site@laptop")).toHaveLength(2);
+    st.clock.advance(RESTART_WAIT_MS);
+    expect(lines(st, "restart_late")).toEqual([]);
   });
 
   it("5528 · сессия встала по сигналу ОС, Host остановился — новый Host поднимает её resume тем же разговором, без session.start", async () => {

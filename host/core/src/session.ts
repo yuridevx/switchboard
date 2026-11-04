@@ -4,7 +4,7 @@
 import type { HookCallbackMatcher, Options, Query, SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { QueryPart, Session, SessionState, StartKind, Store } from "../contract.ts";
 import type { Exited, HeldProcess } from "./holders.ts";
-import { handled, INIT_MS, MODULE_ERROR, START_MS, STOP_MS } from "./kernel.ts";
+import { handled, INIT_MS, MODULE_ERROR, RESTART_WAIT_MS, START_MS, STOP_MS } from "./kernel.ts";
 import type { Kernel, Mod } from "./kernel.ts";
 import { tildePath } from "./paths.ts";
 import { isRefusal, refuse } from "./refusal.ts";
@@ -349,19 +349,29 @@ export class Sess {
     this.proc = null;
   }
 
-  /** Ступень остановки с пределом: не дождались — процесс убит, ждущих отпускает его выход; не вышел и тогда — отказ словом. */
+  /** Ступень остановки с пределом: не дождались — процесс убит, ждущих отпускает его выход; не вышел и за предел после kill — отказ словом. */
   private orKill(wait: Promise<void>, what: string): Promise<void> {
     const k = this.k;
     return new Promise((done, refused) => {
-      const kill = k.clock.setTimeout(() => {
+      let timer = k.clock.setTimeout(() => {
         k.log("core", { kind: "stop", ev: "stop_late", callsign: this.callsign, why: `нет ${what} за ${STOP_MS / 1000} с — kill` });
         this.proc?.kill("SIGKILL");
+        timer = k.clock.setTimeout(() => refused(new Error(`${this.callsign}: процесс не вышел и через ${STOP_MS / 1000} с после kill`)), STOP_MS);
       }, STOP_MS);
-      const gone = k.clock.setTimeout(() => refused(new Error(`${this.callsign}: процесс не вышел и через ${STOP_MS / 1000} с после kill`)), 2 * STOP_MS);
       void wait.then(() => {
-        k.clock.clearTimeout(kill);
-        k.clock.clearTimeout(gone);
+        k.clock.clearTimeout(timer);
         done();
+      });
+    });
+  }
+
+  /** Конец хода, но не дольше предела restart: false — ход ещё идёт. */
+  private turnEnded(): Promise<boolean> {
+    return new Promise((done) => {
+      const late = this.k.clock.setTimeout(() => done(false), RESTART_WAIT_MS);
+      void this.nextResult().then(() => {
+        this.k.clock.clearTimeout(late);
+        done(true);
       });
     });
   }
@@ -398,7 +408,10 @@ export class Sess {
 
   async restart(): Promise<void> {
     if (!this.q) return this.start();
-    if (this.state === "busy" || this.state === "waiting") await this.nextResult();
+    if ((this.state === "busy" || this.state === "waiting") && !(await this.turnEnded())) {
+      this.k.log("core", { kind: "refuse", ev: "restart_late", callsign: this.callsign, why: `ход не кончился за ${RESTART_WAIT_MS / 3_600_000} ч — перезапуск отменён` });
+      return;
+    }
     // пока ждали конца хода, сессию начали закрывать: stop важнее перезапуска
     if (this.closing) return;
     this.closing = "restart";

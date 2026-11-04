@@ -214,7 +214,7 @@ export interface Session {
   input(content: SDKUserMessage["message"]["content"], opts?: InputOpts): void;
   /** Метод query() или функция SDK сессии (getSessionMessages, renameSession…) — имя из своих calls; id сессии и папку подставляет ядро. */
   sdk(name: string, ...args: unknown[]): Promise<unknown>;
-  /** Дождаться result идущего хода, close(), query() с resume. */
+  /** Дождаться result идущего хода, close(), query() с resume. Ход не кончился за предел — перезапуск отменён, причина в журнале, ход идёт дальше. */
   restart(): Promise<void>;
   /** interrupt → result → close(); state stopped, запись в списке остаётся. */
   stop(): Promise<void>;
