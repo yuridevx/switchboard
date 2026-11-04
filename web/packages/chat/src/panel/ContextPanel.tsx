@@ -52,6 +52,9 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
           </button>
         </>
       ) : null}
+      <UsageSection callsign={callsign} />
+      <AboutSection callsign={callsign} />
+      <HooksSection callsign={callsign} />
       {agents.length ? (
         <dl className="chat-pn-a">
           {agents.map((a) => (
@@ -62,9 +65,6 @@ export function ContextPanel({ callsign, close }: { callsign: string; close(): v
           ))}
         </dl>
       ) : null}
-      <UsageSection callsign={callsign} />
-      <AboutSection callsign={callsign} />
-      <HooksSection callsign={callsign} />
       <button type="button" className="chat-mini" onClick={() => void chat.reloadPlugins(callsign)}>
         <RefreshCw size={13} />
         Перечитать плагины
