@@ -314,7 +314,7 @@ describe("обзор точек", () => {
     const only = t.$('[data-only] [data-sid="old"]')!;
     expect(only.textContent).toContain("Удалить…");
     expect(only.textContent).toContain("Перенести на машину…");
-    expect(t.text()).toContain("не в R2 — точек и переноса у них нет");
+    expect(t.text()).toContain("не в R2");
     expect(t.text()).toMatch(/В R2 412 МБ · уборка \d+ окт\.? \d\d:\d\d — удалено 12 блоков, 10 МБ/);
   });
 

@@ -82,7 +82,7 @@ describe("выбор режима", () => {
     const { relay } = bench("bypassPermissions", { setPermissionMode: "refuse" });
     const t = await chat(CS, { relay, wide: true });
     await pick(select(t)!, "plan");
-    expect(t.$(".sb-toast")!.textContent).toContain("sdk_error");
+    expect(t.$(".sb-toast")!.textContent).toContain("Claude отказал");
     expect(select(t)!.value).toBe("bypassPermissions");
   });
 
@@ -121,6 +121,7 @@ describe("карточка инструмента", () => {
     const card = t.$('.chat-tool[data-tool="Bash"]')!;
     expect(card.getAttribute("data-state")).toBe("wait");
     expect(card.querySelector(".tc-st")!.textContent).toBe("ждёт разрешения");
+    expect(t.text()).not.toContain("выполнится");
     expect(card.textContent).not.toContain("В фон");
   });
 
@@ -148,6 +149,9 @@ describe("карточка инструмента", () => {
       expect(card.getAttribute("data-state")).toBe("denied");
       expect(card.querySelector(".tc-st")!.textContent).toBe("отклонено");
     }
+    await t.click(t.$('.chat-tool[data-tool="Bash"] .tc-h')!);
+    expect(t.$('.chat-tool[data-tool="Bash"] .tb-pre:not(.muted)')!.textContent).toBe("не трогай");
+    expect(t.text()).not.toContain("doesn't want");
   });
 });
 
@@ -209,7 +213,7 @@ describe("правила в панели контекста", () => {
     const refused = bench("default", { listPermissionRules: "refuse" });
     const u = await chat(CS, { relay: refused.relay, wide: true });
     await open(u);
-    expect(u.$('[data-sec="rules"] .bad')!.textContent).toBe("sdk_error");
+    expect(u.$('[data-sec="rules"] .bad')!.textContent).toBe("Claude отказал, причина в журнале машины");
   });
 });
 
@@ -363,7 +367,7 @@ describe("панель контекста на одном ходе к метод
     const t = await chat(CS, { relay, wide: true });
     await t.click(t.btn(".chat-bar", "контекст")!);
     await flush(10);
-    expect(t.$(".chat-panel > .bad")!.textContent).toBe("sdk_error");
+    expect(t.$(".chat-panel > .bad")!.textContent).toBe("Claude отказал, причина в журнале машины");
     expect(t.$(".sb-toast")!.hidden).toBe(true);
     expect(asked.filter((m) => m === "getContextUsage")).toHaveLength(1);
   });

@@ -209,7 +209,7 @@ describe("откат файлов", () => {
     });
     await t.click(t.btn(".chat-feed", "откатить файлы"));
     await t.click(t.btn(".chat-rwc", "Откатить"));
-    expect(t.$(".chat-rwc")!.textContent).toBe("Не откатилось: offline");
+    expect(t.$(".chat-rwc")!.textContent).toBe("Не откатилось: pc не на связи");
   });
 
   it("4109 · «Отмена» после пробы — строка пробы убрана, отката нет", async () => {

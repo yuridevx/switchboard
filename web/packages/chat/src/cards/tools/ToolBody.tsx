@@ -6,6 +6,7 @@ import { isHtmlDocument } from "../../state/parse.ts";
 import type { Task, Tool } from "../../state/types.ts";
 import { baseName } from "../format.ts";
 import { Diff } from "./Diff.tsx";
+import { isRefused, refusalReason } from "./kinds.tsx";
 import { SubAgent } from "./SubAgent.tsx";
 import { Todos } from "./Todos.tsx";
 
@@ -15,17 +16,22 @@ function Pre({ text, tone }: { text: string; tone?: "bad" | "muted" }) {
   return <pre className={tone ? `tb-pre ${tone}` : "tb-pre"}>{text || "—"}</pre>;
 }
 
-/** Ошибка инструмента со своим телом: ошибки — словами. */
-const Failed = ({ t }: { t: Tool }) => (t.result?.isError ? <Pre text={t.result.text} tone="bad" /> : null);
+/** Ошибка инструмента со своим телом: ошибки — словами; у отказа человека — только его причина. */
+function Failed({ t }: { t: Tool }) {
+  if (!t.result?.isError) return null;
+  if (!isRefused(t.result.text)) return <Pre text={t.result.text} tone="bad" />;
+  const why = refusalReason(t.result.text);
+  return why ? <Pre text={why} /> : null;
+}
 
 /** Вывод инструмента; ошибка — красным; картинки — следом. */
 function Result({ t }: { t: Tool }) {
   const v = useCards();
   const asking = v.useAsking(t.id);
-  if (!t.result) return <div className="tb-wait">{asking ? "выполнится после разрешения" : "ждём результата…"}</div>;
+  if (!t.result) return asking ? null : <div className="tb-wait">ждём результата…</div>;
   return (
     <>
-      {t.result.text || !t.result.images.length ? <Pre text={t.result.text || "без вывода"} tone={t.result.isError ? "bad" : undefined} /> : null}
+      {t.result.isError ? <Failed t={t} /> : t.result.text || !t.result.images.length ? <Pre text={t.result.text || "без вывода"} /> : null}
       {t.result.images.map((u, i) => (
         <img key={i} className="tb-img" src={u} alt={`картинка ${i + 1}`} />
       ))}

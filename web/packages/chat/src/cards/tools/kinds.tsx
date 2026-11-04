@@ -9,6 +9,10 @@ export type Kind = { icon: ReactNode; label: string; summary: string; open?: boo
 type Named = { name: string; input: ToolInput; result?: Tool["result"] };
 
 const I = 15;
+/** Отказ человека словами claude — не «Permission denied» в выводе команды. */
+export const isRefused = (text: string) => /^(The user doesn't want to proceed|User rejected|Permission to use .+ has been denied)/.test(text);
+/** Причина человека без обёртки claude; нет причины — пусто: отказ уже назван в шапке карточки. */
+export const refusalReason = (text: string) => /Reason: ([\s\S]*)$/.exec(text)?.[1].trim() ?? "";
 export const isAgent = (t: Named) => t.name === "Task" || t.name === "Agent";
 export const isShell = (t: Named) => t.name === "Bash" || t.name === "PowerShell";
 const todosLine = (t?: ToolInput["todos"]) => (Array.isArray(t) ? `${t.filter((x) => x.status === "completed").length} из ${t.length} готово` : "");

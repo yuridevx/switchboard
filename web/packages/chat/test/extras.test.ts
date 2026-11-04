@@ -60,7 +60,7 @@ describe("вопрос сбоку", () => {
     await t.type("/btw что?");
     await t.click(t.$(".chat-send"));
     expect(t.$(".chat-side")!.getAttribute("data-state")).toBe("bad");
-    expect(t.$(".chat-side")!.textContent).toContain("sdk_error");
+    expect(t.$(".chat-side")!.textContent).toContain("Claude отказал, причина в журнале машины");
     expect(t.$(".sb-toast")?.textContent ?? "").toBe("");
   });
 
@@ -234,7 +234,7 @@ describe("панель контекста", () => {
     const t = await chat(CS, { relay, wide: true });
     await open(t);
     expect(t.$('[data-sec="claude"]')).toBeNull();
-    expect(t.$('[data-sec="hooks"]')!.textContent).toContain("sdk_error");
+    expect(t.$('[data-sec="hooks"]')!.textContent).toContain("Claude отказал");
     expect(t.$(".sb-toast")?.textContent ?? "").toBe("");
   });
 

@@ -50,10 +50,12 @@ export function AskQuestions({ rec }: { rec: Rec }) {
     <>
       {rec.questions.map((q, i) => (
         <div key={q.question} className="ask-q">
-          <div className="ask-qh">
-            {q.header ? <span className="ask-chip">{q.header}</span> : <span />}
-            <span className="ask-qn">{`вопрос ${i + 1} из ${rec.questions.length}`}</span>
-          </div>
+          {q.header || rec.questions.length > 1 ? (
+            <div className="ask-qh">
+              {q.header ? <span className="ask-chip">{q.header}</span> : <span />}
+              {rec.questions.length > 1 ? <span className="ask-qn">{`вопрос ${i + 1} из ${rec.questions.length}`}</span> : null}
+            </div>
+          ) : null}
           <div className="ask-qt">{q.question}</div>
           <div className="ask-opts">
             {q.options.map((o) => (
@@ -67,7 +69,6 @@ export function AskQuestions({ rec }: { rec: Rec }) {
             <button className="ask-opt own" aria-pressed={ownOn.includes(q.question) ? "true" : "false"} disabled={locked} onClick={() => toggleOwn(q)}>
               <span>
                 <b>Свой ответ</b>
-                <span>Написать сессии текстом</span>
               </span>
             </button>
             {ownOn.includes(q.question) ? (

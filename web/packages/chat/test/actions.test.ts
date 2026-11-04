@@ -569,7 +569,7 @@ describe("action-chat-rewind", () => {
     await t.click(t.btn(".chat-rwc", "Отмена"));
     relay.handlers["session.call"] = () => ({ ok: false, error: "offline" });
     await t.click(t.$$(".chat-rw")[0]);
-    expect(t.$(".chat-rwc")!.textContent).toBe("Откатить нельзя: offline");
+    expect(t.$(".chat-rwc")!.textContent).toBe("Откатить нельзя: pc не на связи");
     expect(t.btn(".chat-rwc", "Откатить")).toBeNull();
   });
 
@@ -624,7 +624,7 @@ describe("action-chat-view", () => {
     relay.handlers["session.call"] = () => ({ ok: false, error: "stopped" });
     const t = await chat(IDLE, { relay, wide: true });
     await t.click(panelBtn(t));
-    expect(t.$(".chat-panel > .bad")!.textContent).toBe("stopped");
+    expect(t.$(".chat-panel > .bad")!.textContent).toBe("сессия остановлена");
     expect(t.$(".chat-panel")).not.toBeNull();
   });
 

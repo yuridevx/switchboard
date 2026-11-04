@@ -92,13 +92,13 @@ export function OverviewScreen() {
         <Note>{`· ${only.length} только в R2`}</Note>
       </Opts>
       <Sec>
-        <H4>Последняя точка — давнее всех сверху</H4>
+        <H4>Последняя точка</H4>
         {inR2.map((s) => (
           <R2Row key={s.sid} s={s} save={save} />
         ))}
         {inR2.length ? null : <Note>Сессий в R2 на связи нет.</Note>}
       </Sec>
-      {outside.length ? <Note>{`${outside.join(", ")} не в R2 — точек и переноса у них нет; включить — вкладка «Точки» сессии.`}</Note> : null}
+      {outside.length ? <Note>{`${outside.join(", ")} не в R2`}</Note> : null}
       <OnlySection only={only} />
       <Note>
         {`В R2 ${mb(fleet.r2.bytes)}`}

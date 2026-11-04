@@ -128,6 +128,7 @@ export function createChatStore() {
   function refusalText(cs: string, word: string): string {
     if (word === "offline") return `${machineOf(cs)} не на связи`;
     if (word === "stopped") return "сессия остановлена";
+    if (word === "sdk_error") return "Claude отказал, причина в журнале машины";
     return word;
   }
 
@@ -137,8 +138,11 @@ export function createChatStore() {
       if (it?.kind === "user") change(it);
     });
 
-  /** Метод query() сессии как есть: отказ словом достаётся вызывающему. */
-  const ask = <T,>(cs: string, method: string, args: unknown[] = []) => app.request<T>("session.call", { callsign: cs, method, args }) as Promise<Answer<T>>;
+  /** Метод query() сессии как есть: отказ словом для человека достаётся вызывающему. */
+  const ask = async <T,>(cs: string, method: string, args: unknown[] = []) => {
+    const r = (await app.request<T>("session.call", { callsign: cs, method, args })) as Answer<T>;
+    return r.ok ? r : { ...r, error: refusalText(cs, r.error) };
+  };
 
   /** Ход идёт: ввод ждёт в очереди, ход можно прервать. Сессия, ждущая человека, — тоже посреди хода. */
   const inTurn = (cs: string) => {

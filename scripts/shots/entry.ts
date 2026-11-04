@@ -139,12 +139,15 @@ const asks: Array<Record<string, unknown>> = [];
   asks.push(q);
   relay.push({ type: "session.events", from: q.from, seq: 950 + asks.length, events: [{ type: "assistant", uuid: `perm-${q.question}`, message: { id: `perm-${q.question}`, model: "claude-opus-5-5", content: [{ type: "tool_use", id: q.question, name: q.tool, input: q.input }] } }] });
   relay.push({ type: "question", to: ["pult", "phone"], ...q });
-  relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === q.from ? { ...x, state: "waiting" } : x)) } as never);
+  relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === q.from ? { ...x, state: "waiting", mode: q.tool === "ExitPlanMode" ? "plan" : "default" } : x)) } as never);
 };
 h["question.list"] = (f) => ({ ok: true, result: [...F.ss.filter((s) => s.cs === f.callsign && s.q).map(Q), ...asks.filter((q) => q.from === f.callsign)] });
 h["answer"] = (f) => {
   const i = asks.findIndex((q) => q.question === f.question);
-  if (i >= 0) asks.splice(i, 1);
+  if (i >= 0) {
+    relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === asks[i].from ? { ...x, state: "busy" } : x)) } as never);
+    asks.splice(i, 1);
+  }
   return { ok: true };
 };
 h["session.watch"] = () => ({ ok: true });

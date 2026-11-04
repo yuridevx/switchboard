@@ -6,13 +6,11 @@ import { useNow } from "@switchboard/web-ui";
 import { useCards } from "../../context.ts";
 import type { Task, Tool } from "../../state/types.ts";
 import { DiffCount } from "./Diff.tsx";
-import { isAgent, isShell, kindOf } from "./kinds.tsx";
+import { isAgent, isRefused, isShell, kindOf } from "./kinds.tsx";
 import { ToolBody } from "./ToolBody.tsx";
 
 /** Результат «ушла в фон» — и в истории, где задач claude уже нет. */
 const BG_RESULT = /^(Async agent launched|Command running in background|Command was manually backgrounded)/;
-/** Отказ человека словами claude — не «Permission denied» в выводе команды. */
-const REFUSED = /^(The user doesn't want to proceed|User rejected|Permission to use .+ has been denied)/;
 
 type State = "wait" | "running" | "bg" | "stopped" | "ok" | "denied" | "error";
 
@@ -22,13 +20,13 @@ function stateOf(t: Tool, asking: boolean, task?: Task): State {
   if (task?.background && task.status === "running") return "bg";
   if (!t.result) return "running";
   if (!t.result.isError) return "ok";
-  return REFUSED.test(t.result.text) ? "denied" : "error";
+  return isRefused(t.result.text) ? "denied" : "error";
 }
 
-function StateMark({ st, secs }: { st: State; secs?: number }) {
+function StateMark({ st, secs, plan }: { st: State; secs?: number; plan: boolean }) {
   switch (st) {
     case "wait":
-      return <em className="tc-st wait">ждёт разрешения</em>;
+      return <em className="tc-st wait">{plan ? "ждёт одобрения" : "ждёт разрешения"}</em>;
     case "running":
       return (
         <em className="tc-st run">
@@ -112,7 +110,7 @@ export function ToolCard({ id }: { id: string }) {
         {t.name === "Edit" || t.name === "MultiEdit" ? <DiffCount t={t} /> : null}
         {wentBg ? <span className="tc-chip">в фоне</span> : null}
         {isAgent(t) && t.input.subagent_type ? <span className="tc-chip">{t.input.subagent_type}</span> : null}
-        {t.name === "TodoWrite" && st === "ok" ? null : <StateMark st={st} secs={t.secs} />}
+        {t.name === "TodoWrite" && st === "ok" ? null : <StateMark st={st} secs={t.secs} plan={t.name === "ExitPlanMode"} />}
         {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
       </button>
       {task?.status === "running" ? <TaskBar task={task} t={t} /> : !task && st === "running" && isShell(t) && v.background ? (

@@ -106,3 +106,4 @@ code{font-family:var(--mono)}
 .vw-c button{border:1px solid var(--line);border-radius:999px;padding:3px 10px;font:500 12.5px var(--body);background:transparent;color:var(--muted)}
 .vw-c button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
 .vw-c button:disabled{opacity:.45;cursor:default}
+@media (pointer:coarse){.vw-c button{min-height:32px}}

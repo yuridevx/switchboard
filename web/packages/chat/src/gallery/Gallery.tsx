@@ -50,11 +50,11 @@ function OwnStates() {
         {row("Связь оборвалась", <MeCard it={{ kind: "user", id: "q4", text: "Задеплой на стенд", images: [], files: ["report.txt"], at, state: "lost" }} />)}
         {row("Вопрос сбоку: думает", <SideCard s={{ id: "s1", q: "какая версия на тесте?" }} drop={noop2} />)}
         {row("Вопрос сбоку: ответ", <SideCard s={{ id: "s2", q: "какая версия на тесте?", a: "На тесте **2.0.0+5**, на проде 2.0.0+3." }} drop={noop2} />)}
-        {row("Вопрос сбоку: отказ", <SideCard s={{ id: "s3", q: "какая версия на тесте?", err: "sdk_error" }} drop={noop2} />)}
+        {row("Вопрос сбоку: отказ", <SideCard s={{ id: "s3", q: "какая версия на тесте?", err: "Claude отказал, причина в журнале машины" }} drop={noop2} />)}
         {row("Вывод задачи", <OutputView data={{ output: "VITE ready in 412 ms\n  Local: http://localhost:5173/", total_bytes: 512, truncated: false }} />)}
         {row("Вывод задачи: длинный", <OutputView data={{ output: "… 4187 passed\nTests 215 passed", total_bytes: 20480, truncated: true }} />)}
         {row("Вывод задачи: пока пусто", <OutputView data={{ output: "", total_bytes: 0, truncated: false }} />)}
-        {row("Вывод задачи: отказ", <OutputView error="no_task" />)}
+        {row("Вывод задачи: отказ", <OutputView error="wsl не на связи" />)}
       </CardsCtx.Provider>
     </section>
   );
