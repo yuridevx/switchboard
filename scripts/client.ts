@@ -36,7 +36,7 @@ export function client(key: string, o: { onFrame?: (f: Frame) => void; machine?:
     get roster() {
       return [...c.links().values()].some((l) => l.state === "open") ? c.roster : null;
     },
-    request: (f) => c.request(f),
+    request: (f, read) => c.request(f, read),
     send: (f) => c.send(f),
     close: (code, reason) => c.close(code, reason),
     links: () => c.links(),
