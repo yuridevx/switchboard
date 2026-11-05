@@ -2065,6 +2065,24 @@ describe("Вам", () => {
     expect(t.$('[data-kind="fail"] .ib-lb')!.textContent).toBe("не запустилась");
     expect(t.$('[data-kind="wait"] .ib-lb')!.textContent).toBe("ждёт сброса лимита");
   });
+
+  it("D-1 · «Почему» на телефоне ведёт к причине: «Ещё» со строкой сбоя; на пульте причина — на плашке карточки", async () => {
+    // источник: спорное место сноса, опыт: кнопка «Почему» открывала чат, причины на экране не было
+    const open = async (wide: boolean) => {
+      const relay = new FakeRelay(fleet());
+      relay.handlers["session.watch"] = () => ({ ok: true });
+      relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
+      relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+      const t = await stand(parts(), { relay, url: "/#inbox", wide, options: wide ? { beside: { card: "board" } } : {} });
+      await t.click([...t.$('[data-kind="fail"]')!.querySelectorAll("button")].find((b) => b.textContent === "Почему")!);
+      await flush(5);
+      return t;
+    };
+    const phone = await open(false);
+    expect(phone.$(".card-info")!.textContent).toContain("сбойhost: процесс claude завершился дважды до готовности");
+    const wide = await open(true);
+    expect(wide.$(".cw-pl b")!.textContent).toBe("Не запустилась: host: процесс claude завершился дважды до готовности");
+  });
 });
 
 describe("Вам: виды карточек", () => {

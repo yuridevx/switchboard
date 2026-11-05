@@ -1,6 +1,8 @@
 // Окна шапки широкой карточки: модель и усилие, аккаунт и лимиты, меню «⋯».
 import { useEffect } from "react";
 import type { SessionRecord } from "@switchboard/web-core";
+import type {} from "@switchboard/web-ask";
+import type {} from "@switchboard/web-chat";
 import { type AccountsAnswer, Btn, EFFORTS, incidentOf, isLive, LIMIT_NAMES, LimitRow, type ModelInfo, MODELS, Note, profileNameOf, remoteOf, RowBtn, slotOf, useApp } from "@switchboard/web-ui";
 
 /** Строка «подпись — значение» списка сведений. */

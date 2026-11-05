@@ -118,7 +118,8 @@ const SessionCard = memo(function SessionCard({ kind, callsign, at }: { kind: Ki
             <Btn pri onClick={() => void inbox.restart(callsign)}>
               Запустить снова
             </Btn>
-            <Btn onClick={open}>Почему</Btn>
+            {/* причина на телефоне — во вкладке «Ещё», на пульте — на плашке карточки */}
+            <Btn onClick={() => app.open("card", { callsign, ...(app.wide ? {} : { tab: "info" }) })}>Почему</Btn>
           </div>
         </Frame>
       );
