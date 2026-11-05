@@ -1867,16 +1867,8 @@ describe("договор модуля на стенде", () => {
     await until(() => st.states("site@laptop").at(-1)?.remote === "https://claude.ai/code/session_x");
   });
 
-  it("регрессия: calls — все методы Query SDK 0.3.311, включая usage_EXPERIMENTAL…; стенд их записывает", async () => {
+  it("регрессия: usage_EXPERIMENTAL… и claudeOAuth — методы query: проба зовёт их, стенд записывает", async () => {
     const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
-    const { readFileSync: rf } = await import("node:fs");
-    const { createRequire } = await import("node:module");
-    const d = rf(join(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"), "..", "sdk.d.ts"), "utf8");
-    const q = d.slice(d.indexOf("export declare interface Query extends"));
-    const methods = [...q.slice(0, q.search(/\r?\n\}/)).matchAll(/^    ([a-zA-Z_]+)\(/gm)].map((m) => m[1]);
-    const { CORE_ONLY, QUERY_METHODS } = await import("../src/calls.ts");
-    expect(methods).toContain(USAGE);
-    expect(methods.filter((m) => !QUERY_METHODS.has(m) && !CORE_ONLY.has(m))).toEqual([]);
     const acc = module("host-accounts", {}, { calls: [USAGE, "claudeOAuthWaitForCompletion", "claudeAuthenticate"] });
     const st = await stand({ modules: [acc] });
     expect(st.startError).toBeNull();
@@ -2879,5 +2871,213 @@ describe("история после сжатия", () => {
     write(a);
     expect(await whole()).toEqual(await getSessionMessages(SID, { dir }));
     expect(uuids(await whole({ limit: 2 }))).toEqual(["a0", "a1"]);
+  });
+});
+
+describe("формат и порядок: их читают новый Host и модули", () => {
+  it("запись ядра в core.json: поля и форк — формат заморожен: его читает следующий Host", async () => {
+    // источник: устав «начинает с хранилища»; формат — живые данные на машинах; чьё: код
+    const st = await stand({ modules: [] });
+    const a = await st.open("a@laptop", { cwd: st.home });
+    a.input("x", { from: "phone~u@e" });
+    st.proc("a@laptop").send(msg.state("running"));
+    await until(() => a.state === "busy");
+    const fork = await st.kernel.open({ callsign: "fork@laptop", cwd: st.home, resume: "orig", fork: true });
+    await st.kernel.open({ callsign: "pt@laptop", cwd: st.home, resume: "ptid", point: 5 });
+    expect(core(st)).toEqual([
+      { callsign: "a@laptop", cwd: st.home, session_id: a.info.session_id, sdk: "0.3.311", stopped: false, state: "busy", from: "phone~u@e" },
+      { callsign: "fork@laptop", cwd: st.home, session_id: fork.rec.session_id, sdk: "0.3.311", stopped: false, fork: "orig", state: "idle" },
+      { callsign: "pt@laptop", cwd: st.home, session_id: "ptid", sdk: "0.3.311", stopped: false, state: "idle" },
+    ]);
+    expect(lines(st, "launch").map((l) => l.start)).toEqual(["spawn", "fork", "point"]);
+    expect(fork.startKind).toBe("resume");
+  });
+
+  it("запись roster: callsign, state, sdk, dir, by, failed и поля модулей", async () => {
+    // источник: устав «Roster — из attachments живых соединений»; порядок ключей — чьё: код
+    const st = await stand({ modules: [module("host-t", { fields: { tag: () => "t" }, on: { event: () => { throw new Error("бах"); } } })] });
+    const s = await st.open(CS, { cwd: st.home });
+    s.input("x", { from: "phone~u@e" });
+    st.proc(CS).send(msg.assistant("a"));
+    await until(() => st.states(CS).at(-1)?.failed);
+    expect(Object.keys(st.states(CS).at(-1)!).sort()).toEqual(["by", "callsign", "dir", "failed", "sdk", "state", "type"]);
+  });
+
+  it("порядок вызовов модуля: session до состояния, on.state до on.event и on.open; on.close до нового старта", async () => {
+    // источник: чьё: код — модули читают s.state в этих вызовах
+    const ev: string[] = [];
+    const m = module("host-w", {
+      session: (s) => void ev.push(`session ${s.state} ${s.info.start}`),
+      on: {
+        open: (s) => void ev.push(`open ${s.state}`),
+        close: (s) => void ev.push(`close ${s.state}`),
+        state: (_s, x) => void ev.push(`state ${x}`),
+        event: (s, x) => void ev.push(`event ${x.type} ${s.state}`),
+      },
+    });
+    const st = await stand({ modules: [m] });
+    const s = await st.open(CS);
+    expect(ev.splice(0)).toEqual(["session starting spawn", "state idle", "open idle"]);
+    turn(st.proc(CS));
+    await until(() => ev.filter((x) => x.startsWith("event")).length === 4);
+    expect(ev.splice(0)).toEqual(["state busy", "event system busy", "event assistant busy", "event result busy", "state idle", "event system idle"]);
+    st.holders.failInitNext = 1;
+    st.proc(CS).exit(1, "первый");
+    await until(() => st.holders.procs.get(CS)?.initializes === 1 && st.sdk.of(CS).length === 2);
+    expect(ev.splice(0)).toEqual(["close idle", "state starting", "session starting resume"]);
+    st.proc(CS).exit(1, "второй");
+    await until(() => s.state === "failed");
+    expect(ev.splice(0)).toEqual(["close starting", "state failed"]);
+  });
+
+  it("s.start: первый сбой до готовности — отказ словами и один resume; второй — failed", async () => {
+    // источник: контракт Session.start; устав «процесс claude умер — один resume»; так же, как host.open (719)
+    const st = await stand({ modules: [] });
+    const s = await st.open(CS);
+    await s.stop();
+    st.holders.failInitNext = 2;
+    const starting = s.start();
+    await until(() => st.holders.procs.get(CS)?.initializes === 1);
+    st.proc(CS).exit(1, "первый");
+    await expect(starting).rejects.toThrow("процесс вышел до initialize");
+    await until(() => st.sdk.of(CS).length === 3 && st.holders.procs.get(CS)?.initializes === 1);
+    st.proc(CS).exit(1, "второй");
+    await until(() => s.state === "failed");
+  });
+
+  it("ввод остановленной сессии ждёт: дошёл после s.start; повторный stop ничего не делает", async () => {
+    // источник: контракт Session.input «Очередь живёт в ядре и переживает resume»
+    const st = await stand({ modules: [] });
+    const s = await st.open(CS);
+    await s.stop();
+    s.input("после стопа");
+    await s.start();
+    await until(() => st.proc(CS).inputs.length === 1);
+    expect(st.proc(CS).inputs[0].message.content).toBe("после стопа");
+    expect(st.proc(CS).inputs[0].parent_tool_use_id).toBeNull();
+    await s.stop();
+    await s.stop();
+    expect(lines(st, "stop").length).toBeGreaterThanOrEqual(2);
+    expect(s.state).toBe("stopped");
+  });
+});
+
+describe("вклады двух модулей и опции query", () => {
+  it("у ключа один владелец: сервер MCP, settings, опция — отказ open с именем ключа", async () => {
+    // источник: устав «у… MCP-сервера, ключа env… — один модуль; двое — Host не стартует»; слова — чьё: код
+    const a = module("host-a", { session: () => ({ mcpServers: { x: { type: "sdk", name: "x" } as never }, settings: { t: 1 }, model: "m" }) });
+    for (const [key, value, why] of [
+      ["mcpServers", { x: { type: "sdk", name: "x" } }, "MCP-сервер x: два владельца — host-a и host-b"],
+      ["settings", { t: 2 }, "settings t: два владельца — host-a и host-b"],
+      ["model", "n", "опция model: два владельца — host-a и host-b"],
+    ] as const) {
+      const st = await stand({ modules: [a, module("host-b", { session: () => ({ [key]: value }) })] });
+      await expect(st.open(CS)).rejects.toThrow(why);
+    }
+  });
+
+  it("строки промпта и хуки складываются по порядку модулей; прочая опция — как есть; окружение машины идёт процессу", async () => {
+    // источник: контракт QueryPart «Хуки и append складываются списком»; разделитель — чьё: код
+    const h = async () => ({});
+    const st = await stand({ modules: [module("host-a", { session: () => ({ append: "A", foo: 1, hooks: { Stop: [{ hooks: [h] }] } }) }), module("host-b", { session: () => ({ append: "B", hooks: { Stop: [{ hooks: [h] }] } }) })] });
+    await st.open(CS);
+    const o = st.query(CS).options as Record<string, any>;
+    expect(o.systemPrompt).toEqual({ type: "preset", preset: "claude_code", append: "A\n\nB" });
+    expect(o.foo).toBe(1);
+    expect(o.hooks.Stop).toHaveLength(2);
+    const plain = await stand({ modules: [] });
+    await plain.open(CS);
+    expect(plain.query(CS).options).toMatchObject({ mcpServers: {}, hooks: {}, systemPrompt: { type: "preset", preset: "claude_code" } });
+    process.env.SWITCHBOARD_PROBE_ENV = "1";
+    const later = await stand({ modules: [] });
+    await later.open(CS);
+    expect(later.query(CS).options.env!.SWITCHBOARD_PROBE_ENV).toBe("1");
+    delete process.env.SWITCHBOARD_PROBE_ENV;
+  });
+
+  it("calls: каждый метод Query SDK либо разрешён, либо держит ядро; функции сессии — с её id и папкой; прочего нет в SDK", async () => {
+    // источник: устав «только документированные интерфейсы… исключения»; вход: sdk.d.ts закреплённой версии
+    const { createRequire } = await import("node:module");
+    const d = readFileSync(join(createRequire(import.meta.url).resolve("@anthropic-ai/claude-agent-sdk"), "..", "sdk.d.ts"), "utf8");
+    const q = d.slice(d.indexOf("export declare interface Query extends"));
+    const methods = [...q.slice(0, q.search(/\r?\n\}/)).matchAll(/^    ([a-zA-Z_]+)\(/gm)].map((m) => m[1]);
+    expect(methods.length).toBeGreaterThan(20);
+    const st = await stand({ modules: methods.map((m, i) => module(`host-${i}`, {}, { calls: [m] })) });
+    for (const l of lines(st, "module_failed")) expect(l.why).toContain("метод держит ядро");
+
+    const fns = module("host-f", {}, { calls: ["getSessionInfo", "tagSession", "forkSession", "deleteSession", "listSubagents", "getSubagentMessages"] });
+    const st2 = await stand({ modules: [fns] });
+    expect(lines(st2, "module_failed")).toEqual([]);
+    await st2.open(CS);
+    const s = st2.session("host-f", CS)!;
+    for (const [name, ...args] of [["getSessionInfo"], ["tagSession", "t"], ["forkSession"], ["deleteSession"], ["listSubagents"], ["getSubagentMessages", "ag"]] as Array<[string, ...unknown[]]>) {
+      await s.sdk(name, ...args);
+      expect(st2.sdk.fnCalls.at(-1)).toEqual({ name, args: [s.info.session_id, ...args, { dir: s.info.cwd }] });
+    }
+    const st3 = await stand({ modules: [module("host-g", {}, { calls: ["listSessions"] })] });
+    expect(lines(st3, "module_failed")[0].why).toContain("calls listSessions — такого метода нет в SDK");
+  });
+});
+
+describe("связь: то, что дотягивается только снаружи", () => {
+  it("Host глазами модуля: машина, папка данных, версия выпуска, версия SDK", async () => {
+    // источник: контракт Host
+    let host!: Host;
+    const st = await stand({ modules: [module("host-a", { start: (h) => void (host = h) })] });
+    expect({ machine: host.machine, dataDir: host.dataDir, version: host.version, sdk: host.sdk }).toEqual({ machine: "laptop", dataDir: st.home, version: "1.4.0", sdk: "0.3.311" });
+  });
+
+  it("запрос к Worker'у не прошёл: отказ словом, модуль жив", async () => {
+    // источник: устав, ожидаемая ветка «прямой запрос к Worker'у не прошёл — отказ словом»
+    const relayStand = new FakeRelay();
+    relayStand.workersDown = true;
+    let host!: Host;
+    const st = await stand({ relayStand, modules: [module("host-a", { start: (h) => void (host = h) }, { uses: { "push.send@push": 1 } })] });
+    expect(await host.request("push.send", { v: 1 })).toMatchObject({ ok: false, error: "offline" });
+    expect(lines(st, "module_failed")).toEqual([]);
+  });
+
+  it("host.read через relay: нет ответа за 10 с — timeout, модуль жив", async () => {
+    // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»; контракт Host.read
+    let host!: Host;
+    const st = await stand({ modules: [module("host-a", { start: (h) => void (host = h) }, { uses: { "x.read@host-b": 1 } })] });
+    await until(() => st.relay.hellos.length === 1 && lines(st, "hello").length === 1);
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let got: unknown;
+    void host.read("x.read", { callsign: "api@pc" }).then((r) => (got = r));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(got).toMatchObject({ ok: false, error: "timeout" });
+    vi.useRealTimers();
+    expect(lines(st, "module_failed")).toEqual([]);
+  });
+
+  it("roster и кадр roster модулю — весь флот: соединения машин вместе; обрыв машины не стирает последний", async () => {
+    // источник: устав «Ядро держит соединение с relay каждой машины флота»; контракт Host.roster «Последний roster»; чьё: код
+    let host!: Host;
+    const got: any[] = [];
+    const st = await stand({ pauseMs: 100_000, modules: [module("host-c", { start: (x) => void (host = x), on: { frame: (f) => void got.push(f) } }, { uses: { "roster@relay": 1 } })] });
+    await until(() => host.roster());
+    st.relay.deliver({ type: "roster", machines: [{ machine: "laptop", since: 1, proto: 1 }], sessions: [{ callsign: "a@laptop" }], clients: ["@pc", "x~y@z"] });
+    await until(() => st.relay.conns.length === 2 && st.relay.conns[1].readyState === 1);
+    st.relay.conns[1].deliver(JSON.stringify({ type: "roster", machines: [{ machine: "pc", since: 2, proto: 1 }], sessions: [{ callsign: "b@pc" }], clients: ["z~y@z"] }));
+    await until(() => host.roster()?.sessions.length === 2);
+    expect(got.at(-1).sessions).toEqual([{ callsign: "a@laptop" }, { callsign: "b@pc" }]);
+    expect(host.roster()!.clients).toEqual(["x~y@z", "z~y@z"]);
+    st.relay.conns[1].drop(1006, "обрыв");
+    await until(() => lines(st, "guest_closed").length === 1);
+    expect(lines(st, "guest_open")[0].why).toBe("pc");
+    expect(lines(st, "guest_closed")[0].why).toBe("pc · обрыв");
+    expect(host.roster()!.sessions).toHaveLength(2);
+  });
+
+  it("упавший opening: открытие отказано, другое открытие тем же модулем идёт — модуль выключен только в той сессии", async () => {
+    // источник: устав «ошибка модуля — модуль выключен в этой сессии»; чьё: код
+    let n = 0;
+    const st = await stand({ modules: [module("host-o", { opening() { if (++n === 1) throw new Error("бах"); } })] });
+    await expect(st.open("a@laptop", { opening: {} })).rejects.toMatchObject({ word: "module_error" });
+    await st.open("b@laptop", { opening: {} });
+    expect(n).toBe(2);
+    expect(lines(st, "module_failed")[0]).toMatchObject({ callsign: "a@laptop", module: "host-o" });
+    expect(lines(st, "module_failed")[0].why).toContain("; модуль выключен в сессии");
   });
 });
