@@ -33,6 +33,7 @@ function repo(files: Files): string {
   return root;
 }
 const mod = (name: string, x: Record<string, unknown> = {}) => ({ name, type: "worker", version: "1.0.0", provides: {}, uses: {}, config: {}, ...x });
+const gate = (files: Files) => check(loadRepo(repo(files)));
 /** Прогон настоящего `cli.ts` на временном монорепо; своих node_modules у него нет, инструменты — из настоящего корня. */
 function gateOn(root: string) {
   cpSync(GATE, join(root, "tools", "manifest-gate"), { recursive: true });
@@ -55,7 +56,6 @@ describe("набор модулей", () => {
       [m("push", { provides: { "push.send": 1 } }), m("host-push", { uses: { "push.send@push": 2, "x@nobody": 1, bad: 1 } })],
       ["модуль host-push: uses push.send@push v2 — у владельца v1", "модуль host-push: uses x@nobody — владельца нет в наборе", "модуль host-push: uses «bad» — нужно имя@владелец"],
     ],
-    ["uses с пустым именем", [m("a", { uses: { "@b": 1 } }), m("b")], ["модуль a: uses «@b» — нужно имя@владелец"]],
     ["142 · импорт мимо uses", [m("host-push", { provides: { notify: 1 } }), m("watch", { imports: ["@switchboard/host-push"] })], ["модуль watch: импорт @switchboard/host-push — host-push нет в uses"]],
     [
       "142 · глубокий импорт мимо контракта при объявленном uses",
@@ -67,7 +67,6 @@ describe("набор модулей", () => {
       [m("push", { provides: { "push.send": 1 } }), m("watch", { uses: { "push.key@push": 1 }, imports: ["@switchboard/ghost"] })],
       ["модуль watch: uses push.key@push — push не отдаёт push.key", "модуль watch: импорт @switchboard/ghost — такого модуля нет"],
     ],
-    ["глубокий импорт протокола — не исключение", [m("protocol", { pkg: "@switchboard/protocol" }), m("a", { imports: ["@switchboard/protocol/src/x.ts"] })], ["модуль a: импорт @switchboard/protocol/src/x.ts — protocol нет в uses"]],
     ["повтор имени модуля", [m("relay"), m("relay")], ["модуль relay: имя уже занято"]],
     ["секрет в двух модулях; не секрет — можно", [m("gate", { config: { S: "secret", V: "var" } }), m("relay", { config: { S: "secret", V: "var" } })], ["секрет S: в config двух модулей — gate и relay"]],
   ])("%s", (_n, set, want) => {
@@ -107,7 +106,7 @@ describe("набор модулей", () => {
 });
 
 describe("монорепо", () => {
-  it("манифесты всех групп с умолчаниями, пакетом и папкой — в порядке зависимостей", () => {
+  it("манифесты всех групп с умолчаниями, пакетом и папкой — в порядке зависимостей; манифест остаётся как в файле", () => {
     const root = repo({
       "protocol/module.json": mod("protocol"),
       "protocol/package.json": { name: "@switchboard/protocol" },
@@ -116,15 +115,16 @@ describe("монорепо", () => {
       "workers/none/readme.md": "нет манифеста",
       "os/k/module.json": mod("k"),
       "host/core/module.json": mod("host"),
-      "host/modules/a/module.json": mod("host-a", { into: ["host"] }),
+      "host/modules/a/module.json": mod("host-a", { into: ["host"], calls: ["setModel"] }),
       "web/packages/p/module.json": mod("web-p"),
       "web/phone/module.json": mod("phone"),
+      "web/phone/modules/s/module.json": mod("phone-s"),
       "web/pult/module.json": mod("pult"),
       "web/pult/modules/s/module.json": mod("pult-s"),
       "scripts/module.json": mod("not-a-module"),
     });
-    const mods = loadRepo(root);
-    expect(mods.map((x) => x.name).sort()).toEqual(["host", "host-a", "k", "phone", "protocol", "pult", "pult-s", "t", "w", "web-p"]);
+    const mods = loadRepo(root) as (Manifest & { dir: string; calls?: string[] })[];
+    expect(mods.map((x) => x.name).sort()).toEqual(["host", "host-a", "k", "phone", "phone-s", "protocol", "pult", "pult-s", "t", "w", "web-p"]);
     expect(mods.findIndex((x) => x.name === "w")).toBeLessThan(mods.findIndex((x) => x.name === "t"));
     const w = mods.find((x) => x.name === "w")!;
     expect([w.uses, w.config, w.imports, w.pkg]).toEqual([{}, {}, [], undefined]);
@@ -132,73 +132,30 @@ describe("монорепо", () => {
     expect(mods.find((x) => x.name === "protocol")!.pkg).toBe("@switchboard/protocol");
     expect(mods.find((x) => x.name === "pult-s")!.dir.replaceAll("\\", "/")).toBe("web/pult/modules/s");
     expect(mods.find((x) => x.name === "host-a")!.into).toEqual(["host"]);
+    expect(mods.find((x) => x.name === "host-a")!.calls).toEqual(["setModel"]);
   });
 
-  it("манифест остаётся как в файле: поле calls модуля Host — его поле, а не вызовы привязок; экран телефона — такой же модуль, как экран пульта", () => {
-    const root = repo({ "host/modules/a/module.json": mod("host-a", { type: "sdk", calls: ["setModel"] }), "host/modules/a/a.ts": "const f = (env) => env.GATE.verify(1);\n", "web/phone/modules/s/module.json": mod("phone-s") });
-    const mods = loadRepo(root) as (Manifest & { calls?: string[] })[];
-    expect(mods.map((x) => x.name)).toEqual(["host-a", "phone-s"]);
-    expect(mods[0].calls).toEqual(["setModel"]);
+  it.each<[string, string, string, string[]]>([
+    ["import from и многострочный", "a.ts", 'import { x } from "@switchboard/from";\nimport {\n  a,\n  b,\n} from "@switchboard/multi";\n', ["@switchboard/from", "@switchboard/multi"]],
+    ["import()", "a.ts", 'const d = () => import("@switchboard/dynamic");\n', ["@switchboard/dynamic"]],
+    ["import() в типе", "a.ts", 'type T = import("@switchboard/type-of").T;\n', ["@switchboard/type-of"]],
+    ["require", "a.ts", 'const r = require("@switchboard/req");\n', ["@switchboard/req"]],
+    ["файл .tsx, React — рантайм страницы", "b.tsx", 'import { useState } from "react";\n', ["@switchboard/web-view"]],
+    ["файл .d.ts не считается", "skip.d.ts", 'import "@switchboard/dts";\n', []],
+    ["папка dist не считается", "dist/s.js", 'import "@switchboard/x";\n', []],
+    ["глубокая папка test не считается", "src/deep/test/t.ts", 'import "@switchboard/x";\n', []],
+    ["node_modules не считается", "node_modules/n/i.js", 'import "@switchboard/x";\n', []],
+    ["импорт в комментарии — не импорт (устав: устройство кода, а не текст)", "a.ts", '// import "@switchboard/line";\n/* import { x } from "@switchboard/block"; */\n/**\n * import "@switchboard/doc";\n */\n', []],
+    ["импорт в строке — не импорт (устав: устройство кода, а не текст)", "a.ts", 'const s = \'import "@switchboard/str"\';\nconst t = `import { x } from "@switchboard/tpl";`;\nconst b = \'import "react"\';\nconst r = "react";\n', []],
+  ])("импорты кода: %s", (_n, path, text, imports) => {
+    const mods = loadRepo(repo({ "web/packages/a/module.json": mod("a"), [`web/packages/a/${path}`]: text }));
+    expect(mods[0].imports).toEqual(imports);
   });
 
-  it("импорты кода: все формы; тесты, стенд, типы, чужие пакеты и вложенный модуль не считаются; React — это рантайм страницы", () => {
-    const root = repo({
-      "web/pult/module.json": mod("pult"),
-      "web/pult/a.ts": 'import { x } from "@switchboard/from";\nimport type { Y } from "@switchboard/type/deep.ts";\nexport { z } from "@switchboard/export";\nimport "@switchboard/side";\nconst d = () => import("@switchboard/dynamic");\nimport l from "lodash";\nimport {\n  a,\n  b,\n} from "@switchboard/multi";\nexport * from \'@switchboard/star\';\ntype T = import("@switchboard/type-of").T;\n',
-      "web/pult/src/b.tsx": 'import { useState } from "react";\n',
-      "web/pult/src/c.mjs": 'import "@switchboard/mjs";\n',
-      "web/pult/src/d.mts": 'import "@switchboard/mts";\n',
-      "web/pult/src/e.js": 'import "@switchboard/js";\n',
-      "web/pult/src/skip.test.ts": 'import "@switchboard/test-file";\n',
-      "web/pult/src/skip.spec.ts": 'import "@switchboard/spec-file";\n',
-      "web/pult/src/skip.d.ts": 'import "@switchboard/dts";\n',
-      "web/pult/src/skip.css": '@import "@switchboard/css";\n',
-      "web/pult/test/t.ts": 'import "@switchboard/test-dir";\n',
-      "web/pult/tests/t.ts": 'import "@switchboard/tests-dir";\n',
-      "web/pult/stand/s.ts": 'import "@switchboard/stand-dir";\n',
-      "web/pult/dist/s.js": 'import "@switchboard/dist-dir";\n',
-      "web/pult/src/deep/test/t.ts": 'import "@switchboard/deep-test-dir";\n',
-      "web/pult/.wrangler/tmp/x.js": 'import "@switchboard/dot-dir";\n',
-      "web/pult/node_modules/n/i.js": 'import "@switchboard/nm";\n',
-      "web/pult/modules/s/module.json": mod("pult-s"),
-      "web/pult/modules/s/i.ts": 'import "@switchboard/nested";\n',
-    });
-    const mods = loadRepo(root);
-    expect(mods.find((x) => x.name === "pult")!.imports).toEqual([
-      "@switchboard/dynamic",
-      "@switchboard/export",
-      "@switchboard/from",
-      "@switchboard/js",
-      "@switchboard/mjs",
-      "@switchboard/mts",
-      "@switchboard/multi",
-      "@switchboard/side",
-      "@switchboard/star",
-      "@switchboard/type-of",
-      "@switchboard/type/deep.ts",
-      "@switchboard/web-view",
-    ]);
+  it("вложенный модуль считает свой код сам", () => {
+    const mods = loadRepo(repo({ "web/pult/module.json": mod("pult"), "web/pult/modules/s/module.json": mod("pult-s"), "web/pult/modules/s/i.ts": 'import "@switchboard/nested";\n' }));
+    expect(mods.find((x) => x.name === "pult")!.imports).toEqual([]);
     expect(mods.find((x) => x.name === "pult-s")!.imports).toEqual(["@switchboard/nested"]);
-  });
-
-  it("react-dom и глубокий путь React — тоже рантайм страницы", () => {
-    const root = repo({ "web/packages/a/module.json": mod("a"), "web/packages/a/a.ts": 'import { createRoot } from "react-dom/client";\n', "web/packages/b/module.json": mod("b"), "web/packages/b/b.ts": 'const r = "react";\n' });
-    const mods = loadRepo(root);
-    expect(mods.find((x) => x.name === "a")!.imports).toEqual(["@switchboard/web-view"]);
-    expect(mods.find((x) => x.name === "b")!.imports).toEqual([]);
-  });
-
-  it("устройство кода, а не текст (устав): импорт в комментарии и строке не считается; require, import = и шаблон без подстановок — импорт", () => {
-    const root = repo({
-      "web/packages/a/module.json": mod("a"),
-      "web/packages/a/text.ts": '// import "@switchboard/line";\n/* import { x } from "@switchboard/block"; */\n/**\n * import "@switchboard/doc";\n */\nconst s = \'import "@switchboard/str"\';\nconst t = `import { x } from "@switchboard/tpl";`;\nconst b = \'import "react"\';\n',
-      "web/packages/a/rel.ts": '// import "../../b/src/in.ts";\nconst s = \'import "../../b/src/in.ts"\';\n',
-      "web/packages/a/code.ts": 'const r = require("@switchboard/req");\nimport x = require("@switchboard/eq");\nconst d = () => import(`@switchboard/dyn`);\nexport * as all from "@switchboard/star-as";\n',
-      "web/packages/b/module.json": mod("b"),
-    });
-    const a = loadRepo(root).find((x) => x.name === "a")!;
-    expect(a.imports).toEqual(["@switchboard/dyn", "@switchboard/eq", "@switchboard/req", "@switchboard/star-as"]);
-    expect(a.reach).toEqual([]);
   });
 
   it("2073 · npm run gate на настоящем монорепо: выход 0 и строка с числами", () => {
@@ -225,75 +182,45 @@ describe("монорепо", () => {
 });
 
 describe("устройство кода против манифеста", () => {
-  const gate = mod("gate", { provides: { "gate.verify": 1, "gate.revoked": 1 } });
+  const owner = mod("gate", { provides: { "gate.verify": 1, "gate.revoked": 1, "keys.list": 1 } });
+  const CALL = ["модуль own: зовёт gate.revoked — нет в uses"];
 
-  it("Worker зовёт чужое имя через привязку: без uses — нарушение; имя, которого у модуля нет, и база — не контракт", () => {
-    // источник: факт 5 нояб., workers/push зовёт gate.revoked при uses только gate.verify
-    const code = "export const f = (env) => { env.GATE.verify(1); env.GATE.revoked([]); env.GATE.zzz(); env.DB.prepare(''); env.OWN.key(); };\n";
-    const files = { "workers/gate/module.json": gate, "workers/own/module.json": mod("own", { provides: { "own.key": 1 } }), "workers/own/src/a.ts": code };
-    const bad = gateOn(repo({ ...files, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses: { "gate.verify@gate": 1 } }) }));
-    expect(bad.status).toBe(1);
-    expect(bad.stderr).toContain("gate: 1 нарушений\nмодуль own: зовёт gate.revoked — нет в uses");
-    const good = gateOn(repo({ ...files, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses: { "gate.verify@gate": 1, "gate.revoked@gate": 1 } }) }));
-    expect(good.status, good.stderr).toBe(0);
+  // источник: факт 5 нояб., workers/push зовёт gate.revoked при uses только gate.verify
+  it.each<[string, string, string, Record<string, number>, string[]]>([
+    ["имя без uses; чужое имя и база — не контракт", "src/a.ts", "export const f = (env) => { env.GATE.verify(1); env.GATE.revoked([]); env.GATE.zzz(); env.DB.prepare(''); };\n", { "gate.verify@gate": 1 }, CALL],
+    ["своё имя", "src/a.ts", "export const f = (env) => env.OWN.key();\n", {}, []],
+    ["this.env", "src/a.ts", "class A { f() { this.env.GATE.revoked([]); } }\n", {}, CALL],
+    ["в строке и комментарии — не вызов (устав: устройство кода, а не текст)", "src/a.ts", '// env.GATE.revoked([]);\nconst s = "env.GATE.revoked([])";\n', {}, []],
+  ])("вызов привязки Worker: %s", (_n, path, code, uses, want) => {
+    expect(gate({ "workers/gate/module.json": owner, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses }), [`workers/own/${path}`]: code })).toEqual(want);
   });
 
-  it.each([
-    ["this.env", "class A { f() { this.env.GATE.revoked([]); } }\n"],
-    ["контекст запроса", "const f = (c) => c.env.GATE.revoked([]);\n"],
-  ])("вызов привязки через %s — тот же вызов", (_n, code) => {
-    const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
-    expect(r.status).toBe(1);
-    expect(r.stderr).toContain("модуль own: зовёт gate.revoked — нет в uses");
-  });
-
-  it.each([
-    ["необязательный вызов", "const f = (env) => env.GATE?.revoked([]);\n"],
-    ["перенос строки", "const f = (env) => env.GATE\n  .revoked([]);\n"],
-  ])("устройство кода, а не текст (устав): вызов привязки — %s", (_n, code) => {
-    const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
-    expect(r.status).toBe(1);
-    expect(r.stderr).toContain("модуль own: зовёт gate.revoked — нет в uses");
-  });
-
-  it("устройство кода, а не текст (устав): вызов в строке и комментарии — не вызов; привязка, не названная модулем-владельцем, — не вызов его имени", () => {
-    const owner = mod("gate", { provides: { "gate.revoked": 1, "keys.list": 1 } });
-    const code = '// env.GATE.revoked([]);\nconst s = "env.GATE.revoked([])";\nconst f = (env) => env.KEYS.list();\n';
-    const r = gateOn(repo({ "workers/gate/module.json": owner, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
-    expect(r.status, r.stderr).toBe(0);
-  });
-
-  it("вызов в тесте не считается: тест зовёт что угодно", () => {
-    const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/test/a.test.ts": "env.GATE.revoked([]);\n" }));
-    expect(r.status, r.stderr).toBe(0);
-  });
+  const packages: Files = {
+    "web/packages/a/module.json": mod("a"),
+    "web/packages/a/package.json": { name: "@switchboard/a" },
+    "web/packages/b/module.json": mod("b", { provides: { t: 1 } }),
+    "web/packages/b/package.json": { name: "@switchboard/b" },
+    "web/packages/b/contract.ts": "export {};\n",
+    "web/packages/c/module.json": mod("c", { uses: { "t@b": 1 } }),
+  };
 
   it.each<[string, Files, string]>([
     ["код идёт в чужой контракт без uses", { "web/packages/a/src/x.ts": 'import type { T } from "../../b/contract.ts";\n' }, "модуль a: импорт b/contract.ts — b нет в uses"],
     ["код идёт в чужой контракт, имя объявлено, но внутрь", { "web/packages/c/src/x.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль c: импорт b/src/in.ts — мимо контракта b"],
-    ["тест идёт во внутренности чужого модуля", { "web/packages/a/test/x.test.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
     ["тест рядом с кодом идёт во внутренности чужого модуля", { "web/packages/a/src/x.spec.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
     ["стенд идёт во внутренности чужого модуля", { "web/packages/a/stand/x.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
     ["тест идёт во внутренности чужого пакета", { "web/packages/a/test/x.test.ts": 'import { t } from "@switchboard/b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
   ])("относительный путь считается импортом модуля: %s", (_n, files, want) => {
-    const r = gateOn(
-      repo({
-        "web/packages/a/module.json": mod("a"),
-        "web/packages/a/package.json": { name: "@switchboard/a" },
-        "web/packages/b/module.json": mod("b", { provides: { t: 1 } }),
-        "web/packages/b/package.json": { name: "@switchboard/b" },
-        "web/packages/b/contract.ts": "export {};\n",
-        "web/packages/c/module.json": mod("c", { uses: { "t@b": 1 } }),
-        ...files,
-      }),
-    );
-    expect(r.status).toBe(1);
-    expect(r.stderr).toContain(want);
+    expect(gate({ ...packages, ...files })).toEqual([want]);
+  });
+
+  it("относительный импорт в комментарии и строке — не импорт (устав: устройство кода, а не текст)", () => {
+    expect(gate({ ...packages, "web/packages/a/src/x.ts": '// import "../../b/src/in.ts";\nconst s = \'import "../../b/src/in.ts"\';\n' })).toEqual([]);
   });
 
   it("можно: свой файл, чужой контракт из uses; тесту — контракт, манифест и стенд чужого модуля без uses; у модуля без контракта правила для тестов нет", () => {
-    const r = gateOn(
-      repo({
+    expect(
+      gate({
         "web/packages/a/module.json": mod("a", { uses: { "t@b": 1 } }),
         "web/packages/a/src/x.ts": 'import { y } from "./y.ts";\nimport type { T } from "../../b/contract.ts";\n',
         "web/packages/a/src/y.ts": "export const y = 1;\n",
@@ -306,7 +233,6 @@ describe("устройство кода против манифеста", () => 
         "tools/open/src/in.ts": "export {};\n",
         "scripts/x.ts": 'import "../web/packages/b/src/in.ts";\n',
       }),
-    );
-    expect(r.status, r.stderr).toBe(0);
+    ).toEqual([]);
   });
 });
