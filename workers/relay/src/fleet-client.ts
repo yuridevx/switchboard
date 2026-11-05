@@ -29,6 +29,9 @@ export type FleetClient = {
 
 export const relayWs = (workers: Record<string, string>): string => (workers.relay ? workers.relay.replace(/^http/, "ws").replace(/\/$/, "") : "");
 
+/** Отказ POST: причина рядом со словом. */
+const refusal = (id: string, word: string, why: string) => ({ type: "reply", id, ok: false, error: word, why }) as Reply;
+
 /** Куда кадр: соединение, адрес Worker'а для POST или слово отказа. */
 type Route = Link | string | { error: string };
 
@@ -73,10 +76,10 @@ export function fleet(o: FleetOptions): FleetClient {
       if (res.status === 204) return ok(id);
       const text = await res.text();
       const reply = parseFrame(text);
-      return reply && isReply(reply) ? reply : { ...fail(id, "offline"), why: `${res.status}: ${text.slice(0, 160)}` };
+      return reply && isReply(reply) ? reply : refusal(id, "offline", `${res.status}: ${text.slice(0, 160)}`);
     } catch (e) {
       if (closed) return fail(id, "disconnected");
-      return stop.signal.aborted ? { ...fail(id, "timeout"), why: `${f.type}: нет ответа за ${ms / 1000} с` } : { ...fail(id, "offline"), why: String(e) };
+      return stop.signal.aborted ? refusal(id, "timeout", `${f.type}: нет ответа за ${ms / 1000} с`) : refusal(id, "offline", String(e));
     } finally {
       clearTimeout(timer);
       posts.delete(stop);
@@ -154,7 +157,7 @@ export function fleet(o: FleetOptions): FleetClient {
     get roster() {
       const open = [...links.values()].filter((l) => l.state === "open").flatMap((l) => l.roster ?? []);
       return {
-        type: "roster",
+        type: "roster" as const,
         machines: open.flatMap((r) => r.machines),
         sessions: open.flatMap((r) => r.sessions),
         clients: [...new Set(open.flatMap((r) => r.clients))].filter((c) => kindOf(c) !== "machine"),
@@ -179,7 +182,7 @@ export function fleet(o: FleetOptions): FleetClient {
     },
     close(code, reason) {
       closed = true;
-      clearTimeout(retry);
+      if (retry) clearTimeout(retry);
       for (const stop of posts) stop.abort();
       for (const l of links.values()) l.close(code, reason);
     },

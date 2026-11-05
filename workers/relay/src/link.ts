@@ -127,7 +127,7 @@ export function link(o: LinkOptions): Link {
     const noRoster = setTimeout(() => abandon("no_roster"), requestMs);
     stopTimers = () => {
       clearTimeout(noRoster);
-      clearInterval(ping);
+      if (ping) clearInterval(ping);
     };
     /** Брошенный сокет больше не слушаем. */
     const live = (fn: (ev: any) => void) => (ev: any) => {
@@ -211,7 +211,7 @@ export function link(o: LinkOptions): Link {
     },
     close(code = 1000, reason = "closing") {
       if (state === "stopped") return;
-      clearTimeout(retry);
+      if (retry) clearTimeout(retry);
       ws?.close(code, reason);
       end("stopped", reason);
     },
