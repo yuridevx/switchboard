@@ -253,6 +253,12 @@ describe("отзыв", () => {
     expect(await gate.revoked([a.kid, b.kid, `host.b.${b.kid}`, "client.phone.zzzz", `host.a.${a.kid}`])).toEqual([a.kid, "client.phone.zzzz", `host.a.${a.kid}`]);
     expect(await gate.revoked([])).toEqual([]);
   });
+
+  it("revoked: 150 номеров за раз — без предела числа переменных базы; живой среди них не попадает", async () => {
+    const live = await invited({ role: "host", name: "alive" });
+    const ids = [...Array.from({ length: 149 }, (_, i) => `z${i}`), live.kid];
+    expect(await gate.revoked(ids)).toEqual(ids.slice(0, 149));
+  });
 });
 
 describe("список пропусков", () => {

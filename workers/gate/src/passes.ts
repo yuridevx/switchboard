@@ -30,6 +30,7 @@ export async function listPasses(db: D1Database, role?: Role): Promise<Pass[]> {
 export const deletePass = (db: D1Database, kid: string) => db.prepare("DELETE FROM passes WHERE id = ? RETURNING addr").bind(kid).first<{ addr: string }>();
 
 export async function liveKids(db: D1Database, kids: string[]): Promise<Set<string>> {
-  const found = await db.prepare(`SELECT id FROM passes WHERE id IN (${kids.map(() => "?").join(",")})`).bind(...kids).all<{ id: string }>();
+  // одна переменная со всем списком: у базы предел числа переменных в инструкции
+  const found = await db.prepare("SELECT id FROM passes WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(kids)).all<{ id: string }>();
   return new Set(found.results.map((r) => r.id));
 }
