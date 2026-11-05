@@ -120,13 +120,13 @@ export function link(o: LinkOptions): Link {
     ws = sock;
     let alive = true;
     let ping: ReturnType<typeof setInterval> | undefined;
+    let noRoster: ReturnType<typeof setTimeout> | undefined;
     const abandon = (why: string) => {
       sock.close(4000, why);
       end("closed", why);
     };
-    const noRoster = setTimeout(() => abandon("no_roster"), requestMs);
     stopTimers = () => {
-      clearTimeout(noRoster);
+      if (noRoster) clearTimeout(noRoster);
       if (ping) clearInterval(ping);
     };
     /** Брошенный сокет больше не слушаем. */
@@ -138,6 +138,8 @@ export function link(o: LinkOptions): Link {
       "open",
       live(() => {
         sock.send(JSON.stringify({ ...o.hello?.(), type: "hello", key: o.key, proto: PROTO }));
+        // ответ на hello — первый roster; не пришёл за предел запроса — hello потерян
+        noRoster = setTimeout(() => abandon("no_roster"), requestMs);
         ping = setInterval(() => {
           if (!alive) return abandon("no_pong");
           alive = false;
@@ -161,7 +163,7 @@ export function link(o: LinkOptions): Link {
           // адресат запроса ушёл или переподключился: ответа он уже не даст
           for (const [id, w] of waiting) if (w.seen !== undefined && presence(roster, w.f) !== w.seen) settle(id, fail(id, "disconnected"));
           if (state !== "open") {
-            clearTimeout(noRoster);
+            if (noRoster) clearTimeout(noRoster);
             pause.reset();
             setState("open");
           }
