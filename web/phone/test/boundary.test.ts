@@ -89,7 +89,7 @@ describe("состав и старт", () => {
     location.hash = "#accounts";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
     await flush(10);
-    expect([...document.querySelectorAll<HTMLElement>(".sb-nv")].map((b) => b.dataset.screen)).toEqual(["accounts", "machines", "profiles", "incidents", "settings", "inbox", "board", undefined]);
+    expect([...document.querySelectorAll<HTMLElement>(".sb-nv")].map((b) => b.dataset.screen)).toEqual(["accounts", "profiles", "incidents", "settings", "inbox", "board", undefined]);
   });
 });
 

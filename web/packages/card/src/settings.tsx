@@ -100,9 +100,9 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
             <Refused what="slot" text={slotWord} />
           ) : (
             <div className="cw-opts flat">
-              {[...Object.keys(accounts.data?.slots ?? {}), ""].map((name) => (
-                <Btn key={name} aria-pressed={name === curSlot ? "true" : "false"} data-slot={name} onClick={() => void (name !== curSlot && change("slot", "session.slot", { slot: name || null }))}>
-                  {name || "без слота"}
+              {Object.keys(accounts.data?.slots ?? {}).map((name) => (
+                <Btn key={name} aria-pressed={name === curSlot ? "true" : "false"} data-slot={name} onClick={() => void (name !== curSlot && change("slot", "session.slot", { slot: name }))}>
+                  {name}
                 </Btn>
               ))}
             </div>

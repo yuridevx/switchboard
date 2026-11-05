@@ -1,6 +1,5 @@
-// pult-accounts — связка экрана с ядром; ответы машин и входы — state.ts, вид — компоненты.
+// pult-accounts — связка экрана с ядром; ответы машин и входы — state.ts, правила над аккаунтами — merge.ts, вид — screen.tsx.
 import type { App, AppModule } from "@switchboard/web-core";
-import type {} from "@switchboard/web-board";
 import type {} from "@switchboard/web-labels";
 import css from "./accounts.css";
 import { AccountsScreen } from "./screen.tsx";
@@ -11,8 +10,7 @@ export function createAccounts(app: App): AppModule {
   return {
     state,
     on: { roster: state.onRoster, link: state.answers.onLink },
-    screens: { accounts: { nav: "Аккаунты", group: "Флот", mark: "logins", label: "Аккаунты", view: AccountsScreen, head: () => ({ title: "Аккаунты" }) } },
-    marks: { logins: () => state.pending() },
+    screens: { accounts: { nav: "Аккаунты", group: "Флот", label: "Аккаунты", view: AccountsScreen, head: () => ({ title: "Аккаунты" }) } },
     css,
   };
 }

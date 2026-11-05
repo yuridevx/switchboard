@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { claudeDir } from "@switchboard/host";
 import type { Host, Module, Session } from "@switchboard/host";
 
-/** Раздел сессии. account — кто был в слоте, когда мост включился; null — вход машины. */
+/** Раздел сессии. account — кто был в слоте, когда мост включился. */
 type Bridge = { url?: string; bridge?: string; account?: string | null };
 type Binding = { type?: string; sessionId?: string; bridgeSessionId?: string };
 
@@ -70,7 +70,7 @@ export function make(o: { claudeDir?: string } = {}): Module {
     const before = store.get()?.account;
     const account = start === "attach" && before !== undefined ? before : accountOf(s);
     store.set({ url: r?.session_url, bridge: r?.bridge_session_id, account });
-    host.log({ ev: "remote", callsign, why: `Remote Control включён: ${r?.session_url ?? "—"} · ${account ?? "вход машины"}` });
+    host.log({ ev: "remote", callsign, why: `Remote Control включён: ${r?.session_url ?? "—"} · ${account ?? "—"}` });
     s.refresh();
   }
 

@@ -28,13 +28,13 @@ export type MachineAnswers<T> = {
 /** Слова отказа, после которых вопрос стоит повторить, когда связь вернулась: ответа не было. */
 const NOT_DELIVERED = ["disconnected", "timeout"];
 
-/** machines — кого спрашивать; по умолчанию все машины roster. */
-export function machineAnswers<T>(app: Pick<App, "roster" | "changed">, ask: (machine: string) => Promise<Result<T>>, machines: () => string[] = () => (app.roster()?.machines ?? []).map((m) => m.machine)): MachineAnswers<T> {
+/** machines — кого спрашивать; по умолчанию все машины roster. answered — ответ машины уже в записях. */
+export function machineAnswers<T>(app: Pick<App, "roster" | "changed">, ask: (machine: string) => Promise<Result<T>>, machines: () => string[] = () => (app.roster()?.machines ?? []).map((m) => m.machine), answered?: () => void): MachineAnswers<T> {
   let answers: Readonly<Record<string, MachineAnswer<T>>> = {};
   let open = 0;
   let asked = 0;
   /** номер вопроса последнего ответа машины: ответ на вопрос, ушедший раньше, его не затирает */
-  const answered = new Map<string, number>();
+  const latest = new Map<string, number>();
 
   const put = (machine: string, value: MachineAnswer<T>) => {
     answers = { ...answers, [machine]: value };
@@ -44,9 +44,10 @@ export function machineAnswers<T>(app: Pick<App, "roster" | "changed">, ask: (ma
   async function reload(machine: string, how = ask): Promise<void> {
     const number = ++asked;
     const r = await how(machine);
-    if (number < (answered.get(machine) ?? 0)) return;
-    answered.set(machine, number);
+    if (number < (latest.get(machine) ?? 0)) return;
+    latest.set(machine, number);
     put(machine, r.ok ? r.result : { error: r.error, held: okOf(answers[machine]) });
+    answered?.();
   }
 
   return {

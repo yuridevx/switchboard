@@ -77,7 +77,6 @@ describe("Работа", () => {
   };
   const start = (o: Parameters<typeof stand>[1] = {}) => stand(parts(), { relay: relayWith(), ...o }).then(async (t) => (await flush(5), t));
 
-
   describe("список", () => {
     it("5210 · проект — последнее имя папки на любой машине; разделы: ждёт вас → работает → остальные; числа сессий в заголовке нет (слово пользователя 3 нояб.: «цифер не нужно»)", async () => {
       const t = await start();
@@ -789,7 +788,6 @@ describe("Работа: открытая сессия и первый показ
   }
   const expanded = (t: { $: (s: string) => Element | null }, id: string) => t.$(`.pj-t[data-proj="${id}"]`)?.getAttribute("aria-expanded");
 
-
   describe("проект открытой сессии", () => {
     it("6971 · открыта сессия свёрнутого проекта: проект развёрнут и последний, строка видна", async () => {
       // источник: чьё: код
@@ -1037,7 +1035,6 @@ describe("Карточка: телефон", () => {
     { manifest: alertsM, module: createAlerts({}) },
   ];
 
-
   async function card(callsign: string, roster = homeRoster()) {
     const relay = new FakeRelay(roster);
     relay.handlers["session.watch"] = () => ({ ok: true });
@@ -1137,7 +1134,6 @@ describe("Карточка: настройки", () => {
     await t.click(t.button("Ещё"));
     return t;
   };
-
 
   const typeIn = async (el: HTMLInputElement, v: string) => {
     el.value = v;
@@ -1522,7 +1518,6 @@ describe("Карточка: широкий вид", () => {
     return { ...t, relay, btn, tab };
   }
 
-
   describe("карточка в узком виде", () => {
     it("4080 · сессии нет в roster — «laptop не на связи», кнопок нет", async () => {
       const r = homeRoster();
@@ -1627,7 +1622,7 @@ describe("Карточка: широкий вид", () => {
       expect(b.classList.contains("you")).toBe(true);
       await t.click(b);
       const pop = t.$(".cw-pop")!;
-      expect(pop.querySelector(".cw-kv")!.textContent).toBe("аккаунтnight@mail · Max 5×слотnight @laptop");
+      expect(pop.querySelector(".cw-kv")!.textContent).toBe("аккаунтy0902 · Max 5×слотnight @laptop");
       expect(pop.querySelector('[data-win="five_hour"]')!.textContent).toBe("5 ч98 % · до 16:40");
       expect(pop.textContent).toContain("очередь слота: y0902 → spare");
       await t.click(t.btn(".cw-pop", "Сменить слот"));
@@ -1861,7 +1856,7 @@ describe("Карточка: широкий вид", () => {
       expect(t.$$(".cw-set .lb").map((x) => x.textContent)).toEqual(["Профиль", "Заголовок", "Слот", "Сессия"]);
       expect(t.$('[data-sec="fast"]')!.textContent).toContain("Быстрый режим");
       expect(t.$<HTMLInputElement>('[data-f="title"]')!.placeholder).toBe("Заголовок в claude.ai");
-      expect(t.$('[data-sec="slot"] [data-slot=""]')!.textContent).toBe("без слота");
+      expect(t.$('[data-sec="slot"] [data-slot=""]')).toBeNull();
       await t.click(t.btn(".cw-set", "Убрать…"));
       expect(t.$(".cw-confirm")!.textContent).toContain("poe-bot@pc остановится и уйдёт из списка. Точки в R2 останутся.");
     });
@@ -1957,7 +1952,6 @@ describe("Вам", () => {
     over(r);
     return r;
   }
-
 
   const kinds = (t: Awaited<ReturnType<typeof stand>>) => t.$$(".ib-it").map((x) => `${x.dataset.kind}:${x.dataset.callsign ?? x.dataset.machine ?? ""}`);
 
@@ -2118,7 +2112,6 @@ describe("Вам: виды карточек", () => {
   }
   const idle = (r: Roster, i = 0) => void (r.sessions[i] = { ...r.sessions[i], state: "idle" });
 
-
   type T = Awaited<ReturnType<typeof stand>>;
   const kinds = (t: T) => t.$$(".ib-it").map((x) => `${x.dataset.kind}:${x.dataset.callsign ?? x.dataset.machine ?? ""}`);
   const withRelay = async (o: Parameters<typeof stand>[1] = {}, list = parts()) => {
@@ -2194,7 +2187,6 @@ describe("Вам: виды карточек", () => {
       expect(t.$('[data-kind="msg"]')!.textContent).toContain("Готов отчёт");
     });
   });
-
 
   describe("машины", () => {
     const without = (r: Roster, m: string) => {
@@ -2558,7 +2550,6 @@ describe("Новая сессия", () => {
 describe("Новая сессия: выбор и запуск", () => {
   type T = Awaited<ReturnType<typeof pult>>;
 
-
   function openRelay(r: Roster = fleetRoster()) {
     const relay = fleetRelay(r);
     relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: { main: { account: "a", wait: null, sessions: [] }, night: { account: "b", wait: null, sessions: [] } } } });
@@ -2848,7 +2839,6 @@ describe("Новая сессия: выбор и запуск", () => {
 describe("Машины: связь и отказы", () => {
   type T = Awaited<ReturnType<typeof pult>>;
 
-
   const bumped = (m: string, r = fleetRoster()): Roster => ({ ...r, machines: r.machines.map((x) => (x.machine === m ? { ...x, since: x.since + 60_000 } : x)) });
   const withoutPc = () => {
     const r = fleetRoster();
@@ -2898,8 +2888,8 @@ describe("Машины: связь и отказы", () => {
       const relay = keeperRelay();
       const fine = relay.handlers["keeper.state"];
       relay.handlers["keeper.state"] = () => undefined;
-      const t = await screen(relay, "/#machines");
-      await t.click(t.$('[data-row="pc"] .mc-head'));
+      const t = await screen(relay, "/#accounts");
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
       relay.handlers["keeper.state"] = fine;
       relay.drop();
       await flush(1);
@@ -2920,38 +2910,18 @@ describe("Машины: связь и отказы", () => {
       await flush(10);
       expect(relay.sent("keeper.state")).toHaveLength(0);
       expect(relay.sent("machine.profiles")).toHaveLength(0);
-      await t.go("#machines");
+      await t.go("#accounts");
       expect(relay.sent("keeper.state").length).toBeGreaterThan(0);
     });
   });
 
   describe("машины", () => {
-    const rowOf = (t: T, m: string) => t.$(`[data-row="${m}"]`)!;
-
-    it("6942 · фильтр «в проекте»: проекта нет — показаны все, фильтра нет; проект появился — фильтр вернулся", async () => {
-      // источник: чьё: код
-      const relay = keeperRelay();
-      relay.scoped = { global: { "fleet.projects": [{ id: "p1", name: "site", sessions: ["site@laptop"] }] } };
-      const t = await pult({ relay, url: "/#card?callsign=site%40laptop" });
-      await flush(5);
-      await t.go("#machines");
-      await t.click(t.$('[data-filter="project"]'));
-      expect(t.$('[data-filter="project"]')!.getAttribute("aria-pressed")).toBe("true");
-      expect(t.$$("[data-row]").map((x) => x.getAttribute("data-row"))).toEqual(["laptop"]);
-      await t.go("#card?callsign=wiki%40laptop");
-      await t.go("#machines");
-      expect(t.$('[data-filter="project"]')).toBeNull();
-      expect(t.$('[data-filter="all"]')!.getAttribute("aria-pressed")).toBe("true");
-      expect(t.$$("[data-row]")).toHaveLength(2);
-      await t.go("#card?callsign=site%40laptop");
-      await t.go("#machines");
-      expect(t.$('[data-filter="project"]')!.getAttribute("aria-pressed")).toBe("true");
-    });
+    const rowOf = (t: T, m: string) => t.$(`[data-machine="${m}"]`)!;
 
     it("6943 · машина ушла и вернулась: «на связи», её keeper спрошен заново", async () => {
       // источник: устав — соединение оборвалось, клиенты переподключаются
       const relay = keeperRelay();
-      const t = await screen(relay, "/#machines");
+      const t = await screen(relay, "/#accounts");
       relay.setRoster(withoutPc());
       await flush(5);
       expect(rowOf(t, "pc").getAttribute("data-state")).toBe("gone");
@@ -2959,7 +2929,6 @@ describe("Машины: связь и отказы", () => {
       relay.setRoster(bumped("pc", withPc()));
       await flush(10);
       expect(rowOf(t, "pc").getAttribute("data-state")).not.toBe("gone");
-      expect(t.$('[data-filter="gone"]')!.textContent).toBe("ушли 0");
       expect(relay.sent("keeper.state").slice(n).map((f) => f.to)).toContain(".keeper@pc");
     });
 
@@ -2968,9 +2937,8 @@ describe("Машины: связь и отказы", () => {
       const relay = keeperRelay();
       relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "1.0.5", rev: 9, os: "linux", parts: [{ part: "host", version: "1.2.0", state: "failed", error: "код 1" }, { part: "keeper", version: "1.0.5", state: "failed" }] } });
       relay.handlers["releases.set"] = () => ({ ok: false, error: "denied" });
-      const t = await screen(relay, "/#machines");
-      expect(t.$('[data-filter="fail"]')!.textContent).toBe("со сбоем 2");
-      await t.click(t.$('[data-row="pc"] .mc-head'));
+      const t = await screen(relay, "/#accounts");
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
       const card = t.$('[data-machine="pc"]')!;
       expect(t.$$<HTMLElement>('[data-machine="pc"] .mc-part').filter((x) => x.textContent?.includes("Перезапустить")).map((x) => x.querySelector("b")!.textContent)).toEqual(["host"]);
       await t.click(t.btn(card, "Перезапустить"));
@@ -2984,7 +2952,7 @@ describe("Машины: связь и отказы", () => {
 
 describe("Машины: строки", () => {
   type P = Awaited<ReturnType<typeof pult>>;
-  const rows = (t: P) => t.$$("[data-row]").map((r) => r.getAttribute("data-row"));
+  const rows = (t: P) => t.$$("[data-machine]").map((r) => r.getAttribute("data-machine"));
 
   describe("машины", () => {
     function relayWith() {
@@ -3006,30 +2974,27 @@ describe("Машины: строки", () => {
       return relay;
     }
 
-    it("5401 · строки машин: система, host, keeper, сессии; поиск по имени и системе; «со сбоем» — машины с упавшей частью", async () => {
-      const t = await pult({ relay: relayWith(), url: "/#machines" });
+    it("5401 · строки машин: со сбоем первая; версии и система — в карточке, числа сессий нет", async () => {
+      const t = await pult({ relay: relayWith(), url: "/#accounts" });
       await flush(10);
-      expect(rows(t)).toEqual(["laptop", "pc"]);
-      const pc = t.$('[data-row="pc"]')!;
-      expect(pc.textContent).toContain("Ubuntu 24.04");
-      expect(pc.textContent).toContain("host 1.2.0+7");
-      expect(pc.textContent).toContain("keeper 1.0.5");
-      expect(pc.textContent).toContain("3 сессии · сбой части");
-      expect(t.$('[data-filter="fail"]')!.textContent).toBe("со сбоем 1");
-      await t.click(t.$('[data-filter="fail"]'));
-      expect(rows(t)).toEqual(["pc"]);
-      await t.click(t.$('[data-filter="all"]'));
-      await t.type(t.$('[data-f="q"]'), "windows");
-      expect(rows(t)).toEqual(["laptop"]);
+      expect(rows(t)).toEqual(["pc", "laptop"]);
+      const pc = t.$('[data-machine="pc"]')!;
+      expect(pc.getAttribute("data-state")).toBe("fail");
+      expect(pc.textContent).not.toContain("сесси");
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
+      const parts = t.$('[data-machine-parts="pc"]')!;
+      expect(parts.textContent).toContain("Ubuntu 24.04");
+      expect(parts.textContent).toContain("1.2.0+7");
+      expect(parts.textContent).toContain("1.0.5");
     });
 
     it("5402 · строка раскрывается в карточку: части с причиной сбоя; «Перезапустить» — releases.set on:false, затем on:true; повторное нажатие сворачивает", async () => {
       const relay = relayWith();
-      const t = await pult({ relay, url: "/#machines" });
+      const t = await pult({ relay, url: "/#accounts" });
       await flush(10);
-      expect(t.$('[data-machine="pc"]')).toBeNull();
-      await t.click(t.$('[data-row="pc"] .mc-head'));
-      const card = t.$('[data-machine="pc"]')!;
+      expect(t.$('[data-machine-parts="pc"]')).toBeNull();
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
+      const card = t.$('[data-machine-parts="pc"]')!;
       expect(card.textContent).toContain("exit 2: порт 9400 занят");
       expect(t.btn(card, "Перезапустить")).not.toBeNull();
       const keeperAsked = relay.sent("keeper.state").filter((f) => f.to === ".keeper@pc").length;
@@ -3041,27 +3006,23 @@ describe("Машины: строки", () => {
       ]);
       expect(t.$('[data-machine="pc"]')!.textContent).toContain("выключена и включена по плану");
       // 7252: перезапуск перечитывает keeper командой keeper.reload и не уводит с экрана
-      expect(location.hash).toContain("machines");
+      expect(location.hash).toContain("accounts");
       await flush(10);
       expect(relay.sent("keeper.state").filter((f) => f.to === ".keeper@pc").length).toBeGreaterThan(keeperAsked);
       // строка итога у строки машины: свёртка карточки её не теряет
-      await t.click(t.$('[data-row="pc"] .mc-head'));
-      await t.click(t.$('[data-row="pc"] .mc-head'));
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
       expect(t.$('[data-machine="pc"]')!.textContent).toContain("выключена и включена по плану");
-      await t.click(t.$('[data-row="pc"] .mc-head'));
-      expect(t.$('[data-machine="pc"]')).toBeNull();
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
+      expect(t.$('[data-machine-parts="pc"]')).toBeNull();
     });
 
-    it("V-M1 · поиск и пусто: подпись поля, «Таких машин нет»; «Перезапускаю…» до ответа; «План в «Выпусках»» — настройки с машиной", async () => {
+    it("V-M1 · «Перезапускаю…» до ответа; «План в «Выпусках»» — настройки с машиной", async () => {
       const relay = relayWith();
       relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [], rev: 1, modules: {} } });
-      const t = await pult({ relay, url: "/#machines" });
+      const t = await pult({ relay, url: "/#accounts" });
       await flush(10);
-      expect(t.$<HTMLInputElement>('[data-f="q"]')!.placeholder).toBe("Найти машину");
-      await t.type(t.$('[data-f="q"]'), "нет такой");
-      expect(t.text()).toContain("Таких машин нет");
-      await t.type(t.$('[data-f="q"]'), "");
-      await t.click(t.$('[data-row="pc"] .mc-head'));
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
       relay.handlers["releases.set"] = () => undefined;
       await t.click(t.btn(t.$('[data-machine="pc"]'), "Перезапустить"));
       expect(t.$('[data-machine="pc"]')!.textContent).toContain("Перезапускаю…");
@@ -3073,7 +3034,6 @@ describe("Машины: строки", () => {
 });
 
 describe("Машины и настройки: ответы keeper", () => {
-
 
   describe("эталоны пульта: аккаунты и слоты", () => {
     it("7354 · имя машины вместо адреса: аккаунты и выпуски", async () => {
@@ -3105,7 +3065,7 @@ describe("Машины и настройки: ответы keeper", () => {
       };
       relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: { "team/profiles": { state: "ok" } } } });
       const t = await pult({ relay });
-      await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
+      await t.click(t.$('.sb-navcol button[data-screen="accounts"]'));
       await flush(10);
       return { t, relay, setHost: (m: string, v: { version: string; state: string; error?: string }) => (host = { ...host, [m]: v }) };
     }
@@ -3125,7 +3085,7 @@ describe("Машины и настройки: ответы keeper", () => {
     it("195 · машины: keeper.state от .keeper@машина — части с версиями и состоянием; failed — причиной; кнопки обновления нет; машина вернулась — keeper.state заново", async () => {
       const { t, relay, setHost } = await machines();
       expect(relay.sent("keeper.state").map((f) => f.to)).toEqual([".keeper@laptop", ".keeper@pc"]);
-      await t.click(t.$('[data-row="pc"] .mc-head'));
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
       expect(t.$('[data-machine="pc"] [data-keeper]')!.textContent).toBe("0.5.0 · план rev 44");
       expect(t.$('[data-machine="pc"] [data-part="host"]')!.textContent).toBe("1.1.58 · running · pid 7731");
       expect(t.$('[data-machine="pc"] [data-part="capture"]')!.textContent).toBe("1.3.2 · running · pid 9120");
@@ -3138,7 +3098,7 @@ describe("Машины и настройки: ответы keeper", () => {
       const host = t.$('[data-machine="pc"] [data-part="host"]')!;
       expect([host.textContent, host.getAttribute("data-state"), host.className]).toEqual(["1.1.59 · failed · pid 7731", "failed", "v bad"]);
       expect(t.$('[data-machine="pc"]')!.textContent).toContain("второе падение: код 1");
-      expect(t.$('[data-row="pc"]')!.getAttribute("data-state")).toBe("fail");
+      expect(t.$('[data-machine="pc"]')!.getAttribute("data-state")).toBe("fail");
     });
   });
 });
@@ -3174,14 +3134,14 @@ describe("Машины: уход и возврат", () => {
 
   async function machines(relay = machinesRelay(), url?: string) {
     const t = await pult({ relay, url });
-    if (!url) await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
+    if (!url) await t.click(t.$('.sb-navcol button[data-screen="accounts"]'));
     await flush(10);
     return t;
   }
 
   /** Раскрыть строку машины в карточку. */
   async function expand(t: Awaited<ReturnType<typeof pult>>, m: string) {
-    await t.click(t.$(`[data-row="${m}"] .mc-head`));
+    await t.click(t.$(`[data-machine="${m}"] .ac-mname`));
     await flush(5);
   }
 
@@ -3205,9 +3165,8 @@ describe("Машины: уход и возврат", () => {
       r.machines = r.machines.filter((m) => m.machine !== "pc");
       relay.setRoster(r);
       await flush(10);
-      expect(t.$('[data-row="pc"]')!.getAttribute("data-state")).toBe("gone");
-      expect(t.$('[data-row="pc"]')!.textContent).toMatch(/ушла \d\d:\d\d/);
-      expect(t.$('[data-filter="gone"]')!.textContent).toBe("ушли 1");
+      expect(t.$('[data-machine="pc"]')!.getAttribute("data-state")).toBe("gone");
+      expect(t.$('[data-machine="pc"]')!.textContent).toMatch(/ушла \d\d:\d\d/);
       expect(relay.got.slice(n).filter((f) => f.to === ".keeper@pc" || f.machine === "pc")).toEqual([]);
     });
 
@@ -3220,7 +3179,7 @@ describe("Машины: уход и возврат", () => {
       relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: m.since + 60_000 } : m)) });
       await flush(10);
       expect(relay.sent("keeper.state")).toHaveLength(0);
-      await t.go("#machines");
+      await t.go("#accounts");
       expect(relay.sent("keeper.state").length).toBeGreaterThan(0);
     });
 
@@ -3235,7 +3194,7 @@ describe("Машины: уход и возврат", () => {
       relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: m.since + 60_000 } : m)) });
       await flush(10);
       expect(relay.sent("keeper.state")).toHaveLength(before);
-      await t.click(t.$('.sb-navcol button[data-screen="machines"]'));
+      await t.click(t.$('.sb-navcol button[data-screen="accounts"]'));
       await flush(10);
       expect(relay.sent("keeper.state").slice(before).map((f) => f.to)).toContain(".keeper@pc");
     });
@@ -3262,7 +3221,7 @@ describe("Машины: уход и возврат", () => {
     const relay = machinesRelay();
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [{ t: 1234, ev: "machine.left" }] } });
     const run = (machine: string) => m.commands!["machines.left.read"].run!({ machine });
-    await stand(parts, { relay, url: "/#machines", wide: true });
+    await stand(parts, { relay, url: "/#accounts", wide: true });
     await flush(5);
     expect(m.marks!["machines.left"]("old")).toBeUndefined();
     run("old");
@@ -4091,17 +4050,6 @@ describe("Раскладка и «Моё» на пульте", () => {
     expect(t.relay.got.length).toBe(sent);
   });
 
-  it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине", async () => {
-    const relay = fleetRelay();
-    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
-    relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "0.5.0", rev: 1, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", restarts: 0 }] } });
-    const t = await pult({ relay, url: "/#machines" });
-    await flush(10);
-    await t.click(t.$('[data-row="pc"] .mc-head'));
-    await t.click(t.btn(t.$('[data-machine="pc"]'), "Аккаунты машины"));
-    expect(location.hash).toBe("#accounts?machine=pc");
-    expect(t.$('.sb-sec.dlg [aria-pressed="true"]')!.textContent).toBe("pc");
-  });
 });
 
 describe("Новая сессия: строка слота", () => {
@@ -4126,6 +4074,17 @@ describe("Новая сессия: строка слота", () => {
     await flush(10);
     return t;
   }
+
+  it("8 · на машине нет слотов: форма говорит об этом и запуск закрыт, session.open не уходит", async () => {
+    // источник: слово пользователя 5 нояб.: стандартная папка не используется, без слота сессии нет
+    const relay = openRelay({});
+    const t = await openForm(relay);
+    await t.click(t.$('[data-pop="model"]'));
+    expect(t.$("[data-no-slots]")!.textContent).toBe("На laptop нет слотов: войдите в аккаунт на этой машине");
+    await named(t, "a");
+    expect(t.$('[data-act="open"]')!.hasAttribute("disabled")).toBe(true);
+    expect(relay.sent("session.open")).toHaveLength(0);
+  });
 
   it("E24 · форма: 1 слот — строки нет, запрос без поля", async () => {
     const relay = openRelay({ main: slot() });
@@ -4309,23 +4268,20 @@ describe("Найдено сверкой деревьев", () => {
     expect(absent.$('[data-act="open"]')!.textContent).toBe("Открыть");
   });
 
-  it("машины: открытый проект сужает сразу; нет machine.login — нет «Аккаунтов»; ушедшая — без кнопок; нет ответа — «…»", async () => {
+  it("машины: нет machine.login — нет «＋ войти»; нет ответа keeper — «…»; ушедшая — без кнопок", async () => {
     const r = cut("machine.login");
     const relay = fleetRelay(r);
     relay.handlers["keeper.state"] = () => undefined;
-    relay.scoped = { global: { "fleet.projects": [{ id: "p1", name: "site", sessions: ["site@laptop"] }] } };
-    const t = await pult({ relay, url: "/#card?callsign=site%40laptop" });
+    const t = await pult({ relay, url: "/#accounts" });
     await flush(5);
-    await t.go("#machines");
-    expect(t.$('[data-filter="project"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(t.$('[data-filter="project"]')!.textContent).toBe("в проекте p1 1");
-    await t.click(t.$('[data-row="laptop"] .mc-head'));
-    expect(t.$('[data-machine="laptop"] .sb-note')!.textContent).toBe("…");
-    expect(t.btn(t.$('[data-machine="laptop"]'), "Аккаунты машины")).toBeNull();
-    expect(t.btn(t.$('[data-machine="laptop"]'), "План в «Выпусках»")).not.toBeNull();
+    expect(t.$('[data-machine="laptop"] [data-login-start]')).toBeNull();
+    await t.click(t.$('[data-machine="laptop"] .ac-mname'));
+    expect(t.$('[data-machine-parts="laptop"] .sb-note')!.textContent).toBe("…");
+    expect(t.btn(t.$('[data-machine-parts="laptop"]'), "План в «Выпусках»")).not.toBeNull();
     relay.setRoster({ ...r, machines: r.machines.filter((m) => m.machine !== "laptop") });
     await flush(5);
-    expect(t.$('[data-machine="laptop"] button')).toBeNull();
+    expect(t.$('[data-machine-parts="laptop"] button')).toBeNull();
+    expect(t.$('[data-machine="laptop"] [data-login-start]')).toBeNull();
   });
 
   it("настройки: вид и отметки переживают вкладку, поиск — нет; ячейка: keeper своим номером, обновляется — upd", async () => {

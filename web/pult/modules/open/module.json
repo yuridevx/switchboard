@@ -1,7 +1,7 @@
 {
   "name": "pult-open",
   "type": "web",
-  "version": "4.2.4",
+  "version": "4.2.5",
   "into": [
     "pult",
     "phone"
@@ -15,7 +15,7 @@
     "ui@web-ui": 1,
     "app@web-core": 2,
     "roster@relay": 1,
-    "machine.accounts@host-logins": 1,
+    "machine.accounts@host-logins": 2,
     "machine.profiles@host-profiles": 1,
     "machine.dirs@host-machine": 1,
     "session.open@host-manage": 1,

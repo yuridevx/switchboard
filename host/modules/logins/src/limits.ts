@@ -1,7 +1,8 @@
 // Правила лимитов: чистые функции над записью аккаунта. Время — секунды.
 
-export type Window = { utilization: number; resetsAt: number; at: number; src: string };
-export type Account = { login: "ok" | "none" | "pending"; email?: string; plan?: string; checked?: number; limits: Record<string, Window> };
+export type Window = { utilization: number; resetsAt: number; at: number };
+/** Запись аккаунта; имя записи — почта. expires — конец входа по claude auth status, секунды. */
+export type Account = { login: "ok" | "none"; plan?: string; expires?: number; limits: Record<string, Window> };
 
 /** Порог окна: дальше подмена. Окно без своего порога — только полный расход. */
 const THRESHOLD: Record<string, number> = { five_hour: 0.95, seven_day: 0.98 };

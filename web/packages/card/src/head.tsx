@@ -35,7 +35,7 @@ function Windows({ session, accounts, machine, pickSlot }: { session: SessionRec
     <div className="cw-pop l w" role="dialog" aria-label="Аккаунт и лимиты">
       <dl className="cw-kv">
         <dt>аккаунт</dt>
-        <dd>{[info?.email ?? account, info?.plan].filter(Boolean).join(" · ")}</dd>
+        <dd>{[account, info?.plan].filter(Boolean).join(" · ")}</dd>
         <dt>слот</dt>
         <dd>{`${slot} @${machine}`}</dd>
       </dl>

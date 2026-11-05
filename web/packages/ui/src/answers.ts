@@ -2,10 +2,11 @@
 // контракты модулей Host страница не импортирует.
 
 /** Окно лимита аккаунта: как прислал accounts машины. */
-export type AccountWindow = { utilization: number; resetsAt?: number; at?: number; src?: string };
-export type AccountInfo = { login: "ok" | "none" | "pending"; email?: string; plan?: string; checked?: number; limits?: Record<string, AccountWindow> };
-export type SlotInfo = { account: string | null; order: string[]; wait: number | null; sessions: string[] };
-/** Ответ machine.accounts: аккаунты и слоты машины. Прежний Host слотов не присылает. */
+export type AccountWindow = { utilization: number; resetsAt?: number; at?: number };
+/** Запись аккаунта на машине; имя записи — почта. expires — конец входа, секунды. */
+export type AccountInfo = { login: "ok" | "none"; plan?: string; expires?: number; limits?: Record<string, AccountWindow> };
+export type SlotInfo = { account: string | null; order: string[]; wait: number | null };
+/** Ответ machine.accounts: аккаунты и слоты машины. */
 export type AccountsAnswer = { accounts: Record<string, AccountInfo>; slots: Record<string, SlotInfo> };
 
 export type ProfileInfo = { model?: string | null; effort?: string | null; about?: string };

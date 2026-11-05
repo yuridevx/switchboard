@@ -1,25 +1,13 @@
-// Контракт pult-accounts — аккаунты Claude, вход по ссылке и коду, слоты (свой пакет пульта).
-// Экран accounts (#accounts; раздел группы «Флот»; в широком виде аккаунты и слоты рядом, в узком view=slots — слоты;
-// machine — машина нового входа): карточка на почту со всех машин, «вошёл на N машинах», «＋ войти на машине…» — любая
-// машина на связи без этой почты, имя на машине — то же; ссылка входа — кнопка и «Копировать». Карточка на почту
-// со всех машин, окна — запись Host одной машины как пришла; расход на других машинах Host читает у Claude сам
-// перед подменой. Вход — machine.login → ссылка,
-// machine.login_code → почта и тариф; код уходит по TLS только машине, пульт его не хранит.
-// Слоты: «Сменить сейчас» — slot.swap, запас — slot.set, перевод сессий — session.slot. Подмену Host делает сам:
-// сменился account сессий в roster — экран перечитывает слоты и окна этой машины.
-// Метка logins — число идущих входов (login: pending) из последних ответов machine.accounts.
+// Контракт pult-accounts — страница «Аккаунты» (#accounts; раздел группы «Флот»): наверху лимиты каждого аккаунта, ниже машины строками.
+// Аккаунт — окна: процент и час сброса; самое свежее значение среди машин; расходится тариф или час сброса — значок с тем, что говорит каждая машина.
+// Открытие: записи всех машин (machine.accounts), затем один опрос на почту старше 2 мин; сменился account сессии в roster — опрос только нового.
+// Строка машины (метка machines.rows, части — встроенный экран machine.parts): очередь её аккаунтов; нажатие открывает действия под строкой:
+// slot.swap, slot.set, machine.account_remove; «＋ войти» — machine.login → ссылка и поле кода в строке, machine.login_code → кто вошёл; код уходит по TLS только машине, страница его не хранит.
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createAccounts } from "./src/module.tsx";
 
 export { createAccounts };
-
-declare module "@switchboard/web-ui" {
-  interface Marks {
-    /** число идущих входов */
-    logins(): number;
-  }
-}
 
 export const manifest: Manifest = json;
 export default createAccounts satisfies AppPart["module"];

@@ -68,7 +68,7 @@ async function bench(o: { machine?: string; stateHome?: string; home?: string; h
       },
       requests: { "session.slot": (r) => (w.seen.push(["session.slot", r]), w.slotReply() as never) },
     },
-    { provides: { "session.slot": 1, slot: 1, account: 1 } },
+    { provides: { "session.slot": 2, slot: 1, account: 2 } },
   );
   const profiles = module("host-profiles", {
     opening: (_s, f) => {
@@ -141,7 +141,7 @@ describe("контракт: пакеты и вклад в query()", () => {
       ["answer", "Ответить на вопрос другой сессии (тег <fleet-question>), которой эта сессия дала задачу.", { to: "callsign сессии, задавшей вопрос", question: "id вопроса из тега", answers: "текст вопроса → ответ; несколько вариантов — через запятую" }],
       [
         "open",
-        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам. Без параметра slot: на машине один слот — он, слотов нет — общий вход, а без него слот main из вошедших аккаунтов (их нет — отказ), два и больше — отказ со списком слотов.",
+        "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам. Без параметра slot: на машине один слот — он, слотов нет — отказ (войдите в аккаунт на машине), два и больше — отказ со списком слотов.",
         {
           name: "имя сессии: буквы, цифры, . _ -",
           dir: "папка: от ~ или полный путь",
@@ -1345,13 +1345,13 @@ describe("remote: Remote Control у каждой сессии", () => {
     expect(unbinds(st)).toEqual([]);
   });
 
-  it("вне слотов: аккаунта нет — журнал «вход машины»", async () => {
+  it("вне слотов: аккаунта нет — в журнале прочерк", async () => {
     const { st, rw } = await make();
     rw.who.main = undefined as never;
     await st.open("site@laptop");
     await until(() => rec(st, "site@laptop"));
     expect(rec(st, "site@laptop")).toMatchObject({ account: null });
-    expect(st.journal().find((l) => l.ev === "remote")?.why).toBe("Remote Control включён: https://claude.ai/code/session_01Jai · вход машины");
+    expect(st.journal().find((l) => l.ev === "remote")?.why).toBe("Remote Control включён: https://claude.ai/code/session_01Jai · —");
   });
 
   it("231 · процесс упал, resume, в слоте тот же: файл байт в байт прежний, после initialize — включение", async () => {
@@ -1808,7 +1808,7 @@ describe("fleet: остальные формы", () => {
     expect(text(await call("lead@win", "update", { callsign: "docs@win" }))).toBe("сразу: —");
     const u = call("lead@win", "update", { callsign: "x@wsl", slot: "main", model: "m", effort: "low", title: "T" });
     const slot = await replyTo(st, "session.slot", { ok: true, result: { restart: true } });
-    expect(slot).toMatchObject({ callsign: "x@wsl", slot: "main", from: "lead@win", v: 1 });
+    expect(slot).toMatchObject({ callsign: "x@wsl", slot: "main", from: "lead@win", v: 2 });
     expect(slot).not.toHaveProperty("model");
     const up = await replyTo(st, "session.update", { ok: false, error: "bad_spec", why: "w" });
     expect(up).toMatchObject({ callsign: "x@wsl", model: "m", effort: "low", title: "T", from: "lead@win", v: 1 });
@@ -1875,7 +1875,7 @@ describe("remote: остальные формы", () => {
       await s.restart();
       await until(() => !field());
       expect(rec()).toEqual({ account: null });
-      expect(st.journal().filter((l) => l.ev === "remote").at(-1)?.why).toBe("Remote Control включён: — · вход машины");
+      expect(st.journal().filter((l) => l.ev === "remote").at(-1)?.why).toBe("Remote Control включён: — · —");
     } finally {
       proto.enableRemoteControl = old;
     }

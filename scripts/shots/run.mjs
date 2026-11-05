@@ -30,9 +30,11 @@ const PULT = [
   ["new-path", async (p) => { await p.click(".pj-add"); await pause(p, 300); await p.fill('[data-f="addr"]', "~/projects/new/deep"); await pause(p, 300); }],
   ["inbox", async (p) => { await go(p, "#inbox"); }],
   ["incidents", async (p) => { await go(p, "#incidents"); }],
-  ["machines", async (p) => { await go(p, "#machines"); await pause(p, 300); }],
-  ["machines-open", async (p) => { await go(p, "#machines"); await pause(p, 300); await p.click("[data-row] .mc-head"); await pause(p); }],
   ["accounts", async (p) => { await go(p, "#accounts"); await pause(p, 300); }],
+  ["accounts-login", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click("[data-login-start]"); await pause(p, 300); }],
+  ["accounts-entry", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-entry.res"); await pause(p); }],
+  ["accounts-diff", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-warn"); await pause(p); }],
+  ["accounts-machine", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-mname"); await pause(p, 300); }],
   ["profiles", async (p) => { await go(p, "#profiles"); await pause(p, 400); }],
   ["profiles-open", async (p) => { await go(p, "#profiles"); await pause(p, 400); await p.click(".pf-w.cf .pf-r"); await pause(p); }],
   ["journal", async (p) => { await go(p, "#journal"); await pause(p, 300); }],
@@ -57,8 +59,11 @@ const PHONE = [
   ["new-machines", async (p) => { await go(p, "#sessions"); await p.click("[data-new]"); await pause(p); await p.click('[data-act="pick-machine"]'); await pause(p, 300); }],
   ["new-path-m", async (p) => { await go(p, "#sessions"); await p.click(".pj-add"); await pause(p, 300); await p.fill('[data-f="addr"]', "~/projects/new/deep"); await pause(p, 300); }],
   ["inbox", async (p) => { await go(p, "#inbox"); }],
-  ["fleet-machines", async (p) => { await go(p, "#machines"); await pause(p, 300); }],
   ["fleet-accounts", async (p) => { await go(p, "#accounts"); await pause(p, 300); }],
+  ["fleet-accounts-login", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click("[data-login-start]"); await pause(p, 300); }],
+  ["fleet-accounts-entry", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-entry.res"); await pause(p); }],
+  ["fleet-accounts-diff", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-warn"); await pause(p); }],
+  ["fleet-accounts-machine", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-mname"); await pause(p, 300); }],
   ["fleet-profiles", async (p) => { await go(p, "#profiles"); await pause(p, 400); }],
   ["fleet-profiles-open", async (p) => { await go(p, "#profiles"); await pause(p, 400); await p.click(".pf-w.cf .pf-r"); await pause(p); }],
   ["fleet-incidents", async (p) => { await go(p, "#incidents"); }],
@@ -77,7 +82,7 @@ const PHONE = [
           const id = `${app}-${kind}-${scheme}-${name}`;
           if (filter && !id.includes(filter)) continue;
           // большой флот — только там, где длина важна
-          if (kind === "big" && !/^(work|view|filter-new|new|profiles|fleet-profiles|find|machines|fleet-machines)/.test(name)) continue;
+          if (kind === "big" && !/^(work|view|filter-new|new|profiles|fleet-profiles|find|accounts|fleet-accounts)/.test(name)) continue;
           const ctx = await appContext(b, app, viewport, scheme);
           const p = await ctx.newPage();
           const errs = errorsOf(p, true);
