@@ -16,6 +16,9 @@ on:
       - tools/release-cli/**
       - .github/workflows/keeper.yml
   workflow_dispatch:
+  # раз в неделю: новая уязвимость Go всплывает и без правок keeper
+  schedule:
+    - cron: "17 4 * * 1"
 
 concurrency:
   group: keeper-${{ github.ref }}
