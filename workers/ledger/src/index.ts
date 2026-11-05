@@ -1,9 +1,9 @@
-// Вход Worker'а ledger: POST кадра с пропуском и frame(кадр) по привязке внутри аккаунта. Состояния нет: записи — в базе D1 модуля.
+// Вход Worker'а ledger: POST кадра с пропуском и кадр по привязке внутри аккаунта.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { entrance } from "@switchboard/gate";
 import type { Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
-import { answer } from "./frames.ts";
+import { frame } from "./ledger.ts";
 
 export class Participant extends WorkerEntrypoint<Env> {
   fetch(req: Request): Promise<Response> {
@@ -11,7 +11,7 @@ export class Participant extends WorkerEntrypoint<Env> {
   }
 
   frame(f: Frame): Promise<Frame[]> {
-    return answer(this.env.DB, f);
+    return frame(this.env.DB, f);
   }
 }
 
