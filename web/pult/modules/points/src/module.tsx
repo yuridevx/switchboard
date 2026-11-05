@@ -1,14 +1,27 @@
-// Снесено: экраны точек пульта показывают «снесено» до реализации.
+// pult-points: связка экранов точек с ядром страницы.
 import type { App, AppModule } from "@switchboard/web-core";
+import css from "./points.css";
+import { Overview } from "./Overview.tsx";
+import { createFleet } from "./store.ts";
+import { Tab } from "./Tab.tsx";
 
-const Gone = () => <p>снесено</p>;
-
-export function createPoints(_app: App): AppModule {
+export function createPoints(app: App): AppModule {
+  const fleet = createFleet(app);
   return {
-    marks: { fire: () => [] },
+    state: fleet,
+    on: { roster: fleet.onRoster },
+    marks: { fire: fleet.fire },
     screens: {
-      points: { nav: "Точки", label: "Точки", view: Gone },
-      "session.points": { place: "card.tab", label: "Точки", view: Gone },
+      points: { nav: "Точки", group: "Флот", label: "Точки", view: Overview, head: () => ({ title: "Точки" }) },
+      "session.points": {
+        place: "card.tab",
+        path: "session-points",
+        label: "Точки",
+        view: Tab,
+        show: (p) => app.can(p.callsign?.split("@")[1] ?? "", "session.r2") === true,
+        head: (p) => ({ title: `Точки ${p.callsign}` }),
+      },
     },
+    css,
   };
 }

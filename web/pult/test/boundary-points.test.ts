@@ -14,7 +14,7 @@ afterEach(() => vi.restoreAllMocks());
 type P = Awaited<ReturnType<typeof pult>>;
 type Relay = ReturnType<typeof pointsRelay>;
 const at = (hh: number, mm: number) => Date.UTC(2026, 9, 31, hh, mm);
-const LIST = (sessions: unknown[], extra: Record<string, unknown> = {}) => () => ({ ok: true, result: { sessions, r2: { bytes: 0, blocks: 0 }, sweep: null, ...extra } });
+const LIST = (sessions: unknown[], extra: Record<string, unknown> = {}) => () => ({ ok: true as const, result: { sessions, r2: { bytes: 0, blocks: 0 }, sweep: null, ...extra } });
 
 /** Реестр с сессиями хозяина mac (mac не в roster) и ответы машин на пробы и подъём. */
 function fireRelay(over: (r: Roster) => void = () => {}) {
@@ -430,10 +430,13 @@ describe("«пожар»", () => {
 
   it("нет машин с points.raise — ни переноса «пожара», ни подъёма «только в R2»", async () => {
     const none = fireRelay((r) => r.machines.forEach((m) => void delete m.contract!["points.raise"]));
-    expect((await points(none)).btn(null, "Перенести на другую машину…")).toBeNull();
+    const f = await points(none);
+    expect(f.$('[data-fire="mac"]')).not.toBeNull();
+    expect(f.btn(null, "Перенести на другую машину…")).toBeNull();
     const only = oneOnly();
     only.roster.machines.forEach((m) => void delete m.contract!["points.raise"]);
     const n = await points(only);
+    expect(n.$('[data-sid="old"]')).not.toBeNull();
     expect(n.btn(n.$('[data-sid="old"]'), "Перенести на машину…")).toBeNull();
   });
 });
