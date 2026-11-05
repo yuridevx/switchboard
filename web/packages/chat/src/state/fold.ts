@@ -235,6 +235,8 @@ function retract(v: View, uuids: string[]): void {
 
 /** Тег сообщения другой сессии флота во вводе. */
 const FLEET = /^<fleet-message from="([^"]+)">\n?([\s\S]*?)\n?<\/fleet-message>$/;
+/** Тег вопроса другой сессии; последняя строка — указание модели, человеку она не нужна. */
+const FLEET_QUESTION = /^<fleet-question from="([^"]+)"[^>]*>\n?([\s\S]*?)\n?(?:Ответь инструментом fleet\.answer:[^\n]*\n?)?<\/fleet-question>$/;
 /** Обёртки claude у сообщений другой сессии и субагента, пришедших посреди хода. */
 const WRAP = /^<(cross-session-message|agent-message)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>\s*$/;
 const PEER = /^Another Claude session sent a message(?: while you were working)?:\n([\s\S]*?)(?:\n\nThis came from another Claude session|$)/;
@@ -246,7 +248,7 @@ type Peer = { text: string; kind: "session" | "agent"; name?: string; mode?: str
 
 /** Сообщение не от человека: откуда и что; от человека — null. */
 function peerOf(raw: string, origin: Msg | undefined): Peer | null {
-  const fl = FLEET.exec(raw);
+  const fl = FLEET.exec(raw) ?? FLEET_QUESTION.exec(raw);
   if (fl) return { text: fl[2], kind: "session", name: fl[1] };
   if (origin?.kind !== "peer" && !WRAP.test(raw) && !PEER.test(raw)) return null;
   const inner = (PEER.exec(raw)?.[1] ?? raw).trim();
