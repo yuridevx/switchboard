@@ -102,6 +102,7 @@ describe("набор модулей", () => {
   it("ссылка манифеста: имя и владелец по последней @", () => {
     expect([nameOf("gate.verify@gate"), ownerOf("gate.verify@gate")]).toEqual(["gate.verify", "gate"]);
     expect([nameOf("a@b@c"), ownerOf("a@b@c")]).toEqual(["a@b", "c"]);
+    expect([nameOf("bad"), ownerOf("bad")]).toEqual(["bad", ""]);
   });
 });
 
@@ -131,6 +132,13 @@ describe("монорепо", () => {
     expect(mods.find((x) => x.name === "protocol")!.pkg).toBe("@switchboard/protocol");
     expect(mods.find((x) => x.name === "pult-s")!.dir.replaceAll("\\", "/")).toBe("web/pult/modules/s");
     expect(mods.find((x) => x.name === "host-a")!.into).toEqual(["host"]);
+  });
+
+  it("манифест остаётся как в файле: поле calls модуля Host — его поле, а не вызовы привязок; экран телефона — такой же модуль, как экран пульта", () => {
+    const root = repo({ "host/modules/a/module.json": mod("host-a", { type: "sdk", calls: ["setModel"] }), "host/modules/a/a.ts": "const f = (env) => env.GATE.verify(1);\n", "web/phone/modules/s/module.json": mod("phone-s") });
+    const mods = loadRepo(root) as (Manifest & { calls?: string[] })[];
+    expect(mods.map((x) => x.name)).toEqual(["host-a", "phone-s"]);
+    expect(mods[0].calls).toEqual(["setModel"]);
   });
 
   it("импорты кода: все формы; тесты, стенд, типы, чужие пакеты и вложенный модуль не считаются; React — это рантайм страницы", () => {
@@ -180,6 +188,19 @@ describe("монорепо", () => {
     expect(mods.find((x) => x.name === "b")!.imports).toEqual([]);
   });
 
+  it("устройство кода, а не текст (устав): импорт в комментарии и строке не считается; require, import = и шаблон без подстановок — импорт", () => {
+    const root = repo({
+      "web/packages/a/module.json": mod("a"),
+      "web/packages/a/text.ts": '// import "@switchboard/line";\n/* import { x } from "@switchboard/block"; */\n/**\n * import "@switchboard/doc";\n */\nconst s = \'import "@switchboard/str"\';\nconst t = `import { x } from "@switchboard/tpl";`;\nconst b = \'import "react"\';\n',
+      "web/packages/a/rel.ts": '// import "../../b/src/in.ts";\nconst s = \'import "../../b/src/in.ts"\';\n',
+      "web/packages/a/code.ts": 'const r = require("@switchboard/req");\nimport x = require("@switchboard/eq");\nconst d = () => import(`@switchboard/dyn`);\nexport * as all from "@switchboard/star-as";\n',
+      "web/packages/b/module.json": mod("b"),
+    });
+    const a = loadRepo(root).find((x) => x.name === "a")!;
+    expect(a.imports).toEqual(["@switchboard/dyn", "@switchboard/eq", "@switchboard/req", "@switchboard/star-as"]);
+    expect(a.reach).toEqual([]);
+  });
+
   it("2073 · npm run gate на настоящем монорепо: выход 0 и строка с числами", () => {
     const r = spawnSync(process.execPath, [join(GATE, "cli.ts")], { encoding: "utf8" });
     expect(r.status, r.stderr).toBe(0);
@@ -224,6 +245,22 @@ describe("устройство кода против манифеста", () => 
     const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
     expect(r.status).toBe(1);
     expect(r.stderr).toContain("модуль own: зовёт gate.revoked — нет в uses");
+  });
+
+  it.each([
+    ["необязательный вызов", "const f = (env) => env.GATE?.revoked([]);\n"],
+    ["перенос строки", "const f = (env) => env.GATE\n  .revoked([]);\n"],
+  ])("устройство кода, а не текст (устав): вызов привязки — %s", (_n, code) => {
+    const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("модуль own: зовёт gate.revoked — нет в uses");
+  });
+
+  it("устройство кода, а не текст (устав): вызов в строке и комментарии — не вызов; привязка, не названная модулем-владельцем, — не вызов его имени", () => {
+    const owner = mod("gate", { provides: { "gate.revoked": 1, "keys.list": 1 } });
+    const code = '// env.GATE.revoked([]);\nconst s = "env.GATE.revoked([])";\nconst f = (env) => env.KEYS.list();\n';
+    const r = gateOn(repo({ "workers/gate/module.json": owner, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
+    expect(r.status, r.stderr).toBe(0);
   });
 
   it("вызов в тесте не считается: тест зовёт что угодно", () => {
