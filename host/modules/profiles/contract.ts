@@ -7,5 +7,5 @@
 import { make } from "./src/profiles.ts";
 
 export { make };
-export type { Git, RepoState } from "./src/profiles.ts";
+export type { Git } from "./src/profiles.ts";
 export default make();

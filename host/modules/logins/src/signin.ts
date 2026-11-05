@@ -1,150 +1,106 @@
-// Вход аккаунта по ссылке и коду коротким claude без сессии и проверка входа командой claude auth status.
-// Токен не используем: вход и его обновление живут в папке аккаунта у самого claude.
+// Вход по ссылке и коду своей папкой и проверка входа раз в 2 минуты. Токена модуль не видит: файлы входа пишет сам claude.
 import { mkdirSync } from "node:fs";
-import { CALL_MS, READ_MS, within } from "@switchboard/protocol";
+import type { Host, Probe } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
-import type { Frame, Host, Module, Probe } from "@switchboard/host";
-import { sec, type Book } from "./book.ts";
+import { CALL_MS, READ_MS, within } from "@switchboard/protocol";
+import type { Account } from "./limits.ts";
+import type { Folders } from "./links.ts";
 
-/** Предел claude auth status. */
-const STATUS_MS = READ_MS;
-/** Предел вызова входа у процесса claude. */
-const LOGIN_MS = CALL_MS;
-/** Сколько процесс входа ждёт код: человек открывает ссылку, входит и вставляет код. Срока ссылки SDK не называет; повтор входа даёт новую. */
-const LOGIN_WAIT_MS = 30 * 60_000;
 const NAME = /^[A-Za-z0-9_-]+$/;
-const noAnswer = `не ответил за ${LOGIN_MS / 1000} с`;
+const CHECK_MS = 120_000;
+/** Срок ссылки неизвестен: цена ошибки — новая ссылка. */
+const LOGIN_WAIT_MS = 30 * 60_000;
 
-type Open = { p: Probe; state: string | null; late?: ReturnType<typeof setTimeout> };
-type Who = { email?: string; subscriptionType?: string };
+const say = (e: unknown) => (e as Error).message;
+type Started = { probe: Probe; state: string; expiry: ReturnType<typeof setTimeout> };
+type Info = { email?: string; subscriptionType?: string };
 
-export function makeSignIn(host: () => Host, book: Book) {
-  /** процессы входа: имя → короткий claude, ждущий код */
-  const open = new Map<string, Open>();
-  let checking = false;
-  let stopping = false;
+/** edit — запись аккаунта; создаёт её при первом входе. */
+export function signin(host: () => Host, dirs: Folders, read: () => Record<string, Account>, edit: (name: string, patch: Partial<Account>) => void) {
+  const started = new Map<string, Started>();
+  let timer: ReturnType<typeof setInterval>;
 
-  function close(name: string): void {
-    const l = open.get(name);
-    if (l?.late) clearTimeout(l.late);
-    l?.p.close();
-    open.delete(name);
+  function end(name: string): Started | undefined {
+    const s = started.get(name);
+    if (!s) return undefined;
+    started.delete(name);
+    clearTimeout(s.expiry);
+    s.probe.close();
+    return s;
   }
 
-  /** Вошёл ли: вход 0 без JSON — вошёл; не ответил за предел — исключение: что с входом, неизвестно. */
-  async function loggedIn(who: string, env: Record<string, string>): Promise<boolean> {
-    const r = await within(host().cli(["auth", "status"], { env }), `${who}: auth status не ответил за ${STATUS_MS / 1000} с`, STATUS_MS);
-    if (r.code !== 0) return false;
+  /** Вошёл ли claude этой папкой; нет имени — общий вход машины. */
+  const loggedIn = async (name?: string) => (await within(host().cli(["auth", "status"], { env: name ? { CLAUDE_CONFIG_DIR: dirs.accDir(name) } : {} }), `auth status не ответил за ${READ_MS / 1000} с`, READ_MS)).code === 0;
+
+  async function check(name: string): Promise<void> {
     try {
-      return (JSON.parse(r.out) as { loggedIn?: boolean }).loggedIn !== false;
-    } catch {
-      return true;
+      const ok = await loggedIn(name);
+      const was = read()[name];
+      if (!was || was.login === "pending") return;
+      if (!ok && was.login === "ok") host().log({ kind: "stop", ev: "login_lost", why: `${name}: вход пропал` });
+      edit(name, { login: ok ? "ok" : "none", checked: Date.now() });
+    } catch (e) {
+      host().log({ kind: "refuse", ev: "check", why: `${name}: ${say(e)}` });
     }
   }
-
-  /** Проверка всех аккаунтов: пропал — login none и строка журнала. Прежняя ещё идёт — следующий раз. */
-  async function check(): Promise<void> {
-    if (checking) return;
-    checking = true;
-    try {
-      for (const [name, a] of Object.entries(book.accounts())) {
-        if (stopping) return;
-        if (a.login === "pending") continue;
-        const ok = await loggedIn(name, book.envOf(name));
-        const at = sec();
-        book.edit(name, (cur) => cur && { ...cur, login: cur.login === "pending" ? "pending" : ok ? "ok" : "none", checked: at });
-        if (!ok && a.login === "ok") host().log({ kind: "stop", ev: "login_lost", account: name, why: `${name}: вход пропал` });
-      }
-    } finally {
-      checking = false;
-    }
-  }
-
-  const requests: Required<Module>["requests"] = {
-    async "machine.login"(f: Frame) {
-      const name = f.account;
-      if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_frame", "имя аккаунта — латиница, цифры, - и _");
-      close(name); // повтор закрывает прежний процесс
-      mkdirSync(book.accountDir(name), { recursive: true });
-      const p = host().probe({ env: book.envOf(name) });
-      open.set(name, { p, state: null });
-      let url: string;
-      try {
-        const r = (await within(p.sdk("claudeAuthenticate", true), noAnswer, LOGIN_MS)) as { manualUrl?: string };
-        url = r.manualUrl ?? "";
-      } catch (e) {
-        close(name);
-        throw refuse("login_failed", `${name}: claudeAuthenticate — ${(e as Error).message}`);
-      }
-      const late = setTimeout(() => {
-        close(name);
-        book.edit(name, (cur) => cur && { ...cur, login: "none" });
-        host().log({ kind: "refuse", ev: "login", account: name, why: `${name}: срок входа вышел — кода нет за ${LOGIN_WAIT_MS / 60_000} мин` });
-      }, LOGIN_WAIT_MS);
-      open.set(name, { p, late, state: new URL(url, "https://claude.ai").searchParams.get("state") });
-      book.edit(name, (cur) => ({ ...(cur ?? { limits: {} }), login: "pending" }));
-      host().log({ ev: "login", account: name, why: `${name}: вход начат` });
-      return { url };
-    },
-
-    async "machine.login_code"(f: Frame) {
-      const name = f.account as string;
-      const l = typeof name === "string" ? open.get(name) : undefined;
-      if (!l) throw refuse("not_started", `${String(name)}: входа нет — Host перезапускался, вход начат заново или срок вышел`);
-      // код — секрет: только в тело вызова SDK, не в журнал и не в аргументы процессов
-      const raw = String(f.code ?? "");
-      const hash = raw.indexOf("#");
-      const code = hash >= 0 ? raw.slice(0, hash) : raw;
-      const state = hash >= 0 ? raw.slice(hash + 1) : l.state;
-      let who: Who | undefined;
-      try {
-        who = ((await within(l.p.sdk("claudeOAuthCallback", code, state), noAnswer, LOGIN_MS)) as { account?: Who } | undefined)?.account;
-      } catch (e) {
-        close(name);
-        book.edit(name, (cur) => cur && { ...cur, login: "none" });
-        throw refuse("bad_code", `${name}: claude не принял код — ${(e as Error).message.replaceAll(raw, "…").replaceAll(code, "…")}`);
-      }
-      if (!who?.email) {
-        try {
-          who = ((await within(l.p.sdk("accountInfo"), noAnswer, LOGIN_MS)) as Who | undefined) ?? who;
-        } catch (e) {
-          host().log({ kind: "refuse", ev: "login", account: name, why: `${name}: accountInfo — ${(e as Error).message}` });
-        }
-      }
-      close(name);
-      let ok = false;
-      if (book.accounts()[name]) {
-        try {
-          ok = await loggedIn(name, book.envOf(name));
-        } catch (e) {
-          host().log({ kind: "refuse", ev: "login", account: name, why: (e as Error).message });
-        }
-      }
-      book.edit(name, (cur) => ({
-        ...(cur ?? { limits: {} }),
-        login: ok ? "ok" : "none",
-        checked: sec(),
-        ...(who?.email ? { email: who.email } : {}),
-        ...(who?.subscriptionType ? { plan: who.subscriptionType } : {}),
-      }));
-      host().log({ ev: "login", account: name, why: ok ? `${name}: вошёл` : `${name}: claude принял код, но auth status — не вошёл` });
-      return { email: who?.email ?? null, plan: who?.subscriptionType ?? null };
-    },
-  };
 
   return {
-    requests,
-    check,
-    /** Есть ли у машины общий вход: claude без папки аккаунта. */
-    sharedLogin: () => loggedIn("общий вход", {}),
-    close,
     start() {
-      // процесс входа умер вместе с прежним Host
-      for (const [name, a] of Object.entries(book.accounts())) if (a.login === "pending") book.edit(name, (cur) => cur && { ...cur, login: "none" });
+      for (const [name, a] of Object.entries(read())) if (a.login === "pending") edit(name, { login: "none" }); // Host перезапущен посреди входа
+      timer = setInterval(() => {
+        for (const name of Object.keys(read())) void check(name);
+      }, CHECK_MS);
     },
     stop() {
-      stopping = true;
-      for (const name of [...open.keys()]) close(name);
+      clearInterval(timer);
+      for (const name of [...started.keys()]) end(name);
+    },
+    end,
+    loggedIn,
+    async login(name: string): Promise<{ url: string }> {
+      if (!NAME.test(name)) throw refuse("bad_frame", "имя аккаунта — латиница, цифры, - и _");
+      end(name);
+      mkdirSync(dirs.accDir(name), { recursive: true });
+      edit(name, { login: "pending" });
+      const probe = host().probe({ env: { CLAUDE_CONFIG_DIR: dirs.accDir(name) } });
+      try {
+        const { manualUrl } = (await within(probe.sdk("claudeAuthenticate", true), `не ответил за ${CALL_MS / 1000} с`, CALL_MS)) as { manualUrl: string };
+        const expiry = setTimeout(() => {
+          end(name);
+          edit(name, { login: "none" });
+          host().log({ kind: "refuse", ev: "login", why: `${name}: срок входа вышел — кода нет за ${LOGIN_WAIT_MS / 60_000} мин` });
+        }, LOGIN_WAIT_MS);
+        started.set(name, { probe, state: new URL(manualUrl, "https://claude.ai").searchParams.get("state") ?? "", expiry });
+        host().log({ ev: "login", why: `${name}: вход начат` });
+        return { url: manualUrl };
+      } catch (e) {
+        probe.close();
+        edit(name, { login: "none" });
+        throw refuse("login_failed", `${name}: claudeAuthenticate — ${say(e)}`);
+      }
+    },
+    async code(name: string, pasted: string): Promise<{ email?: string; plan?: string }> {
+      const s = started.get(name);
+      if (!s) throw refuse("not_started", `${name}: входа нет — Host перезапускался, вход начат заново или срок вышел`);
+      const [code, state = s.state] = pasted.trim().split("#");
+      const late = `не ответил за ${CALL_MS / 1000} с`;
+      try {
+        const answer = (await within(s.probe.sdk("claudeOAuthCallback", code, state), late, CALL_MS)) as { account?: Info };
+        let info = answer.account ?? {};
+        if (!info.email) {
+          // код принят: почта и тариф придут со следующей проверкой
+          info = ((await within(s.probe.sdk("accountInfo"), late, CALL_MS).catch((e) => void host().log({ kind: "refuse", ev: "login", why: `${name}: accountInfo — ${say(e)}` }))) as Info | undefined) ?? {};
+        }
+        end(name);
+        const ok = await loggedIn(name);
+        host().log({ ev: "login", why: ok ? `${name}: вошёл` : `${name}: claude принял код, но auth status — не вошёл` });
+        edit(name, { login: ok ? "ok" : "none", email: info.email, plan: info.subscriptionType, checked: Date.now() });
+        return { email: info.email, plan: info.subscriptionType };
+      } catch (e) {
+        end(name);
+        edit(name, { login: "none" });
+        throw refuse("bad_code", `${name}: claude не принял код — ${say(e)}`);
+      }
     },
   };
 }
