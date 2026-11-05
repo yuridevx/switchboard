@@ -1,60 +1,51 @@
-// Состояние открытого экрана: вид, диалог, выбранная машина слотов, строки итогов. Карточки берут его из контекста.
-import { createContext, useContext, useMemo, useRef, useState } from "react";
+// Экран аккаунтов: в широком виде аккаунты и слоты рядом, в узком — переключатель.
+import { useEffect, useState } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { type Result, useApp, useOutcome } from "@switchboard/web-ui";
-import type {} from "@switchboard/web-board";
-import { useAccounts } from "./store.ts";
+import { Btn, machinesWith, Page, useApp, useOutcome } from "@switchboard/web-ui";
+import { AccountsColumn } from "./AccountsColumn.tsx";
+import { SlotsColumn } from "./SlotsColumn.tsx";
+import { useAccounts } from "./state.ts";
 
-type Dialog = null | { kind: "new"; id: number; machine: string } | { kind: "sess"; machine: string; slot: string } | { kind: "rm"; machine: string; account: string };
-
-export function useAccountsScreen(params: ScreenProps["params"]) {
+export function AccountsScreen({ params }: ScreenProps) {
   const app = useApp();
-  const store = useAccounts();
-  const dialogs = useRef(1);
+  const state = useAccounts();
   const [view, setView] = useState(params.view === "slots" ? "slots" : "accounts");
-  const [dialog, setDialog] = useState<Dialog>(() => (params.machine && app.can(params.machine, "machine.login") ? { kind: "new", id: dialogs.current++, machine: params.machine } : null));
-  const [picked, setPicked] = useState<string | null>(null);
-  /** почта, у которой открыт выбор машины для входа */
-  const [pickFor, setPickFor] = useState("");
-  const [notes, note] = useOutcome();
-
-  // машина из адреса может прийти позже первого roster: выбрать её, пока человек не выбрал другую
-  const fromAddress = app.use(() => (params.machine && app.can(params.machine, "machine.accounts") ? params.machine : ""));
-  const first = app.use(() => store.machines("machine.accounts")[0] ?? "");
+  const [notes, say] = useOutcome();
+  const [machine, setMachine] = useState(params.machine ?? "");
+  const answers = app.use(() => state.answers.get());
+  const machines = app.use(() => machinesWith(app, "machine.accounts"));
   const project = app.use(() => app.mark("project.current"));
   const near = app.use(() => (project ? (app.mark("project.machines", project) ?? []) : []));
-  const slotMachine = picked ?? (fromAddress || first);
+  useEffect(() => state.answers.mount(), [state]);
 
-  return useMemo(() => {
-    /** Действие со строкой итога: пока идёт — pending, потом итог. */
-    function act(key: string, pending: string | null, run: Promise<Result<string>>, done?: () => void) {
-      if (pending) note(key, pending);
-      void run.then((r) => {
-        if (r.ok) done?.();
-        note(key, r.ok ? r.result : r.error, r.ok ? "ok" : "bad");
-      });
-    }
-    return {
-      view,
-      setView,
-      dialog,
-      setDialog,
-      openNew: (machine: string) => setDialog({ kind: "new", id: dialogs.current++, machine }),
-      slotMachine,
-      pickSlotMachine: setPicked,
-      pickFor,
-      setPickFor,
-      notes,
-      /** машины открытого проекта */
-      near,
-      swap: (m: string, slot: string, account: string) => act(`swap:${m}:${slot}`, "Меняю…", store.swap(m, slot, account)),
-      setOrder: (m: string, slot: string, order: string[]) => act(`set:${m}:${slot}`, "Сохраняю…", store.setOrder(m, slot, order)),
-      moveSessions: (m: string, callsigns: string[], target: string) => act(`move:${m}`, null, store.moveSessions(m, callsigns, target)),
-      remove: (m: string, account: string, next: string) => act(`rm:${m}:${account}`, "Удаляю…", store.remove(m, account, next), () => setDialog(null)),
-    };
-  }, [store, view, dialog, slotMachine, pickFor, notes, note, near]);
+  const shared = { answers, machines, near, notes, say };
+  const cur = machines.includes(machine) ? machine : (near.find((m) => machines.includes(m)) ?? machines[0] ?? "");
+  const tabs = app.wide ? null : (
+    <>
+      <Btn aria-pressed={view === "accounts" ? "true" : "false"} onClick={() => setView("accounts")}>
+        Аккаунты
+      </Btn>
+      <Btn aria-pressed={view === "slots" ? "true" : "false"} onClick={() => setView("slots")}>
+        Слоты
+      </Btn>
+    </>
+  );
+  const accounts = <AccountsColumn key={params.machine ?? ""} {...shared} cur={cur} tabs={tabs} signIn={!!params.machine && params.view !== "slots"} />;
+  const slots = <SlotsColumn {...shared} cur={cur} pick={setMachine} tabs={tabs} />;
+
+  if (app.wide) {
+    return (
+      <Page>
+        <div className="ac-cols">
+          <div className="ac-col" data-col="accounts">
+            {accounts}
+          </div>
+          <div className="ac-col" data-col="slots">
+            {slots}
+          </div>
+        </div>
+      </Page>
+    );
+  }
+  return <Page>{view === "slots" ? slots : accounts}</Page>;
 }
-
-const Screen = createContext<ReturnType<typeof useAccountsScreen> | null>(null);
-export const ScreenProvider = Screen.Provider;
-export const useScreen = () => useContext(Screen)!;

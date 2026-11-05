@@ -1,61 +1,152 @@
-// Экран профилей: поиск, конфликты первыми, «Синхронизировать» — свести на всех машинах.
+// Профили всех машин: строка на профиль, с конфликтом — сверху; раскрывается в машины, сессии и файлы конфликта.
 import { useEffect, useState } from "react";
-import { Btn, In, profileName, useApp } from "@switchboard/web-ui";
-import { ProfileRow } from "./ProfileRow.tsx";
-import { useProfiles } from "./store.ts";
+import { Btn, DisclosureBtn, Dot, effortName, folderOf, In, lamp, machineLabel, type MachineAnswers, machinesWith, okOf, plural, profileIdOf, type ProfileInfo, type ProfileRepo, type ProfilesAnswer, RowBtn, sessionLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/relay";
+
+type Trouble = { machine: string; repo: ProfileRepo };
+type Row = { id: string; repo: string; folder: string; info: ProfileInfo; machines: string[]; troubles: Trouble[] };
+
+/** Файлы конфликта под папкой профиля — только его; ни под чьей или ошибка — всех профилей репозитория. */
+function troubleOf(repo: ProfileRepo, folder: string, folders: string[]): boolean {
+  if (repo.state === "ok") return false;
+  const files = repo.files ?? [];
+  const owned = files.filter((f) => folders.some((p) => f.startsWith(`${p}/`)));
+  return !owned.length || owned.some((f) => f.startsWith(`${folder}/`));
+}
+
+function rowsOf(answers: Readonly<Record<string, unknown>>): Row[] {
+  const rows = new Map<string, Row>();
+  const list = Object.entries(answers as Record<string, Parameters<typeof okOf<ProfilesAnswer>>[0]>);
+  for (const [machine, a] of list) {
+    for (const [id, info] of Object.entries(okOf(a)?.profiles ?? {})) {
+      const parts = id.split("/");
+      const row = rows.get(id) ?? { id, repo: parts.slice(0, 2).join("/"), folder: parts.slice(2).join("/"), info, machines: [], troubles: [] };
+      row.machines.push(machine);
+      rows.set(id, row);
+    }
+  }
+  const all = [...rows.values()];
+  for (const [machine, a] of list) {
+    for (const [name, repo] of Object.entries(okOf(a)?.repos ?? {})) {
+      const peers = all.filter((r) => r.repo === name);
+      for (const r of peers) if (r.machines.includes(machine) && troubleOf(repo, r.folder, peers.map((p) => p.folder))) r.troubles.push({ machine, repo });
+    }
+  }
+  return all.sort((a, b) => Number(!!b.troubles.length) - Number(!!a.troubles.length) || a.folder.localeCompare(b.folder));
+}
 
 export function ProfilesScreen() {
   const app = useApp();
-  const profiles = useProfiles();
-  const { rows, repos, errors, machines } = app.use(profiles.summary);
-  const [query, setQuery] = useState("");
-  const [wantConflicts, setWantConflicts] = useState(false);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const answers = useModule<MachineAnswers<ProfilesAnswer>>();
+  const data = app.use(() => answers.get());
+  const machines = app.use(() => machinesWith(app, "machine.profiles"));
+  const [q, setQ] = useState("");
+  const [onlyConflicts, setOnlyConflicts] = useState(false);
+  const [open, setOpen] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  useEffect(() => answers.mount(), [answers]);
 
-  useEffect(() => profiles.mount(), [profiles]);
+  const rows = rowsOf(data);
+  const conflicts = rows.filter((r) => r.troubles.length);
+  const active = onlyConflicts && conflicts.length > 0;
+  const needle = q.trim().toLowerCase();
+  const shown = (active ? conflicts : rows).filter((r) => !needle || `${r.id} ${r.info.about ?? ""}`.toLowerCase().includes(needle));
+  const repos = [...new Set(Object.values(data).flatMap((a) => Object.keys(okOf(a)?.repos ?? {})))];
 
-  async function syncAll() {
+  async function sync() {
     setSyncing(true);
-    const r = await profiles.syncAll();
-    app.toast(r.ok ? r.result : r.error, r.ok ? "ok" : "bad");
+    await Promise.all(machines.map((m) => answers.reload(m, (machine) => app.request<ProfilesAnswer>("machine.profiles", { machine, sync: true }))));
     setSyncing(false);
+    const after = rowsOf(answers.get());
+    const bad = after.flatMap((r) => r.troubles.map((t) => `${r.folder} @${t.machine}`));
+    app.toast(bad.length ? `Сведено. Конфликт: ${bad.join(", ")}` : "Сведено");
   }
 
-  const needle = query.trim().toLowerCase();
-  const conflicted = rows.filter((r) => r.conflicts.length).length;
-  // конфликтов не осталось — фильтра нет; появились снова — фильтр вернулся
-  const onlyConflicts = wantConflicts && conflicted > 0;
-  const shown = rows
-    .filter((r) => (!needle || `${r.id} ${r.about}`.toLowerCase().includes(needle)) && (!onlyConflicts || r.conflicts.length))
-    .sort((a, b) => (b.conflicts.length ? 1 : 0) - (a.conflicts.length ? 1 : 0) || profileName(a.id).localeCompare(profileName(b.id)));
   return (
-    <div className={"pf" + (app.wide ? " wide" : "")}>
+    <div className={app.wide ? "pf wide" : "pf"}>
       <div className="pf-h">
         {app.wide ? <b>Профили</b> : null}
         <span className="pf-repo">{repos.join(", ")}</span>
-        <Btn data-act="sync" disabled={syncing} onClick={() => void syncAll()}>
+        <Btn data-act="sync" disabled={syncing} onClick={() => void sync()}>
           {syncing ? "Свожу…" : "Синхронизировать"}
         </Btn>
       </div>
       <div className="pf-b">
         <div className="pf-t">
-          <In data-f="q" value={query} placeholder={`Найти профиль · ${rows.length}`} autoComplete="off" aria-label="Найти профиль" onInput={(e) => setQuery(e.currentTarget.value)} />
-          {conflicted ? (
-            <Btn data-act="conflicts" aria-pressed={onlyConflicts} onClick={() => setWantConflicts(!onlyConflicts)}>
-              {`конфликты ${conflicted}`}
+          <In data-f="q" placeholder={`Найти профиль · ${rows.length}`} autoComplete="off" aria-label="Найти профиль" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+          {conflicts.length ? (
+            <Btn data-act="conflicts" aria-pressed={onlyConflicts ? "true" : "false"} onClick={() => setOnlyConflicts(!onlyConflicts)}>
+              {`конфликты ${conflicts.length}`}
             </Btn>
           ) : null}
         </div>
-        {errors.map((e) => (
-          <div key={e} className="pf-e" role="alert">
-            {e}
-          </div>
-        ))}
+        {Object.entries(data).map(([m, a]) =>
+          wordOf(a) ? (
+            <div key={m} className="pf-e">
+              {`${machineLabel(app, m).text}: machine.profiles: ${wordOf(a)}`}
+            </div>
+          ) : null,
+        )}
         <div className="pf-l">
-          {shown.length ? shown.map((r) => <ProfileRow key={r.id} row={r} machines={machines} open={expanded === r.id} toggle={() => setExpanded(expanded === r.id ? null : r.id)} />) : <div className="pf-none">профилей нет</div>}
+          {shown.length ? shown.map((r) => <ProfileRow key={r.id} row={r} total={machines.length} open={open === r.id} toggle={() => setOpen(open === r.id ? null : r.id)} />) : <div className="pf-none">профилей нет</div>}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProfileRow({ row, total, open, toggle }: { row: Row; total: number; open: boolean; toggle(): void }) {
+  const app = useApp();
+  const sessions = app.use(() => (app.roster()?.sessions ?? []).filter((s: SessionRecord) => profileIdOf(s) === row.id));
+  const line = [row.info.model, row.info.effort ? effortName(row.info.effort) : null].filter(Boolean).join(" · ");
+  const bad = (m: string) => row.troubles.some((t) => t.machine === m);
+  return (
+    <div className={row.troubles.length ? "pf-w cf" : "pf-w"} data-profile={row.id}>
+      <DisclosureBtn className="pf-r" open={open} onClick={toggle}>
+        <span className="pf-n">
+          <b>{row.folder}</b>
+          {row.info.about ? <span>{row.info.about}</span> : null}
+        </span>
+        <span className="pf-m">
+          {line ? <span>{line}</span> : null}
+          <span className="c">{`${row.machines.length}/${total} машин · ${sessions.length} ${plural(sessions.length, "сессия", "сессии", "сессий")}`}</span>
+          {row.troubles.length ? <span className="pf-p bad">{`конфликт ${row.troubles.map((t) => machineLabel(app, t.machine).text).join(", ")}`}</span> : null}
+        </span>
+      </DisclosureBtn>
+      {open ? (
+        <div className="pf-d">
+          <div className="pf-ms">
+            {row.machines.map((m) => (
+              <span key={m} className={bad(m) ? "pf-p bad" : "pf-p ok"}>
+                {bad(m) ? `${machineLabel(app, m).text} конфликт` : machineLabel(app, m).text}
+              </span>
+            ))}
+          </div>
+          {sessions.length ? (
+            <div className="pf-ss">
+              {sessions.map((s) => {
+                const name = sessionLabel(app, s.callsign);
+                return (
+                  <RowBtn key={s.callsign} data-callsign={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
+                    <Dot kind={lamp(s)} />
+                    <span className={name.human ? "nm hum" : "nm"}>{name.text}</span>
+                    <span className="k">{`${machineLabel(app, s.callsign.split("@")[1]).text} · ${folderOf(s.dir)}`}</span>
+                  </RowBtn>
+                );
+              })}
+            </div>
+          ) : null}
+          {row.troubles.map((t) => (
+            <div key={t.machine} className="pf-cf">
+              <b>{`${machineLabel(app, t.machine).text}: ${t.repo.state === "conflict" ? "конфликт" : "ошибка"}`}</b>
+              {t.repo.error ? <span>{t.repo.error}</span> : null}
+              {t.repo.files?.map((f) => (
+                <code key={f}>{f}</code>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
