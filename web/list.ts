@@ -4,9 +4,10 @@ import type { BuildList } from "@switchboard/web-core";
 
 const LIMIT_MS = 30_000;
 
-export function readList(silence: string): Promise<BuildList> {
-  const answer = fetch("./build.json", { cache: "no-store" }).then((r) => r.json() as Promise<BuildList>);
-  return withLimit(answer, LIMIT_MS, () => {
-    throw new Error(silence);
+/** Файл сборки приходит за предел или отказ словом. */
+export const inTime = <T>(file: Promise<T>): Promise<T> =>
+  withLimit(file, LIMIT_MS, () => {
+    throw new Error(`нет ответа за ${LIMIT_MS / 1000} с`);
   });
-}
+
+export const readList = (): Promise<BuildList> => inTime(fetch("./build.json", { cache: "no-store" }).then((r) => r.json() as Promise<BuildList>));

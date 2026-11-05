@@ -8,7 +8,7 @@ import { readList } from "./list.ts";
 const maxActions = () => (globalThis as { Notification?: { maxActions?: number } }).Notification?.maxActions ?? 0;
 
 serviceWorker(self as unknown as SwScope, {
-  relayUrl: readList("build.json не ответил").then((list) => relayWs(list.workers)),
+  relayUrl: readList().then((list) => relayWs(list.workers)),
   store: idbStore(),
   maxActions,
 });

@@ -1,5 +1,5 @@
 // Пульт — широкий вид: разделы колонкой, второй экран справа от списка.
-const LISTS = ["inbox", "board", "incidents"];
+const LISTS = ["board", "inbox", "incidents"];
 
 export const PULT = {
   wide: true,
