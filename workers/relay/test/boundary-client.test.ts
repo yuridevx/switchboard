@@ -505,7 +505,7 @@ describe("клиент на подделках", () => {
       expect(c.roster.sessions.map((x) => x.callsign)).toEqual(["b@wsl"]);
     });
 
-    it("state страницы: open, если открыто хоть одно; иначе stopped, если хоть одно остановлено; иначе closed, если хоть одно закрыто", async () => {
+    it("state страницы: open, если открыто хоть одно; иначе — состояние первого соединения", async () => {
       const s = stand(["win", "wsl"]);
       const page = client({ fetch: s.f, key: "client.c.k.S" });
       await tick();
@@ -808,6 +808,27 @@ describe("клиент на подделках", () => {
       expect(r).toMatchObject({ ok: false, error: "timeout" });
       expect(r.why).toBeTruthy();
       expect(s.calls.filter((x) => x.url === "https://push.test/")).toHaveLength(1);
+    });
+
+    it("после close новое не принимается: send и request — disconnected, POST нет", async () => {
+      // источник: устав «останавливается штатно: не принимает новое»
+      const s = stand(["win"], { "https://push.test/": () => new Response(null, { status: 204 }) });
+      const c = client({ fetch: s.f });
+      await tick();
+      c.close();
+      const posts = s.calls.length;
+      expect(c.send({ type: "x", to: ".push" })).toEqual({ ok: false, error: "disconnected" });
+      expect(c.send({ type: "x", to: "a@win" })).toEqual({ ok: false, error: "disconnected" });
+      expect(await c.request({ type: "x" })).toMatchObject({ ok: false, error: "disconnected" });
+      await tick();
+      expect(s.calls).toHaveLength(posts);
+    });
+
+    it("тело POST — JSON, но не ответ: offline с причиной", async () => {
+      // источник: устав «ошибка словом»; опыт: такое тело уходило вызывающему как ответ без ok
+      const f = fleet({ workers: { push: "https://push.test/" }, key: "client.c.k.S", WebSocket: FakeWs, fetch: (async () => new Response('{"type":"nope"}', { status: 200 })) as never });
+      expect(await f.request({ type: "x", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why: '200: {"type":"nope"}' });
+      f.close();
     });
 
     it("кадр без ожидания к Worker'у не дошёл — onLost со словом; после close — молчит", async () => {

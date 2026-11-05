@@ -380,6 +380,15 @@ describe("кадр после hello: доставка по адресу", () => 
     expect(await phone.quiet()).toEqual([]);
   });
 
+  it("список to: два адреса одного соединения — одна копия кадра", async () => {
+    // источник: опыт на настоящем объекте: Host получал кадр по разу на адрес и исполнял его дважды
+    const a = await laptop();
+    const phone = await hello("client", "phone");
+    phone.send({ type: "q", to: ["site@laptop", "wiki@laptop", "@laptop"] });
+    await a.next((f) => f.type === "q");
+    expect((await a.quiet()).filter((f) => f.type === "q")).toEqual([]);
+  });
+
   it("40 · session.history; объект засыпает; reply от Host с to panel-desk получают соединения panel-desk и только они", async () => {
     const a = await laptop();
     const panel = await hello("client", "panel-desk");
@@ -712,7 +721,7 @@ describe("POST keys.revoke", () => {
     expect(await own.waitClose()).toEqual({ code: 1008, reason: "revoked" });
   });
 
-  it.each(["revoke-throw", "list-throw"])("gate сломан на отзыве (%s) — failed и причина в журнале", async (mode) => {
+  it.each(["revoke-throw", "list-throw", "revoke-hang", "list-hang"])("gate подвёл на отзыве (%s) — failed за предел вызова и причина в журнале (слово пользователя 2 нояб.: у всех операций лимит)", async (mode) => {
     const agent = await pass("host", "win");
     const phone = await pass("client", "phone");
     await env.GATE.setMode(mode);
