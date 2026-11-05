@@ -1,7 +1,7 @@
 {
   "name": "manifest-gate",
   "type": "tool",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "provides": {
     "manifest.check": 1
   },
