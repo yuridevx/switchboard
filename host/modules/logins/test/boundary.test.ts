@@ -55,7 +55,7 @@ afterEach(async () => {
 
 type Win = { utilization: number; resetsAt: number; at?: number; src?: string };
 /** in — слоты, где аккаунт стоит сейчас (ссылка слота ведёт на его папку). */
-type AccSpec = { in?: string | string[]; login?: "ok" | "none" | "pending"; limits?: Record<string, Win>; bare?: boolean };
+type AccSpec = { in?: string | string[]; login?: "ok" | "none"; limits?: Record<string, Win>; bare?: boolean };
 type ProbeLog = { env: Record<string, string | undefined>; calls: Array<{ name: string; args: unknown[] }> };
 type Rates = Record<string, { utilization: number; resets_at: string }>;
 
@@ -76,18 +76,29 @@ let polled: string[] = [];
 let probes: ProbeLog[] = [];
 let cli: Array<{ args: string[]; env: Record<string, string | undefined> }> = [];
 let mod: ReturnType<typeof make>;
+/** Почта, которой человек вошёл в браузере. */
+let signingIn = "corp@x";
+const NEW = () => join(home, "accounts", ".new");
+/** claude auth status: почта того, чей вход лежит в папке; входа нет — код 1. */
+function statusOf(env: Record<string, string | undefined>): { code: number; out: string } {
+  const dir = env.CLAUDE_SECURESTORAGE_CONFIG_DIR ?? env.CLAUDE_CONFIG_DIR!;
+  const name = dir === NEW() ? signingIn : (dir.split(/[\\/]/).at(-1) ?? "");
+  if (!existsSync(join(dir, CREDENTIALS))) return { code: 1, out: JSON.stringify({ loggedIn: false }) };
+  return { code: 0, out: JSON.stringify({ loggedIn: true, email: name, subscriptionType: "max", loginExpiresAt: "2026-11-30T20:37:03.431Z" }) };
+}
 
 /** Машина: аккаунты (вход — файлом в папке аккаунта, слоты — ссылки на неё), порядок слотов и слоты сессий. Сессии поднимаются по resume. */
 async function bench(
   o: {
     accounts?: Record<string, AccSpec>;
     slots?: Record<string, string[]>;
-    sessions?: Record<string, { slot: string | null; cut?: string }>;
+    sessions?: Record<string, { slot: string; cut?: string }>;
     status?: (env: Record<string, string | undefined>) => { code: number; out: string } | Promise<{ code: number; out: string }>;
     poll?: (name: string) => unknown;
   } = {},
 ) {
   usage = {};
+  signingIn = "corp@x";
   polled = [];
   probes = [];
   cli = [];
@@ -98,14 +109,14 @@ async function bench(
     mkdirSync(accDir(n), { recursive: true });
     if ((a.login ?? "ok") === "ok" && !a.bare) cred(accDir(n), n);
     for (const s of a.in === undefined ? [] : [a.in].flat()) linkSlot(slotDir(s), accDir(n));
-    recs[n] = { login: a.login ?? "ok", limits: Object.fromEntries(Object.entries(a.limits ?? {}).map(([w, v]) => [w, { at: now() - 30, src: "event", ...v }])) };
+    recs[n] = { login: a.login ?? "ok", limits: Object.fromEntries(Object.entries(a.limits ?? {}).map(([w, v]) => [w, { at: now() - 30, ...v }])) };
   }
   writeFileSync(join(store, "host-logins.json"), JSON.stringify({ machine: { accounts: recs, slots: o.slots ?? {} }, sessions: o.sessions ?? {} }));
   mod = make();
   st = await standHost({
     home,
     sessions: Object.keys(o.sessions ?? {}).map((callsign) => ({ callsign })),
-    modules: [{ manifest: manifest as Manifest, module: mod }, module("probe", {}, { uses: { "machine.accounts@host-logins": 1, "session.slot@host-logins": 1 } })],
+    modules: [{ manifest: manifest as Manifest, module: mod }, module("probe", {}, { uses: { "machine.accounts@host-logins": 2, "session.slot@host-logins": 2 } })],
   });
   const orig = st.sdk.query;
   st.sdk.query = (p) => {
@@ -119,13 +130,10 @@ async function bench(
     rec("claudeAuthenticate", () => ({ manualUrl: "https://claude.ai/oauth/authorize?code=true&state=Qm9vY", automaticUrl: "http://localhost:5555/callback" }));
     rec("claudeOAuthCallback", (code) => {
       if (code !== "Xk2pL") throw new Error("Request failed with status code 400");
-      // claude кладёт вход и почту в свою папку
-      const dir = env.CLAUDE_SECURESTORAGE_CONFIG_DIR ?? env.CLAUDE_CONFIG_DIR!;
-      writeFileSync(join(dir, CREDENTIALS), JSON.stringify({ claudeAiOauth: { accessToken: `tok-${name}` } }));
-      writeFileSync(join(env.CLAUDE_CONFIG_DIR!, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "corp@x" } }));
-      return { account: { email: "corp@x", subscriptionType: "max" } };
+      // claude кладёт вход туда, куда велит CLAUDE_SECURESTORAGE_CONFIG_DIR, а не в папку конфига
+      writeFileSync(join(env.CLAUDE_SECURESTORAGE_CONFIG_DIR!, CREDENTIALS), JSON.stringify({ claudeAiOauth: { accessToken: `tok-${signingIn}` } }));
+      return { account: {} };
     });
-    rec("accountInfo", () => ({ email: "corp@x", subscriptionType: "max" }));
     rec(USAGE, () => {
       polled.push(name);
       return o.poll ? o.poll(name) : { rate_limits: usage[name] ?? null };
@@ -134,13 +142,14 @@ async function bench(
   };
   st.sdk.cli = async (args, env) => {
     cli.push({ args, env });
-    return (await o.status?.(env)) ?? { code: 0, out: JSON.stringify({ loggedIn: true }) };
+    return (await o.status?.(env)) ?? statusOf(env);
   };
   for (const cs of Object.keys(o.sessions ?? {})) await until(() => st!.session("probe", cs)?.state === "idle");
   return st;
 }
 
-const ask = async (f: Record<string, unknown>) => (await st!.relay.request({ v: 1, machine: "laptop", ...f } as Frame)) as Frame & { ok: boolean; result: any; error?: string; why?: string };
+const V2 = new Set(["machine.accounts", "machine.login", "machine.login_code", "machine.account_remove", "session.slot"]);
+const ask = async (f: Record<string, unknown>) => (await st!.relay.request({ v: V2.has(String(f.type)) ? 2 : 1, machine: "laptop", ...f } as Frame)) as Frame & { ok: boolean; result: any; error?: string; why?: string };
 const accounts = async () => (await ask({ type: "machine.accounts" })).result.accounts;
 const slots = async () => (await ask({ type: "machine.accounts" })).result.slots;
 const places = () => st!.journal().filter((l) => l.ev === "place");

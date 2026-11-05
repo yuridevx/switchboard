@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_FRAME } from "@switchboard/protocol";
-import { clientPath, content, isRefusal, refuse, tildePath } from "../contract.ts";
+import { claudeDir, clientPath, content, isRefusal, refuse, tildePath } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
 import { CORE, FakeClock, FakeHolders, FakeRelay, FakeSdk, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { FakeProc, Stand } from "../stand/index.ts";
@@ -1942,6 +1942,58 @@ describe("договор модуля на стенде", () => {
     expect(st.sdk.cliCalls[0]).toMatchObject({ args: ["auth", "status"], env: { CLAUDE_CONFIG_DIR: "/acc/y0902", DISABLE_UPDATES: "1" }, input: "код" });
   });
 
+  describe("только свои переменные", () => {
+    const saved = { ...process.env };
+    afterEach(() => {
+      process.env = { ...saved };
+    });
+
+    it("1 · подброшенный путь к слоту, ключ и токен стёрты, в журнале только имена; путь к bash остался", async () => {
+      // источник: факт — hz-ex44-win-1, переменная на уровне машины; слово пользователя 5 нояб.
+      process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR = "/чужой/слот";
+      process.env.ANTHROPIC_API_KEY = "секрет-ключа";
+      process.env.CLAUDE_CODE_GIT_BASH_PATH = "/bin/bash";
+      const m = module("host-manage", {}, { calls: ["claudeAuthenticate"] });
+      const st = await stand({ modules: [m] });
+      await st.open("site@laptop");
+      const session = st.query("site@laptop").options.env as Record<string, string | undefined>;
+      st.host("host-manage").probe({ env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: "/своя" } }).close();
+      const probe = st.sdk.queries.at(-1)!.options.env as Record<string, string | undefined>;
+      expect(session.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
+      expect(session.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(session.CLAUDE_CODE_GIT_BASH_PATH).toBe("/bin/bash");
+      expect(probe.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe("/своя");
+      const line = st.journal().find((l) => l.ev === "env_dropped")!;
+      expect(line.why).toContain("CLAUDE_SECURESTORAGE_CONFIG_DIR");
+      expect(line.why).toContain("ANTHROPIC_API_KEY");
+      expect(JSON.stringify(line)).not.toContain("секрет-ключа");
+      expect(JSON.stringify(line)).not.toContain("/чужой/слот");
+    });
+
+    it("2 · сессия, короткий процесс и claude auth получают папку Host, стандартной нет ни в одном окружении", async () => {
+      // источник: слово пользователя 5 нояб. «вообще не использовать стандартную клауде на хосте»
+      delete process.env.CLAUDE_CONFIG_DIR;
+      const m = module("host-manage", {}, { calls: ["claudeAuthenticate"] });
+      const st = await stand({ modules: [m] });
+      await st.open("site@laptop");
+      const own = join(st.home, "claude");
+      expect(claudeDir()).toBe(own);
+      expect(existsSync(own)).toBe(true);
+      expect((st.query("site@laptop").options.env as Record<string, string>).CLAUDE_CONFIG_DIR).toBe(own);
+      st.host("host-manage").probe().close();
+      expect((st.sdk.queries.at(-1)!.options.env as Record<string, string>).CLAUDE_CONFIG_DIR).toBe(own);
+      await st.host("host-manage").cli(["auth", "status"]);
+      expect(st.sdk.cliCalls.at(-1)!.env.CLAUDE_CONFIG_DIR).toBe(own);
+    });
+
+    it("2 · своих переменных нет — строки env_dropped нет", async () => {
+      // источник: чьё: код
+      for (const k of Object.keys(process.env)) if (/^(CLAUDE|ANTHROPIC)_/i.test(k)) delete process.env[k];
+      const st = await stand({ modules: [] });
+      expect(st.journal().some((l) => l.ev === "env_dropped")).toBe(false);
+    });
+  });
+
   it("вклады в query(): env, append, settings, mcpServers, опция; режим «разрешено всё»; DISABLE_UPDATES; два владельца env — open отказан", async () => {
     const slots = module("host-slots", { session: () => ({ env: { CLAUDE_SECURESTORAGE_CONFIG_DIR: "/slots/main" }, settings: { theme: "dark" } }) });
     const fleet = module("host-fleet", { session: (s) => ({ append: `Твой callsign — ${s.info.callsign}.`, mcpServers: { fleet: { type: "sdk", name: "fleet" } as never }, model: "claude-haiku-4-5" }) });
@@ -2777,6 +2829,7 @@ describe("спорные места: разобраны опытом", () => {
 });
 
 describe("история после сжатия", () => {
+  let root: string;
   let cfg: string;
   let dir: string;
   const prevCfg = process.env.CLAUDE_CONFIG_DIR;
@@ -2787,7 +2840,7 @@ describe("история после сжатия", () => {
   };
   /** Весь разговор глазами модуля: сессия с этим разговором, настоящие функции SDK. */
   async function whole(o: Record<string, unknown> = {}): Promise<unknown> {
-    const st = await standHost({ modules: [module("host-reader", {}, { calls: ["getSessionMessages"] })], sessions: [{ callsign: "site@laptop", session_id: SID, cwd: dir, stopped: true }] });
+    const st = await standHost({ home: root, modules: [module("host-reader", {}, { calls: ["getSessionMessages"] })], sessions: [{ callsign: "site@laptop", session_id: SID, cwd: dir, stopped: true }] });
     st.sdk.functions = sdk as never;
     try {
       return await st.session("host-reader", "site@laptop")!.sdk("getSessionMessages", o);
@@ -2798,15 +2851,15 @@ describe("история после сжатия", () => {
   const uuids = (m: unknown) => (m as Array<{ uuid: string }>).map((x) => x.uuid);
 
   beforeEach(() => {
-    cfg = mkdtempSync(join(tmpdir(), "sb-history-"));
-    dir = join(cfg, "proj");
+    root = mkdtempSync(join(tmpdir(), "sb-history-"));
+    cfg = join(root, "claude");
+    dir = join(root, "proj");
     mkdirSync(dir);
-    process.env.CLAUDE_CONFIG_DIR = cfg;
   });
   afterEach(() => {
     if (prevCfg === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = prevCfg;
-    rmSync(cfg, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   });
 
   it("5531 · 32 сообщения до сжатия и 7 после: вернулись все — до этой склейки SDK отдавал только хвост", async () => {

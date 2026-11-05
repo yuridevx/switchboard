@@ -6,15 +6,15 @@
     "host"
   ],
   "provides": {
-    "machine.accounts": 1,
-    "machine.login": 1,
-    "machine.login_code": 1,
-    "machine.account_remove": 1,
-    "session.slot": 1,
+    "machine.accounts": 2,
+    "machine.login": 2,
+    "machine.login_code": 2,
+    "machine.account_remove": 2,
+    "session.slot": 2,
     "slot.set": 1,
     "slot.swap": 1,
     "slot": 1,
-    "account": 1
+    "account": 2
   },
   "uses": {
     "host.module@host": 1,
@@ -23,7 +23,6 @@
   "calls": [
     "claudeAuthenticate",
     "claudeOAuthCallback",
-    "accountInfo",
     "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET"
   ],
   "config": {}

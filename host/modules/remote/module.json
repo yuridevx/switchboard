@@ -6,7 +6,7 @@
   "provides": { "remote": 1 },
   "uses": {
     "host.module@host": 1,
-    "account@host-logins": 1
+    "account@host-logins": 2
   },
   "calls": ["enableRemoteControl"],
   "config": {}

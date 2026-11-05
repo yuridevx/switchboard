@@ -1,5 +1,5 @@
-// Папки аккаунтов и ссылки слотов. Кто в слоте, знает только ссылка на диске. Вход не двигается: аккаунт живёт в своей папке, слот на неё указывает.
-import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
+// Папки аккаунтов и ссылки слотов. Имя папки — почта. Кто в слоте, знает только ссылка на диске. Новый вход идёт в пустой папке .new и ложится в папку почты, когда она известна.
+import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, unlinkSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { refuse } from "@switchboard/host";
 
@@ -13,7 +13,8 @@ const LOCK_STEP_MS = 100;
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export function folders(home: string) {
-  const accDir = (name: string) => join(home, "accounts", name);
+  const accDir = (email: string) => join(home, "accounts", email);
+  const newDir = join(home, "accounts", ".new");
   const slotDir = (slot: string) => join(home, "slots", slot);
 
   /** Кто в слоте: битая ссылка, обычная папка и пустое место — никто. */
@@ -58,12 +59,10 @@ export function folders(home: string) {
     rmdirSync(dir);
   }
 
-  /** Поставить аккаунт в слот; блокировка — того, кто уходит. */
+  /** Поставить аккаунт в слот; блокировка — того, кто уходит. Вошёл ли он, знает его запись. */
   async function place(slot: string, name: string): Promise<void> {
     const dir = slotDir(slot);
     try {
-      if (!existsSync(accDir(name))) throw refuse("not_logged_in", `${name}: папка аккаунта удалена`);
-      if (!existsSync(join(accDir(name), CREDENTIALS))) throw refuse("not_logged_in", `${name}: входа нет`);
       await locked(inSlot(slot), () => {
         clear(dir);
         mkdirSync(dirname(dir), { recursive: true });
@@ -71,14 +70,31 @@ export function folders(home: string) {
       });
     } catch (e) {
       const r = e as { word?: string; why?: string };
-      if (r.word !== "not_logged_in" && r.word !== "slot_dir_busy") throw e;
+      if (r.word !== "slot_dir_busy") throw e;
       throw refuse(r.word, `${slot}: ${name} не встал в слот — ${r.why}`);
     }
   }
 
+  /** Файл входа из .new — в папку почты, под блокировкой её обновления: новая и известная почта идут одним путём. */
+  async function settle(email: string): Promise<void> {
+    mkdirSync(accDir(email), { recursive: true });
+    try {
+      await locked(email, () => renameSync(join(newDir, CREDENTIALS), join(accDir(email), CREDENTIALS)));
+    } catch (e) {
+      if ((e as { word?: string }).word) throw e;
+      throw refuse("account_dir_busy", `${email}: файл входа занят — ${(e as Error).message}; войдите заново`);
+    }
+  }
+
+  /** Стереть папку идущего входа: при старте, при остановке, перед новым входом и после него. */
+  const clearNew = () => rmSync(newDir, { recursive: true, force: true, maxRetries: 3 });
+
   const unplace = (slot: string) => locked(inSlot(slot), () => clear(slotDir(slot)));
 
-  return { accDir, slotDir, inSlot, place, unplace };
+  return { accDir, newDir, slotDir, inSlot, place, unplace, settle, clearNew };
 }
+
+/** Окружение короткого процесса Claude: обе папки заданы явно, вход и конфиг — в одной. */
+export const envOf = (dir: string) => ({ CLAUDE_CONFIG_DIR: dir, CLAUDE_SECURESTORAGE_CONFIG_DIR: dir });
 
 export type Folders = ReturnType<typeof folders>;

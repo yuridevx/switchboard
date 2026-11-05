@@ -14,6 +14,7 @@ import type { Ctx, Host, LogRecord, Manifest, OpenSpec, Probe, Result, Session, 
 import { limit, realClock, type Clock } from "./clock.ts";
 import { moduleProblems, relayProblems, setProblems } from "./gate.ts";
 import { Holders, type HolderApi } from "./holders.ts";
+import { ownEnv } from "./paths.ts";
 import { Journal } from "./journal.ts";
 import { isRefusal, refuse } from "./refusal.ts";
 import type { Release, SdkApi } from "./release.ts";
@@ -143,6 +144,8 @@ export class Kernel {
   async start(): Promise<void> {
     const { core, release } = this.o;
     const manifests = release.modules.map((e) => e.manifest);
+    const dropped = ownEnv(process.env, this.o.home);
+    if (dropped.length) this.log({ kind: "note", ev: "env_dropped", why: `окружение машины не используется: ${dropped.join(", ")}` });
     this.log({ ev: "host_start", version: release.version, sdk: release.sdk, modules: manifests.map((m) => `${m.name} ${m.version}`) });
     const reasons = [...(release.workers.relay ? [] : relayProblems(core, manifests)), ...setProblems(core, manifests)];
     if (reasons.length) throw this.refuseStart(reasons);

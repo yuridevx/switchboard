@@ -1,23 +1,27 @@
 // Аккаунты Claude на машине и слоты. Все изменения слотов идут одной очередью: решение принимается внутри неё и видит то, что есть сейчас.
-// Кто в слоте — ссылка на диске; ждёт ли слот — считается из окон; копий нет.
+// Кто в слоте — ссылка на диске; ждёт ли слот — считается из окон; копий нет. Имя аккаунта — его почта. Каждый процесс Claude получает обе папки явно.
 import type { Host, Module, SDKMessage, Session } from "@switchboard/host";
 import { isRefusal, refuse } from "@switchboard/host";
 import { READ_MS, within } from "@switchboard/protocol";
 import { rmSync } from "node:fs";
 import type { Account } from "./limits.ts";
 import { nextUp, over, shown, stale, usable, usableAt } from "./limits.ts";
-import { folders, type Folders } from "./links.ts";
-import { signin } from "./signin.ts";
+import { envOf, folders, type Folders } from "./links.ts";
+import { signin, type SignedIn } from "./signin.ts";
 
 type Book = { accounts: Record<string, Account>; slots: Record<string, string[]> };
 /** Запись сессии: её слот и аккаунт, на котором оборвался ход. */
-type Seat = { slot: string | null; cut?: string };
+type Seat = { slot: string; cut?: string };
 
 const USAGE = "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET";
 const NAME = /^[A-Za-z0-9_-]+$/;
 /** Окна запасного старше этого — спросить у Claude: расход на других машинах видно только там. */
 const FRESH_S = 120;
 const POLL_MS = READ_MS - 2_000;
+/** Один аккаунт на разных машинах: 17:59:59 и 18:00:00 (замер 5 нояб.). */
+const RESET_DRIFT_S = 2;
+/** Слот, который заводит вход на машине без слотов. */
+const MAIN = "main";
 const CONTINUE = "Продолжай";
 const WINDOW_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "нед." };
 
@@ -65,7 +69,7 @@ export function make(): Module {
     const { accounts, slots } = book();
     const cur = inSlot(slot);
     const t = now();
-    if (!cur || !accounts[cur] || !over(accounts[cur], t) || nextUp(slots[slot] ?? [], accounts, t, cur)) return null;
+    if (!cur || !accounts[cur] || usable(accounts[cur], t) || nextUp(slots[slot] ?? [], accounts, t, cur)) return null;
     const times = (slots[slot] ?? []).filter((n) => accounts[n]?.login === "ok").map((n) => usableAt(accounts[n], t)).filter(Boolean);
     return times.length ? Math.min(...times) : null;
   }
@@ -122,16 +126,15 @@ export function make(): Module {
 
   async function poll(name: string): Promise<void> {
     if (stopping) return;
-    const probe = host.probe({ env: { CLAUDE_CONFIG_DIR: dirs.accDir(name) } });
+    const probe = host.probe({ env: envOf(dirs.accDir(name)) });
     polls.add(probe);
     try {
-      const u = (await within(probe.sdk(USAGE, { skipBehaviors: true }), `не ответил за ${POLL_MS / 1000} с`, POLL_MS)) as { subscription_type?: string; rate_limits?: Record<string, { utilization: number; resets_at?: string }> | null };
+      const u = (await within(probe.sdk(USAGE, { skipBehaviors: true }), `не ответил за ${POLL_MS / 1000} с`, POLL_MS)) as { rate_limits?: Record<string, { utilization: number; resets_at?: string }> | null };
       const at = now();
       write((b) => {
         const a = b.accounts[name];
         if (!a) return;
-        for (const [w, v] of Object.entries(u.rate_limits ?? {})) a.limits[w] = { utilization: v.utilization / 100, resetsAt: v.resets_at ? Math.floor(Date.parse(v.resets_at) / 1000) : 0, at, src: "poll" };
-        if (u.subscription_type) a.plan = u.subscription_type;
+        for (const [w, v] of Object.entries(u.rate_limits ?? {})) a.limits[w] = { utilization: v.utilization / 100, resetsAt: v.resets_at ? Math.floor(Date.parse(v.resets_at) / 1000) : 0, at };
       });
     } catch (e) {
       host.log({ kind: "refuse", ev: "poll", why: `${name}: опрос лимитов — ${say(e)}` });
@@ -161,25 +164,53 @@ export function make(): Module {
         host.log({ ev: "slot.wait", why: `${slot}: все аккаунты у порога — жду сброса${w ? ` ${clock(w)}` : ""}` });
         return settled(slot);
       }
-      await put(slot, to, why);
-      settled(slot);
+      try {
+        await put(slot, to, why);
+      } finally {
+        settled(slot);
+      }
+    });
+  }
+
+  /** Вход перестал быть годным: каждый слот, где стоит аккаунт, идёт на следующего. */
+  function lost(email: string): void {
+    for (const slot of Object.keys(book().slots)) if (inSlot(slot) === email) swapFrom(slot, email, "вход пропал");
+    plan();
+  }
+
+  /** Почта нового входа известна: файл на место, запись; на машине без слотов — слот main. */
+  function landed(email: string, info: SignedIn): Promise<void> {
+    return serial(async () => {
+      await dirs.settle(email);
+      write((b) => void (b.accounts[email] = { ...(b.accounts[email] ?? { limits: {} }), ...info, login: "ok" }));
+      if (!Object.keys(book().slots).length) {
+        await put(MAIN, email, "новый слот");
+        write((b) => void (b.slots[MAIN] = [email]));
+        host.log({ ev: "slot.set", why: `${MAIN}: первый вход на машине без слотов` });
+      }
+      plan();
     });
   }
 
   /** Час сброса: аккаунт слота снова годен или в запасе появился годный. */
   async function reset(): Promise<void> {
     for (const slot of waiting) {
-      const cur = inSlot(slot);
-      if (cur && usable(book().accounts[cur], now())) {
-        host.log({ ev: "slot.reset", why: `${slot}: сброс ${cur} — продолжаю` });
-        settled(slot, true);
-        continue;
+      try {
+        const cur = inSlot(slot);
+        if (cur && usable(book().accounts[cur], now())) {
+          host.log({ ev: "slot.reset", why: `${slot}: сброс ${cur} — продолжаю` });
+          settled(slot, true);
+          continue;
+        }
+        const to = await reserve(slot, cur);
+        if (!to) continue;
+        await put(slot, to, "сброс");
+        host.log({ ev: "slot.reset", why: `${slot}: сброс ${to} — продолжаю` });
+        settled(slot);
+      } catch (e) {
+        // отказ одного слота не трогает остальные; причина уже в журнале у того, кто отказал
+        if (!isRefusal(e)) throw e;
       }
-      const to = await reserve(slot, cur);
-      if (!to) continue;
-      await put(slot, to, "сброс");
-      host.log({ ev: "slot.reset", why: `${slot}: сброс ${to} — продолжаю` });
-      settled(slot);
     }
     plan();
   }
@@ -194,12 +225,15 @@ export function make(): Module {
     if (utilization === undefined) return;
     const resetsAt = info.resetsAt ?? 0;
     const { accounts, slots } = book();
-    const same = (n: string) => accounts[n]?.limits[type]?.resetsAt === resetsAt;
+    const same = (n: string) => {
+      const known = accounts[n]?.limits[type]?.resetsAt;
+      return known !== undefined && Math.abs(known - resetsAt) <= RESET_DRIFT_S;
+    };
     const owner = same(cur) ? cur : ((slots[slot] ?? []).find((n) => n !== cur && same(n)) ?? cur);
     const at = now();
     write((b) => {
       const a = b.accounts[owner];
-      if (a && !((a.limits[type]?.at ?? 0) > at)) a.limits[type] = { utilization, resetsAt, at, src: "event" };
+      if (a && !((a.limits[type]?.at ?? 0) > at)) a.limits[type] = { utilization, resetsAt, at };
     });
     if (owner !== cur) {
       host.log({ ev: "late", callsign: s.info.callsign, why: `${slot}: поздний ответ ${owner}` });
@@ -223,35 +257,23 @@ export function make(): Module {
     if (msg.type === "result" && cut && cut === inSlot(seat.slot)) swapFrom(seat.slot, cut, "отказ");
   }
 
-  /** Общий вход и слоты решают, откуда сессия берёт вход, ещё до запуска. */
+  /** Сессия идёт только в слоте; какой — решается ещё до запуска. */
   async function opening(s: Session, req: Record<string, unknown>): Promise<void> {
     const names = Object.keys(book().slots);
-    let slot: string | null;
+    let slot: string;
     if ("slot" in req) {
       if (typeof req.slot !== "string") throw refuse("bad_frame", "session.open: slot — имя слота");
       if (!names.includes(req.slot)) throw noSlot(req.slot);
       slot = req.slot;
     } else if (names.length > 1) {
       throw refuse("slot_required", listing());
+    } else if (!names.length) {
+      throw refuse("no_slot", `на ${host.machine} нет слотов: войдите в аккаунт или создайте слот`);
     } else {
-      slot = names[0] ?? (await fromLogins());
+      slot = names[0];
     }
-    if (slot) assertLogin(slot);
+    assertLogin(slot);
     seatOf(s).set({ slot });
-  }
-
-  /** Новая машина: общего входа нет — слот main из вошедших; не вошёл никто — отказ до запуска. */
-  async function fromLogins(): Promise<string | null> {
-    const shared = await auth.loggedIn().catch(() => false);
-    if (shared) return null;
-    return serial(async () => {
-      const order = Object.entries(book().accounts).filter(([, a]) => a.login === "ok").map(([n]) => n);
-      if (!order.length) throw refuse("not_logged_in", `на ${host.machine} нет входа Claude: войдите в аккаунт на этой машине`);
-      await put("main", order[0], "новый слот");
-      write((b) => void (b.slots.main = order));
-      host.log({ ev: "slot.set", why: "main: общего входа нет, слот из вошедших аккаунтов" });
-      return "main";
-    });
   }
 
   function assertLogin(slot: string): void {
@@ -300,13 +322,13 @@ export function make(): Module {
   }
 
   /** Удаление одним запросом: сначала видно, что всем слотам есть кого положить, потом шаги. */
-  async function accountRemove(name: string, next: string | undefined, by: string | undefined): Promise<{ wiped: boolean }> {
+  async function accountRemove(name: string, by: string | undefined): Promise<{ wiped: boolean }> {
     if (!book().accounts[name]) throw refuse("no_account", `аккаунта ${name} на машине нет`);
     const holding = Object.keys(book().slots).filter((s) => inSlot(s) === name);
     const plans: Array<[string, string]> = [];
     for (const slot of holding) {
-      const to = next ?? (await reserve(slot, name));
-      if (!to) throw refuse("no_reserve", `${slot}: в запасе нет вошедшего аккаунта ниже порога`);
+      const to = await reserve(slot, name);
+      if (!to) throw refuse("no_reserve", `${slot}: в запасе нет вошедшего аккаунта ниже порога; поставьте другой аккаунт или удалите слот без сессий`);
       plans.push([slot, to]);
     }
     for (const [slot, to] of plans) await put(slot, to, "удаление аккаунта", by);
@@ -315,7 +337,6 @@ export function make(): Module {
       for (const [s, to] of plans) if (!b.slots[s].includes(to)) b.slots[s].push(to);
     });
     for (const [slot] of plans) settled(slot);
-    auth.end(name);
     try {
       rmSync(dirs.accDir(name), { recursive: true, force: true });
     } catch (e) {
@@ -331,12 +352,11 @@ export function make(): Module {
     const t = now();
     return {
       accounts: Object.fromEntries(Object.entries(accounts).map(([n, a]) => [n, shown(a, t)])),
-      slots: Object.fromEntries(Object.entries(slots).map(([s, order]) => [s, { account: inSlot(s), order, wait: waitOf(s), sessions: seated(s).map((x) => x.info.callsign) }])),
+      slots: Object.fromEntries(Object.entries(slots).map(([s, order]) => [s, { account: inSlot(s), order, wait: waitOf(s) }])),
     };
   }
 
   return {
-    openingReads: ["slot"],
     opening,
     session(s) {
       const slot = seatOf(s).get()?.slot;
@@ -360,27 +380,22 @@ export function make(): Module {
     },
     requests: {
       async "machine.accounts"(req) {
-        const maxAge = req.max_age;
-        if (typeof maxAge === "number") {
-          const t = now();
-          await Promise.all(Object.entries(book().accounts).filter(([, a]) => a.login === "ok" && stale(a, maxAge, t)).map(([n]) => poll(n)));
-        }
+        const asked = Array.isArray(req.poll) ? (req.poll as unknown[]).map(String) : [];
+        await Promise.all(asked.filter((n) => book().accounts[n]?.login === "ok").map((n) => poll(n)));
         return view();
       },
-      "machine.login": (req) => auth.login(String(req.account)),
-      "machine.login_code": (req) => auth.code(String(req.account), String(req.code)),
-      "machine.account_remove": (req, ctx) => serial(() => accountRemove(String(req.account), req.next as string | undefined, ctx.from)),
+      "machine.login": () => auth.login(),
+      "machine.login_code": (req) => auth.code(String(req.code)),
+      "machine.account_remove": (req, ctx) => serial(() => accountRemove(String(req.account), ctx.from)),
       "slot.set": (req) => serial(() => slotSet(String(req.slot), (req.order ?? []) as string[])),
       "slot.swap": (req, ctx) => serial(() => slotSwap(String(req.slot), req.account as string | undefined, ctx.from)),
       "session.slot"(req) {
         const s = host.session(req.callsign as string)!;
         const slot = req.slot;
-        if (slot !== null && typeof slot !== "string") throw refuse("bad_frame", "session.slot: нужно поле slot — имя слота или null");
-        if (slot !== null) {
-          if (!book().slots[slot]) throw noSlot(slot);
-          assertLogin(slot);
-        }
-        if ((seatOf(s).get()?.slot ?? null) === slot) return { restart: false };
+        if (typeof slot !== "string") throw refuse("bad_frame", "session.slot: нужно поле slot — имя слота");
+        if (!book().slots[slot]) throw noSlot(slot);
+        assertLogin(slot);
+        if (seatOf(s).get()?.slot === slot) return { restart: false };
         seatOf(s).set({ slot });
         if (s.state === "stopped" || s.state === "failed") return { restart: false };
         void s.restart();
@@ -390,9 +405,14 @@ export function make(): Module {
     start(h) {
       host = h;
       dirs = folders(h.dataDir);
-      auth = signin(() => host, dirs, () => book().accounts, (name, patch) => {
-        write((b) => void (b.accounts[name] = { ...(b.accounts[name] ?? { limits: {}, login: "none" }), ...patch }));
-        plan();
+      auth = signin(() => host, dirs, {
+        read: () => book().accounts,
+        edit(email, patch) {
+          write((b) => void (b.accounts[email] = { ...b.accounts[email], ...patch }));
+          plan();
+        },
+        lost,
+        landed,
       });
       auth.start();
       plan();
