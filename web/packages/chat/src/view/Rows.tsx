@@ -12,13 +12,13 @@ const LONG = 700;
 const cls = (...w: unknown[]) => w.filter(Boolean).join(" ");
 
 /** Свёрнутая строка: заголовок и тело по нажатию. */
-export function Dis({ className, head, open: start = false, children }: { className: string; head: ReactNode; open?: boolean; children: ReactNode }) {
+export function Dis({ className, head, open: start = false, children }: { className?: string; head: ReactNode; open?: boolean; children: ReactNode }) {
   const [open, setOpen] = useState(start);
   return (
-    <div className={`dis ${className}`}>
+    <div className={cls("dis", className)}>
       <DisclosureBtn className="dis-h" open={open} onClick={() => setOpen(!open)}>
         {head}
-        <Icon name="chevron-down" size={14} />
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={14} />
       </DisclosureBtn>
       {open && <div className="dis-b">{children}</div>}
     </div>
@@ -27,19 +27,24 @@ export function Dis({ className, head, open: start = false, children }: { classN
 
 function Think({ text, live, redacted }: { text: string; live?: boolean; redacted?: boolean }) {
   const head = (
-    <span className="chat-think-h">
+    <>
       <Icon name="brain-circuit" size={14} />
       {live ? "Размышляет…" : "Размышлял"}
-    </span>
+    </>
   );
   if (live)
     return (
       <div className="chat-think live">
-        {head}
+        <div className="chat-think-h">{head}</div>
         <div className="chat-think-t">{text.slice(-400)}</div>
       </div>
     );
-  if (redacted || !text.trim()) return <div className="chat-think">{head}</div>;
+  if (redacted || !text.trim())
+    return (
+      <div className="chat-think">
+        <div className="chat-think-h">{head}</div>
+      </div>
+    );
   return (
     <Dis className="chat-think" head={head}>
       <div className="chat-think-t">
@@ -78,7 +83,7 @@ export function Reply({ r, only }: { r: Extract<Row, { k: "reply" }>; only?: Par
       )}
       {!writing && texts.length > 0 && (
         <div className="chat-acts">
-          <CopyButton text={texts.join("\n\n")} label="" />
+          <CopyButton text={texts.join("\n\n")} label="копировать" />
         </div>
       )}
     </div>
@@ -142,7 +147,7 @@ function Me({ r }: { r: Extract<Row, { k: "me" }> }) {
         )}
         {rw && (
           <TextBtn className="chat-rw" onClick={() => env.rewind(r.uuid!, false)}>
-            <RotateCcwClock size={12} aria-hidden="true" />
+            <RotateCcwClock size={11} aria-hidden="true" />
             откатить файлы
           </TextBtn>
         )}
@@ -152,10 +157,10 @@ function Me({ r }: { r: Extract<Row, { k: "me" }> }) {
           {rwState.state === "ask" ? (
             <>
               <span>{rwState.text}</span>
-              <Btn className="chat-mini" onClick={() => env.dropRewind(r.uuid!)}>
+              <Btn type="button" className="chat-mini" onClick={() => env.dropRewind(r.uuid!)}>
                 Отмена
               </Btn>
-              <Btn className="chat-mini" onClick={() => env.rewind(r.uuid!, true)}>
+              <Btn type="button" className="chat-mini" onClick={() => env.rewind(r.uuid!, true)}>
                 Откатить
               </Btn>
             </>
@@ -223,7 +228,7 @@ function TaskRow({ id }: { id: string }) {
       <span>{[t.description || t.id, t.summary].filter(Boolean).join(" · ")}</span>
       <em>{steps(t.uses ?? 0)}</em>
       {env.canAct && (
-        <Btn className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
+        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
           <Icon name="square" />
           Стоп
         </Btn>
@@ -254,7 +259,7 @@ function Ban({ r }: { r: Extract<Row, { k: "ban" }> }) {
         <b>{r.title}</b>
         {r.body && <p>{r.body}</p>}
         {r.edit && (
-          <Btn className="chat-mini" onClick={() => env.fill(edit && edit.k === "me" ? edit.text : "")}>
+          <Btn type="button" className="chat-mini" onClick={() => env.fill(edit && edit.k === "me" ? edit.text : "")}>
             Изменить сообщение
           </Btn>
         )}

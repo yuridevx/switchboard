@@ -1,6 +1,6 @@
 // Экран вопроса сессии: AskUserQuestion, запрос разрешения и план, форма и ссылка MCP. Первый ответ выигрывает.
 import { useState, type ReactNode } from "react";
-import { Area, Btn, Cta, In, Markdown, Note, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, type Params } from "@switchboard/web-ui";
+import { Area, Btn, Cta, In, Markdown, Note, Pad, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, type Params } from "@switchboard/web-ui";
 import type { Ask, Asked, Outcome } from "./store.ts";
 
 type Opt = { label?: string; description?: string };
@@ -131,7 +131,7 @@ function PermQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }
               <Cta disabled={q.sending} onClick={() => send({ action: "deny", ...(why.trim() ? { message: why.trim() } : {}), label: words[2] })}>
                 {words[4]}
               </Cta>
-              <Btn className="ask-decline" onClick={() => setDeny(false)}>
+              <Btn type="button" className="ask-decline" onClick={() => setDeny(false)}>
                 Назад
               </Btn>
             </div>
@@ -148,11 +148,11 @@ function PermQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }
                 {q.sending ? "Отправляю…" : words[0]}
               </Cta>
               {(plan || rules.length > 0) && (
-                <Btn className="ask-decline" disabled={q.sending} onClick={() => send({ action: "allow", always: true, label: words[1] })}>
+                <Btn type="button" className="ask-decline" disabled={q.sending} onClick={() => send({ action: "allow", always: true, label: words[1] })}>
                   {words[1]}
                 </Btn>
               )}
-              <Btn className="ask-decline" onClick={() => setDeny(true)}>
+              <Btn type="button" className="ask-decline" onClick={() => setDeny(true)}>
                 {words[2]}
               </Btn>
             </div>
@@ -204,7 +204,7 @@ function FormQ({ q, send, off }: { q: Asked; send(b: Body): void; off: boolean }
           <Cta disabled={q.sending} onClick={() => send(url ? { action: "accept" } : { action: "accept", content: content() })}>
             {q.sending ? "Отправляю…" : url ? "Перешёл" : "Отправить"}
           </Cta>
-          <Btn className="ask-decline" onClick={() => send({ action: "decline" })}>
+          <Btn type="button" className="ask-decline" onClick={() => send({ action: "decline" })}>
             Отклонить
           </Btn>
         </>
@@ -244,10 +244,10 @@ export function AskScreen({ params }: { params: Params }) {
   const send = (b: Body) => void ask.answer(cs, q, b);
   const View = q.kind === "perm" ? PermQ : q.kind === "ask" ? AskQ : FormQ;
   return (
-    <section className="ask" key={q.question}>
+    <Pad className="ask" key={q.question}>
       <View cs={cs} q={q} send={send} off={off} />
       {q.kind !== "ask" && <Hint cs={cs} q={q} />}
       {q.done && <Done d={q.done} cs={cs} />}
-    </section>
+    </Pad>
   );
 }

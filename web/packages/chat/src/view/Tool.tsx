@@ -117,7 +117,7 @@ function Agent({ t }: { t: Tool }) {
   return (
     <div className="tb-agent">
       {typeof t.input.prompt === "string" && (
-        <Dis className="tb-task" head="Задание">
+        <Dis head="Задание">
           <div className="tb-prompt">{t.input.prompt}</div>
         </Dis>
       )}
@@ -215,7 +215,7 @@ function Bar({ t }: { t: Tool }) {
   const app = useApp();
   const can = app.use(() => env.canAct && !env.waiting(t.id));
   const bg = (
-    <Btn className="chat-mini" onClick={() => env.act("backgroundTasks", [t.id])}>
+    <Btn type="button" className="chat-mini" onClick={() => env.act("backgroundTasks", [t.id])}>
       <Icon name="arrow-down-to-line" />В фон
     </Btn>
   );
@@ -228,7 +228,7 @@ function Bar({ t }: { t: Tool }) {
       <span>{[`идёт ${secs} с`, ...about].join(" · ")}</span>
       {can && !task.bg && bg}
       {can && (
-        <Btn className="chat-mini" onClick={() => env.act("stopTask", [task.id])}>
+        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [task.id])}>
           <Icon name="square" />
           Стоп
         </Btn>
@@ -243,8 +243,7 @@ function stateOf(t: Tool, waiting: boolean, taskStatus?: string, taskBg?: boolea
   if (waiting) return { state: "wait", st: t.name === "ExitPlanMode" ? "ждёт одобрения" : "ждёт разрешения", tone: "wait" };
   if (taskStatus === "stopped" || taskStatus === "killed") return { state: "stopped", st: "остановлено", tone: "wait", chip };
   if (t.result?.error) return deniedWhy(t.result.content) !== null ? { state: "denied", st: "отклонено" } : { state: "error", st: <><Icon name="x" />ошибка</>, tone: "bad", chip };
-  if (t.result && LAUNCHED.test(textOf(t.result.content)) && taskStatus === "running") return { state: "bg", st: "в фоне", tone: "run" };
-  if (!t.result && taskStatus === "running" && taskBg) return { state: "bg", st: "в фоне", tone: "run" };
+  if (taskStatus === "running" && (taskBg || (t.result && LAUNCHED.test(textOf(t.result.content))))) return { state: "bg", st: "в фоне", tone: "run" };
   if (t.result) return { state: "ok", st: t.name === "TodoWrite" ? undefined : <Icon name="check" size={14} />, tone: "ok", chip };
   return { state: "running", st: <><Icon name="loader-circle" />{t.elapsed ? `${t.elapsed} с` : ""}</>, tone: "run", chip };
 }
@@ -285,7 +284,7 @@ export function ToolCard({ id }: { id: string }) {
             {s.st}
           </em>
         )}
-        <Icon name="chevron-down" size={14} />
+        <Icon name={open ? "chevron-down" : "chevron-right"} size={14} />
       </DisclosureBtn>
       <Bar t={t} />
       {t.note && <div className="tc-note">{t.note}</div>}

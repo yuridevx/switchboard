@@ -134,6 +134,7 @@ export function Panel({ close }: { close(): void }) {
       )}
       <div>
         <Btn
+          type="button"
           className="chat-mini"
           onClick={() => {
             talks.send(env.cs, "/compact", []);
@@ -144,6 +145,7 @@ export function Panel({ close }: { close(): void }) {
           Сжать контекст
         </Btn>{" "}
         <Btn
+          type="button"
           className="chat-mini"
           onClick={() => {
             env.act("reloadPlugins", []);

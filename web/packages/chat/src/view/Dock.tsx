@@ -52,12 +52,12 @@ function Bg({ t }: { t: Task }) {
         <span title={t.description}>{t.description || t.id}</span>
         {t.summary && <em>{t.summary}</em>}
         {!agent && env.canAct && (
-          <Btn className="chat-mini" onClick={() => setOut(!out)}>
+          <Btn type="button" className="chat-mini" onClick={() => setOut(!out)}>
             {out ? "Скрыть" : "Вывод"}
           </Btn>
         )}
         {env.canAct && (
-          <Btn className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
+          <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
             <Icon name="square" />
             Стоп
           </Btn>

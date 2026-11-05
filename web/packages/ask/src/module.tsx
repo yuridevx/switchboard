@@ -27,7 +27,7 @@ export function createAsk(app: App): AppModule {
         head(params) {
           const q = shownOf(ask.store.get()[params.callsign]?.qs);
           const [text, tone] = q?.done ? PILLS[q.done.word] : ["ждёт ответа", "wait"];
-          return { title: sessionLabel(app, params.callsign).text, sub: `вопрос сессии${q?.at ? ` · ${at(q.at)}` : ""}`, pill: { text, tone: tone as "ok" | "wait" | "" } };
+          return { title: sessionLabel(app, params.callsign).text, sub: `вопрос сессии${q?.at ? ` · ${at(q.at)}` : ""}`, mono: true, pill: { text, tone: tone as "ok" | "wait" | "" } };
         },
       },
     },

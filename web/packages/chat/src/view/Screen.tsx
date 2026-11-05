@@ -1,6 +1,7 @@
 // Экран разговора: полоса (широко), лента или фокус, док над вводом и ввод.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Btn, isLive, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
+import { Btn, isLive, Pad, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
+import { Download } from "lucide-react";
 import { exportMd, focusItems, type Item } from "../focus.ts";
 import { fold, type Row } from "../fold.ts";
 import { machineOf, type Talks } from "../talk.ts";
@@ -93,12 +94,12 @@ export function ChatScreen({ params }: { params: Params }) {
         {app.wide && (
           <div className="chat-bar">
             {env.canAct && (
-              <Btn className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
+              <Btn type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
                 <Icon name="gauge" />
                 контекст
               </Btn>
             )}
-            <Btn className="chat-mini" aria-pressed={focus} onClick={() => talks.edit(cs, (x) => void (x.focus = !x.focus))}>
+            <Btn type="button" className="chat-mini" aria-pressed={focus} onClick={() => talks.edit(cs, (x) => void (x.focus = !x.focus))}>
               <Icon name="focus" />
               фокус
             </Btn>
@@ -110,14 +111,16 @@ export function ChatScreen({ params }: { params: Params }) {
                 e.currentTarget.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(exportMd(cs, view))}`;
               }}
             >
+              <Download size={13} aria-hidden="true" />
               выгрузить .md
             </a>
           </div>
         )}
         {panel && env.canAct && <Panel close={() => setPanel(false)} />}
         <div className="chat-feedw">
-          <div
+          <Pad
             className="chat-feed"
+            aria-live="polite"
             ref={feed}
             onScroll={(e) => {
               const el = e.currentTarget;
@@ -149,7 +152,7 @@ export function ChatScreen({ params }: { params: Params }) {
                 </div>
               )}
             </div>
-          </div>
+          </Pad>
           {jump && (
             <button
               type="button"

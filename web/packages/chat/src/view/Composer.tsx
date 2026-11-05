@@ -1,7 +1,7 @@
 // Ввод: текст, вложения, подсказки «/» и «@», режим разрешений, «Прервать». Поле живёт в сторе разговора: черновик переживает экран.
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import { Area, Btn, IconBtn, isLive, PERM_MODES, RowBtn, Sel, sessionOf, useApp, useModule, type ModelInfo } from "@switchboard/web-ui";
-import { ArrowUp, AtSign, Lightbulb, Paperclip, SquareSlash } from "lucide-react";
+import { ArrowUp, AtSign, Lightbulb, Paperclip, Slash } from "lucide-react";
 import type { Att, Talks } from "../talk.ts";
 import { useEnv } from "./env.ts";
 import { Icon } from "./icons.tsx";
@@ -130,7 +130,7 @@ export function Composer() {
   return (
     <div className="chat-under">
       {hint && (
-        <Btn className="chat-hint" onClick={() => set(hint)}>
+        <Btn type="button" className="chat-hint" onClick={() => set(hint)}>
           <Lightbulb size={13} aria-hidden="true" />
           <span>{hint}</span>
           <kbd>Tab</kbd>
@@ -174,7 +174,7 @@ export function Composer() {
             ))}
           </div>
         )}
-        <Area ref={inp} className="chat-inp" rows={1} aria-label="Написать сообщение" placeholder="Сообщение" value={draft} onInput={(e) => set(e.currentTarget.value)} onKeyDown={key} onPaste={paste} />
+        <Area ref={inp} className="chat-inp" rows={1} aria-label={`Написать ${env.label}`} placeholder={`${s.state === "busy" || s.state === "waiting" ? "В очередь" : "Написать"} ${env.label}`} value={draft} onInput={(e) => set(e.currentTarget.value)} onKeyDown={key} onPaste={paste} />
         <div className="chat-tools">
           <IconBtn className="chat-tb" title="Вложить файл" aria-label="Вложить файл" onClick={() => pick.current?.click()}>
             <Paperclip size={16} aria-hidden="true" />
@@ -202,7 +202,7 @@ export function Composer() {
                 inp.current?.focus();
               }}
             >
-              <SquareSlash size={16} aria-hidden="true" />
+              <Slash size={16} aria-hidden="true" />
             </IconBtn>
           )}
           {live && s.mode && (
@@ -216,13 +216,13 @@ export function Composer() {
           )}
           <span className="chat-grow" />
           {call && (s.state === "busy" || s.state === "waiting") && (
-            <Btn bad className="chat-stop" onClick={() => env.act("interrupt", [])}>
+            <Btn type="button" bad className="chat-stop" onClick={() => env.act("interrupt", [])}>
               <Icon name="square" />
               Прервать
             </Btn>
           )}
           <IconBtn className="chat-send" type="submit" aria-label="Отправить" disabled={!draft.trim() && !files.length}>
-            <ArrowUp size={17} aria-hidden="true" />
+            <ArrowUp size={18} aria-hidden="true" />
           </IconBtn>
         </div>
         <input
