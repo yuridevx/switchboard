@@ -1,9 +1,11 @@
 {
   "name": "@switchboard/host-logins",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./contract.ts" },
+  "exports": {
+    ".": "./contract.ts"
+  },
   "scripts": {
     "test": "cd ../../.. && vitest run host/modules/logins"
   },

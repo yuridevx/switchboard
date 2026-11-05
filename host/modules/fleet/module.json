@@ -1,8 +1,10 @@
 {
   "name": "host-fleet",
   "type": "sdk",
-  "version": "2.0.2",
-  "into": ["host"],
+  "version": "2.0.3",
+  "into": [
+    "host"
+  ],
   "provides": {},
   "uses": {
     "host.module@host": 1,
