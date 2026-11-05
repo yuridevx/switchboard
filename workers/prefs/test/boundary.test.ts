@@ -166,6 +166,14 @@ describe("отказы словом", () => {
     expect(await rows()).toEqual([]);
   });
 
+  it("сначала область, потом поля: кадр не человека и с неверными полями — not_user; неверная область и нет имени — про область", async () => {
+    const lines = journal();
+    expect(await set(MACHINE, "", 1)).toMatchObject({ ok: false, error: "not_user" });
+    expect(await get(MACHINE, { prefix: "" })).toMatchObject({ ok: false, error: "not_user" });
+    expect(await set(PHONE, "", 1, { scope: "user" })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(lines.at(-1)?.why).toBe('область "user": нужно global или app:<приложение>');
+  });
+
   it("кадр без id: ответить некому, тело пустое, строки нет, причина в журнале", async () => {
     const lines = journal();
     const r = await worker.fetch(request({ v: 1, to: ".prefs", type: "prefs.set", name: "k", value: 1, key: PHONE }) as never, { DB, GATE: gate } as never);

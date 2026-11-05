@@ -1,144 +1,136 @@
-// Ловушка ошибок модуля. Каждый вызов модуля идёт через неё: ошибка не идёт дальше, модуль выключается там, откуда его звали.
-// Отказ словом — не ошибка: его ловит вызывающий. Самопочинки нет: чинит агент новым выпуском.
+// Ловушка: каждый вызов модуля идёт через неё. Бросил — модуль выключен там, где его звали: в сессии или на машине.
+// Контекст вызова наследуют таймеры и цепочки модуля, поэтому и работа вне вызова находит, чья она.
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { LogRecord, Manifest, Module } from "../contract.ts";
-import type { Clock } from "./clock.ts";
+import type { Manifest, Module } from "../contract.ts";
+import { nameOf, ownerOf } from "@switchboard/manifest-gate";
+import { limit, type Clock } from "./clock.ts";
 import { isRefusal } from "./refusal.ts";
+import type { Journal } from "./journal.ts";
 
-export const MODULE_ERROR = "module_error";
-/** Предел start(), session() и opening(): вдвое выше самого долгого старта Host (host_start → ready до 5,9 с). */
-export const START_MS = 12_000;
+/** Предел вызова модуля на старте: вдвое выше самого долгого старта Host (5,9 с). */
+const CALL_LIMIT_MS = 12_000;
 
-/** Метка исключения, которое уже выключило модуль: второй раз не выключает. */
-const ALREADY = Symbol("handled");
+/** Сессия глазами ловушки: где записать, что модуль выключен. */
+export interface Place {
+  readonly callsign: string;
+  readonly failed: Record<string, string>;
+  refresh(): void;
+}
 
-/** Загруженный модуль. */
 export class Mod {
   readonly name: string;
   readonly manifest: Manifest;
   readonly module: Module;
-  /** причина выключения на всей машине */
-  down: string | null = null;
-  constructor(m: Manifest, mod: Module) {
-    this.name = m.name;
-    this.manifest = m;
-    this.module = mod ?? {};
+  /** выключен на машине: причина и место */
+  down?: string;
+
+  constructor(manifest: Manifest, module: Module) {
+    this.name = manifest.name;
+    this.manifest = manifest;
+    this.module = module;
   }
-}
 
-/** Где модуль выключается: сессия. Сессии нет — на всей машине. */
-export type Scope = {
-  readonly callsign: string;
-  readonly failed: Map<string, string>;
-  push(): void;
-};
+  isOff(place?: Place): boolean {
+    return this.down !== undefined || place?.failed[this.name] !== undefined;
+  }
 
-/** Нарушение договора выключило модуль: отказ не роняет Host, даже если модуль его не ждёт. */
-export function handled<T>(p: Promise<T>): Promise<T> {
-  p.catch(() => {});
-  return p;
+  /** Имя из своих provides или uses: версия и владелец. Одно правило для запроса, кадра и поля. */
+  ref(name: string): { owner: string; v: number } | null {
+    if (Object.hasOwn(this.manifest.provides, name)) return { owner: this.name, v: this.manifest.provides[name] };
+    const use = Object.keys(this.manifest.uses).find((u) => nameOf(u) === name);
+    return use ? { owner: ownerOf(use), v: this.manifest.uses[use] } : null;
+  }
 }
 
 export class Trap {
-  mods: Mod[] = [];
-  byName = new Map<string, Mod>();
-  private readonly als = new AsyncLocalStorage<{ mod: string; scope: Scope | null }>();
-  private readonly log: (rec: LogRecord) => void;
+  private readonly scope = new AsyncLocalStorage<{ mod: Mod; place?: Place }>();
+  /** ошибки, о которых журнал уже знает: нарушение договора бросается модулю и может вернуться как ничья */
+  private readonly known = new WeakSet<object>();
+  private readonly journal: Journal;
   private readonly clock: Clock;
-  /** выключили на машине: записи всех сессий изменились */
-  private readonly pushAll: () => void;
+  private readonly everywhere: () => Iterable<Place>;
 
-  constructor(o: { log: (rec: LogRecord) => void; clock: Clock; pushAll: () => void }) {
-    this.log = o.log;
-    this.clock = o.clock;
-    this.pushAll = o.pushAll;
+  constructor(journal: Journal, clock: Clock, everywhere: () => Iterable<Place>) {
+    this.journal = journal;
+    this.clock = clock;
+    this.everywhere = everywhere;
   }
 
-  load(mods: Mod[]): void {
-    this.mods = mods;
-    this.byName = new Map(mods.map((m) => [m.name, m]));
-  }
-
-  isDown(m: Mod, scope: Scope | null): boolean {
-    return !!m.down || (!!scope && scope.failed.has(m.name));
-  }
-
-  /** Вызов модуля. Ошибка — модуль выключен, ответ onFail; отказ словом идёт вызывающему; модуль уже выключен — сразу onFail. */
-  call<T>(m: Mod, where: string, scope: Scope | null, fn: (x: Module) => T | Promise<T>, onFail: (e: unknown) => T): T | Promise<T> {
-    if (this.isDown(m, scope)) return onFail(new Error(MODULE_ERROR));
-    const failed = (e: unknown): T => {
-      if (isRefusal(e)) throw e;
-      this.disable(m, scope, where, e);
-      return onFail(e);
-    };
-    try {
-      const r = this.als.run({ mod: m.name, scope }, () => fn(m.module));
-      return isPromise<T>(r) ? r.then(undefined, failed) : r;
-    } catch (e) {
-      return failed(e);
-    }
-  }
-
-  /** Выключить модуль в сессии или на машине: failed в roster, строка stop в журнале. */
-  disable(m: Mod, scope: Scope | null, where: string, e: unknown): void {
-    if (e && typeof e === "object" && (e as Record<symbol, unknown>)[ALREADY]) return;
-    const message = e instanceof Error ? e.message : String(e);
-    const short = `${message} · ${where}`;
-    if (scope) {
-      if (scope.failed.has(m.name)) return;
-      scope.failed.set(m.name, short);
+  /** Выключить модуль; уже выключен — ничего. */
+  fail(mod: Mod, place: Place | undefined, where: string, e: unknown): void {
+    if (mod.isOff(place)) return;
+    const note = `${e instanceof Error ? e.message : String(e)} · ${where}`;
+    const text = e instanceof Error ? (e.stack ?? String(e)) : String(e);
+    this.journal.write("core", { kind: "stop", ev: "module_failed", word: "module_error", module: mod.name, ...(place ? { callsign: place.callsign } : {}), why: `${mod.name}: ${where} — ${text}; модуль выключен ${place ? "в сессии" : "на машине"}` });
+    if (place) {
+      place.failed[mod.name] = note;
+      place.refresh();
     } else {
-      if (m.down) return;
-      m.down = short;
+      mod.down = note;
+      for (const p of this.everywhere()) p.refresh();
     }
-    const stack = e instanceof Error && e.stack ? e.stack : message;
-    this.log({
-      kind: "stop",
-      ev: "module_failed",
-      word: MODULE_ERROR,
-      module: m.name,
-      ...(scope ? { callsign: scope.callsign } : {}),
-      why: `${m.name}: ${where} — ${stack}; модуль выключен ${scope ? "в сессии" : "на машине"}`,
+  }
+
+  /** Отказ словом — не ошибка модуля: строка журнала, модуль работает дальше. Всё прочее выключает. */
+  private caught(mod: Mod, place: Place | undefined, where: string, e: unknown): void {
+    if (isRefusal(e)) this.journal.write(mod.name, { kind: "refuse", ev: where, word: e.word, why: e.why, ...(place ? { callsign: place.callsign } : {}) });
+    else this.fail(mod, place, where, e);
+  }
+
+  /** Вызов модуля; бросил — выключен, ответ fallback. */
+  call<T>(mod: Mod, place: Place | undefined, where: string, fn: () => T, fallback: T): T {
+    try {
+      return this.scope.run({ mod, place }, fn);
+    } catch (e) {
+      this.caught(mod, place, where, e);
+      return fallback;
+    }
+  }
+
+  /** То же для вызова, который может быть асинхронным. */
+  async wait<T>(mod: Mod, place: Place | undefined, where: string, fn: () => T | Promise<T>, fallback: T): Promise<T> {
+    try {
+      return await this.scope.run({ mod, place }, fn);
+    } catch (e) {
+      this.caught(mod, place, where, e);
+      return fallback;
+    }
+  }
+
+  /** То же с пределом: start, session, opening. */
+  limited<T>(mod: Mod, place: Place | undefined, where: string, fn: () => T | Promise<T>, fallback: T): Promise<T> {
+    return limit(this.clock, this.wait(mod, place, where, fn, fallback), CALL_LIMIT_MS, () => {
+      this.fail(mod, place, where, `${where}() не вернулся за ${CALL_LIMIT_MS / 1000} с`);
+      return fallback;
     });
-    if (scope) scope.push();
-    else this.pushAll();
   }
 
-  /** Нарушение договора: модуль выключен там, откуда звал, и получает исключение. */
-  violation(m: Mod, scope: Scope | null, reason: string): never {
-    const e = new Error(reason);
-    this.disable(m, scope, "договор", e);
-    (e as unknown as Record<symbol, boolean>)[ALREADY] = true;
-    throw e;
+  /** Вызов без контекста модуля: то, что начато здесь, — дело ядра. */
+  outside<T>(fn: () => T): T {
+    return this.scope.exit(fn);
   }
 
-  /** Сессия, из вызова которой модуль m зовёт ядро сейчас. */
-  callerOf(m: Mod): Scope | null {
-    const c = this.als.getStore();
-    return c && c.mod === m.name ? c.scope : null;
+  /** Модуль нарушил договор: выключен там, где его застали; ошибку бросает зовущий. */
+  violation(mod: Mod, place: Place | undefined, what: string): Error {
+    const e = new Error(what);
+    const now = this.scope.getStore();
+    this.fail(mod, place ?? (now?.mod === mod ? now.place : undefined), "договор", e);
+    this.known.add(e);
+    return e;
   }
 
-  /**
-   * Ошибка вне вызова ядра — в работе, которую модуль начал сам (таймер, цепочка, событие): контекст вызова, где её
-   * начали, наследуется, и модуль выключается там же. Модуль не определился — false: решает процесс (выход 1).
-   */
+  /** Ошибка вне вызова ядра: true — она модуля и он выключен, false — ничья, решает процесс. */
   stray(e: unknown): boolean {
-    const c = this.als.getStore();
-    const m = c && this.byName.get(c.mod);
-    if (!m) return false;
-    this.disable(m, c.scope, "работа вне вызова ядра", e);
+    if (typeof e === "object" && e !== null && this.known.has(e)) return true;
+    const now = this.scope.getStore();
+    if (!now) return false;
+    this.fail(now.mod, now.place, "работа вне вызова ядра", e);
     return true;
-  }
-
-  /** Значение или исключение со словами why за предел START_MS по часам ядра: ловушка выключает модуль. */
-  within<T>(r: T | Promise<T>, why: string): T | Promise<T> {
-    if (!isPromise<T>(r)) return r;
-    let t: unknown;
-    const late = new Promise<never>((_ok, no) => (t = this.clock.setTimeout(() => no(new Error(why)), START_MS)));
-    return Promise.race([r, late]).finally(() => this.clock.clearTimeout(t));
   }
 }
 
-function isPromise<T>(r: T | Promise<T>): r is Promise<T> {
-  return !!r && typeof (r as Promise<T>).then === "function";
+/** Отказ промиса не поднимется как необработанный, если модуль не ждёт ответа: сбой уже ведёт ядро. */
+export function handled<T>(p: Promise<T>): Promise<T> {
+  p.catch(() => {});
+  return p;
 }

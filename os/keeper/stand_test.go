@@ -46,6 +46,10 @@ func TestMain(m *testing.M) {
 				os.WriteFile(filepath.Join(os.Getenv("SWITCHBOARD_HOME"), "silent-pid"), []byte(strconv.Itoa(os.Getpid())), 0o644)
 				time.Sleep(10 * time.Minute)
 			}
+			// держатель стартует медленно, как файл под проверкой антивируса на занятой машине
+			if d, err := time.ParseDuration(os.Getenv("KEEPER_TEST_HOLD_SLOW")); err == nil {
+				time.Sleep(d)
+			}
 			main()
 			return
 		case "keeper":

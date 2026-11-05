@@ -1,23 +1,21 @@
-// Человеческие имена: запись fleet.labels одна на флот. Адрес в протоколе и журнале остаётся адресом.
+// Запись fleet.labels: имена сессий по адресу и машин по имени.
 export const FLEET_PREFIX = "fleet";
 export const LABELS = "labels";
 
 export type Labels = { sessions?: Record<string, string>; machines?: Record<string, string> };
 
-/** Адрес машины начинается с @: её имя лежит под именем машины, имя сессии — под callsign. */
-const slot = (to: string) => (to.startsWith("@") ? { bag: "machines" as const, key: to.slice(1) } : { bag: "sessions" as const, key: to });
+/** Где в записи лежит имя адреса: @laptop — у машин, site@laptop — у сессий. */
+const slotOf = (address: string): ["sessions" | "machines", string] => (address.startsWith("@") ? ["machines", address.slice(1)] : ["sessions", address]);
 
-export function labelOf(labels: Labels | undefined, to: string): string | undefined {
-  const { bag, key } = slot(to);
-  return labels?.[bag]?.[key];
+export function labelOf(labels: Labels | undefined, address: string): string | undefined {
+  const [area, key] = slotOf(address);
+  return labels?.[area]?.[key];
 }
 
-/** Новая запись с именем адреса; пустой текст снимает имя. */
-export function setLabel(labels: Labels | undefined, to: string, text: string): Labels {
-  const { bag, key } = slot(to);
-  const next = { sessions: { ...labels?.sessions }, machines: { ...labels?.machines } };
-  const name = text.trim();
-  if (name) next[bag][key] = name;
-  else delete next[bag][key];
-  return next;
+/** Имя ставится текстом без краевых пробелов; пустой текст имя снимает. */
+export function setLabel(labels: Labels | undefined, address: string, name: string): Labels {
+  const [area, key] = slotOf(address);
+  const { [key]: _old, ...others } = labels?.[area] ?? {};
+  const text = name.trim();
+  return { sessions: { ...labels?.sessions }, machines: { ...labels?.machines }, [area]: text ? { ...others, [key]: text } : others };
 }

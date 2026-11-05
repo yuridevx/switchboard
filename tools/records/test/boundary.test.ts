@@ -108,6 +108,13 @@ describe("проекты: правки записи", () => {
     expect(dropSessions(REC, ["site@a"], "shop", "api@a", ["api@a", "site@a"])[0].sessions).toEqual(["site@a", "api@a", "deploy@vps"]);
   });
 
+  it("бросок записывает только то, что нужно порядку: строки ниже места броска остаются незаписанными; перед записанной строкой незаписанные не записываются", () => {
+    const shown = ["a@m", "b@m", "c@m", "d@m"];
+    expect(dropSessions(undefined, ["d@m"], NONE, "b@m", shown)).toEqual([{ id: NONE, name: "Без проекта", sessions: ["a@m", "d@m"] }]);
+    expect(dropSessions(REC, ["x@a"], "shop", "api@a", ["api@a", "loose@a", "x@a"])[0].sessions).toEqual(["x@a", "api@a", "site@a", "deploy@vps"]);
+    expect(dropSessions(undefined, ["a@m"], NONE, "нет@m", shown)).toEqual([{ id: NONE, name: "Без проекта", sessions: ["a@m"] }]);
+  });
+
   it("6107 · проект: перестановка, имя, удаление; сессии удалённого — в «Без проекта»; номер не меняется", () => {
     expect(moveProject(REC, "sec", "shop").map((r) => r.id)).toEqual(["sec", "shop"]);
     expect(moveProject(REC, "shop").map((r) => r.id)).toEqual(["sec", "shop"]);
@@ -290,6 +297,21 @@ describe("цикл настроек", () => {
     expect(s.values).toEqual({ "x.small": 2 });
   });
 
+  it("разделы одной пачки пишутся по очереди: следующий запрос уходит после ответа на прошлый", async () => {
+    const s = service();
+    const order: string[] = [];
+    const ask = async <T,>(name: string, body: Record<string, unknown>) => {
+      order.push(`${body.name} начат`);
+      const r = await s.ask<T>(name, body);
+      await new Promise((go) => setTimeout(go, 0));
+      order.push(`${body.name} готов`);
+      return r;
+    };
+    const c = settings({ read: s.ask, ask, prefix: "x" });
+    await Promise.all([c.edit("a", () => 1), c.edit("b", () => 2)]);
+    expect(order).toEqual(["x.a начат", "x.a готов", "x.b начат", "x.b готов"]);
+  });
+
   it("7900 · чтение значений идёт входом read, запись — входом ask: у них разный предел", async () => {
     // источник: дизайн «Предел чтений и слоты», слово пользователя: таймаут на запрос метадаты 10 с
     const s = service();
@@ -342,5 +364,28 @@ describe("цикл настроек", () => {
     expect(await r.read()).toBe("gate_unavailable");
     expect(r.ready()).toBe(true);
     expect(r.get("k")).toBeUndefined();
+  });
+
+  it("первый рисунок ждёт ответа: отказ чтения звонит changed", async () => {
+    const s = service();
+    s.refuse.get = "gate_unavailable";
+    let calls = 0;
+    await settings({ read: s.ask, ask: s.ask, prefix: "x", changed: () => void calls++ }).read();
+    expect(calls).toBe(1);
+  });
+
+  it("чтение посреди цикла правки не стирает правку с экрана и не теряет её в службе", async () => {
+    const s = service();
+    s.values["x.k"] = "старое";
+    const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
+    s.hold();
+    const done = c.edit("k", () => "новое");
+    const reading = c.read();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(c.get("k")).toBe("новое");
+    await s.release();
+    await Promise.all([done, reading]);
+    expect(c.get("k")).toBe("новое");
+    expect(s.values["x.k"]).toBe("новое");
   });
 });

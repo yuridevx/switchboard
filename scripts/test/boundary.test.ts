@@ -137,7 +137,7 @@ describe("типы фронта: web-typecheck", { timeout: CMD_MS }, () => {
 describe("выпуск Worker-модулей: deploy-workers", { timeout: CMD_MS }, () => {
   type Call = { what: "build" | "wrangler"; cwd: string; args: string[]; input?: string; env: Record<string, string | undefined> };
 
-  /** Предзагрузка: вызовы записываются, дочерний процесс заменён кодом; настоящий Cloudflare не трогается. hang — предел 45 с заменён на 300 мс. */
+  /** Предзагрузка: вызовы записываются, дочерний процесс заменён кодом; настоящий Cloudflare не трогается. hang — предел 300 с заменён на 300 мс. */
   function preload(log: string, child: { wrangler?: string; build?: string; hang?: boolean } = {}): string {
     const f = join(temp("deploy-pre"), "pre.mjs");
     write(f, `import cp from "node:child_process";
@@ -147,9 +147,9 @@ const orig = cp.spawnSync;
 cp.spawnSync = (cmd, args, o = {}) => {
   const isBuild = String(args[0]).endsWith("build.mjs");
   const env = o.env ?? process.env;
-  appendFileSync(${JSON.stringify(log)}, JSON.stringify({ what: isBuild ? "build" : "wrangler", cwd: o.cwd, args: isBuild ? [] : args.slice(1), input: o.input, env: { CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID, RELAY_URL: env.RELAY_URL } }) + "\\n");
+  appendFileSync(${JSON.stringify(log)}, JSON.stringify({ what: isBuild ? "build" : "wrangler", cwd: o.cwd, args: isBuild ? [] : args.slice(1), input: o.input, env: { CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID } }) + "\\n");
   const code = isBuild ? ${JSON.stringify(child.build ?? "")} : ${JSON.stringify(child.wrangler ?? "")};
-  return orig(cmd, ["-e", code], { ...o, stdio: "ignore", input: undefined, timeout: ${child.hang ? "o.timeout === 45000 ? 300 : o.timeout" : "o.timeout"} });
+  return orig(cmd, ["-e", code], { ...o, stdio: "ignore", input: undefined, timeout: ${child.hang ? "o.timeout === 300000 ? 300 : o.timeout" : "o.timeout"} });
 };
 syncBuiltinESMExports();
 `);
@@ -187,10 +187,10 @@ syncBuiltinESMExports();
   });
 
   it("3155 · wrangler не завершился за предел — убит, причина словами, выход 1: прогон CI красный", () => {
-    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; предел — вдвое выше самого долгого шага (22 с)
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; 300 с — настоящая выкладка 5 нояб.: при 45 с wrangler deploy выложил prefs, но не завершился под нагрузкой, и выкладка оборвалась на полпути
     const r = deploy(["--upload", "1.1.99"], { token: true, child: { wrangler: "setTimeout(() => {}, 60000)", hang: true } });
     expect(r.code).toBe(1);
-    expect(r.err).toMatch(/deploy: wrangler versions upload .* — не завершился за 45 с/);
+    expect(r.err).toMatch(/deploy: wrangler versions upload .* — не завершился за 300 с/);
   });
 
   it("5146 · загрузка без выкладки — только Worker-модули: веб не собирается и не загружается", () => {
@@ -240,7 +240,7 @@ syncBuiltinESMExports();
     expect(r.out).toContain("deploy: ok · gate, relay, phone, pult");
   });
 
-  it("прод: файл прода важнее тестовых, свой секрет точек, адрес relay прода у сборки веба; тестовая пара в прод не кладётся", () => {
+  it("прод: файл прода важнее тестовых, свой секрет точек; тестовая пара в прод не кладётся", () => {
     // источник: комментарий кода: тестовая пара прав на бакет прода не имеет
     const r = deploy(["points", "pult", "--env", "prod"], {
       files: {
@@ -252,8 +252,30 @@ syncBuiltinESMExports();
     expect(r.code).toBe(0);
     expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", "--env", "prod"], env: { CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" } });
     expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", "--env", "prod"], input: "r2-prod" });
-    expect(r.calls.find((c) => c.what === "build")!.env.RELAY_URL).toBe("wss://relay.pfarm.app");
     expect(r.out).toContain("=== points prod ===");
+  });
+
+  it("прод, весь список: база, код и секреты с --env prod; relay последним; секрет ссылок выпусков — из общих имён, точки — свой (чьё: код)", () => {
+    const r = deploy(["--env", "prod"], { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
+    expect(r.code).toBe(0);
+    expect([...new Set(r.calls.map(moduleOf))]).toEqual(["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"]);
+    expect(r.calls.find((c) => c.args[0] === "d1")!.args).toEqual(["d1", "migrations", "apply", "DB", "--remote", "--env", "prod"]);
+    for (const c of r.calls) expect(c.args.slice(-2)).toEqual(["--env", "prod"]);
+    const secrets = r.calls.filter((c) => c.args[0] === "secret").map((c) => [moduleOf(c), c.args[2], c.input]);
+    expect(secrets).toEqual([
+      ["push", "VAPID_PRIVATE", "vapid"],
+      ["points", "R2_KEY_SECRET", "r2-prod"],
+      ["releases", "CLOUDFLARE_API_TOKEN", "t"],
+      ["releases", "R2_LINK_KEY_ID", "r2-id"],
+      ["releases", "R2_LINK_SECRET", "r2-test"],
+    ]);
+  });
+
+  it("тестовый флот не читает файл прода (чьё: код)", () => {
+    const r = deploy(["pult"], { files: { "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" }), "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }) } });
+    expect(r.code).toBe(0);
+    expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy"], env: { CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" } });
+    expect(r.out).toContain("=== pult ===");
   });
 
   it("значение из окружения важнее файла; строка env может содержать знак равно", () => {
@@ -265,6 +287,7 @@ syncBuiltinESMExports();
 
   it.each([
     ["нет секрета — отказ именем секрета", ["push"], {}, /deploy: нет секрета VAPID_PRIVATE/],
+    ["опечатка в имени флота — отказ, а не выкладка на тест", ["relay", "--env", "prd"], {}, /deploy: --env — только prod/],
     ["не прошла сборка веба — отказ, выкладки нет", ["pult"], { child: { build: "process.exit(1)" } }, /deploy: сборка .*pult не прошла/],
     ["wrangler вышел с ошибкой — команда, модуль и код выхода", ["relay"], { child: { wrangler: "process.exit(3)" } }, /deploy: wrangler deploy в workers\/relay — выход 3/],
   ] as const)("%s", (_n, args, o, word) => {
@@ -345,7 +368,7 @@ describe("стенд фронта: сервер", { timeout: CMD_MS }, () => {
     return true;
   }
 
-  it("адрес на флот: страница без кэша с рамкой телефона 390, бандл, адреса Worker'ов из build.json своего флота", async () => {
+  it("адрес на флот: страница без кэша, бандл, адреса Worker'ов из build.json своего флота", async () => {
     const s = await stand();
     const html = await fetch(`${s.at("test")}/`);
     expect(html.headers.get("cache-control")).toBe("no-store");
@@ -353,8 +376,6 @@ describe("стенд фронта: сервер", { timeout: CMD_MS }, () => {
     const text = await html.text();
     expect(text).toContain("<title>test</title>");
     expect(text).toContain('<div id="app"></div>');
-    expect(text).toContain("width:390px");
-    expect(text).toContain('s.src = "live.js"');
     expect(await (await fetch(`${s.at("prod")}/`)).text()).toContain("<title>prod</title>");
     const js = await fetch(`${s.at("test")}/live.js`);
     expect(js.headers.get("content-type")).toContain("text/javascript");

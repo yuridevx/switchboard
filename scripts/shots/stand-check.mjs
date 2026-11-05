@@ -135,6 +135,7 @@ try {
   check("Enter сохраняет в файл своего флота", await until(() => stored().length === 1), stored()[0]?.selector);
   const c = stored()[0];
   check("запись несёт текст, флот, приложение, экран и адрес", c?.text === "Строка слишком низкая" && c.kind === "test" && c.app === "pult" && c.screen === "board" && c.hash === hash, JSON.stringify({ kind: c?.kind, app: c?.app, screen: c?.screen, hash: c?.hash }));
+  check("запись несёт модуль и текст элемента: агент находит его в коде", c?.module === "web-board" && c.element?.length > 0, JSON.stringify({ module: c?.module, element: c?.element }));
   check("метка появилась", await until(async () => (await overlay(p)).pins === 1));
   await p.reload();
   await allSessions(p);
@@ -161,6 +162,22 @@ try {
   await inShadow(p, ".pin").first().click();
   await inShadow(p, ".card .act").last().click();
   check("«Удалить» убирает запись из файла и метку", (await until(() => stored().length === 0)) && (await until(async () => (await overlay(p)).pins === 0)));
+
+  // ───── выделенный текст: C открывает карточку с цитатой ─────
+  await p.evaluate((sel) => {
+    const r = document.createRange();
+    r.selectNodeContents(document.querySelector(sel));
+    getSelection().removeAllRanges();
+    getSelection().addRange(r);
+  }, target);
+  await p.keyboard.press("c");
+  const quote = await inShadow(p, ".card .quote").textContent().catch(() => "");
+  await p.keyboard.type("Про цитату");
+  await p.keyboard.press("Enter");
+  check("выделенный текст и C — запись с цитатой", quote.length > 0 && (await until(() => stored()[0]?.quote === quote)), quote);
+  await p.evaluate(() => getSelection().removeAllRanges());
+  writeFileSync(fileOf("test"), JSON.stringify({ comments: [] }, null, 1));
+  await until(async () => (await overlay(p)).pins === 0);
 
   // ───── обход разделов на настоящем флоте ─────
   for (const h of ["#inbox", "#incidents", "#machines", "#accounts", "#profiles", "#journal", "#points", "#settings", "#sessions"]) {
