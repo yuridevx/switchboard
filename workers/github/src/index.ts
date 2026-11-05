@@ -1,19 +1,15 @@
-// Вход Worker'а github: POST кадра с пропуском (fetch — обёртка entrance) и frame(кадр) по привязке внутри аккаунта.
+// Снесено: вход Worker'а github отказывает словом.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import type { Frame } from "@switchboard/protocol";
-import { entrance } from "@switchboard/gate";
+import { fail, type Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
-import { frame } from "./app.ts";
 
 export class Participant extends WorkerEntrypoint<Env> {
-  /** Прямой вход: POST кадра с пропуском — тот же frame. */
-  fetch(req: Request): Promise<Response> {
-    return entrance(req, this.env.GATE, (f) => this.frame(f));
+  async fetch(): Promise<Response> {
+    return Response.json(fail("", "снесено"), { status: 500 });
   }
 
-  /** Запись приложения — в базе D1 github; ответ — кадры вызывающему. */
-  frame(f: Frame): Promise<Frame[]> {
-    return frame(this.env, f);
+  async frame(f: Frame): Promise<Frame[]> {
+    return f.id ? [{ ...fail(f.id, "снесено"), to: f.from ?? "" }] : [];
   }
 }
 
