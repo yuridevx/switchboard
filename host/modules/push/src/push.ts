@@ -1,44 +1,41 @@
-// Модуль push: кадр для людей — тем из них, кого нет на связи, пушем. Кто на связи — последний roster; подписки и шифрование — у Worker'а push.
-// Своего хранилища нет: начатые push.send ядро доводит до ответа. Исход каждого пуша — в журнале.
+// Кому пуш: устройство не на связи, человек ~email — кроме его устройств на связи. Шлёт Worker push; исход — только в журнале.
 import type { Frame, Host, Module } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
 import { kindOf, reaches } from "@switchboard/protocol";
 
-type Body = { type: string; from?: string; notify: unknown };
+type Pushed = { type: string; from?: string; notify: unknown };
+
+async function pushTo(host: Host, to: string, skip: string[], { type, from, notify }: Pushed): Promise<void> {
+  const r = await host.request("push.send", { push: { to, ...(skip.length ? { skip } : {}), type, ...(from === undefined ? {} : { from }), notify } });
+  if (r.ok) return;
+  if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${to}: подписки нет — ${type} без пуша` });
+  else host.log({ kind: "stop", ev: "push.send", word: r.error, why: `push.send ${to}: ${r.error} — ${type} без пуша` });
+}
 
 export function make(): Module {
   let host: Host;
-
-  /** Один пуш. Подписки нет — обычный исход, остальное — остановка со словом. */
-  async function push(to: string, body: Body, online: string[]): Promise<void> {
-    // адрес человека: его устройства на связи пуша не получают
-    const skip = kindOf(to) === "user" ? online.filter((c) => reaches(to, c)) : [];
-    const r = await host.request("push.send", { push: { to, ...(skip.length ? { skip } : {}), ...body } });
-    if (r.ok) return;
-    if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${to}: подписки нет — ${body.type} без пуша` });
-    else host.log({ kind: "stop", ev: "push.send", word: r.error, why: `push.send ${to}: ${r.error} — ${body.type} без пуша` });
-  }
-
-  async function notify(req: Frame): Promise<void> {
-    const { clients, frame } = req as { clients?: unknown; frame?: { type?: unknown; from?: string; notify?: unknown } };
-    if (!Array.isArray(clients) || typeof frame?.type !== "string" || !frame.notify) throw refuse("bad_frame", "notify: нужны clients и frame { type, notify }");
-    const body: Body = { type: frame.type, ...(frame.from !== undefined ? { from: frame.from } : {}), notify: frame.notify };
-    const roster = host.roster() as { clients?: string[] } | null;
-    if (!roster) {
-      host.log({ ev: "notify", why: `${body.type} → ${clients.join(", ")}: roster ещё не пришёл — пуша нет` });
-      return;
-    }
-    const online = roster.clients ?? [];
-    // пуш — людям и их устройствам, сессиям и машинам нет; устройству на связи кадр дошёл без пуша
-    const away = (clients as string[]).filter((c) => kindOf(c) === "user" || (kindOf(c) === "device" && !online.includes(c)));
-    await Promise.all(away.map((to) => push(to, body, online)));
-  }
-
   return {
-    requests: { notify },
     start(h) {
       host = h;
     },
-    stop() {},
+    requests: {
+      async notify(req: Frame) {
+        const { clients, frame } = req as { clients?: unknown; frame?: Partial<Pushed> };
+        if (!Array.isArray(clients) || typeof frame?.type !== "string" || !frame.notify) throw refuse("bad_frame", "notify: нужны clients и frame { type, notify }");
+        const pushed = frame as Pushed;
+        const roster = host.roster();
+        if (!roster) {
+          host.log({ ev: "notify", why: `${pushed.type} → ${clients.join(", ")}: roster ещё не пришёл — пуша нет` });
+          return undefined;
+        }
+        const online = roster.clients;
+        const sends = (clients as string[]).flatMap((to) => {
+          if (kindOf(to) === "user") return [pushTo(host, to, online.filter((c) => kindOf(c) === "device" && reaches(to, c)), pushed)];
+          return kindOf(to) === "device" && !online.includes(to) ? [pushTo(host, to, [], pushed)] : [];
+        });
+        await Promise.all(sends);
+        return undefined;
+      },
+    },
   };
 }
