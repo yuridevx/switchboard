@@ -129,12 +129,13 @@ export function make(): Module {
     const probe = host.probe({ env: envOf(dirs.accDir(name)) });
     polls.add(probe);
     try {
-      const u = (await within(probe.sdk(USAGE, { skipBehaviors: true }), `не ответил за ${POLL_MS / 1000} с`, POLL_MS)) as { rate_limits?: Record<string, { utilization: number; resets_at?: string }> | null };
+      const u = (await within(probe.sdk(USAGE, { skipBehaviors: true }), `не ответил за ${POLL_MS / 1000} с`, POLL_MS)) as { rate_limits?: Record<string, { utilization?: number | null; resets_at?: string | null } | null> | null };
       const at = now();
       write((b) => {
         const a = b.accounts[name];
         if (!a) return;
-        for (const [w, v] of Object.entries(u.rate_limits ?? {})) a.limits[w] = { utilization: v.utilization / 100, resetsAt: v.resets_at ? Math.floor(Date.parse(v.resets_at) / 1000) : 0, at };
+        // неактивное окно приходит null, а в extra_usage utilization — null (живой ответ 5 нояб.)
+        for (const [w, v] of Object.entries(u.rate_limits ?? {})) if (typeof v?.utilization === "number") a.limits[w] = { utilization: v.utilization / 100, resetsAt: v.resets_at ? Math.floor(Date.parse(v.resets_at) / 1000) : 0, at };
       });
     } catch (e) {
       host.log({ kind: "refuse", ev: "poll", why: `${name}: опрос лимитов — ${say(e)}` });
