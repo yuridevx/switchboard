@@ -6,10 +6,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"time"
-
-	"switchboard/keeper/internal/holder"
-	"switchboard/keeper/internal/keeper"
-	"switchboard/keeper/internal/machine"
 )
 
 // tuning — пределы стенда; ноль — как в работе.
@@ -25,27 +21,26 @@ type keeperHandle interface {
 	StateJSON() []byte
 }
 
-type runningKeeper struct{ *keeper.Keeper }
-
-func (r runningKeeper) StateJSON() []byte { b, _ := json.Marshal(r.State()); return b }
+func (k *Keeper) StateJSON() []byte { b, _ := json.Marshal(k.State()); return b }
 
 // bootKeeper — keeper на папке home: тот же старт, что у службы.
 func bootKeeper(home string, t tuning) (keeperHandle, error) {
-	k, err := keeper.New(home, nil, keeper.Options{Version: version(), StopLimit: t.stop, PlanWait: t.planWait, Ping: t.ping, PauseFirst: t.pauseFirst, PauseMax: t.pauseMax, Download: t.download, HolderWait: t.holderWait, Self: t.self})
+	k, err := newKeeper(home, Options{Stop: t.stop, PlanWait: t.planWait, Ping: t.ping, PauseFirst: t.pauseFirst,
+		PauseMax: t.pauseMax, Download: t.download, HolderWait: t.holderWait, Self: t.self})
 	if err != nil {
 		return nil, err
 	}
 	k.Run()
-	return runningKeeper{k}, nil
+	return k, nil
 }
 
 // setOwnerWait — предел ожидания хозяина в процессе держателя.
-func setOwnerWait(d time.Duration) { holder.OwnerWait = d }
+func setOwnerWait(d time.Duration) { ownerWait = d }
 
 func chooseFleet(args []string) ([]string, error) { return useName(args) }
 func fleetCommand() []string                      { return runArgs() }
 func fleetService() string                        { return serviceName() }
-func fleetHome() (string, error)                  { return machine.Home() }
+func fleetHome() (string, error)                  { return homeDir() }
 
 // clearFleet — флот без имени.
 func clearFleet() { fleetName = "" }
