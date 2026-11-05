@@ -59,6 +59,7 @@ describe("seed", () => {
     const hash = createHash("sha256").update(code).digest("hex");
     expect(r.stdout).toMatch(new RegExp(`^INSERT INTO passes \\(id, role, name, person, state, hash, by, at\\) VALUES \\('${kid}', 'host', 'laptop', NULL, 'wait', '${hash}', 'seed', \\d+\\);\\n$`));
     expect(r.stdout).not.toContain(code);
+    expect(Math.abs(Number(/(\d+)\);\n$/.exec(r.stdout)![1]) - Date.now())).toBeLessThan(60_000);
   });
 
   it("seed client с почтой → почта в инструкции", () => {

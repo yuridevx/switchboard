@@ -1,54 +1,47 @@
-// Карточка входа по ссылке и коду: запуск, ссылка и код, итог.
+// Карточка входа: ссылка и код. Код — только в поле, ушёл машине и забыт.
 import { useState } from "react";
-import { Btn, CopyButton, In, LinkBtn, Note, Opts, PageHead, Sec } from "@switchboard/web-ui";
-import { say, type Login, useAccounts } from "./store.ts";
+import { BadCard, Btn, In, Note, OkCard, Opts, PageHead, Sec } from "@switchboard/web-ui";
+import { type LoginCard, useAccounts } from "./state.ts";
 
-/** Ссылка и поле кода: живут на шагах url и code; ошибка убирает их вместе с текстом. */
-function CodeForm({ k, login }: { k: string; login: Login }) {
-  const store = useAccounts();
+export function LoginCardView({ id, card }: { id: string; card: LoginCard }) {
+  const state = useAccounts();
   const [code, setCode] = useState("");
-  const sending = login.phase === "code";
+  const waiting = !card.url && !card.failed && !card.done;
   return (
-    <>
-      <div className="ac-link">
-        <LinkBtn pri href={login.url ?? "#"} target="_blank" rel="noopener">
-          Открыть ссылку входа ↗
-        </LinkBtn>
-        <CopyButton text={login.url ?? ""} label="Копировать" />
-      </div>
-      <Opts>
-        <In mono data-f="code" placeholder="Код со страницы" autoComplete="off" disabled={sending} value={code} onInput={(e) => setCode(e.currentTarget.value)} />
-        <Btn pri disabled={sending} onClick={() => void store.sendCode(k, code)}>
-          Отправить
-        </Btn>
-      </Opts>
-      {sending ? <Note>{`ждём ответа ${login.machine}…`}</Note> : null}
-    </>
-  );
-}
-
-export function LoginCard({ k, login }: { k: string; login: Login }) {
-  const store = useAccounts();
-  const failed = login.phase === "bad" || login.phase === "err";
-  return (
-    <Sec {...(login.phase === "ok" ? { tone: "ok" as const } : failed ? { tone: "bad" as const } : { dlg: true })} data-login={k}>
+    <Sec dlg data-login={id}>
       <PageHead>
-        <b>{`Вход: ${login.account} на ${login.machine}`}</b>
-        <Btn onClick={() => store.hideLogin(k)}>Скрыть</Btn>
+        <b>{`Вход: ${card.account} на ${card.machine}`}</b>
+        <Btn onClick={() => state.hideLogin(id)}>Скрыть</Btn>
       </PageHead>
-      {login.phase === "wait" ? <Note>{`Host ${login.machine} запускает вход…`}</Note> : null}
-      {login.phase === "url" || login.phase === "code" ? <CodeForm k={k} login={login} /> : null}
-      {login.phase === "ok" ? <b>{`Вошёл: ${login.email} · ${login.plan}`}</b> : null}
-      {failed ? (
+      {waiting ? <Note>{`Host ${card.machine} запускает вход…`}</Note> : null}
+      {card.url ? (
         <>
-          <b>{say(login.err ?? "")}</b>
-          {login.phase === "bad" ? null : <Note>{`слово: ${login.err}`}</Note>}
+          <div className="ac-link">
+            <a className="sb-b pri" href={card.url} target="_blank" rel="noopener">
+              Открыть ссылку входа ↗
+            </a>
+            <Btn onClick={() => void navigator.clipboard?.writeText(card.url!)}>Копировать</Btn>
+          </div>
           <Opts>
-            <Btn pri onClick={() => void store.login(login.machine, login.account)}>
-              Войти заново
+            <In mono data-f="code" placeholder="Код со страницы" autoComplete="off" value={code} disabled={card.sending} onInput={(e) => setCode(e.currentTarget.value)} />
+            <Btn pri disabled={card.sending} onClick={() => void state.sendCode(id, code)}>
+              Отправить
             </Btn>
           </Opts>
+          {card.sending ? <Note>{`ждём ответа ${card.machine}…`}</Note> : null}
         </>
+      ) : null}
+      {card.done ? <OkCard role="status">{card.done}</OkCard> : null}
+      {card.failed ? (
+        <BadCard role="alert">
+          <b>{card.failed}</b>
+          <span>{`слово: ${card.word}`}</span>
+        </BadCard>
+      ) : null}
+      {card.failed ? (
+        <Opts>
+          <Btn onClick={() => void state.beginLogin(card.machine, card.account)}>Войти заново</Btn>
+        </Opts>
       ) : null}
     </Sec>
   );

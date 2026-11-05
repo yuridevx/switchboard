@@ -1,36 +1,96 @@
-// Таблица passes базы D1: по функции на инструкцию. Секретов в базе нет, только sha256; адрес вычисляет сама база.
-import type { Pass } from "../contract.ts";
-import type { Role } from "./format.ts";
+// Правила пропусков над базой: на операцию одна команда SQL, гонки решает база. Исключение базы — «gate не ответил», его ловит дверь.
+import type { Pass, Verified, VerifyResult } from "../contract.ts";
+import { INVITE, PASS, fieldsWrong, newKid, newSecret, sha256 } from "./format.ts";
 
-export type Env = { DB: D1Database };
+const KID_TRIES = 3;
 
-const PUBLIC = "id, role, name, person, addr, state, by, at";
-
-export const findPass = (db: D1Database, kid: string) =>
-  db.prepare("SELECT role, name, state, hash, addr FROM passes WHERE id = ?").bind(kid).first<{ role: string; name: string; state: string; hash: string; addr: string }>();
-
-/** Строка «ждёт приёма»; номер занят — null. Адрес занят живым пропуском — исключение UNIQUE. */
-export async function addWaiting(db: D1Database, row: { kid: string; role: Role; name: string; person: string | null; hash: string; by: string }): Promise<string | null> {
-  const added = await db
-    .prepare("INSERT INTO passes (id, role, name, person, state, hash, by, at) VALUES (?, ?, ?, ?, 'wait', ?, ?, ?) ON CONFLICT (id) DO NOTHING RETURNING addr")
-    .bind(row.kid, row.role, row.name, row.person, row.hash, row.by, Date.now())
-    .first<{ addr: string }>();
-  return added?.addr ?? null;
+export async function verify(db: D1Database, key: unknown): Promise<VerifyResult> {
+  const m = typeof key === "string" ? PASS.exec(key) : null;
+  if (!m) {
+    console.log("bad_key пропуск не того вида: нужно role.name.kid.secret, роль host или client");
+    return { error: "bad_key" };
+  }
+  const [, role, name, kid, secret] = m;
+  const who = `${role}.${name}.${kid}`;
+  const from = Date.now();
+  const row = await db.prepare("SELECT role, name, state, hash, addr FROM passes WHERE id = ?").bind(kid).first<{ role: Verified["role"]; name: string; state: Pass["state"]; hash: string; addr: string }>();
+  const ms = Date.now() - from;
+  const denied = (why: string): VerifyResult => {
+    console.log(`bad_key ${who} · ${why} · ${ms} мс`);
+    return { error: "bad_key" };
+  };
+  if (!row) return denied("номера нет в базе");
+  if (row.state !== "ok") return denied("пропуск не принят");
+  if (row.role !== role || row.name !== name || row.hash !== (await sha256(secret))) return denied("не сошлись секрет, роль или имя");
+  console.log(`ok ${who} → ${row.addr} · ${ms} мс`);
+  return { role: row.role, name, kid, addr: row.addr };
 }
 
-/** Одна инструкция: приём сработает один раз. Приглашения нет, оно принято или отозвано — null. */
-export const accept = (db: D1Database, kid: string, inviteHash: string, passHash: string) =>
-  db.prepare("UPDATE passes SET state = 'ok', hash = ?, at = ? WHERE id = ? AND state = 'wait' AND hash = ? RETURNING role, name").bind(passHash, Date.now(), kid, inviteHash).first<{ role: string; name: string }>();
+/** Новая строка «ждёт приёма». Отказ — слово и причина; номер занят три раза подряд — исключение: база не даёт работать. */
+export async function invite(db: D1Database, by: string, f: Record<string, unknown>): Promise<{ kid: string; invite: string; addr: string } | { error: "bad_request" | "name_taken"; why: string }> {
+  const why = fieldsWrong(f.role, f.name, f.person);
+  if (why) return { error: "bad_request", why };
+  const code = newSecret();
+  const hash = await sha256(code);
+  const insert = db.prepare("INSERT INTO passes (id, role, name, person, state, hash, by, at) VALUES (?, ?, ?, ?, 'wait', ?, ?, ?) ON CONFLICT(id) DO NOTHING RETURNING addr");
+  for (let i = 0; i < KID_TRIES; i++) {
+    const kid = newKid();
+    try {
+      const row = await insert.bind(kid, f.role, f.name, f.person ?? null, hash, by, Date.now()).first<{ addr: string }>();
+      if (!row) continue;
+      console.log(`invite ${kid} ${row.addr} · выдал ${by}`);
+      return { kid, invite: `${kid}.${code}`, addr: row.addr };
+    } catch (e) {
+      // конфликт номера выше молчит: UNIQUE здесь может быть только про адрес, адрес знает база
+      if (!String(e).includes("UNIQUE")) throw e;
+      const taken = await db.prepare("SELECT addr FROM passes WHERE role = ? AND name = ? AND person IS ?").bind(f.role, f.name, f.person ?? null).first<{ addr: string }>();
+      return { error: "name_taken", why: `у адреса ${taken?.addr} есть живой пропуск` };
+    }
+  }
+  throw new Error("три номера подряд заняты");
+}
 
-export async function listPasses(db: D1Database, role?: Role): Promise<Pass[]> {
-  const q = role ? db.prepare(`SELECT ${PUBLIC} FROM passes WHERE role = ? AND state = 'ok' ORDER BY at`).bind(role) : db.prepare(`SELECT ${PUBLIC} FROM passes ORDER BY at`);
+/** Приглашение → пропуск; секрет пропуска рождается здесь и уходит один раз. Нет приглашения — null. */
+export async function redeem(db: D1Database, invitation: unknown): Promise<string | null> {
+  const m = typeof invitation === "string" ? INVITE.exec(invitation) : null;
+  if (!m) {
+    console.log("bad_invite приглашение не того вида: номер.секрет");
+    return null;
+  }
+  const [, kid, code] = m;
+  const secret = newSecret();
+  const row = await db
+    .prepare("UPDATE passes SET state = 'ok', hash = ?, at = ? WHERE id = ? AND state = 'wait' AND hash = ? RETURNING role, name")
+    .bind(await sha256(secret), Date.now(), kid, await sha256(code))
+    .first<{ role: string; name: string }>();
+  if (!row) {
+    console.log(`bad_invite приглашения ${kid} нет, оно принято или отозвано`);
+    return null;
+  }
+  console.log(`redeem ${row.role}.${row.name}.${kid} · принят`);
+  return `${row.role}.${row.name}.${kid}.${secret}`;
+}
+
+export async function revoke(db: D1Database, kid: string): Promise<{ addr: string } | { error: "unknown_key" }> {
+  const row = await db.prepare("DELETE FROM passes WHERE id = ? RETURNING addr").bind(kid).first<{ addr: string }>();
+  if (!row) {
+    console.log(`unknown_key ${kid} · отзыв`);
+    return { error: "unknown_key" };
+  }
+  console.log(`revoked ${kid} ${row.addr} · строка удалена`);
+  return { addr: row.addr };
+}
+
+/** Какие из номеров отозваны; номер — kid или role.name.kid. Список — одним параметром: число номеров не упирается в предел переменных. */
+export async function revoked(db: D1Database, ids: string[]): Promise<string[]> {
+  const kidOf = (id: string) => id.split(".").at(-1)!;
+  const { results } = await db.prepare("SELECT id FROM passes WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(ids.map(kidOf))).all<{ id: string }>();
+  const live = new Set(results.map((r) => r.id));
+  return ids.filter((id) => !live.has(kidOf(id)));
+}
+
+export async function list(db: D1Database, role?: Pass["role"]): Promise<Pass[]> {
+  const columns = "SELECT id, role, name, person, addr, state, by, at FROM passes";
+  const q = role ? db.prepare(`${columns} WHERE role = ? AND state = 'ok' ORDER BY at`).bind(role) : db.prepare(`${columns} ORDER BY at`);
   return (await q.all<Pass>()).results;
-}
-
-export const deletePass = (db: D1Database, kid: string) => db.prepare("DELETE FROM passes WHERE id = ? RETURNING addr").bind(kid).first<{ addr: string }>();
-
-export async function liveKids(db: D1Database, kids: string[]): Promise<Set<string>> {
-  // одна переменная со всем списком: у базы предел числа переменных в инструкции
-  const found = await db.prepare("SELECT id FROM passes WHERE id IN (SELECT value FROM json_each(?))").bind(JSON.stringify(kids)).all<{ id: string }>();
-  return new Set(found.results.map((r) => r.id));
 }

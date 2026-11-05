@@ -278,7 +278,7 @@ describe("profiles: ветки и стыки", () => {
     expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: "team/profiles/nope" })).error).toBe("no_profile");
     const r = await ask({ type: "session.profile", callsign: "site@laptop", profile: OPS });
     expect(r.result).toEqual({ restart: true });
-    await until(() => st!.sdk.of("site@laptop").length === 2 && st!.session("host-manage", "site@laptop")!.state === "idle");
+    await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
     expect((st!.query("site@laptop").options as any).settings?.model).toBe("opus");
     expect(st!.proc("site@laptop").hookEvents).toContain("PostToolUse");
   });
@@ -339,7 +339,7 @@ describe("profiles: покрытие плана host-modules", () => {
     expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: OPS })).result).toEqual({ restart: false });
     expect(st!.sdk.of("site@laptop")).toHaveLength(1);
     expect((await ask({ type: "session.profile", callsign: "site@laptop", profile: null })).result).toEqual({ restart: true });
-    await until(() => st!.sdk.of("site@laptop").length === 2);
+    await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
     expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBeUndefined();
     await until(() => last("site@laptop").profile === undefined);
   });
@@ -368,7 +368,7 @@ describe("profiles: покрытие плана host-modules", () => {
     expect(p.interrupts).toBe(0);
     p.send(stand.msg.result());
     p.send(stand.msg.state("idle"));
-    await until(() => st!.sdk.of("site@laptop").length === 2);
+    await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
     expect(st!.proc("site@laptop").env.SWITCHBOARD_PROFILE).toBe(OPS);
   });
 
@@ -551,5 +551,16 @@ describe("видимое: задания модели и причины", () => 
     await s.stop();
     await s.start();
     expect(st!.journal().some((l) => l.ev === "profile" && l.why === `${OPS}: профиля нет в клоне — сессия без его части`)).toBe(true);
+  });
+});
+
+describe("сверка строк: чего леса не держали", () => {
+  it("хук записи — только на инструменты правки файлов", async () => {
+    repo();
+    const { mod } = await bench({ git: fakeGit().git });
+    preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    const hooks = (st!.query("site@laptop").options as { hooks: Record<string, Array<{ matcher?: string }>> }).hooks;
+    expect(hooks.PostToolUse[0].matcher).toBe("Write|Edit|MultiEdit");
   });
 });
