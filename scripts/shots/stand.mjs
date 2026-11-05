@@ -6,7 +6,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright-core";
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const ROOT = join(here, "..", "..");
+const ROOT = join(here, "..", "..");
 export const OUT = join(ROOT, "dist", "shots");
 const HOST_MODULES = join(ROOT, "host", "modules");
 
@@ -14,10 +14,10 @@ const HOST_MODULES = join(ROOT, "host", "modules");
 const hostContract = () => Object.assign({}, ...readdirSync(HOST_MODULES).map((m) => JSON.parse(readFileSync(join(HOST_MODULES, m, "module.json"), "utf8")).provides));
 
 /** Как собирается страница: один файл из дерева, стили — текстом для web-core. */
-export const BUNDLE = { bundle: true, format: "iife", target: "es2022", loader: { ".css": "text" }, logLevel: "warning" };
+const BUNDLE = { bundle: true, format: "iife", target: "es2022", loader: { ".css": "text" }, logLevel: "warning" };
 
 /** Документ страницы: заголовки как у настоящей оболочки, скрипт — своей строкой. */
-export const pageHtml = (title, script) => `<!doctype html>
+const pageHtml = (title, script) => `<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
