@@ -307,6 +307,28 @@ describe("запуск", { timeout: 30_000 }, () => {
     expect(JSON.parse(m.content[0].text!)).toEqual(r.result.shells);
   });
 
+  it("шелл молчит на вопрос о версии: info отвечает за предел чтения, шелл в списке; Host останавливается без ожидания (слово пользователя 2 нояб.: у всех операций лимит)", async () => {
+    // Windows: cmd.exe без аргументов ждёт ввод, как зависший шелл; Linux: свой bash в PATH
+    const dir = mkdtempSync(join(tmpdir(), "sb-silent-"));
+    const silent = join(dir, "bash");
+    writeFileSync(silent, "#!/bin/sh\nsleep 60\n", { mode: 0o755 });
+    const old = { git: process.env.CLAUDE_CODE_GIT_BASH_PATH, path: process.env.PATH };
+    if (win) process.env.CLAUDE_CODE_GIT_BASH_PATH = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "cmd.exe");
+    else process.env.PATH = dir;
+    try {
+      const { req, st } = await machine("laptop");
+      const r = (await req("shell.info", {})) as unknown as { ok: boolean; result: { shells: Record<string, { path: string }> } };
+      expect(r.ok).toBe(true);
+      expect(r.result.shells.bash.path).toBe(win ? process.env.CLAUDE_CODE_GIT_BASH_PATH : silent);
+      stands.splice(stands.indexOf(st), 1);
+      await st.close();
+    } finally {
+      if (old.git === undefined) delete process.env.CLAUDE_CODE_GIT_BASH_PATH;
+      else process.env.CLAUDE_CODE_GIT_BASH_PATH = old.git;
+      process.env.PATH = old.path;
+    }
+  });
+
   it("281 · остановка Host посреди ждущего run, wait и фонового: ждущим — stopped с выводом; владельцу фонового на другой машине — «итог не сохранён»; процессов, итогов и папок нет", async () => {
     const { a, b } = await pair();
     await a.st.open("site@win");

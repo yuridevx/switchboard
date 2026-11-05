@@ -6,6 +6,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, 
 import { homedir } from "node:os";
 import { delimiter, dirname, extname, join, relative } from "node:path";
 import type { Attachment } from "@switchboard/host";
+import { READ_MS } from "@switchboard/protocol";
 
 export const SHELLS = ["bash", "pwsh", "powershell"] as const;
 export type ShellName = (typeof SHELLS)[number];
@@ -48,7 +49,8 @@ export function shellPath(name: ShellName): string | null {
   return existsSync(path) ? path : null;
 }
 
-const stdoutOf = (file: string, args: string[]) => new Promise<string>((res) => execFile(file, args, { windowsHide: true }, (_e, out) => res(String(out ?? ""))));
+/** Вывод команды; не ответила за предел чтения — что успела. */
+const stdoutOf = (file: string, args: string[]) => new Promise<string>((res) => execFile(file, args, { windowsHide: true, timeout: READ_MS }, (_e, out) => res(String(out ?? ""))));
 
 /** Версия шелла: bash и pwsh — --version, Windows PowerShell 5.1 — $PSVersionTable. */
 async function versionOf(name: ShellName, path: string): Promise<string | null> {
