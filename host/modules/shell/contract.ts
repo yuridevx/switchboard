@@ -6,18 +6,9 @@
 //   shell.info (запрос) { machine } → { shells: { имя: { version, path } } }.
 //   Снимок: { state: running|exit|timeout|killed|stopped, code (у exit), ms, stdout, stderr, files (после конца): [{ name, media_type, data }] }.
 //   Слова: no_shell — шелла нет; no_run — запуска нет (не было, прошли сутки, Host перезапускался); bad_frame — не по форме.
-//   Итог живёт сутки от конца, но не дольше Host. Конец фонового — запрос message модулю fleet владельца (from).
+//   Итог живёт сутки от конца, но не дольше Host. Конец фонового — запрос message модулю chat владельца (from).
 // Модели каждой сессии — инструменты MCP shell: info, run, wait, kill (mcp__shell__*).
-import { refuse } from "@switchboard/host";
-import type { Module } from "@switchboard/host";
+import { make } from "./src/shell.ts";
 
-const refused = () => {
-  throw refuse("demolished", "снесено");
-};
-const gone = async () => ({ content: [{ type: "text" as const, text: "снесено" }], isError: true });
-const NAMES = ["info", "run", "wait", "kill"];
-export function make() {
-  const module: Module = { requests: { "shell.run": refused, "shell.wait": refused, "shell.kill": refused, "shell.info": refused } };
-  return { module, tools: (_me: string) => NAMES.map((name) => ({ name, description: "снесено", inputSchema: {}, handler: gone })) };
-}
+export { make };
 export default make().module;
