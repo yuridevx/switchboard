@@ -787,6 +787,8 @@ describe("выборка", () => {
       return null;
     }
     await stand([{ manifest: man("m", { a: 1 }), module: (x) => ((app = x), { screens: { a: { nav: "А", view: Screen } } }) }]);
+    app.changed();
+    await flush();
     expect(prevs[0]).toBeUndefined();
     expect(prevs.at(-1)).toBe(5);
   });
