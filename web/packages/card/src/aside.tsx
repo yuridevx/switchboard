@@ -124,11 +124,9 @@ export function Aside({ callsign, session }: { callsign: string; session?: Sessi
         </div>
       ) : null}
       {remoteOf(session) ? (
-        <div className="cw-mcp-a">
-          <a className="cw-mi flat" href={remoteOf(session)} target="_blank" rel="noopener">
-            Открыть в claude.ai ↗
-          </a>
-        </div>
+        <a className="cw-mi flat" href={remoteOf(session)} target="_blank" rel="noopener">
+          Открыть в claude.ai ↗
+        </a>
       ) : null}
     </aside>
   );

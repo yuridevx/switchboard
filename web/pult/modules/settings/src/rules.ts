@@ -35,6 +35,9 @@ export const short = (v: string) => (v.includes("+") ? `+${v.split("+")[1]}` : v
 /** Предыдущая сборка: на неё «Вернуть». */
 export const before = (p: Part | undefined) => (p ? p.versions[p.versions.indexOf(p.stable) - 1] : undefined);
 
+/** Версии, кроме stable: новые первыми. */
+export const versionsOf = (p: Part | undefined, n: number) => (p?.versions ?? []).filter((v) => v !== p?.stable).reverse().slice(0, n);
+
 /** Что идёт на машине: версию keeper'а называет он сам. */
 export const runningOf = (answer: KState | undefined, part: string): KPart | undefined => (part === "keeper" && answer?.keeper ? { part, version: answer.keeper, state: "running" } : answer?.parts.find((p) => p.part === part));
 

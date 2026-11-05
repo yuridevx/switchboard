@@ -34,6 +34,7 @@ export function createSettingsState(app: App) {
         d.deployed = r.ok ? { tone: "ok", text: `Выложено: ${Object.entries(r.result.parts).map(([p, v]) => `${p} ${v.from} → ${v.to}`).join(", ")}` } : { tone: "bad", text: `Не выложен ${part} ${version}: ${wordText(r.error)}` };
       });
       done();
+      if (r.ok) await Promise.all(Object.keys(keeper.get()).map((m) => keeper.reload(m)));
     },
   };
 }

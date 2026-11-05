@@ -1,7 +1,7 @@
 // «Выпуски»: stable по машинам, матрица машина × часть и план машины; каталог частей и модулей сборок.
 import { useEffect, useState } from "react";
 import { Btn, Dot, In, machineLabel, machinesWith, Meter, Note, okOf, Opts, PageHead, plural, Sec, useApp, useLoad, useModule, wordOf } from "@switchboard/web-ui";
-import { before, cellOf, short, wordText, type KPart, type Pass, type PlanEntry, type Releases } from "./rules.ts";
+import { before, cellOf, runningOf, short, versionsOf, wordText, type KPart, type Pass, type PlanEntry, type Releases } from "./rules.ts";
 import type { SettingsState } from "./state.ts";
 
 const KEEPER = "keeper";
@@ -118,17 +118,15 @@ function Catalog({ list, reload }: { list: Releases; reload(): void }) {
   );
 }
 
-function Plan({ machine, list, close, setPlan }: { machine: string; list?: Releases; close(): void; setPlan(part: string, change: { pin?: string | null; on?: boolean }): Promise<string> }) {
+function Plan({ machine, list, word, close, setPlan }: { machine: string; list?: Releases; word: string; close(): void; setPlan(part: string, change: { pin?: string | null; on?: boolean }): void }) {
   const app = useApp();
   const st = useModule<SettingsState>();
   const answer = app.use(() => okOf(st.keeper.get()[machine]));
   const online = app.use(() => machinesWith(app).includes(machine));
   const label = app.use(() => machineLabel(app, machine).text);
-  const [word, setWord] = useState("");
   const [typed, setTyped] = useState<Record<string, string>>({});
   const plan = list?.machines.find((m) => m.machine === machine)?.plan ?? {};
   const names = partsOf(list, answer?.parts ?? [], plan);
-  const act = async (part: string, change: { pin?: string | null; on?: boolean }) => setWord(await setPlan(part, change));
   return (
     <Sec className="st-side" data-plan={machine}>
       <PageHead>
@@ -155,22 +153,19 @@ function Plan({ machine, list, close, setPlan }: { machine: string; list?: Relea
             {part?.error ? <Note tone="bad">{part.error}</Note> : null}
             {cat ? (
               <Opts>
-                <Btn aria-pressed={entry?.pin ? "false" : "true"} onClick={() => void act(name, { pin: null })}>
+                <Btn aria-pressed={entry?.pin ? "false" : "true"} onClick={() => setPlan(name, { pin: null })}>
                   {`stable ${short(cat.stable)}`}
                 </Btn>
-                {cat.versions
-                  .filter((v) => v !== cat.stable && (v !== cat.edge || cat.edge === v) && cat.versions.indexOf(v) < cat.versions.indexOf(cat.stable))
-                  .slice(-1)
-                  .map((v) => (
-                    <Btn key={v} aria-pressed={entry?.pin === v ? "true" : "false"} onClick={() => void act(name, { pin: v })}>
-                      {`📌 ${short(v)}`}
-                    </Btn>
-                  ))}
+                {[...new Set([...versionsOf(cat, 4), entry?.pin])].filter((v): v is string => !!v && v !== cat.stable).map((v) => (
+                  <Btn key={v} aria-pressed={entry?.pin === v ? "true" : "false"} onClick={() => setPlan(name, { pin: v })}>
+                    {`📌 ${short(v)}`}
+                  </Btn>
+                ))}
                 <In mono className="st-ver" aria-label={`Версия ${name}`} placeholder="версия" value={typed[name] ?? ""} onChange={() => {}} onInput={(e) => setTyped({ ...typed, [name]: e.currentTarget.value })} />
                 <Btn
                   onClick={() => {
                     const v = (typed[name] ?? "").trim();
-                    if (v) void act(name, { pin: v });
+                    if (v) setPlan(name, { pin: v });
                   }}
                 >
                   Закрепить
@@ -179,7 +174,7 @@ function Plan({ machine, list, close, setPlan }: { machine: string; list?: Relea
             ) : null}
             {name === KEEPER ? null : (
               <Opts>
-                <Btn role="switch" aria-checked={entry?.on !== false} aria-pressed={entry?.on !== false ? "true" : "false"} onClick={() => void act(name, { on: entry?.on === false })}>
+                <Btn role="switch" aria-checked={entry?.on !== false} aria-pressed={entry?.on !== false ? "true" : "false"} onClick={() => setPlan(name, { on: entry?.on === false })}>
                   {entry?.on === false ? "выключена" : "включена"}
                 </Btn>
               </Opts>
@@ -215,6 +210,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const { setView, setMarked } = st;
   const [picked, setPicked] = useState(machine ?? "");
   const [rq, setRq] = useState("");
+  const [planWord, setPlanWord] = useState("");
   useEffect(() => st.keeper.mount(), [st]);
 
   const list = load.data;
@@ -226,11 +222,11 @@ export function ReleasesTab({ machine }: { machine?: string }) {
 
   async function setPlan(m: string, part: string, change: { pin?: string | null; on?: boolean }) {
     const r = await app.request<{ rev: number }>("releases.set", { machine: m, part, ...change });
-    if (!r.ok) return `@${m} ${part}: ${wordText(r.error)}`;
+    setPlanWord(r.ok ? "" : `@${m} ${part}: ${wordText(r.error)}`);
+    if (!r.ok) return;
     load.reload();
     await st.keeper.reload(m);
     app.toast(`@${m}: план rev ${r.result.rev}`, "ok");
-    return "";
   }
   async function setMany(part: string, change: { pin: string | null }) {
     const answers_ = await Promise.all(marked.map(async (m) => [m, await app.request("releases.set", { machine: m, part, ...change })] as const));
@@ -239,12 +235,14 @@ export function ReleasesTab({ machine }: { machine?: string }) {
     await Promise.all(answers_.map(([m]) => st.keeper.reload(m)));
     const good = answers_.filter(([, r]) => r.ok).length;
     const bad = answers_.flatMap(([m, r]) => (r.ok ? [] : [`@${m} ${part}: ${wordText(r.error)}`]));
-    app.toast([`${good} ${plural(good, "машина", "машины", "машин")}: план изменён`, ...bad].join("; "), bad.length ? "bad" : "ok");
+    const text = [`${good} ${plural(good, "машина", "машины", "машин")}: план изменён`, ...bad].join("; ");
+    // отказ — рядом с планом, если он открыт; иначе отказ не должен пропасть молча
+    if (bad.length && picked) setPlanWord(text);
+    else app.toast(text, bad.length ? "bad" : "ok");
   }
 
   if (!hasCatalog) return <Note>«Выпусков» во флоте нет</Note>;
   const host = list?.parts.host;
-  const hostBack = before(host);
   return (
     <>
       <div className="st-tabs">
@@ -274,7 +272,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
               {Object.entries(list.parts)
                 .filter(([, p]) => p.where === "machine")
                 .map(([name, p]) => {
-                  const held = online.filter((m) => okOf(answers[m])?.parts.find((x) => x.part === name)?.version === p.stable).length;
+                  const held = online.filter((m) => runningOf(okOf(answers[m]), name)?.version === p.stable).length;
                   const back = before(p);
                   return (
                     <div key={name} className="st-roll" data-roll={name}>
@@ -295,7 +293,11 @@ export function ReleasesTab({ machine }: { machine?: string }) {
               <b>{`Выбрано ${marked.length}`}</b>
               <Note>{marked.map((m) => `@${m}`).join(", ")}</Note>
               <span className="st-grow" />
-              {hostBack ? <Btn onClick={() => void setMany("host", { pin: hostBack })}>{`host: закрепить ${short(hostBack)}`}</Btn> : null}
+              {versionsOf(host, 3).map((v) => (
+                <Btn key={v} onClick={() => void setMany("host", { pin: v })}>
+                  {`host: закрепить ${short(v)}`}
+                </Btn>
+              ))}
               <Btn onClick={() => void setMany("host", { pin: null })}>host: к stable</Btn>
               <Btn onClick={() => setMarked([])}>Снять</Btn>
             </div>
@@ -323,7 +325,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                       const answer = okOf(answers[m]);
                       const on = online.includes(m);
                       const cells = parts.map((p) => cellOf({ answer, part: p, entry: planOf(m)[p], stable: list?.parts[p]?.stable, online: on }));
-                      const dot = !on ? "stop" : wordOf(answers[m]) || cells.some((c) => c && ["fail", "behind", "upd"].includes(c.cls)) ? "wait" : "idle";
+                      const dot = !on ? "stop" : wordOf(answers[m]) || cells.some((c, i) => parts[i] !== KEEPER && c && ["fail", "behind", "upd"].includes(c.cls)) ? "wait" : "idle";
                       return (
                         <tr key={m} data-machine={m} aria-current={picked === m ? "true" : undefined}>
                           <td>
@@ -356,7 +358,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                 </table>
               </div>
             </Sec>
-            {picked ? <Plan machine={picked} list={list} close={() => setPicked("")} setPlan={(part, change) => setPlan(picked, part, change)} /> : <span />}
+            {picked ? <Plan machine={picked} list={list} word={planWord} close={() => setPicked("")} setPlan={(part, change) => void setPlan(picked, part, change)} /> : <span />}
           </div>
         </>
       ) : null}

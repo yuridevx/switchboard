@@ -17,7 +17,7 @@ function Qr({ url }: { url: string }) {
   return (
     <div className="st-qr" data-qr={url} role="img" aria-label="QR ссылки для телефона">
       <svg viewBox={`0 0 ${n} ${n}`} shapeRendering="crispEdges">
-        <path d={d} />
+        <path d={d} fill="#000" />
       </svg>
     </div>
   );

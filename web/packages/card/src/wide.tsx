@@ -35,7 +35,6 @@ export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) 
   }
   async function update(field: "model" | "effort", value: string) {
     setPop(null);
-    if (field === "model") app.run("models.load", { callsign });
     const r = await app.request("session.update", { callsign, [field]: value });
     if (!r.ok) app.toast(`${callsign}: ${field === "model" ? "модель" : "усилие"} — ${r.error}`);
   }
