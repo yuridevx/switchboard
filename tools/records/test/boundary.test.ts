@@ -123,6 +123,7 @@ describe("проекты: правки записи", () => {
     const all = placeSessions(REC, ["x@a"], NONE);
     expect(moveProject(all, "нет")).toEqual(all);
     expect(moveProject(all, "shop", NONE).map((r) => r.id)).toEqual(["sec", "shop", NONE]);
+    expect(moveProject(all, "shop").map((r) => r.id)).toEqual(["sec", "shop", NONE]);
     expect(moveProject(undefined, "shop")).toEqual([]);
   });
 
@@ -226,6 +227,22 @@ describe("цикл настроек", () => {
     await s.release();
     await done;
     expect(calls).toBe(2);
+  });
+
+  it("правка, пришедшая за время записи, остаётся поверх и уходит следующим циклом", async () => {
+    const s = service();
+    let open = () => {};
+    const gate = new Promise<void>((go) => (open = go));
+    const ask = async <T,>(name: string, body: Record<string, unknown>) => (await gate, s.ask<T>(name, body));
+    const c = settings({ read: s.ask, ask, prefix: "x" });
+    const one = c.edit<number[]>("k", (old) => [...(old ?? []), 1]);
+    await new Promise((r) => setTimeout(r, 0));
+    const two = c.edit<number[]>("k", (old) => [...(old ?? []), 2]);
+    expect(c.get("k")).toEqual([1, 2]);
+    open();
+    expect(await Promise.all([one, two])).toEqual([null, null]);
+    expect(s.values["x.k"]).toEqual([1, 2]);
+    expect(sets(s.log)).toHaveLength(2);
   });
 
   it("settled дожидается цикла записи: остановка не теряет правку", async () => {
