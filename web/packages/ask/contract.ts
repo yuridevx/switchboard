@@ -14,7 +14,7 @@ declare module "@switchboard/web-ui" {
   }
 }
 
-export type { Question } from "./src/module.tsx";
+export type { Question } from "./src/store.ts";
 export { createAsk };
 export const manifest: Manifest = json;
 export default createAsk satisfies AppPart["module"];
