@@ -6,24 +6,24 @@ const SHOWN_MS = 1500;
 const WORDS = { done: "скопировано", bad: "буфер недоступен" };
 
 export function CopyButton({ text, label }: { text: string; label?: string }) {
-  const [state, setState] = useState<"" | "done" | "bad">("");
+  const [outcome, setOutcome] = useState<"" | "done" | "bad">("");
   useEffect(() => {
-    if (!state) return;
-    const h = setTimeout(() => setState(""), SHOWN_MS);
-    return () => clearTimeout(h);
-  }, [state]);
-  const copy = () => {
-    const clip = (globalThis.navigator as Navigator | undefined)?.clipboard;
-    if (!clip) return setState("bad");
-    void clip.writeText(text).then(
-      () => setState("done"),
-      () => setState("bad"),
+    if (!outcome) return;
+    const timer = setTimeout(() => setOutcome(""), SHOWN_MS);
+    return () => clearTimeout(timer);
+  }, [outcome]);
+  function copy() {
+    const clipboard = (globalThis.navigator as Navigator | undefined)?.clipboard;
+    if (!clipboard) return setOutcome("bad");
+    void clipboard.writeText(text).then(
+      () => setOutcome("done"),
+      () => setOutcome("bad"),
     );
-  };
+  }
   return (
     <button type="button" className="cb-b" aria-label="Копировать" title="Копировать" onClick={copy}>
-      {state === "done" ? <Check size={13} /> : <Copy size={13} />}
-      {label ? (state ? WORDS[state] : label) : null}
+      {outcome === "done" ? <Check size={13} /> : <Copy size={13} />}
+      {label ? (outcome ? WORDS[outcome] : label) : null}
     </button>
   );
 }

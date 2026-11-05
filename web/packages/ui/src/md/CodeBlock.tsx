@@ -6,35 +6,34 @@ import { HtmlFrame } from "./HtmlFrame.tsx";
 import { useHighlighted } from "./highlight.tsx";
 
 /** Текст узла разметки с вложенными. */
-export function textOfNode(n: unknown): string {
-  const x = n as { type?: string; value?: string; children?: unknown[] } | undefined;
-  if (x?.type === "text") return x.value ?? "";
-  return (x?.children ?? []).map(textOfNode).join("");
+export function textOfNode(node: unknown): string {
+  const n = node as { type?: string; value?: string; children?: unknown[] } | undefined;
+  return n?.type === "text" ? (n.value ?? "") : (n?.children ?? []).map(textOfNode).join("");
 }
 
-const PREVIEW = new Set(["html", "svg"]);
+const WITH_PREVIEW = new Set(["html", "svg"]);
 
 export function CodeBlock({ code, lang }: { code: string; lang: string }) {
-  const previewable = PREVIEW.has(lang.toLowerCase());
-  const [view, setView] = useState(false);
-  const nodes = useHighlighted(code, lang.toLowerCase());
+  const lower = lang.toLowerCase();
+  const [preview, setPreview] = useState(false);
+  const highlighted = useHighlighted(code, lower);
   return (
     <div className="cb" data-lang={lang || undefined}>
       <div className="cb-h">
         <span className="cb-l">{lang}</span>
-        {previewable ? (
-          <button type="button" className="cb-b" aria-pressed={view} onClick={() => setView(!view)}>
-            {view ? <Code2 size={13} /> : <Eye size={13} />}
-            {view ? "Код" : "Просмотр"}
+        {WITH_PREVIEW.has(lower) ? (
+          <button type="button" className="cb-b" aria-pressed={preview} onClick={() => setPreview(!preview)}>
+            {preview ? <Code2 size={13} /> : <Eye size={13} />}
+            {preview ? "Код" : "Просмотр"}
           </button>
         ) : null}
         <CopyButton text={code} />
       </div>
-      {view ? (
+      {preview ? (
         <HtmlFrame html={code} />
       ) : (
         <pre>
-          <code className={lang ? `hljs language-${lang}` : "hljs"}>{nodes}</code>
+          <code className={lang ? `hljs language-${lang}` : "hljs"}>{highlighted}</code>
         </pre>
       )}
     </div>

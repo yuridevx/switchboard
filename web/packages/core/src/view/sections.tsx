@@ -1,74 +1,72 @@
-// Разделы: колонка широкого вида, лента и вкладки узкого; модель раскладки считается из разделов и текущего экрана.
+// Разделы: колонка широкого вида, лента и вкладки узкого. Раскладка считается из разделов и текущего экрана.
 import { useEffect, useRef } from "react";
 import { Badge, Pill, RowBtn, TextBtn } from "@switchboard/web-ui";
-import { connPill, useCore } from "./core.ts";
+import { connPill, useCore } from "./context.ts";
 
 /** Раскладка разделов — имена: без группы, группы с их разделами, разделы открытой группы, видны ли вкладки, открытые. */
-export type SectionsModel = { solo: string[]; groups: Array<{ name: string; items: string[] }>; inOpen: string[]; tabsShown: boolean; active: string[] };
+export type Layout = { solo: string[]; groups: Array<{ name: string; items: string[] }>; openGroup: string[]; tabsShown: boolean; active: string[] };
 
 /** Выборка раскладки: перерисовка — когда раскладка изменилась. */
-export function useSections(): SectionsModel {
-  const core = useCore();
-  return core.use(() => {
-    const { roster, current, master } = core.state();
-    const navs = roster ? core.sections() : [];
+export function useLayout(): Layout {
+  const { snap, sections, wide } = useCore();
+  return snap.use(() => {
+    const { roster, current, master } = snap.get();
+    const all = roster ? sections.all() : [];
     const active = [current?.screen, master].filter((n): n is string => !!n);
-    const groupNames = [...new Set(navs.map(([, s]) => core.groupOf(s.def)).filter((g): g is string => !!g))];
-    const groups = groupNames.map((name) => ({ name, items: navs.filter(([, s]) => core.groupOf(s.def) === name).map(([n]) => n) }));
-    // узкий вид: вкладки внизу, группа — одной вкладкой, её разделы — лентой над экраном
-    const solo = navs.filter(([, s]) => !core.groupOf(s.def)).map(([n]) => n);
-    const inOpen = groups.find((g) => g.items.some((n) => active.includes(n)))?.items ?? [];
-    return { solo, groups, inOpen, tabsShown: !core.wide && !!roster && solo.length + groups.length >= 2, active };
+    const groupNames = [...new Set(all.map(([, s]) => sections.groupOf(s.def)).filter((g): g is string => !!g))];
+    const groups = groupNames.map((name) => ({ name, items: all.filter(([, s]) => sections.groupOf(s.def) === name).map(([n]) => n) }));
+    const solo = all.filter(([, s]) => !sections.groupOf(s.def)).map(([n]) => n);
+    return { solo, groups, openGroup: groups.find((g) => g.items.some((n) => active.includes(n)))?.items ?? [], tabsShown: !wide && !!roster && solo.length + groups.length >= 2, active };
   });
 }
 
-/** Кнопка раздела с меткой-счётчиком. */
-function Item({ n, model }: { n: string; model: SectionsModel }) {
-  const core = useCore();
-  const s = core.lookup(n)!;
-  const count = core.use(() => core.countOf(s));
-  const on = model.active.includes(n);
+/** Кнопка раздела со счётчиком. */
+function Item({ name, layout }: { name: string; layout: Layout }) {
+  const { snap, sections, modules, address } = useCore();
+  const entry = modules.screens.get(name)!;
+  const count = snap.use(() => sections.countOf(entry));
+  const on = layout.active.includes(name);
   const self = useRef<HTMLButtonElement>(null);
   // лента разделов прокручивается: открытый раздел всегда виден
   useEffect(() => {
     if (on) self.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [on]);
   return (
-    <RowBtn ref={self} className="sb-nv" aria-current={on ? "page" : undefined} data-screen={n} onClick={() => core.go(n, {})}>
-      <span>{s.def.nav}</span>
+    <RowBtn ref={self} className="sb-nv" aria-current={on ? "page" : undefined} data-screen={name} onClick={() => address.go(name, {})}>
+      <span>{entry.def.nav}</span>
       {count !== null ? <Badge wait>{count}</Badge> : null}
     </RowBtn>
   );
 }
 
 /** Колонка разделов широкого вида. */
-export function NavColumn({ model, openPal }: { model: SectionsModel; openPal(): void }) {
-  const core = useCore();
-  const { conn, shown, stopped } = core.use(() => {
-    const st = core.state();
+export function NavColumn({ layout, openSearch }: { layout: Layout; openSearch(): void }) {
+  const { snap, wide, brand } = useCore();
+  const { conn, shown, stopped } = snap.use(() => {
+    const st = snap.get();
     return { conn: st.conn, shown: !!st.roster, stopped: !!st.full };
   });
-  const cp = connPill(conn);
+  const pill = connPill(conn);
   return (
-    <nav className="sb-navcol" hidden={!core.wide || stopped}>
-      {core.wide && shown ? (
+    <nav className="sb-navcol" hidden={!wide || stopped}>
+      {wide && shown ? (
         <>
           <div className="sb-brand">
-            <b>{core.brand ?? "Switchboard"}</b>
-            <Pill conn tone={cp.tone} title={cp.text} aria-label={cp.text} />
+            <b>{brand ?? "Switchboard"}</b>
+            <Pill conn tone={pill.tone} title={pill.text} aria-label={pill.text} />
           </div>
-          <TextBtn className="sb-goto" onClick={openPal}>
+          <TextBtn className="sb-goto" onClick={openSearch}>
             <span>Перейти…</span>
             <kbd>Ctrl K</kbd>
           </TextBtn>
-          {model.solo.map((n) => (
-            <Item key={n} n={n} model={model} />
+          {layout.solo.map((n) => (
+            <Item key={n} name={n} layout={layout} />
           ))}
-          {model.groups.flatMap((g) => [
+          {layout.groups.flatMap((g) => [
             <div key={`g:${g.name}`} className="sb-grp">
               {g.name}
             </div>,
-            ...g.items.map((n) => <Item key={n} n={n} model={model} />),
+            ...g.items.map((n) => <Item key={n} name={n} layout={layout} />),
           ])}
         </>
       ) : null}
@@ -77,22 +75,22 @@ export function NavColumn({ model, openPal }: { model: SectionsModel; openPal():
 }
 
 /** Лента разделов открытой группы над экраном: узкий вид. */
-export function GroupRow({ model, ready }: { model: SectionsModel; ready: boolean }) {
-  const core = useCore();
+export function GroupRow({ layout, ready }: { layout: Layout; ready: boolean }) {
+  const { wide } = useCore();
   return (
-    <nav className="sb-navrow" hidden={core.wide || !ready || model.inOpen.length === 0}>
-      {!core.wide && ready ? model.inOpen.map((n) => <Item key={n} n={n} model={model} />) : null}
+    <nav className="sb-navrow" hidden={wide || !ready || layout.openGroup.length === 0}>
+      {!wide && ready ? layout.openGroup.map((n) => <Item key={n} name={n} layout={layout} />) : null}
     </nav>
   );
 }
 
-/** Вкладка группы: одна на группу, открывает первый её раздел. */
+/** Вкладка группы: одна на группу, открывает первый её раздел; счётчик — сумма разделов. */
 function GroupTab({ name, items, active }: { name: string; items: string[]; active: string[] }) {
-  const core = useCore();
-  const cur = items.some((n) => active.includes(n));
-  const count = core.use(() => items.reduce((acc, n) => acc + (core.countOf(core.lookup(n)!) ?? 0), 0));
+  const { snap, sections, modules, address } = useCore();
+  const isOpen = items.some((n) => active.includes(n));
+  const count = snap.use(() => items.reduce((sum, n) => sum + (sections.countOf(modules.screens.get(n)!) ?? 0), 0));
   return (
-    <RowBtn key={`g:${name}`} className="sb-nv" aria-current={cur ? "page" : undefined} data-group={name} onClick={() => (cur ? null : core.go(items[0], {}))}>
+    <RowBtn className="sb-nv" aria-current={isOpen ? "page" : undefined} data-group={name} onClick={() => (isOpen ? null : address.go(items[0], {}))}>
       <span>{name}</span>
       {count ? <Badge wait>{count}</Badge> : null}
     </RowBtn>
@@ -100,16 +98,16 @@ function GroupTab({ name, items, active }: { name: string; items: string[]; acti
 }
 
 /** Вкладки внизу: узкий вид. */
-export function Tabs({ model }: { model: SectionsModel }) {
+export function Tabs({ layout }: { layout: Layout }) {
   return (
-    <nav className="sb-tabs" aria-label="Разделы" hidden={!model.tabsShown}>
-      {model.tabsShown ? (
+    <nav className="sb-tabs" aria-label="Разделы" hidden={!layout.tabsShown}>
+      {layout.tabsShown ? (
         <>
-          {model.solo.map((n) => (
-            <Item key={n} n={n} model={model} />
+          {layout.solo.map((n) => (
+            <Item key={n} name={n} layout={layout} />
           ))}
-          {model.groups.map((g) => (
-            <GroupTab key={`g:${g.name}`} name={g.name} items={g.items} active={model.active} />
+          {layout.groups.map((g) => (
+            <GroupTab key={`g:${g.name}`} name={g.name} items={g.items} active={layout.active} />
           ))}
         </>
       ) : null}

@@ -1,97 +1,81 @@
-// Ядро веб-приложения: гейт набора, пропуск, связь с машинами флота клиентом fleet, маршрут кадров модулям,
-// экраны и адрес, хранилище, штатный уход с экрана. Ни одной функции приложения само не знает.
-// Здесь — только сборка частей: bus (подписка вида), state (снимок), registry (модули), nav, router, link, lifecycle, boot; вид — в папке view.
+// Ядро веб-приложения: собирает части и запускает вход. Ни одной функции приложения само не знает.
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { boot, createHalt } from "./boot.tsx";
-import { createBus } from "./bus.ts";
-import { createLifecycle } from "./lifecycle.ts";
-import { createLink } from "./link.ts";
-import { moduleApp } from "./module-app.tsx";
-import { createNav } from "./nav.ts";
+import { createAddress } from "./address.ts";
+import { createHalt, enter } from "./entry.ts";
+import { createFleetLink } from "./fleet-link.ts";
+import { createLeave } from "./leave.ts";
+import { moduleApp } from "./module-app.ts";
+import { createModules } from "./modules.ts";
 import { keyId } from "./pass.ts";
-import { createRegistry } from "./registry.ts";
-import { createRouter } from "./router.ts";
-import { createCoreState, createToast } from "./state.ts";
+import { createSections } from "./sections.ts";
+import { createSnapshot } from "./snapshot.ts";
 import { idbStore } from "./store.ts";
 import type { Platform, Running, StartOptions } from "./types.ts";
-import type { Core } from "./view/core.ts";
 import { pageCss, Root } from "./view/shell.tsx";
 
 export { keyId };
 
 /** Платформа по navigator: iPhone/iPad, запущено ли с экрана «Домой», есть ли @scope. */
-export function detectPlatform(win: Window): Platform {
+function detectPlatform(win: Window): Platform {
   const nav = win.navigator as Navigator & { standalone?: boolean };
-  const ios = /iPhone|iPad|iPod/.test(nav.userAgent);
-  const standalone = nav.standalone === true || !!win.matchMedia?.("(display-mode: standalone)").matches;
-  return { ios, standalone, scope: "CSSScopeRule" in win };
+  return {
+    ios: /iPhone|iPad|iPod/.test(nav.userAgent),
+    standalone: nav.standalone === true || !!win.matchMedia?.("(display-mode: standalone)").matches,
+    scope: "CSSScopeRule" in win,
+  };
 }
 
-/** Запустить приложение: гейт → ключ → модули → связь. */
+/** Запустить приложение: гейт → пропуск → модули → связь. */
 export function startApp(o: StartOptions): Running {
   const win = o.window ?? window;
   const store = o.store ?? idbStore();
-  const platform = o.platform ?? detectPlatform(win);
   const wide = !!o.wide;
 
-  const bus = createBus();
-  const state = createCoreState(pageCss([]), bus.changed);
-  const toast = createToast(state);
-  const registry = createRegistry(bus.changed);
-  const nav = createNav(registry, { wide, sections: o.sections });
-  const router = createRouter({ win, wide, beside: o.beside, registry, nav, state });
-  const halt = createHalt({ state, store, win, o });
-  const link = createLink({ o, state, registry, changed: bus.changed, route: router.route, toast, refused: halt.refused });
-  const life = createLifecycle({ registry, link, state });
+  const snap = createSnapshot(pageCss([]));
+  const modules = createModules(snap.changed);
+  const sections = createSections(modules, { wide, order: o.sections });
+  const address = createAddress({ win, wide, beside: o.beside, modules, sections, snap });
+  const halt = createHalt({ o, snap, store, win });
+  const link = createFleetLink({ o, snap, modules, route: address.route, refused: halt.refused });
+  const leave = createLeave({ modules, link, snap });
 
-  const core: Core = {
-    wide,
-    brand: o.brand,
-    win,
-    use: bus.useSelect,
-    state: state.get,
-    keyLabel: () => keyId(state.get().key),
-    lookup: registry.lookup,
-    mayOpen: (app, screen) => {
-      const x = registry.modOf(app);
-      return !!x && registry.mayOpen(x, screen);
-    },
-    fail: registry.fail,
-    reload: () => win.location.reload(),
-    wipe: halt.wipe,
-    acceptInvite: halt.acceptInvite,
-    head: nav.head,
-    sections: nav.sections,
-    countOf: nav.countOf,
-    groupOf: nav.groupOf,
-    hits: nav.hits,
-    go: router.go,
-    back: router.back,
-    reconnectNow: link.reconnectNow,
+  const fell = (where: string, e: unknown) => {
+    console.error(`switchboard: ${where}`, e);
+    o.root.textContent = `Приложение упало: ${e instanceof Error ? e.message : String(e)}`;
   };
 
   // каркас страницы встаёт сразу: экран старта виден до ответа хранилища
-  const view = createRoot(o.root, {
-    onUncaughtError: (e) => {
-      console.error("switchboard: вид ядра упал", e);
-      o.root.textContent = `Приложение упало: ${e instanceof Error ? e.message : String(e)}`;
-    },
-  });
-  flushSync(() => view.render(<Root core={core} />));
+  const view = createRoot(o.root, { onUncaughtError: (e) => fell("вид ядра упал", e) });
+  flushSync(() => view.render(<Root core={{ wide, brand: o.brand, win, snap, modules, sections, address, link, halt }} />));
 
-  const appFor = (x: Parameters<typeof moduleApp>[0]) => moduleApp(x, { o, store, state, registry, router, link, bus, toast, core });
-  const ready = boot({ o, state, store, win, platform, registry, appFor, router, link, life, stopWith: halt.stopWith });
+  const ready = enter({
+    o,
+    snap,
+    store,
+    win,
+    platform: o.platform ?? detectPlatform(win),
+    modules,
+    address,
+    link,
+    leave,
+    halt,
+    define: () => modules.define(o.parts, (x) => moduleApp(x, { o, store, snap, modules, address, link })),
+  }).catch((e) => {
+    view.unmount();
+    fell("вход не удался", e);
+  });
+
   return {
     ready,
     get stopped() {
-      return state.get().full?.why ?? null;
+      return snap.get().full?.why ?? null;
     },
     get failed() {
-      return Object.fromEntries(registry.mods.filter((x) => x.failed).map((x) => [x.m.name, x.failed!]));
+      return Object.fromEntries(modules.list.filter((x) => x.failed).map((x) => [x.m.name, x.failed!]));
     },
-    hide: life.hide,
-    show: life.show,
+    hide: leave.hide,
+    show: leave.show,
     unmount: () => view.unmount(),
   };
 }

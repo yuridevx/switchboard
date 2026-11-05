@@ -18,8 +18,8 @@ const MAX_H = 640;
 export const framed = (html: string, sign = "") =>
   `<!doctype html><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(!e.isTrusted)return;p.postMessage(${JSON.stringify(sign)},"*");const b=document.body,h=()=>p.postMessage({height:b.getBoundingClientRect().bottom+parseFloat(getComputedStyle(b).marginBottom)},"*");h();new ResizeObserver(h).observe(b)})})()</script>${html}`;
 
-function Shown({ html, title }: { html: string; title: string }) {
-  const [left, setLeft] = useState(false);
+function Viewer({ html, title }: { html: string; title: string }) {
+  const [gone, setGone] = useState(false);
   const [height, setHeight] = useState<number>();
   const [sign] = useState(() => crypto.randomUUID());
   const frame = useRef<HTMLIFrameElement>(null);
@@ -38,34 +38,31 @@ function Shown({ html, title }: { html: string; title: string }) {
   }, [sign]);
 
   useEffect(() => {
-    if (left) return;
+    if (gone) return;
     const el = frame.current!;
-    let wait: ReturnType<typeof setTimeout>;
+    let waiting: ReturnType<typeof setTimeout>;
     const onLoad = () => {
-      loads.current++;
-      if (loads.current > 1) return setLeft(true);
-      wait = setTimeout(() => setLeft(!signed.current), SIGNAL_MS);
+      if (++loads.current > 1) return setGone(true);
+      waiting = setTimeout(() => setGone(!signed.current), SIGNAL_MS);
     };
     el.addEventListener("load", onLoad);
     return () => {
-      clearTimeout(wait);
+      clearTimeout(waiting);
       el.removeEventListener("load", onLoad);
     };
-  }, [left]);
+  }, [gone]);
 
-  if (left) {
+  function showAgain() {
+    loads.current = 0;
+    signed.current = false;
+    setGone(false);
+  }
+
+  if (gone) {
     return (
       <div className="html-left" role="status">
         <span>Документ ушёл на другую страницу — просмотр снят</span>
-        <button
-          type="button"
-          className="cb-b"
-          onClick={() => {
-            loads.current = 0;
-            signed.current = false;
-            setLeft(false);
-          }}
-        >
+        <button type="button" className="cb-b" onClick={showAgain}>
           Показать снова
         </button>
       </div>
@@ -80,5 +77,5 @@ function Shown({ html, title }: { html: string; title: string }) {
 
 /** Другой документ — другая рамка: счёт загрузок начинается заново. */
 export function HtmlFrame({ html, title = "Просмотр HTML" }: { html: string; title?: string }) {
-  return <Shown key={html} html={html} title={title} />;
+  return <Viewer key={html} html={html} title={title} />;
 }

@@ -1,9 +1,9 @@
 // Место экрана: граница ошибки и область стилей вокруг компонента модуля. Новые параметры — экран начат заново.
 import { Component, memo, type ReactNode } from "react";
-import { BadCard, Cta, Pad, AppCtx, useApp } from "@switchboard/web-ui";
-import { share } from "../same.ts";
+import { AppCtx, BadCard, Cta, Pad, useApp } from "@switchboard/web-ui";
+import { share } from "../share.ts";
 import type { Params, Screen, SlotProps } from "../types.ts";
-import { useCore } from "./core.ts";
+import { useCore } from "./context.ts";
 
 class Boundary extends Component<{ onError(e: unknown): void; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -19,35 +19,35 @@ class Boundary extends Component<{ onError(e: unknown): void; children: ReactNod
 }
 
 /** Экран упавшего модуля: причина и перезапуск. */
-function Failed({ def, why, reload }: { def: Screen; why: string; reload(): void }) {
+function Failed({ def, why, restart }: { def: Screen; why: string; restart(): void }) {
+  const name = def.label ?? "Экран";
   return (
     <Pad>
       <BadCard>
-        <b>{`${def.label ?? "Экран"} выключен${def.label?.endsWith("а") ? "а" : ""}`}</b>
+        <b>{`${name} выключен${name.endsWith("а") ? "а" : ""}`}</b>
         <code>{why}</code>
         <span>Остальные экраны работают. Этот вернётся после перезапуска приложения.</span>
       </BadCard>
-      <Cta onClick={reload}>Перезапустить приложение</Cta>
+      <Cta onClick={restart}>Перезапустить приложение</Cta>
     </Pad>
   );
 }
 
-const NONE: Params = {};
+const NO_PARAMS: Params = {};
 
-function PlaceView({ screen, params, close }: SlotProps) {
-  const core = useCore();
-  const s = core.lookup(screen);
-  const failed = core.use(() => s?.owner.failed ?? null);
-  if (!s) return null;
-  if (failed) return <Failed def={s.def} why={failed} reload={core.reload} />;
-  const View = s.def.view;
+function PlaceView({ screen, params = NO_PARAMS, close }: SlotProps) {
+  const { snap, modules, win } = useCore();
+  const entry = modules.screens.get(screen);
+  const failed = snap.use(() => entry?.owner.failed ?? null);
+  if (!entry) return null;
+  if (failed) return <Failed def={entry.def} why={failed} restart={() => win.location.reload()} />;
+  const View = entry.def.view;
   if (!View) return null;
-  const p = params ?? NONE;
   return (
-    <div data-module={s.owner.m.name} style={{ display: "contents" }}>
-      <Boundary key={`${screen}?${JSON.stringify(p)}`} onError={(e) => core.fail(s.owner, `экране ${screen}`, e)}>
-        <AppCtx.Provider value={s.owner.app}>
-          <View params={p} close={close} />
+    <div data-module={entry.owner.m.name} style={{ display: "contents" }}>
+      <Boundary key={`${screen}?${JSON.stringify(params)}`} onError={(e) => modules.fail(entry.owner, `экране ${screen}`, e)}>
+        <AppCtx.Provider value={entry.owner.app}>
+          <View params={params} close={close} />
         </AppCtx.Provider>
       </Boundary>
     </div>
@@ -55,11 +55,12 @@ function PlaceView({ screen, params, close }: SlotProps) {
 }
 
 /** Экран по имени, без проверки uses (её делают app.Slot и app.open). Родитель перерисовался с теми же параметрами — экран не трогается. */
-export const Place = memo(PlaceView, (a, b) => a.screen === b.screen && a.close === b.close && share(a.params ?? NONE, b.params ?? NONE) === (a.params ?? NONE));
+export const Place = memo(PlaceView, (a, b) => a.screen === b.screen && a.close === b.close && share(a.params ?? NO_PARAMS, b.params ?? NO_PARAMS) === (a.params ?? NO_PARAMS));
 
 /** app.Slot: чужой экран внутри экрана модуля. Экран вне uses — ошибка вызывающего: её ловит граница его экрана. */
-export function Slot(p: SlotProps) {
-  const core = useCore();
-  if (!core.mayOpen(useApp(), p.screen)) throw new Error(`экрана ${p.screen} нет в uses`);
-  return <Place screen={p.screen} params={p.params} close={p.close} />;
+export function Slot({ screen, params, close }: SlotProps) {
+  const { modules } = useCore();
+  const caller = modules.ofApp(useApp());
+  if (!caller || !modules.mayOpen(caller, screen)) throw new Error(`экрана ${screen} нет в uses`);
+  return <Place screen={screen} params={params} close={close} />;
 }

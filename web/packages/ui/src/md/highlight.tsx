@@ -31,6 +31,7 @@ lowlight.registerAlias(ALIASES);
 const KNOWN = new Set([...lowlight.listLanguages(), ...Object.values(ALIASES).flat()]);
 
 const LANG_OF_EXT: Record<string, string> = { sh: "bash", ts: "ts", tsx: "ts", js: "js", jsx: "js", mjs: "js", json: "json", py: "py", go: "go", rs: "rs", css: "css", html: "html", svg: "html", md: "markdown", yml: "yaml", yaml: "yaml", toml: "toml", sql: "sql", c: "c", h: "c", cpp: "cpp", cs: "cs", java: "java", ps1: "ps1" };
+
 /** Язык файла по расширению. */
 export function langOfPath(path: string | undefined): string {
   const ext = String(path).split(".").pop()?.toLowerCase() ?? "";
@@ -39,8 +40,5 @@ export function langOfPath(path: string | undefined): string {
 
 /** Код с подсветкой: узлы React; считается один раз на текст. */
 export function useHighlighted(code: string, lang: string): ReactNode {
-  return useMemo(() => {
-    if (!KNOWN.has(lang)) return code;
-    return toJsxRuntime(lowlight.highlight(lang, code), { Fragment, jsx, jsxs });
-  }, [code, lang]);
+  return useMemo(() => (KNOWN.has(lang) ? toJsxRuntime(lowlight.highlight(lang, code), { Fragment, jsx, jsxs }) : code), [code, lang]);
 }

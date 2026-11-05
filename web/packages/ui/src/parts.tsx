@@ -1,33 +1,93 @@
 // Компоненты набора: один компонент — один класс основания. Лишние свойства (data-*, aria-*, обработчики) идут на элемент.
-import { useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { createElement, useRef, useState, type ComponentProps, type ElementType, type ReactNode } from "react";
 import type { OutcomeNote } from "./hooks.ts";
-import { at, LIMIT_BAD, LIMIT_WARN, slotWait, type Tone } from "./format.ts";
+import { LIMIT_BAD, LIMIT_WARN, type Tone } from "./labels.ts";
+import { slotWait } from "./sessions.ts";
+import { at } from "./time.ts";
 
-const cx = (...names: Array<string | false | null | undefined>) => names.filter(Boolean).join(" ");
+const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
+
+type Mood = "ok" | "bad" | "wait";
+
+/**
+ * Компонент одного класса. marks — свойства, которые становятся классами: true — имя свойства, строка — её значение.
+ * attrs — свойства по умолчанию: вызывающий может заменить.
+ */
+function classed<Tag extends ElementType, Marks extends object = object>(tag: Tag, base: string, marks: Array<keyof Marks & string> = [], attrs: ComponentProps<Tag> | object = {}) {
+  return function Part({ className, ...rest }: ComponentProps<Tag> & Marks & { className?: string }) {
+    const props: Record<string, unknown> = { ...attrs, ...rest };
+    const extra = marks.map((key) => {
+      const value = props[key];
+      delete props[key];
+      return value === true ? key : value;
+    });
+    return createElement(tag, { ...props, className: cx(base, ...extra, className) });
+  };
+}
+
+const BUTTON = { type: "button" };
 
 /** Кнопка: pri — главная, bad — опасная, dash — необязательная, ghost — без рамки. */
-export function Btn({ pri, bad, dash, ghost, className, ...p }: ComponentProps<"button"> & { pri?: boolean; bad?: boolean; dash?: boolean; ghost?: boolean }) {
-  return <button {...p} className={cx("sb-b", pri && "pri", bad && "bad", dash && "dash", ghost && "ghost", className)} />;
-}
-
+export const Btn = classed<"button", { pri?: boolean; bad?: boolean; dash?: boolean; ghost?: boolean }>("button", "sb-b", ["pri", "bad", "dash", "ghost"]);
 /** Строка или пункт списка и меню: своя разметка внутри, вид — у className места. */
-export function RowBtn({ className, ...p }: ComponentProps<"button">) {
-  return <button type="button" {...p} className={cx("sb-rw", className)} />;
-}
-
+export const RowBtn = classed("button", "sb-rw", [], BUTTON);
 /** Кнопка-значок: подпись обязательна. */
-export function IconBtn({ className, ...p }: ComponentProps<"button"> & { "aria-label": string }) {
-  return <button type="button" {...p} className={cx("sb-ic", className)} />;
+export const IconBtn = classed<"button", { "aria-label": string }>("button", "sb-ic", [], BUTTON);
+/** Действие текстом: ссылка в строке или полоса. */
+export const TextBtn = classed("button", "sb-tx", [], BUTTON);
+/** Ссылка в виде кнопки. */
+export const LinkBtn = classed<"a", { pri?: boolean; ghost?: boolean }>("a", "sb-b", ["pri", "ghost"]);
+/** Широкая главная кнопка экрана. */
+export const Cta = classed("button", "sb-cta");
+/** Ряд чипов выбора: quiet — невыбранные без заливки. */
+export const Chips = classed<"div", { quiet?: boolean }>("div", "sb-chips", ["quiet"]);
+/** Многострочное поле. */
+export const Area = classed("textarea", "sb-in");
+/** Выпадающий список. */
+export const Sel = classed("select", "sb-in");
+/** Строка пояснения или отказа: tone — цвет. */
+export const Note = classed<"div", { tone?: Mood }>("div", "sb-note", ["tone"]);
+/** То же внутри строки текста. */
+export const Hint = classed<"span", { tone?: Mood }>("span", "sb-note", ["tone"]);
+/** Команда или адрес, который копируют. */
+export const Cmd = classed("code", "sb-cmd");
+/** Пилюля состояния: conn — с лампой. */
+export const Pill = classed<"span", { tone?: Tone; conn?: boolean }>("span", "sb-pill", ["tone", "conn"]);
+/** Лампа состояния: kind — busy, wait, idle, stop, bad, gone. */
+export const Dot = classed<"span", { kind?: string }>("span", "sb-dot", ["kind"]);
+/** Счётчик: wait — ждущий цвет. */
+export const Badge = classed<"span", { wait?: boolean }>("span", "sb-badge", ["wait"]);
+/** Страница широкого вида: прокрутка и отступы. */
+export const Page = classed("div", "sb-page");
+/** Тело экрана узкого вида: прокрутка и отступы. */
+export const Pad = classed("div", "sb-pad");
+/** Раздел страницы: dlg — диалог; tone — цвет. */
+export const Sec = classed<"section", { dlg?: boolean; tone?: Mood }>("section", "sb-sec", ["dlg", "tone"]);
+/** Подпись раздела. */
+export const H4 = classed("h4", "sb-h4");
+/** Ряд кнопок и значений. */
+export const Opts = classed("div", "sb-opts");
+/** Ряд подписи и поля выбора: нажатие на подпись выбирает. */
+export const OptsLabel = classed("label", "sb-opts");
+/** Ряд значений внутри строки текста. */
+export const OptsInline = classed("span", "sb-opts");
+/** Моноширинный текст. */
+export const M = classed("span", "sb-m");
+/** Карточка итога: хорошо. */
+export const OkCard = classed("div", "sb-okc");
+/** Карточка итога: ждёт. */
+export const WaitCard = classed("div", "sb-waitc");
+/** Карточка итога: отказ. */
+export const BadCard = classed("div", "sb-badc");
+
+/** Поле ввода: mono — моноширинное. */
+export function In({ mono, className, ...p }: ComponentProps<"input"> & { mono?: boolean }) {
+  return <input {...p} className={cx("sb-in", mono && "m", className)} />;
 }
 
 /** Заголовок раскрытия: open — раскрыто. */
 export function DisclosureBtn({ open, className, ...p }: ComponentProps<"button"> & { open: boolean }) {
   return <button type="button" {...p} className={cx("sb-ds", className)} aria-expanded={open} />;
-}
-
-/** Действие текстом: ссылка в строке или полоса. */
-export function TextBtn({ className, ...p }: ComponentProps<"button">) {
-  return <button type="button" {...p} className={cx("sb-tx", className)} />;
 }
 
 /** Переключатель: on — включён; role можно заменить на checkbox. */
@@ -36,18 +96,21 @@ export function Switch({ on, ...p }: ComponentProps<"button"> & { on: boolean })
 }
 
 /** Флажок. */
-export function Check(p: Omit<ComponentProps<"input">, "type">) {
-  return <input {...p} type="checkbox" />;
-}
-
-/** Ряд чипов выбора: quiet — невыбранные без заливки. */
-export function Chips({ quiet, className, ...p }: ComponentProps<"div"> & { quiet?: boolean }) {
-  return <div {...p} className={cx("sb-chips", quiet && "quiet", className)} />;
-}
+export const Check = (p: Omit<ComponentProps<"input">, "type">) => <input {...p} type="checkbox" />;
 
 /** Чип выбора: on — выбран. */
 export function Chip({ on, className, ...p }: ComponentProps<"button"> & { on: boolean }) {
   return <button {...p} className={cx("sb-chip", className)} aria-pressed={on ? "true" : "false"} />;
+}
+
+/** Строка «подпись — значение». */
+export function Row({ label, children, className, ...p }: ComponentProps<"div"> & { label: ReactNode }) {
+  return (
+    <div {...p} className={cx("sb-row", className)}>
+      <span>{label}</span>
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -67,9 +130,9 @@ export function SlotPick({ slots, value, on, label = "Слот" }: { slots: Reco
   return (
     <Row label={label} data-slot-pick="">
       <Chips>
-        {list.map(([n, s]) => (
-          <Chip key={n} on={value === n} data-slot={n} onClick={() => on(n)}>
-            {s.wait ? `${n} · ждёт сброса ${at(s.wait)}` : n}
+        {list.map(([name, s]) => (
+          <Chip key={name} on={value === name} data-slot={name} onClick={() => on(name)}>
+            {s.wait ? `${name} · ждёт сброса ${at(s.wait)}` : name}
           </Chip>
         ))}
       </Chips>
@@ -81,33 +144,13 @@ export function SlotPick({ slots, value, on, label = "Слот" }: { slots: Reco
 export function Tabs<K extends string>({ tabs, cur, pick, ...p }: Omit<ComponentProps<"div">, "role"> & { tabs: ReadonlyArray<readonly [K, ReactNode]>; cur: K; pick(k: K): void }) {
   return (
     <div {...p} role="tablist">
-      {tabs.map(([k, label]) => (
-        <Btn key={k} role="tab" aria-selected={cur === k ? "true" : "false"} data-tab={k} onClick={() => pick(k)}>
+      {tabs.map(([key, label]) => (
+        <Btn key={key} role="tab" aria-selected={cur === key ? "true" : "false"} data-tab={key} onClick={() => pick(key)}>
           {label}
         </Btn>
       ))}
     </div>
   );
-}
-
-/** Ссылка в виде кнопки. */
-export function LinkBtn({ pri, ghost, className, ...p }: ComponentProps<"a"> & { pri?: boolean; ghost?: boolean }) {
-  return <a {...p} className={cx("sb-b", pri && "pri", ghost && "ghost", className)} />;
-}
-
-/** Широкая главная кнопка экрана. */
-export function Cta({ className, ...p }: ComponentProps<"button">) {
-  return <button {...p} className={cx("sb-cta", className)} />;
-}
-
-/** Поле ввода: mono — моноширинное. */
-export function In({ mono, className, ...p }: ComponentProps<"input"> & { mono?: boolean }) {
-  return <input {...p} className={cx("sb-in", mono && "m", className)} />;
-}
-
-/** Многострочное поле. */
-export function Area({ className, ...p }: ComponentProps<"textarea">) {
-  return <textarea {...p} className={cx("sb-in", className)} />;
 }
 
 /**
@@ -116,18 +159,16 @@ export function Area({ className, ...p }: ComponentProps<"textarea">) {
  */
 export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }: Omit<ComponentProps<typeof In>, "value" | "defaultValue" | "onInput"> & { value: string; onCommit(text: string): void; onCancel?(): void }) {
   const [text, setText] = useState(value);
-  const [outer, setOuter] = useState(value);
-  /** последнее отправленное: Enter и следующий уход с поля — одна фиксация */
-  const [sent, setSent] = useState(value);
+  /** значение снаружи и последнее отправленное: Enter и следующий уход с поля — одна фиксация */
+  const [seen, setSeen] = useState({ outer: value, sent: value });
   // значение снаружи изменилось: поправка при рисовании, эффект не нужен
-  if (outer !== value) {
-    setOuter(value);
+  if (seen.outer !== value) {
+    setSeen({ outer: value, sent: value });
     setText(value);
-    setSent(value);
   }
   const commit = () => {
-    if (text === sent) return;
-    setSent(text);
+    if (text === seen.sent) return;
+    setSeen({ ...seen, sent: text });
     onCommit(text);
   };
   return (
@@ -142,58 +183,13 @@ export function CommitIn({ value, onCommit, onCancel, onBlur, onKeyDown, ...p }:
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
         if (e.key === "Escape") {
-          setText(sent);
+          setText(seen.sent);
           onCancel?.();
         }
         onKeyDown?.(e);
       }}
     />
   );
-}
-
-/** Выпадающий список. */
-export function Sel({ className, ...p }: ComponentProps<"select">) {
-  return <select {...p} className={cx("sb-in", className)} />;
-}
-
-/** Строка пояснения или отказа: tone — цвет. */
-export function Note({ tone, className, ...p }: ComponentProps<"div"> & { tone?: "ok" | "bad" | "wait" }) {
-  return <div {...p} className={cx("sb-note", tone, className)} />;
-}
-
-/** То же внутри строки текста. */
-export function Hint({ tone, className, ...p }: ComponentProps<"span"> & { tone?: "ok" | "bad" | "wait" }) {
-  return <span {...p} className={cx("sb-note", tone, className)} />;
-}
-
-/** Команда или адрес, который копируют. */
-export function Cmd({ className, ...p }: ComponentProps<"code">) {
-  return <code {...p} className={cx("sb-cmd", className)} />;
-}
-
-/** Пилюля состояния: conn — с лампой. */
-export function Pill({ tone, conn, className, ...p }: ComponentProps<"span"> & { tone?: Tone; conn?: boolean }) {
-  return <span {...p} className={cx("sb-pill", tone, conn && "conn", className)} />;
-}
-
-/** Лампа состояния: kind — busy, wait, idle, stop, bad, gone. */
-export function Dot({ kind, className, ...p }: ComponentProps<"span"> & { kind?: string }) {
-  return <span {...p} className={cx("sb-dot", kind, className)} />;
-}
-
-/** Счётчик: wait — ждущий цвет. */
-export function Badge({ wait, className, ...p }: ComponentProps<"span"> & { wait?: boolean }) {
-  return <span {...p} className={cx("sb-badge", wait && "wait", className)} />;
-}
-
-/** Страница широкого вида: прокрутка и отступы. */
-export function Page({ className, ...p }: ComponentProps<"div">) {
-  return <div {...p} className={cx("sb-page", className)} />;
-}
-
-/** Тело экрана узкого вида: прокрутка и отступы. */
-export function Pad({ className, ...p }: ComponentProps<"div">) {
-  return <div {...p} className={cx("sb-pad", className)} />;
 }
 
 /** Заголовок страницы: заголовок и справа действия. */
@@ -206,41 +202,6 @@ export function PageHead({ title, children, className, ...p }: Omit<ComponentPro
   );
 }
 
-/** Раздел страницы: dlg — диалог; tone — цвет. */
-export function Sec({ dlg, tone, className, ...p }: ComponentProps<"section"> & { dlg?: boolean; tone?: "ok" | "bad" | "wait" }) {
-  return <section {...p} className={cx("sb-sec", dlg && "dlg", tone, className)} />;
-}
-
-/** Подпись раздела. */
-export function H4({ className, ...p }: ComponentProps<"h4">) {
-  return <h4 {...p} className={cx("sb-h4", className)} />;
-}
-
-/** Строка «подпись — значение». */
-export function Row({ label, children, className, ...p }: ComponentProps<"div"> & { label: ReactNode }) {
-  return (
-    <div {...p} className={cx("sb-row", className)}>
-      <span>{label}</span>
-      {children}
-    </div>
-  );
-}
-
-/** Ряд кнопок и значений. */
-export function Opts({ className, ...p }: ComponentProps<"div">) {
-  return <div {...p} className={cx("sb-opts", className)} />;
-}
-
-/** Ряд подписи и поля выбора: нажатие на подпись выбирает. */
-export function OptsLabel({ className, ...p }: ComponentProps<"label">) {
-  return <label {...p} className={cx("sb-opts", className)} />;
-}
-
-/** Ряд значений внутри строки текста. */
-export function OptsInline({ className, ...p }: ComponentProps<"span">) {
-  return <span {...p} className={cx("sb-opts", className)} />;
-}
-
 /** Группа выбора в панели настроек: подпись и ряд кнопок-переключателей. */
 export function Choices({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
@@ -249,11 +210,6 @@ export function Choices({ title, children }: { title: ReactNode; children: React
       <Chips quiet>{children}</Chips>
     </div>
   );
-}
-
-/** Моноширинный текст. */
-export function M({ className, ...p }: ComponentProps<"span">) {
-  return <span {...p} className={cx("sb-m", className)} />;
 }
 
 /** Полоса расхода: value — доля 0…100; warn, bad — цвет. */
@@ -285,21 +241,6 @@ export function Outcome({ note, ...p }: ComponentProps<"div"> & { note?: Outcome
       {note.text}
     </Note>
   );
-}
-
-/** Карточка итога: хорошо. */
-export function OkCard({ className, ...p }: ComponentProps<"div">) {
-  return <div {...p} className={cx("sb-okc", className)} />;
-}
-
-/** Карточка итога: ждёт. */
-export function WaitCard({ className, ...p }: ComponentProps<"div">) {
-  return <div {...p} className={cx("sb-waitc", className)} />;
-}
-
-/** Карточка итога: отказ. */
-export function BadCard({ className, ...p }: ComponentProps<"div">) {
-  return <div {...p} className={cx("sb-badc", className)} />;
 }
 
 /**

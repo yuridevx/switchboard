@@ -10,14 +10,15 @@ export type Store<S> = {
 };
 
 export function createStore<S>(initial: S, notify: () => void = () => {}): Store<S> {
-  let state = initial;
+  let snapshot = initial;
   return {
-    get: () => state,
+    get: () => snapshot,
     set(change) {
-      const next = produce(state, change);
-      if (next === state) return;
-      state = next;
-      notify();
+      const next = produce(snapshot, change);
+      if (next !== snapshot) {
+        snapshot = next;
+        notify();
+      }
     },
   };
 }
