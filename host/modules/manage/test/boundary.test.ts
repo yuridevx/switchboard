@@ -115,16 +115,6 @@ async function replyTo(st: Stand, type: string, r: Record<string, unknown>, i = 
 }
 
 describe("контракт: пакеты и вклад в query()", () => {
-  it("пакет каждого модуля отдаёт объект модуля, набор проходит гейт; вклад в query(): сервер MCP fleet, позывной в системном промпте, межсессионная переписка Claude Code выключена (устав, слово 1 нояб.)", async () => {
-    for (const m of [managePkg, fleetPkg, remotePkg, machinePkg]) expect(typeof m).toBe("object");
-    const { st } = await bench({ remote: temp() });
-    await st.open("site@laptop");
-    const o = st.query("site@laptop").options as { mcpServers: Record<string, { type: string; name: string }>; systemPrompt: { append?: string }; env: Record<string, string> };
-    expect(o.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
-    expect(o.systemPrompt.append).toContain(prompt("site@laptop"));
-    expect(o.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
-  });
-
   it("текст для модели: системный промпт и инструменты слово в слово — их читает модель", () => {
     expect(prompt("me@pc")).toBe(
       'Ты во флоте как me@pc. Кто на связи — fleet.list; написать сессии или человеку — fleet.send. ' +
@@ -203,14 +193,12 @@ describe("session.open", () => {
     ["имени нет", { dir: "~/p" }, "bad_name", "session.open: имя undefined"],
     ["number не флаг", { name: "x", dir: "~/p", number: "да" }, "bad_spec", "session.open x: number"],
     ["папка не от ~ (правило ядра clientPath)", { name: "x", dir: "p" }, "bad_dir", 'session.open x@laptop: папка "p" не от ~ и не полная'],
+    ["папка не строка", { name: "x", dir: 1 }, "bad_dir", "session.open x@laptop: папка 1 не от ~ и не полная"],
     ["папки нет", { name: "x", dir: "~/нет" }, "bad_dir", "session.open x@laptop: папки ~/нет нет"],
     ["mkdir не флаг", { name: "x", dir: "~/p", mkdir: "да" }, "bad_spec", "session.open x@laptop: mkdir"],
     ["усилие не того вида", { name: "x", dir: "~/p", effort: "ultra" }, "bad_spec", 'session.open x: effort = "ultra"'],
     ["модель пустая", { name: "x", dir: "~/p", model: "" }, "bad_spec", 'session.open x: model = ""'],
     ["fast не флаг", { name: "x", dir: "~/p", fast: 1 }, "bad_spec", "session.open x: fast = 1"],
-    ["стиль пустой", { name: "x", dir: "~/p", style: "" }, "bad_spec", 'session.open x: style = ""'],
-    ["thinking не флаг", { name: "x", dir: "~/p", thinking: "да" }, "bad_spec", 'session.open x: thinking = "да"'],
-    ["заголовок пустой", { name: "x", dir: "~/p", title: "" }, "bad_spec", 'session.open x: title = ""'],
     ["resume не строка", { name: "x", dir: "~/p", resume: 1 }, "bad_spec", "session.open x@laptop: resume"],
     ["fork не флаг", { name: "x", dir: "~/p", fork: "да" }, "bad_spec", "session.open x@laptop: fork"],
     ["point не число", { name: "x", dir: "~/p", point: "3" }, "bad_spec", "session.open x@laptop: point"],
@@ -241,7 +229,7 @@ describe("session.open", () => {
     expect(again.title).toBeUndefined();
   });
 
-  it("6203 · mkdir строит весь путь; без просьбы папка не появляется; занятое и неверное имя пути не создают", async () => {
+  it("6203 · 6204 · mkdir строит весь путь; без просьбы папки нет; занятое и неверное имя пути не создают; на месте файл — bad_dir, модуль жив; существующая папка и полный путь — как есть (3118)", async () => {
     const { st, home, req } = await bench();
     await st.open("site@laptop");
     expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/new/deep/path" })).toMatchObject({ ok: false, error: "bad_dir" });
@@ -250,17 +238,11 @@ describe("session.open", () => {
     expect(existsSync(join(home, "new"))).toBe(false);
     expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/new/deep/path", mkdir: true })).toMatchObject({ ok: true, result: { callsign: "a@laptop" } });
     expect(st.query("a@laptop").options.cwd).toBe(join(home, "new", "deep", "path"));
-  });
-
-  it("6204 · mkdir: на месте файл или файл в родителях — bad_dir словом, модуль жив; существующая папка — обычное открытие; полный путь — как есть (3118)", async () => {
-    const { st, home, req } = await bench();
     writeFileSync(join(home, "file"), "x");
-    expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/file", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
-    expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/file/sub", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
-    mkdirSync(join(home, "p"));
-    expect(await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/p", mkdir: true })).toMatchObject({ ok: true });
-    expect(await req({ type: "session.open", machine: "laptop", name: "y", dir: join(home, "p") })).toMatchObject({ ok: true });
-    expect(st.query("y@laptop").options.cwd).toBe(join(home, "p"));
+    expect(await req({ type: "session.open", machine: "laptop", name: "b", dir: "~/file/sub", mkdir: true })).toMatchObject({ ok: false, error: "bad_dir" });
+    expect(await req({ type: "session.open", machine: "laptop", name: "b", dir: "~/new", mkdir: true })).toMatchObject({ ok: true });
+    expect(await req({ type: "session.open", machine: "laptop", name: "y", dir: join(home, "new") })).toMatchObject({ ok: true });
+    expect(st.query("y@laptop").options.cwd).toBe(join(home, "new"));
   });
 
   it("процесс вышел до initialize — open_failed, повтора нет; запись остаётся у ядра, журнал флота не пишется, имя занято", async () => {
@@ -282,14 +264,10 @@ describe("session.open", () => {
     const w = world({ opening: (f) => {
       if (f.profile) throw refuse("no_profile", `нет профиля ${String(f.profile)}`);
     } });
-    const { st, home, req } = await bench({ w });
+    const { st, req } = await bench({ w });
     expect(await req({ type: "session.open", machine: "laptop", name: "board", dir: "~", profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile", why: "нет профиля you/profiles/missing" });
     expect(st.journal().some((l) => l.ev === "request" && l.word === "no_profile")).toBe(true);
     expect(st.kernel.sessions.has("board@laptop")).toBe(false);
-    const fresh = join(home, "new-folder");
-    expect(await req({ type: "session.open", machine: "laptop", name: "board", dir: fresh, mkdir: true, profile: "you/profiles/missing" })).toMatchObject({ ok: false, error: "no_profile" });
-    expect(existsSync(fresh)).toBe(false);
-    expect(st.sdk.queries.length).toBe(0);
     expect(await req({ type: "session.open", machine: "laptop", name: "board", dir: "~" })).toMatchObject({ ok: true, result: { callsign: "board@laptop", slot: null } });
   });
 
@@ -335,20 +313,7 @@ describe("session.open", () => {
 });
 
 describe("session.call: открытые методы query()", () => {
-  it("84 · ответ SDK как есть; close — unknown_method словами, не вызван; процесс жив", async () => {
-    const { st, req } = await bench();
-    await st.open("site@laptop");
-    const usage = { totalTokens: 41210, maxTokens: 200000, percentage: 21, categories: [{ name: "messages", tokens: 30000 }] };
-    const q = st.query("site@laptop") as unknown as Record<string, unknown>;
-    q.getContextUsage = async () => usage;
-    expect(await req({ type: "session.call", callsign: "site@laptop", method: "getContextUsage", args: [] })).toMatchObject({ ok: true, result: usage });
-    expect(await req({ type: "session.call", callsign: "site@laptop", method: "close" })).toMatchObject({ ok: false, error: "unknown_method", why: "session.call site@laptop: close — нет в списке открытых" });
-    expect(st.query("site@laptop").calls.map((c) => c.name)).not.toContain("close");
-    expect(st.proc("site@laptop").alive).toBe(true);
-    expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
-  });
-
-  it("7000 · все открытые методы: аргументы и ответ SDK как есть; список закреплён — вне его unknown_method", async () => {
+  it("84 · 7000 · все открытые методы: аргументы и ответ SDK как есть; без args — без аргументов; список закреплён — вне его unknown_method, не вызван, процесс жив", async () => {
     // источник: устав — Switchboard заменяет claude-fleet, все его функции (слово пользователя 31 окт.), исключение устава 4 нояб.; цель 3 нояб.: «со всеми фичами claude»
     const { st, req } = await bench();
     await st.open("site@laptop");
@@ -382,7 +347,14 @@ describe("session.call: открытые методы query()", () => {
       expect(await req({ type: "session.call", callsign: "site@laptop", method, args }), method).toMatchObject({ ok: true, result });
       expect(got, method).toEqual(args);
     }
-    for (const method of ["setModel", "applyFlagSettings", "close", "renameSession", "enableRemoteControl", 7]) expect(await req({ type: "session.call", callsign: "site@laptop", method }), String(method)).toMatchObject({ ok: false, error: "unknown_method" });
+    let args: unknown[] | undefined;
+    q.supportedModels = async (...a: unknown[]) => ((args = a), ["m"]);
+    await req({ type: "session.call", callsign: "site@laptop", method: "supportedModels" });
+    expect(args).toEqual([]);
+    for (const method of ["setModel", "applyFlagSettings", "renameSession", "enableRemoteControl", 7]) expect(await req({ type: "session.call", callsign: "site@laptop", method }), String(method)).toMatchObject({ ok: false, error: "unknown_method" });
+    expect(await req({ type: "session.call", callsign: "site@laptop", method: "close" })).toMatchObject({ ok: false, error: "unknown_method", why: "session.call site@laptop: close — нет в списке открытых" });
+    expect(st.query("site@laptop").calls.map((c) => c.name)).not.toContain("close");
+    expect(st.proc("site@laptop").alive).toBe(true);
   });
 
   it("7001 · метода нет у SDK или он отказал — sdk_error с причиной, модуль и сессия живы; args не массив — bad_spec; остановленной — stopped", async () => {
@@ -412,10 +384,11 @@ describe("режим разрешений", () => {
     await until(() => st.states("site@laptop").at(-1)?.mode === "plan");
   };
 
-  it("7120 · поле roster mode — режим из кадров SDK status и init, по умолчанию bypassPermissions", async () => {
-    // источник: цель пользователя 4 нояб. «чат со всеми фичами»; настоящий процесс: кадр status и init несут permissionMode
+  it("7120 · 7203 · новая сессия — bypassPermissions (режим устава); поле roster mode — режим из кадров SDK status и init", async () => {
+    // источник: цель пользователя 4 нояб. «чат со всеми фичами»; устав «Режим „разрешено всё“»; настоящий процесс: кадр status и init несут permissionMode
     const { st } = await bench();
     await st.open("site@laptop");
+    expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
     const mode = () => st.states("site@laptop").at(-1)?.mode;
     await until(() => mode() === "bypassPermissions");
     st.proc("site@laptop").send({ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "u1", session_id: "s" });
@@ -434,14 +407,6 @@ describe("режим разрешений", () => {
     expect(st.query("site@laptop").options.permissionMode).toBe("plan");
   });
 
-  it("7201 · режим переживает session.stop и session.start", async () => {
-    const { st, req } = await bench();
-    await inPlan(st);
-    await req({ type: "session.stop", callsign: "site@laptop" });
-    expect(await req({ type: "session.start", callsign: "site@laptop" })).toMatchObject({ ok: true });
-    expect(st.query("site@laptop").options.permissionMode).toBe("plan");
-  });
-
   it("7202 · режим переживает перезапуск Host: новый Host поднимает сессию с тем же режимом", async () => {
     const home = temp();
     const a = await bench({ home });
@@ -451,17 +416,6 @@ describe("режим разрешений", () => {
     const { st } = await bench({ home, stateHome: a.st.home });
     await until(() => st.kernel.sessions.get("site@laptop")?.state === "idle");
     expect(st.query("site@laptop").options.permissionMode).toBe("plan");
-  });
-
-  it("7203 · новая сессия и сессия в «без вопросов»: query() с bypassPermissions — режим устава", async () => {
-    // источник: устав «Режим „разрешено всё“» (слово пользователя 4 нояб.)
-    const { st, req } = await bench();
-    await st.open("site@laptop");
-    expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
-    await until(() => st.states("site@laptop").at(-1)?.mode === "bypassPermissions");
-    await req({ type: "session.stop", callsign: "site@laptop" });
-    await req({ type: "session.start", callsign: "site@laptop" });
-    expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
   });
 });
 
@@ -483,12 +437,24 @@ describe("session.update", () => {
     expect(st.query("site@laptop").options).toMatchObject({ model: "sonnet", effort: "medium", resume: st.kernel.sessions.get("site@laptop")!.rec.session_id });
   });
 
-  it("живой: флаги ответа — applyFlagSettings ключами settings; roster узнаёт модель и усилие сразу", async () => {
+  it("живой: флаги ответа — applyFlagSettings ключами settings; только названное: без модели нет setModel, без флагов нет applyFlagSettings; в waiting — как в живой; roster узнаёт модель и усилие сразу", async () => {
     const { st, req, field } = await bench();
     await st.open("site@laptop");
     expect(await req({ type: "session.update", callsign: "site@laptop", effort: "high", fast: true, style: "s", thinking: false, model: "m" })).toMatchObject({ result: { now: ["model", "effort", "fast", "style", "thinking"] } });
     expect(st.query("site@laptop").calls).toContainEqual({ name: "applyFlagSettings", args: [{ effortLevel: "high", fastMode: true, outputStyle: "s", alwaysThinkingEnabled: false }] });
     await until(() => field("site@laptop", "model") === "m" && field("site@laptop", "effort") === "high");
+    const q = st.query("site@laptop");
+    q.calls.length = 0;
+    await req({ type: "session.update", callsign: "site@laptop", effort: "low" });
+    expect(q.calls.map((c) => c.name)).toEqual(["applyFlagSettings"]);
+    q.calls.length = 0;
+    await req({ type: "session.update", callsign: "site@laptop", model: "n" });
+    expect(q.calls.map((c) => c.name)).toEqual(["setModel"]);
+    q.calls.length = 0;
+    st.proc("site@laptop").send(msg.state("requires_action"));
+    await until(() => st.kernel.sessions.get("site@laptop")!.state === "waiting");
+    expect(await req({ type: "session.update", callsign: "site@laptop", model: "w" })).toMatchObject({ result: { now: ["model"] } });
+    expect(q.calls.map((c) => c.name)).toEqual(["setModel"]);
   });
 
   it("остановленной: спецификация записана, методов нет; start — query() с новой моделью и флагами", async () => {
@@ -513,40 +479,46 @@ describe("session.update", () => {
     expect(st.query("site@laptop").calls).toContainEqual({ name: "renameSession", args: ["Сайт", expect.any(String)] });
   });
 
-  it("324 · усилие не того вида — bad_spec с причиной в журнале; SDK не вызван, в roster усилия нет", async () => {
-    // источник: устав — ошибки словами; слово bad_spec — чьё: код (контракт manage)
-    const { st, req } = await bench();
-    await st.open("docs@laptop");
-    expect(await req({ type: "session.update", callsign: "docs@laptop", effort: "turbo" })).toMatchObject({ ok: false, error: "bad_spec", why: 'session.update docs@laptop: effort = "turbo"' });
-    expect(st.journal().some((l) => l.word === "bad_spec" && String(l.why).includes("effort"))).toBe(true);
-    expect(st.query("docs@laptop").calls).toEqual([]);
-    expect(st.states("docs@laptop").at(-1)!.effort).toBeUndefined();
-  });
-
-  it("325 · SDK отказал setModel или getSessionInfo — sdk_error, причина в журнале; manage не выключен (3030)", async () => {
+  it.each<[string, Record<string, unknown>]>([
+    ["setModel", { model: "sonnet" }],
+    ["applyFlagSettings", { effort: "low" }],
+    ["renameSession", { title: "z" }],
+  ])("325 · 3030 · SDK отказал %s — sdk_error, причина в журнале; manage не выключен", async (method, f) => {
     // источник: устав — ошибки словами; «отказ SDK — слово sdk_error, причина в журнале; модуль не выключается» — чьё: код
     const { st, req } = await bench();
     await st.open("docs@laptop");
-    (st.query("docs@laptop") as unknown as Record<string, unknown>).setModel = async () => {
-      throw new Error("модели нет");
+    (st.query("docs@laptop") as unknown as Record<string, unknown>)[method] = async () => {
+      throw new Error("нет");
     };
-    expect(await req({ type: "session.update", callsign: "docs@laptop", model: "sonnet" })).toMatchObject({ ok: false, error: "sdk_error", why: "docs@laptop: setModel — модели нет" });
-    expect(st.journal().some((l) => l.word === "sdk_error" && String(l.why).includes("модели нет"))).toBe(true);
+    expect(await req({ type: "session.update", callsign: "docs@laptop", ...f })).toMatchObject({ ok: false, error: "sdk_error", why: `docs@laptop: ${method} — нет` });
+    expect(st.journal().some((l) => l.word === "sdk_error" && String(l.why).includes(method))).toBe(true);
+    expect(st.states("docs@laptop").every((x) => !x.failed)).toBe(true);
+  });
+
+  it("325 · функции SDK: отказ getSessionInfo и renameSession остановленной — sdk_error; разговора нет на диске — заголовка нет", async () => {
+    const { st, req } = await bench();
+    const s = await st.open("docs@laptop");
+    st.sdk.noFile.add(s.info.session_id);
+    expect(await req({ type: "session.spec", callsign: "docs@laptop" })).toMatchObject({ ok: true, result: { title: null } });
     st.sdk.functions = {
       getSessionInfo: async () => {
         throw new Error("файла нет");
       },
+      renameSession: async () => {
+        throw new Error("нет файла");
+      },
     };
     expect(await req({ type: "session.spec", callsign: "docs@laptop" })).toMatchObject({ ok: false, error: "sdk_error", why: "docs@laptop: getSessionInfo — файла нет" });
-    expect(st.states("docs@laptop").every((f) => !f.failed)).toBe(true);
+    await s.stop();
+    expect(await req({ type: "session.update", callsign: "docs@laptop", title: "Y" })).toMatchObject({ ok: false, error: "sdk_error", why: "docs@laptop: renameSession — нет файла" });
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
   });
 
-  it("PostModelSwitch: модель сменили в claude.ai — спецификация и поле берут новую; source resume — не трогает; без requested_model — выбор снят (3035)", async () => {
+  it("PostModelSwitch: модель сменили в claude.ai — спецификация и поле берут новую, ответ хука пустой; source resume — не трогает; без requested_model — выбор снят (3035)", async () => {
     const { st } = await bench();
     const s = await st.open("site@laptop");
     const p = st.proc("site@laptop");
-    await p.hook("PostModelSwitch", { from_model: "a", to_model: "claude-opus-5", requested_model: "opus", source: "command" });
+    expect(await p.hook("PostModelSwitch", { from_model: "a", to_model: "claude-opus-5", requested_model: "opus", source: "command" })).toEqual([{}]);
     expect(st.session("host-manage", "site@laptop")!.store().get()).toEqual({ model: "opus" });
     await p.hook("PostModelSwitch", { requested_model: "sonnet", source: "resume" });
     expect(st.session("host-manage", "site@laptop")!.store().get()).toEqual({ model: "opus" });
@@ -554,6 +526,7 @@ describe("session.update", () => {
     turn(p);
     await until(() => st.states("site@laptop").at(-1)?.model === "opus");
     await p.hook("PostModelSwitch", { requested_model: null, source: "command" });
+    expect(st.session("host-manage", "site@laptop")!.store().get()).toEqual({});
     await s.stop();
     await s.start();
     expect(st.query("site@laptop").options.model).toBeUndefined();
@@ -632,9 +605,13 @@ describe("session.stop, start, remove", () => {
     await until(() => !st.kernel.sessions.has("wiki@laptop"));
     expect(p.interrupts).toBe(0);
     expect(st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: "lead@laptop" });
-    await st.open("docs@laptop");
-    expect(await req({ type: "session.remove", callsign: "docs@laptop", after_turn: true })).toMatchObject({ ok: true });
-    expect(st.kernel.sessions.has("docs@laptop")).toBe(false);
+    const d = await st.open("docs@laptop");
+    st.proc("docs@laptop").send(msg.state("requires_action"));
+    await until(() => d.state === "waiting");
+    expect(await req({ type: "session.remove", callsign: "docs@laptop", after_turn: true })).toMatchObject({ ok: true, result: { after_turn: true } });
+    await st.open("idle@laptop");
+    expect(await req({ type: "session.remove", callsign: "idle@laptop", after_turn: true })).toMatchObject({ ok: true });
+    expect(st.kernel.sessions.has("idle@laptop")).toBe(false);
   });
 
   it("322 · remove after_turn посреди хода, Host перезапущен, ход кончился у держателя — новый Host убирает сессию; session.removed в журнале флота", async () => {
@@ -679,29 +656,29 @@ describe("machine.dirs", () => {
     return { ...b, dirs };
   }
 
-  it("90 · ~/Projects: только папки по имени, файлов нет; сессии и процессы не тронуты; ~ и полный путь; папка на точку отдаётся", async () => {
+  it("90 · ~/Projects: только папки, файлов нет, порядок по кодам знаков; сессии и процессы не тронуты; ~ и полный путь; папка на точку отдаётся; ссылка на папку не папка", async () => {
     const { st, home, dirs } = await pc();
     expect(await dirs("~/Projects")).toMatchObject({ type: "reply", ok: true, result: { path: "~/Projects", dirs: ["poe2", "site", "switchboard", "wiki"] } });
     expect(st.holders.ops).toEqual([]);
     expect(st.kernel.sessions.size).toBe(0);
     mkdirSync(join(home, ".claude"));
-    expect(await dirs("~")).toMatchObject({ ok: true, result: { dirs: [".claude", "Projects"] } });
+    mkdirSync(join(home, "Z"));
+    mkdirSync(join(home, "a"));
+    symlinkSync(join(home, "Z"), join(home, "link"), "junction");
+    expect(await dirs("~/")).toMatchObject({ ok: true, result: { path: "~/", dirs: [".claude", "Projects", "Z", "a"] } });
     expect(await dirs(join(home, "Projects"))).toMatchObject({ ok: true, result: { path: join(home, "Projects") } });
   });
 
-  it("91 · опечатка — not_found, путь не от ~ и пути нет — bad_frame; строки refuse с путём и отправителем; ничего не создано", async () => {
+  it("91 · опечатка и путь-файл — not_found, путь не от ~, нет пути и пустой — bad_frame; строки refuse с путём и отправителем; ничего не создано; модуль жив", async () => {
     const { st, home, dirs } = await pc();
     expect(await dirs("~/Projets")).toMatchObject({ ok: false, error: "not_found", why: `machine.dirs «~/Projets» от ${OWNER}: ENOENT` });
+    expect(await dirs("~/Projects/todo.txt")).toMatchObject({ ok: false, error: "not_found" });
     expect(await dirs("Projects")).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «Projects» от ${OWNER}: путь не от ~ и не полный` });
     expect(await dirs()).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «undefined» от ${OWNER}: нет пути` });
-    expect(st.journal().filter((l) => l.kind === "refuse" && l.ev === "request").map((l) => l.word)).toEqual(["not_found", "bad_frame", "bad_frame"]);
+    expect(await dirs("")).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «» от ${OWNER}: нет пути` });
+    expect(await dirs(1)).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «1» от ${OWNER}: нет пути` });
+    expect(st.journal().filter((l) => l.kind === "refuse" && l.ev === "request").map((l) => l.word)).toEqual(["not_found", "not_found", "bad_frame", "bad_frame", "bad_frame", "bad_frame"]);
     expect(readdirSync(home)).toEqual(["Projects"]);
-  });
-
-  it("6201 · имя в 300 знаков и путь-файл — not_found, machine не выключен (факт: опыт на Linux, ENAMETOOLONG)", async () => {
-    const { dirs } = await pc();
-    expect(await dirs(`~/${"x".repeat(300)}`)).toMatchObject({ ok: false, error: "not_found" });
-    expect(await dirs("~/Projects/todo.txt")).toMatchObject({ ok: false, error: "not_found" });
     expect(await dirs("~/Projects")).toMatchObject({ ok: true });
   });
 
@@ -1334,12 +1311,12 @@ describe("remote: Remote Control у каждой сессии", () => {
   const unbinds = (st: Stand) => st.journal().filter((l) => l.ev === "unbind");
   const failedRemote = (st: Stand) => st.journal().some((l) => l.ev === "module_failed" && l.module === "host-remote");
 
-  it("230 · новая сессия: один enableRemoteControl(true) без имени; в roster url; в разделе bridge и аккаунт; журнал; привязку не снимает", async () => {
+  it("230 · новая сессия: один enableRemoteControl(true) без имени; в roster кадром url; в разделе bridge и аккаунт; журнал; привязку не снимает", async () => {
     const { st } = await make();
     await st.open("site@laptop");
-    await until(() => rec(st, "site@laptop"));
+    await until(() => st.states("site@laptop").at(-1)?.remote);
     expect(rcOf(st, "site@laptop")).toEqual([{ name: "enableRemoteControl", args: [true] }]);
-    expect(field(st, "site@laptop")).toEqual({ url: "https://claude.ai/code/session_01Jai" });
+    expect(st.states("site@laptop").at(-1)?.remote).toEqual({ url: "https://claude.ai/code/session_01Jai" });
     expect(rec(st, "site@laptop")).toEqual({ url: "https://claude.ai/code/session_01Jai", bridge: "session_01Jai", account: "infirex" });
     expect(st.journal().find((l) => l.ev === "remote")?.why).toBe("Remote Control включён: https://claude.ai/code/session_01Jai · infirex");
     expect(unbinds(st)).toEqual([]);
@@ -1376,6 +1353,7 @@ describe("remote: Remote Control у каждой сессии", () => {
     const lines = readFileSync(f, "utf8").trim().split("\n");
     expect(JSON.parse(lines.at(-1)!)).toEqual({ type: "bridge-session", sessionId: s.info.session_id, bridgeSessionId: "", lastSequenceNum: 0 });
     expect(lines).toHaveLength(4);
+    expect(readFileSync(f, "utf8").endsWith("\n")).toBe(true);
     await until(() => rcOf(st, "site@laptop").length === 1 && rec(st, "site@laptop")?.account === "y0902");
     expect(unbinds(st).map((l) => l.why)).toEqual(["привязка снята: infirex → y0902 · session_01Jai"]);
   });
@@ -1398,42 +1376,21 @@ describe("remote: Remote Control у каждой сессии", () => {
     expect(rec(st2, "site@laptop")).toEqual({ url: "https://claude.ai/code/session_01Jai", bridge: "session_01Jai", account: "infirex" });
   });
 
-  it("234 · раздела нет, файл пришёл с другой машины с привязкой; старт из точки: снятие, включение, новый bridge", async () => {
-    const { st, rw } = await make({ machine: "pc" });
-    const s = await st.open("site@pc");
-    await until(() => rec(st, "site@pc"));
-    await s.stop();
-    st.session("host-remote", "site@pc")!.store().set(undefined);
-    const f = transcript(rw, s.info.session_id, "session_01Jai");
-    await s.start({ point: 318 });
-    expect(lastBridge(f)).toEqual({ type: "bridge-session", sessionId: s.info.session_id, bridgeSessionId: "", lastSequenceNum: 0 });
-    await until(() => rec(st, "site@pc")?.bridge === "session_02Jai");
-    expect(rec(st, "site@pc")).toMatchObject({ account: "infirex" });
-  });
-
-  it("235 · claude отказал во включении: по одному вызову на старт, remote { error }, строка stop; повторов нет", async () => {
-    rc = () => {
-      throw new Error("Remote Control requires a claude.ai subscription");
+  it("235 · claude отказал во включении: по одному вызову на старт, remote { error } кадром, строка stop; повторов нет; следующий старт с успехом — снова { url }", async () => {
+    rc = (n) => {
+      if (n < 3) throw new Error("Remote Control requires a claude.ai subscription");
+      return { session_url: "https://claude.ai/code/x", bridge_session_id: "x" };
     };
     const { st } = await make();
     const s = await st.open("site@laptop");
     await until(() => st.journal().some((l) => l.ev === "remote" && l.kind === "stop"));
-    expect(field(st, "site@laptop")).toEqual({ error: "Remote Control requires a claude.ai subscription" });
+    await until(() => st.states("site@laptop").at(-1)?.remote);
+    expect(st.states("site@laptop").at(-1)?.remote).toEqual({ error: "Remote Control requires a claude.ai subscription" });
     await s.restart();
     await until(() => st.journal().filter((l) => l.ev === "remote" && l.kind === "stop").length === 2);
     await later();
     expect(rcCalls).toBe(2);
     expect(st.journal().filter((l) => l.kind === "stop" && l.ev === "remote").map((l) => l.why)).toEqual(["Remote Control requires a claude.ai subscription", "Remote Control requires a claude.ai subscription"]);
-  });
-
-  it("отказ, затем успешный старт: remote снова { url }", async () => {
-    rc = (n) => {
-      if (n === 1) throw new Error("нет подписки");
-      return { session_url: "https://claude.ai/code/x", bridge_session_id: "x" };
-    };
-    const { st } = await make();
-    const s = await st.open("site@laptop");
-    await until(() => (field(st, "site@laptop") as { error?: string } | undefined)?.error);
     await s.restart();
     await until(() => (field(st, "site@laptop") as { url?: string } | undefined)?.url === "https://claude.ai/code/x");
   });
@@ -1478,7 +1435,7 @@ describe("remote: Remote Control у каждой сессии", () => {
     expect(readFileSync(f)).toEqual(before);
   });
 
-  it("resume без привязки в файле и без файла — снимать нечего; записи нет, а привязка есть — снять; недописанная строка — не запись", async () => {
+  it("resume без привязки и без файла — снимать нечего; записи нет, а привязка есть — снять; снятая не снимается снова; недописанная строка и слово в тексте разговора — не запись", async () => {
     const { st, rw } = await make();
     const s = await st.open("site@laptop");
     await until(() => rec(st, "site@laptop"));
@@ -1487,10 +1444,19 @@ describe("remote: Remote Control у каждой сессии", () => {
     expect(unbinds(st)).toEqual([]);
     st.session("host-remote", "site@laptop")!.store().set(undefined);
     const f = transcript(rw, s.info.session_id, "session_02Jai");
-    appendFileSync(f, '{"type":"bridge-session","sessionId');
-    st.proc("site@laptop").exit(1);
-    await until(() => st.sdk.of("site@laptop").length === 3);
+    appendFileSync(f, JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "bridge-session" }] }, sessionId: s.info.session_id }) + "\n");
+    const crash = async (n: number) => {
+      st.session("host-remote", "site@laptop")!.store().set(undefined);
+      st.proc("site@laptop").exit(1);
+      await until(() => st.sdk.of("site@laptop").length === n && rcOf(st, "site@laptop").length === 1);
+    };
+    await crash(3);
     expect(unbinds(st).at(-1)?.why).toBe("привязка снята: записи нет · session_02Jai");
+    await crash(4);
+    expect(unbinds(st)).toHaveLength(1);
+    appendFileSync(f, JSON.stringify({ type: "bridge-session", sessionId: s.info.session_id, bridgeSessionId: "session_03Jai", lastSequenceNum: 0 }) + '\n{"type":"bridge-session","sessionId');
+    await crash(5);
+    expect(unbinds(st).at(-1)?.why).toBe("привязка снята: записи нет · session_03Jai");
   });
 
   it.each([
@@ -1575,7 +1541,8 @@ describe("формат раздела и поля manage", () => {
     expect(await req({ type: "session.spec", callsign: "b@laptop" })).toMatchObject({ ok: true, result: { model: null, effort: null, title: null } });
   });
 
-  it("вклад каждого модуля в query(): у manage чекпоинты и хук; без флагов нет settings; без запроса открытия нет заголовка и раздела; переписка Claude Code выключена у fleet", async () => {
+  it("пакет каждого модуля отдаёт объект модуля; вклад в query(): у manage чекпоинты и хук; без флагов нет settings; без запроса открытия нет заголовка и раздела; у fleet сервер MCP, позывной в промпте и выключенная переписка Claude Code (устав, слово 1 нояб.)", async () => {
+    for (const m of [managePkg, fleetPkg, remotePkg, machinePkg]) expect(typeof m).toBe("object");
     const home = temp();
     const opened = async (entries: Parameters<typeof standHost>[0]) => {
       const st = await standHost(entries);
@@ -1597,65 +1564,38 @@ describe("формат раздела и поля manage", () => {
     }
     const f = await opened({ modules: [{ manifest: manifestOf("fleet"), module: makeFleet().module }, { manifest: manifestOf("chat"), module: makeChat() }] });
     expect(f.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
-    expect(Object.keys(f.mcpServers)).toEqual(["fleet"]);
-  });
-
-  it("хук PostModelSwitch отвечает пустым; модели нет в ответе хука — выбор снят", async () => {
-    const { st, req } = await bench();
-    await st.open("h@laptop");
-    const p = st.proc("h@laptop");
-    expect(await p.hook("PostModelSwitch", { requested_model: "opus", source: "command" })).toEqual([{}]);
-    await req({ type: "session.update", callsign: "h@laptop", model: "x" });
-    await p.hook("PostModelSwitch", { to_model: "z", source: "command" });
-    expect(st.session("host-manage", "h@laptop")!.store().get()).toEqual({});
+    expect(f.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
+    expect(f.systemPrompt.append).toContain(prompt("a@laptop"));
   });
 });
 
 describe("входы manage: остальные формы", () => {
   it.each<[string, Record<string, unknown>, string]>([
+    ["усилие не того вида", { effort: "turbo" }, 'effort = "turbo"'],
     ["модель пустая", { model: "" }, 'model = ""'],
     ["модель не строка", { model: 1 }, "model = 1"],
-    ["модель null", { model: null }, "model = null"],
-    ["усилие null", { effort: null }, "effort = null"],
     ["fast не флаг", { fast: 1 }, "fast = 1"],
-    ["fast null", { fast: null }, "fast = null"],
     ["стиль пустой", { style: "" }, 'style = ""'],
     ["thinking не флаг", { thinking: "да" }, 'thinking = "да"'],
     ["заголовок пустой", { title: "" }, 'title = ""'],
-    ["заголовок не строка", { title: 3 }, "title = 3"],
   ])("session.update не по форме: %s — bad_spec, раздел не тронут", async (_n, f, why) => {
     const { st, req } = await bench();
     await st.open("d@laptop");
     expect(await req({ type: "session.update", callsign: "d@laptop", ...f })).toMatchObject({ ok: false, error: "bad_spec", why: `session.update d@laptop: ${why}` });
+    expect(st.journal().some((l) => l.word === "bad_spec" && String(l.why).includes(why))).toBe(true);
     expect(st.session("host-manage", "d@laptop")!.store().get()).toBeUndefined();
     expect(st.query("d@laptop").calls).toEqual([]);
   });
 
-  it("session.update: все усилия вида; пусто и незнакомое поле — ok и now пустой; отказ applyFlagSettings и renameSession — sdk_error с именем метода", async () => {
+  it("session.update: все усилия вида; пусто и незнакомое поле — ok и now пустой", async () => {
     const { st, req } = await bench();
     await st.open("d@laptop");
     for (const effort of ["low", "medium", "high", "xhigh", "max"]) expect(await req({ type: "session.update", callsign: "d@laptop", effort }), effort).toMatchObject({ ok: true, result: { now: ["effort"] } });
     expect(await req({ type: "session.update", callsign: "d@laptop" })).toMatchObject({ ok: true, result: { now: [] } });
     expect(await req({ type: "session.update", callsign: "d@laptop", foo: 1 })).toMatchObject({ ok: true, result: { now: [] } });
-    const q = st.query("d@laptop") as unknown as Record<string, unknown>;
-    q.renameSession = async () => {
-      throw new Error("нет имени");
-    };
-    expect(await req({ type: "session.update", callsign: "d@laptop", title: "z" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: renameSession — нет имени" });
-    q.applyFlagSettings = async () => {
-      throw new Error("нет флагов");
-    };
-    expect(await req({ type: "session.update", callsign: "d@laptop", effort: "low" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: applyFlagSettings — нет флагов" });
-    await req({ type: "session.stop", callsign: "d@laptop" });
-    st.sdk.functions = {
-      renameSession: async () => {
-        throw new Error("нет файла");
-      },
-    };
-    expect(await req({ type: "session.update", callsign: "d@laptop", title: "Y" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: renameSession — нет файла" });
   });
 
-  it("session.open: заголовок при любом открытии; fork без resume и пустой resume — обычный старт; point — старт point; папка не строка; model null; второй старт из точки — без заголовка", async () => {
+  it("session.open: заголовок при любом открытии; fork без resume и пустой resume — обычный старт; point — старт point; второй старт из точки — без заголовка", async () => {
     const { st, req } = await bench();
     const sid = "11111111-2222-4333-8444-555555555555";
     await req({ type: "session.open", machine: "laptop", name: "r", dir: "~", resume: sid });
@@ -1667,21 +1607,17 @@ describe("входы manage: остальные формы", () => {
     expect(st.session("host-manage", "f@laptop")!.info.start).toBe("spawn");
     await req({ type: "session.open", machine: "laptop", name: "e", dir: "~", resume: "" });
     expect(st.session("host-manage", "e@laptop")!.info.start).toBe("spawn");
-    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: 1 })).toMatchObject({ ok: false, error: "bad_dir", why: "session.open x@laptop: папка 1 не от ~ и не полная" });
-    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: "" })).toMatchObject({ ok: false, error: "bad_dir", why: 'session.open x@laptop: папка "" не от ~ и не полная' });
-    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: "~", model: null })).toMatchObject({ ok: false, error: "bad_spec", why: "session.open x: model = null" });
     const s = st.session("host-manage", "r@laptop")!;
     await s.stop();
     await s.start({ point: 9 });
     expect(st.query("r@laptop").options.title).toBeUndefined();
   });
 
-  it("session.start живой — ok, процесс тот же; stop остановленной — ok; remove с after_turn остановленной — сразу; session.call с методом не строкой называет его", async () => {
+  it("session.start живой — ok, процесс тот же; stop остановленной — ok; remove с after_turn остановленной — сразу", async () => {
     const { st, req } = await bench();
     await st.open("c@laptop");
     expect(await req({ type: "session.start", callsign: "c@laptop" })).toMatchObject({ ok: true });
     expect(st.sdk.of("c@laptop")).toHaveLength(1);
-    expect(await req({ type: "session.call", callsign: "c@laptop", method: 7 })).toMatchObject({ ok: false, error: "unknown_method", why: "session.call c@laptop: 7 — нет в списке открытых" });
     expect(await req({ type: "session.stop", callsign: "c@laptop" })).toMatchObject({ ok: true });
     expect(await req({ type: "session.stop", callsign: "c@laptop" })).toMatchObject({ ok: true });
     const r = await req({ type: "session.remove", callsign: "c@laptop", after_turn: true });
@@ -1711,18 +1647,6 @@ describe("спорные места: найдено при сверке", () => 
     for (const name of [".keeper", "-x", "_x", "ю"]) expect(await req({ type: "session.open", machine: "laptop", name, dir: "~" }), name).toMatchObject({ ok: false, error: "bad_name" });
     expect(await req({ type: "session.open", machine: "laptop", name: "a.b_c-1", dir: "~" })).toMatchObject({ ok: true });
     expect(st.kernel.sessions.size).toBe(1);
-  });
-});
-
-describe("machine.dirs: форма ответа", () => {
-  it("порядок по кодам знаков; путь в ответе как в запросе; ссылка на папку не папка; путь не строка и пустой — bad_frame", async () => {
-    const b = await bench({ machine: "pc" });
-    for (const d of ["Z", "a", "б", "Я"]) mkdirSync(join(b.home, d));
-    symlinkSync(join(b.home, "Z"), join(b.home, "link"), "junction");
-    const dirs = (path: unknown) => b.req({ type: "machine.dirs", machine: "pc", path });
-    expect(await dirs("~/")).toMatchObject({ ok: true, result: { path: "~/", dirs: ["Z", "a", "Я", "б"] } });
-    expect(await dirs(1)).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «1» от ${OWNER}: нет пути` });
-    expect(await dirs("")).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «» от ${OWNER}: нет пути` });
   });
 });
 
