@@ -311,7 +311,7 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
     v.compacting = false;
     const last = v.rows.at(-1);
     // сводка пришла раньше своей границы: числа — на её строке
-    if (last?.k === "sum") last.stats = compactStats(m);
+    if (last?.k === "sum" && last.stats === "контекст сжат") last.stats = compactStats(m);
     else v.rows.push({ k: "sys", id: idOf(v, m), icon: "archive", text: compactStats(m), boundary: true });
   },
   api_retry(v, m) {
