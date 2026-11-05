@@ -32,8 +32,8 @@ export type Page = {
 
 const FILL: CSSProperties = { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 };
 
-/** Стили страницы: основание и вид ядра — без области, стили модулей — в месте модуля до вложенного модуля. */
-const pageCss = ({ entries }: Modules) => [`${UI_CSS}\n${css}`, ...entries.flatMap((e) => (e.def.css ? [`@scope ([data-module="${e.name}"]) to ([data-module]) {\n${e.def.css}\n}`] : []))].join("\n");
+/** Стили страницы: основание и вид ядра — без области, стили модулей — в месте модуля до вложенного модуля; браузеру без @scope их не заключить. */
+const pageCss = ({ entries }: Modules, scoped: boolean) => [`${UI_CSS}\n${css}`, ...(scoped ? entries : []).flatMap((e) => (e.def.css ? [`@scope ([data-module="${e.name}"]) to ([data-module]) {\n${e.def.css}\n}`] : []))].join("\n");
 
 function Screen({ page, name, master }: { page: Page; name: string; master?: boolean }) {
   const { modules, core } = page;
@@ -104,9 +104,10 @@ function Toast({ page }: { page: Page }) {
 }
 
 export function Shell({ page }: { page: Page }) {
+  const scoped = page.bus.use(() => page.core.stopped !== "browser");
   return (
     <>
-      <style>{pageCss(page.modules)}</style>
+      <style>{pageCss(page.modules, scoped)}</style>
       <div className={page.wide ? "sb-app wide" : "sb-app"}>
         <Column page={page} />
         <main className="sb-main">

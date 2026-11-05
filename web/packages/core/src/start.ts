@@ -266,8 +266,7 @@ export function startApp(o: StartOptions): Running {
   // ---------- страница ----------
 
   const reload = () => win.location.reload();
-  // браузер без @scope: модули не поднимаются, их стили некуда заключить
-  const modules = createModules(platform.scope === false ? [] : o.parts, { core, bus, store, wide, application: o.application, workers: o.workers, sections: o.sections, ask, open, back, toast, deliver, reload, slot: slotFor });
+  const modules = createModules(o.parts, { core, bus, store, wide, application: o.application, workers: o.workers, sections: o.sections, ask, open, back, toast, deliver, reload, slot: slotFor });
 
   win.addEventListener("hashchange", route, on);
   win.addEventListener("popstate", route, on);

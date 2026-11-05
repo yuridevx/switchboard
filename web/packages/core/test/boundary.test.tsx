@@ -3177,10 +3177,8 @@ describe("находки сверки деревьев и строк (чьё: к
     expect(relay.socks[1].closedWith).toMatchObject({ code: 1000 });
   });
 
-  it("браузер без @scope: функции модулей не зовутся, их стилей на странице нет", async () => {
-    const module = vi.fn(() => ({ css: ".z{}" }));
-    const t = await stand([{ manifest: man("m", {}), module }], { options: { platform: { ios: false, standalone: false, scope: false } } });
-    expect(module).not.toHaveBeenCalled();
+  it("браузер без @scope: стилей модулей на странице нет", async () => {
+    const t = await stand([{ manifest: man("m", {}), module: () => ({ css: ".z{}" }) }], { options: { platform: { ios: false, standalone: false, scope: false } } });
     expect(t.root.querySelector("style")!.textContent).not.toContain("@scope");
   });
 
