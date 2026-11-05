@@ -428,7 +428,7 @@ describe("живая лента", () => {
     expect(s.state).toBe("busy");
   });
 
-  it("81 · Host убит посреди хода, новый подхватил: кадры зрителю без нового watch, seq снова с 1", async () => {
+  it("81 · Host убит посреди хода, новый подхватил: зрителей в памяти нет, кадров нет; после нового watch кадры идут, seq снова с 1", async () => {
     const k = await keeper();
     const a = await bench({ holders: k });
     await a.st.open(CS);
@@ -444,10 +444,12 @@ describe("живая лента", () => {
     p.send(msg.state("idle"));
     const b = await bench({ holders: k, home: a.st.home });
     await until(() => b.seen.includes("result"));
+    await new Promise((r) => setTimeout(r, WINDOW_MS * 2));
+    expect(events(b.st)).toHaveLength(0);
+    await watch(b.st, PANEL);
+    p.send(msg.assistant("шаг 3"));
     const fr = await until(() => events(b.st)[0]);
     expect(fr).toMatchObject({ to: [PANEL], seq: 1, from: CS });
-    expect(events(b.st).flatMap((f) => (f.events as Array<{ type: string }>).map((e) => e.type))).toEqual(["assistant", "result", "system"]);
-    expect(b.st.relay.frames("session.watch")).toHaveLength(0);
   });
 
   it("штатная остановка досылает открытую пачку", async () => {

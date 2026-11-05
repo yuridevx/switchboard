@@ -1,126 +1,104 @@
-// Архив ядра Host для каталога: ядро, пакеты, которые оно импортирует, и то, что оно даёт модулям (зависимости @switchboard
-// из его package.json), без модулей: модули и список кладут «Выпуски» при сборке.
-//
-// Папка ядра — маленький монорепо npm; keeper ставит сборку как любое приложение по app.json:
-//   module.json          манифест ядра — первой записью архива
-//   app.json             run: node host; setup: npm ci; detach_children — держатели сессий переживают Host
-//   host                 вход: импортирует packages/host/main.ts
-//   package.json         workspaces: packages/*
-//   package-lock.json    зависимости — npm ci на машине
-//   packages/<имя>/      ядро и его пакеты
-// В сборке рядом — modules/<имя>/ и build.json; modules/ вне workspaces: импорты модулей Node находит в node_modules корня.
-// npm ci связывает пакеты ссылками на packages/: настоящий путь файлов — вне node_modules, поэтому Node снимает типы с .ts сам.
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+// Архив ядра Host: само ядро и его пакеты рабочей области без модулей; lockfile пишет npm, host --check подтверждает сборку.
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { pack, packageFiles, sha256hex, shaLine, type TarFile } from "@switchboard/release";
-import { importsOf, readJson, workspaces } from "./graph.ts";
+import { loadRepo } from "@switchboard/manifest-gate";
+import { MANIFEST, pack, packageFiles, sha256hex, shaLine, type TarFile } from "@switchboard/release";
+import { ROOT } from "./module.ts";
 import type { Ran } from "./spawn.ts";
 
-export type Exec = (cmd: "npm" | "node", args: string[], cwd: string) => Promise<Ran>;
+export type Exec = (cmd: string, args: string[], cwd: string) => Promise<Ran>;
 
 const SCOPE = "@switchboard/";
-const QUIET = ["--ignore-scripts", "--no-audit", "--no-fund"];
-const NPM_CI = ["ci", "--omit=dev", ...QUIET];
-const APP = { run: ["node", "host"], setup: ["npm", ...NPM_CI], detach_children: true };
-const ENTRY = `// Вход выпуска Host: keeper запускает node host в папке версии.\nimport "./packages/host/main.ts";\n`;
+const NPM_FLAGS = ["--ignore-scripts", "--no-audit", "--no-fund"];
+const ENTRY = '// Вход выпуска Host: keeper запускает node host в папке версии.\nimport "./packages/host/main.ts";\n';
 
-type Pkg = { name: string; version?: string; type?: string; exports?: unknown; bin?: unknown; dependencies?: Record<string, string>; optionalDependencies?: unknown };
+const json = (x: unknown) => JSON.stringify(x, null, 2) + "\n";
 
-/** Пакеты ядра в порядке обхода: ядро первым. */
-function corePackages(root: string): Array<{ name: string; dir: string }> {
-  const known = workspaces(root);
-  const seen = new Map<string, string>();
-  const queue = [`${SCOPE}host`];
-  for (const name of queue) {
-    if (seen.has(name)) continue;
-    const dir = known.get(name);
-    if (!dir) throw new Error(`пакета ${name} нет в workspaces`);
-    seen.set(name, dir);
-    const deps = Object.keys(readJson<Pkg>(join(dir, "package.json")).dependencies ?? {}).filter((d) => d.startsWith(SCOPE));
-    queue.push(...importsOf(dir), ...deps);
-  }
-  return [...seen].map(([name, dir]) => ({ name, dir }));
-}
+type PackageJson = { name: string; scripts?: unknown; dependencies?: Record<string, string>; devDependencies?: unknown };
 
-/** package.json пакета в выпуске: без скриптов и разработки; пакеты @switchboard связывает workspaces. */
-function releasedPackageJson(p: Pkg): Buffer {
-  const deps = Object.entries(p.dependencies ?? {}).filter(([n]) => !n.startsWith(SCOPE));
-  const out = {
-    name: p.name,
-    version: p.version,
-    private: true,
-    type: p.type ?? "module",
-    ...(p.exports ? { exports: p.exports } : {}),
-    ...(p.bin ? { bin: p.bin } : {}),
-    ...(deps.length ? { dependencies: Object.fromEntries(deps) } : {}),
-    ...(p.optionalDependencies ? { optionalDependencies: p.optionalDependencies } : {}),
+const readPackage = (dir: string) => JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as PackageJson;
+
+/** Ядро и пакеты, которые импортирует его код и код этих пакетов. */
+function corePackages(): Array<{ short: string; dir: string; pj: PackageJson }> {
+  const repo = loadRepo(ROOT);
+  const byPkg = new Map(repo.flatMap((m) => (m.pkg ? [[m.pkg, m] as const] : [])));
+  const seen = new Map<string, { short: string; dir: string; pj: PackageJson }>();
+  const visit = (name: string) => {
+    const m = byPkg.get(name);
+    if (!m || seen.has(name)) return;
+    const dir = join(ROOT, m.dir);
+    const pj = readPackage(dir);
+    seen.set(name, { short: name.slice(SCOPE.length), dir, pj });
+    for (const spec of [...(m.imports ?? []), ...Object.keys(pj.dependencies ?? {})]) visit(spec.split("/").slice(0, 2).join("/"));
   };
-  return json(out);
+  visit(`${SCOPE}host`);
+  return [...seen.values()];
 }
-const json = (x: unknown) => Buffer.from(`${JSON.stringify(x, null, 2)}\n`);
 
-export const coreVersion = (root: string) => readJson<{ version: string }>(join(root, "host", "core", "module.json")).version;
+/** package.json в архиве: без команд и инструментов разработки; свои пакеты связывает рабочая область. */
+function releasedPackage({ scripts: _s, devDependencies: _d, dependencies, ...rest }: PackageJson): string {
+  const external = Object.entries(dependencies ?? {}).filter(([d]) => !d.startsWith(SCOPE));
+  return json({ ...rest, ...(external.length ? { dependencies: Object.fromEntries(external) } : {}) });
+}
 
-/** Файлы архива ядра, кроме lockfile: его пишет npm. */
-export function coreFiles(root: string): TarFile[] {
-  const version = coreVersion(root);
-  const packages = corePackages(root);
-  const out: TarFile[] = packages.flatMap(({ name, dir }) => {
-    const base = `packages/${name.slice(SCOPE.length)}`;
-    const own = packageFiles(dir).filter((f) => f !== "package.json");
-    return [...own.map((f) => ({ path: `${base}/${f}`, data: readFileSync(join(dir, ...f.split("/"))) })), { path: `${base}/package.json`, data: releasedPackageJson(readJson<Pkg>(join(dir, "package.json"))) }];
-  });
-  return [
-    ...out,
-    { path: "module.json", data: readFileSync(join(packages[0].dir, "module.json")) },
-    { path: "app.json", data: Buffer.from(`${JSON.stringify(APP)}\n`) },
-    { path: "package.json", data: json({ name: "switchboard-host-release", version, private: true, type: "module", workspaces: ["packages/*"] }) },
+/** Файлы ядра без lockfile: их же сверяет release check. */
+export function coreFiles(): { version: string; files: TarFile[]; packages: number } {
+  const packages = corePackages();
+  const manifest = readFileSync(join(ROOT, "host/core/module.json"));
+  const { version } = JSON.parse(manifest.toString("utf8")) as { version: string };
+  const files: TarFile[] = [
+    { path: MANIFEST, data: manifest },
     { path: "host", data: Buffer.from(ENTRY), mode: 0o755 },
+    { path: "package.json", data: Buffer.from(json({ name: "switchboard-host-release", version, private: true, type: "module", workspaces: ["packages/*"] })) },
+    { path: "app.json", data: Buffer.from(JSON.stringify({ run: ["node", "host"], setup: ["npm", "ci", "--omit=dev", ...NPM_FLAGS], detach_children: true }) + "\n") },
   ];
-}
-
-type Check = { ok: boolean; version?: string; sdk?: string; proto?: number; why?: string };
-
-/** Ответ host --check: последняя строка JSON вывода. */
-function parseCheck(out: string): Check {
-  const line = out.trim().split("\n").findLast((l) => l.trim().startsWith("{"));
-  if (!line) return { ok: false, why: out.trim() || "host --check без ответа" };
-  try {
-    return JSON.parse(line) as Check;
-  } catch {
-    return { ok: false, why: out.trim() };
+  for (const { short, dir, pj } of packages) {
+    for (const f of packageFiles(dir)) files.push({ ...f, path: `packages/${short}/${f.path}`, data: f.path === "package.json" ? Buffer.from(releasedPackage(pj)) : f.data });
   }
+  return { version, files, packages: packages.length };
 }
 
-/** Собрать архив ядра в out: папка, lockfile, npm ci и host --check, .tgz и .sha256. Не прошло — исключение с причиной, архива нет. */
-export async function buildCore(root: string, out: string, exec: Exec): Promise<{ version: string; tgz: Buffer; sha: string; packages: number; sdk?: string }> {
-  const version = coreVersion(root);
+function step(r: Ran, name: string): void {
+  if (r.code !== 0) throw new Error(`${name}: ${r.out.trim()}`);
+}
+
+/** Ответ host --check: последняя строка-объект вывода. */
+function checked(r: Ran, version: string): { sdk: string } {
+  const at = r.out.lastIndexOf("{");
+  if (at < 0) throw new Error(`host --check: ${r.out.trim() || "host --check без ответа"}`);
+  let a: { ok?: boolean; why?: string; version?: string; sdk?: string };
+  try {
+    a = JSON.parse(r.out.slice(at));
+  } catch {
+    throw new Error(`host --check: ${r.out.trim()}`);
+  }
+  if (!a.ok) throw new Error(`host --check: ${a.why}`);
+  if (a.version !== version) throw new Error(`host --check: версия ${a.version}, а собиралась ${version}`);
+  return { sdk: String(a.sdk) };
+}
+
+/** Файлы папки сборки, кроме node_modules: те, что положили мы, и lockfile. */
+function lockOf(dir: string): TarFile[] {
+  return readdirSync(dir).includes("package-lock.json") ? [{ path: "package-lock.json", data: readFileSync(join(dir, "package-lock.json")) }] : [];
+}
+
+/** Собрать ядро в <out>/<версия>: npm и host --check по порядку, затем .tgz и .sha256 рядом; папка остаётся без node_modules. */
+export async function buildCore(out: string, exec: Exec): Promise<{ version: string; tgz: Buffer; sha: string; line: string }> {
+  const { version, files, packages } = coreFiles();
   const dir = join(out, version);
   rmSync(dir, { recursive: true, force: true });
-  mkdirSync(dir, { recursive: true });
-  const place = (path: string, data: Buffer, mode?: number) => {
-    const at = join(dir, ...path.split("/"));
-    mkdirSync(dirname(at), { recursive: true });
-    writeFileSync(at, data, mode ? { mode } : {});
-  };
-  for (const f of coreFiles(root)) place(f.path, f.data, f.mode);
-  // версии зависимостей — из lock-файла монорепо: npm сужает его до пакетов ядра, а не разрешает заново по реестру
-  // (иначе новый патч в реестре меняет архив той же версии ядра от прогона к прогону)
-  place("package-lock.json", readFileSync(join(root, "package-lock.json")));
-  const step = async (word: string, args: string[]) => {
-    const r = await exec("npm", args, dir);
-    if (r.code !== 0) throw new Error(`${word}: ${r.out.trim()}`);
-  };
-  await step("npm install --package-lock-only", ["install", "--package-lock-only", ...QUIET]);
-  await step("npm ci", NPM_CI);
-  const check = parseCheck((await exec("node", ["host", "--check"], dir)).out);
+  for (const f of files) {
+    mkdirSync(dirname(join(dir, f.path)), { recursive: true });
+    writeFileSync(join(dir, f.path), f.data);
+  }
+  step(await exec("npm", ["install", "--package-lock-only", ...NPM_FLAGS], dir), "npm install --package-lock-only");
+  step(await exec("npm", ["ci", "--omit=dev", ...NPM_FLAGS], dir), "npm ci");
+  const { sdk } = checked(await exec("node", ["host", "--check"], dir), version);
   rmSync(join(dir, "node_modules"), { recursive: true, force: true });
-  if (!check.ok) throw new Error(`host --check: ${check.why}`);
-  if (check.version !== version) throw new Error(`host --check: версия ${check.version}, а собиралась ${version}`);
-
-  const tgz = pack(packageFiles(dir).map((path) => ({ path, data: readFileSync(join(dir, ...path.split("/"))), ...(path === "host" ? { mode: 0o755 } : {}) })));
+  const tgz = pack([...files, ...lockOf(dir)]);
   const sha = sha256hex(tgz);
   writeFileSync(join(out, `${version}.tgz`), tgz);
   writeFileSync(join(out, `${version}.sha256`), shaLine(sha, version));
-  return { version, tgz, sha, packages: corePackages(root).length, sdk: check.sdk };
+  return { version, tgz, sha, line: `собрано ядро host ${version}: ${packages} пакетов · SDK ${sdk} · ${tgz.length} байт · sha256 ${sha}` };
 }
+

@@ -1,12 +1,11 @@
+// Привязки и настройки Worker'а push.
 import type { GateApi } from "@switchboard/gate";
 
-export interface Env {
-  /** записи модуля — база D1 модуля во флоте */
-  DB: D1Database;
-  /** gate: пропуск прямого запроса */
-  GATE: GateApi;
-  /** закрытый ключ VAPID — JWK P-256; открытую половину push выводит из него */
+export type Env = {
+  /** закрытый ключ VAPID, JWK: секрет */
   VAPID_PRIVATE: string;
-  /** sub в JWT VAPID: адрес, по которому служба пушей может связаться с владельцем */
+  /** адрес хозяина приложения в подписи VAPID */
   VAPID_SUB: string;
-}
+  DB: D1Database;
+  GATE: GateApi;
+};

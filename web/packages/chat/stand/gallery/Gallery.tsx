@@ -13,10 +13,26 @@ const HTML = "<!doctype html><html><body><h1>Отчёт</h1><p>Сборка зе
 
 type Sample = { title: string; msgs: Msg[] };
 
+const FENCE = "```";
+/** Опасный HTML в сообщении: эталон 6795 проверяет его в настоящем браузере. */
+const HTML_MD = [
+  "Встроенный HTML проходит через санитайзер: <kbd>Ctrl</kbd>+<kbd>K</kbd>, <mark>отметка</mark>.",
+  "",
+  '<script>alert("скрипт вырезан")</script><img src="x" onerror="alert(1)" alt="обработчик вырезан">',
+  '<a href="javascript:alert(1)">опасная ссылка без адреса</a>',
+  "",
+  `${FENCE}html`,
+  '<!doctype html><html><body style="font:16px system-ui">',
+  `<h2>Отчёт</h2><p id="c">Нажатий: 0</p><button onclick="c.textContent='Нажатий: '+(++window.n||(window.n=1))">Нажать</button>`,
+  "</body></html>",
+  FENCE,
+].join("\n");
+
 const SECTIONS: Array<[string, Sample[]]> = [
   [
     "Сообщения",
     [
+      { title: "Встроенный HTML и блоки просмотра", msgs: [asst("m6", [{ type: "text", text: HTML_MD }])] },
       { title: "Человек", msgs: [{ type: "user", uuid: "m1", message: { content: "Почини сборку на CI" } }] },
       { title: "Другая сессия", msgs: [{ type: "user", uuid: "m2", message: { content: '<fleet-message from="poe-bot@pc">\nСобрано, катить?\n</fleet-message>' } }] },
       { title: "Субагент", msgs: [{ type: "user", uuid: "m3", message: { content: '<agent-message from-name="Explore">\nНашёл три места\n</agent-message>' } }] },

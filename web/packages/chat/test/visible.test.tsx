@@ -830,3 +830,22 @@ describe("из общих тестов пульта", () => {
     expect(decodeURIComponent(a.href)).toContain("## Claude\n\nСборка зелёная.");
   });
 });
+
+describe("вопрос другой сессии в ленте", () => {
+  const Q = '<fleet-question from="docs@win" question="toolu_k1">\nКакую базу мигрировать первой?\n· прод — боевая, 2 ТБ\nОтветь инструментом fleet.answer: to — docs@win, question — toolu_k1, answers — { "текст вопроса": "вариант" }.\n</fleet-question>';
+  it.each([
+    ["из ленты, с полем отправителя", { origin: { kind: "peer", from: "docs@win", name: "docs@win" } }],
+    ["из истории: настоящий SDK поля отправителя не отдаёт", {}],
+  ])("одна строка «сессия Claude · имя», без тега и служебной строки: %s", async (_n, extra) => {
+    const relay = relayFor(undefined, [{ type: "user", uuid: "q1", message: { content: Q }, ...extra }]);
+    const t = await chat("poe-bot@pc", { relay });
+    const feed = t.$(".chat-feed")!;
+    expect(feed.querySelector(".chat-me")).toBeNull();
+    const row = feed.querySelector(".chat-in")!;
+    expect(row.textContent).toContain("сессия Claude · docs@win");
+    expect(row.textContent).toContain("Какую базу мигрировать первой?");
+    expect(row.textContent).toContain("· прод — боевая, 2 ТБ");
+    expect(row.textContent).not.toContain("fleet-question");
+    expect(row.textContent).not.toContain("Ответь инструментом");
+  });
+});

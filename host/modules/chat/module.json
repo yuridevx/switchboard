@@ -1,7 +1,7 @@
 {
   "name": "host-chat",
   "type": "sdk",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "into": ["host"],
   "provides": {
     "session.prompt": 1,
