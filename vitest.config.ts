@@ -5,5 +5,7 @@ export default defineConfig({
   test: {
     include: ["protocol/**/*.test.ts", "tools/**/*.test.ts", "host/**/*.test.ts", "scripts/**/*.test.ts"],
     exclude: ["**/node_modules/**"],
+    // первый тест файла ждёт холодный импорт SDK: на Linux в полном прогоне это больше 5 с и на прежнем коде (63 падения из 635 на main)
+    testTimeout: 30_000,
   },
 });
