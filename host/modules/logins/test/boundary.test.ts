@@ -1312,6 +1312,18 @@ describe("сверка строк: чего леса не держали", () =>
 });
 
 describe("эталоны дизайна «Аккаунты, машины и слоты»", () => {
+  it("опрос: неактивные окна приходят null — записаны только настоящие, опрос не падает", async () => {
+    // источник: факт — живой ответ usage 5 нояб. на тестовом флоте; опрос падал и лимиты не обновлялись
+    await bench({
+      accounts: { y: {} },
+      poll: () => ({ subscription_type: "max", rate_limits_available: true, rate_limits: { five_hour: null, seven_day: { utilization: 6, resets_at: "2026-11-11T17:59:59.613964+00:00", limit_dollars: null }, iguana_necktie: null, extra_usage: { is_enabled: false, utilization: null } } }),
+    });
+    const r = await ask({ type: "machine.accounts", poll: ["y"] });
+    expect(Object.keys(r.result.accounts.y.limits)).toEqual(["seven_day"]);
+    expect(r.result.accounts.y.limits.seven_day.utilization).toBe(0.06);
+    expect(st!.journal().some((l) => l.ev === "poll" && l.kind === "refuse")).toBe(false);
+  });
+
   /** Проверка раз в 2 мин, заведённая на поддельные часы. */
   const tick = () => vi.advanceTimersByTime(CHECK_MS);
 
