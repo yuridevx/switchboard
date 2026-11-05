@@ -10,4 +10,5 @@
 // Модели каждой сессии — инструменты MCP shell: info, run, wait, kill (mcp__shell__*).
 import { make } from "./src/shell.ts";
 
+export { make };
 export default make().module;

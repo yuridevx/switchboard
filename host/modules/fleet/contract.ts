@@ -10,4 +10,7 @@
 // open, update, remove — запросы manage, history — chat. Хранить нечего.
 import { make } from "./src/fleet.ts";
 
+export { make };
+/** Что читает модель в системном промпте. */
+export { prompt } from "./src/fleet.ts";
 export default make().module;

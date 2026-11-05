@@ -13,6 +13,5 @@
 // Слова: unknown_method, name_taken, bad_name, bad_dir, bad_spec, open_failed, stopped, sdk_error.
 import { manage } from "./src/manage.ts";
 
-export { OPEN } from "./src/manage.ts";
-export type { Spec } from "./src/manage.ts";
+export { manage as make };
 export default manage();

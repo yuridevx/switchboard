@@ -3,4 +3,5 @@
 // Слова: bad_frame, not_found, no_access. Папку создаёт session.open по просьбе: решает машина при открытии.
 import { machine } from "./src/machine.ts";
 
+export { machine as make };
 export default machine();

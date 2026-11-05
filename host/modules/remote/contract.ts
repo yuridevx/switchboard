@@ -4,5 +4,5 @@
 // Раздел сессии: { url, bridge, account } — account: кто был в слоте, когда мост включился.
 import { remote } from "./src/remote.ts";
 
-export type { RemoteRecord } from "./src/remote.ts";
+export { remote as make };
 export default remote();
