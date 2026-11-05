@@ -1,6 +1,6 @@
 // Окна вкладки: перенос, копия, смена папки и откат — шаги по порядку, каждый запрос после ответа предыдущего.
 import { useState } from "react";
-import { Btn, Check, CommitIn, H4, Hint, In, OptsLabel, Opts, remoteOf, Row, Sec, sessionOf, slotChoice, slotOf, useApp } from "@switchboard/web-ui";
+import { Btn, Check, CommitIn, H4, In, M, Note, OptsLabel, Opts, remoteOf, Row, Sec, sessionOf, slotChoice, slotOf, useApp } from "@switchboard/web-ui";
 import type { ListedPoint } from "@switchboard/points";
 import { CheckLine } from "./Overview.tsx";
 import { joinProject, Machines, Slot, useProbe, useTarget } from "./target.tsx";
@@ -23,12 +23,12 @@ export function Dialog({ kind, callsign, sid, head, from, close, reload }: Props
   const [name, here] = callsign.split("@");
   const session = sessionOf(app, callsign);
   const near = (app.mark("project.machines", (app.mark("project.of", callsign) as { id: string } | null | undefined)?.id ?? "") as string[] | undefined) ?? [];
-  const t = useTarget({ owner: here, near, slot: slotOf(session)?.name });
+  const t = useTarget({ owner: here, near: [...near, here], slot: slotOf(session)?.name });
   const fixed = kind === "dir" || kind === "rb";
+  const named = kind === "copy" || kind === "dir";
   const machine = fixed ? here : t.machine;
 
   const suffix = kind === "copy" ? "-copy" : "-v2";
-  const named = kind === "copy" || kind === "dir";
   const [newName, setName] = useState(`${name}${suffix}`);
   const pointDir = from?.dir ?? head.dir ?? "~";
   const [dir, setDir] = useState(named ? `${pointDir}${suffix}` : pointDir);
@@ -38,11 +38,10 @@ export function Dialog({ kind, callsign, sid, head, from, close, reload }: Props
   const [phase, setPhase] = useState<Phase | null>(null);
   const shown = point ?? head;
 
-  const probing = kind === "move" || kind === "copy";
-  const check = useProbe(machine, probing && t.slots && !t.problem ? { sid, point: shown.id, dir, files: "point" } : null);
+  const check = useProbe(machine, !fixed && t.slots && !t.problem ? { sid, point: shown.id, dir, files: "point" } : null);
   const going = phase?.kind === "run";
   const done = phase?.kind === "done";
-  const problem = probing ? t.problem : "";
+  const problem = fixed ? "" : t.problem;
 
   const say = (kind: Phase["kind"], text: string) => setPhase({ kind, text });
   const failed = (word: string) => say("err", refused(word, { who: name, target: machine, from: here }));
@@ -97,64 +96,87 @@ export function Dialog({ kind, callsign, sid, head, from, close, reload }: Props
   return (
     <Sec dlg data-dlg={kind}>
       <H4>{TITLES[kind](callsign, shown.id)}</H4>
-      {fixed ? <Row label="Машина">{`${here} — та же`}</Row> : <Machines t={t} />}
-      {kind === "move" || kind === "copy" ? (
-        <Row label="Из точки">
-          <Opts>
-            {from && point ? (
-              <Btn aria-pressed="true">{`№${point.id}`}</Btn>
-            ) : null}
-            <Btn aria-pressed={!point} onClick={() => setPoint(null)}>
-              сейчас — сохранится свежая
-            </Btn>
-          </Opts>
+      {fixed ? (
+        <Row label="Машина">
+          <span>{`${here} — та же`}</span>
         </Row>
-      ) : null}
-      {kind === "copy" || kind === "dir" ? (
-        <Row label={kind === "copy" ? "Имя копии" : "Имя"}>
-          <In mono data-f="name" value={newName} onInput={(e) => setName(e.currentTarget.value)} />
-          {kind === "copy" ? <Hint>{`→ ${newName}@${machine}`}</Hint> : null}
-        </Row>
-      ) : null}
+      ) : (
+        <>
+          <Machines t={t} />
+          <Row label="Из точки">
+            <Opts>
+              {from && point ? <Btn aria-pressed="true">{`№${point.id}`}</Btn> : null}
+              <Btn aria-pressed={!point} onClick={() => setPoint(null)}>
+                сейчас — сохранится свежая
+              </Btn>
+            </Opts>
+          </Row>
+          <Slot t={t} />
+        </>
+      )}
       {kind === "rb" ? (
-        <Row label="Папка">
-          <span>{dir}</span>
-          <Opts>
-            <Btn aria-pressed={folder === "keep"} onClick={() => setFolder("keep")}>
-              Оставить как есть
-            </Btn>
-            <Btn aria-pressed={folder === "point"} onClick={() => setFolder("point")}>
-              Вернуть к папке точки
-            </Btn>
-          </Opts>
-        </Row>
+        <RollbackFolder dir={dir} folder={folder} set={setFolder} />
       ) : (
         <Row label={kind === "dir" ? "Новая папка" : `Папка на ${machine}`}>
           <CommitIn mono data-f="dir" value={dir} onCommit={setDir} />
         </Row>
       )}
-      {fixed ? null : <Slot t={t} />}
-      <CheckLine check={problem ? { key: "error", text: problem, tone: "bad" } : probing ? check : null} />
-      {kind === "move" || kind === "rb" ? (
+      {named ? (
+        <Row label={kind === "copy" ? "Имя копии" : "Имя"}>
+          <Opts>
+            <In mono data-f="name" value={newName} onInput={(e) => setName(e.currentTarget.value)} />
+            <Note>{`→ ${newName}@${machine}`}</Note>
+          </Opts>
+        </Row>
+      ) : null}
+      <CheckLine check={problem ? { key: "error", text: problem, tone: "bad" } : check} />
+      {kind === "rb" && remoteOf(session) ? <RemoteWarning /> : null}
+      {kind === "copy" ? null : (
         <OptsLabel>
           <Check checked={cut} onChange={(e) => setCut(e.currentTarget.checked)} />
-          {kind === "move" ? "прервать ответ и сделать сразу" : "прервать идущий ответ и откатить сразу (иначе — после конца ответа)"}
+          {kind === "rb" ? "прервать идущий ответ и откатить сразу (иначе — после конца ответа)" : "прервать ответ и сделать сразу"}
         </OptsLabel>
-      ) : null}
-      {kind === "rb" && remoteOf(session) ? <Hint data-remote="" tone="wait">Привязка к claude.ai снимется. После отката в claude.ai — новая сессия без прежней истории, кнопка «В claude.ai» поведёт на неё. Прежняя сессия в claude.ai останется как была.</Hint> : null}
-      {phase ? (
-        <Hint data-phase={phase.kind} tone={phase.kind === "err" ? "bad" : phase.kind === "done" ? "ok" : undefined}>
-          {phase.text}
-        </Hint>
-      ) : null}
+      )}
+      {phase ? <PhaseLine phase={phase} /> : null}
       <Opts>
+        <Btn onClick={close}>{done ? "Закрыть" : "Отмена"}</Btn>
         {done ? null : (
-          <Btn pri data-act="run" disabled={going || !!problem || (probing && blocked(check))} onClick={() => void run()}>
+          <Btn pri data-act="run" disabled={going || !!problem || (!fixed && blocked(check))} onClick={() => void run()}>
             {label}
           </Btn>
         )}
-        <Btn onClick={close}>{done ? "Закрыть" : "Отмена"}</Btn>
       </Opts>
     </Sec>
   );
 }
+
+function RollbackFolder({ dir, folder, set }: { dir: string; folder: "keep" | "point"; set(f: "keep" | "point"): void }) {
+  return (
+    <>
+      <Row label="Папка">
+        <M>{dir}</M>
+      </Row>
+      <Opts>
+        <Btn aria-pressed={folder === "keep"} onClick={() => set("keep")}>
+          Оставить как есть
+        </Btn>
+        <Btn aria-pressed={folder === "point"} onClick={() => set("point")}>
+          Вернуть к папке точки
+        </Btn>
+      </Opts>
+    </>
+  );
+}
+
+const RemoteWarning = () => (
+  <Sec tone="wait" data-remote="">
+    <b>Привязка к claude.ai снимется</b>
+    <Note>После отката в claude.ai — новая сессия без прежней истории, кнопка «В claude.ai» поведёт на неё. Прежняя сессия в claude.ai останется как была.</Note>
+  </Sec>
+);
+
+const PhaseLine = ({ phase }: { phase: Phase }) => (
+  <Note data-phase={phase.kind} role={phase.kind === "err" ? "alert" : "status"} tone={phase.kind === "err" ? "bad" : phase.kind === "done" ? "ok" : undefined}>
+    {phase.text}
+  </Note>
+);

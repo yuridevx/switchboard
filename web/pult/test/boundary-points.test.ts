@@ -731,6 +731,8 @@ describe("вкладка «Точки» сессии", () => {
     fresh.handlers["points.list"] = LIST([]);
     const n = await sessionTab(fresh);
     expect(n.$('[data-r2="on"] .sb-ph b')!.textContent).toBe("Точек ещё нет");
+    // сессию только что пометили: обзор перечитан, узнать её номер в реестре
+    expect(fresh.sent("points.list").length).toBeGreaterThanOrEqual(2);
     for (const b of ["Перенести…", "Скопировать…", "Сменить папку…"]) expect(n.btn(n.$('[data-r2="on"]'), b)!.disabled).toBe(true);
 
     const strip = pointsRelay((r) => {

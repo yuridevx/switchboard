@@ -1,6 +1,6 @@
 // Экран «Точки»: сессии в R2, «только в R2», «пожар» — машины, которых нет в roster, и объём.
-import { useEffect, useRef, useState } from "react";
-import { ago, at, BadCard, Btn, day, H4, Hint, In, Note, OkCard, Opts, Outcome, Page, PageHead, Sec, sessionLabel, useApp, useModule, useOutcome } from "@switchboard/web-ui";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { ago, at, Btn, day, H4, In, M, Note, OkCard, Opts, Outcome, Page, PageHead, Row, Sec, sessionLabel, useApp, useModule, useOutcome } from "@switchboard/web-ui";
 import type { Fleet, Listed } from "./store.ts";
 import { joinProject, Machines, Slot, useProbe, useTarget, type Target } from "./target.tsx";
 import { blocked, countOf, megabytes, refused, type Check } from "./words.ts";
@@ -21,9 +21,9 @@ function Live({ s, fleet }: { s: Listed; fleet: Fleet }) {
   };
   return (
     <div className="pt-row" data-sid={s.sid}>
-      <div>
-        <b>{sessionLabel(app, callsign).text}</b> <span>{`${nameOf(s)} ${ago(s.head.at)} · №${s.head.id}`}</span>
-      </div>
+      <span>
+        <b>{sessionLabel(app, callsign).text}</b> {`${ago(s.head.at)} · №${s.head.id}`}
+      </span>
       {app.can(s.owner, "points.save") ? <Btn onClick={() => void save()}>Сохранить сейчас</Btn> : null}
     </div>
   );
@@ -52,18 +52,17 @@ function RaiseWindow({ s, fleet, close }: { s: Listed; fleet: Fleet; close(): vo
     <Sec dlg data-dlg="raise">
       <b>{`Поднять ${name} из точки №${s.head.id}`}</b>
       <Machines t={t} />
-      <div className="sb-row">
-        <span>Папка</span>
-        <span>{dirOf(s)}</span>
-      </div>
+      <Row label="Папка">
+        <M>{dirOf(s)}</M>
+      </Row>
       <Slot t={t} />
       <CheckLine check={t.problem ? { key: "error", text: t.problem, tone: "bad" } : check} />
       <Outcome note={note} />
       <Opts>
+        <Btn onClick={close}>{done ? "Закрыть" : "Отмена"}</Btn>
         {done ? null : (
           <Btn pri disabled={going || !!t.problem || blocked(check)} onClick={() => void raise()}>{`Поднять на ${t.machine}`}</Btn>
         )}
-        <Btn onClick={close}>{done ? "Закрыть" : "Отмена"}</Btn>
       </Opts>
     </Sec>
   );
@@ -71,9 +70,9 @@ function RaiseWindow({ s, fleet, close }: { s: Listed; fleet: Fleet; close(): vo
 
 export function CheckLine({ check }: { check: Check | null }) {
   return check ? (
-    <Hint data-check={check.key} tone={check.tone === "ok" ? "ok" : check.tone}>
+    <Note data-check={check.key} tone={check.tone}>
       {check.text}
-    </Hint>
+    </Note>
   ) : null;
 }
 
@@ -82,16 +81,18 @@ function DeleteWindow({ s, go, close }: { s: Listed; go(): void; close(): void }
   const [typed, setTyped] = useState("");
   const name = nameOf(s);
   return (
-    <Sec dlg tone="bad" data-dlg="delete">
+    <Sec dlg data-dlg="delete">
       <b>{`Удалить точки «${name}» насовсем`}</b>
-      <span>Строки точек и блоки без ссылок уйдут из R2 сразу, в том же запросе; блоки, нужные копиям, останутся. Отменить нельзя — отмены у удаления нет.</span>
-      <span>{`Введите имя сессии: ${name}`}</span>
-      <In mono data-f={`del:${s.sid}`} placeholder={name} value={typed} onInput={(e) => setTyped(e.currentTarget.value)} />
+      <Note>Строки точек и блоки без ссылок уйдут из R2 сразу, в том же запросе; блоки, нужные копиям, останутся. Отменить нельзя — отмены у удаления нет.</Note>
       <Opts>
+        <span>{`Введите имя сессии: ${name}`}</span>
+        <In mono data-f={`del:${s.sid}`} placeholder={name} value={typed} onInput={(e) => setTyped(e.currentTarget.value)} />
+      </Opts>
+      <Opts>
+        <Btn onClick={close}>Отмена</Btn>
         <Btn bad data-act="delete" disabled={typed !== name} onClick={go}>
           Удалить насовсем
         </Btn>
-        <Btn onClick={close}>Отмена</Btn>
       </Opts>
     </Sec>
   );
@@ -114,25 +115,27 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
   };
   return (
     <Sec data-only="">
-      <H4>{`Только в R2 · ${sessions.length}`}</H4>
-      <In data-f="q" placeholder="⌕ имя, папка или месяц…" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      <PageHead>
+        <H4>{`Только в R2 · ${sessions.length}`}</H4>
+        <In data-f="q" size={26} placeholder="⌕ имя, папка или месяц…" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      </PageHead>
       <Outcome note={notes.delete} />
       {shown.map((s) => (
-        <div key={s.sid}>
+        <Fragment key={s.sid}>
           <div className="pt-row" data-sid={s.sid}>
-            <div>
-              <b>{nameOf(s)}</b> <span>{`${nameOf(s)} ${dirOf(s)} · последняя точка ${day(s.head.at)}`}</span>
-            </div>
+            <span>
+              <b>{nameOf(s)}</b> {`${dirOf(s)} · последняя точка ${day(s.head.at)}`}
+            </span>
             <Opts>
-              {canRaise ? <Btn onClick={() => setOpen({ sid: s.sid, kind: "raise", n: (open?.n ?? 0) + 1 })}>Перенести на машину…</Btn> : null}
               <Btn bad onClick={() => setOpen({ sid: s.sid, kind: "delete", n: (open?.n ?? 0) + 1 })}>
                 Удалить…
               </Btn>
+              {canRaise ? <Btn onClick={() => setOpen({ sid: s.sid, kind: "raise", n: (open?.n ?? 0) + 1 })}>Перенести на машину…</Btn> : null}
             </Opts>
           </div>
           {open?.sid === s.sid && open.kind === "raise" ? <RaiseWindow key={open.n} s={s} fleet={fleet} close={() => setOpen(null)} /> : null}
           {open?.sid === s.sid && open.kind === "delete" ? <DeleteWindow key={open.n} s={s} go={() => void remove(s)} close={() => setOpen(null)} /> : null}
-        </div>
+        </Fragment>
       ))}
     </Sec>
   );
@@ -144,14 +147,14 @@ function FireRow({ s, t, state, report }: { s: Listed; t: Target; state?: Line; 
   const check = useProbe(t.machine, t.slots && !t.problem ? probeOf(s) : null);
   useEffect(() => report(s.sid, check), [check, s.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="pt-row" data-row={nameOf(s)}>
-      <div>
-        <b>{nameOf(s)}</b>
-        <span>{`точка ${at(s.head.at)} · №${s.head.id}`}</span>
-        <span>{dirOf(s)}</span>
-      </div>
-      <Hint tone={state?.state === "failed" ? "bad" : state?.state === "done" ? "ok" : check?.tone}>{state?.text ?? check?.text ?? "проверяю папку…"}</Hint>
-    </div>
+    <Sec data-row={nameOf(s)}>
+      <b>{nameOf(s)}</b>
+      <Note>{`точка ${at(s.head.at)} · №${s.head.id}`}</Note>
+      <Opts>
+        <M>{dirOf(s)}</M>
+      </Opts>
+      <Note tone={state?.state === "failed" ? "bad" : state?.state === "done" ? "ok" : undefined}>{state?.text ?? check?.text ?? "проверяю папку…"}</Note>
+    </Sec>
   );
 }
 
@@ -200,9 +203,6 @@ function FireWindow({ machine, sessions, fleet, busy, close }: { machine: string
         <Note data-progress={`${run.done}/${n}`}>{progress}</Note>
       ) : null}
       <Opts>
-        {run ? null : (
-          <Btn pri disabled={!ready || !!t.problem} onClick={() => void go()}>{`Перенести ${n} из ${n} на ${t.machine}`}</Btn>
-        )}
         <Btn
           onClick={() => {
             closed.current = true;
@@ -211,6 +211,9 @@ function FireWindow({ machine, sessions, fleet, busy, close }: { machine: string
         >
           {run ? "Закрыть" : "Отмена"}
         </Btn>
+        {run ? null : (
+          <Btn pri disabled={!ready || !!t.problem} onClick={() => void go()}>{`Перенести ${n} из ${n} на ${t.machine}`}</Btn>
+        )}
       </Opts>
     </Sec>
   );
@@ -226,10 +229,16 @@ function Fire({ machine, sessions, fleet }: { machine: string; sessions: Listed[
   const waiting = `${countOf(sessions.length, "сессия", "сессии", "сессий")} ${sessions.length === 1 ? "ждёт" : "ждут"} на последних точках`;
   return (
     <>
-      <BadCard data-fire={machine}>
+      <Sec tone="bad" data-fire={machine}>
         <b>{`${machine} не на связи${left ? ` с ${at(left)}` : ""} · ${waiting}`}</b>
-        {canRaise && !open && !busy ? <Btn onClick={() => setOpen(true)}>Перенести на другую машину…</Btn> : null}
-      </BadCard>
+        {canRaise && !open && !busy ? (
+          <Opts>
+            <Btn pri onClick={() => setOpen(true)}>
+              Перенести на другую машину…
+            </Btn>
+          </Opts>
+        ) : null}
+      </Sec>
       {open ? <FireWindow machine={machine} sessions={sessions} fleet={fleet} busy={setBusy} close={() => setOpen(false)} /> : null}
     </>
   );
@@ -254,13 +263,6 @@ export function Overview() {
   return (
     <Page>
       <PageHead title={app.wide ? "Точки" : undefined} />
-      <Note data-summary="">
-        <b>{`${countOf(live.length, "сессия", "сессии", "сессий")} в R2 из ${records.length} на машинах`}</b>
-        <span>{`· ${only.length} только в R2`}</span>
-        {machines.map((m) => (
-          <span key={m}>{` · ${lost.filter((s) => s.owner === m).length} на ${m} — нет связи`}</span>
-        ))}
-      </Note>
       {word ? (
         <Note tone="bad" role="alert">
           {word}
@@ -269,12 +271,19 @@ export function Overview() {
       {machines.map((m) => (
         <Fire key={m} machine={m} sessions={lost.filter((s) => s.owner === m)} fleet={fleet} />
       ))}
+      <Opts data-summary="">
+        <b>{`${countOf(live.length, "сессия", "сессии", "сессий")} в R2 из ${records.length} на машинах`}</b>
+        {machines.map((m) => (
+          <Note key={m} tone="bad">{`· ${lost.filter((s) => s.owner === m).length} на ${m} — нет связи`}</Note>
+        ))}
+        <Note>{`· ${only.length} только в R2`}</Note>
+      </Opts>
       <Sec>
         <H4>Последняя точка</H4>
-        {live.length ? live.map((s) => <Live key={s.sid} s={s} fleet={fleet} />) : <span>Сессий в R2 на связи нет.</span>}
+        {live.length ? live.map((s) => <Live key={s.sid} s={s} fleet={fleet} />) : <Note>Сессий в R2 на связи нет.</Note>}
       </Sec>
-      <Only sessions={only} fleet={fleet} />
       {plain.length ? <Note>{`${plain.join(", ")} не в R2`}</Note> : null}
+      <Only sessions={only} fleet={fleet} />
       <Note>{`В R2 ${megabytes(data.r2.bytes)}${sweep}`}</Note>
     </Page>
   );

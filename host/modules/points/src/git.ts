@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { refuse } from "@switchboard/host";
+import { CALL_MS } from "@switchboard/protocol";
 
 /** Сводка git в строке точки. snap — коммит пакета: правки поверх commit или неотправленный commit. */
 export type Summary = { state: "clean" | "dirty"; files: number; unpushed: number; url: string; branch: string; commit: string; snap?: string };
@@ -11,13 +12,10 @@ export type Folder = { folder: "nogit" | "empty" | "other" | "same" | "dirty" | 
 
 export const BUNDLE = "git.bundle";
 const REF = "refs/points/snap";
-const GIT_MS = 300_000;
-// дата и автор постоянные: те же правки — тот же коммит и тот же пакет
-const AUTHOR = { GIT_AUTHOR_NAME: "switchboard", GIT_AUTHOR_EMAIL: "points@switchboard", GIT_COMMITTER_NAME: "switchboard", GIT_COMMITTER_EMAIL: "points@switchboard", GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z", GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z" };
 
 const git = (cwd: string, args: string[], env: Record<string, string> = {}) =>
   new Promise<string>((done, fail) => {
-    execFile("git", args, { cwd, timeout: GIT_MS, maxBuffer: 1 << 26, windowsHide: true, env: { ...process.env, GCM_INTERACTIVE: "never", GIT_TERMINAL_PROMPT: "0", ...env } }, (e, out) => (e ? fail(e) : done(out)));
+    execFile("git", args, { cwd, timeout: CALL_MS, maxBuffer: 1 << 26, windowsHide: true, env: { ...process.env, GCM_INTERACTIVE: "never", GIT_TERMINAL_PROMPT: "0", ...env } }, (e, out) => (e ? fail(e) : done(out)));
   });
 const quiet = (cwd: string, args: string[]) => git(cwd, args).then((x) => x.trim(), () => null);
 const changed = async (cwd: string) => (await git(cwd, ["status", "--porcelain"])).split("\n").filter(Boolean).length;
@@ -46,11 +44,11 @@ export async function snapshot(cwd: string): Promise<{ summary: Summary; bundle?
 
 /** Коммит правок поверх HEAD из своего индекса: индекс папки не меняется. */
 async function commitOfChanges(cwd: string, head: string, index: string): Promise<string> {
-  const env = { GIT_INDEX_FILE: index, ...AUTHOR };
+  const env = { GIT_INDEX_FILE: index };
   await git(cwd, ["read-tree", head], env);
   await git(cwd, ["add", "-A"], env);
   const tree = (await git(cwd, ["write-tree"], env)).trim();
-  return (await git(cwd, ["commit-tree", tree, "-p", head, "-m", "точка"], env)).trim();
+  return (await git(cwd, ["-c", "user.name=points", "-c", "user.email=points@switchboard", "commit-tree", tree, "-p", head, "-m", "снимок точки"])).trim();
 }
 
 const two = (n: number) => String(n).padStart(2, "0");
@@ -59,7 +57,7 @@ function branchName(): string {
   return `points-${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
 }
 
-/** Что будет с папкой подъёма; sessions — другие сессии в ней. */
+/** Что будет с папкой подъёма; branch — нынешняя ветка папки, sessions — другие сессии в ней. */
 export async function folderOf(dir: string, summary: Summary | undefined, sessions: string[]): Promise<Folder> {
   const plain = { files: 0, branch: null, sessions: [] };
   if (!summary) return { folder: "nogit", ...plain };
@@ -67,11 +65,12 @@ export async function folderOf(dir: string, summary: Summary | undefined, sessio
   const url = await quiet(dir, ["remote", "get-url", "origin"]);
   if (url === null || !sameRepo(url, summary.url)) return { folder: "other", ...plain };
   const files = await changed(dir);
-  if (files) return { folder: "dirty", files, branch: null, sessions };
-  return { folder: sessions.length ? "shared" : "same", files: 0, branch: branchName(), sessions };
+  const branch = await quiet(dir, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  if (files) return { folder: "dirty", files, branch, sessions };
+  return { folder: sessions.length ? "shared" : "same", files: 0, branch, sessions };
 }
 
-/** Папка точки: клон в пустую, ветка от коммита точки в том же репозитории; пакет — поверх. Ответ — имя ветки. */
+/** Папка точки: клон в пустую, ветка от коммита точки в том же репозитории без правок и чужих сессий; пакет — поверх. Ответ — имя ветки. */
 export async function bring(dir: string, summary: Summary, folder: Folder["folder"], bundle: Buffer | undefined): Promise<string> {
   const branch = branchName();
   const tmp = mkdtempSync(join(tmpdir(), "sb-point-"));

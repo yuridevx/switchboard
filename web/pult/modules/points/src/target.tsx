@@ -4,11 +4,12 @@ import type { App } from "@switchboard/web-core";
 import { machinesWith, Opts, PickOne, Row, slotChoice, SlotPick, useApp, useLoad, useMachineLoad } from "@switchboard/web-ui";
 import { checkOf, refused, type Check, type Probe } from "./words.ts";
 
-/** Машин до этого числа — все кнопками; больше — кнопками только ближние. */
+/** До стольких машин все — кнопками; больше — ближние кнопками, остальные списком. */
 const FEW_MACHINES = 6;
 
 type Slots = Record<string, { wait: number | null }>;
 
+/** near — кнопками при любом числе машин; нет — только выбранная, остальные списком. */
 export function useTarget(o: { owner?: string; near?: string[]; slot?: string } = {}) {
   const app = useApp();
   const machines = app.use(() => machinesWith(app, "points.raise"));
@@ -19,7 +20,7 @@ export function useTarget(o: { owner?: string; near?: string[]; slot?: string } 
   const slots = accounts.stale ? undefined : accounts.data?.slots;
   const names = Object.keys(slots ?? {});
   const problem = accounts.error ? `machine.accounts: ${accounts.error}` : slots && !names.length ? `На ${machine} нет слотов: войдите в аккаунт на этой машине` : "";
-  return { machines, machine, near: machines.length <= FEW_MACHINES ? machines : (o.near ?? []), pick: setPicked, slots, slot: slotChoice(names, slotPicked ?? o.slot), setSlot, problem };
+  return { machines, machine, near: o.near && machines.length <= FEW_MACHINES ? machines : (o.near ?? []), pick: setPicked, slots, slot: slotChoice(names, slotPicked ?? o.slot), setSlot, problem };
 }
 
 export type Target = ReturnType<typeof useTarget>;

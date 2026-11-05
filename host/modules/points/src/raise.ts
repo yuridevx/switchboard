@@ -1,11 +1,11 @@
 // Поднять сессию из точки: перенос, копия, откат и смена папки — один путь: реестр → блоки → файлы → сессия → точка подъёма.
 import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, sep } from "node:path";
 import { zstdDecompressSync } from "node:zlib";
 import { claudeDir, clientPath, refuse } from "@switchboard/host";
 import type { Ctx, Frame, Host, Result, Session } from "@switchboard/host";
 import { bring, BUNDLE, folderOf, type Folder, type Summary } from "./git.ts";
-import { projectDir, r2Failed, r2Fetch, sha256, snap, type PointFile } from "./snap.ts";
+import { projectDir, r2Failed, r2Fetch, sha256, type PointExtra, type PointFile, type Why } from "./snap.ts";
 
 type Row = { sid: string; callsign?: string; files: PointFile[]; git?: Summary };
 type Got = { owner: string; points: Row[]; links: Record<string, string> };
@@ -51,12 +51,14 @@ function setAside(sid: string, target: string) {
   }
 }
 
+/** Файлы точки в папку проекта: путь из реестра не выходит из неё, файл появляется целиком. */
 function writeFiles(target: string, files: Map<string, Buffer>) {
-  for (const [p, data] of files) {
-    if (p === BUNDLE) continue;
-    const file = join(target, p);
+  const paths = [...files.keys()].filter((p) => p !== BUNDLE).map((p) => [p, resolve(target, p)]);
+  for (const [p, file] of paths) if (!file.startsWith(resolve(target) + sep)) throw refuse("bad_point", `путь файла точки вне папки проекта: ${p}`);
+  for (const [p, file] of paths) {
     mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, data);
+    writeFileSync(`${file}.tmp`, files.get(p)!);
+    renameSync(`${file}.tmp`, file);
   }
 }
 
@@ -64,8 +66,11 @@ const sessionsOf = (host: Host) => host.sessions().flatMap((x) => (host.session(
 
 export type Raised = { callsign: string; point: number | null; folder: Folder["folder"] | "keep"; branch: string | null };
 
-/** Подъём; mark ставит пометку поднятой сессии. Копия кладёт первую точку сама, на первом конце хода. */
-export async function raise(req: Frame, { host, from }: Ctx, mark: (s: Session, base?: number) => void): Promise<Raised | Folder> {
+/** Что подъёму даёт модуль: пометка поднятой сессии, точка по очереди сессии, сессия без точки на закрытии. */
+type Rule = { mark(s: Session, base?: number): void; save(s: Session, why: Why, extra?: PointExtra): Promise<{ id: number }>; drop(callsign: string): void };
+
+/** Подъём. Копия кладёт первую точку сама, на первом конце хода. */
+export async function raise(req: Frame, { host, from }: Ctx, rule: Rule): Promise<Raised | Folder> {
   const sid = req.sid as string;
   const point = req.point as number;
   const copy = req.copy === true;
@@ -87,28 +92,33 @@ export async function raise(req: Frame, { host, from }: Ctx, mark: (s: Session, 
 
   const files = await download(host, row, got.links);
   const target = projectDir(dir);
+  // копия в папку этой же сессии: файл разговора её, ни писать, ни убирать его нельзя
+  const own = copy && previous !== undefined && resolve(previous.cwd) === resolve(dir);
   if (!copy) setAside(sid, target);
-  writeFiles(target, files);
-  const bringing = !keep && row.git && ["empty", "same", "shared"].includes(check.folder);
+  if (!own) writeFiles(target, files);
+  const bringing = !keep && row.git && (check.folder === "empty" || check.folder === "same");
   const branch = bringing ? await bring(dir, row.git!, check.folder, files.get(BUNDLE)) : null;
 
   const name = (row.callsign ?? sid).split("@")[0];
   const moved = !copy && got.owner !== host.machine;
   const before = `${name}@${got.owner}`;
   const callsign = previous && !copy ? await restart(host, previous.callsign, point) : await open(host, req, { from, dir, sid, point, copy, name, moved, before });
-  if (copy) {
+  if (copy && !own) {
     rmSync(join(target, `${sid}.jsonl`), { force: true });
     rmSync(join(target, sid), { recursive: true, force: true });
   }
 
   const s = host.session(callsign)!;
   host.log({ kind: "note", ev: "raise", callsign, sid, point, copy, why: `${callsign}: поднята из точки ${point}` });
-  mark(s, copy ? point : undefined);
+  rule.mark(s, copy ? point : undefined);
   const folder = keep ? "keep" : check.folder;
   if (copy) return { callsign, point: null, folder, branch };
 
-  const put = await snap(host, s, "raise", { base: point, expect: got.owner, ...(from ? { by: from } : {}) }).catch(async (e) => {
-    if (e.word === "not_owner") must(await host.request("session.remove", { callsign }));
+  const put = await rule.save(s, "raise", { base: point, expect: got.owner, ...(from ? { by: from } : {}) }).catch(async (e) => {
+    if (e.word === "not_owner") {
+      rule.drop(callsign);
+      must(await host.request("session.remove", { callsign }));
+    }
     throw e;
   });
   if (moved) {

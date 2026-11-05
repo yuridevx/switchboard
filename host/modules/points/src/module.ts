@@ -25,12 +25,21 @@ export function make(): Module {
   const idle = new Map<string, Set<() => void>>();
   const leaving = new Set<string>();
   const work = new Set<Promise<void>>();
+  /** точки одной сессии идут по очереди */
+  const queue = new Map<string, Promise<unknown>>();
 
   const markOf = (s: Session) => s.store<Mark>();
   const marked = (s: Session) => markOf(s).get() !== undefined;
 
   /** Точка и её след: срок правила и поле roster. */
-  async function save(s: Session, why: Why, extra?: PointExtra) {
+  function save(s: Session, why: Why, extra?: PointExtra) {
+    const { callsign } = s.info;
+    const turn = (queue.get(callsign) ?? Promise.resolve()).catch(() => {}).then(() => take(s, why, extra));
+    queue.set(callsign, turn);
+    return turn;
+  }
+
+  async function take(s: Session, why: Why, extra?: PointExtra) {
     const { callsign } = s.info;
     try {
       const put = await snap(host, s, why, extra);
@@ -57,7 +66,8 @@ export function make(): Module {
   /** Точка по поводу машины: сбой — в поле r2 и журнале, запрашивать некому. */
   function auto(s: Session, why: Why = "rule") {
     const mark = markOf(s).get();
-    if (down || !mark || !existsSync(conversationOf(s))) return;
+    // до точки старта правило молчит: первая точка после перезапуска Host — она
+    if (down || !mark || (!started && why === "rule") || !existsSync(conversationOf(s))) return;
     const job = (async () => {
       try {
         if (mark.base === undefined) await save(s, why);
@@ -171,7 +181,12 @@ export function make(): Module {
         return { point: put.id, same: put.same === true };
       },
 
-      "points.raise": (req, ctx) => raise(req, ctx, (s, base) => markOf(s).set({ r2: true, ...(base === undefined ? {} : { base }) })),
+      "points.raise": (req, ctx) =>
+        raise(req, ctx, {
+          mark: (s, base) => markOf(s).set({ r2: true, ...(base === undefined ? {} : { base }) }),
+          save,
+          drop: (callsign) => void leaving.add(callsign),
+        }),
     },
     start(h) {
       host = h;

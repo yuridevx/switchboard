@@ -263,8 +263,14 @@ describe("эталоны points", () => {
     reg.sessions.set(SID, { owner: "pc", head: 318 });
     b = await bench({ home, holders: keeper, reg, holdRoster: true, sessions: [{ callsign: "site@laptop", session_id: SID, cwd }] });
     await new Promise((r) => setTimeout(r, 300));
-    // связи нет — точки старта нет
+    // связи нет — точки старта нет; до неё правило молчит
+    b.st.proc("site@laptop").send(msg.state("running"));
+    await until(() => b!.st.session("host-points", "site@laptop")!.state === "busy");
+    b.st.proc("site@laptop").send(msg.state("idle"));
+    await until(() => b!.st.session("host-points", "site@laptop")!.state === "idle");
+    await new Promise((r) => setTimeout(r, 50));
     expect(puts("start")).toHaveLength(0);
+    expect(puts("rule")).toHaveLength(0);
     b.st.relay.releaseRoster();
     await until(() => puts("yield").length === 1, 3000);
     expect(puts("start")[0].result).toBe("not_owner");
@@ -384,6 +390,14 @@ describe("points: ветки и стыки", () => {
     ["3088 · files point в другой репозиторий — bad_dir", "bad_dir", async () => ({ machine: "pc", sid: SID, point: 318, dir: join(home, "Projects", "other"), files: "point" })],
     ["3111 · папка не от ~ и не полная — bad_dir, а не путь от папки выпуска Host", "bad_dir", async () => ({ machine: "pc", sid: SID, point: 318, dir: "sb-copy", files: "point" })],
     ["3090 · реестр не отдал точку — его слово", "no_point", async () => ({ machine: "pc", sid: SID, point: 999, dir: join(home, "Projects", "other") })],
+    [
+      "путь файла точки вне папки проекта — bad_point",
+      "bad_point",
+      async () => {
+        b!.reg.seed(7, "sneak", "laptop", { "../evil.jsonl": conv(1) });
+        return { machine: "pc", sid: "sneak", point: 7, dir: join(home, "Projects", "other") };
+      },
+    ],
     [
       "сессия здесь же идёт — running",
       "running",
@@ -588,6 +602,27 @@ describe("points: покрытие плана host-modules", () => {
     expect(b.reg.puts.at(-1)!.result).not.toBe("missing");
   });
 
+  it("точки одной сессии идут по очереди: вторая начинается после ответа на первую", async () => {
+    // источник: чьё: код (заголовок модуля точек)
+    b = await bench({ home });
+    const s = await marked();
+    appendFileSync(fileOf(s.info.cwd, s.info.session_id), line(7));
+    const n = b.reg.puts.length;
+    await Promise.all([ask({ type: "points.save", callsign: "site@laptop" }), ask({ type: "points.save", callsign: "site@laptop" })]);
+    expect(b.reg.puts.slice(n).map((p) => p.result)).toEqual(["missing", "ok", "same"]);
+  });
+
+  it("копия в папку этой же сессии: файл её разговора цел", async () => {
+    // источник: чьё: код (файл источника убирается только у чужой папки)
+    b = await bench({ home });
+    const s = await marked("site@laptop", conv(30));
+    const sid = s.info.session_id;
+    const before = readFileSync(fileOf(s.info.cwd, sid));
+    b.reg.seed(300, sid, "laptop", { [`${sid}.jsonl`]: conv(12) });
+    expect(await ask({ type: "points.raise", machine: "laptop", sid, point: 300, copy: true, name: "twin", dir: s.info.cwd })).toMatchObject({ ok: true });
+    expect(readFileSync(fileOf(s.info.cwd, sid))).toEqual(before);
+  });
+
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {
     // источник: чьё: код (points.ts:322-331)
     b = await bench({ home });
@@ -620,6 +655,9 @@ describe("points: покрытие плана host-modules", () => {
     expect(r).toMatchObject({ ok: false, error: "not_owner" });
     expect(b.manage.map((m) => m.type)).toEqual(["session.open", "session.remove"]);
     expect(b.st.kernel.sessions.has("site@pc")).toBe(false);
+    // поднятая здесь лишняя: на закрытии точки нет
+    await new Promise((r) => setTimeout(r, 50));
+    expect(b.reg.puts.map((p) => p.why)).toEqual(["raise"]);
   });
 
   it("3091 · прежний хозяин недоступен — подъём удался, отказ remove в журнале", async () => {
@@ -769,6 +807,19 @@ describe("папка подъёма и git", () => {
     expect((pt.files as Array<{ p: string }>).map((x) => x.p)).toContain("git.bundle");
     expect(git(work, "rev-parse", "HEAD")).toBe(head);
     expect(git(work, "for-each-ref", "refs/points")).toBe("");
+  });
+
+  it("подъём в папку, где идёт другая сессия: папка не тронута, ветки нет", async () => {
+    // источник: чьё: код (ветка — только в репозитории без правок и чужих сессий)
+    const dir = join(home, "Projects", "shared");
+    repoAt(dir);
+    const head = git(dir, "rev-parse", "--abbrev-ref", "HEAD");
+    b = await bench({ home, machine: "pc" });
+    await b.st.open("near@pc", { module: "host-points", cwd: dir });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) }, { git: SUMMARY });
+    const r = await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" });
+    expect(r.result).toMatchObject({ folder: "shared", branch: null });
+    expect(git(dir, "rev-parse", "--abbrev-ref", "HEAD")).toBe(head);
   });
 
   it("подъём в тот же чистый репозиторий: fetch origin, новая ветка от коммита точки; пакет в папку проекта не кладётся", async () => {
