@@ -435,8 +435,7 @@ describe("удалить сессию", () => {
     expect(present.slice(0, 88).every(Boolean)).toBe(true);
     expect(await count("SELECT COUNT(*) AS n FROM points WHERE sid = '9f03'")).toBe(0);
     expect(((await list())[0].result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["7e19"]);
-    // 300 объектов R2 и 57 точек: на Linux 5–7 с и на прежнем коде, общий предел 5 с мал
-  }, 30_000);
+  });
 
   it("2070 2069 · машина не хозяин — not_owner; нет sid — bad_frame; сессии нет — нули без события; поле by идёт в журнал", async () => {
     await inR2("304a1");

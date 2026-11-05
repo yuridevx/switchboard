@@ -32,5 +32,6 @@ export default { fetch: () => new Response(null, { status: 404 }) };`,
       },
     }),
   ],
-  test: { include: ["test/**/*.test.ts"] },
+  // сотни объектов R2 и точек: на Linux тест идёт 5–7 с и на прежнем коде
+  test: { include: ["test/**/*.test.ts"], testTimeout: 30_000 },
 });

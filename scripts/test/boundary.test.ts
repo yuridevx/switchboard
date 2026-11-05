@@ -7,7 +7,7 @@ import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
@@ -429,7 +429,8 @@ describe("стенд фронта: сервер", { timeout: CMD_MS }, () => {
   it("события: правка исходника — reload всем флотам; файл комментариев изменён — comments только своему флоту", async () => {
     const s = await stand();
     expect(await eventOf(s.at("prod"), "reload", () => writeFileSync(s.entry, 'console.log("stand page 2");\n'))).toBe(true);
-    expect(await (await fetch(`${s.at("test")}/live.js`)).text()).toContain("stand page 2");
+    // у каждого флота своя пересборка: событие прода не значит, что файл теста уже новый
+    await vi.waitFor(async () => expect(await (await fetch(`${s.at("test")}/live.js`)).text()).toContain("stand page 2"), { timeout: 10_000, interval: 100 });
     expect(await eventOf(s.at("test"), "comments", () => writeFileSync(s.file("test"), JSON.stringify({ comments: [] })))).toBe(true);
   });
 
