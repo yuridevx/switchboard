@@ -2,43 +2,46 @@
 import { useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf, nameOf } from "@switchboard/protocol";
-import { Btn, useApp, In } from "@switchboard/web-ui";
-import { useLabels } from "./store.ts";
+import { Btn, In, useApp } from "@switchboard/web-ui";
+import { useNames } from "./names.ts";
+
+type FieldProps = { id: string; title: string; hint: string; value: string; focus: boolean; set(text: string): void; onKeyDown(e: KeyboardEvent): void };
+
+function Field({ id, title, hint, value, focus, set, onKeyDown }: FieldProps) {
+  return (
+    <label className="lb-f">
+      <span>{title}</span>
+      <In autoFocus={focus} data-f={id} value={value} placeholder={hint} autoComplete="off" onInput={(e) => set(e.currentTarget.value)} onKeyDown={onKeyDown} />
+    </label>
+  );
+}
 
 export function LabelsScreen({ params, close }: ScreenProps) {
   const app = useApp();
-  const labels = useLabels();
+  const names = useNames();
   const callsign = params.callsign ?? "";
   const machine = params.machine ?? machineOf(callsign) ?? "";
-  const [sessionName, setSessionName] = useState(() => (callsign ? labels.nameOf(callsign) : ""));
-  const [machineName, setMachineName] = useState(() => labels.nameOf(`@${machine}`));
+  const [sessionName, setSessionName] = useState(() => names.nameOf(callsign));
+  const [machineName, setMachineName] = useState(() => names.nameOf(`@${machine}`));
 
-  const done = () => (close ? close() : app.back());
+  const leave = () => (close ? close() : app.back());
   const save = () => {
-    labels.save(callsign, machine, sessionName.trim(), machineName.trim());
-    done();
+    names.save(callsign, machine, sessionName, machineName);
+    leave();
   };
-  const keys = (e: KeyboardEvent) => {
+  const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") save();
-    if (e.key === "Escape") done();
+    if (e.key === "Escape") leave();
   };
   return (
-    <div className={app.wide ? "lb-veil" : "lb-veil narrow"} onClick={(e) => e.target === e.currentTarget && done()}>
+    <div className={app.wide ? "lb-veil" : "lb-veil narrow"} onClick={(e) => e.target === e.currentTarget && leave()}>
       <div className="lb-dlg" role="dialog" aria-label="Имена">
         <b>Имена</b>
         <div className="lb-a">{callsign || `@${machine}`}</div>
-        {callsign ? (
-          <label className="lb-f">
-            <span>Имя сессии</span>
-            <In autoFocus data-f="session" value={sessionName} placeholder={nameOf(callsign)} autoComplete="off" onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={keys} />
-          </label>
-        ) : null}
-        <label className="lb-f">
-          <span>Имя машины</span>
-          <In autoFocus={!callsign} data-f="machine" value={machineName} placeholder={`@${machine}`} autoComplete="off" onInput={(e) => setMachineName(e.currentTarget.value)} onKeyDown={keys} />
-        </label>
+        {callsign ? <Field id="session" title="Имя сессии" hint={nameOf(callsign)} value={sessionName} focus set={setSessionName} onKeyDown={onKeyDown} /> : null}
+        <Field id="machine" title="Имя машины" hint={`@${machine}`} value={machineName} focus={!callsign} set={setMachineName} onKeyDown={onKeyDown} />
         <div className="lb-ft">
-          <Btn onClick={done}>Отмена</Btn>
+          <Btn onClick={leave}>Отмена</Btn>
           <Btn pri data-act="save" onClick={save}>
             Сохранить
           </Btn>

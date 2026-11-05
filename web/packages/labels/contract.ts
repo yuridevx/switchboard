@@ -5,7 +5,7 @@
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createLabels } from "./src/module.tsx";
-import type { Shown } from "./src/store.ts";
+import type { Shown } from "./src/names.ts";
 
 declare module "@switchboard/web-ui" {
   interface Marks {
