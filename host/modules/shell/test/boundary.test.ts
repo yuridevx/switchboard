@@ -2,10 +2,11 @@
 // bash (Git Bash на Windows), PowerShell где есть. Вторая машина — второй стенд: кадры между поддельными relay ходят по machine и to, как в рации.
 // Отдельный файл: настоящие процессы с запасом по времени, остальные флоу границы идут на подделках.
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 import { stand } from "@switchboard/host";
 import type { Attachment, Frame, Manifest } from "@switchboard/host";
 import { machineOf, MAX_FRAME } from "@switchboard/protocol";
@@ -552,6 +553,160 @@ describe("запуск", { timeout: 30_000 }, () => {
       holder.kill();
       await new Promise((r) => holder.once("exit", r));
       rmSync(runDir(run), { recursive: true, force: true });
+    }
+  });
+});
+
+// Дописано на втором круге: поведение снято с работающего кода чёрным ящиком до сноса; чьё: код.
+describe("shell: остальные формы", { timeout: 30_000 }, () => {
+  it("типы параметров инструментов: их видит модель", () => {
+    const tools = make().tools("me@pc") as unknown as Array<{ name: string; inputSchema: z.ZodRawShape }>;
+    const schema = Object.fromEntries(tools.map((t) => [t.name, z.toJSONSchema(z.object(t.inputSchema))])) as Record<string, { properties: Record<string, { type?: string; enum?: string[] }>; required?: string[] }>;
+    expect(schema.info.required).toEqual(["machine"]);
+    expect(schema.run.required).toEqual(["machine", "shell", "script", "background"]);
+    expect(schema.run.properties).toMatchObject({ machine: { type: "string" }, shell: { type: "string", enum: ["bash", "pwsh", "powershell"] }, script: { type: "string" }, stdin: { type: "string" }, timeout: { type: "number" }, background: { type: "boolean" } });
+    expect(schema.wait.required).toEqual(["machine", "run", "timeout"]);
+    expect(schema.wait.properties.timeout.type).toBe("number");
+    expect(schema.kill.required).toEqual(["machine", "run"]);
+  });
+
+  it("скрипт стартует в домашней папке; $SB_OUT — папка выхода запуска; вывод не UTF-8 — со знаком замены; пустой скрипт — exit 0", async () => {
+    const { req } = await machine("laptop");
+    const run = rid("cwd");
+    const r = await req("shell.run", { run, shell: "bash", script: 'b="$PWD"; cd "$HOME"; [ "$PWD" = "$b" ] && echo home; echo "$SB_OUT"', background: false });
+    const [home, out] = r.result!.stdout.trim().split("\n");
+    expect(home).toBe("home");
+    expect(out).toBe(join(runDir(run), "out"));
+    expect((await req("shell.run", { run: rid("bin"), shell: "bash", script: 'printf "\\xff"; printf "\\xff" >&2', background: false })).result).toMatchObject({ stdout: "\ufffd", stderr: "\ufffd" });
+    expect((await req("shell.run", { run: rid("e"), shell: "bash", script: "", background: false })).result).toMatchObject({ state: "exit", code: 0, stdout: "", stderr: "" });
+  });
+
+  it("id запуска: буквы, цифры, _ и -, до 64 знаков", async () => {
+    const { req } = await machine("laptop");
+    const tag = `${process.pid}${++seq}`;
+    for (const good of [`i${tag}`, `-a${tag}`, `a-b_C9${tag}`, `${tag}`.padEnd(64, "i")]) expect((await req("shell.run", { run: good, shell: "bash", script: "true", background: false })).ok, good).toBe(true);
+    for (const bad of ["i".repeat(65), "a b", "a.b", "..", "ю"]) expect(await req("shell.run", { run: bad, shell: "bash", script: "true", background: false }), bad).toMatchObject({ ok: false, error: "bad_frame", why: "run: нужен id запуска" });
+  });
+
+  it("тип файла по расширению без учёта регистра, неизвестное — octet-stream; порядок файлов по имени", async () => {
+    const { req } = await machine("laptop");
+    const types: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", txt: "text/plain", log: "text/plain", md: "text/markdown", csv: "text/csv", html: "text/html", htm: "text/html", json: "application/json", xml: "application/xml", yaml: "application/yaml", yml: "application/yaml", pdf: "application/pdf", zip: "application/zip", ts: "application/octet-stream", tsv: "application/octet-stream", gz: "application/octet-stream", bmp: "application/octet-stream", jsonl: "application/octet-stream" };
+    types.xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    const script = Object.keys(types).map((e) => `echo hi > "$SB_OUT/f.${e}"`).join("; ") + '; echo x > "$SB_OUT/plain"; echo y > "$SB_OUT/UP.TXT"';
+    const files = (await req("shell.run", { run: rid("m"), shell: "bash", script, background: false })).result!.files!;
+    expect(Object.fromEntries(files.map((f) => [f.name, f.media_type]))).toEqual({ ...Object.fromEntries(Object.entries(types).map(([e, t]) => [`f.${e}`, t])), plain: "application/octet-stream", "UP.TXT": "text/plain" });
+    const names = files.map((f) => f.name);
+    expect(names).toEqual([...names].sort((x, y) => x.localeCompare(y)));
+  });
+
+  it("у модели: текст — всё, что читается как UTF-8 без нуля, какого угодно типа и размера, без BOM; остальное — файл в своей папке, размер вверх в КБ; SVG — текст; пустой — текст", async () => {
+    const { tool } = await machine("laptop");
+    const script = `printf '\\xff\\xfe' > "$SB_OUT/bad.txt"; printf 'a\\x00b' > "$SB_OUT/nul.dat"; printf '\\xef\\xbb\\xbfbom' > "$SB_OUT/bom.dat"; printf 'тест' > "$SB_OUT/ру.bin"; head -c 1024 /dev/zero > "$SB_OUT/k1.dat"; head -c 1500 /dev/zero > "$SB_OUT/k2.dat"; head -c 1048576 /dev/zero > "$SB_OUT/m1.dat"; head -c 300000 /dev/zero | tr "\\0" "a" > "$SB_OUT/big.bin"; : > "$SB_OUT/empty.txt"; echo '<svg/>' > "$SB_OUT/s.svg"`;
+    const m = await tool("site@laptop", "run", { machine: "laptop", shell: "bash", script, background: false });
+    const run = /run (\w+)/.exec(m.content[0].text!)![1];
+    const at = (name: string) => join(tmpdir(), "switchboard-shell", "files", run, name);
+    const texts = m.content.slice(1).map((c) => c.text!);
+    expect(texts).toEqual([
+      `── bad.txt (text/plain, 1 КБ) — файл: ${at("bad.txt")}`,
+      `── big.bin (application/octet-stream) ──\n${"a".repeat(300000)}`,
+      "── bom.dat (application/octet-stream) ──\nbom",
+      "── empty.txt (text/plain) ──\n",
+      `── k1.dat (application/octet-stream, 1 КБ) — файл: ${at("k1.dat")}`,
+      `── k2.dat (application/octet-stream, 2 КБ) — файл: ${at("k2.dat")}`,
+      `── m1.dat (application/octet-stream, 1024 КБ) — файл: ${at("m1.dat")}`,
+      `── nul.dat (application/octet-stream, 1 КБ) — файл: ${at("nul.dat")}`,
+      "── s.svg (image/svg+xml) ──\n<svg/>\n",
+      "── ру.bin (application/octet-stream) ──\nтест",
+    ]);
+    expect(readFileSync(at("nul.dat"))).toEqual(Buffer.from("a\0b"));
+  });
+
+  it("скрипт стёр свою папку выхода: итог без файлов, модуль жив", async () => {
+    const { req } = await machine("laptop");
+    expect((await req("shell.run", { run: rid("rm"), shell: "bash", script: 'rm -rf "$SB_OUT"; echo x', background: false })).result).toMatchObject({ state: "exit", code: 0, stdout: "x\n", files: [] });
+    expect((await req("shell.run", { run: rid("rm"), shell: "bash", script: "echo y", background: false })).ok).toBe(true);
+  });
+
+  it("строка журнала: первая строка скрипта, не длиннее 200 знаков", async () => {
+    const { st, req } = await machine("laptop");
+    const a = rid("l");
+    const b = rid("l");
+    const c = rid("l");
+    await req("shell.run", { run: a, shell: "bash", script: "echo a\necho b\n", background: false });
+    await req("shell.run", { run: b, shell: "bash", script: "\n\necho a", background: false });
+    await req("shell.run", { run: c, shell: "bash", script: "echo " + "x".repeat(500), background: false });
+    const line = (r: string) => st.journal().find((l) => l.ev === "run_start" && l.run === r)!.line as string;
+    expect(line(a)).toBe("echo a");
+    expect(line(b)).toBe("");
+    expect(line(c)).toHaveLength(200);
+  });
+
+  it("у модели: шапка по снимку — exit без кода, минуты, stderr; приписка фона только у идущего run; info — отступ 1", async () => {
+    const { st, tool } = await machine("laptop");
+    let reply: Record<string, unknown> = {};
+    const recv = st.relay.receive.bind(st.relay);
+    st.relay.receive = (ws, raw) => {
+      recv(ws, raw);
+      if (raw === "ping") return;
+      const f = JSON.parse(raw) as Frame;
+      if (f.machine === "far" && typeof f.id === "string") queueMicrotask(() => st.relay.deliver({ type: "reply", id: f.id as string, from: "@far", ok: true, result: reply } as Frame));
+    };
+    const wait = async (r: Record<string, unknown>) => {
+      reply = r;
+      return (await tool("site@laptop", "wait", { machine: "far", run: "r1", timeout: 0 })).content.map((c) => c.text);
+    };
+    expect(await wait({ state: "exit", code: null, ms: 1, stdout: "", stderr: "" })).toEqual(["far · exit · 0.0 с · run r1\n── stdout ──\n(пусто)"]);
+    expect(await wait({ state: "killed", code: null, ms: 59_999, stdout: "o\n", stderr: "e\n" })).toEqual(["far · killed · 60.0 с · run r1\n── stdout ──\no\n\n── stderr ──\ne\n"]);
+    expect(await wait({ state: "running", ms: 3_600_000, stdout: "", stderr: "" })).toEqual(["far · running · 60 мин 00 с · run r1\n── stdout ──\n(пусто)"]);
+    expect(await wait({ state: "exit", code: 0, ms: 125_000, stdout: "", stderr: "", files: [{ name: "x.txt", media_type: "text/plain", data: "aA==" }] })).toEqual(["far · exit 0 · 2 мин 05 с · run r1\n── stdout ──\n(пусто)", "── x.txt (text/plain) ──\nh"]);
+    reply = { state: "running", ms: 1, stdout: "", stderr: "" };
+    expect((await tool("site@laptop", "run", { machine: "far", shell: "bash", script: "x", background: false })).content[0].text).toMatch(/^far · running · 0\.0 с · run \w+\n── stdout ──\n\(пусто\)$/);
+    reply = { state: "exit", code: 0, ms: 1, stdout: "", stderr: "" };
+    expect((await tool("site@laptop", "run", { machine: "far", shell: "bash", script: "x", background: true, timeout: 1 })).content[0].text).toMatch(/^far · exit 0 · 0\.0 с · run \w+\n── stdout ──\n\(пусто\)$/);
+    reply = { shells: { bash: { version: "5", path: "/b" } } };
+    expect((await tool("site@laptop", "info", { machine: "far" })).content[0].text).toBe('{\n "bash": {\n  "version": "5",\n  "path": "/b"\n }\n}');
+  });
+
+  it("фоновый: конец у владельца-сессии — report, состояние словом: exit с кодом, timeout, killed", async () => {
+    const { a, b } = await pair();
+    await a.st.open("site@win");
+    const bg = async (script: string, timeout: number) => /run (\w+)/.exec((await a.tool("site@win", "run", { machine: "wsl", shell: "bash", script, background: true, timeout })).content[0].text!)![1];
+    const one = await bg("exit 2", 7);
+    await until(() => said(a.st, "site@win").includes(`run ${one} на wsl кончился: exit 2 · `), 10000);
+    expect(b.st.relay.frames("message").at(-1)).toMatchObject({ to: "site@win", report: true });
+    const two = await bg("sleep 20", 1);
+    await until(() => said(a.st, "site@win").includes(`run ${two} на wsl кончился: timeout · `), 10000);
+    const three = await bg("sleep 20", 60);
+    await a.tool("site@win", "kill", { machine: "wsl", run: three });
+    await until(() => said(a.st, "site@win").includes(`run ${three} на wsl кончился: killed · `), 10000);
+  });
+
+  it("wait и kill: timeout не число, отрицательный — bad_frame у идущего запуска; run не строка и неверный — no_run раньше timeout; timeout run не число и отрицательный — bad_frame", async () => {
+    const { req } = await machine("laptop");
+    const why = "timeout: секунды ожидания, 0 — сразу";
+    const run = rid("w");
+    await req("shell.run", { run, shell: "bash", script: "echo x", background: false });
+    expect(await req("shell.wait", { run, timeout: -1 })).toMatchObject({ ok: false, error: "bad_frame", why });
+    expect(await req("shell.wait", { run, timeout: "1" })).toMatchObject({ ok: false, error: "bad_frame", why });
+    expect(await req("shell.wait", { run: "nope", timeout: -1 })).toMatchObject({ ok: false, error: "no_run" });
+    expect(await req("shell.wait", { run: 3, timeout: 0 })).toMatchObject({ ok: false, error: "no_run", why: "run 3: запуска нет" });
+    expect(await req("shell.kill", {})).toMatchObject({ ok: false, error: "no_run", why: "run undefined: запуска нет" });
+    for (const timeout of ["1", -1]) expect(await req("shell.run", { run: rid("t"), shell: "bash", script: "true", timeout, background: false })).toMatchObject({ ok: false, error: "bad_frame", why: "timeout: секунды больше 0" });
+  });
+
+  it.skipIf(!win)("Windows: путь из CLAUDE_CODE_GIT_BASH_PATH, которого нет, — шелл Git из стандартной папки; PowerShell есть всегда", async () => {
+    const old = process.env.CLAUDE_CODE_GIT_BASH_PATH;
+    process.env.CLAUDE_CODE_GIT_BASH_PATH = "C:\\нет\\bash.exe";
+    try {
+      const { req } = await machine("laptop");
+      const r = (await req("shell.info", {})) as unknown as { result: { shells: Record<string, { path: string; version: string }> } };
+      expect(r.result.shells.bash.path).not.toBe("C:\\нет\\bash.exe");
+      expect(existsSync(r.result.shells.bash.path)).toBe(true);
+      expect(r.result.shells.bash.version).toMatch(/^\d+\.\d+/);
+      expect(existsSync(r.result.shells.powershell.path)).toBe(true);
+    } finally {
+      if (old === undefined) delete process.env.CLAUDE_CODE_GIT_BASH_PATH;
+      else process.env.CLAUDE_CODE_GIT_BASH_PATH = old;
     }
   });
 });

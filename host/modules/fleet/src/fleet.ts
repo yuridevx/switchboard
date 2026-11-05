@@ -1,51 +1,53 @@
-// Модуль fleet: сессии флота видят друг друга, пишут, открывают и ведут других — как в десктоп-приложении Claude.
-// Каждой сессии — сервер MCP fleet. Открыть, прочитать, сменить модель и закрыть — запросы manage и chat, fleet их только зовёт.
-// Своего хранения нет: проекты и имена — записи области флота у службы настроек, формат — у records.
 import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
-import type { Module, SDKMessage, Session } from "@switchboard/host";
-import { FLEET_PREFIX, settings } from "@switchboard/records";
+import type { Host, Module, Session } from "@switchboard/host";
 import { kindOf } from "@switchboard/protocol";
+import { FLEET_PREFIX, settings } from "@switchboard/records";
+import type { Settings } from "@switchboard/records";
 import { prompt } from "./prompt.ts";
-import { fleetTools, type Env } from "./tools.ts";
+import { toolsOf } from "./tools.ts";
 
-/** Текст итога хода для родителя. Ход с ошибкой бывает и с типом success («Not logged in»): родителю — текст ошибки, а не тип. */
-function outcome({ subtype, is_error, result }: { subtype: string; is_error?: boolean; result?: string }): string {
-  if (is_error) return result ? `ход кончился ошибкой: ${result}` : `ход кончился: ${subtype}`;
-  return subtype === "success" ? (result ?? "") : `ход кончился: ${subtype}`;
+type TurnEnd = { type: string; subtype?: string; is_error?: boolean; result?: string };
+
+/** Текст итога хода: что уйдёт родителю. */
+function outcome({ subtype, is_error: failed, result }: TurnEnd): string {
+  if (failed && result) return `ход кончился ошибкой: ${result}`;
+  return failed || subtype !== "success" ? `ход кончился: ${subtype}` : (result ?? "");
 }
 
 export function make() {
-  const env = {} as Env;
+  let host: Host;
+  let records: Settings;
 
-  /** Конец хода: последний ввод от родителя-сессии — итог ему тем же message. Родитель — поле manage этой машины: relay не нужен. */
-  function report(s: Session, m: SDKMessage): void {
-    const me = s.info.callsign;
-    const parent = s.field("parent");
-    if (typeof parent !== "string" || kindOf(parent) !== "session" || s.info.from !== parent) return;
-    void env.host.request("message", { to: parent, text: outcome(m as never), report: true, from: me }).then((r) => {
-      if (!r.ok) env.host.log({ kind: "note", ev: "report", word: r.error, callsign: me, why: `итог хода родителю ${parent} не доставлен: ${r.error}` });
+  const tools = (me: string) => toolsOf(me, () => ({ host, records }));
+
+  /** Ход кончился, а начал его родитель, — итог ему сам. */
+  function report(s: Session, end: TurnEnd): void {
+    const { callsign, from } = s.info;
+    const parent = s.field("parent") as string | undefined;
+    if (!parent || parent !== from || kindOf(parent) !== "session") return;
+    void host.request("message", { to: parent, text: outcome(end), report: true, from: callsign }).then((r) => {
+      if (!r.ok) host.log({ kind: "note", ev: "report", word: r.error, callsign, why: `итог хода родителю ${parent} не доставлен: ${r.error}` });
     });
   }
 
   const module: Module = {
     start(h) {
-      env.host = h;
-      env.meta = settings({ read: (name, body) => h.read(name, body) as never, ask: (name, body) => h.request(name, body) as never, prefix: FLEET_PREFIX, scope: "global" });
+      host = h;
+      records = settings({ read: (name, body) => h.read(name, body) as never, ask: (name, body) => h.request(name, body) as never, prefix: FLEET_PREFIX, scope: "global" });
     },
-    session: (s) => ({
-      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", version: "1.5.0", tools: fleetTools(s.info.callsign, env) }) },
-      append: prompt(s.info.callsign),
-      // переписка между сессиями — только через fleet: рубильник Claude Code убирает ListAgents и доставку
-      // SendMessage чужим сессиям в обе стороны; SendMessage своим субагентам остаётся (исключение устава, слово 1 нояб.)
+    stop: () => records.settled(),
+    session: ({ info: { callsign } }) => ({
+      mcpServers: { fleet: createSdkMcpServer({ name: "fleet", tools: tools(callsign) }) },
+      append: prompt(callsign),
+      // сессии говорят друг с другом только через fleet (слово пользователя 1 нояб.)
       env: { CLAUDE_CODE_HARBOR_KITE: "0" },
     }),
     on: {
-      event(s, m) {
-        if (m.type === "result") report(s, m);
+      event(s, msg) {
+        if (msg.type === "result") report(s, msg as TurnEnd);
       },
     },
-    // своего хранить нечего; правки записей доходят до службы
-    stop: () => env.meta.settled(),
   };
-  return { module, tools: (me: string) => fleetTools(me, env) };
+
+  return { module, tools };
 }
