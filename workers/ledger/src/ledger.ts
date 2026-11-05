@@ -1,8 +1,7 @@
 // Журнал флота над таблицей events: запись и чтение страницами. Текст входа и ухода машины пишет сам журнал по её прошлой записи.
 import { accepts, fail, machineOf, ok, type Frame } from "@switchboard/protocol";
-import type { LedgerEvent, LedgerReadResult } from "../contract.ts";
+import { CONTRACT, type LedgerEvent, type LedgerReadResult } from "../contract.ts";
 
-const REQUESTS = { "ledger.add": 1, "ledger.read": 1 };
 const PRESENCE = ["machine.left", "machine.back"];
 
 type Refusal = { word: string; why: string };
@@ -70,7 +69,7 @@ export async function frame(db: D1Database, f: Frame): Promise<Frame[]> {
     if (!f.id) return [];
     return [{ ...("word" in r ? fail(f.id, r.word) : ok(f.id, r.result)), to: f.from ?? "" }];
   };
-  const refused = accepts(f, REQUESTS);
+  const refused = accepts(f, CONTRACT);
   if (refused) return answer(refused);
   if (f.type === "ledger.add") return answer((await add(db, f)) ?? {});
   if (!f.id) return answer(bad("ledger.read без id — ответить некому"));
