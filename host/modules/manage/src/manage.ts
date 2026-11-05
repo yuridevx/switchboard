@@ -64,10 +64,8 @@ export function make(o: { home?: string } = {}): Module {
   /** Имена, которые открываются сейчас: заняты до записи ядра. */
   const opening = new Set<string>();
 
-  function ledger(ev: string, text: string, by: string | undefined, callsign: string): void {
-    const r = host.emit({ type: "ledger.add", to: ".ledger", ev, text, ...(by ? { by } : {}), machine: host.machine, callsign });
-    if (!r.ok) host.log({ kind: "note", ev: "ledger", word: r.error, callsign, why: `${ev} не записан в журнал флота: ${r.error}` });
-  }
+  /** Кадр без ответа прямо Worker'у; не дошёл — заметку пишет ядро. */
+  const ledger = (ev: string, text: string, by: string | undefined, callsign: string) => void host.emit({ type: "ledger.add", to: ".ledger", ev, text, ...(by ? { by } : {}), machine: host.machine, callsign });
 
   async function remove(s: Session, by: string | undefined): Promise<void> {
     const { callsign } = s.info;
