@@ -1,5 +1,5 @@
 // Обработчик пушей: показ и запись в раздел pushes; нажатие — окно приложения, кнопка — одно короткое соединение с relay машины.
-import { hostOf, type Frame } from "@switchboard/protocol";
+import { hostOf, withLimit, type Frame } from "@switchboard/protocol";
 import { link, type WsCtor } from "@switchboard/relay";
 import type { Store } from "@switchboard/web-core";
 
@@ -69,24 +69,22 @@ export function serviceWorker(scope: SwScope, o: SwOptions): void {
   }
 
   /** Кадр кнопки — одно соединение link с relay машины адресата: связь открыта — запрос, оборвалась — слово, без переподключения. */
-  function send(url: string, key: string, frame: Frame): Promise<string | null> {
-    return new Promise((done) => {
-      // итог — до close: close сам сообщает stopped
-      const finish = (word: string | null) => {
-        done(word);
-        l.close(1000, "done");
-      };
-      const l = link({
-        url,
-        key,
-        WebSocket: o.WebSocket,
-        requestMs: SEND_MS,
-        onState(s, why) {
-          if (s === "open") void l.request(frame).then((r) => finish(r.ok ? null : r.error));
-          else if (s !== "connecting") finish(why ?? s);
-        },
-      });
+  async function send(url: string, key: string, frame: Frame): Promise<string | null> {
+    let done!: (word: string | null) => void;
+    const finished = new Promise<string | null>((r) => (done = r));
+    const l = link({
+      url,
+      key,
+      WebSocket: o.WebSocket,
+      onState(s, why) {
+        if (s === "open") void l.request(frame).then((r) => done(r.ok ? null : r.error));
+        else if (s !== "connecting") done(why ?? s);
+      },
     });
+    // предел один на всё нажатие: обработчик живёт недолго, отказ должен успеть показаться
+    const word = await withLimit(finished, SEND_MS, () => "timeout");
+    l.close(1000, "done");
+    return word;
   }
 
   async function answer(frame: Frame | undefined): Promise<string | null> {
