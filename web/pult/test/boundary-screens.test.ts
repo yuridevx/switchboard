@@ -4205,14 +4205,14 @@ describe("Найдено сверкой деревьев", () => {
     expect(t2.$(".cw-pl b")!.textContent).toBe("Не запустилась");
   });
 
-  it("карточка: сессия ушла — вкладка настроек без кнопок, сведения пусты; адрес в шапке и без имени; ссылка claude.ai в сведениях", async () => {
+  it("карточка: сессия ушла — вкладка настроек без кнопок, сведения пусты; без человеческого имени адрес в шапке не повторяется; ссылка claude.ai в сведениях", async () => {
     const r = fleetRoster();
     r.sessions.find((s) => s.callsign === "site@laptop")!.state = "idle";
     const relay = fleetRelay(r);
     const store = memoryStore({ key: KEY, "card.info": true, "card.head": { haddr: true, howner: true, hprof: true, hmodel: true } });
     const t = await pult({ relay, store, url: "/#card?callsign=site%40laptop&tab=set" });
     await flush(5);
-    expect(t.$(".cw-real")!.textContent).toBe("site@laptop");
+    expect(t.$(".cw-real")).toBeNull();
     expect(t.$<HTMLAnchorElement>("aside.cw-info .cw-mi.flat")!.href).toBe("https://claude.ai/code/session_01Pf");
     relay.setRoster({ ...r, sessions: r.sessions.filter((s) => s.callsign !== "site@laptop") });
     await flush(5);

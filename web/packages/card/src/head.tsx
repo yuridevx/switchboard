@@ -101,7 +101,7 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
           ✎
         </span>
       </span>
-      {session && head.haddr ? <span className="cw-real">{callsign}</span> : null}
+      {session && head.haddr && (name.human || where.human) ? <span className="cw-real">{callsign}</span> : null}
     </IconBtn>
   );
   if (!session) {
