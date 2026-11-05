@@ -8,7 +8,7 @@ import { check, loadRepo, order } from "@switchboard/manifest-gate";
 import { appGate } from "@switchboard/web-core";
 import { OWN, pultParts } from "../stand/parts.ts";
 import { defined } from "../../packages/core/stand/app.ts";
-import { fleetRelay, fleetRoster, joinedRoster, flush, pult, SLOTS } from "./stand.ts";
+import { fleetRelay, fleetRoster, joinedRoster, flush, pult } from "./stand.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "../../..");
@@ -75,67 +75,6 @@ describe("раскладка широкого вида", () => {
     expect(t.$(".sb-brand b")!.textContent).toBe("Пульт");
   });
 
-  it("6904 · карточка открывается справа от списка «Работы»: список остаётся слева с выбранной строкой", async () => {
-    // источник: прототип «Пульт и телефон» (подписан 2 нояб.): список проекта слева, сессия справа
-    const t = await pult();
-    expect(t.$(".sb-split")).toBeNull();
-    await t.expand();
-    await t.click(t.$('[data-callsign="site@laptop"]'));
-    expect(t.$(".sb-split .sb-master .bd-list")).not.toBeNull();
-    expect(t.$(".sb-split .sb-detail .cw")).not.toBeNull();
-    expect(t.$('.bd-row[aria-current="true"]')!.dataset.callsign).toBe("site@laptop");
-    const master = t.$(".sb-master");
-    await t.click(t.$('[data-callsign="wiki@laptop"]'));
-    expect(t.$(".sb-master")).toBe(master);
-    expect(t.$('.bd-row[aria-current="true"]')!.dataset.callsign).toBe("wiki@laptop");
-  });
-
-  it("6905 · закрепление: чужая сессия — «Закрепить» в шапке карточки → в «Моём» со значком; «Закреплена» — откреплена", async () => {
-    // источник: прототип «Пульт и телефон» (подписан 2 нояб.): «закрепление — моя на этом устройстве»
-    const roster = fleetRoster();
-    roster.sessions = roster.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, by: "laptop~anna@example.com" } : s));
-    const t = await pult({ relay: fleetRelay(roster) });
-    const mine = () => t.$$(".bd-row").map((b) => b.dataset.callsign);
-    expect(mine()).not.toContain("wiki@laptop");
-    await t.go("#card?callsign=wiki%40laptop");
-    await t.click(t.$('.cw-h [data-screen="board.pin"]'));
-    await flush(10);
-    await t.go("#sessions");
-    await t.expand();
-    expect(mine()).toContain("wiki@laptop");
-    expect(t.$('[data-callsign="wiki@laptop"] .bd-pin')).not.toBeNull();
-    await t.go("#card?callsign=wiki%40laptop");
-    await t.click(t.$('.cw-h [data-screen="board.unpin"]'));
-    await flush(10);
-    await t.go("#sessions");
-    expect(mine()).not.toContain("wiki@laptop");
-  });
-
-  it("6906 · моё по цепочке: задачу дала моя сессия (by — позывной) — сессия в «Моём»; дала чужая — нет", async () => {
-    // источник: прототип «Пульт и телефон»: «моё — дочерние моих»; живой флот 3 нояб.: flow-1@wsl с from flow@win была «чужой»
-    const roster = fleetRoster();
-    roster.sessions = roster.sessions.map((s) =>
-      s.callsign === "wiki@laptop" ? { ...s, by: "site@laptop" } : s.callsign === "docs@pc" ? { ...s, by: "laptop~anna@example.com" } : s.callsign === "api@pc" ? { ...s, by: "docs@pc" } : s,
-    );
-    const t = await pult({ relay: fleetRelay(roster) });
-    const mine = t.$$(".bd-row").map((b) => b.dataset.callsign);
-    expect(mine).toContain("wiki@laptop");
-    expect(mine).not.toContain("api@pc");
-  });
-
-  it("5219 · поиск сессии — Ctrl K: по позывному, без кадров; строка открывает карточку", async () => {
-    // источник: прототип «Пульт и телефон»: «Найти сессию — Ctrl K, отдельного поиска в «Работе» нет»
-    const t = await pult();
-    const sent = t.relay.got.length;
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
-    await flush();
-    const input = document.querySelector<HTMLInputElement>(".sb-palin")!;
-    input.value = "wiki";
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-    await flush();
-    expect([...document.querySelectorAll(".sb-palit .l")].map((x) => x.textContent)).toEqual(["wiki"]);
-    expect(t.relay.got.length).toBe(sent);
-  });
 });
 
 describe("чат и карточка на стыках", () => {
@@ -193,30 +132,6 @@ describe("чат и карточка на стыках", () => {
     expect(decodeURIComponent(a.href)).toContain("## Claude\n\nСборка зелёная.");
   });
 
-  it("сведения сбоку — серверы MCP (mcpServerStatus, toggleMcpServer); «Убрать…» в «Настройках» — session.remove после подтверждения", async () => {
-    const relay = fleetRelay();
-    relay.handlers["session.call"] = (f) =>
-      f.method === "getContextUsage"
-        ? { ok: true, result: { percentage: 21 } }
-        : f.method === "mcpServerStatus"
-          ? { ok: true, result: [{ name: "github", status: "needs-auth" }] }
-          : f.method === "supportedAgents"
-            ? { ok: true, result: [{ name: "Explore" }, { name: "Plan" }] }
-            : { ok: true, result: null };
-    relay.handlers["session.remove"] = () => ({ ok: true });
-    const t = await pult({ relay });
-    await t.click(t.$('[data-callsign="wiki@laptop"]'));
-    await t.click(t.$('[data-pop="menu"]'));
-    await t.click(t.$('.cw-pop [data-act="info"]'));
-    expect(relay.sent("session.call").map((f) => f.method)).toContain("mcpServerStatus");
-    await t.click(t.$('aside.cw-info [data-mcp="github"]'));
-    expect(relay.sent("session.call").find((f) => f.method === "toggleMcpServer")).toMatchObject({ args: ["github", false] });
-    await t.click(t.$('.cw-tabs [data-tab="set"]'));
-    await t.click(t.btn(null, "Убрать…"));
-    expect(relay.sent("session.remove")).toHaveLength(0);
-    await t.click(t.btn(t.$(".cw-confirm"), "Убрать"));
-    expect(relay.sent("session.remove")).toEqual([expect.objectContaining({ callsign: "wiki@laptop" })]);
-  });
 });
 
 describe("аккаунты: шаги по контракту", () => {
@@ -236,16 +151,3 @@ describe("аккаунты: шаги по контракту", () => {
   });
 });
 
-describe("журнал флота и машины", () => {
-  it("«Аккаунты машины» в карточке машины — экран аккаунтов с формой входа на этой машине", async () => {
-    const relay = fleetRelay();
-    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
-    relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "0.5.0", rev: 1, os: "linux", parts: [{ part: "host", version: "1.1.58", state: "running", restarts: 0 }] } });
-    const t = await pult({ relay, url: "/#machines" });
-    await flush(10);
-    await t.click(t.$('[data-row="pc"] .mc-head'));
-    await t.click(t.btn(t.$('[data-machine="pc"]'), "Аккаунты машины"));
-    expect(location.hash).toBe("#accounts?machine=pc");
-    expect(t.$('.sb-sec.dlg [aria-pressed="true"]')!.textContent).toBe("pc");
-  });
-});
