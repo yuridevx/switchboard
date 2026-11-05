@@ -2724,6 +2724,47 @@ describe("слова журнала и отказов: их читает аге�
   });
 });
 
+describe("спорные места: разобраны опытом", () => {
+  it("ввод между смертью процесса и новым query() не теряется: настоящий SDK забирает его из потока и никуда не пишет", async () => {
+    // источник: контракт Session.input «Очередь живёт в ядре и переживает resume»; опыт на SDK 0.3.311: после смерти процесса в очереди 0, в stdin не дошло
+    let release = () => {};
+    let slow = false;
+    const m = module("host-slow", { session: () => (slow ? new Promise<undefined>((r) => (release = () => r(undefined))) : undefined) });
+    const st = await stand({ modules: [m] });
+    const s = await st.open(CS);
+    const first = st.proc(CS);
+    slow = true;
+    first.exit(1, "упал");
+    await until(() => lines(st, "session_exited").length === 1);
+    s.input("пока поднимается");
+    await new Promise((r) => setTimeout(r, 30));
+    release();
+    await until(() => st.sdk.of(CS).length === 2 && st.kernel.sessions.get(CS)!.state === "idle");
+    const second = st.proc(CS);
+    await until(() => second.inputs.length === 1);
+    expect(second.inputs[0].message.content).toBe("пока поднимается");
+  });
+
+  it("ввод во время перезапуска не теряется: прежний процесс закрыт, сообщение ждёт новый", async () => {
+    // источник: контракт Session.input; тот же опыт
+    let release = () => {};
+    let slow = false;
+    const m = module("host-slow", { session: () => (slow ? new Promise<undefined>((r) => (release = () => r(undefined))) : undefined) });
+    const st = await stand({ modules: [m] });
+    const s = await st.open(CS);
+    slow = true;
+    const restarting = s.restart();
+    await until(() => lines(st, "restart").length === 1);
+    s.input("во время перезапуска");
+    await new Promise((r) => setTimeout(r, 30));
+    release();
+    await restarting;
+    const second = st.proc(CS);
+    await until(() => second.inputs.length === 1);
+    expect(second.inputs[0].message.content).toBe("во время перезапуска");
+  });
+});
+
 describe("история после сжатия", () => {
   let cfg: string;
   let dir: string;

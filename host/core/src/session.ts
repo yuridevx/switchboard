@@ -240,6 +240,7 @@ export class Sess implements Scope {
   /** Выход процесса от держателя: наш close — ожидаемо; иначе сбой — один resume, второй до готовности — failed. */
   onExited(e: Exited): void {
     const why = `код ${e.code}${e.signal ? `, сигнал ${e.signal}` : ""}${e.stderr ? `: ${e.stderr}` : ""}`;
+    this.queue.retire();
     for (const w of this.exitWaiters.splice(0)) w();
     // процесс вышел посреди хода: итога не будет — ждущие его не висят
     for (const w of this.resultWaiters.splice(0)) w();
@@ -307,6 +308,7 @@ export class Sess implements Scope {
     if (!q) return;
     const exited = new Promise<void>((r) => this.exitWaiters.push(r));
     this.q = null;
+    this.queue.retire();
     q.close();
     await this.orKill(exited, "выхода процесса после закрытия ввода");
     this.proc = null;

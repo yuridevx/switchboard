@@ -15,6 +15,17 @@ export class InputQueue {
     w?.();
   }
 
+  /**
+   * Процесс ушёл: поток его query() больше ничего не забирает, ввод ждёт новый query().
+   * Настоящий SDK тянет сообщение из потока и после смерти процесса — и теряет его (опыт на SDK 0.3.311).
+   */
+  retire(): void {
+    this.generation++;
+    const w = this.wake;
+    this.wake = null;
+    w?.();
+  }
+
   /** Поток для нового query(); прежний поток больше не отдаёт ничего. */
   stream(): AsyncIterable<SDKUserMessage> {
     const mine = ++this.generation;
