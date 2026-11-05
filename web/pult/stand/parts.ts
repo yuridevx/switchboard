@@ -1,4 +1,4 @@
-// Набор стенда: те же файлы модулей и порядок, что в сборке пульта; web-core — сам стенд, уведомления — на браузере теста.
+// Набор стенда: те же файлы модулей, что в сборке пульта; web-core — сам стенд, уведомления — на браузере теста. Порядок — порядок «Перейти…» на снимках.
 import * as alerts from "@switchboard/web-alerts";
 import type { BrowserPush } from "@switchboard/web-alerts";
 import * as ask from "@switchboard/web-ask";
@@ -21,13 +21,13 @@ import * as settings from "../modules/settings/contract.ts";
 
 export { PULT } from "../src/options.ts";
 
-const MODULES = [labels, journal, settings, ask, chat, card, incidents, open, profiles, board, accounts, machines, points, inbox];
+const MODULES = [labels, inbox, board, open, card, chat, ask, points, accounts, machines, profiles, journal, incidents, settings];
 
 export function pultParts(browser?: BrowserPush): AppPart[] {
   return [
     { manifest: view, module: () => ({}) },
     { manifest: ui, module: () => ({}) },
-    { manifest: alerts.manifest, module: alerts.createAlerts(browser) },
     ...MODULES.map((m) => ({ manifest: m.manifest, module: m.default })),
+    { manifest: alerts.manifest, module: alerts.createAlerts(browser) },
   ];
 }
