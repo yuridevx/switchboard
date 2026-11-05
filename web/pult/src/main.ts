@@ -1,2 +1,4 @@
-// Снесено.
-throw new Error("снесено");
+import { boot } from "../../shell.ts";
+import { PULT } from "./options.ts";
+
+void boot(PULT);
