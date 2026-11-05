@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { loadRepo } from "@switchboard/manifest-gate";
 import { CALL_MS } from "@switchboard/protocol";
 import { download, entries, refused, shaLine, upload, type Answer, type Net, type PackedModule } from "@switchboard/release";
-import { buildCore, type Exec } from "./src/core.ts";
+import { buildCore, coreArchive, type Exec } from "./src/core.ts";
 import { buildKeeper, type Go } from "./src/keeper.ts";
 import { packFromRepo } from "./src/module.ts";
 import { run } from "./src/spawn.ts";
@@ -80,7 +80,7 @@ function differs(a: Uint8Array, b: Uint8Array): string[] {
   return [...new Set([...x.keys(), ...y.keys()])].filter((p) => p !== NOT_CODE && !x.get(p)?.equals(y.get(p) ?? Buffer.alloc(0)));
 }
 
-async function check(net: Net, exec: Exec): Promise<number> {
+async function check(net: Net): Promise<number> {
   const n = { same: 0, fresh: 0, raise: 0 };
   const compare = async (m: PackedModule) => {
     const label = `${m.name} ${m.version}`;
@@ -93,7 +93,7 @@ async function check(net: Net, exec: Exec): Promise<number> {
     n.raise++;
   };
   for (const m of catalogued()) await compare(packFromRepo(join(ROOT, m.dir)));
-  await compare(await buildCore(ROOT, exec));
+  await compare(coreArchive(ROOT));
   console.log(`каталог: как в коде ${n.same}, новых номеров ${n.fresh}, поднять ${n.raise}`);
   return n.raise ? 1 : 0;
 }
@@ -105,7 +105,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
   if ((!o.dry || what === "check") && !(env.SWITCHBOARD_RELEASES && env.SWITCHBOARD_PASS)) throw new Error(NO_ENV);
   const net = netOf(f, env);
   if (what === "modules") return modules(net, o.dry);
-  if (what === "check") return check(net, exec);
+  if (what === "check") return check(net);
   if (what === "core") await deliver(net, await buildCore(ROOT, exec, o.out), o, "ядро host");
   else {
     const keeper = await buildKeeper(ROOT, go);

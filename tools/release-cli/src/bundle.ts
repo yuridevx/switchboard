@@ -1,9 +1,8 @@
 // Файл модуля страницы в stdout: упаковка синхронна, а плагин esbuild — нет, поэтому отдельный процесс.
-// Другие модули страницы — внешние импорты; React — из рантайма страницы; стили — текстом, с LF.
+// Другие модули страницы — внешние импорты; React — из рантайма страницы; стили — текстом, с LF: это байты архива.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { build } from "esbuild";
-import { lf } from "@switchboard/release";
 
 const VIEW = "@switchboard/web-view";
 const dir = process.argv[2];
@@ -18,9 +17,10 @@ const { outputFiles } = await build({
   minify: true,
   write: false,
   jsx: "automatic",
+  define: { "process.env.NODE_ENV": '"production"' },
   alias,
   external: ["@switchboard/web-*"],
   logLevel: "warning",
-  plugins: [{ name: "css", setup: (b) => void b.onLoad({ filter: /\.css$/ }, ({ path }) => ({ contents: lf(readFileSync(path)), loader: "text" })) }],
+  plugins: [{ name: "css", setup: (b) => void b.onLoad({ filter: /\.css$/ }, ({ path }) => ({ contents: readFileSync(path, "utf8").replaceAll("\r\n", "\n"), loader: "text" })) }],
 });
 process.stdout.write(outputFiles[0].contents);

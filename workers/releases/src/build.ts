@@ -4,7 +4,7 @@ import { hostBuild, pack, sha256hex, shaLine, webBuild, type BuildList } from "@
 import type { Deployed } from "../contract.ts";
 import { isBuild, type Catalog, type ModuleManifest, type Part } from "./catalog.ts";
 import { addressing, publish } from "./cloud.ts";
-import { refuse, type Env } from "./env.ts";
+import { line, refuse, type Env } from "./env.ts";
 import { advance, EVERYWHERE, journal, machinesOf, moved, type Row } from "./fleet.ts";
 
 /** Что меняется в сборках: модуль на версии, снять, всё на новейшие, корень на версии. */
@@ -31,7 +31,7 @@ async function draftOf(cat: Catalog, parts: Part[], app: string, change: Change)
     modules.set(name, m);
     pending.push(m);
   };
-  for (const [name, version] of wanted) await take(name, version);
+  await Promise.all([...wanted].map(([name, version]) => take(name, version)));
   while (pending.length) {
     for (const owner of Object.keys(pending.pop()!.uses).map(ownerOf)) {
       if (!modules.has(owner) && !gone.has(owner) && into.some((p) => p.name === owner)) await take(owner, edge(owner)!);
@@ -51,7 +51,7 @@ async function fleetSet(cat: Catalog, row: Row, parts: Part[], drafts: Draft[]):
     const built = p.root ? await cat.deployed(p.name) : null;
     if (built) {
       add((await cat.manifest(p.name, built.version.split("+")[0]))!);
-      for (const m of built.modules) add((await cat.manifest(m.name, m.version))!);
+      (await Promise.all(built.modules.map((m) => cat.manifest(m.name, m.version)))).forEach((m) => add(m!));
     } else if (p.manifest.type !== "os" || inPlan(p.name)) add(p.manifest);
   }
   return [...set.values()];
@@ -64,6 +64,7 @@ async function nextBuild(cat: Catalog, app: string, root: string) {
 }
 
 export async function deployBuilds(env: Env, cat: Catalog, row: Row, apps: string[], checkWith: string[], change: Change, note: string, by: unknown): Promise<Deployed> {
+  const started = Date.now();
   const parts = await cat.all();
   const drafts = await Promise.all(apps.map((app) => draftOf(cat, parts, app, change)));
   const checked = await Promise.all(checkWith.map((app) => draftOf(cat, parts, app, { latest: true, without: change.without })));
@@ -94,6 +95,7 @@ export async function deployBuilds(env: Env, cat: Catalog, row: Row, apps: strin
       await publish(env, part.script!, files, version);
       await journal(env, moved(move), by);
     } else await advance(env, cat, row, [move], by, machines);
+    line({ kind: "note", ev: "rebuild", why: `${app} ${version}: ${Date.now() - started} мс` });
   }
   return { parts: result };
 }

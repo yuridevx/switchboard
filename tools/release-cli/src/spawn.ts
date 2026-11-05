@@ -4,6 +4,8 @@ import { spawn } from "node:child_process";
 export type Done = { code: number | null; out: string };
 
 const LIMIT_MS = 10 * 60_000;
+/** Снятый процесс оставляет потомка с тем же выводом: close может не прийти, ответ ждём недолго. */
+const GRACE_MS = 2_000;
 
 export function run(cmd: string, args: string[], cwd: string, o: { limitMs?: number; env?: NodeJS.ProcessEnv } = {}): Promise<Done> {
   const { limitMs = LIMIT_MS, env } = o;
@@ -17,6 +19,7 @@ export function run(cmd: string, args: string[], cwd: string, o: { limitMs?: num
     const limit = setTimeout(() => {
       out += `\n${cmd} не завершился за ${limitMs / 1000} с`;
       child.kill();
+      setTimeout(() => end(null), GRACE_MS).unref();
     }, limitMs);
     const end = (code: number | null) => {
       clearTimeout(limit);

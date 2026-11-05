@@ -8,7 +8,7 @@ import { MANIFEST, pack, type TarFile } from "./tar.ts";
 export type ModuleJson = { name: string; type: string; version: string; workers?: Record<string, string> };
 export type PackedModule = { name: string; version: string; tgz: Buffer; sha: string };
 
-const NOT_PACKAGE = /^(\.|node_modules$|dist$|test$|tsconfig\.json$|vitest\.config\.ts$)|\.test\./;
+const NOT_PACKAGE = /^(\.|node_modules$|dist$|tests?$|tsconfig\.json$|vitest\.config\.ts$)|\.test\./;
 const WRANGLER = "wrangler.jsonc";
 /** Как git отличает двоичный файл: нулевой байт в начале. */
 const TEXT_PROBE = 8000;

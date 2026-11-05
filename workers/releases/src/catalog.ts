@@ -15,7 +15,8 @@ const CLOUD = ["worker", "web-app"];
 export const NAME = /^[a-z0-9][a-z0-9-]*$/;
 export const isVersion = (v: unknown): v is string => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v);
 export const isBuild = (v: unknown): v is string => typeof v === "string" && /^\d+\.\d+\.\d+\+\d+$/.test(v);
-const numbers = (v: string) => v.split(/[.+]/).map(Number);
+/** Сборка «+n» новее своего ядра. */
+const numbers = (v: string) => [...v.split(/[.+]/).map(Number), 0];
 export const byVersion = (a: string, b: string) => {
   const y = numbers(b);
   return numbers(a).reduce((order, n, i) => order || n - (y[i] ?? 0), 0);

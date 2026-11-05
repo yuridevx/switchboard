@@ -72,17 +72,17 @@ export function make() {
     ),
     tool(
       "upload",
-      "Упаковать модуль из папки с module.json и загрузить в каталог. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists.",
+      "Упаковать модуль из папки с module.json (относительная — от рабочей папки сессии) и загрузить в каталог. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists.",
       { dir: z.string() },
-      guarded(async ({ dir }) => {
+      guarded(async ({ dir }, extra) => {
         const m = packModule(resolve(cwd, dir));
-        const { same } = await upload(net, m);
+        const { same } = await upload(net, m, (extra as { signal?: AbortSignal }).signal);
         return json({ part: m.name, version: m.version, ...(same ? { same } : { bytes: m.tgz.length, sha256: m.sha }) });
       }),
     ),
     tool(
       "fetch",
-      "Положить модуль каталога (контракт и стенд) в <dir>/vendor/<part>/; без version — новейшая. Прежнее содержимое vendor/<part> заменяется.",
+      "Положить модуль каталога (контракт и стенд) в <dir>/vendor/<part>/: dir — корень репо, относительный — от рабочей папки сессии; без version — новейшая. Прежнее содержимое vendor/<part> заменяется.",
       { part: z.string(), version: z.string().optional(), dir: z.string() },
       guarded((args, extra) => take(args, cwd, (extra as { signal?: AbortSignal }).signal)),
     ),

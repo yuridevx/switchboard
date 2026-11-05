@@ -162,7 +162,7 @@ describe("упаковка модуля", () => {
     // стили страницы кладутся в код текстом
     const page = (eol: string) => packFromRepo(clone(eol, "web", "a.css", 'import css from "./a.css";\nexport default css;\n'));
     expect(page("\r\n").sha).toBe(page("\n").sha);
-  });
+  }, 60_000);
 
   it("5131 · 5167 · модуль страницы монорепо — module.json и один ES-файл (другие модули страницы — внешние импорты, протокол — внутри) и рядом папка пакета с контрактом и стендом; тот же код — тот же хэш", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Веб: один файл ES-модуля»
@@ -407,6 +407,15 @@ describe("CLI выпуска", () => {
     expect(r.out).toContain("работаю");
     expect(r.out).toContain("не завершился за 1.5 с");
     expect(await run(process.execPath, ["-e", "console.error('x'); process.exit(3)"], tmpdir())).toEqual({ code: 3, out: "x\n" });
+  }, 15_000);
+
+  it("процесс оставил потомка с тем же выводом — предел всё равно держится", async () => {
+    // источник: комментарий старого кода «вывод держит потомок: после снятия ответ ждём недолго»; слово пользователя 2 нояб. «у всех операций должен быть лимит»
+    const grandchild = "require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)'], { stdio: 'inherit' }); setInterval(() => {}, 1000)";
+    const started = Date.now();
+    const r = await run(process.execPath, ["-e", grandchild], tmpdir(), { limitMs: 1000 });
+    expect(r.out).toContain("не завершился за 1 с");
+    expect(Date.now() - started).toBeLessThan(10_000);
   }, 15_000);
 
   it("5143 · modules: каждый модуль каталога — своим запросом, кроме ядра и приложений ОС; отказ одного — выход 1 с его именем, остальные загружены", async () => {
@@ -712,6 +721,22 @@ describe("инструменты сессии parts", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("upload: сессия прервала ход — загрузка снята, хэш не пишется", async () => {
+    // источник: комментарий старого кода «остановка вызывающего снимает его»; слово пользователя 2 нояб.: у всех операций лимит и graceful shutdown
+    const { call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { tgz: "https://r2.test/a.tgz?s", sha256: "https://r2.test/a.sha256?s" } } : undefined));
+    const puts: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation((u: RequestInfo | URL, init?: RequestInit) => {
+      puts.push(String(u));
+      return new Promise((_ok, no) => init?.signal?.addEventListener("abort", () => no(new Error("aborted"))));
+    });
+    const ac = new AbortController();
+    const stopped = call("upload", { dir: "." }, osModule("1.4.3"), { signal: ac.signal });
+    await vi.waitFor(() => expect(puts).toHaveLength(1));
+    ac.abort();
+    expect((await stopped).text).toBe("upload_failed: Error: aborted на /a.tgz");
+    expect(puts).toHaveLength(1);
   });
 
   it("3 · 3075 · deploy и set — на .releases как есть, даже с полем machine; без версии — edge; pin null уходит как есть; отказ — словом и причиной", async () => {

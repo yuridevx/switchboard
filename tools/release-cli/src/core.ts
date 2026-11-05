@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { loadRepo } from "@switchboard/manifest-gate";
-import { MANIFEST, pack, packageFiles, sha256hex, type TarFile } from "@switchboard/release";
+import { lf, MANIFEST, pack, packageFiles, sha256hex, type TarFile } from "@switchboard/release";
 import type { Done } from "./spawn.ts";
 
 export type Exec = (cmd: string, args: string[], cwd: string) => Promise<Done>;
@@ -44,7 +44,7 @@ function filesOf(root: string) {
   );
   const setup = ["npm", "ci", "--omit=dev", ...QUIET];
   files.push(
-    { path: MANIFEST, data: readFileSync(join(root, core.dir, MANIFEST)) },
+    { path: MANIFEST, data: lf(readFileSync(join(root, core.dir, MANIFEST))) },
     { path: "host", data: Buffer.from(ENTRY), mode: 0o755 },
     { path: "package.json", data: json({ name: "switchboard-host-release", version: core.version, private: true, type: "module", workspaces: ["packages/*"] }) },
     { path: "app.json", data: json({ run: ["node", "host"], setup, detach_children: true }) },
@@ -52,10 +52,10 @@ function filesOf(root: string) {
   return { version: core.version, files, count: packages.length };
 }
 
-/** Ответ host --check: последняя строка вывода. */
+/** Ответ host --check: последняя строка-объект вывода; после неё бывает шум. */
 function checked(r: Done, version: string): { sdk: string } {
   const fail = (why: unknown) => new Error(`host --check: ${why}`);
-  const line = r.out.trim().split("\n").at(-1);
+  const line = r.out.split("\n").findLast((l) => l.startsWith("{"));
   if (!line) throw fail("host --check без ответа");
   let answer: { ok?: boolean; why?: string; version?: string; sdk: string };
   try {
@@ -66,6 +66,13 @@ function checked(r: Done, version: string): { sdk: string } {
   if (!answer.ok) throw fail(answer.why);
   if (answer.version !== version) throw fail(`версия ${answer.version}, а собиралась ${version}`);
   return answer;
+}
+
+/** Файлы ядра без lockfile: их сверяет release check, npm для этого не нужен. */
+export function coreArchive(root: string) {
+  const { version, files } = filesOf(root);
+  const tgz = pack(files);
+  return { name: "host", version, tgz, sha: sha256hex(tgz) };
 }
 
 export async function buildCore(root: string, exec: Exec, out?: string) {

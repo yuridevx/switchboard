@@ -51,7 +51,7 @@ async function upload({ cat, f }: Asked) {
   const at = cat.key(part as string, version);
   const had = await cat.sha(part as string, version);
   if (had === sha256 && had) return { same: true };
-  if (had) refuse("version_exists", `${part} ${version} уже загружена с другим хэшем`);
+  if (had) refuse("version_exists", `${part} ${version} уже загружена с другим хэшем — подними номер`);
   return { tgz: cat.link("PUT", `${at}.tgz`), sha256: cat.link("PUT", `${at}.sha256`) };
 }
 
