@@ -532,7 +532,9 @@ describe("инцидент: доставка хотя бы раз", () => {
     take(p);
     expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "disk-full-1@win" })).toMatchObject({ ok: true });
     await post({ type: "disk-full", key: "C:", text: "Свободно 1%" });
-    expect(said(await inputOf(st, "disk-full-2@win"))).toContain("Свободно 1%");
+    // доставка хотя бы раз: если «принято» не успело до остановки, первое обращение придёт новой сессии раньше второго
+    const q = await until(() => st.holders.procs.get("disk-full-2@win"));
+    await until(() => q.inputs.some((_, i) => said(q, i)?.includes("Свободно 1%")));
   });
 });
 
