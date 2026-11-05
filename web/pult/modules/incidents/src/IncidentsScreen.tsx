@@ -1,9 +1,15 @@
 // Экран «Инциденты»: недоставленные обращения и сессии инцидентов.
 import { useEffect, useState } from "react";
-import { Btn, DisclosureBtn, Dot, hhmm, incidentOf, lamp, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
+import { Btn, day, DisclosureBtn, Dot, hhmm, incidentOf, lamp, machineLabel, midnight, Note, Page, PageHead, sessionLabel, stateLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import type { SessionRecord } from "@switchboard/web-core";
 import type { IncidentsStore, Lost } from "./store.ts";
+
+/** Время отказа; отказ прошлых дней — с датой. */
+function since(iso: string): string {
+  const t = Date.parse(iso);
+  return t < Date.parse(midnight()) ? `${day(t)} ${hhmm(t)}` : hhmm(t);
+}
 
 function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): void }) {
   const app = useApp();
@@ -20,7 +26,7 @@ function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): vo
             <b>{machineLabel(app, machine).text}</b>
             <span className="s bad">{refused?.word ?? "ждёт"}</span>
           </span>
-          <span className="t2">{refused ? `с ${hhmm(new Date(refused.t))}` : what}</span>
+          <span className="t2">{refused ? `с ${since(refused.t)}` : what}</span>
         </span>
       </DisclosureBtn>
       {open ? (

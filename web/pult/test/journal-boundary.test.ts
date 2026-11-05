@@ -299,7 +299,7 @@ describe("инциденты", () => {
       result: {
         appeals:
           f.machine === "pc" && !delivered
-            ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null, refused: { word: "no_profile", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения", t: new Date(2026, 9, 31, 8, 7).toISOString() } }]
+            ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null, refused: { word: "no_profile", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения", t: new Date(new Date().setHours(8, 7, 0, 0)).toISOString() } }]
             : [],
       },
     });
@@ -388,6 +388,17 @@ describe("инциденты", () => {
     await t.click(t.$('[data-lost="pc:a1"]'));
     expect(t.$('[data-why="pc:a2"]')).toBeNull();
     expect(t.$('[data-why="pc:a1"]')!.textContent).toBe("новая причина");
+  });
+
+  it("отказ прошлого дня: время с датой", async () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(23, 10, 0, 0);
+    const relay = fleetRelay();
+    relay.handlers["incident.pending"] = (f) => ({ ok: true, result: { appeals: f.machine === "pc" ? [{ id: "a1", callsign: null, refused: { word: "no_profile", why: "нет профиля", t: yesterday.toISOString() } }] : [] } });
+    const t = await incidents(relay);
+    const date = yesterday.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+    expect(t.$('[data-lost="pc:a1"] .t2')!.textContent).toBe(`с ${date} 23:10`);
   });
 
   it("5406 · обращение доставлено (его нет в incident.pending) — в «Не доставлены» его нет; метка считает только открытые", async () => {
