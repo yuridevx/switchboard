@@ -33,7 +33,8 @@ var ownerWait = time.Minute
 const (
 	frameLimit = 4 << 20          // кадр хозяина и накопленный без хозяина вывод
 	keyWait    = 10 * time.Second // кадр ключа после соединения
-	drainWait  = time.Second      // дочитать трубы после выхода: потомок вне задания держит их открытыми
+	drainWait  = 5 * time.Second  // дочитать трубы после выхода: потомок вне задания держит их открытыми
+	chunk      = 32 << 10         // вывод хозяину — кусками: кадр не больше предела
 )
 
 func writeFrame(w io.Writer, t byte, data []byte) error {
@@ -194,6 +195,7 @@ func (h *holder) serve() error {
 	select {
 	case <-drained:
 	case <-time.After(drainWait):
+		h.line("stop", "held_drain", "why", fmt.Sprintf("труба вывода открыта и через %v после выхода процесса", drainWait))
 		h.mu.Lock()
 		h.cut = true
 		h.cond.Broadcast()
@@ -438,8 +440,9 @@ func (h *holder) send(c net.Conn) {
 			h.mu.Unlock()
 			return
 		}
-		out := h.out
-		h.out = nil
+		n := min(len(h.out), chunk)
+		out := append([]byte(nil), h.out[:n]...)
+		h.out = h.out[n:]
 		var x []byte
 		if len(out) == 0 && h.exit != nil {
 			x, _ = json.Marshal(h.exit)
