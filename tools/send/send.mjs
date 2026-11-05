@@ -5,58 +5,77 @@
 //   import { send } from "…/send.mjs";  await send("operator@laptop", "текст", { key }) → { ok: 1, error: "" } | { ok: 0, error }
 //   <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]
 // Одна попытка: hello → roster → session.prompt → reply. Повторов нет, итог — вызывающему.
+import { text as readAll } from "node:stream/consumers";
 import { pathToFileURL } from "node:url";
 
 export const RELAY = "wss://relay.pfarm.app";
 
-export function send(callsign, text, { key, url = RELAY, timeoutMs = 30_000 } = {}) {
-  return new Promise((done) => {
-    const id = `send-${Date.now().toString(36)}`;
-    let asked = false;
-    let over = false;
-    const ws = new WebSocket(`${url.replace(/\/$/, "")}/m/${callsign.slice(callsign.indexOf("@") + 1)}`);
-    const end = (r) => {
-      if (over) return;
-      over = true;
-      clearTimeout(timer);
-      try {
-        ws.close(1000);
-      } catch {
-        // сокет уже закрыт
-      }
-      done(r);
-    };
-    const timer = setTimeout(() => end({ ok: 0, error: `нет ответа за ${timeoutMs} мс` }), timeoutMs);
-    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", key, proto: 1 }));
-    ws.onmessage = (ev) => {
-      if (typeof ev.data !== "string" || ev.data === "pong") return;
-      let f;
-      try {
-        f = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
-      // roster — hello принят
-      if (f.type === "roster" && !asked) {
-        asked = true;
-        ws.send(JSON.stringify({ type: "session.prompt", v: 1, id, to: callsign, callsign, text }));
-      } else if (f.type === "reply" && f.id === id) end(f.ok ? { ok: 1, error: "" } : { ok: 0, error: String(f.error) });
-    };
-    ws.onclose = (ev) => end({ ok: 0, error: `связь закрыта: ${ev.code} ${ev.reason}` });
-  });
+/** Тот же срок, что у ответа relay: пишущий не закрыл stdin — служба не должна висеть вечно. */
+const STDIN_MS = 30_000;
+const USAGE ="вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]";
+
+const machineAddress = (url, callsign) => `${url.replace(/\/$/, "")}/m/${callsign.slice(callsign.indexOf("@") + 1)}`;
+
+/** Кадр relay; всё, что не JSON-текст, — не кадр. */
+function frameOf(data) {
+  if (typeof data !== "string") return null;
+  try {
+    return JSON.parse(data);
+  } catch {
+    return null;
+  }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
-  const [callsign, flag, url] = process.argv.slice(2);
-  if (!callsign || (flag && (flag !== "--url" || !url))) {
-    console.error("вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]");
-    process.exit(2);
-  }
-  const chunks = [];
-  for await (const c of process.stdin) chunks.push(c);
-  const raw = Buffer.concat(chunks).toString("utf8");
-  const i = raw.indexOf("\n");
-  const r = await send(callsign, i < 0 ? "" : raw.slice(i + 1), { key: (i < 0 ? raw : raw.slice(0, i)).trim(), ...(url ? { url } : {}) });
-  console.log(r.ok ? "ok" : r.error);
-  process.exit(r.ok ? 0 : 1);
+export function send(callsign, text, { key, url = RELAY, timeoutMs = 30_000 } = {}) {
+  const { promise, resolve } = Promise.withResolvers();
+  const id = `send-${Date.now().toString(36)}`;
+  const ws = new WebSocket(machineAddress(url, callsign));
+  let asked = false;
+
+  // сняв обработчики, итог не повторится: остаётся только таймер, он снят здесь же
+  const finish = (result) => {
+    clearTimeout(timer);
+    ws.onmessage = ws.onclose = null;
+    ws.close(1000);
+    resolve(result);
+  };
+  const timer = setTimeout(() => finish({ ok: 0, error: `нет ответа за ${timeoutMs} мс` }), timeoutMs);
+
+  ws.onopen = () => ws.send(JSON.stringify({ type: "hello", key, proto: 1 }));
+  ws.onclose = ({ code, reason }) => finish({ ok: 0, error: `связь закрыта: ${code} ${reason}` });
+  ws.onmessage = ({ data }) => {
+    const frame = frameOf(data);
+    // roster — hello принят
+    if (frame?.type === "roster" && !asked) {
+      asked = true;
+      ws.send(JSON.stringify({ type: "session.prompt", v: 1, id, to: callsign, callsign, text }));
+    } else if (frame?.type === "reply" && frame.id === id) {
+      finish(frame.ok ? { ok: 1, error: "" } : { ok: 0, error: String(frame.error) });
+    }
+  };
+  return promise;
 }
+
+/** Первая строка stdin — пропуск, остальное — текст как есть. */
+function parseInput(raw) {
+  const lineEnd = raw.indexOf("\n");
+  return lineEnd < 0 ? { key: raw.trim(), text: "" } : { key: raw.slice(0, lineEnd).trim(), text: raw.slice(lineEnd + 1) };
+}
+
+async function main([callsign, flag, url]) {
+  if (!callsign || (flag && (flag !== "--url" || !url))) {
+    console.error(USAGE);
+    return 2;
+  }
+  const raw = await Promise.race([readAll(process.stdin), new Promise((done) => setTimeout(done, STDIN_MS, null))]);
+  if (raw === null) {
+    console.log(`stdin не закрыт за ${STDIN_MS} мс`);
+    return 1;
+  }
+  const { key, text } = parseInput(raw);
+  const { ok, error } = await send(callsign, text, { key, ...(url ? { url } : {}) });
+  console.log(ok ? "ok" : error);
+  return ok ? 0 : 1;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) process.exit(await main(process.argv.slice(2)));
