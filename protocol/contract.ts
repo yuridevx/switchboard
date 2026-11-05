@@ -1,4 +1,4 @@
-// Конверт кадра: type, id, reply, v, адрес и from. Имён кадров модулей не знает.
+// Общий конверт кадра рации: type, id, reply; адреса по форме; пределы ожидания. Имён кадров модулей не знает.
 
 /** Кадр рации. Поля владельца имени лежат рядом с конвертом. */
 export type Frame = {
@@ -22,14 +22,14 @@ export type Reply =
   | { type: "reply"; id: string; ok: true; result?: unknown; from?: string; to?: string | string[] }
   | { type: "reply"; id: string; ok: false; error: string; from?: string; to?: string | string[] };
 
+// ---------- конверт ----------
+
 /** Слово отказа общего конверта: кадр не JSON или нет type. */
 export const BAD_FRAME = "bad_frame";
-
-/** Предел кадра в байтах UTF-8: входящее сообщение WebSocket в Durable Object Cloudflare — до 32 МиБ. */
-export const MAX_FRAME = 32 * 1024 * 1024;
-
 /** Слово отказа: кадр больше MAX_FRAME не отправлен; рядом — bytes. */
 export const TOO_LARGE = "too_large";
+/** Предел кадра в байтах UTF-8: входящее сообщение WebSocket в Durable Object Cloudflare — до 32 МиБ. */
+export const MAX_FRAME = 32 * 1024 * 1024;
 
 /** Байты UTF-8 текста кадра, если он больше MAX_FRAME, иначе null. Текст до MAX_FRAME / 3 знаков заведомо в пределе — без подсчёта. */
 export function oversize(text: string): number | null {
@@ -38,33 +38,39 @@ export function oversize(text: string): number | null {
   return bytes > MAX_FRAME ? bytes : null;
 }
 
+function isFrame(x: unknown): x is Frame {
+  if (x === null || typeof x !== "object" || Array.isArray(x)) return false;
+  const { type, id, v } = x as Record<string, unknown>;
+  return typeof type === "string" && type !== "" && (id === undefined || typeof id === "string") && (v === undefined || typeof v === "number");
+}
+
 /** Разобрать текст кадра. Не JSON, не объект или нет строки type — null: кадр не по конверту, отказ словом bad_frame. */
 export function parseFrame(text: string): Frame | null {
-  let x: unknown;
   try {
-    x = JSON.parse(text);
+    const x: unknown = JSON.parse(text);
+    return isFrame(x) ? x : null;
   } catch {
     return null;
   }
-  if (!x || typeof x !== "object" || Array.isArray(x)) return null;
-  const f = x as Record<string, unknown>;
-  if (typeof f.type !== "string" || !f.type) return null;
-  if (f.id !== undefined && typeof f.id !== "string") return null;
-  if (f.v !== undefined && typeof f.v !== "number") return null;
-  return f as Frame;
 }
 
-export function isReply(f: Frame): f is Frame & Reply {
-  return f.type === "reply" && typeof f.id === "string" && typeof f.ok === "boolean";
+export const isReply = (f: Frame): f is Frame & Reply => f.type === "reply" && typeof f.id === "string" && typeof f.ok === "boolean";
+
+export const ok = (id: string, result?: unknown): Reply => (result === undefined ? { type: "reply", id, ok: true } : { type: "reply", id, ok: true, result });
+
+export const fail = (id: string, error: string): Reply => ({ type: "reply", id, ok: false, error });
+
+/**
+ * Приём запроса по договору получателя: имя обслуживается и версия совпадает, v обязателен.
+ * null — принят; иначе слово отказа с причиной. Одно правило для ядра Host и служб флота.
+ */
+export function accepts(f: { type: string; v?: unknown }, provides: Record<string, number>): { word: "unknown_request" | "contract_mismatch"; why: string } | null {
+  if (!Object.hasOwn(provides, f.type)) return { word: "unknown_request", why: `${f.type} не обслуживается` };
+  const v = provides[f.type];
+  return f.v === v ? null : { word: "contract_mismatch", why: `${f.type} — запрошена v${f.v ?? "—"}, здесь v${v}` };
 }
 
-export function ok(id: string, result?: unknown): Reply {
-  return result === undefined ? { type: "reply", id, ok: true } : { type: "reply", id, ok: true, result };
-}
-
-export function fail(id: string, error: string): Reply {
-  return { type: "reply", id, ok: false, error };
-}
+// ---------- адреса ----------
 
 /**
  * Вид адреса по его форме:
@@ -79,33 +85,33 @@ export function fail(id: string, error: string): Reply {
 export type AddressKind = "service" | "part" | "machine" | "session" | "user" | "device";
 
 export function kindOf(address: unknown): AddressKind | null {
-  if (typeof address !== "string" || !address) return null;
-  const t = address.indexOf("~");
-  if (t >= 0) {
-    if (t === address.length - 1) return null;
-    return t === 0 ? "user" : "device";
-  }
+  if (typeof address !== "string" || address === "") return null;
+  const tilde = address.indexOf("~");
+  if (tilde >= 0) return tilde === address.length - 1 ? null : tilde === 0 ? "user" : "device";
   const at = address.indexOf("@");
-  if (address.startsWith(".")) {
-    if (address.length < 2 || at === 1) return null;
-    return at < 0 ? "service" : at === address.length - 1 ? null : "part";
-  }
-  if (at < 0 || at === address.length - 1) return null;
-  return at === 0 ? "machine" : "session";
+  const noMachine = at === address.length - 1;
+  if (!address.startsWith(".")) return at < 0 || noMachine ? null : at === 0 ? "machine" : "session";
+  if (address === "." || at === 1 || noMachine) return null;
+  return at < 0 ? "service" : "part";
 }
 
 /** Машина адреса: site@laptop, @laptop, .keeper@laptop → laptop; служба и люди — null. */
 export function machineOf(address: string): string | null {
-  const k = kindOf(address);
-  if (k !== "machine" && k !== "session" && k !== "part") return null;
-  return address.slice(address.indexOf("@") + 1);
+  const kind = kindOf(address);
+  return kind === "machine" || kind === "session" || kind === "part" ? address.slice(address.indexOf("@") + 1) : null;
 }
 
 /** Имя сессии адреса: site@laptop → site; без машины — как есть. */
-export function nameOf(address: string): string {
-  const i = address.indexOf("@");
-  return i < 0 ? address : address.slice(0, i);
+export const nameOf = (address: string): string => address.split("@", 1)[0];
+
+/** Пользователь адреса: phone~a@b.c и ~a@b.c → ~a@b.c; машина, сессия, служба — null. Одно правило для протокола, prefs и веба. */
+export function userOf(address: string): string | null {
+  const kind = kindOf(address);
+  return kind === "user" || kind === "device" ? address.slice(address.indexOf("~")) : null;
 }
+
+/** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
+export const reaches = (to: string, device: string): boolean => to === device || (kindOf(to) === "user" && kindOf(device) === "device" && userOf(device) === to);
 
 /**
  * Машина, чьему Host адресован кадр: по to, иначе по callsign, иначе по machine — одно правило для рации, Host и веба.
@@ -114,34 +120,13 @@ export function nameOf(address: string): string {
 export function hostOf(f: { to?: unknown; callsign?: unknown; machine?: unknown }): string | null | undefined {
   if (typeof f.to === "string") return kindOf(f.to) === "machine" || kindOf(f.to) === "session" ? machineOf(f.to) : null;
   if (typeof f.callsign === "string") return kindOf(f.callsign) === "session" ? machineOf(f.callsign) : null;
-  if (typeof f.machine === "string") return f.machine;
-  return undefined;
-}
-
-/** Пользователь адреса: phone~a@b.c и ~a@b.c → ~a@b.c; машина, сессия, служба — null. Одно правило для протокола, prefs и веба. */
-export function userOf(address: string): string | null {
-  const k = kindOf(address);
-  return k === "user" ? address : k === "device" ? address.slice(address.indexOf("~")) : null;
-}
-
-/** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
-export function reaches(to: string, device: string): boolean {
-  return to === device || (kindOf(to) === "user" && kindOf(device) === "device" && userOf(device) === to);
-}
-
-/**
- * Приём запроса по договору получателя: имя обслуживается и версия совпадает, v обязателен.
- * null — принят; иначе слово отказа с причиной. Одно правило для ядра Host и служб флота.
- */
-export function accepts(f: { type: string; v?: unknown }, provides: Record<string, number>): { word: "unknown_request" | "contract_mismatch"; why: string } | null {
-  if (!Object.hasOwn(provides, f.type)) return { word: "unknown_request", why: `${f.type} не обслуживается` };
-  const v = provides[f.type];
-  if (f.v !== v) return { word: "contract_mismatch", why: `${f.type} — запрошена v${f.v ?? "—"}, здесь v${v}` };
-  return null;
+  return typeof f.machine === "string" ? f.machine : undefined;
 }
 
 /** Адрес службы флота по имени Worker-модуля: points → .points. */
-export const serviceAddress = (name: string) => `.${name}`;
+export const serviceAddress = (name: string): string => `.${name}`;
+
+// ---------- пределы ----------
 
 /**
  * Предел ожидания вызова другой части — по привязке или fetch: как предел запроса клиента флота (120 с). Кто ждёт
@@ -155,27 +140,24 @@ export const CALL_MS = 120_000;
  */
 export const READ_MS = 10_000;
 
-/** Обещание или исключение со словами why за предел ms (по умолчанию CALL_MS). Слово пользователя 2 нояб.: у всех операций лимит. */
-export function within<T>(p: T | Promise<T>, why: string, ms: number = CALL_MS): Promise<T> {
-  let stop = () => {};
-  const late = new Promise<never>((_ok, no) => {
-    const t = setTimeout(() => no(new Error(why)), ms);
-    stop = () => clearTimeout(t);
-  });
-  return Promise.race([Promise.resolve(p), late]).finally(() => stop());
-}
-
-/** Предел операции: не успела за ms — ответ late (бросила — отказ). Саму операцию не прерывает: что прервать, знает вызывающий. */
-export function withLimit<T>(p: Promise<T>, ms: number, late: () => T): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const limit = new Promise<T>((ok, no) => {
-    timer = setTimeout(() => {
+/** Предел операции: не успела за ms — ответ late (бросила — отказ). Саму операцию не прерывает: что прервать, знает вызывающий. Слово пользователя 2 нояб.: у всех операций лимит. */
+export function withLimit<T>(p: T | Promise<T>, ms: number, late: () => T): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
       try {
-        ok(late());
+        resolve(late());
       } catch (e) {
-        no(e);
+        reject(e);
       }
     }, ms);
+    Promise.resolve(p)
+      .then(resolve, reject)
+      .finally(() => clearTimeout(timer));
   });
-  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
 }
+
+/** Значение или исключение со словами why за предел ms (по умолчанию CALL_MS). */
+export const within = <T>(p: T | Promise<T>, why: string, ms: number = CALL_MS): Promise<T> =>
+  withLimit(p, ms, () => {
+    throw new Error(why);
+  });

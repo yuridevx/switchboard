@@ -1,8 +1,10 @@
-// Клиент link: соединение с relay по wss. Им пользуются ядро Host, веб-приложения и скрипты.
+// Клиент link: соединение с объектом relay по wss. Им пользуются ядро Host, веб-приложения и скрипты.
 // Работает в Node 24 (глобальный WebSocket) и в браузере; в тестах WebSocket подставляется.
-import { CALL_MS, READ_MS, fail, isReply, kindOf, machineOf, oversize, parseFrame, TOO_LARGE } from "@switchboard/protocol";
+import { CALL_MS, READ_MS, fail, isReply, oversize, parseFrame, TOO_LARGE } from "@switchboard/protocol";
 import type { Frame, Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
+import { backoff } from "./backoff.ts";
+import { Waiting } from "./waiting.ts";
 
 /** Версия контракта relay, которую link шлёт в hello. */
 export const PROTO = 1;
@@ -28,13 +30,11 @@ export interface WsLike {
 }
 export type WsCtor = new (url: string) => WsLike;
 
-export type LinkOptions = {
-  /** wss://switchboard.<subdomain>.workers.dev */
+type LinkOptions = {
+  /** wss://switchboard.<subdomain>.workers.dev/m/<машина> */
   url: string;
   /** ключ флота role.name.kid.sig — из stdin, переменной окружения или хранилища; не из argv */
   key: string;
-  /** версия контракта relay; по умолчанию PROTO */
-  proto?: number;
   /**
    * Поля hello сверх type, key, proto — зовётся на каждом подключении, чтобы hello нёс свежее:
    * Host — { sdk, contract, sessions }, клиент — обычно ничего.
@@ -42,8 +42,7 @@ export type LinkOptions = {
   hello?: () => Record<string, unknown>;
   /** Каждый входящий кадр, кроме ответов на свои запросы: roster (после того, как link его учёл), запросы, кадры с to. */
   onFrame?: (f: Frame) => void;
-  /** Смена состояния; why — слово или причина закрытия. */
-  /** retryAt — у closed: когда следующая попытка (мс) */
+  /** Смена состояния; why — слово или причина закрытия; retryAt — у closed: когда следующая попытка (мс). */
   onState?: (state: LinkState, why?: string, retryAt?: number) => void;
   /** Период ping, мс. Нет pong к следующему ping — соединение мёртвое: закрыть и переподключиться. По умолчанию 30 000. */
   pingMs?: number;
@@ -83,174 +82,101 @@ export interface Link {
   close(code?: number, reason?: string): void;
 }
 
-type Target = { machine: string } | { name: string } | null;
-type Pending = { resolve: (r: Reply) => void; target: Target; since?: number; present: boolean };
-
-/** Адресат запроса, чей уход из roster означает: ответа не будет. */
-function targetOf(f: Frame): Target {
-  if (typeof f.to === "string") {
-    switch (kindOf(f.to)) {
-      case "machine":
-      case "session":
-        return { machine: machineOf(f.to)! };
-      case "service":
-      case "device":
-        return { name: f.to };
-      default:
-        // часть машины и пользователь в roster не видны: ответ или offline даст relay
-        return null;
-    }
-  }
-  if (f.to !== undefined) return null;
-  if (typeof f.callsign === "string") {
-    const m = machineOf(f.callsign);
-    return m ? { machine: m } : null;
-  }
-  if (typeof f.machine === "string") return { machine: f.machine };
-  return null;
-}
-
-function sinceOf(r: Roster | null, machine: string): number | undefined {
-  return r?.machines.find((m) => m.machine === machine)?.since;
-}
-
-function hasName(r: Roster | null, name: string): boolean {
-  return !!r && r.clients.includes(name);
-}
+/** Закрытие relay, после которого переподключаться незачем: gate_unavailable — обычный обрыв. */
+const isFinal = (code: number, reason: string) => (code === 1008 && reason !== "gate_unavailable") || (code === 1000 && reason === "replaced");
 
 /** Открыть связь с relay. Подключается сразу; дальше живёт сама до close() или отказа relay. */
 export function link(o: LinkOptions): Link {
-  const found = o.WebSocket ?? (globalThis as unknown as { WebSocket?: WsCtor }).WebSocket;
-  if (!found) throw new Error("link: нет WebSocket — передайте options.WebSocket");
-  const Ws: WsCtor = found;
-  const pingMs = o.pingMs ?? 30_000;
-  const firstPause = o.pauseMs ?? 1_000;
-  const maxPause = o.maxPauseMs ?? 60_000;
+  const Ws = o.WebSocket ?? (globalThis as unknown as { WebSocket?: WsCtor }).WebSocket;
+  if (!Ws) throw new Error("link: нет WebSocket — передайте options.WebSocket");
   const requestMs = o.requestMs ?? CALL_MS;
+  const pause = backoff(o.pauseMs, o.maxPauseMs);
+  const waiting = new Waiting();
   // свой префикс id: два соединения с одним именем клиента получают ответы друг друга по to
   const prefix = Math.random().toString(36).slice(2, 8);
   let seq = 0;
-  let ws: WsLike | null = null;
   let state: LinkState = "connecting";
   let roster: Roster | null = null;
-  let pause = firstPause;
-  let waitingPong = false;
-  let pingTimer: ReturnType<typeof setInterval> | undefined;
-  let pauseTimer: ReturnType<typeof setTimeout> | undefined;
-  let helloTimer: ReturnType<typeof setTimeout> | undefined;
-  const pending = new Map<string, Pending>();
+  let sock: WsLike | null = null;
+  /** таймеры и pong нынешнего сокета */
+  let stopWatching = () => {};
+  let retry: ReturnType<typeof setTimeout> | undefined;
 
-  function setState(s: LinkState, why?: string, retryAt?: number) {
-    if (state === s && why === undefined) return;
-    state = s;
-    o.onState?.(s, why, retryAt);
+  function setState(next: LinkState, why?: string, retryAt?: number): void {
+    if (state === next && why === undefined) return;
+    state = next;
+    o.onState?.(next, why, retryAt);
   }
 
-  function failAll() {
-    const all = [...pending];
-    pending.clear();
-    for (const [id, p] of all) p.resolve(fail(id, "disconnected"));
-  }
-
-  function stopTimers() {
-    if (pingTimer !== undefined) clearInterval(pingTimer);
-    if (pauseTimer !== undefined) clearTimeout(pauseTimer);
-    if (helloTimer !== undefined) clearTimeout(helloTimer);
-    pingTimer = pauseTimer = helloTimer = undefined;
-  }
-
-  function connect() {
+  function connect(): void {
     setState("connecting");
-    const sock = new Ws(o.url);
-    ws = sock;
-    waitingPong = false;
-    sock.addEventListener("open", () => {
-      if (ws !== sock) return;
-      sock.send(JSON.stringify({ ...(o.hello?.() ?? {}), type: "hello", key: o.key, proto: o.proto ?? PROTO }));
+    const ws = new Ws!(o.url);
+    sock = ws;
+    let awaitingPong = false;
+    ws.addEventListener("open", () => {
+      if (sock !== ws) return;
+      ws.send(JSON.stringify({ ...o.hello?.(), type: "hello", key: o.key, proto: PROTO }));
       // ответ на hello — первый roster; не пришёл за предел запроса — hello потерян, соединение мёртвое
-      helloTimer = setTimeout(() => {
-        if (ws === sock && state !== "open") dead(sock, "no_roster");
+      const helloTimer = setTimeout(() => {
+        if (sock === ws && state !== "open") dead(ws, "no_roster");
       }, requestMs);
-      pingTimer = setInterval(() => {
-        if (ws !== sock) return;
-        if (waitingPong) return dead(sock);
-        waitingPong = true;
-        sock.send("ping");
-      }, pingMs);
+      const pingTimer = setInterval(() => {
+        if (sock !== ws) return;
+        if (awaitingPong) return dead(ws, "no_pong");
+        awaitingPong = true;
+        ws.send("ping");
+      }, o.pingMs ?? 30_000);
+      stopWatching = () => {
+        clearTimeout(helloTimer);
+        clearInterval(pingTimer);
+      };
     });
-    sock.addEventListener("message", (ev) => {
-      if (ws === sock) onText(String(ev.data));
+    ws.addEventListener("message", ({ data }) => {
+      if (sock !== ws) return;
+      if (data === "pong") awaitingPong = false;
+      else onText(String(data));
     });
-    sock.addEventListener("close", (ev) => {
-      if (ws === sock) closed(ev.code, ev.reason);
+    ws.addEventListener("close", ({ code, reason }) => {
+      if (sock === ws) closed(code, reason);
     });
-    sock.addEventListener("error", () => {}); // следом всегда приходит close
+    ws.addEventListener("error", () => {}); // следом всегда приходит close
   }
 
-  // Нет pong или roster на hello: сокет считаем мёртвым сразу, не дожидаясь, пока закрытие дойдёт по сети.
-  function dead(sock: WsLike, why = "no_pong") {
-    ws = null;
+  /** Нет pong или roster на hello: сокет считаем мёртвым сразу, не дожидаясь, пока закрытие дойдёт по сети. */
+  function dead(ws: WsLike, why: string): void {
+    sock = null;
     try {
-      sock.close(4000, why);
+      ws.close(4000, why);
     } catch {
       // сокет уже закрыт — ветка та же
     }
     closed(1006, why);
   }
 
-  function closed(code: number, reason: string) {
-    ws = null;
-    stopTimers();
-    failAll();
+  function closed(code: number, reason: string): void {
+    sock = null;
+    stopWatching();
+    waiting.dropAll();
     if (state === "stopped") return;
-    const fatal = (code === 1008 && reason !== "gate_unavailable") || (code === 1000 && reason === "replaced");
-    if (fatal) return setState("stopped", reason);
-    setState("closed", reason || String(code), Date.now() + pause);
-    pauseTimer = setTimeout(connect, pause);
-    pause = Math.min(pause * 2, maxPause);
+    if (isFinal(code, reason)) return setState("stopped", reason);
+    const wait = pause.next();
+    setState("closed", reason || String(code), Date.now() + wait);
+    retry = setTimeout(connect, wait);
   }
 
-  function onText(text: string) {
-    if (text === "pong") {
-      waitingPong = false;
-      return;
-    }
+  function onText(text: string): void {
     const f = parseFrame(text);
     if (!f) return; // не кадр; relay шлёт только кадры
+    if (isReply(f) && waiting.answer(f)) return;
     if (f.type === "roster") {
       roster = f as unknown as Roster;
       if (state !== "open") {
-        if (helloTimer !== undefined) clearTimeout(helloTimer);
-        helloTimer = undefined;
-        pause = firstPause;
+        pause.reset();
         setState("open");
       }
-      checkPending();
-      o.onFrame?.(f);
-      return;
-    }
-    if (isReply(f)) {
-      const p = pending.get(f.id);
-      if (p) {
-        pending.delete(f.id);
-        p.resolve(f);
-        return;
-      }
+      waiting.rosterChanged(roster);
     }
     o.onFrame?.(f);
-  }
-
-  // Правило отправителя: ушёл адресат — ответа не будет, ждущий получает disconnected сразу.
-  function checkPending() {
-    for (const [id, p] of [...pending]) {
-      const t = p.target;
-      if (!t) continue;
-      const gone = "machine" in t ? sinceOf(roster, t.machine) !== p.since : p.present && !hasName(roster, t.name);
-      if (gone) {
-        pending.delete(id);
-        p.resolve(fail(id, "disconnected"));
-      }
-    }
   }
 
   connect();
@@ -262,52 +188,35 @@ export function link(o: LinkOptions): Link {
     get roster() {
       return roster;
     },
-    request(f: Frame, read = false): Promise<Reply> {
-      const id = f.id ?? `${prefix}-${++seq}`;
-      const sock = ws;
-      if (state !== "open" || !sock) return Promise.resolve(fail(id, "disconnected"));
-      const target = targetOf(f);
-      const p: Omit<Pending, "resolve"> = {
-        target,
-        since: target && "machine" in target ? sinceOf(roster, target.machine) : undefined,
-        present: !!target && "name" in target && hasName(roster, target.name),
-      };
-      const text = JSON.stringify({ ...f, id });
+    request(f, read = false) {
+      const framed = { ...f, id: f.id ?? `${prefix}-${++seq}` };
+      if (state !== "open" || !sock) return Promise.resolve(fail(framed.id, "disconnected"));
+      const text = JSON.stringify(framed);
       const bytes = oversize(text);
-      if (bytes !== null) return Promise.resolve(Object.assign(fail(id, TOO_LARGE), { bytes }));
-      return new Promise<Reply>((resolve) => {
-        // предел запроса: ответ потерян в пути — ждущий не висит вечно
-        const timer = setTimeout(() => {
-          if (pending.delete(id)) resolve(fail(id, "timeout"));
-        }, read ? Math.min(READ_MS, requestMs) : requestMs);
-        pending.set(id, {
-          ...p,
-          resolve: (r) => {
-            clearTimeout(timer);
-            resolve(r);
-          },
-        });
-        sock.send(text);
-      });
+      if (bytes !== null) return Promise.resolve(Object.assign(fail(framed.id, TOO_LARGE), { bytes }));
+      const answer = waiting.add(framed, roster, read ? Math.min(READ_MS, requestMs) : requestMs);
+      sock.send(text);
+      return answer;
     },
-    send(f: Frame) {
-      if (state !== "open" || !ws) return { ok: false, error: "disconnected" } as const;
+    send(f) {
+      if (state !== "open" || !sock) return { ok: false, error: "disconnected" };
       let text = JSON.stringify(f);
       const bytes = oversize(text);
       if (bytes !== null) {
-        if (!isReply(f)) return { ok: false, error: TOO_LARGE, bytes } as const;
-        text = JSON.stringify({ ...fail(f.id, TOO_LARGE), bytes, ...(f.to !== undefined ? { to: f.to } : {}) });
+        if (!isReply(f)) return { ok: false, error: TOO_LARGE, bytes };
+        text = JSON.stringify({ ...fail(f.id, TOO_LARGE), bytes, to: f.to });
       }
-      ws.send(text);
-      return { ok: true } as const;
+      sock.send(text);
+      return { ok: true };
     },
     close(code = 1000, reason = "closing") {
-      const sock = ws;
-      ws = null;
-      stopTimers();
+      const ws = sock;
+      sock = null;
+      stopWatching();
+      if (retry !== undefined) clearTimeout(retry);
       setState("stopped", reason);
-      failAll();
-      sock?.close(code, reason);
+      waiting.dropAll();
+      ws?.close(code, reason);
     },
   };
 }

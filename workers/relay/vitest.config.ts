@@ -26,16 +26,6 @@ const gateMigrations = await readD1Migrations(join(here, "..", "gate", "migratio
 
 const fixture = (name: string) => readFileSync(join(here, "test", "fixtures", name), "utf8");
 
-function participant(name: string, contract: Record<string, number>, uses?: Record<string, number>) {
-  return {
-    name: `switchboard-${name}`,
-    modules: true,
-    script: fixture("participant.js"),
-    compatibilityDate: "2026-08-01",
-    bindings: { NAME: name, CONTRACT: contract, ...(uses ? { USES: uses } : {}) },
-  };
-}
-
 export default defineConfig({
   test: {
     projects: [
@@ -61,15 +51,15 @@ export default defineConfig({
                   compatibilityDate: "2026-08-01",
                   d1Databases: { DB: "gate-db" },
                 },
-                participant("ledger", { "ledger.add": 1, "ledger.read": 1 }),
+                { name: "switchboard-ledger", modules: true, script: fixture("participant.js"), compatibilityDate: "2026-08-01" },
               ],
             },
           }),
         ],
-        test: { name: "relay", include: ["test/relay*.test.ts"], testTimeout: 15_000 },
+        test: { name: "relay", include: ["test/boundary.test.ts"], testTimeout: 15_000 },
       },
       {
-        test: { name: "link", environment: "node", include: ["test/link*.test.ts", "test/fleet-client.test.ts"] },
+        test: { name: "link", environment: "node", include: ["test/boundary-client.test.ts"], testTimeout: 30_000 },
       },
     ],
   },

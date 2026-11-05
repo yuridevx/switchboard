@@ -1,12 +1,20 @@
 // Соединение с relay внутри workerd для тестов: hello, кадры по одному, закрытие.
 import { SELF, env } from "cloudflare:test";
 
-import { SECRET, standPass } from "./sign.ts";
+import { OWNER, SECRET, standPass } from "./sign.ts";
 type F = Record<string, any>;
 
+const db = () => (env as unknown as { GATE_DB: Parameters<typeof standPass>[0] }).GATE_DB;
+
 /** Пропуск стенда: строка в базе gate стенда. Номер по умолчанию — свой у каждого имени (номер в базе один). */
-export const key = (role: "host" | "client", name: string, kid = `k-${name}`, secret = SECRET) =>
-  standPass((env as unknown as { GATE_DB: Parameters<typeof standPass>[0] }).GATE_DB, role, name, kid, secret);
+export const key = (role: "host" | "client", name: string, kid = `k-${name}`, secret = SECRET) => standPass(db(), role, name, kid, secret);
+
+let n = 0;
+/** Пропуск со своим номером: отзыв и несколько пропусков одного имени; person — человек за устройством. */
+export async function pass(role: "host" | "client", name: string, person = OWNER): Promise<{ key: string; kid: string }> {
+  const kid = `p${String(++n).padStart(3, "0")}`;
+  return { key: await standPass(db(), role, name, kid, SECRET, person), kid };
+}
 
 export class Peer {
   frames: F[] = [];
@@ -34,15 +42,18 @@ export class Peer {
     return new Peer(ws);
   }
 
-  /** Новое соединение, hello и первый roster. */
-  static async hello(role: "host" | "keeper" | "client", name: string, extra: F = {}, kid?: string): Promise<Peer> {
-    const p = await Peer.open();
-    // keeper входит ключом машины и называет себя part
-    const k = role === "keeper" ? await key("host", name, kid) : await key(role, name, kid);
-    p.send({ type: "hello", proto: 1, key: k, ...(role === "keeper" ? { part: "keeper" } : {}), ...extra });
-    // первый roster остаётся в очереди: его читает roster()
-    await p.until(() => p.frames.find((f) => f.type === "roster"), 3000, "roster после hello");
+  /** Новое соединение и hello готовым пропуском; ждёт первый roster или закрытие. Roster остаётся в очереди: его читает roster(). */
+  static async enter(machine: string, k: string, extra: F = {}): Promise<Peer> {
+    const p = await Peer.open(machine);
+    p.send({ type: "hello", proto: 1, key: k, ...extra });
+    await p.until(() => p.frames.find((f) => f.type === "roster") ?? p.closed ?? undefined, 3000, "roster после hello");
     return p;
+  }
+
+  /** Новое соединение с объектом laptop по имени участника; keeper входит ключом машины и называет себя part. */
+  static async hello(role: "host" | "keeper" | "client", name: string, extra: F = {}, kid?: string): Promise<Peer> {
+    const k = role === "keeper" ? await key("host", name, kid) : await key(role, name, kid);
+    return Peer.enter("laptop", k, { ...(role === "keeper" ? { part: "keeper" } : {}), ...extra });
   }
 
   send(f: F | string) {
