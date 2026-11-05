@@ -1,11 +1,5 @@
-//go:build windows
-
 package main
 
-// Вид установки «при входе пользователя» — для машин с оконными приложениями: служба живёт в сессии 0 без рабочего стола. Задача планировщика запускает keeper
-// в сессии пользователя и повторяет запуск раз в минуту без второго экземпляра: вышедший keeper (сбой или подмена себя) поднимается на следующей минуте (замер
-// 1 нояб.). Повтор висит на двух триггерах: «при регистрации» — с установки, «при входе» — после перезагрузки. Только у входа повтор не шёл до первого входа:
-// keeper после подмены себя не поднимался (живой прогон 1 нояб., win).
 import (
 	"fmt"
 	"os"
@@ -17,6 +11,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+// logonTaskXML — вид установки «при входе пользователя» для машин с оконными приложениями: служба живёт в сессии 0 без рабочего стола. Задача запускает keeper в сессии
+// пользователя и повторяет запуск раз в минуту без второго экземпляра: вышедший keeper (сбой или подмена себя) поднимается на следующей минуте (замер 1 нояб.).
+// Повтор висит на двух триггерах: «при регистрации» — с установки, «при входе» — после перезагрузки. Только у входа повтор не шёл до первого входа (живой прогон 1 нояб., win).
 const logonTaskXML = `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Switchboard keeper: исполняет план машины в сессии пользователя.</Description></RegistrationInfo>
@@ -49,32 +46,30 @@ const logonTaskXML = `<?xml version="1.0" encoding="UTF-16"?>
 </Task>
 `
 
-func installLogonTask() error {
-	exe, err := placeSelf()
-	if err != nil {
-		return err
+// logonTask — текст задачи в UTF-16 с меткой порядка байт: другого файла schtasks не принимает.
+func logonTask(user, exe string) []byte {
+	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace
+	b := []byte{0xFF, 0xFE}
+	for _, c := range utf16.Encode([]rune(fmt.Sprintf(logonTaskXML, esc(user), esc(exe), esc(strings.Join(runArgs(), " "))))) {
+		b = append(b, byte(c), byte(c>>8))
 	}
+	return b
+}
+
+func registerLogon(exe string) error {
 	user, _, err := account()
 	if err != nil {
 		return err
 	}
-	esc := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;").Replace
-	xml := fmt.Sprintf(logonTaskXML, esc(user), esc(exe), esc(strings.Join(runArgs(), " ")))
-	// schtasks ждёт файл XML в UTF-16 с меткой порядка байт
-	b := []byte{0xFF, 0xFE}
-	for _, c := range utf16.Encode([]rune(xml)) {
-		b = append(b, byte(c), byte(c>>8))
-	}
 	tmp := filepath.Join(os.TempDir(), serviceName()+"-task.xml")
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := os.WriteFile(tmp, logonTask(user, exe), 0o600); err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
-	if out, err := exec.Command("schtasks", "/Create", "/TN", serviceName(), "/XML", tmp, "/F").CombinedOutput(); err != nil {
-		return fmt.Errorf("schtasks /Create: %v: %s", err, out)
-	}
-	if out, err := exec.Command("schtasks", "/Run", "/TN", serviceName()).CombinedOutput(); err != nil {
-		return fmt.Errorf("schtasks /Run: %v: %s", err, out)
+	for _, args := range [][]string{{"/Create", "/TN", serviceName(), "/XML", tmp, "/F"}, {"/Run", "/TN", serviceName()}} {
+		if out, err := exec.Command("schtasks", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("schtasks %s: %v: %s", args[0], err, out)
+		}
 	}
 	return nil
 }
