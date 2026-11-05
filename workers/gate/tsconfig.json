@@ -4,5 +4,5 @@
     "lib": ["es2023"],
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers/types"]
   },
-  "include": ["contract.ts", "src", "test/gate.test.ts", "test/raw.d.ts"]
+  "include": ["contract.ts", "src", "test/boundary.test.ts"]
 }

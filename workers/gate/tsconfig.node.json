@@ -5,12 +5,10 @@
     "src/key.ts",
     "src/seed.ts",
     "seed.ts",
-    "test/seed.test.ts",
+    "test/boundary-cli.test.ts",
     "vitest.config.ts",
     "src/entrance.ts",
-    "test/entrance.test.ts",
     "redeem.ts",
-    "test/redeem.test.ts",
     "src/stand.ts"
   ]
 }
