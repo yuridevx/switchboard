@@ -1,9 +1,7 @@
-// Опции пульта: широкий вид, имя, порядок разделов; карточка, новая сессия, чат и вопрос открываются справа от списков.
-import type { ShellOptions } from "../../shell.ts";
-
+// Пульт — широкий вид: разделы колонкой, второй экран справа от списка.
 const LISTS = ["board", "inbox", "incidents"];
 
-export const PULT: ShellOptions = {
+export const PULT = {
   wide: true,
   brand: "Пульт",
   sections: ["inbox", "board", "incidents", "machines", "accounts", "profiles", "journal", "points", "settings"],

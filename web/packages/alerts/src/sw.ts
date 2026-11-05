@@ -70,7 +70,7 @@ export function serviceWorker(scope: SwScope, o: Options): void {
   }
 
   async function answerByButton(frame: Frame, n: Notify): Promise<void> {
-    const word = await sendFrame(frame, o);
+    const word = await sendFrame(frame, o).catch((e: Error) => e.message);
     if (word === null) return;
     console.error(`switchboard: ответ из уведомления не отправлен — ${word}`);
     await scope.registration.showNotification(`Ответ не отправлен: ${word}`, { body: n.body, tag: n.tag, icon: "icon-192.png" });

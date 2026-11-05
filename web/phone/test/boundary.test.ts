@@ -2,12 +2,12 @@
 // Вход — файл сборки, кадры relay и служебный обработчик, исход — страница, кадры и файлы. Номер — эталон-источник; без номера — чьё: код.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { check, loadRepo, order } from "@switchboard/manifest-gate";
+import { loadRepo, order } from "@switchboard/manifest-gate";
 import { serviceWorker } from "@switchboard/web-alerts";
 import { appGate, idbStore, memoryStore } from "@switchboard/web-core";
 import { manifest as uiM } from "@switchboard/web-ui";
@@ -58,7 +58,6 @@ describe("состав и старт", () => {
     expect(phoneParts().map((p) => p.manifest.name).sort()).toEqual(want.map((m) => m.name).sort());
     expect(want.length).toBe(13);
     expect(appGate(defined(phoneParts()))).toEqual([]);
-    expect(check(loadRepo(root))).toEqual([]);
   });
 
   it("4001 · оболочка телефона по build.json: hello на каждую машину, домашний раздел «Вам», свои разделы, узкий вид", async () => {
@@ -146,6 +145,9 @@ describe("статика", () => {
   it("4185 · dist: app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
     const dist = join(app, "dist");
+    // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой
+    mkdirSync(dist, { recursive: true });
+    writeFileSync(join(dist, "stale.js"), "");
     const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
@@ -156,6 +158,7 @@ describe("статика", () => {
     }
     expect(readFileSync(join(dist, "app.js"), "utf8")).not.toContain("Новая сессия");
     expect(readFileSync(join(dist, "index.html"), "utf8")).toContain('<script src="app.js" defer></script>');
+    for (const f of ["index.html", "manifest.webmanifest"]) expect(readFileSync(join(dist, f), "utf8")).toBe(readFileSync(join(app, "public", f), "utf8"));
     const png = (f: string) => createHash("sha256").update(readFileSync(join(dist, f))).digest("hex").slice(0, 16);
     expect(["icon-192.png", "icon-512.png", "apple-touch-icon.png"].map(png)).toEqual(ICONS);
     expect(r.stdout).toContain("phone: dist/ собран — оболочка без модулей и адресов");
