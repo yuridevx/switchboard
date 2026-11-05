@@ -1,16 +1,23 @@
-// Журнал машины: строка JSON на запись в ~/.switchboard/journal/host-<дата UTC>.jsonl.
-// Запись сразу, без буфера: упал Host — всё записанное уже на диске.
+// Журнал машины: строка JSON на запись в journal/host-<дата>.jsonl.
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { LogRecord } from "../contract.ts";
 import type { Clock } from "./clock.ts";
 
-export type Journal = (who: string, rec: LogRecord) => void;
+export class Journal {
+  private readonly dir: string;
+  private readonly machine: string;
+  private readonly clock: Clock;
 
-export function journal(dir: string, machine: string, clock: Clock): Journal {
-  mkdirSync(dir, { recursive: true });
-  return (who, rec) => {
-    const t = new Date(clock.now()).toISOString();
-    appendFileSync(join(dir, `host-${t.slice(0, 10)}.jsonl`), JSON.stringify({ t, part: "host", machine, who, ...rec, kind: rec.kind ?? "note" }) + "\n");
-  };
+  constructor(dir: string, machine: string, clock: Clock) {
+    mkdirSync(dir, { recursive: true });
+    this.dir = dir;
+    this.machine = machine;
+    this.clock = clock;
+  }
+
+  write(who: string, record: LogRecord): void {
+    const t = new Date(this.clock.now()).toISOString();
+    appendFileSync(join(this.dir, `host-${t.slice(0, 10)}.jsonl`), JSON.stringify({ t, part: "host", machine: this.machine, who, kind: "note", ...record }) + "\n");
+  }
 }

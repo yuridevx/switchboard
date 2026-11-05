@@ -1,97 +1,78 @@
-// Точка входа Host — часть машины, её запускает keeper. Ввод закрылся или сигнал ОС — штатный выход,
-// процессы claude остаются у своих держателей. От keeper — окружение: SWITCHBOARD_MACHINE, SWITCHBOARD_HOLDER (файл
-// держателя), SWITCHBOARD_HOME; адреса relay и Worker'ов флота — в списке сборки (build.json). Ключ машины — ~/.switchboard/machine.key;
-// разделы модулей — ~/.switchboard/host.json { "modules": {…} }, файла нет — модули без настроек.
-// node main.ts --check — гейт выпуска отдельным процессом, без relay, keeper, хранилища и claude.
+// Процесс Host. Его запускает keeper: SWITCHBOARD_MACHINE, SWITCHBOARD_HOLDER и папка данных (SWITCHBOARD_HOME или ~/.switchboard).
+//   host.json     { modules: { <имя>: раздел host.config() } }
+//   machine.key   пропуск машины
+//   node main.ts --check — гейт выпуска: одна строка JSON, код 0 или 1.
+// Остановка: SIGTERM, SIGINT или закрытый ввод (keeper меняет версию).
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import * as sdk from "@anthropic-ai/claude-agent-sdk";
+import { join } from "node:path";
 import { PROTO } from "@switchboard/relay";
 import type { Manifest } from "./contract.ts";
+import { releaseProblems } from "./src/gate.ts";
 import { realHolders } from "./src/holders.ts";
 import { Kernel, StartError } from "./src/kernel.ts";
-import type { SdkApi } from "./src/kernel.ts";
-import { gate } from "./src/registry.ts";
-import { claudeCli, claudePath, loadRelease } from "./src/release.ts";
+import { loadRelease, realSdk } from "./src/release.ts";
 
-const coreDir = dirname(fileURLToPath(import.meta.url));
-const core = JSON.parse(readFileSync(join(coreDir, "module.json"), "utf8")) as Manifest;
-const home = process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
+const coreDir = import.meta.dirname;
 
-/** Гейт выпуска: ответ одной строкой JSON, код 0 или 1. */
-async function check(): Promise<number> {
+function die(text: string): never {
+  console.error(text);
+  process.exit(1);
+}
+
+async function check(core: Manifest): Promise<void> {
   try {
     const release = await loadRelease(coreDir);
-    const { fatal, down } = gate(core, release.modules, true);
-    const errors = [...fatal, ...[...down.values()].flat()];
-    if (errors.length) {
-      console.log(JSON.stringify({ ok: false, why: errors.join("; ") }));
-      return 1;
-    }
-    console.log(JSON.stringify({ ok: true, version: release.version, sdk: release.sdk, proto: PROTO }));
-    return 0;
+    const problems = releaseProblems(core, release);
+    console.log(JSON.stringify(problems.length ? { ok: false, why: problems.join("; ") } : { ok: true, version: release.version, sdk: release.sdk, proto: PROTO }));
+    process.exitCode = problems.length ? 1 : 0;
   } catch (e) {
     console.log(JSON.stringify({ ok: false, why: (e as Error).message }));
-    return 1;
+    process.exitCode = 1;
   }
+  process.exit();
 }
 
-/** Код выхода; null — Host работает, выход сделает остановка. */
-async function run(): Promise<number | null> {
-  if (process.argv.includes("--check")) return check();
-  const machine = process.env.SWITCHBOARD_MACHINE;
-  if (!machine) {
-    console.error("host: нет SWITCHBOARD_MACHINE — Host запускает keeper");
-    return 1;
-  }
-  const hostFile = join(home, "host.json");
-  const modules = existsSync(hostFile) ? (JSON.parse(readFileSync(hostFile, "utf8")) as { modules?: Record<string, unknown> }).modules : undefined;
-  const keyFile = join(home, "machine.key");
-  // claude ищет Host один раз; SDK без пути ищет сам через process.report — на Linux с открытыми сокетами это ~20 с
-  const bin = claudePath(coreDir);
-  const functions: SdkApi["functions"] = {};
-  for (const [n, f] of Object.entries(sdk)) if (typeof f === "function") functions[n] = f as (...a: unknown[]) => Promise<unknown>;
-  const kernel = new Kernel({
+const core = JSON.parse(readFileSync(join(coreDir, "module.json"), "utf8")) as Manifest;
+if (process.argv.includes("--check")) await check(core);
+
+const machine = process.env.SWITCHBOARD_MACHINE;
+if (!machine) die("host: нет SWITCHBOARD_MACHINE — Host запускает keeper");
+const home = process.env.SWITCHBOARD_HOME ?? join(homedir(), ".switchboard");
+const read = (name: string) => (existsSync(join(home, name)) ? readFileSync(join(home, name), "utf8") : undefined);
+
+let kernel: Kernel | undefined;
+function stray(e: unknown): void {
+  if (kernel?.stray(e)) return;
+  console.error(e);
+  process.exit(1);
+}
+// ловушка раньше импорта модулей: их таймеры могут сработать ещё до старта
+process.on("uncaughtException", stray);
+process.on("unhandledRejection", stray);
+// процессы остаются у держателей: соединения закрыты раньше, чем SDK на выходе из процесса тронет свои процессы
+process.on("exit", () => kernel?.holders.close());
+
+try {
+  const release = await loadRelease(coreDir);
+  const hostJson = read("host.json");
+  kernel = new Kernel({
     home,
-    config: { machine, modules },
+    config: { machine, modules: hostJson ? (JSON.parse(hostJson) as { modules?: Record<string, unknown> }).modules : undefined },
     core,
-    release: await loadRelease(coreDir),
-    sdk: { query: sdk.query, functions, cli: claudeCli(bin), bin },
+    release,
+    sdk: realSdk(coreDir),
     holders: realHolders(home, process.env.SWITCHBOARD_HOLDER),
-    relayKey: existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim() : undefined,
+    relayKey: read("machine.key")?.trim(),
     exit: (code) => process.exit(code),
   });
-  // ввод закрыт или сигнал ОС — штатный выход: процессы claude остаются у своих держателей
-  process.stdin.on("end", () => void kernel.shutdown("ввод закрыт"));
-  process.stdin.on("error", () => void kernel.shutdown("ввод закрыт"));
+  const stop = (why: string) => void kernel!.shutdown(why);
+  process.on("SIGTERM", () => stop("SIGTERM"));
+  process.on("SIGINT", () => stop("SIGINT"));
+  process.stdin.on("end", () => stop("ввод закрыт"));
+  process.stdin.on("error", () => stop("ввод закрыт"));
   process.stdin.resume();
-  process.on("SIGTERM", () => void kernel.shutdown("SIGTERM"));
-  process.on("SIGINT", () => void kernel.shutdown("SIGINT"));
-  // ошибка в работе модуля вне вызова ядра — модуль выключен, Host живёт; чья — неизвестно: выход 1, чистый перезапуск
-  const stray = (e: unknown) => {
-    if (kernel.stray(e)) return;
-    console.error(e);
-    process.exit(1);
-  };
-  process.on("unhandledRejection", stray);
-  process.on("uncaughtException", stray);
-  try {
-    await kernel.start();
-  } catch (e) {
-    console.error(e instanceof StartError ? `host: не стартует\n${e.message}` : "host:", ...(e instanceof StartError ? [] : [e]));
-    return 1;
-  }
-  return null;
+  await kernel.start();
+} catch (e) {
+  die(e instanceof StartError ? `host: не стартует: ${e.message}` : `host: ${(e as Error).message}`);
 }
-
-run().then(
-  (code) => {
-    if (code !== null) process.exit(code);
-  },
-  (e) => {
-    console.error("host:", e);
-    process.exit(1);
-  },
-);

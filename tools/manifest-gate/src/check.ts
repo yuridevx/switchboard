@@ -1,118 +1,96 @@
-// Правила набора модулей. Каждое правило смотрит на весь набор и называет нарушения словами.
-import { cycles } from "./graph.ts";
-import { nameOf, ownerOf, type Manifest } from "./manifest.ts";
+// Правила набора модулей: пустой список — годен, иначе причины словами. Файлов не читает: идёт и в браузере.
+import { needs, nameOf, ownerOf, type Manifest } from "./manifest.ts";
 
-type Rule = (mods: Manifest[], byName: Map<string, Manifest>) => string[];
-
-/** Тип модуля → тип корня приложения, в которое он входит. Другие типы ни во что не входят. */
-const ROOT: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
-/** Конверт кадра общий у всех: его можно импортировать без uses. */
+/** Конверт кадра общий у всех: его импортируют без uses. */
 const PROTOCOL = "@switchboard/protocol";
+/** Какого типа корень сборки у модуля этого типа. */
+const ROOT_OF: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
 
-const uniqueNames: Rule = (mods) => {
-  const seen = new Set<string>();
-  return mods.flatMap((m) => {
-    const taken = seen.has(m.name);
-    seen.add(m.name);
-    return taken ? [`модуль ${m.name}: имя уже занято`] : [];
-  });
-};
+/** Первый занявший ключ остаётся; второй — причина. */
+function claim(held: Map<string, string>, key: string, who: string, word: string, out: string[]) {
+  const first = held.get(key);
+  if (first === undefined) held.set(key, who);
+  else out.push(`${word} — ${first} и ${who}`);
+}
 
-const oneOwner: Rule = (mods) => {
-  const owner = new Map<string, string>();
-  return mods.flatMap((m) =>
-    Object.keys(m.provides).flatMap((n) => {
-      const o = owner.get(n);
-      if (o && o !== m.name) return [`имя ${n}: два владельца — ${o} и ${m.name}`];
-      owner.set(n, m.name);
-      return [];
-    }),
-  );
-};
+function cycles(byName: Map<string, Manifest>): string[] {
+  const out: string[] = [];
+  const done = new Set<string>();
+  const path: string[] = [];
+  const visit = (name: string) => {
+    const seen = path.indexOf(name);
+    if (seen >= 0) out.push(`цикл зависимостей: ${[...path.slice(seen), name].join(" → ")}`);
+    if (seen >= 0 || done.has(name)) return;
+    path.push(name);
+    needs(byName.get(name)!, byName).forEach(visit);
+    path.pop();
+    done.add(name);
+  };
+  [...byName.keys()].forEach(visit);
+  return out;
+}
 
-const usesMatch: Rule = (mods, byName) =>
-  mods.flatMap((m) =>
-    Object.entries(m.uses).flatMap(([ref, version]) => {
-      if (ref.lastIndexOf("@") <= 0) return [`модуль ${m.name}: uses «${ref}» — нужно имя@владелец`];
-      const name = nameOf(ref);
-      const owner = byName.get(ownerOf(ref));
-      if (!owner) return [`модуль ${m.name}: uses ${ref} — владельца нет в наборе`];
-      if (owner.provides[name] === undefined) return [`модуль ${m.name}: uses ${ref} — ${owner.name} не отдаёт ${name}`];
-      if (owner.provides[name] !== version) return [`модуль ${m.name}: uses ${ref} v${version} — у владельца v${owner.provides[name]}`];
-      return [];
-    }),
-  );
-
-const noCycles: Rule = (mods) => cycles(mods).map((path) => `цикл зависимостей: ${path.join(" → ")}`);
-
-const intoRoot: Rule = (mods, byName) =>
-  mods.flatMap((m) =>
-    (m.into ?? []).flatMap((app) => {
-      const root = ROOT[m.type];
-      if (!root) return [`модуль ${m.name}: into у типа ${m.type} не бывает`];
-      const target = byName.get(app);
-      if (!target) return [`модуль ${m.name}: into ${app} — такого приложения нет в наборе`];
-      return target.type === root ? [] : [`модуль ${m.name}: into ${app} — ${app} не ${root}`];
-    }),
-  );
-
-/** Импорт — только контракта и только из uses. */
-const importsDeclared: Rule = (mods) => {
-  const byPkg = new Map(mods.flatMap((m) => (m.pkg ? [[m.pkg, m] as const] : [])));
-  return mods.flatMap((m) => {
-    const declared = new Set(Object.keys(m.uses).map(ownerOf));
-    return (m.imports ?? []).flatMap((spec) => {
-      if (spec === PROTOCOL) return [];
-      const pkg = spec.split("/").slice(0, 2).join("/");
-      const target = byPkg.get(pkg);
-      if (!target) return [`модуль ${m.name}: импорт ${spec} — такого модуля нет`];
-      if (target.name === m.name) return [];
-      if (!declared.has(target.name)) return [`модуль ${m.name}: импорт ${spec} — ${target.name} нет в uses`];
-      return spec === pkg ? [] : [`модуль ${m.name}: импорт ${spec} — мимо контракта ${pkg}`];
-    });
-  });
-};
-
-/** Вызов через привязку Worker'а виден только в коде: Host и страница проверяют uses сами при вызове, Worker — нет. */
-const callsDeclared: Rule = (mods, byName) =>
-  mods.flatMap((m) =>
-    (m.calls ?? []).flatMap((name) => {
-      const owner = byName.get(name.slice(0, name.indexOf(".")));
-      if (!owner || owner.name === m.name || owner.provides[name] === undefined) return [];
-      return m.uses[`${name}@${owner.name}`] === undefined ? [`модуль ${m.name}: зовёт ${name} — нет в uses`] : [];
-    }),
-  );
-
-const TEST_MAY_REACH = (path: string) => path === "contract.ts" || path === "module.json" || path.startsWith("stand/");
-
-/** Импорт в чужую папку: коду — контракт из uses; тесту и стенду — контракт, манифест и стенд без uses. */
-const reachThroughContract: Rule = (mods) =>
-  mods.flatMap((m) => {
-    const declared = new Set(Object.keys(m.uses).map(ownerOf));
-    return (m.reach ?? []).flatMap(({ to, path, test }) => {
-      if (test) return TEST_MAY_REACH(path) ? [] : [`модуль ${m.name}: тест импортирует ${to}/${path} — мимо контракта ${to}`];
-      if (!declared.has(to)) return [`модуль ${m.name}: импорт ${to}/${path} — ${to} нет в uses`];
-      return path === "contract.ts" ? [] : [`модуль ${m.name}: импорт ${to}/${path} — мимо контракта ${to}`];
-    });
-  });
-
-const secretOneOwner: Rule = (mods) => {
-  const owner = new Map<string, string>();
-  return mods.flatMap((m) =>
-    Object.entries(m.config).flatMap(([key, kind]) => {
-      if (kind !== "secret") return [];
-      const o = owner.get(key);
-      if (o) return [`секрет ${key}: в config двух модулей — ${o} и ${m.name}`];
-      owner.set(key, m.name);
-      return [];
-    }),
-  );
-};
-
-const RULES = [uniqueNames, oneOwner, usesMatch, noCycles, intoRoot, importsDeclared, callsDeclared, reachThroughContract, secretOneOwner];
-
-/** Проверить набор модулей. Пустой список — набор годен; иначе — причины словами. */
 export function check(mods: Manifest[]): string[] {
-  const byName = new Map(mods.map((m) => [m.name, m]));
-  return RULES.flatMap((rule) => rule(mods, byName));
+  const out: string[] = [];
+  const byName = new Map<string, Manifest>();
+  const owners = new Map<string, string>();
+  const secrets = new Map<string, string>();
+  for (const m of mods) {
+    if (byName.has(m.name)) {
+      out.push(`модуль ${m.name}: имя уже занято`);
+      continue;
+    }
+    byName.set(m.name, m);
+    for (const name of Object.keys(m.provides)) claim(owners, name, m.name, `имя ${name}: два владельца`, out);
+    for (const [key, kind] of Object.entries(m.config)) if (kind === "secret") claim(secrets, key, m.name, `секрет ${key}: в config двух модулей`, out);
+  }
+  const byPkg = new Map([...byName.values()].map((m) => [m.pkg, m]));
+
+  for (const m of byName.values()) {
+    const fault = (word: string) => out.push(`модуль ${m.name}: ${word}`);
+    const declared = new Set(Object.keys(m.uses).map(ownerOf));
+
+    for (const [ref, version] of Object.entries(m.uses)) {
+      const name = nameOf(ref);
+      const owner = ownerOf(ref);
+      const held = byName.get(owner)?.provides[name];
+      if (!name || !owner) fault(`uses «${ref}» — нужно имя@владелец`);
+      else if (!byName.has(owner)) fault(`uses ${ref} — владельца нет в наборе`);
+      else if (held === undefined) fault(`uses ${ref} — ${owner} не отдаёт ${name}`);
+      else if (held !== version) fault(`uses ${ref} v${version} — у владельца v${held}`);
+    }
+
+    for (const app of m.into ?? []) {
+      const root = ROOT_OF[m.type];
+      const target = byName.get(app);
+      if (!root) fault(`into у типа ${m.type} не бывает`);
+      else if (!target) fault(`into ${app} — такого приложения нет в наборе`);
+      else if (target.type !== root) fault(`into ${app} — ${app} не ${root}`);
+    }
+
+    for (const spec of m.imports ?? []) {
+      const pkg = spec.split("/").slice(0, 2).join("/");
+      const owner = byPkg.get(pkg);
+      if (pkg === m.pkg || spec === PROTOCOL) continue;
+      if (!owner) fault(`импорт ${spec} — такого модуля нет`);
+      else if (!declared.has(owner.name)) fault(`импорт ${spec} — ${owner.name} нет в uses`);
+      else if (spec !== pkg) fault(`импорт ${spec} — мимо контракта ${pkg}`);
+    }
+
+    for (const file of m.reach ?? []) {
+      const [owner] = file.split("/");
+      if (!declared.has(owner)) fault(`импорт ${file} — ${owner} нет в uses`);
+      else if (file !== `${owner}/contract.ts`) fault(`импорт ${file} — мимо контракта ${owner}`);
+    }
+
+    for (const file of m.testReach ?? []) fault(`тест импортирует ${file} — мимо контракта ${file.split("/")[0]}`);
+
+    for (const name of m.rpc ?? []) {
+      // привязка названа именем модуля; база, бакет и объект платформы модулем не называются. Host и страница сверяют uses при вызове, Worker — нет
+      const owner = byName.get(name.split(".")[0]);
+      if (owner && owner !== m && owner.provides[name] !== undefined && m.uses[`${name}@${owner.name}`] === undefined) fault(`зовёт ${name} — нет в uses`);
+    }
+  }
+  out.push(...cycles(byName));
+  return out;
 }

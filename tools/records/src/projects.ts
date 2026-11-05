@@ -1,98 +1,88 @@
-// Проекты: запись fleet.projects одна на флот и отвечает на три вопроса: какие есть проекты, в каком проекте сессия, в каком она порядке.
-// В записи есть и сессии машин не на связи, поэтому правка переставляет только свой блок.
+// Запись fleet.projects: проекты по порядку, в каждом — сессии по порядку. Функции чистые: старая запись на входе, новая на выходе.
 export const PROJECTS = "projects";
-/** Номер группы «Без проекта»: сюда попадают сессии вне записи и записанные в неё; группа всегда последняя. */
+/** Номер группы «Без проекта»: в записи появляется при первой постановке, всегда последняя. */
 export const NONE = "~";
+const NONE_NAME = "Без проекта";
 
 export type ProjectRec = { id: string; name: string; sessions: string[] };
-type SessionLink = { callsign: string; parent?: string | null };
-type Section = { id: string; name: string; callsigns: string[] };
+type Recs = ProjectRec[] | undefined;
+type ParentOf = (callsign: string) => string | null | undefined;
 
-const noneGroup = (): ProjectRec => ({ id: NONE, name: "Без проекта", sessions: [] });
 const noneLast = (recs: ProjectRec[]) => [...recs.filter((r) => r.id !== NONE), ...recs.filter((r) => r.id === NONE)];
-const hasNone = (recs: ProjectRec[]) => recs.some((r) => r.id === NONE);
+/** Вставка перед номером at; номера нет — в конец. */
+const inserted = <T,>(list: T[], items: T[], at: number) => {
+  const cut = at < 0 ? list.length : at;
+  return [...list.slice(0, cut), ...items, ...list.slice(cut)];
+};
 
-/** Проект сессии: её место в записи, иначе ближайшего записанного предка, иначе «Без проекта». */
-export function projectIdOf(recs: ProjectRec[] | undefined, callsign: string, parentOf: (cs: string) => string | null | undefined = () => null): string {
-  const visited = new Set<string>();
-  let current: string | null | undefined = callsign;
-  while (current && !visited.has(current)) {
-    const cs: string = current;
-    const home = recs?.find((r) => r.sessions.includes(cs));
-    if (home) return home.id;
-    visited.add(cs);
-    current = parentOf(cs);
+/** Проект сессии: её запись, иначе запись ближайшего предка, иначе «Без проекта». */
+export function projectIdOf(recs: Recs, callsign: string, parentOf?: ParentOf): string {
+  const seen = new Set<string>();
+  for (let c: string | null | undefined = callsign; c && !seen.has(c); c = parentOf?.(c)) {
+    seen.add(c);
+    const rec = recs?.find((r) => r.sessions.includes(c as string));
+    if (rec) return rec.id;
   }
   return NONE;
 }
 
-/** Секции списка: сначала записанные на своих местах, следом незаписанные по имени; пустая «Без проекта» не показывается. */
-export function arrange(recs: ProjectRec[] | undefined, list: SessionLink[]): Section[] {
+/** Секции списка: порядок записанных — из записи, незаписанные за ними по имени. «Без проекта» без сессий нет. */
+export function arrange(recs: Recs, list: Array<{ callsign: string; parent?: string | null }>) {
   const all = recs ?? [];
-  const links = new Map(list.map((s) => [s.callsign, s]));
-  const written = new Set(all.flatMap((r) => r.sessions));
-  const loose = [...links.keys()].filter((cs) => !written.has(cs)).sort((a, b) => a.localeCompare(b));
-  const homeOf = (cs: string) => projectIdOf(recs, cs, (c) => links.get(c)?.parent);
-  return noneLast(hasNone(all) ? all : [...all, noneGroup()])
-    .map(({ id, name, sessions }) => ({ id, name, callsigns: [...sessions.filter((cs) => links.has(cs)), ...loose.filter((cs) => homeOf(cs) === id)] }))
-    .filter((s) => s.id !== NONE || s.callsigns.length > 0);
+  const parents = new Map(list.map((s) => [s.callsign, s.parent]));
+  const recorded = new Set(all.flatMap((r) => r.sessions));
+  const loose = new Map<string, string[]>();
+  for (const c of [...parents.keys()].filter((x) => !recorded.has(x)).sort((a, b) => a.localeCompare(b))) {
+    const id = projectIdOf(all, c, (x) => parents.get(x));
+    loose.set(id, [...(loose.get(id) ?? []), c]);
+  }
+  const section = (r: ProjectRec) => ({ id: r.id, name: r.name, callsigns: [...r.sessions.filter((c) => parents.has(c)), ...(loose.get(r.id) ?? [])] });
+  const none = section(all.find((r) => r.id === NONE) ?? { id: NONE, name: NONE_NAME, sessions: [] });
+  return [...all.filter((r) => r.id !== NONE).map(section), ...(none.callsigns.length ? [none] : [])];
 }
 
-/** Вставить блок перед before; before в списке нет — в конец. */
-function inserted(sessions: string[], block: string[], before: string | null): string[] {
-  const at = before ? sessions.indexOf(before) : -1;
-  return at < 0 ? [...sessions, ...block] : [...sessions.slice(0, at), ...block, ...sessions.slice(at)];
+/** Поставить сессии блоком в проект перед before, иначе в конец; в записи каждая остаётся в одном месте. */
+export function placeSessions(recs: Recs, block: string[], project: string, before?: string | null): ProjectRec[] {
+  const rest = (recs ?? []).map((r) => ({ ...r, sessions: r.sessions.filter((c) => !block.includes(c)) }));
+  const all = project === NONE && !rest.some((r) => r.id === NONE) ? [...rest, { id: NONE, name: NONE_NAME, sessions: [] }] : rest;
+  return all.map((r) => (r.id === project ? { ...r, sessions: inserted(r.sessions, block, before ? r.sessions.indexOf(before) : -1) } : r));
 }
 
-/** Поставить блок в проект: каждая сессия блока остаётся ровно в одном месте записи. */
-export function placeSessions(recs: ProjectRec[] | undefined, block: string[], id: string, before: string | null = null): ProjectRec[] {
-  const without = (recs ?? []).map((r) => ({ ...r, sessions: r.sessions.filter((cs) => !block.includes(cs)) }));
-  const target = id === NONE && !hasNone(without) ? [...without, noneGroup()] : without;
-  return target.map((r) => (r.id === id ? { ...r, sessions: inserted(r.sessions, block, before) } : r));
+/** Бросок на экране: перед записанной строкой — обычная постановка; среди незаписанных блок встаёт за строками выше места броска, поэтому в запись идут они и он. */
+export function dropSessions(recs: Recs, block: string[], project: string, before: string | null, shown: string[]): ProjectRec[] {
+  const written = recs?.find((r) => r.id === project)?.sessions ?? [];
+  if (before && written.includes(before)) return placeSessions(recs, block, project, before);
+  const rows = shown.filter((c) => !block.includes(c));
+  const above = before ? rows.slice(0, Math.max(rows.indexOf(before), 0)) : rows;
+  return placeSessions(placeSessions(recs, above.filter((c) => !written.includes(c)), project), block, project);
 }
 
-/** Бросок на экране среди строк shown: незаписанные строки выше места броска записываются вместе с блоком, иначе блок встал бы над ними. */
-export function dropSessions(recs: ProjectRec[] | undefined, block: string[], id: string, before: string | null, shown: string[]): ProjectRec[] {
-  const written = recs?.find((r) => r.id === id)?.sessions ?? [];
-  if (before && written.includes(before)) return placeSessions(recs, block, id, before);
-  const others = shown.filter((cs) => !block.includes(cs));
-  const above = before ? others.slice(0, Math.max(others.indexOf(before), 0)) : others;
-  const withAbove = placeSessions(recs, above.filter((cs) => !written.includes(cs)), id);
-  return placeSessions(withAbove, block, id);
-}
-
-/** Переставить проект перед before; before нет — последним из обычных. «Без проекта» не двигается. */
-export function moveProject(recs: ProjectRec[] | undefined, id: string, before: string | null = null): ProjectRec[] {
+export function moveProject(recs: Recs, id: string, before?: string | null): ProjectRec[] {
   const all = recs ?? [];
   const moved = all.find((r) => r.id === id);
-  if (!moved || id === NONE) return all;
-  const others = all.filter((r) => r !== moved);
-  const at = before && before !== NONE ? others.findIndex((r) => r.id === before) : -1;
-  return noneLast(at < 0 ? [...others, moved] : [...others.slice(0, at), moved, ...others.slice(at)]);
+  if (!moved) return all;
+  const rest = all.filter((r) => r !== moved);
+  return noneLast(inserted(rest, [moved], rest.findIndex((r) => r.id === before)));
 }
 
-/** Новый пустой проект: номер — от имени, занят — с числом; при переименовании номер не меняется. */
-export function addProject(recs: ProjectRec[] | undefined, name: string): { recs: ProjectRec[]; id: string } {
+export const renameProject = (recs: Recs, id: string, name: string): ProjectRec[] => (recs ?? []).map((r) => (r.id === id && id !== NONE ? { ...r, name: name.trim() } : r));
+
+/** Сессии удалённого проекта становятся незаписанными: их секция теперь «Без проекта». */
+export const removeProject = (recs: Recs, id: string): ProjectRec[] => (recs ?? []).filter((r) => r.id !== id || id === NONE);
+
+/** Новый проект перед «Без проекта»; номер — из имени, занятый получает следующее число. */
+export function addProject(recs: Recs, name: string): { recs: ProjectRec[]; id: string } {
   const all = recs ?? [];
-  const shown = name.trim();
-  const base = shown.toLowerCase().replace(/\s+/g, "-") || "project";
-  const taken = (id: string) => id === NONE || all.some((r) => r.id === id);
+  const text = name.trim();
+  const base = text.toLowerCase().replace(/\s+/g, "-") || "project";
+  const taken = new Set([NONE, ...all.map((r) => r.id)]);
   let id = base;
-  for (let n = 2; taken(id); n++) id = `${base}-${n}`;
-  return { id, recs: noneLast([...all, { id, name: shown, sessions: [] }]) };
+  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
+  return { recs: noneLast([...all, { id, name: text, sessions: [] }]), id };
 }
 
-export function renameProject(recs: ProjectRec[] | undefined, id: string, name: string): ProjectRec[] {
-  return (recs ?? []).map((r) => (r.id === id && id !== NONE ? { ...r, name: name.trim() } : r));
-}
-
-/** Сессии удалённого проекта остаются вне записи и попадают в «Без проекта». */
-export function removeProject(recs: ProjectRec[] | undefined, id: string): ProjectRec[] {
-  return (recs ?? []).filter((r) => r.id !== id || id === NONE);
-}
-
-/** Проект по имени без учёта регистра: агент называет проект именем. */
-export function projectByName(recs: ProjectRec[] | undefined, name: string): ProjectRec | undefined {
+/** Проект по имени без оглядки на регистр; «Без проекта» по имени не находится. */
+export function projectByName(recs: Recs, name: string): ProjectRec | undefined {
   const wanted = name.trim().toLowerCase();
   return recs?.find((r) => r.id !== NONE && r.name.toLowerCase() === wanted);
 }

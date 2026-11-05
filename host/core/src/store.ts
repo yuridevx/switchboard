@@ -1,105 +1,93 @@
-// Хранилище Host: ~/.switchboard/store/<раздел>.json. У раздела один владелец — модуль с тем же именем;
-// core.json — список сессий ядра. Запись сразу: временный файл и rename — файл всегда целый JSON.
+// Хранилище на диске: store/<модуль>.json — { machine, sessions: { callsign: … } }, store/core.json — { sessions: [запись] }.
+// Запись сразу: временный файл и rename, файл всегда целый JSON. Прочитанное держится в памяти процесса.
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionState, Store } from "../contract.ts";
 
-/** Файл раздела модуля: своё машины и своё каждой сессии. */
-type Section = { machine?: unknown; sessions?: Record<string, unknown> };
-
-/** Запись сессии в core.json. */
+/** Запись сессии в core.json: её читает следующий Host. */
 export type CoreRecord = {
   callsign: string;
-  session_id: string;
   cwd: string;
-  /** версия SDK, которой запущен процесс */
+  session_id: string;
   sdk: string;
+  /** остановлена намеренно: новый Host её не поднимает */
   stopped: boolean;
-  /** копия: id исходного разговора — до первого хода копии её файла нет */
-  fork?: string;
-  /** последнее состояние: после attach посреди хода ядро показывает его до следующего сигнала SDK */
   state?: SessionState;
-  /** отправитель последнего ввода: кому вопрос сессии и после перезапуска Host */
+  /** отправитель последнего ввода */
   from?: string;
+  /** копия: разговор, от которого она пошла */
+  fork?: string;
 };
 
-const CORE = "core";
-const copy = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
+type Doc = { machine?: unknown; sessions?: Record<string, unknown> };
+
+const clone = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value)));
 
 export class Stores {
   private readonly dir: string;
-  private readonly sections = new Map<string, Section>();
+  private readonly docs = new Map<string, Doc>();
 
   constructor(dir: string) {
-    this.dir = dir;
     mkdirSync(dir, { recursive: true });
+    this.dir = dir;
   }
 
-  private section(name: string): Section {
-    let s = this.sections.get(name);
-    if (!s) {
-      const f = join(this.dir, name + ".json");
-      s = existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as Section) : {};
-      this.sections.set(name, s);
-    }
-    return s;
+  private read<T>(name: string): T | undefined {
+    const file = join(this.dir, `${name}.json`);
+    return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as T) : undefined;
   }
 
-  private write(name: string, s: Section): void {
-    const f = join(this.dir, name + ".json");
+  private write(name: string, value: unknown): void {
+    const file = join(this.dir, `${name}.json`);
     // сброс на диск до rename: после обрыва питания файл старый или новый, а не нули
-    writeFileSync(f + ".tmp", JSON.stringify(s, null, 1), { flush: true });
-    renameSync(f + ".tmp", f);
+    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 1), { flush: true });
+    renameSync(`${file}.tmp`, file);
   }
 
-  /** Store над одним значением раздела: чтение — копия, запись — сразу. */
-  private store<T>(read: () => unknown, change: (v: T | undefined) => void): Store<T> {
-    const get = () => copy(read() as T | undefined);
-    return { get, set: change, update: (fn) => { const v = fn(get()); change(v); return copy(v); } };
+  private doc(name: string): Doc {
+    let doc = this.docs.get(name);
+    if (!doc) this.docs.set(name, (doc = this.read<Doc>(name) ?? {}));
+    return doc;
   }
 
-  /** Раздел модуля для машины. */
-  machine<T>(name: string): Store<T> {
-    return this.store<T>(() => this.section(name).machine, (v) => {
-      const s = this.section(name);
-      if (v === undefined) delete s.machine;
-      else s.machine = copy(v);
-      this.write(name, s);
-    });
+  /** Раздел модуля: машины или, с callsign, этой сессии. */
+  section<T>(name: string, callsign?: string): Store<T> {
+    const get = () => clone((callsign ? this.doc(name).sessions?.[callsign] : this.doc(name).machine) as T | undefined);
+    const set = (value: T | undefined) => {
+      const doc = this.doc(name);
+      const place = (callsign ? (doc.sessions ??= {}) : doc) as Record<string, unknown>;
+      const key = callsign ?? "machine";
+      if (value === undefined) delete place[key];
+      else place[key] = clone(value);
+      this.write(name, doc);
+    };
+    return {
+      get,
+      set,
+      update(fn) {
+        set(fn(get()));
+        return get();
+      },
+    };
   }
 
-  /** Раздел модуля для сессии. */
-  session<T>(name: string, callsign: string): Store<T> {
-    return this.store<T>(() => this.section(name).sessions?.[callsign], (v) => {
-      const s = this.section(name);
-      s.sessions ??= {};
-      if (v === undefined) delete s.sessions[callsign];
-      else s.sessions[callsign] = copy(v);
-      this.write(name, s);
-    });
-  }
-
-  /** s.remove(): стереть разделы этой сессии у всех модулей. */
-  removeSession(callsign: string): void {
-    for (const f of readdirSync(this.dir)) {
-      if (!f.endsWith(".json") || f === CORE + ".json") continue;
-      const name = f.slice(0, -".json".length);
-      const s = this.section(name);
-      if (s.sessions && callsign in s.sessions) {
-        delete s.sessions[callsign];
-        this.write(name, s);
-      }
+  /** Стереть разделы сессии у всех модулей на диске. */
+  forget(callsign: string): void {
+    for (const file of readdirSync(this.dir)) {
+      if (!file.endsWith(".json") || file === "core.json") continue;
+      const name = file.slice(0, -".json".length);
+      const doc = this.doc(name);
+      if (doc.sessions?.[callsign] === undefined) continue;
+      delete doc.sessions[callsign];
+      this.write(name, doc);
     }
   }
 
-  /** Список сессий ядра. */
-  core(): CoreRecord[] {
-    return copy(((this.section(CORE) as { sessions?: CoreRecord[] }).sessions ?? []) as CoreRecord[]);
+  records(): CoreRecord[] {
+    return this.read<{ sessions: CoreRecord[] }>("core")?.sessions ?? [];
   }
 
-  saveCore(list: CoreRecord[]): void {
-    const s = { sessions: copy(list) } as unknown as Section;
-    this.sections.set(CORE, s);
-    this.write(CORE, s);
+  saveRecords(sessions: CoreRecord[]): void {
+    this.write("core", { sessions });
   }
 }

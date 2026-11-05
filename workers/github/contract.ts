@@ -1,5 +1,5 @@
 // Контракт github: приложение GitHub флота и токены установки для git.
-// Запросы — кадры с to: ".github", ответ — reply через relay.
+// Запросы — POST кадра с пропуском по адресу Worker'а (кадр с to: ".github"), ответ — reply телом.
 
 export const CONTRACT = { "github.app": 1, "github.setup": 1, "github.token": 1 } as const;
 

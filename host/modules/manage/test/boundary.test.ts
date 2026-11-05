@@ -2,10 +2,11 @@
 // Снаружи — SDK, держатели, relay и часы стенда, вход и профиль (поддельные), служба настроек (поддельная). Настоящие соседи: chat и push.
 // Только входы контракта и наблюдаемый исход: ответ со словом и причиной, кадр, query(), поле roster, текст инструмента, файл, журнал.
 // Номер — эталон-источник; свойства без пометки — чьё: код.
-import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import managePkg, { make as makeManage } from "../contract.ts";
@@ -1541,5 +1542,342 @@ describe("remote: Remote Control у каждой сессии", () => {
     await until(() => st2.kernel.sessions.get("site@laptop")?.state === "idle");
     expect(lastBridge(f)?.bridgeSessionId).toBe("");
     expect(unbinds(st2).map((l) => l.why)).toEqual(["привязка снята: infirex → y0902 · session_01Jai"]);
+  });
+});
+
+// Дописано на втором круге: поведение снято с работающего кода чёрным ящиком до сноса; чьё: код.
+describe("формат раздела и поля manage", () => {
+  it("раздел: режим лежит только не по умолчанию; remove_after_turn — кто просил; поле model — выбор, иначе модель из init; spec — только выбор", async () => {
+    const { st, home, req } = await bench();
+    mkdirSync(join(home, "p"));
+    await req({ type: "session.open", machine: "laptop", name: "a", dir: "~/p", model: "m", effort: "high", fast: false, style: "s", thinking: false });
+    const s = st.session("host-manage", "a@laptop")!;
+    const base = { model: "m", effort: "high", fast: false, style: "s", thinking: false, parent: OWNER };
+    expect(s.store().get()).toEqual(base);
+    const p = st.proc("a@laptop");
+    p.send({ type: "system", subtype: "status", status: null, permissionMode: "plan", uuid: "u1", session_id: "s" });
+    await until(() => st.states("a@laptop").at(-1)?.mode === "plan");
+    expect(s.store().get()).toEqual({ ...base, mode: "plan" });
+    p.send({ type: "system", subtype: "status", status: null, permissionMode: "bypassPermissions", uuid: "u2", session_id: "s" });
+    await until(() => st.states("a@laptop").at(-1)?.mode === "bypassPermissions");
+    expect(s.store().get()).toEqual(base);
+    p.send(msg.state("running"));
+    await until(() => st.kernel.sessions.get("a@laptop")!.state === "busy");
+    await req({ type: "session.remove", callsign: "a@laptop", after_turn: true, from: "lead@laptop" });
+    expect(s.store().get()).toEqual({ ...base, remove_after_turn: "lead@laptop" });
+
+    await st.open("b@laptop");
+    await until(() => st.states("b@laptop").length);
+    expect(st.states("b@laptop").at(-1)?.model).toBeUndefined();
+    st.proc("b@laptop").send({ ...msg.init("zz", "claude-init"), permissionMode: "acceptEdits" });
+    await until(() => st.states("b@laptop").at(-1)?.model === "claude-init" && st.states("b@laptop").at(-1)?.mode === "acceptEdits");
+    expect(st.session("host-manage", "b@laptop")!.store().get()).toEqual({ mode: "acceptEdits" });
+    expect(await req({ type: "session.spec", callsign: "b@laptop" })).toMatchObject({ ok: true, result: { model: null, effort: null, title: null } });
+  });
+
+  it("вклад каждого модуля в query(): у manage чекпоинты и хук; без флагов нет settings; без запроса открытия нет заголовка и раздела; переписка Claude Code выключена у fleet", async () => {
+    const home = temp();
+    const opened = async (entries: Parameters<typeof standHost>[0]) => {
+      const st = await standHost(entries);
+      stands.push(st);
+      await st.open("a@laptop");
+      return st.query("a@laptop").options as Record<string, any>;
+    };
+    const m = await opened({ modules: [{ manifest: manifestOf("manage"), module: makeManage({ home }) }] });
+    expect(m.enableFileCheckpointing).toBe(true);
+    expect(Object.keys(m.hooks)).toEqual(["PostModelSwitch"]);
+    expect(m.env.CLAUDE_CODE_HARBOR_KITE).toBeUndefined();
+    expect(m).not.toHaveProperty("settings");
+    expect(m).not.toHaveProperty("title");
+    for (const [name, module] of [["remote", makeRemote({ claudeDir: temp() })], ["machine", makeMachine({ home })]] as const) {
+      const o = await opened({ modules: [{ manifest: manifestOf(name), module }] });
+      expect(Object.keys(o.hooks ?? {})).toEqual([]);
+      expect(o.mcpServers ?? {}).toEqual({});
+      expect(o.systemPrompt?.append).toBeUndefined();
+    }
+    const f = await opened({ modules: [{ manifest: manifestOf("fleet"), module: makeFleet().module }, { manifest: manifestOf("chat"), module: makeChat() }] });
+    expect(f.env.CLAUDE_CODE_HARBOR_KITE).toBe("0");
+    expect(Object.keys(f.mcpServers)).toEqual(["fleet"]);
+  });
+
+  it("хук PostModelSwitch отвечает пустым; модели нет в ответе хука — выбор снят", async () => {
+    const { st, req } = await bench();
+    await st.open("h@laptop");
+    const p = st.proc("h@laptop");
+    expect(await p.hook("PostModelSwitch", { requested_model: "opus", source: "command" })).toEqual([{}]);
+    await req({ type: "session.update", callsign: "h@laptop", model: "x" });
+    await p.hook("PostModelSwitch", { to_model: "z", source: "command" });
+    expect(st.session("host-manage", "h@laptop")!.store().get()).toEqual({});
+  });
+});
+
+describe("входы manage: остальные формы", () => {
+  it.each<[string, Record<string, unknown>, string]>([
+    ["модель пустая", { model: "" }, 'model = ""'],
+    ["модель не строка", { model: 1 }, "model = 1"],
+    ["модель null", { model: null }, "model = null"],
+    ["усилие null", { effort: null }, "effort = null"],
+    ["fast не флаг", { fast: 1 }, "fast = 1"],
+    ["fast null", { fast: null }, "fast = null"],
+    ["стиль пустой", { style: "" }, 'style = ""'],
+    ["thinking не флаг", { thinking: "да" }, 'thinking = "да"'],
+    ["заголовок пустой", { title: "" }, 'title = ""'],
+    ["заголовок не строка", { title: 3 }, "title = 3"],
+  ])("session.update не по форме: %s — bad_spec, раздел не тронут", async (_n, f, why) => {
+    const { st, req } = await bench();
+    await st.open("d@laptop");
+    expect(await req({ type: "session.update", callsign: "d@laptop", ...f })).toMatchObject({ ok: false, error: "bad_spec", why: `session.update d@laptop: ${why}` });
+    expect(st.session("host-manage", "d@laptop")!.store().get()).toBeUndefined();
+    expect(st.query("d@laptop").calls).toEqual([]);
+  });
+
+  it("session.update: все усилия вида; пусто и незнакомое поле — ok и now пустой; отказ applyFlagSettings и renameSession — sdk_error с именем метода", async () => {
+    const { st, req } = await bench();
+    await st.open("d@laptop");
+    for (const effort of ["low", "medium", "high", "xhigh", "max"]) expect(await req({ type: "session.update", callsign: "d@laptop", effort }), effort).toMatchObject({ ok: true, result: { now: ["effort"] } });
+    expect(await req({ type: "session.update", callsign: "d@laptop" })).toMatchObject({ ok: true, result: { now: [] } });
+    expect(await req({ type: "session.update", callsign: "d@laptop", foo: 1 })).toMatchObject({ ok: true, result: { now: [] } });
+    const q = st.query("d@laptop") as unknown as Record<string, unknown>;
+    q.renameSession = async () => {
+      throw new Error("нет имени");
+    };
+    expect(await req({ type: "session.update", callsign: "d@laptop", title: "z" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: renameSession — нет имени" });
+    q.applyFlagSettings = async () => {
+      throw new Error("нет флагов");
+    };
+    expect(await req({ type: "session.update", callsign: "d@laptop", effort: "low" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: applyFlagSettings — нет флагов" });
+    await req({ type: "session.stop", callsign: "d@laptop" });
+    st.sdk.functions = {
+      renameSession: async () => {
+        throw new Error("нет файла");
+      },
+    };
+    expect(await req({ type: "session.update", callsign: "d@laptop", title: "Y" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: renameSession — нет файла" });
+  });
+
+  it("session.open: заголовок при любом открытии; fork без resume и пустой resume — обычный старт; point — старт point; папка не строка; model null; второй старт из точки — без заголовка", async () => {
+    const { st, req } = await bench();
+    const sid = "11111111-2222-4333-8444-555555555555";
+    await req({ type: "session.open", machine: "laptop", name: "r", dir: "~", resume: sid });
+    expect(st.query("r@laptop").options.title).toBe("r");
+    await req({ type: "session.open", machine: "laptop", name: "pp", dir: "~", point: 3, resume: sid });
+    expect(st.query("pp@laptop").options).toMatchObject({ title: "pp", resume: sid });
+    expect(st.session("host-manage", "pp@laptop")!.info).toMatchObject({ start: "point", point: 3 });
+    await req({ type: "session.open", machine: "laptop", name: "f", dir: "~", fork: true });
+    expect(st.session("host-manage", "f@laptop")!.info.start).toBe("spawn");
+    await req({ type: "session.open", machine: "laptop", name: "e", dir: "~", resume: "" });
+    expect(st.session("host-manage", "e@laptop")!.info.start).toBe("spawn");
+    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: 1 })).toMatchObject({ ok: false, error: "bad_dir", why: "session.open x@laptop: папка 1 не от ~ и не полная" });
+    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: "" })).toMatchObject({ ok: false, error: "bad_dir", why: 'session.open x@laptop: папка "" не от ~ и не полная' });
+    expect(await req({ type: "session.open", machine: "laptop", name: "x", dir: "~", model: null })).toMatchObject({ ok: false, error: "bad_spec", why: "session.open x: model = null" });
+    const s = st.session("host-manage", "r@laptop")!;
+    await s.stop();
+    await s.start({ point: 9 });
+    expect(st.query("r@laptop").options.title).toBeUndefined();
+  });
+
+  it("session.start живой — ok, процесс тот же; stop остановленной — ok; remove с after_turn остановленной — сразу; session.call с методом не строкой называет его", async () => {
+    const { st, req } = await bench();
+    await st.open("c@laptop");
+    expect(await req({ type: "session.start", callsign: "c@laptop" })).toMatchObject({ ok: true });
+    expect(st.sdk.of("c@laptop")).toHaveLength(1);
+    expect(await req({ type: "session.call", callsign: "c@laptop", method: 7 })).toMatchObject({ ok: false, error: "unknown_method", why: "session.call c@laptop: 7 — нет в списке открытых" });
+    expect(await req({ type: "session.stop", callsign: "c@laptop" })).toMatchObject({ ok: true });
+    expect(await req({ type: "session.stop", callsign: "c@laptop" })).toMatchObject({ ok: true });
+    const r = await req({ type: "session.remove", callsign: "c@laptop", after_turn: true });
+    expect(r).toMatchObject({ ok: true });
+    expect(r.result).toBeUndefined();
+    expect(st.kernel.sessions.has("c@laptop")).toBe(false);
+  });
+});
+
+describe("спорные места: найдено при сверке", () => {
+  it("SDK отказал в модели — выбор не записан: настоящий setModel отвечает «not found», а старт с такой моделью проваливает каждый ход", async () => {
+    // опыт на SDK 0.3.311, claude-haiku-5-5: setModel("нет-такой-модели") → Model not found; query с ней — init есть, result is_error на каждом ходу
+    const { st, req } = await bench();
+    await st.open("d@laptop");
+    await req({ type: "session.update", callsign: "d@laptop", model: "sonnet" });
+    (st.query("d@laptop") as unknown as Record<string, unknown>).setModel = async () => {
+      throw new Error("Model 'нет' not found");
+    };
+    expect(await req({ type: "session.update", callsign: "d@laptop", model: "нет", effort: "low" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: setModel — Model 'нет' not found" });
+    expect(st.session("host-manage", "d@laptop")!.store().get()).toEqual({ model: "sonnet" });
+    await st.session("host-manage", "d@laptop")!.restart();
+    expect(st.query("d@laptop").options.model).toBe("sonnet");
+  });
+
+  it("имя сессии начинается с буквы или цифры: точка в начале — системное имя адреса", async () => {
+    const { st, req } = await bench();
+    for (const name of [".keeper", "-x", "_x", "ю"]) expect(await req({ type: "session.open", machine: "laptop", name, dir: "~" }), name).toMatchObject({ ok: false, error: "bad_name" });
+    expect(await req({ type: "session.open", machine: "laptop", name: "a.b_c-1", dir: "~" })).toMatchObject({ ok: true });
+    expect(st.kernel.sessions.size).toBe(1);
+  });
+});
+
+describe("machine.dirs: форма ответа", () => {
+  it("порядок по кодам знаков; путь в ответе как в запросе; ссылка на папку не папка; путь не строка и пустой — bad_frame", async () => {
+    const b = await bench({ machine: "pc" });
+    for (const d of ["Z", "a", "б", "Я"]) mkdirSync(join(b.home, d));
+    symlinkSync(join(b.home, "Z"), join(b.home, "link"), "junction");
+    const dirs = (path: unknown) => b.req({ type: "machine.dirs", machine: "pc", path });
+    expect(await dirs("~/")).toMatchObject({ ok: true, result: { path: "~/", dirs: ["Z", "a", "Я", "б"] } });
+    expect(await dirs(1)).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «1» от ${OWNER}: нет пути` });
+    expect(await dirs("")).toMatchObject({ ok: false, error: "bad_frame", why: `machine.dirs «» от ${OWNER}: нет пути` });
+  });
+});
+
+describe("fleet: остальные формы", () => {
+  it("типы параметров инструментов: их видит модель", () => {
+    const tools = makeFleet().tools("me@pc") as Array<{ name: string; inputSchema: z.ZodRawShape }>;
+    const schema = Object.fromEntries(tools.map((t) => [t.name, z.toJSONSchema(z.object(t.inputSchema))])) as Record<string, { properties: Record<string, { type?: string; minimum?: number; additionalProperties?: unknown }>; required?: string[] }>;
+    const types = (n: string) => Object.fromEntries(Object.entries(schema[n].properties).map(([k, v]) => [k, v.type]));
+    expect(types("list")).toEqual({});
+    expect(schema.send).toMatchObject({ required: ["to", "text"], properties: { to: { type: "string" }, text: { type: "string" } } });
+    expect(schema.answer).toMatchObject({ required: ["to", "question", "answers"], properties: { answers: { type: "object", additionalProperties: { type: "string" } } } });
+    expect(schema.open.required).toEqual(["name", "dir", "text"]);
+    expect(new Set(Object.values(types("open")))).toEqual(new Set(["string"]));
+    expect(schema.history).toMatchObject({ required: ["callsign"], properties: { limit: { type: "integer", minimum: 1 } } });
+    expect(schema.update.required).toEqual(["callsign"]);
+    expect(new Set(Object.values(types("update")))).toEqual(new Set(["string"]));
+    expect(schema.label.required).toEqual(["to", "text"]);
+    expect(schema.remove.required).toBeUndefined();
+  });
+
+  it.each<[string, Record<string, unknown>, string]>([
+    ["timeout", { error: "timeout" }, "Не выполнено: x@wsl — timeout: исход неизвестен, проверь list"],
+    ["слово без причины", { error: "too_large", bytes: 3 }, "Не выполнено: x@wsl — too_large"],
+    ["слово с причиной", { error: "stopped", why: "почему" }, "Не выполнено: x@wsl — stopped. почему"],
+    ["обрыв", { error: "disconnected" }, "Доставка не подтверждена: нет связи с relay (disconnected)"],
+    ["нет на связи", { error: "offline" }, "Не доставлено: x@wsl не на связи (offline)"],
+  ])("отказ словом: %s — один текст у send, answer, history, update и remove", async (_n, r, want) => {
+    const { st, call } = await bench({ machine: "win" });
+    await st.open("lead@win");
+    const calls: Array<[string, string, Record<string, unknown>]> = [
+      ["message", "send", { to: "x@wsl", text: "t" }],
+      ["answer", "answer", { to: "x@wsl", question: "q", answers: {} }],
+      ["session.history", "history", { callsign: "x@wsl" }],
+      ["session.update", "update", { callsign: "x@wsl", model: "m" }],
+      ["session.remove", "remove", { callsign: "x@wsl" }],
+    ];
+    for (const [frame, tool, args] of calls) {
+      const pending = call("lead@win", tool, args);
+      await replyTo(st, frame, { ok: false, ...r });
+      expect(await pending, tool).toEqual(toolText(want, true));
+    }
+  });
+
+  it("send не сессии: кадр без id и текст «отправлено» — служба, машина; пуш с меткой, чтобы письма не слипались; себе и сессии своей машины — доставлено", async () => {
+    const { st, call } = await bench({ machine: "win", push: true });
+    st.relay.deliver({ type: "roster", machines: [], sessions: [], clients: [] });
+    await st.open("lead@win");
+    expect(text(await call("lead@win", "send", { to: "@wsl", text: "t" }))).toBe("отправлено: @wsl");
+    expect(text(await call("lead@win", "send", { to: ".relay", text: "t" }))).toBe("отправлено: .relay");
+    expect(st.relay.frames("message").map((f) => [f.to, f.id])).toEqual([["@wsl", undefined], [".relay", undefined]]);
+    expect(text(await call("lead@win", "send", { to: "lead@win", text: "t" }))).toBe("доставлено: lead@win");
+    await call("lead@win", "send", { to: "~a@b.c", text: "x".repeat(5000) });
+    const p = await until(() => st.relay.frames("push.send").at(-1));
+    expect(p.push).toMatchObject({ to: "~a@b.c", notify: { title: "lead@win", body: "x".repeat(5000), tag: expect.any(String) } });
+  });
+
+  it("history: только текст и вызовы инструментов, каждый блок строкой; итог хода, thinking, картинки и ответы инструментов пропущены", async () => {
+    const { st, call } = await bench({ machine: "win" });
+    await st.open("lead@win");
+    const h = call("lead@win", "history", { callsign: "x@wsl" });
+    await replyTo(st, "session.history", {
+      ok: true,
+      result: {
+        messages: [
+          { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t", content: "вывод" }] } },
+          { type: "user", message: { content: [{ type: "text", text: "a" }, { type: "text", text: "b" }, { type: "image", source: {} }] } },
+          { type: "assistant", message: { content: [{ type: "thinking", thinking: "t" }] } },
+          { type: "assistant", message: { content: [{ type: "text", text: "1" }, { type: "tool_use", name: "A" }, { type: "tool_use", name: "B" }, { type: "text", text: "3" }] } },
+          { type: "assistant", message: { content: "строка" } },
+          { type: "user", message: { content: "" } },
+          { type: "result", result: "x" },
+        ],
+      },
+    });
+    expect(text(await h)).toBe("user: a\nuser: b\nassistant: 1\ntool: A\ntool: B\nassistant: 3\nassistant: строка");
+  });
+
+  it("update: что сразу — через запятую; кадры session.slot и session.update только со своими полями; без полей «сразу: —»; отказ после слота — только отказ; remove своим callsign — как без него", async () => {
+    const { st, call } = await bench({ machine: "win" });
+    await st.open("lead@win");
+    await st.open("docs@win");
+    expect(text(await call("lead@win", "update", { callsign: "docs@win", model: "a", effort: "low", title: "T" }))).toBe("сразу: model, effort, title");
+    expect(text(await call("lead@win", "update", { callsign: "docs@win" }))).toBe("сразу: —");
+    const u = call("lead@win", "update", { callsign: "x@wsl", slot: "main", model: "m", effort: "low", title: "T" });
+    const slot = await replyTo(st, "session.slot", { ok: true, result: { restart: true } });
+    expect(slot).toMatchObject({ callsign: "x@wsl", slot: "main", from: "lead@win", v: 1 });
+    expect(slot).not.toHaveProperty("model");
+    const up = await replyTo(st, "session.update", { ok: false, error: "bad_spec", why: "w" });
+    expect(up).toMatchObject({ callsign: "x@wsl", model: "m", effort: "low", title: "T", from: "lead@win", v: 1 });
+    expect(up).not.toHaveProperty("slot");
+    expect(await u).toEqual(toolText("Не выполнено: x@wsl — bad_spec. w", true));
+    expect(text(await call("lead@win", "remove", { callsign: "lead@win" }))).toBe("закроюсь после этого хода");
+    expect(st.kernel.sessions.has("lead@win")).toBe(false);
+  });
+
+  it("open: кадр только с заданными полями; слот из ответа — в тексте; отказ без причины — только слово; задача не дошла — слово", async () => {
+    const { st, call } = await bench({ machine: "win" });
+    await st.open("lead@win");
+    const o = call("lead@win", "open", { name: "k", dir: "~/x", text: "t", machine: "wsl" });
+    const f = await replyTo(st, "session.open", { ok: true, result: { callsign: "k@wsl", session_id: "s1", slot: "s" } });
+    expect(Object.keys(f).filter((k) => !["id", "type", "v", "from", "machine", "name", "dir"].includes(k))).toEqual([]);
+    await replyTo(st, "message", { ok: true });
+    expect(text(await o)).toBe("открыта: k@wsl · слот s; задача во вводе, итог хода придёт сам");
+    const o2 = call("lead@win", "open", { name: "k3", dir: "~/x", text: "t", machine: "wsl" });
+    await replyTo(st, "session.open", { ok: false, error: "bad_dir" }, 1);
+    expect(await o2).toEqual(toolText("Не выполнено: k3@wsl — bad_dir", true));
+    const o3 = call("lead@win", "open", { name: "k4", dir: "~/x", text: "t", machine: "wsl" });
+    await replyTo(st, "session.open", { ok: true, result: { callsign: "k4@wsl", session_id: "s1" } }, 2);
+    await replyTo(st, "message", { ok: false, error: "stopped", why: "w" }, 1);
+    expect(await o3).toEqual(toolText("открыта: k4@wsl, но задача не доставлена — stopped", true));
+  });
+
+  it("итог родителю — у каждого хода, пока ввод от него: и у второго подряд", async () => {
+    const { st, call, home } = await bench({ machine: "win" });
+    await st.open("lead@win");
+    await call("lead@win", "open", { name: "docs", dir: home, text: "x" });
+    const kid = st.proc("docs@win");
+    await until(() => kid.inputs.length === 1);
+    turn(kid, "w", { result: "первый" });
+    await until(() => st.proc("lead@win").inputs.length === 1);
+    turn(kid, "w", { result: "второй" });
+    await until(() => st.proc("lead@win").inputs.length === 2);
+    expect(st.proc("lead@win").inputs[1].message.content).toBe(wrap("docs@win", "второй"));
+    expect(st.journal().filter((l) => l.ev === "report")).toEqual([]);
+  });
+});
+
+describe("remote: остальные формы", () => {
+  it("отказ не трогает раздел и остаётся в поле у остановленной; ответ без bridge и без ссылки — раздел как есть, журнал «—», поля нет", async () => {
+    const proto = stand.FakeQuery.prototype as unknown as Record<string, unknown>;
+    const old = proto.enableRemoteControl;
+    let n = 0;
+    proto.enableRemoteControl = async function () {
+      n++;
+      if (n === 1) throw new Error("нет");
+      return n === 2 ? { session_url: "u" } : {};
+    };
+    try {
+      const { st } = await bench({ remote: temp("c-") });
+      const s = await st.open("r@laptop");
+      const rec = () => st.session("host-remote", "r@laptop")!.store().get();
+      const field = () => st.kernel.sessions.get("r@laptop")!.record().remote;
+      await until(() => field());
+      expect(rec()).toBeUndefined();
+      await s.stop();
+      expect(field()).toEqual({ error: "нет" });
+      await s.start();
+      await until(() => (field() as { url?: string } | undefined)?.url === "u");
+      expect(rec()).toEqual({ url: "u", account: null });
+      await s.restart();
+      await until(() => !field());
+      expect(rec()).toEqual({ account: null });
+      expect(st.journal().filter((l) => l.ev === "remote").at(-1)?.why).toBe("Remote Control включён: — · вход машины");
+    } finally {
+      proto.enableRemoteControl = old;
+    }
   });
 });

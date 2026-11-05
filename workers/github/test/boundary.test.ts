@@ -1,5 +1,5 @@
 // Леса границы «токен приложения GitHub для сессий». Снаружи: API GitHub (подделка fetch), gate (стенд), D1 стенда.
-// Вход — кадр по привязке и POST с пропуском; исход — ответ, запрос к GitHub, строка таблицы app, строка журнала.
+// Вход — POST кадра с пропуском, других дверей у Worker'а нет; исход — ответ, запрос к GitHub, строка таблицы app, строка журнала.
 // Номер — эталон-источник; свойства без пометки — чьё: код. Формат таблицы app держат запись и чтение SQL в самих тестах.
 import { applyD1Migrations, env, type D1Migration } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
@@ -8,7 +8,7 @@ import type { Frame } from "@switchboard/protocol";
 import wrangler from "../wrangler.jsonc?raw";
 import manifest from "../module.json" with { type: "json" };
 
-const worker = (exports as unknown as { default: unknown }).default as { fetch(r: Request): Promise<Response>; frame(f: Frame): Promise<Frame[]> };
+const worker = (exports as unknown as { default: unknown }).default as { fetch(r: Request): Promise<Response> };
 const DB = (env as unknown as { DB: D1Database }).DB;
 beforeAll(() => applyD1Migrations(DB, (env as unknown as { TEST_MIGRATIONS: D1Migration[] }).TEST_MIGRATIONS));
 beforeEach(() => DB.exec("DELETE FROM app"));
@@ -43,7 +43,14 @@ beforeAll(async () => {
 const APP = (pem = pems.pkcs1): Stored => ({ id: 1047113, slug: "switchboard-team", owner: "team", pem, at: 1793457720000, by: "panel" });
 const seed = (a: Stored = APP()) => DB.prepare("INSERT OR REPLACE INTO app (one, id, slug, owner, pem, at, by) VALUES (1, ?, ?, ?, ?, ?, ?)").bind(a.id, a.slug, a.owner, a.pem, a.at, a.by).run();
 const stored = async () => (await DB.prepare("SELECT id, slug, owner, pem, at, by FROM app WHERE one = 1").first<Stored>()) ?? undefined;
-const ask = (f: Record<string, unknown>) => worker.frame({ v: 1, to: ".github", from: "@laptop", ...f } as Frame);
+/** Адрес клиента со стенда gate. Машина — @имя, пропуск стенда говорит адрес сам. */
+const PANEL = "panel~test@example.com";
+const passOf = (from: string) => (from.startsWith("@") ? `host.${from.slice(1)}.1.s3cr3t` : `client.${from.split("~")[0]}.2.s3cr3t`);
+/** Кадр через вход Worker'а: ответ телом, на кадр без id — без тела. */
+async function ask({ from = "@laptop", ...f }: Record<string, unknown>): Promise<Frame[]> {
+  const r = await worker.fetch(new Request("https://github.test/", { method: "POST", body: JSON.stringify({ v: 1, to: ".github", key: passOf(from as string), ...f }) }));
+  return r.status === 204 ? [] : [(await r.json()) as Frame];
+}
 
 /** Поддельный GitHub: маршрут «МЕТОД путь» или «МЕТОД путь?запрос» → [статус, тело]. Чужой маршрут — 404. */
 function fakeGithub(routes: Record<string, Route> = {}) {
@@ -181,8 +188,8 @@ describe("github.app", () => {
     ["личный аккаунт", undefined, "https://github.com/settings/apps/new", "Switchboard"],
   ])("243 · приложения нет: форма manifest, закрытое приложение с записью содержимого, без вебхуков; GitHub не вызван: %s", async (_n, org, action, name) => {
     const calls = fakeGithub();
-    const [r] = await ask({ type: "github.app", id: "a-1", from: "panel", redirect: REDIRECT, org });
-    expect(r).toMatchObject({ type: "reply", id: "a-1", ok: true, to: "panel" });
+    const [r] = await ask({ type: "github.app", id: "a-1", from: PANEL, redirect: REDIRECT, org });
+    expect(r).toMatchObject({ type: "reply", id: "a-1", ok: true, to: PANEL });
     expect(r.result).toEqual({
       app: null,
       form: {
@@ -212,12 +219,19 @@ describe("github.app", () => {
       "GET /installation/repositories": (c) => [200, { repositories: own[c.auth ?? ""].map((full_name) => ({ full_name })) }],
     });
     const log = journal();
-    const [r] = await ask({ type: "github.app", id: "a-3", from: "panel", redirect: REDIRECT });
+    const [r] = await ask({ type: "github.app", id: "a-3", from: PANEL, redirect: REDIRECT });
     expect(r.result).toEqual({ app: { id: 1047113, slug: "switchboard-team", owner: "team" }, repos: ["team/alpha", "team/mid", "team/zeta"], install: INSTALL });
     expect(calls.filter((c) => c.path.startsWith("/installation/")).map((c) => c.auth)).toEqual(["token t11", "token t12"]);
     expect(calls.filter((c) => c.path.endsWith("/access_tokens")).map((c) => c.body)).toEqual([{ permissions: { metadata: "read" } }, { permissions: { metadata: "read" } }]);
     expect((await verifyJwt(calls[0].auth)).good).toBe(true);
     expect(JSON.stringify(r) + log.text()).not.toContain("PRIVATE KEY");
+  });
+
+  it("приложение есть, установок ещё нет: пустой список и ссылка установки", async () => {
+    await seed();
+    fakeGithub({ "GET /app/installations": [200, []] });
+    const [r] = await ask({ type: "github.app", id: "a-2", from: PANEL, redirect: REDIRECT });
+    expect(r.result).toEqual({ app: { id: 1047113, slug: "switchboard-team", owner: "team" }, repos: [], install: INSTALL });
   });
 
   it("списки длиннее страницы: установки и репозитории — все страницы по 100, пока страница не короче", async () => {
@@ -232,7 +246,7 @@ describe("github.app", () => {
     };
     for (const { id } of inst) routes[`POST /app/installations/${id}/access_tokens`] = [201, { token: `t${id}` }];
     const calls = fakeGithub(routes);
-    const [r] = await ask({ type: "github.app", id: "a-4", from: "panel", redirect: REDIRECT });
+    const [r] = await ask({ type: "github.app", id: "a-4", from: PANEL, redirect: REDIRECT });
     const got = (r.result as { repos: string[] }).repos;
     expect(got).toHaveLength(101);
     expect(got).toContain("team/switchboard");
@@ -247,7 +261,7 @@ describe("github.app", () => {
     await seed();
     fakeGithub(routes);
     const log = journal();
-    expect(await ask({ type: "github.app", id: "a-5", from: "panel", redirect: REDIRECT })).toEqual([{ type: "reply", id: "a-5", ok: false, error: "github_failed", to: "panel" }]);
+    expect(await ask({ type: "github.app", id: "a-5", from: PANEL, redirect: REDIRECT })).toEqual([{ type: "reply", id: "a-5", ok: false, error: "github_failed", to: PANEL }]);
     expect(log.rows()).toContainEqual(expect.objectContaining({ ev: "github.app", word: "github_failed", status }));
   });
 
@@ -259,7 +273,7 @@ describe("github.app", () => {
   ])("2021 · bad_frame, GitHub не вызван: %s", async (_n, f, why) => {
     const calls = fakeGithub();
     const log = journal();
-    expect(await ask({ type: "github.app", id: "b", from: "panel", ...f })).toEqual([{ type: "reply", id: "b", ok: false, error: "bad_frame", to: "panel" }]);
+    expect(await ask({ type: "github.app", id: "b", from: PANEL, ...f })).toEqual([{ type: "reply", id: "b", ok: false, error: "bad_frame", to: PANEL }]);
     expect(calls).toHaveLength(0);
     expect(log.rows()).toContainEqual(expect.objectContaining({ word: "bad_frame", why }));
   });
@@ -275,25 +289,25 @@ describe("github.setup", () => {
     });
     const log = journal();
     const before = Date.now();
-    const first = await ask({ type: "github.setup", id: "s-1", from: "panel", code: "c0de" });
-    expect(first).toEqual([{ type: "reply", id: "s-1", ok: true, to: "panel", result: { app: { id: 1047113, slug: "switchboard-team", owner: "team" }, install: INSTALL } }]);
+    const first = await ask({ type: "github.setup", id: "s-1", from: PANEL, code: "c0de" });
+    expect(first).toEqual([{ type: "reply", id: "s-1", ok: true, to: PANEL, result: { app: { id: 1047113, slug: "switchboard-team", owner: "team" }, install: INSTALL } }]);
     expect(calls[0].auth).toBeNull();
     const row = await stored();
-    expect(row).toMatchObject({ id: 1047113, slug: "switchboard-team", owner: "team", pem: CONV.pem, by: "panel" });
+    expect(row).toMatchObject({ id: 1047113, slug: "switchboard-team", owner: "team", pem: CONV.pem, by: PANEL });
     expect(row!.at).toBeGreaterThanOrEqual(before);
-    const second = await ask({ type: "github.setup", id: "s-2", from: "panel", code: "c0de" });
-    expect(second).toEqual([{ type: "reply", id: "s-2", ok: false, error: "app_exists", app: { id: 1047113, slug: "switchboard-team" }, to: "panel" }]);
+    const second = await ask({ type: "github.setup", id: "s-2", from: PANEL, code: "c0de" });
+    expect(second).toEqual([{ type: "reply", id: "s-2", ok: false, error: "app_exists", app: { id: 1047113, slug: "switchboard-team" }, to: PANEL }]);
     expect(await stored()).toEqual(row);
     expect(calls).toHaveLength(1);
-    const third = await ask({ type: "github.setup", id: "s-3", from: "panel", code: "c0de2", replace: true });
+    const third = await ask({ type: "github.setup", id: "s-3", from: PANEL, code: "c0de2", replace: true });
     expect(third[0]).toMatchObject({ ok: true, result: { app: { id: 2000001, slug: "switchboard-team-2" }, install: "https://github.com/apps/switchboard-team-2/installations/new" } });
     expect((await stored())?.id).toBe(2000001);
     const said = JSON.stringify([first, second, third]) + log.text() + JSON.stringify(await stored());
     for (const secret of ["cs_SECRET", "wh_SECRET"]) expect(said).not.toContain(secret);
     expect(JSON.stringify([first, second, third]) + log.text()).not.toContain("BEGIN RSA");
     expect(log.rows().filter((l) => l.ev === "github.setup" && l.kind === "note").map((l) => [l.from, l.app, l.slug, l.owner, l.replaced])).toEqual([
-      ["panel", 1047113, "switchboard-team", "team", false],
-      ["panel", 2000001, "switchboard-team-2", "team", true],
+      [PANEL, 1047113, "switchboard-team", "team", false],
+      [PANEL, 2000001, "switchboard-team-2", "team", true],
     ]);
     expect(log.rows()).toContainEqual(expect.objectContaining({ word: "app_exists", why: "приложение уже есть; заменить — replace: true" }));
   });
@@ -301,7 +315,7 @@ describe("github.setup", () => {
   it("у приложения GitHub не назвал владельца: пустая строка", async () => {
     const { owner: _owner, ...noOwner } = CONV;
     fakeGithub({ "POST /app-manifests/c0de/conversions": [201, noOwner] });
-    const [r] = await ask({ type: "github.setup", id: "s-4", from: "panel", code: "c0de" });
+    const [r] = await ask({ type: "github.setup", id: "s-4", from: PANEL, code: "c0de" });
     expect(r.result).toMatchObject({ app: { owner: "" } });
     expect((await stored())?.owner).toBe("");
   });
@@ -310,7 +324,7 @@ describe("github.setup", () => {
     await seed();
     const calls = fakeGithub();
     const log = journal();
-    expect(await ask({ type: "github.setup", id: "s-9", from: "panel", code: "bad0", replace: true })).toEqual([{ type: "reply", id: "s-9", ok: false, error: "github_failed", to: "panel" }]);
+    expect(await ask({ type: "github.setup", id: "s-9", from: PANEL, code: "bad0", replace: true })).toEqual([{ type: "reply", id: "s-9", ok: false, error: "github_failed", to: PANEL }]);
     expect(routeList(calls)).toEqual(["POST /app-manifests/bad0/conversions"]);
     expect(await stored()).toEqual(APP());
     expect(log.rows()).toContainEqual(expect.objectContaining({ ev: "github.setup", word: "github_failed", status: 404 }));
@@ -319,7 +333,7 @@ describe("github.setup", () => {
   it.each([undefined, "../x", "a b"])("2022 · code не из [A-Za-z0-9_-] — bad_frame, GitHub не вызван: %s", async (code) => {
     const calls = fakeGithub();
     const log = journal();
-    expect(await ask({ type: "github.setup", id: "b", from: "panel", code })).toEqual([{ type: "reply", id: "b", ok: false, error: "bad_frame", to: "panel" }]);
+    expect(await ask({ type: "github.setup", id: "b", from: PANEL, code })).toEqual([{ type: "reply", id: "b", ok: false, error: "bad_frame", to: PANEL }]);
     expect(calls).toHaveLength(0);
     expect(log.rows()).toContainEqual(expect.objectContaining({ word: "bad_frame", why: "нет code из возврата GitHub" }));
   });
@@ -327,18 +341,17 @@ describe("github.setup", () => {
 
 describe("вход Worker'а", () => {
   it.each([
-    ["чужое имя", { type: "github.secrets", id: "b" }, [{ error: "unknown_request", ok: false, to: "panel" }], ["refuse", "unknown_request", "github.secrets не обслуживается"]],
-    ["другая версия", { type: "github.app", id: "b", v: 2, redirect: REDIRECT }, [{ error: "contract_mismatch", ok: false, to: "panel" }], ["refuse", "contract_mismatch", "github.app — запрошена v2, здесь v1"]],
+    ["чужое имя", { type: "github.secrets", id: "b" }, [{ error: "unknown_request", ok: false, to: PANEL }], ["refuse", "unknown_request", "github.secrets не обслуживается"]],
+    ["другая версия", { type: "github.app", id: "b", v: 2, redirect: REDIRECT }, [{ error: "contract_mismatch", ok: false, to: PANEL }], ["refuse", "contract_mismatch", "github.app — запрошена v2, здесь v1"]],
     ["без id", { type: "github.app", redirect: REDIRECT }, [], ["refuse", "bad_frame", "github.app без id — ответить некому"]],
-    ["ответ чужого", { type: "reply", id: "x", ok: true }, [], ["note", undefined, "github ответов не ждёт"]],
   ])("2020 · вход отклонён, GitHub не вызван: %s", async (_n, f, out, [kind, word, why]) => {
     const calls = fakeGithub();
     const log = journal();
-    const got = await ask({ from: "panel", ...f });
+    const got = await ask({ from: PANEL, ...f });
     expect(got).toHaveLength(out.length);
     if (out.length) expect(got[0]).toMatchObject(out[0]);
     expect(calls).toHaveLength(0);
-    expect(log.rows()).toEqual([expect.objectContaining({ part: "github", kind, why, from: "panel", ...(word ? { word } : {}) })]);
+    expect(log.rows()).toEqual([expect.objectContaining({ part: "github", kind, why, from: PANEL, ...(word ? { word } : {}) })]);
   });
 
   it("246 · прямой вход: POST с пропуском — отправитель из пропуска, from из тела не берётся; строка таблицы приложения хватает для токена без новой настройки", async () => {

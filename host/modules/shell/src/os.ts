@@ -1,159 +1,76 @@
-// ОС под модулем shell: какие шеллы есть, запуск скрипта файлом с выводом прямо в файлы папки запуска,
-// убийство всего дерева процесса, файлы $SB_OUT. Решений о запуске здесь нет.
+// Всё, что зависит от ОС: где шелл, как его запустить и спросить версию, как убить дерево.
 import { execFile, spawn } from "node:child_process";
-import type { ChildProcess } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, extname, join, relative } from "node:path";
-import type { Attachment } from "@switchboard/host";
+import { delimiter, dirname, join } from "node:path";
 import { READ_MS } from "@switchboard/protocol";
 
-export const SHELLS = ["bash", "pwsh", "powershell"] as const;
-export type ShellName = (typeof SHELLS)[number];
+export type ShellName = "bash" | "pwsh" | "powershell";
+export const SHELLS: ShellName[] = ["bash", "pwsh", "powershell"];
 
-const WINDOWS = process.platform === "win32";
+const WIN = process.platform === "win32";
+const POWERSHELL = ["-NoProfile", "-NonInteractive"];
+/** PowerShell 5.1 читает файл без BOM в кодировке системы и пишет вывод в ней же. */
+const PS_UTF8 = "\ufeff[Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false\n";
 
-/** Файл в PATH; на Windows — с расширениями PATHEXT. */
-function inPath(name: string): string | null {
-  const exts = WINDOWS ? (process.env.PATHEXT ?? ".EXE;.CMD;.BAT").split(";").filter(Boolean) : [""];
-  const dirs = (process.env.PATH ?? process.env.Path ?? "").split(delimiter).filter(Boolean);
-  for (const dir of dirs) {
-    for (const ext of exts) {
-      const path = join(dir, WINDOWS && extname(name) ? name : name + ext);
-      if (existsSync(path)) return path;
-    }
-  }
-  return null;
+const onPath = (name: string) =>
+  (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter(Boolean)
+    .map((dir) => join(dir, WIN ? `${name}.exe` : name));
+
+/** bash рядом с git: git.exe лежит в <Git>\\cmd, <Git>\\bin или <Git>\\mingw64\\bin. */
+function besideGit(git: string): string[] {
+  const up = dirname(git);
+  return dirname(up) === up ? [] : [join(up, "bin", "bash.exe"), ...besideGit(up)];
 }
 
-/** bash на Windows — Git Bash, как у Claude Code: CLAUDE_CODE_GIT_BASH_PATH или bin\bash.exe рядом с git из PATH; bash из PATH на Windows бывает входом в WSL — его не берём. */
-function gitBash(): string | null {
-  const env = process.env.CLAUDE_CODE_GIT_BASH_PATH;
-  if (env && existsSync(env)) return env;
-  const git = inPath("git.exe");
-  if (!git) return null;
-  // git.exe лежит в <Git>\cmd, <Git>\bin или <Git>\mingw64\bin
-  for (let dir = dirname(git); dirname(dir) !== dir; dir = dirname(dir)) {
-    const bash = join(dir, "bin", "bash.exe");
-    if (existsSync(bash)) return bash;
-  }
-  return null;
+function candidates(name: ShellName): string[] {
+  if (!WIN) return name === "powershell" ? [] : onPath(name);
+  if (name === "pwsh") return onPath(name);
+  if (name === "powershell") return [join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")];
+  // bash из PATH на Windows бывает входом в WSL: Git Bash ищем как Claude Code
+  const git = onPath("git").find((path) => existsSync(path));
+  return [process.env.CLAUDE_CODE_GIT_BASH_PATH ?? "", ...(git ? besideGit(git) : [])];
 }
 
-/** Путь шелла на этой машине или null. */
-export function shellPath(name: ShellName): string | null {
-  if (!WINDOWS) return name === "powershell" ? null : inPath(name);
-  if (name === "bash") return gitBash();
-  if (name === "pwsh") return inPath("pwsh.exe");
-  const path = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
-  return existsSync(path) ? path : null;
+export const findShell = (name: ShellName): string | undefined => candidates(name).find((path) => path && existsSync(path));
+
+/** Версия шелла; не ответил за предел чтения — null: шелл всё равно есть. */
+export function shellVersion(name: ShellName, path: string): Promise<string | null> {
+  const args = name === "powershell" ? [...POWERSHELL, "-Command", "$PSVersionTable.PSVersion.ToString()"] : ["--version"];
+  return new Promise((resolve) => execFile(path, args, { windowsHide: true, timeout: READ_MS }, (_e, out) => resolve(/\d+(\.\d+)+/.exec(String(out ?? ""))?.[0] ?? null)));
 }
 
-/** Вывод команды; не ответила за предел чтения — что успела. */
-const stdoutOf = (file: string, args: string[]) => new Promise<string>((res) => execFile(file, args, { windowsHide: true, timeout: READ_MS }, (_e, out) => res(String(out ?? ""))));
-
-/** Версия шелла: bash и pwsh — --version, Windows PowerShell 5.1 — $PSVersionTable. */
-async function versionOf(name: ShellName, path: string): Promise<string | null> {
-  const out = await stdoutOf(path, name === "powershell" ? ["-NoProfile", "-NonInteractive", "-Command", "$PSVersionTable.PSVersion.ToString()"] : ["--version"]);
-  return /(\d+\.\d+(?:\.\d+)*)/.exec(out)?.[1] ?? null;
-}
-
-/** Шеллы машины: ищутся заново при каждом вызове. */
-export async function shells(): Promise<Record<string, { version: string | null; path: string }>> {
-  const found = await Promise.all(
-    SHELLS.map(async (name) => {
-      const path = shellPath(name);
-      return path ? ([name, { version: await versionOf(name, path), path }] as const) : null;
-    }),
-  );
-  return Object.fromEntries(found.filter((x) => x !== null));
-}
-
-/** Первая строка .ps1: вывод в UTF-8 без BOM, иначе 5.1 пишет кириллицу в кодовой странице консоли. */
-const PS_PRELUDE = "[Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false\n";
-
-export type Spawned = { child: ChildProcess; stdout: string; stderr: string; out: string };
-
-/**
- * Папка запуска dir: скрипт файлом, stdout и stderr — прямо в файлы, пустая out/ — её путь в SB_OUT.
- * Старт в домашней папке; stdin записан и закрыт. На Linux и macOS — своя группа процессов: её убивает killTree.
- */
-export function launch(dir: string, name: ShellName, path: string, script: string, stdin: string): Spawned {
-  const out = join(dir, "out");
-  mkdirSync(out, { recursive: true });
-  const isPs = name !== "bash";
-  const file = join(dir, isPs ? "script.ps1" : "script.sh");
-  // .ps1 с BOM: иначе Windows PowerShell 5.1 читает кириллицу скрипта как ANSI
-  writeFileSync(file, isPs ? "\ufeff" + PS_PRELUDE + script : script);
-  const stdout = join(dir, "stdout");
-  const stderr = join(dir, "stderr");
-  const fdOut = openSync(stdout, "w");
-  const fdErr = openSync(stderr, "w");
-  const args = isPs ? ["-NoProfile", "-NonInteractive", ...(WINDOWS ? ["-ExecutionPolicy", "Bypass"] : []), "-File", file] : [file];
+/** Запустить скрипт из файлов папки запуска: вывод — в файлы, поэтому фоновый ребёнок не держит конец запуска. */
+export function startShell(name: ShellName, path: string, dir: string, script: string, stdin: string | undefined, out: string) {
+  const file = join(dir, name === "bash" ? "script.sh" : "script.ps1");
+  writeFileSync(file, name === "bash" ? script : PS_UTF8 + script);
+  const args = name === "bash" ? [file] : [...POWERSHELL, ...(WIN ? ["-ExecutionPolicy", "Bypass"] : []), "-File", file];
+  if (stdin !== undefined) writeFileSync(join(dir, "stdin"), stdin);
+  const fds = [stdin === undefined ? null : openSync(join(dir, "stdin"), "r"), openSync(join(dir, "stdout"), "w"), openSync(join(dir, "stderr"), "w")];
   try {
-    const child = spawn(path, args, { cwd: homedir(), env: { ...process.env, SB_OUT: out }, stdio: ["pipe", fdOut, fdErr], windowsHide: true, detached: !WINDOWS });
-    // скрипт вышел, не дочитав ввод: EPIPE — не ошибка запуска
-    child.stdin?.on("error", () => {});
-    child.stdin?.end(stdin);
-    return { child, stdout, stderr, out };
+    return spawn(path, args, {
+      cwd: homedir(),
+      env: { ...process.env, SB_OUT: out },
+      stdio: [fds[0] ?? "ignore", fds[1]!, fds[2]!],
+      // своя группа: kill дерева на Linux идёт по ней
+      detached: !WIN,
+      windowsHide: true,
+    });
   } finally {
-    closeSync(fdOut);
-    closeSync(fdErr);
+    for (const fd of fds) if (fd !== null) closeSync(fd);
   }
 }
 
-/** Убить всё дерево процесса: taskkill /T /F на Windows, группу процессов на Linux и macOS. */
 export function killTree(pid: number): void {
-  if (WINDOWS) {
-    spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { windowsHide: true, stdio: "ignore" }).on("error", () => {});
+  if (WIN) {
+    spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { stdio: "ignore", windowsHide: true }).on("error", () => {});
     return;
   }
   try {
     process.kill(-pid, "SIGKILL");
   } catch {
-    // группы нет: все процессы запуска уже кончились
+    // группы уже нет: запуск кончился
   }
 }
-
-const MEDIA: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".svg": "image/svg+xml",
-  ".json": "application/json",
-  ".csv": "text/csv",
-  ".xml": "application/xml",
-  ".yaml": "application/yaml",
-  ".yml": "application/yaml",
-  ".txt": "text/plain",
-  ".log": "text/plain",
-  ".md": "text/markdown",
-  ".html": "text/html",
-  ".htm": "text/html",
-  ".pdf": "application/pdf",
-  ".zip": "application/zip",
-  ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-};
-
-/** Файлы $SB_OUT с подпапками: имя — путь от out/ через «/», тип — по расширению, данные — base64. */
-export function outFiles(out: string): Attachment[] {
-  if (!existsSync(out)) return [];
-  const walk = (dir: string): Attachment[] =>
-    readdirSync(dir, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .flatMap((e) => {
-        const path = join(dir, e.name);
-        if (e.isDirectory()) return walk(path);
-        if (!e.isFile()) return [];
-        return [{ name: relative(out, path).split("\\").join("/"), media_type: MEDIA[extname(e.name).toLowerCase()] ?? "application/octet-stream", data: readFileSync(path).toString("base64") }];
-      });
-  return walk(out);
-}
-
-/** Размер файла или 0. */
-export const sizeOf = (path: string) => (existsSync(path) ? statSync(path).size : 0);
-
-/** Текст файла вывода или пусто. */
-export const textOf = (path: string) => (existsSync(path) ? readFileSync(path, "utf8") : "");

@@ -1,99 +1,76 @@
-// Монорепо как набор: папки модулей, манифесты и то, что код делает мимо манифеста: импорты и вызовы привязок.
-// Контракт гейта грузится и в браузере (check), поэтому файловая система берётся при вызове.
-import { order } from "./graph.ts";
-import type { Manifest, Reach } from "./manifest.ts";
+// Манифесты монорепо и факты их кода. Модули Node берутся при вызове: контракт грузится и там, где их нет.
+import { readCode } from "./code.ts";
+import { order, type Manifest } from "./manifest.ts";
 
-const fs = () => process.getBuiltinModule("node:fs") as typeof import("node:fs");
-const path = () => process.getBuiltinModule("node:path") as typeof import("node:path");
-const join = (...parts: string[]) => path().join(...parts);
+const MANIFESTS = ["protocol", "tools/*", "workers/*", "os/*", "host/core", "host/modules/*", "web/packages/*", "web/*", "web/*/modules/*"].map((dir) => `${dir}/module.json`);
+const CODE = "**/*.{ts,tsx,mts,mjs,js}";
+const NOT_CODE = (name: string) => name === "node_modules" || name === "dist" || name.startsWith(".");
+const TEST = /(^|[\\/])(test|tests|stand)[\\/]|\.(test|spec)\.[^\\/]+$/;
+/** Что тесту можно у чужого модуля без uses. */
+const OPEN_TO_TESTS = /^(contract\.ts|module\.json|stand\/)/;
+/** Упаковка заменяет React рантаймом страницы, значит рантайм должен быть в uses. */
+const REACT = /^react(-dom)?(\/|$)/;
+const VIEW = "@switchboard/web-view";
+const SCOPE = "@switchboard/";
+const FACTS = ["imports", "reach", "testReach", "rpc"] as const;
 
-/** Где лежат модули: папка или все папки на уровень ниже. */
-const GROUPS = ["protocol", "tools/*", "workers/*", "os/*", "host/core", "host/modules/*", "web/packages/*", "web/phone", "web/pult", "web/pult/modules/*"];
-const CODE = /\.(ts|tsx|mts|js|mjs)$/;
-const TEST_FILE = /\.test\.|\.spec\./;
-const TEST_DIR = new Set(["test", "tests", "stand"]);
-const NOT_SOURCE_DIR = new Set(["node_modules", "dist", ".wrangler"]);
-const IMPORT_PREFIX = String.raw`(?:from\s*|import\s*\(\s*|import\s+)["']`;
-const IMPORT = new RegExp(`${IMPORT_PREFIX}(@switchboard/[^"']+)["']`, "g");
-const RELATIVE = new RegExp(`${IMPORT_PREFIX}(\\.\\.?/[^"']+)["']`, "g");
-/** Импорт React: упаковка заменяет его рантаймом страницы, значит рантайм должен быть в uses. */
-const REACT = /(?:from\s*|import\s+)["']react(?:-dom)?(?:\/[^"']*)?["']/;
-const RUNTIME = "@switchboard/web-view";
-/** Вызов через привязку Worker'а: env.GATE.revoked( */
-const BINDING_CALL = /\benv\.([A-Z][A-Z0-9_]*)\.(\w+)\(/g;
-/** Строка комментария: пример вызова в ней — не вызов. */
-const COMMENT_LINE = /^\s*(?:\/\/|\/?\*).*$/gm;
+export function loadRepo(root: string): (Manifest & { dir: string })[] {
+  const { existsSync, globSync, readFileSync } = process.getBuiltinModule("node:fs");
+  const { dirname, join, relative, sep } = process.getBuiltinModule("node:path");
+  const json = (path: string) => JSON.parse(readFileSync(join(root, path), "utf8"));
 
-type Mod = Manifest & { dir: string };
-type Source = { file: string; test: boolean };
-
-const hasManifest = (dir: string) => fs().existsSync(join(dir, "module.json"));
-const readJson = <T>(file: string) => JSON.parse(fs().readFileSync(file, "utf8")) as T;
-
-function moduleDirs(root: string): string[] {
-  return GROUPS.flatMap((group) => {
-    if (!group.endsWith("/*")) return hasManifest(join(root, group)) ? [join(root, group)] : [];
-    const base = join(root, group.slice(0, -2));
-    if (!fs().existsSync(base)) return [];
-    return fs().readdirSync(base, { withFileTypes: true }).filter((e) => e.isDirectory() && hasManifest(join(base, e.name))).map((e) => join(base, e.name));
+  const mods = globSync(MANIFESTS, { cwd: root }).map((file) => {
+    const dir = dirname(file);
+    const pkg = join(dir, "package.json");
+    return { provides: {}, uses: {}, config: {}, ...json(file), dir, pkg: existsSync(join(root, pkg)) ? json(pkg).name : undefined } as Manifest & { dir: string };
   });
-}
+  const deepestFirst = [...mods].sort((a, b) => b.dir.length - a.dir.length);
+  const moduleAt = (path: string) => deepestFirst.find((m) => (path + sep).startsWith(m.dir + sep));
+  const byPkg = new Map(mods.map((m) => [m.pkg, m]));
 
-/** Исходники модуля; вложенный модуль (экран пульта) считает свои сам. */
-function sources(dir: string, inTest = false): Source[] {
-  return fs().readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-    const file = join(dir, e.name);
-    if (e.isDirectory()) return NOT_SOURCE_DIR.has(e.name) || hasManifest(file) ? [] : sources(file, inTest || TEST_DIR.has(e.name));
-    if (!CODE.test(e.name) || e.name.endsWith(".d.ts")) return [];
-    return [{ file, test: inTest || TEST_FILE.test(e.name) }];
-  });
-}
-
-/** Модуль и путь от его корня для файла; для теста нет правила, если у модуля нет контракта. */
-function reachOf(file: string, from: Source, self: Mod, mods: Mod[]): Reach[] {
-  const to = mods.filter((m) => file === m.dir || file.startsWith(m.dir + path().sep)).sort((a, b) => b.dir.length - a.dir.length)[0];
-  if (!to || to === self) return [];
-  if (from.test && !fs().existsSync(join(to.dir, "contract.ts"))) return [];
-  return [{ to: to.name, path: path().relative(to.dir, file).replaceAll("\\", "/"), test: from.test }];
-}
-
-/** То, что код модуля делает мимо манифеста. */
-function scan(self: Mod, mods: Mod[]): Pick<Manifest, "imports" | "calls" | "reach"> {
-  const imports = new Set<string>();
-  const calls = new Set<string>();
-  const reach: Reach[] = [];
-  for (const source of sources(self.dir)) {
-    const text = fs().readFileSync(source.file, "utf8");
-    for (const [, spec] of text.matchAll(RELATIVE)) reach.push(...reachOf(path().resolve(path().dirname(source.file), spec), source, self, mods));
-    if (source.test) {
-      // пакет без пути — контракт: тесту можно без uses
-      for (const [, spec] of text.matchAll(IMPORT)) {
-        const [scope, name, ...rest] = spec.split("/");
-        const to = mods.find((m) => m.pkg === `${scope}/${name}`);
-        if (to && rest.length) reach.push(...reachOf(join(to.dir, ...rest), source, self, mods));
-      }
-      continue;
+  /** Чужой модуль и путь внутри него; не чужой или не модуль — ничего. */
+  function target(self: Manifest, file: string, spec: string) {
+    if (spec.startsWith(".")) {
+      const path = join(dirname(file), spec);
+      const to = moduleAt(path);
+      return to && to !== self ? { to, inner: relative(to.dir, path).replaceAll(sep, "/") } : undefined;
     }
-    for (const [, spec] of text.matchAll(IMPORT)) imports.add(spec);
-    if (REACT.test(text)) imports.add(RUNTIME);
-    for (const [, binding, method] of text.replace(COMMENT_LINE, "").matchAll(BINDING_CALL)) calls.add(`${binding.toLowerCase()}.${method}`);
+    const [scope, name, ...inner] = spec.split("/");
+    const to = byPkg.get(`${scope}/${name}`);
+    return to && to !== self ? { to, inner: inner.join("/") } : undefined;
   }
-  return { imports: [...imports].sort(), calls: [...calls].sort(), reach };
-}
 
-/** Манифесты всех модулей монорепо с тем, что делает их код, — в порядке зависимостей; папка — от корня. */
-export function loadRepo(root: string): Array<Manifest & { dir: string }> {
-  const mods = moduleDirs(root).map((dir): Mod => {
-    const manifest = readJson<Manifest>(join(dir, "module.json"));
-    const pj = join(dir, "package.json");
-    return {
-      ...manifest,
-      provides: manifest.provides ?? {},
-      uses: manifest.uses ?? {},
-      config: manifest.config ?? {},
-      pkg: fs().existsSync(pj) ? readJson<{ name: string }>(pj).name : undefined,
-      dir,
-    };
-  });
-  return order(mods.map((m) => ({ ...m, ...scan(m, mods), dir: path().relative(root, m.dir) })));
+  function scan(m: Manifest & { dir: string }) {
+    const imports = new Set<string>();
+    const reach = new Set<string>();
+    const testReach = new Set<string>();
+    const rpc = new Set<string>();
+    for (const inner of globSync(CODE, { cwd: join(root, m.dir), exclude: NOT_CODE })) {
+      const file = join(m.dir, inner);
+      if (inner.endsWith(".d.ts") || moduleAt(file) !== m) continue;
+      const code = readCode(file, readFileSync(join(root, file), "utf8"));
+      if (TEST.test(inner)) {
+        for (const spec of code.specs) {
+          const hit = target(m, file, spec);
+          if (hit?.inner && !OPEN_TO_TESTS.test(hit.inner) && existsSync(join(root, hit.to.dir, "contract.ts"))) testReach.add(`${hit.to.name}/${hit.inner}`);
+        }
+        continue;
+      }
+      code.rpc.forEach((name) => rpc.add(name));
+      for (const spec of code.specs) {
+        const hit = spec.startsWith(".") && target(m, file, spec);
+        if (hit) reach.add(`${hit.to.name}/${hit.inner}`);
+        if (REACT.test(spec)) imports.add(VIEW);
+        if (spec.startsWith(SCOPE)) imports.add(spec);
+      }
+    }
+    return { imports: [...imports].sort(), reach: [...reach], testReach: [...testReach], rpc: [...rpc] };
+  }
+
+  // Факты считаются при первом чтении: release-cli и стендам нужны только манифесты, а разбор кода дорог
+  for (const m of mods) {
+    let facts: ReturnType<typeof scan> | undefined;
+    for (const key of FACTS) Object.defineProperty(m, key, { enumerable: true, get: () => (facts ??= scan(m))[key] });
+  }
+  return order(mods);
 }
