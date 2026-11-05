@@ -1,5 +1,5 @@
 // Лента разговора: сообщения SDK как есть пачками всем зрителям. Первое сообщение открывает окно, через 100 мс окно уходит одним кадром.
-// Зрителей нет — ничего не шлёт и не копит. Зрители лежат в разделе сессии и переживают перезапуск Host.
+// Зрителей нет — ничего не шлёт и не копит. Зрители — в памяти Host: при новом Host страница подписывается заново и читает историю.
 import type { Frame, Host, Module, SDKMessage, Session } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
 
@@ -18,7 +18,8 @@ export function makeFeed(host: () => Host): Feed {
   const seq = new Map<string, number>();
   const open = new Map<string, { events: SDKMessage[]; timer: ReturnType<typeof setTimeout> }>();
 
-  const viewers = (s: Session) => s.store<string[]>().get() ?? [];
+  const watching = new Map<string, string[]>();
+  const viewers = (s: Session) => watching.get(s.info.callsign) ?? [];
 
   function flush(callsign: string): void {
     const batch = open.get(callsign);
@@ -38,7 +39,8 @@ export function makeFeed(host: () => Host): Feed {
     return (req: Frame, ctx: { from?: string }) => {
       if (!ctx.from) throw refuse("bad_frame", `${type}: нет from`);
       const viewer = ctx.from;
-      host().session(req.callsign as string)!.store<string[]>().update((cur = []) => change(cur, viewer));
+      const callsign = host().session(req.callsign as string)!.info.callsign;
+      watching.set(callsign, change(watching.get(callsign) ?? [], viewer));
       return undefined;
     };
   }
@@ -59,12 +61,7 @@ export function makeFeed(host: () => Host): Feed {
       frame(f) {
         if (f.type !== "roster") return;
         const online = new Set((f.clients ?? []) as string[]);
-        for (const { callsign } of host().sessions()) {
-          const store = host().session(callsign)!.store<string[]>();
-          const cur = store.get() ?? [];
-          const left = cur.filter((v) => online.has(v));
-          if (left.length !== cur.length) store.set(left);
-        }
+        for (const [callsign, cur] of watching) watching.set(callsign, cur.filter((v) => online.has(v)));
       },
     },
     viewers,
