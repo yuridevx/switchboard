@@ -89,6 +89,8 @@ describe("запись и чтение", () => {
     expect(reply).toEqual([
       { type: "reply", id: "r-7", ok: true, to: "panel", result: { more: false, events: [{ id: 1, t: at("15:02"), ev: "slot.swapped", from: "@laptop", machine: "laptop", text: "слот main: infirex → y0902" }] } },
     ]);
+    // с id — ответ ok: так ledger.add приходит через relay
+    expect(await add({ id: "a-1", ev: "x", text: "y" })).toEqual([{ type: "reply", id: "a-1", ok: true, to: "@pc" }]);
   });
 
   it("225 · 5044 · запись от Worker'а: from — как поставил вызывающий, by и callsign на месте; у записи сессии machine — её машина; machine кадра главнее", async () => {

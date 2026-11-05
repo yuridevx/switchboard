@@ -21,7 +21,7 @@ function dayOf(t: number): string {
 const fleetOf = (app: App) => {
   const r = app.roster();
   if (app.link() !== "open" || !r) return "";
-  return [...r.machines.map((m) => `${m.machine}:${m.since}`), ...r.sessions.map((s) => s.callsign).sort()].join("\n");
+  return [...r.machines.map((m) => `${m.machine}:${m.since}`), ...r.sessions.map((s) => s.callsign)].join("\n");
 };
 
 function Journal() {
@@ -29,16 +29,14 @@ function Journal() {
   const [machine, setMachine] = useState("");
   const [q, setQ] = useState("");
   const [shown, setShown] = useState<Shown>({ events: [], more: false, loaded: false, error: "" });
-  const latest = useRef({ asked: 0, busy: false, shown });
+  const latest = useRef({ asked: 0, shown });
   latest.current.shown = shown;
 
   /** Вопрос к ledger: ответ устаревшего вопроса отброшен. */
   async function ask(m: string, body: Record<string, unknown>, apply: (r: Result<LedgerReadResult>) => (was: Shown) => Shown) {
     const n = ++latest.current.asked;
-    latest.current.busy = true;
     const r = await app.read<LedgerReadResult>("ledger.read", { limit: LIMIT, ...(m ? { machine: m } : {}), ...body });
     if (n !== latest.current.asked) return;
-    latest.current.busy = false;
     setShown(apply(r));
   }
   const failed = (r: Result<unknown>) => (was: Shown) => ({ ...was, loaded: true, error: r.ok ? "" : `ledger.read: ${r.error}` });
@@ -46,8 +44,7 @@ function Journal() {
 
   /** Новые записи сверху; «Раньше» — как было. Записей нет — читается всё. */
   function catchUp() {
-    const { busy, shown: now } = latest.current;
-    if (busy) return;
+    const now = latest.current.shown;
     if (!now.events.length) return void all(machine);
     const known = new Set(now.events.map((e) => e.id));
     void ask(machine, { after: now.events[0].id }, (r) => (r.ok ? (was) => ({ ...was, events: [...r.result.events.filter((e) => !known.has(e.id)), ...was.events], error: "" }) : failed(r)));
@@ -58,8 +55,7 @@ function Journal() {
   const fleet = app.use(() => fleetOf(app));
   const seen = useRef<string | null>(null);
   useEffect(() => {
-    if (seen.current === null) void all(machine);
-    else if (fleet && fleet !== seen.current) catchUp();
+    if (fleet && fleet !== seen.current) catchUp();
     seen.current = fleet;
   }, [fleet]); // eslint-disable-line react-hooks/exhaustive-deps
 

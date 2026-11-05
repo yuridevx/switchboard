@@ -92,7 +92,7 @@ async function frame(f: Frame, db: D1Database): Promise<Frame[]> {
     return [{ ...ok(id, await read(f, db)), to: from }];
   } catch (e) {
     if (!(e instanceof Refusal)) throw e;
-    log({ kind: "refuse", ev: f.type, word: e.word, from, why: e.message, ...(f.type === "ledger.add" ? { rec: f.ev } : {}) });
+    log({ kind: "refuse", ev: f.type, word: e.word, from, why: e.message, rec: f.ev });
     return id ? [{ ...fail(id, e.word), to: from }] : [];
   }
 }
