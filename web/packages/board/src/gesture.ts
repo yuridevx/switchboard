@@ -92,7 +92,7 @@ export function glide(box: HTMLElement, items: string, cls: string, change: () =
   const was = new Map(list().map((el) => [el, el.getBoundingClientRect()]));
   change();
   for (const el of list()) {
-    const r = was.get(el)?.valueOf() as DOMRect | undefined;
+    const r = was.get(el);
     const now = el.getBoundingClientRect();
     if (!r || (r.left === now.left && r.top === now.top)) continue;
     el.style.transform = `translate(${r.left - now.left}px, ${r.top - now.top}px)`;

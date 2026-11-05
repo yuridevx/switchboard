@@ -81,10 +81,11 @@ export function List({ m, current, rerender }: { m: Model; current: string | nul
   const [adding, setAdding] = useState(false);
   const { view } = m;
   const box = useRef<HTMLDivElement>(null);
-  // открытая строка всегда видна
+  // открытая строка всегда видна, и когда только что появилась
+  const shown = !!current && (m.flat.some((r) => r.callsign === current) || m.sections.some((x) => x.rows.some((r) => r.callsign === current)));
   useEffect(() => {
     if (current) box.current?.querySelector(`.bd-row[data-callsign="${CSS.escape(current)}"]`)?.scrollIntoView?.({ block: "nearest" });
-  }, [current]);
+  }, [current, shown]);
 
   const openRow = (callsign: string) => app.open(!app.wide && app.mark("asked", callsign) ? "ask" : "card", { callsign });
 

@@ -25,6 +25,9 @@ export type RowModel = {
 export type SectionModel = { id: string; name: string; collapsed: boolean; lamps: string[]; groups: Array<{ machine: string; label: string; rows: RowModel[] }> | null; rows: RowModel[]; live: boolean };
 export type Chip = { id: string; name: string; count: number; own: boolean };
 
+/** Ламп у свёрнутого проекта: больше не помещается. */
+const LAMPS = 6;
+
 export type BoardState = ReturnType<typeof createBoardState>;
 
 export function createBoardState(app: App) {
@@ -74,10 +77,16 @@ export function createBoardState(app: App) {
     }
     const at = app.current();
     if (!local.get().view.projects || (at?.screen !== "board" && at?.master !== "board")) return;
-    const fresh = sectionsOf().filter((x) => x.callsigns.length && local.get().collapsed[x.id] === undefined);
+    // решается только о видимых сейчас: скрытые фильтром проекты решат свой первый показ сами
+    const fit = fitsChip(chosenChip());
+    const fresh = sectionsOf().filter((x) => x.callsigns.some(fit) && local.get().collapsed[x.id] === undefined);
     if (fresh.length) writeCollapsed((c) => fresh.forEach((x) => (c[x.id] = !needsYou(x.callsigns))));
   }
 
+  const chosenChip = () => {
+    const id = local.get().flt;
+    return chipOrder(filters(), user.get<string[]>("row")).includes(id) ? id : MINE;
+  };
   const traits = (cs: string) => ({ mine: !!mine(cs), owner: ownerOf(cs, find), project: projectOf(cs) });
   const fitsChip = (id: string) => (cs: string) => {
     if (id === ALL) return true;
@@ -114,26 +123,27 @@ export function createBoardState(app: App) {
 
   /** Что показать сейчас. */
   function model() {
-    const { view, flt: chosen } = local.get();
+    const { view } = local.get();
     const all = sessions().map((s) => s.callsign);
     const ids = chipOrder(filters(), user.get<string[]>("row"));
     const nameOf = (id: string) => (id === MINE ? "Моё" : id === ALL ? "Всё" : (filters().find((f) => f.id === id)?.name ?? id));
     const chips: Chip[] = ids.map((id) => ({ id, name: nameOf(id), count: view.fcount ? all.filter(fitsChip(id)).length : 0, own: id !== MINE && id !== ALL }));
-    const selected = ids.includes(chosen) ? chosen : MINE;
+    const selected = chosenChip();
     const fit = fitsChip(selected);
     const grouped = view.projects && view.group;
     const sections: SectionModel[] = sectionsOf().flatMap(({ id, name, callsigns }) => {
       const shown = callsigns.filter(fit);
       if (callsigns.length && !shown.length) return [];
       const collapsed = isCollapsed(id, callsigns);
-      const placed = collapsed ? [] : placeRows(shown, parentOf, view.tree);
-      const rows = placed.map((x) => rowOf(x.callsign, grouped ? 0 : x.depth, view, { at: view.at && !grouped, project: "" }));
-      const machines = [...new Set(rows.map((r) => machineOf(r.callsign) ?? ""))].sort();
-      const lamps = collapsed && view.pjlamps ? byUrgency(shown.map((cs) => find(cs)!)).map(lamp) : [];
-      const groups = grouped ? machines.map((machine) => ({ machine, label: machineLabel(app, machine).text, rows: rows.filter((r) => machineOf(r.callsign) === machine) })) : null;
+      const place = (list: string[]) => placeRows(list, parentOf, view.tree).map((x) => rowOf(x.callsign, x.depth, view, { at: view.at && !grouped, project: "" }));
+      const machines = [...new Set(shown.map((cs) => machineOf(cs) ?? ""))].sort();
+      const lamps = collapsed && view.pjlamps ? byUrgency(shown.map((cs) => find(cs)!)).slice(0, LAMPS).map(lamp) : [];
+      // дочерняя под родителем — только в его группе
+      const groups = grouped && !collapsed ? machines.map((machine) => ({ machine, label: machineLabel(app, machine).text, rows: place(shown.filter((cs) => machineOf(cs) === machine)) })) : null;
+      const rows = groups ? groups.flatMap((g) => g.rows) : collapsed ? [] : place(shown);
       return [{ id, name, collapsed, lamps, groups, rows, live: callsigns.length > 0 }];
     });
-    const flat = view.projects ? [] : sectionsOf().flatMap(({ name, callsigns }) => placeRows(callsigns.filter(fit), parentOf, view.tree).map((x) => rowOf(x.callsign, 0, view, { at: view.at, project: name })));
+    const flat = view.projects ? [] : sectionsOf().flatMap(({ name, callsigns }) => callsigns.filter(fit).map((cs) => rowOf(cs, 0, view, { at: view.at, project: name })));
     return { drawn: ready() || app.link() !== "open", view, chips, selected, selectedName: nameOf(selected), sections, flat, order: sections.map((x) => x.id) };
   }
 
@@ -208,6 +218,7 @@ export function createBoardState(app: App) {
     choose(id: string) {
       local.set((s) => void (s.flt = id));
       void flt().set(id);
+      settle();
     },
     toggle(id: string) {
       const callsigns = sectionsOf().find((x) => x.id === id)?.callsigns ?? [];
