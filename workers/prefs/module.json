@@ -1,7 +1,7 @@
 {
   "name": "prefs",
   "type": "worker",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "provides": {
     "prefs.get": 1,
     "prefs.set": 1

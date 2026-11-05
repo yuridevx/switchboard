@@ -1,87 +1,84 @@
-// Цикл настроек над Worker'ом prefs — один на страницы и Host: правка читает свежие значения области, применяется поверх них и пишет свои ключи.
-// Правки одного цикла идут по одной; копии на диске нет. Запрос к службе передаёт тот, кто зовёт: чтение и запись — двумя входами, у них разный предел.
-export type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
-export type Ask = <T = unknown>(name: string, body: Record<string, unknown>) => Promise<AskResult<T>>;
+// Цикл настроек над службой prefs — один на страницы и Host: правка применяется поверх свежих значений и пишет только свои ключи.
+// Копии на диске нет. Запрос к службе передаёт тот, кто зовёт: чтение и запись идут двумя входами, у них разный предел.
+type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
+type Ask = <T = unknown>(name: string, body: Record<string, unknown>) => Promise<AskResult<T>>;
 
 export type Settings = {
   /** первый ответ службы получен; отказ — тоже ответ */
   ready(): boolean;
   /** значение раздела сейчас */
   get<T>(section: string): T | undefined;
-  /** правка раздела: сразу в значении, в службе — циклом; промис — null или слово отказа */
+  /** правка раздела: значение меняется сразу, служба — циклом; промис — null или слово отказа */
   edit<T>(section: string, fn: (old: T | undefined) => T): Promise<string | null>;
-  /** прочитать все ключи области; слово отказа или null */
+  /** прочитать свои ключи области; null или слово отказа */
   read(): Promise<string | null>;
   /** дождаться цикла записи: остановка */
   settled(): Promise<void>;
 };
 
-type Edit = { name: string; fn: (old: unknown) => unknown; done(word: string | null): void };
+type Values = Record<string, unknown>;
+type Edit = { name: string; apply(old: unknown): unknown; done(word: string | null): void };
 
 export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: string; changed?: () => void }): Settings {
-  const key = (section: string) => `${o.prefix}.${section}`;
-  // только свои ключи: чужие разделы области этому циклу не приходят
-  const asked = { prefix: `${o.prefix}.`, ...(o.scope ? { scope: o.scope } : {}) };
-  const scope = o.scope ? { scope: o.scope } : {};
-  const changed = o.changed ?? (() => {});
-  let values: Record<string, unknown> = {};
+  const area = o.scope ? { scope: o.scope } : {};
+  const fetchValues = () => o.read<{ values: Values }>("prefs.get", { prefix: `${o.prefix}.`, ...area });
+  let values: Values = {};
   let answered = false;
-  let queue: Edit[] = [];
-  let running: Promise<void> | null = null;
+  let waiting: Edit[] = [];
+  let writing: Promise<void> | null = null;
 
-  async function read(): Promise<string | null> {
-    const r = await o.read<{ values: Record<string, unknown> }>("prefs.get", asked);
-    if (r.ok) values = r.result.values;
-    // связи нет — ответит следующее открытие; отказ службы — рисуем встроенное
-    if (r.ok || r.error !== "disconnected") answered = true;
-    changed();
-    return r.ok ? null : r.error;
+  /** Пачка правок: поверх свежего чтения, по одной записи на раздел; правки, пришедшие за это время, остаются поверх. */
+  async function write(batch: Edit[]): Promise<void> {
+    const fresh = await fetchValues();
+    if (!fresh.ok) {
+      for (const e of batch) e.done(fresh.error);
+      return;
+    }
+    const next = { ...fresh.result.values };
+    for (const e of batch) next[e.name] = e.apply(next[e.name]);
+    const refused = new Map<string, string>();
+    for (const name of new Set(batch.map((e) => e.name))) {
+      const r = await o.ask("prefs.set", { name, value: next[name], ...area });
+      if (!r.ok) refused.set(name, r.error);
+    }
+    for (const e of batch) e.done(refused.get(e.name) ?? null);
+    for (const e of waiting) next[e.name] = e.apply(next[e.name]);
+    values = next;
+    o.changed?.();
   }
 
-  async function cycle() {
-    await Promise.resolve(); // правки подряд — одним циклом
-    while (queue.length) {
-      const batch = queue;
-      queue = [];
-      const fresh = await o.read<{ values: Record<string, unknown> }>("prefs.get", asked);
-      if (!fresh.ok) {
-        for (const e of batch) e.done(fresh.error);
-        continue;
-      }
-      const next = { ...fresh.result.values };
-      const names = new Set<string>();
-      for (const e of batch) {
-        next[e.name] = e.fn(next[e.name]);
-        names.add(e.name);
-      }
-      const words = new Map<string, string>();
-      for (const name of names) {
-        const w = await o.ask("prefs.set", { name, value: next[name], ...scope });
-        if (!w.ok) words.set(name, w.error);
-      }
-      for (const e of batch) e.done(words.get(e.name) ?? null);
-      // правки, пришедшие за время цикла, остаются поверх
-      values = next;
-      for (const e of queue) values[e.name] = e.fn(values[e.name]);
-      changed();
+  async function drain(): Promise<void> {
+    // правки подряд в одном такте — одна пачка
+    await Promise.resolve();
+    while (waiting.length) {
+      const batch = waiting;
+      waiting = [];
+      await write(batch);
     }
   }
 
   return {
     ready: () => answered,
-    get: <T>(section: string) => values[key(section)] as T | undefined,
+    get: <T>(section: string) => values[`${o.prefix}.${section}`] as T | undefined,
     edit: <T>(section: string, fn: (old: T | undefined) => T) =>
       new Promise<string | null>((done) => {
-        const name = key(section);
-        const f = fn as (old: unknown) => unknown;
-        values = { ...values, [name]: f(values[name]) };
-        queue.push({ name, fn: f, done });
-        running ??= cycle().finally(() => (running = null));
-        changed();
+        const name = `${o.prefix}.${section}`;
+        const apply = fn as (old: unknown) => unknown;
+        values = { ...values, [name]: apply(values[name]) };
+        waiting.push({ name, apply, done });
+        writing ??= drain().finally(() => (writing = null));
+        o.changed?.();
       }),
-    read,
-    settled: async () => {
-      while (running) await running;
+    async read() {
+      const r = await fetchValues();
+      if (r.ok) values = r.result.values;
+      // связи нет — ответит следующее открытие
+      if (r.ok || r.error !== "disconnected") answered = true;
+      o.changed?.();
+      return r.ok ? null : r.error;
+    },
+    async settled() {
+      while (writing) await writing;
     },
   };
 }

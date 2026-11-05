@@ -1,22 +1,23 @@
-// Человеческие имена сессий и машин: одна запись на флот. Адрес в протоколе и журнале остаётся адресом.
+// Человеческие имена: запись fleet.labels одна на флот. Адрес в протоколе и журнале остаётся адресом.
 export const FLEET_PREFIX = "fleet";
-/** Раздел записи имён; полный ключ — fleet.labels. */
 export const LABELS = "labels";
 
 export type Labels = { sessions?: Record<string, string>; machines?: Record<string, string> };
 
-/** Имя сессии site@laptop или машины @laptop; имени нет — undefined. */
+/** Адрес машины начинается с @: её имя лежит под именем машины, имя сессии — под callsign. */
+const slot = (to: string) => (to.startsWith("@") ? { bag: "machines" as const, key: to.slice(1) } : { bag: "sessions" as const, key: to });
+
 export function labelOf(labels: Labels | undefined, to: string): string | undefined {
-  return to.startsWith("@") ? labels?.machines?.[to.slice(1)] : labels?.sessions?.[to];
+  const { bag, key } = slot(to);
+  return labels?.[bag]?.[key];
 }
 
-/** Новая запись: имя поставлено; пустой текст снимает его. */
+/** Новая запись с именем адреса; пустой текст снимает имя. */
 export function setLabel(labels: Labels | undefined, to: string, text: string): Labels {
-  const sessions = { ...labels?.sessions };
-  const machines = { ...labels?.machines };
-  const [bag, key] = to.startsWith("@") ? [machines, to.slice(1)] : [sessions, to];
-  const t = text.trim();
-  if (t) bag[key] = t;
-  else delete bag[key];
-  return { sessions, machines };
+  const { bag, key } = slot(to);
+  const next = { sessions: { ...labels?.sessions }, machines: { ...labels?.machines } };
+  const name = text.trim();
+  if (name) next[bag][key] = name;
+  else delete next[bag][key];
+  return next;
 }
