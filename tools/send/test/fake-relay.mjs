@@ -1,30 +1,46 @@
 // Поддельный relay для тестов send: глобальный WebSocket подменяется до запуска send.mjs (node --import).
-// Режим — FAKE_RELAY: ok | offline | refuse | silent. Отправленные кадры — строками JSON в файл FAKE_LOG.
+// Режим — FAKE_RELAY: ok | offline | wordless | refuse | drop | noise | silent. Что ушло к relay — строками JSON в файл FAKE_LOG.
 import { appendFileSync } from "node:fs";
 
 const mode = process.env.FAKE_RELAY ?? "ok";
 const log = process.env.FAKE_LOG;
+const note = (line) => {
+  if (log) appendFileSync(log, line + "\n");
+};
+const ROSTER = JSON.stringify({ type: "roster", machines: [], sessions: [], clients: [], workers: [] });
 
 class FakeWebSocket {
   constructor(url) {
-    this.url = url;
-    if (log) appendFileSync(log, JSON.stringify({ url }) + "\n");
+    note(JSON.stringify({ url }));
     setTimeout(() => this.onopen?.({}), 0);
   }
+  /** Сначала порядок кадров, как их шлёт настоящий relay: по одному за оборот. */
+  #say(...frames) {
+    frames.forEach((data, i) => setTimeout(() => this.onmessage?.({ data }), i));
+  }
+  #lost(code, reason) {
+    setTimeout(() => this.onclose?.({ code, reason }), 0);
+  }
   send(text) {
-    if (log) appendFileSync(log, text + "\n");
+    note(text);
     const f = JSON.parse(text);
-    const say = (x) => setTimeout(() => this.onmessage?.({ data: JSON.stringify(x) }), 0);
+    const reply = (x) => JSON.stringify({ type: "reply", id: f.id, ...x });
     if (f.type === "hello") {
-      if (mode === "refuse") return setTimeout(() => this.onclose?.({ code: 1008, reason: "bad_key" }), 0);
-      say({ type: "roster", machines: [], sessions: [], clients: [], workers: [] });
+      if (mode === "refuse") return this.#lost(1008, "bad_key");
+      if (mode === "noise") return this.#say("pong", new ArrayBuffer(1), "{не JSON", ROSTER, ROSTER);
+      this.#say(ROSTER);
     } else if (f.type === "session.prompt") {
-      if (mode === "ok") say({ type: "reply", id: f.id, ok: true });
-      if (mode === "offline") say({ type: "reply", id: f.id, ok: false, error: "offline" });
+      if (mode === "drop") return this.#lost(1006, "");
+      if (mode === "noise") return this.#say(JSON.stringify({ type: "reply", id: "чужой", ok: false, error: "чужой ответ" }), reply({ ok: true }));
+      if (mode === "ok") this.#say(reply({ ok: true }));
+      if (mode === "offline") this.#say(reply({ ok: false, error: "offline" }));
+      if (mode === "wordless") this.#say(reply({ ok: false }));
     }
   }
+  /** Как настоящий сокет: после close приходит событие закрытия. */
   close(code) {
-    if (log) appendFileSync(log, JSON.stringify({ close: code }) + "\n");
+    note(JSON.stringify({ close: code }));
+    this.#lost(code, "");
   }
 }
 
