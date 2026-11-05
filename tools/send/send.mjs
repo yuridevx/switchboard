@@ -1,81 +1,63 @@
 #!/usr/bin/env node
-// Сообщение в сессию флота от клиента — для служб компьютера, которым надо писать в сессию (тревоги, сторожа).
-// Без зависимостей: WebSocket Node 24. Пропуск программы — keys.invite client <имя> <почта>, принят switchboard redeem;
-// адрес отправителя — <имя>~<почта>. Соединение — с relay машины сессии: объект /m/<машина>.
-//   import { send } from "…/send.mjs";  await send("operator@laptop", "текст", { key }) → { ok: 1, error: "" } | { ok: 0, error }
-//   <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]
-// Одна попытка: hello → roster → session.prompt → reply. Повторов нет, итог — вызывающему.
+// Сообщение в сессию от служб компьютера. Один файл без зависимостей, Node 24; службы зовут его снаружи репо,
+// поэтому аргументы, слова отказов, выходы 0, 1, 2 и кадры заморожены.
+// Пропуск программы — keys.invite client <имя> <почта>, принят switchboard redeem; отправитель — <имя>~<почта>.
+import { existsSync, realpathSync } from "node:fs";
 import { text as readAll } from "node:stream/consumers";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 export const RELAY = "wss://relay.pfarm.app";
+const LIMIT_MS = 30_000;
+const USAGE = "вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]";
 
-/** Тот же срок, что у ответа relay: пишущий не закрыл stdin — служба не должна висеть вечно. */
-const STDIN_MS = 30_000;
-const USAGE ="вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]";
-
-const machineAddress = (url, callsign) => `${url.replace(/\/$/, "")}/m/${callsign.slice(callsign.indexOf("@") + 1)}`;
-
-/** Кадр relay; всё, что не JSON-текст, — не кадр. */
-function frameOf(data) {
-  if (typeof data !== "string") return null;
+const parse = (data) => {
   try {
     return JSON.parse(data);
   } catch {
-    return null;
+    return null; // pong и бинарные кадры — не наши
   }
-}
+};
 
-export function send(callsign, text, { key, url = RELAY, timeoutMs = 30_000 } = {}) {
-  const { promise, resolve } = Promise.withResolvers();
-  const id = `send-${Date.now().toString(36)}`;
-  const ws = new WebSocket(machineAddress(url, callsign));
+/** Один разговор с relay машины сессии: hello, после roster один session.prompt. Итог — { ok: 1 | 0, error: слово }. */
+export function send(callsign, text, { key, url = RELAY, timeoutMs = LIMIT_MS } = {}) {
+  const machine = callsign.slice(callsign.indexOf("@") + 1);
+  const ws = new WebSocket(`${url.replace(/\/$/, "")}/m/${machine}`);
+  const id = `send-${crypto.randomUUID()}`;
   let asked = false;
-
-  // сняв обработчики, итог не повторится: остаётся только таймер, он снят здесь же
-  const finish = (result) => {
-    clearTimeout(timer);
-    ws.onmessage = ws.onclose = null;
-    ws.close(1000);
-    resolve(result);
-  };
-  const timer = setTimeout(() => finish({ ok: 0, error: `нет ответа за ${timeoutMs} мс` }), timeoutMs);
-
-  ws.onopen = () => ws.send(JSON.stringify({ type: "hello", key, proto: 1 }));
-  ws.onclose = ({ code, reason }) => finish({ ok: 0, error: `связь закрыта: ${code} ${reason}` });
-  ws.onmessage = ({ data }) => {
-    const frame = frameOf(data);
-    // roster — hello принят
-    if (frame?.type === "roster" && !asked) {
-      asked = true;
-      ws.send(JSON.stringify({ type: "session.prompt", v: 1, id, to: callsign, callsign, text }));
-    } else if (frame?.type === "reply" && frame.id === id) {
-      finish(frame.ok ? { ok: 1, error: "" } : { ok: 0, error: String(frame.error) });
-    }
-  };
-  return promise;
+  return new Promise((resolve) => {
+    const finish = (ok, error) => {
+      clearTimeout(limit);
+      ws.onclose = ws.onmessage = null;
+      ws.close(1000);
+      resolve({ ok, error });
+    };
+    const limit = setTimeout(() => finish(0, `нет ответа за ${timeoutMs} мс`), timeoutMs);
+    ws.onopen = () => ws.send(JSON.stringify({ type: "hello", key, proto: 1 }));
+    ws.onclose = ({ code, reason }) => finish(0, `связь закрыта: ${code} ${reason}`);
+    ws.onmessage = ({ data }) => {
+      const f = parse(data);
+      if (f?.type === "roster" && !asked) {
+        asked = true;
+        ws.send(JSON.stringify({ type: "session.prompt", v: 1, id, to: callsign, callsign, text }));
+      } else if (f?.type === "reply" && f.id === id) {
+        finish(f.ok ? 1 : 0, f.ok ? "" : String(f.error));
+      }
+    };
+  });
 }
 
-/** Первая строка stdin — пропуск, остальное — текст как есть. */
-function parseInput(raw) {
-  const lineEnd = raw.indexOf("\n");
-  return lineEnd < 0 ? { key: raw.trim(), text: "" } : { key: raw.slice(0, lineEnd).trim(), text: raw.slice(lineEnd + 1) };
-}
+/** Выход только после записи слова: в трубе на Windows запись не мгновенна, а сокет ждать незачем. */
+const leave = (stream, word, code) => stream.write(`${word}\n`, () => process.exit(code));
 
 async function main([callsign, flag, url]) {
-  if (!callsign || (flag && (flag !== "--url" || !url))) {
-    console.error(USAGE);
-    return 2;
-  }
-  const raw = await Promise.race([readAll(process.stdin), new Promise((done) => setTimeout(done, STDIN_MS, null))]);
-  if (raw === null) {
-    console.log(`stdin не закрыт за ${STDIN_MS} мс`);
-    return 1;
-  }
-  const { key, text } = parseInput(raw);
-  const { ok, error } = await send(callsign, text, { key, ...(url ? { url } : {}) });
-  console.log(ok ? "ok" : error);
-  return ok ? 0 : 1;
+  if (!callsign || (flag && (flag !== "--url" || !url))) return leave(process.stderr, USAGE, 2);
+  const limit = setTimeout(() => leave(process.stdout, `stdin не закрыт за ${LIMIT_MS} мс`, 1), LIMIT_MS);
+  const [first, ...rest] = (await readAll(process.stdin)).split("\n");
+  clearTimeout(limit);
+  const { ok, error } = await send(callsign, rest.join("\n"), { key: first.trim(), url: url || RELAY });
+  leave(process.stdout, ok ? "ok" : error, ok ? 0 : 1);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) process.exit(await main(process.argv.slice(2)));
+// Не import.meta.main: на Node до 24.2 его нет, и служба получила бы выход 0 без отправки. realpath — служба может звать через ссылку.
+const entry = process.argv[1];
+if (entry && existsSync(entry) && realpathSync(entry) === fileURLToPath(import.meta.url)) await main(process.argv.slice(2));

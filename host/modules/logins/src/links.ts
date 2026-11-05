@@ -1,80 +1,84 @@
-// Слот на диске — ссылка на папку аккаунта: junction на Windows, symlink на Linux. Кто в слоте — сама ссылка, больше нигде.
-// Перевешивает под блокировкой обновления входа claude: он держит её на время обновления (опыт 1 ноя: ~0,7 с).
-import { lstatSync, mkdirSync, readlinkSync, renameSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+// Папки аккаунтов и ссылки слотов. Кто в слоте, знает только ссылка на диске. Вход не двигается: аккаунт живёт в своей папке, слот на неё указывает.
+import { existsSync, lstatSync, mkdirSync, readdirSync, readlinkSync, rmdirSync, symlinkSync, unlinkSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { refuse } from "@switchboard/host";
 
-/** Файл входа claude в папке Claude. */
-export const CREDENTIALS = ".credentials.json";
-/** Блокировка обновления входа claude — папка рядом с файлом входа. */
+/** Имена самого claude: файл входа и блокировка его обновления (опыт 1 нояб.). */
+const CREDENTIALS = ".credentials.json";
 const REFRESH_LOCK = ".oauth_refresh.lock";
-/** Сколько ждать, пока claude обновляет вход: свою блокировку он держит меньше секунды. */
+/** Свою блокировку claude держит меньше секунды. */
 const LOCK_WAIT_MS = 10_000;
+const LOCK_STEP_MS = 100;
 
-const statOf = (p: string) => {
-  try {
-    return lstatSync(p);
-  } catch {
-    return null;
-  }
-};
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-export const exists = (p: string) => statOf(p) !== null;
+export function folders(home: string) {
+  const accDir = (name: string) => join(home, "accounts", name);
+  const slotDir = (slot: string) => join(home, "slots", slot);
 
-/** Убрать ссылку слота или пустую папку на её месте. Папка аккаунта за ссылкой не трогается. */
-export function unlink(p: string): void {
-  const st = statOf(p);
-  if (!st) return;
-  if (st.isSymbolicLink()) {
+  /** Кто в слоте: битая ссылка, обычная папка и пустое место — никто. */
+  function inSlot(slot: string): string | null {
+    const dir = slotDir(slot);
     try {
-      unlinkSync(p);
+      const target = basename(readlinkSync(dir));
+      return existsSync(dir) ? target : null;
     } catch {
-      rmdirSync(p); // junction на Windows
+      return null;
     }
-  } else if (st.isDirectory()) {
-    try {
-      rmdirSync(p);
-    } catch {
-      throw refuse("slot_dir_busy", `${p}: на месте ссылки слота папка с файлами`);
-    }
-  } else unlinkSync(p);
-}
-
-/** Ссылка на папку: Windows — junction заново (rename поверх — EPERM); Linux — symlink во временное имя и rename, атомарно. */
-export function link(slot: string, target: string): void {
-  mkdirSync(dirname(slot), { recursive: true });
-  if (process.platform === "win32") {
-    unlink(slot);
-    symlinkSync(target, slot, "junction");
-    return;
   }
-  if (!statOf(slot)?.isSymbolicLink()) unlink(slot);
-  const tmp = `${slot}.link`;
-  unlink(tmp);
-  symlinkSync(target, tmp);
-  renameSync(tmp, slot);
-}
 
-/** Куда ведёт ссылка; не ссылка или её нет — null. */
-export const targetOf = (p: string) => (statOf(p)?.isSymbolicLink() ? resolve(dirname(p), readlinkSync(p)) : null);
-
-/** fn под блокировкой обновления входа в папке dir. Держит её claude дольше предела — refresh_locked. */
-export async function underRefreshLock<T>(dir: string, fn: () => T): Promise<T> {
-  const lock = join(dir, REFRESH_LOCK);
-  const end = Date.now() + LOCK_WAIT_MS;
-  for (;;) {
+  /** Обновление входа и подмена не должны идти разом: папка блокировки — та, что понимает claude. Папки аккаунта нет — и входа нет. */
+  async function locked<T>(name: string | null, work: () => T): Promise<T> {
+    if (!name || !existsSync(accDir(name))) return work();
+    const lock = join(accDir(name), REFRESH_LOCK);
+    const end = Date.now() + LOCK_WAIT_MS;
+    for (;;) {
+      try {
+        mkdirSync(lock);
+        break;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+        if (Date.now() >= end) throw refuse("refresh_locked", `${name}: claude обновляет вход дольше ${LOCK_WAIT_MS / 1000} с; повторите запрос`);
+        await pause(LOCK_STEP_MS);
+      }
+    }
     try {
-      mkdirSync(lock);
-      break;
+      return work();
+    } finally {
+      rmdirSync(lock);
+    }
+  }
+
+  /** Снять ссылку или пустую папку; папка с файлами остаётся и не даёт поставить ссылку. */
+  function clear(dir: string): void {
+    const on = lstatSync(dir, { throwIfNoEntry: false });
+    if (!on) return;
+    if (on.isSymbolicLink()) return unlinkSync(dir);
+    if (readdirSync(dir).length) throw refuse("slot_dir_busy", `${dir}: на месте ссылки слота папка с файлами`);
+    rmdirSync(dir);
+  }
+
+  /** Поставить аккаунт в слот; блокировка — того, кто уходит. */
+  async function place(slot: string, name: string): Promise<void> {
+    const dir = slotDir(slot);
+    try {
+      if (!existsSync(accDir(name))) throw refuse("not_logged_in", `${name}: папка аккаунта удалена`);
+      if (!existsSync(join(accDir(name), CREDENTIALS))) throw refuse("not_logged_in", `${name}: входа нет`);
+      await locked(inSlot(slot), () => {
+        clear(dir);
+        mkdirSync(dirname(dir), { recursive: true });
+        symlinkSync(accDir(name), dir, process.platform === "win32" ? "junction" : "dir");
+      });
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      if (Date.now() >= end) throw refuse("refresh_locked", `${dir}: claude обновляет вход дольше ${LOCK_WAIT_MS / 1000} с`);
-      await new Promise((r) => setTimeout(r, 100));
+      const r = e as { word?: string; why?: string };
+      if (r.word !== "not_logged_in" && r.word !== "slot_dir_busy") throw e;
+      throw refuse(r.word, `${slot}: ${name} не встал в слот — ${r.why}`);
     }
   }
-  try {
-    return fn();
-  } finally {
-    rmdirSync(lock);
-  }
+
+  const unplace = (slot: string) => locked(inSlot(slot), () => clear(slotDir(slot)));
+
+  return { accDir, slotDir, inSlot, place, unplace };
 }
+
+export type Folders = ReturnType<typeof folders>;

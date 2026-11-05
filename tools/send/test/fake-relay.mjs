@@ -1,5 +1,6 @@
 // Поддельный relay для тестов send: глобальный WebSocket подменяется до запуска send.mjs (node --import).
-// Режим — FAKE_RELAY: ok | offline | wordless | refuse | drop | noise | silent. Что ушло к relay — строками JSON в файл FAKE_LOG.
+// Режим — FAKE_RELAY: ok | offline | wordless | refuse | drop | noise | silent | mute | deaf. Что ушло к relay — строками JSON в файл FAKE_LOG.
+// silent — запрос принят, ответа нет; mute — после hello нет roster; deaf — соединение не открывается.
 import { appendFileSync } from "node:fs";
 
 const mode = process.env.FAKE_RELAY ?? "ok";
@@ -10,9 +11,14 @@ const note = (line) => {
 const ROSTER = JSON.stringify({ type: "roster", machines: [], sessions: [], clients: [], workers: [] });
 
 class FakeWebSocket {
+  #open = false;
   constructor(url) {
     note(JSON.stringify({ url }));
-    setTimeout(() => this.onopen?.({}), 0);
+    if (mode === "deaf") return;
+    setTimeout(() => {
+      this.#open = true;
+      this.onopen?.({});
+    }, 0);
   }
   /** Сначала порядок кадров, как их шлёт настоящий relay: по одному за оборот. */
   #say(...frames) {
@@ -22,11 +28,14 @@ class FakeWebSocket {
     setTimeout(() => this.onclose?.({ code, reason }), 0);
   }
   send(text) {
+    // Как настоящий сокет: до открытия слать нельзя.
+    if (!this.#open) throw new Error("InvalidStateError: сокет ещё не открыт");
     note(text);
     const f = JSON.parse(text);
     const reply = (x) => JSON.stringify({ type: "reply", id: f.id, ...x });
     if (f.type === "hello") {
       if (mode === "refuse") return this.#lost(1008, "bad_key");
+      if (mode === "mute") return;
       if (mode === "noise") return this.#say("pong", new ArrayBuffer(1), "{не JSON", ROSTER, ROSTER);
       this.#say(ROSTER);
     } else if (f.type === "session.prompt") {

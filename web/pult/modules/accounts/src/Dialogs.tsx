@@ -1,148 +1,152 @@
-// Диалоги аккаунтов: новый аккаунт, сессии слота, удаление.
-import { nameOf } from "@switchboard/protocol";
+// Окна действий над аккаунтом и слотом. Шаги удаления выполняет машина: один запрос.
 import { useState } from "react";
-import { Btn, Check, H4, In, Note, Opts, OptsLabel, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
-import { NoteLine } from "./parts.tsx";
-import { useScreen } from "./screen.tsx";
-import { slotsWith, type Slot, useAccounts } from "./store.ts";
+import { Btn, Check, H4, Note, okOf, Opts, OptsLabel, Outcome, plainSession, Row, Sec, Sel, useApp } from "@switchboard/web-ui";
+import type { Shared } from "./AccountsColumn.tsx";
+import { refusal, useAccounts } from "./state.ts";
 
-const NAME = /^[A-Za-z0-9_-]+$/;
-const HOST_PICKS = "следующего по порядку — выберет Host";
+const NEXT = "следующего по порядку — выберет Host";
 
-export function NewAccountDialog({ first }: { first: string }) {
+type Props = Pick<Shared, "answers" | "say"> & { machine: string; close(): void };
+
+export function RemoveDialog({ answers, machine, name, say, close }: Props & { name: string }) {
   const app = useApp();
-  const store = useAccounts();
-  const screen = useScreen();
-  const [machine, setMachine] = useState(first);
-  const [name, setName] = useState("");
-  const [error, setError] = useState("");
-  const machines = app.use(() => store.machines("machine.login"));
-  function enter() {
-    if (!NAME.test(name)) return setError("имя — латиница, цифры, - и _");
-    screen.setDialog(null);
-    void store.login(machine, name);
-  }
-  return (
-    <Sec dlg>
-      <H4>Новый аккаунт</H4>
-      <Row label="Машина">
-        <Opts>
-          {machines.map((m) => (
-            <Btn key={m} aria-pressed={machine === m ? "true" : "false"} onClick={() => setMachine(m)}>
-              {m}
-            </Btn>
-          ))}
-        </Opts>
-      </Row>
-      <Row label="Имя на машине">
-        <In mono data-f="account" placeholder="corp" value={name} onInput={(e) => setName(e.currentTarget.value)} />
-      </Row>
-      {error ? <Note tone="bad">{error}</Note> : null}
-      <Opts>
-        <Btn onClick={() => screen.setDialog(null)}>Отмена</Btn>
-        <Btn pri onClick={enter}>
-          Войти
-        </Btn>
-      </Opts>
-    </Sec>
-  );
-}
-
-export function SessionsDialog({ m, name, slot, targets }: { m: string; name: string; slot: Slot; targets: string[] }) {
-  const screen = useScreen();
-  const reserve = slot.order.filter((x) => x !== slot.account);
+  const state = useAccounts();
   const [next, setNext] = useState("");
-  const [chosen, setChosen] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string[]>([]);
-  const account = reserve.includes(next) ? next : "";
-  const target = chosen ?? targets[0] ?? "";
-  return (
-    <Sec dlg data-dlg="sess">
-      <H4>{`Сессии слота ${name} на ${m} · сейчас ${slot.account ?? "—"}`}</H4>
-      <b>Сменить аккаунт всему слоту</b>
-      <Opts>
-        <Sel data-f="swap" value={account} onChange={(e) => setNext(e.currentTarget.value)}>
-          <option value="">{HOST_PICKS}</option>
-          {reserve.map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-        </Sel>
-        <Btn pri onClick={() => screen.swap(m, name, account)}>
-          Сменить сейчас
-        </Btn>
-      </Opts>
-      <NoteLine k={`swap:${m}:${name}`} />
-      <b>Перевести выбранные в другой слот</b>
-      <Opts>
-        {slot.sessions.map((c) => (
-          <OptsLabel key={c}>
-            <Check
-              value={c}
-              checked={selected.includes(c)}
-              onChange={(e) => {
-                const on = e.currentTarget.checked;
-                setSelected((old) => (on ? [...old, c] : old.filter((x) => x !== c)));
-              }}
-            />
-            {c}
-          </OptsLabel>
-        ))}
-        <Sel data-f="target" value={target} onChange={(e) => setChosen(e.currentTarget.value)}>
-          {targets.map((x) => (
-            <option key={x} value={x}>
-              {x}
-            </option>
-          ))}
-          <option value="">без слота — вход машины</option>
-        </Sel>
-        <Btn onClick={() => screen.moveSessions(m, slot.sessions.filter((c) => selected.includes(c)), target)}>Перевести</Btn>
-      </Opts>
-      <NoteLine k={`move:${m}`} />
-      <Opts>
-        <Btn onClick={() => screen.setDialog(null)}>Закрыть</Btn>
-      </Opts>
-    </Sec>
-  );
-}
+  const slots = Object.entries(okOf(answers[machine])?.slots ?? {}).filter(([, s]) => s.account === name);
+  const names = slots.flatMap(([, s]) => s.sessions.map((c) => plainSession(c).text));
+  const many = slots.length > 1;
+  const list = slots.map(([n]) => n).join(", ");
+  const others = [...new Set(slots.flatMap(([, s]) => s.order))].filter((n) => n !== name);
+  const key = `rm:${machine}:${name}`;
 
-export function RemoveDialog({ m, account, slots }: { m: string; account: string; slots: Record<string, Slot> }) {
-  const screen = useScreen();
-  const [picked, setPicked] = useState("");
-  const inSlots = slotsWith(slots, account);
-  const many = inSlots.length > 1;
-  const reserve = [...new Set(inSlots.flatMap((name) => slots[name].order.filter((x) => x !== account)))];
-  const sessions = inSlots.flatMap((name) => slots[name].sessions.map(nameOf));
-  const next = reserve.includes(picked) ? picked : "";
+  async function remove() {
+    say(key, "Удаляю…");
+    const r = await app.request("machine.account_remove", { machine, account: name, ...(next ? { next } : {}) });
+    if (!r.ok) return say(key, refusal(r, machine), "bad");
+    close();
+    say(key, `${name} удалён с ${machine}`, "ok");
+    void state.answers.reload(machine);
+  }
+
   return (
     <Sec dlg data-dlg="rm">
-      <H4>{`Удалить ${account} с ${m}`}</H4>
-      {inSlots.length ? (
+      <H4>{`Удалить ${name} с ${machine}`}</H4>
+      {slots.length ? (
         <>
           <div>
-            <b>{`${account} сейчас ${many ? "в слотах" : "в слоте"} ${inSlots.join(", ")}`}</b>
-            <Note>{`Сначала ${many ? "каждый слот сменит" : "слот сменит"} аккаунт — ${sessions.join(", ") || "сессии слота"} продолжат на новом, — потом ${account} уйдёт из порядка слотов и удалится.`}</Note>
+            <b>{`${name} сейчас ${many ? "в слотах" : "в слоте"} ${list}`}</b>
+            <Note>{`Сначала ${many ? "каждый слот" : "слот"} сменит аккаунт — ${names.length ? names.join(", ") : "сессии слота"} продолжат на новом, — потом ${name} уйдёт из порядка слотов и удалится.`}</Note>
           </div>
-          <Row label={`Кого положить в ${many ? "слоты" : `слот ${inSlots[0]}`}`}>
-            <Sel data-f="next" value={next} onChange={(e) => setPicked(e.currentTarget.value)}>
-              <option value="">{HOST_PICKS}</option>
-              {reserve.map((x) => (
-                <option key={x} value={x}>
-                  {x}
+          <Row label={many ? "Кого положить в слоты" : `Кого положить в слот ${list}`}>
+            <Sel data-f="next" value={next} onChange={(e) => setNext(e.currentTarget.value)}>
+              <option value="">{NEXT}</option>
+              {others.map((n) => (
+                <option key={n} value={n}>
+                  {n}
                 </option>
               ))}
             </Sel>
           </Row>
         </>
       ) : null}
-      <Note>{`Стирается только папка ${account} на ${m}. Вход машины и другие аккаунты не трогаются.`}</Note>
+      <Note>{`Стирается только папка ${name} на ${machine}. Вход машины и другие аккаунты не трогаются.`}</Note>
       <Opts>
-        <Btn onClick={() => screen.setDialog(null)}>Отмена</Btn>
-        <Btn bad onClick={() => screen.remove(m, account, next)}>
-          {inSlots.length ? "Сменить и удалить" : "Удалить"}
+        <Btn onClick={close}>Отмена</Btn>
+        <Btn bad onClick={() => void remove()}>
+          {slots.length ? "Сменить и удалить" : "Удалить"}
         </Btn>
       </Opts>
     </Sec>
   );
+}
+
+export function SessionsDialog({ answers, machine, slot, notes, say, close }: Props & Pick<Shared, "notes"> & { slot: string }) {
+  const app = useApp();
+  const state = useAccounts();
+  const [swapTo, setSwapTo] = useState("");
+  const [target, setTarget] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<string[]>([]);
+  const all = okOf(answers[machine])?.slots ?? {};
+  const info = all[slot];
+  if (!info) return null;
+  const others = Object.keys(all).filter((n) => n !== slot);
+  const to = target ?? others[0] ?? "";
+  const swapKey = `swap:${machine}:${slot}`;
+  const moveKey = `move:${machine}:${slot}`;
+
+  async function move() {
+    if (!chosen.length) return;
+    const lines: string[] = [];
+    for (const callsign of chosen) {
+      const r = await app.request<{ restart: boolean }>("session.slot", { callsign, slot: to || null });
+      lines.push(`${callsign}: ${r.ok ? (r.result.restart ? "перейдёт между ходами" : "перешла") : refusal(r, machine)}`);
+    }
+    say(moveKey, lines.join(" · "));
+    void state.answers.reload(machine);
+  }
+
+  return (
+    <Sec dlg data-dlg="sess">
+      <H4>{`Сессии слота ${slot} на ${machine} · сейчас ${info.account ?? "никого"}`}</H4>
+      <b>Сменить аккаунт всему слоту</b>
+      <Opts>
+        <SwapChoice field="swap" order={info.order} account={info.account} value={swapTo} on={setSwapTo} />
+        <Btn pri onClick={() => void swapSlot(app, state, machine, slot, info.account, swapTo, say)}>
+          Сменить сейчас
+        </Btn>
+      </Opts>
+      <Outcome note={notes[swapKey]} data-note={swapKey} />
+      <b>Перевести выбранные в другой слот</b>
+      <Opts>
+        {info.sessions.map((c) => (
+          <OptsLabel key={c}>
+            <Check value={c} checked={chosen.includes(c)} onChange={(e) => setChosen(e.currentTarget.checked ? [...chosen, c] : chosen.filter((x) => x !== c))} />
+            {c}
+          </OptsLabel>
+        ))}
+        <Sel data-f="target" value={to} onChange={(e) => setTarget(e.currentTarget.value)}>
+          {others.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+          <option value="">без слота — вход машины</option>
+        </Sel>
+        <Btn onClick={() => void move()}>
+          Перевести
+        </Btn>
+      </Opts>
+      <Outcome note={notes[moveKey]} data-note={moveKey} />
+      <Opts>
+        <Btn onClick={close}>Закрыть</Btn>
+      </Opts>
+    </Sec>
+  );
+}
+
+/** Кого положить в слот: следующего выберет Host или из порядка. */
+export function SwapChoice({ field, order, account, value, on }: { field: string; order: string[]; account: string | null; value: string; on(v: string): void }) {
+  return (
+    <Sel data-f={field} value={value} onChange={(e) => on(e.currentTarget.value)}>
+      <option value="">{NEXT}</option>
+      {order
+        .filter((n) => n !== account)
+        .map((n) => (
+          <option key={n} value={n}>
+            {n}
+          </option>
+        ))}
+    </Sel>
+  );
+}
+
+/** «Сменить сейчас»: итог известен из ответа, перечитывать незачем. */
+export async function swapSlot(app: ReturnType<typeof useApp>, state: ReturnType<typeof useAccounts>, machine: string, slot: string, from: string | null, account: string, say: Shared["say"]) {
+  const key = `swap:${machine}:${slot}`;
+  say(key, "Меняю…");
+  const r = await app.request<{ from: string | null; to: string }>("slot.swap", { machine, slot, ...(account ? { account } : {}) });
+  if (!r.ok) return say(key, refusal(r, machine), "bad");
+  say(key, `${r.result.from ?? from} → ${r.result.to}`, "ok");
+  const was = okOf(state.answers.get()[machine]);
+  if (was) state.answers.put(machine, { ...was, slots: { ...was.slots, [slot]: { ...was.slots[slot], account: r.result.to } } });
 }
