@@ -2539,3 +2539,47 @@ func TestEtOutputTailOnExit(t *testing.T) {
 		t.Fatal("хвост вывода пропал")
 	}
 }
+
+// Host запускает держатель с --cwd папкой сессии (host/core holders.ts): рабочая папка процесса — она (чьё: код; контракт команды hold снаружи).
+func TestEtHoldCwd(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	cmd := exec.Command(self, "hold", "--id", "s", "--owner", "host", "--cwd", dir, "--", self, "app", "env")
+	cmd.Env = append(os.Environ(), "SWITCHBOARD_HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	waitFor(t, "файл держателя", func() bool { return len(heldFiles(home)) == 1 })
+	c, _, err := attachHeld(heldFiles(home)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.closeInput()
+	var out strings.Builder
+	c.read(func(b []byte) { out.Write(b) })
+	want, _ := os.Stat(dir)
+	i := strings.Index(out.String(), "CWD=")
+	if i < 0 {
+		t.Fatalf("вывод %q", out.String())
+	}
+	got, _ := os.Stat(strings.TrimSpace(strings.SplitN(out.String()[i+4:], "\n", 2)[0]))
+	if got == nil || !os.SameFile(got, want) {
+		t.Fatalf("рабочая папка: вывод %q, а надо %s", out.String(), dir)
+	}
+}
+
+// Часть с первого плана выключена: stopped, процесса нет; включение запускает её (чьё: код; «выпуски» шлют on:false из плана машины).
+func TestEtOffFromStart(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), map[string]any{"on": false})))
+	k := s.start()
+	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+	if journalHas(s.home, `"ev":"part_start"`) {
+		t.Fatal("выключенная часть запущена")
+	}
+	s.relay.push(planMsg(2, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+}
