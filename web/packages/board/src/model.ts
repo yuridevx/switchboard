@@ -57,7 +57,7 @@ export function fits(f: Filter, s: SessionRecord, t: { mine: boolean; owner: str
 
 /** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */
 export function byUrgency(list: SessionRecord[]): SessionRecord[] {
-  const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" ? 1 : 2);
+  const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
   return [...list].sort((a, b) => rank(a) - rank(b) || (a.callsign < b.callsign ? -1 : 1));
 }
 

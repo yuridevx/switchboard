@@ -186,6 +186,7 @@ export function OpenScreen({ params }: ScreenProps) {
             <span>{`▸ ${d}`}</span>
           </RowBtn>
         ))}
+        {!dirs.stale && dirs.data && !dirs.data.dirs.length ? <span className="op-none">пусто</span> : null}
       </div>
     </div>
   );

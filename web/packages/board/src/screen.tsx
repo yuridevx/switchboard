@@ -3,7 +3,7 @@ import { flushSync } from "react-dom";
 import { useLayoutEffect, useReducer, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { Btn, Chip, Choices, IconBtn, RowBtn, useApp, useModule } from "@switchboard/web-ui";
 import { FilterEditor } from "./editor.tsx";
-import { press, sorter } from "./gesture.ts";
+import { glide, press, sorter } from "./gesture.ts";
 import { List } from "./list.tsx";
 import { VIEW_GROUPS, type Filter } from "./model.ts";
 import type { BoardState, Chip as ChipModel } from "./state.ts";
@@ -119,8 +119,10 @@ function Chips({ chips, selected, view, rerender, openEditor, panel, togglePanel
     if (to < 0 || to >= ids.length) return;
     const order = ids.filter((x) => x !== id);
     order.splice(to, 0, id);
-    b.setRow(order);
-    rerender();
+    glide(box.current!, ":scope > .fc", "fc-glide", () => {
+      b.setRow(order);
+      rerender();
+    });
     box.current!.querySelector<HTMLElement>(`[data-fid="${CSS.escape(id)}"]`)?.focus();
   }
 

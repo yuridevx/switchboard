@@ -35,14 +35,22 @@ export const short = (v: string) => (v.includes("+") ? `+${v.split("+")[1]}` : v
 /** Предыдущая сборка: на неё «Вернуть». */
 export const before = (p: Part | undefined) => (p ? p.versions[p.versions.indexOf(p.stable) - 1] : undefined);
 
-/** Ячейка матрицы: что написать и какой класс. */
-export function cellOf(o: { part?: KPart; entry?: PlanEntry; stable?: string; online: boolean }): { text: string; cls: string; title?: string } {
-  const { part, entry, stable, online } = o;
-  if (entry?.on === false) return { text: "выключена", cls: "off" };
-  const version = part?.version;
-  if (!online || !part) return { text: version ?? entry?.pin ?? stable ?? "—", cls: "gone" };
-  if (part.state === "failed") return { text: `${version} · сбой`, cls: "fail", title: part.error };
-  if (entry?.pin) return { text: `📌 ${version}`, cls: "ok" };
-  if (stable && version !== stable) return { text: `${version} → ${stable}`, cls: "behind" };
-  return { text: version ?? "—", cls: "ok" };
+/** Что идёт на машине: версию keeper'а называет он сам. */
+export const runningOf = (answer: KState | undefined, part: string): KPart | undefined => (part === "keeper" && answer?.keeper ? { part, version: answer.keeper, state: "running" } : answer?.parts.find((p) => p.part === part));
+
+export type Cell = { text: string; cls: string; title?: string };
+
+/** Ячейка матрицы: что написать и какой класс; части на машине нет и в плане её нет — пусто. */
+export function cellOf(o: { answer?: KState; part: string; entry?: PlanEntry; stable?: string; online: boolean }): Cell | null {
+  const { answer, part, entry, online } = o;
+  const pin = entry?.pin;
+  const want = pin ?? o.stable;
+  const running = runningOf(answer, part);
+  const mark = (text: string) => (pin ? `📌 ${text}` : text);
+  if (!online || !answer) return running || entry || want ? { text: mark(running?.version ?? want ?? "—"), cls: "gone" } : null;
+  if (!running && !entry) return null;
+  if (entry?.on === false) return { text: mark("выключена"), cls: "off" };
+  if (running?.state === "failed") return { text: mark(`${running.version ?? "?"} · сбой`), cls: "fail", title: running.error };
+  if (running?.version && want && running.version !== want) return { text: mark(`${running.version} → ${want}`), cls: running.state === "starting" || running.state === "updating" ? "upd" : "behind" };
+  return { text: mark(running?.version ?? want ?? "—"), cls: "ok" };
 }

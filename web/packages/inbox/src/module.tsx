@@ -8,6 +8,8 @@ import { InboxScreen } from "./screen.tsx";
 
 export type Card = { kind: "q" | "msg" | "fail" | "wait" | "done" | "away" | "fire"; callsign?: string; machine?: string; name: string; dot: string; label: string; text: string };
 
+const WORKING = ["busy", "starting"];
+
 export type InboxState = ReturnType<typeof createInboxState>;
 
 function createInboxState(app: App) {
@@ -25,8 +27,8 @@ function createInboxState(app: App) {
     const online = new Set(r.machines.map((m) => m.machine));
     s.set((d) => {
       for (const x of r.sessions) {
-        if (x.state === "busy") d.done = d.done.filter((c) => c !== x.callsign);
-        if (x.state === "idle" && was.get(x.callsign) === "busy" && viewing() !== x.callsign && mine(x.callsign) && !d.done.includes(x.callsign)) d.done.push(x.callsign);
+        if (WORKING.includes(String(x.state))) d.done = d.done.filter((c) => c !== x.callsign);
+        if (x.state === "idle" && WORKING.includes(String(was.get(x.callsign))) && viewing() !== x.callsign && mine(x.callsign) && !d.done.includes(x.callsign)) d.done.push(x.callsign);
       }
       // сессии машины на связи — из roster; ушедшей — как были
       d.known = [...d.known.filter((c) => !online.has(machineOf(c) ?? "")), ...r.sessions.filter((x) => mine(x.callsign)).map((x) => x.callsign)].filter((c, i, all) => all.indexOf(c) === i);

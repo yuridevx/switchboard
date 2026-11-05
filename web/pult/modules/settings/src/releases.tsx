@@ -145,12 +145,12 @@ function Plan({ machine, list, close, setPlan }: { machine: string; list?: Relea
         const part = answer?.parts.find((p) => p.part === name);
         const entry = plan[name];
         const cat = list?.parts[name];
-        const cell = cellOf({ part, entry, stable: cat?.stable, online: online && !!answer });
+        const cell = cellOf({ answer, part: name, entry, stable: cat?.stable, online });
         return (
           <div key={name} className="st-part" data-part={name}>
             <PageHead>
               <b className="st-grow">{name}</b>
-              <span className={`st-cell ${cell.cls}`}>{cell.text}</span>
+              {cell ? <span className={`st-cell ${cell.cls}`}>{cell.text}</span> : null}
             </PageHead>
             {part?.error ? <Note tone="bad">{part.error}</Note> : null}
             {cat ? (
@@ -211,9 +211,9 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const answers = app.use(() => st.keeper.get());
   const online = app.use(() => machinesWith(app));
   const deploying = app.use(() => st.get().deploying);
-  const [view, setView] = useState<"machines" | "catalog">("machines");
+  const { view, marked } = app.use(() => st.get());
+  const { setView, setMarked } = st;
   const [picked, setPicked] = useState(machine ?? "");
-  const [marked, setMarked] = useState<string[]>([]);
   const [rq, setRq] = useState("");
   useEffect(() => st.keeper.mount(), [st]);
 
@@ -322,8 +322,8 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                     {rows.map((m) => {
                       const answer = okOf(answers[m]);
                       const on = online.includes(m);
-                      const cells = parts.map((p) => cellOf({ part: answer?.parts.find((x) => x.part === p), entry: planOf(m)[p], stable: list?.parts[p]?.stable, online: on }));
-                      const dot = !on ? "stop" : wordOf(answers[m]) || cells.some((c) => c.cls === "fail" || c.cls === "behind") ? "wait" : "idle";
+                      const cells = parts.map((p) => cellOf({ answer, part: p, entry: planOf(m)[p], stable: list?.parts[p]?.stable, online: on }));
+                      const dot = !on ? "stop" : wordOf(answers[m]) || cells.some((c) => c && ["fail", "behind", "upd"].includes(c.cls)) ? "wait" : "idle";
                       return (
                         <tr key={m} data-machine={m} aria-current={picked === m ? "true" : undefined}>
                           <td>
@@ -339,9 +339,11 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                           </td>
                           {parts.map((p, i) => (
                             <td key={p} data-part={p}>
-                              <span className={`st-cell ${cells[i].cls}`} title={cells[i].title}>
-                                {cells[i].text}
-                              </span>
+                              {cells[i] ? (
+                                <span className={`st-cell ${cells[i]!.cls}`} title={cells[i]!.title}>
+                                  {cells[i]!.text}
+                                </span>
+                              ) : null}
                             </td>
                           ))}
                           <td>

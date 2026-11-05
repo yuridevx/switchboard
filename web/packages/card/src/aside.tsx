@@ -1,7 +1,7 @@
 // Сведения сбоку: чья сессия, дерево и серверы MCP живого процесса.
 import { useState } from "react";
 import type { SessionRecord } from "@switchboard/relay";
-import { Btn, isLive, LinkBtn, Note, profileNameOf, useApp, useLoad } from "@switchboard/web-ui";
+import { Btn, isLive, LinkBtn, Note, profileNameOf, remoteOf, useApp, useLoad } from "@switchboard/web-ui";
 
 const WORDS: Record<string, string> = { connected: "подключён", pending: "подключается", disabled: "выключен", "needs-auth": "нужен вход", failed: "ошибка" };
 type Server = { name: string; status: string };
@@ -121,6 +121,13 @@ export function Aside({ callsign, session }: { callsign: string; session?: Sessi
               </div>
             </div>
           ))}
+        </div>
+      ) : null}
+      {remoteOf(session) ? (
+        <div className="cw-mcp-a">
+          <a className="cw-mi flat" href={remoteOf(session)} target="_blank" rel="noopener">
+            Открыть в claude.ai ↗
+          </a>
         </div>
       ) : null}
     </aside>

@@ -129,7 +129,7 @@ export function MachinesScreen() {
                     })}
                   </div> : null}
                   {left !== undefined ? null : <Opts>
-                    <Btn onClick={() => app.open("accounts", { machine: m })}>Аккаунты машины</Btn>
+                    {app.can(m, "machine.login") ? <Btn onClick={() => app.open("accounts", { machine: m })}>Аккаунты машины</Btn> : null}
                     {app.wide ? <Btn onClick={() => app.open("settings", { tab: "releases", machine: m })}>План в «Выпусках»</Btn> : null}
                   </Opts>}
                 </div>

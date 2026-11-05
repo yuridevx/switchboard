@@ -6,6 +6,7 @@ const SLOP = 5;
 const HOLD_MS = 300;
 const EDGE = 40;
 const EDGE_SPEED = 12;
+const GLIDE_MS = 240;
 
 export type Lifted = { move(x: number, y: number): void; drop(): void; cancel(): void };
 type Scroller = { el: HTMLElement; axis: "x" | "y" };
@@ -24,6 +25,8 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: { hold: boolean; scr
   let frame = 0;
 
   const noScroll = (ev: Event) => ev.preventDefault();
+  // удержание пальцем — это жест, а не меню браузера
+  const noMenu = (ev: Event) => ev.preventDefault();
   const noClick = (ev: Event) => {
     ev.preventDefault();
     ev.stopPropagation();
@@ -53,6 +56,7 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: { hold: boolean; scr
     cancelAnimationFrame(frame);
     for (const [type, fn] of Object.entries(listeners)) window.removeEventListener(type, fn);
     document.removeEventListener("touchmove", noScroll);
+    window.removeEventListener("contextmenu", noMenu);
     if (!lifted) return;
     act(lifted);
     window.addEventListener("click", noClick, { capture: true, once: true });
@@ -78,7 +82,29 @@ export function press(e: ReactPointerEvent<HTMLElement>, o: { hold: boolean; scr
     if (ev.key === "Escape") finish((l) => l.cancel());
   }
   const timer = byHold ? setTimeout(lift, HOLD_MS) : undefined;
+  if (byHold) window.addEventListener("contextmenu", noMenu);
   for (const [type, fn] of Object.entries(listeners)) window.addEventListener(type, fn);
+}
+
+/** Перестановка с клавиатуры: порядок меняется сразу, элементы доезжают от прежних мест; cls на ряду или на элементе включает переход. */
+export function glide(box: HTMLElement, items: string, cls: string, change: () => void) {
+  const list = () => [...box.querySelectorAll<HTMLElement>(items)];
+  const was = new Map(list().map((el) => [el, el.getBoundingClientRect()]));
+  change();
+  for (const el of list()) {
+    const r = was.get(el)?.valueOf() as DOMRect | undefined;
+    const now = el.getBoundingClientRect();
+    if (!r || (r.left === now.left && r.top === now.top)) continue;
+    el.style.transform = `translate(${r.left - now.left}px, ${r.top - now.top}px)`;
+  }
+  requestAnimationFrame(() => {
+    const on = cls === "dnd-on" ? [box] : list();
+    for (const el of on) el.classList.add(cls);
+    for (const el of list()) el.style.transform = "";
+    setTimeout(() => {
+      for (const el of on) el.classList.remove(cls);
+    }, GLIDE_MS);
+  });
 }
 
 /** Копия для жеста: без имён, по которым её нашли бы вместо настоящего, и вне фокуса. */

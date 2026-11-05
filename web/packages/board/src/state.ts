@@ -217,7 +217,8 @@ export function createBoardState(app: App) {
     placeOf(id: string): Record<string, string> {
       const top = find(sectionsOf().find((x) => x.id === id)?.callsigns[0] ?? "");
       const machine = top ? machineOf(top.callsign) : null;
-      return { ...(machine ? { machine, dir: String(top!.dir ?? "~") } : {}), ...(id === NONE ? {} : { project: id }) };
+      const able = machine && app.can(machine, "session.open");
+      return { ...(able ? { machine, dir: String(top!.dir ?? "~") } : {}), ...(id === NONE ? {} : { project: id }) };
     },
     /** прокрутка списка: возврат к нему на том же месте */
     scroll: { top: 0 },

@@ -110,8 +110,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
           <Outcome className="cw-note" note={notes.slot} />
         </div>
       ) : null}
-      {session ? (
-        <div className="cw-fs" data-sec="ctl">
+      <div className="cw-fs" data-sec="ctl">
           <span className="lb">Сессия</span>
           <div className="cw-opts flat">
             {live && can("session.stop") ? <Btn onClick={() => void ctl("session.stop")}>Остановить</Btn> : null}
@@ -120,7 +119,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
                 Запустить
               </Btn>
             ) : null}
-            {can("session.remove") && !confirm ? (
+            {session && can("session.remove") && !confirm ? (
               <Btn bad onClick={() => setConfirm(true)}>
                 Убрать…
               </Btn>
@@ -138,8 +137,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
             </div>
           ) : null}
           <Outcome className="cw-note" note={notes.ctl} />
-        </div>
-      ) : null}
+      </div>
     </div>
   );
 }

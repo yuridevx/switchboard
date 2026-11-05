@@ -31,7 +31,7 @@ export function createCard(app: App): AppModule {
           return s ? { ...head, sub: `${at} · папка ${folderOf(s.dir)}`, dot: stateLabel(s.state).dot } : { ...head, sub: `${at} не на связи` };
         },
       },
-      "card.view": { label: "Шапка", view: HeadUnits },
+      "card.view": { label: "Шапка", path: "card-view", view: HeadUnits },
     },
     commands: { "card.head.reset": { run: () => card.setHead({ haddr: false, howner: true, hprof: true, hmodel: true }) } },
     store: ["card.info", "card.head"],

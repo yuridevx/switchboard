@@ -1,8 +1,8 @@
 // Список: проекты, строки и правка проекта на месте. Жест начинается здесь: что поднять и что записать при броске.
-import { useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { NONE } from "@switchboard/records";
 import { Badge, Btn, DisclosureBtn, Dot, IconBtn, In, RowBtn, TextBtn, useApp, useModule } from "@switchboard/web-ui";
-import { press, rowDrag, sorter } from "./gesture.ts";
+import { glide, press, rowDrag, sorter } from "./gesture.ts";
 import type { BoardState, RowModel, SectionModel } from "./state.ts";
 
 const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
@@ -80,6 +80,11 @@ export function List({ m, current, rerender }: { m: Model; current: string | nul
   const [menu, setMenu] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const { view } = m;
+  const box = useRef<HTMLDivElement>(null);
+  // открытая строка всегда видна
+  useEffect(() => {
+    if (current) box.current?.querySelector(`.bd-row[data-callsign="${CSS.escape(current)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [current]);
 
   const openRow = (callsign: string) => app.open(!app.wide && app.mark("asked", callsign) ? "ask" : "card", { callsign });
 
@@ -169,17 +174,19 @@ export function List({ m, current, rerender }: { m: Model; current: string | nul
     const order = m.order.filter((x) => x !== NONE);
     const i = order.indexOf(id);
     if (e.key === "ArrowUp" ? i === 0 : i === order.length - 1) return;
-    b.moveProject(id, e.key === "ArrowUp" ? order[i - 1] : (order[i + 2] ?? null));
-    const box = closest(e.currentTarget, ".lst");
-    rerender();
-    box.querySelector<HTMLElement>(`.grip[data-proj="${CSS.escape(id)}"]`)?.focus();
+    const list = closest(e.currentTarget, ".lst");
+    glide(list, ":scope > .pjs", "dnd-on", () => {
+      b.moveProject(id, e.key === "ArrowUp" ? order[i - 1] : (order[i + 2] ?? null));
+      rerender();
+    });
+    list.querySelector<HTMLElement>(`.grip[data-proj="${CSS.escape(id)}"]`)?.focus();
   }
 
   const rowsOf = (s: SectionModel, rows: RowModel[]) => rows.map((r) => <Row key={r.callsign} row={r} current={current === r.callsign} onDown={(e) => downRow(e, r, s)} onOpen={openRow} />);
 
   if (!view.projects) {
     return (
-      <div className="lst flat">
+      <div ref={box} className="lst flat">
         {m.flat.map((r) => (
           <Row key={r.callsign} row={r} current={current === r.callsign} onOpen={openRow} />
         ))}
@@ -187,9 +194,9 @@ export function List({ m, current, rerender }: { m: Model; current: string | nul
       </div>
     );
   }
-  if (!m.drawn) return <div className="lst" />;
+  if (!m.drawn) return <div ref={box} className="lst" />;
   return (
-    <div className="lst">
+    <div ref={box} className="lst">
       {m.sections.map((s) => (
         <section key={s.id} className="pjs" data-proj={s.id}>
           <div className="pj">
