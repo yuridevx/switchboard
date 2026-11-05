@@ -1,27 +1,12 @@
-// Отказ словом контракта модуля — не ошибка модуля.
-// Ядро узнаёт отказ по метке, а не по классу: модуль из папки нового выпуска берёт свою копию этого файла.
-
-/** Метка отказа: одна на процесс для всех копий пакета. */
+// Снесено: новый код — следующим коммитом.
 export const REFUSAL = Symbol.for("switchboard.refusal");
-
-/** Отказ словом контракта модуля: ядро шлёт reply ok:false с этим словом и пишет refuse в журнал. Не ошибка модуля. */
 export class Refusal extends Error {
-  readonly word: string;
+  readonly word = "снесено";
   readonly why?: string;
-  readonly [REFUSAL] = true;
-  constructor(word: string, why?: string) {
-    super(why ? `${word}: ${why}` : word);
-    this.word = word;
-    this.why = why;
-  }
 }
-
-/** Бросить отказ словом: throw refuse("already_answered"). */
-export function refuse(word: string, why?: string): Refusal {
-  return new Refusal(word, why);
+export function refuse(_word: string, _why?: string): Refusal {
+  throw new Error("снесено");
 }
-
-/** Отказ ли это — по метке, из любой копии пакета. */
-export function isRefusal(e: unknown): e is { word: string; why?: string } {
-  return !!e && typeof e === "object" && (e as Record<symbol, unknown>)[REFUSAL] === true && typeof (e as { word?: unknown }).word === "string";
+export function isRefusal(_e: unknown): _e is { word: string; why?: string } {
+  throw new Error("снесено");
 }
