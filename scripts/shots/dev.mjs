@@ -132,9 +132,10 @@ const servers = Object.keys(PAGES).map((fleet, i) => serve(fleet, PORT + i));
 
 async function stop() {
   watcher.close();
+  for (const set of streams.values()) for (const res of set) res.end();
   for (const s of servers) {
     s.close();
-    s.closeAllConnections();
+    s.closeIdleConnections();
   }
   await build.dispose();
   process.exit(0);
