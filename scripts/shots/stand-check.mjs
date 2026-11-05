@@ -207,6 +207,7 @@ try {
     const q = await c2.newPage();
     await q.goto(PROD);
     await q.waitForSelector(".sb-keyin", { timeout: FLEET_MS });
+    check("прод без пропуска просит приглашение", true);
     await q.keyboard.press("c");
     await q.click("h1, h2, p");
     await q.keyboard.type("Про прод");

@@ -63,7 +63,21 @@ describe("прогон пакетов: test-packages", { timeout: CMD_MS }, () =
     expect(r.out).not.toContain("workers/");
   });
 
-  it("предел: FAIL с причиной словами, и прогон не ждёт потомка, который держит вывод (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
+  it("пакет не уложился в предел — FAIL с причиной словами: слово пользователя 2 нояб., у всех операций предел", () => {
+    const dir = repo({ "workers/slow": `node -e "setTimeout(()=>{},4000)"` });
+    const f = join(temp("packages-pre"), "pre.mjs");
+    write(f, `import cp from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+const orig = cp.spawn;
+cp.spawn = (cmd, args, o = {}) => orig(cmd, args, { ...o, timeout: o.timeout ? 1000 : undefined });
+syncBuiltinESMExports();
+`);
+    const r = run(dir, [], pathToFileURL(f).href);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/^FAIL workers\/slow · \d+ с · не уложился в 6 мин$/m);
+  });
+
+  it("предел снимает и пакет, чей потомок держит вывод: прогон не ждёт конца потомка (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
     const dir = repo({ "workers/hung": `node -e "setTimeout(()=>{},25000)"` });
     const f = join(temp("packages-pre"), "pre.mjs");
     write(f, `import cp from "node:child_process";
@@ -157,6 +171,28 @@ syncBuiltinESMExports();
   const envFile = (o: Record<string, string>) => Object.entries(o).map(([k, v]) => `${k}=${v}`).join("\n");
   const moduleOf = (c: Call) => c.cwd.split(/[\\/]/).pop();
 
+  it("3153 · номер не того вида — отказ словами, выход 1, ничего не загружено", () => {
+    // источник: чьё: код (номер вида 1.1.58)
+    const r = deploy(["--upload", "1.1"], { token: true });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("deploy: --upload <номер вида 1.1.58>");
+    expect(r.calls).toEqual([]);
+  });
+
+  it("3154 · нет токена или аккаунта Cloudflare — отказ словами, выход 1", () => {
+    // источник: чьё: код
+    const r = deploy(["--upload", "1.1.99"], { noPreload: true });
+    expect(r.code).toBe(1);
+    expect(r.err).toContain("deploy: нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
+  });
+
+  it("3155 · wrangler не завершился за предел — убит, причина словами, выход 1: прогон CI красный", () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; 300 с — настоящая выкладка 5 нояб.: при 45 с wrangler deploy выложил prefs, но не завершился под нагрузкой, и выкладка оборвалась на полпути
+    const r = deploy(["--upload", "1.1.99"], { token: true, child: { wrangler: "setTimeout(() => {}, 60000)", hang: true } });
+    expect(r.code).toBe(1);
+    expect(r.err).toMatch(/deploy: wrangler versions upload .* — не завершился за 300 с/);
+  });
+
   it("5146 · загрузка без выкладки — только Worker-модули: веб не собирается и не загружается", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): веб больше не загружает
     const r = deploy(["--upload", "1.1.99"], { token: true, child: { build: "process.exit(1)" } });
@@ -167,31 +203,34 @@ syncBuiltinESMExports();
     expect(r.calls[0]).toMatchObject({ what: "wrangler", args: ["versions", "upload", "--tag", "1.1.99", "--message", "1.1.99"], env: { CLOUDFLARE_API_TOKEN: "t", CLOUDFLARE_ACCOUNT_ID: "a" } });
     expect(r.calls.some((c) => c.args.includes("secret"))).toBe(false);
     expect(r.out).toContain("=== workers/gate 1.1.99 ===");
-    const prod = deploy(["--upload", "1.1.99", "--env", "prod"], { token: true });
-    expect(prod.code).toBe(0);
-    expect(prod.calls[0].args).toEqual(["versions", "upload", "--env", "prod", "--tag", "1.1.99", "--message", "1.1.99"]);
-    expect(prod.out).toContain("=== workers/gate 1.1.99 prod ===");
   });
 
-  it.each([
-    ["тест", [], "", "r2-test"],
-    ["прод", ["--env", "prod"], " --env prod", "r2-prod"],
-  ])("без списка, %s: участники и gate, relay последним; база до кода, секреты после и только через stdin", (_n, flags, env, pointsSecret) => {
-    // источник: комментарий кода: relay смотрит привязками на остальных; устав: секреты через stdin, никогда через argv; секрет ссылок выпусков на проде — из общих имён (чьё: код)
-    const r = deploy(flags, { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
+  it("загрузка прода — с --env prod, строка прода в выводе", () => {
+    const r = deploy(["--upload", "1.1.99", "--env", "prod"], { token: true });
+    expect(r.code).toBe(0);
+    expect(r.calls[0].args).toEqual(["versions", "upload", "--env", "prod", "--tag", "1.1.99", "--message", "1.1.99"]);
+    expect(r.out).toContain("=== workers/gate 1.1.99 prod ===");
+  });
+
+  it("без списка — все Worker-модули: сначала участники и gate, relay последним; база до кода, секреты после и только через stdin", () => {
+    // источник: комментарий кода: relay смотрит привязками на остальных; устав: секреты через stdin, никогда через argv
+    const r = deploy([], { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
     expect(r.code).toBe(0);
     expect(r.out).toContain("deploy: ok · gate, push, points, ledger, github, prefs, releases, relay");
     expect([...new Set(r.calls.map(moduleOf))]).toEqual(["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"]);
-    const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.join(" "));
-    const base = [`d1 migrations apply DB --remote${env}`, `deploy${env}`];
-    const put = (k: string) => `secret put ${k}${env}`;
-    expect(of("gate")).toEqual(base);
-    expect(of("push")).toEqual([...base, put("VAPID_PRIVATE")]);
-    expect(of("points")).toEqual([...base, put("R2_KEY_SECRET")]);
-    expect(of("relay")).toEqual([`deploy${env}`]);
-    expect(of("releases")).toEqual([...base, put("CLOUDFLARE_API_TOKEN"), put("R2_LINK_KEY_ID"), put("R2_LINK_SECRET")]);
-    expect(r.calls.filter((c) => c.args[0] === "secret").map((c) => c.input)).toEqual(["vapid", pointsSecret, "t", "r2-id", "r2-test"]);
-    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-/);
+    const of = (m: string) => r.calls.filter((c) => moduleOf(c) === m).map((c) => c.args.slice(0, 3).join(" "));
+    expect(of("gate")).toEqual(["d1 migrations apply", "deploy"]);
+    expect(of("push")).toEqual(["d1 migrations apply", "deploy", "secret put VAPID_PRIVATE"]);
+    expect(of("points")).toEqual(["d1 migrations apply", "deploy", "secret put R2_KEY_SECRET"]);
+    expect(of("relay")).toEqual(["deploy"]);
+    expect(of("releases")).toEqual(["d1 migrations apply", "deploy", "secret put CLOUDFLARE_API_TOKEN", "secret put R2_LINK_KEY_ID", "secret put R2_LINK_SECRET"]);
+    expect(r.calls.find((c) => c.args[0] === "d1")!.args).toEqual(["d1", "migrations", "apply", "DB", "--remote"]);
+    const secret = (m: string, k: string) => r.calls.find((c) => moduleOf(c) === m && c.args[2] === k)!;
+    expect(secret("push", "VAPID_PRIVATE").input).toBe("vapid");
+    expect(secret("points", "R2_KEY_SECRET").input).toBe("r2-test");
+    expect(secret("releases", "R2_LINK_KEY_ID").input).toBe("r2-id");
+    expect(secret("releases", "CLOUDFLARE_API_TOKEN").input).toBe("t");
+    expect(JSON.stringify(r.calls.map((c) => c.args))).not.toMatch(/vapid|r2-test|r2-id/);
   });
 
   it("названные модули — в порядке выкладки; phone и pult в списке — сборка и выкладка веба; неизвестное имя пропущено", () => {
@@ -201,12 +240,9 @@ syncBuiltinESMExports();
     expect(r.out).toContain("deploy: ok · gate, relay, phone, pult");
   });
 
-  it.each([
-    ["прод: файл прода важнее тестовых, свой секрет точек; тестовая пара в прод не кладётся", ["--env", "prod"], "prod-token", "prod-acc", "r2-prod", "=== points prod ==="],
-    ["тест: файл прода не читается", [], "test-token", "test-acc", "r2-test", "=== points ==="],
-  ])("%s", (_n, flags, token, account, secret, title) => {
+  it("прод: файл прода важнее тестовых, свой секрет точек; тестовая пара в прод не кладётся", () => {
     // источник: комментарий кода: тестовая пара прав на бакет прода не имеет
-    const r = deploy(["points", "pult", ...flags], {
+    const r = deploy(["points", "pult", "--env", "prod"], {
       files: {
         "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc", PROD_R2_SECRET_ACCESS_KEY: "r2-prod" }),
         "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }),
@@ -214,9 +250,32 @@ syncBuiltinESMExports();
       },
     });
     expect(r.code).toBe(0);
-    expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", ...flags], env: { CLOUDFLARE_API_TOKEN: token, CLOUDFLARE_ACCOUNT_ID: account } });
-    expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", ...flags], input: secret });
-    expect(r.out).toContain(title);
+    expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", "--env", "prod"], env: { CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" } });
+    expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", "--env", "prod"], input: "r2-prod" });
+    expect(r.out).toContain("=== points prod ===");
+  });
+
+  it("прод, весь список: база, код и секреты с --env prod; relay последним; секрет ссылок выпусков — из общих имён, точки — свой (чьё: код)", () => {
+    const r = deploy(["--env", "prod"], { token: true, files: { "fleet-secrets.env": envFile(SECRETS) } });
+    expect(r.code).toBe(0);
+    expect([...new Set(r.calls.map(moduleOf))]).toEqual(["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"]);
+    expect(r.calls.find((c) => c.args[0] === "d1")!.args).toEqual(["d1", "migrations", "apply", "DB", "--remote", "--env", "prod"]);
+    for (const c of r.calls) expect(c.args.slice(-2)).toEqual(["--env", "prod"]);
+    const secrets = r.calls.filter((c) => c.args[0] === "secret").map((c) => [moduleOf(c), c.args[2], c.input]);
+    expect(secrets).toEqual([
+      ["push", "VAPID_PRIVATE", "vapid"],
+      ["points", "R2_KEY_SECRET", "r2-prod"],
+      ["releases", "CLOUDFLARE_API_TOKEN", "t"],
+      ["releases", "R2_LINK_KEY_ID", "r2-id"],
+      ["releases", "R2_LINK_SECRET", "r2-test"],
+    ]);
+  });
+
+  it("тестовый флот не читает файл прода (чьё: код)", () => {
+    const r = deploy(["pult"], { files: { "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" }), "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }) } });
+    expect(r.code).toBe(0);
+    expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy"], env: { CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" } });
+    expect(r.out).toContain("=== pult ===");
   });
 
   it("значение из окружения важнее файла; строка env может содержать знак равно", () => {
@@ -227,10 +286,6 @@ syncBuiltinESMExports();
   });
 
   it.each([
-    // 3155: слово пользователя 2 нояб. «у всех операций должен быть лимит»; 300 с — настоящая выкладка 5 нояб.: при 45 с wrangler deploy выложил prefs, но не завершился под нагрузкой, и выкладка оборвалась на полпути
-    ["3153 · номер не того вида", ["--upload", "1.1"], {}, /deploy: --upload <номер вида 1\.1\.58>/],
-    ["3154 · нет токена или аккаунта Cloudflare", ["--upload", "1.1.99"], { token: false, noPreload: true }, /deploy: нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID/],
-    ["3155 · wrangler не завершился за предел", ["--upload", "1.1.99"], { child: { wrangler: "setTimeout(() => {}, 60000)", hang: true } }, /deploy: wrangler versions upload .* — не завершился за 300 с/],
     ["нет секрета — отказ именем секрета", ["push"], {}, /deploy: нет секрета VAPID_PRIVATE/],
     ["опечатка в имени флота — отказ, а не выкладка на тест", ["relay", "--env", "prd"], {}, /deploy: --env — только prod/],
     ["не прошла сборка веба — отказ, выкладки нет", ["pult"], { child: { build: "process.exit(1)" } }, /deploy: сборка .*pult не прошла/],
