@@ -59,11 +59,11 @@ export type { Store } from "./src/store.ts";
 export type { Frame, Roster, RosterMachine, SessionRecord } from "@switchboard/relay";
 
 /** Запустить приложение. */
-export { startApp, keyId } from "./src/app.tsx";
+export { startApp } from "./src/start.ts";
 /** Запустить сборку страницы по build.json. */
 export { startBuild } from "./src/build.ts";
 export type { BuildOptions } from "./src/build.ts";
 /** Гейт набора модулей выпуска (зовёт startApp; отдельно — для тестов выпуска). */
-export { appGate, CORE } from "./src/gate.ts";
+export { appGate } from "./src/gate.ts";
 /** Хранилище разделов: IndexedDB (страница и обработчик пушей) и в памяти (стенд). */
 export { idbStore, memoryStore } from "./src/store.ts";

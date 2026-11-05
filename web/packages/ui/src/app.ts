@@ -41,7 +41,7 @@ export interface App {
    * Запрос к Host или Worker-модулю: app.request("answer", { callsign, question, answers }).
    * Имя — только из uses модуля (иначе ошибка модуля); v ставит ядро из uses.
    * Владелец имени — Worker-модуль из roster (push) → to: .владелец; иначе адрес — callsign или machine кадра,
-   * и ядро сверяет имя с contract машины в roster: нет — unknown_request, другая версия — contract_mismatch.
+   * имя и версию проверяет получатель: нет — unknown_request, другая версия — contract_mismatch.
    * Не бросает: отказ — { ok: false, error, why? }; why — причина владельца, если он её назвал. Связи нет — disconnected сразу.
    */
   request<T = unknown>(name: string, body?: Record<string, unknown>): Promise<Result<T>>;

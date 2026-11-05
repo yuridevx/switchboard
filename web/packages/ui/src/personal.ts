@@ -1,5 +1,4 @@
-// Настройки в модуле страницы: цикл над Worker'ом prefs из библиотеки records. Ключи — «префикс.раздел». Область: человек (по умолчанию), весь флот или это приложение.
-// Цикл один на модуль и область; остановка модуля ждёт его. Модуль объявляет prefs.get и prefs.set в uses.
+// Настройки модуля в prefs: цикл правки — у records, здесь — входы страницы и отказ словом в тосте.
 import { settings } from "@switchboard/records";
 import type { App, ConnState } from "./app.ts";
 
@@ -17,29 +16,19 @@ export type Personal = {
   stop(): Promise<void>;
 };
 
-/** Поле scope запроса: у человека его нет. */
-function scopeWord(scope: Scope, application = ""): string | undefined {
-  if (scope === "user") return undefined;
-  return scope === "global" ? "global" : `app:${application}`;
-}
+const AREA = { user: () => undefined, global: () => "global", app: (app: string | undefined) => `app:${app}` };
 
 export function personal(app: Pick<App, "application" | "read" | "request" | "toast">, prefix: string, changed: () => void, scope: Scope = "user"): Personal {
-  const cycle = settings({
-    ask: <T,>(name: string, body: Record<string, unknown>) => app.request<T>(name, body),
-    read: <T,>(name: string, body: Record<string, unknown>) => app.read<T>(name, body),
-    prefix,
-    scope: scopeWord(scope, app.application),
-    changed,
-  });
+  const s = settings({ read: app.read, ask: app.request, prefix, scope: AREA[scope](app.application), changed });
   return {
-    ready: cycle.ready,
-    get: cycle.get,
+    ready: s.ready,
+    get: s.get,
     edit(section, fn) {
-      void cycle.edit(section, fn).then((word) => {
+      void s.edit(section, fn).then((word) => {
         if (word) app.toast(`Настройка не сохранилась: ${word}`, "bad");
       });
     },
-    onLink: (state, machine) => (state === "open" && !machine ? cycle.read().then(() => {}) : undefined),
-    stop: cycle.settled,
+    onLink: (state, machine) => (state === "open" && !machine ? s.read().then(() => {}) : undefined),
+    stop: s.settled,
   };
 }

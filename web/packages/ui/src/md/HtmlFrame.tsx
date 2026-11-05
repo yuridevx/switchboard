@@ -1,81 +1,66 @@
-// HTML-документ сессии — в песочнице: чужой источник (без allow-same-origin), страницы и её ключа скрипты документа не видят.
-// CSP закрывает подгрузку и запросы со скрипта, но переход самой рамки и WebRTC платформа не закрывает: документ может уйти на чужой адрес
-// и унести в нём свои данные. Допускаем: ключа в документе нет, а сеть у сессии и так есть. Чужую страницу в карточке не оставляем:
-// рамка снимается, если загрузилось не наше (нет сигнала документа) или загрузилось второе.
+// Песочница HTML: документ без своего источника и сети; его высота; ушёл на другую страницу — просмотр снят.
 import { useEffect, useRef, useState } from "react";
 
-const CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; webrtc 'block'";
-/** Сколько ждать сигнал своего документа после загрузки: сообщение приходит следом за load. */
+const POLICY = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src data:; media-src data:; webrtc 'block'";
+const MIN_HEIGHT = 60;
+const MAX_HEIGHT = 640;
+/** Сколько ждать сигнала документа после первой загрузки. */
 const SIGNAL_MS = 500;
-/** Просмотр по высоте документа в этих пределах; дальше — прокрутка внутри и ручка размера. */
-const MIN_H = 60;
-const MAX_H = 640;
 
 /**
  * Документ с правилом CSP в начале: оно действует раньше всего, что написано в документе. Следом — сигнал «загрузился именно он»:
  * скрипт идёт первым и убирает себя, поэтому знак сигнала документу не виден и чужая страница его не подделает.
  */
-export const framed = (html: string, sign = "") =>
-  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${CSP}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(!e.isTrusted)return;p.postMessage(${JSON.stringify(sign)},"*");const b=document.body,h=()=>p.postMessage({height:b.getBoundingClientRect().bottom+parseFloat(getComputedStyle(b).marginBottom)},"*");h();new ResizeObserver(h).observe(b)})})()</script>${html}`;
+export const framed = (html: string, sign = ""): string =>
+  `<!doctype html><meta http-equiv="Content-Security-Policy" content="${POLICY}"><script>(()=>{const s=document.currentScript,p=parent;s.remove();addEventListener("load",(e)=>{if(!e.isTrusted)return;p.postMessage(${JSON.stringify(sign)},"*");const b=document.body,h=()=>p.postMessage({height:b.getBoundingClientRect().bottom+parseFloat(getComputedStyle(b).marginBottom)},"*");h();new ResizeObserver(h).observe(b)})})()</script>${html}`;
 
-function Viewer({ html, title }: { html: string; title: string }) {
-  const [gone, setGone] = useState(false);
-  const [height, setHeight] = useState<number>();
-  const [sign] = useState(() => crypto.randomUUID());
+function Frame({ html, title, again }: { html: string; title: string; again(): void }) {
   const frame = useRef<HTMLIFrameElement>(null);
-  const loads = useRef(0);
-  const signed = useRef(false);
+  const [sign] = useState(() => crypto.randomUUID());
+  const [height, setHeight] = useState<number>();
+  const [left, setLeft] = useState(false);
+  const watch = useRef({ loads: 0, signed: false, timer: undefined as ReturnType<typeof setTimeout> | undefined });
 
   useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
+    const w = watch.current;
+    const listen = (e: MessageEvent) => {
       if (e.source !== frame.current?.contentWindow) return;
-      if (e.data === sign) signed.current = true;
-      // высота от документа — только размер рамки: он не выйдет за пределы и больше ни на что не влияет
-      else if (typeof e.data?.height === "number") setHeight(Math.min(MAX_H, Math.max(MIN_H, Math.ceil(e.data.height))));
+      if (e.data === sign) {
+        w.signed = true;
+        clearTimeout(w.timer);
+      } else if (typeof e.data?.height === "number") {
+        setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, Math.ceil(e.data.height))));
+      }
     };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    window.addEventListener("message", listen);
+    return () => {
+      window.removeEventListener("message", listen);
+      clearTimeout(w.timer);
+    };
   }, [sign]);
 
-  useEffect(() => {
-    if (gone) return;
-    const el = frame.current!;
-    let waiting: ReturnType<typeof setTimeout>;
-    const onLoad = () => {
-      if (++loads.current > 1) return setGone(true);
-      waiting = setTimeout(() => setGone(!signed.current), SIGNAL_MS);
-    };
-    el.addEventListener("load", onLoad);
-    return () => {
-      clearTimeout(waiting);
-      el.removeEventListener("load", onLoad);
-    };
-  }, [gone]);
+  const loaded = () => {
+    const w = watch.current;
+    if (++w.loads > 1) return setLeft(true);
+    if (!w.signed) w.timer = setTimeout(() => setLeft(true), SIGNAL_MS);
+  };
 
-  function showAgain() {
-    loads.current = 0;
-    signed.current = false;
-    setGone(false);
-  }
-
-  if (gone) {
-    return (
-      <div className="html-left" role="status">
-        <span>Документ ушёл на другую страницу — просмотр снят</span>
-        <button type="button" className="cb-b" onClick={showAgain}>
-          Показать снова
-        </button>
-      </div>
-    );
-  }
-  return (
+  return left ? (
+    <div className="html-left" role="status">
+      <span>Документ ушёл на другую страницу — просмотр снят</span>
+      <button type="button" className="cb-b" onClick={again}>
+        Показать снова
+      </button>
+    </div>
+  ) : (
     <div className="html-frame" style={height ? { height } : undefined}>
-      <iframe ref={frame} title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={framed(html, sign)} />
+      <iframe ref={frame} title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={framed(html, sign)} onLoad={loaded} />
     </div>
   );
 }
 
 /** Другой документ — другая рамка: счёт загрузок начинается заново. */
 export function HtmlFrame({ html, title = "Просмотр HTML" }: { html: string; title?: string }) {
-  return <Viewer key={html} html={html} title={title} />;
+  const [shown, setShown] = useState(0);
+  return <Frame key={`${shown}:${html}`} html={html} title={title} again={() => setShown((n) => n + 1)} />;
 }
