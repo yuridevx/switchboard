@@ -1,0 +1,183 @@
+// «Пропуска»: машины и клиенты флота, приглашение и отзыв.
+import { useState } from "react";
+import qrcode from "qrcode-generator";
+import { Btn, Chips, Cmd, day, In, Note, Opts, PageHead, Sec, useApp, useLoad, useModule } from "@switchboard/web-ui";
+import { wordFor } from "./rules.ts";
+import type { Invited, SettingsState } from "./state.ts";
+
+type Pass = { id: string; role: string; name: string; person: string | null; addr: string; state: string; by: string; at: number };
+type Kind = Invited["kind"];
+
+const STATE: Record<string, string> = { ok: "действует", wait: "ждёт приёма" };
+const KINDS: Array<[Kind, string]> = [["device", "устройство"], ["program", "программа"], ["host", "машина"]];
+const NAME_HINT: Record<Kind, string> = { device: "телефон", program: "laptop", host: "имя машины" };
+
+function QR({ text }: { text: string }) {
+  const code = qrcode(0, "M");
+  code.addData(text);
+  code.make();
+  return <div className="st-qr" data-qr={text} aria-label="QR ссылки для телефона" dangerouslySetInnerHTML={{ __html: code.createSvgTag({ scalable: true }) }} />;
+}
+
+function Link({ title, url }: { title: string; url: string }) {
+  const write = () => void navigator.clipboard.writeText(url);
+  return (
+    <Opts data-link={title}>
+      <span className="st-lbl">{title}</span>
+      <Cmd className="st-link">{url}</Cmd>
+      <Btn onClick={write}>Копировать</Btn>
+    </Opts>
+  );
+}
+
+function InvitedBox({ invited, done }: { invited: Invited; done(): void }) {
+  const app = useApp();
+  const { kind, addr, invite } = invited;
+  const phone = app.worker("phone");
+  return (
+    <Sec dlg data-invited="1">
+      <b>{kind === "device" ? `Ссылка для ${addr}` : kind === "program" ? `Приглашение для ${addr}` : `Приглашение машины ${addr}`}</b>
+      {kind === "device" ? (
+        <div className="st-inv">
+          <div className="st-invl">
+            <Link title="Пульт" url={`${location.origin}/#invite=${invite}`} />
+            {phone && <Link title="Телефон" url={`${phone}#invite=${invite}`} />}
+          </div>
+          {phone && <QR text={`${phone}#invite=${invite}`} />}
+        </div>
+      ) : (
+        <Cmd>{invite}</Cmd>
+      )}
+      <Opts>
+        <Btn pri onClick={done}>
+          Готово
+        </Btn>
+      </Opts>
+    </Sec>
+  );
+}
+
+function InviteForm({ done, reload }: { done(): void; reload(): void }) {
+  const app = useApp();
+  const s = useModule<SettingsState>();
+  const [kind, setKind] = useState<Kind>("device");
+  const [name, setName] = useState("");
+  const [person, setPerson] = useState("");
+  const [word, setWord] = useState("");
+  async function invite() {
+    const body = kind === "host" ? { role: "host", name } : { role: "client", name, person };
+    const r = await app.request<{ invite: string; addr: string }>("keys.invite", body);
+    if (!r.ok) return setWord(wordFor(r.error));
+    s.local.set((l) => void (l.invited = { kind, addr: r.result.addr, invite: r.result.invite }));
+    done();
+    reload();
+  }
+  return (
+    <Sec dlg data-invite="1">
+      <Chips>
+        {KINDS.map(([k, label]) => (
+          <Btn key={k} aria-pressed={k === kind} onClick={() => setKind(k)}>
+            {label}
+          </Btn>
+        ))}
+      </Chips>
+      <In aria-label="Имя" placeholder={NAME_HINT[kind]} value={name} onInput={(e) => setName(e.currentTarget.value)} />
+      {kind !== "host" && <In aria-label="Почта" placeholder="почта" value={person} onInput={(e) => setPerson(e.currentTarget.value)} />}
+      {word && <Note tone="bad">{word}</Note>}
+      <Opts>
+        <Btn pri onClick={() => void invite()}>
+          Пригласить
+        </Btn>
+        <Btn onClick={done}>Отмена</Btn>
+      </Opts>
+    </Sec>
+  );
+}
+
+function PassRow({ pass, me, reload, say }: { pass: Pass; me: boolean; reload(): void; say(text: string): void }) {
+  const app = useApp();
+  const [asking, setAsking] = useState(false);
+  async function revoke() {
+    setAsking(false);
+    const r = await app.request("keys.revoke", { kid: pass.id });
+    if (!r.ok) return say(`${pass.addr}: ${wordFor(r.error)}`);
+    app.toast(`${pass.addr} отозван — соединения закрыты`, "ok");
+    reload();
+  }
+  return (
+    <tr data-pass={pass.id}>
+      <td>{pass.addr}</td>
+      <td>{me ? "это устройство" : (STATE[pass.state] ?? pass.state)}</td>
+      <td>{pass.by}</td>
+      <td>{day(pass.at)}</td>
+      <td>
+        {!me && !asking && <Btn bad onClick={() => setAsking(true)}>Отозвать…</Btn>}
+        {asking && (
+          <Opts className="st-nowrap">
+            <Btn bad onClick={() => void revoke()}>
+              Отозвать
+            </Btn>
+            <Btn onClick={() => setAsking(false)}>Отмена</Btn>
+          </Opts>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+function Table({ title, list, reload, say }: { title: string; list: Pass[]; reload(): void; say(text: string): void }) {
+  const app = useApp();
+  return (
+    <Sec data-passes={title}>
+      <b>{title}</b>
+      <table className="st-tbl">
+        <colgroup>
+          <col className="st-w30" />
+          <col className="st-w16" />
+          <col className="st-w22" />
+          <col className="st-w14" />
+          <col />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>адрес</th>
+            <th>состояние</th>
+            <th>кто пригласил</th>
+            <th>когда</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((p) => (
+            <PassRow key={p.id} pass={p} me={p.role === "client" && p.name === app.name} reload={reload} say={say} />
+          ))}
+        </tbody>
+      </table>
+    </Sec>
+  );
+}
+
+export function PassesTab() {
+  const app = useApp();
+  const s = useModule<SettingsState>();
+  const passes = useLoad(() => app.read<{ passes: Pass[] }>("keys.list"), []);
+  const invited = app.use(() => s.local.get().invited);
+  const [form, setForm] = useState(false);
+  const [word, setWord] = useState("");
+  const list = passes.data?.passes ?? [];
+  return (
+    <>
+      <PageHead title="Пропуска">
+        <Btn pri onClick={() => setForm(true)}>
+          Пригласить
+        </Btn>
+      </PageHead>
+      {passes.error && <Note tone="bad">{`keys.list: ${passes.error}`}</Note>}
+      {word && <Note tone="bad">{word}</Note>}
+      {form && <InviteForm done={() => setForm(false)} reload={passes.reload} />}
+      {invited && <InvitedBox invited={invited} done={() => s.local.set((l) => void (l.invited = null))} />}
+      <Table title="Машины" list={list.filter((p) => p.role === "host")} reload={passes.reload} say={setWord} />
+      <Table title="Устройства и программы" list={list.filter((p) => p.role !== "host")} reload={passes.reload} say={setWord} />
+    </>
+  );
+}

@@ -1,6 +1,57 @@
-// Снесено: вход отказывает словом.
-import type { AppPart } from "@switchboard/web-core";
+// Настройки флота: вкладки «Выпуски», «Пропуска», «GitHub и устройство»; на телефоне — только устройство.
+import type { AppPart, ScreenProps } from "@switchboard/web-core";
+import { Page, Tabs, useApp } from "@switchboard/web-ui";
+import { GeneralTab, githubCode } from "./general.tsx";
+import { PassesTab } from "./passes.tsx";
+import { ReleasesTab } from "./releases.tsx";
+import { createState } from "./state.ts";
+import css from "./settings.css";
 
-export const createSettings = ((): never => {
-  throw new Error("снесено");
+const TABS = [["releases", "Выпуски"], ["passes", "Пропуска"], ["general", "GitHub и устройство"]] as const;
+type Tab = (typeof TABS)[number][0];
+
+function SettingsScreen({ params }: ScreenProps) {
+  const app = useApp();
+  if (!app.wide) {
+    return (
+      <Page>
+        <GeneralTab />
+      </Page>
+    );
+  }
+  const tab = (params.tab as Tab | undefined) ?? (githubCode() ? "general" : "releases");
+  return (
+    <Page>
+      <Tabs className="st-tabs" tabs={TABS} cur={tab} pick={(k) => app.open("settings", { tab: k })} />
+      {tab === "releases" && <ReleasesTab machine={params.machine} />}
+      {tab === "passes" && <PassesTab />}
+      {tab === "general" && <GeneralTab />}
+    </Page>
+  );
+}
+
+export const createSettings = ((app) => {
+  const state = createState(app);
+  return {
+    css,
+    state,
+    on: { link: (s, machine) => state.answers.onLink(s, machine) },
+    // GitHub вернул человека на корень страницы: экран знает свой адрес сам
+    start: () => (githubCode() && !location.hash ? app.open("settings", { tab: "general" }) : undefined),
+    screens: {
+      settings: {
+        nav: "Настройки",
+        group: "Флот",
+        label: "Настройки",
+        view: SettingsScreen,
+        find: (q) => TABS.flatMap(([tab, name]) => (name.toLowerCase().includes(q) ? [{ label: `Настройки: ${name.toLowerCase()}`, screen: "settings", params: { tab } }] : [])),
+      },
+    },
+    marks: { "keeper.answers": () => state.answers.get() },
+    commands: {
+      "keeper.open": { run: state.open },
+      "keeper.close": { run: state.close },
+      "keeper.reload": { run: (p) => void state.answers.reload(p.machine) },
+    },
+  };
 }) satisfies AppPart["module"];

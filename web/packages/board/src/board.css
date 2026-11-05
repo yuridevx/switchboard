@@ -75,7 +75,7 @@ button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transp
 .bd-list.dense .mgrp{padding-top:4px}
 /* панель вида: не закрывает список — на пульте в правой части, на телефоне блоком под списком */
 .bd-vw{display:flex;flex-direction:column;gap:8px;background:var(--surface);padding:10px 12px 12px}
-.bd.wide .bd-vw{position:fixed;right:8px;top:58px;z-index:9;width:330px;max-height:calc(100% - 66px);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
+.bd.wide .bd-vw{position:fixed;right:8px;bottom:8px;z-index:9;width:330px;max-height:calc(100% - 66px);border:1px solid var(--line);border-radius:12px;box-shadow:0 12px 36px rgba(0,0,0,.18)}
 .bd:not(.wide) .bd-vw{flex:none;border-top:1px solid var(--line);max-height:66%;padding-bottom:calc(10px + env(safe-area-inset-bottom,0px))}
 .vw-h{display:flex;align-items:center;gap:6px;font:600 14px var(--body);flex:none}
 .vw-h b{flex:1}

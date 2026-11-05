@@ -1,14 +1,14 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "2.4.5",
+  "version": "2.5.0",
   "into": [
     "pult",
     "phone"
   ],
   "provides": {
     "settings": 1,
-    "keeper.answers": 3,
+    "keeper.answers": 4,
     "keeper.reload": 1,
     "keeper.open": 1,
     "keeper.close": 1
