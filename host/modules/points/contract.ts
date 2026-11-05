@@ -7,6 +7,4 @@
 // Слова: not_r2, waiting, running, bad_point, bad_dir; чужие — как есть (not_owner, open_failed, name_taken, offline).
 import { make } from "./src/module.ts";
 
-export type { PointFile } from "./src/blocks.ts";
-export type { GitSummary } from "./src/git.ts";
 export default make();

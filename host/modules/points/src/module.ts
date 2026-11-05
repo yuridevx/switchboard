@@ -1,147 +1,226 @@
-// Модуль точек: запросы контракта, поле roster и события сессий; своё у него — пометка «в R2» в разделе сессии.
-import { refuse } from "@switchboard/host";
-import type { Host, Module, Session, SessionState } from "@switchboard/host";
-import { Cadence } from "./cadence.ts";
-import { makeCapture } from "./capture.ts";
-import type { Why } from "./capture.ts";
-import { makeRaise } from "./raise.ts";
-import type { Mark } from "./raise.ts";
+// Модуль точек: пометка «в R2» и правило. Конец хода — не чаще раза в 2 мин, ход 10 мин без точки — посреди хода, закрытие и старт Host — всегда.
+// Точки одной сессии идут по очереди; штатная остановка доводит начатые и новых не начинает.
+import type { Ctx, Frame, Host, Module, Session } from "@switchboard/host";
+import { isRefusal, refuse } from "@switchboard/host";
+import { capture, hasConversation, type Took, type Why } from "./capture.ts";
+import { raise, type Marks } from "./raise.ts";
+
+const GAP_MS = 2 * 60_000;
+const LONG_MS = 10 * 60_000;
+/** Ждать конец хода перед стопом: ход законно идёт часами. */
+const TURN_MS = 6 * 3_600_000;
+
+type Mark = { r2: true; base?: number };
 
 export function make(): Module {
-  let host: Host;
+  let host!: Host;
+  let ready = false;
+  let startDone = false;
   let stopping = false;
-  // R2 — глобальным fetch на момент вызова
-  const fetcher = ((...a: Parameters<typeof fetch>) => fetch(...a)) as typeof fetch;
-  const capture = makeCapture(() => host, fetcher, (s) => cadenceOf(s).taken());
-  const raise = makeRaise(() => host, capture, fetcher);
-  const cadences = new Map<string, Cadence>();
-  /** кто ждёт конца хода перед остановкой */
+  /** последняя удачная точка: от неё считается правило */
+  const lastAt = new Map<string, number>();
+  const errors = new Map<string, { error: string; at: number }>();
+  const longTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const queues = new Map<string, Promise<unknown>>();
+  /** отдана или убрана: на закрытии точки нет */
+  const leaving = new Set<string>();
   const turnEnds = new Map<string, Array<() => void>>();
-  /** сессии, чью точку старта Host уже снимали */
-  const started = new Set<string>();
-  /** точки старта ждут первого roster: до связи points.put получил бы disconnected */
-  const waitingLink = new Set<string>();
 
-  const marked = (s: Session) => !!s.store<Mark>().get()?.r2;
-  const need = (callsign: unknown) => {
-    const s = host.session(String(callsign));
-    if (!s) throw refuse("offline", `${String(callsign)}: сессии нет на машине`);
-    return s;
-  };
+  const markOf = (s: Session) => s.store<Mark>();
+  const marked = (s: Session) => !!markOf(s).get()?.r2;
 
-  function cadenceOf(s: Session): Cadence {
-    const cs = s.info.callsign;
-    let c = cadences.get(cs);
-    if (!c) cadences.set(cs, (c = new Cadence(() => onRule(s), () => s.state)));
-    return c;
+  function inTurn<T>(callsign: string, work: () => Promise<T>): Promise<T> {
+    const run = (queues.get(callsign) ?? Promise.resolve()).then(work);
+    queues.set(callsign, run.catch(() => {}));
+    return run;
   }
 
-  /** Повод правила; модуль останавливается — новых точек не начинать. */
-  function onRule(s: Session, why: Why = "rule"): void {
-    if (stopping || !marked(s)) return;
-    const base = s.store<Mark>().get()?.base;
-    if (base === undefined) return void capture.take(s, why);
-    // копия: файл нового разговора уже есть — снять точку подъёма с её базой
-    void capture.take(s, "raise", { base }).then((out) => {
-      if (!("error" in out)) s.store<Mark>().set({ r2: true });
+  function took(s: Session): void {
+    lastAt.set(s.info.callsign, Date.now());
+    errors.delete(s.info.callsign);
+    s.refresh();
+  }
+
+  /** Точка и её след: срок правила и поле r2. */
+  function save(s: Session, why: Why): Promise<Took> {
+    return inTurn(s.info.callsign, async () => {
+      try {
+        const t = await capture(host, s, why);
+        took(s);
+        return t;
+      } catch (e) {
+        errors.set(s.info.callsign, { error: isRefusal(e) ? e.word : "failed", at: Date.now() });
+        s.refresh();
+        throw e;
+      }
     });
   }
 
+  /** Сессию подняли в другом месте: отдаём дописанное веткой и уходим. */
+  async function yieldSession(s: Session): Promise<void> {
+    const { callsign } = s.info;
+    leaving.add(callsign);
+    await capture(host, s, { why: "yield" });
+    await host.request("session.remove", { callsign });
+  }
+
+  /** Точка по правилу: отказ — поле r2 и журнал; модуль живёт дальше. */
+  function auto(s: Session, why: Why["why"]): void {
+    if (stopping || leaving.has(s.info.callsign) || !marked(s) || !hasConversation(s)) return;
+    const base = markOf(s).get()?.base;
+    const reason: Why = base === undefined ? { why } : { why: "raise", base };
+    save(s, reason)
+      .then(() => {
+        if (base !== undefined) markOf(s).update((m) => (m ? { r2: true } : m));
+      })
+      .catch((e: unknown) => {
+        if (isRefusal(e) && e.word === "not_owner") return yieldSession(s);
+        if (!isRefusal(e)) host.log({ kind: "refuse", ev: "point", word: "failed", callsign: s.info.callsign, why: String(e) });
+        return undefined;
+      })
+      .catch((e: unknown) => host.log({ kind: "refuse", ev: "yield", word: "failed", callsign: s.info.callsign, why: String(e) }));
+  }
+
+  function armLong(s: Session): void {
+    const { callsign } = s.info;
+    if (longTimers.has(callsign)) return;
+    longTimers.set(
+      callsign,
+      setTimeout(() => {
+        longTimers.delete(callsign);
+        auto(s, "rule");
+        if (s.state === "busy" && !stopping) armLong(s);
+      }, LONG_MS),
+    );
+  }
+
+  function disarm(callsign: string): void {
+    clearTimeout(longTimers.get(callsign));
+    longTimers.delete(callsign);
+  }
+
+  function startPoints(): void {
+    if (startDone || !ready || !host.roster()) return;
+    startDone = true;
+    for (const { callsign } of host.sessions()) auto(host.session(callsign)!, "start");
+  }
+
+  /** Дождаться конца хода. Предел — шесть часов, затем слово running; остановка Host снимает ожидание. */
+  function turnEnd(s: Session, signal: AbortSignal): Promise<void> {
+    return new Promise((done, fail) => {
+      const { callsign } = s.info;
+      const timer = setTimeout(() => fail(refuse("running", `${callsign}: ход не кончился`)), TURN_MS);
+      const finish = () => {
+        clearTimeout(timer);
+        done();
+      };
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          fail(refuse("shutting_down", "Host останавливается"));
+        },
+        { once: true },
+      );
+      turnEnds.set(callsign, [...(turnEnds.get(callsign) ?? []), finish]);
+    });
+  }
+
+  const sessionOf = (req: Frame): Session => {
+    const s = host.session(String(req.callsign));
+    if (!s) throw refuse("offline", `${String(req.callsign)}: сессии нет на этой машине`);
+    return s;
+  };
+
+  const marks: Marks = {
+    mark: (s, base) => markOf(s).set(base === undefined ? { r2: true } : { r2: true, base }),
+    leave: (callsign) => void leaving.add(callsign),
+    took,
+  };
+
+  async function pointsSave(req: Frame, ctx: Ctx): Promise<Took> {
+    const s = sessionOf(req);
+    const { callsign } = s.info;
+    if (!marked(s)) throw refuse("not_r2", `${callsign} не в R2`);
+    if (req.stop === true) {
+      if (!req.interrupt) {
+        if (s.state === "busy") await turnEnd(s, ctx.signal);
+        if (s.state === "waiting") throw refuse("waiting", `${callsign} ждёт ответа человека`);
+      }
+      if (s.state !== "stopped") {
+        const stopped = await host.request("session.stop", { callsign });
+        if (!stopped.ok) throw refuse(stopped.error, `${callsign} не остановилась`);
+      }
+    }
+    return save(s, { why: "save" });
+  }
+
+  async function sessionR2(req: Frame, ctx: Ctx): Promise<unknown> {
+    const s = sessionOf(req);
+    const { callsign, session_id: sid } = s.info;
+    if (req.on) {
+      markOf(s).update((m) => ({ ...m, r2: true }));
+      if (!hasConversation(s)) {
+        s.refresh();
+        return { point: null };
+      }
+      return { point: (await save(s, { why: "save" })).point };
+    }
+    const r = await host.request("points.delete", { to: ".points", sid, ...(ctx.from ? { by: ctx.from } : {}) });
+    if (!r.ok) throw refuse(r.error, `${callsign}: реестр не удалил точки`);
+    markOf(s).set(undefined);
+    disarm(callsign);
+    lastAt.delete(callsign);
+    errors.delete(callsign);
+    s.refresh();
+    host.log({ ev: "r2_off", callsign, why: `${callsign}: пометка «в R2» снята, точки удалены из R2` });
+    return { deleted: (r.result as { points: number }).points };
+  }
+
   return {
-    requests: {
-      async "session.r2"(fr, ctx) {
-        const s = need(fr.callsign);
-        const cs = s.info.callsign;
-        if (fr.on === true) {
-          s.store<Mark>().set({ r2: true });
-          // новая сессия до первого хода: снимать нечего, первая точка — на первом конце хода
-          if (!capture.hasConversation(s)) return { point: null };
-          const out = await capture.take(s, "save");
-          if ("error" in out) throw refuse(out.error, `${cs}: первая точка не снята`);
-          return { point: out.point };
-        }
-        const r = await host.request("points.delete", { sid: s.info.session_id, ...(ctx.from ? { by: ctx.from } : {}) });
-        if (!r.ok) throw refuse(r.error, `${cs}: points.delete — пометка стоит`);
-        s.store<Mark>().set(undefined);
-        cadences.get(cs)?.dispose();
-        cadences.delete(cs);
-        capture.forget(cs);
-        host.log({ ev: "r2_off", callsign: cs, why: `${cs}: пометка «в R2» снята, точки удалены из R2` });
-        return { deleted: (r.result as { points?: number })?.points ?? 0 };
-      },
-
-      async "points.save"(fr) {
-        const s = need(fr.callsign);
-        const cs = s.info.callsign;
-        if (!marked(s)) throw refuse("not_r2", `${cs}: нет пометки «в R2»`);
-        if (fr.stop === true) {
-          if (s.state === "waiting" && fr.interrupt !== true) throw refuse("waiting", `${cs}: ждёт ответа человека`);
-          // дождаться конца хода; interrupt — ядро прервёт ход само в session.stop
-          if (s.state === "busy" && fr.interrupt !== true) await new Promise<void>((done) => turnEnds.set(cs, [...(turnEnds.get(cs) ?? []), done]));
-          capture.silent.add(cs);
-          const stopped = await host.request("session.stop", { callsign: cs });
-          if (!stopped.ok) {
-            capture.silent.delete(cs);
-            throw refuse(stopped.error, `${cs}: session.stop — ${stopped.error}`);
-          }
-        }
-        const out = await capture.take(s, "save");
-        capture.silent.delete(cs);
-        if ("error" in out) throw refuse(out.error, `${cs}: точка не снята`);
-        return out;
-      },
-
-      "points.raise": (fr, ctx) => raise(fr, ctx.from),
-    },
-
-    fields: {
-      r2: (s) => (marked(s) ? (capture.failure(s.info.callsign) ?? {}) : undefined),
-    },
-
-    on: {
-      state(s, st: SessionState) {
-        const cs = s.info.callsign;
-        if (st === "idle") {
-          for (const done of turnEnds.get(cs) ?? []) done();
-          turnEnds.delete(cs);
-        }
-        if (marked(s)) cadenceOf(s).onState(st);
-      },
-      open(s) {
-        const cs = s.info.callsign;
-        if (started.has(cs)) return;
-        started.add(cs);
-        // старт Host: точка каждой помеченной сессии — дописанное без связи и смена хозяина
-        if (s.info.start !== "attach" && s.info.start !== "resume") return;
-        if (host.roster() !== null) onRule(s, "start");
-        else waitingLink.add(cs);
-      },
-      frame(f) {
-        if (f.type !== "roster") return;
-        for (const cs of waitingLink) {
-          const s = host.session(cs);
-          if (s) onRule(s, "start");
-        }
-        waitingLink.clear();
-      },
-      close(s) {
-        const cs = s.info.callsign;
-        cadences.get(cs)?.closed();
-        if (!capture.silent.has(cs)) onRule(s);
-      },
-    },
-
     start(h) {
       host = h;
-      stopping = false;
     },
-
     async stop() {
-      // новых точек не начинать, начатые — довести до points.put
       stopping = true;
-      for (const c of cadences.values()) c.dispose();
-      cadences.clear();
-      await capture.settled();
+      for (const callsign of [...longTimers.keys()]) disarm(callsign);
+      await Promise.allSettled(queues.values());
+    },
+    requests: {
+      "points.save": pointsSave,
+      "points.raise": (req, ctx) => raise(host, marks, req, ctx),
+      "session.r2": sessionR2,
+    },
+    fields: {
+      r2: (s) => (marked(s) ? (errors.get(s.info.callsign) ?? {}) : undefined),
+    },
+    on: {
+      ready() {
+        ready = true;
+        startPoints();
+      },
+      frame(f) {
+        if (f.type === "roster") startPoints();
+      },
+      state(s, state) {
+        const { callsign } = s.info;
+        if (state !== "busy") {
+          const waiters = turnEnds.get(callsign) ?? [];
+          turnEnds.delete(callsign);
+          for (const finish of waiters) finish();
+        }
+        if (!marked(s)) return;
+        if (state === "busy") armLong(s);
+        if (state !== "idle") return;
+        disarm(callsign);
+        // до точки старта правило молчит: первая точка после перезапуска Host — она
+        if (startDone && Date.now() - (lastAt.get(callsign) ?? 0) >= GAP_MS) auto(s, "rule");
+      },
+      close(s) {
+        const { callsign } = s.info;
+        disarm(callsign);
+        if (!leaving.has(callsign)) auto(s, "rule");
+      },
     },
   };
 }

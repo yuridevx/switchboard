@@ -1,21 +1,28 @@
-// pult-points: связка с приложением. Состояние — store.ts, экраны — OverviewScreen и SessionPointsScreen.
-import type { App, AppModule } from "@switchboard/web-core";
-import { OverviewScreen } from "./OverviewScreen.tsx";
+// pult-points — только связка экранов с ядром: обзор, вкладка карточки, метка «пожара».
+import type { App } from "@switchboard/web-ui";
+import type { AppModule } from "@switchboard/web-core";
+import { machineOf } from "@switchboard/protocol";
+import { Overview } from "./Overview.tsx";
 import css from "./points.css";
-import { SessionPointsScreen } from "./SessionPointsScreen.tsx";
-import { createPointsStore } from "./store.ts";
+import { pointsStore } from "./store.ts";
+import { Tab } from "./Tab.tsx";
 
 export function createPoints(app: App): AppModule {
-  const points = createPointsStore(app);
+  const store = pointsStore(app);
   return {
-    state: points,
-    on: { roster: points.onRoster },
+    state: store,
+    on: { roster: store.roster },
     screens: {
-      points: { nav: "Точки", group: "Флот", label: "Точки", view: OverviewScreen, head: () => ({ title: "Точки" }) },
-      // вкладка карточки: видна, когда машина сессии умеет точки
-      "session.points": { place: "card.tab", label: "Точки", path: "session-points", show: (p) => points.tabVisible(p.callsign ?? ""), view: SessionPointsScreen },
+      points: { nav: "Точки", group: "Флот", label: "Точки", view: Overview, head: () => ({ title: "Точки" }) },
+      "session.points": {
+        place: "card.tab",
+        path: "session-points",
+        label: "Точки",
+        show: (p) => app.can(machineOf(p.callsign ?? "") ?? "", "session.r2") === true,
+        view: Tab,
+      },
     },
-    marks: { fire: points.lostMachines },
+    marks: { fire: store.fire },
     css,
   };
 }

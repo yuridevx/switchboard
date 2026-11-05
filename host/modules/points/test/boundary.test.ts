@@ -893,3 +893,65 @@ describe("папка подъёма и git", () => {
     expect(existsSync(join(projectDir(dir), "git.bundle"))).toBe(false);
   });
 });
+
+describe("формат и среда git", () => {
+  const SIX_HOURS = 6 * 3_600_000;
+
+  it("пакет git в R2: ссылка внутри — refs/points/snap; это формат хранилища, живые точки подняты по нему", async () => {
+    const work = join(home, "work", "site");
+    mkdirSync(work, { recursive: true });
+    git(work, "init", "-q");
+    writeFileSync(join(work, "a.txt"), "1");
+    git(work, "add", "a.txt");
+    git(work, "commit", "-qm", "init");
+    writeFileSync(join(work, "a.txt"), "правка");
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
+    write(work, s.info.session_id, conv(3));
+    await ask({ type: "session.r2", callsign: "site@laptop", on: true });
+    const pack = join(home, "pack.bundle");
+    writeFileSync(pack, b.reg.bytes(b.reg.sessions.get(s.info.session_id)!.head, "git.bundle"));
+    expect(git(work, "bundle", "list-heads", pack).split(/\s+/)[1]).toBe("refs/points/snap");
+  });
+
+  it("git при подъёме не спрашивает пароль: GCM_INTERACTIVE never, GIT_TERMINAL_PROMPT 0", async () => {
+    const origin = join(home, "origin.git");
+    mkdirSync(origin);
+    git(origin, "init", "-q", "--bare");
+    const work = join(home, "work", "site");
+    mkdirSync(work, { recursive: true });
+    git(work, "init", "-q");
+    git(work, "remote", "add", "origin", origin);
+    writeFileSync(join(work, "a"), "1");
+    git(work, "add", "a");
+    git(work, "commit", "-qm", "init");
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    const commit = git(work, "rev-parse", "HEAD");
+    const dir = join(home, "Projects", "site");
+    git(home, "clone", "-q", origin, dir);
+    const seen = join(home, "env.txt").split("\\").join("/");
+    writeFileSync(join(dir, ".git", "hooks", "post-checkout"), `#!/bin/sh\nprintf '%s %s' "$GCM_INTERACTIVE" "$GIT_TERMINAL_PROMPT" > "${seen}"\n`, { mode: 0o755 });
+    b = await bench({ home, machine: "pc" });
+    b.reg.seed(318, SID, "laptop", { [`${SID}.jsonl`]: conv(5) }, { git: { state: "clean", files: 0, unpushed: 0, url: origin, branch: "main", commit } });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: SID, point: 318, dir, files: "point" })).toMatchObject({ ok: true, result: { folder: "same" } });
+    expect(readFileSync(seen, "utf8")).toBe("never 0");
+  });
+
+  it("стоп ждёт конец хода: штатная остановка Host снимает таймер ожидания", async () => {
+    b = await bench({ home });
+    const s = await marked();
+    b.st.proc("site@laptop").send(msg.state("running"));
+    await until(() => s.state === "busy");
+    const set = vi.spyOn(globalThis, "setTimeout");
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+    void ask({ type: "points.save", callsign: "site@laptop", stop: true }).catch(() => {});
+    await until(() => set.mock.calls.some((c) => c[1] === SIX_HOURS));
+    const timer = set.mock.results[set.mock.calls.findIndex((c) => c[1] === SIX_HOURS)].value;
+    expect(clear.mock.calls.some((c) => c[0] === timer)).toBe(false);
+    const st = b.st;
+    b = null;
+    await st.close();
+    expect(clear.mock.calls.some((c) => c[0] === timer)).toBe(true);
+    vi.restoreAllMocks();
+  });
+});

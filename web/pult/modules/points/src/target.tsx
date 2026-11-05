@@ -1,51 +1,62 @@
-// Цель подъёма — общее у трёх окон: выбор машины, её слоты, проверка папки.
-import type { Dispatch, SetStateAction } from "react";
-import { Note, Opts, PickOne, useApp } from "@switchboard/web-ui";
-import { usePoints } from "./store.ts";
-import type { CheckResult, PointsStore, Raising } from "./store.ts";
-import { folderText, refusal } from "./words.ts";
+// Куда поднимается точка: машина, её слоты и проба папки. Общее для окон подъёма, переноса, копии и «пожара».
+import { useState } from "react";
+import { type Result, machinesWith, Note, PickOne, Row, slotChoice, type SlotInfo, SlotPick, useApp, useLoad } from "@switchboard/web-ui";
+import { type Check, folderCheck, type Probe, wordText } from "./words.ts";
 
-type Probe = Awaited<ReturnType<PointsStore["probe"]>>;
+export const PENDING: Check = { key: "pending", text: "проверяю папку…" };
 
-/** Выбрать цель: машина — сразу, слоты и проверка — когда ответит; выбрали другую, пока шёл ответ, — ответ устарел. */
-export function useChooseTarget<D extends { target: string }>(set: Dispatch<SetStateAction<D | null>>) {
-  const points = usePoints();
-  return async (target: string, raises: Raising[], apply: (d: D, p: Probe) => D) => {
-    set((d) => d && { ...d, target });
-    const p = await points.probe(target, raises);
-    set((d) => (d && d.target === target ? apply(d, p) : d));
-  };
+/** Машина подъёма и её слот. Слот уходит в запрос, только когда есть из чего выбирать. */
+export function useTarget(first: (machines: string[]) => string, preferred = "") {
+  const app = useApp();
+  const machines = app.use(() => machinesWith(app, "points.raise"));
+  const [picked, setPicked] = useState("");
+  const [slotName, setSlotName] = useState(preferred);
+  const machine = picked || first(machines);
+  const answer = useLoad(() => app.read<{ slots?: Record<string, SlotInfo> }>("machine.accounts", { machine }), [machine]);
+  const slots = answer.loading ? undefined : answer.data?.slots;
+  const slot = slotChoice(Object.keys(slots ?? {}), slotName);
+  return { machines, machine, pick: setPicked, slots, slot, setSlot: setSlotName, slotsError: answer.loading ? "" : answer.error, ready: !answer.loading && !answer.error };
 }
 
-/** Строка проверки папки в окне: отказ словом или что будет. */
-export function CheckLine({ check, target }: { check: CheckResult | null; target: string }) {
-  if (!check) return null;
-  if ("error" in check) {
-    return (
-      <Note tone="bad" data-check="error">
-        {refusal(check.error)}
-      </Note>
-    );
-  }
+export type Target = ReturnType<typeof useTarget>;
+
+/** Строка выбора машины; ближние (проект, своя) — кнопками. */
+export function MachineRow({ label, t, near = [] }: { label: string; t: Target; near?: string[] }) {
   return (
-    <Note tone={check.folder === "other" ? "bad" : check.folder === "dirty" ? "wait" : "ok"} data-check={check.folder}>
-      {folderText(check, target)}
+    <Row label={label}>
+      <div className="sb-opts">
+        <PickOne all={t.machines} near={near} cur={t.machine} on={t.pick} select={{ "data-f": "target", "aria-label": "Другая машина" }} />
+      </div>
+    </Row>
+  );
+}
+
+/** Слот; в окне одной сессии — вместе с итогом пробы, пока она идёт, строки нет. */
+export function SlotRow({ t, label, check }: { t: Target; label?: string; check?: Check }) {
+  return t.slots && check?.key !== "pending" ? <SlotPick slots={t.slots} value={t.slot} on={t.setSlot} label={label} /> : null;
+}
+
+export function CheckLine({ check }: { check: Check }) {
+  if (check.key === "pending") return null;
+  return (
+    <Note data-check={check.key} tone={check.tone}>
+      {check.text}
     </Note>
   );
 }
 
-/** Выбор машины: выбранная и машины проекта сессии — кнопками, остальные — списком. */
-export function PickMachine({ cur, callsign, on }: { cur: string; callsign: string | undefined; on(machine: string): void }) {
+const NOT_ASKED = Promise.resolve({ ok: false, error: "" } as const);
+
+/** Проба папки: только читает. Без неё слоты не пришли — запрос не уходит. */
+export function useProbe(t: Target, body: { sid: string; point?: number; dir: string } | null): Check {
   const app = useApp();
-  const points = usePoints();
-  const near = app.use(() => {
-    const project = callsign ? app.mark("project.of", callsign)?.id : null;
-    return project ? (app.mark("project.machines", project) ?? []) : [];
-  });
-  const all = app.use(points.raisers);
-  return (
-    <Opts>
-      <PickOne all={all} near={near} cur={cur} on={on} select={{ "data-f": "target", "aria-label": "Другая машина" }} />
-    </Opts>
-  );
+  const ready = t.ready && !!body && body.point !== undefined;
+  const asked = useLoad(() => (ready ? app.read<Probe>("points.raise", { machine: t.machine, ...body, files: "point", dryRun: true }) : (NOT_ASKED as Promise<Result<Probe>>)), [ready, t.machine, JSON.stringify(body)]);
+  if (t.slotsError) return { key: "error", text: `machine.accounts: ${t.slotsError}`, tone: "bad" };
+  if (!ready || asked.loading) return PENDING;
+  if (asked.error) return { key: "error", text: wordText(asked.error), tone: "bad" };
+  return asked.data ? folderCheck(asked.data, t.machine) : PENDING;
 }
+
+/** Запуск возможен: проверка пришла и папка годится. */
+export const runnable = (c: Check) => c.key !== "pending" && c.key !== "error" && c.key !== "other";
