@@ -1,6 +1,6 @@
 // Обработчик пушей: показ и запись в раздел pushes; нажатие — окно приложения, кнопка — одно короткое соединение с relay машины.
-import { hostOf, isReply, parseFrame, type Frame } from "@switchboard/protocol";
-import { PROTO, type WsCtor } from "@switchboard/relay";
+import { hostOf, type Frame } from "@switchboard/protocol";
+import { link, type WsCtor } from "@switchboard/relay";
 import type { Store } from "@switchboard/web-core";
 
 /** Предел ответа на кнопку уведомления. */
@@ -43,13 +43,13 @@ export function serviceWorker(scope: SwScope, o: SwOptions): void {
     try {
       p = data?.json() as Pushed | undefined;
     } catch {
-      p = undefined;
+      // не JSON — тот же отказ, что без type
     }
     if (typeof p?.type !== "string") return console.error("switchboard: пуш не по форме — нет type");
     const n = p.notify ?? {};
-    const actions = Array.isArray(n.actions) ? n.actions : [];
+    const actions = n.actions ?? [];
     // кнопки — только все сразу: часть ответов человек бы не увидел
-    const fits = actions.length > 0 && actions.length <= o.maxActions() && actions.every((a) => a.frame);
+    const fits = actions.length <= o.maxActions() && actions.every((a) => a.frame);
     const id = crypto.randomUUID();
     const title = typeof n.title === "string" ? n.title : typeof p.from === "string" ? p.from : "Switchboard";
     const { type, from, notify } = p;
@@ -68,26 +68,24 @@ export function serviceWorker(scope: SwScope, o: SwOptions): void {
     await win.focus();
   }
 
-  /** Кадр кнопки в relay машины адресата: hello, кадр, reply. Итог — слово отказа или null. */
+  /** Кадр кнопки — одно соединение link с relay машины адресата: связь открыта — запрос, оборвалась — слово, без переподключения. */
   function send(url: string, key: string, frame: Frame): Promise<string | null> {
-    const WS = o.WebSocket ?? (globalThis as unknown as { WebSocket: WsCtor }).WebSocket;
-    const id = crypto.randomUUID();
     return new Promise((done) => {
-      const ws = new WS(url);
+      // итог — до close: close сам сообщает stopped
       const finish = (word: string | null) => {
-        clearTimeout(timer);
-        ws.close(1000, "done");
         done(word);
+        l.close(1000, "done");
       };
-      const timer = setTimeout(() => finish("timeout"), SEND_MS);
-      ws.addEventListener("open", () => ws.send(JSON.stringify({ type: "hello", key, proto: PROTO })));
-      ws.addEventListener("message", (e: { data: string }) => {
-        const f = parseFrame(e.data);
-        // roster — hello принят
-        if (f?.type === "roster") ws.send(JSON.stringify({ ...frame, id }));
-        else if (f && isReply(f) && f.id === id) finish(f.ok ? null : f.error);
+      const l = link({
+        url,
+        key,
+        WebSocket: o.WebSocket,
+        requestMs: SEND_MS,
+        onState(s, why) {
+          if (s === "open") void l.request(frame).then((r) => finish(r.ok ? null : r.error));
+          else if (s !== "connecting") finish(why ?? s);
+        },
       });
-      ws.addEventListener("close", (e: { code: number; reason: string }) => finish(e.reason || String(e.code)));
     });
   }
 
