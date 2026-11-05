@@ -1,6 +1,6 @@
 // Экран «Инциденты»: недоставленные обращения и сессии инцидентов.
 import { useEffect, useState } from "react";
-import { Chip, Chips, Dot, hhmm, incidentOf, lamp, machineLabel, Note, Pad, PageHead, sessionLabel, stateLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
+import { Btn, DisclosureBtn, Dot, hhmm, incidentOf, lamp, machineLabel, Note, Page, PageHead, sessionLabel, stateLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import type { SessionRecord } from "@switchboard/web-core";
 import type { IncidentsStore, Lost } from "./store.ts";
@@ -12,7 +12,7 @@ function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): vo
   const what = [appeal.type, appeal.key].filter(Boolean).join(" · ");
   return (
     <>
-      <button type="button" className="in-row in-lost" data-lost={mark} aria-expanded={open ? "true" : "false"} onClick={toggle}>
+      <DisclosureBtn className="in-row in-lost" data-lost={mark} open={open} onClick={toggle}>
         <Dot kind="bad" className="d" />
         <span className="g">
           <span className="t1">
@@ -21,7 +21,7 @@ function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): vo
           </span>
           <span className="t2">{last ? `с ${hhmm(new Date(last.t))}` : what}</span>
         </span>
-      </button>
+      </DisclosureBtn>
       {open ? (
         <div className="in-why" data-why={mark}>
           {last ? (last.why ?? last.word) : "Отказа с полуночи нет: причина — в журнале машины за прошлые дни."}
@@ -64,16 +64,14 @@ export function IncidentsScreen() {
   const sessions = store.sessions().filter((s) => all || s.state !== "stopped");
   const refusals = Object.entries(store.answers.get()).flatMap(([machine, a]) => (wordOf(a) ? [`${machine} · machine.journal: ${wordOf(a)}`] : []));
   return (
-    <Pad>
+    <Page>
       <PageHead title={app.wide ? "Инциденты" : undefined}>
-        <Chips>
-          <Chip data-f="open" on={!all} onClick={() => setAll(false)}>
-            открытые
-          </Chip>
-          <Chip data-f="all" on={all} onClick={() => setAll(true)}>
-            все
-          </Chip>
-        </Chips>
+        <Btn data-f="open" pri={!all} aria-pressed={!all} onClick={() => setAll(false)}>
+          открытые
+        </Btn>
+        <Btn data-f="all" pri={all} aria-pressed={all} onClick={() => setAll(true)}>
+          все
+        </Btn>
       </PageHead>
       {refusals.map((text) => (
         <Note key={text} tone="bad" role="alert">
@@ -103,6 +101,6 @@ export function IncidentsScreen() {
       ) : lost.length ? null : (
         <Note>{all ? "Инцидентов нет" : "Открытых инцидентов нет"}</Note>
       )}
-    </Pad>
+    </Page>
   );
 }

@@ -6,6 +6,7 @@ import type { LedgerEvent, LedgerReadResult } from "@switchboard/ledger";
 type Page = { events: LedgerEvent[]; more: boolean; error: string; loading: boolean };
 const START: Page = { events: [], more: false, error: "", loading: true };
 const LIMIT = 50;
+const newestFirst = (a: LedgerEvent, b: LedgerEvent) => b.id - a.id;
 
 /** Состав флота: сменился — журнал мог получить записи; roster без смены состава журнал не читает. */
 function fleetOf(app: ReturnType<typeof useApp>): string {
@@ -36,8 +37,8 @@ export function useLedger(machine: string) {
     reading.current.machine = machine;
     if (again) setPage(START);
     const newest = again ? undefined : now.current.events[0]?.id;
-    if (newest === undefined) void read({}, (_p, r) => ({ events: r.events, more: r.more }));
-    else void read({ after: newest }, (p, r) => ({ events: [...r.events.filter((e) => e.id > newest), ...p.events] }));
+    if (newest === undefined) void read({}, (_p, r) => ({ events: r.events.toSorted(newestFirst), more: r.more }));
+    else void read({ after: newest }, (p, r) => ({ events: [...r.events.filter((e) => e.id > newest).toSorted(newestFirst), ...p.events] }));
     // читать заново говорят машина и состав флота; read меняется с каждым рисованием
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machine, fleet]);

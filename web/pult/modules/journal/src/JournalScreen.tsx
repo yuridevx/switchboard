@@ -1,6 +1,6 @@
 // Экран «Журнал флота»: записи по дням, выбор машины, поиск по загруженному.
 import { useState } from "react";
-import { Btn, hhmm, In, machineLabel, Note, Pad, PageHead, Sel, useApp } from "@switchboard/web-ui";
+import { Btn, hhmm, In, machineLabel, Note, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
 import type { LedgerEvent } from "@switchboard/ledger";
 import { useLedger } from "./ledger.ts";
 
@@ -36,7 +36,7 @@ export function JournalScreen() {
   const needle = query.trim().toLowerCase();
   const shown = events.filter((e) => !needle || [e.text, e.ev, e.machine, e.callsign, e.from, e.by].some((x) => x?.toLowerCase().includes(needle)));
   return (
-    <Pad>
+    <Page>
       <PageHead title={app.wide ? "Журнал флота" : undefined}>
         <In data-f="q" type="search" value={query} placeholder="⌕ поиск по записям" aria-label="Поиск по записям" onInput={(e) => setQuery(e.currentTarget.value)} />
         <Sel data-f="machine" value={machine} aria-label="Машина" onChange={(e) => setMachine(e.currentTarget.value)}>
@@ -53,7 +53,7 @@ export function JournalScreen() {
           {`ledger.read: ${error}`}
         </Note>
       ) : null}
-      <div data-ledger="">
+      <Sec data-ledger="">
         {shown.length
           ? shown.map((e, i) => (
               <div key={e.id} style={{ display: "contents" }}>
@@ -64,8 +64,8 @@ export function JournalScreen() {
           : loading
             ? "…"
             : "Записей нет."}
-      </div>
+      </Sec>
       {more ? <Btn onClick={() => void older()}>Раньше</Btn> : null}
-    </Pad>
+    </Page>
   );
 }
