@@ -426,6 +426,11 @@ func (r *fakeRelay) serveWorker(w http.ResponseWriter, req *http.Request) {
 	r.mu.Lock()
 	r.keys = append(r.keys, fmt.Sprint(f["key"]))
 	r.mu.Unlock()
+	// как настоящие Worker'ы (protocol accepts): запрос без v — отказ словом
+	if f["v"] != float64(1) {
+		json.NewEncoder(w).Encode(map[string]any{"type": "reply", "id": f["id"], "ok": false, "error": "contract_mismatch"})
+		return
+	}
 	switch req.URL.Path {
 	case "/releases":
 		out, ok := r.planReply(f)
