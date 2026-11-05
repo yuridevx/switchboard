@@ -76,7 +76,7 @@ export function fold(msgs: readonly Msg[], sub = false): View {
   const replies = new Map<string, Extract<Row, { k: "reply" }>>();
   const early = new Map<string, { content: unknown; error: boolean }>();
   const ended = new Set<string>();
-  const retracted = new Set<string>(msgs.flatMap((m) => (m.subtype === "model_refusal_fallback" ? (m.retracted_message_uuids ?? m.retractedMessageUuids ?? []) : [])));
+  const retracted = new Set<string>(msgs.flatMap((m) => (m.subtype === "model_refusal_fallback" ? (m.retracted_message_uuids ?? []) : [])));
   let boundary: Extract<Row, { k: "sys" }> | null = null;
   let cost = 0;
   let n = 0;
@@ -317,9 +317,9 @@ export function fold(msgs: readonly Msg[], sub = false): View {
         break;
       case "compact_boundary": {
         v.compacting = false;
-        const meta = m.compact_metadata ?? m.compactMetadata ?? {};
-        const pre = meta.pre_tokens ?? meta.preTokens;
-        const post = meta.post_tokens ?? meta.postTokens;
+        const meta = m.compact_metadata ?? {};
+        const pre = meta.pre_tokens;
+        const post = meta.post_tokens;
         const head = `контекст сжат${pre ? ` · ${kilo(pre)}` : ""}${post ? ` → ${kilo(post)}` : ""}`;
         const sum = [...v.rows].reverse().find((r) => r.k === "sum" && !r.bound);
         if (sum && sum.k === "sum") Object.assign(sum, { head, bound: true });
@@ -373,20 +373,20 @@ export function fold(msgs: readonly Msg[], sub = false): View {
         ban("wait", "shuffle", `${modelName(m.original_model)} ${fallbackWhy(m.trigger)} — этот ход отвечает ${modelName(m.fallback_model)}`);
         break;
       case "model_refusal_fallback": {
-        const to = modelName(m.fallback_model ?? m.fallbackModel);
+        const to = modelName(m.fallback_model);
         const why = area(m.api_refusal_category);
         const body = [m.scope === "local" ? "Только этот ответ: модель сессии прежняя" : `Дальше сессия идёт на ${to}`, why && `Область: ${why}`, m.api_refusal_explanation].filter(Boolean).join(". ");
-        ban("wait", "shuffle", `${modelName(m.original_model ?? m.originalModel)} отказалась — ответ переписан моделью ${to}`, body);
+        ban("wait", "shuffle", `${modelName(m.original_model)} отказалась — ответ переписан моделью ${to}`, body);
         break;
       }
       case "model_refusal_no_fallback": {
-        const edit = m.refused_user_message_uuid ?? m.refusedUserMessageUuid;
+        const edit = m.refused_user_message_uuid;
         const prev = [...v.rows].reverse().find((r) => r.k === "ban" && r.refusal);
         const why = m.api_refusal_explanation;
         if (prev && prev.k === "ban") {
           prev.body = [prev.body, why].filter(Boolean).join(". ") || undefined;
           prev.edit = edit;
-        } else if (!sub) push({ k: "ban", tone: "bad", icon: "shield-off", title: `${modelName(m.original_model ?? m.originalModel)} отказалась отвечать`, refusal: true, edit, ...(why ? { body: why } : {}) });
+        } else if (!sub) push({ k: "ban", tone: "bad", icon: "shield-off", title: `${modelName(m.original_model)} отказалась отвечать`, refusal: true, edit, ...(why ? { body: why } : {}) });
         break;
       }
       case "task_started": {

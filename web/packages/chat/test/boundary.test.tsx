@@ -209,12 +209,6 @@ const SDK: Array<[string, Msg[], (f: Feed) => Promise<void> | void]> = [
   }],
   ["6636 стоимость после перезапуска процесса — счёт с начала", [{ type: "result", uuid: uid(), subtype: "success", total_cost_usd: 7 }, { type: "result", uuid: uid(), subtype: "success", total_cost_usd: 1 }, { type: "result", uuid: uid(), subtype: "success", total_cost_usd: 1.5 }], (f) => void expect(f.qq(".chat-res").map((x) => x.textContent)).toEqual(["ход закончен · $7,00", "ход закончен · $1,00", "ход закончен · $0,50"])],
   ["6638 файлы сохранились не все", [sys("files_persisted", { files: [{ filename: "a.pdf" }], failed: [{ filename: "b.pdf", error: "нет места" }] })], (f) => void expect(f.q(".chat-line.bad")!.textContent).toBe("Файлы сохранены: a.pdf · Не сохранились: b.pdf: нет места")],
-  ["6639 записи файла разговора: поля другим регистром", (() => { const a = text("начал"); const u = human("вопрос"); return [sys("compact_boundary", { compactMetadata: { preTokens: 90_000, postTokens: 8000 } }), a, sys("model_refusal_fallback", { originalModel: "claude-fable-5-1", fallbackModel: "claude-opus-5-5", retractedMessageUuids: [a.uuid] }), u, sys("model_refusal_no_fallback", { refusedUserMessageUuid: u.uuid, originalModel: "claude-opus-5-5" })]; })(), (f) => {
-    expect(f.text()).toContain("контекст сжат · 90 К → 8 К");
-    expect(f.text()).not.toContain("начал");
-    expect(f.text()).toContain("Fable 5.1 отказалась — ответ переписан моделью Opus 5.5");
-    expect(pressIn(f.el(), "Изменить сообщение")).toBeDefined();
-  }],
   ["6210 повтор API подряд — одна строка с последней попыткой", [sys("api_retry", { attempt: 1, max_retries: 10 }), sys("api_retry", { attempt: 2, max_retries: 10 })], (f) => {
     expect(f.qq(".chat-sys").map((x) => x.textContent)).toEqual(["повтор запроса к API · 2 из 10"]);
   }],
