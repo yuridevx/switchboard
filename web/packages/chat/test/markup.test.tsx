@@ -160,6 +160,23 @@ describe("строки ленты", () => {
   });
 });
 
+describe("задача от родителя", () => {
+  // источник: опыт на настоящем SDK 5 нояб.: текст задачи с подсказкой приходит из истории как есть, строка показывалась своим пузырём с тегом
+  const TASK = '<fleet-message from="lead@pc">\nОбнови README\n</fleet-message>\n(Задача от родителя lead@pc: итог этого хода уйдёт ему сам — fleet.send ему не нужен.)';
+  it.each([
+    ["из истории", {}],
+    ["из ленты", { origin: { kind: "peer", from: "lead@pc", name: "lead@pc" } }],
+  ])("одна строка «сессия Claude · родитель», без тега и подсказки: %s", async (_n, x) => {
+    const f = await feed([human(TASK, x)]);
+    expect(f.q(".chat-me")).toBeNull();
+    const row = f.q(".chat-in.fleet")!;
+    expect(row.textContent).toContain("сессия Claude · lead@pc");
+    expect(row.textContent).toContain("Обнови README");
+    expect(row.textContent).not.toContain("fleet-message");
+    expect(row.textContent).not.toContain("Задача от родителя");
+  });
+});
+
 describe("карточка инструмента", () => {
   it("шапка и значки: заголовок раскрытия, размеры, подпись субагента, сводка задач", async () => {
     const f = await feed([toolUse("a", "Agent", { description: "x", subagent_type: "Explore" }), toolUse("b", "Bash", { command: "c" }), res("b", "нет", true), toolUse("g", "Grep", { pattern: "x" }), res("g"), toolUse("t", "TodoWrite", { todos: [{ content: "сделать", activeForm: "делаю", status: "in_progress" }] })], BUSY);

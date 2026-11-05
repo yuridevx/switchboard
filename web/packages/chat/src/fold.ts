@@ -142,7 +142,7 @@ function picsOf(blocks: Msg[]): string[] {
 }
 
 /** Теги сообщений не от человека. */
-const TAGGED = /^\s*<(fleet-message|fleet-question|cross-session-message|agent-message)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>\s*$/;
+const TAGGED = /^\s*<(fleet-message|fleet-question|cross-session-message|agent-message)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>(?:\n\(Задача от родителя[^\n]*\))?\s*$/;
 const COMMAND = /<command-name>\s*([^<]*?)\s*<\/command-name>|<command-message>\s*([^<]*?)\s*<\/command-message>/;
 const ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 const STDOUT = /^\s*<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
