@@ -1,13 +1,16 @@
-// Отказ словом и журнал «Выпусков»: Workers Logs, одна строка JSON в общем формате журналов. Ссылок и ключей в журнале нет.
-export class Refusal {
-  word: string;
-  why: string;
-  constructor(word: string, why: string) {
-    this.word = word;
-    this.why = why;
+// Отказ словом и журнал: Workers Logs, одна строка JSON в общем формате журналов.
+export class Refusal extends Error {
+  constructor(
+    readonly word: string,
+    readonly why: string,
+    readonly journal: Record<string, unknown> = {},
+  ) {
+    super(`${word}: ${why}`);
   }
 }
 
-export function log(rec: { kind: "stop" | "refuse" | "note"; ev: string; word?: string; why?: string; [field: string]: unknown }): void {
-  console.log(JSON.stringify({ t: new Date().toISOString(), part: "releases", ...rec }));
+export type Line = { kind: "refuse" | "note" | "stop"; ev: string; word?: string; why?: string; [field: string]: unknown };
+
+export function log(line: Line): void {
+  console.log(JSON.stringify({ t: new Date().toISOString(), part: "releases", ...line }));
 }

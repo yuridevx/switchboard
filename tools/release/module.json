@@ -1,7 +1,7 @@
 {
   "name": "release",
   "type": "tool",
-  "version": "2.6.0",
+  "version": "2.6.1",
   "provides": {
     "release.format": 1
   },
