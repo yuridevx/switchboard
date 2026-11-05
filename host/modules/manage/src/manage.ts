@@ -1,6 +1,5 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname } from "node:path";
 import { clientPath, isRefusal, refuse, tildePath } from "@switchboard/host";
 import type { Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
 
@@ -8,7 +7,8 @@ import type { Frame, Host, Module, QueryPart, Session } from "@switchboard/host"
 type Spec = { model?: string; effort?: string; fast?: boolean; style?: string; thinking?: boolean; parent?: string; mode?: string; remove_after_turn?: string };
 
 const DEFAULT_MODE = "bypassPermissions";
-const NAME = /^[\w.-]+$/;
+const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const LIVE = new Set(["idle", "busy", "waiting"]);
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 const CALLABLE = new Set([
   "interrupt", "getContextUsage", "supportedCommands", "supportedModels", "supportedAgents", "mcpServerStatus", "toggleMcpServer", "reconnectMcpServer",
@@ -26,7 +26,6 @@ function checkSpec(f: Frame, where: string): void {
   for (const [k, ok] of Object.entries(RULES)) if (f[k] !== undefined && !ok(f[k])) throw refuse("bad_spec", `${where}: ${k} = ${JSON.stringify(f[k])}`);
 }
 const message = (e: unknown) => (e instanceof Error ? e.message : String(e));
-const live = (s: Session) => s.state !== "stopped" && s.state !== "failed";
 const specOf = (s: Session) => s.store<Spec>().get() ?? {};
 
 async function sdk(s: Session, name: string, ...args: unknown[]): Promise<unknown> {
@@ -47,28 +46,19 @@ async function starting<T>(callsign: string, start: () => Promise<T>): Promise<T
   }
 }
 
-/** Путь можно построить: ближайшее, что уже есть, — папка. */
-function buildable(path: string): boolean {
-  const st = statSync(path, { throwIfNoEntry: false });
-  if (st) return st.isDirectory();
-  return dirname(path) === path ? false : buildable(dirname(path));
-}
-
 export function make({ home = homedir() }: { home?: string } = {}): Module {
   let host: Host;
-  /** Открытые запросом, ещё без первого старта: им заголовок. */
-  const titled = new Set<string>();
+  /** Открываются сейчас: имя занято до записи ядра, первому старту — заголовок. */
+  const opening = new Set<string>();
 
-  const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", v: 1, to: ".ledger", ev, text, by, machine: host.machine, callsign } as Frame);
+  const ledger = (ev: string, callsign: string, text: string, by: unknown) => host.emit({ type: "ledger.add", to: ".ledger", ev, text, by, machine: host.machine, callsign } as Frame);
   const session = (req: Frame) => host.session(req.callsign as string)!;
 
-  /** Открытие долгое: номер занят с выбора, а не с конца открытия. */
-  const opening = new Set<string>();
+  const taken = (callsign: string) => !!host.session(callsign) || opening.has(callsign);
   function firstFree(name: string): string {
-    for (let n = 1; ; n++) {
-      const callsign = `${name}-${n}@${host.machine}`;
-      if (!host.session(callsign) && !opening.has(callsign)) return callsign;
-    }
+    let n = 1;
+    while (taken(`${name}-${n}@${host.machine}`)) n++;
+    return `${name}-${n}@${host.machine}`;
   }
 
   async function forget(s: Session, by: unknown): Promise<void> {
@@ -87,7 +77,6 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
       for (const k of ["model", "effort", "fast", "style", "thinking"] as const) if (req[k] !== undefined) Object.assign(spec, { [k]: req[k] });
       if (typeof req.from === "string") spec.parent = req.from;
       if (Object.keys(spec).length) s.store<Spec>().set(spec);
-      if (req.name !== undefined) titled.add(s.info.callsign);
     },
 
     session(s) {
@@ -113,7 +102,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
       if (spec.model) part.model = spec.model;
       if (spec.effort) part.effort = spec.effort;
       if (Object.keys(settings).length) part.settings = settings;
-      if (titled.delete(s.info.callsign)) part.title = s.info.callsign.split("@")[0];
+      if (opening.has(s.info.callsign)) part.title = s.info.callsign.split("@")[0];
       return part;
     },
 
@@ -127,12 +116,13 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
     on: {
       event(s, msg) {
         const mode = (msg as { permissionMode?: unknown }).permissionMode;
-        if (msg.type !== "system" || typeof mode !== "string") return;
+        const { subtype } = msg as { subtype?: string };
+        if (msg.type !== "system" || (subtype !== "init" && subtype !== "status") || typeof mode !== "string") return;
         s.store<Spec>().update(({ mode: _, ...rest } = {}) => (mode === DEFAULT_MODE ? rest : { ...rest, mode }));
       },
       state(s, state) {
         const by = specOf(s).remove_after_turn;
-        if (state === "idle" && by) void forget(s, by);
+        if (state === "idle" && by) return forget(s, by);
       },
     },
 
@@ -141,16 +131,21 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         const { name, dir } = req;
         if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_name", `session.open: имя ${JSON.stringify(name)}`);
         if (req.number !== undefined && typeof req.number !== "boolean") throw refuse("bad_spec", `session.open ${name}: number`);
-        checkSpec(req, `session.open ${name}`);
-        const callsign = req.number ? firstFree(name) : `${name}@${host.machine}`;
-        if (host.session(callsign)) throw refuse("name_taken", `session.open: ${callsign} уже есть`);
-        const where = `session.open ${callsign}`;
-        const wrong = (k: string, type: string) => req[k] !== undefined && typeof req[k] !== type;
-        for (const [k, type] of [["mkdir", "boolean"], ["resume", "string"], ["fork", "boolean"], ["point", "number"]]) if (wrong(k, type)) throw refuse("bad_spec", `${where}: ${k}`);
+        const where = `session.open ${name}@${host.machine}`;
+        const wrong = (k: string, type: string) => {
+          if (req[k] !== undefined && typeof req[k] !== type) throw refuse("bad_spec", `${where}: ${k}`);
+        };
         const cwd = typeof dir === "string" ? clientPath(dir, home) : null;
         if (!cwd) throw refuse("bad_dir", `${where}: папка ${JSON.stringify(dir)} не от ~ и не полная`);
-        const there = statSync(cwd, { throwIfNoEntry: false })?.isDirectory();
-        if (!there && !(req.mkdir && buildable(cwd))) throw refuse("bad_dir", `${where}: папки ${dir} нет`);
+        wrong("mkdir", "boolean");
+        const there = !!statSync(cwd, { throwIfNoEntry: false })?.isDirectory();
+        if (!there && !req.mkdir) throw refuse("bad_dir", `${where}: папки ${dir} нет`);
+        checkSpec(req, `session.open ${name}`);
+        wrong("resume", "string");
+        wrong("fork", "boolean");
+        wrong("point", "number");
+        const callsign = req.number ? firstFree(name) : `${name}@${host.machine}`;
+        if (taken(callsign)) throw refuse("name_taken", `session.open: ${callsign} уже есть`);
         opening.add(callsign);
         const s = await starting(callsign, () =>
           host.open({ callsign, cwd, resume: (req.resume as string) || undefined, fork: req.fork as boolean | undefined, point: req.point as number | undefined, mkdir: !there, opening: { ...req, from: ctx.from } }),
@@ -165,21 +160,23 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         const { callsign } = s.info;
         checkSpec(req, `session.update ${callsign}`);
         const given = (k: string) => req[k] !== undefined;
-        const running = live(s);
-        const now: string[] = [];
-        if (given("model") && running) await sdk(s, "setModel", req.model);
-        const flags: Record<string, unknown> = {};
-        if (given("effort")) flags.effortLevel = req.effort;
-        for (const [k, key] of Object.entries(SETTING)) if (given(k)) flags[key] = req[k];
-        if (Object.keys(flags).length && running) await sdk(s, "applyFlagSettings", flags);
         const fields = ["model", "effort", "fast", "style", "thinking"].filter(given);
-        if (fields.length) s.store<Spec>().update((cur) => ({ ...cur, ...Object.fromEntries(fields.map((k) => [k, req[k]])) }));
-        if (running) now.push(...fields);
+        if (fields.length) {
+          s.store<Spec>().update((cur) => ({ ...cur, ...Object.fromEntries(fields.map((k) => [k, req[k]])) }));
+          // поля model и effort меняются вне событий SDK: roster узнаёт сразу
+          s.refresh();
+        }
+        const now: string[] = [];
+        if (LIVE.has(s.state)) {
+          if (given("model")) await sdk(s, "setModel", req.model);
+          const flags = Object.fromEntries(fields.filter((k) => k !== "model").map((k) => [k === "effort" ? "effortLevel" : SETTING[k], req[k]]));
+          if (Object.keys(flags).length) await sdk(s, "applyFlagSettings", flags);
+          now.push(...fields);
+        }
         if (given("title")) {
           await sdk(s, "renameSession", req.title);
           now.push("title");
         }
-        s.refresh();
         return { now };
       },
 
@@ -189,7 +186,7 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         const { method, args = [] } = req;
         if (typeof method !== "string" || !CALLABLE.has(method)) throw refuse("unknown_method", `session.call ${callsign}: ${String(method)} — нет в списке открытых`);
         if (!Array.isArray(args)) throw refuse("bad_spec", `session.call ${callsign}: args не массив`);
-        if (!live(s)) throw refuse("stopped", `session.call ${callsign}: ${method} — сессия ${s.state}`);
+        if (!LIVE.has(s.state)) throw refuse("stopped", `session.call ${callsign}: ${method} — сессия ${s.state}`);
         return sdk(s, method, ...args);
       },
 

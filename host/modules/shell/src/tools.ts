@@ -6,7 +6,7 @@ import { tool } from "@anthropic-ai/claude-agent-sdk";
 import { IMAGE_TYPES } from "@switchboard/host";
 import type { Attachment, Host, Result } from "@switchboard/host";
 import { z } from "zod";
-import { duration, filesDir } from "./runs.ts";
+import { duration, filesDir, stateWord } from "./runs.ts";
 import type { Snapshot } from "./runs.ts";
 
 type Refused = Extract<Result, { ok: false }>;
@@ -15,7 +15,7 @@ const say = (text: string) => ({ content: [{ type: "text" as const, text }] });
 const fail = (text: string) => ({ ...say(text), isError: true });
 
 /** Отказ машины — словами для модели: что случилось и что делать. */
-function refusal(r: Refused, machine: string, run?: string): string {
+function refusal(r: Refused, machine: string, run: string | null = null): string {
   const texts: Record<string, string> = {
     no_shell: `на машине ${machine} нет такого шелла — какие есть, покажет info`,
     bad_frame: "запрос не по форме: шелл bash · pwsh · powershell, timeout — секунды больше 0; при background: true timeout обязателен",
@@ -23,8 +23,8 @@ function refusal(r: Refused, machine: string, run?: string): string {
     disconnected: `связь с машиной ${machine} оборвалась, пока ход ждал; если её Host жив — итог отдаст wait по run`,
     shutting_down: `Host машины ${machine} останавливается и новых запросов не берёт`,
     unknown_request: `на машине ${machine} нет модуля shell`,
-    timeout: `машина ${machine} не ответила за 10 с, повтори`,
-    no_run: `запуска ${run ?? null} на ${machine} нет: не было, прошли сутки после конца или Host машины перезапускался`,
+    timeout: run ? `запуск ${run} мог начаться, смотри wait по run` : `машина ${machine} не ответила за 10 с, повтори`,
+    no_run: `запуска ${run} на ${machine} нет: не было, прошли сутки после конца или Host машины перезапускался`,
     too_large: `ответ ${r.bytes} байт больше кадра рации (32 МиБ): сократи вывод (grep, tail) или сожми файлы в $SB_OUT`,
   };
   return `${r.error}: ${texts[r.error] ?? "отказ"}`;
@@ -45,15 +45,14 @@ function fileBlocks(run: string, { name, media_type: type, data }: Attachment) {
   const bytes = Buffer.from(data, "base64");
   const text = asText(bytes);
   if (text !== null) return [{ type: "text" as const, text: `── ${name} (${type}) ──\n${text}` }];
-  const path = join(filesDir(run), ...name.split("/"));
+  const path = join(filesDir(run), ...name.split("/").filter((x) => x && x !== "." && x !== ".."));
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(path, bytes);
   return [{ type: "text" as const, text: `── ${name} (${type}, ${Math.ceil(bytes.length / 1024)} КБ) — файл: ${path}` }];
 }
 
 function blocks(machine: string, run: string, s: Snapshot, note = "") {
-  const state = s.state === "exit" && typeof s.code === "number" ? `exit ${s.code}` : s.state;
-  const head = `${machine} · ${state} · ${duration(s.ms)} · run ${run}${note}\n── stdout ──\n${s.stdout || "(пусто)"}${s.stderr ? `\n── stderr ──\n${s.stderr}` : ""}`;
+  const head = `${machine} · ${stateWord(s)} · ${duration(s.ms)} · run ${run}${note}\n── stdout ──\n${s.stdout || "(пусто)"}${s.stderr ? `\n── stderr ──\n${s.stderr}` : ""}`;
   return { content: [{ type: "text" as const, text: head }, ...(s.files ?? []).flatMap((f) => fileBlocks(run, f))] };
 }
 
@@ -84,12 +83,9 @@ export function toolsOf(me: string, host: () => Host) {
       async ({ machine: m, shell, script, stdin, timeout, background }, extra) => {
         const run = randomBytes(4).toString("hex");
         // ждущий run: Esc гасит скрипт
-        const esc = () => void host().request("shell.kill", { machine: m, run });
-        const signal = background ? undefined : (extra as { signal?: AbortSignal }).signal;
-        signal?.addEventListener("abort", esc, { once: true });
+        if (!background) (extra as { signal?: AbortSignal }).signal?.addEventListener("abort", () => void host().request("shell.kill", { machine: m, run }), { once: true });
         const r = await host().request("shell.run", { machine: m, from: me, run, shell, script, stdin, timeout, background });
-        signal?.removeEventListener("abort", esc);
-        if (!r.ok) return fail(r.error === "timeout" ? `timeout: запуск ${run} мог начаться, смотри wait по run` : refusal(r, m, run));
+        if (!r.ok) return fail(refusal(r, m, run));
         const s = r.result as Snapshot;
         return blocks(m, run, s, background && s.state === "running" ? " — идёт в фоне: wait — посмотреть или дождаться, kill — погасить; о конце придёт сообщение флота" : "");
       },

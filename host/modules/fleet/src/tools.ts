@@ -22,7 +22,8 @@ function refusal(to: string, r: Refused): string {
   return `Не выполнено: ${to} — ${r.error}${r.why ? `. ${r.why}` : ""}`;
 }
 
-const defined = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
+/** Необязательные поля запроса: пустое — как не названное. */
+const filled = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
 
 /** Каждый блок текста и каждый вызов инструмента — строкой; остальное модели не нужно. */
 function historyLines(messages: Record_[]): string {
@@ -30,7 +31,7 @@ function historyLines(messages: Record_[]): string {
     if (type !== "user" && type !== "assistant") return [];
     const content = message?.content ?? [];
     const blocks: Block[] = typeof content === "string" ? [{ type: "text", text: content }] : content;
-    return blocks.flatMap((b) => (b.type === "text" && b.text ? [`${type}: ${b.text}`] : b.type === "tool_use" ? [`tool: ${b.name}`] : []));
+    return blocks.flatMap((b) => (b.type === "text" && b.text ? [`${type}: ${b.text}`] : b.type === "tool_use" && b.name ? [`tool: ${b.name}`] : []));
   });
   return lines.join("\n") || "записей нет";
 }
@@ -58,13 +59,13 @@ async function fleetList(me: string, { host, records }: Env) {
   };
   const list = {
     me,
-    sessions: roster.sessions.map(({ callsign, state, parent, model }) => ({ callsign, state, parent: parent ?? null, model: model ?? null, label: labelOf(labels, callsign) ?? null, project: projectName(callsign) })),
+    sessions: roster.sessions.map(({ callsign, state, parent, model }) => ({ callsign, state: state ?? null, parent: parent ?? null, model: model ?? null, label: labelOf(labels, callsign) ?? null, project: projectName(callsign) })),
     machines: roster.machines.map(({ machine }) => ({ machine, label: labelOf(labels, `@${machine}`) ?? null })),
     projects: (recs ?? []).filter((r) => r.id !== NONE).map((r) => r.name),
     clients: roster.clients,
     ...(word ? { meta: `имена и проекты недоступны: ${word}` } : {}),
   };
-  return say(JSON.stringify(list, null, 1));
+  return say(JSON.stringify(list));
 }
 
 /** Инструменты MCP сессии me. env — ядро и записи: появляются на старте Host, тексты от них не зависят. */
@@ -80,7 +81,7 @@ export function toolsOf(me: string, env: () => Env) {
       async ({ to, text }) => {
         const { host } = env();
         if (kindOf(to) === "session") return ok(to, `доставлено: ${to}`)(await host.request("message", { to, text, from: me }));
-        const sent = host.emit({ type: "message", v: 1, from: me, to, text });
+        const sent = host.emit({ type: "message", from: me, to, text });
         if (!sent.ok) return fail(refusal(to, sent));
         void host.request("notify", { clients: [to], frame: { type: "message", from: me, notify: { title: me, body: text, tag: randomUUID() } } });
         return say(`отправлено: ${to}`);
@@ -115,13 +116,14 @@ export function toolsOf(me: string, env: () => Env) {
       async ({ name, dir, text, machine, profile, model, effort, slot, project }) => {
         const { host, records } = env();
         const where = machine ?? host.machine;
-        const opened = await host.request("session.open", defined({ machine: where, name, dir, profile, model, effort, slot, from: me }));
+        const opened = await host.request("session.open", { machine: where, name, dir, ...filled({ profile, model, effort }), ...(slot === undefined ? {} : { slot }), from: me });
         if (!opened.ok) return fail(refusal(`${name}@${where}`, opened));
         const { callsign, slot: used } = opened.result as { callsign: string; slot?: string | null };
-        const task = await host.request("message", { to: callsign, text, from: me });
-        if (!task.ok) return fail(`открыта: ${callsign}, но задача не доставлена — ${task.error}`);
+        const shown = used ? `${callsign} · слот ${used}` : callsign;
         const word = project === undefined ? null : await place(records, callsign, project);
-        return say(`открыта: ${callsign}${used ? ` · слот ${used}` : ""}; задача во вводе, итог хода придёт сам${word ? `; проект не записан: ${word}` : ""}`);
+        const task = await host.request("message", { to: callsign, text, from: me });
+        if (!task.ok) return fail(`открыта: ${shown}, но задача не доставлена — ${task.error}`);
+        return say(`открыта: ${shown}; задача во вводе, итог хода придёт сам${word ? `; проект не записан: ${word}` : ""}`);
       },
     ),
 
@@ -130,7 +132,7 @@ export function toolsOf(me: string, env: () => Env) {
       "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.",
       { callsign: z.string(), limit: z.number().int().min(1).optional().describe("сколько записей; по умолчанию 20") },
       async ({ callsign, limit }) => {
-        const r = await env().host.read("session.history", { callsign, limit: limit ?? 20, before: null, from: me });
+        const r = await env().host.request("session.history", { callsign, limit: limit ?? 20, before: null, from: me });
         return r.ok ? say(historyLines((r.result as { messages: Record_[] }).messages)) : fail(refusal(callsign, r));
       },
     ),
@@ -157,10 +159,10 @@ export function toolsOf(me: string, env: () => Env) {
         if (project !== undefined) {
           const word = await place(records, callsign, project);
           if (word) return fail([...done, `Не выполнено: проект ${callsign} — ${word}`].join("; "));
-          done.push(project.trim() ? `проект ${callsign}: ${project}` : `${callsign}: без проекта`);
+          done.push(project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`);
         }
-        if (!done.length || model !== undefined || effort !== undefined || title !== undefined) {
-          const r = await host.request("session.update", defined({ callsign, model, effort, title, from: me }));
+        if (!done.length || model || effort || title) {
+          const r = await host.request("session.update", { callsign, ...filled({ model, effort, title }), from: me });
           if (!r.ok) return fail(refusal(callsign, r));
           done.push(`сразу: ${(r.result as { now: string[] }).now.join(", ") || "—"}`);
         }

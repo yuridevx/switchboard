@@ -60,11 +60,11 @@ export function make() {
         if (run.ended === undefined) runs.kill(run, "killed");
         return undefined;
       },
-      async "shell.info"(_req, ctx) {
+      async "shell.info"() {
         const found = await Promise.all(
           SHELLS.map(async (name) => {
             const path = findShell(name);
-            return path ? [[name, { version: await shellVersion(name, path, ctx.signal), path }]] : [];
+            return path ? [[name, { version: await shellVersion(name, path), path }]] : [];
           }),
         );
         return { shells: Object.fromEntries(found.flat() as Array<[string, unknown]>) };

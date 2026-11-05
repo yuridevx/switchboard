@@ -4,9 +4,9 @@ import { claudeDir } from "@switchboard/host";
 import type { Host, Module, Session } from "@switchboard/host";
 
 /** Раздел сессии. account — кто был в слоте, когда мост включился; null — вход машины. */
-type Bridge = { url?: string; bridge?: string; account: string | null };
+type Bridge = { url?: string; bridge?: string; account?: string | null };
+type Binding = { type?: string; sessionId?: string; bridgeSessionId?: string };
 
-const loginName = (account: string | null) => account ?? "вход машины";
 const accountOf = (s: Session) => (s.field("account") as string | undefined) ?? null;
 
 /** Файл разговора: папку проекта называет сам claude. */
@@ -17,13 +17,13 @@ function transcriptOf(root: string, sessionId: string): string | null {
 }
 
 /** Последняя запись привязки в файле — так её прочитает claude. Недописанная строка — не запись. */
-function lastBridge(content: string): string | null {
-  const lines = content.split("\n");
+function lastBridge(file: string): Binding | null {
+  const lines = readFileSync(file, "utf8").split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes('"bridge-session"')) continue;
     try {
-      const rec = JSON.parse(lines[i]) as { type?: string; bridgeSessionId?: string };
-      if (rec.type === "bridge-session") return rec.bridgeSessionId ?? null;
+      const rec = JSON.parse(lines[i]) as Binding;
+      if (rec.type === "bridge-session") return rec;
     } catch {
       // claude ещё пишет эту строку
     }
@@ -41,32 +41,36 @@ export function make(o: { claudeDir?: string } = {}): Module {
     const { callsign, session_id: sessionId, start } = s.info;
     const file = transcriptOf(o.claudeDir ?? claudeDir(), sessionId);
     if (!file) return;
-    const content = readFileSync(file, "utf8");
-    const bound = lastBridge(content);
-    if (!bound) return;
-    const rec = s.store<Bridge>().get();
+    const bound = lastBridge(file);
+    if (!bound?.bridgeSessionId) return;
+    const account = s.store<Bridge>().get()?.account;
     const now = accountOf(s);
-    const reason = start === "point" ? "старт из точки" : !rec ? "записи нет" : rec.account !== now ? `${loginName(rec.account)} → ${loginName(now)}` : null;
+    const reason = start === "point" ? "старт из точки" : account === undefined ? "записи нет" : account !== now ? `${account} → ${now}` : null;
     if (!reason) return;
-    const line = JSON.stringify({ type: "bridge-session", sessionId, bridgeSessionId: "", lastSequenceNum: 0 });
-    appendFileSync(file, `${content.endsWith("\n") ? "" : "\n"}${line}\n`);
-    host.log({ ev: "unbind", callsign, why: `привязка снята: ${reason} · ${bound}` });
+    // не вышло записать — исключение: ядро выключит модуль в сессии
+    appendFileSync(file, JSON.stringify({ type: "bridge-session", sessionId: bound.sessionId ?? sessionId, bridgeSessionId: "", lastSequenceNum: 0 }) + "\n");
+    host.log({ ev: "unbind", callsign, why: `привязка снята: ${reason} · ${bound.bridgeSessionId}` });
   }
 
   async function enable(s: Session): Promise<void> {
     const { callsign, start } = s.info;
+    let r: { session_url?: string; bridge_session_id?: string } | undefined;
     try {
-      const r = (await s.sdk("enableRemoteControl", true)) as { session_url?: string; bridge_session_id?: string } | undefined;
-      refused.delete(callsign);
-      const store = s.store<Bridge>();
-      const account = start === "attach" && store.get() ? store.get()!.account : accountOf(s);
-      store.set({ url: r?.session_url, bridge: r?.bridge_session_id, account });
-      host.log({ ev: "remote", callsign, why: `Remote Control включён: ${r?.session_url ?? "—"} · ${loginName(account)}` });
+      r = (await s.sdk("enableRemoteControl", true)) as typeof r;
     } catch (e) {
       const why = e instanceof Error ? e.message : String(e);
       refused.set(callsign, why);
       host.log({ kind: "stop", ev: "remote", callsign, why });
+      s.refresh();
+      return;
     }
+    refused.delete(callsign);
+    const store = s.store<Bridge>();
+    // attach: мост живёт в процессе с прежним аккаунтом
+    const before = store.get()?.account;
+    const account = start === "attach" && before !== undefined ? before : accountOf(s);
+    store.set({ url: r?.session_url, bridge: r?.bridge_session_id, account });
+    host.log({ ev: "remote", callsign, why: `Remote Control включён: ${r?.session_url ?? "—"} · ${account ?? "вход машины"}` });
     s.refresh();
   }
 
@@ -87,9 +91,7 @@ export function make(o: { claudeDir?: string } = {}): Module {
       },
     },
     on: {
-      open(s) {
-        void enable(s);
-      },
+      open: (s) => enable(s),
     },
   };
 }

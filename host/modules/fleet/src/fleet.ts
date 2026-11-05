@@ -11,7 +11,7 @@ type TurnEnd = { type: string; subtype?: string; is_error?: boolean; result?: st
 /** Текст итога хода: что уйдёт родителю. */
 function outcome({ subtype, is_error: failed, result }: TurnEnd): string {
   if (failed && result) return `ход кончился ошибкой: ${result}`;
-  return subtype && subtype !== "success" ? `ход кончился: ${subtype}` : (result ?? "");
+  return failed || subtype !== "success" ? `ход кончился: ${subtype}` : (result ?? "");
 }
 
 export function make() {
