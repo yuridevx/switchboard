@@ -307,7 +307,7 @@ describe("профили", () => {
   });
 
   it("5604 · профилей нет на «Машинах» и в «Настройках»: synchronizing — только здесь", async () => {
-    const t = await pult({ relay: profilesRelay(), url: "/#machines" });
+    const t = await pult({ relay: profilesRelay(), url: "/#accounts" });
     await flush(10);
     expect(t.btn(null, "Синхронизировать профили")).toBeNull();
     expect(t.relay.sent("machine.profiles")).toHaveLength(0);

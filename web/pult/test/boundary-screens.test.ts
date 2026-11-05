@@ -4268,23 +4268,20 @@ describe("Найдено сверкой деревьев", () => {
     expect(absent.$('[data-act="open"]')!.textContent).toBe("Открыть");
   });
 
-  it("машины: открытый проект сужает сразу; нет machine.login — нет «Аккаунтов»; ушедшая — без кнопок; нет ответа — «…»", async () => {
+  it("машины: нет machine.login — нет «＋ войти»; нет ответа keeper — «…»; ушедшая — без кнопок", async () => {
     const r = cut("machine.login");
     const relay = fleetRelay(r);
     relay.handlers["keeper.state"] = () => undefined;
-    relay.scoped = { global: { "fleet.projects": [{ id: "p1", name: "site", sessions: ["site@laptop"] }] } };
-    const t = await pult({ relay, url: "/#card?callsign=site%40laptop" });
+    const t = await pult({ relay, url: "/#accounts" });
     await flush(5);
-    await t.go("#machines");
-    expect(t.$('[data-filter="project"]')!.getAttribute("aria-pressed")).toBe("true");
-    expect(t.$('[data-filter="project"]')!.textContent).toBe("в проекте p1 1");
-    await t.click(t.$('[data-row="laptop"] .mc-head'));
-    expect(t.$('[data-machine="laptop"] .sb-note')!.textContent).toBe("…");
-    expect(t.btn(t.$('[data-machine="laptop"]'), "Аккаунты машины")).toBeNull();
-    expect(t.btn(t.$('[data-machine="laptop"]'), "План в «Выпусках»")).not.toBeNull();
+    expect(t.$('[data-machine="laptop"] [data-login-start]')).toBeNull();
+    await t.click(t.$('[data-machine="laptop"] .ac-mname'));
+    expect(t.$('[data-machine-parts="laptop"] .sb-note')!.textContent).toBe("…");
+    expect(t.btn(t.$('[data-machine-parts="laptop"]'), "План в «Выпусках»")).not.toBeNull();
     relay.setRoster({ ...r, machines: r.machines.filter((m) => m.machine !== "laptop") });
     await flush(5);
-    expect(t.$('[data-machine="laptop"] button')).toBeNull();
+    expect(t.$('[data-machine-parts="laptop"] button')).toBeNull();
+    expect(t.$('[data-machine="laptop"] [data-login-start]')).toBeNull();
   });
 
   it("настройки: вид и отметки переживают вкладку, поиск — нет; ячейка: keeper своим номером, обновляется — upd", async () => {
