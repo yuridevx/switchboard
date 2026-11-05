@@ -55,6 +55,9 @@ describe("командная строка", () => {
     ["адрес машины: её relay", ["@laptop", ...URL_ARG], "wss://relay.test/m/laptop"],
     ["имя без @ — само себе машина", ["site", ...URL_ARG], "wss://relay.test/m/site"],
     ["после адреса ничего не читается: второй --url не считается", ["site@laptop", "--url", "wss://a.test", "--url", "wss://b.test"], "wss://a.test/m/laptop"],
+    ["пустой аргумент вместо ключа — как без него", ["site@laptop", ""], "wss://relay.pfarm.app/m/laptop"],
+    ["пустой аргумент и пустой адрес — настоящий relay", ["site@laptop", "", ""], "wss://relay.pfarm.app/m/laptop"],
+    ["пустой аргумент и адрес — адрес считается", ["site@laptop", "", "wss://a.test"], "wss://a.test/m/laptop"],
   ])("адрес: %s", (_n, args, url) => {
     expect(run(args, `${KEY}\nтекст`).frames[0]).toEqual({ url });
   });
