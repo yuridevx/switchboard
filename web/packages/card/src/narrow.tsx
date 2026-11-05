@@ -75,7 +75,7 @@ export function NarrowCard({ callsign, tab }: { callsign: string; tab?: string }
                 {busy === "session.stop" ? "Останавливаю…" : "Остановить"}
               </Btn>
             ) : null}
-            {session && !live && canStart ? (
+            {(session?.state === "stopped" || session?.state === "failed") && canStart ? (
               <Btn className="card-act" disabled={!!busy} onClick={() => void act("session.start")}>
                 {busy === "session.start" ? "Запускаю…" : "Запустить"}
               </Btn>

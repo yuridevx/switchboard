@@ -205,7 +205,7 @@ export function rowDrag(o: { root: HTMLElement; list: HTMLElement; row: HTMLElem
     const el = seq[hit] ?? seq.at(-1);
     if (!el) return null;
     const project = el.closest<HTMLElement>(".pjs")!.dataset.proj!;
-    if (hit >= 0 && el.classList.contains("pj")) return { project, before: null, head: el, lineAt: 0 };
+    if (el.classList.contains("pj")) return { project, before: null, head: el, lineAt: 0 };
     const r = el.getBoundingClientRect();
     if (hit >= 0 && y < (r.top + r.bottom) / 2) return { project, before: el.dataset.callsign!, head: null, lineAt: r.top };
     const next = seq[seq.indexOf(el) + 1];

@@ -27,7 +27,7 @@ export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) 
   const list: Array<[string, string]> = [["chat", "Разговор"], ...inserts.map((p): [string, string] => [p.name, p.label]), ["set", "Настройки"], ...(hasLog ? [["log", "Журнал"] as [string, string]] : [])];
   // вкладки нет (машина не умеет, вставка пропала) — «Настройки»
   const cur = list.some(([k]) => k === chosen) ? chosen : "set";
-  const failed = session?.state === "failed" ? failText(session) : "";
+  const failed = session?.state === "failed";
 
   async function start() {
     const r = await app.request("session.start", { callsign });
@@ -47,8 +47,8 @@ export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) 
       <div className="cw-pl" role="status" hidden={!failed}>
         {failed ? (
           <>
-            <b>{`Не запустилась: ${failed}`}</b>
-            <Btn onClick={() => setChosen("log")}>Почему</Btn>
+            <b>{`Не запустилась${failText(session!) ? `: ${failText(session!)}` : ""}`}</b>
+            {hasLog ? <Btn onClick={() => setChosen("log")}>Почему</Btn> : null}
           </>
         ) : null}
       </div>
@@ -59,7 +59,7 @@ export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) 
           {cur === "log" ? <Log callsign={callsign} /> : null}
           {inserts.some((p) => p.name === cur) ? <app.Slot screen={cur} params={{ callsign }} /> : null}
         </div>
-        {info && session ? <Aside callsign={callsign} session={session} /> : null}
+        {info ? <Aside callsign={callsign} session={session} /> : null}
       </div>
     </div>
       {names ? (

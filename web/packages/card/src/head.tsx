@@ -72,6 +72,7 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
   const models = app.use(() => app.mark("models", callsign) as ModelInfo[] | null | undefined);
   const placed = app.use(() => app.placed("card.menu", { callsign }));
   const canStart = app.use(() => app.can(machine, "session.start") === true);
+  const canUpdate = app.use(() => app.can(machine, "session.update") === true);
 
   // окно закрывается щелчком мимо и Esc
   useEffect(() => {
@@ -105,7 +106,7 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
   );
   if (!session) {
     return (
-      <div className="cw-h">
+      <div key="gone" className="cw-h">
         <div className="cw-hl">
           <Dot kind="stop" className="cw-lamp" role="img" title="не на связи" aria-label="не на связи" />
           {nameBtn}
@@ -116,8 +117,8 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
     );
   }
 
-  const failed = session.state === "failed" ? failText(session) : "";
-  const title = failed ? `не запустилась: ${failed}` : stateLabel(session.state).text;
+  const failed = failText(session);
+  const title = session.state === "failed" && failed ? `не запустилась: ${failed}` : stateLabel(session.state).text;
   const stopped = session.state === "stopped" || session.state === "failed";
   const owner = typeof session.by === "string" ? userOf(session.by) : null;
   const slot = slotOf(session);
@@ -142,6 +143,7 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
             <Btn
               className="cw-hb"
               data-pop="model"
+              disabled={!canUpdate}
               aria-expanded={pop === "model"}
               onClick={() => {
                 toggle("model");

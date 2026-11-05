@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { SessionRecord } from "@switchboard/relay";
-import { Btn, CommitIn, Note, Outcome, profileIdOf, profileName, slotOf, useApp, useMachineLoad, useOutcome, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Btn, CommitIn, isLive, Note, Outcome, profileIdOf, profileName, slotOf, useApp, useMachineLoad, useOutcome, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
 
 const Refused = ({ what, text }: { what: string; text: string }) => (
   <Note tone="bad" data-refused={what}>
@@ -21,7 +21,8 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
   const [confirm, setConfirm] = useState(false);
   app.use(() => app.roster()?.machines.find((m) => m.machine === machine)?.contract);
 
-  const live = session?.state === "busy" || session?.state === "idle" || session?.state === "waiting";
+  const live = isLive(session?.state);
+  const down = session?.state === "stopped" || session?.state === "failed";
   const curProfile = profileIdOf(session) ?? "";
   const curSlot = slotOf(session)?.name ?? "";
 
@@ -29,7 +30,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
   async function change(key: string, name: string, body: Record<string, unknown>) {
     say(key, "…");
     const r = await app.request<{ restart?: boolean }>(name, { callsign, ...body });
-    if (r.ok) say(key, r.result?.restart ? "после хода" : "");
+    if (r.ok) say(key, r.result?.restart ? "после хода" : "", "ok");
     else say(key, `Не вышло: ${r.error}`, "bad");
   }
   async function saveTitle(title: string) {
@@ -114,7 +115,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
           <span className="lb">Сессия</span>
           <div className="cw-opts flat">
             {live && can("session.stop") ? <Btn onClick={() => void ctl("session.stop")}>Остановить</Btn> : null}
-            {!live && can("session.start") ? (
+            {down && can("session.start") ? (
               <Btn pri onClick={() => void ctl("session.start")}>
                 Запустить
               </Btn>

@@ -6,6 +6,17 @@ import type { SettingsState } from "./state.ts";
 
 const KEEPER = "keeper";
 
+function Deployed() {
+  const app = useApp();
+  const st = useModule<SettingsState>();
+  const note = app.use(() => st.get().deployed);
+  return note ? (
+    <Note tone={note.tone} role={note.tone === "bad" ? "alert" : "status"}>
+      {note.text}
+    </Note>
+  ) : null;
+}
+
 function Catalog({ list, reload }: { list: Releases; reload(): void }) {
   const app = useApp();
   const st = useModule<SettingsState>();
@@ -102,6 +113,7 @@ function Catalog({ list, reload }: { list: Releases; reload(): void }) {
           </tbody>
         </table>
       </Sec>
+      <Deployed />
     </div>
   );
 }
@@ -198,7 +210,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const hosts = useLoad(() => app.read<{ passes: Pass[] }>("keys.list", { role: "host" }), []);
   const answers = app.use(() => st.keeper.get());
   const online = app.use(() => machinesWith(app));
-  const { deployed } = app.use(() => st.get());
+  const deploying = app.use(() => st.get().deploying);
   const [view, setView] = useState<"machines" | "catalog">("machines");
   const [picked, setPicked] = useState(machine ?? "");
   const [marked, setMarked] = useState<string[]>([]);
@@ -215,17 +227,19 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   async function setPlan(m: string, part: string, change: { pin?: string | null; on?: boolean }) {
     const r = await app.request<{ rev: number }>("releases.set", { machine: m, part, ...change });
     if (!r.ok) return `@${m} ${part}: ${wordText(r.error)}`;
-    app.toast(`@${m}: план rev ${r.result.rev}`, "ok");
     load.reload();
+    await st.keeper.reload(m);
+    app.toast(`@${m}: план rev ${r.result.rev}`, "ok");
     return "";
   }
   async function setMany(part: string, change: { pin: string | null }) {
     const answers_ = await Promise.all(marked.map(async (m) => [m, await app.request("releases.set", { machine: m, part, ...change })] as const));
     setMarked([]);
+    load.reload();
+    await Promise.all(answers_.map(([m]) => st.keeper.reload(m)));
     const good = answers_.filter(([, r]) => r.ok).length;
     const bad = answers_.flatMap(([m, r]) => (r.ok ? [] : [`@${m} ${part}: ${wordText(r.error)}`]));
     app.toast([`${good} ${plural(good, "машина", "машины", "машин")}: план изменён`, ...bad].join("; "), bad.length ? "bad" : "ok");
-    load.reload();
   }
 
   if (!hasCatalog) return <Note>«Выпусков» во флоте нет</Note>;
@@ -252,11 +266,6 @@ export function ReleasesTab({ machine }: { machine?: string }) {
         </Note>
       ) : null}
       {view === "catalog" && list ? <Catalog list={list} reload={load.reload} /> : null}
-      {deployed ? (
-        <Note tone={deployed.tone} role={deployed.tone === "bad" ? "alert" : "status"}>
-          {deployed.text}
-        </Note>
-      ) : null}
       {view === "machines" ? (
         <>
           {list ? (
@@ -274,10 +283,11 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                       </span>
                       <Meter className="st-bar" value={online.length ? Math.round((100 * held) / online.length) : 0} warn={held < online.length} />
                       <Note>{`${held} из ${online.length} ${plural(online.length, "машины", "машин", "машин")}`}</Note>
-                      {back ? <Btn onClick={() => void st.deploy(name, back, load.reload)}>{`Вернуть ${short(back)}`}</Btn> : null}
+                      {back ? <Btn disabled={!!deploying} onClick={() => void st.deploy(name, back, load.reload)}>{`Вернуть ${short(back)}`}</Btn> : null}
                     </div>
                   );
                 })}
+              <Deployed />
             </Sec>
           ) : null}
           {marked.length ? (

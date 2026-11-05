@@ -23,9 +23,9 @@ function Item({ card }: { card: Card }) {
           <TextBtn className="ib-cs" onClick={() => open()}>
             {card.name}
           </TextBtn>
-        ) : (
+        ) : card.name ? (
           <b className="ib-cs">{card.name}</b>
-        )}
+        ) : null}
         {card.label ? <span className="ib-lb">{card.label}</span> : null}
       </div>
       {card.text ? <div className="ib-tx">{card.text}</div> : null}

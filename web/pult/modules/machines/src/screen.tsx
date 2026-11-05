@@ -128,10 +128,10 @@ export function MachinesScreen() {
                       );
                     })}
                   </div> : null}
-                  <Opts>
+                  {left !== undefined ? null : <Opts>
                     <Btn onClick={() => app.open("accounts", { machine: m })}>Аккаунты машины</Btn>
                     {app.wide ? <Btn onClick={() => app.open("settings", { tab: "releases", machine: m })}>План в «Выпусках»</Btn> : null}
-                  </Opts>
+                  </Opts>}
                 </div>
               ) : null,
             ];

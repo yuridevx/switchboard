@@ -41,6 +41,7 @@ export function GitHub() {
     else answer.reload();
   }
   async function save() {
+    if (saving) return;
     setWord("");
     setSaving(true);
     const r = await app.request("github.setup", { code });
@@ -61,17 +62,15 @@ export function GitHub() {
       {answer.error ? <Note tone="bad">{`github.app: ${answer.error}`}</Note> : null}
       {code ? (
         <>
-          <Note>GitHub вернул код нового приложения.</Note>
+          <span>GitHub вернул код нового приложения.</span>
           <Opts>
-            <Btn pri disabled={saving} onClick={() => void save()}>
+            <Btn pri onClick={() => void save()}>
               Сохранить приложение
             </Btn>
           </Opts>
-          {saving ? <Note>Сохраняю приложение…</Note> : null}
+          {saving ? <Note role="status">Сохраняю приложение…</Note> : null}
         </>
-      ) : null}
-      {saved ? <Note tone="ok">Приложение сохранено — установите его на репозитории.</Note> : null}
-      {a?.app ? (
+      ) : a?.app ? (
         <>
           <PageHead>
             <span className="sb-m st-grow">
@@ -95,7 +94,7 @@ export function GitHub() {
                     <span className="sb-m st-grow">{r}</span>
                   </div>
                 ))}
-                {repos.length ? null : <Note>Таких нет</Note>}
+                {repos.length ? null : <Note className="st-repo">Таких нет</Note>}
               </div>
             </>
           ) : null}
@@ -107,6 +106,11 @@ export function GitHub() {
             Создать приложение GitHub
           </Btn>
         </Opts>
+      ) : null}
+      {saved ? (
+        <Note tone="ok" role="status">
+          Приложение сохранено — установите его на репозитории.
+        </Note>
       ) : null}
       {word ? (
         <Note tone="bad" role="alert">

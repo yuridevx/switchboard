@@ -47,7 +47,7 @@ export function OpenScreen({ params }: ScreenProps) {
   useEffect(() => nameInput.current?.focus(), []);
 
   const here = machines.includes(machine);
-  const address = addr || "~";
+  const address = here ? addr || "~" : "~";
   const { parent, tail } = splitAddress(address);
   const dirs = useMachineLoad<{ dirs: string[] }>(machine, "machine.dirs", { machine, path: parent }, here);
   const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts", { machine }, here);
@@ -65,7 +65,7 @@ export function OpenScreen({ params }: ScreenProps) {
   const canR2 = canR2Of.includes(machine);
   const list = dirs.stale ? [] : shownDirs(dirs.data?.dirs ?? [], tail);
   const dirWord = dirs.stale ? "" : dirs.error;
-  const isNew = !!addr && !dirs.stale && !dirs.loading && (dirWord === "not_found" || (!dirWord && !!tail && !dirs.data?.dirs.includes(tail)));
+  const isNew = here && !!addr && !dirs.stale && !dirs.loading && (dirWord === "not_found" || (!dirWord && !!tail && !dirs.data?.dirs.includes(tail)));
   const wide = app.wide;
 
   function goMachine(m: string) {
@@ -179,8 +179,7 @@ export function OpenScreen({ params }: ScreenProps) {
         </Chips>
       ) : null}
       <In data-f="addr" aria-label="Адрес папки" autoComplete="off" spellCheck={false} disabled={!here} value={address} onChange={() => {}} onInput={(e) => setAddr(e.currentTarget.value)} onKeyDown={keyAddr} />
-      {dirWord === "no_access" ? <div className="op-new">нет доступа к этой папке</div> : null}
-      {dirWord && dirWord !== "no_access" && dirWord !== "not_found" ? <span className="op-err" role="alert">{`machine.dirs: ${dirWord}`}</span> : null}
+      {dirWord && dirWord !== "not_found" ? <div className="op-new">{dirWord === "no_access" ? "нет доступа к этой папке" : `machine.dirs: ${dirWord}`}</div> : null}
       <div className="op-dl">
         {list.map((d) => (
           <RowBtn key={d} data-dir={d} onClick={() => enter(d)}>
@@ -291,7 +290,7 @@ export function OpenScreen({ params }: ScreenProps) {
             {profileOk ? <span className="k">Профиль</span> : null}
             <b>{profileOk ? profileName(profileOk) : "без профиля"}</b>
           </Btn>
-          <Btn className="op-cx" data-pop="model" disabled={!here} aria-expanded={pop === "model"} onClick={() => setPop(pop === "model" ? null : "model")}>
+          <Btn className="op-cx" data-pop="model" aria-expanded={pop === "model"} onClick={() => setPop(pop === "model" ? null : "model")}>
             {modelShown ? <b>{modelShown}</b> : null}
             <span className="k">{[modelShown ? "" : "Модель", effortShown ? effortName(effortShown) : "", slotLine, r2 ? "R2" : ""].filter(Boolean).join(" · ")}</span>
           </Btn>

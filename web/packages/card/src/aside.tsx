@@ -6,9 +6,9 @@ import { Btn, isLive, LinkBtn, Note, profileNameOf, useApp, useLoad } from "@swi
 const WORDS: Record<string, string> = { connected: "подключён", pending: "подключается", disabled: "выключен", "needs-auth": "нужен вход", failed: "ошибка" };
 type Server = { name: string; status: string };
 
-export function Aside({ callsign, session }: { callsign: string; session: SessionRecord }) {
+export function Aside({ callsign, session }: { callsign: string; session?: SessionRecord }) {
   const app = useApp();
-  const live = isLive(session.state);
+  const live = isLive(session?.state);
   const canCall = app.use(() => app.can(callsign.split("@")[1], "session.call") === true);
   const kids = app.use(() => (app.roster()?.sessions ?? []).filter((s) => s.parent === callsign).map((s) => s.callsign));
   const servers = useLoad(() => (live && canCall ? app.read<Server[]>("session.call", { callsign, method: "mcpServerStatus", args: [] }) : Promise.resolve({ ok: false as const, error: "" })), [callsign, live, canCall]);
@@ -32,6 +32,7 @@ export function Aside({ callsign, session }: { callsign: string; session: Sessio
     else app.toast(`${callsign}: mcpAuthenticate: ссылки нет`);
   }
 
+  if (!session) return <aside className="cw-info" aria-label="Сведения" />;
   return (
     <aside className="cw-info" aria-label="Сведения">
       <div>

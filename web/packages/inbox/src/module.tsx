@@ -58,7 +58,7 @@ function createInboxState(app: App) {
       if (mineThere.length) out.push({ kind: "away", machine: m, name: machineLabel(app, m).text, dot: "gone", label: `не на связи с ${at(when)}`, text: mineThere.join(", ") });
     }
     const fire = ((app.mark("fire") as string[] | undefined) ?? []).filter((m) => !(m in gone));
-    if (fire.length) out.push({ kind: "fire", name: `машин не на связи: ${fire.length}`, dot: "gone", label: "", text: fire.join(", ") });
+    if (fire.length) out.push({ kind: "fire", name: "", dot: "gone", label: `машин не на связи: ${fire.length}`, text: "" });
     for (const cs of s.get().done) {
       const x = sessionOf(app, cs);
       if (x && isLive(x.state)) out.push({ kind: "done", callsign: cs, name: name(cs), dot: lamp(x), label: label("готово", cs), text: "" });
