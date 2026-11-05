@@ -1,3 +1,3 @@
 import { buildShell } from "../build.mjs";
 
-await buildShell("pult");
+buildShell("pult");
