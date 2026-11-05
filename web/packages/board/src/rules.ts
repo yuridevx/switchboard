@@ -1,36 +1,39 @@
-// Правила «Работы» без экрана: дерево по parent, фильтр, ранг состояния — только для ламп и поиска. Порядок проектов и строк — в записи (records).
+// Правила «Работы» без экрана: дерево сессий, фильтр и его ряд, ранг состояния, вид по умолчанию.
+// Порядок проектов и строк — в записи флота (records); ранг нужен только лампам и поиску.
 import type { SessionRecord } from "@switchboard/web-core";
 import { profileNameOf } from "@switchboard/web-ui";
 import { kindOf, machineOf } from "@switchboard/protocol";
 
-/** Ранг состояния: ждёт вас и сбой, работает, остальные. Порядок списка от него не зависит. */
-export const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
+/** Ранг состояния: ждёт вас и сбой, работает, остальные. */
+export function rank(s: SessionRecord): number {
+  if (s.state === "waiting" || s.state === "failed") return 0;
+  return s.state === "busy" || s.state === "starting" ? 1 : 2;
+}
 export const byRank = (a: SessionRecord, b: SessionRecord) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign);
 
-/** Родитель-сессия из поля parent; устройство и машина — не родитель для дерева. */
-export const parentOf = (s: SessionRecord) => (typeof s.parent === "string" && kindOf(s.parent) === "session" && s.parent !== s.callsign ? s.parent : null);
+/** Родитель-сессия из поля parent; устройство и машина для дерева не родитель. */
+export function parentOf(s: SessionRecord): string | null {
+  return typeof s.parent === "string" && kindOf(s.parent) === "session" && s.parent !== s.callsign ? s.parent : null;
+}
 
-/** Порядок дерева при заданном порядке строк: дочь сразу под родителем, глубина — отступ; родителя нет в списке — дочь в корне. */
+/** Строки деревом при заданном порядке: дочь сразу под родителем, число — отступ; родителя нет в списке или родители по кругу — в корень. */
 export function tree(list: SessionRecord[]): Array<[SessionRecord, number]> {
   const here = new Set(list.map((s) => s.callsign));
   const kids = new Map<string, SessionRecord[]>();
-  const roots: SessionRecord[] = [];
   for (const s of list) {
     const p = parentOf(s);
     if (p && here.has(p)) kids.set(p, [...(kids.get(p) ?? []), s]);
-    else roots.push(s);
   }
+  const rooted = list.filter((s) => !parentOf(s) || !here.has(parentOf(s)!));
   const out: Array<[SessionRecord, number]> = [];
   const seen = new Set<string>();
-  const walk = (s: SessionRecord, d: number) => {
+  const walk = (s: SessionRecord, depth: number) => {
     if (seen.has(s.callsign)) return;
     seen.add(s.callsign);
-    out.push([s, d]);
-    for (const k of kids.get(s.callsign) ?? []) walk(k, d + 1);
+    out.push([s, depth]);
+    for (const k of kids.get(s.callsign) ?? []) walk(k, depth + 1);
   };
-  for (const s of roots) walk(s, 0);
-  // родители по кругу — в корень
-  for (const s of list) walk(s, 0);
+  for (const s of [...rooted, ...list]) walk(s, 0);
   return out;
 }
 
@@ -44,6 +47,7 @@ export const FIELDS: Array<[Field, string]> = [
   ["profiles", "Профили"],
   ["states", "Состояние"],
 ];
+
 /** «Моё» и «Всё» — в коде, не в настройках. */
 export const BUILT: Filter[] = [
   { id: "mine", name: "Моё", who: ["mine"], fixed: true },
@@ -51,30 +55,25 @@ export const BUILT: Filter[] = [
 ];
 
 /** Подходит ли сессия: mine — правило «моё», owner — почта того, кто её завёл. */
-export function match(f: Filter, s: SessionRecord, project: string, mine: (s: SessionRecord) => boolean, owner: (s: SessionRecord) => string | null): boolean {
+export function fits(f: Filter, s: SessionRecord, project: string, mine: (s: SessionRecord) => boolean, owner: (s: SessionRecord) => string | null): boolean {
+  const among = (values: string[] | undefined, value: string) => !values?.length || values.includes(value);
   if (f.who?.length && !f.who.some((x) => (x === "mine" ? mine(s) : owner(s) === x))) return false;
-  if (f.projects?.length && !f.projects.includes(project)) return false;
-  if (f.machines?.length && !f.machines.includes(machineOf(s.callsign) ?? "")) return false;
-  if (f.profiles?.length && !f.profiles.includes(profileNameOf(s) ?? "")) return false;
-  if (f.states?.length && !f.states.includes(String(s.state))) return false;
-  return true;
+  return among(f.projects, project) && among(f.machines, machineOf(s.callsign) ?? "") && among(f.profiles, profileNameOf(s) ?? "") && among(f.states, String(s.state));
 }
 
 /** Ряд фильтров: «Моё», «Всё» и свои — в порядке человека; не поставленные им — следом в порядке появления. */
 export function orderFilters(own: Filter[], row: string[]): Filter[] {
-  const all = [...BUILT, ...own];
-  const at = (f: Filter) => {
+  const place = (f: Filter) => {
     const i = row.indexOf(f.id);
     return i < 0 ? Infinity : i;
   };
-  return all.map((f, i) => [f, i] as const).sort((a, b) => (at(a[0]) === at(b[0]) ? a[1] - b[1] : at(a[0]) - at(b[0]))).map(([f]) => f);
+  // сортировка устойчива: равные места остаются в порядке появления
+  return [...BUILT, ...own].sort((a, b) => (place(a) === place(b) ? 0 : place(a) - place(b)));
 }
 
-export type Project = { id: string; name: string; ss: SessionRecord[]; r: number };
-
-/** Вид списка — настройка устройства: раздел хранилища view, на сервер не уходит, у пульта и телефона свои значения. */
+/** Вид списка — настройка устройства: раздел хранилища view, на сервер не уходит. */
 export const VIEW0 = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true, fcount: true };
 export type View = typeof VIEW0;
 
 /** Впервые увиденный проект развёрнут, только если в нём ждут вас или сбой. */
-export const firstOpen = (x: Project) => x.r === 0;
+export const opensFirst = (r: number) => r === 0;

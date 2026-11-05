@@ -15,7 +15,7 @@
 // Метка keeper.answers — ответы keeper'ов всех машин, только данные; их единственный владелец; другой экран читает get(), открыт — mount().
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
-import type { KeeperAnswers } from "./src/store.ts";
+import type { KeeperAnswers } from "./src/state.ts";
 import { createSettings } from "./src/module.tsx";
 
 export type { KeeperAnswers };

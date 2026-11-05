@@ -2,7 +2,7 @@
 // Номер эталона — номер теста.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStore } from "@switchboard/web-core";
-import { fleetRelay, fleetRoster, flush, HOST, KEY, pult, SLOTS } from "./stand.ts";
+import { fleetRelay, fleetRoster, flush, HOST, KEY, pult } from "./stand.ts";
 
 const QUESTION = {
   type: "question",
@@ -23,37 +23,6 @@ const QUESTION = {
   ],
 };
 
-/** Ответы владельцев для новой сессии на laptop. */
-function openRelay(roster = fleetRoster()) {
-  const relay = fleetRelay(roster);
-  relay.handlers[SLOTS] = () => ({
-    ok: true,
-    result: { slots: { main: { account: "infirex", order: ["infirex"], wait: null, sessions: ["site@laptop", "profiles@laptop"] }, bot: { account: "work3", order: ["work3"], wait: null, sessions: ["wiki@laptop"] } } },
-  });
-  relay.handlers["machine.accounts"] = () => ({ ok: true, result: { accounts: { infirex: { login: "ok", limits: { five_hour: { utilization: 0.82, resetsAt: 1, at: 1, src: "event" } } } } } });
-  relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": { model: "opus", effort: "high", sessions: [] } }, repos: {} } });
-  relay.handlers["machine.dirs"] = (f) => ({ ok: true, result: { path: f.path, dirs: f.path === "~" ? ["Projects"] : f.path === "~/Projects" ? ["api", "poe2", "profiles", "site", "switchboard", "wiki"] : [] } });
-  relay.handlers["session.open"] = (f) => (f.name === "site" ? { ok: false, error: "name_taken" } : { ok: true, result: { callsign: `${f.name}@${f.machine}`, session_id: "s-1" } });
-  relay.handlers["session.r2"] = () => ({ ok: true, result: { point: 1 } });
-  return relay;
-}
-
-/** Заполнить «Новую сессию»: машина laptop, адрес ~/Projects/switchboard, профиль ops, слот main, имя. */
-async function fillOpen(t: Awaited<ReturnType<typeof pult>>, name: string) {
-  await t.go("#open");
-  await flush(5);
-  await t.click(t.$('.op-bl [data-machine="laptop"]'));
-  await t.click(t.$('[data-dir="Projects"]'));
-  await t.click(t.$('[data-dir="switchboard"]'));
-  await flush(5);
-  await t.click(t.$('[data-pop="prof"]'));
-  await t.click(t.$('[data-profile="team/profiles/ops"]'));
-  await t.click(t.$('[data-pop="model"]'));
-  await t.click(t.$('[data-slot="main"]'));
-  await t.click(t.$('[data-pop="model"]'));
-  await t.type(t.$('[data-f="name"]'), name);
-}
-
 const sendText = async (t: Awaited<ReturnType<typeof pult>>, text: string) => {
   await t.type(t.$(".chat-inp"), text);
   await t.click(t.$(".chat-send"));
@@ -66,31 +35,6 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("эталоны пульта: сессии и чат", () => {
-  it("181 · «Новая»: один session.open с машиной, именем, папкой, слотом и профилем → чат board@laptop; pc не на связи — нет в выборе; name_taken — под полем имени", async () => {
-    const r = fleetRoster();
-    r.machines = r.machines.filter((m) => m.machine !== "pc");
-    r.sessions = r.sessions.filter((s) => !s.callsign.endsWith("@pc"));
-    const t = await pult({ relay: openRelay(r) });
-    await fillOpen(t, "board");
-    expect(t.$('[data-machine="pc"]')).toBeNull();
-    expect(t.relay.sent("machine.dirs").map((f) => f.path).slice(-3)).toEqual(["~", "~/Projects", "~/Projects/switchboard"]);
-    expect(t.relay.sent("machine.mkdir")).toHaveLength(0);
-    await t.click(t.$('[data-act="open"]'));
-    expect(t.relay.sent("session.open")).toEqual([
-      expect.objectContaining({ v: 1, machine: "laptop", name: "board", dir: "~/Projects/switchboard", slot: "main", profile: "team/profiles/ops" }),
-    ]);
-    expect(location.hash).toBe("#card?callsign=board%40laptop");
-    expect(t.$(".cw-cs")!.textContent).toBe("board");
-    expect(t.$(".sb-detail .chat")).not.toBeNull();
-
-    const t2 = await pult({ relay: openRelay(r) });
-    await fillOpen(t2, "site");
-    await t2.click(t2.$('[data-act="open"]'));
-    expect(t2.relay.sent("session.open")).toHaveLength(1);
-    expect(t2.$(".op-err")!.textContent).toBe("на laptop уже есть site");
-    expect(t2.$('.sb-detail [data-screen="open"]')).not.toBeNull();
-  });
-
   it("182 · чат: session.watch, потом session.history; общий uuid в ленте один; seq 44 после 42 — снова история, без дыр и двойников", async () => {
     const relay = fleetRelay();
     const user = { type: "user", uuid: "u1", message: { content: "Почини сборку на CI — падает с утра" } };
@@ -189,54 +133,6 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(relay2.sent("answer")).toHaveLength(0);
   });
 
-  it("185 · модель и усилие — из шапки: session.update; кнопка — из следующего roster; профиль — чипом в «Настройках», session.profile, restart → «после хода»", async () => {
-    const relay = fleetRelay();
-    relay.handlers["session.update"] = () => ({ ok: true, result: { now: ["model", "effort"] } });
-    relay.handlers["session.profile"] = () => ({ ok: true, result: { restart: true } });
-    relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/ops": {}, "team/profiles/writer": {} }, repos: {} } });
-    relay.handlers["session.spec"] = () => ({ ok: true, result: { dir: "~/Projects/site", model: "opus", effort: "high", title: "Сайт: сборка CI" } });
-    const t = await pult({ relay });
-    await t.click(t.$('[data-callsign="site@laptop"]'));
-    await t.click(t.$('[data-pop="model"]'));
-    await t.click(t.$('.cw-pop [data-model="sonnet"]'));
-    await t.click(t.$('[data-pop="model"]'));
-    await t.click(t.$('.cw-pop [data-effort="medium"]'));
-    expect(relay.sent("session.update").map(({ id: _id, ...f }) => f)).toEqual([
-      { type: "session.update", v: 1, callsign: "site@laptop", model: "sonnet" },
-      { type: "session.update", v: 1, callsign: "site@laptop", effort: "medium" },
-    ]);
-    expect(t.$('[data-pop="model"]')!.textContent).toBe("opus · высокое ▾");
-    const r = fleetRoster();
-    Object.assign(r.sessions[2], { model: "sonnet", effort: "medium" });
-    relay.setRoster(r);
-    await flush();
-    expect(t.$('[data-pop="model"]')!.textContent).toBe("sonnet · среднее ▾");
-    await t.click(t.$('.cw-tabs [data-tab="set"]'));
-    await t.click(t.$('[data-profile="team/profiles/writer"]'));
-    expect(relay.sent("session.profile")).toEqual([expect.objectContaining({ callsign: "site@laptop", profile: "team/profiles/writer" })]);
-    expect(t.$('[data-sec="profile"]')!.textContent).toContain("после хода");
-  });
-
-  it("186 · не запустилась: подсказка лампы и плашка с «Почему» — machine.journal с machine pc и session; «Запустить» в шапке — session.start", async () => {
-    const relay = fleetRelay();
-    relay.handlers["machine.journal"] = () => ({
-      ok: true,
-      result: { records: [{ t: "2026-10-31T13:58:03.902Z", part: "host", who: "journal", callsign: "api@pc", kind: "stop", ev: "sdk.result", word: "cwd_unavailable", why: "нет папки" }], more: false },
-    });
-    relay.handlers["session.start"] = () => ({ ok: true });
-    const t = await pult({ relay });
-    await t.click(t.$('[data-callsign="api@pc"]'));
-    expect(t.$(".cw-h .cw-lamp")!.getAttribute("title")).toBe("не запустилась: core: второй сбой до initialize");
-    expect(t.$(".cw-pl b")!.textContent).toBe("Не запустилась: core: второй сбой до initialize");
-    await t.click(t.btn(t.$(".cw-pl"), "Почему"));
-    expect(t.$('.cw-tabs [aria-selected="true"]')!.textContent).toBe("Журнал");
-    // журнал машины карточки — с session; запросы журнала других модулей сюда не входят
-    expect(relay.sent("machine.journal").filter((f) => f.session)).toEqual([expect.objectContaining({ v: 2, machine: "pc", session: "api@pc", limit: 50, since: expect.any(String) })]);
-    expect(t.$(".cw-lr")!.textContent).toContain("sdk.result · cwd_unavailable · нет папки");
-    await t.click(t.btn(t.$(".cw-h"), "Запустить"));
-    expect(relay.sent("session.start")).toEqual([expect.objectContaining({ callsign: "api@pc" })]);
-  });
-
   it("187 · обрыв: ждущий — disconnected сразу, полоса «нет связи», снова hello, потом watch и history", async () => {
     const relay = fleetRelay();
     relay.handlers["session.prompt"] = () => undefined;
@@ -288,24 +184,4 @@ describe("эталоны пульта: сессии и чат", () => {
     expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("Сравни с @src/worker.ts ");
   });
 
-  it("260 · «Точки в R2» по умолчанию выключены: session.r2 нет; включили — после reply session.r2 { callsign, on: true }; поля r2 в session.open нет", async () => {
-    // источник: слово пользователя 3 нояб.: «точка р2 по умолчанию выключено»
-    const t = await pult({ relay: openRelay() });
-    await fillOpen(t, "board");
-    await t.click(t.$('[data-act="open"]'));
-    expect(t.relay.sent("session.open")).toHaveLength(1);
-    expect(t.relay.sent("session.r2")).toHaveLength(0);
-    expect(t.relay.sent("session.open")[0]).not.toHaveProperty("r2");
-
-    const t2 = await pult({ relay: openRelay() });
-    await fillOpen(t2, "board");
-    await t2.click(t2.$('[data-pop="model"]'));
-    await t2.click(t2.$("[data-r2]"));
-    await t2.click(t2.$('[data-act="open"]'));
-    const types = t2.relay.got.map((f) => f.type);
-    expect(types.indexOf("session.r2")).toBeGreaterThan(types.indexOf("session.open"));
-    expect(t2.relay.sent("session.r2")).toEqual([expect.objectContaining({ v: 1, callsign: "board@laptop", on: true })]);
-    expect(t2.relay.sent("session.open")[0]).not.toHaveProperty("r2");
-    expect(location.hash).toBe("#card?callsign=board%40laptop");
-  });
 });

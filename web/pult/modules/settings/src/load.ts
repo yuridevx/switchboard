@@ -1,7 +1,7 @@
 // Ответы владельцев для открытой вкладки: читают при открытии, живут, пока вкладка открыта.
 import { useApp, useLoad } from "@switchboard/web-ui";
 import type { Listed } from "./rules.ts";
-import { type Gh, type Pass, useSettings } from "./store.ts";
+import { useSettings, type Gh, type Pass } from "./state.ts";
 
 /** Каталог «Выпусков»; выкладка прошла — перечитать, даже если её начали на другой вкладке. */
 export function useCatalog() {
