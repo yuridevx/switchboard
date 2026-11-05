@@ -1,5 +1,7 @@
-// Сообщение в сессию от служб компьютера. Один файл без зависимостей; службы зовут его снаружи репо,
+#!/usr/bin/env node
+// Сообщение в сессию от служб компьютера. Один файл без зависимостей, Node 24; службы зовут его снаружи репо,
 // поэтому аргументы, слова отказов, выходы 0, 1, 2 и кадры заморожены.
+// Пропуск программы — keys.invite client <имя> <почта>, принят switchboard redeem; отправитель — <имя>~<почта>.
 import { text as readAll } from "node:stream/consumers";
 
 export const RELAY = "wss://relay.pfarm.app";
@@ -18,7 +20,7 @@ const parse = (data) => {
 export function send(callsign, text, { key, url = RELAY, timeoutMs = LIMIT_MS } = {}) {
   const machine = callsign.slice(callsign.indexOf("@") + 1);
   const ws = new WebSocket(`${url.replace(/\/$/, "")}/m/${machine}`);
-  const id = crypto.randomUUID();
+  const id = `send-${crypto.randomUUID()}`;
   let asked = false;
   return new Promise((resolve) => {
     const finish = (ok, error) => {
@@ -46,11 +48,11 @@ export function send(callsign, text, { key, url = RELAY, timeoutMs = LIMIT_MS } 
 const leave = (stream, word, code) => stream.write(`${word}\n`, () => process.exit(code));
 
 async function main([callsign, flag, url]) {
-  if (!callsign || (flag !== undefined && (flag !== "--url" || !url))) return leave(process.stderr, USAGE, 2);
+  if (!callsign || (flag && (flag !== "--url" || !url))) return leave(process.stderr, USAGE, 2);
   const limit = setTimeout(() => leave(process.stdout, `stdin не закрыт за ${LIMIT_MS} мс`, 1), LIMIT_MS);
   const [first, ...rest] = (await readAll(process.stdin)).split("\n");
   clearTimeout(limit);
-  const { ok, error } = await send(callsign, rest.join("\n"), { key: first.trim(), url });
+  const { ok, error } = await send(callsign, rest.join("\n"), { key: first.trim(), url: url || RELAY });
   leave(process.stdout, ok ? "ok" : error, ok ? 0 : 1);
 }
 
