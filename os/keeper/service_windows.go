@@ -37,7 +37,9 @@ func (handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.Stat
 	for {
 		select {
 		case <-k.Done():
-			return false, exitUpdated
+			// подмена себя: выход без «остановлена» — для ОС это сбой, действие восстановления поднимает новый файл; так и у служб,
+			// поставленных без флага сбоя при штатной остановке
+			os.Exit(exitUpdated)
 		case c := <-r:
 			switch c.Cmd {
 			case svc.Interrogate:
@@ -128,11 +130,8 @@ func register(dst string, logon bool, in *bufio.Reader) error {
 		return err
 	}
 	defer s.Close()
-	restart := mgr.RecoveryAction{Type: mgr.ServiceRestart, Delay: time.Second}
-	if err := s.SetRecoveryActions([]mgr.RecoveryAction{restart, restart, restart}, 60); err != nil {
-		return err
-	}
-	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+	// одно действие — оно же для каждого следующего сбоя
+	if err := s.SetRecoveryActions([]mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: time.Second}}, 0); err != nil {
 		return err
 	}
 	return s.Start()
