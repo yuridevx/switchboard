@@ -106,7 +106,7 @@ export function createModules(page: Page) {
     reaches,
     /** Модули с их определением: что проверяет гейт. */
     defined: () => list.map((m) => ({ manifest: m.manifest, module: m.def })),
-    tops: () => [...screens.values()].filter((s) => s.def.place === TOP && shown(s, {})),
+    tops: () => [...screens.values()].filter((s) => s.def.place === TOP),
     isTop: (s: Owned<Screen>) => s.def.place === TOP,
     /** Вызов на всех живых модулях по порядку. */
     each(where: string, fn: (d: AppModule) => unknown) {

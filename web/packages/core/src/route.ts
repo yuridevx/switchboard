@@ -58,13 +58,9 @@ export function createRoute(page: Page, mods: Modules) {
     },
     /** Убрать приглашение из адреса. */
     clear: () => win.history.replaceState(null, "", win.location.pathname + win.location.search),
-    listen() {
-      win.addEventListener("hashchange", follow);
-      win.addEventListener("popstate", follow);
-      return () => {
-        win.removeEventListener("hashchange", follow);
-        win.removeEventListener("popstate", follow);
-      };
+    listen(on: { signal: AbortSignal }) {
+      win.addEventListener("hashchange", follow, on);
+      win.addEventListener("popstate", follow, on);
     },
   };
 }

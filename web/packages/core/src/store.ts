@@ -27,36 +27,40 @@ export function memoryStore(init: Record<string, unknown> = {}): Store & { data:
 
 const TABLE = "sections";
 
-const done = <T>(r: IDBRequest<T>) =>
+const answer = <T>(r: IDBRequest<T>) =>
   new Promise<T>((ok, no) => {
     r.onsuccess = () => ok(r.result);
     r.onerror = () => no(r.error);
   });
 
 /** Хранилище в IndexedDB; db — имя базы, одно на приложение и его обработчик пушей. */
-export function idbStore(db = "switchboard", idb: IDBFactory = indexedDB): Store {
+export function idbStore(db = "switchboard", idb?: IDBFactory): Store {
   let opened: Promise<IDBDatabase> | undefined;
-  const table = async (mode: IDBTransactionMode) => {
-    opened ??= (() => {
-      const r = idb.open(db, 1);
-      r.onupgradeneeded = () => r.result.createObjectStore(TABLE);
-      return done(r);
-    })();
-    return (await opened).transaction(TABLE, mode).objectStore(TABLE);
-  };
+  function open() {
+    if (opened) return opened;
+    const r = (idb ?? indexedDB).open(db, 1);
+    r.onupgradeneeded = () => void r.result.createObjectStore(TABLE);
+    return (opened = answer(r));
+  }
+  /** Транзакция: итог — значение fn после записи на диск. */
+  async function run<T>(mode: IDBTransactionMode, fn: (table: IDBObjectStore) => Promise<T> | T) {
+    const tx = (await open()).transaction(TABLE, mode);
+    const done = new Promise<void>((ok, no) => {
+      tx.oncomplete = () => ok();
+      tx.onabort = tx.onerror = () => no(tx.error);
+    });
+    const [value] = await Promise.all([fn(tx.objectStore(TABLE)), done]);
+    return value;
+  }
   return {
-    get: async <T>(section: string) => done<T | undefined>((await table("readonly")).get(section)),
-    async set(section, value) {
-      await done((await table("readwrite")).put(value, section));
-    },
-    async update<T>(section: string, change: (old: T | undefined) => T) {
-      const t = await table("readwrite");
-      const next = change(await done<T | undefined>(t.get(section)));
-      await done(t.put(next, section));
-      return next;
-    },
-    async clear() {
-      await done((await table("readwrite")).clear());
-    },
+    get: <T>(section: string) => run("readonly", (t) => answer<T | undefined>(t.get(section))),
+    set: (section, value) => run("readwrite", (t) => void t.put(value, section)),
+    update: <T>(section: string, change: (old: T | undefined) => T) =>
+      run("readwrite", async (t) => {
+        const next = change(await answer<T | undefined>(t.get(section)));
+        t.put(next, section);
+        return next;
+      }),
+    clear: () => run("readwrite", (t) => void t.clear()),
   };
 }

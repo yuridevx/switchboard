@@ -1,44 +1,47 @@
 // Страница: остов разметки; всё, что на ней, читает состояние страницы выборкой.
+import { UI_CSS } from "@switchboard/web-ui";
 import type { Core } from "../app.ts";
 import type { Pass } from "../pass.ts";
 import { Bar, Off } from "./bar.tsx";
-import { Column, GroupRow, Tabs } from "./nav.tsx";
-import { Boundary, CoreCtx, Place, useCore } from "./place.tsx";
+import { Column, Ribbon, Tabs } from "./nav.tsx";
+import { CoreCtx, Place, useCore } from "./place.tsx";
 import { Search } from "./search.tsx";
+import css from "./shell.css";
 import { Stops } from "./stops.tsx";
 
-const SCREEN = { display: "flex", flexDirection: "column", minHeight: 0, flex: 1 } as const;
+const FILL = { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } as const;
 
 function Screens() {
-  const { page, route } = useCore();
+  const { page } = useCore();
   const cur = page.use(() => (page.stop ? null : page.current));
   if (!cur) return <Stops />;
   const screen = (
-    <div className="sb-screen" data-screen={cur.screen} style={SCREEN}>
-      <Place key={route.addressOf(cur.screen, cur.params) + cur.screen} screen={cur.screen} params={cur.params} />
+    <div className="sb-screen" data-screen={cur.screen} style={FILL}>
+      <Place screen={cur.screen} params={cur.params} />
     </div>
   );
   if (!cur.master) return screen;
   return (
     <div className="sb-split">
       <div className="sb-master" data-screen={cur.master}>
-        <Place key={cur.master} screen={cur.master} />
+        <Place screen={cur.master} />
       </div>
       <div className="sb-detail">{screen}</div>
     </div>
   );
 }
 
-/** Полоса над разделом и над списком рядом. */
+/** Полоса над экранами разделов и над списком рядом; модули в ней живут и скрытые. */
 function Top() {
   const { page, mods } = useCore();
-  const v = page.use(() => {
-    const s = page.current && mods.screens.get(page.current.screen);
-    return { on: !page.stop && !!s, shown: !!s?.def.nav || !!page.current?.master };
+  const started = page.use(() => page.started);
+  const shown = page.use(() => {
+    const c = page.current;
+    return !!c && !page.stop && (!!c.master || !!mods.screens.get(c.screen)?.def.nav);
   });
   return (
-    <div className="sb-top" hidden={!v.shown || !v.on}>
-      {v.on &&
+    <div className="sb-top" hidden={!shown}>
+      {started &&
         mods.tops().map((s) => (
           <div key={s.name}>
             <Place screen={s.name} />
@@ -58,17 +61,17 @@ function Toast() {
   );
 }
 
-function Page({ css }: { css: string }) {
+function Page() {
   const { page } = useCore();
   const own = page.use(() => page.css);
   return (
     <>
-      <style>{css + own}</style>
+      <style>{`${UI_CSS}\n${css}\n${own}`}</style>
       <div className={page.wide ? "sb-app wide" : "sb-app"}>
         <Column />
         <main className="sb-main">
           <Bar />
-          <GroupRow />
+          <Ribbon />
           <Off />
           <Top />
           <div className="sb-view">
@@ -83,12 +86,10 @@ function Page({ css }: { css: string }) {
   );
 }
 
-export function Shell({ core, pass, css, fatal }: { core: Core; pass: Pass; css: string; fatal(e: unknown): void }) {
+export function Shell({ core, pass }: { core: Core; pass: Pass }) {
   return (
     <CoreCtx.Provider value={{ ...core, pass }}>
-      <Boundary onError={fatal}>
-        <Page css={css} />
-      </Boundary>
+      <Page />
     </CoreCtx.Provider>
   );
 }

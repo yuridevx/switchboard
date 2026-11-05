@@ -3,7 +3,6 @@ import { createElement } from "react";
 import { withLimit } from "@switchboard/protocol";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { UI_CSS } from "@switchboard/web-ui";
 import { appOf, type Core } from "./app.ts";
 import { appGate } from "./gate.ts";
 import { createLink } from "./link.ts";
@@ -13,12 +12,11 @@ import { createPass } from "./pass.ts";
 import { createRoute } from "./route.ts";
 import type { Running, StartOptions } from "./types.ts";
 import { Shell } from "./view/shell.tsx";
-import css from "./view/shell.css";
 
-const LIMIT_MS = 30_000;
+const STEP_MS = 30_000;
 const TOAST_MS = 6_000;
 
-const warnAfter = (word: string) => () => console.warn(`switchboard: ${word} за 30 с`);
+const late = (word: string) => () => console.warn(`switchboard: ${word} за 30 с`);
 
 export function startApp(o: StartOptions): Running {
   const page = createPage(o);
@@ -26,20 +24,23 @@ export function startApp(o: StartOptions): Running {
   const doc = win.document;
   const mods = createModules(page);
   const route = createRoute(page, mods);
-  const root = createRoot(o.root);
+  const listening = new AbortController();
+  const on = { signal: listening.signal };
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Страница стоит с причиной; связь закрыта. */
   function stop(word: string, invite?: boolean) {
+    console.error(`switchboard: ${word}`);
     page.stop = { word, invite };
-    core.link.drop("stopped", "stopped");
+    core.link.close("stopped", "stopped");
     page.changed();
   }
 
-  function fatal(e: unknown) {
+  /** Упал вид ядра или вход: граница модуля сюда не достаёт, на странице — причина. */
+  function fell(e: unknown) {
+    console.error("switchboard: приложение упало", e);
     page.stop = { word: "crash" };
-    core.link.drop("stopped", "stopped");
-    root.unmount();
+    core.link.close("stopped", "stopped");
     o.root.textContent = `Приложение упало: ${(e as Error).message}`;
   }
 
@@ -56,17 +57,17 @@ export function startApp(o: StartOptions): Running {
   const core: Core = { page, mods, route, toast, link: createLink(page, mods, route, stop, toast) };
   const pass = createPass(page, route, stop);
 
-  /** Что идёт: null — страница на экране; иначе — уход, его ждёт возвращение. */
+  /** Уход идёт или прошёл; null — страница на экране. */
   let leaving: Promise<void> | null = null;
 
   async function leave() {
-    const say = async () => {
+    const farewell = async () => {
       await core.link.drain();
-      for (const m of [...mods.list].reverse()) await mods.call(m, "остановке", () => m.def.stop?.());
+      await Promise.all([...mods.list].reverse().map((m) => mods.call(m, "остановке", () => m.def.stop?.())));
       await core.link.drain();
     };
-    await withLimit(say(), LIMIT_MS, warnAfter("прощание модулей не успело"));
-    core.link.drop("hidden");
+    await withLimit(farewell(), STEP_MS, late("прощание модулей не успело"));
+    core.link.close("hidden");
   }
 
   const hide = () => (leaving ??= leave());
@@ -76,13 +77,10 @@ export function startApp(o: StartOptions): Running {
     await leaving;
     leaving = null;
     if (page.stop || !page.key) return;
-    const greet = async () => void (await Promise.all(mods.list.map((m) => mods.call(m, "возвращении", () => m.def.on?.show?.()))));
-    await withLimit(greet(), LIMIT_MS, warnAfter("возвращение модулей не успело"));
-    core.link.back();
+    const greeting = async () => void (await Promise.all(mods.list.map((m) => mods.call(m, "возвращении", () => m.def.on?.show?.()))));
+    await withLimit(greeting(), STEP_MS, late("возвращение модулей не успело"));
+    if (!leaving) core.link.open();
   }
-
-  const onVisible = () => void (doc.visibilityState === "hidden" ? hide() : show());
-  const onLeave = () => void hide();
 
   async function boot() {
     if (page.platform.scope === false) return stop("browser");
@@ -97,23 +95,23 @@ export function startApp(o: StartOptions): Running {
     if (!key) return;
     page.key = key;
     page.changed();
-    const started = (async () => {
+    const starting = async () => {
       for (const m of mods.list) await mods.call(m, "старте", () => m.def.start?.());
-    })();
-    await withLimit(started, LIMIT_MS, warnAfter("модули не запустились"));
+    };
+    await withLimit(starting(), STEP_MS, late("модули не запустились"));
+    page.started = true;
     if (doc.visibilityState === "hidden") leaving = Promise.resolve();
-    else core.link.back();
+    else core.link.open();
   }
 
-  flushSync(() => root.render(createElement(Shell, { core, pass, css: UI_CSS + css, fatal: (e: unknown) => void Promise.resolve().then(() => fatal(e)) })));
-
-  const unlisten = route.listen();
-  doc.addEventListener("visibilitychange", onVisible);
-  win.addEventListener("pagehide", onLeave);
-  const ready = boot().catch(fatal);
+  const root = createRoot(o.root, { onUncaughtError: fell });
+  flushSync(() => root.render(createElement(Shell, { core, pass })));
+  route.listen(on);
+  doc.addEventListener("visibilitychange", () => void (doc.visibilityState === "hidden" ? hide() : show()), on);
+  win.addEventListener("pagehide", () => void hide(), on);
 
   return {
-    ready,
+    ready: boot().catch(fell),
     get stopped() {
       return page.stop?.word ?? null;
     },
@@ -121,12 +119,10 @@ export function startApp(o: StartOptions): Running {
     hide,
     show,
     unmount() {
-      unlisten();
-      doc.removeEventListener("visibilitychange", onVisible);
-      win.removeEventListener("pagehide", onLeave);
+      listening.abort();
       clearTimeout(toastTimer);
-      core.link.drop("unmount");
-      if (!page.stop || page.stop.word !== "crash") root.unmount();
+      core.link.close("unmount");
+      root.unmount();
     },
   };
 }

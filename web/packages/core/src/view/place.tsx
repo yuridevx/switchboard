@@ -9,8 +9,8 @@ import type { Params } from "../types.ts";
 export const CoreCtx = createContext<Core & { pass: Pass }>(null as never);
 export const useCore = () => useContext(CoreCtx);
 
-/** Ошибка отрисовки уходит владельцу; своё место пустеет. */
-export class Boundary extends Component<{ onError(e: unknown): void; children: ReactNode }, { broken: boolean }> {
+/** Ошибка отрисовки уходит владельцу; дальше место показывает причину. */
+class Boundary extends Component<{ onError(e: unknown): void; children: ReactNode }, { broken: boolean }> {
   override state = { broken: false };
   static getDerivedStateFromError = () => ({ broken: true });
   override componentDidCatch(e: unknown) {
@@ -28,6 +28,7 @@ type PlaceProps = { screen: string; params?: Params; close?: () => void };
 
 const same = (a: PlaceProps, b: PlaceProps) => a.screen === b.screen && a.close === b.close && JSON.stringify(a.params) === JSON.stringify(b.params);
 
+/** Экран в своём месте; другие экран или параметры — начат заново. */
 export const Place = memo(function Place({ screen, params = {}, close }: PlaceProps) {
   const { page, mods } = useCore();
   const { mod, def } = mods.screens.get(screen)!;
@@ -46,7 +47,7 @@ export const Place = memo(function Place({ screen, params = {}, close }: PlacePr
   }
   const View = def.view!;
   return (
-    <Boundary onError={(e) => mods.crash(mod, `экране ${screen}`, e)}>
+    <Boundary key={screen + JSON.stringify(params)} onError={(e) => mods.crash(mod, `экране ${screen}`, e)}>
       <div data-module={mod.name} style={{ display: "contents" }}>
         <AppCtx.Provider value={mod.app}>
           <View params={params} close={close} />
@@ -61,5 +62,5 @@ export function Slot({ from, ...place }: PlaceProps & { from: Mod }) {
   const { mods } = useCore();
   const item = mods.screens.get(place.screen);
   if (!mods.reaches(from, item, place.screen)) throw new Error(`экрана ${place.screen} нет в uses`);
-  return item ? <Place key={place.screen + JSON.stringify(place.params)} {...place} /> : null;
+  return item ? <Place {...place} /> : null;
 }

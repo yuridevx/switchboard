@@ -1,59 +1,44 @@
-// Гейт набора: у экрана, команды, метки, принимаемого кадра и раздела хранилища — один модуль; всё названное есть в манифесте.
-import type { DefinedPart } from "./types.ts";
+// Гейт набора: определения модулей против манифестов; связи манифестов проверяет общий гейт.
+import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
+import core from "../module.json" with { type: "json" };
+import type { AppModule, DefinedPart, Manifest } from "./types.ts";
 
-const SELF = "web-core";
-/** Имя из uses: "имя@владелец". */
-const split = (use: string) => [use.slice(0, use.lastIndexOf("@")), use.slice(use.lastIndexOf("@") + 1)];
-
-export function appGate(parts: DefinedPart[]): string[] {
+function definitionErrors(m: Manifest, d: AppModule): string[] {
+  const used = new Set(Object.keys(m.uses).map(nameOf));
+  const provided = (name: string) => Object.hasOwn(m.provides, name);
   const errors: string[] = [];
-  const owners = new Map<string, string>([["store.key", SELF]]);
-  const claim = (name: string, who: string) => {
-    const was = owners.get(name);
-    if (was && was !== who) errors.push(`имя ${name}: два владельца — ${was} и ${who}`);
-    owners.set(name, who);
-  };
-  const seen = new Set<string>();
-
-  for (const { manifest: m, module: d } of parts) {
-    const bad = (text: string) => errors.push(`модуль ${m.name}: ${text}`);
-    if (seen.has(m.name)) bad("имя уже занято");
-    seen.add(m.name);
-    const provided = (name: string) => Object.hasOwn(m.provides, name);
-    const used = (name: string) => Object.keys(m.uses).some((u) => split(u)[0] === name);
-    const inPlace = (kind: string, name: string, place?: string) => {
-      if (place && !used(place)) bad(`${kind} ${name} — места ${place} нет в uses`);
-    };
-
-    for (const [name, s] of Object.entries(d.screens ?? {})) {
-      if (!provided(name)) bad(`экрана ${name} нет в provides`);
-      if (s.mark && !d.marks?.[s.mark]) bad(`экран ${name} — метки ${s.mark} нет в marks`);
-      inPlace("экран", name, s.place);
-      claim(name, m.name);
-    }
-    for (const [name, c] of Object.entries(d.commands ?? {})) {
-      if (!provided(name)) bad(`команды ${name} нет в provides`);
-      inPlace("команда", name, c.place);
-      claim(name, m.name);
-    }
-    for (const name of Object.keys(d.marks ?? {})) {
-      if (!provided(name)) bad(`метки ${name} нет в provides`);
-      claim(name, m.name);
-    }
-    for (const type of Object.keys(d.frames ?? {})) {
-      if (!used(type)) bad(`кадр ${type} нет в uses`);
-      claim(type, m.name);
-    }
-    if (d.on?.roster && !used("roster")) bad("on.roster без roster@relay в uses");
-    for (const section of d.store ?? []) claim(`store.${section}`, m.name);
+  const bad = (when: unknown, text: string) => void (when && errors.push(`модуль ${m.name}: ${text}`));
+  for (const [name, s] of Object.entries(d.screens ?? {})) {
+    bad(!provided(name), `экрана ${name} нет в provides`);
+    bad(s.mark && !Object.hasOwn(d.marks ?? {}, s.mark), `экран ${name} — метки ${s.mark} нет в marks`);
+    bad(s.place && !used.has(s.place), `экран ${name} — места ${s.place} нет в uses`);
   }
-
-  for (const { manifest: m } of parts) {
-    for (const [use, v] of Object.entries(m.uses)) {
-      const [name, owner] = split(use);
-      const have = parts.find((p) => p.manifest.name === owner)?.manifest.provides[name];
-      if (have !== undefined && have !== v) errors.push(`модуль ${m.name}: uses ${use} v${v} — у владельца v${have}`);
-    }
+  for (const name of Object.keys(d.frames ?? {})) bad(!used.has(name), `кадр ${name} нет в uses`);
+  for (const [name, c] of Object.entries(d.commands ?? {})) {
+    bad(!provided(name), `команды ${name} нет в provides`);
+    bad(c.place && !used.has(c.place), `команда ${name} — места ${c.place} нет в uses`);
   }
+  for (const name of Object.keys(d.marks ?? {})) bad(!provided(name), `метки ${name} нет в provides`);
+  bad(d.on?.roster && !m.uses["roster@relay"], "on.roster без roster@relay в uses");
   return errors;
+}
+
+/** У кадра и раздела хранилища — один модуль; key — раздел ядра. */
+function secondOwners(parts: DefinedPart[]): string[] {
+  const owners = new Map([["store.key", core.name]]);
+  return parts.flatMap(({ manifest: m, module: d }) =>
+    [...Object.keys(d.frames ?? {}), ...(d.store ?? []).map((s) => `store.${s}`)].flatMap((name) => {
+      const was = owners.get(name);
+      if (!was) owners.set(name, m.name);
+      return was && was !== m.name ? [`имя ${name}: два владельца — ${was} и ${m.name}`] : [];
+    }),
+  );
+}
+
+/** Проверить набор: пустой список — годен, иначе причины словами. */
+export function appGate(parts: DefinedPart[]): string[] {
+  const inSet = new Set([core.name, ...parts.map((p) => p.manifest.name)]);
+  // владельца вне набора гейт не знает: это Host и Worker-модули, их сверяет получатель
+  const manifests = [{ ...core, uses: {} }, ...parts.map((p) => p.manifest)].map(({ name, type, version, provides, uses, config }) => ({ name, type, version, provides, config: config ?? {}, uses: Object.fromEntries(Object.entries(uses).filter(([ref]) => inSet.has(ownerOf(ref)))) }));
+  return [...parts.flatMap((p) => definitionErrors(p.manifest, p.module)), ...secondOwners(parts), ...check(manifests as Parameters<typeof check>[0])];
 }

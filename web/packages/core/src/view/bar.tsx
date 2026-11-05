@@ -1,6 +1,5 @@
 // Шапка экрана, полоса «Нет связи» и лампа связи.
 import { Dot, hhmm, IconBtn, Pill, TextBtn, useNow } from "@switchboard/web-ui";
-import type { Head } from "../types.ts";
 import { useCore } from "./place.tsx";
 
 const WORDS = {
@@ -17,35 +16,45 @@ export function ConnPill({ bare }: { bare?: boolean }) {
   return bare ? <Pill tone={tone} conn title={text} aria-label={text} /> : <Pill tone={tone} conn>{text}</Pill>;
 }
 
-const Find = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-    <circle cx="11" cy="11" r="7" />
-    <path d="m20 20-3.5-3.5" />
+const FIND = (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+    <circle cx="11" cy="11" r="6" />
+    <path d="m16 16 4 4" />
   </svg>
 );
 
-/** Шапка открытого экрана: что показывать. */
+/** Шапка открытого экрана: данные выборки; действие раздела зовётся из свежей шапки. */
 function useHead() {
   const { page, mods } = useCore();
-  return page.use(() => {
-    const cur = page.current;
-    if (!cur || page.stop) return null;
-    const s = mods.screens.get(cur.screen)!;
-    const head: Partial<Head> = mods.call(s.mod, `шапке ${s.name}`, () => s.def.head?.(cur.params)) ?? {};
-    const offline = page.link !== "open";
+  const head = () => {
+    const { screen, params } = page.current!;
+    const s = mods.screens.get(screen)!;
+    return { s, h: mods.call(s.mod, `экране ${screen}`, () => s.def.head?.(params)) };
+  };
+  const view = page.use(() => {
+    if (!page.current || page.stop) return null;
+    const { s, h } = head();
     return {
-      ...head,
-      title: head.title ?? s.def.label ?? s.def.nav ?? "",
-      sub: offline && page.dataAt ? `данные на ${hhmm(new Date(page.dataAt))}` : head.sub,
-      section: !!s.def.nav && !s.def.place,
-      offline,
+      section: !!s.def.nav,
+      title: h?.title ?? s.def.nav ?? s.def.label ?? "",
+      sub: page.link === "closed" && page.dataAt ? `данные на ${hhmm(new Date(page.dataAt))}` : h?.sub,
+      dot: h?.dot,
+      mono: h?.mono,
+      pill: h?.pill,
+      action: h?.action && { label: h.action.label, text: h.action.text },
+      own: page.link === "open" && !(!!s.def.nav && !h?.pill),
     };
   });
+  const act = () => {
+    const { s, h } = head();
+    mods.call(s.mod, `экране ${s.name}`, () => h?.action?.run());
+  };
+  return { view, act };
 }
 
 export function Bar() {
   const { page, route } = useCore();
-  const h = useHead();
+  const { view: h, act } = useHead();
   if (!h) return <header className="sb-bar" hidden />;
   return (
     <header className="sb-bar">
@@ -64,37 +73,30 @@ export function Bar() {
         {h.sub && <span>{h.sub}</span>}
       </div>
       {h.section && !page.wide && (
-        <IconBtn className="sb-find" aria-label="Найти" data-find="1" onClick={() => ((page.search = true), page.changed())}>
-          <Find />
+        <IconBtn className="sb-find" data-find="1" aria-label="Найти" onClick={page.toggleSearch}>
+          {FIND}
         </IconBtn>
       )}
       {h.section && !page.wide && h.action && (
-        <IconBtn className="sb-find pri" aria-label={h.action.label} data-new="1" onClick={h.action.run}>
+        <IconBtn className="sb-find pri" data-new="1" aria-label={h.action.label} onClick={act}>
           {h.action.text}
         </IconBtn>
       )}
-      {h.pill && !h.offline ? <Pill tone={h.pill.tone}>{h.pill.text}</Pill> : (h.section || h.offline) && <ConnPill />}
+      {h.own ? h.pill && <Pill tone={h.pill.tone}>{h.pill.text}</Pill> : <ConnPill />}
     </header>
   );
 }
 
-function OffText() {
-  const { page } = useCore();
-  const now = useNow(1000);
-  const { retryAt, dataAt } = page.use(() => ({ retryAt: page.down?.retryAt ?? 0, dataAt: page.dataAt }));
-  const left = Math.ceil((retryAt - now) / 1000);
-  const parts = ["Нет связи с relay", page.wide && dataAt ? `данные на ${hhmm(new Date(dataAt))}` : "", left > 0 ? `снова через ${left} с` : "подключаюсь"];
-  return <span>{parts.filter(Boolean).join(" · ")}</span>;
-}
-
-/** Полоса: связи нет, а страница работает. */
+/** Полоса «Нет связи»: когда снова — обратным отсчётом. */
 export function Off() {
   const { page, link } = useCore();
-  const shown = page.use(() => !!page.down && !page.stop);
+  const v = page.use(() => (page.down && !page.stop ? { retryAt: page.down.retryAt, at: page.wide ? page.dataAt : 0 } : null));
+  useNow(v ? 1000 : 0);
+  const left = v ? Math.ceil((v.retryAt - Date.now()) / 1000) : 0;
   return (
-    <div className="sb-off" role="status" hidden={!shown}>
-      {shown && <OffText />}
-      {shown && <TextBtn onClick={link.now}>Сейчас</TextBtn>}
+    <div className="sb-off" role="status" hidden={!v}>
+      {v && <span>{["Нет связи с relay", v.at && `данные на ${hhmm(new Date(v.at))}`, left > 0 ? `снова через ${left} с` : "подключаюсь"].filter(Boolean).join(" · ")}</span>}
+      {v && <TextBtn onClick={link.now}>Сейчас</TextBtn>}
     </div>
   );
 }

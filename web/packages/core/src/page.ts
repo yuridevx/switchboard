@@ -43,7 +43,7 @@ export function createPage(o: StartOptions) {
   };
   const win = o.window ?? window;
 
-  return {
+  const page = {
     o,
     win,
     wide: !!o.wide,
@@ -72,6 +72,13 @@ export function createPage(o: StartOptions) {
     css: "",
     toast: { text: "", tone: "", shown: false },
     search: false,
+    /** модули стартовали: полоса top на странице */
+    started: false,
+
+    toggleSearch() {
+      page.search = !page.search;
+      page.changed();
+    },
 
     changed() {
       if (queued) return;
@@ -98,4 +105,5 @@ export function createPage(o: StartOptions) {
       });
     },
   };
+  return page;
 }

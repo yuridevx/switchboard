@@ -10,7 +10,14 @@ export const inviteNumber = (invite: string) => invite.split(".")[0];
 /** Пропуск без секрета: client.phone.k2a9. */
 export const keyId = (key: string) => key.split(".").slice(0, 3).join(".");
 
-const inviteIn = (text: string) => /#invite=(.+)$/.exec(text)?.[1] ?? null;
+const INVITE = /^[\w-]+\.[\w-]+$/;
+
+/** Приглашение в тексте: <номер>.<секрет> или ссылка с #invite=; иначе null. */
+function inviteIn(text: string) {
+  const at = text.indexOf("#invite=");
+  const invite = at >= 0 ? text.slice(at + "#invite=".length) : text.trim();
+  return INVITE.test(invite) ? invite : null;
+}
 
 export type Pass = ReturnType<typeof createPass>;
 
@@ -20,7 +27,7 @@ export function createPass(page: Page, route: Route, stop: (word: string, invite
   /** gate.redeem; отказ — слово. */
   async function redeem(invite: string): Promise<{ key: string } | { word: string }> {
     const ask = async () => {
-      const res = await (o.fetch ?? fetch)(o.workers.gate, { method: "POST", body: JSON.stringify({ type: "gate.redeem", v: 1, id: crypto.randomUUID(), invite }) });
+      const res = await (o.fetch ?? fetch)(o.workers.gate, { method: "POST", body: JSON.stringify({ type: "gate.redeem", v: 1, id: "redeem", invite }) });
       const r = (await res.json()) as { ok: true; result: { key: string } } | { ok: false; error: string };
       return r.ok ? { key: r.result.key } : { word: r.error };
     };
@@ -42,7 +49,7 @@ export function createPass(page: Page, route: Route, stop: (word: string, invite
     /** Пропуск страницы; нет — страница остановлена с причиной. */
     async enter(): Promise<string | null> {
       const had = await within(store.get<string>("key"), "хранилище не ответило за 30 с", LIMIT_MS);
-      const invite = inviteIn(win.location.hash);
+      const invite = win.location.hash.startsWith("#invite=") ? inviteIn(win.location.hash) : null;
       if (!invite) return had ?? (stop("no_key"), null);
       page.invite = invite;
       if (page.platform.ios && !page.platform.standalone) return stop("install"), null;
@@ -60,8 +67,8 @@ export function createPass(page: Page, route: Route, stop: (word: string, invite
     },
     /** Вставленное приглашение: ссылка или <номер>.<секрет>. */
     paste(text: string) {
-      const invite = inviteIn(text) ?? text.trim();
-      if (/^[^.\s]+\.[^.\s]+$/.test(invite)) return accept(invite);
+      const invite = inviteIn(text);
+      if (invite) return accept(invite);
       page.note = "Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.";
       page.changed();
     },
