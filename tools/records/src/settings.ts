@@ -35,8 +35,7 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
   const keyOf = (section: string) => `${prefix}.${section}`;
   let shown: Values = {};
   let answered = false;
-  /** правки, которых служба ещё не видела: партия цикла и ждущие следующего */
-  let writing: Edit[] = [];
+  /** правки, ждущие своего цикла */
   const waiting: Edit[] = [];
   // циклы идут по очереди; чтение в очередь не встаёт: зависший ответ не должен держать новое чтение после обрыва связи
   let turn = Promise.resolve();
@@ -46,7 +45,6 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
   async function cycle() {
     if (!waiting.length) return;
     const batch = waiting.splice(0);
-    writing = batch;
     const answer = await fetchValues();
     if (!answer.ok) {
       batch.forEach((e) => e.done(answer.error));
@@ -58,7 +56,6 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
       }
       shown = applied(next, waiting);
     }
-    writing = [];
     changed();
   }
 
@@ -67,7 +64,7 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
     get: <T,>(section: string) => shown[keyOf(section)] as T | undefined,
     async read() {
       const answer = await fetchValues();
-      if (answer.ok) shown = applied(answer.result.values, [...writing, ...waiting]);
+      if (answer.ok) shown = answer.result.values;
       answered ||= answer.ok || answer.error !== "disconnected";
       changed();
       return answer.ok ? null : answer.error;

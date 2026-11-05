@@ -23,7 +23,10 @@ export const createLabels = ((app) => {
     return text ? { text, human: true } : plain;
   };
 
-  function LabelsWindow({ params, close = () => app.back() }: ScreenProps) {
+  // поля берут имена один раз: окно раньше ответа prefs показало бы пустое, и «Сохранить» стёрло бы записанное
+  const LabelsWindow = (props: ScreenProps) => (app.use(() => names.ready()) ? <NamesForm {...props} /> : null);
+
+  function NamesForm({ params, close = () => app.back() }: ScreenProps) {
     const callsign = params.callsign ?? "";
     const machine = params.machine ?? machineOf(callsign) ?? "";
     const [sessionName, setSessionName] = useState(nameAt(callsign) ?? "");

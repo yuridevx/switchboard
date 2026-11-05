@@ -227,12 +227,44 @@ describe("окно «Имена»", () => {
     expect(t.$(".lb-dlg")).not.toBeNull();
   });
 
-  it("уход со страницы посреди записи: остановка модуля ждёт, имя записано", async () => {
+  it("уход со страницы посреди записи: остановка модуля ждёт и правку, стоящую в очереди за начатой", async () => {
     const { t, relay } = await open();
+    // первый цикл держится на чтении, вторая правка ждёт его
+    relay.handlers["prefs.get"] = () => undefined;
     await fill(t, "session", "Сайт");
-    t.$<HTMLButtonElement>('[data-act="save"]')!.click();
-    await t.run.hide();
-    expect(relay.scoped.global["fleet.labels"]).toMatchObject({ sessions: { "site@laptop": "Сайт" } });
+    await t.click(t.$('[data-act="save"]'));
+    await flush(5);
+    await t.click(t.$("[data-open]"));
+    await fill(t, "machine", "ПК");
+    await t.click(t.$('[data-act="save"]'));
+    await flush(5);
+    delete relay.handlers["prefs.get"];
+    const left = t.run.hide();
+    await flush(5);
+    relay.reply(relay.sent("prefs.get").at(-1)!.id as string, { ok: true, result: { values: {} } });
+    await left;
+    expect(relay.scoped.global["fleet.labels"]).toEqual({ sessions: { "site@laptop": "Сайт" }, machines: { laptop: "ПК" } });
+  });
+
+  it("имена ещё не прочитаны: окна нет; ответ пришёл — в полях записанные имена, «Сохранить» их не стирает", async () => {
+    const names = { sessions: { "site@laptop": "Сайт" }, machines: { laptop: "ПК" } };
+    const relay = Object.assign(new FakeRelay(homeRoster()), { scoped: { global: { "fleet.labels": names } as Record<string, unknown> } });
+    // ответа нет: стенд держит запрос; обрыв связи — и следующее чтение отвечено
+    relay.handlers["prefs.get"] = () => undefined;
+    const x = host();
+    const t = await stand([{ manifest, module: createLabels }, { manifest: x.own, module: (a) => (x.app(a), x.module) }], { relay, url: "/#labels?callsign=site%40laptop" });
+    await flush(5);
+    expect(t.$(".lb-dlg")).toBeNull();
+    delete relay.handlers["prefs.get"];
+    relay.drop();
+    await new Promise((r) => setTimeout(r, 20));
+    await flush(10);
+    expect(t.$<HTMLInputElement>('[data-f="session"]')!.value).toBe("Сайт");
+    expect(t.$<HTMLInputElement>('[data-f="machine"]')!.value).toBe("ПК");
+    expect(document.activeElement).toBe(t.$('[data-f="session"]'));
+    await t.click(t.$('[data-act="save"]'));
+    await flush(5);
+    expect(relay.scoped.global["fleet.labels"]).toEqual(names);
   });
 
   it("7342 · экран открыт по адресу: «Отмена» уводит с него, а не молчит", async () => {
