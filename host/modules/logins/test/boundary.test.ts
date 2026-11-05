@@ -79,7 +79,7 @@ let mod: ReturnType<typeof make>;
 /** Почта, которой человек вошёл в браузере. */
 let signingIn = "corp@x";
 const NEW = () => join(home, "accounts", ".new");
-/** claude auth status: почта того, чей вход лежит в папке; входа нет — код 1. */
+/** claude auth status: есть ли вход, код 1 — нет; почта из конфига папки, а не токена (опыт 5 нояб.). */
 function statusOf(env: Record<string, string | undefined>): { code: number; out: string } {
   const dir = env.CLAUDE_SECURESTORAGE_CONFIG_DIR ?? env.CLAUDE_CONFIG_DIR!;
   const name = dir === NEW() ? signingIn : (dir.split(/[\\/]/).at(-1) ?? "");
@@ -95,6 +95,7 @@ async function bench(
     sessions?: Record<string, { slot: string; cut?: string }>;
     status?: (env: Record<string, string | undefined>) => { code: number; out: string } | Promise<{ code: number; out: string }>;
     poll?: (name: string) => unknown;
+    who?: (env: Record<string, string | undefined>) => string | undefined;
   } = {},
 ) {
   usage = {};
@@ -132,8 +133,16 @@ async function bench(
       if (code !== "Xk2pL") throw new Error("Request failed with status code 400");
       // claude кладёт вход туда, куда велит CLAUDE_SECURESTORAGE_CONFIG_DIR, а не в папку конфига
       writeFileSync(join(env.CLAUDE_SECURESTORAGE_CONFIG_DIR!, CREDENTIALS), JSON.stringify({ claudeAiOauth: { accessToken: `tok-new-${signingIn}` } }));
+      told();
       return { account: {} };
     });
+    /** Claude в пустом конфиге спрашивает сервер по токену и пишет почту в свой .claude.json. */
+    const told = () => {
+      const file = join(env.CLAUDE_SECURESTORAGE_CONFIG_DIR!, CREDENTIALS);
+      const owner = o.who ? o.who(env) : existsSync(file) ? String(JSON.parse(readFileSync(file, "utf8")).claudeAiOauth.accessToken).replace(/^tok-(new-)?/, "") : undefined;
+      if (owner && existsSync(env.CLAUDE_CONFIG_DIR!)) writeFileSync(join(env.CLAUDE_CONFIG_DIR!, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: owner } }));
+    };
+    rec("accountInfo", () => (told(), {}));
     rec(USAGE, () => {
       polled.push(name);
       return o.poll ? o.poll(name) : { rate_limits: usage[name] ?? null };
@@ -497,14 +506,14 @@ describe("входы: ветки и стыки", () => {
     expect(existsSync(NEW())).toBe(false);
   });
 
-  it("3051 · claude принял код, но auth status не назвал почту: login_failed, записи нет, .new стёрта", async () => {
+  it("3051 · claude принял код, но не назвал почту: login_failed, записи нет, .new стёрта", async () => {
     // источник: чьё: код
-    await bench({ status: () => ({ code: 1, out: '{"loggedIn":false}' }) });
+    await bench({ who: () => undefined });
     await ask({ type: "machine.login" });
     expect(await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "login_failed" });
     expect(await accounts()).toEqual({});
     expect(existsSync(NEW())).toBe(false);
-    expect(st!.journal().some((l) => l.why === "claude принял код, но auth status не назвал почту")).toBe(true);
+    expect(st!.journal().some((l) => l.why === "claude принял код, но не назвал почту")).toBe(true);
   });
 
   it("3054 · проверка входа упала — причина в журнале, следующая проверка идёт", async () => {
@@ -1327,22 +1336,41 @@ describe("эталоны дизайна «Аккаунты, машины и сл
   /** Проверка раз в 2 мин, заведённая на поддельные часы. */
   const tick = () => vi.advanceTimersByTime(CHECK_MS);
 
-  it("6 · в папке чужая почта: «нет входа», строка журнала с обеими почтами, слот перешёл на следующего", async () => {
-    // источник: факт — hz-ex44-win-1: обе папки показывали «вошёл»
+  it("6 · в папке чужой токен, а auth status по конфигу говорит «вошёл»: проверка в пустом конфиге находит владельца, слот уходит", async () => {
+    // источник: факт — hz-ex44-win-1: токен yurianrun в папке mypoelife, auth status называет mypoelife
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    await bench({
-      accounts: { mypoelife: { in: "main" }, spare: {} },
-      slots: { main: ["mypoelife", "spare"] },
-      sessions: { "site@laptop": { slot: "main" } },
-      status: (env) => (env.CLAUDE_CONFIG_DIR === accDir("mypoelife") ? { code: 0, out: JSON.stringify({ email: "yurianrun" }) } : statusOf(env)),
-    });
+    await bench({ accounts: { mypoelife: { in: "main" }, spare: {} }, slots: { main: ["mypoelife", "spare"] }, sessions: { "site@laptop": { slot: "main" } } });
+    cred(accDir("mypoelife"), "yurianrun");
     tick();
     await until(() => swaps().length === 1);
     expect(swaps()[0].text).toBe("слот main: mypoelife → spare · вход пропал");
     expect(st!.journal().find((l) => l.ev === "login_foreign")).toMatchObject({ kind: "stop", why: "mypoelife: в папке вход yurianrun" });
     expect((await accounts()).mypoelife.login).toBe("none");
-    expect(read(accDir("mypoelife"))).toContain("tok-mypoelife");
+    const asked = probes.find((p) => p.calls.some((c) => c.name === "accountInfo"))!;
+    expect(asked.env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(accDir("mypoelife"));
+    expect(String(asked.env.CLAUDE_CONFIG_DIR)).toContain(".who-");
+    expect(read(accDir("mypoelife"))).toContain("tok-yurianrun");
     expect(st!.holders.spawns.filter((x) => x.id === "site@laptop")).toHaveLength(1);
+    // следующие такты: auth status по-прежнему «вошёл», годным аккаунт не становится; второй раз слот не меняется
+    const n = cli.length;
+    tick();
+    await until(() => cli.length > n);
+    expect((await accounts()).mypoelife.login).toBe("none");
+    expect(swaps()).toHaveLength(1);
+  });
+
+  it("6 · владельца проверяет один аккаунт за такт, по кругу; свой токен — без последствий", async () => {
+    // источник: чьё: код; один процесс за такт вместо процесса на аккаунт
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await bench({ accounts: { a: { in: "main" }, b: {} }, slots: { main: ["a", "b"] } });
+    const askedFor = () => probes.filter((p) => p.calls.some((c) => c.name === "accountInfo")).map((p) => String(p.env.CLAUDE_SECURESTORAGE_CONFIG_DIR).split(/[\\/]/).at(-1));
+    await until(() => {
+      tick();
+      return askedFor().length >= 2;
+    });
+    expect(askedFor().slice(0, 2)).toEqual(["a", "b"]);
+    expect(swaps()).toHaveLength(0);
+    expect((await accounts()).a.login).toBe("ok");
   });
 
   it("7 · вход пропал: слот сменился; повторная проверка второй раз не меняет", async () => {
@@ -1379,12 +1407,12 @@ describe("эталоны дизайна «Аккаунты, машины и сл
     expect(swaps()).toHaveLength(0);
   });
 
-  it("7 · команда не ответила или почты нет: состояние прежнее, слот на месте", async () => {
+  it("7 · сервер не назвал почту: состояние прежнее, слот на месте, причина в журнале", async () => {
     // источник: чьё: код; находка слепого архитектора: обрыв сети не меняет слот
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
-    await bench({ accounts: { x: { in: "main" }, y: {} }, slots: { main: ["x", "y"] }, status: () => ({ code: 0, out: "{}" }) });
+    await bench({ accounts: { x: { in: "main" }, y: {} }, slots: { main: ["x", "y"] }, who: () => undefined });
     tick();
-    await until(() => st!.journal().filter((l) => l.ev === "check").length === 2);
+    await until(() => st!.journal().some((l) => l.ev === "check" && /сервер не назвал почту/.test(String(l.why))));
     expect((await accounts()).x.login).toBe("ok");
     expect((await slots()).main.account).toBe("x");
     expect(swaps()).toHaveLength(0);

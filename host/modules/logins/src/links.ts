@@ -15,6 +15,8 @@ const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function folders(home: string) {
   const accDir = (email: string) => join(home, "accounts", email);
   const newDir = join(home, "accounts", ".new");
+  /** Пустая папка конфига проверки, каждый раз новая: в прежней могла остаться почта другого аккаунта. */
+  const whoDir = (n: number) => join(home, "accounts", `.who-${n}`);
   const slotDir = (slot: string) => join(home, "slots", slot);
 
   /** Кто в слоте: битая ссылка, обычная папка и пустое место — никто. */
@@ -88,10 +90,16 @@ export function folders(home: string) {
 
   /** Стереть папку идущего входа: при старте, при остановке, перед новым входом и после него. */
   const clearNew = () => rmSync(newDir, { recursive: true, force: true, maxRetries: 3 });
+  /** Стереть папки проверок. Занятую процессом — в следующий раз. */
+  function clearWho(): void {
+    const all = join(home, "accounts");
+    if (!existsSync(all)) return;
+    for (const name of readdirSync(all)) if (name.startsWith(".who-")) rmSync(join(all, name), { recursive: true, force: true, maxRetries: 3 });
+  }
 
   const unplace = (slot: string) => locked(inSlot(slot), () => clear(slotDir(slot)));
 
-  return { accDir, newDir, slotDir, inSlot, place, unplace, settle, clearNew };
+  return { accDir, newDir, whoDir, slotDir, inSlot, place, unplace, settle, clearNew, clearWho };
 }
 
 /** Окружение короткого процесса Claude: обе папки заданы явно, вход и конфиг — в одной. */

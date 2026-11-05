@@ -1,6 +1,8 @@
-// Вход по ссылке и коду в пустой папке и сверка входа раз в 2 минуты. Кто вошёл, говорит только claude auth status: почта самого токена, не запись конфига (опыт 5 нояб.).
-// Токена модуль не видит: файлы входа пишет сам claude.
-import { mkdirSync } from "node:fs";
+// Вход по ссылке и коду в пустой папке и проверка входов. Токена модуль не видит: файлы входа пишет сам claude.
+// Есть ли вход, говорит claude auth status. Чей он — только пустая папка конфига: запущенный в ней Claude спрашивает сервер по токену и пишет почту в .claude.json.
+// auth status и accountInfo с заполненным конфигом отвечают почтой из конфига, а не токена; accountInfo в пустом может остаться без почты (опыты 5 нояб.).
+import { mkdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { Host, Probe } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
 import { CALL_MS, READ_MS, within } from "@switchboard/protocol";
@@ -8,24 +10,21 @@ import type { Account } from "./limits.ts";
 import { envOf, type Folders } from "./links.ts";
 
 const CHECK_MS = 120_000;
+/** Сколько ждать почту в пустом конфиге: замер — около секунды. Не дождались — состояние прежнее. */
+const OWNER_WAIT_MS = 8_000;
+const OWNER_STEP_MS = 100;
 /** Срок ссылки неизвестен: цена ошибки — новая ссылка. */
 const LOGIN_WAIT_MS = 30 * 60_000;
 
 const say = (e: unknown) => (e as Error).message;
 type Started = { probe: Probe; state: string; expiry: ReturnType<typeof setTimeout> };
-/** Что сказал claude auth status. Кода 0 без почты недостаточно, чтобы менять состояние. */
-type Status = { code: number; email?: string; plan?: string; expires?: number };
+type Status = { code: number; plan?: string; expires?: number };
 export type SignedIn = Pick<Account, "plan" | "expires">;
 
 function parseStatus(code: number, out: string): Status {
   try {
-    const j = JSON.parse(out) as { email?: string | null; subscriptionType?: string | null; loginExpiresAt?: string | null };
-    return {
-      code,
-      ...(j.email ? { email: j.email.toLowerCase() } : {}),
-      ...(j.subscriptionType ? { plan: j.subscriptionType } : {}),
-      ...(j.loginExpiresAt ? { expires: Math.floor(Date.parse(j.loginExpiresAt) / 1000) } : {}),
-    };
+    const j = JSON.parse(out) as { subscriptionType?: string | null; loginExpiresAt?: string | null };
+    return { code, ...(j.subscriptionType ? { plan: j.subscriptionType } : {}), ...(j.loginExpiresAt ? { expires: Math.floor(Date.parse(j.loginExpiresAt) / 1000) } : {}) };
   } catch {
     return { code };
   }
@@ -43,6 +42,19 @@ type Hooks = {
 export function signin(host: () => Host, dirs: Folders, hooks: Hooks) {
   let started: Started | null = null;
   let timer: ReturnType<typeof setInterval>;
+  /** Чей токен проверяется за такт: один аккаунт, чтобы не поднимать процесс на каждый. */
+  let turn = 0;
+  let checks = 0;
+  let asking: Probe | null = null;
+
+  function clear(what: string, wipe: () => void): void {
+    try {
+      wipe();
+    } catch (e) {
+      // процесс ещё держит папку: следующий раз она сотрётся
+      host().log({ kind: "refuse", ev: "login", why: `${what} не стёрта — ${say(e)}` });
+    }
+  }
 
   /** Закрыть идущий вход; папка .new стёрта. */
   function end(): void {
@@ -51,11 +63,21 @@ export function signin(host: () => Host, dirs: Folders, hooks: Hooks) {
       started.probe.close();
       started = null;
     }
-    try {
-      dirs.clearNew();
-    } catch (e) {
-      // процесс ещё держит папку: следующий вход или старт сотрёт её снова
-      host().log({ kind: "refuse", ev: "login", why: `.new не стёрта — ${say(e)}` });
+    clear(".new", dirs.clearNew);
+  }
+
+  /** Почта, которую Claude записал в конфиг папки по ответу сервера. */
+  async function ownerIn(dir: string): Promise<string | null> {
+    const end = Date.now() + OWNER_WAIT_MS;
+    for (;;) {
+      try {
+        const email = (JSON.parse(readFileSync(join(dir, ".claude.json"), "utf8")) as { oauthAccount?: { emailAddress?: string } }).oauthAccount?.emailAddress;
+        if (email) return email.toLowerCase();
+      } catch {
+        // файла ещё нет или Claude его пишет
+      }
+      if (Date.now() >= end) return null;
+      await new Promise((r) => setTimeout(r, OWNER_STEP_MS));
     }
   }
 
@@ -64,40 +86,72 @@ export function signin(host: () => Host, dirs: Folders, hooks: Hooks) {
     return parseStatus(r.code ?? 1, r.out);
   }
 
-  /** Почта не совпала или входа нет — «нет входа» и подмена. Команда не ответила или почты нет — состояние прежнее: обрыв сети слот не меняет. */
+  /** Есть ли вход. Заново годным аккаунт делает только проверка владельца или новый вход. Команда не ответила — состояние прежнее. */
   async function check(email: string): Promise<void> {
     try {
       const s = await status(dirs.accDir(email));
       const was = hooks.read()[email];
       if (!was) return;
-      if (s.code === 0 && !s.email) {
-        host().log({ kind: "refuse", ev: "check", why: `${email}: auth status без почты` });
-        return;
-      }
-      if (s.code === 0 && s.email === email) {
-        hooks.edit(email, { login: "ok", ...(s.plan ? { plan: s.plan } : {}), ...(s.expires ? { expires: s.expires } : {}) });
+      if (s.code === 0) {
+        hooks.edit(email, { ...(s.plan ? { plan: s.plan } : {}), ...(s.expires ? { expires: s.expires } : {}) });
         return;
       }
       hooks.edit(email, { login: "none" });
       if (was.login !== "ok") return;
-      if (s.email) host().log({ kind: "stop", ev: "login_foreign", why: `${email}: в папке вход ${s.email}` });
-      else host().log({ kind: "stop", ev: "login_lost", why: `${email}: вход пропал` });
+      host().log({ kind: "stop", ev: "login_lost", why: `${email}: вход пропал` });
       hooks.lost(email);
     } catch (e) {
       host().log({ kind: "refuse", ev: "check", why: `${email}: ${say(e)}` });
     }
   }
 
+  /** Чей токен в папке: сверка с её именем. Чужая почта — «нет входа» и подмена. Сервер не ответил или почты нет — состояние прежнее: обрыв сети слот не меняет. */
+  async function checkOwner(email: string): Promise<void> {
+    clear(".who", dirs.clearWho);
+    const empty = dirs.whoDir(++checks);
+    mkdirSync(empty, { recursive: true });
+    const probe = host().probe({ env: { CLAUDE_CONFIG_DIR: empty, CLAUDE_SECURESTORAGE_CONFIG_DIR: dirs.accDir(email) } });
+    asking = probe;
+    try {
+      // вызов дожидается запуска процесса; почта — в конфиге
+      await within(probe.sdk("accountInfo"), `accountInfo не ответил за ${CALL_MS / 1000} с`, CALL_MS);
+      const owner = await ownerIn(empty);
+      const was = hooks.read()[email];
+      if (!was) return;
+      if (!owner) {
+        host().log({ kind: "refuse", ev: "check", why: `${email}: сервер не назвал почту за ${OWNER_WAIT_MS / 1000} с` });
+      } else if (owner === email) {
+        if (was.login !== "ok") hooks.edit(email, { login: "ok" });
+      } else {
+        hooks.edit(email, { login: "none" });
+        if (was.login === "ok") {
+          host().log({ kind: "stop", ev: "login_foreign", why: `${email}: в папке вход ${owner}` });
+          hooks.lost(email);
+        }
+      }
+    } catch (e) {
+      host().log({ kind: "refuse", ev: "check", why: `${email}: ${say(e)}` });
+    } finally {
+      asking = null;
+      probe.close();
+    }
+  }
+
   return {
     start() {
       end(); // процесс входа умер вместе с прежним Host
+      clear(".who", dirs.clearWho);
       timer = setInterval(() => {
-        for (const email of Object.keys(hooks.read())) void check(email);
+        const names = Object.keys(hooks.read());
+        for (const email of names) void check(email);
+        if (names.length && !asking) void checkOwner(names[turn++ % names.length]);
       }, CHECK_MS);
     },
     stop() {
       clearInterval(timer);
+      asking?.close();
       end();
+      clear(".who", dirs.clearWho);
     },
     /** На машине один вход за раз: новый отменяет начатый. */
     async login(): Promise<{ url: string }> {
@@ -130,12 +184,13 @@ export function signin(host: () => Host, dirs: Folders, hooks: Hooks) {
         throw refuse("bad_code", `claude не принял код — ${say(e).replaceAll(pasted, "…").replaceAll(code, "…")}`);
       }
       try {
-        const who = await status(dirs.newDir);
-        if (who.code !== 0 || !who.email) throw refuse("login_failed", "claude принял код, но auth status не назвал почту");
-        const info = { ...(who.plan ? { plan: who.plan } : {}), ...(who.expires ? { expires: who.expires } : {}) };
-        await hooks.landed(who.email, info);
-        host().log({ ev: "login", why: `${who.email}: вошёл` });
-        return { email: who.email, ...(who.plan ? { plan: who.plan } : {}) };
+        const email = await ownerIn(dirs.newDir);
+        if (!email) throw refuse("login_failed", "claude принял код, но не назвал почту");
+        const about = await status(dirs.newDir);
+        const signed = { ...(about.plan ? { plan: about.plan } : {}), ...(about.expires ? { expires: about.expires } : {}) };
+        await hooks.landed(email, signed);
+        host().log({ ev: "login", why: `${email}: вошёл` });
+        return { email, ...(about.plan ? { plan: about.plan } : {}) };
       } catch (e) {
         host().log({ kind: "refuse", ev: "login", why: say(e) });
         throw e;

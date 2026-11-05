@@ -2,7 +2,8 @@
 //   machine.accounts { machine, poll?: [почта] } → { accounts: { почта: { login: ok|none, plan?, expires?, limits: { окно: { utilization, resetsAt, at } } } }, slots: { имя: { account, order, wait } } }
 //     poll — спросить Claude об этих аккаунтах сейчас; без него — записи, ни одного процесса Claude
 //   machine.login { machine } → { url } — на машине один вход за раз, новый отменяет начатый
-//   machine.login_code { machine, code } → { email, plan } — кто вошёл, говорит сам вход
+//   machine.login_code { machine, code } → { email, plan } — кто вошёл, говорит сервер Claude по токену
+//   проверка: раз в 2 мин есть ли вход у каждого; по одному аккаунту за такт — чей токен в папке: чужая почта — «нет входа» и подмена
 //   machine.account_remove { machine, account } → { wiped } — одним запросом: сменить в слотах на следующего, убрать из порядка, стереть
 //   slot.set { machine, slot, order } → { account }  (пустой order удаляет слот без сессий)
 //   slot.swap { machine, slot, account? } → { from, to }  («Сменить сейчас»)
