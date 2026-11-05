@@ -1,18 +1,12 @@
-// Вход Worker'а push: POST кадра с пропуском (fetch — обёртка entrance) и frame(кадр) по привязке внутри аккаунта.
+// Снесено: заглушка на время сноса.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { entrance } from "@switchboard/gate";
 import type { Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
-import { handle } from "./handle.ts";
-
-export class Participant extends WorkerEntrypoint<Env> {
-  fetch(req: Request): Promise<Response> {
-    return entrance(req, this.env.GATE, (f) => this.frame(f));
+export default class extends WorkerEntrypoint<Env> {
+  async fetch(): Promise<Response> {
+    return new Response("снесено", { status: 500 });
   }
-
-  frame(f: Frame): Promise<Frame[]> {
-    return handle(this.env, f);
+  async frame(_f: Frame): Promise<Frame[]> {
+    throw new Error("снесено");
   }
 }
-
-export default Participant;
