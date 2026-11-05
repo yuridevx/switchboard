@@ -1,7 +1,7 @@
 // Леса границы «сообщение в сессию от служб компьютера»: настоящий процесс send.mjs и настоящий импорт; поддельный только relay.
 // Источник свойства — слово пользователя (устав: «send — сообщение в сессию от служб компьютера ключом клиента, без зависимостей»); без пометки — чьё: код.
 import { spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -127,12 +127,15 @@ describe("командная строка", () => {
     expect(r.frames).toEqual([]);
   });
 
-  it("запуск по любому пути: папка с пробелом и кириллицей, абсолютный и относительный", () => {
-    const dir = join(scratch(), "папка с пробелом");
+  it("запуск по любому пути: папка с пробелом и кириллицей, абсолютный, относительный и через ссылку на папку", () => {
+    const base = scratch();
+    const dir = join(base, "папка с пробелом");
     mkdirSync(dir);
     const file = join(dir, "send.mjs");
     copyFileSync(SEND, file);
-    for (const how of [{ file }, { file: "send.mjs", cwd: dir }]) {
+    const link = join(base, "ссылка");
+    symlinkSync(dir, link, "junction");
+    for (const how of [{ file }, { file: "send.mjs", cwd: dir }, { file: join(link, "send.mjs") }]) {
       const r = run(["site@laptop", ...URL_ARG], `${KEY}\nтекст`, "ok", how);
       expect([r.status, r.stdout, r.prompts.length]).toEqual([0, "ok\n", 1]);
     }

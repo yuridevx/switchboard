@@ -2,7 +2,9 @@
 // Сообщение в сессию от служб компьютера. Один файл без зависимостей, Node 24; службы зовут его снаружи репо,
 // поэтому аргументы, слова отказов, выходы 0, 1, 2 и кадры заморожены.
 // Пропуск программы — keys.invite client <имя> <почта>, принят switchboard redeem; отправитель — <имя>~<почта>.
+import { existsSync, realpathSync } from "node:fs";
 import { text as readAll } from "node:stream/consumers";
+import { fileURLToPath } from "node:url";
 
 export const RELAY = "wss://relay.pfarm.app";
 const LIMIT_MS = 30_000;
@@ -56,4 +58,6 @@ async function main([callsign, flag, url]) {
   leave(process.stdout, ok ? "ok" : error, ok ? 0 : 1);
 }
 
-if (import.meta.main) await main(process.argv.slice(2));
+// Не import.meta.main: на Node до 24.2 его нет, и служба получила бы выход 0 без отправки. realpath — служба может звать через ссылку.
+const entry = process.argv[1];
+if (entry && existsSync(entry) && realpathSync(entry) === fileURLToPath(import.meta.url)) await main(process.argv.slice(2));
