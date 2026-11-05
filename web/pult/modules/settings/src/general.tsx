@@ -4,9 +4,12 @@ import { Btn, In, LinkBtn, Note, plural, Row, Sec, TextBtn, useApp, useLoad } fr
 import { wordFor } from "./rules.ts";
 
 type GithubAnswer = { app: { slug: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: unknown } };
-type Pass = { role: string; name: string; addr: string; state: string };
+type Pass = { addr: string; state: string };
 
 const PUSH: Record<string, string> = { on: "включены", ask: "выключены", error: "не включились", working: "включаю…", denied: "запрещены в браузере", off: "браузер не умеет" };
+
+/** Адрес пульта: туда GitHub вернёт браузер с кодом. */
+const redirect = () => location.origin + location.pathname;
 
 /** Код нового приложения, который GitHub вернул в адресе. */
 export const githubCode = () => new URLSearchParams(location.search).get("code");
@@ -45,7 +48,7 @@ function Repos({ repos }: { repos: string[] }) {
 
 function Github() {
   const app = useApp();
-  const gh = useLoad(() => app.read<GithubAnswer>("github.app"), []);
+  const gh = useLoad(() => app.read<GithubAnswer>("github.app", { redirect: redirect() }), []);
   const [org, setOrg] = useState("");
   const [word, setWord] = useState("");
   const [code, setCode] = useState(githubCode());
@@ -53,7 +56,7 @@ function Github() {
   const [saved, setSaved] = useState(false);
   async function create() {
     setWord("");
-    const r = await app.request<GithubAnswer>("github.app", org ? { org } : {});
+    const r = await app.request<GithubAnswer>("github.app", { redirect: redirect(), ...(org ? { org } : {}) });
     if (!r.ok) return setWord(wordFor(r.error));
     if (r.result.form) submit(r.result.form);
   }
@@ -105,11 +108,12 @@ function Device() {
   const app = useApp();
   const passes = useLoad(() => app.read<{ passes: Pass[] }>("keys.list"), []);
   const push = app.use(() => app.mark("alerts.state") as string | undefined);
-  const pass = passes.data?.passes.find((p) => p.role === "client" && p.name === app.name);
+  const address = app.use(() => app.address());
+  const pass = passes.data?.passes.find((p) => p.addr === address);
   return (
     <Sec data-device="1">
       <b>Это устройство</b>
-      <Row label="адрес">{pass?.addr ?? "—"}</Row>
+      <Row label="адрес">{address ?? "—"}</Row>
       <Row label="пропуск">
         <span>
           {pass ? (pass.state === "ok" ? "действует" : pass.state) : "—"}

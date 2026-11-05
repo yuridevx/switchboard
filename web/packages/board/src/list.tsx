@@ -78,7 +78,7 @@ function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: bo
   const down = (e: PointerEvent<HTMLButtonElement>) => {
     if (flat) return;
     const row = e.currentTarget;
-    track(e, true, (from) => rowDrag({ host: shared.host(), scroller: shared.body(), row, block: blockOf(callsign, s.sessions()), done: (project, before, rows) => s.drop(blockOf(callsign, s.sessions()), project, before, rows) }, from));
+    track(e, true, (from) => rowDrag({ host: shared.host(), scroller: shared.body(), row, block: blockOf(callsign, s.sessions()), done: s.drop }, from));
   };
   return (
     <RowBtn className={words("bd-row", depth > 0 && "kid")} style={depth > 0 ? { paddingLeft: `${10 + depth * 22}px` } : undefined} data-callsign={callsign} aria-current={r.current || undefined} onClick={open} onPointerDown={down}>

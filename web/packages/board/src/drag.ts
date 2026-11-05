@@ -110,7 +110,9 @@ function lift(grabbed: HTMLElement, host: HTMLElement, classes: string[]) {
   card.setAttribute("aria-hidden", "true");
   card.style.width = `${box.width}px`;
   host.append(card);
-  const place = (dx: number, dy: number) => void (card.style.translate = `${box.left - base.left + dx}px ${box.top - base.top + dy}px`);
+  // у поднятой копии свои отступы: содержимое остаётся там, где схватили
+  const inset = parseFloat(getComputedStyle(grabbed).paddingTop) - parseFloat(getComputedStyle(card).paddingTop);
+  const place = (dx: number, dy: number) => void (card.style.translate = `${box.left - base.left + dx}px ${box.top - base.top + dy + inset}px`);
   place(0, 0);
   return { card, box, place };
 }
@@ -194,8 +196,8 @@ export type RowOptions = {
   row: HTMLElement;
   /** строки блока: родитель и потомки */
   block: string[];
-  /** брошена: проект, перед какой строкой, строки проекта на экране */
-  done(project: string, before: string | null, rows: string[]): void;
+  /** брошена: блок в порядке экрана, проект, перед какой строкой, строки проекта на экране */
+  done(block: string[], project: string, before: string | null, rows: string[]): void;
 };
 
 /** Бросок строки: линия показывает место, свёрнутый проект принимает в конец. */
@@ -262,8 +264,9 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
       locate();
     },
     drop() {
+      const shown = [...o.host.querySelectorAll<HTMLElement>(".lst .bd-row")].map(of).filter((c) => o.block.includes(c));
       clean();
-      if (target) o.done(target.project, target.before, target.rows);
+      if (target) o.done([...shown, ...o.block.filter((c) => !shown.includes(c))], target.project, target.before, target.rows);
     },
     cancel: clean,
   };

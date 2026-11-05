@@ -415,6 +415,7 @@ describe("Настройки", () => {
       { id: "kc2", role: "client", name: "phone", person: "you@mail", addr: "phone~you@mail", state: "ok", by: "pult~you@mail", at: Date.UTC(2026, 10, 2) },
     ];
     const relay = new FakeRelay(roster());
+    relay.you = "pult~you@mail";
     relay.handlers["releases.list"] = () => ({
       ok: true,
       result: {
@@ -606,6 +607,23 @@ describe("Настройки", () => {
       expect(p.$("[data-github]")).toBeNull();
       expect(p.$('[data-tab="releases"]')).toBeNull();
       expect(p.sent("releases.list")).toHaveLength(0);
+    });
+
+    it("7356 · github.app несёт redirect — адрес пульта: при открытии и при создании; без него Worker отказывает bad_frame", async () => {
+      // источник: контракт workers/github — redirect обязателен, туда GitHub вернёт браузер с code; стенд поля не проверяет
+      const t = await settings({ url: "/#settings?tab=general", hooks: (r) => void (r.handlers["github.app"] = () => ({ ok: true, result: { app: null } })) });
+      const redirect = location.origin + location.pathname;
+      expect(t.sent("github.app").at(-1)).toMatchObject({ redirect });
+      await t.click(t.btn("Создать приложение GitHub"));
+      expect(t.sent("github.app").at(-1)).toMatchObject({ redirect });
+    });
+
+    it("7357 · это устройство — адрес пропуска от gate: второе устройство с тем же именем у другого человека не «это»", async () => {
+      // источник: контракт workers/gate — keys.list отдаёт you; gate допускает phone~a и phone~b одновременно
+      const twin = { id: "kc9", role: "client", name: "pult", person: "anna@mail", addr: "pult~anna@mail", state: "ok", by: "@laptop", at: Date.UTC(2026, 10, 2) };
+      const t = await settings({ url: "/#settings?tab=passes", hooks: (r) => void (r.handlers["keys.list"] = () => ({ ok: true, result: { passes: [twin, { ...twin, id: "kc1", person: "you@mail", addr: "pult~you@mail" }] } })) });
+      expect(t.$('tr[data-pass="kc1"]')!.textContent).toContain("это устройство");
+      expect(t.$('tr[data-pass="kc9"]')!.textContent).not.toContain("это устройство");
     });
 
     it("6104 · форма создания приложения GitHub уходит один раз: новое открытие экрана её не повторяет", async () => {

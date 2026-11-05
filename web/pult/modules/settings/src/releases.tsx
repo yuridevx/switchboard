@@ -25,8 +25,8 @@ function useDeploy(reload: () => void) {
       l.deploying = part;
       l.deployed = null;
     });
-    const r = await app.request<{ parts: Record<string, { from: string; to: string }> }>("releases.deploy", { part, version });
-    const text = r.ok ? `Выложено: ${Object.entries(r.result.parts).map(([p, v]) => `${p} ${v.from} → ${v.to}`).join(", ")}` : `Не выложен ${part} ${version}: ${wordFor(r.error)}`;
+    const r = await app.request<{ parts: Record<string, { from: string | null; to: string }> }>("releases.deploy", { part, version });
+    const text = r.ok ? `Выложено: ${Object.entries(r.result.parts).map(([p, v]) => `${p} ${v.from ?? "—"} → ${v.to}`).join(", ")}` : `Не выложен ${part} ${version}: ${wordFor(r.error)}`;
     s.local.set((l) => {
       l.deploying = "";
       l.deployed = { text, tone: r.ok ? "ok" : "bad" };

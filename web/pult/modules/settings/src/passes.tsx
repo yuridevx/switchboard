@@ -127,6 +127,7 @@ function PassRow({ pass, me, reload, say }: { pass: Pass; me: boolean; reload():
 
 function Table({ title, list, reload, say }: { title: string; list: Pass[]; reload(): void; say(text: string): void }) {
   const app = useApp();
+  const me = app.use(() => app.address());
   return (
     <Sec data-passes={title}>
       <b>{title}</b>
@@ -149,7 +150,7 @@ function Table({ title, list, reload, say }: { title: string; list: Pass[]; relo
         </thead>
         <tbody>
           {list.map((p) => (
-            <PassRow key={p.id} pass={p} me={p.role === "client" && p.name === app.name} reload={reload} say={say} />
+            <PassRow key={p.id} pass={p} me={p.addr === me} reload={reload} say={say} />
           ))}
         </tbody>
       </table>
