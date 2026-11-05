@@ -1,6 +1,7 @@
 // Правила набора модулей: пустой список — годен, иначе причины словами. Файлов не читает: идёт и в браузере.
 import { needs, nameOf, ownerOf, type Manifest } from "./manifest.ts";
 
+/** Конверт кадра общий у всех: его импортируют без uses. */
 const PROTOCOL = "@switchboard/protocol";
 /** Какого типа корень сборки у модуля этого типа. */
 const ROOT_OF: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
@@ -85,9 +86,9 @@ export function check(mods: Manifest[]): string[] {
     for (const file of m.testReach ?? []) fault(`тест импортирует ${file} — мимо контракта ${file.split("/")[0]}`);
 
     for (const name of m.rpc ?? []) {
-      const owner = owners.get(name);
-      // имя, которого никто не отдаёт, — не контракт: база, бакет, объект платформы
-      if (owner && owner !== m.name && m.uses[`${name}@${owner}`] === undefined) fault(`зовёт ${name} — нет в uses`);
+      // привязка названа именем модуля; база, бакет и объект платформы модулем не называются. Host и страница сверяют uses при вызове, Worker — нет
+      const owner = byName.get(name.split(".")[0]);
+      if (owner && owner !== m && owner.provides[name] !== undefined && m.uses[`${name}@${owner.name}`] === undefined) fault(`зовёт ${name} — нет в uses`);
     }
   }
   out.push(...cycles(byName));

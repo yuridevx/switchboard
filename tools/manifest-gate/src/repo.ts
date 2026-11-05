@@ -8,9 +8,11 @@ const NOT_CODE = (name: string) => name === "node_modules" || name === "dist" ||
 const TEST = /(^|[\\/])(test|tests|stand)[\\/]|\.(test|spec)\.[^\\/]+$/;
 /** Что тесту можно у чужого модуля без uses. */
 const OPEN_TO_TESTS = /^(contract\.ts|module\.json|stand\/)/;
+/** Упаковка заменяет React рантаймом страницы, значит рантайм должен быть в uses. */
 const REACT = /^react(-dom)?(\/|$)/;
 const VIEW = "@switchboard/web-view";
 const SCOPE = "@switchboard/";
+const FACTS = ["imports", "reach", "testReach", "rpc"] as const;
 
 export function loadRepo(root: string): (Manifest & { dir: string })[] {
   const { existsSync, globSync, readFileSync } = process.getBuiltinModule("node:fs");
@@ -23,7 +25,7 @@ export function loadRepo(root: string): (Manifest & { dir: string })[] {
     return { provides: {}, uses: {}, config: {}, ...json(file), dir, pkg: existsSync(join(root, pkg)) ? json(pkg).name : undefined } as Manifest & { dir: string };
   });
   const deepestFirst = [...mods].sort((a, b) => b.dir.length - a.dir.length);
-  const moduleAt = (path: string) => deepestFirst.find((m) => path.startsWith(m.dir + sep));
+  const moduleAt = (path: string) => deepestFirst.find((m) => (path + sep).startsWith(m.dir + sep));
   const byPkg = new Map(mods.map((m) => [m.pkg, m]));
 
   /** Чужой модуль и путь внутри него; не чужой или не модуль — ничего. */
@@ -38,7 +40,7 @@ export function loadRepo(root: string): (Manifest & { dir: string })[] {
     return to && to !== self ? { to, inner: inner.join("/") } : undefined;
   }
 
-  for (const m of mods) {
+  function scan(m: Manifest & { dir: string }) {
     const imports = new Set<string>();
     const reach = new Set<string>();
     const testReach = new Set<string>();
@@ -56,15 +58,19 @@ export function loadRepo(root: string): (Manifest & { dir: string })[] {
       }
       code.rpc.forEach((name) => rpc.add(name));
       for (const spec of code.specs) {
+        const hit = spec.startsWith(".") && target(m, file, spec);
+        if (hit) reach.add(`${hit.to.name}/${hit.inner}`);
         if (REACT.test(spec)) imports.add(VIEW);
-        else if (spec.startsWith(SCOPE)) imports.add(spec);
-        else if (spec.startsWith(".")) {
-          const hit = target(m, file, spec);
-          if (hit) reach.add(`${hit.to.name}/${hit.inner}`);
-        }
+        if (spec.startsWith(SCOPE)) imports.add(spec);
       }
     }
-    Object.assign(m, { imports: [...imports].sort(), reach: [...reach], testReach: [...testReach], rpc: [...rpc] });
+    return { imports: [...imports].sort(), reach: [...reach], testReach: [...testReach], rpc: [...rpc] };
+  }
+
+  // Факты считаются при первом чтении: release-cli и стендам нужны только манифесты, а разбор кода дорог
+  for (const m of mods) {
+    let facts: ReturnType<typeof scan> | undefined;
+    for (const key of FACTS) Object.defineProperty(m, key, { enumerable: true, get: () => (facts ??= scan(m))[key] });
   }
   return order(mods);
 }
