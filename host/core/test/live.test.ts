@@ -1,4 +1,4 @@
-// Живой прогон: настоящий Agent SDK 0.3.311 и настоящий claude, модель claude-haiku-4-5, временная папка проекта.
+// Живой прогон: настоящий Agent SDK 0.3.311 и настоящий claude, модель claude-haiku-5-5, временная папка проекта.
 // Без SWITCHBOARD_LIVE=1 пропускается. Держатели — настоящий файл keeper из SWITCHBOARD_HOLDER.
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +18,7 @@ describe.skipIf(process.env.SWITCHBOARD_LIVE !== "1" || !process.env.SWITCHBOARD
     writeFileSync(join(project, "README.md"), "Временная папка живого прогона Switchboard.\n");
     const events: string[] = [];
     const live: Module = {
-      session: (s) => ({ model: "claude-haiku-4-5", append: `Твой callsign — ${s.info.callsign}.` }),
+      session: (s) => ({ model: "claude-haiku-5-5", append: `Твой callsign — ${s.info.callsign}.` }),
       fields: { turns: (s) => s.store<number>().get() ?? 0 },
       on: {
         event(s, m) {

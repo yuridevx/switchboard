@@ -1,34 +1,31 @@
-// Разговор сессии целиком. getSessionMessages SDK идёт по parentUuid, а compact_boundary записан с parentUuid null:
-// без этой склейки история кончалась бы на последнем сжатии (опыт на SDK 0.3.311: в файле 39 сообщений, вернулось 9).
-// Здесь граница получает родителя — последнее сообщение до неё; остальное делает сам SDK, опцией sessionStore.
-// Обход — по PR #1430 claude-agent-acp; когда SDK научится сам, этот файл удаляется.
+// Весь разговор после сжатий: SDK идёт от конца по parentUuid и у границы сжатия останавливается (parentUuid: null).
+// Записи файла идут через хранилище в памяти, граница получает родителя — история не обрывается. Файл на диске не меняется.
+import type { SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 
-type Entry = { type?: string; subtype?: string; uuid?: string; isSidechain?: boolean; logicalParentUuid?: unknown; compactMetadata?: unknown };
-type Functions = Record<string, (...a: any[]) => Promise<unknown>>;
+type Entry = SessionStoreEntry & { uuid?: string; isSidechain?: boolean; subtype?: string; parentUuid?: string | null; logicalParentUuid?: string; compactMetadata?: Record<string, unknown> };
+type Functions = Record<string, (...args: any[]) => Promise<unknown>>;
 
-/**
- * Граница сжатия со ссылкой на сообщение до неё; ссылка в никуда (бывает: запись не попала в файл) — предыдущее по порядку файла.
- * Сведения о сохранённых сжатием сообщениях снимаются: с ними SDK переносит их за сводку и цепочка зацикливается —
- * без них они стоят там, где были сказаны.
- */
-function linkBoundaries(entries: Entry[]): Entry[] {
+/** Граница ссылается на последнее сообщение до сжатия; ссылка в никуда — на предыдущее сообщение файла. Сведения о сохранённых зациклили бы цепочку. */
+function relink(entries: Entry[]): void {
   const known = new Set(entries.map((e) => e.uuid));
   let previous: string | undefined;
-  return entries.map((e) => {
+  for (const e of entries) {
+    if (e.type === "system" && e.subtype === "compact_boundary") {
+      e.parentUuid = e.logicalParentUuid && known.has(e.logicalParentUuid) ? e.logicalParentUuid : (previous ?? null);
+      if (e.compactMetadata) {
+        delete e.compactMetadata.preservedSegment;
+        delete e.compactMetadata.preservedMessages;
+      }
+    }
     if ((e.type === "user" || e.type === "assistant") && !e.isSidechain) previous = e.uuid;
-    if (e.type !== "system" || e.subtype !== "compact_boundary") return e;
-    const { preservedSegment: _s, preservedMessages: _m, ...compactMetadata } = (e.compactMetadata ?? {}) as Record<string, unknown>;
-    const parentUuid = typeof e.logicalParentUuid === "string" && known.has(e.logicalParentUuid) ? e.logicalParentUuid : previous;
-    return { ...e, parentUuid: parentUuid ?? null, compactMetadata };
-  });
+  }
 }
 
-/** getSessionMessages по всему разговору: те же опции, тот же вид сообщений. Файла ещё нет — пустой разговор, как у SDK. */
-export async function wholeConversation(sdk: Functions, sid: string, options: { dir?: string } & Record<string, unknown>): Promise<unknown> {
-  if (!(await sdk.getSessionInfo(sid, { dir: options.dir }))) return [];
+export async function wholeConversation(sdk: Functions, sessionId: string, options: { dir: string; [k: string]: unknown }): Promise<unknown> {
+  if (!(await sdk.getSessionInfo(sessionId, { dir: options.dir }))) return [];
   const entries: Entry[] = [];
-  const collector = { append: async (_k: unknown, batch: Entry[]) => void entries.push(...batch), load: async () => null };
-  await sdk.importSessionToStore(sid, collector, { dir: options.dir, includeSubagents: false });
-  const linked = linkBoundaries(entries);
-  return sdk.getSessionMessages(sid, { ...options, sessionStore: { append: async () => {}, load: async () => linked } });
+  const sessionStore = { append: async (_key: unknown, batch: Entry[]) => void entries.push(...batch), load: async () => entries };
+  await sdk.importSessionToStore(sessionId, sessionStore, { dir: options.dir, includeSubagents: false });
+  relink(entries);
+  return sdk.getSessionMessages(sessionId, { ...options, sessionStore });
 }
