@@ -7,7 +7,7 @@ export type Part = { k: "text"; text: string } | { k: "think"; text: string; red
 export type Row =
   | { k: "me"; key: string; uuid?: string; text: string; pics: string[] }
   | { k: "in"; key: string; from: "session" | "agent" | "owner"; name: string; mode?: string; text: string; at?: number; push?: boolean }
-  | { k: "reply"; key: string; id: string; parts: Part[]; liveText?: string; liveThink?: string; done: boolean }
+  | { k: "reply"; key: string; id: string; parts: Part[]; liveText?: string; liveThink?: string }
   | { k: "cmd"; key: string; name: string; out?: string }
   | { k: "sys"; key: string; icon: string; text: string; tone?: "wait" | "swap"; retry?: boolean }
   | { k: "line"; key: string; icon?: string; text: string; dim?: string; tone?: string; out?: boolean; end?: string }
@@ -94,7 +94,7 @@ export function fold(msgs: readonly Msg[], sub = false): View {
   const reply = (id: string) => {
     let r = replies.get(id);
     if (!r) {
-      r = push<Extract<Row, { k: "reply" }>>({ k: "reply", id, parts: [], done: false });
+      r = push<Extract<Row, { k: "reply" }>>({ k: "reply", id, parts: [] });
       replies.set(id, r);
     }
     return r;
@@ -104,7 +104,6 @@ export function fold(msgs: readonly Msg[], sub = false): View {
       if (r.liveThink) r.parts.push({ k: "think", text: r.liveThink });
       if (r.liveText) r.parts.push({ k: "text", text: r.liveText });
       r.liveThink = r.liveText = undefined;
-      r.done = true;
     }
     v.thinking = undefined;
   };
@@ -224,7 +223,6 @@ export function fold(msgs: readonly Msg[], sub = false): View {
     const e = m.event ?? {};
     if (e.type === "message_start" && e.message?.id) {
       const r = reply(e.message.id);
-      r.done = false;
       replies.set("__live", r);
     } else if (e.type === "content_block_delta") {
       const r = replies.get("__live");
