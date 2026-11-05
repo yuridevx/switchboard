@@ -59,11 +59,11 @@ export function make(): Module {
   };
 
   function flush(cs: string) {
-    const b = batches.get(cs);
+    const b = batches.get(cs)!;
     batches.delete(cs);
-    const to = [...(viewers.get(cs) ?? [])];
-    if (!b || !to.length) return;
     clearTimeout(b.timer);
+    const to = [...(viewers.get(cs) ?? [])];
+    if (!to.length) return;
     const seq = (seqs.get(cs) ?? 0) + 1;
     seqs.set(cs, seq);
     host.emit({ type: "session.events", v: 1, from: cs, to, seq, events: b.events });
@@ -125,12 +125,10 @@ export function make(): Module {
     on: {
       event(s, msg) {
         const cs = s.info.callsign;
-        if (!viewers.get(cs)?.size) return;
         const b = batches.get(cs) ?? batches.set(cs, { events: [], timer: setTimeout(() => flush(cs), WINDOW_MS) }).get(cs)!;
         b.events.push(msg);
       },
       frame(f) {
-        if (f.type !== "roster") return;
         const here = new Set((f.clients ?? []) as string[]);
         for (const set of viewers.values()) for (const v of set) if (!here.has(v)) set.delete(v);
       },
