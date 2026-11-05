@@ -1,6 +1,6 @@
 // Хранилище на диске: store/<модуль>.json — { machine, sessions: { callsign: … } }, store/core.json — { sessions: [запись] }.
 // Запись сразу: временный файл и rename, файл всегда целый JSON. Прочитанное держится в памяти процесса.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { SessionState, Store } from "../contract.ts";
 
@@ -39,7 +39,8 @@ export class Stores {
 
   private write(name: string, value: unknown): void {
     const file = join(this.dir, `${name}.json`);
-    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 1));
+    // сброс на диск до rename: после обрыва питания файл старый или новый, а не нули
+    writeFileSync(`${file}.tmp`, JSON.stringify(value, null, 1), { flush: true });
     renameSync(`${file}.tmp`, file);
   }
 
@@ -70,9 +71,11 @@ export class Stores {
     };
   }
 
-  /** Стереть разделы сессии у этих модулей. */
-  forget(names: string[], callsign: string): void {
-    for (const name of names) {
+  /** Стереть разделы сессии у всех модулей на диске. */
+  forget(callsign: string): void {
+    for (const file of readdirSync(this.dir)) {
+      if (!file.endsWith(".json") || file === "core.json") continue;
+      const name = file.slice(0, -".json".length);
       const doc = this.doc(name);
       if (doc.sessions?.[callsign] === undefined) continue;
       delete doc.sessions[callsign];

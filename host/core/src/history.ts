@@ -17,18 +17,15 @@ function relink(entries: Entry[]): void {
         delete e.compactMetadata.preservedMessages;
       }
     }
-    if (e.uuid && !e.isSidechain) previous = e.uuid;
+    if ((e.type === "user" || e.type === "assistant") && !e.isSidechain) previous = e.uuid;
   }
 }
 
 export async function wholeConversation(sdk: Functions, sessionId: string, options: { dir: string; [k: string]: unknown }): Promise<unknown> {
   if (!(await sdk.getSessionInfo(sessionId, { dir: options.dir }))) return [];
   const entries: Entry[] = [];
-  const sessionStore = {
-    append: async (key: { subpath?: string }, batch: Entry[]) => void (key.subpath ? 0 : entries.push(...batch)),
-    load: async (key?: { subpath?: string }) => (key?.subpath ? null : entries),
-  };
-  await sdk.importSessionToStore(sessionId, sessionStore, { dir: options.dir });
+  const sessionStore = { append: async (_key: unknown, batch: Entry[]) => void entries.push(...batch), load: async () => entries };
+  await sdk.importSessionToStore(sessionId, sessionStore, { dir: options.dir, includeSubagents: false });
   relink(entries);
   return sdk.getSessionMessages(sessionId, { ...options, sessionStore });
 }

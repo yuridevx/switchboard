@@ -7,6 +7,7 @@ import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { accepts, hostOf, kindOf, machineOf, READ_MS, serviceAddress } from "@switchboard/protocol";
 import type { Frame } from "@switchboard/protocol";
+import { nameOf } from "@switchboard/manifest-gate";
 import { fleet } from "@switchboard/relay";
 import type { FleetClient, Roster, WsCtor } from "@switchboard/relay";
 import type { Ctx, Host, LogRecord, Manifest, OpenSpec, Probe, Result, Session, StartKind } from "../contract.ts";
@@ -18,7 +19,7 @@ import { isRefusal, refuse } from "./refusal.ts";
 import type { Release, SdkApi } from "./release.ts";
 import { Sess, type SessionEnv } from "./session.ts";
 import { Stores, type CoreRecord } from "./store.ts";
-import { Mod, rejected, Trap } from "./trap.ts";
+import { handled, Mod, Trap } from "./trap.ts";
 
 export { Mod };
 
@@ -114,7 +115,7 @@ export class Kernel {
       forget: (s) => {
         this.sessions.delete(s.callsign);
         this.saveRecords();
-        this.stores.forget(this.mods.map((m) => m.name), s.callsign);
+        this.stores.forget(s.callsign);
       },
     };
   }
@@ -208,17 +209,15 @@ export class Kernel {
   }
 
   private onLink(machine: string, state: string, why?: string): void {
-    if (this.shutting) return;
     if (machine !== this.machine) {
-      // список машин у gate и соединения с чужими машинами
-      if (state === "connecting" || (state === "open" && !machine)) return;
+      // соединения с чужими машинами и список машин у gate
       this.log({ ev: `guest_${state}`, why: `${machine || "keys.list"}${why ? ` · ${why}` : ""}` });
     } else if (state === "open") {
       this.log({ ev: "hello", why: "hello принят" });
       for (const s of this.sessions.values()) s.refresh(); // состояние, сменившееся между hello и roster
     } else if (state === "closed") {
       this.log({ ev: "relay_closed", why: why ?? "" });
-    } else if (state === "stopped") {
+    } else if (state === "stopped" && why !== "shutting_down") {
       this.log({ kind: "stop", ev: "relay_stopped", word: why, why: `relay закрыл соединение: ${why} — Host не переподключается` });
       // keeper поднимет Host с нынешним machine.key
       if (why === "revoked" || why === "bad_key") void this.shutdown(`relay не принял пропуск машины: ${why}`);
@@ -253,10 +252,10 @@ export class Kernel {
     const handler = owner?.module.frames?.[f.type];
     if (owner && handler) {
       const place = this.aboutSession(f);
-      if (!owner.isOff(place)) void this.track(this.trap.wait(owner, place, `frames.${f.type}`, () => handler(frame, this.ctx(owner, f.from)), undefined));
+      if (!owner.isOff(place)) void this.trap.wait(owner, place, `frames.${f.type}`, () => handler(frame, this.ctx(owner, f.from)), undefined);
       return;
     }
-    const readers = this.mods.filter((m) => m.ref(f.type) !== null && m.module.on?.frame);
+    const readers = this.mods.filter((m) => m.module.on?.frame && Object.keys(m.manifest.uses).some((ref) => nameOf(ref) === f.type));
     for (const m of readers) if (!m.isOff()) this.trap.call(m, undefined, "on.frame", () => m.module.on!.frame!(frame), undefined);
     if (!readers.length && f.type !== "roster") this.log({ kind: "refuse", ev: "frame", word: "unknown_request", why: `кадр ${f.type}: владельца нет` });
   }
@@ -268,7 +267,7 @@ export class Kernel {
   /** Запрос к модулю этой машины: и из relay, и от соседа. */
   private serve(f: Frame): Promise<Answer> {
     const refused = (word: string, why: string, extra: LogRecord | object = {}): Answer => {
-      this.log({ kind: "refuse", ev: "request", word, why, ...extra });
+      this.log({ kind: "refuse", ev: "request", word, id: f.id, from: f.from, why, ...extra });
       return { ok: false, error: word };
     };
     return (async (): Promise<Answer> => {
@@ -293,29 +292,26 @@ export class Kernel {
           }
         }, { ok: false, error: "module_error" });
         if (!refusal) return r;
-        this.journal.write(owner.name, { kind: "refuse", ev: "request", word: refusal.word, why: refusal.why });
+        this.journal.write(owner.name, { kind: "refuse", ev: "request", word: refusal.word, id: f.id, from: f.from, why: refusal.why ?? `${f.type}: ${refusal.word}` });
         return { ok: false, error: refusal.word, ...(refusal.why ? { why: refusal.why } : {}) };
     })();
   }
 
   // ───────────────── Host глазами модуля ─────────────────
 
-  /** Имя контракта → кадр: версия из манифеста; владелец — Worker из адресов сборки, кадр без адреса — ему. */
-  private addressed(ref: { owner: string; v: number }, f: Record<string, unknown>): Frame {
-    const toWorker = f.to === undefined && this.o.release.workers[ref.owner] !== undefined;
-    return { ...f, v: (f.v as number | undefined) ?? ref.v, ...(toWorker ? { to: serviceAddress(ref.owner) } : {}) } as Frame;
-  }
-
   private ask(mod: Mod, name: string, payload: Record<string, unknown>, read: boolean): Promise<Result> {
     const ref = mod.ref(name);
-    if (!ref) return rejected(this.trap.violation(mod, undefined, `${name} нет в uses`));
+    if (!ref) return handled(Promise.reject(this.trap.violation(mod, undefined, `${name} нет в uses`)));
+    const v = (payload.v as number | undefined) ?? ref.v;
     const target = hostOf(payload);
-    if (this.owners.has(name) && (target === undefined || target === this.machine)) {
-      const answer = this.serve({ ...payload, v: (payload.v as number | undefined) ?? ref.v, type: name, from: (payload.from as string | undefined) ?? `@${this.machine}` } as Frame);
+    if (this.byName.has(ref.owner) && (target == null || target === this.machine) && !Array.isArray(payload.to)) {
+      const answer = this.serve({ ...payload, v, type: name, from: kindOf(payload.from) ? (payload.from as string) : `@${this.machine}` });
       return read ? limit(this.clock, answer, READ_MS, () => ({ ok: false, error: "timeout" })) : answer;
     }
     if (!this.relay) return Promise.resolve({ ok: false, error: "disconnected" });
-    return this.relay.request({ ...this.addressed(ref, payload), type: name }, read).then(({ type: _t, id: _i, to: _to, from: _f, ...rest }) => rest as Result);
+    // владелец — Worker из адресов сборки: кадр без адреса — ему
+    const toWorker = payload.to === undefined && this.o.release.workers[ref.owner] !== undefined;
+    return handled(this.relay.request({ ...payload, v, type: name, ...(toWorker ? { to: serviceAddress(ref.owner) } : {}) }, read).then(({ type: _t, id: _i, to: _to, from: _f, ...rest }) => rest as Result));
   }
 
   private probe(mod: Mod, opts: { env?: Record<string, string> } = {}): Probe {
@@ -329,8 +325,8 @@ export class Kernel {
     });
     const probe: Probe = {
       sdk: (name, ...args) => {
-        if (!mod.manifest.calls?.includes(name)) return rejected(this.trap.violation(mod, undefined, `${name} нет в calls`));
-        return (q as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args);
+        if (!mod.manifest.calls?.includes(name)) return handled(Promise.reject(this.trap.violation(mod, undefined, `${name} нет в calls`)));
+        return handled((q as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args));
       },
       close: () => {
         if (!this.probes.delete(probe)) return;
@@ -359,7 +355,7 @@ export class Kernel {
       emit: (frame) => {
         const ref = mod.ref(frame.type);
         if (!ref) throw this.trap.violation(mod, undefined, `${frame.type} нет в provides и uses`);
-        return (this.relay?.send(this.addressed(ref, frame)) ?? { ok: false, error: "disconnected" }) as Result;
+        return (this.relay?.send(frame.v === undefined ? { ...frame, v: ref.v } : frame) ?? { ok: false, error: "disconnected" }) as Result;
       },
       store: () => this.stores.section(mod.name),
       config: <T>() => (this.o.config.modules?.[mod.name] ?? {}) as T,
@@ -384,7 +380,7 @@ export class Kernel {
     const s = new Sess(this.env, rec, kind, spec.point);
     this.opening.add(callsign);
     try {
-      if (spec.opening) await s.opening(spec.opening);
+      await s.opening(spec.opening ?? {});
       const conflicts = await s.prepare();
       if (conflicts.length) {
         const why = conflicts.join("; ");
@@ -399,7 +395,7 @@ export class Kernel {
         }
       }
     } catch (e) {
-      this.stores.forget(this.mods.map((m) => m.name), callsign);
+      this.stores.forget(callsign);
       throw e;
     } finally {
       this.opening.delete(callsign);
@@ -438,7 +434,7 @@ export class Kernel {
     this.holders.close();
     this.relay?.close(1000, "shutting_down");
     if (inTime) this.log({ ev: "exit", why: `выход 0 · ${why}` });
-    (this.o.exit ?? process.exit)(inTime ? 0 : 1);
+    this.o.exit?.(inTime ? 0 : 1);
   }
 }
 

@@ -58,12 +58,13 @@ try {
   const hostJson = read("host.json");
   kernel = new Kernel({
     home,
-    config: { machine, ...(hostJson ? (JSON.parse(hostJson) as object) : {}) },
+    config: { machine, modules: hostJson ? (JSON.parse(hostJson) as { modules?: Record<string, unknown> }).modules : undefined },
     core,
     release,
     sdk: realSdk(coreDir),
     holders: realHolders(home, process.env.SWITCHBOARD_HOLDER),
     relayKey: read("machine.key")?.trim(),
+    exit: (code) => process.exit(code),
   });
   const stop = (why: string) => void kernel!.shutdown(why);
   process.on("SIGTERM", () => stop("SIGTERM"));

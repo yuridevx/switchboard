@@ -180,7 +180,7 @@ export function realHolders(home: string, file?: string): HolderApi {
         .flatMap((name) => {
           try {
             const f = JSON.parse(readFileSync(join(procs, name), "utf8")) as HoldFile;
-            return f.owner === "host" ? [f] : [];
+            return f.owner === "host" && typeof f.id === "string" ? [f] : [];
           } catch {
             return []; // держатель дописывает свой файл или файл битый: процесса для Host нет
           }
@@ -190,19 +190,21 @@ export function realHolders(home: string, file?: string): HolderApi {
       if (!file) return Promise.reject(new Error("нет SWITCHBOARD_HOLDER — файла держателя"));
       const args = ["hold", "--id", s.id, "--owner", "host", ...(s.cwd ? ["--cwd", s.cwd] : []), "--", s.command, ...s.args];
       return new Promise((resolve, reject) => {
-        const child = spawn(file, args, { env: { ...s.env, SWITCHBOARD_HOME: home }, detached: true, stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+        const child = spawn(file, args, { env: { ...s.env, SWITCHBOARD_HOME: home }, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
         const limit = setTimeout(() => {
           child.kill();
           reject(new Error(`держатель не ответил за ${HOLDER_WAIT_MS / 1000} с`));
         }, HOLDER_WAIT_MS);
         let line = "";
+        let err = "";
+        child.stderr.on("data", (d: Buffer) => (err += d.toString("utf8")));
         child.on("error", (e) => {
           clearTimeout(limit);
           reject(e);
         });
         child.on("exit", (code) => {
           clearTimeout(limit);
-          reject(new Error(`держатель вышел с кодом ${code}`));
+          reject(new Error(`держатель вышел с кодом ${code}: ${err.trim()}`));
         });
         child.stdout.on("data", (d: Buffer) => {
           line += d.toString("utf8");
@@ -210,13 +212,14 @@ export function realHolders(home: string, file?: string): HolderApi {
           clearTimeout(limit);
           // держатель живёт сам: строка о себе — последнее, что Host от него читает
           child.stdout.destroy();
+          child.stderr.destroy();
           child.removeAllListeners("exit");
           child.unref();
           try {
             const about = JSON.parse(line) as { port: number; key: string; pid: number };
             resolve({ id: s.id, owner: "host", pid: about.pid, port: about.port, key: about.key });
           } catch (e) {
-            reject(e as Error);
+            reject(new Error(`строка держателя: ${(e as Error).message}`));
           }
         });
       });

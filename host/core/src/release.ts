@@ -24,8 +24,8 @@ async function importModule(dir: string, name: string): Promise<ModuleEntry> {
   const folder = join(dir, "modules", name);
   const manifest = readJson<Manifest>(join(folder, "module.json")); // папки нет — сборка негодна: это падает весь выпуск
   try {
-    const { exports: entry } = readJson<{ exports: { ".": string } }>(join(folder, "package.json"));
-    const module = ((await import(pathToFileURL(join(folder, entry["."])).href)) as { default?: Module }).default;
+    const entry = readJson<{ exports?: Record<string, string> }>(join(folder, "package.json")).exports?.["."] ?? "./contract.ts";
+    const module = ((await import(pathToFileURL(join(folder, entry)).href)) as { default?: Module }).default;
     return module ? { manifest, module } : { manifest, module: {}, failed: `${name}: импорт: нет default — объекта модуля` };
   } catch (e) {
     return { manifest, module: {}, failed: `${name}: импорт: ${(e as Error).message}` };
@@ -36,19 +36,20 @@ async function importModule(dir: string, name: string): Promise<ModuleEntry> {
 export async function loadRelease(coreDir: string): Promise<Release> {
   const root = join(coreDir, "..", "..");
   const build = existsSync(join(root, BUILD_FILE)) ? readJson<BuildList>(join(root, BUILD_FILE)) : null;
-  const modules = await Promise.all((build?.modules ?? []).map((m) => importModule(root, m.name)));
+  const modules: ModuleEntry[] = [];
+  for (const m of build?.modules ?? []) modules.push(await importModule(root, m.name));
   const sdkDir = dirname(createRequire(join(coreDir, "main.ts")).resolve("@anthropic-ai/claude-agent-sdk"));
   return { version: build?.version ?? readJson<{ version: string }>(join(coreDir, "module.json")).version, sdk: readJson<{ version: string }>(join(sdkDir, "package.json")).version, modules, workers: build?.workers ?? {} };
 }
 
 /** Файл claude в пакете SDK для этой платформы; поиск самого SDK на Linux занимает около 20 с (process.report). */
 export function claudePath(coreDir: string): string | undefined {
-  const require = createRequire(join(coreDir, "main.ts"));
-  const file = process.platform === "win32" ? "claude.exe" : "claude";
+  const fromSdk = createRequire(createRequire(join(coreDir, "main.ts")).resolve("@anthropic-ai/claude-agent-sdk"));
   const base = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
   for (const pkg of [base, `${base}-musl`]) {
     try {
-      return require.resolve(`${pkg}/${file}`);
+      const dir = dirname(fromSdk.resolve(`${pkg}/package.json`));
+      for (const file of ["claude.exe", "claude"]) if (existsSync(join(dir, file))) return join(dir, file);
     } catch {
       // такого варианта пакета нет: следующий
     }
@@ -65,7 +66,7 @@ export function claudeCli(bin: string | undefined, ms: number = CALL_MS): Cli {
       let out = "";
       const timer = setTimeout(() => {
         child.kill("SIGKILL");
-        resolve({ code: null, out: `claude не ответил за ${ms / 1000} с` });
+        resolve({ code: null, out: `${out}claude не ответил за ${ms / 1000} с` });
       }, ms);
       child.stdout.on("data", (d) => (out += d));
       child.stderr.on("data", (d) => (out += d));

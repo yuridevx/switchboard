@@ -15,7 +15,7 @@ import { tildePath } from "./paths.ts";
 import { isRefusal, refuse, type Refusal } from "./refusal.ts";
 import type { SdkApi } from "./release.ts";
 import type { CoreRecord, Stores } from "./store.ts";
-import { rejected, type Mod, type Trap } from "./trap.ts";
+import { handled, type Mod, type Trap } from "./trap.ts";
 
 const STEP_MS = 30_000; // ступень остановки процесса
 const INITIALIZE_MS = 60_000; // как initializeTimeoutMs у startup() SDK: у query() своего предела нет
@@ -130,7 +130,9 @@ export class Sess {
   // ───────────────── запись в roster ─────────────────
 
   private fieldOf(owner: Mod, name: string): unknown {
-    return owner.isOff(this) ? undefined : this.env.trap.call(owner, this, `fields.${name}`, () => owner.module.fields![name](this.facade(owner)), undefined);
+    if (owner.isOff(this)) return undefined;
+    const v = this.env.trap.call(owner, this, `fields.${name}`, () => owner.module.fields![name](this.facade(owner)), undefined);
+    return v instanceof Promise ? undefined : v;
   }
 
   record(): Frame & { callsign: string } {
@@ -190,7 +192,7 @@ export class Sess {
       if (!read) continue;
       const unread = refuse("module_error", `${m.name} выключен: запрос открытия ${this.callsign} не прочитан`);
       if (m.isOff(this)) {
-        if (m.module.openingReads && !m.module.openingReads.some((k) => k in req)) continue;
+        if (m.module.openingReads && !m.module.openingReads.some((k) => req[k] !== undefined)) continue;
         throw unread;
       }
       let refusal: Refusal | undefined;
@@ -248,10 +250,9 @@ export class Sess {
     this.startKind = kind;
     this.point = point;
     this.fresh = false;
-    if (kind === "attach") return;
+    if (kind !== "resume") return;
     const info = this.env.sdk.functions.getSessionInfo(this.rec.session_id, { dir: this.rec.cwd });
     this.fresh = !(await limit(this.env.clock, info, STEP_MS, () => ({})));
-    if (this.fresh && !this.rec.fork) this.startKind = "spawn";
   }
 
   private options(merged: Merged, spawned: (h: Held) => void): Record<string, unknown> {
@@ -297,7 +298,7 @@ export class Sess {
       this.turn = "idle";
       rec.sdk = env.sdkVersion;
     }
-    env.log({ ev: "launch", callsign: this.callsign, start: this.fresh && rec.fork ? "fork" : this.startKind, sdk: rec.sdk, session_id: rec.session_id });
+    env.log({ ev: "launch", callsign: this.callsign, start: this.fresh ? (rec.fork ? "fork" : "spawn") : this.startKind, sdk: rec.sdk, session_id: rec.session_id });
 
     let spawned!: (h: Held) => void;
     const held = new Promise<Held>((r) => (spawned = r));
@@ -329,26 +330,33 @@ export class Sess {
     this.setPhase("running");
     this.each("on.open", (m, f) => m.module.on?.open?.(f));
     // новый Host, а процесс запущен прежней версией SDK: перезапуск, ход не прерывается
-    if (rec.sdk !== env.sdkVersion) void this.restart().catch((e: Error) => env.log({ kind: "stop", ev: "restart_failed", callsign: this.callsign, why: e.message }));
+    if (rec.sdk !== env.sdkVersion) void this.restart().catch(() => {});
   }
 
   private lostWith(stderr: string): Exit {
     return { code: null, signal: null, stderr };
   }
 
-  private async pump(q: Query, held: Promise<Held>): Promise<void> {
+  private async drain(q: Query): Promise<void> {
     const messages = q[Symbol.asyncIterator]();
     for (;;) {
       let next: IteratorResult<SDKMessage, void>;
       try {
         next = await messages.next();
       } catch {
-        break; // SDK называет выход процесса отказом; слова — в выходе от держателя
+        return; // SDK называет выход процесса отказом; слова — в выходе от держателя
       }
-      if (next.done) break;
+      if (next.done) return;
       this.onMessage(next.value);
     }
-    this.ended(await (await held).exit);
+  }
+
+  /** Вывод процесса до конца, затем ended: выход — от держателя, дочитать остаток — не дольше ступени. */
+  private async pump(q: Query, held: Promise<Held>): Promise<void> {
+    const drained = this.drain(q);
+    const exit = await (await held).exit;
+    await limit(this.env.clock, drained, STEP_MS, () => undefined);
+    this.ended(exit);
   }
 
   private onMessage(m: SDKMessage): void {
@@ -378,14 +386,15 @@ export class Sess {
     this.input.retire();
     this.wakeTurn();
     if (this.env.shutting() || this.closing) return;
-    this.each("on.close", (m, f) => m.module.on?.close?.(f));
     const { code, signal, stderr } = exit;
     const detail = `код ${code}${signal ? `, сигнал ${signal}` : ""}${stderr ? `: ${stderr}` : ""}`;
     if (exit.os_stop) {
-      this.env.log({ kind: "stop", ev: "session_os_stop", callsign: this.callsign, why: `остановка ОС: процесс claude вышел, ${detail}` });
-      return this.setPhase("stopped");
+      this.env.log({ ev: "session_os_stop", callsign: this.callsign, why: `остановка ОС: процесс claude вышел, ${detail}` });
+      this.setPhase("stopped");
+      return this.each("on.close", (m, f) => m.module.on?.close?.(f));
     }
     this.env.log({ kind: "stop", ev: "session_exited", callsign: this.callsign, why: `процесс claude вышел, ${detail}` });
+    this.each("on.close", (m, f) => m.module.on?.close?.(f));
     this.fails.push(detail);
     if (this.fails.length >= 2) {
       this.env.log({ kind: "stop", ev: "session_failed", callsign: this.callsign, why: `второй сбой до готовности — сессия стоит до session.start: ${this.fails.join(" · ")}` });
@@ -417,6 +426,7 @@ export class Sess {
   }
 
   private async closeProcess(): Promise<void> {
+    this.input.retire();
     this.q?.close();
     if (!(await this.waitExit(STEP_MS))) await this.killProcess(`нет выхода процесса после закрытия ввода за ${STEP_MS / 1000} с — kill`);
   }
@@ -453,11 +463,10 @@ export class Sess {
     if (!this.q || this.phase === "stopping") return;
     this.env.log({ ev: "restart", callsign: this.callsign });
     this.closing = true;
-    this.input.retire();
     await this.closeProcess();
     this.closing = false;
     this.each("on.close", (m, f) => m.module.on?.close?.(f));
-    await this.relaunch().catch(() => {}); // сбой подъёма сессия ведёт сама: ended
+    await this.relaunch();
   }
 
   async start(o: { point?: number } = {}): Promise<void> {
@@ -513,18 +522,18 @@ export class Sess {
   }
 
   private sdkCall(mod: Mod, name: string, args: unknown[]): Promise<unknown> {
-    if (!mod.manifest.calls?.includes(name)) return rejected(this.env.trap.violation(mod, this, `${name} нет в calls`));
+    if (!mod.manifest.calls?.includes(name)) return handled(Promise.reject(this.env.trap.violation(mod, this, `${name} нет в calls`)));
     const { session_id: sid, cwd: dir } = this.rec;
     const functions = this.env.sdk.functions;
-    return (async () => {
+    return handled((async () => {
       if (QUERY_METHODS.has(name)) {
         if (this.q) return (this.q as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args, ...(name === "renameSession" ? [sid] : []));
-        if (!Object.hasOwn(SESSION_FUNCTIONS, name)) throw new Error("процесс сессии не запущен");
+        if (!Object.hasOwn(SESSION_FUNCTIONS, name)) throw new Error(`${this.callsign}: процесс сессии не запущен`);
       }
       const before = SESSION_FUNCTIONS[name];
       const options = { dir, ...(args[before] as object | undefined) };
       return name === "getSessionMessages" ? wholeConversation(functions, sid, options) : functions[name](sid, ...args.slice(0, before), options);
-    })();
+    })());
   }
 
   private readField(mod: Mod, name: string): unknown {
@@ -547,10 +556,11 @@ export class Sess {
       },
       input: (content, o) => this.pushInput(content, o),
       sdk: (name, ...args) => this.sdkCall(mod, name, args),
-      restart: () => this.restart(),
-      stop: () => this.stop(),
-      start: (o) => this.start(o),
-      remove: () => this.remove(),
+      // сбой запуска ведёт сама сессия: отказ промиса модуль может не ждать
+      restart: () => handled(this.restart()),
+      stop: () => handled(this.stop()),
+      start: (o) => handled(this.start(o)),
+      remove: () => handled(this.remove()),
       store: () => this.env.stores.section(mod.name, this.callsign),
       field: (name) => this.readField(mod, name),
       refresh: () => this.refresh(),

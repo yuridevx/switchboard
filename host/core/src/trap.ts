@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { Manifest, Module } from "../contract.ts";
 import { nameOf, ownerOf } from "@switchboard/manifest-gate";
 import { limit, type Clock } from "./clock.ts";
+import { isRefusal } from "./refusal.ts";
 import type { Journal } from "./journal.ts";
 
 /** Предел вызова модуля на старте: вдвое выше самого долгого старта Host (5,9 с). */
@@ -70,12 +71,18 @@ export class Trap {
     }
   }
 
+  /** Отказ словом — не ошибка модуля: строка журнала, модуль работает дальше. Всё прочее выключает. */
+  private caught(mod: Mod, place: Place | undefined, where: string, e: unknown): void {
+    if (isRefusal(e)) this.journal.write(mod.name, { kind: "refuse", ev: where, word: e.word, why: e.why, ...(place ? { callsign: place.callsign } : {}) });
+    else this.fail(mod, place, where, e);
+  }
+
   /** Вызов модуля; бросил — выключен, ответ fallback. */
   call<T>(mod: Mod, place: Place | undefined, where: string, fn: () => T, fallback: T): T {
     try {
       return this.scope.run({ mod, place }, fn);
     } catch (e) {
-      this.fail(mod, place, where, e);
+      this.caught(mod, place, where, e);
       return fallback;
     }
   }
@@ -85,7 +92,7 @@ export class Trap {
     try {
       return await this.scope.run({ mod, place }, fn);
     } catch (e) {
-      this.fail(mod, place, where, e);
+      this.caught(mod, place, where, e);
       return fallback;
     }
   }
@@ -122,9 +129,8 @@ export class Trap {
   }
 }
 
-/** Отказ, который не поднимется как необработанный, если модуль не ждёт ответа. */
-export function rejected<T>(e: Error): Promise<T> {
-  const p = Promise.reject<T>(e);
+/** Отказ промиса не поднимется как необработанный, если модуль не ждёт ответа: сбой уже ведёт ядро. */
+export function handled<T>(p: Promise<T>): Promise<T> {
   p.catch(() => {});
   return p;
 }

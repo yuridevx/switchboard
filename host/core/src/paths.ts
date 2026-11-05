@@ -11,7 +11,7 @@ export function clientPath(path: string, home: string = homedir()): string | nul
 
 /** Полный путь → папка для клиента. На Windows разделитель и регистр не важны. */
 export function tildePath(path: string, home: string = homedir()): string {
-  const full = normalize(path);
+  const full = normalize(path).replace(/[\\/]+$/, "");
   const base = normalize(home).replace(/[\\/]+$/, "");
   const fold = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s);
   if (fold(full) === fold(base)) return "~";
