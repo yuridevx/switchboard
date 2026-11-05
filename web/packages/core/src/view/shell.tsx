@@ -1,115 +1,101 @@
-// Вид ядра: каркас страницы и экраны модулей в местах.
-import { useEffect, useState } from "react";
+// Вид ядра: рисует состояние страницы и зовёт её действия. Сам ничего не решает.
+import type { CSSProperties } from "react";
 import { UI_CSS } from "@switchboard/web-ui";
-import css from "./shell.css";
-import { Bar, Offline } from "./bar.tsx";
-import { CoreCtx, useCore, type Core } from "./context.ts";
+import type { Bus, Core } from "../core.ts";
+import type { Modules } from "../modules.ts";
+import { Bar, Off } from "./bar.tsx";
+import { Column, Ribbon, Tabs } from "./nav.tsx";
 import { Place } from "./place.tsx";
 import { Search } from "./search.tsx";
-import { GroupRow, NavColumn, Tabs, useLayout } from "./sections.tsx";
-import { StopScreen } from "./stops.tsx";
-import { keyId } from "../pass.ts";
+import css from "./shell.css";
+import { Connecting, stopScreen } from "./stops.tsx";
 
-/** Стили страницы: основание, вид ядра и стили модулей в их областях. */
-export function pageCss(mods: Array<{ name: string; css: string }>): string {
-  const scoped = mods.map((m) => `@scope ([data-module="${m.name}"]) to ([data-module]) {\n${m.css}\n}`);
-  return [UI_CSS, css, ...scoped].join("\n");
+/** Что вид знает о странице. */
+export type Page = {
+  core: Core;
+  bus: Bus;
+  modules: Modules;
+  wide: boolean;
+  brand?: string;
+  doc: Document;
+  open(screen: string, params?: Record<string, string>): void;
+  back(): void;
+  reload(): void;
+  /** «Сейчас» на полосе: новое соединение без паузы */
+  now(): void;
+  /** открыть или закрыть поиск */
+  search(): void;
+  wipe(): Promise<void>;
+  /** приглашение → пропуск; отказ — слово */
+  accept(invite: string): Promise<string | null>;
+};
+
+const FILL: CSSProperties = { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 };
+
+/** Стили страницы: основание и вид ядра — без области, стили модулей — в месте модуля до вложенного модуля; браузеру без @scope их не заключить. */
+const pageCss = ({ entries }: Modules, scoped: boolean) => [`${UI_CSS}\n${css}`, ...(scoped ? entries : []).flatMap((e) => (e.def.css ? [`@scope ([data-module="${e.name}"]) to ([data-module]) {\n${e.def.css}\n}`] : []))].join("\n");
+
+function Screen({ page, name, master }: { page: Page; name: string; master?: boolean }) {
+  const { modules, core } = page;
+  const [entry, screen] = modules.screenOf(name)!;
+  const params = page.bus.use(() => (master ? NONE : (core.current?.params ?? NONE)));
+  return <Place entry={entry} name={name} screen={screen} params={params} modules={modules} />;
 }
+const NONE = {};
 
-/** Экран подключения: пока нет roster. */
-function Connecting({ fresh, passId }: { fresh: boolean; passId: string }) {
-  return (
+function View({ page }: { page: Page }) {
+  const { core, bus } = page;
+  const stopped = bus.use(() => core.stopped);
+  const name = bus.use(() => core.current?.screen);
+  const master = bus.use(() => core.current?.master ?? null);
+  const body = stopped !== null ? (
+    <div className="sb-full">{stopScreen(page, stopped)}</div>
+  ) : !name ? (
     <div className="sb-full">
-      <div className="sb-logo xl">S</div>
-      {fresh ? <div className="sb-big">Ключ сохранён</div> : null}
-      <span className="sb-k">{passId}</span>
-      <p>подключаюсь · hello</p>
+      <Connecting page={page} />
     </div>
-  );
-}
-
-/** Экран: на всю страницу, рядом со списком или один. */
-function Stage({ ready }: { ready: boolean }) {
-  const { snap } = useCore();
-  const { full, current, master, connecting, fresh, passId } = snap.use(() => {
-    const st = snap.get();
-    return { full: st.full, current: st.current, master: st.master, connecting: !!st.key && !st.roster, fresh: st.fresh, passId: keyId(st.key) };
-  });
-  const screen = current ? (
-    <div className="sb-screen" data-screen={current.screen} style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-      <Place screen={current.screen} params={current.params} />
-    </div>
-  ) : null;
-  if (full) {
-    return (
-      <div className="sb-view">
-        <div className="sb-full">
-          <StopScreen stop={full} />
+  ) : master ? (
+    <div className="sb-split">
+      <div className="sb-master" data-screen={master}>
+        <Screen page={page} name={master} master />
+      </div>
+      <div className="sb-detail">
+        <div className="sb-screen" data-screen={name} style={FILL}>
+          <Screen page={page} name={name} />
         </div>
       </div>
-    );
-  }
-  return (
-    <div className="sb-view">
-      {ready && master ? (
-        <div className="sb-split">
-          <div className="sb-master" data-screen={master}>
-            <Place screen={master} />
-          </div>
-          <div className="sb-detail">{screen}</div>
-        </div>
-      ) : ready ? (
-        screen
-      ) : connecting ? (
-        <Connecting fresh={fresh} passId={passId} />
-      ) : null}
+    </div>
+  ) : (
+    <div className="sb-screen" data-screen={name} style={FILL}>
+      <Screen page={page} name={name} />
     </div>
   );
+  return <div className="sb-view">{body}</div>;
 }
 
-/** Ctrl K в широком виде и открытие поиска: пока приложение работает. */
-function useSearchBox({ wide, win, snap }: Core) {
-  const [open, setOpen] = useState(false);
-  const canOpen = () => {
-    const { full, roster } = snap.get();
-    return !full && !!roster;
-  };
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!wide || !(e.ctrlKey || e.metaKey) || !(e.code === "KeyK" || e.key === "k" || e.key === "л")) return;
-      e.preventDefault();
-      if (canOpen()) setOpen((v) => !v);
-    };
-    const doc = win.document;
-    doc.addEventListener("keydown", onKey as EventListener);
-    return () => doc.removeEventListener("keydown", onKey as EventListener);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wide, win]);
-  return { open, close: () => setOpen(false), show: () => void (canOpen() && setOpen(true)) };
-}
-
-/** Полоса над экранами разделов. */
-function TopPlaces({ ready }: { ready: boolean }) {
-  const { snap, modules } = useCore();
-  const { shown, tops } = snap.use(() => {
-    const { current, master, tops: names } = snap.get();
-    const def = current ? modules.screens.get(current.screen)?.def : undefined;
-    return { shown: ready && (!!def?.nav || !!master), tops: names };
+/** Полоса над экранами разделов и над списком рядом; модули в ней живут и скрытые. */
+function Top({ page }: { page: Page }) {
+  const { core, bus, modules } = page;
+  const started = bus.use(() => core.started);
+  const shown = bus.use(() => {
+    const c = core.current;
+    return !!c && core.stopped === null && (!!c.master || !!modules.screenOf(c.screen)?.[1].nav);
   });
+  const tops = modules.entries.flatMap((e) => Object.entries(e.def.screens ?? {}).flatMap(([name, s]) => (s.place === "top" ? [{ e, name, s }] : [])));
   return (
     <div className="sb-top" hidden={!shown}>
-      {tops.map((n) => (
-        <div key={n}>
-          <Place screen={n} />
-        </div>
-      ))}
+      {started &&
+        tops.map(({ e, name, s }) => (
+          <div key={name}>
+            <Place entry={e} name={name} screen={s} params={NONE} modules={modules} />
+          </div>
+        ))}
     </div>
   );
 }
 
-function ToastLine() {
-  const { snap } = useCore();
-  const toast = snap.use(() => snap.get().toast);
+function Toast({ page }: { page: Page }) {
+  const toast = page.bus.use(() => page.core.toast);
   return (
     <div className={`sb-toast ${toast?.tone ?? ""}`} role="alert" hidden={!toast?.shown}>
       {toast?.text}
@@ -117,40 +103,24 @@ function ToastLine() {
   );
 }
 
-function Shell() {
-  const core = useCore();
-  const search = useSearchBox(core);
-  const ready = core.snap.use(() => {
-    const { full, roster, current } = core.snap.get();
-    return !!roster && !!current && !full;
-  });
-  const layout = useLayout();
+export function Shell({ page }: { page: Page }) {
+  const scoped = page.bus.use(() => page.core.stopped !== "browser");
   return (
-    <div className={core.wide ? "sb-app wide" : "sb-app"}>
-      <NavColumn layout={layout} openSearch={search.show} />
-      <main className="sb-main">
-        <Bar ready={ready} openSearch={search.show} />
-        <GroupRow layout={layout} ready={ready} />
-        <Offline />
-        <TopPlaces ready={ready} />
-        <Stage ready={ready} />
-        <ToastLine />
-        <Tabs layout={layout} />
-      </main>
-      <div className="sb-palw" hidden={!search.open}>
-        {search.open ? <Search close={search.close} /> : null}
+    <>
+      <style>{pageCss(page.modules, scoped)}</style>
+      <div className={page.wide ? "sb-app wide" : "sb-app"}>
+        <Column page={page} />
+        <main className="sb-main">
+          <Bar page={page} />
+          <Ribbon page={page} />
+          <Off page={page} />
+          <Top page={page} />
+          <View page={page} />
+          <Toast page={page} />
+          <Tabs page={page} />
+        </main>
+        <Search page={page} />
       </div>
-    </div>
-  );
-}
-
-/** Корень страницы: стили и каркас. */
-export function Root({ core }: { core: Core }) {
-  const text = core.snap.use(() => core.snap.get().css);
-  return (
-    <CoreCtx.Provider value={core}>
-      <style>{text}</style>
-      <Shell />
-    </CoreCtx.Provider>
+    </>
   );
 }

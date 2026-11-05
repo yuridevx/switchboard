@@ -1,84 +1,82 @@
-// Цикл настроек над службой prefs — один на страницы и Host: правка применяется поверх свежих значений и пишет только свои ключи.
-// Копии на диске нет. Запрос к службе передаёт тот, кто зовёт: чтение и запись идут двумя входами, у них разный предел.
-type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
-type Ask = <T = unknown>(name: string, body: Record<string, unknown>) => Promise<AskResult<T>>;
+// Цикл настроек над службой prefs: значения области по ключам «префикс.раздел». Правка видна сразу и пишется поверх свежего чтения:
+// устройств много, служба хранит ключ целиком, поэтому копия здесь для записи не годится. Предел ждут двери read и ask того, кто зовёт.
+type Answer<T> = { ok: true; result: T } | { ok: false; error: string };
+type Door = <T>(name: string, body: Record<string, unknown>) => Promise<Answer<T>>;
+type Values = Record<string, unknown>;
+type Edit = { key: string; fn: (old: never) => unknown; done(word: string | null): void };
+
+export type SettingsOptions = {
+  /** чтение значений: у него короткий предел */
+  read: Door;
+  /** запись */
+  ask: Door;
+  prefix: string;
+  /** нет — область человека */
+  scope?: string;
+  changed?: () => void;
+};
 
 export type Settings = {
-  /** первый ответ службы получен; отказ — тоже ответ */
+  /** служба ответила на чтение; отказ — тоже ответ, обрыв связи — нет */
   ready(): boolean;
-  /** значение раздела сейчас */
   get<T>(section: string): T | undefined;
-  /** правка раздела: значение меняется сразу, служба — циклом; промис — null или слово отказа */
-  edit<T>(section: string, fn: (old: T | undefined) => T): Promise<string | null>;
-  /** прочитать свои ключи области; null или слово отказа */
+  /** прочитать заново; отказ — словом */
   read(): Promise<string | null>;
-  /** дождаться цикла записи: остановка */
+  /** правка раздела; отказ чтения или записи — словом */
+  edit<T>(section: string, fn: (old: T | undefined) => T): Promise<string | null>;
+  /** всё начатое дошло до службы */
   settled(): Promise<void>;
 };
 
-type Values = Record<string, unknown>;
-type Edit = { name: string; apply(old: unknown): unknown; done(word: string | null): void };
+const applied = (values: Values, edits: Edit[]) => edits.reduce<Values>((v, e) => ({ ...v, [e.key]: e.fn(v[e.key] as never) }), values);
 
-export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: string; changed?: () => void }): Settings {
-  const area = o.scope ? { scope: o.scope } : {};
-  const fetchValues = () => o.read<{ values: Values }>("prefs.get", { prefix: `${o.prefix}.`, ...area });
-  let values: Values = {};
+export function settings({ read: door, ask, prefix, scope, changed = () => {} }: SettingsOptions): Settings {
+  const area = scope ? { scope } : {};
+  const keyOf = (section: string) => `${prefix}.${section}`;
+  let shown: Values = {};
   let answered = false;
-  let waiting: Edit[] = [];
-  let writing: Promise<void> | null = null;
+  /** правки, ждущие своего цикла */
+  const waiting: Edit[] = [];
+  // циклы идут по очереди; чтение в очередь не встаёт: зависший ответ не должен держать новое чтение после обрыва связи
+  let turn = Promise.resolve();
 
-  /** Пачка правок: поверх свежего чтения, по одной записи на раздел; правки, пришедшие за это время, остаются поверх. */
-  async function write(batch: Edit[]): Promise<void> {
-    const fresh = await fetchValues();
-    if (!fresh.ok) {
-      for (const e of batch) e.done(fresh.error);
-      return;
-    }
-    const next = { ...fresh.result.values };
-    for (const e of batch) next[e.name] = e.apply(next[e.name]);
-    const refused = new Map<string, string>();
-    for (const name of new Set(batch.map((e) => e.name))) {
-      const r = await o.ask("prefs.set", { name, value: next[name], ...area });
-      if (!r.ok) refused.set(name, r.error);
-    }
-    for (const e of batch) e.done(refused.get(e.name) ?? null);
-    for (const e of waiting) next[e.name] = e.apply(next[e.name]);
-    values = next;
-    o.changed?.();
-  }
+  const fetchValues = () => door<{ values: Values }>("prefs.get", { prefix: `${prefix}.`, ...area });
 
-  async function drain(): Promise<void> {
-    // правки подряд в одном такте — одна пачка
-    await Promise.resolve();
-    while (waiting.length) {
-      const batch = waiting;
-      waiting = [];
-      await write(batch);
+  async function cycle() {
+    if (!waiting.length) return;
+    const batch = waiting.splice(0);
+    const answer = await fetchValues();
+    if (!answer.ok) {
+      batch.forEach((e) => e.done(answer.error));
+    } else {
+      const next = applied(answer.result.values, batch);
+      for (const key of new Set(batch.map((e) => e.key))) {
+        const written = await ask("prefs.set", { name: key, value: next[key], ...area });
+        for (const e of batch) if (e.key === key) e.done(written.ok ? null : written.error);
+      }
+      shown = applied(next, waiting);
     }
+    changed();
   }
 
   return {
     ready: () => answered,
-    get: <T>(section: string) => values[`${o.prefix}.${section}`] as T | undefined,
-    edit: <T>(section: string, fn: (old: T | undefined) => T) =>
-      new Promise<string | null>((done) => {
-        const name = `${o.prefix}.${section}`;
-        const apply = fn as (old: unknown) => unknown;
-        values = { ...values, [name]: apply(values[name]) };
-        waiting.push({ name, apply, done });
-        writing ??= drain().finally(() => (writing = null));
-        o.changed?.();
-      }),
+    get: <T,>(section: string) => shown[keyOf(section)] as T | undefined,
     async read() {
-      const r = await fetchValues();
-      if (r.ok) values = r.result.values;
-      // связи нет — ответит следующее открытие
-      if (r.ok || r.error !== "disconnected") answered = true;
-      o.changed?.();
-      return r.ok ? null : r.error;
+      const answer = await fetchValues();
+      if (answer.ok) shown = answer.result.values;
+      answered ||= answer.ok || answer.error !== "disconnected";
+      changed();
+      return answer.ok ? null : answer.error;
     },
-    async settled() {
-      while (writing) await writing;
-    },
+    edit: <T,>(section: string, fn: (old: T | undefined) => T) =>
+      new Promise<string | null>((done) => {
+        const edit: Edit = { key: keyOf(section), fn: fn as Edit["fn"], done };
+        waiting.push(edit);
+        shown = applied(shown, [edit]);
+        changed();
+        turn = turn.then(cycle);
+      }),
+    settled: () => turn,
   };
 }

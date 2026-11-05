@@ -21,5 +21,5 @@ import { make } from "./src/chat.ts";
 
 export { make };
 /** Что видит модель адресата: тег сообщения и задача от родителя. */
-export { task, wrap } from "./src/input.ts";
+export { task, wrap } from "./src/chat.ts";
 export default make();

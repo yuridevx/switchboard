@@ -1,6 +1,3 @@
-// Сборка пульта — общий скрипт веб-приложений.
-import { dirname } from "node:path";
-import { fileURLToPath } from "node:url";
-import { buildApp } from "../build.mjs";
+import { buildShell } from "../build.mjs";
 
-await buildApp(dirname(fileURLToPath(import.meta.url)), "pult");
+buildShell("pult");

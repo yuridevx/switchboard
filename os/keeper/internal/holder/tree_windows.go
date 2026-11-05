@@ -1,33 +1,26 @@
-//go:build windows
-
 package holder
 
 import (
 	"os"
 	"os/exec"
-	"sync"
 	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-// tree — задание Windows (Job Object) с KILL_ON_JOB_CLOSE: умер держатель — ОС закрывает задание и завершает процесс со всеми потомками.
-type tree struct {
-	mu  sync.Mutex
-	job windows.Handle
-}
-
-// SetProcAttr — своя группа консоли, без окна: Ctrl+C в консоли keeper не доходит до детей.
-func SetProcAttr(cmd *exec.Cmd) {
+// Prepare — своя группа консоли, без окна: Ctrl+C в консоли keeper не доходит до детей.
+func Prepare(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_NO_WINDOW}
 }
 
-// setHolderAttr — держатель вне задания хозяина: переживает хозяина.
-func setHolderAttr(cmd *exec.Cmd) { SetProcAttr(cmd) }
+func setHolderAttr(cmd *exec.Cmd) { Prepare(cmd) }
 
-// enclose — процесс в своё задание; detach — дети процесса из задания выходят тихо.
-func enclose(p *os.Process, detach bool) (*tree, error) {
+// tree — задание Windows «закрыл — убей»: умер держатель — ОС завершает процесс со всеми потомками. detach — дети процесса из задания выходят тихо:
+// держатели сессий переживают смену версии Host.
+type tree struct{ job windows.Handle }
+
+func newTree(cmd *exec.Cmd, detach bool) (*tree, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err
@@ -41,7 +34,7 @@ func enclose(p *os.Process, detach bool) (*tree, error) {
 		windows.CloseHandle(job)
 		return nil, err
 	}
-	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(p.Pid))
+	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE, false, uint32(cmd.Process.Pid))
 	if err != nil {
 		windows.CloseHandle(job)
 		return nil, err
@@ -51,34 +44,10 @@ func enclose(p *os.Process, detach bool) (*tree, error) {
 		windows.CloseHandle(job)
 		return nil, err
 	}
-	return &tree{job: job}, nil
+	return &tree{job}, nil
 }
 
-// kill — процесс и все его потомки сразу.
-func (t *tree) kill() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.job != 0 {
-		windows.TerminateJobObject(t.job, 1)
-	}
-}
+func (t *tree) kill() { windows.TerminateJobObject(t.job, 1) }
 
-// release — закрыть задание; что в нём осталось, ОС завершает.
-func (t *tree) release() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.job != 0 {
-		windows.CloseHandle(t.job)
-		t.job = 0
-	}
-}
-
-// exitOf — код выхода; завершённый силой — сигнал SIGKILL, как на Linux.
-func exitOf(ps *os.ProcessState, forced bool) (*int, *string) {
-	if forced {
-		s := "SIGKILL"
-		return nil, &s
-	}
-	c := ps.ExitCode()
-	return &c, nil
-}
+// exitOf — код выхода: сигналов на Windows нет.
+func exitOf(ps *os.ProcessState) (int, string) { return ps.ExitCode(), "" }

@@ -1,51 +1,80 @@
-// Поиск Ctrl K: разделы и то, что экраны отдают в find.
-import { useState } from "react";
-import { Dot, In, RowBtn } from "@switchboard/web-ui";
-import type { Hit } from "../sections.ts";
-import { useCore } from "./context.ts";
+// Поиск Ctrl K: разделы и то, что экраны отдают поиску.
+import { useEffect, useRef, useState } from "react";
+import { Dot, In, Note, RowBtn } from "@switchboard/web-ui";
+import type { Params } from "../types.ts";
+import type { Page } from "./shell.tsx";
 
-export function Search({ close }: { close(): void }) {
-  const { snap, sections, address } = useCore();
-  const [query, setQuery] = useState("");
-  const hits = snap.use(() => sections.hits(query));
-  const pick = (hit: Hit) => {
-    close();
-    address.go(hit.screen, hit.params);
+const LIMIT = 40;
+const EMPTY = { padding: "10px 12px" };
+type Hit = { label: string; hint?: string; dot?: string; screen: string; params?: Params };
+
+function hits({ modules, wide }: Page, q: string): Hit[] {
+  return modules
+    .sections()
+    .flatMap((name): Hit[] => {
+      const [e, s] = modules.screenOf(name)!;
+      if (modules.off(e)) return [];
+      const own: Hit[] = s.nav!.toLowerCase().includes(q) ? [{ label: s.nav!, hint: (wide ? s.group : (s.narrowGroup ?? s.group)) ?? "раздел", screen: name }] : [];
+      const found = s.find ? (modules.trap(e, `экране ${name}`, () => s.find!(q)) ?? []) : [];
+      return [...own, ...found.filter((h) => modules.screenFor(e, h.screen))];
+    })
+    .slice(0, LIMIT);
+}
+
+function Box({ page }: { page: Page }) {
+  const [q, setQ] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+  const rows = page.bus.use(() => hits(page, q.toLowerCase()));
+  useEffect(() => input.current?.focus(), []);
+  const go = (h: Hit) => {
+    page.search();
+    page.open(h.screen, h.params);
   };
   return (
     <>
-      <div className="sb-palveil" onClick={close} />
+      <div className="sb-palveil" onClick={page.search} />
       <div className="sb-pal" role="dialog" aria-label="Перейти">
         <In
-          autoFocus
+          ref={input}
           className="sb-palin"
           aria-label="Перейти"
-          value={query}
-          onChange={() => {}}
-          onInput={(e) => setQuery(e.currentTarget.value)}
+          value={q}
+          onInput={(e) => setQ(e.currentTarget.value)}
           onKeyDown={(e) => {
-            if (e.key === "Enter" && hits[0]) {
-              e.preventDefault();
-              pick(hits[0]);
-            }
-            if (e.key === "Escape") close();
+            if (e.key === "Escape") page.search();
+            if (e.key === "Enter" && rows[0]) go(rows[0]);
           }}
         />
         <div className="sb-palres" role="listbox">
-          {hits.map((hit, i) => (
-            <RowBtn key={`${hit.screen}?${JSON.stringify(hit.params)}?${hit.label}`} className={i === 0 ? "sb-palit first" : "sb-palit"} role="option" onClick={() => pick(hit)}>
-              {hit.dot ? <Dot kind={hit.dot} /> : null}
-              <span className="l">{hit.label}</span>
-              {hit.hint ? <span className="k">{hit.hint}</span> : null}
+          {rows.map((h, i) => (
+            <RowBtn key={`${h.screen}:${h.label}:${i}`} role="option" className={i === 0 ? "sb-palit first" : "sb-palit"} onClick={() => go(h)}>
+              {h.dot && <Dot kind={h.dot} />}
+              <span className="l">{h.label}</span>
+              {h.hint && <span className="k">{h.hint}</span>}
             </RowBtn>
           ))}
-          {hits.length ? null : (
-            <div className="sb-note" style={{ padding: "10px 12px" }}>
-              Ничего не нашлось
-            </div>
-          )}
+          {!rows.length && <Note style={EMPTY}>Ничего не нашлось</Note>}
         </div>
       </div>
     </>
+  );
+}
+
+export function Search({ page }: { page: Page }) {
+  const { core, bus, doc, wide } = page;
+  const open = bus.use(() => core.searching);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!wide || !(e.ctrlKey || e.metaKey) || !(e.code === "KeyK" || e.key === "k" || e.key === "л") || !core.current || core.stopped !== null) return;
+      e.preventDefault();
+      page.search();
+    };
+    doc.addEventListener("keydown", onKey);
+    return () => doc.removeEventListener("keydown", onKey);
+  }, [core, doc, page, wide]);
+  return (
+    <div className="sb-palw" hidden={!open}>
+      {open && <Box page={page} />}
+    </div>
   );
 }

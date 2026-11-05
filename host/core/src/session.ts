@@ -1,538 +1,572 @@
-// Сессия: один query() Agent SDK, очередь ввода, процесс у своего держателя. Состояние — только из SDK (session_state_changed).
-// Неожиданный выход процесса — один resume; второй сбой до готовности — failed, причина в журнале.
-// Ядра сессия не знает: всё нужное ей — SessionDeps.
-import type { Options, PermissionResult, ElicitationResult, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { LogRecord, Session, SessionState, StartKind, Store } from "../contract.ts";
-import type { Decisions } from "./decisions.ts";
-import { SESSION_FUNCTIONS } from "./calls.ts";
-import type { Clock } from "./clock.ts";
+// Сессия: один процесс claude у держателя за раз, один query() на процесс. Владеет его жизнью, записью сессии и очередью ввода.
+//
+//   starting ──initialize──► idle ⇄ busy ⇄ waiting ──stop──► stopping ──► stopped
+//      ▲   │                   │
+//      │   └── второй сбой до готовности ──► failed          выход с os_stop ──► stopped (в записи не остановлена)
+//      └────── процесс умер: один resume ◄─┘
+import type { PermissionResult, Query, SDKMessage, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { DecideOpts, Frame, InputOpts, LogRecord, QueryPart, Session, SessionInfo, SessionState, StartKind } from "../contract.ts";
+import { QUERY_METHODS, SESSION_FUNCTIONS } from "./calls.ts";
+import { limit, type Clock } from "./clock.ts";
+import type { Exit, Held, Holders } from "./holders.ts";
 import { wholeConversation } from "./history.ts";
-import type { Exited, HeldProcess, HolderClient } from "./holders.ts";
-import { collectParts, mergeParts } from "./parts.ts";
-import type { Parts } from "./parts.ts";
+import { CORE_OPTIONS, mergeParts, type Merged } from "./parts.ts";
 import { tildePath } from "./paths.ts";
-import { InputQueue } from "./queue.ts";
-import { refuse } from "./refusal.ts";
+import { isRefusal, refuse, type Refusal } from "./refusal.ts";
+import type { SdkApi } from "./release.ts";
 import type { CoreRecord, Stores } from "./store.ts";
-import { handled, MODULE_ERROR, START_MS } from "./trap.ts";
-import type { Mod, Scope, Trap } from "./trap.ts";
+import { handled, type Mod, type Trap } from "./trap.ts";
 
-/** Предел ответа процесса claude на initialize — тот же, что у startup() SDK (initializeTimeoutMs по умолчанию 60 с). */
-export const INIT_MS = 60_000;
-/** Предел одной ступени остановки процесса claude: итог хода после прерывания, выход после закрытия ввода. Две ступени вместе — меньше предела запроса клиента. */
-export const STOP_MS = 30_000;
-/** Сколько restart ждёт конца хода: ход может законно идти часами. Вышло — перезапуск отменён, ход не трогаем (слово пользователя 4 нояб.). */
-export const RESTART_WAIT_MS = 6 * 3_600_000;
+const STEP_MS = 30_000; // ступень остановки процесса
+const INITIALIZE_MS = 60_000; // как initializeTimeoutMs у startup() SDK: у query() своего предела нет
+const RESTART_WAIT_MS = 6 * 3_600_000; // ход законно идёт часами (слово пользователя 4 нояб.)
 
-const SDK_STATE: Record<string, SessionState> = { idle: "idle", running: "busy", requires_action: "waiting" };
-const LIVE = new Set<SessionState>(["idle", "busy", "waiting"]);
+type Phase = "starting" | "running" | "stopping" | "stopped" | "failed";
+type Turn = "idle" | "busy" | "waiting";
+const TURN_OF: Record<string, Turn> = { idle: "idle", running: "busy", requires_action: "waiting" };
 
-/** То, что ядро берёт от Agent SDK. На стенде — подделка. */
-export type SdkApi = {
-  query: (p: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => Query;
-  /** функции SDK сессии: getSessionMessages, renameSession… */
-  functions: Record<string, (...a: any[]) => Promise<unknown>>;
-  /** команда claude той же версии */
-  cli: (args: string[], env: Record<string, string | undefined>, input?: string) => Promise<{ code: number | null; out: string }>;
-  /** путь к исполняемому claude из пакета SDK: его же получает query() сессии — SDK не ищет его второй раз */
-  bin?: string;
-};
-
-/** Что сессии нужно от ядра. */
-export type SessionDeps = {
-  trap: Trap;
-  decisions: Decisions;
-  holders: HolderClient;
+/** То, что сессии нужно от Host. */
+export type SessionEnv = {
   sdk: SdkApi;
-  stores: Stores;
-  clock: Clock;
   sdkVersion: string;
-  log(rec: LogRecord): void;
-  /** записать список сессий на диск */
-  saveCore(): void;
-  /** кадр в relay: ok — ушёл */
-  send(f: { type: string; [k: string]: unknown }): { ok: boolean };
-  /** сессия ещё в списке ядра */
-  listed(callsign: string): boolean;
-  /** убрать из списка ядра */
-  unlist(callsign: string): void;
-  /** s.field: поле у владельца; имя из своих provides или uses */
-  fieldOwner(m: Mod, scope: Scope, name: string): Mod | undefined;
+  clock: Clock;
+  trap: Trap;
+  mods: Mod[];
+  owners: Map<string, Mod>;
+  stores: Stores;
+  holders: Holders;
+  log(record: LogRecord): void;
+  /** записи всех сессий изменились: на диск */
+  saveRecords(): void;
+  send(frame: Frame): { ok: boolean };
+  /** Host останавливается: процессы остаются у держателей, их выходы — дело следующего Host */
+  shutting(): boolean;
+  forget(s: Sess): void;
 };
 
-/** Первый запуск: новый разговор, разговор с диска или его копия. */
-type First = { fresh?: boolean; resume?: string; fork?: boolean };
+/** Очередь ввода: живёт дольше процесса. Читает только последний поток; поток ушедшего процесса отставлен сразу, иначе SDK заберёт сообщение и никуда его не напишет. */
+class InputQueue {
+  private items: SDKUserMessage[] = [];
+  private reader = 0;
+  private wake: (() => void) | null = null;
 
-export class Sess implements Scope {
+  push(m: SDKUserMessage): void {
+    this.items.push(m);
+    this.wake?.();
+  }
+
+  retire(): void {
+    this.reader++;
+    this.wake?.();
+  }
+
+  async *stream(): AsyncGenerator<SDKUserMessage, void> {
+    const me = ++this.reader;
+    for (;;) {
+      while (this.items.length && this.reader === me) yield this.items.shift()!;
+      if (this.reader !== me) return;
+      await new Promise<void>((r) => (this.wake = r));
+    }
+  }
+}
+
+export class Sess {
   readonly rec: CoreRecord;
-  state: SessionState = "starting";
-  q: Query | null = null;
-  proc: HeldProcess | null = null;
-  startKind: StartKind = "spawn";
-  point: number | undefined;
+  readonly failed: Record<string, string> = {};
+  readonly callsign: string;
+  startKind: StartKind;
+  point?: number;
   model: string | null = null;
-  /** модули, выключенные в этой сессии: имя → причина */
-  readonly failed = new Map<string, string>();
-  private readonly deps: SessionDeps;
-  private readonly queue = new InputQueue();
-  /** initialize этого query() прошёл */
-  private ready = false;
-  /** сбоев подряд до готовности */
-  private crashes = 0;
-  /** процесс закрывают намеренно: его выход не сбой */
-  private closing: null | "stop" | "restart" | "shutdown" = null;
-  /** причины сбоев до готовности: идут в строку failed */
-  private reasons: string[] = [];
-  private resultWaiters: Array<() => void> = [];
-  private exitWaiters: Array<() => void> = [];
-  private settleWaiters: Array<() => void> = [];
-  private lastSent = "";
-  private readonly views = new Map<Mod, Session>();
+  /** в списке машины: запись идёт в relay */
+  listed = false;
 
-  constructor(deps: SessionDeps, rec: CoreRecord) {
-    this.deps = deps;
+  private readonly env: SessionEnv;
+  private readonly input = new InputQueue();
+  private readonly facades = new Map<Mod, Session>();
+  private phase: Phase;
+  private turn: Turn = "idle";
+  private shown: SessionState;
+  private q: Query | null = null;
+  private held: Held | null = null;
+  /** resolved, когда процесс вышел и вывод дочитан */
+  private over: Promise<void> = Promise.resolve();
+  /** нет разговора на диске: новый id, а не resume */
+  private fresh = false;
+  /** stop или restart ведут выход сами: это не сбой */
+  private closing = false;
+  /** причины сбоев подряд */
+  private fails: string[] = [];
+  /** вклады, собранные заранее: на старте Host их проверяют до первого подключения к держателям */
+  private prepared: Merged | null = null;
+  private sent = "";
+  private turnWaiters = new Set<() => void>();
+  private settleWaiters = new Set<() => void>();
+
+  constructor(env: SessionEnv, rec: CoreRecord, kind: StartKind, point?: number) {
+    this.env = env;
     this.rec = rec;
-  }
-
-  get callsign(): string {
-    return this.rec.callsign;
-  }
-
-  // ───────────── запуск ─────────────
-
-  /** Вид старта до сборки вкладов: session() модуля уже видит s.info.start и point. */
-  prepare(kind: StartKind, point?: number): void {
+    this.callsign = rec.callsign;
     this.startKind = kind;
-    if (kind === "point") this.point = point;
+    this.point = point;
+    this.phase = rec.stopped ? "stopped" : "starting";
+    this.shown = this.phase;
+    this.fresh = kind === "spawn" || rec.fork !== undefined;
   }
 
-  /** Запрос открытия — модулям с opening, один проход до session(). Отказ словом идёт наружу; модуль выключен или упал — module_error, а не тихий запуск без его выбора. */
-  async collectOpening(req: Record<string, unknown>): Promise<void> {
-    const { trap } = this.deps;
-    for (const m of trap.mods) {
-      if (!m.module.opening) continue;
-      const reads = m.module.openingReads;
-      if (trap.isDown(m, this) && reads && !reads.some((k) => req[k] !== undefined)) continue;
-      const read = await trap.call(m, "opening", this, async (x) => (await trap.within(x.opening!(this.facade(m), req), `opening() не вернулся за ${START_MS / 1000} с`), true), () => false);
-      if (!read) throw refuse(MODULE_ERROR, `${m.name} выключен: запрос открытия ${this.callsign} не прочитан`);
+  get state(): SessionState {
+    return this.phase === "running" ? this.turn : this.phase;
+  }
+
+  get info(): SessionInfo {
+    const { callsign, session_id, cwd, sdk, stopped, from } = this.rec;
+    return { callsign, session_id, cwd, model: this.model, sdk, from: from ?? null, stopped, start: this.startKind, ...(this.point !== undefined ? { point: this.point } : {}) };
+  }
+
+  /** Пока поднимается — ждать; потом — запись в roster. */
+  settled(): Promise<void> {
+    return this.phase === "starting" ? new Promise((r) => this.settleWaiters.add(r)) : Promise.resolve();
+  }
+
+  // ───────────────── запись в roster ─────────────────
+
+  private fieldOf(owner: Mod, name: string): unknown {
+    if (owner.isOff(this)) return undefined;
+    const v = this.env.trap.call(owner, this, `fields.${name}`, () => owner.module.fields![name](this.facade(owner)), undefined);
+    return v instanceof Promise ? undefined : v;
+  }
+
+  record(): Frame & { callsign: string } {
+    const fields: Record<string, unknown> = {};
+    for (const m of this.env.mods) for (const name of Object.keys(m.module.fields ?? {})) fields[name] = this.fieldOf(m, name);
+    // выключенные считаются после полей: поле могло упасть только что
+    const off = { ...Object.fromEntries(this.env.mods.flatMap((m) => (m.down ? [[m.name, m.down]] : []))), ...this.failed };
+    return { callsign: this.callsign, state: this.state, sdk: this.rec.sdk, dir: tildePath(this.rec.cwd), ...(this.rec.from ? { by: this.rec.from } : {}), ...(Object.keys(off).length ? { failed: off } : {}), ...fields } as never;
+  }
+
+  /** Запись для hello: relay заменит карточку целиком. */
+  hello(): Frame & { callsign: string } {
+    const r = this.record();
+    this.sent = JSON.stringify(r);
+    return r;
+  }
+
+  /** Пересобрать запись и, если изменилась, послать в relay. Связи нет — дойдёт при следующей смене или после hello. */
+  refresh(): void {
+    if (!this.listed) return;
+    const r = this.record();
+    const text = JSON.stringify(r);
+    if (text !== this.sent && this.env.send({ ...r, type: "session.state" }).ok) this.sent = text;
+  }
+
+  private changed(): void {
+    const now = this.state;
+    if (now === this.shown) return;
+    this.shown = now;
+    if (this.phase === "running") {
+      this.rec.state = this.turn;
+      this.env.saveRecords();
+    }
+    this.each("on.state", (m, f) => m.module.on?.state?.(f, now));
+    this.refresh();
+  }
+
+  private setPhase(phase: Phase): void {
+    this.phase = phase;
+    this.changed();
+    if (phase !== "starting") {
+      for (const w of this.settleWaiters) w();
+      this.settleWaiters.clear();
     }
   }
 
-  collectParts(): Promise<Parts> {
-    return collectParts(this.deps.trap, this, (m) => this.facade(m));
+  private each(where: string, fn: (m: Mod, s: Session) => void): void {
+    for (const m of this.env.mods) if (!m.isOff(this)) this.env.trap.call(m, this, where, () => fn(m, this.facade(m)), undefined);
   }
 
-  private options(parts: Parts, attach: boolean, first?: First): Options {
-    const { trap, decisions, holders, sdk } = this.deps;
-    const merged = mergeParts(trap, this, parts);
-    let attachOnce = attach;
-    const start: Record<string, unknown> = {};
-    if (first?.fresh) start.sessionId = this.rec.session_id;
-    else if (first?.resume && first.fork) Object.assign(start, { resume: first.resume, forkSession: true, sessionId: this.rec.session_id });
-    else start.resume = this.rec.session_id;
+  // ───────────────── вклады и запуск ─────────────────
+
+  /** Запрос открытия: модули пишут своё в раздел сессии или отказывают. */
+  async opening(req: Record<string, unknown>): Promise<void> {
+    for (const m of this.env.mods) {
+      const read = m.module.opening;
+      if (!read) continue;
+      const unread = refuse("module_error", `${m.name} выключен: запрос открытия ${this.callsign} не прочитан`);
+      if (m.isOff(this)) {
+        if (m.module.openingReads && !m.module.openingReads.some((k) => req[k] !== undefined)) continue;
+        throw unread;
+      }
+      let refusal: Refusal | undefined;
+      await this.env.trap.limited(m, this, "opening", async () => {
+        try {
+          await read(this.facade(m), req);
+        } catch (e) {
+          if (!isRefusal(e)) throw e;
+          refusal = e;
+        }
+      }, undefined);
+      if (refusal) throw refusal;
+      if (m.isOff(this)) throw unread;
+    }
+  }
+
+  private partOf(m: Mod): Promise<QueryPart | undefined> {
+    if (m.isOff(this) || !m.module.session) return Promise.resolve(undefined);
+    return this.env.trap.limited(m, this, "session", async () => {
+      let part: QueryPart | undefined;
+      try {
+        part = await m.module.session!(this.facade(m));
+      } catch (e) {
+        throw isRefusal(e) ? `отказ ${e.word} в session(): ${e.why ?? ""}` : e;
+      }
+      const core = Object.keys(part ?? {}).find((k) => CORE_OPTIONS.has(k));
+      if (core) throw new Error(`опция ${core} — её держит ядро`);
+      return part;
+    }, undefined);
+  }
+
+  /** Хук в опциях: выключенный модуль — как будто хука нет; бросил — выключен. */
+  private guardHooks(m: Mod, part: QueryPart): QueryPart {
+    const hooks = Object.fromEntries(
+      Object.entries(part.hooks ?? {}).map(([event, matchers]) => [
+        event,
+        matchers!.map((matcher) => ({
+          ...matcher,
+          hooks: matcher.hooks.map((h) => (...args: Parameters<typeof h>) => (m.isOff(this) ? Promise.resolve({}) : this.env.trap.wait(m, this, `hooks.${event}`, () => h(...args), {}))),
+        })),
+      ]),
+    );
+    return { ...part, hooks };
+  }
+
+  /** Собрать вклады модулей; ответ — ключи двух владельцев. */
+  async prepare(): Promise<string[]> {
+    const parts = await Promise.all(this.env.mods.map((m) => this.partOf(m)));
+    this.prepared = mergeParts(this.env.mods.flatMap((m, i) => (parts[i] ? [{ owner: m.name, part: this.guardHooks(m, parts[i]!) }] : [])));
+    return this.prepared.conflicts;
+  }
+
+  /** Старт процесса по прежнему разговору: файла ещё нет — тот же id заново. */
+  async aim(kind: "attach" | "resume" | "point", point?: number): Promise<void> {
+    this.startKind = kind;
+    this.point = point;
+    this.fresh = false;
+    if (kind !== "resume") return;
+    const info = this.env.sdk.functions.getSessionInfo(this.rec.session_id, { dir: this.rec.cwd });
+    this.fresh = !(await limit(this.env.clock, info, STEP_MS, () => ({})));
+  }
+
+  private options(merged: Merged, spawned: (h: Held) => void): Record<string, unknown> {
+    const { rec, env } = this;
+    const talk = !this.fresh ? { resume: rec.session_id } : { ...(rec.fork ? { resume: rec.fork, forkSession: true } : {}), sessionId: rec.session_id };
     return {
-      // режим устава; сессию в другом режиме поднимает её владелец — manage, вкладом
       permissionMode: "bypassPermissions",
-      ...merged,
-      ...start,
-      cwd: this.rec.cwd,
-      ...(sdk.bin ? { pathToClaudeCodeExecutable: sdk.bin } : {}),
-      allowDangerouslySkipPermissions: true,
-      // состояние сессии — только из session_state_changed; SDK шлёт его лишь с этим ключом
+      ...merged.options,
       env: { ...process.env, ...merged.env, DISABLE_UPDATES: "1", CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1" },
-      canUseTool: (tool, input, o): Promise<PermissionResult> => decisions.canUseTool(this, tool, input, o as Record<string, unknown>),
-      onElicitation: (req, o): Promise<ElicitationResult> => decisions.elicit(this, req, o),
-      spawnClaudeCodeProcess: (o) => {
-        const p = holders.channel(attachOnce ? "attach" : "spawn", this.callsign, o);
-        attachOnce = false;
-        this.proc = p;
-        return p;
+      systemPrompt: { type: "preset", preset: "claude_code", ...(merged.append.length ? { append: merged.append.join("\n\n") } : {}) },
+      mcpServers: merged.mcpServers,
+      hooks: merged.hooks,
+      ...(Object.keys(merged.settings).length ? { settings: merged.settings } : {}),
+      ...talk,
+      cwd: rec.cwd,
+      pathToClaudeCodeExecutable: env.sdk.bin,
+      allowDangerouslySkipPermissions: true,
+      canUseTool: (tool: string, input: Record<string, unknown>, opts: DecideOpts) => this.decide(tool, input, opts),
+      onElicitation: (request: never, opts: { signal: AbortSignal; requestId: string }) => this.elicit(request, opts),
+      spawnClaudeCodeProcess: (o: never) => {
+        const held = this.startKind === "attach" ? env.holders.attach(this.callsign) : env.holders.spawn(this.callsign, o);
+        spawned(held);
+        return held;
       },
-    } as Options;
+    };
   }
 
-  /**
-   * Поднять процесс сессии: spawn нового, resume разговора, attach к живому у держателя.
-   * Ответ — после initialize; процесс умер до него — исключение (ветку сбоя ведёт выход от держателя).
-   */
-  async launch(kind: StartKind, o: { parts?: Parts; first?: First } = {}): Promise<void> {
-    const { sdk, clock, log, saveCore, sdkVersion } = this.deps;
-    this.prepare(kind, kind === "point" ? this.point : undefined);
-    this.ready = false;
-    this.setState("starting");
-    this.push();
-    const attach = kind === "attach";
-    if (!attach) {
-      this.rec.sdk = sdkVersion;
-      saveCore();
+  /** Поднять процесс. Ответ — после initialize; первый сбой до него — отказ, а что делать дальше, решает ended. */
+  launch(): Promise<void> {
+    return this.env.trap.outside(() => this.run());
+  }
+
+  private async run(): Promise<void> {
+    const conflicts = this.prepared ? [] : await this.prepare();
+    if (this.phase !== "starting") return;
+    const merged = this.prepared!;
+    this.prepared = null;
+    if (conflicts.length) return this.ended(this.lostWith(conflicts.join("; ")));
+
+    const { rec, env } = this;
+    if (this.startKind === "attach") this.turn = rec.state === "busy" || rec.state === "waiting" ? rec.state : "idle";
+    else {
+      this.turn = "idle";
+      rec.sdk = env.sdkVersion;
     }
-    let parts: Parts;
-    let first = o.first;
+    env.log({ ev: "launch", callsign: this.callsign, start: this.fresh ? (rec.fork ? "fork" : "spawn") : this.startKind, sdk: rec.sdk, session_id: rec.session_id });
+
+    let spawned!: (h: Held) => void;
+    const held = new Promise<Held>((r) => (spawned = r));
+    let q: Query;
     try {
-      parts = o.parts ?? (await this.collectParts());
-      // файл разговора claude пишет на первом ходе: до него resume поднимать нечего — запуск с тем же id заново
-      if (kind === "resume" && !first && !(await sdk.functions.getSessionInfo(this.rec.session_id, { dir: this.rec.cwd })))
-        first = this.rec.fork ? { resume: this.rec.fork, fork: true } : { fresh: true };
+      q = env.sdk.query({ prompt: this.input.stream(), options: this.options(merged, (h) => ((this.held = h), spawned(h))) as never });
     } catch (e) {
-      this.reasons.push((e as Error).message);
-      this.fail();
-      throw e;
+      this.ended(this.lostWith((e as Error).message));
+      throw new Error(`${this.callsign}: процесс вышел до initialize — ${(e as Error).message}`);
     }
-    const q = sdk.query({ prompt: this.queue.stream(), options: this.options(parts, attach, first) });
     this.q = q;
-    log({ ev: "launch", callsign: this.callsign, start: first?.fresh ? "spawn" : first?.fork ? "fork" : kind, sdk: this.rec.sdk, session_id: this.rec.session_id });
-    void this.pump(q);
-    // процесс жив, но молчит на initialize: убить — дальше ветка «процесс умер»: один resume, второй сбой — failed
-    const late = clock.setTimeout(() => {
-      log({ kind: "stop", ev: "initialize_late", callsign: this.callsign, why: `процесс не ответил на initialize за ${INIT_MS / 1000} с — kill` });
-      // своим соединением: holders.kill — для ничьих, второе соединение дало бы второй выход
-      this.proc?.kill("SIGKILL");
-    }, INIT_MS);
+    this.over = this.pump(q, held);
+
+    const late = env.clock.setTimeout(() => {
+      env.log({ kind: "stop", ev: "initialize_late", callsign: this.callsign, why: `процесс не ответил на initialize за ${INITIALIZE_MS / 1000} с — kill` });
+      this.held?.terminate();
+    }, INITIALIZE_MS);
     try {
-      await q.initializationResult();
+      await Promise.race([q.initializationResult(), held.then((h) => h.exit).then(() => Promise.reject(new Error("процесс вышел")))]);
     } catch (e) {
+      this.held?.terminate();
       throw new Error(`${this.callsign}: процесс вышел до initialize — ${(e as Error).message}`);
     } finally {
-      clock.clearTimeout(late);
+      env.clock.clearTimeout(late);
     }
-    if (this.q !== q) throw new Error(`${this.callsign}: процесс сменился до initialize`);
-    this.ready = true;
-    this.crashes = 0;
-    this.reasons = [];
-    if (this.state === "starting") this.setState(attach && this.rec.state && LIVE.has(this.rec.state) ? this.rec.state : "idle");
-    this.notify("open", (x, m) => x.on?.open?.(this.facade(m)));
-    // процесс запущен прежним SDK: ход доходит до конца, затем resume с claude новой версии
-    if (attach && this.rec.sdk !== sdkVersion) void this.restart().catch(() => {});
+    if (this.q !== q || this.phase !== "starting") return;
+
+    this.fails = [];
+    this.setPhase("running");
+    this.each("on.open", (m, f) => m.module.on?.open?.(f));
+    // новый Host, а процесс запущен прежней версией SDK: перезапуск, ход не прерывается
+    if (rec.sdk !== env.sdkVersion) void this.restart().catch(() => {});
   }
 
-  /** Всем модулям с on.<имя>: ошибка одного не мешает остальным. */
-  private notify(name: "open" | "close" | "state" | "event", fn: (x: Mod["module"], m: Mod) => void): void {
-    const { trap } = this.deps;
-    for (const m of trap.mods) if (m.module.on?.[name]) trap.call(m, `on.${name}`, this, (x) => fn(x, m), () => undefined);
+  private lostWith(stderr: string): Exit {
+    return { code: null, signal: null, stderr };
   }
 
-  private async pump(q: Query): Promise<void> {
-    try {
-      for await (const m of q) this.onMessage(m);
-    } catch {
-      // конец потока: причину даст выход от держателя
+  private async drain(q: Query): Promise<void> {
+    const messages = q[Symbol.asyncIterator]();
+    for (;;) {
+      let next: IteratorResult<SDKMessage, void>;
+      try {
+        next = await messages.next();
+      } catch {
+        return; // SDK называет выход процесса отказом; слова — в выходе от держателя
+      }
+      if (next.done) return;
+      this.onMessage(next.value);
     }
+  }
+
+  /** Вывод процесса до конца, затем ended: выход — от держателя, дочитать остаток — не дольше ступени. */
+  private async pump(q: Query, held: Promise<Held>): Promise<void> {
+    const drained = this.drain(q);
+    const exit = await (await held).exit;
+    await limit(this.env.clock, drained, STEP_MS, () => undefined);
+    this.ended(exit);
   }
 
   private onMessage(m: SDKMessage): void {
     if (m.type === "system" && m.subtype === "init") {
-      if (m.session_id && m.session_id !== this.rec.session_id) {
+      this.model = m.model;
+      if (m.session_id !== this.rec.session_id) {
         this.rec.session_id = m.session_id;
-        this.deps.saveCore();
+        this.env.saveRecords();
       }
-      this.model = (m as { model?: string }).model ?? null;
-    }
-    if (m.type === "system" && m.subtype === "session_state_changed") {
-      const st = SDK_STATE[(m as { state: string }).state];
-      // сессию закрывают: что процесс говорит о ходе, больше не важно
-      if (st && !this.closing && (LIVE.has(this.state) || this.state === "starting")) this.setState(st);
-    }
-    this.notify("event", (x, mod) => x.on?.event?.(this.facade(mod), m));
-    if (m.type === "result") for (const w of this.resultWaiters.splice(0)) w();
-    this.push();
+    } else if (m.type === "system" && m.subtype === "session_state_changed") {
+      this.turn = TURN_OF[m.state] ?? this.turn;
+      this.changed();
+    } else if (m.type === "result") this.wakeTurn();
+    this.each("on.event", (mod, f) => mod.module.on?.event?.(f, m));
+    this.refresh();
   }
 
-  /** Выход процесса от держателя: наш close — ожидаемо; иначе сбой — один resume, второй до готовности — failed. */
-  onExited(e: Exited): void {
-    const why = `код ${e.code}${e.signal ? `, сигнал ${e.signal}` : ""}${e.stderr ? `: ${e.stderr}` : ""}`;
-    this.queue.retire();
-    for (const w of this.exitWaiters.splice(0)) w();
-    // процесс вышел посреди хода: итога не будет — ждущие его не висят
-    for (const w of this.resultWaiters.splice(0)) w();
-    // вышел, пока закрывали: закрывающему ждать больше нечего
-    if (this.closing) {
-      this.q = null;
-      this.proc = null;
-      return;
-    }
-    if (!this.q) return;
+  private wakeTurn(): void {
+    for (const w of this.turnWaiters) w();
+    this.turnWaiters.clear();
+  }
+
+  /** Процесс вышел. Ветка закрытого списка устава: один resume, второй сбой до готовности — failed; остановка ОС — без перезапуска. */
+  private ended(exit: Exit): void {
     this.q = null;
-    this.proc = null;
-    // ОС останавливается раньше, чем об этом узнаёт Host (win11-2 1 нояб.: держатель на 5 с раньше службы): не падение,
-    // resume посреди выключения не нужен; в записи сессия не остановлена — новый Host поднимет её сам
-    if (e.os_stop) {
-      this.deps.log({ ev: "session_os_stop", callsign: this.callsign, why: `остановка ОС: процесс claude вышел, ${why}` });
-      this.setState("stopped");
-      this.notifyClose();
-      return;
+    this.held = null;
+    this.input.retire();
+    this.wakeTurn();
+    if (this.env.shutting() || this.closing) return;
+    const { code, signal, stderr } = exit;
+    const detail = `код ${code}${signal ? `, сигнал ${signal}` : ""}${stderr ? `: ${stderr}` : ""}`;
+    if (exit.os_stop) {
+      this.env.log({ ev: "session_os_stop", callsign: this.callsign, why: `остановка ОС: процесс claude вышел, ${detail}` });
+      this.setPhase("stopped");
+      return this.each("on.close", (m, f) => m.module.on?.close?.(f));
     }
-    this.reasons.push(why);
-    this.deps.log({ kind: "stop", ev: "session_exited", callsign: this.callsign, why: `процесс claude вышел, ${why}` });
-    this.notifyClose();
-    this.crashes = this.ready ? 1 : this.crashes + 1;
-    if (this.crashes >= 2) return this.fail();
-    void this.launch("resume").catch(() => {});
-  }
-
-  private fail(): void {
-    this.q = null;
-    this.setState("failed");
-    this.deps.log({ kind: "stop", ev: "session_failed", callsign: this.callsign, why: `второй сбой до готовности — сессия стоит до session.start: ${this.reasons.join(" · ")}` });
-  }
-
-  /** Ждать, пока сессия поднимется или встанет. */
-  settled(): Promise<void> {
-    if (this.state !== "starting") return Promise.resolve();
-    return new Promise((r) => this.settleWaiters.push(r));
-  }
-
-  setState(st: SessionState): void {
-    if (this.state === st) return;
-    this.state = st;
-    if (LIVE.has(st)) {
-      this.rec.state = st;
-      this.deps.saveCore();
+    this.env.log({ kind: "stop", ev: "session_exited", callsign: this.callsign, why: `процесс claude вышел, ${detail}` });
+    this.each("on.close", (m, f) => m.module.on?.close?.(f));
+    this.fails.push(detail);
+    if (this.fails.length >= 2) {
+      this.env.log({ kind: "stop", ev: "session_failed", callsign: this.callsign, why: `второй сбой до готовности — сессия стоит до session.start: ${this.fails.join(" · ")}` });
+      return this.setPhase("failed");
     }
-    if (st !== "starting") for (const w of this.settleWaiters.splice(0)) w();
-    this.notify("state", (x, m) => x.on?.state?.(this.facade(m), st));
-    this.push();
+    void this.relaunch().catch(() => {}); // отказ — её следующий выход, он снова придёт сюда
   }
 
-  private notifyClose(): void {
-    this.notify("close", (x, m) => x.on?.close?.(this.facade(m)));
+  private async relaunch(point?: number): Promise<void> {
+    this.setPhase("starting");
+    await this.aim(point === undefined ? "resume" : "point", point);
+    await this.launch();
   }
 
-  // ───────────── управление ─────────────
+  // ───────────────── остановка и перезапуск ─────────────────
 
-  private nextResult(): Promise<void> {
-    return new Promise((r) => this.resultWaiters.push(r));
+  private waitTurnEnd(ms: number): Promise<boolean> {
+    return limit(this.env.clock, new Promise<boolean>((r) => this.turnWaiters.add(() => r(true))), ms, () => false);
   }
 
-  private async closeQuery(): Promise<void> {
-    const q = this.q;
-    if (!q) return;
-    const exited = new Promise<void>((r) => this.exitWaiters.push(r));
-    this.q = null;
-    this.queue.retire();
-    q.close();
-    await this.orKill(exited, "выхода процесса после закрытия ввода");
-    this.proc = null;
+  private waitExit(ms: number): Promise<boolean> {
+    return limit(this.env.clock, this.over.then(() => true), ms, () => false);
   }
 
-  /** Ступень остановки с пределом: не дождались — процесс убит, ждущих отпускает его выход; не вышел и за предел после kill — отказ словом. */
-  private orKill(wait: Promise<void>, what: string): Promise<void> {
-    const { clock, log } = this.deps;
-    return new Promise((done, refused) => {
-      let timer = clock.setTimeout(() => {
-        log({ kind: "stop", ev: "stop_late", callsign: this.callsign, why: `нет ${what} за ${STOP_MS / 1000} с — kill` });
-        this.proc?.kill("SIGKILL");
-        timer = clock.setTimeout(() => refused(new Error(`${this.callsign}: процесс не вышел и через ${STOP_MS / 1000} с после kill`)), STOP_MS);
-      }, STOP_MS);
-      void wait.then(() => {
-        clock.clearTimeout(timer);
-        done();
-      });
-    });
+  private async killProcess(why: string): Promise<void> {
+    this.env.log({ kind: "stop", ev: "stop_late", callsign: this.callsign, why });
+    this.held?.terminate();
+    if (!(await this.waitExit(STEP_MS))) throw new Error(`${this.callsign}: процесс не вышел и через ${STEP_MS / 1000} с после kill`);
   }
 
-  /** Конец хода, но не дольше предела restart: false — ход ещё идёт. */
-  private turnEnded(): Promise<boolean> {
-    const { clock } = this.deps;
-    return new Promise((done) => {
-      const late = clock.setTimeout(() => done(false), RESTART_WAIT_MS);
-      void this.nextResult().then(() => {
-        clock.clearTimeout(late);
-        done(true);
-      });
-    });
-  }
-
-  private async interruptTurn(): Promise<void> {
-    if (!this.q || (this.state !== "busy" && this.state !== "waiting")) return;
-    const r = this.nextResult();
-    // ответа на прерывание не ждём: важен итог хода, а молчащий процесс не ответит
-    void this.q.interrupt().catch(() => {});
-    await this.orKill(r, "итога хода после прерывания");
+  private async closeProcess(): Promise<void> {
+    this.input.retire();
+    this.q?.close();
+    if (!(await this.waitExit(STEP_MS))) await this.killProcess(`нет выхода процесса после закрытия ввода за ${STEP_MS / 1000} с — kill`);
   }
 
   async stop(): Promise<void> {
-    const { saveCore, log } = this.deps;
+    if (!this.rec.stopped) {
+      this.rec.stopped = true;
+      this.env.saveRecords();
+    }
+    if (this.phase === "stopped") return;
     if (!this.q) {
-      this.setState("stopped");
-      this.rec.stopped = true;
-      saveCore();
-      return;
+      this.env.log({ ev: "stop", callsign: this.callsign });
+      return this.setPhase("stopped");
     }
-    this.closing = "stop";
-    try {
-      await this.interruptTurn();
-      this.setState("stopping");
-      await this.closeQuery();
-      this.rec.stopped = true;
-      this.setState("stopped");
-      saveCore();
-      this.notifyClose();
-      log({ ev: "stop", callsign: this.callsign });
-    } finally {
-      this.closing = null;
+    this.closing = true;
+    this.setPhase("stopping");
+    if (this.turn !== "idle") {
+      void this.q.interrupt().catch(() => {}); // процесс умер раньше ответа: это увидит waitTurnEnd
+      if (!(await this.waitTurnEnd(STEP_MS))) await this.killProcess(`нет итога хода после прерывания за ${STEP_MS / 1000} с — kill`);
     }
+    if (this.q) await this.closeProcess();
+    this.closing = false;
+    this.env.log({ ev: "stop", callsign: this.callsign });
+    this.setPhase("stopped");
+    this.each("on.close", (m, f) => m.module.on?.close?.(f));
   }
 
   async restart(): Promise<void> {
-    if (!this.q) return this.start();
-    if ((this.state === "busy" || this.state === "waiting") && !(await this.turnEnded())) {
-      this.deps.log({ kind: "refuse", ev: "restart_late", callsign: this.callsign, why: `ход не кончился за ${RESTART_WAIT_MS / 3_600_000} ч — перезапуск отменён` });
+    if (!this.q) return this.phase === "starting" ? undefined : this.start();
+    if (this.turn !== "idle" && !(await this.waitTurnEnd(RESTART_WAIT_MS))) {
+      this.env.log({ kind: "refuse", ev: "restart_late", callsign: this.callsign, why: `ход не кончился за ${RESTART_WAIT_MS / 3_600_000} ч — перезапуск отменён` });
       return;
     }
-    // пока ждали конца хода, сессию начали закрывать: stop важнее перезапуска
-    if (this.closing) return;
-    this.closing = "restart";
-    try {
-      await this.closeQuery();
-      this.notifyClose();
-    } finally {
-      this.closing = null;
-    }
-    this.deps.log({ ev: "restart", callsign: this.callsign });
-    await this.launch("resume");
+    if (!this.q || this.phase === "stopping") return;
+    this.env.log({ ev: "restart", callsign: this.callsign });
+    this.closing = true;
+    await this.closeProcess();
+    this.closing = false;
+    this.each("on.close", (m, f) => m.module.on?.close?.(f));
+    await this.relaunch();
   }
 
   async start(o: { point?: number } = {}): Promise<void> {
-    if (this.q) return;
+    if (this.q || this.phase === "starting") return;
     this.rec.stopped = false;
-    this.crashes = 0;
-    this.reasons = [];
-    this.point = o.point;
-    this.deps.saveCore();
-    await this.launch(o.point !== undefined ? "point" : "resume");
+    this.env.saveRecords();
+    this.fails = [];
+    await this.relaunch(o.point);
   }
 
   async remove(): Promise<void> {
-    const { unlist, saveCore, stores, send, log } = this.deps;
     await this.stop();
-    unlist(this.callsign);
-    saveCore();
-    stores.removeSession(this.callsign);
-    send({ type: "session.state", callsign: this.callsign, state: null });
-    log({ ev: "remove", callsign: this.callsign });
+    this.listed = false;
+    this.env.forget(this);
+    this.env.send({ type: "session.state", callsign: this.callsign, state: null });
+    this.env.log({ ev: "remove", callsign: this.callsign });
   }
 
-  /** Штатная остановка Host: процесс остаётся у своего держателя, новый Host подключится к нему. */
-  shutdown(): void {
-    if (this.q) this.closing = "shutdown";
+  // ───────────────── решения ─────────────────
+
+  private async decide(tool: string, input: Record<string, unknown>, opts: DecideOpts): Promise<PermissionResult> {
+    const own = this.env.owners.has(`decide.${tool}`);
+    const m = this.env.owners.get(own ? `decide.${tool}` : "decide.*");
+    const deny = (word: string, why: string, module?: string): PermissionResult => {
+      this.env.log({ kind: "refuse", ev: "decide", word, callsign: this.callsign, tool, why, ...(module ? { module } : {}) });
+      return { behavior: "deny", message: word };
+    };
+    if (!m) return deny("unknown_request", `${tool}: у решения нет владельца — ответ за человека не выбран`);
+    const answer = m.isOff(this)
+      ? null
+      : await this.env.trap.wait<PermissionResult | null>(m, this, `decide.${tool}`, () => m.module.decide![own ? tool : "*"](this.facade(m), input, own ? opts : { ...opts, tool }), null);
+    return answer ?? deny("module_error", `${tool}: модуль ${m.name} выключен в ${this.callsign}`, m.name);
   }
 
-  // ───────────── roster ─────────────
+  private async elicit(request: never, opts: { signal: AbortSignal; requestId: string }): Promise<{ action: "decline" }> {
+    const m = this.env.owners.get("elicit");
+    if (!m) {
+      this.env.log({ ev: "elicit", callsign: this.callsign, why: "у форм MCP нет владельца — decline" });
+      return { action: "decline" };
+    }
+    const decline = { action: "decline" } as const;
+    return m.isOff(this) ? decline : (this.env.trap.wait(m, this, "elicit", () => m.module.elicit!(this.facade(m), request, opts), decline) as Promise<typeof decline>);
+  }
 
-  /** Запись сессии в roster: поля ядра и поля модулей; выключенные модули — в failed. */
-  record(): Record<string, unknown> {
-    const { trap } = this.deps;
-    // папка и отправитель последнего ввода — у ядра: по ним клиент выводит проект сессии и «моё»;
-    // поле — by: from в кадре — адрес отправителя самого кадра
-    const r: Record<string, unknown> = { callsign: this.callsign, state: this.state, sdk: this.rec.sdk, dir: tildePath(this.rec.cwd) };
-    if (this.rec.from) r.by = this.rec.from;
-    for (const m of trap.mods) {
-      for (const name of Object.keys(m.module.fields ?? {})) {
-        const v = this.fieldOf(m, name);
-        if (v !== undefined) r[name] = v;
+  // ───────────────── сессия глазами модуля ─────────────────
+
+  private pushInput(content: SDKUserMessage["message"]["content"], o: InputOpts = {}): void {
+    if (o.from && o.from !== this.rec.from) {
+      this.rec.from = o.from;
+      this.env.saveRecords();
+    }
+    this.input.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null, ...(o.priority ? { priority: o.priority } : {}), ...(o.uuid ? { uuid: o.uuid } : {}), ...(o.origin ? { origin: o.origin } : {}) } as SDKUserMessage);
+  }
+
+  private sdkCall(mod: Mod, name: string, args: unknown[]): Promise<unknown> {
+    if (!mod.manifest.calls?.includes(name)) return handled(Promise.reject(this.env.trap.violation(mod, this, `${name} нет в calls`)));
+    const { session_id: sid, cwd: dir } = this.rec;
+    const functions = this.env.sdk.functions;
+    return handled((async () => {
+      if (QUERY_METHODS.has(name)) {
+        if (this.q) return (this.q as unknown as Record<string, (...a: unknown[]) => Promise<unknown>>)[name](...args, ...(name === "renameSession" ? [sid] : []));
+        if (!Object.hasOwn(SESSION_FUNCTIONS, name)) throw new Error(`${this.callsign}: процесс сессии не запущен`);
       }
-    }
-    const failed: Record<string, string> = {};
-    for (const m of trap.mods) if (m.down) failed[m.name] = m.down;
-    for (const [n, why] of this.failed) failed[n] = why;
-    if (Object.keys(failed).length) r.failed = failed;
-    return r;
+      const before = SESSION_FUNCTIONS[name];
+      const options = { dir, ...(args[before] as object | undefined) };
+      return name === "getSessionMessages" ? wholeConversation(functions, sid, options) : functions[name](sid, ...args.slice(0, before), options);
+    })());
   }
 
-  /** Поле модуля m в записи сессии: модуль выключен или поле не вышло — undefined. */
-  private fieldOf(m: Mod, name: string): unknown {
-    const { trap } = this.deps;
-    if (trap.isDown(m, this)) return undefined;
-    const v = trap.call(m, `fields.${name}`, this, (x) => x.fields![name](this.facade(m)), () => undefined);
-    return typeof (v as Promise<unknown>)?.then === "function" ? undefined : v;
+  private readField(mod: Mod, name: string): unknown {
+    if (!mod.ref(name)) throw this.env.trap.violation(mod, this, `${name} нет в uses`);
+    const owner = this.env.owners.get(name);
+    return owner?.module.fields?.[name] ? this.fieldOf(owner, name) : undefined;
   }
 
-  helloRecord(): Record<string, unknown> {
-    const r = this.record();
-    this.lastSent = JSON.stringify(r);
-    return r;
-  }
-
-  /** Поля или состояние изменились — session.state в relay. */
-  push(): void {
-    if (!this.deps.listed(this.callsign)) return;
-    const r = this.record();
-    const j = JSON.stringify(r);
-    if (j === this.lastSent) return;
-    // связи нет или hello ещё не принят — кадр не ушёл: запомнить нельзя, иначе смена не дойдёт и после roster
-    if (this.deps.send({ type: "session.state", ...r }).ok) this.lastSent = j;
-  }
-
-  // ───────────── сессия глазами модуля ─────────────
-
-  /** s.sdk: метод query() или функция SDK сессии — только имя из calls модуля. */
-  private async sdkCall(m: Mod, name: string, args: unknown[]): Promise<unknown> {
-    const { trap, sdk } = this.deps;
-    if (!(m.manifest.calls ?? []).includes(name)) trap.violation(m, this, `${name} нет в calls`);
-    // у живой сессии заголовок меняет её query: и в файле разговора, и в claude.ai
-    if (name === "renameSession" && this.q) return (this.q as unknown as { renameSession: (t: unknown, id: string) => Promise<unknown> }).renameSession(args[0], this.rec.session_id);
-    const at = SESSION_FUNCTIONS[name];
-    if (at !== undefined) {
-      const a: unknown[] = [this.rec.session_id, ...args];
-      a[at] = { dir: this.rec.cwd, ...((a[at] as object) ?? {}) };
-      if (name === "getSessionMessages") return wholeConversation(sdk.functions, this.rec.session_id, a[at] as { dir?: string });
-      return sdk.functions[name](...a);
-    }
-    if (!this.q) throw new Error(`${this.callsign}: процесс сессии не запущен`);
-    return (this.q as unknown as Record<string, (...x: unknown[]) => Promise<unknown>>)[name](...args);
-  }
-
-  facade(m: Mod): Session {
-    const known = this.views.get(m);
-    if (known) return known;
-    const { saveCore, stores, fieldOwner } = this.deps;
-    const s = this;
-    const view: Session = {
+  /** У каждого модуля свой объект: ядро знает, кто зовёт. */
+  facade(mod: Mod): Session {
+    let f = this.facades.get(mod);
+    if (f) return f;
+    const self = this;
+    f = {
       get info() {
-        return {
-          callsign: s.callsign,
-          session_id: s.rec.session_id,
-          cwd: s.rec.cwd,
-          model: s.model,
-          sdk: s.rec.sdk,
-          from: s.rec.from ?? null,
-          stopped: s.rec.stopped,
-          start: s.startKind,
-          ...(s.startKind === "point" && s.point !== undefined ? { point: s.point } : {}),
-        };
+        return self.info;
       },
       get state() {
-        return s.state;
+        return self.state;
       },
-      input(content, o = {}) {
-        // отправитель последнего ввода — в записи сессии: вопрос после перезапуска Host уходит тому же адресату
-        if (o.from !== undefined && o.from !== s.rec.from) {
-          s.rec.from = o.from;
-          saveCore();
-        }
-        s.queue.push({
-          type: "user",
-          message: { role: "user", content },
-          parent_tool_use_id: null,
-          ...(o.priority ? { priority: o.priority } : {}),
-          ...(o.uuid ? { uuid: o.uuid as `${string}-${string}-${string}-${string}-${string}` } : {}),
-          ...(o.origin !== undefined ? { origin: o.origin as never } : {}),
-        });
-      },
-      sdk: (name, ...args) => handled(s.sdkCall(m, name, args)),
-      // сбой запуска ведёт сама сессия (выход → resume → failed): отказ промиса модуль может не ждать
-      restart: () => handled(s.restart()),
-      stop: () => handled(s.stop()),
-      start: (o) => handled(s.start(o)),
-      remove: () => handled(s.remove()),
-      store: <T>() => stores.session<T>(m.name, s.callsign) as Store<T>,
-      field: (name) => {
-        const owner = fieldOwner(m, s, name);
-        return owner?.module.fields?.[name] ? s.fieldOf(owner, name) : undefined;
-      },
-      refresh: () => s.push(),
+      input: (content, o) => this.pushInput(content, o),
+      sdk: (name, ...args) => this.sdkCall(mod, name, args),
+      // сбой запуска ведёт сама сессия: отказ промиса модуль может не ждать
+      restart: () => handled(this.restart()),
+      stop: () => handled(this.stop()),
+      start: (o) => handled(this.start(o)),
+      remove: () => handled(this.remove()),
+      store: () => this.env.stores.section(mod.name, this.callsign),
+      field: (name) => this.readField(mod, name),
+      refresh: () => this.refresh(),
     };
-    this.views.set(m, view);
-    return view;
+    this.facades.set(mod, f);
+    return f;
   }
 }
+

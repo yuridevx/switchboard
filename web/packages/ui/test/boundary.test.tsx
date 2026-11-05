@@ -1067,6 +1067,129 @@ describe("набор сверх старых тестов (чьё: код)", () 
       expect(out.getAttribute("rel")).toBe("noopener noreferrer");
     });
 
+    it("разметка компонентов сверх класса: переключатель, флажок, вкладки, поле, группа, лимит, выбор, копирование, блок кода", async () => {
+      const el = await draw(
+        <>
+          <ui.Switch on data-k="sw" className="x" />
+          <ui.Check readOnly checked data-k="ch" className="x" />
+          <ui.Tabs tabs={[["a", "A"]]} cur="a" pick={() => {}} className="x" data-k="tabs" />
+          <ui.CommitIn value="v" onCommit={() => {}} mono className="x" data-k="in" />
+          <ui.LimitRow label="L" used={0.5} className="x" data-k="lim" />
+          <ui.PickOne all={["a", "b", "c"]} near={["b"]} cur="a" on={() => {}} />
+          <ui.Row label="L" data-k="row">v</ui.Row>
+          <ui.CopyButton text="t" />
+          <ui.CodeBlock code="<a/>" lang="html" />
+          <ui.Btn data-k="btn" />
+          <ui.Cta data-k="cta" />
+          <ui.Chip on data-k="chip" />
+        </>,
+      );
+      const at = (k: string) => el.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
+      expect(at("sw").tagName).toBe("BUTTON");
+      expect(at("sw").getAttribute("type")).toBe("button");
+      expect(at("sw").className).toBe("x");
+      expect(at("sw").getAttribute("aria-checked")).toBe("true");
+      expect(at("ch").className).toBe("x");
+      expect(at("tabs").className).toBe("x");
+      const tab = at("tabs").querySelector("button")!;
+      expect(tab.className).toBe("sb-b");
+      expect(tab.hasAttribute("type")).toBe(false);
+      expect(at("in").className).toBe("sb-in m x");
+      expect(at("lim").className).toBe("x");
+      expect([...at("lim").children].map((c) => c.tagName)).toEqual(["SPAN", "SPAN", "EM"]);
+      for (const k of ["btn", "cta", "chip"]) expect(at(k).hasAttribute("type"), k).toBe(false);
+      const [pick1, pick2] = el.querySelectorAll<HTMLElement>("button[aria-pressed].sb-b");
+      expect([pick1.textContent, pick2.textContent]).toEqual(["a", "b"]);
+      expect(el.querySelector("select")!.className).toBe("sb-in");
+      expect(el.querySelector<HTMLOptionElement>("select option")!.value).toBe("");
+      expect(at("row").textContent).toBe("Lv");
+      const copy = el.querySelector<HTMLElement>('.cb-b[aria-label="Копировать"]')!;
+      expect(copy.getAttribute("type")).toBe("button");
+      expect(copy.getAttribute("title")).toBe("Копировать");
+      expect(copy.querySelector("svg")!.getAttribute("class")).toContain("lucide-copy");
+      expect(copy.querySelector("svg")!.getAttribute("width")).toBe("13");
+      const cb = el.querySelector(".cb")!;
+      expect([...cb.children].map((c) => c.className || c.tagName)).toEqual(["cb-h", "PRE"]);
+      const view = [...cb.querySelectorAll<HTMLElement>(".cb-b")];
+      expect(view.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", null]);
+      expect(view[0].textContent).toBe("Просмотр");
+      expect(view[0].querySelector("svg")!.getAttribute("class")).toContain("lucide-eye");
+      await act(async () => view[0].click());
+      expect(cb.querySelector(".html-frame iframe")).not.toBeNull();
+      expect(cb.querySelector("pre")).toBeNull();
+      expect(cb.querySelector(".cb-b")!.getAttribute("aria-pressed")).toBe("true");
+      expect(cb.querySelector(".cb-b")!.textContent).toBe("Код");
+    });
+
+    it("useHighlighted: узлы подсветки; незнакомый язык — текст как есть", async () => {
+      const Show = ({ code, lang }: { code: string; lang: string }) => <code>{ui.useHighlighted(code, lang)}</code>;
+      const known = await draw(<Show code="const a" lang="ts" />);
+      expect(known.querySelector(".hljs-keyword")!.textContent).toBe("const");
+      const other = await draw(<Show code="const a" lang="nosuch" />);
+      expect(other.querySelector("code")!.innerHTML).toBe("const a");
+    });
+
+    it("текст ответа: таблица в прокрутке, картинка лениво и без реферера, список задач, сноска с ссылкой назад", async () => {
+      const el = await draw(<ui.Markdown text={"| a |\n|---|\n| 1 |\n\n- [x] t\n\n![x](https://e.com/i.png)\n\nx[^1]\n\n[^1]: n"} />);
+      expect(el.querySelector(".md > .md-table > table")).not.toBeNull();
+      expect(el.querySelector(".md.caret")).toBeNull();
+      const img = el.querySelector("img")!;
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+      expect(el.querySelector("ul.contains-task-list li.task-list-item input")!.hasAttribute("disabled")).toBe(true);
+      expect(el.querySelector("section.footnotes li#user-content-fn-1 a.data-footnote-backref")!.getAttribute("href")).toBe("#user-content-fnref-1");
+    });
+
+    it("находки сверки: подпись копирования постоянна, без своей подписи слова нет; языки и псевдонимы подсветки; разрешённые теги; ссылка на этот источник с #; сырой pre без шапки", async () => {
+      // чьё: код — сравнение деревьев и строк старого и нового кода
+      vi.stubGlobal("navigator", { clipboard: { writeText: async () => {} } });
+      const copy = await draw(
+        <>
+          <ui.CopyButton text="т" label="копировать" />
+          <ui.CopyButton text="т" />
+        </>,
+      );
+      const [own, plain] = copy.querySelectorAll("button");
+      expect([own.getAttribute("aria-label"), own.getAttribute("title"), own.textContent]).toEqual(["Копировать", "Копировать", "копировать"]);
+      await act(async () => plain.click());
+      expect(plain.textContent).toBe("");
+      expect(plain.querySelector("svg")!.getAttribute("class")).toContain("lucide-check");
+      const Show = ({ lang }: { lang: string }) => <code>{ui.useHighlighted("if (x) { $a = 1 }", lang)}</code>;
+      for (const lang of ["ps1", "toml", "zsh", "cs"]) expect((await draw(<Show lang={lang} />)).querySelector("[class^=hljs-]"), lang).not.toBeNull();
+      expect((await draw(<Show lang="kotlin" />)).querySelector("[class^=hljs-]")).toBeNull();
+      const md = await draw(<ui.Markdown text={`<cite>ц</cite><picture><source srcset="https://e.com/a.png" media="(min-width:1px)" type="image/png" onerror="a()"><img src="https://e.com/a.png" alt="к"></picture>\n\n<pre>сырой</pre>\n\n[свой](${location.origin}/other#x) [чужой](https://other.example/#x)`} />);
+      expect(md.querySelector("cite")).not.toBeNull();
+      const source = md.querySelector("picture source")!;
+      expect([source.getAttribute("srcset"), source.getAttribute("media"), source.getAttribute("type"), source.hasAttribute("onerror")]).toEqual(["https://e.com/a.png", "(min-width:1px)", "image/png", false]);
+      expect(md.querySelector("pre")!.closest(".cb")!.querySelector(".cb-h")).toBeNull();
+      const links = [...md.querySelectorAll("a")];
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([null, "https://other.example/#x"]);
+    });
+
+    it("находки сверки: длительность и «назад» округлением; один ждущий слот подписан «Слот»; offline с пустой машиной; вопрос машине несёт её адрес", async () => {
+      // чьё: код — сравнение деревьев и строк старого и нового кода
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 10, 3, 12, 0, 0));
+      expect(ui.duration(11 * 60000 + 5000)).toBe("11 мин 5 с");
+      expect(ui.ago(Date.now() - 45_000)).toBe("1 мин назад");
+      vi.useRealTimers();
+      const one = await draw(<ui.SlotPick slots={{ main: { wait: 1_800_000_000_000 } }} value="" on={() => {}} label="Аккаунт" />);
+      expect(one.querySelector("[data-slot-wait]")!.textContent).toMatch(/^Слот main · ждёт сброса /);
+      expect(ui.linkText("offline", "")).toBe("Машина не на связи");
+      const read = vi.fn(async () => ({ ok: true as const, result: 1 }));
+      const app = { use: <T,>(s: (p?: T) => T) => s(), link: () => "open", can: () => true, roster: () => null, read } as never as ui.App;
+      const V = () => {
+        ui.useMachineLoad("m", "x");
+        return null;
+      };
+      await draw(
+        <ui.AppCtx.Provider value={app}>
+          <V />
+        </ui.AppCtx.Provider>,
+      );
+      expect(read).toHaveBeenCalledWith("x", { machine: "m" });
+    });
+
     it("манифест и основание стилей — у контракта", () => {
       expect(ui.manifest.name).toBe("web-ui");
       expect(typeof ui.UI_CSS).toBe("string");

@@ -1,6 +1,5 @@
-// Хранилище состояния модуля: неизменяемый снимок и правка через immer. Подписки нет: виды выбирают снимок выборкой app.use,
-// notify — app.changed модуля. Неизменённые ветви сохраняют ссылку: сравнение выборки и memo не обходят всё дерево.
-import { produce, type Draft } from "immer";
+// Состояние модуля: неизменяемый снимок и правка черновиком.
+import { freeze, produce, type Draft } from "immer";
 
 export type Store<S> = {
   /** снимок: менять нельзя, читать можно где угодно */
@@ -9,16 +8,15 @@ export type Store<S> = {
   set(change: (draft: Draft<S>) => void): void;
 };
 
-export function createStore<S>(initial: S, notify: () => void = () => {}): Store<S> {
-  let snapshot = initial;
+export function createStore<S>(initial: S, notify?: () => void): Store<S> {
+  let state = freeze(initial, true);
   return {
-    get: () => snapshot,
+    get: () => state,
     set(change) {
-      const next = produce(snapshot, change);
-      if (next !== snapshot) {
-        snapshot = next;
-        notify();
-      }
+      const next = produce(state, change);
+      if (next === state) return;
+      state = next;
+      notify?.();
     },
   };
 }

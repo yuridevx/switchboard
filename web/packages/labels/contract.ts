@@ -4,8 +4,8 @@
 // Вынесен в свой модуль: имена нужны и «Работе», и карточке, а «Работа» уже зависит от карточки.
 import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
+import type { Shown } from "@switchboard/web-ui";
 import { createLabels } from "./src/module.tsx";
-import type { Shown } from "./src/names.ts";
 
 declare module "@switchboard/web-ui" {
   interface Marks {

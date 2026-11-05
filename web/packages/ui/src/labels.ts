@@ -1,4 +1,4 @@
-// Слова интерфейса: состояния сессии, усилия и модели, пороги лимитов, слова пути до машины, склонение. Одна таблица на все экраны.
+// Слова страницы: одно правило на все экраны.
 import type { SessionRecord } from "@switchboard/relay";
 
 /** Тон метки: цвет пилюли и точки строки. */
@@ -13,20 +13,22 @@ const STATES: Record<string, { text: string; tone: Tone; dot: string }> = {
   stopped: { text: "остановлена", tone: "", dot: "stop" },
   failed: { text: "не запустилась", tone: "bad", dot: "bad" },
 };
+const known = (state: unknown) => (typeof state === "string" && Object.hasOwn(STATES, state) ? STATES[state] : undefined);
 
 /** Состояние сессии → подпись, тон и лампа; неизвестное — как есть, без лампы. */
-export const stateLabel = (state: unknown): { text: string; tone: Tone; dot: string } => STATES[String(state)] ?? { text: String(state ?? "—"), tone: "", dot: "" };
+export const stateLabel = (state: unknown): { text: string; tone: Tone; dot: string } => known(state) ?? { text: state === undefined || state === null ? "—" : String(state), tone: "", dot: "" };
+
 /** Лампа строки сессии: неизвестное состояние — как остановленная. */
-export const lamp = (s: SessionRecord) => stateLabel(s.state).dot || "stop";
+export const lamp = (s: SessionRecord): string => known(s.state)?.dot ?? "stop";
 
 /** Живая сессия: процесс claude отвечает. */
 export const LIVE = new Set(["idle", "busy", "waiting"]);
-export const isLive = (state: unknown) => LIVE.has(String(state));
+export const isLive = (state: unknown): boolean => LIVE.has(state as string);
 
 /** Модели, когда SDK машины не спросить. */
 export const MODELS = ["opus", "sonnet", "haiku", "fable"];
 export const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
-export const effortName = (effort: unknown) => EFFORTS.find(([k]) => k === effort)?.[1] ?? String(effort ?? "");
+export const effortName = (effort: unknown): string => EFFORTS.find(([e]) => e === effort)?.[1] ?? (effort ? String(effort) : "");
 
 /** Порог окна лимита: доля в процентах → цвет полосы. */
 export const LIMIT_WARN = 70;
@@ -42,9 +44,14 @@ export function linkText(word: string, machine?: string | null): string {
 
 /** Склонение: plural(4, "сессия", "сессии", "сессий") → «сессии». */
 export function plural(n: number, one: string, few: string, many: string): string {
-  const tens = Math.abs(n) % 100;
-  const units = tens % 10;
-  if (tens > 10 && tens < 20) return many;
+  const tens = n % 100;
+  const units = n % 10;
+  if (tens >= 11 && tens <= 14) return many;
   if (units === 1) return one;
   return units >= 2 && units <= 4 ? few : many;
 }
+
+export const PERM_MODES: Array<[string, string]> = [["bypassPermissions", "Без вопросов"], ["default", "Спрашивать"], ["acceptEdits", "Правки сами"], ["plan", "План"], ["auto", "Авто"]];
+export const permModeName = (mode: string): string | undefined => PERM_MODES.find(([m]) => m === mode)?.[1];
+/** Откуда правило и куда ляжет. */
+export const PERM_PLACES: Record<string, string> = { localSettings: "локально", projectSettings: "проект", userSettings: "пользователь", policySettings: "организация", flagSettings: "запуск", cliArg: "запуск", command: "команда", session: "сессия" };

@@ -1,106 +1,93 @@
-// Текст ответа: markdown с таблицами и списками задач, встроенный HTML — через санитайзер. Скрипты, обработчики и опасные адреса
-// до страницы не доходят (на ней ключ флота). Полный документ и блоки html, svg — в CodeBlock, в отдельной песочнице.
-// memo: поток дописывает только последний текст, готовые ответы заново не разбираются.
-import { memo, useDeferredValue, type ComponentProps } from "react";
-import ReactMarkdown, { defaultUrlTransform, type Components } from "react-markdown";
+// Текст Claude: разметка markdown и разрешённый HTML. Всё, что страница не разрешила, снимает санитайзер; адреса — правила страницы ниже.
+import { memo, type ComponentProps, type MouseEvent, type ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 import { CodeBlock, textOfNode } from "./CodeBlock.tsx";
 
-/** Что разрешено во встроенном HTML: разметка текста, без скриптов и стилей. Язык блока кода — только language-*. */
 const SCHEMA = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "mark", "u", "abbr", "cite", "figure", "figcaption", "picture", "source"],
-  attributes: {
-    ...defaultSchema.attributes,
-    code: [["className", /^language-[\w+#-]+$/]],
-    abbr: ["title"],
-    source: ["srcSet", "media", "type"],
-  },
+  attributes: { ...defaultSchema.attributes, code: [["className", /^language-[\w+#-]+$/]], abbr: ["title"], source: ["srcSet", "media", "type"] },
   protocols: { ...defaultSchema.protocols, src: ["http", "https", "data"] },
 };
-
+const REHYPE = [rehypeRaw, [rehypeSanitize, SCHEMA]] as ComponentProps<typeof ReactMarkdown>["rehypePlugins"];
 const REMARK = [remarkGfm];
-const REHYPE = [rehypeRaw, [rehypeSanitize, SCHEMA]] as never;
-/** Приставку id сносок ставит санитайзер, вторая им не нужна. */
-const REMARK_REHYPE = { clobberPrefix: "" };
+/** Сноски получают приставку от санитайзера, как и всякий id; адрес сноски он не трогает: приставку ему ставит ссылка. */
+const REHYPE_OPTIONS = { clobberPrefix: "" };
+const PREFIX = "user-content-";
 
-/** Ссылка сноски на текст и обратно: её делает разметка, а не адрес страницы. */
-const FOOTNOTE = /^#fn(ref)?-/;
-const FOOTNOTE_ID = "user-content-";
+/** Адрес ссылки без адресов этой страницы с # и без приглашений: чужой текст не меняет экран и не даёт войти. */
+function safeHref(href: string | undefined): string | undefined {
+  const at = href?.indexOf("#") ?? -1;
+  if (!href || at < 0) return href;
+  if (decodeHash(href.slice(at + 1)).startsWith("invite=")) return undefined;
+  return URL.canParse(href, location.href) && new URL(href, location.href).origin === location.origin ? undefined : href;
+}
 
-/** Часть после # без экранирования; негодное экранирование не открывает маршрут: остаётся как есть. */
-function decodedHash(url: string, at: number): string {
-  const hash = url.slice(at + 1);
+const decodeHash = (hash: string) => {
   try {
     return decodeURIComponent(hash);
   } catch {
     return hash;
   }
-}
+};
 
-/** Адрес ссылки: как у библиотеки, но без адресов этой страницы с # (её маршрут и приглашение) и без приглашений куда бы то ни было. */
-function safeHref(url: string): string {
-  const u = defaultUrlTransform(url);
-  const at = u.indexOf("#");
-  if (at < 0 || FOOTNOTE.test(u)) return u;
-  if (decodedHash(u, at).startsWith("invite=")) return "";
-  return URL.canParse(u, location.href) && new URL(u, location.href).origin === location.origin ? "" : u;
-}
-
-/** Адреса: картинки — как у библиотеки и data:image; ссылки — safeHref. */
-function urlTransform(url: string, key: string): string {
-  if (key === "href") return safeHref(url);
-  return key === "src" && url.startsWith("data:image/") ? url : defaultUrlTransform(url);
-}
-
-/** Сноска: прокрутка к цели внутри своего текста, адрес страницы (её маршрут) не меняется. */
-function FootnoteLink({ href, ...p }: ComponentProps<"a"> & { href: string }) {
-  const target = FOOTNOTE_ID + href.slice(1);
-  return (
-    <a
-      {...p}
-      href={`#${target}`}
-      onClick={(e) => {
-        e.preventDefault();
-        const text = e.currentTarget.closest(".md");
-        [...(text?.querySelectorAll("[id]") ?? [])].find((x) => x.id === target)?.scrollIntoView();
-      }}
-    />
-  );
+/** Сноска ведёт внутри своего текста: адрес страницы не меняется. */
+function toFootnote(e: MouseEvent<HTMLAnchorElement>, id: string) {
+  e.preventDefault();
+  e.currentTarget.closest(".md")?.querySelector(`[id="${CSS.escape(id)}"]`)?.scrollIntoView();
 }
 
 const COMPONENTS: Components = {
-  a: ({ node: _node, href, ...p }) => (href && FOOTNOTE.test(href) ? <FootnoteLink {...p} href={href} /> : <a {...p} href={href || undefined} target="_blank" rel="noopener noreferrer" />),
-  img: ({ node: _node, alt, ...p }) => <img {...p} alt={alt ?? ""} loading="lazy" referrerPolicy="no-referrer" />,
-  table: ({ node: _node, ...p }) => (
-    <div className="md-table">
-      <table {...p} />
-    </div>
-  ),
+  a({ node: _node, href, children, ...p }) {
+    const props = p as Record<string, unknown>;
+    if (href?.startsWith("#") && ("data-footnote-ref" in props || "data-footnote-backref" in props)) {
+      const id = PREFIX + href.slice(1);
+      return (
+        <a {...p} href={`#${id}`} onClick={(e) => toFootnote(e, id)}>
+          {children}
+        </a>
+      );
+    }
+    return (
+      <a {...p} href={safeHref(href)} target="_blank" rel="noopener noreferrer">
+        {children}
+      </a>
+    );
+  },
+  img({ node: _node, src, ...p }) {
+    const allowed = typeof src === "string" && (!/^data:/i.test(src) || /^data:image\//i.test(src));
+    return <img {...p} src={allowed ? src : undefined} loading="lazy" referrerPolicy="no-referrer" />;
+  },
+  table({ node: _node, ...p }) {
+    return (
+      <div className="md-table">
+        <table {...p} />
+      </div>
+    );
+  },
   pre({ node, children }) {
     const code = node?.children.find((c) => c.type === "element" && c.tagName === "code");
-    if (code?.type !== "element") {
+    if (!code) {
       return (
         <div className="cb">
-          <pre>{children}</pre>
+          <pre>{children as ReactNode}</pre>
         </div>
       );
     }
-    const classes = code.properties.className as string[] | undefined;
-    const lang = classes?.find((c) => c.startsWith("language-"))?.slice("language-".length) ?? "";
+    const classes = code.type === "element" ? ((code.properties.className ?? []) as string[]) : [];
+    const lang = classes.map((c) => /^language-(.+)$/.exec(c)?.[1]).find(Boolean) ?? "";
     return <CodeBlock code={textOfNode(code).replace(/\n$/, "")} lang={lang} />;
   },
 };
 
 export const Markdown = memo(function Markdown({ text, live }: { text: string; live?: boolean }) {
-  // поток дописывает кусочками: разбор не мешает вводу и прокрутке
-  const shown = useDeferredValue(text);
   return (
     <div className={live ? "md caret" : "md"}>
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} components={COMPONENTS} urlTransform={urlTransform} remarkRehypeOptions={REMARK_REHYPE}>
-        {shown}
+      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={REHYPE} remarkRehypeOptions={REHYPE_OPTIONS} components={COMPONENTS} urlTransform={(url) => url}>
+        {text}
       </ReactMarkdown>
     </div>
   );

@@ -1,52 +1,32 @@
-//go:build linux
-
 package holder
 
 import (
 	"os"
 	"os/exec"
-	"sync"
 	"syscall"
 
 	"golang.org/x/sys/unix"
 )
 
-// tree — своя группа процессов: сила завершает всю группу. Умер держатель — PDEATHSIG завершает процесс, systemd — всю cgroup службы.
-type tree struct {
-	mu   sync.Mutex
-	pgid int
-}
-
-// SetProcAttr — своя группа, родитель умер — умри.
-func SetProcAttr(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
-}
-
 // setHolderAttr — держатель: своя сессия, без «родитель умер — умри» — переживает хозяина.
 func setHolderAttr(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
 
-// enclose — группа процесса; detach на Linux не нужен: дети держателей Host уходят в свою сессию сами.
-func enclose(p *os.Process, _ bool) (*tree, error) { return &tree{pgid: p.Pid}, nil }
-
-func (t *tree) kill() {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.pgid > 0 {
-		syscall.Kill(-t.pgid, syscall.SIGKILL)
-	}
+// Prepare — своя группа, родитель умер — умри: процесс части и служебные команды keeper.
+func Prepare(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 }
 
-func (t *tree) release() {
-	t.mu.Lock()
-	t.pgid = 0
-	t.mu.Unlock()
-}
+// tree — группа процесса. detach на Linux не нужен: дети-держатели Host уходят в свою сессию сами.
+type tree struct{ pgid int }
 
-func exitOf(ps *os.ProcessState, _ bool) (*int, *string) {
+func newTree(cmd *exec.Cmd, _ bool) (*tree, error) { return &tree{cmd.Process.Pid}, nil }
+
+func (t *tree) kill() { syscall.Kill(-t.pgid, syscall.SIGKILL) }
+
+// exitOf — код выхода или имя сигнала.
+func exitOf(ps *os.ProcessState) (int, string) {
 	if ws, ok := ps.Sys().(syscall.WaitStatus); ok && ws.Signaled() {
-		s := unix.SignalName(ws.Signal())
-		return nil, &s
+		return 0, unix.SignalName(ws.Signal())
 	}
-	c := ps.ExitCode()
-	return &c, nil
+	return ps.ExitCode(), ""
 }

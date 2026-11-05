@@ -1,29 +1,28 @@
-// «Копировать»: после нажатия — галочка на полторы секунды; буфер недоступен — словом у кнопки с подписью, у значка — без отметки.
-import { useEffect, useState } from "react";
+// Копирование в буфер: галочка на полторы секунды, отказ буфера — словом.
 import { Check, Copy } from "lucide-react";
+import { useEffect, useState } from "react";
 
 const SHOWN_MS = 1500;
-const WORDS = { done: "скопировано", bad: "буфер недоступен" };
 
 export function CopyButton({ text, label }: { text: string; label?: string }) {
-  const [outcome, setOutcome] = useState<"" | "done" | "bad">("");
+  const [state, setState] = useState<"" | "done" | "denied">("");
   useEffect(() => {
-    if (!outcome) return;
-    const timer = setTimeout(() => setOutcome(""), SHOWN_MS);
+    if (!state) return;
+    const timer = setTimeout(() => setState(""), SHOWN_MS);
     return () => clearTimeout(timer);
-  }, [outcome]);
-  function copy() {
-    const clipboard = (globalThis.navigator as Navigator | undefined)?.clipboard;
-    if (!clipboard) return setOutcome("bad");
-    void clipboard.writeText(text).then(
-      () => setOutcome("done"),
-      () => setOutcome("bad"),
+  }, [state]);
+  const copy = () => {
+    (navigator.clipboard?.writeText(text) ?? Promise.reject(new Error("нет буфера"))).then(
+      () => setState("done"),
+      () => setState("denied"),
     );
-  }
+  };
+  const Icon = state === "done" ? Check : Copy;
+  const word = { "": label, done: "скопировано", denied: "буфер недоступен" }[state];
   return (
     <button type="button" className="cb-b" aria-label="Копировать" title="Копировать" onClick={copy}>
-      {outcome === "done" ? <Check size={13} /> : <Copy size={13} />}
-      {label ? (outcome ? WORDS[outcome] : label) : null}
+      <Icon size={13} aria-hidden="true" />
+      {label !== undefined && word}
     </button>
   );
 }

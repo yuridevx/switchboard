@@ -1,9 +1,8 @@
 // Галерея карточек для снимков: образцы сообщений SDK идут той же свёрткой и теми же строками, что и лента. Кнопки молчат.
 import { useMemo } from "react";
-import { duration, hhmm } from "@switchboard/web-ui";
-import { foldAll, type Msg } from "../../src/state/fold.ts";
-import { EnvCtx, type Env } from "../../src/view/env.tsx";
-import { Rows } from "../../src/view/Rows.tsx";
+import { fold, type Msg } from "../../src/fold.ts";
+import type { Env } from "../../src/store.ts";
+import { EnvCtx, Rows } from "../../src/view/Rows.tsx";
 
 const asst = (uuid: string, content: unknown[], x: Msg = {}) => ({ type: "assistant", uuid, message: { id: uuid, model: "claude-opus-5-5", content }, ...x });
 const tool = (uuid: string, name: string, input: Msg) => asst(uuid, [{ type: "tool_use", id: `t-${uuid}`, name, input }]);
@@ -88,29 +87,33 @@ const SECTIONS: Array<[string, Sample[]]> = [
 
 const silent = (view: Env["view"]): Env => ({
   callsign: "site@laptop",
-  view,
-  sends: {},
-  canCall: true,
   wide: true,
+  view,
+  send: () => undefined,
+  rewind: () => null,
+  canAct: () => true,
   label: (cs) => cs,
-  useWaiting: () => false,
+  waiting: () => false,
   act: () => {},
-  fillText: () => {},
   again: () => {},
   cancel: () => {},
-  probeRewind: () => {},
-  applyRewind: () => {},
+  probe: () => {},
+  apply: () => {},
   cancelRewind: () => {},
+  fill: () => {},
 });
 
 function SampleRow({ s }: { s: Sample }) {
-  const view = useMemo(() => foldAll(s.msgs, { duration, time: (t) => hhmm(t * 1000) }), [s]);
+  const env = useMemo(() => {
+    const view = fold(s.msgs);
+    return { view, env: silent(() => view) };
+  }, [s]);
   return (
     <div className="chat-galr" data-sample={s.title}>
       <div className="chat-galn">{s.title}</div>
       <div className="chat-galc">
-        <EnvCtx.Provider value={silent(view)}>
-          <Rows rows={view.rows} />
+        <EnvCtx.Provider value={env.env}>
+          <Rows rows={env.view.rows} />
         </EnvCtx.Provider>
       </div>
     </div>

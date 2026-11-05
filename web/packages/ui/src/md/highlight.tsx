@@ -1,8 +1,5 @@
-// Подсветка кода: lowlight с языками, на которых пишут сессии. Неизвестный язык — без подсветки.
-import { useMemo, type ReactNode } from "react";
+// Подсветка кода и язык файла.
 import { toJsxRuntime } from "hast-util-to-jsx-runtime";
-import { Fragment, jsx, jsxs } from "react/jsx-runtime";
-import { createLowlight } from "lowlight";
 import bash from "highlight.js/lib/languages/bash";
 import c from "highlight.js/lib/languages/c";
 import cpp from "highlight.js/lib/languages/cpp";
@@ -23,22 +20,26 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
+import { createLowlight } from "lowlight";
+import { useMemo, type ReactNode } from "react";
+import { Fragment, jsx, jsxs } from "react/jsx-runtime";
 
 const lowlight = createLowlight({ bash, c, cpp, csharp, css, diff, go, ini, java, javascript, json, markdown, powershell, python, rust, shell, sql, typescript, xml, yaml });
-const ALIASES = { bash: ["sh", "zsh"], javascript: ["js", "jsx", "mjs"], typescript: ["ts", "tsx"], python: ["py"], rust: ["rs"], ini: ["toml"], xml: ["html", "svg"], yaml: ["yml"], powershell: ["ps1", "pwsh"], csharp: ["cs"] };
-lowlight.registerAlias(ALIASES);
-/** Языки по именам: имя из текста сессии не должно найтись в прототипе объекта (constructor, __proto__). */
-const KNOWN = new Set([...lowlight.listLanguages(), ...Object.values(ALIASES).flat()]);
+lowlight.registerAlias({ bash: ["sh", "zsh"], javascript: ["js", "jsx", "mjs"], typescript: ["ts", "tsx"], python: ["py"], rust: ["rs"], ini: ["toml"], xml: ["html", "svg"], yaml: ["yml"], powershell: ["ps1", "pwsh"], csharp: ["cs"] });
 
-const LANG_OF_EXT: Record<string, string> = { sh: "bash", ts: "ts", tsx: "ts", js: "js", jsx: "js", mjs: "js", json: "json", py: "py", go: "go", rs: "rs", css: "css", html: "html", svg: "html", md: "markdown", yml: "yaml", yaml: "yaml", toml: "toml", sql: "sql", c: "c", h: "c", cpp: "cpp", cs: "cs", java: "java", ps1: "ps1" };
+const LANG_OF: Record<string, string> = { ts: "ts", tsx: "ts", js: "js", jsx: "js", mjs: "js", py: "py", go: "go", rs: "rs", sh: "bash", json: "json", md: "markdown", css: "css", html: "html", svg: "html", yml: "yaml", yaml: "yaml", toml: "toml", sql: "sql", c: "c", h: "c", cpp: "cpp", java: "java", ps1: "ps1", cs: "cs" };
 
 /** Язык файла по расширению. */
 export function langOfPath(path: string | undefined): string {
-  const ext = String(path).split(".").pop()?.toLowerCase() ?? "";
-  return Object.hasOwn(LANG_OF_EXT, ext) ? LANG_OF_EXT[ext] : "";
+  const ext = path?.slice(path.lastIndexOf(".") + 1).toLowerCase() ?? "";
+  return Object.hasOwn(LANG_OF, ext) ? LANG_OF[ext] : "";
 }
 
 /** Код с подсветкой: узлы React; считается один раз на текст. */
 export function useHighlighted(code: string, lang: string): ReactNode {
-  return useMemo(() => (KNOWN.has(lang) ? toJsxRuntime(lowlight.highlight(lang, code), { Fragment, jsx, jsxs }) : code), [code, lang]);
+  return useMemo(() => {
+    const name = lang.toLowerCase();
+    if (!lowlight.registered(name)) return code;
+    return toJsxRuntime(lowlight.highlight(name, code), { Fragment, jsx, jsxs });
+  }, [code, lang]);
 }

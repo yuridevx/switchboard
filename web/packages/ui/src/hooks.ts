@@ -1,4 +1,4 @@
-// Общие хуки экранов: чей это экран, часы, строки итога действий.
+// Хуки экрана: чей он, часы, строки итога.
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { App } from "./app.ts";
 
@@ -12,11 +12,11 @@ export function useApp(): App {
 }
 
 /** Стор модуля, чей экран рисуется: поле state его определения. */
-export const useModule = <T,>(): T => useApp().state as T;
+export const useModule = <T>(): T => useApp().state as T;
 
 /** Текущее время с шагом ms: таймер живёт, пока компонент на экране; ms 0 — стоит. Отсчёт виден только там, где он нужен. */
 export function useNow(ms: number): number {
-  const [now, setNow] = useState(() => Date.now());
+  const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (!ms) return;
     const timer = setInterval(() => setNow(Date.now()), ms);
@@ -29,8 +29,8 @@ export function useNow(ms: number): number {
 export type OutcomeNote = { text: string; tone?: "ok" | "bad" | "wait" | "" };
 
 /** Строки итога действий по ключу: живут, пока стоит компонент; действие возвращает результат, слова кладёт экран. */
-export function useOutcome() {
-  const [notes, setNotes] = useState<Readonly<Record<string, OutcomeNote>>>({});
-  const say = useCallback((key: string, text: string, tone?: OutcomeNote["tone"]) => setNotes((old) => ({ ...old, [key]: { text, tone } })), []);
-  return [notes, say] as const;
+export function useOutcome(): readonly [Readonly<Record<string, OutcomeNote>>, (key: string, text: string, tone?: OutcomeNote["tone"]) => void] {
+  const [notes, setNotes] = useState<Record<string, OutcomeNote>>({});
+  const say = useCallback((key: string, text: string, tone?: OutcomeNote["tone"]) => setNotes((n) => ({ ...n, [key]: { text, tone } })), []);
+  return [notes, say];
 }

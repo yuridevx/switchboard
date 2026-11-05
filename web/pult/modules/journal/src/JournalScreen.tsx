@@ -1,21 +1,19 @@
-// Экран журнала флота: записи новые сверху, по дням; текст — как прислал ledger.
-import { Fragment, useState } from "react";
-import { Btn, hhmm, In, machineLabel, machinesWith, Note, Opts, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
-import { type LedgerEvent, useLedger } from "./ledger.ts";
+// Экран «Журнал флота»: записи по дням, выбор машины, поиск по загруженному.
+import { useState } from "react";
+import { Btn, hhmm, In, machineLabel, Note, Page, PageHead, Sec, Sel, useApp } from "@switchboard/web-ui";
+import type { LedgerEvent } from "@switchboard/ledger";
+import { useLedger } from "./ledger.ts";
 
-const DAY_MS = 86_400_000;
+const DAY = 86_400_000;
+const midnightOf = (t: number) => new Date(t).setHours(0, 0, 0, 0);
 
 function dayName(t: number): string {
-  const d = new Date(t);
-  const now = Date.now();
-  if (d.toDateString() === new Date(now).toDateString()) return "Сегодня";
-  if (d.toDateString() === new Date(now - DAY_MS).toDateString()) return "Вчера";
-  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  const days = Math.round((midnightOf(Date.now()) - midnightOf(t)) / DAY);
+  return days === 0 ? "Сегодня" : days === 1 ? "Вчера" : new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
 }
 
 function Row({ e }: { e: LedgerEvent }) {
   const app = useApp();
-  const machine = app.use(() => (e.machine ? machineLabel(app, e.machine).text : ""));
   return (
     <div className="jr-r" data-id={e.id}>
       <span>{hhmm(e.t)}</span>
@@ -23,65 +21,51 @@ function Row({ e }: { e: LedgerEvent }) {
         {e.text}
         {e.by ? <span className="by">{` · by ${e.by}`}</span> : null}
       </span>
-      <em>{e.callsign ?? (machine || e.from)}</em>
+      <em>{e.callsign ?? (e.machine ? machineLabel(app, e.machine).text : e.from)}</em>
     </div>
   );
 }
 
-/** Поиск — по уже загруженным записям. */
-function found(e: LedgerEvent, q: string): boolean {
-  return !q || [e.text, e.ev, e.machine, e.callsign, e.by].some((x) => x?.toLowerCase().includes(q));
-}
-
-function Ledger({ machine, pick, q, setQ }: { machine: string; pick(m: string): void; q: string; setQ(v: string): void }) {
+export function JournalScreen() {
   const app = useApp();
-  const { events, more, reading, refused, older } = useLedger(machine);
-  const online = app.use(() => machinesWith(app));
-  const machines = [...new Set([...online, ...events.flatMap((e) => (e.machine ? [e.machine] : []))])].sort();
-  const names = app.use(() => Object.fromEntries(machines.map((m) => [m, machineLabel(app, m).text])));
-  const needle = q.trim().toLowerCase();
-  const shown = events.filter((e) => found(e, needle));
+  const [machine, setMachine] = useState("");
+  const [query, setQuery] = useState("");
+  const { events, more, error, loading, older } = useLedger(machine);
+  const online = app.use(() => app.roster()?.machines.map((m) => m.machine).join("\n") ?? "");
+  const machines = [...new Set([...online.split("\n").filter(Boolean), ...events.flatMap((e) => (e.machine ? [e.machine] : []))])].sort();
+  const needle = query.trim().toLowerCase();
+  const shown = events.filter((e) => !needle || [e.text, e.ev, e.machine, e.callsign, e.from, e.by].some((x) => x?.toLowerCase().includes(needle)));
   return (
     <Page>
-      <PageHead title="Журнал флота">
-        <In data-f="q" type="search" placeholder="⌕ поиск по записям" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
-        <Sel data-f="machine" value={machine} onChange={(e) => pick(e.currentTarget.value)}>
+      <PageHead title={app.wide ? "Журнал флота" : undefined}>
+        <In data-f="q" type="search" value={query} placeholder="⌕ поиск по записям" aria-label="Поиск по записям" onInput={(e) => setQuery(e.currentTarget.value)} />
+        <Sel data-f="machine" value={machine} aria-label="Машина" onChange={(e) => setMachine(e.currentTarget.value)}>
           <option value="">все машины</option>
           {machines.map((m) => (
             <option key={m} value={m}>
-              {names[m] ?? m}
+              {machineLabel(app, m).text}
             </option>
           ))}
         </Sel>
       </PageHead>
-      {refused ? (
+      {error ? (
         <Note tone="bad" role="alert">
-          {`ledger.read: ${refused}`}
+          {`ledger.read: ${error}`}
         </Note>
       ) : null}
       <Sec data-ledger="">
-        {shown.map((e, i) => {
-          const day = dayName(e.t);
-          return (
-            <Fragment key={e.id}>
-              {i === 0 || dayName(shown[i - 1].t) !== day ? <div className="jr-day">{day}</div> : null}
-              <Row e={e} />
-            </Fragment>
-          );
-        })}
-        {shown.length ? null : <Note>{reading ? "…" : "Записей нет."}</Note>}
+        {shown.length
+          ? shown.map((e, i) => (
+              <div key={e.id} style={{ display: "contents" }}>
+                {i === 0 || dayName(shown[i - 1].t) !== dayName(e.t) ? <div className="jr-day">{dayName(e.t)}</div> : null}
+                <Row e={e} />
+              </div>
+            ))
+          : loading
+            ? "…"
+            : "Записей нет."}
       </Sec>
-      {more ? (
-        <Opts>
-          <Btn onClick={() => void older()}>Раньше</Btn>
-        </Opts>
-      ) : null}
+      {more ? <Btn onClick={() => void older()}>Раньше</Btn> : null}
     </Page>
   );
-}
-
-export function JournalScreen() {
-  const [machine, setMachine] = useState("");
-  const [q, setQ] = useState("");
-  return <Ledger key={machine} machine={machine} pick={setMachine} q={q} setQ={setQ} />;
 }

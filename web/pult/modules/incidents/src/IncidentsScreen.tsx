@@ -1,107 +1,111 @@
-// Экран инцидентов: недоставленные обращения и сессии с инцидентом. Строка читает только своё и перерисовывается одна.
-import { memo, useCallback, useEffect, useState } from "react";
+// Экран «Инциденты»: недоставленные обращения и сессии инцидентов.
+import { useEffect, useState } from "react";
+import { Btn, day, DisclosureBtn, Dot, hhmm, incidentOf, lamp, machineLabel, midnight, Note, Page, PageHead, sessionLabel, stateLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, DisclosureBtn, Dot, hhmm, machineLabel, Note, Page, PageHead, RowBtn, sessionLabel, stateLabel, useApp } from "@switchboard/web-ui";
-import { incident, isOpen, type Lost, useIncidents } from "./store.ts";
+import type { SessionRecord } from "@switchboard/web-core";
+import type { IncidentsStore, Lost } from "./store.ts";
 
-const lostKey = (x: Lost) => `${x.machine}:${x.id}`;
+/** Время отказа; отказ прошлых дней — с датой. */
+function since(iso: string): string {
+  const t = Date.parse(iso);
+  return t < Date.parse(midnight()) ? `${day(t)} ${hhmm(t)}` : hhmm(t);
+}
 
-const LostRow = memo(function LostRow({ x, open, toggle }: { x: Lost; open: boolean; toggle(k: string): void }) {
+function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): void }) {
   const app = useApp();
-  const k = lostKey(x);
-  const machine = app.use(() => machineLabel(app, x.machine).text);
+  const { machine, appeal } = row;
+  const mark = `${machine}:${appeal.id}`;
+  const { refused } = appeal;
+  const what = [appeal.type, appeal.key].filter(Boolean).join(" · ");
   return (
     <>
-      <DisclosureBtn className="in-row in-lost" data-lost={k} open={open} onClick={() => toggle(k)}>
+      <DisclosureBtn className="in-row in-lost" data-lost={mark} open={open} onClick={toggle}>
         <Dot kind="bad" className="d" />
         <span className="g">
           <span className="t1">
-            <b>{machine}</b>
-            <span className="s bad">{x.word}</span>
+            <b>{machineLabel(app, machine).text}</b>
+            <span className="s bad">{refused?.word ?? "ждёт"}</span>
           </span>
-          <span className="t2">{x.t ? `с ${hhmm(new Date(x.t))}` : x.what}</span>
+          <span className="t2">{refused ? `с ${since(refused.t)}` : what}</span>
         </span>
       </DisclosureBtn>
       {open ? (
-        <div className="in-why" data-why={k}>
-          {x.why || x.word}
+        <div className="in-why" data-why={mark}>
+          {refused?.why ?? "Отказа не записано: причина — в журнале машины."}
         </div>
       ) : null}
     </>
   );
-});
+}
 
-const SessionRow = memo(function SessionRow({ callsign }: { callsign: string }) {
+function SessionRow({ s }: { s: SessionRecord }) {
   const app = useApp();
-  const store = useIncidents();
-  const s = app.use(() => store.sessions().find((x) => x.callsign === callsign));
-  const name = app.use(() => sessionLabel(app, callsign).text);
-  const machine = app.use(() => machineLabel(app, machineOf(callsign) ?? "").text);
-  if (!s) return null;
-  const { type, key } = incident(s)!;
-  const state = s.state === "stopped" ? { text: "закрыт", dot: "stop" } : stateLabel(s.state);
+  const incident = incidentOf(s)!;
   return (
-    <RowBtn className="in-row" data-incident={callsign} onClick={() => app.open("card", { callsign })}>
-      <Dot kind={state.dot} className="d" />
+    <button type="button" className="in-row" data-incident={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
+      <Dot kind={lamp(s)} className="d" />
       <span className="g">
         <span className="t1">
-          <b>{type}</b>
-          {key !== undefined ? <span className="k">{String(key)}</span> : null}
-          <span className="s">{state.text}</span>
+          <b>{incident.type}</b>
+          {incident.key ? <span className="k">{incident.key}</span> : null}
+          <span className="s">{s.state === "stopped" ? "закрыт" : stateLabel(s.state).text}</span>
         </span>
         <span className="t2">
-          <span className="m">{name}</span>
-          {` · ${machine}`}
+          <span className="m">{sessionLabel(app, s.callsign).text}</span>
+          {` · ${machineLabel(app, machineOf(s.callsign) ?? "").text}`}
         </span>
       </span>
-    </RowBtn>
+    </button>
   );
-});
+}
 
 export function IncidentsScreen() {
   const app = useApp();
-  const store = useIncidents();
+  const store = useModule<IncidentsStore>();
   const [all, setAll] = useState(false);
-  const [openLost, setOpenLost] = useState("");
-  const callsigns = app.use(() => store.sessions().filter((s) => all || isOpen(s)).map((s) => s.callsign));
-  const lost = app.use(store.allLost);
-  const refused = app.use(store.refused);
-  useEffect(() => void store.load(), [store]);
-  const toggle = useCallback((k: string) => setOpenLost((old) => (old === k ? "" : k)), []);
+  const [why, setWhy] = useState<string | null>(null);
+  useEffect(() => store.answers.mount(), [store]);
+  app.use(() => store.answers.get());
+  app.use(() => app.roster());
+  const lost = store.lost();
+  const sessions = store.sessions().filter((s) => all || s.state !== "stopped");
+  const refusals = Object.entries(store.answers.get()).flatMap(([machine, a]) => (wordOf(a) ? [`${machine} · incident.pending: ${wordOf(a)}`] : []));
   return (
     <Page>
       <PageHead title={app.wide ? "Инциденты" : undefined}>
-        <Btn data-f="open" aria-pressed={all ? "false" : "true"} onClick={() => setAll(false)}>
+        <Btn data-f="open" pri={!all} aria-pressed={!all} onClick={() => setAll(false)}>
           открытые
         </Btn>
-        <Btn data-f="all" aria-pressed={all ? "true" : "false"} onClick={() => setAll(true)}>
+        <Btn data-f="all" pri={all} aria-pressed={all} onClick={() => setAll(true)}>
           все
         </Btn>
       </PageHead>
+      {refusals.map((text) => (
+        <Note key={text} tone="bad" role="alert">
+          {text}
+        </Note>
+      ))}
       {lost.length ? (
         <>
-          <div className="in-cap">
-            <Dot kind="bad" />
-            Не доставлены
-          </div>
+          <div className="in-cap">Не доставлены</div>
           <div className="in-list">
-            {lost.map((x) => (
-              <LostRow key={lostKey(x)} x={x} open={openLost === lostKey(x)} toggle={toggle} />
-            ))}
+            {lost.map((row) => {
+              const mark = `${row.machine}:${row.appeal.id}`;
+              return <LostRow key={mark} row={row} open={why === mark} toggle={() => setWhy(why === mark ? null : mark)} />;
+            })}
           </div>
         </>
       ) : null}
-      {Object.entries(refused).map(([m, word]) => (
-        <Note key={m} tone="bad" role="alert">{`${m} · machine.journal: ${word}`}</Note>
-      ))}
-      <div className="in-cap">В сессиях</div>
-      {callsigns.length ? (
-        <div className="in-list">
-          {callsigns.map((c) => (
-            <SessionRow key={c} callsign={c} />
-          ))}
-        </div>
-      ) : (
+      {sessions.length ? (
+        <>
+          <div className="in-cap">В сессиях</div>
+          <div className="in-list">
+            {sessions.map((s) => (
+              <SessionRow key={s.callsign} s={s} />
+            ))}
+          </div>
+        </>
+      ) : lost.length ? null : (
         <Note>{all ? "Инцидентов нет" : "Открытых инцидентов нет"}</Note>
       )}
     </Page>

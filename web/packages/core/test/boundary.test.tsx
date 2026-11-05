@@ -2872,3 +2872,346 @@ describe("спорные места после сверки (устав: пре�
     expect(console.warn).toHaveBeenCalledWith("switchboard: модули не запустились за 30 с");
   });
 });
+
+describe("разметка вида: на ней стоят стили и снимки (чьё: код)", () => {
+  const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2, ...uses } });
+  /** Модуль: раздел a с меткой и шапкой, экран b, разделы группы; полоса top — отдельным модулем. */
+  const pair = () => {
+    const box: { app: App } = { app: null as never };
+    const parts: AppPart[] = [
+      {
+        manifest: man("m", { a: 1, b: 1, g1: 1, g2: 1, cnt: 1, zero: 1 }),
+        module: (app) => {
+          box.app = app;
+          return {
+            marks: { cnt: () => 2, zero: () => 0 },
+            screens: {
+              a: { nav: "А", mark: "cnt", label: "А", view: () => <i data-s="a" />, head: () => ({ title: "Т", sub: "под", dot: "busy", action: { label: "Новая", text: "+", run() {} } }) },
+              b: { label: "Б", view: () => <i data-s="b" /> },
+              g1: { nav: "Г1", group: "Г", mark: "zero", view: () => <i data-s="g1" /> },
+              g2: { nav: "Г2", group: "Г", view: () => <i data-s="g2" /> },
+            },
+          };
+        },
+      },
+      { manifest: man("bar", { bar: 1 }, { "top@web-core": 1 }), module: () => ({ screens: { bar: { place: "top", view: () => <i data-bar /> } } }) },
+    ];
+    return { parts, box };
+  };
+  const shape = (el: Element) => [...el.children].map((c) => `${c.tagName.toLowerCase()}.${c.className.trim().replace(/ +/g, ".")}`);
+  /** Атрибуты элемента по имени. */
+  const attrs = (el: Element) => Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]));
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("остов страницы: стиль модулей первым, колонка, главная часть по порядку, поиск; область экрана", async () => {
+    const { parts } = pair();
+    const t = await stand(parts);
+    expect(t.root.firstElementChild!.tagName).toBe("STYLE");
+    expect(shape(t.$(".sb-app")!)).toEqual(["nav.sb-navcol", "main.sb-main", "div.sb-palw"]);
+    expect(shape(t.$(".sb-main")!)).toEqual(["header.sb-bar", "nav.sb-navrow", "div.sb-off", "div.sb-top", "div.sb-view", "div.sb-toast", "nav.sb-tabs"]);
+    expect(t.$(".sb-off")!.getAttribute("role")).toBe("status");
+    expect(t.$(".sb-toast")!.getAttribute("role")).toBe("alert");
+    expect(t.$(".sb-tabs")!.getAttribute("aria-label")).toBe("Разделы");
+    expect(t.$(".sb-top > div > [data-module=bar] > [data-bar]")).not.toBeNull();
+    const screen = t.$(".sb-view > .sb-screen")!;
+    expect(attrs(screen)["data-screen"]).toBe("a");
+    expect(screen.getAttribute("style")).toMatch(/^display: flex; flex-direction: column; min-height: 0; flex(: 1|-grow: 1; flex-shrink: 1; flex-basis: 0%);$/);
+    const place = t.$('.sb-screen > [data-module="m"]')!;
+    expect(place.getAttribute("style")).toBe("display: contents;");
+    expect(place.firstElementChild!.getAttribute("data-s")).toBe("a");
+  });
+
+  it("широкий вид: класс wide; экран рядом со списком — split, слева master с именем экрана, справа detail; колонка по порядку", async () => {
+    const { parts, box } = pair();
+    const t = await stand(parts, { wide: true, options: { beside: { b: "a" }, brand: "Пульт" } });
+    box.app.open("b");
+    await flush();
+    expect(t.$(".sb-app")!.className).toBe("sb-app wide");
+    expect(shape(t.$(".sb-view")!)).toEqual(["div.sb-split"]);
+    expect(shape(t.$(".sb-split")!)).toEqual(["div.sb-master", "div.sb-detail"]);
+    expect(t.$(".sb-master")!.getAttribute("style")).toBeNull();
+    expect(t.$('.sb-master[data-screen="a"] > [data-module="m"] > [data-s="a"]')).not.toBeNull();
+    expect(t.$('.sb-detail > .sb-screen[data-screen="b"] > [data-module="m"] > [data-s="b"]')).not.toBeNull();
+    expect(shape(t.$(".sb-navcol")!)).toEqual(["div.sb-brand", "button.sb-tx.sb-goto", "button.sb-rw.sb-nv", "div.sb-grp", "button.sb-rw.sb-nv", "button.sb-rw.sb-nv"]);
+    expect(shape(t.$(".sb-brand")!)).toEqual(["b.", "span.sb-pill.ok.conn"]);
+    expect(t.$(".sb-goto kbd")!.textContent).toBe("Ctrl K");
+  });
+
+  it("шапка раздела: логотип, лампа, заголовок, поиск, действие, пилюля; шапка экрана: назад и заголовок", async () => {
+    const { parts, box } = pair();
+    const t = await stand(parts);
+    expect(shape(t.$(".sb-bar")!)).toEqual(["div.sb-logo", "span.sb-dot.busy", "div.sb-bt", "button.sb-ic.sb-find", "button.sb-ic.sb-find.pri", "span.sb-pill.ok.conn"]);
+    expect(t.$(".sb-logo")!.getAttribute("aria-hidden")).toBe("true");
+    expect(attrs(t.$("[data-find]")!)).toMatchObject({ type: "button", "aria-label": "Найти", "data-find": "1" });
+    expect(t.$("[data-find] svg")!.getAttribute("viewBox")).toBe("0 0 24 24");
+    expect(attrs(t.$("[data-new]")!)).toMatchObject({ type: "button", "aria-label": "Новая", "data-new": "1" });
+    expect(t.$("[data-new]")!.textContent).toBe("+");
+    box.app.open("b");
+    await flush();
+    expect(shape(t.$(".sb-bar")!)).toEqual(["button.sb-ic.sb-back", "div.sb-bt"]);
+    expect(attrs(t.$(".sb-back")!)).toMatchObject({ type: "button", "aria-label": "Назад" });
+    expect(t.$(".sb-back")!.textContent).toBe("‹");
+  });
+
+  it("пункт раздела: подпись и счётчик ждущего цвета; метка 0 — счётчика нет; лента и вкладки одной формы", async () => {
+    const { parts, box } = pair();
+    const t = await stand(parts);
+    const tab = t.$('.sb-tabs [data-screen="a"]')!;
+    expect(tab.className).toBe("sb-rw sb-nv");
+    expect(tab.getAttribute("type")).toBe("button");
+    expect(tab.getAttribute("aria-current")).toBe("page");
+    expect(shape(tab)).toEqual(["span.", "span.sb-badge.wait"]);
+    box.app.open("g1");
+    await flush();
+    expect(shape(t.$('.sb-navrow [data-screen="g1"]')!)).toEqual(["span."]);
+    expect(t.$('.sb-tabs [data-group="Г"]')!.className).toBe("sb-rw sb-nv");
+    expect(t.$(".sb-navrow")!.hasAttribute("hidden")).toBe(false);
+  });
+
+  it("полоса связи: текст и кнопка; пилюля шапки и лампа колонки говорят «нет связи»", async () => {
+    const relay = new FakeRelay(homeRoster());
+    const t = await stand(pair().parts, { relay, wide: true, pauseMs: 60_000 });
+    relay.drop();
+    await flush();
+    expect(shape(t.$(".sb-off")!)).toEqual(["span.", "button.sb-tx"]);
+    expect(t.$(".sb-off button")!.getAttribute("type")).toBe("button");
+    expect(attrs(t.$(".sb-brand .sb-pill")!)).toMatchObject({ class: "sb-pill bad conn", title: "нет связи", "aria-label": "нет связи" });
+    expect(t.$(".sb-brand .sb-pill")!.textContent).toBe("");
+  });
+
+  it.each([
+    ["revoked", "client", ["div.sb-ring.bad", "div.sb-big", "p.", "code.sb-cmd", "p.", "button.sb-cta"], "×", "wipe"],
+    ["contract_mismatch", "client", ["div.sb-ring.wait", "div.sb-big", "p.", "button.sb-cta"], "↻", null],
+    ["replaced", "client", ["div.sb-ring.bad", "div.sb-big", "p.", "button.sb-cta"], "×", null],
+  ] as const)("экран отказа %s: значок, порядок, кнопка", async (word, _who, want, ring, act) => {
+    const relay = new FakeRelay(homeRoster());
+    relay.refuse = [word, word];
+    const t = await stand(pair().parts, { relay });
+    await flush(20);
+    expect(shape(t.$(".sb-view")!)).toEqual(["div.sb-full"]);
+    expect(shape(t.$(".sb-full")!)).toEqual(want);
+    expect(t.$(".sb-ring")!.textContent).toBe(ring);
+    expect(t.$(".sb-cta")!.getAttribute("data-act")).toBe(act);
+    expect(t.$(".sb-cta")!.hasAttribute("type")).toBe(false);
+  });
+
+  it("экраны до связи: установка, нужен пропуск, замена, приглашение не принято, браузер, гейт, подключение", async () => {
+    const parts = () => pair().parts;
+    const install = await stand(parts(), { store: memoryStore(), url: `/#invite=${INVITE}`, ios: true });
+    expect(shape(install.$(".sb-full")!)).toEqual(["div.sb-logo.xl", "div.sb-big", "p.", "ol.sb-ol", "p."]);
+    const none = await stand(parts(), { store: memoryStore() });
+    expect(shape(none.$(".sb-full")!)).toEqual(["div.sb-logo.xl", "div.sb-big", "p.", "code.sb-cmd", "p.", "input.sb-in.sb-keyin", "button.sb-cta", "p."]);
+    expect(attrs(none.$(".sb-keyin")!)).toMatchObject({ type: "text", "aria-label": "Приглашение" });
+    const swap = await stand(parts(), { url: `/#invite=${INVITE}` });
+    expect(shape(swap.$(".sb-full")!)).toEqual(["div.sb-ring.wait", "div.sb-big", "p.", "button.sb-cta", "button.sb-b", "p."]);
+    expect(swap.$(".sb-ring")!.textContent).toBe("?");
+    expect([...swap.$$("button")].map((b) => b.getAttribute("data-act"))).toEqual(["replace", "keep"]);
+    const relay = new FakeRelay(oneMachine());
+    relay.handlers["gate.redeem"] = () => ({ ok: false, error: "bad_invite" });
+    const refused = await stand(parts(), { relay, store: memoryStore(), url: `/#invite=${INVITE}` });
+    expect(shape(refused.$(".sb-full")!)).toEqual(["div.sb-ring.bad", "div.sb-big", "p.", "button.sb-cta"]);
+    expect(refused.$(".sb-cta")!.getAttribute("data-act")).toBe("wipe");
+    const old = await stand(parts(), { options: { platform: { ios: false, standalone: false, scope: false } } });
+    expect(shape(old.$(".sb-full")!)).toEqual(["div.sb-ring.wait", "div.sb-big", "p."]);
+    const twin: AppPart = { manifest: man("m", {}), module: () => ({}) };
+    const gate = await stand([twin, twin]);
+    expect(shape(gate.$(".sb-full")!)).toEqual(["div.sb-ring.bad", "div.sb-big", "ul.sb-errs"]);
+    expect(gate.$(".sb-errs li")!.textContent).toBe("модуль m: имя уже занято");
+    document.body.innerHTML = '<div id="app"></div>';
+    history.replaceState(null, "", "/");
+    const fresh = new FakeRelay(oneMachine());
+    const root = document.getElementById("app")!;
+    const run = startApp({ root, workers: FakeRelay.WORKERS, fetch: fresh.fetch, parts: parts(), store: memoryStore({ key: KEY }), WebSocket: fresh.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
+    await run.ready;
+    expect(shape(root.querySelector(".sb-full")!)).toEqual(["div.sb-logo.xl", "span.sb-k", "p."]);
+    await flush();
+    run.unmount();
+    expect(root.innerHTML).toBe("");
+  });
+
+  it("поиск: окно и подписи для чтения с экрана; строка — лампа, подпись, вид", async () => {
+    const part: AppPart = { manifest: man("m", { a: 1 }), module: () => ({ screens: { a: { nav: "А", find: () => [{ label: "л", hint: "х", dot: "busy", screen: "a" }], view: () => null } } }) };
+    const t = await stand([part], { wide: true });
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
+    expect(shape(t.$(".sb-palw")!)).toEqual(["div.sb-palveil", "div.sb-pal"]);
+    expect(attrs(t.$(".sb-pal")!)).toMatchObject({ role: "dialog", "aria-label": "Перейти" });
+    expect(t.$(".sb-palin")!.className).toBe("sb-in sb-palin");
+    expect(t.$(".sb-palin")!.getAttribute("aria-label")).toBe("Перейти");
+    expect(t.$(".sb-palres")!.getAttribute("role")).toBe("listbox");
+    const [section, row] = t.$$(".sb-palit");
+    expect(section.className).toBe("sb-rw sb-palit first");
+    expect(attrs(row)).toMatchObject({ type: "button", role: "option", class: "sb-rw sb-palit" });
+    expect(shape(row)).toEqual(["span.sb-dot.busy", "span.l", "span.k"]);
+    expect(shape(section)).toEqual(["span.l", "span.k"]);
+  });
+
+  it("Slot: только место модуля, без имени экрана; упал — причина в том же месте, сосед цел", async () => {
+    const box: { app: App } = { app: null as never };
+    let boom = false;
+    const Side = () => {
+      if (box.app.use(() => boom)) throw new Error("x");
+      return <b data-side />;
+    };
+    const main: AppPart = { manifest: man("main", { main: 1 }, { "side@side": 1 }), module: (a) => ({ screens: { main: { nav: "Г", view: () => <div data-main><a.Slot screen="side" /></div> } } }) };
+    const side: AppPart = { manifest: man("side", { side: 1 }), module: (a) => ((box.app = a), { screens: { side: { label: "Бок", view: Side } } }) };
+    const t = await stand([side, main]);
+    const place = t.$('[data-main] > [data-module="side"]')!;
+    expect(place.hasAttribute("data-screen")).toBe(false);
+    expect(place.className).toBe("");
+    expect(place.getAttribute("style")).toBe("display: contents;");
+    boom = true;
+    box.app.changed();
+    await flush();
+    expect(t.$("[data-main] > [data-module]")).toBeNull();
+    expect(shape(t.$("[data-main] > .sb-pad")!)).toEqual(["div.sb-badc", "button.sb-cta"]);
+    expect(shape(t.$(".sb-badc")!)).toEqual(["b.", "code.", "span."]);
+  });
+});
+
+describe("находки сверки деревьев и строк (чьё: код)", () => {
+  const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2, ...uses } });
+  const ctrl = (over: KeyboardEventInit) => document.dispatchEvent(new KeyboardEvent("keydown", { ctrlKey: true, bubbles: true, ...over }));
+  /** Модуль m: разделы a и c, экран b; всё в коробке. */
+  function mod(over: Partial<AppModule> = {}, uses: Record<string, number> = {}) {
+    const box: { app: App } = { app: null as never };
+    const part: AppPart = {
+      manifest: man("m", { a: 1, b: 1, c: 1 }, uses),
+      module: (app) => {
+        box.app = app;
+        return { screens: { a: { nav: "А", view: () => <i data-s="a" /> }, b: { label: "Б", view: () => <i data-s="b" /> }, c: { nav: "В", group: "Г", view: () => <i data-s="c" /> } }, ...over };
+      },
+    };
+    return { part, box };
+  }
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("поздний ответ без ждущего не получает ответа: unknown_request — только на запрос", async () => {
+    const relay = new FakeRelay(oneMachine());
+    await stand([mod().part], { relay });
+    const before = relay.got.length;
+    relay.push({ type: "reply", id: "late", ok: true, from: "site@laptop" });
+    await flush();
+    expect(relay.got).toHaveLength(before);
+  });
+
+  it("open до первого roster: адрес записан, первый roster открывает этот экран; имя из uses без владельца в сборке — адрес меняется, экран домашний", async () => {
+    const early = mod({ start: () => early.box.app.open("b") });
+    const t = await stand([early.part]);
+    expect(location.hash).toBe("#b");
+    expect(t.$('[data-s="b"]')).not.toBeNull();
+    const m = mod({}, { "absent@nobody": 1 });
+    const u = await stand([m.part]);
+    m.box.app.open("absent", { x: "1" });
+    await flush();
+    expect(location.hash).toBe("#absent?x=1");
+    expect(u.run.failed).toEqual({});
+    expect(u.$('[data-s="a"]')).not.toBeNull();
+  });
+
+  it("два экрана с одним компонентом: смена экрана начинает его заново", async () => {
+    let mounts = 0;
+    const Same = () => {
+      useEffect(() => void mounts++, []);
+      return null;
+    };
+    const m = mod({ screens: { a: { nav: "А", view: Same }, b: { view: Same } } });
+    await stand([m.part]);
+    m.box.app.open("b");
+    await flush();
+    expect(mounts).toBe(2);
+  });
+
+  it("открытый раздел виден в прокрутке; Ctrl K ловится и без code; show вставки — только true; подпись на «я» — мужской род; «ничего» в поиске — с отступом", async () => {
+    const scroll = vi.fn();
+    const spied = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(scroll);
+    const m = mod();
+    const t = await stand([m.part], { wide: true });
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    spied.mockRestore();
+    ctrl({ key: "k" });
+    await flush();
+    expect(t.$<HTMLElement>(".sb-palw")!.hidden).toBe(false);
+    ctrl({ key: "л" });
+    await flush();
+    expect(t.$<HTMLElement>(".sb-palw")!.hidden).toBe(true);
+    ctrl({ key: "k" });
+    await flush();
+    const input = t.$<HTMLInputElement>(".sb-palin")!;
+    input.value = "нетакого";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    expect(t.$(".sb-pal .sb-palres .sb-note")!.getAttribute("style")).toBe("padding: 10px 12px;");
+
+    const box: { app?: App } = {};
+    const guest: AppPart = { manifest: man("g", { "g.tab": 1 }, { "o.tab@o": 1 }), module: () => ({ screens: { "g.tab": { place: "o.tab", show: (() => 1) as never, view: () => null } } }) };
+    const owner: AppPart = { manifest: man("o", { o: 1, "o.tab": 1 }), module: (a) => ((box.app = a), { screens: { o: { nav: "О", view: () => null } } }) };
+    await stand([owner, guest]);
+    expect(box.app!.placed("o.tab")).toEqual([]);
+
+    const Bad = () => {
+      throw new Error("сломан");
+    };
+    const failed = await stand([{ manifest: man("m", { a: 1 }), module: () => ({ screens: { a: { nav: "А", label: "Сессия", view: Bad } } }) }]);
+    expect(failed.$(".sb-badc b")!.textContent).toBe("Сессия выключен");
+  });
+
+  it("отказ relay без слова: причина «без причины», приложение остановлено; остановка закрывает остальные соединения", async () => {
+    const relay = new FakeRelay(homeRoster());
+    const t = await stand([mod().part], { relay });
+    relay.socks[0].serverClose(1008, "");
+    await flush();
+    expect(t.run.stopped).toBe("");
+    expect(t.$(".sb-full")!.textContent).toContain("relay закрыл соединение: без причины.");
+    expect(relay.socks[1].closedWith).toMatchObject({ code: 1000 });
+  });
+
+  it("браузер без @scope: стилей модулей на странице нет", async () => {
+    const t = await stand([{ manifest: man("m", {}), module: () => ({ css: ".z{}" }) }], { options: { platform: { ios: false, standalone: false, scope: false } } });
+    expect(t.root.querySelector("style")!.textContent).not.toContain("@scope");
+  });
+
+  it("тост после срока скрыт, текст и тон остаются в разметке", async () => {
+    const m = mod();
+    const t = await stand([m.part]);
+    vi.useFakeTimers();
+    m.box.app.toast("упало");
+    await vi.advanceTimersByTimeAsync(6_000);
+    const toast = t.$<HTMLElement>(".sb-toast")!;
+    expect(toast.hidden).toBe(true);
+    expect(toast.textContent).toBe("упало");
+    expect(toast.classList.contains("bad")).toBe(true);
+  });
+
+  it("с экрана «Домой» по режиму отображения: приглашение принимается, установки нет", async () => {
+    const win = new Proxy(window, {
+      has: (x, k) => (k === "CSSScopeRule" ? true : k in x),
+      get(x, k) {
+        if (k === "matchMedia") return (q: string) => ({ matches: q === "(display-mode: standalone)" });
+        if (k === "navigator") return new Proxy(navigator, { get: (n, p) => (p === "userAgent" ? "iPhone" : Reflect.get(n, p)) });
+        const v = Reflect.get(x, k);
+        return typeof v === "function" && k !== "Response" ? v.bind(x) : v;
+      },
+    });
+    document.body.innerHTML = '<div id="app"></div>';
+    history.replaceState(null, "", `/#invite=${INVITE}`);
+    const relay = new FakeRelay(oneMachine());
+    relay.handlers["gate.redeem"] = () => ({ ok: true, result: { key: KEY } });
+    const run = startApp({ root: document.getElementById("app")!, window: win as Window, workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [mod().part], store: memoryStore(), WebSocket: relay.WebSocket, pauseMs: 5 });
+    await run.ready;
+    await flush();
+    expect(run.stopped).toBeNull();
+    run.unmount();
+  });
+});

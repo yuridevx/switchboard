@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: pass-stopped-by-user
-expected_outcome: |
-  Хук Stop видит законное сообщение и не вмешивается.
