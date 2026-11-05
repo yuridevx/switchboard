@@ -3081,3 +3081,112 @@ describe("связь: то, что дотягивается только сна�
     expect(lines(st, "module_failed")[0].why).toContain("; модуль выключен в сессии");
   });
 });
+
+describe("сверка: то, что поймал только скрипт строк", () => {
+  it("opening зовётся и без поля в запросе: открытие модулем без слота не идёт мимо модуля слотов", async () => {
+    // источник: контракт Module.opening; чьё: код — запрос открытия пустой, а не пропущенный
+    const got: unknown[] = [];
+    const st = await stand({ modules: [module("host-o", { opening(_s, req) { got.push(req); } })] });
+    await st.open(CS);
+    expect(got).toEqual([{}]);
+  });
+
+  it("openingReads: поле со значением undefined — как нет поля; выключенный читатель не мешает", async () => {
+    // источник: контракт Module.openingReads; чьё: код
+    const st = await stand({ modules: [module("host-o", { requests: { "o.boom": () => { throw new Error("бах"); } }, opening() {}, openingReads: ["slot"] })] });
+    await st.relay.request({ type: "o.boom", v: 1, machine: "laptop" });
+    await st.open(CS, { opening: { slot: undefined } });
+    expect(st.kernel.sessions.has(CS)).toBe(true);
+  });
+
+  it("отказ словом в решении: deny со строкой журнала, модуль не выключен — следующий вызов идёт к нему", async () => {
+    // источник: контракт Module «Отказ словом своего контракта… это не ошибка модуля»
+    let n = 0;
+    const st = await stand({ modules: [module("host-d", { decide: { Bash: () => { if (++n === 1) throw refuse("nope", "причина"); return { behavior: "allow", updatedInput: {} }; } } })] });
+    await st.open(CS);
+    expect(await st.proc(CS).ask("Bash", {})).toEqual({ behavior: "deny", message: "module_error" });
+    expect(await st.proc(CS).ask("Bash", {})).toMatchObject({ behavior: "allow" });
+    expect(lines(st, "module_failed")).toEqual([]);
+  });
+
+  it("host.emit: адрес кадра — как дал модуль, версия из манифеста; Worker-владелец адреса не добавляет", async () => {
+    // источник: контракт Host.emit; чьё: код — адрес Worker'а подставляет только запрос
+    const st = await stand({ modules: [module("host-a", {}, { uses: { "ledger.add@ledger": 1 } })] });
+    await until(() => st.relay.hellos.length === 1 && lines(st, "hello").length === 1);
+    expect(st.host("host-a").emit({ type: "ledger.add", ev: "x" })).toEqual({ ok: true });
+    expect(st.relay.frames("ledger.add")[0].to).toBeUndefined();
+    expect(st.relay.frames("ledger.add")[0].v).toBe(1);
+  });
+
+  it("запрос своего имени адресом устройства — в процессе; список адресов — через relay", async () => {
+    // источник: контракт Host.request; чьё: код — адрес не машины: hostOf отвечает null, владелец здесь
+    const seen: unknown[] = [];
+    const st = await stand({ modules: [module("host-a", { requests: { "a.q": (f) => (seen.push(f.to), "да") } })] });
+    await until(() => st.relay.hellos.length === 1 && lines(st, "hello").length === 1);
+    expect(await st.host("host-a").request("a.q", { to: "phone~u@e" })).toEqual({ ok: true, result: "да" });
+    expect(seen).toEqual(["phone~u@e"]);
+    void st.host("host-a").request("a.q", { to: ["phone~u@e"] });
+    await until(() => st.relay.frames("a.q").length === 1);
+  });
+
+  it("поле-промис в запись не идёт; разделы сессии стираются и у модуля, которого нет в сборке", async () => {
+    // источник: чьё: код — запись roster синхронна; устав «разделы этой сессии у всех модулей стёрты» (контракт Session.remove)
+    const st = await stand({ modules: [module("host-a", { fields: { later: (async () => 1) as never } })] });
+    const s = await st.open(CS);
+    writeFileSync(join(st.home, "store", "host-old.json"), JSON.stringify({ sessions: { [CS]: 1, "x@laptop": 2 } }));
+    expect(st.states(CS).at(-1)!.later).toBeUndefined();
+    await s.remove();
+    expect(JSON.parse(readFileSync(join(st.home, "store", "host-old.json"), "utf8")).sessions).toEqual({ "x@laptop": 2 });
+  });
+
+  it("s.restart: подъём не удался — отказ словами, а сессия ведёт свой сбой", async () => {
+    // источник: контракт Session.restart; так же, как start и open
+    const st = await stand({ modules: [] });
+    const s = await st.open(CS);
+    st.holders.failInitNext = 1;
+    const restarting = s.restart();
+    await until(() => st.sdk.of(CS).length === 2 && st.holders.procs.get(CS)?.initializes === 1);
+    st.proc(CS).exit(1, "первый");
+    await expect(restarting).rejects.toThrow("процесс вышел до initialize");
+    await until(() => s.state === "idle");
+  });
+
+  it("ввод, пока stop закрывает процесс, ждёт следующего старта", async () => {
+    // источник: контракт Session.input; спорное место первого круга — поток ушедшего процесса отставлен сразу
+    const st = await stand({ modules: [] });
+    const s = await st.open(CS);
+    const first = st.proc(CS);
+    first.noClose = true;
+    const stopping = s.stop();
+    await until(() => st.holders.ops.some((o) => o.op === "close_input"));
+    s.input("пока закрывается");
+    await new Promise((r) => setTimeout(r, 20));
+    st.clock.advance(STOP_STEP);
+    await stopping;
+    expect(first.inputs).toEqual([]);
+    await s.start();
+    await until(() => st.proc(CS).inputs.length === 1);
+    expect(st.proc(CS).inputs[0].message.content).toBe("пока закрывается");
+  });
+});
+
+describe("спорные места круга 2", () => {
+  it("отказ словом вне запроса (кадр, on.event, хук): строка refuse, Host и модуль живут", async () => {
+    // источник: опыт на прежнем коде — отказ в обработчике кадра уходил в клиент рации, в хуке — необработанным; контракт «это не ошибка модуля»
+    const st = await stand({
+      modules: [module("host-r", {
+        frames: { "r.f": () => { throw refuse("nope3", "п3"); } },
+        session: () => ({ hooks: { Stop: [{ hooks: [async () => { throw refuse("nope5", "п5"); }] }] } }),
+        on: { event: () => { throw refuse("nope6", "п6"); } },
+        requests: { "r.q": () => "да" },
+      })],
+    });
+    await st.open(CS);
+    st.relay.deliver({ type: "r.f", callsign: CS });
+    expect(await st.proc(CS).hook("Stop", {})).toEqual([{}]);
+    st.proc(CS).send(msg.assistant("x"));
+    await until(() => lines(st).filter((l) => l.kind === "refuse" && ["nope3", "nope5", "nope6"].includes(l.word)).length === 3);
+    expect(lines(st, "module_failed")).toEqual([]);
+    expect(await st.relay.request({ type: "r.q", v: 1, callsign: CS })).toMatchObject({ ok: true, result: "да" });
+  });
+});
