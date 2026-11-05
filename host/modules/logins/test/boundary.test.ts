@@ -768,7 +768,7 @@ describe("подмена в слоте", () => {
     expect(read(slotDir("bot"))).toContain("tok-y0902");
     expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
     expect((await ask({ type: "session.slot", callsign: "site@laptop", slot: "bot" })).result).toEqual({ restart: true });
-    await until(() => st!.sdk.of("site@laptop").length === 2 && st!.session("probe", "site@laptop")!.state === "idle");
+    await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
     expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("bot"));
     expect(st!.query("site@laptop").options.resume).toBeDefined();
     const r = await ask({ type: "session.slot", callsign: "site@laptop", slot: "nope" });
@@ -851,7 +851,7 @@ describe("подмена в слоте", () => {
     expect(await ask({ type: "session.slot", callsign: "wiki@laptop", slot: "main" })).toMatchObject({ ok: true, result: { restart: false } });
     expect(await ask({ type: "session.slot", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "bad_frame" });
     expect(await ask({ type: "session.slot", callsign: "site@laptop", slot: null })).toMatchObject({ ok: true, result: { restart: true } });
-    await until(() => st!.sdk.of("site@laptop").length === 2);
+    await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
     expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
   });
 
