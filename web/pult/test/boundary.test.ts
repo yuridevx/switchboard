@@ -34,6 +34,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  // моки загрузки не переходят в следующий тест: иначе отказ ядра проверял бы настоящее ядро
+  vi.doUnmock("../../shell.ts");
+  vi.doUnmock("@switchboard/web-core");
 });
 
 const QUESTION = {
