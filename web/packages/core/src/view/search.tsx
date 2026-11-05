@@ -19,7 +19,6 @@ export function Search({ close }: { close(): void }) {
         <In
           autoFocus
           className="sb-palin"
-          placeholder="Сессия, проект, раздел или команда"
           aria-label="Перейти"
           value={query}
           onChange={() => {}}

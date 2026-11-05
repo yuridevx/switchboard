@@ -2426,7 +2426,7 @@ describe("контракт ядра сверх старых тестов (чьё
       const t = await stand(parts(), { wide: true });
       ctrlK();
       await flush();
-      expect(t.$<HTMLInputElement>(".sb-palin")!.placeholder).toBe("Сессия, проект, раздел или команда");
+      expect(t.$<HTMLInputElement>(".sb-palin")!.placeholder).toBe("");
       expect(texts(t.root, ".sb-palit .l")).toEqual(["Работа", "своя", "из uses", "Машины"]);
       expect(texts(t.root, ".sb-palit .k")).toEqual(["раздел", "сессия", "Флот"]);
       expect(t.$(".sb-palit.first .l")!.textContent).toBe("Работа");
