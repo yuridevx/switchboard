@@ -1,6 +1,6 @@
 // Профили всех машин: строка на профиль, с конфликтом — сверху; раскрывается в машины, сессии и файлы конфликта.
 import { useEffect, useState } from "react";
-import { Btn, Dot, effortName, folderOf, In, lamp, machineLabel, type MachineAnswers, machinesWith, okOf, plural, profileIdOf, type ProfileInfo, type ProfileRepo, type ProfilesAnswer, sessionLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
+import { Btn, Dot, effortName, folderOf, In, lamp, machineLabel, type MachineAnswers, machinesWith, okOf, plural, profileIdOf, type ProfileInfo, type ProfileRepo, type ProfilesAnswer, RowBtn, sessionLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/relay";
 
 type Trouble = { machine: string; repo: ProfileRepo };
@@ -32,7 +32,7 @@ function rowsOf(answers: Readonly<Record<string, unknown>>): Row[] {
       for (const r of peers) if (r.machines.includes(machine) && troubleOf(repo, r.folder, peers.map((p) => p.folder))) r.troubles.push({ machine, repo });
     }
   }
-  return all.sort((a, b) => Number(!!b.troubles.length) - Number(!!a.troubles.length));
+  return all.sort((a, b) => Number(!!b.troubles.length) - Number(!!a.troubles.length) || a.folder.localeCompare(b.folder));
 }
 
 export function ProfilesScreen() {
@@ -65,7 +65,7 @@ export function ProfilesScreen() {
   return (
     <div className={app.wide ? "pf wide" : "pf"}>
       <div className="pf-h">
-        <b>Профили</b>
+        {app.wide ? <b>Профили</b> : null}
         <span className="pf-repo">{repos.join(", ")}</span>
         <Btn data-act="sync" disabled={syncing} onClick={() => void sync()}>
           {syncing ? "Свожу…" : "Синхронизировать"}
@@ -83,7 +83,7 @@ export function ProfilesScreen() {
         {Object.entries(data).map(([m, a]) =>
           wordOf(a) ? (
             <div key={m} className="pf-e">
-              {`@${m}: machine.profiles: ${wordOf(a)}`}
+              {`${machineLabel(app, m).text}: machine.profiles: ${wordOf(a)}`}
             </div>
           ) : null,
         )}
@@ -102,7 +102,7 @@ function ProfileRow({ row, total, open, toggle }: { row: Row; total: number; ope
   const bad = (m: string) => row.troubles.some((t) => t.machine === m);
   return (
     <div className={row.troubles.length ? "pf-w cf" : "pf-w"} data-profile={row.id}>
-      <button type="button" className="pf-r" aria-expanded={open} onClick={toggle}>
+      <RowBtn className="pf-r" aria-expanded={open} onClick={toggle}>
         <span className="pf-n">
           <b>{row.folder}</b>
           {row.info.about ? <span>{row.info.about}</span> : null}
@@ -110,15 +110,15 @@ function ProfileRow({ row, total, open, toggle }: { row: Row; total: number; ope
         <span className="pf-m">
           {line ? <span>{line}</span> : null}
           <span className="c">{`${row.machines.length}/${total} машин · ${sessions.length} ${plural(sessions.length, "сессия", "сессии", "сессий")}`}</span>
-          {row.troubles.length ? <span className="pf-p bad">{`конфликт ${row.troubles.map((t) => `@${t.machine}`).join(", ")}`}</span> : null}
+          {row.troubles.length ? <span className="pf-p bad">{`конфликт ${row.troubles.map((t) => machineLabel(app, t.machine).text).join(", ")}`}</span> : null}
         </span>
-      </button>
+      </RowBtn>
       {open ? (
         <div className="pf-d">
           <div className="pf-ms">
             {row.machines.map((m) => (
               <span key={m} className={bad(m) ? "pf-p bad" : "pf-p ok"}>
-                {bad(m) ? `@${m} конфликт` : `@${m}`}
+                {bad(m) ? `${machineLabel(app, m).text} конфликт` : machineLabel(app, m).text}
               </span>
             ))}
           </div>
@@ -127,18 +127,18 @@ function ProfileRow({ row, total, open, toggle }: { row: Row; total: number; ope
               {sessions.map((s) => {
                 const name = sessionLabel(app, s.callsign);
                 return (
-                  <button key={s.callsign} type="button" data-callsign={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
+                  <RowBtn key={s.callsign} data-callsign={s.callsign} onClick={() => app.open("card", { callsign: s.callsign })}>
                     <Dot kind={lamp(s)} />
                     <span className={name.human ? "nm hum" : "nm"}>{name.text}</span>
                     <span className="k">{`${machineLabel(app, s.callsign.split("@")[1]).text} · ${folderOf(s.dir)}`}</span>
-                  </button>
+                  </RowBtn>
                 );
               })}
             </div>
           ) : null}
           {row.troubles.map((t) => (
             <div key={t.machine} className="pf-cf">
-              <b>{`@${t.machine}: ${t.repo.state === "conflict" ? "конфликт" : "ошибка"}`}</b>
+              <b>{`${machineLabel(app, t.machine).text}: ${t.repo.state === "conflict" ? "конфликт" : "ошибка"}`}</b>
               {t.repo.error ? <span>{t.repo.error}</span> : null}
               {t.repo.files?.map((f) => (
                 <code key={f}>{f}</code>

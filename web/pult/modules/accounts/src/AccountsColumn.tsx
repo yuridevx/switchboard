@@ -1,5 +1,5 @@
 // Аккаунты: карточка на почту со всех машин. Окна — запись Host одной машины как пришла: расход между машинами Host читает у Claude сам.
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { type AccountInfo, type AccountsAnswer, Btn, H4, Hint, LIMIT_NAMES, LimitRow, machineLabel, type MachineAnswer, Note, okOf, Opts, Outcome, type OutcomeNote, PageHead, Pill, plural, Row, In, Sec, PickOne, useApp, wordOf } from "@switchboard/web-ui";
 import { RemoveDialog, SessionsDialog } from "./Dialogs.tsx";
 import { LoginCardView } from "./LoginCard.tsx";
@@ -33,7 +33,7 @@ export function Windows({ info }: { info?: AccountInfo }) {
   return windowsOf(info).map(([w, v]) => <LimitRow key={w} className="ac-w" data-window={w} label={LIMIT_NAMES[w] ?? w} used={v.utilization} resets={v.resetsAt} />);
 }
 
-export function AccountsColumn({ answers, machines, near, notes, say, cur, wide }: Shared & { cur: string; wide: boolean }) {
+export function AccountsColumn({ answers, machines, near, notes, say, cur, tabs }: Shared & { cur: string; tabs: ReactNode }) {
   const app = useApp();
   const state = useAccounts();
   const logins = app.use(() => state.logins());
@@ -44,8 +44,11 @@ export function AccountsColumn({ answers, machines, near, notes, say, cur, wide 
 
   return (
     <>
-      <PageHead title={wide ? "Аккаунты" : undefined}>
-        <Btn onClick={() => setAdding(true)}>+ Новый аккаунт</Btn>
+      <PageHead title={tabs ? undefined : "Аккаунты"}>
+        {tabs}
+        <Btn pri onClick={() => setAdding(true)}>
+          + Новый аккаунт
+        </Btn>
       </PageHead>
       {Object.entries(answers).map(([m, a]) =>
         wordOf(a) ? (
@@ -90,7 +93,7 @@ function AccountCard({ card, answers, machines, near, act }: { card: Card; answe
     <Sec data-account={card.key}>
       <div className="ac-hd">
         <b>{card.email ?? name}</b>
-        {card.plan ? <Pill>{card.plan}</Pill> : null}
+        {card.plan ? <Pill tone="busy">{card.plan}</Pill> : null}
         <Hint>{`${sessions} ${plural(sessions, "сессия", "сессии", "сессий")}`}</Hint>
       </div>
       <Windows info={source?.info} />
@@ -99,13 +102,14 @@ function AccountCard({ card, answers, machines, near, act }: { card: Card; answe
         const slots = Object.entries(okOf(answers[l.machine])?.slots ?? {});
         const holding = slots.filter(([, s]) => s.account === l.name).map(([n]) => n);
         const reserve = slots.filter(([, s]) => s.account !== l.name && s.order.includes(l.name)).map(([n]) => n);
-        const parts = [l.info.login === "ok" ? "вошёл" : l.info.login === "pending" ? "вход идёт" : "нет входа"];
-        if (holding.length) parts.push(`${holding.length > 1 ? "в слотах" : "в слоте"} ${holding.join(", ")}`);
-        if (reserve.length) parts.push(`запас ${reserve.join(", ")}`);
+        const places = [holding.length ? `${holding.length > 1 ? "в слотах" : "в слоте"} ${holding.join(", ")}` : "", reserve.length ? `запас ${reserve.join(", ")}` : ""].filter(Boolean);
         return (
           <div key={l.machine} className="ac-m" data-machine={l.machine}>
             <b>{machineLabel(app, l.machine).text}</b>
-            <span>{parts.join(" · ")}</span>
+            <span>
+              <Hint tone={l.info.login === "ok" ? "ok" : l.info.login === "pending" ? "wait" : "bad"}>{l.info.login === "ok" ? "вошёл" : l.info.login === "pending" ? "вход идёт" : "нет входа"}</Hint>
+              {places.length ? ` ${places.join(" · ")}` : ""}
+            </span>
             <Opts>
               {l.info.login === "none" ? <Btn onClick={() => void state.beginLogin(l.machine, l.name)}>Войти</Btn> : null}
               {holding.map((slot) => (

@@ -1,13 +1,13 @@
 // Слоты машины: кто в слоте, запас по порядку, новый слот. Подмену делает Host; отсюда — порядок и «Сменить сейчас».
-import { useState } from "react";
-import { at, Btn, type AccountInfo, type AccountsAnswer, H4, IconBtn, In, LIMIT_NAMES, Note, okOf, Opts, Outcome, PageHead, PickOne, plainSession, plural, Sec, Sel, type SlotInfo, useApp } from "@switchboard/web-ui";
+import { type ReactNode, useState } from "react";
+import { at, Btn, type AccountInfo, type AccountsAnswer, H4, Hint, In, LIMIT_NAMES, Note, okOf, Opts, Outcome, PageHead, PickOne, plainSession, plural, Sec, Sel, type SlotInfo, useApp } from "@switchboard/web-ui";
 import { type Shared, Windows, windowsOf } from "./AccountsColumn.tsx";
 import { SwapChoice, swapSlot } from "./Dialogs.tsx";
 import { refusal, useAccounts } from "./state.ts";
 
 const usage = (info?: AccountInfo) => windowsOf(info).map(([w, v]) => `${LIMIT_NAMES[w] ?? w} ${Math.round(v.utilization * 100)} %`).join(" · ");
 
-export function SlotsColumn({ answers, machines, near, notes, say, cur, pick, wide }: Shared & { cur: string; pick(m: string): void; wide: boolean }) {
+export function SlotsColumn({ answers, machines, near, notes, say, cur, pick, tabs }: Shared & { cur: string; pick(m: string): void; tabs: ReactNode }) {
   const app = useApp();
   const state = useAccounts();
   const [fresh, setFresh] = useState("");
@@ -39,7 +39,7 @@ export function SlotsColumn({ answers, machines, near, notes, say, cur, pick, wi
 
   return (
     <>
-      <PageHead title={wide ? "Слоты" : undefined} />
+      <PageHead title={tabs ? undefined : "Слоты"}>{tabs}</PageHead>
       {!machines.length ? <Note>Нет машин со слотами на связи.</Note> : null}
       {machines.length ? (
         <Opts data-slot-machines="">
@@ -79,38 +79,43 @@ function SlotCard({ machine, name, slot, answer, notes, say, save, remove }: Car
   const addable = Object.entries(answer.accounts).filter(([n, a]) => a.login === "ok" && !slot.order.includes(n)).map(([n]) => n);
   const swapKey = `swap:${machine}:${name}`;
   const setKey = `set:${machine}:${name}`;
-  const up = (i: number) => {
+  const moved = (i: number, by: number) => {
     const order = [...slot.order];
-    [order[i - 1], order[i]] = [order[i], order[i - 1]];
+    [order[i + by], order[i]] = [order[i], order[i + by]];
     return order;
   };
 
   return (
     <Sec data-slot={`${machine}:${name}`}>
+      {slot.wait ? (
+        <Sec tone="wait">
+          <b>{`Слот ${name} ждёт сброса · ${at(slot.wait)}`}</b>
+        </Sec>
+      ) : null}
       <div className="ac-hd">
         <b>{`Слот ${name}`}</b>
-        <span>{`${count} ${plural(count, "сессия", "сессии", "сессий")}${count ? `: ${slot.sessions.map((c) => plainSession(c).text).join(", ")}` : ""}`}</span>
+        <Hint>{`${count} ${plural(count, "сессия", "сессии", "сессий")}${count ? `: ${slot.sessions.map((c) => plainSession(c).text).join(", ")}` : ""}`}</Hint>
       </div>
-      {slot.wait ? <Note tone="wait">{`Слот ${name} ждёт сброса · ${at(slot.wait)}`}</Note> : null}
-      <div data-current="">
-        {`в слоте: ${slot.account ?? "никого"}`}
+      <Note data-current="">
+        в слоте: <b className="sb-m">{slot.account ?? "никого"}</b>
         {shared.length ? <span data-shared={shared.join(", ")}>{` · сейчас и в слоте ${shared.join(", ")}`}</span> : null}
-      </div>
+      </Note>
       <Windows info={slot.account ? answer.accounts[slot.account] : undefined} />
-      <Note>Запас — по порядку</Note>
+      <H4>Запас — по порядку</H4>
       {slot.order.map((n, i) => (
         <div key={n} className="ac-ord">
           <b>{n}</b>
-          <span>{usage(answer.accounts[n])}</span>
-          {i ? (
-            <IconBtn aria-label={`${n} выше`} onClick={() => void save(name, up(i))}>
-              ↑
-            </IconBtn>
-          ) : null}
+          <Hint>{usage(answer.accounts[n])}</Hint>
+          <Btn aria-label={`${n} выше`} disabled={!i} onClick={() => void save(name, moved(i, -1))}>
+            ↑
+          </Btn>
+          <Btn aria-label={`${n} ниже`} disabled={i === slot.order.length - 1} onClick={() => void save(name, moved(i, 1))}>
+            ↓
+          </Btn>
           {n !== slot.account ? (
-            <IconBtn aria-label={`убрать ${n}`} onClick={() => void save(name, slot.order.filter((x) => x !== n))}>
+            <Btn aria-label={`убрать ${n}`} onClick={() => void save(name, slot.order.filter((x) => x !== n))}>
               ×
-            </IconBtn>
+            </Btn>
           ) : null}
         </div>
       ))}
@@ -124,13 +129,17 @@ function SlotCard({ machine, name, slot, answer, notes, say, save, remove }: Car
             </option>
           ))}
         </Sel>
+        {!count ? (
+          <Btn bad onClick={remove}>
+            Удалить слот
+          </Btn>
+        ) : null}
       </Opts>
       <Opts>
         <SwapChoice field={`now:${name}`} order={slot.order} account={slot.account} value={swapTo} on={setSwapTo} />
-        <Btn data-act="swap" onClick={() => void swapSlot(app, state, machine, name, slot.account, swapTo, say)}>
+        <Btn pri data-act="swap" onClick={() => void swapSlot(app, state, machine, name, slot.account, swapTo, say)}>
           Сменить сейчас
         </Btn>
-        {!count && !slot.wait ? <Btn onClick={remove}>Удалить слот</Btn> : null}
       </Opts>
       <Outcome note={notes[swapKey]} data-note={swapKey} />
     </Sec>
