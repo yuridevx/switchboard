@@ -1,7 +1,7 @@
 // Что видит человек сверх лесов границы: слова, значки, порядок и правила показа. Источник свойств — поведение кода до сноса (чьё: код).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flush, stand } from "../../core/stand/app.ts";
-import { chat, open, parts, relayFor, roster, set } from "./stand.ts";
+import { chat, open, parts, reconnect, relayFor, roster, set } from "./stand.ts";
 
 const BUSY = "site@laptop";
 const ASKING = "profiles@laptop";
@@ -741,5 +741,92 @@ describe("экран вопроса", () => {
     relay.push({ type: "question", from: ASKING, question: "q9", kind: "form", server: "srv", open: false });
     await flush();
     expect(t.$(".chat-askbar")).toBeNull();
+  });
+});
+
+// Случаи из общих тестов пульта: владелец — разговор с сессией, широкий вид. Источник — чьё: код.
+describe("из общих тестов пульта", () => {
+  it("158 · у машины нет session.watch: ленту не просим, ввод работает", async () => {
+    const r = roster((x) => {
+      delete (x.machines.find((y) => y.machine === "pc")!.contract as Record<string, unknown>)["session.watch"];
+    });
+    const t = await chat(IDLE, { relay: relayFor(r) });
+    expect(t.relay.sent("session.watch")).toHaveLength(0);
+    await t.type("Катим");
+    await t.click(t.$(".chat-send"));
+    expect(t.relay.sent("session.prompt")).toEqual([expect.objectContaining({ callsign: IDLE, text: "Катим" })]);
+    expect(t.$(".chat-me small")!.textContent).toMatch(/доставлено$/);
+  });
+
+  it("183 · в занятую: «в очереди · ✓», эхо — ✓✓; обрыв до ответа, сообщения нет в истории — «ещё раз» тем же uuid", async () => {
+    const relay = relayFor(roster());
+    const t = await chat(BUSY, { relay, wide: true });
+    await t.type("И обнови README по итогам");
+    await t.click(t.$(".chat-send"));
+    const first = relay.sent("session.prompt")[0];
+    expect(t.$(".chat-me small")!.textContent).toBe("в очереди · ✓");
+    await t.events(BUSY, [{ type: "user", uuid: first.uuid, message: { content: "И обнови README по итогам" } }], 1);
+    expect(t.$(".chat-me small")!.textContent).toMatch(/^\d\d:\d\d · ✓✓$/);
+
+    relay.handlers["session.prompt"] = () => undefined as never;
+    await t.type("Задеплой на стенд");
+    await t.click(t.$(".chat-send"));
+    const second = relay.sent("session.prompt")[1];
+    relay.drop();
+    await flush();
+    expect(t.$(".chat-me.pend")!.textContent).toBe("Задеплой на стендсвязь оборвалась до ответа — не подтверждено · отправить ещё раз");
+    await reconnect();
+    expect(relay.sent("session.prompt")).toHaveLength(2);
+    expect(t.$(".chat-me.pend")).not.toBeNull();
+    relay.handlers["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
+    await t.click(t.btn(".chat-me.pend", "отправить ещё раз"));
+    expect(relay.sent("session.prompt")).toHaveLength(3);
+    expect(relay.sent("session.prompt")[2].uuid).toBe(second.uuid);
+  });
+
+  it("183 · обрыв до ответа, сообщение нашлось в истории: ✓✓ без повтора", async () => {
+    const relay = relayFor(roster());
+    relay.handlers["session.prompt"] = () => undefined as never;
+    const t = await chat(BUSY, { relay, wide: true });
+    await t.type("Задеплой на стенд");
+    await t.click(t.$(".chat-send"));
+    const sent = relay.sent("session.prompt")[0];
+    relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [{ type: "user", uuid: sent.uuid, message: { content: "Задеплой на стенд" } }], more: false } });
+    relay.drop();
+    await reconnect();
+    expect(t.$(".chat-me.pend")).toBeNull();
+    expect(t.$(".chat-me small")!.textContent).toMatch(/✓✓$/);
+    expect(relay.sent("session.prompt")).toHaveLength(1);
+  });
+
+  it("откат: rewindFiles с dryRun и подсчётом, затем без него", async () => {
+    const relay = relayFor(roster(), [{ type: "user", uuid: "5b1e", message: { content: "Почини сборку" } }]);
+    relay.handlers["session.call"] = () => ({ ok: true, result: { canRewind: true, filesChanged: ["src/worker.ts", "vitest.config.ts"], insertions: 4, deletions: 1 } });
+    const t = await chat(BUSY, { relay, wide: true });
+    await t.click(t.btn(".chat-feed", "откатить файлы"));
+    expect(relay.sent("session.call").at(-1)).toMatchObject({ callsign: BUSY, method: "rewindFiles", args: ["5b1e", { dryRun: true }] });
+    expect(t.$(".chat-rwc")!.textContent).toContain("Откатить файлы к этому сообщению? 2 файла · +4 −1 · команды Bash не откатываются");
+    await t.click(t.btn(".chat-rwc", "Откатить"));
+    expect(relay.sent("session.call").at(-1)).toMatchObject({ method: "rewindFiles", args: ["5b1e"] });
+  });
+
+  it("фокус: сводка шагов и итоговый ответ; итог хода виден; выгрузка .md — из ленты", async () => {
+    const tool = (id: string, name: string) => ({ type: "tool_use", id, name, input: { command: "x" } });
+    const relay = relayFor(roster(), [
+      { type: "user", uuid: "u1", message: { content: "Почини сборку" } },
+      { type: "assistant", uuid: "a1", message: { content: [{ type: "text", text: "Смотрю лог." }, tool("t1", "Read"), tool("t2", "Edit")] } },
+      { type: "assistant", uuid: "a2", message: { content: [tool("t3", "Bash"), tool("t4", "Bash")] } },
+      { type: "assistant", uuid: "a3", message: { content: [{ type: "text", text: "Сборка зелёная." }] } },
+      { type: "result", uuid: "z1", subtype: "success", duration_ms: 134_000, num_turns: 6, total_cost_usd: 0.41 },
+    ]);
+    const t = await chat(IDLE, { relay, wide: true });
+    await t.click(t.button(/фокус/));
+    expect(t.$$(".chat-col > :not(.chat-work)").map((x) => x.className.replace("dis ", "").split(" ")[0])).toEqual(["chat-me", "chat-steps", "chat-reply", "chat-res"]);
+    expect(t.$(".chat-steps")!.textContent).toBe("4 шага · Команда ×2 · Чтение · Правка");
+    expect(t.$(".chat-txt")!.textContent).toBe("Сборка зелёная.");
+    const a = t.$<HTMLAnchorElement>(".chat-bar a")!;
+    a.addEventListener("click", (e) => e.preventDefault());
+    a.dispatchEvent(new MouseEvent("click", { cancelable: true, bubbles: true }));
+    expect(decodeURIComponent(a.href)).toContain("## Claude\n\nСборка зелёная.");
   });
 });

@@ -422,6 +422,46 @@ describe("помощники набора", () => {
       expect(asked).toEqual(["a", "bad", "a"]);
     });
 
+    // источник: факт — обрывы раз в 4,8 мин стирали экран машины; перенесено из общих тестов пульта
+    function hand(machines = ["a"]) {
+      const answers: Array<(r: ui.Result<{ n: number }>) => void> = [];
+      const m = machineAnswers<{ n: number }>({ roster: () => rosterOf([["a", 1]]) as never, changed: () => {} }, () => new Promise((ok) => answers.push(ok)), () => machines);
+      return { m, answers };
+    }
+
+    it("E32 · отказ чтения: прежний ответ рядом со словом", async () => {
+      const { m, answers } = hand();
+      const first = m.reload("a");
+      answers[0]({ ok: true, result: { n: 1 } });
+      await first;
+      const second = m.reload("a");
+      answers[1]({ ok: false, error: "timeout" });
+      await second;
+      expect(ui.wordOf(m.get().a)).toBe("timeout");
+      expect(ui.okOf(m.get().a)).toEqual({ n: 1 });
+    });
+
+    it("E32 · вопрос, ушедший раньше, отказал позже свежего ответа — свежий не затёрт", async () => {
+      const { m, answers } = hand();
+      const old = m.reload("a");
+      const fresh = m.reload("a");
+      answers[1]({ ok: true, result: { n: 2 } });
+      await fresh;
+      answers[0]({ ok: false, error: "timeout" });
+      await old;
+      expect(m.get().a).toEqual({ n: 2 });
+    });
+
+    it("E32 · связь вернулась: машину с timeout спросить снова; ответившую — нет", async () => {
+      const { m, answers } = hand(["a", "b"]);
+      const stop = m.mount();
+      answers[0]({ ok: false, error: "timeout" });
+      answers[1]({ ok: true, result: { n: 1 } });
+      await act(async () => {});
+      m.onLink("open");
+      expect(answers).toHaveLength(3);
+      stop();
+    });
   });
 
   describe("поле с фиксацией", () => {
