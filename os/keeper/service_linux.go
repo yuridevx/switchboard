@@ -1,75 +1,52 @@
 package main
 
+// Служба Linux: юнит systemd --user этого флота; linger — служба живёт без входа пользователя. KillMode=process — при остановке и перезапуске
+// службы держатели и их процессы живут. Установка поверх своего юнита — перезапуск с новым юнитом и файлом.
 import (
 	"bufio"
 	"fmt"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 )
 
-func isService() bool { return false }
-func runService()     {}
-func hideConsole()    {}
-
-// checkFree — установка поверх своей службы законна: юнит переписан, служба перезапущена, держатели живут.
-func checkFree() error { return nil }
-
-// unit — systemd --user с linger: стартует без входа. Restart=always поднимает вышедший keeper (и после подмены себя) раз в секунду без предела: по умолчанию
-// systemd сдаётся после 5 запусков за 10 с (wsl 1 нояб.). KillMode=process: остановка и перезапуск трогают только keeper (замер 1 нояб.).
-const unit = `[Unit]
-Description=Switchboard keeper
-StartLimitIntervalSec=0
-
-[Service]
-ExecStart="%s" %s
-Restart=always
-RestartSec=1
-KillMode=process
-
-[Install]
-WantedBy=default.target
-`
-
 func unitPath() (string, error) {
-	d, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
+	dir := os.Getenv("XDG_CONFIG_HOME")
+	if dir == "" {
+		u, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		dir = filepath.Join(u, ".config")
 	}
-	return filepath.Join(d, "systemd", "user", serviceName()+".service"), nil
+	return filepath.Join(dir, "systemd", "user", serviceName()+".service"), nil
 }
 
-func run(name string, args ...string) error {
-	if out, err := exec.Command(name, args...).CombinedOutput(); err != nil {
-		return fmt.Errorf("%s %s: %v: %s", name, strings.Join(args, " "), err, out)
+func systemctl(args ...string) error {
+	out, err := exec.Command("systemctl", append([]string{"--user"}, args...)...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemctl --user %s: %v: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
-func register(exe string, _ bool, _ *bufio.Reader) error {
-	p, err := unitPath()
+func registered() error { return nil }
+
+func register(dst string, _ bool, _ *bufio.Reader) error {
+	path, err := unitPath()
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	unit := fmt.Sprintf("[Unit]\nDescription=Switchboard keeper\nStartLimitIntervalSec=0\n\n[Service]\nExecStart=%q %s\nRestart=always\nRestartSec=1\nKillMode=process\n\n[Install]\nWantedBy=default.target\n",
+		dst, strings.Join(runArgs(), " "))
+	if err := writeFile(path, []byte(unit)); err != nil {
 		return err
 	}
-	if err := os.WriteFile(p, []byte(fmt.Sprintf(unit, exe, strings.Join(runArgs(), " "))), 0o644); err != nil {
-		return err
-	}
-	u, err := user.Current()
-	if err != nil {
-		return err
-	}
-	for _, c := range [][]string{
-		{"systemctl", "--user", "daemon-reload"},
-		{"systemctl", "--user", "enable", serviceName() + ".service"},
-		{"systemctl", "--user", "restart", serviceName() + ".service"},
-		{"loginctl", "enable-linger", u.Username},
-	} {
-		if err := run(c[0], c[1:]...); err != nil {
+	exec.Command("loginctl", "enable-linger").Run()
+	unitName := serviceName() + ".service"
+	for _, a := range [][]string{{"daemon-reload"}, {"enable", unitName}, {"restart", unitName}} {
+		if err := systemctl(a...); err != nil {
 			return err
 		}
 	}
@@ -77,15 +54,17 @@ func register(exe string, _ bool, _ *bufio.Reader) error {
 }
 
 func unregister() error {
-	p, err := unitPath()
+	path, err := unitPath()
 	if err != nil {
 		return err
 	}
-	if err := run("systemctl", "--user", "disable", "--now", serviceName()+".service"); err != nil {
+	if err := systemctl("disable", "--now", serviceName()+".service"); err != nil {
 		return err
 	}
-	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	return run("systemctl", "--user", "daemon-reload")
+	os.Remove(path)
+	return systemctl("daemon-reload")
 }
+
+func asService() bool { return false }
+func runService() int { return 1 }
+func hideConsole()    {}
