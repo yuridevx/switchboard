@@ -9,14 +9,19 @@ export type Fn = { name: string; file: string; complexity: number; lines: number
 const isGo = (file: string) => file.endsWith(".go");
 const kindOf = (file: string) => (file.endsWith(".tsx") ? ts.ScriptKind.TSX : file.endsWith(".ts") || file.endsWith(".mts") ? ts.ScriptKind.TS : ts.ScriptKind.JS);
 
-/** Токены без комментариев: у TypeScript — его сканер, у остального — слова, числа, строки и знаки. */
+/** Токены без комментариев: у TypeScript — листья разбора (голый сканер не знает, где кончается подстановка шаблона и начинается регулярка), у остального — слова, числа, строки и знаки. */
 export function tokensOf(file: string, text: string): number {
   if (!/\.(ts|tsx|mts|mjs|js)$/.test(file)) {
     return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "").match(/[\p{L}_][\p{L}\p{N}_-]*|\d[\d.]*|"[^"\n]*"|`[^`]*`|\S/gu)?.length ?? 0;
   }
-  const scan = ts.createScanner(ts.ScriptTarget.Latest, true, file.endsWith(".tsx") ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard, text);
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kindOf(file));
   let n = 0;
-  while (scan.scan() !== ts.SyntaxKind.EndOfFileToken) n++;
+  const walk = (node: ts.Node) => {
+    if (ts.isJSDoc(node)) return;
+    if (ts.isToken(node)) n += node.kind === ts.SyntaxKind.EndOfFileToken ? 0 : 1;
+    else node.getChildren(source).forEach(walk);
+  };
+  walk(source);
   return n;
 }
 

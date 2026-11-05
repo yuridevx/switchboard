@@ -21,7 +21,9 @@ body.pc-on, body.pc-on *{cursor:crosshair!important}
 .pc-list .it b{font:600 11px "JetBrains Mono",monospace;color:#A85A05}
 .pc-list .it p{margin:2px 0}
 .pc-list .it small{color:#56625B;font-size:11.5px}
-.pc-list .it button{float:right;border:0;background:transparent;color:#B3302A;cursor:pointer}`;
+.pc-list .it button{float:right;border:0;background:transparent;color:#B3302A;cursor:pointer}
+body:has(.sb-tabs) .pc-bar{bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+body:has(.sb-tabs) .pc-list{bottom:calc(112px + env(safe-area-inset-bottom,0px))}`;
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]!);
 
