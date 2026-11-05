@@ -1,7 +1,7 @@
 {
   "name": "keeper",
   "type": "os",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "provides": { "keeper.state": 1 },
   "uses": { "releases.plan@releases": 1, "ledger.add@ledger": 1, "gate.redeem@gate": 1, "hello@relay": 1, "roster@relay": 1 },
   "config": {}
