@@ -1,19 +1,60 @@
-// Снесено: заглушка Worker'а, реализация пишется заново.
+// gate: привязка Gate внутри аккаунта и POST по адресу gate; пропуска — база D1 (passes.ts).
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { accepts, BAD_FRAME, fail, ok, type Frame } from "@switchboard/protocol";
+import { CONTRACT, type GateApi, type Pass } from "../contract.ts";
+import { answer, door } from "./entrance.ts";
+import { invite, list, redeem, revoke, revoked, verify } from "./passes.ts";
 
-export class Gate extends WorkerEntrypoint<{ DB: D1Database }> {
-  verify(): never {
-    throw new Error("снесено");
+type Env = { DB: D1Database };
+
+/** Предел тела: дверь открыта без пропуска, запросы её — короткие поля. */
+const MAX_BODY = 16 * 1024;
+
+export class Gate extends WorkerEntrypoint<Env> implements GateApi {
+  verify(key: string) {
+    return verify(this.env.DB, key);
   }
-  revoke(): never {
-    throw new Error("снесено");
+  revoke(kid: string) {
+    return revoke(this.env.DB, kid);
   }
-  revoked(): never {
-    throw new Error("снесено");
+  revoked(ids: string[]) {
+    return revoked(this.env.DB, ids);
   }
-  list(): never {
-    throw new Error("снесено");
+  list(role?: Pass["role"]) {
+    return list(this.env.DB, role);
   }
 }
 
-export default { fetch: (_req: Request, _env: { DB: D1Database }) => new Response("снесено", { status: 500 }) };
+const refused = (r: object): r is { error: string } => "error" in r;
+
+/** Значение запроса или отказ словом. */
+async function work(f: Frame, db: D1Database): Promise<object> {
+  if (f.type === "gate.redeem") return redeem(db, f.invite);
+  const who = await verify(db, f.key);
+  if (refused(who)) return who;
+  if (f.type === "keys.invite") return invite(db, f, who.addr);
+  if (f.role !== undefined && f.role !== "host" && f.role !== "client") {
+    console.log(`bad_request keys.list от ${who.addr} · role — host или client`);
+    return { error: "bad_request" };
+  }
+  return { passes: await list(db, f.role), you: who.addr };
+}
+
+async function serve(f: Frame, db: D1Database): Promise<Response> {
+  const { id } = f;
+  if (id === undefined) return answer("", fail("", BAD_FRAME), 400);
+  const no = accepts(f, CONTRACT);
+  if (no) {
+    console.log(`${no.word} ${no.why}`);
+    return answer(id, fail(id, no.word));
+  }
+  try {
+    const r = await work(f, db);
+    return answer(id, refused(r) ? fail(id, r.error) : ok(id, r));
+  } catch (e) {
+    console.log(`gate_unavailable ${(e as Error).message}`);
+    return answer(id, fail(id, "gate_unavailable"), 503);
+  }
+}
+
+export default { fetch: (req: Request, env: Env) => door(req, MAX_BODY, (f) => serve(f, env.DB)) };
