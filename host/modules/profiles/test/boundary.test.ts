@@ -553,3 +553,14 @@ describe("видимое: задания модели и причины", () => 
     expect(st!.journal().some((l) => l.ev === "profile" && l.why === `${OPS}: профиля нет в клоне — сессия без его части`)).toBe(true);
   });
 });
+
+describe("сверка строк: чего леса не держали", () => {
+  it("хук записи — только на инструменты правки файлов", async () => {
+    repo();
+    const { mod } = await bench({ git: fakeGit().git });
+    preOpen(mod, "site@laptop", OPS);
+    await st!.open("site@laptop");
+    const hooks = (st!.query("site@laptop").options as { hooks: Record<string, Array<{ matcher?: string }>> }).hooks;
+    expect(hooks.PostToolUse[0].matcher).toBe("Write|Edit|MultiEdit");
+  });
+});

@@ -1310,3 +1310,28 @@ describe("разбор спорного: вход пропал", () => {
     expect(st!.proc("job@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
   });
 });
+
+describe("сверка строк: чего леса не держали", () => {
+  it("новый слот: строка журнала флота и журнала машины", async () => {
+    await bench({ accounts: { y0902: {} } });
+    expect((await ask({ type: "slot.set", slot: "bot", order: ["y0902"] })).ok).toBe(true);
+    expect(swaps().map((x) => x.text)).toEqual(["слот bot: — → y0902 · новый слот"]);
+    expect(places()[0]).toMatchObject({ account: "y0902", from: null });
+  });
+
+  it("accountInfo упал после принятого кода: вход состоялся, причина в журнале", async () => {
+    await bench();
+    await ask({ type: "machine.login", account: "corp" });
+    const q = st!.sdk.queries.find((x) => !x.options.spawnClaudeCodeProcess) as unknown as Record<string, unknown>;
+    q.claudeOAuthCallback = async () => {
+      cred(accDir("corp"), "corp");
+      return {};
+    };
+    q.accountInfo = async () => {
+      throw new Error("нет сети");
+    };
+    expect((await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).ok).toBe(true);
+    expect((await accounts()).corp.login).toBe("ok");
+    expect(st!.journal().some((l) => l.ev === "login" && l.why === "corp: accountInfo — нет сети")).toBe(true);
+  });
+});
