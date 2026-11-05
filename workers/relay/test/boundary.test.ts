@@ -626,7 +626,7 @@ describe("session.state и roster", () => {
     const win = await enter("win", (await pass("host", "win")).key, { sessions: sessions("win", ["site"]) });
     expect(callsigns(await win.roster())).toEqual(["site@win"]);
     expect(win.closed).toBeNull();
-    expect(logged("offline", ".ledger", "machine.back", "win", mode === "throw" ? "журнал сломан" : "журнал не ответил за 0.5 с")).toBeDefined();
+    await eventually(() => logged("offline", ".ledger", "machine.back", "win", mode === "throw" ? "журнал сломан" : "журнал не ответил за 0.5 с"));
   });
 });
 
