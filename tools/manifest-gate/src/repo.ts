@@ -8,7 +8,7 @@ const CODE = /\.(ts|tsx|mts|mjs|js)$/;
 /** Что тест берёт у чужого модуля без uses: вход пакета, контракт, манифест, стенд. */
 const OPEN = /^(contract\.ts|module\.json|stand\/.*)?$/;
 const NEVER = /^(node_modules|dist|\..*)$/;
-/** React на странице — рантайм модуля web-view. */
+/** Упаковка заменяет React рантаймом страницы, значит рантайм должен быть в uses. */
 const VIEW = "@switchboard/web-view";
 /** Привязка Worker в env пишется заглавными; строчное имя — поле объекта. */
 const BINDING = /^[A-Z][A-Z0-9_]*$/;
@@ -47,7 +47,7 @@ export function loadRepo(root: string) {
   const mods = files.filter((f) => f.endsWith("/module.json") && !TEST.test(f)).map((file) => {
     const dir = file.slice(0, -"/module.json".length);
     const pkg: string | undefined = found.has(`${dir}/package.json`) ? JSON.parse(text(`${dir}/package.json`)).name : undefined;
-    return { provides: {}, uses: {}, config: {}, ...(JSON.parse(text(file)) as Manifest), pkg, dir };
+    return { provides: {}, uses: {}, config: {}, ...JSON.parse(text(file)), pkg, dir } as Manifest & { dir: string };
   });
   const deepest = [...mods].sort((a, b) => b.dir.length - a.dir.length);
   const moduleAt = (file: string) => deepest.find((m) => file.startsWith(`${m.dir}/`));
