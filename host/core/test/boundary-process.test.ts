@@ -215,17 +215,6 @@ describe("процесс Host", () => {
     expect(await closed).toBe(0);
   }, 90_000);
 
-  it("модуль без default — выключен со словами импорта, Host готов", async () => {
-    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): ошибка импорта — модуль failed
-    const main = release(["host-empty"], { "host-empty": { provides: {}, code: "export const x = 1;\n" } });
-    const h = home();
-    const p = spawn(process.execPath, [main], { env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h }, windowsHide: true });
-    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
-    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 30_000);
-    expect(String(lines.find((l) => l.ev === "module_failed")!.why)).toContain("host-empty: импорт: нет default — объекта модуля");
-    p.stdin.end();
-    expect(await closed).toBe(0);
-  }, 90_000);
 
   it("разделы модулей — из host.json, ключ машины — из machine.key: идут в hello", async () => {
     // источник: шапка main; устав «пропуск говорит флоту, кто пришёл»
@@ -255,22 +244,32 @@ describe("процесс Host", () => {
     expect(JSON.parse(r.out.trim())).toEqual({ ok: true, version: CORE_VERSION, sdk: "0.3.311", proto: PROTO });
   }, 90_000);
 
-  it("739 · --check: у имени два владельца — ok:false с причиной, код 1", async () => {
+  it("739 · у имени два владельца: --check — ok:false с причиной, старт — «host: не стартует»; оба с кодом 1", async () => {
     // источник: устав «двое — Host не стартует»
-    const r = await run(release(["host-a", "host-b"], dup), ["--check"], {});
+    const main = release(["host-a", "host-b"], dup);
+    const r = await run(main, ["--check"], {});
     expect(r.code).toBe(1);
     const x = JSON.parse(r.out.trim());
     expect(x.ok).toBe(false);
     expect(x.why).toContain("x.do: два владельца — host-a и host-b");
+    const s = await run(main, [], { SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: home() });
+    expect(s.code).toBe(1);
+    expect(s.err).toContain("host: не стартует");
+    expect(s.err).toContain("x.do: два владельца — host-a и host-b");
   }, 90_000);
 
-  it("740 · --check: папки модуля из списка сборки нет — ok:false со словами ошибки, код 1", async () => {
-    // источник: устав «система ловит… отказывает, пишет причину»
-    const r = await run(release(["host-nope"]), ["--check"], {});
+  it("740 · папки модуля из списка сборки нет: --check — ok:false со словами, старт — «host:» с причиной; оба с кодом 1", async () => {
+    // источник: устав «система ловит… отказывает, пишет причину»; дальше ведёт keeper
+    const main = release(["host-nope"]);
+    const r = await run(main, ["--check"], {});
     expect(r.code).toBe(1);
     const x = JSON.parse(r.out.trim());
     expect(x.ok).toBe(false);
     expect(x.why).toContain("host-nope");
+    const s = await run(main, [], { SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: home() });
+    expect(s.code).toBe(1);
+    expect(s.err).toContain("host:");
+    expect(s.err).toContain("host-nope");
   }, 90_000);
 
   it("741 · Host без SWITCHBOARD_MACHINE — отказ словами в stderr, код 1", async () => {
@@ -280,13 +279,6 @@ describe("процесс Host", () => {
     expect(r.err).toContain("host: нет SWITCHBOARD_MACHINE — Host запускает keeper");
   }, 90_000);
 
-  it("742 · Host: у имени два владельца — «host: не стартует» с причиной, код 1", async () => {
-    // источник: устав «двое — Host не стартует»
-    const r = await run(release(["host-a", "host-b"], dup), [], { SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: home() });
-    expect(r.code).toBe(1);
-    expect(r.err).toContain("host: не стартует");
-    expect(r.err).toContain("x.do: два владельца — host-a и host-b");
-  }, 90_000);
 
   it("752 · отказ промиса и бросок таймера, начатые модулем в start(), — модуль выключен на машине, процесс Host живёт", async () => {
     // источник: устав «часть падает и перезапускается одна», ветка «ошибка модуля — модуль выключен»; факт 2 нояб. — отказ фоновой цепочки модуля уронил весь Host
@@ -316,10 +308,11 @@ describe("процесс Host", () => {
     expect(err).not.toContain("цепочка упала");
   }, 90_000);
 
-  it("5115 · модуль не импортировался или его обработчик не из provides — модуль выключен на машине, Host готов", async () => {
+  it("5115 · модуль не импортировался, без default или его обработчик не из provides — модуль выключен на машине, Host готов", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): ошибка импорта или обработчик не из provides — модуль failed
-    const main = release(["host-broken", "host-extra", "host-ok"], {
+    const main = release(["host-broken", "host-empty", "host-extra", "host-ok"], {
       "host-broken": { provides: {}, code: 'throw new Error("импорт сломан");\n' },
+      "host-empty": { provides: {}, code: "export const x = 1;\n" },
       "host-extra": { provides: {}, code: 'export default { requests: { "x.y": () => 1 } };\n' },
       "host-ok": { provides: {} },
     });
@@ -330,10 +323,11 @@ describe("процесс Host", () => {
     const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
     const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 30_000);
     const failed = lines.filter((l) => l.ev === "module_failed");
-    expect(failed.map((l) => l.module).sort()).toEqual(["host-broken", "host-extra"]);
+    expect(failed.map((l) => l.module).sort()).toEqual(["host-broken", "host-empty", "host-extra"]);
     expect(String(failed.find((l) => l.module === "host-broken")!.why)).toContain("импорт сломан");
+    expect(String(failed.find((l) => l.module === "host-empty")!.why)).toContain("host-empty: импорт: нет default — объекта модуля");
     expect(String(failed.find((l) => l.module === "host-extra")!.why)).toContain("requests.x.y — нет в provides");
-    expect(lines.find((l) => l.ev === "host_start")).toMatchObject({ version: "1.2.0+1", modules: ["host-broken 1.0.0", "host-extra 1.0.0", "host-ok 1.0.0"] });
+    expect(lines.find((l) => l.ev === "host_start")).toMatchObject({ version: "1.2.0+1", modules: ["host-broken 1.0.0", "host-empty 1.0.0", "host-extra 1.0.0", "host-ok 1.0.0"] });
     p.stdin.end();
     expect(await closed).toBe(0);
   }, 90_000);
@@ -349,11 +343,4 @@ describe("процесс Host", () => {
     expect((await journalUntil(h, () => false, 0)).some((l) => l.ev === "module_failed")).toBe(false);
   }, 90_000);
 
-  it("743 · Host: папки модуля из списка сборки нет — «host:» с причиной, код 1", async () => {
-    // источник: устав «Код системы только обнаруживает ошибку и не пускает её дальше»; дальше ведёт keeper
-    const r = await run(release(["host-nope"]), [], { SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: home() });
-    expect(r.code).toBe(1);
-    expect(r.err).toContain("host:");
-    expect(r.err).toContain("host-nope");
-  }, 90_000);
 });
