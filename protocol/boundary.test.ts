@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { withLimit, accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, nameOf, ok, oversize, parseFrame, reaches, serviceAddress, userOf, within } from "./contract.ts";
+// Леса конверта кадра: всё через контракт; чьё: код, если источник не назван.
+import { BAD_FRAME, withLimit, accepts, CALL_MS, fail, hostOf, isReply, kindOf, machineOf, MAX_FRAME, nameOf, ok, oversize, parseFrame, reaches, READ_MS, serviceAddress, TOO_LARGE, userOf, within } from "./contract.ts";
 
 describe("protocol: конверт кадра", () => {
   it("2001 · кадр по конверту разобран; isReply отличает ответ", () => {
@@ -112,6 +113,13 @@ describe("protocol: конверт кадра", () => {
   it("5181 · within: значение до предела — оно; после предела — исключение со словами; предел по умолчанию — 120 с", async () => {
     // источник: слово пользователя 2 нояб.: у всех операций лимит; отчёт слепого архитектора 2 нояб.: п. 8 — одна реализация предела
     expect(CALL_MS).toBe(120_000);
+    expect(READ_MS).toBe(10_000);
+    expect([BAD_FRAME, TOO_LARGE, MAX_FRAME]).toEqual(["bad_frame", "too_large", 32 * 1024 * 1024]);
+    vi.useFakeTimers();
+    const standard = expect(within(new Promise(() => {}), "предел по умолчанию")).rejects.toThrow("предел по умолчанию");
+    await vi.advanceTimersByTimeAsync(CALL_MS);
+    await standard;
+    vi.useRealTimers();
     expect(await within(Promise.resolve(7), "не дождался", 50)).toBe(7);
     expect(await within(3, "не дождался", 50)).toBe(3);
     await expect(within(new Promise(() => {}), "gate не ответил за 0,05 с", 50)).rejects.toThrow("gate не ответил за 0,05 с");

@@ -19,14 +19,14 @@ type Db = { prepare(q: string): { bind(...a: unknown[]): { run(): Promise<unknow
 const code = (s: string) => btoa(unescape(encodeURIComponent(s))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 /** Положить строку пропуска (номер kid, верный секрет; k2a9 — отозван: строки нет) и отдать пропуск с секретом от secret. */
-export async function standPass(db: Db, role: "host" | "client", name: string, kid: string, secret = SECRET): Promise<string> {
+export async function standPass(db: Db, role: "host" | "client", name: string, kid: string, secret = SECRET, person = OWNER): Promise<string> {
   if (kid === REVOKED_KID) {
     await db.prepare("DELETE FROM passes WHERE id = ?").bind(kid).run();
     return `${role}.${name}.${kid}.${code(secret)}`;
   }
   await db
     .prepare("INSERT OR REPLACE INTO passes (id, role, name, person, state, hash, by, at) VALUES (?, ?, ?, ?, ?, ?, 'test', ?)")
-    .bind(kid, role, name, role === "client" ? OWNER : null, "ok", await sha256(code(SECRET)), Date.now())
+    .bind(kid, role, name, role === "client" ? person : null, "ok", await sha256(code(SECRET)), Date.now())
     .run();
   return `${role}.${name}.${kid}.${code(secret)}`;
 }
