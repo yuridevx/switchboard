@@ -1,24 +1,22 @@
-// Пути машины — одно правило для ядра и модулей: папка клиента и папка Claude Code.
+// Папки глазами клиента: «~» и «~/…» от домашней папки машины. Одно правило и туда, и обратно.
 import { homedir } from "node:os";
-import { isAbsolute, join, sep } from "node:path";
+import { isAbsolute, join, normalize, sep } from "node:path";
 
-/** Папка от клиента: «~» и «~/…» — от домашней папки машины, полный путь — как есть; иначе null (отказ — словом модуля). */
-export function clientPath(p: string, home: string = homedir()): string | null {
-  if (p === "~") return home;
-  if (p.startsWith("~/")) return join(home, ...p.slice(2).split("/"));
-  return isAbsolute(p) ? p : null;
+/** Папка от клиента → полный путь; относительная — null. */
+export function clientPath(path: string, home: string = homedir()): string | null {
+  if (path === "~") return home;
+  if (path.startsWith("~/")) return join(home, path.slice(2));
+  return isAbsolute(path) ? path : null;
 }
 
-/** Папка для клиента: домашняя — «~», внутри неё — «~/…» через «/»; вне её — как есть. Обратное к clientPath. */
-export function tildePath(p: string, home: string = homedir()): string {
-  // на Windows папка приходит и с «/», и с «\\» (C:/Users/admin/projects) — сравнение по одному виду, регистр диска — любой
-  const norm = (x: string) => x.split(sep).join("/").replace(/\/+$/, "");
-  const path = norm(p);
-  const root = norm(home);
-  const same = (x: string, y: string) => (sep === "\\" ? x.toLowerCase() === y.toLowerCase() : x === y);
-  if (same(path, root)) return "~";
-  return same(path.slice(0, root.length + 1), root + "/") ? "~/" + path.slice(root.length + 1) : p;
+/** Полный путь → папка для клиента. На Windows разделитель и регистр не важны. */
+export function tildePath(path: string, home: string = homedir()): string {
+  const full = normalize(path).replace(/[\\/]+$/, "");
+  const base = normalize(home).replace(/[\\/]+$/, "");
+  const fold = (s: string) => (process.platform === "win32" ? s.toLowerCase() : s);
+  if (fold(full) === fold(base)) return "~";
+  return fold(full).startsWith(fold(base) + sep) ? "~/" + full.slice(base.length + 1).split(sep).join("/") : path;
 }
 
-/** Папка Claude Code машины: CLAUDE_CONFIG_DIR или ~/.claude. */
-export const claudeDir = () => process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");
+/** Папка claude этого процесса: CLAUDE_CONFIG_DIR или ~/.claude. */
+export const claudeDir = (): string => process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude");

@@ -1,5 +1,5 @@
 // Леса границы «транслятор рации», среда Worker'а: настоящий объект машины в workerd, настоящий gate за переключателем, журнал — подделка.
-// Вход — wss /m/<машина>, POST keys.revoke, привязка Relay.deliver. Исход — кадры, закрытия, строки журнала платформы.
+// Вход — wss /m/<машина>, POST keys.revoke, привязка Relay.deliver. Исход — кадры, закрытия, факты в строках журнала платформы.
 // Номер — эталон-источник; свойства без пометки — чьё: код. Карточка соединения (attachment) со словом ver — формат хранения, живущий при смене кода.
 import { SELF, abortAllDurableObjects, applyD1Migrations, env, evictDurableObject, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
@@ -33,7 +33,8 @@ async function enter(machine: string, k: string, extra: F = {}) {
 }
 const laptop = () => hello("host", "laptop", { sdk: "0.3.311", contract: { message: 1 }, sessions: sessions("laptop", ["site", "profiles", "wiki"], { account: "y0902" }) });
 const pc = () => hello("host", "pc", { contract: { message: 1 }, sessions: sessions("pc", ["poe-bot", "api"], { account: "infirex" }) });
-const logHas = (s: string) => logs.some((l) => l.includes(s));
+/** Строка журнала: начинается со слова, содержит факты. Формат строки контракт не обещает: журнал читают агенты, его смысл — слово, кто и почему. */
+const logged = (word: string, ...facts: string[]) => logs.find((l) => l.startsWith(word) && facts.every((f) => l.includes(f)));
 const callsigns = (r: F) => r.sessions.map((s: F) => s.callsign).sort();
 const post = (body: F) => SELF.fetch("https://switchboard.test/", { method: "POST", body: JSON.stringify(body) });
 const ledgerAdds = async () => (await env.LEDGER.received()).filter((f: F) => f.type === "ledger.add" && f.from === ".relay");
@@ -106,9 +107,9 @@ describe("hello", () => {
       expect(r.sessions.find((s: F) => s.callsign === "site@laptop").account).toBe("y0902");
       expect(r.clients.sort()).toEqual(["@pc", dev("phone")]);
     }
-    expect(logs).toContain("hello host.laptop.k-laptop · host · 3 сессий · proto 1");
-    expect(logs).toContain("hello host.pc.k-pc · guest · proto 1");
-    expect(logs).toContain("hello client.phone.k-phone · client · proto 1");
+    expect(logged("hello", "k-laptop", "host", "3 сессий", "proto 1")).toBeDefined();
+    expect(logged("hello", "k-pc", "guest", "proto 1")).toBeDefined();
+    expect(logged("hello", "k-phone", "client", "proto 1")).toBeDefined();
     const other = await enter("laptop", (await pass("client", "ci", "dev@example.com")).key);
     expect((await other.roster()).clients.sort()).toEqual(["@pc", "ci~dev@example.com", dev("phone")]);
   });
@@ -131,7 +132,7 @@ describe("hello", () => {
     expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_frame" });
     expect(await env.GATE.calls()).toEqual([]);
     expect(await a.quiet()).toEqual([]);
-    expect(logs).toContain("bad_frame до hello · message");
+    expect(logged("bad_frame", "до hello", "message")).toBeDefined();
   });
 
   it("кадр, пока gate проверяет hello, — закрыт 1008 bad_frame", async () => {
@@ -141,7 +142,7 @@ describe("hello", () => {
     await wait(50);
     x.send({ type: "message", to: "site@laptop" });
     expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_frame" });
-    expect(logs).toContain("bad_frame до hello · message");
+    expect(logged("bad_frame", "до hello", "message")).toBeDefined();
   });
 
   it("133 · 30 · отозванный и чужой секрет — закрыт 1008 bad_key, слово gate как есть, секрета в журнале нет", async () => {
@@ -149,12 +150,12 @@ describe("hello", () => {
     const revoked = await open();
     revoked.send({ type: "hello", proto: 1, key: await key("client", "phone", "k2a9") });
     expect(await revoked.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
-    expect(logs).toContain("bad_key client.phone.k2a9");
+    expect(logged("bad_key", "k2a9")).toBeDefined();
     const stranger = await open();
     const k = await key("host", "laptop", "k7f3", "чужой секрет");
     stranger.send({ type: "hello", proto: 1, key: k, sessions: sessions("laptop", ["site"]) });
     expect(await stranger.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
-    expect(logs).toContain("bad_key host.laptop.k7f3");
+    expect(logged("bad_key", "k7f3")).toBeDefined();
     expect(logs.join("\n")).not.toContain(k.split(".")[3]);
     expect(await phone.quiet()).toEqual([]);
   });
@@ -168,7 +169,7 @@ describe("hello", () => {
     const k = await key("client", "phone", "k8e1");
     phone.send({ type: "hello", proto: 1, key: k });
     expect(await phone.waitClose()).toEqual({ code: 1008, reason: "gate_unavailable" });
-    expect(logs.find((l) => l.startsWith("gate client.phone.k8e1"))).toMatch(/gate_unavailable · .*gate сломан/);
+    expect(logged("gate", "k8e1", "gate_unavailable", "gate сломан")).toBeDefined();
     expect(logs.join("\n")).not.toContain(k.split(".")[3]);
     expect(await a.quiet()).toEqual([]);
     expect(a.frames.filter((f) => f.clients?.includes(dev("phone")))).toEqual([]);
@@ -186,23 +187,23 @@ describe("hello", () => {
     const phone = await open();
     phone.send({ type: "hello", proto: 1, key: await key("client", "phone", "k8e1") });
     expect(await phone.waitClose()).toEqual({ code: 1008, reason: "gate_unavailable" });
-    expect(logs.find((l) => l.startsWith("gate client.phone.k8e1"))).toContain("gate не ответил за 0.5 с");
+    expect(logged("gate", "k8e1", "gate не ответил за 0.5 с")).toBeDefined();
   });
 
   it.each([
-    ["proto 2", { proto: 2 }, "contract_mismatch", "contract_mismatch host.laptop.k-laptop · proto 2 · relay [1]"],
-    ["proto не число", { proto: "1" }, "contract_mismatch", 'contract_mismatch host.laptop.k-laptop · proto "1" · relay [1]'],
-    ["в hello сессия чужой машины", { sessions: [{ callsign: "wiki@pc" }] }, "bad_from", "bad_from host.laptop.k-laptop · в hello callsign не машины laptop"],
-    ["голое имя машины вместо сессии", { sessions: [{ callsign: "@laptop" }] }, "bad_from", "bad_from host.laptop.k-laptop · в hello callsign не машины laptop"],
-    ["sessions не список", { sessions: "много" }, "bad_from", "bad_from host.laptop.k-laptop · в hello callsign не машины laptop"],
-    ["запись сессии не объект", { sessions: ["site@laptop"] }, "bad_from", "bad_from host.laptop.k-laptop · в hello callsign не машины laptop"],
-    ["часть не keeper", { part: "capture" }, "bad_frame", 'bad_frame host.laptop.k-laptop · part "capture" — в relay своей машины входит только keeper пропуском машины'],
-  ])("33 · 34 · hello Host машины: %s — закрыт, слово и причина в журнале; прежний Host не тронут, в roster не попал", async (_n, extra, word, line) => {
+    ["proto 2", { proto: 2 }, "contract_mismatch", "proto 2"],
+    ["proto не число", { proto: "1" }, "contract_mismatch", 'proto "1"'],
+    ["в hello сессия чужой машины", { sessions: [{ callsign: "wiki@pc" }] }, "bad_from", "callsign"],
+    ["голое имя машины вместо сессии", { sessions: [{ callsign: "@laptop" }] }, "bad_from", "callsign"],
+    ["sessions не список", { sessions: "много" }, "bad_from", "callsign"],
+    ["запись сессии не объект", { sessions: ["site@laptop"] }, "bad_from", "callsign"],
+    ["часть не keeper", { part: "capture" }, "bad_frame", "capture"],
+  ])("33 · 34 · hello Host машины: %s — закрыт, слово и причина в журнале; прежний Host не тронут, в roster не попал", async (_n, extra, word, why) => {
     const panel = await hello("client", "panel-desk");
     const x = await open();
     x.send({ type: "hello", proto: 1, key: await key("host", "laptop"), ...extra });
     expect(await x.waitClose()).toEqual({ code: 1008, reason: word });
-    expect(logs).toContain(line);
+    expect(logged(word, "k-laptop", why)).toBeDefined();
     expect((await panel.roster()).machines).toEqual([]);
   });
 
@@ -223,7 +224,7 @@ describe("hello", () => {
     const s = sessions("laptop", Array.from({ length: 60 }, (_, i) => `s${i}`), { note: "x".repeat(260) });
     big.send({ type: "hello", proto: 1, key: await key("host", "laptop", "k9z9"), sessions: s });
     expect(await big.waitClose()).toEqual({ code: 1008, reason: "bad_frame" });
-    expect(logs.find((l) => l.startsWith("bad_frame host.laptop.k9z9"))).toMatch(/карточка \d+ байт · предел 16384/);
+    expect(logged("bad_frame", "k9z9")).toMatch(/карточка \d+ байт · предел 16384/);
     expect(await a.quiet()).toEqual([]);
     expect(a.frames.filter((f) => f.type === "roster")).toEqual([]);
     expect(before.machines.length).toBe(1);
@@ -236,7 +237,7 @@ describe("hello", () => {
     await wait(5);
     const fresh = await laptop();
     expect(await old.waitClose()).toEqual({ code: 1000, reason: "replaced" });
-    expect(logs).toContain("replaced host.laptop.k-laptop");
+    expect(logged("replaced", "k-laptop")).toBeDefined();
     const r2 = await eventually(async () => {
       const x = await panel.roster();
       return x.machines[0].since !== r1.machines[0].since ? x : undefined;
@@ -282,13 +283,20 @@ describe("hello", () => {
     expect(await old.quiet()).toEqual([]);
   });
 
-  it("2048 · сокет закрылся до hello — roster не рассылается", async () => {
+  it("2048 · сокет закрылся до hello и пока gate его проверяет — roster не рассылается, входа в журнале нет", async () => {
     const a = await laptop();
     await a.roster();
     const x = await open();
     x.close();
     expect(await a.quiet(200)).toEqual([]);
+    await env.GATE.setMode("slow");
+    const y = await open();
+    y.send({ type: "hello", proto: 1, key: await key("client", "phone") });
+    await wait(50);
+    y.close();
+    await wait(500);
     expect(a.frames.filter((f) => f.type === "roster")).toEqual([]);
+    expect(logged("hello", "k-phone")).toBeUndefined();
   });
 });
 
@@ -298,7 +306,7 @@ describe("кадр после hello: доставка по адресу", () => 
     const phone = await hello("client", "phone");
     phone.send({ type: "message", id: "m-4", to: "wiki@pc", text: "секретный текст" });
     expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-4", ok: false, error: "offline" });
-    expect(logs).toContain(`offline ${dev("phone")} · message · → wiki@pc`);
+    expect(logged("offline", dev("phone"), "message", "wiki@pc")).toBeDefined();
     expect(logs.join("\n")).not.toContain("секретный текст");
   });
 
@@ -328,7 +336,7 @@ describe("кадр после hello: доставка по адресу", () => 
     expect(await b.next((f) => f.type === "session.dirs")).toMatchObject({ id: "c-3", from: dev("panel-desk") });
     panel.send({ type: "session.open", id: "c-7", machine: "nas" });
     expect(await panel.next((f) => f.type === "reply")).toMatchObject({ id: "c-7", ok: false, error: "offline" });
-    expect(logs).toContain(`offline ${dev("panel-desk")} · session.open · → @nas`);
+    expect(logged("offline", dev("panel-desk"), "session.open", "nas")).toBeDefined();
   });
 
   it("Host без from — from @машина; to @машина доставляет Host этой машины; ответ доставляется по from обратно гостю", async () => {
@@ -341,6 +349,44 @@ describe("кадр после hello: доставка по адресу", () => 
     expect(got).toMatchObject({ from: "lead@pc", to: "site@laptop" });
     a.send({ type: "reply", id: "g-1", ok: true, to: got.from, from: "site@laptop" });
     expect(await b.next((f) => f.type === "reply")).toMatchObject({ id: "g-1", ok: true, from: "site@laptop" });
+  });
+
+  it("from своим адресом принят: клиент, keeper, Host; to важнее callsign; callsign и machine — Host машины без сверки с карточкой: о сессии знает он сам", async () => {
+    const a = await laptop();
+    const k = await hello("keeper", "laptop");
+    const phone = await hello("client", "phone");
+    phone.send({ type: "message", id: "e-1", from: dev("phone"), to: "site@laptop" });
+    expect(await a.next((f) => f.id === "e-1")).toMatchObject({ from: dev("phone") });
+    k.send({ type: "note", id: "e-2", from: ".keeper@laptop", to: "@laptop" });
+    expect(await a.next((f) => f.id === "e-2")).toMatchObject({ from: ".keeper@laptop" });
+    a.send({ type: "note", id: "e-3", from: "@laptop", to: ".keeper@laptop" });
+    expect(await k.next((f) => f.id === "e-3")).toMatchObject({ from: "@laptop" });
+    phone.send({ type: "x", id: "e-4", callsign: "ghost@laptop" });
+    expect(await a.next((f) => f.id === "e-4")).toMatchObject({ callsign: "ghost@laptop" });
+    phone.send({ type: "x", id: "e-5", to: "site@laptop", callsign: "wiki@pc" });
+    expect(await a.next((f) => f.id === "e-5")).toMatchObject({ to: "site@laptop" });
+  });
+
+  it("кадр со списком to — каждому, до кого дошёл адрес, список целиком; никому — строка журнала, ответа нет", async () => {
+    const a = await laptop();
+    const b = await pc();
+    const k = await hello("keeper", "laptop");
+    const phone = await hello("client", "phone");
+    const to = ["site@laptop", "ghost@laptop", "x@pc", ".keeper@laptop", ".ledger", dev("phone"), "x@nas"];
+    phone.send({ type: "q", to });
+    for (const p of [a, b, k, phone]) expect(await p.next((f) => f.type === "q")).toEqual({ type: "q", to, from: dev("phone") });
+    phone.send({ type: "q2", to: ["x@nas", ".ledger"] });
+    await eventually(() => logged("offline", dev("phone"), "q2", "x@nas", ".ledger"));
+    expect(await phone.quiet()).toEqual([]);
+  });
+
+  it("список to: два адреса одного соединения — одна копия кадра", async () => {
+    // источник: опыт на настоящем объекте: Host получал кадр по разу на адрес и исполнял его дважды
+    const a = await laptop();
+    const phone = await hello("client", "phone");
+    phone.send({ type: "q", to: ["site@laptop", "wiki@laptop", "@laptop"] });
+    await a.next((f) => f.type === "q");
+    expect((await a.quiet()).filter((f) => f.type === "q")).toEqual([]);
   });
 
   it("40 · session.history; объект засыпает; reply от Host с to panel-desk получают соединения panel-desk и только они", async () => {
@@ -422,7 +468,7 @@ describe("кадр после hello: доставка по адресу", () => 
     const phone = await hello("client", "phone");
     phone.send({ type: "message", id: "m-8", from: "site@laptop", to: "poe-bot@pc", text: "…" });
     expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-8", ok: false, error: "bad_from" });
-    expect(logHas(`bad_from ${dev("phone")} · message · from=site@laptop`)).toBe(true);
+    expect(logged("bad_from", dev("phone"), "message", "site@laptop")).toBeDefined();
     expect(await b.quiet()).toEqual([]);
     phone.send({ type: "message", id: "m-9", to: "poe-bot@pc", text: "…" });
     expect(await b.next((f) => f.type === "message")).toMatchObject({ id: "m-9", from: dev("phone") });
@@ -434,19 +480,20 @@ describe("кадр после hello: доставка по адресу", () => 
   });
 
   it.each([
-    ["to списком у кадра с id", { type: "question", id: "q", to: [dev("phone"), dev("panel-desk")] }, "to списком у кадра с id"],
-    ["пустой список", { type: "question", id: "q", to: [] }, "to списком у кадра с id"],
-    ["голое имя", { type: "message", id: "q", to: "phone" }, 'to не адрес: "phone"'],
+    ["to списком у кадра с id", { type: "question", id: "q", to: [dev("phone"), dev("panel-desk")] }, "списком"],
+    ["пустой список", { type: "question", id: "q", to: [] }, "списком"],
+    ["в списке не адрес", { type: "question", to: [dev("phone"), "голое"] }, "голое"],
+    ["голое имя", { type: "message", id: "q", to: "phone" }, "phone"],
     ["нет адреса", { type: "message", id: "q" }, "нет адреса"],
-    ["callsign без машины", { type: "budget.set", id: "q", callsign: "wiki" }, "callsign wiki"],
+    ["machine не строка", { type: "message", id: "q", machine: 5 }, "нет адреса"],
+    ["callsign без машины", { type: "budget.set", id: "q", callsign: "wiki", machine: "laptop" }, "wiki"],
     ["имя relay roster", { type: "roster", id: "q", machines: [] }, "имя relay"],
     ["имя relay hello", { type: "hello", id: "q", key: "x" }, "имя relay"],
-    ["имя relay frame", { type: "frame", id: "q" }, "имя relay"],
-  ])("2046 · %s — bad_frame ответом и причина в журнале", async (_n, frame, why) => {
+  ])("2046 · %s — bad_frame: с id ответом, причина в журнале", async (_n, frame, why) => {
     const a = await laptop();
     a.send(frame);
-    expect(await a.next((f) => f.id === "q")).toEqual({ type: "reply", id: "q", ok: false, error: "bad_frame" });
-    expect(logHas(`bad_frame @laptop · ${frame.type} · ${why}`)).toBe(true);
+    if ("id" in frame) expect(await a.next((f) => f.id === "q")).toEqual({ type: "reply", id: "q", ok: false, error: "bad_frame" });
+    await eventually(() => logged("bad_frame", "@laptop", frame.type, why));
   });
 
   it("не JSON или без type — bad_frame: с id — reply, без id — только журнал", async () => {
@@ -455,18 +502,20 @@ describe("кадр после hello: доставка по адресу", () => 
     expect(await a.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "x-1", ok: false, error: "bad_frame" });
     a.send("не json");
     expect(await a.quiet()).toEqual([]);
-    expect(logHas("bad_frame host.laptop · не кадр")).toBe(true);
+    expect(logged("bad_frame", "laptop", "не кадр")).toBeDefined();
   });
 });
 
 describe("session.state и roster", () => {
-  it("session.state заменяет запись целиком и с state null убирает; порядок записей держится; чужой callsign и не от Host — bad_from", async () => {
+  it("session.state заменяет запись целиком и с state null убирает; порядок записей держится; конверт в запись не идёт, ответа нет; чужой callsign и не от Host — bad_from", async () => {
     const a = await laptop();
+    const guest = await pc();
     const phone = await hello("client", "phone");
     const k = await hello("keeper", "laptop");
     await phone.roster();
-    a.send({ type: "session.state", callsign: "site@laptop", state: "busy", slot: "b" });
+    a.send({ type: "session.state", id: "s-0", v: 1, to: ".relay", from: "@laptop", callsign: "site@laptop", state: "busy", slot: "b" });
     let r = await phone.roster();
+    expect(a.frames.find((f) => f.id === "s-0")).toBeUndefined();
     expect(r.sessions.find((s: F) => s.callsign === "site@laptop")).toEqual({ callsign: "site@laptop", state: "busy", slot: "b" });
     expect(r.sessions.map((s: F) => s.callsign)).toEqual(["site@laptop", "profiles@laptop", "wiki@laptop"]);
     a.send({ type: "session.state", callsign: "wiki@laptop", state: null });
@@ -477,20 +526,16 @@ describe("session.state и roster", () => {
     expect(r.sessions.map((s: F) => s.callsign)).toEqual(["site@laptop", "profiles@laptop", "new@laptop"]);
     a.send({ type: "session.state", id: "s-1", callsign: "poe-bot@pc", state: "idle" });
     expect(await a.next((f) => f.id === "s-1")).toMatchObject({ error: "bad_from" });
-    expect(logHas("bad_from @laptop · session.state · callsign poe-bot@pc")).toBe(true);
+    expect(logged("bad_from", "@laptop", "session.state", "poe-bot@pc")).toBeDefined();
     phone.send({ type: "session.state", id: "s-2", callsign: "x@phone", state: "idle" });
     expect(await phone.next((f) => f.id === "s-2")).toMatchObject({ error: "bad_from" });
     k.send({ type: "session.state", id: "s-3", callsign: "site@laptop", state: "idle" });
     expect(await k.next((f) => f.id === "s-3")).toMatchObject({ error: "bad_from" });
-    expect(logHas("bad_from .keeper@laptop · session.state · session.state не от своего Host")).toBe(true);
+    guest.send({ type: "session.state", id: "s-4", callsign: "api@pc", state: "busy" });
+    expect(await guest.next((f) => f.id === "s-4")).toMatchObject({ error: "bad_from" });
+    expect(logged("bad_from", ".keeper@laptop", "session.state", "Host")).toBeDefined();
   });
 
-  it("гость не правит сессии объекта", async () => {
-    await laptop();
-    const guest = await pc();
-    guest.send({ type: "session.state", id: "g-3", callsign: "api@pc", state: "busy" });
-    expect(await guest.next((f) => f.type === "reply")).toMatchObject({ id: "g-3", error: "bad_from" });
-  });
 
   it("2045 · session.state раздул карточку за предел — bad_frame, запись прежняя", async () => {
     const a = await laptop();
@@ -498,7 +543,7 @@ describe("session.state и roster", () => {
     await phone.roster();
     a.send({ type: "session.state", id: "s-big", callsign: "site@laptop", state: "busy", note: "x".repeat(17_000) });
     expect(await a.next((f) => f.id === "s-big")).toMatchObject({ ok: false, error: "bad_frame" });
-    expect(logs.find((l) => l.startsWith("bad_frame @laptop · session.state"))).toMatch(/карточка \d+ байт · предел 16384/);
+    expect(logged("bad_frame", "@laptop", "session.state")).toMatch(/карточка \d+ байт · предел 16384/);
     expect(await phone.quiet()).toEqual([]);
     a.send({ type: "session.state", callsign: "wiki@laptop", state: "busy" });
     const r = await phone.roster();
@@ -518,14 +563,14 @@ describe("session.state и roster", () => {
       });
       expect(r.machines.map((m: F) => m.machine)).toEqual(["laptop"]);
     }
-    await eventually(() => logHas("close guest.pc · 1000 bye") || undefined);
+    await eventually(() => logged("close", "pc", "1000 bye"));
     a.close(1000, "уход");
     const r = await eventually(async () => {
       const x = await phone.roster();
       return x.machines.length ? undefined : x;
     });
     expect(r.sessions).toEqual([]);
-    expect(logs).toContain("close host.laptop · 1000 уход");
+    expect(logged("close", "laptop", "1000 уход")).toBeDefined();
   });
 
   it("4 · объект выгружен, соединения открыты; session.state — roster тот же, что до сна, никто не переподключался", async () => {
@@ -557,12 +602,40 @@ describe("session.state и roster", () => {
     expect(logs).toContain("machine.left win");
   });
 
+  it("журнал по живой машине: вытеснение той же машины — ни ухода, ни нового входа; соединения прежнего кода и отзыв — уход", async () => {
+    const adds = async () => (await ledgerAdds()).map((f: F) => [f.ev, f.machine]);
+    const old = await laptop();
+    await eventually(async () => (await adds()).length === 1);
+    await laptop();
+    await old.waitClose();
+    await wait(100);
+    expect(await adds()).toEqual([["machine.back", "laptop"]]);
+    await oldCode();
+    await hello("client", "panel-desk");
+    await eventually(async () => (await adds()).length === 2);
+    expect(await adds()).toEqual([["machine.back", "laptop"], ["machine.left", "laptop"]]);
+    await env.LEDGER.clear();
+    const agent = await pass("host", "win");
+    const gone = await pass("host", "wsl");
+    const own = await enter("wsl", gone.key);
+    const watcher = await enter("wsl", agent.key);
+    await post({ type: "keys.revoke", id: "r", v: 1, key: agent.key, kid: gone.kid });
+    await own.waitClose();
+    await eventually(async () => (await adds()).some(([ev]) => ev === "machine.left"));
+    expect(await adds()).toEqual([["machine.back", "wsl"], ["machine.left", "wsl"]]);
+    const r = await eventually(async () => {
+      const x = await watcher.roster();
+      return x.machines.length ? undefined : x;
+    });
+    expect(r.clients).toEqual(["@win"]);
+  });
+
   it.each(["throw", "hang"])("журнал не ответил (%s): строка здесь, roster всем, Host на связи", async (mode) => {
     await env.LEDGER.setMode(mode);
     const win = await enter("win", (await pass("host", "win")).key, { sessions: sessions("win", ["site"]) });
     expect(callsigns(await win.roster())).toEqual(["site@win"]);
     expect(win.closed).toBeNull();
-    expect(logs.find((l) => l.startsWith("offline relay → .ledger · machine.back win"))).toContain(mode === "throw" ? "журнал сломан" : "журнал не ответил за 0.5 с");
+    await eventually(() => logged("offline", ".ledger", "machine.back", "win", mode === "throw" ? "журнал сломан" : "журнал не ответил за 0.5 с"));
   });
 });
 
@@ -573,7 +646,7 @@ describe("keeper машины", () => {
     const r = await a.roster();
     expect(r.machines.map((m: F) => m.machine)).toEqual(["laptop"]);
     expect(r.clients).toEqual([]);
-    expect(logs).toContain("hello host.laptop.k-laptop · keeper · proto 1");
+    expect(logged("hello", "k-laptop", "keeper", "proto 1")).toBeDefined();
     const phone = await hello("client", "phone");
     phone.send({ type: "keeper.state", id: "k-1", to: ".keeper@laptop" });
     expect(await k.next((f) => f.type === "keeper.state")).toEqual({ type: "keeper.state", id: "k-1", to: ".keeper@laptop", from: dev("phone") });
@@ -628,8 +701,8 @@ describe("POST keys.revoke", () => {
     expect(await r.json()).toEqual({ type: "reply", id: "r1", ok: true, result: { addr: dev("phone"), closed: 2 }, to: "@win" });
     expect(await onWin.waitClose()).toEqual({ code: 1008, reason: "revoked" });
     expect(await onWsl.waitClose()).toEqual({ code: 1008, reason: "revoked" });
-    expect(logs).toContain(`revoked client.phone.${phone.kid} · закрыт отзывом`);
-    expect(logs).toContain(`revoke ${phone.kid} ${dev("phone")} · отозвал @win · закрыто соединений 2 на 2 машинах`);
+    expect(logged("revoked", phone.kid)).toBeDefined();
+    expect(logged("revoke ", phone.kid, dev("phone"), "@win", "2")).toBeDefined();
     expect(host.closed ?? pult.closed).toBeNull();
     expect((await pult.roster()).clients).toEqual([dev("pult")]);
     expect(await env.GATE_DB.prepare("SELECT state FROM passes WHERE id = ?").bind(phone.kid).first("state")).toBeNull();
@@ -648,6 +721,21 @@ describe("POST keys.revoke", () => {
     expect(await own.waitClose()).toEqual({ code: 1008, reason: "revoked" });
   });
 
+  it.each(["revoke-throw", "list-throw", "revoke-hang", "list-hang"])("gate подвёл на отзыве (%s) — failed за предел вызова и причина в журнале (слово пользователя 2 нояб.: у всех операций лимит)", async (mode) => {
+    const agent = await pass("host", "win");
+    const phone = await pass("client", "phone");
+    await env.GATE.setMode(mode);
+    const r = await post({ type: "keys.revoke", id: "r", v: 1, key: agent.key, kid: phone.kid });
+    expect(await r.json()).toEqual({ type: "reply", id: "r", ok: false, error: "failed" });
+    expect(logged("failed", "keys.revoke", "@win")).toBeDefined();
+  });
+
+  it("отозвать может и пропуск клиента: ответ ему", async () => {
+    const pult = await pass("client", "pult");
+    const phone = await pass("client", "phone");
+    expect(await (await post({ type: "keys.revoke", id: "r", v: 1, key: pult.key, kid: phone.kid })).json()).toEqual({ type: "reply", id: "r", ok: true, result: { addr: dev("phone"), closed: 0 }, to: dev("pult") });
+  });
+
   it.each([
     ["незнакомый номер", { type: "keys.revoke", id: "r", v: 1, kid: "zzzz" }, "unknown_key"],
     ["нет номера", { type: "keys.revoke", id: "r", v: 1 }, "bad_request"],
@@ -662,7 +750,7 @@ describe("POST keys.revoke", () => {
   it("незнакомый номер — строка журнала; без пропуска — слово gate; без id — 204 без тела, номер не отозван", async () => {
     const agent = await pass("host", "win");
     await post({ type: "keys.revoke", id: "r3", v: 1, key: agent.key, kid: "zzzz" });
-    expect(logs).toContain("unknown_key zzzz · отзыв от @win");
+    expect(logged("unknown_key", "zzzz", "@win")).toBeDefined();
     expect(await (await post({ type: "keys.revoke", id: "r2", v: 1, kid: "x" })).json()).toMatchObject({ ok: false, error: "bad_key" });
     const phone = await pass("client", "phone");
     const r = await post({ type: "keys.revoke", v: 1, key: agent.key, kid: phone.kid });
@@ -676,11 +764,11 @@ describe("привязка Relay.deliver", () => {
 
   it("5029 · кадр к .keeper@win → keeper win, from вызывающего; keeper'а нет → 0 получателей; строка журнала", async () => {
     expect(await relay().deliver({ type: "keeper.plan", to: ".keeper@win", from: ".releases", rev: 7 })).toBe(0);
-    expect(logs).toContain("offline .releases → .keeper@win · keeper.plan");
+    expect(logged("offline", ".releases", ".keeper@win", "keeper.plan")).toBeDefined();
     const keeper = await enter("win", (await pass("host", "win")).key, { part: "keeper" });
     expect(await relay().deliver({ type: "keeper.plan", to: ".keeper@win", from: ".releases", rev: 8 })).toBe(1);
     expect(await keeper.next((f) => f.type === "keeper.plan")).toMatchObject({ rev: 8, from: ".releases" });
-    expect(logs).toContain("deliver .releases → .keeper@win · keeper.plan");
+    expect(logged("deliver", ".releases", ".keeper@win", "keeper.plan")).toBeDefined();
   });
 
   it("адрес без машины — 0 получателей, объекты не будятся; сессии и машине — доставка; устройство — 0: у привязки нет объекта без машины", async () => {
@@ -704,7 +792,7 @@ describe("новый код relay и сбой", () => {
     await oldCode();
     const panel = await hello("client", "panel-desk");
     for (const p of [a, k, phone]) expect(await p.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
-    expect(logHas("relay_updated · закрыто соединений прежнего кода relay: 3")).toBe(true);
+    expect(logged("relay_updated", "3")).toBeDefined();
     expect(panel.closed).toBeNull();
     expect((await panel.roster()).clients).toContain(dev("panel-desk"));
     await evictDurableObject(fleet());
@@ -751,17 +839,6 @@ describe("новый код relay и сбой", () => {
     expect(callsigns(r)).toEqual(["profiles@laptop", "site@laptop", "wiki@laptop"]);
   });
 
-  it("3140 · пропуск отозван, соединение прежнего кода — сначала relay_updated, на новый hello тем же пропуском — bad_key", async () => {
-    const phone = await hello("client", "phone", {}, "k8e1");
-    await env.GATE.revokeLater(["client.phone.k8e1"]);
-    await oldCode();
-    const panel = await hello("client", "panel-desk");
-    expect(await phone.waitClose()).toEqual({ code: 1012, reason: "relay_updated" });
-    const again = await open();
-    again.send({ type: "hello", proto: 1, key: await key("client", "phone", "k8e1") });
-    expect(await again.waitClose()).toMatchObject({ code: 1008, reason: "bad_key" });
-    expect(panel.closed).toBeNull();
-  });
 
   it("31 · после перезапуска объекта все входят заново; отозванный — bad_key, новый номер проходит", async () => {
     await laptop();
@@ -800,7 +877,7 @@ describe("новый код relay и сбой", () => {
     a.send({ type: "message", to: dev("panel-desk") });
     await a.waitClose();
     await panel.waitClose();
-    expect(logs.find((l) => l.startsWith("abort"))).toMatch(/сбой в коде relay[\s\S]*webSocketMessage\(message\)/);
+    expect(logged("abort", "сбой в коде relay", "message")).toBeDefined();
     await laptop();
     const panel2 = await hello("client", "panel-desk");
     const after = await panel2.roster();

@@ -34,6 +34,9 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.resetModules();
+  // моки загрузки не переходят в следующий тест: иначе отказ ядра проверял бы настоящее ядро
+  vi.doUnmock("../../shell.ts");
+  vi.doUnmock("@switchboard/web-core");
 });
 
 const QUESTION = {
@@ -146,6 +149,46 @@ describe("оболочка страницы", () => {
     expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: нет ответа за 30 с");
   });
 
+  it("ядро страницы не загрузилось: причина на странице, обещание отказывает", async () => {
+    // чьё: код; файл ядра страницы лежит рядом со списком сборки и может не прийти
+    vi.stubGlobal("fetch", async () => ({ json: async () => listOf("pult") }));
+    vi.doMock("@switchboard/web-core", () => {
+      throw new Error("файла ядра нет");
+    });
+    const { boot } = await import("../../shell.ts");
+    const why = await boot({}).then(
+      () => "",
+      (e: Error) => e.message,
+    );
+    expect(why).not.toBe("");
+    expect(document.getElementById("app")!.textContent).toBe(`Сборка не загрузилась: ${why}`);
+  });
+
+  it("ядро страницы молчит: через 30 с причина на странице", async () => {
+    // устав: у всех операций есть предел
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", async () => ({ json: async () => listOf("pult") }));
+    vi.doMock("@switchboard/web-core", () => new Promise(() => {}));
+    const { boot } = await import("../../shell.ts");
+    const run = boot({}).catch((e: Error) => e.message);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await run).toBe("нет ответа за 30 с");
+    expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: нет ответа за 30 с");
+  });
+
+  it("ядро отказало при старте: причина на странице, обещание отказывает", async () => {
+    // чьё: код
+    vi.stubGlobal("fetch", async () => ({ json: async () => listOf("pult") }));
+    vi.doMock("@switchboard/web-core", () => ({
+      startBuild: async () => {
+        throw new Error("старт отказал");
+      },
+    }));
+    const { boot } = await import("../../shell.ts");
+    await expect(boot({})).rejects.toThrow("старт отказал");
+    expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: старт отказал");
+  });
+
   it("6903 · колонка разделов: «Перейти… Ctrl K», Вам, Работа, Инциденты, группа «Флот» с профилями; машин и имени устройства в колонке нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
@@ -178,10 +221,10 @@ describe("оболочка страницы", () => {
     expect(t.$('.sb-navcol .sb-nv[aria-current="page"]')!.dataset.screen).toBe(list);
   });
 
-  it("не список («Машины»): второй экран рядом с домашним, а не с ним", async () => {
+  it("не список («Машины»): второй экран рядом с «Работой», а не с ним", async () => {
     const t = await pult({ url: "/#machines" });
     await t.go("#card?callsign=site%40laptop");
-    expect(t.$(".sb-master")!.getAttribute("data-screen")).not.toBe("machines");
+    expect(t.$(".sb-master")!.getAttribute("data-screen")).toBe("board");
     expect(t.$(".sb-screen")!.getAttribute("data-screen")).toBe("card");
   });
 
@@ -276,25 +319,47 @@ describe("обработчик пушей", () => {
     expect(relay.got.find((f) => f.type === "answer")).toMatchObject({ callsign: "profiles@laptop", question: "toolu_01Hx" });
   });
 
-  it("список сборки молчит 30 с: кнопка отказывает, сокета нет, уведомление показано", async () => {
+  it("список сборки молчит 30 с: кнопка не молчит, «Ответ не отправлен: …» с тем же текстом и tag, сокета нет", async () => {
+    // опыт в настоящем Chromium: без адреса нажатие закрывало уведомление, причины человек не видел
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const { scope, urls } = await clicked(() => new Promise(() => {}));
     expect(scope.shown).toHaveLength(1);
-    const click = scope.fire("notificationclick", { action: "0", notification: { data: scope.shown[0].o.data, close: () => {} } }).then(
-      () => "ok",
-      (e: Error) => e.message,
-    );
+    const click = scope.fire("notificationclick", { action: "0", notification: { data: scope.shown[0].o.data, close: () => {} } });
     // ключ из хранилища прочитан, обработчик ждёт адрес
     for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r));
     await vi.advanceTimersByTimeAsync(30_000);
-    expect(await click).toBe("build.json не ответил");
+    await click;
+    expect(scope.shown[1]).toMatchObject({ title: "Ответ не отправлен: нет ответа за 30 с", o: { body: "b", tag: "toolu_01Hx" } });
     expect(urls).toEqual([]);
   });
 });
 
+describe("кнопки уведомления", () => {
+  // чьё: код; сколько кнопок вмещает уведомление, говорит браузер
+  it.each([
+    [2, 2],
+    [1, 0],
+    [undefined, 0],
+  ])("браузер вмещает %s: две кнопки показаны числом %i", async (maxActions, shown) => {
+    vi.stubGlobal("Notification", { maxActions });
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    const scope = fakeScope();
+    vi.stubGlobal("self", scope);
+    vi.stubGlobal("fetch", async () => ({ json: async () => ({ workers: FakeRelay.WORKERS }) }));
+    await import("../../sw.ts");
+    const frame = { type: "answer", callsign: "profiles@laptop" };
+    const actions = [{ title: "да", frame }, { title: "нет", frame }];
+    await scope.fire("push", { data: { json: () => ({ type: "question", from: "profiles@laptop", notify: { title: "t", actions } }) } });
+    expect(scope.shown[0].o.actions).toHaveLength(shown);
+  });
+});
+
 describe("статика и архив", () => {
-  it("4187 · dist: app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же", () => {
+  it("4187 · dist: app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же; обработчик пушей работает из своего файла", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
+    // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой
+    mkdirSync(dist, { recursive: true });
+    writeFileSync(join(dist, "stale.js"), "");
     const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
@@ -309,9 +374,17 @@ describe("статика и архив", () => {
     expect(readFileSync(join(dist, "sw.js"), "utf8")).not.toMatch(/createRoot|^import /m);
     expect(readFileSync(join(dist, "app.js"), "utf8")).not.toMatch(/^import /m);
     expect(readFileSync(join(dist, "index.html"), "utf8")).toContain('<script src="app.js" defer></script>');
+    for (const f of ["index.html", "manifest.webmanifest"]) expect(readFileSync(join(dist, f), "utf8")).toBe(readFileSync(join(app, "public", f), "utf8"));
     const png = (f: string) => createHash("sha256").update(readFileSync(join(dist, f))).digest("hex").slice(0, 16);
     expect(["icon-192.png", "icon-512.png", "apple-touch-icon.png"].map(png)).toEqual(ICONS);
     expect(r.stdout).toContain("pult: dist/ собран — оболочка без модулей и адресов");
+    // опыт в настоящем Chromium: зелёные леса, а с внешним импортом регистрация падает; у обработчика нет загрузчика и карты импорта
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    vi.stubGlobal("fetch", async () => ({ json: async () => ({ workers: FakeRelay.WORKERS }) }));
+    const scope = fakeScope();
+    new Function("self", readFileSync(join(dist, "sw.js"), "utf8"))(scope);
+    await scope.fire("push", { data: { json: () => ({ type: "message", notify: { title: "t" } }) } });
+    expect(scope.shown[0].title).toBe("t");
   }, 60_000);
 
   it("5137 · оболочка и модули из архивов, раскладка сборки, старт по build.json: модули загружены, разделы оболочки, адрес relay — из списка", async () => {

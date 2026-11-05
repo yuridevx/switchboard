@@ -1,25 +1,16 @@
-// Оболочка страницы: прочитать список сборки и отдать его ядру страницы со своими опциями.
-// Классический скрипт: карта импорта уже стоит в index.html сборки, адресов и списка модулей у оболочки нет.
-import { withLimit } from "@switchboard/protocol";
-import type { BuildList, BuildOptions } from "@switchboard/web-core";
-import { LIST_MS, readList } from "./list.ts";
+// Оболочка страницы: список сборки и ядро; модули и адреса приносит список, ядро находит карта импорта страницы.
+import type { BuildOptions } from "@switchboard/web-core";
+import { inTime, readList } from "./list.ts";
 
-export type ShellOptions = Omit<BuildOptions, "root" | "build" | "load">;
-
-const late = (): never => {
-  throw new Error(`нет ответа за ${LIST_MS / 1000} с`);
-};
+export type ShellOptions = Omit<BuildOptions, "root" | "build">;
 
 export async function boot(options: ShellOptions): Promise<void> {
   const root = document.getElementById("app")!;
   try {
-    const build = await readList<BuildList>(late);
-    // имя строкой: сборщик оболочки ядро не вкладывает, браузер берёт его по карте импорта
-    const core = "@switchboard/web-core";
-    const { startBuild } = await withLimit(import(/* @vite-ignore */ core) as Promise<typeof import("@switchboard/web-core")>, LIST_MS, late);
-    await startBuild({ root, build, ...options });
+    const [build, core] = await Promise.all([readList(), inTime(import("@switchboard/web-core"))]);
+    await core.startBuild({ ...options, root, build });
   } catch (e) {
-    root.textContent = `Сборка не загрузилась: ${e instanceof Error ? e.message : String(e)}`;
+    root.textContent = `Сборка не загрузилась: ${(e as Error).message}`;
     throw e;
   }
 }

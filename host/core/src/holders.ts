@@ -1,255 +1,228 @@
-// Держатели процессов claude: Host сам запускает держатель на каждый процесс сессии (файлом keeper из окружения
-// SWITCHBOARD_HOLDER) и говорит с ним сам. keeper сессий не знает. Держатель переживает Host: новый Host подключается
-// к своим держателям по файлам ~/.switchboard/procs/<callsign>.json, ничьи на старте убивает.
-//
-// Протокол держателя — заморожен; кадры [тип 1 байт][длина 4 байта, big-endian][данные]:
-//   Host → держатель: 'a' ключ (первым), 'i' ввод, 'c' закрыть ввод, 'k' убить дерево процесса
-//   держатель → Host: 'h' {pid, buffered}, 'o' вывод, 'x' {code, signal, stderr, os_stop?}, 'e' слово отказа
+// Держатели процессов claude: файл keeper в режиме hold держит процесс и переживает Host.
+// Протокол заморожен: TCP на 127.0.0.1, кадры [тип 1 байт][длина 4 байта, big-endian][данные].
+//   хозяин → держатель: a ключ (первым), i ввод, c закрыть ввод, k убить дерево процесса
+//   держатель → хозяин: h {pid, buffered}, o вывод, x {code, signal, stderr, os_stop?}, e слово отказа
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import net from "node:net";
 import { join } from "node:path";
-import { PassThrough, Writable } from "node:stream";
+import { PassThrough, Readable } from "node:stream";
 import type { SpawnedProcess, SpawnOptions } from "@anthropic-ai/claude-agent-sdk";
 
-/** Файл держателя. */
 export type HoldFile = { id: string; owner: string; pid: number; port: number; key: string; tag?: string };
 
-export type Exited = { op: "exited"; id: string; pid?: number; code: number | null; signal?: string | null; stderr?: string; os_stop?: boolean };
-
-/** Что ядру нужно от ОС: запустить держатель и прочитать файлы держателей. На стенде — подделка. */
-export type HolderApi = {
+/** То, что ядро берёт от ОС: запустить держатель и список живых. */
+export interface HolderApi {
   spawn(s: { id: string; cwd?: string; env?: Record<string, string | undefined>; command: string; args: string[] }): Promise<HoldFile>;
-  /** файлы держателей Host */
   files(): HoldFile[];
-};
-
-/** Настоящие держатели: файл keeper в режиме hold. */
-export function realHolders(home: string, bin: string | undefined): HolderApi {
-  return {
-    spawn: (s) =>
-      new Promise((resolve, reject) => {
-        if (!bin) return reject(new Error("нет SWITCHBOARD_HOLDER — файла держателя"));
-        const args = ["hold", "--id", s.id, "--owner", "host", ...(s.cwd ? ["--cwd", s.cwd] : []), "--", s.command, ...s.args];
-        const p = spawn(bin, args, { env: { ...(s.env ?? process.env), SWITCHBOARD_HOME: home } as NodeJS.ProcessEnv, detached: true, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
-        let out = "";
-        let err = "";
-        let answered = false;
-        p.stdout.setEncoding("utf8");
-        p.stderr.setEncoding("utf8");
-        p.stderr.on("data", (d: string) => (err += d));
-        p.stdout.on("data", (d: string) => {
-          out += d;
-          const end = out.indexOf("\n");
-          if (end < 0 || answered) return;
-          answered = true;
-          try {
-            const x = JSON.parse(out.slice(0, end)) as { port: number; key: string; pid: number };
-            // держатель живёт сам: Host его не ждёт
-            p.stdout.destroy();
-            p.stderr.destroy();
-            p.unref();
-            resolve({ id: s.id, owner: "host", pid: x.pid, port: x.port, key: x.key });
-          } catch (e) {
-            reject(new Error(`строка держателя: ${(e as Error).message}`));
-          }
-        });
-        p.on("error", (e) => !answered && ((answered = true), reject(e)));
-        p.on("exit", (code) => !answered && ((answered = true), reject(new Error(`держатель вышел с кодом ${code}: ${err.trim()}`))));
-      }),
-    files: () => {
-      const dir = join(home, "procs");
-      if (!existsSync(dir)) return [];
-      return readdirSync(dir).flatMap((f) => {
-        if (!f.endsWith(".json")) return [];
-        try {
-          const x = JSON.parse(readFileSync(join(dir, f), "utf8")) as HoldFile;
-          return x.owner === "host" && typeof x.id === "string" ? [x] : [];
-        } catch {
-          // файл держателя пишется через rename — битый бывает только на миг записи
-          return [];
-        }
-      });
-    },
-  };
 }
 
-/* ===== кадры ===== */
+/** Выход процесса, как его отдаёт держатель. */
+export type Exit = { code: number | null; signal: string | null; stderr: string; os_stop?: boolean };
 
-export function frame(type: string, data?: Buffer | string): Buffer {
-  const body = typeof data === "string" ? Buffer.from(data) : (data ?? Buffer.alloc(0));
+/** Кусок ввода в одном кадре: держатель не примет кадр больше 4 МиБ. */
+const CHUNK = 1 << 20;
+const HOLDER_WAIT_MS = 30_000;
+
+export function frame(type: string, data: string | Buffer = ""): Buffer {
+  const body = typeof data === "string" ? Buffer.from(data) : data;
   const head = Buffer.alloc(5);
-  head[0] = type.charCodeAt(0);
+  head.write(type, 0, "latin1");
   head.writeUInt32BE(body.length, 1);
   return Buffer.concat([head, body]);
 }
 
-/** Разбор потока на кадры. */
-export function frames(on: (type: string, data: Buffer) => void): (b: Buffer) => void {
-  let buf: Buffer = Buffer.alloc(0);
-  return (b) => {
-    buf = buf.length ? Buffer.concat([buf, b]) : b;
-    while (buf.length >= 5) {
-      const size = buf.readUInt32BE(1);
-      if (buf.length < 5 + size) break;
-      const type = String.fromCharCode(buf[0]);
-      const data = buf.subarray(5, 5 + size);
-      buf = buf.subarray(5 + size);
+/** Разбор потока на кадры: кадр может прийти кусками. */
+export function frames(on: (type: string, data: Buffer) => void): (chunk: Buffer) => void {
+  let rest: Buffer = Buffer.alloc(0);
+  return (chunk) => {
+    rest = rest.length ? Buffer.concat([rest, chunk]) : chunk;
+    while (rest.length >= 5) {
+      const end = 5 + rest.readUInt32BE(1);
+      if (rest.length < end) return;
+      const type = String.fromCharCode(rest[0]);
+      const data = rest.subarray(5, end);
+      rest = rest.subarray(end);
       on(type, data);
     }
   };
 }
 
-/* ===== клиент держателей ===== */
+const lost = (stderr: string): Exit => ({ code: null, signal: null, stderr });
 
-export class HolderClient {
-  private readonly api: HolderApi;
-  private readonly procs = new Map<string, HeldProcess>();
-  private readonly onExited: (e: Exited) => void;
-
-  constructor(api: HolderApi, on: { exited: (e: Exited) => void }) {
-    this.api = api;
-    this.onExited = on.exited;
-  }
-
-  /** Процессы сессий, оставшиеся от прежнего Host. */
-  list(): Array<{ id: string; pid: number }> {
-    return this.api.files().map((f) => ({ id: f.id, pid: f.pid }));
-  }
-
-  /** Ничей держатель: подключиться и убить. */
-  async kill(id: string): Promise<void> {
-    const f = this.api.files().find((x) => x.id === id);
-    if (!f) return;
-    await new Promise<void>((resolve) => {
-      const p = this.hold(Promise.resolve(f), id);
-      p.once("exit", () => resolve());
-      p.kill("SIGKILL");
-    });
-  }
-
-  /** Канал процесса для spawnClaudeCodeProcess: новый держатель или подключение к живому. */
-  channel(op: "spawn" | "attach", id: string, o: SpawnOptions): HeldProcess {
-    const file =
-      op === "spawn"
-        ? this.api.spawn({ id, cwd: o.cwd, env: o.env, command: o.command, args: o.args })
-        : (async () => {
-            const f = this.api.files().find((x) => x.id === id);
-            if (!f) throw new Error("unknown_id");
-            return f;
-          })();
-    return this.hold(file, id);
-  }
-
-  private hold(file: Promise<HoldFile>, id: string): HeldProcess {
-    const p: HeldProcess = new HeldProcess(file, id, (e) => {
-      if (this.procs.get(id) === p) this.procs.delete(id);
-      this.onExited(e);
-    });
-    this.procs.set(id, p);
-    return p;
-  }
-
-  /** Выход Host: соединения закрыты без «закрой ввод» и «убей» — держатели держат процессы и копят вывод. */
-  close(): void {
-    for (const p of this.procs.values()) p.detach();
-    this.procs.clear();
-  }
-}
-
-/** Процесс claude у держателя глазами SDK. stdin.end() → «закрой ввод»; kill(signal) → «убей». */
-export class HeldProcess extends EventEmitter implements SpawnedProcess {
-  stdin: Writable;
-  stdout = new PassThrough();
-  killed = false;
+/** Процесс у держателя глазами SDK. Убивает его только ядро (terminate) по своему пределу: kill от SDK ничего не делает. */
+export class Held extends EventEmitter implements SpawnedProcess {
+  readonly id: string;
+  readonly stdin = new PassThrough();
+  readonly stdout = new Readable({ read() {} });
+  readonly exit: Promise<Exit>;
   exitCode: number | null = null;
   signalCode: NodeJS.Signals | null = null;
-  pid: number | null = null;
-  readonly id: string;
+  /** true после выхода и после drop: SDK на выходе из Host не трогает такой процесс */
+  killed = false;
   private sock: net.Socket | null = null;
-  private pending: Buffer[] = [];
-  private detached = false;
-  private finished = false;
-  private readonly exited: (e: Exited) => void;
+  private done = false;
+  private exited!: (e: Exit) => void;
 
-  constructor(file: Promise<HoldFile>, id: string, exited: (e: Exited) => void) {
+  constructor(id: string, file: HoldFile | Promise<HoldFile>) {
     super();
     this.id = id;
-    this.exited = exited;
-    this.stdin = new Writable({
-      write: (chunk: Buffer, _enc, cb) => {
-        this.out(frame("i", chunk));
-        cb();
-      },
-      final: (cb) => {
-        // SDK закрывает ввод в close(): держатель закрывает ввод claude, процесс выходит сам
-        this.out(frame("c"));
-        cb();
-      },
-    });
-    this.stdin.on("error", () => {});
-    file.then(
-      (f) => this.connect(f),
-      (e: Error) => this.finish({ op: "exited", id, code: null, signal: null, stderr: `держатель: ${e.message}` }),
-    );
+    this.exit = new Promise((resolve) => (this.exited = resolve));
+    if (file instanceof Promise) file.then((f) => this.connect(f), (e: Error) => this.finish(lost(`держатель: ${e.message}`)));
+    else this.connect(file);
   }
 
-  private connect(f: HoldFile): void {
-    if (this.detached) return;
-    const sock = net.connect(f.port, "127.0.0.1");
-    this.sock = sock;
+  private connect(file: HoldFile): void {
+    if (this.done) return;
+    const sock = (this.sock = net.connect(file.port, "127.0.0.1"));
+    sock.write(frame("a", file.key));
     sock.on("error", () => {});
-    sock.on("connect", () => {
-      sock.write(frame("a", f.key));
-      for (const b of this.pending.splice(0)) sock.write(b);
-    });
+    sock.on("close", () => this.finish(lost("держатель пропал")));
     sock.on(
       "data",
       frames((type, data) => {
-        if (type === "h") this.pid = (JSON.parse(data.toString("utf8")) as { pid: number }).pid;
-        else if (type === "o") {
-          if (!this.stdout.writableEnded) this.stdout.write(data);
-        } else if (type === "x") {
-          const x = JSON.parse(data.toString("utf8")) as { code: number | null; signal: string | null; stderr: string; os_stop?: boolean };
-          this.finish({ op: "exited", id: this.id, pid: this.pid ?? undefined, code: x.code, signal: x.signal, stderr: x.stderr, os_stop: x.os_stop });
-          sock.end();
-        } else if (type === "e") {
-          this.finish({ op: "exited", id: this.id, code: null, signal: null, stderr: `держатель: ${data.toString("utf8")}` });
-          sock.destroy();
-        }
+        if (type === "o") this.stdout.push(data);
+        else if (type === "x") this.finish(JSON.parse(data.toString("utf8")) as Exit);
+        else if (type === "e") this.finish(lost(`держатель: ${data.toString("utf8")}`));
       }),
     );
-    // держатель пропал, не отдав выход: его процесс умер вместе с ним
-    sock.on("close", () => this.finish({ op: "exited", id: this.id, pid: this.pid ?? undefined, code: null, signal: null, stderr: "держатель пропал" }));
+    this.stdin.on("data", (d: Buffer) => {
+      for (let at = 0; at < d.length; at += CHUNK) this.send("i", d.subarray(at, at + CHUNK));
+    });
+    this.stdin.on("end", () => this.send("c"));
   }
 
-  private out(b: Buffer): void {
-    if (this.finished || this.detached) return;
-    if (this.sock && !this.sock.connecting && !this.sock.destroyed) this.sock.write(b);
-    else this.pending.push(b);
+  private send(type: string, data?: Buffer): void {
+    if (!this.done) this.sock?.write(frame(type, data));
   }
 
-  /** SDK зовёт kill после ожидания конца ввода: процесс и потомки — сразу. */
-  kill(_signal: NodeJS.Signals): boolean {
+  /** Выход идёт после вывода: следующий тик отдаёт читателю всё, что он ещё не забрал. */
+  private finish(e: Exit): void {
+    if (this.done) return;
+    this.done = true;
     this.killed = true;
-    this.out(frame("k"));
-    return true;
-  }
-
-  private finish(e: Exited): void {
-    if (this.finished || this.detached) return;
-    this.finished = true;
     this.exitCode = e.code;
-    this.signalCode = (e.signal ?? null) as NodeJS.Signals | null;
-    if (!this.stdout.writableEnded) this.stdout.end();
-    this.exited(e);
-    this.emit("exit", e.code, this.signalCode);
+    this.signalCode = e.signal as NodeJS.Signals | null;
+    this.sock?.destroy();
+    this.stdout.push(null);
+    setImmediate(() => {
+      this.emit("exit", e.code, e.signal);
+      this.exited(e);
+    });
   }
 
-  /** Выход Host: соединение закрыто без «закрой ввод» и «убей». */
-  detach(): void {
-    this.detached = true;
+  kill(): boolean {
+    return false;
+  }
+
+  /** Убить дерево процесса: кадр k. */
+  terminate(): void {
+    this.send("k");
+  }
+
+  /** Отпустить соединение: процесс живёт у держателя, Host уходит. */
+  drop(): void {
+    this.done = true;
+    this.killed = true;
     this.sock?.destroy();
   }
+}
+
+/** Соединения этого Host с держателями: штатный выход отпускает их все разом. */
+export class Holders {
+  private readonly api: HolderApi;
+  private readonly live = new Set<Held>();
+
+  constructor(api: HolderApi) {
+    this.api = api;
+  }
+
+  files(): HoldFile[] {
+    return this.api.files();
+  }
+
+  private track(held: Held): Held {
+    this.live.add(held);
+    void held.exit.then(() => this.live.delete(held));
+    return held;
+  }
+
+  /** Новый держатель с процессом, как его собрал SDK. */
+  spawn(id: string, o: SpawnOptions): Held {
+    return this.track(new Held(id, this.api.spawn({ id, cwd: o.cwd, env: o.env, command: o.command, args: o.args })));
+  }
+
+  /** Подключиться к живому: новый хозяин вытесняет прежнего. */
+  attach(id: string): Held {
+    const file = this.files().find((f) => f.id === id);
+    return this.track(new Held(id, file ?? Promise.reject(new Error("unknown_id"))));
+  }
+
+  open(file: HoldFile): Held {
+    return this.track(new Held(file.id, file));
+  }
+
+  close(): void {
+    for (const held of this.live) held.drop();
+    this.live.clear();
+  }
+}
+
+/** Настоящие держатели: file — файл keeper, procs/ — их файлы о себе. */
+export function realHolders(home: string, file?: string): HolderApi {
+  const procs = join(home, "procs");
+  return {
+    files() {
+      if (!existsSync(procs)) return [];
+      return readdirSync(procs)
+        .filter((name) => name.endsWith(".json"))
+        .flatMap((name) => {
+          try {
+            const f = JSON.parse(readFileSync(join(procs, name), "utf8")) as HoldFile;
+            return f.owner === "host" && typeof f.id === "string" ? [f] : [];
+          } catch {
+            return []; // держатель дописывает свой файл или файл битый: процесса для Host нет
+          }
+        });
+    },
+    spawn(s) {
+      if (!file) return Promise.reject(new Error("нет SWITCHBOARD_HOLDER — файла держателя"));
+      const args = ["hold", "--id", s.id, "--owner", "host", ...(s.cwd ? ["--cwd", s.cwd] : []), "--", s.command, ...s.args];
+      return new Promise((resolve, reject) => {
+        const child = spawn(file, args, { env: { ...s.env, SWITCHBOARD_HOME: home }, detached: true, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+        const limit = setTimeout(() => {
+          child.kill();
+          reject(new Error(`держатель не ответил за ${HOLDER_WAIT_MS / 1000} с`));
+        }, HOLDER_WAIT_MS);
+        let line = "";
+        let err = "";
+        child.stderr.on("data", (d: Buffer) => (err += d.toString("utf8")));
+        child.on("error", (e) => {
+          clearTimeout(limit);
+          reject(e);
+        });
+        child.on("exit", (code) => {
+          clearTimeout(limit);
+          reject(new Error(`держатель вышел с кодом ${code}: ${err.trim()}`));
+        });
+        child.stdout.on("data", (d: Buffer) => {
+          line += d.toString("utf8");
+          if (!line.includes("\n")) return;
+          clearTimeout(limit);
+          // держатель живёт сам: строка о себе — последнее, что Host от него читает
+          child.stdout.destroy();
+          child.stderr.destroy();
+          child.removeAllListeners("exit");
+          child.unref();
+          try {
+            const about = JSON.parse(line) as { port: number; key: string; pid: number };
+            resolve({ id: s.id, owner: "host", pid: about.pid, port: about.port, key: about.key });
+          } catch (e) {
+            reject(new Error(`строка держателя: ${(e as Error).message}`));
+          }
+        });
+      });
+    },
+  };
 }

@@ -1,16 +1,20 @@
-// Package machine — папка машины на диске: раскладка, keeper.json, пропуск. Формат этих файлов — контракт с Host и установленными keeper.
+// Папка машины: где она, что в keeper.json и machine.key, запись и подмена файла, POST к Worker'у флота. Формат этих файлов — контракт с Host и установленными keeper.
 package machine
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-// Home — папка машины: SWITCHBOARD_HOME или ~/.switchboard. Держатели и части наследуют её в окружении.
+// Home — папка машины: SWITCHBOARD_HOME или ~/.switchboard. Флот с именем пишет свою папку в это же окружение; держатели и части её наследуют.
 func Home() (string, error) {
 	if h := os.Getenv("SWITCHBOARD_HOME"); h != "" {
 		return h, nil
@@ -22,73 +26,33 @@ func Home() (string, error) {
 	return filepath.Join(u, ".switchboard"), nil
 }
 
-func ConfPath(home string) string            { return filepath.Join(home, "keeper.json") }
-func PlanPath(home string) string            { return filepath.Join(home, "plan.json") }
-func KeyPath(home string) string             { return filepath.Join(home, "machine.key") }
-func JournalDir(home string) string          { return filepath.Join(home, "journal") }
-func ProcsDir(home string) string            { return filepath.Join(home, "procs") }
-func PartDir(home, part string) string       { return filepath.Join(home, "parts", part) }
-func DataDir(home, part string) string       { return filepath.Join(PartDir(home, part), "data") }
-func VersionDir(home, part, v string) string { return filepath.Join(PartDir(home, part), v) }
-
 // ValidName — имя части, версии, флота или держателя становится именем файла: без путей.
 func ValidName(s string) bool {
 	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, `/\:*?"<>|`)
 }
 
-// Conf — keeper.json: { "node": "…", "workers": { "relay": "https://…", "releases": "https://…", "ledger": "https://…", … } } — одна карта адресов;
-// relay — объект своей машины, wss того же адреса. Незнакомые поля сохраняются как есть.
-type Conf map[string]any
+// Conf — что keeper читает из keeper.json. Одна карта адресов; relay — объект своей машины, wss того же адреса.
+type Conf struct {
+	Node    string            `json:"node"`
+	Workers map[string]string `json:"workers"`
+}
 
-// ReadConf — файла нет — пустая настройка.
+// ReadConf — файла нет — пусто.
 func ReadConf(home string) (Conf, error) {
-	b, err := os.ReadFile(ConfPath(home))
+	var c Conf
+	b, err := os.ReadFile(filepath.Join(home, "keeper.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return Conf{}, nil
+		return c, nil
 	}
 	if err != nil {
-		return nil, err
+		return c, err
 	}
-	c := Conf{}
-	if err := json.Unmarshal(b, &c); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return c, json.Unmarshal(b, &c)
 }
 
-// WriteConf — keeper.json всегда целый.
-func WriteConf(home string, c Conf) error {
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return err
-	}
-	b, err := json.MarshalIndent(c, "", "  ")
-	if err != nil {
-		return err
-	}
-	return WriteAtomic(ConfPath(home), append(b, '\n'))
-}
-
-// Node — Node из настройки: у службы может не быть PATH.
-func (c Conf) Node() string { s, _ := c["node"].(string); return s }
-
-// Workers — адреса Worker'ов флота: имя → адрес.
-func (c Conf) Workers() map[string]string {
-	out := map[string]string{}
-	m, _ := c["workers"].(map[string]any)
-	for k, v := range m {
-		if s, ok := v.(string); ok {
-			out[k] = s
-		}
-	}
-	return out
-}
-
-// Key — пропуск машины: им входят и Host, и keeper. Нет файла — пусто.
+// Key — пропуск машины; нет файла — пусто.
 func Key(home string) string {
-	b, err := os.ReadFile(KeyPath(home))
-	if err != nil {
-		return ""
-	}
+	b, _ := os.ReadFile(filepath.Join(home, "machine.key"))
 	return strings.TrimSpace(string(b))
 }
 
@@ -100,11 +64,56 @@ func NameOf(key string) string {
 	return ""
 }
 
-// WriteAtomic — временный файл и rename: файл на диске всегда целый, прежний или новый.
+// WriteAtomic — временный файл и rename: файл на диске всегда целый.
 func WriteAtomic(path string, b []byte) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, b, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// Swap — src на место dst: запущенный файл можно переименовать, но не удалить, поэтому прежний dst уходит в old. Не вышло — dst прежний.
+func Swap(src, dst, old string) error {
+	b, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	tmp := dst + ".new"
+	if err := os.WriteFile(tmp, b, 0o755); err != nil {
+		return err
+	}
+	if err := os.Rename(dst, old); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		os.Rename(old, dst)
+		return err
+	}
+	return nil
+}
+
+// Post — кадр Worker'у флота; out — куда разобрать ответ, nil — ответа не ждём.
+func Post(ctx context.Context, url string, frame, out any) error {
+	body, err := json.Marshal(frame)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	if out != nil {
+		return json.NewDecoder(res.Body).Decode(out)
+	}
+	if res.StatusCode >= 300 {
+		return fmt.Errorf("код %d", res.StatusCode)
+	}
+	return nil
 }

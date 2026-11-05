@@ -2539,3 +2539,128 @@ func TestEtOutputTailOnExit(t *testing.T) {
 		t.Fatal("хвост вывода пропал")
 	}
 }
+
+// Host запускает держатель с --cwd папкой сессии (host/core holders.ts): рабочая папка процесса — она (чьё: код; контракт команды hold снаружи).
+func TestEtHoldCwd(t *testing.T) {
+	home, dir := t.TempDir(), t.TempDir()
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	cmd := exec.Command(self, "hold", "--id", "s", "--owner", "host", "--cwd", dir, "--", self, "app", "env")
+	cmd.Env = append(os.Environ(), "SWITCHBOARD_HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	waitFor(t, "файл держателя", func() bool { return len(heldFiles(home)) == 1 })
+	c, _, err := attachHeld(heldFiles(home)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.closeInput()
+	var out strings.Builder
+	c.read(func(b []byte) { out.Write(b) })
+	want, _ := os.Stat(dir)
+	i := strings.Index(out.String(), "CWD=")
+	if i < 0 {
+		t.Fatalf("вывод %q", out.String())
+	}
+	got, _ := os.Stat(strings.TrimSpace(strings.SplitN(out.String()[i+4:], "\n", 2)[0]))
+	if got == nil || !os.SameFile(got, want) {
+		t.Fatalf("рабочая папка: вывод %q, а надо %s", out.String(), dir)
+	}
+}
+
+// Спорное место: держатель стартует дольше 5 с — часть всё равно запущена: failed без перезапуска слишком дорог за занятую машину (опыт 5 нояб.: под нагрузкой
+// «запуск: держатель не ответил за 5s», часть failed, старт настоящего файла занял больше 5 с).
+func TestEtHolderSlowStart(t *testing.T) {
+	s := newStand(t)
+	t.Setenv("KEEPER_TEST_HOLD_SLOW", "6s")
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+}
+
+// Спорное место: подпись ссылки на архив не попадает в keeper.state и журналы: ошибка клиента HTTP несёт адрес целиком (опыт 5 нояб.).
+func TestEtDownloadErrorHidesLink(t *testing.T) {
+	s := newStand(t)
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	dead := ln.Addr().String()
+	ln.Close()
+	p := s.links.part("capture", "1.3.2", appFiles(""), on)
+	p["url"] = "http://" + dead + "/capture.tgz?sig=SECRET"
+	s.relay.setPlan(plan1(1, p))
+	k := s.start()
+	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
+	waitFor(t, "part.failed", func() bool { return s.relay.ledgerHas("part.failed capture 1.3.2 — download_failed") })
+	if strings.Contains(partOf(k, "capture").Error, "SECRET") || strings.Contains(strings.Join(s.relay.ledgerEvs(), " "), "SECRET") || journalHas(s.home, "SECRET") {
+		t.Fatalf("подпись ссылки наружу: %q", partOf(k, "capture").Error)
+	}
+}
+
+// Спорное место: потомок вне задания держит трубу вывода после выхода процесса — кадр выхода не ждёт его жизни (устав: «у всех операций лимит»; на Linux потомок
+// снят с группой, предел не нужен; опыт 5 нояб. на Windows).
+func TestEtExitNotHeldByDetachedChild(t *testing.T) {
+	home := t.TempDir()
+	t.Cleanup(func() { killHolders(home) })
+	self, _ := os.Executable()
+	cmd := exec.Command(self, "hold", "--id", "p", "--owner", "host", "--detach-children", "--", self, "app", "parent")
+	cmd.Env = append(os.Environ(), "SWITCHBOARD_HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	waitFor(t, "файл держателя", func() bool { return len(heldFiles(home)) == 1 })
+	c, _, err := attachHeld(heldFiles(home)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	var mu sync.Mutex
+	var out strings.Builder
+	done := make(chan *heldExit, 1)
+	go func() {
+		x, _ := c.read(func(b []byte) { mu.Lock(); out.Write(b); mu.Unlock() })
+		done <- x
+	}()
+	child := 0
+	waitFor(t, "потомок запущен", func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		i := strings.Index(out.String(), "child ")
+		if i < 0 || !strings.Contains(out.String()[i:], "\n") {
+			return false
+		}
+		fmt.Sscanf(out.String()[i:], "child %d", &child)
+		return child != 0
+	})
+	t.Cleanup(func() {
+		if alive(child) {
+			if pr, err := os.FindProcess(child); err == nil {
+				pr.Kill()
+			}
+		}
+	})
+	c.closeInput()
+	select {
+	case x := <-done:
+		if x == nil || x.Code == nil || *x.Code != 0 {
+			t.Fatalf("выход %+v", x)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("кадр выхода ждёт жизнь потомка")
+	}
+}
+
+// Часть с первого плана выключена: stopped, процесса нет; включение запускает её (чьё: код; «выпуски» шлют on:false из плана машины).
+func TestEtOffFromStart(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), map[string]any{"on": false})))
+	k := s.start()
+	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+	if journalHas(s.home, `"ev":"part_start"`) {
+		t.Fatal("выключенная часть запущена")
+	}
+	s.relay.push(planMsg(2, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	waitFor(t, "running", func() bool { return partOf(k, "capture").State == "running" })
+}
