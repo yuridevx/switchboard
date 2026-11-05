@@ -54,10 +54,10 @@ const file = (b: string[], size = 100, p = "s.jsonl") => [{ p, size, b }];
 const linkOf = (method: "GET" | "PUT", h: string) =>
   presign({ accessKeyId: "kid0", secretAccessKey: "ksec0" }, { method, host: "acc0.r2.cloudflarestorage.com", path: `/switchboard-points/f/${h}`, now: new Date() });
 
-async function inR2(...hashes: string[]) {
-  for (const h of hashes) await (env as unknown as { BUCKET: R2Bucket }).BUCKET.put(`f/${h}`, "x".repeat(10));
-}
 const bucket = () => (env as unknown as { BUCKET: R2Bucket }).BUCKET;
+async function inR2(...hashes: string[]) {
+  for (const h of hashes) await bucket().put(`f/${h}`, "x".repeat(10));
+}
 
 const sessionRow = async (sid: string) => (await E.DB.prepare("SELECT owner, head FROM sessions WHERE sid = ?").bind(sid).first()) ?? undefined;
 const count = async (q: string, ...args: Array<string | number>) => (await E.DB.prepare(q).bind(...args).first<{ n: number }>())!.n;
@@ -86,8 +86,9 @@ async function line(from: string, sid: string, k: number, b: string[]) {
   return ids;
 }
 
+type Row = { id: number; at: number; base: number | null };
 /** Точки в базе напрямую: форма строк — контракт хранилища. */
-async function seed(sid: string, head: number, rows: Array<{ id: number; at: number; base: number | null }>) {
+async function seed(sid: string, head: number, rows: Row[]) {
   await E.DB.batch([
     ...rows.map((r) => E.DB.prepare("INSERT INTO points (id, sid, machine, at, why, base, files) VALUES (?, ?, 'laptop', ?, 'rule', ?, '[]')").bind(r.id, sid, r.at, r.base)),
     E.DB.prepare("INSERT INTO sessions (sid, owner, head) VALUES (?, 'laptop', ?)").bind(sid, head),
@@ -97,12 +98,19 @@ type Listed = { owner: string | null; head: number | null; points: Array<{ id: n
 const lineList = async (sid: string) => (await list(sid))[0].result as Listed;
 const untilOf = async (sid: string) => new Map((await lineList(sid)).points.map((p) => [p.id, p.until]));
 const ids = async () => (await E.DB.prepare("SELECT id FROM points ORDER BY id").all<{ id: number }>()).results.map((r) => r.id);
+const sids = async () => ((await list())[0].result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid).sort();
 
 describe("снять точку", () => {
-  it("200 · первая точка неизвестной сессии от @laptop: ok { id: 1 }, хозяин laptop, голова 1", async () => {
+  it("200 · первая точка неизвестной сессии от @laptop: ok { id: 1 }, хозяин laptop, голова 1; строка точки — формат хранилища", async () => {
     await inR2("200a1", "200b7");
-    expect(await put("@laptop", "42bc", file(["200a1", "200b7"]))).toEqual([{ type: "reply", id: "p", ok: true, result: { id: 1 }, to: "@laptop" }]);
+    expect(await put("@laptop", "42bc", file(["200a1", "200b7"]), { dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3, bytes: 7 })).toEqual([
+      { type: "reply", id: "p", ok: true, result: { id: 1 }, to: "@laptop" },
+    ]);
     expect(await sessionRow("42bc")).toEqual({ owner: "laptop", head: 1 });
+    const row = await E.DB.prepare("SELECT sid, machine, at, why, base, callsign, dir, msgs, bytes, git, files, spec, last FROM points").first();
+    expect(row).toEqual({ sid: "42bc", machine: "laptop", at: T0, why: "rule", base: null, callsign: "site@laptop", dir: "~/Projects/site", msgs: 3, bytes: 7, git: '{"state":"clean"}', files: JSON.stringify(file(["200a1", "200b7"])), spec: '{"model":"opus"}', last: '[["привет","Готово"]]' });
+    expect(await count("SELECT COUNT(*) AS n FROM refs WHERE point = 1")).toBe(2);
+    expect((await E.DB.prepare("SELECT hash, size FROM blocks ORDER BY hash").all()).results).toEqual([{ hash: "200a1", size: 10 }, { hash: "200b7", size: 10 }]);
   });
 
   it("201 · хозяин pc; точка от @laptop с why rule — not_owner { owner: pc }, в R2 не ходили, строк столько же, голова прежняя", async () => {
@@ -134,20 +142,16 @@ describe("снять точку", () => {
     expect(((await list())[0].result as { r2: { blocks: number } }).r2.blocks).toBe(2);
   });
 
-  it("203 · голова 7, точка хозяина с теми же файлами — ok { id: 7, same: true }, новой строки нет", async () => {
+  it("203 2066 · файлы те же, что у головы, — same, новой строки нет: у хозяина и у прежнего хозяина, который вернулся без нового", async () => {
     await inR2("203a1");
     expect((await line("@laptop", "s203", 7, ["203a1"])).at(-1)).toBe(7);
-    expect((await put("@laptop", "s203", file(["203a1"], 7)))[0]).toMatchObject({ ok: true, result: { id: 7, same: true } });
+    expect(await put("@laptop", "s203", file(["203a1"], 7))).toEqual([{ type: "reply", id: "p", ok: true, result: { id: 7, same: true }, to: "@laptop" }]);
     expect(await count("SELECT COUNT(*) AS n FROM points")).toBe(7);
-  });
-
-  it("строка точки хранит поля машины: путь, спецификация, git, первые слова — points.get отдаёт их как есть", async () => {
-    await inR2("301a1", "301b2");
-    await put("@laptop", "s301", file(["301a1", "301b2"]), { dir: "~/Projects/site", spec: { model: "opus" }, last: [["привет", "Готово"]], git: { state: "clean" }, msgs: 3, bytes: 7 });
-    const row = await E.DB.prepare("SELECT sid, machine, at, why, base, callsign, dir, msgs, bytes, git, files, spec, last FROM points").first();
-    expect(row).toEqual({ sid: "s301", machine: "laptop", at: T0, why: "rule", base: null, callsign: "site@laptop", dir: "~/Projects/site", msgs: 3, bytes: 7, git: '{"state":"clean"}', files: JSON.stringify(file(["301a1", "301b2"])), spec: '{"model":"opus"}', last: '[["привет","Готово"]]' });
-    expect(await count("SELECT COUNT(*) AS n FROM refs WHERE point = 1")).toBe(2);
-    expect((await E.DB.prepare("SELECT hash, size FROM blocks ORDER BY hash").all()).results).toEqual([{ hash: "301a1", size: 10 }, { hash: "301b2", size: 10 }]);
+    await put("@pc", "s203", file(["203a1"], 7), { why: "raise", base: 7, expect: "laptop" });
+    const before = await lineList("s203");
+    expect(await put("@laptop", "s203", file(["203a1"], 7), { why: "yield" })).toEqual([{ type: "reply", id: "p", ok: true, result: { id: 7, same: true }, to: "@laptop" }]);
+    const after = await lineList("s203");
+    expect([after.owner, after.head, after.points.length]).toEqual([before.owner, before.head, before.points.length]);
   });
 });
 
@@ -175,17 +179,20 @@ describe("подъём и хозяин", () => {
     expect(pts.find((p) => p.id === 10)).toMatchObject({ line: true });
   });
 
-  it("откат на той же машине — голова от base, ledger.add session.rolled_back; ветка «до отката» в списке, срок год", async () => {
+  it("2065 · откат на той же машине — голова от base, ledger.add session.rolled_back, ветка «до отката» в списке, срок год; подъём от своей головы — без события", async () => {
     await inR2("302a1");
     await line("@pc", "s302", 4, ["302a1"]);
     const out = await put("@pc", "s302", file(["302a1"], 2), { why: "raise", base: 2, expect: "pc" });
     expect(out[0]).toMatchObject({ ok: true, result: { id: 5 } });
-    expect(out[1]).toMatchObject({ type: "ledger.add", ev: "session.rolled_back", machine: "pc", text: "site@pc откатана к точке 2" });
+    expect(out.slice(1)).toEqual([expect.objectContaining({ type: "ledger.add", ev: "session.rolled_back", machine: "pc", text: "site@pc откатана к точке 2" })]);
     const r = await lineList("s302");
     expect([r.owner, r.head]).toEqual(["pc", 5]);
     expect(r.points.map((p) => [p.id, p.line])).toEqual([[5, true], [4, false], [3, false], [2, true], [1, true]]);
     expect(r.points[0].until).toBeNull();
     expect(r.points[1].until).toBe(T0 + YEAR);
+    const own = await put("@pc", "s302", file(["302a1"], 9), { why: "raise", base: 5, expect: "pc" });
+    expect(own).toEqual([expect.objectContaining({ ok: true, result: { id: 6 } })]);
+    expect((await lineList("s302")).points.find((x) => x.id === 6)?.base).toBe(5);
   });
 
   it("2061 · копия — новый sid с base из другой сессии: хозяин — машина копии, исходная цела, session.copied", async () => {
@@ -200,31 +207,10 @@ describe("подъём и хозяин", () => {
     expect(await lineList("s2061")).toMatchObject({ owner: "laptop", head: p1 });
   });
 
-  it("2062 · основы нет — no_point с номером: у копии и у подъёма", async () => {
+  it.each([["у подъёма", "s2062", { why: "raise", expect: "laptop" }]])("2062 · основы нет — no_point с номером %s", async (_n, sid, extra) => {
     await inR2("2062a");
     await line("@laptop", "s2062", 1, ["2062a"]);
-    expect(await put("@pc", "s2062c", file(["2062a"]), { base: 99 })).toEqual([{ type: "reply", id: "p", ok: false, error: "no_point", ids: [99], to: "@pc" }]);
-    expect(await put("@pc", "s2062", file(["2062a"]), { why: "raise", base: 99, expect: "laptop" })).toMatchObject([{ ok: false, error: "no_point", ids: [99] }]);
-  });
-
-  it("2065 · подъём хозяином от своей головы — точка без события", async () => {
-    await inR2("2065a");
-    const pts = await line("@laptop", "s2065", 2, ["2065a"]);
-    const out = await put("@laptop", "s2065", file(["2065a"], 2), { why: "raise", base: pts[1], expect: "laptop" });
-    expect(out).toHaveLength(1);
-    expect(out[0]).toMatchObject({ ok: true });
-    const r = await lineList("s2065");
-    expect([r.owner, r.points.find((x) => x.id === r.head)?.base]).toEqual(["laptop", pts[1]]);
-  });
-
-  it("2066 · прежний хозяин вернулся без нового — same, пустой ветки нет", async () => {
-    await inR2("2066a");
-    const pts = await line("@laptop", "s2066", 2, ["2066a"]);
-    await put("@pc", "s2066", file(["2066a"], 2), { why: "raise", base: pts[1], expect: "laptop" });
-    const before = await lineList("s2066");
-    expect(await put("@laptop", "s2066", file(["2066a"], 2), { why: "yield" })).toEqual([{ type: "reply", id: "p", ok: true, result: { id: pts[1], same: true }, to: "@laptop" }]);
-    const after = await lineList("s2066");
-    expect([after.owner, after.head, after.points.length]).toEqual([before.owner, before.head, before.points.length]);
+    expect(await put("@pc", sid, file(["2062a"]), { base: 99, ...extra })).toEqual([{ type: "reply", id: "p", ok: false, error: "no_point", ids: [99], to: "@pc" }]);
   });
 });
 
@@ -246,7 +232,7 @@ describe("вернуть: points.get и points.list", () => {
     expect(await send({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids: [1, 9] })).toEqual([{ type: "reply", id: "g", ok: false, error: "no_point", ids: [9], to: "panel" }]);
   });
 
-  it("обзор флота: сессии, место в R2, итог уборки; поля без значения не приходят", async () => {
+  it("обзор флота: сессии, место в R2, итог уборки, ветки — концы без детей, кроме головы; поля без значения не приходят", async () => {
     await inR2("303a1", "303b7");
     await put("@laptop", "s303", file(["303a1", "303b7"]), { dir: "~/x" });
     await sweep();
@@ -256,18 +242,12 @@ describe("вернуть: points.get и points.list", () => {
       sweep: { at: T0, blocks: 0, bytes: 0 },
     });
     expect((await list("nope"))[0].result).toEqual({ owner: null, head: null, points: [] }); // 2068
-    await E.DB.prepare("INSERT INTO points (id, sid, machine, at, why, base, files) VALUES (50, 'bare', 'laptop', ?, 'rule', NULL, '[]')").bind(T0 + 1).run();
-    await E.DB.prepare("INSERT INTO sessions (sid, owner, head) VALUES ('bare', 'laptop', 50)").run();
-    expect(((await list())[0].result as { sessions: unknown[] }).sessions[0]).toEqual({ sid: "bare", owner: "laptop", head: { id: 50, at: T0 + 1 }, points: 1, branches: 0 });
-  });
-
-  it("обзор считает ветки: конец без детей, кроме головы", async () => {
-    await seed("sb", 3, [
-      { id: 1, at: T0 - 3, base: null },
-      { id: 2, at: T0 - 2, base: 1 },
-      { id: 3, at: T0 - 1, base: 1 },
+    await seed("bare", 52, [
+      { id: 50, at: T0 + 1, base: null },
+      { id: 51, at: T0 + 2, base: 50 },
+      { id: 52, at: T0 + 3, base: 50 },
     ]);
-    expect(((await list())[0].result as { sessions: Array<{ points: number; branches: number }> }).sessions[0]).toMatchObject({ points: 3, branches: 1 });
+    expect(((await list())[0].result as { sessions: unknown[] }).sessions[0]).toEqual({ sid: "bare", owner: "laptop", head: { id: 52, at: T0 + 3 }, points: 3, branches: 1 });
   });
 
   it("список сессии: точки от новых к старым, без файлов, спецификации и первых слов", async () => {
@@ -283,7 +263,7 @@ describe("вернуть: points.get и points.list", () => {
 describe("правило хранения: срок в списке и уборка расписанием", () => {
   it("206 · 400 дней по две точки, шесть сегодня, ветка 40 дней назад: уборка оставляет ровно то, что велит правило", async () => {
     const today = Date.UTC(2026, 9, 31);
-    const rows: Array<{ id: number; at: number; base: number | null }> = [];
+    const rows: Row[] = [];
     let id = 0;
     for (let d = 399; d >= 0; d--) {
       const hours = d === 0 ? [2, 5, 8, 11, 14, 17] : [10, 18];
@@ -343,34 +323,8 @@ describe("правило хранения: срок в списке и убор�
     expect((await bucket().list({ prefix: "f/207ff", limit: 1000 })).objects).toHaveLength(500);
   });
 
-  it("сроки: голова — без срока; не последняя в дне — до послезавтра; последняя в дне — 30 дней; последняя в неделе — год", async () => {
-    await seed("sk", 4, [
-      { id: 1, at: D(2026, 10, 1, 10), base: null }, // четверг
-      { id: 2, at: D(2026, 10, 1, 18), base: 1 },
-      { id: 3, at: D(2026, 10, 2, 18), base: 2 }, // пятница — последняя в неделе
-      { id: 4, at: D(2026, 10, 31, 9), base: 3 },
-    ]);
-    const u = await untilOf("sk");
-    expect(u.get(4)).toBeNull();
-    expect(u.get(1)).toBe(D(2026, 10, 3));
-    expect(u.get(2)).toBe(D(2026, 10, 31));
-    expect(u.get(3)).toBe(D(2026, 10, 2) + YEAR);
-  });
-
-  it("неделя — с понедельника: воскресенье и следующий понедельник в разных неделях", async () => {
-    // 2026-11-01 — воскресенье, 2026-11-02 — понедельник; голова дальше, обе точки — последние в своём дне
-    await seed("sw", 3, [
-      { id: 1, at: D(2026, 11, 1, 23), base: null },
-      { id: 2, at: D(2026, 11, 2, 1), base: 1 },
-      { id: 3, at: D(2026, 11, 20, 1), base: 2 },
-    ]);
-    const u = await untilOf("sw");
-    expect(u.get(1)).toBe(D(2026, 11, 1) + YEAR);
-    expect(u.get(2)).toBe(D(2026, 11, 2) + YEAR);
-  });
-
-  it("ветка: конец и точка линии, от которой она ушла, — год от конца ветки; средняя точка ветки — по дню", async () => {
-    await seed("sbr", 6, [
+  it("сроки в списке: ветка — конец и точка линии, от которой она ушла, — год от конца ветки; средняя точка ветки — по дню", async () => {
+    await seed("sk", 6, [
       { id: 1, at: D(2026, 1, 5, 10), base: null },
       { id: 2, at: D(2026, 1, 5, 11), base: 1 },
       { id: 3, at: D(2026, 1, 5, 12), base: 2 }, // ветка: 3 → 4
@@ -378,22 +332,21 @@ describe("правило хранения: срок в списке и убор�
       { id: 5, at: D(2026, 1, 5, 14), base: 2 }, // линия идёт от 2
       { id: 6, at: D(2026, 6, 1, 9), base: 5 },
     ]);
-    expect((await lineList("sbr")).points.filter((p) => p.line).map((p) => p.id).sort()).toEqual([1, 2, 5, 6]);
-    const u = await untilOf("sbr");
-    expect(u.get(4)).toBe(D(2026, 1, 5, 13) + YEAR);
-    expect(u.get(2)).toBe(D(2026, 1, 5, 13) + YEAR);
-    expect(u.get(3)).toBe(D(2026, 1, 7));
+    const u = await untilOf("sk");
+    expect([u.get(4), u.get(2), u.get(3)]).toEqual([D(2026, 1, 5, 13) + YEAR, D(2026, 1, 5, 13) + YEAR, D(2026, 1, 7)]);
   });
 
   it("стёртая точка: дети переходят к её основе — линия остаётся связной", async () => {
-    await seed("sc", 3, [
+    // две стёртые подряд: ребёнок идёт к основе через обе
+    await seed("sc", 4, [
       { id: 1, at: T0 - 40 * DAY, base: null },
       { id: 2, at: T0 - 40 * DAY + 1000, base: 1 },
-      { id: 3, at: T0 - 1000, base: 2 },
+      { id: 3, at: T0 - 40 * DAY + 2000, base: 2 },
+      { id: 4, at: T0 - 1000, base: 3 },
     ]);
     await sweep();
     const r = await lineList("sc");
-    expect(r.points.map((p) => [p.id, p.base])).toEqual([[3, 2], [2, null]]);
+    expect(r.points.map((p) => [p.id, p.base])).toEqual([[4, 3], [3, null]]);
   });
 
   it("2071 · сессия без новых точек год уходит целиком: из обзора и её блоки из R2; голова тоже, не раньше", async () => {
@@ -402,10 +355,10 @@ describe("правило хранения: срок в списке и убор�
     clock(T0 + YEAR - 1);
     await put("@laptop", "s2071n", file(["2071b"]));
     await sweep();
-    expect(((await list())[0].result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid).sort()).toEqual(["s2071", "s2071n"]);
+    expect(await sids()).toEqual(["s2071", "s2071n"]);
     clock(T0 + YEAR);
     await sweep();
-    expect(((await list())[0].result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["s2071n"]);
+    expect(await sids()).toEqual(["s2071n"]);
     expect([!!(await bucket().head("f/2071a")), !!(await bucket().head("f/2071b"))]).toEqual([false, true]);
   });
 
@@ -434,41 +387,45 @@ describe("удалить сессию", () => {
     expect(present.filter(Boolean)).toHaveLength(88);
     expect(present.slice(0, 88).every(Boolean)).toBe(true);
     expect(await count("SELECT COUNT(*) AS n FROM points WHERE sid = '9f03'")).toBe(0);
-    expect(((await list())[0].result as { sessions: Array<{ sid: string }> }).sessions.map((x) => x.sid)).toEqual(["7e19"]);
+    expect(await sids()).toEqual(["7e19"]);
   });
 
-  it("2070 2069 · машина не хозяин — not_owner; нет sid — bad_frame; сессии нет — нули без события; поле by идёт в журнал", async () => {
+  it.each([
+    ["машина не хозяин — not_owner", { from: "@mac", sid: "s304" }, [{ type: "reply", id: "d", ok: false, error: "not_owner", owner: "laptop", to: "@mac" }], 1],
+    ["нет sid — bad_frame", { from: "@laptop" }, [expect.objectContaining({ ok: false, error: "bad_frame" })], 1],
+    ["сессии нет — нули без события", { from: "panel", sid: "zz" }, [{ type: "reply", id: "d", ok: true, result: { points: 0, blocks: 0, bytes: 0 }, to: "panel" }], 1],
+    ["хозяин удаляет; поле by идёт в журнал", { from: "@laptop", sid: "s304", by: "phone~a@b" }, [expect.objectContaining({ ok: true }), expect.objectContaining({ ev: "session.deleted", by: "phone~a@b" })], 0],
+  ])("2070 2069 · points.delete: %s", async (_n, f, want, left) => {
     await inR2("304a1");
     await put("@laptop", "s304", file(["304a1"]));
-    expect(await send({ type: "points.delete", v: 1, id: "d", to: ".points", from: "@mac", sid: "s304" })).toEqual([{ type: "reply", id: "d", ok: false, error: "not_owner", owner: "laptop", to: "@mac" }]);
-    expect(await send({ type: "points.delete", v: 1, id: "d", to: ".points", from: "@laptop" })).toMatchObject([{ ok: false, error: "bad_frame" }]);
-    expect((await lineList("s304")).points).toHaveLength(1);
-    expect(await send({ type: "points.delete", v: 1, id: "d", to: ".points", from: "panel", sid: "zz" })).toEqual([{ type: "reply", id: "d", ok: true, result: { points: 0, blocks: 0, bytes: 0 }, to: "panel" }]);
-    const out = await send({ type: "points.delete", v: 1, id: "d", to: ".points", from: "@laptop", sid: "s304", by: "phone~a@b" });
-    expect(out[1]).toMatchObject({ ev: "session.deleted", by: "phone~a@b" });
+    expect(await send({ type: "points.delete", v: 1, id: "d", to: ".points", ...f } as Frame)).toEqual(want);
+    expect((await lineList("s304")).points).toHaveLength(left);
   });
 });
 
 describe("вход Worker'а", () => {
-  it("2064 2067 · вход не по контракту — bad_frame, точек не прибавилось", async () => {
+  it.each([
+    ["машина не шлёт — шлёт пульт", "panel", {}],
+    ["пустой sid", "@laptop", { sid: "" }],
+    ["чужой повод", "@laptop", { why: "zzz" }],
+    ["нет файлов", "@laptop", {}, []],
+    ["отпечаток не hex", "@laptop", {}, [{ p: "x", size: 1, b: ["../etc"] }]],
+    ["нет размера", "@laptop", {}, [{ p: "x", b: ["2064a"] }]],
+    ["base не целое", "@laptop", { base: 1.5 }],
+    ["подъём без base", "@laptop", { why: "raise", expect: "laptop" }],
+    ["подъём из точки другой сессии", "@laptop", { why: "raise", base: "other", expect: "laptop" }],
+  ] as Array<[string, string, Record<string, unknown>, unknown?]>)("2064 · points.put не по контракту — bad_frame, точек не прибавилось: %s", async (_n, from, extra, files) => {
     await inR2("2064a", "2064b");
     await put("@laptop", "s2064", file(["2064a"]));
     await put("@laptop", "s2064o", file(["2064b"]));
     const other = (await lineList("s2064o")).points[0];
-    const bad: Array<[string, Record<string, unknown>, unknown?]> = [
-      ["panel", {}],
-      ["@laptop", { sid: "" }],
-      ["@laptop", { why: "zzz" }],
-      ["@laptop", {}, []],
-      ["@laptop", {}, [{ p: "x", size: 1, b: ["../etc"] }]],
-      ["@laptop", {}, [{ p: "x", b: ["2064a"] }]],
-      ["@laptop", { base: 1.5 }],
-      ["@laptop", { why: "raise", expect: "laptop" }],
-      ["@laptop", { why: "raise", base: other.id, expect: "laptop" }],
-    ];
-    for (const [from, extra, files] of bad) expect(await put(from, "s2064", files ?? file(["2064a"], 7), extra), JSON.stringify(extra)).toMatchObject([{ ok: false, error: "bad_frame" }]);
+    const x = extra.base === "other" ? { ...extra, base: other.id } : extra;
+    expect(await put(from, "s2064", files ?? file(["2064a"], 7), x)).toMatchObject([{ ok: false, error: "bad_frame" }]);
     expect((await lineList("s2064")).points).toHaveLength(1);
-    for (const ids of [undefined, [], ["a"], [1.5]]) expect(await send({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids })).toMatchObject([{ ok: false, error: "bad_frame" }]);
+  });
+
+  it.each([[[]]])("2067 · points.get с ids %j — bad_frame", async (x) => {
+    expect(await send({ type: "points.get", v: 2, id: "g", to: ".points", from: "panel", ids: x })).toMatchObject([{ ok: false, error: "bad_frame" }]);
   });
 
   it("2058 · чужое имя — unknown_request, другая версия — contract_mismatch, без id — только строка, reply — note", async () => {

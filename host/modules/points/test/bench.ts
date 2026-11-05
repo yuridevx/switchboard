@@ -44,7 +44,6 @@ export class FakeRegistry {
   sessions = new Map<string, { owner: string; head: number }>();
   puts: Array<Frame & { result: string }> = [];
   deletes: Frame[] = [];
-  gets: Frame[] = [];
   /** PUT в R2: ключи по порядку */
   r2puts: string[] = [];
   /** запросы машины в R2: метод, ключ и был ли свой заголовок подписи */
@@ -100,7 +99,6 @@ export class FakeRegistry {
 
   handle(f: Frame, machine: string): Record<string, unknown> {
     if (f.type === "points.get") {
-      this.gets.push(f);
       const rows = (f.ids as number[]).map((i) => this.rows.get(i)).filter(Boolean) as Row[];
       if (!rows.length) return { ok: false, error: "no_point", ids: f.ids };
       return { ok: true, result: { owner: this.sessions.get(rows[0].sid)?.owner ?? null, points: rows, links: this.links("GET", [...new Set(rows.flatMap((r) => r.files.flatMap((x) => x.b)))]) } };
