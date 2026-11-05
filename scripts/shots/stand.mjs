@@ -1,4 +1,4 @@
-// Страница настоящего кода в браузере: сборка, адрес и окно Chromium для снимков, жестов и эталонов (scripts/shots/*.mjs) и опции сборки для сервера стенда.
+// Страница настоящего кода в браузере: сборка, адрес и окно Chromium для снимков, жестов и эталонов (scripts/shots/*.mjs); сборку и документ страницы берёт и сервер дизайна (scripts/design/serve.mjs).
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -14,10 +14,10 @@ const HOST_MODULES = join(ROOT, "host", "modules");
 const hostContract = () => Object.assign({}, ...readdirSync(HOST_MODULES).map((m) => JSON.parse(readFileSync(join(HOST_MODULES, m, "module.json"), "utf8")).provides));
 
 /** Как собирается страница: один файл из дерева, стили — текстом для web-core. */
-const BUNDLE = { bundle: true, format: "iife", target: "es2022", loader: { ".css": "text" }, logLevel: "warning" };
+export const BUNDLE = { bundle: true, format: "iife", target: "es2022", loader: { ".css": "text" }, logLevel: "warning" };
 
 /** Документ страницы: заголовки как у настоящей оболочки, скрипт — своей строкой. */
-const pageHtml = (title, script) => `<!doctype html>
+export const pageHtml = (title, script) => `<!doctype html>
 <html lang="ru">
 <head>
 <meta charset="utf-8">
