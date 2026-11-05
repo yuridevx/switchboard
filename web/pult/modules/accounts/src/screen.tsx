@@ -30,7 +30,7 @@ export function AccountsScreen({ params }: ScreenProps) {
       </Btn>
     </>
   );
-  const accounts = <AccountsColumn {...shared} cur={cur} tabs={tabs} />;
+  const accounts = <AccountsColumn key={params.machine ?? ""} {...shared} cur={cur} tabs={tabs} signIn={!!params.machine && params.view !== "slots"} />;
   const slots = <SlotsColumn {...shared} cur={cur} pick={setMachine} tabs={tabs} />;
 
   if (app.wide) {

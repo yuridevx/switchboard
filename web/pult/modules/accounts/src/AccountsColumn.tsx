@@ -33,11 +33,12 @@ export function Windows({ info }: { info?: AccountInfo }) {
   return windowsOf(info).map(([w, v]) => <LimitRow key={w} className="ac-w" data-window={w} label={LIMIT_NAMES[w] ?? w} used={v.utilization} resets={v.resetsAt} />);
 }
 
-export function AccountsColumn({ answers, machines, near, notes, say, cur, tabs }: Shared & { cur: string; tabs: ReactNode }) {
+/** signIn: пришли с машиной в адресе — сразу форма входа на ней. */
+export function AccountsColumn({ answers, machines, near, notes, say, cur, tabs, signIn }: Shared & { cur: string; tabs: ReactNode; signIn: boolean }) {
   const app = useApp();
   const state = useAccounts();
   const logins = app.use(() => state.logins());
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(signIn);
   const [dialog, setDialog] = useState<{ kind: "rm" | "sess"; machine: string; name: string } | null>(null);
   const cards = cardsOf(answers);
   const answered = machines.every((m) => answers[m] !== undefined);
