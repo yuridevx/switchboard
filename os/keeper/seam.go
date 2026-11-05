@@ -23,9 +23,9 @@ type keeperHandle interface {
 
 func (k *Keeper) StateJSON() []byte { b, _ := json.Marshal(k.State()); return b }
 
-// bootKeeper — keeper на папке home: тот же старт, что у службы. Предел остановки стенда — он же у setup и у проверки нового файла.
+// bootKeeper — keeper на папке home: тот же старт, что у службы.
 func bootKeeper(home string, t tuning) (keeperHandle, error) {
-	k, err := newKeeper(home, Options{Stop: t.stop, Setup: t.stop, Check: t.stop, PlanWait: t.planWait, Ping: t.ping, PauseFirst: t.pauseFirst,
+	k, err := newKeeper(home, Options{Stop: t.stop, PlanWait: t.planWait, Ping: t.ping, PauseFirst: t.pauseFirst,
 		PauseMax: t.pauseMax, Download: t.download, HolderWait: t.holderWait, Self: t.self})
 	if err != nil {
 		return nil, err

@@ -16,9 +16,7 @@ import (
 
 // Options — пределы; ноль — как в работе.
 type Options struct {
-	Stop       time.Duration // выход после «закрой ввод» и после «убей»
-	Setup      time.Duration // setup версии
-	Check      time.Duration // ответ нового файла keeper на version
+	Stop       time.Duration // выход после «закрой ввод» и после «убей», setup версии, ответ нового файла keeper на version
 	PlanWait   time.Duration // ответ «Выпусков» на вопрос о плане
 	Ping       time.Duration // ping relay; нет pong к следующему — соединение мёртвое
 	PauseFirst time.Duration // пауза перед новым подключением к relay, вдвое после каждой неудачи
@@ -32,7 +30,7 @@ func (o *Options) defaults() {
 	for _, d := range []struct {
 		v   *time.Duration
 		def time.Duration
-	}{{&o.Stop, time.Minute}, {&o.Setup, 10 * time.Minute}, {&o.Check, 30 * time.Second}, {&o.PlanWait, 10 * time.Second}, {&o.Ping, 20 * time.Second},
+	}{{&o.Stop, time.Minute}, {&o.PlanWait, 30 * time.Second}, {&o.Ping, 30 * time.Second},
 		{&o.PauseFirst, time.Second}, {&o.PauseMax, time.Minute}, {&o.Download, 10 * time.Minute}, {&o.HolderWait, 30 * time.Second}} {
 		if *d.v == 0 {
 			*d.v = d.def

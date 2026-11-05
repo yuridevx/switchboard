@@ -13,6 +13,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -74,34 +75,16 @@ type holdSpec struct {
 
 func parseHold(args []string) (holdSpec, bool) {
 	var s holdSpec
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		if a == "--" {
-			s.cmd = args[i+1:]
-			break
-		}
-		if a == "--detach-children" {
-			s.detach = true
-			continue
-		}
-		if i+1 >= len(args) {
-			return s, false
-		}
-		switch a {
-		case "--id":
-			s.id = args[i+1]
-		case "--owner":
-			s.owner = args[i+1]
-		case "--tag":
-			s.tag = args[i+1]
-		case "--cwd":
-			s.cwd = args[i+1]
-		default:
-			return s, false
-		}
-		i++
-	}
-	return s, simpleName(s.id) && (s.owner == "keeper" || s.owner == "host") && len(s.cmd) > 0
+	fs := flag.NewFlagSet("hold", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.StringVar(&s.id, "id", "", "")
+	fs.StringVar(&s.owner, "owner", "", "")
+	fs.StringVar(&s.tag, "tag", "", "")
+	fs.StringVar(&s.cwd, "cwd", "", "")
+	fs.BoolVar(&s.detach, "detach-children", false, "")
+	err := fs.Parse(args)
+	s.cmd = fs.Args()
+	return s, err == nil && simpleName(s.id) && (s.owner == "keeper" || s.owner == "host") && len(s.cmd) > 0
 }
 
 type holder struct {

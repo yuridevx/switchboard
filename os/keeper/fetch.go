@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type app struct {
@@ -151,14 +152,14 @@ func readApp(dir string) (app, error) {
 
 // setup — команда setup в папке версии за предел.
 func (k *Keeper) setup(dir string, cmd []string) error {
-	ctx, cancel := context.WithTimeout(k.ctx, k.o.Setup)
+	ctx, cancel := context.WithTimeout(k.ctx, k.o.Stop)
 	defer cancel()
 	c := k.resolve(cmd, dir)
 	x := exec.CommandContext(ctx, c[0], c[1:]...)
-	x.Dir = dir
+	x.Dir, x.WaitDelay = dir, waitDelay
 	out, err := x.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		return fmt.Errorf("setup_failed: не завершился за %v", k.o.Setup)
+		return fmt.Errorf("setup_failed: не завершился за %v", k.o.Stop)
 	}
 	if err != nil {
 		text := strings.TrimSpace(string(out))
@@ -170,16 +171,23 @@ func (k *Keeper) setup(dir string, cmd []string) error {
 	return nil
 }
 
-// resolve — команда app.json: node — из keeper.json, npm — npm-cli.js рядом с ним под тем же Node; аргумент, который есть в папке версии, —
-// полным путём.
+// waitDelay — команда вышла или убита, а потомок держит её вывод.
+const waitDelay = 5 * time.Second
+
+// resolve — команда app.json: node — из keeper.json, npm — npm-cli.js рядом с ним под тем же Node (у Windows — рядом, у Linux — в
+// ../lib/node_modules); аргумент, который есть в папке версии, — полным путём.
 func (k *Keeper) resolve(cmd []string, dir string) []string {
 	out := append([]string{}, cmd...)
-	if k.c.Node != "" {
-		switch out[0] {
-		case "node":
-			out[0] = k.c.Node
-		case "npm":
-			out = append([]string{k.c.Node, filepath.Join(filepath.Dir(k.c.Node), "node_modules", "npm", "bin", "npm-cli.js")}, out[1:]...)
+	switch node := k.c.Node; {
+	case node != "" && out[0] == "node":
+		out[0] = node
+	case node != "" && out[0] == "npm":
+		for _, cli := range []string{filepath.Join(filepath.Dir(node), "node_modules", "npm", "bin", "npm-cli.js"),
+			filepath.Join(filepath.Dir(node), "..", "lib", "node_modules", "npm", "bin", "npm-cli.js")} {
+			if fileExists(cli) {
+				out = append([]string{node, cli}, out[1:]...)
+				break
+			}
 		}
 	}
 	for i := 1; i < len(out); i++ {

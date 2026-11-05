@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -20,22 +21,31 @@ type installFlags struct {
 	logon   bool
 }
 
+// workerFlags — --worker <имя>=<адрес>, сколько угодно раз.
+type workerFlags map[string]string
+
+func (w workerFlags) String() string { return "" }
+
+func (w workerFlags) Set(s string) error {
+	name, url, ok := strings.Cut(s, "=")
+	if !ok || name == "" || !strings.HasPrefix(url, "http") {
+		return fmt.Errorf("--worker <имя>=<https://…>, а не %q", s)
+	}
+	w[name] = url
+	return nil
+}
+
 func parseInstall(args []string) (installFlags, error) {
-	f := installFlags{workers: map[string]string{}}
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--logon":
-			f.logon = true
-		case a == "--worker" && i+1 < len(args):
-			i++
-			name, url, ok := strings.Cut(args[i], "=")
-			if !ok || name == "" || !strings.HasPrefix(url, "http") {
-				return f, fmt.Errorf("--worker <имя>=<https://…>, а не %q", args[i])
-			}
-			f.workers[name] = url
-		default:
-			return f, fmt.Errorf("незнакомый аргумент %q", a)
-		}
+	f := installFlags{workers: workerFlags{}}
+	fs := flag.NewFlagSet("install", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	fs.Var(workerFlags(f.workers), "worker", "")
+	fs.BoolVar(&f.logon, "logon", false, "")
+	if err := fs.Parse(args); err != nil {
+		return f, err
+	}
+	if fs.NArg() > 0 {
+		return f, fmt.Errorf("незнакомый аргумент %q", fs.Arg(0))
 	}
 	return f, nil
 }
@@ -79,6 +89,13 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	if c.Workers["gate"] == "" {
 		return errors.New("нет адреса gate: --worker gate=https://…")
 	}
+	if c.Node == "" {
+		node, err := exec.LookPath("node")
+		if err != nil {
+			return fmt.Errorf("node не найден в PATH: %w", err)
+		}
+		c.Node, _ = filepath.Abs(node)
+	}
 	invite, err := readLine(in)
 	if err != nil || invite == "" {
 		return fmt.Errorf("приглашение машины — первой строкой stdin: нет строки в stdin: %v", err)
@@ -90,7 +107,7 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), callWait)
 	defer cancel()
-	if err := postWorker(ctx, c.Workers["gate"], "", map[string]any{"type": "gate.redeem", "id": "install", "invite": invite}, &r); err != nil {
+	if err := postWorker(ctx, c.Workers["gate"], "", map[string]any{"type": "gate.redeem", "id": "install", "v": 1, "invite": invite}, &r); err != nil {
 		return fmt.Errorf("приглашение не принято: %w", err)
 	}
 	if !r.OK {
@@ -98,9 +115,6 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 	}
 	if p := strings.Split(r.Result.Key, "."); len(p) != 4 || p[0] != "host" {
 		return fmt.Errorf("приглашение не машины: пропуск %s", strings.Join(p[:min(3, len(p))], "."))
-	}
-	if node, err := exec.LookPath("node"); err == nil {
-		c.Node, _ = filepath.Abs(node)
 	}
 	if c.Workers["relay"] == "" {
 		fmt.Fprintln(os.Stderr, "install: в keeper.json нет адреса relay — keeper будет исполнять сохранённый план без связи (--worker relay=https://…)")
@@ -135,7 +149,7 @@ func placeSelf() (string, error) {
 		return dst, nil
 	}
 	os.MkdirAll(home, 0o700)
-	return dst, copyFile(dst, me)
+	return dst, replace(dst, me)
 }
 
 func fileStat(p string) os.FileInfo { s, _ := os.Stat(p); return s }

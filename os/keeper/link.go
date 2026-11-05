@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	dialWait   = 10 * time.Second // подключение к relay и ответ roster на hello
+	dialWait   = 20 * time.Second // подключение к relay и ответ roster на hello
 	callWait   = 10 * time.Second // запись журнала флота
 	frameMax   = 32 << 20         // предел кадра relay
 	relayProto = 1
@@ -196,7 +196,7 @@ func (k *Keeper) ledger(ev, text string) {
 	}
 	ctx, cancel := context.WithTimeout(k.ctx, callWait)
 	defer cancel()
-	if err := k.post(ctx, "ledger", map[string]any{"type": "ledger.add", "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}, nil); err != nil {
+	if err := k.post(ctx, "ledger", map[string]any{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}, nil); err != nil {
 		k.note("ledger", "event", ev, "why", "offline: "+text+": "+err.Error())
 	}
 }

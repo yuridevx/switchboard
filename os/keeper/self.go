@@ -32,12 +32,14 @@ func (k *Keeper) selfUpdate(e *entry) bool {
 		return failed(err.Error())
 	}
 	bin := filepath.Join(dir, runtime.GOOS+"-"+runtime.GOARCH, exe("keeper"))
-	ctx, cancel := context.WithTimeout(k.ctx, k.o.Check)
-	out, err := exec.CommandContext(ctx, bin, "version").Output()
+	ctx, cancel := context.WithTimeout(k.ctx, k.o.Stop)
+	check := exec.CommandContext(ctx, bin, "version")
+	check.WaitDelay = waitDelay
+	out, err := check.Output()
 	late := ctx.Err() == context.DeadlineExceeded
 	cancel()
 	if late {
-		return failed(fmt.Sprintf("check_failed: новый файл не ответил за %v", k.o.Check))
+		return failed(fmt.Sprintf("check_failed: новый файл не ответил за %v", k.o.Stop))
 	}
 	if got := strings.TrimSpace(string(out)); got != e.Version {
 		return failed(fmt.Sprintf("check_failed: новый файл ответил «%s» (%v), а в плане %s", got, err, e.Version))
@@ -55,15 +57,15 @@ func (k *Keeper) selfUpdate(e *entry) bool {
 	return true
 }
 
-// replace — dst становится копией src: копия рядом, прежний файл — в <dst>.<версия>.<pid>.old (занятое имя не мешает), копия на место.
-// Не вышло — dst прежний.
+// replace — dst становится копией src: копия рядом, прежний файл — в <dst>.<версия>.<pid>.old (занятое и работающее имя не мешает),
+// копия на место. Не вышло — dst прежний. Прежние файлы убирает старт keeper.
 func replace(dst, src string) error {
 	next := dst + ".new"
 	if err := copyFile(next, src); err != nil {
 		return err
 	}
 	old := fmt.Sprintf("%s.%s.%d.old", dst, version(), os.Getpid())
-	if err := os.Rename(dst, old); err != nil {
+	if err := os.Rename(dst, old); err != nil && !os.IsNotExist(err) {
 		os.Remove(next)
 		return err
 	}

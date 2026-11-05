@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 	"unicode/utf16"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -64,20 +65,29 @@ func hideConsole() { windows.NewLazySystemDLL("kernel32.dll").NewProc("FreeConso
 
 func taskExists() bool { return exec.Command("schtasks", "/Query", "/TN", serviceName()).Run() == nil }
 
-// serviceExists — служба этого имени есть; спрашивает без прав администратора.
-func serviceExists() bool {
-	m, err := windows.OpenSCManager(nil, nil, windows.SC_MANAGER_CONNECT)
-	if err != nil {
-		return false
+// serviceExists — служба этого имени есть; sc query спрашивает и без прав администратора.
+func serviceExists() bool { return exec.Command("sc", "query", serviceName()).Run() == nil }
+
+// grantServiceLogon — право «вход в качестве службы» пользователю: без него служба под пользователем не стартует (1069).
+func grantServiceLogon(sid *windows.SID) error {
+	advapi := windows.NewLazySystemDLL("advapi32.dll")
+	var attrs [6]uintptr // LSA_OBJECT_ATTRIBUTES, нули; Length — первым полем
+	attrs[0] = unsafe.Sizeof(attrs)
+	var policy uintptr
+	const createAccount, lookupNames = 0x10, 0x800
+	if st, _, _ := advapi.NewProc("LsaOpenPolicy").Call(0, uintptr(unsafe.Pointer(&attrs)), createAccount|lookupNames, uintptr(unsafe.Pointer(&policy))); st != 0 {
+		return fmt.Errorf("LsaOpenPolicy: 0x%x", st)
 	}
-	defer windows.CloseServiceHandle(m)
-	name, _ := windows.UTF16PtrFromString(serviceName())
-	h, err := windows.OpenService(m, name, windows.SERVICE_QUERY_STATUS)
-	if err != nil {
-		return false
+	defer advapi.NewProc("LsaClose").Call(policy)
+	name, _ := windows.UTF16FromString("SeServiceLogonRight")
+	right := struct {
+		Length, MaximumLength uint16
+		Buffer                *uint16
+	}{uint16((len(name) - 1) * 2), uint16(len(name) * 2), &name[0]}
+	if st, _, _ := advapi.NewProc("LsaAddAccountRights").Call(policy, uintptr(unsafe.Pointer(sid)), uintptr(unsafe.Pointer(&right)), 1); st != 0 {
+		return fmt.Errorf("LsaAddAccountRights: 0x%x", st)
 	}
-	windows.CloseServiceHandle(h)
-	return true
+	return nil
 }
 
 func registered() error {
@@ -97,6 +107,13 @@ func register(dst string, logon bool, in *bufio.Reader) error {
 		return errors.New("пароль пользователя для службы — второй строкой stdin (или --logon — задача при входе)")
 	}
 	u, err := user.Current()
+	if err != nil {
+		return err
+	}
+	sid, err := windows.StringToSid(u.Uid)
+	if err == nil {
+		err = grantServiceLogon(sid)
+	}
 	if err != nil {
 		return err
 	}
@@ -125,7 +142,7 @@ func registerTask(dst string, args []string) error {
 	xml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Switchboard keeper: исполняет план машины при входе пользователя</Description></RegistrationInfo>
-  <Principals><Principal id="Author"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
+  <Principals><Principal id="Author"><UserId>%[1]s</UserId><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>
   <Settings>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
@@ -135,9 +152,9 @@ func registerTask(dst string, args []string) error {
   </Settings>
   <Triggers>
     <RegistrationTrigger><Repetition><Interval>PT1M</Interval></Repetition></RegistrationTrigger>
-    <LogonTrigger><Repetition><Interval>PT1M</Interval></Repetition><UserId>%s</UserId></LogonTrigger>
+    <LogonTrigger><Repetition><Interval>PT1M</Interval></Repetition><UserId>%[1]s</UserId></LogonTrigger>
   </Triggers>
-  <Actions Context="Author"><Exec><Command>%s</Command><Arguments>%s</Arguments></Exec></Actions>
+  <Actions Context="Author"><Exec><Command>%[2]s</Command><Arguments>%[3]s</Arguments></Exec></Actions>
 </Task>
 `, xmlText(os.Getenv("USERDOMAIN")+`\`+os.Getenv("USERNAME")), xmlText(dst), xmlText(strings.Join(args, " ")))
 	file := filepath.Join(os.TempDir(), serviceName()+".xml")
