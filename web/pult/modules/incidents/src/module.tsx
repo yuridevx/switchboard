@@ -3,9 +3,9 @@ import { Fragment, useEffect, useState } from "react";
 import type { Roster } from "@switchboard/relay";
 import type { AppModule } from "@switchboard/web-core";
 import {
-  Chip,
-  Chips,
+  Btn,
   day,
+  DisclosureBtn,
   Dot,
   hhmm,
   incidentOf,
@@ -81,20 +81,19 @@ function Incidents() {
   const words = app.use(() => Object.entries(st.answers.get()).flatMap(([m, a]) => (wordOf(a) ? [`${m} · incident.pending: ${wordOf(a)}`] : [])));
   return (
     <Page>
-      {app.wide && <PageHead title="Инциденты" />}
+      <PageHead title={app.wide ? "Инциденты" : undefined}>
+        <Btn data-f="open" pri={!all} aria-pressed={!all} onClick={() => setAll(false)}>
+          открытые
+        </Btn>
+        <Btn data-f="all" pri={all} aria-pressed={all} onClick={() => setAll(true)}>
+          все
+        </Btn>
+      </PageHead>
       {words.map((w) => (
         <Note key={w} tone="bad" role="alert">
           {w}
         </Note>
       ))}
-      <Chips>
-        <Chip on={!all} data-f="open" onClick={() => setAll(false)}>
-          открытые
-        </Chip>
-        <Chip on={all} data-f="all" onClick={() => setAll(true)}>
-          все
-        </Chip>
-      </Chips>
       {lost.length > 0 && (
         <>
           <div className="in-cap">Не доставлены</div>
@@ -103,7 +102,7 @@ function Incidents() {
               const id = `${a.machine}:${a.id}`;
               return (
                 <Fragment key={id}>
-                  <button type="button" className="in-row in-lost" data-lost={id} aria-expanded={why === id} onClick={() => setWhy(why === id ? null : id)}>
+                  <DisclosureBtn className="in-row in-lost" data-lost={id} open={why === id} onClick={() => setWhy(why === id ? null : id)}>
                     <Dot kind="bad" className="d" />
                     <span className="g">
                       <span className="t1">
@@ -112,7 +111,7 @@ function Incidents() {
                       </span>
                       <span className="t2">{a.refused ? `с ${since(a.refused.t)}` : [a.type, a.key].filter(Boolean).join(" · ")}</span>
                     </span>
-                  </button>
+                  </DisclosureBtn>
                   {why === id && (
                     <div className="in-why" data-why={id}>
                       {a.refused?.why ?? "Отказа не записано: причина — в журнале машины."}
@@ -124,9 +123,10 @@ function Incidents() {
           </div>
         </>
       )}
-      <div className="in-cap">В сессиях</div>
       {rows.length ? (
-        <div className="in-list">
+        <>
+          <div className="in-cap">В сессиях</div>
+          <div className="in-list">
           {rows.map((r) => {
             const s = sessionLabel(app, r.callsign);
             return (
@@ -139,14 +139,15 @@ function Incidents() {
                     <span className="s">{r.state === "stopped" ? "закрыт" : stateLabel(r.state).text}</span>
                   </span>
                   <span className="t2">
-                    <span className={s.human ? undefined : "m"}>{s.text}</span> · {machineLabel(app, r.callsign.slice(r.callsign.indexOf("@") + 1)).text}
+                    <span className="m">{s.text}</span> · {machineLabel(app, r.callsign.slice(r.callsign.indexOf("@") + 1)).text}
                   </span>
                 </span>
               </button>
             );
           })}
-        </div>
-      ) : (
+          </div>
+        </>
+      ) : lost.length ? null : (
         <Note>{all ? "Инцидентов нет" : "Открытых инцидентов нет"}</Note>
       )}
     </Page>
@@ -161,13 +162,15 @@ export function createIncidents(app: App): AppModule {
     screens: {
       incidents: {
         nav: "Инциденты",
+        label: "Инциденты",
+        head: () => ({ title: "Инциденты" }),
         narrowGroup: "Флот",
         mark: "incidents.open",
         view: Incidents,
         find: (q) =>
           st
             .rows()
-            .filter((r) => [r.type, r.key, r.callsign].some((v) => v?.toLowerCase().includes(q.toLowerCase())))
+            .filter((r) => [r.type, r.key, r.callsign].some((v) => v?.toLowerCase().includes(q.trim().toLowerCase())))
             .map((r) => ({ label: `${r.type} · ${r.callsign}`, hint: "инцидент", dot: r.dot, screen: "incidents" })),
       },
     },

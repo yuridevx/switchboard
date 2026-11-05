@@ -24,7 +24,7 @@ async function body(req: IncomingMessage): Promise<string> {
   const parts: Buffer[] = [];
   for await (const part of req as AsyncIterable<Buffer>) {
     size += part.length;
-    if (size > MAX_FRAME) throw refuse("too_large", `тело больше ${MAX_FRAME} байт`);
+    if (size > MAX_FRAME) throw refuse("bad_frame", `тело больше ${MAX_FRAME} байт`);
     parts.push(part);
   }
   return Buffer.concat(parts).toString("utf8");

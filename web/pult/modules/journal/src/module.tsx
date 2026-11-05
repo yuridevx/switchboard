@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { LedgerEvent, LedgerReadResult } from "@switchboard/ledger";
 import type { AppModule } from "@switchboard/web-core";
-import { Btn, hhmm, In, machineLabel, Note, Page, PageHead, Sel, useApp, type App, type Result } from "@switchboard/web-ui";
+import { Btn, hhmm, In, machineLabel, Note, Page, PageHead, Sec, Sel, useApp, type App, type Result } from "@switchboard/web-ui";
 import css from "./journal.css";
 
 const LIMIT = 50;
@@ -75,9 +75,9 @@ function Journal() {
 
   return (
     <Page>
-      <PageHead title="Журнал флота">
-        <In data-f="q" type="search" placeholder="⌕ поиск по записям" onInput={(e) => setQ(e.currentTarget.value)} />
-        <Sel data-f="machine" value={machine} onChange={(e) => pick(e.currentTarget.value)}>
+      <PageHead title={app.wide ? "Журнал флота" : undefined}>
+        <In data-f="q" type="search" placeholder="⌕ поиск по записям" aria-label="Поиск по записям" onInput={(e) => setQ(e.currentTarget.value)} />
+        <Sel data-f="machine" value={machine} aria-label="Машина" onChange={(e) => pick(e.currentTarget.value)}>
           <option value="">все машины</option>
           {machines.map((m) => (
             <option key={m} value={m}>
@@ -91,9 +91,9 @@ function Journal() {
           {shown.error}
         </Note>
       )}
-      <div data-ledger="">
+      <Sec data-ledger="">
         {!shown.loaded ? "…" : !rows.length ? "Записей нет." : rows.map((e, i) => <Row key={e.id} e={e} day={i === 0 || dayOf(rows[i - 1].t) !== dayOf(e.t) ? dayOf(e.t) : null} app={app} />)}
-      </div>
+      </Sec>
       {shown.more && <Btn onClick={earlier}>Раньше</Btn>}
     </Page>
   );
@@ -116,5 +116,5 @@ function Row({ e, day, app }: { e: LedgerEvent; day: string | null; app: App }) 
 }
 
 export function createJournal(_app: App): AppModule {
-  return { screens: { journal: { nav: "Журнал", group: "Флот", view: Journal } }, css };
+  return { screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal, head: () => ({ title: "Журнал флота" }) } }, css };
 }

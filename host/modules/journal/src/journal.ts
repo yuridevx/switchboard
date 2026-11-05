@@ -51,6 +51,14 @@ function lines(m: Msg, firstInit: boolean): LogRecord[] {
 }
 
 const FILE = /^(?:host|keeper)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
+/** Строка файла журнала; пустая или битая — ничего. */
+function parsed(text: string): Line[] {
+  try {
+    return text ? [JSON.parse(text) as Line] : [];
+  } catch {
+    return [];
+  }
+}
 const optional = (v: unknown, ok: (v: unknown) => boolean) => v === undefined || ok(v);
 const isText = (v: unknown) => typeof v === "string";
 
@@ -67,22 +75,16 @@ function journal(dir: string, q: Frame) {
   } catch {
     // папки ещё нет: строк нет
   }
+  const wanted = (l: Line) => l.t > since && (!kind || (kind as string[]).includes(l.kind ?? "note")) && (!session || l.callsign === session) && (!part || l.part === part);
+  const dayOf = (name: string) => FILE.exec(name)?.[1];
+  // дни по порядку; записей набралось больше limit — дальше не читается
+  const days = [...new Set(names.map(dayOf))].filter((d): d is string => !!d && d >= since.slice(0, 10)).sort();
   const found: Line[] = [];
-  for (const name of names) {
-    const day = FILE.exec(name)?.[1];
-    if (!day || day < since.slice(0, 10)) continue;
-    for (const text of readFileSync(join(dir, name), "utf8").split("\n")) {
-      let l: Line;
-      try {
-        l = JSON.parse(text);
-      } catch {
-        continue;
-      }
-      if (!(l.t > since) || (kind && !(kind as string[]).includes(l.kind ?? "note")) || (session && l.callsign !== session) || (part && l.part !== part)) continue;
-      found.push(l);
-    }
+  for (const day of days) {
+    if (found.length > (limit as number)) break;
+    const lines = names.filter((n) => dayOf(n) === day).flatMap((n) => readFileSync(join(dir, n), "utf8").split("\n").flatMap(parsed).filter(wanted));
+    found.push(...lines.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)));
   }
-  found.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0));
   return { records: found.slice(0, limit as number), more: found.length > (limit as number) };
 }
 

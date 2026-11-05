@@ -86,7 +86,7 @@ async function frame(f: Frame, db: D1Database): Promise<Frame[]> {
     if (off) throw new Refusal(off.word, off.why);
     if (f.type === "ledger.add") {
       await add(f, db);
-      return [];
+      return id ? [{ ...ok(id), to: from }] : [];
     }
     if (!id) throw bad("ledger.read без id — ответить некому");
     return [{ ...ok(id, await read(f, db)), to: from }];
