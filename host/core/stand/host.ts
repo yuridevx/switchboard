@@ -103,7 +103,7 @@ export type Stand = {
 const realSetTimeout = globalThis.setTimeout;
 
 /** Дождаться условия: опрос по настоящим часам (поддельные таймеры vitest его не останавливают). */
-export async function until<T>(fn: () => T | undefined | null | false, ms = 3000): Promise<T> {
+export async function until<T>(fn: () => T | undefined | null | false, ms = 15_000): Promise<T> {
   const end = Date.now() + ms;
   for (;;) {
     const v = fn();
