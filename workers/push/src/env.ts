@@ -1,3 +1,11 @@
-// Снесено: заглушка на время сноса.
+// Привязки и настройки Worker'а push.
 import type { GateApi } from "@switchboard/gate";
-export type Env = { VAPID_PRIVATE: string; VAPID_SUB: string; DB: D1Database; GATE: GateApi };
+
+export type Env = {
+  /** закрытый ключ VAPID, JWK: секрет */
+  VAPID_PRIVATE: string;
+  /** адрес хозяина приложения в подписи VAPID */
+  VAPID_SUB: string;
+  DB: D1Database;
+  GATE: GateApi;
+};
