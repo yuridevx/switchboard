@@ -45,3 +45,9 @@ class FakeWebSocket {
 }
 
 globalThis.WebSocket = FakeWebSocket;
+
+// FAKE_FAST: сроки процесса идут в сто раз быстрее, слова о сроке те же
+if (process.env.FAKE_FAST) {
+  const real = globalThis.setTimeout;
+  globalThis.setTimeout = (f, ms, ...rest) => real(f, ms / 100, ...rest);
+}

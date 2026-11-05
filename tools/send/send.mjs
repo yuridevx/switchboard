@@ -10,7 +10,9 @@ import { pathToFileURL } from "node:url";
 
 export const RELAY = "wss://relay.pfarm.app";
 
-const USAGE = "вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]";
+/** Тот же срок, что у ответа relay: пишущий не закрыл stdin — служба не должна висеть вечно. */
+const STDIN_MS = 30_000;
+const USAGE ="вызов: <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]";
 
 const machineAddress = (url, callsign) => `${url.replace(/\/$/, "")}/m/${callsign.slice(callsign.indexOf("@") + 1)}`;
 
@@ -65,7 +67,12 @@ async function main([callsign, flag, url]) {
     console.error(USAGE);
     return 2;
   }
-  const { key, text } = parseInput(await readAll(process.stdin));
+  const raw = await Promise.race([readAll(process.stdin), new Promise((done) => setTimeout(done, STDIN_MS, null))]);
+  if (raw === null) {
+    console.log(`stdin не закрыт за ${STDIN_MS} мс`);
+    return 1;
+  }
+  const { key, text } = parseInput(raw);
   const { ok, error } = await send(callsign, text, { key, ...(url ? { url } : {}) });
   console.log(ok ? "ok" : error);
   return ok ? 0 : 1;

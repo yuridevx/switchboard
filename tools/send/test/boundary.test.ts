@@ -1,7 +1,7 @@
 // Леса границы «сообщение в сессию от служб компьютера»: настоящий процесс send.mjs и настоящий импорт; поддельный только relay.
 // Источник свойства — слово пользователя (устав: «send — сообщение в сессию от служб компьютера ключом клиента, без зависимостей»); без пометки — чьё: код.
-import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -84,6 +84,22 @@ describe("командная строка", () => {
     expect(r.stderr.trim()).toBe(USAGE);
     expect(r.stdout).toBe("");
     expect(r.frames).toEqual([]);
+  });
+});
+
+describe("предел чтения stdin", () => {
+  it("stdin не закрыли: отказ словом за предел, выход 1, relay не звали (устав: у всех операций предел)", async () => {
+    const log = join(mkdtempSync(join(tmpdir(), "switchboard-send-")), "frames.jsonl");
+    const c = spawn(process.execPath, ["--import", FAKE, SEND, "site@laptop", ...URL_ARG], { env: { ...process.env, FAKE_RELAY: "ok", FAKE_LOG: log, FAKE_FAST: "1" } });
+    c.stdin.write(`${KEY}\nтекст`);
+    let out = "";
+    c.stdout.on("data", (d) => (out += d));
+    const status = await new Promise((done) => {
+      c.on("close", done);
+      setTimeout(() => (c.kill(), done("жив через 5 с")), 5000);
+    });
+    expect([status, out]).toEqual([1, "stdin не закрыт за 30000 мс\n"]);
+    expect(existsSync(log)).toBe(false);
   });
 });
 
