@@ -1,8 +1,8 @@
 import type { GateApi } from "@switchboard/gate";
 
 export interface Env {
-  /** записи модуля — база D1 модуля во флоте */
+  /** журнал: одна таблица events */
   DB: D1Database;
-  /** gate: пропуск прямого запроса */
+  /** пропуск прямого запроса */
   GATE: GateApi;
 }
