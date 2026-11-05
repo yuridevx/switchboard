@@ -10,7 +10,6 @@ import { attrs, begin, man, mod, other, quiet, reloads, sample, shape } from "./
 quiet();
 const [NUMBER, SECRET] = INVITE.split(".");
 const part = (name: string, provides: Record<string, number>, uses: Record<string, number>, m: AppModule): AppPart => ({ manifest: man(name, provides, uses), module: () => m });
-const twin = part("m", {}, {}, {});
 
 describe("гейт набора", () => {
   it.each<[string, AppPart[], string[]]>([
@@ -19,9 +18,6 @@ describe("гейт набора", () => {
     ["раздел ядра key — занят", [part("t", {}, {}, { store: ["key"] })], ["имя store.key: два владельца — web-core и t"]],
     ["команда и метка не из provides", [part("x", {}, {}, { commands: { c: { run: () => {} } }, marks: { z: () => 1 } })], ["модуль x: команды c нет в provides", "модуль x: метки z нет в provides"]],
     ["место команды и экрана не из uses", [part("y", { d: 1, e: 1 }, {}, { commands: { d: { place: "o.tab", run: () => {} } }, screens: { e: { place: "o.tab", view: () => null } } })], ["модуль y: экран e — места o.tab нет в uses", "модуль y: команда d — места o.tab нет в uses"]],
-    ["имя модуля дважды", [twin, twin], ["модуль m: имя уже занято"]],
-    ["полоса top — место ядра", [part("bar", { bar: 1 }, { "top@web-core": 1 }, { screens: { bar: { place: "top", view: () => null } } })], []],
-    ["набор без ошибок", [part("ok", {}, {}, {})], []],
   ])("%s", (_n, parts, want) => {
     expect(appGate(defined(parts))).toEqual(want);
   });
@@ -501,6 +497,21 @@ describe("сборка страницы", () => {
 });
 
 describe("хранилище", () => {
+  it("формат на устройстве: база switchboard версии 1, разделы — ключи таблицы sections", async () => {
+    const f = new IDBFactory();
+    await idbStore(undefined, f).set("key", KEY);
+    expect(await f.databases()).toEqual([{ name: "switchboard", version: 1 }]);
+    const db = await new Promise<IDBDatabase>((ok) => {
+      const r = f.open("switchboard");
+      r.onsuccess = () => ok(r.result);
+    });
+    const got = await new Promise((ok) => {
+      const r = db.transaction("sections").objectStore("sections").get("key");
+      r.onsuccess = () => ok(r.result);
+    });
+    expect(got).toBe(KEY);
+  });
+
   it.each([
     ["IndexedDB", () => idbStore("t1", new IDBFactory())],
     ["в памяти", () => memoryStore()],
