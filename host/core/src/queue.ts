@@ -6,7 +6,7 @@ import type { SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 export class InputQueue {
   private items: SDKUserMessage[] = [];
   private wake: (() => void) | null = null;
-  private gen = 0;
+  private generation = 0;
 
   push(m: SDKUserMessage): void {
     this.items.push(m);
@@ -15,26 +15,28 @@ export class InputQueue {
     w?.();
   }
 
-  get length(): number {
-    return this.items.length;
+  /**
+   * Процесс ушёл: поток его query() больше ничего не забирает, ввод ждёт новый query().
+   * Настоящий SDK тянет сообщение из потока и после смерти процесса — и теряет его (опыт на SDK 0.3.311).
+   */
+  retire(): void {
+    this.generation++;
+    const w = this.wake;
+    this.wake = null;
+    w?.();
   }
 
   /** Поток для нового query(); прежний поток больше не отдаёт ничего. */
   stream(): AsyncIterable<SDKUserMessage> {
-    const my = ++this.gen;
-    const self = this;
+    const mine = ++this.generation;
+    const q = this;
     return {
       async *[Symbol.asyncIterator]() {
         for (;;) {
-          if (self.gen !== my) await new Promise<never>(() => {});
-          const m = self.items.shift();
-          if (m) {
-            yield m;
-            continue;
-          }
-          await new Promise<void>((r) => {
-            self.wake = r;
-          });
+          if (q.generation !== mine) await new Promise<never>(() => {});
+          const m = q.items.shift();
+          if (m) yield m;
+          else await new Promise<void>((r) => (q.wake = r));
         }
       },
     };

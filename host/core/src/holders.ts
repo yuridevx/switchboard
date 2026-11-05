@@ -16,9 +16,6 @@ import type { SpawnedProcess, SpawnOptions } from "@anthropic-ai/claude-agent-sd
 /** Файл держателя. */
 export type HoldFile = { id: string; owner: string; pid: number; port: number; key: string; tag?: string };
 
-/** Процесс у держателя: для старта Host. */
-export type ProcInfo = { id: string; pid: number };
-
 export type Exited = { op: "exited"; id: string; pid?: number; code: number | null; signal?: string | null; stderr?: string; os_stop?: boolean };
 
 /** Что ядру нужно от ОС: запустить держатель и прочитать файлы держателей. На стенде — подделка. */
@@ -35,21 +32,20 @@ export function realHolders(home: string, bin: string | undefined): HolderApi {
       new Promise((resolve, reject) => {
         if (!bin) return reject(new Error("нет SWITCHBOARD_HOLDER — файла держателя"));
         const args = ["hold", "--id", s.id, "--owner", "host", ...(s.cwd ? ["--cwd", s.cwd] : []), "--", s.command, ...s.args];
-        const env = { ...(s.env ?? process.env), SWITCHBOARD_HOME: home } as NodeJS.ProcessEnv;
-        const p = spawn(bin, args, { env, detached: true, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+        const p = spawn(bin, args, { env: { ...(s.env ?? process.env), SWITCHBOARD_HOME: home } as NodeJS.ProcessEnv, detached: true, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
         let out = "";
         let err = "";
-        let done = false;
+        let answered = false;
         p.stdout.setEncoding("utf8");
         p.stderr.setEncoding("utf8");
         p.stderr.on("data", (d: string) => (err += d));
         p.stdout.on("data", (d: string) => {
           out += d;
-          const i = out.indexOf("\n");
-          if (i < 0 || done) return;
-          done = true;
+          const end = out.indexOf("\n");
+          if (end < 0 || answered) return;
+          answered = true;
           try {
-            const x = JSON.parse(out.slice(0, i)) as { port: number; key: string; pid: number };
+            const x = JSON.parse(out.slice(0, end)) as { port: number; key: string; pid: number };
             // держатель живёт сам: Host его не ждёт
             p.stdout.destroy();
             p.stderr.destroy();
@@ -59,49 +55,48 @@ export function realHolders(home: string, bin: string | undefined): HolderApi {
             reject(new Error(`строка держателя: ${(e as Error).message}`));
           }
         });
-        p.on("error", (e) => !done && ((done = true), reject(e)));
-        p.on("exit", (code) => !done && ((done = true), reject(new Error(`держатель вышел с кодом ${code}: ${err.trim()}`))));
+        p.on("error", (e) => !answered && ((answered = true), reject(e)));
+        p.on("exit", (code) => !answered && ((answered = true), reject(new Error(`держатель вышел с кодом ${code}: ${err.trim()}`))));
       }),
     files: () => {
       const dir = join(home, "procs");
       if (!existsSync(dir)) return [];
-      const out: HoldFile[] = [];
-      for (const f of readdirSync(dir)) {
-        if (!f.endsWith(".json")) continue;
+      return readdirSync(dir).flatMap((f) => {
+        if (!f.endsWith(".json")) return [];
         try {
           const x = JSON.parse(readFileSync(join(dir, f), "utf8")) as HoldFile;
-          if (x.owner === "host" && typeof x.id === "string") out.push(x);
+          return x.owner === "host" && typeof x.id === "string" ? [x] : [];
         } catch {
           // файл держателя пишется через rename — битый бывает только на миг записи
+          return [];
         }
-      }
-      return out;
+      });
     },
   };
 }
 
 /* ===== кадры ===== */
 
-export function frame(t: string, data?: Buffer | string): Buffer {
-  const b = typeof data === "string" ? Buffer.from(data) : (data ?? Buffer.alloc(0));
-  const h = Buffer.alloc(5);
-  h[0] = t.charCodeAt(0);
-  h.writeUInt32BE(b.length, 1);
-  return Buffer.concat([h, b]);
+export function frame(type: string, data?: Buffer | string): Buffer {
+  const body = typeof data === "string" ? Buffer.from(data) : (data ?? Buffer.alloc(0));
+  const head = Buffer.alloc(5);
+  head[0] = type.charCodeAt(0);
+  head.writeUInt32BE(body.length, 1);
+  return Buffer.concat([head, body]);
 }
 
 /** Разбор потока на кадры. */
-export function frames(on: (t: string, data: Buffer) => void): (b: Buffer) => void {
+export function frames(on: (type: string, data: Buffer) => void): (b: Buffer) => void {
   let buf: Buffer = Buffer.alloc(0);
   return (b) => {
     buf = buf.length ? Buffer.concat([buf, b]) : b;
     while (buf.length >= 5) {
-      const n = buf.readUInt32BE(1);
-      if (buf.length < 5 + n) break;
-      const t = String.fromCharCode(buf[0]);
-      const data = buf.subarray(5, 5 + n);
-      buf = buf.subarray(5 + n);
-      on(t, data);
+      const size = buf.readUInt32BE(1);
+      if (buf.length < 5 + size) break;
+      const type = String.fromCharCode(buf[0]);
+      const data = buf.subarray(5, 5 + size);
+      buf = buf.subarray(5 + size);
+      on(type, data);
     }
   };
 }
@@ -109,9 +104,9 @@ export function frames(on: (t: string, data: Buffer) => void): (b: Buffer) => vo
 /* ===== клиент держателей ===== */
 
 export class HolderClient {
-  private api: HolderApi;
-  private procs = new Map<string, HeldProcess>();
-  private onExited: (e: Exited) => void;
+  private readonly api: HolderApi;
+  private readonly procs = new Map<string, HeldProcess>();
+  private readonly onExited: (e: Exited) => void;
 
   constructor(api: HolderApi, on: { exited: (e: Exited) => void }) {
     this.api = api;
@@ -119,7 +114,7 @@ export class HolderClient {
   }
 
   /** Процессы сессий, оставшиеся от прежнего Host. */
-  list(): ProcInfo[] {
+  list(): Array<{ id: string; pid: number }> {
     return this.api.files().map((f) => ({ id: f.id, pid: f.pid }));
   }
 
@@ -128,7 +123,7 @@ export class HolderClient {
     const f = this.api.files().find((x) => x.id === id);
     if (!f) return;
     await new Promise<void>((resolve) => {
-      const p = new HeldProcess(Promise.resolve(f), this, id);
+      const p = this.hold(Promise.resolve(f), id);
       p.once("exit", () => resolve());
       p.kill("SIGKILL");
     });
@@ -144,14 +139,16 @@ export class HolderClient {
             if (!f) throw new Error("unknown_id");
             return f;
           })();
-    const p = new HeldProcess(file, this, id);
-    this.procs.set(id, p);
-    return p;
+    return this.hold(file, id);
   }
 
-  exited(p: HeldProcess, e: Exited): void {
-    if (this.procs.get(e.id) === p) this.procs.delete(e.id);
-    this.onExited(e);
+  private hold(file: Promise<HoldFile>, id: string): HeldProcess {
+    const p: HeldProcess = new HeldProcess(file, id, (e) => {
+      if (this.procs.get(id) === p) this.procs.delete(id);
+      this.onExited(e);
+    });
+    this.procs.set(id, p);
+    return p;
   }
 
   /** Выход Host: соединения закрыты без «закрой ввод» и «убей» — держатели держат процессы и копят вывод. */
@@ -174,12 +171,12 @@ export class HeldProcess extends EventEmitter implements SpawnedProcess {
   private pending: Buffer[] = [];
   private detached = false;
   private finished = false;
-  private client: HolderClient;
+  private readonly exited: (e: Exited) => void;
 
-  constructor(file: Promise<HoldFile>, client: HolderClient, id: string) {
+  constructor(file: Promise<HoldFile>, id: string, exited: (e: Exited) => void) {
     super();
     this.id = id;
-    this.client = client;
+    this.exited = exited;
     this.stdin = new Writable({
       write: (chunk: Buffer, _enc, cb) => {
         this.out(frame("i", chunk));
@@ -209,15 +206,15 @@ export class HeldProcess extends EventEmitter implements SpawnedProcess {
     });
     sock.on(
       "data",
-      frames((t, data) => {
-        if (t === "h") this.pid = (JSON.parse(data.toString("utf8")) as { pid: number }).pid;
-        else if (t === "o") {
+      frames((type, data) => {
+        if (type === "h") this.pid = (JSON.parse(data.toString("utf8")) as { pid: number }).pid;
+        else if (type === "o") {
           if (!this.stdout.writableEnded) this.stdout.write(data);
-        } else if (t === "x") {
+        } else if (type === "x") {
           const x = JSON.parse(data.toString("utf8")) as { code: number | null; signal: string | null; stderr: string; os_stop?: boolean };
           this.finish({ op: "exited", id: this.id, pid: this.pid ?? undefined, code: x.code, signal: x.signal, stderr: x.stderr, os_stop: x.os_stop });
           sock.end();
-        } else if (t === "e") {
+        } else if (type === "e") {
           this.finish({ op: "exited", id: this.id, code: null, signal: null, stderr: `держатель: ${data.toString("utf8")}` });
           sock.destroy();
         }
@@ -246,7 +243,7 @@ export class HeldProcess extends EventEmitter implements SpawnedProcess {
     this.exitCode = e.code;
     this.signalCode = (e.signal ?? null) as NodeJS.Signals | null;
     if (!this.stdout.writableEnded) this.stdout.end();
-    this.client.exited(this, e);
+    this.exited(e);
     this.emit("exit", e.code, this.signalCode);
   }
 

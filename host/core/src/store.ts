@@ -23,66 +23,68 @@ export type CoreRecord = {
   from?: string;
 };
 
-const clone = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
+const CORE = "core";
+const copy = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
 
 export class Stores {
-  readonly dir: string;
-  private cache = new Map<string, Section>();
+  private readonly dir: string;
+  private readonly sections = new Map<string, Section>();
 
   constructor(dir: string) {
     this.dir = dir;
     mkdirSync(dir, { recursive: true });
   }
 
-  private read(name: string): Section {
-    let s = this.cache.get(name);
+  private section(name: string): Section {
+    let s = this.sections.get(name);
     if (!s) {
       const f = join(this.dir, name + ".json");
       s = existsSync(f) ? (JSON.parse(readFileSync(f, "utf8")) as Section) : {};
-      this.cache.set(name, s);
+      this.sections.set(name, s);
     }
     return s;
   }
 
   private write(name: string, s: Section): void {
     const f = join(this.dir, name + ".json");
-    const tmp = f + ".tmp";
     // сброс на диск до rename: после обрыва питания файл старый или новый, а не нули
-    writeFileSync(tmp, JSON.stringify(s, null, 1), { flush: true });
-    renameSync(tmp, f);
+    writeFileSync(f + ".tmp", JSON.stringify(s, null, 1), { flush: true });
+    renameSync(f + ".tmp", f);
+  }
+
+  /** Store над одним значением раздела: чтение — копия, запись — сразу. */
+  private store<T>(read: () => unknown, change: (v: T | undefined) => void): Store<T> {
+    const get = () => copy(read() as T | undefined);
+    return { get, set: change, update: (fn) => { const v = fn(get()); change(v); return copy(v); } };
   }
 
   /** Раздел модуля для машины. */
   machine<T>(name: string): Store<T> {
-    const get = () => clone(this.read(name).machine as T | undefined);
-    const set = (v: T | undefined) => {
-      const s = this.read(name);
+    return this.store<T>(() => this.section(name).machine, (v) => {
+      const s = this.section(name);
       if (v === undefined) delete s.machine;
-      else s.machine = clone(v);
+      else s.machine = copy(v);
       this.write(name, s);
-    };
-    return { get, set, update: (fn) => { const v = fn(get()); set(v); return clone(v); } };
+    });
   }
 
   /** Раздел модуля для сессии. */
   session<T>(name: string, callsign: string): Store<T> {
-    const get = () => clone(this.read(name).sessions?.[callsign] as T | undefined);
-    const set = (v: T | undefined) => {
-      const s = this.read(name);
+    return this.store<T>(() => this.section(name).sessions?.[callsign], (v) => {
+      const s = this.section(name);
       s.sessions ??= {};
       if (v === undefined) delete s.sessions[callsign];
-      else s.sessions[callsign] = clone(v);
+      else s.sessions[callsign] = copy(v);
       this.write(name, s);
-    };
-    return { get, set, update: (fn) => { const v = fn(get()); set(v); return clone(v); } };
+    });
   }
 
   /** s.remove(): стереть разделы этой сессии у всех модулей. */
   removeSession(callsign: string): void {
     for (const f of readdirSync(this.dir)) {
-      if (!f.endsWith(".json") || f === "core.json") continue;
-      const name = f.slice(0, -5);
-      const s = this.read(name);
+      if (!f.endsWith(".json") || f === CORE + ".json") continue;
+      const name = f.slice(0, -".json".length);
+      const s = this.section(name);
       if (s.sessions && callsign in s.sessions) {
         delete s.sessions[callsign];
         this.write(name, s);
@@ -92,12 +94,12 @@ export class Stores {
 
   /** Список сессий ядра. */
   core(): CoreRecord[] {
-    return clone(((this.read("core") as { sessions?: CoreRecord[] }).sessions ?? []) as CoreRecord[]);
+    return copy(((this.section(CORE) as { sessions?: CoreRecord[] }).sessions ?? []) as CoreRecord[]);
   }
 
   saveCore(list: CoreRecord[]): void {
-    const s = { sessions: clone(list) } as unknown as Section;
-    this.cache.set("core", s);
-    this.write("core", s);
+    const s = { sessions: copy(list) } as unknown as Section;
+    this.sections.set(CORE, s);
+    this.write(CORE, s);
   }
 }

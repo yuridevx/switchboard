@@ -1,19 +1,47 @@
-// Эталоны процесса Host (738–743, 752): main.ts отдельным процессом — гейт выпуска --check, отказы старта и ловушка процесса.
+// Леса ядра, сторона процесса (738–743, 752): main.ts отдельным процессом — гейт выпуска --check, отказы старта и ловушка процесса.
 // Выпуск — сборка во временной папке, как у «Выпусков»: packages/host — копия ядра, @switchboard/host — ссылка на неё,
 // прочие пакеты — ссылки на пакеты монорепо; поддельные модули — modules/<имя>/ на JS; build.json — список.
 import { spawn } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { createServer } from "node:http";
+import { createServer as createPlain } from "node:net";
+import type { Socket } from "node:net";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROTO } from "@switchboard/relay";
-import { loadRelease } from "../src/release.ts";
 
 /** номер ядра — из его манифеста: тесты не держат его числом */
 const CORE_VERSION = (JSON.parse((process.getBuiltinModule("node:fs") as typeof import("node:fs")).readFileSync(new URL("../module.json", import.meta.url), "utf8")) as { version: string }).version;
 
 const coreDir = join(import.meta.dirname, "..");
 const rootModules = join(coreDir, "..", "..", "node_modules");
+
+const sockets: Socket[] = [];
+const createNet = (on: (c: Socket) => void) => createPlain((c) => { sockets.push(c); on(c); });
+
+/** Минимальный WebSocket: принимает кадр hello и запоминает ключ. Кадры клиента в маске, длина до 64 КиБ. */
+function createHttpWs(hellos: string[]) {
+  const server = createServer();
+  server.on("upgrade", async (req, socket) => {
+    const { createHash } = await import("node:crypto");
+    const accept = createHash("sha1").update(String(req.headers["sec-websocket-key"]) + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").digest("base64");
+    socket.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " + accept + "\r\n\r\n");
+    socket.on("error", () => {});
+    socket.on("data", (d: Buffer) => {
+      let len = d[1] & 0x7f;
+      let at = 2;
+      if (len === 126) { len = d.readUInt16BE(2); at = 4; }
+      const mask = d.subarray(at, at + 4);
+      const body = Buffer.from(d.subarray(at + 4, at + 4 + len).map((b, i) => b ^ mask[i % 4]));
+      try {
+        const f = JSON.parse(body.toString("utf8")) as { type?: string; key?: string };
+        if (f.type === "hello") hellos.push(String(f.key));
+      } catch { /* ping */ }
+    });
+  });
+  return server;
+}
 
 type Run = { code: number | null; out: string; err: string };
 
@@ -86,16 +114,138 @@ describe("процесс Host", () => {
   it("5173 · адреса relay и Worker'ов Host берёт из build.json сборки, не из окружения keeper", async () => {
     // источник: отчёт слепого архитектора 2 нояб., пункт 1 (дубликат состояния: адреса флота — в сборке, как у страниц);
     // дизайн «Открытый флот»: «список сборки: модули по зависимостям, Worker'ы и их адреса»
-    const workers = { relay: "https://relay.test/", gate: "https://gate.test/", push: "https://push.test/" };
-    const main = release([], {}, workers);
-    const prev = process.env.SWITCHBOARD_WORKERS;
-    process.env.SWITCHBOARD_WORKERS = JSON.stringify({ relay: "https://чужой/" });
+    const upgrades: string[] = [];
+    const server = createServer();
+    server.on("upgrade", (req, socket) => {
+      upgrades.push(String(req.url));
+      socket.destroy();
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as { port: number }).port;
+    const main = release([], {}, { relay: `http://127.0.0.1:${port}/`, gate: "http://127.0.0.1:9/" });
+    const h = home();
+    const p = spawn(process.execPath, [main], { env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h, SWITCHBOARD_WORKERS: JSON.stringify({ relay: "https://чужой/" }) }, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
     try {
-      expect((await loadRelease(dirname(main))).workers).toEqual(workers);
+      for (const t0 = Date.now(); !upgrades.length && Date.now() - t0 < 30_000; ) await new Promise((r) => setTimeout(r, 100));
+      expect(upgrades[0]).toBe("/m/laptop");
     } finally {
-      if (prev === undefined) delete process.env.SWITCHBOARD_WORKERS;
-      else process.env.SWITCHBOARD_WORKERS = prev;
+      p.stdin.end();
+      await closed;
+      await new Promise<void>((r) => server.close(() => r()));
     }
+  }, 90_000);
+
+  it("715 · держатель не поднялся (нет SWITCHBOARD_HOLDER): сессия из хранилища — два выхода со словами держателя, failed; Host жив", async () => {
+    // источник: устав «процесс claude умер — один resume, второй сбой до готовности — failed»
+    const h = home();
+    mkdirSync(join(h, "store"), { recursive: true });
+    writeFileSync(join(h, "store", "core.json"), JSON.stringify({ sessions: [{ callsign: "site@laptop", session_id: "44444444-4444-4444-8444-444444444444", cwd: h, sdk: "0.3.311", stopped: false }] }));
+    const e: Record<string, string | undefined> = { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h };
+    delete e.SWITCHBOARD_HOLDER;
+    const p = spawn(process.execPath, [join(coreDir, "main.ts")], { env: e, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 60_000);
+    const exited = lines.filter((l) => l.ev === "session_exited");
+    expect(exited).toHaveLength(2);
+    expect(String(exited[0].why)).toContain("держатель: нет SWITCHBOARD_HOLDER — файла держателя");
+    expect(lines.filter((l) => l.ev === "session_failed")).toHaveLength(1);
+    p.stdin.end();
+    expect(await closed).toBe(0);
+  }, 90_000);
+
+  it("настоящие держатели: аргументы hold, папка данных в окружении, строка с портом; слово отказа держателя — выход со словами", async () => {
+    // источник: шапка протокола держателя (заморожен); keeper читает эти аргументы
+    const h = home();
+    mkdirSync(join(h, "store"), { recursive: true });
+    const sid = "44444444-4444-4444-8444-444444444444";
+    writeFileSync(join(h, "store", "core.json"), JSON.stringify({ sessions: [{ callsign: "site@laptop", session_id: sid, cwd: h, sdk: "0.3.311", stopped: false }] }));
+    // файл держателя — скрипт: запоминает аргументы и окружение, поднимает порт, на подключение отвечает словом отказа
+    writeFileSync(join(h, "hold"), [
+      'const fs = require("fs"), net = require("net");',
+      'fs.appendFileSync("hold-args.jsonl", JSON.stringify({ args: process.argv.slice(1), home: process.env.SWITCHBOARD_HOME }) + "\\n");',
+      'const s = net.createServer((c) => { c.on("error", () => {}); const b = Buffer.from("нет"); const f = Buffer.alloc(5); f.write("e"); f.writeUInt32BE(b.length, 1); c.end(Buffer.concat([f, b])); });',
+      's.listen(0, "127.0.0.1", () => { console.log(JSON.stringify({ port: s.address().port, key: "k", pid: process.pid })); setTimeout(() => process.exit(0), 3000); });',
+    ].join("\n"));
+    const p = spawn(process.execPath, [join(coreDir, "main.ts")], { cwd: h, env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h, SWITCHBOARD_HOLDER: process.execPath }, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 60_000);
+    p.stdin.end();
+    expect(await closed).toBe(0);
+    const exited = lines.filter((l) => l.ev === "session_exited");
+    expect(exited).toHaveLength(2);
+    expect(String(exited[0].why)).toContain("держатель: нет");
+    const first = JSON.parse(readFileSync(join(h, "hold-args.jsonl"), "utf8").split("\n")[0]) as { args: string[]; home: string };
+    expect(first.home).toBe(h);
+    expect(first.args[0].endsWith("hold")).toBe(true);
+    expect(first.args.slice(1, 7)).toEqual(["--id", "site@laptop", "--owner", "host", "--cwd", h]);
+    expect(first.args[7]).toBe("--");
+  }, 90_000);
+
+  it("файл держателя молчит или вышел: причина со словами; файлы procs — только свои, битый не мешает, ничей убит кадром k", async () => {
+    // источник: устав «пишет в журнал с причиной»; шапка протокола держателя
+    const got: Buffer[] = [];
+    const server = createNet((c) => {
+      c.on("error", () => {});
+      c.on("data", (d) => got.push(d));
+    });
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as { port: number }).port;
+    const h = home();
+    mkdirSync(join(h, "store"), { recursive: true });
+    mkdirSync(join(h, "procs"), { recursive: true });
+    writeFileSync(join(h, "procs", "old.json"), JSON.stringify({ id: "old@laptop", owner: "host", pid: 77, port, key: "key" }));
+    writeFileSync(join(h, "procs", "chrome.json"), JSON.stringify({ id: "chrome", owner: "keeper", pid: 78, port, key: "key" }));
+    writeFileSync(join(h, "procs", "broken.json"), "{");
+    writeFileSync(join(h, "procs", "note.txt"), "x");
+    writeFileSync(join(h, "store", "core.json"), JSON.stringify({ sessions: [{ callsign: "site@laptop", session_id: "44444444-4444-4444-8444-444444444444", cwd: h, sdk: "0.3.311", stopped: false }] }));
+    // файл держателя выходит с кодом и словами: node без скрипта hold
+    const p = spawn(process.execPath, [join(coreDir, "main.ts")], { cwd: h, env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h, SWITCHBOARD_HOLDER: process.execPath }, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "orphan_kill") && Buffer.concat(got).toString("latin1").endsWith("k\x00\x00\x00\x00"), 30_000);
+    expect(Buffer.concat(got).toString("latin1")).toBe("a\x00\x00\x00\x03keyk\x00\x00\x00\x00");
+    expect(lines.find((l) => l.ev === "orphan_kill")!.why).toBe("процесс old@laptop (pid 77) не в списке сессий — kill");
+    expect(lines.some((l) => l.callsign === "chrome")).toBe(false);
+    server.close();
+    for (const c of sockets) c.destroy();
+    const all = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 60_000);
+    const exited = all.filter((l) => l.ev === "session_exited");
+    expect(String(exited[0].why)).toContain("держатель: держатель вышел с кодом 1");
+    p.stdin.end();
+    expect(await closed).toBe(0);
+  }, 90_000);
+
+  it("модуль без default — выключен со словами импорта, Host готов", async () => {
+    // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): ошибка импорта — модуль failed
+    const main = release(["host-empty"], { "host-empty": { provides: {}, code: "export const x = 1;\n" } });
+    const h = home();
+    const p = spawn(process.execPath, [main], { env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h }, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "ready"), 30_000);
+    expect(String(lines.find((l) => l.ev === "module_failed")!.why)).toContain("host-empty: импорт: нет default — объекта модуля");
+    p.stdin.end();
+    expect(await closed).toBe(0);
+  }, 90_000);
+
+  it("разделы модулей — из host.json, ключ машины — из machine.key: идут в hello", async () => {
+    // источник: шапка main; устав «пропуск говорит флоту, кто пришёл»
+    const hellos: string[] = [];
+    const server = createHttpWs(hellos);
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as { port: number }).port;
+    const code = 'export default { start(host) { host.log({ ev: "cfg", why: JSON.stringify(host.config()) }); } };\n';
+    const main = release(["host-c"], { "host-c": { provides: {}, code } }, { relay: "http://127.0.0.1:" + port + "/", gate: "http://127.0.0.1:9/" });
+    const h = home();
+    writeFileSync(join(h, "host.json"), JSON.stringify({ modules: { "host-c": { a: 1 } } }));
+    writeFileSync(join(h, "machine.key"), "host.laptop.k7.секрет\n");
+    const p = spawn(process.execPath, [main], { env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h }, windowsHide: true });
+    const closed = new Promise<number | null>((r) => p.on("close", (c) => r(c)));
+    const lines = await journalUntil(h, (ls) => ls.some((l) => l.ev === "cfg") && hellos.length > 0, 30_000);
+    expect(lines.find((l) => l.ev === "cfg")!.why).toBe('{"a":1}');
+    expect(hellos[0]).toBe("host.laptop.k7.секрет");
+    p.stdin.end();
+    await closed;
+    server.close();
   }, 90_000);
 
   it("738 · --check годного выпуска: ok, версия, SDK 0.3.311 и proto; код 0", async () => {

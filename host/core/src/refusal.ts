@@ -4,7 +4,7 @@
 /** Метка отказа: одна на процесс для всех копий пакета. */
 export const REFUSAL = Symbol.for("switchboard.refusal");
 
-/** Отказ словом контракта модуля: ядро шлёт reply ok:false с этим словом и пишет refuse в журнал. Не ошибка модуля. */
+/** Отказ словом: ядро шлёт reply ok:false с этим словом и пишет refuse в журнал. */
 export class Refusal extends Error {
   readonly word: string;
   readonly why?: string;

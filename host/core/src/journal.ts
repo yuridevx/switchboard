@@ -11,7 +11,6 @@ export function journal(dir: string, machine: string, clock: Clock): Journal {
   mkdirSync(dir, { recursive: true });
   return (who, rec) => {
     const t = new Date(clock.now()).toISOString();
-    const line = { t, part: "host", machine, who, ...rec, kind: rec.kind ?? "note" };
-    appendFileSync(join(dir, `host-${t.slice(0, 10)}.jsonl`), JSON.stringify(line) + "\n");
+    appendFileSync(join(dir, `host-${t.slice(0, 10)}.jsonl`), JSON.stringify({ t, part: "host", machine, who, ...rec, kind: rec.kind ?? "note" }) + "\n");
   };
 }
