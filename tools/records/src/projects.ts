@@ -48,11 +48,13 @@ export function placeSessions(recs: Recs, block: string[], project: string, befo
   return all.map((r) => (r.id === project ? { ...r, sessions: inserted(r.sessions, block, before ? r.sessions.indexOf(before) : -1) } : r));
 }
 
-/** Бросок на экране: незаписанные строки секции сначала записываются как показаны, иначе порядка «перед» у них нет. */
+/** Бросок на экране: перед записанной строкой — обычная постановка; среди незаписанных блок встаёт за строками выше места броска, поэтому в запись идут они и он. */
 export function dropSessions(recs: Recs, block: string[], project: string, before: string | null, shown: string[]): ProjectRec[] {
-  const recorded = new Set((recs ?? []).flatMap((r) => r.sessions));
-  const loose = shown.filter((c) => !recorded.has(c) && !block.includes(c));
-  return placeSessions(placeSessions(recs, loose, project), block, project, before);
+  const written = recs?.find((r) => r.id === project)?.sessions ?? [];
+  if (before && written.includes(before)) return placeSessions(recs, block, project, before);
+  const rows = shown.filter((c) => !block.includes(c));
+  const above = before ? rows.slice(0, Math.max(rows.indexOf(before), 0)) : rows;
+  return placeSessions(placeSessions(recs, above.filter((c) => !written.includes(c)), project), block, project);
 }
 
 export function moveProject(recs: Recs, id: string, before?: string | null): ProjectRec[] {

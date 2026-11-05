@@ -17,5 +17,5 @@ export function setLabel(labels: Labels | undefined, address: string, name: stri
   const [area, key] = slotOf(address);
   const { [key]: _old, ...others } = labels?.[area] ?? {};
   const text = name.trim();
-  return { sessions: {}, machines: {}, ...labels, [area]: text ? { ...others, [key]: text } : others };
+  return { sessions: { ...labels?.sessions }, machines: { ...labels?.machines }, [area]: text ? { ...others, [key]: text } : others };
 }

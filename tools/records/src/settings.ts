@@ -38,10 +38,13 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
   /** правки, ещё не применённые к свежему чтению */
   const waiting: Edit[] = [];
   // очередь одна: чтение посреди записи вернуло бы старое значение
-  let turn: Promise<unknown> = Promise.resolve();
+  let turn = Promise.resolve();
   const inTurn = <R,>(work: () => Promise<R>): Promise<R> => {
     const result = turn.then(work);
-    turn = result;
+    turn = result.then(
+      () => {},
+      () => {},
+    );
     return result;
   };
 
@@ -59,12 +62,10 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
     }
     const next = applied(answer.result.values, mine);
     shown = applied(next, waiting);
-    await Promise.all(
-      [...new Set(mine.map((e) => e.key))].map(async (key) => {
-        const written = await ask("prefs.set", { name: key, value: next[key], ...area });
-        for (const e of mine) if (e.key === key) e.done(written.ok ? null : written.error);
-      }),
-    );
+    for (const key of new Set(mine.map((e) => e.key))) {
+      const written = await ask("prefs.set", { name: key, value: next[key], ...area });
+      for (const e of mine) if (e.key === key) e.done(written.ok ? null : written.error);
+    }
     changed();
   }
 
@@ -87,6 +88,6 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
         changed();
         void inTurn(cycle);
       }),
-    settled: () => turn.then(() => {}),
+    settled: () => turn,
   };
 }

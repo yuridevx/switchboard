@@ -24,9 +24,9 @@ export const createLabels = ((app) => {
   };
 
   function LabelsWindow({ params, close = () => app.back() }: ScreenProps) {
-    const { callsign } = params;
-    const machine = params.machine ?? machineOf(callsign ?? "") ?? "";
-    const [sessionName, setSessionName] = useState(nameAt(callsign ?? "") ?? "");
+    const callsign = params.callsign ?? "";
+    const machine = params.machine ?? machineOf(callsign) ?? "";
+    const [sessionName, setSessionName] = useState(nameAt(callsign) ?? "");
     const [machineName, setMachineName] = useState(nameAt(`@${machine}`) ?? "");
     const save = () => {
       names.edit<Labels>(LABELS, (old) => setLabel(callsign ? setLabel(old, callsign, sessionName) : old, `@${machine}`, machineName));
@@ -40,7 +40,7 @@ export const createLabels = ((app) => {
       <div className={`lb-veil${app.wide ? "" : " narrow"}`} onClick={(e) => e.target === e.currentTarget && close()}>
         <div className="lb-dlg" role="dialog" aria-label="Имена">
           <b>Имена</b>
-          <div className="lb-a">{callsign ?? `@${machine}`}</div>
+          <div className="lb-a">{callsign || `@${machine}`}</div>
           {callsign ? <Field title="Имя сессии" data-f="session" placeholder={nameOf(callsign)} value={sessionName} onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={onKeyDown} autoFocus /> : null}
           <Field title="Имя машины" data-f="machine" placeholder={`@${machine}`} value={machineName} onInput={(e) => setMachineName(e.currentTarget.value)} onKeyDown={onKeyDown} autoFocus={!callsign} />
           <div className="lb-ft">

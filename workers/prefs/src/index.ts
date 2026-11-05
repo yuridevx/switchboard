@@ -29,19 +29,18 @@ function ownerOf({ scope, from = "" }: Frame): string {
   return refuse("bad_frame", `область ${JSON.stringify(scope)}: нужно global или app:<приложение>`);
 }
 
-async function read(db: D1Database, f: Frame) {
+async function read(db: D1Database, owner: string, f: Frame) {
   const { prefix = "" } = f;
   if (f.prefix !== undefined && (typeof prefix !== "string" || !prefix)) refuse("bad_frame", "prefix — непустая строка");
   // substr, а не LIKE: знаки шаблона в prefix буквальны
-  const { results } = await db.prepare("SELECT key, value FROM prefs WHERE user = ?1 AND substr(key, 1, length(?2)) = ?2").bind(ownerOf(f), prefix).all<{ key: string; value: string }>();
+  const { results } = await db.prepare("SELECT key, value FROM prefs WHERE user = ?1 AND substr(key, 1, length(?2)) = ?2").bind(owner, prefix).all<{ key: string; value: string }>();
   return { values: Object.fromEntries(results.map((r) => [r.key, JSON.parse(r.value)])) };
 }
 
-async function write(db: D1Database, f: Frame) {
+async function write(db: D1Database, owner: string, f: Frame) {
   const { name, value } = f;
   if (typeof name !== "string" || !name) return refuse("bad_frame", "в prefs.set нет name");
   if (value === undefined) return refuse("bad_frame", `в prefs.set ${name} нет value`);
-  const owner = ownerOf(f);
   const text = JSON.stringify(value);
   const bytes = new TextEncoder().encode(text).length;
   if (bytes > MAX_VALUE) refuse("too_large", `${name}: ${bytes} байт, предел ${MAX_VALUE}`);
@@ -55,7 +54,7 @@ async function serve(db: D1Database, f: Frame): Promise<Frame[]> {
     const bad = accepts(f, CONTRACT);
     if (bad) refuse(bad.word, bad.why);
     if (!f.id) return refuse("bad_frame", `${f.type} без id — ответить некому`);
-    return [{ ...ok(f.id, await (f.type === "prefs.get" ? read : write)(db, f)), to }];
+    return [{ ...ok(f.id, await (f.type === "prefs.get" ? read : write)(db, ownerOf(f), f)), to }];
   } catch (e) {
     if (!(e instanceof Refusal)) throw e;
     console.log(JSON.stringify({ t: new Date().toISOString(), part: "prefs", kind: "refuse", ev: f.type, word: e.word, why: e.why, from: to }));
@@ -64,5 +63,5 @@ async function serve(db: D1Database, f: Frame): Promise<Frame[]> {
 }
 
 export default {
-  fetch: (req: Request, env: Env) => entrance(req, env.GATE, (f) => serve(env.DB, f)),
-};
+  fetch: (req, env) => entrance(req, env.GATE, (f) => serve(env.DB, f)),
+} satisfies ExportedHandler<Env>;
