@@ -16,7 +16,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"];
 const WEB = ["phone", "pult"];
 /** Предел вызова сборки и wrangler: вдвое выше самого долгого шага загрузки в CI (22 с). */
-const SPAWN_MS = 45_000;
+const SPAWN_MS = 300_000;
 const wrangler = join(root, "node_modules", "wrangler", "bin", "wrangler.js");
 
 const fail = (word) => {
