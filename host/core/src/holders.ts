@@ -123,7 +123,7 @@ export class HolderClient {
     const f = this.api.files().find((x) => x.id === id);
     if (!f) return;
     await new Promise<void>((resolve) => {
-      const p = new HeldProcess(Promise.resolve(f), id, (e) => this.onExited(e));
+      const p = this.hold(Promise.resolve(f), id);
       p.once("exit", () => resolve());
       p.kill("SIGKILL");
     });
@@ -139,6 +139,10 @@ export class HolderClient {
             if (!f) throw new Error("unknown_id");
             return f;
           })();
+    return this.hold(file, id);
+  }
+
+  private hold(file: Promise<HoldFile>, id: string): HeldProcess {
     const p: HeldProcess = new HeldProcess(file, id, (e) => {
       if (this.procs.get(id) === p) this.procs.delete(id);
       this.onExited(e);

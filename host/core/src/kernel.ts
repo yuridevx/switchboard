@@ -18,7 +18,7 @@ import { isRefusal, refuse } from "./refusal.ts";
 import { gate } from "./registry.ts";
 import type { Release } from "./release.ts";
 import { refOf, Router } from "./router.ts";
-import { Sess } from "./session.ts";
+import { Sess, STOP_MS } from "./session.ts";
 import type { SdkApi, SessionDeps } from "./session.ts";
 import { Stores } from "./store.ts";
 import type { CoreRecord } from "./store.ts";
@@ -185,7 +185,7 @@ export class Kernel {
     for (const p of held) {
       if (this.sessions.has(p.id)) continue;
       this.log({ kind: "stop", ev: "orphan_kill", callsign: p.id, why: `процесс ${p.id} (pid ${p.pid}) не в списке сессий — kill` });
-      await this.holders.kill(p.id);
+      await this.killOrphan(p.id);
     }
     // вклады всех сессий — до запуска: два владельца у имени — Host не стартует
     const parts = new Map<Sess, Awaited<ReturnType<Sess["collectParts"]>>>();
@@ -212,6 +212,20 @@ export class Kernel {
     if (this.shutting) return;
     this.log({ ev: "ready", version: release.version });
     for (const m of mods) if (m.module.on?.ready) this.trap.call(m, "on.ready", null, (x) => x.on!.ready!(), () => undefined);
+  }
+
+  /** Ничей держатель молчит на kill: старт не ждёт его без конца, кадр уже ушёл. */
+  private killOrphan(id: string): Promise<void> {
+    return new Promise((done) => {
+      const late = this.clock.setTimeout(() => {
+        this.log({ kind: "stop", ev: "orphan_late", callsign: id, why: `держатель ${id} не вышел за ${STOP_MS / 1000} с после kill — старт идёт дальше` });
+        done();
+      }, STOP_MS);
+      void this.holders.kill(id).then(() => {
+        this.clock.clearTimeout(late);
+        done();
+      });
+    });
   }
 
   private refuseStart(reasons: string[]): never {

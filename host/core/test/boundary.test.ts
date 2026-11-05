@@ -2763,6 +2763,25 @@ describe("спорные места: разобраны опытом", () => {
     await until(() => second.inputs.length === 1);
     expect(second.inputs[0].message.content).toBe("во время перезапуска");
   });
+
+  it("ничей держатель молчит на kill: старт Host не висит, за предел — строка и дальше", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; опыт: старт ждал без конца
+    const server = net.createServer((c) => c.on("error", () => {}));
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+    const port = (server.address() as net.AddressInfo).port;
+    const file = { id: "old@laptop", owner: "host", pid: 4242, port, key: "key" };
+    const holders = { spawn: async () => { throw new Error("нельзя"); }, files: () => [file], close: async () => {} } as unknown as FakeHolders;
+    const st = await standHost({ holders, start: false });
+    stands.push(st);
+    const starting = st.start();
+    await until(() => lines(st, "orphan_kill").length === 1);
+    await new Promise((r) => setTimeout(r, 30));
+    st.clock.advance(STOP_STEP);
+    await starting;
+    expect(lines(st, "orphan_late")[0]).toMatchObject({ kind: "stop", callsign: "old@laptop", why: "держатель old@laptop не вышел за 30 с после kill — старт идёт дальше" });
+    expect(lines(st, "ready")).toHaveLength(1);
+    server.close();
+  });
 });
 
 describe("история после сжатия", () => {
