@@ -1,0 +1,142 @@
+// Ответы владельцев на подделке relay: что страница стенда получает на свои запросы. Образцы данных: снимки сравниваются с ними.
+import { FakeRelay } from "../../web/packages/core/stand/relay.ts";
+import type { Fleet, S } from "./fleets.ts";
+
+
+export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: Array<Record<string, unknown>> }, app: string, ME: string) {
+  const h = relay.handlers;
+  const Q = (s: S) => ({ question: `q-${s.cs}`, kind: "ask", questions: [{ question: s.q, header: "Вопрос", multiSelect: false, options: [{ label: "Да", description: "Выполнить сейчас." }, { label: "Нет, подожди" }] }] });
+  // запросы разрешения, которые окно снимка поставило само (window.__ask): их помнит и question.list, как настоящий Host
+  const asks: Array<Record<string, unknown>> = [];
+  (window as unknown as { __ask(q: Record<string, unknown>): void }).__ask = (q) => {
+    asks.push(q);
+    relay.push({ type: "session.events", from: q.from, seq: 950 + asks.length, events: [{ type: "assistant", uuid: `perm-${q.question}`, message: { id: `perm-${q.question}`, model: "claude-opus-5-5", content: [{ type: "tool_use", id: q.question, name: q.tool, input: q.input }] } }] });
+    relay.push({ type: "question", to: ["pult", "phone"], ...q });
+    relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === q.from ? { ...x, state: "waiting", mode: q.tool === "ExitPlanMode" ? "plan" : "default" } : x)) } as never);
+  };
+  h["question.list"] = (f) => ({ ok: true, result: [...F.ss.filter((s) => s.cs === f.callsign && s.q).map(Q), ...asks.filter((q) => q.from === f.callsign)] });
+  h["answer"] = (f) => {
+    const i = asks.findIndex((q) => q.question === f.question);
+    if (i >= 0) {
+      relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === asks[i].from ? { ...x, state: "busy" } : x)) } as never);
+      asks.splice(i, 1);
+    }
+    return { ok: true };
+  };
+  h["session.watch"] = () => ({ ok: true });
+  h["session.unwatch"] = () => ({ ok: true });
+  // разговор стенда: что видно в ленте живой сессии
+  const talk = (cs: string) => {
+    const asst = (uuid: string, content: unknown[]) => ({ type: "assistant", uuid, message: { id: uuid, model: "claude-opus-5-5", content } });
+    const res = (uuid: string, id: string, content: string, is_error = false) => ({ type: "user", uuid, message: { content: [{ type: "tool_result", tool_use_id: id, content, is_error }] } });
+    const base = [
+      { type: "user", uuid: `${cs}-u1`, timestamp: new Date(Date.now() - 900000).toISOString(), message: { content: `Задача для ${cs}: сборка на CI падает с утра, разбери и почини.` } },
+      asst(`${cs}-a1`, [{ type: "thinking", thinking: "Сначала лог CI, потом конфиг тестов." }, { type: "text", text: "Беру. Сначала прочитаю **конфиг** и лог последнего прогона." }]),
+      asst(`${cs}-a2`, [{ type: "tool_use", id: `${cs}-t1`, name: "Read", input: { file_path: "vitest.config.ts" } }]),
+      res(`${cs}-r1`, `${cs}-t1`, 'export default { test: { testTimeout: 5000 } };'),
+      asst(`${cs}-a3`, [{ type: "tool_use", id: `${cs}-t2`, name: "Bash", input: { command: "npm test -- --reporter=dot", description: "Прогон тестов" } }]),
+      res(`${cs}-r2`, `${cs}-t2`, "Tests  1 failed | 214 passed\n  эталон 4187: Test timed out in 5000ms", true),
+      asst(`${cs}-a4`, [{ type: "tool_use", id: `${cs}-t3`, name: "Edit", input: { file_path: "vitest.config.ts", old_string: "testTimeout: 5000", new_string: "testTimeout: 15000" } }]),
+      res(`${cs}-r3`, `${cs}-t3`, "ok"),
+      asst(`${cs}-a5`, [{ type: "text", text: "## Итог\n\nСборка падала на **таймауте**: эталон 4187 идёт дольше 5 с.\n\n| Часть | Было | Стало |\n|---|---:|---:|\n| testTimeout | 5 с | 15 с |\n| тесты | 214 из 215 | 215 из 215 |\n\n```ts\nexport default { test: { testTimeout: 15000 } };\n```\n\nОсталось выложить на тестовый флот." }]),
+      { type: "result", uuid: `${cs}-z1`, subtype: "success", duration_ms: 134000, num_turns: 6, total_cost_usd: 0.41, usage: { input_tokens: 1200, cache_read_input_tokens: 45000 } },
+      { type: "user", uuid: `${cs}-u2`, timestamp: new Date(Date.now() - 120000).toISOString(), message: { content: "Хорошо. Прогони ещё раз и обнови README" } },
+    ];
+    const running = [
+      asst(`${cs}-a6`, [{ type: "tool_use", id: `${cs}-t4`, name: "TodoWrite", input: { todos: [{ content: "Прогнать тесты", status: "completed" }, { content: "Обновить README", activeForm: "Обновляю README", status: "in_progress" }, { content: "Выложить на флот", status: "pending" }] } }]),
+      res(`${cs}-r4`, `${cs}-t4`, "ok"),
+      asst(`${cs}-a7`, [{ type: "tool_use", id: `${cs}-t5`, name: "Bash", input: { command: "npm run dev", run_in_background: true } }]),
+      { type: "system", subtype: "task_started", uuid: `${cs}-k1`, task_id: `${cs}-bg`, tool_use_id: `${cs}-t5`, task_type: "local_bash", description: "npm run dev", is_backgrounded: true },
+      res(`${cs}-r5`, `${cs}-t5`, "Command running in background"),
+      asst(`${cs}-a8`, [{ type: "tool_use", id: `${cs}-t6`, name: "Agent", input: { description: "Ищет упоминания таймаута", prompt: "Найди все упоминания таймаута в README", subagent_type: "Explore" } }]),
+      { type: "system", subtype: "task_started", uuid: `${cs}-k2`, task_id: `${cs}-ag`, tool_use_id: `${cs}-t6`, task_type: "local_agent", description: "Ищет упоминания таймаута" },
+      { type: "system", subtype: "task_progress", uuid: `${cs}-k3`, task_id: `${cs}-ag`, summary: "читает README.md", usage: { tool_uses: 3 } },
+    ];
+    const s = F.ss.find((x) => x.cs === cs);
+    if (cs.startsWith("home@")) return [];
+    return s?.state === "busy" ? [...base, ...running] : base;
+  };
+  h["session.history"] = (f) => ({ ok: true, result: { more: String(f.callsign).startsWith("tests@"), messages: f.before ? [] : talk(String(f.callsign)) } });
+  h["session.files"] = (f) => ({ ok: true, result: ["src/worker.ts", "src/combat/damage.ts", "test/worker.test.ts", "README.md"].filter((x) => x.includes(String(f.query))) });
+  h["session.prompt"] = (f) => ({ ok: true, result: { uuid: f.uuid } });
+  h["session.update"] = () => ({ ok: true, result: {} });
+  h["session.spec"] = () => ({ ok: true, result: { title: "" } });
+  h["session.call"] = (f) => {
+    const answers: Record<string, unknown> = {
+      supportedCommands: [{ name: "compact", description: "Сжать разговор, оставив краткое содержание" }, { name: "context", description: "Сколько занято в контексте" }, { name: "review", description: "Ревью изменений" }, { name: "clear", description: "Начать разговор заново" }],
+      getContextUsage: { totalTokens: 84200, maxTokens: 200000, percentage: 42, categories: [{ name: "System prompt", tokens: 3700 }, { name: "System tools", tokens: 21500 }, { name: "Memory files", tokens: 2100 }, { name: "Skills", tokens: 5700 }, { name: "Messages", tokens: 51200 }, { name: "Free space", tokens: 115800 }] },
+      supportedAgents: [{ name: "general-purpose", description: "Агент общего назначения для поиска и многошаговых задач" }, { name: "Explore", description: "Быстрый поиск по коду" }],
+      rewindFiles: { canRewind: true, filesChanged: ["vitest.config.ts", "README.md"], insertions: 4, deletions: 1 },
+      getTaskOutput: { output: "VITE ready in 412 ms\n  Local: http://localhost:5173/\n  ready for changes", total_bytes: 20480, truncated: true },
+      cancelAsyncMessage: true,
+      usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET: { session: { total_cost_usd: 1.84, total_api_duration_ms: 312000, total_lines_added: 148, total_lines_removed: 37 }, rate_limits: { five_hour: { utilization: 34, resets_at: new Date(Date.now() + 7200000).toISOString() }, seven_day: { utilization: 72, resets_at: new Date(Date.now() + 172800000).toISOString() }, seven_day_opus: null } },
+      getStatus: { sections: [{ title: "Session", rows: [{ label: "Version", value: "2.1.310" }, { label: "cwd", value: "~/projects/switchboard" }, { label: "Login method", value: "Claude Max" }, { label: "Peer address", value: "скрыт" }] }, { title: "Environment", rows: [{ label: "Model", value: "claude-opus-5-5" }, { label: "MCP servers", value: "2 connected" }] }] },
+      getHooksListing: { hooks: [{ event: "PostToolUse", matcher: "Edit|Write", source: "projectSettings", displayText: "cargo fmt" }, { event: "SessionStart", source: "userSettings", displayText: "node ~/hooks/start.mjs" }] },
+      mcpServerStatus: [{ name: "github", status: "connected" }, { name: "linear", status: "needs-auth" }, { name: "postgres", status: "failed" }, { name: "figma", status: "disabled" }],
+      mcpAuthenticate: { authUrl: "https://example.com/oauth/linear" },
+      supportedModels: [{ value: "opus", supportsAutoMode: true }, { value: "sonnet", supportsAutoMode: true }, { value: "haiku" }],
+      listPermissionRules: { state: { rules: [{ behavior: "allow", source: "localSettings", rule: "Bash(npm test:*)" }, { behavior: "allow", source: "projectSettings", rule: "Edit(src/**)" }, { behavior: "deny", source: "projectSettings", rule: "Read(.env)" }, { behavior: "ask", source: "userSettings", rule: "WebFetch(domain:example.com)" }] } },
+    };
+    // режим меняет поле roster, как на настоящем Host
+    if (f.method === "setPermissionMode") {
+      const mode = (f.args as string[])[0];
+      relay.setRoster({ ...relay.roster, sessions: relay.roster.sessions.map((x) => (x.callsign === f.callsign ? { ...x, mode } : x)) });
+      return { ok: true, result: null };
+    }
+    // вопрос сбоку: «долго» — ответа нет, «нельзя» — отказ, иначе ответ разметкой
+    if (f.method === "askSideQuestion") {
+      const q = String((f.args as string[])[0]);
+      if (q.includes("долго")) return undefined as never;
+      if (q.includes("нельзя")) return { ok: false, error: "sdk_error" };
+      return { ok: true, result: { response: "На тесте **2.0.0+5**, на проде `2.0.0+3`." } };
+    }
+    return { ok: true, result: answers[String(f.method)] ?? [] };
+  };
+  h["machine.accounts"] = (f) => ({ ok: true, result: { accounts: { y0902: { login: "ok", email: "dev@mail.ru", plan: "Max 20×", limits: { five_hour: { utilization: 0.42, resetsAt: Date.now() / 1000 + 7200 }, seven_day: { utilization: 0.61, resetsAt: Date.now() / 1000 + 86400 } } }, night: { login: "ok", email: "night@x.io", plan: "Max 5×", limits: { five_hour: { utilization: 0.82, resetsAt: Date.now() / 1000 + 3600 } } } }, slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: F.ss.filter((s) => s.cs.endsWith(`@${String(f.machine ?? String(f.to ?? "").split("@")[1])}`)).map((s) => s.cs) }, second: { account: "night", order: ["night"], wait: Date.now() / 1000 + 3600, sessions: [] } } } });
+  h["machine.profiles"] = (f) => {
+    const m = String(f.machine);
+    const profiles: Record<string, unknown> = {};
+    let bad: Prof | null = null;
+    for (const [id, p] of Object.entries(F.prof)) {
+      if (!p.on[m]) continue;
+      profiles[`team/profiles/${id}`] = { model: p.model, effort: p.effort, about: p.about };
+      if (p.on[m] === "conflict") bad = p;
+    }
+    return { ok: true, result: { profiles, repos: { "team/profiles": bad ? { state: "conflict", op: "git pull", files: bad.files } : { state: "ok" } } } };
+  };
+  h["machine.dirs"] = (f) => {
+    const m = String(f.machine);
+    const p = String(f.path);
+    const kids = new Set<string>();
+    for (const s of F.ss) if (s.cs.endsWith(`@${m}`) && s.dir !== p && s.dir.startsWith(`${p}/`)) kids.add(s.dir.slice(p.length + 1).split("/")[0]);
+    const depth = p.split("/").length - 1;
+    (depth === 0 ? ["Documents", "Downloads", ".config"] : depth === 1 ? ["sandbox", "experiments", "old"] : ["src", "docs", "tests", "scripts", ".git"]).forEach((x) => kids.add(x));
+    return { ok: true, result: { path: p, dirs: [...kids].sort() } };
+  };
+  h["session.open"] = (f) => {
+    const cs = `${f.name}@${f.machine}`;
+    if (roster.sessions.some((s) => s.callsign === cs)) return { ok: false, error: "name_taken" };
+    roster.sessions.push({ callsign: cs, dir: String(f.dir), state: "idle", model: String(f.model ?? "sonnet"), effort: String(f.effort ?? "medium"), by: `${app}~${ME}`, parent: undefined, slot: { name: "main" }, account: "y0902", ...(f.profile ? { profile: { id: String(f.profile), state: "ok" } } : {}) });
+    relay.setRoster({ ...relay.roster, sessions: roster.sessions } as never);
+    return { ok: true, result: { callsign: cs } };
+  };
+  h["session.r2"] = () => ({ ok: true, result: { point: 1 } });
+  h["keeper.state"] = (f) => ({ ok: true, result: { keeper: "1.1.3", rev: 9, os: String(f.to).includes("win") ? "windows" : "linux", parts: [{ part: "host", version: "1.2.9+4", state: "running", pid: 4120, restarts: 0 }, { part: "keeper", version: "1.1.3", state: "running" }] } });
+  h["machine.journal"] = () => ({ ok: true, result: { more: false, records: [{ t: new Date().toISOString(), part: "host", who: "session", kind: "note", ev: "session.open", word: "ok" }, { t: new Date().toISOString(), part: "host", who: "slots", kind: "refuse", ev: "slot.wait", word: "limit", why: "у порога" }] } });
+  h["ledger.read"] = () => ({ ok: true, result: { more: false, events: [{ id: 1, t: Date.now() - 60000, ev: "machine.joined", from: ".relay", text: "win на связи" }, { id: 2, t: Date.now() - 30000, ev: "session.failed", from: "night@wsl", text: "слот main: все аккаунты у порога" }] } });
+  h["points.list"] = (f) =>
+    f.sid
+      ? { ok: true, result: { owner: "win", head: 41, points: [{ id: 41, at: Date.now() - 60000, machine: "win", why: "rule", base: 40, dir: "~/Projects/switchboard", msgs: 212, git: { state: "clean", branch: "main" }, line: true }] } }
+      : { ok: true, result: { sessions: [{ sid: "s1", callsign: "refactor@win", dir: "~/Projects/switchboard", owner: "win", head: { id: 41, at: Date.now() - 60000 }, points: 41, branches: 1 }, { sid: "s2", callsign: "old-bot@wsl", dir: "~/old", owner: "wsl", head: { id: 3, at: Date.now() - 86400000 }, points: 3, branches: 0 }], r2: { bytes: 432013312, blocks: 2410 }, sweep: { at: Date.now() - 3600000, blocks: 12, bytes: 10485760 } } };
+  h["github.app"] = () => ({ ok: true, result: { app: { slug: "switchboard-fleet" }, repos: ["you/switchboard", "team/profiles", "you/site"], install: "https://github.com/apps/x/installations/new" } });
+  h["releases.list"] = () => ({
+    ok: true,
+    result: {
+      parts: { host: { where: "machine", edge: "1.2.9+4", stable: "1.2.9+4", versions: ["1.2.9+3", "1.2.9+4"] }, keeper: { where: "machine", edge: "1.1.3", stable: "1.1.3", versions: ["1.1.3"] }, pult: { where: "cloud", edge: "1.2.5+2", stable: "1.2.5+2", versions: ["1.2.5+2"] }, relay: { where: "cloud", edge: "1.1.0", stable: "1.1.0", versions: ["1.1.0"] } },
+      machines: F.ms.slice(0, 6).map((machine) => ({ machine, plan: {} })),
+      rev: 9,
+      modules: { "web-board": { into: ["pult", "phone"], built: { pult: "2.0.0", phone: "2.0.0" }, edge: "2.0.0" }, "web-core": { into: ["pult", "phone"], built: { pult: "1.8.0", phone: "1.8.0" }, edge: "1.8.0" } },
+    },
+  });
+  h["keys.list"] = () => ({ ok: true, result: { passes: [...F.ms.slice(0, 6).map((name, i) => ({ id: `kh${i}`, role: "host", name, person: null, addr: `@${name}`, state: "ok", by: "агент", at: Date.now() - 86400000 })), { id: "kc1", role: "client", name: "pult", person: ME, addr: `pult~${ME}`, state: "ok", by: "@win", at: Date.now() - 86400000 }, { id: "kc2", role: "client", name: "phone", person: ME, addr: `phone~${ME}`, state: "ok", by: `pult~${ME}`, at: Date.now() - 86400000 }] } });
+}
