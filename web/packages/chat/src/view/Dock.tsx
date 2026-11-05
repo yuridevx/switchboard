@@ -74,6 +74,8 @@ export function Dock() {
   const talks = useModule<Talks>();
   const sides = app.use(() => talks.get(env.cs).sides);
   const asked = app.use(() => app.mark("asked", env.cs) as string | undefined);
+  // вопрос уже был: итог ответа остаётся на месте; вопроса не было — пустая вставка не занимает строку
+  const askedOnce = app.use((was?: boolean) => !!was || !!asked);
   const bg = Object.values(env.view.tasks).filter((t) => t.bg && t.status === "running");
   const todos = env.view.todos ?? [];
   const done = todos.filter((t) => t.status === "completed").length;
@@ -124,7 +126,7 @@ export function Dock() {
       ))}
       <div className="chat-ask">
         {env.wide ? (
-          <app.Slot screen="ask" params={{ callsign: env.cs }} />
+          askedOnce && <app.Slot screen="ask" params={{ callsign: env.cs }} />
         ) : (
           asked && (
             <TextBtn className="chat-askbar" onClick={() => app.open("ask", { callsign: env.cs })}>
