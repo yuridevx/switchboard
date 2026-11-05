@@ -402,6 +402,14 @@ describe("страница «Аккаунты»: эталоны дизайна",
     expect(line.querySelector(".ac-name")!.getAttribute("title")).toBe("a@x");
   });
 
+  it("11 · значение старше часа подписано, свежее — нет", async () => {
+    // источник: дизайн, правила страницы; чьё: код
+    const relay = fleetAccounts({ laptop: ok({ "a@x": { login: "ok", limits: { seven_day: win(0.5, 86400, 7300) } }, "b@x": { login: "ok", limits: { seven_day: win(0.5, 86400, 60) } } }), pc: ok({}) });
+    const t = await accountsScreen(relay, "/#accounts");
+    expect(t.$('[data-account="a@x"] [data-age]')!.textContent).toContain("назад");
+    expect(t.$('[data-account="b@x"] [data-age]')).toBeNull();
+  });
+
   it("11 · сменился аккаунт сессии: опрошен только новый на её машине", async () => {
     // источник: находка слепого архитектора
     const r = fleetRoster();

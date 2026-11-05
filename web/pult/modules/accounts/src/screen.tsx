@@ -1,9 +1,9 @@
 // Страница «Аккаунты»: наверху лимиты каждого аккаунта, ниже машины строками, в строке очередь её аккаунтов. Всё, что нажато, открывается в этой строке.
 import { useEffect, useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { at, type AccountsAnswer, Btn, day, Dot, hhmm, In, machineLabel, Meter, Note, okOf, Opts, Outcome, type OutcomeNote, Page, type SlotInfo, useApp, useOutcome, wordOf } from "@switchboard/web-ui";
+import { ago, at, type AccountsAnswer, Btn, day, Dot, hhmm, In, LIMIT_BAD, LIMIT_WARN, machineLabel, Meter, Note, okOf, Outcome, type OutcomeNote, Page, type SlotInfo, useApp, useOutcome, wordOf } from "@switchboard/web-ui";
 import type { MachineRowInfo } from "../../machines/contract.ts";
-import { type Merged, merged, resetText, shortName, type Win } from "./merge.ts";
+import { type Merged, merged, order, resetText, shortName, type Win } from "./merge.ts";
 import { refusal, useAccounts } from "./state.ts";
 
 /** Что открыто под строкой: одно на странице. */
@@ -12,7 +12,9 @@ type Panel = { kind: "entry"; machine: string; slot: string; account: string } |
 const EXPIRES_SOON_S = 7 * 86400;
 const nowS = () => Math.floor(Date.now() / 1000);
 const peak = (windows: Win[]) => Math.round(Math.max(0, ...windows.map((w) => w.used)) * 100);
-const tone = (percent: number) => (percent >= 98 ? "over" : percent >= 80 ? "warn" : "");
+const tone = (percent: number) => (percent >= LIMIT_BAD ? "over" : percent >= LIMIT_WARN ? "warn" : "");
+/** Значение старше часа подписано: остальные считаются свежими. */
+const OLD_S = 3600;
 
 function WindowLine({ w }: { w: Win }) {
   const percent = Math.round(w.used * 100);
@@ -22,6 +24,7 @@ function WindowLine({ w }: { w: Win }) {
       <Meter value={Math.min(percent, 100)} warn={tone(percent) === "warn"} bad={tone(percent) === "over"} />
       <b>{`${percent} %`}</b>
       <time>{w.resets ? resetText(w.resets) : ""}</time>
+      {w.at && nowS() - w.at > OLD_S ? <small data-age="">{`данные ${ago(w.at * 1000)}`}</small> : null}
     </div>
   );
 }
@@ -298,7 +301,7 @@ export function AccountsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state]);
   const all = merged(answers, nowS());
-  const columns = [...new Set(all.flatMap((a) => a.windows.map((w) => w.key)))].sort((a, b) => (a === "five_hour" ? -1 : b === "five_hour" ? 1 : a === "seven_day" ? -1 : b === "seven_day" ? 1 : a.localeCompare(b)));
+  const columns = [...new Set(all.flatMap((a) => a.windows.map((w) => w.key)))].sort(order);
   return (
     <Page>
       <div className="ac-page">

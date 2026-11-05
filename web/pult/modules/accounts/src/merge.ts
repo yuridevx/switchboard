@@ -2,7 +2,7 @@
 import { type AccountInfo, type AccountsAnswer, day, hhmm, LIMIT_NAMES, type MachineAnswer, okOf } from "@switchboard/web-ui";
 
 type Answers = Readonly<Record<string, MachineAnswer<AccountsAnswer>>>;
-export type Win = { key: string; name: string; used: number; resets: number };
+export type Win = { key: string; name: string; used: number; resets: number; at: number };
 export type Diff = { machines: string[]; text: string };
 export type Merged = { email: string; windows: Win[]; diff: Diff[] };
 
@@ -11,7 +11,8 @@ export const FRESH_S = 120;
 /** Больше этого час сброса одного окна расходиться не может: разница в секунду бывает и в норме (замер 5 нояб.). */
 const RESET_DRIFT_S = 60;
 const FIRST = ["five_hour", "seven_day"];
-const order = (a: string, b: string) => (FIRST.indexOf(a) + 1 || 99) - (FIRST.indexOf(b) + 1 || 99) || a.localeCompare(b);
+/** Порядок окон: всегда один, в строке аккаунта и в столбцах. */
+export const order = (a: string, b: string) => (FIRST.indexOf(a) + 1 || 99) - (FIRST.indexOf(b) + 1 || 99) || a.localeCompare(b);
 
 /** «14:00» сегодня, иначе «10 нояб. 13:00». */
 export function resetText(t: number): string {
@@ -73,7 +74,7 @@ export function merged(answers: Answers, nowS: number): Merged[] {
       const windows = [...best]
         .filter(([, w]) => w.utilization > 0 || alive(w.resetsAt ?? 0, nowS))
         .sort(([a], [b]) => order(a, b))
-        .map(([key, w]) => ({ key, name: LIMIT_NAMES[key] ?? key, used: w.utilization, resets: alive(w.resetsAt ?? 0, nowS) ? (w.resetsAt ?? 0) : 0 }));
+        .map(([key, w]) => ({ key, name: LIMIT_NAMES[key] ?? key, used: w.utilization, resets: alive(w.resetsAt ?? 0, nowS) ? (w.resetsAt ?? 0) : 0, at: w.at ?? 0 }));
       return { email, windows, diff: differs(list, nowS) };
     });
 }
