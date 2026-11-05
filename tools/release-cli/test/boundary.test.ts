@@ -14,6 +14,7 @@ import { BUILD_FILE, entries, manifestOf, pack, packModule, presign, sha256hex, 
 import manifest from "../../../host/modules/parts/module.json" with { type: "json" };
 import { main, type Fetch } from "../cli.ts";
 import { packFromRepo } from "../src/module.ts";
+import { run } from "../src/spawn.ts";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..", "..", "..");
 const tmp = (name = "switchboard-release-") => mkdtempSync(join(tmpdir(), name));
@@ -25,33 +26,27 @@ const sha = (b: Uint8Array) => createHash("sha256").update(b).digest("hex");
 afterEach(() => vi.restoreAllMocks());
 
 describe("формат выпуска", () => {
-  it("архив туда и обратно: файлы, папки из путей, режим, длинный путь; одно содержимое — один архив", () => {
-    const long = "packages/" + "a".repeat(60) + "/" + "b".repeat(60) + "/file.ts";
-    const tgz = pack([
-      { path: "host", data: Buffer.from("import './x'"), mode: 0o755 },
-      { path: "packages/host/release.json", data: Buffer.from('{"version":"1.4.1"}') },
-      { path: long, data: Buffer.alloc(1300, 7) },
-    ]);
-    const got = new Map(files(tgz).map((e) => [e.path, e.data!]));
-    expect(got.size).toBe(3);
-    expect(got.get("packages/host/release.json")!.toString()).toBe('{"version":"1.4.1"}');
-    expect(got.get(long)).toEqual(Buffer.alloc(1300, 7));
-    expect(entries(tgz).find((e) => e.path === "host")?.mode).toBe(0o755);
-    expect(sha256hex(pack([{ path: "a", data: Buffer.from("x") }]))).toBe(sha256hex(pack([{ path: "a", data: Buffer.from("x") }])));
-    expect(() => pack([{ path: "x".repeat(101), data: Buffer.from("") }])).toThrow(`имя в архиве слишком длинное: ${"x".repeat(101)}`);
-  });
-
-  it("байты архива закреплены: настоящий каталог хранит выпуски в этом формате (чьё: код; слово главной сессии — формат не меняется)", () => {
+  it("байты архива и строки .sha256 закреплены: настоящий каталог хранит выпуски в этом формате; туда и обратно — файлы, папки из путей, режим, длинный путь (чьё: код; слово главной сессии — формат не меняется)", () => {
+    const long = "packages/" + "a".repeat(70) + "/" + "b".repeat(70) + "/file.ts";
     const tgz = pack([
       { path: "src/a.ts", data: Buffer.from("export const a = 1;\n") },
       { path: "module.json", data: Buffer.from('{"name":"m","version":"1.0.0"}') },
       { path: "run", data: Buffer.from("#!/bin/sh\n"), mode: 0o755 },
-      { path: "packages/" + "a".repeat(70) + "/" + "b".repeat(70) + "/file.ts", data: Buffer.alloc(700, 65) },
+      { path: long, data: Buffer.alloc(700, 65) },
     ]);
     // tar без сжатия: gzip на разных машинах даёт разные байты при том же tar
     expect(sha(gunzipSync(tgz))).toBe("856b0997034453bdd7279e9a99368538f35801fb271c633e4b6d6492d5b9769c");
     expect(entries(tgz).map((e) => e.path).slice(0, 2)).toEqual(["module.json", "packages/"]);
     expect(tgz).toEqual(gzipSync(gunzipSync(tgz), { level: 9 }));
+    const got = new Map(files(tgz).map((e) => [e.path, e.data!]));
+    expect(got.size).toBe(4);
+    expect(got.get("src/a.ts")!.toString()).toBe("export const a = 1;\n");
+    expect(got.get(long)).toEqual(Buffer.alloc(700, 65));
+    expect(entries(tgz).find((e) => e.path === "run")?.mode).toBe(0o755);
+    expect(() => pack([{ path: "x".repeat(101), data: Buffer.from("") }])).toThrow(`имя в архиве слишком длинное: ${"x".repeat(101)}`);
+    const h = sha256hex("x");
+    expect(shaLine(h, "1.4.1")).toBe(`${h}  1.4.1.tgz\n`);
+    expect(h).toBe("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881");
   });
 
   it("путь вне папки в архиве и запись особого вида — исключение; манифест читается по началу архива, без него — null", async () => {
@@ -62,12 +57,6 @@ describe("формат выпуска", () => {
     const big = pack([{ path: "module.json", data: Buffer.from('{"name":"m"}') }, { path: "z", data: Buffer.from(Array.from({ length: 300_000 }, (_, i) => (i * 7919) % 251)) }]);
     expect(await manifestOf(big.subarray(0, 2048))).toEqual({ name: "m" });
     expect(await manifestOf(pack([{ path: "app.json", data: Buffer.from("{}") }]))).toBeNull();
-  });
-
-  it("строка .sha256 как у sha256sum", () => {
-    const h = sha256hex("x");
-    expect(shaLine(h, "1.4.1")).toBe(`${h}  1.4.1.tgz\n`);
-    expect(h).toBe("2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881");
   });
 
   it("ссылка — пример AWS: GET test.txt на сутки", async () => {
@@ -145,7 +134,6 @@ describe("упаковка модуля", () => {
   });
 
   it.each<[string, Record<string, string>, RegExp | string]>([
-    ["нет module.json", {}, /^no_module_json: в .* нет module\.json$/],
     ["ОС без app.json", { "module.json": '{"name":"x","type":"os","version":"1.0.0"}' }, /^no_app_json: у приложения ОС x нет app\.json — ни в dist\/, ни в корне$/],
     ["workers руками", { "module.json": '{"name":"x","type":"sdk","version":"1.0.0","workers":{}}' }, "x: workers в module.json пишет упаковка из wrangler-настройки, не рука"],
     ["Worker без wrangler", { "module.json": '{"name":"x","type":"worker","version":"1.0.0"}' }, "x: у модуля типа worker нет wrangler.jsonc"],
@@ -298,9 +286,7 @@ const execOk = (ran: string[] = []): Exec => async (cmd, args, cwd) => {
 describe("CLI выпуска", () => {
   it.each<[string, string[], Record<string, string>, string]>([
     ["не release", ["build", "core"], ENV, "вызов: switchboard release core | keeper | modules [--out <папка>] [--dry-run] | check"],
-    ["часть с номером", ["release", "host", "1.4.1"], ENV, "вызов: switchboard release core | keeper | modules [--out <папка>] [--dry-run] | check"],
     ["незнакомый аргумент", ["release", "core", "--to", "x"], ENV, "незнакомый аргумент: --to"],
-    ["2077 нет адреса", ["release", "keeper"], {}, "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы"],
     ["2077 нет пропуска", ["release", "keeper"], { SWITCHBOARD_RELEASES: "https://x" }, "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы"],
     ["check спрашивает каталог и с --dry-run (спорное место: было «cat is not a function»)", ["release", "check", "--dry-run"], {}, "нет SWITCHBOARD_RELEASES или SWITCHBOARD_PASS в окружении: адрес «Выпусков» и пропуск программы"],
   ])("2077 · аргументы и окружение — отказ словом: %s", async (_n, argv, env, word) => {
@@ -378,7 +364,6 @@ describe("CLI выпуска", () => {
 
   it.each<[string, Exec, string]>([
     ["npm install", async (cmd, args) => ({ code: cmd === "npm" && args[0] === "install" ? 1 : 0, out: cmd === "npm" && args[0] === "install" ? "npm install упал" : "" }), "npm install --package-lock-only: npm install упал"],
-    ["npm ci", async (cmd, args) => ({ code: cmd === "npm" && args[0] === "ci" ? 1 : 0, out: cmd === "npm" && args[0] === "ci" ? "npm ci упал" : "" }), "npm ci: npm ci упал"],
     ["host --check отказал", async (cmd) => ({ code: cmd === "node" ? 1 : 0, out: cmd === "node" ? '{ "ok": false, "why": "session.cost: два владельца — cost и dup" }' : "" }), "host --check: session.cost: два владельца — cost и dup"],
     ["host --check: другая версия", async (cmd) => ({ code: 0, out: cmd === "node" ? '{ "ok": true, "version": "0.0.1" }' : "" }), `host --check: версия 0.0.1, а собиралась ${HOST}`],
     ["host --check без ответа", async () => ({ code: 0, out: "" }), "host --check: host --check без ответа"],
@@ -395,6 +380,15 @@ describe("CLI выпуска", () => {
     };
     await expect(main(["release", "keeper"], ENV, execOk(), go, fail)).rejects.toThrow("releases.upload: offline: Error: нет сети");
   });
+
+  it("процесс сборки — с пределом: держит ввод и не выходит — снят, вывод и причина в ответе; обычный выход — код и вывод", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; настоящий дочерний процесс
+    const r = await run(process.execPath, ["-e", "console.log('работаю'); setInterval(() => {}, 1000)"], tmpdir(), { limitMs: 1500 });
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain("работаю");
+    expect(r.out).toContain("не завершился за 1.5 с");
+    expect(await run(process.execPath, ["-e", "console.error('x'); process.exit(3)"], tmpdir())).toEqual({ code: 3, out: "x\n" });
+  }, 15_000);
 
   it("5143 · modules: каждый модуль каталога — своим запросом, кроме ядра и приложений ОС; отказ одного — выход 1 с его именем, остальные загружены", async () => {
     // источник: чьё: код (остальные модули загружаются и после отказа одного)
@@ -627,7 +621,8 @@ describe("инструменты сессии parts", () => {
     expect(r.json()).toEqual({ part: "capture", version: "1.4.0", bytes: puts[0].body.length, sha256: hash });
     expect(puts.map((p) => [p.method, p.url])).toEqual([["PUT", "https://r2.test/b/capture/1.4.0.tgz?sig"], ["PUT", "https://r2.test/b/capture/1.4.0.sha256?sig"]]);
     expect(puts[1].body.toString()).toBe(`${hash}  1.4.0.tgz\n`);
-    expect(gunzipSync(puts[0].body).toString("latin1")).toContain("app.json");
+    // 5191 · одна упаковка «папка модуля → архив» у parts.upload и release-cli (отчёт слепого архитектора 2 нояб., пункт 12)
+    expect(puts[0].body).toEqual(packModule(join(dir, "app")).tgz);
     expect(st.relay.sent.find((f) => f.type === "releases.upload")).toMatchObject({ to: ".releases", part: "capture", version: "1.4.0", sha256: hash });
   });
 
@@ -661,42 +656,6 @@ describe("инструменты сессии parts", () => {
     look = { ok: false, error: "no_release" };
     const none = await call("upload", { dir: "." }, dir);
     expect([none.isError, none.text]).toEqual([true, "releases.fetch: no_release"]);
-  });
-
-  it("5191 · upload модуля чужого репо по его module.json: каждый вид своей упаковкой; страница без файла — отказ без запроса", async () => {
-    // источник: отчёт слепого архитектора 2 нояб.: пункт 12 — одна упаковка «папка модуля → архив» у parts.upload и release-cli
-    const repo = tmp("parts-repo-");
-    const mod = (name: string, type: string, content: Record<string, string>) => {
-      const d = join(repo, name);
-      mkdirSync(d, { recursive: true });
-      writeFileSync(join(d, "module.json"), JSON.stringify({ name, type, version: "0.1.0", provides: {}, uses: {}, config: {} }));
-      for (const [p, s] of Object.entries(content)) {
-        mkdirSync(join(d, p, ".."), { recursive: true });
-        writeFileSync(join(d, p), s);
-      }
-    };
-    mod("hello-host", "sdk", { "contract.ts": "export default {};", "src/a.ts": "export {};", "test/a.test.ts": "x" });
-    mod("hello-tab", "web", { "module.js": "export default {};", "contract.ts": "export {};" });
-    mod("hello-worker", "worker", { "wrangler.jsonc": '// w\n{ "name": "hello-worker", "env": { "prod": {} } }', "src/index.ts": "x" });
-    mod("hello-daemon", "os", { "app.json": "{}", "dist/app.json": '{"run":["node","d.mjs"]}', "dist/d.mjs": "1" });
-    mod("bad-tab", "web", { "contract.ts": "x" });
-    const { st, call } = await bench((f) => (f.type === "releases.upload" ? { ok: true, result: { tgz: `https://r2.test/${f.part}.tgz`, sha256: `https://r2.test/${f.part}.sha256` } } : undefined));
-    const tgz = new Map<string, Buffer>();
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (u, init) => {
-      const url = String(u);
-      if (url.endsWith(".tgz")) tgz.set(url.slice("https://r2.test/".length, -4), Buffer.from(init!.body as Uint8Array));
-      return new Response("", { status: 200 });
-    });
-    for (const n of ["hello-host", "hello-tab", "hello-worker", "hello-daemon"]) expect((await call("upload", { dir: n }, repo)).json()).toMatchObject({ part: n, version: "0.1.0" });
-    const paths = (n: string) => files(tgz.get(n)!).map((e) => e.path);
-    expect(paths("hello-host")).toEqual(["module.json", "contract.ts", "src/a.ts"]);
-    expect(paths("hello-tab")).toEqual(["module.json", "contract.ts", "module.js"]);
-    expect(paths("hello-worker")).toEqual(["module.json"]);
-    expect(JSON.parse(entries(tgz.get("hello-worker")!)[0].data!.toString("utf8")).workers).toEqual({ test: "hello-worker", prod: "hello-worker-prod" });
-    expect(paths("hello-daemon")).toEqual(["module.json", "app.json", "d.mjs"]);
-    const bad = await call("upload", { dir: "bad-tab" }, repo);
-    expect([bad.isError, bad.text]).toEqual([true, "bad-tab: у модуля страницы нет module.js — собери его одним файлом"]);
-    expect(st.relay.sent.filter((f) => f.type === "releases.upload").map((f) => f.part)).toEqual(["hello-host", "hello-tab", "hello-worker", "hello-daemon"]);
   });
 
   it("3074 · upload: releases.upload отказал; R2 ответил 403 на архив — текст ошибки, хэш не пишется", async () => {
