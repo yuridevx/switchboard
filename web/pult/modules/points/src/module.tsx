@@ -1,21 +1,14 @@
-// pult-points: связка с приложением. Состояние — store.ts, экраны — OverviewScreen и SessionPointsScreen.
-import type { App, AppModule } from "@switchboard/web-core";
-import { OverviewScreen } from "./OverviewScreen.tsx";
+// Снесено: экраны на месте, содержания нет, новое письмо — следующим коммитом.
+import type { AppModule } from "@switchboard/web-core";
 import css from "./points.css";
-import { SessionPointsScreen } from "./SessionPointsScreen.tsx";
-import { createPointsStore } from "./store.ts";
 
-export function createPoints(app: App): AppModule {
-  const points = createPointsStore(app);
+export function createPoints(): AppModule {
   return {
-    state: points,
-    on: { roster: points.onRoster },
     screens: {
-      points: { nav: "Точки", group: "Флот", label: "Точки", view: OverviewScreen, head: () => ({ title: "Точки" }) },
-      // вкладка карточки: видна, когда машина сессии умеет точки
-      "session.points": { place: "card.tab", label: "Точки", path: "session-points", show: (p) => points.tabVisible(p.callsign ?? ""), view: SessionPointsScreen },
+      points: { nav: "Точки", group: "Флот", label: "Точки", view: () => "снесено", head: () => ({ title: "Точки" }) },
+      "session.points": { place: "card.tab", label: "Точки", show: () => false, view: () => "снесено" },
     },
-    marks: { fire: points.lostMachines },
+    marks: { fire: () => [] },
     css,
   };
 }

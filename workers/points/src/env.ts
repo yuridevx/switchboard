@@ -1,18 +1,18 @@
 import type { GateApi } from "@switchboard/gate";
+import type { Frame } from "@switchboard/protocol";
 
 export interface Env {
   /** записи модуля — база D1 модуля во флоте */
   DB: D1Database;
+  /** блоки точек; байты кладёт и берёт машина по ссылкам */
+  BUCKET: R2Bucket;
   /** gate: пропуск прямого запроса */
   GATE: GateApi;
-  CF_ACCOUNT_ID: string;
-  /** пара S3 токена R2 бакета точек: ею подписаны ссылки машине на блоки */
+  /** журнал флота: строки о сессиях */
+  LEDGER: { frame(f: Frame): Promise<unknown> };
+  /** пара S3 токена R2: ею подписаны ссылки на блоки */
   R2_KEY_ID: string;
   R2_KEY_SECRET: string;
-  /** бакет блоков точек */
+  CF_ACCOUNT_ID: string;
   POINTS_BUCKET: string;
-  /** привязка к бакету точек — только чтобы проверять и удалять блоки */
-  BUCKET: R2Bucket;
-  /** журнал: строки session.copied, moved, rolled_back, deleted — по своей привязке */
-  LEDGER: { frame(f: import("@switchboard/protocol").Frame): Promise<unknown> };
 }
