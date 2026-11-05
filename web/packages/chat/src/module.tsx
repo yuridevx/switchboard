@@ -1,43 +1,49 @@
-// Модуль чата: экран разговора, метки и команда. Состояние — в state/chat.ts, вид — в ChatScreen.
-import type { AppModule, AppPart } from "@switchboard/web-core";
-import { sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
-import { ChatScreen } from "./ChatScreen.tsx";
-import { createState } from "./state/chat.ts";
+// web-chat — разговор с сессией: определение модуля. Состояние — store.ts, свёртка — fold.ts, вид — view/.
+import { machineOf } from "@switchboard/protocol";
+import type { AppModule, Frame, Roster } from "@switchboard/web-core";
+import { isLive, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
 import css from "./chat.css";
+import { createChats } from "./store.ts";
+import { ChatScreen } from "./view/Screen.tsx";
 
-export const createChat: AppPart["module"] = (app: App): AppModule => {
-  const chat = createState(app);
+export function createChat(app: App): AppModule {
+  const chats = createChats(app);
   return {
-    state: chat,
-    store: ["drafts"],
+    state: chats,
     css,
-    frames: chat.module.frames,
-    on: chat.module.on,
-    start: chat.module.start,
-    stop: chat.module.stop,
+    store: ["drafts"],
+    frames: {
+      "session.events": (f: Frame) => chats.onEvents(f),
+      message: (f: Frame, ctx) => chats.onMessage(f as never, ctx.open),
+    },
+    on: {
+      link: (state, machine) => chats.onLink(state, machine),
+      roster: (r: Roster) => chats.onRoster(r),
+    },
     screens: {
       chat: {
         label: "Лента",
-        path: "chat",
         view: ChatScreen,
-        head: (p) => {
-          const title = sessionLabel(app, p.callsign).text;
-          const s = sessionOf(app, p.callsign);
-          if (!s) return { title, mono: true, sub: `${chat.machineOf(p.callsign)} не на связи` };
-          const st = stateLabel(s.state);
-          return { title, mono: true, sub: sessionLine(s, true), pill: { text: st.text, tone: st.tone } };
+        head(params) {
+          const cs = params.callsign;
+          const s = sessionOf(app, cs);
+          const st = stateLabel(s?.state);
+          return { title: sessionLabel(app, cs).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(cs)} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
         },
       },
     },
-    commands: {
-      "models.load": { run: (p) => void chat.loadModels(p.callsign) },
-    },
     marks: {
-      unread(callsign) {
-        const c = chat.store.get().convs[callsign];
-        return c?.unread ? { count: c.unread, text: c.unreadText } : undefined;
-      },
-      models: (callsign) => chat.store.get().convs[callsign]?.models,
+      unread: (cs) => chats.conv(cs).unread ?? undefined,
+      models: (cs) => chats.conv(cs).models,
     },
+    commands: {
+      "models.load": {
+        run(p) {
+          if (isLive(sessionOf(app, p.callsign)?.state)) void chats.loadModels(p.callsign);
+        },
+      },
+    },
+    start: () => chats.start(),
+    stop: () => chats.stop(),
   };
-};
+}
