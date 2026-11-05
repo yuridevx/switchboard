@@ -3,7 +3,7 @@ import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { BadCard, Btn, EFFORTS, failText, isLive, MODELS, Opts, Pad, profileIdOf, sessionOf, slotOf, Tabs, useApp } from "@switchboard/web-ui";
 
-const TABS = [["chat", "Чат"], ["info", "Ещё"]] as const;
+const TABS: ReadonlyArray<readonly ["chat" | "info", string]> = [["chat", "Чат"], ["info", "Ещё"]];
 
 export function NarrowCard({ callsign, tab }: { callsign: string; tab?: string }) {
   const app = useApp();
@@ -33,7 +33,7 @@ export function NarrowCard({ callsign, tab }: { callsign: string; tab?: string }
 
   return (
     <>
-      <Tabs className="card-tabs" tabs={TABS} cur={cur} pick={setCur} />
+      <Tabs className="card-tabs" tabs={TABS} cur={cur} pick={(k) => setCur(k)} />
       <div className="card-place">
         {cur === "chat" ? (
           <app.Slot screen="chat" params={{ callsign }} />

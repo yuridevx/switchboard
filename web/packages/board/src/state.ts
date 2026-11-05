@@ -35,9 +35,10 @@ export function createBoardState(app: App) {
   };
   const user = personal(app, "web-board", changed);
   const fleet = personal(app, FLEET_PREFIX, changed, "global");
-  const flt = app.store<string>("flt");
-  const collapsedPart = app.store<Record<string, boolean>>("collapsed");
-  const viewPart = app.store<View>("view");
+  // разделы хранилища доступны, когда модуль уже определён
+  const flt = () => app.store<string>("flt");
+  const collapsedPart = () => app.store<Record<string, boolean>>("collapsed");
+  const viewPart = () => app.store<View>("view");
   const local = createStore({ flt: MINE, collapsed: {} as Record<string, boolean>, view: DEFAULT_VIEW, last: null as string | null }, app.changed);
   /** сессия, чей проект надо открыть, когда придут настройки */
   let opening: string | null = null;
@@ -59,7 +60,7 @@ export function createBoardState(app: App) {
 
   function writeCollapsed(change: (c: Record<string, boolean>) => void) {
     local.set((s) => change(s.collapsed));
-    void collapsedPart.set(local.get().collapsed);
+    void collapsedPart().set(local.get().collapsed);
   }
 
   /** Открытая сессия и первый показ проектов: решается, когда настройки ответили. */
@@ -169,7 +170,7 @@ export function createBoardState(app: App) {
     },
     mine,
     start: async () => {
-      const [f, c, v] = await Promise.all([flt.get(), collapsedPart.get(), viewPart.get()]);
+      const [f, c, v] = await Promise.all([flt().get(), collapsedPart().get(), viewPart().get()]);
       local.set((s) => {
         s.flt = f ?? MINE;
         s.collapsed = c ?? {};
@@ -206,7 +207,7 @@ export function createBoardState(app: App) {
     },
     choose(id: string) {
       local.set((s) => void (s.flt = id));
-      void flt.set(id);
+      void flt().set(id);
     },
     toggle(id: string) {
       const callsigns = sectionsOf().find((x) => x.id === id)?.callsigns ?? [];
@@ -222,11 +223,11 @@ export function createBoardState(app: App) {
     scroll: { top: 0 },
     setView(key: string, on: boolean) {
       local.set((s) => void (s.view[key] = on));
-      void viewPart.set(local.get().view);
+      void viewPart().set(local.get().view);
     },
     resetView() {
       local.set((s) => void (s.view = DEFAULT_VIEW));
-      void viewPart.set(DEFAULT_VIEW);
+      void viewPart().set(DEFAULT_VIEW);
     },
     saveFilter(f: Filter) {
       user.edit<Filter[]>("filters", (old = []) => (old.some((x) => x.id === f.id) ? old.map((x) => (x.id === f.id ? f : x)) : [...old, f]));

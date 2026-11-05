@@ -1,5 +1,6 @@
 // web-card — карточка сессии: узкий вид телефона и широкий вид пульта над одним стором.
-import { folderOf, lamp, machineLabel, sessionLabel, sessionOf, useApp, type App, type AppModule, type ScreenProps } from "@switchboard/web-ui";
+import type { AppModule, ScreenProps } from "@switchboard/web-core";
+import { folderOf, lamp, machineLabel, sessionLabel, sessionOf, useApp, type App } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import css from "./card.css";
 import { HeadUnits } from "./head.tsx";
