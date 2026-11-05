@@ -1,158 +1,177 @@
-// Модуль profiles: профиль сессии — папка в git-репозитории: CLAUDE.md (добавка к промпту), profile.yaml (модель и усилие),
-// memory/ (память, пишет только claude) и skills/ (скилы профиля). У каждого профиля свой путь памяти — settings.autoMemoryDirectory;
-// папка профиля — локальный плагин SDK, скилы в сессии — «<папка>:<скил>».
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
-import { join, relative, resolve, sep } from "node:path";
-import { refuse } from "@switchboard/host";
+// Профиль сессии — папка в git-репозитории: CLAUDE.md, profile.yaml, memory/, skills/. Файлы читаются на каждом старте, копий нет.
+// Состояние репозитория живёт в памяти Host: следующая синхронизация узнает его заново.
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { join, resolve, sep } from "node:path";
 import type { Host, Module, QueryPart, Session } from "@switchboard/host";
+import { refuse } from "@switchboard/host";
 import { parseYaml, splitId } from "./folder.ts";
-import { makeSync, realGit, syncedDirs } from "./sync.ts";
-import type { Git, RepoState } from "./sync.ts";
+import { realGit, syncRepo, type Git, type RepoState } from "./sync.ts";
 
 export type { Git, RepoState };
 
-type Mine = { profile: string | null };
-type Config = { repos?: string[] };
-
-/** Синхронизация раз в минуту. */
 const SYNC_MS = 60_000;
-const NO_FOLDER = "в клонах нет папки профиля с CLAUDE.md или profile.yaml";
+const ASK_HUMAN = "Без человека не решить — спроси.";
 
-const isInside = (dir: string, path: string) => {
-  const rel = relative(resolve(dir), resolve(path));
-  return !!rel && !rel.startsWith("..") && !rel.startsWith(sep) && !/^[A-Za-z]:/.test(rel);
-};
-const yamlIn = (dir: string) => (existsSync(join(dir, "profile.yaml")) ? parseYaml(readFileSync(join(dir, "profile.yaml"), "utf8")) : {});
+type Seat = { profile: string | null };
+type Repo = { state: RepoState; running?: Promise<void>; again?: boolean };
 
-export function make(deps: { git?: Git } = {}): Module {
+export function make(o: { git?: Git } = {}): Module {
+  const git = o.git ?? realGit;
   let host: Host;
-  let timer: ReturnType<typeof setInterval> | null = null;
-  const repos = (): string[] => host.config<Config>().repos ?? [];
-  const syncing = makeSync(() => host, deps.git ?? realGit);
-  const profileOf = (s: Session) => s.store<Mine>().get()?.profile ?? null;
+  let timer: ReturnType<typeof setInterval>;
+  let stopping = false;
+  const repos = new Map<string, Repo>();
 
-  /** Папка профиля, если она есть в клоне. */
+  const cloneOf = (repo: string) => join(host.dataDir, "profiles", repo.replace("/", "__"));
+  /** Папка профиля, если он есть в клоне. */
   function folderOf(id: string): string | null {
     const p = splitId(id);
     if (!p) return null;
-    const dir = join(syncing.cloneDir(p.repo), ...p.folder.split("/"));
+    const dir = join(cloneOf(p.repo), p.folder);
     return existsSync(join(dir, "CLAUDE.md")) || existsSync(join(dir, "profile.yaml")) ? dir : null;
   }
+  const yamlOf = (dir: string) => (existsSync(join(dir, "profile.yaml")) ? parseYaml(readFileSync(join(dir, "profile.yaml"), "utf8")) : {});
+  const notFound = (id: string) => refuse("no_profile", `${id}: в клонах нет папки профиля с CLAUDE.md или profile.yaml`);
+  const seatOf = (s: Session) => s.store<Seat>();
 
-  /** Задание модели, пока состояние репозитория профиля не ok. */
-  function taskFor(id: string): string | null {
+  async function token(repo: string): Promise<string> {
+    const r = await host.request("github.token", { repo });
+    if (!r.ok) throw new Error(r.error);
+    return (r.result as { token: string }).token;
+  }
+
+  /** Одна синхронизация репозитория за раз; запись посреди идущей — следующая после неё. */
+  function kick(repo: string): Promise<void> {
+    const r = repos.get(repo)!;
+    if (r.running) {
+      r.again = true;
+      return r.running;
+    }
+    r.running = (async () => {
+      const was = r.state.state;
+      r.state = await syncRepo(git, repo, cloneOf(repo), host.machine, () => token(repo), (why) => host.log({ ev: "sync", why }));
+      if (r.state.state === "ok") {
+        if (was !== "ok") host.log({ ev: "sync", why: `${repo}: память сведена — ok` });
+      } else {
+        host.log({ kind: "stop", ev: "sync", word: r.state.state, why: `${repo}: ${r.state.op} — ${r.state.error ?? r.state.files?.join(", ")}` });
+      }
+      for (const { callsign } of host.sessions()) host.session(callsign)!.refresh();
+    })().finally(() => {
+      r.running = undefined;
+      if (r.again && !stopping) {
+        r.again = false;
+        void kick(repo);
+      }
+    });
+    return r.running;
+  }
+
+  /** Задание модели: что мешает памяти профиля; мешать нечему — ничего. */
+  function trouble(id: string): string | null {
     const p = splitId(id);
     if (!p) return null;
-    const st = syncing.stateOf(p.repo);
-    const where = `клон ${syncing.cloneDir(p.repo)}`;
-    if (!folderOf(id)) return `Профиля ${id} нет в клоне (${where}). Без человека не решить — спроси.`;
-    if (st.state === "conflict") return `Память профиля ${p.folder} не сведена: ${st.op} — конфликт в ${(st.files ?? []).join(", ")} (${where}). Сведи обе версии, закоммить и отправь. Без человека не решить — спроси.`;
-    if (st.state === "error") return `Память профиля ${p.folder} не отправлена: ${st.op} — ${st.error} (${where}). Без человека не решить — спроси.`;
+    const clone = cloneOf(p.repo);
+    const tail = `(клон ${clone}). ${ASK_HUMAN}`;
+    if (!folderOf(id)) return `Профиля ${id} нет в клоне ${tail}`;
+    const s = repos.get(p.repo)?.state;
+    if (s?.state === "conflict") return `Память профиля ${p.folder} не сведена: ${s.op} — конфликт в ${s.files?.join(", ")} (клон ${clone}). Сведи обе версии, закоммить и отправь. ${ASK_HUMAN}`;
+    if (s?.state === "error") return `Память профиля ${p.folder} не отправлена: ${s.op} — ${s.error} ${tail}`;
     return null;
   }
 
-  /** Хук PostToolUse: запись в memory/ или skills/ профиля — синхронизация в очередь, ответ сразу. */
-  const onWrite = (id: string) => async (input: unknown) => {
-    const path = (input as { tool_input?: { file_path?: string } })?.tool_input?.file_path ?? "";
-    const dir = folderOf(id);
-    const p = splitId(id);
-    if (dir && p && path && syncedDirs().some((sub) => isInside(join(dir, sub), path))) void syncing.sync(p.repo);
-    return {};
-  };
-
-  /** Хуки SessionStart и UserPromptSubmit: состояние не ok — задание модели. */
-  const nudge = (id: string, event: "SessionStart" | "UserPromptSubmit") => async () => {
-    const task = taskFor(id);
-    return task ? { hookSpecificOutput: { hookEventName: event, additionalContext: task } } : {};
-  };
-
-  function sessionPart(s: Session): QueryPart | undefined {
-    const id = profileOf(s);
-    if (!id) return undefined;
-    const dir = folderOf(id);
-    if (!dir) {
-      host.log({ kind: "stop", ev: "profile", word: "no_profile", callsign: s.info.callsign, why: `${id}: профиля нет в клоне — сессия без его части` });
-      return undefined;
-    }
-    const y = yamlIn(dir);
-    const memory = join(dir, "memory");
-    mkdirSync(memory, { recursive: true });
-    const md = join(dir, "CLAUDE.md");
+  function part(id: string, dir: string): QueryPart {
+    const y = yamlOf(dir);
+    const settings: Record<string, unknown> = { autoMemoryDirectory: join(dir, "memory") };
+    if (y.model) settings.model = y.model;
+    if (y.effort) settings.effortLevel = y.effort;
+    if (y.max_effort) settings.maxEffortLevel = y.max_effort;
+    if (y.fallback_model) settings.fallbackModel = y.fallback_model;
+    const task = (event: "SessionStart" | "UserPromptSubmit") => async () => {
+      const text = trouble(id);
+      return text ? { hookSpecificOutput: { hookEventName: event, additionalContext: text } } : {};
+    };
+    const written = async (input: unknown) => {
+      const file = (input as { tool_input?: { file_path?: unknown } }).tool_input?.file_path;
+      if (typeof file === "string") {
+        const path = resolve(file);
+        if ([join(dir, "memory"), join(dir, "skills")].some((d) => path.startsWith(d + sep))) void kick(splitId(id)!.repo);
+      }
+      return {};
+    };
+    const claudeMd = join(dir, "CLAUDE.md");
     return {
-      ...(existsSync(md) ? { append: readFileSync(md, "utf8") } : {}),
-      settings: {
-        ...(y.model ? { model: y.model } : {}),
-        ...(y.effort ? { effortLevel: y.effort } : {}),
-        ...(y.max_effort ? { maxEffortLevel: y.max_effort } : {}),
-        ...(y.fallback_model ? { fallbackModel: [y.fallback_model].flat() } : {}),
-        autoMemoryDirectory: memory,
-      },
-      // папка профиля — плагин: скилы из skills/; хуки профиля в проекте видят, что профиль ведёт Switchboard
-      plugins: [{ type: "local", path: dir }],
+      ...(existsSync(claudeMd) ? { append: readFileSync(claudeMd, "utf8") } : {}),
+      settings,
       env: { SWITCHBOARD_PROFILE: id },
-      hooks: {
-        PostToolUse: [{ matcher: "Write|Edit|MultiEdit", hooks: [onWrite(id)] }],
-        SessionStart: [{ hooks: [nudge(id, "SessionStart")] }],
-        UserPromptSubmit: [{ hooks: [nudge(id, "UserPromptSubmit")] }],
-      },
+      plugins: [{ type: "local", path: dir }],
+      hooks: { PostToolUse: [{ matcher: "Write|Edit|MultiEdit", hooks: [written] }], SessionStart: [{ hooks: [task("SessionStart")] }], UserPromptSubmit: [{ hooks: [task("UserPromptSubmit")] }] },
     };
   }
 
   return {
-    requests: {
-      "session.profile"(f, ctx) {
-        const s = ctx.host.session(String(f.callsign ?? ""))!;
-        const id = f.profile === null || f.profile === undefined ? null : String(f.profile);
-        if (id !== null && !folderOf(id)) throw refuse("no_profile", `${id}: ${NO_FOLDER}`);
-        const was = profileOf(s);
-        s.store<Mine>().set({ profile: id });
-        // живой сессии — close() и resume между ходами
-        if (was === id || s.state === "stopped" || s.state === "failed") return { restart: false };
-        void s.restart();
-        return { restart: true };
-      },
-      async "machine.profiles"(f) {
-        if (f.sync === true) await Promise.all(repos().map((r) => syncing.sync(r)));
-        const profiles: Record<string, unknown> = {};
-        const states: Record<string, RepoState> = {};
-        for (const repo of repos()) {
-          states[repo] = syncing.stateOf(repo);
-          for (const name of syncing.profilesOf(repo)) {
-            const y = yamlIn(join(syncing.cloneDir(repo), name));
-            profiles[`${repo}/${name}`] = { model: y.model ?? null, effort: y.effort ?? null, ...(typeof y.about === "string" && y.about ? { about: y.about } : {}) };
-          }
-        }
-        return { profiles, repos: states };
-      },
+    openingReads: ["profile"],
+    opening(s, req) {
+      const id = req.profile;
+      if (id === undefined || id === null) return;
+      if (typeof id !== "string") throw refuse("bad_frame", "session.open: profile — имя профиля");
+      if (!folderOf(id)) throw notFound(id);
+      seatOf(s).set({ profile: id });
+    },
+    session(s) {
+      const id = seatOf(s).get()?.profile;
+      if (!id) return undefined;
+      const dir = folderOf(id);
+      if (dir) return part(id, dir);
+      host.log({ kind: "stop", ev: "profile", word: "no_profile", callsign: s.info.callsign, why: `${id}: профиля нет в клоне — сессия без его части` });
+      return undefined;
     },
     fields: {
       profile(s) {
-        const id = profileOf(s);
+        const id = seatOf(s).get()?.profile;
         if (!id) return undefined;
         const p = splitId(id);
-        return { id, state: !p || !folderOf(id) ? "error" : syncing.stateOf(p.repo).state };
+        return { id, state: !folderOf(id) ? "error" : ((p && repos.get(p.repo)?.state.state) ?? "ok") };
       },
     },
-    // профиль новой сессии — из запроса открытия; при следующих запусках запроса нет, берётся сохранённый
-    opening(s, req) {
-      if (req.profile === undefined || req.profile === null) return;
-      const id = String(req.profile);
-      if (!folderOf(id)) throw refuse("no_profile", `${s.info.callsign}: ${id}: ${NO_FOLDER}`);
-      s.store<Mine>().set({ profile: id });
+    requests: {
+      "session.profile"(req) {
+        const s = host.session(req.callsign as string)!;
+        const id = req.profile;
+        if (id !== null && typeof id !== "string") throw refuse("bad_frame", "session.profile: нужно поле profile — имя профиля или null");
+        if (id !== null && !folderOf(id)) throw notFound(id);
+        if ((seatOf(s).get()?.profile ?? null) === id) return { restart: false };
+        seatOf(s).set({ profile: id });
+        if (s.state === "stopped" || s.state === "failed") return { restart: false };
+        void s.restart();
+        return { restart: true };
+      },
+      async "machine.profiles"(req) {
+        if (req.sync === true) await Promise.all([...repos.keys()].map(kick));
+        const profiles: Record<string, { model: unknown; effort: unknown; about?: unknown }> = {};
+        for (const repo of repos.keys()) {
+          const clone = cloneOf(repo);
+          if (!existsSync(clone)) continue;
+          for (const e of readdirSync(clone, { withFileTypes: true })) {
+            const dir = e.isDirectory() && e.name !== ".git" ? folderOf(`${repo}/${e.name}`) : null;
+            if (!dir) continue;
+            const y = yamlOf(dir);
+            profiles[`${repo}/${e.name}`] = { model: y.model ?? null, effort: y.effort ?? null, ...(y.about ? { about: y.about } : {}) };
+          }
+        }
+        return { profiles, repos: Object.fromEntries([...repos].map(([repo, r]) => [repo, r.state])) };
+      },
     },
-    openingReads: ["profile"],
-    session: sessionPart,
     start(h) {
       host = h;
-      syncing.begin();
+      for (const repo of host.config<{ repos?: string[] }>()?.repos ?? []) repos.set(repo, { state: { state: "ok" } });
       timer = setInterval(() => {
-        for (const r of repos()) void syncing.sync(r);
+        for (const repo of repos.keys()) void kick(repo);
       }, SYNC_MS);
     },
     async stop() {
-      if (timer) clearInterval(timer);
-      timer = null;
-      await syncing.stop();
+      stopping = true;
+      clearInterval(timer);
+      await Promise.all([...repos.values()].map((r) => r.running));
     },
   };
 }

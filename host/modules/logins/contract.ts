@@ -12,5 +12,4 @@
 import { make } from "./src/logins.ts";
 
 export { make };
-export type { Account, Accounts, Machine, Window } from "./src/logins.ts";
 export default make();

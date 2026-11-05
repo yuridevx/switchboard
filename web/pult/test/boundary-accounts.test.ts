@@ -1060,3 +1060,44 @@ describe("видимое: профили", () => {
     expect(t2.$(".pf-none")!.textContent).toBe("профилей нет");
   });
 });
+
+describe("сверка строк: чего леса не держали", () => {
+  const AC = { laptop: ok({ a: { login: "ok", email: "a@x.io" }, b: { login: "ok", email: "b@x.io" } }) };
+  const ONE = { laptop: { main: { account: "a", order: ["a"], wait: null, sessions: ["site@laptop"] } } };
+
+  it("поля кода и поиска не запоминает браузер", async () => {
+    const relay = fleetAccounts({});
+    relay.handlers["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/x" } });
+    const t = await accountsScreen(relay);
+    await t.click(t.btn(null, "+ Новый аккаунт"));
+    await t.type(t.$('[data-f="account"]'), "corp");
+    await t.click(t.btn(t.$(".sb-sec.dlg"), "Войти"));
+    expect(t.$('[data-f="code"]')!.getAttribute("autocomplete")).toBe("off");
+    const p = await profilesScreen();
+    expect(p.$('[data-f="q"]')!.getAttribute("autocomplete")).toBe("off");
+  });
+
+  it("аккаунт в одном слоте: «Сессии (N)…» без имени слота", async () => {
+    const t = await accountsScreen(fleetAccounts(AC, ONE));
+    expect(t.$('[data-account="a@x.io"] [data-sess="main"]')!.textContent).toBe("Сессии (1)…");
+  });
+
+  it("машина в адресе сразу открывает форму входа на ней; вид слотов — нет", async () => {
+    const t = await accountsScreen(fleetAccounts(AC, ONE), "/#accounts?machine=pc");
+    expect(t.$('.sb-sec.dlg [aria-pressed="true"]')!.textContent).toBe("pc");
+    const s = await accountsScreen(fleetAccounts(AC, ONE), "/#accounts?view=slots&machine=laptop");
+    expect(s.$(".sb-sec.dlg")).toBeNull();
+  });
+
+  it("новый слот: аккаунт из списка вошедших", async () => {
+    const relay = fleetAccounts(AC, ONE);
+    relay.handlers["slot.set"] = () => ({ ok: true, result: { account: "b" } });
+    const t = await accountsScreen(relay, "/#accounts?view=slots&machine=laptop");
+    await t.type(t.$('[data-f="newslot"]'), "night");
+    const pick = t.$<HTMLSelectElement>('[data-f="newslot"]')!.parentElement!.querySelector("select")!;
+    expect([...pick.querySelectorAll("option")].map((o) => o.textContent)).toEqual(["a", "b"]);
+    await t.type(pick, "b", "change");
+    await t.click(t.btn(null, "Создать"));
+    expect(relay.sent("slot.set").at(-1)).toMatchObject({ slot: "night", order: ["b"] });
+  });
+});
