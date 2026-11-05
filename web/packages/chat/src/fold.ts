@@ -147,136 +147,21 @@ export function fold(msgs: readonly Msg[], sub = false): View {
     if (m.type === "user" || m.type === "assistant") v.hint = undefined;
 
     switch (m.type) {
-      case "assistant": {
-        const msg = m.message ?? {};
-        const refused = m.isApiErrorMessage && msg.stop_reason === "refusal";
-        if (refused) {
-          const prev = last();
-          const body = area(msg.stop_details?.category) ? `Область: ${area(msg.stop_details?.category)}` : undefined;
-          if (!(prev?.k === "ban" && prev.refusal) && !sub) push({ k: "ban", tone: "bad", icon: "shield-off", title: `${modelName(msg.model)} отказалась отвечать`, refusal: true, ...(body ? { body } : {}) });
-        } else if (m.error && typeof m.error === "string") fail(apiError(m.error));
-        if (msg.model) model(msg.model);
-        const blocks = (msg.content ?? []) as Msg[];
-        if (!blocks.length) break;
-        const r = reply(msg.id ?? m.uuid);
-        r.liveText = r.liveThink = undefined;
-        for (const b of blocks) {
-          if (b.type === "text" && b.text?.trim()) r.parts.push(/^\s*<!doctype html/i.test(b.text) ? { k: "doc", text: b.text } : { k: "text", text: b.text });
-          else if (b.type === "thinking" || b.type === "redacted_thinking") {
-            const prev = r.parts.at(-1);
-            if (prev?.k === "think") prev.text += b.thinking ?? "";
-            else r.parts.push({ k: "think", text: b.thinking ?? "", ...(b.type === "redacted_thinking" ? { redacted: true } : {}) });
-          } else if (b.type === "tool_use" || b.type === "server_tool_use") {
-            tool(b.id, b.name, b.input);
-            r.parts.push({ k: "tool", id: b.id });
-          }
-        }
-        if (!r.parts.length && !msg.id) v.rows.splice(v.rows.indexOf(r), 1);
+      case "assistant":
+        assistant(m);
         break;
-      }
-      case "stream_event": {
-        const e = m.event ?? {};
-        if (e.type === "message_start" && e.message?.id) {
-          const r = reply(e.message.id);
-          r.done = false;
-          replies.set("__live", r);
-        } else if (e.type === "content_block_delta") {
-          const r = replies.get("__live");
-          if (!r) break;
-          if (e.delta?.type === "text_delta") r.liveText = (r.liveText ?? "") + e.delta.text;
-          if (e.delta?.type === "thinking_delta") r.liveThink = (r.liveThink ?? "") + e.delta.thinking;
-        }
+      case "stream_event":
+        stream(m);
         break;
-      }
-      case "user": {
-        const content = m.message?.content;
-        if (Array.isArray(content))
-          for (const b of content as Msg[])
-            if (b?.type === "tool_result") {
-              const res = { content: b.content, error: !!b.is_error };
-              if (v.tools[b.tool_use_id]) v.tools[b.tool_use_id].result = res;
-              else early.set(b.tool_use_id, res);
-              if (typeof b.content === "string" && /Command running in background/.test(b.content) && v.tools[b.tool_use_id]) v.tools[b.tool_use_id].bg = true;
-            }
-        const raw = textOf(content);
-        if (m.isCompactSummary) {
-          const text = summaryText(raw);
-          const b = boundary as Extract<Row, { k: "sys" }> | null;
-          if (b && !sub) {
-            Object.assign(b, { k: "sum", head: b.text, text, bound: true });
-            boundary = null;
-          } else push({ k: "sum", head: "контекст сжат", text, bound: false });
-          break;
-        }
-        const pics = picsOf(content);
-        const text = strip(raw);
-        if (!text && !pics.length) break;
-        if (sub || m.isMeta) break;
-        const peer = peerOf(text, m.origin);
-        if (m.isSynthetic && !peer) break;
-        if (/^Caveat:/.test(text)) break;
-        if (/^\[Request interrupted by user/.test(text)) {
-          const when = m.timestamp ? Date.parse(m.timestamp) : m._at;
-          push({ k: "sys", icon: "square", text: when ? `прервано · ${at(when)}` : "прервано", tone: "wait" });
-          break;
-        }
-        const notice = tag(text, "task-notification");
-        if (notice !== undefined) {
-          endTask(tag(notice, "task-id") ?? "", tag(notice, "status") ?? "", tag(notice, "summary"));
-          break;
-        }
-        const out = tag(text, "local-command-stdout");
-        if (out !== undefined) {
-          const cmd = [...v.rows].reverse().find((r) => r.k === "cmd" && r.out === undefined);
-          if (cmd && cmd.k === "cmd") cmd.out = out.trim();
-          break;
-        }
-        if (tag(text, "local-command-stderr") !== undefined) break;
-        const name = tag(text, "command-name") ?? tag(text, "command-message");
-        const own = /^\/[\w:.-]+$/.exec(text)?.[0];
-        if (name !== undefined || own) {
-          const args = tag(text, "command-args")?.trim();
-          const cmd = `${(name ?? own)!.startsWith("/") ? "" : "/"}${name ?? own}${args ? ` ${args}` : ""}`;
-          const prev = last();
-          if (prev?.k === "cmd" && prev.name === cmd) break;
-          if (prev?.k === "line" && prev.out) {
-            v.rows.pop();
-            push({ k: "cmd", name: cmd, out: prev.text });
-          } else push({ k: "cmd", name: cmd });
-          break;
-        }
-        if (peer) {
-          push({ k: "in", from: peer.from, name: peer.name, text: peer.text.replace(/\n?\(Задача от родителя [^)]*\)\s*$/, ""), ...(peer.mode ? { mode: peer.mode } : {}) });
-          break;
-        }
-        push({ k: "me", uuid: m.uuid, text, pics });
+      case "user":
+        user(m);
         break;
-      }
-      case "result": {
-        freeze();
-        v.running = false;
-        const prev = last();
-        if (m.is_error) {
-          if (prev?.k === "sys" && prev.icon === "square") break;
-          const why = m.result || (m.errors?.length ? m.errors.join("; ") : undefined);
-          push({ k: "res", err: m.subtype === "success" ? "success" : endWhy(m.subtype), why, parts: [] });
-          break;
-        }
-        const total = m.total_cost_usd;
-        const spent = typeof total === "number" ? (total >= cost ? total - cost : total) : undefined;
-        if (typeof total === "number") cost = total;
-        const parts = ["ход закончен", m.duration_ms ? duration(m.duration_ms) : "", m.num_turns ? steps(m.num_turns) : "", spent !== undefined ? money(spent) : "", contextOf(m.usage) ? `${kilo(contextOf(m.usage))} в контексте` : ""].filter(Boolean);
-        push({ k: "res", parts });
+      case "result":
+        result(m);
         break;
-      }
-      case "rate_limit_event": {
-        const i = m.rate_limit_info ?? {};
-        if (i.status !== "allowed_warning" && i.status !== "rejected") break;
-        const name = LIMIT_NAMES[i.rateLimitType] ?? i.rateLimitType;
-        const body = name ? `${name}${i.resetsAt ? `, сброс в ${at(i.resetsAt)}` : ""}` : undefined;
-        ban("wait", "gauge", i.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится", body);
+      case "rate_limit_event":
+        limit(m);
         break;
-      }
       case "auth_status":
         if (m.error) fail(String(m.error));
         break;
@@ -303,6 +188,203 @@ export function fold(msgs: readonly Msg[], sub = false): View {
       case "system":
         system(m);
         break;
+    }
+  }
+
+  function assistant(m: Msg) {
+    const msg = m.message ?? {};
+    const refused = m.isApiErrorMessage && msg.stop_reason === "refusal";
+    if (refused) {
+      const prev = last();
+      const body = area(msg.stop_details?.category) ? `Область: ${area(msg.stop_details?.category)}` : undefined;
+      if (!(prev?.k === "ban" && prev.refusal) && !sub) push({ k: "ban", tone: "bad", icon: "shield-off", title: `${modelName(msg.model)} отказалась отвечать`, refusal: true, ...(body ? { body } : {}) });
+    } else if (m.error && typeof m.error === "string") fail(apiError(m.error));
+    if (msg.model) model(msg.model);
+    const blocks = (msg.content ?? []) as Msg[];
+    if (!blocks.length) return;
+    const r = reply(msg.id ?? m.uuid);
+    r.liveText = r.liveThink = undefined;
+    for (const b of blocks) {
+      if (b.type === "text" && b.text?.trim()) r.parts.push(/^\s*<!doctype html/i.test(b.text) ? { k: "doc", text: b.text } : { k: "text", text: b.text });
+      else if (b.type === "thinking" || b.type === "redacted_thinking") {
+        const prev = r.parts.at(-1);
+        if (prev?.k === "think") prev.text += b.thinking ?? "";
+        else r.parts.push({ k: "think", text: b.thinking ?? "", ...(b.type === "redacted_thinking" ? { redacted: true } : {}) });
+      } else if (b.type === "tool_use" || b.type === "server_tool_use") {
+        tool(b.id, b.name, b.input);
+        r.parts.push({ k: "tool", id: b.id });
+      }
+    }
+    if (!r.parts.length && !msg.id) v.rows.splice(v.rows.indexOf(r), 1);
+  }
+
+  function stream(m: Msg) {
+    const e = m.event ?? {};
+    if (e.type === "message_start" && e.message?.id) {
+      const r = reply(e.message.id);
+      r.done = false;
+      replies.set("__live", r);
+    } else if (e.type === "content_block_delta") {
+      const r = replies.get("__live");
+      if (!r) return;
+      if (e.delta?.type === "text_delta") r.liveText = (r.liveText ?? "") + e.delta.text;
+      if (e.delta?.type === "thinking_delta") r.liveThink = (r.liveThink ?? "") + e.delta.thinking;
+    }
+  }
+
+  function user(m: Msg) {
+    const content = m.message?.content;
+    if (Array.isArray(content))
+      for (const b of content as Msg[])
+        if (b?.type === "tool_result") {
+          const res = { content: b.content, error: !!b.is_error };
+          if (v.tools[b.tool_use_id]) v.tools[b.tool_use_id].result = res;
+          else early.set(b.tool_use_id, res);
+          if (typeof b.content === "string" && /Command running in background/.test(b.content) && v.tools[b.tool_use_id]) v.tools[b.tool_use_id].bg = true;
+        }
+    const raw = textOf(content);
+    if (m.isCompactSummary) {
+      const text = summaryText(raw);
+      const b = boundary as Extract<Row, { k: "sys" }> | null;
+      if (b && !sub) {
+        Object.assign(b, { k: "sum", head: b.text, text, bound: true });
+        boundary = null;
+      } else push({ k: "sum", head: "контекст сжат", text, bound: false });
+      return;
+    }
+    const pics = picsOf(content);
+    const text = strip(raw);
+    if (!text && !pics.length) return;
+    if (sub || m.isMeta) return;
+    const peer = peerOf(text, m.origin);
+    if (m.isSynthetic && !peer) return;
+    if (/^Caveat:/.test(text)) return;
+    if (/^\[Request interrupted by user/.test(text)) {
+      const when = m.timestamp ? Date.parse(m.timestamp) : m._at;
+      push({ k: "sys", icon: "square", text: when ? `прервано · ${at(when)}` : "прервано", tone: "wait" });
+      return;
+    }
+    const notice = tag(text, "task-notification");
+    if (notice !== undefined) {
+      endTask(tag(notice, "task-id") ?? "", tag(notice, "status") ?? "", tag(notice, "summary"));
+      return;
+    }
+    const out = tag(text, "local-command-stdout");
+    if (out !== undefined) {
+      const cmd = [...v.rows].reverse().find((r) => r.k === "cmd" && r.out === undefined);
+      if (cmd && cmd.k === "cmd") cmd.out = out.trim();
+      return;
+    }
+    if (tag(text, "local-command-stderr") !== undefined) return;
+    const name = tag(text, "command-name") ?? tag(text, "command-message");
+    const own = /^\/[\w:.-]+$/.exec(text)?.[0];
+    if (name !== undefined || own) {
+      const args = tag(text, "command-args")?.trim();
+      const cmd = `${(name ?? own)!.startsWith("/") ? "" : "/"}${name ?? own}${args ? ` ${args}` : ""}`;
+      const prev = last();
+      if (prev?.k === "cmd" && prev.name === cmd) return;
+      if (prev?.k === "line" && prev.out) {
+        v.rows.pop();
+        push({ k: "cmd", name: cmd, out: prev.text });
+      } else push({ k: "cmd", name: cmd });
+      return;
+    }
+    if (peer) {
+      push({ k: "in", from: peer.from, name: peer.name, text: peer.text.replace(/\n?\(Задача от родителя [^)]*\)\s*$/, ""), ...(peer.mode ? { mode: peer.mode } : {}) });
+      return;
+    }
+    push({ k: "me", uuid: m.uuid, text, pics });
+  }
+
+  function result(m: Msg) {
+    freeze();
+    v.running = false;
+    const prev = last();
+    if (m.is_error) {
+      if (prev?.k === "sys" && prev.icon === "square") return;
+      const why = m.result || (m.errors?.length ? m.errors.join("; ") : undefined);
+      push({ k: "res", err: m.subtype === "success" ? "success" : endWhy(m.subtype), why, parts: [] });
+      return;
+    }
+    const total = m.total_cost_usd;
+    const spent = typeof total === "number" ? (total >= cost ? total - cost : total) : undefined;
+    if (typeof total === "number") cost = total;
+    const parts = ["ход закончен", m.duration_ms ? duration(m.duration_ms) : "", m.num_turns ? steps(m.num_turns) : "", spent !== undefined ? money(spent) : "", contextOf(m.usage) ? `${kilo(contextOf(m.usage))} в контексте` : ""].filter(Boolean);
+    push({ k: "res", parts });
+  }
+
+  function limit(m: Msg) {
+    const i = m.rate_limit_info ?? {};
+    if (i.status !== "allowed_warning" && i.status !== "rejected") return;
+    const name = LIMIT_NAMES[i.rateLimitType] ?? i.rateLimitType;
+    const body = name ? `${name}${i.resetsAt ? `, сброс в ${at(i.resetsAt)}` : ""}` : undefined;
+    ban("wait", "gauge", i.status === "rejected" ? "Лимит подписки исчерпан" : "Лимит подписки скоро кончится", body);
+  }
+
+  function refusal(m: Msg) {
+    switch (m.subtype) {
+      case "model_fallback":
+        ban("wait", "shuffle", `${modelName(m.original_model)} ${fallbackWhy(m.trigger)} — этот ход отвечает ${modelName(m.fallback_model)}`);
+        break;
+      case "model_refusal_fallback": {
+        const to = modelName(m.fallback_model);
+        const why = area(m.api_refusal_category);
+        const body = [m.scope === "local" ? "Только этот ответ: модель сессии прежняя" : `Дальше сессия идёт на ${to}`, why && `Область: ${why}`, m.api_refusal_explanation].filter(Boolean).join(". ");
+        ban("wait", "shuffle", `${modelName(m.original_model)} отказалась — ответ переписан моделью ${to}`, body);
+        break;
+      }
+      case "model_refusal_no_fallback": {
+        const edit = m.refused_user_message_uuid;
+        const prev = [...v.rows].reverse().find((r) => r.k === "ban" && r.refusal);
+        const why = m.api_refusal_explanation;
+        if (prev && prev.k === "ban") {
+          prev.body = [prev.body, why].filter(Boolean).join(". ") || undefined;
+          prev.edit = edit;
+        } else if (!sub) push({ k: "ban", tone: "bad", icon: "shield-off", title: `${modelName(m.original_model)} отказалась отвечать`, refusal: true, edit, ...(why ? { body: why } : {}) });
+        break;
+      }
+    }
+  }
+
+  function taskEvent(m: Msg) {
+    switch (m.subtype) {
+      case "task_started": {
+        const t = task(m);
+        Object.assign(t, { tool: m.tool_use_id, description: m.description, type: m.task_type, bg: !!m.is_backgrounded });
+        if (t.tool && v.tools[t.tool]) v.tools[t.tool].task = t.id;
+        if (!t.tool) push({ k: "task", id: t.id });
+        break;
+      }
+      case "task_progress": {
+        const t = task(m);
+        if (m.summary) t.summary = m.summary;
+        if (m.last_tool_name) t.last = m.last_tool_name;
+        if (m.usage?.tool_uses !== undefined) t.uses = m.usage.tool_uses;
+        break;
+      }
+      case "task_updated": {
+        const t = task(m);
+        const p = m.patch ?? {};
+        if (p.is_backgrounded !== undefined) t.bg = p.is_backgrounded;
+        if (p.status && p.status !== "running") {
+          t.status = p.status;
+          ended.add(t.id);
+        }
+        break;
+      }
+      case "task_notification":
+        endTask(m.task_id, m.status, m.summary);
+        break;
+      case "background_tasks_changed": {
+        const now = new Set<string>();
+        for (const x of m.tasks ?? []) {
+          const t = task(x);
+          now.add(t.id);
+          Object.assign(t, { bg: true, ...(x.description ? { description: x.description } : {}), ...(x.task_type ? { type: x.task_type } : {}) });
+        }
+        for (const t of Object.values(v.tasks)) if (t.bg && t.status === "running" && !now.has(t.id)) t.status = "gone";
+        break;
+      }
     }
   }
 
@@ -370,62 +452,17 @@ export function fold(msgs: readonly Msg[], sub = false): View {
         if (m.status === "failed") fail(`Плагин не установился${m.name ? ` (${m.name})` : ""}${m.error ? `: ${m.error}` : ""}`);
         break;
       case "model_fallback":
-        ban("wait", "shuffle", `${modelName(m.original_model)} ${fallbackWhy(m.trigger)} — этот ход отвечает ${modelName(m.fallback_model)}`);
+      case "model_refusal_fallback":
+      case "model_refusal_no_fallback":
+        refusal(m);
         break;
-      case "model_refusal_fallback": {
-        const to = modelName(m.fallback_model);
-        const why = area(m.api_refusal_category);
-        const body = [m.scope === "local" ? "Только этот ответ: модель сессии прежняя" : `Дальше сессия идёт на ${to}`, why && `Область: ${why}`, m.api_refusal_explanation].filter(Boolean).join(". ");
-        ban("wait", "shuffle", `${modelName(m.original_model)} отказалась — ответ переписан моделью ${to}`, body);
-        break;
-      }
-      case "model_refusal_no_fallback": {
-        const edit = m.refused_user_message_uuid;
-        const prev = [...v.rows].reverse().find((r) => r.k === "ban" && r.refusal);
-        const why = m.api_refusal_explanation;
-        if (prev && prev.k === "ban") {
-          prev.body = [prev.body, why].filter(Boolean).join(". ") || undefined;
-          prev.edit = edit;
-        } else if (!sub) push({ k: "ban", tone: "bad", icon: "shield-off", title: `${modelName(m.original_model)} отказалась отвечать`, refusal: true, edit, ...(why ? { body: why } : {}) });
-        break;
-      }
-      case "task_started": {
-        const t = task(m);
-        Object.assign(t, { tool: m.tool_use_id, description: m.description, type: m.task_type, bg: !!m.is_backgrounded });
-        if (t.tool && v.tools[t.tool]) v.tools[t.tool].task = t.id;
-        if (!t.tool) push({ k: "task", id: t.id });
-        break;
-      }
-      case "task_progress": {
-        const t = task(m);
-        if (m.summary) t.summary = m.summary;
-        if (m.last_tool_name) t.last = m.last_tool_name;
-        if (m.usage?.tool_uses !== undefined) t.uses = m.usage.tool_uses;
-        break;
-      }
-      case "task_updated": {
-        const t = task(m);
-        const p = m.patch ?? {};
-        if (p.is_backgrounded !== undefined) t.bg = p.is_backgrounded;
-        if (p.status && p.status !== "running") {
-          t.status = p.status;
-          ended.add(t.id);
-        }
-        break;
-      }
+      case "task_started":
+      case "task_progress":
+      case "task_updated":
       case "task_notification":
-        endTask(m.task_id, m.status, m.summary);
+      case "background_tasks_changed":
+        taskEvent(m);
         break;
-      case "background_tasks_changed": {
-        const now = new Set<string>();
-        for (const x of m.tasks ?? []) {
-          const t = task(x);
-          now.add(t.id);
-          Object.assign(t, { bg: true, ...(x.description ? { description: x.description } : {}), ...(x.task_type ? { type: x.task_type } : {}) });
-        }
-        for (const t of Object.values(v.tasks)) if (t.bg && t.status === "running" && !now.has(t.id)) t.status = "gone";
-        break;
-      }
       case "session_state_changed":
         v.running = m.state === "running";
         if (m.state === "idle") v.thinking = undefined;
