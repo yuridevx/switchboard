@@ -1234,7 +1234,7 @@ describe("fleet: проекты и имена", () => {
     svc.values["fleet.projects"] = REC;
     await st.open("old@win");
     expect(text(await call("me@win", "update", { callsign: "old@win", slot: "main", project: "Магазин" }))).toBe("слот main; проект old@win: Магазин");
-    expect(text(await call("me@win", "update", { callsign: "old@win", project: "Магазин", model: "m" }))).toBe("сразу: model");
+    expect(text(await call("me@win", "update", { callsign: "old@win", project: "Магазин", model: "m" }))).toBe("проект old@win: Магазин; сразу: model");
     svc.down = "gate_unavailable";
     expect(await call("me@win", "update", { callsign: "old@win", slot: "main", project: "Магазин" })).toEqual(toolText("слот main; Не выполнено: проект old@win — gate_unavailable", true));
   });

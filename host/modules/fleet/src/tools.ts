@@ -148,7 +148,9 @@ export function fleetTools(me: string, env: Env): SdkMcpToolDefinition<any>[] {
         if (project !== undefined) {
           const word = await assign(env.meta, callsign, project);
           if (word) return say(`${moved}Не выполнено: проект ${callsign} — ${word}`, true);
-          if (!more) return say(moved + (project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`));
+          moved += project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`;
+          if (!more) return say(moved);
+          moved += "; ";
         }
         const r = await env.host.request("session.update", { callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
         return r.ok ? say(`${moved}сразу: ${(r.result as { now: string[] }).now.join(", ") || "—"}`) : failed(callsign, r);
