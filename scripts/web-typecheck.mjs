@@ -5,15 +5,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-const dirs = [...readdirSync(join(root, "web/packages")).map((d) => `web/packages/${d}`), "web/pult", "web/phone"].filter((d) => existsSync(join(root, d, "tsconfig.json")));
-let failed = 0;
-for (const d of dirs) {
-  const r = spawnSync("npx", ["tsc", "-p", `${d}/tsconfig.json`, "--noEmit"], { cwd: root, encoding: "utf8", shell: true, maxBuffer: 64 * 1024 * 1024 });
-  const out = `${r.stdout}${r.stderr}`.trim();
-  console.log(`${d}: ${r.status ? "ошибки" : "ok"}`);
+const packages = readdirSync(join(root, "web/packages")).map((name) => `web/packages/${name}`);
+let failed = false;
+for (const dir of [...packages, "web/pult", "web/phone"]) {
+  if (!existsSync(join(root, dir, "tsconfig.json"))) continue;
+  const r = spawnSync("npx", ["tsc", "-p", `${dir}/tsconfig.json`, "--noEmit"], { cwd: root, encoding: "utf8", shell: true, maxBuffer: 64 * 1024 * 1024 });
+  console.log(`${dir}: ${r.status ? "ошибки" : "ok"}`);
   if (r.status) {
-    failed++;
-    console.log(out);
+    failed = true;
+    console.log(`${r.stdout}${r.stderr}`.trim());
   }
 }
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;

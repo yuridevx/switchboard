@@ -1,11 +1,18 @@
 // Комментарии на дев-стенде: C (c или с, в любой раскладке) → навести и нажать на элемент, либо выделить текст и нажать C → написать.
 // Хранит сервер стенда, событие comments — файл изменился. Наложение живёт в своём shadow DOM вне #app: страница о нём не знает.
+import { selectorOf } from "./selector.ts";
+
 export type Comment = { id: string; at: string; text: string; app: string; kind: string; hash: string; screen: string | null; module: string | null; selector: string; element: string; quote?: string };
 type Mode = "idle" | "pick" | "write";
 
 const KEYS = new Set(["c", "C", "с", "С"]);
 const EDITABLE = "input:not([type=range]):not([type=checkbox]):not([type=radio]),textarea,select,[contenteditable]:not([contenteditable=false])";
 const API = "/api/comments";
+const POINTER_EVENTS = ["pointerdown", "mousedown", "pointerup", "mouseup", "touchstart", "touchend"];
+/** Экраны меняются сами (кадры, переходы): метки догоняют свои элементы. */
+const FOLLOW_MS = 250;
+/** Экран рисуется после смены адреса. */
+const SCREEN_MS = 250;
 
 const STYLE = `
 *{box-sizing:border-box;font:13px/1.4 system-ui,sans-serif}
@@ -29,68 +36,63 @@ button.act.pri{background:#e8590c;border-color:#e8590c;color:#fff}
 .it span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 `;
 
-/** Шаг селектора: data-атрибуты важнее классов, положение — только среди одинаковых. */
-function stepOf(e: Element): string {
-  const data = [...e.attributes].filter((a) => a.name.startsWith("data-") && a.value && a.value.length <= 60).slice(0, 2);
-  let s = CSS.escape(e.localName);
-  if (data.length) s += data.map((a) => `[${a.name}="${a.value.replace(/["\\]/g, "\\$&")}"]`).join("");
-  else if (e.classList.length) s += [...e.classList].slice(0, 3).map((c) => `.${CSS.escape(c)}`).join("");
-  const kids = e.parentElement ? [...e.parentElement.children] : [];
-  if (kids.filter((x) => x.matches(s)).length > 1) s += `:nth-of-type(${kids.filter((x) => x.localName === e.localName).indexOf(e) + 1})`;
-  return s;
-}
+const textOf = (el: Element) => (((el as HTMLElement).innerText ?? el.textContent) || "").trim().replace(/\s+/g, " ").slice(0, 80);
+const timeOf = (at: string) => new Date(at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+const clamp = (v: number, low: number, high: number) => Math.max(low, Math.min(high, v));
 
-/** Селектор, ведущий ровно к этому элементу. */
-function selectorOf(el: Element): string {
-  const parts: string[] = [];
-  for (let e: Element | null = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) {
-    parts.unshift(stepOf(e));
-    const found = document.querySelectorAll(parts.join(" > "));
-    if (found.length === 1 && found[0] === el) break;
-  }
-  return parts.join(" > ");
+/** Отправить новый комментарий: null — сохранён, иначе слово отказа. */
+function saveComment(draft: Omit<Comment, "id" | "at">): Promise<string | null> {
+  return fetch(API, { method: "POST", body: JSON.stringify(draft) }).then(
+    async (r) => (r.ok ? null : ((await r.json()) as { error: string }).error),
+    (e: Error) => e.message,
+  );
 }
-
-const snippet = (el: Element) => (((el as HTMLElement).innerText ?? el.textContent) || "").trim().replace(/\s+/g, " ").slice(0, 80);
-const when = (at: string) => new Date(at).toLocaleString("ru-RU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
 export function startComments({ app, kind, events }: { app: string; kind: string; events: EventSource }) {
   const host = document.createElement("div");
   host.id = "stand-comments";
   host.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none";
   const root = host.attachShadow({ mode: "open" });
-  const make = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: Node = root) => {
-    const n = document.createElement(tag);
-    n.className = cls;
-    parent.appendChild(n);
-    return n;
+
+  const add = <K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: Node = root) => {
+    const node = document.createElement(tag);
+    node.className = cls;
+    parent.appendChild(node);
+    return node;
   };
-  make("style", "").textContent = STYLE;
-  const box = make("div", "box");
-  const pins = make("div", "pins");
-  const chip = make("div", "chip");
+  const addButton = (cls: string, parent: Node, text: string, onclick: () => void) => {
+    const button = add("button", cls, parent);
+    button.textContent = text;
+    button.onclick = onclick;
+    return button;
+  };
+
+  add("style", "").textContent = STYLE;
+  const box = add("div", "box");
+  const pins = add("div", "pins");
+  const chip = add("div", "chip");
   chip.textContent = "Наведите на элемент и нажмите · Esc — выйти";
-  const list = make("div", "list");
-  const card = make("div", "card");
+  const list = add("div", "list");
+  const card = add("div", "card");
   box.hidden = chip.hidden = list.hidden = card.hidden = true;
   document.body.appendChild(host);
 
   let mode: Mode = "idle";
-  let target: Element | null = null;
+  let framed: Element | null = null;
   let comments: Comment[] = [];
   /** id комментария, открытого в карточке */
-  let shown: string | null = null;
+  let openId: string | null = null;
 
-  const mine = () => comments.filter((c) => c.app === app);
-  const inHost = (e: Event) => e.composedPath().includes(host);
+  const ofThisApp = () => comments.filter((c) => c.app === app);
+  const fromOverlay = (e: Event) => e.composedPath().includes(host);
   /** Элемент под точкой; внутри svg — сам значок; наложение не выбирается. */
-  const under = (x: number, y: number) => {
+  const elementAt = (x: number, y: number) => {
     const el = document.elementFromPoint(x, y);
     return el && el !== host ? (el.closest("svg") ?? el) : null;
   };
 
   function frame(el: Element | null) {
-    target = el;
+    framed = el;
     box.hidden = !el;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -98,46 +100,45 @@ export function startComments({ app, kind, events }: { app: string; kind: string
   }
 
   /** Карточка рядом с элементом: снизу, не влезла — сверху; в пределах окна. */
-  function placeCard(el: Element) {
+  function showCardAt(el: Element) {
+    card.hidden = false;
     const r = el.getBoundingClientRect();
-    const top = r.bottom + 8 + card.offsetHeight <= innerHeight ? r.bottom + 8 : Math.max(8, r.top - card.offsetHeight - 8);
+    const fitsBelow = r.bottom + 8 + card.offsetHeight <= innerHeight;
     card.style.left = `${Math.max(8, Math.min(innerWidth - card.offsetWidth - 8, r.left))}px`;
-    card.style.top = `${top}px`;
+    card.style.top = `${fitsBelow ? r.bottom + 8 : Math.max(8, r.top - card.offsetHeight - 8)}px`;
   }
 
   function closeCard() {
     card.hidden = true;
     card.replaceChildren();
-    shown = null;
+    openId = null;
   }
 
   function setMode(next: Mode) {
     mode = next;
     chip.hidden = next !== "pick";
-    list.hidden = next !== "pick" || !mine().length;
+    list.hidden = next !== "pick" || !ofThisApp().length;
     document.documentElement.style.cursor = next === "pick" ? "crosshair" : "";
     if (next !== "write") closeCard();
     if (next === "idle") frame(null);
   }
 
-  function write(el: Element, quote?: string) {
+  /** Карточка нового комментария у элемента. */
+  function startWriting(el: Element, quote?: string) {
     setMode("write");
     frame(el);
     card.replaceChildren();
-    if (quote) make("div", "quote", card).textContent = quote;
-    const area = make("textarea", "", card);
+    if (quote) add("div", "quote", card).textContent = quote;
+    const area = add("textarea", "", card);
     area.setAttribute("aria-label", "Комментарий");
-    const row = make("div", "row", card);
-    const err = make("span", "err", row);
-    const cancel = make("button", "act", row);
-    cancel.textContent = "Отмена";
-    cancel.onclick = () => setMode("idle");
-    const send = make("button", "act pri", row);
-    send.textContent = "Сохранить";
+    const row = add("div", "row", card);
+    const error = add("span", "err", row);
+    addButton("act", row, "Отмена", () => setMode("idle"));
     const submit = async () => {
       const text = area.value.trim();
       if (!text) return;
-      const draft = {
+      send.disabled = true;
+      const word = await saveComment({
         text,
         app,
         kind,
@@ -145,19 +146,14 @@ export function startComments({ app, kind, events }: { app: string; kind: string
         screen: el.closest("[data-screen]")?.getAttribute("data-screen") ?? null,
         module: el.closest("[data-module]")?.getAttribute("data-module") ?? null,
         selector: selectorOf(el),
-        element: snippet(el),
+        element: textOf(el),
         ...(quote ? { quote } : {}),
-      };
-      send.disabled = true;
-      const word = await fetch(API, { method: "POST", body: JSON.stringify(draft) }).then(
-        async (r) => (r.ok ? null : ((await r.json()) as { error: string }).error),
-        (e: Error) => e.message,
-      );
+      });
       send.disabled = false;
-      if (word) err.textContent = `Не сохранилось: ${word}`;
+      if (word) error.textContent = `Не сохранилось: ${word}`;
       else setMode("idle");
     };
-    send.onclick = () => void submit();
+    const send = addButton("act pri", row, "Сохранить", () => void submit());
     area.addEventListener("keydown", (e) => {
       e.stopPropagation();
       if (e.key === "Escape") setMode("idle");
@@ -166,31 +162,27 @@ export function startComments({ app, kind, events }: { app: string; kind: string
         void submit();
       }
     });
-    card.hidden = false;
-    placeCard(el);
+    showCardAt(el);
     area.focus();
   }
 
   /** Комментарий в карточке у своего элемента. */
-  function show(c: Comment, el: Element) {
-    shown = c.id;
+  function showComment(c: Comment, el: Element) {
+    openId = c.id;
     card.replaceChildren();
-    if (c.quote) make("div", "quote", card).textContent = c.quote;
-    make("p", "", card).textContent = c.text;
-    const row = make("div", "row", card);
-    make("time", "", row).textContent = when(c.at);
-    const del = make("button", "act", row);
-    del.textContent = "Удалить";
-    del.onclick = () => {
+    if (c.quote) add("div", "quote", card).textContent = c.quote;
+    add("p", "", card).textContent = c.text;
+    const row = add("div", "row", card);
+    add("time", "", row).textContent = timeOf(c.at);
+    addButton("act", row, "Удалить", () => {
       closeCard();
       void fetch(`${API}/${c.id}`, { method: "DELETE" });
-    };
-    card.hidden = false;
-    placeCard(el);
+    });
+    showCardAt(el);
   }
 
   /** Метка стоит у своего элемента, пока он на экране и его ничего не закрывает. */
-  function place() {
+  function followPins() {
     for (const pin of pins.children as HTMLCollectionOf<HTMLButtonElement>) {
       const c = comments.find((x) => x.id === pin.dataset.id);
       const el = c && document.querySelector(c.selector);
@@ -199,110 +191,100 @@ export function startComments({ app, kind, events }: { app: string; kind: string
         pin.hidden = true;
         continue;
       }
-      const top = document.elementFromPoint(Math.min(r.left + r.width / 2, innerWidth - 1), Math.max(0, Math.min(r.top + r.height / 2, innerHeight - 1)));
-      pin.hidden = !top || (top !== host && !el.contains(top) && !top.contains(el));
-      pin.style.left = `${Math.max(12, Math.min(innerWidth - 12, r.right))}px`;
-      pin.style.top = `${Math.max(12, Math.min(innerHeight - 12, r.top))}px`;
+      const onTop = document.elementFromPoint(Math.min(r.left + r.width / 2, innerWidth - 1), clamp(r.top + r.height / 2, 0, innerHeight - 1));
+      pin.hidden = !onTop || (onTop !== host && !el.contains(onTop) && !onTop.contains(el));
+      pin.style.left = `${clamp(r.right, 12, innerWidth - 12)}px`;
+      pin.style.top = `${clamp(r.top, 12, innerHeight - 12)}px`;
     }
-    if (mode === "write" && target) frame(target);
+    if (mode === "write" && framed) frame(framed);
   }
 
-  function draw() {
+  /** Метка и строка списка одного комментария. */
+  function addCommentRow(c: Comment, number: string) {
+    const pin = addButton("pin", pins, number, () => {
+      const el = document.querySelector(c.selector);
+      if (openId === c.id) closeCard();
+      else if (el) showComment(c, el);
+    });
+    pin.dataset.id = c.id;
+    pin.setAttribute("aria-label", `Комментарий ${number}: ${c.text}`);
+    pin.hidden = true;
+    const item = addButton("it", list, "", () => {
+      setMode("idle");
+      location.hash = c.hash;
+      setTimeout(() => {
+        const el = document.querySelector(c.selector);
+        if (!el) return;
+        el.scrollIntoView({ block: "center" });
+        showComment(c, el);
+      }, SCREEN_MS);
+    });
+    add("b", "", item).textContent = number;
+    add("span", "", item).textContent = c.text;
+    item.title = c.element;
+  }
+
+  function drawComments() {
     pins.replaceChildren();
     list.replaceChildren();
-    mine().forEach((c, i) => {
-      const pin = make("button", "pin", pins);
-      pin.textContent = String(i + 1);
-      pin.dataset.id = c.id;
-      pin.setAttribute("aria-label", `Комментарий ${i + 1}: ${c.text}`);
-      pin.hidden = true;
-      pin.onclick = () => {
-        const el = document.querySelector(c.selector);
-        if (shown === c.id) closeCard();
-        else if (el) show(c, el);
-      };
-      const it = make("button", "it", list);
-      make("b", "", it).textContent = String(i + 1);
-      make("span", "", it).textContent = c.text;
-      it.title = c.element;
-      it.onclick = () => {
-        setMode("idle");
-        location.hash = c.hash;
-        // экран рисуется после смены адреса
-        setTimeout(() => {
-          const el = document.querySelector(c.selector);
-          if (!el) return;
-          el.scrollIntoView({ block: "center" });
-          show(c, el);
-        }, 250);
-      };
-    });
-    list.hidden = mode !== "pick" || !mine().length;
-    if (shown && !comments.some((c) => c.id === shown)) closeCard();
-    place();
+    ofThisApp().forEach((c, i) => addCommentRow(c, String(i + 1)));
+    list.hidden = mode !== "pick" || !ofThisApp().length;
+    if (openId && !comments.some((c) => c.id === openId)) closeCard();
+    followPins();
   }
 
-  async function load() {
+  async function loadComments() {
     const r = await fetch(API);
     // файл пишут прямо сейчас: следующее событие comments перечитает
     if (!r.ok) return;
     comments = ((await r.json()) as { comments: Comment[] }).comments;
-    draw();
+    drawComments();
   }
 
-  document.addEventListener(
-    "keydown",
-    (e) => {
-      if (e.key === "Escape" && (mode !== "idle" || shown)) {
-        e.preventDefault();
-        e.stopPropagation();
-        return setMode("idle");
-      }
-      if (mode === "write" || inHost(e)) return;
-      if (!(KEYS.has(e.key) || e.code === "KeyC") || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-      if ((e.target as Element | null)?.matches?.(EDITABLE)) return;
+  function onKey(e: KeyboardEvent) {
+    if (e.key === "Escape" && (mode !== "idle" || openId)) {
       e.preventDefault();
       e.stopPropagation();
-      if (mode === "pick") return setMode("idle");
-      const sel = document.getSelection();
-      const quote = sel && !sel.isCollapsed ? sel.toString().trim().slice(0, 500) : "";
-      if (!quote) return setMode("pick");
-      const node = sel!.getRangeAt(0).commonAncestorContainer;
-      write(node instanceof Element ? node : node.parentElement!, quote);
-    },
-    true,
-  );
-  document.addEventListener("pointermove", (e) => mode === "pick" && frame(under(e.clientX, e.clientY)), true);
-  // в режиме выбора страница нажатий не получает: кнопка не срабатывает, перетаскивание не начинается
-  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "touchstart", "touchend"]) {
-    document.addEventListener(
-      type,
-      (e) => {
-        if (mode !== "pick" || inHost(e)) return;
-        // касание не отменяем: из него браузер делает click, им и выбирается элемент
-        if (type === "mousedown") e.preventDefault();
-        e.stopPropagation();
-      },
-      true,
-    );
+      return setMode("idle");
+    }
+    if (mode === "write" || fromOverlay(e)) return;
+    if (!(KEYS.has(e.key) || e.code === "KeyC") || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+    if ((e.target as Element | null)?.matches?.(EDITABLE)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (mode === "pick") return setMode("idle");
+    const selection = document.getSelection();
+    const quote = selection && !selection.isCollapsed ? selection.toString().trim().slice(0, 500) : "";
+    if (!quote) return setMode("pick");
+    const node = selection!.getRangeAt(0).commonAncestorContainer;
+    startWriting(node instanceof Element ? node : node.parentElement!, quote);
   }
-  document.addEventListener(
-    "click",
-    (e) => {
-      if (inHost(e)) return;
-      if (mode === "pick") {
-        e.preventDefault();
-        e.stopPropagation();
-        const el = under(e.clientX, e.clientY);
-        if (el) write(el);
-      } else if (shown) closeCard();
-    },
-    true,
-  );
-  addEventListener("scroll", place, { capture: true, passive: true });
-  addEventListener("resize", place);
-  // экраны меняются сами (кадры, переходы): метки догоняют свои элементы
-  setInterval(place, 250);
-  events.addEventListener("comments", () => void load());
-  void load();
+
+  /** В режиме выбора страница нажатий не получает: кнопка не срабатывает, перетаскивание не начинается. */
+  function holdPointer(e: Event) {
+    if (mode !== "pick" || fromOverlay(e)) return;
+    // касание не отменяем: из него браузер делает click, им и выбирается элемент
+    if (e.type === "mousedown") e.preventDefault();
+    e.stopPropagation();
+  }
+
+  function onClick(e: MouseEvent) {
+    if (fromOverlay(e)) return;
+    if (mode === "pick") {
+      e.preventDefault();
+      e.stopPropagation();
+      const el = elementAt(e.clientX, e.clientY);
+      if (el) startWriting(el);
+    } else if (openId) closeCard();
+  }
+
+  document.addEventListener("keydown", onKey, true);
+  document.addEventListener("pointermove", (e) => mode === "pick" && frame(elementAt(e.clientX, e.clientY)), true);
+  for (const type of POINTER_EVENTS) document.addEventListener(type, holdPointer, true);
+  document.addEventListener("click", onClick, true);
+  addEventListener("scroll", followPins, { capture: true, passive: true });
+  addEventListener("resize", followPins);
+  setInterval(followPins, FOLLOW_MS);
+  events.addEventListener("comments", () => void loadComments());
+  void loadComments();
 }

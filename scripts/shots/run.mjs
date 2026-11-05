@@ -1,6 +1,7 @@
 // Обход экранов настоящего кода снимками: пульт и телефон, светлая и тёмная; замечания — выход за край и ошибки страницы. npm run shots [часть имени снимка]; снимки смотрит глазами тот, кто запустил.
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { appContext, errorsOf, overflow, pause } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "shots");
@@ -9,7 +10,6 @@ await prepare();
 
 const filter = process.argv[2] || "";
 
-const pause = (p, ms = 200) => p.waitForTimeout(ms);
 async function go(p, hash) {
   await p.evaluate((h) => (location.hash = h), hash);
   await pause(p);
@@ -77,23 +77,16 @@ const PHONE = [
           if (filter && !id.includes(filter)) continue;
           // большой флот — только там, где длина важна
           if (kind === "big" && !/^(work|view|filter-new|new|profiles|fleet-profiles|find|machines|fleet-machines)/.test(name)) continue;
-          const ctx = await b.newContext({ viewport, colorScheme: scheme, deviceScaleFactor: app === "phone" ? 2 : 1, hasTouch: app === "phone", isMobile: app === "phone" });
+          const ctx = await appContext(b, app, viewport, scheme);
           const p = await ctx.newPage();
-          const errs = [];
-          p.on("pageerror", (e) => errs.push(e.message));
-          p.on("console", (m) => m.type() === "error" && errs.push(m.text()));
+          const errs = errorsOf(p, true);
           try {
             await p.goto(url(app, kind, app === "pult" ? "#sessions" : "#sessions"));
             await p.waitForSelector(".bd-list .fbar .fc", { timeout: 4000 });
             await pause(p, 250);
             await act(p);
             await p.screenshot({ path: path.join(OUT, id + ".png") });
-            const over = await p.evaluate(() => {
-              const de = document.documentElement;
-              const x = de.scrollWidth - de.clientWidth;
-              const bad = [...document.querySelectorAll("body *")].filter((e) => { const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 1 && getComputedStyle(e).position !== "fixed" && !e.closest(".fscroll, .op-pre, .sb-navrow, .cw-tabs"); }).slice(0, 4).map((e) => e.className || e.tagName);
-              return { x, bad };
-            });
+            const over = await overflow(p, "body *", ".fscroll, .op-pre, .sb-navrow, .cw-tabs", true);
             if (over.x > 0 || over.bad.length) fails.push(`${id}: выход за край ${over.x}px ${over.bad.join(" | ")}`);
           } catch (e) {
             fails.push(`${id}: ${e.message.split("\n")[0]}`);

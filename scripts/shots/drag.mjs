@@ -1,17 +1,14 @@
 // Жесты настоящего кода в браузере: перестановка проектов и чипов мышью, пальцем и с клавиатуры, числа и снимки посреди жеста. npm run drag
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { checker, errorsOf } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "drag");
 mkdirSync(OUT, { recursive: true });
 await prepare();
 
-let bad = 0;
-const check = (name, ok, extra = "") => {
-  console.log(`${ok ? "✓" : "✗"} ${name}${extra !== "" ? " · " + extra : ""}`);
-  if (!ok) bad++;
-};
+const { check, bad } = checker();
 const rect = (p, sel) => p.evaluate((s) => { const r = document.querySelector(s)?.getBoundingClientRect(); return r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; }, sel);
 const projects = (p) => p.evaluate(() => [...document.querySelectorAll(".lst > .pjs")].map((x) => x.dataset.proj));
 const chips = (p) => p.evaluate(() => [...document.querySelectorAll(".fscroll > .fc")].map((x) => x.dataset.fid));
@@ -25,8 +22,7 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
   {
     const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
     const p = await ctx.newPage();
-    const errs = [];
-    p.on("pageerror", (e) => errs.push(e.message));
+    const errs = errorsOf(p);
     await p.goto(url("pult", "big", "#sessions"));
     await p.waitForSelector(".lst > .pjs");
     await p.waitForTimeout(300);
@@ -117,8 +113,7 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
   {
     const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
     const p = await ctx.newPage();
-    const errs = [];
-    p.on("pageerror", (e) => errs.push(e.message));
+    const errs = errorsOf(p);
     await p.goto(url("pult", "small", "#sessions"));
     await p.waitForSelector(".bd-row");
     await p.waitForTimeout(300);
@@ -186,8 +181,7 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
   {
     const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
     const p = await ctx.newPage();
-    const errs = [];
-    p.on("pageerror", (e) => errs.push(e.message));
+    const errs = errorsOf(p);
     await p.goto(url("pult", "big", "#sessions"));
     await p.waitForSelector(".fscroll .fc");
     await p.waitForTimeout(300);
@@ -237,8 +231,7 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
   {
     const ctx = await b.newContext({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
     const p = await ctx.newPage();
-    const errs = [];
-    p.on("pageerror", (e) => errs.push(e.message));
+    const errs = errorsOf(p);
     await p.goto(url("phone", "big", "#sessions"));
     await p.waitForSelector(".lst > .pjs");
     await p.waitForTimeout(300);
@@ -329,5 +322,5 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
     await ctx.close();
   }
   await b.close();
-  console.log(bad ? `не прошло: ${bad}` : "всё прошло");
-  process.exit(bad ? 1 : 0);
+  console.log(bad() ? `не прошло: ${bad()}` : "всё прошло");
+  process.exit(bad() ? 1 : 0);

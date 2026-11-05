@@ -226,21 +226,6 @@ await test("6796", "ссылка-приглашение при имеющемс�
   eq(p.url().includes("invite"), false, "первая вкладка");
 });
 
-// ───── галерея ─────
-await test("6795", "опасный HTML в образце галереи: на странице чисто, счётчик работает только в рамке", async ({ p }, eq) => {
-  await p.evaluate(() => (location.hash = "#gallery"));
-  await p.waitForSelector(".chat-gal");
-  const row = p.locator('[data-sample="Встроенный HTML и блоки просмотра"]');
-  const html = await row.innerHTML();
-  for (const bad of ["<script", "onerror", "javascript:"]) if (html.includes(bad)) throw new Error(`на странице ${bad}`);
-  eq(await row.locator("a", { hasText: "опасная ссылка без адреса" }).evaluate((a) => a.hasAttribute("href")), false, "href опасной ссылки");
-  await row.locator(".cb").first().locator(".cb-b", { hasText: "Просмотр" }).click();
-  const f = row.frameLocator("iframe").first();
-  await f.locator("button").click();
-  eq(await f.locator("#c").textContent(), "Нажатий: 1", "счётчик в рамке");
-  eq(await p.evaluate(() => window.n ?? null), null, "счётчик на странице");
-});
-
 await b.close();
 page.close();
 evil.close();

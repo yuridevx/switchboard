@@ -2,6 +2,7 @@
 // node scripts/shots/chat.mjs [часть имени снимка]; снимки смотрит глазами тот, кто запустил; замечания — выход за край и ошибки страницы.
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import { appContext, errorsOf, overflow } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "chat");
@@ -73,11 +74,9 @@ const fails = [];
 
 async function shot(app, viewport, scheme, id, hash, act) {
   if (filter && !id.includes(filter)) return;
-  const ctx = await b.newContext({ viewport, colorScheme: scheme, deviceScaleFactor: app === "phone" ? 2 : 1, hasTouch: app === "phone", isMobile: app === "phone" });
+  const ctx = await appContext(b, app, viewport, scheme);
   const p = await ctx.newPage();
-  const errs = [];
-  p.on("pageerror", (e) => errs.push(e.message));
-  p.on("console", (m) => m.type() === "error" && !/Content Security Policy|allow-scripts/.test(m.text()) && errs.push(m.text()));
+  const errs = errorsOf(p, true, /Content Security Policy|allow-scripts/);
   try {
     await p.goto(url(app, "small", hash));
     await p.waitForSelector(".chat, .chat-gal", { timeout: 5000 });
@@ -93,17 +92,7 @@ async function shot(app, viewport, scheme, id, hash, act) {
       });
       if (gap > 4) fails.push(`${id}: лента не у низа, ${Math.round(gap)} точек`);
     }
-    const over = await p.evaluate(() => {
-      const de = document.documentElement;
-      const bad = [...document.querySelectorAll(".chat *, .chat-gal *")]
-        .filter((e) => {
-          const r = e.getBoundingClientRect();
-          return r.width > 0 && r.right > innerWidth + 1 && !e.closest(".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs");
-        })
-        .slice(0, 4)
-        .map((e) => e.className || e.tagName);
-      return { x: de.scrollWidth - de.clientWidth, bad };
-    });
+    const over = await overflow(p, ".chat *, .chat-gal *", ".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs", false);
     if (over.x > 0 || over.bad.length) fails.push(`${id}: выход за край ${over.x}px ${over.bad.join(" | ")}`);
   } catch (e) {
     fails.push(`${id}: ${e.message.split("\n")[0]}`);
@@ -118,8 +107,7 @@ async function gallery(app, width, scheme) {
   if (filter && !id.includes(filter)) return;
   const ctx = await b.newContext({ viewport: { width, height: 900 }, colorScheme: scheme, deviceScaleFactor: 1 });
   const p = await ctx.newPage();
-  const errs = [];
-  p.on("pageerror", (e) => errs.push(e.message));
+  const errs = errorsOf(p);
   await p.goto(url(app, "small", "#gallery"));
   await p.waitForSelector(".chat-gal", { timeout: 5000 });
   await pause(p, 600);
