@@ -38,7 +38,8 @@ export function Composer() {
     return { state: x?.state as string | undefined, mode: (x as { mode?: string } | undefined)?.mode };
   });
   const live = isLive(s.state);
-  const call = app.use(() => app.can(cs.slice(cs.lastIndexOf("@") + 1), "session.call") === true);
+  const call = app.use(() => talks.can(cs, "session.call"));
+  const folder = app.use(() => talks.can(cs, "session.files"));
   const inp = useRef<HTMLTextAreaElement>(null);
   const pick = useRef<HTMLInputElement>(null);
   const [drag, setDrag] = useState(false);
@@ -57,7 +58,7 @@ export function Composer() {
   };
 
   const cmd = /^\/(\S*)$/.exec(draft);
-  const at = /(?:^|\s)@(\S*)$/.exec(draft);
+  const at = folder ? /(?:^|\s)@(\S*)$/.exec(draft) : null;
   useEffect(() => {
     if (cmd && call) void talks.commands(cs);
   }, [!!cmd, call]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -178,6 +179,7 @@ export function Composer() {
           <IconBtn className="chat-tb" title="Вложить файл" aria-label="Вложить файл" onClick={() => pick.current?.click()}>
             <Paperclip size={16} aria-hidden="true" />
           </IconBtn>
+          {folder && (
           <IconBtn
             className="chat-tb"
             title="Файл папки"
@@ -189,6 +191,7 @@ export function Composer() {
           >
             <AtSign size={16} aria-hidden="true" />
           </IconBtn>
+          )}
           {live && call && (
             <IconBtn
               className="chat-tb"
@@ -212,7 +215,7 @@ export function Composer() {
             </Sel>
           )}
           <span className="chat-grow" />
-          {(s.state === "busy" || s.state === "waiting") && (
+          {call && (s.state === "busy" || s.state === "waiting") && (
             <Btn bad className="chat-stop" onClick={() => env.act("interrupt", [])}>
               <Icon name="square" />
               Прервать

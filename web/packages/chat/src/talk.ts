@@ -236,8 +236,9 @@ export function createTalks(app: App) {
         });
         if (gap) void history(cs);
       },
-      message(f: Frame) {
+      message(f: Frame, ctx: { open: boolean }) {
         const cs = String(f.from);
+        if (ctx.open) app.open("chat", { callsign: cs });
         const text = typeof f.text === "string" ? f.text : undefined;
         const body = (f.notify as { body?: string } | undefined)?.body;
         edit(cs, (t) => {

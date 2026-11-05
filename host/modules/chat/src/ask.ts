@@ -16,7 +16,7 @@ const defined = (o: Record<string, unknown>) => Object.fromEntries(Object.entrie
 
 /** Вопрос дочери во вводе сессии-адресата. */
 function asText(f: Frame): string {
-  const lines = ((f.questions ?? []) as NonNullable<Q["questions"]>).flatMap((q) => [q.question ?? "", ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]);
+  const lines = ((f.questions ?? []) as NonNullable<Q["questions"]>).flatMap((q) => [`${q.question ?? ""}${q.multiSelect ? " (можно несколько — через запятую)" : ""}`, ...(q.options ?? []).map((o) => `· ${o.label}${o.description ? ` — ${o.description}` : ""}`)]);
   return `<fleet-question from="${f.from}" question="${f.question}">\n${lines.join("\n")}\nОтветь инструментом fleet.answer: to — ${f.from}, question — ${f.question}, answers — { "текст вопроса": "вариант" }.\n</fleet-question>`;
 }
 

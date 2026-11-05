@@ -174,9 +174,12 @@ function In({ r }: { r: Extract<Row, { k: "in" }> }) {
   if (r.from === "owner")
     return (
       <div className="chat-in">
-        <div className="chat-from">{`${env.label} → вам`}</div>
+        <div className="chat-from">
+          {`${env.label} → вам`}
+          {r.push && <span className="chat-tag">из уведомления</span>}
+        </div>
         <Markdown text={r.text} />
-        <small>{`${r.push ? "из уведомления · " : ""}${r.at ? hhmm(r.at) : ""}`}</small>
+        {r.at && <small>{hhmm(r.at)}</small>}
       </div>
     );
   const long = r.text.length > LONG && !all;
