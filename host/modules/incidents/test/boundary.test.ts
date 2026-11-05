@@ -397,6 +397,8 @@ describe("инцидент: доставка хотя бы раз", () => {
     expect(why.word).toBe("stopped");
     expect([...st.kernel.sessions.keys()]).toEqual(["disk-full-1@win"]);
     expect(disk().map((a) => a.id)).toEqual([r.body.id]);
+    // сессия есть: для экрана это не «сессия не открылась»
+    expect(await st.relay.request({ type: "incident.pending", v: 1, machine: "win" })).toMatchObject({ result: { appeals: [{ id: r.body.id, callsign: "disk-full-1@win", refused: { word: "stopped" } }] } });
     expect(await st.relay.request({ type: "session.start", v: 1, callsign: "disk-full-1@win" })).toMatchObject({ ok: true });
     const q = await until(() => st.holders.procs.get("disk-full-1@win"));
     await until(() => q.inputs.length === 1);
@@ -518,6 +520,43 @@ describe("инцидент: доставка хотя бы раз", () => {
     await pause();
     expect(p.inputs).toHaveLength(1);
     expect(b.disk()).toHaveLength(1);
+  });
+
+  it("сессию остановили намеренно, обращение ход не взял — оно уходит в новую сессию без нового POST", async () => {
+    const { st, post, disk } = await bench();
+    const r = await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    await inputOf(st, "disk-full-1@win");
+    expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "disk-full-1@win" })).toMatchObject({ ok: true });
+    const q = await inputOf(st, "disk-full-2@win");
+    expect(q.inputs[0].uuid).toBe(r.body.id);
+    expect(disk().map((a) => a.callsign)).toEqual(["disk-full-2@win"]);
+  });
+
+  it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {
+    const { st, post, disk, work } = await bench();
+    const a = await post({ type: "nodir", text: "первое" });
+    await until(() => st.journal().find((l) => l.ev === "incident" && l.id === a.body.id));
+    mkdirSync(join(work, "нет"));
+    const b = await post({ type: "nodir", text: "второе" });
+    const p = await inputOf(st, "nodir-1@win", 2);
+    expect(p.inputs.map((i) => i.uuid)).toEqual([a.body.id, b.body.id]);
+    expect(disk()).toHaveLength(2);
+  });
+
+  it("новая сессия одного типа висит на initialize — другой тип не ждёт", async () => {
+    const k = new FakeHolders();
+    keepers.push(k);
+    const { post } = await bench({ holders: k });
+    k.failInitNext = 1;
+    await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await until(() => k.procs.get("disk-full-1@win"));
+    await post({ type: "build-red", text: "main упал" });
+    const q = await until(() => k.procs.get("build-red-1@win"));
+    await until(() => q.inputs.length === 1);
+    const w = p as unknown as { failInit: boolean; write: (x: unknown) => void };
+    w.failInit = false;
+    w.write({ $: "initialized" });
+    await until(() => p.inputs.length === 1);
   });
 
   it("3100 · POST до ready — 202 сразу, доставка на ready", async () => {

@@ -1,6 +1,6 @@
 // Леса границы «журнал и инциденты», журнал машины на Host: сообщения SDK — строками журнала машины, machine.journal — строки host и keeper из файлов.
 // Снаружи — SDK, держатели, relay и часы стенда. Импорт — только контракты; исход — ответ, env процесса, строки журнала. Номер — эталон-источник; без номера — чьё: код.
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -180,6 +180,16 @@ describe("machine.journal", () => {
     folder({ "host-2026-10-30.jsonl": [H({ t: "2026-10-30T10:00:00.000Z", ev: "gone", callsign: "old@laptop" }), H({ t: "2026-10-30T10:01:00.000Z", ev: "other", callsign: "live@laptop" })] });
     const r = await ask({ session: "old@laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 });
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toEqual(["gone"]);
+  });
+
+  it("строку ещё дописывают: читается всё до неё, ответ не отказ", async () => {
+    const dir = folder({ "host-2026-10-30.jsonl": [H({ t: "2026-10-30T10:00:00.000Z", ev: "целая" })] });
+    appendFileSync(join(dir, "host-2026-10-30.jsonl"), '{"t":"2026-10-30T10:01:00.000Z","ev":"недо');
+    const s = await jbench();
+    const r = await s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", since: "2026-10-30T09:00:00.000Z", limit: 5 });
+    expect(r).toMatchObject({ ok: true });
+    expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toContain("целая");
+    expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).not.toContain("недо");
   });
 
   it.each([

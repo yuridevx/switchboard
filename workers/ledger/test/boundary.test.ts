@@ -115,6 +115,7 @@ describe("запись и чтение", () => {
   it.each([
     ["224 · назад", { before: 5, limit: 2 }, [4, 3], true],
     ["224 · вперёд, новые сначала", { after: 3, limit: 10 }, [5, 4], false],
+    ["вперёд с пределом — ближайшие к курсору", { after: 1, limit: 2 }, [3, 2], true],
   ])("страницы: %s", async (_n, q, ids, more) => {
     for (let i = 1; i <= 5; i++) await add({ text: `s${i}` });
     const r = await read(q);

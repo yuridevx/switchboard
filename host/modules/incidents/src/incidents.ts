@@ -53,7 +53,8 @@ export function make(): Module {
   let server: Server | undefined;
   let ready = false;
   let stopping = false;
-  let chain = Promise.resolve();
+  /** Очередь на тип и ключ: обращения одного ключа открывают одну сессию, зависший тип не держит другие. */
+  const chains = new Map<string, Promise<void>>();
 
   const disk = () => host.store<Appeal[]>();
   const appeals = () => disk().get() ?? [];
@@ -91,22 +92,27 @@ export function make(): Module {
       callsign = (r.result as { callsign: string }).callsign;
       host.log({ ev: "incident_open", callsign, type: a.type, key: a.key, why: `инцидент ${a.type}${a.key === undefined ? "" : ` · ${a.key}`} — новая сессия` });
     }
-    const r = await host.request("session.prompt", { callsign, uuid: a.id, text: tag(a), attachments: a.attachments ?? [], ...(cfg.to ? { from: cfg.to } : {}) });
-    if (!r.ok) return refused(a, "session.prompt", r);
+    // остановка застала открытие: адреса нет, следующий старт Host доставит заново
+    if (stopping) return refused(a, "доставка", { error: "shutting_down", why: "Host останавливается" });
+    // адрес — до ввода: сессия есть, даже если ввод отказал; поднимется — новый процесс возьмёт обращение
     change(a.id, (x) => ({ ...x, callsign }));
+    const r = await host.request("session.prompt", { callsign, uuid: a.id, text: tag(a), attachments: a.attachments ?? [], ...(cfg.to ? { from: cfg.to } : {}) });
+    if (!r.ok) refused(a, "session.prompt", r);
   }
 
-  /** Проход по обращениям на диске — по одному, чтобы обращения одного ключа открыли одну сессию. */
+  /** Проход по обращениям на диске: каждое — в очередь своего ключа; к своему часу обращение могло уже уйти. */
   const drain = () => {
-    chain = chain
-      .then(async () => {
-        for (const { id } of appeals()) {
+    if (!ready) return;
+    for (const { id, type, key } of appeals()) {
+      const queue = JSON.stringify([type, key]);
+      const next = (chains.get(queue) ?? Promise.resolve())
+        .then(async () => {
           const a = appeals().find((x) => x.id === id);
-          if (!ready || stopping) return;
-          if (a && !waits(a)) await deliver(a);
-        }
-      })
-      .catch((e: unknown) => host.log({ kind: "stop", ev: "incident", word: "module_error", why: `доставка: ${String(e)}` }));
+          if (a && !stopping && !waits(a)) await deliver(a);
+        })
+        .catch((e: unknown) => host.log({ kind: "stop", ev: "incident", word: "module_error", id, why: `доставка: ${String(e)}` }));
+      chains.set(queue, next);
+    }
   };
 
   async function accept(req: IncomingMessage, res: ServerResponse) {
@@ -144,7 +150,7 @@ export function make(): Module {
       stopping = true;
       server?.close();
       server?.closeAllConnections();
-      await chain;
+      await Promise.all(chains.values());
     },
     openingReads: ["incident"],
     opening(s, req) {
