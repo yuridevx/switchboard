@@ -147,7 +147,7 @@ const orig = cp.spawnSync;
 cp.spawnSync = (cmd, args, o = {}) => {
   const isBuild = String(args[0]).endsWith("build.mjs");
   const env = o.env ?? process.env;
-  appendFileSync(${JSON.stringify(log)}, JSON.stringify({ what: isBuild ? "build" : "wrangler", cwd: o.cwd, args: isBuild ? [] : args.slice(1), input: o.input, env: { CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID, RELAY_URL: env.RELAY_URL } }) + "\\n");
+  appendFileSync(${JSON.stringify(log)}, JSON.stringify({ what: isBuild ? "build" : "wrangler", cwd: o.cwd, args: isBuild ? [] : args.slice(1), input: o.input, env: { CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID } }) + "\\n");
   const code = isBuild ? ${JSON.stringify(child.build ?? "")} : ${JSON.stringify(child.wrangler ?? "")};
   return orig(cmd, ["-e", code], { ...o, stdio: "ignore", input: undefined, timeout: ${child.hang ? "o.timeout === 300000 ? 300 : o.timeout" : "o.timeout"} });
 };
@@ -240,7 +240,7 @@ syncBuiltinESMExports();
     expect(r.out).toContain("deploy: ok · gate, relay, phone, pult");
   });
 
-  it("прод: файл прода важнее тестовых, свой секрет точек, адрес relay прода у сборки веба; тестовая пара в прод не кладётся", () => {
+  it("прод: файл прода важнее тестовых, свой секрет точек; тестовая пара в прод не кладётся", () => {
     // источник: комментарий кода: тестовая пара прав на бакет прода не имеет
     const r = deploy(["points", "pult", "--env", "prod"], {
       files: {
@@ -252,7 +252,6 @@ syncBuiltinESMExports();
     expect(r.code).toBe(0);
     expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy", "--env", "prod"], env: { CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" } });
     expect(r.calls.find((c) => c.args[0] === "secret")).toMatchObject({ args: ["secret", "put", "R2_KEY_SECRET", "--env", "prod"], input: "r2-prod" });
-    expect(r.calls.find((c) => c.what === "build")!.env.RELAY_URL).toBe("wss://relay.pfarm.app");
     expect(r.out).toContain("=== points prod ===");
   });
 
@@ -272,11 +271,10 @@ syncBuiltinESMExports();
     ]);
   });
 
-  it("тестовый флот не читает файл прода и не задаёт адрес relay для сборки (чьё: код)", () => {
+  it("тестовый флот не читает файл прода (чьё: код)", () => {
     const r = deploy(["pult"], { files: { "prod.env": envFile({ CLOUDFLARE_API_TOKEN: "prod-token", CLOUDFLARE_ACCOUNT_ID: "prod-acc" }), "cf-deploy.env": envFile({ CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" }) } });
     expect(r.code).toBe(0);
     expect(r.calls.find((c) => c.args[0] === "deploy")).toMatchObject({ args: ["deploy"], env: { CLOUDFLARE_API_TOKEN: "test-token", CLOUDFLARE_ACCOUNT_ID: "test-acc" } });
-    expect(r.calls.find((c) => c.what === "build")!.env.RELAY_URL).toBeUndefined();
     expect(r.out).toContain("=== pult ===");
   });
 
@@ -289,6 +287,7 @@ syncBuiltinESMExports();
 
   it.each([
     ["нет секрета — отказ именем секрета", ["push"], {}, /deploy: нет секрета VAPID_PRIVATE/],
+    ["опечатка в имени флота — отказ, а не выкладка на тест", ["relay", "--env", "prd"], {}, /deploy: --env — только prod/],
     ["не прошла сборка веба — отказ, выкладки нет", ["pult"], { child: { build: "process.exit(1)" } }, /deploy: сборка .*pult не прошла/],
     ["wrangler вышел с ошибкой — команда, модуль и код выхода", ["relay"], { child: { wrangler: "process.exit(3)" } }, /deploy: wrangler deploy в workers\/relay — выход 3/],
   ] as const)("%s", (_n, args, o, word) => {

@@ -11,7 +11,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const WRANGLER = join(ROOT, "node_modules/wrangler/bin/wrangler.js");
 const DEV_DIR = process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev");
 const STEP_S = 300; // при 45 с настоящая выкладка оборвалась на полпути: wrangler deploy под нагрузкой
-const PROD_RELAY = "wss://relay.pfarm.app";
 // relay последним: он смотрит привязками на остальных
 const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"];
 const WEB = ["phone", "pult"];
@@ -22,6 +21,7 @@ const fail = (word) => {
 };
 
 const { values: flags, positionals: names } = parseArgs({ strict: false, options: { upload: { type: "string" }, env: { type: "string" } } });
+if (flags.env !== undefined && flags.env !== "prod") fail("--env — только prod");
 const prod = flags.env === "prod";
 const envArgs = prod ? ["--env", "prod"] : [];
 if (flags.upload !== undefined && !/^\d+\.\d+\.\d+$/.test(flags.upload)) fail("--upload <номер вида 1.1.58>");
@@ -39,7 +39,7 @@ function fileValues() {
 
 const known = { ...fileValues(), ...process.env };
 if (!known.CLOUDFLARE_API_TOKEN || !known.CLOUDFLARE_ACCOUNT_ID) fail("нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
-const childEnv = { ...process.env, CLOUDFLARE_API_TOKEN: known.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: known.CLOUDFLARE_ACCOUNT_ID, ...(prod ? { RELAY_URL: PROD_RELAY } : {}) };
+const childEnv = { ...process.env, CLOUDFLARE_API_TOKEN: known.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: known.CLOUDFLARE_ACCOUNT_ID };
 
 // секрет Worker'а → откуда значение; тестовая пара R2 прав на бакет точек прода не имеет
 const SECRETS = {
