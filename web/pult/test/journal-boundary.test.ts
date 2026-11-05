@@ -48,6 +48,9 @@ describe("журнал флота", () => {
     const t = await pult({ relay });
     expect(relay.sent("ledger.read")).toHaveLength(0);
     expect(t.$('.sb-navcol button[data-screen="journal"]')!.textContent).toBe("Журнал");
+    const col = t.$$(".sb-navcol .sb-grp, .sb-navcol .sb-nv");
+    const at = col.findIndex((x) => x.dataset.screen === "journal");
+    expect(col.slice(0, at).filter((x) => x.classList.contains("sb-grp")).at(-1)?.textContent).toBe("Флот");
     await t.go("#journal");
     expect(t.$(".sb-ph h2")!.textContent).toBe("Журнал флота");
     expect(t.$<HTMLInputElement>('[data-f="q"]')!.placeholder).toBe("⌕ поиск по записям");
@@ -231,13 +234,6 @@ describe("журнал флота", () => {
     expect(t.button("Раньше")).toBeNull();
   });
 
-  it("4160 · отказ ledger.read — «ledger.read: слово» тревогой", async () => {
-    const relay = fleetRelay();
-    relay.handlers["ledger.read"] = () => ({ ok: false, error: "unknown_request" });
-    const t = await journal(relay);
-    expect(t.$('[role="alert"]')!.textContent).toBe("ledger.read: unknown_request");
-  });
-
   it("4161 · экран закрыт или чтение идёт — roster не шлёт ledger.read", async () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = () => undefined;
@@ -252,11 +248,11 @@ describe("журнал флота", () => {
     expect(relay.sent("ledger.read")).toHaveLength(1);
   });
 
-  it("4162 · первое чтение отказало — следующий roster читает всё заново, строка отказа снята", async () => {
+  it("4160 · 4162 · отказ ledger.read — «ledger.read: слово» тревогой; следующий roster читает всё заново, строка отказа снята", async () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = () => ({ ok: false, error: "disconnected" });
     const t = await journal(relay);
-    expect(t.text()).toContain("ledger.read: disconnected");
+    expect(t.$('[role="alert"]')!.textContent).toBe("ledger.read: disconnected");
     relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: evs().slice(0, 2), more: false } });
     relay.setRoster(joinedRoster());
     await flush();
