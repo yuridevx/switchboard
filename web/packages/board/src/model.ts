@@ -1,209 +1,82 @@
-// Выборки «Работы»: что видно из снимка устройства, roster и записей настроек. Ничего не меняют.
-import type { App, SessionRecord } from "@switchboard/web-core";
-import { failText, incidentOf, lamp, machineLabel, machinesWith, myAddress, profileNameOf, sessionLabel, stateLabel, type Personal } from "@switchboard/web-ui";
-import { arrange, NONE, PROJECTS, projectIdOf, type ProjectRec } from "@switchboard/records";
+// Правила списка: чья сессия, что подходит под фильтр, порядок чипов и строк. Чистые функции над записями сессий.
 import { kindOf, machineOf, userOf } from "@switchboard/protocol";
-import type {} from "@switchboard/web-ask";
-import type {} from "@switchboard/web-chat";
-import type {} from "@switchboard/web-labels";
-import { BUILT, fits as fitsFilter, opensFirst, orderFilters, parentOf, rank, tree, type Filter, type View } from "./rules.ts";
+import type { SessionRecord } from "@switchboard/relay";
+import { profileNameOf } from "@switchboard/web-ui";
 
-/** Снимок модуля. */
-export type State = {
-  /** проект с открытым меню */
-  menuOf: string | null;
-  /** выбранный фильтр — выбор этого устройства */
-  flt: string;
-  /** свёрнутые проекты этого устройства; проекта нет — ещё не виден, решает первый показ */
-  col: Record<string, boolean>;
-  view: View;
-  /** последний открытый проект — для экранов «Машины» и «Аккаунты» */
-  lastProject: string | null;
-  /** открытая сессия ждёт первого ответа prefs: её проект ещё неизвестен */
-  follow: string | null;
-  /** прокрутка списка: телефон строит экран заново при каждом возврате */
-  bodyTop: number;
-  /** идёт перестановка: жест меняет элементы списка напрямую, рисовать нельзя */
-  reordering: boolean;
-};
+export const MINE = "mine";
+export const ALL = "all";
 
-export type Project = { id: string; name: string; ss: SessionRecord[]; r: number };
-export type RowItem = { k: "row"; callsign: string; depth: number; noAt: boolean; project: string | null };
-export type GroupItem = { k: "group"; machine: string; label: string; n: number };
-export type Section = { id: string; name: string; open: boolean; lamps: Array<{ callsign: string; kind: string }>; grip: boolean; add: boolean; menu: boolean; items: Array<RowItem | GroupItem> };
-export type ListModel = { flat: RowItem[] | null; sections: Section[]; empty: string };
+/** Свой фильтр: запись web-board.filters у почты. Пустое поле не сужает. */
+export type Filter = { id: string; name: string; who?: string[]; projects?: string[]; machines?: string[]; profiles?: string[]; states?: string[] };
+export type Field = "who" | "projects" | "machines" | "profiles" | "states";
 
-/** Глубина цепочки «кто открыл»: родители по кругу не зацикливают. */
-const CHAIN = 8;
+/** Единицы вида: группа и её [ключ, подпись, полное название]. */
+export const VIEW_GROUPS: Array<[string, Array<[string, string, string]>]> = [
+  ["Список", [["projects", "По проектам", "Группировать по проектам"], ["group", "По машинам", "Группы по машинам в проекте"], ["tree", "Дочерние", "Дочерние под родителем"], ["dense", "В одну строку", "В одну строку"]]],
+  ["Строка", [["lamp", "Лампа", "Лампа состояния"], ["at", "Машина", "Машина"], ["owner", "Владелец", "Владелец чужой сессии"], ["pin", "Закрепление", "Значок закрепления"], ["inc", "Инцидент", "Инцидент"], ["badge", "«?» и число", "Значок вопроса и непрочитанного"], ["q", "Вопрос", "Текст вопроса"], ["unread", "Непрочитанное", "Текст непрочитанного"], ["fail", "Сбой", "Причина сбоя"], ["prof", "Профиль", "Профиль"], ["model", "Модель", "Модель"]]],
+  ["Проект", [["pjlamps", "Лампы", "Лампы свёрнутого проекта"], ["grip", "Ручка", "Ручка перетаскивания"], ["add", "«+»", "Кнопка новой сессии"]]],
+  ["Фильтры", [["fcount", "Число", "Число сессий в фильтре"]]],
+];
+export type View = Record<string, boolean>;
+const OFF_BY_DEFAULT = ["group", "dense"];
+export const DEFAULT_VIEW: View = Object.fromEntries(VIEW_GROUPS.flatMap(([, units]) => units.map(([key]) => [key, !OFF_BY_DEFAULT.includes(key)])));
 
-const isUser = (a: unknown, mail: string | null) => !!mail && typeof a === "string" && userOf(a) === mail;
+type Find = (callsign: string) => SessionRecord | undefined;
+const word = (v: unknown) => (typeof v === "string" ? v : "");
+/** Адрес из поля, если это сессия. */
+const sessionIn = (v: unknown) => (kindOf(v) === "session" ? word(v) : "");
 
-export function createModel(app: App, user: Personal, fleet: Personal, state: () => State) {
-  const sessions = () => app.roster()?.sessions ?? [];
-  const session = (callsign: string) => sessions().find((x) => x.callsign === callsign);
-  const pins = () => user.get<string[]>("pins") ?? [];
-  const records = () => fleet.get<ProjectRec[]>(PROJECTS);
-  const me = () => myAddress(app);
+/** Почта владельца: устройство, давшее задачу, иначе сессия выше по цепочке. */
+export function ownerOf(callsign: string, find: Find, seen = new Set<string>()): string | null {
+  const s = find(callsign);
+  if (!s || seen.has(callsign)) return null;
+  seen.add(callsign);
+  if (kindOf(s.by) === "device") return userOf(word(s.by));
+  const above = sessionIn(s.by) || sessionIn(s.parent);
+  return above ? ownerOf(above, find, seen) : null;
+}
 
-  const projectId = (callsign: string) =>
-    projectIdOf(records(), callsign, (cs) => {
-      const s = session(cs);
-      return s ? parentOf(s) : null;
-    });
-  /** «Без проекта» — не проект: «последний проект» его не называет. */
-  const realProject = (callsign: string) => {
-    const id = projectId(callsign);
-    return id === NONE ? null : id;
+/** Почему сессия моя; не моя — "". */
+export function whyMine(callsign: string, o: { find: Find; me: string | null; pins: string[] }, seen = new Set<string>()): string {
+  if (o.pins.includes(callsign)) return "закреплена вами";
+  const s = o.find(callsign);
+  if (!s || !o.me || seen.has(callsign)) return "";
+  seen.add(callsign);
+  const isMe = (address: unknown) => kindOf(address) === "device" && userOf(word(address)) === o.me;
+  if (isMe(s.by)) return "задачу дали вы";
+  if (isMe(s.parent)) return "открыли вы";
+  const above = [sessionIn(s.parent), sessionIn(s.by)].find((x) => x && whyMine(x, o, seen));
+  return above ? `открыла ваша ${above}` : "";
+}
+
+/** Подходит ли сессия: внутри поля — «или», между полями — «и». */
+export function fits(f: Filter, s: SessionRecord, t: { mine: boolean; owner: string | null; project: string }): boolean {
+  const any = (values: string[] | undefined, ok: (v: string) => boolean) => !values?.length || values.some(ok);
+  return any(f.who, (w) => (w === MINE ? t.mine : w === t.owner)) && any(f.projects, (p) => p === t.project) && any(f.machines, (m) => m === machineOf(s.callsign)) && any(f.profiles, (p) => p === profileNameOf(s)) && any(f.states, (x) => x === s.state);
+}
+
+/** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */
+export function byUrgency(list: SessionRecord[]): SessionRecord[] {
+  const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
+  return [...list].sort((a, b) => rank(a) - rank(b) || (a.callsign < b.callsign ? -1 : 1));
+}
+
+/** Чипы по порядку: записанный ряд без пропавших, следом остальные. */
+export function chipOrder(filters: Filter[], row: string[] | undefined): string[] {
+  const all = [MINE, ALL, ...filters.map((f) => f.id)];
+  const listed = (row ?? []).filter((id) => all.includes(id));
+  return [...listed, ...all.filter((id) => !listed.includes(id))];
+}
+
+/** Строки раздела: дочерняя — сразу под родителем, если он на экране; tree выключен — ровно. */
+export function placeRows(callsigns: string[], parentOf: (cs: string) => unknown, tree: boolean): Array<{ callsign: string; depth: number }> {
+  if (!tree) return callsigns.map((callsign) => ({ callsign, depth: 0 }));
+  const shown = new Set(callsigns);
+  const out: Array<{ callsign: string; depth: number }> = [];
+  const put = (callsign: string, depth: number) => {
+    out.push({ callsign, depth });
+    for (const kid of callsigns) if (parentOf(kid) === callsign) put(kid, depth + 1);
   };
-  const projectName = (id: string) => records()?.find((r) => r.id === id)?.name ?? (id === NONE ? "Без проекта" : id);
-
-  /** Кто над сессией: открывшая её или давшая задачу сессия. */
-  const upper = (s: SessionRecord) => {
-    const up = parentOf(s) ?? (typeof s.by === "string" && kindOf(s.by) === "session" && s.by !== s.callsign ? s.by : null);
-    return up ? session(up) : undefined;
-  };
-
-  /** Почему сессия моя; не моя — "". */
-  function whyMine(s: SessionRecord, mail = me(), depth = 0): string {
-    if (pins().includes(s.callsign)) return "закреплена вами";
-    if (isUser(s.by, mail)) return "задачу дали вы";
-    if (isUser(s.parent, mail)) return "открыли вы";
-    const up = upper(s);
-    return up && depth < CHAIN && whyMine(up, mail, depth + 1) ? `открыла ваша ${up.callsign}` : "";
-  }
-
-  /** Чья сессия: ~почта того, кто её завёл; завела сессия — её владелец. */
-  function ownerOf(s: SessionRecord, depth = 0): string | null {
-    for (const a of [s.by, s.parent]) if (typeof a === "string" && userOf(a)) return userOf(a);
-    const up = upper(s);
-    return up && depth < CHAIN ? ownerOf(up, depth + 1) : null;
-  }
-
-  const sName = (callsign: string) => sessionLabel(app, callsign).text;
-  const mName = (machine: string) => machineLabel(app, machine).text;
-
-  const filters = () => orderFilters(user.get<Filter[]>("filters") ?? [], user.get<string[]>("row") ?? []);
-  const currentFilter = () => filters().find((f) => f.id === state().flt) ?? BUILT[0];
-  const fits = (f: Filter, s: SessionRecord, mail = me()) => fitsFilter(f, s, projectId(s.callsign), (x) => !!whyMine(x, mail), (x) => ownerOf(x));
-
-  /** Проекты выбранного фильтра в порядке записи. Совсем пустой проект виден; проект, все сессии которого скрыты фильтром, скрыт. */
-  function projects(): Project[] {
-    const f = currentFilter();
-    const mail = me();
-    return arrange(records(), sessions().map((s) => ({ callsign: s.callsign, parent: parentOf(s) }))).flatMap((sec): Project[] => {
-      const ss = sec.callsigns.flatMap((cs) => session(cs) ?? []).filter((s) => fits(f, s, mail));
-      return !ss.length && sec.callsigns.length ? [] : [{ id: sec.id, name: sec.name, ss, r: Math.min(...ss.map(rank)) }];
-    });
-  }
-
-  /** Вторая строка: вопрос, сообщение, причина сбоя или профиль и модель — что включено в виде. */
-  function secondLine(s: SessionRecord): Array<{ c: string; t: string }> {
-    const view = state().view;
-    const asked = app.mark("asked", s.callsign);
-    if (asked && view.q) return [{ c: "tx q", t: `? ${asked}` }];
-    const unread = app.mark("unread", s.callsign);
-    if (unread?.text && view.unread) return [{ c: "tx", t: unread.text }];
-    if (s.state === "failed" && s.failed && view.fail) return [{ c: "tx f", t: failText(s) }];
-    const prof = profileNameOf(s);
-    return [...(prof && view.prof ? [{ c: "bd-pill", t: prof }] : []), ...(typeof s.model === "string" && s.model && view.model ? [{ c: "tx", t: s.model }] : [])];
-  }
-
-  /** Всё, что показывает строка: одна выборка на строку. */
-  function rowData(callsign: string, noAt: boolean, project: string | null) {
-    const s = session(callsign);
-    if (!s) return null;
-    const view = state().view;
-    const machine = machineOf(callsign) ?? "";
-    const label = sessionLabel(app, callsign);
-    const host = machineLabel(app, machine);
-    const owner = view.owner && !whyMine(s) ? ownerOf(s) : null;
-    const unread = app.mark("unread", callsign);
-    return {
-      current: app.current()?.params.callsign === callsign,
-      lamp: view.lamp ? lamp(s) : null,
-      title: stateLabel(s.state).text,
-      name: label.text,
-      human: label.human,
-      owner: owner ? owner.slice(1, owner.indexOf("@")) : null,
-      inc: (view.inc ? incidentOf(s)?.type : undefined) ?? null,
-      pin: view.pin && pins().includes(callsign),
-      at: view.at && !noAt ? host.text : null,
-      atHuman: host.human,
-      t2: [...(project ? [{ c: "prj", t: project }] : []), ...secondLine(s)],
-      badge: !view.badge ? null : app.mark("asked", callsign) ? "?" : unread?.count || null,
-    };
-  }
-
-  /** Строки проекта: деревом или ровно. */
-  function rowsOf(ss: SessionRecord[], noAt: boolean): RowItem[] {
-    const ordered: Array<[SessionRecord, number]> = state().view.tree ? tree(ss) : ss.map((s) => [s, 0]);
-    return ordered.map(([s, depth]) => ({ k: "row", callsign: s.callsign, depth, noAt, project: null }));
-  }
-
-  /** Строки проекта, с лёгкими группами по машинам, если они включены. */
-  function projectRows(ss: SessionRecord[]): Array<RowItem | GroupItem> {
-    if (!state().view.group) return rowsOf(ss, false);
-    const machines = [...new Set(ss.map((s) => machineOf(s.callsign) ?? ""))].sort((a, b) => a.localeCompare(b));
-    return machines.flatMap((m): Array<RowItem | GroupItem> => {
-      const here = ss.filter((s) => (machineOf(s.callsign) ?? "") === m);
-      return [{ k: "group", machine: m, label: mName(m), n: here.length }, ...rowsOf(here, true)];
-    });
-  }
-
-  /** Модель списка. Впервые увиденный проект — по правилу первого показа; решение запоминает состояние. */
-  function listModel(): ListModel {
-    const { view, col, menuOf } = state();
-    const ps = projects();
-    const empty = `в «${currentFilter().name}» сессий нет`;
-    // без группировки по проектам — плоский список в порядке проектов; проект — в строке
-    if (!view.projects) return { flat: ps.flatMap((x) => x.ss.map((s): RowItem => ({ k: "row", callsign: s.callsign, depth: 0, noAt: false, project: x.name }))), sections: [], empty };
-    const sections = ps.map((x): Section => {
-      const open = col[x.id] === undefined ? opensFirst(x.r) : !col[x.id];
-      return {
-        id: x.id,
-        name: x.name,
-        open,
-        // порядок ламп — единственное, что зависит от состояния: «ждёт» и «сбой» первыми
-        lamps: !open && view.pjlamps ? [...x.ss].sort((a, b) => rank(a) - rank(b)).slice(0, 6).map((s) => ({ callsign: s.callsign, kind: lamp(s) })) : [],
-        grip: view.grip && x.id !== NONE,
-        add: view.add,
-        menu: menuOf === x.id,
-        items: open ? projectRows(x.ss) : [],
-      };
-    });
-    return { flat: null, sections, empty };
-  }
-
-  /** Ряд фильтров: число — сколько сессий подходит. */
-  function barModel() {
-    const cur = currentFilter();
-    const mail = me();
-    return filters().map((f) => ({ id: f.id, name: f.name, fixed: !!f.fixed, on: f.id === cur.id, n: state().view.fcount ? sessions().filter((s) => fits(f, s, mail)).length : null }));
-  }
-
-  /** Рисовать нельзя: первый рисунок ждёт ответа prefs (связи нет вовсе — рисуем встроенное); идёт перестановка. */
-  const held = () => !app.roster() || ((!user.ready() || !fleet.ready()) && app.link() === "open") || state().reordering;
-
-  return {
-    sessions,
-    session,
-    pins,
-    projectId,
-    realProject,
-    projectName,
-    whyMine,
-    sName,
-    mName,
-    filters,
-    fits,
-    projects,
-    rowData,
-    listModel,
-    barModel,
-    held,
-    /** Проекты для окна фильтра: номер и имя. */
-    projectOptions: () => [...(records() ?? []).filter((r) => r.id !== NONE).map((r): [string, string] => [r.id, r.name]), [NONE, projectName(NONE)] as [string, string]],
-    machines: () => machinesWith(app),
-    owners: () => [...new Set(sessions().map((s) => ownerOf(s)).filter((x): x is string => !!x && x !== me()))].sort(),
-  };
+  for (const cs of callsigns) if (!shown.has(word(parentOf(cs)))) put(cs, 0);
+  return out;
 }

@@ -1,169 +1,257 @@
-// Шапка широкой карточки — одна строка: лампа, имя, «модель · усилие ▾», «аккаунт · % ▾», вкладки, «Запустить», «⋯». Окна шапки живут здесь.
-import { useEffect, useRef, useState } from "react";
-import type { SessionRecord } from "@switchboard/web-core";
-import { at, Btn, Dot, effortName, failText, IconBtn, LIMIT_WARN, machineLabel, myAddress, profileNameOf, sessionLabel, slotOf, stateLabel, Tabs, useApp } from "@switchboard/web-ui";
-import { userOf } from "@switchboard/protocol";
-import { AccPop, MenuPop, ModelPop } from "./pops.tsx";
-import { isDown, useSessionActions, type Can } from "./session.tsx";
-import { useCard } from "./state.ts";
-import type { WideData } from "./wide.tsx";
+// Шапка широкой карточки: лампа, имя, модель и аккаунт с их окнами, меню сессии. Группа «Шапка» панели вида.
+import { useEffect } from "react";
+import { machineOf, userOf } from "@switchboard/protocol";
+import { Btn, Chip, Choices, Dot, effortName, EFFORTS, failText, IconBtn, incidentOf, LIMIT_NAMES, LIMIT_WARN, LimitRow, lamp, machineLabel, MODELS, myAddress, profileNameOf, remoteOf, RowBtn, sessionLabel, slotOf, stateLabel, at, type AccountsAnswer, type ModelInfo, useApp, useModule } from "@switchboard/web-ui";
+import type { SessionRecord } from "@switchboard/relay";
+import { DEFAULT_HEAD, type CardState } from "./state.ts";
 
-type Pop = "" | "model" | "acc" | "menu";
-type Props = { callsign: string; machine: string; s: SessionRecord | undefined; can: Can; data: WideData; tabs: Array<[string, string]>; tab: string; select(k: string): void; openNames(): void };
+const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
+const UNITS: Array<[string, string, string]> = [["haddr", "Адрес", "Адрес сессии"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"]];
 
-/** Имя сессии и машины: нажатие открывает окно «Имена». */
-function NameButton({ callsign, machine, openNames }: Pick<Props, "callsign" | "machine" | "openNames">) {
+/** Группа «Шапка» в панели вида «Работы». */
+export function HeadUnits() {
   const app = useApp();
-  const card = useCard();
-  const view = app.use(card.head);
-  const name = app.use(() => sessionLabel(app, callsign));
-  const host = app.use(() => machineLabel(app, machine));
+  const card = useModule<CardState>();
+  const head = app.use(() => card.get().head);
   return (
+    <Choices title="Шапка">
+      {UNITS.map(([key, label, full]) => (
+        <Chip key={key} on={head[key] ?? DEFAULT_HEAD[key]} data-v={key} aria-label={full} onClick={() => card.setHead({ ...head, [key]: !head[key] })}>
+          {label}
+        </Chip>
+      ))}
+    </Choices>
+  );
+}
+
+type Pop = "model" | "acc" | "menu" | null;
+
+function Windows({ session, accounts, machine, pickSlot }: { session: SessionRecord; accounts?: AccountsAnswer; machine: string; pickSlot(): void }) {
+  const account = String(session.account ?? "");
+  const info = accounts?.accounts?.[account];
+  const slot = slotOf(session)?.name ?? "";
+  const order = accounts?.slots?.[slot]?.order ?? [];
+  return (
+    <div className="cw-pop l w" role="dialog" aria-label="Аккаунт и лимиты">
+      <dl className="cw-kv">
+        <dt>аккаунт</dt>
+        <dd>{[info?.email ?? account, info?.plan].filter(Boolean).join(" · ")}</dd>
+        <dt>слот</dt>
+        <dd>{`${slot} @${machine}`}</dd>
+      </dl>
+      {Object.entries(info?.limits ?? {}).map(([k, w]) => (
+        <LimitRow key={k} className="cw-win" data-win={k} label={LIMIT_NAMES[k] ?? k} used={w.utilization} resets={w.resetsAt} />
+      ))}
+      {order.length ? <div className="cw-note queue">{`очередь слота: ${order.join(" → ")}`}</div> : null}
+      <div className="cw-opts">
+        <Btn onClick={pickSlot}>Сменить слот</Btn>
+      </div>
+    </div>
+  );
+}
+
+export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames, setTab, start, update }: {
+  callsign: string;
+  session?: SessionRecord;
+  accounts?: AccountsAnswer;
+  tabs: React.ReactNode;
+  pop: Pop;
+  setPop(p: Pop): void;
+  openNames(): void;
+  setTab(t: string): void;
+  start(): void;
+  update(field: "model" | "effort", value: string): void;
+}) {
+  const app = useApp();
+  const card = useModule<CardState>();
+  const head = app.use(() => card.get().head);
+  const info = app.use(() => card.get().info);
+  const machine = machineOf(callsign) ?? "";
+  const name = app.use(() => sessionLabel(app, callsign));
+  const where = app.use(() => machineLabel(app, machine));
+  const models = app.use(() => app.mark("models", callsign) as ModelInfo[] | null | undefined);
+  const placed = app.use(() => app.placed("card.menu", { callsign }));
+  const canStart = app.use(() => app.can(machine, "session.start") === true);
+  const canUpdate = app.use(() => app.can(machine, "session.update") === true);
+
+  // окно закрывается щелчком мимо и Esc
+  useEffect(() => {
+    if (!pop) return;
+    const onClick = (e: Event) => {
+      if (!(e.target as Element).closest?.(".cw-pop, [data-pop]")) setPop(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPop(null);
+    };
+    document.addEventListener("click", onClick);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("click", onClick);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [pop, setPop]);
+
+  const hum = (human: boolean) => (human ? "hum" : "");
+  const nameBtn = (
     <IconBtn className="cw-nm" data-act="names" aria-label="Имена сессии и машины" onClick={openNames}>
       <span className="cw-nm1">
-        <b className={"cw-cs" + (name.human ? " hum" : "")}>{name.text}</b>
-        <span className={"cw-at" + (host.human ? " hum" : "")}>{host.text}</span>
+        <b className={cx("cw-cs", hum(name.human))}>{name.text}</b>
+        <span className={cx("cw-at", hum(where.human))}>{where.text}</span>
         <span className="cw-ed" aria-hidden="true">
           ✎
         </span>
       </span>
-      {view.haddr && (name.human || host.human) ? <span className="cw-real">{callsign}</span> : null}
+      {session && head.haddr ? <span className="cw-real">{callsign}</span> : null}
     </IconBtn>
   );
-}
-
-/** Строка живой сессии: кто, модель, аккаунт и действия. */
-function LiveHead({ callsign, machine, x, can, data, tabs, tab, select, openNames, pop, setPop }: Omit<Props, "s"> & { x: SessionRecord; pop: Pop; setPop(p: Pop): void }) {
-  const app = useApp();
-  const card = useCard();
-  const view = app.use(card.head);
-  const info = app.use(card.info);
-  const me = app.use(() => myAddress(app));
-  const menu = app.use(() => app.placed("card.menu", { callsign }));
-  const actions = useSessionActions(callsign);
-
-  function toggle(p: Exclude<Pop, "">) {
-    const next = pop === p ? "" : p;
-    setPop(next);
-    if (next === "acc") data.reloadAccounts();
+  if (!session) {
+    return (
+      <div key="gone" className="cw-h">
+        <div className="cw-hl">
+          <Dot kind="stop" className="cw-lamp" role="img" title="не на связи" aria-label="не на связи" />
+          {nameBtn}
+          <span className="cw-note">не на связи</span>
+        </div>
+        <div className="cw-hr">{tabs}</div>
+      </div>
+    );
   }
 
-  const { text: label, dot } = stateLabel(x.state);
-  const why = failText(x);
-  const tip = x.state === "failed" && why ? `${label}: ${why}` : label;
-  const slot = slotOf(x);
-  const limit = data.accounts?.[String(x.account ?? "")]?.limits?.five_hour;
-  const accText = slot?.wait ? `ждёт сброса ${at(slot.wait)}` : limit ? `${Math.round(limit.utilization * 100)} %` : "";
-  const accCls = slot?.wait ? "you" : limit && limit.utilization * 100 >= LIMIT_WARN ? "lim" : "";
-  const owner = typeof x.by === "string" ? userOf(x.by) : null;
-  const prof = profileNameOf(x);
-  // слева кто, справа вкладки и действия: не помещаются в строку — вкладки уходят второй строкой
+  const failed = failText(session);
+  const title = session.state === "failed" && failed ? `не запустилась: ${failed}` : stateLabel(session.state).text;
+  const stopped = session.state === "stopped" || session.state === "failed";
+  const owner = typeof session.by === "string" ? userOf(session.by) : null;
+  const slot = slotOf(session);
+  const accountInfo = accounts?.accounts?.[String(session.account ?? "")];
+  const window5 = accountInfo?.limits?.five_hour;
+  const used = window5 ? Math.round(window5.utilization * 100) : 0;
+  const accountText = [String(session.account ?? ""), slot?.wait ? `ждёт сброса ${at(slot.wait)}` : window5 ? `${used} %` : ""].filter(Boolean).join(" · ");
+  const modelList = models?.length ? models : MODELS.map((value) => ({ value, displayName: undefined }));
+  const toggle = (p: Pop) => setPop(pop === p ? null : p);
+
   return (
-    <>
+    <div className="cw-h">
       <div className="cw-hl">
-        <Dot kind={dot} className="cw-lamp" tabIndex={0} role="img" title={tip} aria-label={tip} data-tip={tip} />
-        <NameButton callsign={callsign} machine={machine} openNames={openNames} />
+        <Dot kind={lamp(session)} className="cw-lamp" role="img" tabIndex={0} data-tip={title} title={title} aria-label={title} />
+        {nameBtn}
         <span className="cw-meta">
-          {view.howner && owner && owner !== me ? <span className="cw-pill">{owner.slice(1)}</span> : null}
-          {view.hprof && prof ? <span className="cw-pill">{prof}</span> : null}
+          {head.howner && owner && owner !== myAddress(app) ? <span className="cw-pill">{owner.slice(1)}</span> : null}
+          {head.hprof && profileNameOf(session) ? <span className="cw-pill">{profileNameOf(session)}</span> : null}
         </span>
         <span className="cw-hpw">
-          {view.hmodel && (x.model || can("session.update")) ? (
-            <Btn className="cw-hb" data-pop="model" aria-expanded={pop === "model" ? "true" : "false"} disabled={!can("session.update")} onClick={() => toggle("model")}>
-              {`${[x.model, x.effort ? effortName(x.effort) : null].filter(Boolean).join(" · ") || "модель"} ▾`}
+          {head.hmodel ? (
+            <Btn
+              className="cw-hb"
+              data-pop="model"
+              disabled={!canUpdate}
+              aria-expanded={pop === "model"}
+              onClick={() => {
+                toggle("model");
+                app.run("models.load", { callsign });
+              }}
+            >
+              {`${[session.model, session.effort ? effortName(session.effort) : ""].filter(Boolean).join(" · ") || "модель"} ▾`}
             </Btn>
           ) : null}
-          {x.account ? (
-            <Btn className={`cw-hb ${accCls}`} data-pop="acc" aria-expanded={pop === "acc" ? "true" : "false"} onClick={() => toggle("acc")}>
-              {`${[x.account, accText].filter(Boolean).join(" · ")} ▾`}
+          {session.account ? (
+            <Btn className={cx("cw-hb", slot?.wait ? "you" : used >= LIMIT_WARN && "lim")} data-pop="acc" aria-expanded={pop === "acc"} onClick={() => toggle("acc")}>
+              {`${accountText} ▾`}
             </Btn>
           ) : null}
           {pop === "model" ? (
-            <ModelPop
-              s={x}
-              callsign={callsign}
-              update={(body, what) => {
-                setPop("");
-                void actions.update(body, what);
-              }}
-            />
-          ) : pop === "acc" ? (
-            <AccPop
-              s={x}
+            <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
+              <span className="lb">Модель</span>
+              {modelList.map((m) => (
+                <RowBtn key={m.value} className="cw-mi" role="menuitemradio" aria-checked={session.model === m.value} data-model={m.value} onClick={() => update("model", m.value)}>
+                  {`${session.model === m.value ? "✓ " : ""}${m.displayName ?? m.value}`}
+                </RowBtn>
+              ))}
+              <span className="lb">Усилие</span>
+              <div className="cw-opts">
+                {EFFORTS.map(([k, label]) => (
+                  <Btn key={k} aria-pressed={session.effort === k ? "true" : "false"} data-effort={k} onClick={() => update("effort", k)}>
+                    {label}
+                  </Btn>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {pop === "acc" ? (
+            <Windows
+              session={session}
+              accounts={accounts}
               machine={machine}
-              accounts={data.accounts}
-              slots={data.slots}
-              word={data.word}
-              canSlot={can("session.slot")}
-              changeSlot={() => {
-                setPop("");
-                select("set");
+              pickSlot={() => {
+                setPop(null);
+                setTab("set");
               }}
             />
           ) : null}
         </span>
       </div>
       <div className="cw-hr">
-        <Tabs className="cw-tabs" tabs={tabs} cur={tab} pick={select} />
-        {isDown(x) && can("session.start") ? (
-          <Btn pri onClick={() => void actions.start()}>
+        {tabs}
+        {stopped && canStart ? (
+          <Btn pri onClick={start}>
             Запустить
           </Btn>
         ) : null}
-        {menu.map((m) => (
-          <Btn key={m.name} data-screen={m.name} onClick={() => app.run(m.name, { callsign })}>
-            {m.label}
+        {placed.map((p) => (
+          <Btn key={p.name} data-screen={p.name} onClick={() => app.run(p.name, { callsign })}>
+            {p.label}
           </Btn>
         ))}
         <span className="cw-mw">
-          <Btn ghost className="cw-more" data-pop="menu" aria-haspopup="menu" aria-expanded={pop === "menu" ? "true" : "false"} aria-label="Действия сессии" onClick={() => toggle("menu")}>
+          <Btn ghost className="cw-more" data-pop="menu" aria-label="Действия сессии" aria-haspopup="menu" aria-expanded={pop === "menu"} onClick={() => toggle("menu")}>
             ⋯
           </Btn>
           {pop === "menu" ? (
-            <MenuPop
-              s={x}
-              machine={machine}
-              callsign={callsign}
-              info={info}
-              toggleInfo={() => {
-                setPop("");
-                card.setInfo(!card.info());
-              }}
-            />
+            <div className="cw-pop r" role="menu" aria-label={`Сессия ${callsign}`}>
+              <dl className="cw-kv">
+                {profileNameOf(session) ? (
+                  <>
+                    <dt>профиль</dt>
+                    <dd>{profileNameOf(session)}</dd>
+                  </>
+                ) : null}
+                {session.dir ? (
+                  <>
+                    <dt>папка</dt>
+                    <dd>{String(session.dir)}</dd>
+                  </>
+                ) : null}
+                <dt>машина</dt>
+                <dd>{`@${machine}`}</dd>
+                {incidentOf(session) ? (
+                  <>
+                    <dt>инцидент</dt>
+                    <dd>{`${incidentOf(session)!.type} · ${incidentOf(session)!.key}`}</dd>
+                  </>
+                ) : null}
+              </dl>
+              <hr />
+              <RowBtn
+                className="cw-mi"
+                role="menuitemcheckbox"
+                aria-checked={info}
+                data-act="info"
+                onClick={() => {
+                  card.setInfo(!info);
+                  setPop(null);
+                }}
+              >
+                Сведения сбоку
+              </RowBtn>
+              {remoteOf(session) ? (
+                <a className="cw-mi" href={remoteOf(session)} target="_blank" rel="noopener" role="menuitem">
+                  Открыть в claude.ai ↗
+                </a>
+              ) : null}
+            </div>
           ) : null}
         </span>
       </div>
-    </>
-  );
-}
-
-export function WideHead(p: Props) {
-  /** открытое окно шапки */
-  const [pop, setPop] = useState<Pop>("");
-  // окна закрываются кликом мимо и Esc; клик внутри шапки помечает её обработчик — он срабатывает раньше слушателя документа
-  const inHead = useRef<Event | null>(null);
-  useEffect(() => {
-    const ac = new AbortController();
-    document.addEventListener("click", (e) => e !== inHead.current && setPop(""), ac);
-    document.addEventListener("keydown", (e) => e.key === "Escape" && setPop(""), ac);
-    return () => ac.abort();
-  }, []);
-  return (
-    <div className="cw-h" onClick={(e) => (inHead.current = e.nativeEvent)}>
-      {p.s ? (
-        <LiveHead {...p} x={p.s} pop={pop} setPop={setPop} />
-      ) : (
-        <>
-          <div className="cw-hl">
-            <Dot kind="stop" className="cw-lamp" role="img" title="не на связи" aria-label="не на связи" />
-            <NameButton callsign={p.callsign} machine={p.machine} openNames={p.openNames} />
-            <span className="cw-note">не на связи</span>
-          </div>
-          <div className="cw-hr">
-            <Tabs className="cw-tabs" tabs={p.tabs} cur={p.tab} pick={p.select} />
-          </div>
-        </>
-      )}
     </div>
   );
 }
+

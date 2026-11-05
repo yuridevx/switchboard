@@ -1,193 +1,280 @@
-// Список «Работы»: проекты или плоско. Строка читает только своё: на изменение одной сессии перерисовывается она одна.
-// gen — поколение после перестановки: жест менял элементы напрямую, поэтому они строятся заново.
-import { memo, useLayoutEffect, useRef, useState, type ComponentProps } from "react";
-import { Badge, Btn, DisclosureBtn, Dot, IconBtn, In, RowBtn, TextBtn, useApp } from "@switchboard/web-ui";
-import type { RowItem, Section } from "./model.ts";
-import { useBoard, useHeld } from "./state.ts";
+// Список: проекты, строки и правка проекта на месте. Жест начинается здесь: что поднять и что записать при броске.
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { NONE } from "@switchboard/records";
+import { Badge, Btn, DisclosureBtn, Dot, IconBtn, In, RowBtn, TextBtn, useApp, useModule } from "@switchboard/web-ui";
+import { glide, press, rowDrag, sorter } from "./gesture.ts";
+import type { BoardState, RowModel, SectionModel } from "./state.ts";
 
-const SessionRow = memo(function SessionRow({ callsign, depth, noAt, project }: Omit<RowItem, "k">) {
-  const board = useBoard();
-  const d = useHeld(() => board.rowData(callsign, noAt, project));
-  if (!d) return null;
+const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
+const closest = (el: Element, sel: string) => el.closest<HTMLElement>(sel)!;
+
+function Row({ row, current, onDown, onOpen }: { row: RowModel; current: boolean; onDown?(e: PointerEvent<HTMLElement>, row: RowModel): void; onOpen(callsign: string): void }) {
+  const hum = (human: boolean) => (human ? "hum" : "");
   return (
-    <RowBtn
-      className={"bd-row" + (depth ? " kid" : "")}
-      data-callsign={callsign}
-      aria-current={d.current ? "true" : "false"}
-      style={depth ? { paddingLeft: `${10 + depth * 22}px` } : undefined}
-      onClick={() => {
-        const s = board.session(callsign);
-        if (s) board.openSession(s);
-      }}
-    >
-      {d.lamp ? <Dot kind={d.lamp} title={d.title} /> : null}
+    <RowBtn className={cx("bd-row", row.depth && "kid")} aria-current={current ? "true" : "false"} data-callsign={row.callsign} style={row.depth ? { paddingLeft: 10 + 22 * row.depth } : undefined} onClick={() => onOpen(row.callsign)} onPointerDown={onDown && ((e) => onDown(e, row))}>
+      {row.dot ? <Dot kind={row.dot} title={row.title} /> : null}
       <span className="bd-rt">
         <span className="bd-t1">
-          <b className={"bd-cs" + (d.human ? " hum" : "")}>{d.name}</b>
-          {d.owner ? <span className="bd-pill own">{d.owner}</span> : null}
-          {d.inc ? <span className="bd-pill inc">{d.inc}</span> : null}
-          {d.pin ? (
+          <b className={cx("bd-cs", hum(row.name.human))}>{row.name.text}</b>
+          {row.pinned ? (
             <svg className="bd-pin" viewBox="0 0 16 16" role="img" aria-label="закреплена">
               <path d="M6 2h4l-.5 4 2.5 2.5V10H8.6L8 14l-.6-4H4V8.5L6.5 6z" />
             </svg>
           ) : null}
-          {d.at !== null ? <span className={"bd-at" + (d.atHuman ? " hum" : "")}>{d.at}</span> : null}
+          {row.own ? <span className="bd-pill own">{row.own}</span> : null}
+          {row.inc ? <span className="bd-pill inc">{row.inc}</span> : null}
+          {row.at ? <span className={cx("bd-at", hum(row.at.human))}>{row.at.text}</span> : null}
         </span>
-        {d.t2.length ? (
-          <span className="bd-t2">
-            {d.t2.map((x) => (
-              <span key={x.c} className={x.c}>
-                {x.t}
-              </span>
-            ))}
-          </span>
-        ) : null}
+        <span className="bd-t2">
+          {row.project ? <span className="prj">{row.project}</span> : null}
+          {row.line.kind ? (
+            <span className={cx("tx", row.line.kind !== "u" && row.line.kind)}>{row.line.text}</span>
+          ) : (
+            <>
+              {row.prof ? <span className="bd-pill">{row.prof}</span> : null}
+              {row.model ? <span className="tx">{row.model}</span> : null}
+            </>
+          )}
+        </span>
       </span>
-      {d.badge === "?" ? (
-        <Badge wait aria-label="ждёт ответа">
-          ?
+      {row.badge ? (
+        <Badge wait={row.badge.wait} aria-label={row.badge.wait ? "ждёт ответа" : undefined}>
+          {row.badge.text}
         </Badge>
-      ) : d.badge ? (
-        <Badge>{d.badge}</Badge>
       ) : null}
     </RowBtn>
   );
-});
+}
 
-/** Поле имени: Enter и уход с поля подтверждают, Esc отменяет. Значение живёт в поле. */
-function NameField({ commit, cancel, ...p }: { commit(value: string): void; cancel(): void } & ComponentProps<typeof In>) {
+/** Поле имени: значение читается из самого поля; Enter и уход — записать, Esc — нет. */
+function NameField({ commit, cancel, ...p }: Parameters<typeof In>[0] & { commit(text: string): void; cancel(): void }) {
+  const done = useRef(false);
+  const finish = (act: () => void) => {
+    if (done.current) return;
+    done.current = true;
+    act();
+  };
   return (
     <In
-      autoFocus
-      autoComplete="off"
       {...p}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") commit(e.currentTarget.value);
-        if (e.key === "Escape") cancel();
+      autoComplete="off"
+      autoFocus
+      onBlur={(e) => {
+        const text = e.currentTarget.value;
+        finish(() => commit(text));
       }}
-      onBlur={(e) => commit(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        const text = e.currentTarget.value;
+        if (e.key === "Enter") finish(() => commit(text));
+        if (e.key === "Escape") finish(cancel);
+      }}
     />
   );
 }
 
-function ProjectMenu({ id, name }: { id: string; name: string }) {
-  const board = useBoard();
-  const save = (value: string) => {
-    const v = value.trim();
-    if (v && v !== name) board.renameProject(id, v);
-    board.closeMenu();
-  };
-  return (
-    <div className="pj-menu" data-menu={id}>
-      <NameField data-f="project-name" defaultValue={name} aria-label="Имя проекта" commit={save} cancel={board.closeMenu} />
-      <Btn
-        bad
-        data-act="project-remove"
-        onPointerDown={(e: { preventDefault(): void }) => e.preventDefault()}
-        onClick={() => {
-          board.removeProject(id);
-          board.closeMenu();
-        }}
-      >
-        Удалить
-      </Btn>
-    </div>
-  );
-}
+type Model = ReturnType<BoardState["model"]>;
 
-/** Последняя строка списка: новый проект. */
-function NewProject() {
-  const board = useBoard();
-  const [on, setOn] = useState(false);
-  if (!on) {
-    return (
-      <TextBtn className="pj-new" data-act="project-new" onClick={() => setOn(true)}>
-        Новый проект
-      </TextBtn>
-    );
-  }
-  const commit = (v: string) => {
-    if (v.trim()) board.addProject(v);
-    setOn(false);
-  };
-  return <NameField className="pj-newin" data-f="project-new" aria-label="Имя нового проекта" commit={commit} cancel={() => setOn(false)} />;
-}
-
-const ProjectSection = memo(function ProjectSection({ x }: { x: Section }) {
-  const board = useBoard();
-  return (
-    <section className="pjs" data-proj={x.id}>
-      <div className="pj">
-        {x.grip ? (
-          <span className="grip" role="button" tabIndex={0} data-proj={x.id} aria-label={`Проект ${x.name}: перетащить, стрелки или нажать — имя и удаление`}>
-            ⠿
-          </span>
-        ) : null}
-        <DisclosureBtn className="pj-t" open={x.open} data-proj={x.id} onClick={() => board.toggleProject(x.id)}>
-          <span className="car">▼</span>
-          <span className="nm">{x.name}</span>
-          <span className="lamps">
-            {x.lamps.map((l) => (
-              <Dot key={l.callsign} kind={l.kind} />
-            ))}
-          </span>
-        </DisclosureBtn>
-        {x.add ? (
-          <IconBtn className="pj-add" data-proj={x.id} aria-label={`Новая сессия в ${x.name}`} onClick={() => board.newIn(x.id)}>
-            +
-          </IconBtn>
-        ) : null}
-      </div>
-      {x.menu ? <ProjectMenu id={x.id} name={x.name} /> : null}
-      {x.items.map((it) =>
-        it.k === "group" ? (
-          <div key={`g:${it.machine}`} className="mgrp" data-group={it.machine}>
-            <span>{it.label}</span>
-            <span className="n">{String(it.n)}</span>
-          </div>
-        ) : (
-          <SessionRow key={it.callsign} callsign={it.callsign} depth={it.depth} noAt={it.noAt} project={it.project} />
-        ),
-      )}
-    </section>
-  );
-});
-
-export const List = memo(function List({ gen }: { gen: number }) {
+export function List({ m, current, rerender }: { m: Model; current: string | null; rerender(): void }) {
   const app = useApp();
-  const board = useBoard();
-  const m = useHeld(board.listModel);
-  const current = app.use(() => app.current()?.params.callsign);
-  const lst = useRef<HTMLDivElement>(null);
-  /** открытая сессия, которую список уже показал */
-  const shown = useRef<string | undefined>(undefined);
-  const ready = !!m;
+  const b = useModule<BoardState>();
+  const [menu, setMenu] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  const { view } = m;
+  const box = useRef<HTMLDivElement>(null);
+  // открытая строка всегда видна, и когда только что появилась
+  const shown = !!current && (m.flat.some((r) => r.callsign === current) || m.sections.some((x) => x.rows.some((r) => r.callsign === current)));
+  useEffect(() => {
+    if (current) box.current?.querySelector(`.bd-row[data-callsign="${CSS.escape(current)}"]`)?.scrollIntoView?.({ block: "nearest" });
+  }, [current, shown]);
 
-  // строка появляется, когда её проект развернулся: показать, как только она есть
-  useLayoutEffect(() => {
-    if (!ready || current === shown.current) return;
-    const row = current ? lst.current?.querySelector<HTMLElement>(`[data-callsign=${JSON.stringify(current)}]`) : null;
-    if (current && !row) return;
-    shown.current = current;
-    row?.scrollIntoView?.({ block: "nearest" });
-  }, [ready, m, current]);
+  const openRow = (callsign: string) => app.open(!app.wide && app.mark("asked", callsign) ? "ask" : "card", { callsign });
 
-  if (!m) return null;
-  const empty = <div className="bd-empty">{m.empty}</div>;
-  if (m.flat) {
+  function downGrip(e: PointerEvent<HTMLElement>, id: string) {
+    const item = closest(e.currentTarget, ".pjs");
+    const root = closest(item, ".bd-list");
+    const box = closest(item, ".lst");
+    press(e, {
+      hold: false,
+      scroller: { el: closest(item, ".bd-body"), axis: "y" },
+      lift(_x, y) {
+        b.hold(true);
+        const others = [...box.querySelectorAll<HTMLElement>(":scope > .pjs")].filter((el) => el !== item && el.dataset.proj !== NONE);
+        const head = item.querySelector<HTMLElement>(".pj")!;
+        const tall = box.offsetHeight;
+        return sorter({
+          axis: "y",
+          root,
+          box,
+          item,
+          others,
+          source: head,
+          anchor: ".pj-t",
+          cls: { copy: "dnd-card", up: "up", land: "land", slot: "dnd-slot dnd-folded", box: "dnd-on" },
+          open() {
+            root.classList.add("reordering");
+            box.style.minHeight = `${tall}px`;
+            item.style.height = `${head.offsetHeight}px`;
+          },
+          close() {
+            root.classList.remove("reordering");
+            box.style.minHeight = "";
+            item.style.height = "";
+            b.hold(false);
+          },
+          dress(copy, at, size) {
+            copy.setAttribute("inert", "");
+            copy.style.left = `${at.x}px`;
+            copy.style.width = `${size.width}px`;
+            copy.querySelector(".pj-t")!.setAttribute("aria-expanded", "false");
+          },
+          put: (copy, main) => void (copy.style.translate = `0px ${main}px`),
+          landMs: 220,
+          pointer: y,
+          commit: (i) => b.moveProject(id, others[i]?.dataset.proj ?? null),
+        });
+      },
+    });
+  }
+
+  function downRow(e: PointerEvent<HTMLElement>, row: RowModel, section: SectionModel) {
+    const el = e.currentTarget;
+    const root = closest(el, ".bd-list");
+    const list = closest(el, ".lst");
+    press(e, {
+      hold: true,
+      scroller: { el: closest(el, ".bd-body"), axis: "y" },
+      lift(_x, y) {
+        b.hold(true);
+        const at = section.rows.indexOf(row);
+        const after = section.rows.slice(at + 1);
+        const stop = after.findIndex((r) => r.depth <= row.depth);
+        const kids = stop < 0 ? after : after.slice(0, stop);
+        const names = [row, ...kids].map((r) => r.callsign);
+        const block = names.map((cs) => list.querySelector<HTMLElement>(`[data-callsign="${CSS.escape(cs)}"]`)!);
+        const next = stop < 0 ? null : after[stop].callsign;
+        return rowDrag({
+          root,
+          list,
+          row: el,
+          block,
+          y,
+          drop: (project, before) => void (project === section.id && before === next ? null : b.dropRows(names, project, before, b.shownIn(project))),
+          end: () => b.hold(false),
+        });
+      },
+    });
+  }
+
+  function keyGrip(e: KeyboardEvent<HTMLElement>, id: string) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      return setMenu(id);
+    }
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const order = m.order.filter((x) => x !== NONE);
+    const i = order.indexOf(id);
+    if (e.key === "ArrowUp" ? i === 0 : i === order.length - 1) return;
+    const list = closest(e.currentTarget, ".lst");
+    glide(list, ":scope > .pjs", "dnd-on", () => {
+      b.moveProject(id, e.key === "ArrowUp" ? order[i - 1] : (order[i + 2] ?? null));
+      rerender();
+    });
+    list.querySelector<HTMLElement>(`.grip[data-proj="${CSS.escape(id)}"]`)?.focus();
+  }
+
+  const rowsOf = (s: SectionModel, rows: RowModel[]) => rows.map((r) => <Row key={r.callsign} row={r} current={current === r.callsign} onDown={(e) => downRow(e, r, s)} onOpen={openRow} />);
+
+  if (!view.projects) {
     return (
-      <div key={gen} ref={lst} className="lst flat">
-        {m.flat.length ? m.flat.map((it) => <SessionRow key={it.callsign} callsign={it.callsign} depth={it.depth} noAt={it.noAt} project={it.project} />) : empty}
+      <div ref={box} className="lst flat">
+        {m.flat.map((r) => (
+          <Row key={r.callsign} row={r} current={current === r.callsign} onOpen={openRow} />
+        ))}
+        {m.drawn && !m.flat.length ? <div className="bd-empty">{`в «${m.selectedName}» сессий нет`}</div> : null}
       </div>
     );
   }
+  if (!m.drawn) return <div ref={box} className="lst" />;
   return (
-    <div key={gen} ref={lst} className="lst">
-      {m.sections.map((x) => (
-        <ProjectSection key={`p:${x.id}`} x={x} />
+    <div ref={box} className="lst">
+      {m.sections.map((s) => (
+        <section key={s.id} className="pjs" data-proj={s.id}>
+          <div className="pj">
+            {view.grip && s.id !== NONE ? (
+              <span className="grip" role="button" tabIndex={0} data-proj={s.id} aria-label={`Проект ${s.name}: перетащить, стрелки или нажать — имя и удаление`} onPointerDown={(e) => downGrip(e, s.id)} onClick={() => setMenu(menu === s.id ? null : s.id)} onKeyDown={(e) => keyGrip(e, s.id)}>
+                ⠿
+              </span>
+            ) : null}
+            <DisclosureBtn open={!s.collapsed} className="pj-t" data-proj={s.id} onClick={() => b.toggle(s.id)}>
+              <span className="car">▼</span>
+              <span className="nm">{s.name}</span>
+              <span className="lamps">
+                {s.lamps.map((kind, i) => (
+                  <Dot key={i} kind={kind} />
+                ))}
+              </span>
+            </DisclosureBtn>
+            {view.add ? (
+              <IconBtn className="pj-add" data-proj={s.id} aria-label={`Новая сессия в ${s.name}`} onClick={() => app.open("open", b.placeOf(s.id))}>
+                +
+              </IconBtn>
+            ) : null}
+          </div>
+          {menu === s.id ? (
+            <div className="pj-menu" data-menu={s.id}>
+              <NameField
+                data-f="project-name"
+                aria-label="Имя проекта"
+                defaultValue={s.name}
+                commit={(text) => {
+                  if (text.trim() && text.trim() !== s.name) b.renameProject(s.id, text);
+                  setMenu(null);
+                }}
+                cancel={() => setMenu(null)}
+              />
+              <Btn
+                bad
+                data-act="project-remove"
+                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  b.removeProject(s.id);
+                  setMenu(null);
+                }}
+              >
+                Удалить
+              </Btn>
+            </div>
+          ) : null}
+          {s.groups
+            ? s.groups.map((g) => [
+                <div key={`g:${g.machine}`} className="mgrp" data-group={g.machine}>
+                  <span>{g.label}</span>
+                  <span className="n">{g.rows.length}</span>
+                </div>,
+                ...rowsOf(s, g.rows),
+              ])
+            : rowsOf(s, s.rows)}
+        </section>
       ))}
-      {m.sections.length ? null : empty}
-      <NewProject />
+      {!m.sections.length ? <div className="bd-empty">{`в «${m.selectedName}» сессий нет`}</div> : null}
+      {adding ? (
+        <NameField
+          className="pj-newin"
+          data-f="project-new"
+          aria-label="Имя нового проекта"
+          commit={(text) => {
+            if (text.trim()) b.addProject(text);
+            setAdding(false);
+          }}
+          cancel={() => setAdding(false)}
+        />
+      ) : (
+        <TextBtn className="pj-new" data-act="project-new" onClick={() => setAdding(true)}>
+          Новый проект
+        </TextBtn>
+      )}
     </div>
   );
-});
+}

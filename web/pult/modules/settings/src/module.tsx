@@ -1,57 +1,49 @@
-// pult-settings — настройки флота вкладками: выпуски по машинам и каталог, пропуска, GitHub и устройство. Здесь — только связка с ядром.
-import type { App, AppModule, ScreenProps } from "@switchboard/web-core";
-import { Page, PageHead, Tabs, useApp } from "@switchboard/web-ui";
-import { Device, Github } from "./general.tsx";
+// pult-settings — настройки флота: вкладки «Выпуски», «Пропуска», «GitHub и устройство»; на телефоне — только устройство.
+import type { ScreenProps } from "@switchboard/web-core";
+import { Page, PageHead, Tabs, useApp, useModule, type App } from "@switchboard/web-ui";
+import type { AppModule } from "@switchboard/web-core";
+import { Device, GitHub } from "./general.tsx";
 import { Passes } from "./passes.tsx";
-import { Releases } from "./releases.tsx";
+import { ReleasesTab } from "./releases.tsx";
 import css from "./settings.css";
-import { createSettingsState } from "./state.ts";
+import { createSettingsState, type SettingsState } from "./state.ts";
 
-type Tab = "releases" | "passes" | "general";
+const TABS = [["releases", "Выпуски"], ["passes", "Пропуска"], ["general", "GitHub и устройство"]] as const;
+type Tab = (typeof TABS)[number][0];
 
-const TABS = [
-  ["releases", "Выпуски"],
-  ["passes", "Пропуска"],
-  ["general", "GitHub и устройство"],
-] as const;
-
-/** Экран настроек: заголовок с вкладками и содержимое вкладки. Новые параметры адреса — экран начат заново. */
 function SettingsScreen({ params }: ScreenProps) {
   const app = useApp();
-  const tab: Tab = !app.wide ? "general" : params.tab === "passes" || params.tab === "general" ? params.tab : "releases";
+  useModule<SettingsState>();
+  if (!app.wide) {
+    return (
+      <Page>
+        <Device />
+      </Page>
+    );
+  }
+  const tab: Tab = TABS.some(([k]) => k === params.tab) ? (params.tab as Tab) : "releases";
   return (
     <Page>
-      {app.wide ? (
-        <PageHead title="Настройки">
-          <Tabs className="st-tabs" tabs={TABS} cur={tab} pick={(k) => app.open("settings", { tab: k })} />
-        </PageHead>
-      ) : null}
-      {tab === "releases" ? (
-        <Releases machine={params.machine} />
-      ) : tab === "passes" ? (
-        <Passes />
-      ) : (
+      <PageHead title="Настройки">
+        <Tabs className="st-tabs" tabs={TABS} cur={tab} pick={(k) => app.open("settings", { tab: k })} />
+      </PageHead>
+      {tab === "releases" ? <ReleasesTab machine={params.machine} /> : null}
+      {tab === "passes" ? <Passes /> : null}
+      {tab === "general" ? (
         <>
-          {app.wide ? <Github /> : null}
+          <GitHub />
           <Device />
         </>
-      )}
+      ) : null}
     </Page>
   );
 }
 
-/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
 export function createSettings(app: App): AppModule {
-  const settings = createSettingsState(app);
+  const st = createSettingsState(app);
   return {
-    state: settings,
-    start: settings.start,
-    on: { link: settings.onLink },
-    commands: {
-      "keeper.open": { run: settings.openKeeper },
-      "keeper.close": { run: settings.closeKeeper },
-      "keeper.reload": { run: (p) => void settings.reloadKeeper(p.machine ?? "") },
-    },
+    state: st,
+    on: { link: st.keeper.onLink },
     screens: {
       settings: {
         nav: "Настройки",
@@ -59,10 +51,22 @@ export function createSettings(app: App): AppModule {
         label: "Настройки",
         view: SettingsScreen,
         head: () => ({ title: "Настройки" }),
-        find: (q: string) => TABS.filter(([, l]) => !q || l.toLowerCase().includes(q)).map(([tab, l]) => ({ label: `Настройки: ${l.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
+        find: (q) => TABS.filter(([, name]) => name.toLowerCase().includes(q)).map(([tab, name]) => ({ label: `Настройки: ${name.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
       },
     },
-    marks: { "keeper.answers": settings.keeperAnswers },
+    commands: {
+      "keeper.open": { run: st.openKeeper },
+      "keeper.close": { run: st.closeKeeper },
+      "keeper.reload": { run: (p) => void st.keeper.reload(p.machine) },
+    },
+    marks: { "keeper.answers": () => st.keeper },
     css,
+    start() {
+      // GitHub вернул код нового приложения: экран — настройки на своей вкладке
+      const code = new URLSearchParams(location.search).get("code");
+      if (!code) return;
+      st.setCode(code);
+      if (!location.hash) history.replaceState(null, "", `${location.pathname}${location.search}#settings?tab=general`);
+    },
   };
 }

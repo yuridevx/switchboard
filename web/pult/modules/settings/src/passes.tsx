@@ -1,57 +1,116 @@
-// Вкладка «Пропуска»: машины и устройства, приглашение и отзыв. Это устройство не отзывается.
+// «Пропуска»: машины, устройства и программы; пригласить и отозвать.
+import qrcode from "qrcode-generator";
 import { useState } from "react";
-import { Btn, M, Note, Opts, Outcome, Pill, type Result, Sec, useApp, useOutcome } from "@switchboard/web-ui";
-import { Invited, InviteForm } from "./invite.tsx";
-import { thisDevice, usePasses } from "./load.ts";
-import { useSettings, type Pass } from "./state.ts";
+import { Btn, Cmd, CopyButton, day, In, Note, Opts, Pill, Sec, useApp, useLoad, useModule } from "@switchboard/web-ui";
+import { isMe, wordText, type Pass } from "./rules.ts";
+import type { Invited, SettingsState } from "./state.ts";
 
-const CONDITION = { ok: ["действует", "ok"], wait: ["ждёт приёма", "wait"] } as const;
+const KINDS = [["device", "устройство"], ["program", "программа"], ["machine", "машина"]] as const;
 
-function PassRow({ p, mine, done }: { p: Pass; mine: boolean; done(r: Result<string>): void }) {
-  const settings = useSettings();
-  const [asking, setAsking] = useState(false);
+function Qr({ url }: { url: string }) {
+  const code = qrcode(0, "M");
+  code.addData(url);
+  code.make();
+  const n = code.getModuleCount();
+  let d = "";
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (code.isDark(y, x)) d += `M${x} ${y}h1v1h-1z`;
   return (
-    <tr data-pass={p.id}>
-      <td>
-        <M>{p.addr}</M>
-      </td>
-      <td>
-        <Pill tone={CONDITION[p.state][1]}>{CONDITION[p.state][0]}</Pill>
-      </td>
-      <td>
-        <M>{p.by}</M>
-      </td>
-      <td>{new Date(p.at).toLocaleDateString("ru-RU", { day: "numeric", month: "short" })}</td>
-      <td>
-        {mine ? (
-          <Note>это устройство</Note>
-        ) : asking ? (
-          <Opts>
-            <Btn
-              bad
-              onClick={() =>
-                void settings.revoke(p).then((r) => {
-                  setAsking(false);
-                  done(r);
-                })
-              }
-            >
-              Отозвать
-            </Btn>
-            <Btn onClick={() => setAsking(false)}>Отмена</Btn>
-          </Opts>
-        ) : (
-          <Btn bad onClick={() => setAsking(true)}>
-            Отозвать…
-          </Btn>
-        )}
-      </td>
-    </tr>
+    <div className="st-qr" data-qr={url} role="img" aria-label="QR ссылки для телефона">
+      <svg viewBox={`0 0 ${n} ${n}`} shapeRendering="crispEdges">
+        <path d={d} fill="#000" />
+      </svg>
+    </div>
   );
 }
 
-function PassTable({ title, rows, me, done }: { title: string; rows: Pass[]; me: Pass | undefined; done(r: Result<string>): void }) {
-  if (!rows.length) return null;
+function Link({ label, value }: { label: string; value: string }) {
+  return (
+    <Opts data-link={label}>
+      {label ? <b className="st-lbl">{label}</b> : null}
+      <Cmd className="st-link">{value}</Cmd>
+      <CopyButton text={value} label="Копировать" />
+    </Opts>
+  );
+}
+
+/** Выданное приглашение: устройству — ссылки на пульт и телефон, программе и машине — само приглашение. */
+function InvitedBlock({ invited, done }: { invited: Invited; done(): void }) {
+  const app = useApp();
+  const page = (base: string | null) => (base ? `${base.replace(/\/$/, "")}/#invite=${invited.invite}` : null);
+  const pult = `${location.href.split("#")[0].split("?")[0].replace(/\/$/, "")}#invite=${invited.invite}`.replace(/\/?#/, location.protocol === "file:" ? "#" : "/#");
+  const phone = page(app.worker("phone"));
+  const title = invited.kind === "device" ? "Ссылка для " : invited.kind === "program" ? "Приглашение для " : "Приглашение машины ";
+  return (
+    <Sec tone="ok" data-invited="">
+      <div className="st-inv">
+        <div className="st-invl">
+          <span>
+            {title}
+            <b>
+              <span className="sb-m">{invited.addr}</span>
+            </b>
+          </span>
+          {invited.kind === "device" ? (
+            <>
+              <Link label="Пульт" value={pult} />
+              {phone ? <Link label="Телефон" value={phone} /> : null}
+            </>
+          ) : (
+            <Link label="" value={invited.invite} />
+          )}
+          <Opts>
+            <Btn onClick={done}>Готово</Btn>
+          </Opts>
+        </div>
+        {invited.kind === "device" && phone ? <Qr url={phone} /> : null}
+      </div>
+    </Sec>
+  );
+}
+
+function InviteForm({ done, close }: { done(i: Invited): void; close(): void }) {
+  const app = useApp();
+  const [kind, setKind] = useState<Invited["kind"]>("device");
+  const [name, setName] = useState("");
+  const [who, setWho] = useState("");
+  const [word, setWord] = useState("");
+  async function send() {
+    setWord("");
+    const r = await app.request<{ kid: string; invite: string; addr: string }>("keys.invite", kind === "machine" ? { role: "host", name } : { role: "client", name, person: who });
+    if (r.ok) done({ addr: r.result.addr, invite: r.result.invite, kind });
+    else setWord(wordText(r.error));
+  }
+  return (
+    <Sec data-invite="">
+      <Opts>
+        {KINDS.map(([k, label]) => (
+          <Btn key={k} aria-pressed={kind === k ? "true" : "false"} onClick={() => setKind(k)}>
+            {label}
+          </Btn>
+        ))}
+      </Opts>
+      <Opts>
+        <In data-f="iname" aria-label="Имя" placeholder={kind === "machine" ? "имя машины" : "laptop"} value={name} onChange={() => {}} onInput={(e) => setName(e.currentTarget.value)} />
+        {kind === "machine" ? null : <In data-f="iwho" aria-label="Почта" placeholder="почта" value={who} onChange={() => {}} onInput={(e) => setWho(e.currentTarget.value)} />}
+      </Opts>
+      <Opts>
+        <Btn pri onClick={() => void send()}>
+          Пригласить
+        </Btn>
+        <Btn onClick={close}>Отмена</Btn>
+      </Opts>
+      {word ? (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      ) : null}
+    </Sec>
+  );
+}
+
+function PassesTable({ title, rows, revoke }: { title: string; rows: Pass[]; revoke(p: Pass): void }) {
+  const app = useApp();
+  const [asking, setAsking] = useState("");
   return (
     <Sec data-passes={title}>
       <b>{title}</b>
@@ -69,12 +128,43 @@ function PassTable({ title, rows, me, done }: { title: string; rows: Pass[]; me:
             <th>состояние</th>
             <th>кто пригласил</th>
             <th>когда</th>
-            <th></th>
+            <th />
           </tr>
         </thead>
         <tbody>
           {rows.map((p) => (
-            <PassRow key={p.id} p={p} mine={p.id === me?.id} done={done} />
+            <tr key={p.id} data-pass={p.id}>
+              <td>
+                <span className="sb-m">{p.addr}</span>
+              </td>
+              <td>{p.state === "ok" ? <Pill tone="ok">действует</Pill> : <Pill tone="wait">ждёт приёма</Pill>}</td>
+              <td>
+                <span className="sb-m">{p.by}</span>
+              </td>
+              <td>{day(p.at)}</td>
+              <td>
+                {isMe(app)(p) ? (
+                  <Note>это устройство</Note>
+                ) : asking === p.id ? (
+                  <Opts>
+                    <Btn
+                      bad
+                      onClick={() => {
+                        setAsking("");
+                        revoke(p);
+                      }}
+                    >
+                      Отозвать
+                    </Btn>
+                    <Btn onClick={() => setAsking("")}>Отмена</Btn>
+                  </Opts>
+                ) : (
+                  <Btn bad onClick={() => setAsking(p.id)}>
+                    Отозвать…
+                  </Btn>
+                )}
+              </td>
+            </tr>
           ))}
         </tbody>
       </table>
@@ -84,31 +174,56 @@ function PassTable({ title, rows, me, done }: { title: string; rows: Pass[]; me:
 
 export function Passes() {
   const app = useApp();
-  const settings = useSettings();
-  const { data: passes = [], error, loading, reload } = usePasses();
-  const [inviting, setInviting] = useState(false);
-  const invited = app.use(() => settings.get().invited);
-  const [notes, say] = useOutcome();
-  const done = (r: Result<string>) => {
-    if (!r.ok) return say("revoke", r.error, "bad");
-    app.toast(r.result, "ok");
-    reload();
-  };
-  const me = thisDevice(passes, app.name);
+  const st = useModule<SettingsState>();
+  const invited = app.use(() => st.get().invited);
+  const passes = useLoad(() => app.read<{ passes: Pass[] }>("keys.list"), []);
+  const [form, setForm] = useState(false);
+  const [word, setWord] = useState("");
+  const all = passes.data?.passes ?? [];
+
+  async function revoke(p: Pass) {
+    setWord("");
+    const r = await app.request("keys.revoke", { kid: p.id });
+    if (r.ok) {
+      app.toast(`${p.addr} отозван — соединения закрыты`, "ok");
+      passes.reload();
+    } else setWord(`${p.addr}: ${wordText(r.error)}`);
+  }
+
   return (
     <>
       <Opts>
-        {inviting || invited ? null : (
-          <Btn pri onClick={() => setInviting(true)}>
+        {form || invited ? null : (
+          <Btn pri onClick={() => setForm(true)}>
             Пригласить
           </Btn>
         )}
       </Opts>
-      {inviting ? <InviteForm close={() => setInviting(false)} invited={reload} /> : invited ? <Invited x={invited} /> : null}
-      {error ? <Note tone="bad" role="alert">{`keys.list: ${error}`}</Note> : !passes.length && loading ? <Note>…</Note> : null}
-      <PassTable title="Машины" rows={passes.filter((p) => p.role === "host")} me={me} done={done} />
-      <PassTable title="Устройства и программы" rows={passes.filter((p) => p.role === "client")} me={me} done={done} />
-      <Outcome note={notes.revoke} />
+      {form ? (
+        <InviteForm
+          close={() => setForm(false)}
+          done={(i) => {
+            st.setInvited(i);
+            setForm(false);
+            passes.reload();
+          }}
+        />
+      ) : null}
+      {invited ? <InvitedBlock invited={invited} done={() => st.setInvited(null)} /> : null}
+      {passes.error ? <Note tone="bad">{`keys.list: ${passes.error}`}</Note> : null}
+      {passes.data ? (
+        <>
+          <PassesTable title="Машины" rows={all.filter((p) => p.role === "host")} revoke={(p) => void revoke(p)} />
+          <PassesTable title="Устройства и программы" rows={all.filter((p) => p.role !== "host")} revoke={(p) => void revoke(p)} />
+        </>
+      ) : passes.error ? null : (
+        <Note>…</Note>
+      )}
+      {word ? (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      ) : null}
     </>
   );
 }
