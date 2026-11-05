@@ -85,7 +85,8 @@ async function deliver(env: Env, jwk: JsonWebKey, s: Sub, plain: Uint8Array, lin
     return "sent";
   }
   if (status === 404 || status === 410) {
-    await env.DB.prepare("DELETE FROM subs WHERE client = ?").bind(s.client).run();
+    // именно эта подписка: устройство могло подписаться заново, пока шёл пуш
+    await env.DB.prepare("DELETE FROM subs WHERE client = ? AND endpoint = ?").bind(s.client, s.endpoint).run();
     log({ kind: "refuse", ev: "push.send", word: "gone", why: `служба ответила ${status}: подписки нет, строка удалена`, status, ...at });
     return "gone";
   }
@@ -126,7 +127,7 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
     const kids = targets.flatMap((s) => (s.kid ? [s.kid] : []));
     const revoked = new Set(kids.length ? await within(env.GATE.revoked(kids), "gate не ответил на revoked") : []);
     for (const s of targets.filter((x) => x.kid && revoked.has(x.kid))) {
-      await env.DB.prepare("DELETE FROM subs WHERE client = ?").bind(s.client).run();
+      await env.DB.prepare("DELETE FROM subs WHERE client = ? AND kid = ?").bind(s.client, s.kid).run();
       log({ kind: "refuse", ev: "push.send", word: "gone", why: `пропуск ${s.kid} отозван: подписка удалена`, client: s.client, type });
     }
     const live = targets.filter((s) => !(s.kid && revoked.has(s.kid)));

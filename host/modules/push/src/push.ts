@@ -17,7 +17,7 @@ export function make(): Module {
   let host: Host;
 
   async function send(push: { to: string; skip?: string[] }, frame: Pushed) {
-    const r = await host.request("push.send", { v: 1, push: { ...push, type: frame.type, from: frame.from, notify: frame.notify } });
+    const r = await host.request("push.send", { push: { ...push, type: frame.type, from: frame.from, notify: frame.notify } });
     if (r.ok) return;
     if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${push.to}: подписки нет — ${frame.type} без пуша` });
     else host.log({ kind: "stop", ev: "push.send", word: r.error, why: `push.send ${push.to}: ${r.error} — ${frame.type} без пуша` });

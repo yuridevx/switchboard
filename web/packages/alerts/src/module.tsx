@@ -61,7 +61,7 @@ export const createAlerts =
 
     /** Строка подписки во флоте: нет — полоса, подписать заново. */
     async function verify(endpoint: string) {
-      const r = await app.request<{ subscribed: boolean }>("push.subscribed", { endpoint });
+      const r = await app.read<{ subscribed: boolean }>("push.subscribed", { endpoint });
       if (!r.ok) console.error(`switchboard: подписка во флоте не проверена — ${r.error}`);
       else if (!r.result.subscribed) set("ask");
     }
@@ -97,7 +97,7 @@ export const createAlerts =
         const r = await app.request("push.subscribe", { sub: sub.toJSON() });
         if (!r.ok) throw new Error(r.error);
         set("on");
-        app.toast("Уведомления включены: сессии достучатся, когда приложение закрыто.", "ok");
+        app.toast("Уведомления включены: сессии достучатся, когда приложение закрыто.");
       } catch (e) {
         console.error(`switchboard: уведомления не включены — ${wordOf(e)}`);
         set("error", wordOf(e));
@@ -122,7 +122,7 @@ export const createAlerts =
             <b>Включить уведомления</b>
             {s === "error" ? <span>Не вышло: {w}</span> : null}
           </span>
-          <button className="al-on" disabled={s === "working"} onClick={() => void enable()}>
+          <button type="button" className="al-on" disabled={s === "working"} onClick={() => void enable()}>
             {s === "working" ? "…" : s === "error" ? "Ещё раз" : "Включить"}
           </button>
         </div>
