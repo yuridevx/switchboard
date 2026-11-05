@@ -31,17 +31,21 @@ const NO_PROMPT = ["-c", "credential.interactive=never"];
 const lastLine = (s: string) => s.trim().split("\n").pop();
 
 /** Настоящий git ОС с пределом на команду: процесс убит, ответ не ждём: дочерний процесс git может держать его вывод. */
-export const gitWithin = (ms: number): Git => (args, o) =>
-  within(
-    new Promise((done) => {
+export const gitWithin = (ms: number): Git => (args, o) => {
+  const late = `git не ответил за ${ms / 1000} с`;
+  return within(
+    new Promise((done, fail) => {
       execFile("git", args, { cwd: o.cwd, env: { ...process.env, ...o.env }, windowsHide: true, maxBuffer: 16 << 20, timeout: ms }, (e, out, err) => {
+        // убит по пределу раньше, чем сработал within: тот же отказ, а не «код 1»
+        if ((e as { killed?: boolean } | null)?.killed) return fail(new Error(late));
         const code = e ? (typeof (e as { code?: unknown }).code === "number" ? (e as { code: number }).code : 1) : 0;
         done({ code, out: `${out}${err}` });
       });
     }),
-    `git не ответил за ${ms / 1000} с`,
+    late,
     ms,
   );
+};
 
 /** Предел команды — как у вызова со страницы: дольше ответ всё равно никто не ждёт. */
 export const realGit = gitWithin(CALL_MS);
