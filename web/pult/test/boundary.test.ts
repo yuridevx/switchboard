@@ -269,8 +269,11 @@ describe("обработчик пушей", () => {
 
 describe("кнопки уведомления", () => {
   // чьё: код; сколько кнопок вмещает уведомление, говорит браузер
-  it("браузер вмещает две: две кнопки показаны", async () => {
-    vi.stubGlobal("Notification", { maxActions: 2 });
+  it.each([
+    [2, 2],
+    [undefined, 0],
+  ])("браузер вмещает %s: две кнопки показаны числом %i", async (maxActions, shown) => {
+    vi.stubGlobal("Notification", { maxActions });
     vi.stubGlobal("indexedDB", new IDBFactory());
     const scope = fakeScope();
     vi.stubGlobal("self", scope);
@@ -279,7 +282,7 @@ describe("кнопки уведомления", () => {
     const frame = { type: "answer", callsign: "profiles@laptop" };
     const actions = [{ title: "да", frame }, { title: "нет", frame }];
     await scope.fire("push", { data: { json: () => ({ type: "question", from: "profiles@laptop", notify: { title: "t", actions } }) } });
-    expect(scope.shown[0].o.actions).toHaveLength(2);
+    expect(scope.shown[0].o.actions).toHaveLength(shown);
   });
 });
 
