@@ -66,11 +66,6 @@ func TestMain(m *testing.M) {
 			}
 			fmt.Println(os.Getenv("KEEPER_TEST_VERSION"))
 			return
-		case "setup":
-			// как npm на Windows: записать полный путь своей папки — ссылки workspaces держат его
-			wd, _ := os.Getwd()
-			os.WriteFile("setup-dir", []byte(wd), 0o644)
-			return
 		case "slowsetup":
 			// долгий setup, как npm ci у Host: метка начала — стенду, чтобы уронить прежнюю версию посреди установки
 			os.WriteFile("setup-started", nil, 0o644)
@@ -89,10 +84,11 @@ func TestMain(m *testing.M) {
 			fmt.Fprintln(os.Stderr, "npm ERR! нет пакета")
 			os.Exit(1)
 		}
-		// под именем Node: свои аргументы — в файл; ввод закрыт — выход
+		// под именем Node: свои аргументы и рабочая папка — в файл; ввод закрыт — выход
 		if f := os.Getenv("KEEPER_TEST_NODE"); f != "" {
 			h, _ := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-			fmt.Fprintln(h, strings.Join(os.Args[1:], "|"))
+			wd, _ := os.Getwd()
+			fmt.Fprintln(h, strings.Join(append(os.Args[1:], wd), "|"))
 			h.Close()
 			io.Copy(io.Discard, os.Stdin)
 			return
@@ -103,7 +99,7 @@ func TestMain(m *testing.M) {
 }
 
 // fakeApp — приложение: строка о старте, ввод закрыт — «bye» и выход 0; stubborn — конец ввода не слушает;
-// deaf — ввод не читает вовсе (завис); env — строка со своим окружением от keeper; chatty — строки без пауз;
+// deaf — ввод не читает вовсе (завис); env — строки со своими аргументами и окружением от keeper; chatty — строки без пауз;
 // echo — отвечает на каждую строку ввода; parent — запускает потомка, который держит трубу вывода.
 func fakeApp(args []string) {
 	mode := ""
@@ -131,9 +127,6 @@ func fakeApp(args []string) {
 			fmt.Printf("session %d\n", f.Pid)
 		}
 	}
-	if mode == "args" {
-		fmt.Println("args " + strings.Join(args, " "))
-	}
 	if mode == "chatty" {
 		go func() {
 			for i := 0; ; i++ {
@@ -142,6 +135,7 @@ func fakeApp(args []string) {
 		}()
 	}
 	if mode == "env" {
+		fmt.Println("args " + strings.Join(args, " "))
 		var kv []string
 		for _, n := range []string{"SWITCHBOARD_MACHINE", "SWITCHBOARD_VERSION", "SWITCHBOARD_DATA", "SWITCHBOARD_HOLDER", "SWITCHBOARD_HOME", "SWITCHBOARD_RELAY", "SWITCHBOARD_WORKERS", "SITE"} {
 			kv = append(kv, n+"="+os.Getenv(n))
@@ -603,24 +597,35 @@ func (r *fakeRelay) drop() {
 	ws.CloseNow()
 }
 
-// ledgerHas — в журнале флота есть строка ev text, начинающаяся с prefix.
-func (r *fakeRelay) ledgerHas(prefix string) bool {
-	for _, e := range r.ledgerEvs() {
-		if strings.HasPrefix(e, prefix) {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *fakeRelay) ledgerEvs() []string {
+// ledgerCount — записей журнала флота с именем ev, текст которых содержит все subs (текст — слова человеку, порядок слов не контракт).
+func (r *fakeRelay) ledgerCount(ev string, subs ...string) int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var out []string
+	n := 0
 	for _, f := range r.ledger {
-		out = append(out, fmt.Sprint(f["ev"], " ", f["text"]))
+		text, ok := f["text"].(string)
+		if f["ev"] != ev || !ok {
+			continue
+		}
+		all := true
+		for _, s := range subs {
+			all = all && strings.Contains(text, s)
+		}
+		if all {
+			n++
+		}
 	}
-	return out
+	return n
+}
+
+func (r *fakeRelay) ledgerHas(ev string, subs ...string) bool { return r.ledgerCount(ev, subs...) > 0 }
+
+// ledgerText — все записи журнала флота одной строкой: проверка, что чего-то в них нет.
+func (r *fakeRelay) ledgerText() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	b, _ := json.Marshal(r.ledger)
+	return string(b)
 }
 
 // seen — что relay видел от keeper: последний hello и сколько hello принято.
@@ -628,17 +633,6 @@ func (r *fakeRelay) seen() (map[string]any, int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.hello, r.opens
-}
-
-// ledgerCount — строк журнала флота ev text, начинающихся с prefix.
-func (r *fakeRelay) ledgerCount(prefix string) int {
-	n := 0
-	for _, e := range r.ledgerEvs() {
-		if strings.HasPrefix(e, prefix) {
-			n++
-		}
-	}
-	return n
 }
 
 /* ===== архивы и ссылки ===== */
@@ -836,15 +830,99 @@ func partOf(k keeperHandle, name string) partView {
 	return partView{}
 }
 
-func journalHas(home, s string) bool {
+/* ===== журнал машины: строка JSON на запись; контракт — имена полей и значения, а не порядок полей и не слова why ===== */
+
+// J — что ищем в строке журнала: значение сравнивается как текст, sub — подстрока, absent — поля нет.
+type J map[string]any
+
+type sub string
+
+type absentT struct{}
+
+var absent absentT
+
+// records — строки журнала машины по порядку записи: keeper и держатели пишут в одни файлы по дням.
+func records(home string) []map[string]any {
 	ms, _ := filepath.Glob(filepath.Join(home, "journal", "*.jsonl"))
+	var out []map[string]any
 	for _, m := range ms {
 		b, _ := os.ReadFile(m)
-		if strings.Contains(string(b), s) {
-			return true
+		for _, l := range strings.Split(string(b), "\n") {
+			var r map[string]any
+			if json.Unmarshal([]byte(l), &r) == nil {
+				out = append(out, r)
+			}
 		}
 	}
-	return false
+	return out
+}
+
+func (want J) match(r map[string]any) bool {
+	for k, w := range want {
+		v, ok := r[k]
+		switch w := w.(type) {
+		case absentT:
+			if ok {
+				return false
+			}
+		case sub:
+			if s, isStr := v.(string); !isStr || !strings.Contains(s, string(w)) {
+				return false
+			}
+		default:
+			if !ok || fmt.Sprint(v) != fmt.Sprint(w) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// find — первая строка журнала, где совпали все поля want; nil — нет такой.
+func find(home string, want J) map[string]any {
+	if i := index(home, want); i >= 0 {
+		return records(home)[i]
+	}
+	return nil
+}
+
+// index — номер первой подходящей строки в порядке записи; -1 — нет.
+func index(home string, want J) int {
+	for i, r := range records(home) {
+		if want.match(r) {
+			return i
+		}
+	}
+	return -1
+}
+
+func count(home string, want J) int {
+	n := 0
+	for _, r := range records(home) {
+		if want.match(r) {
+			n++
+		}
+	}
+	return n
+}
+
+func has(home string, want J) bool { return index(home, want) >= 0 }
+
+// last — последняя строка, где совпали все поля want.
+func last(home string, want J) map[string]any {
+	var out map[string]any
+	for _, r := range records(home) {
+		if want.match(r) {
+			out = r
+		}
+	}
+	return out
+}
+
+// journalAll — весь журнал одной строкой: проверка, что чего-то в нём нет.
+func journalAll(home string) string {
+	b, _ := json.Marshal(records(home))
+	return string(b)
 }
 
 // planMsg — кадр releases.plan в том виде, в каком его шлют «выпуски» через relay: конверт v1, from ставит relay.
@@ -870,22 +948,6 @@ func plan1(rev int, parts ...map[string]any) map[string]any {
 	return map[string]any{"rev": rev, "parts": ps}
 }
 
-// journalLine — первая строка журнала с подстрокой s, разобранная.
-func journalLine(home, s string) map[string]any {
-	ms, _ := filepath.Glob(filepath.Join(home, "journal", "*.jsonl"))
-	for _, m := range ms {
-		b, _ := os.ReadFile(m)
-		for _, l := range strings.Split(string(b), "\n") {
-			if strings.Contains(l, s) {
-				var r map[string]any
-				json.Unmarshal([]byte(l), &r)
-				return r
-			}
-		}
-	}
-	return nil
-}
-
 // runKeeper — этот тестовый файл в роли файла keeper: настоящий main с args, SWITCHBOARD_HOME — home, stdin — in.
 func runKeeper(t *testing.T, home, in string, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
@@ -902,3 +964,226 @@ func runKeeper(t *testing.T, home, in string, args ...string) (code int, stdout,
 	}
 	return cmd.ProcessState.ExitCode(), o.String(), e.String()
 }
+
+/* ===== общие шаги эталонов ===== */
+
+var on = map[string]any{"on": true}
+
+var off = map[string]any{"on": false}
+
+// self — путь этого тестового файла: он же приложение, держатель и новый файл keeper.
+func self() string { p, _ := os.Executable(); return p }
+
+// appSetup — app.json: run — этот файл в роли app, setup — в роли setup.
+func appSetup(setup string) files {
+	b, _ := json.Marshal(map[string]any{"run": []string{self(), "app"}, "setup": []string{self(), setup}})
+	return files{"app.json": string(b)}
+}
+
+// keeperFile — архив keeper: этот тестовый файл под именем keeper своей ОС; на version он отвечает KEEPER_TEST_VERSION.
+func keeperFile() files {
+	bin, _ := os.ReadFile(self())
+	return files{archDir() + "/" + binName("keeper"): string(bin)}
+}
+
+// jsonErr — b не разобран в v.
+func jsonErr(b []byte, v any) bool { return json.Unmarshal(b, v) != nil }
+
+// heldOf — файл держателя procs/<id>.json.
+func heldOf(home, id string) heldFile {
+	var f heldFile
+	b, _ := os.ReadFile(heldPath(home, id))
+	json.Unmarshal(b, &f)
+	return f
+}
+
+// running — часть работает на версии v (пусто — на любой).
+func running(k keeperHandle, part, v string) func() bool {
+	return func() bool { p := partOf(k, part); return p.State == "running" && (v == "" || p.Version == v) }
+}
+
+// notExited — keeper работает: сам не вышел.
+func notExited(t *testing.T, k keeperHandle) {
+	t.Helper()
+	select {
+	case <-k.Done():
+		t.Fatal("keeper вышел")
+	default:
+	}
+}
+
+// online — keeper на связи и спросил план.
+func (s *stand) online() { waitFor(s.t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 }) }
+
+// savePlan — plan.json на диске, как его оставил прежний keeper.
+func (s *stand) savePlan(p map[string]any) {
+	b, _ := json.Marshal(p)
+	os.WriteFile(planFile(s.home), b, 0o600)
+}
+
+// silentHolder — держатель, который принимает соединение и молчит.
+func silentHolder(t *testing.T) int {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { c.Close() })
+		}
+	}()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// deafHolder — держатель, который отвечает на ключ и не исполняет ни «закрой ввод», ни «убей».
+func deafHolder(t *testing.T, pid int) int {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			t.Cleanup(func() { c.Close() })
+			go func() {
+				getFrame(c)
+				b, _ := json.Marshal(map[string]any{"pid": pid, "buffered": 0})
+				putFrame(c, kHello, b)
+				for {
+					if _, _, err := getFrame(c); err != nil {
+						return
+					}
+				}
+			}()
+		}
+	}()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// holderHome — папка машины без keeper: держатели командой файла.
+func holderHome(t *testing.T) string {
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	t.Cleanup(func() { killHolders(home) })
+	return home
+}
+
+// holdCmd — keeper hold args, как его запускают Host и keeper; хозяин подключается, когда держатель записал свой файл.
+func holdCmd(t *testing.T, home string, args ...string) *ownerConn {
+	t.Helper()
+	cmd := exec.Command(self(), append([]string{"hold"}, args...)...)
+	cmd.Env = append(os.Environ(), "SWITCHBOARD_HOME="+home)
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	waitFor(t, "файл держателя", func() bool { return len(heldFiles(home)) == 1 })
+	c, _, err := attachHeld(heldFiles(home)[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.Close)
+	return c
+}
+
+// lockedText — вывод, который пишет одна горутина и читает другая.
+type lockedText struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedText) add(p []byte) { l.mu.Lock(); l.b.Write(p); l.mu.Unlock() }
+func (l *lockedText) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+// childPid — pid потомка из строки «child <pid>» вывода; 0 — строки ещё нет.
+func childPid(out string) int {
+	i := strings.Index(out, "child ")
+	if i < 0 || !strings.Contains(out[i:], "\n") {
+		return 0
+	}
+	n := 0
+	fmt.Sscanf(out[i:], "child %d", &n)
+	return n
+}
+
+/* ===== флот под именем ===== */
+
+// nameStand — домашняя папка пользователя в temp и прежние правила имени после эталона.
+func nameStand(t *testing.T) string {
+	t.Helper()
+	u := t.TempDir()
+	t.Setenv("HOME", u)
+	t.Setenv("USERPROFILE", u)
+	t.Setenv("SWITCHBOARD_HOME", "")
+	clearFleet()
+	t.Cleanup(clearFleet)
+	return u
+}
+
+// namedKeeper — keeper run --name отдельным процессом: папка ~/.switchboard-<имя>, relay и «Выпуски» со своего стенда, одна часть.
+type namedKeeper struct {
+	t    *testing.T
+	own  string
+	name string
+	cmd  *exec.Cmd
+}
+
+func newNamedKeeper(t *testing.T, u, name string) *namedKeeper {
+	t.Helper()
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	own := filepath.Join(u, ".switchboard-"+name)
+	os.MkdirAll(own, 0o700)
+	for _, f := range []string{"machine.key", "keeper.json"} {
+		b, err := os.ReadFile(filepath.Join(s.home, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.WriteFile(filepath.Join(own, f), b, 0o600)
+	}
+	t.Cleanup(func() { killHolders(own) })
+	n := &namedKeeper{t: t, own: own, name: name}
+	t.Cleanup(n.kill)
+	n.run()
+	return n
+}
+
+// run — та же команда, какой его поднимает ОС.
+func (n *namedKeeper) run() {
+	n.t.Helper()
+	n.cmd = exec.Command(self(), "keeper", "run", "--name", n.name)
+	n.cmd.Env = os.Environ()
+	if err := n.cmd.Start(); err != nil {
+		n.t.Fatal(err)
+	}
+}
+
+func (n *namedKeeper) kill() {
+	if n.cmd.ProcessState == nil {
+		n.cmd.Process.Kill()
+		n.cmd.Wait()
+	}
+}
+
+// partPid — pid части: из строки part_start своего журнала.
+func (n *namedKeeper) partPid() int {
+	n.t.Helper()
+	waitFor(n.t, "часть "+n.name, func() bool { return has(n.own, J{"ev": "part_start"}) })
+	return int(find(n.own, J{"ev": "part_start"})["pid"].(float64))
+}
+
+// lastKeeperLine — последняя строка самого keeper (не держателя) в журнале.
+func lastKeeperLine(home string) map[string]any { return last(home, J{"who": "keeper"}) }

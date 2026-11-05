@@ -40,8 +40,9 @@ func killPid(t *testing.T, pid int) {
 	windows.TerminateProcess(h, 3)
 }
 
-// 5524 · Служба или задача своего имени уже стоит — install отказывает словом; uninstall --name снимает только свою
-// (дизайн «Любой агент», этап 0). Настоящие задачи планировщика: их может ставить не администратор.
+// 5524 · 5566 · Служба или задача своего имени уже стоит — install отказывает словом; uninstall --name снимает только свою; uninstall имени,
+// которого нет, — код 1, причина словом (дизайн «Любой агент», этап 0; устав «система ловит»). Настоящие задачи планировщика: их может ставить
+// не администратор.
 func TestEtNameOwnTaskOnly(t *testing.T) {
 	a, b := fmt.Sprintf("t%da", os.Getpid()), fmt.Sprintf("t%db", os.Getpid())
 	task := func(n string) string { return "switchboard-keeper-" + n }
@@ -61,24 +62,11 @@ func TestEtNameOwnTaskOnly(t *testing.T) {
 	if exec.Command("schtasks", "/Query", "/TN", task(a)).Run() == nil {
 		t.Fatal("своя задача не снята")
 	}
+	if code, _, e := runKeeper(t, home, "", "uninstall", "--name", fmt.Sprintf("t%dx", os.Getpid())); code != 1 || !strings.Contains(e, "uninstall") {
+		t.Fatalf("uninstall неизвестного: код %d, %q", code, e)
+	}
 	if exec.Command("schtasks", "/Query", "/TN", task(b)).Run() != nil {
 		t.Fatal("чужая задача снята")
-	}
-}
-
-// 5566 · uninstall имени, которого нет: код 1, причина словом; задача другого имени на месте (устав «система ловит»; дизайн этапа 0).
-func TestEtNameUninstallUnknownTask(t *testing.T) {
-	other := fmt.Sprintf("switchboard-keeper-t%do", os.Getpid())
-	if out, err := exec.Command("schtasks", "/Create", "/TN", other, "/TR", "cmd /c exit", "/SC", "ONCE", "/ST", "23:59", "/F").CombinedOutput(); err != nil {
-		t.Fatalf("schtasks: %v: %s", err, out)
-	}
-	t.Cleanup(func() { exec.Command("schtasks", "/Delete", "/TN", other, "/F").Run() })
-	code, _, e := runKeeper(t, t.TempDir(), "", "uninstall", "--name", fmt.Sprintf("t%dx", os.Getpid()))
-	if code != 1 || !strings.Contains(e, "uninstall:") {
-		t.Fatalf("код %d, %q", code, e)
-	}
-	if exec.Command("schtasks", "/Query", "/TN", other).Run() != nil {
-		t.Fatal("задача другого имени снята")
 	}
 }
 
@@ -117,14 +105,8 @@ func TestEtServiceStop(t *testing.T) {
 		case <-deadline:
 			t.Fatal("служба не остановилась")
 		}
-		var last string
-		for _, l := range strings.Split(journalText(home), "\n") {
-			if strings.Contains(l, `"who":"keeper"`) {
-				last = l
-			}
-		}
-		if !strings.Contains(last, "keeper_exit") {
-			t.Fatalf("последняя строка keeper: %s", last)
+		if l := lastKeeperLine(home); l["ev"] != "keeper_exit" {
+			t.Fatalf("последняя строка keeper: %v", l)
 		}
 	}
 }
