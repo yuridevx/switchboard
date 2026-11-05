@@ -1,10 +1,11 @@
 // Вход на страницу по шагам: гейт → приглашение из адреса → пропуск → модули → связь. И остановка: экран с причиной вместо приложения.
+import { withLimit } from "@switchboard/protocol";
 import type { Address } from "./address.ts";
 import type { FleetLink } from "./fleet-link.ts";
 import { appGate } from "./gate.ts";
-import type { Leave } from "./leave.ts";
+import { STEP_MS, type Leave } from "./leave.ts";
 import type { Modules } from "./modules.ts";
-import { clientName, INVITE, inviteCommand, inviteNumber, keyId, passFrom, redeem } from "./pass.ts";
+import { clientName, INVITE, inviteCommand, inviteNumber, keyId, passFrom, redeem, unescaped } from "./pass.ts";
 import type { CoreState, Snapshot, Stop } from "./snapshot.ts";
 import type { Platform, StartOptions } from "./types.ts";
 import { pageCss } from "./view/shell.tsx";
@@ -33,7 +34,7 @@ export function createHalt({ o, snap, store, win }: Deps) {
     },
     /** Вставленное приглашение: причина отказа или null — страница перезагружается с пропуском. */
     async acceptInvite(value: string): Promise<string | null> {
-      const invite = decodeURIComponent(value.trim().replace(/^.*#(invite=)?/, ""));
+      const invite = unescaped(value.trim().replace(/^.*#(invite=)?/, ""));
       if (!INVITE.test(invite)) return "Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.";
       const r = await redeem(o, invite);
       if ("error" in r) return `Приглашение не принято: ${r.error}.`;
@@ -53,12 +54,16 @@ export function createHalt({ o, snap, store, win }: Deps) {
 
 /** Приглашение из адреса страницы или null. */
 function inviteInHash(win: Window): string | null {
-  const raw = decodeURIComponent(win.location.hash.replace(/^#/, ""));
+  const raw = unescaped(win.location.hash.replace(/^#/, ""));
   return raw.startsWith("invite=") && INVITE.test(raw.slice(7)) ? raw.slice(7) : null;
 }
 
 export async function enter(d: Deps & { platform: Platform; modules: Modules; address: Address; link: FleetLink; leave: Leave; halt: Halt; define(): void }) {
-  const { o, snap, store, win, platform, modules, address, link, leave, halt, define } = d;
+  const { o, snap, win, platform, modules, address, link, leave, halt, define } = d;
+  const readPass = () =>
+    withLimit(d.store.get<string>("key"), STEP_MS, () => {
+      throw new Error(`хранилище не ответило за ${STEP_MS / 1000} с`);
+    });
 
   define();
   const errors = appGate(modules.list.map((x) => ({ manifest: x.m, module: x.mod })));
@@ -75,23 +80,23 @@ export async function enter(d: Deps & { platform: Platform; modules: Modules; ad
   if (invite) {
     // адрес очищен при любом исходе
     halt.clearAddress();
-    const had = (await store.get<string>("key")) ?? "";
+    const had = (await readPass()) ?? "";
     // то же приглашение уже принято на этом устройстве: иконка экрана «Домой» помнит адрес с #invite=
     if (!passFrom(had, invite)) {
       // ссылку могли подсунуть (ответ сессии, письмо): пропуск устройства меняет только человек; приглашение не гасится
       if (had) return snap.set({ full: { kind: "replace", invite, number: inviteNumber(invite), kid: keyId(had), why: "replace" } });
       const r = await redeem(o, invite);
       if ("error" in r) return halt.stopWith(r.error, { kind: "invite", word: r.error });
-      await store.set("key", r.key);
+      await d.store.set("key", r.key);
       snap.set({ fresh: true });
     }
   }
-  const key = (await store.get<string>("key")) ?? "";
+  const key = (await readPass()) ?? "";
   snap.set({ key });
   // приглашение не доехало (iPhone: адрес не дошёл до экрана «Домой») — вставить вручную
   if (!key) return halt.stopWith("no_key", { kind: "key", command: inviteCommand(o.wide ? "<имя>" : "phone") });
 
-  await modules.startAll();
+  await withLimit(modules.startAll(), STEP_MS, () => console.warn(`switchboard: модули не запустились за ${STEP_MS / 1000} с`));
   snap.set({ tops: [...modules.screens].filter(([, s]) => s.def.place === "top").map(([n]) => n) });
   address.listen();
   const doc = win.document;

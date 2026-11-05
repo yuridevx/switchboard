@@ -40,13 +40,13 @@ export function startApp(o: StartOptions): Running {
   const link = createFleetLink({ o, snap, modules, route: address.route, refused: halt.refused });
   const leave = createLeave({ modules, link, snap });
 
+  const fell = (where: string, e: unknown) => {
+    console.error(`switchboard: ${where}`, e);
+    o.root.textContent = `Приложение упало: ${e instanceof Error ? e.message : String(e)}`;
+  };
+
   // каркас страницы встаёт сразу: экран старта виден до ответа хранилища
-  const view = createRoot(o.root, {
-    onUncaughtError(e) {
-      console.error("switchboard: вид ядра упал", e);
-      o.root.textContent = `Приложение упало: ${e instanceof Error ? e.message : String(e)}`;
-    },
-  });
+  const view = createRoot(o.root, { onUncaughtError: (e) => fell("вид ядра упал", e) });
   flushSync(() => view.render(<Root core={{ wide, brand: o.brand, win, snap, modules, sections, address, link, halt }} />));
 
   const ready = enter({
@@ -61,6 +61,9 @@ export function startApp(o: StartOptions): Running {
     leave,
     halt,
     define: () => modules.define(o.parts, (x) => moduleApp(x, { o, store, snap, modules, address, link })),
+  }).catch((e) => {
+    view.unmount();
+    fell("вход не удался", e);
   });
 
   return {

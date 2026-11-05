@@ -6,6 +6,15 @@ import type { StartOptions } from "./types.ts";
 export const INVITE = /^[a-z0-9]{4}\.[A-Za-z0-9_-]{43}$/;
 const REDEEM_MS = 30_000;
 
+/** Текст без экранирования адреса; негодное экранирование — как есть: приглашением это не станет. */
+export function unescaped(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
 /** Номер пропуска для экрана: client.phone.k2a9.<секрет> → client.phone.k2a9. */
 export const keyId = (key: string) => key.split(".").slice(0, 3).join(".");
 /** Имя клиента во флоте: client.phone.k2a9.<секрет> → phone; пропуска нет — пусто. */

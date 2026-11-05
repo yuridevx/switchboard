@@ -5,7 +5,7 @@ import type { Modules } from "./modules.ts";
 import type { Snapshot } from "./snapshot.ts";
 
 /** Предел шага: не успел — жёсткий выход с причиной в журнале, очередь идёт дальше. */
-const STEP_MS = 30_000;
+export const STEP_MS = 30_000;
 const late = (what: string) => () => console.warn(`switchboard: ${what} не успело за ${STEP_MS / 1000} с`);
 
 export type Leave = ReturnType<typeof createLeave>;

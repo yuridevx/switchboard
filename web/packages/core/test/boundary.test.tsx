@@ -2803,3 +2803,72 @@ describe("контракт ядра сверх старых тестов (чьё
     });
   });
 });
+
+describe("спорные места после сверки (устав: предел у всех операций, система ловит)", () => {
+  const man = (name: string, provides: Record<string, number>): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2 } });
+  const part = (over: Partial<AppModule> = {}): AppPart => ({ manifest: man("m", { a: 1 }), module: () => ({ screens: { a: { nav: "А", view: () => <i data-s="a">а</i> } }, ...over }) });
+  const start = (o: { parts?: AppPart[]; store?: unknown; relay?: FakeRelay }) => {
+    document.body.innerHTML = '<div id="app"></div>';
+    const relay = o.relay ?? new FakeRelay(oneMachine());
+    const root = document.getElementById("app")!;
+    const run = startApp({ root, workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: o.parts ?? [part()], store: (o.store ?? memoryStore({ key: KEY })) as never, WebSocket: relay.WebSocket, platform: { ios: false, standalone: false }, pauseMs: 5 });
+    return { run, root, relay };
+  };
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    history.replaceState(null, "", "/");
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("адрес с негодным экранированием: страница работает, домашний раздел", async () => {
+    history.replaceState(null, "", "/#%");
+    const t = start({});
+    await t.run.ready;
+    await flush();
+    expect(t.relay.hellos).toHaveLength(1);
+    expect(t.root.querySelector('[data-s="a"]')).not.toBeNull();
+    t.run.unmount();
+  });
+
+  it("вставка с негодным экранированием: отказ словами, а не молчание", async () => {
+    const t = await stand([part()], { store: memoryStore() });
+    t.$<HTMLInputElement>(".sb-keyin")!.value = "abc%";
+    await t.click(t.button("Принять приглашение"));
+    await flush();
+    expect(t.$('[role="alert"]')!.textContent).toBe("Это не приглашение: нужен <номер>.<секрет> или ссылка с #invite=.");
+  });
+
+  it("хранилище молчит: через 30 с причина на странице, а не пустой экран", async () => {
+    vi.useFakeTimers();
+    const t = start({ store: { get: () => new Promise(() => {}), set: async () => {}, update: async () => undefined, clear: async () => {} } });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(t.root.textContent).not.toContain("Приложение упало");
+    await vi.advanceTimersByTimeAsync(1);
+    await t.run.ready;
+    expect(t.root.textContent).toBe("Приложение упало: хранилище не ответило за 30 с");
+  });
+
+  it("хранилище отказало: причина на странице; ready не бросает", async () => {
+    const t = start({ store: { get: () => Promise.reject(new Error("нет места")), set: async () => {}, update: async () => undefined, clear: async () => {} } });
+    await t.run.ready;
+    await flush();
+    expect(t.root.textContent).toBe("Приложение упало: нет места");
+  });
+
+  it("start модуля не отвечает: через 30 с связь всё равно идёт, причина в журнале", async () => {
+    const relay = new FakeRelay(oneMachine());
+    vi.useFakeTimers();
+    const t = start({ relay, parts: [part({ start: () => new Promise<void>(() => {}) })] });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(relay.socks).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    await t.run.ready;
+    await vi.advanceTimersByTimeAsync(10);
+    expect(relay.socks).toHaveLength(1);
+    expect(console.warn).toHaveBeenCalledWith("switchboard: модули не запустились за 30 с");
+  });
+});
