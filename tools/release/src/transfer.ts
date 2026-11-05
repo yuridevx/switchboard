@@ -1,65 +1,64 @@
-// Передача архивов по ссылкам «Выпусков» — одна для CI и модуля Host. Кто спрашивает «Выпуски» (relay, POST), решает вызывающий.
-// Хэш уходит в запрос: тот же у этой версии лежит — same. Занята другим хэшем — лежащий архив скачивается и сравнивается
-// без сжатия: gzip даёт разные байты на разных машинах при том же tar. Иначе PUT архива, затем PUT хэша: версия готова, когда лежит хэш.
+// Загрузка и скачивание архива каталога: один путь у CLI и инструмента сессии.
 import { gunzipSync } from "node:zlib";
-import { sha256hex, shaLine } from "./layout.ts";
+import { shaLine } from "./layout.ts";
 
-/** Предел одной передачи — как предел скачивания архива части у keeper. */
-const LIMIT_MS = 10 * 60_000;
+/** Ответ на запрос к «Выпускам». */
+export type Answer<T> = { ok: true; result: T } | { ok: false; error: string; why?: string };
+export type UploadReply = { tgz: string; sha256: string } | { same: true };
+export type FetchReply = { version: string; url: string };
+/** Сеть: fetch платформы или подделка теста. */
+export type Net = (url: string, init: { method: string; body?: Uint8Array | string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; arrayBuffer?(): Promise<ArrayBuffer> }>;
 
-export type Answer = { ok: boolean; status: number; arrayBuffer(): Promise<ArrayBuffer> };
-export type Net = (url: string, init: { method?: "PUT"; body?: Uint8Array<ArrayBuffer>; signal: AbortSignal }) => Promise<Answer>;
+type Ask = <T>(type: string, body: Record<string, unknown>) => Promise<Answer<T>>;
 
-/** Ответ на releases.upload. */
-export type UploadReply = { ok: true; result: { tgz: string; sha256: string } | { same: true } } | { ok: false; error: string };
-/** Ответ на releases.fetch. */
-export type FetchReply = { ok: true; result: { version: string; url: string } } | { ok: false; error: string };
+/** Предел передачи — как у keeper на скачивание части. */
+const TRANSFER_MS = 10 * 60_000;
+const minutes = (ms: number) => `${ms / 60_000} мин`;
 
-/** Запрос к R2 с пределом. word — слово отказа, where — что назвать в нём. Прервал signal — причина его. */
-async function exchange(net: Net, word: string, where: string, url: string, body?: Uint8Array, signal?: AbortSignal): Promise<Buffer> {
-  const stop = new AbortController();
-  let late = false;
-  const timer = setTimeout(() => {
-    late = true;
-    stop.abort();
-  }, LIMIT_MS);
-  signal?.addEventListener("abort", () => stop.abort());
+const refused = (type: string, a: { error: string; why?: string }) => new Error(`${type}: ${a.error}${a.why ? ` — ${a.why}` : ""}`);
+
+/** Запрос в R2 с пределом; остановка вызывающего снимает его. */
+async function transfer(net: Net, url: string, init: { method: string; body?: Uint8Array | string }, word: string, what: string, stop?: AbortSignal) {
+  const ac = new AbortController();
+  const late = setTimeout(() => ac.abort(new Error("late")), TRANSFER_MS);
+  const signal = stop ? AbortSignal.any([ac.signal, stop]) : ac.signal;
   try {
-    const res = await net(url, { ...(body ? { method: "PUT" as const, body: new Uint8Array(body) } : {}), signal: stop.signal });
-    if (!res.ok) throw new Refused(`${word}: R2 ответил ${res.status} на ${where}`);
-    return body ? Buffer.alloc(0) : Buffer.from(await res.arrayBuffer());
+    const r = await net(url, { ...init, signal });
+    if (!r.ok) throw new Error(`${word}: R2 ответил ${r.status} на ${what}`);
+    return r;
   } catch (e) {
-    if (e instanceof Refused) throw e;
-    throw new Refused(`${word}: ${late ? `R2 не ответил за ${LIMIT_MS / 60_000} мин` : String(e)} на ${where}`);
+    if (String((e as Error).message).startsWith(word)) throw e;
+    throw new Error(ac.signal.aborted ? `${word}: R2 не ответил за ${minutes(TRANSFER_MS)} на ${what}` : `${word}: ${String(e)} на ${what}`);
   } finally {
-    clearTimeout(timer);
+    clearTimeout(late);
   }
 }
-class Refused extends Error {}
 
-/** Скачать архив по ссылке. Отказ и предел — исключение fetch_failed с именем where; вызывающий может прервать. */
-export function download(url: string, o: { where: string; signal?: AbortSignal; net?: Net }): Promise<Buffer> {
-  return exchange(o.net ?? fetch, "fetch_failed", o.where, url, undefined, o.signal);
+/** Ссылка на чтение и байты архива. */
+export async function download(ask: Ask, net: Net, part: string, version: string | undefined, name: string | null, stop?: AbortSignal): Promise<{ version: string; tgz: Buffer }> {
+  const a = await ask<FetchReply>("releases.fetch", { part, ...(version ? { version } : {}) });
+  if (!a.ok) throw refused("releases.fetch", a);
+  const what = name ?? `${part} ${a.result.version}`;
+  const r = await transfer(net, a.result.url, { method: "GET" }, "fetch_failed", what === "" ? new URL(a.result.url).pathname : what, stop);
+  return { version: a.result.version, tgz: Buffer.from(await r.arrayBuffer!()) };
 }
 
-/** Загрузить версию: ask — releases.upload с хэшем архива, look — releases.fetch этой версии. Отказ и сбой — исключение словами. */
-export async function upload(version: string, tgz: Uint8Array, q: { ask(sha256: string): Promise<UploadReply>; look(): Promise<FetchReply> }, net: Net = fetch): Promise<{ done: "uploaded" | "same"; sha256: string }> {
-  const sha256 = sha256hex(tgz);
-  const r = await q.ask(sha256);
-  if (!r.ok) {
-    if (r.error !== "version_exists" || !(await sameTar(tgz, q.look, net))) throw new Error(`releases.upload: ${r.error}`);
-    return { done: "same", sha256 };
+/** Номер занят: тот же tar другим сжатием — та же версия (gzip на разных машинах даёт разные байты). */
+async function sameTar(ask: Ask, net: Net, part: string, version: string, tgz: Uint8Array): Promise<boolean> {
+  const held = await download(ask, net, part, version, "");
+  return gunzipSync(held.tgz).equals(gunzipSync(tgz));
+}
+
+/** Загрузить версию: ссылки у «Выпусков», архив, затем хэш — версия готова. same: такой уже лежит. */
+export async function upload(ask: Ask, net: Net, m: { name: string; version: string; tgz: Uint8Array; sha: string }): Promise<{ same: boolean }> {
+  const a = await ask<UploadReply>("releases.upload", { part: m.name, version: m.version, sha256: m.sha });
+  if (!a.ok) {
+    if (a.error === "version_exists" && (await sameTar(ask, net, m.name, m.version, m.tgz))) return { same: true };
+    throw refused("releases.upload", a);
   }
-  if ("same" in r.result) return { done: "same", sha256 };
-  const put = (url: string, body: Uint8Array) => exchange(net, "upload_failed", new URL(url).pathname, url, body);
-  await put(r.result.tgz, tgz);
-  await put(r.result.sha256, new TextEncoder().encode(shaLine(sha256, version)));
-  return { done: "uploaded", sha256 };
-}
-
-async function sameTar(tgz: Uint8Array, look: () => Promise<FetchReply>, net: Net): Promise<boolean> {
-  const r = await look();
-  if (!r.ok) throw new Error(`releases.fetch: ${r.error}`);
-  const lying = await download(r.result.url, { where: new URL(r.result.url).pathname, net });
-  return gunzipSync(lying).equals(gunzipSync(tgz));
+  if ("same" in a.result) return { same: true };
+  const pathOf = (url: string) => new URL(url).pathname;
+  await transfer(net, a.result.tgz, { method: "PUT", body: m.tgz }, "upload_failed", pathOf(a.result.tgz));
+  await transfer(net, a.result.sha256, { method: "PUT", body: shaLine(m.sha, m.version) }, "upload_failed", pathOf(a.result.sha256));
+  return { same: false };
 }
