@@ -11,7 +11,16 @@
 //   поля roster: model, effort, parent, mode; в журнал флота — ledger.add session.opened, session.removed
 // session.open: dir — папка; mkdir: true — создать весь путь, если его нет (только по просьбе, после проверки имени).
 // Слова: unknown_method, name_taken, bad_name, bad_dir, bad_spec, open_failed, stopped, sdk_error.
-import { manage } from "./src/manage.ts";
+import { refuse } from "@switchboard/host";
+import type { Module } from "@switchboard/host";
 
-export { manage as make };
-export default manage();
+const gone = () => {
+  throw refuse("demolished", "снесено");
+};
+export function make(_o: { home?: string } = {}): Module {
+  return {
+    requests: { "session.open": gone, "session.update": gone, "session.call": gone, "session.spec": gone, "session.stop": gone, "session.start": gone, "session.remove": gone },
+    fields: { model: () => undefined, effort: () => undefined, parent: () => undefined, mode: () => undefined },
+  };
+}
+export default make();

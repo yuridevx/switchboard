@@ -8,7 +8,16 @@
 //   Слова: no_shell — шелла нет; no_run — запуска нет (не было, прошли сутки, Host перезапускался); bad_frame — не по форме.
 //   Итог живёт сутки от конца, но не дольше Host. Конец фонового — запрос message модулю fleet владельца (from).
 // Модели каждой сессии — инструменты MCP shell: info, run, wait, kill (mcp__shell__*).
-import { make } from "./src/shell.ts";
+import { refuse } from "@switchboard/host";
+import type { Module } from "@switchboard/host";
 
-export { make };
+const refused = () => {
+  throw refuse("demolished", "снесено");
+};
+const gone = async () => ({ content: [{ type: "text" as const, text: "снесено" }], isError: true });
+const NAMES = ["info", "run", "wait", "kill"];
+export function make() {
+  const module: Module = { requests: { "shell.run": refused, "shell.wait": refused, "shell.kill": refused, "shell.info": refused } };
+  return { module, tools: (_me: string) => NAMES.map((name) => ({ name, description: "снесено", inputSchema: {}, handler: gone })) };
+}
 export default make().module;

@@ -8,9 +8,13 @@
 //     текст result родителю тем же message.
 // Модели каждой сессии — инструменты MCP fleet (mcp__fleet__*): list, send, answer, open, history, update, remove;
 // open, update, remove — запросы manage, history — chat. Хранить нечего.
-import { make } from "./src/fleet.ts";
+import type { Module } from "@switchboard/host";
 
-export { make };
-/** Что читает модель в системном промпте. */
-export { prompt } from "./src/fleet.ts";
+const gone = async () => ({ content: [{ type: "text" as const, text: "снесено" }], isError: true });
+const NAMES = ["list", "send", "answer", "open", "history", "update", "label", "remove"];
+export const prompt = (_me: string) => "снесено";
+export function make() {
+  const module: Module = {};
+  return { module, tools: (_me: string) => NAMES.map((name) => ({ name, description: "снесено", inputSchema: {}, handler: gone })) };
+}
 export default make().module;
