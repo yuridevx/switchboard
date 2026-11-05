@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
@@ -67,6 +68,27 @@ func TestEtNameOwnTaskOnly(t *testing.T) {
 	}
 	if exec.Command("schtasks", "/Query", "/TN", task(b)).Run() != nil {
 		t.Fatal("чужая задача снята")
+	}
+}
+
+// Задача при входе: запуск при регистрации и при входе, повтор раз в минуту, второго экземпляра нет — так ОС поднимает keeper после подмены себя; файл —
+// UTF-16 с меткой порядка байт (замер 1 нояб.; живой прогон 1 нояб., win: только у входа повтор не шёл до первого входа). Текст, а не настоящая задача:
+// она запустила бы keeper в настоящем профиле пользователя.
+func TestEtLogonTaskText(t *testing.T) {
+	b := logonTask(`C:\k&v\keeper.exe`, []string{"run", "--name", "x", "--hide"})
+	if b[0] != 0xff || b[1] != 0xfe {
+		t.Fatal("нет метки порядка байт")
+	}
+	u := make([]uint16, (len(b)-2)/2)
+	for i := range u {
+		u[i] = uint16(b[2+2*i]) | uint16(b[3+2*i])<<8
+	}
+	text := string(utf16.Decode(u))
+	for _, want := range []string{"<RegistrationTrigger><Repetition><Interval>PT1M</Interval>", "<LogonTrigger><Repetition><Interval>PT1M</Interval>", "<MultipleInstancesPolicy>IgnoreNew",
+		"<ExecutionTimeLimit>PT0S", `<Command>C:\k&amp;v\keeper.exe</Command>`, "<Arguments>run --name x --hide</Arguments>"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("нет %s в %s", want, text)
+		}
 	}
 }
 

@@ -263,7 +263,7 @@ func TestEtInstallKeyRefused(t *testing.T) {
 			args = append(args, "--worker", "gate="+c.gate)
 		}
 		_, err := prepareMachine(args, bufio.NewReader(strings.NewReader(c.in)))
-		if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); err == nil || !strings.Contains(err.Error(), c.fact) || string(b) != "host.win.old1.OLD\n" {
+		if b, _ := os.ReadFile(filepath.Join(home, "machine.key")); err == nil || !strings.Contains(err.Error(), c.fact) || strings.Contains(err.Error(), "SECRET") || string(b) != "host.win.old1.OLD\n" {
 			t.Fatalf("stdin %q: %v, machine.key %q", c.in, err, b)
 		}
 	}

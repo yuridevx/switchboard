@@ -167,6 +167,9 @@ func TestEtPlanQueueTakesNewest(t *testing.T) {
 	a := s.links.part("capture", "1.0.0", appSetup("slowsetup"), on)
 	s.relay.push(planMsg(2, a))
 	waitFor(t, "setup идёт", func() bool { return isThere(filepath.Join(verDir(s.home, "capture", "1.0.0"), "setup-started")) })
+	if st := partOf(k, "capture").State; st != "stopped" {
+		t.Fatalf("новая часть, пока ставится: %q", st)
+	}
 	s.relay.push(planMsg(4, a, s.links.part("probe", "1.0.0", appFiles(""), on)))
 	s.relay.push(planMsg(3, a, s.links.part("meter", "1.0.0", appFiles(""), on)))
 	waitFor(t, "probe running", running(k, "probe", ""))
@@ -290,8 +293,12 @@ func TestEtNoWorkerAddress(t *testing.T) {
 		workers func(s *stand) map[string]any
 		ledger  string
 	}{
-		{func(s *stand) map[string]any { return map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws")} }, "workers.ledger"},
-		{func(*stand) map[string]any { return map[string]any{"relay": "http://" + dead, "ledger": "http://" + dead + "/ledger"} }, "offline"},
+		{func(s *stand) map[string]any {
+			return map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws")}
+		}, "workers.ledger"},
+		{func(*stand) map[string]any {
+			return map[string]any{"relay": "http://" + dead, "ledger": "http://" + dead + "/ledger"}
+		}, "offline"},
 	} {
 		s := newStand(t)
 		saveConf(s.home, map[string]any{"workers": c.workers(s)})
@@ -307,7 +314,24 @@ func TestEtNoWorkerAddress(t *testing.T) {
 	}
 }
 
-// Штатная остановка keeper, пока вопрос о плане ждёт ответа: выход сразу, связь с relay закрыта и keeper больше не подключается; keeper_exit
+// Журнал флота не отвечает — цикл частей его не ждёт: запись идёт своей горутиной, следующая часть поднята сразу; остановка ждёт запись не дольше
+// предела запроса (чьё: код — «ledger — строка в журнал флота своей горутиной: цикл частей не ждёт»).
+func TestEtLedgerDoesNotHoldCycle(t *testing.T) {
+	s := newStand(t)
+	release := make(chan struct{})
+	s.relay.hang = release
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.0.0", files{"app.json": `{"run":["switchboard-no-such-program"]}`}, on), s.links.part("probe", "1.0.0", appFiles(""), on)))
+	k := s.start()
+	t.Cleanup(func() { close(release) })
+	start := time.Now()
+	waitFor(t, "failed", func() bool { return partOf(k, "capture").State == "failed" })
+	waitFor(t, "следующая часть", running(k, "probe", ""))
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("цикл ждал журнал флота %v", d)
+	}
+}
+
+// Штатная остановка keeper, пока вопрос о плане ждёт ответа: выход сразу, связь с relay закрыта кадром закрытия и keeper больше не подключается; keeper_exit
 // — последняя его строка в журнале, после остановки он не пишет; держатель и процесс части живут (устав: «Каждая часть… останавливается
 // штатно: …закрывает соединения… → выходит», «держатели живут»; находка пользователя 1 нояб.: CI на ubuntu — «journal: directory not empty»
 // при уборке после Stop; чьё: код — остановка прерывает ожидание).
@@ -330,6 +354,12 @@ func TestEtStopKeeper(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 	if _, opens := s.relay.seen(); opens != 1 {
 		t.Fatalf("после остановки keeper подключился снова: входов %d", opens)
+	}
+	s.relay.mu.Lock()
+	closed := s.relay.closed
+	s.relay.mu.Unlock()
+	if closed != websocket.StatusNormalClosure {
+		t.Fatalf("связь закрыта не штатно: %v", closed)
 	}
 	if l := lastKeeperLine(s.home); l["ev"] != "keeper_exit" {
 		t.Fatalf("последняя строка keeper после остановки: %v", l)

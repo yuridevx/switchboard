@@ -33,7 +33,7 @@ func (k *Keeper) apply(e entry) {
 	k.mu.Lock()
 	p := k.parts[e.Part]
 	if p == nil {
-		p = &part{name: e.Part}
+		p = &part{name: e.Part, state: "stopped", version: e.Version}
 		k.parts[e.Part] = p
 	}
 	same := p.want != nil && p.want.same(e)
@@ -214,10 +214,13 @@ func (k *Keeper) restartExited() {
 			continue
 		}
 		dir, a, err := k.install(p.run, true)
+		if k.ctx.Err() != nil {
+			return
+		}
 		if err == nil {
 			err = k.start(p, p.run, dir, a, true)
 		}
-		if err != nil && k.ctx.Err() == nil {
+		if err != nil {
 			k.fail(p, p.version, "перезапуск: "+err.Error())
 		}
 	}

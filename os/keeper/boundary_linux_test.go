@@ -23,13 +23,12 @@ func TestEtHolderSignalClosesInput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hf := heldOf(home, "s")
-	// подключение принято — держатель уже слушает сигналы
+	// сигнал — сразу после строки о себе: кто её прочитал, может его прислать
+	syscall.Kill(heldOf(home, "s").Holder, syscall.SIGTERM)
 	c, _, err := attachHeld(f)
 	if err != nil {
 		t.Fatal(err)
 	}
-	syscall.Kill(hf.Holder, syscall.SIGTERM)
 	var out strings.Builder
 	x, err := c.read(func(b []byte) { out.Write(b) })
 	if err != nil || x == nil || x.Code == nil || *x.Code != 0 || !x.OSStop || !strings.Contains(out.String(), "bye") {

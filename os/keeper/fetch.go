@@ -150,19 +150,28 @@ func readApp(dir string) (app, error) {
 	return a, nil
 }
 
-// setup — команда setup в папке версии за предел.
+// setup — команда setup в папке версии в своём дереве процессов: по пределу снято всё дерево, иначе потомки держат папку версии. Остановка keeper
+// начатый setup доводит в пределах предела: следующему keeper не качать архив, ссылка на который могла истечь.
 func (k *Keeper) setup(dir string, cmd []string) error {
-	ctx, cancel := context.WithTimeout(k.ctx, k.o.Stop)
+	ctx, cancel := context.WithTimeout(context.Background(), k.o.Stop)
 	defer cancel()
 	c := k.resolve(cmd, dir)
 	x := exec.CommandContext(ctx, c[0], c[1:]...)
-	x.Dir, x.WaitDelay = dir, waitDelay
-	out, err := x.CombinedOutput()
+	var out bytes.Buffer
+	x.Dir, x.WaitDelay, x.Stdout, x.Stderr = dir, waitDelay, &out, &out
+	t := newTree(x, false)
+	x.Cancel = func() error { t.kill(); return nil }
+	err := x.Start()
+	if err == nil {
+		t.adopt(x.Process)
+		err = x.Wait()
+	}
+	t.reap()
 	if ctx.Err() == context.DeadlineExceeded {
 		return fmt.Errorf("setup_failed: не завершился за %v", k.o.Stop)
 	}
 	if err != nil {
-		text := strings.TrimSpace(string(out))
+		text := strings.TrimSpace(out.String())
 		if len(text) > 2000 {
 			text = text[len(text)-2000:]
 		}

@@ -48,10 +48,14 @@ func (t *tree) kill() {
 	}
 }
 
-// reap — процесс вышел: потомки в задании тоже; отпущенные (--detach-children) живут.
+// reap — процесс вышел: потомки в задании тоже; отпущенные (--detach-children) живут. Задание закрыто.
 func (t *tree) reap() {
 	if !t.detach {
 		t.kill()
+	}
+	if t.job != 0 {
+		windows.CloseHandle(t.job)
+		t.job = 0
 	}
 }
 

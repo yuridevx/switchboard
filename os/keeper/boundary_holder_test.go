@@ -342,6 +342,40 @@ func TestEtHolderKeepsExitForOwner(t *testing.T) {
 	waitFor(t, "держатель вышел", func() bool { return !alive(hf.Holder) })
 }
 
+// Кадр вывода не больше предела протокола 4 МиБ: без хозяина накопилось больше — хозяин получает всё кусками (кадр выше предела рвёт связь; Host:
+// «держатель не примет кадр больше 4 МиБ»; чьё: код — «кадр больше — сбой соединения: вывод режется на куски»).
+func TestEtHolderOutputInChunks(t *testing.T) {
+	home := holderHome(t)
+	f, err := holdProc(home, holdReq{ID: "f", Owner: "host", Env: os.Environ(), Cmd: []string{self(), "app", "flood"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Second) // процесс пишет без хозяина, держатель копит до предела
+	c, hh, err := attachHeld(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	if hh.Buffered < 4<<20 {
+		t.Fatalf("накоплено %d", hh.Buffered)
+	}
+	total, biggest := 0, 0
+	c.c.SetReadDeadline(time.Now().Add(20 * time.Second))
+	for total < 80*64<<10 {
+		ty, b, err := getFrame(c.c)
+		if err != nil {
+			t.Fatalf("после %d байт: %v", total, err)
+		}
+		if ty == kOut {
+			total += len(b)
+			biggest = max(biggest, len(b))
+		}
+	}
+	if biggest > 1<<20 {
+		t.Fatalf("кадр вывода %d байт", biggest)
+	}
+}
+
 // Неверные аргументы держателя — отказ словами, код 2, процесс не запущен, файла нет (устав: система ловит).
 func TestEtHoldBadArgs(t *testing.T) {
 	for _, args := range [][]string{{"--id", "../x", "--owner", "keeper", "--", self(), "app"}, {"--id", "a", "--owner", "bob", "--", self(), "app"},

@@ -81,6 +81,16 @@ func (k *Keeper) session(url string) (accepted bool, why string) {
 	k.note("relay_open", "url", url)
 	k.links.Add(1)
 	go func() { defer k.links.Done(); k.askPlan(ctx) }()
+	// чтение — не на контексте остановки: отмена рвёт соединение, а штатная остановка закрывает его кадром с причиной
+	rctx, rcancel := context.WithCancel(context.Background())
+	defer rcancel()
+	go func() {
+		select {
+		case <-k.ctx.Done():
+			c.Close(websocket.StatusNormalClosure, "keeper_stop")
+		case <-rctx.Done():
+		}
+	}()
 	var pong atomic.Bool
 	pong.Store(true)
 	dead := make(chan struct{})
@@ -102,7 +112,7 @@ func (k *Keeper) session(url string) (accepted bool, why string) {
 		}
 	}()
 	for {
-		_, b, err := c.Read(ctx)
+		_, b, err := c.Read(rctx)
 		if err != nil {
 			select {
 			case <-dead:
@@ -137,17 +147,19 @@ func (k *Keeper) frame(ctx context.Context, c *websocket.Conn, b []byte) {
 			k.refuse("bad_from", "план не от .releases: "+f.From)
 			return
 		}
-		var p struct {
-			Type, ID, From, To string
-			V                  int
-			plan
+		// конверт принадлежит протоколу и relay; строгость — к телу плана
+		var env struct {
+			V, Rev int
+			Parts  json.RawMessage
 		}
-		if err := decodePlan(b, &p); err != nil {
+		json.Unmarshal(b, &env)
+		p := plan{Rev: env.Rev}
+		if env.V != 1 {
+			k.refuse("contract_mismatch", fmt.Sprintf("кадр releases.plan v %d — не v1", env.V))
+		} else if err := decodePlan(env.Parts, &p.Parts); err != nil {
 			k.refuse("contract_mismatch", "кадр releases.plan — не план v1: "+err.Error())
-		} else if p.V != 1 {
-			k.refuse("contract_mismatch", fmt.Sprintf("кадр releases.plan v %d — не v1", p.V))
 		} else {
-			k.offer(p.plan)
+			k.offer(p)
 		}
 	case "keeper.state":
 		reply(map[string]any{"ok": true, "result": k.State()})
@@ -188,17 +200,22 @@ func (k *Keeper) askPlan(ctx context.Context) {
 	}
 }
 
-// ledger — запись журнала флота; не дошла — строкой в журнале машины.
+// ledger — запись журнала флота своей горутиной: цикл частей её не ждёт; не дошла — строкой в журнале машины. Остановка ждёт её до предела
+// запроса: последняя запись перед выходом (подмена себя) доходит.
 func (k *Keeper) ledger(ev, text string) {
 	if k.c.Workers["ledger"] == "" {
 		k.note("ledger", "event", ev, "why", "нет адреса журнала (workers.ledger): "+text)
 		return
 	}
-	ctx, cancel := context.WithTimeout(k.ctx, callWait)
-	defer cancel()
-	if err := k.post(ctx, "ledger", map[string]any{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}, nil); err != nil {
-		k.note("ledger", "event", ev, "why", "offline: "+text+": "+err.Error())
-	}
+	k.links.Add(1)
+	go func() {
+		defer k.links.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), callWait)
+		defer cancel()
+		if err := k.post(ctx, "ledger", map[string]any{"type": "ledger.add", "v": 1, "to": ".ledger", "ev": ev, "text": text, "machine": k.machine}, nil); err != nil {
+			k.note("ledger", "event", ev, "why", "offline: "+text+": "+err.Error())
+		}
+	}()
 }
 
 // post — кадр Worker'у по адресу из keeper.json с пропуском машины; out — ответ, если нужен.

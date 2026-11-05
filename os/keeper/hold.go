@@ -102,8 +102,8 @@ type holder struct {
 	sentTo net.Conn    // последний хозяин, которому отдан выход
 	input  [][]byte    // ввод в очереди; nil — закрыть ввод
 	gone   chan string // хозяин забрал выход и закрыл соединение
-	// osStop — ввод закрыт по сигналу ОС; killed — дерево убито по кадру хозяина; cut — трубы больше не дочитываются
-	osStop, killed, cut bool
+	// osStop — ввод закрыт по сигналу ОС; killed — дерево убито по кадру хозяина; ended — процесс вышел; cut — трубы больше не дочитываются
+	osStop, killed, ended, cut bool
 }
 
 func runHold(args []string) int {
@@ -166,6 +166,10 @@ func (h *holder) serve() error {
 	if h.spec.tag != "" {
 		about["tag"] = h.spec.tag
 	}
+	// сигнал слушается до строки о себе: кто её прочитал, может его прислать
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+	go h.signals(sig)
 	file := filepath.Join(h.home, "procs", h.spec.id+".json")
 	b, _ := json.Marshal(about)
 	if err := writeFile(file, b); err != nil {
@@ -177,9 +181,6 @@ func (h *holder) serve() error {
 	os.Stdout.Write(append(b, '\n'))
 	os.Stdout.Close()
 
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
-	go h.signals(sig)
 	go h.writeInput(inW)
 	var pipes sync.WaitGroup
 	pipes.Add(2)
@@ -189,6 +190,9 @@ func (h *holder) serve() error {
 	go h.accept(ln, hex.EncodeToString(key))
 
 	state, _ := cmd.Process.Wait()
+	h.mu.Lock()
+	h.ended = true
+	h.mu.Unlock()
 	h.tree.reap() // процесс вышел — его потомки тоже: иначе они держали бы трубы вывода
 	drained := make(chan struct{})
 	go func() { pipes.Wait(); close(drained) }()
@@ -388,13 +392,9 @@ func (h *holder) attach(c net.Conn, key string) {
 		h.line("note", "held_replaced")
 	}
 	h.owner = c
-	hello, _ := json.Marshal(map[string]int{"pid": h.proc.Pid, "buffered": len(h.out)})
 	h.cond.Broadcast()
 	h.mu.Unlock()
 	h.line("note", "held_attach")
-	if writeFrame(c, 'h', hello) != nil {
-		c.Close()
-	}
 	go h.send(c)
 	for {
 		t, b, err := readFrame(c)
@@ -408,9 +408,11 @@ func (h *holder) attach(c net.Conn, key string) {
 			h.queue(nil)
 		case 'k':
 			h.mu.Lock()
-			h.killed = true
+			if !h.ended { // вышедший процесс не убивать: номер его группы мог занять другой
+				h.killed = true
+				h.tree.kill()
+			}
 			h.mu.Unlock()
-			h.tree.kill()
 		}
 	}
 	c.Close()
@@ -429,34 +431,45 @@ func (h *holder) attach(c net.Conn, key string) {
 	}
 }
 
-// send — вывод и выход хозяину c, пока он хозяин.
+// send — писатель соединения: приветствие с первым куском вывода — одной записью (вытесненный хозяин всё равно их получит), вывод кусками, за ним
+// выход. Кусок, который не ушёл, возвращается в буфер — следующему хозяину.
 func (h *holder) send(c net.Conn) {
+	greet := true
 	for {
 		h.mu.Lock()
-		for h.owner == c && len(h.out) == 0 && (h.exit == nil || h.sentTo == c) {
+		for !greet && h.owner == c && len(h.out) == 0 && (h.exit == nil || h.sentTo == c) {
 			h.cond.Wait()
 		}
 		if h.owner != c {
 			h.mu.Unlock()
 			return
 		}
+		var b bytes.Buffer
+		if greet {
+			hello, _ := json.Marshal(map[string]int{"pid": h.proc.Pid, "buffered": len(h.out)})
+			writeFrame(&b, 'h', hello)
+		}
 		n := min(len(h.out), chunk)
 		out := append([]byte(nil), h.out[:n]...)
 		h.out = h.out[n:]
-		var x []byte
-		if len(out) == 0 && h.exit != nil {
-			x, _ = json.Marshal(h.exit)
+		if n > 0 {
+			writeFrame(&b, 'o', out)
+		} else if !greet {
+			x, _ := json.Marshal(h.exit)
+			writeFrame(&b, 'x', x)
 			h.sentTo = c
 		}
+		greet = false
 		h.cond.Broadcast()
 		h.mu.Unlock()
-		var err error
-		if x != nil {
-			err = writeFrame(c, 'x', x)
-		} else {
-			err = writeFrame(c, 'o', out)
-		}
-		if err != nil {
+		if _, err := c.Write(b.Bytes()); err != nil {
+			h.mu.Lock()
+			h.out = append(out, h.out...)
+			if h.sentTo == c {
+				h.sentTo = nil
+			}
+			h.cond.Broadcast()
+			h.mu.Unlock()
 			return
 		}
 	}

@@ -24,22 +24,20 @@ import (
 // uninstallWait — остановка службы при uninstall.
 const uninstallWait = 3 * time.Minute
 
-// handler — keeper как служба Windows: Stop и Shutdown — штатная остановка; подмена себя — выход с ошибкой, ОС поднимает новый файл.
+// handler — keeper как служба Windows: Stop и Shutdown — штатная остановка; подмена себя — выход с кодом, восстановление службы поднимает новый файл.
 type handler struct{}
 
 func (handler) Execute(_ []string, r <-chan svc.ChangeRequest, s chan<- svc.Status) (bool, uint32) {
 	s <- svc.Status{State: svc.StartPending}
 	k, err := startKeeper(Options{})
 	if err != nil {
-		return false, 1
+		return true, 1
 	}
 	s <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 	for {
 		select {
 		case <-k.Done():
-			// подмена себя: выход без «остановлена» — для ОС это сбой, действие восстановления поднимает новый файл; так и у служб,
-			// поставленных без флага сбоя при штатной остановке
-			os.Exit(exitUpdated)
+			return true, exitUpdated
 		case c := <-r:
 			switch c.Cmd {
 			case svc.Interrogate:
@@ -124,20 +122,25 @@ func register(dst string, logon bool, in *bufio.Reader) error {
 		return err
 	}
 	defer m.Disconnect()
-	s, err := m.CreateService(serviceName(), dst, mgr.Config{DisplayName: "Switchboard keeper", StartType: mgr.StartAutomatic,
+	s, err := m.CreateService(serviceName(), dst, mgr.Config{DisplayName: strings.TrimSpace("Switchboard keeper " + fleetName), StartType: mgr.StartAutomatic,
 		ServiceStartName: u.Username, Password: password, Description: "Switchboard keeper: исполняет план машины"}, args...)
 	if err != nil {
 		return err
 	}
 	defer s.Close()
-	// одно действие — оно же для каждого следующего сбоя
+	// одно действие — оно же для каждого следующего сбоя; вышла с кодом — подмена себя или сбой: запустить снова
 	if err := s.SetRecoveryActions([]mgr.RecoveryAction{{Type: mgr.ServiceRestart, Delay: time.Second}}, 0); err != nil {
+		return err
+	}
+	if err := s.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
 		return err
 	}
 	return s.Start()
 }
 
-func registerTask(dst string, args []string) error {
+// logonTask — текст задачи в UTF-16 с меткой порядка байт: другого файла schtasks не принимает. Повтор висит на двух триггерах: «при регистрации» —
+// с установки, «при входе» — после перезагрузки; только у входа повтор не шёл до первого входа.
+func logonTask(dst string, args []string) []byte {
 	xml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo><Description>Switchboard keeper: исполняет план машины при входе пользователя</Description></RegistrationInfo>
@@ -156,12 +159,16 @@ func registerTask(dst string, args []string) error {
   <Actions Context="Author"><Exec><Command>%[2]s</Command><Arguments>%[3]s</Arguments></Exec></Actions>
 </Task>
 `, xmlText(os.Getenv("USERDOMAIN")+`\`+os.Getenv("USERNAME")), xmlText(dst), xmlText(strings.Join(args, " ")))
-	file := filepath.Join(os.TempDir(), serviceName()+".xml")
 	b := []byte{0xff, 0xfe}
 	for _, r := range utf16.Encode([]rune(xml)) {
 		b = append(b, byte(r), byte(r>>8))
 	}
-	if err := os.WriteFile(file, b, 0o600); err != nil {
+	return b
+}
+
+func registerTask(dst string, args []string) error {
+	file := filepath.Join(os.TempDir(), serviceName()+".xml")
+	if err := os.WriteFile(file, logonTask(dst, args), 0o600); err != nil {
 		return err
 	}
 	defer os.Remove(file)

@@ -72,7 +72,11 @@ func TestMain(m *testing.M) {
 			time.Sleep(2 * time.Second)
 			return
 		case "hangsetup":
-			// setup завис, как npm ci без сети
+			// setup завис с потомком, как npm ci с запущенным им процессом; pid потомка — стенду: папка версии будет снята
+			ch := exec.Command(os.Args[0], "app", "deaf")
+			ch.Env = os.Environ()
+			ch.Start()
+			os.WriteFile(os.Getenv("KEEPER_TEST_SETUP_CHILD"), []byte(strconv.Itoa(ch.Process.Pid)), 0o644)
 			time.Sleep(10 * time.Minute)
 			return
 		case "tailapp":
@@ -125,6 +129,13 @@ func fakeApp(args []string) {
 		self, _ := os.Executable()
 		if f, err := holdProc(os.Getenv("SWITCHBOARD_HOME"), holdReq{ID: "site@win", Owner: "host", Env: os.Environ(), Cmd: []string{self, "app"}}); err == nil {
 			fmt.Printf("session %d\n", f.Pid)
+		}
+	}
+	if mode == "flood" {
+		// вывода больше предела кадра разом
+		block := strings.Repeat("x", 64<<10)
+		for i := 0; i < 80; i++ {
+			fmt.Print(block)
 		}
 	}
 	if mode == "chatty" {
@@ -391,14 +402,16 @@ type fakeRelay struct {
 	ledger []map[string]any
 	reply  map[string]chan map[string]any
 	opened chan struct{}
-	asks   int              // вопросов releases.plan
-	silent int              // столько первых вопросов остаются без ответа — «выпуски» молчат
-	asked  []map[string]any // вопросы releases.plan как пришли
-	refuse string           // не пусто — «выпуски» отвечают на вопрос отказом с этим словом
-	hello  map[string]any   // последний hello keeper
-	opens  int              // принятых hello
-	path   string           // путь вебсокета последнего входа: /m/<машина>
-	keys   []string         // пропуска в POST к Worker'ам
+	asks   int                  // вопросов releases.plan
+	silent int                  // столько первых вопросов остаются без ответа — «выпуски» молчат
+	asked  []map[string]any     // вопросы releases.plan как пришли
+	refuse string               // не пусто — «выпуски» отвечают на вопрос отказом с этим словом
+	hello  map[string]any       // последний hello keeper
+	opens  int                  // принятых hello
+	closed websocket.StatusCode // код закрытия последнего соединения keeper
+	hang   chan struct{}        // не nil — журнал флота не отвечает, пока канал не закрыт
+	path   string               // путь вебсокета последнего входа: /m/<машина>
+	keys   []string             // пропуска в POST к Worker'ам
 }
 
 // planReply — ответ «Выпусков» на вопрос о плане: план, отказ словом или молчание.
@@ -442,7 +455,11 @@ func (r *fakeRelay) serveWorker(w http.ResponseWriter, req *http.Request) {
 	case "/ledger":
 		r.mu.Lock()
 		r.ledger = append(r.ledger, f)
+		hang := r.hang
 		r.mu.Unlock()
+		if hang != nil {
+			<-hang
+		}
 		w.WriteHeader(http.StatusNoContent)
 	case "/gate":
 		inv := fmt.Sprint(f["invite"])
@@ -498,6 +515,9 @@ func newFakeRelay(t *testing.T) *fakeRelay {
 		for {
 			_, b, err := ws.Read(ctx)
 			if err != nil {
+				r.mu.Lock()
+				r.closed = websocket.CloseStatus(err)
+				r.mu.Unlock()
 				return
 			}
 			if string(b) == "ping" {
@@ -1018,7 +1038,9 @@ func notExited(t *testing.T, k keeperHandle) {
 }
 
 // online — keeper на связи и спросил план.
-func (s *stand) online() { waitFor(s.t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 }) }
+func (s *stand) online() {
+	waitFor(s.t, "keeper на связи", func() bool { return s.relay.planAsks() > 0 })
+}
 
 // savePlan — plan.json на диске, как его оставил прежний keeper.
 func (s *stand) savePlan(p map[string]any) {

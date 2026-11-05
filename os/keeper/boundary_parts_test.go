@@ -3,8 +3,8 @@ package main
 // Леса keeper, части машины: установка версии, смена и откат, остановка и force, пределы, падения и перезапуск, окружение, держатели частей
 // на старте keeper. Источники свойств — в комментариях; без пометки — чьё: код.
 import (
-	"bytes"
 	"archive/tar"
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +30,10 @@ func TestEtVersionSwitch(t *testing.T) {
 	k := s.start()
 	waitFor(t, "1.3.2 running", running(k, "capture", "1.3.2"))
 	os.MkdirAll(verDir(s.home, "capture", "0.9.0"), 0o700) // версия позапрошлой выкладки
-	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
+	// конверт кадра — протокола и relay: строгость keeper — к телу плана
+	next := planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on))
+	next["via"] = "relay"
+	s.relay.push(next)
 	waitFor(t, "1.4.0 running", running(k, "capture", "1.4.0"))
 	waitFor(t, "part.updated", func() bool { return s.relay.ledgerHas("part.updated", "capture", "1.3.2", "1.4.0") })
 	// новый план исполнен целиком: keeper.state и plan.json — rev 2
@@ -172,6 +176,8 @@ func TestEtKillWaitLimit(t *testing.T) {
 func TestEtRejectedKeepsOld(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	childFile := filepath.Join(t.TempDir(), "child")
+	t.Setenv("KEEPER_TEST_SETUP_CHILD", childFile)
 	k := s.startWith(tuning{stop: 1500 * time.Millisecond, download: time.Second})
 	waitFor(t, "1.3.2 running", running(k, "capture", "1.3.2"))
 	s.online()
@@ -213,11 +219,23 @@ func TestEtRejectedKeepsOld(t *testing.T) {
 			t.Fatalf("негодная версия %s отмечена готовой", v)
 		}
 	}
-	for _, v := range []string{"1.4.1", "1.5.0"} {
+	for _, v := range []string{"1.4.1", "1.5.0", "1.4.3"} {
 		if isThere(verDir(s.home, "capture", v)) {
 			t.Fatalf("папка негодной версии %s осталась", v)
 		}
 	}
+	// setup снят по пределу вместе с потомками: иначе они держали бы папку версии
+	b, _ := os.ReadFile(childFile)
+	child, _ := strconv.Atoi(string(b))
+	t.Cleanup(func() {
+		if alive(child) {
+			killPid(t, child)
+		}
+	})
+	if child == 0 {
+		t.Fatal("setup не записал pid потомка")
+	}
+	waitFor(t, "потомок setup снят", func() bool { return !alive(child) })
 }
 
 // 3158 · Новая версия не запустилась под держателем — прежняя уже остановлена штатно, часть failed «запуск: …», part.failed; в журнале машины
@@ -504,9 +522,10 @@ func TestEtPartRemoved(t *testing.T) {
 	}
 }
 
-// Остановка keeper, пока ставится новая версия: работающая живёт дальше с тем же pid; следующий keeper подключается к прежней версии и
-// доводит переход: прежняя вышла по закрытию ввода раньше старта новой, архив второй раз не скачан, part_updated (ревью архитектора 1 нояб.:
-// цикл доводил установку и гасил прежнюю версию; чьё: код — «переход — у следующего keeper»).
+// Остановка keeper, пока ставится новая версия: начатый setup доведён — ссылка на архив могла истечь, версия готова и сбоя нет; работающая
+// живёт дальше с тем же pid; следующий keeper подключается к прежней версии и доводит переход с диска: прежняя вышла по закрытию ввода раньше
+// старта новой, part_updated (ревью архитектора 1 нояб.: цикл доводил установку и гасил прежнюю версию; чьё: код — «Остановка keeper начатый
+// setup доводит: следующему keeper не качать архив, ссылка на который могла истечь», «переход — у следующего keeper»).
 func TestEtStopDuringInstallKeepsRunning(t *testing.T) {
 	s := newStand(t)
 	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
@@ -519,6 +538,10 @@ func TestEtStopDuringInstallKeepsRunning(t *testing.T) {
 	if !alive(pid) || has(s.home, J{"part": "capture", "line": "bye"}) {
 		t.Fatal("работающая версия остановлена вместе с keeper")
 	}
+	if !isThere(stampFile(verDir(s.home, "capture", "1.4.0"))) || has(s.home, J{"ev": "part_failed"}) || s.relay.ledgerHas("part.failed") {
+		t.Fatal("начатый setup не доведён или остановка принята за сбой\n" + journalAll(s.home))
+	}
+	s.links.expire()
 	k2 := s.start()
 	waitFor(t, "переход у следующего keeper", func() bool {
 		p := partOf(k2, "capture")
@@ -693,12 +716,20 @@ func TestEtOutputTailOnExit(t *testing.T) {
 // ссылками с полным путём, после переименования временной папки Host не находил свои пакеты; run — в data части (чьё: дизайн «npm — npm
 // рядом с ним»; живой прогон 1 нояб., win: ERR_MODULE_NOT_FOUND).
 func TestEtNodeAndNpmFromConf(t *testing.T) {
+	// npm рядом с Node на Windows и в ../lib/node_modules на Linux
+	for _, cliDir := range []string{filepath.Join("bin", "node_modules"), filepath.Join("lib", "node_modules")} {
+		nodeAndNpm(t, cliDir)
+	}
+}
+
+func nodeAndNpm(t *testing.T, cliDir string) {
 	s := newStand(t)
 	d := t.TempDir()
 	bin, _ := os.ReadFile(self())
-	node := filepath.Join(d, binName("node"))
+	node := filepath.Join(d, "bin", binName("node"))
+	os.MkdirAll(filepath.Dir(node), 0o755)
 	os.WriteFile(node, bin, 0o755)
-	cli := filepath.Join(d, "node_modules", "npm", "bin", "npm-cli.js")
+	cli := filepath.Join(d, cliDir, "npm", "bin", "npm-cli.js")
 	os.MkdirAll(filepath.Dir(cli), 0o755)
 	os.WriteFile(cli, nil, 0o644)
 	saveConf(s.home, map[string]any{"node": node, "workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws"), "releases": s.relay.workerURL("releases"), "ledger": s.relay.workerURL("ledger")}})

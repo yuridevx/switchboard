@@ -3,7 +3,6 @@ package main
 import (
 	"os"
 	"os/exec"
-	"runtime"
 	"syscall"
 
 	"golang.org/x/sys/unix"
@@ -14,7 +13,6 @@ import (
 type tree struct{ pgid int }
 
 func newTree(cmd *exec.Cmd, _ bool) *tree {
-	runtime.LockOSThread() // Pdeathsig — по нити, запустившей процесс: она живёт, пока жив держатель
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Pdeathsig: syscall.SIGKILL}
 	return &tree{}
 }
