@@ -291,6 +291,23 @@ describe("клиент на подделках", () => {
   });
 
   describe("link · переподключение и остановка", () => {
+    it("после обрыва — closed с кодом вместо пустой причины, по паузе connecting, по roster open; roster остаётся последним известным; ping — с открытия сокета раз в 30 с", () => {
+      const { l, ws, states } = opened();
+      const seen = l.roster;
+      ws.drop(1006);
+      expect(l.roster).toBe(seen);
+      vi.advanceTimersByTime(1000);
+      expect(states).toEqual([["open", undefined], ["closed", "1006"], ["connecting", undefined]]);
+      const next = FakeWs.last();
+      next.open();
+      vi.advanceTimersByTime(29_999);
+      expect(next.sent.length).toBe(1);
+      vi.advanceTimersByTime(1);
+      expect(next.sent.at(-1)).toBe("ping");
+      next.recv(rosterOf());
+      expect(states.at(-1)).toEqual(["open", undefined]);
+    });
+
     it("пауза 1, 2, 4 с; 1008 gate_unavailable — та же ветка, что обрыв; после принятого hello — снова 1 с; hello на каждом подключении", () => {
       let n = 0;
       const { ws } = start({ hello: () => ({ n: ++n }) });
@@ -345,6 +362,17 @@ describe("клиент на подделках", () => {
       vi.advanceTimersByTime(1500);
       FakeWs.last().drop(1006);
       expect(at[2]).toBe(t0 + 2500 + 1500);
+    });
+
+    it("7218 · пауза по умолчанию растёт до 60 с", () => {
+      const pauses: number[] = [];
+      const { ws } = start({ onState: (s: LinkState, _w?: string, retryAt?: number) => (s === "closed" ? pauses.push(retryAt! - Date.now()) : undefined) });
+      ws.drop(1006);
+      for (let i = 0; i < 7; i++) {
+        vi.advanceTimersByTime(pauses.at(-1)!);
+        FakeWs.last().drop(1006);
+      }
+      expect(pauses).toEqual([1000, 2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000]);
     });
 
     it("ping с периодом; pong — живо; нет pong к следующему ping — закрыть 4000 no_pong и переподключиться", async () => {
@@ -403,9 +431,11 @@ describe("клиент на подделках", () => {
   /** fetch стенда: gate отвечает списком машин, Worker'ы — по таблице ответов. */
   function stand(machines: string[], answers: Record<string, (body: any) => Response | Promise<Response>> = {}, you?: string) {
     const calls: Array<{ url: string; body: any }> = [];
+    const heads: unknown[] = [];
     const f = (async (url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body));
       calls.push({ url, body });
+      heads.push(init.headers);
       if (url === "https://gate.test/") return Response.json({ type: "reply", id: body.id, ok: true, result: { passes: machines.map((name) => ({ name })), you } });
       const a = answers[url];
       if (!a) throw new Error("сеть");
@@ -414,7 +444,7 @@ describe("клиент на подделках", () => {
         Promise.resolve(a(body)).then(res, rej);
       });
     }) as unknown as typeof fetch;
-    return { f, calls };
+    return { f, calls, heads };
   }
 
   function client(o: Partial<Options> & { fetch: typeof fetch }): FleetClient {
@@ -440,6 +470,11 @@ describe("клиент на подделках", () => {
       expect(c.addr).toBe("@win");
       expect(s.calls[0]).toMatchObject({ url: "https://gate.test/", body: { type: "keys.list", v: 1, role: "host", key: "host.win.k7f2.S" } });
       expect(FakeWs.all.map((w) => w.url).sort()).toEqual(["wss://relay.test/m/win", "wss://relay.test/m/wsl"]);
+      // POST без заголовков: страница шлёт простой запрос без предзапроса (контракт gate); адрес при обрыве заново не спрашивается
+      expect(s.heads).toEqual([undefined]);
+      FakeWs.of("wsl")!.drop(1006);
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(s.calls).toHaveLength(1);
       expect([...c.links().keys()].sort()).toEqual(["win", "wsl"]);
       FakeWs.of("win")!.open();
       FakeWs.of("wsl")!.open();
@@ -468,6 +503,27 @@ describe("клиент на подделках", () => {
       expect(c.roster.clients).toEqual(["phone~a@b", "pult~a@b"]);
       FakeWs.of("win")!.drop(1006);
       expect(c.roster.sessions.map((x) => x.callsign)).toEqual(["b@wsl"]);
+    });
+
+    it("state страницы: open, если открыто хоть одно; иначе stopped, если хоть одно остановлено; иначе closed, если хоть одно закрыто", async () => {
+      const s = stand(["win", "wsl"]);
+      const page = client({ fetch: s.f, key: "client.c.k.S" });
+      await tick();
+      expect(page.state).toBe("connecting");
+      FakeWs.of("win")!.drop(1006);
+      expect(page.state).toBe("closed");
+      FakeWs.all = [];
+      const other = client({ fetch: s.f, key: "client.c.k.S" });
+      await tick();
+      up("win");
+      up("wsl", roster("wsl"));
+      FakeWs.of("win")!.drop(1008, "bad_key");
+      expect(other.state).toBe("open");
+      expect(other.links().get("wsl")!.state).toBe("open");
+      FakeWs.of("wsl")!.drop(1006);
+      expect(other.state).toBe("stopped");
+      page.close();
+      other.close();
     });
 
     it("state: у Host — своё соединение; у страницы — open, если открыто хоть одно; после close — stopped", async () => {
@@ -515,13 +571,25 @@ describe("клиент на подделках", () => {
         n++;
         return n === 1 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "bad_key" });
       }) as unknown as typeof fetch;
-      client({ fetch: f, pauseMs: 1000, onState: (m, st, why) => states.push(`${m}:${st}:${why}`) });
+      const retries: Array<number | undefined> = [];
+      const t0 = Date.now();
+      client({ fetch: f, pauseMs: 1000, onState: (m, st, why, retryAt) => (states.push(`${m}:${st}:${why}`), retries.push(retryAt)) });
       await tick();
       expect(states).toEqual([":closed:gate_unavailable"]);
+      expect(retries).toEqual([t0 + 1000]);
       await vi.advanceTimersByTimeAsync(1000);
       expect(states).toEqual([":closed:gate_unavailable", ":stopped:bad_key"]);
       await vi.advanceTimersByTimeAsync(10_000);
       expect(n).toBe(2);
+    });
+
+    it("своя машина — сразу, gate не ждёт; gate недоступен по сети — closed offline", async () => {
+      const states: string[] = [];
+      const c = client({ fetch: (async () => { throw new TypeError("сеть"); }) as unknown as typeof fetch, machine: "win", onState: (m, st, why) => void (m === "" && states.push(`${st}:${why}`)) });
+      expect(FakeWs.all.map((w) => w.url)).toEqual(["wss://relay.test/m/win"]);
+      await tick();
+      expect(states).toEqual(["closed:offline"]);
+      c.close();
     });
 
     it("E2 · список машин при подключении — чтение: gate молчит, через 10 с следующая попытка", async () => {
@@ -596,6 +664,21 @@ describe("клиент на подделках", () => {
       const none = client({ fetch: stand([]).f, key: "client.c.k.S", workers: { relay: "https://relay.test/" } });
       expect(await none.request({ type: "message", to: "x@mac" })).toMatchObject({ ok: false, error: "offline" });
       none.close();
+    });
+
+    it("соединение с машиной есть, но не открыто — disconnected, в другое не идёт; запрос со списком — своим соединением, отказ скажет relay", async () => {
+      const s = stand(["win", "wsl"]);
+      const c = client({ fetch: s.f, machine: "win" });
+      await tick();
+      const win = up("win");
+      const before = win.sent.length;
+      expect(await c.request({ type: "m", to: "a@wsl" })).toMatchObject({ ok: false, error: "disconnected" });
+      expect(await c.request({ type: "m", to: ".keeper@wsl" })).toMatchObject({ ok: false, error: "disconnected" });
+      expect(c.send({ type: "m", machine: "wsl" })).toEqual({ ok: false, error: "disconnected" });
+      expect(win.sent.length).toBe(before);
+      up("wsl", roster("wsl"));
+      void c.request({ type: "q", to: ["a@wsl", "b@wsl"] });
+      expect(win.json()).toMatchObject({ type: "q", to: ["a@wsl", "b@wsl"] });
     });
 
     it("устройству и человеку — своим соединением, у страницы — любым открытым; открытых нет — disconnected; адрес не разобран — решает relay, соединений нет — bad_frame", async () => {

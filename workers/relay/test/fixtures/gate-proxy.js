@@ -1,11 +1,14 @@
 // Привязка GATE в тестах relay: настоящий gate за переключателем режима.
-// real — настоящий gate над базой стенда; throw — gate сломан; slow — отвечает с задержкой; hang — молчит дольше предела вызова.
+// real — настоящий gate над базой стенда; throw — gate сломан; slow — отвечает с задержкой; hang — молчит дольше предела вызова;
+// revoke-throw, list-throw — verify настоящий, сломан этот метод.
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 const calls = [];
 let mode = "real";
-// номера, отозванные «новым выпуском gate» после входа соединения
-let revokedLater = [];
+
+function fail(method) {
+  if (mode === `${method}-throw`) throw new Error(`${method} сломан`);
+}
 
 export class Gate extends WorkerEntrypoint {
   async verify(key) {
@@ -13,18 +16,15 @@ export class Gate extends WorkerEntrypoint {
     if (mode === "throw") throw new Error("gate сломан");
     if (mode === "hang") await new Promise((r) => setTimeout(r, 10_000));
     if (mode === "slow") await new Promise((r) => setTimeout(r, 300));
-    // отзыв «новым выпуском gate» — и на входе, как у настоящего gate
-    if (revokedLater.includes(String(key).split(".").slice(0, 3).join("."))) return { error: "bad_key" };
     return this.env.REAL.verify(key);
   }
-  revoke(kid) {
+  async revoke(kid) {
+    fail("revoke");
     return this.env.REAL.revoke(kid);
   }
-  list(role) {
+  async list(role) {
+    fail("list");
     return this.env.REAL.list(role);
-  }
-  revokeLater(ids) {
-    revokedLater = ids;
   }
   setMode(m) {
     mode = m;
@@ -34,7 +34,6 @@ export class Gate extends WorkerEntrypoint {
   }
   clear() {
     calls.length = 0;
-    revokedLater = [];
   }
 }
 
