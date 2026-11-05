@@ -20,7 +20,7 @@ export async function door(req: Request, max: number, serve: (f: Frame) => Promi
 }
 
 /** Запрос к Worker'у: кадр с key → gate.verify → frame с from и fromKid → reply телом. Кадры другим не уходят: их доставляет только relay. */
-export function entrance(req: Request, gate: GateApi, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: Log = console.log): Promise<Response> {
+export function entrance(req: Request, gate: Pick<GateApi, "verify">, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: Log = console.log): Promise<Response> {
   return door(req, MAX_FRAME, async ({ key, from: _from, fromKid: _fromKid, ...f }) => {
     const { id, type } = f;
     let who;

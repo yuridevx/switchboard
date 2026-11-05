@@ -2,9 +2,10 @@
 // Вход — аргументы и stdin, исход — вывод, поток ошибок, код выхода, кадр к gate. Номер — эталон-источник; без номера — чьё: код.
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -41,9 +42,9 @@ beforeAll(async () => {
 });
 afterAll(() => server.close());
 
-function redeem(args: string[], input: string): Promise<{ status: number | null; stdout: string; stderr: string }> {
+function redeem(args: string[], input: string, file = REDEEM): Promise<{ status: number | null; stdout: string; stderr: string }> {
   return new Promise((res) => {
-    const p = spawn(process.execPath, [REDEEM, ...args], { timeout: LIMIT_MS });
+    const p = spawn(process.execPath, [file, ...args], { timeout: LIMIT_MS });
     let stdout = "";
     let stderr = "";
     p.stdout.on("data", (c) => (stdout += c));
@@ -90,8 +91,10 @@ describe("redeem", () => {
     expect(b.stderr).toBe("redeem: bad_invite\n");
   });
 
-  it("адрес не http → выход 2, использование", async () => {
-    expect(await redeem(["ftp://gate"], "x")).toEqual({ status: 2, stdout: "", stderr: USAGE_REDEEM });
+  it("адрес не http → выход 2, использование; инструмент идёт одним файлом вне репо", async () => {
+    const alone = join(mkdtempSync(join(tmpdir(), "redeem-")), "redeem.ts");
+    copyFileSync(REDEEM, alone);
+    expect(await redeem(["ftp://gate"], "x", alone)).toEqual({ status: 2, stdout: "", stderr: USAGE_REDEEM });
   });
 
   it("gate не ответил → выход 1 с причиной", async () => {
