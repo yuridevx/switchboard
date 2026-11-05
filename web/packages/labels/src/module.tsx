@@ -56,7 +56,7 @@ export const createLabels = ((app) => {
 
   return {
     css,
-    screens: { labels: { view: LabelsWindow, head: () => ({ title: "Имена" }) } },
+    screens: { labels: { label: "Имена", view: LabelsWindow } },
     marks: {
       "label.session": (callsign: string) => shown(callsign, plainSession(callsign)),
       "label.machine": (machine: string) => shown(`@${machine}`, plainMachine(machine)),
