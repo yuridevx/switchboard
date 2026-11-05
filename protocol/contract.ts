@@ -31,27 +31,24 @@ export const TOO_LARGE = "too_large";
 /** Предел кадра в байтах UTF-8: входящее сообщение WebSocket в Durable Object Cloudflare — до 32 МиБ. */
 export const MAX_FRAME = 32 * 1024 * 1024;
 
-/** Байты UTF-8 текста кадра, если он больше MAX_FRAME, иначе null. Текст до MAX_FRAME / 3 знаков заведомо в пределе — без подсчёта. */
+/** Байты UTF-8 текста, если их больше MAX_FRAME, иначе null. Знак — не больше трёх байт: короткий текст не считаем. */
 export function oversize(text: string): number | null {
   if (text.length * 3 <= MAX_FRAME) return null;
   const bytes = new TextEncoder().encode(text).length;
   return bytes > MAX_FRAME ? bytes : null;
 }
 
-function isFrame(x: unknown): x is Frame {
-  if (x === null || typeof x !== "object" || Array.isArray(x)) return false;
-  const { type, id, v } = x as Record<string, unknown>;
-  return typeof type === "string" && type !== "" && (id === undefined || typeof id === "string") && (v === undefined || typeof v === "number");
-}
-
-/** Разобрать текст кадра. Не JSON, не объект или нет строки type — null: кадр не по конверту, отказ словом bad_frame. */
+/** Текст кадра или null: не JSON, не объект, нет строки type, id не строка, v не число. */
 export function parseFrame(text: string): Frame | null {
+  let x;
   try {
-    const x: unknown = JSON.parse(text);
-    return isFrame(x) ? x : null;
+    x = JSON.parse(text);
   } catch {
     return null;
   }
+  if (x === null || typeof x !== "object" || Array.isArray(x)) return null;
+  const good = typeof x.type === "string" && x.type !== "" && (x.id === undefined || typeof x.id === "string") && (x.v === undefined || typeof x.v === "number");
+  return good ? x : null;
 }
 
 export const isReply = (f: Frame): f is Frame & Reply => f.type === "reply" && typeof f.id === "string" && typeof f.ok === "boolean";
@@ -72,28 +69,19 @@ export function accepts(f: { type: string; v?: unknown }, provides: Record<strin
 
 // ---------- адреса ----------
 
-/**
- * Вид адреса по его форме:
- *   .имя            служба флота (Worker-модуль): .relay, .releases
- *   .имя@машина     системная часть машины: .keeper@win
- *   @машина         сама машина — её Host: @win
- *   имя@машина      сессия: site@win
- *   ~email          пользователь: ~yuri@example.com
- *   устройство~email  устройство пользователя: phone~yuri@example.com
- * Точка в начале — системное имя; тильда — человек, справа от неё email как есть. Голое имя — не адрес.
- */
 export type AddressKind = "service" | "part" | "machine" | "session" | "user" | "device";
 
-export function kindOf(address: unknown): AddressKind | null {
-  if (typeof address !== "string" || address === "") return null;
-  const tilde = address.indexOf("~");
-  if (tilde >= 0) return tilde === address.length - 1 ? null : tilde === 0 ? "user" : "device";
-  const at = address.indexOf("@");
-  const noMachine = at === address.length - 1;
-  if (!address.startsWith(".")) return at < 0 || noMachine ? null : at === 0 ? "machine" : "session";
-  if (address === "." || at === 1 || noMachine) return null;
-  return at < 0 ? "service" : "part";
-}
+/** Формы адреса. Тильда — человек, справа от неё email как есть; точка в начале — системное имя; голое имя — не адрес. */
+const FORMS: Array<[AddressKind, RegExp]> = [
+  ["user", /^~.+$/], // ~yuri@example.com
+  ["device", /^[^~]+~.+$/], // phone~yuri@example.com
+  ["service", /^\.[^@~]+$/], // .relay
+  ["part", /^\.[^@~]+@[^~]+$/], // .keeper@win
+  ["machine", /^@[^~]+$/], // @win
+  ["session", /^[^.@~][^@~]*@[^~]+$/], // site@win
+];
+
+export const kindOf = (address: unknown): AddressKind | null => (typeof address === "string" && FORMS.find(([, form]) => form.test(address))?.[0]) || null;
 
 /** Машина адреса: site@laptop, @laptop, .keeper@laptop → laptop; служба и люди — null. */
 export function machineOf(address: string): string | null {
@@ -142,18 +130,11 @@ export const READ_MS = 10_000;
 
 /** Предел операции: не успела за ms — ответ late (бросила — отказ). Саму операцию не прерывает: что прервать, знает вызывающий. Слово пользователя 2 нояб.: у всех операций лимит. */
 export function withLimit<T>(p: T | Promise<T>, ms: number, late: () => T): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      try {
-        resolve(late());
-      } catch (e) {
-        reject(e);
-      }
-    }, ms);
-    Promise.resolve(p)
-      .then(resolve, reject)
-      .finally(() => clearTimeout(timer));
+  let timer: ReturnType<typeof setTimeout>;
+  const limit = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(new Promise<T>((r) => r(late()))), ms);
   });
+  return Promise.race([p, limit]).finally(() => clearTimeout(timer));
 }
 
 /** Значение или исключение со словами why за предел ms (по умолчанию CALL_MS). */

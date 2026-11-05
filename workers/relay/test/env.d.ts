@@ -2,7 +2,7 @@
 declare namespace Cloudflare {
   interface Env {
     FLEET: DurableObjectNamespace;
-    GATE: import("@switchboard/gate").GateApi & { setMode(m: string): Promise<void>; calls(): Promise<string[]>; clear(): Promise<void>; revokeLater(ids: string[]): Promise<void> };
+    GATE: import("@switchboard/gate").GateApi & { setMode(m: string): Promise<void>; calls(): Promise<string[]>; clear(): Promise<void> };
     PROTO: number[];
     GATE_DB: D1Database;
     GATE_MIGRATIONS: import("cloudflare:test").D1Migration[];
