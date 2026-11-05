@@ -89,17 +89,14 @@ export function GitHub() {
               <Opts className="st-nowrap">
                 <In className="st-grow" data-f="gq" aria-label="Найти репозиторий" placeholder="Найти репозиторий" value={q} onChange={() => {}} onInput={(e) => setQ(e.currentTarget.value)} />
               </Opts>
-              {repos.length ? (
-                <div className="st-repos">
-                  {repos.map((r) => (
-                    <div key={r} className="st-repo" data-repo={r}>
-                      <span className="sb-m st-grow">{r}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <Note>Таких нет</Note>
-              )}
+              <div className="st-repos">
+                {repos.map((r) => (
+                  <div key={r} className="st-repo" data-repo={r}>
+                    <span className="sb-m st-grow">{r}</span>
+                  </div>
+                ))}
+                {repos.length ? null : <Note>Таких нет</Note>}
+              </div>
             </>
           ) : null}
         </>

@@ -50,7 +50,7 @@ function createInboxState(app: App) {
       if (!mine(cs)) continue;
       const wait = slotOf(x)?.wait;
       if (x.state === "failed") out.push({ kind: "fail", callsign: cs, name: name(cs), dot: "bad", label: label("не запустилась", cs), text: failText(x) });
-      else if (wait) out.push({ kind: "wait", callsign: cs, name: name(cs), dot: lamp(x), label: label("ждёт сброса лимита", cs), text: `Аккаунты слота ${slotOf(x)?.name} у порога — продолжит после ${at(wait)}` });
+      else if (wait) out.push({ kind: "wait", callsign: cs, name: name(cs), dot: "idle", label: label("ждёт сброса лимита", cs), text: `Аккаунты слота ${slotOf(x)?.name} у порога — продолжит после ${at(wait)}` });
     }
     const gone = (app.mark("machines.gone") as Record<string, number> | undefined) ?? {};
     for (const [m, when] of Object.entries(gone)) {
@@ -66,7 +66,7 @@ function createInboxState(app: App) {
     return out;
   }
 
-  return { onRoster, cards, clearDone, onCurrent: (c: { params: Record<string, string> }) => void (c.params.callsign && clearDone(c.params.callsign)), machineLabel };
+  return { onRoster, cards, clearDone, onCurrent: (c: { params: Record<string, string> }) => void (c.params.callsign && clearDone(c.params.callsign)) };
 }
 
 export function createInbox(app: App): AppModule {

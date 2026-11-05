@@ -1,9 +1,8 @@
 // Стор «Работы»: настройки почты и флота, разделы устройства и снимок списка. Экран рисует снимок, правит через действия.
 import { machineOf } from "@switchboard/protocol";
-import type { SessionRecord } from "@switchboard/relay";
 import { addProject, arrange, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, projectIdOf, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { createStore, folderOf, incidentOf, lamp, failText, machineLabel, myAddress, personal, profileNameOf, sessionLabel, sessionOf, stateLabel, type App, type ConnState } from "@switchboard/web-ui";
-import { ALL, chipOrder, DEFAULT_VIEW, fits, MINE, ownerOf, placeRows, whyMine, type Filter, type View } from "./model.ts";
+import { ALL, byUrgency, chipOrder, DEFAULT_VIEW, fits, MINE, ownerOf, placeRows, whyMine, type Filter, type View } from "./model.ts";
 
 type Shown = { text: string; human: boolean };
 export type RowModel = {
@@ -89,7 +88,6 @@ export function createBoardState(app: App) {
 
   function rowOf(cs: string, depth: number, view: View, o: { at: boolean; project: string }): RowModel {
     const s = find(cs)!;
-    const me = myAddress(app);
     const owner = ownerOf(cs, find);
     const unread = app.mark("unread", cs) as { count: number; text: string } | undefined;
     const asked = app.mark("asked", cs) as string | undefined;
@@ -103,7 +101,7 @@ export function createBoardState(app: App) {
       title: stateLabel(s.state).text,
       name: sessionLabel(app, cs),
       at: o.at ? machineLabel(app, machineOf(cs) ?? "") : null,
-      own: view.owner && owner && owner !== me ? owner.slice(1).split("@")[0] : "",
+      own: view.owner && owner && !mine(cs) ? owner.slice(1).split("@")[0] : "",
       pinned: view.pin && pins().includes(cs),
       inc: view.inc && incident?.type ? incident.type : "",
       project: o.project,
@@ -131,7 +129,7 @@ export function createBoardState(app: App) {
       const placed = collapsed ? [] : placeRows(shown, parentOf, view.tree);
       const rows = placed.map((x) => rowOf(x.callsign, grouped ? 0 : x.depth, view, { at: view.at && !grouped, project: "" }));
       const machines = [...new Set(rows.map((r) => machineOf(r.callsign) ?? ""))].sort();
-      const lamps = collapsed && view.pjlamps ? shown.map((cs) => lamp(find(cs)!)) : [];
+      const lamps = collapsed && view.pjlamps ? byUrgency(shown.map((cs) => find(cs)!)).map(lamp) : [];
       const groups = grouped ? machines.map((machine) => ({ machine, label: machineLabel(app, machine).text, rows: rows.filter((r) => machineOf(r.callsign) === machine) })) : null;
       return [{ id, name, collapsed, lamps, groups, rows, live: callsigns.length > 0 }];
     });
@@ -170,6 +168,7 @@ export function createBoardState(app: App) {
       if (!on) app.changed();
     },
     mine,
+    canPin: (cs: string) => !!find(cs) && !mine(cs),
     start: async () => {
       const [f, c, v] = await Promise.all([flt().get(), collapsedPart().get(), viewPart().get()]);
       local.set((s) => {
@@ -198,10 +197,7 @@ export function createBoardState(app: App) {
     },
     /** Строки поиска Ctrl K. */
     find(q: string) {
-      // сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу
-      const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" ? 1 : 2);
-      const sorted = [...sessions()].sort((a, b) => rank(a) - rank(b) || (a.callsign < b.callsign ? -1 : 1));
-      return sorted.flatMap((s) => {
+      return byUrgency(sessions()).flatMap((s) => {
         const name = sessionLabel(app, s.callsign).text;
         const folder = folderOf(s.dir);
         const project = sectionsOf().find((x) => x.callsigns.includes(s.callsign))?.name ?? "";

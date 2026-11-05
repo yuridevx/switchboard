@@ -1,5 +1,5 @@
 // Экран «Машины»: строки с поиском и фильтрами; строка раскрывается в карточку с частями. Ответы keeper'ов читает у настроек.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Btn, DisclosureBtn, Dot, hhmm, In, machineLabel, machinesWith, Note, okOf, Opts, Outcome, Page, PageHead, plural, useApp, useModule, useOutcome, wordOf } from "@switchboard/web-ui";
 import type { KeeperAnswers, KeeperPart } from "../../settings/contract.ts";
 import type { MachinesState } from "./module.tsx";
@@ -10,16 +10,15 @@ const partText = (p: KeeperPart) => [p.version, p.state, p.pid ? `pid ${p.pid}` 
 export function MachinesScreen() {
   const app = useApp();
   const state = useModule<MachinesState>();
-  const { seen, gone, filter } = app.use(() => state.get());
+  const { seen, gone } = app.use(() => state.get());
   const online = app.use(() => machinesWith(app));
   const answers = app.use(() => (app.mark("keeper.answers") as KeeperAnswers | undefined)?.get() ?? {});
-  const near = app.use(() => {
-    const project = app.mark("project.current") as string | null | undefined;
-    return project ? ((app.mark("project.machines", project) as string[] | undefined) ?? []) : [];
-  });
+  const project = app.use(() => app.mark("project.current") as string | null | undefined);
+  const near = app.use(() => (project ? ((app.mark("project.machines", project) as string[] | undefined) ?? []) : []));
   const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
-  const [busy, setBusy] = useState("");
+  const running = useRef(new Set<string>());
   const [notes, say] = useOutcome();
 
   useEffect(() => {
@@ -32,7 +31,8 @@ export function MachinesScreen() {
   const names = [...online, ...Object.keys(gone).filter((m) => !online.includes(m))];
   const failing = (m: string) => (okOf(answers[m])?.parts ?? []).some((p) => p.state === "failed");
   const count = { fail: names.filter(failing).length, gone: names.filter((m) => gone[m] !== undefined).length };
-  const filterNow = filter === "project" && !near.length ? "all" : filter;
+  // открытый проект сужает сразу; проекта нет — все
+  const filterNow = !near.length && (filter ?? "project") === "project" ? "all" : (filter ?? "project");
   const needle = q.trim().toLowerCase();
   const rows = names.filter((m) => {
     const ok = filterNow === "fail" ? failing(m) : filterNow === "gone" ? gone[m] !== undefined : filterNow === "project" ? near.includes(m) : true;
@@ -41,23 +41,24 @@ export function MachinesScreen() {
 
   async function restart(machine: string, part: string) {
     const key = `${machine}:${part}`;
-    setBusy(key);
-    say(key, "");
+    if (running.current.has(key)) return;
+    running.current.add(key);
+    say(key, "Перезапускаю…");
     for (const on of [false, true]) {
       const r = await app.request("releases.set", { machine, part, on });
       if (!r.ok) {
-        setBusy("");
+        running.current.delete(key);
         say(key, `releases.set: ${r.error}`, "bad");
         return;
       }
     }
-    setBusy("");
+    running.current.delete(key);
     say(key, "выключена и включена по плану", "ok");
     app.run("keeper.reload", { machine });
   }
 
-  const Filter = ({ id, text }: { id: string; text: string }) => (
-    <Btn aria-pressed={filterNow === id ? "true" : "false"} data-filter={id} onClick={() => state.setFilter(id)}>
+  const filterBtn = (id: string, text: string) => (
+    <Btn key={id} aria-pressed={filterNow === id ? "true" : "false"} data-filter={id} onClick={() => setFilter(id)}>
       {text}
     </Btn>
   );
@@ -67,10 +68,10 @@ export function MachinesScreen() {
       <PageHead>
         <In type="search" data-f="q" placeholder="Найти машину" value={q} onChange={() => {}} onInput={(e) => setQ(e.currentTarget.value)} />
         <Opts>
-          <Filter id="all" text={`все ${names.length}`} />
-          {near.length ? <Filter id="project" text={`в проекте ${near.length}`} /> : null}
-          <Filter id="fail" text={`со сбоем ${count.fail}`} />
-          <Filter id="gone" text={`ушли ${count.gone}`} />
+          {near.length ? filterBtn("project", `в проекте ${project} ${near.length}`) : null}
+          {filterBtn("all", `все ${names.length}`)}
+          {filterBtn("fail", `со сбоем ${count.fail}`)}
+          {filterBtn("gone", `ушли ${count.gone}`)}
         </Opts>
       </PageHead>
       {rows.length ? (
@@ -97,14 +98,17 @@ export function MachinesScreen() {
               </div>,
               open[m] ? (
                 <div key={`${m}:det`} className="mc-det" data-machine={m}>
-                  <div className="mc-kv">
-                    <span>система</span>
-                    <span>{answer?.os}</span>
-                    <span>keeper</span>
-                    <span data-keeper={answer?.keeper}>{answer ? `${answer.keeper} · план rev ${answer.rev}` : ""}</span>
-                  </div>
+                  {answer ? (
+                    <div className="mc-kv">
+                      <span>система</span>
+                      <span>{answer.os}</span>
+                      <span>keeper</span>
+                      <span data-keeper={answer.keeper}>{`${answer.keeper} · план rev ${answer.rev}`}</span>
+                    </div>
+                  ) : null}
                   {word ? <Note tone="bad">{`keeper.state: ${word}`}</Note> : null}
-                  <div className="mc-parts">
+                  {!answer && !word ? <Note>…</Note> : null}
+                  {answer ? <div className="mc-parts">
                     {parts.map((p) => {
                       const key = `${m}:${p.part}`;
                       return (
@@ -115,15 +119,15 @@ export function MachinesScreen() {
                             {p.error ? <div className="e">{p.error}</div> : null}
                           </span>
                           {p.state === "failed" && p.part !== "keeper" ? (
-                            <Btn className="r" onClick={() => void (busy !== key && restart(m, p.part))}>
-                              {busy === key ? "Перезапускаю…" : "Перезапустить"}
+                            <Btn className="r" onClick={() => void restart(m, p.part)}>
+                              Перезапустить
                             </Btn>
                           ) : null}
                           <Outcome note={notes[key]} />
                         </div>
                       );
                     })}
-                  </div>
+                  </div> : null}
                   <Opts>
                     <Btn onClick={() => app.open("accounts", { machine: m })}>Аккаунты машины</Btn>
                     {app.wide ? <Btn onClick={() => app.open("settings", { tab: "releases", machine: m })}>План в «Выпусках»</Btn> : null}

@@ -55,6 +55,12 @@ export function fits(f: Filter, s: SessionRecord, t: { mine: boolean; owner: str
   return any(f.who, (w) => (w === MINE ? t.mine : w === t.owner)) && any(f.projects, (p) => p === t.project) && any(f.machines, (m) => m === machineOf(s.callsign)) && any(f.profiles, (p) => p === profileNameOf(s)) && any(f.states, (x) => x === s.state);
 }
 
+/** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */
+export function byUrgency(list: SessionRecord[]): SessionRecord[] {
+  const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" ? 1 : 2);
+  return [...list].sort((a, b) => rank(a) - rank(b) || (a.callsign < b.callsign ? -1 : 1));
+}
+
 /** Чипы по порядку: записанный ряд без пропавших, следом остальные. */
 export function chipOrder(filters: Filter[], row: string[] | undefined): string[] {
   const all = [MINE, ALL, ...filters.map((f) => f.id)];

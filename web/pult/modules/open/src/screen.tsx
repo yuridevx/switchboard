@@ -287,11 +287,11 @@ export function OpenScreen({ params }: ScreenProps) {
           </div>
         ) : null}
         <div className="op-ctx">
-          <Btn className="op-cx" data-pop="prof" aria-expanded={pop === "prof"} onClick={() => setPop(pop === "prof" ? null : "prof")}>
+          <Btn className="op-cx" data-pop="prof" disabled={!here} aria-expanded={pop === "prof"} onClick={() => setPop(pop === "prof" ? null : "prof")}>
             {profileOk ? <span className="k">Профиль</span> : null}
             <b>{profileOk ? profileName(profileOk) : "без профиля"}</b>
           </Btn>
-          <Btn className="op-cx" data-pop="model" aria-expanded={pop === "model"} onClick={() => setPop(pop === "model" ? null : "model")}>
+          <Btn className="op-cx" data-pop="model" disabled={!here} aria-expanded={pop === "model"} onClick={() => setPop(pop === "model" ? null : "model")}>
             {modelShown ? <b>{modelShown}</b> : null}
             <span className="k">{[modelShown ? "" : "Модель", effortShown ? effortName(effortShown) : "", slotLine, r2 ? "R2" : ""].filter(Boolean).join(" · ")}</span>
           </Btn>
@@ -304,7 +304,7 @@ export function OpenScreen({ params }: ScreenProps) {
         ) : null}
         <div className="op-foot">
           <Btn pri data-act="open" disabled={busy || !here} onClick={() => void open()}>
-            {text.trim() ? "Начать" : isNew ? "Создать и открыть" : "Открыть"}
+            {isNew ? "Создать и открыть" : text.trim() ? "Начать" : "Открыть"}
           </Btn>
         </div>
       </div>

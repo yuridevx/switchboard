@@ -19,7 +19,7 @@ function Link({ label, value }: { label: string; value: string }) {
     <Opts data-link={label}>
       {label ? <b className="st-lbl">{label}</b> : null}
       <Cmd className="st-link">{value}</Cmd>
-      <CopyButton text={value} />
+      <CopyButton text={value} label="Копировать" />
     </Opts>
   );
 }
@@ -184,9 +184,11 @@ export function Passes() {
   return (
     <>
       <Opts>
-        <Btn pri onClick={() => setForm(true)}>
-          Пригласить
-        </Btn>
+        {form || invited ? null : (
+          <Btn pri onClick={() => setForm(true)}>
+            Пригласить
+          </Btn>
+        )}
       </Opts>
       {form ? (
         <InviteForm
@@ -200,16 +202,18 @@ export function Passes() {
       ) : null}
       {invited ? <InvitedBlock invited={invited} done={() => st.setInvited(null)} /> : null}
       {passes.error ? <Note tone="bad">{`keys.list: ${passes.error}`}</Note> : null}
-      {word ? (
-        <Note tone="bad" role="alert">
-          {word}
-        </Note>
-      ) : null}
       {passes.data ? (
         <>
           <PassesTable title="Машины" rows={all.filter((p) => p.role === "host")} revoke={(p) => void revoke(p)} />
           <PassesTable title="Устройства и программы" rows={all.filter((p) => p.role !== "host")} revoke={(p) => void revoke(p)} />
         </>
+      ) : passes.error ? null : (
+        <Note>…</Note>
+      )}
+      {word ? (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
       ) : null}
     </>
   );

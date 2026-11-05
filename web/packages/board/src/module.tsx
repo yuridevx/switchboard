@@ -20,7 +20,7 @@ export function createBoard(app: App): AppModule {
     },
     commands: {
       "board.assign": { place: "open.after", run: (p) => void (p.project && b.assign(p.callsign, p.project)) },
-      "board.pin": { place: "card.menu", label: "Закрепить", show: (p) => !b.mine(p.callsign), run: (p) => b.setPinned(p.callsign, true) },
+      "board.pin": { place: "card.menu", label: "Закрепить", show: (p) => b.canPin(p.callsign), run: (p) => b.setPinned(p.callsign, true) },
       "board.unpin": { place: "card.menu", label: "Закреплена", show: (p) => b.isPinned(p.callsign), run: (p) => b.setPinned(p.callsign, false) },
     },
     marks: {

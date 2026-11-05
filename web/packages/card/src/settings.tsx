@@ -29,7 +29,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
   async function change(key: string, name: string, body: Record<string, unknown>) {
     say(key, "…");
     const r = await app.request<{ restart?: boolean }>(name, { callsign, ...body });
-    if (r.ok) say(key, r.result?.restart ? "Применится после хода" : "Применено", "ok");
+    if (r.ok) say(key, r.result?.restart ? "после хода" : "");
     else say(key, `Не вышло: ${r.error}`, "bad");
   }
   async function saveTitle(title: string) {

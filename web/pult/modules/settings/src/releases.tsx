@@ -129,11 +129,6 @@ function Plan({ machine, list, close, setPlan }: { machine: string; list?: Relea
         </Btn>
       </PageHead>
       <Note>{`план rev ${answer?.rev ?? "—"}${online ? "" : " · не на связи"}`}</Note>
-      {word ? (
-        <Note tone="bad" role="alert">
-          {word}
-        </Note>
-      ) : null}
       {names.map((name) => {
         const part = answer?.parts.find((p) => p.part === name);
         const entry = plan[name];
@@ -143,9 +138,7 @@ function Plan({ machine, list, close, setPlan }: { machine: string; list?: Relea
           <div key={name} className="st-part" data-part={name}>
             <PageHead>
               <b className="st-grow">{name}</b>
-              <span className={`st-cell ${cell.cls}`} title={cell.title}>
-                {cell.text}
-              </span>
+              <span className={`st-cell ${cell.cls}`}>{cell.text}</span>
             </PageHead>
             {part?.error ? <Note tone="bad">{part.error}</Note> : null}
             {cat ? (
@@ -182,6 +175,11 @@ function Plan({ machine, list, close, setPlan }: { machine: string; list?: Relea
           </div>
         );
       })}
+      {word ? (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      ) : null}
     </Sec>
   );
 }
@@ -222,9 +220,8 @@ export function ReleasesTab({ machine }: { machine?: string }) {
     return "";
   }
   async function setMany(part: string, change: { pin: string | null }) {
-    const list_ = marked;
+    const answers_ = await Promise.all(marked.map(async (m) => [m, await app.request("releases.set", { machine: m, part, ...change })] as const));
     setMarked([]);
-    const answers_ = await Promise.all(list_.map(async (m) => [m, await app.request("releases.set", { machine: m, part, ...change })] as const));
     const good = answers_.filter(([, r]) => r.ok).length;
     const bad = answers_.flatMap(([m, r]) => (r.ok ? [] : [`@${m} ${part}: ${wordText(r.error)}`]));
     app.toast([`${good} ${plural(good, "машина", "машины", "машин")}: план изменён`, ...bad].join("; "), bad.length ? "bad" : "ok");
@@ -254,12 +251,12 @@ export function ReleasesTab({ machine }: { machine?: string }) {
           {`keys.list: ${hosts.error}`}
         </Note>
       ) : null}
+      {view === "catalog" && list ? <Catalog list={list} reload={load.reload} /> : null}
       {deployed ? (
         <Note tone={deployed.tone} role={deployed.tone === "bad" ? "alert" : "status"}>
           {deployed.text}
         </Note>
       ) : null}
-      {view === "catalog" && list ? <Catalog list={list} reload={load.reload} /> : null}
       {view === "machines" ? (
         <>
           {list ? (
@@ -268,16 +265,15 @@ export function ReleasesTab({ machine }: { machine?: string }) {
               {Object.entries(list.parts)
                 .filter(([, p]) => p.where === "machine")
                 .map(([name, p]) => {
-                  const asked = online.filter((m) => okOf(answers[m]));
-                  const held = asked.filter((m) => okOf(answers[m])!.parts.find((x) => x.part === name)?.version === p.stable).length;
+                  const held = online.filter((m) => okOf(answers[m])?.parts.find((x) => x.part === name)?.version === p.stable).length;
                   const back = before(p);
                   return (
                     <div key={name} className="st-roll" data-roll={name}>
                       <span className="st-grow">
                         <b>{name}</b> <span className="sb-m">{p.stable}</span>
                       </span>
-                      <Meter className="st-bar" value={asked.length ? Math.round((100 * held) / asked.length) : 0} />
-                      <Note>{`${held} из ${asked.length} ${plural(asked.length, "машины", "машин", "машин")}`}</Note>
+                      <Meter className="st-bar" value={online.length ? Math.round((100 * held) / online.length) : 0} warn={held < online.length} />
+                      <Note>{`${held} из ${online.length} ${plural(online.length, "машины", "машин", "машин")}`}</Note>
                       {back ? <Btn onClick={() => void st.deploy(name, back, load.reload)}>{`Вернуть ${short(back)}`}</Btn> : null}
                     </div>
                   );
@@ -317,7 +313,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                       const answer = okOf(answers[m]);
                       const on = online.includes(m);
                       const cells = parts.map((p) => cellOf({ part: answer?.parts.find((x) => x.part === p), entry: planOf(m)[p], stable: list?.parts[p]?.stable, online: on }));
-                      const dot = !on ? "stop" : cells.some((c) => c.cls === "fail") ? "bad" : wordOf(answers[m]) || cells.some((c) => c.cls === "behind") ? "wait" : "idle";
+                      const dot = !on ? "stop" : wordOf(answers[m]) || cells.some((c) => c.cls === "fail" || c.cls === "behind") ? "wait" : "idle";
                       return (
                         <tr key={m} data-machine={m} aria-current={picked === m ? "true" : undefined}>
                           <td>
@@ -339,7 +335,7 @@ export function ReleasesTab({ machine }: { machine?: string }) {
                             </td>
                           ))}
                           <td>
-                            <Note>{on ? (answer ? `rev ${answer.rev}` : (wordOf(answers[m]) ? `keeper.state: ${wordOf(answers[m])}` : "")) : "не на связи"}</Note>
+                            <Note>{on ? (answer ? `rev ${answer.rev}` : (wordOf(answers[m]) ? `keeper: ${wordOf(answers[m])}` : "")) : "не на связи"}</Note>
                           </td>
                         </tr>
                       );

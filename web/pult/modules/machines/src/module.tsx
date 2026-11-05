@@ -9,8 +9,8 @@ import { MachinesScreen } from "./screen.tsx";
 export type MachinesState = ReturnType<typeof createMachinesState>;
 
 function createMachinesState(app: App) {
-  /** filter — переживает уход с экрана; seen — сессий у машины, какой её видели последний раз; gone — ушла при открытой странице; ledger — ответ журнала о прежнем уходе */
-  const s = createStore({ filter: "all", seen: {} as Record<string, number>, gone: {} as Record<string, number>, ledger: {} as Record<string, number> }, app.changed);
+  /** seen — сессий у машины, какой её видели последний раз; gone — ушла при открытой странице; ledger — ответ журнала о прежнем уходе */
+  const s = createStore({ seen: {} as Record<string, number>, gone: {} as Record<string, number>, ledger: {} as Record<string, number> }, app.changed);
   const asked = new Set<string>();
 
   function onRoster(r: Roster) {
@@ -35,7 +35,7 @@ function createMachinesState(app: App) {
     if (last?.ev === "machine.left") s.set((d) => void (d.ledger[machine] = last.t));
   }
 
-  return { get: s.get, onRoster, readLeft, setFilter: (f: string) => s.set((d) => void (d.filter = f)) };
+  return { get: s.get, onRoster, readLeft };
 }
 
 export function createMachines(app: App): AppModule {

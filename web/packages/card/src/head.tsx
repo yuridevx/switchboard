@@ -100,7 +100,7 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
           ✎
         </span>
       </span>
-      {session && head.haddr && name.human ? <span className="cw-real">{callsign}</span> : null}
+      {session && head.haddr ? <span className="cw-real">{callsign}</span> : null}
     </IconBtn>
   );
   if (!session) {
@@ -148,12 +148,14 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
                 app.run("models.load", { callsign });
               }}
             >
-              {`${[session.model, session.effort ? effortName(session.effort) : ""].filter(Boolean).join(" · ")} ▾`}
+              {`${[session.model, session.effort ? effortName(session.effort) : ""].filter(Boolean).join(" · ") || "модель"} ▾`}
             </Btn>
           ) : null}
-          <Btn className={cx("cw-hb", slot?.wait ? "you" : used >= LIMIT_WARN && "lim")} data-pop="acc" aria-expanded={pop === "acc"} onClick={() => toggle("acc")}>
-            {`${accountText} ▾`}
-          </Btn>
+          {session.account ? (
+            <Btn className={cx("cw-hb", slot?.wait ? "you" : used >= LIMIT_WARN && "lim")} data-pop="acc" aria-expanded={pop === "acc"} onClick={() => toggle("acc")}>
+              {`${accountText} ▾`}
+            </Btn>
+          ) : null}
           {pop === "model" ? (
             <div className="cw-pop l" role="dialog" aria-label="Модель и усилие">
               <span className="lb">Модель</span>
@@ -210,8 +212,12 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
                     <dd>{profileNameOf(session)}</dd>
                   </>
                 ) : null}
-                <dt>папка</dt>
-                <dd>{String(session.dir ?? "—")}</dd>
+                {session.dir ? (
+                  <>
+                    <dt>папка</dt>
+                    <dd>{String(session.dir)}</dd>
+                  </>
+                ) : null}
                 <dt>машина</dt>
                 <dd>{`@${machine}`}</dd>
                 {incidentOf(session) ? (
@@ -222,11 +228,6 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
                 ) : null}
               </dl>
               <hr />
-              {remoteOf(session) ? (
-                <a className="cw-mi" href={remoteOf(session)} target="_blank" rel="noopener noreferrer" role="menuitem">
-                  Открыть в claude.ai ↗
-                </a>
-              ) : null}
               <RowBtn
                 className="cw-mi"
                 role="menuitemcheckbox"
@@ -239,6 +240,11 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
               >
                 Сведения сбоку
               </RowBtn>
+              {remoteOf(session) ? (
+                <a className="cw-mi" href={remoteOf(session)} target="_blank" rel="noopener" role="menuitem">
+                  Открыть в claude.ai ↗
+                </a>
+              ) : null}
             </div>
           ) : null}
         </span>
