@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -342,7 +343,13 @@ func TestEtSavedPlanWithoutRelay(t *testing.T) {
 	s := newStand(t)
 	s.savePlan(plan1(7, s.links.part("capture", "1.3.2", appFiles(""), on)))
 	saveConf(s.home, map[string]any{}) // relay нет
-	putHeldFile(s.home, heldFile{ID: "capture", Owner: "keeper", Pid: os.Getpid(), Port: silentHolder(t), Key: "k", Tag: "1.3.2"})
+	// процесс части — отдельный: уборка стенда убивает процессы по pid из файлов держателей
+	child := exec.Command(self(), "app", "deaf")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { child.Process.Kill(); child.Wait() })
+	putHeldFile(s.home, heldFile{ID: "capture", Owner: "keeper", Pid: child.Process.Pid, Port: silentHolder(t), Key: "k", Tag: "1.3.2"})
 	start := time.Now()
 	k := s.start()
 	waitFor(t, "running без связи", running(k, "capture", ""))
