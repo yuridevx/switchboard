@@ -145,6 +145,25 @@ describe("упаковка модуля", () => {
     expect(() => packModule(d)).toThrow(word);
   });
 
+  it("байты архива не зависят от переводов строк клона: тот же модуль с CRLF и с LF — один хэш; двоичный файл — как есть", () => {
+    // источник: главная сессия 6 нояб., факт CI 42119677969: host 1.3.6 из клона с CRLF и из клона с LF — два sha256, upload отвечает version_exists
+    const binary = Buffer.from([0, 13, 10, 1]);
+    const clone = (eol: string, type: string, file: string, code: string) => {
+      const d = tmp();
+      writeFileSync(join(d, "module.json"), `{\n  "name": "m",\n  "type": "${type}",\n  "version": "1.0.0"\n}\n`.replaceAll("\n", eol));
+      writeFileSync(join(d, "contract.ts"), code.replaceAll("\n", eol));
+      writeFileSync(join(d, file), "a {\n  color: red;\n}\n".replaceAll("\n", eol));
+      writeFileSync(join(d, "icon.png"), binary);
+      return d;
+    };
+    const host = (eol: string) => packModule(clone(eol, "sdk", "a.css", "export const a = 1;\n"));
+    expect(host("\r\n").sha).toBe(host("\n").sha);
+    expect(entries(host("\r\n").tgz).find((e) => e.path === "icon.png")!.data).toEqual(binary);
+    // стили страницы кладутся в код текстом
+    const page = (eol: string) => packFromRepo(clone(eol, "web", "a.css", 'import css from "./a.css";\nexport default css;\n'));
+    expect(page("\r\n").sha).toBe(page("\n").sha);
+  });
+
   it("5131 · 5167 · модуль страницы монорепо — module.json и один ES-файл (другие модули страницы — внешние импорты, протокол — внутри) и рядом папка пакета с контрактом и стендом; тот же код — тот же хэш", async () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): «Веб: один файл ES-модуля»
     const p = packFromRepo(join(root, "web/pult/modules/points"));
