@@ -47,7 +47,8 @@ export function startApp(o: StartOptions): Running {
 
   function ask(f: Frame, read: boolean): Promise<Reply> {
     if (!link) return Promise.resolve(refuse("", "disconnected"));
-    const r = link.request(f, read);
+    const real = (g: Frame) => (link ? link.request(g, read) : Promise.resolve(refuse("", "disconnected")));
+    const r = o.seam ? o.seam.request(f, read, real) : real(f);
     pending.add(r);
     void r.finally(() => pending.delete(r));
     return r;
@@ -129,7 +130,8 @@ export function startApp(o: StartOptions): Running {
     bus.changed();
   }
 
-  function takeRoster(r: Roster) {
+  function takeRoster(given: Roster) {
+    const r = o.seam ? o.seam.roster(given) : given;
     core.roster = r;
     core.rosterAt = Date.now();
     for (const e of modules.entries) {
@@ -164,7 +166,7 @@ export function startApp(o: StartOptions): Running {
             stop(why ?? "");
           }
           if (roster) {
-            core.roster = roster;
+            core.roster = o.seam ? o.seam.roster(roster) : roster;
             core.address = address ?? core.address;
             core.lost = null;
           }

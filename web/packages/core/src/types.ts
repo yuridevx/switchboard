@@ -1,6 +1,7 @@
 // Договор модуля веб-приложения: что модуль отдаёт ядру и что ядро даёт модулю.
 import type { ComponentType, ReactNode } from "react";
 import type { Frame, Roster } from "@switchboard/relay";
+import type { Reply } from "@switchboard/protocol";
 import type { App, ConnState, Ctx, Params } from "@switchboard/web-ui";
 import type { Store } from "./store.ts";
 
@@ -160,6 +161,11 @@ export type StartOptions = {
   pauseMs?: number;
   /** окно и документ; по умолчанию глобальные */
   window?: Window;
+  /**
+   * Шов между модулями и связью — для стендов, прототипа и тестов. request: каждый запрос модуля, read — только читает,
+   * real — отправить настоящий; roster: каждый roster до модулей.
+   */
+  seam?: { request(f: Frame, read: boolean, real: (f: Frame) => Promise<Reply>): Promise<Reply>; roster(r: Roster): Roster };
 };
 
 /** Запущенное приложение — для стенда и тестов. */
