@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: block-status-shared-base-neighbour
-expected_outcome: |
-  Хук Stop видит отступление и возвращает агента к работе.

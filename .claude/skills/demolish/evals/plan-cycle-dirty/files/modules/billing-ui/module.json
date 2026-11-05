@@ -1,1 +1,0 @@
-{ "name": "billing-ui", "provides": ["renderInvoice"], "uses": ["_raw@billing-api"] }

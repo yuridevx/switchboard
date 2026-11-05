@@ -1,1 +1,0 @@
-{ "name": "orders-api", "provides": ["placeOrder", "listOrders"], "uses": ["putOrder@orders-store", "allOrders@orders-store", "send@shared-http"] }

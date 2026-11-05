@@ -1,1 +1,0 @@
-{ "name": "billing-store", "provides": ["saveInvoice", "loadInvoice"], "uses": [] }
