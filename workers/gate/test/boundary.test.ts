@@ -2,11 +2,11 @@
 // Вход — POST кадра, методы входа Gate, entrance и gateStand из контракта. Исход — ответ, строка базы, строка журнала.
 // Номер — эталон-источник; свойства без пометки — чьё: код. Формат пропуска и схема базы заморожены: пропуска уже выданы на машины.
 import { exports, env as rawEnv } from "cloudflare:workers";
-import { applyD1Migrations, type D1Migration } from "cloudflare:test";
+import { applyD1Migrations, createExecutionContext, type D1Migration } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_FRAME, type Frame } from "@switchboard/protocol";
 import { entrance, type GateApi, type Pass, type VerifyResult } from "../contract.ts";
-import worker from "../src/index.ts";
+import worker, { Gate } from "../src/index.ts";
 
 type Stand = GateApi & { setHosts(names: string[]): Promise<void> };
 type TestEnv = { DB: D1Database; PROD: D1Database; TEST_MIGRATIONS: D1Migration[]; TEST_SEED: { sql: string; invite: string }; STAND: Stand };
@@ -98,8 +98,30 @@ describe("приглашение и приём", () => {
   it("gate.redeem: секрет приглашения не тот — bad_invite, строка ждёт дальше", async () => {
     const inv = await invited({ role: "host", name: "laptop" });
     expect(await post({ type: "gate.redeem", invite: `${inv.kid}.${"A".repeat(43)}` })).toMatchObject({ ok: false, error: "bad_invite" });
+    expect(logs).toContainEqual(`bad_invite приглашения ${inv.kid} нет, оно принято или отозвано`);
     expect((await row(inv.kid))!.state).toBe("wait");
     expect(await post({ type: "gate.redeem", invite: inv.invite })).toMatchObject({ ok: true });
+  });
+
+  it("одно приглашение, два приёма разом → один пропуск, второй bad_invite", async () => {
+    const inv = await invited({ role: "host", name: "laptop" });
+    const both = await Promise.all([post({ type: "gate.redeem", invite: inv.invite }), post({ type: "gate.redeem", invite: inv.invite })]);
+    expect(both.map((r) => r.ok).sort()).toEqual([false, true]);
+    expect(both.find((r) => !r.ok)!.error).toBe("bad_invite");
+    expect(await gate.verify(both.find((r) => r.ok)!.result.key)).toMatchObject({ addr: "@laptop" });
+  });
+
+  it("at в миллисекундах: время выдачи, с приёмом — время приёма; by остаётся; их показывает список", async () => {
+    const from = Date.now();
+    const inv = await invited({ role: "host", name: "laptop" });
+    const waiting = (await row(inv.kid))!;
+    expect(waiting.at).toBeGreaterThanOrEqual(from);
+    expect(waiting.at).toBeLessThanOrEqual(Date.now());
+    await new Promise((r) => setTimeout(r, 2));
+    await post({ type: "gate.redeem", invite: inv.invite });
+    const taken = (await row(inv.kid))!;
+    expect(taken.by).toBe(waiting.by);
+    expect(taken.at).toBeGreaterThan(waiting.at as number);
   });
 
   it("5013 · инструкция настоящего seed → в базе строка «ждёт приёма»; redeem даёт пропуск, который проходит verify", async () => {
@@ -158,7 +180,10 @@ describe("приглашение и приём", () => {
     ["client без почты", { role: "client", name: "phone" }, "person — почта человека за устройством или программой"],
     ["почта без @", { role: "client", name: "phone", person: "owner" }, "person — почта человека за устройством или программой"],
     ["почта с ~", { role: "client", name: "phone", person: "o~w@x" }, "person — почта человека за устройством или программой"],
+    ["почта с пробелом", { role: "client", name: "phone", person: "o w@x" }, "person — почта человека за устройством или программой"],
+    ["почта с двумя @", { role: "client", name: "phone", person: "o@w@x" }, "person — почта человека за устройством или программой"],
     ["у машины почта", { role: "host", name: "laptop", person: "a@b" }, "у машины person нет"],
+    ["у машины почта null", { role: "host", name: "laptop", person: null }, "у машины person нет"],
   ])("keys.invite: %s → bad_request, причина в журнале, строки нет", async (_n, fields, why) => {
     const by = await agent();
     const who = (await gate.verify(by)) as { addr: string };
@@ -306,6 +331,16 @@ describe("вход по адресу gate", () => {
     expect(r.headers.get("access-control-allow-origin")).toBe("*");
     expect(await r.json()).toEqual({ type: "reply", id: "d1", ok: false, error: "gate_unavailable" });
     expect(logs).toContain("gate_unavailable D1_ERROR: недоступна");
+  });
+
+  it.each([
+    ["verify", (g: GateApi) => g.verify(`host.laptop.k7f3.${"A".repeat(43)}`)],
+    ["revoke", (g: GateApi) => g.revoke("k7f3")],
+    ["revoked", (g: GateApi) => g.revoked(["k7f3"])],
+    ["list", (g: GateApi) => g.list()],
+  ] as Array<[string, (g: GateApi) => Promise<unknown>]>)("5014 · база не ответила: привязка %s бросает, это не слово отказа", async (_n, call) => {
+    const down = { DB: { prepare() { throw new Error("D1_ERROR: недоступна"); } } } as never;
+    await expect(call(new Gate(createExecutionContext(), down) as unknown as GateApi)).rejects.toThrow("D1_ERROR: недоступна");
   });
 
   it.each([
