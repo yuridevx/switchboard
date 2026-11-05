@@ -22,9 +22,13 @@ import (
 	"switchboard/keeper/internal/machine"
 )
 
+// holderDial — соединение с живым держателем и ответ на ключ.
+const holderDial = 5 * time.Second
+
 // Options — пределы и свой файл. Ноль — значения работы.
 type Options struct {
 	Version string
+	// HolderWait — старт нового держателя: файл на занятой машине под антивирусом стартует дольше 5 с (опыт 5 нояб.), а часть failed до правки плана.
 	// StopLimit — выход части после «закрой ввод» и после «убей», setup версии, проверка нового файла keeper: 1 мин — больше предела остановки Host (30 с)
 	// и вдвое выше самой долгой установки Host (21 с)
 	StopLimit, PlanWait, Ping, PauseFirst, PauseMax, Download, HolderWait time.Duration
@@ -36,7 +40,7 @@ func (o *Options) fill() {
 		v   *time.Duration
 		def time.Duration
 	}{{&o.StopLimit, time.Minute}, {&o.PlanWait, 30 * time.Second}, {&o.Ping, 30 * time.Second}, {&o.PauseFirst, time.Second},
-		{&o.PauseMax, time.Minute}, {&o.Download, 10 * time.Minute}, {&o.HolderWait, 5 * time.Second}} {
+		{&o.PauseMax, time.Minute}, {&o.Download, 10 * time.Minute}, {&o.HolderWait, 30 * time.Second}} {
 		if *d.v == 0 {
 			*d.v = d.def
 		}

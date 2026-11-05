@@ -61,17 +61,17 @@ func (k *Keeper) adopt(pl *Plan) {
 		if f.Owner != "keeper" {
 			continue
 		}
-		c, hello, err := holder.Dial(f, k.o.HolderWait)
+		c, hello, err := holder.Dial(f, holderDial)
 		if err != nil {
-			k.note(f.ID, "adopt", "id", f.ID, "why", "держатель не отвечает — файл убран: "+err.Error())
+			k.note("keeper", "adopt", "id", f.ID, "why", "держатель не отвечает — файл убран: "+err.Error())
 			holder.Remove(k.home, f.ID)
 			continue
 		}
 		e := pl.find(f.ID)
 		if e == nil || f.ID == selfName {
-			k.note(f.ID, "orphan_kill", "id", f.ID, "why", "части нет в плане")
+			k.note("keeper", "orphan_kill", "id", f.ID, "why", "части нет в плане")
 			c.Kill()
-			c.Limit(k.o.HolderWait)
+			c.Limit(holderDial)
 			c.Read(func([]byte) {})
 			c.Close()
 			continue
@@ -80,7 +80,7 @@ func (k *Keeper) adopt(pl *Plan) {
 		if f.Tag == e.Version {
 			env = e.Env
 		}
-		k.note(f.ID, "adopt", "id", f.ID, "pid", hello.Pid, "version", f.Tag, "buffered", hello.Buffered)
+		k.note("keeper", "adopt", "id", f.ID, "pid", hello.Pid, "version", f.Tag, "buffered", hello.Buffered)
 		k.attach(k.slot(f.ID), c, hello.Pid, f.Tag, env)
 	}
 }
@@ -223,7 +223,7 @@ func (k *Keeper) launch(p *part, e Entry, a app) error {
 	if err != nil {
 		return fmt.Errorf("запуск: %w", err)
 	}
-	c, hello, err := holder.Dial(f, k.o.HolderWait)
+	c, hello, err := holder.Dial(f, holderDial)
 	if err != nil {
 		return fmt.Errorf("запуск: %w", err)
 	}
