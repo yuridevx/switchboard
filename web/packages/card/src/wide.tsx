@@ -1,74 +1,71 @@
-// Карточка в широком виде (пульт), по прототипу «Пульт и телефон»: шапка — одна строка, плашка — только у не запустившейся,
-// сведения сбоку — по желанию. Вкладки: «Разговор» · вкладки места card.tab · «Настройки» · «Журнал».
-// Поле — у своего владельца: модель, усилие, быстрый режим, заголовок — session.update; слот — session.slot; профиль — session.profile;
-// итог изменения — из следующего roster. Нет имени в contract — нет кнопки.
-import { useState } from "react";
-import type { Params } from "@switchboard/web-core";
+// Широкая карточка: шапка, плашка сбоя, вкладки и сведения сбоку.
+import { useCallback, useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { type AccountsAnswer, Btn, failText, isLive, useApp, useMachineLoad } from "@switchboard/web-ui";
-import { WideAside } from "./aside.tsx";
-import { WideHead } from "./head.tsx";
-import { LogTab } from "./log.tsx";
-import { Names, tabIn, useCan, useSession } from "./session.tsx";
+import { Btn, failText, sessionOf, Tabs, useApp, useMachineLoad, useModule, type AccountsAnswer } from "@switchboard/web-ui";
+import { Aside } from "./aside.tsx";
+import { Head } from "./head.tsx";
+import { Log } from "./log.tsx";
 import { SetTab } from "./settings.tsx";
-import { useCard } from "./state.ts";
+import type { CardState } from "./state.ts";
 
-export type WideData = ReturnType<typeof useWideData>;
+type Pop = "model" | "acc" | "menu" | null;
 
-/** Аккаунты и слоты одним ответом на время экрана: их читают и шапка, и настройки. */
-function useWideData(machine: string) {
-  const q = useMachineLoad<AccountsAnswer>(machine, "machine.accounts");
-  return {
-    accounts: q.data ? q.data.accounts : null,
-    reloadAccounts: q.reload,
-    slots: q.data ? q.data.slots : null,
-    /** отказ чтения: на месте слотов — слово, а не «без слота» */
-    word: q.error,
-  };
-}
-
-export function WideCard({ params }: { params: Params }) {
+export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) {
   const app = useApp();
-  const card = useCard();
-  const callsign = params.callsign ?? "";
+  const card = useModule<CardState>();
   const machine = machineOf(callsign) ?? "";
-  const s = useSession(callsign);
-  const can = useCan(machine);
-  const info = app.use(card.info);
-  const placed = app.use(() => app.placed("card.tab", { callsign }));
-  const data = useWideData(machine);
-  const [picked, select] = useState(params.tab ?? "chat");
+  const session = app.use(() => sessionOf(app, callsign));
+  const info = app.use(() => card.get().info);
+  const hasLog = app.use(() => app.can(machine, "machine.journal") === true);
+  const inserts = app.use(() => app.placed("card.tab", { callsign }));
+  const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts").data;
+  const [chosen, setChosen] = useState(tab ?? "chat");
+  const [pop, setPopState] = useState<Pop>(null);
   const [names, setNames] = useState(false);
+  const setPop = useCallback((p: Pop) => setPopState(p), []);
 
-  const tabs: Array<[string, string]> = [["chat", "Разговор"], ...placed.map((t): [string, string] => [t.name, t.label]), ["set", "Настройки"], ...(can("machine.journal") ? ([["log", "Журнал"]] as Array<[string, string]>) : [])];
-  const tab = tabIn(picked, tabs, "set");
-  const failed = s?.state === "failed";
+  const list: Array<[string, string]> = [["chat", "Разговор"], ...inserts.map((p): [string, string] => [p.name, p.label]), ["set", "Настройки"], ...(hasLog ? [["log", "Журнал"] as [string, string]] : [])];
+  // вкладки нет (машина не умеет, вставка пропала) — «Настройки»
+  const cur = list.some(([k]) => k === chosen) ? chosen : "set";
+  const failed = session?.state === "failed";
+
+  async function start() {
+    const r = await app.request("session.start", { callsign });
+    if (!r.ok) app.toast(`${callsign}: «Запустить» — ${r.error}`);
+  }
+  async function update(field: "model" | "effort", value: string) {
+    setPop(null);
+    const r = await app.request("session.update", { callsign, [field]: value });
+    if (!r.ok) app.toast(`${callsign}: ${field === "model" ? "модель" : "усилие"} — ${r.error}`);
+  }
+
   return (
     <>
-      <div className="cw">
-        <WideHead callsign={callsign} machine={machine} s={s} can={can} data={data} tabs={tabs} tab={tab} select={select} openNames={() => setNames(true)} />
-        <div className="cw-pl" role="status" hidden={!failed}>
-          {failed ? (
-            <>
-              <b>{`Не запустилась${failText(s!) ? ": " + failText(s!) : ""}`}</b>
-              {can("machine.journal") ? <Btn onClick={() => select("log")}>Почему</Btn> : null}
-            </>
-          ) : null}
-        </div>
-        <div className={"cw-body" + (info ? " info" : "")}>
-          <div className="cw-place">
-            {tab === "log" ? (
-              <LogTab machine={machine} callsign={callsign} />
-            ) : tab === "set" ? (
-              <SetTab machine={machine} callsign={callsign} s={s} can={can} live={isLive(s?.state)} data={data} />
-            ) : (
-              <app.Slot key={tab} screen={tab} params={{ callsign }} />
-            )}
-          </div>
-          {info ? <WideAside callsign={callsign} s={s} /> : null}
-        </div>
+    <div className="cw">
+      <Head callsign={callsign} session={session} accounts={accounts} pop={pop} setPop={setPop} openNames={() => setNames(true)} setTab={setChosen} start={() => void start()} update={(f, v) => void update(f, v)} tabs={<Tabs className="cw-tabs" tabs={list} cur={cur} pick={setChosen} />} />
+      <div className="cw-pl" role="status" hidden={!failed}>
+        {failed ? (
+          <>
+            <b>{`Не запустилась${failText(session!) ? `: ${failText(session!)}` : ""}`}</b>
+            {hasLog ? <Btn onClick={() => setChosen("log")}>Почему</Btn> : null}
+          </>
+        ) : null}
       </div>
-      {names ? <Names callsign={callsign} close={() => setNames(false)} /> : null}
+      <div className={info ? "cw-body info" : "cw-body"}>
+        <div className="cw-place">
+          {cur === "chat" ? <app.Slot screen="chat" params={{ callsign }} /> : null}
+          {cur === "set" ? <SetTab callsign={callsign} session={session} /> : null}
+          {cur === "log" ? <Log callsign={callsign} /> : null}
+          {inserts.some((p) => p.name === cur) ? <app.Slot screen={cur} params={{ callsign }} /> : null}
+        </div>
+        {info ? <Aside callsign={callsign} session={session} /> : null}
+      </div>
+    </div>
+      {names ? (
+        <div>
+          <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} />
+        </div>
+      ) : null}
     </>
   );
 }

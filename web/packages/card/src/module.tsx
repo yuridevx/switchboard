@@ -1,50 +1,41 @@
-// web-card — карточка сессии: шапка из roster, вкладки «Чат» (экран chat в месте карточки), вкладки места card.tab
-// и «Сведения» (поля roster как прислали владельцы; остановить и поднять — если они есть в contract машины).
-// Здесь — только связка с ядром: состояние — state.ts, узкий вид — narrow.tsx, широкий (пульт) — wide.tsx.
-import type { App, AppModule, ScreenProps } from "@switchboard/web-core";
-import { Chip, Choices, useApp } from "@switchboard/web-ui";
+// web-card — карточка сессии: узкий вид телефона и широкий вид пульта над одним стором.
+import type { AppModule, ScreenProps } from "@switchboard/web-core";
+import { effortName, folderOf, machineLabel, sessionLabel, sessionOf, stateLabel, useApp, type App } from "@switchboard/web-ui";
+import { machineOf } from "@switchboard/protocol";
 import css from "./card.css";
+import { HeadUnits } from "./head.tsx";
 import { NarrowCard } from "./narrow.tsx";
-import { createCardState, useCard, type HeadView } from "./state.ts";
+import { createCardState } from "./state.ts";
 import { WideCard } from "./wide.tsx";
 
 function CardScreen({ params }: ScreenProps) {
   const app = useApp();
-  return app.wide ? <WideCard params={params} /> : <NarrowCard params={params} />;
+  return app.wide ? <WideCard callsign={params.callsign} tab={params.tab} /> : <NarrowCard callsign={params.callsign} tab={params.tab} />;
 }
 
-const HEAD_UNITS: Array<[keyof HeadView, string, string]> = [["haddr", "Адрес", "Адрес сессии"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"]];
-
-/** Группа «Шапка» в панели вида «Работы»: настройки шапки — у карточки. */
-function HeadPanel() {
-  const app = useApp();
-  const card = useCard();
-  const view = app.use(card.head);
-  return (
-    <Choices title="Шапка">
-      {HEAD_UNITS.map(([k, label, full]) => (
-        <Chip key={k} on={!!view[k]} data-v={k} aria-label={full} onClick={() => card.toggleHead(k)}>
-          {label}
-        </Chip>
-      ))}
-    </Choices>
-  );
-}
-
-/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
 export function createCard(app: App): AppModule {
   const card = createCardState(app);
   return {
     state: card,
+    on: { show: card.load },
     screens: {
-      card: { label: "Карточка", view: CardScreen, head: card.screenHead },
-      "card.view": { label: "Шапка", path: "card-view", view: HeadPanel },
+      card: {
+        label: "Карточка",
+        view: CardScreen,
+        head({ callsign }) {
+          const s = sessionOf(app, callsign);
+          const name = sessionLabel(app, callsign);
+          const head = { title: name.text, mono: !name.human };
+          if (app.wide) return s ? { ...head, sub: [s.model, effortName(s.effort)].filter(Boolean).join(" · ") } : head;
+          const at = machineLabel(app, machineOf(callsign) ?? "").text;
+          return s ? { ...head, sub: `${at} · папка ${folderOf(s.dir)}`, dot: stateLabel(s.state).dot } : { ...head, sub: `${at} не на связи` };
+        },
+      },
+      "card.view": { label: "Шапка", path: "card-view", view: HeadUnits },
     },
-    commands: { "card.head.reset": { run: card.resetHead } },
-    // настройка могла измениться в другой вкладке: возвращение страницы читает её заново
-    on: { show: card.start },
-    css,
+    commands: { "card.head.reset": { run: () => card.setHead({ haddr: false, howner: true, hprof: true, hmodel: true }) } },
     store: ["card.info", "card.head"],
-    start: card.start,
+    css,
+    start: card.load,
   };
 }

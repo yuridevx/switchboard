@@ -1,135 +1,142 @@
-// Вкладка «Настройки» широкой карточки: профиль, быстрый режим, заголовок, слот, остановка и удаление.
+// Вкладка «Настройки»: профиль, быстрый режим, заголовок, слот, пуск и стоп, убрать. Раздел виден, если машина умеет его запрос.
 import { useState } from "react";
-import type { SessionRecord } from "@switchboard/web-core";
-import { Btn, CommitIn, Note, Outcome, type OutcomeNote, profileIdOf, profileName, type ProfilesAnswer, slotOf, useApp, useMachineLoad, useOutcome } from "@switchboard/web-ui";
-import { isDown, useSessionActions, type Can } from "./session.tsx";
-import type { WideData } from "./wide.tsx";
+import { machineOf } from "@switchboard/protocol";
+import type { SessionRecord } from "@switchboard/relay";
+import { Btn, CommitIn, isLive, Note, Outcome, profileIdOf, profileName, slotOf, useApp, useMachineLoad, useOutcome, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
 
-/** Выбор варианта: нажат текущий — запроса нет. */
-function Choice({ section, attr, label, options, current, word, note, pick, nameOf }: { section: string; attr: "data-profile" | "data-slot"; label: string; options: string[]; current: string; word: string; note?: OutcomeNote; pick(v: string): void; nameOf(v: string): string }) {
-  return (
-    <div className="cw-fs" data-sec={section}>
-      <span className="lb">{label}</span>
-      {word ? (
-        <Note tone="bad" data-refused={section}>{word}</Note>
-      ) : (
-        <div className="cw-opts flat">
-          {[...options, ""].map((v) => (
-            <Btn key={v} aria-pressed={current === v ? "true" : "false"} {...{ [attr]: v }} onClick={() => v !== current && pick(v)}>
-              {nameOf(v)}
-            </Btn>
-          ))}
-        </div>
-      )}
-      <Outcome className="cw-note" note={note} />
-    </div>
-  );
-}
+const Refused = ({ what, text }: { what: string; text: string }) => (
+  <Note tone="bad" data-refused={what}>
+    {text}
+  </Note>
+);
 
-export function SetTab({ machine, callsign, s, can, live, data }: { machine: string; callsign: string; s: SessionRecord | undefined; can: Can; live: boolean; data: WideData }) {
+export function SetTab({ callsign, session }: { callsign: string; session?: SessionRecord }) {
   const app = useApp();
-  const actions = useSessionActions(callsign);
-  const [notes, note] = useOutcome();
-  const spec = useMachineLoad<{ title?: string | null }>(machine, "session.spec", { callsign });
+  const machine = machineOf(callsign) ?? "";
+  const can = (name: string) => app.can(machine, name) === true;
   const profiles = useMachineLoad<ProfilesAnswer>(machine, "machine.profiles");
-  const [removing, setRemoving] = useState(false);
+  const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts");
+  const spec = useMachineLoad<{ title?: string }>(machine, "session.spec", { callsign });
+  const [notes, say] = useOutcome();
+  const [confirm, setConfirm] = useState(false);
+  app.use(() => app.roster()?.machines.find((m) => m.machine === machine)?.contract);
 
-  async function move(name: "session.slot" | "session.profile", key: "slot" | "profile", value: string) {
-    note(key, "…");
-    const r = await app.request<{ restart?: boolean }>(name, { callsign, [key]: value || null });
-    if (!r.ok) return note(key, `Не вышло: ${r.error}`, "bad");
-    note(key, r.result?.restart ? "после хода" : "", "ok");
+  const live = isLive(session?.state);
+  const down = session?.state === "stopped" || session?.state === "failed";
+  const curProfile = profileIdOf(session) ?? "";
+  const curSlot = slotOf(session)?.name ?? "";
+
+  /** Смена с итогом в своём разделе: сразу или «после хода». */
+  async function change(key: string, name: string, body: Record<string, unknown>) {
+    say(key, "…");
+    const r = await app.request<{ restart?: boolean }>(name, { callsign, ...body });
+    if (r.ok) say(key, r.result?.restart ? "после хода" : "", "ok");
+    else say(key, `Не вышло: ${r.error}`, "bad");
   }
-
-  /** Заголовок уходит, когда ввод подтверждён; владелец значения — session.spec. */
   async function saveTitle(title: string) {
-    const word = await actions.send("session.update", { title });
-    if (word) return note("title", `Не вышло: ${word}`, "bad");
-    spec.reload();
-    note("title", "");
+    const r = await app.request("session.update", { callsign, title });
+    if (r.ok) {
+      say("title", "");
+      spec.reload();
+    } else say("title", `Не вышло: ${r.error}`, "bad");
+  }
+  async function setFast(fast: boolean) {
+    const r = await app.request("session.update", { callsign, fast });
+    if (!r.ok) app.toast(`${callsign}: быстрый режим — ${r.error}`);
+  }
+  async function ctl(name: string) {
+    say("ctl", "");
+    const r = await app.request(name, { callsign });
+    if (!r.ok) say("ctl", `${name}: ${r.error}`, "bad");
+  }
+  async function remove() {
+    const r = await app.request("session.remove", { callsign });
+    if (r.ok) app.back();
+    else say("ctl", `session.remove: ${r.error}`, "bad");
   }
 
-  async function act(name: "session.stop" | "session.start" | "session.remove") {
-    if (!(await actions.act(name)) && name === "session.remove") app.back();
-  }
+  const refusal = (answer: { data?: unknown; error: string }, cur: string) => (answer.error && !answer.data ? [cur, answer.error].filter(Boolean).join(" · ") : "");
+  const profileWord = refusal(profiles, curProfile && profileName(curProfile));
+  const slotWord = refusal(accounts, curSlot);
 
-  const profNow = profileIdOf(s) ?? "";
-  const slotNow = slotOf(s)?.name ?? "";
-  const fast = !!(s?.fast as boolean | undefined);
   return (
     <div className="cw-set">
       {can("session.profile") ? (
-        <Choice
-          section="profile"
-          attr="data-profile"
-          label="Профиль"
-          options={profiles.data ? Object.keys(profiles.data.profiles ?? {}) : profNow ? [profNow] : []}
-          current={profNow}
-          word={profiles.error && !profiles.data ? `${profNow ? `${profileName(profNow)} · ` : ""}${profiles.error}` : ""}
-          note={notes.profile}
-          pick={(v) => void move("session.profile", "profile", v)}
-          nameOf={(v) => (v ? profileName(v) : "без профиля")}
-        />
+        <div className="cw-fs" data-sec="profile">
+          <span className="lb">Профиль</span>
+          {profileWord ? (
+            <Refused what="profile" text={profileWord} />
+          ) : (
+            <div className="cw-opts flat">
+              {[...Object.keys(profiles.data?.profiles ?? {}), ""].map((id) => (
+                <Btn key={id} aria-pressed={id === curProfile ? "true" : "false"} data-profile={id} onClick={() => void (id !== curProfile && change("profile", "session.profile", { profile: id || null }))}>
+                  {id ? profileName(id) : "без профиля"}
+                </Btn>
+              ))}
+            </div>
+          )}
+          <Outcome className="cw-note" note={notes.profile} />
+        </div>
       ) : null}
       {can("session.update") ? (
         <label className="cw-sw" data-sec="fast">
-          <Btn role="switch" aria-checked={fast ? "true" : "false"} aria-pressed={fast ? "true" : "false"} onClick={() => void actions.update({ fast: !fast }, "быстрый режим")}>
-            {fast ? "вкл" : "выкл"}
+          <Btn role="switch" aria-checked={session?.fast === true} aria-pressed={session?.fast === true ? "true" : "false"} onClick={() => void setFast(session?.fast !== true)}>
+            {session?.fast === true ? "вкл" : "выкл"}
           </Btn>
           <span>Быстрый режим</span>
         </label>
       ) : null}
-      {can("session.update") ? (
+      {can("session.spec") ? (
         <div className="cw-fs" data-sec="title">
           <span className="lb">Заголовок</span>
-          {spec.error && !spec.data ? (
-            <Note tone="bad" data-refused="title">{spec.error}</Note>
-          ) : (
-            <CommitIn className="cw-in" data-f="title" placeholder="Заголовок в claude.ai" value={spec.data?.title ?? ""} onCommit={(v) => void saveTitle(v)} />
-          )}
+          {spec.error && !spec.data ? <Refused what="title" text={spec.error} /> : <CommitIn className="cw-in" data-f="title" placeholder="Заголовок в claude.ai" value={spec.data?.title ?? ""} onCommit={(t) => void saveTitle(t)} />}
           <Outcome className="cw-note" note={notes.title} />
         </div>
       ) : null}
       {can("session.slot") ? (
-        <Choice
-          section="slot"
-          attr="data-slot"
-          label="Слот"
-          options={Object.keys(data.slots ?? (slotNow ? { [slotNow]: 1 } : {}))}
-          current={slotNow}
-          word={data.word && !data.slots ? `${slotNow ? `${slotNow} · ` : ""}${data.word}` : ""}
-          note={notes.slot}
-          pick={(v) => void move("session.slot", "slot", v)}
-          nameOf={(v) => v || "без слота"}
-        />
+        <div className="cw-fs" data-sec="slot">
+          <span className="lb">Слот</span>
+          {slotWord ? (
+            <Refused what="slot" text={slotWord} />
+          ) : (
+            <div className="cw-opts flat">
+              {[...Object.keys(accounts.data?.slots ?? {}), ""].map((name) => (
+                <Btn key={name} aria-pressed={name === curSlot ? "true" : "false"} data-slot={name} onClick={() => void (name !== curSlot && change("slot", "session.slot", { slot: name || null }))}>
+                  {name || "без слота"}
+                </Btn>
+              ))}
+            </div>
+          )}
+          <Outcome className="cw-note" note={notes.slot} />
+        </div>
       ) : null}
       <div className="cw-fs" data-sec="ctl">
-        <span className="lb">Сессия</span>
-        <div className="cw-opts flat">
-          {s && live && can("session.stop") ? <Btn onClick={() => void act("session.stop")}>Остановить</Btn> : null}
-          {s && isDown(s) && can("session.start") ? (
-            <Btn pri onClick={() => void act("session.start")}>
-              Запустить
-            </Btn>
-          ) : null}
-          {s && can("session.remove") && !removing ? (
-            <Btn bad onClick={() => setRemoving(true)}>
-              Убрать…
-            </Btn>
-          ) : null}
-        </div>
-        {removing ? (
-          <div className="cw-confirm">
-            <span>{`${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`}</span>
-            <div className="cw-opts flat">
-              <Btn bad onClick={() => void act("session.remove")}>
-                Убрать
+          <span className="lb">Сессия</span>
+          <div className="cw-opts flat">
+            {live && can("session.stop") ? <Btn onClick={() => void ctl("session.stop")}>Остановить</Btn> : null}
+            {down && can("session.start") ? (
+              <Btn pri onClick={() => void ctl("session.start")}>
+                Запустить
               </Btn>
-              <Btn onClick={() => setRemoving(false)}>Отмена</Btn>
-            </div>
+            ) : null}
+            {session && can("session.remove") && !confirm ? (
+              <Btn bad onClick={() => setConfirm(true)}>
+                Убрать…
+              </Btn>
+            ) : null}
           </div>
-        ) : null}
-        <Outcome className="cw-note" note={actions.busy ? { text: "…" } : actions.error ? { text: actions.error, tone: "bad" } : undefined} />
+          {confirm ? (
+            <div className="cw-confirm">
+              <span>{`${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`}</span>
+              <div className="cw-opts flat">
+                <Btn bad onClick={() => void remove()}>
+                  Убрать
+                </Btn>
+                <Btn onClick={() => setConfirm(false)}>Отмена</Btn>
+              </div>
+            </div>
+          ) : null}
+          <Outcome className="cw-note" note={notes.ctl} />
       </div>
     </div>
   );
