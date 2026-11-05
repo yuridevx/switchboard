@@ -1,14 +1,20 @@
-// Снесено: вход Worker'а points отвечает отказом словом «снесено» до реализации.
+// Вход Worker'а points: POST кадра с пропуском, кадр по привязке и уборка расписанием.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { fail, type Frame } from "@switchboard/protocol";
+import { entrance } from "@switchboard/gate";
+import type { Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
+import { frame, sweep } from "./registry.ts";
 
 export default class Points extends WorkerEntrypoint<Env> {
-  async fetch(): Promise<Response> {
-    return Response.json(fail("", "снесено"));
+  fetch(req: Request): Promise<Response> {
+    return entrance(req, this.env.GATE, (f) => this.frame(f));
   }
-  async frame(f: Frame): Promise<Frame[]> {
-    return f.id ? [{ ...fail(f.id, "снесено"), to: f.from }] : [];
+
+  frame(f: Frame): Promise<Frame[]> {
+    return frame(this.env, f);
   }
-  async scheduled(): Promise<void> {}
+
+  scheduled(): Promise<void> {
+    return sweep(this.env);
+  }
 }
