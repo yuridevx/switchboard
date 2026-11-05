@@ -96,6 +96,7 @@ describe("набор модулей", () => {
     const c1 = m("c", { provides: { z: 1 }, uses: { "x@a": 1 } });
     expect(check([c1, b1, a1, watch])).toEqual(["цикл зависимостей: c → a → b → c"]);
     expect(order([c1, a1, b1]).map((x) => x.name).sort()).toEqual(["a", "b", "c"]);
+    expect(check([m("a", { provides: { x: 1 }, uses: { "x@a": 1 } })])).toEqual([]);
   });
 
   it("ссылка манифеста: имя и владелец по последней @", () => {
@@ -158,6 +159,12 @@ describe("монорепо", () => {
     expect(mods.find((x) => x.name === "pult-s")!.imports).toEqual(["@switchboard/nested"]);
   });
 
+  it("манифесты читаются без разбора кода: факты — при первом чтении, release-cli и стендам нужны только манифесты", () => {
+    const [w] = loadRepo(repo({ "workers/w/module.json": mod("w"), "workers/w/a.ts/keep.txt": "папка с именем файла кода: прочесть её нельзя" }));
+    expect(w.name).toBe("w");
+    expect(() => w.imports).toThrow();
+  });
+
   it("2073 · npm run gate на настоящем монорепо: выход 0 и строка с числами", () => {
     const r = spawnSync(process.execPath, [join(GATE, "cli.ts")], { encoding: "utf8" });
     expect(r.status, r.stderr).toBe(0);
@@ -189,6 +196,7 @@ describe("устройство кода против манифеста", () => 
   it.each<[string, string, string, Record<string, number>, string[]]>([
     ["имя без uses; чужое имя и база — не контракт", "src/a.ts", "export const f = (env) => { env.GATE.verify(1); env.GATE.revoked([]); env.GATE.zzz(); env.DB.prepare(''); };\n", { "gate.verify@gate": 1 }, CALL],
     ["своё имя", "src/a.ts", "export const f = (env) => env.OWN.key();\n", {}, []],
+    ["имя строчными — поле объекта, а не привязка", "src/a.ts", "const f = (env) => env.gate.revoked([]);\n", {}, []],
     ["this.env", "src/a.ts", "class A { f() { this.env.GATE.revoked([]); } }\n", {}, CALL],
     ["в строке и комментарии — не вызов (устав: устройство кода, а не текст)", "src/a.ts", '// env.GATE.revoked([]);\nconst s = "env.GATE.revoked([])";\n', {}, []],
   ])("вызов привязки Worker: %s", (_n, path, code, uses, want) => {

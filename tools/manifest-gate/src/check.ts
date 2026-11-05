@@ -28,7 +28,8 @@ const PROTOCOL = "@switchboard/protocol";
 
 export const nameOf = (ref: string) => ref.replace(/@[^@]*$/, "");
 export const ownerOf = (ref: string) => /@([^@]*)$/.exec(ref)?.[1] ?? "";
-const ownersOf = (m: Manifest) => Object.keys(m.uses).map(ownerOf);
+/** Чужие владельцы имён из uses: своё имя зависимостью не бывает. */
+const ownersOf = (m: Manifest) => Object.keys(m.uses).map(ownerOf).filter((owner) => owner !== m.name);
 
 /** Владелец раньше того, кто им пользуется; из готовых — первый по имени. Цикл не чинит: его называет check. */
 export function order<T extends Manifest>(mods: T[]): T[] {
@@ -36,7 +37,7 @@ export function order<T extends Manifest>(mods: T[]): T[] {
   const out: T[] = [];
   while (left.length) {
     const waiting = new Set(left.map((m) => m.name));
-    const ready = left.findIndex((m) => !ownersOf(m).some((o) => o !== m.name && waiting.has(o)));
+    const ready = left.findIndex((m) => !ownersOf(m).some((owner) => waiting.has(owner)));
     out.push(...left.splice(Math.max(ready, 0), 1));
   }
   return out;
