@@ -8,7 +8,8 @@
     "push.subscribe": 1
   },
   "uses": {
-    "gate.verify@gate": 1
+    "gate.verify@gate": 1,
+    "gate.revoked@gate": 1
   },
   "config": {
     "VAPID_PRIVATE": "secret",
