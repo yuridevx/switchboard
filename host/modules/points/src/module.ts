@@ -114,7 +114,14 @@ export function make(): Module {
         clearTimeout(timer);
         done();
       };
-      signal.addEventListener("abort", () => fail(refuse("shutting_down", "Host останавливается")), { once: true });
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer);
+          fail(refuse("shutting_down", "Host останавливается"));
+        },
+        { once: true },
+      );
       turnEnds.set(callsign, [...(turnEnds.get(callsign) ?? []), finish]);
     });
   }
