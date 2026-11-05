@@ -1,19 +1,12 @@
-// web-inbox — «Вам»: что ждёт вас. Здесь — только связка с ядром: состояние — state.ts, вид — screen.tsx.
+// Снесено: вход контракта отказывает словом.
 import type { App, AppModule } from "@switchboard/web-core";
 import css from "./inbox.css";
-import { InboxScreen } from "./screen.tsx";
-import { createInboxState } from "./state.ts";
 
-/** Функция модуля: ядро зовёт её один раз со своим app; память — на этот запуск. */
-export function createInbox(app: App): AppModule {
-  const inbox = createInboxState(app);
+export function createInbox(_app: App): AppModule {
   return {
-    state: inbox,
-    on: { roster: inbox.onRoster, current: inbox.onCurrent },
-    screens: {
-      inbox: { nav: "Вам", mark: "you", label: "Вам", path: "inbox", view: InboxScreen, head: () => ({ title: "Вам" }) },
-    },
-    marks: { you: inbox.count },
     css,
+    screens: { "inbox": { label: "снесено", view: () => <div>снесено</div> } },
+    marks: { "you": () => { throw new Error("снесено"); } },
+    commands: {  },
   };
 }
