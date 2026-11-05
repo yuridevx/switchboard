@@ -1,17 +1,16 @@
-// Контракт release: формат выпуска в бакете switchboard-releases — один владелец для CI, Worker'а «Выпусков» и модуля Host parts.
-// Импорт отсюда — с "release.format@release": 1 в uses.
-//
-//   <часть>/<версия>.tgz      архив; у модуля каталога module.json — первая запись, у Worker'а и оболочки страницы в нём workers — имя Worker'а по флотам
-//   <часть>/<версия>.sha256   «<sha256 архива>  <версия>.tgz»; пишется вторым — версия готова
-// Модуль страницы — module.json и один ES-файл (WEB_FILE). Список сборки (BuildList, buildFile) — один для Host и страниц.
-export { entries, manifestOf, MANIFEST, pack } from "./src/archive.ts";
-export type { TarEntry, TarFile } from "./src/archive.ts";
-export { byVersion, isBuild, isVersion, parseSha, RELEASES_BUCKET, sha256hex, shaKey, shaLine, tgzKey } from "./src/layout.ts";
-export { presign } from "./src/link.ts";
-export type { LinkKey } from "./src/link.ts";
-export { packageFiles, packModule } from "./src/folder.ts";
-export type { ModuleJson, PackedModule } from "./src/folder.ts";
-export { download, upload } from "./src/transfer.ts";
-export type { Answer, FetchReply, Net, UploadReply } from "./src/transfer.ts";
-export { BUILD_FILE, buildFile, WEB_FILE, webBuild } from "./src/page.ts";
-export type { BuildList } from "./src/page.ts";
+// Снесено: формат выпуска пишется заново.
+const gone = (): never => {
+  throw new Error("снесено");
+};
+export const BUILD_FILE = "build.json";
+export const WEB_FILE = "module.js";
+export type BuildList = { app: string; version: string; fleet: string; modules: Array<{ name: string; version: string }>; workers: Record<string, string> };
+export type TarFile = { path: string; data: Buffer; mode?: number };
+export const pack = gone as (files: TarFile[]) => Buffer;
+export const entries = gone as (tgz: Uint8Array) => Array<{ path: string; data?: Buffer; mode: number }>;
+export const manifestOf = gone as (head: Uint8Array) => Promise<Record<string, unknown> | null>;
+export const sha256hex = gone as (data: string | Uint8Array) => string;
+export const shaLine = gone as (hash: string, version: string) => string;
+export const presign = gone as (key: { accessKeyId: string; secretAccessKey: string; region?: string }, link: { method: string; host: string; path: string; now?: Date; expires?: number }) => Promise<string>;
+export const packModule = gone as (dir: string, o?: { bundle?: (dir: string) => Buffer }) => { name: string; version: string; tgz: Buffer; sha: string };
+export const webBuild = gone as (shell: Uint8Array, mods: Array<{ name: string; tgz: Uint8Array }>, list: BuildList) => TarFile[];
