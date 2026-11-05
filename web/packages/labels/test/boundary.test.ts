@@ -27,6 +27,7 @@ function host(params: Record<string, string> = { callsign: "site@laptop" }) {
             null,
             createElement("button", { "data-open": "1", onClick: () => set("open") }),
             createElement("div", { "data-place": "1" }, state === "open" ? createElement(app.Slot, { screen: "labels", params, close: () => set("closed") }) : state),
+            createElement("i", { "data-shown": "1" }, app.use(() => (app.mark("label.session", "site@laptop") as Shown | undefined)?.text ?? "")),
           );
         },
       },
@@ -73,6 +74,16 @@ describe("метки", () => {
     const gets = relay.sent("prefs.get");
     expect(gets.length).toBeGreaterThan(0);
     for (const g of gets) expect(g).toMatchObject({ scope: "global", prefix: "fleet." });
+  });
+
+  it("связь вернулась: имена перечитаны, экран по выборке показывает новое имя", async () => {
+    const { t, relay } = await bench({}, undefined, "/#names");
+    expect(t.$("[data-shown]")!.textContent).toBe("site");
+    relay.scoped.global["fleet.labels"] = { sessions: { "site@laptop": "Сайт" } };
+    await t.run.hide();
+    await t.run.show();
+    await flush(10);
+    expect(t.$("[data-shown]")!.textContent).toBe("Сайт");
   });
 });
 
@@ -173,6 +184,14 @@ describe("окно «Имена»", () => {
     const { t } = await open();
     await t.click(t.$(".lb-a"));
     expect(t.$(".lb-dlg")).not.toBeNull();
+  });
+
+  it("уход со страницы посреди записи: остановка модуля ждёт, имя записано", async () => {
+    const { t, relay } = await open();
+    await fill(t, "session", "Сайт");
+    t.$<HTMLButtonElement>('[data-act="save"]')!.click();
+    await t.run.hide();
+    expect(relay.scoped.global["fleet.labels"]).toMatchObject({ sessions: { "site@laptop": "Сайт" } });
   });
 
   it("7342 · экран открыт по адресу: «Отмена» уводит с него, а не молчит", async () => {

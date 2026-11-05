@@ -343,4 +343,27 @@ describe("цикл настроек", () => {
     expect(r.ready()).toBe(true);
     expect(r.get("k")).toBeUndefined();
   });
+
+  it("первый рисунок ждёт ответа: отказ чтения звонит changed", async () => {
+    const s = service();
+    s.refuse.get = "gate_unavailable";
+    let calls = 0;
+    await settings({ read: s.ask, ask: s.ask, prefix: "x", changed: () => void calls++ }).read();
+    expect(calls).toBe(1);
+  });
+
+  it("чтение посреди цикла правки не стирает правку с экрана и не теряет её в службе", async () => {
+    const s = service();
+    s.values["x.k"] = "старое";
+    const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
+    s.hold();
+    const done = c.edit("k", () => "новое");
+    const reading = c.read();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(c.get("k")).toBe("новое");
+    await s.release();
+    await Promise.all([done, reading]);
+    expect(c.get("k")).toBe("новое");
+    expect(s.values["x.k"]).toBe("новое");
+  });
 });
