@@ -1,18 +1,14 @@
-// Вход Worker'а ledger: POST кадра с пропуском и кадр по привязке внутри аккаунта.
+// Заглушка сноса: вход отвечает отказом словом.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { entrance } from "@switchboard/gate";
-import type { Frame } from "@switchboard/protocol";
+import { fail, type Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
-import { frame } from "./ledger.ts";
 
 export class Participant extends WorkerEntrypoint<Env> {
-  fetch(req: Request): Promise<Response> {
-    return entrance(req, this.env.GATE, (f) => this.frame(f));
-  }
-
-  frame(f: Frame): Promise<Frame[]> {
-    return frame(this.env.DB, f);
+  frame(f: Frame): Frame[] {
+    return f.id ? [{ ...fail(f.id, "снесено"), to: f.from }] : [];
   }
 }
 
-export default Participant;
+export default {
+  fetch: () => new Response("снесено", { status: 501 }),
+} satisfies ExportedHandler<Env>;
