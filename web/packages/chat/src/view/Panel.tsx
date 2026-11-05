@@ -1,8 +1,8 @@
 // Панель контекста: разделы из своих методов SDK, по одному запросу на открытие. Метода нет — раздела нет; другой отказ — слово в разделе.
 import type { ReactNode } from "react";
+import { machineOf } from "@switchboard/protocol";
 import { duration, LIMIT_BAD, LIMIT_NAMES, LIMIT_WARN, LimitRow, Meter, PERM_PLACES, useLoad, useModule } from "@switchboard/web-ui";
 import type { Msg } from "../fold.ts";
-import { machineOf } from "@switchboard/protocol";
 import type { Chats } from "../store.ts";
 import { CONTEXT_PARTS, kilo, sayWord, STATUS_LABELS } from "../words.ts";
 

@@ -1,7 +1,8 @@
 // Инструменты claude одной таблицей: подпись, значок, суть одной строкой, что раскрыто сразу и как рисовать тело.
 import { DENIED } from "./words.ts";
-import type { Msg, Task, Tool, ToolState, View } from "./fold.ts";
+import type { Msg, Task, Tool } from "./fold.ts";
 
+export type ToolState = "running" | "ok" | "error" | "denied" | "bg" | "stopped" | "wait";
 export type Body = "command" | "diff" | "read" | "todos" | "ask" | "plan" | "agent" | "output" | "plain";
 /** keys — поля входа для сути; body — вид тела; open — раскрыто сразу. */
 type Kind = { word: string; icon: string; keys?: string[]; body?: Body; open?: boolean };
@@ -106,5 +107,3 @@ const resultState = (tool: Tool): ToolState => (isDenied(tool) ? "denied" : tool
 /** Метка «в фоне» без задачи. */
 export const startedInBackground = (tool: Tool) => !tool.task && (tool.input?.run_in_background === true || /^Command running in background/.test(tool.result?.text ?? ""));
 
-/** Задача, которую показать у карточки. */
-export const taskOf = (view: View, tool: Tool | undefined) => (tool?.task ? view.tasks[tool.task] : undefined);

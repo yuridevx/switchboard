@@ -137,7 +137,7 @@ function Me({ row }: { row: Extract<Row, { k: "me" }> }) {
           отменить
         </button>
       ) : null}
-      {app.wide && canAct && (!send || send.state === "sent" || send.state === "echo") && !send?.queued ? (
+      {app.wide && canAct && (!send || send.state === "echo" || (send.state === "sent" && !send.queued)) ? (
         <button type="button" className="chat-rw" onClick={() => env.probe(row.id)}>
           <History size={11} />
           откатить файлы

@@ -49,7 +49,7 @@ export const TASK_END: Record<string, [string, "ok" | "bad" | "wait"]> = {
 /** Отказ человека в разрешении — словами claude в итоге инструмента. */
 export const DENIED = /^(The user doesn't want to proceed with this tool use\.|User rejected|The user rejected)/;
 
-/** Что показать о разделе панели: части контекста своими подписями. */
+/** Части контекста в панели своими подписями. */
 export const CONTEXT_PARTS: Record<string, string> = {
   Messages: "Разговор",
   Skills: "Скилы",

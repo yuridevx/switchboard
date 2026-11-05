@@ -480,4 +480,3 @@ export function fold(log: Msg[]): View {
 /** Задачи в фоне: идут и ушли в фон. */
 export const backgrounded = (v: View) => Object.values(v.tasks).filter((t) => t.bg && !t.end);
 
-export type ToolState = "running" | "ok" | "error" | "denied" | "bg" | "stopped" | "wait";

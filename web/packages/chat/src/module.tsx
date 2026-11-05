@@ -1,10 +1,10 @@
 // web-chat — разговор с сессией: определение модуля. Состояние — store.ts, свёртка — fold.ts, вид — view/.
+import { machineOf } from "@switchboard/protocol";
 import type { AppModule, Frame, Roster } from "@switchboard/web-core";
 import { isLive, lamp, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
 import css from "./chat.css";
 import { createChats } from "./store.ts";
 import { ChatScreen } from "./view/Screen.tsx";
-import { machineOf } from "@switchboard/protocol";
 
 export function createChat(app: App): AppModule {
   const chats = createChats(app);

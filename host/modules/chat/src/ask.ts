@@ -28,9 +28,10 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
     return [...new Set(addr)].filter((a) => human(a) || (kind === "ask" && kindOf(a) === "session"));
   }
 
-  function notify(callsign: string, to: string[], frame: Frame) {
+  /** Пуш тем, кого нет на связи: людям, сессиям — нет. */
+  function notify(type: string, callsign: string, to: string[], push: Record<string, unknown>) {
     const clients = to.filter((a) => kindOf(a) !== "session");
-    if (clients.length) void host().request("notify", { clients, frame: { ...frame, from: callsign } });
+    if (clients.length) void host().request("notify", { clients, frame: { type, from: callsign, notify: push } });
   }
 
   /** Кнопки пуша — только когда один вопрос с одним выбором. */
@@ -53,15 +54,15 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
     const to = audience(s, q.kind);
     host().log({ ev: "question", callsign, question: q.question, asked: q.kind, to, ...(to.length ? {} : { why: "адресатов нет: ждёт question.list" }) });
     if (to.length) host().emit({ type: "question", from: callsign, to, ...q });
-    notify(callsign, to, { type: "question", ...q, notify: pushOf(callsign, q) });
+    notify("question", callsign, to, pushOf(callsign, q));
     return new Promise<R>((resolve) => {
       const entry: Entry = { q, settle: null };
-      const close = (frame: Reply, push?: Record<string, unknown>) => {
+      const close = (frame: Reply, push: Record<string, unknown>) => {
         entry.settle = null;
         signal.removeEventListener("abort", onAbort);
         const now = audience(s, q.kind);
         if (now.length) host().emit({ type: "answered", from: callsign, to: now, question: q.question, ...frame });
-        if (push) notify(callsign, now, { type: "answered", question: q.question, ...frame, notify: push });
+        notify("answered", callsign, now, push);
       };
       const onAbort = () => {
         close({ cancelled: true }, { title: callsign, body: "вопрос снят", tag: q.question });
