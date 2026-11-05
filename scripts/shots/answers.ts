@@ -92,7 +92,19 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     }
     return { ok: true, result: answers[String(f.method)] ?? [] };
   };
-  h["machine.accounts"] = (f) => ({ ok: true, result: { accounts: { y0902: { login: "ok", email: "dev@mail.ru", plan: "Max 20×", limits: { five_hour: { utilization: 0.42, resetsAt: Date.now() / 1000 + 7200 }, seven_day: { utilization: 0.61, resetsAt: Date.now() / 1000 + 86400 } } }, night: { login: "ok", email: "night@x.io", plan: "Max 5×", limits: { five_hour: { utilization: 0.82, resetsAt: Date.now() / 1000 + 3600 } } } }, slots: { main: { account: "y0902", order: ["y0902"], wait: null, sessions: F.ss.filter((s) => s.cs.endsWith(`@${String(f.machine ?? String(f.to ?? "").split("@")[1])}`)).map((s) => s.cs) }, second: { account: "night", order: ["night"], wait: Date.now() / 1000 + 3600, sessions: [] } } } });
+  h["machine.accounts"] = (f) => {
+    const now = Math.floor(Date.now() / 1000);
+    const at = now - 20;
+    const m = String(f.machine);
+    const first = F.ms.indexOf(m) === 0;
+    const dev = { login: "ok", plan: "max", limits: { five_hour: { utilization: 0.42, resetsAt: now + 7200, at }, seven_day: { utilization: 0.61, resetsAt: now + 3 * 86400, at } } };
+    const night = { login: "ok", plan: "max", limits: { seven_day: { utilization: 1, resetsAt: now + (first ? 86400 : 4 * 86400), at } }, ...(first ? { expires: now + 3 * 86400 } : {}) };
+    const spare = { login: "ok", plan: "max", limits: { seven_day: { utilization: 0.03, resetsAt: now + 6 * 86400, at } } };
+    const accounts = { "dev@mail.ru": dev, "night@x.io": night, ...(first ? { "spare@x.io": spare, "old@x.io": { login: "none", limits: {} } } : {}) };
+    const order = first ? ["dev@mail.ru", "night@x.io", "old@x.io"] : ["dev@mail.ru", "night@x.io"];
+    return { ok: true, result: { accounts, slots: { main: { account: "dev@mail.ru", order, wait: null } } } };
+  };
+  h["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/authorize?code=true" } });
   h["machine.profiles"] = (f) => {
     const m = String(f.machine);
     const profiles: Record<string, unknown> = {};
@@ -116,7 +128,7 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
   h["session.open"] = (f) => {
     const cs = `${f.name}@${f.machine}`;
     if (roster.sessions.some((s) => s.callsign === cs)) return { ok: false, error: "name_taken" };
-    roster.sessions.push({ callsign: cs, dir: String(f.dir), state: "idle", model: String(f.model ?? "sonnet"), effort: String(f.effort ?? "medium"), by: `${app}~${ME}`, parent: undefined, slot: { name: "main" }, account: "y0902", ...(f.profile ? { profile: { id: String(f.profile), state: "ok" } } : {}) });
+    roster.sessions.push({ callsign: cs, dir: String(f.dir), state: "idle", model: String(f.model ?? "sonnet"), effort: String(f.effort ?? "medium"), by: `${app}~${ME}`, parent: undefined, slot: { name: "main" }, account: "dev@mail.ru", ...(f.profile ? { profile: { id: String(f.profile), state: "ok" } } : {}) });
     relay.setRoster({ ...relay.roster, sessions: roster.sessions } as never);
     return { ok: true, result: { callsign: cs } };
   };

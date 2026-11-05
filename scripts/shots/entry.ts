@@ -15,7 +15,7 @@ const app = q.get("app") ?? "pult";
 const kind = q.get("kind") ?? "small";
 const ME = "you@mail.ru";
 const HOUR = 3600000;
-const PHONE_SECTIONS = ["inbox", "board", "accounts", "machines", "profiles", "incidents", "settings"];
+const PHONE_SECTIONS = ["inbox", "board", "accounts", "profiles", "incidents", "settings"];
 
 /** Строка roster о сессии флота. */
 const sessionOf = (s: S) => ({
@@ -27,7 +27,7 @@ const sessionOf = (s: S) => ({
   by: s.who === "me" ? `pult~${ME}` : `laptop~${s.who}@mail.ru`,
   parent: s.parent,
   slot: { name: "main" },
-  account: "y0902",
+  account: "dev@mail.ru",
   mode: "bypassPermissions",
   ...(s.prof ? { profile: { id: `team/profiles/${s.prof}`, state: "ok" } } : {}),
   ...(s.fail ? { failed: { start: s.fail } } : {}),

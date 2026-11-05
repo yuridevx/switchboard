@@ -55,6 +55,7 @@ export function OpenScreen({ params }: ScreenProps) {
   const slots = accounts.stale ? undefined : accounts.data?.slots;
   const profileList = profiles.stale ? undefined : profiles.data?.profiles;
   const slotNames = Object.keys(slots ?? {});
+  const noSlots = !!slots && !slotNames.length;
   const slotNow = slotChoice(slotNames, slot) || slotNames[0] || "";
   const dir = dirOf(address);
   const profile = chosenProfile ?? profileHere(sessions, machine, dir);
@@ -88,7 +89,7 @@ export function OpenScreen({ params }: ScreenProps) {
   }
 
   async function open() {
-    if (busy || !here) return;
+    if (busy || !here || noSlots) return;
     const clean = name.trim();
     if (!clean) return setNameErr("нужно имя");
     setBusy(true);
@@ -277,6 +278,7 @@ export function OpenScreen({ params }: ScreenProps) {
             </Chips>
             {accounts.error && !accounts.stale ? <div className="op-err" role="alert">{`machine.accounts: ${accounts.error}`}</div> : null}
             <SlotPick slots={slots ?? {}} value={slotNow} on={setSlot} />
+            {noSlots ? <div className="op-err" role="alert" data-no-slots="">{`На ${machine} нет слотов: войдите в аккаунт на этой машине`}</div> : null}
             {canR2 ? (
               <div className="op-sw">
                 <span>Точки в R2</span>
@@ -303,7 +305,7 @@ export function OpenScreen({ params }: ScreenProps) {
           </span>
         ) : null}
         <div className="op-foot">
-          <Btn pri data-act="open" disabled={busy || !here} onClick={() => void open()}>
+          <Btn pri data-act="open" disabled={busy || !here || noSlots} onClick={() => void open()}>
             {isNew ? "Создать и открыть" : text.trim() ? "Начать" : "Открыть"}
           </Btn>
         </div>

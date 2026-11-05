@@ -473,6 +473,19 @@ describe("диалоги точек", () => {
     expect(t.$('[data-r2="on"] .sb-ph b')!.textContent).toBe("points.list: timeout");
   });
 
+  it("8 · на цели нет слотов — проверка словом, запуск недоступен, ни точки, ни подъёма", async () => {
+    // источник: находка слепого архитектора: подъём успел бы положить файлы до отказа
+    const relay = dialogRelay();
+    relay.handlers[SLOTS] = () => ({ ok: true, result: { slots: {} } });
+    const t = await sessionTab(relay);
+    await t.click(t.btn(null, "Перенести…"));
+    await flush(10);
+    expect(t.$('[data-dlg="move"] [data-check="error"]')!.textContent).toMatch(/^На .+ нет слотов: войдите в аккаунт на этой машине$/);
+    expect(t.$<HTMLButtonElement>('[data-act="run"]')!.disabled).toBe(true);
+    expect(relay.sent("points.raise")).toHaveLength(0);
+    expect(relay.sent("points.save")).toHaveLength(0);
+  });
+
   it("4189 · список слотов цели не пришёл — проверка словом, запуск недоступен, points.save нет", async () => {
     const relay = dialogRelay();
     relay.handlers[SLOTS] = () => ({ ok: false, error: "offline" });

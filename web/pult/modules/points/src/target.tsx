@@ -53,6 +53,7 @@ export function useProbe(t: Target, body: { sid: string; point?: number; dir: st
   const ready = t.ready && !!body && body.point !== undefined;
   const asked = useLoad(() => (ready ? app.read<Probe>("points.raise", { machine: t.machine, ...body, files: "point", dryRun: true }) : (NOT_ASKED as Promise<Result<Probe>>)), [ready, t.machine, JSON.stringify(body)]);
   if (t.slotsError) return { key: "error", text: `machine.accounts: ${t.slotsError}`, tone: "bad" };
+  if (t.slots && !Object.keys(t.slots).length) return { key: "error", text: `На ${t.machine} нет слотов: войдите в аккаунт на этой машине`, tone: "bad" };
   if (!ready || asked.loading) return PENDING;
   if (asked.error) return { key: "error", text: wordText(asked.error), tone: "bad" };
   return asked.data ? folderCheck(asked.data, t.machine) : PENDING;

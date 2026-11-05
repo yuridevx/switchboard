@@ -23,7 +23,7 @@
     "session.r2@host-points": 1,
     "session.remove@host-manage": 1,
     "points.raise@host-points": 1,
-    "machine.accounts@host-logins": 1,
+    "machine.accounts@host-logins": 2,
     "machines.left@pult-machines": 1,
     "machines.left.read@pult-machines": 1,
     "card.tab@web-card": 1,

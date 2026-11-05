@@ -123,7 +123,7 @@ describe("оболочка страницы", () => {
     await vi.waitFor(() => expect(document.querySelector(".sb-brand b")?.textContent, document.body.textContent ?? "").toBe("Пульт"), { timeout: 15_000 });
     await flush();
     expect(asked[0]).toEqual(["./build.json", { cache: "no-store" }]);
-    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "profiles", "journal", "points", "settings"]);
+    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
   }, 30_000);
@@ -192,7 +192,7 @@ describe("оболочка страницы", () => {
   it("6903 · колонка разделов: «Перейти… Ctrl K», Вам, Работа, Инциденты, группа «Флот» с профилями; машин и имени устройства в колонке нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
-    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "profiles", "journal", "points", "settings"]);
+    expect(t.$$(".sb-navcol .sb-nv").map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
     expect(t.$$(".sb-navcol .sb-grp").map((x) => x.textContent)).toEqual(["Флот"]);
     expect(t.$(".sb-navcol .sb-nv.sub")).toBeNull();
     expect(t.$(".sb-goto")).not.toBeNull();
@@ -221,8 +221,8 @@ describe("оболочка страницы", () => {
     expect(t.$('.sb-navcol .sb-nv[aria-current="page"]')!.dataset.screen).toBe(list);
   });
 
-  it("не список («Машины»): второй экран рядом с «Работой», а не с ним", async () => {
-    const t = await pult({ url: "/#machines" });
+  it("не список («Аккаунты»): второй экран рядом с «Работой», а не с ним", async () => {
+    const t = await pult({ url: "/#accounts" });
     await t.go("#card?callsign=site%40laptop");
     expect(t.$(".sb-master")!.getAttribute("data-screen")).toBe("board");
     expect(t.$(".sb-screen")!.getAttribute("data-screen")).toBe("card");
@@ -443,7 +443,7 @@ describe("статика и архив", () => {
     await flush();
     expect(run.stopped).toBeNull();
     expect(run.failed).toEqual({});
-    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "machines", "accounts", "profiles", "journal", "points", "settings"]);
+    expect([...document.querySelectorAll<HTMLElement>(".sb-navcol .sb-nv")].map((b) => b.dataset.screen)).toEqual(["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"]);
     expect(document.querySelector(".sb-brand b")!.textContent).toBe("Пульт");
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);

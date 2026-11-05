@@ -131,7 +131,7 @@ async function bench(
     rec("claudeOAuthCallback", (code) => {
       if (code !== "Xk2pL") throw new Error("Request failed with status code 400");
       // claude кладёт вход туда, куда велит CLAUDE_SECURESTORAGE_CONFIG_DIR, а не в папку конфига
-      writeFileSync(join(env.CLAUDE_SECURESTORAGE_CONFIG_DIR!, CREDENTIALS), JSON.stringify({ claudeAiOauth: { accessToken: `tok-${signingIn}` } }));
+      writeFileSync(join(env.CLAUDE_SECURESTORAGE_CONFIG_DIR!, CREDENTIALS), JSON.stringify({ claudeAiOauth: { accessToken: `tok-new-${signingIn}` } }));
       return { account: {} };
     });
     rec(USAGE, () => {
@@ -178,60 +178,61 @@ async function waitFor<T>(fn: () => Promise<T | null | undefined | false>, ms = 
 }
 
 describe("входы аккаунтов", () => {
-  it("160 · вход corp по ссылке и коду: своя папка, ~/.claude.json машины прежний, кода нет в журнале и аргументах", async () => {
+  it("3 · новая почта: вход в пустой .new, обе папки заданы, почту называет auth status, файл в папке почты, .new нет, кода нет в журнале", async () => {
+    // источник: факт — hz-ex44-win-1, опыт auth status 5 нояб.
     writeFileSync(join(homedir(), ".claude.json"), '{"oauthAccount":{"emailAddress":"me@machine"}}');
     const before = readFileSync(join(homedir(), ".claude.json"));
     await bench();
-    const r1 = await ask({ type: "machine.login", account: "corp" });
+    const r1 = await ask({ type: "machine.login" });
     expect(r1.ok).toBe(true);
     expect(r1.result.url).toMatch(/^https:\/\/claude\.ai\/oauth\/authorize/);
     expect(probes).toHaveLength(1);
-    expect(probes[0].env.CLAUDE_CONFIG_DIR).toBe(accDir("corp"));
+    expect(probes[0].env.CLAUDE_CONFIG_DIR).toBe(NEW());
+    expect(probes[0].env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(NEW());
     expect(probes[0].calls).toEqual([{ name: "claudeAuthenticate", args: [true] }]);
-    expect((await accounts()).corp.login).toBe("pending");
+    expect(await accounts()).toEqual({});
 
-    const r2 = await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" });
+    const r2 = await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
     expect(r2.ok).toBe(true);
     expect(r2.result).toEqual({ email: "corp@x", plan: "max" });
     expect(probes[0].calls[1]).toEqual({ name: "claudeOAuthCallback", args: ["Xk2pL", "Qm9vY"] });
-    expect(existsSync(join(accDir("corp"), CREDENTIALS))).toBe(true);
+    expect(read(accDir("corp@x"))).toContain("tok-new-corp@x");
+    expect(existsSync(NEW())).toBe(false);
     expect(readFileSync(join(homedir(), ".claude.json"))).toEqual(before);
-    expect((await accounts()).corp).toMatchObject({ login: "ok", email: "corp@x", plan: "max" });
-    // проверка входа той же папкой
+    expect((await accounts())["corp@x"]).toMatchObject({ login: "ok", plan: "max", expires: Math.floor(Date.parse("2026-11-30T20:37:03.431Z") / 1000) });
     expect(cli.at(-1)!.args).toEqual(["auth", "status"]);
-    expect(cli.at(-1)!.env.CLAUDE_CONFIG_DIR).toBe(accDir("corp"));
     const all = JSON.stringify(st!.journal()) + JSON.stringify(cli.map((c) => c.args)) + JSON.stringify(probes.map((p) => p.env));
     expect(all).not.toContain("Xk2pL");
   });
 
-  it("161 · max_age: опрошен только y0902 своей папкой, infirex — нет; в сессии запрос не уходит", async () => {
+  it("161 · poll: опрошен только названный, обе папки — его; без poll и в сессии запроса нет", async () => {
     const t = now();
     await bench({
       accounts: {
-        infirex: { in: "main", limits: { five_hour: { utilization: 0.83, resetsAt: t + 9000, at: t - 10, src: "poll" } } },
-        y0902: { limits: { five_hour: { utilization: 0.5, resetsAt: t + 9000, at: t - 600, src: "poll" } } },
+        infirex: { in: "main", limits: { five_hour: { utilization: 0.83, resetsAt: t + 9000, at: t - 10 } } },
+        y0902: { limits: { five_hour: { utilization: 0.5, resetsAt: t + 9000, at: t - 600 } } },
       },
-      poll: (name) => ({ subscription_type: "max", rate_limits: { five_hour: { utilization: name === "y0902" ? 4 : 83, resets_at: new Date((t + 9000) * 1000).toISOString() } } }),
+      poll: (name) => ({ rate_limits: { five_hour: { utilization: name === "y0902" ? 4 : 83, resets_at: new Date((t + 9000) * 1000).toISOString() } } }),
     });
-    const r = await ask({ type: "machine.accounts", max_age: 120 });
+    const r = await ask({ type: "machine.accounts", poll: ["y0902", "нет-такого"] });
     expect(probes).toHaveLength(1);
     expect(probes[0].env.CLAUDE_CONFIG_DIR).toBe(accDir("y0902"));
-    expect(probes[0].env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
+    expect(probes[0].env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(accDir("y0902"));
     expect(probes[0].calls).toEqual([{ name: USAGE, args: [{ skipBehaviors: true }] }]);
-    expect(r.result.accounts.y0902.limits.five_hour).toMatchObject({ utilization: 0.04, src: "poll" });
+    expect(r.result.accounts.y0902.limits.five_hour.utilization).toBe(0.04);
     expect(r.result.accounts.infirex.limits.five_hour.utilization).toBe(0.83);
     expect(st!.sdk.queries.filter((q) => q.options.spawnClaudeCodeProcess)).toHaveLength(0);
   });
 
-  it("162 · раз в 2 мин claude auth status — своей папкой, и у аккаунта в слоте; выход 1 — login none", async () => {
+  it("162 · раз в 2 мин claude auth status — обе папки аккаунта, и у аккаунта в слоте; выход 1 — login none", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
     await bench({
       accounts: { y0902: {}, corp: { in: "bot" } },
-      status: (env) => (env.CLAUDE_CONFIG_DIR === accDir("corp") ? { code: 1, out: '{"loggedIn":false}' } : { code: 0, out: '{"loggedIn":true}' }),
+      status: (env) => (env.CLAUDE_CONFIG_DIR === accDir("corp") ? { code: 1, out: '{"loggedIn":false}' } : statusOf(env)),
     });
     vi.advanceTimersByTime(CHECK_MS);
     await until(() => cli.length === 2);
-    expect(cli.every((c) => c.env.CLAUDE_SECURESTORAGE_CONFIG_DIR === undefined)).toBe(true);
+    expect(cli.every((c) => c.env.CLAUDE_SECURESTORAGE_CONFIG_DIR === c.env.CLAUDE_CONFIG_DIR)).toBe(true);
     expect(cli.map((c) => c.env.CLAUDE_CONFIG_DIR).sort()).toEqual([accDir("corp"), accDir("y0902")].sort());
     await until(() => st!.journal().some((l) => l.why === "corp: вход пропал"));
     const a = await accounts();
@@ -292,8 +293,8 @@ describe("входы аккаунтов", () => {
         y0902: {
           in: "main",
           limits: {
-            five_hour: { utilization: 0.04, resetsAt: at(16, 20), at: at(14, 40), src: "event" },
-            seven_day: { utilization: 0.66, resetsAt: at(16, 20) + 5 * 86400, at: at(14, 58), src: "poll" },
+            five_hour: { utilization: 0.04, resetsAt: at(16, 20), at: at(14, 40) },
+            seven_day: { utilization: 0.66, resetsAt: at(16, 20) + 5 * 86400, at: at(14, 58) },
           },
         },
       },
@@ -308,8 +309,8 @@ describe("входы аккаунтов", () => {
       const x = (await accounts()).y0902.limits;
       return x.five_hour.utilization === 0.09 ? x : null;
     });
-    expect(l.five_hour).toEqual({ utilization: 0.09, resetsAt: at(16, 20), at: at(14, 55), src: "event" });
-    expect(l.seven_day).toMatchObject({ utilization: 0.66, src: "poll" });
+    expect(l.five_hour).toEqual({ utilization: 0.09, resetsAt: at(16, 20), at: at(14, 55) });
+    expect(l.seven_day).toMatchObject({ utilization: 0.66 });
     vi.setSystemTime(at(16, 21) * 1000);
     const l2 = (await accounts()).y0902.limits;
     expect(l2.five_hour.utilization).toBe(0);
@@ -353,68 +354,99 @@ describe("входы аккаунтов", () => {
 describe("входы: ветки и стыки", () => {
   it("неверный код — bad_code, процесс входа закрыт; второй код — not_started", async () => {
     await bench();
-    await ask({ type: "machine.login", account: "corp" });
-    const r = await ask({ type: "machine.login_code", account: "corp", code: "WRONG#Qm9vY" });
+    await ask({ type: "machine.login" });
+    const r = await ask({ type: "machine.login_code", code: "WRONG#Qm9vY" });
     expect(r).toMatchObject({ ok: false, error: "bad_code" });
     expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
     expect(probes).toHaveLength(1);
-    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
+    expect(await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
     expect(JSON.stringify(st!.journal())).not.toContain("WRONG");
   });
 
-  it("7340 · код не пришёл за срок входа: процесс закрыт, login none, причина в журнале, поздний код — not_started", async () => {
+  it("7340 · код не пришёл за срок входа: процесс закрыт, .new стёрта, причина в журнале, поздний код — not_started", async () => {
     // источник: устав — у всех операций лимит; бэклог «процесс входа, ждущий код, без срока»
     await bench();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await ask({ type: "machine.login", account: "corp" });
-    expect((await accounts()).corp.login).toBe("pending");
+    await ask({ type: "machine.login" });
     await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS - 1);
-    expect((await accounts()).corp.login).toBe("pending");
+    expect(existsSync(NEW())).toBe(true);
     await vi.advanceTimersByTimeAsync(1);
     vi.useRealTimers();
-    expect((await accounts()).corp.login).toBe("none");
+    expect(existsSync(NEW())).toBe(false);
     expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
     expect(st!.journal().some((l) => l.ev === "login" && String(l.why).includes("срок"))).toBe(true);
-    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
+    expect(await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
   });
 
   it("7341 · вход завершён или начат заново: прежний срок не закрывает новое", async () => {
     // источник: устав — у всех операций лимит; чьё: код — повтор machine.login закрывает прежний процесс
     await bench();
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    await ask({ type: "machine.login", account: "corp" });
+    await ask({ type: "machine.login" });
     await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS - 1);
-    await ask({ type: "machine.login", account: "corp" });
+    await ask({ type: "machine.login" });
     await vi.advanceTimersByTimeAsync(1);
-    expect((await accounts()).corp.login).toBe("pending");
-    expect((await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).ok).toBe(true);
+    expect((await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).ok).toBe(true);
     await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS);
     vi.useRealTimers();
-    expect((await accounts()).corp.login).toBe("ok");
+    expect((await accounts())["corp@x"].login).toBe("ok");
   });
 
   it("код без # — состояние из ссылки; повтор machine.login закрывает прежний процесс", async () => {
     await bench();
-    await ask({ type: "machine.login", account: "corp" });
-    await ask({ type: "machine.login", account: "corp" });
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login" });
     expect(st!.sdk.queries[0].closed).toBe(true);
-    expect((await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL" })).ok).toBe(true);
+    expect((await ask({ type: "machine.login_code", code: "Xk2pL" })).ok).toBe(true);
     expect(probes[1].calls[1]).toEqual({ name: "claudeOAuthCallback", args: ["Xk2pL", "Qm9vY"] });
   });
 
-  it("Host перезапущен посреди входа: pending → none, код — not_started", async () => {
-    await bench({ accounts: { corp: { login: "pending" } } });
-    expect((await accounts()).corp.login).toBe("none");
-    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
+  it("Host перезапущен посреди входа: .new стёрта при старте, код — not_started", async () => {
+    cred(NEW(), "брошенный");
+    await bench();
+    expect(existsSync(NEW())).toBe(false);
+    expect(await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "not_started" });
   });
 
-  it("аккаунт в слоте, вход пропал — «Войти» кладёт вход в свою папку, слот видит его через ссылку", async () => {
-    await bench({ accounts: { corp: { login: "none", in: "bot" } }, slots: { bot: ["corp"] } });
-    await ask({ type: "machine.login", account: "corp" });
-    expect(probes[0].env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
-    await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" });
-    expect(read(accDir("corp"))).toContain("tok-corp");
-    expect(read(slotDir("bot"))).toContain("tok-corp");
+  it("4 · известная почта: заменён только файл входа, ссылка слота та же, сессии не перезапускались", async () => {
+    // источник: чьё: код — claude читает вход перед каждым вызовом модели
+    await bench({ accounts: { "corp@x": { in: "bot" }, y: {} }, slots: { bot: ["corp@x", "y"] }, sessions: { "site@laptop": { slot: "bot" } } });
+    await ask({ type: "machine.login" });
+    expect(probes[0].env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(NEW());
+    // пока кода нет, прежний вход работает: аккаунт годен
+    expect(read(slotDir("bot"))).toContain("tok-corp@x");
+    expect((await accounts())["corp@x"].login).toBe("ok");
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
+    expect(read(slotDir("bot"))).toContain("tok-new-corp@x");
+    expect(isLink(slotDir("bot"))).toBe(true);
+    expect((await slots()).bot.account).toBe("corp@x");
+    expect(read(accDir("y"))).toContain("tok-y");
+    expect(st!.holders.spawns.filter((x) => x.id === "site@laptop")).toHaveLength(1);
+  });
+
+  it("1 · вошли другой почтой: появился её аккаунт, папка, откуда начали, не изменилась, переменная с машины не мешает", async () => {
+    // источник: факт — hz-ex44-win-1, вход yurianrun лёг в папку mypoelife
+    process.env.CLAUDE_SECURESTORAGE_CONFIG_DIR = slotDir("main");
+    await bench({ accounts: { mypoelife: { in: "main" } }, slots: { main: ["mypoelife"] } });
+    signingIn = "yurianrun";
+    await ask({ type: "machine.login" });
+    expect(probes[0].env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(NEW());
+    expect((await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).result.email).toBe("yurianrun");
+    expect(read(accDir("mypoelife"))).toContain("tok-mypoelife");
+    expect(read(accDir("mypoelife"))).not.toContain("yurianrun");
+    expect(read(accDir("yurianrun"))).toContain("tok-new-yurianrun");
+    expect((await slots()).main.account).toBe("mypoelife");
+    expect(st!.journal().find((l) => l.ev === "env_dropped")!.why).toContain("CLAUDE_SECURESTORAGE_CONFIG_DIR");
+  });
+
+  it("5 · неверный код: .new стёрта, прежний вход и запись те же", async () => {
+    // источник: факт — hz-ex44-win-1, вход mypoelife потерян
+    await bench({ accounts: { "corp@x": { in: "bot" } }, slots: { bot: ["corp@x"] } });
+    await ask({ type: "machine.login" });
+    expect(await ask({ type: "machine.login_code", code: "WRONG#Qm9vY" })).toMatchObject({ ok: false, error: "bad_code" });
+    expect(existsSync(NEW())).toBe(false);
+    expect(read(accDir("corp@x"))).toContain("tok-corp@x");
+    expect((await accounts())["corp@x"].login).toBe("ok");
   });
 
   it("на месте слота папка с файлами — slot_dir_busy, файлы не тронуты; пустая папка — заменяется ссылкой", async () => {
@@ -434,27 +466,24 @@ describe("входы: ветки и стыки", () => {
     await bench({
       accounts: {
         none: { login: "none" },
-        bare: { bare: true },
-        y0902: { in: "main", limits: { five_hour: { utilization: 0.5, resetsAt: t + 900, at: t - 600, src: "poll" } } },
+        y0902: { in: "main", limits: { five_hour: { utilization: 0.5, resetsAt: t + 900, at: t - 600 } } },
       },
-      slots: { main: ["y0902", "none", "bare"] },
+      slots: { main: ["y0902", "none"] },
       poll: () => {
         throw new Error("нет сети");
       },
     });
     expect(await ask({ type: "slot.swap", slot: "main", account: "ghost" })).toMatchObject({ ok: false, error: "no_account" });
     expect(await ask({ type: "slot.swap", slot: "main", account: "none" })).toMatchObject({ ok: false, error: "not_logged_in" });
-    expect(await ask({ type: "slot.swap", slot: "main", account: "bare" })).toMatchObject({ ok: false, error: "not_logged_in" }); // файла входа нет
-    const r = await ask({ type: "machine.accounts", max_age: 60 });
+    const r = await ask({ type: "machine.accounts", poll: ["y0902"] });
     expect(r.result.accounts.y0902.limits.five_hour.utilization).toBe(0.5);
     expect(r.result.accounts.y0902.err).toBeUndefined();
     expect(st!.journal().some((l) => l.ev === "poll" && /нет сети/.test(String(l.why)))).toBe(true);
   });
 
-  it("3049 · machine.login: имя не по форме — bad_frame; claudeAuthenticate отказал — login_failed, процесс входа закрыт", async () => {
+  it("3049 · machine.login: claudeAuthenticate отказал — login_failed, процесс входа закрыт, .new нет", async () => {
     // источник: чьё: код
     await bench();
-    expect(await ask({ type: "machine.login", account: "a b" })).toMatchObject({ ok: false, error: "bad_frame" });
     const orig = st!.sdk.query;
     st!.sdk.query = (p) => {
       const q = orig(p) as unknown as Record<string, unknown>;
@@ -463,40 +492,19 @@ describe("входы: ветки и стыки", () => {
       };
       return q as never;
     };
-    expect(await ask({ type: "machine.login", account: "corp" })).toMatchObject({ ok: false, error: "login_failed" });
+    expect(await ask({ type: "machine.login" })).toMatchObject({ ok: false, error: "login_failed" });
     expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
+    expect(existsSync(NEW())).toBe(false);
   });
 
-  it("3050 · login_code: в ответе callback нет почты — почта и тариф из accountInfo", async () => {
-    // источник: чьё: код
-    await bench();
-    await ask({ type: "machine.login", account: "corp" });
-    const q = st!.sdk.queries.find((x) => !x.options.spawnClaudeCodeProcess) as unknown as Record<string, unknown>;
-    q.claudeOAuthCallback = async () => {
-      cred(accDir("corp"), "corp");
-      return {};
-    };
-    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: true, result: { email: "corp@x", plan: "max" } });
-    expect((await accounts()).corp).toMatchObject({ login: "ok", email: "corp@x", plan: "max" });
-  });
-
-  it("3051 · login_code: claude принял код, но auth status — не вошёл: login none, строка журнала", async () => {
+  it("3051 · claude принял код, но auth status не назвал почту: login_failed, записи нет, .new стёрта", async () => {
     // источник: чьё: код
     await bench({ status: () => ({ code: 1, out: '{"loggedIn":false}' }) });
-    await ask({ type: "machine.login", account: "corp" });
-    expect(await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: true });
-    expect((await accounts()).corp.login).toBe("none");
-    expect(st!.journal().some((l) => l.why === "corp: claude принял код, но auth status — не вошёл")).toBe(true);
-  });
-
-  it("3052 · удалить аккаунт посреди входа — процесс входа закрыт, папки и записи нет", async () => {
-    // источник: чьё: код
-    await bench();
-    await ask({ type: "machine.login", account: "corp" });
-    expect(await ask({ type: "machine.account_remove", account: "corp" })).toMatchObject({ ok: true, result: { wiped: true } });
-    expect(st!.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess).every((q) => q.closed)).toBe(true);
-    expect(existsSync(accDir("corp"))).toBe(false);
-    expect((await accounts()).corp).toBeUndefined();
+    await ask({ type: "machine.login" });
+    expect(await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" })).toMatchObject({ ok: false, error: "login_failed" });
+    expect(await accounts()).toEqual({});
+    expect(existsSync(NEW())).toBe(false);
+    expect(st!.journal().some((l) => l.why === "claude принял код, но auth status не назвал почту")).toBe(true);
   });
 
   it("3054 · проверка входа упала — причина в журнале, следующая проверка идёт", async () => {
@@ -505,22 +513,22 @@ describe("входы: ветки и стыки", () => {
     let n = 0;
     await bench({
       accounts: { corp: {} },
-      status: () => {
+      status: (env) => {
         if (++n === 1) throw new Error("claude не запустился");
-        return { code: 0, out: '{"loggedIn":true}' };
+        return statusOf(env);
       },
     });
     vi.advanceTimersByTime(CHECK_MS);
     await until(() => st!.journal().some((l) => l.ev === "check" && l.kind === "refuse"));
     vi.advanceTimersByTime(CHECK_MS);
     await until(() => cli.length === 2);
-    await waitFor(async () => (await accounts()).corp.checked);
+    await waitFor(async () => (await accounts()).corp.plan);
   });
 
   it("3055 · штатная остановка закрывает процесс входа", async () => {
     // источник: слово пользователя (устав, graceful shutdown: «закрывает соединения … выходит»)
     await bench();
-    expect((await ask({ type: "machine.login", account: "corp" })).ok).toBe(true);
+    expect((await ask({ type: "machine.login" })).ok).toBe(true);
     const s = st!;
     st = null;
     const probe = s.sdk.queries.filter((q) => !q.options.spawnClaudeCodeProcess);
@@ -611,7 +619,7 @@ describe("подмена в слоте", () => {
     await until(() => (last("site@laptop").slot as { wait?: number } | undefined)?.wait === Y);
     expect(last("site@laptop").account).toBe("y0902");
     expect(places()).toHaveLength(0);
-    expect((await slots()).main).toMatchObject({ account: "y0902", wait: Y, sessions: ["site@laptop"] });
+    expect((await slots()).main).toMatchObject({ account: "y0902", wait: Y });
   });
 
   it("166 · claude обновил вход через ссылку слота — новый токен сразу в папке infirex; подмена ничего не переносит", async () => {
@@ -755,27 +763,11 @@ describe("подмена в слоте", () => {
     expect(existsSync(slotDir("s3"))).toBe(false);
   });
 
-  it("170 · сессия без слота: ключа нет, лимиты не в записи аккаунта; slot.set с default — no_account", async () => {
-    await bench({ accounts: { y0902: {} }, slots: {} });
-    await st!.open("wiki@laptop");
-    expect(st!.proc("wiki@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
-    st!.proc("wiki@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.99, resetsAt: now() + 99 }));
-    turn(st!.proc("wiki@laptop"));
-    await until(() => last("wiki@laptop").state === "idle");
-    expect((await accounts()).y0902.limits).toEqual({});
-    expect(last("wiki@laptop").slot).toBeUndefined();
-    expect(await ask({ type: "slot.set", slot: "bot", order: ["default"] })).toMatchObject({ ok: false, error: "no_account" });
-    expect(await slots()).toEqual({});
-    expect(existsSync(slotDir("bot"))).toBe(false);
-  });
-
   it("slot.set — новый слот берёт первый вошедший; session.slot живой сессии — restart с папкой слота", async () => {
-    await bench({ accounts: { corp: { login: "none" }, y0902: {} }, slots: {} });
-    // сессия открыта, когда слотов не было: слот появился позже и сам её не меняет
-    await st!.open("site@laptop");
+    await bench({ accounts: { corp: { login: "none" }, y0902: { in: "main" } }, slots: { main: ["y0902"] }, sessions: { "site@laptop": { slot: "main" } } });
     expect((await ask({ type: "slot.set", slot: "bot", order: ["corp", "y0902"] })).result).toEqual({ account: "y0902" });
     expect(read(slotDir("bot"))).toContain("tok-y0902");
-    expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
+    expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
     expect((await ask({ type: "session.slot", callsign: "site@laptop", slot: "bot" })).result).toEqual({ restart: true });
     await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
     expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("bot"));
@@ -799,20 +791,6 @@ describe("подмена в слоте", () => {
     expect((await ask({ type: "slot.swap", slot: "main", account: "work3" })).result).toEqual({ from: "infirex", to: "work3" });
     expect(swaps()[0]).toMatchObject({ by: "panel-desk~owner@example.com", text: "слот main: infirex → work3 · вручную" });
     expect((await ask({ type: "slot.swap", slot: "x" })).error).toBe("no_slot");
-  });
-
-  it("запасной без файла входа — слот прежний, строка журнала со словом", async () => {
-    const R = now() + 3600;
-    await bench({
-      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, y0902: {} },
-      slots: { main: ["infirex", "y0902"] },
-      sessions: { "site@laptop": { slot: "main" } },
-    });
-    unlinkSync(join(accDir("y0902"), CREDENTIALS));
-    st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.96, resetsAt: R }));
-    await until(() => st!.journal().some((l) => l.ev === "slot.swap" && l.word === "not_logged_in"));
-    expect(read(slotDir("main"))).toContain("tok-infirex");
-    expect(swaps()).toHaveLength(0);
   });
 
   it("3037 · slot.set: новый порядок у слота с аккаунтом — ссылка та же; отказы bad_frame и no_slot", async () => {
@@ -851,17 +829,15 @@ describe("подмена в слоте", () => {
     expect(read(slotDir("main"))).toContain("tok-y0902");
   });
 
-  it("3043 · session.slot: тот же слот и остановленная — без restart; null — слот снят, restart; без поля — bad_frame", async () => {
-    // источник: чьё: код; дизайн «Предел чтений и слоты»: поле обязательно
-    await bench({ accounts: { infirex: { in: "main" } }, slots: { main: ["infirex"] }, sessions: { "site@laptop": { slot: "main" }, "wiki@laptop": { slot: null } } });
+  it("3043 · session.slot: тот же слот и остановленная — без restart; без поля и null — bad_frame: вывести из слотов нельзя", async () => {
+    // источник: чьё: код; слово пользователя 5 нояб.: только свои переменные, общего входа нет
+    await bench({ accounts: { infirex: { in: ["main", "bot"] } }, slots: { main: ["infirex"], bot: ["infirex"] }, sessions: { "site@laptop": { slot: "main" }, "wiki@laptop": { slot: "main" } } });
     expect(await ask({ type: "session.slot", callsign: "site@laptop", slot: "main" })).toMatchObject({ ok: true, result: { restart: false } });
     expect(st!.sdk.of("site@laptop")).toHaveLength(1);
     await st!.session("probe", "wiki@laptop")!.stop();
-    expect(await ask({ type: "session.slot", callsign: "wiki@laptop", slot: "main" })).toMatchObject({ ok: true, result: { restart: false } });
+    expect(await ask({ type: "session.slot", callsign: "wiki@laptop", slot: "bot" })).toMatchObject({ ok: true, result: { restart: false } });
     expect(await ask({ type: "session.slot", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "bad_frame" });
-    expect(await ask({ type: "session.slot", callsign: "site@laptop", slot: null })).toMatchObject({ ok: true, result: { restart: true } });
-    await until(() => st!.holders.spawns.filter((x) => x.id === "site@laptop").length === 2 && st!.holders.procs.get("site@laptop")?.initializes === 1);
-    expect(st!.proc("site@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
+    expect(await ask({ type: "session.slot", callsign: "site@laptop", slot: null })).toMatchObject({ ok: false, error: "bad_frame" });
   });
 
   it("3045 · ниже порога — окно записано, подмены нет; неделя: 97 % — нет, 98 % — подмена", async () => {
@@ -932,36 +908,45 @@ describe("подмена в слоте", () => {
 });
 
 describe("эталоны дизайна «Предел чтений и слоты»", () => {
-  it("E8 · 0 слотов, не сказано — сессия на общем входе, ключа папки входа нет", async () => {
-    // источник: чьё: код
+  it("8 · 0 слотов — no_slot, названный и нет: ни процесса, ни записи; открытие слот не заводит", async () => {
+    // источник: слово пользователя 5 нояб.: вообще не использовать стандартную папку
     await bench({ accounts: { y0902: {} } });
-    await opening("wiki");
-    expect(st!.proc("wiki@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
-    expect(raw().sessions["wiki@laptop"]).toEqual({ slot: null });
+    expect((await refused(opening("wiki")))?.word).toBe("no_slot");
+    expect((await refused(opening("wiki", { slot: "main" })))?.word).toBe("no_slot");
+    expect(st!.sdk.of("wiki@laptop")).toHaveLength(0);
+    expect(existsSync(slotDir("main"))).toBe(false);
     expect(await slots()).toEqual({});
   });
 
-  // Статус общего входа — окружение без папки аккаунта.
-  const noShared = (env: Record<string, string | undefined>) => (env.CLAUDE_CONFIG_DIR ? { code: 0, out: JSON.stringify({ loggedIn: true }) } : { code: 1, out: JSON.stringify({ loggedIn: false }) });
+  it("8 · модуль входов выключен — открытие и без имени слота отказ: сессия не стартует без своей папки входа", async () => {
+    // источник: находка слепого архитектора; чьё: код
+    const broken = { ...make(), start() { throw new Error("бах"); } };
+    st = await standHost({ home, modules: [{ manifest: manifest as Manifest, module: broken }, module("probe", {}, { uses: { "machine.accounts@host-logins": 2, "session.slot@host-logins": 2 } })] });
+    expect((await refused(opening("job")))?.word).toBe("module_error");
+    expect(st.sdk.of("job@laptop")).toHaveLength(0);
+  });
 
-  it("7360 · новая машина: вход есть, слота и общего входа нет — слот main из вошедших, ключ есть при первом запуске", async () => {
+  it("8 · первый вход на машине без слотов заводит main, следующий — нет; сессия идёт в него", async () => {
     // источник: факт, журнал hz-ex44-win-1 4 нояб.: вход 07:07:24, открытие 07:07:46 — «Not logged in»
-    await bench({ accounts: { mypoelife: {}, spare: {}, gone: { login: "none" } }, status: noShared });
+    await bench();
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
+    expect((await slots()).main).toMatchObject({ account: "corp@x", order: ["corp@x"] });
     await opening("win1");
     expect(st!.proc("win1@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
-    expect(read(slotDir("main"))).toContain("tok-mypoelife");
-    expect((await slots()).main).toMatchObject({ account: "mypoelife", order: ["mypoelife", "spare"], sessions: ["win1@laptop"] });
     expect(raw().sessions["win1@laptop"]).toEqual({ slot: "main" });
-    await opening("win2");
-    expect(st!.proc("win2@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
+    signingIn = "other@x";
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
+    expect((await slots()).main).toMatchObject({ account: "corp@x", order: ["corp@x"] });
     expect(places()).toHaveLength(1);
   });
 
-  it("7361 · новая машина без единого входа — not_logged_in до запуска: нет процесса, папки и записи сессии", async () => {
+  it("7361 · новая машина без единого входа — no_slot до запуска: нет процесса, папки и записи сессии", async () => {
     // источник: живое воспроизведение 4 нояб. на машине probe, Host 1.3.3+1: сессия открылась и ответила «Not logged in»
-    await bench({ status: noShared });
+    await bench();
     const e = await refused(opening("job"));
-    expect(e?.word).toBe("not_logged_in");
+    expect(e?.word).toBe("no_slot");
     expect(e?.why).toContain("laptop");
     expect(existsSync(join(home, "work", "job"))).toBe(false);
     expect(raw().sessions["job@laptop"]).toBeUndefined();
@@ -1012,7 +997,7 @@ describe("эталоны дизайна «Предел чтений и слот�
       accounts: { a: {}, b: {}, c: {} },
       poll: () => new Promise((ok) => go.push(() => ok({ rate_limits: null }))),
     });
-    const p = ask({ type: "machine.accounts", max_age: 60 });
+    const p = ask({ type: "machine.accounts", poll: ["a", "b", "c"] });
     await until(() => polled.length === 3);
     expect([...polled].sort()).toEqual(["a", "b", "c"]);
     go.forEach((f) => f());
@@ -1024,15 +1009,15 @@ describe("эталоны дизайна «Предел чтений и слот�
     // источник: факт: копия записей отставала от входа
     const R = now() + 3600;
     await bench({
-      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, corp: { login: "none" } },
-      slots: { main: ["infirex", "corp"] },
+      accounts: { infirex: { in: "main", limits: { five_hour: { utilization: 0.9, resetsAt: R } } }, "corp@x": { login: "none" } },
+      slots: { main: ["infirex", "corp@x"] },
       sessions: { "site@laptop": { slot: "main" } },
     });
-    await ask({ type: "machine.login", account: "corp" });
-    await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" });
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
     st!.proc("site@laptop").send(limit({ status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.96, resetsAt: R }));
     await until(() => swaps().length === 1);
-    expect(read(slotDir("main"))).toContain("tok-corp");
+    expect(read(slotDir("main"))).toContain("tok-new-corp@x");
   });
 
   it("E28 · удаление аккаунта в двух слотах одним запросом: слоты сменили аккаунт, порядок без него, папка стёрта", async () => {
@@ -1042,14 +1027,14 @@ describe("эталоны дизайна «Предел чтений и слот�
       slots: { main: ["x", "y", "z"], bot: ["x", "z"] },
       sessions: { "site@laptop": { slot: "main", cut: "x" } },
     });
-    const r = await ask({ type: "machine.account_remove", account: "x", next: "z" });
+    const r = await ask({ type: "machine.account_remove", account: "x" });
     expect(r).toMatchObject({ ok: true, result: { wiped: true } });
     const s = await slots();
-    expect(s.main).toMatchObject({ account: "z", order: ["y", "z"] });
+    expect(s.main).toMatchObject({ account: "y", order: ["y", "z"] });
     expect(s.bot).toMatchObject({ account: "z", order: ["z"] });
     expect(existsSync(accDir("x"))).toBe(false);
     expect((await accounts()).x).toBeUndefined();
-    expect(swaps().map((f) => f.text)).toEqual(["слот main: x → z · удаление аккаунта", "слот bot: x → z · удаление аккаунта"]);
+    expect(swaps().map((f) => f.text)).toEqual(["слот main: x → y · удаление аккаунта", "слот bot: x → z · удаление аккаунта"]);
     await until(() => st!.proc("site@laptop").inputs.length === 1);
   });
 
@@ -1083,12 +1068,12 @@ describe("эталоны дизайна «Предел чтений и слот�
     // источник: слово пользователя 2 нояб.: у всех операций лимит. Настоящий read страницы — эталон связи.
     const t = now();
     await bench({
-      accounts: { y: { in: "main", limits: { five_hour: { utilization: 0.5, resetsAt: t + 900, at: t - 600, src: "poll" } } } },
+      accounts: { y: { in: "main", limits: { five_hour: { utilization: 0.5, resetsAt: t + 900, at: t - 600 } } } },
       slots: { main: ["y"] },
       poll: () => new Promise(() => {}),
     });
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const p = st!.host("probe").request("machine.accounts", { v: 1, max_age: 60 });
+    const p = st!.host("probe").request("machine.accounts", { v: 2, poll: ["y"] });
     await vi.advanceTimersByTimeAsync(POLL_MS + 1);
     vi.useRealTimers();
     const r = (await p) as { ok: boolean; result: any };
@@ -1106,7 +1091,7 @@ describe("эталоны дизайна «Предел чтений и слот�
     const r = await ask({ type: "machine.accounts" });
     expect(probes).toHaveLength(0);
     expect(cli).toHaveLength(0);
-    expect(r.result.slots).toEqual({ main: { account: "y", order: ["y"], wait: null, sessions: [] } });
+    expect(r.result.slots).toEqual({ main: { account: "y", order: ["y"], wait: null } });
   });
 
   it("E34 · папка аккаунта удалена — в слоте никого, модуль жив; открытие — not_logged_in; смена аккаунта чинит слот", async () => {
@@ -1161,7 +1146,7 @@ describe("эталоны дизайна «Предел чтений и слот�
     let hang = true;
     await bench({
       accounts: { corp: {} },
-      status: () => (hang ? new Promise(() => {}) : { code: 0, out: '{"loggedIn":true}' }),
+      status: (env) => (hang ? new Promise(() => {}) : statusOf(env)),
     });
     const orig = st!.sdk.query;
     st!.sdk.query = (p) => {
@@ -1170,7 +1155,7 @@ describe("эталоны дизайна «Предел чтений и слот�
       return q as never;
     };
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
-    const login = st!.relay.request({ v: 1, machine: "laptop", type: "machine.login", account: "corp2" } as Frame);
+    const login = st!.relay.request({ v: 2, machine: "laptop", type: "machine.login" } as Frame);
     await vi.advanceTimersByTimeAsync(LOGIN_MS + 1);
     expect(await login).toMatchObject({ ok: false, error: "login_failed" });
     vi.useRealTimers();
@@ -1179,7 +1164,7 @@ describe("эталоны дизайна «Предел чтений и слот�
     st = null;
     // проверка входа: таймер модуля должен встать на поддельные часы — новый стенд
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
-    await bench({ accounts: { corp: {} }, status: () => (hang ? new Promise(() => {}) : { code: 0, out: '{"loggedIn":true}' }) });
+    await bench({ accounts: { corp: {} }, status: (env) => (hang ? new Promise(() => {}) : statusOf(env)) });
     await vi.advanceTimersByTimeAsync(CHECK_MS + STATUS_MS + 1);
     expect(st!.journal().some((l) => l.ev === "check" && l.kind === "refuse" && /auth status не ответил/.test(String(l.why)))).toBe(true);
     hang = false;
@@ -1197,7 +1182,7 @@ describe("эталоны дизайна «Предел чтений и слот�
       sessions: { "site@laptop": { slot: "main" } },
       poll: () => new Promise(() => {}),
     });
-    void st!.relay.request({ v: 1, machine: "laptop", type: "machine.accounts", max_age: 60 } as Frame);
+    void st!.relay.request({ v: 2, machine: "laptop", type: "machine.accounts", poll: ["x"] } as Frame);
     await until(() => polled.length === 1);
     const s = st!;
     st = null;
@@ -1211,7 +1196,7 @@ describe("видимое: причины словами", () => {
   it("отказы называют причину", async () => {
     mkdirSync(slotDir("busy"), { recursive: true });
     writeFileSync(join(slotDir("busy"), "keep.txt"), "x");
-    await bench({ accounts: { y: {}, none: { login: "none" }, bare: { bare: true } }, sessions: { "site@laptop": { slot: null } } });
+    await bench({ accounts: { y: {}, none: { login: "none" } }, sessions: { "site@laptop": { slot: "busy" } } });
     const why = async (f: Record<string, unknown>) => {
       const r = await ask(f);
       return `${r.error}: ${r.why}`;
@@ -1220,12 +1205,10 @@ describe("видимое: причины словами", () => {
     expect(await why({ type: "slot.set", slot: "bad", order: ["none"] })).toBe("no_reserve: bad: в порядке нет вошедшего аккаунта");
     expect(await why({ type: "slot.set", slot: "bad", order: ["ghost"] })).toBe("no_account: ghost: такого аккаунта на машине нет");
     expect(await why({ type: "slot.set", slot: "a b", order: ["y"] })).toBe("bad_frame: имя слота — латиница, цифры, - и _");
-    expect(await why({ type: "slot.set", slot: "bad", order: ["bare"] })).toBe("not_logged_in: bad: bare не встал в слот — bare: входа нет");
     expect(await why({ type: "slot.swap", slot: "x" })).toBe("no_slot: слота x нет. На машине нет слотов");
-    expect(await why({ type: "machine.login", account: "a b" })).toBe("bad_frame: имя аккаунта — латиница, цифры, - и _");
-    expect(await why({ type: "machine.login_code", account: "z", code: "c" })).toBe("not_started: z: входа нет — Host перезапускался, вход начат заново или срок вышел");
+    expect(await why({ type: "machine.login_code", code: "c" })).toBe("not_started: входа нет — Host перезапускался, вход начат заново или срок вышел");
     expect(await why({ type: "machine.account_remove", account: "ghost" })).toBe("no_account: аккаунта ghost на машине нет");
-    expect(await why({ type: "session.slot", callsign: "site@laptop" })).toBe("bad_frame: session.slot: нужно поле slot — имя слота или null");
+    expect(await why({ type: "session.slot", callsign: "site@laptop" })).toBe("bad_frame: session.slot: нужно поле slot — имя слота");
     expect((await refused(opening("job", { slot: 5 })))?.why).toBe("session.open: slot — имя слота");
   });
 
@@ -1233,20 +1216,18 @@ describe("видимое: причины словами", () => {
     const R = now() + 3600;
     await bench({ accounts: { x: { in: "main", limits: { five_hour: { utilization: 0.99, resetsAt: R } } } }, slots: { main: ["x"] } });
     expect((await ask({ type: "slot.swap", slot: "main" })).why).toBe("main: в запасе нет вошедшего аккаунта ниже порога");
-    await ask({ type: "machine.login", account: "corp" });
-    expect(st!.journal().some((l) => l.ev === "login" && l.why === "corp: вход начат")).toBe(true);
-    const bad = await ask({ type: "machine.login_code", account: "corp", code: "WRONG#Qm9vY" });
-    expect(bad.why).toBe("corp: claude не принял код — Request failed with status code 400");
+    await ask({ type: "machine.login" });
+    expect(st!.journal().some((l) => l.ev === "login" && l.why === "вход начат")).toBe(true);
+    const bad = await ask({ type: "machine.login_code", code: "WRONG#Qm9vY" });
+    expect(bad.why).toBe("claude не принял код — Request failed with status code 400");
   });
 
-  it("новая машина: причина not_logged_in и строка журнала о слоте main", async () => {
-    const shared = (env: Record<string, string | undefined>) => (env.CLAUDE_CONFIG_DIR ? { code: 0, out: '{"loggedIn":true}' } : { code: 1, out: '{"loggedIn":false}' });
-    await bench({ status: shared });
-    expect((await refused(opening("job")))?.why).toBe("на laptop нет входа Claude: войдите в аккаунт на этой машине");
-    await st!.close();
-    await bench({ accounts: { a: {} }, status: shared });
-    await opening("job");
-    expect(st!.journal().some((l) => l.ev === "slot.set" && l.why === "main: общего входа нет, слот из вошедших аккаунтов")).toBe(true);
+  it("новая машина: причина no_slot и строка журнала о слоте main", async () => {
+    await bench();
+    expect((await refused(opening("job")))?.why).toBe("на laptop нет слотов: войдите в аккаунт или создайте слот");
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
+    expect(st!.journal().some((l) => l.ev === "slot.set" && l.why === "main: первый вход на машине без слотов")).toBe(true);
   });
 
   it("журнал: вход пропал — login_lost; поздний ответ — late; сброс — slot.reset; опрос и ledger — причина", async () => {
@@ -1266,7 +1247,7 @@ describe("видимое: причины словами", () => {
     vi.advanceTimersByTime(CHECK_MS);
     await until(() => st!.journal().some((l) => l.ev === "login_lost" && l.kind === "stop" && l.why === "y: вход пропал"));
     vi.useRealTimers();
-    await ask({ type: "machine.accounts", max_age: 0 });
+    await ask({ type: "machine.accounts", poll: ["infirex"] });
   });
 
   it("опрос не ответил: журнал называет аккаунт", async () => {
@@ -1279,7 +1260,7 @@ describe("видимое: причины словами", () => {
         throw new Error("нет сети");
       },
     });
-    await ask({ type: "machine.accounts", max_age: 0 });
+    await ask({ type: "machine.accounts", poll: ["infirex"] });
     expect(st!.journal().some((l) => l.ev === "poll" && l.kind === "refuse" && l.why === "infirex: опрос лимитов — нет сети")).toBe(true);
   });
 
@@ -1292,29 +1273,29 @@ describe("видимое: причины словами", () => {
       return q as never;
     };
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const late = st!.relay.request({ v: 1, machine: "laptop", type: "machine.login", account: "x" } as Frame);
+    const late = st!.relay.request({ v: 2, machine: "laptop", type: "machine.login" } as Frame);
     await vi.advanceTimersByTimeAsync(LOGIN_MS + 1);
-    expect(await late).toMatchObject({ error: "login_failed", why: `x: claudeAuthenticate — не ответил за ${LOGIN_MS / 1000} с` });
+    expect(await late).toMatchObject({ error: "login_failed", why: `claudeAuthenticate — не ответил за ${LOGIN_MS / 1000} с` });
     st!.sdk.query = orig;
-    await bench({});
-    await ask({ type: "machine.login", account: "corp" });
+    await ask({ type: "machine.login" });
     await vi.advanceTimersByTimeAsync(LOGIN_WAIT_MS);
     vi.useRealTimers();
-    expect(st!.journal().some((l) => l.ev === "login" && l.kind === "refuse" && l.why === "corp: срок входа вышел — кода нет за 30 мин")).toBe(true);
+    expect(st!.journal().some((l) => l.ev === "login" && l.kind === "refuse" && l.why === "срок входа вышел — кода нет за 30 мин")).toBe(true);
   });
 });
 
 describe("разбор спорного: вход пропал", () => {
   it("аккаунт в слоте без входа: открытие и перевод — not_logged_in до запуска; вход вернулся — идёт", async () => {
     // источник: факт — настоящий SDK на папке без входа отвечает «Not logged in · Please run /login»; бэклог 4 нояб.
-    await bench({ accounts: { x: { in: "main", login: "none" } }, slots: { main: ["x"] }, sessions: { "site@laptop": { slot: null } } });
+    await bench({ accounts: { x: { in: "main", login: "none" } }, slots: { main: ["x"] }, sessions: { "site@laptop": { slot: "main" } } });
     const e = await refused(opening("job"));
     expect(e?.word).toBe("not_logged_in");
     expect(e?.why).toBe("в слоте main x без входа");
     expect(st!.sdk.of("job@laptop")).toHaveLength(0);
     expect(await ask({ type: "session.slot", callsign: "site@laptop", slot: "main" })).toMatchObject({ ok: false, error: "not_logged_in" });
-    await ask({ type: "machine.login", account: "x" });
-    await ask({ type: "machine.login_code", account: "x", code: "Xk2pL#Qm9vY" });
+    signingIn = "x";
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
     await opening("job");
     expect(st!.proc("job@laptop").env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBe(slotDir("main"));
   });
@@ -1328,19 +1309,129 @@ describe("сверка строк: чего леса не держали", () =>
     expect(places()[0]).toMatchObject({ account: "y0902", from: null });
   });
 
-  it("accountInfo упал после принятого кода: вход состоялся, причина в журнале", async () => {
-    await bench();
-    await ask({ type: "machine.login", account: "corp" });
-    const q = st!.sdk.queries.find((x) => !x.options.spawnClaudeCodeProcess) as unknown as Record<string, unknown>;
-    q.claudeOAuthCallback = async () => {
-      cred(accDir("corp"), "corp");
-      return {};
-    };
-    q.accountInfo = async () => {
-      throw new Error("нет сети");
-    };
-    expect((await ask({ type: "machine.login_code", account: "corp", code: "Xk2pL#Qm9vY" })).ok).toBe(true);
-    expect((await accounts()).corp.login).toBe("ok");
-    expect(st!.journal().some((l) => l.ev === "login" && l.why === "corp: accountInfo — нет сети")).toBe(true);
+});
+
+describe("эталоны дизайна «Аккаунты, машины и слоты»", () => {
+  /** Проверка раз в 2 мин, заведённая на поддельные часы. */
+  const tick = () => vi.advanceTimersByTime(CHECK_MS);
+
+  it("6 · в папке чужая почта: «нет входа», строка журнала с обеими почтами, слот перешёл на следующего", async () => {
+    // источник: факт — hz-ex44-win-1: обе папки показывали «вошёл»
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await bench({
+      accounts: { mypoelife: { in: "main" }, spare: {} },
+      slots: { main: ["mypoelife", "spare"] },
+      sessions: { "site@laptop": { slot: "main" } },
+      status: (env) => (env.CLAUDE_CONFIG_DIR === accDir("mypoelife") ? { code: 0, out: JSON.stringify({ email: "yurianrun" }) } : statusOf(env)),
+    });
+    tick();
+    await until(() => swaps().length === 1);
+    expect(swaps()[0].text).toBe("слот main: mypoelife → spare · вход пропал");
+    expect(st!.journal().find((l) => l.ev === "login_foreign")).toMatchObject({ kind: "stop", why: "mypoelife: в папке вход yurianrun" });
+    expect((await accounts()).mypoelife.login).toBe("none");
+    expect(read(accDir("mypoelife"))).toContain("tok-mypoelife");
+    expect(st!.holders.spawns.filter((x) => x.id === "site@laptop")).toHaveLength(1);
+  });
+
+  it("7 · вход пропал: слот сменился; повторная проверка второй раз не меняет", async () => {
+    // источник: бэклог «Аккаунт в слоте потерял вход», факт: auth status без входа — код 1
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await bench({
+      accounts: { x: { in: "main" }, y: {} },
+      slots: { main: ["x", "y"] },
+      status: (env) => (env.CLAUDE_CONFIG_DIR === accDir("x") ? { code: 1, out: '{"loggedIn":false}' } : statusOf(env)),
+    });
+    tick();
+    await until(() => swaps().length === 1);
+    expect((await slots()).main.account).toBe("y");
+    const n = cli.length;
+    tick();
+    await until(() => cli.length > n);
+    expect(swaps()).toHaveLength(1);
+  });
+
+  it("7 · вход пропал, запасные у порога: слот ждёт их сброс; запаса нет — строка журнала", async () => {
+    // источник: чьё: код; находка слепого архитектора
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    const R = now() + 3600;
+    await bench({
+      accounts: { x: { in: "main" }, y: { limits: { five_hour: { utilization: 0.99, resetsAt: R } } }, z: { in: "bot" } },
+      slots: { main: ["x", "y"], bot: ["z"] },
+      status: (env) => (env.CLAUDE_CONFIG_DIR === accDir("y") ? statusOf(env) : { code: 1, out: '{"loggedIn":false}' }),
+    });
+    tick();
+    await until(() => st!.journal().filter((l) => l.ev === "slot.wait").length === 2);
+    const s = await slots();
+    expect(s.main).toMatchObject({ account: "x", wait: R });
+    expect(s.bot).toMatchObject({ account: "z", wait: null });
+    expect(swaps()).toHaveLength(0);
+  });
+
+  it("7 · команда не ответила или почты нет: состояние прежнее, слот на месте", async () => {
+    // источник: чьё: код; находка слепого архитектора: обрыв сети не меняет слот
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    await bench({ accounts: { x: { in: "main" }, y: {} }, slots: { main: ["x", "y"] }, status: () => ({ code: 0, out: "{}" }) });
+    tick();
+    await until(() => st!.journal().filter((l) => l.ev === "check").length === 2);
+    expect((await accounts()).x.login).toBe("ok");
+    expect((await slots()).main.account).toBe("x");
+    expect(swaps()).toHaveLength(0);
+  });
+
+  it("9 · час сброса: первому слоту отказ при подмене — второй продолжает, причина первого в журнале", async () => {
+    // источник: чьё: код; ревью 5 нояб.: первая неудача прерывала обход слотов
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"], now: Date.now() });
+    const t = now();
+    await bench({
+      accounts: {
+        x: { in: "s1", limits: { seven_day: { utilization: 1, resetsAt: t + 86400 } } },
+        y: { limits: { five_hour: { utilization: 0.97, resetsAt: t + 60 } } },
+        z: { in: "s2", limits: { five_hour: { utilization: 1, resetsAt: t + 60 } } },
+      },
+      slots: { s1: ["x", "y"], s2: ["z"] },
+      sessions: { "site@laptop": { slot: "s2", cut: "z" } },
+    });
+    mkdirSync(join(accDir("x"), REFRESH_LOCK));
+    await vi.advanceTimersByTimeAsync(61_000);
+    for (let i = 0; i <= LOCK_WAIT_MS + 200; i += 100) await vi.advanceTimersByTimeAsync(100);
+    await until(() => st!.proc("site@laptop").inputs.length === 1);
+    expect(JSON.stringify(st!.proc("site@laptop").inputs[0].message.content)).toContain(CONTINUE);
+    expect(st!.journal().some((l) => l.ev === "slot.swap" && l.word === "refresh_locked")).toBe(true);
+    expect((await slots()).s1.account).toBe("x");
+    rmdirSync(join(accDir("x"), REFRESH_LOCK));
+  });
+
+  it("10 · поздний отказ со сбросом на 1 с от окна прежнего аккаунта: слот не уходит с нового", async () => {
+    // источник: факт — один аккаунт на двух машинах: 17:59:59 и 18:00:00
+    const R = now() + 3600;
+    await bench({
+      accounts: { infirex: { limits: { five_hour: { utilization: 0.95, resetsAt: R } } }, y0902: { in: "main", limits: { five_hour: { utilization: 0.05, resetsAt: R + 3600 } } } },
+      slots: { main: ["infirex", "y0902"] },
+      sessions: { "site@laptop": { slot: "main" } },
+    });
+    st!.proc("site@laptop").send(limit({ status: "rejected", rateLimitType: "five_hour", resetsAt: R - 1 }));
+    await until(() => st!.journal().some((l) => l.why === "main: поздний ответ infirex"));
+    expect((await slots()).main.account).toBe("y0902");
+    expect(swaps()).toHaveLength(0);
+  });
+
+  it("13 · последний аккаунт: в слоте с сессией — no_reserve, вход и слот те же; слот без сессий удалён — аккаунт удалён, новый вход заводит main", async () => {
+    // источник: чьё: код; находка слепого архитектора
+    await bench({ accounts: { x: { in: "main" } }, slots: { main: ["x"] }, sessions: { "site@laptop": { slot: "main" } } });
+    const r = await ask({ type: "machine.account_remove", account: "x" });
+    expect(r).toMatchObject({ ok: false, error: "no_reserve" });
+    expect(read(accDir("x"))).toContain("tok-x");
+    await st!.close();
+    st = null;
+    rmSync(join(home, "store"), { recursive: true, force: true });
+    rmSync(slotDir("main"), { recursive: true, force: true });
+    await bench({ accounts: { x: { in: "main" } }, slots: { main: ["x"] } });
+    expect(await ask({ type: "machine.account_remove", account: "x" })).toMatchObject({ ok: false, error: "no_reserve" });
+    expect(await ask({ type: "slot.set", slot: "main", order: [] })).toMatchObject({ ok: true });
+    expect(await ask({ type: "machine.account_remove", account: "x" })).toMatchObject({ ok: true, result: { wiped: true } });
+    expect((await refused(opening("job")))?.word).toBe("no_slot");
+    await ask({ type: "machine.login" });
+    await ask({ type: "machine.login_code", code: "Xk2pL#Qm9vY" });
+    expect((await slots()).main.account).toBe("corp@x");
   });
 });

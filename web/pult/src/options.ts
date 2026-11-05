@@ -4,6 +4,6 @@ const LISTS = ["board", "inbox", "incidents"];
 export const PULT = {
   wide: true,
   brand: "Пульт",
-  sections: ["inbox", "board", "incidents", "machines", "accounts", "profiles", "journal", "points", "settings"],
+  sections: ["inbox", "board", "incidents", "accounts", "profiles", "journal", "points", "settings"],
   beside: { card: LISTS, chat: LISTS, ask: LISTS, open: LISTS },
 };

@@ -1,13 +1,15 @@
-// Ответы машин и идущие входы. Экран открыт — спросить машины; сменился аккаунт сессии — перечитать её машину со свежими окнами.
+// Ответы машин и идущие входы. Экран открыт — записи всех машин, затем один опрос на почту; сменился аккаунт сессии — опрос нового.
 // Код входа уходит только машине и здесь не остаётся.
-import type { App, Roster } from "@switchboard/web-core";
-import { accountChanged, type AccountsAnswer, createStore, linkText, machineAnswers, machinesWith, okOf, type Result, useModule } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
+import type { App, Roster } from "@switchboard/web-core";
+import { accountChanged, type AccountsAnswer, createStore, linkText, machineAnswers, machinesWith, useModule } from "@switchboard/web-ui";
+import { pollPlan, shortName } from "./merge.ts";
 
-export type LoginCard = { machine: string; account: string; url?: string; sending?: boolean; failed?: string; word?: string; done?: string };
+/** Вход на машине: один за раз. expected — аккаунт, с которого начали: если вошли другой почтой, он не изменился. */
+export type Login = { expected?: string; url?: string; sending?: boolean };
 
 const WORDS: Record<string, string> = {
-  no_reserve: "В запасе нет вошедшего ниже порога — слот прежний",
+  no_reserve: "В запасе нет вошедшего ниже порога",
   has_sessions: "В слоте есть сессии — сначала переведите их",
   no_account: "Такого аккаунта нет на машине",
   no_slot: "Такого слота нет",
@@ -25,46 +27,68 @@ export const refusal = (r: { error: string; why?: string }, machine?: string) =>
 export type AccountsState = ReturnType<typeof createAccountsState>;
 export const useAccounts = (): AccountsState => useModule<AccountsState>();
 
+const nowS = () => Math.floor(Date.now() / 1000);
+
 export function createAccountsState(app: App) {
-  const ask = (maxAge: number) => (machine: string) => app.read<AccountsAnswer>("machine.accounts", { machine, max_age: maxAge });
-  const answers = machineAnswers<AccountsAnswer>(app, ask(120), () => machinesWith(app, "machine.accounts"));
-  const logins = createStore<Record<string, LoginCard>>({}, () => app.changed());
+  const read = (machine: string, poll?: string[]) => app.read<AccountsAnswer>("machine.accounts", { machine, ...(poll?.length ? { poll } : {}) });
+  const machines = () => machinesWith(app, "machine.accounts");
+  /** Почты, о которых Claude уже спрашивали при этом открытии: отказ опроса не должен повторяться по кругу. */
+  const asked = new Set<string>();
+
+  function pollStale() {
+    if (!answers.isOpen() || !machines().every((m) => answers.get()[m] !== undefined)) return;
+    for (const [machine, emails] of pollPlan(answers.get(), nowS(), asked)) {
+      emails.forEach((e) => asked.add(e));
+      void answers.reload(machine, (m) => read(m, emails));
+    }
+  }
+
+  const answers = machineAnswers<AccountsAnswer>(app, (machine) => read(machine), machines, pollStale);
+  const logins = createStore<Record<string, Login>>({}, () => app.changed());
   /** аккаунт сессии в прошлом roster */
   const known: Record<string, string> = {};
-  const edit = (key: string, patch: Partial<LoginCard>) => logins.set((all) => void (all[key] = { ...all[key], ...patch }));
-
-  async function beginLogin(machine: string, account: string): Promise<void> {
-    const key = `${machine}:${account}`;
-    logins.set((all) => void (all[key] = { machine, account }));
-    const r = await app.request<{ url: string }>("machine.login", { machine, account });
-    if (!r.ok) return edit(key, { failed: refusal(r, machine), word: r.error });
-    edit(key, { url: r.result.url });
-    void answers.reload(machine);
-  }
 
   return {
     answers,
     logins: () => logins.get(),
-    beginLogin,
-    hideLogin: (key: string) => logins.set((all) => void delete all[key]),
-    async sendCode(key: string, code: string): Promise<void> {
-      const card = logins.get()[key];
-      if (!code.trim() || !card) return;
-      edit(key, { sending: true });
-      const r: Result<{ email?: string; plan?: string }> = await app.request("machine.login_code", { machine: card.machine, account: card.account, code });
-      if (!r.ok) return edit(key, { sending: false, url: undefined, failed: refusal(r, card.machine), word: r.error });
-      edit(key, { sending: false, url: undefined, done: `Вошёл: ${[r.result.email, r.result.plan].filter(Boolean).join(" · ")}` });
-      void answers.reload(card.machine);
+    mount() {
+      asked.clear();
+      return answers.mount();
     },
-    /** Входы, которые идут сейчас: по последним ответам. */
-    pending: () =>
-      Object.values(answers.get())
-        .flatMap((a) => Object.values(okOf(a)?.accounts ?? {}))
-        .filter((a) => a.login === "pending").length,
+    /** Ответ — отказ строкой, если вход не начался. */
+    async beginLogin(machine: string, expected?: string): Promise<string | null> {
+      logins.set((all) => void (all[machine] = { expected }));
+      const r = await app.request<{ url: string }>("machine.login", { machine });
+      if (!r.ok) {
+        logins.set((all) => void delete all[machine]);
+        return refusal(r, machine);
+      }
+      logins.set((all) => void (all[machine] = { expected, url: r.result.url }));
+      return null;
+    },
+    hideLogin: (machine: string) => logins.set((all) => void delete all[machine]),
+    /** Итог для строки машины; код не остаётся нигде, кроме поля ввода. */
+    async sendCode(machine: string, code: string): Promise<{ text: string; tone: "ok" | "bad" | "wait" } | null> {
+      const card = logins.get()[machine];
+      if (!card || !code.trim()) return null;
+      logins.set((all) => void (all[machine] = { ...card, sending: true }));
+      const r = await app.request<{ email: string; plan?: string }>("machine.login_code", { machine, code });
+      logins.set((all) => void delete all[machine]);
+      void answers.reload(machine, (m) => read(m, r.ok ? [r.result.email] : []));
+      if (!r.ok) return { text: refusal(r, machine), tone: "bad" };
+      const other = card.expected && card.expected !== r.result.email;
+      return other ? { text: `Вошёл: ${r.result.email} — это другой аккаунт, ${shortName(card.expected!)} не изменился`, tone: "wait" } : { text: `Вошёл: ${r.result.email}`, tone: "ok" };
+    },
     onRoster(r: Roster) {
-      const changed = accountChanged(known, r.sessions);
-      if (!answers.isOpen()) return;
-      for (const machine of new Set(changed.map((c) => machineOf(c)!))) void answers.reload(machine, ask(0));
+      const changed = new Set(accountChanged(known, r.sessions));
+      if (!changed.size || !answers.isOpen()) return;
+      const fresh = new Map<string, Set<string>>();
+      for (const s of r.sessions) {
+        if (!changed.has(s.callsign) || typeof s.account !== "string") continue;
+        const m = machineOf(s.callsign)!;
+        fresh.set(m, (fresh.get(m) ?? new Set()).add(s.account));
+      }
+      for (const [machine, emails] of fresh) void answers.reload(machine, (m) => read(m, [...emails]));
     },
   };
 }
