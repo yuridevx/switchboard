@@ -1,73 +1,40 @@
-// Строки ленты: каждому виду строки — своя разметка. Те же строки рисуются в ленте, в шагах субагента и в галерее.
-import { memo, useState, type ReactNode } from "react";
-import { AlertTriangle, Anchor, Archive, ArrowLeftRight, Ban, BookOpen, Bot, BrainCircuit, ChevronDown, ChevronUp, FileText, FileUp, Gauge, History, Info, MessagesSquare, Pencil, RefreshCw, RotateCcw, RotateCw, ShieldOff, Shuffle, Sparkles, Square, Terminal, Undo2, X, Zap } from "lucide-react";
-import { Btn, CodeBlock, CopyButton, DisclosureBtn, hhmm, Markdown, permModeName, TextBtn } from "@switchboard/web-ui";
-import type { Icon, Part, Row } from "../state/fold.ts";
-import { taskEndText } from "../state/fold.ts";
-import { kTokens, modelName, steps } from "../state/words.ts";
-import { Dis, useEnv } from "./env.tsx";
-import { ToolCard } from "./ToolCard.tsx";
+// Строки ленты: каждая рисует свои данные из свёртки. Контекст Env — действия и живые сведения; галерея стенда подаёт свой.
+import { createContext, memo, useContext, useState, type ReactNode } from "react";
+import { Anchor, Archive, ArrowLeftRight, Ban, BookOpen, Bot, BrainCircuit, ChevronDown, ChevronRight, ChevronUp, FileText, FileUp, Gauge, History, Info, ListCollapse, MessagesSquare, Pencil, RefreshCw, RotateCcw, RotateCw, ShieldOff, Shuffle, Sparkles, Square, Terminal, TriangleAlert, Undo2, X, Zap } from "lucide-react";
+import { Btn, CodeBlock, CopyButton, DisclosureBtn, Markdown, permModeName, plural, TextBtn, useApp } from "@switchboard/web-ui";
+import type { Part, Row } from "../fold.ts";
+import type { Steps } from "../focus.ts";
+import type { Env } from "../store.ts";
+import { ToolCard } from "./Tool.tsx";
 
-const DOCUMENT = /^\s*(<!doctype html|<html[\s>])/i;
-/** Длиннее — свёрнуто. */
-const LONG = 700;
-const LIVE_TAIL = 400;
+export const EnvCtx = createContext<Env | null>(null);
+export const useEnv = () => useContext(EnvCtx)!;
 
-const BIG = 15;
-const ICONS: Record<Icon, (size: number) => ReactNode> = {
-  archive: (s) => <Archive size={s} />,
-  stop: () => <Square size={11} />,
-  retry: (s) => <RefreshCw size={s} />,
-  gauge: (s) => <Gauge size={s} />,
-  zap: (s) => <Zap size={s} />,
-  x: (s) => <X size={s} />,
-  model: (s) => <Sparkles size={s} />,
-  info: (s) => <Info size={s} />,
-  ban: (s) => <Ban size={s} />,
-  reset: (s) => <RotateCcw size={s} />,
-  shuffle: (s) => <Shuffle size={s} />,
-  anchor: (s) => <Anchor size={s} />,
-  memory: (s) => <BookOpen size={s} />,
-  file: (s) => <FileUp size={s} />,
-  swap: (s) => <ArrowLeftRight size={s} />,
+const ICONS: Record<string, typeof Zap> = { archive: Archive, "refresh-cw": RefreshCw, zap: Zap, "shield-off": ShieldOff, "arrow-left-right": ArrowLeftRight, gauge: Gauge, shuffle: Shuffle, anchor: Anchor, memory: BookOpen, info: Info, x: X, ban: Ban, file: FileUp, reset: RotateCcw, bot: Bot, terminal: Terminal, stop: Square, model: Sparkles };
+const Icon = ({ name, size = 13 }: { name?: string; size?: number }) => {
+  const I = name ? ICONS[name] : undefined;
+  return I ? <I size={name === "stop" ? 11 : size} /> : null;
 };
 
-function Think({ part }: { part: Extract<Part, { k: "think" }> }) {
-  const t = part.text.trim();
-  const head = (
-    <>
-      <BrainCircuit size={14} />
-      {part.live ? "Размышляет…" : "Размышлял"}
-    </>
-  );
-  // пока идёт — последние строки; потом свёрнутая строка, по нажатию весь текст
-  if (part.live)
-    return (
-      <div className="chat-think live">
-        <div className="chat-think-h">{head}</div>
-        {t ? <div className="chat-think-t">{t.slice(-LIVE_TAIL)}</div> : null}
-      </div>
-    );
-  if (!t)
-    return (
-      <div className="chat-think">
-        <div className="chat-think-h">{head}</div>
-      </div>
-    );
+/** Свёрнутая строка: заголовок и тело по нажатию. */
+export function Dis({ className, head, children, open: first = false }: { className?: string; head: ReactNode; children?: ReactNode; open?: boolean }) {
+  const [open, setOpen] = useState(first);
   return (
-    <Dis className="chat-think" head={head}>
-      <div className="chat-think-t">
-        <Markdown text={t} />
-      </div>
-    </Dis>
+    <div className={`dis ${className ?? ""}`.trim()}>
+      <DisclosureBtn className="dis-h" open={open} onClick={() => setOpen(!open)}>
+        {head}
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </DisclosureBtn>
+      {open ? <div className="dis-b">{children}</div> : null}
+    </div>
   );
 }
 
-function PartView({ part }: { part: Part }) {
-  if (part.k === "think") return <Think part={part} />;
-  if (part.k === "tool") return <ToolCard id={part.tool} />;
-  // полный HTML-документ показывается кодом, а не разбирается как разметка
-  if (!part.live && DOCUMENT.test(part.text)) return <CodeBlock code={part.text.trim()} lang="html" />;
+const DOC = /^\s*(<!doctype html|<html[\s>])/i;
+
+function Text({ part }: { part: Extract<Part, { t: "text" }> }) {
+  // целый документ: готовый — блок с просмотром, пишущийся — как текст
+  if (!part.live && DOC.test(part.text)) return <CodeBlock code={part.text.trim()} lang="html" />;
   return (
     <div className="chat-txt">
       <Markdown text={part.text} live={part.live} />
@@ -75,58 +42,126 @@ function PartView({ part }: { part: Part }) {
   );
 }
 
+const THINK_TAIL = 400;
+
+function Think({ part }: { part: Extract<Part, { t: "think" }> }) {
+  const label = (text: string) => (
+    <>
+      <BrainCircuit size={14} />
+      {text}
+    </>
+  );
+  if (part.live) {
+    return (
+      <div className="chat-think live">
+        <div className="chat-think-h">{label("Размышляет…")}</div>
+        <div className="chat-think-t">{part.text.slice(-THINK_TAIL)}</div>
+      </div>
+    );
+  }
+  if (!part.text) {
+    return (
+      <div className="chat-think">
+        <div className="chat-think-h">{label("Размышлял")}</div>
+      </div>
+    );
+  }
+  return (
+    <Dis className="chat-think" head={label("Размышлял")}>
+      <div className="chat-think-t">
+        <Markdown text={part.text} />
+      </div>
+    </Dis>
+  );
+}
+
 function Reply({ row }: { row: Extract<Row, { k: "reply" }> }) {
-  const texts = row.parts.flatMap((p) => (p.k === "text" ? [p] : []));
-  const text = texts.map((p) => p.text).join("\n\n");
+  const texts = row.parts.flatMap((p) => (p.t === "text" ? [p] : []));
+  const ready = texts.length > 0 && !texts.some((p) => p.live);
   return (
     <div className="chat-reply">
-      {row.parts.map((p) => (
-        <PartView key={p.pid} part={p} />
-      ))}
-      {text && !texts.some((p) => p.live) ? (
+      {row.parts.map((p, i) => (p.t === "text" ? <Text key={i} part={p} /> : p.t === "think" ? <Think key={i} part={p} /> : <ToolCard key={p.id} id={p.id} />))}
+      {ready ? (
         <div className="chat-acts">
-          <CopyButton text={text} label="копировать" />
+          <CopyButton text={texts.map((p) => p.text).join("\n\n")} label="копировать" />
         </div>
       ) : null}
     </div>
   );
 }
 
-/** Подпись под своим сообщением: узко — словами, широко — галочками. */
-function Tail({ uuid }: { uuid: string }) {
+function Me({ row }: { row: Extract<Row, { k: "me" }> }) {
+  const app = useApp();
   const env = useEnv();
-  const s = env.sends[uuid];
-  if (!s) return null;
-  if (s.state === "lost")
-    return (
-      <small>
-        связь оборвалась до ответа — <span className="chat-nb">не подтверждено ·</span>{" "}
-        <TextBtn className="chat-again" onClick={() => env.again(uuid)}>
-          <RotateCw size={11} />
-          отправить ещё раз
+  const send = app.use(() => env.send(row.id));
+  const canAct = app.use(() => env.canAct());
+  const lost = send?.state === "lost";
+  const stamp = () => {
+    if (!send) return "";
+    if (send.state === "sending") return "отправляю…";
+    if (send.queued && send.state === "ok") return env.wide ? "в очереди · ✓" : "в очереди";
+    return `${row.at} · ${env.wide ? (send.state === "echo" ? "✓✓" : "✓") : "доставлено"}`;
+  };
+  return (
+    <div className={lost ? "chat-me pend" : "chat-me"} data-state={send?.state}>
+      {row.pics.length ? (
+        <div className="chat-pics">
+          {row.pics.map((src, i) => (
+            <a key={i} href={src} target="_blank" rel="noopener noreferrer">
+              <img src={src} alt={`картинка ${i + 1}`} />
+            </a>
+          ))}
+        </div>
+      ) : null}
+      {row.files.map((f, i) => (
+        <span key={i} className="chat-att">
+          <FileText size={12} />
+          {f}
+        </span>
+      ))}
+      {row.text}
+      {lost ? (
+        <small>
+          {"связь оборвалась до ответа — "}
+          <span className="chat-nb">не подтверждено ·</span>{" "}
+          <TextBtn className="chat-again" onClick={() => env.again(row.id)}>
+            <RotateCw size={11} />
+            отправить ещё раз
+          </TextBtn>
+        </small>
+      ) : stamp() ? (
+        <small>{stamp()}</small>
+      ) : null}
+      {send?.queued && send.state === "ok" && canAct ? (
+        <TextBtn className="chat-again chat-cancel" onClick={() => env.cancel(row.id)}>
+          <Undo2 size={11} />
+          отменить
         </TextBtn>
-      </small>
-    );
-  if (s.state === "sending") return <small>отправляю…</small>;
-  const at = hhmm(s.at);
-  if (s.state === "echo") return <small>{env.wide ? `${at} · ✓✓` : `${at} · доставлено`}</small>;
-  if (s.queued) return <small>{env.wide ? "в очереди · ✓" : "в очереди"}</small>;
-  return <small>{env.wide ? `${at} · ✓` : `${at} · доставлено`}</small>;
+      ) : null}
+      {env.wide && canAct && (!send || send.state === "echo" || send.state === "ok") ? (
+        <TextBtn className="chat-rw" onClick={() => env.probe(row.id)}>
+          <History size={11} />
+          откатить файлы
+        </TextBtn>
+      ) : null}
+    </div>
+  );
 }
 
-function RewindCard({ uuid }: { uuid: string }) {
+function Rewind({ id }: { id: string }) {
+  const app = useApp();
   const env = useEnv();
-  const r = env.rewind;
-  if (r?.uuid !== uuid) return null;
+  const rw = app.use(() => env.rewind());
+  if (!rw || rw.id !== id) return null;
   return (
-    <div className={`chat-rwc ${r.tone}`} role="status">
-      <span>{r.text}</span>
-      {r.ready ? (
+    <div className={`chat-rwc ${rw.state === "bad" || rw.state === "ok" ? rw.state : ""}`} role="status">
+      <span>{rw.text}</span>
+      {rw.state === "ask" ? (
         <>
           <Btn type="button" className="chat-mini" onClick={env.cancelRewind}>
             Отмена
           </Btn>
-          <Btn bad type="button" className="chat-mini" onClick={() => env.applyRewind(uuid)}>
+          <Btn type="button" bad className="chat-mini" onClick={() => env.apply(id)}>
             Откатить
           </Btn>
         </>
@@ -135,181 +170,71 @@ function RewindCard({ uuid }: { uuid: string }) {
   );
 }
 
-function Me({ row }: { row: Extract<Row, { k: "me" }> }) {
+const CLAMP_AT = 700;
+
+function Incoming({ row }: { row: Extract<Row, { k: "in" }> }) {
   const env = useEnv();
-  const s = env.sends[row.uuid];
-  const pics = s ? s.files.filter((f) => f.media_type.startsWith("image/")).map((f) => `data:${f.media_type};base64,${f.data}`) : row.pics;
-  const others = s ? s.files.filter((f) => !f.media_type.startsWith("image/")) : [];
-  const canRewind = env.wide && env.canCall && s?.state !== "lost" && s?.state !== "sending";
-  const canCancel = env.canCall && s?.queued && s.state === "ok";
+  const long = row.via !== "owner" && row.text.length > CLAMP_AT;
+  const [whole, setWhole] = useState(false);
+  const from = row.via === "owner" ? `${env.label(row.from)} → вам` : row.via === "agent" ? `субагент · ${row.from}` : row.from ? `сессия Claude · ${row.from}` : "сессия Claude";
   return (
-    <>
-      <div className={s?.state === "lost" ? "chat-me pend" : "chat-me"} data-state={s?.state}>
-        {pics.length ? (
-          <div className="chat-pics">
-            {pics.map((src, i) => (
-              <a key={i} href={src} target="_blank" rel="noopener noreferrer">
-                <img src={src} alt={`картинка ${i + 1}`} />
-              </a>
-            ))}
-          </div>
-        ) : null}
-        {others.map((f, i) => (
-          <span key={i} className="chat-att">
-            <FileText size={13} />
-            {f.name}
-          </span>
-        ))}
-        {row.text}
-        <Tail uuid={row.uuid} />
-        {canCancel ? (
-          <TextBtn className="chat-again chat-cancel" onClick={() => env.cancel(row.uuid)}>
-            <Undo2 size={11} />
-            отменить
-          </TextBtn>
-        ) : null}
-        {canRewind ? (
-          <TextBtn className="chat-rw" onClick={() => env.probeRewind(row.uuid)}>
-            <History size={11} />
-            откатить файлы
-          </TextBtn>
-        ) : null}
-      </div>
-      <RewindCard uuid={row.uuid} />
-    </>
-  );
-}
-
-/** Режим отправителя, о котором стоит сказать: обычный «Спрашивать» — нет; bypass — так его пишет claude у субагентов. */
-const peerMode = (m: string) => (m === "default" ? undefined : permModeName(m === "bypass" ? "bypassPermissions" : m)?.toLowerCase());
-
-/** Сообщение другой сессии или субагента. */
-function Peer({ row }: { row: Extract<Row, { k: "in" }> }) {
-  const agent = row.kind === "agent";
-  const long = row.text.length > LONG;
-  const [open, setOpen] = useState(!long);
-  const mode = row.mode ? peerMode(row.mode) : undefined;
-  return (
-    <div className="chat-in fleet" data-from={row.kind}>
+    <div className={row.via === "owner" ? "chat-in" : "chat-in fleet"} data-from={row.via === "owner" ? undefined : row.via}>
       <div className="chat-from">
-        {agent ? <Bot size={13} /> : <MessagesSquare size={13} />}
-        {`${agent ? "субагент" : "сессия Claude"}${row.name ? ` · ${row.name}` : ""}`}
-        {mode ? <span className="chat-tag">{mode}</span> : null}
+        {row.via === "agent" ? <Bot size={13} /> : row.via === "session" ? <MessagesSquare size={13} /> : null}
+        {from}
+        {row.tag ? <span className="chat-tag">{row.via === "owner" ? row.tag : (permModeName(row.tag)?.toLowerCase() ?? row.tag)}</span> : null}
       </div>
-      <div className={open ? "" : "chat-clamp"}>
+      {row.via === "owner" ? (
         <Markdown text={row.text} />
-      </div>
+      ) : (
+        <div className={long && !whole ? "chat-clamp" : ""}>
+          <Markdown text={row.text} />
+        </div>
+      )}
       {long ? (
-        <DisclosureBtn open={open} className="chat-more" onClick={() => setOpen(!open)}>
-          {open ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-          {open ? "свернуть" : "показать всё"}
+        <DisclosureBtn className="chat-more" open={whole} onClick={() => setWhole(!whole)}>
+          {whole ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+          {whole ? "свернуть" : "показать всё"}
         </DisclosureBtn>
       ) : null}
+      {row.at ? <small>{row.at}</small> : null}
     </div>
   );
 }
 
-/** Сообщение сессии владельцу. */
-function Owner({ row }: { row: Extract<Row, { k: "in" }> }) {
+function Banner({ row }: { row: Extract<Row, { k: "ban" }> }) {
   const env = useEnv();
+  const edit = row.edit;
   return (
-    <div className="chat-in">
-      <div className="chat-from">
-        {`${env.label(row.name ?? "")} → вам`}
-        {row.push ? <span className="chat-tag">из уведомления</span> : null}
-      </div>
-      <Markdown text={row.text} />
-      {row.at ? <small>{hhmm(row.at)}</small> : null}
-    </div>
-  );
-}
-
-function Summary({ row }: { row: Extract<Row, { k: "sum" }> }) {
-  const label = `контекст сжат${row.pre !== undefined ? ` · ${kTokens(row.pre)}${row.post ? ` → ${kTokens(row.post)}` : ""}` : ""}`;
-  if (row.summary === undefined)
-    return (
-      <div className="chat-sys">
-        <Archive size={13} />
-        {label}
-      </div>
-    );
-  return (
-    <Dis
-      className="chat-sum"
-      head={
-        <>
-          <Archive size={13} />
-          {label}
-        </>
-      }
-    >
-      <Markdown text={row.summary} />
-    </Dis>
-  );
-}
-
-/** Плашка: красная или жёлтая. */
-function Banner({ tone, icon, title, body, children }: { tone: "bad" | "wait"; icon: ReactNode; title: string; body?: string; children?: ReactNode }) {
-  return (
-    <div className={`chat-ban ${tone}`} role={tone === "bad" ? "alert" : undefined}>
-      {icon}
+    <div className={`chat-ban ${row.tone}`} {...(row.tone === "bad" ? { role: "alert" } : {})}>
+      <Icon name={row.icon ?? (row.tone === "bad" ? "x" : "info")} size={15} />
       <div>
-        <b>{title}</b>
-        {body ? <p>{body}</p> : null}
-        {children}
+        <b>{row.title}</b>
+        {row.body ? <p>{row.body}</p> : null}
+        {edit !== undefined ? (
+          <Btn type="button" className="chat-mini" onClick={() => env.fill(edit)}>
+            <Pencil size={12} />
+            Изменить сообщение
+          </Btn>
+        ) : null}
       </div>
     </div>
   );
 }
 
-const AREA: Record<string, string> = { cyber: "кибербезопасность", bio: "биология и химия", chem: "химия", weapons: "оружие", self_harm: "самоповреждение" };
-
-function Refusal({ row }: { row: Extract<Row, { k: "refusal" }> }) {
+function RunningTask({ id }: { id: string }) {
+  const app = useApp();
   const env = useEnv();
-  const from = modelName(row.from ?? "") || "Модель";
-  const why = [row.category ? `Область: ${AREA[row.category] ?? row.category}` : null, row.text?.trim()].filter(Boolean).join(". ");
-  const icon = <ShieldOff size={BIG} />;
-  if (row.to) {
-    const to = modelName(row.to);
-    return <Banner tone="wait" icon={icon} title={`${from} отказалась — ответ переписан моделью ${to}`} body={[row.local ? "Только этот ответ: модель сессии прежняя." : `Дальше сессия идёт на ${to}.`, why].filter(Boolean).join(" ")} />;
-  }
-  const ask = row.ask;
-  return (
-    <Banner tone="bad" icon={icon} title={`${from} отказалась отвечать`} body={why || undefined}>
-      {ask ? (
-        <Btn type="button" className="chat-mini" onClick={() => env.fillText(ask)}>
-          <Pencil size={12} />
-          Изменить сообщение
-        </Btn>
-      ) : null}
-    </Banner>
-  );
-}
-
-function TaskLine({ row }: { row: Extract<Row, { k: "task" }> }) {
-  const env = useEnv();
-  const t = env.view.tasks[row.task];
-  if (!t) return null;
-  const icon = t.type === "local_agent" ? <Bot size={13} /> : <Terminal size={13} />;
-  if (t.ended) {
-    const { text, dim, tone } = taskEndText(t);
-    return (
-      <div className={`chat-line ${tone}`}>
-        {icon}
-        <span>
-          {text}
-          {dim ? <span className="chat-dim">{dim}</span> : null}
-        </span>
-      </div>
-    );
-  }
+  const task = app.use(() => env.view().tasks[id]);
+  const canAct = app.use(() => env.canAct());
+  if (!task) return null;
   return (
     <div className="chat-line run">
-      {icon}
-      <span>{[t.desc, t.summary].filter(Boolean).join(" · ")}</span>
-      <em>{steps(t.uses ?? 0)}</em>
-      {env.canCall ? (
-        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [t.id])}>
+      {task.type === "local_agent" ? <Bot size={13} /> : <Terminal size={13} />}
+      <span>{[task.desc, task.summary].filter(Boolean).join(" · ")}</span>
+      <em>{`${task.steps ?? 0} ${plural(task.steps ?? 0, "шаг", "шага", "шагов")}`}</em>
+      {canAct ? (
+        <Btn type="button" className="chat-mini" onClick={() => env.act("stopTask", [id])}>
           <Square size={11} />
           Стоп
         </Btn>
@@ -318,23 +243,26 @@ function TaskLine({ row }: { row: Extract<Row, { k: "task" }> }) {
   );
 }
 
-const RowView = memo(function RowView({ row }: { row: Row }) {
+function Plain({ row }: { row: Row }) {
   switch (row.k) {
-    case "reply":
-      return <Reply row={row} />;
-    case "me":
-      return <Me row={row} />;
-    case "in":
-      return row.kind === "owner" ? <Owner row={row} /> : <Peer row={row} />;
+    case "sys":
+      return (
+        <div className={row.tone ? `chat-sys ${row.tone}` : "chat-sys"}>
+          <Icon name={row.icon} />
+          {row.text}
+        </div>
+      );
+    case "line":
+      return (
+        <div className={row.tone ? `chat-line ${row.tone}` : "chat-line"}>
+          <Icon name={row.icon} />
+          <span>
+            {row.text}
+            {row.dim ? <span className="chat-dim">{row.dim}</span> : null}
+          </span>
+        </div>
+      );
     case "cmd":
-      // вывод без имени команды (смена модели на лету) — серой строкой
-      if (!row.name)
-        return (
-          <div className="chat-line">
-            <Zap size={13} />
-            <span>{row.out}</span>
-          </div>
-        );
       return (
         <div className="chat-cmd">
           <span>
@@ -344,22 +272,27 @@ const RowView = memo(function RowView({ row }: { row: Row }) {
           {row.out ? <pre>{row.out}</pre> : null}
         </div>
       );
-    case "sys":
-      return (
-        <div className={`chat-sys${row.tone ? ` ${row.tone}` : ""}`}>
-          {ICONS[row.icon](13)}
-          {row.text}
-        </div>
-      );
     case "sum":
-      return <Summary row={row} />;
+      return (
+        <Dis
+          className="chat-sum"
+          head={
+            <>
+              <Archive size={13} />
+              {row.stats}
+            </>
+          }
+        >
+          <Markdown text={row.text} />
+        </Dis>
+      );
     case "res":
       return (
         <div className="chat-res">
-          {row.bits.map((b, i) => (
+          {row.bits.map((bit, i) => (
             <span key={i}>
-              {i ? " · " : null}
-              <span className="chat-nb">{b}</span>
+              {i ? " · " : ""}
+              <span className="chat-nb">{bit}</span>
             </span>
           ))}
         </div>
@@ -367,36 +300,52 @@ const RowView = memo(function RowView({ row }: { row: Row }) {
     case "end":
       return (
         <div className="chat-res err">
-          <AlertTriangle size={13} />
+          <TriangleAlert size={13} />
           {row.text}
-          {row.err ? <p>{row.err}</p> : null}
+          {row.why ? <p>{row.why}</p> : null}
         </div>
       );
-    case "line":
+    default:
+      return null;
+  }
+}
+
+export const RowView = memo(function RowView({ row }: { row: Row | Steps }) {
+  switch (row.k) {
+    case "reply":
+      return <Reply row={row} />;
+    case "me":
       return (
-        <div className={row.tone ? `chat-line ${row.tone}` : "chat-line"}>
-          {ICONS[row.icon](13)}
-          <span>
-            {row.text}
-            {row.dim ? <span className="chat-dim">{row.dim}</span> : null}
-          </span>
-        </div>
+        <>
+          <Me row={row} />
+          <Rewind id={row.id} />
+        </>
       );
-    case "task":
-      return <TaskLine row={row} />;
+    case "in":
+      return <Incoming row={row} />;
     case "ban":
-      return <Banner tone={row.tone} icon={ICONS[row.icon](BIG)} title={row.title} body={row.body} />;
-    case "refusal":
-      return <Refusal row={row} />;
+      return <Banner row={row} />;
+    case "task":
+      return <RunningTask id={row.id} />;
+    case "steps":
+      return (
+        <Dis
+          className="chat-steps"
+          head={
+            <>
+              <ListCollapse size={14} />
+              {row.title}
+            </>
+          }
+        >
+          <Rows rows={row.rows} />
+        </Dis>
+      );
+    default:
+      return <Plain row={row} />;
   }
 });
 
-export function Rows({ rows }: { rows: readonly Row[] }) {
-  return (
-    <>
-      {rows.map((r) => (
-        <RowView key={r.id} row={r} />
-      ))}
-    </>
-  );
+export function Rows({ rows }: { rows: Array<Row | Steps> }) {
+  return rows.map((r) => <RowView key={r.id} row={r} />);
 }
