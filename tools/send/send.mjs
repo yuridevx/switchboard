@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// Сообщение в сессию флота от служб компьютера: hello → roster → session.prompt → reply. Один файл без зависимостей: копируется на машину как есть.
+// Сообщение в сессию флота от служб компьютера: hello → roster → session.prompt → reply. Один файл без зависимостей, Node 24: копируется на машину как есть.
+// Службы зовут его снаружи репо, поэтому аргументы, слова отказов, выходы и кадры заморожены.
+// Пропуск программы — keys.invite client <имя> <почта>, принят switchboard redeem; отправитель — <имя>~<почта>.
 //   <пропуск первой строкой stdin, дальше текст> | node send.mjs <callsign> [--url wss://…]
 // Выход: 0 — ok; 1 — отказ словом в stdout; 2 — неверный вызов, строка вызова в stderr.
 // Импорт: await send(callsign, text, { key, url, timeoutMs }) → { ok: 1 | 0, error }.
@@ -22,7 +24,7 @@ function parsed(data) {
 export function send(callsign, text, { key, url, timeoutMs = LIMIT_MS } = {}) {
   return new Promise((resolve) => {
     const ws = new WebSocket(`${(url || RELAY).replace(/\/$/, "")}/m/${callsign.split("@").pop()}`);
-    let id; // есть — запрос ушёл; уникален: relay ключует ожидание по id и отправителю
+    let id; // есть — запрос ушёл; уникален: клиент флота ключует ожидание по id и отправителю
     const finish = (ok, error) => {
       clearTimeout(limit);
       ws.onclose = null;
