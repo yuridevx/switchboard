@@ -169,13 +169,13 @@ export function make(): Module {
       open(s) {
         // новый процесс сессии: ввод прежнего пропал, обращения, что ушли в него и не взяты, доставляются снова; attach — процесс тот же
         const cs = s.info.callsign;
-        if (s.info.start !== "attach" && appeals().some((x) => x.callsign === cs)) disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
+        if (s.info.start !== "attach") disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
         drain();
       },
       close: drain,
       event(_s, msg) {
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;
-        if (Array.isArray(taken) && appeals().some((a) => taken.includes(a.id))) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));
+        if (Array.isArray(taken)) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));
       },
     },
     requests: {

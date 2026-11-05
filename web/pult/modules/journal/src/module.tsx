@@ -74,7 +74,7 @@ function Journal() {
 
   return (
     <Page>
-      <PageHead title={app.wide ? "Журнал флота" : undefined}>
+      <PageHead title="Журнал флота">
         <In data-f="q" type="search" placeholder="⌕ поиск по записям" aria-label="Поиск по записям" onInput={(e) => setQ(e.currentTarget.value)} />
         <Sel data-f="machine" value={machine} aria-label="Машина" onChange={(e) => pick(e.currentTarget.value)}>
           <option value="">все машины</option>
@@ -115,5 +115,5 @@ function Row({ e, day, app }: { e: LedgerEvent; day: string | null; app: App }) 
 }
 
 export function createJournal(_app: App): AppModule {
-  return { screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal, head: () => ({ title: "Журнал флота" }) } }, css };
+  return { screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal } }, css };
 }

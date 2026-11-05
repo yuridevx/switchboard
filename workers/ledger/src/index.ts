@@ -42,7 +42,8 @@ async function presence(db: D1Database, ev: string, machine: string, now: number
 async function add(f: Frame, db: D1Database): Promise<void> {
   const ev = text(f.ev);
   if (!ev) throw bad("нет ev — имени записи");
-  const machine = text(f.machine) ?? (typeof f.callsign === "string" ? machineOf(f.callsign) : null);
+  const callsign = text(f.callsign);
+  const machine = text(f.machine) ?? (callsign ? machineOf(callsign) : null);
   const now = Date.now();
   let words = text(f.text);
   if (PRESENCE.includes(ev)) {
@@ -53,7 +54,7 @@ async function add(f: Frame, db: D1Database): Promise<void> {
   if (!words) throw bad("нет text — что случилось словами");
   await db
     .prepare('INSERT INTO events (t, ev, "from", by, machine, callsign, text) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .bind(now, ev, String(f.from), text(f.by), machine, text(f.callsign), words)
+    .bind(now, ev, String(f.from), text(f.by), machine, callsign, words)
     .run();
 }
 

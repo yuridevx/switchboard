@@ -163,7 +163,6 @@ export function createIncidents(app: App): AppModule {
       incidents: {
         nav: "Инциденты",
         label: "Инциденты",
-        head: () => ({ title: "Инциденты" }),
         narrowGroup: "Флот",
         mark: "incidents.open",
         view: Incidents,

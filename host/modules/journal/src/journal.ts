@@ -4,9 +4,10 @@ import { join } from "node:path";
 import { refuse, type Frame, type Host, type LogRecord, type Module, type SDKMessage } from "@switchboard/host";
 
 type Msg = Record<string, any>;
+type Lines = (m: Msg) => LogRecord[];
 type Line = { t: string; kind?: string; part?: string; callsign?: string; [k: string]: unknown };
 
-const first = (v: unknown) => String(v ?? "—").split("\n")[0];
+const first = (v: unknown) => String(v ?? "").split("\n")[0];
 
 /** init процесса: версия, модель, папка, режим; MCP и плагины, которые не поднялись, — строкой stop. */
 function init(m: Msg): LogRecord[] {
@@ -23,32 +24,32 @@ function init(m: Msg): LogRecord[] {
   return lines;
 }
 
-/** Сообщение SDK → строки журнала; что не сбой и не init — ничего. */
-function lines(m: Msg, firstInit: boolean): LogRecord[] {
-  const sub = m.type === "system" ? m.subtype : undefined;
-  if (sub === "init") return firstInit ? init(m) : [];
-  if (m.type === "result" && m.is_error) {
-    const word = m.startup_failure_reason ?? (m.subtype === "success" ? "is_error" : m.subtype);
-    return [{ kind: "stop", ev: "sdk.result", word, why: `ход остановлен: ${first(m.errors?.[0] ?? m.result)}` }];
-  }
-  if (sub === "api_retry") {
-    const { attempt, max_retries, retry_delay_ms, error_status } = m;
-    return [{ ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status }];
-  }
-  if (m.type === "rate_limit_event" && m.rate_limit_info?.status === "rejected") {
-    const { rateLimitType, resetsAt } = m.rate_limit_info;
-    const until = resetsAt ? new Date(resetsAt * 1000).toISOString() : "—";
-    return [{ kind: "stop", ev: "sdk.rate_limit", word: "rate_limit", why: `лимит аккаунта ${rateLimitType ?? "—"}: отказ до ${until}`, rateLimitType, resetsAt }];
-  }
-  if (m.type === "auth_status" && m.error) return [{ kind: "stop", ev: "sdk.auth_status", why: `вход аккаунта не удался: ${first(m.error)}` }];
-  if (sub === "status" && m.compact_result === "failed") return [{ kind: "stop", ev: "sdk.compact", why: `сжатие разговора не удалось: ${first(m.compact_error)}` }];
-  if (sub === "permission_denied") {
-    return [{ kind: "refuse", ev: "sdk.permission_denied", word: "permission_denied", tool_name: m.tool_name, decision_reason_type: m.decision_reason_type, why: `${m.tool_name}: ${first(m.decision_reason ?? m.message)}` }];
-  }
-  if (sub === "worker_shutting_down") return [{ ev: "sdk.worker_shutting_down", why: String(m.reason) }];
-  if (sub === "informational" && m.level === "warning") return [{ ev: "sdk.informational", why: first(m.content) }];
-  return [];
-}
+const stop = (ev: string, why: string, fields: Msg = {}): LogRecord => ({ kind: "stop", ev, why, ...fields });
+
+const SYSTEM: Record<string, Lines> = {
+  api_retry: ({ attempt, max_retries, retry_delay_ms, error_status }) => [
+    { ev: "sdk.api_retry", why: `попытка ${attempt} из ${max_retries}: ${error_status ?? "нет ответа"}, пауза ${retry_delay_ms / 1000} с`, attempt, max_retries, retry_delay_ms, error_status },
+  ],
+  status: (m) => (m.compact_result === "failed" ? [stop("sdk.compact", `сжатие разговора не удалось: ${first(m.compact_error)}`)] : []),
+  permission_denied: (m) => [
+    { kind: "refuse", ev: "sdk.permission_denied", word: "permission_denied", tool_name: m.tool_name, decision_reason_type: m.decision_reason_type, why: `${m.tool_name}: ${first(m.decision_reason ?? m.message)}` },
+  ],
+  worker_shutting_down: (m) => [{ ev: "sdk.worker_shutting_down", why: String(m.reason) }],
+  informational: (m) => (m.level === "warning" ? [{ ev: "sdk.informational", why: first(m.content) }] : []),
+};
+
+/** Вид сообщения SDK → строки журнала; всё прочее строк не даёт. system/init — отдельно: нужен только первый у процесса. */
+const BY_TYPE: Record<string, Lines> = {
+  system: (m) => SYSTEM[m.subtype]?.(m) ?? [],
+  // подтип ошибки — сбой и при is_error: false
+  result: (m) => (m.subtype === "success" && !m.is_error ? [] : [stop("sdk.result", `ход остановлен: ${first(m.errors?.[0] ?? m.result)}`, { word: m.startup_failure_reason ?? (m.subtype === "success" ? "is_error" : m.subtype) })]),
+  rate_limit_event({ rate_limit_info: i }) {
+    if (i?.status !== "rejected") return [];
+    const until = i.resetsAt ? new Date(i.resetsAt * 1000).toISOString() : "—";
+    return [stop("sdk.rate_limit", `лимит аккаунта ${i.rateLimitType ?? "—"}: отказ до ${until}`, { word: "rate_limit", rateLimitType: i.rateLimitType, resetsAt: i.resetsAt })];
+  },
+  auth_status: (m) => (m.error ? [stop("sdk.auth_status", `вход аккаунта не удался: ${first(m.error)}`)] : []),
+};
 
 const FILE = /^(?:host|keeper)-(\d{4}-\d{2}-\d{2})\.jsonl$/;
 /** Строка файла журнала; пустая или битая — ничего. */
@@ -102,9 +103,12 @@ export function make(): Module {
       event(s, msg: SDKMessage) {
         const m = msg as Msg;
         const cs = s.info.callsign;
-        const firstInit = m.type === "system" && m.subtype === "init" && !inited.has(cs);
-        if (firstInit) inited.add(cs);
-        for (const l of lines(m, firstInit)) host.log({ kind: "note", ...l, callsign: cs });
+        let lines = BY_TYPE[m.type]?.(m) ?? [];
+        if (m.type === "system" && m.subtype === "init" && !inited.has(cs)) {
+          inited.add(cs);
+          lines = init(m);
+        }
+        for (const l of lines) host.log({ kind: "note", ...l, callsign: cs });
       },
     },
     requests: {

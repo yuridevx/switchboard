@@ -41,6 +41,8 @@ describe("журнал флота", () => {
     await flush(5);
   };
   const ids = (t: T) => t.$$(".jr-r").map((x) => x.dataset.id);
+  /** Тревоги с текстом: пустая — место тоста ядра. */
+  const said = (t: T) => t.$$('[role="alert"]').map((x) => x.textContent).filter(Boolean);
 
   it("раздел «Журнал» в группе «Флот», заголовок «Журнал флота», поиск и выбор машин; своих запросов до открытия нет", async () => {
     const relay = fleetRelay();
@@ -122,6 +124,8 @@ describe("журнал флота", () => {
     await flush(5);
     expect(ids(t)).toEqual(["6", "5"]);
     expect(t.button("Раньше")).not.toBeNull();
+    // записи одного дня — одна подпись
+    expect(t.$$(".jr-day")).toHaveLength(1);
   });
 
   it("7290 · roster без смены состава журнал не читает; смена состава, новый since машины и возврат связи — дочитывают", async () => {
@@ -141,6 +145,26 @@ describe("журнал флота", () => {
     relay.setRoster(r);
     await flush(5);
     expect(relay.sent("ledger.read")).toHaveLength(n + 2);
+    // столько же сессий, другие имена — состав сменился
+    const same = joinedRoster();
+    same.machines[0].since += 1;
+    same.sessions[0].callsign = "other@laptop";
+    relay.setRoster(same);
+    await flush(5);
+    expect(relay.sent("ledger.read")).toHaveLength(n + 3);
+  });
+
+  it("связь вернулась — дочитано after, отказа нет", async () => {
+    const relay = fleetRelay();
+    relay.handlers["ledger.read"] = (f) => ({ ok: true, result: { events: f.after ? [ev(6)] : [ev(5)], more: false } });
+    const t = await journal(relay);
+    relay.drop();
+    await flush(2);
+    await new Promise((r) => setTimeout(r, 20));
+    await flush(10);
+    expect(relay.sent("ledger.read").at(-1)).toMatchObject({ after: 5 });
+    expect(ids(t)).toEqual(["6", "5"]);
+    expect(said(t)).toEqual([]);
   });
 
   it("6932 · журнал пуст: «Записей нет.», по roster снова чтение без after", async () => {
@@ -159,6 +183,8 @@ describe("журнал флота", () => {
     relay.handlers["ledger.read"] = () => undefined;
     const t = await journal(relay);
     expect(t.$("[data-ledger]")!.textContent).toBe("…");
+    expect(t.button("Раньше")).toBeNull();
+    expect(said(t)).toEqual([]);
   });
 
   it("6933 · записи кончились: «Раньше» — before самой старой, дописывает и исчезает; есть ещё — кнопка остаётся", async () => {
@@ -257,7 +283,7 @@ describe("журнал флота", () => {
     relay.setRoster(joinedRoster());
     await flush();
     expect(relay.sent("ledger.read").at(-1)).not.toHaveProperty("after");
-    expect(t.text()).not.toContain("ledger.read: disconnected");
+    expect(said(t)).toEqual([]);
     expect(ids(t)).toEqual(["3", "2"]);
   });
 
@@ -274,8 +300,15 @@ describe("журнал флота", () => {
     relay.setRoster(joinedRoster());
     await flush(5);
     expect(relay.sent("ledger.read").at(-1)).toMatchObject({ after: 5 });
-    expect(t.text()).not.toContain("ledger.read: disconnected");
+    expect(said(t)).toEqual([]);
     expect(ids(t)).toEqual(["6", "5"]);
+    // нажатие удалось после отказа — слово снято
+    relay.handlers["ledger.read"] = () => ({ ok: false, error: "disconnected" });
+    await t.click(t.button("Раньше"));
+    expect(said(t)).toEqual(["ledger.read: disconnected"]);
+    relay.handlers["ledger.read"] = () => ({ ok: true, result: { events: [ev(4)], more: true } });
+    await t.click(t.button("Раньше"));
+    expect(said(t)).toEqual([]);
   });
 });
 
@@ -295,7 +328,7 @@ describe("инциденты", () => {
       result: {
         appeals:
           f.machine === "pc" && !delivered
-            ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null, refused: { word: "no_profile", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения", t: new Date(new Date().setHours(8, 7, 0, 0)).toISOString() } }]
+            ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null, refused: { word: "no_profile", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения", t: new Date(new Date().setHours(0, 7, 0, 0)).toISOString() } }]
             : [],
       },
     });
@@ -326,7 +359,9 @@ describe("инциденты", () => {
     expect(list(t)).toEqual(["build-red@laptop", "disk-old@pc"]);
     expect(t.$('[data-incident="disk-old@pc"] .s')!.textContent).toBe("закрыт");
     expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты2");
-    await t.click(row);
+    await t.click(t.$('[data-f="open"]'));
+    expect(list(t)).toEqual(["build-red@laptop"]);
+    await t.click(t.$('[data-incident="build-red@laptop"]'));
     expect(location.hash).toBe("#card?callsign=build-red%40laptop");
   });
 
@@ -361,7 +396,7 @@ describe("инциденты", () => {
     expect(lost[0].classList.contains("in-lost")).toBe(true);
     expect(lost[0].querySelector(".t1 b")!.textContent).toBe("@pc");
     expect(lost[0].querySelector(".s.bad")!.textContent).toBe("no_profile");
-    expect(lost[0].querySelector(".t2")!.textContent).toBe("с 08:07");
+    expect(lost[0].querySelector(".t2")!.textContent).toBe("с 00:07");
     expect(lost[0].getAttribute("aria-expanded")).toBe("false");
     expect(t.$('[data-why="pc:a1"]')).toBeNull();
     await t.click(lost[0]);
@@ -438,6 +473,7 @@ describe("инциденты", () => {
     const t = await incidents(relay);
     const alerts = () => t.$$('[role="alert"]').map((x) => x.textContent).filter(Boolean);
     expect(alerts()).toEqual(expect.arrayContaining(["laptop · incident.pending: offline", "pc · incident.pending: unknown_request"]));
+    expect(t.$$("[data-lost]")).toHaveLength(0);
     relay.handlers["incident.pending"] = () => ({ ok: true, result: { appeals: [] } });
     await t.go("#board");
     await t.go("#incidents");
@@ -462,6 +498,18 @@ describe("инциденты", () => {
     expect(relay.sent("incident.pending").map((f) => f.machine).sort()).toEqual(["laptop", "laptop", "pc", "pc"]);
   });
 
+  it("машина перезапустилась, пока экран открыт, — её спрашивают снова", async () => {
+    const relay = incRelay();
+    await incidents(relay);
+    const asked = () => relay.sent("incident.pending").filter((f) => f.machine === "pc").length;
+    const n = asked();
+    const r = fleetRoster();
+    r.machines[1].since += 1;
+    relay.setRoster(r);
+    await flush(10);
+    expect(asked()).toBe(n + 1);
+  });
+
   it("поиск Ctrl K: строка «тип · адрес» с подсказкой «инцидент» ведёт на экран; ищет по типу, ключу, адресу", async () => {
     const t = await pult({ relay: incRelay(), url: "/#board" });
     await flush(10);
@@ -477,6 +525,12 @@ describe("инциденты", () => {
     const labels = (xs: Element[]) => xs.map((x) => x.querySelector(".l")!.textContent);
     expect(labels(await found("build-red"))).toEqual(["build-red · build-red@laptop"]);
     expect(labels(await found("SWITCHBOARD#"))).toEqual(["build-red · build-red@laptop"]);
+    expect(labels(await found(" build-red "))).toEqual(["build-red · build-red@laptop"]);
+    const r = fleetRoster();
+    r.sessions = [...r.sessions, { callsign: "disk-old@pc", state: "stopped", incident: { type: "disk-full", key: "/" } }, { callsign: "nokey@pc", state: "idle", incident: { type: "nokey" } }];
+    t.relay.setRoster(r);
+    await flush();
+    expect(labels(await found("nokey"))).toEqual(["nokey · nokey@pc"]);
     const old = await found("disk-old");
     expect(labels(old)).toEqual(["disk-full · disk-old@pc"]);
     expect(old[0].querySelector(".sb-dot, [class*='dot']")).not.toBeNull();

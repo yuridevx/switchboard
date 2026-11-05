@@ -8,6 +8,7 @@ import type { Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MAX_FRAME } from "@switchboard/protocol";
 import { refuse, stand } from "@switchboard/host";
 import type { Manifest } from "@switchboard/host";
 import { make as makeChat } from "../../chat/contract.ts";
@@ -161,8 +162,14 @@ describe("инцидент: приём", () => {
 
   it("ключ приложения с кавычками и угловыми скобками — экранирован в теге", async () => {
     const { st, post } = await bench();
-    const r = await post({ type: "plain", key: 'a"<k&', text: "текст" });
-    expect(said(await inputOf(st, "plain-1@win"))).toBe(tag(`type="plain" key="a&quot;&lt;k&amp;" id="${r.body.id}"`, "текст"));
+    const r = await post({ type: "plain", key: 'a"<k&>', text: "текст" });
+    expect(said(await inputOf(st, "plain-1@win"))).toBe(tag(`type="plain" key="a&quot;&lt;k&amp;&gt;" id="${r.body.id}"`, "текст"));
+  });
+
+  it("тело больше предела кадра — 400 bad_frame, на диске пусто", async () => {
+    const { post, disk } = await bench();
+    expect(await post("x".repeat(MAX_FRAME + 1))).toEqual({ status: 400, body: { error: "bad_frame" } });
+    expect(disk()).toEqual([]);
   });
 
   it("304 · POST того же ключа — вторым вводом той же сессии; другой ключ — disk-full-2", async () => {
@@ -188,6 +195,7 @@ describe("инцидент: приём", () => {
     const r = await post({ type: "build-red", text: "упал", attachments: [PNG] });
     const p = await inputOf(st, "build-red-1@win");
     expect(options("build-red-1@win").systemPrompt.append).toContain("Ты отрабатываешь инцидент build-red. Обращения");
+    expect(st.journal().find((l) => l.ev === "incident_open")).toMatchObject({ why: "инцидент build-red — новая сессия" });
     expect(p.inputs[0].message.content).toEqual([
       { type: "text", text: tag(`type="build-red" id="${r.body.id}"`, "упал") },
       { type: "image", source: { type: "base64", media_type: "image/png", data: PNG.data } },
@@ -224,7 +232,7 @@ describe("инцидент: приём", () => {
           res.on("data", (c) => (b += c));
           res.on("end", () => ok({ status: res.statusCode!, body: b }));
         });
-        req.end(method === "POST" ? JSON.stringify({ type: "disk-full", text: "x" }) : undefined);
+        req.end(method === "GET" ? undefined : JSON.stringify({ type: "disk-full", text: "x" }));
       });
     const no = { status: 400, body: JSON.stringify({ error: "bad_frame" }) };
     expect(await raw("POST", "/incident", `evil.example:${port}`)).toEqual(no);
@@ -233,7 +241,10 @@ describe("инцидент: приём", () => {
     expect(await raw("POST", "/incident", `evil127.0.0.1:${port}`)).toEqual(no);
     expect(await raw("POST", "/other", `127.0.0.1:${port}`)).toEqual(no);
     expect(await raw("GET", "/incident", `localhost:${port}`)).toEqual(no);
+    expect(await raw("PUT", "/incident", `localhost:${port}`)).toEqual(no);
     expect((await raw("POST", "/incident", `localhost:${port}`)).status).toBe(202);
+    // порт в заголовке необязателен
+    expect((await raw("POST", "/incident", "127.0.0.1")).status).toBe(202);
   });
 
   it("3098 · сбой модуля при приёме — 500 module_error, причина в журнале", async () => {
@@ -256,6 +267,8 @@ describe("инцидент: приём", () => {
     const s = await st.open("docs@win");
     expect(s.state).toBe("idle");
     await until(() => st.states("docs@win").at(-1)?.failed?.["host-incidents"]);
+    // выключенный модуль не мешает обычному открытию: запрос без поля incident
+    expect(await st.relay.request({ type: "session.open", v: 1, machine: "win", name: "other", dir: tmpdir() })).toMatchObject({ ok: true });
   });
 
   it("3103 · port не задан — сервера нет, модуль работает; порт задан — строка о приёме", async () => {
@@ -265,6 +278,9 @@ describe("инцидент: приём", () => {
     expect(st.journal().some((l) => l.ev === "incident_listen")).toBe(false);
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
     await st.open("a@win");
+    await st.close();
+    stands.splice(stands.indexOf(st), 1);
+    expect(st.journal().filter((l) => l.kind === "stop" && l.who === "host-incidents")).toEqual([]);
     const { port, st: other } = await bench();
     expect(other.journal().find((l) => l.ev === "incident_listen")!.why).toBe(`инциденты: POST http://127.0.0.1:${port}/incident`);
   });

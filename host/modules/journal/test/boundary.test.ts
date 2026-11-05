@@ -84,6 +84,7 @@ describe("сбои из сообщений SDK", () => {
     ["init: плагин с ошибкой", { type: "system", subtype: "init", claude_code_version: "2", model: "m", cwd: "/", permissionMode: "p", plugin_errors: [{ plugin: "x", type: "load", message: "нет" }] }, [{ ev: "sdk.init" }, { kind: "stop", ev: "sdk.init", why: "плагины: x: load — нет", plugin_errors: [{ plugin: "x", type: "load", message: "нет" }] }]],
     ["init: и MCP, и плагин", { type: "system", subtype: "init", claude_code_version: "2", model: "m", cwd: "/", permissionMode: "p", mcp_servers: [{ name: "a", status: "failed" }, { name: "b", status: "failed" }], plugin_errors: [{ plugin: "x", type: "t", message: "m" }] }, [{ ev: "sdk.init" }, { kind: "stop", why: "MCP-серверы не поднялись: a, b; плагины: x: t — m" }]],
     ["result: успех — строк нет", { type: "result", subtype: "success", is_error: false }, []],
+    ["result: подтип ошибки без is_error", { type: "result", subtype: "error_max_turns", is_error: false, errors: ["предел ходов"] }, [{ kind: "stop", ev: "sdk.result", word: "error_max_turns", why: "ход остановлен: предел ходов" }]],
     ["result: успех с is_error", { type: "result", subtype: "success", is_error: true, result: "первая\nвторая" }, [{ kind: "stop", ev: "sdk.result", word: "is_error", why: "ход остановлен: первая" }]],
     ["api_retry без статуса", { type: "system", subtype: "api_retry", attempt: 2, max_retries: 5, retry_delay_ms: 1500 }, [{ ev: "sdk.api_retry", why: "попытка 2 из 5: нет ответа, пауза 1.5 с", retry_delay_ms: 1500 }]],
     ["лимит: отказ", { type: "rate_limit_event", rate_limit_info: { status: "rejected", rateLimitType: "five_hour", resetsAt: RESET } }, [{ kind: "stop", ev: "sdk.rate_limit", word: "rate_limit", why: `лимит аккаунта five_hour: отказ до ${new Date(RESET * 1000).toISOString()}`, rateLimitType: "five_hour", resetsAt: RESET }]],
@@ -180,6 +181,14 @@ describe("machine.journal", () => {
     folder({ "host-2026-10-30.jsonl": [H({ t: "2026-10-30T10:00:00.000Z", ev: "gone", callsign: "old@laptop" }), H({ t: "2026-10-30T10:01:00.000Z", ev: "other", callsign: "live@laptop" })] });
     const r = await ask({ session: "old@laptop", since: "2026-10-30T00:00:00.000Z", limit: 5 });
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toEqual(["gone"]);
+  });
+
+  it("more: записей ровно limit — нет; следующий день ещё не прочитан — есть", async () => {
+    folder({ "host-2026-10-29.jsonl": [H({ t: "2026-10-29T10:00:00.000Z", kind: "stop", ev: "раньше" })], "keeper-2026-10-30.jsonl": [H({ t: "2026-10-30T10:00:00.000Z", kind: "stop", ev: "позже" })] });
+    const s = await jbench();
+    const ask = async (limit: number) => (await s.relay.request({ type: "machine.journal", v: 2, machine: "laptop", kind: ["stop"], since: "2026-10-29T00:00:00.000Z", limit })).result as { records: Array<{ ev: string }>; more: boolean };
+    expect(await ask(2)).toMatchObject({ records: [{ ev: "раньше" }, { ev: "позже" }], more: false });
+    expect(await ask(1)).toMatchObject({ records: [{ ev: "раньше" }], more: true });
   });
 
   it("строку ещё дописывают: читается всё до неё, ответ не отказ", async () => {
