@@ -1,77 +1,45 @@
-// Что Claude SDK сообщает о сбоях сессии → строки журнала машины. Разговор сюда не идёт: его пишет сам Claude Code.
+// Сообщение SDK → строки журнала машины: что сессия не смогла, словами. Таблица «вид сообщения → строки»; всё прочее строк не даёт.
 import type { LogRecord, SDKMessage } from "@switchboard/host";
 
-type Msg = Record<string, any>;
+type Msg = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- поля разных видов сообщения SDK
+type Lines = (m: Msg) => LogRecord[];
 
-const firstLine = (s: unknown) => String(s ?? "").split("\n")[0];
+const first = (s: unknown) => String(s ?? "").split("\n")[0];
+const note = (ev: string, why: string, fields: Msg = {}): LogRecord => ({ kind: "note", ev, why, ...fields });
+const stop = (ev: string, why: string, fields: Msg = {}): LogRecord => ({ kind: "stop", ev, why, ...fields });
 
-/** Системные сообщения по подвиду. */
-const SYSTEM: Record<string, (m: Msg) => LogRecord[]> = {
-  api_retry: (m) => [
-    {
-      ev: "sdk.api_retry",
-      why: `попытка ${m.attempt} из ${m.max_retries}: ${m.error_status ?? "нет ответа"}, пауза ${m.retry_delay_ms / 1000} с`,
-      attempt: m.attempt,
-      max_retries: m.max_retries,
-      error_status: m.error_status,
-      retry_delay_ms: m.retry_delay_ms,
-    },
-  ],
-  status: (m) => (m.compact_result === "failed" ? [{ kind: "stop", ev: "sdk.compact", why: `сжатие разговора не удалось: ${firstLine(m.compact_error)}` }] : []),
-  permission_denied: (m) => [
-    {
-      kind: "refuse",
-      ev: "sdk.permission_denied",
-      word: "permission_denied",
-      why: `${m.tool_name}: ${firstLine(m.decision_reason ?? m.message)}`,
-      tool_name: m.tool_name,
-      decision_reason_type: m.decision_reason_type,
-    },
-  ],
-  worker_shutting_down: (m) => [{ ev: "sdk.worker_shutting_down", why: String(m.reason) }],
-  informational: (m) => (m.level === "warning" ? [{ ev: "sdk.informational", why: firstLine(m.content) }] : []),
+function init(m: Msg): LogRecord[] {
+  const failed: string[] = (m.mcp_servers ?? []).filter((x: Msg) => x.status === "failed").map((x: Msg) => x.name);
+  const plugins: Msg[] = m.plugin_errors ?? [];
+  const why = [...(failed.length ? [`MCP-серверы не поднялись: ${failed.join(", ")}`] : []), ...(plugins.length ? [`плагины: ${plugins.map((p) => `${p.plugin}: ${p.type} — ${p.message}`).join(", ")}`] : [])];
+  return [
+    note("sdk.init", `claude ${m.claude_code_version} · ${m.model} · ${m.cwd} · ${m.permissionMode}`, { claude_code_version: m.claude_code_version, model: m.model, cwd: m.cwd, permissionMode: m.permissionMode }),
+    ...(why.length ? [stop("sdk.init", why.join("; "), { ...(failed.length ? { mcp_failed: failed } : {}), ...(plugins.length ? { plugin_errors: plugins } : {}) })] : []),
+  ];
+}
+
+const SYSTEM: Record<string, Lines> = {
+  api_retry: (m) => [note("sdk.api_retry", `попытка ${m.attempt} из ${m.max_retries}: ${m.error_status ?? "нет ответа"}, пауза ${m.retry_delay_ms / 1000} с`, { attempt: m.attempt, max_retries: m.max_retries, retry_delay_ms: m.retry_delay_ms, error_status: m.error_status, error: m.error })],
+  status: (m) => (m.compact_result === "failed" ? [stop("sdk.compact", `сжатие разговора не удалось: ${first(m.compact_error)}`)] : []),
+  permission_denied: (m) => [{ kind: "refuse", ev: "sdk.permission_denied", word: "permission_denied", tool_name: m.tool_name, decision_reason_type: m.decision_reason_type, why: `${m.tool_name}: ${first(m.decision_reason ?? m.message)}` }],
+  worker_shutting_down: (m) => [note("sdk.worker_shutting_down", String(m.reason))],
+  informational: (m) => (m.level === "warning" ? [note("sdk.informational", first(m.content))] : []),
 };
 
-/** Прочие сообщения по виду. */
-const OTHER: Record<string, (m: Msg) => LogRecord[]> = {
+const BY_TYPE: Record<string, Lines> = {
+  system: (m) => SYSTEM[m.subtype]?.(m) ?? [],
   result(m) {
     if (m.subtype === "success" && !m.is_error) return [];
-    const word = m.startup_failure_reason ?? (m.subtype === "success" ? "is_error" : m.subtype);
-    return [{ kind: "stop", ev: "sdk.result", word, why: `ход остановлен: ${firstLine(m.errors?.length ? m.errors[0] : m.result)}` }];
+    return [stop("sdk.result", `ход остановлен: ${first(m.errors?.[0] ?? m.result)}`, { word: m.startup_failure_reason ?? (m.subtype === "success" ? "is_error" : m.subtype) })];
   },
-  rate_limit_event(m) {
-    const limit = m.rate_limit_info as Msg | undefined;
-    if (limit?.status !== "rejected") return [];
-    const until = limit.resetsAt ? new Date(limit.resetsAt * 1000).toISOString() : "—";
-    return [{ kind: "stop", ev: "sdk.rate_limit", word: "rate_limit", why: `лимит аккаунта ${limit.rateLimitType ?? "—"}: отказ до ${until}`, rateLimitType: limit.rateLimitType, resetsAt: limit.resetsAt }];
+  rate_limit_event({ rate_limit_info: i }) {
+    if (i?.status !== "rejected") return [];
+    return [stop("sdk.rate_limit", `лимит аккаунта ${i.rateLimitType ?? "—"}: отказ до ${i.resetsAt ? new Date(i.resetsAt * 1000).toISOString() : "—"}`, { word: "rate_limit", rateLimitType: i.rateLimitType, resetsAt: i.resetsAt })];
   },
-  auth_status: (m) => (m.error ? [{ kind: "stop", ev: "sdk.auth_status", why: `вход аккаунта не удался: ${firstLine(m.error)}` }] : []),
+  auth_status: (m) => (m.error ? [stop("sdk.auth_status", `вход аккаунта не удался: ${first(m.error)}`)] : []),
 };
 
-/** init: версия и настройки процесса; не поднявшиеся MCP-серверы и плагины — отдельной строкой stop. */
-export function initLines(m: SDKMessage): LogRecord[] {
-  const x = m as Msg;
-  const out: LogRecord[] = [
-    {
-      ev: "sdk.init",
-      why: `claude ${x.claude_code_version} · ${x.model} · ${x.cwd} · ${x.permissionMode}`,
-      claude_code_version: x.claude_code_version,
-      model: x.model,
-      cwd: x.cwd,
-      permissionMode: x.permissionMode,
-    },
-  ];
-  const mcp = ((x.mcp_servers ?? []) as Msg[]).filter((s) => s.status === "failed").map((s) => s.name as string);
-  const plugins = ((x.plugin_errors ?? []) as Msg[]).map((p) => `${p.plugin}: ${p.type} — ${p.message}`);
-  const why = [mcp.length ? `MCP-серверы не поднялись: ${mcp.join(", ")}` : "", plugins.length ? `плагины: ${plugins.join("; ")}` : ""].filter(Boolean).join("; ");
-  if (why) out.push({ kind: "stop", ev: "sdk.init", why, ...(mcp.length ? { mcp_failed: mcp } : {}), ...(plugins.length ? { plugin_errors: x.plugin_errors } : {}) });
-  return out;
-}
-
-export const isInit = (m: SDKMessage) => (m as Msg).type === "system" && (m as Msg).subtype === "init";
-
-/** Сообщение SDK, кроме init → строки журнала. */
-export function linesOf(m: SDKMessage): LogRecord[] {
-  const x = m as Msg;
-  return (x.type === "system" ? SYSTEM[x.subtype] : OTHER[x.type])?.(x) ?? [];
-}
+/** Строки сообщения; system/init отдельно: он нужен только первый у процесса. */
+export const linesOf = (msg: SDKMessage): LogRecord[] => BY_TYPE[msg.type]?.(msg as Msg) ?? [];
+export const initLines = (msg: SDKMessage): LogRecord[] => init(msg as Msg);
+export const isInit = (msg: SDKMessage) => msg.type === "system" && msg.subtype === "init";
