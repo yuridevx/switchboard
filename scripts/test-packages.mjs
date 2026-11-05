@@ -48,13 +48,21 @@ function testPackage(dir) {
     let output = "";
     child.stdout.on("data", (chunk) => (output += chunk));
     child.stderr.on("data", (chunk) => (output += chunk));
-    child.on("close", (code, signal) => {
-      running.delete(child);
+    const finish = (code, signal) => {
+      if (!running.delete(child)) return;
       const passed = code === 0;
       const limit = signal ? ` · не уложился в ${PACKAGE_MS / 60_000} мин` : "";
       console.log(`${passed ? "ok  " : "FAIL"} ${dir} · ${Math.round((Date.now() - started) / 1000)} с${limit}`);
       if (!passed) console.log(output);
       done(passed);
+    };
+    child.on("close", finish);
+    // снят по пределу: потомок npm может держать вывод, конца вывода не ждём
+    child.on("exit", (code, signal) => {
+      if (!signal) return;
+      child.stdout.destroy();
+      child.stderr.destroy();
+      finish(code, signal);
     });
   });
 }

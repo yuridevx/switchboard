@@ -76,6 +76,22 @@ syncBuiltinESMExports();
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/^FAIL workers\/slow · \d+ с · не уложился в 6 мин$/m);
   });
+
+  it("предел снимает и пакет, чей потомок держит вывод: прогон не ждёт конца потомка (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
+    const dir = repo({ "workers/hung": `node -e "setTimeout(()=>{},25000)"` });
+    const f = join(temp("packages-pre"), "pre.mjs");
+    write(f, `import cp from "node:child_process";
+import { syncBuiltinESMExports } from "node:module";
+const orig = cp.spawn;
+cp.spawn = (cmd, args, o = {}) => orig(cmd, args, { ...o, timeout: o.timeout ? 1000 : undefined });
+syncBuiltinESMExports();
+`);
+    const started = Date.now();
+    const r = run(dir, [], pathToFileURL(f).href);
+    expect(r.code).toBe(1);
+    expect(r.out).toMatch(/^FAIL workers\/hung · \d+ с · не уложился в 6 мин$/m);
+    expect(Date.now() - started).toBeLessThan(15_000);
+  });
 });
 
 describe("типы фронта: web-typecheck", { timeout: CMD_MS }, () => {
