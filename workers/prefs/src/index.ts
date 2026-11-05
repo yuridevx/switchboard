@@ -1,10 +1,9 @@
-// Вход Worker'а prefs: POST кадра с пропуском — обёртка entrance из контракта gate.
-import { entrance } from "@switchboard/gate";
-import type { Env } from "./env.ts";
-import { frame } from "./prefs.ts";
+// Снесено: вход отвечает отказом словом, пока не написан новый.
+import { entrance, type GateApi } from "@switchboard/gate";
+import { fail } from "@switchboard/protocol";
 
 export default {
-  fetch(req: Request, env: Env): Promise<Response> {
-    return entrance(req, env.GATE, (f) => frame(env, f));
+  fetch(req: Request, env: { GATE: GateApi }): Promise<Response> {
+    return entrance(req, env.GATE, (f) => (f.id ? [{ ...fail(f.id, "снесено"), to: f.from }] : []));
   },
-} satisfies ExportedHandler<Env>;
+};
