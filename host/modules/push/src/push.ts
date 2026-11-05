@@ -6,9 +6,9 @@ import { kindOf, reaches } from "@switchboard/protocol";
 type Pushed = { type: string; from?: string; notify: unknown };
 
 async function pushTo(host: Host, to: string, skip: string[], { type, from, notify }: Pushed): Promise<void> {
-  const r = await host.request("push.send", { to: ".push", push: { to, ...(skip.length ? { skip } : {}), type, ...(from === undefined ? {} : { from }), notify } });
-  if (r.ok) host.log({ ev: "push.send", why: `${to}: ${type} ушёл` });
-  else if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${to}: подписки нет — ${type} без пуша` });
+  const r = await host.request("push.send", { push: { to, ...(skip.length ? { skip } : {}), type, ...(from === undefined ? {} : { from }), notify } });
+  if (r.ok) return;
+  if (r.error === "gone") host.log({ ev: "push.send", word: "gone", why: `${to}: подписки нет — ${type} без пуша` });
   else host.log({ kind: "stop", ev: "push.send", word: r.error, why: `push.send ${to}: ${r.error} — ${type} без пуша` });
 }
 

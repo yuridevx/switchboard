@@ -35,8 +35,9 @@ async function sendFrame(frame: Frame, o: Options): Promise<string | null> {
     key,
     WebSocket: o.WebSocket,
     onState(state, why) {
-      if (state === "stopped") done(why ?? "stopped");
       if (state === "open") void l.request(frame).then((r) => done(r.ok ? null : r.error));
+      // человек нажал кнопку сейчас: повторов нет, отказ словом сразу
+      else if (state === "closed" || state === "stopped") done(why ?? state);
     },
   });
   const word = await withLimit(finished, SEND_MS, () => "timeout");
