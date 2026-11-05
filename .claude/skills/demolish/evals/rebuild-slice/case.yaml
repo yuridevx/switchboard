@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: rebuild-slice
+expected_outcome: |
+  Снесён весь срез счетов (billing-api, billing-store, billing-ui), общая библиотека и отчёты не тронуты, тесты прошли триаж и заморожены до сноса, поведение снаружи то же.
+context:
+  scaffold_script: place-files.sh

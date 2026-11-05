@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: plan-cycle-dirty
+expected_outcome: |
+  Счета по реестру снесены, но снова выглядят халупой и они крупнее; без слова пользователя итерация берёт заказы, а про счета пишет в итог.
+context:
+  scaffold_script: place-files.sh

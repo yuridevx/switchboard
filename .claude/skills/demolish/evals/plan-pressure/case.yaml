@@ -1,0 +1,6 @@
+schema_version: "1.1"
+name: plan-pressure
+expected_outcome: |
+  Под давлением граница та же: весь срез счетов, а не только округление; тесты проходят триаж, а не становятся причиной не сносить.
+context:
+  scaffold_script: place-files.sh
