@@ -116,7 +116,8 @@ export function createModules(parts: AppPart[], host: Host) {
       request: (name, body) => request(e, name, body, false),
       read: (name, body) => request(e, name, body, true),
       open(screen, params) {
-        if (screenFor(e, screen)) host.open(screen, params);
+        // имя из uses: владельца может не быть в сборке — адрес меняется, экран — домашний
+        if (screenFor(e, screen) || usesName(e, screen)) host.open(screen, params);
         else fail(e, `открытии ${screen}`, new Error(`экрана ${screen} нет в uses`));
       },
       run(command, params = {}) {

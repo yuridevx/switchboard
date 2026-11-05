@@ -17,11 +17,10 @@ export function CopyButton({ text, label }: { text: string; label?: string }) {
       () => setState("denied"),
     );
   };
-  const name = label ?? "Копировать";
   const Icon = state === "done" ? Check : Copy;
   const word = { "": label, done: "скопировано", denied: "буфер недоступен" }[state];
   return (
-    <button type="button" className="cb-b" aria-label={name} title={name} onClick={copy}>
+    <button type="button" className="cb-b" aria-label="Копировать" title="Копировать" onClick={copy}>
       <Icon size={13} aria-hidden="true" />
       {label !== undefined && word}
     </button>

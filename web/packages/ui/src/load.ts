@@ -40,5 +40,5 @@ export function useMachineLoad<T>(machine: string, name: string, body?: Record<s
   const app = useApp();
   const can = app.use(() => when && app.link() === "open" && app.can(machine, name) === true);
   const since = app.use(() => app.roster()?.machines.find((m) => m.machine === machine)?.since);
-  return useLoad<T>(() => (can ? app.read<T>(name, body) : NOT_ASKED), [machine, name, JSON.stringify(body)], `${can}:${since}`);
+  return useLoad<T>(() => (can ? app.read<T>(name, { machine, ...body }) : NOT_ASKED), [machine, name, JSON.stringify(body)], `${can}:${since}`);
 }

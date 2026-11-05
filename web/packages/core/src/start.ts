@@ -109,7 +109,7 @@ export function startApp(o: StartOptions): Running {
     const depth = ((win.history.state as { depth?: number } | null)?.depth ?? 0) + 1;
     win.history.pushState({ depth }, "", toHash(modules.screenOf(screen)?.[1].path ?? screen, params));
     // до первого roster экран возьмёт его из адреса
-    if (was) show({ screen, params });
+    route();
   }
 
   function back() {
