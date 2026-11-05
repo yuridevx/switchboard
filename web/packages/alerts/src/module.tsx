@@ -44,8 +44,6 @@ export const createAlerts =
     const b = browser ?? pageBrowser();
     let state: AlertsState = "off";
     let word = "";
-    /** адрес подписки браузера, строку которой флот ещё не подтвердил: спрашиваем, когда связь открыта */
-    let unverified: string | null = null;
     const set = (s: AlertsState, w = "") => {
       state = s;
       word = w;
@@ -59,9 +57,19 @@ export const createAlerts =
       for (const p of saved) app.deliver({ type: p.type, from: p.from, notify: p.notify }, { open: !!p.clicked });
     }
 
-    /** Строка подписки во флоте: нет — полоса, подписать заново. */
-    async function verify(endpoint: string) {
-      const r = await app.read<{ subscribed: boolean }>("push.subscribed", { endpoint });
+    /** Подписка браузера: её владелец — браузер, копии здесь нет. */
+    const subscription = (sw: NonNullable<BrowserPush["sw"]>) =>
+      withLimit(
+        sw.ready.then((r) => r.pushManager.getSubscription()),
+        READY_MS,
+        () => null,
+      );
+
+    /** Браузер подписан, строки во флоте может не быть: пропуск отозван, служба ответила 410. Подписать заново — только нажатие. */
+    async function verify() {
+      const sub = b.sw && state === "on" ? await subscription(b.sw) : null;
+      if (!sub) return;
+      const r = await app.read<{ subscribed: boolean }>("push.subscribed", { endpoint: (sub.toJSON() as { endpoint: string }).endpoint });
       if (!r.ok) console.error(`switchboard: подписка во флоте не проверена — ${r.error}`);
       else if (!r.result.subscribed) set("ask");
     }
@@ -71,14 +79,7 @@ export const createAlerts =
       if (!n || !sw) return set("off");
       if (n.permission === "denied") return set("denied");
       if (n.permission !== "granted") return set("ask");
-      const sub = await withLimit(
-        sw.ready.then((r) => r.pushManager.getSubscription()),
-        READY_MS,
-        () => null,
-      );
-      if (!sub) return set("ask");
-      set("on");
-      unverified = (sub.toJSON() as { endpoint: string }).endpoint;
+      set((await subscription(sw)) ? "on" : "ask");
     }
 
     /** Разрешение по нажатию → ключ push → подписка браузера этим ключом → строка во флоте. */
@@ -137,9 +138,7 @@ export const createAlerts =
       on: {
         show: take,
         link(s) {
-          if (s !== "open" || !unverified) return;
-          void verify(unverified);
-          unverified = null;
+          if (s === "open") void verify();
         },
       },
       async start() {

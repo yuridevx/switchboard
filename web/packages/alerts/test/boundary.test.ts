@@ -203,6 +203,44 @@ describe("полоса: включение", () => {
     expect(said()).toContain("push_unavailable");
   });
 
+  /** Связь оборвалась и открылась снова: пауза стенда 5 мс. */
+  const reconnect = async (relay: FakeRelay) => {
+    relay.drop();
+    await new Promise((r) => setTimeout(r, 30));
+    await flush(10);
+  };
+
+  it("слово пользователя 5 нояб. · строку сняли, пока страница открыта: на следующем открытии связи — полоса; вопрос один на открытие", async () => {
+    const relay = relayWithKey();
+    let held = true;
+    relay.handlers["push.subscribed"] = () => ({ ok: true, result: { subscribed: held } });
+    const t = await stand(parts(await subscribed()), { relay });
+    await flush();
+    expect(card(t)).toBeNull();
+    expect(relay.sent("push.subscribed")).toHaveLength(1);
+    await reconnect(relay);
+    expect(relay.sent("push.subscribed")).toHaveLength(2);
+    expect(card(t)).toBeNull();
+    held = false;
+    await reconnect(relay);
+    expect(relay.sent("push.subscribed")).toHaveLength(3);
+    expect(card(t)).toContain("Включить уведомления");
+    // полоса уже стоит: спрашивать незачем
+    await reconnect(relay);
+    expect(relay.sent("push.subscribed")).toHaveLength(3);
+  });
+
+  it("первое чтение отказало: следующее открытие связи спрашивает снова", async () => {
+    const relay = relayWithKey();
+    relay.handlers["push.subscribed"] = () => ({ ok: false, error: "push_unavailable" });
+    const t = await stand(parts(await subscribed()), { relay });
+    await flush();
+    expect(card(t)).toBeNull();
+    relay.handlers["push.subscribed"] = () => ({ ok: true, result: { subscribed: false } });
+    await reconnect(relay);
+    expect(card(t)).toContain("Включить уведомления");
+  });
+
   it("4044 · обработчик не зарегистрирован — причина в журнале браузера, модуль работает", async () => {
     const b = fakeBrowser("default");
     b.sw!.register = async () => {
