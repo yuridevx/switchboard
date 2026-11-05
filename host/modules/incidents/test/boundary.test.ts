@@ -321,13 +321,13 @@ describe("инцидент: сессия и вопрос", () => {
     expect(await pending()).toEqual([]);
     const a = await post({ type: "nodir", text: "x" });
     await until(() => st.journal().find((l) => l.ev === "incident" && l.id === a.body.id));
-    const refusedA = { id: a.body.id, type: "nodir", key: null, callsign: null, word: "bad_dir", why: expect.stringContaining("nodir: session.open — bad_dir"), t: expect.any(String) };
+    const refusedA = { id: a.body.id, type: "nodir", key: null, callsign: null, refused: { word: "bad_dir", why: expect.stringContaining("nodir: session.open — bad_dir"), t: expect.any(String) } };
     const b = await post({ type: "disk-full", key: "C:", text: "y" });
     const p = await inputOf(st, "disk-full-1@win");
     await until(() => disk().some((x) => x.callsign === "disk-full-1@win"));
     expect(await pending()).toEqual([
       refusedA,
-      { id: b.body.id, type: "disk-full", key: "C:", callsign: "disk-full-1@win" },
+      { id: b.body.id, type: "disk-full", key: "C:", callsign: "disk-full-1@win", refused: null },
     ]);
     take(p);
     await until(() => disk().length === 1);

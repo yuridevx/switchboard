@@ -2,8 +2,8 @@
 import { machineAnswers, machinesWith, okOf, type App } from "@switchboard/web-ui";
 import type { ConnState, Roster } from "@switchboard/web-core";
 
-/** Обращение на диске Host; word, why, t — последний отказ доставки. */
-export type Pending = { id: string; type?: string; key?: string | null; callsign?: string | null; word?: string; why?: string; t?: string };
+/** Обращение на диске Host; refused — последний отказ доставки. */
+export type Pending = { id: string; type?: string; key?: string | null; callsign?: string | null; refused?: { word: string; why: string; t: string } | null };
 export type Lost = { machine: string; appeal: Pending };
 
 export function createStore(app: App) {

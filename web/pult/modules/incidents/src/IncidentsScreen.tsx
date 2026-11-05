@@ -9,6 +9,7 @@ function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): vo
   const app = useApp();
   const { machine, appeal } = row;
   const mark = `${machine}:${appeal.id}`;
+  const { refused } = appeal;
   const what = [appeal.type, appeal.key].filter(Boolean).join(" · ");
   return (
     <>
@@ -17,14 +18,14 @@ function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): vo
         <span className="g">
           <span className="t1">
             <b>{machineLabel(app, machine).text}</b>
-            <span className="s bad">{appeal.word ?? "ждёт"}</span>
+            <span className="s bad">{refused?.word ?? "ждёт"}</span>
           </span>
-          <span className="t2">{appeal.t ? `с ${hhmm(new Date(appeal.t))}` : what}</span>
+          <span className="t2">{refused ? `с ${hhmm(new Date(refused.t))}` : what}</span>
         </span>
       </DisclosureBtn>
       {open ? (
         <div className="in-why" data-why={mark}>
-          {appeal.why ?? appeal.word ?? "Отказа не записано: причина — в журнале машины."}
+          {refused?.why ?? "Отказа не записано: причина — в журнале машины."}
         </div>
       ) : null}
     </>

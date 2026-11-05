@@ -299,7 +299,7 @@ describe("инциденты", () => {
       result: {
         appeals:
           f.machine === "pc" && !delivered
-            ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null, word: "no_profile", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения", t: new Date(2026, 9, 31, 8, 7).toISOString() }]
+            ? [{ id: "a1", type: "gpu-temp", key: "gpu-b", callsign: null, refused: { word: "no_profile", why: "профиль you/profiles/gpu-temp не найден; обращение ждёт на диске до старта Host или следующего обращения", t: new Date(2026, 9, 31, 8, 7).toISOString() } }]
             : [],
       },
     });
@@ -376,15 +376,15 @@ describe("инциденты", () => {
     expect(t.$('[data-why="pc:a1"]')).toBeNull();
   });
 
-  it("новые обращения сверху; без причины — слово; обращение с сессией не показывается", async () => {
+  it("новые обращения сверху; раскрыта одна причина; обращение с сессией не показывается", async () => {
     const r: Roster = fleetRoster();
     const relay = fleetRelay(r);
-    relay.handlers["incident.pending"] = (f) => ({ ok: true, result: { appeals: f.machine === "pc" ? [{ id: "a1", callsign: null, word: "no_profile", why: "новая причина", t: "2026-10-31T08:20:00.000Z" }, { id: "a2", callsign: null, word: "bad_dir", t: "2026-10-31T08:10:00.000Z" }, { id: "a3", callsign: "x@pc", word: "stopped", why: "ушло в сессию", t: "2026-10-31T08:30:00.000Z" }] : [] } });
+    relay.handlers["incident.pending"] = (f) => ({ ok: true, result: { appeals: f.machine === "pc" ? [{ id: "a1", callsign: null, refused: { word: "no_profile", why: "новая причина", t: "2026-10-31T08:20:00.000Z" } }, { id: "a2", callsign: null, refused: { word: "bad_dir", why: "папки нет", t: "2026-10-31T08:10:00.000Z" } }, { id: "a3", callsign: "x@pc", refused: { word: "stopped", why: "ушло в сессию", t: "2026-10-31T08:30:00.000Z" } }] : [] } });
     const t = await incidents(relay);
     expect(t.$$("[data-lost]").map((x) => x.getAttribute("data-lost"))).toEqual(["pc:a2", "pc:a1"]);
     expect(t.$('[data-lost="pc:a1"] .s')!.textContent).toBe("no_profile");
     await t.click(t.$('[data-lost="pc:a2"]'));
-    expect(t.$('[data-why="pc:a2"]')!.textContent).toBe("bad_dir");
+    expect(t.$('[data-why="pc:a2"]')!.textContent).toBe("папки нет");
     await t.click(t.$('[data-lost="pc:a1"]'));
     expect(t.$('[data-why="pc:a2"]')).toBeNull();
     expect(t.$('[data-why="pc:a1"]')!.textContent).toBe("новая причина");

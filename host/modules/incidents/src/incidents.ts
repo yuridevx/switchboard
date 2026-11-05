@@ -169,7 +169,7 @@ export function make(): Module {
       },
     },
     requests: {
-      "incident.pending": () => ({ appeals: stored().map((a) => ({ id: a.id, type: a.type, key: a.key ?? null, callsign: a.callsign ?? null, ...a.refused })) }),
+      "incident.pending": () => ({ appeals: stored().map((a) => ({ id: a.id, type: a.type, key: a.key ?? null, callsign: a.callsign ?? null, refused: a.refused ?? null })) }),
     },
   };
 
