@@ -16,7 +16,14 @@ export type Manifest = {
   imports?: string[];
   /** имя npm-пакета модуля — заполняет loadRepo */
   pkg?: string;
+  /** имена контракта, которые код зовёт через привязку Worker'а: env.GATE.revoked → gate.revoked — заполняет loadRepo */
+  calls?: string[];
+  /** импорты, ушедшие в папку чужого модуля — заполняет loadRepo */
+  reach?: Reach[];
 };
+
+/** Импорт в чужой модуль: куда, какой файл от его корня, из теста или стенда ли. */
+export type Reach = { to: string; path: string; test: boolean };
 
 export const nameOf = (ref: string) => ref.slice(0, ref.lastIndexOf("@"));
 export const ownerOf = (ref: string) => ref.slice(ref.lastIndexOf("@") + 1);

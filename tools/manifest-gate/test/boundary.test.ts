@@ -195,3 +195,64 @@ describe("монорепо", () => {
     expect(out.outputFiles[0].text).toContain("function check");
   });
 });
+
+describe("устройство кода против манифеста", () => {
+  const gate = mod("gate", { provides: { "gate.verify": 1, "gate.revoked": 1 } });
+
+  it("Worker зовёт чужое имя через привязку: без uses — нарушение; имя, которого у модуля нет, и база — не контракт", () => {
+    // источник: факт 5 нояб., workers/push зовёт gate.revoked при uses только gate.verify
+    const code = "export const f = (env) => { env.GATE.verify(1); env.GATE.revoked([]); env.GATE.zzz(); env.DB.prepare(''); env.OWN.key(); };\n";
+    const files = { "workers/gate/module.json": gate, "workers/own/module.json": mod("own", { provides: { "own.key": 1 } }), "workers/own/src/a.ts": code };
+    const bad = gateOn(repo({ ...files, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses: { "gate.verify@gate": 1 } }) }));
+    expect(bad.status).toBe(1);
+    expect(bad.stderr).toContain("gate: 1 нарушений\nмодуль own: зовёт gate.revoked — нет в uses");
+    const good = gateOn(repo({ ...files, "workers/own/module.json": mod("own", { provides: { "own.key": 1 }, uses: { "gate.verify@gate": 1, "gate.revoked@gate": 1 } }) }));
+    expect(good.status, good.stderr).toBe(0);
+  });
+
+  it("вызов в тесте не считается: тест зовёт что угодно", () => {
+    const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/test/a.test.ts": "env.GATE.revoked([]);\n" }));
+    expect(r.status, r.stderr).toBe(0);
+  });
+
+  it.each<[string, Files, string]>([
+    ["код идёт в чужой контракт без uses", { "web/packages/a/src/x.ts": 'import type { T } from "../../b/contract.ts";\n' }, "модуль a: импорт b/contract.ts — b нет в uses"],
+    ["код идёт в чужой контракт, имя объявлено, но внутрь", { "web/packages/c/src/x.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль c: импорт b/src/in.ts — мимо контракта b"],
+    ["тест идёт во внутренности чужого модуля", { "web/packages/a/test/x.test.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
+    ["стенд идёт во внутренности чужого модуля", { "web/packages/a/stand/x.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
+    ["тест идёт во внутренности чужого пакета", { "web/packages/a/test/x.test.ts": 'import { t } from "@switchboard/b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
+  ])("относительный путь считается импортом модуля: %s", (_n, files, want) => {
+    const r = gateOn(
+      repo({
+        "web/packages/a/module.json": mod("a"),
+        "web/packages/a/package.json": { name: "@switchboard/a" },
+        "web/packages/b/module.json": mod("b", { provides: { t: 1 } }),
+        "web/packages/b/package.json": { name: "@switchboard/b" },
+        "web/packages/b/contract.ts": "export {};\n",
+        "web/packages/c/module.json": mod("c", { uses: { "t@b": 1 } }),
+        ...files,
+      }),
+    );
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain(want);
+  });
+
+  it("можно: свой файл, чужой контракт из uses; тесту — контракт, манифест и стенд чужого модуля без uses; у модуля без контракта правила для тестов нет", () => {
+    const r = gateOn(
+      repo({
+        "web/packages/a/module.json": mod("a", { uses: { "t@b": 1 } }),
+        "web/packages/a/src/x.ts": 'import { y } from "./y.ts";\nimport type { T } from "../../b/contract.ts";\n',
+        "web/packages/a/src/y.ts": "export const y = 1;\n",
+        "web/packages/b/module.json": mod("b", { provides: { t: 1 } }),
+        "web/packages/b/contract.ts": "export {};\n",
+        "web/packages/b/stand/s.ts": "export {};\n",
+        "web/packages/c/module.json": mod("c"),
+        "web/packages/c/test/x.test.ts": 'import "../../b/contract.ts";\nimport m from "../../b/module.json";\nimport "../../b/stand/s.ts";\nimport "../../../tools/open/src/in.ts";\n',
+        "tools/open/module.json": mod("open"),
+        "tools/open/src/in.ts": "export {};\n",
+        "scripts/x.ts": 'import "../web/packages/b/src/in.ts";\n',
+      }),
+    );
+    expect(r.status, r.stderr).toBe(0);
+  });
+});

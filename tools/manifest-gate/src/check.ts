@@ -73,6 +73,29 @@ const importsDeclared: Rule = (mods) => {
   });
 };
 
+/** Вызов через привязку Worker'а виден только в коде: Host и страница проверяют uses сами при вызове, Worker — нет. */
+const callsDeclared: Rule = (mods, byName) =>
+  mods.flatMap((m) =>
+    (m.calls ?? []).flatMap((name) => {
+      const owner = byName.get(name.slice(0, name.indexOf(".")));
+      if (!owner || owner.name === m.name || owner.provides[name] === undefined) return [];
+      return m.uses[`${name}@${owner.name}`] === undefined ? [`модуль ${m.name}: зовёт ${name} — нет в uses`] : [];
+    }),
+  );
+
+const TEST_MAY_REACH = (path: string) => path === "contract.ts" || path === "module.json" || path.startsWith("stand/");
+
+/** Импорт в чужую папку: коду — контракт из uses; тесту и стенду — контракт, манифест и стенд без uses. */
+const reachThroughContract: Rule = (mods) =>
+  mods.flatMap((m) => {
+    const declared = new Set(Object.keys(m.uses).map(ownerOf));
+    return (m.reach ?? []).flatMap(({ to, path, test }) => {
+      if (test) return TEST_MAY_REACH(path) ? [] : [`модуль ${m.name}: тест импортирует ${to}/${path} — мимо контракта ${to}`];
+      if (!declared.has(to)) return [`модуль ${m.name}: импорт ${to}/${path} — ${to} нет в uses`];
+      return path === "contract.ts" ? [] : [`модуль ${m.name}: импорт ${to}/${path} — мимо контракта ${to}`];
+    });
+  });
+
 const secretOneOwner: Rule = (mods) => {
   const owner = new Map<string, string>();
   return mods.flatMap((m) =>
@@ -86,7 +109,7 @@ const secretOneOwner: Rule = (mods) => {
   );
 };
 
-const RULES = [uniqueNames, oneOwner, usesMatch, noCycles, intoRoot, importsDeclared, secretOneOwner];
+const RULES = [uniqueNames, oneOwner, usesMatch, noCycles, intoRoot, importsDeclared, callsDeclared, reachThroughContract, secretOneOwner];
 
 /** Проверить набор модулей. Пустой список — набор годен; иначе — причины словами. */
 export function check(mods: Manifest[]): string[] {
