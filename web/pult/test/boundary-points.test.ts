@@ -1470,3 +1470,25 @@ describe("спорные места", () => {
     expect(t.$("[data-note]")!.textContent).toBe("Первая точка — на первом конце хода.");
   });
 });
+
+describe("адрес и слова отката", () => {
+  it("вкладка точек открывается своим адресом #session-points", async () => {
+    const t = await pult({ relay: pointsRelay(), url: "/#session-points?callsign=site%40laptop" });
+    await flush(10);
+    expect(t.$('[data-r2="on"]')).not.toBeNull();
+  });
+
+  it("откат у сессии без claude.ai: строка о новой ссылке всё равно в итоге", async () => {
+    const relay = pointsRelay((x) => {
+      delete x.sessions[2].remote;
+    });
+    relay.handlers["points.save"] = () => ({ ok: true, result: { point: 42, same: false } });
+    relay.handlers["points.raise"] = () => ({ ok: true, result: { callsign: "site@laptop", point: 43, folder: "keep", branch: null } });
+    const t = await sessionTab(relay);
+    await t.click(t.$('[data-point="38"]'));
+    await t.click(t.$('[data-card="38"] [data-act="rb"]'));
+    await t.click(t.$('[data-act="run"]'));
+    await flush(10);
+    expect(t.$('[data-dlg="rb"] [data-phase]')!.textContent).toBe("Откат: site@laptop поднята из точки №38; нынешнее — веткой «до отката». Новая ссылка claude.ai придёт в roster.");
+  });
+});
