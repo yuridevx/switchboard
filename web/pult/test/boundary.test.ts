@@ -146,6 +146,21 @@ describe("оболочка страницы", () => {
     expect(document.getElementById("app")!.textContent).toBe("Сборка не загрузилась: нет ответа за 30 с");
   });
 
+  it("ядро страницы не загрузилось: причина на странице, обещание отказывает", async () => {
+    // чьё: код; файл ядра страницы лежит рядом со списком сборки и может не прийти
+    vi.stubGlobal("fetch", async () => ({ json: async () => listOf("pult") }));
+    vi.doMock("@switchboard/web-core", () => {
+      throw new Error("файла ядра нет");
+    });
+    const { boot } = await import("../../shell.ts");
+    const why = await boot({}).then(
+      () => "",
+      (e: Error) => e.message,
+    );
+    expect(why).not.toBe("");
+    expect(document.getElementById("app")!.textContent).toBe(`Сборка не загрузилась: ${why}`);
+  });
+
   it("6903 · колонка разделов: «Перейти… Ctrl K», Вам, Работа, Инциденты, группа «Флот» с профилями; машин и имени устройства в колонке нет", async () => {
     // источник: прототип «Пульт и телефон» (подписан пользователем 2 нояб.); «не нужны внизу машины» — комментарий пользователя
     const t = await pult();
@@ -292,9 +307,32 @@ describe("обработчик пушей", () => {
   });
 });
 
+describe("кнопки уведомления", () => {
+  // чьё: код; сколько кнопок вмещает уведомление, говорит браузер
+  it.each([
+    [2, 2],
+    [1, 0],
+    [undefined, 0],
+  ])("браузер вмещает %s: две кнопки показаны числом %i", async (maxActions, shown) => {
+    vi.stubGlobal("Notification", { maxActions });
+    vi.stubGlobal("indexedDB", new IDBFactory());
+    const scope = fakeScope();
+    vi.stubGlobal("self", scope);
+    vi.stubGlobal("fetch", async () => ({ json: async () => ({ workers: FakeRelay.WORKERS }) }));
+    await import("../../sw.ts");
+    const frame = { type: "answer", callsign: "profiles@laptop" };
+    const actions = [{ title: "да", frame }, { title: "нет", frame }];
+    await scope.fire("push", { data: { json: () => ({ type: "question", from: "profiles@laptop", notify: { title: "t", actions } }) } });
+    expect(scope.shown[0].o.actions).toHaveLength(shown);
+  });
+});
+
 describe("статика и архив", () => {
   it("4187 · dist: app.js, sw.js, статика и значки; адресов relay и Worker'ов, модулей и ключа флота нет; значки те же", () => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): адресов relay в коде оболочек 0
+    // чьё: код; в архив каталога идёт вся папка: сборка начинает с чистой
+    mkdirSync(dist, { recursive: true });
+    writeFileSync(join(dist, "stale.js"), "");
     const r = spawnSync(process.execPath, [join(app, "build.mjs")], { encoding: "utf8" });
     expect(r.status).toBe(0);
     expect(readdirSync(dist).sort()).toEqual(["app.js", "apple-touch-icon.png", "icon-192.png", "icon-512.png", "index.html", "manifest.webmanifest", "sw.js"]);
@@ -309,6 +347,7 @@ describe("статика и архив", () => {
     expect(readFileSync(join(dist, "sw.js"), "utf8")).not.toMatch(/createRoot|^import /m);
     expect(readFileSync(join(dist, "app.js"), "utf8")).not.toMatch(/^import /m);
     expect(readFileSync(join(dist, "index.html"), "utf8")).toContain('<script src="app.js" defer></script>');
+    for (const f of ["index.html", "manifest.webmanifest"]) expect(readFileSync(join(dist, f), "utf8")).toBe(readFileSync(join(app, "public", f), "utf8"));
     const png = (f: string) => createHash("sha256").update(readFileSync(join(dist, f))).digest("hex").slice(0, 16);
     expect(["icon-192.png", "icon-512.png", "apple-touch-icon.png"].map(png)).toEqual(ICONS);
     expect(r.stdout).toContain("pult: dist/ собран — оболочка без модулей и адресов");
