@@ -55,6 +55,8 @@ describe("кому пуш", () => {
     expect(sends(s)).toHaveLength(1);
     const { id: _id, ...rest } = f;
     expect(rest).toEqual({ type: "push.send", v: 1, to: ".push", push: { to: PHONE, type: "question", from: "profiles@laptop", notify: question.notify } });
+    // пуш ушёл — строки «без пуша» нет: её ищет живой флоу scripts/flow-more.ts
+    expect(lines(s).filter((l) => /без пуша/.test(String(l.why)))).toEqual([]);
   });
 
   it("roster ещё не приходил: пуша нет, строка в журнале", async () => {
