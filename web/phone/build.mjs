@@ -1,3 +1,2 @@
-import { buildShell } from "../build.mjs";
-
-buildShell("phone");
+// Снесено.
+throw new Error("снесено");
