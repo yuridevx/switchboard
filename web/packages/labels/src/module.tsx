@@ -63,12 +63,12 @@ export const createLabels = (app: App): AppModule => {
 
   return {
     css,
-    screens: { labels: { label: TITLE, view: Screen, head: () => ({ title: TITLE }) } },
+    screens: { labels: { label: TITLE, view: Screen } },
     marks: {
       "label.session": (callsign) => shown(callsign, plainSession(callsign)),
       "label.machine": (machine) => shown(`@${machine}`, plainMachine(machine)),
     },
-    on: { link: (state, machine) => void names.onLink(state, machine) },
+    on: { link: names.onLink },
     stop: names.stop,
   };
 };

@@ -26,6 +26,7 @@ async function frame(f: Frame, db: D1Database): Promise<Frame[]> {
 
   if (type === "prefs.get") {
     if (prefix !== undefined && !text(prefix)) return refuse("bad_frame", "prefix — непустая строка");
+    // substr, а не LIKE: знаки шаблона в prefix буквальны
     const { results } = await db.prepare("SELECT key, value FROM prefs WHERE user = ?1 AND substr(key, 1, length(?2)) = ?2").bind(owner, prefix ?? "").all<{ key: string; value: string }>();
     return [{ ...ok(id, { values: Object.fromEntries(results.map((r) => [r.key, JSON.parse(r.value)])) }), to: from }];
   }

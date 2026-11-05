@@ -9,11 +9,11 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
   const key = (section: string) => `${o.prefix}.${section}`;
   let values: Record<string, unknown> = {};
   let answered = false;
-  /** Правки, ещё не наложенные на ответ службы: экран видит их поверх значений. */
+  /** Правки, ещё не записанные: экран видит их поверх значений, поэтому чтение в любой момент ничего не стирает. */
   const queue: Edit[] = [];
   let cycle: Promise<void> | undefined;
 
-  const fetch = async () => {
+  const load = async () => {
     const r = await o.read<{ values: Record<string, unknown> }>("prefs.get", { prefix: `${o.prefix}.`, ...area });
     // обрыв связи ответом не считается: чтение повторится при возврате связи
     if (r.ok || r.error !== "disconnected") answered = true;
@@ -22,17 +22,16 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
 
   async function run() {
     while (queue.length) {
-      const r = await fetch();
-      if (r.ok) values = r.result.values;
-      const edits = queue.splice(0);
-      for (const e of edits) values[e.name] = e.fn(values[e.name] as never);
-      if (!r.ok) edits.forEach((e) => e.done(r.error));
-      else {
-        for (const name of new Set(edits.map((e) => e.name))) {
-          const w = await o.ask("prefs.set", { name, value: values[name], ...area });
-          for (const e of edits) if (e.name === name) e.done(w.ok ? null : w.error);
-        }
+      const r = await load();
+      const edits = [...queue];
+      const next = { ...(r.ok ? r.result.values : values) };
+      for (const e of edits) next[e.name] = e.fn(next[e.name] as never);
+      for (const name of new Set(edits.map((e) => e.name))) {
+        const w = r.ok ? await o.ask("prefs.set", { name, value: next[name], ...area }) : r;
+        for (const e of edits) if (e.name === name) e.done(w.ok ? null : w.error);
       }
+      values = next;
+      queue.splice(0, edits.length);
       o.changed?.();
     }
   }
@@ -44,10 +43,10 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
       const name = key(section);
       return queue.reduce((v, e) => (e.name === name ? e.fn(v as never) : v), values[name]) as T | undefined;
     },
-    /** Прочитать свои ключи. Пока идёт цикл, его значения свежее. Ответ — слово отказа или null. */
+    /** Прочитать свои ключи; в очередь циклов не встаёт: зависший ответ цикла не держит чтение после обрыва связи. Ответ — слово отказа или null. */
     async read(): Promise<string | null> {
-      const r = await fetch();
-      if (r.ok && !cycle) values = r.result.values;
+      const r = await load();
+      if (r.ok) values = r.result.values;
       o.changed?.();
       return r.ok ? null : r.error;
     },

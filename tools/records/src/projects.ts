@@ -7,6 +7,9 @@ export type ProjectRec = { id: string; name: string; sessions: string[] };
 type Recs = ProjectRec[] | undefined;
 type Parent = (callsign: string) => string | null | undefined;
 
+/** Вставка перед номером at; номера нет — в конец. */
+const insert = <T,>(list: T[], at: number, items: T[]) => void list.splice(at < 0 ? list.length : at, 0, ...items);
+
 /** Проект сессии: своя запись, иначе запись ближайшего предка. */
 export function projectIdOf(recs: Recs, callsign: string, parentOf: Parent = () => null): string {
   const seen = new Set<string>();
@@ -24,7 +27,7 @@ export function arrange(recs: Recs, shown: Array<{ callsign: string; parent?: st
   const all = recs?.some((r) => r.id === NONE) ? recs : [...(recs ?? []), { id: NONE, name: NONE_NAME, sessions: [] }];
   const sections = all.map(({ id, name, sessions }) => ({ id, name, callsigns: sessions.filter((c) => parents.has(c)) }));
   const recorded = new Set(all.flatMap((r) => r.sessions));
-  for (const c of [...parents.keys()].sort()) {
+  for (const c of [...parents.keys()].sort((a, b) => a.localeCompare(b))) {
     if (!recorded.has(c)) sections.find((s) => s.id === projectIdOf(recs, c, (x) => parents.get(x)))!.callsigns.push(c);
   }
   return sections.filter((s) => s.id !== NONE || s.callsigns.length);
@@ -35,8 +38,7 @@ export function placeSessions(recs: Recs, block: string[], id: string, before?: 
   const out = (recs ?? []).map((r) => ({ ...r, sessions: r.sessions.filter((c) => !block.includes(c)) }));
   if (id === NONE && !out.some((r) => r.id === NONE)) out.push({ id: NONE, name: NONE_NAME, sessions: [] });
   const target = out.find((r) => r.id === id);
-  const at = target?.sessions.indexOf(before as string) ?? -1;
-  target?.sessions.splice(at < 0 ? target.sessions.length : at, 0, ...block);
+  if (target) insert(target.sessions, target.sessions.indexOf(before as string), block);
   return out;
 }
 
@@ -62,8 +64,9 @@ export function addProject(recs: Recs, name: string): { recs: ProjectRec[]; id: 
   const taken = new Set([NONE, ...(recs ?? []).map((r) => r.id)]);
   let id = base;
   for (let n = 2; taken.has(id); n++) id = `${base}-${n}`;
-  const out = (recs ?? []).filter((r) => r.id !== NONE);
-  return { id, recs: [...out, { id, name: name.trim(), sessions: [] }, ...(recs ?? []).filter((r) => r.id === NONE)] };
+  const out = [...(recs ?? [])];
+  insert(out, out.findIndex((r) => r.id === NONE), [{ id, name: name.trim(), sessions: [] }]);
+  return { id, recs: out };
 }
 
 export const renameProject = (recs: Recs, id: string, name: string): ProjectRec[] => (recs ?? []).map((r) => (r.id === id && id !== NONE ? { ...r, name: name.trim() } : r));
@@ -76,7 +79,6 @@ export function moveProject(recs: Recs, id: string, before?: string | null): Pro
   const rec = recs?.find((r) => r.id === id);
   if (!rec || id === NONE) return recs ?? [];
   const rest = recs!.filter((r) => r !== rec);
-  const at = rest.findIndex((r) => r.id === before || r.id === NONE);
-  rest.splice(at < 0 ? rest.length : at, 0, rec);
+  insert(rest, rest.findIndex((r) => r.id === before || r.id === NONE), [rec]);
   return rest;
 }
