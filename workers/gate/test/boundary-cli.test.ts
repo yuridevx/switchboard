@@ -110,8 +110,10 @@ describe("redeem", () => {
     expect(r.stderr).toMatch(/^redeem: gate не ответил — /);
   });
 
-  it("имена инструментов в манифесте пакета — на этих файлах", () => {
+  it("имена инструментов в манифесте пакета — на этих файлах: без аргументов каждый отвечает использованием", async () => {
     const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { bin: Record<string, string> };
     expect(pkg.bin).toEqual({ "switchboard-seed": "./seed.ts", "switchboard-redeem": "./redeem.ts" });
+    expect(spawnSync(process.execPath, [join(ROOT, pkg.bin["switchboard-seed"])], { encoding: "utf8" }).stderr).toBe(USAGE_SEED);
+    expect(spawnSync(process.execPath, [join(ROOT, pkg.bin["switchboard-redeem"])], { encoding: "utf8", input: "x" }).stderr).toBe(USAGE_REDEEM);
   });
 });
