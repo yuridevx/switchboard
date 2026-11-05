@@ -1,6 +1,6 @@
 // Слоты машины: кто в слоте, запас по порядку, новый слот. Подмену делает Host; отсюда — порядок и «Сменить сейчас».
 import { type ReactNode, useState } from "react";
-import { at, Btn, type AccountInfo, type AccountsAnswer, H4, Hint, In, LIMIT_NAMES, Note, okOf, Opts, Outcome, PageHead, PickOne, plainSession, plural, Sec, Sel, type SlotInfo, useApp } from "@switchboard/web-ui";
+import { at, Btn, type AccountInfo, type AccountsAnswer, H4, Hint, In, LIMIT_NAMES, M, Note, okOf, Opts, Outcome, PageHead, PickOne, plainSession, plural, Sec, Sel, type SlotInfo, useApp } from "@switchboard/web-ui";
 import { type Shared, Windows, windowsOf } from "./AccountsColumn.tsx";
 import { SwapChoice, swapSlot } from "./Dialogs.tsx";
 import { refusal, useAccounts } from "./state.ts";
@@ -96,10 +96,13 @@ function SlotCard({ machine, name, slot, answer, notes, say, save, remove }: Car
         <b>{`Слот ${name}`}</b>
         <Hint>{`${count} ${plural(count, "сессия", "сессии", "сессий")}${count ? `: ${slot.sessions.map((c) => plainSession(c).text).join(", ")}` : ""}`}</Hint>
       </div>
-      <Note data-current="">
-        в слоте: <b className="sb-m">{slot.account ?? "никого"}</b>
-        {shared.length ? <span data-shared={shared.join(", ")}>{` · сейчас и в слоте ${shared.join(", ")}`}</span> : null}
-      </Note>
+      <div data-current={slot.account ?? ""}>
+        <Hint>в слоте: </Hint>
+        <M>
+          <b>{slot.account ?? "никого"}</b>
+        </M>
+        {shared.length ? <Hint data-shared={shared.join(", ")}>{` · сейчас и в слоте ${shared.join(", ")}`}</Hint> : null}
+      </div>
       <Windows info={slot.account ? answer.accounts[slot.account] : undefined} />
       <H4>Запас — по порядку</H4>
       {slot.order.map((n, i) => (
