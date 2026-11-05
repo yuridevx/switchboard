@@ -128,6 +128,47 @@ describe("окно «Имена»", () => {
     expect(t.$(".lb-veil")!.classList.contains("narrow")).toBe(!wide);
   });
 
+  it.each<[string, Record<string, string>, boolean, string]>([
+    ["сессия, широкий экран", { callsign: "site@laptop" }, true, '<div class="lb-veil"><div class="lb-dlg" role="dialog" aria-label="Имена"><b>Имена</b><div class="lb-a">site@laptop</div><label class="lb-f"><span>Имя сессии</span><input data-f="session" placeholder="site" autocomplete="off" class="sb-in" value="Сайт"></label><label class="lb-f"><span>Имя машины</span><input data-f="machine" placeholder="@laptop" autocomplete="off" class="sb-in" value=""></label><div class="lb-ft"><button class="sb-b">Отмена</button><button data-act="save" class="sb-b pri">Сохранить</button></div></div></div>'],
+    ["машина, узкий экран", { machine: "pc" }, false, '<div class="lb-veil narrow"><div class="lb-dlg" role="dialog" aria-label="Имена"><b>Имена</b><div class="lb-a">@pc</div><label class="lb-f"><span>Имя машины</span><input data-f="machine" placeholder="@pc" autocomplete="off" class="sb-in" value=""></label><div class="lb-ft"><button class="sb-b">Отмена</button><button data-act="save" class="sb-b pri">Сохранить</button></div></div></div>'],
+  ])("разметка окна: %s", async (_n, params, wide, html) => {
+    const { t } = await open({ "fleet.labels": { sessions: { "site@laptop": "Сайт" } } }, params, wide);
+    expect(t.$(".lb-veil")!.outerHTML).toBe(html);
+  });
+
+  it("введённое стоит и в атрибуте поля: значение ведёт состояние окна", async () => {
+    const { t } = await open();
+    await fill(t, "session", " Сайт ");
+    expect(t.$('[data-f="session"]')!.getAttribute("value")).toBe(" Сайт ");
+  });
+
+  it("Enter и Escape слушает только поле: с кнопки окно не закрывается и не пишет", async () => {
+    const { t, relay } = await open();
+    await fill(t, "session", "Сайт");
+    for (const key of ["Enter", "Escape"]) {
+      t.button("Отмена")!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      await flush(5);
+    }
+    expect(t.$(".lb-dlg")).not.toBeNull();
+    expect(relay.sent("prefs.set")).toHaveLength(0);
+  });
+
+  it("экран по адресу: шапка называет его «Имена»; упал — ядро называет модуль этим же именем", async () => {
+    const { t } = await bench({}, { machine: "laptop" }, "/#labels?machine=laptop");
+    expect(t.$(".sb-bt b")!.textContent).toBe("Имена");
+    const relay = Object.assign(new FakeRelay(homeRoster()), { scoped: { global: {} } });
+    const broken: typeof createLabels = (a) => {
+      const m = createLabels(a);
+      m.screens!.labels.view = () => {
+        throw new Error("опыт");
+      };
+      return m;
+    };
+    const down = await stand([{ manifest, module: broken }], { relay, url: "/#labels?machine=laptop", wide: true });
+    await flush(5);
+    expect(down.root.textContent).toContain("Имена выключена");
+  });
+
   it("7264 · окно открылось: фокус на первом поле — имя сессии, а без сессии имя машины", async () => {
     const a = await open();
     expect(document.activeElement).toBe(a.t.$('[data-f="session"]'));
