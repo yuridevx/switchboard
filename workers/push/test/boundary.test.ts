@@ -117,6 +117,22 @@ describe("push.key", () => {
   });
 });
 
+describe("push.subscribed", () => {
+  const asked = async (client: string, endpoint: unknown, fromKid?: string) => {
+    const [r] = await worker.frame({ type: "push.subscribed", v: 1, id: "q", to: ".push", from: client, endpoint, ...(fromKid ? { fromKid } : {}) });
+    return r as unknown as { ok: boolean; error?: string; result?: { subscribed: boolean } };
+  };
+  it("есть строка этого устройства и этого пропуска: другой адрес, другой клиент, сменившийся пропуск — нет", async () => {
+    const endpoint = "https://web.push.apple.com/asked";
+    await worker.frame({ type: "push.subscribe", v: 1, id: "u", to: ".push", from: "phone-q", fromKid: "kid1", sub: sub(await ua(), endpoint) });
+    expect((await asked("phone-q", endpoint, "kid1")).result).toEqual({ subscribed: true });
+    expect((await asked("phone-q", "https://web.push.apple.com/other", "kid1")).result).toEqual({ subscribed: false });
+    expect((await asked("desk-q", endpoint, "kid1")).result).toEqual({ subscribed: false });
+    expect((await asked("phone-q", endpoint, "kid2")).result).toEqual({ subscribed: false });
+    expect(await asked("phone-q", 7, "kid1")).toMatchObject({ ok: false, error: "bad_frame" });
+  });
+});
+
 describe("push.subscribe", () => {
   it("120 · строка на устройство: новая подписка заменяет свою, другое устройство пишет свою; в журнале адрес службы без ключей", async () => {
     const log = journal();

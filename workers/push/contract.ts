@@ -1,7 +1,7 @@
 // Контракт push: веб-пуши клиентам рации. Запросы — кадры с to: ".push", ответ — reply через relay.
 
 /** Имена и версии, которые push обслуживает. */
-export const CONTRACT = { "push.key": 1, "push.send": 1, "push.subscribe": 1 } as const;
+export const CONTRACT = { "push.key": 1, "push.send": 1, "push.subscribe": 1, "push.subscribed": 1 } as const;
 
 /** Что показать: заголовок, текст и кнопки. push его не разбирает, только укорачивает body. */
 export type Notify = {
@@ -20,6 +20,10 @@ export type Subscription = { endpoint: string; keys: { p256dh: string; auth: str
 
 /** push.subscribe — подписка клиента; имя клиента push берёт из from. Ответ: ok без result. */
 export type PushSubscribe = { type: "push.subscribe"; id: string; to: ".push"; sub: Subscription };
+
+/** push.subscribed — дойдёт ли пуш до этого браузера: есть строка клиента с этим адресом и этим пропуском. Ответ: { subscribed }. */
+export type PushSubscribed = { type: "push.subscribed"; id: string; to: ".push"; endpoint: string };
+export type PushSubscribedResult = { subscribed: boolean };
 
 /**
  * push.send — пуш подпискам, до которых доходит push.to: адрес устройства — ему, адрес человека ~email — каждому его устройству,

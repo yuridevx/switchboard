@@ -1,7 +1,7 @@
 {
   "name": "web-alerts",
   "type": "web",
-  "version": "2.1.6",
+  "version": "2.1.7",
   "into": [
     "pult",
     "phone"
@@ -17,7 +17,8 @@
     "top@web-core": 1,
     "hello@relay": 1,
     "push.key@push": 1,
-    "push.subscribe@push": 1
+    "push.subscribe@push": 1,
+    "push.subscribed@push": 1
   },
   "config": {}
 }

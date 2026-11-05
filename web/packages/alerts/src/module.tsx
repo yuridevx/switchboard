@@ -67,6 +67,16 @@ export const createAlerts = (given?: BrowserPush) => (app: App) => {
     }
   }
 
+  /** Браузер подписан, строки во флоте может не быть: пропуск отозван и выдан новый. Подписку заново даёт только нажатие. */
+  async function checkHeld(): Promise<void> {
+    if (ui.state !== "on") return;
+    const sub = await (await ready()).pushManager.getSubscription();
+    if (!sub) return;
+    const held = await app.read<{ subscribed: boolean }>("push.subscribed", { endpoint: (sub.toJSON() as { endpoint: string }).endpoint });
+    if (!held.ok) return console.error(`switchboard: подписка браузера не проверена — ${held.error}`);
+    if (!held.result.subscribed && ui.state === "on") show({ state: "ask" });
+  }
+
   async function enable(): Promise<void> {
     show({ state: "working" });
     try {
@@ -117,7 +127,12 @@ export const createAlerts = (given?: BrowserPush) => (app: App) => {
     store: ["pushes"],
     screens: { alerts: { place: "top", label: "Уведомления", view: AlertsBar } },
     marks: { "alerts.state": () => ui.state },
-    on: { show: takePushes },
+    on: {
+      show: takePushes,
+      link: (state: string) => {
+        if (state === "open") void checkHeld();
+      },
+    },
     async start() {
       if (sw) {
         sw.register("sw.js").catch((e: unknown) => console.error("switchboard: обработчик пушей не зарегистрирован", e));

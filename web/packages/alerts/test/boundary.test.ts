@@ -184,6 +184,38 @@ describe("полоса: включение", () => {
     expect(card(await stand(parts(fakeBrowser("denied"))))).toContain("Уведомления запрещены");
   });
 
+  it("браузер подписан, строки во флоте нет: полоса, нажатие подписывает заново; строка есть или запрос не прошёл — полосы нет", async () => {
+    const subscribed = async () => {
+      const b = fakeBrowser("granted");
+      await (await b.sw!.ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(1) });
+      return b;
+    };
+    const lost = relayWithKey();
+    let asked: unknown;
+    lost.handlers["push.subscribed"] = (f) => ((asked = f.endpoint), { ok: true, result: { subscribed: false } });
+    const t = await stand(parts(await subscribed()), { relay: lost });
+    await flush();
+    expect(asked).toBe("https://web.push.apple.com/QF3");
+    expect(card(t)).toContain("Включить уведомления");
+    await t.click(t.button("Включить"));
+    await flush();
+    expect(lost.sent("push.subscribe")).toHaveLength(1);
+    expect(card(t)).toBeNull();
+
+    const held = relayWithKey();
+    held.handlers["push.subscribed"] = () => ({ ok: true, result: { subscribed: true } });
+    const on = await stand(parts(await subscribed()), { relay: held });
+    await flush();
+    expect(card(on)).toBeNull();
+
+    const refused = relayWithKey();
+    refused.handlers["push.subscribed"] = () => ({ ok: false, error: "push_unavailable" });
+    const off = await stand(parts(await subscribed()), { relay: refused });
+    await flush();
+    expect(card(off)).toBeNull();
+    expect(said()).toContain("push_unavailable");
+  });
+
   it("4044 · обработчик не зарегистрирован — причина в журнале браузера, модуль работает", async () => {
     const b = fakeBrowser("default");
     b.sw!.register = async () => {

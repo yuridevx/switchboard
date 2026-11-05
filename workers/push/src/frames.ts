@@ -53,6 +53,14 @@ async function subscribe(env: Env, f: Frame): Promise<undefined> {
   return undefined;
 }
 
+async function subscribed(env: Env, f: Frame): Promise<{ subscribed: boolean }> {
+  if (!f.from) throw new Refusal("bad_frame", "нет from — имя клиента ставит relay");
+  if (typeof f.endpoint !== "string") throw new Refusal("bad_frame", "нет endpoint");
+  const kid = typeof f.fromKid === "string" ? f.fromKid : null;
+  const row = await env.DB.prepare("SELECT 1 FROM subs WHERE client = ? AND endpoint = ? AND kid IS ?").bind(f.from, f.endpoint, kid).first();
+  return { subscribed: row !== null };
+}
+
 const bytesOf = (text: string) => new TextEncoder().encode(text).length;
 
 /** Текст уведомления в предел службы: длинный notify.body укорочен, начало и «…». Не влезает и без него — null. */
@@ -134,6 +142,7 @@ async function send(env: Env, f: Frame): Promise<undefined> {
 const HANDLERS: Record<keyof typeof CONTRACT, (env: Env, f: Frame) => Promise<unknown> | unknown> = {
   "push.key": (env) => ({ key: publicKey(JSON.parse(env.VAPID_PRIVATE) as JsonWebKey) }),
   "push.subscribe": subscribe,
+  "push.subscribed": subscribed,
   "push.send": send,
 };
 
