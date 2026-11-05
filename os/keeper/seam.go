@@ -4,13 +4,11 @@ package main
 // Всё остальное стенд видит снаружи: кадры, POST, файлы, протокол держателя, команды файла. Этот файл — вход лесов; других имён они не знают.
 import (
 	"bufio"
-	"encoding/json"
+	"errors"
 	"time"
-
-	"switchboard/keeper/internal/holder"
-	"switchboard/keeper/internal/keeper"
-	"switchboard/keeper/internal/machine"
 )
+
+var errGone = errors.New("снесено")
 
 // tuning — пределы стенда; ноль — как в работе.
 type tuning struct {
@@ -25,39 +23,19 @@ type keeperHandle interface {
 	StateJSON() []byte
 }
 
-type runningKeeper struct{ *keeper.Keeper }
-
-func (r runningKeeper) StateJSON() []byte { b, _ := json.Marshal(r.State()); return b }
-
 // bootKeeper — keeper на папке home: тот же старт, что у службы.
-func bootKeeper(home string, t tuning) (keeperHandle, error) {
-	k, err := keeper.New(home, nil, keeper.Options{Version: version(), StopLimit: t.stop, PlanWait: t.planWait, Ping: t.ping, PauseFirst: t.pauseFirst, PauseMax: t.pauseMax, Download: t.download, HolderWait: t.holderWait, Self: t.self})
-	if err != nil {
-		return nil, err
-	}
-	k.Run()
-	return runningKeeper{k}, nil
-}
+func bootKeeper(home string, t tuning) (keeperHandle, error) { return nil, errGone }
 
 // setOwnerWait — предел ожидания хозяина в процессе держателя.
-func setOwnerWait(d time.Duration) { holder.OwnerWait = d }
+func setOwnerWait(d time.Duration) {}
 
-func chooseFleet(args []string) ([]string, error) { return useName(args) }
-func fleetCommand() []string                      { return runArgs() }
-func fleetService() string                        { return serviceName() }
-func fleetHome() (string, error)                  { return machine.Home() }
+func chooseFleet(args []string) ([]string, error) { return nil, errGone }
+func fleetCommand() []string                      { return nil }
+func fleetService() string                        { return "" }
+func fleetHome() (string, error)                  { return "", errGone }
 
 // clearFleet — флот без имени.
-func clearFleet() { fleetName = "" }
+func clearFleet() {}
 
 // prepareMachine — всё, что установка делает до регистрации в ОС: keeper.json, machine.key, файл keeper на месте.
-func prepareMachine(args []string, in *bufio.Reader) (string, error) {
-	f, err := parseInstall(args)
-	if err != nil {
-		return "", err
-	}
-	if err := prepareConf(f, in); err != nil {
-		return "", err
-	}
-	return placeSelf()
-}
+func prepareMachine(args []string, in *bufio.Reader) (string, error) { return "", errGone }
