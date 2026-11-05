@@ -1,10 +1,13 @@
 // Прогон стенда настоящим браузером на тестовом флоте: страница входит по приглашению и видит настоящие сессии, комментарии по C в обеих раскладках,
 // мышью и пальцем, файл для агента, разделение флотов, перезагрузка при правке. Пропуска проверки отзываются в конце. npm run stand:check
+// STAND_CHECK=fake — без настоящих флотов и пропуска: страница stand-fake.ts, адреса флотов от своего сервера, проверяются сервер стенда и комментарии.
 import { spawn } from "node:child_process";
+import { createServer } from "node:http";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { checker } from "./kit.mjs";
 import { launch } from "./stand.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -13,16 +16,13 @@ const PORT = 4799;
 const TEST = `http://localhost:${PORT}/`;
 const PROD = `http://localhost:${PORT + 1}/`;
 const fileOf = (fleet) => join(OUT, `comments-${fleet}.json`);
-const AGENT = readFileSync(join(process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev"), "test-agent.pass"), "utf8").trim();
+const FAKE = process.env.STAND_CHECK === "fake";
+const AGENT = FAKE ? "" : readFileSync(join(process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev"), "test-agent.pass"), "utf8").trim();
 const WAIT_MS = 5000;
 const FLEET_MS = 30_000;
 const ROW = ".bd-row[data-callsign]";
 
-let bad = 0;
-const check = (name, ok, extra = "") => {
-  console.log(`${ok ? "✓" : "✗"} ${name}${extra !== "" ? " · " + extra : ""}`);
-  if (!ok) bad++;
-};
+const { check, bad } = checker();
 const stored = (fleet = "test") => (existsSync(fileOf(fleet)) ? JSON.parse(readFileSync(fileOf(fleet), "utf8")).comments : []);
 const until = async (f, ms = WAIT_MS) => {
   const end = Date.now() + ms;
@@ -45,6 +45,7 @@ const inShadow = (p, sel) => p.locator(`#stand-comments ${sel}`);
 /** Строки сессий: у проверочного пропуска своих нет — фильтр «Всё», проект свёрнут — раскрыть первый. */
 async function allSessions(p) {
   await p.evaluate(() => (location.hash = "#sessions"));
+  if (FAKE) return void (await p.waitForSelector(ROW, { timeout: FLEET_MS }));
   await p.locator('.fbar .fc:has-text("Всё")').first().click({ timeout: FLEET_MS });
   await p.waitForSelector(".pj-t", { timeout: FLEET_MS });
   const shut = p.locator('.pj-t[aria-expanded="false"]');
@@ -53,7 +54,18 @@ async function allSessions(p) {
 }
 
 rmSync(OUT, { recursive: true, force: true });
-const server = spawn(process.execPath, [join(here, "dev.mjs")], { env: { ...process.env, STAND_OUT: OUT, STAND_PORT: String(PORT) }, stdio: ["ignore", "pipe", "inherit"] });
+/** Страница флота в поддельном режиме: только build.json. */
+const fleetPage = (fleet) =>
+  new Promise((done) => {
+    const s = createServer((_, res) => {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ workers: { relay: `wss://${fleet}`, gate: `https://gate-${fleet}` } }));
+    });
+    s.listen(0, "127.0.0.1", () => done(s));
+  });
+const fakes = FAKE ? [await fleetPage("test"), await fleetPage("prod")] : [];
+const fakeEnv = FAKE ? { STAND_ENTRY: join(here, "stand-fake.ts"), STAND_PAGES: JSON.stringify({ test: `http://127.0.0.1:${fakes[0].address().port}`, prod: `http://127.0.0.1:${fakes[1].address().port}` }) } : {};
+const server = spawn(process.execPath, [join(here, "dev.mjs")], { env: { ...process.env, STAND_OUT: OUT, STAND_PORT: String(PORT), ...fakeEnv }, stdio: ["ignore", "pipe", "inherit"] });
 const output = [];
 server.stdout.on("data", (d) => output.push(String(d)));
 await until(() => output.join("").includes("стенд prod:") && output.join("").includes("стенд test:"), FLEET_MS);
@@ -66,6 +78,7 @@ const post = async (url, f) => (await fetch(url, { method: "POST", body: JSON.st
 const mine = [];
 /** Приглашение проверочного устройства тестового флота; отзыв — в конце прогона. */
 async function invite(name) {
+  if (FAKE) return `fake-${name}`;
   const r = await post(test.workers.gate, { type: "keys.invite", role: "client", name, person: "stand-check@example.com" });
   if (!r.ok) throw new Error(`keys.invite: ${r.error}`);
   mine.push(r.result.kid);
@@ -74,7 +87,7 @@ async function invite(name) {
 
 const b = await launch();
 try {
-  const machines = (await post(test.workers.gate, { type: "keys.list", role: "host" })).result.passes.map((x) => x.name);
+  const machines = FAKE ? ["pc"] : (await post(test.workers.gate, { type: "keys.list", role: "host" })).result.passes.map((x) => x.name);
   const ctx = await b.newContext({ viewport: { width: 1280, height: 800 } });
   const p = await ctx.newPage();
   const errs = [];
@@ -159,7 +172,7 @@ try {
 
   // ───── перезагрузка при правке ─────
   await p.evaluate(() => (window.__mark = 1));
-  const src = join(here, "live.ts");
+  const src = join(here, FAKE ? "stand-fake.ts" : "live.ts");
   const was = readFileSync(src, "utf8");
   let reloaded = false;
   try {
@@ -216,14 +229,14 @@ try {
 } finally {
   await b.close();
   server.kill();
+  for (const s of fakes) s.close();
   for (const kid of mine) {
     const r = await post(test.workers.relay, { type: "keys.revoke", kid });
     if (!r.ok) {
-      console.log(`✗ пропуск ${kid} не отозван: ${r.error}`);
-      bad++;
+      check(`пропуск ${kid} отозван`, false, r.error);
     }
   }
   console.log(`пропусков проверки отозвано: ${mine.length}`);
 }
-console.log(bad ? `не прошло: ${bad}` : "без замечаний");
-process.exit(bad ? 1 : 0);
+console.log(bad() ? `не прошло: ${bad()}` : "без замечаний");
+process.exit(bad() ? 1 : 0);

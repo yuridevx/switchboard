@@ -11,9 +11,10 @@ const here = dirname(fileURLToPath(import.meta.url));
 const OUT = process.env.STAND_OUT ?? join(here, "..", "..", "dist", "stand");
 const PORT = Number(process.env.STAND_PORT ?? 4791);
 // страница флота отдаёт build.json с адресами его Worker'ов: своего списка адресов у стенда нет
+const PAGES = process.env.STAND_PAGES ? JSON.parse(process.env.STAND_PAGES) : { test: "https://switchboard-pult.yuridevx1608.workers.dev", prod: "https://pult.pfarm.app" };
 const FLEETS = [
-  { fleet: "test", port: PORT, page: "https://switchboard-pult.yuridevx1608.workers.dev" },
-  { fleet: "prod", port: PORT + 1, page: "https://pult.pfarm.app" },
+  { fleet: "test", port: PORT, page: PAGES.test },
+  { fleet: "prod", port: PORT + 1, page: PAGES.prod },
 ];
 const BODY_LIMIT = 64 * 1024;
 const FETCH_MS = 10_000;
@@ -43,7 +44,7 @@ const send = (fleet, event) => {
 };
 
 const ctx = await context({
-  entryPoints: [join(here, "live.ts")],
+  entryPoints: [process.env.STAND_ENTRY ?? join(here, "live.ts")],
   bundle: true,
   outfile: join(OUT, "live.js"),
   format: "iife",
