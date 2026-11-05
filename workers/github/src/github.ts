@@ -1,93 +1,104 @@
-// Всё, что модуль знает об API GitHub: адреса, заголовки, предел запроса, статусы, страницы, форма приложения.
-// Сбой GitHub — отказ github_failed; статус и текст GitHub идут только в журнал.
+// Всё про GitHub: запрос к API с пределом, JWT приложения, страницы, форма manifest, ссылка установки.
+import { Buffer } from "node:buffer";
+import { createSign } from "node:crypto";
 import { CALL_MS } from "@switchboard/protocol";
-import { Refusal } from "./refusal.ts";
 
-const API = "https://api.github.com";
-const WEB = "https://github.com";
-const PAGE = 100;
+/** Отказ словом контракта: reply — поля в ответ, row — только в журнал; why — причина для журнала. */
+export class Refusal extends Error {
+  word: string;
+  reply: Record<string, unknown>;
+  row: Record<string, unknown>;
+  constructor(word: string, why: string, reply = {}, row = {}) {
+    super(why);
+    this.word = word;
+    this.reply = reply;
+    this.row = row;
+  }
+}
+
+export type Keyed = { id: number; pem: string };
+type Answer = { status: number; text: string };
 
 const HEADERS = { accept: "application/vnd.github+json", "user-agent": "switchboard-github", "x-github-api-version": "2022-11-28" };
 
-type Call = { method?: "GET" | "POST"; auth?: string; body?: unknown };
-
-const failed = (why: string, status: number, text: string) => new Refusal("github_failed", why, { journal: { status, text } });
-
-/** Запрос с пределом CALL_MS. Ответа нет — статус 0. */
-async function send(path: string, { method = "GET", auth, body }: Call = {}): Promise<Response> {
-  const headers: Record<string, string> = { ...HEADERS, ...(auth ? { authorization: auth } : {}), ...(body ? { "content-type": "application/json" } : {}) };
+async function call(method: "GET" | "POST", path: string, auth?: string, body?: object): Promise<Answer> {
+  const headers: Record<string, string> = { ...HEADERS };
+  if (auth) headers.authorization = auth;
+  if (body) headers["content-type"] = "application/json";
   try {
-    return await fetch(API + path, { method, headers, body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(CALL_MS) });
+    const res = await fetch(`https://api.github.com${path}`, { method, headers, body: body && JSON.stringify(body), signal: AbortSignal.timeout(CALL_MS) });
+    return { status: res.status, text: await res.text() };
   } catch (e) {
-    throw failed(`GitHub недоступен: ${e}`, 0, String(e));
+    throw new Refusal("github_failed", `GitHub недоступен: ${e}`, {}, { status: 0 });
   }
 }
 
-async function bodyOf<T>(r: Response, status: number): Promise<T> {
-  if (r.status !== status) throw failed(`GitHub ответил ${r.status}`, r.status, await r.text());
-  return r.json();
+function json<T>({ status, text }: Answer): T {
+  if (status < 200 || status > 299) throw new Refusal("github_failed", `GitHub ответил ${status}`, {}, { status, text });
+  return JSON.parse(text) as T;
 }
 
-/** Список GitHub по страницам, пока страница не короче полной. */
-async function everyPage<P, T>(path: string, auth: string, itemsOf: (page: P) => T[]): Promise<T[]> {
+const b64u = (x: object) => Buffer.from(JSON.stringify(x)).toString("base64url");
+
+/** JWT приложения: начало на минуту назад — часы GitHub могут отставать; срок 9 минут вперёд, предел GitHub — 10. */
+function jwt({ id, pem }: Keyed): string {
+  const iat = Math.floor(Date.now() / 1000) - 60;
+  const signed = `${b64u({ alg: "RS256", typ: "JWT" })}.${b64u({ iat, exp: iat + 600, iss: String(id) })}`;
+  return `Bearer ${signed}.${createSign("RSA-SHA256").update(signed).sign(pem, "base64url")}`;
+}
+
+const installationToken = async (id: number, auth: string, body: object) => json<{ token: string; expires_at: string }>(await call("POST", `/app/installations/${id}/access_tokens`, auth, body));
+
+/** Токен только к этому репозиторию и только на содержимое; установки нет — null. */
+export async function repoToken(app: Keyed, repo: string) {
+  const auth = jwt(app);
+  const found = await call("GET", `/repos/${repo}/installation`, auth);
+  if (found.status === 404) return null;
+  const { id } = json<{ id: number }>(found);
+  const { token, expires_at } = await installationToken(id, auth, { repositories: [repo.split("/")[1]], permissions: { contents: "write" } });
+  return { installation: id, token, expires_at };
+}
+
+/** Все страницы по 100, пока страница не короче. */
+async function pages<P, T>(path: string, auth: string, items: (page: P) => T[]): Promise<T[]> {
   const all: T[] = [];
   for (let page = 1; ; page++) {
-    const items = itemsOf(await bodyOf<P>(await send(`${path}?per_page=${PAGE}&page=${page}`, { auth }), 200));
-    all.push(...items);
-    if (items.length < PAGE) return all;
+    const got = items(json<P>(await call("GET", `${path}?per_page=100&page=${page}`, auth)));
+    all.push(...got);
+    if (got.length < 100) return all;
   }
 }
 
-const installationToken = (installation: number, auth: string, body: unknown) => send(`/app/installations/${installation}/access_tokens`, { method: "POST", auth, body });
-
-/** Токен установки только к одному репозиторию и только на содержимое. Приложение не допущено к нему — null. */
-export async function repoToken(jwt: string, repo: string): Promise<{ token: string; expires_at: string; installation: number } | null> {
-  const auth = `Bearer ${jwt}`;
-  const found = await send(`/repos/${repo}/installation`, { auth });
-  if (found.status === 404) {
-    await found.body?.cancel();
-    return null;
-  }
-  const { id } = await bodyOf<{ id: number }>(found, 200);
-  const scope = { repositories: [repo.split("/")[1]], permissions: { contents: "write" } };
-  const { token, expires_at } = await bodyOf<{ token: string; expires_at: string }>(await installationToken(id, auth, scope), 201);
-  return { token, expires_at, installation: id };
-}
-
-/** Репозитории всех установок по алфавиту: токен каждой установки только на чтение метаданных. */
-export async function installedRepos(jwt: string): Promise<string[]> {
-  const auth = `Bearer ${jwt}`;
+/** Репозитории всех установок приложения по алфавиту. */
+export async function allRepos(app: Keyed): Promise<string[]> {
+  const auth = jwt(app);
   const repos: string[] = [];
-  for (const { id } of await everyPage("/app/installations", auth, (page: Array<{ id: number }>) => page)) {
-    const { token } = await bodyOf<{ token: string }>(await installationToken(id, auth, { permissions: { metadata: "read" } }), 201);
-    const list = await everyPage("/installation/repositories", `token ${token}`, (page: { repositories: Array<{ full_name: string }> }) => page.repositories);
-    repos.push(...list.map((r) => r.full_name));
+  for (const { id } of await pages("/app/installations", auth, (list: { id: number }[]) => list)) {
+    const { token } = await installationToken(id, auth, { permissions: { metadata: "read" } });
+    repos.push(...(await pages("/installation/repositories", `token ${token}`, (p: { repositories: { full_name: string }[] }) => p.repositories.map((r) => r.full_name))));
   }
   return repos.sort();
 }
 
-/** Одноразовый code из возврата GitHub → приложение. client_secret и webhook_secret не нужны: входа через GitHub и вебхуков у флота нет. */
-export async function createdApp(code: string): Promise<{ id: number; slug: string; owner: string; pem: string }> {
-  const conversion = await send(`/app-manifests/${code}/conversions`, { method: "POST" });
-  const { id, slug, owner, pem } = await bodyOf<{ id: number; slug: string; owner?: { login?: string }; pem: string }>(conversion, 201);
-  return { id, slug, owner: owner?.login ?? "", pem };
+/** Одноразовый code из возврата GitHub → приложение с ключом. Остальные секреты ответа не нужны: входа через GitHub и вебхуков у флота нет. Нет владельца — пустая строка. */
+export async function convert(code: string) {
+  const app = json<{ id: number; slug: string; owner?: { login: string } | null; pem: string }>(await call("POST", `/app-manifests/${code}/conversions`));
+  return { id: app.id, slug: app.slug, owner: app.owner?.login ?? "", pem: app.pem };
 }
 
-export const installUrl = (slug: string) => `${WEB}/apps/${slug}/installations/new`;
+/** Форма для браузера: закрытое приложение с записью содержимого, без вебхуков. */
+export const manifestForm = (redirect: string, org?: string) => ({
+  action: org ? `https://github.com/organizations/${org}/settings/apps/new` : "https://github.com/settings/apps/new",
+  manifest: {
+    name: org ? `Switchboard ${org}` : "Switchboard",
+    url: redirect,
+    public: false,
+    redirect_url: redirect,
+    setup_url: redirect,
+    hook_attributes: { url: redirect, active: false },
+    default_permissions: { contents: "write", metadata: "read" },
+    default_events: [],
+  },
+});
 
-/** Форма manifest для браузера пульта: закрытое приложение, содержимое на запись, без вебхуков. */
-export function creationForm(redirect: string, org?: string) {
-  return {
-    action: `${WEB}${org ? `/organizations/${org}` : ""}/settings/apps/new`,
-    manifest: {
-      name: org ? `Switchboard ${org}` : "Switchboard",
-      url: redirect,
-      public: false,
-      redirect_url: redirect,
-      setup_url: redirect,
-      hook_attributes: { url: redirect, active: false },
-      default_permissions: { contents: "write", metadata: "read" },
-      default_events: [],
-    },
-  };
-}
+export const installUrl = (slug: string) => `https://github.com/apps/${slug}/installations/new`;
