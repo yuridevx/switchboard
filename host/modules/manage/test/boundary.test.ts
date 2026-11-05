@@ -114,13 +114,9 @@ async function replyTo(st: Stand, type: string, r: Record<string, unknown>, i = 
 }
 
 describe("контракт: пакеты и вклад в query()", () => {
-  it("пакет каждого модуля отдаёт объект модуля; набор проходит гейт ядра", async () => {
+  it("пакет каждого модуля отдаёт объект модуля, набор проходит гейт; вклад в query(): сервер MCP fleet, позывной в системном промпте, межсессионная переписка Claude Code выключена (устав, слово 1 нояб.)", async () => {
     for (const m of [managePkg, fleetPkg, remotePkg, machinePkg]) expect(typeof m).toBe("object");
-    await bench({ remote: temp() });
-  });
-
-  it("вклад в query(): сервер MCP fleet, позывной в системном промпте, межсессионная переписка Claude Code выключена (устав, слово 1 нояб.)", async () => {
-    const { st } = await bench();
+    const { st } = await bench({ remote: temp() });
     await st.open("site@laptop");
     const o = st.query("site@laptop").options as { mcpServers: Record<string, { type: string; name: string }>; systemPrompt: { append?: string }; env: Record<string, string> };
     expect(o.mcpServers.fleet).toMatchObject({ type: "sdk", name: "fleet" });
@@ -461,6 +457,7 @@ describe("режим разрешений", () => {
     const { st, req } = await bench();
     await st.open("site@laptop");
     expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
+    await until(() => st.states("site@laptop").at(-1)?.mode === "bypassPermissions");
     await req({ type: "session.stop", callsign: "site@laptop" });
     await req({ type: "session.start", callsign: "site@laptop" });
     expect(st.query("site@laptop").options.permissionMode).toBe("bypassPermissions");
