@@ -5,6 +5,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { afterEach, describe, expect, it } from "vitest";
 import { build } from "esbuild";
 import { check, loadRepo, nameOf, order, ownerOf, type Manifest } from "../contract.ts";
@@ -32,10 +33,10 @@ function repo(files: Files): string {
   return root;
 }
 const mod = (name: string, x: Record<string, unknown> = {}) => ({ name, type: "worker", version: "1.0.0", provides: {}, uses: {}, config: {}, ...x });
-/** Прогон настоящего `cli.ts` на временном монорепо. */
+/** Прогон настоящего `cli.ts` на временном монорепо; своих node_modules у него нет, инструменты — из настоящего корня. */
 function gateOn(root: string) {
   cpSync(GATE, join(root, "tools", "manifest-gate"), { recursive: true });
-  return spawnSync(process.execPath, [join(root, "tools", "manifest-gate", "cli.ts")], { encoding: "utf8" });
+  return spawnSync(process.execPath, [join(root, "tools", "manifest-gate", "cli.ts")], { encoding: "utf8", env: { ...process.env, NODE_PATH: join(GATE, "..", "..", "node_modules") } });
 }
 
 describe("набор модулей", () => {
@@ -114,7 +115,7 @@ describe("монорепо", () => {
       "workers/none/readme.md": "нет манифеста",
       "os/k/module.json": mod("k"),
       "host/core/module.json": mod("host"),
-      "host/modules/a/module.json": mod("host-a"),
+      "host/modules/a/module.json": mod("host-a", { into: ["host"] }),
       "web/packages/p/module.json": mod("web-p"),
       "web/phone/module.json": mod("phone"),
       "web/pult/module.json": mod("pult"),
@@ -129,12 +130,13 @@ describe("монорепо", () => {
     expect(w.dir.replaceAll("\\", "/")).toBe("workers/w");
     expect(mods.find((x) => x.name === "protocol")!.pkg).toBe("@switchboard/protocol");
     expect(mods.find((x) => x.name === "pult-s")!.dir.replaceAll("\\", "/")).toBe("web/pult/modules/s");
+    expect(mods.find((x) => x.name === "host-a")!.into).toEqual(["host"]);
   });
 
   it("импорты кода: все формы; тесты, стенд, типы, чужие пакеты и вложенный модуль не считаются; React — это рантайм страницы", () => {
     const root = repo({
       "web/pult/module.json": mod("pult"),
-      "web/pult/a.ts": 'import { x } from "@switchboard/from";\nimport type { Y } from "@switchboard/type/deep.ts";\nexport { z } from "@switchboard/export";\nimport "@switchboard/side";\nconst d = () => import("@switchboard/dynamic");\nimport l from "lodash";\n',
+      "web/pult/a.ts": 'import { x } from "@switchboard/from";\nimport type { Y } from "@switchboard/type/deep.ts";\nexport { z } from "@switchboard/export";\nimport "@switchboard/side";\nconst d = () => import("@switchboard/dynamic");\nimport l from "lodash";\nimport {\n  a,\n  b,\n} from "@switchboard/multi";\nexport * from \'@switchboard/star\';\ntype T = import("@switchboard/type-of").T;\n',
       "web/pult/src/b.tsx": 'import { useState } from "react";\n',
       "web/pult/src/c.mjs": 'import "@switchboard/mjs";\n',
       "web/pult/src/d.mts": 'import "@switchboard/mts";\n',
@@ -147,6 +149,8 @@ describe("монорепо", () => {
       "web/pult/tests/t.ts": 'import "@switchboard/tests-dir";\n',
       "web/pult/stand/s.ts": 'import "@switchboard/stand-dir";\n',
       "web/pult/dist/s.js": 'import "@switchboard/dist-dir";\n',
+      "web/pult/src/deep/test/t.ts": 'import "@switchboard/deep-test-dir";\n',
+      "web/pult/.wrangler/tmp/x.js": 'import "@switchboard/dot-dir";\n',
       "web/pult/node_modules/n/i.js": 'import "@switchboard/nm";\n',
       "web/pult/modules/s/module.json": mod("pult-s"),
       "web/pult/modules/s/i.ts": 'import "@switchboard/nested";\n',
@@ -159,7 +163,10 @@ describe("монорепо", () => {
       "@switchboard/js",
       "@switchboard/mjs",
       "@switchboard/mts",
+      "@switchboard/multi",
       "@switchboard/side",
+      "@switchboard/star",
+      "@switchboard/type-of",
       "@switchboard/type/deep.ts",
       "@switchboard/web-view",
     ]);
@@ -189,10 +196,10 @@ describe("монорепо", () => {
     expect(good.stdout.trim()).toBe("gate: ok · 3 модулей · 4 имён контракта");
   });
 
-  it("контракт собирается для браузера: check идёт на странице, файловая система ему не нужна", async () => {
-    const out = await build({ entryPoints: [join(GATE, "contract.ts")], bundle: true, platform: "browser", format: "esm", write: false, logLevel: "silent" });
-    expect(out.errors).toEqual([]);
-    expect(out.outputFiles[0].text).toContain("function check");
+  it("контракт собирается для браузера: check идёт на странице, Node и файловая система ему не нужны", async () => {
+    const out = await build({ entryPoints: [join(GATE, "contract.ts")], bundle: true, platform: "browser", format: "iife", globalName: "gate", write: false, logLevel: "silent" });
+    const page = runInNewContext(`${out.outputFiles[0].text};gate`) as { check: typeof check };
+    expect([...page.check([m("a", { uses: { bad: 1 } })])]).toEqual(["модуль a: uses «bad» — нужно имя@владелец"]);
   });
 });
 
@@ -210,6 +217,15 @@ describe("устройство кода против манифеста", () => 
     expect(good.status, good.stderr).toBe(0);
   });
 
+  it.each([
+    ["this.env", "class A { f() { this.env.GATE.revoked([]); } }\n"],
+    ["контекст запроса", "const f = (c) => c.env.GATE.revoked([]);\n"],
+  ])("вызов привязки через %s — тот же вызов", (_n, code) => {
+    const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/src/a.ts": code }));
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("модуль own: зовёт gate.revoked — нет в uses");
+  });
+
   it("вызов в тесте не считается: тест зовёт что угодно", () => {
     const r = gateOn(repo({ "workers/gate/module.json": gate, "workers/own/module.json": mod("own"), "workers/own/test/a.test.ts": "env.GATE.revoked([]);\n" }));
     expect(r.status, r.stderr).toBe(0);
@@ -219,6 +235,7 @@ describe("устройство кода против манифеста", () => 
     ["код идёт в чужой контракт без uses", { "web/packages/a/src/x.ts": 'import type { T } from "../../b/contract.ts";\n' }, "модуль a: импорт b/contract.ts — b нет в uses"],
     ["код идёт в чужой контракт, имя объявлено, но внутрь", { "web/packages/c/src/x.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль c: импорт b/src/in.ts — мимо контракта b"],
     ["тест идёт во внутренности чужого модуля", { "web/packages/a/test/x.test.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
+    ["тест рядом с кодом идёт во внутренности чужого модуля", { "web/packages/a/src/x.spec.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
     ["стенд идёт во внутренности чужого модуля", { "web/packages/a/stand/x.ts": 'import { t } from "../../b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
     ["тест идёт во внутренности чужого пакета", { "web/packages/a/test/x.test.ts": 'import { t } from "@switchboard/b/src/in.ts";\n' }, "модуль a: тест импортирует b/src/in.ts — мимо контракта b"],
   ])("относительный путь считается импортом модуля: %s", (_n, files, want) => {
