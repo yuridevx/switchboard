@@ -727,6 +727,16 @@ describe("вопрос человеку", () => {
     await answer(st, PHONE, mode === "default" ? { question: "toolu_b", action: "allow" } : { question: "toolu_b", answers: pick("прод") });
     expect(await a).toMatchObject({ behavior: "allow" });
   });
+  it("зритель пришёл после вопроса: answered и ему (чьё: код)", async () => {
+    const { st } = await bench();
+    const { p } = await tasked(st);
+    const a = p.ask("AskUserQuestion", ASK, "toolu_w");
+    await until(() => asked(st)[0]);
+    await watch(st, PANEL);
+    await answer(st, PHONE, { question: "toolu_w", answers: pick("прод") });
+    await a;
+    expect(closed(st)[0].to).toEqual([PHONE, PANEL]);
+  });
 });
 
 describe("запрос разрешения и план", () => {

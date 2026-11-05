@@ -79,6 +79,8 @@ export function fold(msgs: readonly Msg[], sub = false): View {
   const retracted = new Set<string>(msgs.flatMap((m) => (m.subtype === "model_refusal_fallback" ? (m.retracted_message_uuids ?? []) : [])));
   let boundary: Extract<Row, { k: "sys" }> | null = null;
   let cost = 0;
+  /** ход прервал человек: его строка ошибки не показывается */
+  let interrupted = false;
   let n = 0;
   const push = <R extends Row = Row>(r: Draft): R => {
     const row = { key: `r${n++}`, ...r } as R;
@@ -261,6 +263,7 @@ export function fold(msgs: readonly Msg[], sub = false): View {
     if (/^Caveat:/.test(text)) return;
     if (/^\[Request interrupted by user/.test(text)) {
       const when = m.timestamp ? Date.parse(m.timestamp) : m._at;
+      interrupted = true;
       push({ k: "sys", icon: "square", text: when ? `прервано · ${at(when)}` : "прервано", tone: "wait" });
       return;
     }
@@ -299,9 +302,10 @@ export function fold(msgs: readonly Msg[], sub = false): View {
   function result(m: Msg) {
     freeze();
     v.running = false;
-    const prev = last();
+    const stopped = interrupted;
+    interrupted = false;
     if (m.is_error) {
-      if (prev?.k === "sys" && prev.icon === "square") return;
+      if (stopped) return;
       const why = m.result || (m.errors?.length ? m.errors.join("; ") : undefined);
       push({ k: "res", err: m.subtype === "success" ? "success" : endWhy(m.subtype), why, parts: [] });
       return;

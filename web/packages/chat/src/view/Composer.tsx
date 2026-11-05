@@ -20,7 +20,7 @@ async function attOf(f: File): Promise<Att> {
 /** Можно ли предложить «Авто»: модель сессии из ленты, иначе модель по умолчанию из списка SDK. */
 function autoOk(models: ModelInfo[] | "loading" | undefined, model: string | undefined): boolean {
   if (!Array.isArray(models)) return false;
-  const m = model ? models.find((x) => model.includes(x.value)) : models.find((x) => x.value === "default");
+  const m = (model && models.find((x) => model.includes(x.value))) || models.find((x) => x.value === "default");
   return !!m?.supportsAutoMode;
 }
 
@@ -29,7 +29,11 @@ export function Composer() {
   const app = useApp();
   const talks = useModule<Talks>();
   const cs = env.cs;
-  const draft = app.use(() => talks.get(cs).draft);
+  // чужая правка поля будит ввод выборкой, своя буква — redraw: она не будит страницу
+  app.use(() => talks.get(cs).draft);
+  const draft = talks.get(cs).draft;
+  const [, redraw] = useState(0);
+  const [caret, setCaret] = useState<number | null>(null);
   const files = app.use(() => talks.get(cs).files);
   const commands = app.use(() => talks.get(cs).commands);
   const models = app.use(() => talks.get(cs).models);
@@ -50,15 +54,20 @@ export function Composer() {
 
   const set = (text: string) => {
     setClosed(false);
-    talks.edit(cs, (t) => void (t.draft = text));
+    setCaret(null);
+    talks.typed(cs, text);
+    redraw((n) => n + 1);
   };
   const add = async (list: FileList | File[] | null | undefined) => {
     const atts = await Promise.all([...(list ?? [])].map(attOf));
     if (atts.length) talks.edit(cs, (t) => void t.files.push(...atts));
   };
 
-  const cmd = /^\/(\S*)$/.exec(draft);
-  const at = folder ? /(?:^|\s)@(\S*)$/.exec(draft) : null;
+  // подсказка — по тексту до каретки
+  const before = draft.slice(0, caret ?? draft.length);
+  const after = draft.slice(before.length);
+  const cmd = /^\/(\S*)$/.exec(before);
+  const at = folder ? /(?:^|\s)@(\S*)$/.exec(before) : null;
   useEffect(() => {
     if (cmd && call) void talks.commands(cs);
   }, [!!cmd, call]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -88,7 +97,7 @@ export function Composer() {
   useEffect(() => setSel(0), [items.length, cmd?.[1], at?.[1]]);
 
   const choose = (it: Item) => {
-    set(cmd ? `${it.label} ` : draft.replace(/@\S*$/, `@${it.label} `));
+    set(`${cmd ? `${it.label} ` : before.replace(/@\S*$/, `@${it.label} `)}${after}`);
     inp.current?.focus();
   };
   const submit = () => {
@@ -174,7 +183,11 @@ export function Composer() {
             ))}
           </div>
         )}
-        <Area ref={inp} className="chat-inp" rows={1} aria-label={`Написать ${env.label}`} placeholder={`${s.state === "busy" || s.state === "waiting" ? "В очередь" : "Написать"} ${env.label}`} value={draft} onInput={(e) => set(e.currentTarget.value)} onKeyDown={key} onPaste={paste} />
+        <Area ref={inp} className="chat-inp" rows={1} aria-label={`Написать ${env.label}`} placeholder={`${s.state === "busy" || s.state === "waiting" ? "В очередь" : "Написать"} ${env.label}`} value={draft} onInput={(e) => {
+            set(e.currentTarget.value);
+            setCaret(e.currentTarget.selectionStart);
+          }}
+          onKeyDown={key} onPaste={paste} />
         <div className="chat-tools">
           <IconBtn className="chat-tb" title="Вложить файл" aria-label="Вложить файл" onClick={() => pick.current?.click()}>
             <Paperclip size={16} aria-hidden="true" />

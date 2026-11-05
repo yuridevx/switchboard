@@ -12,7 +12,8 @@ import { Icon } from "./icons.tsx";
 import { Panel } from "./Panel.tsx";
 import { Dis, Reply, RowView } from "./Rows.tsx";
 
-const FAR = 200;
+/** Ближе этого к низу лента считается у края и идёт за новыми строками. */
+const AT_END_PX = 48;
 
 function ItemView({ it }: { it: Item }) {
   if (it.k === "row") return it.only && it.row.k === "reply" ? <Reply r={it.row} only={it.only} /> : <RowView r={it.row} />;
@@ -53,6 +54,10 @@ export function ChatScreen({ params }: { params: Params }) {
   const [panel, setPanel] = useState(false);
   const [jump, setJump] = useState(false);
   const feed = useRef<HTMLDivElement>(null);
+  const stick = useRef(true);
+  const top = useRef(0);
+  /** высота до страницы «Раньше»: лента остаётся на том же сообщении */
+  const kept = useRef<number | null>(null);
 
   useEffect(() => {
     talks.open(cs);
@@ -84,8 +89,22 @@ export function ChatScreen({ params }: { params: Params }) {
 
   useLayoutEffect(() => {
     const el = feed.current;
-    if (el && !jump) el.scrollTop = el.scrollHeight;
+    if (!el) return;
+    if (kept.current !== null) el.scrollTop = el.scrollHeight - kept.current;
+    else if (stick.current) el.scrollTop = el.scrollHeight;
+    kept.current = null;
   }, [view, t.sends.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // лента у низа остаётся у низа, что бы ни выросло: поток текста, поле ввода, док над ним
+  useEffect(() => {
+    const el = feed.current!;
+    const keep = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight;
+    });
+    keep.observe(el);
+    keep.observe(el.firstElementChild!);
+    return () => keep.disconnect();
+  }, []);
 
   const empty = !view.rows.length && !pending.length;
   return (
@@ -123,13 +142,27 @@ export function ChatScreen({ params }: { params: Params }) {
             aria-live="polite"
             ref={feed}
             onScroll={(e) => {
+              // от низа уводит только прокрутка вверх: рост ленты стороной не считается
               const el = e.currentTarget;
-              setJump(el.scrollHeight - el.scrollTop - el.clientHeight > FAR);
+              if (el.scrollHeight - el.clientHeight - el.scrollTop < AT_END_PX) stick.current = true;
+              else if (el.scrollTop < top.current) stick.current = false;
+              top.current = el.scrollTop;
+              setJump(!stick.current);
             }}
           >
             <div className="chat-col">
               {t.more && (
-                <button type="button" className="chat-older" onClick={() => void talks.older(cs)}>
+                <button
+                  type="button"
+                  className="chat-older"
+                  onClick={() => {
+                    const el = feed.current!;
+                    kept.current = el.scrollHeight - el.scrollTop;
+                    void talks.older(cs).then((ok) => {
+                      if (!ok) kept.current = null;
+                    });
+                  }}
+                >
                   Раньше
                 </button>
               )}
@@ -161,6 +194,7 @@ export function ChatScreen({ params }: { params: Params }) {
               onClick={() => {
                 const el = feed.current!;
                 el.scrollTop = el.scrollHeight;
+                stick.current = true;
                 setJump(false);
               }}
             >

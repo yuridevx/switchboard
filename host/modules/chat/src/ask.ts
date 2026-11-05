@@ -26,6 +26,9 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
   const of = (cs: string) => open.get(cs) ?? open.set(cs, new Map()).get(cs)!;
   const done = (cs: string) => closed.get(cs) ?? closed.set(cs, new Set()).get(cs)!;
 
+  /** Кому: давший задачу и зрители сейчас; разрешение и форму решает только человек. */
+  const audience = (s: Session, kind: Kind) => [...new Set([s.info.from, ...viewers(s.info.callsign)])].filter((a): a is string => !!a && (isClient(a) || (kind === "ask" && kindOf(a) === "session")));
+
   function notify(s: Session, p: Pending, notify: Record<string, unknown>, type: string) {
     if (p.clients.length) void host().request("notify", { clients: p.clients, frame: { type, from: s.info.callsign, question: p.id, notify: { ...notify, tag: p.id } } });
   }
@@ -33,8 +36,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
   /** Задать вопрос и ждать первого ответа; сигнал отмены снимает его. */
   function ask<T>(s: Session, id: string, kind: Kind, fields: Record<string, unknown>, signal: AbortSignal, answer: (a: Answer) => T, cancelled: T): Promise<T> {
     const cs = s.info.callsign;
-    const giver = s.info.from;
-    const to = [...new Set([giver, ...viewers(cs)])].filter((a): a is string => !!a && (isClient(a) || (kind === "ask" && kindOf(a) === "session")));
+    const to = audience(s, kind);
     host().log({ kind: "note", ev: "question", callsign: cs, question: id, asked: kind });
     return new Promise<T>((resolve) => {
       const p: Pending = { id, kind, fields: defined(fields), to, clients: to.filter(isClient), settle: () => {} };
@@ -42,7 +44,9 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
         of(cs).delete(id);
         done(cs).add(id);
         signal.removeEventListener("abort", abort);
-        if (to.length) host().emit({ type: "answered", from: cs, to, question: id, ...frame });
+        p.to = audience(s, kind);
+        p.clients = p.to.filter(isClient);
+        if (p.to.length) host().emit({ type: "answered", from: cs, to: p.to, question: id, ...frame });
       };
       p.settle = (a) => {
         const { answers, action, content } = a.body;

@@ -20,24 +20,28 @@ const need = (ok: unknown, why: string) => {
   if (!ok) throw refuse("bad_frame", why);
 };
 
-/** Файлы папки: в git — без скрытого .gitignore, иначе все; предел — FILES_MS. */
-async function files(cwd: string): Promise<string[]> {
+/** Файлы папки, путь содержит query: в git — без скрытого .gitignore, иначе обход; предел — limit, FILES_MS и остановка Host. */
+async function files(cwd: string, query: string, limit: number, signal: AbortSignal): Promise<string[]> {
+  const fit = (f: string) => f.toLowerCase().includes(query);
   const listed = await new Promise<string[] | null>((done) =>
-    execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, timeout: FILES_MS, maxBuffer: 1 << 26 }, (e, out) => done(e ? null : out.split("\n").filter(Boolean))),
+    execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, timeout: FILES_MS, maxBuffer: 1 << 26, signal }, (e, out) => done(e ? null : out.split("\n").filter(Boolean))),
   );
-  if (listed) return listed;
+  if (listed) return listed.filter(fit).slice(0, limit);
   const until = Date.now() + FILES_MS;
-  const all: string[] = [];
+  const found: string[] = [];
   const walk = async (dir: string): Promise<void> => {
+    if (signal.aborted) throw refuse("shutting_down", "обход папки остановлен");
     if (Date.now() > until) throw refuse("timeout", `обход ${cwd} дольше ${FILES_MS} мс`);
     for (const e of await readdir(dir, { withFileTypes: true })) {
+      if (found.length >= limit) return;
       const path = join(dir, e.name);
+      const name = relative(cwd, path).replaceAll("\\", "/");
       if (e.isDirectory()) await walk(path);
-      else all.push(relative(cwd, path).replaceAll("\\", "/"));
+      else if (fit(name)) found.push(name);
     }
   };
   await walk(cwd);
-  return all;
+  return found;
 }
 
 export function make(): Module {
@@ -96,7 +100,7 @@ export function make(): Module {
         return undefined;
       },
       async "session.history"(req) {
-        need(typeof req.limit === "number", "без limit");
+        need(Number(req.limit) >= 1, "limit ≥ 1");
         const s = session(req);
         const all = (await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string }>;
         const end = req.before == null ? all.length : all.findIndex((m) => m.uuid === req.before);
@@ -104,10 +108,9 @@ export function make(): Module {
         const start = Math.max(0, end - (req.limit as number));
         return { messages: all.slice(start, end), more: start > 0 };
       },
-      async "session.files"(req) {
-        need(typeof req.limit === "number", "без limit");
-        const query = String(req.query ?? "").toLowerCase();
-        return (await files(session(req).info.cwd)).filter((f) => f.toLowerCase().includes(query)).slice(0, req.limit as number);
+      "session.files"(req, ctx) {
+        need(Number(req.limit) >= 1, "limit ≥ 1");
+        return files(session(req).info.cwd, String(req.query ?? "").toLowerCase(), req.limit as number, ctx.signal);
       },
       "session.watch"(req, ctx) {
         viewer(req, ctx).add(ctx.from!);

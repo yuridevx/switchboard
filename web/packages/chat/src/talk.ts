@@ -32,16 +32,30 @@ export const machineOf = (cs: string) => cs.slice(cs.lastIndexOf("@") + 1);
 const uuids = (msgs: readonly Msg[]) => new Set(msgs.map((m) => m.uuid).filter(Boolean));
 
 /** Страница истории поверх известного: что раньше страницы — впереди, что не вошло в неё — следом. Кусочки живого заменяет история. */
-function merge(cur: readonly Msg[], page: readonly Msg[]): Msg[] {
+function merge(cur: readonly Msg[], page: readonly Msg[], more: boolean): Msg[] {
   const inPage = uuids(page);
   const first = cur.findIndex((m) => m.uuid && m.uuid === page[0]?.uuid);
+  // разрыв длиннее страницы: прежнее ей не сосед, «Раньше» доберёт его по порядку; свои строки страницы остаются
+  if (first < 0 && more) return [...page, ...cur.filter((m) => String(m.uuid).startsWith("x:"))];
   const before = first > 0 ? cur.slice(0, first) : [];
   const after = cur.slice(Math.max(first, 0)).filter((m) => m.type !== "stream_event" && !(m.uuid && inPage.has(m.uuid)));
   return [...before, ...page, ...after];
 }
 
+/** Кусочки идущего сообщения: одна запись с накопленным текстом вместо тысячи маленьких; кусочки входа инструмента не рисуются. */
+function addEvent(list: Msg[], m: Msg): void {
+  const d = m.type === "stream_event" && m.event?.type === "content_block_delta" ? m.event.delta : undefined;
+  const key = d?.type === "text_delta" ? "text" : d?.type === "thinking_delta" ? "thinking" : undefined;
+  if (d && !key) return;
+  const prev = list.at(-1);
+  if (prev && key && prev.event?.delta?.type === d.type && prev.parent_tool_use_id === m.parent_tool_use_id) prev.event.delta[key] += d[key];
+  else list.push(m);
+}
+
 export function createTalks(app: App) {
-  const store = createStore<Record<string, Talk>>({}, () => app.changed());
+  /** буква ввода не трогает страницу: поле пишется молча, рисует его сам ввод */
+  let quiet = false;
+  const store = createStore<Record<string, Talk>>({}, () => quiet || app.changed());
   let drafts: Record<string, string> = {};
   const opened = new Map<string, number>();
   const watching = new Set<string>();
@@ -63,7 +77,7 @@ export function createTalks(app: App) {
     const r = await app.request<{ messages: Msg[]; more: boolean }>("session.history", { callsign: cs, before: null, limit: HISTORY });
     edit(cs, (t) => {
       if (!r.ok) return void (t.note ??= `session.history: ${r.error}`);
-      t.msgs = merge(t.msgs, r.result.messages);
+      t.msgs = merge(t.msgs, r.result.messages, r.result.more);
       t.more = r.result.more;
     });
   }
@@ -153,12 +167,21 @@ export function createTalks(app: App) {
     async older(cs: string) {
       const first = get(cs).msgs.find((m) => m.uuid && !String(m.uuid).startsWith("x:"));
       const r = await app.request<{ messages: Msg[]; more: boolean }>("session.history", { callsign: cs, before: first?.uuid ?? null, limit: HISTORY });
-      if (!r.ok) return app.toast(`${cs}: session.history — ${r.error}`, "bad");
+      if (!r.ok) {
+        app.toast(`${cs}: session.history — ${r.error}`, "bad");
+        return false;
+      }
       edit(cs, (t) => {
         const have = uuids(t.msgs);
         t.msgs = [...r.result.messages.filter((m) => !have.has(m.uuid)), ...t.msgs];
         t.more = r.result.more;
       });
+      return true;
+    },
+    typed(cs: string, text: string) {
+      quiet = true;
+      edit(cs, (t) => void (t.draft = text));
+      quiet = false;
     },
     send(cs: string, text: string, files: Att[]) {
       const s: Send = { uuid: crypto.randomUUID(), text, files, at: Date.now(), state: "sending" };
@@ -231,7 +254,7 @@ export function createTalks(app: App) {
         const gap = t.seq !== undefined && typeof f.seq === "number" && f.seq !== t.seq + 1;
         const at = Date.now();
         edit(cs, (x) => {
-          x.msgs.push(...((f.events ?? []) as Msg[]).map((m) => ({ ...m, _at: at })));
+          for (const m of (f.events ?? []) as Msg[]) addEvent(x.msgs, { ...m, _at: at });
           if (typeof f.seq === "number") x.seq = f.seq;
         });
         if (gap) void history(cs);

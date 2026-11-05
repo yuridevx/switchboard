@@ -2578,3 +2578,85 @@ describe("запрос разрешения в карточке инструме
     expect(u.$('.chat-tool[data-tool="Edit"] .tc-h')!.getAttribute("aria-expanded")).toBe("true");
   });
 });
+
+// Правила, что жили только в комментариях старого кода: сверка комментариев круга 3. Источник — чьё: код.
+describe("правила из комментариев старого кода", () => {
+  const sized = (el: HTMLElement, o: { height: number; top: number }) => {
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => o.height });
+    Object.defineProperty(el, "clientHeight", { configurable: true, get: () => 100 });
+    Object.defineProperty(el, "scrollTop", { configurable: true, get: () => o.top, set: (v: number) => void (o.top = v) });
+  };
+
+  it("разрыв длиннее страницы: прежнее не встаёт после новой страницы", async () => {
+    // намеренное расхождение: старый код ставил новое впереди прежнего; источник — правило «новое — у своего соседа», спорное место круга 3
+    let page: unknown[] = [user("o1", "старое")];
+    let more = false;
+    const relay = relayFor();
+    relay.handlers["session.history"] = () => ({ ok: true, result: { messages: page, more } });
+    const t = await chat(IDLE, { relay, wide: true });
+    await t.events(IDLE, [], 1);
+    page = [user("n1", "новое")];
+    more = true;
+    await t.events(IDLE, [], 5);
+    const shown = t.$$(".chat-me").map((x) => x.textContent).join(" ");
+    expect(shown).toContain("новое");
+    expect(shown).not.toMatch(/новое.*старое/);
+  });
+
+  it("«Раньше»: лента остаётся на том же сообщении", async () => {
+    const o = { height: 1000, top: 900 };
+    const relay = relayFor();
+    relay.handlers["session.history"] = (x) => {
+      if (!x.before) return { ok: true, result: { messages: [user("u2", "потом")], more: true } };
+      o.height = 1500;
+      return { ok: true, result: { messages: [user("u1", "раньше")], more: false } };
+    };
+    const t = await chat(IDLE, { relay, wide: true });
+    sized(t.$<HTMLElement>(".chat-feed")!, o);
+    await t.click(t.$(".chat-older"));
+    await flush(5);
+    expect(o.top).toBe(1400);
+  });
+
+  it("от низа уводит только прокрутка вверх: рост ленты стороной не считается", async () => {
+    const o = { height: 1000, top: 900 };
+    const t = await chat(IDLE, { wide: true });
+    const f = t.$<HTMLElement>(".chat-feed")!;
+    sized(f, o);
+    f.dispatchEvent(new Event("scroll"));
+    await flush();
+    o.height = 2000;
+    f.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(t.$(".chat-jump")).toBeNull();
+  });
+
+  it("подсказка — по тексту до каретки; выбор не трогает текст за ней", async () => {
+    const relay = relayFor();
+    relay.handlers["session.files"] = () => ({ ok: true, result: ["worker.ts"] });
+    const t = await chat(IDLE, { relay });
+    const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
+    inp.value = "Сравни @w с этим";
+    inp.selectionStart = inp.selectionEnd = 9;
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush(5);
+    expect(relay.sent("session.files").at(-1)).toMatchObject({ query: "w" });
+    await t.key("Enter");
+    expect(inp.value).toContain("@worker.ts");
+    expect(inp.value).toMatch(/с этим$/);
+    expect(relay.sent("session.prompt")).toHaveLength(0);
+  });
+
+  it("«Авто»: модели сессии нет в списке — решает запись по умолчанию", async () => {
+    const relay = relayFor(roster((x) => void (x.sessions.find((s) => s.callsign === BUSY)!.mode = "default")));
+    relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? ({ ok: true, result: [{ value: "opus" }, { value: "default", supportsAutoMode: true }] } as never) : ({ ok: true, result: [] } as never));
+    const t = await chat(BUSY, { relay, wide: true });
+    await t.events(BUSY, [{ type: "system", subtype: "init", model: "claude-haiku-5-5", uuid: "i1" }]);
+    expect([...t.$<HTMLSelectElement>(".chat-mode")!.options].map((o) => o.value)).toContain("auto");
+  });
+
+  it("ход прервал человек: строка ошибки не показывается и через служебную строку", async () => {
+    const f = await feed([human("[Request interrupted by user]"), sys("informational", { content: "заметка" }), { type: "result", uuid: uid(), subtype: "error_during_execution", is_error: true }]);
+    expect(f.q(".chat-res")).toBeNull();
+  });
+});
