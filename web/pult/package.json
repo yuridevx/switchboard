@@ -1,6 +1,6 @@
 {
   "name": "@switchboard/pult",
-  "version": "2.2.4",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "exports": {

@@ -1,14 +1,10 @@
 {
   "name": "@switchboard/host",
-  "version": "1.3.6",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
-  "exports": {
-    ".": "./contract.ts"
-  },
-  "bin": {
-    "switchboard-host": "./main.ts"
-  },
+  "exports": { ".": "./contract.ts" },
+  "bin": { "switchboard-host": "./main.ts" },
   "scripts": {
     "start": "node main.ts",
     "check": "node main.ts --check",
