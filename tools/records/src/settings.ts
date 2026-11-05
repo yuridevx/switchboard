@@ -13,12 +13,7 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
   const queue: Edit[] = [];
   let cycle: Promise<void> | undefined;
 
-  const load = async () => {
-    const r = await o.read<{ values: Record<string, unknown> }>("prefs.get", { prefix: `${o.prefix}.`, ...area });
-    // обрыв связи ответом не считается: чтение повторится при возврате связи
-    if (r.ok || r.error !== "disconnected") answered = true;
-    return r;
-  };
+  const load = () => o.read<{ values: Record<string, unknown> }>("prefs.get", { prefix: `${o.prefix}.`, ...area });
 
   async function run() {
     while (queue.length) {
@@ -47,6 +42,8 @@ export function settings(o: { read: Ask; ask: Ask; prefix: string; scope?: strin
     async read(): Promise<string | null> {
       const r = await load();
       if (r.ok) values = r.result.values;
+      // обрыв связи ответом не считается: чтение повторится при возврате связи
+      answered ||= r.ok || r.error !== "disconnected";
       o.changed?.();
       return r.ok ? null : r.error;
     },

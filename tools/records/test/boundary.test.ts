@@ -245,6 +245,25 @@ describe("цикл настроек", () => {
     expect(sets(s.log)).toHaveLength(2);
   });
 
+  it("чтение не встаёт за зависшим циклом: зависший ответ не держит новое чтение после обрыва связи; правка остаётся поверх", async () => {
+    // источник: комментарий кода, сверка 6 нояб.; чьё: код
+    const s = service();
+    s.values["x.a"] = 1;
+    let hung = true;
+    const read = (async <T,>(name: string, body: Record<string, unknown>) => {
+      if (hung) {
+        hung = false;
+        await new Promise(() => {});
+      }
+      return s.ask<T>(name, body);
+    }) as typeof s.ask;
+    const c = settings({ read, ask: s.ask, prefix: "x" });
+    void c.edit("k", () => "новое");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await c.read()).toBeNull();
+    expect([c.get("a"), c.get("k")]).toEqual([1, "новое"]);
+  });
+
   it("settled дожидается цикла записи: остановка не теряет правку", async () => {
     const s = service();
     const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
