@@ -1,7 +1,7 @@
 // Обход экранов настоящего кода снимками: пульт и телефон, светлая и тёмная; замечания — выход за край и ошибки страницы. npm run shots [часть имени снимка]; снимки смотрит глазами тот, кто запустил.
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { appContext, errorsOf, overflow, pause } from "./kit.mjs";
+import { appContext, errorsOf, overflow, pause, treeOf } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "shots");
@@ -67,6 +67,7 @@ const PHONE = [
 
   const b = await launch();
   const fails = [];
+  const trees = {};
   for (const [app, list, viewport] of [["pult", PULT, { width: 1280, height: 800 }], ["phone", PHONE, { width: 390, height: 780 }]]) {
     for (const kind of ["small", "big"]) {
       for (const scheme of ["light", "dark"]) {
@@ -86,6 +87,7 @@ const PHONE = [
             await pause(p, 250);
             await act(p);
             await p.screenshot({ path: path.join(OUT, id + ".png") });
+            if (process.env.SHOTS_DOM) trees[id] = await treeOf(p);
             const over = await overflow(p, "body *", ".fscroll, .op-pre, .sb-navrow, .cw-tabs", true);
             if (over.x > 0 || over.bad.length) fails.push(`${id}: выход за край ${over.x}px ${over.bad.join(" | ")}`);
           } catch (e) {
@@ -98,5 +100,6 @@ const PHONE = [
     }
   }
   await b.close();
+  if (process.env.SHOTS_DOM) writeFileSync(process.env.SHOTS_DOM, JSON.stringify(trees));
   console.log(fails.length ? fails.join("\n") : `без замечаний · снимки в ${OUT}`);
   process.exit(fails.length ? 1 : 0);

@@ -11,6 +11,27 @@ export function checker() {
   return { check, bad: () => bad };
 }
 
+/** Дерево DOM приложения в строках: разметка, размеры, значения полей, фокус и адрес. Для tools/demolish dom-diff. */
+export const treeOf = (p) =>
+  p.evaluate(() => {
+    const lines = [];
+    const walk = (el, depth) => {
+      if (el.tagName === "STYLE" || el.tagName === "SCRIPT") return;
+      const attrs = [...el.attributes].map((a) => `${a.name}="${a.value}"`).sort().join(" ");
+      const r = el.getBoundingClientRect();
+      const size = r.width || r.height ? ` [${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.x)},${Math.round(r.y)}]` : " [нет]";
+      lines.push(`${" ".repeat(depth)}<${el.tagName.toLowerCase()}${attrs ? " " + attrs : ""}>${size}`);
+      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") lines.push(`${" ".repeat(depth + 1)}value=${JSON.stringify(el.value)}`);
+      for (const c of el.childNodes) {
+        if (c.nodeType === 3 && c.textContent) lines.push(`${" ".repeat(depth + 1)}"${c.textContent}"`);
+        else if (c.nodeType === 1) walk(c, depth + 1);
+      }
+    };
+    walk(document.getElementById("app"), 0);
+    lines.push(`адрес: ${location.hash}`);
+    return lines.join("\n");
+  });
+
 /** Окно приложения: телефон — двойная плотность и касания. */
 export const appContext = (b, app, viewport, colorScheme) => b.newContext({ viewport, colorScheme, deviceScaleFactor: app === "phone" ? 2 : 1, hasTouch: app === "phone", isMobile: app === "phone" });
 

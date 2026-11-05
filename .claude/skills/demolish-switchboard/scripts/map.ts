@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { CODE, TEST, tokensOf } from "../../../../tools/demolish/measure.ts";
 import { loadRepo, ownerOf } from "../../../../tools/manifest-gate/contract.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -15,17 +16,14 @@ const byName = new Map(mods.map((m) => [m.name, m]));
 const longest = [...mods].sort((a, b) => b.dir.length - a.dir.length);
 const ownerOfPath = (p: string) => longest.find((m) => p.startsWith(m.dir))?.name;
 
-const CODE = /\.(ts|tsx|mts|mjs|js|go|css)$/;
-const TEST = /(\/test\/|\/tests\/|\/stand\/|\.test\.|\.spec\.|_test\.go$)/;
-
 const size = new Map(mods.map((m) => [m.name, { code: 0, tests: 0, commits: 0 }]));
 for (const line of git("ls-files").split("\n")) {
   const name = ownerOfPath(line);
   if (!name || !CODE.test(line) || line.endsWith(".d.ts")) continue;
-  const lines = readFileSync(join(root, line), "utf8").split("\n").length;
+  const tokens = tokensOf(line, readFileSync(join(root, line), "utf8"));
   const s = size.get(name)!;
-  if (TEST.test(line)) s.tests += lines;
-  else s.code += lines;
+  if (TEST.test(line)) s.tests += tokens;
+  else s.code += tokens;
 }
 for (const commit of git("log", "--no-merges", "--name-only", "--format=%x00").split("\0")) {
   const touched = new Set(commit.split("\n").filter(Boolean).map(ownerOfPath));
