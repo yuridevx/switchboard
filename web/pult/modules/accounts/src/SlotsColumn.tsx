@@ -11,8 +11,10 @@ export function SlotsColumn({ answers, machines, near, notes, say, cur, pick, ta
   const app = useApp();
   const state = useAccounts();
   const [fresh, setFresh] = useState("");
+  const [firstAccount, setFirstAccount] = useState("");
   const answer = okOf(answers[cur]);
   const listKey = `slots:${cur}`;
+  const loggedIn = Object.entries(answer?.accounts ?? {}).filter(([, a]) => a.login === "ok").map(([n]) => n);
 
   /** Отказ — у слота; итог, который переживёт карточку слота, — над списком. */
   async function save(slot: string, order: string[], done = "порядок сохранён", doneKey = `set:${cur}:${slot}`) {
@@ -31,7 +33,7 @@ export function SlotsColumn({ answers, machines, near, notes, say, cur, pick, ta
 
   async function create() {
     const name = fresh.trim();
-    const first = Object.entries(answer?.accounts ?? {}).find(([, a]) => a.login === "ok")?.[0];
+    const first = loggedIn.includes(firstAccount) ? firstAccount : loggedIn[0];
     if (!name) return;
     if (!first) return say(listKey, "На машине нет вошедшего аккаунта", "bad");
     if (await save(name, [first], `слот ${name} создан`, listKey)) setFresh("");
@@ -60,6 +62,13 @@ export function SlotsColumn({ answers, machines, near, notes, say, cur, pick, ta
           <H4>{`+ Новый слот на ${cur}`}</H4>
           <Opts>
             <In mono data-f="newslot" placeholder="имя слота" value={fresh} onInput={(e) => setFresh(e.currentTarget.value)} />
+            <Sel value={firstAccount} onChange={(e) => setFirstAccount(e.currentTarget.value)}>
+              {loggedIn.map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </Sel>
             <Btn onClick={() => void create()}>Создать</Btn>
           </Opts>
         </Sec>

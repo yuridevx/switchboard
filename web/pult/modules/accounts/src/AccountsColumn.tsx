@@ -1,6 +1,6 @@
 // Аккаунты: карточка на почту со всех машин. Окна — запись Host одной машины как пришла: расход между машинами Host читает у Claude сам.
 import { type ReactNode, useState } from "react";
-import { type AccountInfo, type AccountsAnswer, Btn, H4, Hint, LIMIT_NAMES, LimitRow, machineLabel, type MachineAnswer, Note, okOf, Opts, Outcome, type OutcomeNote, PageHead, Pill, plural, Row, In, Sec, PickOne, useApp, wordOf } from "@switchboard/web-ui";
+import { type AccountInfo, type AccountsAnswer, Btn, H4, Hint, LIMIT_NAMES, LimitRow, machineLabel, type MachineAnswer, Note, okOf, Opts, OptsInline, Outcome, type OutcomeNote, PageHead, Pill, plural, Row, In, Sec, useApp, wordOf } from "@switchboard/web-ui";
 import { RemoveDialog, SessionsDialog } from "./Dialogs.tsx";
 import { LoginCardView } from "./LoginCard.tsx";
 import { useAccounts } from "./state.ts";
@@ -8,6 +8,7 @@ import { useAccounts } from "./state.ts";
 type Answers = Readonly<Record<string, MachineAnswer<AccountsAnswer>>>;
 export type Shared = { answers: Answers; machines: string[]; near: string[]; notes: Readonly<Record<string, OutcomeNote>>; say(key: string, text: string, tone?: OutcomeNote["tone"]): void };
 
+type Dialog = { kind: "rm" | "sess"; card: string; machine: string; name: string };
 type Line = { machine: string; name: string; info: AccountInfo };
 type Card = { key: string; email?: string; plan?: string; lines: Line[] };
 
@@ -39,7 +40,7 @@ export function AccountsColumn({ answers, machines, near, notes, say, cur, tabs,
   const state = useAccounts();
   const logins = app.use(() => state.logins());
   const [adding, setAdding] = useState(signIn);
-  const [dialog, setDialog] = useState<{ kind: "rm" | "sess"; machine: string; name: string } | null>(null);
+  const [dialog, setDialog] = useState<Dialog | null>(null);
   const cards = cardsOf(answers);
   const answered = machines.every((m) => answers[m] !== undefined);
 
@@ -58,7 +59,7 @@ export function AccountsColumn({ answers, machines, near, notes, say, cur, tabs,
           </Note>
         ) : null,
       )}
-      {adding ? <NewAccount machines={machines} near={near} cur={cur} close={() => setAdding(false)} /> : null}
+      {adding ? <NewAccount machines={machines} cur={cur} close={() => setAdding(false)} /> : null}
       {Object.entries(logins).map(([key, card]) => (
         <LoginCardView key={key} id={key} card={card} />
       ))}
@@ -67,20 +68,21 @@ export function AccountsColumn({ answers, machines, near, notes, say, cur, tabs,
         .map((k) => (
           <Outcome key={k} note={notes[k]} data-note={k} />
         ))}
-      {dialog?.kind === "rm" ? <RemoveDialog answers={answers} machine={dialog.machine} name={dialog.name} say={say} close={() => setDialog(null)} /> : null}
-      {dialog?.kind === "sess" ? <SessionsDialog answers={answers} machine={dialog.machine} slot={dialog.name} notes={notes} say={say} close={() => setDialog(null)} /> : null}
       {!cards.length && !answered ? <Note>Загружаю аккаунты машин…</Note> : null}
       {!cards.length && answered && !Object.values(answers).some(wordOf) ? <Note>Аккаунтов нет — «+ Новый аккаунт».</Note> : null}
       <div className="ac-cards">
         {cards.map((c) => (
-          <AccountCard key={c.key} card={c} answers={answers} machines={machines} near={near} act={setDialog} />
+          <AccountCard key={c.key} card={c} answers={answers} machines={machines} near={near} act={(d) => setDialog({ ...d, card: c.key })}>
+            {dialog?.card === c.key && dialog.kind === "rm" ? <RemoveDialog answers={answers} machine={dialog.machine} name={dialog.name} say={say} close={() => setDialog(null)} /> : null}
+            {dialog?.card === c.key && dialog.kind === "sess" ? <SessionsDialog answers={answers} machine={dialog.machine} slot={dialog.name} notes={notes} say={say} close={() => setDialog(null)} /> : null}
+          </AccountCard>
         ))}
       </div>
     </>
   );
 }
 
-function AccountCard({ card, answers, machines, near, act }: { card: Card; answers: Answers; machines: string[]; near: string[]; act(d: { kind: "rm" | "sess"; machine: string; name: string }): void }) {
+function AccountCard({ card, answers, machines, near, act, children }: { card: Card; answers: Answers; machines: string[]; near: string[]; act(d: Omit<Dialog, "card">): void; children: ReactNode }) {
   const app = useApp();
   const state = useAccounts();
   const [picking, setPicking] = useState(false);
@@ -109,9 +111,10 @@ function AccountCard({ card, answers, machines, near, act }: { card: Card; answe
             <b>{machineLabel(app, l.machine).text}</b>
             <span>
               <Hint tone={l.info.login === "ok" ? "ok" : l.info.login === "pending" ? "wait" : "bad"}>{l.info.login === "ok" ? "вошёл" : l.info.login === "pending" ? "вход идёт" : "нет входа"}</Hint>
-              {places.length ? ` ${places.join(" · ")}` : ""}
+              {places.length ? " " : ""}
+              {places.join(" · ")}
             </span>
-            <Opts>
+            <OptsInline>
               {l.info.login === "none" ? <Btn onClick={() => void state.beginLogin(l.machine, l.name)}>Войти</Btn> : null}
               {holding.map((slot) => (
                 <Btn key={slot} data-sess={slot} onClick={() => act({ kind: "sess", machine: l.machine, name: slot })}>
@@ -119,7 +122,7 @@ function AccountCard({ card, answers, machines, near, act }: { card: Card; answe
                 </Btn>
               ))}
               <Btn onClick={() => act({ kind: "rm", machine: l.machine, name: l.name })}>Удалить…</Btn>
-            </Opts>
+            </OptsInline>
           </div>
         );
       })}
@@ -145,11 +148,12 @@ function AccountCard({ card, answers, machines, near, act }: { card: Card; answe
           </Btn>
         )
       ) : null}
+      {children}
     </Sec>
   );
 }
 
-function NewAccount({ machines, near, cur, close }: { machines: string[]; near: string[]; cur: string; close(): void }) {
+function NewAccount({ machines, cur, close }: { machines: string[]; cur: string; close(): void }) {
   const state = useAccounts();
   const [machine, setMachine] = useState(cur);
   const [name, setName] = useState("");
@@ -159,7 +163,11 @@ function NewAccount({ machines, near, cur, close }: { machines: string[]; near: 
       <H4>Новый аккаунт</H4>
       <Row label="Машина">
         <Opts>
-          <PickOne all={machines} near={near} cur={machine} on={setMachine} />
+          {machines.map((m) => (
+            <Btn key={m} aria-pressed={m === machine ? "true" : "false"} onClick={() => setMachine(m)}>
+              {m}
+            </Btn>
+          ))}
         </Opts>
       </Row>
       <Row label="Имя на машине">
@@ -167,6 +175,7 @@ function NewAccount({ machines, near, cur, close }: { machines: string[]; near: 
       </Row>
       {bad ? <Note tone="bad">имя — латиница, цифры, - и _</Note> : null}
       <Opts>
+        <Btn onClick={close}>Отмена</Btn>
         <Btn
           pri
           onClick={() => {
@@ -177,7 +186,6 @@ function NewAccount({ machines, near, cur, close }: { machines: string[]; near: 
         >
           Войти
         </Btn>
-        <Btn onClick={close}>Отмена</Btn>
       </Opts>
     </Sec>
   );

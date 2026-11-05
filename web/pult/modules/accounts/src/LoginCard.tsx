@@ -1,6 +1,6 @@
 // Карточка входа: ссылка и код. Код — только в поле, ушёл машине и забыт.
 import { useState } from "react";
-import { BadCard, Btn, H4, In, Note, OkCard, Opts, Sec } from "@switchboard/web-ui";
+import { BadCard, Btn, In, Note, OkCard, Opts, PageHead, Sec } from "@switchboard/web-ui";
 import { type LoginCard, useAccounts } from "./state.ts";
 
 export function LoginCardView({ id, card }: { id: string; card: LoginCard }) {
@@ -8,8 +8,11 @@ export function LoginCardView({ id, card }: { id: string; card: LoginCard }) {
   const [code, setCode] = useState("");
   const waiting = !card.url && !card.failed && !card.done;
   return (
-    <Sec data-login={id}>
-      <H4>{`Вход: ${card.account} на ${card.machine}`}</H4>
+    <Sec dlg data-login={id}>
+      <PageHead>
+        <b>{`Вход: ${card.account} на ${card.machine}`}</b>
+        <Btn onClick={() => state.hideLogin(id)}>Скрыть</Btn>
+      </PageHead>
       {waiting ? <Note>{`Host ${card.machine} запускает вход…`}</Note> : null}
       {card.url ? (
         <>
@@ -35,10 +38,11 @@ export function LoginCardView({ id, card }: { id: string; card: LoginCard }) {
           <span>{`слово: ${card.word}`}</span>
         </BadCard>
       ) : null}
-      <Opts>
-        {card.failed ? <Btn onClick={() => void state.beginLogin(card.machine, card.account)}>Войти заново</Btn> : null}
-        <Btn onClick={() => state.hideLogin(id)}>Скрыть</Btn>
-      </Opts>
+      {card.failed ? (
+        <Opts>
+          <Btn onClick={() => void state.beginLogin(card.machine, card.account)}>Войти заново</Btn>
+        </Opts>
+      ) : null}
     </Sec>
   );
 }

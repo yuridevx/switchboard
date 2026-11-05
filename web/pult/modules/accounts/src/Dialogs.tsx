@@ -33,8 +33,10 @@ export function RemoveDialog({ answers, machine, name, say, close }: Props & { n
       <H4>{`Удалить ${name} с ${machine}`}</H4>
       {slots.length ? (
         <>
-          <Note>{`${name} сейчас ${many ? "в слотах" : "в слоте"} ${list}`}</Note>
-          <Note>{`Сначала ${many ? "каждый слот" : "слот"} сменит аккаунт — ${names.length ? names.join(", ") : "сессии слота"} продолжат на новом, — потом ${name} уйдёт из порядка слотов и удалится.`}</Note>
+          <div>
+            <b>{`${name} сейчас ${many ? "в слотах" : "в слоте"} ${list}`}</b>
+            <Note>{`Сначала ${many ? "каждый слот" : "слот"} сменит аккаунт — ${names.length ? names.join(", ") : "сессии слота"} продолжат на новом, — потом ${name} уйдёт из порядка слотов и удалится.`}</Note>
+          </div>
           <Row label={many ? "Кого положить в слоты" : `Кого положить в слот ${list}`}>
             <Sel data-f="next" value={next} onChange={(e) => setNext(e.currentTarget.value)}>
               <option value="">{NEXT}</option>
@@ -49,10 +51,10 @@ export function RemoveDialog({ answers, machine, name, say, close }: Props & { n
       ) : null}
       <Note>{`Стирается только папка ${name} на ${machine}. Вход машины и другие аккаунты не трогаются.`}</Note>
       <Opts>
+        <Btn onClick={close}>Отмена</Btn>
         <Btn bad onClick={() => void remove()}>
           {slots.length ? "Сменить и удалить" : "Удалить"}
         </Btn>
-        <Btn onClick={close}>Отмена</Btn>
       </Opts>
     </Sec>
   );
@@ -73,6 +75,7 @@ export function SessionsDialog({ answers, machine, slot, notes, say, close }: Pr
   const moveKey = `move:${machine}:${slot}`;
 
   async function move() {
+    if (!chosen.length) return;
     const lines: string[] = [];
     for (const callsign of chosen) {
       const r = await app.request<{ restart: boolean }>("session.slot", { callsign, slot: to || null });
@@ -85,21 +88,22 @@ export function SessionsDialog({ answers, machine, slot, notes, say, close }: Pr
   return (
     <Sec dlg data-dlg="sess">
       <H4>{`Сессии слота ${slot} на ${machine} · сейчас ${info.account ?? "никого"}`}</H4>
-      <Row label="Сменить аккаунт всему слоту">
-        <Opts>
-          <SwapChoice field="swap" order={info.order} account={info.account} value={swapTo} on={setSwapTo} />
-          <Btn onClick={() => void swapSlot(app, state, machine, slot, info.account, swapTo, say)}>Сменить сейчас</Btn>
-        </Opts>
-      </Row>
-      <Outcome note={notes[swapKey]} data-note={swapKey} />
-      <H4>Перевести выбранные в другой слот</H4>
-      {info.sessions.map((c) => (
-        <OptsLabel key={c}>
-          <Check checked={chosen.includes(c)} onChange={(e) => setChosen(e.currentTarget.checked ? [...chosen, c] : chosen.filter((x) => x !== c))} />
-          {c}
-        </OptsLabel>
-      ))}
+      <b>Сменить аккаунт всему слоту</b>
       <Opts>
+        <SwapChoice field="swap" order={info.order} account={info.account} value={swapTo} on={setSwapTo} />
+        <Btn pri onClick={() => void swapSlot(app, state, machine, slot, info.account, swapTo, say)}>
+          Сменить сейчас
+        </Btn>
+      </Opts>
+      <Outcome note={notes[swapKey]} data-note={swapKey} />
+      <b>Перевести выбранные в другой слот</b>
+      <Opts>
+        {info.sessions.map((c) => (
+          <OptsLabel key={c}>
+            <Check value={c} checked={chosen.includes(c)} onChange={(e) => setChosen(e.currentTarget.checked ? [...chosen, c] : chosen.filter((x) => x !== c))} />
+            {c}
+          </OptsLabel>
+        ))}
         <Sel data-f="target" value={to} onChange={(e) => setTarget(e.currentTarget.value)}>
           {others.map((n) => (
             <option key={n} value={n}>
@@ -108,7 +112,7 @@ export function SessionsDialog({ answers, machine, slot, notes, say, close }: Pr
           ))}
           <option value="">без слота — вход машины</option>
         </Sel>
-        <Btn disabled={!chosen.length} onClick={() => void move()}>
+        <Btn onClick={() => void move()}>
           Перевести
         </Btn>
       </Opts>

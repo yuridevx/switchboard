@@ -1,6 +1,6 @@
 // Профили всех машин: строка на профиль, с конфликтом — сверху; раскрывается в машины, сессии и файлы конфликта.
 import { useEffect, useState } from "react";
-import { Btn, Dot, effortName, folderOf, In, lamp, machineLabel, type MachineAnswers, machinesWith, okOf, plural, profileIdOf, type ProfileInfo, type ProfileRepo, type ProfilesAnswer, RowBtn, sessionLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
+import { Btn, DisclosureBtn, Dot, effortName, folderOf, In, lamp, machineLabel, type MachineAnswers, machinesWith, okOf, plural, profileIdOf, type ProfileInfo, type ProfileRepo, type ProfilesAnswer, RowBtn, sessionLabel, useApp, useModule, wordOf } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/relay";
 
 type Trouble = { machine: string; repo: ProfileRepo };
@@ -102,7 +102,7 @@ function ProfileRow({ row, total, open, toggle }: { row: Row; total: number; ope
   const bad = (m: string) => row.troubles.some((t) => t.machine === m);
   return (
     <div className={row.troubles.length ? "pf-w cf" : "pf-w"} data-profile={row.id}>
-      <RowBtn className="pf-r" aria-expanded={open} onClick={toggle}>
+      <DisclosureBtn className="pf-r" open={open} onClick={toggle}>
         <span className="pf-n">
           <b>{row.folder}</b>
           {row.info.about ? <span>{row.info.about}</span> : null}
@@ -112,7 +112,7 @@ function ProfileRow({ row, total, open, toggle }: { row: Row; total: number; ope
           <span className="c">{`${row.machines.length}/${total} машин · ${sessions.length} ${plural(sessions.length, "сессия", "сессии", "сессий")}`}</span>
           {row.troubles.length ? <span className="pf-p bad">{`конфликт ${row.troubles.map((t) => machineLabel(app, t.machine).text).join(", ")}`}</span> : null}
         </span>
-      </RowBtn>
+      </DisclosureBtn>
       {open ? (
         <div className="pf-d">
           <div className="pf-ms">
