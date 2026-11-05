@@ -1,6 +1,7 @@
-// Комментарии к элементам прототипа: кнопка или Alt+C — режим; клик по элементу — поле; метки на элементах, общий список.
-// Комментарий: адрес экрана, селектор, текст элемента, размер окна; пишет сервер прототипа в JSON-файл.
-type Note = { id: string; hash: string; selector: string; element: string; comment: string; viewport: { w: number; h: number }; theme: string; at: string };
+// Комментарии к элементам прототипа: кнопка или клавиша C в любой раскладке — режим; клик по элементу — поле; метки на элементах, список этой страницы.
+// Запись — одной формы с комментарием к блоку страницы дизайна: { id, at, text, where }; пишет сервер дизайна в notes.json.
+type Where = { page: string; hash: string; selector: string; element: string; w: number; theme: string };
+type Note = { id: string; at: string; text: string; where: Where };
 
 const STYLE = `.pc-bar{position:fixed;left:12px;bottom:12px;z-index:9999;display:flex;gap:6px;font:600 12.5px system-ui,sans-serif}
 .pc-bar button{border:1px solid #17201B;background:#FBFCFA;color:#17201B;border-radius:999px;padding:6px 12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.15)}
@@ -43,7 +44,8 @@ function selectorOf(el: Element): string {
   return parts.join(" > ");
 }
 
-export function startComments() {
+export function startComments(app: string) {
+  const page = `app:${app}`;
   const style = document.createElement("style");
   style.textContent = STYLE;
   document.head.appendChild(style);
@@ -51,42 +53,44 @@ export function startComments() {
   hl.className = "pc-hl";
   const bar = document.createElement("div");
   bar.className = "pc-bar";
-  bar.innerHTML = `<button type="button" data-pc="mode" aria-pressed="false" title="Alt+C">Комментировать</button><button type="button" data-pc="list">Комментарии <span>0</span></button>`;
+  bar.innerHTML = `<button type="button" data-pc="mode" aria-pressed="false" title="C">Комментировать</button><button type="button" data-pc="list">Комментарии <span>0</span></button>`;
   const pins = document.createElement("div");
   document.body.append(hl, bar, pins);
   let on = false;
   let notes: Note[] = [];
+  const mine = (all: { comments: Note[] }) => all.comments.filter((n) => n.where?.page === page);
+  const post = (b: unknown) => fetch("/api/comment", { method: "POST", body: JSON.stringify(b) }).then((r) => r.json()).then(mine);
   let pop: HTMLElement | null = null;
   let list: HTMLElement | null = null;
   const own = (t: EventTarget | null) => t instanceof Element && !!t.closest(".pc-bar,.pc-pop,.pc-list,.pc-pin");
 
   const theme = () => (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
   async function load() {
-    notes = await fetch("/api/comments").then((r) => r.json()).catch(() => []);
+    notes = await fetch("/api/state").then((r) => r.json()).then(mine).catch(() => []);
     draw();
   }
-  async function save(n: Omit<Note, "id" | "at">) {
-    notes = await fetch("/api/comments", { method: "POST", body: JSON.stringify(n) }).then((r) => r.json());
+  async function save(text: string, where: Where) {
+    notes = await post({ text, where });
     draw();
   }
   async function drop(id: string) {
-    notes = await fetch("/api/comments", { method: "POST", body: JSON.stringify({ delete: id }) }).then((r) => r.json());
+    notes = await post({ delete: id });
     draw();
   }
   function draw() {
     bar.querySelector("span")!.textContent = String(notes.length);
     pins.innerHTML = "";
     notes.forEach((n, i) => {
-      if (n.hash !== location.hash) return;
+      if (n.where.hash !== location.hash) return;
       let el: Element | null = null;
-      try { el = document.querySelector(n.selector); } catch { el = null; }
+      try { el = document.querySelector(n.where.selector); } catch { el = null; }
       if (!el) return;
       const r = el.getBoundingClientRect();
       if (!r.width && !r.height) return;
       const pin = document.createElement("div");
       pin.className = "pc-pin";
       pin.textContent = String(i + 1);
-      pin.title = n.comment;
+      pin.title = n.text;
       pin.style.left = `${r.right + scrollX - 10}px`;
       pin.style.top = `${r.top + scrollY - 10}px`;
       pin.onclick = () => showList(n.id);
@@ -105,8 +109,8 @@ export function startComments() {
     list = document.createElement("div");
     list.className = "pc-list";
     list.innerHTML = notes.length
-      ? notes.map((n, i) => `<div class="it"${n.id === focus ? ' style="outline:2px solid #A85A05"' : ""}><button type="button" data-del="${n.id}" aria-label="удалить">✕</button><b>${i + 1} · ${esc(n.hash || "#")}</b><p>${esc(n.comment)}</p><small>${esc(n.element.slice(0, 90))} · ${n.viewport.w}×${n.viewport.h} · ${n.theme}</small></div>`).join("")
-      : "<small>Комментариев нет. «Комментировать» или Alt+C, затем клик по элементу.</small>";
+      ? notes.map((n, i) => `<div class="it"${n.id === focus ? ' style="outline:2px solid #A85A05"' : ""}><button type="button" data-del="${n.id}" aria-label="удалить">✕</button><b>${i + 1} · ${esc(n.where.hash || "#")}</b><p>${esc(n.text)}</p><small>${esc(n.where.element.slice(0, 90))} · ${n.where.w} · ${n.where.theme}</small></div>`).join("")
+      : "<small>Комментариев нет. «Комментировать» или клавиша C, затем клик по элементу.</small>";
     list.addEventListener("click", (e) => { const d = (e.target as Element).closest("[data-del]"); if (d) void drop(d.getAttribute("data-del")!); });
     document.body.appendChild(list);
   }
@@ -126,7 +130,7 @@ export function startComments() {
       const a = (e.target as Element).closest("[data-a]")?.getAttribute("data-a");
       if (a === "no") { pop?.remove(); pop = null; }
       if (a === "ok" && ta.value.trim()) {
-        void save({ hash: location.hash, selector, element, comment: ta.value.trim(), viewport: { w: innerWidth, h: innerHeight }, theme: theme() });
+        void save(ta.value.trim(), { page, hash: location.hash, selector, element, w: innerWidth, theme: theme() });
         pop?.remove();
         pop = null;
         mode(false);
@@ -141,7 +145,9 @@ export function startComments() {
     if (b === "list") { if (list) { list.remove(); list = null; } else showList(); }
   });
   document.addEventListener("keydown", (e) => {
-    if (e.altKey && (e.code === "KeyC")) { e.preventDefault(); mode(!on); }
+    // физическая клавиша C — в любой раскладке; в полях ввода это буква
+    const typing = e.target instanceof Element && !!e.target.closest("input,textarea,select,[contenteditable]:not([contenteditable=false])");
+    if (e.code === "KeyC" && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && !typing) { e.preventDefault(); mode(!on); }
     if (e.key === "Escape") { mode(false); pop?.remove(); pop = null; }
   });
   document.addEventListener("pointermove", (e) => {

@@ -42,6 +42,6 @@ void (async () => {
     seam: protoSeam({ mock, state, notice, data }),
     ...options,
   });
-  startComments();
+  startComments(__PROTO__.app);
   Object.assign(window, { run });
 })();

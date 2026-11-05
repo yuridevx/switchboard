@@ -1164,7 +1164,7 @@ small.chg.read{background:transparent}
     function drawComments(all){
       for (const [block, ul] of lists){
         ul.replaceChildren();
-        all.filter(c => c.block === block).forEach(c => {
+        all.filter(c => c.where && c.where.block === block).forEach(c => {
           const li = document.createElement("li");
           const t = document.createElement("time"); t.textContent = new Date(c.at).toLocaleString("ru-RU", {day:"numeric", month:"short", hour:"2-digit", minute:"2-digit"});
           const p = document.createElement("p"); p.textContent = c.text;
@@ -1187,7 +1187,7 @@ small.chg.read{background:transparent}
       form.addEventListener("submit", async e => {
         e.preventDefault(); err.textContent = "";
         try {
-          const r = await fetch("/api/comment", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({block, text: ta.value})});
+          const r = await fetch("/api/comment", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({text: ta.value, where: {page: "doc", block}})});
           if (!r.ok) throw new Error((await r.json()).error);
           ta.value = ""; form.hidden = true;
           drawComments((await (await fetch("/api/state")).json()).comments);

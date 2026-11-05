@@ -1,4 +1,4 @@
-// Типы фронта: tsc на каждый пакет с tsconfig. Строка на пакет; ошибка — текст компилятора и код 1.
+// Типы фронта и сервера дизайна: tsc на каждый пакет с tsconfig. Строка на пакет; ошибка — текст компилятора и код 1.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -9,7 +9,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const TSC = createRequire(import.meta.url).resolve("typescript/bin/tsc");
 const LIMIT_MIN = 5;
 
-const packages = [...readdirSync(join(ROOT, "web/packages")).map((d) => `web/packages/${d}`), "web/pult", "web/phone"].filter((p) => existsSync(join(ROOT, p, "tsconfig.json")));
+const packages = [...readdirSync(join(ROOT, "web/packages")).map((d) => `web/packages/${d}`), "web/pult", "web/phone", "scripts/design"].filter((p) => existsSync(join(ROOT, p, "tsconfig.json")));
 let failed = 0;
 for (const p of packages) {
   const r = spawnSync(process.execPath, [TSC, "-p", join(ROOT, p), "--noEmit", "--pretty", "false"], { encoding: "utf8", timeout: LIMIT_MIN * 60_000 });

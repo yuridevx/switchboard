@@ -22,9 +22,9 @@ export function protoSeam<S>(o: SeamOptions<S>) {
       const a = await o.mock.answer?.(f, { state: o.state, real, data: o.data, notice: o.notice });
       if (a) return reply(f, a);
       if (owns.has(t) || services.has(String(f.to ?? ""))) {
-        const why = `мок молчит на ${t}: запрос договора дизайна — ответ должен дать mock.ts`;
+        const why = `мок не отвечает ${t}: запрос договора дизайна — ответ должен дать mock.ts`;
         console.error(`прототип: ${why}`, f);
-        o.notice(`ошибка прототипа · ${why}`);
+        o.notice(`прототип: ${why}`);
         return reply(f, { ok: false, error: "no_mock", why });
       }
       if (t === "prefs.set") {
