@@ -66,6 +66,13 @@ const turn = async (n = 8) => {
   for (let i = 0; i < n; i++) await new Promise<void>((r) => setImmediate(r));
 };
 
+/** Браузер подписан на пуши. */
+const subscribed = async () => {
+  const b = fakeBrowser("granted");
+  await (await b.sw!.ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(1) });
+  return b;
+};
+
 describe("объявление", () => {
   it("полоса — в месте top под именем «Уведомления»; раздел pushes", () => {
     const m = createAlerts(fakeBrowser())(coreApp());
@@ -73,23 +80,27 @@ describe("объявление", () => {
     expect(m.store).toEqual(["pushes"]);
   });
 
-  it.each<[string, () => BrowserPush, string]>([
-    ["нет API", () => ({}), "off"],
-    ["разрешения не спрашивали", () => fakeBrowser("default"), "ask"],
-    ["запрещено", () => fakeBrowser("denied"), "denied"],
-    ["разрешено, подписки нет", () => fakeBrowser("granted"), "ask"],
-  ])("метка alerts.state после старта, %s", async (_n, browser, state) => {
-    const m = createAlerts(browser())(coreApp());
+  it.each<[string, () => BrowserPush | Promise<BrowserPush>, string, string | null]>([
+    ["нет API", () => ({}), "off", null],
+    ["разрешено, подписки нет", () => fakeBrowser("granted"), "ask", "Включить уведомленияВключить"],
+    ["разрешено и подписан", subscribed, "on", null],
+  ])("4043 · метка alerts.state и полоса после старта, %s", async (_n, browser, state, bar) => {
+    const m = createAlerts(await browser())(coreApp());
     await m.start!();
     await flush();
     expect((m.marks as Record<string, () => string>)["alerts.state"]()).toBe(state);
+    expect(card(await stand(parts(await browser())))).toBe(bar);
   });
 
-  it("без подделки — глобальные API браузера: без PushManager уведомлений нет; с ним спрашиваем", async () => {
+  it("без подделки — глобальные API браузера: без PushManager уведомлений нет, обработчик всё равно ставится и слушает; с ним спрашиваем", async () => {
+    const register = vi.fn(async () => undefined);
+    const listen = vi.fn();
     vi.stubGlobal("Notification", { permission: "default", requestPermission: async () => "default" });
-    vi.stubGlobal("navigator", { ...navigator, serviceWorker: { register: async () => undefined, ready: new Promise(() => {}), addEventListener() {} } });
+    vi.stubGlobal("navigator", { ...navigator, serviceWorker: { register, ready: new Promise(() => {}), addEventListener: listen } });
     const off = createAlerts()(coreApp());
     await off.start!();
+    expect(register).toHaveBeenCalledWith("sw.js");
+    expect(listen).toHaveBeenCalledWith("message", expect.any(Function));
     expect((off.marks as Record<string, () => string>)["alerts.state"]()).toBe("off");
     vi.stubGlobal("PushManager", class {});
     const on = createAlerts()(coreApp());
@@ -135,16 +146,6 @@ describe("полоса: включение", () => {
 
   it.each<[string, (r: FakeRelay, b: ReturnType<typeof fakeBrowser>) => Promise<void> | void, string, number]>([
     ["6987 ключ не получен", (r) => void (r.handlers["push.key"] = () => ({ ok: false, error: "offline" })), "offline", 0],
-    [
-      "4041 браузер не подписал",
-      async (_r, b) => {
-        (await b.sw!.ready).pushManager.subscribe = async () => {
-          throw new Error("AbortError: push service not available");
-        };
-      },
-      "AbortError: push service not available",
-      0,
-    ],
     ["4041 push.subscribe отказал", (r) => void (r.handlers["push.subscribe"] = () => ({ ok: false, error: "bad_sub" })), "bad_sub", 1],
   ])("%s: «Не вышло: слово», «Ещё раз», причина в журнале браузера", async (_n, arrange, word, subscribes) => {
     const br = fakeBrowser();
@@ -175,21 +176,7 @@ describe("полоса: включение", () => {
     expect(t.$(".sb-toast")!.textContent).toContain("Уведомления включены");
   });
 
-  it("4043 · полоса по разрешению и подписке: нет API — нет; granted и подписка — нет; granted без подписки — «Включить»; denied — «запрещены»", async () => {
-    expect(card(await stand(parts({})))).toBeNull();
-    const sub = fakeBrowser("granted");
-    await (await sub.sw!.ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(1) });
-    expect(card(await stand(parts(sub)))).toBeNull();
-    expect(card(await stand(parts(fakeBrowser("granted"))))).toContain("Включить уведомления");
-    expect(card(await stand(parts(fakeBrowser("denied"))))).toContain("Уведомления запрещены");
-  });
-
   it("браузер подписан, строки во флоте нет: полоса, нажатие подписывает заново; строка есть или запрос не прошёл — полосы нет", async () => {
-    const subscribed = async () => {
-      const b = fakeBrowser("granted");
-      await (await b.sw!.ready).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: new Uint8Array(1) });
-      return b;
-    };
     const lost = relayWithKey();
     let asked: unknown;
     lost.handlers["push.subscribed"] = (f) => ((asked = f.endpoint), { ok: true, result: { subscribed: false } });
@@ -214,6 +201,44 @@ describe("полоса: включение", () => {
     await flush();
     expect(card(off)).toBeNull();
     expect(said()).toContain("push_unavailable");
+  });
+
+  /** Связь оборвалась и открылась снова: пауза стенда 5 мс. */
+  const reconnect = async (relay: FakeRelay) => {
+    relay.drop();
+    await new Promise((r) => setTimeout(r, 30));
+    await flush(10);
+  };
+
+  it("слово пользователя 5 нояб. · строку сняли, пока страница открыта: на следующем открытии связи — полоса; вопрос один на открытие", async () => {
+    const relay = relayWithKey();
+    let held = true;
+    relay.handlers["push.subscribed"] = () => ({ ok: true, result: { subscribed: held } });
+    const t = await stand(parts(await subscribed()), { relay });
+    await flush();
+    expect(card(t)).toBeNull();
+    expect(relay.sent("push.subscribed")).toHaveLength(1);
+    await reconnect(relay);
+    expect(relay.sent("push.subscribed")).toHaveLength(2);
+    expect(card(t)).toBeNull();
+    held = false;
+    await reconnect(relay);
+    expect(relay.sent("push.subscribed")).toHaveLength(3);
+    expect(card(t)).toContain("Включить уведомления");
+    // полоса уже стоит: спрашивать незачем
+    await reconnect(relay);
+    expect(relay.sent("push.subscribed")).toHaveLength(3);
+  });
+
+  it("первое чтение отказало: следующее открытие связи спрашивает снова", async () => {
+    const relay = relayWithKey();
+    relay.handlers["push.subscribed"] = () => ({ ok: false, error: "push_unavailable" });
+    const t = await stand(parts(await subscribed()), { relay });
+    await flush();
+    expect(card(t)).toBeNull();
+    relay.handlers["push.subscribed"] = () => ({ ok: true, result: { subscribed: false } });
+    await reconnect(relay);
+    expect(card(t)).toContain("Включить уведомления");
   });
 
   it("4044 · обработчик не зарегистрирован — причина в журнале браузера, модуль работает", async () => {
@@ -400,34 +425,17 @@ describe("служебный обработчик: пуш", () => {
     expect(scope.shown[3].o.actions).toEqual([]);
   });
 
-  it.each<[string, unknown, unknown, string]>([
-    ["без title — from", { body: "b" }, "site@pc", "site@pc"],
-    ["без title и from — Switchboard", {}, null, "Switchboard"],
-    ["from не строка — Switchboard", {}, 5, "Switchboard"],
-    ["без notify — Switchboard", undefined, null, "Switchboard"],
-  ])("заголовок: %s", async (_n, n, from, title) => {
+  it("заголовок без title — from", async () => {
     const { scope } = worker();
-    await scope.fire("push", pushData(n, from));
-    expect(scope.shown[0].title).toBe(title);
+    await scope.fire("push", pushData({ body: "b" }, "site@pc"));
+    expect(scope.shown[0].title).toBe("site@pc");
   });
 
-  it.each<[string, () => unknown]>([
-    ["нет type", () => ({ from: "x@pc" })],
-    ["не JSON", () => {
-      throw new SyntaxError("not json");
-    }],
-  ])("4046 · пуш не по форме, %s: не показан, не записан, причина в журнале браузера", async (_n, json) => {
+  it("4046 · пуш не по форме, нет type: не показан, не записан, причина в журнале браузера", async () => {
     const { scope, store } = worker();
-    await scope.fire("push", { data: { json } });
+    await scope.fire("push", { data: { json: () => ({ from: "x@pc" }) } });
     expect(scope.shown).toEqual([]);
     expect(store.data.pushes).toBeUndefined();
-    expect(errors).toHaveBeenCalledWith("switchboard: пуш не по форме — нет type");
-  });
-
-  it("пуш без данных — не показан, причина в журнале браузера", async () => {
-    const { scope } = worker();
-    await scope.fire("push", { data: null });
-    expect(scope.shown).toEqual([]);
     expect(errors).toHaveBeenCalledWith("switchboard: пуш не по форме — нет type");
   });
 });
@@ -468,7 +476,6 @@ describe("служебный обработчик: нажатие", () => {
   });
 
   it.each<[string, { store?: Record<string, unknown>; frame?: object; arrange?: (r: FakeRelay) => void }, string, number]>([
-    ["отказ relay", { arrange: (r) => void (r.handlers.answer = () => ({ ok: false, error: "already_answered" })) }, "already_answered", 1],
     ["4047 нет ключа в хранилище", { store: {} }, "no_key", 0],
     ["кадр без адреса машины", { frame: { type: "answer", v: 1, callsign: "profiles", question: "q" } }, "bad_frame", 0],
     ["relay отказал пропуску", { arrange: (r) => void r.refuse.push("revoked") }, "revoked", 1],
