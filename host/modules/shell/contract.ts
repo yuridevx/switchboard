@@ -6,8 +6,9 @@
 //   shell.info (запрос) { machine } → { shells: { имя: { version, path } } }.
 //   Снимок: { state: running|exit|timeout|killed|stopped, code (у exit), ms, stdout, stderr, files (после конца): [{ name, media_type, data }] }.
 //   Слова: no_shell — шелла нет; no_run — запуска нет (не было, прошли сутки, Host перезапускался); bad_frame — не по форме.
-//   Итог живёт сутки от конца, но не дольше Host. Конец фонового — запрос message модулю fleet владельца (from).
+//   Итог живёт сутки от конца, но не дольше Host. Конец фонового — запрос message модулю chat владельца (from).
 // Модели каждой сессии — инструменты MCP shell: info, run, wait, kill (mcp__shell__*).
 import { make } from "./src/shell.ts";
 
+export { make };
 export default make().module;

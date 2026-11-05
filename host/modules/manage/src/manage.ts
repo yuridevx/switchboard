@@ -1,21 +1,22 @@
 // Модуль manage: сессии по запросу — открыть, сменить модель и усилие на ходу, звать открытые методы query(),
 // остановить, поднять, убрать. Всё — методами Agent SDK через ядро; поток сообщений не читает.
-// Своё хранит в разделе сессии: спецификацию — что выбрал клиент (модель, усилие, флаги ответа), кто открыл сессию
-// (родитель) и отметку «убрать после хода». Папку держит ядро, слот — slots, профиль — profiles, заголовок — файл разговора.
-import { statSync } from "node:fs";
+// Своё хранит в разделе сессии: выбор клиента, родителя — отправителя session.open — и отметку «убрать после хода».
+// Папку держит ядро, слот — вход, профиль — профили, заголовок — файл разговора.
 import { homedir } from "node:os";
-import { clientPath, isRefusal, refuse, tildePath } from "@switchboard/host";
-import type { Ctx, Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
+import { isRefusal, refuse, tildePath } from "@switchboard/host";
+import type { Frame, Host, Module, QueryPart, Session } from "@switchboard/host";
+import { parseOpen, pickCallsign } from "./open.ts";
+import { FLAGS, settingsOf, specOf } from "./spec.ts";
+import type { Spec } from "./spec.ts";
 
-/** Спецификация сессии: выбор клиента. Нет поля — значение по умолчанию claude. */
-export type Spec = { model?: string; effort?: string; fast?: boolean; style?: string; thinking?: boolean };
-/** Раздел сессии: спецификация, родитель — отправитель session.open (сессия, устройство или машина), «убрать после хода». */
+/** Раздел сессии. */
 type Rec = Spec & { parent?: string; remove_after_turn?: string; mode?: string };
+
 /** Режим новой сессии и сессии без отметки: решение устава. */
 const BYPASS = "bypassPermissions";
 
-/** Методы query(), которые клиент зовёт по имени. Остальное — unknown_method, метод не вызван. */
-export const OPEN = new Set([
+/** Методы query(), которые клиент зовёт по имени. Остальные — unknown_method, метод не вызван. */
+const OPEN = new Set([
   "interrupt",
   "getContextUsage",
   "supportedCommands",
@@ -39,176 +40,118 @@ export const OPEN = new Set([
   "listPermissionRules",
 ]);
 
-const EFFORT = new Set(["low", "medium", "high", "xhigh", "max"]);
-const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
-/** Флаги ответа → ключ settings в applyFlagSettings и в query(). */
-const FLAG: Record<"effort" | "fast" | "style" | "thinking", string> = { effort: "effortLevel", fast: "fastMode", style: "outputStyle", thinking: "alwaysThinkingEnabled" };
+const LIVE = new Set(["idle", "busy", "waiting"]);
+const IN_TURN = new Set(["busy", "waiting", "starting"]);
 
-const live = (s: Session) => s.state === "idle" || s.state === "busy" || s.state === "waiting";
-const inTurn = (s: Session) => s.state === "busy" || s.state === "waiting" || s.state === "starting";
-
-/** Поля спецификации из кадра; не того вида — bad_spec. Незнакомые поля пропускаются. */
-function specOf(f: Frame): Spec {
-  const spec: Spec = {};
-  const bad = (k: string) => {
-    throw refuse("bad_spec", `${f.type} ${String(f.callsign ?? f.name ?? "")}: ${k} = ${JSON.stringify(f[k])}`);
-  };
-  if (f.model !== undefined) typeof f.model === "string" && f.model ? (spec.model = f.model) : bad("model");
-  if (f.effort !== undefined) typeof f.effort === "string" && EFFORT.has(f.effort) ? (spec.effort = f.effort) : bad("effort");
-  if (f.fast !== undefined) typeof f.fast === "boolean" ? (spec.fast = f.fast) : bad("fast");
-  if (f.style !== undefined) typeof f.style === "string" && f.style ? (spec.style = f.style) : bad("style");
-  if (f.thinking !== undefined) typeof f.thinking === "boolean" ? (spec.thinking = f.thinking) : bad("thinking");
-  if (f.title !== undefined && (typeof f.title !== "string" || !f.title)) bad("title");
+const rec = (s: Session) => s.store<Rec>().get() ?? {};
+const specIn = (s: Session): Spec => {
+  const { parent: _p, remove_after_turn: _r, mode: _m, ...spec } = rec(s);
   return spec;
+};
+
+/** Метод или функция SDK: отказ — слово sdk_error с причиной; модуль не выключается. */
+async function sdk(s: Session, method: string, ...args: unknown[]): Promise<unknown> {
+  try {
+    return await s.sdk(method, ...args);
+  } catch (e) {
+    throw refuse("sdk_error", `${s.info.callsign}: ${method} — ${(e as Error).message}`);
+  }
 }
 
-/** Флаги спецификации как settings. */
-function flags(spec: Spec): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const k of ["effort", "fast", "style", "thinking"] as const) if (spec[k] !== undefined) out[FLAG[k]] = spec[k];
-  return out;
-}
-
-export type ManageOptions = { home?: string };
-
-export function manage(o: ManageOptions = {}): Module {
+export function make(o: { home?: string } = {}): Module {
   const home = o.home ?? homedir();
   let host!: Host;
   /** Имена, которые открываются сейчас: заняты до записи ядра. */
   const opening = new Set<string>();
 
-  const recOf = (s: Session) => s.store<Rec>().get() ?? {};
-  const specOfSession = (s: Session): Spec => {
-    const { parent: _p, remove_after_turn: _r, mode: _m, ...spec } = recOf(s);
-    return spec;
-  };
+  /** Кадр без ответа прямо Worker'у; не дошёл — заметку пишет ядро. */
+  const ledger = (ev: string, text: string, by: string | undefined, callsign: string) => void host.emit({ type: "ledger.add", to: ".ledger", ev, text, ...(by ? { by } : {}), machine: host.machine, callsign });
 
-  /** Метод или функция SDK: отказ SDK — слово sdk_error, причина в журнале; модуль не выключается. */
-  async function call(s: Session, method: string, ...args: unknown[]): Promise<unknown> {
-    try {
-      return await s.sdk(method, ...args);
-    } catch (e) {
-      throw refuse("sdk_error", `${s.info.callsign}: ${method} — ${(e as Error).message}`);
-    }
-  }
-
-  function ledger(host: Host, ev: string, text: string, ctx: { from?: string }, callsign: string): void {
-    const r = host.emit({ type: "ledger.add", to: ".ledger", ev, text, ...(ctx.from ? { by: ctx.from } : {}), machine: host.machine, callsign });
-    if (!r.ok) host.log({ kind: "note", ev: "ledger", word: r.error, callsign, why: `${ev} не записан в журнал флота: ${r.error}` });
-  }
-
-  /** Убрать сессию и записать в журнал флота, по чьей команде. */
   async function remove(s: Session, by: string | undefined): Promise<void> {
-    const callsign = s.info.callsign;
+    const { callsign } = s.info;
     await s.remove();
-    ledger(host, "session.removed", `${callsign} забыта`, { from: by }, callsign);
+    ledger("session.removed", `${callsign} забыта`, by, callsign);
   }
 
-  /** PostModelSwitch: модель сменили в claude.ai или командой /model — спецификация берёт новую, иначе resume вернул бы прежнюю. */
+  /** Модель сменили в claude.ai или командой /model — выбор берёт новую, иначе resume вернул бы прежнюю. */
   const onModelSwitch = (s: Session) => async (input: unknown) => {
-    const i = input as { source?: string; requested_model?: string | null };
-    if (i.source === "resume") return {};
-    s.store<Rec>().update((cur = {}) => {
-      const next = { ...cur };
-      if (i.requested_model) next.model = i.requested_model;
-      else delete next.model;
-      return next;
-    });
+    const { source, requested_model: model } = input as { source?: string; requested_model?: string | null };
+    if (source !== "resume") {
+      s.store<Rec>().update((cur = {}) => {
+        const { model: _old, ...rest } = cur;
+        return model ? { ...rest, model } : rest;
+      });
+    }
     return {};
   };
 
   return {
+    start(h) {
+      host = h;
+    },
+
     // запись новой сессии — из запроса открытия; родитель — его отправитель: сессия, устройство или машина
     opening(s, req) {
-      const rec: Rec = { ...specOf(req as Frame), ...(typeof req.from === "string" ? { parent: req.from } : {}) };
-      if (Object.keys(rec).length) s.store<Rec>().set(rec);
+      const r: Rec = { ...specOf(req as Frame), ...(typeof req.from === "string" ? { parent: req.from } : {}) };
+      if (Object.keys(r).length) s.store<Rec>().set(r);
     },
 
     session(s) {
-      const spec = specOfSession(s);
-      const mode = recOf(s).mode;
-      const part: QueryPart = {
+      const spec = specIn(s);
+      const { effortLevel: _inQuery, ...settings } = settingsOf(spec);
+      const { callsign } = s.info;
+      const mode = rec(s).mode;
+      return {
         enableFileCheckpointing: true,
         hooks: { PostModelSwitch: [{ hooks: [onModelSwitch(s)] }] },
-      };
-      if (spec.model) part.model = spec.model;
-      if (spec.effort) part.effort = spec.effort;
-      // режим переживает новый процесс; без отметки — режим устава у ядра
-      if (mode) part.permissionMode = mode;
-      const { effortLevel: _e, ...settings } = flags(spec);
-      if (Object.keys(settings).length) part.settings = settings;
-      if (opening.has(s.info.callsign)) part.title = s.info.callsign.slice(0, s.info.callsign.indexOf("@"));
-      return part;
+        ...(spec.model ? { model: spec.model } : {}),
+        ...(spec.effort ? { effort: spec.effort } : {}),
+        // режим переживает новый процесс; без отметки — режим устава у ядра
+        ...(mode ? { permissionMode: mode } : {}),
+        ...(Object.keys(settings).length ? { settings } : {}),
+        // заголовок — только при первом старте
+        ...(opening.has(callsign) ? { title: callsign.slice(0, callsign.indexOf("@")) } : {}),
+      } as QueryPart;
     },
 
     fields: {
-      model: (s) => specOfSession(s).model ?? s.info.model ?? undefined,
-      effort: (s) => specOfSession(s).effort,
-      parent: (s) => recOf(s).parent,
-      mode: (s) => recOf(s).mode ?? BYPASS,
+      model: (s) => specIn(s).model ?? s.info.model ?? undefined,
+      effort: (s) => specIn(s).effort,
+      parent: (s) => rec(s).parent,
+      mode: (s) => rec(s).mode ?? BYPASS,
     },
 
     requests: {
       async "session.open"(req, ctx) {
-        const { host } = ctx;
-        const name = req.name;
-        if (typeof name !== "string" || !NAME.test(name)) throw refuse("bad_name", `session.open: имя ${JSON.stringify(name)}`);
-        if (req.number !== undefined && typeof req.number !== "boolean") throw refuse("bad_spec", `session.open ${name}: number`);
-        const asked = `${name}@${host.machine}`;
-        const dir = req.dir;
-        const cwd = typeof dir === "string" ? clientPath(dir, home) : null;
-        if (!cwd) throw refuse("bad_dir", `session.open ${asked}: папка ${JSON.stringify(dir)} не от ~ и не полная`);
-        if (req.mkdir !== undefined && typeof req.mkdir !== "boolean") throw refuse("bad_spec", `session.open ${asked}: mkdir`);
-        let isDir = false;
-        try {
-          isDir = statSync(cwd).isDirectory();
-        } catch {
-          // нет папки — ниже отказ или создание
-        }
-        // создать папку можно только по просьбе: опечатка агента даёт отказ
-        if (!isDir && req.mkdir !== true) throw refuse("bad_dir", `session.open ${asked}: папки ${dir} нет`);
-        specOf(req);
-        if (req.resume !== undefined && typeof req.resume !== "string") throw refuse("bad_spec", `session.open ${asked}: resume`);
-        if (req.fork !== undefined && typeof req.fork !== "boolean") throw refuse("bad_spec", `session.open ${asked}: fork`);
-        if (req.point !== undefined && typeof req.point !== "number") throw refuse("bad_spec", `session.open ${asked}: point`);
-        // имя: с number — первый свободный номер на машине (disk-full-1, disk-full-2); открываемое уже занято
-        const taken = (cs: string) => !!host.session(cs) || opening.has(cs);
-        let callsign = asked;
-        if (req.number === true) {
-          let n = 1;
-          while (taken(`${name}-${n}@${host.machine}`)) n++;
-          callsign = `${name}-${n}@${host.machine}`;
-        } else if (taken(callsign)) throw refuse("name_taken", `session.open: ${callsign} уже есть`);
+        const { machine } = ctx.host;
+        const { name, numbered, cwd, make: mkdir, dir } = parseOpen(req, machine, home);
+        const callsign = pickCallsign(name, numbered, machine, (cs) => !!ctx.host.session(cs) || opening.has(cs));
         opening.add(callsign);
         try {
-          let s: Session;
-          try {
-            // профиль, слот и прочее читают свои владельцы из запроса открытия; папку создаёт ядро после сборки
-            s = await host.open({
+          // профиль, слот и прочее читают свои владельцы из запроса открытия; папку создаёт ядро после сборки
+          const s = await ctx.host
+            .open({
               callsign,
               cwd,
-              ...(isDir ? {} : { mkdir: true }),
+              ...(mkdir ? { mkdir } : {}),
               opening: { ...req, ...(ctx.from ? { from: ctx.from } : {}) },
               ...(req.resume !== undefined ? { resume: req.resume as string } : {}),
               ...(req.fork !== undefined ? { fork: req.fork as boolean } : {}),
               ...(req.point !== undefined ? { point: req.point as number } : {}),
+            })
+            .catch((e: unknown) => {
+              throw isRefusal(e) ? e : refuse("open_failed", `${callsign}: ${(e as Error).message}`);
             });
-          } catch (e) {
-            if (isRefusal(e)) throw e;
-            const why = (e as Error).message;
-            if (why.includes("имя занято")) throw refuse("name_taken", why);
-            throw refuse("open_failed", `${callsign}: ${why}`);
-          }
           const slot = (s.field("slot") as { name: string } | undefined)?.name ?? null;
-          ledger(host, "session.opened", `${callsign} создана · ${dir}${slot ? ` · слот ${slot}` : ""}`, ctx, callsign);
+          ledger("session.opened", `${callsign} создана · ${dir}${slot ? ` · слот ${slot}` : ""}`, ctx.from, callsign);
           return { callsign, session_id: s.info.session_id, slot };
         } finally {
           opening.delete(callsign);
         }
       },
 
-      async "session.update"(req, { host }) {
-        const s = host.session(req.callsign as string)!;
+      async "session.update"(req, { host: h }) {
+        const s = h.session(req.callsign as string)!;
         const spec = specOf(req);
         if (Object.keys(spec).length) {
           s.store<Rec>().update((cur = {}) => ({ ...cur, ...spec }));
@@ -216,60 +159,60 @@ export function manage(o: ManageOptions = {}): Module {
           s.refresh();
         }
         const now: string[] = [];
-        if (live(s)) {
+        if (LIVE.has(s.state)) {
           if (spec.model !== undefined) {
-            await call(s, "setModel", spec.model);
+            await sdk(s, "setModel", spec.model);
             now.push("model");
           }
-          const f = flags(spec);
-          if (Object.keys(f).length) {
-            await call(s, "applyFlagSettings", f);
-            now.push(...(["effort", "fast", "style", "thinking"] as const).filter((k) => spec[k] !== undefined));
+          const settings = settingsOf(spec);
+          if (Object.keys(settings).length) {
+            await sdk(s, "applyFlagSettings", settings);
+            now.push(...FLAGS.filter((k) => spec[k] !== undefined));
           }
         }
         if (typeof req.title === "string") {
-          await call(s, "renameSession", req.title);
+          await sdk(s, "renameSession", req.title);
           now.push("title");
         }
         return { now };
       },
 
-      async "session.call"(req, { host }) {
-        const s = host.session(req.callsign as string)!;
-        const method = req.method;
-        if (typeof method !== "string" || !OPEN.has(method)) throw refuse("unknown_method", `session.call ${s.info.callsign}: ${String(method)} — нет в списке открытых`);
-        if (!live(s)) throw refuse("stopped", `session.call ${s.info.callsign}: ${method} — сессия ${s.state}`);
-        if (req.args !== undefined && !Array.isArray(req.args)) throw refuse("bad_spec", `session.call ${s.info.callsign}: args не массив`);
-        return call(s, method, ...((req.args as unknown[] | undefined) ?? []));
+      async "session.call"(req, { host: h }) {
+        const s = h.session(req.callsign as string)!;
+        const { callsign } = s.info;
+        const { method, args = [] } = req;
+        if (typeof method !== "string" || !OPEN.has(method)) throw refuse("unknown_method", `session.call ${callsign}: ${String(method)} — нет в списке открытых`);
+        if (!LIVE.has(s.state)) throw refuse("stopped", `session.call ${callsign}: ${method} — сессия ${s.state}`);
+        if (!Array.isArray(args)) throw refuse("bad_spec", `session.call ${callsign}: args не массив`);
+        return sdk(s, method, ...args);
       },
 
-      async "session.spec"(req, { host }) {
-        const s = host.session(req.callsign as string)!;
-        const spec = specOfSession(s);
-        const info = (await call(s, "getSessionInfo")) as { customTitle?: string; summary?: string } | undefined;
-        return { dir: tildePath(s.info.cwd, home), model: spec.model ?? null, effort: spec.effort ?? null, title: info?.customTitle ?? info?.summary ?? null };
+      async "session.spec"(req, { host: h }) {
+        const s = h.session(req.callsign as string)!;
+        const { model = null, effort = null } = specIn(s);
+        const info = (await sdk(s, "getSessionInfo")) as { customTitle?: string; summary?: string } | undefined;
+        return { dir: tildePath(s.info.cwd, home), model, effort, title: info?.customTitle ?? info?.summary ?? null };
       },
 
-      async "session.stop"(req, { host }) {
-        await host.session(req.callsign as string)!.stop();
+      async "session.stop"(req, { host: h }) {
+        await h.session(req.callsign as string)!.stop();
       },
 
-      async "session.start"(req, { host }) {
-        const s = host.session(req.callsign as string)!;
-        if (req.point !== undefined && typeof req.point !== "number") throw refuse("bad_spec", `session.start ${s.info.callsign}: point`);
-        try {
-          await s.start(req.point !== undefined ? { point: req.point as number } : undefined);
-        } catch (e) {
-          throw refuse("open_failed", `${s.info.callsign}: ${(e as Error).message}`);
-        }
+      async "session.start"(req, { host: h }) {
+        const s = h.session(req.callsign as string)!;
+        const { callsign } = s.info;
+        if (req.point !== undefined && typeof req.point !== "number") throw refuse("bad_spec", `session.start ${callsign}: point`);
+        await s.start(req.point !== undefined ? { point: req.point as number } : undefined).catch((e: Error) => {
+          throw refuse("open_failed", `${callsign}: ${e.message}`);
+        });
       },
 
       async "session.remove"(req, ctx) {
         const callsign = req.callsign as string;
         const s = ctx.host.session(callsign)!;
         if (req.after_turn !== undefined && req.after_turn !== true) throw refuse("bad_spec", `session.remove ${callsign}: after_turn`);
-        // после хода: отметка в разделе сессии — переживает перезапуск Host; убирает конец хода (on.state idle)
-        if (req.after_turn === true && inTurn(s)) {
+        // после хода: отметка в разделе сессии переживает перезапуск Host; убирает конец хода
+        if (req.after_turn === true && IN_TURN.has(s.state)) {
           s.store<Rec>().update((cur = {}) => ({ ...cur, remove_after_turn: ctx.from ?? "" }));
           return { after_turn: true };
         }
@@ -281,23 +224,19 @@ export function manage(o: ManageOptions = {}): Module {
       // режим сессии виден только в кадрах SDK: init в начале хода и status при смене; запоминается и для простаивающей сессии.
       // Проба настоящего процесса 4 нояб.: status приходит в той же миллисекунде, что возврат setPermissionMode, раньше любого запроса разрешения
       event(s, m) {
-        const x = m as { type?: string; subtype?: string; permissionMode?: unknown };
-        if (x.type !== "system" || (x.subtype !== "init" && x.subtype !== "status") || typeof x.permissionMode !== "string") return;
-        const mode = x.permissionMode === BYPASS ? undefined : x.permissionMode;
-        if (recOf(s).mode === mode) return;
+        const { type, subtype, permissionMode } = m as { type?: string; subtype?: string; permissionMode?: unknown };
+        if (type !== "system" || (subtype !== "init" && subtype !== "status") || typeof permissionMode !== "string") return;
+        const mode = permissionMode === BYPASS ? undefined : permissionMode;
+        if (rec(s).mode === mode) return;
         s.store<Rec>().update((cur = {}) => {
           const { mode: _old, ...rest } = cur;
           return mode ? { ...rest, mode } : rest;
         });
       },
-      state(s, st) {
-        const by = recOf(s).remove_after_turn;
-        if (st === "idle" && by !== undefined) return remove(s, by || undefined);
+      state(s, state) {
+        const by = rec(s).remove_after_turn;
+        if (state === "idle" && by !== undefined) return remove(s, by || undefined);
       },
-    },
-
-    start(h) {
-      host = h;
     },
   };
 }
