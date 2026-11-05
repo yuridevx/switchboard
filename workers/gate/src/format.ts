@@ -10,11 +10,11 @@ const NAME = /^[\w-]+$/;
 const PERSON = /^[^\s@~]+@[^\s@~]+$/;
 const KID_LETTERS = "abcdefghijklmnopqrstuvwxyz0123456789";
 
-/** Что не так в полях выдачи или null; поля без person — машина, с ним — клиент. */
+/** Что не так в полях выдачи или null. */
 export function fieldsWrong(f: { role?: unknown; name?: unknown; person?: unknown }): string | null {
   if (f.role !== "host" && f.role !== "client") return "role — host или client";
   if (typeof f.name !== "string" || !NAME.test(f.name)) return "name — A-Z a-z 0-9 _ -";
-  if (f.role === "host") return "person" in f ? "у машины person нет" : null;
+  if (f.role === "host") return f.person === undefined ? null : "у машины person нет";
   return typeof f.person === "string" && PERSON.test(f.person) ? null : "person — почта человека за устройством или программой";
 }
 

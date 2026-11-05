@@ -25,19 +25,18 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
   }
 }
 
-const refused = (r: object): r is { error: string } => "error" in r;
-
-/** Значение запроса или отказ словом. */
+/** Значение запроса или отказ словом: поле error. */
 async function work(f: Frame, db: D1Database): Promise<object> {
   if (f.type === "gate.redeem") return redeem(db, f.invite);
   const who = await verify(db, f.key);
-  if (refused(who)) return who;
+  if ("error" in who) return who;
   if (f.type === "keys.invite") return invite(db, f, who.addr);
-  if (f.role !== undefined && f.role !== "host" && f.role !== "client") {
+  const role = f.role as Pass["role"] | undefined;
+  if (![undefined, "host", "client"].includes(role)) {
     console.log(`bad_request keys.list от ${who.addr} · role — host или client`);
     return { error: "bad_request" };
   }
-  return { passes: await list(db, f.role), you: who.addr };
+  return { passes: await list(db, role), you: who.addr };
 }
 
 async function serve(f: Frame, db: D1Database): Promise<Response> {
@@ -50,7 +49,7 @@ async function serve(f: Frame, db: D1Database): Promise<Response> {
   }
   try {
     const r = await work(f, db);
-    return answer(id, refused(r) ? fail(id, r.error) : ok(id, r));
+    return answer(id, "error" in r ? fail(id, r.error as string) : ok(id, r));
   } catch (e) {
     console.log(`gate_unavailable ${(e as Error).message}`);
     return answer(id, fail(id, "gate_unavailable"), 503);

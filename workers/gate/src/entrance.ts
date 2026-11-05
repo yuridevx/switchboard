@@ -2,8 +2,6 @@
 import { BAD_FRAME, fail, MAX_FRAME, parseFrame, TOO_LARGE, within, type Frame, type Reply } from "@switchboard/protocol";
 import type { GateApi } from "../contract.ts";
 
-type Log = (line: string) => void;
-
 const HEADERS = { "access-control-allow-origin": "*", "content-type": "application/json" };
 
 /** Ответ кадром. Кадр без id ответа не ждёт: тела нет, 200 становится 204. */
@@ -20,19 +18,20 @@ export async function door(req: Request, max: number, serve: (f: Frame) => Promi
 }
 
 /** Запрос к Worker'у: кадр с key → gate.verify → frame с from и fromKid → reply телом. Кадры другим не уходят: их доставляет только relay. */
-export function entrance(req: Request, gate: Pick<GateApi, "verify">, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: Log = console.log): Promise<Response> {
+export function entrance(req: Request, gate: Pick<GateApi, "verify">, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: (line: string) => void = console.log): Promise<Response> {
   return door(req, MAX_FRAME, async ({ key, from: _from, fromKid: _fromKid, ...f }) => {
     const { id, type } = f;
+    const refuse = (word: string, status?: number) => answer(id, fail(id ?? "", word), status);
     let who;
     try {
-      who = await within(gate.verify(typeof key === "string" ? key : ""), "gate не ответил на verify");
+      who = await within(gate.verify(String(key ?? "")), "gate не ответил на verify");
     } catch (e) {
       log(`gate_unavailable ${type} · ${e}`);
-      return answer(id, fail(id ?? "", "gate_unavailable"), 503);
+      return refuse("gate_unavailable", 503);
     }
     if ("error" in who) {
       log(`${who.error} ${type}`);
-      return answer(id, fail(id ?? "", who.error));
+      return refuse(who.error);
     }
     const from = who.addr;
     let out;
@@ -40,10 +39,10 @@ export function entrance(req: Request, gate: Pick<GateApi, "verify">, frame: (f:
       out = await frame({ ...f, from, fromKid: who.kid });
     } catch (e) {
       log(`failed ${type} от ${from} · ${e}`);
-      return answer(id, fail(id ?? "", "failed"), 500);
+      return refuse("failed", 500);
     }
     const reply = out.find((r) => r.type === "reply" && r.id === id && r.to === from);
     for (const r of out) if (r !== reply) log(`relay_only ${r.type} → ${JSON.stringify(r.to)} · ответ на ${type} от ${from}: такие кадры доставляет только relay`);
-    return answer(id, (reply as Reply | undefined) ?? fail(id ?? "", "no_reply"));
+    return reply ? answer(id, reply as Reply) : refuse("no_reply");
   });
 }
