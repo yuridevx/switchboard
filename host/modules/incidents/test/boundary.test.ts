@@ -503,6 +503,23 @@ describe("инцидент: доставка хотя бы раз", () => {
     expect(p.inputs).toHaveLength(1);
   });
 
+  it("перезапуск Host, процесс жив у держателя, ход обращение ещё не взял — повтора нет: ввод у того же процесса", async () => {
+    const k = new FakeHolders();
+    keepers.push(k);
+    const a = await bench({ holders: k });
+    await a.post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await until(() => k.procs.get("disk-full-1@win"));
+    await until(() => p.inputs.length === 1);
+    await until(() => a.disk().some((x) => x.callsign));
+    await a.st.close();
+    stands.splice(stands.indexOf(a.st), 1);
+    const b = await bench({ holders: k, home: a.st.home, port: a.port });
+    await until(() => b.st.session("host-incidents", "disk-full-1@win")?.state === "idle");
+    await pause();
+    expect(p.inputs).toHaveLength(1);
+    expect(b.disk()).toHaveLength(1);
+  });
+
   it("3100 · POST до ready — 202 сразу, доставка на ready", async () => {
     const k = new FakeHolders();
     keepers.push(k);

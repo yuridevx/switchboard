@@ -238,12 +238,12 @@ describe("журнал флота", () => {
     const relay = fleetRelay();
     relay.handlers["ledger.read"] = () => undefined;
     const t = await journal(relay);
-    relay.setRoster(fleetRoster());
+    relay.setRoster(joinedRoster());
     await flush();
     expect(relay.sent("ledger.read")).toHaveLength(1);
     await t.click(t.$('.sb-navcol button[data-screen="board"]'));
     relay.reply(relay.sent("ledger.read")[0].id!, { ok: true, result: { events: [], more: false } });
-    relay.setRoster(joinedRoster());
+    relay.setRoster(fleetRoster());
     await flush();
     expect(relay.sent("ledger.read")).toHaveLength(1);
   });

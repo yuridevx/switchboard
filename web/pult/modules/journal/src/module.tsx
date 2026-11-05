@@ -29,22 +29,25 @@ function Journal() {
   const [machine, setMachine] = useState("");
   const [q, setQ] = useState("");
   const [shown, setShown] = useState<Shown>({ events: [], more: false, loaded: false, error: "" });
-  const latest = useRef({ asked: 0, shown });
+  const latest = useRef({ asked: 0, busy: false, shown });
   latest.current.shown = shown;
 
   /** Вопрос к ledger: ответ устаревшего вопроса отброшен. */
   async function ask(m: string, body: Record<string, unknown>, apply: (r: Result<LedgerReadResult>) => (was: Shown) => Shown) {
     const n = ++latest.current.asked;
+    latest.current.busy = true;
     const r = await app.read<LedgerReadResult>("ledger.read", { limit: LIMIT, ...(m ? { machine: m } : {}), ...body });
     if (n !== latest.current.asked) return;
+    latest.current.busy = false;
     setShown(apply(r));
   }
   const failed = (r: Result<unknown>) => (was: Shown) => ({ ...was, loaded: true, error: r.ok ? "" : `ledger.read: ${r.error}` });
   const all = (m: string) => ask(m, {}, (r) => (r.ok ? () => ({ ...r.result, loaded: true, error: "" }) : failed(r)));
 
-  /** Новые записи сверху; «Раньше» — как было. Записей нет — читается всё. */
+  /** Новые записи сверху; «Раньше» — как было. Записей нет — читается всё. Идёт чтение — ждём: новый вопрос отбросил бы его ответ, и нажатие «Раньше» пропало бы. */
   function catchUp() {
-    const now = latest.current.shown;
+    const { busy, shown: now } = latest.current;
+    if (busy) return;
     if (!now.events.length) return void all(machine);
     const known = new Set(now.events.map((e) => e.id));
     void ask(machine, { after: now.events[0].id }, (r) => (r.ok ? (was) => ({ ...was, events: [...r.result.events.filter((e) => !known.has(e.id)), ...was.events], error: "" }) : failed(r)));
