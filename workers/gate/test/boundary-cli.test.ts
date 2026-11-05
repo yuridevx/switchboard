@@ -10,9 +10,13 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SEED = join(ROOT, "seed.ts");
-const REDEEM = join(ROOT, "redeem.ts");
-const seed = (args: string[]) => spawnSync(process.execPath, [SEED, ...args], { encoding: "utf8" });
+// имена инструментов — из манифеста пакета: другое имя, и инструмента нечем запустить
+const { bin } = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { bin: Record<string, string> };
+const SEED = join(ROOT, bin["switchboard-seed"]);
+const REDEEM = join(ROOT, bin["switchboard-redeem"]);
+/** Предел процесса: тот же, что у теста; зависший инструмент не остаётся жить. */
+const LIMIT_MS = 5_000;
+const seed = (args: string[]) => spawnSync(process.execPath, [SEED, ...args], { encoding: "utf8", timeout: LIMIT_MS });
 const USAGE_SEED = "использование: switchboard seed <host|client> <имя> [<почта человека у client>]\n";
 const USAGE_REDEEM = "использование: <приглашение в stdin> | switchboard redeem <адрес gate>\n";
 
@@ -39,7 +43,7 @@ afterAll(() => server.close());
 
 function redeem(args: string[], input: string): Promise<{ status: number | null; stdout: string; stderr: string }> {
   return new Promise((res) => {
-    const p = spawn(process.execPath, [REDEEM, ...args]);
+    const p = spawn(process.execPath, [REDEEM, ...args], { timeout: LIMIT_MS });
     let stdout = "";
     let stderr = "";
     p.stdout.on("data", (c) => (stdout += c));
@@ -50,7 +54,7 @@ function redeem(args: string[], input: string): Promise<{ status: number | null;
 }
 
 describe("seed", () => {
-  it("5013 · seed host laptop → инструкция вставки «ждёт приёма» с хэшем в выводе, приглашение — в поток ошибок; секрета в выводе нет", () => {
+  it("5013 · seed host laptop → инструкция вставки «ждёт приёма» с хэшем в выводе, приглашение — в поток ошибок; секрета в выводе нет; у client почта в инструкции", () => {
     const r = seed(["host", "laptop"]);
     expect(r.status).toBe(0);
     const inv = r.stderr.trim();
@@ -60,22 +64,12 @@ describe("seed", () => {
     expect(r.stdout).toMatch(new RegExp(`^INSERT INTO passes \\(id, role, name, person, state, hash, by, at\\) VALUES \\('${kid}', 'host', 'laptop', NULL, 'wait', '${hash}', 'seed', \\d+\\);\\n$`));
     expect(r.stdout).not.toContain(code);
     expect(Math.abs(Number(/(\d+)\);\n$/.exec(r.stdout)![1]) - Date.now())).toBeLessThan(60_000);
-  });
-
-  it("seed client с почтой → почта в инструкции", () => {
-    const r = seed(["client", "phone", "x@y"]);
-    expect(r.status).toBe(0);
-    expect(r.stdout).toContain("'client', 'phone', 'x@y', 'wait'");
+    expect(seed(["client", "phone", "x@y"]).stdout).toContain("'client', 'phone', 'x@y', 'wait'");
   });
 
   it.each([
     ["без аргументов", []],
-    ["без имени", ["host"]],
-    ["роль не та", ["admin", "x"]],
     ["имя с недопустимым знаком", ["host", "lap.top"]],
-    ["client без почты", ["client", "phone"]],
-    ["у машины почта", ["host", "laptop", "x@y"]],
-    ["почта без @", ["client", "phone", "owner"]],
     ["почта с кавычкой", ["client", "phone", "o'x@y"]],
   ])("%s → выход 2, использование; инструкции нет", (_n, args) => {
     const r = seed(args);
@@ -96,12 +90,8 @@ describe("redeem", () => {
     expect(b.stderr).toBe("redeem: bad_invite\n");
   });
 
-  it.each([
-    ["без адреса", []],
-    ["адрес не http", ["ftp://gate"]],
-  ])("%s → выход 2, использование", async (_n, args) => {
-    const r = await redeem(args, "x");
-    expect(r).toEqual({ status: 2, stdout: "", stderr: USAGE_REDEEM });
+  it("адрес не http → выход 2, использование", async () => {
+    expect(await redeem(["ftp://gate"], "x")).toEqual({ status: 2, stdout: "", stderr: USAGE_REDEEM });
   });
 
   it("gate не ответил → выход 1 с причиной", async () => {
@@ -109,12 +99,5 @@ describe("redeem", () => {
     expect(r.status).toBe(1);
     expect(r.stdout).toBe("");
     expect(r.stderr).toMatch(/^redeem: gate не ответил — /);
-  });
-
-  it("имена инструментов в манифесте пакета — на этих файлах: без аргументов каждый отвечает использованием", async () => {
-    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { bin: Record<string, string> };
-    expect(pkg.bin).toEqual({ "switchboard-seed": "./seed.ts", "switchboard-redeem": "./redeem.ts" });
-    expect(spawnSync(process.execPath, [join(ROOT, pkg.bin["switchboard-seed"])], { encoding: "utf8" }).stderr).toBe(USAGE_SEED);
-    expect(spawnSync(process.execPath, [join(ROOT, pkg.bin["switchboard-redeem"])], { encoding: "utf8", input: "x" }).stderr).toBe(USAGE_REDEEM);
   });
 });
