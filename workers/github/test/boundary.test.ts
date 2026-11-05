@@ -225,6 +225,8 @@ describe("github.setup", () => {
     const first = await ask({ type: "github.setup", id: "s-1", from: PANEL, code: "c0de" });
     expect(first).toEqual([{ type: "reply", id: "s-1", ok: true, to: PANEL, result: { app: { id: 1047113, slug: "switchboard-team", owner: "team" }, install: INSTALL } }]);
     expect(calls[0].auth).toBeNull();
+    // описание API GitHub: у conversions нет тела запроса
+    expect(calls[0].body).toBeUndefined();
     const row = await stored();
     expect(row).toMatchObject({ id: 1047113, slug: "switchboard-team", owner: "team", pem: CONV.pem, by: PANEL });
     expect(row!.at).toBeGreaterThanOrEqual(before);
@@ -296,6 +298,14 @@ describe("отказы", () => {
     if (out.length) expect(got[0]).toMatchObject(out[0]);
     expect(calls).toHaveLength(0);
     expect(log.rows()).toEqual([expect.objectContaining({ part: "github", kind, why, from: PANEL, word })]);
+  });
+
+  it("неожиданная ошибка — не слово github: летит дальше, вход отвечает failed; таблица не тронута", async () => {
+    fakeGithub({ "POST /app-manifests/c0de/conversions": [201, { id: 1, slug: "x", pem: "k" }] });
+    const log = journal();
+    expect(await ask({ type: "github.setup", id: "s-5", from: PANEL, code: "c0de" })).toEqual([expect.objectContaining({ id: "s-5", ok: false, error: "failed" })]);
+    expect(await stored()).toBeUndefined();
+    expect(log.text()).toContain("failed github.setup");
   });
 
   it("плохой пропуск — bad_key, GitHub и таблица не тронуты; отправителя и пропуск проверяет вход gate", async () => {
