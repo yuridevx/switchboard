@@ -509,6 +509,7 @@ describe("вопрос человеку", () => {
     const { st } = await bench();
     const { p } = await tasked(st);
     expect(await p.ask("Bash", { command: "npm test" })).toMatchObject({ behavior: "allow", updatedInput: { command: "npm test" } });
+    expect(st.journal().find((l) => l.ev === "allow")).toMatchObject({ callsign: CS, tool: "Bash", why: "режим bypassPermissions" });
     expect(asked(st)).toHaveLength(0);
     let done = false;
     const a = p.ask("AskUserQuestion", ASK, "toolu_01Hq").then((r) => ((done = true), r));
