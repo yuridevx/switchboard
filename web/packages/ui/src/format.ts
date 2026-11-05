@@ -1,186 +1,44 @@
-// Мелочи вида, общие для модулей приложения: подписи состояний, модели и усилия, время, склонение.
-import type { SessionRecord } from "@switchboard/relay";
-import type { App } from "./app.ts";
-import { nameOf, userOf } from "@switchboard/protocol";
-
-/** Тон метки: цвет пилюли и точки строки. */
-export type Tone = "ok" | "wait" | "bad" | "busy" | "";
-
-/** Состояние сессии из roster → подпись, тон и лампа. Один словарь на все экраны; неизвестное — как есть, без лампы. */
-const STATES: Record<string, { text: string; tone: Tone; dot: string }> = {
-  busy: { text: "работает", tone: "busy", dot: "busy" },
-  waiting: { text: "ждёт вас", tone: "wait", dot: "wait" },
-  idle: { text: "свободна", tone: "ok", dot: "idle" },
-  starting: { text: "запускается", tone: "busy", dot: "busy" },
-  stopping: { text: "останавливается", tone: "", dot: "stop" },
-  stopped: { text: "остановлена", tone: "", dot: "stop" },
-  failed: { text: "не запустилась", tone: "bad", dot: "bad" },
+// Снесено.
+const razed: any = () => {
+  throw new Error("снесено");
 };
-export function stateLabel(state: unknown): { text: string; tone: Tone; dot: string } {
-  return STATES[String(state)] ?? { text: String(state ?? "—"), tone: "", dot: "" };
-}
-/** Лампа строки сессии: неизвестное состояние — как остановленная. */
-export const lamp = (s: SessionRecord) => stateLabel(s.state).dot || "stop";
-
-/** Живая сессия: процесс claude отвечает. */
-export const LIVE = new Set(["idle", "busy", "waiting"]);
-export const isLive = (state: unknown) => LIVE.has(String(state));
-
-/** Модели, когда SDK машины не спросить. */
-export const MODELS = ["opus", "sonnet", "haiku", "fable"];
-/** Усилия и подписи. */
-export const EFFORTS: Array<[string, string]> = [["low", "низкое"], ["medium", "среднее"], ["high", "высокое"], ["xhigh", "очень высокое"], ["max", "макс."]];
-export const effortName = (e: unknown) => EFFORTS.find(([k]) => k === e)?.[1] ?? String(e ?? "");
-/** Короткое имя профиля: team/profiles/ops → ops. */
-export const profileName = (id: string) => id.split("/").at(-1) ?? id;
-/** Номер профиля сессии: team/profiles/ops. */
-export const profileIdOf = (s?: SessionRecord) => (s?.profile as { id?: string } | null | undefined)?.id;
-/** Имя профиля сессии: ops. */
-export const profileNameOf = (s?: SessionRecord) => {
-  const id = profileIdOf(s);
-  return id ? profileName(id) : undefined;
-};
-
-type Marked = Pick<App, "mark">;
-type Rostered = Pick<App, "roster">;
-/** Подпись имени: человеческое имя или адрес. */
-export type Shown = { text: string; human: boolean };
-
-/** Запись сессии из roster. */
-export const sessionOf = (app: Rostered, callsign: string) => app.roster()?.sessions.find((s) => s.callsign === callsign);
-/** Подпись сессии без своего имени: имя из позывного. */
-export const plainSession = (callsign: string): Shown => ({ text: nameOf(callsign), human: false });
-/** Подпись машины без своего имени: адрес. */
-export const plainMachine = (machine: string): Shown => ({ text: `@${machine}`, human: false });
-/** Имя сессии; модуля имён нет или он упал — как без своего имени. */
-export const sessionLabel = (app: Marked, callsign: string) => (app.mark("label.session", callsign) as Shown | undefined) ?? plainSession(callsign);
-/** Имя машины; модуля имён нет или он упал — как без своего имени. */
-export const machineLabel = (app: Marked, machine: string) => (app.mark("label.machine", machine) as Shown | undefined) ?? plainMachine(machine);
-/** Поле slot записи сессии. */
-export const slotOf = (s?: SessionRecord) => s?.slot as { name?: string; wait?: number | null } | null | undefined;
-/** Поле incident записи сессии. */
-export const incidentOf = (s?: SessionRecord) => s?.incident as { type?: string; key?: string } | null | undefined;
-/** Машины на связи, у которых в contract есть все эти запросы; без запросов — все. */
-export const machinesWith = (app: Rostered, ...names: string[]) => (app.roster()?.machines ?? []).filter((m) => names.every((n) => m.contract?.[n] !== undefined)).map((m) => m.machine);
-/** Ссылка Remote Control сессии. */
-export const remoteOf = (s?: SessionRecord) => (typeof s?.remote === "string" ? s.remote : (s?.remote as { url?: string } | undefined)?.url);
-/** Причина сбоя сессии: «часть: причина; …». */
-export const failText = (s: SessionRecord) =>
-  s.failed
-    ? Object.entries(s.failed as Record<string, string>)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join("; ")
-    : "";
-
-/** Мой адрес ~почта — из адреса пропуска. */
-export function myAddress(app: Pick<App, "address">): string | null {
-  const a = app.address();
-  return a ? userOf(a) : null;
-}
-
-/** Имя папки сессии — последнее имя dir в нижнем регистре; домашняя папка — «~». Папка — свойство сессии, проект с ней не связан. */
-export function folderOf(dir: unknown): string {
-  const d = typeof dir === "string" && dir ? dir : "~";
-  if (d === "~") return "~";
-  return d.replace(/[\\/]+$/, "").split(/[\\/]/).pop()!.toLowerCase();
-}
-
-/** Строка «opus · high · main» из записи сессии: модель, усилие, слот. */
-export function sessionLine(s: SessionRecord | undefined, withEffort = false): string {
-  if (!s) return "";
-  return [s.model, withEffort && s.effort ? effortName(s.effort) : null, slotOf(s)?.name].filter((x) => typeof x === "string" && x).join(" · ");
-}
-
-/** ЧЧ:ММ по местному времени. */
-export function hhmm(t: number | Date = Date.now()): string {
-  const d = typeof t === "number" ? new Date(t) : t;
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
-/** ЧЧ:ММ момента: секунды или миллисекунды эпохи. */
-export const at = (t: number) => hhmm(t < 1e12 ? t * 1000 : t);
-
-/**
- * Какой слот отмечен в строке выбора: выбранный, если он есть на машине; иначе первый (слово пользователя 4 нояб.).
- * Один слот или ни одного — выбирать нечего, поля нет: решает машина.
- */
-export function slotChoice(names: string[], chosen = ""): string {
-  if (names.length < 2) return "";
-  return names.includes(chosen) ? chosen : names[0];
-}
-
-/** Единственный слот машины ждёт сброса лимита: строки выбора нет, подпись — эта. */
-export function slotWait(slots: Record<string, { wait: number | null }> | null | undefined): string {
-  const list = Object.entries(slots ?? {});
-  const wait = list.length === 1 ? list[0][1].wait : null;
-  return wait ? `${list[0][0]} · ждёт сброса ${at(wait)}` : "";
-}
-/** «3 нояб.» */
-export const day = (t: number) => new Date(t).toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
-/** Сколько прошло: «только что», «5 мин назад», «2 ч 5 мин назад»; с суток — день. */
-export function ago(t: number): string {
-  const m = Math.round((Date.now() - t) / 60000);
-  if (m < 1) return "только что";
-  if (m < 60) return `${m} мин назад`;
-  const hr = Math.floor(m / 60);
-  return hr < 24 ? `${hr} ч ${m % 60} мин назад` : day(t);
-}
-/** Полночь по местному времени daysBack дней назад — since журнала машины. */
-export function midnight(daysBack = 0): string {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() - daysBack);
-  return d.toISOString();
-}
-
-/** Порог окна лимита: доля в процентах → цвет полосы. */
-export const LIMIT_WARN = 70;
-export const LIMIT_BAD = 90;
-/** Окна лимитов: подпись. */
-export const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus", seven_day_sonnet: "неделя sonnet" };
-
-/** Слова пути до машины → строка на экране; machine — чья. Остальные слова — как есть: их переводит владелец. */
-export function linkText(word: string, machine?: string | null): string {
-  if (word === "offline") return `${machine || "Машина"} не на связи`;
-  if (word === "disconnected") return "нет связи";
-  if (word === "timeout") return "нет ответа";
-  return word;
-}
-
-/** «2 мин 14 с», «33 мин», «18 с» — длительность хода. */
-export function duration(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s} с`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return s % 60 ? `${m} мин ${s % 60} с` : `${m} мин`;
-  const hr = Math.floor(m / 60);
-  return m % 60 ? `${hr} ч ${m % 60} мин` : `${hr} ч`;
-}
-
-/** Склонение: plural(4, "сессия", "сессии", "сессий") → «сессии». */
-export function plural(n: number, one: string, few: string, many: string): string {
-  const a = Math.abs(n) % 100;
-  const b = a % 10;
-  if (a > 10 && a < 20) return many;
-  if (b === 1) return one;
-  if (b >= 2 && b <= 4) return few;
-  return many;
-}
-
-/** Сессии, у которых сменился account: одно правило для всех модулей. was — что помнит модуль; from нет — сессия ещё не встречалась. */
-export function accountChanges(r: { sessions: ReadonlyArray<{ callsign?: string | null; account?: unknown }> }, was: (callsign: string) => string | undefined): Array<{ callsign: string; from?: string; account: string }> {
-  const out: Array<{ callsign: string; from?: string; account: string }> = [];
-  for (const s of r.sessions) {
-    if (typeof s.account !== "string" || !s.callsign) continue;
-    const from = was(s.callsign);
-    if (from !== s.account) out.push({ callsign: s.callsign, from, account: s.account });
-  }
-  return out;
-}
-
-/** Сессии, у которых аккаунт сменился с прошлого roster: подмену делает Host. known — прошлый аккаунт сессии, правится на месте. */
-export function accountChanged(known: Record<string, string>, sessions: ReadonlyArray<{ callsign: string; account?: unknown }>): string[] {
-  const list = accountChanges({ sessions }, (cs) => known[cs]);
-  for (const x of list) known[x.callsign] = x.account;
-  return list.filter((x) => x.from !== undefined).map((x) => x.callsign);
-}
+export const stateLabel: any = razed;
+export const lamp: any = razed;
+export const LIVE: any = razed;
+export const isLive: any = razed;
+export const MODELS: any = razed;
+export const EFFORTS: any = razed;
+export const effortName: any = razed;
+export const profileName: any = razed;
+export const profileIdOf: any = razed;
+export const profileNameOf: any = razed;
+export const sessionOf: any = razed;
+export const plainSession: any = razed;
+export const plainMachine: any = razed;
+export const sessionLabel: any = razed;
+export const machineLabel: any = razed;
+export const slotOf: any = razed;
+export const incidentOf: any = razed;
+export const machinesWith: any = razed;
+export const remoteOf: any = razed;
+export const failText: any = razed;
+export const myAddress: any = razed;
+export const folderOf: any = razed;
+export const sessionLine: any = razed;
+export const hhmm: any = razed;
+export const at: any = razed;
+export const slotChoice: any = razed;
+export const slotWait: any = razed;
+export const day: any = razed;
+export const ago: any = razed;
+export const midnight: any = razed;
+export const LIMIT_WARN: any = razed;
+export const LIMIT_BAD: any = razed;
+export const LIMIT_NAMES: any = razed;
+export const linkText: any = razed;
+export const duration: any = razed;
+export const plural: any = razed;
+export const accountChanges: any = razed;
+export const accountChanged: any = razed;
+export type Tone = any;
+export type Shown = any;
