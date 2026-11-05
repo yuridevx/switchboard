@@ -11,8 +11,8 @@ export type Config = { port?: number; to?: string; types?: Record<string, Incide
 
 /** Раздел сессии: какой инцидент она отрабатывает. */
 type Mine = { type: string; key?: string };
-/** Раздел машины: обращения, которые ход ещё не взял; callsign — сессия, куда ушло. */
-type Stored = { id: string; type: string; key?: string; text: string; attachments: Attachment[]; callsign?: string };
+/** Раздел машины: обращения, которые ход ещё не взял; callsign — сессия, куда ушло; refused — последний отказ доставки. */
+type Stored = { id: string; type: string; key?: string; text: string; attachments: Attachment[]; callsign?: string; refused?: { word: string; why: string; t: string } };
 
 const esc = (s: string) => s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
@@ -42,7 +42,9 @@ export function make(): Module {
   const edit = (id: string, change: (a: Stored) => Stored) => book().update((list = []) => list.map((a) => (a.id === id ? change(a) : a)));
 
   function refused(a: Stored, step: string, r: { error: string; why?: unknown }): void {
-    host.log({ kind: "refuse", ev: "incident", word: r.error, id: a.id, why: `${a.type}: ${step} — ${r.error}${r.why ? ` · ${String(r.why)}` : ""}; ${WAITS}` });
+    const why = `${a.type}: ${step} — ${r.error}${r.why ? ` · ${String(r.why)}` : ""}; ${WAITS}`;
+    host.log({ kind: "refuse", ev: "incident", word: r.error, id: a.id, why });
+    edit(a.id, (x) => ({ ...x, refused: { word: r.error, why, t: new Date().toISOString() } }));
   }
 
   function targetOf(a: Stored): string | undefined {
@@ -167,7 +169,7 @@ export function make(): Module {
       },
     },
     requests: {
-      "incident.pending": () => ({ appeals: stored().map((a) => ({ id: a.id, type: a.type, key: a.key ?? null, callsign: a.callsign ?? null })) }),
+      "incident.pending": () => ({ appeals: stored().map((a) => ({ id: a.id, type: a.type, key: a.key ?? null, callsign: a.callsign ?? null, ...a.refused })) }),
     },
   };
 

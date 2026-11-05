@@ -7,8 +7,8 @@ import type { IncidentsStore, Lost } from "./store.ts";
 
 function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): void }) {
   const app = useApp();
-  const { machine, id, appeal, last } = row;
-  const mark = `${machine}:${id}`;
+  const { machine, appeal } = row;
+  const mark = `${machine}:${appeal.id}`;
   const what = [appeal.type, appeal.key].filter(Boolean).join(" · ");
   return (
     <>
@@ -17,14 +17,14 @@ function LostRow({ row, open, toggle }: { row: Lost; open: boolean; toggle(): vo
         <span className="g">
           <span className="t1">
             <b>{machineLabel(app, machine).text}</b>
-            <span className="s bad">{last?.word ?? "ждёт"}</span>
+            <span className="s bad">{appeal.word ?? "ждёт"}</span>
           </span>
-          <span className="t2">{last ? `с ${hhmm(new Date(last.t))}` : what}</span>
+          <span className="t2">{appeal.t ? `с ${hhmm(new Date(appeal.t))}` : what}</span>
         </span>
       </DisclosureBtn>
       {open ? (
         <div className="in-why" data-why={mark}>
-          {last ? (last.why ?? last.word) : "Отказа с полуночи нет: причина — в журнале машины за прошлые дни."}
+          {appeal.why ?? appeal.word ?? "Отказа не записано: причина — в журнале машины."}
         </div>
       ) : null}
     </>
@@ -62,7 +62,7 @@ export function IncidentsScreen() {
   app.use(() => app.roster());
   const lost = store.lost();
   const sessions = store.sessions().filter((s) => all || s.state !== "stopped");
-  const refusals = Object.entries(store.answers.get()).flatMap(([machine, a]) => (wordOf(a) ? [`${machine} · machine.journal: ${wordOf(a)}`] : []));
+  const refusals = Object.entries(store.answers.get()).flatMap(([machine, a]) => (wordOf(a) ? [`${machine} · incident.pending: ${wordOf(a)}`] : []));
   return (
     <Page>
       <PageHead title={app.wide ? "Инциденты" : undefined}>
@@ -83,7 +83,7 @@ export function IncidentsScreen() {
           <div className="in-cap">Не доставлены</div>
           <div className="in-list">
             {lost.map((row) => {
-              const mark = `${row.machine}:${row.id}`;
+              const mark = `${row.machine}:${row.appeal.id}`;
               return <LostRow key={mark} row={row} open={why === mark} toggle={() => setWhy(why === mark ? null : mark)} />;
             })}
           </div>
