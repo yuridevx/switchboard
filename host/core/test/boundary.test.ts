@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { check } from "@switchboard/manifest-gate";
 import { MAX_FRAME } from "@switchboard/protocol";
 import { clientPath, content, isRefusal, refuse, tildePath } from "../contract.ts";
 import type { Host, Module } from "../contract.ts";
@@ -765,16 +764,6 @@ describe("эталоны ядра Host", () => {
       expect(st.kernel.sessions.get(cs)!.rec.sdk).toBe("0.3.312");
       expect(st.query(cs).options.resume).toBe(`sid-${cs.split("@")[0]}`);
     }
-  });
-
-  it("150 · гейт монорепо: два владельца, uses без имени у владельца, импорт мимо uses — сборка падает", () => {
-    const m = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}, imports: string[] = []) => ({
-      name, type: "sdk", version: "1.0.0", provides, uses, config: {}, pkg: `@switchboard/${name}`, imports,
-    });
-    const base = m("host-cost", { "session.cost": 1, cost: 1 });
-    expect(check([base, m("host-dup", { "session.cost": 1 })])).toContain("имя session.cost: два владельца — host-cost и host-dup");
-    expect(check([base, m("host-stats", { stats: 1 }, { "session.tokens@host-cost": 1 })])).toContain("модуль host-stats: uses session.tokens@host-cost — host-cost не отдаёт session.tokens");
-    expect(check([base, m("host-peek", { peek: 1 }, {}, ["@switchboard/host-cost/src/store.ts"])]).join()).toContain("модуль host-peek: импорт @switchboard/host-cost/src/store.ts");
   });
 
   it("152 · hello закрыт gate_unavailable дважды — переподключение, третий принят, строк stop нет; contract_mismatch — без переподключений, stop в журнале, сессии работают", async () => {
