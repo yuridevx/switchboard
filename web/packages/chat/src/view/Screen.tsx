@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Focus, Gauge } from "lucide-react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
-import { Pad, sessionOf, useApp, useModule } from "@switchboard/web-ui";
+import { Btn, IconBtn, Pad, sessionOf, useApp, useModule } from "@switchboard/web-ui";
 import { exportMd } from "../export.ts";
 import { focused } from "../focus.ts";
 import type { Chats } from "../store.ts";
@@ -23,13 +23,14 @@ function Work({ callsign }: { callsign: string }) {
   const busy = app.use(() => sessionOf(app, callsign)?.state === "busy");
   const compacting = app.use(() => chats.conv(callsign).view.compacting);
   const thinking = app.use(() => chats.conv(callsign).view.thinking);
-  if (!busy && !compacting && !thinking) return null;
+  if (compacting) return <div className="chat-work">Сжимаю контекст…</div>;
+  if (!busy) return null;
   return (
     <div className="chat-work">
       <i />
       <i />
       <i />
-      {compacting ? "Сжимаю контекст…" : thinking ? `размышляет · ${tokens(thinking)}` : ""}
+      {thinking ? `размышляет · ${tokens(thinking)}` : ""}
     </div>
   );
 }
@@ -44,15 +45,15 @@ function Bar({ callsign }: { callsign: string }) {
     <>
       <div className="chat-bar">
         {canAct ? (
-          <button type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
-            <Gauge size={12} />
+          <Btn type="button" className="chat-mini" aria-pressed={panel} onClick={() => setPanel(!panel)}>
+            <Gauge size={13} />
             контекст
-          </button>
+          </Btn>
         ) : null}
-        <button type="button" className="chat-mini" aria-pressed={focus} onClick={() => chats.toggleFocus(callsign)}>
-          <Focus size={12} />
+        <Btn type="button" className="chat-mini" aria-pressed={focus} onClick={() => chats.toggleFocus(callsign)}>
+          <Focus size={13} />
           фокус
-        </button>
+        </Btn>
         <a
           className="chat-mini"
           download={`${callsign.replace("@", "-")}.md`}
@@ -61,7 +62,7 @@ function Bar({ callsign }: { callsign: string }) {
             e.currentTarget.href = `data:text/markdown;charset=utf-8,${encodeURIComponent(exportMd(callsign, chats.conv(callsign).view))}`;
           }}
         >
-          <Download size={12} />
+          <Download size={13} />
           выгрузить .md
         </a>
       </div>
@@ -83,6 +84,7 @@ function Feed({ callsign }: { callsign: string }) {
 
   const box = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
+  const lastTop = useRef(0);
   const [away, setAway] = useState(false);
   /** высота до страницы «Раньше»: лента остаётся на том же сообщении */
   const heightBefore = useRef<number | null>(null);
@@ -92,8 +94,19 @@ function Feed({ callsign }: { callsign: string }) {
     if (heightBefore.current !== null) {
       el.scrollTop += el.scrollHeight - heightBefore.current;
       heightBefore.current = null;
-    } else if (atEnd.current) el.scrollTop = el.scrollHeight;
+    }
   }, [list]);
+
+  // лента у низа остаётся у низа, что бы ни выросло: новая строка, поток текста, поле ввода, док над ним
+  useEffect(() => {
+    const el = box.current!;
+    const keep = new ResizeObserver(() => {
+      if (atEnd.current) el.scrollTop = el.scrollHeight;
+    });
+    keep.observe(el);
+    keep.observe(el.firstElementChild!);
+    return () => keep.disconnect();
+  }, []);
 
   const toEnd = () => {
     const el = box.current!;
@@ -109,15 +122,18 @@ function Feed({ callsign }: { callsign: string }) {
         aria-live="polite"
         ref={box as never}
         onScroll={(e) => {
+          // от низа уводит только прокрутка вверх: рост ленты после прокрутки стороной не считается
           const el = e.currentTarget;
-          atEnd.current = el.scrollHeight - el.clientHeight - el.scrollTop < AT_END_PX;
+          const near = el.scrollHeight - el.clientHeight - el.scrollTop < AT_END_PX;
+          if (near || el.scrollTop < lastTop.current) atEnd.current = near;
+          lastTop.current = el.scrollTop;
           setAway(!atEnd.current);
         }}
       >
         <div className="chat-col">
           {noFeed ? <div className="chat-note">{`${machineOf(callsign)} не отдаёт ленту — только переписка и ввод`}</div> : null}
           {more ? (
-            <button
+            <Btn
               type="button"
               className="chat-older"
               onClick={() => {
@@ -126,7 +142,7 @@ function Feed({ callsign }: { callsign: string }) {
               }}
             >
               Раньше
-            </button>
+            </Btn>
           ) : null}
           <Rows rows={list} />
           {refused ? (
@@ -140,9 +156,9 @@ function Feed({ callsign }: { callsign: string }) {
         </div>
       </Pad>
       {away ? (
-        <button type="button" className="chat-jump" aria-label="К последнему" onClick={toEnd}>
+        <IconBtn className="chat-jump" aria-label="К последнему" onClick={toEnd}>
           <ArrowDown size={16} />
-        </button>
+        </IconBtn>
       ) : null}
     </div>
   );

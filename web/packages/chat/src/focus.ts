@@ -34,7 +34,7 @@ function foldTurn(turn: Row[], tools: Record<string, Tool>, out: Array<Row | Ste
   const lastReply = turn.findLastIndex((r) => r.k === "reply");
   turn.forEach((r, i) => {
     if (r.k === "ban" || r.k === "sum" || r.k === "task" || (r.k === "sys" && r.tone === "wait")) return void shown.push(r);
-    if (r.k === "res") return void ends.push(r);
+    if (r.k === "res" || r.k === "end") return void ends.push(r);
     if (r.k !== "reply") return void hidden.push(r);
     let parts: Part[] = r.parts;
     const tail = parts.at(-1);

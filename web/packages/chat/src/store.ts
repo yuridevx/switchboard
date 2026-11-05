@@ -8,7 +8,7 @@ import { sayWord } from "./words.ts";
 
 export type Attachment = { name: string; media_type: string; data: string };
 /** Своё сообщение: в пути, принято, эхо из ленты, обрыв до ответа. */
-export type Send = { state: "sending" | "sent" | "echo" | "lost"; queued: boolean };
+export type Send = { state: "sending" | "ok" | "echo" | "lost"; queued: boolean };
 export type Rewind = { id: string; state: "probe" | "ask" | "bad" | "ok"; text: string };
 export type Side = { id: number; q: string; state: "wait" | "done" | "bad"; a: string };
 export type Command = { name: string; description?: string };
@@ -50,6 +50,7 @@ type Run = {
 /** Вид разговора для строк ленты: галерея стенда подаёт свой. */
 export type Env = {
   callsign: string;
+  wide: boolean;
   view(): View;
   send(id: string): Send | undefined;
   rewind(): Rewind | null;
@@ -142,8 +143,9 @@ export function createChats(app: App) {
     }
     if (m.type === "assistant" && m.message?.id) run.log = run.log.filter((x) => x.type !== "partial" || x.id !== m.message.id);
     if (draw) {
-      run.log.push(m);
-      step(c.view, m);
+      const stamped = m.type === "user" ? { ...m, arrived: Date.now() } : m;
+      run.log.push(stamped);
+      step(c.view, stamped);
     }
   }
 
@@ -248,14 +250,14 @@ export function createChats(app: App) {
     if (!r.ok && !NOT_CONFIRMED.has(r.error)) return refused(cs, uuid, r.error);
     edit(cs, (c) => {
       const s = c.sends[uuid];
-      if (s && s.state !== "echo") s.state = r.ok ? "sent" : "lost";
+      if (s && s.state !== "echo") s.state = r.ok ? "ok" : "lost";
     });
   }
 
   /** Своё сообщение — в ленте сразу, как будет записано в разговоре. */
   function ownEntry(uuid: string, text: string, attachments: Attachment[]): Msg {
-    const blocks = attachments.map((a) => (a.media_type.startsWith("image/") ? { type: "image", source: { type: "base64", media_type: a.media_type, data: a.data } } : { type: "document", title: a.name }));
-    return { type: "user", uuid, timestamp: new Date().toISOString(), message: { content: blocks.length ? [...blocks, ...(text ? [{ type: "text", text }] : [])] : text } };
+    const blocks = attachments.filter((a) => a.media_type.startsWith("image/")).map((a) => ({ type: "image", source: { type: "base64", media_type: a.media_type, data: a.data } }));
+    return { type: "user", uuid, timestamp: new Date().toISOString(), files: attachments.filter((a) => !a.media_type.startsWith("image/")).map((a) => a.name), message: { content: blocks.length ? [...blocks, ...(text ? [{ type: "text", text }] : [])] : text } };
   }
 
   function send(cs: string, text: string, attachments: Attachment[] = []) {
@@ -347,6 +349,7 @@ export function createChats(app: App) {
     if (e) return e;
     e = {
       callsign: cs,
+      wide: app.wide,
       view: () => conv(cs).view,
       send: (id) => conv(cs).sends[id],
       rewind: () => conv(cs).rewind,

@@ -1,7 +1,7 @@
 // Над вводом: вопросы сбоку, задачи Claude, идущее в фоне и вопрос сессии (узко — полоса к экрану, широко — экран ask в месте).
 import { useEffect, useState } from "react";
-import { Bot, Layers, ListChecks, MessageSquareQuote, Terminal, X } from "lucide-react";
-import { Markdown, useApp, useModule } from "@switchboard/web-ui";
+import { Bot, Layers, ListChecks, MessageSquareQuote, Square, Terminal, X } from "lucide-react";
+import { Btn, IconBtn, Markdown, TextBtn, useApp, useModule } from "@switchboard/web-ui";
 import { backgrounded, type Task } from "../fold.ts";
 import type { Chats } from "../store.ts";
 import { Dis } from "./Rows.tsx";
@@ -44,18 +44,19 @@ function BgRow({ callsign, task }: { callsign: string; task: Task }) {
   return (
     <div className="chat-bgw">
       <div className="chat-bgr">
-        {agent ? <Bot size={13} /> : <Terminal size={13} />}
-        <span>{task.desc || task.id}</span>
+        {agent ? <Bot size={14} /> : <Terminal size={14} />}
+        <span title={task.desc || task.id}>{task.desc || task.id}</span>
         {task.summary ? <em>{task.summary}</em> : null}
         {canAct && withOutput ? (
-          <button type="button" className="chat-mini" onClick={() => setOutput(!output)}>
+          <Btn type="button" className="chat-mini" onClick={() => setOutput(!output)}>
             {output ? "Скрыть" : "Вывод"}
-          </button>
+          </Btn>
         ) : null}
         {canAct ? (
-          <button type="button" className="chat-mini" onClick={() => void chats.act(callsign, "stopTask", [task.id])}>
+          <Btn type="button" className="chat-mini" onClick={() => void chats.act(callsign, "stopTask", [task.id])}>
+            <Square size={11} />
             Стоп
-          </button>
+          </Btn>
         ) : null}
       </div>
       {output ? <TaskOutput callsign={callsign} id={task.id} /> : null}
@@ -72,11 +73,11 @@ function AskPlace({ callsign }: { callsign: string }) {
   return (
     <div className="chat-ask">
       {asked ? (
-        <button type="button" className="chat-askbar" onClick={() => app.open("ask", { callsign })}>
+        <TextBtn className="chat-askbar" onClick={() => app.open("ask", { callsign })}>
           <b>?</b>
           <span>{asked}</span>
           <em>Ответить</em>
-        </button>
+        </TextBtn>
       ) : null}
     </div>
   );
@@ -94,7 +95,7 @@ export function Dock({ callsign }: { callsign: string }) {
     <div className="chat-dock">
       {sides.map((s) => (
         <div key={s.id} className="chat-side" data-state={s.state}>
-          <MessageSquareQuote size={13} />
+          <MessageSquareQuote size={14} />
           <div className="chat-side-b">
             <div className="chat-side-q">{s.q}</div>
             {s.state === "wait" ? <div className="chat-side-w">думает…</div> : null}
@@ -105,31 +106,17 @@ export function Dock({ callsign }: { callsign: string }) {
             ) : null}
             {s.state === "bad" ? <div className="chat-side-e">{s.a}</div> : null}
           </div>
-          <button type="button" className="chat-side-x" aria-label="Закрыть" onClick={() => chats.closeSide(callsign, s.id)}>
-            <X size={13} />
-          </button>
+          <IconBtn className="chat-side-x" aria-label="Закрыть" onClick={() => chats.closeSide(callsign, s.id)}>
+            <X size={14} />
+          </IconBtn>
         </div>
       ))}
-      {todos && left.length ? (
-        <Dis
-          className="chat-todo"
-          head={
-            <>
-              <ListChecks size={13} />
-              <b>{`${todos.length - left.length} из ${todos.length}`}</b>
-              <span>{doing?.activeForm ?? doing?.content ?? left[0].content}</span>
-            </>
-          }
-        >
-          <TodoList todos={todos} />
-        </Dis>
-      ) : null}
       {tasks.length ? (
         <Dis
           className="chat-bg"
           head={
             <>
-              <Layers size={13} />
+              <Layers size={14} />
               <b>{`В фоне: ${tasks.length}`}</b>
               <span>{tasks[0].desc || tasks[0].id}</span>
             </>
@@ -138,6 +125,20 @@ export function Dock({ callsign }: { callsign: string }) {
           {tasks.map((t) => (
             <BgRow key={t.id} callsign={callsign} task={t} />
           ))}
+        </Dis>
+      ) : null}
+      {todos && left.length ? (
+        <Dis
+          className="chat-todo"
+          head={
+            <>
+              <ListChecks size={14} />
+              <b>{`${todos.length - left.length} из ${todos.length}`}</b>
+              <span>{doing?.activeForm ?? doing?.content ?? left[0].content}</span>
+            </>
+          }
+        >
+          <TodoList todos={todos} />
         </Dis>
       ) : null}
       <AskPlace callsign={callsign} />

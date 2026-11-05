@@ -87,6 +87,7 @@ const SECTIONS: Array<[string, Sample[]]> = [
 
 const silent = (view: Env["view"]): Env => ({
   callsign: "site@laptop",
+  wide: true,
   view,
   send: () => undefined,
   rewind: () => null,

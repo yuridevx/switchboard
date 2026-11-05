@@ -25,12 +25,9 @@ export function createAsk(app: App): AppModule {
         head(params) {
           const e = asks.shown(params.callsign);
           const done = e?.done?.how;
-          return {
-            title: sessionLabel(app, params.callsign).text,
-            mono: true,
-            sub: e ? `вопрос сессии · ${hhmm(e.at)}` : "вопрос сессии",
-            ...(done === "mine" ? { pill: { text: "ответ принят", tone: "ok" as const } } : done === "other" || done === "already" ? { pill: { text: "уже ответили", tone: "" as const } } : {}),
-          };
+          const name = sessionLabel(app, params.callsign);
+          const pill = !done ? { text: "ждёт ответа", tone: "wait" as const } : done === "mine" ? { text: "ответ принят", tone: "ok" as const } : { text: done === "cancelled" ? "снят" : "уже ответили", tone: "" as const };
+          return { title: name.text, mono: !name.human, sub: e ? `вопрос сессии · ${hhmm(e.at)}` : "вопрос сессии", ...(e || asks.asks(params.callsign).loading ? { pill } : {}) };
         },
       },
     },

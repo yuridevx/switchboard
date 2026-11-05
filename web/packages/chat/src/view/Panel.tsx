@@ -1,7 +1,8 @@
 // Панель контекста: разделы из своих методов SDK, по одному запросу на открытие. Метода нет — раздела нет; другой отказ — слово в разделе.
 import type { ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { duration, LIMIT_BAD, LIMIT_NAMES, LIMIT_WARN, LimitRow, Meter, PERM_PLACES, useLoad, useModule } from "@switchboard/web-ui";
+import { Archive, Gauge, RefreshCw } from "lucide-react";
+import { Btn, duration, LIMIT_BAD, LIMIT_NAMES, LIMIT_WARN, LimitRow, Meter, PERM_PLACES, useLoad, useModule } from "@switchboard/web-ui";
 import type { Msg } from "../fold.ts";
 import type { Chats } from "../store.ts";
 import { CONTEXT_PARTS, kilo, sayWord, STATUS_LABELS } from "../words.ts";
@@ -19,10 +20,10 @@ function useCall<T = Msg>(callsign: string, method: string, args: unknown[] = []
 function Section({ id, title, word, machine, children }: { id: string; title?: string; word: string; machine: string; children: ReactNode }) {
   if (word === "unknown_method" || (!word && !children)) return null;
   return (
-    <section className="chat-pn-s" data-sec={id}>
+    <div className="chat-pn-s" data-sec={id}>
       {title ? <h4>{title}</h4> : null}
       {word ? <div className="bad">{sayWord(word, machine)}</div> : children}
-    </section>
+    </div>
   );
 }
 
@@ -65,7 +66,7 @@ function Status({ callsign, machine }: { callsign: string; machine: string }) {
           {rows.map((r, i) => (
             <div key={i} style={{ display: "contents" }}>
               <dt>{STATUS_LABELS[r.label] ?? r.label}</dt>
-              <dd>{r.value === "connected" ? "подключено" : String(r.value)}</dd>
+              <dd>{String(r.value).replace("connected", "подключено")}</dd>
             </div>
           ))}
         </dl>
@@ -117,11 +118,12 @@ export function Panel({ callsign, close }: { callsign: string; close(): void }) 
   const parts = ((usage.data?.categories ?? []) as Msg[]).filter((c) => c.tokens > 0);
   const pct = Math.round(Number(usage.data?.percentage ?? 0));
   return (
-    <div className="chat-panel" role="dialog" aria-label="Контекст">
+    <section className="chat-panel" aria-label="Контекст">
       {usage.error ? <div className="bad">{sayWord(usage.error, machine)}</div> : null}
       {usage.data ? (
         <>
           <div className="chat-pn-h">
+            <Gauge size={14} />
             <b>{usage.data.maxTokens ? `${kilo(usage.data.totalTokens ?? 0)} из ${kilo(usage.data.maxTokens)}` : ""}</b>
             <em>{`${pct}%`}</em>
           </div>
@@ -136,18 +138,23 @@ export function Panel({ callsign, close }: { callsign: string; close(): void }) 
               ))}
             </dl>
           ) : null}
+          <Btn
+            type="button"
+            className="chat-mini"
+            onClick={() => {
+              chats.send(callsign, "/compact");
+              close();
+            }}
+          >
+            <Archive size={13} />
+            Сжать контекст
+          </Btn>
         </>
       ) : null}
-      <button
-        type="button"
-        className="chat-mini"
-        onClick={() => {
-          chats.send(callsign, "/compact");
-          close();
-        }}
-      >
-        Сжать контекст
-      </button>
+      <Usage callsign={callsign} machine={machine} />
+      <Status callsign={callsign} machine={machine} />
+      <Rules callsign={callsign} machine={machine} />
+      <Hooks callsign={callsign} machine={machine} />
       {agents.data?.length ? (
         <dl className="chat-pn-a">
           {agents.data.map((a) => (
@@ -158,13 +165,10 @@ export function Panel({ callsign, close }: { callsign: string; close(): void }) 
           ))}
         </dl>
       ) : null}
-      <Usage callsign={callsign} machine={machine} />
-      <Status callsign={callsign} machine={machine} />
-      <Rules callsign={callsign} machine={machine} />
-      <Hooks callsign={callsign} machine={machine} />
-      <button type="button" className="chat-mini" onClick={() => void chats.reloadPlugins(callsign)}>
+      <Btn type="button" className="chat-mini" onClick={() => void chats.reloadPlugins(callsign)}>
+        <RefreshCw size={13} />
         Перечитать плагины
-      </button>
-    </div>
+      </Btn>
+    </section>
   );
 }

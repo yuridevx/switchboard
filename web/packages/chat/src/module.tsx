@@ -1,7 +1,7 @@
 // web-chat — разговор с сессией: определение модуля. Состояние — store.ts, свёртка — fold.ts, вид — view/.
 import { machineOf } from "@switchboard/protocol";
 import type { AppModule, Frame, Roster } from "@switchboard/web-core";
-import { isLive, lamp, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
+import { isLive, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
 import css from "./chat.css";
 import { createChats } from "./store.ts";
 import { ChatScreen } from "./view/Screen.tsx";
@@ -28,7 +28,7 @@ export function createChat(app: App): AppModule {
           const cs = params.callsign;
           const s = sessionOf(app, cs);
           const st = stateLabel(s?.state);
-          return { title: sessionLabel(app, cs).text, mono: true, sub: s ? sessionLine(s) : `${machineOf(cs)} не на связи`, ...(s ? { dot: lamp(s), pill: { text: st.text, tone: st.tone } } : {}) };
+          return { title: sessionLabel(app, cs).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(cs)} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
         },
       },
     },

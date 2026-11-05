@@ -1,7 +1,7 @@
 // Экран вопроса: AskUserQuestion, запрос разрешения, план и форма MCP. На весь экран — в обёртке страницы; в чужом месте (над вводом, в «Вам») — только вопрос.
 import { useEffect, useState, type ReactNode } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { Area, BadCard, Cta, In, Markdown, OkCard, Pad, PERM_PLACES, permModeName, Sel, useApp, useModule, WaitCard } from "@switchboard/web-ui";
+import { Area, BadCard, Btn, Cta, In, Markdown, OkCard, Pad, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, WaitCard } from "@switchboard/web-ui";
 import type { AskStore, Entry, Question } from "./store.ts";
 
 type Reply = (reply: Record<string, unknown>, text: string) => void;
@@ -36,19 +36,19 @@ function AskQuestions({ q, sending, closed, reply }: Props) {
           <div className="ask-qt">{x.question}</div>
           <div className="ask-opts">
             {(x.options ?? []).map((o) => (
-              <button key={o.label} type="button" className={x.multiSelect ? "ask-opt multi" : "ask-opt"} aria-pressed={(picked[i] ?? []).includes(o.label)} disabled={closed} onClick={() => toggle(i, o.label, x.multiSelect)}>
+              <RowBtn key={o.label} className={x.multiSelect ? "ask-opt multi" : "ask-opt"} aria-pressed={(picked[i] ?? []).includes(o.label)} disabled={closed} onClick={() => toggle(i, o.label, x.multiSelect)}>
                 <span>
                   <b>{o.label}</b>
                   {o.description ? <span>{o.description}</span> : null}
                 </span>
-              </button>
+              </RowBtn>
             ))}
-            <button type="button" className="ask-opt own" aria-pressed={own[i] !== undefined && own[i] !== null} disabled={closed} onClick={() => toggleOwn(i, x.multiSelect)}>
+            <RowBtn className="ask-opt own" aria-pressed={own[i] !== undefined && own[i] !== null} disabled={closed} onClick={() => toggleOwn(i, x.multiSelect)}>
               <span>
                 <b>Свой ответ</b>
               </span>
-            </button>
-            {own[i] !== undefined && own[i] !== null ? <input className="ask-own" placeholder="Ваш ответ" value={own[i]!} disabled={closed} onInput={(e) => setOwn({ ...own, [i]: e.currentTarget.value })} /> : null}
+            </RowBtn>
+            {own[i] !== undefined && own[i] !== null ? <In className="ask-own" data-own={x.question} type="text" placeholder="Ваш ответ" value={own[i]!} disabled={closed} onInput={(e) => setOwn({ ...own, [i]: e.currentTarget.value })} /> : null}
           </div>
         </div>
       ))}
@@ -106,21 +106,21 @@ function PermQuestion({ q, sending, closed, reply }: Props) {
           </>
         )}
       </div>
-      {!plan && q.suggestions?.length && !closed ? q.suggestions.map((s, i) => (
+      {!plan && q.suggestions?.length && !closed && deny === null ? q.suggestions.map((s, i) => (
         <div key={i} className="ask-note">
           {suggestionLine(s)}
         </div>
       )) : null}
       {closed ? null : deny !== null ? (
         <>
-          <Area className="ask-own" placeholder={plan ? "Замечания" : "Причина"} aria-label={plan ? "Замечания" : "Причина"} value={deny} onInput={(e) => setDeny(e.currentTarget.value)} />
+          <Area className="ask-own" rows={2} placeholder={plan ? "Замечания" : "Причина"} aria-label={plan ? "Замечания" : "Причина"} value={deny} onInput={(e) => setDeny(e.currentTarget.value)} />
           <div className="ask-acts">
             <Cta disabled={sending} onClick={() => send(wordDeny, { action: "deny", ...(deny.trim() ? { message: deny.trim() } : {}) })}>
               {wordDeny}
             </Cta>
-            <button type="button" className="ask-decline" onClick={() => setDeny(null)}>
+            <Btn type="button" className="ask-decline" onClick={() => setDeny(null)}>
               Назад
-            </button>
+            </Btn>
           </div>
         </>
       ) : (
@@ -129,17 +129,17 @@ function PermQuestion({ q, sending, closed, reply }: Props) {
             {plan ? "Одобрить" : "Разрешить"}
           </Cta>
           {plan ? (
-            <button type="button" className="ask-decline" disabled={sending} onClick={() => send("Одобрить и разрешать правки", { action: "allow", always: true })}>
+            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => send("Одобрить и разрешать правки", { action: "allow", always: true })}>
               Одобрить и разрешать правки
-            </button>
+            </Btn>
           ) : q.suggestions?.length ? (
-            <button type="button" className="ask-decline" disabled={sending} onClick={() => send("Разрешать всегда", { action: "allow", always: true })}>
+            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => send("Разрешать всегда", { action: "allow", always: true })}>
               Разрешать всегда
-            </button>
+            </Btn>
           ) : null}
-          <button type="button" className="ask-decline" disabled={sending} onClick={() => setDeny("")}>
+          <Btn type="button" className="ask-decline" disabled={sending} onClick={() => setDeny("")}>
             {plan ? "Вернуть с замечаниями" : "Отклонить"}
-          </button>
+          </Btn>
         </div>
       )}
     </>
@@ -158,7 +158,7 @@ function FormQuestion({ q, sending, closed, reply }: Props) {
       <div className="ask-q">
         <div className="ask-qt">{q.message || "Форма"}</div>
         {q.url ? (
-          <a className="ask-url" href={q.url} target="_blank" rel="noopener noreferrer">
+          <a className="ask-url" href={q.url} target="_blank" rel="noopener">
             {q.url}
           </a>
         ) : null}
@@ -166,9 +166,9 @@ function FormQuestion({ q, sending, closed, reply }: Props) {
           const set = (value: string) => setValues((was) => ({ ...was, [k]: value }));
           return (
             <label key={k} className="ask-field">
-              {f.title ?? k}
+              <span>{f.title ?? k}</span>
               {f.enum ? (
-                <Sel value={values[k] ?? ""} disabled={closed} onChange={(e) => set(e.currentTarget.value)}>
+                <Sel className="ask-own" value={values[k] ?? ""} disabled={closed} onChange={(e) => set(e.currentTarget.value)}>
                   <option value="">—</option>
                   {f.enum.map((v) => (
                     <option key={String(v)} value={String(v)}>
@@ -177,7 +177,7 @@ function FormQuestion({ q, sending, closed, reply }: Props) {
                   ))}
                 </Sel>
               ) : (
-                <In type={isNumber(f) ? "number" : "text"} value={values[k] ?? ""} disabled={closed} onInput={(e) => set(e.currentTarget.value)} />
+                <In className="ask-own" type={isNumber(f) ? "number" : "text"} value={values[k] ?? ""} disabled={closed} onInput={(e) => set(e.currentTarget.value)} />
               )}
               {f.description ? <small>{f.description}</small> : null}
             </label>
@@ -185,14 +185,14 @@ function FormQuestion({ q, sending, closed, reply }: Props) {
         })}
       </div>
       {closed ? null : (
-        <div className="ask-acts">
+        <>
           <Cta disabled={sending} onClick={() => reply(q.url ? { action: "accept" } : { action: "accept", content: content() }, "")}>
             {sending ? "Отправляю…" : q.url ? "Перешёл" : "Отправить"}
           </Cta>
-          <button type="button" className="ask-decline" disabled={sending} onClick={() => reply({ action: "decline" }, "Отклонить")}>
+          <Btn className="ask-decline" disabled={sending} onClick={() => reply({ action: "decline" }, "Отклонить")}>
             Отклонить
-          </button>
-        </div>
+          </Btn>
+        </>
       )}
     </>
   );
@@ -221,7 +221,7 @@ function Outcome({ e, callsign }: { e: Entry; callsign: string }) {
     case "already":
       return two("Уже ответили.", "Первый ответ выигрывает — ваш не отправлен повторно.");
     case "other":
-      return two(`Уже ответили с ${String(d.by).split("~")[0]}${d.text ? `: «${d.text}»` : ""}.`);
+      return two(`Уже ответили с ${d.by}${d.text ? `: «${d.text}»` : ""}.`, "Первый ответ выигрывает — ваш не отправлен повторно.");
     case "cancelled":
       return two("Вопрос снят.", "Ход прервали — ответ больше не нужен.");
     case "gone":
@@ -234,7 +234,7 @@ const APP_NAMES: Record<string, string> = { pult: "пульт", phone: "теле
 function Audience({ q }: { q: Question }) {
   const app = useApp();
   if (!q.to) return null;
-  const others = q.to.map((a) => a.split("~")[0]).filter((n) => n !== app.name);
+  const others = q.to.filter((n) => n !== app.name && n !== app.address());
   return <div className="ask-hint">{`Вопрос видят: вы${others.length ? ` и ${others.map((n) => APP_NAMES[n] ?? n).join(", ")}` : ""}`}</div>;
 }
 
@@ -249,23 +249,24 @@ export function AskScreen({ params }: ScreenProps) {
   const inPlace = app.current()?.screen !== "ask";
   if (!e && inPlace) return null;
 
-  let body: ReactNode;
   if (!e) {
-    body = <div className="ask-empty">{word || (loading ? "Загружаю вопросы…" : `У ${callsign} нет ждущих вопросов.`)}</div>;
-  } else {
-    const props: Props = {
-      q: e.q,
-      sending: e.sending,
-      closed: !!e.done,
-      reply: (reply, text) => void asks.answer(callsign, e.q.question, reply, text),
-    };
-    body = (
-      <>
-        {e.q.kind === "ask" ? <AskQuestions key={e.q.question} {...props} /> : e.q.kind === "perm" ? <PermQuestion key={e.q.question} {...props} /> : <FormQuestion key={e.q.question} {...props} />}
-        <Outcome e={e} callsign={callsign} />
-        <Audience q={e.q} />
-      </>
+    return (
+      <Pad>
+        <div className="ask-empty">{word || (loading ? "Загружаю вопросы…" : `У ${callsign} нет ждущих вопросов.`)}</div>
+      </Pad>
     );
   }
-  return <Pad className="ask">{body}</Pad>;
+  const props: Props = {
+    q: e.q,
+    sending: e.sending,
+    closed: !!e.done,
+    reply: (reply, text) => void asks.answer(callsign, e.q.question, reply, text),
+  };
+  return (
+    <Pad className="ask">
+      {e.q.kind === "ask" ? <AskQuestions key={e.q.question} {...props} /> : e.q.kind === "perm" ? <PermQuestion key={e.q.question} {...props} /> : <FormQuestion key={e.q.question} {...props} />}
+      <Outcome e={e} callsign={callsign} />
+      <Audience q={e.q} />
+    </Pad>
+  );
 }

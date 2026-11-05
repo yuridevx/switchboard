@@ -17,7 +17,8 @@ export type Row =
   | { k: "task"; id: string }
   | { k: "cmd"; id: string; name: string; args: string; out?: string }
   | { k: "sum"; id: string; stats: string; text: string }
-  | { k: "res"; id: string; err?: boolean; text: string; context?: string; why?: string };
+  | { k: "res"; id: string; bits: string[] }
+  | { k: "end"; id: string; text: string; why?: string };
 
 export type Tool = {
   id: string;
@@ -120,6 +121,8 @@ function assistant(v: View, m: Msg) {
   }
   if (m.parent_tool_use_id) return;
   if (msg.stop_reason === "refusal" && m.isApiErrorMessage) {
+    const last = v.rows.at(-1);
+    if (last?.k === "ban" && last.refusal) return;
     v.rows.push({ k: "ban", id: `ban-${id}`, tone: "bad", icon: "shield-off", title: `${modelName(msg.model)} отказалась отвечать`, refusal: true, body: area(msg.stop_details?.category) });
   } else if (m.error) {
     v.rows.push({ k: "ban", id: `ban-${id}`, tone: "bad", title: "Ошибка", body: API_ERRORS[m.error] ?? String(m.error) });
@@ -139,7 +142,7 @@ function picsOf(blocks: Msg[]): string[] {
 }
 
 /** Теги сообщений не от человека. */
-const TAGGED = /^\s*<(fleet-message|fleet-question|cross-session-message|agent-message)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>/;
+const TAGGED = /^\s*<(fleet-message|fleet-question|cross-session-message|agent-message)\b([^>]*)>\n?([\s\S]*?)\n?<\/\1>\s*$/;
 const COMMAND = /<command-name>\s*([^<]*?)\s*<\/command-name>|<command-message>\s*([^<]*?)\s*<\/command-message>/;
 const ARGS = /<command-args>([\s\S]*?)<\/command-args>/;
 const STDOUT = /^\s*<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/;
@@ -170,8 +173,8 @@ function endTask(v: View, id: string, status: string, summary?: string) {
     return;
   }
   if (t.tool && !t.bg) return;
-  const text = t.desc ? `${words[0]} · ${t.desc}` : words[0];
-  const end: Row = { k: "line", id: `end-${id}`, tone: words[1], text };
+  const about = summary ?? t.desc;
+  const end: Row = { k: "line", id: `end-${id}`, tone: words[1], icon: t.type === "local_agent" ? "bot" : "terminal", text: words[0], ...(about ? { dim: ` · ${about}` } : {}) };
   if (row >= 0) v.rows[row] = end;
   else v.rows.push(end);
 }
@@ -201,7 +204,7 @@ function user(v: View, m: Msg) {
   }
   const text = blocks.filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
   const pics = picsOf(blocks);
-  const files = blocks.filter((b) => b.type === "document").map((b) => String(b.title ?? b.name ?? "документ"));
+  const files: string[] = m.files ?? [];
   if (m.parent_tool_use_id || (!text.trim() && !pics.length && !files.length)) return;
   v.suggestion = "";
 
@@ -225,9 +228,9 @@ function user(v: View, m: Msg) {
   }
   if (m.isSynthetic || m.isMeta || SERVICE.test(text) || STDERR.test(text)) return;
   if (INTERRUPT.test(text)) {
-    const at = timeOf(m);
+    const at = timeOf(m) || (m.arrived ? hhmm(m.arrived) : "");
     v.interrupted = true;
-    v.rows.push({ k: "sys", id: idOf(v, m), tone: "wait", text: at ? `прервано · ${at}` : "прервано" });
+    v.rows.push({ k: "sys", id: idOf(v, m), tone: "wait", icon: "stop", text: at ? `прервано · ${at}` : "прервано" });
     return;
   }
   const command = COMMAND.exec(text);
@@ -265,7 +268,7 @@ function refusalFallback(v: View, m: Msg) {
   }
   const was = modelName(field(m, "original_model"));
   const now = modelName(field(m, "fallback_model"));
-  ban(v, m, "wait", `${was} отказалась — ответ переписан моделью ${now}`, sentence(m.scope === "local" ? "Только этот ответ: модель сессии прежняя" : `Дальше сессия идёт на ${now}`, area(field(m, "api_refusal_category")), field(m, "api_refusal_explanation")), "shield-off");
+  ban(v, m, "wait", `${was} отказалась — ответ переписан моделью ${now}`, [m.scope === "local" ? "Только этот ответ: модель сессии прежняя." : `Дальше сессия идёт на ${now}.`, sentence(area(field(m, "api_refusal_category")), field(m, "api_refusal_explanation"))].filter(Boolean).join(" "), "shield-off");
 }
 
 function refusalEnd(v: View, m: Msg) {
@@ -291,7 +294,7 @@ function taskStarted(v: View, m: Msg) {
 const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
   init(v, m) {
     const strip = (x: unknown) => String(x).replace(/\[.*$/, "");
-    if (v.model && m.model && strip(v.model) !== strip(m.model)) v.rows.push({ k: "sys", id: idOf(v, m), icon: "shuffle", text: `модель: ${modelName(v.model)} → ${modelName(m.model)}` });
+    if (v.model && m.model && strip(v.model) !== strip(m.model)) v.rows.push({ k: "sys", id: idOf(v, m), icon: "model", text: `модель: ${modelName(v.model)} → ${modelName(m.model)}` });
     v.model = m.model ?? v.model;
   },
   session_state_changed(v, m) {
@@ -306,12 +309,12 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
   },
   compact_boundary(v, m) {
     v.compacting = false;
-    v.rows.push({ k: "sys", id: idOf(v, m), icon: "archive", text: compactStats(m), boundary: true });
+    if (field(field(m, "compact_metadata") ?? {}, "pre_tokens")) v.rows.push({ k: "sys", id: idOf(v, m), icon: "archive", text: compactStats(m), boundary: true });
   },
   api_retry(v, m) {
     const last = v.rows.at(-1);
     if (last?.k === "sys" && last.retry) v.rows.pop();
-    const bits = [`повтор запроса к API · ${m.attempt} из ${m.max_retries}`, m.error, m.retry_delay_ms ? `через ${Math.round(m.retry_delay_ms / 1000)} с` : ""];
+    const bits = [`повтор запроса к API · ${m.attempt} из ${m.max_retries}`, m.error ?? m.error_status, m.retry_delay_ms ? `через ${Math.round(m.retry_delay_ms / 1000)} с` : ""];
     v.rows.push({ k: "sys", id: idOf(v, m), tone: "wait", icon: "refresh-cw", text: bits.filter(Boolean).join(" · "), retry: true });
   },
   model_refusal_fallback: refusalFallback,
@@ -324,7 +327,7 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
   hook_response(v, m) {
     if (m.outcome ? m.outcome === "success" : !m.exit_code) return;
     const why = String(m.stderr || m.output || "").slice(0, 300);
-    v.rows.push({ k: "line", id: idOf(v, m), tone: "wait", icon: "anchor", text: `Хук ${m.hook_name} не сработал${m.exit_code != null ? ` (код ${m.exit_code})` : ""}${why ? ": " : ""}`, dim: why });
+    v.rows.push({ k: "line", id: idOf(v, m), tone: "wait", icon: "anchor", text: `Хук ${m.hook_name} не сработал${m.exit_code != null ? ` (код ${m.exit_code})` : ""}`, ...(why ? { dim: `: ${why}` } : {}) });
   },
   memory_recall(v, m) {
     const names = ((m.memories ?? []) as Msg[]).map((x) => String(x.path).split(/[\\/]/).pop());
@@ -348,7 +351,10 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
     if (text) line(v, m, text, failed ? "bad" : undefined, "file");
   },
   local_command_output(v, m) {
-    v.rows.push({ k: "line", id: idOf(v, m), icon: "zap", text: String(m.content ?? "").trim(), local: true });
+    const text = String(m.content ?? "").trim();
+    const last = v.rows.at(-1);
+    if (last?.k === "cmd" && last.out === undefined) last.out = text;
+    else v.rows.push({ k: "line", id: idOf(v, m), icon: "zap", text, local: true });
   },
   mirror_error(v, m) {
     if (m.error) bad(v, m, String(m.error));
@@ -395,7 +401,7 @@ function result(v: View, m: Msg) {
   v.compacting = false;
   for (const [parent, id] of Object.entries(v.stream)) {
     const r = findReply(parent ? toolOf(v, parent).steps : v.rows, id);
-    if (r) r.parts = r.parts.filter((p) => p.t !== "think" || !p.live).map((p) => (p.t === "text" ? { ...p, live: false } : p));
+    if (r) r.parts = r.parts.map((p) => (p.t === "tool" ? p : { ...p, live: false }));
   }
   v.stream = {};
   const was = v.interrupted;
@@ -407,13 +413,13 @@ function result(v: View, m: Msg) {
     if (was) return;
     const word = RESULT_ERRORS[m.subtype] ?? m.subtype ?? "ошибка";
     const why = m.result || (m.errors as string[] | undefined)?.join("; ");
-    v.rows.push({ k: "res", id: idOf(v, m), err: true, text: `ход оборвался: ${word}`, ...(why ? { why } : {}) });
+    v.rows.push({ k: "end", id: idOf(v, m), text: `ход оборвался: ${word}`, ...(why ? { why } : {}) });
     return;
   }
   const usage = m.usage ?? {};
   const inContext = (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-  const bits = ["ход закончен", m.duration_ms ? duration(m.duration_ms) : "", m.num_turns ? `${m.num_turns} ${plural(m.num_turns, "шаг", "шага", "шагов")}` : "", cost !== null ? `$${cost.toFixed(2).replace(".", ",")}` : ""];
-  v.rows.push({ k: "res", id: idOf(v, m), text: bits.filter(Boolean).join(" · "), ...(inContext ? { context: `${kilo(inContext)} в контексте` } : {}) });
+  const bits = ["ход закончен", m.duration_ms ? duration(m.duration_ms) : "", m.num_turns ? `${m.num_turns} ${plural(m.num_turns, "шаг", "шага", "шагов")}` : "", cost !== null ? `$${cost.toFixed(2).replace(".", ",")}` : "", inContext ? `${kilo(inContext)} в контексте` : ""];
+  v.rows.push({ k: "res", id: idOf(v, m), bits: bits.filter(Boolean) });
 }
 
 function rateLimit(v: View, m: Msg) {
@@ -455,7 +461,7 @@ export function step(v: View, m: Msg): void {
       for (const id of (m.preceding_tool_use_ids ?? []) as string[]) toolOf(v, id).note = m.summary;
       return;
     case "tool_progress":
-      toolOf(v, m.tool_use_id).secs = m.elapsed_time_seconds;
+      if (v.tools[m.tool_use_id]) v.tools[m.tool_use_id].secs = m.elapsed_time_seconds;
       return;
     case "prompt_suggestion":
       v.suggestion = m.suggestion ?? "";

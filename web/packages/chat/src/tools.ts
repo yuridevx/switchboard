@@ -12,7 +12,7 @@ const SEARCH = { icon: "search", body: "output" as const };
 const TASKS: Kind = { word: "Задачи", icon: "list-checks", keys: ["subject", "taskId"] };
 const CRON: Kind = { word: "Расписание", icon: "calendar-clock", keys: ["reason", "prompt", "cron"] };
 const STOP_TASK: Kind = { word: "Остановка задачи", icon: "square", keys: ["task_id", "shell_id"] };
-const OUTPUT_OF: Kind = { word: "Вывод задачи", icon: "terminal", keys: ["task_id", "bash_id"], body: "output" };
+const OUTPUT_OF: Kind = { word: "Вывод задачи", icon: "terminal", keys: ["task_id", "bash_id"] };
 const WORKTREE: Kind = { word: "Ворктри", icon: "git-branch", keys: ["name", "action"] };
 
 const KINDS: Record<string, Kind> = {
@@ -26,7 +26,7 @@ const KINDS: Record<string, Kind> = {
   Grep: { word: "Поиск", ...SEARCH, keys: ["pattern", "path", "glob"] },
   Glob: { word: "Файлы по маске", icon: "folder-search", keys: ["pattern", "path"], body: "output" },
   WebFetch: { word: "Страница", icon: "globe", keys: ["url"], body: "output" },
-  WebSearch: { word: "Поиск в сети", icon: "globe", keys: ["query"], body: "output" },
+  WebSearch: { word: "Поиск в сети", icon: "search", keys: ["query"], body: "output" },
   TodoWrite: { word: "Задачи", icon: "list-checks", body: "todos", open: true },
   Agent: AGENT,
   Task: AGENT,
@@ -96,7 +96,6 @@ export function toolState(tool: Tool, task: Task | undefined, waiting: boolean):
   if (waiting) return "wait";
   if (task) {
     if (task.end === "stopped" || task.end === "killed") return "stopped";
-    if (task.end === "failed") return "error";
     if (!task.end) return task.bg ? "bg" : tool.result && !isAgent(tool) ? resultState(tool) : "running";
   }
   return tool.result ? resultState(tool) : "running";
@@ -105,5 +104,5 @@ export function toolState(tool: Tool, task: Task | undefined, waiting: boolean):
 const resultState = (tool: Tool): ToolState => (isDenied(tool) ? "denied" : tool.result?.error ? "error" : "ok");
 
 /** Метка «в фоне» без задачи. */
-export const startedInBackground = (tool: Tool) => !tool.task && (tool.input?.run_in_background === true || /^Command running in background/.test(tool.result?.text ?? ""));
+export const startedInBackground = (tool: Tool, task?: Task) => (task ? task.bg && !!task.end : tool.input?.run_in_background === true || /^Command running in background/.test(tool.result?.text ?? ""));
 

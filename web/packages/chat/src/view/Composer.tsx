@@ -1,7 +1,7 @@
 // Ввод: текст, вложения, подсказки «/» и «@», режим разрешений. Текст и вложения — состояние этого компонента: буква ввода не трогает стор.
 import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import { ArrowUp, AtSign, File as FileIcon, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
-import { isLive, PERM_MODES, permModeName, sessionLabel, sessionOf, useApp, useModule } from "@switchboard/web-ui";
+import { ArrowUp, AtSign, FileText, Lightbulb, Paperclip, Slash, Square, X } from "lucide-react";
+import { Area, Btn, IconBtn, isLive, PERM_MODES, permModeName, RowBtn, Sel, sessionLabel, sessionOf, useApp, useModule } from "@switchboard/web-ui";
 import type { Attachment, Chats } from "../store.ts";
 
 const SIDE = "/btw";
@@ -27,18 +27,19 @@ function ModeSelect({ callsign }: { callsign: string }) {
   const mode = app.use(() => sessionOf(app, callsign)?.mode as string | undefined);
   const live = app.use(() => isLive(sessionOf(app, callsign)?.state));
   const models = app.use(() => chats.conv(callsign).models);
-  const model = app.use(() => chats.conv(callsign).view.model ?? (sessionOf(app, callsign)?.model as string | undefined) ?? "");
+  const model = app.use(() => chats.conv(callsign).view.model ?? "");
   useEffect(() => {
     if (mode !== undefined && live) void chats.loadModels(callsign);
   }, [mode !== undefined, live, callsign]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (mode === undefined) return null;
+  if (mode === undefined || !live) return null;
   // модель сессии в списке SDK; не нашлась — запись по умолчанию
   const found = models?.find((m) => m.value !== "default" && model.includes(m.value)) ?? models?.find((m) => m.value === "default");
   const list = PERM_MODES.filter(([value]) => value !== "auto" || found?.supportsAutoMode || mode === "auto");
   return (
-    <select
+    <Sel
       className="chat-mode"
       aria-label="Режим разрешений"
+      title="Режим разрешений"
       data-mode={mode}
       value={mode}
       onChange={(e) => void chats.act(callsign, "setPermissionMode", [e.currentTarget.value])}
@@ -49,7 +50,7 @@ function ModeSelect({ callsign }: { callsign: string }) {
           {label}
         </option>
       ))}
-    </select>
+    </Sel>
   );
 }
 
@@ -64,6 +65,7 @@ export function Composer({ callsign }: { callsign: string }) {
   const [found, setFound] = useState<string[]>([]);
   const [drag, setDrag] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
+  const picker = useRef<HTMLInputElement>(null);
   const textNow = useRef(text);
   const asked = useRef(0);
 
@@ -183,25 +185,29 @@ export function Composer({ callsign }: { callsign: string }) {
   return (
     <div className="chat-under">
       {!text && hint ? (
-        <button type="button" className="chat-hint" onClick={() => put(hint)}>
+        <Btn type="button" className="chat-hint" onClick={() => put(hint)}>
           <Lightbulb size={13} />
           <span>{hint}</span>
           <kbd>Tab</kbd>
-        </button>
+        </Btn>
       ) : null}
       {items.length ? (
-        <div className="chat-sug" role="listbox">
+        <div className="chat-sug" data-kind={cq !== undefined ? "cmd" : "file"} role="listbox">
           {items.map((item, i) => (
-            <button key={item.value} type="button" role="option" className="chat-sugi" aria-selected={i === cur} onMouseDown={(e) => e.preventDefault()} onClick={() => accept(item)}>
-              {item.file ? <FileIcon size={13} /> : null}
+            <RowBtn key={item.value} role="option" className="chat-sugi" aria-selected={i === cur} onClick={() => accept(item)}>
+              {item.file ? <FileText size={13} /> : null}
               <b>{item.label}</b>
               {item.about ? <span>{item.about}</span> : null}
-            </button>
+            </RowBtn>
           ))}
         </div>
       ) : null}
-      <div
+      <form
         className={drag ? "chat-comp drag" : "chat-comp"}
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
         onDragOver={(e) => {
           if (![...(e.dataTransfer?.types ?? [])].includes("Files")) return;
           e.preventDefault();
@@ -214,16 +220,16 @@ export function Composer({ callsign }: { callsign: string }) {
           <div className="chat-files">
             {files.map((f, i) => (
               <span key={`${i}:${f.name}`} className="chat-file">
-                {f.media_type.startsWith("image/") ? <img src={`data:${f.media_type};base64,${f.data}`} alt="" /> : null}
+                {f.media_type.startsWith("image/") ? <img src={`data:${f.media_type};base64,${f.data}`} alt="" /> : <FileText size={13} />}
                 {f.name}
-                <button type="button" aria-label={`убрать ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
+                <IconBtn aria-label={`убрать ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}>
                   <X size={12} />
-                </button>
+                </IconBtn>
               </span>
             ))}
           </div>
         ) : null}
-        <textarea
+        <Area
           ref={field}
           className="chat-inp"
           rows={1}
@@ -243,57 +249,58 @@ export function Composer({ callsign }: { callsign: string }) {
           onPaste={onPaste}
         />
         <div className="chat-tools">
-          <label className="chat-tb" aria-label="Вложить файл">
+          <IconBtn className="chat-tb" aria-label="Вложить файл" title="Вложить файл" onClick={() => picker.current?.click()}>
             <Paperclip size={16} />
-            <input
-              type="file"
-              multiple
-              hidden
-              onChange={(e) => {
-                void add(e.currentTarget.files);
-                e.currentTarget.value = "";
-              }}
-            />
-          </label>
+          </IconBtn>
           {canFiles ? (
-            <button
-              type="button"
+            <IconBtn
               className="chat-tb"
               aria-label="Файл папки"
+              title="Файл папки"
               onClick={() => {
                 put(`${text}${text && !/\s$/.test(text) ? " " : ""}@`);
                 field.current?.focus();
               }}
             >
               <AtSign size={16} />
-            </button>
+            </IconBtn>
           ) : null}
           {canAct ? (
-            <button
-              type="button"
+            <IconBtn
               className="chat-tb"
               aria-label="Команда"
+              title="Команда"
               onClick={() => {
                 put("/");
                 field.current?.focus();
               }}
             >
               <Slash size={16} />
-            </button>
+            </IconBtn>
           ) : null}
           <ModeSelect callsign={callsign} />
           <span className="chat-grow" />
           {busy && canAct ? (
-            <button type="button" className="chat-stop" onClick={() => void chats.act(callsign, "interrupt")}>
-              <Square size={12} />
+            <Btn type="button" bad className="chat-stop" onClick={() => void chats.act(callsign, "interrupt")}>
+              <Square size={11} />
               Прервать
-            </button>
+            </Btn>
           ) : null}
-          <button type="button" className="chat-send" aria-label="Отправить" disabled={!canSend} onMouseDown={(e) => e.preventDefault()} onClick={submit}>
+          <IconBtn type="submit" className="chat-send" aria-label="Отправить" disabled={!canSend}>
             <ArrowUp size={18} />
-          </button>
+          </IconBtn>
         </div>
-      </div>
+        <input
+          ref={picker}
+          type="file"
+          multiple
+          hidden
+          onChange={(e) => {
+            void add(e.currentTarget.files);
+            e.currentTarget.value = "";
+          }}
+        />
+      </form>
     </div>
   );
 }
