@@ -1691,6 +1691,29 @@ describe("входы manage: остальные формы", () => {
   });
 });
 
+describe("спорные места: найдено при сверке", () => {
+  it("SDK отказал в модели — выбор не записан: настоящий setModel отвечает «not found», а старт с такой моделью проваливает каждый ход", async () => {
+    // опыт на SDK 0.3.311, claude-haiku-5-5: setModel("нет-такой-модели") → Model not found; query с ней — init есть, result is_error на каждом ходу
+    const { st, req } = await bench();
+    await st.open("d@laptop");
+    await req({ type: "session.update", callsign: "d@laptop", model: "sonnet" });
+    (st.query("d@laptop") as unknown as Record<string, unknown>).setModel = async () => {
+      throw new Error("Model 'нет' not found");
+    };
+    expect(await req({ type: "session.update", callsign: "d@laptop", model: "нет", effort: "low" })).toMatchObject({ ok: false, error: "sdk_error", why: "d@laptop: setModel — Model 'нет' not found" });
+    expect(st.session("host-manage", "d@laptop")!.store().get()).toEqual({ model: "sonnet" });
+    await st.session("host-manage", "d@laptop")!.restart();
+    expect(st.query("d@laptop").options.model).toBe("sonnet");
+  });
+
+  it("имя сессии начинается с буквы или цифры: точка в начале — системное имя адреса", async () => {
+    const { st, req } = await bench();
+    for (const name of [".keeper", "-x", "_x", "ю"]) expect(await req({ type: "session.open", machine: "laptop", name, dir: "~" }), name).toMatchObject({ ok: false, error: "bad_name" });
+    expect(await req({ type: "session.open", machine: "laptop", name: "a.b_c-1", dir: "~" })).toMatchObject({ ok: true });
+    expect(st.kernel.sessions.size).toBe(1);
+  });
+});
+
 describe("machine.dirs: форма ответа", () => {
   it("порядок по кодам знаков; путь в ответе как в запросе; ссылка на папку не папка; путь не строка и пустой — bad_frame", async () => {
     const b = await bench({ machine: "pc" });

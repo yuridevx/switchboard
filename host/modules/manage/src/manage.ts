@@ -161,18 +161,23 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         checkSpec(req, `session.update ${callsign}`);
         const given = (k: string) => req[k] !== undefined;
         const fields = ["model", "effort", "fast", "style", "thinking"].filter(given);
-        if (fields.length) {
-          s.store<Spec>().update((cur) => ({ ...cur, ...Object.fromEntries(fields.map((k) => [k, req[k]])) }));
-          // поля model и effort меняются вне событий SDK: roster узнаёт сразу
-          s.refresh();
-        }
+        // запись — после согласия SDK: отвергнутая модель проваливала бы каждый ход после resume
+        const save = (keys: string[]) => s.store<Spec>().update((cur) => ({ ...cur, ...Object.fromEntries(keys.map((k) => [k, req[k]])) }));
         const now: string[] = [];
         if (LIVE.has(s.state)) {
-          if (given("model")) await sdk(s, "setModel", req.model);
-          const flags = Object.fromEntries(fields.filter((k) => k !== "model").map((k) => [k === "effort" ? "effortLevel" : SETTING[k], req[k]]));
-          if (Object.keys(flags).length) await sdk(s, "applyFlagSettings", flags);
+          if (given("model")) {
+            await sdk(s, "setModel", req.model);
+            save(["model"]);
+          }
+          const flags = fields.filter((k) => k !== "model");
+          if (flags.length) {
+            await sdk(s, "applyFlagSettings", Object.fromEntries(flags.map((k) => [k === "effort" ? "effortLevel" : SETTING[k], req[k]])));
+            save(flags);
+          }
           now.push(...fields);
-        }
+        } else if (fields.length) save(fields);
+        // поля model и effort меняются вне событий SDK: roster узнаёт сразу
+        if (fields.length) s.refresh();
         if (given("title")) {
           await sdk(s, "renameSession", req.title);
           now.push("title");

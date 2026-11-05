@@ -591,6 +591,7 @@ describe("shell: остальные формы", { timeout: 30_000 }, () => {
   it("тип файла по расширению без учёта регистра, неизвестное — octet-stream; порядок файлов по имени", async () => {
     const { req } = await machine("laptop");
     const types: Record<string, string> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", svg: "image/svg+xml", txt: "text/plain", log: "text/plain", md: "text/markdown", csv: "text/csv", html: "text/html", htm: "text/html", json: "application/json", xml: "application/xml", yaml: "application/yaml", yml: "application/yaml", pdf: "application/pdf", zip: "application/zip", ts: "application/octet-stream", tsv: "application/octet-stream", gz: "application/octet-stream", bmp: "application/octet-stream", jsonl: "application/octet-stream" };
+    types.xlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     const script = Object.keys(types).map((e) => `echo hi > "$SB_OUT/f.${e}"`).join("; ") + '; echo x > "$SB_OUT/plain"; echo y > "$SB_OUT/UP.TXT"';
     const files = (await req("shell.run", { run: rid("m"), shell: "bash", script, background: false })).result!.files!;
     expect(Object.fromEntries(files.map((f) => [f.name, f.media_type]))).toEqual({ ...Object.fromEntries(Object.entries(types).map(([e, t]) => [`f.${e}`, t])), plain: "application/octet-stream", "UP.TXT": "text/plain" });
@@ -618,6 +619,12 @@ describe("shell: остальные формы", { timeout: 30_000 }, () => {
       "── ру.bin (application/octet-stream) ──\nтест",
     ]);
     expect(readFileSync(at("nul.dat"))).toEqual(Buffer.from("a\0b"));
+  });
+
+  it("скрипт стёр свою папку выхода: итог без файлов, модуль жив", async () => {
+    const { req } = await machine("laptop");
+    expect((await req("shell.run", { run: rid("rm"), shell: "bash", script: 'rm -rf "$SB_OUT"; echo x', background: false })).result).toMatchObject({ state: "exit", code: 0, stdout: "x\n", files: [] });
+    expect((await req("shell.run", { run: rid("rm"), shell: "bash", script: "echo y", background: false })).ok).toBe(true);
   });
 
   it("строка журнала: первая строка скрипта, не длиннее 200 знаков", async () => {
