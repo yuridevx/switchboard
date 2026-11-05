@@ -1,31 +1,12 @@
-// Модуль разговора с сессией: ввод, чтение, лента и вопросы одной сессии. Части делят только host и список зрителей.
-import type { Host, Module } from "@switchboard/host";
-import { makeFeed } from "./feed.ts";
-import { makeInput } from "./input.ts";
-import { makeQuestions } from "./questions.ts";
-import { makeRead } from "./read.ts";
+// Снесено: вход контракта отвечает отказом словом.
+import { refuse, type Module } from "@switchboard/host";
 
+const gone = () => {
+  throw refuse("снесено");
+};
 
-export function make(): Module {
-  let current: Host;
-  const host = () => current;
-  const input = makeInput(host);
-  const feed = makeFeed(host);
-  const questions = makeQuestions(host, feed.viewers);
-  return {
-    // предложение следующего ввода и частичные сообщения: оба едут лентой
-    session: () => ({ promptSuggestions: true, includePartialMessages: true }),
-    requests: { ...input.requests, ...makeRead(host), ...feed.requests, ...questions.requests },
-    frames: input.frames,
-    decide: questions.decide,
-    elicit: questions.elicit,
-    on: feed.on,
-    start(h) {
-      current = h;
-    },
-    // ждущие вопросы не трогает: ответ при остановке был бы ответом за человека
-    stop() {
-      feed.flushAll();
-    },
-  };
-}
+export const make = (): Module => ({
+  requests: { "session.prompt": gone, message: gone, "session.history": gone, "session.files": gone, "session.watch": gone, "session.unwatch": gone, answer: gone, "question.list": gone },
+});
+export const wrap = (_from: string, _body: string) => "снесено";
+export const task = wrap;

@@ -1,9 +1,5 @@
 // Галерея карточек для снимков: образцы сообщений SDK идут той же свёрткой и теми же строками, что и лента. Кнопки молчат.
-import { useMemo } from "react";
-import { duration, hhmm } from "@switchboard/web-ui";
-import { foldAll, type Msg } from "../../src/state/fold.ts";
-import { EnvCtx, type Env } from "../../src/view/env.tsx";
-import { Rows } from "../../src/view/Rows.tsx";
+type Msg = Record<string, unknown>;
 
 const asst = (uuid: string, content: unknown[], x: Msg = {}) => ({ type: "assistant", uuid, message: { id: uuid, model: "claude-opus-5-5", content }, ...x });
 const tool = (uuid: string, name: string, input: Msg) => asst(uuid, [{ type: "tool_use", id: `t-${uuid}`, name, input }]);
@@ -86,33 +82,10 @@ const SECTIONS: Array<[string, Sample[]]> = [
   ],
 ];
 
-const silent = (view: Env["view"]): Env => ({
-  callsign: "site@laptop",
-  view,
-  sends: {},
-  canCall: true,
-  wide: true,
-  label: (cs) => cs,
-  useWaiting: () => false,
-  act: () => {},
-  fillText: () => {},
-  again: () => {},
-  cancel: () => {},
-  probeRewind: () => {},
-  applyRewind: () => {},
-  cancelRewind: () => {},
-});
-
 function SampleRow({ s }: { s: Sample }) {
-  const view = useMemo(() => foldAll(s.msgs, { duration, time: (t) => hhmm(t * 1000) }), [s]);
   return (
     <div className="chat-galr" data-sample={s.title}>
       <div className="chat-galn">{s.title}</div>
-      <div className="chat-galc">
-        <EnvCtx.Provider value={silent(view)}>
-          <Rows rows={view.rows} />
-        </EnvCtx.Provider>
-      </div>
     </div>
   );
 }
