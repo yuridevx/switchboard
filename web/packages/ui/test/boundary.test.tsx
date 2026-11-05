@@ -1140,6 +1140,56 @@ describe("набор сверх старых тестов (чьё: код)", () 
       expect(el.querySelector("section.footnotes li#user-content-fn-1 a.data-footnote-backref")!.getAttribute("href")).toBe("#user-content-fnref-1");
     });
 
+    it("находки сверки: подпись копирования постоянна, без своей подписи слова нет; языки и псевдонимы подсветки; разрешённые теги; ссылка на этот источник с #; сырой pre без шапки", async () => {
+      // чьё: код — сравнение деревьев и строк старого и нового кода
+      vi.stubGlobal("navigator", { clipboard: { writeText: async () => {} } });
+      const copy = await draw(
+        <>
+          <ui.CopyButton text="т" label="копировать" />
+          <ui.CopyButton text="т" />
+        </>,
+      );
+      const [own, plain] = copy.querySelectorAll("button");
+      expect([own.getAttribute("aria-label"), own.getAttribute("title"), own.textContent]).toEqual(["Копировать", "Копировать", "копировать"]);
+      await act(async () => plain.click());
+      expect(plain.textContent).toBe("");
+      expect(plain.querySelector("svg")!.getAttribute("class")).toContain("lucide-check");
+      const Show = ({ lang }: { lang: string }) => <code>{ui.useHighlighted("if (x) { $a = 1 }", lang)}</code>;
+      for (const lang of ["ps1", "toml", "zsh", "cs"]) expect((await draw(<Show lang={lang} />)).querySelector("[class^=hljs-]"), lang).not.toBeNull();
+      expect((await draw(<Show lang="kotlin" />)).querySelector("[class^=hljs-]")).toBeNull();
+      const md = await draw(<ui.Markdown text={`<cite>ц</cite><picture><source srcset="https://e.com/a.png" media="(min-width:1px)" type="image/png" onerror="a()"><img src="https://e.com/a.png" alt="к"></picture>\n\n<pre>сырой</pre>\n\n[свой](${location.origin}/other#x) [чужой](https://other.example/#x)`} />);
+      expect(md.querySelector("cite")).not.toBeNull();
+      const source = md.querySelector("picture source")!;
+      expect([source.getAttribute("srcset"), source.getAttribute("media"), source.getAttribute("type"), source.hasAttribute("onerror")]).toEqual(["https://e.com/a.png", "(min-width:1px)", "image/png", false]);
+      expect(md.querySelector("pre")!.closest(".cb")!.querySelector(".cb-h")).toBeNull();
+      const links = [...md.querySelectorAll("a")];
+      expect(links.map((a) => a.getAttribute("href"))).toEqual([null, "https://other.example/#x"]);
+    });
+
+    it("находки сверки: длительность и «назад» округлением; один ждущий слот подписан «Слот»; offline с пустой машиной; вопрос машине несёт её адрес", async () => {
+      // чьё: код — сравнение деревьев и строк старого и нового кода
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 10, 3, 12, 0, 0));
+      expect(ui.duration(11 * 60000 + 5000)).toBe("11 мин 5 с");
+      expect(ui.ago(Date.now() - 45_000)).toBe("1 мин назад");
+      vi.useRealTimers();
+      const one = await draw(<ui.SlotPick slots={{ main: { wait: 1_800_000_000_000 } }} value="" on={() => {}} label="Аккаунт" />);
+      expect(one.querySelector("[data-slot-wait]")!.textContent).toMatch(/^Слот main · ждёт сброса /);
+      expect(ui.linkText("offline", "")).toBe("Машина не на связи");
+      const read = vi.fn(async () => ({ ok: true as const, result: 1 }));
+      const app = { use: <T,>(s: (p?: T) => T) => s(), link: () => "open", can: () => true, roster: () => null, read } as never as ui.App;
+      const V = () => {
+        ui.useMachineLoad("m", "x");
+        return null;
+      };
+      await draw(
+        <ui.AppCtx.Provider value={app}>
+          <V />
+        </ui.AppCtx.Provider>,
+      );
+      expect(read).toHaveBeenCalledWith("x", { machine: "m" });
+    });
+
     it("манифест и основание стилей — у контракта", () => {
       expect(ui.manifest.name).toBe("web-ui");
       expect(typeof ui.UI_CSS).toBe("string");

@@ -3072,3 +3072,148 @@ describe("разметка вида: на ней стоят стили и сни
     expect(shape(t.$(".sb-badc")!)).toEqual(["b.", "code.", "span."]);
   });
 });
+
+describe("находки сверки деревьев и строк (чьё: код)", () => {
+  const man = (name: string, provides: Record<string, number>, uses: Record<string, number> = {}): Manifest => ({ name, type: "web", version: "1.0.0", provides, uses: { "app@web-core": 2, ...uses } });
+  const ctrl = (over: KeyboardEventInit) => document.dispatchEvent(new KeyboardEvent("keydown", { ctrlKey: true, bubbles: true, ...over }));
+  /** Модуль m: разделы a и c, экран b; всё в коробке. */
+  function mod(over: Partial<AppModule> = {}, uses: Record<string, number> = {}) {
+    const box: { app: App } = { app: null as never };
+    const part: AppPart = {
+      manifest: man("m", { a: 1, b: 1, c: 1 }, uses),
+      module: (app) => {
+        box.app = app;
+        return { screens: { a: { nav: "А", view: () => <i data-s="a" /> }, b: { label: "Б", view: () => <i data-s="b" /> }, c: { nav: "В", group: "Г", view: () => <i data-s="c" /> } }, ...over };
+      },
+    };
+    return { part, box };
+  }
+  beforeEach(() => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("поздний ответ без ждущего не получает ответа: unknown_request — только на запрос", async () => {
+    const relay = new FakeRelay(oneMachine());
+    await stand([mod().part], { relay });
+    const before = relay.got.length;
+    relay.push({ type: "reply", id: "late", ok: true, from: "site@laptop" });
+    await flush();
+    expect(relay.got).toHaveLength(before);
+  });
+
+  it("open до первого roster: адрес записан, первый roster открывает этот экран; имя из uses без владельца в сборке — адрес меняется, экран домашний", async () => {
+    const early = mod({ start: () => early.box.app.open("b") });
+    const t = await stand([early.part]);
+    expect(location.hash).toBe("#b");
+    expect(t.$('[data-s="b"]')).not.toBeNull();
+    const m = mod({}, { "absent@nobody": 1 });
+    const u = await stand([m.part]);
+    m.box.app.open("absent", { x: "1" });
+    await flush();
+    expect(location.hash).toBe("#absent?x=1");
+    expect(u.run.failed).toEqual({});
+    expect(u.$('[data-s="a"]')).not.toBeNull();
+  });
+
+  it("два экрана с одним компонентом: смена экрана начинает его заново", async () => {
+    let mounts = 0;
+    const Same = () => {
+      useEffect(() => void mounts++, []);
+      return null;
+    };
+    const m = mod({ screens: { a: { nav: "А", view: Same }, b: { view: Same } } });
+    await stand([m.part]);
+    m.box.app.open("b");
+    await flush();
+    expect(mounts).toBe(2);
+  });
+
+  it("открытый раздел виден в прокрутке; Ctrl K ловится и без code; show вставки — только true; подпись на «я» — мужской род; «ничего» в поиске — с отступом", async () => {
+    const scroll = vi.fn();
+    const spied = vi.spyOn(HTMLElement.prototype, "scrollIntoView").mockImplementation(scroll);
+    const m = mod();
+    const t = await stand([m.part], { wide: true });
+    expect(scroll).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
+    spied.mockRestore();
+    ctrl({ key: "k" });
+    await flush();
+    expect(t.$<HTMLElement>(".sb-palw")!.hidden).toBe(false);
+    ctrl({ key: "л" });
+    await flush();
+    expect(t.$<HTMLElement>(".sb-palw")!.hidden).toBe(true);
+    ctrl({ key: "k" });
+    await flush();
+    const input = t.$<HTMLInputElement>(".sb-palin")!;
+    input.value = "нетакого";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush();
+    expect(t.$(".sb-pal .sb-palres .sb-note")!.getAttribute("style")).toBe("padding: 10px 12px;");
+
+    const box: { app?: App } = {};
+    const guest: AppPart = { manifest: man("g", { "g.tab": 1 }, { "o.tab@o": 1 }), module: () => ({ screens: { "g.tab": { place: "o.tab", show: (() => 1) as never, view: () => null } } }) };
+    const owner: AppPart = { manifest: man("o", { o: 1, "o.tab": 1 }), module: (a) => ((box.app = a), { screens: { o: { nav: "О", view: () => null } } }) };
+    await stand([owner, guest]);
+    expect(box.app!.placed("o.tab")).toEqual([]);
+
+    const Bad = () => {
+      throw new Error("сломан");
+    };
+    const failed = await stand([{ manifest: man("m", { a: 1 }), module: () => ({ screens: { a: { nav: "А", label: "Сессия", view: Bad } } }) }]);
+    expect(failed.$(".sb-badc b")!.textContent).toBe("Сессия выключен");
+  });
+
+  it("отказ relay без слова: причина «без причины», приложение остановлено; остановка закрывает остальные соединения", async () => {
+    const relay = new FakeRelay(homeRoster());
+    const t = await stand([mod().part], { relay });
+    relay.socks[0].serverClose(1008, "");
+    await flush();
+    expect(t.run.stopped).toBe("");
+    expect(t.$(".sb-full")!.textContent).toContain("relay закрыл соединение: без причины.");
+    expect(relay.socks[1].closedWith).toMatchObject({ code: 1000 });
+  });
+
+  it("браузер без @scope: функции модулей не зовутся, их стилей на странице нет", async () => {
+    const module = vi.fn(() => ({ css: ".z{}" }));
+    const t = await stand([{ manifest: man("m", {}), module }], { options: { platform: { ios: false, standalone: false, scope: false } } });
+    expect(module).not.toHaveBeenCalled();
+    expect(t.root.querySelector("style")!.textContent).not.toContain("@scope");
+  });
+
+  it("тост после срока скрыт, текст и тон остаются в разметке", async () => {
+    const m = mod();
+    const t = await stand([m.part]);
+    vi.useFakeTimers();
+    m.box.app.toast("упало");
+    await vi.advanceTimersByTimeAsync(6_000);
+    const toast = t.$<HTMLElement>(".sb-toast")!;
+    expect(toast.hidden).toBe(true);
+    expect(toast.textContent).toBe("упало");
+    expect(toast.classList.contains("bad")).toBe(true);
+  });
+
+  it("с экрана «Домой» по режиму отображения: приглашение принимается, установки нет", async () => {
+    const win = new Proxy(window, {
+      has: (x, k) => (k === "CSSScopeRule" ? true : k in x),
+      get(x, k) {
+        if (k === "matchMedia") return (q: string) => ({ matches: q === "(display-mode: standalone)" });
+        if (k === "navigator") return new Proxy(navigator, { get: (n, p) => (p === "userAgent" ? "iPhone" : Reflect.get(n, p)) });
+        const v = Reflect.get(x, k);
+        return typeof v === "function" && k !== "Response" ? v.bind(x) : v;
+      },
+    });
+    document.body.innerHTML = '<div id="app"></div>';
+    history.replaceState(null, "", `/#invite=${INVITE}`);
+    const relay = new FakeRelay(oneMachine());
+    relay.handlers["gate.redeem"] = () => ({ ok: true, result: { key: KEY } });
+    const run = startApp({ root: document.getElementById("app")!, window: win as Window, workers: FakeRelay.WORKERS, fetch: relay.fetch, parts: [mod().part], store: memoryStore(), WebSocket: relay.WebSocket, pauseMs: 5 });
+    await run.ready;
+    await flush();
+    expect(run.stopped).toBeNull();
+    run.unmount();
+  });
+});
