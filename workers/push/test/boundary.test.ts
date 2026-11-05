@@ -293,6 +293,7 @@ describe("push.send устройству", () => {
     expect(await worker.frame({ type: "push.send", id: "x", v: 1, to: ".push", from: "@laptop", push: { to: "~a@b", type: "question", notify: NOTIFY } })).toMatchObject([{ ok: true }]);
     expect(posts.map((p) => p.url)).toEqual(["https://fcm.googleapis.com/send/pad"]);
     expect(await row("tab~a@b")).toBeUndefined();
+    expect(await row("pad~a@b")).toBeTruthy();
     expect(log).toContainEqual(expect.objectContaining({ kind: "refuse", word: "gone", why: "пропуск t1ab отозван: подписка удалена", client: "tab~a@b", type: "question" }));
     await GATE.revoke("p4ad");
     expect(await worker.frame(send("y", "pad~a@b"))).toMatchObject([{ ok: false, error: "gone" }]);

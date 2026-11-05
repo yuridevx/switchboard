@@ -33,15 +33,14 @@ const B64U = /^[A-Za-z0-9_-]+$/;
 
 /** Подписка браузера по контракту: https-адрес службы, точка P-256 и 16 байт auth. */
 function subscription(sub: unknown) {
-  if (!sub || typeof sub !== "object") return refuse("bad_frame", "нет sub");
+  if (!sub) return refuse("bad_frame", "нет sub");
   const { endpoint, keys } = sub as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
   const host = typeof endpoint === "string" && endpoint.startsWith("https://") && URL.canParse(endpoint) ? new URL(endpoint).hostname : "";
   if (!host) refuse("bad_frame", "в подписке нет https-адреса");
   const { p256dh, auth } = keys ?? {};
   if (typeof p256dh !== "string" || typeof auth !== "string") return refuse("bad_frame", "в подписке нет ключей");
   if (!B64U.test(p256dh) || !B64U.test(auth)) refuse("bad_frame", "ключи подписки — не base64url");
-  const point = unb64u(p256dh);
-  if (point.length !== 65 || point[0] !== 4) refuse("bad_frame", "p256dh — не точка P-256 в 65 Б");
+  if (unb64u(p256dh).length !== 65) refuse("bad_frame", "p256dh — не точка P-256 в 65 Б");
   if (unb64u(auth).length !== 16) refuse("bad_frame", "auth — не 16 Б");
   return { endpoint: endpoint as string, p256dh, auth, host };
 }
@@ -131,7 +130,6 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
       log({ kind: "refuse", ev: "push.send", word: "gone", why: `пропуск ${s.kid} отозван: подписка удалена`, client: s.client, type });
     }
     const live = targets.filter((s) => !(s.kid && revoked.has(s.kid)));
-    if (!live.length) refuse("gone", "");
     const jwk = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
     const outcomes = await Promise.all(live.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut })));
     if (outcomes.includes("sent")) return undefined;
