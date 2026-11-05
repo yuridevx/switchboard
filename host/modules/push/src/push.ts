@@ -21,7 +21,7 @@ export function make(): Module {
     requests: {
       async notify(req: Frame) {
         const { clients, frame } = req as { clients?: unknown; frame?: Partial<Pushed> };
-        if (!Array.isArray(clients) || typeof frame?.type !== "string" || !frame.notify) throw refuse("bad_frame", "notify: clients — список, в frame нужны type и notify");
+        if (!Array.isArray(clients) || typeof frame?.type !== "string" || !frame.notify) throw refuse("bad_frame", "notify: нужны clients и frame { type, notify }");
         const pushed = frame as Pushed;
         const roster = host.roster();
         if (!roster) {
