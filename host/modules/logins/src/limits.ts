@@ -1,38 +1,28 @@
-// Лимиты аккаунта — чистые правила над его записью: кто у порога, когда снова годен, кто следующий в запасе.
+// Правила лимитов: чистые функции над записью аккаунта. Время — секунды.
 
-/** Окно лимита: доля 0…1, час сброса и откуда значение (event — поток слота, poll — свой опрос). */
 export type Window = { utilization: number; resetsAt: number; at: number; src: string };
+export type Account = { login: "ok" | "none" | "pending"; email?: string; plan?: string; checked?: number; limits: Record<string, Window> };
 
-/** Запись аккаунта в хранилище. */
-export type Account = {
-  login: "ok" | "none" | "pending";
-  email?: string;
-  plan?: string;
-  checked?: number;
-  limits: Record<string, Window>;
-};
-export type Accounts = Record<string, Account>;
+/** Порог окна: дальше подмена. Окно без своего порога — только полный расход. */
+const THRESHOLD: Record<string, number> = { five_hour: 0.95, seven_day: 0.98 };
 
-/** Порог: 95 % за 5 ч, 98 % за неделю и прочие окна. */
-export const limitOf = (window: string) => (window === "five_hour" ? 0.95 : 0.98);
+const atLimit = ([name, w]: [string, Window], now: number) => w.utilization >= (THRESHOLD[name] ?? 1) && (w.resetsAt === 0 || w.resetsAt > now);
 
-const windowsOf = (a: Account | undefined) => Object.entries(a?.limits ?? {});
-const atLimit = (a: Account | undefined, now: number) => windowsOf(a).filter(([name, w]) => w.utilization >= limitOf(name) && !(w.resetsAt && w.resetsAt <= now));
+export const over = (a: Account, now: number) => Object.entries(a.limits).some((e) => atLimit(e, now));
 
-export const over = (a: Account | undefined, now: number) => atLimit(a, now).length > 0;
+/** Когда аккаунт снова годен: самый поздний сброс окон у порога; 0 — годен или сброс неизвестен. */
+export const usableAt = (a: Account, now: number) => Math.max(0, ...Object.entries(a.limits).filter((e) => atLimit(e, now)).map(([, w]) => w.resetsAt));
 
-/** Когда аккаунт снова годится: самый поздний сброс его окон у порога. */
-export const usableAt = (a: Account | undefined, now: number) => Math.max(0, ...atLimit(a, now).map(([, w]) => w.resetsAt || 0));
+/** Окна старше maxAge секунд; окон нет — тоже устарело. */
+export const stale = (a: Account, maxAge: number, now: number) => Math.max(0, ...Object.values(a.limits).map((w) => w.at)) < now - maxAge || !Object.keys(a.limits).length;
 
-/** Самое свежее окно старше ageS секунд. */
-export const stale = (a: Account | undefined, ageS: number, now: number) => now - Math.max(0, ...windowsOf(a).map(([, w]) => w.at)) > ageS;
+/** Наружу: окно, чей сброс прошёл, — 0 %. */
+export const shown = (a: Account, now: number): Account => ({
+  ...a,
+  limits: Object.fromEntries(Object.entries(a.limits).map(([n, w]) => [n, w.resetsAt && w.resetsAt <= now ? { ...w, utilization: 0 } : w])),
+});
 
-/** Запись наружу: окно, чей сброс прошёл, — 0 %. */
-export function shown(a: Account, now: number): Account {
-  return { ...a, limits: Object.fromEntries(windowsOf(a).map(([name, w]) => [name, w.resetsAt && w.resetsAt <= now ? { ...w, utilization: 0 } : w])) };
-}
+export const usable = (a: Account | undefined, now: number) => a?.login === "ok" && !over(a, now);
 
-/** Следующий по порядку: вошёл и ниже порога; skip — кого нельзя. */
-export function nextUp(order: string[], all: Accounts, now: number, skip: string | null): string | null {
-  return order.find((name) => name !== skip && all[name]?.login === "ok" && !over(all[name], now)) ?? null;
-}
+/** Следующий в запасе: по порядку, вошёл, ниже порога, не исключённый. */
+export const nextUp = (order: string[], all: Record<string, Account>, now: number, exclude: string | null) => order.find((n) => n !== exclude && usable(all[n], now)) ?? null;

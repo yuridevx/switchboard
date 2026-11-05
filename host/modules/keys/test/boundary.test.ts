@@ -62,13 +62,15 @@ describe("инструменты keys", () => {
     const { call, sent } = await bench(() => ({ ok: true, result: {} }));
     await call("invite", { role: "host", name: "laptop" });
     await call("invite", { role: "client", name: "phone", person: "a@b" });
+    await call("invite", { role: "host", name: "laptop2", person: "" });
     await call("list", {});
     await call("list", { role: "client" });
     await call("revoke", { kid: "k1" });
-    const [a, b] = sent("keys.invite");
+    const [a, b, empty] = sent("keys.invite");
     expect(a).toMatchObject({ role: "host", name: "laptop" });
     expect(a).not.toHaveProperty("person");
     expect(b).toMatchObject({ role: "client", name: "phone", person: "a@b" });
+    expect(empty).not.toHaveProperty("person");
     const [c, d] = sent("keys.list");
     expect(c).not.toHaveProperty("role");
     expect(d).toMatchObject({ role: "client" });
