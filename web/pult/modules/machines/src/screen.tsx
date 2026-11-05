@@ -93,7 +93,7 @@ export function MachinesScreen() {
                   <span className="os">{answer?.os}</span>
                   <span className="v">{host ? `host ${host.version}` : ""}</span>
                   <span className="v">{answer?.keeper ? `keeper ${answer.keeper}` : ""}</span>
-                  <span className="st">{`${n} ${plural(n, "сессия", "сессии", "сессий")} · ${left !== undefined ? `ушла ${hhmm(left)}` : fail ? "сбой части" : "на связи"}`}</span>
+                  <span className="st">{[n ? `${n} ${plural(n, "сессия", "сессии", "сессий")}` : "", left !== undefined ? `ушла ${hhmm(left)}` : fail ? "сбой части" : "на связи"].filter(Boolean).join(" · ")}</span>
                 </DisclosureBtn>
               </div>,
               open[m] ? (

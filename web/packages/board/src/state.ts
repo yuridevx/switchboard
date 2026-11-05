@@ -144,7 +144,7 @@ export function createBoardState(app: App) {
     return {
       who: owners,
       projects: sectionsOf().map((x) => ({ id: x.id, name: x.name })),
-      machines: [...new Set(list.map((s) => machineOf(s.callsign) ?? ""))].sort().map((m) => ({ id: m, name: machineLabel(app, m).text })),
+      machines: (app.roster()?.machines ?? []).map((m) => m.machine).sort().map((m) => ({ id: m, name: machineLabel(app, m).text })),
       profiles: [...new Set(list.map(profileNameOf).filter((x): x is string => !!x))].sort(),
     };
   }

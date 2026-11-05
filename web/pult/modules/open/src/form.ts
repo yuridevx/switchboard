@@ -23,7 +23,7 @@ export const shownDirs = (dirs: string[], tail: string) => dirs.filter((d) => d.
 /** Машины выбора: где больше сессий — выше. */
 export function byLoad(machines: string[], sessions: SessionRecord[]) {
   const count = (m: string) => sessions.filter((s) => machineOf(s.callsign) === m).length;
-  return [...machines].sort((a, b) => count(b) - count(a));
+  return [...machines].sort((a, b) => count(b) - count(a) || a.localeCompare(b));
 }
 
 /** С чего начать без адреса: последнее своё место, иначе машина с большим числом сессий и домашняя папка. */
