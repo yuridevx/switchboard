@@ -180,7 +180,10 @@ describe("приглашение и приём", () => {
     ["client без почты", { role: "client", name: "phone" }, "person — почта человека за устройством или программой"],
     ["почта без @", { role: "client", name: "phone", person: "owner" }, "person — почта человека за устройством или программой"],
     ["почта с ~", { role: "client", name: "phone", person: "o~w@x" }, "person — почта человека за устройством или программой"],
+    ["почта с пробелом", { role: "client", name: "phone", person: "o w@x" }, "person — почта человека за устройством или программой"],
+    ["почта с двумя @", { role: "client", name: "phone", person: "o@w@x" }, "person — почта человека за устройством или программой"],
     ["у машины почта", { role: "host", name: "laptop", person: "a@b" }, "у машины person нет"],
+    ["у машины почта null", { role: "host", name: "laptop", person: null }, "у машины person нет"],
   ])("keys.invite: %s → bad_request, причина в журнале, строки нет", async (_n, fields, why) => {
     const by = await agent();
     const who = (await gate.verify(by)) as { addr: string };
