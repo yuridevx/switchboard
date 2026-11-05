@@ -5,8 +5,8 @@ export const PROJECTS = "projects";
 export const NONE = "~";
 
 export type ProjectRec = { id: string; name: string; sessions: string[] };
-export type SessionLink = { callsign: string; parent?: string | null };
-export type Section = { id: string; name: string; callsigns: string[] };
+type SessionLink = { callsign: string; parent?: string | null };
+type Section = { id: string; name: string; callsigns: string[] };
 
 const noneGroup = (): ProjectRec => ({ id: NONE, name: "Без проекта", sessions: [] });
 const noneLast = (recs: ProjectRec[]) => [...recs.filter((r) => r.id !== NONE), ...recs.filter((r) => r.id === NONE)];

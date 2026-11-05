@@ -1,7 +1,7 @@
 // Цикл настроек над службой prefs — один на страницы и Host: правка применяется поверх свежих значений и пишет только свои ключи.
 // Копии на диске нет. Запрос к службе передаёт тот, кто зовёт: чтение и запись идут двумя входами, у них разный предел.
-export type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
-export type Ask = <T = unknown>(name: string, body: Record<string, unknown>) => Promise<AskResult<T>>;
+type AskResult<T = unknown> = { ok: true; result: T } | { ok: false; error: string; why?: string };
+type Ask = <T = unknown>(name: string, body: Record<string, unknown>) => Promise<AskResult<T>>;
 
 export type Settings = {
   /** первый ответ службы получен; отказ — тоже ответ */
