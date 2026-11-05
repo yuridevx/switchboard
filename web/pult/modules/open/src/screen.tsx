@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
 import { Area, Btn, Chip, Chips, DisclosureBtn, EFFORTS, effortName, IconBtn, In, machineLabel, machinesWith, MODELS, profileName, RowBtn, slotChoice, SlotPick, slotWait, Switch, useApp, useMachineLoad, useModule, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
-import { dirOf, profileHere, pushRecent, refusal, shownDirs, splitAddress, startPlace, type Place } from "./form.ts";
+import { byLoad, dirOf, profileHere, pushRecent, refusal, shownDirs, splitAddress, startPlace, type Place } from "./form.ts";
 import type { OpenState } from "./module.tsx";
 
 const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
@@ -11,8 +11,8 @@ type Pop = "prof" | "model" | null;
 export function OpenScreen({ params }: ScreenProps) {
   const app = useApp();
   const recent = useModule<OpenState>();
-  const machines = app.use(() => machinesWith(app, "session.open"));
   const sessions = app.use(() => app.roster()?.sessions ?? []);
+  const machines = app.use(() => byLoad(machinesWith(app, "session.open"), app.roster()?.sessions ?? []));
   const places = app.use(() => recent.get<Place[]>("recent") ?? []);
   const ready = app.use(() => recent.ready() || app.link() !== "open");
   const canR2Of = app.use(() => machinesWith(app, "session.r2"));
@@ -197,13 +197,12 @@ export function OpenScreen({ params }: ScreenProps) {
     </Btn>
   ) : null;
   const needle = pq.trim().toLowerCase();
-  const profileRows = Object.entries(profileList ?? {}).filter(([id]) => profileName(id).toLowerCase().includes(needle));
+  const profileRows = Object.entries(profileList ?? {}).filter(([id, p]) => `${profileName(id)} ${p.about ?? ""}`.toLowerCase().includes(needle));
   const pickProfile = (id: string) => {
     setChosenProfile(id);
     setPop(null);
   };
-  const slotShown = slotNow ? [slotNow, slots?.[slotNow]?.wait && slotNames.length === 1 ? null : null].filter(Boolean).join("") : "";
-  const slotLine = slotWait(slots) || slotShown;
+  const slotLine = slotWait(slots) || slotNow;
 
   return (
     <div className={wide ? "op wide" : "op"}>
@@ -239,7 +238,7 @@ export function OpenScreen({ params }: ScreenProps) {
         {pop === "prof" ? (
           <div className="op-pop" role="dialog" aria-label="Выбор">
             <div className="lb">{`Профиль · ${machineLabel(app, machine).text} · ${Object.keys(profileList ?? {}).length}`}</div>
-            {profiles.error && !profiles.stale ? <span className="op-err" role="alert">{`machine.profiles: ${profiles.error}`}</span> : null}
+            {profiles.error && !profiles.stale ? <div className="op-err" role="alert">{`machine.profiles: ${profiles.error}`}</div> : null}
             <In className="op-flt" data-f="pq" aria-label="Найти профиль" placeholder="Найти профиль" autoComplete="off" value={pq} onChange={() => {}} onInput={(e) => setPq(e.currentTarget.value)} />
             {profileRows.map(([id, p]) => (
               <RowBtn key={id} className="op-pr" role="radio" aria-checked={profileOk === id} data-profile={id} onClick={() => pickProfile(id)}>
@@ -276,7 +275,7 @@ export function OpenScreen({ params }: ScreenProps) {
                 </Chip>
               ))}
             </Chips>
-            {accounts.error && !accounts.stale ? <span className="op-err" role="alert">{`machine.accounts: ${accounts.error}`}</span> : null}
+            {accounts.error && !accounts.stale ? <div className="op-err" role="alert">{`machine.accounts: ${accounts.error}`}</div> : null}
             <SlotPick slots={slots ?? {}} value={slotNow} on={setSlot} />
             {canR2 ? (
               <div className="op-sw">
@@ -294,7 +293,7 @@ export function OpenScreen({ params }: ScreenProps) {
           </Btn>
           <Btn className="op-cx" data-pop="model" aria-expanded={pop === "model"} onClick={() => setPop(pop === "model" ? null : "model")}>
             {modelShown ? <b>{modelShown}</b> : null}
-            <span className="k">{[modelShown ? "" : "Модель", slotLine, r2 ? "R2" : ""].filter(Boolean).join(" · ")}</span>
+            <span className="k">{[modelShown ? "" : "Модель", effortShown ? effortName(effortShown) : "", slotLine, r2 ? "R2" : ""].filter(Boolean).join(" · ")}</span>
           </Btn>
         </div>
         <Area data-f="text" aria-label="Задача" placeholder="Что сделать?" rows={3} value={text} onChange={() => {}} onInput={(e) => setText(e.currentTarget.value)} onKeyDown={keyRun} />

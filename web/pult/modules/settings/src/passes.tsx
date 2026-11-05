@@ -183,13 +183,11 @@ export function Passes() {
 
   return (
     <>
-      {form ? null : (
-        <Opts>
-          <Btn pri onClick={() => setForm(true)}>
-            Пригласить
-          </Btn>
-        </Opts>
-      )}
+      <Opts>
+        <Btn pri onClick={() => setForm(true)}>
+          Пригласить
+        </Btn>
+      </Opts>
       {form ? (
         <InviteForm
           close={() => setForm(false)}

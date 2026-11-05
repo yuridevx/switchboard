@@ -20,12 +20,17 @@ export const dirOf = (addr: string) => addr.trim().replace(/(.)\/+$/, "$1") || "
 /** Что показать из ответа: скрытые — только когда хвост с точки. */
 export const shownDirs = (dirs: string[], tail: string) => dirs.filter((d) => d.toLowerCase().startsWith(tail.toLowerCase()) && (tail.startsWith(".") || !d.startsWith(".")));
 
+/** Машины выбора: где больше сессий — выше. */
+export function byLoad(machines: string[], sessions: SessionRecord[]) {
+  const count = (m: string) => sessions.filter((s) => machineOf(s.callsign) === m).length;
+  return [...machines].sort((a, b) => count(b) - count(a));
+}
+
 /** С чего начать без адреса: последнее своё место, иначе машина с большим числом сессий и домашняя папка. */
 export function startPlace(machines: string[], sessions: SessionRecord[], recent: Place[]): Place | null {
   const last = recent.find((p) => machines.includes(p.m));
   if (last) return last;
-  const count = (m: string) => sessions.filter((s) => machineOf(s.callsign) === m).length;
-  const best = [...machines].sort((a, b) => count(b) - count(a))[0];
+  const best = byLoad(machines, sessions)[0];
   return best ? { m: best, dir: "~" } : null;
 }
 

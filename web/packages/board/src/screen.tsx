@@ -80,15 +80,20 @@ function Chips({ chips, selected, view, rerender, openEditor, panel, togglePanel
       lift(x) {
         b.hold(true);
         const others = [...row.querySelectorAll<HTMLElement>(":scope > .fc")].filter((el) => el !== item);
+        const root = item.closest<HTMLElement>(".bd-list")!;
         return sorter({
           axis: "x",
-          root: item.closest<HTMLElement>(".bd-list")!,
+          root,
           box: row,
           item,
           others,
           source: item,
           cls: { copy: "fc-ghost", up: "lifted", land: "landing", slot: "fc-slot", box: "fc-sorting" },
-          close: () => b.hold(false),
+          open: () => root.classList.add("reordering"),
+          close() {
+            root.classList.remove("reordering");
+            b.hold(false);
+          },
           dress(copy, _at, size) {
             copy.setAttribute("tabindex", "-1");
             copy.style.width = `${size.width}px`;

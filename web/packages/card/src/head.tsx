@@ -24,9 +24,6 @@ export function HeadUnits() {
   );
 }
 
-/** Окно лимитов: занятая доля самого полного окна. */
-const fullest = (limits: Record<string, { utilization: number }> | undefined) => Math.max(0, ...Object.values(limits ?? {}).map((w) => Math.round(w.utilization * 100)));
-
 type Pop = "model" | "acc" | "menu" | null;
 
 function Windows({ session, accounts, machine, pickSlot }: { session: SessionRecord; accounts?: AccountsAnswer; machine: string; pickSlot(): void }) {
@@ -125,8 +122,9 @@ export function Head({ callsign, session, accounts, tabs, pop, setPop, openNames
   const owner = typeof session.by === "string" ? userOf(session.by) : null;
   const slot = slotOf(session);
   const accountInfo = accounts?.accounts?.[String(session.account ?? "")];
-  const used = fullest(accountInfo?.limits);
-  const accountText = [String(session.account ?? ""), slot?.wait ? `ждёт сброса ${at(slot.wait)}` : accountInfo?.limits ? `${used} %` : ""].filter(Boolean).join(" · ");
+  const window5 = accountInfo?.limits?.five_hour;
+  const used = window5 ? Math.round(window5.utilization * 100) : 0;
+  const accountText = [String(session.account ?? ""), slot?.wait ? `ждёт сброса ${at(slot.wait)}` : window5 ? `${used} %` : ""].filter(Boolean).join(" · ");
   const modelList = models?.length ? models : MODELS.map((value) => ({ value, displayName: undefined }));
   const toggle = (p: Pop) => setPop(pop === p ? null : p);
 

@@ -115,7 +115,7 @@ export function MachinesScreen() {
                             {p.error ? <div className="e">{p.error}</div> : null}
                           </span>
                           {p.state === "failed" && p.part !== "keeper" ? (
-                            <Btn className="r" disabled={busy === key} onClick={() => void restart(m, p.part)}>
+                            <Btn className="r" onClick={() => void (busy !== key && restart(m, p.part))}>
                               {busy === key ? "Перезапускаю…" : "Перезапустить"}
                             </Btn>
                           ) : null}
@@ -126,7 +126,7 @@ export function MachinesScreen() {
                   </div>
                   <Opts>
                     <Btn onClick={() => app.open("accounts", { machine: m })}>Аккаунты машины</Btn>
-                    <Btn onClick={() => app.open("settings", { tab: "releases", machine: m })}>План в «Выпусках»</Btn>
+                    {app.wide ? <Btn onClick={() => app.open("settings", { tab: "releases", machine: m })}>План в «Выпусках»</Btn> : null}
                   </Opts>
                 </div>
               ) : null,

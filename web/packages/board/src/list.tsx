@@ -16,13 +16,13 @@ function Row({ row, current, onDown, onOpen }: { row: RowModel; current: boolean
       <span className="bd-rt">
         <span className="bd-t1">
           <b className={cx("bd-cs", hum(row.name.human))}>{row.name.text}</b>
-          {row.own ? <span className="bd-pill own">{row.own}</span> : null}
-          {row.inc ? <span className="bd-pill inc">{row.inc}</span> : null}
           {row.pinned ? (
             <svg className="bd-pin" viewBox="0 0 16 16" role="img" aria-label="закреплена">
               <path d="M6 2h4l-.5 4 2.5 2.5V10H8.6L8 14l-.6-4H4V8.5L6.5 6z" />
             </svg>
           ) : null}
+          {row.own ? <span className="bd-pill own">{row.own}</span> : null}
+          {row.inc ? <span className="bd-pill inc">{row.inc}</span> : null}
           {row.at ? <span className={cx("bd-at", hum(row.at.human))}>{row.at.text}</span> : null}
         </span>
         <span className="bd-t2">

@@ -41,6 +41,7 @@ export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) 
   }
 
   return (
+    <>
     <div className="cw">
       <Head callsign={callsign} session={session} accounts={accounts} pop={pop} setPop={setPop} openNames={() => setNames(true)} setTab={setChosen} start={() => void start()} update={(f, v) => void update(f, v)} tabs={<Tabs className="cw-tabs" tabs={list} cur={cur} pick={setChosen} />} />
       <div className="cw-pl" role="status" hidden={!failed}>
@@ -60,7 +61,12 @@ export function WideCard({ callsign, tab }: { callsign: string; tab?: string }) 
         </div>
         {info && session ? <Aside callsign={callsign} session={session} /> : null}
       </div>
-      {names ? <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} /> : null}
     </div>
+      {names ? (
+        <div>
+          <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} />
+        </div>
+      ) : null}
+    </>
   );
 }

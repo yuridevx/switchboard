@@ -69,6 +69,7 @@ export function FilterEditor({ own, close }: { own?: Filter; close(): void }) {
               <div key={field} className="fe-f" data-field={field}>
                 <div className="fe-l">
                   <b>{title}</b>
+                  {draft[field]?.length ? <span>{draft[field]!.length}</span> : null}
                 </div>
                 <Chips className="fe-c">
                   {list.map(([v, label]) => (

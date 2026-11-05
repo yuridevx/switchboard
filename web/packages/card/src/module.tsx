@@ -1,6 +1,6 @@
 // web-card — карточка сессии: узкий вид телефона и широкий вид пульта над одним стором.
 import type { AppModule, ScreenProps } from "@switchboard/web-core";
-import { folderOf, lamp, machineLabel, sessionLabel, sessionOf, useApp, type App } from "@switchboard/web-ui";
+import { effortName, folderOf, machineLabel, sessionLabel, sessionOf, stateLabel, useApp, type App } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import css from "./card.css";
 import { HeadUnits } from "./head.tsx";
@@ -24,8 +24,11 @@ export function createCard(app: App): AppModule {
         view: CardScreen,
         head({ callsign }) {
           const s = sessionOf(app, callsign);
+          const name = sessionLabel(app, callsign);
+          const head = { title: name.text, mono: !name.human };
+          if (app.wide) return s ? { ...head, sub: [s.model, effortName(s.effort)].filter(Boolean).join(" · ") } : head;
           const at = machineLabel(app, machineOf(callsign) ?? "").text;
-          return { title: sessionLabel(app, callsign).text, sub: s ? `${at} · папка ${folderOf(s.dir)}` : `${at} не на связи`, dot: s ? lamp(s) : undefined, mono: true };
+          return s ? { ...head, sub: `${at} · папка ${folderOf(s.dir)}`, dot: stateLabel(s.state).dot } : { ...head, sub: `${at} не на связи` };
         },
       },
       "card.view": { label: "Шапка", view: HeadUnits },

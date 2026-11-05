@@ -1,7 +1,7 @@
 // Вкладка «Журнал»: записи машины об этой сессии с полуночи, фильтр вида, «дальше» и «Раньше».
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
-import { Btn, midnight, Opts, useApp, useLoad, type JournalAnswer, type JournalRecord } from "@switchboard/web-ui";
+import { Btn, midnight, useApp, useLoad, type JournalAnswer, type JournalRecord } from "@switchboard/web-ui";
 
 const KINDS = ["все", "stop", "refuse", "note"];
 const LIMIT = 50;
@@ -34,14 +34,14 @@ export function Log({ callsign }: { callsign: string }) {
 
   return (
     <div className="cw-log">
-      <Opts className="cw-opts flat">
+      <div className="cw-opts flat">
         {KINDS.map((k) => (
           <Btn key={k} aria-pressed={k === kind ? "true" : "false"} onClick={() => refilter(() => setKind(k))}>
             {k}
           </Btn>
         ))}
         <span className="cw-note">{`${machine} · ${daysBack ? `с ${daysBack} дн. назад` : "сегодня"}`}</span>
-      </Opts>
+      </div>
       {first.error ? (
         <div className="cw-note bad" role="alert">{`machine.journal: ${first.error}`}</div>
       ) : !first.loading && !records.length ? (

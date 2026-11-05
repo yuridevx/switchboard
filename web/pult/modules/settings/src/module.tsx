@@ -51,7 +51,7 @@ export function createSettings(app: App): AppModule {
         label: "Настройки",
         view: SettingsScreen,
         head: () => ({ title: "Настройки" }),
-        find: (q) => (app.wide ? TABS.filter(([, name]) => q && name.toLowerCase().includes(q)).map(([tab, name]) => ({ label: `Настройки: ${name.toLowerCase()}`, screen: "settings", params: { tab } })) : []),
+        find: (q) => TABS.filter(([, name]) => name.toLowerCase().includes(q)).map(([tab, name]) => ({ label: `Настройки: ${name.toLowerCase()}`, hint: "Флот", screen: "settings", params: { tab } })),
       },
     },
     commands: {

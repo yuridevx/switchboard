@@ -1,5 +1,6 @@
 // Стор «Работы»: настройки почты и флота, разделы устройства и снимок списка. Экран рисует снимок, правит через действия.
 import { machineOf } from "@switchboard/protocol";
+import type { SessionRecord } from "@switchboard/relay";
 import { addProject, arrange, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, projectIdOf, PROJECTS, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
 import { createStore, folderOf, incidentOf, lamp, failText, machineLabel, myAddress, personal, profileNameOf, sessionLabel, sessionOf, stateLabel, type App, type ConnState } from "@switchboard/web-ui";
 import { ALL, chipOrder, DEFAULT_VIEW, fits, MINE, ownerOf, placeRows, whyMine, type Filter, type View } from "./model.ts";
@@ -128,13 +129,13 @@ export function createBoardState(app: App) {
       if (callsigns.length && !shown.length) return [];
       const collapsed = isCollapsed(id, callsigns);
       const placed = collapsed ? [] : placeRows(shown, parentOf, view.tree);
-      const rows = placed.map((x) => rowOf(x.callsign, x.depth, view, { at: view.at && !grouped, project: "" }));
+      const rows = placed.map((x) => rowOf(x.callsign, grouped ? 0 : x.depth, view, { at: view.at && !grouped, project: "" }));
       const machines = [...new Set(rows.map((r) => machineOf(r.callsign) ?? ""))].sort();
       const lamps = collapsed && view.pjlamps ? shown.map((cs) => lamp(find(cs)!)) : [];
       const groups = grouped ? machines.map((machine) => ({ machine, label: machineLabel(app, machine).text, rows: rows.filter((r) => machineOf(r.callsign) === machine) })) : null;
       return [{ id, name, collapsed, lamps, groups, rows, live: callsigns.length > 0 }];
     });
-    const flat = view.projects ? [] : sectionsOf().flatMap(({ name, callsigns }) => placeRows(callsigns.filter(fit), parentOf, view.tree).map((x) => rowOf(x.callsign, x.depth, view, { at: view.at, project: name })));
+    const flat = view.projects ? [] : sectionsOf().flatMap(({ name, callsigns }) => placeRows(callsigns.filter(fit), parentOf, view.tree).map((x) => rowOf(x.callsign, 0, view, { at: view.at, project: name })));
     return { drawn: ready() || app.link() !== "open", view, chips, selected, selectedName: nameOf(selected), sections, flat, order: sections.map((x) => x.id) };
   }
 
@@ -197,7 +198,10 @@ export function createBoardState(app: App) {
     },
     /** Строки поиска Ctrl K. */
     find(q: string) {
-      return sessions().flatMap((s) => {
+      // сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу
+      const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" ? 1 : 2);
+      const sorted = [...sessions()].sort((a, b) => rank(a) - rank(b) || (a.callsign < b.callsign ? -1 : 1));
+      return sorted.flatMap((s) => {
         const name = sessionLabel(app, s.callsign).text;
         const folder = folderOf(s.dir);
         const project = sectionsOf().find((x) => x.callsigns.includes(s.callsign))?.name ?? "";

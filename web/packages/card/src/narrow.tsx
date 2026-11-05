@@ -89,7 +89,11 @@ export function NarrowCard({ callsign, tab }: { callsign: string; tab?: string }
           </Pad>
         )}
       </div>
-      {names ? <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} /> : null}
+      {names ? (
+        <div>
+          <app.Slot screen="labels" params={{ callsign }} close={() => setNames(false)} />
+        </div>
+      ) : null}
     </>
   );
 }

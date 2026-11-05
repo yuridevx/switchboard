@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { SessionRecord } from "@switchboard/relay";
-import { Btn, CommitIn, Note, Opts, Outcome, profileIdOf, profileName, slotOf, useApp, useMachineLoad, useOutcome, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Btn, CommitIn, Note, Outcome, profileIdOf, profileName, slotOf, useApp, useMachineLoad, useOutcome, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
 
 const Refused = ({ what, text }: { what: string; text: string }) => (
   <Note tone="bad" data-refused={what}>
@@ -66,13 +66,13 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
           {profileWord ? (
             <Refused what="profile" text={profileWord} />
           ) : (
-            <Opts className="cw-opts flat">
+            <div className="cw-opts flat">
               {[...Object.keys(profiles.data?.profiles ?? {}), ""].map((id) => (
                 <Btn key={id} aria-pressed={id === curProfile ? "true" : "false"} data-profile={id} onClick={() => void (id !== curProfile && change("profile", "session.profile", { profile: id || null }))}>
                   {id ? profileName(id) : "без профиля"}
                 </Btn>
               ))}
-            </Opts>
+            </div>
           )}
           <Outcome className="cw-note" note={notes.profile} />
         </div>
@@ -98,13 +98,13 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
           {slotWord ? (
             <Refused what="slot" text={slotWord} />
           ) : (
-            <Opts className="cw-opts flat">
+            <div className="cw-opts flat">
               {[...Object.keys(accounts.data?.slots ?? {}), ""].map((name) => (
                 <Btn key={name} aria-pressed={name === curSlot ? "true" : "false"} data-slot={name} onClick={() => void (name !== curSlot && change("slot", "session.slot", { slot: name || null }))}>
                   {name || "без слота"}
                 </Btn>
               ))}
-            </Opts>
+            </div>
           )}
           <Outcome className="cw-note" note={notes.slot} />
         </div>
@@ -112,7 +112,7 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
       {session ? (
         <div className="cw-fs" data-sec="ctl">
           <span className="lb">Сессия</span>
-          <Opts className="cw-opts flat">
+          <div className="cw-opts flat">
             {live && can("session.stop") ? <Btn onClick={() => void ctl("session.stop")}>Остановить</Btn> : null}
             {!live && can("session.start") ? (
               <Btn pri onClick={() => void ctl("session.start")}>
@@ -124,16 +124,16 @@ export function SetTab({ callsign, session }: { callsign: string; session?: Sess
                 Убрать…
               </Btn>
             ) : null}
-          </Opts>
+          </div>
           {confirm ? (
             <div className="cw-confirm">
               <span>{`${callsign} остановится и уйдёт из списка. Точки в R2 останутся.`}</span>
-              <Opts className="cw-opts flat">
+              <div className="cw-opts flat">
                 <Btn bad onClick={() => void remove()}>
                   Убрать
                 </Btn>
                 <Btn onClick={() => setConfirm(false)}>Отмена</Btn>
-              </Opts>
+              </div>
             </div>
           ) : null}
           <Outcome className="cw-note" note={notes.ctl} />

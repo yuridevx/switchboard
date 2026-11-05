@@ -1,10 +1,9 @@
 // «Выпуски»: stable по машинам, матрица машина × часть и план машины; каталог частей и модулей сборок.
 import { useEffect, useState } from "react";
-import { Btn, Dot, In, machineLabel, machinesWith, Meter, Note, okOf, Opts, Page as _Page, PageHead, plural, Sec, useApp, useLoad, useModule, wordOf } from "@switchboard/web-ui";
+import { Btn, Dot, In, machineLabel, machinesWith, Meter, Note, okOf, Opts, PageHead, plural, Sec, useApp, useLoad, useModule, wordOf } from "@switchboard/web-ui";
 import { before, cellOf, short, wordText, type KPart, type Pass, type PlanEntry, type Releases } from "./rules.ts";
 import type { SettingsState } from "./state.ts";
 
-void _Page;
 const KEEPER = "keeper";
 
 function Catalog({ list, reload }: { list: Releases; reload(): void }) {
@@ -53,7 +52,7 @@ function Catalog({ list, reload }: { list: Releases; reload(): void }) {
                       .reverse()
                       .map((v) => (
                         <Btn key={v} data-back={v} disabled={!!deploying} onClick={() => deploy(name, v)}>
-                          {deploying === `${name}:${v}` ? "Выкладываю…" : `Вернуть ${short(v)}`}
+                          {`Вернуть ${short(v)}`}
                         </Btn>
                       ))}
                   </Opts>
@@ -87,7 +86,9 @@ function Catalog({ list, reload }: { list: Releases; reload(): void }) {
                   <td>
                     <span className="sb-m">{Object.entries(m.built).map(([app_, v]) => `${app_} ${v}`).join(" · ")}</span>
                   </td>
-                  <td>{newer ? <span className="sb-m">{m.edge}</span> : null}</td>
+                  <td>
+                    <span className="sb-m">{newer ? m.edge : null}</span>
+                  </td>
                   <td>
                     {newer ? (
                       <Btn pri disabled={!!deploying} onClick={() => deploy(name, m.edge)}>
