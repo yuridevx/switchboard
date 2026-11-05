@@ -4177,3 +4177,170 @@ describe("Новая сессия: телефон", () => {
     expect(t.$<HTMLInputElement>('[data-f="name"]')!.value).toBe("");
   });
 });
+
+describe("Найдено сверкой деревьев", () => {
+  // источник: чьё: код — разметка и правила, которые снимки и прежние леса не держали; сверка деревьев старого и нового кода 5 нояб.
+  const accounts = () => ({ ok: true as const, result: { accounts: { y0902: { login: "ok", limits: { five_hour: { utilization: 0.42 }, seven_day: { utilization: 0.9 } } } }, slots: {} } });
+  const cut = (...names: string[]) => {
+    const r = fleetRoster();
+    for (const m of r.machines) {
+      m.contract = { ...m.contract };
+      for (const n of names) delete m.contract[n];
+    }
+    return r;
+  };
+
+  it("карточка: процент на чипе — окно 5 ч; модель неактивна без session.update, без журнала нет «Почему»; плашка и без причины", async () => {
+    const relay = fleetRelay(cut("session.update", "machine.journal"));
+    relay.handlers["machine.accounts"] = accounts;
+    const t = await pult({ relay, url: "/#card?callsign=api%40pc" });
+    await flush(5);
+    expect(t.$('[data-pop="acc"]')!.textContent).toBe("y0902 · 42 % ▾");
+    expect(t.$<HTMLButtonElement>('[data-pop="model"]')!.disabled).toBe(true);
+    expect(t.btn(t.$(".cw-pl"), "Почему")).toBeNull();
+    const r = fleetRoster();
+    r.sessions.find((s) => s.callsign === "docs@pc")!.state = "failed";
+    const t2 = await pult({ relay: fleetRelay(r), url: "/#card?callsign=docs%40pc" });
+    await flush(5);
+    expect(t2.$(".cw-pl b")!.textContent).toBe("Не запустилась");
+  });
+
+  it("карточка: сессия ушла — вкладка настроек без кнопок, сведения пусты; адрес в шапке и без имени; ссылка claude.ai в сведениях", async () => {
+    const r = fleetRoster();
+    r.sessions.find((s) => s.callsign === "site@laptop")!.state = "idle";
+    const relay = fleetRelay(r);
+    const store = memoryStore({ key: KEY, "card.info": true, "card.head": { haddr: true, howner: true, hprof: true, hmodel: true } });
+    const t = await pult({ relay, store, url: "/#card?callsign=site%40laptop&tab=set" });
+    await flush(5);
+    expect(t.$(".cw-real")!.textContent).toBe("site@laptop");
+    expect(t.$<HTMLAnchorElement>("aside.cw-info .cw-mi.flat")!.href).toBe("https://claude.ai/code/session_01Pf");
+    relay.setRoster({ ...r, sessions: r.sessions.filter((s) => s.callsign !== "site@laptop") });
+    await flush(5);
+    expect(t.$('[data-sec="ctl"] button')).toBeNull();
+    expect(t.$("aside.cw-info")!.textContent).toBe("");
+  });
+
+  it("«Работа»: закреплённая чужая — значок без владельца; лампы свёрнутого и поиск — срочные первыми", async () => {
+    const r = fleetRoster();
+    r.sessions = r.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, by: "laptop~anna@example.com" } : s));
+    const relay = fleetRelay(r);
+    relay.values["web-board.pins"] = ["wiki@laptop"];
+    relay.scoped.global = { "fleet.projects": [{ id: "all", name: "Все", sessions: r.sessions.map((s) => s.callsign) }] };
+    const t = await pult({ relay });
+    await flush(5);
+    if (t.$('.pj-t[data-proj="all"]')!.getAttribute("aria-expanded") === "false") await t.click(t.$('.pj-t[data-proj="all"]'));
+    expect(t.$('[data-callsign="wiki@laptop"] .bd-pin')).not.toBeNull();
+    expect(t.$('[data-callsign="wiki@laptop"] .own')).toBeNull();
+    await t.click(t.$('.pj-t[data-proj="all"]'));
+    expect(t.$$(".lamps .sb-dot").map((x) => x.className.split(" ")[1])).toEqual(["bad", "wait", "busy", "busy", "stop", "idle"]);
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", code: "KeyK", ctrlKey: true, bubbles: true }));
+    await flush();
+    expect([...document.querySelectorAll(".sb-palit .sb-dot")].slice(0, 2).map((x) => x.className.split(" ")[1])).toEqual(["bad", "wait"]);
+  });
+
+  it("окно фильтра: число выбранного у поля", async () => {
+    const t = await pult();
+    await t.click(t.$(".fc.add"));
+    expect(t.$('[data-field="who"] .fe-l span')).toBeNull();
+    await t.click(t.$('[data-field="who"] [data-v="mine"]'));
+    expect(t.$('[data-field="who"] .fe-l span')!.textContent).toBe("1");
+  });
+
+  it("новая сессия: машины — где больше сессий; другая машина — домашняя папка; пустая папка — «пусто»; новый путь важнее задачи; машины нет — адрес домашний", async () => {
+    const relay = fleetRelay(cut("session.foo"));
+    relay.handlers["machine.dirs"] = (f) => (f.path === "~/none" ? { ok: false, error: "not_found" } : { ok: true, result: { path: f.path, dirs: [] } });
+    relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: {}, repos: {} } });
+    const r = fleetRoster();
+    r.sessions = r.sessions.filter((s) => s.callsign !== "site@laptop" && s.callsign !== "wiki@laptop");
+    relay.setRoster(r);
+    const t = await pult({ relay, url: "/#open?machine=laptop&dir=~%2Fnone%2Fx" });
+    await flush(5);
+    expect(t.$$(".op-bl [data-machine]").map((x) => x.dataset.machine)).toEqual(["pc", "laptop"]);
+    await t.type(t.$('[data-f="text"]'), "задача");
+    expect(t.$('[data-act="open"]')!.textContent).toBe("Создать и открыть");
+    await t.click(t.$('.op-bl [data-machine="pc"]'));
+    await flush(5);
+    expect(t.$<HTMLInputElement>('[data-f="addr"]')!.value).toBe("~");
+    expect(t.$(".op-dl .op-none")!.textContent).toBe("пусто");
+    const absent = await pult({ relay, url: "/#open?machine=nosuch&dir=~%2Fx" });
+    await flush(5);
+    expect(absent.$<HTMLInputElement>('[data-f="addr"]')!.value).toBe("~");
+    expect(absent.$('[data-act="open"]')!.textContent).toBe("Открыть");
+  });
+
+  it("машины: открытый проект сужает сразу; нет machine.login — нет «Аккаунтов»; ушедшая — без кнопок; нет ответа — «…»", async () => {
+    const r = cut("machine.login");
+    const relay = fleetRelay(r);
+    relay.handlers["keeper.state"] = () => undefined;
+    relay.scoped = { global: { "fleet.projects": [{ id: "p1", name: "site", sessions: ["site@laptop"] }] } };
+    const t = await pult({ relay, url: "/#card?callsign=site%40laptop" });
+    await flush(5);
+    await t.go("#machines");
+    expect(t.$('[data-filter="project"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(t.$('[data-filter="project"]')!.textContent).toBe("в проекте p1 1");
+    await t.click(t.$('[data-row="laptop"] .mc-head'));
+    expect(t.$('[data-machine="laptop"] .sb-note')!.textContent).toBe("…");
+    expect(t.btn(t.$('[data-machine="laptop"]'), "Аккаунты машины")).toBeNull();
+    expect(t.btn(t.$('[data-machine="laptop"]'), "План в «Выпусках»")).not.toBeNull();
+    relay.setRoster({ ...r, machines: r.machines.filter((m) => m.machine !== "laptop") });
+    await flush(5);
+    expect(t.$('[data-machine="laptop"] button')).toBeNull();
+  });
+
+  it("настройки: вид и отметки переживают вкладку, поиск — нет; ячейка: keeper своим номером, обновляется — upd", async () => {
+    const relay = fleetRelay();
+    relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: { host: { where: "machine", edge: "2", stable: "2", versions: ["1", "2"] }, keeper: { where: "machine", edge: "9", stable: "9", versions: ["9"] } }, machines: [], rev: 1, modules: {} } });
+    relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "8", rev: 1, os: "linux", parts: [{ part: "host", version: "1", state: "updating" }, { part: "keeper", version: "9", state: "running" }] } });
+    relay.handlers["keys.list"] = () => ({ ok: true, result: { passes: [] } });
+    const t = await pult({ relay, url: "/#settings" });
+    await flush(10);
+    expect(t.$('tr[data-machine="pc"] td[data-part="host"] .st-cell')!.className).toContain("upd");
+    expect(t.$('tr[data-machine="pc"] td[data-part="keeper"]')!.textContent).toBe("8 → 9");
+    await t.click(t.$('tr[data-machine="pc"] .st-ck'));
+    await t.type(t.$('[data-f="rq"]'), "pc");
+    await t.click(t.$('[data-tab="passes"]'));
+    await t.click(t.$('[data-tab="releases"]'));
+    await flush(5);
+    expect(t.$("[data-bulk]")).not.toBeNull();
+    expect(t.$<HTMLInputElement>('[data-f="rq"]')!.value).toBe("");
+    await t.click(t.btn(t.$(".sb-page"), "Каталог и сборки"));
+    await t.click(t.$('[data-tab="general"]'));
+    await t.click(t.$('[data-tab="releases"]'));
+    await flush(5);
+    expect(t.$(".st-cat")).not.toBeNull();
+  });
+
+  it("настройки: отказ правки нескольких машин при закрытом плане не пропадает молча", async () => {
+    // источник: устав — ошибка словом; спорное место сноса, опыт: на старом коде строки не было
+    const relay = fleetRelay();
+    relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [], rev: 1, modules: {} } });
+    relay.handlers["keeper.state"] = () => ({ ok: true, result: { keeper: "1", rev: 1, os: "linux", parts: [] } });
+    relay.handlers["releases.set"] = (f) => (f.machine === "pc" ? { ok: false, error: "no_release" } : { ok: true, result: { rev: 2 } });
+    const t = await pult({ relay, url: "/#settings" });
+    await flush(10);
+    await t.click(t.$('tr[data-machine="laptop"] .st-ck'));
+    await t.click(t.$('tr[data-machine="pc"] .st-ck'));
+    await t.click(t.btn(t.$("[data-bulk]"), "host: к stable"));
+    await flush(10);
+    expect(t.$(".sb-toast")!.textContent).toBe("1 машина: план изменён; @pc host: такой версии нет");
+  });
+
+  it("«Вам»: готово после запуска, но не после ответа на вопрос; карточка лимита — зелёная лампа", async () => {
+    const r = fleetRoster();
+    const at = (state: string, slot?: unknown) => ({ ...r, sessions: r.sessions.map((s) => (s.callsign === "wiki@laptop" ? { ...s, state, ...(slot ? { slot } : {}) } : s)) });
+    const relay = fleetRelay(at("starting"));
+    relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    const t = await pult({ relay, url: "/#inbox" });
+    await flush(5);
+    relay.setRoster(at("idle"));
+    await flush(5);
+    expect(t.$('[data-kind="done"][data-callsign="wiki@laptop"]')).not.toBeNull();
+    await t.click(t.btn(t.$('[data-kind="done"]'), "Прочитано"));
+    relay.setRoster(at("waiting"));
+    await flush(5);
+    relay.setRoster(at("idle", { name: "night", wait: 1_900_000_000 }));
+    await flush(5);
+    expect(t.$('[data-kind="done"]')).toBeNull();
+    expect(t.$('[data-kind="wait"] .sb-dot')!.className).toContain("idle");
+  });
+});

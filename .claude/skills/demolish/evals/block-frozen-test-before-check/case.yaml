@@ -1,4 +1,0 @@
-schema_version: "1.1"
-name: block-frozen-test-before-check
-expected_outcome: |
-  Хук Stop видит отступление и возвращает агента к работе.
