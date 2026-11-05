@@ -7,6 +7,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { CALL_MS } from "@switchboard/protocol";
 import { BUILD_FILE, type BuildList } from "@switchboard/release";
 import type { Manifest, Module } from "../contract.ts";
 
@@ -61,17 +62,25 @@ export async function loadRelease(base: string): Promise<Release> {
   return { version: list?.version ?? core.version, sdk: readJson(join(sdkDir, "package.json")).version as string, modules, workers: list?.workers ?? {} };
 }
 
-/** Команда claude из пакета SDK: ввод — stdin, вывод — stdout и stderr вместе. claude нет — code null со словами. */
-export function claudeCli(bin: string | undefined) {
+/** Команда claude из пакета SDK: ввод — stdin, вывод — stdout и stderr вместе. claude нет или он завис — code null со словами; зависший убит. */
+export function claudeCli(bin: string | undefined, limitMs: number = CALL_MS) {
   return (args: string[], env: Record<string, string | undefined>, input?: string): Promise<{ code: number | null; out: string }> =>
     new Promise((done) => {
       if (!bin) return done({ code: null, out: "claude не найден в пакете SDK" });
       const p = spawn(bin, args, { env, windowsHide: true });
       let out = "";
+      let hung = false;
+      const limit = setTimeout(() => {
+        hung = true;
+        p.kill("SIGKILL");
+      }, limitMs);
       p.stdout.on("data", (d) => (out += d));
       p.stderr.on("data", (d) => (out += d));
       p.on("error", (e) => done({ code: null, out: e.message }));
-      p.on("close", (code) => done({ code, out }));
+      p.on("close", (code) => {
+        clearTimeout(limit);
+        done(hung ? { code: null, out: `${out}claude не ответил за ${limitMs / 1000} с` } : { code, out });
+      });
       p.stdin.end(input ?? "");
     });
 }

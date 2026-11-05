@@ -77,11 +77,7 @@ export type StartKind = "spawn" | "resume" | "attach" | "point";
 /**
  * Вклад модуля в query() одной сессии. У каждого имени — один владелец:
  * сервер MCP, ключ env, ключ settings, опция query(). Хуки и append складываются списком.
- *
- * Когда вклад доходит до живой сессии после перезагрузки модуля:
- * - сразу: тела хуков, decide, elicit, mcpServers (setMcpServers), settings (applyFlagSettings),
- *   model (setModel), effort (applyFlagSettings({ effortLevel }));
- * - со следующего старта процесса: env, append, новое событие хука, прочие опции.
+ * Вклад закреплён на время query(): зовётся на каждом старте процесса сессии.
  */
 export type QueryPart = {
   /** серверы MCP: createSdkMcpServer внутри процесса Host */
