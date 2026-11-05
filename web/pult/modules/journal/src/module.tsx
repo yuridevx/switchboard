@@ -115,5 +115,5 @@ function Row({ e, day, app }: { e: LedgerEvent; day: string | null; app: App }) 
 }
 
 export function createJournal(_app: App): AppModule {
-  return { screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal } }, css };
+  return { screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal, head: () => ({ title: "Журнал флота" }) } }, css };
 }
