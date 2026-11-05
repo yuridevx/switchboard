@@ -5,10 +5,8 @@ import type { GateApi } from "../contract.ts";
 
 // страница шлёт простой POST без предзапроса — ответ читается с любого адреса
 const CORS = { "access-control-allow-origin": "*" };
-
-function answer(r: Reply | null, status = 200): Response {
-  return r ? Response.json(r, { status, headers: CORS }) : new Response(null, { status: status === 200 ? 204 : status, headers: CORS });
-}
+const body = (r: Reply, status = 200) => Response.json(r, { status, headers: CORS });
+const noBody = (status: number) => new Response(null, { status, headers: CORS });
 
 /**
  * Вход Worker'а. Отправитель — адрес пропуска; from и fromKid из тела не берутся, key до frame не доходит, номер пропуска
@@ -20,35 +18,38 @@ function answer(r: Reply | null, status = 200): Response {
 export async function entrance(req: Request, gate: GateApi, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: (line: string) => void = (l) => console.log(l)): Promise<Response> {
   if (req.method !== "POST") return new Response(null, { status: 404 });
   const text = await req.text();
-  if (text.length > MAX_FRAME) return answer(fail("", "too_large"), 413);
-  const f = parseFrame(text);
-  if (!f) return answer(fail("", "bad_frame"), 400);
-  const id = f.id;
-  const refuse = (word: string, status: number) => (id ? answer(fail(id, word), status) : answer(null, status));
-  const { key, from: _from, fromKid: _fromKid, ...rest } = f;
+  if (text.length > MAX_FRAME) return body(fail("", "too_large"), 413);
+  const parsed = parseFrame(text);
+  if (!parsed) return body(fail("", "bad_frame"), 400);
+  const { key, from: _from, fromKid: _fromKid, ...fields } = parsed;
+  const { id, type } = parsed;
+  // на кадр без id ответа не ждут: только код
+  const refuse = (word: string, status: number) => (id ? body(fail(id, word), status) : noBody(status === 200 ? 204 : status));
+
   let who;
   try {
     who = await within(gate.verify(String(key ?? "")), "gate не ответил на verify");
   } catch (e) {
-    log(`gate_unavailable ${f.type} · ${e}`);
+    log(`gate_unavailable ${type} · ${e}`);
     return refuse("gate_unavailable", 503);
   }
   if ("error" in who) {
-    log(`${who.error} ${f.type}`);
+    log(`${who.error} ${type}`);
     return refuse(who.error, 200);
   }
+  const sender = who.addr;
+
   let out: Frame[];
   try {
-    out = await frame({ ...rest, type: f.type, from: who.addr, fromKid: who.kid });
+    out = await frame({ ...fields, type, from: sender, fromKid: who.kid });
   } catch (e) {
-    log(`failed ${f.type} от ${who.addr} · ${e}`);
+    log(`failed ${type} от ${sender} · ${e}`);
     return refuse("failed", 500);
   }
-  let reply: Reply | null = null;
+  const isAnswer = (o: Frame) => id && o.type === "reply" && o.id === id && o.to === sender;
   for (const o of out ?? []) {
-    if (id && o.type === "reply" && o.id === id && o.to === who.addr) reply = o as Reply;
-    else log(`relay_only ${o.type} → ${JSON.stringify(o.to)} · ответ на ${f.type} от ${who.addr}: такие кадры доставляет только relay`);
+    if (!isAnswer(o)) log(`relay_only ${o.type} → ${JSON.stringify(o.to)} · ответ на ${type} от ${sender}: такие кадры доставляет только relay`);
   }
-  if (!id) return answer(null);
-  return answer(reply ?? fail(id, "no_reply"));
+  if (!id) return noBody(204);
+  return body(((out ?? []).findLast(isAnswer) as Reply | undefined) ?? fail(id, "no_reply"));
 }

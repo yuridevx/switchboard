@@ -1,7 +1,37 @@
 // Стенд gate для тестов чужих Worker'ов в miniflare: Worker switchboard-gate с входом Gate без базы.
 // Пропуск стенда role.name.kid.<любой секрет>; секрет «bad» и отозванный номер — bad_key;
 // адрес — @имя у машины, имя~test@example.com у клиента; машины флота для list — setHosts(имена).
-const SCRIPT = "import { WorkerEntrypoint } from \"cloudflare:workers\";\n\nconst revokedKids = new Set();\nlet hosts = [];\n\nexport class Gate extends WorkerEntrypoint {\n  async verify(key) {\n    const p = String(key ?? \"\").split(\".\");\n    if (p.length !== 4 || (p[0] !== \"host\" && p[0] !== \"client\") || p[3] === \"bad\" || revokedKids.has(p[2])) return { error: \"bad_key\" };\n    return { role: p[0], name: p[1], kid: p[2], addr: p[0] === \"host\" ? `@${p[1]}` : `${p[1]}~test@example.com` };\n  }\n  async revoke(kid) {\n    revokedKids.add(kid);\n    return { addr: \"?\" };\n  }\n  async revoked(ids) {\n    return ids.filter((id) => revokedKids.has(id.slice(id.lastIndexOf(\".\") + 1)));\n  }\n  /** машины флота стенда — задаёт тест */\n  setHosts(names) {\n    hosts = names;\n  }\n  async list(role) {\n    return role === \"client\" ? [] : hosts.map((name) => ({ id: name, role: \"host\", name, person: null, addr: `@${name}`, state: \"ok\", by: \"stand\", at: 0 }));\n  }\n}\n\nexport default { fetch: () => new Response(null, { status: 404 }) };\n";
+const SCRIPT = `import { WorkerEntrypoint } from "cloudflare:workers";
+
+const revokedKids = new Set();
+const kidOf = (id) => id.slice(id.lastIndexOf(".") + 1);
+let hosts = [];
+
+export class Gate extends WorkerEntrypoint {
+  async verify(key) {
+    const [role, name, kid, secret, ...rest] = String(key ?? "").split(".");
+    if (secret === undefined || rest.length || (role !== "host" && role !== "client") || secret === "bad" || revokedKids.has(kid)) return { error: "bad_key" };
+    return { role, name, kid, addr: role === "host" ? "@" + name : name + "~test@example.com" };
+  }
+  async revoke(kid) {
+    revokedKids.add(kid);
+    return { addr: "?" };
+  }
+  async revoked(ids) {
+    return ids.filter((id) => revokedKids.has(kidOf(id)));
+  }
+  /** машины флота стенда — задаёт тест */
+  setHosts(names) {
+    hosts = names;
+  }
+  async list(role) {
+    if (role === "client") return [];
+    return hosts.map((name) => ({ id: name, role: "host", name, person: null, addr: "@" + name, state: "ok", by: "stand", at: 0 }));
+  }
+}
+
+export default { fetch: () => new Response(null, { status: 404 }) };
+`;
 
 /** Описание Worker'а для miniflare.workers: привязка { service: "switchboard-gate", entrypoint: "Gate" } найдёт его. */
 export const gateStand = () => ({ name: "switchboard-gate", modules: true, script: SCRIPT, compatibilityDate: "2026-08-01" });

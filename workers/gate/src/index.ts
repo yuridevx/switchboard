@@ -1,33 +1,39 @@
-// Worker gate: без состояния, пропуска — в базе D1 gate.
-// Привязка (вход Gate): verify, revoke, revoked, list. Адрес: POST keys.invite, keys.list (с пропуском), gate.redeem (без пропуска).
+// Worker gate без состояния, пропуска — в базе D1. Две двери: вход Gate по привязке и POST кадра по адресу.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { accepts, fail, ok, parseFrame, type Reply } from "@switchboard/protocol";
+import { accepts, fail, ok, parseFrame, type Frame, type Reply } from "@switchboard/protocol";
 import { CONTRACT, type GateApi, type Pass, type VerifyResult } from "../contract.ts";
-import { invite, list, redeem, revoke, revoked, verify, type Env } from "./pass.ts";
+import { invite, list, redeem, verify, type Log, type Refusal } from "./gate.ts";
+import { deletePass, listPasses, liveKids, type Env } from "./passes.ts";
 
 export type { Env };
 
-const log = (line: string) => console.log(line);
+const log: Log = (line) => console.log(line);
+/** Номер в отзыве и сверке — kid или role.name.kid. */
+const kidOf = (id: string) => id.slice(id.lastIndexOf(".") + 1);
 
 export class Gate extends WorkerEntrypoint<Env> implements GateApi {
   verify(key: string): Promise<VerifyResult> {
-    return verify(this.env, key, log);
+    return verify(this.env.DB, key, log);
   }
 
   async revoke(kid: string): Promise<{ addr: string } | { error: "unknown_key" }> {
-    const r = await revoke(this.env, kid);
-    log("error" in r ? `unknown_key ${kid} · отзыв` : `revoked ${kid} ${r.addr} · строка удалена`);
-    return r;
+    const row = await deletePass(this.env.DB, kid);
+    if (!row) {
+      log(`unknown_key ${kid} · отзыв`);
+      return { error: "unknown_key" };
+    }
+    log(`revoked ${kid} ${row.addr} · строка удалена`);
+    return { addr: row.addr };
   }
 
-  revoked(ids: string[]): Promise<string[]> {
-    return revoked(this.env, ids);
+  async revoked(ids: string[]): Promise<string[]> {
+    if (!ids.length) return [];
+    const live = await liveKids(this.env.DB, ids.map(kidOf));
+    return ids.filter((id) => !live.has(kidOf(id)));
   }
 
-  async list(role?: "host" | "client"): Promise<Pass[]> {
-    const r = await list(this.env, { role });
-    if ("error" in r) throw new Error(r.why);
-    return r.passes;
+  list(role?: "host" | "client"): Promise<Pass[]> {
+    return listPasses(this.env.DB, role);
   }
 }
 
@@ -35,49 +41,56 @@ export class Gate extends WorkerEntrypoint<Env> implements GateApi {
 const MAX_BODY = 16 * 1024;
 // страница шлёт простой POST без предзапроса — ответ читается с любого адреса
 const CORS = { "access-control-allow-origin": "*" };
+const respond = (r: Reply, status = 200) => Response.json(r, { status, headers: CORS });
 
-function reply(r: Reply, status = 200): Response {
-  return Response.json(r, { status, headers: CORS });
+function refused(f: Frame & { id: string }, r: Refusal, who?: string): Reply {
+  log(`${r.error} ${who ? `${f.type} от ${who} · ` : ""}${r.why}`);
+  return fail(f.id, r.error);
 }
 
-async function handle(env: Env, text: string): Promise<Reply> {
+async function redeemFrame(db: D1Database, f: Frame & { id: string }): Promise<Reply> {
+  const r = await redeem(db, f);
+  if ("error" in r) return refused(f, r);
+  log(`redeem ${r.key.slice(0, r.key.lastIndexOf("."))} · принят`);
+  return ok(f.id, r);
+}
+
+/** keys.invite и keys.list: только с пропуском. */
+async function keysFrame(db: D1Database, f: Frame & { id: string }): Promise<Reply> {
+  const who = await verify(db, f.key, log);
+  if ("error" in who) return fail(f.id, who.error);
+  if (f.type === "keys.list") {
+    const r = await list(db, f);
+    return "error" in r ? refused(f, r, who.addr) : ok(f.id, { ...r, you: who.addr });
+  }
+  const r = await invite(db, who, f);
+  if ("error" in r) return refused(f, r, who.addr);
+  log(`invite ${r.kid} ${r.addr} · выдал ${who.addr}`);
+  return ok(f.id, r);
+}
+
+async function handle(db: D1Database, text: string): Promise<Reply> {
   const f = parseFrame(text);
-  if (!f || !f.id) return fail(f?.id ?? "", "bad_frame");
+  if (!f?.id) return fail(f?.id ?? "", "bad_frame");
+  const request = f as Frame & { id: string };
   const bad = accepts(f, CONTRACT);
   if (bad) {
     log(`${bad.word} ${bad.why}`);
-    return fail(f.id, bad.word);
+    return fail(request.id, bad.word);
   }
-  if (f.type === "gate.redeem") {
-    const r = await redeem(env, f);
-    if ("error" in r) {
-      log(`${r.error} ${r.why}`);
-      return fail(f.id, r.error);
-    }
-    log(`redeem ${r.key.split(".").slice(0, 3).join(".")} · принят`);
-    return ok(f.id, r);
-  }
-  const who = await verify(env, f.key, log);
-  if ("error" in who) return fail(f.id, who.error);
-  const r = f.type === "keys.invite" ? await invite(env, who, f) : await list(env, f);
-  if ("error" in r) {
-    log(`${r.error} ${f.type} от ${who.addr} · ${r.why}`);
-    return fail(f.id, r.error);
-  }
-  if ("invite" in r) log(`invite ${r.kid} ${r.addr} · выдал ${who.addr}`);
-  return ok(f.id, "passes" in r ? { ...r, you: who.addr } : r);
+  return f.type === "gate.redeem" ? redeemFrame(db, request) : keysFrame(db, request);
 }
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     if (req.method !== "POST") return new Response(null, { status: 404 });
     const text = await req.text();
-    if (text.length > MAX_BODY) return reply(fail("", "too_large"), 413);
+    if (text.length > MAX_BODY) return respond(fail("", "too_large"), 413);
     try {
-      return reply(await handle(env, text));
+      return respond(await handle(env.DB, text));
     } catch (e) {
       log(`gate_unavailable ${(e as Error).message}`);
-      return reply(fail(parseFrame(text)?.id ?? "", "gate_unavailable"), 503);
+      return respond(fail(parseFrame(text)?.id ?? "", "gate_unavailable"), 503);
     }
   },
 };

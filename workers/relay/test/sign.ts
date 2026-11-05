@@ -1,6 +1,11 @@
 // Пропуск стенда для тестов relay: строка в базе gate стенда и сам пропуск role.name.kid.секрет — без workerd,
 // его зовут и тесты в узле. Секрет пропуска — от строки secret: другая строка даёт пропуск, у которого не сходится хэш.
-import { sha256 } from "../../gate/src/key.ts";
+
+/** Хэш секрета в строке базы: формат строки — контракт gate. */
+export async function sha256(text: string): Promise<string> {
+  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(d), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 /** Строка, от которой стенд выводит верный секрет пропуска. */
 export const SECRET = "test-secret";

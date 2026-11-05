@@ -2,7 +2,7 @@
 import { SELF, abortAllDurableObjects, applyD1Migrations, env, runInDurableObject } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { secret, sha256 } from "../../gate/src/key.ts";
+import { sha256 } from "./sign.ts";
 import { Peer, eventually, wait } from "./peer.ts";
 
 type F = Record<string, any>;
@@ -13,7 +13,7 @@ let n = 0;
 /** Пропуск нового вида: строка «принят» в базе gate стенда. */
 async function pass(role: "host" | "client", name: string, person?: string): Promise<{ key: string; kid: string }> {
   const kid = `p${String(++n).padStart(3, "0")}`;
-  const code = secret();
+  const code = crypto.randomUUID().replaceAll("-", "");
   await env.GATE_DB.prepare("INSERT INTO passes (id, role, name, person, state, hash, by, at) VALUES (?, ?, ?, ?, 'ok', ?, 'test', ?)")
     .bind(kid, role, name, person ?? null, await sha256(code), Date.now())
     .run();

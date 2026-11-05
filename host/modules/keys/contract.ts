@@ -3,4 +3,5 @@
 // invite и list зовут gate, revoke — вход relay; пропуск за сессию подставляет ядро. Хранить нечего.
 import { make } from "./src/keys.ts";
 
+export { make };
 export default make().module;

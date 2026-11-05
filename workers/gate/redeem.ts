@@ -3,37 +3,32 @@
 //   <приглашение> | node redeem.ts https://switchboard-gate.<subdomain>.workers.dev/
 // Секрет пропуска рождается у gate и уходит один раз — в ответе на этот запрос.
 
-const USAGE = "использование: <приглашение в stdin> | switchboard redeem <адрес gate>";
 /** предел запроса к gate */
 const LIMIT_MS = 30_000;
 
-async function readStdin(): Promise<string> {
-  const parts: Buffer[] = [];
-  for await (const c of process.stdin) parts.push(c as Buffer);
-  return Buffer.concat(parts).toString("utf8").trim();
-}
+type Answer = { ok: boolean; result?: { key: string }; error?: string };
 
-async function main(argv: string[]): Promise<number> {
-  const [gate] = argv;
+/** Код выхода: process.exit оборвал бы вывод в канал на Windows. */
+async function redeem(gate: string | undefined): Promise<number> {
   if (!gate || !/^https?:\/\//.test(gate) || process.stdin.isTTY) {
-    console.error(USAGE);
+    console.error("использование: <приглашение в stdin> | switchboard redeem <адрес gate>");
     return 2;
   }
-  const invite = await readStdin();
-  let r: { ok: boolean; result?: { key: string }; error?: string };
+  const invite = Buffer.concat(await process.stdin.toArray()).toString("utf8").trim();
+  let reply: Answer;
   try {
     const res = await fetch(gate, { method: "POST", body: JSON.stringify({ type: "gate.redeem", id: "redeem", v: 1, invite }), signal: AbortSignal.timeout(LIMIT_MS) });
-    r = await res.json();
+    reply = await res.json();
   } catch (e) {
     console.error(`redeem: gate не ответил — ${(e as Error).message}`);
     return 1;
   }
-  if (!r.ok || !r.result) {
-    console.error(`redeem: ${r.error}`);
+  if (!reply.ok || !reply.result) {
+    console.error(`redeem: ${reply.error}`);
     return 1;
   }
-  console.log(r.result.key);
+  console.log(reply.result.key);
   return 0;
 }
 
-process.exitCode = await main(process.argv.slice(2));
+process.exitCode = await redeem(process.argv[2]);
