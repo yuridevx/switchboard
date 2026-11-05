@@ -192,8 +192,13 @@ for (const [number, how, doc] of [
     eq(await reply.locator("iframe").count(), 0, "рамка");
     if (!(await reply.textContent()).includes("Документ ушёл на другую страницу — просмотр снят")) throw new Error(`нет причины: ${await reply.textContent()}`);
     eq(p.frames().some((f) => f.url().includes("/landing")), false, "чужая страница в карточке");
+    // документ снова уходит сам: рамка снимается через миг, поэтому её появление ловит наблюдатель
+    const shown = reply.evaluate((el) => new Promise((res) => {
+      new MutationObserver(() => el.querySelector("iframe") && res(true)).observe(el, { childList: true, subtree: true });
+      setTimeout(() => res(false), 3000);
+    }));
     await reply.locator("button", { hasText: "Показать снова" }).click();
-    eq(await reply.locator("iframe").count(), 1, "рамка снова");
+    eq(await shown, true, "рамка снова");
   });
 }
 
