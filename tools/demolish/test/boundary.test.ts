@@ -93,6 +93,33 @@ describe("lost", () => {
     expect(out).not.toContain("литерал теста");
     expect(out).toMatch(/пропало [1-9]/);
   });
+
+  it("--comments: только комментарии старого кода, которых нет в новом: причина правила живёт в них", () => {
+    const r = repo();
+    r.put("m/src/a.go", `// остановка доводит начатое
+// общий комментарий
+func a() {}
+`);
+    r.put("m/src/b.ts", `/**
+ * ссылка могла истечь
+ */
+export const b = "литерал";
+`);
+    const before = r.commit("старый");
+    r.put("m/src/a.go", `// общий комментарий
+func a() { x() }
+`);
+    r.put("m/src/b.ts", `export const c = 1;
+`);
+    r.commit("новый");
+    const { code, out } = r.run("lost", before, "--comments", "m");
+    expect(code).toBe(0);
+    expect(out).toContain("остановка доводит начатое");
+    expect(out).toContain("ссылка могла истечь");
+    expect(out).not.toContain("общий комментарий");
+    expect(out).not.toContain("литерал");
+    expect(out).not.toContain("func a");
+  });
 });
 
 describe("dom-diff", () => {
