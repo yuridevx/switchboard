@@ -41,7 +41,7 @@ export function fleet(o: FleetOptions): FleetClient {
   const requestMs = o.requestMs ?? CALL_MS;
   const readMs = Math.min(READ_MS, requestMs);
   const links = new Map<string, Link>();
-  /** откуда пришёл запрос: ответ — тем же соединением, там его ждёт спросивший */
+  /** откуда пришёл запрос «id|from»: ответ — тем же соединением, там его ждёт спросивший */
   const askedVia = new Map<string, Link>();
   const posts = new Set<AbortController>();
   const pause = backoff(o.pauseMs, o.maxPauseMs);
@@ -50,7 +50,7 @@ export function fleet(o: FleetOptions): FleetClient {
   let retry: ReturnType<typeof setTimeout> | undefined;
 
   function join(m: string) {
-    if (!relay || closed || links.has(m)) return;
+    if (closed || links.has(m)) return;
     const via = link({
       ...o,
       url: `${relay}/m/${m}`,
@@ -58,7 +58,7 @@ export function fleet(o: FleetOptions): FleetClient {
       onState: (st, why, retryAt) => o.onState?.(m, st, why, retryAt),
       onFrame(f) {
         if (f.type === "roster") for (const c of (f as unknown as Roster).clients) if (kindOf(c) === "machine") join(machineOf(c)!);
-        if (f.id && !isReply(f)) askedVia.set(f.id, via);
+        if (f.id && !isReply(f)) askedVia.set(`${f.id}|${f.from}`, via);
         o.onFrame?.(f);
       },
     });
@@ -99,7 +99,7 @@ export function fleet(o: FleetOptions): FleetClient {
     const { passes, you } = r.result as { passes: Array<{ name: string }>; you?: string };
     addr = you ?? null;
     for (const p of passes) join(p.name);
-    if (!machine && !passes.length) o.onState?.("", "open");
+    if (!links.size) o.onState?.("", "open");
   }
 
   /** Своё соединение; у страницы — любое открытое, иначе любое: оно и скажет disconnected. */
@@ -131,14 +131,14 @@ export function fleet(o: FleetOptions): FleetClient {
   /** Список адресатов: каждому соединению и Worker'у один кадр со своей частью списка. */
   function sendList(f: Frame, list: string[]): Sent {
     const parts = new Map<Link | string, string[]>();
-    let refused = "bad_frame";
+    let refused = "offline";
     for (const to of list) {
       const route = routeOf({ to });
       if (typeof route === "object" && "error" in route) refused = route.error;
       else parts.set(route, [...(parts.get(route) ?? []), to]);
     }
     const sent = [...parts].map(([route, to]) => sendBy(route, { ...f, to }));
-    return sent.find((s) => s.ok) ?? sent[0] ?? { ok: false, error: refused };
+    return sent.find((s) => s.ok) ?? sent.at(-1) ?? { ok: false, error: refused };
   }
 
   if (machine) join(machine);
@@ -151,8 +151,8 @@ export function fleet(o: FleetOptions): FleetClient {
     get state() {
       if (closed) return "stopped";
       if (machine) return links.get(machine)?.state ?? "connecting";
-      const states = [...links.values()].map((l) => l.state);
-      return (["open", "stopped", "closed"] as const).find((s) => states.includes(s)) ?? "connecting";
+      const all = [...links.values()];
+      return (all.find((l) => l.state === "open") ?? all[0])?.state ?? "connecting";
     },
     get roster() {
       const open = [...links.values()].filter((l) => l.state === "open").flatMap((l) => l.roster ?? []);
@@ -174,8 +174,9 @@ export function fleet(o: FleetOptions): FleetClient {
     send(f) {
       if (closed) return { ok: false, error: "disconnected" };
       if (f.type === "reply" && f.id) {
-        const via = askedVia.get(f.id);
-        askedVia.delete(f.id);
+        const asked = `${f.id}|${f.to}`;
+        const via = askedVia.get(asked);
+        askedVia.delete(asked);
         if (via?.state === "open") return via.send(f);
       }
       return Array.isArray(f.to) ? sendList(f, f.to) : sendBy(routeOf(f), f);

@@ -37,9 +37,10 @@ export type Link = {
   readonly state: LinkState;
   /** последний известный roster объекта */
   readonly roster: Roster | null;
-  /** read: запрос только читает, предел короче */
+  /** Не бросает: отказ — reply с ok: false. read — запрос только читает, предел короче. */
   request(f: Frame, read?: boolean): Promise<Reply>;
   send(f: Frame): Sent;
+  /** Браузер и Node принимают только код 1000 или 3000–4999. */
   close(code?: number, reason?: string): void;
 };
 
@@ -62,12 +63,11 @@ export function backoff(pauseMs = 1000, maxMs = 60_000) {
   };
 }
 
-/** Метка адресата запроса в roster: since его машины, сам адрес гостя; undefined — по roster его не видно. */
+/** Метка адресата запроса в roster: since его машины или адрес гостя; undefined — ответ или offline даст relay. */
 function presence(r: Roster | null, f: Frame): unknown {
   const machine = hostOf(f);
-  const since = machine ? r?.machines.find((m) => m.machine === machine)?.since : undefined;
-  const who = machine ? `@${machine}` : f.to;
-  return since ?? (typeof who === "string" && r?.clients.includes(who) ? who : undefined);
+  if (machine) return r?.machines.find((m) => m.machine === machine)?.since;
+  return typeof f.to === "string" && r?.clients.includes(f.to) ? f.to : undefined;
 }
 
 type Waiter = { done(r: Reply): void; timer: ReturnType<typeof setTimeout>; f: Frame; seen: unknown };
@@ -202,11 +202,11 @@ export function link(o: LinkOptions): Link {
     send,
     request(f, read = false) {
       const id = f.id ?? newId();
-      const sent = send({ ...f, id });
-      if (!sent.ok) return Promise.resolve({ type: "reply", id, ...sent });
       return new Promise((done) => {
         const timer = setTimeout(() => settle(id, fail(id, "timeout")), read ? Math.min(READ_MS, requestMs) : requestMs);
         waiting.set(id, { done, timer, f, seen: presence(roster, f) });
+        const sent = send({ ...f, id });
+        if (!sent.ok) settle(id, { type: "reply", id, ...sent });
       });
     },
     close(code = 1000, reason = "closing") {
