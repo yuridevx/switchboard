@@ -1,45 +1,43 @@
-// Слова экрана точек: отказы, что будет с папкой, размер.
-import type { SessionRecord } from "@switchboard/web-core";
-import { linkText, plural } from "@switchboard/web-ui";
-import type { Check, CheckResult } from "./store.ts";
+// Слова экрана точек: отказы, проверка папки, размеры.
+import { plural } from "@switchboard/web-ui";
 
-export { nameOf } from "@switchboard/protocol";
-export const r2Of = (s: SessionRecord | undefined) => s?.r2 as { error?: string; at?: number } | undefined;
-export const mb = (bytes: number) => `${Math.round(bytes / 1048576)} МБ`;
+export const mb = (bytes = 0) => (bytes / 1_048_576).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 
-/** Слово отказа машины или реестра → строка на экране. who — сессия, target и source — куда и откуда поднимали. */
-export function refusal(word: string, who = "", target = "", source = ""): string {
-  const openFailed = !target ? "Не поднялась" : `Не поднялась на ${target}${source && source !== target ? ` — снова идёт на ${source}` : ""}`;
-  const known: Record<string, string> = {
-    waiting: `${who || "Сессия"} ждёт ответа человека — после ответа или с «прервать»`,
+export const points = (n: number) => `${n} ${plural(n, "точка", "точки", "точек")}`;
+
+/** Слово отказа человеческими словами; name — как назвать сессию, target и from — куда и откуда поднимается. */
+export function wordText(word: string, o: { name?: string; target?: string; from?: string } = {}): string {
+  const texts: Record<string, string> = {
+    waiting: `${o.name ?? "Сессия"} ждёт ответа человека — после ответа или с «прервать»`,
     bad_dir: "Правки точки сюда не встанут — другой репозиторий; выберите другую папку или «оставить как есть»",
     bad_point: "Точка не открылась — причина в журнале машины",
     not_owner: "Сессию уже подняли на другой машине",
-    open_failed: openFailed,
+    open_failed: o.from ? `Не поднялась на ${o.target} — снова идёт на ${o.from}` : "Не поднялась",
     not_r2: "Сессия не в R2",
     running: "Сессия ещё идёт — сначала точка со стопом",
     name_taken: "Имя занято на этой машине",
     slot_required: "Выберите слот",
-    no_slot: `Такого слота нет на ${target || "машине"}`,
+    no_slot: `Такого слота нет на ${o.target}`,
     not_logged_in: "В слоте нет вошедшего аккаунта",
+    offline: "Машина не на связи",
   };
-  return known[word] ?? linkText(word);
+  return texts[word] ?? word;
 }
 
-/** Подъём возможен: проверка пришла, отказа нет, папка не чужая. */
-export const canRaise = (c: CheckResult | null) => !!c && !("error" in c) && c.folder !== "other";
+export type Probe = { folder: string; files?: number; sessions?: string[] };
+export type Check = { key: string; text: string; tone?: "ok" | "wait" | "bad" };
 
-/** Ответ проверки подъёма → что будет с папкой на целевой машине. */
-export function folderText(c: Check, machine: string): string {
-  const files = c.files ?? 0;
-  const sessions = c.sessions ?? [];
-  const known: Record<string, string> = {
+const fileCount = (n?: number) => (n === undefined ? "? файлов" : `${n} ${plural(n, "файл", "файла", "файлов")}`);
+
+/** Что будет с папкой на машине target: ответ пробы. */
+export function folderCheck(p: Probe, target: string): Check {
+  const texts: Record<string, string> = {
     same: "тот же репозиторий, своих правок нет — правки точки применятся",
-    dirty: `тот же репозиторий, но в нём свои правки (${c.files ?? "?"} ${plural(files, "файл", "файла", "файлов")}): правки точки НЕ применятся, ваши файлы останутся`,
-    empty: `нет на ${machine} — будет клон репозитория и правки точки поверх`,
-    shared: `здесь же ${sessions.join(", ")} — в этой папке будут ${sessions.length + 1} сессии`,
+    dirty: `тот же репозиторий, но в нём свои правки (${fileCount(p.files)}): правки точки НЕ применятся, ваши файлы останутся`,
+    empty: `нет на ${target} — будет клон репозитория и правки точки поверх`,
+    shared: `здесь же ${(p.sessions ?? []).join(", ")} — в этой папке будут ${(p.sessions?.length ?? 0) + 1} ${plural((p.sessions?.length ?? 0) + 1, "сессия", "сессии", "сессий")}`,
     nogit: "в точке нет git — файлы останутся как есть",
     other: "Другой репозиторий — выберите другую папку",
   };
-  return known[c.folder] ?? c.folder;
+  return { key: p.folder, text: texts[p.folder] ?? p.folder, tone: p.folder === "other" ? "bad" : p.folder === "dirty" ? "wait" : "ok" };
 }

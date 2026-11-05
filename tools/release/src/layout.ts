@@ -1,32 +1,30 @@
-// Раскладка бакета и номера версий — одно правило для CI, «Выпусков» и модуля Host.
-//   <часть>/<версия>.tgz      архив
-//   <часть>/<версия>.sha256   «<hex>  <версия>.tgz», как у sha256sum; пишется вторым — версия готова
+// Раскладка выпуска в бакете: имена ключей, номера версий, строка хэша.
 import { createHash } from "node:crypto";
 
 export const RELEASES_BUCKET = "switchboard-releases";
 
-export const tgzKey = (part: string, version: string) => `${part}/${version}.tgz`;
-export const shaKey = (part: string, version: string) => `${part}/${version}.sha256`;
-export const shaLine = (hex: string, version: string) => `${hex}  ${version}.tgz\n`;
+export const isVersion = (v: unknown): v is string => typeof v === "string" && /^\d+\.\d+\.\d+$/.test(v);
+/** Номер сборки «Выпусков»: версия ядра и «+n». */
+export const isBuild = (v: unknown): v is string => typeof v === "string" && /^\d+\.\d+\.\d+\+\d+$/.test(v);
 
-/** Хэш из строки .sha256; не того вида — null. */
-export function parseSha(line: string): string | null {
-  const first = line.trim().split(/\s+/)[0]?.toLowerCase() ?? "";
-  return /^[0-9a-f]{64}$/.test(first) ? first : null;
-}
+const numbers = (v: string) => v.split(/[.+]/).map(Number);
 
-export const sha256hex = (data: Uint8Array | string) => createHash("sha256").update(data).digest("hex");
-
-/** Номер: версия каталога — три числа, сборка — ещё «+n». */
-export const isVersion = (v: string) => /^\d+\.\d+\.\d+(\+\d+)?$/.test(v);
-export const isBuild = (v: string) => v.includes("+");
-
-/** Порядок номеров: 1.1.10 новее 1.1.9, 1.2.0+10 новее 1.2.0+9. */
+/** Порядок версий и сборок: по числам, сборка «+n» новее своего ядра. */
 export function byVersion(a: string, b: string): number {
-  const [x, y] = [a, b].map((v) => v.split(/[.+]/).map(Number));
-  for (let i = 0; i < 4; i++) {
+  const x = numbers(a);
+  const y = numbers(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
     const d = (x[i] ?? 0) - (y[i] ?? 0);
     if (d) return d;
   }
   return 0;
 }
+
+export const tgzKey = (part: string, version: string) => `${part}/${version}.tgz`;
+export const shaKey = (part: string, version: string) => `${part}/${version}.sha256`;
+
+export const sha256hex = (data: string | Uint8Array) => createHash("sha256").update(data).digest("hex");
+/** Строка как у sha256sum. */
+export const shaLine = (hash: string, version: string) => `${hash}  ${version}.tgz\n`;
+/** Хэш из строки .sha256: первое слово. */
+export const parseSha = (line: string) => line.trim().split(/\s+/)[0];

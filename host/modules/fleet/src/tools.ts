@@ -1,81 +1,93 @@
-// Инструменты MCP сессии: зовут чужие запросы от её имени и пишут ответ словами для модели. Отправитель — сама сессия, в аргументах его нет.
 import { randomUUID } from "node:crypto";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
-import type { SdkMcpToolDefinition } from "@anthropic-ai/claude-agent-sdk";
-import { z } from "zod";
 import type { Host, Result } from "@switchboard/host";
-import { addProject, LABELS, labelOf, NONE, placeSessions, PROJECTS, projectByName, projectIdOf, setLabel, type Labels, type ProjectRec, type Settings } from "@switchboard/records";
 import { kindOf } from "@switchboard/protocol";
-import { linesOf, type Entry } from "./prompt.ts";
+import { addProject, labelOf, LABELS, NONE, placeSessions, projectByName, projectIdOf, PROJECTS, setLabel } from "@switchboard/records";
+import type { Labels, ProjectRec, Settings } from "@switchboard/records";
+import { z } from "zod";
 
-type RosterSession = { callsign: string; state?: string | null; parent?: string; model?: string };
-type Roster = { sessions?: RosterSession[]; machines?: Array<{ machine: string }>; clients?: string[] };
-
-/** Что нужно инструментам; появляется при старте модуля. */
-export type Env = { host: Host; meta: Settings };
+type Env = { host: Host; records: Settings };
+type Refused = Extract<Result, { ok: false }>;
+type Block = { type?: string; text?: string; name?: string };
+type Record_ = { type?: string; message?: { content?: string | Block[] } };
 
 const say = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], ...(isError ? { isError: true } : {}) });
+const fail = (text: string) => say(text, true);
 
-/** Отказ словом — текстом для модели; причина владельца — следом: список слотов машины и подобное. */
-function failed(to: string, r: Result & { ok: false }) {
-  if (r.error === "offline") return say(`Не доставлено: ${to} не на связи (offline)`, true);
-  if (r.error === "disconnected") return say(`Доставка не подтверждена: нет связи с relay (disconnected)`, true);
-  if (r.error === "timeout") return say(`Не выполнено: ${to} — timeout: исход неизвестен, проверь list`, true);
-  return say(`Не выполнено: ${to} — ${r.error}${typeof r.why === "string" && r.why ? `. ${r.why}` : ""}`, true);
+/** Отказ для модели: один текст на все инструменты. */
+function refusal(to: string, r: Refused): string {
+  if (r.error === "offline") return `Не доставлено: ${to} не на связи (offline)`;
+  if (r.error === "disconnected") return "Доставка не подтверждена: нет связи с relay (disconnected)";
+  if (r.error === "timeout") return `Не выполнено: ${to} — timeout: исход неизвестен, проверь list`;
+  return `Не выполнено: ${to} — ${r.error}${r.why ? `. ${r.why}` : ""}`;
 }
 
-/** Поставить сессию в конец проекта по имени; нет такого — проект создаётся; пустое имя — «Без проекта». Ответ — слово отказа или null. */
-const assign = (meta: Settings, callsign: string, project: string) =>
-  meta.edit<ProjectRec[]>(PROJECTS, (old) => {
-    if (!project.trim()) return placeSessions(old, [callsign], NONE);
-    const had = projectByName(old, project);
-    if (had) return placeSessions(old, [callsign], had.id);
-    const made = addProject(old, project);
-    return placeSessions(made.recs, [callsign], made.id);
-  });
+/** Необязательные поля запроса: пустое — как не названное. */
+const filled = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
 
-export function fleetTools(me: string, env: Env): SdkMcpToolDefinition<any>[] {
+/** Каждый блок текста и каждый вызов инструмента — строкой; остальное модели не нужно. */
+function historyLines(messages: Record_[]): string {
+  const lines = messages.flatMap(({ type, message }) => {
+    if (type !== "user" && type !== "assistant") return [];
+    const content = message?.content ?? [];
+    const blocks: Block[] = typeof content === "string" ? [{ type: "text", text: content }] : content;
+    return blocks.flatMap((b) => (b.type === "text" && b.text ? [`${type}: ${b.text}`] : b.type === "tool_use" && b.name ? [`tool: ${b.name}`] : []));
+  });
+  return lines.join("\n") || "записей нет";
+}
+
+/** Поставить сессию в конец проекта: нет такого имени — создать; пустое имя — без проекта. null или слово отказа. */
+function place(records: Settings, callsign: string, name: string): Promise<string | null> {
+  return records.edit<ProjectRec[]>(PROJECTS, (recs) => {
+    if (!name.trim()) return placeSessions(recs, [callsign], NONE);
+    const known = projectByName(recs, name);
+    const target = known ? { recs, id: known.id } : addProject(recs, name);
+    return placeSessions(target.recs, [callsign], target.id);
+  });
+}
+
+async function fleetList(me: string, { host, records }: Env) {
+  const roster = host.roster();
+  if (!roster) return fail("Нет связи с relay (disconnected): список сессий неизвестен");
+  const word = await records.read();
+  const recs = word ? undefined : records.get<ProjectRec[]>(PROJECTS);
+  const labels = word ? undefined : records.get<Labels>(LABELS);
+  const parents = new Map(roster.sessions.map((s) => [s.callsign, s.parent as string | null | undefined]));
+  const projectName = (callsign: string) => {
+    const id = projectIdOf(recs, callsign, (cs) => parents.get(cs));
+    return recs?.find((r) => r.id === id && id !== NONE)?.name ?? null;
+  };
+  const list = {
+    me,
+    sessions: roster.sessions.map(({ callsign, state, parent, model }) => ({ callsign, state: state ?? null, parent: parent ?? null, model: model ?? null, label: labelOf(labels, callsign) ?? null, project: projectName(callsign) })),
+    machines: roster.machines.map(({ machine }) => ({ machine, label: labelOf(labels, `@${machine}`) ?? null })),
+    projects: (recs ?? []).filter((r) => r.id !== NONE).map((r) => r.name),
+    clients: roster.clients,
+    ...(word ? { meta: `имена и проекты недоступны: ${word}` } : {}),
+  };
+  return say(JSON.stringify(list));
+}
+
+/** Инструменты MCP сессии me. env — ядро и записи: появляются на старте Host, тексты от них не зависят. */
+export function toolsOf(me: string, env: () => Env) {
+  const ok = (to: string, text: string) => (r: Result) => (r.ok ? say(text) : fail(refusal(to, r)));
   return [
-    tool("list", "Кто на связи: сессии флота с состоянием, родителем, моделью, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}, async () => {
-      const roster = env.host.roster() as Roster | null;
-      if (!roster) return say("Нет связи с relay (disconnected): список сессий неизвестен", true);
-      // служба настроек не ответила — список сессий всё равно приходит, а вместо меток слово причины
-      const word = await env.meta.read();
-      const recs = word ? undefined : env.meta.get<ProjectRec[]>(PROJECTS);
-      const labels = word ? undefined : env.meta.get<Labels>(LABELS);
-      const list = roster.sessions ?? [];
-      const parentOf = (cs: string) => list.find((s) => s.callsign === cs)?.parent;
-      const projectName = (cs: string) => {
-        const id = projectIdOf(recs, cs, parentOf);
-        return id === NONE ? null : (recs?.find((r) => r.id === id)?.name ?? null);
-      };
-      return say(
-        JSON.stringify({
-          me,
-          sessions: list.map((s) => ({ callsign: s.callsign, state: s.state ?? null, parent: s.parent ?? null, model: s.model ?? null, label: labelOf(labels, s.callsign) ?? null, project: projectName(s.callsign) })),
-          machines: (roster.machines ?? []).map((m) => ({ machine: m.machine, label: labelOf(labels, `@${m.machine}`) ?? null })),
-          projects: (recs ?? []).filter((r) => r.id !== NONE).map((r) => r.name),
-          clients: roster.clients ?? [],
-          ...(word ? { meta: `имена и проекты недоступны: ${word}` } : {}),
-        }),
-      );
-    }),
+    tool("list", "Кто на связи: сессии флота с состоянием, родителем, моделью, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}, () => fleetList(me, env())),
+
     tool(
       "send",
       "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email. Ответа адресата не ждёт.",
       { to: z.string().describe("callsign сессии, ~email человека или устройство~email"), text: z.string().describe("текст сообщения") },
       async ({ to, text }) => {
-        if (kindOf(to) === "session") {
-          const r = await env.host.request("message", { to, text, from: me });
-          return r.ok ? say(`доставлено: ${to}`) : failed(to, r);
-        }
-        // клиенту — кадр без подтверждения; кого нет на связи, достанет пушем модуль push
-        const r = env.host.emit({ type: "message", from: me, to, text });
-        if (!r.ok) return failed(to, r);
-        void env.host.request("notify", { clients: [to], frame: { type: "message", from: me, notify: { title: me, body: text, tag: randomUUID() } } });
+        const { host } = env();
+        if (kindOf(to) === "session") return ok(to, `доставлено: ${to}`)(await host.request("message", { to, text, from: me }));
+        const sent = host.emit({ type: "message", from: me, to, text });
+        if (!sent.ok) return fail(refusal(to, sent));
+        void host.request("notify", { clients: [to], frame: { type: "message", from: me, notify: { title: me, body: text, tag: randomUUID() } } });
         return say(`отправлено: ${to}`);
       },
     ),
+
     tool(
       "answer",
       "Ответить на вопрос другой сессии (тег <fleet-question>), которой эта сессия дала задачу.",
@@ -84,11 +96,9 @@ export function fleetTools(me: string, env: Env): SdkMcpToolDefinition<any>[] {
         question: z.string().describe("id вопроса из тега"),
         answers: z.record(z.string(), z.string()).describe("текст вопроса → ответ; несколько вариантов — через запятую"),
       },
-      async ({ to, question, answers }) => {
-        const r = await env.host.request("answer", { callsign: to, question, answers, from: me });
-        return r.ok ? say("принято") : failed(to, r);
-      },
+      async ({ to, question, answers }) => ok(to, "принято")(await env().host.request("answer", { callsign: to, question, answers, from: me })),
     ),
+
     tool(
       "open",
       "Открыть сессию с задачей на любой машине флота. Она твоя дочь: итог каждого её хода, начатого тобой, придёт сам. Без параметра slot: на машине один слот — он, слотов нет — общий вход, а без него слот main из вошедших аккаунтов (их нет — отказ), два и больше — отказ со списком слотов.",
@@ -104,26 +114,29 @@ export function fleetTools(me: string, env: Env): SdkMcpToolDefinition<any>[] {
         project: z.string().optional().describe("имя проекта: сессия встанет в его конец, нет такого — создастся; без него — в проект открывшей"),
       },
       async ({ name, dir, text, machine, profile, model, effort, slot, project }) => {
-        const where = machine ?? env.host.machine;
-        const o = await env.host.request("session.open", { machine: where, name, dir, ...(profile ? { profile } : {}), ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(slot !== undefined ? { slot } : {}), from: me });
-        if (!o.ok) return failed(`${name}@${where}`, o);
-        const { callsign, slot: inSlot } = o.result as { callsign: string; slot?: string | null };
-        const opened = inSlot ? `${callsign} · слот ${inSlot}` : callsign;
-        const word = project === undefined ? null : await assign(env.meta, callsign, project);
-        const m = await env.host.request("message", { to: callsign, text, from: me });
-        if (!m.ok) return say(`открыта: ${opened}, но задача не доставлена — ${m.error}`, true);
-        return say(`открыта: ${opened}; задача во вводе, итог хода придёт сам${word ? `; проект не записан: ${word}` : ""}`);
+        const { host, records } = env();
+        const where = machine ?? host.machine;
+        const opened = await host.request("session.open", { machine: where, name, dir, ...filled({ profile, model, effort }), ...(slot === undefined ? {} : { slot }), from: me });
+        if (!opened.ok) return fail(refusal(`${name}@${where}`, opened));
+        const { callsign, slot: used } = opened.result as { callsign: string; slot?: string | null };
+        const shown = used ? `${callsign} · слот ${used}` : callsign;
+        const word = project === undefined ? null : await place(records, callsign, project);
+        const task = await host.request("message", { to: callsign, text, from: me });
+        if (!task.ok) return fail(`открыта: ${shown}, но задача не доставлена — ${task.error}`);
+        return say(`открыта: ${shown}; задача во вводе, итог хода придёт сам${word ? `; проект не записан: ${word}` : ""}`);
       },
     ),
+
     tool(
       "history",
       "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.",
       { callsign: z.string(), limit: z.number().int().min(1).optional().describe("сколько записей; по умолчанию 20") },
       async ({ callsign, limit }) => {
-        const r = await env.host.request("session.history", { callsign, limit: limit ?? 20, before: null, from: me });
-        return r.ok ? say(linesOf((r.result as { messages: Entry[] }).messages)) : failed(callsign, r);
+        const r = await env().host.request("session.history", { callsign, limit: limit ?? 20, before: null, from: me });
+        return r.ok ? say(historyLines((r.result as { messages: Record_[] }).messages)) : fail(refusal(callsign, r));
       },
     ),
+
     tool(
       "update",
       "Сменить сессии слот, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот — перезапуском между ходами. Слот меняется первым: его отказ не меняет остального.",
@@ -136,47 +149,48 @@ export function fleetTools(me: string, env: Env): SdkMcpToolDefinition<any>[] {
         project: z.string().optional().describe("имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта"),
       },
       async ({ callsign, slot, model, effort, title, project }) => {
-        const more = !!(model || effort || title);
-        let moved = "";
+        const { host, records } = env();
+        const done: string[] = [];
         if (slot !== undefined) {
-          const r = await env.host.request("session.slot", { callsign, slot, from: me });
-          if (!r.ok) return failed(callsign, r);
-          moved = `слот ${slot}${(r.result as { restart?: boolean }).restart ? "; перезапуск между ходами" : ""}`;
-          if (project === undefined && !more) return say(moved);
-          moved += "; ";
+          const r = await host.request("session.slot", { callsign, slot, from: me });
+          if (!r.ok) return fail(refusal(callsign, r));
+          done.push((r.result as { restart?: boolean } | undefined)?.restart ? `слот ${slot}; перезапуск между ходами` : `слот ${slot}`);
         }
         if (project !== undefined) {
-          const word = await assign(env.meta, callsign, project);
-          if (word) return say(`${moved}Не выполнено: проект ${callsign} — ${word}`, true);
-          moved += project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`;
-          if (!more) return say(moved);
-          moved += "; ";
+          const word = await place(records, callsign, project);
+          if (word) return fail([...done, `Не выполнено: проект ${callsign} — ${word}`].join("; "));
+          done.push(project.trim() ? `проект ${callsign}: ${project.trim()}` : `${callsign}: без проекта`);
         }
-        const r = await env.host.request("session.update", { callsign, ...(model ? { model } : {}), ...(effort ? { effort } : {}), ...(title ? { title } : {}), from: me });
-        return r.ok ? say(`${moved}сразу: ${(r.result as { now: string[] }).now.join(", ") || "—"}`) : failed(callsign, r);
+        if (!done.length || model || effort || title) {
+          const r = await host.request("session.update", { callsign, ...filled({ model, effort, title }), from: me });
+          if (!r.ok) return fail(refusal(callsign, r));
+          done.push(`сразу: ${(r.result as { now: string[] }).now.join(", ") || "—"}`);
+        }
+        return say(done.join("; "));
       },
     ),
+
     tool(
       "label",
       "Имя в интерфейсе: сессии (site@laptop) или машины (@laptop); адрес остаётся адресом. Пустой текст снимает имя.",
       { to: z.string().describe("callsign сессии или @машина"), text: z.string().describe("имя; пустое — снять") },
-      async ({ to, text: name }) => {
+      async ({ to, text }) => {
         const kind = kindOf(to);
-        if (kind !== "session" && kind !== "machine") return say(`Не выполнено: ${to} — не сессия и не машина`, true);
-        const word = await env.meta.edit<Labels>(LABELS, (old) => setLabel(old, to, name));
-        if (word) return say(`Не выполнено: имя ${to} — ${word}`, true);
-        return say(name.trim() ? `имя ${to}: ${name.trim()}` : `имя ${to} снято`);
+        if (kind !== "session" && kind !== "machine") return fail(`Не выполнено: ${to} — не сессия и не машина`);
+        const word = await env().records.edit<Labels>(LABELS, (labels) => setLabel(labels, to, text));
+        if (word) return fail(`Не выполнено: имя ${to} — ${word}`);
+        return say(text.trim() ? `имя ${to}: ${text.trim()}` : `имя ${to} снято`);
       },
     ),
+
     tool(
       "remove",
       "Закрыть сессию: она забыта, разговор остаётся на диске машины. Другую — сразу; без callsign — себя, после этого хода.",
       { callsign: z.string().optional() },
       async ({ callsign = me }) => {
         const self = callsign === me;
-        const r = await env.host.request("session.remove", { callsign, ...(self ? { after_turn: true } : {}), from: me });
-        if (!r.ok) return failed(callsign, r);
-        return say(self ? "закроюсь после этого хода" : `закрыта: ${callsign}`);
+        const r = await env().host.request("session.remove", { callsign, from: me, ...(self ? { after_turn: true } : {}) });
+        return ok(callsign, self ? "закроюсь после этого хода" : `закрыта: ${callsign}`)(r);
       },
     ),
   ];

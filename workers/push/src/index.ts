@@ -1,9 +1,9 @@
-// Вход Worker'а push: POST кадра с пропуском (fetch — обёртка entrance) и frame(кадр) по привязке внутри аккаунта.
+// Вход Worker'а push: POST кадра с пропуском и кадр по привязке внутри аккаунта.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { entrance } from "@switchboard/gate";
 import type { Frame } from "@switchboard/protocol";
 import type { Env } from "./env.ts";
-import { handle } from "./handle.ts";
+import { answer } from "./frames.ts";
 
 export class Participant extends WorkerEntrypoint<Env> {
   fetch(req: Request): Promise<Response> {
@@ -11,7 +11,7 @@ export class Participant extends WorkerEntrypoint<Env> {
   }
 
   frame(f: Frame): Promise<Frame[]> {
-    return handle(this.env, f);
+    return answer(this.env, f);
   }
 }
 

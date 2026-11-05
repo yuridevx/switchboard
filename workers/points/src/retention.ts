@@ -1,79 +1,60 @@
-// Правило хранения точек; считает его только этот модуль. Сутки — по UTC, неделя — с понедельника.
-//   сегодня и вчера — все точки; до 30 дней — последняя точка линии в дне; до года — последняя точка линии в неделе;
-//   всегда — голова; год — конец каждой ветки и точка линии, от которой ветка ушла; сессия без новых точек год уходит целиком.
-const DAY = 86_400_000;
-const YEAR = 365 * DAY;
-const dayOf = (at: number) => Math.floor(at / DAY);
-/** 1 января 1970 — четверг: сдвиг на 3 дня начинает неделю с понедельника. */
-const weekOf = (at: number) => Math.floor((dayOf(at) + 3) / 7);
-
+// Правило хранения точек сессии: чистая функция над строками. Голова живёт, пока идёт сессия; линия редеет: день → 30 дней → неделя → год;
+// конец ветки и точка линии, от которой она ушла, — год от конца ветки; средняя точка ветки — по дню.
 export type Node = { id: number; at: number; base: number | null };
 
-/** Линия: от головы назад по base. */
-export function lineOf(points: Node[], head: number): Set<number> {
-  const byId = new Map(points.map((p) => [p.id, p]));
+const DAY = 86_400_000;
+export const YEAR = 365 * DAY;
+
+const dayOf = (at: number) => Math.floor(at / DAY) * DAY;
+/** Понедельник недели: 1 января 1970 — четверг. */
+const weekOf = (at: number) => dayOf(at) - ((new Date(at).getUTCDay() + 6) % 7) * DAY;
+
+/** Последняя точка в каждой группе. */
+function lastBy(nodes: Node[], group: (at: number) => number): Set<number> {
+  const last = new Map<number, Node>();
+  for (const n of nodes) {
+    const was = last.get(group(n.at));
+    if (!was || n.at >= was.at) last.set(group(n.at), n);
+  }
+  return new Set([...last.values()].map((n) => n.id));
+}
+
+/** Линия — путь от головы по основам. */
+export function lineOf(nodes: Node[], head: number): Set<number> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
   const line = new Set<number>();
-  for (let p = byId.get(head); p && !line.has(p.id); p = p.base === null ? undefined : byId.get(p.base)) line.add(p.id);
+  for (let n = byId.get(head); n; n = n.base === null ? undefined : byId.get(n.base)) line.add(n.id);
   return line;
 }
 
-/** Последняя точка в каждой группе. */
-function latestBy(points: Node[], key: (at: number) => number): Set<number> {
-  const latest = new Map<number, Node>();
-  for (const p of points) {
-    const seen = latest.get(key(p.at));
-    if (!seen || p.at > seen.at || (p.at === seen.at && p.id > seen.id)) latest.set(key(p.at), p);
+/** Срок каждой точки: миг, с которого её можно убрать; голова — null. */
+export function expiries(nodes: Node[], head: number): Map<number, number | null> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const line = lineOf(nodes, head);
+  const onLine = nodes.filter((n) => line.has(n.id));
+  const off = nodes.filter((n) => !line.has(n.id));
+  const lineDays = lastBy(onLine, dayOf);
+  const lineWeeks = lastBy(onLine, weekOf);
+  const offDays = lastBy(off, dayOf);
+  const until = new Map<number, number | null>();
+  for (const n of onLine) until.set(n.id, dayOf(n.at) + (lineWeeks.has(n.id) ? YEAR : (lineDays.has(n.id) ? 30 : 2) * DAY));
+  for (const n of off) until.set(n.id, dayOf(n.at) + (offDays.has(n.id) ? 30 : 2) * DAY);
+
+  const parents = new Set(nodes.map((n) => n.base));
+  for (const end of off.filter((n) => !parents.has(n.id))) {
+    const year = end.at + YEAR;
+    until.set(end.id, year);
+    let n: Node | undefined = end;
+    while (n && !line.has(n.id)) n = n.base === null ? undefined : byId.get(n.base);
+    if (n) until.set(n.id, Math.max(until.get(n.id) as number, year));
   }
-  return new Set([...latest.values()].map((p) => p.id));
+  until.set(head, null);
+  return until;
 }
 
-/** Срок точек, которые держат ветки: конец ветки и точка линии, откуда она ушла, — год от конца ветки. */
-function branchHolds(points: Node[], head: number, line: Set<number>): Map<number, number> {
-  const byId = new Map(points.map((p) => [p.id, p]));
-  const parents = new Set(points.map((p) => p.base));
-  const holds = new Map<number, number>();
-  const hold = (id: number, until: number) => holds.set(id, Math.max(holds.get(id) ?? 0, until));
-  for (const end of points) {
-    if (end.id === head || parents.has(end.id)) continue;
-    const until = end.at + YEAR;
-    hold(end.id, until);
-    let p = end;
-    const walked = new Set([end.id]);
-    while (p.base !== null) {
-      const up = byId.get(p.base);
-      if (!up || walked.has(up.id)) break;
-      if (line.has(up.id)) {
-        hold(up.id, until);
-        break;
-      }
-      walked.add(up.id);
-      p = up;
-    }
-  }
-  return holds;
-}
-
-/** До какого мига хранится каждая точка сессии; null — голова: пока сессия жива. */
-export function expiry(points: Node[], head: number): Map<number, number | null> {
-  const line = lineOf(points, head);
-  const onLine = points.filter((p) => line.has(p.id));
-  const lastOfDay = latestBy(onLine, dayOf);
-  const lastOfWeek = latestBy(onLine, weekOf);
-  const holds = branchHolds(points, head, line);
-  return new Map(
-    points.map((p) => {
-      if (p.id === head) return [p.id, null];
-      const day = dayOf(p.at);
-      const days = lastOfWeek.has(p.id) ? 365 : lastOfDay.has(p.id) ? 30 : 2;
-      return [p.id, Math.max((day + days) * DAY, holds.get(p.id) ?? 0)];
-    }),
-  );
-}
-
-/** Какие точки уходят в миг now. */
-export function expired(points: Node[], head: number, now: number): number[] {
-  const top = points.find((p) => p.id === head);
-  if (!top || now - top.at >= YEAR) return points.map((p) => p.id);
-  const until = expiry(points, head);
-  return points.filter((p) => (until.get(p.id) ?? Infinity) <= now).map((p) => p.id);
+/** Основа точки после уборки: ближайший уцелевший предок. */
+export function survivingBase(n: Node, byId: Map<number, Node>, gone: Set<number>): number | null {
+  let base = n.base;
+  while (base !== null && gone.has(base)) base = byId.get(base)?.base ?? null;
+  return base;
 }
