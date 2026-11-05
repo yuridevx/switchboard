@@ -1,79 +1,40 @@
-// Тесты Worker-модулей и веба разом: очередь пакетов, вывод пакета — целиком по его окончании. protocol, tools и host — у корневого vitest.
-// Запуск: node scripts/test-packages.mjs [часть пути, например web/]. Упавший пакет — код выхода 1 и его вывод; предел на пакет — PACKAGE_MS.
+// Тесты пакетов Worker и веб по очереди: npm run test:workers [часть пути]. Упавший пакет — его вывод и код 1; предел на пакет словами.
+// Вывод пакета — файл dist/test-packages/<пакет>.log, а не канал: зависший потомок не держит прогон, конец пакета — конец его процесса.
 import { spawn } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { availableParallelism } from "node:os";
+import { once } from "node:events";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-/** Вдвое выше всей очереди пакетов по одному (180 с, разбор CI 4 нояб.): один пакет дольше не идёт. */
-const PACKAGE_MS = 6 * 60_000;
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const LOGS = join(ROOT, "dist", "test-packages");
+const LIMIT_MIN = 6;
+const seconds = (from) => Math.round((Date.now() - from) / 1000);
+const readJson = (file) => JSON.parse(readFileSync(file, "utf8"));
 
-const json = (p) => JSON.parse(readFileSync(p, "utf8"));
+const part = process.argv[2] ?? "";
+const packages = readJson(join(ROOT, "package.json"))
+  .workspaces.flatMap((w) => (w.endsWith("/*") ? readdirSync(join(ROOT, w.slice(0, -2))).map((d) => w.slice(0, -1) + d) : [w]))
+  .filter((p) => /^(workers|web)\//.test(p) && p.includes(part))
+  .filter((p) => existsSync(join(ROOT, p, "package.json")) && readJson(join(ROOT, p, "package.json")).scripts?.test);
 
-/** Папки рабочих областей: «a/*» — каждая папка внутри a. */
-function folders(pattern) {
-  if (!pattern.endsWith("/*")) return [pattern];
-  const parent = pattern.slice(0, -2);
-  return readdirSync(join(root, parent)).map((name) => `${parent}/${name}`);
-}
-
-/** Пакеты веба и Worker-модулей, у которых есть команда test. */
-function testable() {
-  const hasTest = (dir) => {
-    const file = join(root, dir, "package.json");
-    return existsSync(file) && !!json(file).scripts?.test;
-  };
-  return json(join(root, "package.json"))
-    .workspaces.filter((w) => w.startsWith("workers/") || w.startsWith("web/"))
-    .flatMap(folders)
-    .filter(hasTest);
-}
-
-const running = new Set();
-for (const signal of ["SIGINT", "SIGTERM"]) {
-  process.on(signal, () => {
-    for (const child of running) child.kill();
-    process.exit(1);
-  });
-}
-
-/** Прогнать пакет; в вывод — строка с итогом, при падении и весь его вывод. */
-function testPackage(dir) {
-  return new Promise((done) => {
-    const started = Date.now();
-    const child = spawn("npm", ["run", "test", "-w", dir], { cwd: root, shell: process.platform === "win32", timeout: PACKAGE_MS, killSignal: "SIGKILL" });
-    running.add(child);
-    let output = "";
-    child.stdout.on("data", (chunk) => (output += chunk));
-    child.stderr.on("data", (chunk) => (output += chunk));
-    const finish = (code, signal) => {
-      if (!running.delete(child)) return;
-      const passed = code === 0;
-      const limit = signal ? ` · не уложился в ${PACKAGE_MS / 60_000} мин` : "";
-      console.log(`${passed ? "ok  " : "FAIL"} ${dir} · ${Math.round((Date.now() - started) / 1000)} с${limit}`);
-      if (!passed) console.log(output);
-      done(passed);
-    };
-    child.on("close", finish);
-    // снят по пределу: потомок npm может держать вывод, конца вывода не ждём
-    child.on("exit", (code, signal) => {
-      if (!signal) return;
-      child.stdout.destroy();
-      child.stderr.destroy();
-      finish(code, signal);
-    });
-  });
-}
-
-const queue = testable().filter((dir) => dir.includes(process.argv[2] ?? ""));
-const total = queue.length;
+mkdirSync(LOGS, { recursive: true });
 const started = Date.now();
 let failed = 0;
-async function worker() {
-  while (queue.length) if (!(await testPackage(queue.shift()))) failed++;
+for (const p of packages) {
+  const from = Date.now();
+  const log = join(LOGS, `${p.replaceAll("/", "-")}.log`);
+  const out = openSync(log, "w");
+  const child = spawn("npm test", [], { cwd: join(ROOT, p), shell: true, stdio: ["ignore", out, out], timeout: LIMIT_MIN * 60_000, killSignal: "SIGKILL" });
+  const [code, signal] = await once(child, "exit");
+  closeSync(out);
+  if (code === 0) {
+    console.log(`ok   ${p} · ${seconds(from)} с`);
+    continue;
+  }
+  failed++;
+  console.log(`FAIL ${p} · ${seconds(from)} с${signal ? ` · не уложился в ${LIMIT_MIN} мин` : ""}`);
+  console.log(readFileSync(log, "utf8"));
 }
-await Promise.all(Array.from({ length: Math.min(availableParallelism(), total) }, worker));
-console.log(`пакетов ${total} · упало ${failed} · ${Math.round((Date.now() - started) / 1000)} с`);
-process.exitCode = failed ? 1 : 0;
+console.log(`пакетов ${packages.length} · упало ${failed} · ${seconds(started)} с`);
+process.exit(failed ? 1 : 0);

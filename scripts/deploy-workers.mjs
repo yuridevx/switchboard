@@ -1,116 +1,89 @@
-// Выпуск Worker-модулей: сначала участники и gate, потом relay (его привязки смотрят на них).
-// Токен деплоя и секреты — из переменных окружения (так в GitHub Actions), иначе из файлов env вне репо
-// (SWITCHBOARD_DEV_DIR, по умолчанию ~/.switchboard-dev). Секреты уходят в wrangler только через stdin.
-// Запуск: node scripts/deploy-workers.mjs [модуль…]   без списка — все; первую выкладку нового Worker и новых миграций
-// делает только этот путь. node scripts/deploy-workers.mjs --upload <номер> — загрузка без выкладки (CI): каждый
-// Worker-модуль — версией с меткой-номером; секреты не трогает, stable двигает «выпуски». Веб не загружает.
-// --env prod — то же для прода: Worker'ы с суффиксом -prod на pfarm.app, свои секреты из prod.env.
-// phone и pult в списке — сборка и выкладка веба (первая выкладка прода вешает домен).
+// Выпуск Worker-модулей. node scripts/deploy-workers.mjs [имена] [--env prod] — выкладка; --upload <номер> — загрузка версий всех Worker-модулей без выкладки.
+// Веб — только по имени: phone, pult. Токены и секреты — из окружения или файлов ~/.switchboard-dev (SWITCHBOARD_DEV_DIR); окружение важнее файла, файл прода — тестовых.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { parseArgs } from "node:util";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const WRANGLER = join(ROOT, "node_modules/wrangler/bin/wrangler.js");
+const DEV_DIR = process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev");
+const STEP_S = 300; // при 45 с настоящая выкладка оборвалась на полпути: wrangler deploy под нагрузкой
+// relay последним: он смотрит привязками на остальных
 const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"];
 const WEB = ["phone", "pult"];
-/** Предел вызова сборки и wrangler: вдвое выше самого долгого шага загрузки в CI (22 с). */
-const SPAWN_MS = 45_000;
-const wrangler = join(root, "node_modules", "wrangler", "bin", "wrangler.js");
 
 const fail = (word) => {
   console.error(`deploy: ${word}`);
   process.exit(1);
 };
 
-/** Разбор командной строки: прод, загрузка с номером или список модулей. */
-function parseArgs(argv) {
-  const prod = argv.includes("--env") && argv[argv.indexOf("--env") + 1] === "prod";
-  const rest = argv.filter((a, i) => a !== "--env" && argv[i - 1] !== "--env");
-  if (rest[0] !== "--upload") return { prod, names: rest };
-  if (!/^\d+\.\d+\.\d+$/.test(rest[1] ?? "")) fail("--upload <номер вида 1.1.58>");
-  return { prod, upload: rest[1] };
-}
+const { values: flags, positionals: names } = parseArgs({ strict: false, options: { upload: { type: "string" }, env: { type: "string" } } });
+if (flags.env !== undefined && flags.env !== "prod") fail("--env — только prod");
+const prod = flags.env === "prod";
+const envArgs = prod ? ["--env", "prod"] : [];
+if (flags.upload !== undefined && !/^\d+\.\d+\.\d+$/.test(flags.upload)) fail("--upload <номер вида 1.1.58>");
 
-/** Значения из файлов env: первый файл важнее. */
-function fileValues(prod) {
-  const dir = process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev");
+/** Значения файлов: раньше в списке — важнее. Прод читает свой файл, тест его не видит. */
+function fileValues() {
   const values = {};
   for (const name of [...(prod ? ["prod.env"] : []), "cf-deploy.env", "fleet-secrets.env", "r2-points.env"]) {
-    const file = join(dir, name);
+    const file = join(DEV_DIR, name);
     if (!existsSync(file)) continue;
-    for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-      const eq = line.indexOf("=");
-      if (eq > 0) values[line.slice(0, eq)] ??= line.slice(eq + 1);
-    }
+    for (const [, key, value] of readFileSync(file, "utf8").matchAll(/^([A-Z0-9_]+)=(.*?)\r?$/gm)) values[key] ??= value;
   }
   return values;
 }
 
-/**
- * Модуль → секреты: «ИМЯ=ИСТОЧНИК» — секрет модуля из значения с другим именем.
- * releases: токен API — выкладка версий Worker'ов; ключ R2 бакета выпусков — подпись ссылок на архивы.
- * points: секрет пары S3 токена R2 бакета точек — подпись ссылок на блоки; у прода своя пара (prod.env), тестовая прав на бакет прода не имеет.
- */
-const secretsOf = (prod) => ({
-  push: ["VAPID_PRIVATE"],
-  points: [prod ? "R2_KEY_SECRET=PROD_R2_SECRET_ACCESS_KEY" : "R2_KEY_SECRET=R2_SECRET_ACCESS_KEY"],
-  releases: ["CLOUDFLARE_API_TOKEN", "R2_LINK_KEY_ID=R2_ACCESS_KEY_ID", "R2_LINK_SECRET=R2_SECRET_ACCESS_KEY"],
-});
+const known = { ...fileValues(), ...process.env };
+if (!known.CLOUDFLARE_API_TOKEN || !known.CLOUDFLARE_ACCOUNT_ID) fail("нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
+const childEnv = { ...process.env, CLOUDFLARE_API_TOKEN: known.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: known.CLOUDFLARE_ACCOUNT_ID };
 
-/** Вызов не уложился в предел — причина словами. */
-const lateWord = (r) => (r.error?.code === "ETIMEDOUT" ? ` — не завершился за ${SPAWN_MS / 1000} с` : "");
+// секрет Worker'а → откуда значение; тестовая пара R2 прав на бакет точек прода не имеет
+const SECRETS = {
+  push: { VAPID_PRIVATE: "VAPID_PRIVATE" },
+  points: { R2_KEY_SECRET: prod ? "PROD_R2_SECRET_ACCESS_KEY" : "R2_SECRET_ACCESS_KEY" },
+  releases: { CLOUDFLARE_API_TOKEN: "CLOUDFLARE_API_TOKEN", R2_LINK_KEY_ID: "R2_ACCESS_KEY_ID", R2_LINK_SECRET: "R2_SECRET_ACCESS_KEY" },
+};
 
-const { prod, upload, names = [] } = parseArgs(process.argv.slice(2));
-const ENV_ARGS = prod ? ["--env", "prod"] : [];
-// веб собирается с адресом relay своего флота
-if (prod) process.env.RELAY_URL = "wss://relay.pfarm.app";
-const fromFiles = fileValues(prod);
-const value = (key) => process.env[key] || fromFiles[key];
-const dirOf = (name) => join(root, WEB.includes(name) ? "web" : "workers", name);
-
-const wranglerEnv = { ...process.env, CLOUDFLARE_API_TOKEN: value("CLOUDFLARE_API_TOKEN"), CLOUDFLARE_ACCOUNT_ID: value("CLOUDFLARE_ACCOUNT_ID") };
-if (!wranglerEnv.CLOUDFLARE_API_TOKEN || !wranglerEnv.CLOUDFLARE_ACCOUNT_ID) fail("нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
-
-function runWrangler(cwd, args, input) {
-  const r = spawnSync(process.execPath, [wrangler, ...args], { cwd, env: wranglerEnv, input, stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"], timeout: SPAWN_MS });
-  if (r.status !== 0) fail(`wrangler ${args.join(" ")} в workers/${basename(cwd)} — выход ${r.status}${lateWord(r)}`);
+/** Шаг с пределом: не вышло — отказ словами, дальше не идём. Секрет — только через stdin. */
+function step(what, cwd, args, input) {
+  const r = spawnSync(process.execPath, args, { cwd, env: childEnv, input, stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"], timeout: STEP_S * 1000 });
+  if (r.error?.code === "ETIMEDOUT") fail(`${what} — не завершился за ${STEP_S} с`);
+  if (r.status !== 0) fail(`${what} — выход ${r.status}`);
 }
 
-function buildIfNeeded(cwd) {
-  if (!existsSync(join(cwd, "build.mjs"))) return;
-  const r = spawnSync(process.execPath, ["build.mjs"], { cwd, stdio: "inherit", timeout: SPAWN_MS });
-  if (r.status !== 0) fail(`сборка ${cwd} не прошла${lateWord(r)}`);
-}
+/** Команда wrangler в папке модуля; в отказе — её слова без флагов. */
+const wrangler = (folder, args, input) => step(`wrangler ${args.join(" ").split(" --")[0]} в ${folder}`, join(ROOT, folder), [WRANGLER, ...args], input);
 
-function uploadAll(number) {
-  for (const name of WORKERS) {
-    console.log(`\n=== workers/${name} ${number}${prod ? " prod" : ""} ===`);
-    runWrangler(dirOf(name), ["versions", "upload", ...ENV_ARGS, "--tag", number, "--message", number]);
+if (flags.upload) {
+  for (const w of WORKERS) {
+    console.log(`\n=== workers/${w} ${flags.upload}${prod ? " prod" : ""} ===`);
+    wrangler(`workers/${w}`, ["versions", "upload", ...envArgs, "--tag", flags.upload, "--message", flags.upload]);
   }
-  console.log(`\ndeploy: загружено ${number}, ничего не выложено`);
+  console.log(`\ndeploy: загружено ${flags.upload}, ничего не выложено`);
+  process.exit(0);
 }
 
-function deployOne(name) {
-  const cwd = dirOf(name);
-  console.log(`\n=== ${name}${prod ? " prod" : ""} ===`);
-  buildIfNeeded(cwd);
-  // схема базы D1 модуля — миграциями wrangler до выкладки кода, который ею пользуется
-  if (existsSync(join(cwd, "migrations"))) runWrangler(cwd, ["d1", "migrations", "apply", "DB", "--remote", ...ENV_ARGS]);
-  runWrangler(cwd, ["deploy", ...ENV_ARGS]);
-  for (const spec of secretsOf(prod)[name] ?? []) {
-    const [secret, source = secret] = spec.split("=");
-    const v = value(source);
-    if (!v) fail(`нет секрета ${source}`);
-    runWrangler(cwd, ["secret", "put", secret, ...ENV_ARGS], v);
+const workers = WORKERS.filter((w) => !names.length || names.includes(w));
+const web = WEB.filter((w) => names.includes(w));
+const title = (name) => console.log(`\n=== ${name}${prod ? " prod" : ""} ===`);
+for (const w of workers) {
+  title(w);
+  const folder = `workers/${w}`;
+  if (existsSync(join(ROOT, folder, "migrations"))) wrangler(folder, ["d1", "migrations", "apply", "DB", "--remote", ...envArgs]);
+  wrangler(folder, ["deploy", ...envArgs]);
+  for (const [secret, source] of Object.entries(SECRETS[w] ?? {})) {
+    if (!known[source]) fail(`нет секрета ${source}`);
+    wrangler(folder, ["secret", "put", secret, ...envArgs], known[source]);
   }
 }
-
-if (upload) {
-  uploadAll(upload);
-} else {
-  const list = names.length ? [...WORKERS, ...WEB].filter((m) => names.includes(m)) : WORKERS;
-  list.forEach(deployOne);
-  console.log(`\ndeploy: ok · ${list.join(", ")}`);
+for (const w of web) {
+  title(w);
+  const folder = `web/${w}`;
+  step(`сборка ${folder} не прошла`, join(ROOT, folder), ["build.mjs"]);
+  wrangler(folder, ["deploy", ...envArgs]);
 }
+console.log(`\ndeploy: ok · ${[...workers, ...web].join(", ")}`);
