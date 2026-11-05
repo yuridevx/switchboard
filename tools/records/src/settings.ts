@@ -35,58 +35,50 @@ export function settings({ read: door, ask, prefix, scope, changed = () => {} }:
   const keyOf = (section: string) => `${prefix}.${section}`;
   let shown: Values = {};
   let answered = false;
-  /** правки, ещё не применённые к свежему чтению */
+  /** правки, которых служба ещё не видела: партия цикла и ждущие следующего */
+  let writing: Edit[] = [];
   const waiting: Edit[] = [];
-  // очередь одна: чтение посреди записи вернуло бы старое значение
+  // циклы идут по очереди; чтение в очередь не встаёт: зависший ответ не должен держать новое чтение после обрыва связи
   let turn = Promise.resolve();
-  const inTurn = <R,>(work: () => Promise<R>): Promise<R> => {
-    const result = turn.then(work);
-    turn = result.then(
-      () => {},
-      () => {},
-    );
-    return result;
-  };
 
   const fetchValues = () => door<{ values: Values }>("prefs.get", { prefix: `${prefix}.`, ...area });
 
   async function cycle() {
     if (!waiting.length) return;
-    const count = waiting.length;
+    const batch = waiting.splice(0);
+    writing = batch;
     const answer = await fetchValues();
-    const mine = waiting.splice(0, count);
     if (!answer.ok) {
-      mine.forEach((e) => e.done(answer.error));
-      changed();
-      return;
+      batch.forEach((e) => e.done(answer.error));
+    } else {
+      const next = applied(answer.result.values, batch);
+      for (const key of new Set(batch.map((e) => e.key))) {
+        const written = await ask("prefs.set", { name: key, value: next[key], ...area });
+        for (const e of batch) if (e.key === key) e.done(written.ok ? null : written.error);
+      }
+      shown = applied(next, waiting);
     }
-    const next = applied(answer.result.values, mine);
-    shown = applied(next, waiting);
-    for (const key of new Set(mine.map((e) => e.key))) {
-      const written = await ask("prefs.set", { name: key, value: next[key], ...area });
-      for (const e of mine) if (e.key === key) e.done(written.ok ? null : written.error);
-    }
+    writing = [];
     changed();
   }
 
   return {
     ready: () => answered,
     get: <T,>(section: string) => shown[keyOf(section)] as T | undefined,
-    read: () =>
-      inTurn(async () => {
-        const answer = await fetchValues();
-        if (answer.ok) shown = applied(answer.result.values, waiting);
-        answered ||= answer.ok || answer.error !== "disconnected";
-        changed();
-        return answer.ok ? null : answer.error;
-      }),
+    async read() {
+      const answer = await fetchValues();
+      if (answer.ok) shown = applied(answer.result.values, [...writing, ...waiting]);
+      answered ||= answer.ok || answer.error !== "disconnected";
+      changed();
+      return answer.ok ? null : answer.error;
+    },
     edit: <T,>(section: string, fn: (old: T | undefined) => T) =>
       new Promise<string | null>((done) => {
         const edit: Edit = { key: keyOf(section), fn: fn as Edit["fn"], done };
         waiting.push(edit);
         shown = applied(shown, [edit]);
         changed();
-        void inTurn(cycle);
+        turn = turn.then(cycle);
       }),
     settled: () => turn,
   };

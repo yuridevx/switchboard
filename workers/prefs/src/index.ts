@@ -11,11 +11,13 @@ const MAX_VALUE = 2_000_000;
 const APP_SCOPE = /^app:[\w-]+$/;
 
 class Refusal extends Error {
-  constructor(
-    readonly word: string,
-    readonly why: string,
-  ) {
+  readonly word: string;
+  readonly why: string;
+
+  constructor(word: string, why: string) {
     super(`${word}: ${why}`);
+    this.word = word;
+    this.why = why;
   }
 }
 const refuse = (word: string, why: string): never => {
