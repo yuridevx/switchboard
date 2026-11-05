@@ -173,7 +173,7 @@ function endTask(v: View, id: string, status: string, summary?: string) {
     return;
   }
   if (t.tool && !t.bg) return;
-  const about = summary ?? t.desc;
+  const about = t.desc || summary;
   const end: Row = { k: "line", id: `end-${id}`, tone: words[1], icon: t.type === "local_agent" ? "bot" : "terminal", text: words[0], ...(about ? { dim: ` · ${about}` } : {}) };
   if (row >= 0) v.rows[row] = end;
   else v.rows.push(end);
@@ -309,7 +309,10 @@ const SYSTEM: Record<string, (v: View, m: Msg) => void> = {
   },
   compact_boundary(v, m) {
     v.compacting = false;
-    if (field(field(m, "compact_metadata") ?? {}, "pre_tokens")) v.rows.push({ k: "sys", id: idOf(v, m), icon: "archive", text: compactStats(m), boundary: true });
+    const last = v.rows.at(-1);
+    // сводка пришла раньше своей границы: числа — на её строке
+    if (last?.k === "sum") last.stats = compactStats(m);
+    else v.rows.push({ k: "sys", id: idOf(v, m), icon: "archive", text: compactStats(m), boundary: true });
   },
   api_retry(v, m) {
     const last = v.rows.at(-1);
