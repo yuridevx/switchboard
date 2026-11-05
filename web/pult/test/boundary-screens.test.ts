@@ -2130,6 +2130,7 @@ describe("Вам: виды карточек", () => {
       t.relay.setRoster(fleet((r) => idle(r)));
       await flush();
       await t.go("#inbox");
+      expect(t.text()).toContain("Всё разобрано");
       expect(kinds(t)).not.toContain("done:site@laptop");
     });
 
@@ -2150,6 +2151,7 @@ describe("Вам: виды карточек", () => {
     it("6964 · чужая сессия закончила, упала или ждёт лимит — карточек нет", async () => {
       // источник: чьё: код
       const t = await withRelay({ roster: fleet(), url: "/#inbox" });
+      expect(t.text()).toContain("Всё разобрано");
       t.relay.setRoster(fleet((r) => idle(r, 2)));
       await flush();
       expect(kinds(t)).toEqual([]);
@@ -2199,6 +2201,7 @@ describe("Вам: виды карточек", () => {
       t.relay.setRoster(fleet((r) => without(r, "pc")));
       await flush();
       expect(kinds(t)).toEqual([]);
+      expect(t.text()).toContain("Всё разобрано");
     });
 
     it("6969 · машины ушли до открытия: метка fire — три машины, при открытом ушла одна из них — «машин не на связи: 2» и «Поднять из точки»", async () => {
@@ -2892,13 +2895,15 @@ describe("Машины: связь и отказы", () => {
     it("6957 · экран закрыт: вернувшаяся связь запросов не шлёт", async () => {
       // источник: гейт архитектора — опрос без нужды
       const relay = keeperRelay();
-      await pult({ relay, url: "/#sessions" });
+      const t = await pult({ relay, url: "/#sessions" });
       await flush(5);
       relay.drop();
       await new Promise((r) => setTimeout(r, 30));
       await flush(10);
       expect(relay.sent("keeper.state")).toHaveLength(0);
       expect(relay.sent("machine.profiles")).toHaveLength(0);
+      await t.go("#machines");
+      expect(relay.sent("keeper.state").length).toBeGreaterThan(0);
     });
   });
 
@@ -3191,12 +3196,14 @@ describe("Машины: уход и возврат", () => {
     it("4192 · машина вернулась при закрытом экране «Машины» — keeper.state не шлётся", async () => {
       // источник: факт цикла тестов 2 нояб. — пульт опрашивал вернувшуюся машину и при закрытом экране; при открытии экран спрашивает все машины сам
       const relay = machinesRelay();
-      await pult({ relay });
+      const t = await pult({ relay });
       await flush(10);
       const r = fleetRoster();
       relay.setRoster({ ...r, machines: r.machines.map((m) => (m.machine === "pc" ? { ...m, since: m.since + 60_000 } : m)) });
       await flush(10);
       expect(relay.sent("keeper.state")).toHaveLength(0);
+      await t.go("#machines");
+      expect(relay.sent("keeper.state").length).toBeGreaterThan(0);
     });
 
     it("4193 · экран «Машины» закрыли, машина вернулась, экран открыли снова — keeper.state на открытии, а не при закрытом", async () => {
