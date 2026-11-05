@@ -1,35 +1,9 @@
-// Стенд телефона в монорепо — для тестов (код оболочки — web/shell.ts — берёт только web-core): семь общих пакетов web-* и модули пульта, входящие в телефон. На странице состав и
-// порядок старта даёт список сборки (build.json), а не этот файл: эталон сверяет его с into телефона.
-import { manifest as alertsM, createAlerts, type BrowserPush } from "@switchboard/web-alerts";
-import { manifest as askM, createAsk } from "@switchboard/web-ask";
-import { manifest as boardM, createBoard } from "@switchboard/web-board";
-import { manifest as cardM, createCard } from "@switchboard/web-card";
-import { manifest as chatM, createChat } from "@switchboard/web-chat";
-import { manifest as inboxM, createInbox } from "@switchboard/web-inbox";
-import { manifest as labelsM, createLabels } from "@switchboard/web-labels";
+// Стенд телефона для тестов и снимков: модули стенда пульта, входящие в телефон по своему into. Рантайм и набор компонентов стенд не поднимает.
+import type { BrowserPush } from "@switchboard/web-alerts";
 import type { AppPart } from "@switchboard/web-core";
-import { manifest as accountsM, createAccounts } from "../../pult/modules/accounts/contract.ts";
-import { manifest as machinesM, createMachines } from "../../pult/modules/machines/contract.ts";
-import { manifest as openM, createOpen } from "../../pult/modules/open/contract.ts";
-import { manifest as incidentsM, createIncidents } from "../../pult/modules/incidents/contract.ts";
-import { manifest as settingsM, createSettings } from "../../pult/modules/settings/contract.ts";
-import { manifest as profilesM, createProfiles } from "../../pult/modules/profiles/contract.ts";
+import { pultParts } from "../../pult/stand/parts.ts";
 
-/** Модули выпуска телефона, каждый со своей памятью; browser — API пушей (в тестах — подделка). */
-export function phoneParts(browser?: BrowserPush): AppPart[] {
-  return [
-    { manifest: labelsM, module: createLabels },
-    { manifest: inboxM, module: createInbox },
-    { manifest: boardM, module: createBoard },
-    { manifest: cardM, module: createCard },
-    { manifest: openM, module: createOpen },
-    { manifest: chatM, module: createChat },
-    { manifest: askM, module: createAsk },
-    { manifest: incidentsM, module: createIncidents },
-    { manifest: accountsM, module: createAccounts },
-    { manifest: machinesM, module: createMachines },
-    { manifest: profilesM, module: createProfiles },
-    { manifest: settingsM, module: createSettings },
-    { manifest: alertsM, module: createAlerts(browser) },
-  ];
-}
+const inPhone = (p: AppPart) => (p.manifest as { into?: string[] }).into?.includes("phone") && !["web-view", "web-ui"].includes(p.manifest.name);
+
+/** Модули телефона, каждый со своей памятью; browser — API пушей (в тестах — подделка). */
+export const phoneParts = (browser?: BrowserPush): AppPart[] => pultParts(browser).filter(inPhone);
