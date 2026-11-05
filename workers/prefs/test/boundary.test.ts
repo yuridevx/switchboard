@@ -22,7 +22,7 @@ type Answer = { type: string; id: string; ok: boolean; error?: string; to?: stri
 let n = 0;
 /** Кадр от адреса from: поля протокола стоят, тест задаёт остальное. */
 async function ask(from: string, body: Record<string, unknown>): Promise<Answer> {
-  const r = await worker.fetch(request({ v: 1, to: ".prefs", id: `r-${++n}`, key: from, ...body }) as never, { DB, GATE: gate } as never, {} as never);
+  const r = await worker.fetch(request({ v: 1, to: ".prefs", id: `r-${++n}`, key: from, ...body }) as never, { DB, GATE: gate } as never);
   return (await r.json()) as Answer;
 }
 const get = (from: string, o: Record<string, unknown> = {}) => ask(from, { type: "prefs.get", ...o });
@@ -146,6 +146,13 @@ describe("отказы словом", () => {
     expect(await set(PHONE, "over", "x".repeat(1_999_999), { scope: "global" })).toMatchObject({ ok: false, error: "too_large" });
   });
 
+  it("предел — в байтах: 1,5 млн знаков кириллицы — too_large словом, а не failed базы", async () => {
+    // опыт на локальной D1: статус 500 failed, строки нет
+    expect(await set(PHONE, "big", "я".repeat(1_500_000), { scope: "global" })).toMatchObject({ ok: false, error: "too_large" });
+    expect(await rows()).toEqual([]);
+    expect(await set(PHONE, "fits", "я".repeat(999_999), { scope: "global" })).toMatchObject({ ok: true });
+  });
+
   it.each<[string, Record<string, unknown>, string]>([
     ["пустое имя", { type: "prefs.set", name: "", value: 1 }, "bad_frame"],
     ["имя не строка", { type: "prefs.set", name: 7, value: 1 }, "bad_frame"],
@@ -161,7 +168,7 @@ describe("отказы словом", () => {
 
   it("кадр без id: ответить некому, тело пустое, строки нет, причина в журнале", async () => {
     const lines = journal();
-    const r = await worker.fetch(request({ v: 1, to: ".prefs", type: "prefs.set", name: "k", value: 1, key: PHONE }) as never, { DB, GATE: gate } as never, {} as never);
+    const r = await worker.fetch(request({ v: 1, to: ".prefs", type: "prefs.set", name: "k", value: 1, key: PHONE }) as never, { DB, GATE: gate } as never);
     expect(r.status).toBe(204);
     expect(await rows()).toEqual([]);
     expect(lines.at(-1)).toMatchObject({ part: "prefs", kind: "refuse", ev: "prefs.set", word: "bad_frame", from: PHONE });
@@ -174,7 +181,7 @@ describe("отказы словом", () => {
     await set(PHONE, "big", secret);
     await set(MACHINE, "k", "секрет-машины");
     expect(lines[0]).toMatchObject({ part: "prefs", kind: "refuse", ev: "prefs.set", word: "too_large", from: PHONE });
-    expect(lines[0].why).toBe(`big: ${JSON.stringify(secret).length} знаков, предел 2000000`);
+    expect(lines[0].why).toBe(`big: ${new TextEncoder().encode(JSON.stringify(secret)).length} байт, предел 2000000`);
     expect(lines[1]).toMatchObject({ word: "not_user", from: MACHINE });
     expect(lines[1].why).toBe(`${MACHINE} — не человек и не его устройство`);
     expect(JSON.stringify(lines)).not.toContain("секрет");

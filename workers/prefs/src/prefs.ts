@@ -11,7 +11,7 @@ export interface Env {
   GATE: GateApi;
 }
 
-/** Столько D1 принимает в строке. */
+/** Столько байт D1 принимает в строке. */
 const VALUE_MAX = 2_000_000;
 const APP_SCOPE = /^app:[A-Za-z0-9_-]+$/;
 
@@ -44,7 +44,8 @@ async function writeValue(db: D1Database, owner: string, f: Frame): Promise<Done
   if (typeof name !== "string" || !name) return refusal("bad_frame", "в prefs.set нет name");
   if (value === undefined) return refusal("bad_frame", `в prefs.set ${name} нет value`);
   const stored = JSON.stringify(value);
-  if (stored.length > VALUE_MAX) return refusal("too_large", `${name}: ${stored.length} знаков, предел ${VALUE_MAX}`);
+  const bytes = new TextEncoder().encode(stored).length;
+  if (bytes > VALUE_MAX) return refusal("too_large", `${name}: ${bytes} байт, предел ${VALUE_MAX}`);
   await db.prepare("INSERT INTO prefs (user, key, value) VALUES (?, ?, ?) ON CONFLICT (user, key) DO UPDATE SET value = excluded.value").bind(owner, name, stored).run();
   return {};
 }
