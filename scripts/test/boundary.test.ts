@@ -62,20 +62,19 @@ describe("прогон пакетов: test-packages", { timeout: CMD_MS }, () =
     expect(r.out).not.toContain("workers/");
   });
 
-  it("пакет не уложился в предел — FAIL с причиной словами, прогон не ждёт потомка, держащего вывод (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
-    const dir = repo({ "workers/hung": `node -e "setTimeout(()=>{},25000)"` });
+  it("пакет не уложился в предел — FAIL с причиной словами, снято всё дерево: потомок мёртв, прогон его не ждёт (слово пользователя 2 нояб., опыт 5 нояб.: при пределе 1 с ждал все 25 с)", () => {
+    const dir = repo({ "workers/hung": `node -e "require('fs').writeFileSync('pid',String(process.pid));setTimeout(()=>{},60000)"` });
     const f = join(temp("packages-pre"), "pre.mjs");
-    write(f, `import cp from "node:child_process";
-import { syncBuiltinESMExports } from "node:module";
-const orig = cp.spawn;
-cp.spawn = (cmd, args, o = {}) => orig(cmd, args, { ...o, timeout: o.timeout ? 1000 : undefined });
-syncBuiltinESMExports();
+    write(f, `const orig = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...a) => orig(fn, ms === 360000 ? 8000 : ms, ...a);
 `);
     const started = Date.now();
     const r = run(dir, [], pathToFileURL(f).href);
     expect(r.code).toBe(1);
     expect(r.out).toMatch(/^FAIL workers\/hung · \d+ с · не уложился в 6 мин$/m);
-    expect(Date.now() - started).toBeLessThan(15_000);
+    expect(Date.now() - started).toBeLessThan(40_000);
+    const pid = Number(readFileSync(join(dir, "workers", "hung", "pid"), "utf8"));
+    expect(() => process.kill(pid, 0)).toThrow();
   });
 });
 
