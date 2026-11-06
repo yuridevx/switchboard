@@ -41,7 +41,7 @@ function packagesOf(root: string) {
 function filesOf(root: string) {
   const { core, packages } = packagesOf(root);
   const files: TarFile[] = packages.flatMap((m) =>
-    packageFiles(join(root, m.dir)).map((f) => ({ path: `packages/${m.pkg!.slice(SCOPE.length)}/${f.path}`, data: f.path === "package.json" ? released(f.data) : f.data })),
+    packageFiles(join(root, m.dir)).map((f) => ({ ...f, path: `packages/${m.pkg!.slice(SCOPE.length)}/${f.path}`, data: f.path === "package.json" ? released(f.data) : f.data })),
   );
   const setup = ["npm", "ci", "--omit=dev", ...QUIET];
   files.push(

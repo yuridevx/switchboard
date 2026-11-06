@@ -28,3 +28,12 @@ it("процесс сборки не открывает окно: у агент�
   await run(process.execPath, ["-e", ""], tmpdir());
   expect(vi.mocked(spawn).mock.calls.at(-1)![2]).toMatchObject({ windowsHide: true });
 });
+
+it("файл пакета с правом исполнения остаётся исполняемым: приложение ОС без dist/ запускается по app.json (чьё: код)", () => {
+  const d = tmp();
+  writeFileSync(join(d, "module.json"), '{"name":"d4","type":"os","version":"1.0.0"}');
+  writeFileSync(join(d, "app.json"), '{"run":["./run.sh"]}');
+  writeFileSync(join(d, "run.sh"), "#!/bin/sh\n");
+  const modes = Object.fromEntries(entries(packModule(d).tgz).map((e) => [e.path, e.mode]));
+  expect(modes).toEqual({ "module.json": 0o644, "app.json": 0o644, "run.sh": 0o755 });
+});
