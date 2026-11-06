@@ -1,6 +1,6 @@
 // Леса границы «Каталог модулей», среда Node: формат выпуска (контракт release), CLI выпуска (main и packFromRepo) и инструменты
 // сессии parts (контракт host-parts) на стенде Host. Снаружи — «Выпуски», R2, go, npm и node: подделки. Номер — эталон-источник; без номера — чьё: код.
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -829,4 +829,11 @@ describe("инструменты сессии parts", () => {
       expect((await stopped).text).toBe("fetch_failed: Error: aborted на x 1.0.0");
     });
   });
+});
+
+describe("сверка со старым кодом", () => {
+  it("host --check упал без ответа-объекта — причина в отказе (чьё: код; вывод упавшего процесса — единственная причина)", async () => {
+    const exec: Exec = async (cmd, args, cwd) => (cmd === "node" ? { code: 1, out: "Error: Cannot find module 'zod'\n    at main.ts:1\n" } : execOk()(cmd, args, cwd));
+    await expect(main(["release", "core", "--dry-run", "--out", tmp()], {}, exec, go, fakeFleet().f)).rejects.toThrow("host --check: Error: Cannot find module 'zod'");
+  }, 60_000);
 });

@@ -58,7 +58,7 @@ function filesOf(root: string) {
 function checked(r: Done, version: string): { sdk: string } {
   const fail = (why: unknown) => new Error(`host --check: ${why}`);
   const line = r.out.split("\n").findLast((l) => l.startsWith("{"));
-  if (!line) throw fail("host --check без ответа");
+  if (!line) throw fail(r.out.trim() || "host --check без ответа");
   let answer: { ok?: boolean; why?: string; version?: string; sdk: string };
   try {
     answer = JSON.parse(line);
