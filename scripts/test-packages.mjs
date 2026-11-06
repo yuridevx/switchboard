@@ -1,5 +1,5 @@
 // Тесты Worker-модулей и веба, пакет за пакетом: node scripts/test-packages.mjs [часть пути]. Упавший пакет показывает вывод, остальные доходят.
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, globSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LIMIT_MS = 360_000;
+const WINDOWS = process.platform === "win32";
 const part = process.argv[2] ?? "";
 
 const manifest = (dir) => JSON.parse(readFileSync(path.join(ROOT, dir, "package.json"), "utf8"));
@@ -17,15 +18,36 @@ const packages = manifest(".")
 
 const logs = mkdtempSync(path.join(tmpdir(), "test-packages-"));
 
-/** Вывод — в файл: потомок, переживший предел, держит файл, а не прогон. Конец — выход процесса. */
+/** Оболочка, npm, vitest и всё, что они запустили: снимается одним ударом, опросов нет. */
+function killTree(pid) {
+  if (WINDOWS) spawnSync("taskkill", ["/pid", String(pid), "/t", "/f"], { stdio: "ignore", timeout: 10_000 });
+  else process.kill(-pid, "SIGKILL");
+}
+
+let running = null;
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.on(signal, () => {
+    if (running) killTree(running.pid);
+    process.exit(1);
+  });
+}
+
+/** Вывод — в файл: зависший потомок не держит прогон. Своя группа процессов на Linux — чтобы предел снял дерево целиком. */
 function run(dir) {
   const log = path.join(logs, "out.log");
   const fd = openSync(log, "w");
-  const child = spawn("npm test", [], { cwd: path.join(ROOT, dir), shell: true, stdio: ["ignore", fd, fd], timeout: LIMIT_MS });
+  const child = spawn("npm test", [], { cwd: path.join(ROOT, dir), shell: true, detached: !WINDOWS, stdio: ["ignore", fd, fd] });
+  running = child;
+  let late = false;
+  const limit = setTimeout(() => {
+    late = true;
+    killTree(child.pid);
+  }, LIMIT_MS);
   return new Promise((done) => {
-    child.on("exit", (code, signal) => {
+    child.on("exit", (code) => {
+      clearTimeout(limit);
       closeSync(fd);
-      done({ ok: code === 0, late: signal !== null, text: readFileSync(log, "utf8") });
+      done({ ok: code === 0, late, text: readFileSync(log, "utf8") });
     });
   });
 }
