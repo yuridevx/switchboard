@@ -39,7 +39,6 @@ export const isWing = (s?: SessionRecord) => (s as { wing?: boolean } | undefine
 /** Ведомый этой сессии: wing и parent — единственный способ найти пару. */
 export const wingOf = (sessions: readonly SessionRecord[], lead: string) => sessions.find((x) => isWing(x) && x.parent === lead);
 
-
 export const lamp = (s: SessionRecord) => stateLabel(s.state).dot || "stop";
 export const failText = (s: SessionRecord) => Object.entries((s.failed ?? {}) as Record<string, unknown>).map(([part, why]) => `${part}: ${String(why)}`).join("; ");
 

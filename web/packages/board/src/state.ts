@@ -3,7 +3,7 @@ import type { App, Params } from "@switchboard/web-ui";
 import type { SessionRecord } from "@switchboard/web-core";
 import { machineOf } from "@switchboard/protocol";
 import { addProject, arrange, dropSessions, FLEET_PREFIX, moveProject, NONE, placeSessions, PROJECTS, projectIdOf, removeProject, renameProject, type ProjectRec } from "@switchboard/records";
-import { createStore, folderOf, lamp, machineLabel, myAddress, personal, sessionLabel } from "@switchboard/web-ui";
+import { createStore, folderOf, isWing, lamp, machineLabel, myAddress, personal, sessionLabel, wingOf } from "@switchboard/web-ui";
 import { BUILT_IN, byUrgency, chipsOrder, matches, ownerOf, VIEW, whyMine, type Facts, type Filter, type Section, type View } from "./model.ts";
 
 type Device = { flt: string; collapsed: Record<string, boolean>; view: View; current: string | null; picked: string | null };
@@ -19,15 +19,18 @@ export function createState(app: App) {
   /** сессия открытого экрана ждёт ответа настроек */
   let wanted: string | null = null;
 
-  const sessions = (): SessionRecord[] => app.roster()?.sessions ?? [];
+  /** все сессии флота: ведомый нужен, чтобы знать, чей он и где */
+  const everyone = (): SessionRecord[] => app.roster()?.sessions ?? [];
+  /** строки списка: пара — одна строка её ведущего */
+  const sessions = () => everyone().filter((s) => !isWing(s));
   const records = () => fleet.get<ProjectRec[]>(PROJECTS);
   const filters = () => own.get<Filter[]>("filters") ?? [];
   const pins = () => own.get<string[]>("pins") ?? [];
-  const parentOf = (callsign: string) => sessions().find((s) => s.callsign === callsign)?.parent as string | undefined;
+  const parentOf = (callsign: string) => everyone().find((s) => s.callsign === callsign)?.parent as string | undefined;
   const projectOf = (callsign: string) => projectIdOf(records(), callsign, parentOf);
   const ready = () => own.ready() && fleet.ready();
-  const mine = (callsign: string) => whyMine({ sessions: sessions(), me: myAddress(app), pins: pins() }, callsign);
-  const facts: Facts = { mine: (c) => !!mine(c), owner: (c) => ownerOf(sessions(), c), project: projectOf };
+  const mine = (callsign: string) => whyMine({ sessions: everyone(), me: myAddress(app), pins: pins() }, callsign);
+  const facts: Facts = { mine: (c) => !!mine(c), owner: (c) => ownerOf(everyone(), c), project: projectOf };
 
   const chips = () => chipsOrder(own.get<string[]>("row"), [...BUILT_IN, ...filters()]);
   const selected = (): Filter => filters().find((f) => f.id === device.get().flt) ?? (device.get().flt === "all" ? BUILT_IN[1] : BUILT_IN[0]);
@@ -45,7 +48,7 @@ export function createState(app: App) {
     });
   }
 
-  const needsYou = (callsigns: string[]) => callsigns.some((c) => ["waiting", "failed"].includes(sessions().find((s) => s.callsign === c)?.state as string));
+  const needsYou = (callsigns: string[]) => everyone().some((s) => callsigns.includes(isWing(s) ? (s.parent as string) : s.callsign) && ["waiting", "failed"].includes(s.state as string));
   /** Свёрнут ли проект: как оставил человек; ещё не решено — по первому показу. */
   const folded = (id: string) => device.get().collapsed[id] ?? !needsYou(sections().find((s) => s.id === id)?.callsigns ?? []);
 
@@ -100,6 +103,7 @@ export function createState(app: App) {
     mine,
     records,
     sessions,
+    wingOf: (lead: string) => wingOf(everyone(), lead),
     filters,
     pins,
     chips,

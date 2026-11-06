@@ -28,10 +28,10 @@ const session = (s: S): SessionRecord => ({
   effort: s.effort,
   by: `${app}~${s.who === "me" ? ME : `${s.who}@mail.ru`}`,
   parent: s.parent,
+  ...(s.wing ? { wing: true } : {}),
   slot: { name: s.slot ?? "main", wait: null },
   account: "dev@mail.ru",
   mode: "bypassPermissions",
-  ...(s.wing ? { wing: true } : {}),
   ...(s.cs === "refactor@win" ? { r2: {} } : {}),
   ...(s.prof ? { profile: [{ id: `team/profiles/${s.prof}`, state: "ok" }] } : {}),
   ...(s.fail ? { failed: { start: s.fail } } : {}),
@@ -52,7 +52,7 @@ const names = [...new Set(F.ss.map(project))].filter((id) => id !== "~").sort();
 const order = big ? ["switchboard", "pfarm", ...names.filter((id) => id !== "switchboard" && id !== "pfarm")] : names;
 relay.scoped.global = {
   "fleet.profiles.repos": ["team/profiles"],
-  "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => project(s) === id).map((s) => s.cs).sort() })),
+  "fleet.projects": order.map((id) => ({ id, name: id, sessions: F.ss.filter((s) => !s.wing && project(s) === id).map((s) => s.cs).sort() })),
   "fleet.labels": big ? {} : { machines: { win: "Домашний ПК", wsl: "Ubuntu дома" }, sessions: { "refactor@win": "Переделка списка" } },
 };
 relay.values["web-board.filters"] = big

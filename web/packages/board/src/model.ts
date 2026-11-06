@@ -15,7 +15,7 @@ export const BUILT_IN: Array<Pick<Filter, "id" | "name">> = [
   { id: "mine", name: "Моё" },
   { id: "all", name: "Всё" },
 ];
-export const VIEW = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true };
+export const VIEW = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, slot: true, wing: true, pjlamps: true, grip: true, add: true };
 
 const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 /** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */

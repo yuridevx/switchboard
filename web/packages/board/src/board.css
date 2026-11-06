@@ -136,3 +136,9 @@ button.fc.fc-ghost.landing{transition:translate .2s cubic-bezier(.2,.8,.2,1),sca
 .pj-menu{display:flex;gap:6px;align-items:center;padding:4px 8px 8px}
 .pj-menu input{flex:1;min-width:0;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font:inherit}
 @media (hover:hover){.pj-new:hover{background:var(--accent-weak);color:var(--ink)}}
+
+/* строка пары: той же высоты и веса, что обычная */
+.bd-pr{display:inline-flex;align-items:center;gap:5px;min-width:0;white-space:nowrap;overflow:hidden;padding:4px 0;margin:-4px 0;font:inherit;color:var(--muted)}
+.bd-pr>span:not(.bd-pill){overflow:hidden;text-overflow:ellipsis;min-width:0}
+.bd-pr i{font-style:normal;flex:none}
+.bd-pr .sb-dot{width:7px;height:7px;flex:none}

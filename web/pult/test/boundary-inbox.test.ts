@@ -49,6 +49,33 @@ describe("Вам", () => {
 
   const kinds = (t: Awaited<ReturnType<typeof stand>>) => t.$$(".ib-it").map((x) => `${x.dataset.kind}:${x.dataset.callsign ?? x.dataset.machine ?? ""}`);
 
+  describe("пара", () => {
+    const WING = { callsign: "site-wing@laptop", dir: "~/Projects/site", parent: "site@laptop", wing: true };
+
+    it("конец хода ведомого карточки не даёт, ведущего — даёт (слово пользователя 5 нояб.: «снаружи выглядит как одна сессия»)", async () => {
+      const t = await stand(parts(), { roster: fleet((r) => r.sessions.push({ ...WING, state: "busy" })), url: "/#inbox" });
+      t.relay.setRoster(fleet((r) => {
+        r.sessions[0] = { ...r.sessions[0], state: "idle" };
+        r.sessions.push({ ...WING, state: "idle" });
+      }));
+      await flush();
+      expect(kinds(t)).toContain("done:site@laptop");
+      expect(kinds(t)).not.toContain("done:site-wing@laptop");
+    });
+
+    it("сбой ведомого — карточка пары: имя ведущего, нажатие открывает пару; «Запустить снова» — session.start ведомого", async () => {
+      const t = await stand(parts(), { roster: fleet((r) => r.sessions.push({ ...WING, state: "failed", failed: { host: "сбой" } })), url: "/#inbox" });
+      expect(kinds(t)).toContain("fail:site-wing@laptop");
+      const card = t.$('[data-kind="fail"][data-callsign="site-wing@laptop"]')!;
+      expect(card.querySelector(".ib-cs")!.textContent).toBe("site");
+      t.relay.handlers["session.start"] = () => ({ ok: true });
+      await t.click(card.querySelector(".ib-acts button"));
+      expect(t.relay.sent("session.start")[0]).toMatchObject({ callsign: "site-wing@laptop" });
+      await t.click(t.$('[data-callsign="site-wing@laptop"] .ib-cs'));
+      expect(location.hash).toBe("#card?callsign=site%40laptop");
+    });
+  });
+
   describe("«Вам»", () => {
     it("5230 · «не запустилась» и «ждёт сброса лимита» — только у моих сессий; счётчик раздела; чужая сессия карточки не даёт", async () => {
       const t = await stand(parts(), { roster: fleet(), url: "/#inbox" });
