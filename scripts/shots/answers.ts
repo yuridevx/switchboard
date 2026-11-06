@@ -105,17 +105,83 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     return { ok: true, result: { accounts, slots: { main: { account: "dev@mail.ru", order, wait: null } } } };
   };
   h["machine.login"] = () => ({ ok: true, result: { url: "https://claude.ai/oauth/authorize?code=true" } });
+  const REPO = "team/profiles";
+  const idOf = (name: string) => `${REPO}/${name}`;
+  const nameOf = (id: string) => id.slice(id.lastIndexOf("/") + 1);
+  /** набор стенда: состав в манифесте кусочка */
+  const SET = idOf("dev");
+  const USE = Object.keys(F.prof).slice(0, 2).map(idOf);
+  const namesOf = (name: string) => [{ kind: "skill", name: `${name}-check`, path: `skills/${name}-check/SKILL.md` }, { kind: "agent", name: `${name}-review`, path: `agents/${name}-review.md` }, { kind: "rule", name: `${name}-rules`, path: `.claude/rules/${name}-rules.md` }, { kind: "memory", name: `${name}-note`, path: `memory/${name}-note.md` }];
   h["machine.profiles"] = (f) => {
     const m = String(f.machine);
     const profiles: Record<string, unknown> = {};
     let bad: Prof | null = null;
     for (const [id, p] of Object.entries(F.prof)) {
       if (!p.on[m]) continue;
-      profiles[`team/profiles/${id}`] = { model: p.model, effort: p.effort, about: p.about };
+      profiles[idOf(id)] = { about: p.about, kind: "piece", names: namesOf(id) };
       if (p.on[m] === "conflict") bad = p;
     }
-    return { ok: true, result: { profiles, repos: { "team/profiles": bad ? { state: "conflict", op: "git pull", files: bad.files } : { state: "ok" } } } };
+    if (USE.length) profiles[SET] = { about: "моя обычная работа", use: USE, kind: "set", names: [] };
+    const at = Date.now() - 120000;
+    return { ok: true, result: { profiles, repos: { [REPO]: bad ? { state: "conflict", op: "git pull", files: bad.files, dir: "/data/profiles/team__profiles", at } : { state: "ok", dir: "/data/profiles/team__profiles", at } } } };
   };
+  const pieceFiles = (id: string) => {
+    const n = nameOf(id);
+    if (id === SET) return [{ path: ".claude-plugin/plugin.json", size: 96 }];
+    return [{ path: ".claude-plugin/plugin.json", size: 96 }, { path: "CLAUDE.md", size: 1840, head: "Как здесь работаем" }, { path: `.claude/rules/${n}-rules.md`, size: 420, meta: { paths: "src/**" }, head: "Правила кода" }, { path: `skills/${n}-check/SKILL.md`, size: 980, meta: { name: `${n}-check`, description: "проверить перед выкладкой" }, head: "Проверка" }, { path: `skills/${n}-check/steps.md`, size: 310 }, { path: `agents/${n}-review.md`, size: 640, meta: { name: `${n}-review`, description: "ревью изменений", model: "opus" }, head: "Ревью" }, { path: "memory/MEMORY.md", size: 2400 }, ...["feedback", "project", "reference"].map((type, i) => ({ path: `memory/${n}-note${i ? i : ""}.md`, size: 700 + i * 90, meta: { name: `${n} заметка ${i + 1}`, description: "что важно помнить", type } })), { path: "notes.txt", size: 64 }];
+  };
+  h["profile.view"] = (f) => {
+    const chosen = f.profile as string[];
+    const expand = (id: string): string[] => (id === SET ? [...USE, SET] : [id]);
+    const pieces = [...new Set(chosen.flatMap(expand))];
+    const real = pieces.filter((id) => id !== SET);
+    const prof = (id: string) => F.prof[nameOf(id)];
+    const first = real[0];
+    const lost = real.slice(1).map((id) => ({ value: prof(id)?.effort, from: id })).filter((x) => x.value);
+    const settings: Record<string, unknown> = {};
+    if (first && prof(first)?.model) settings.model = { value: prof(first).model, from: first, lost: [] };
+    if (first && prof(first)?.effort) settings.effortLevel = { value: prof(first).effort, from: first, lost };
+    if (first) settings["env.MAX_THINKING_TOKENS"] = { value: "8000", from: first, lost: [] };
+    const memory = (id: string) => ({ from: id, files: 4, bytes: 3530, indexLines: 12, indexBytes: 2400, types: { feedback: 1, project: 1, reference: 1 } });
+    return {
+      ok: true,
+      result: {
+        pieces,
+        tree: chosen.map((id) => (id === SET ? { id, set: true, children: USE.map((u) => ({ id: u, set: false })) } : { id, set: false })),
+        settings,
+        instructions: real.flatMap((id) => [{ from: id, path: "CLAUDE.md", head: "Как здесь работаем", rule: false }, { from: id, path: `.claude/rules/${nameOf(id)}-rules.md`, head: "Правила кода", rule: true, paths: "src/**" }]),
+        skills: real.map((id) => ({ from: id, name: `${nameOf(id)}:${nameOf(id)}-check`, description: "проверить перед выкладкой", path: `skills/${nameOf(id)}-check/SKILL.md`, extra: [`skills/${nameOf(id)}-check/steps.md`] })),
+        agents: real.map((id) => ({ from: id, name: `${nameOf(id)}:${nameOf(id)}-review`, description: "ревью изменений", path: `agents/${nameOf(id)}-review.md`, model: "opus", main: false })),
+        memory: { ...(real.length ? { home: memory(real.at(-1)!) } : {}), near: real.slice(0, -1).map(memory) },
+        prompt: {},
+        mcp: real.length ? [{ from: real[0], kind: "server", name: "grafana", detail: "npx grafana-mcp", config: { command: "npx", args: ["grafana-mcp"] } }] : [],
+        other: real.map((id) => ({ from: id, path: "notes.txt" })),
+        files: Object.fromEntries(pieces.map((id) => [id, pieceFiles(id)])),
+      },
+    };
+  };
+  h["profile.file"] = (f) => {
+    const path = String(f.path);
+    const id = String(f.id);
+    if (path.endsWith("plugin.json")) return { ok: true, result: { text: JSON.stringify({ name: nameOf(id), description: F.prof[nameOf(id)]?.about ?? "моя обычная работа", ...(id === SET ? { metadata: { use: USE } } : {}) }) } };
+    return { ok: true, result: { text: `# ${path}\n\nТекст файла кусочка ${nameOf(id)}.` } };
+  };
+  h["fleet.prompt"] = () => ({ ok: true, result: { text: "Ты сессия флота: инструменты list, send, answer, open, history." } });
+  const keys: Record<string, { env: Record<string, string>; settings: Record<string, unknown> }> = {
+    orca: { env: { ANTHROPIC_BASE_URL: "https://api.orcarouter.ai", ANTHROPIC_DEFAULT_OPUS_MODEL: "anthropic/claude-opus", ANTHROPIC_DEFAULT_SONNET_MODEL: "orcarouter/auto", CLAUDE_CODE_DISABLE_1M_CONTEXT: "1" }, settings: {} },
+    kimi: { env: { ANTHROPIC_BASE_URL: "https://api.moonshot.ai/anthropic", ANTHROPIC_DEFAULT_OPUS_MODEL: "kimi-k2", CLAUDE_CODE_DISABLE_THINKING: "1" }, settings: { modelOverrides: { "claude-opus-5-5": "kimi-k2" } } },
+  };
+  h["fleetkeys.list"] = () => ({ ok: true, result: { keys } });
+  h["fleetkeys.set"] = (f) => {
+    keys[String(f.name)] = { env: f.env as Record<string, string>, settings: (f.settings ?? {}) as Record<string, unknown> };
+    return { ok: true };
+  };
+  h["fleetkeys.remove"] = (f) => {
+    if (!keys[String(f.name)]) return { ok: false, error: "no_key" };
+    delete keys[String(f.name)];
+    return { ok: true };
+  };
+  h["machine.key_check"] = (f) => (f.name === "kimi" ? { ok: true, result: { ok: false, word: "адрес отвечает, но ключ не принят: 401" } } : { ok: true, result: { ok: true, word: "ключ принят, отвечает anthropic/claude-opus, 412 мс" } });
   h["machine.dirs"] = (f) => {
     const m = String(f.machine);
     const p = String(f.path);
@@ -126,6 +192,15 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
     return { ok: true, result: { path: p, dirs: [...kids].sort() } };
   };
   h["session.open"] = (f) => {
+    if (typeof f.wing_of === "string") {
+      const lead = roster.sessions.find((s) => s.callsign === f.wing_of);
+      if (!lead) return { ok: false, error: "offline" };
+      if (roster.sessions.some((s) => s.wing === true && s.parent === lead.callsign)) return { ok: false, error: "has_wing" };
+      const wing = `${String(lead.callsign).split("@")[0]}-wing@${f.machine}`;
+      roster.sessions.push({ ...lead, callsign: wing, parent: lead.callsign, wing: true, model: String(f.model ?? lead.model), effort: String(f.effort ?? lead.effort), profile: ((f.profile ?? []) as string[]).map((id) => ({ id, state: "ok" })), slot: { name: String(f.slot ?? "main") } });
+      relay.setRoster({ ...relay.roster, sessions: roster.sessions } as never);
+      return { ok: true, result: { callsign: wing } };
+    }
     const cs = `${f.name}@${f.machine}`;
     if (roster.sessions.some((s) => s.callsign === cs)) return { ok: false, error: "name_taken" };
     roster.sessions.push({ callsign: cs, dir: String(f.dir), state: "idle", model: String(f.model ?? "sonnet"), effort: String(f.effort ?? "medium"), by: `${app}~${ME}`, parent: undefined, slot: { name: "main" }, account: "dev@mail.ru", ...(f.profile ? { profile: { id: String(f.profile), state: "ok" } } : {}) });

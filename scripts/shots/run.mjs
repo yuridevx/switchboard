@@ -24,6 +24,7 @@ const path_ = (p) => p.fill('[data-f="addr"]', "~/projects/new/deep");
 const OPEN = [
   ["new", "#sessions", steps(click("[data-new]"))],
   ["new-place", "#sessions", steps(place)],
+  ["new-pair", "#sessions", steps(click("[data-new]"), click('button[data-pair]'))],
 ];
 const ACCOUNTS = (prefix) => [
   [`${prefix}accounts`, "#accounts"],
@@ -31,8 +32,13 @@ const ACCOUNTS = (prefix) => [
   [`${prefix}accounts-entry`, "#accounts", steps(click('[data-entry$=":night@x.io"]'))],
   [`${prefix}accounts-diff`, "#accounts", steps(click(".ac-warn"))],
   [`${prefix}accounts-machine`, "#accounts", steps(click(".ac-mname"))],
+  [`${prefix}accounts-keys`, "#accounts", steps(click('[data-tab="keys"]'))],
+  [`${prefix}accounts-key-new`, "#accounts", steps(click('[data-tab="keys"]'), click('[data-act="key-new"]'))],
   [`${prefix}profiles`, "#profiles"],
-  [`${prefix}profiles-open`, "#profiles", steps(click(".pf-w.cf .pf-r"))],
+  [`${prefix}profiles-prompt`, "#profiles", steps(click('[data-piece="team/profiles/dev"]'), click('[data-tab="prompt"]'))],
+  [`${prefix}profiles-skills`, "#profiles", steps(click('[data-piece="team/profiles/dev"]'), click('[data-tab="skills"]'))],
+  [`${prefix}profiles-memory`, "#profiles", steps(click('[data-piece="team/profiles/dev"]'), click('[data-tab="mem"]'))],
+  [`${prefix}profiles-settings`, "#profiles", steps(click('[data-piece="team/profiles/dev"]'), click('[data-tab="set"]'))],
 ];
 const BOTH = [
   ["work", "#sessions"],

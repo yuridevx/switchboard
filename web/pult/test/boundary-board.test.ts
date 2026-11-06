@@ -36,10 +36,10 @@ describe("Работа", () => {
     const r = homeRoster();
     r.machines = [...r.machines, { machine: "build", since: 1, proto: 1, contract: r.machines[0].contract }];
     r.sessions = [
-      { callsign: "refactor@laptop", state: "busy", dir: "~/Projects/switchboard", by: "pult~you@mail", model: "opus", profile: { id: "you/profiles/switchboard", state: "ok" } },
-      { callsign: "tests@pc", state: "busy", dir: "~/projects/switchboard", parent: "refactor@laptop", by: "refactor@laptop", model: "sonnet", profile: { id: "you/profiles/ci", state: "ok" } },
-      { callsign: "migrate@laptop", state: "waiting", dir: "~/Projects/switchboard", by: "phone~you@mail", model: "opus", profile: { id: "you/profiles/switchboard", state: "ok" } },
-      { callsign: "build@build", state: "idle", dir: "~/src/switchboard", by: "pult~you@mail", model: "sonnet", profile: { id: "you/profiles/ci", state: "ok" } },
+      { callsign: "refactor@laptop", state: "busy", dir: "~/Projects/switchboard", by: "pult~you@mail", model: "opus", profile: [{ id: "you/profiles/switchboard", state: "ok" }] },
+      { callsign: "tests@pc", state: "busy", dir: "~/projects/switchboard", parent: "refactor@laptop", by: "refactor@laptop", model: "sonnet", profile: [{ id: "you/profiles/ci", state: "ok" }] },
+      { callsign: "migrate@laptop", state: "waiting", dir: "~/Projects/switchboard", by: "phone~you@mail", model: "opus", profile: [{ id: "you/profiles/switchboard", state: "ok" }] },
+      { callsign: "build@build", state: "idle", dir: "~/src/switchboard", by: "pult~you@mail", model: "sonnet", profile: [{ id: "you/profiles/ci", state: "ok" }] },
       { callsign: "api@pc", state: "idle", dir: "~/projects/pfarm", by: "alerts~you@mail", model: "opus" },
       { callsign: "docs@pc", state: "idle", dir: "~/projects/pfarm", by: "laptop~anna@mail", model: "sonnet" },
       { callsign: "note@pc", state: "idle", dir: "~/notes", parent: "docs@pc", by: "docs@pc", model: "haiku" },

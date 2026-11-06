@@ -350,6 +350,77 @@ await scene("phone", "big", PHONE, ".lst > .pjs", async (p, ctx) => {
   check("палец: чип переставлен", (await chips(p))[0] === "all", (await chips(p)).join(", "));
 });
 
+/** Форма новой сессии: части, которые не должны прыгать, и слои поверх. */
+const openForm = async (p) => {
+  await p.evaluate(() => (location.hash = "#open"));
+  await p.waitForSelector(".pt-grid");
+  await p.waitForTimeout(500);
+};
+const chosen = (p) => p.evaluate(() => [...document.querySelectorAll('[data-side="Ведущий"] [data-chosen]')].map((x) => x.dataset.chosen));
+const twoPieces = async (p) => {
+  for (let i = 0; (await chosen(p)).length < 2 && i < 3; i++) {
+    await p.click('[data-side="Ведущий"] [data-profile]');
+    await p.waitForTimeout(150);
+  }
+};
+
+await scene("pult", "big", WIDE, ".bd-row", async (p) => {
+  await openForm(p);
+  await twoPieces(p);
+  const PARTS = { picker: ".op-brw", grid: ".pt-grid", model: '[data-side="Ведущий"].pt-c.model', slot: '[data-side="Ведущий"].pt-c.slot', task: '[data-f="text"]', open: '[data-act="open"]' };
+  const ys = () => p.evaluate((parts) => Object.fromEntries(Object.entries(parts).map(([k, s]) => [k, Math.round(document.querySelector(s)?.getBoundingClientRect().y ?? -1)])), PARTS);
+  const y0 = await ys();
+  await p.click("button[data-pair]");
+  await p.waitForTimeout(400);
+  const y1 = await ys();
+  const shift = Math.max(...Object.keys(PARTS).map((k) => Math.abs(y0[k] - y1[k])));
+  check("сдвиг формы при включении пары 0 px", shift === 0, JSON.stringify({ y0, y1 }));
+  const layers = await p.evaluate(() => document.querySelectorAll(".op-pop,.op-shade,[role=dialog]").length);
+  check("слоёв поверх 0", layers === 0, String(layers));
+  console.log(`форма: сдвиг ${shift} px, слоёв поверх ${layers}`);
+  await shot(p, "pair-on");
+  await p.click("button[data-pair]");
+  const before = await chosen(p);
+  const a = await rect(p, `[data-chosen="${before[1]}"] [data-grip]`);
+  const z = await rect(p, `[data-chosen="${before[0]}"]`);
+  await p.mouse.move(a.x + a.w / 2, a.y + a.h / 2);
+  await p.mouse.down();
+  await p.mouse.move(a.x - 8, a.y + a.h / 2, { steps: 3 });
+  await p.mouse.move(z.x + 6, z.y + z.h / 2, { steps: 6 });
+  await p.waitForTimeout(150);
+  await p.mouse.up();
+  await p.waitForTimeout(200);
+  check("мышь: порядок кусочков", same(await chosen(p), [before[1], before[0]]), (await chosen(p)).join(", "));
+  const back = await chosen(p);
+  const c = await rect(p, `[data-chosen="${back[1]}"] [data-grip]`);
+  await p.mouse.move(c.x + c.w / 2, c.y + c.h / 2);
+  await p.mouse.down();
+  await p.mouse.move(c.x - 30, c.y + c.h / 2, { steps: 4 });
+  await p.keyboard.press("Escape");
+  await p.mouse.up();
+  await p.waitForTimeout(150);
+  check("Escape: порядок кусочков прежний", same(await chosen(p), back));
+});
+
+await scene("phone", "big", PHONE, ".bd-row", async (p, ctx) => {
+  await openForm(p);
+  await twoPieces(p);
+  const before = await chosen(p);
+  const a = await rect(p, `[data-chosen="${before[1]}"] [data-grip]`);
+  const z = await rect(p, `[data-chosen="${before[0]}"]`);
+  const cdp = await ctx.newCDPSession(p);
+  const touch = (type, x, y) => cdp.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x, y }] });
+  const [x0, y0] = [a.x + a.w / 2, a.y + a.h / 2];
+  const [x1, y1] = [z.x + 6, z.y + z.h / 2];
+  await touch("touchStart", x0, y0);
+  for (let i = 1; i <= 8; i++) await touch("touchMove", x0 + ((x1 - x0) * i) / 8, y0 + ((y1 - y0) * i) / 8);
+  await p.waitForTimeout(150);
+  await touch("touchEnd");
+  await p.waitForTimeout(250);
+  check("палец: порядок кусочков", same(await chosen(p), [before[1], before[0]]), (await chosen(p)).join(", "));
+  await shot(p, "phone-pieces");
+});
+
 await b.close();
 console.log(bad() ? `не прошло: ${bad()}` : "всё прошло");
 process.exit(bad() ? 1 : 0);

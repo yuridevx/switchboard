@@ -2,6 +2,7 @@
 import type { AppPart, Params } from "@switchboard/web-core";
 import { Chip, Choices, createStore, effortName, folderOf, lamp, linkText, machineLabel, sessionLabel, sessionOf, useApp, useModule, type Store } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
+import { PARTY_CSS } from "@switchboard/web-party";
 import { NarrowCard } from "./narrow.tsx";
 import { WideCard } from "./wide.tsx";
 import css from "./card.css";
@@ -52,7 +53,7 @@ export const createCard = ((app) => {
     return app.wide ? { ...title, sub: [s.model, effortName(s.effort)].filter(Boolean).join(" · ") } : { ...title, sub: `${at} · папка ${folderOf(s.dir)}`, dot: lamp(s) };
   }
   return {
-    css,
+    css: `${css}\n${PARTY_CSS}`,
     state,
     store: ["card.head"],
     start: load,

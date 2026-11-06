@@ -35,7 +35,11 @@
     "asked@web-ask": 1,
     "labels@web-labels": 1,
     "label.session@web-labels": 1,
-    "label.machine@web-labels": 1
+    "label.machine@web-labels": 1,
+    "session.open@host-manage": 2,
+    "fleetkeys.list@fleetkeys": 1,
+    "party@web-party": 1,
+    "profile.view@host-profiles": 1
   },
   "config": {}
 }
