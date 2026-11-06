@@ -1,23 +1,24 @@
-// Типы фронта и сервера дизайна: tsc на каждый пакет с tsconfig. Строка на пакет; ошибка — текст компилятора и код 1.
+// Типы фронта: tsc каждого пакета веба и сервера дизайна; строка на пакет, ошибки — текстом компилятора.
 import { spawnSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const LIMIT_MS = 300_000;
 const TSC = createRequire(import.meta.url).resolve("typescript/bin/tsc");
-const LIMIT_MIN = 5;
 
-const packages = [...readdirSync(join(ROOT, "web/packages")).map((d) => `web/packages/${d}`), "web/pult", "web/phone", "scripts/design"].filter((p) => existsSync(join(ROOT, p, "tsconfig.json")));
+const packages = readdirSync(path.join(ROOT, "web", "packages")).map((d) => `web/packages/${d}`);
 let failed = 0;
-for (const p of packages) {
-  const r = spawnSync(process.execPath, [TSC, "-p", join(ROOT, p), "--noEmit", "--pretty", "false"], { encoding: "utf8", timeout: LIMIT_MIN * 60_000 });
+for (const dir of [...packages, "web/pult", "web/phone", "scripts/design"]) {
+  if (!existsSync(path.join(ROOT, dir, "tsconfig.json"))) continue;
+  const r = spawnSync(process.execPath, [TSC, "-p", path.join(ROOT, dir), "--noEmit"], { encoding: "utf8", timeout: LIMIT_MS });
   if (r.status === 0) {
-    console.log(`${p}: ok`);
+    console.log(`${dir}: ok`);
     continue;
   }
   failed++;
-  console.log(`${p}: ошибки${r.error ? ` · не уложился в ${LIMIT_MIN} мин` : ""}\n${r.stdout}${r.stderr}`);
+  console.log(`${dir}: ошибки\n${r.stdout}${r.stderr}${r.error ? r.error.message : ""}`);
 }
-process.exit(failed ? 1 : 0);
+process.exitCode = failed ? 1 : 0;
