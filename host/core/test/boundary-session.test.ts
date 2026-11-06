@@ -1232,6 +1232,16 @@ describe("раунд lost: сверка со старым кодом", () => {
     expect(lines(st, "ready")).toHaveLength(1);
   });
 
+  it("первый сбой до готовности: в отказе — причина выхода, а не только факт", async () => {
+    // источник: устав «ошибки — словами»; отказ идёт клиенту как open_failed, журнала он не видит; чьё: код — «процесс вышел до initialize — причина»
+    const st = await stand({ modules: [] });
+    st.holders.failInitNext = 1;
+    const opening = st.open(CS);
+    await until(() => st.holders.procs.get(CS)?.initializes === 1);
+    st.proc(CS).exit(1, "Invalid API key");
+    await expect(opening).rejects.toThrow("Invalid API key");
+  });
+
   it("отказ в журнале: кто и какой запрос; причина есть и у отказа без слов", async () => {
     // источник: устав «отвечаешь по фактам из журнала», принцип «ошибка словом, причина в журнале»; чьё: код — id, from и why у строки refuse
     const no = module("host-no", {

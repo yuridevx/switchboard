@@ -238,8 +238,7 @@ export class Session {
     k.clock.clearTimeout(late);
     if (!ready) {
       open();
-      await run.done;
-      throw new Error(`${this.callsign}: процесс вышел до initialize`);
+      throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(await run.done)}`);
     }
     if (run.closing || this.run !== run) return;
     run.ready = true;
