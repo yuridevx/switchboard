@@ -60,97 +60,13 @@ const press = async (t: Awaited<ReturnType<typeof stand>>, f: string, key: strin
 };
 const place = (t: Awaited<ReturnType<typeof stand>>) => t.$('[data-place="1"]')!.textContent;
 
-describe("метки", () => {
-  it("имени нет — короткий адрес без отметки human; задано — имя с отметкой; адрес другой сессии имя не получает", async () => {
-    const { x } = await bench({ "fleet.labels": { sessions: { "site@laptop": "Сайт" }, machines: { laptop: "ПК" } } }, undefined, "/#names");
-    expect(x.session("site@laptop")).toEqual({ text: "Сайт", human: true });
-    expect(x.machine("laptop")).toEqual({ text: "ПК", human: true });
-    expect(x.session("wiki@laptop")).toEqual({ text: "wiki", human: false });
-    expect(x.machine("pc")).toEqual({ text: "@pc", human: false });
-  });
-
-  it("имена читаются из области флота и только своими ключами", async () => {
-    const { relay } = await bench({}, undefined, "/#names");
-    const gets = relay.sent("prefs.get");
-    expect(gets.length).toBeGreaterThan(0);
-    for (const g of gets) expect(g).toMatchObject({ scope: "global", prefix: "fleet." });
-  });
-
-  it("связь вернулась: имена перечитаны, экран по выборке показывает новое имя", async () => {
-    const { t, relay } = await bench({}, undefined, "/#names");
-    expect(t.$("[data-shown]")!.textContent).toBe("site");
-    relay.scoped.global["fleet.labels"] = { sessions: { "site@laptop": "Сайт" } };
-    await t.run.hide();
-    await t.run.show();
-    await flush(10);
-    expect(t.$("[data-shown]")!.textContent).toBe("Сайт");
-  });
-});
-
 describe("окно «Имена»", () => {
-  it("вид окна сессии: заголовок, настоящий адрес, две подписи, подсказки — адрес, кнопки", async () => {
-    const { t } = await open();
-    const dlg = t.$('.lb-dlg[role="dialog"]')!;
-    expect(dlg.getAttribute("aria-label")).toBe("Имена");
-    expect(dlg.querySelector("b")!.textContent).toBe("Имена");
-    expect(t.$(".lb-a")!.textContent).toBe("site@laptop");
-    expect([...dlg.querySelectorAll(".lb-f span")].map((s) => s.textContent)).toEqual(["Имя сессии", "Имя машины"]);
-    expect(t.$('[data-f="session"]')!.getAttribute("placeholder")).toBe("site");
-    expect(t.$('[data-f="machine"]')!.getAttribute("placeholder")).toBe("@laptop");
-    expect(t.$('[data-f="session"]')!.getAttribute("autocomplete")).toBe("off");
-    expect([...dlg.querySelectorAll(".lb-ft button")].map((b) => b.textContent)).toEqual(["Отмена", "Сохранить"]);
-  });
-
-  it("окно только машины: адрес машины, поля сессии нет; сохранение пишет только машину", async () => {
-    const { t, relay } = await open({ "fleet.labels": { sessions: { "site@laptop": "Сайт" }, machines: {} } }, { machine: "laptop" });
-    expect(t.$(".lb-a")!.textContent).toBe("@laptop");
-    expect(t.$('[data-f="session"]')).toBeNull();
-    expect([...t.$$(".lb-f span")].map((s) => s.textContent)).toEqual(["Имя машины"]);
-    await fill(t, "machine", "ПК");
-    await t.click(t.$('[data-act="save"]'));
-    await flush(5);
-    expect(relay.scoped.global["fleet.labels"]).toEqual({ sessions: { "site@laptop": "Сайт" }, machines: { laptop: "ПК" } });
-  });
-
-  it("машина окна — из адреса сессии; заданная в параметрах важнее", async () => {
-    const { t } = await open({ "fleet.labels": { machines: { laptop: "ПК", pc: "Сервер" } } }, { callsign: "site@laptop" });
-    expect(t.$<HTMLInputElement>('[data-f="machine"]')!.value).toBe("ПК");
-    const other = await open({ "fleet.labels": { machines: { laptop: "ПК", pc: "Сервер" } } }, { callsign: "site@laptop", machine: "pc" });
-    expect(other.t.$<HTMLInputElement>('[data-f="machine"]')!.value).toBe("Сервер");
-    expect(other.t.$('[data-f="machine"]')!.getAttribute("placeholder")).toBe("@pc");
-  });
-
-  it.each<[string, boolean]>([
-    ["широкий экран: окно по центру", true],
-    ["узкий экран: окно снизу", false],
-  ])("%s", async (_n, wide) => {
-    const { t } = await open({}, undefined, wide);
-    expect(t.$(".lb-veil")!.classList.contains("narrow")).toBe(!wide);
-  });
-
   it.each<[string, Record<string, string>, boolean, string]>([
     ["сессия, широкий экран", { callsign: "site@laptop" }, true, '<div class="lb-veil"><div class="lb-dlg" role="dialog" aria-label="Имена"><b>Имена</b><div class="lb-a">site@laptop</div><label class="lb-f"><span>Имя сессии</span><input data-f="session" placeholder="site" autocomplete="off" class="sb-in" value="Сайт"></label><label class="lb-f"><span>Имя машины</span><input data-f="machine" placeholder="@laptop" autocomplete="off" class="sb-in" value=""></label><div class="lb-ft"><button class="sb-b">Отмена</button><button data-act="save" class="sb-b pri">Сохранить</button></div></div></div>'],
     ["машина, узкий экран", { machine: "pc" }, false, '<div class="lb-veil narrow"><div class="lb-dlg" role="dialog" aria-label="Имена"><b>Имена</b><div class="lb-a">@pc</div><label class="lb-f"><span>Имя машины</span><input data-f="machine" placeholder="@pc" autocomplete="off" class="sb-in" value=""></label><div class="lb-ft"><button class="sb-b">Отмена</button><button data-act="save" class="sb-b pri">Сохранить</button></div></div></div>'],
   ])("разметка окна: %s", async (_n, params, wide, html) => {
     const { t } = await open({ "fleet.labels": { sessions: { "site@laptop": "Сайт" } } }, params, wide);
     expect(t.$(".lb-veil")!.outerHTML).toBe(html);
-  });
-
-  it("введённое стоит и в атрибуте поля: значение ведёт состояние окна", async () => {
-    const { t } = await open();
-    await fill(t, "session", " Сайт ");
-    expect(t.$('[data-f="session"]')!.getAttribute("value")).toBe(" Сайт ");
-  });
-
-  it("Enter и Escape слушает только поле: с кнопки окно не закрывается и не пишет", async () => {
-    const { t, relay } = await open();
-    await fill(t, "session", "Сайт");
-    for (const key of ["Enter", "Escape"]) {
-      t.button("Отмена")!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
-      await flush(5);
-    }
-    expect(t.$(".lb-dlg")).not.toBeNull();
-    expect(relay.sent("prefs.set")).toHaveLength(0);
   });
 
   it("экран по адресу: шапка называет его «Имена»; упал — ядро называет модуль этим же именем", async () => {

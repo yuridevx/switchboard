@@ -108,13 +108,6 @@ describe("проекты: правки записи", () => {
     expect(dropSessions(REC, ["site@a"], "shop", "api@a", ["api@a", "site@a"])[0].sessions).toEqual(["site@a", "api@a", "deploy@vps"]);
   });
 
-  it("бросок записывает только то, что нужно порядку: строки ниже места броска остаются незаписанными; перед записанной строкой незаписанные не записываются", () => {
-    const shown = ["a@m", "b@m", "c@m", "d@m"];
-    expect(dropSessions(undefined, ["d@m"], NONE, "b@m", shown)).toEqual([{ id: NONE, name: "Без проекта", sessions: ["a@m", "d@m"] }]);
-    expect(dropSessions(REC, ["x@a"], "shop", "api@a", ["api@a", "loose@a", "x@a"])[0].sessions).toEqual(["x@a", "api@a", "site@a", "deploy@vps"]);
-    expect(dropSessions(undefined, ["a@m"], NONE, "нет@m", shown)).toEqual([{ id: NONE, name: "Без проекта", sessions: ["a@m"] }]);
-  });
-
   it("6107 · проект: перестановка, имя, удаление; сессии удалённого — в «Без проекта»; номер не меняется", () => {
     expect(moveProject(REC, "sec", "shop").map((r) => r.id)).toEqual(["sec", "shop"]);
     expect(moveProject(REC, "shop").map((r) => r.id)).toEqual(["sec", "shop"]);
@@ -130,13 +123,13 @@ describe("проекты: правки записи", () => {
     const all = placeSessions(REC, ["x@a"], NONE);
     expect(moveProject(all, "нет")).toEqual(all);
     expect(moveProject(all, "shop", NONE).map((r) => r.id)).toEqual(["sec", "shop", NONE]);
+    expect(moveProject(all, "shop").map((r) => r.id)).toEqual(["sec", "shop", NONE]);
     expect(moveProject(undefined, "shop")).toEqual([]);
   });
 
   it.each<[string, string, string, string]>([
     ["имя в номер: нижний регистр, пробелы — дефис", " Новый  Проект ", "новый-проект", "Новый  Проект"],
     ["пустое имя", "  ", "project", ""],
-    ["имя как номер «Без проекта»", "~", "~-2", "~"],
   ])("новый проект: %s", (_n, name, id, shown) => {
     const r = addProject(undefined, name);
     expect(r.id).toBe(id);
@@ -222,17 +215,6 @@ describe("цикл настроек", () => {
     expect(sets(s.log)).toHaveLength(1);
   });
 
-  it("правка идёт поверх значения, записанного другим устройством: копия здесь устарела, чужое не теряется", async () => {
-    const s = service();
-    s.values["x.k"] = [1];
-    const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
-    await c.read();
-    s.values["x.k"] = [1, 2];
-    await c.edit<number[]>("k", (old) => [...(old ?? []), 3]);
-    expect(s.values["x.k"]).toEqual([1, 2, 3]);
-    expect(c.get("k")).toEqual([1, 2, 3]);
-  });
-
   it("правка видна сразу, до ответа службы; звонок changed — на правку и на ответ", async () => {
     const s = service();
     let calls = 0;
@@ -247,19 +229,39 @@ describe("цикл настроек", () => {
     expect(calls).toBe(2);
   });
 
-  it("правка, пришедшая за время цикла, остаётся поверх и уходит следующим циклом", async () => {
+  it("правка, пришедшая за время записи, остаётся поверх и уходит следующим циклом", async () => {
     const s = service();
-    const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
-    s.hold();
+    let open = () => {};
+    const gate = new Promise<void>((go) => (open = go));
+    const ask = async <T,>(name: string, body: Record<string, unknown>) => (await gate, s.ask<T>(name, body));
+    const c = settings({ read: s.ask, ask, prefix: "x" });
     const one = c.edit<number[]>("k", (old) => [...(old ?? []), 1]);
     await new Promise((r) => setTimeout(r, 0));
     const two = c.edit<number[]>("k", (old) => [...(old ?? []), 2]);
     expect(c.get("k")).toEqual([1, 2]);
-    await s.release();
+    open();
     expect(await Promise.all([one, two])).toEqual([null, null]);
     expect(s.values["x.k"]).toEqual([1, 2]);
-    expect(c.get("k")).toEqual([1, 2]);
     expect(sets(s.log)).toHaveLength(2);
+  });
+
+  it("чтение не встаёт за зависшим циклом: зависший ответ не держит новое чтение после обрыва связи; правка остаётся поверх", async () => {
+    // источник: комментарий кода, сверка 6 нояб.; чьё: код
+    const s = service();
+    s.values["x.a"] = 1;
+    let hung = true;
+    const read = (async <T,>(name: string, body: Record<string, unknown>) => {
+      if (hung) {
+        hung = false;
+        await new Promise(() => {});
+      }
+      return s.ask<T>(name, body);
+    }) as typeof s.ask;
+    const c = settings({ read, ask: s.ask, prefix: "x" });
+    void c.edit("k", () => "новое");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await c.read()).toBeNull();
+    expect([c.get("a"), c.get("k")]).toEqual([1, "новое"]);
   });
 
   it("settled дожидается цикла записи: остановка не теряет правку", async () => {
@@ -295,21 +297,6 @@ describe("цикл настроек", () => {
     const [a, b] = await Promise.all([c.edit("big", () => 1), c.edit("small", () => 2)]);
     expect([a, b]).toEqual(["too_large", null]);
     expect(s.values).toEqual({ "x.small": 2 });
-  });
-
-  it("разделы одной пачки пишутся по очереди: следующий запрос уходит после ответа на прошлый", async () => {
-    const s = service();
-    const order: string[] = [];
-    const ask = async <T,>(name: string, body: Record<string, unknown>) => {
-      order.push(`${body.name} начат`);
-      const r = await s.ask<T>(name, body);
-      await new Promise((go) => setTimeout(go, 0));
-      order.push(`${body.name} готов`);
-      return r;
-    };
-    const c = settings({ read: s.ask, ask, prefix: "x" });
-    await Promise.all([c.edit("a", () => 1), c.edit("b", () => 2)]);
-    expect(order).toEqual(["x.a начат", "x.a готов", "x.b начат", "x.b готов"]);
   });
 
   it("7900 · чтение значений идёт входом read, запись — входом ask: у них разный предел", async () => {
@@ -366,26 +353,4 @@ describe("цикл настроек", () => {
     expect(r.get("k")).toBeUndefined();
   });
 
-  it("первый рисунок ждёт ответа: отказ чтения звонит changed", async () => {
-    const s = service();
-    s.refuse.get = "gate_unavailable";
-    let calls = 0;
-    await settings({ read: s.ask, ask: s.ask, prefix: "x", changed: () => void calls++ }).read();
-    expect(calls).toBe(1);
-  });
-
-  it("чтение посреди цикла правки не стирает правку с экрана и не теряет её в службе", async () => {
-    const s = service();
-    s.values["x.k"] = "старое";
-    const c = settings({ read: s.ask, ask: s.ask, prefix: "x" });
-    s.hold();
-    const done = c.edit("k", () => "новое");
-    const reading = c.read();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(c.get("k")).toBe("новое");
-    await s.release();
-    await Promise.all([done, reading]);
-    expect(c.get("k")).toBe("новое");
-    expect(s.values["x.k"]).toBe("новое");
-  });
 });

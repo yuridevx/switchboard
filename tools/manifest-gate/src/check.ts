@@ -1,96 +1,137 @@
-// Правила набора модулей: пустой список — годен, иначе причины словами. Файлов не читает: идёт и в браузере.
-import { needs, nameOf, ownerOf, type Manifest } from "./manifest.ts";
+// Суд над набором манифестов: ссылка на чужое имя, порядок зависимостей, нарушения словами. Файлов не читает: идёт и на странице, и в Worker.
+export type Manifest = {
+  name: string;
+  type: string;
+  version: string;
+  provides: Record<string, number>;
+  /** Ключ — ссылка `имя@владелец`, значение — версия имени. */
+  uses: Record<string, number>;
+  config: Record<string, "secret" | "var" | "binding">;
+  /** Корни сборки, в которые модуль входит. */
+  into?: string[];
+  pkg?: string;
+  // Факты кода; их кладёт loadRepo, манифест из каталога или сборки их не несёт.
+  /** Пакеты @switchboard, которые импортирует код. */
+  imports?: string[];
+  /** Чужие файлы, куда код идёт относительным путём: `модуль/путь`. */
+  reach?: string[];
+  /** Чужие файлы, куда тест или стенд идёт мимо контракта: `модуль/путь`. */
+  testReach?: string[];
+  /** Вызовы привязок Worker: `env.GATE.verify()` — `gate.verify`. */
+  rpc?: string[];
+};
 
-/** Конверт кадра общий у всех: его импортируют без uses. */
+/** Тип модуля, который входит в сборку, → тип её корня. */
+const ROOT: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
+/** Конверт кадра знают все: пакет протокола идёт без uses. */
 const PROTOCOL = "@switchboard/protocol";
-/** Какого типа корень сборки у модуля этого типа. */
-const ROOT_OF: Record<string, string> = { sdk: "sdk-core", web: "web-app" };
 
-/** Первый занявший ключ остаётся; второй — причина. */
-function claim(held: Map<string, string>, key: string, who: string, word: string, out: string[]) {
-  const first = held.get(key);
-  if (first === undefined) held.set(key, who);
-  else out.push(`${word} — ${first} и ${who}`);
+export const nameOf = (ref: string) => ref.replace(/@[^@]*$/, "");
+export const ownerOf = (ref: string) => /@([^@]*)$/.exec(ref)?.[1] ?? "";
+/** Чужие владельцы имён из uses: своё имя зависимостью не бывает. */
+const ownersOf = (m: Manifest) => Object.keys(m.uses).map(ownerOf).filter((owner) => owner !== m.name);
+
+/** Владелец раньше того, кто им пользуется; из готовых — первый по имени. Цикл не чинит: его называет check. */
+export function order<T extends Manifest>(mods: T[]): T[] {
+  const left = [...mods].sort((a, b) => a.name.localeCompare(b.name));
+  const out: T[] = [];
+  while (left.length) {
+    const waiting = new Set(left.map((m) => m.name));
+    const ready = left.findIndex((m) => !ownersOf(m).some((owner) => waiting.has(owner)));
+    out.push(...left.splice(Math.max(ready, 0), 1));
+  }
+  return out;
+}
+
+/** Имя модуля, имя контракта и секрет — у одного владельца. */
+function claims(mods: Manifest[]): string[] {
+  const out: string[] = [];
+  const names = new Set<string>();
+  const owners = new Map<string, string>();
+  const secrets = new Map<string, string>();
+  const claim = (seen: Map<string, string>, key: string, who: string, word: (first: string) => string) => {
+    const first = seen.get(key) ?? who;
+    seen.set(key, first);
+    if (first !== who) out.push(word(first));
+  };
+  for (const m of mods) {
+    if (names.has(m.name)) out.push(`модуль ${m.name}: имя уже занято`);
+    names.add(m.name);
+    for (const name of Object.keys(m.provides)) claim(owners, name, m.name, (first) => `имя ${name}: два владельца — ${first} и ${m.name}`);
+    for (const [key, kind] of Object.entries(m.config)) if (kind === "secret") claim(secrets, key, m.name, (first) => `секрет ${key}: в config двух модулей — ${first} и ${m.name}`);
+  }
+  return out;
 }
 
 function cycles(byName: Map<string, Manifest>): string[] {
   const out: string[] = [];
-  const done = new Set<string>();
-  const path: string[] = [];
-  const visit = (name: string) => {
-    const seen = path.indexOf(name);
-    if (seen >= 0) out.push(`цикл зависимостей: ${[...path.slice(seen), name].join(" → ")}`);
-    if (seen >= 0 || done.has(name)) return;
-    path.push(name);
-    needs(byName.get(name)!, byName).forEach(visit);
-    path.pop();
-    done.add(name);
+  const seen = new Set<string>();
+  const walk = (m: Manifest, path: string[]) => {
+    const from = path.indexOf(m.name);
+    if (from >= 0) return void out.push(`цикл зависимостей: ${[...path.slice(from), m.name].join(" → ")}`);
+    if (seen.has(m.name)) return;
+    seen.add(m.name);
+    for (const owner of ownersOf(m)) {
+      const next = byName.get(owner);
+      if (next) walk(next, [...path, m.name]);
+    }
   };
-  [...byName.keys()].forEach(visit);
+  for (const m of byName.values()) walk(m, []);
   return out;
 }
 
+/** Что не так в одном модуле: манифест против набора, факты кода против манифеста. */
+function faults(m: Manifest, byName: Map<string, Manifest>, byPkg: Map<string | undefined, Manifest>): (string | undefined)[] {
+  const uses = ([ref, version]: [string, number]) => {
+    const name = nameOf(ref);
+    const owner = ownerOf(ref);
+    if (!name || !owner) return `uses «${ref}» — нужно имя@владелец`;
+    const target = byName.get(owner);
+    if (!target) return `uses ${ref} — владельца нет в наборе`;
+    const has = target.provides[name];
+    if (!has) return `uses ${ref} — ${owner} не отдаёт ${name}`;
+    return has === version ? undefined : `uses ${ref} v${version} — у владельца v${has}`;
+  };
+  const entered = (spec: string, owner: string, entry: boolean, front: string) => {
+    if (!ownersOf(m).includes(owner)) return `импорт ${spec} — ${owner} нет в uses`;
+    return entry ? undefined : `импорт ${spec} — мимо контракта ${front}`;
+  };
+  const imported = (spec: string) => {
+    const pkg = spec.split("/").slice(0, 2).join("/");
+    const owner = byPkg.get(pkg);
+    if (spec === PROTOCOL || owner?.name === m.name) return undefined;
+    return owner ? entered(spec, owner.name, spec === pkg, pkg) : `импорт ${spec} — такого модуля нет`;
+  };
+  const reached = (spec: string) => {
+    const owner = spec.split("/")[0];
+    return entered(spec, owner, spec === `${owner}/contract.ts`, owner);
+  };
+  const called = (name: string) => {
+    const owner = name.split(".")[0];
+    const contract = owner !== m.name && byName.get(owner)?.provides[name];
+    return contract && !m.uses[`${name}@${owner}`] ? `зовёт ${name} — нет в uses` : undefined;
+  };
+  const into = (root: string) => {
+    const want = ROOT[m.type];
+    if (!want) return `into у типа ${m.type} не бывает`;
+    const target = byName.get(root);
+    if (!target) return `into ${root} — такого приложения нет в наборе`;
+    return target.type === want ? undefined : `into ${root} — ${root} не ${want}`;
+  };
+  return [
+    ...Object.entries(m.uses).map(uses),
+    ...(m.imports ?? []).map(imported),
+    ...(m.reach ?? []).map(reached),
+    ...(m.testReach ?? []).map((spec) => `тест импортирует ${spec} — мимо контракта ${spec.split("/")[0]}`),
+    ...(m.rpc ?? []).map(called),
+    ...(m.into ?? []).map(into),
+  ];
+}
+
+/** Годный набор — пустой список; иначе причины словами. */
 export function check(mods: Manifest[]): string[] {
-  const out: string[] = [];
-  const byName = new Map<string, Manifest>();
-  const owners = new Map<string, string>();
-  const secrets = new Map<string, string>();
-  for (const m of mods) {
-    if (byName.has(m.name)) {
-      out.push(`модуль ${m.name}: имя уже занято`);
-      continue;
-    }
-    byName.set(m.name, m);
-    for (const name of Object.keys(m.provides)) claim(owners, name, m.name, `имя ${name}: два владельца`, out);
-    for (const [key, kind] of Object.entries(m.config)) if (kind === "secret") claim(secrets, key, m.name, `секрет ${key}: в config двух модулей`, out);
-  }
-  const byPkg = new Map([...byName.values()].map((m) => [m.pkg, m]));
-
-  for (const m of byName.values()) {
-    const fault = (word: string) => out.push(`модуль ${m.name}: ${word}`);
-    const declared = new Set(Object.keys(m.uses).map(ownerOf));
-
-    for (const [ref, version] of Object.entries(m.uses)) {
-      const name = nameOf(ref);
-      const owner = ownerOf(ref);
-      const held = byName.get(owner)?.provides[name];
-      if (!name || !owner) fault(`uses «${ref}» — нужно имя@владелец`);
-      else if (!byName.has(owner)) fault(`uses ${ref} — владельца нет в наборе`);
-      else if (held === undefined) fault(`uses ${ref} — ${owner} не отдаёт ${name}`);
-      else if (held !== version) fault(`uses ${ref} v${version} — у владельца v${held}`);
-    }
-
-    for (const app of m.into ?? []) {
-      const root = ROOT_OF[m.type];
-      const target = byName.get(app);
-      if (!root) fault(`into у типа ${m.type} не бывает`);
-      else if (!target) fault(`into ${app} — такого приложения нет в наборе`);
-      else if (target.type !== root) fault(`into ${app} — ${app} не ${root}`);
-    }
-
-    for (const spec of m.imports ?? []) {
-      const pkg = spec.split("/").slice(0, 2).join("/");
-      const owner = byPkg.get(pkg);
-      if (pkg === m.pkg || spec === PROTOCOL) continue;
-      if (!owner) fault(`импорт ${spec} — такого модуля нет`);
-      else if (!declared.has(owner.name)) fault(`импорт ${spec} — ${owner.name} нет в uses`);
-      else if (spec !== pkg) fault(`импорт ${spec} — мимо контракта ${pkg}`);
-    }
-
-    for (const file of m.reach ?? []) {
-      const [owner] = file.split("/");
-      if (!declared.has(owner)) fault(`импорт ${file} — ${owner} нет в uses`);
-      else if (file !== `${owner}/contract.ts`) fault(`импорт ${file} — мимо контракта ${owner}`);
-    }
-
-    for (const file of m.testReach ?? []) fault(`тест импортирует ${file} — мимо контракта ${file.split("/")[0]}`);
-
-    for (const name of m.rpc ?? []) {
-      // привязка названа именем модуля; база, бакет и объект платформы модулем не называются. Host и страница сверяют uses при вызове, Worker — нет
-      const owner = byName.get(name.split(".")[0]);
-      if (owner && owner !== m && owner.provides[name] !== undefined && m.uses[`${name}@${owner.name}`] === undefined) fault(`зовёт ${name} — нет в uses`);
-    }
-  }
-  out.push(...cycles(byName));
-  return out;
+  const byName = new Map(mods.map((m) => [m.name, m]));
+  const byPkg = new Map(mods.map((m) => [m.pkg, m]));
+  const inModules = mods.flatMap((m) => faults(m, byName, byPkg).flatMap((word) => (word ? [`модуль ${m.name}: ${word}`] : [])));
+  return [...claims(mods), ...inModules, ...cycles(byName)];
 }
