@@ -31,9 +31,8 @@ export const TOO_LARGE = "too_large";
 /** Предел кадра в байтах UTF-8: входящее сообщение WebSocket в Durable Object Cloudflare — до 32 МиБ. */
 export const MAX_FRAME = 32 * 1024 * 1024;
 
-/** Байты UTF-8 текста, если их больше MAX_FRAME, иначе null. Знак — не больше трёх байт: короткий текст не считаем. */
+/** Байты UTF-8 текста, если их больше MAX_FRAME, иначе null. */
 export function oversize(text: string): number | null {
-  if (text.length * 3 <= MAX_FRAME) return null;
   const bytes = new TextEncoder().encode(text).length;
   return bytes > MAX_FRAME ? bytes : null;
 }
@@ -46,14 +45,12 @@ export function parseFrame(text: string): Frame | null {
   } catch {
     return null;
   }
-  if (x === null || typeof x !== "object" || Array.isArray(x)) return null;
-  const good = typeof x.type === "string" && x.type !== "" && (x.id === undefined || typeof x.id === "string") && (x.v === undefined || typeof x.v === "number");
-  return good ? x : null;
+  return x?.type && typeof x.type === "string" && (x.id === undefined || typeof x.id === "string") && (x.v === undefined || typeof x.v === "number") ? x : null;
 }
 
 export const isReply = (f: Frame): f is Frame & Reply => f.type === "reply" && typeof f.id === "string" && typeof f.ok === "boolean";
 
-export const ok = (id: string, result?: unknown): Reply => (result === undefined ? { type: "reply", id, ok: true } : { type: "reply", id, ok: true, result });
+export const ok = (id: string, result?: unknown): Reply => ({ type: "reply", id, ok: true, result });
 
 export const fail = (id: string, error: string): Reply => ({ type: "reply", id, ok: false, error });
 
@@ -99,7 +96,7 @@ export function userOf(address: string): string | null {
 }
 
 /** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
-export const reaches = (to: string, device: string): boolean => to === device || (kindOf(to) === "user" && kindOf(device) === "device" && userOf(device) === to);
+export const reaches = (to: string, device: string): boolean => to === device || to === userOf(device);
 
 /**
  * Машина, чьему Host адресован кадр: по to, иначе по callsign, иначе по machine — одно правило для рации, Host и веба.
