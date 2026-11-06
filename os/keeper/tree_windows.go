@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"sync"
 	"syscall"
 	"unsafe"
 
@@ -12,6 +13,7 @@ import (
 // tree — процесс держателя и его потомки: задание Windows; держатель умер — задание закрыто, процесс снят. С --detach-children потомки
 // выходят из задания сами (так Host отпускает держатели своих сессий).
 type tree struct {
+	mu     sync.Mutex // снятие по пределу идёт своей горутиной рядом с reap
 	job    windows.Handle
 	detach bool
 }
@@ -43,6 +45,8 @@ func (t *tree) adopt(p *os.Process) {
 }
 
 func (t *tree) kill() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.job != 0 {
 		windows.TerminateJobObject(t.job, 1)
 	}
@@ -53,6 +57,8 @@ func (t *tree) reap() {
 	if !t.detach {
 		t.kill()
 	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	if t.job != 0 {
 		windows.CloseHandle(t.job)
 		t.job = 0
