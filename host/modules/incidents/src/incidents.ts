@@ -174,7 +174,10 @@ export function make(): Module {
         if (s.info.start !== "attach") disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
         drain();
       },
-      close: drain,
+      // сессию остановили намеренно: она больше не цель. Смена состояния, а не close: у сессии в failed процесса нет и close не приходит
+      state(_s, state) {
+        if (state === "stopped") drain();
+      },
       event(_s, msg) {
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;
         if (Array.isArray(taken)) disk().update((all = []) => all.filter((a) => !taken.includes(a.id)));

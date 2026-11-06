@@ -559,6 +559,29 @@ describe("инцидент: доставка хотя бы раз", () => {
     expect(await st.relay.request({ type: "incident.pending", v: 1, machine: "win" })).toMatchObject({ result: { appeals: [{ id: r.body.id, callsign: null, refused: { word: "bad_dir" } }] } });
   });
 
+  it.each([
+    ["session.stop", "остановили"],
+    ["session.remove", "убрали"],
+  ])("сессия в failed, обращение в ней ждёт; %s (%s) — обращение уходит в новую сессию без нового POST", async (type) => {
+    // устав: второй сбой — failed, дальше решает агент; процесса нет, поэтому on.close не приходит — только смена состояния
+    const { st, post, disk } = await bench();
+    await post({ type: "disk-full", key: "C:", text: "Свободно 2%" });
+    const p = await inputOf(st, "disk-full-1@win");
+    take(p);
+    await until(() => disk().length === 0);
+    st.holders.failInitNext = 1;
+    p.exit(1, "первый");
+    await until(() => st.sdk.of("disk-full-1@win").length === 2 && st.holders.procs.get("disk-full-1@win")?.initializes === 1);
+    st.proc("disk-full-1@win").exit(1, "второй");
+    await until(() => st.states("disk-full-1@win").at(-1)?.state === "failed");
+    const r = await post({ type: "disk-full", key: "C:", text: "Свободно 1%" });
+    await until(() => st.journal().find((l) => l.ev === "incident" && l.kind === "refuse" && l.id === r.body.id));
+    expect(await st.relay.request({ type, v: 1, callsign: "disk-full-1@win" })).toMatchObject({ ok: true });
+    const fresh = await until(() => [...st.kernel.sessions.keys()].find((c) => st.session("host-incidents", c)?.state === "idle"));
+    const q = await inputOf(st, fresh);
+    expect(q.inputs[0].uuid).toBe(r.body.id);
+  });
+
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {
     const { st, post, disk, work } = await bench();
     const a = await post({ type: "nodir", text: "первое" });
