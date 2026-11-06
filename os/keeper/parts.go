@@ -36,7 +36,7 @@ func (k *Keeper) apply(e entry) {
 		p = &part{name: e.Part, state: "stopped", version: e.Version}
 		k.parts[e.Part] = p
 	}
-	same := p.want != nil && p.want.same(e)
+	same := p.state != "stopped" && p.want != nil && p.want.same(e) // снятая остановкой ОС или «убей» по force поднимается планом с той же записью
 	if p.state == "running" { // запись сверяется с работающим процессом: откат на него его не трогает, версия, которая не встала, пробуется снова
 		if same = p.run.same(e); same {
 			p.err = ""
