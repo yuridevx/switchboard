@@ -38,9 +38,11 @@ async function list({ cat, row, f }: Asked): Promise<Listed> {
   const part = f.part as string | undefined;
   const parts = part ? [await cat.part(part)] : await cat.all();
   const shown = parts.filter((p) => p.kind === "machine" || p.kind === "cloud");
-  const rows = await Promise.all(shown.map(async (p) => [p.name, await rowOf(cat, p)]));
+  const rows = await Promise.all(shown.map(async (p) => [p.name, await rowOf(cat, p)] as const));
+  // часть машины без единой версии — неизвестное имя: каталог не выдумывает строк; Worker без версий — выложен мимо или ещё нет
+  const known = rows.filter(([, r]) => r.where === "cloud" || r.versions.length);
   const machines = Object.entries(row.plans).map(([machine, plan]) => ({ machine, plan: part ? Object.fromEntries(Object.entries(plan).filter(([name]) => name === part)) : plan }));
-  return { parts: Object.fromEntries(rows), ...(!part && { modules: await modulesOf(cat, parts) }), machines, rev: row.rev };
+  return { parts: Object.fromEntries(known), ...(!part && { modules: await modulesOf(cat, parts) }), machines, rev: row.rev };
 }
 
 async function upload({ cat, f }: Asked) {

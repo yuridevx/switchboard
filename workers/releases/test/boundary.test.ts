@@ -1088,6 +1088,14 @@ describe("сверка со старым кодом", () => {
     expect((await result(req(s, "~x", "releases.deploy", { part: "*" }))).parts.pult).toEqual({ from: "1.0.0+1", to: "1.0.0+2" });
     expect(sent.live.get("switchboard-pult")).toBe("switchboard-pult-v1.0.0+2");
   });
+
+  it("list о части, которой нет, — пусто, а не строка с нулями (чьё: код)", async () => {
+    const s = fresh();
+    await fakeCf({});
+    await inR2("keeper", "1.0.0");
+    expect((await result(req(s, "~x", "releases.list", { part: "typo" }))).parts).toEqual({});
+    expect((await result(req(s, "~x", "releases.list", { part: "keeper" }))).parts.keeper.edge).toBe("1.0.0");
+  });
 });
 
 describe("releases.fetch", () => {
