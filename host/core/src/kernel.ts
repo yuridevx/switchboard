@@ -176,6 +176,11 @@ export class Kernel {
     return within<T | undefined>(this.clock, Promise.resolve(this.run(m, s, where, fn)), MODULE_MS, late);
   }
 
+  /** Работа ядра, начатая по вызову модуля: её сбой — не его. */
+  outside<T>(fn: () => T): T {
+    return scope.exit(fn);
+  }
+
   /** Вызов всем живым модулям сессии по порядку списка. */
   each(s: Session, where: string, fn: (mod: Module, view: View) => void): void {
     for (const m of this.mods) if (!this.off(m, s)) this.run(m, s, where, () => fn(m.module, s.facade(m)));
@@ -321,7 +326,7 @@ export class Kernel {
     });
     const files = this.holders.files();
     for (const rec of this.disk.records()) this.sessions.set(rec.callsign, new Session(this, rec, !rec.stopped && files.some((f) => f.id === rec.callsign) ? "attach" : "resume"));
-    for (const m of this.mods) if (m.module.start && !this.off(m)) await this.bounded(m, undefined, "start", () => m.module.start!(this.facade(m)));
+    for (const m of this.mods) if (m.module.start && !this.off(m)) await this.bounded(m, undefined, "start", () => m.module.start!(this.hostFacade(m)));
 
     const live = [...this.sessions.values()].filter((s) => !s.rec.stopped);
     const parts = await Promise.all(live.map((s) => this.parts(s)));
@@ -412,7 +417,7 @@ export class Kernel {
   }
 
   private ctx(m: Mod, f: Frame) {
-    return { host: this.facade(m), from: f.from, signal: this.abort.signal };
+    return { host: this.hostFacade(m), from: f.from, signal: this.abort.signal };
   }
 
   /** Запрос владельцу на этой машине: от relay и от модуля — одна дорога. */
@@ -565,10 +570,10 @@ export class Kernel {
   }
 
   /** Host глазами модуля: у каждого свой, ядро знает, кто зовёт. */
-  facade(m: Mod): Host {
+  hostFacade(m: Mod): Host {
     let host = this.hosts.get(m);
     if (!host) {
-      const { home, release, config } = { home: this.o.home, release: this.o.release, config: this.o.config };
+      const { home, release, config } = this.o;
       host = {
         machine: this.machine,
         dataDir: home,
@@ -590,11 +595,6 @@ export class Kernel {
       this.hosts.set(m, host);
     }
     return host;
-  }
-
-  /** То же под именем стенда. */
-  hostFacade(m: Mod): Host {
-    return this.facade(m);
   }
 
   // ───────────────────────── остановка ─────────────────────────

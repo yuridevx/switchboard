@@ -181,7 +181,7 @@ export function realHolders(home: string, bin: string | undefined): HolderApi {
       if (!bin) return Promise.reject(new Error("нет SWITCHBOARD_HOLDER — файла держателя"));
       return new Promise((resolve, reject) => {
         const args = ["hold", "--id", s.id, "--owner", "host", "--cwd", s.cwd ?? home, "--", s.command, ...s.args];
-        const child = spawn(bin, args, { env: s.env, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
+        const child = spawn(bin, args, { env: { ...s.env, SWITCHBOARD_HOME: home }, stdio: ["ignore", "pipe", "pipe"], detached: true, windowsHide: true });
         let out = "";
         let err = "";
         const timer = setTimeout(() => {

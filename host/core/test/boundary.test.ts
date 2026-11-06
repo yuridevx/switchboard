@@ -1702,3 +1702,22 @@ describe("сверка круга 3: упавшие отложенные и пр
     expect(st.startError).toBeNull();
   });
 });
+
+describe("сверка комментариев круга 3", () => {
+  it("процесс сессии, поднятый по вызову модуля, — работа ядра: её сбой не выключает модуль", async () => {
+    // источник: комментарий старого кода «то, что начато здесь, — дело ядра»; устав «ошибка модуля — модуль выключен», чужая — нет
+    const k = keeper();
+    const spawn = k.spawn.bind(k);
+    let st!: Stand;
+    let caught: boolean | undefined;
+    k.spawn = async (s) => {
+      caught = st.kernel.stray(new Error("сбой ядра"));
+      return spawn(s);
+    };
+    const m = module("host-a", { requests: { "a.open": async (_f, { host }) => (await host.open({ callsign: CS, cwd: st.home })).info.callsign } });
+    st = await stand({ holders: k, modules: [m] });
+    expect(await st.relay.request({ type: "a.open", v: 1 })).toMatchObject({ ok: true, result: CS });
+    expect(caught).toBe(false);
+    expect(lines(st, "module_failed")).toEqual([]);
+  });
+});

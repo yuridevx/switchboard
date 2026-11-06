@@ -10,15 +10,10 @@ function relink(entries: Entry[]): Entry[] {
   const known = new Set(entries.map((e) => e.uuid));
   let last: string | undefined;
   return entries.map((e) => {
-    if (e.uuid && !e.isSidechain) {
-      const before = last;
-      last = e.uuid;
-      if (e.subtype === "compact_boundary") {
-        const { preservedSegment: _s, preservedMessages: _m, ...compactMetadata } = e.compactMetadata ?? {};
-        return { ...e, compactMetadata, parentUuid: known.has(e.logicalParentUuid) ? e.logicalParentUuid : before };
-      }
-    }
-    return e;
+    if ((e.type === "user" || e.type === "assistant") && !e.isSidechain) last = e.uuid;
+    if (e.subtype !== "compact_boundary") return e;
+    const { preservedSegment: _s, preservedMessages: _m, ...compactMetadata } = e.compactMetadata ?? {};
+    return { ...e, compactMetadata, parentUuid: known.has(e.logicalParentUuid) ? e.logicalParentUuid : last };
   });
 }
 

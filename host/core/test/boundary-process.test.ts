@@ -279,6 +279,27 @@ describe("процесс Host", () => {
     expect(JSON.parse(r.out.trim()).why).toContain("host-extra: requests.x.y — нет в provides");
   }, 90_000);
 
+  it("Host упал: ввод процесса не закрыт — настоящий SDK на выходе закрыл бы его, а сессия живёт у держателя", async () => {
+    // источник: устав «держатели живут»; опыт на SDK 0.3.311 на Windows: без снятия соединений на выходе держатель получает кадр c
+    const h = home();
+    mkdirSync(join(h, "store"), { recursive: true });
+    writeFileSync(join(h, "store", "core.json"), JSON.stringify({ sessions: [{ callsign: "site@laptop", session_id: "44444444-4444-4444-8444-444444444444", cwd: h, sdk: "0.3.311", stopped: false }] }));
+    // держатель копит байты хозяина в файл и молчит: сессия стоит на initialize
+    writeFileSync(join(h, "hold"), [
+      'const fs = require("fs"), net = require("net");',
+      'const s = net.createServer((c) => { c.on("error", () => {}); c.on("data", (d) => fs.appendFileSync("bytes", d.toString("latin1"), "latin1")); });',
+      's.listen(0, "127.0.0.1", () => { console.log(JSON.stringify({ port: s.address().port, key: "k", pid: process.pid })); setTimeout(() => process.exit(0), 20000); });',
+    ].join("\n"));
+    const code = 'setTimeout(() => { throw new Error("импорт упал"); }, 4000);\nexport default {};\n';
+    const main = release(["host-early"], { "host-early": { provides: {}, code } });
+    const p = spawn(process.execPath, [main], { cwd: h, env: { ...process.env, SWITCHBOARD_MACHINE: "laptop", SWITCHBOARD_HOME: h, SWITCHBOARD_HOLDER: process.execPath }, windowsHide: true });
+    expect(await new Promise((r) => p.on("close", (c) => r(c)))).toBe(1);
+    await new Promise((r) => setTimeout(r, 300));
+    const bytes = readFileSync(join(h, "bytes"), "latin1");
+    expect(bytes).toContain("initialize");
+    expect(bytes.endsWith("c\x00\x00\x00\x00")).toBe(false);
+  }, 90_000);
+
   it("741 · Host без SWITCHBOARD_MACHINE — отказ словами в stderr, код 1", async () => {
     // источник: устав «Host… часть машины, её запускает keeper»; слова — чьё: код
     const r = await run(join(coreDir, "main.ts"), [], { SWITCHBOARD_HOME: home() });

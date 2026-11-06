@@ -179,7 +179,11 @@ export class Session {
   }
 
   /** Поднять процесс. Отказ — процесс вышел до готовности; сессия при этом ведёт свой сбой сама. */
-  async launch(kind: Launch, given?: Parts): Promise<void> {
+  launch(kind: Launch, given?: Parts): Promise<void> {
+    return this.k.outside(() => this.boot(kind, given));
+  }
+
+  private async boot(kind: Launch, given?: Parts): Promise<void> {
     const { k, rec } = this;
     this.startKind = kind === "fork" ? "resume" : kind;
     this.setState("starting");
