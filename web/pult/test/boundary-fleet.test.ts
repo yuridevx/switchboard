@@ -184,6 +184,15 @@ describe("Машины: строки", () => {
       expect(t.$('[data-machine-parts="pc"]')).toBeNull();
     });
 
+    it("причина сбоя — под именем части, а не колонкой рядом: на телефоне ей не хватало места (чьё: код)", async () => {
+      const t = await pult({ relay: relayWith(), url: "/#accounts" });
+      await flush(10);
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
+      const why = t.$('[data-machine-parts="pc"] .mc-part .e')!;
+      expect(why.textContent).toBe("exit 2: порт 9400 занят");
+      expect(why.closest(".mc-part > span")?.querySelector("b")?.textContent).toBe("nvidia-exporter");
+    });
+
     it("V-M1 · «Перезапускаю…» до ответа; «План в «Выпусках»» — настройки с машиной", async () => {
       const relay = relayWith();
       relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [], rev: 1, modules: {} } });
@@ -764,6 +773,43 @@ describe("Настройки", () => {
       expect(t3.text()).toContain("github.app: no_app");
       const t2 = await settings({ url: "/#settings?tab=passes", hooks: (r) => (r.handlers["keys.list"] = () => ({ ok: false, error: "denied" })) });
       expect(t2.text()).toContain("keys.list: denied");
+    });
+
+    it("новая попытка отзыва снимает прошлый отказ: слово не висит над успехом (чьё: код)", async () => {
+      const t = await settings({ url: "/#settings?tab=passes" });
+      const fine = t.relay.handlers["keys.revoke"];
+      const revoke = async () => {
+        await t.click(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!));
+        await t.click(t.btn("Отозвать", t.$('tr[data-pass="kc2"]')!));
+        await flush(5);
+      };
+      t.relay.handlers["keys.revoke"] = () => ({ ok: false, error: "unknown_key" });
+      await revoke();
+      expect(t.text()).toContain("phone~you@mail: такого пропуска нет");
+      t.relay.handlers["keys.revoke"] = fine;
+      await revoke();
+      expect(t.$(".sb-toast")!.textContent).toBe("phone~you@mail отозван — соединения закрыты");
+      expect(t.text()).not.toContain("такого пропуска нет");
+    });
+
+    it("слова отказа настроек объявляются: каталог, список машин, план, приглашение, отзыв (чьё: код)", async () => {
+      const alerts = (t: { $$(s: string): Element[] }) => t.$$('[role="alert"]').flatMap((x) => x.textContent || []);
+      const refused = await settings({ hostsRefused: "denied", hooks: (r) => void (r.handlers["releases.list"] = () => ({ ok: false, error: "timeout" })) });
+      expect(alerts(refused)).toEqual(["releases.list: timeout", "keys.list: denied"]);
+
+      const plan = await settings({ hooks: (r) => void (r.handlers["releases.set"] = () => ({ ok: false, error: "no_part" })) });
+      await plan.click(plan.btn("@pc"));
+      await plan.click(plan.btn("включена", plan.$('[data-plan="pc"] [data-part="hello-daemon"]')!));
+      expect(alerts(plan)).toEqual(["@pc hello-daemon: такой части нет"]);
+
+      const passes = await settings({ url: "/#settings?tab=passes", hooks: (r) => void Object.assign(r.handlers, { "keys.invite": () => ({ ok: false, error: "name_taken" }), "keys.revoke": () => ({ ok: false, error: "unknown_key" }) }) });
+      await passes.click(passes.btn("Пригласить"));
+      await passes.click(passes.btn("Пригласить", passes.$("[data-invite]")!));
+      expect(alerts(passes)).toEqual(["у адреса уже есть живой пропуск — сначала отзовите прежний"]);
+      await passes.click(passes.btn("Отмена", passes.$("[data-invite]")!));
+      await passes.click(passes.btn("Отозвать…", passes.$('tr[data-pass="kc2"]')!));
+      await passes.click(passes.btn("Отозвать", passes.$('tr[data-pass="kc2"]')!));
+      expect(alerts(passes)).toEqual(["phone~you@mail: такого пропуска нет"]);
     });
 
     it("6989 · уведомления на устройстве: подписан — «включены»; браузер не умеет — своё слово, ошибок нет", async () => {

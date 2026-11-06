@@ -82,7 +82,11 @@ function InviteForm({ done, reload }: { done(): void; reload(): void }) {
       </Chips>
       <In data-f="iname" aria-label="Имя" placeholder={kind === "host" ? "имя машины" : "laptop"} value={name} onInput={(e) => setName(e.currentTarget.value)} />
       {kind !== "host" && <In data-f="iwho" aria-label="Почта" placeholder="почта" value={person} onInput={(e) => setPerson(e.currentTarget.value)} />}
-      {word && <Note tone="bad">{word}</Note>}
+      {word && (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      )}
       <Opts>
         <Btn pri onClick={() => void invite()}>
           Пригласить
@@ -98,6 +102,7 @@ function PassRow({ pass, me, reload, say }: { pass: Pass; me: boolean; reload():
   const [asking, setAsking] = useState(false);
   async function revoke() {
     setAsking(false);
+    say("");
     const r = await app.request("keys.revoke", { kid: pass.id });
     if (!r.ok) return say(`${pass.addr}: ${wordFor(r.error)}`);
     app.toast(`${pass.addr} отозван — соединения закрыты`, "ok");
@@ -182,7 +187,11 @@ export function PassesTab() {
       {form && <InviteForm done={() => setForm(false)} reload={passes.reload} />}
       {invited && <InvitedBox invited={invited} done={() => s.local.set((l) => void (l.invited = null))} />}
       {passes.error && <Note tone="bad">{`keys.list: ${passes.error}`}</Note>}
-      {word && <Note tone="bad">{word}</Note>}
+      {word && (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      )}
       {passes.data && <Table title="Машины" list={list.filter((p) => p.role === "host")} reload={passes.reload} say={setWord} />}
       {passes.data && <Table title="Устройства и программы" list={list.filter((p) => p.role !== "host")} reload={passes.reload} say={setWord} />}
       {!passes.data && !passes.error && <Note>…</Note>}

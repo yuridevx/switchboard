@@ -241,6 +241,7 @@ describe("Карточка: настройки", () => {
       t.relay.handlers["session.stop"] = () => ({ ok: false, error: "stopping" });
       await t.click(t.btn('[data-sec="ctl"]', "Остановить"));
       expect(t.$('[data-sec="ctl"]')!.textContent).toContain("session.stop: stopping");
+      expect(t.$('[data-sec="ctl"] [role="alert"]')!.textContent).toBe("session.stop: stopping");
       expect(location.hash).toContain("#card");
       const r = roster([], state("stopped"));
       const relay = relayFor(r);
