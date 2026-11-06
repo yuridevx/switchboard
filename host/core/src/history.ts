@@ -1,31 +1,31 @@
-// Весь разговор после сжатий: SDK идёт от конца по parentUuid и у границы сжатия останавливается (parentUuid: null).
-// Записи файла идут через хранилище в памяти, граница получает родителя — история не обрывается. Файл на диске не меняется.
-import type { SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
+// Весь разговор сессии. SDK идёт по цепочке родителей и на границе сжатия обрывается: родитель границы — null. Здесь граница подшита к сообщению до неё
+// в копии разговора в памяти; файл claude не меняется.
+import type { SessionStore, SessionStoreEntry } from "@anthropic-ai/claude-agent-sdk";
 
-type Entry = SessionStoreEntry & { uuid?: string; isSidechain?: boolean; subtype?: string; parentUuid?: string | null; logicalParentUuid?: string; compactMetadata?: Record<string, unknown> };
-type Functions = Record<string, (...args: any[]) => Promise<unknown>>;
+type Fn = (...a: any[]) => Promise<unknown>;
+type Entry = SessionStoreEntry & { parentUuid?: string | null; logicalParentUuid?: string; isSidechain?: boolean; subtype?: string; compactMetadata?: Record<string, unknown> };
 
-/** Граница ссылается на последнее сообщение до сжатия; ссылка в никуда — на предыдущее сообщение файла. Сведения о сохранённых зациклили бы цепочку. */
-function relink(entries: Entry[]): void {
+/** Границе — родитель: сообщение, которое она называет, иначе предыдущее в главной цепочке. Сведения о сохранённых зацикливают цепочку — их нет. */
+function relink(entries: Entry[]): Entry[] {
   const known = new Set(entries.map((e) => e.uuid));
-  let previous: string | undefined;
-  for (const e of entries) {
-    if (e.type === "system" && e.subtype === "compact_boundary") {
-      e.parentUuid = e.logicalParentUuid && known.has(e.logicalParentUuid) ? e.logicalParentUuid : (previous ?? null);
-      if (e.compactMetadata) {
-        delete e.compactMetadata.preservedSegment;
-        delete e.compactMetadata.preservedMessages;
-      }
-    }
-    if ((e.type === "user" || e.type === "assistant") && !e.isSidechain) previous = e.uuid;
-  }
+  let last: string | undefined;
+  return entries.map((e) => {
+    if ((e.type === "user" || e.type === "assistant") && !e.isSidechain) last = e.uuid;
+    if (e.subtype !== "compact_boundary") return e;
+    const { preservedSegment: _s, preservedMessages: _m, ...compactMetadata } = e.compactMetadata ?? {};
+    return { ...e, compactMetadata, parentUuid: known.has(e.logicalParentUuid) ? e.logicalParentUuid : last };
+  });
 }
 
-export async function wholeConversation(sdk: Functions, sessionId: string, options: { dir: string; [k: string]: unknown }): Promise<unknown> {
-  if (!(await sdk.getSessionInfo(sessionId, { dir: options.dir }))) return [];
+/** getSessionMessages по всему разговору. Файла ещё нет — пустой разговор. */
+export async function wholeConversation(fn: Record<string, Fn>, id: string, options: Record<string, unknown>): Promise<unknown> {
+  const { dir } = options;
+  if (!(await fn.getSessionInfo(id, { dir }))) return [];
   const entries: Entry[] = [];
-  const sessionStore = { append: async (_key: unknown, batch: Entry[]) => void entries.push(...batch), load: async () => entries };
-  await sdk.importSessionToStore(sessionId, sessionStore, { dir: options.dir, includeSubagents: false });
-  relink(entries);
-  return sdk.getSessionMessages(sessionId, { ...options, sessionStore });
+  const copy: SessionStore = {
+    append: async (_key, batch) => void entries.push(...batch),
+    load: async () => relink(entries),
+  };
+  await fn.importSessionToStore(id, copy, { dir, includeSubagents: false });
+  return fn.getSessionMessages(id, { ...options, sessionStore: copy });
 }
