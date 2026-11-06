@@ -630,11 +630,11 @@ describe("points: покрытие плана host-modules", () => {
     expect(existsSync(fileOf(s.info.cwd, open.resume as string))).toBe(false);
   });
 
-  it.each(["points.save", "session.r2"])("%s без callsign: отказ offline, модуль на машине работает дальше", async (type) => {
-    // чьё: код — прежний sessionOf: сессии нет — offline; вход рации: кадр доходит по machine от любого пропуска
+  it.each(["points.save", "session.r2"])("%s без callsign: отказ bad_spec, модуль на машине работает дальше", async (type) => {
+    // чьё: код — ctx.session ядра: одно слово на всех; вход рации: кадр доходит по machine от любого пропуска
     b = await bench({ home });
     await marked();
-    expect(await ask({ type, machine: "laptop" })).toMatchObject({ ok: false, error: "offline" });
+    expect(await ask({ type, machine: "laptop" })).toMatchObject({ ok: false, error: "bad_spec" });
     expect(await ask({ type: "points.save", callsign: "site@laptop" })).toMatchObject({ ok: true });
   });
 
