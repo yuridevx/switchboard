@@ -451,3 +451,14 @@ func TestEtExitNotHeldByDetachedChild(t *testing.T) {
 		t.Fatal("кадр выхода ждёт жизнь потомка")
 	}
 }
+
+// Без хозяина вывод копится и процесс не ждёт: keeper упал — части работают дальше (устав, закрытый список: «keeper умер… держатели живут»; чьё: код —
+// «Хозяина нет — буфер копится»; находка сверки 6 нояб.: процесс вставал на 4 МиБ вывода).
+func TestEtHolderNoOwnerNoStall(t *testing.T) {
+	home := holderHome(t)
+	if _, err := holdProc(home, holdReq{ID: "f", Owner: "host", Env: os.Environ(), Cmd: []string{self(), "app", "flood"}}); err != nil {
+		t.Fatal(err)
+	}
+	// строка stderr идёт после всего вывода: процесс дописал его без хозяина
+	waitFor(t, "процесс дописал вывод", func() bool { return has(home, J{"line": "app: stderr line"}) })
+}

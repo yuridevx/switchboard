@@ -845,3 +845,139 @@ func TestEtHostHoldersUntouched(t *testing.T) {
 		}
 	}
 }
+
+// Файл держателя, который не отвечает, — след прошлой жизни: файл убран, процессы по его номерам не трогаются — после перезагрузки эти номера чужие (чьё:
+// код — «держатель не отвечает — файл убран»; находка сверки 6 нояб.).
+func TestEtStaleHolderFile(t *testing.T) {
+	s := newStand(t)
+	stranger := exec.Command(self(), "app", "deaf")
+	if err := stranger.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { stranger.Process.Kill(); stranger.Wait() })
+	ln, _ := net.Listen("tcp", "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	pid := stranger.Process.Pid
+	putHeldFile(s.home, heldFile{ID: "old", Owner: "keeper", Pid: pid, Holder: pid, Port: port, Key: "k"})
+	s.relay.setPlan(plan1(1))
+	k := s.start()
+	waitFor(t, "план rev 1", func() bool { return stateOf(k).Rev == 1 })
+	if isThere(heldPath(s.home, "old")) || !has(s.home, J{"ev": "adopt", "id": "old"}) {
+		t.Fatal("файл держателя не убран\n" + journalAll(s.home))
+	}
+	time.Sleep(300 * time.Millisecond)
+	if !alive(pid) {
+		t.Fatal("убит чужой процесс по номеру из старого файла")
+	}
+}
+
+// Откат на работающую версию после сбоя установки новой: процесс не тронут, ошибка снята (чьё: код — «alive && same»; находка сверки 6 нояб.).
+func TestEtRollbackToRunning(t *testing.T) {
+	s := newStand(t)
+	v1 := s.links.part("capture", "1.3.2", appFiles(""), on)
+	s.relay.setPlan(plan1(1, v1))
+	k := s.start()
+	waitFor(t, "1.3.2 running", running(k, "capture", "1.3.2"))
+	s.online()
+	pid := partOf(k, "capture").Pid
+	bad := s.links.part("capture", "1.4.0", appFiles(""), on)
+	bad["sha256"] = strings.Repeat("0", 64)
+	s.relay.push(planMsg(2, bad))
+	waitFor(t, "сбой 1.4.0", func() bool { return strings.Contains(partOf(k, "capture").Error, "download_failed") })
+	s.relay.push(planMsg(3, v1))
+	waitFor(t, "rev 3 и ошибка снята", func() bool { return stateOf(k).Rev == 3 && partOf(k, "capture").Error == "" })
+	time.Sleep(500 * time.Millisecond)
+	if p := partOf(k, "capture"); p.Pid != pid || p.State != "running" || count(s.home, J{"ev": "part_start"}) != 1 {
+		t.Fatalf("откат на работающую версию тронул процесс: %+v", p)
+	}
+}
+
+// Установка новой версии не удалась у работающей части — следующий план с той же записью пробует снова: сбой скачивания временный (чьё: код — работающая
+// версия не та — версия ставится; находка сверки 6 нояб.).
+func TestEtFailedUpdateRetried(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", running(k, "capture", "1.3.2"))
+	s.online()
+	good := s.links.part("capture", "1.4.0", appFiles(""), on)
+	broken := map[string]any{}
+	for n, v := range good {
+		broken[n] = v
+	}
+	broken["url"] = good["url"].(string) + "-нет"
+	s.relay.push(planMsg(2, broken))
+	waitFor(t, "сбой скачивания", func() bool { return strings.Contains(partOf(k, "capture").Error, "download_failed") })
+	s.relay.push(planMsg(3, good))
+	waitFor(t, "1.4.0 со второго плана", running(k, "capture", "1.4.0"))
+}
+
+// Вышедшая сама ждёт цикл, занятый другой частью: причина выхода уже в keeper.state — экран машин показывает её (чьё: код — «err: причина failed или
+// выхода»; находка сверки 6 нояб.).
+func TestEtExitedShowsReason(t *testing.T) {
+	s := newStand(t)
+	a := s.links.part("capture", "1.3.2", appFiles(""), on)
+	s.relay.setPlan(plan1(1, a))
+	k := s.start()
+	waitFor(t, "running", running(k, "capture", ""))
+	s.online()
+	s.relay.push(planMsg(2, a, s.links.part("probe", "1.0.0", appSetup("slowsetup"), on)))
+	waitFor(t, "setup идёт", func() bool { return isThere(filepath.Join(verDir(s.home, "probe", "1.0.0"), "setup-started")) })
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "exited", func() bool { return partOf(k, "capture").State == "exited" })
+	if p := partOf(k, "capture"); p.Error == "" {
+		t.Fatalf("причины выхода нет: %+v", p)
+	}
+	waitFor(t, "перезапуск снял причину", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Error == "" })
+}
+
+// on:false снимает счёт перезапусков: keeper.state выключенной части чистый (устав, закрытый список: «дальше решает агент (set on:false → on:true)»; чьё: код).
+func TestEtOffClearsRestarts(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "running", running(k, "capture", ""))
+	s.online()
+	killPid(t, partOf(k, "capture").Pid)
+	waitFor(t, "перезапуск", func() bool { p := partOf(k, "capture"); return p.State == "running" && p.Restarts == 1 })
+	s.relay.push(planMsg(2, s.links.part("capture", "1.3.2", appFiles(""), off)))
+	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+	if p := partOf(k, "capture"); p.Restarts != 0 {
+		t.Fatalf("счёт перезапусков у выключенной: %+v", p)
+	}
+}
+
+// Убранная из плана часть работает, пока ставятся записи плана, и видна в keeper.state; снимается после них (чьё: код — «execute: записи, снять убранные,
+// подмена себя»; находка сверки 6 нояб.). keeper.state — по имени части.
+func TestEtRemovedAfterEntries(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("zeta", "1.0.0", appFiles(""), on), s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "обе running", func() bool { return running(k, "zeta", "")() && running(k, "capture", "")() })
+	s.online()
+	if ps := stateOf(k).Parts; ps[0].Part != "capture" || ps[1].Part != "zeta" {
+		t.Fatalf("порядок keeper.state: %+v", ps)
+	}
+	s.relay.push(planMsg(2, s.links.part("zeta", "1.0.0", appFiles(""), on), s.links.part("probe", "1.0.0", appSetup("slowsetup"), on)))
+	waitFor(t, "setup идёт", func() bool { return isThere(filepath.Join(verDir(s.home, "probe", "1.0.0"), "setup-started")) })
+	if p := partOf(k, "capture"); p.State != "running" {
+		t.Fatalf("убранная снята раньше записей плана: %+v", p)
+	}
+	waitFor(t, "probe running", running(k, "probe", ""))
+	waitFor(t, "убранная снята", func() bool { return partOf(k, "capture").State == "" })
+}
+
+// Журнал читают люди: значения без экранирования HTML (чьё: код — «encode — значение без экранирования HTML»; находка сверки 6 нояб.).
+func TestEtJournalPlainText(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles("<a&b>"), on)))
+	k := s.start()
+	waitFor(t, "running", running(k, "capture", ""))
+	waitFor(t, "строка hold", func() bool { return has(s.home, J{"ev": "hold", "part": "capture"}) })
+	ms, _ := filepath.Glob(filepath.Join(s.home, "journal", "*.jsonl"))
+	b, _ := os.ReadFile(ms[0])
+	if !strings.Contains(string(b), "<a&b>") {
+		t.Fatalf("журнал с экранированием: %s", b)
+	}
+}

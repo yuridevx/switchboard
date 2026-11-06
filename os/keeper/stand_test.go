@@ -64,7 +64,13 @@ func TestMain(m *testing.M) {
 			if os.Getenv("KEEPER_TEST_VERSION_HANG") == "1" {
 				time.Sleep(10 * time.Minute)
 			}
+			if f := os.Getenv("KEEPER_TEST_VERSION_MARK"); f != "" {
+				os.WriteFile(f, []byte(strconv.FormatBool(apart())), 0o644)
+			}
 			fmt.Println(os.Getenv("KEEPER_TEST_VERSION"))
+			if os.Getenv("KEEPER_TEST_VERSION_BROKEN") == "1" {
+				os.Exit(1)
+			}
 			return
 		case "slowsetup":
 			// долгий setup, как npm ci у Host: метка начала — стенду, чтобы уронить прежнюю версию посреди установки

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -130,5 +131,46 @@ func TestEtServiceStop(t *testing.T) {
 		if l := lastKeeperLine(home); l["ev"] != "keeper_exit" {
 			t.Fatalf("последняя строка keeper: %v", l)
 		}
+	}
+}
+
+// apart — этот процесс без видимого окна консоли.
+func apart() bool {
+	h, _, _ := windows.NewLazySystemDLL("kernel32.dll").NewProc("GetConsoleWindow").Call()
+	if h == 0 {
+		return true
+	}
+	v, _, _ := windows.NewLazySystemDLL("user32.dll").NewProc("IsWindowVisible").Call(h)
+	return v == 0
+}
+
+// Папку прежней версии не удалить: занята — строка cleanup с причиной, версия остаётся до следующей смены (чьё: код — «занятую ОС не даёт удалить»; находка
+// сверки 6 нояб.).
+func TestEtBusyVersionCleanup(t *testing.T) {
+	s := newStand(t)
+	s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
+	k := s.start()
+	waitFor(t, "1.3.2 running", running(k, "capture", "1.3.2"))
+	s.online()
+	busy := filepath.Join(verDir(s.home, "capture", "0.9.0"), "busy")
+	os.MkdirAll(filepath.Dir(busy), 0o700)
+	os.WriteFile(busy, nil, 0o600)
+	name, _ := windows.UTF16PtrFromString(busy)
+	h, err := windows.CreateFile(name, windows.GENERIC_READ, 0, nil, windows.OPEN_EXISTING, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { windows.CloseHandle(h) })
+	s.relay.push(planMsg(2, s.links.part("capture", "1.4.0", appFiles(""), on)))
+	waitFor(t, "1.4.0 running", running(k, "capture", "1.4.0"))
+	waitFor(t, "строка cleanup", func() bool { return has(s.home, J{"part": "capture", "ev": "cleanup", "version": "0.9.0", "why": sub("занята")}) })
+}
+
+// Отказ LSA — словом: администратор видит причину, а не номер статуса (устав: «ошибки — словами»; чьё: код — LsaNtStatusToWinError). Пустой SID: право
+// никому не выдаётся, у администратора отказывает LsaAddAccountRights, у остальных LsaOpenPolicy.
+func TestEtServiceLogonRefusalWord(t *testing.T) {
+	err := grantServiceLogon(nil)
+	if err == nil || strings.Contains(err.Error(), "0x") {
+		t.Fatalf("отказ: %v", err)
 	}
 }

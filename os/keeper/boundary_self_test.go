@@ -296,3 +296,102 @@ func TestEtNameAdoptOwnHolders(t *testing.T) {
 		t.Fatalf("прежняя папка появилась: %v", err)
 	}
 }
+
+// Новый файл назвал верную версию и упал: подмены нет — сломанный выпуск keeper чинится только руками на машине (чьё: код — «новый файл ответил …
+// (код), а в плане …»; находка сверки 6 нояб.).
+func TestEtSelfCheckBadExit(t *testing.T) {
+	s := newStand(t)
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	t.Setenv("KEEPER_TEST_VERSION_BROKEN", "1")
+	target := filepath.Join(t.TempDir(), binName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", keeperFile(), nil)))
+	k := s.startWith(tuning{self: func() (string, error) { return target, nil }})
+	waitFor(t, "check_failed или подмена", func() bool {
+		select {
+		case <-k.Done():
+			return true
+		default:
+			return strings.Contains(partOf(k, "keeper").Error, "check_failed")
+		}
+	})
+	notExited(t, k)
+	if b, _ := os.ReadFile(target); string(b) != "old" {
+		t.Fatal("свой файл подменён упавшим файлом")
+	}
+}
+
+// Остановка keeper, пока новый файл отвечает на version: остановка — не сбой подмены: ни part_failed, ни part.failed (устав: graceful shutdown; чьё:
+// код — «Остановка прерывает ожидание»; находка сверки 6 нояб.).
+func TestEtStopDuringSelfCheck(t *testing.T) {
+	s := newStand(t)
+	t.Setenv("KEEPER_TEST_VERSION_HANG", "1")
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", keeperFile(), nil)))
+	k := s.start()
+	waitFor(t, "файл на диске", func() bool { return has(s.home, J{"part": "keeper", "ev": "installed"}) })
+	time.Sleep(500 * time.Millisecond) // проверка идёт
+	k.Stop()
+	time.Sleep(300 * time.Millisecond) // запись в журнал флота своей горутиной
+	if has(s.home, J{"ev": "part_failed"}) || s.relay.ledgerHas("part.failed") {
+		t.Fatal("остановка принята за сбой подмены\n" + journalAll(s.home))
+	}
+}
+
+// Проверка нового файла — в своей группе и без окна: под задачей при входе у keeper нет консоли, окно версии всплыло бы на экране пользователя (чьё: код
+// — holder.Prepare; находка сверки 6 нояб.).
+func TestEtSelfCheckApart(t *testing.T) {
+	s := newStand(t)
+	mark := filepath.Join(t.TempDir(), "mark")
+	t.Setenv("KEEPER_TEST_VERSION", "9.9.9")
+	t.Setenv("KEEPER_TEST_VERSION_MARK", mark)
+	target := filepath.Join(t.TempDir(), binName("keeper"))
+	os.WriteFile(target, []byte("old"), 0o755)
+	s.relay.setPlan(plan1(1, s.links.part("keeper", "9.9.9", keeperFile(), nil)))
+	k := s.startWith(tuning{self: func() (string, error) { return target, nil }})
+	<-k.Done()
+	if b, _ := os.ReadFile(mark); string(b) != "true" {
+		t.Fatalf("новый файл проверен вместе с keeper: %q", b)
+	}
+}
+
+// Отказ Worker'а с кодом ошибки — словом из тела: gate_unavailable, а не код HTTP (устав: «ошибки — словами»; workers/gate entrance: 503 с кадром
+// отказа; чьё: код — machine.Post разбирал ответ до кода).
+func TestEtWorkerRefusalWord(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]any{"type": "reply", "ok": false, "error": "gate_unavailable"})
+	}))
+	t.Cleanup(srv.Close)
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	saveConf(home, map[string]any{"node": "/x/node"})
+	if _, err := prepareMachine([]string{"--worker", "gate=" + srv.URL}, bufio.NewReader(strings.NewReader("win1.INVITE\n"))); err == nil || !strings.Contains(err.Error(), "gate_unavailable") {
+		t.Fatalf("установка: %v", err)
+	}
+	s := newStand(t)
+	saveConf(s.home, map[string]any{"workers": map[string]any{"relay": "http" + strings.TrimPrefix(s.relay.url(), "ws"), "releases": srv.URL}})
+	s.start()
+	waitFor(t, "отказ словом Worker'а", func() bool { return has(s.home, J{"kind": "refuse", "ev": "plan", "word": "gate_unavailable"}) })
+}
+
+// Приём приглашения ждёт ответа gate 30 с: gate гасит приглашение до ответа, опоздавший ответ — потерянное приглашение (чьё: код — redeemWait).
+func TestEtRedeemWait(t *testing.T) {
+	gate := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(11 * time.Second)
+		json.NewEncoder(w).Encode(map[string]any{"type": "reply", "ok": true, "result": map[string]any{"key": "host.win.win1.SECRET"}})
+	}))
+	t.Cleanup(gate.Close)
+	home := t.TempDir()
+	t.Setenv("SWITCHBOARD_HOME", home)
+	saveConf(home, map[string]any{"node": "/x/node"})
+	if _, err := prepareMachine([]string{"--worker", "gate=" + gate.URL}, bufio.NewReader(strings.NewReader("win1.INVITE\n"))); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --worker — адрес http:// или https://: опечатка отказана при установке, а не на машине без связи (чьё: код).
+func TestEtWorkerFlagScheme(t *testing.T) {
+	if code, _, e := runKeeper(t, t.TempDir(), "", "install", "--worker", "gate=httpfoo"); code != 1 || !strings.Contains(e, "--worker") {
+		t.Fatalf("код %d, %q", code, e)
+	}
+}

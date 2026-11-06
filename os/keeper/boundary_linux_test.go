@@ -228,3 +228,17 @@ func killPid(t *testing.T, pid int) {
 
 // detachProc — держатель без хозяина: своя сессия.
 func detachProc(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} }
+
+// apart — этот процесс в своей группе.
+func apart() bool { return syscall.Getpgrp() == os.Getpid() }
+
+// enable-linger не вышел — установка отказывает словом: без него служба не поднимется после перезагрузки до входа пользователя (чьё: код — все шаги
+// регистрации с проверкой; находка сверки 6 нояб.).
+func TestEtLingerRefused(t *testing.T) {
+	_, _, gate, _ := linuxBench(t)
+	dir := strings.Split(os.Getenv("PATH"), ":")[0]
+	os.WriteFile(filepath.Join(dir, "loginctl"), []byte("#!/bin/sh\necho 'linger denied' >&2\nexit 1\n"), 0o755)
+	if code, _, e := runKeeper(t, t.TempDir(), "invite\n", "install", "--name", "prod", "--worker", "gate="+gate); code != 1 || !strings.Contains(e, "linger denied") {
+		t.Fatalf("код %d, %q", code, e)
+	}
+}

@@ -431,3 +431,47 @@ func TestEtBadConfRefused(t *testing.T) {
 		t.Fatal("нет строки keeper_start с причиной")
 	}
 }
+
+// plan.json не записан — строка stop с причиной: после перезапуска keeper исполнит прежний план (устав: система ловит — пишет с причиной; чьё: код).
+func TestEtPlanNotSaved(t *testing.T) {
+	s := newStand(t)
+	os.MkdirAll(filepath.Join(planFile(s.home), "x"), 0o700) // на месте файла — непустая папка
+	s.relay.setPlan(plan1(1))
+	k := s.start()
+	waitFor(t, "план rev 1", func() bool { return stateOf(k).Rev == 1 })
+	waitFor(t, "строка о записи", func() bool { return has(s.home, J{"kind": "stop", "ev": "plan", "why": sub("не записан")}) })
+}
+
+// Запись в relay под пределом: relay перестал читать — соединение снято и открыто заново, а не висит без предела (слово пользователя 2 нояб.: «у всех
+// операций должен быть лимит»; устав, закрытый список: «соединение… оборвалось — клиенты переподключаются»; чьё: код — writeWait).
+func TestEtRelayWriteLimit(t *testing.T) {
+	var mu sync.Mutex
+	hellos := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		ws, err := websocket.Accept(w, req, nil)
+		if err != nil {
+			return
+		}
+		defer ws.CloseNow()
+		ctx := req.Context()
+		if _, _, err := ws.Read(ctx); err != nil {
+			return
+		}
+		mu.Lock()
+		hellos++
+		n := hellos
+		mu.Unlock()
+		ws.Write(ctx, websocket.MessageText, []byte(`{"type":"roster"}`))
+		if n > 1 {
+			<-ctx.Done()
+			return
+		}
+		// вопросы идут, ответы не читаются: у keeper полна труба записи
+		for ws.Write(ctx, websocket.MessageText, []byte(`{"type":"keeper.state","id":"q","from":"~t"}`)) == nil {
+		}
+	}))
+	t.Cleanup(srv.Close)
+	home := relayHome(t, srv.URL)
+	bootOn(t, home, tuning{ping: time.Hour})
+	waitFor(t, "второе подключение", func() bool { mu.Lock(); defer mu.Unlock(); return hellos >= 2 })
+}
