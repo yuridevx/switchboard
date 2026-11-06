@@ -2800,4 +2800,15 @@ describe("сверка строк, второй проход", () => {
     expect(t.$<HTMLTextAreaElement>(".chat-inp")!.value).toBe("черновик");
     expect(t.$$(".chat-file")).toHaveLength(1);
   });
+
+  it("«Раньше» не трогает раскрытое: карточка остаётся открытой, чужая не открывается", async () => {
+    const relay = relayFor();
+    const tool = (id: string, word: string) => ({ type: "assistant", uuid: `a-${id}`, message: { id: `m-${id}`, content: [{ type: "tool_use", id, name: "Bash", input: { command: word } }] } });
+    relay.handlers["session.history"] = (x) => (x.before ? { ok: true, result: { messages: [tool("t0", "раньше")], more: false } } : { ok: true, result: { messages: [tool("t1", "потом")], more: true } });
+    const t = await chat(IDLE, { relay, wide: true });
+    await t.click(t.$('[data-tool="Bash"] .tc-h'));
+    expect(t.$('[data-tool="Bash"] .tc-b')!.textContent).toContain("потом");
+    await t.click(t.$(".chat-older"));
+    expect(t.$$('[data-tool="Bash"] .tc-b').map((x) => x.textContent)).toEqual([expect.stringContaining("потом")]);
+  });
 });

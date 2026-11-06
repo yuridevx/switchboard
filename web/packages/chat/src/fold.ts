@@ -36,6 +36,9 @@ export type View = {
   /** идущие сообщения: родитель (пусто — лента) → id */
   stream: Record<string, string>;
   replies: Map<string, Extract<Row, { k: "reply" }>>;
+  /** запись, которую сворачиваем сейчас, и сколько строк она уже дала */
+  at?: string;
+  sub: number;
   n: number;
 };
 
@@ -49,7 +52,8 @@ const INTERRUPT = /^\[Request interrupted by user/;
 const SERVICE = /^\s*(<system-reminder>[\s\S]*<\/system-reminder>\s*$|Caveat:)/;
 const NO_STATS = "контекст сжат";
 
-const push = (v: View, r: Draft, list: Row[] = v.rows) => void list.push({ key: `r${++v.n}`, ...r } as Row);
+/** Ключ строки — от её записи: страница «Раньше» и история не сдвигают раскрытое; запись без uuid — по порядку. */
+const push = (v: View, r: Draft, list: Row[] = v.rows) => void list.push({ key: v.at ? `${v.at}:${v.sub++}` : `r${++v.n}`, ...r } as Row);
 const ban = (v: View, tone: "bad" | "wait", title: string, body?: string, icon?: string) => push(v, { k: "ban", tone, title, ...(body ? { body } : {}), ...(icon ? { icon } : {}) });
 const bad = (v: View, body: string) => ban(v, "bad", "Ошибка", body);
 const line = (v: View, text: string, icon: string, tone?: string) => push(v, { k: "line", text, icon, ...(tone ? { tone } : {}) });
@@ -64,8 +68,8 @@ export const taskIcon = (type?: string) => (type === "local_agent" ? "bot" : "te
 function replyOf(v: View, list: Row[], id: string) {
   let r = v.replies.get(id);
   if (!r) {
-    push(v, { k: "reply", parts: [] }, list);
-    r = list.at(-1) as Extract<Row, { k: "reply" }>;
+    r = { k: "reply", key: id, parts: [] };
+    list.push(r);
     v.replies.set(id, r);
   }
   return r;
@@ -407,13 +411,15 @@ const STEP: Record<string, (v: View, m: Msg) => void> = {
 };
 
 export function fold(msgs: readonly Msg[]): View {
-  const v: View = { rows: [], tools: {}, tasks: {}, hint: "", compacting: false, thinking: null, cost: 0, interrupted: false, stream: {}, replies: new Map(), n: 0 };
+  const v: View = { rows: [], tools: {}, tasks: {}, hint: "", compacting: false, thinking: null, cost: 0, interrupted: false, stream: {}, replies: new Map(), sub: 0, n: 0 };
   const seen = new Set<string>(msgs.flatMap((m) => (m.subtype === "model_refusal_fallback" ? (m.retracted_message_uuids ?? []) : [])));
   for (const m of msgs) {
     if (typeof m.uuid === "string") {
       if (seen.has(m.uuid)) continue;
       seen.add(m.uuid);
     }
+    v.at = typeof m.uuid === "string" ? m.uuid : undefined;
+    v.sub = 0;
     STEP[m.type]?.(v, m);
   }
   return v;
