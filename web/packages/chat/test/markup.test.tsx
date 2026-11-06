@@ -236,7 +236,7 @@ describe("панель и док", () => {
     const p = t.$('section.chat-panel[aria-label="Контекст"]')!;
     icon(p.querySelector(".chat-pn-h"), "gauge", 14);
     icon(t.btn(".chat-panel", "Сжать контекст"), "archive", 13);
-    icon(t.btn(".chat-panel", "Перечитать плагины"), "refresh-cw", 13);
+    icon(t.btn(".chat-panel", "Перечитать сессию"), "refresh-cw", 13);
     expect(p.querySelector("div.chat-pn-s dd")!.textContent).toBe("2 подключено");
     expect([...p.children].at(-2)!.className).toBe("chat-pn-a");
   });

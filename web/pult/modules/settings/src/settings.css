@@ -64,4 +64,4 @@
 .st-prm2 span{color:var(--muted);overflow-wrap:anywhere}
 .st-prm2 .wait{color:var(--wait)}
 .st-prm2 .bad{color:var(--bad)}
-.st-prtop{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.st-prtop{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}

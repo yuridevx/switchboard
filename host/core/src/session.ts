@@ -244,12 +244,28 @@ export class Session {
       throw new Error(`${this.callsign}: процесс вышел до initialize — ${words(x)}`);
     }
     if (run.closing || this.run !== run) return;
+    if (kind === "attach" && rec.sdk === k.version) {
+      await this.fit(run, parts.merged.mcpServers);
+      if (run.closing || this.run !== run) return;
+    }
     run.ready = true;
     this.falls = [];
     open();
     this.setState(run.seen ?? (kind === "attach" && isBusy(rec.state) ? rec.state! : "idle"));
     k.each(this, "on.open", (mod, view) => mod.on?.open?.(view));
     if (rec.sdk !== k.version) quiet(this.restart());
+  }
+
+  /** Процесс пережил подмену Host и помнит инструменты со своего старта: набор серверов — как в сборке, каждый встроенный объявляет новый список. Сбой — журнал, сессия работает дальше. */
+  private async fit(run: Run, servers: Parts["merged"]["mcpServers"]): Promise<void> {
+    const { k, callsign } = this;
+    const stuck = (why: string) => k.log({ kind: "stop", ev: "fit", callsign, why: `инструменты модулей не обновлены: ${why}` });
+    const work = async () => {
+      const { errors } = (await run.q.setMcpServers(servers)) as { errors: Record<string, string> };
+      await Promise.all(Object.values(servers).map((s) => (s.type === "sdk" && "instance" in s ? s.instance.sendToolListChanged() : undefined)));
+      if (Object.keys(errors).length) stuck(JSON.stringify(errors));
+    };
+    await within<void>(k.clock, work(), STEP_MS, () => stuck(`нет ответа за ${STEP_MS / 1000} с`)).catch((e: Error) => stuck(e.message));
   }
 
   private message(run: Run, m: SDKMessage): void {

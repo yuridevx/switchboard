@@ -1,7 +1,7 @@
 {
   "name": "pult-settings",
   "type": "web",
-  "version": "2.5.2",
+  "version": "2.6.0",
   "into": [
     "pult",
     "phone"
@@ -31,6 +31,7 @@
     "alerts.state@web-alerts": 1,
     "page@phone": 1,
     "machine.profiles@host-profiles": 2,
+    "session.reload@host-manage": 1,
     "session.open@host-manage": 2,
     "session.prompt@host-chat": 1,
     "prefs.get@prefs": 1,

@@ -8,7 +8,7 @@ import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthr
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { refuse } from "../contract.ts";
 import type { Module } from "../contract.ts";
-import { FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
+import { FakeQuery, FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { FakeHolders, Stand } from "../stand/index.ts";
 import { CS, RESTART_WAIT, STOP_STEP, core, keeper, lines, procs, stand, stands } from "./kit.ts";
 
@@ -666,6 +666,71 @@ describe("новый Host и прежние сессии", () => {
       expect(st.kernel.sessions.get(cs)!.rec.sdk).toBe("0.3.312");
       expect(st.query(cs).options.resume).toBe(`sid-${cs.split("@")[0]}`);
     }
+  });
+
+  describe("новая сборка и живой процесс", () => {
+    /** Встроенный сервер: как у настоящего Claude, новый список виден только после уведомления. */
+    const server = (name: string, tools: string[], seen: { list: string[] }) => ({ type: "sdk", name, instance: { sendToolListChanged: vi.fn(async () => void (seen.list = tools)) } }) as never;
+
+    it("7358 · подключение к живому процессу: набор серверов как в сборке, новый список инструментов, тот же процесс, ввод открыт после этого", async () => {
+      // источник: слово пользователя 6 нояб. — сессия после перезагрузки Host остаётся со старым MCP; факт опыта на настоящем Claude
+      const k = keeper();
+      const a = await k.addProcess("a@laptop");
+      const seen = { list: ["old_tool"] };
+      const servers = { sb: server("sb", ["new_tool"], seen) };
+      const st = await stand({ holders: k, sessions: [{ callsign: "a@laptop", state: "idle" }], modules: [module("host-a", { session: () => ({ mcpServers: servers }) })] });
+      expect(seen.list).toEqual(["new_tool"]);
+      expect(st.query("a@laptop").calls.filter((c) => c.name === "setMcpServers").map((c) => c.args[0])).toEqual([servers]);
+      expect(k.ops.filter((o) => o.id === "a@laptop").map((o) => o.op)).toEqual(["attach"]);
+      expect(a.alive).toBe(true);
+      expect(st.kernel.sessions.get("a@laptop")!.state).toBe("idle");
+    });
+
+    it("7359 · новый процесс: шага нет, он сам читает инструменты при старте", async () => {
+      // источник: факт опыта — новый процесс спрашивает список сам
+      const seen = { list: ["old_tool"] };
+      const st = await stand({ modules: [module("host-a", { session: () => ({ mcpServers: { sb: server("sb", ["new_tool"], seen) } }) })] });
+      await st.open("site@laptop");
+      expect(st.query("site@laptop").calls.filter((c) => c.name === "setMcpServers")).toEqual([]);
+      expect(seen.list).toEqual(["old_tool"]);
+    });
+
+    it("7360 · другая версия SDK у живого процесса: шага нет, сессия перезапускается", async () => {
+      // источник: чьё: код — смена версии SDK перезапускает сессию в конце хода
+      const k = keeper();
+      await k.addProcess("a@laptop");
+      const st = await stand({ holders: k, sessions: [{ callsign: "a@laptop", sdk: "0.0.1" }], modules: [] });
+      await until(() => st.sdk.of("a@laptop").length === 2);
+      expect(st.sdk.of("a@laptop")[0].calls.filter((c) => c.name === "setMcpServers")).toEqual([]);
+    });
+
+    it("7361 · Claude отказал в обновлении: строка журнала с причиной, сессия работает", async () => {
+      // источник: 🔒 устава «система ловит, агент чинит»; у всех операций лимит
+      const k = keeper();
+      await k.addProcess("a@laptop");
+      const set = vi.spyOn(FakeQuery.prototype, "setMcpServers").mockRejectedValueOnce(new Error("сервер отвалился"));
+      const st = await stand({ holders: k, sessions: [{ callsign: "a@laptop" }], modules: [] });
+      set.mockRestore();
+      expect(lines(st, "fit")[0]).toMatchObject({ kind: "stop", callsign: "a@laptop", why: "инструменты модулей не обновлены: сервер отвалился" });
+      expect(st.kernel.sessions.get("a@laptop")!.state).toBe("idle");
+    });
+
+    it("7362 · Claude молчит: за 30 с строка журнала, сессия работает, старт Host не встал", async () => {
+      // источник: 🔒 устава «у всех операций должен быть лимит»
+      const k = keeper();
+      await k.addProcess("a@laptop");
+      const set = vi.spyOn(FakeQuery.prototype, "setMcpServers").mockReturnValueOnce(new Promise(() => {}));
+      const st = await stand({ holders: k, sessions: [{ callsign: "a@laptop" }], modules: [], start: false });
+      const started = st.start();
+      await until(() => set.mock.calls.length === 1);
+      set.mockRestore();
+      st.clock.advance(STOP_STEP - 1);
+      expect(lines(st, "fit")).toEqual([]);
+      st.clock.advance(1);
+      await started;
+      expect(lines(st, "fit")[0].why).toBe("инструменты модулей не обновлены: нет ответа за 30 с");
+      expect(st.kernel.sessions.get("a@laptop")!.state).toBe("idle");
+    });
   });
 
   it("701 · сессии прежнего Host: живая — attach с состоянием записи; нет держателя — resume, и failed тоже; остановленная — stopped без процесса", async () => {

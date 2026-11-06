@@ -273,6 +273,32 @@ describe("репозитории", () => {
     expect(relay.sent("session.prompt").at(-1)!.text).toContain(`Сведи конфликт репозитория ${repo} в файлах ops/memory/a.md`);
     expect(relay.sent("session.prompt").at(-1)!.text).toContain("отправит сведение");
   });
+
+  it("8051 · «Перечитать сессии»: сначала сведение на каждой машине, потом запрос каждой живой сессии; остановленные не считаются; итог строкой", async () => {
+    // источник: слово пользователя 6 нояб. — по всем сессиям; живой прототип: порядок не остаётся на человеке, отказ не исчезает
+    const relay = relayRepos();
+    const order: string[] = [];
+    const profiles = relay.handlers["machine.profiles"];
+    relay.handlers["machine.profiles"] = (f) => (f.sync === true && order.push("sync"), profiles(f));
+    relay.handlers["session.reload"] = (f) => (order.push(String(f.callsign)), { ok: true });
+    const t = await screenR(relay);
+    await t.click(t.$('[data-act="reload"]'));
+    await flush(5);
+    expect(order.slice(0, 2)).toEqual(["sync", "sync"]);
+    expect(order.slice(2).sort()).toEqual(["poe-bot@pc", "profiles@laptop", "site@laptop", "wiki@laptop"]);
+    expect(t.$("[data-profile-repos] [role=status]")!.textContent).toBe("перечитано 4 сессии");
+  });
+
+  it("8052 · сессия отказала: причина в строке итога остаётся, остальные сессии перечитаны", async () => {
+    // источник: устав «ошибки — словами»; живой прототип: исчезающий отказ не отвечает, какая сессия не смогла
+    const relay = relayRepos();
+    relay.handlers["session.reload"] = (f) => (f.callsign === "wiki@laptop" ? { ok: false, error: "sdk_error", why: "wiki@laptop: reloadPlugins — Claude не ответил за 30 с" } : { ok: true });
+    const t = await screenR(relay);
+    await t.click(t.$('[data-act="reload"]'));
+    await flush(5);
+    expect(t.$("[data-profile-repos] [role=alert]")!.textContent).toBe("перечитано 3 сессии; не вышло — wiki@laptop: reloadPlugins — Claude не ответил за 30 с");
+    expect(relay.sent("session.reload")).toHaveLength(4);
+  });
 });
 
 describe("новая сессия: участники", () => {

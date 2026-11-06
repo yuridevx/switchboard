@@ -2,17 +2,19 @@
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { clientPath, isRefusal, refuse, tildePath } from "@switchboard/host";
-import { nameOf } from "@switchboard/protocol";
+import { nameOf, withLimit } from "@switchboard/protocol";
 import type { Frame, Host, Module, OpenSpec, QueryPart, Session } from "@switchboard/host";
 
 /** Раздел сессии. Режим лежит только не по умолчанию. */
 type Part = { model?: string; effort?: string; fast?: boolean; style?: string; thinking?: boolean; parent?: string; wing?: boolean; mode?: string; remove_after_turn?: string };
 
 const MODE = "bypassPermissions";
+/** Предел шага перечитывания: как ступень остановки сессии. */
+const RELOAD_MS = 30_000;
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const EFFORTS: unknown[] = ["low", "medium", "high", "xhigh", "max"];
 const CALLS = new Set<unknown>([
-  "interrupt", "getContextUsage", "supportedCommands", "supportedModels", "supportedAgents", "mcpServerStatus", "toggleMcpServer", "reconnectMcpServer", "rewindFiles", "stopTask", "backgroundTasks", "reloadPlugins",
+  "interrupt", "getContextUsage", "supportedCommands", "supportedModels", "supportedAgents", "mcpServerStatus", "toggleMcpServer", "reconnectMcpServer", "rewindFiles", "stopTask", "backgroundTasks",
   "askSideQuestion", "getTaskOutput", "cancelAsyncMessage", "mcpAuthenticate", "usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET", "getStatus", "getHooksListing", "setPermissionMode", "listPermissionRules",
 ]);
 
@@ -41,6 +43,18 @@ async function sdk(s: Session, method: string, ...args: unknown[]): Promise<unkn
   } catch (e) {
     throw refuse("sdk_error", `${s.info.callsign}: ${method} — ${(e as Error).message}`);
   }
+}
+
+/** Шаг перечитывания: Claude не ответил — отказ словом, как любой сбой SDK. */
+const step = (s: Session, method: string, ...args: unknown[]): Promise<unknown> =>
+  withLimit(sdk(s, method, ...args), RELOAD_MS, () => {
+    throw refuse("sdk_error", `${s.info.callsign}: ${method} — Claude не ответил за ${RELOAD_MS / 1000} с`);
+  });
+
+/** Скилы и агенты с диска, затем внешние серверы кусочков: перечитывание плагинов запущенные серверы не трогает. */
+async function reload(s: Session): Promise<void> {
+  const { mcpServers } = (await step(s, "reloadPlugins")) as { mcpServers: Array<{ name: string; status: string }> };
+  await Promise.all(mcpServers.filter((m) => m.name.startsWith("plugin:") && m.status === "connected").map((m) => step(s, "reconnectMcpServer", m.name)));
 }
 
 /** Подъём процесса: отказ модуля идёт как есть, остальное — open_failed. */
@@ -175,6 +189,12 @@ export function make({ home = homedir() }: { home?: string } = {}): Module {
         if (!Array.isArray(args)) throw refuse("bad_spec", `${where}: args не массив`);
         if (!isLive(s)) throw refuse("stopped", `${where}: ${String(method)} — сессия ${s.state}`);
         return sdk(s, method as string, ...args);
+      },
+
+      "session.reload"(f) {
+        const s = sessionOf(f);
+        if (!isLive(s)) throw refuse("stopped", `session.reload ${s.info.callsign}: сессия ${s.state}`);
+        return reload(s);
       },
 
       async "session.spec"(f) {

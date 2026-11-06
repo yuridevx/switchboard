@@ -157,9 +157,9 @@ export function Panel({ cs, close }: { cs: string; close(): void }) {
           ))}
         </dl>
       ) : null}
-      <Btn type="button" className="chat-mini" onClick={() => void talks.reloadPlugins(cs)}>
+      <Btn type="button" className="chat-mini" onClick={() => void talks.reload(cs)}>
         <Icon name="refresh-cw" />
-        Перечитать плагины
+        Перечитать сессию
       </Btn>
     </section>
   );

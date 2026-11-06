@@ -115,6 +115,7 @@ export function createTalks(app: App) {
     edit(cs, (t) => {
       t.refused = "";
       t.seq = undefined;
+      t.commands = undefined; // пока чат закрыт, commands_changed сюда не приходит
     });
     if (can(cs, "session.watch")) {
       const r = await app.read("session.watch", { callsign: cs });
@@ -273,9 +274,10 @@ export function createTalks(app: App) {
       const r = await read<Cmd[]>(cs, "supportedCommands");
       edit(cs, (t) => void (t.commands = r.ok && Array.isArray(r.result) ? r.result : []));
     },
-    async reloadPlugins(cs: string) {
-      await act(cs, "reloadPlugins");
-      edit(cs, (t) => void (t.commands = undefined));
+    /** Перечитать сессию: новый список команд приходит событием commands_changed. */
+    async reload(cs: string) {
+      const r = await app.request("session.reload", { callsign: cs });
+      if (!r.ok) app.toast(`${cs}: session.reload — ${say(cs, r.error)}`);
     },
     frames: {
       "session.events"(f: Frame) {
@@ -287,7 +289,10 @@ export function createTalks(app: App) {
         edit(cs, (t) => {
           const events = (f.events ?? []) as Msg[];
           echoed(t, events);
-          for (const m of events) if (!t.sends.some((s) => s.uuid === m.uuid)) addEvent(t.msgs, { ...m, _at: at });
+          for (const m of events) {
+            if (m.subtype === "commands_changed") t.commands = m.commands as Cmd[];
+            else if (!t.sends.some((s) => s.uuid === m.uuid)) addEvent(t.msgs, { ...m, _at: at });
+          }
           if (seq !== undefined) t.seq = seq;
         });
         if (seq !== undefined && was !== undefined && seq !== was + 1) void history(cs);

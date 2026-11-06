@@ -1,0 +1,495 @@
+<title>Свежие инструменты сессии</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1040px, сверху вся система, ниже детали; цвета и шрифты — как у других дизайнов Switchboard. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --violet:#6B3FC4; --violet-weak:#EAE3FA;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --violet:#B9A0F5; --violet-weak:#2A2145;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --violet:#B9A0F5; --violet-weak:#2A2145;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.55 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;overflow-wrap:break-word}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2{text-wrap:balance;margin:0}
+h1{font:600 clamp(26px,4.6vw,40px)/1.12 var(--disp);letter-spacing:-.01em}
+h2{font:600 19px/1.25 var(--disp)}
+p{margin:0;max-width:72ch}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,[data-note]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px;max-width:72ch}
+.howto{font-size:13px;color:var(--muted)}
+.howto kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.scroll{overflow-x:auto}
+.note{border:1px dashed var(--line);border-radius:10px;padding:12px 14px;min-height:62px;font-size:14px;display:flex;flex-direction:column;gap:8px}
+.note b{font-weight:600}
+.note pre{margin:0;font:400 12.5px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre}
+
+/* диаграмма */
+svg{display:block;width:100%;height:auto;min-width:760px}
+svg text{font-family:var(--body);fill:var(--ink)}
+.zone{fill:var(--surface2);stroke:var(--line);stroke-width:1}
+.zone-l{font-size:12.5px;font-weight:600;fill:var(--muted)}
+.n rect{fill:var(--surface);stroke:var(--line);stroke-width:1.4}
+.n text{font-size:13.5px;font-weight:500}
+.n .sub{font:400 11.5px var(--mono);fill:var(--muted)}
+.n .no{font:600 12.5px var(--mono);fill:var(--accent)}
+.n,.e{cursor:pointer}
+.n:hover rect{stroke:var(--accent)}
+.e path{fill:none;stroke-width:2}
+.e .hit{stroke:transparent;stroke-width:16}
+.e text{font-family:var(--mono);font-size:11.5px;paint-order:stroke;stroke:var(--surface2);stroke-width:4px}
+.p-btn path:not(.hit){stroke:var(--violet)} .p-btn text{fill:var(--violet)}
+.p-auto path:not(.hit){stroke:var(--accent)} .p-auto text{fill:var(--accent)}
+.e.was path:not(.hit){stroke:var(--muted);stroke-width:1.6;stroke-dasharray:5 4} .e.was text{fill:var(--muted)}
+.dimmed .n:not(.lit),.dimmed .e:not(.lit){opacity:.16}
+.n.sel rect{stroke:var(--accent);stroke-width:2.4}
+.e.sel path:not(.hit){stroke-width:3.4}
+
+/* экран */
+.shots{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1fr);gap:12px;align-items:start}
+.shots figure{margin:0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--surface);cursor:pointer;min-width:0}
+.shots img{display:block;width:100%;height:auto}
+.shots figure.sel{outline:2px solid var(--accent);outline-offset:1px}
+
+/* порядок шагов */
+.runs{display:flex;flex-direction:column;gap:10px}
+.run{display:flex;align-items:center;gap:6px;flex-wrap:wrap;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--surface);cursor:pointer;min-width:0}
+.run.sel{outline:2px solid var(--accent);outline-offset:1px}
+.pill{font:500 12.5px var(--mono);border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--surface);white-space:nowrap}
+.run i{font-style:normal;color:var(--muted);font-family:var(--mono)}
+.res{margin-left:auto;font:600 13px var(--mono);white-space:nowrap}
+.res.good{color:var(--ok)} .res.bad{color:var(--bad)}
+
+/* три полосы */
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.lane{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface);min-width:0}
+.lane h3{margin:0;font:600 13.5px var(--body)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{font:500 12.5px var(--mono);border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--surface);color:var(--ink);cursor:pointer}
+.chip.new{background:var(--ok-weak);border-color:var(--ok);color:var(--ok)}
+.chip.btn{background:var(--violet-weak);border-color:var(--violet);color:var(--violet)}
+.chip.later{background:var(--wait-weak);border-color:var(--wait);color:var(--wait)}
+.chip.sel{outline:2px solid var(--accent);outline-offset:1px}
+
+/* замеры */
+.tiles{display:flex;gap:10px;flex-wrap:wrap}
+.tile{border:1px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--surface);cursor:pointer;min-width:0}
+.tile b{display:block;font:600 19px var(--mono)}
+.tile span{font-size:12.5px;color:var(--muted)}
+.tile.sel{outline:2px solid var(--accent);outline-offset:1px}
+
+/* договор */
+.deal{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.deal pre{margin:0;font:400 12.5px/1.5 var(--mono);background:var(--surface2);border-radius:8px;padding:10px;overflow-x:auto;white-space:pre;cursor:pointer}
+.deal pre.sel{outline:2px solid var(--accent);outline-offset:1px}
+
+/* эталоны */
+.etalons{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px}
+.et{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--surface);font-size:13px;cursor:pointer;min-width:0}
+.et i{font-style:normal;color:var(--muted);font-family:var(--mono)}
+.et b{font-weight:600;color:var(--ok)}
+.et.sel{outline:2px solid var(--accent);outline-offset:1px}
+
+/* гейт */
+.gate{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.g{border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--surface);cursor:pointer;min-width:0}
+.g b{display:block;font:600 16px var(--mono)}
+.g span{font-size:12.5px;color:var(--muted)}
+.g.sel{outline:2px solid var(--accent);outline-offset:1px}
+.g.hit b{color:var(--ok)}
+.line{font-size:14px}
+
+/* порядок реализации */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.s{border:1px solid var(--line);border-radius:10px;padding:11px 12px;background:var(--surface);display:flex;flex-direction:column;gap:6px;min-width:0;cursor:pointer}
+.s .no{font:600 12px var(--mono);color:var(--muted)}
+.s b{font-weight:600;font-size:14.5px}
+.s .done{font-size:13px;color:var(--ok);font-family:var(--mono)}
+.s.sel{outline:2px solid var(--accent);outline-offset:1px}
+.mark-banner{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 12px;border-radius:8px;font-size:13px;z-index:20}
+@media (max-width:560px){.shots{grid-template-columns:minmax(0,1fr)}}
+</style>
+
+<div class="wrap">
+
+  <header class="top">
+    <h1>Свежие инструменты сессии</h1>
+    <p class="lede"><span class="chg" data-chg="lede2">Сессия переживает обновление Host и правку профиля со старыми инструментами и скилами. Новая сборка обновляет инструменты модулей сама, одна кнопка перечитывает скилы и внешние серверы во всех живых сессиях флота.</span></p>
+    <p class="howto">Клик по любому элементу — пояснение. <kbd>A</kbd> — прочитал, <kbd>Z</kbd> — снять.</p>
+  </header>
+
+  <section class="blk chg" data-chg="arch3">
+    <div class="blk-h"><h2>Кнопка и подмена Host</h2><span class="tag"></span></div>
+    <div class="seg" id="paths">
+      <button type="button" data-path="btn" aria-pressed="false">Кнопка</button>
+      <button type="button" data-path="auto" aria-pressed="false">Новая сборка Host</button>
+    </div>
+    <div class="inner scroll">
+      <svg id="arch" viewBox="0 0 900 400" role="img" aria-label="Кнопка пульта перечитывает скилы и внешние серверы через управление сессиями, новая сборка Host обновляет инструменты модулей через ядро">
+        <defs>
+          <marker id="ah-auto" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--accent)"/></marker>
+          <marker id="ah-btn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--violet)"/></marker>
+          <marker id="ah-was" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--muted)"/></marker>
+        </defs>
+
+        <rect class="zone" x="222" y="52" width="260" height="336" rx="12"/>
+        <text class="zone-l" x="238" y="76">Host: на каждой машине</text>
+        <rect class="zone" x="610" y="52" width="280" height="336" rx="12"/>
+        <text class="zone-l" x="626" y="76">Процесс Claude: каждая сессия</text>
+
+        <g class="n" data-note="page" data-p="btn"><rect x="12" y="110" width="150" height="56" rx="9"/><text x="26" y="134">Пульт</text><text class="sub" x="26" y="152">обход живых сессий</text></g>
+        <g class="n" data-note="rel" data-p="auto"><rect x="12" y="270" width="150" height="56" rx="9"/><text x="26" y="294">Новая сборка</text><text class="sub" x="26" y="312">подмена Host</text></g>
+        <g class="n" data-note="mng" data-p="btn"><rect x="244" y="110" width="216" height="56" rx="9"/><text x="260" y="134">Управление сессиями</text><text class="sub" x="260" y="152">одна сессия</text></g>
+        <g class="n" data-note="sess" data-p="auto"><rect x="244" y="270" width="216" height="56" rx="9"/><text x="260" y="294">Ядро</text><text class="sub" x="260" y="312">подключение к процессу</text></g>
+        <g class="n" data-note="n1" data-p="btn"><rect x="632" y="96" width="236" height="56" rx="9"/><text class="no" x="648" y="120">1</text><text x="666" y="120">Скилы и агенты</text><text class="sub" x="666" y="138">с диска</text></g>
+        <g class="n" data-note="n2" data-p="btn"><rect x="632" y="192" width="236" height="56" rx="9"/><text class="no" x="648" y="216">2</text><text x="666" y="216">Внешние серверы</text><text class="sub" x="666" y="234">перезапуск</text></g>
+        <g class="n" data-note="n3" data-p="auto"><rect x="632" y="288" width="236" height="56" rx="9"/><text x="648" y="312">Инструменты модулей</text><text class="sub" x="648" y="330">новый список</text></g>
+
+        <g class="e p-btn" data-note="e-req" data-p="btn"><path class="hit" d="M162 126H244"/><path d="M162 126H242" marker-end="url(#ah-btn)"/><text x="166" y="116">session.reload</text></g>
+        <g class="e was" data-note="e-ans" data-p="btn"><path class="hit" d="M244 150H162"/><path d="M244 150H164" marker-end="url(#ah-was)"/><text x="186" y="168">ответ</text></g>
+        <g class="e p-btn" data-note="e-1" data-p="btn"><path class="hit" d="M460 126C520 126 570 124 632 124"/><path d="M460 126C520 126 570 124 630 124" marker-end="url(#ah-btn)"/><text x="498" y="114">reloadPlugins</text></g>
+        <g class="e p-btn" data-note="e-2" data-p="btn"><path class="hit" d="M460 150C520 150 570 220 632 220"/><path d="M460 150C520 150 570 220 630 220" marker-end="url(#ah-btn)"/><text x="486" y="204">reconnectMcpServer</text></g>
+        <g class="e was" data-note="e-cmd" data-p="btn"><path class="hit" d="M750 96V32H87V110"/><path d="M750 96V32H87V108" marker-end="url(#ah-was)"/><text x="360" y="24">commands_changed</text></g>
+        <g class="e was" data-note="e-build" data-p="auto"><path class="hit" d="M162 298H244"/><path d="M162 298H242" marker-end="url(#ah-was)"/><text x="176" y="288">старт</text></g>
+        <g class="e p-auto" data-note="e-3" data-p="auto"><path class="hit" d="M460 298C520 298 570 316 632 316"/><path d="M460 298C520 298 570 316 630 316" marker-end="url(#ah-auto)"/><text x="492" y="290">setMcpServers</text><text x="492" y="334">list_changed</text></g>
+      </svg>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="screen">
+    <div class="blk-h"><h2>Экран</h2><span class="tag"></span></div>
+    <div class="shots">
+      <figure data-note="sh-wide"><img src="shots/wide.png" alt="Настройки, блок Репозитории: кнопки Свести везде и Перечитать сессии, строка итога" loading="lazy"></figure>
+      <figure data-note="sh-phone"><img src="shots/phone.png" alt="То же на телефоне, тёмная тема" loading="lazy"></figure>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="runs2">
+    <div class="blk-h"><h2>Модули и плагины вплотную не идут</h2><span class="tag"></span></div>
+    <div class="runs">
+      <div class="run" data-note="r-bad"><span class="pill">модули</span><i>→</i><span class="pill">плагины</span><i>→</i><span class="pill">внешние</span><span class="res bad">старые инструменты · 2 из 2</span></div>
+      <div class="run" data-note="r-ok"><span class="pill">плагины</span><i>→</i><span class="pill">внешние</span><i>→</i><span class="pill">модули</span><span class="res good">всё новое · 8 из 8</span></div>
+      <div class="run" data-note="r-apart"><span class="pill">подмена: модули</span><i>·</i><span class="pill">сессия готова</span><i>·</i><span class="pill">кнопка: плагины → внешние</span></div>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="lanes2">
+    <div class="blk-h"><h2>Что и когда доходит</h2><span class="tag"></span></div>
+    <div class="lanes">
+      <div class="lane">
+        <h3>Сама, при подмене Host</h3>
+        <div class="chips">
+          <span class="chip new" data-note="l-tools">инструменты модулей</span>
+          <span class="chip new" data-note="l-servers">серверы модулей</span>
+          <span class="chip new" data-note="l-hooks">хуки</span>
+        </div>
+      </div>
+      <div class="lane">
+        <h3>По кнопке</h3>
+        <div class="chips">
+          <span class="chip btn" data-note="l-skills">скилы</span>
+          <span class="chip btn" data-note="l-agents">агенты</span>
+          <span class="chip btn" data-note="l-ext">внешние серверы</span>
+        </div>
+      </div>
+      <div class="lane">
+        <h3>Со следующего старта процесса</h3>
+        <div class="chips">
+          <span class="chip later" data-note="l-append">системная добавка</span>
+          <span class="chip later" data-note="l-claude">CLAUDE.md и правила</span>
+          <span class="chip later" data-note="l-env">env и settings</span>
+          <span class="chip later" data-note="l-use">состав набора</span>
+        </div>
+      </div>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="proof2">
+    <div class="blk-h"><h2>Замеры на настоящем Claude</h2><span class="tag"></span></div>
+    <div class="tiles">
+      <div class="tile" data-note="m-fast"><b>37–47 мс</b><span>релоад сессии</span></div>
+      <div class="tile" data-note="m-ext"><b>365–474 мс</b><span>с внешним сервером</span></div>
+      <div class="tile" data-note="c-same"><b>60</b><span>токенов в кэш: инструменты те же</span></div>
+      <div class="tile" data-note="c-new"><b>556</b><span>токенов в кэш: инструмент добавлен</span></div>
+      <div class="tile" data-note="c-restart"><b>0</b><span>перезапусков сессий</span></div>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="deal2">
+    <div class="blk-h"><h2>Договор</h2><span class="tag"></span></div>
+    <div class="deal">
+      <pre data-note="d-one">{ "type": "session.reload", "v": 1,
+  "callsign": "site@laptop" }
+→ { "ok": true }</pre>
+      <pre data-note="d-bad">→ { "ok": false, "error": "sdk_error",
+    "why": "site@laptop: reloadPlugins —
+            Claude не ответил за 30 с" }</pre>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="etalons3">
+    <div class="blk-h"><h2>Эталоны</h2><span class="tag"></span></div>
+    <div class="etalons">
+      <div class="et" data-note="t1"><span>Новая сборка, процесс жив</span><i>→</i><b>новые инструменты, тот же процесс</b></div>
+      <div class="et" data-note="t2"><span>Сервер добавлен и убран</span><i>→</i><b>состав как в сборке</b></div>
+      <div class="et" data-note="t3"><span>Новый процесс</span><i>→</i><b>шага при старте нет</b></div>
+      <div class="et" data-note="t4"><span>Подмена, Claude молчит 30 с</span><i>→</i><b>журнал, сессия работает</b></div>
+      <div class="et" data-note="t5"><span>Релоад сессии</span><i>→</i><b>плагины, потом внешние, встроенные не тронуты</b></div>
+      <div class="et" data-note="t11"><span>Нажатие кнопки</span><i>→</i><b>сперва сведение, потом сессии</b></div>
+      <div class="et" data-note="t6"><span>Кнопка, две машины</span><i>→</i><b>запрос каждой живой сессии, остановленной нет</b></div>
+      <div class="et" data-note="t7"><span>Одна сессия отказала</span><i>→</i><b>причина в итоге, остальные перечитаны</b></div>
+      <div class="et" data-note="t8"><span>Запрос к сессии, которая не живая</span><i>→</i><b>отказ stopped</b></div>
+      <div class="et" data-note="t9"><span>Пришёл список команд</span><i>→</i><b>«/» показывает его без запроса</b></div>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="gate3">
+    <div class="blk-h"><h2>Гейт</h2><span class="tag"></span></div>
+    <p class="line">Работа: большая — меняет контракт Host: новый запрос.</p>
+    <div class="gate">
+      <div class="g hit" data-note="g-resp"><b>1 → 0</b><span>дубликаты ответственности</span></div>
+      <div class="g hit" data-note="g-state"><b>1 → 0</b><span>дубликаты состояния</span></div>
+      <div class="g hit" data-note="g-sense"><b>1 → 0</b><span>дубликаты смысла</span></div>
+      <div class="g hit" data-note="g-dup"><b>2 → 0</b><span>дубликаты механизмов</span></div>
+      <div class="g hit" data-note="g-comm"><b>2 → 0</b><span>лишние коммуникации</span></div>
+      <div class="g" data-note="g-other"><b>0 → 0</b><span>остальные дубликаты</span></div>
+      <div class="g" data-note="g-cyc"><b>0 → 0</b><span>циклы</span></div>
+      <div class="g" data-note="g-mod"><b>14 → 14</b><span>модули Host</span></div>
+      <div class="g" data-note="g-names"><b>+1</b><span>запрос session.reload</span></div>
+      <div class="g hit" data-note="g-calls"><b>21 → 20</b><span>открытые методы session.call</span></div>
+      <div class="g" data-note="g-face"><b>+0</b><span>методы сессии у модулей</span></div>
+      <div class="g" data-note="g-set"><b>0 → 0</b><span>секреты, настройки</span></div>
+      <div class="g" data-note="g-branch"><b>+0</b><span>ветки восстановления</span></div>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+  <section class="blk chg" data-chg="order3">
+    <div class="blk-h"><h2>Порядок реализации</h2><span class="tag"></span></div>
+    <div class="steps">
+      <div class="s" data-note="s1"><span class="no">1</span><b>Ядро</b><span>шаг модулей при подключении к живому процессу</span><span class="done">Готово: старых инструментов на стенде 1 → 0</span></div>
+      <div class="s" data-note="s2"><span class="no">2</span><b>Запрос</b><span>session.reload на одну сессию</span><span class="done">Готово: открытых методов 21 → 20</span></div>
+      <div class="s" data-note="s3"><span class="no">3</span><b>Пульт</b><span>кнопка сводит и обходит живые сессии, панель чата, список команд из события</span><span class="done">Готово: запросов команд после релоада 1 → 0</span></div>
+      <div class="s" data-note="s4"><span class="no">4</span><b>Выкладка на тест</b><span>живой прогон на win и wsl</span><span class="done">Готово: новый скил и новый инструмент внешнего сервера по кнопке, новый инструмент модуля при подмене, перезапусков 0</span></div>
+    </div>
+    <div class="note" data-panel></div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  const NOTES = {
+    rel:{t:"Новая сборка",d:"Служба машины заменяет Host на версию с новыми модулями. Процессы Claude продолжают работать у своих держателей, новый Host к ним подключается."},
+    page:{t:"Пульт",d:"Кнопка рядом со «Свести везде». Сначала сводит репозитории на всех машинах, потом шлёт запрос каждой живой сессии из списка флота и складывает ответы в один итог."},
+    sess:{t:"Ядро",d:"Подключившись к живому процессу, ядро до первого ввода обновляет инструменты модулей. Серверы берёт из вкладов этого запуска, отдельного состояния нет. Новому процессу и сессии, которая перезапустится на другую версию SDK, шаг не нужен. Внешние серверы кусочков при подмене не перезапускаются: у них бывает своё состояние."},
+    mng:{t:"Управление сессиями",d:"Запрос живёт здесь: рядом проверка живой сессии, те же слова отказа и оба метода SDK. Читает ответ первого шага и зовёт второй. Не знает о других сессиях. Предел 30 секунд, затем отказ с причиной."},
+    n1:{t:"Скилы и агенты",d:"Claude читает их с диска при старте и не следит за папками кусочков. Новые появляются, изменённые получают новый текст."},
+    n2:{t:"Внешние серверы",d:"Серверы из .mcp.json кусочков, отдельные процессы. Перечитывание плагинов их не трогает, нужен перезапуск. Берутся из ответа первого шага: подключённые с именем plugin:*."},
+    n3:{t:"Инструменты модулей",d:"Встроенные серверы модулей. Набор сверяется, каждый сервер объявляет новый список, Claude сам его перечитывает. Меняются только с новой сборкой, поэтому кнопка их не трогает. Шаг не прошёл — строка журнала, сессию перезапускает агент."},
+    "e-build":{t:"Старт Host",d:"Новый Host подключается к живому процессу и до первого ввода делает шаг модулей. Предел 30 секунд. Сбой — строка журнала, сессия работает дальше."},
+    "e-1":{t:"reloadPlugins",d:"Первый шаг. Работает посреди хода, встроенные серверы и хуки остаются.",j:'query.reloadPlugins()\n// { "commands": [...], "agents": [...],\n//   "mcpServers": [...], "error_count": 0 }'},
+    "e-2":{t:"reconnectMcpServer",d:"Второй шаг. Вызов, идущий в этот сервер в эту секунду, вернёт ошибку, и модель его повторит.",j:'query.reconnectMcpServer("plugin:pc:pmcp")'},
+    "e-3":{t:"setMcpServers и list_changed",d:"Шаг подмены, его держит только ядро. Второй вызов — штатное уведомление протокола MCP: список инструментов изменился.",j:'query.setMcpServers({ parts, keys, fleet, shell })\n{ "jsonrpc": "2.0",\n  "method": "notifications/tools/list_changed" }'},
+    "e-req":{t:"session.reload",d:"Один запрос на живую сессию, relay пересылает его Host как любой другой. Кнопка панели чата шлёт его своей сессии.",j:'{ "type": "session.reload", "v": 1, "callsign": "site@laptop" }'},
+    "e-ans":{t:"Ответ",d:"Обычный ответ на запрос: готово или отказ словом с причиной. Итог считает страница.",j:'{ "ok": true }'},
+    "e-cmd":{t:"commands_changed",d:"После первого шага Claude сам присылает полный список команд, он идёт зрителям обычным потоком событий. Страница подставляет его в подсказку «/» и не спрашивает заново. Закрытый чат событий не получает, поэтому при открытии список сбрасывается.",j:'{ "type": "system", "subtype": "commands_changed",\n  "commands": [ { "name": "pc:alpha" }, { "name": "pc:beta" } ] }'},
+    "sh-wide":{t:"Настройки, блок «Репозитории»",d:"Одно действие: кнопка сама сводит репозитории, потом перечитывает сессии, поэтому порядка у человека нет. Итог стоит строкой в блоке до следующего нажатия: отказ называет сессию и причину. Без подтверждения: сессии не останавливаются."},
+    "sh-phone":{t:"Телефон",d:"Те же кнопки переносятся на вторую строку."},
+    "r-bad":{t:"Модули вперёд",d:"Шаги вплотную друг за другом: перечитывание плагинов перебивает ещё идущее обновление инструментов. Так вышло и в простое, и посреди хода, хотя по отдельности каждый шаг работает."},
+    "r-ok":{t:"Плагины вперёд",d:"Четыре прогона с внешним сервером и четыре без него, из них два посреди хода. После каждого модель вызвала новый скил."},
+    "r-apart":{t:"Две дороги",d:"Шаг модулей идёт, пока сессия ещё не готова, а запрос кнопки такая сессия отказывает. Вплотную шаги не встречаются, поэтому порядок в коде держать не нужно."},
+    "l-tools":{t:"Инструменты модулей",d:"Новые имена, схемы и описания. После обновления модель вызвала новую схему и получила ответ нового обработчика."},
+    "l-servers":{t:"Серверы модулей",d:"Новый модуль добавил сервер или старый его убрал. Без setMcpServers extra не появлялся, gone оставался."},
+    "l-hooks":{t:"Хуки",d:"Уже работают без правок: при подключении Claude берёт хуки нового Host, в опыте сработали только новые."},
+    "l-skills":{t:"Скилы",d:"Новый скил появился, у изменённого модель получила новый текст: ALPHA2 вместо ALPHA1."},
+    "l-agents":{t:"Агенты",d:"Перечитываются тем же шагом, что и скилы. Список в ответе обновляется; что их видит модель, в опыте отдельно не проверялось."},
+    "l-ext":{t:"Внешние серверы",d:"Новый сервер в .mcp.json и новый код запущенного: число запусков 1 → 2, инструмент new_x вместо old_x."},
+    "l-append":{t:"Системная добавка",d:"Текст, который модули дописывают к системному промпту. Claude держит его с запуска: после подмены на ZEBRA модель ответила ALPHA."},
+    "l-claude":{t:"CLAUDE.md и правила",d:"Перечитывание плагинов их не меняет: при новом файле модель ответила OLDPIECE."},
+    "l-env":{t:"env и settings",d:"Окружение задаётся при запуске процесса и изнутри не меняется."},
+    "l-use":{t:"Состав набора",d:"Набор — кусочек, перечисляющий другие кусочки. Новый кусочек в наборе — новая папка плагина. Этот случай не проверялся, считаем, что он ждёт старта."},
+    "m-fast":{t:"Без внешних серверов",d:"Весь релоад одной сессии, четыре прогона, один посреди хода."},
+    "m-ext":{t:"С внешним сервером",d:"Почти всё время — перезапуск процесса сервера. Node, сервер на MCP SDK."},
+    "c-same":{t:"Инструменты те же",d:"Ход после подключения и обновления: read 37433, write 60. Кэш не сброшен, поэтому шаг можно делать при каждой подмене без сравнения версий."},
+    "c-new":{t:"Инструмент добавлен",d:"Ход после смены инструментов: read 37468, write 556. Кэш промпта сохранился."},
+    "c-restart":{t:"Перезапуски",d:"Процесс тот же, разговор и фоновые задачи на месте. Правило устава: обновление Host сессии не останавливает."},
+    "d-one":{t:"Запрос",d:"Форма как у остальных запросов про сессию: только callsign. Запрос не из чтений: перечитывание меняет сессию."},
+    "d-bad":{t:"Отказ",d:"Обычный отказ словом: sdk_error с причиной, stopped — сессия не живая. Отказ соседа запрос не трогает, страница складывает всё в один тост."},
+    t1:{t:"Живой процесс",d:"Источник: слово пользователя 6 нояб. Стенд ведёт себя как настоящий Claude: без уведомления список остаётся старым."},
+    t2:{t:"Состав серверов",d:"Источник: слово пользователя 6 нояб. и опыт с серверами extra и gone."},
+    t3:{t:"Новый процесс",d:"Источник: факт опыта, новый процесс читает всё сам."},
+    t4:{t:"Предел",d:"Источник: 🔒 устава, у всех операций есть лимит. Строка журнала называет причину."},
+    t5:{t:"Шаги кнопки",d:"Источник: опыт, перечитывание плагинов не перезапускает внешние серверы; имена берутся из его ответа. Встроенные серверы кнопка не трогает."},
+    t6:{t:"Обход",d:"Источник: слово пользователя 6 нояб., все живые сессии флота."},
+    t7:{t:"Отказ сессии",d:"Источник: устав, ошибки словами. Сосед не страдает. Запрос без ответа даёт timeout и идёт в тот же итог."},
+    t8:{t:"Не живая сессия",d:"Источник: чьё: код, общий вызов сессии отказывает так же."},
+    t9:{t:"Подсказка",d:"Источник: тип SDK, клиенту велено заменять список этим сообщением."},
+    "g-resp":{t:"Ответственность",d:"Обход один, на странице: она видит весь флот и состояние каждой сессии. Host отвечает за одну сессию."},
+    "g-state":{t:"Состояние",d:"Новых хранимых данных нет: шаг подмены берёт серверы из вкладов своего запуска."},
+    "g-sense":{t:"Смысл",d:"session.reload значит одно: эта сессия. Адрес и ответ такие же, как у остальных запросов про сессию."},
+    t11:{t:"Сведение перед сессиями",d:"Источник: живой прототип, скил доходит двумя шагами, и порядок оставался на человеке."},
+    "g-dup":{t:"Механизмы",d:"Обе кнопки зовут один запрос. Отказ — обычная форма ответа, отдельного списка отказов нет."},
+    "g-comm":{t:"Коммуникации",d:"Страница не спрашивает команды после перечитывания: Claude присылает их событием. Кнопка не обновляет инструменты модулей: без новой сборки это обмен без результата."},
+    "g-other":{t:"Остальные дубликаты",d:"Слежения за git и разбора изменений нет."},
+    "g-cyc":{t:"Циклы",d:"Стрелки те же: модуль зовёт ядро, ядро зовёт SDK."},
+    "g-mod":{t:"Модули",d:"Ни одного нового. Серверы модулей — у ядра, запрос — у управления сессиями, обход — у настроек."},
+    "g-names":{t:"Запрос",d:"Один на обе кнопки. Кадров, полей ответа и полей списка сессий не добавилось."},
+    "g-calls":{t:"Открытые методы",d:"В общем вызове нет reloadPlugins: это половина релоада."},
+    "g-face":{t:"Методы сессии",d:"Новых нет: запрос идёт обычным вызовом SDK. setMcpServers держит только ядро."},
+    "g-set":{t:"Секреты и настройки",d:"Новых нет."},
+    "g-branch":{t:"Ветки восстановления",d:"Новых нет. Сбой система ловит, пишет словами, дальше решает человек или агент."},
+    s1:{t:"Ядро",d:"Шаг подмены идёт, если версия SDK та же; иначе сессия и так перезапустится. Стенд получает поведение настоящего Claude: список меняется только по уведомлению."},
+    s2:{t:"Запрос",d:"reloadPlugins снимается из открытых методов, в списке вызовов модуля остаётся."},
+    s3:{t:"Пульт",d:"Прототип показывает кнопку. Панель чата зовёт тот же запрос своей сессии и называется «Перечитать сессию»."},
+    s4:{t:"Живой прогон",d:"Откат и возврат модуля с другим набором инструментов на живой сессии, git push скила и нового инструмента внешнего сервера, нажатие кнопки: прогоны порядка шли с шагом модулей, здесь кнопка проверяется без него. На wsl нет аккаунтов: там проверка по статусу серверов и списку команд."}
+  };
+  function fill(panel,id){
+    if(!panel) return;
+    const n=NOTES[id]; panel.textContent="";
+    if(!n) return;
+    const b=document.createElement("b"); b.textContent=n.t;
+    const p=document.createElement("span"); p.textContent=n.d;
+    panel.append(b,p);
+    if(n.j){const pre=document.createElement("pre"); pre.textContent=n.j; panel.append(pre);}
+  }
+  document.querySelectorAll("[data-note]").forEach(el=>{
+    if(!el.hasAttribute("tabindex")) el.tabIndex=0;
+    const go=()=>{
+      const blk=el.closest(".blk");
+      blk.querySelectorAll(".sel").forEach(x=>x.classList.remove("sel"));
+      el.classList.add("sel");
+      fill(blk.querySelector("[data-panel]"),el.dataset.note);
+    };
+    el.addEventListener("click",go);
+    el.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();go();}});
+  });
+  document.querySelectorAll(".blk").forEach(b=>{const first=b.querySelector("[data-note]"); if(first&&b.querySelector("[data-panel]")) first.dispatchEvent(new Event("click"));});
+
+  const arch=document.getElementById("arch");
+  let shown=null;
+  function light(p){
+    arch.classList.toggle("dimmed",!!p);
+    arch.querySelectorAll("[data-p]").forEach(x=>x.classList.toggle("lit",!!p&&x.dataset.p.split(" ").includes(p)));
+  }
+  arch.querySelectorAll("[data-p]").forEach(x=>{
+    x.addEventListener("pointerenter",()=>light(x.dataset.p.split(" ")[0]));
+    x.addEventListener("pointerleave",()=>light(shown));
+  });
+  const pathBtns=[...document.querySelectorAll("#paths button")];
+  pathBtns.forEach(b=>b.addEventListener("click",()=>{
+    shown=shown===b.dataset.path?null:b.dataset.path;
+    pathBtns.forEach(x=>x.setAttribute("aria-pressed",String(x.dataset.path===shown)));
+    light(shown);
+  }));
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>

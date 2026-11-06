@@ -1,6 +1,6 @@
 // Репозитории: один список — ключ флота fleet.profiles.repos с честным состоянием по машинам и остальные видимые приложению GitHub; конфликт сводит сессия в клоне.
 import { useEffect, useState } from "react";
-import { profileIdsOf, type AccountsAnswer, Btn, Confirm, hhmm, In, machineLabel, machinesWith, Note, okOf, Opts, plural, profileRepo, type ProfileRepo, Sec, useApp, useModule, wordOf } from "@switchboard/web-ui";
+import { profileIdsOf, type AccountsAnswer, Btn, Confirm, hhmm, In, machineLabel, machinesWith, Note, okOf, Opts, Outcome, type OutcomeNote, plural, profileRepo, type ProfileRepo, Sec, useApp, useModule, wordOf } from "@switchboard/web-ui";
 import { PROFILE_REPOS } from "@switchboard/records";
 import type { SettingsState } from "./state.ts";
 
@@ -32,6 +32,8 @@ export function ProfileRepos({ github, ready }: { github: string[]; ready: boole
   const [open, setOpen] = useState<string | null>(null);
   const [asking, setAsking] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [reloading, setReloading] = useState(false);
+  const [outcome, setOutcome] = useState<OutcomeNote | null>(null);
   const pieces = new Map<string, Set<string>>();
   for (const m of machines) for (const id of Object.keys(okOf(answers[m])?.profiles ?? {})) pieces.set(profileRepo(id), (pieces.get(profileRepo(id)) ?? new Set()).add(id));
   /** машина без записи о репозитории его ещё не сводила; отказ машины — её ошибка */
@@ -47,6 +49,18 @@ export function ProfileRepos({ github, ready }: { github: string[]; ready: boole
     setSyncing(true);
     await st.syncRepos();
     setSyncing(false);
+  }
+  /** Сначала правки на всех машинах, потом сессии: итог стоит в блоке до следующего нажатия. */
+  async function reload() {
+    setReloading(true);
+    setOutcome(null);
+    await st.syncRepos();
+    const got = await st.reloadSessions();
+    setReloading(false);
+    const done = got.filter(({ r }) => r.ok).length;
+    const bad = got.flatMap(({ callsign, r }) => (r.ok ? [] : [r.why ?? `${callsign}: ${r.error}`]));
+    const text = `перечитано ${done} ${plural(done, "сессия", "сессии", "сессий")}`;
+    setOutcome({ text: bad.length ? `${text}; не вышло — ${bad.join("; ")}` : text, tone: bad.length ? "bad" : "ok" });
   }
   /** Сессия сведения: клон называет машина, слот — занятый аккаунтом, имя с первым свободным номером. Отправит сведение: токена GitHub у сессии нет. */
   async function resolve(m: string, repo: string, s: ProfileRepo) {
@@ -66,11 +80,17 @@ export function ProfileRepos({ github, ready }: { github: string[]; ready: boole
       <div className="st-prtop">
         <b>Репозитории</b>
         {loaded && all.length ? (
-          <Btn data-act="sync" disabled={syncing} onClick={() => void sync()}>
-            {syncing ? "Свожу…" : "Свести везде"}
-          </Btn>
+          <Opts>
+            <Btn data-act="sync" disabled={syncing || reloading} onClick={() => void sync()}>
+              {syncing ? "Свожу…" : "Свести везде"}
+            </Btn>
+            <Btn data-act="reload" disabled={syncing || reloading} onClick={() => void reload()}>
+              {reloading ? "Перечитываю…" : "Перечитать сессии"}
+            </Btn>
+          </Opts>
         ) : null}
       </div>
+      <Outcome note={outcome} />
       {!loaded ? (
         <Note role="status">Читаю состояние машин…</Note>
       ) : (

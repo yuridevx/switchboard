@@ -1831,19 +1831,37 @@ describe("панель контекста", () => {
     expect(u.t.$('[data-sec="rules"] .bad')!.textContent).toBe("Claude отказал, причина в журнале машины");
   });
 
-  it("7021 «Перечитать плагины»: reloadPlugins; следующий «/» спрашивает команды заново", async () => {
+  it("7021 «Перечитать сессию»: session.reload этой сессии; новый список команд — из события, без запроса; при новом открытии чата — запрос", async () => {
+    // источник: дизайн «Свежие инструменты сессии»: один путь перечитывания; тип SDK: клиент заменяет список сообщением commands_changed
     const relay = relayFor();
-    answerWith(relay, { ...full, reloadPlugins: () => ({ ok: true, result: {} }), supportedCommands: () => ({ ok: true, result: [{ name: "compact" }] }) });
+    answerWith(relay, { ...full, supportedCommands: () => ({ ok: true, result: [{ name: "compact" }] }) });
+    relay.handlers["session.reload"] = () => ({ ok: true });
     const t = await chat(IDLE, { relay, wide: true });
     await t.type("/");
     expect(calls(relay, "supportedCommands")).toHaveLength(1);
     await t.type("");
     await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
     await flush();
-    await t.click(t.btn(".chat-panel", "Перечитать плагины"));
-    expect(calls(relay, "reloadPlugins")).toHaveLength(1);
+    await t.click(t.btn(".chat-panel", "Перечитать сессию"));
+    expect(relay.sent("session.reload")).toHaveLength(1);
+    expect(relay.sent("session.reload")[0].callsign).toBe(IDLE);
+    relay.push({ type: "session.events", from: IDLE, seq: 1, events: [{ type: "system", subtype: "commands_changed", uuid: "c1", commands: [{ name: "pc:beta", description: "новый" }] }] });
+    await flush();
     await t.type("/");
-    expect(calls(relay, "supportedCommands")).toHaveLength(2);
+    expect(calls(relay, "supportedCommands")).toHaveLength(1);
+    expect(document.body.textContent).toContain("pc:beta");
+  });
+
+  it("7022 отказ session.reload — тост со словом", async () => {
+    const relay = relayFor();
+    answerWith(relay, full);
+    relay.handlers["session.reload"] = () => ({ ok: false, error: "sdk_error" });
+    const t = await chat(IDLE, { relay, wide: true });
+    await t.click(t.$('.chat-tb[aria-label="Контекст"]'));
+    await flush();
+    await t.click(t.btn(".chat-panel", "Перечитать сессию"));
+    await flush();
+    expect(t.$(".sb-toast")!.textContent).toContain("session.reload");
   });
 });
 

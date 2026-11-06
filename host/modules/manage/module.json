@@ -1,7 +1,7 @@
 {
   "name": "host-manage",
   "type": "sdk",
-  "version": "1.5.7",
+  "version": "1.6.0",
   "into": [
     "host"
   ],
@@ -9,6 +9,7 @@
     "session.open": 2,
     "session.update": 1,
     "session.call": 1,
+    "session.reload": 1,
     "session.spec": 1,
     "session.stop": 1,
     "session.start": 1,

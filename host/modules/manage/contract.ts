@@ -7,6 +7,7 @@
 //     ведущего нет на машине — offline, ведомый уже есть — has_wing, ведомого у ведомого нет — bad_spec
 //   session.update { callsign, model?, effort?, fast?, style?, thinking?, title? } → { now: [что подействовало сразу] }
 //   session.call { callsign, method, args? } → ответ метода SDK как есть; только методы из списка открытых
+//   session.reload { callsign } → ok: скилы и агенты с диска, внешние серверы кусочков заново; не живая — stopped, Claude отказал или молчит 30 с на шаге — sdk_error
 //   режим разрешений: session.call setPermissionMode и listPermissionRules; нынешний режим — поле roster mode, новый процесс сессии поднимается в нём; часть есть только во время исполнения закреплённого SDK (claude-fleet ими работал): нет метода — sdk_error
 //   session.spec { callsign } → { dir, model, effort, title }
 //   session.stop · session.start { point? } · session.remove { callsign, after_turn? } → ok; у ведущего идут и на ведомого: стоп и снятие — он первым, точка ему не передаётся;

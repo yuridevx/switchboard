@@ -5,7 +5,7 @@
 import { appendFileSync, chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
@@ -360,7 +360,6 @@ describe("session.call: открытые методы query()", () => {
       ["rewindFiles", ["u1"], true],
       ["stopTask", ["t1"], true],
       ["backgroundTasks", [], []],
-      ["reloadPlugins", [], true],
       ["askSideQuestion", ["что?"], { response: "ответ", synthetic: false }],
       ["getTaskOutput", ["t1"], { output: "хвост", total_bytes: 5, truncated: false }],
       ["cancelAsyncMessage", ["u1"], true],
@@ -404,6 +403,65 @@ describe("session.call: открытые методы query()", () => {
     await st.kernel.sessions.get("site@laptop")!.stop();
     expect(await req({ type: "session.call", callsign: "site@laptop", method: "supportedModels" })).toMatchObject({ ok: false, error: "stopped", why: "session.call site@laptop: supportedModels — сессия stopped" });
     expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+});
+
+describe("session.reload", () => {
+  const live = async () => {
+    const { st, req } = await bench();
+    await st.open("site@laptop");
+    const q = st.query("site@laptop") as unknown as Record<string, unknown>;
+    const seen: string[] = [];
+    q.reloadPlugins = async () => {
+      seen.push("reloadPlugins");
+      return { mcpServers: [{ name: "fleet", status: "connected" }, { name: "plugin:pc:pmcp", status: "connected" }, { name: "plugin:pc:down", status: "failed" }] };
+    };
+    q.reconnectMcpServer = async (name: string) => void seen.push(name);
+    return { st, req, q, seen };
+  };
+
+  it("7363 · перечитывание: сначала плагины, затем заново подключённые внешние серверы; встроенные и упавшие не трогаются; процесс тот же", async () => {
+    // источник: слово пользователя 6 нояб. — релоад скилов и MCP; факт опыта: reloadPlugins не перезапускает внешний сервер
+    const { st, req, seen } = await live();
+    const proc = st.proc("site@laptop");
+    expect(await req({ type: "session.reload", callsign: "site@laptop" })).toMatchObject({ ok: true });
+    expect(seen).toEqual(["reloadPlugins", "plugin:pc:pmcp"]);
+    expect(st.proc("site@laptop")).toBe(proc);
+    expect(proc.alive).toBe(true);
+  });
+
+  it("7364 · Claude отказал — sdk_error с причиной, сессия и модуль живы", async () => {
+    // источник: устав «ошибки — словами»
+    const { st, req, q } = await live();
+    q.reloadPlugins = async () => {
+      throw new Error("плагин сломан");
+    };
+    expect(await req({ type: "session.reload", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "sdk_error", why: "site@laptop: reloadPlugins — плагин сломан" });
+    expect(st.kernel.sessions.get("site@laptop")!.state).toBe("idle");
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
+
+  it("7365 · Claude молчит 30 с — sdk_error с шагом и пределом", async () => {
+    // источник: 🔒 устава «у всех операций должен быть лимит»
+    const { req, q } = await live();
+    q.reloadPlugins = () => new Promise(() => {});
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const r = req({ type: "session.reload", callsign: "site@laptop" });
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(await r).toMatchObject({ ok: false, error: "sdk_error", why: "site@laptop: reloadPlugins — Claude не ответил за 30 с" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("7366 · сессия не живая — отказ stopped, Claude не вызван; reloadPlugins больше не открыт в session.call", async () => {
+    // источник: чьё: код — session.call отказывает так же; один путь перечитывания — гейт дизайна
+    const { st, req, seen } = await live();
+    expect(await req({ type: "session.call", callsign: "site@laptop", method: "reloadPlugins" })).toMatchObject({ ok: false, error: "unknown_method" });
+    await st.kernel.sessions.get("site@laptop")!.stop();
+    expect(await req({ type: "session.reload", callsign: "site@laptop" })).toMatchObject({ ok: false, error: "stopped" });
+    expect(seen).toEqual([]);
   });
 });
 

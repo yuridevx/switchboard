@@ -1,6 +1,7 @@
 // Состояние настроек: ответы keeper и репозитории всех машин, список репозиториев флота и то, что переживает смену вкладки.
+import { machineOf } from "@switchboard/protocol";
 import { FLEET_PREFIX } from "@switchboard/records";
-import { createStore, machineAnswers, machinesWith, personal, type App, type MachineAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { createStore, isLive, machineAnswers, machinesWith, personal, type App, type MachineAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
 import type { KState } from "./rules.ts";
 
 export type KeeperAnswers = Readonly<Record<string, MachineAnswer<KState>>>;
@@ -32,6 +33,8 @@ export function createState(app: App) {
     fleet,
     /** «Свести везде»: каждая машина сводит и отвечает своим состоянием */
     syncRepos: () => Promise.all(asked().map((m) => repos.reload(m, (machine) => app.request<ProfilesAnswer>("machine.profiles", { machine, sync: true })))),
+    /** «Перечитать сессии»: по запросу на каждую живую сессию, отказ — ответ этой сессии */
+    reloadSessions: () => Promise.all((app.roster()?.sessions ?? []).filter((s) => isLive(s.state) && app.can(machineOf(s.callsign)!, "session.reload") === true).map(async ({ callsign }) => ({ callsign, r: await app.request("session.reload", { callsign }) }))),
     open: () => void opened.push(answers.mount()),
     close: () => opened.pop()?.(),
   };
