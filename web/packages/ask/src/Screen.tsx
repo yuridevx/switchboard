@@ -92,7 +92,9 @@ function PermQuestion({ q, sending, closed, reply }: Props) {
           </div>
         ) : (
           <>
-            <span className="ask-chip">{q.tool}</span>
+            <div className="ask-qh">
+              <span className="ask-chip">{q.tool}</span>
+            </div>
             {subject ? <code className="ask-subject">{subject}</code> : null}
             {notes.map((n) => (
               <div key={n} className="ask-note">

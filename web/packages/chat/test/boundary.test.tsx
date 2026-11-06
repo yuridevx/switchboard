@@ -2860,4 +2860,9 @@ describe("сверка строк, второй проход", () => {
     expect(t.text()).not.toContain("нет ждущих вопросов");
     expect(t.text()).toContain("question.list: disconnected");
   });
+
+  it("запрос разрешения: чип инструмента в своей строке, а не на всю ширину", async () => {
+    const t = await permUi(perm());
+    expect(t.$(".ask-qh .ask-chip")).not.toBeNull();
+  });
 });
