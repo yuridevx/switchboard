@@ -213,7 +213,7 @@ describe("ответы машин", () => {
     };
     return { m, asked, changed, words, set };
   }
-  const settle = () => act(async () => {});
+  const settle = () => act(async () => { });
   it("6820 · открытие: спрошена каждая машина; ответы лежат по машинам", async () => {
     // чьё: код — web/packages/ui/src/machines.ts
     const t = setup();
@@ -344,7 +344,7 @@ describe("ответы машин", () => {
   // источник: факт — обрывы раз в 4,8 мин стирали экран машины; перенесено из общих тестов пульта
   function hand(machines = ["a"]) {
     const answers: Array<(r: ui.Result<{ n: number }>) => void> = [];
-    const m = machineAnswers<{ n: number }>({ roster: () => rosterOf([["a", 1]]) as never, changed: () => {} }, () => new Promise((ok) => answers.push(ok)), () => machines);
+    const m = machineAnswers<{ n: number }>({ roster: () => rosterOf([["a", 1]]) as never, changed: () => { } }, () => new Promise((ok) => answers.push(ok)), () => machines);
     return { m, answers };
   }
 
@@ -456,12 +456,12 @@ describe("подписи и форматы", () => {
     expect(folderOf("")).toBe("~");
   });
 
-it("6237 · причина сбоя — «часть: причина»; ссылка remote — строкой и объектом", () => {
-  expect(failText({ failed: { host: "a", start: "b" } } as never)).toBe("host: a; start: b");
-  expect(failText({} as never)).toBe("");
-  expect(remoteOf({ remote: "u" } as never)).toBe("u");
-  expect(remoteOf({ remote: { url: "v" } } as never)).toBe("v");
-});
+  it("6237 · причина сбоя — «часть: причина»; ссылка remote — строкой и объектом", () => {
+    expect(failText({ failed: { host: "a", start: "b" } } as never)).toBe("host: a; start: b");
+    expect(failText({} as never)).toBe("");
+    expect(remoteOf({ remote: "u" } as never)).toBe("u");
+    expect(remoteOf({ remote: { url: "v" } } as never)).toBe("v");
+  });
 
   it("7236 · слова связи: offline — один текст, с машиной и без; слова владельца — как есть", () => {
     // чьё: код — слепой архитектор, 4 нояб.: offline переводился в чате и точках по-разному
@@ -473,59 +473,59 @@ it("6237 · причина сбоя — «часть: причина»; ссыл
     expect(linkText("name_taken")).toBe("name_taken");
   });
 
-it("6238 · имена: метка или адрес; машины с запросами: все названные в contract", () => {
-  const app = {
-    mark: (n: string, x: string) => (n === "label.session" && x === "a@b" ? { text: "Имя", human: true } : undefined),
-    roster: () => ({ machines: [{ machine: "m1", contract: { p: 1, q: 1 } }, { machine: "m2", contract: { p: 1 } }] }) as never,
-  };
-  expect(sessionLabel(app, "a@b")).toEqual({ text: "Имя", human: true });
-  expect(sessionLabel(app, "c@d")).toEqual({ text: "c", human: false });
-  expect(machineLabel(app, "m1")).toEqual({ text: "@m1", human: false });
-  expect(machinesWith(app, "p")).toEqual(["m1", "m2"]);
-  expect(machinesWith(app, "p", "q")).toEqual(["m1"]);
-});
+  it("6238 · имена: метка или адрес; машины с запросами: все названные в contract", () => {
+    const app = {
+      mark: (n: string, x: string) => (n === "label.session" && x === "a@b" ? { text: "Имя", human: true } : undefined),
+      roster: () => ({ machines: [{ machine: "m1", contract: { p: 1, q: 1 } }, { machine: "m2", contract: { p: 1 } }] }) as never,
+    };
+    expect(sessionLabel(app, "a@b")).toEqual({ text: "Имя", human: true });
+    expect(sessionLabel(app, "c@d")).toEqual({ text: "c", human: false });
+    expect(machineLabel(app, "m1")).toEqual({ text: "@m1", human: false });
+    expect(machinesWith(app, "p")).toEqual(["m1", "m2"]);
+    expect(machinesWith(app, "p", "q")).toEqual(["m1"]);
+  });
 
-it("модели, усилия и профиль", () => {
-  expect(ui.MODELS).toEqual(["opus", "sonnet", "haiku", "fable"]);
-  expect(ui.EFFORTS.map(([, n]) => n)).toEqual(["низкое", "среднее", "высокое", "очень высокое", "макс."]);
-  expect(ui.effortName("xhigh")).toBe("очень высокое");
-  expect(ui.effortName("x")).toBe("x");
-  expect(ui.effortName(undefined)).toBe("");
-  expect(ui.profileName("team/profiles/ops")).toBe("ops");
-  expect(ui.profileIdOf({ profile: { id: "team/ops" } } as never)).toBe("team/ops");
-  expect(ui.profileIdOf(undefined)).toBeUndefined();
-  expect(ui.profileNameOf({ profile: { id: "team/ops" } } as never)).toBe("ops");
-  expect(ui.profileNameOf({} as never)).toBeUndefined();
-});
+  it("модели, усилия и профиль", () => {
+    expect(ui.MODELS).toEqual(["opus", "sonnet", "haiku", "fable"]);
+    expect(ui.EFFORTS.map(([, n]) => n)).toEqual(["низкое", "среднее", "высокое", "очень высокое", "макс."]);
+    expect(ui.effortName("xhigh")).toBe("очень высокое");
+    expect(ui.effortName("x")).toBe("x");
+    expect(ui.effortName(undefined)).toBe("");
+    expect(ui.profileName("team/profiles/ops")).toBe("ops");
+    expect(ui.profileIdOf({ profile: { id: "team/ops" } } as never)).toBe("team/ops");
+    expect(ui.profileIdOf(undefined)).toBeUndefined();
+    expect(ui.profileNameOf({ profile: { id: "team/ops" } } as never)).toBe("ops");
+    expect(ui.profileNameOf({} as never)).toBeUndefined();
+  });
 
-it("запись сессии: сессия, слот, инцидент, строка, имя без подписи; адрес из пропуска", () => {
-  const s = { callsign: "a@b", model: "opus", effort: "high", slot: { name: "main", wait: null }, incident: { type: "t", key: "k" } } as never;
-  const app = { roster: () => ({ sessions: [s] }) as never, address: () => "phone~me@x.io" };
-  expect(ui.sessionOf(app, "a@b")).toBe(s);
-  expect(ui.sessionOf(app, "z@b")).toBeUndefined();
-  expect(ui.slotOf(s)).toEqual({ name: "main", wait: null });
-  expect(ui.incidentOf(s)).toEqual({ type: "t", key: "k" });
-  expect(ui.sessionLine(s)).toBe("opus · main");
-  expect(ui.sessionLine(s, true)).toBe("opus · высокое · main");
-  expect(ui.sessionLine(undefined)).toBe("");
-  expect(ui.plainSession("a@b")).toEqual({ text: "a", human: false });
-  expect(ui.plainMachine("b")).toEqual({ text: "@b", human: false });
-  expect(ui.myAddress(app)).toBe("~me@x.io");
-  expect(ui.myAddress({ address: () => null })).toBeNull();
-  expect(ui.remoteOf({} as never)).toBeUndefined();
-  expect(ui.machinesWith({ roster: () => null })).toEqual([]);
-});
+  it("запись сессии: сессия, слот, инцидент, строка, имя без подписи; адрес из пропуска", () => {
+    const s = { callsign: "a@b", model: "opus", effort: "high", slot: { name: "main", wait: null }, incident: { type: "t", key: "k" } } as never;
+    const app = { roster: () => ({ sessions: [s] }) as never, address: () => "phone~me@x.io" };
+    expect(ui.sessionOf(app, "a@b")).toBe(s);
+    expect(ui.sessionOf(app, "z@b")).toBeUndefined();
+    expect(ui.slotOf(s)).toEqual({ name: "main", wait: null });
+    expect(ui.incidentOf(s)).toEqual({ type: "t", key: "k" });
+    expect(ui.sessionLine(s)).toBe("opus · main");
+    expect(ui.sessionLine(s, true)).toBe("opus · высокое · main");
+    expect(ui.sessionLine(undefined)).toBe("");
+    expect(ui.plainSession("a@b")).toEqual({ text: "a", human: false });
+    expect(ui.plainMachine("b")).toEqual({ text: "@b", human: false });
+    expect(ui.myAddress(app)).toBe("~me@x.io");
+    expect(ui.myAddress({ address: () => null })).toBeNull();
+    expect(ui.remoteOf({} as never)).toBeUndefined();
+    expect(ui.machinesWith({ roster: () => null })).toEqual([]);
+  });
 
-it("выбор слота без компонента: выбранный есть — он, нет — первый; меньше двух — пусто; ждущий один — подпись", () => {
-  expect(ui.slotChoice(["a", "b"], "b")).toBe("b");
-  expect(ui.slotChoice(["a", "b"], "z")).toBe("a");
-  expect(ui.slotChoice(["a", "b"])).toBe("a");
-  expect(ui.slotChoice(["a"], "a")).toBe("");
-  expect(ui.slotWait(null)).toBe("");
-  expect(ui.slotWait({ a: { wait: null } })).toBe("");
-  expect(ui.slotWait({ a: { wait: 1 }, b: { wait: 1 } })).toBe("");
-  expect(ui.slotWait({ a: { wait: new Date(2026, 10, 3, 14, 5).getTime() } })).toBe("a · ждёт сброса 14:05");
-});
+  it("выбор слота без компонента: выбранный есть — он, нет — первый; меньше двух — пусто; ждущий один — подпись", () => {
+    expect(ui.slotChoice(["a", "b"], "b")).toBe("b");
+    expect(ui.slotChoice(["a", "b"], "z")).toBe("a");
+    expect(ui.slotChoice(["a", "b"])).toBe("a");
+    expect(ui.slotChoice(["a"], "a")).toBe("");
+    expect(ui.slotWait(null)).toBe("");
+    expect(ui.slotWait({ a: { wait: null } })).toBe("");
+    expect(ui.slotWait({ a: { wait: 1 }, b: { wait: 1 } })).toBe("");
+    expect(ui.slotWait({ a: { wait: new Date(2026, 10, 3, 14, 5).getTime() } })).toBe("a · ждёт сброса 14:05");
+  });
 
   it("6239 · лимиты: подписи окон, пороги 70 и 90 — один цвет на все экраны; строка со сроком и без", async () => {
     expect(ui.LIMIT_NAMES).toEqual({ five_hour: "5 ч", seven_day: "неделя", seven_day_opus: "неделя opus", seven_day_sonnet: "неделя sonnet" });
@@ -548,236 +548,236 @@ it("выбор слота без компонента: выбранный ест
     expect(el.querySelector('[data-p="x"] .sb-barw i')!.getAttribute("style")).toContain("width: 100%");
   });
 
-it("смена аккаунта: прошлый известен — сменился; первый раз — не смена; без аккаунта — мимо", () => {
-  const known: Record<string, string> = { a: "x" };
-  const sessions = [{ callsign: "a", account: "y" }, { callsign: "b", account: "z" }, { callsign: "c" }];
-  expect(ui.accountChanged(known, sessions)).toEqual(["a"]);
-  expect(known).toEqual({ a: "y", b: "z" });
-  expect(ui.accountChanged(known, sessions)).toEqual([]);
-  expect(ui.accountChanges({ sessions: [{ callsign: "a", account: "y" }, { callsign: null, account: "z" }] }, () => "old")).toEqual([{ callsign: "a", from: "old", account: "y" }]);
-});
+  it("смена аккаунта: прошлый известен — сменился; первый раз — не смена; без аккаунта — мимо", () => {
+    const known: Record<string, string> = { a: "x" };
+    const sessions = [{ callsign: "a", account: "y" }, { callsign: "b", account: "z" }, { callsign: "c" }];
+    expect(ui.accountChanged(known, sessions)).toEqual(["a"]);
+    expect(known).toEqual({ a: "y", b: "z" });
+    expect(ui.accountChanged(known, sessions)).toEqual([]);
+    expect(ui.accountChanges({ sessions: [{ callsign: "a", account: "y" }, { callsign: null, account: "z" }] }, () => "old")).toEqual([{ callsign: "a", from: "old", account: "y" }]);
+  });
 
-it("разрешения: режимы и места", () => {
-  expect(ui.PERM_MODES.map(([, n]) => n)).toEqual(["Без вопросов", "Спрашивать", "Правки сами", "План", "Авто"]);
-  expect(ui.permModeName("plan")).toBe("План");
-  expect(ui.permModeName("x")).toBeUndefined();
-  expect(ui.PERM_PLACES).toEqual({ localSettings: "локально", projectSettings: "проект", userSettings: "пользователь", policySettings: "организация", flagSettings: "запуск", cliArg: "запуск", command: "команда", session: "сессия" });
-});
+  it("разрешения: режимы и места", () => {
+    expect(ui.PERM_MODES.map(([, n]) => n)).toEqual(["Без вопросов", "Спрашивать", "Правки сами", "План", "Авто"]);
+    expect(ui.permModeName("plan")).toBe("План");
+    expect(ui.permModeName("x")).toBeUndefined();
+    expect(ui.PERM_PLACES).toEqual({ localSettings: "локально", projectSettings: "проект", userSettings: "пользователь", policySettings: "организация", flagSettings: "запуск", cliArg: "запуск", command: "команда", session: "сессия" });
+  });
 });
 
 describe("компоненты: один компонент — один класс основания", () => {
-it.each([
-  ["Btn", <ui.Btn className="x" data-p="1" />, "BUTTON", "sb-b x"],
-  ["Btn pri bad dash ghost", <ui.Btn pri bad dash ghost />, "BUTTON", "sb-b pri bad dash ghost"],
-  ["RowBtn", <ui.RowBtn className="x" />, "BUTTON", "sb-rw x"],
-  ["IconBtn", <ui.IconBtn aria-label="з" className="x" />, "BUTTON", "sb-ic x"],
-  ["DisclosureBtn", <ui.DisclosureBtn open={false} className="x" />, "BUTTON", "sb-ds x"],
-  ["TextBtn", <ui.TextBtn className="x" />, "BUTTON", "sb-tx x"],
-  ["Chips", <ui.Chips className="x" />, "DIV", "sb-chips x"],
-  ["Chips quiet", <ui.Chips quiet />, "DIV", "sb-chips quiet"],
-  ["Chip", <ui.Chip on className="x" />, "BUTTON", "sb-chip x"],
-  ["LinkBtn", <ui.LinkBtn pri ghost className="x" />, "A", "sb-b pri ghost x"],
-  ["Cta", <ui.Cta className="x" />, "BUTTON", "sb-cta x"],
-  ["In", <ui.In className="x" />, "INPUT", "sb-in x"],
-  ["In mono", <ui.In mono />, "INPUT", "sb-in m"],
-  ["Area", <ui.Area className="x" />, "TEXTAREA", "sb-in x"],
-  ["Sel", <ui.Sel className="x" />, "SELECT", "sb-in x"],
-  ["Note", <ui.Note tone="bad" className="x" />, "DIV", "sb-note bad x"],
-  ["Cmd", <ui.Cmd className="x" />, "CODE", "sb-cmd x"],
-  ["Pill", <ui.Pill tone="ok" conn className="x" />, "SPAN", "sb-pill ok conn x"],
-  ["Dot", <ui.Dot kind="busy" className="x" />, "SPAN", "sb-dot busy x"],
-  ["Badge", <ui.Badge wait className="x" />, "SPAN", "sb-badge wait x"],
-  ["Page", <ui.Page className="x" />, "DIV", "sb-page x"],
-  ["Pad", <ui.Pad className="x" />, "DIV", "sb-pad x"],
-  ["PageHead", <ui.PageHead className="x" />, "DIV", "sb-ph x"],
-  ["Sec", <ui.Sec dlg tone="ok" className="x" />, "SECTION", "sb-sec dlg ok x"],
-  ["H4", <ui.H4 className="x" />, "H4", "sb-h4 x"],
-  ["Row", <ui.Row label="п" className="x" />, "DIV", "sb-row x"],
-  ["Opts", <ui.Opts className="x" />, "DIV", "sb-opts x"],
-  ["OptsLabel", <ui.OptsLabel className="x" />, "LABEL", "sb-opts x"],
-  ["M", <ui.M className="x" />, "SPAN", "sb-m x"],
-  ["Meter", <ui.Meter value={5} warn className="x" />, "SPAN", "sb-barw warn x"],
-  ["Meter bad", <ui.Meter value={5} bad />, "SPAN", "sb-barw bad"],
-  ["OkCard", <ui.OkCard className="x" />, "DIV", "sb-okc x"],
-  ["WaitCard", <ui.WaitCard className="x" />, "DIV", "sb-waitc x"],
-  ["BadCard", <ui.BadCard className="x" />, "DIV", "sb-badc x"],
-] as const)("%s", async (_n, node, tag, cls) => {
-  const el = firstEl(await draw(node));
-  expect(el.tagName).toBe(tag);
-  expect(el.className).toBe(cls);
-});
+  it.each([
+    ["Btn", <ui.Btn className="x" data-p="1" />, "BUTTON", "sb-b x"],
+    ["Btn pri bad dash ghost", <ui.Btn pri bad dash ghost />, "BUTTON", "sb-b pri bad dash ghost"],
+    ["RowBtn", <ui.RowBtn className="x" />, "BUTTON", "sb-rw x"],
+    ["IconBtn", <ui.IconBtn aria-label="з" className="x" />, "BUTTON", "sb-ic x"],
+    ["DisclosureBtn", <ui.DisclosureBtn open={false} className="x" />, "BUTTON", "sb-ds x"],
+    ["TextBtn", <ui.TextBtn className="x" />, "BUTTON", "sb-tx x"],
+    ["Chips", <ui.Chips className="x" />, "DIV", "sb-chips x"],
+    ["Chips quiet", <ui.Chips quiet />, "DIV", "sb-chips quiet"],
+    ["Chip", <ui.Chip on className="x" />, "BUTTON", "sb-chip x"],
+    ["LinkBtn", <ui.LinkBtn pri ghost className="x" />, "A", "sb-b pri ghost x"],
+    ["Cta", <ui.Cta className="x" />, "BUTTON", "sb-cta x"],
+    ["In", <ui.In className="x" />, "INPUT", "sb-in x"],
+    ["In mono", <ui.In mono />, "INPUT", "sb-in m"],
+    ["Area", <ui.Area className="x" />, "TEXTAREA", "sb-in x"],
+    ["Sel", <ui.Sel className="x" />, "SELECT", "sb-in x"],
+    ["Note", <ui.Note tone="bad" className="x" />, "DIV", "sb-note bad x"],
+    ["Cmd", <ui.Cmd className="x" />, "CODE", "sb-cmd x"],
+    ["Pill", <ui.Pill tone="ok" conn className="x" />, "SPAN", "sb-pill ok conn x"],
+    ["Dot", <ui.Dot kind="busy" className="x" />, "SPAN", "sb-dot busy x"],
+    ["Badge", <ui.Badge wait className="x" />, "SPAN", "sb-badge wait x"],
+    ["Page", <ui.Page className="x" />, "DIV", "sb-page x"],
+    ["Pad", <ui.Pad className="x" />, "DIV", "sb-pad x"],
+    ["PageHead", <ui.PageHead className="x" />, "DIV", "sb-ph x"],
+    ["Sec", <ui.Sec dlg tone="ok" className="x" />, "SECTION", "sb-sec dlg ok x"],
+    ["H4", <ui.H4 className="x" />, "H4", "sb-h4 x"],
+    ["Row", <ui.Row label="п" className="x" />, "DIV", "sb-row x"],
+    ["Opts", <ui.Opts className="x" />, "DIV", "sb-opts x"],
+    ["OptsLabel", <ui.OptsLabel className="x" />, "LABEL", "sb-opts x"],
+    ["M", <ui.M className="x" />, "SPAN", "sb-m x"],
+    ["Meter", <ui.Meter value={5} warn className="x" />, "SPAN", "sb-barw warn x"],
+    ["Meter bad", <ui.Meter value={5} bad />, "SPAN", "sb-barw bad"],
+    ["OkCard", <ui.OkCard className="x" />, "DIV", "sb-okc x"],
+    ["WaitCard", <ui.WaitCard className="x" />, "DIV", "sb-waitc x"],
+    ["BadCard", <ui.BadCard className="x" />, "DIV", "sb-badc x"],
+  ] as const)("%s", async (_n, node, tag, cls) => {
+    const el = firstEl(await draw(node));
+    expect(el.tagName).toBe(tag);
+    expect(el.className).toBe(cls);
+  });
 
-it("лишние свойства идут на элемент; ref — на него же", async () => {
-  let got: HTMLElement | null = null;
-  const el = firstEl(await draw(<ui.RowBtn data-k="1" aria-current="page" ref={(x) => void (got = x)} />));
-  expect(el.getAttribute("data-k")).toBe("1");
-  expect(el.getAttribute("aria-current")).toBe("page");
-  expect(got).toBe(el);
-});
+  it("лишние свойства идут на элемент; ref — на него же", async () => {
+    let got: HTMLElement | null = null;
+    const el = firstEl(await draw(<ui.RowBtn data-k="1" aria-current="page" ref={(x) => void (got = x)} />));
+    expect(el.getAttribute("data-k")).toBe("1");
+    expect(el.getAttribute("aria-current")).toBe("page");
+    expect(got).toBe(el);
+  });
 
-it("состояния: чип, вкладки, заголовок страницы, строка, полоса, группа выбора", async () => {
-  const pick = vi.fn();
-  const el = await draw(
-    <>
-      <ui.Chip on data-k="on" />
-      <ui.Chip on={false} data-k="off" />
-      <ui.Tabs tabs={[["a", "Первая"], ["b", "Вторая"]]} cur="a" pick={pick} data-k="tabs" />
-      <ui.PageHead title="Заголовок" data-k="ph">
-        <i>справа</i>
-      </ui.PageHead>
-      <ui.Row label="Подпись" data-k="row">
-        значение
-      </ui.Row>
-      <ui.Meter value={42} data-k="meter" />
-      <ui.Choices title="Группа">
-        <i>выбор</i>
-      </ui.Choices>
-    </>,
-  );
-  const at = (k: string) => el.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
-  expect(at("on").getAttribute("aria-pressed")).toBe("true");
-  expect(at("off").getAttribute("aria-pressed")).toBe("false");
-  expect(at("tabs").getAttribute("role")).toBe("tablist");
-  const tabs = [...at("tabs").querySelectorAll<HTMLElement>('[role="tab"]')];
-  expect(tabs.map((t) => [t.textContent, t.getAttribute("aria-selected"), t.dataset.tab])).toEqual([["Первая", "true", "a"], ["Вторая", "false", "b"]]);
-  await act(async () => tabs[1].click());
-  expect(pick).toHaveBeenCalledWith("b");
-  expect(at("ph").querySelector("h2")!.textContent).toBe("Заголовок");
-  expect(at("ph").textContent).toBe("Заголовокsправа".replace("s", "с"));
-  expect(at("row").querySelector("span")!.textContent).toBe("Подпись");
-  expect(at("row").textContent).toBe("Подписьзначение");
-  expect(at("meter").querySelector("i")!.getAttribute("style")).toContain("width: 42%");
-  expect(el.querySelector(".vw-g .vw-t")!.textContent).toBe("Группа");
-  expect(el.querySelector(".vw-g .sb-chips.quiet i")!.textContent).toBe("выбор");
-});
+  it("состояния: чип, вкладки, заголовок страницы, строка, полоса, группа выбора", async () => {
+    const pick = vi.fn();
+    const el = await draw(
+      <>
+        <ui.Chip on data-k="on" />
+        <ui.Chip on={false} data-k="off" />
+        <ui.Tabs tabs={[["a", "Первая"], ["b", "Вторая"]]} cur="a" pick={pick} data-k="tabs" />
+        <ui.PageHead title="Заголовок" data-k="ph">
+          <i>справа</i>
+        </ui.PageHead>
+        <ui.Row label="Подпись" data-k="row">
+          значение
+        </ui.Row>
+        <ui.Meter value={42} data-k="meter" />
+        <ui.Choices title="Группа">
+          <i>выбор</i>
+        </ui.Choices>
+      </>,
+    );
+    const at = (k: string) => el.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
+    expect(at("on").getAttribute("aria-pressed")).toBe("true");
+    expect(at("off").getAttribute("aria-pressed")).toBe("false");
+    expect(at("tabs").getAttribute("role")).toBe("tablist");
+    const tabs = [...at("tabs").querySelectorAll<HTMLElement>('[role="tab"]')];
+    expect(tabs.map((t) => [t.textContent, t.getAttribute("aria-selected"), t.dataset.tab])).toEqual([["Первая", "true", "a"], ["Вторая", "false", "b"]]);
+    await act(async () => tabs[1].click());
+    expect(pick).toHaveBeenCalledWith("b");
+    expect(at("ph").querySelector("h2")!.textContent).toBe("Заголовок");
+    expect(at("ph").textContent).toBe("Заголовокsправа".replace("s", "с"));
+    expect(at("row").querySelector("span")!.textContent).toBe("Подпись");
+    expect(at("row").textContent).toBe("Подписьзначение");
+    expect(at("meter").querySelector("i")!.getAttribute("style")).toContain("width: 42%");
+    expect(el.querySelector(".vw-g .vw-t")!.textContent).toBe("Группа");
+    expect(el.querySelector(".vw-g .sb-chips.quiet i")!.textContent).toBe("выбор");
+  });
 
-it("PageHead без заголовка — без h2; итог действия: нет текста — нет строки; отказ — alert, иначе status", async () => {
-  const a = await draw(<ui.PageHead />);
-  expect(a.querySelector("h2")).toBeNull();
-  const b = await draw(
-    <>
-      <ui.Outcome note={null} />
-      <ui.Outcome note={{ text: "" }} />
-      <ui.Outcome data-k="bad" note={{ text: "упало", tone: "bad" }} />
-      <ui.Outcome data-k="ok" note={{ text: "готово", tone: "ok" }} />
-      <ui.Outcome data-k="plain" note={{ text: "так" }} />
-    </>,
-  );
-  expect(b.querySelectorAll(".sb-note")).toHaveLength(3);
-  expect(b.querySelector('[data-k="bad"]')!.getAttribute("role")).toBe("alert");
-  expect(b.querySelector('[data-k="bad"]')!.className).toBe("sb-note bad");
-  expect(b.querySelector('[data-k="ok"]')!.getAttribute("role")).toBe("status");
-  expect(b.querySelector('[data-k="plain"]')!.className).toBe("sb-note");
-});
+  it("PageHead без заголовка — без h2; итог действия: нет текста — нет строки; отказ — alert, иначе status", async () => {
+    const a = await draw(<ui.PageHead />);
+    expect(a.querySelector("h2")).toBeNull();
+    const b = await draw(
+      <>
+        <ui.Outcome note={null} />
+        <ui.Outcome note={{ text: "" }} />
+        <ui.Outcome data-k="bad" note={{ text: "упало", tone: "bad" }} />
+        <ui.Outcome data-k="ok" note={{ text: "готово", tone: "ok" }} />
+        <ui.Outcome data-k="plain" note={{ text: "так" }} />
+      </>,
+    );
+    expect(b.querySelectorAll(".sb-note")).toHaveLength(3);
+    expect(b.querySelector('[data-k="bad"]')!.getAttribute("role")).toBe("alert");
+    expect(b.querySelector('[data-k="bad"]')!.className).toBe("sb-note bad");
+    expect(b.querySelector('[data-k="ok"]')!.getAttribute("role")).toBe("status");
+    expect(b.querySelector('[data-k="plain"]')!.className).toBe("sb-note");
+  });
 
-it("выбор слота: два слота — строка и чипы; ждущий — со сбросом; один ждущий — подпись; один свободный — ничего", async () => {
-  const on = vi.fn();
-  const reset = new Date(2026, 10, 3, 14, 5).getTime();
-  const two = await draw(<ui.SlotPick slots={{ main: { wait: null }, bot: { wait: reset } }} value="main" on={on} />);
-  expect(two.querySelector("[data-slot-pick] > span")!.textContent).toBe("Слот");
-  const chips = [...two.querySelectorAll<HTMLElement>("[data-slot]")];
-  expect(chips.map((c) => c.textContent)).toEqual(["main", "bot · ждёт сброса 14:05"]);
-  expect(chips.map((c) => c.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
-  await act(async () => chips[1].click());
-  expect(on).toHaveBeenCalledWith("bot");
-  const other = await draw(<ui.SlotPick slots={{ a: { wait: null }, b: { wait: null } }} value="a" on={on} label="Аккаунт" />);
-  expect(other.querySelector("[data-slot-pick] > span")!.textContent).toBe("Аккаунт");
-  const wait = await draw(<ui.SlotPick slots={{ main: { wait: reset } }} value="" on={on} label="Аккаунт" />);
-  expect(wait.querySelector("[data-slot-wait]")!.textContent).toBe("Слот main · ждёт сброса 14:05");
-  expect(wait.querySelector("[data-slot-wait]")!.className).toBe("sb-note wait");
-  expect((await draw(<ui.SlotPick slots={{ main: { wait: null } }} value="" on={on} />)).innerHTML).toBe("");
-});
+  it("выбор слота: два слота — строка и чипы; ждущий — со сбросом; один ждущий — подпись; один свободный — ничего", async () => {
+    const on = vi.fn();
+    const reset = new Date(2026, 10, 3, 14, 5).getTime();
+    const two = await draw(<ui.SlotPick slots={{ main: { wait: null }, bot: { wait: reset } }} value="main" on={on} />);
+    expect(two.querySelector("[data-slot-pick] > span")!.textContent).toBe("Слот");
+    const chips = [...two.querySelectorAll<HTMLElement>("[data-slot]")];
+    expect(chips.map((c) => c.textContent)).toEqual(["main", "bot · ждёт сброса 14:05"]);
+    expect(chips.map((c) => c.getAttribute("aria-pressed"))).toEqual(["true", "false"]);
+    await act(async () => chips[1].click());
+    expect(on).toHaveBeenCalledWith("bot");
+    const other = await draw(<ui.SlotPick slots={{ a: { wait: null }, b: { wait: null } }} value="a" on={on} label="Аккаунт" />);
+    expect(other.querySelector("[data-slot-pick] > span")!.textContent).toBe("Аккаунт");
+    const wait = await draw(<ui.SlotPick slots={{ main: { wait: reset } }} value="" on={on} label="Аккаунт" />);
+    expect(wait.querySelector("[data-slot-wait]")!.textContent).toBe("Слот main · ждёт сброса 14:05");
+    expect(wait.querySelector("[data-slot-wait]")!.className).toBe("sb-note wait");
+    expect((await draw(<ui.SlotPick slots={{ main: { wait: null } }} value="" on={on} />)).innerHTML).toBe("");
+  });
 
-it("выбор одного из многих: выбранный и ближние — кнопками, остальные — списком «ещё N…»; выбор зовёт on", async () => {
-  const on = vi.fn();
-  const el = await draw(<ui.PickOne all={["a", "b", "c", "d"]} near={["b"]} cur="a" on={on} select={{ "data-f": "m" }} button={(v) => ({ "data-v": v })} />);
-  const buttons = [...el.querySelectorAll<HTMLElement>("button")];
-  expect(buttons.map((b) => [b.textContent, b.getAttribute("aria-pressed"), b.dataset.v])).toEqual([["a", "true", "a"], ["b", "false", "b"]]);
-  await act(async () => buttons[1].click());
-  expect(on).toHaveBeenLastCalledWith("b");
-  const sel = el.querySelector<HTMLSelectElement>('select[data-f="m"]')!;
-  expect([...sel.options].map((o) => o.textContent)).toEqual(["ещё 2…", "c", "d"]);
-  expect((await draw(<ui.PickOne all={["a"]} near={[]} cur="a" on={on} />)).querySelector("select")).toBeNull();
-});
+  it("выбор одного из многих: выбранный и ближние — кнопками, остальные — списком «ещё N…»; выбор зовёт on", async () => {
+    const on = vi.fn();
+    const el = await draw(<ui.PickOne all={["a", "b", "c", "d"]} near={["b"]} cur="a" on={on} select={{ "data-f": "m" }} button={(v) => ({ "data-v": v })} />);
+    const buttons = [...el.querySelectorAll<HTMLElement>("button")];
+    expect(buttons.map((b) => [b.textContent, b.getAttribute("aria-pressed"), b.dataset.v])).toEqual([["a", "true", "a"], ["b", "false", "b"]]);
+    await act(async () => buttons[1].click());
+    expect(on).toHaveBeenLastCalledWith("b");
+    const sel = el.querySelector<HTMLSelectElement>('select[data-f="m"]')!;
+    expect([...sel.options].map((o) => o.textContent)).toEqual(["ещё 2…", "c", "d"]);
+    expect((await draw(<ui.PickOne all={["a"]} near={[]} cur="a" on={on} />)).querySelector("select")).toBeNull();
+  });
 
-it("7322 · кнопки набора в форме её не отправляют, отправка — только явным type; раскрытие, переключатель и флажок говорят состояние", async () => {
-  // источник: факт 4 нояб. — голая <button> в форме отправляет её; кнопки набора заменили голые
-  const send = vi.fn((e: Event) => e.preventDefault());
-  const el = await draw(
-    <form onSubmit={(e) => send(e.nativeEvent)}>
-      <RowBtn data-k="r" />
-      <IconBtn data-k="i" aria-label="значок" />
-      <DisclosureBtn data-k="d" open />
-      <TextBtn data-k="t" />
-      <Switch data-k="s" on={false} />
-      <Check data-k="c" readOnly checked />
-      <IconBtn data-k="go" aria-label="отправить" type="submit" />
-    </form>,
-  );
-  const at = (k: string) => el.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
-  for (const k of ["r", "i", "d", "t", "s"]) await act(async () => at(k).click());
-  expect(send).not.toHaveBeenCalled();
-  expect(at("d").getAttribute("aria-expanded")).toBe("true");
-  expect(at("s").getAttribute("role")).toBe("switch");
-  expect(at("s").getAttribute("aria-checked")).toBe("false");
-  expect(at("c").type).toBe("checkbox");
-  await act(async () => at("go").click());
-  expect(send).toHaveBeenCalledTimes(1);
-});
+  it("7322 · кнопки набора в форме её не отправляют, отправка — только явным type; раскрытие, переключатель и флажок говорят состояние", async () => {
+    // источник: факт 4 нояб. — голая <button> в форме отправляет её; кнопки набора заменили голые
+    const send = vi.fn((e: Event) => e.preventDefault());
+    const el = await draw(
+      <form onSubmit={(e) => send(e.nativeEvent)}>
+        <RowBtn data-k="r" />
+        <IconBtn data-k="i" aria-label="значок" />
+        <DisclosureBtn data-k="d" open />
+        <TextBtn data-k="t" />
+        <Switch data-k="s" on={false} />
+        <Check data-k="c" readOnly checked />
+        <IconBtn data-k="go" aria-label="отправить" type="submit" />
+      </form>,
+    );
+    const at = (k: string) => el.querySelector<HTMLInputElement>(`[data-k="${k}"]`)!;
+    for (const k of ["r", "i", "d", "t", "s"]) await act(async () => at(k).click());
+    expect(send).not.toHaveBeenCalled();
+    expect(at("d").getAttribute("aria-expanded")).toBe("true");
+    expect(at("s").getAttribute("role")).toBe("switch");
+    expect(at("s").getAttribute("aria-checked")).toBe("false");
+    expect(at("c").type).toBe("checkbox");
+    await act(async () => at("go").click());
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 
-it("разметка компонентов сверх класса: переключатель, флажок, вкладки, поле, группа, лимит, выбор, копирование, блок кода", async () => {
-  const el = await draw(
-    <>
-      <ui.Switch on data-k="sw" className="x" />
-      <ui.Check readOnly checked data-k="ch" className="x" />
-      <ui.Tabs tabs={[["a", "A"]]} cur="a" pick={() => {}} className="x" data-k="tabs" />
-      <ui.CommitIn value="v" onCommit={() => {}} mono className="x" data-k="in" />
-      <ui.LimitRow label="L" used={0.5} className="x" data-k="lim" />
-      <ui.PickOne all={["a", "b", "c"]} near={["b"]} cur="a" on={() => {}} />
-      <ui.Row label="L" data-k="row">v</ui.Row>
-      <ui.CopyButton text="t" />
-      <ui.CodeBlock code="<a/>" lang="html" />
-      <ui.Btn data-k="btn" />
-      <ui.Cta data-k="cta" />
-      <ui.Chip on data-k="chip" />
-    </>,
-  );
-  const at = (k: string) => el.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
-  expect(at("sw").tagName).toBe("BUTTON");
-  expect(at("sw").getAttribute("type")).toBe("button");
-  expect(at("sw").className).toBe("x");
-  expect(at("sw").getAttribute("aria-checked")).toBe("true");
-  expect(at("ch").className).toBe("x");
-  expect(at("tabs").className).toBe("x");
-  const tab = at("tabs").querySelector("button")!;
-  expect(tab.className).toBe("sb-b");
-  expect(tab.hasAttribute("type")).toBe(false);
-  expect(at("in").className).toBe("sb-in m x");
-  expect(at("lim").className).toBe("x");
-  expect([...at("lim").children].map((c) => c.tagName)).toEqual(["SPAN", "SPAN", "EM"]);
-  for (const k of ["btn", "cta", "chip"]) expect(at(k).hasAttribute("type"), k).toBe(false);
-  const [pick1, pick2] = el.querySelectorAll<HTMLElement>("button[aria-pressed].sb-b");
-  expect([pick1.textContent, pick2.textContent]).toEqual(["a", "b"]);
-  expect(el.querySelector("select")!.className).toBe("sb-in");
-  expect(el.querySelector<HTMLOptionElement>("select option")!.value).toBe("");
-  expect(at("row").textContent).toBe("Lv");
-  const copy = el.querySelector<HTMLElement>('.cb-b[aria-label="Копировать"]')!;
-  expect(copy.getAttribute("type")).toBe("button");
-  expect(copy.getAttribute("title")).toBe("Копировать");
-  expect(copy.querySelector("svg")!.getAttribute("class")).toContain("lucide-copy");
-  expect(copy.querySelector("svg")!.getAttribute("width")).toBe("13");
-  const cb = el.querySelector(".cb")!;
-  expect([...cb.children].map((c) => c.className || c.tagName)).toEqual(["cb-h", "PRE"]);
-  const view = [...cb.querySelectorAll<HTMLElement>(".cb-b")];
-  expect(view.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", null]);
-  expect(view[0].textContent).toBe("Просмотр");
-  expect(view[0].querySelector("svg")!.getAttribute("class")).toContain("lucide-eye");
-  await act(async () => view[0].click());
-  expect(cb.querySelector(".html-frame iframe")).not.toBeNull();
-  expect(cb.querySelector("pre")).toBeNull();
-  expect(cb.querySelector(".cb-b")!.getAttribute("aria-pressed")).toBe("true");
-  expect(cb.querySelector(".cb-b")!.textContent).toBe("Код");
-});
+  it("разметка компонентов сверх класса: переключатель, флажок, вкладки, поле, группа, лимит, выбор, копирование, блок кода", async () => {
+    const el = await draw(
+      <>
+        <ui.Switch on data-k="sw" className="x" />
+        <ui.Check readOnly checked data-k="ch" className="x" />
+        <ui.Tabs tabs={[["a", "A"]]} cur="a" pick={() => { }} className="x" data-k="tabs" />
+        <ui.CommitIn value="v" onCommit={() => { }} mono className="x" data-k="in" />
+        <ui.LimitRow label="L" used={0.5} className="x" data-k="lim" />
+        <ui.PickOne all={["a", "b", "c"]} near={["b"]} cur="a" on={() => { }} />
+        <ui.Row label="L" data-k="row">v</ui.Row>
+        <ui.CopyButton text="t" />
+        <ui.CodeBlock code="<a/>" lang="html" />
+        <ui.Btn data-k="btn" />
+        <ui.Cta data-k="cta" />
+        <ui.Chip on data-k="chip" />
+      </>,
+    );
+    const at = (k: string) => el.querySelector<HTMLElement>(`[data-k="${k}"]`)!;
+    expect(at("sw").tagName).toBe("BUTTON");
+    expect(at("sw").getAttribute("type")).toBe("button");
+    expect(at("sw").className).toBe("x");
+    expect(at("sw").getAttribute("aria-checked")).toBe("true");
+    expect(at("ch").className).toBe("x");
+    expect(at("tabs").className).toBe("x");
+    const tab = at("tabs").querySelector("button")!;
+    expect(tab.className).toBe("sb-b");
+    expect(tab.hasAttribute("type")).toBe(false);
+    expect(at("in").className).toBe("sb-in m x");
+    expect(at("lim").className).toBe("x");
+    expect([...at("lim").children].map((c) => c.tagName)).toEqual(["SPAN", "SPAN", "EM"]);
+    for (const k of ["btn", "cta", "chip"]) expect(at(k).hasAttribute("type"), k).toBe(false);
+    const [pick1, pick2] = el.querySelectorAll<HTMLElement>("button[aria-pressed].sb-b");
+    expect([pick1.textContent, pick2.textContent]).toEqual(["a", "b"]);
+    expect(el.querySelector("select")!.className).toBe("sb-in");
+    expect(el.querySelector<HTMLOptionElement>("select option")!.value).toBe("");
+    expect(at("row").textContent).toBe("Lv");
+    const copy = el.querySelector<HTMLElement>('.cb-b[aria-label="Копировать"]')!;
+    expect(copy.getAttribute("type")).toBe("button");
+    expect(copy.getAttribute("title")).toBe("Копировать");
+    expect(copy.querySelector("svg")!.getAttribute("class")).toContain("lucide-copy");
+    expect(copy.querySelector("svg")!.getAttribute("width")).toBe("13");
+    const cb = el.querySelector(".cb")!;
+    expect([...cb.children].map((c) => c.className || c.tagName)).toEqual(["cb-h", "PRE"]);
+    const view = [...cb.querySelectorAll<HTMLElement>(".cb-b")];
+    expect(view.map((b) => b.getAttribute("aria-pressed"))).toEqual(["false", null]);
+    expect(view[0].textContent).toBe("Просмотр");
+    expect(view[0].querySelector("svg")!.getAttribute("class")).toContain("lucide-eye");
+    await act(async () => view[0].click());
+    expect(cb.querySelector(".html-frame iframe")).not.toBeNull();
+    expect(cb.querySelector("pre")).toBeNull();
+    expect(cb.querySelector(".cb-b")!.getAttribute("aria-pressed")).toBe("true");
+    expect(cb.querySelector(".cb-b")!.textContent).toBe("Код");
+  });
 });
 
 describe("хуки экрана", () => {
@@ -874,13 +874,13 @@ describe("настройки модуля", () => {
 
   it("правка на экране сразу, в prefs циклом; отказ записи — словом в тосте; остановка ждёт цикл", async () => {
     const t = fake();
-    const p = ui.personal(t.app, "x", () => {});
+    const p = ui.personal(t.app, "x", () => { });
     await p.onLink("open");
     t.answer.set = { ok: false, error: "too_large" };
     p.edit<number>("a", (n = 0) => n + 1);
     expect(p.get("a")).toBe(6);
     await p.stop();
-    await act(async () => {});
+    await act(async () => { });
     expect(t.asked.some(([n, b]) => n === "prefs.set" && b.name === "x.a" && b.value === 6)).toBe(true);
     expect(t.toast).toHaveBeenCalledWith("Настройка не сохранилась: too_large", "bad");
   });
@@ -888,7 +888,7 @@ describe("настройки модуля", () => {
   it("6594 · область: человек — без поля, флот — global, приложение — app:<имя>", async () => {
     const scope = async (s?: ui.Scope) => {
       const t = fake();
-      await ui.personal(t.app, "x", () => {}, s).onLink("open");
+      await ui.personal(t.app, "x", () => { }, s).onLink("open");
       return t.asked[0][1].scope;
     };
     expect(await scope()).toBeUndefined();
@@ -899,46 +899,46 @@ describe("настройки модуля", () => {
 });
 
 describe("блок кода и просмотр", () => {
-it("копирование: значок — галочка на 1,5 с, текст доходит; подпись меняется словом", async () => {
-  vi.useFakeTimers();
-  const writeText = vi.fn(async () => {});
-  vi.stubGlobal("navigator", { clipboard: { writeText } });
-  const el = await draw(<ui.CopyButton text="код" label="Копировать" />);
-  const b = el.querySelector("button")!;
-  expect(b.getAttribute("aria-label")).toBe("Копировать");
-  expect(b.textContent).toBe("Копировать");
-  await act(async () => b.click());
-  expect(writeText).toHaveBeenCalledWith("код");
-  expect(b.textContent).toBe("скопировано");
-  await act(async () => vi.advanceTimersByTime(1500));
-  expect(b.textContent).toBe("Копировать");
-});
+  it("копирование: значок — галочка на 1,5 с, текст доходит; подпись меняется словом", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn(async () => { });
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const el = await draw(<ui.CopyButton text="код" label="Копировать" />);
+    const b = el.querySelector("button")!;
+    expect(b.getAttribute("aria-label")).toBe("Копировать");
+    expect(b.textContent).toBe("Копировать");
+    await act(async () => b.click());
+    expect(writeText).toHaveBeenCalledWith("код");
+    expect(b.textContent).toBe("скопировано");
+    await act(async () => vi.advanceTimersByTime(1500));
+    expect(b.textContent).toBe("Копировать");
+  });
 
-it("буфера нет или отказал — «буфер недоступен», экран жив", async () => {
-  vi.stubGlobal("navigator", {});
-  const none = (await draw(<ui.CopyButton text="к" label="Копировать" />)).querySelector("button")!;
-  await act(async () => none.click());
-  expect(none.textContent).toBe("буфер недоступен");
-  vi.stubGlobal("navigator", { clipboard: { writeText: () => Promise.reject(new Error("нет")) } });
-  const bad = (await draw(<ui.CopyButton text="к" label="Копировать" />)).querySelector("button")!;
-  await act(async () => bad.click());
-  expect(bad.textContent).toBe("буфер недоступен");
-});
+  it("буфера нет или отказал — «буфер недоступен», экран жив", async () => {
+    vi.stubGlobal("navigator", {});
+    const none = (await draw(<ui.CopyButton text="к" label="Копировать" />)).querySelector("button")!;
+    await act(async () => none.click());
+    expect(none.textContent).toBe("буфер недоступен");
+    vi.stubGlobal("navigator", { clipboard: { writeText: () => Promise.reject(new Error("нет")) } });
+    const bad = (await draw(<ui.CopyButton text="к" label="Копировать" />)).querySelector("button")!;
+    await act(async () => bad.click());
+    expect(bad.textContent).toBe("буфер недоступен");
+  });
 
-it("блок кода: язык, подсветка; неизвестный язык и имя из прототипа — текстом", async () => {
-  const ts = await draw(<ui.CodeBlock code="const a = 1;" lang="TS" />);
-  expect(ts.querySelector(".cb")!.getAttribute("data-lang")).toBe("TS");
-  expect(ts.querySelector(".cb-l")!.textContent).toBe("TS");
-  expect(ts.querySelector("code")!.className).toBe("hljs language-TS");
-  expect(ts.querySelector("code .hljs-keyword")!.textContent).toBe("const");
-  for (const lang of ["nosuch", "constructor", "__proto__"]) {
-    const el = await draw(<ui.CodeBlock code="x" lang={lang} />);
-    expect(el.querySelector("code")!.textContent).toBe("x");
-  }
-  const plain = await draw(<ui.CodeBlock code="x" lang="" />);
-  expect(plain.querySelector("code")!.className).toBe("hljs");
-  expect(plain.querySelector(".cb")!.hasAttribute("data-lang")).toBe(false);
-});
+  it("блок кода: язык, подсветка; неизвестный язык и имя из прототипа — текстом", async () => {
+    const ts = await draw(<ui.CodeBlock code="const a = 1;" lang="TS" />);
+    expect(ts.querySelector(".cb")!.getAttribute("data-lang")).toBe("TS");
+    expect(ts.querySelector(".cb-l")!.textContent).toBe("TS");
+    expect(ts.querySelector("code")!.className).toBe("hljs language-TS");
+    expect(ts.querySelector("code .hljs-keyword")!.textContent).toBe("const");
+    for (const lang of ["nosuch", "constructor", "__proto__"]) {
+      const el = await draw(<ui.CodeBlock code="x" lang={lang} />);
+      expect(el.querySelector("code")!.textContent).toBe("x");
+    }
+    const plain = await draw(<ui.CodeBlock code="x" lang="" />);
+    expect(plain.querySelector("code")!.className).toBe("hljs");
+    expect(plain.querySelector(".cb")!.hasAttribute("data-lang")).toBe(false);
+  });
 
 
   it("язык файла по расширению; незнакомое и имя из прототипа — пусто", () => {
@@ -947,7 +947,7 @@ it("блок кода: язык, подсветка; неизвестный яз
   });
 
   it("блок кода в тексте ответа: язык и текст из разметки, копирование берёт текст узлов", async () => {
-    const writeText = vi.fn(async () => {});
+    const writeText = vi.fn(async () => { });
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const el = await draw(<ui.Markdown text={"```ts\nconst a = 1;\n```"} />);
     expect(el.querySelector(".cb-l")!.textContent).toBe("ts");
@@ -963,116 +963,123 @@ it("блок кода: язык, подсветка; неизвестный яз
     expect(doc.endsWith("<p>тело</p>")).toBe(true);
   });
 
-/** Рамка: сообщения документа подаёт тест. */
-async function frame() {
-  const el = await draw(<ui.HtmlFrame html="<p>т</p>" />);
-  const f = el.querySelector("iframe")!;
-  const say = (data: unknown) => act(async () => window.dispatchEvent(new MessageEvent("message", { data, source: f.contentWindow })));
-  return { el, f, say };
-}
+  /** Рамка: сообщения документа подаёт тест. */
+  async function frame() {
+    const el = await draw(<ui.HtmlFrame html="<p>т</p>" />);
+    const f = el.querySelector("iframe")!;
+    const say = (data: unknown) => act(async () => window.dispatchEvent(new MessageEvent("message", { data, source: f.contentWindow })));
+    return { el, f, say };
+  }
 
-it("рамка: песочница без своего источника и реферера; подпись; высота от документа в пределах 60…640", async () => {
-  const t = await frame();
-  expect(t.f.getAttribute("sandbox")).toBe("allow-scripts");
-  expect(t.f.getAttribute("referrerpolicy")).toBe("no-referrer");
-  expect(t.f.getAttribute("title")).toBe("Просмотр HTML");
-  const height = () => t.el.querySelector<HTMLElement>(".html-frame")!.style.height;
-  expect(height()).toBe("");
-  await t.say({ height: 300.2 });
-  expect(height()).toBe("301px");
-  await t.say({ height: 5 });
-  expect(height()).toBe("60px");
-  await t.say({ height: 99999 });
-  expect(height()).toBe("640px");
-  await t.say({ height: "много" });
-  expect(height()).toBe("640px");
-});
+  it("рамка: песочница без своего источника и реферера; подпись; высота от документа в пределах 60…640", async () => {
+    const t = await frame();
+    expect(t.f.getAttribute("sandbox")).toBe("allow-scripts");
+    expect(t.f.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(t.f.getAttribute("title")).toBe("Просмотр HTML");
+    const height = () => t.el.querySelector<HTMLElement>(".html-frame")!.style.height;
+    expect(height()).toBe("");
+    await t.say({ height: 300.2 });
+    expect(height()).toBe("301px");
+    await t.say({ height: 5 });
+    expect(height()).toBe("60px");
+    await t.say({ height: 99999 });
+    expect(height()).toBe("640px");
+    await t.say({ height: "много" });
+    expect(height()).toBe("640px");
+  });
 
-it("рамка: чужой источник сообщения не слушаем; нет сигнала за 0,5 с — просмотр снят; второе load — снят; «Показать снова» возвращает", async () => {
-  vi.useFakeTimers();
-  const t = await frame();
-  await act(async () => window.dispatchEvent(new MessageEvent("message", { data: { height: 300 }, source: window })));
-  expect(t.el.querySelector<HTMLElement>(".html-frame")!.style.height).toBe("");
-  // первое load стенд браузера присылает сам при вставке рамки
-  await act(async () => vi.advanceTimersByTime(499));
-  expect(t.el.querySelector("iframe")).not.toBeNull();
-  await act(async () => vi.advanceTimersByTime(1));
-  expect(t.el.querySelector(".html-left")!.textContent).toBe("Документ ушёл на другую страницу — просмотр снятПоказать снова");
-  expect(t.el.querySelector(".html-left")!.getAttribute("role")).toBe("status");
-  await act(async () => t.el.querySelector<HTMLElement>(".html-left button")!.click());
-  const again = t.el.querySelector("iframe")!;
-  expect(again).not.toBeNull();
-  const sign = /postMessage\("([^"]+)"/.exec(again.getAttribute("srcdoc")!)![1];
-  await act(async () => window.dispatchEvent(new MessageEvent("message", { data: sign, source: again.contentWindow })));
-  await act(async () => vi.advanceTimersByTime(600));
-  expect(t.el.querySelector("iframe")).not.toBeNull();
-  await act(async () => again.dispatchEvent(new Event("load")));
-  expect(t.el.querySelector(".html-left")).not.toBeNull();
-});
+  it("рамка: чужой источник сообщения не слушаем; нет сигнала за 0,5 с — просмотр снят; второе load — снят; «Показать снова» возвращает", async () => {
+    vi.useFakeTimers();
+    const t = await frame();
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { data: { height: 300 }, source: window })));
+    expect(t.el.querySelector<HTMLElement>(".html-frame")!.style.height).toBe("");
+    // первое load стенд браузера присылает сам при вставке рамки
+    await act(async () => vi.advanceTimersByTime(499));
+    expect(t.el.querySelector("iframe")).not.toBeNull();
+    await act(async () => vi.advanceTimersByTime(1));
+    expect(t.el.querySelector(".html-left")!.textContent).toBe("Документ ушёл на другую страницу — просмотр снятПоказать снова");
+    expect(t.el.querySelector(".html-left")!.getAttribute("role")).toBe("status");
+    await act(async () => t.el.querySelector<HTMLElement>(".html-left button")!.click());
+    const again = t.el.querySelector("iframe")!;
+    expect(again).not.toBeNull();
+    const sign = /postMessage\("([^"]+)"/.exec(again.getAttribute("srcdoc")!)![1];
+    await act(async () => window.dispatchEvent(new MessageEvent("message", { data: sign, source: again.contentWindow })));
+    await act(async () => vi.advanceTimersByTime(600));
+    expect(t.el.querySelector("iframe")).not.toBeNull();
+    await act(async () => again.dispatchEvent(new Event("load")));
+    expect(t.el.querySelector(".html-left")).not.toBeNull();
+  });
 
-it("текст ответа: класс живого потока; сноска ведёт внутри текста, адрес страницы не меняется; ссылка на эту страницу без адреса", async () => {
-  history.replaceState(null, "", "/#board");
-  const el = await draw(<ui.Markdown text={"Текст[^1] [сюда](#card?x=1) [туда](https://example.com/#a)\n\n[^1]: сноска"} live />);
-  await act(async () => {});
-  expect(el.querySelector(".md.caret")).not.toBeNull();
-  const links = [...el.querySelectorAll("a")];
-  const note = links.find((a) => a.getAttribute("href")?.startsWith("#user-content-fn-"))!;
-  await act(async () => note.click());
-  expect(location.hash).toBe("#board");
-  expect(links.find((a) => a.textContent === "сюда")!.hasAttribute("href")).toBe(false);
-  const out = links.find((a) => a.textContent === "туда")!;
-  expect(out.getAttribute("href")).toBe("https://example.com/#a");
-  expect(out.getAttribute("target")).toBe("_blank");
-  expect(out.getAttribute("rel")).toBe("noopener noreferrer");
-});
+  it("текст ответа не уводит приложение: приглашение в ссылке — без адреса, data: — только картинка", async () => {
+    // чьё: код — сверка комментариев и строк: приглашение из текста Claude не принимается страницей
+    const el = await draw(<ui.Markdown text={"[чужое](https://x.example/#invite=p3.A) [скрытое](https://x.example/#%69nvite=p3.A) ![к](data:image/png;base64,AA) ![н](data:text/html,x)"} />);
+    expect([...el.querySelectorAll("a")].map((a) => a.hasAttribute("href"))).toEqual([false, false]);
+    expect([...el.querySelectorAll("img")].map((i) => i.hasAttribute("src"))).toEqual([true, false]);
+  });
 
-it("useHighlighted: узлы подсветки; незнакомый язык — текст как есть", async () => {
-  const Show = ({ code, lang }: { code: string; lang: string }) => <code>{ui.useHighlighted(code, lang)}</code>;
-  const known = await draw(<Show code="const a" lang="ts" />);
-  expect(known.querySelector(".hljs-keyword")!.textContent).toBe("const");
-  const other = await draw(<Show code="const a" lang="nosuch" />);
-  expect(other.querySelector("code")!.innerHTML).toBe("const a");
-});
+  it("текст ответа: класс живого потока; сноска ведёт внутри текста, адрес страницы не меняется; ссылка на эту страницу без адреса", async () => {
+    history.replaceState(null, "", "/#board");
+    const el = await draw(<ui.Markdown text={"Текст[^1] [сюда](#card?x=1) [туда](https://example.com/#a)\n\n[^1]: сноска"} live />);
+    await act(async () => { });
+    expect(el.querySelector(".md.caret")).not.toBeNull();
+    const links = [...el.querySelectorAll("a")];
+    const note = links.find((a) => a.getAttribute("href")?.startsWith("#user-content-fn-"))!;
+    await act(async () => note.click());
+    expect(location.hash).toBe("#board");
+    expect(links.find((a) => a.textContent === "сюда")!.hasAttribute("href")).toBe(false);
+    const out = links.find((a) => a.textContent === "туда")!;
+    expect(out.getAttribute("href")).toBe("https://example.com/#a");
+    expect(out.getAttribute("target")).toBe("_blank");
+    expect(out.getAttribute("rel")).toBe("noopener noreferrer");
+  });
 
-it("текст ответа: таблица в прокрутке, картинка лениво и без реферера, список задач, сноска с ссылкой назад", async () => {
-  const el = await draw(<ui.Markdown text={"| a |\n|---|\n| 1 |\n\n- [x] t\n\n![x](https://e.com/i.png)\n\nx[^1]\n\n[^1]: n"} />);
-  expect(el.querySelector(".md > .md-table > table")).not.toBeNull();
-  expect(el.querySelector(".md.caret")).toBeNull();
-  const img = el.querySelector("img")!;
-  expect(img.getAttribute("loading")).toBe("lazy");
-  expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
-  expect(el.querySelector("ul.contains-task-list li.task-list-item input")!.hasAttribute("disabled")).toBe(true);
-  expect(el.querySelector("section.footnotes li#user-content-fn-1 a.data-footnote-backref")!.getAttribute("href")).toBe("#user-content-fnref-1");
-});
+  it("useHighlighted: узлы подсветки; незнакомый язык — текст как есть", async () => {
+    const Show = ({ code, lang }: { code: string; lang: string }) => <code>{ui.useHighlighted(code, lang)}</code>;
+    const known = await draw(<Show code="const a" lang="ts" />);
+    expect(known.querySelector(".hljs-keyword")!.textContent).toBe("const");
+    const other = await draw(<Show code="const a" lang="nosuch" />);
+    expect(other.querySelector("code")!.innerHTML).toBe("const a");
+  });
 
-it("находки сверки: подпись копирования постоянна, без своей подписи слова нет; языки и псевдонимы подсветки; разрешённые теги; ссылка на этот источник с #; сырой pre без шапки", async () => {
-  // чьё: код — сравнение деревьев и строк старого и нового кода
-  vi.stubGlobal("navigator", { clipboard: { writeText: async () => {} } });
-  const copy = await draw(
-    <>
-      <ui.CopyButton text="т" label="копировать" />
-      <ui.CopyButton text="т" />
-    </>,
-  );
-  const [own, plain] = copy.querySelectorAll("button");
-  expect([own.getAttribute("aria-label"), own.getAttribute("title"), own.textContent]).toEqual(["Копировать", "Копировать", "копировать"]);
-  await act(async () => plain.click());
-  expect(plain.textContent).toBe("");
-  expect(plain.querySelector("svg")!.getAttribute("class")).toContain("lucide-check");
-  const Show = ({ lang }: { lang: string }) => <code>{ui.useHighlighted("if (x) { $a = 1 }", lang)}</code>;
-  for (const lang of ["ps1", "toml", "zsh", "cs"]) expect((await draw(<Show lang={lang} />)).querySelector("[class^=hljs-]"), lang).not.toBeNull();
-  expect((await draw(<Show lang="kotlin" />)).querySelector("[class^=hljs-]")).toBeNull();
-  const md = await draw(<ui.Markdown text={`<cite>ц</cite><picture><source srcset="https://e.com/a.png" media="(min-width:1px)" type="image/png" onerror="a()"><img src="https://e.com/a.png" alt="к"></picture>\n\n<pre>сырой</pre>\n\n[свой](${location.origin}/other#x) [чужой](https://other.example/#x)`} />);
-  expect(md.querySelector("cite")).not.toBeNull();
-  const source = md.querySelector("picture source")!;
-  expect([source.getAttribute("srcset"), source.getAttribute("media"), source.getAttribute("type"), source.hasAttribute("onerror")]).toEqual(["https://e.com/a.png", "(min-width:1px)", "image/png", false]);
-  expect(md.querySelector("pre")!.closest(".cb")!.querySelector(".cb-h")).toBeNull();
-  const links = [...md.querySelectorAll("a")];
-  expect(links.map((a) => a.getAttribute("href"))).toEqual([null, "https://other.example/#x"]);
-});
+  it("текст ответа: таблица в прокрутке, картинка лениво и без реферера, список задач, сноска с ссылкой назад", async () => {
+    const el = await draw(<ui.Markdown text={"| a |\n|---|\n| 1 |\n\n- [x] t\n\n![x](https://e.com/i.png)\n\nx[^1]\n\n[^1]: n"} />);
+    expect(el.querySelector(".md > .md-table > table")).not.toBeNull();
+    expect(el.querySelector(".md.caret")).toBeNull();
+    const img = el.querySelector("img")!;
+    expect(img.getAttribute("loading")).toBe("lazy");
+    expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+    expect(el.querySelector("ul.contains-task-list li.task-list-item input")!.hasAttribute("disabled")).toBe(true);
+    expect(el.querySelector("section.footnotes li#user-content-fn-1 a.data-footnote-backref")!.getAttribute("href")).toBe("#user-content-fnref-1");
+  });
 
-it("манифест и основание стилей — у контракта", () => {
-  expect(ui.manifest.name).toBe("web-ui");
-  expect(typeof ui.UI_CSS).toBe("string");
-});
+  it("находки сверки: подпись копирования постоянна, без своей подписи слова нет; языки и псевдонимы подсветки; разрешённые теги; ссылка на этот источник с #; сырой pre без шапки", async () => {
+    // чьё: код — сравнение деревьев и строк старого и нового кода
+    vi.stubGlobal("navigator", { clipboard: { writeText: async () => { } } });
+    const copy = await draw(
+      <>
+        <ui.CopyButton text="т" label="копировать" />
+        <ui.CopyButton text="т" />
+      </>,
+    );
+    const [own, plain] = copy.querySelectorAll("button");
+    expect([own.getAttribute("aria-label"), own.getAttribute("title"), own.textContent]).toEqual(["Копировать", "Копировать", "копировать"]);
+    await act(async () => plain.click());
+    expect(plain.textContent).toBe("");
+    expect(plain.querySelector("svg")!.getAttribute("class")).toContain("lucide-check");
+    const Show = ({ lang }: { lang: string }) => <code>{ui.useHighlighted("if (x) { $a = 1 }", lang)}</code>;
+    for (const lang of ["ps1", "toml", "zsh", "cs"]) expect((await draw(<Show lang={lang} />)).querySelector("[class^=hljs-]"), lang).not.toBeNull();
+    expect((await draw(<Show lang="kotlin" />)).querySelector("[class^=hljs-]")).toBeNull();
+    const md = await draw(<ui.Markdown text={`<cite>ц</cite><picture><source srcset="https://e.com/a.png" media="(min-width:1px)" type="image/png" onerror="a()"><img src="https://e.com/a.png" alt="к"></picture>\n\n<pre>сырой</pre>\n\n[свой](${location.origin}/other#x) [чужой](https://other.example/#x)`} />);
+    expect(md.querySelector("cite")).not.toBeNull();
+    const source = md.querySelector("picture source")!;
+    expect([source.getAttribute("srcset"), source.getAttribute("media"), source.getAttribute("type"), source.hasAttribute("onerror")]).toEqual(["https://e.com/a.png", "(min-width:1px)", "image/png", false]);
+    expect(md.querySelector("pre")!.closest(".cb")!.querySelector(".cb-h")).toBeNull();
+    const links = [...md.querySelectorAll("a")];
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([null, "https://other.example/#x"]);
+  });
+
+  it("манифест и основание стилей — у контракта", () => {
+    expect(ui.manifest.name).toBe("web-ui");
+    expect(typeof ui.UI_CSS).toBe("string");
+  });
 });
