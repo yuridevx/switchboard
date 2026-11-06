@@ -12,6 +12,7 @@ import { bigFleet, SMALL, type S } from "./fleets.ts";
 declare const __HOST__: Record<string, number>;
 
 const ME = "you@mail.ru";
+const CONNECT_MS = 30_000;
 const query = new URLSearchParams(location.search);
 const app = query.get("app") ?? "pult";
 const big = query.get("kind") === "big";
@@ -79,9 +80,14 @@ startApp({
   parts: [...(app === "pult" ? pultParts(fakeBrowser()) : phoneParts(fakeBrowser())), galleryPart],
 });
 
-/** Сообщения сессий — когда открыты соединения всех машин: кадр идёт соединением своей машины. */
-const unread = (tries = 250) => {
-  if (relay.open.length < F.ms.length && tries) return void setTimeout(unread, 20, tries - 1);
+/** Кадры стенда — когда открыты соединения всех машин: без соединения подделка теряет кадр молча. Снимки ждут window.delivered. */
+const started = Date.now();
+const deliver = () => {
+  if (relay.open.length < F.ms.length) {
+    if (Date.now() - started > CONNECT_MS) throw new Error(`стенд: открыто ${relay.open.length} соединений из ${F.ms.length} за ${CONNECT_MS} мс`);
+    return void setTimeout(deliver, 20);
+  }
   for (const s of F.ss) if (s.unread) relay.push({ type: "message", from: s.cs, to: relay.you, text: s.unread });
+  Object.assign(window, { delivered: true });
 };
-unread();
+deliver();

@@ -77,6 +77,7 @@ async function shot(app, viewport, scheme, id, hash, act) {
   const open = async (p) => {
     await p.goto(url(app, "small", hash));
     await p.waitForSelector(".chat, .chat-gal", { timeout: 5000 });
+    await p.waitForFunction(() => window.delivered);
     await pause(p, 500);
     if (act) await act(p);
     await pause(p, 150);

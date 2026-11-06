@@ -86,6 +86,7 @@ async function shot(app, kind, scheme, [name, hash, act, only]) {
   const open = async (p) => {
     await p.goto(url(app, kind, "#sessions"));
     await p.waitForSelector(".bd-list");
+    await p.waitForFunction(() => window.delivered);
     await p.evaluate((h) => (location.hash = h), hash);
     await p.waitForTimeout(400);
     await act?.(p);
