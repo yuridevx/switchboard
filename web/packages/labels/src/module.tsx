@@ -1,51 +1,48 @@
-// Имена сессий и машин: метки над записью fleet.labels и окно «Имена».
-import { useState, type ComponentProps } from "react";
-import type { AppPart, ScreenProps } from "@switchboard/web-core";
+// Имена сессий и машин: метки для всех экранов и окно «Имена». Запись — fleet.labels в области флота.
+import { useState, type KeyboardEvent } from "react";
 import { machineOf, nameOf } from "@switchboard/protocol";
 import { FLEET_PREFIX, LABELS, labelOf, setLabel, type Labels } from "@switchboard/records";
-import { Btn, In, personal, plainMachine, plainSession, type Shown } from "@switchboard/web-ui";
+import { Btn, In, personal, plainMachine, plainSession, type App, type Shown } from "@switchboard/web-ui";
+import type { AppModule, ScreenProps } from "@switchboard/web-core";
 import css from "./labels.css";
 
-function Field({ title, ...input }: ComponentProps<"input"> & { title: string; "data-f": string }) {
-  return (
-    <label className="lb-f">
-      <span>{title}</span>
-      <In {...input} autoComplete="off" />
-    </label>
-  );
-}
+const TITLE = "Имена";
 
-export const createLabels = ((app) => {
+type FieldProps = { title: string; f: string; hint: string; first: boolean; value: string; set(text: string): void; keys(e: KeyboardEvent): void };
+
+const Field = ({ title, f, hint, first, value, set, keys }: FieldProps) => (
+  <label className="lb-f">
+    <span>{title}</span>
+    <In data-f={f} placeholder={hint} autoComplete="off" autoFocus={first} value={value} onChange={() => {}} onInput={(e) => set(e.currentTarget.value)} onKeyDown={keys} />
+  </label>
+);
+
+export const createLabels = (app: App): AppModule => {
   const names = personal(app, FLEET_PREFIX, () => app.changed(), "global");
-  const nameAt = (address: string) => labelOf(names.get<Labels>(LABELS), address);
-  const shown = (address: string, plain: Shown): Shown => {
-    const text = nameAt(address);
+  const nameAt = (to: string) => labelOf(names.get<Labels>(LABELS), to);
+  const shown = (to: string, plain: Shown): Shown => {
+    const text = nameAt(to);
     return text ? { text, human: true } : plain;
   };
 
-  // поля берут имена один раз: окно раньше ответа prefs показало бы пустое, и «Сохранить» стёрло бы записанное
-  const LabelsWindow = (props: ScreenProps) => (app.use(() => names.ready()) ? <NamesForm {...props} /> : null);
-
-  function NamesForm({ params, close = () => app.back() }: ScreenProps) {
-    const callsign = params.callsign ?? "";
-    const machine = params.machine ?? machineOf(callsign) ?? "";
-    const [sessionName, setSessionName] = useState(nameAt(callsign) ?? "");
-    const [machineName, setMachineName] = useState(nameAt(`@${machine}`) ?? "");
+  function Window({ callsign, machine, close }: { callsign?: string; machine: string; close(): void }) {
+    const [session, setSession] = useState(() => (callsign && nameAt(callsign)) || "");
+    const [host, setHost] = useState(() => nameAt(`@${machine}`) ?? "");
     const save = () => {
-      names.edit<Labels>(LABELS, (old) => setLabel(callsign ? setLabel(old, callsign, sessionName) : old, `@${machine}`, machineName));
+      names.edit<Labels>(LABELS, (old) => setLabel(callsign ? setLabel(old, callsign, session) : old, `@${machine}`, host));
       close();
     };
-    const onKeyDown = (e: { key: string }) => {
+    const keys = (e: KeyboardEvent) => {
       if (e.key === "Enter") save();
       if (e.key === "Escape") close();
     };
     return (
-      <div className={`lb-veil${app.wide ? "" : " narrow"}`} onClick={(e) => e.target === e.currentTarget && close()}>
-        <div className="lb-dlg" role="dialog" aria-label="Имена">
-          <b>Имена</b>
-          <div className="lb-a">{callsign || `@${machine}`}</div>
-          {callsign ? <Field title="Имя сессии" data-f="session" placeholder={nameOf(callsign)} value={sessionName} onInput={(e) => setSessionName(e.currentTarget.value)} onKeyDown={onKeyDown} autoFocus /> : null}
-          <Field title="Имя машины" data-f="machine" placeholder={`@${machine}`} value={machineName} onInput={(e) => setMachineName(e.currentTarget.value)} onKeyDown={onKeyDown} autoFocus={!callsign} />
+      <div className={app.wide ? "lb-veil" : "lb-veil narrow"} onClick={(e) => e.target === e.currentTarget && close()}>
+        <div className="lb-dlg" role="dialog" aria-label={TITLE}>
+          <b>{TITLE}</b>
+          <div className="lb-a">{callsign ?? `@${machine}`}</div>
+          {callsign && <Field title="Имя сессии" f="session" hint={nameOf(callsign)} first value={session} set={setSession} keys={keys} />}
+          <Field title="Имя машины" f="machine" hint={`@${machine}`} first={!callsign} value={host} set={setHost} keys={keys} />
           <div className="lb-ft">
             <Btn onClick={close}>Отмена</Btn>
             <Btn pri data-act="save" onClick={save}>
@@ -57,14 +54,21 @@ export const createLabels = ((app) => {
     );
   }
 
+  function Screen({ params: { callsign, machine }, close = () => app.back() }: ScreenProps) {
+    // поля заполняются один раз: окно ждёт ответа, иначе пустые поля стёрли бы записанные имена
+    const ready = app.use(() => names.ready());
+    const at = machine ?? machineOf(callsign ?? "");
+    return ready && at ? <Window callsign={callsign} machine={at} close={close} /> : null;
+  }
+
   return {
     css,
-    screens: { labels: { label: "Имена", view: LabelsWindow } },
+    screens: { labels: { label: TITLE, view: Screen } },
     marks: {
-      "label.session": (callsign: string) => shown(callsign, plainSession(callsign)),
-      "label.machine": (machine: string) => shown(`@${machine}`, plainMachine(machine)),
+      "label.session": (callsign) => shown(callsign, plainSession(callsign)),
+      "label.machine": (machine) => shown(`@${machine}`, plainMachine(machine)),
     },
     on: { link: names.onLink },
     stop: names.stop,
   };
-}) satisfies AppPart["module"];
+};
