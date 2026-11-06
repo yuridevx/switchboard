@@ -103,9 +103,9 @@ export function make(): Module {
   }
 
   /** Проход по обращениям на диске: каждое — в очередь своего ключа; к своему часу обращение могло уже уйти. */
-  const drain = () => {
+  const drain = (only: (a: Appeal) => boolean = () => true) => {
     if (!ready) return;
-    for (const { id, type, key } of appeals()) {
+    for (const { id, type, key } of appeals().filter(only)) {
       const queue = JSON.stringify([type, key]);
       const next = (chains.get(queue) ?? Promise.resolve())
         .then(async () => {
@@ -174,12 +174,14 @@ export function make(): Module {
       open(s) {
         // новый процесс сессии: ввод прежнего пропал, обращения, что ушли в него и не взяты, доставляются снова; attach — процесс тот же
         const cs = s.info.callsign;
-        if (s.info.start !== "attach") disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
-        drain();
+        const mine = appeals().flatMap((a) => (a.callsign === cs ? [a.id] : []));
+        if (s.info.start === "attach" || !mine.length) return;
+        disk().update((all = []) => all.map(({ callsign, ...x }) => (callsign === cs ? x : { ...x, callsign })));
+        drain((a) => mine.includes(a.id));
       },
       // сессию остановили намеренно: она больше не цель. Смена состояния, а не close: у сессии в failed процесса нет и close не приходит
-      state(_s, state) {
-        if (state === "stopped") drain();
+      state(s, state) {
+        if (state === "stopped") drain((a) => a.callsign === s.info.callsign);
       },
       event(_s, msg) {
         const taken = (msg as { user_message_uuids?: unknown }).user_message_uuids;

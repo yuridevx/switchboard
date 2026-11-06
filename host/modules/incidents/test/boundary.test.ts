@@ -621,6 +621,20 @@ describe("инцидент: доставка хотя бы раз", () => {
     expect([now.ino, now.mtimeNs]).toEqual([was.ino, was.mtimeNs]);
   });
 
+  it("обращение с отказом ждёт старта Host или обращения: открытие и остановка чужих сессий его не повторяют", async () => {
+    // контракт: «обращение ждёт следующего старта Host или следующего обращения»; экран показывает время последнего отказа
+    const { st, post, disk } = await bench();
+    const r = await post({ type: "noprof", text: "x" });
+    const lines = () => st.journal().filter((l) => l.ev === "incident" && l.kind === "refuse" && l.id === r.body.id);
+    await until(() => lines().length === 1);
+    const was = disk();
+    await st.open("docs@win");
+    expect(await st.relay.request({ type: "session.stop", v: 1, callsign: "docs@win" })).toMatchObject({ ok: true });
+    await pause();
+    expect(lines()).toHaveLength(1);
+    expect(disk()).toEqual(was);
+  });
+
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {
     const { st, post, disk, work } = await bench();
     const a = await post({ type: "nodir", text: "первое" });
