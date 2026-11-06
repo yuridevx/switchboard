@@ -91,6 +91,9 @@ describe("инструменты keys", () => {
       ["list", "Пропуска флота: номер, роль, имя, человек, адрес, состояние (wait — приглашение не принято, ok), кем выдан и когда. role — только принятые этой роли.", { role: null }],
       ["revoke", "Отозвать пропуск или непринятое приглашение по номеру: отметка у gate, соединения с этим номером закрыты на всех машинах сразу. Пропуска, выданные отозванным, живут — смотрите их по «кем» в list.", { kid: "номер пропуска" }],
     ]);
+    // схему видит модель, handler мимо неё: роли держатся здесь
+    const role = tools[0].inputSchema.role as unknown as { safeParse(x: string): { success: boolean } };
+    expect(["host", "client", "admin"].map((r) => role.safeParse(r).success)).toEqual([true, true, false]);
   });
 
   it("молчание gate: list — чтение, timeout за 10 с; invite за эти 10 с ещё ждёт", async () => {

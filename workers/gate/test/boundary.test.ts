@@ -79,8 +79,12 @@ describe("приглашение и приём", () => {
   });
 
   it("gate.redeem без пропуска: приглашение не того вида или секрет не тот — bad_invite, причина в журнале, строка ждёт дальше", async () => {
-    expect(await post({ type: "gate.redeem", invite: "nope" })).toMatchObject({ ok: false, error: "bad_invite" });
-    expect(logs).toEqual(["bad_invite приглашение не того вида: номер.секрет"]);
+    const S = "A".repeat(43);
+    for (const invite of ["nope", `xabcd.${S}`, `abcd.${S}x`]) {
+      logs = [];
+      expect(await post({ type: "gate.redeem", invite })).toMatchObject({ ok: false, error: "bad_invite" });
+      expect(logs).toEqual(["bad_invite приглашение не того вида: номер.секрет"]);
+    }
     const inv = await invited({ role: "host", name: "laptop" });
     expect(await post({ type: "gate.redeem", invite: `${inv.kid}.${"A".repeat(43)}` })).toMatchObject({ ok: false, error: "bad_invite" });
     expect(logs).toContainEqual(`bad_invite приглашения ${inv.kid} нет, оно принято или отозвано`);
@@ -141,7 +145,7 @@ describe("приглашение и приём", () => {
     }) as never);
     const inv = await post({ type: "keys.invite", key: by, role: "host", name: "laptop" });
     expect(inv.result.kid).toBe("bbbb");
-    script = [0, 0, 0];
+    script = [0, 0, 0, 2];
     const r = await post({ type: "keys.invite", key: by, role: "host", name: "next" });
     expect(r).toMatchObject({ ok: false, error: "gate_unavailable" });
     expect(logs).toContainEqual("gate_unavailable три номера подряд заняты");
@@ -152,6 +156,7 @@ describe("приглашение и приём", () => {
     ["имя с точкой", { role: "host", name: "lap.top" }, "name — A-Z a-z 0-9 _ -"],
     ["имя не строка", { role: "host", name: 7 }, "name — A-Z a-z 0-9 _ -"],
     ["почта с двумя @", { role: "client", name: "phone", person: "o@w@x" }, "person — почта человека за устройством или программой"],
+    ["почта не строка", { role: "client", name: "phone", person: ["a@b"] }, "person — почта человека за устройством или программой"],
     ["у машины почта", { role: "host", name: "laptop", person: "a@b" }, "у машины person нет"],
   ])("keys.invite: %s → bad_request, причина в журнале, строки нет", async (_n, fields, why) => {
     const by = await agent();
@@ -167,9 +172,11 @@ describe("проверка пропуска", () => {
   it("5003 · 5005 · verify отдаёт правду строки: адрес из строки, строка не меняется, задержка в журнале; роль или имя в пропуске не как в строке → bad_key", async () => {
     const m = await redeemed({ role: "host", name: "laptop" });
     const before = await rows();
+    const clock = vi.spyOn(Date, "now").mockReturnValueOnce(1_000).mockReturnValue(1_007);
     expect(await gate.verify(m.key)).toEqual({ role: "host", name: "laptop", kid: m.kid, addr: "@laptop" });
+    clock.mockRestore();
     expect(await rows()).toEqual(before);
-    expect(logs).toContainEqual(expect.stringMatching(new RegExp(`^ok host\\.laptop\\.${m.kid} → @laptop · \\d+ мс$`)));
+    expect(logs).toContainEqual(`ok host.laptop.${m.kid} → @laptop · 7 мс`);
     const { key, kid } = await redeemed({ role: "client", name: "phone", person: "owner@example.com" });
     const sec = key.split(".")[3];
     expect(await gate.verify(key)).toEqual({ role: "client", name: "phone", kid, addr: "phone~owner@example.com" });
@@ -198,6 +205,7 @@ describe("проверка пропуска", () => {
 
   it.each([
     ["роль не та", "admin.laptop.k7f3.Jx9w"],
+    ["мусор впереди", "x.host.laptop.k7f3.sig"],
     ["не строка", 42],
   ])("114 · пропуск не того вида: %s — bad_key без исключения, причина в журнале", async (_n, k) => {
     expect(await gate.verify(k as string)).toEqual({ error: "bad_key" });
@@ -242,6 +250,7 @@ describe("список пропусков", () => {
     const hosts: Pass[] = (await post({ type: "keys.list", key: by, role: "host" })).result.passes;
     expect(hosts.map((p) => p.name)).toEqual(["older", expect.stringMatching(/^agent/), expect.stringMatching(/^agent/)]);
     expect(hosts.every((p) => p.state === "ok" && p.role === "host")).toBe(true);
+    expect((await post({ type: "keys.list", key: by, role: "client" })).result.passes.map((p: Pass) => p.id)).toEqual(["cli1"]);
     const all: Pass[] = (await post({ type: "keys.list", key: by })).result.passes;
     expect(all.map((p) => p.state)).toContain("wait");
     expect(all.map((p) => p.at)).toEqual([...all.map((p) => p.at)].sort((x, y) => x - y));
@@ -300,7 +309,7 @@ describe("вход по адресу gate", () => {
     ["не JSON", "не кадр"],
     ["кадр без id", JSON.stringify({ type: "keys.list", v: 1 })],
   ])("%s → bad_frame", async (_n, body) => {
-    expect(await (await send(body)).json()).toMatchObject({ type: "reply", ok: false, error: "bad_frame" });
+    expect(await (await send(body)).json()).toEqual({ type: "reply", id: "", ok: false, error: "bad_frame" });
   });
 
   it("предел тела 16 КиБ: ровно предел идёт в разбор, больше — too_large 413", async () => {
@@ -412,6 +421,10 @@ describe("общий вход Worker'ов", () => {
     );
     expect(await r.json()).toMatchObject({ id: "1", ok: true });
     expect(logs2).toEqual(['relay_only points.changed → "@win" · ответ на points.put от phone~owner@example.com: такие кадры доставляет только relay']);
+    // кадр без id ответа не ждёт: кадр отправителю ответом не становится
+    logs2.length = 0;
+    await entrance(framePost({ type: "points.put", v: 1, key: "k" }), fakeGate(PHONE), (f) => [{ type: "points.changed", to: f.from } as Frame], (l) => logs2.push(l));
+    expect(logs2).toEqual(['relay_only points.changed → "phone~owner@example.com" · ответ на points.put от phone~owner@example.com: такие кадры доставляет только relay']);
   });
 
   it.each([

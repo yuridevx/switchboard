@@ -2,7 +2,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { accepts, BAD_FRAME, fail, ok, type Frame } from "@switchboard/protocol";
 import { CONTRACT, type GateApi, type Pass } from "../contract.ts";
-import { answer, door } from "./entrance.ts";
+import { answer, door, refuseFrame } from "./entrance.ts";
 import { invite, list, redeem, revoke, revoked, verify } from "./passes.ts";
 
 type Env = { DB: D1Database };
@@ -41,7 +41,7 @@ async function work(f: Frame, db: D1Database): Promise<object> {
 
 async function serve(f: Frame, db: D1Database): Promise<Response> {
   const { id } = f;
-  if (id === undefined) return answer("", fail("", BAD_FRAME), 400);
+  if (id === undefined) return refuseFrame(BAD_FRAME, 400);
   const no = accepts(f, CONTRACT);
   if (no) {
     console.log(`${no.word} ${no.why}`);

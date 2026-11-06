@@ -16,14 +16,15 @@ export async function verify(db: D1Database, key: unknown): Promise<VerifyResult
   const [, role, name, kid, secret] = m;
   const row = await db.prepare("SELECT role, name, state, hash, addr FROM passes WHERE id = ?").bind(kid).first<Pass & { hash: string }>();
   const pass = `${role}.${name}.${kid}`;
+  const said = (line: string) => console.log(`${line} · ${Date.now() - from} мс`);
   const refused = (why: string) => {
-    console.log(`bad_key ${pass} · ${why} · ${Date.now() - from} мс`);
+    said(`bad_key ${pass} · ${why}`);
     return { error: "bad_key" } as const;
   };
   if (!row) return refused("номера нет в базе");
   if (row.state !== "ok") return refused("пропуск не принят");
   if (row.hash !== (await sha256(secret)) || `${row.role}.${row.name}` !== `${role}.${name}`) return refused("не сошлись секрет, роль или имя");
-  console.log(`ok ${pass} → ${row.addr} · ${Date.now() - from} мс`);
+  said(`ok ${pass} → ${row.addr}`);
   return { role: row.role, name, kid, addr: row.addr };
 }
 

@@ -2,26 +2,29 @@
 import { BAD_FRAME, fail, MAX_FRAME, parseFrame, TOO_LARGE, within, type Frame, type Reply } from "@switchboard/protocol";
 import type { GateApi } from "../contract.ts";
 
-const HEADERS = { "access-control-allow-origin": "*", "content-type": "application/json" };
+const CORS = { "access-control-allow-origin": "*" };
 
 /** Ответ кадром. Кадр без id ответа не ждёт: тела нет, 200 становится 204. */
 export const answer = (id: string | undefined, reply: Reply, status = 200): Response =>
-  id === undefined ? new Response(null, { status: status === 200 ? 204 : status, headers: HEADERS }) : new Response(JSON.stringify(reply), { status, headers: HEADERS });
+  id === undefined ? new Response(null, { status: status === 200 ? 204 : status, headers: CORS }) : Response.json(reply, { status, headers: CORS });
+
+/** Отказ кадру, у которого нет своего id. */
+export const refuseFrame = (word: string, status: number): Response => Response.json(fail("", word), { status, headers: CORS });
 
 /** Тело POST в кадр: не POST — 404, больше max байт — too_large, не кадр — bad_frame. */
 export async function door(req: Request, max: number, serve: (f: Frame) => Promise<Response>): Promise<Response> {
   if (req.method !== "POST") return new Response(null, { status: 404 });
   const text = await req.text();
-  if (new TextEncoder().encode(text).length > max) return answer("", fail("", TOO_LARGE), 413);
+  if (new TextEncoder().encode(text).length > max) return refuseFrame(TOO_LARGE, 413);
   const f = parseFrame(text);
-  return f ? serve(f) : answer("", fail("", BAD_FRAME), 400);
+  return f ? serve(f) : refuseFrame(BAD_FRAME, 400);
 }
 
 /** Запрос к Worker'у: кадр с key → gate.verify → frame с from и fromKid → reply телом. Кадры другим не уходят: их доставляет только relay. */
 export function entrance(req: Request, gate: Pick<GateApi, "verify">, frame: (f: Frame) => Frame[] | Promise<Frame[]>, log: (line: string) => void = console.log): Promise<Response> {
   return door(req, MAX_FRAME, async ({ key, from: _from, fromKid: _fromKid, ...f }) => {
     const { id, type } = f;
-    const refuse = (word: string, status?: number) => answer(id, fail(id ?? "", word), status);
+    const refuse = (word: string, status?: number) => answer(id, fail(id!, word), status);
     let who;
     try {
       who = await within(gate.verify(String(key ?? "")), "gate не ответил на verify");
