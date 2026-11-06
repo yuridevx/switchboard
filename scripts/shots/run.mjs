@@ -24,8 +24,6 @@ const path_ = (p) => p.fill('[data-f="addr"]', "~/projects/new/deep");
 const OPEN = [
   ["new", "#sessions", steps(click("[data-new]"))],
   ["new-place", "#sessions", steps(place)],
-  ["new-prof", "#sessions", steps(place, click('[data-pop="prof"]'))],
-  ["new-model", "#sessions", steps(place, click('[data-pop="model"]'))],
 ];
 const ACCOUNTS = (prefix) => [
   [`${prefix}accounts`, "#accounts"],
@@ -50,6 +48,7 @@ const PULT_SCREENS = [
   ["names", "#sessions", steps(row, click('[data-act="names"]')), "small"],
   ["card-settings", "#sessions", steps(row, click('[data-tab="set"]')), "small"],
   ["card-log", "#sessions", steps(row, click('[data-tab="log"]')), "small"],
+  ["card-info", "#sessions", steps(row, click('[data-tab="info"]')), "small"],
   ["inbox", "#inbox", null, "small"],
   ["incidents", "#incidents", null, "small"],
   ["journal", "#journal", null, "small"],

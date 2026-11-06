@@ -1,7 +1,7 @@
 {
   "name": "pult-profiles",
   "type": "web",
-  "version": "2.2.5",
+  "version": "2.2.6",
   "into": [
     "pult",
     "phone"
