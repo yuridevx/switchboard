@@ -2840,4 +2840,14 @@ describe("сверка строк, второй проход", () => {
     await flush(5);
     expect(t.$(".chat-sys.swap")?.textContent).toBe("аккаунт: infirex → yurianrun");
   });
+
+  it("вопрос пришёл кадром: список у Host уже не спрашивается", async () => {
+    const t = await stand(parts());
+    t.relay.handlers["question.list"] = () => ({ ok: true, result: [] });
+    t.relay.push(frame(IDLE, "q1", Q1));
+    await flush();
+    await open(`/#ask?callsign=${encodeURIComponent(IDLE)}`);
+    await flush(5);
+    expect(t.relay.sent("question.list").filter((x) => x.callsign === IDLE)).toHaveLength(0);
+  });
 });

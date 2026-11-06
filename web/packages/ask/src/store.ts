@@ -106,6 +106,7 @@ export function createAskStore(app: App) {
         wanted.add(cs);
         if (app.link() === "open") void list(cs);
       } else {
+        known.add(cs);
         const { type: _t, from: _f, ...rest } = f;
         const q = rest as unknown as Question;
         edit(cs, (a) => {
