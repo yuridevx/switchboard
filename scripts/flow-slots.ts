@@ -1,5 +1,6 @@
 // Живые флоу с несколькими аккаунтами на одной машине. env: FLOW_CLIENT_KEY, FLOW_MACHINE,
 // FLOW_A (аккаунт с запасом), FLOW_B (второй аккаунт с запасом), FLOW_SPENT (аккаунт с исчерпанным лимитом).
+import { nameOf } from "@switchboard/protocol";
 import { type Roster } from "@switchboard/relay";
 import { client } from "./client.ts";
 
@@ -52,7 +53,7 @@ for (const slot of (process.env.FLOW_CLEAR ?? "").split(",").filter(Boolean)) {
 check("slot.set s1 → " + A, (await req({ type: "slot.set", machine, slot: "s1", order: [A] })).result?.account === A);
 check("slot.set s2 → " + B, (await req({ type: "slot.set", machine, slot: "s2", order: [B] })).result?.account === B);
 for (const [cs, slot] of [[S1, "s1"], [S2, "s2"]] as const) {
-  const o = await req({ type: "session.open", machine, name: cs.split("@")[0], dir: "~", model: "claude-haiku-4-5", slot });
+  const o = await req({ type: "session.open", machine, name: nameOf(cs), dir: "~", model: "claude-haiku-4-5", slot });
   check(`session.open ${cs} в слоте ${slot}`, o.ok, o.ok ? undefined : o.error);
 }
 await Promise.all([idle(S1), idle(S2)]);
