@@ -28,7 +28,7 @@ export type Wake = { house: string; why: "правка" | "след"; detail: st
 /** Таблица markdown под заголовком → строки ячеек. */
 function table(text: string, heading: string): string[][] {
   const part = text.split(`## ${heading}`)[1]?.split("\n## ")[0] ?? "";
-  return part.split("\n").filter((l) => l.startsWith("|")).slice(2).map((l) => l.split("|").slice(1, -1).map((c) => c.trim()));
+  return part.split("\n").filter((l) => l.startsWith("|")).slice(2).map((l) => l.split(/(?<!\\)\|/).slice(1, -1).map((c) => c.trim().replaceAll("\\|", "|")));
 }
 
 const unquote = (c: string) => c.replace(/^`|`$/g, "");
@@ -56,6 +56,7 @@ export function named(root: string) {
 const stateFile = () => join(home(), "state.json");
 const lastPass = (): string | null => (existsSync(stateFile()) ? JSON.parse(readFileSync(stateFile(), "utf8")).last : null);
 /** Дома на момент прошлого прохода: рождение и уход видны и без строк реестра. */
+const lastSigns = (): Record<string, string[]> => (existsSync(stateFile()) ? (JSON.parse(readFileSync(stateFile(), "utf8")).signs ?? {}) : {});
 const lastHouses = (): string[] | null => (existsSync(stateFile()) ? (JSON.parse(readFileSync(stateFile(), "utf8")).houses ?? null) : null);
 
 /** Кто родился, кто ушёл, кого будить. Спящий дом без события не будится: число проходов ни на что не влияет. */
@@ -85,20 +86,26 @@ export function census(root: string) {
     }
     for (const [house, files] of touched) wake.push({ house, why: "правка", detail: files.slice(0, 5).join(" ") });
   }
+  const signs: Record<string, string[]> = {};
+  const unknown = reg.concepts.filter((c) => !names.has(c.owner) && !held.has(c.owner)).map((c) => c.owner);
+  const seenSigns = lastSigns();
   for (const { concept, owner, sign } of reg.concepts) {
     if (!sign) continue;
     const hits = (() => {
       try {
         return git(root, "grep", "-lE", sign, "--", ".", ":!*.test.*", ":!*/test/*", ":!.claude").split("\n").filter((f) => f && !ignore?.test(f));
-      } catch {
-        return []; // git grep без совпадений выходит с кодом 1
+      } catch (e) {
+        if ((e as { status?: number }).status === 1) return []; // git grep без совпадений
+        throw new Error(`след «${concept}» не выражение: ${sign}`);
       }
     })();
-    const out = hits.filter((f) => houseOf(f) !== owner);
+    signs[concept] = hits.filter((f) => houseOf(f) !== owner);
+    // разобранное не будит снова: новая копия будит
+    const out = signs[concept].filter((f) => !(seenSigns[concept] ?? []).includes(f));
     if (out.length) wake.push({ house: owner, why: "след", detail: `${concept}: ${out.join(" ")}` });
   }
   for (const w of wake) if (held.has(w.house)) w.named = held.get(w.house);
-  return { houses: mods.length, born, gone, orphaned, named: people, wake, last };
+  return { houses: mods.length, born, gone, orphaned, unknown, named: people, wake, signs, last };
 }
 
 /** Снимок пар с хэшем конфигурации проверок: правка исключений видна как смена хэша. */
@@ -195,10 +202,10 @@ export function waves(targets: Target[], slots: number): Target[][] {
 type Pass = { confirmed: number; rejected: number; queue: number; waiting?: number; failed?: number };
 export const journalFile = () => join(home(), "journal.jsonl");
 
-export function pass(p: Pass, sha: string, houses?: string[]): void {
+export function pass(p: Pass, sha: string, houses?: string[], signs?: Record<string, string[]>): void {
   mkdirSync(home(), { recursive: true });
   appendFileSync(journalFile(), `${JSON.stringify({ t: new Date().toISOString(), sha, ...p })}\n`);
-  writeFileSync(stateFile(), JSON.stringify({ last: sha, houses }));
+  writeFileSync(stateFile(), JSON.stringify({ last: sha, houses, signs }));
 }
 
 /** Остановка: файл stop в SLOPIK_HOME, очереди нет, или последний проход ничего не подтвердил, или приёмка сломалась дважды подряд. */
@@ -236,7 +243,7 @@ function main(argv: string[]): void {
       }
     };
     say(fate(before, after, defined, traces(root, before.sha, after.sha)));
-  } else if (command === "pass") pass(JSON.parse(rest[0]), git(root, "rev-parse", "HEAD").trim(), housesOf(root).map((h) => h.name));
+  } else if (command === "pass") pass(JSON.parse(rest[0]), git(root, "rev-parse", "HEAD").trim(), housesOf(root).map((h) => h.name), census(root).signs);
   else if (command === "stop") say(stop());
   else if (command === "waves") say(waves(JSON.parse(rest[0]), config(root).slots ?? Math.max(1, Math.floor(availableParallelism() / 2))).map((w) => w.map((t) => t.id)));
   else throw new Error("census | snapshot <имя> | fate <до> <после> | pass <json> | waves <json> | stop");

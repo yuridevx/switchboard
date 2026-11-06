@@ -1,11 +1,12 @@
 // Экран «Точки»: сессии в R2, «только в R2», «пожар» — машины, которых нет в roster, и объём.
 import { Fragment, useEffect, useRef, useState } from "react";
+import { machineOf, nameOf } from "@switchboard/protocol";
 import { ago, at, Btn, day, H4, In, M, machinesWith, Note, Opts, Outcome, Page, PageHead, Row, Sec, sessionLabel, useApp, useModule, useOutcome } from "@switchboard/web-ui";
 import type { Fleet, Listed } from "./store.ts";
 import { joinProject, Machines, Slot, useProbe, useTarget, type Target } from "./target.tsx";
 import { blocked, countOf, megabytes, refused, type Check } from "./words.ts";
 
-const nameOf = (s: Listed) => (s.callsign ? s.callsign.split("@")[0] : s.sid);
+const titleOf = (s: Listed) => (s.callsign ? nameOf(s.callsign) : s.sid);
 const month = (t: number) => new Date(t).toLocaleDateString("ru-RU", { month: "long" });
 const dirOf = (s: Listed) => s.dir ?? "~";
 const probeOf = (s: Listed) => ({ sid: s.sid, point: s.head.id, dir: dirOf(s), files: "point" });
@@ -41,7 +42,7 @@ function RaiseWindow({ s, fleet, close }: { s: Listed; fleet: Fleet; close(): vo
   const [note, setNote] = useState<{ text: string; tone?: "ok" | "bad" } | null>(null);
   const [going, setGoing] = useState(false);
   const done = note?.tone === "ok";
-  const name = nameOf(s);
+  const name = titleOf(s);
   const raise = async () => {
     setGoing(true);
     setNote({ text: `${t.machine} поднимает сессию из точки…` });
@@ -83,7 +84,7 @@ export function CheckLine({ check }: { check: Check | null }) {
 /** Удаление «только в R2»: подтверждение именем. */
 function DeleteWindow({ s, go, close }: { s: Listed; go(): void; close(): void }) {
   const [typed, setTyped] = useState("");
-  const name = nameOf(s);
+  const name = titleOf(s);
   return (
     <Sec dlg data-dlg="delete">
       <b>{`Удалить точки «${name}» насовсем`}</b>
@@ -109,12 +110,12 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
   const [open, setOpen] = useState<{ sid: string; kind: "raise" | "delete"; n: number } | null>(null);
   const [notes, say] = useOutcome();
   const needle = q.trim().toLowerCase();
-  const shown = [...sessions].sort((a, b) => b.head.at - a.head.at).filter((s) => !needle || [nameOf(s), dirOf(s), day(s.head.at), month(s.head.at)].some((x) => x.toLowerCase().includes(needle)));
+  const shown = [...sessions].sort((a, b) => b.head.at - a.head.at).filter((s) => !needle || [titleOf(s), dirOf(s), day(s.head.at), month(s.head.at)].some((x) => x.toLowerCase().includes(needle)));
   const remove = async (s: Listed) => {
     const r = await app.request<{ points: number }>("points.delete", { sid: s.sid });
     setOpen(null);
     if (!r.ok) return say("delete", `points.delete: ${r.error}`, "bad");
-    say("delete", `${nameOf(s)} удалена — ${countOf(r.result.points, "точка", "точки", "точек")}`, "ok");
+    say("delete", `${titleOf(s)} удалена — ${countOf(r.result.points, "точка", "точки", "точек")}`, "ok");
     void fleet.read();
   };
   return (
@@ -128,7 +129,7 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
         <Fragment key={s.sid}>
           <div className="pt-row" data-sid={s.sid}>
             <span>
-              <b>{nameOf(s)}</b>
+              <b>{titleOf(s)}</b>
               {` ${dirOf(s)} · последняя точка ${day(s.head.at)}`}
             </span>
             <Opts>
@@ -151,8 +152,8 @@ function FireRow({ s, t, going, line, report }: { s: Listed; t: Target; going: b
   // итог пробы — по ключу: объект проверки новый на каждой отрисовке, по нему окно перерисовывалось бы без конца
   useEffect(() => report(s.sid, check), [check?.key, s.sid]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Sec data-row={nameOf(s)}>
-      <b>{nameOf(s)}</b>
+    <Sec data-row={titleOf(s)}>
+      <b>{titleOf(s)}</b>
       <Note>{`точка ${at(s.head.at)} · №${s.head.id}`}</Note>
       {going ? (
         <Note>{line}</Note>
@@ -287,7 +288,7 @@ export function Overview() {
   const live = data.sessions.filter(inRoster).sort((a, b) => a.head.at - b.head.at);
   const lost = data.sessions.filter((s) => !online.includes(s.owner));
   const only = data.sessions.filter((s) => online.includes(s.owner) && !inRoster(s));
-  const rank = (callsign: string) => online.indexOf(callsign.split("@")[1]);
+  const rank = (callsign: string) => online.indexOf(machineOf(callsign)!);
   const plain = records.filter((r) => !r.r2).map((r) => r.callsign).sort((a, b) => rank(a) - rank(b));
   const machines = [...new Set(lost.map((s) => s.owner))];
   const sweep = data.sweep ? ` · уборка ${day(data.sweep.at)} ${at(data.sweep.at)} — удалено ${countOf(data.sweep.blocks, "блок", "блока", "блоков")}, ${megabytes(data.sweep.bytes)}` : "";

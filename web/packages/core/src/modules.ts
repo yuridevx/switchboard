@@ -1,4 +1,5 @@
 // Реестр модулей: кто чем владеет, ловушка каждого вызова модуля, разделы страницы в порядке оболочки.
+import { nameOf, ownerOf } from "@switchboard/manifest-gate";
 import type { Page } from "./page.ts";
 import type { App, AppModule, AppPart, Command, Manifest, Params, Screen } from "./types.ts";
 
@@ -76,8 +77,8 @@ export function createModules(page: Page) {
 
   /** Имя из uses модуля: версия и владелец. */
   function uses(mod: Mod, name: string) {
-    const use = Object.keys(mod.manifest.uses).find((u) => u.slice(0, u.lastIndexOf("@")) === name);
-    return use ? { v: mod.manifest.uses[use], owner: use.slice(use.lastIndexOf("@") + 1) } : null;
+    const use = Object.keys(mod.manifest.uses).find((u) => nameOf(u) === name);
+    return use ? { v: mod.manifest.uses[use], owner: ownerOf(use) } : null;
   }
 
   /** Видна ли вставка с этими параметрами. */

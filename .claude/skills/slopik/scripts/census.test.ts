@@ -50,6 +50,27 @@ it("рождение и уход видны по прошлому проходу
   assert.deepEqual(c.gone, ["old"]);
 });
 
+it("след: разобранное не будит снова, новая копия будит, альтернатива в таблице работает, плохое выражение — отказ", () => {
+  put(".claude/slopik/registry.md", REGISTRY.replace("`class Refusal`", "`class Refusal\\|class Denial`"));
+  put("workers/b/src/index.ts", "export class Refusal {}\n");
+  const first = commit();
+  assert.equal(census(root).wake.filter((w) => w.why === "след").length, 1);
+  pass({ confirmed: 1, rejected: 0, queue: 1 }, first, ["a", "b"], census(root).signs);
+  assert.equal(census(root).wake.filter((w) => w.why === "след").length, 0);
+  put("workers/b/src/more.ts", "export class Denial {}\n");
+  commit();
+  assert.match(census(root).wake.find((w) => w.why === "след")!.detail, /more\.ts/);
+  put(".claude/slopik/registry.md", REGISTRY.replace("`class Refusal`", "`class (`"));
+  commit();
+  assert.throws(() => census(root), /не выражение/);
+});
+
+it("владелец понятия без дома виден", () => {
+  put(".claude/slopik/registry.md", REGISTRY.replace("| отказ | `a`", "| отказ | `host-core`"));
+  commit();
+  assert.deepEqual(census(root).unknown, ["host-core"]);
+});
+
 it("без события дом спит, правка будит только свой дом", () => {
   const first = commit();
   pass({ confirmed: 1, rejected: 0, queue: 1 }, first);

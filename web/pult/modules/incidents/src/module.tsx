@@ -1,5 +1,6 @@
 // pult-incidents: инциденты флота — сессии с полем roster incident и обращения на диске Host без сессии (incident.pending).
 import { Fragment, useEffect, useState } from "react";
+import { machineOf } from "@switchboard/protocol";
 import type { Roster } from "@switchboard/relay";
 import type { AppModule } from "@switchboard/web-core";
 import {
@@ -139,7 +140,7 @@ function Incidents() {
                     <span className="s">{r.state === "stopped" ? "закрыт" : stateLabel(r.state).text}</span>
                   </span>
                   <span className="t2">
-                    <span className="m">{s.text}</span> · {machineLabel(app, r.callsign.slice(r.callsign.indexOf("@") + 1)).text}
+                    <span className="m">{s.text}</span> · {machineLabel(app, machineOf(r.callsign)!).text}
                   </span>
                 </span>
               </button>

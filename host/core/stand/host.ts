@@ -2,7 +2,7 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Frame } from "@switchboard/protocol";
+import { nameOf, type Frame } from "@switchboard/protocol";
 import type { Host, Manifest, Module, Session } from "../contract.ts";
 import { Kernel, Mod, StartError } from "../src/kernel.ts";
 import type { HostConfig } from "../src/kernel.ts";
@@ -121,8 +121,8 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
   mkdirSync(join(home, "store"), { recursive: true });
   if (o.sessions) {
     const list: CoreRecord[] = o.sessions.map((s) => ({
-      session_id: `sid-${s.callsign.split("@")[0]}`,
-      cwd: join(home, "work", s.callsign.split("@")[0]),
+      session_id: `sid-${nameOf(s.callsign)}`,
+      cwd: join(home, "work", nameOf(s.callsign)),
       sdk: o.sdkVersion ?? "0.3.311",
       stopped: false,
       ...s,
@@ -179,7 +179,7 @@ export async function standHost(o: StandOptions = {}): Promise<Stand> {
       return st.host(name).session(callsign);
     },
     async open(callsign, oo = {}) {
-      const s = await kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", callsign.split("@")[0]), ...(oo.opening ? { opening: oo.opening } : {}), ...(oo.mkdir ? { mkdir: true } : {}) });
+      const s = await kernel.open({ callsign, cwd: oo.cwd ?? join(home, "work", nameOf(callsign)), ...(oo.opening ? { opening: oo.opening } : {}), ...(oo.mkdir ? { mkdir: true } : {}) });
       const m = oo.module ? kernel.byName.get(oo.module) : undefined;
       return s.facade(m ?? standMod);
     },
