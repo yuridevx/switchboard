@@ -1,3 +1,4 @@
 import { boot } from "../../shell.ts";
+import { PHONE } from "./options.ts";
 
-void boot({ sections: ["inbox", "board", "accounts", "profiles", "incidents", "settings"] });
+void boot(PHONE);

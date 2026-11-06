@@ -6,9 +6,9 @@
 //   page                      настоящие страницы в Chromium: проверочный пропуск, ошибки страницы, отзыв пропуска
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { pageOf, passFile } from "./fleets.ts";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const CONNECT_MS = 30_000;
@@ -22,13 +22,12 @@ if (!prod && process.env.FLEET !== "test") {
 if (prod) {
   process.env.SWITCHBOARD_WORKERS = JSON.stringify(Object.fromEntries(["relay", "gate", "push", "points", "ledger", "github", "prefs", "releases"].map((n) => [n, `https://${n}.pfarm.app/`])));
 }
-const PAGES = prod ? ["https://pult.pfarm.app/", "https://phone.pfarm.app/"] : ["https://switchboard-pult.yuridevx1608.workers.dev/", "https://switchboard-phone.yuridevx1608.workers.dev/"];
+const PAGES = ["pult", "phone"].map((app) => pageOf(prod ? "prod" : "test", app));
 const VIEWPORT = { width: 1280, height: 800 };
 
 type Session = { callsign: string; state: string };
 const { client } = await import(pathToFileURL(join(ROOT, "scripts", "client.ts")).href);
-const passFile = join(process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev"), `${prod ? "prod" : "test"}-agent.pass`);
-const c = client(readFileSync(passFile, "utf8").trim());
+const c = client(readFileSync(passFile(prod ? "prod" : "test"), "utf8").trim());
 for (const end = Date.now() + CONNECT_MS; c.state !== "open" && Date.now() < end; ) await new Promise((r) => setTimeout(r, 200));
 await new Promise((r) => setTimeout(r, SETTLE_MS));
 const ask = (f: Record<string, unknown>, read = false) => c.request({ v: 1, ...f }, read);
