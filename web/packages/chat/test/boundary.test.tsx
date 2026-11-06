@@ -2811,4 +2811,11 @@ describe("сверка строк, второй проход", () => {
     await t.click(t.$(".chat-older"));
     expect(t.$$('[data-tool="Bash"] .tc-b').map((x) => x.textContent)).toEqual([expect.stringContaining("потом")]);
   });
+
+  it("чтение файла с картинкой: текст и картинка", async () => {
+    const f = await feed([toolUse("t1", "Read", { file_path: "a.ipynb" }), res("t1", [{ type: "text", text: "ячейка" }, ...PIC])]);
+    if (!f.q('[data-tool="Read"] .tc-b')) await f.openTool("Read");
+    expect(f.q('[data-tool="Read"] .tb-pre')!.textContent).toContain("ячейка");
+    expect(f.qq('[data-tool="Read"] .tb-img')).toHaveLength(1);
+  });
 });

@@ -77,9 +77,14 @@ function ReadBody({ tool }: { tool: Tool }) {
   const highlighted = useHighlighted(code, langOfPath(tool.input?.file_path));
   if (!r || r.error || !code) return <Result tool={tool} />;
   return (
-    <pre className="tb-pre">
-      <code className="hljs">{highlighted}</code>
-    </pre>
+    <>
+      <pre className="tb-pre">
+        <code className="hljs">{highlighted}</code>
+      </pre>
+      {r.pics.map((src, i) => (
+        <img key={i} className="tb-img" src={src} alt={`картинка ${i + 1}`} />
+      ))}
+    </>
   );
 }
 
