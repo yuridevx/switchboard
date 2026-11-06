@@ -40,8 +40,8 @@ const WINDOWS = [
   ["files", "tests@wsl", async (p) => type(p, "Сравни с @src")],
   ["attachments", "tests@wsl", async (p) => { await attach(p); await pause(p); await type(p, "Смотри снимок"); }],
   ["sent", "tests@wsl", async (p) => { await type(p, "Задеплой на стенд"); await p.click(".chat-send"); await pause(p); }],
-  ["suggestion", "tests@wsl", async (p) => { await p.evaluate(() => window.__relay.push({ type: "session.events", from: "tests@wsl", seq: 900, events: [{ type: "prompt_suggestion", suggestion: "Закоммить правку и выложи на тестовый флот" }] })); await pause(p); }],
-  ["streaming", "refactor@win", async (p) => { await p.evaluate(() => window.__relay.push({ type: "session.events", from: "refactor@win", seq: 901, events: [{ type: "stream_event", event: { type: "message_start", message: { id: "m-live" } } }, { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Пишу итог: **сборка зелёная**, осталось обновить" } } }] })); await pause(p); }],
+  ["suggestion", "tests@wsl", async (p) => { await p.evaluate(() => window.relay.push({ type: "session.events", from: "tests@wsl", seq: 900, events: [{ type: "prompt_suggestion", suggestion: "Закоммить правку и выложи на тестовый флот" }] })); await pause(p); }],
+  ["streaming", "refactor@win", async (p) => { await p.evaluate(() => window.relay.push({ type: "session.events", from: "refactor@win", seq: 901, events: [{ type: "stream_event", event: { type: "message_start", message: { id: "m-live" } } }, { type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Пишу итог: **сборка зелёная**, осталось обновить" } } }] })); await pause(p); }],
   ["todo-open", "refactor@win", async (p) => { await p.click(".chat-todo .dis-h"); await pause(p); }],
   ["background-open", "refactor@win", async (p) => { await p.click(".chat-bg .dis-h"); await pause(p); }],
   ["side-wait", "tests@wsl", async (p) => { await type(p, "/btw это долго?"); await p.click(".chat-send"); await pause(p); }],
@@ -92,7 +92,7 @@ async function shot(app, viewport, scheme, id, hash, act) {
       });
       if (gap > 4) fails.push(`${id}: лента не у низа, ${Math.round(gap)} точек`);
     }
-    const over = await overflow(p, ".chat *, .chat-gal *", ".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs", false);
+    const over = await overflow(p, ".chat *, .chat-gal *", ".md-table, pre, .chat-diff, .sb-navrow, .cw-tabs");
     if (over.x > 0 || over.bad.length) fails.push(`${id}: выход за край ${over.x}px ${over.bad.join(" | ")}`);
   } catch (e) {
     fails.push(`${id}: ${e.message.split("\n")[0]}`);

@@ -60,7 +60,7 @@ relay.values["web-board.filters"] = big
     ]
   : [{ id: "f1", name: "pfarm", projects: ["pfarm"] }];
 
-Object.assign(window, { relay, __relay: relay });
+Object.assign(window, { relay });
 
 /** Пропуска экрана настроек — у обработчика стенда; список машин (role: host) — у подделки. */
 const askGate: typeof fetch = async (url, init) => {

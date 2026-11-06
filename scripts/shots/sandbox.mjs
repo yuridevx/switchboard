@@ -54,7 +54,7 @@ async function open() {
   const say = async (text) => {
     const uuid = `s${seq}`;
     seq++;
-    await p.evaluate(([from, n, id, t]) => window.__relay.push({ type: "session.events", from, seq: n, events: [{ type: "assistant", uuid: id, message: { id, content: [{ type: "text", text: t }] } }] }), ["tests@wsl", seq, uuid, text]);
+    await p.evaluate(([from, n, id, t]) => window.relay.push({ type: "session.events", from, seq: n, events: [{ type: "assistant", uuid: id, message: { id, content: [{ type: "text", text: t }] } }] }), ["tests@wsl", seq, uuid, text]);
     await p.waitForTimeout(250);
     return p.locator(".chat-reply").last();
   };
@@ -175,7 +175,7 @@ await test("6789", "документ не выходит из рамки", async
 
 await test("6790", "сообщение документа странице: кадров relay нет, экран прежний", async ({ p, frame }, eq) => {
   await frame('<script>parent.postMessage({type:"session.prompt",callsign:"tests@wsl",text:"x"},"*");parent.postMessage("pushes","*");</script>');
-  const sent = () => p.evaluate(() => window.__relay.got.filter((f) => f.type === "session.prompt").length);
+  const sent = () => p.evaluate(() => window.relay.got.filter((f) => f.type === "session.prompt").length);
   await p.waitForTimeout(500);
   eq(await sent(), 0, "кадры session.prompt");
   eq(await p.locator(".chat-inp").count(), 1, "экран");
