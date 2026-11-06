@@ -14,7 +14,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// redeemWait — ответ gate на приглашение: gate гасит приглашение до ответа, опоздавший ответ — потерянное приглашение.
+const redeemWait = 30 * time.Second
 
 type installFlags struct {
 	workers map[string]string
@@ -105,7 +109,7 @@ func prepareConf(f installFlags, in *bufio.Reader) error {
 		Error  string
 		Result struct{ Key string }
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), callWait)
+	ctx, cancel := context.WithTimeout(context.Background(), redeemWait)
 	defer cancel()
 	if err := postWorker(ctx, c.Workers["gate"], "", map[string]any{"type": "gate.redeem", "id": "install", "v": 1, "invite": invite}, &r); err != nil {
 		return fmt.Errorf("приглашение не принято: %w", err)
