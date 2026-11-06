@@ -261,7 +261,7 @@ func (k *Keeper) adoptAll(saved plan) {
 	for _, file := range files {
 		var f struct {
 			ID, Owner, Key, Tag string
-			Pid, Holder, Port   int
+			Port                int
 		}
 		if b, err := os.ReadFile(file); err != nil || json.Unmarshal(b, &f) != nil || f.Owner != "keeper" {
 			continue
@@ -273,13 +273,13 @@ func (k *Keeper) adoptAll(saved plan) {
 			}
 		}
 		h, err := attach(f.Port, f.Key)
-		if e == nil {
-			k.orphan(f.ID, h, file, f.Pid, f.Holder)
-			continue
-		}
 		if err != nil {
 			os.Remove(file)
 			k.j.add("keeper", f.ID, "stop", "adopt", "id", f.ID, "why", "держатель не отвечает — файл убран: "+err.Error())
+			continue
+		}
+		if e == nil {
+			k.orphan(f.ID, h)
 			continue
 		}
 		run := *e
@@ -293,19 +293,10 @@ func (k *Keeper) adoptAll(saved plan) {
 	}
 }
 
-// orphan — держатель части, которой нет в плане: дерево убито, держатель выходит сам; не ответил — процессы убиты по pid.
-func (k *Keeper) orphan(id string, h *held, file string, pids ...int) {
-	if h != nil {
-		h.watch(func(*held) {})
-		h.kill()
-		k.wait(h)
-	} else {
-		for _, pid := range pids {
-			if pr, err := os.FindProcess(pid); err == nil && pid > 0 {
-				pr.Kill()
-			}
-		}
-		os.Remove(file)
-	}
+// orphan — держатель части, которой нет в плане: дерево убито, держатель выходит сам.
+func (k *Keeper) orphan(id string, h *held) {
+	h.watch(func(*held) {})
+	h.kill()
+	k.wait(h)
 	k.j.add("keeper", id, "note", "orphan_kill", "id", id)
 }
