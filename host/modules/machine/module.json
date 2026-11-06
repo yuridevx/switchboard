@@ -1,7 +1,7 @@
 {
   "name": "host-machine",
   "type": "sdk",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "into": ["host"],
   "provides": {
     "machine.dirs": 1

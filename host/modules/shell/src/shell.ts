@@ -1,12 +1,82 @@
+// Запросы shell.*: проверка кадра и запуски этой машины; модели — те же запросы инструментами.
+import { createSdkMcpServer } from "@anthropic-ai/claude-agent-sdk";
 import { refuse } from "@switchboard/host";
-import type { Module } from "@switchboard/host";
+import type { Ctx, Frame, Host, Module } from "@switchboard/host";
+import { pathOf, SHELLS, versionOf, type Shell } from "./os.ts";
+import { Runs, type Spec } from "./runs.ts";
+import { toolsOf } from "./tools.ts";
 
-type Tool = { name: string; handler: (args: never, extra: { signal?: AbortSignal }) => Promise<unknown> };
+const RUN_ID = /^[\w-]{1,64}$/;
+const badFrame = (why: string) => refuse("bad_frame", why);
 
-const gone = () => {
-  throw refuse("снесено");
-};
+/** Кадр shell.run → запуск; шелл ищется уже после формы. */
+function specOf(f: Frame): Omit<Spec, "path" | "from"> {
+  const { run, shell, script, stdin, timeout, background } = f;
+  if (typeof run !== "string" || !RUN_ID.test(run)) throw badFrame("run: нужен id запуска");
+  if (!SHELLS.includes(shell as Shell)) throw badFrame(`shell: ${String(shell)} — нужен bash, pwsh или powershell`);
+  if (typeof script !== "string") throw badFrame("script: нужен текст");
+  if (stdin !== undefined && typeof stdin !== "string") throw badFrame("stdin: нужен текст");
+  if (typeof background !== "boolean") throw badFrame("background: обязательный выбор true или false");
+  if (timeout !== undefined && (typeof timeout !== "number" || timeout <= 0)) throw badFrame("timeout: секунды больше 0");
+  if (background && timeout === undefined) throw badFrame("background: true — timeout обязателен");
+  return { id: run, shell: shell as Shell, script, stdin, timeout, background };
+}
 
-export function make(): { module: Module; tools: (me: string) => Tool[] } {
-  return { module: { requests: { "shell.run": gone, "shell.wait": gone, "shell.kill": gone, "shell.info": gone } }, tools: () => [] };
+export function make() {
+  let host: Host;
+  const runs = new Runs(() => host);
+  const stopping = new AbortController();
+  let armed = false;
+  /** Сигнал Host приходит с запросом: остановка гасит запуски раньше, чем ядро дождётся ждущих. */
+  const arm = ({ signal }: Ctx) => {
+    if (armed) return;
+    armed = true;
+    signal.addEventListener("abort", () => {
+      stopping.abort();
+      runs.halt();
+    }, { once: true });
+  };
+  const runOf = (f: Frame) => {
+    const run = runs.get(f.run);
+    if (!run) throw refuse("no_run", `run ${String(f.run)}: запуска нет`);
+    return run;
+  };
+  const tools = (me: string) => toolsOf(() => host, me);
+
+  const module: Module = {
+    start: (h) => void (host = h),
+    stop: () => runs.close(),
+    session: ({ info: { callsign } }) => ({ mcpServers: { shell: createSdkMcpServer({ name: "shell", tools: tools(callsign) }) } }),
+    requests: {
+      async "shell.run"(f, ctx) {
+        arm(ctx);
+        const spec = specOf(f);
+        if (runs.get(spec.id)) throw badFrame(`run ${spec.id}: такой запуск уже есть`);
+        const path = pathOf(spec.shell);
+        if (!path) throw refuse("no_shell", `${spec.shell}: на машине ${host.machine} нет`);
+        const run = runs.start({ ...spec, path, from: ctx.from });
+        return spec.background ? runs.snapshot(run) : runs.wait(run);
+      },
+      "shell.wait"(f, ctx) {
+        arm(ctx);
+        const run = runOf(f);
+        const { timeout } = f;
+        if (typeof timeout !== "number" || timeout < 0) throw badFrame("timeout: секунды ожидания, 0 — сразу");
+        return runs.wait(run, timeout * 1000);
+      },
+      async "shell.kill"(f) {
+        await runs.kill(runOf(f));
+      },
+      async "shell.info"(_f, ctx) {
+        arm(ctx);
+        const found = SHELLS.flatMap((shell) => {
+          const path = pathOf(shell);
+          return path ? [{ shell, path }] : [];
+        });
+        const rows = await Promise.all(found.map(async ({ shell, path }) => [shell, { version: await versionOf(shell, path, stopping.signal), path }]));
+        return { shells: Object.fromEntries(rows) };
+      },
+    },
+  };
+  return { module, tools };
 }
