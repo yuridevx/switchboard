@@ -74,13 +74,26 @@ export const Meter = ({ value, warn, bad, className, ...rest }: ComponentProps<"
 export const Switch = ({ on, ...rest }: ComponentProps<"button"> & { on: boolean }) => <button type="button" role="switch" aria-checked={on} {...rest} />;
 export const Check = (p: ComponentProps<"input">) => <input type="checkbox" {...p} />;
 
-export const Tabs = <K extends string>({ tabs, cur, pick, ...rest }: Omit<ComponentProps<"div">, "children"> & { tabs: ReadonlyArray<readonly [K, ReactNode]>; cur: K; pick(id: K): void }) => (
+export const Tabs = <K extends string>({ tabs, cur, pick, ...rest }: Omit<ComponentProps<"div">, "children"> & { tabs: ReadonlyArray<readonly [K, ReactNode, boolean?]>; cur: K; pick(id: K): void }) => (
   <div {...rest} role="tablist">
-    {tabs.map(([id, label]) => (
-      <Btn key={id} role="tab" aria-selected={id === cur} data-tab={id} onClick={() => pick(id)}>
+    {tabs.map(([id, label, off]) => (
+      <Btn key={id} role="tab" aria-selected={id === cur} data-tab={id} disabled={off} onClick={() => pick(id)}>
         {label}
       </Btn>
     ))}
+  </div>
+);
+
+/** Подтверждение на месте, без окна: что случится — словами до действия. */
+export const Confirm = ({ text, act, run, cancel }: { text: string; act: string; run(): void; cancel(): void }) => (
+  <div className="sb-confirm" data-confirm="">
+    <span>{text}</span>
+    <Btn bad data-act="confirm" onClick={run}>
+      {act}
+    </Btn>
+    <Btn data-act="confirm-no" onClick={cancel}>
+      Отмена
+    </Btn>
   </div>
 );
 

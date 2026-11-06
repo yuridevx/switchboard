@@ -1,4 +1,5 @@
 // pult-incidents: инциденты флота — сессии с полем roster incident и обращения на диске Host без сессии (incident.pending).
+import { TriangleAlert } from "lucide-react";
 import { Fragment, useEffect, useState } from "react";
 import type { Roster } from "@switchboard/relay";
 import type { AppModule } from "@switchboard/web-core";
@@ -161,7 +162,7 @@ export function createIncidents(app: App): AppModule {
     on: { roster: st.onRoster, link: (s, m) => st.answers.onLink(s, m) },
     screens: {
       incidents: {
-        nav: "Инциденты",
+        nav: "Инциденты", icon: TriangleAlert,
         label: "Инциденты",
         narrowGroup: "Флот",
         mark: "incidents.open",

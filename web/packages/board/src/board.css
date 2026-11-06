@@ -1,8 +1,9 @@
 /* Стили «Работы»: один список для колонки пульта и экрана телефона. Вид — классы wide и side на корне .bd. */
 .bd{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr)}
-.bd.wide{grid-template-columns:minmax(280px,340px) minmax(0,1fr)}
+.bd.wide{grid-template-columns:var(--sb-master) minmax(0,1fr)}
 .bd.side{grid-template-columns:minmax(0,1fr)}
 .bd.side .bd-pick{display:none}
+.bd.side .bd-list{border-right:0}
 .bd-list{position:relative;display:flex;flex-direction:column;min-height:0;min-width:0;background:var(--surface);border-right:1px solid var(--line2);overflow:hidden}
 .bd-lh{flex:none;display:flex;align-items:center;gap:8px;padding:12px 12px 8px}
 .bd-lh b{flex:1;font:600 19px/1.2 var(--body)}
@@ -10,14 +11,12 @@
 .fscroll{display:flex;gap:5px;overflow-x:auto;flex:1;min-width:0;scrollbar-width:none;-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent);mask-image:linear-gradient(to right,#000 calc(100% - 24px),transparent);padding-right:24px}
 .fscroll::-webkit-scrollbar{display:none}
 button.fc{flex:none;display:inline-flex;align-items:center;gap:5px;border-radius:999px;padding:4px 11px;font:500 12.5px/1.3 var(--body);color:var(--ink);background:var(--surface2);border:1px solid var(--line2);white-space:nowrap}
-button.fc .n{font:500 11px var(--mono);color:var(--muted)}
 button.fc[aria-selected="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-button.fc[aria-selected="true"] .n{color:inherit;opacity:.75}
 .fc .ed{font-size:11px;opacity:.8}
 button.fc.add{padding:4px 10px;font-size:14px;line-height:1;background:transparent;border-style:dashed}
 button.fc.vw{padding:4px 7px;display:inline-grid;place-items:center;background:transparent}
 button.fc.vw[aria-expanded="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
-.bd-body{flex:1;min-height:0;overflow-y:auto}
+.bd-body{scrollbar-gutter:stable;flex:1;min-height:0;overflow-y:auto}
 .lst{position:relative;display:flex;flex-direction:column;padding:4px 6px 14px}
 .pjs{position:relative}
 .pj{display:flex;align-items:center;gap:4px;padding:8px 4px 2px 6px;position:sticky;top:0;background:var(--surface);z-index:2;box-shadow:0 1px 0 var(--line2)}
@@ -35,7 +34,6 @@ button.pj-t{flex:1;min-width:0;display:flex;align-items:center;gap:7px;border:0;
 .pj-t .lamps .sb-dot{width:7px;height:7px;animation:none;box-shadow:none}
 button.pj-add{flex:none;width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:8px;font-size:17px;line-height:1;display:grid;place-items:center;background:transparent;color:var(--muted)}
 .mgrp{display:flex;align-items:center;gap:6px;padding:7px 10px 1px 34px;font:600 11.5px var(--body);color:var(--muted)}
-.mgrp .n{font:500 10.5px var(--mono);opacity:.8}
 .bd-row{position:relative;display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;background:transparent;border-radius:9px;padding:7px 10px;color:var(--ink)}
 .bd:not(.wide) .bd-row{padding:7px 12px}
 .bd-row[aria-current="true"]{background:var(--accent-weak)}

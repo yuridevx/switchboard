@@ -1,4 +1,5 @@
 // pult-profiles — профили всех машин одной таблицей. Своих данных нет: ответы машин живут, пока страница открыта.
+import { Layers } from "lucide-react";
 import type { App, AppModule } from "@switchboard/web-core";
 import { machineAnswers, machinesWith, type ProfilesAnswer } from "@switchboard/web-ui";
 import type {} from "@switchboard/web-card";
@@ -11,7 +12,7 @@ export function createProfiles(app: App): AppModule {
   return {
     state: answers,
     on: { link: answers.onLink },
-    screens: { profiles: { nav: "Профили", group: "Флот", label: "Профили", view: ProfilesScreen, head: () => ({ title: "Профили" }) } },
+    screens: { profiles: { nav: "Профили", icon: Layers, group: "Флот", label: "Профили", view: ProfilesScreen, head: () => ({ title: "Профили" }) } },
     css,
   };
 }

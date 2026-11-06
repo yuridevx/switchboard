@@ -39,6 +39,12 @@ export const PERM_MODES: Array<[string, string]> = [
 ];
 
 export const permModeName = (mode: string) => PERM_MODES.find(([m]) => m === mode)?.[1];
+/** Режимы сессии: «Авто» — если модель умеет или он уже включён; модель не нашлась в списке SDK — запись по умолчанию. */
+export function permModesOf(mode: string, model: string, models: ReadonlyArray<{ value: string; supportsAutoMode?: boolean }> | null | undefined) {
+  const list = models ?? [];
+  const found = list.find((m) => m.value !== "default" && model.includes(m.value)) ?? list.find((m) => m.value === "default");
+  return PERM_MODES.filter(([value]) => value !== "auto" || found?.supportsAutoMode || mode === "auto");
+}
 
 export const PERM_PLACES: Record<string, string> = {
   localSettings: "локально",

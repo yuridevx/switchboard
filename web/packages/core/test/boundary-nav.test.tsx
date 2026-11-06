@@ -95,7 +95,7 @@ describe("разделы", () => {
     expect(texts(".sb-navrow .sb-nv")).toEqual(["Инциденты", "Машины", "Аккаунты"]);
   });
 
-  it("вкладки: один раздел — их нет; счёт группы — сумма; открытая группа нажатием не перескакивает; счётчик раздела на ленте", async () => {
+  it("вкладки: один раздел — их нет; метка группы — точка, если есть новое; открытая группа нажатием не перескакивает; точка раздела на ленте", async () => {
     const one = await stand([mod().part]);
     expect(one.$(".sb-tabs")!.hidden).toBe(true);
     const f: AppPart = {
@@ -106,19 +106,19 @@ describe("разделы", () => {
       }),
     };
     const t = await stand([f]);
-    expect(texts('.sb-tabs [data-group="Г"] .sb-badge')).toEqual(["5"]);
+    expect(texts('.sb-tabs [data-group="Г"] .sb-badge.dot')).toEqual([""]);
     await t.click(t.$('.sb-tabs [data-screen="z"]'));
     await t.click(t.$('.sb-tabs [data-group="Г"]'));
     expect(location.hash).toBe("#x");
-    expect(texts(".sb-navrow .sb-badge")).toEqual(["2", "3"]);
+    expect(texts(".sb-navrow .sb-badge.dot")).toEqual(["", ""]);
     await t.click(t.$('.sb-navrow [data-screen="y"]'));
     expect(location.hash).toBe("#y");
     await t.click(t.$('.sb-tabs [data-group="Г"]'));
     expect(location.hash).toBe("#y");
-    expect(t.$('.sb-navrow [aria-current="page"]')!.textContent).toBe("Игрек3");
+    expect(t.$('.sb-navrow [aria-current="page"]')!.textContent).toBe("Игрек");
   });
 
-  it("4013 · 4014 · следующий roster — счётчик раздела в колонке; владелец метки выключен — счётчика нет, раздел и roster работают", async () => {
+  it("4013 · 4014 · следующий roster — точка раздела в колонке; владелец метки выключен — точки нет, раздел и roster работают", async () => {
     const relay = new FakeRelay(oneMachine());
     const s = sample([], {
       frames: {
@@ -128,19 +128,19 @@ describe("разделы", () => {
       },
     });
     const t = await stand([s.part], { relay, wide: true });
-    const nav = () => t.$('.sb-navcol button[data-screen="list"]')!.textContent;
-    expect(nav()).toBe("Сессии1");
+    const nav = () => t.$('.sb-navcol button[data-screen="list"] .sb-badge.dot') !== null;
+    expect(nav()).toBe(true);
     const r = oneMachine();
     r.sessions = [...r.sessions, { callsign: "x@laptop", state: "waiting" }, { callsign: "y@laptop", state: "waiting" }];
     relay.setRoster(r);
     await flush();
-    expect(nav()).toBe("Сессии3");
+    expect(nav()).toBe(true);
     relay.push({ type: "question", from: "site@laptop" });
     await flush();
     expect(t.run.failed.sample).toContain("boom");
     relay.setRoster(homeRoster());
     await flush();
-    expect(nav()).toBe("Сессии");
+    expect(nav()).toBe(false);
   });
 
   it("5174 · beside списком: карточка открыта от «Вам» — слева «Вам», от «Работы» — «Работа»; поиск ведёт и на экран из uses", async () => {
@@ -218,14 +218,16 @@ describe("шапка и колонка", () => {
     expect(t.$(".sb-pill")!.classList.contains("conn")).toBe(true);
   });
 
-  it("колонка: имя приложения из опций, иначе Switchboard; лампа с подписью; «Перейти…» и Ctrl K", async () => {
+  it("полоса: буква приложения из опций, имя в подсказке; лампа с подписью; поиск значком, «Перейти · Ctrl K» подсказкой", async () => {
     const a = await stand([mod().part], { wide: true });
-    expect(a.$(".sb-brand b")!.textContent).toBe("Switchboard");
+    expect(a.$(".sb-brand .sb-logo")!.textContent).toBe("S");
+    expect(a.$(".sb-brand")!.getAttribute("title")).toBe("Switchboard");
     expect(a.$(".sb-brand .sb-pill")!.getAttribute("title")).toBe("на связи");
     expect(a.$(".sb-brand .sb-pill")!.getAttribute("aria-label")).toBe("на связи");
-    expect(a.$(".sb-goto")!.textContent).toBe("Перейти…Ctrl K");
+    expect(a.$(".sb-goto")!.textContent).toBe("Перейти…");
+    expect(a.$(".sb-goto")!.getAttribute("title")).toBe("Перейти · Ctrl K");
     const b = await stand([mod().part], { wide: true, options: { brand: "Пульт" } });
-    expect(b.$(".sb-brand b")!.textContent).toBe("Пульт");
+    expect(b.$(".sb-brand .sb-logo")!.textContent).toBe("П");
   });
 
   it("полоса top: над разделом и над списком рядом; над экраном не раздела скрыта", async () => {
@@ -438,8 +440,8 @@ describe("остов разметки: на нём стоят стили и сн
     expect(t.$('.sb-master[data-screen="a"] > [data-module="m"] > [data-s="a"]')).not.toBeNull();
     expect(t.$('.sb-detail > .sb-screen[data-screen="b"] > [data-module="m"] > [data-s="b"]')).not.toBeNull();
     expect(shape(t.$(".sb-navcol")!)).toEqual(["div.sb-brand", "button.sb-tx.sb-goto", "button.sb-rw.sb-nv", "div.sb-grp", "button.sb-rw.sb-nv", "button.sb-rw.sb-nv"]);
-    expect(shape(t.$(".sb-brand")!)).toEqual(["b.", "span.sb-pill.ok.conn"]);
-    expect(t.$(".sb-goto kbd")!.textContent).toBe("Ctrl K");
+    expect(shape(t.$(".sb-brand")!)).toEqual(["span.sb-logo", "span.sb-pill.ok.conn"]);
+    expect(t.$(".sb-goto kbd")).toBeNull();
   });
 
   it("шапка раздела: логотип, лампа, заголовок, поиск, действие, пилюля; шапка экрана: назад и заголовок", async () => {
@@ -458,14 +460,16 @@ describe("остов разметки: на нём стоят стили и сн
     expect(t.$(".sb-back")!.textContent).toBe("‹");
   });
 
-  it("пункт раздела: подпись и счётчик ждущего цвета; метка 0 — счётчика нет; лента и вкладки одной формы", async () => {
+  it("пункт раздела: подпись и точка ждущего цвета; метка 0 — точки нет; лента и вкладки одной формы", async () => {
     const { parts: list, box } = pair();
     const t = await stand(list);
     const tab = t.$('.sb-tabs [data-screen="a"]')!;
     expect(tab.className).toBe("sb-rw sb-nv");
     expect(tab.getAttribute("type")).toBe("button");
     expect(tab.getAttribute("aria-current")).toBe("page");
-    expect(shape(tab)).toEqual(["span.", "span.sb-badge.wait"]);
+    expect(shape(tab)).toEqual(["span.", "span.sb-badge.wait.dot"]);
+    expect(tab.querySelector(".sb-badge")!.textContent).toBe("");
+    expect(tab.querySelector(".sb-badge")!.getAttribute("aria-label")).toBe("есть новое");
     box.app.open("g1");
     await flush();
     expect(shape(t.$('.sb-navrow [data-screen="g1"]')!)).toEqual(["span."]);

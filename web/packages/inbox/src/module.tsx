@@ -1,4 +1,5 @@
 // «Вам»: что ждёт человека. Карточки — функция от roster и меток; своё — только кто закончил ход и какие мои сессии были на машине.
+import { Inbox } from "lucide-react";
 import type { ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
@@ -163,6 +164,6 @@ export const createInbox = ((app) => {
       current: (c) => void (c.params.callsign && finished.delete(c.params.callsign)),
     },
     marks: { you: () => cards().length },
-    screens: { inbox: { nav: "Вам", mark: "you", label: "Вам", view: Screen, head: () => ({ title: "Вам" }) } },
+    screens: { inbox: { nav: "Вам", icon: Inbox, mark: "you", label: "Вам", view: Screen, head: () => ({ title: "Вам" }) } },
   };
 }) satisfies AppPart["module"];

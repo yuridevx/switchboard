@@ -2,8 +2,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { NONE } from "@switchboard/records";
-import { Badge, Btn, DisclosureBtn, Dot, failText, IconBtn, In, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, stateLabel, TextBtn, useApp, useModule, type App } from "@switchboard/web-ui";
-import { holdTouch, rowDrag, sorting, track } from "./drag.ts";
+import { Badge, Btn, DisclosureBtn, Dot, failText, holdTouch, IconBtn, In, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, stateLabel, TextBtn, track, useApp, useModule, type App } from "@switchboard/web-ui";
+import { rowDrag, sorting } from "./drag.ts";
 import { beforeOf, blockIn, byUrgency, tree, type Filter, type Line, type Section, type View } from "./model.ts";
 import { FilterEditor, ViewPanel } from "./panel.tsx";
 import type { BoardState } from "./state.ts";
@@ -104,7 +104,7 @@ function Row({ line, lines, v, flat, grouped, shared }: { line: Line; lines: Lin
           ?
         </Badge>
       )}
-      {v.badge && !r.asked && !!r.unread?.count && <Badge>{r.unread.count}</Badge>}
+      {v.badge && !r.asked && !!r.unread?.count && <Badge className="dot" aria-label="есть новое" />}
     </RowBtn>
   );
 }
@@ -221,7 +221,6 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
           return [
             <div key={`@${m}`} className="mgrp" data-group={m}>
               <span>{machineLabel(app, m).text}</span>
-              <span className="n">{here.length}</span>
             </div>,
             ...rows(here, true),
           ];
@@ -277,12 +276,12 @@ function Lists({ filter, v, shared }: { filter: Filter; v: View; shared: Shared 
   );
 }
 
-function FilterRow({ v, panel, setPanel, edit, shared }: { v: View; panel: boolean; setPanel(open: boolean): void; edit(f: Filter | null): void; shared: Shared }) {
+function FilterRow({ panel, setPanel, edit, shared }: { panel: boolean; setPanel(open: boolean): void; edit(f: Filter | null): void; shared: Shared }) {
   const app = useApp();
   const s = useModule<BoardState>();
   const scroll = useRef<HTMLDivElement>(null);
   const refocus = useRefocus(() => scroll.current);
-  const chips = app.use(() => s.chips().map((c) => ({ ...c, n: s.fitting(s.conditions(c as Filter)).length })));
+  const chips = app.use(() => s.chips());
   const selected = app.use(() => s.selected().id);
   const ids = chips.map((c) => c.id);
   const own = (id: string) => s.filters().find((f) => f.id === id);
@@ -311,7 +310,6 @@ function FilterRow({ v, panel, setPanel, edit, shared }: { v: View; panel: boole
         {chips.map((c) => (
           <RowBtn key={c.id} role="tab" className="fc" data-fid={c.id} aria-selected={c.id === selected} onKeyDown={(e) => keys(e, c.id)} onPointerDown={(e) => down(e, c.id)} onClick={() => (c.id === selected && own(c.id) ? edit(own(c.id)!) : s.pick(c.id))}>
             {c.name}
-            {v.fcount && <span className="n">{c.n}</span>}
             {c.id === selected && own(c.id) && (
               <span className="ed" aria-hidden="true">
                 ✎
@@ -341,6 +339,11 @@ export function BoardScreen() {
   const filter = app.use(() => s.selected());
   const side = app.use(() => app.current()?.master === "board");
   const shared: Shared = { host: () => host.current!, body: () => body.current! };
+  // широкий вид: вход на экран сразу показывает сессию; на телефоне список — отдельный экран
+  const entry = app.use(() => (app.wide && app.current()?.screen === "board" && !app.current()?.master ? s.entry() : null));
+  useEffect(() => {
+    if (entry) app.open("card", { callsign: entry });
+  }, [app, entry]);
   useEffect(() => holdTouch(host.current!), []);
   useLayoutEffect(() => {
     const el = body.current!;
@@ -358,7 +361,7 @@ export function BoardScreen() {
             </Btn>
           </div>
         )}
-        <FilterRow v={v} panel={panel} setPanel={setPanel} edit={setEditing} shared={shared} />
+        <FilterRow panel={panel} setPanel={setPanel} edit={setEditing} shared={shared} />
         <div className="bd-body" ref={body}>
           <Lists filter={filter} v={v} shared={shared} />
         </div>

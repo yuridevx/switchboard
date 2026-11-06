@@ -1,4 +1,5 @@
 // pult-journal: журнал флота — записи ledger по дням. Записи живут только на экране; дочитывание — при смене состава флота и возврате связи.
+import { ScrollText } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { LedgerEvent, LedgerReadResult } from "@switchboard/ledger";
 import type { AppModule } from "@switchboard/web-core";
@@ -117,5 +118,5 @@ function Row({ e, day, app }: { e: LedgerEvent; day: string | null; app: App }) 
 }
 
 export function createJournal(_app: App): AppModule {
-  return { screens: { journal: { nav: "Журнал", group: "Флот", label: "Журнал флота", view: Journal, head: () => ({ title: "Журнал флота" }) } }, css };
+  return { screens: { journal: { nav: "Журнал", icon: ScrollText, group: "Флот", label: "Журнал флота", view: Journal, head: () => ({ title: "Журнал флота" }) } }, css };
 }

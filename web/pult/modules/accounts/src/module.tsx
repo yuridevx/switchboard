@@ -1,4 +1,5 @@
 // pult-accounts — связка экрана с ядром; ответы машин и входы — state.ts, правила над аккаунтами — merge.ts, вид — screen.tsx.
+import { KeyRound } from "lucide-react";
 import type { App, AppModule } from "@switchboard/web-core";
 import type {} from "@switchboard/web-labels";
 import css from "./accounts.css";
@@ -10,7 +11,7 @@ export function createAccounts(app: App): AppModule {
   return {
     state,
     on: { roster: state.onRoster, link: state.answers.onLink },
-    screens: { accounts: { nav: "Аккаунты", group: "Флот", label: "Аккаунты", view: AccountsScreen, head: () => ({ title: "Аккаунты" }) } },
+    screens: { accounts: { nav: "Аккаунты", icon: KeyRound, group: "Флот", label: "Аккаунты", view: AccountsScreen, head: () => ({ title: "Аккаунты" }) } },
     css,
   };
 }

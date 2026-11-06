@@ -1,6 +1,6 @@
 // Ввод: текст, вложения, подсказки «/» и «@», режим разрешений, «Прервать». Поле живёт в сторе разговора: черновик переживает экран, буква ввода страницу не будит.
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
-import { Area, Btn, IconBtn, isLive, PERM_MODES, permModeName, RowBtn, Sel, sessionOf, useApp, useModule } from "@switchboard/web-ui";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { Area, Btn, IconBtn, isLive, permModeName, permModesOf, RowBtn, sessionOf, useApp, useModule } from "@switchboard/web-ui";
 import type { Att, Talks } from "../talk.ts";
 import { useEnv } from "./env.ts";
 import { Icon } from "./icons.tsx";
@@ -16,7 +16,8 @@ async function attOf(f: File): Promise<Att> {
   return { name: f.name, media_type: f.type || "application/octet-stream", data: btoa(raw) };
 }
 
-function ModeSelect() {
+/** Режим разрешений: кнопка, нажатие — следующий режим. */
+function ModeBtn() {
   const { cs, view, act } = useEnv();
   const app = useApp();
   const talks = useModule<Talks>();
@@ -27,23 +28,16 @@ function ModeSelect() {
     if (mode !== undefined && live) void talks.models(cs);
   }, [mode !== undefined, live, cs]); // eslint-disable-line react-hooks/exhaustive-deps
   if (mode === undefined || !live) return null;
-  // модель сессии в списке SDK; не нашлась — запись по умолчанию
-  const list = Array.isArray(models) ? models : [];
-  const found = list.find((m) => m.value !== "default" && view.model?.includes(m.value)) ?? list.find((m) => m.value === "default");
-  const modes = PERM_MODES.filter(([value]) => value !== "auto" || found?.supportsAutoMode || mode === "auto");
+  const modes = permModesOf(mode, view.model ?? "", Array.isArray(models) ? models : null);
+  const next = modes[(modes.findIndex(([value]) => value === mode) + 1) % modes.length][0];
   return (
-    <Sel className="chat-mode" title="Режим разрешений" aria-label="Режим разрешений" data-mode={mode} value={mode} onChange={(e) => act("setPermissionMode", [e.currentTarget.value])}>
-      {modes.some(([value]) => value === mode) ? null : <option value={mode}>{permModeName(mode) ?? mode}</option>}
-      {modes.map(([value, label]) => (
-        <option key={value} value={value}>
-          {label}
-        </option>
-      ))}
-    </Sel>
+    <Btn type="button" className="chat-mode" title="Режим разрешений: нажатие — следующий" data-mode={mode} data-next={next} data-modes={modes.map(([value]) => value).join(" ")} onClick={() => act("setPermissionMode", [next])}>
+      {permModeName(mode) ?? mode}
+    </Btn>
   );
 }
 
-export function Composer() {
+export function Composer({ tools }: { tools?: ReactNode }) {
   const env = useEnv();
   const app = useApp();
   const talks = useModule<Talks>();
@@ -251,7 +245,8 @@ export function Composer() {
               <Icon name="slash" size={16} />
             </IconBtn>
           ) : null}
-          <ModeSelect />
+          <ModeBtn />
+          {tools}
           <span className="chat-grow" />
           {busy && env.canAct ? (
             <Btn type="button" bad className="chat-stop" onClick={() => env.act("interrupt", [])}>

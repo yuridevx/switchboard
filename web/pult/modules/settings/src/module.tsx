@@ -1,4 +1,5 @@
 // Настройки флота: вкладки «Выпуски», «Пропуска», «GitHub и устройство»; на телефоне — только устройство.
+import { Settings } from "lucide-react";
 import type { AppPart, ScreenProps } from "@switchboard/web-core";
 import { Page, PageHead, Tabs, useApp } from "@switchboard/web-ui";
 import { GeneralTab, githubCode } from "./general.tsx";
@@ -44,7 +45,7 @@ export const createSettings = ((app) => {
     },
     screens: {
       settings: {
-        nav: "Настройки",
+        nav: "Настройки", icon: Settings,
         group: "Флот",
         label: "Настройки",
         view: SettingsScreen,

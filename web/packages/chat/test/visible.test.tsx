@@ -445,7 +445,7 @@ describe("ввод и вопросы сбоку", () => {
       x.sessions.find((s) => s.callsign === IDLE)!.mode = "новый";
     });
     const u = await chat(IDLE, { relay: relayFor(r) });
-    expect([...u.$<HTMLSelectElement>(".chat-mode")!.options].some((o) => o.value === "новый")).toBe(true);
+    expect(u.$(".chat-mode")!.textContent).toBe("новый");
   });
 
   it("запасной авто-режим: модель по умолчанию из списка SDK", async () => {
@@ -457,7 +457,7 @@ describe("ввод и вопросы сбоку", () => {
     relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? ({ ok: true, result: [{ value: "default", supportsAutoMode: true }] } as never) : ({ ok: true, result: [] } as never));
     const t = await chat(IDLE, { relay });
     await flush(5);
-    expect([...t.$<HTMLSelectElement>(".chat-mode")!.options].some((o) => o.value === "auto")).toBe(true);
+    expect(t.$<HTMLButtonElement>(".chat-mode")!.dataset.modes).toContain("auto");
   });
 });
 
@@ -466,7 +466,7 @@ describe("панель и док", () => {
     const relay = relayFor(roster());
     relay.handlers["session.call"] = (f) => (String(f.method) in results ? ({ ok: true, result: results[String(f.method)] } as never) : ({ ok: false, error: "unknown_method" } as never));
     const t = await chat(IDLE, { relay, wide: true });
-    await t.click(t.button(/контекст/));
+    await t.click(t.$(`.chat-tb[aria-label="Контекст"]`));
     await flush(5);
     return t;
   };
@@ -525,10 +525,10 @@ describe("экран", () => {
   it("широкий — свой класс; подпись кнопки вниз; фокус держится на разговор и только широко", async () => {
     const t = await chat(IDLE, { wide: true });
     expect(t.$(".chat")!.classList.contains("wide")).toBe(true);
-    await t.click(t.button(/фокус/));
+    await t.click(t.$(`.chat-tb[aria-label="Фокус"]`));
     await open(`#board`);
     await open(`#chat?callsign=${encodeURIComponent(IDLE)}`);
-    expect(t.button(/фокус/)!.getAttribute("aria-pressed")).toBe("true");
+    expect(t.$(`.chat-tb[aria-label="Фокус"]`)!.getAttribute("aria-pressed")).toBe("true");
   });
 
   it("сессии нет в roster: шапка «машина не на связи»", async () => {
@@ -538,7 +538,7 @@ describe("экран", () => {
 
   it("фокус: шаги с размышлением, служебные строки отдельно, финал отделён от шагов того же ответа, итог хода последним", async () => {
     const t = await chat(IDLE, { wide: true });
-    await t.click(t.button(/фокус/));
+    await t.click(t.$(`.chat-tb[aria-label="Фокус"]`));
     await t.events(
       IDLE,
       [
@@ -563,7 +563,7 @@ describe("экран", () => {
   it("выгрузка: шапка, инструменты, имя отправителя", async () => {
     const relay = relayFor(roster(), [human("<cross-session-message>привет</cross-session-message>", { uuid: "u1" }), toolUse("a", "Bash", { command: "x" })]);
     const t = await chat(IDLE, { relay, wide: true });
-    const a = t.$<HTMLAnchorElement>(".chat-bar a")!;
+    const a = t.$<HTMLAnchorElement>("a.chat-tb")!;
     a.addEventListener("click", (e) => e.preventDefault());
     a.dispatchEvent(new MouseEvent("click", { cancelable: true, bubbles: true }));
     const md = decodeURIComponent(a.href);
@@ -812,11 +812,11 @@ describe("из общих тестов пульта", () => {
       { type: "result", uuid: "z1", subtype: "success", duration_ms: 134_000, num_turns: 6, total_cost_usd: 0.41 },
     ]);
     const t = await chat(IDLE, { relay, wide: true });
-    await t.click(t.button(/фокус/));
+    await t.click(t.$(`.chat-tb[aria-label="Фокус"]`));
     expect(t.$$(".chat-col > :not(.chat-work)").map((x) => x.className.replace("dis ", "").split(" ")[0])).toEqual(["chat-me", "chat-steps", "chat-reply", "chat-res"]);
     expect(t.$(".chat-steps")!.textContent).toBe("4 шага · Команда ×2 · Чтение · Правка");
     expect(t.$(".chat-txt")!.textContent).toBe("Сборка зелёная.");
-    const a = t.$<HTMLAnchorElement>(".chat-bar a")!;
+    const a = t.$<HTMLAnchorElement>("a.chat-tb")!;
     a.addEventListener("click", (e) => e.preventDefault());
     a.dispatchEvent(new MouseEvent("click", { cancelable: true, bubbles: true }));
     expect(decodeURIComponent(a.href)).toContain("## Claude\n\nСборка зелёная.");

@@ -6,10 +6,10 @@ import { addProject, arrange, dropSessions, FLEET_PREFIX, moveProject, NONE, pla
 import { createStore, folderOf, lamp, machineLabel, myAddress, personal, sessionLabel } from "@switchboard/web-ui";
 import { BUILT_IN, byUrgency, chipsOrder, matches, ownerOf, VIEW, whyMine, type Facts, type Filter, type Section, type View } from "./model.ts";
 
-type Device = { flt: string; collapsed: Record<string, boolean>; view: View; current: string | null };
+type Device = { flt: string; collapsed: Record<string, boolean>; view: View; current: string | null; picked: string | null };
 
 export function createState(app: App) {
-  const device = createStore<Device>({ flt: "mine", collapsed: {}, view: VIEW, current: null }, () => app.changed());
+  const device = createStore<Device>({ flt: "mine", collapsed: {}, view: VIEW, current: null, picked: null }, () => app.changed());
   const changed = () => {
     reveal();
     app.changed();
@@ -71,11 +71,12 @@ export function createState(app: App) {
   }
 
   async function load() {
-    const [f, c, v] = await Promise.all([app.store<string>("flt").get(), app.store<Record<string, boolean>>("collapsed").get(), app.store<Partial<View>>("view").get()]);
+    const [f, c, v, p] = await Promise.all([app.store<string>("flt").get(), app.store<Record<string, boolean>>("collapsed").get(), app.store<Partial<View>>("view").get(), app.store<string>("picked").get()]);
     device.set((d) => {
       d.flt = f ?? "mine";
       d.collapsed = c ?? {};
       d.view = { ...VIEW, ...v };
+      d.picked = p ?? null;
     });
   }
 
@@ -119,6 +120,18 @@ export function createState(app: App) {
     current(c: { params: Params }) {
       wanted = c.params.callsign ?? null;
       reveal();
+      const open = c.params.callsign;
+      if (open && open !== device.get().picked) {
+        device.set((d) => void (d.picked = open));
+        void app.store("picked").set(open);
+      }
+    },
+    /** Вход на «Работу»: прежняя сессия, её нет — первая по выбранному отбору. */
+    entry(): string | null {
+      if (!ready()) return null;
+      const was = device.get().picked;
+      if (was && sessions().some((x) => x.callsign === was)) return was;
+      return shown(conditions(selected())).flatMap((x) => x.callsigns)[0] ?? null;
     },
     link(state: Parameters<typeof own.onLink>[0], machine?: string) {
       void own.onLink(state, machine);

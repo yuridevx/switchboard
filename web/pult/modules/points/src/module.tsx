@@ -1,4 +1,5 @@
 // pult-points: связка экранов точек с ядром страницы.
+import { MapPin } from "lucide-react";
 import type { App, AppModule } from "@switchboard/web-core";
 import css from "./points.css";
 import { Overview } from "./Overview.tsx";
@@ -12,7 +13,7 @@ export function createPoints(app: App): AppModule {
     on: { roster: fleet.onRoster },
     marks: { fire: fleet.fire },
     screens: {
-      points: { nav: "Точки", group: "Флот", label: "Точки", view: Overview, head: () => ({ title: "Точки" }) },
+      points: { nav: "Точки", icon: MapPin, group: "Флот", label: "Точки", view: Overview, head: () => ({ title: "Точки" }) },
       "session.points": {
         place: "card.tab",
         path: "session-points",
