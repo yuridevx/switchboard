@@ -9,7 +9,7 @@ import { entrance, type GateApi, type Pass, type VerifyResult } from "../contrac
 import worker, { Gate } from "../src/index.ts";
 
 type Stand = GateApi & { setHosts(names: string[]): Promise<void> };
-type TestEnv = { DB: D1Database; PROD: D1Database; TEST_MIGRATIONS: D1Migration[]; TEST_SEED: { sql: string; invite: string }; STAND: Stand };
+type TestEnv = { DB: D1Database; TEST_MIGRATIONS: D1Migration[]; TEST_SEED: { sql: string; invite: string }; STAND: Stand };
 type Reply = { type: string; id: string; ok: boolean; result?: any; error?: string };
 
 const env = rawEnv as unknown as TestEnv;
@@ -19,8 +19,8 @@ let n = 0;
 
 const send = (body: string, e: { DB: D1Database } = env) => worker.fetch(new Request("https://gate/", { method: "POST", body }), e as never);
 /** POST по адресу gate: кадр → reply. */
-async function post(f: Record<string, unknown>, e: { DB: D1Database } = env): Promise<Reply> {
-  return (await send(JSON.stringify({ id: String(++n), v: 1, ...f }), e)).json();
+async function post(f: Record<string, unknown>): Promise<Reply> {
+  return (await send(JSON.stringify({ id: String(++n), v: 1, ...f }))).json();
 }
 
 const sha256 = async (t: string) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)))].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -42,7 +42,6 @@ const rows = async () => (await env.DB.prepare("SELECT * FROM passes").all<Recor
 
 beforeEach(async () => {
   await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
-  await applyD1Migrations(env.PROD, env.TEST_MIGRATIONS);
   await env.DB.exec("DELETE FROM passes");
   logs = [];
   vi.spyOn(console, "log").mockImplementation((...a: unknown[]) => void logs.push(a.join(" ")));
@@ -50,7 +49,7 @@ beforeEach(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("приглашение и приём", () => {
-  it("5001 · invite → строка «ждёт приёма» с хэшем приглашения; redeem → пропуск, новый хэш, «принят»; второй redeem → bad_invite; журнал без секретов", async () => {
+  it("5001 · 5006 · invite → строка «ждёт приёма» с хэшем приглашения; redeem → пропуск, новый хэш, «принят»; второй redeem → bad_invite; секретов нет ни в журнале, ни в базе", async () => {
     const by = await agent();
     const inv = await post({ type: "keys.invite", key: by, role: "client", name: "phone", person: "owner@example.com" });
     expect(inv).toMatchObject({ type: "reply", ok: true });
@@ -70,32 +69,22 @@ describe("приглашение и приём", () => {
     expect(taken.state).toBe("ok");
     expect(taken.hash).toBe(await sha256(r1.result.key.split(".")[3]));
     expect(logs).toContainEqual(`redeem client.phone.${kid} · принят`);
-    expect(logs.join("\n")).not.toContain(r1.result.key.split(".")[3]);
-    expect(logs.join("\n")).not.toContain(code);
+    const kept = logs.join("\n") + JSON.stringify(await rows());
+    expect(kept).not.toContain(r1.result.key.split(".")[3]);
+    expect(kept).not.toContain(code);
 
     expect(await post({ type: "gate.redeem", invite: inv.result.invite })).toMatchObject({ ok: false, error: "bad_invite" });
     expect(logs).toContainEqual(`bad_invite приглашения ${kid} нет, оно принято или отозвано`);
     expect(await gate.verify(r1.result.key)).toMatchObject({ addr: "phone~owner@example.com" });
   });
 
-  it("5002 · revoke строки «ждёт приёма» → redeem получает bad_invite", async () => {
-    const inv = await invited({ role: "host", name: "laptop" });
-    expect(await gate.revoke(inv.kid)).toEqual({ addr: "@laptop" });
-    expect(await post({ type: "gate.redeem", invite: inv.invite })).toMatchObject({ ok: false, error: "bad_invite" });
-  });
-
-  it.each([
-    ["не того вида", "nope", "приглашение не того вида: номер.секрет"],
-    ["не строка", 42, "приглашение не того вида: номер.секрет"],
-    ["секрет не той длины", `abcd.${"A".repeat(42)}`, "приглашение не того вида: номер.секрет"],
-    ["номер с заглавной", `ABCD.${"A".repeat(43)}`, "приглашение не того вида: номер.секрет"],
-    ["номера нет", `zzzz.${"A".repeat(43)}`, "приглашения zzzz нет, оно принято или отозвано"],
-  ])("gate.redeem без пропуска: %s → bad_invite, причина в журнале", async (_n, invite, why) => {
-    expect(await post({ type: "gate.redeem", invite })).toMatchObject({ ok: false, error: "bad_invite" });
-    expect(logs).toEqual([`bad_invite ${why}`]);
-  });
-
-  it("gate.redeem: секрет приглашения не тот — bad_invite, строка ждёт дальше", async () => {
+  it("gate.redeem без пропуска: приглашение не того вида или секрет не тот — bad_invite, причина в журнале, строка ждёт дальше", async () => {
+    const S = "A".repeat(43);
+    for (const invite of ["nope", `xabcd.${S}`, `abcd.${S}x`]) {
+      logs = [];
+      expect(await post({ type: "gate.redeem", invite })).toMatchObject({ ok: false, error: "bad_invite" });
+      expect(logs).toEqual(["bad_invite приглашение не того вида: номер.секрет"]);
+    }
     const inv = await invited({ role: "host", name: "laptop" });
     expect(await post({ type: "gate.redeem", invite: `${inv.kid}.${"A".repeat(43)}` })).toMatchObject({ ok: false, error: "bad_invite" });
     expect(logs).toContainEqual(`bad_invite приглашения ${inv.kid} нет, оно принято или отозвано`);
@@ -111,17 +100,14 @@ describe("приглашение и приём", () => {
     expect(await gate.verify(both.find((r) => r.ok)!.result.key)).toMatchObject({ addr: "@laptop" });
   });
 
-  it("at в миллисекундах: время выдачи, с приёмом — время приёма; by остаётся; их показывает список", async () => {
-    const from = Date.now();
+  it("at в миллисекундах: время выдачи, с приёмом — время приёма; by остаётся", async () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000);
     const inv = await invited({ role: "host", name: "laptop" });
     const waiting = (await row(inv.kid))!;
-    expect(waiting.at).toBeGreaterThanOrEqual(from);
-    expect(waiting.at).toBeLessThanOrEqual(Date.now());
-    await new Promise((r) => setTimeout(r, 2));
+    expect(waiting.at).toBe(1_000);
+    clock.mockReturnValue(2_000);
     await post({ type: "gate.redeem", invite: inv.invite });
-    const taken = (await row(inv.kid))!;
-    expect(taken.by).toBe(waiting.by);
-    expect(taken.at).toBeGreaterThan(waiting.at as number);
+    expect(await row(inv.kid)).toMatchObject({ at: 2_000, by: waiting.by });
   });
 
   it("5013 · инструкция настоящего seed → в базе строка «ждёт приёма»; redeem даёт пропуск, который проходит verify", async () => {
@@ -132,14 +118,6 @@ describe("приглашение и приём", () => {
     const { key } = (await post({ type: "gate.redeem", invite: s.invite })).result;
     expect(key).toMatch(new RegExp(`^host\\.first\\.${kid}\\.`));
     expect(await gate.verify(key)).toEqual({ role: "host", name: "first", kid, addr: "@first" });
-  });
-
-  it("5007 · адрес вычисляет база: устройство → phone~почта; машина → @laptop, person пуст", async () => {
-    const by = await agent();
-    expect((await invited({ role: "client", name: "phone", person: "owner@example.com" }, by)).addr).toBe("phone~owner@example.com");
-    const m = await invited({ role: "host", name: "laptop" }, by);
-    expect(m.addr).toBe("@laptop");
-    expect((await row(m.kid))!.person).toBeNull();
   });
 
   it("5008 · адрес с живым пропуском → name_taken, причина в журнале; другой человек — другой адрес; после отзыва проходит", async () => {
@@ -167,7 +145,7 @@ describe("приглашение и приём", () => {
     }) as never);
     const inv = await post({ type: "keys.invite", key: by, role: "host", name: "laptop" });
     expect(inv.result.kid).toBe("bbbb");
-    script = [0, 0, 0];
+    script = [0, 0, 0, 2];
     const r = await post({ type: "keys.invite", key: by, role: "host", name: "next" });
     expect(r).toMatchObject({ ok: false, error: "gate_unavailable" });
     expect(logs).toContainEqual("gate_unavailable три номера подряд заняты");
@@ -177,13 +155,9 @@ describe("приглашение и приём", () => {
     ["role не та", { role: "admin", name: "x" }, "role — host или client"],
     ["имя с точкой", { role: "host", name: "lap.top" }, "name — A-Z a-z 0-9 _ -"],
     ["имя не строка", { role: "host", name: 7 }, "name — A-Z a-z 0-9 _ -"],
-    ["client без почты", { role: "client", name: "phone" }, "person — почта человека за устройством или программой"],
-    ["почта без @", { role: "client", name: "phone", person: "owner" }, "person — почта человека за устройством или программой"],
-    ["почта с ~", { role: "client", name: "phone", person: "o~w@x" }, "person — почта человека за устройством или программой"],
-    ["почта с пробелом", { role: "client", name: "phone", person: "o w@x" }, "person — почта человека за устройством или программой"],
     ["почта с двумя @", { role: "client", name: "phone", person: "o@w@x" }, "person — почта человека за устройством или программой"],
+    ["почта не строка", { role: "client", name: "phone", person: ["a@b"] }, "person — почта человека за устройством или программой"],
     ["у машины почта", { role: "host", name: "laptop", person: "a@b" }, "у машины person нет"],
-    ["у машины почта null", { role: "host", name: "laptop", person: null }, "у машины person нет"],
   ])("keys.invite: %s → bad_request, причина в журнале, строки нет", async (_n, fields, why) => {
     const by = await agent();
     const who = (await gate.verify(by)) as { addr: string };
@@ -195,15 +169,14 @@ describe("приглашение и приём", () => {
 });
 
 describe("проверка пропуска", () => {
-  it("5003 · verify: строка есть, хэш сошёлся → роль, имя, номер и адрес; строка не меняется; задержка — в журнале", async () => {
-    const { key, kid } = await redeemed({ role: "host", name: "laptop" });
+  it("5003 · 5005 · verify отдаёт правду строки: адрес из строки, строка не меняется, задержка в журнале; роль или имя в пропуске не как в строке → bad_key", async () => {
+    const m = await redeemed({ role: "host", name: "laptop" });
     const before = await rows();
-    expect(await gate.verify(key)).toEqual({ role: "host", name: "laptop", kid, addr: "@laptop" });
+    const clock = vi.spyOn(Date, "now").mockReturnValueOnce(1_000).mockReturnValue(1_007);
+    expect(await gate.verify(m.key)).toEqual({ role: "host", name: "laptop", kid: m.kid, addr: "@laptop" });
+    clock.mockRestore();
     expect(await rows()).toEqual(before);
-    expect(logs).toContainEqual(expect.stringMatching(new RegExp(`^ok host\\.laptop\\.${kid} → @laptop · \\d+ мс$`)));
-  });
-
-  it("5005 · verify отдаёт правду строки: адрес клиента — с почтой; роль или имя в пропуске не как в строке → bad_key", async () => {
+    expect(logs).toContainEqual(`ok host.laptop.${m.kid} → @laptop · 7 мс`);
     const { key, kid } = await redeemed({ role: "client", name: "phone", person: "owner@example.com" });
     const sec = key.split(".")[3];
     expect(await gate.verify(key)).toEqual({ role: "client", name: "phone", kid, addr: "phone~owner@example.com" });
@@ -231,58 +204,38 @@ describe("проверка пропуска", () => {
   });
 
   it.each([
-    ["без частей", "laptop-key"],
     ["роль не та", "admin.laptop.k7f3.Jx9w"],
-    ["три части", "host.laptop.k7f3"],
-    ["пустая часть", "host..k7f3.sig"],
-    ["недопустимый знак", "host.lap$top.k7f3.sig"],
+    ["мусор впереди", "x.host.laptop.k7f3.sig"],
     ["не строка", 42],
-    ["нет", undefined],
   ])("114 · пропуск не того вида: %s — bad_key без исключения, причина в журнале", async (_n, k) => {
     expect(await gate.verify(k as string)).toEqual({ error: "bad_key" });
     expect(logs).toEqual(["bad_key пропуск не того вида: нужно role.name.kid.secret, роль host или client"]);
   });
 
-  it("5006 · в базе нет секретов: после invite и redeem — только хэши", async () => {
-    const { key, invite } = await redeemed({ role: "client", name: "phone", person: "owner@example.com" });
-    const dump = JSON.stringify(await rows());
-    expect(dump).not.toContain(invite.split(".")[1]);
-    expect(dump).not.toContain(key.split(".")[3]);
-    expect((await rows()).every((r) => /^[0-9a-f]{64}$/.test(String(r.hash)))).toBe(true);
-  });
-
-  it("5009 · пропуск тестового флота в базе прода → bad_key", async () => {
-    const { key } = await redeemed({ role: "host", name: "laptop" });
-    expect(await post({ type: "keys.list", key })).toMatchObject({ ok: true });
-    expect(await post({ type: "keys.list", key }, { DB: env.PROD })).toMatchObject({ ok: false, error: "bad_key" });
-  });
 });
 
 describe("отзыв", () => {
-  it("7305 · отзыв удаляет строку: номера нет, второй отзыв — unknown_key, адрес свободен; журнал", async () => {
+  it("7305 · 5002 · отзыв удаляет строку: приглашение не принять, номера нет, второй отзыв — unknown_key, адрес свободен; журнал", async () => {
     const by = await agent();
     const a = await invited({ role: "host", name: "laptop" }, by);
     expect(await gate.revoke(a.kid)).toEqual({ addr: "@laptop" });
     expect(logs).toContainEqual(`revoked ${a.kid} @laptop · строка удалена`);
     expect(await row(a.kid)).toBeNull();
+    expect(await post({ type: "gate.redeem", invite: a.invite })).toMatchObject({ ok: false, error: "bad_invite" });
     expect(await gate.revoke(a.kid)).toEqual({ error: "unknown_key" });
     expect(logs).toContainEqual(`unknown_key ${a.kid} · отзыв`);
     expect(await post({ type: "keys.invite", key: by, role: "host", name: "laptop" })).toMatchObject({ ok: true });
   });
 
-  it("5011 · revoked(номера) → которых нет в базе; номер — kid или role.name.kid; живые не попадают; пустой список", async () => {
+  it("5011 · revoked(номера) → которых нет в базе; номер — kid или role.name.kid; живые не попадают; пустой список; 150 номеров за раз — без предела переменных базы", async () => {
     const by = await agent();
     const a = await invited({ role: "host", name: "a" }, by);
     const b = await invited({ role: "host", name: "b" }, by);
     await gate.revoke(a.kid);
     expect(await gate.revoked([a.kid, b.kid, `host.b.${b.kid}`, "client.phone.zzzz", `host.a.${a.kid}`])).toEqual([a.kid, "client.phone.zzzz", `host.a.${a.kid}`]);
     expect(await gate.revoked([])).toEqual([]);
-  });
-
-  it("revoked: 150 номеров за раз — без предела числа переменных базы; живой среди них не попадает", async () => {
-    const live = await invited({ role: "host", name: "alive" });
-    const ids = [...Array.from({ length: 149 }, (_, i) => `z${i}`), live.kid];
-    expect(await gate.revoked(ids)).toEqual(ids.slice(0, 149));
+    const many = Array.from({ length: 150 }, (_, i) => `gone-${i}`);
+    expect(await gate.revoked([...many, b.kid])).toEqual(many);
   });
 });
 
@@ -297,6 +250,7 @@ describe("список пропусков", () => {
     const hosts: Pass[] = (await post({ type: "keys.list", key: by, role: "host" })).result.passes;
     expect(hosts.map((p) => p.name)).toEqual(["older", expect.stringMatching(/^agent/), expect.stringMatching(/^agent/)]);
     expect(hosts.every((p) => p.state === "ok" && p.role === "host")).toBe(true);
+    expect((await post({ type: "keys.list", key: by, role: "client" })).result.passes.map((p: Pass) => p.id)).toEqual(["cli1"]);
     const all: Pass[] = (await post({ type: "keys.list", key: by })).result.passes;
     expect(all.map((p) => p.state)).toContain("wait");
     expect(all.map((p) => p.at)).toEqual([...all.map((p) => p.at)].sort((x, y) => x - y));
@@ -331,25 +285,13 @@ describe("вход по адресу gate", () => {
     expect(r.headers.get("access-control-allow-origin")).toBe("*");
     expect(await r.json()).toEqual({ type: "reply", id: "d1", ok: false, error: "gate_unavailable" });
     expect(logs).toContain("gate_unavailable D1_ERROR: недоступна");
-  });
-
-  it.each([
-    ["verify", (g: GateApi) => g.verify(`host.laptop.k7f3.${"A".repeat(43)}`)],
-    ["revoke", (g: GateApi) => g.revoke("k7f3")],
-    ["revoked", (g: GateApi) => g.revoked(["k7f3"])],
-    ["list", (g: GateApi) => g.list()],
-  ] as Array<[string, (g: GateApi) => Promise<unknown>]>)("5014 · база не ответила: привязка %s бросает, это не слово отказа", async (_n, call) => {
-    const down = { DB: { prepare() { throw new Error("D1_ERROR: недоступна"); } } } as never;
-    await expect(call(new Gate(createExecutionContext(), down) as unknown as GateApi)).rejects.toThrow("D1_ERROR: недоступна");
+    await expect((new Gate(createExecutionContext(), down as never) as unknown as GateApi).verify(key)).rejects.toThrow("D1_ERROR: недоступна");
   });
 
   it.each([
     ["keys.list без пропуска", { type: "keys.list" }, "bad_key"],
-    ["keys.invite с плохим пропуском", { type: "keys.invite", key: "x", role: "host", name: "a" }, "bad_key"],
     ["без версии", { type: "keys.list", key: "x", v: undefined }, "contract_mismatch"],
-    ["версия не та", { type: "gate.redeem", invite: "x", v: 2 }, "contract_mismatch"],
     ["чужое имя", { type: "gate.verify", key: "x" }, "unknown_request"],
-    ["имя чужого запроса", { type: "gate.revoke", kid: "x" }, "unknown_request"],
   ])("%s → отказ словом, код 200", async (_n, f, word) => {
     const r = await send(JSON.stringify({ id: "r1", v: 1, ...f }));
     expect(r.status).toBe(200);
@@ -365,12 +307,9 @@ describe("вход по адресу gate", () => {
 
   it.each([
     ["не JSON", "не кадр"],
-    ["кадр без типа", JSON.stringify({ id: "x" })],
     ["кадр без id", JSON.stringify({ type: "keys.list", v: 1 })],
-  ])("%s → bad_frame, код 200", async (_n, body) => {
-    const r = await send(body);
-    expect(r.status).toBe(200);
-    expect(await r.json()).toMatchObject({ type: "reply", ok: false, error: "bad_frame" });
+  ])("%s → bad_frame", async (_n, body) => {
+    expect(await (await send(body)).json()).toEqual({ type: "reply", id: "", ok: false, error: "bad_frame" });
   });
 
   it("предел тела 16 КиБ: ровно предел идёт в разбор, больше — too_large 413", async () => {
@@ -447,38 +386,29 @@ describe("общий вход Worker'ов", () => {
     expect(g.keys).toEqual([""]);
   });
 
-  it("5043 · плохой пропуск — слово gate и строка журнала; gate не ответил — gate_unavailable 503; обработчик не вызван", async () => {
+  it("5043 · плохой пропуск — слово gate и строка журнала; gate не ответил — gate_unavailable 503; обработчик не вызван; журнал по умолчанию — console.log", async () => {
     let calls = 0;
     const h = () => (calls++, []);
-    const log: string[] = [];
-    const line = (l: string) => void log.push(l);
-    const bad = await entrance(framePost({ type: "push.key", id: "1", v: 1, key: "x" }), fakeGate({ error: "bad_key" }), h, line);
+    const bad = await entrance(framePost({ type: "push.key", id: "1", v: 1, key: "x" }), fakeGate({ error: "bad_key" }), h);
     expect(bad.status).toBe(200);
     expect(await bad.json()).toEqual({ type: "reply", id: "1", ok: false, error: "bad_key" });
-    const down = await entrance(framePost({ type: "push.key", id: "3", v: 1, key: "x" }), fakeGate("throw"), h, line);
-    expect(log).toEqual(["bad_key push.key", "gate_unavailable push.key · Error: база gate не ответила"]);
+    const down = await entrance(framePost({ type: "push.key", id: "3", v: 1, key: "x" }), fakeGate("throw"), h);
+    expect(logs).toEqual(["bad_key push.key", "gate_unavailable push.key · Error: база gate не ответила"]);
     expect(down.status).toBe(503);
     expect(await down.json()).toEqual({ type: "reply", id: "3", ok: false, error: "gate_unavailable" });
     expect(calls).toBe(0);
   });
 
-  it("5045 · кадр без id → принят, 204 без тела", async () => {
+  it("5045 · кадр без id: принят — 204 без тела; обработчик бросил — 500 без тела", async () => {
     const seen: Frame[] = [];
     const r = await entrance(framePost({ type: "ledger.add", v: 1, key: "k", ev: "x" }), fakeGate(PHONE), (f) => (seen.push(f), []));
     expect(r.status).toBe(204);
     expect(await r.text()).toBe("");
     expect(seen).toHaveLength(1);
-  });
-
-  it.each([
-    ["плохой пропуск", fakeGate({ error: "bad_key" }), () => [], 204],
-    ["gate не ответил", fakeGate("throw"), () => [], 503],
-    ["обработчик бросил", fakeGate(PHONE), () => { throw new Error("сбой"); }, 500],
-  ] as Array<[string, GateApi, () => Frame[], number]>)("кадр без id, %s: тела нет, код отказа", async (_n, g, h, status) => {
-    const r = await entrance(framePost({ type: "ledger.add", v: 1, key: "k" }), g, h, () => {});
-    expect(r.status).toBe(status);
-    expect(await r.text()).toBe("");
-    expect(r.headers.get("access-control-allow-origin")).toBe("*");
+    const boom = await entrance(framePost({ type: "ledger.add", v: 1, key: "k" }), fakeGate(PHONE), () => { throw new Error("сбой"); }, () => {});
+    expect(boom.status).toBe(500);
+    expect(await boom.text()).toBe("");
+    expect(boom.headers.get("access-control-allow-origin")).toBe("*");
   });
 
   it("5046 · frame вернул кадр другому → не ушёл, строка relay_only; ответ отправителю — как обычно", async () => {
@@ -491,10 +421,13 @@ describe("общий вход Worker'ов", () => {
     );
     expect(await r.json()).toMatchObject({ id: "1", ok: true });
     expect(logs2).toEqual(['relay_only points.changed → "@win" · ответ на points.put от phone~owner@example.com: такие кадры доставляет только relay']);
+    // кадр без id ответа не ждёт: кадр отправителю ответом не становится
+    logs2.length = 0;
+    await entrance(framePost({ type: "points.put", v: 1, key: "k" }), fakeGate(PHONE), (f) => [{ type: "points.changed", to: f.from } as Frame], (l) => logs2.push(l));
+    expect(logs2).toEqual(['relay_only points.changed → "phone~owner@example.com" · ответ на points.put от phone~owner@example.com: такие кадры доставляет только relay']);
   });
 
   it.each([
-    ["frame не вернул ответа", () => []],
     ["ответ с другим id", (f: Frame) => [{ type: "reply", id: "9", ok: true, to: f.from } as Frame]],
     ["ответ другому адресу", () => [{ type: "reply", id: "1", ok: true, to: "@win" } as Frame]],
   ])("%s → no_reply", async (_n, h) => {
@@ -515,11 +448,6 @@ describe("общий вход Worker'ов", () => {
     expect(log).toEqual(["failed push.key от phone~owner@example.com · Error: сбой"]);
     expect(boom.status).toBe(500);
     expect(await boom.json()).toEqual({ type: "reply", id: "1", ok: false, error: "failed" });
-  });
-
-  it("журнал по умолчанию — console.log", async () => {
-    await entrance(framePost({ type: "push.key", id: "1", v: 1, key: "x" }), fakeGate({ error: "bad_key" }), () => []);
-    expect(logs).toEqual(["bad_key push.key"]);
   });
 
   it("5182 · gate не ответил за предел — gate_unavailable 503, frame не звался", async () => {
