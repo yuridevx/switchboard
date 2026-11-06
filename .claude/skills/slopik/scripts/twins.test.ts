@@ -72,7 +72,7 @@ it("строка поведения в одной стороне без втор
   const row = twins();
   assert.equal(row.moved, 1);
   assert.equal(row.diverged, 1);
-  assert.deepEqual(row.forgotten, [{ kind: "diverged", edited: "workers/a:serve", other: "workers/b:answer", commit: c, late: undefined }]);
+  assert.deepEqual(row.forgotten, [{ kind: "diverged", edited: "a:serve", other: "b:answer", commit: c, late: undefined }]);
 });
 
 it("обе стороны в одной задаче — синхронно, близнеца нет", () => {
@@ -97,7 +97,7 @@ it("такая же правка второй стороны в другой з�
   const row = twins();
   assert.equal(row.late, 1);
   assert.equal(row.diverged, 0);
-  assert.deepEqual(row.forgotten, [{ kind: "late", edited: "workers/a:serve", other: "workers/b:answer", commit: first, late: second }]);
+  assert.deepEqual(row.forgotten, [{ kind: "late", edited: "a:serve", other: "b:answer", commit: first, late: second }]);
 });
 
 it("другая правка второй стороны — не пропагация: две разных односторонних", () => {
