@@ -1,92 +1,77 @@
-// Выпуск Host: что собрано (build.json, модули) и закреплённый Agent SDK с его claude.
+// Сборка на диске: build.json и modules/<имя>/ рядом с packages/, путь к claude из пакета SDK, команда claude.
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import * as sdk from "@anthropic-ai/claude-agent-sdk";
-import type { Options, Query, SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { CALL_MS } from "@switchboard/protocol";
 import { BUILD_FILE, type BuildList } from "@switchboard/release";
 import type { Manifest, Module } from "../contract.ts";
 
-/** Модуль сборки; failed — не импортировался, он выключен на машине. */
+/** Модуль сборки. failed — не импортировался: выключен на машине. */
 export type ModuleEntry = { manifest: Manifest; module: Module; failed?: string };
 export type Release = { version: string; sdk: string; modules: ModuleEntry[]; workers: Record<string, string> };
 
-export type Cli = (args: string[], env: Record<string, string | undefined>, input?: string) => Promise<{ code: number | null; out: string }>;
-/** Agent SDK глазами ядра; на стенде — подделка. functions читаются при каждом вызове. */
-export type SdkApi = { query: (p: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => Query; functions: Record<string, (...args: any[]) => Promise<unknown>>; cli: Cli; bin?: string };
+const json = <T>(path: string) => JSON.parse(readFileSync(path, "utf8")) as T;
 
-const readJson = <T>(file: string): T => JSON.parse(readFileSync(file, "utf8")) as T;
-
-async function importModule(dir: string, name: string): Promise<ModuleEntry> {
-  const folder = join(dir, "modules", name);
-  const manifest = readJson<Manifest>(join(folder, "module.json")); // папки нет — сборка негодна: это падает весь выпуск
+async function loadModule(dir: string, manifest: Manifest): Promise<ModuleEntry> {
+  const { exports } = json<{ exports?: Record<string, string> }>(join(dir, "package.json"));
   try {
-    const entry = readJson<{ exports?: Record<string, string> }>(join(folder, "package.json")).exports?.["."] ?? "./contract.ts";
-    const module = ((await import(pathToFileURL(join(folder, entry)).href)) as { default?: Module }).default;
-    return module ? { manifest, module } : { manifest, module: {}, failed: `${name}: импорт: нет default — объекта модуля` };
+    const { default: module } = (await import(pathToFileURL(join(dir, exports?.["."] ?? "contract.ts")).href)) as { default?: Module };
+    return module ? { manifest, module } : { manifest, module: {}, failed: `${manifest.name}: импорт: нет default — объекта модуля` };
   } catch (e) {
-    return { manifest, module: {}, failed: `${name}: импорт: ${(e as Error).message}` };
+    return { manifest, module: {}, failed: `${manifest.name}: импорт: ${String(e)}` };
   }
 }
 
-/** Сборка лежит на два уровня выше ядра: packages/host. Без build.json (монорепо) модулей нет. */
-export async function loadRelease(coreDir: string): Promise<Release> {
-  const root = join(coreDir, "..", "..");
-  const build = existsSync(join(root, BUILD_FILE)) ? readJson<BuildList>(join(root, BUILD_FILE)) : null;
-  const modules: ModuleEntry[] = [];
-  for (const m of build?.modules ?? []) modules.push(await importModule(root, m.name));
-  const sdkDir = dirname(createRequire(join(coreDir, "main.ts")).resolve("@anthropic-ai/claude-agent-sdk"));
-  return { version: build?.version ?? readJson<{ version: string }>(join(coreDir, "module.json")).version, sdk: readJson<{ version: string }>(join(sdkDir, "package.json")).version, modules, workers: build?.workers ?? {} };
+/** Выпуск: root — папка версии. Без списка сборки — ядро из монорепо без модулей. */
+export async function loadRelease(root: string, core: string): Promise<Release> {
+  const sdk = json<{ version: string }>(join(createRequire(join(core, "x.js")).resolve("@anthropic-ai/claude-agent-sdk"), "..", "package.json")).version;
+  const file = join(root, BUILD_FILE);
+  if (!existsSync(file)) return { version: json<Manifest>(join(core, "module.json")).version, sdk, modules: [], workers: {} };
+  const list = json<BuildList>(file);
+  const dirs = list.modules.map((m) => join(root, "modules", m.name));
+  const manifests = dirs.map((d) => json<Manifest>(join(d, "module.json")));
+  return { version: list.version, sdk, workers: list.workers, modules: await Promise.all(dirs.map((d, i) => loadModule(d, manifests[i]))) };
 }
 
-/** Файл claude в пакете SDK для этой платформы; поиск самого SDK на Linux занимает около 20 с (process.report). */
-export function claudePath(coreDir: string): string | undefined {
-  const fromSdk = createRequire(createRequire(join(coreDir, "main.ts")).resolve("@anthropic-ai/claude-agent-sdk"));
-  const base = `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`;
-  for (const pkg of [base, `${base}-musl`]) {
+/** Файл claude в пакете SDK: Host находит его сам, поиск внутри SDK на Linux идёт через process.report, это 20 с на wsl. */
+export function claudePath(core: string): string | undefined {
+  const { resolve } = createRequire(join(core, "x.js"));
+  const file = `claude${process.platform === "win32" ? ".exe" : ""}`;
+  for (const libc of ["", "-musl"]) {
     try {
-      const dir = dirname(fromSdk.resolve(`${pkg}/package.json`));
-      for (const file of ["claude.exe", "claude"]) if (existsSync(join(dir, file))) return join(dir, file);
+      return resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}${libc}/${file}`);
     } catch {
-      // такого варианта пакета нет: следующий
+      // пакета этой libc на машине нет
     }
   }
   return undefined;
 }
 
-/** Команда claude с пределом: stdout и stderr вместе; не ответила — убита, code null со словами. */
-export function claudeCli(bin: string | undefined, ms: number = CALL_MS): Cli {
-  return (args, env, input) =>
-    new Promise((resolve) => {
-      if (!bin) return resolve({ code: null, out: "claude не найден в пакете SDK" });
-      const child = spawn(bin, args, { env, windowsHide: true });
+/** Команда claude: вывод вместе, предел ms — потом убита. */
+export const claudeCli =
+  (bin: string | undefined, ms = CALL_MS) =>
+  (args: string[], env: Record<string, string | undefined>, input?: string): Promise<{ code: number | null; out: string }> => {
+    if (!bin) return Promise.resolve({ code: null, out: "claude не найден в пакете SDK" });
+    return new Promise((resolve) => {
+      const p = spawn(bin, args, { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       let out = "";
       const timer = setTimeout(() => {
-        child.kill("SIGKILL");
-        resolve({ code: null, out: `${out}claude не ответил за ${ms / 1000} с` });
+        out += `claude не ответил за ${ms / 1000} с`;
+        p.kill("SIGKILL");
       }, ms);
-      child.stdout.on("data", (d) => (out += d));
-      child.stderr.on("data", (d) => (out += d));
-      child.stdin.on("error", () => {});
-      child.stdin.end(input);
-      child.on("error", (e) => {
+      p.stdout.on("data", (d) => (out += d));
+      p.stderr.on("data", (d) => (out += d));
+      p.stdin.on("error", () => {});
+      p.stdin.end(input);
+      p.on("error", (e) => {
         clearTimeout(timer);
-        resolve({ code: null, out: e.message });
+        resolve({ code: null, out: String(e) });
       });
-      child.on("close", (code) => {
+      p.on("close", (code) => {
         clearTimeout(timer);
         resolve({ code, out });
       });
     });
-}
-
-/** Настоящий SDK для main. */
-export function realSdk(coreDir: string): SdkApi {
-  const functions: SdkApi["functions"] = {};
-  for (const [name, f] of Object.entries(sdk)) if (typeof f === "function") functions[name] = f as SdkApi["functions"][string];
-  const bin = claudePath(coreDir);
-  return { query: sdk.query, functions, cli: claudeCli(bin), bin };
-}
+  };
