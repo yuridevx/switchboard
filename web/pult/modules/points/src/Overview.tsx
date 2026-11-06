@@ -25,7 +25,8 @@ function Live({ s, fleet }: { s: Listed; fleet: Fleet }) {
   return (
     <div className="pt-row" data-sid={s.sid}>
       <span>
-        <b>{label}</b> {`${ago(s.head.at)} · №${s.head.id}`}
+        <b>{label}</b>
+        {` ${ago(s.head.at)} · №${s.head.id}`}
       </span>
       {canSave ? <Btn onClick={() => void save()}>Сохранить сейчас</Btn> : null}
     </div>
@@ -127,7 +128,8 @@ function Only({ sessions, fleet }: { sessions: Listed[]; fleet: Fleet }) {
         <Fragment key={s.sid}>
           <div className="pt-row" data-sid={s.sid}>
             <span>
-              <b>{nameOf(s)}</b> {`${dirOf(s)} · последняя точка ${day(s.head.at)}`}
+              <b>{nameOf(s)}</b>
+              {` ${dirOf(s)} · последняя точка ${day(s.head.at)}`}
             </span>
             <Opts>
               <Btn bad onClick={() => setOpen({ sid: s.sid, kind: "delete", n: (open?.n ?? 0) + 1 })}>
@@ -312,7 +314,10 @@ export function Overview() {
       </Sec>
       {plain.length ? <Note>{`${plain.join(", ")} не в R2`}</Note> : null}
       <Only sessions={only} fleet={fleet} />
-      <Note>{`В R2 ${megabytes(data.r2.bytes)}${sweep}`}</Note>
+      <Note>
+        {`В R2 ${megabytes(data.r2.bytes)}`}
+        {sweep}
+      </Note>
     </Page>
   );
 }
