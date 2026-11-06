@@ -2,7 +2,6 @@
 import ts from "typescript";
 
 export const CODE = /\.(ts|tsx|mts|mjs|js|go|css)$/;
-export const TEST = /(\/test\/|\/tests\/|\/stand\/|\.test\.|\.spec\.|_test\.go$)/;
 
 export type Fn = { name: string; file: string; complexity: number; lines: number };
 
