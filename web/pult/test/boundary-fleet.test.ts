@@ -184,6 +184,15 @@ describe("Машины: строки", () => {
       expect(t.$('[data-machine-parts="pc"]')).toBeNull();
     });
 
+    it("причина сбоя — под именем части, а не колонкой рядом: на телефоне ей не хватало места (чьё: код)", async () => {
+      const t = await pult({ relay: relayWith(), url: "/#accounts" });
+      await flush(10);
+      await t.click(t.$('[data-machine="pc"] .ac-mname'));
+      const why = t.$('[data-machine-parts="pc"] .mc-part .e')!;
+      expect(why.textContent).toBe("exit 2: порт 9400 занят");
+      expect(why.closest(".mc-part > span")?.querySelector("b")?.textContent).toBe("nvidia-exporter");
+    });
+
     it("V-M1 · «Перезапускаю…» до ответа; «План в «Выпусках»» — настройки с машиной", async () => {
       const relay = relayWith();
       relay.handlers["releases.list"] = () => ({ ok: true, result: { parts: {}, machines: [], rev: 1, modules: {} } });
