@@ -8,7 +8,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { casesOf, CODE, functionsOf, TEST, tokensOf, type Fn } from "./measure.ts";
+import { TEST } from "../manifest-gate/contract.ts";
+import { casesOf, CODE, functionsOf, tokensOf, type Fn } from "./measure.ts";
 
 const MUTANT_MS = 600_000;
 const BROWSER_MS = 60_000;

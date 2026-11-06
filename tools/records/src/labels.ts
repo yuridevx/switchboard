@@ -1,21 +1,21 @@
-// Запись fleet.labels: имена сессий по адресу и машин по имени.
+// Запись имён области флота: имя сессии по её адресу, имя машины по имени.
 export const FLEET_PREFIX = "fleet";
 export const LABELS = "labels";
 
 export type Labels = { sessions?: Record<string, string>; machines?: Record<string, string> };
 
-/** Где в записи лежит имя адреса: @laptop — у машин, site@laptop — у сессий. */
-const slotOf = (address: string): ["sessions" | "machines", string] => (address.startsWith("@") ? ["machines", address.slice(1)] : ["sessions", address]);
+/** Адрес → где лежит имя: @машина — среди машин, остальное — среди сессий. */
+const slot = (to: string) => (to.startsWith("@") ? (["machines", to.slice(1)] as const) : (["sessions", to] as const));
 
-export function labelOf(labels: Labels | undefined, address: string): string | undefined {
-  const [area, key] = slotOf(address);
-  return labels?.[area]?.[key];
+export function labelOf(labels: Labels | undefined, to: string): string | undefined {
+  const [kind, key] = slot(to);
+  return labels?.[kind]?.[key];
 }
 
-/** Имя ставится текстом без краевых пробелов; пустой текст имя снимает. */
-export function setLabel(labels: Labels | undefined, address: string, name: string): Labels {
-  const [area, key] = slotOf(address);
-  const { [key]: _old, ...others } = labels?.[area] ?? {};
-  const text = name.trim();
-  return { sessions: { ...labels?.sessions }, machines: { ...labels?.machines }, [area]: text ? { ...others, [key]: text } : others };
+/** Поставить имя; пустой текст снимает его. */
+export function setLabel(labels: Labels | undefined, to: string, text: string): Labels {
+  const [kind, key] = slot(to);
+  const { [key]: _old, ...names } = labels?.[kind] ?? {};
+  const name = text.trim();
+  return { ...labels, [kind]: name ? { ...names, [key]: name } : names };
 }
