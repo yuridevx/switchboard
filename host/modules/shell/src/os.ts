@@ -1,15 +1,16 @@
-// Всё, что зависит от ОС: где шелл, как его запустить и спросить версию, как убить дерево.
-import { execFile, spawn } from "node:child_process";
-import { closeSync, existsSync, openSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+// Что зависит от ОС: где шелл, как ему отдать скрипт, как спросить версию и как погасить дерево процесса.
+import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { delimiter, dirname, join } from "node:path";
-import { READ_MS } from "@switchboard/protocol";
 
-export type ShellName = "bash" | "pwsh" | "powershell";
-export const SHELLS: ShellName[] = ["bash", "pwsh", "powershell"];
+export const SHELLS = ["bash", "pwsh", "powershell"] as const;
+export type Shell = (typeof SHELLS)[number];
 
-const WIN = process.platform === "win32";
-const POWERSHELL = ["-NoProfile", "-NonInteractive"];
+export const WIN = process.platform === "win32";
+/** Шелл молчит на вопрос о версии: он всё равно есть; info читается с пределом 10 с. */
+const VERSION_MS = 5_000;
+export const KILL_MS = 5_000;
+const PS_ARGS = ["-NoProfile", "-NonInteractive"];
 /** PowerShell 5.1 читает файл без BOM в кодировке системы и пишет вывод в ней же. */
 const PS_UTF8 = "\ufeff[Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false\n";
 
@@ -17,7 +18,8 @@ const onPath = (name: string) =>
   (process.env.PATH ?? "")
     .split(delimiter)
     .filter(Boolean)
-    .map((dir) => join(dir, WIN ? `${name}.exe` : name));
+    .map((d) => join(d, WIN ? `${name}.exe` : name))
+    .find(existsSync);
 
 /** bash рядом с git: git.exe лежит в <Git>\\cmd, <Git>\\bin или <Git>\\mingw64\\bin. */
 function besideGit(git: string): string[] {
@@ -25,52 +27,38 @@ function besideGit(git: string): string[] {
   return dirname(up) === up ? [] : [join(up, "bin", "bash.exe"), ...besideGit(up)];
 }
 
-function candidates(name: ShellName): string[] {
-  if (!WIN) return name === "powershell" ? [] : onPath(name);
-  if (name === "pwsh") return onPath(name);
-  if (name === "powershell") return [join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")];
-  // bash из PATH на Windows бывает входом в WSL: Git Bash ищем как Claude Code
-  const git = onPath("git").find((path) => existsSync(path));
-  return [process.env.CLAUDE_CODE_GIT_BASH_PATH ?? "", ...(git ? besideGit(git) : [])];
+/** bash из PATH на Windows бывает входом в WSL: Git Bash ищем как Claude Code. */
+function gitBash(): string | undefined {
+  const git = onPath("git");
+  return [process.env.CLAUDE_CODE_GIT_BASH_PATH ?? "", ...(git ? besideGit(git) : [])].find(existsSync);
 }
 
-export const findShell = (name: ShellName): string | undefined => candidates(name).find((path) => path && existsSync(path));
-
-/** Версия шелла; не ответил за предел чтения — null: шелл всё равно есть. */
-export function shellVersion(name: ShellName, path: string): Promise<string | null> {
-  const args = name === "powershell" ? [...POWERSHELL, "-Command", "$PSVersionTable.PSVersion.ToString()"] : ["--version"];
-  return new Promise((resolve) => execFile(path, args, { windowsHide: true, timeout: READ_MS }, (_e, out) => resolve(/\d+(\.\d+)+/.exec(String(out ?? ""))?.[0] ?? null)));
+export function pathOf(shell: Shell): string | undefined {
+  if (!WIN || shell === "pwsh") return onPath(shell);
+  if (shell === "bash") return gitBash();
+  return join(process.env.SystemRoot ?? "C:\\Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
 }
 
-/** Запустить скрипт из файлов папки запуска: вывод — в файлы, поэтому фоновый ребёнок не держит конец запуска. */
-export function startShell(name: ShellName, path: string, dir: string, script: string, stdin: string | undefined, out: string) {
-  const file = join(dir, name === "bash" ? "script.sh" : "script.ps1");
-  writeFileSync(file, name === "bash" ? script : PS_UTF8 + script);
-  const args = name === "bash" ? [file] : [...POWERSHELL, ...(WIN ? ["-ExecutionPolicy", "Bypass"] : []), "-File", file];
-  if (stdin !== undefined) writeFileSync(join(dir, "stdin"), stdin);
-  const fds = [stdin === undefined ? null : openSync(join(dir, "stdin"), "r"), openSync(join(dir, "stdout"), "w"), openSync(join(dir, "stderr"), "w")];
-  try {
-    return spawn(path, args, {
-      cwd: homedir(),
-      env: { ...process.env, SB_OUT: out },
-      stdio: [fds[0] ?? "ignore", fds[1]!, fds[2]!],
-      // своя группа: kill дерева на Linux идёт по ней
-      detached: !WIN,
-      windowsHide: true,
-    });
-  } finally {
-    for (const fd of fds) if (fd !== null) closeSync(fd);
-  }
+export const scriptOf = (shell: Shell, script: string) => (shell === "bash" ? { name: "script.sh", text: script } : { name: "script.ps1", text: PS_UTF8 + script });
+
+export const argsOf = (shell: Shell, file: string) => (shell === "bash" ? [file] : [...PS_ARGS, ...(WIN ? ["-ExecutionPolicy", "Bypass"] : []), "-File", file]);
+
+export function versionOf(shell: Shell, path: string): Promise<string | null> {
+  const args = shell === "powershell" ? [...PS_ARGS, "-Command", "$PSVersionTable.PSVersion.ToString()"] : ["--version"];
+  return new Promise((done) => {
+    execFile(path, args, { timeout: VERSION_MS, windowsHide: true }, (_e, out) => done(/\d+(\.\d+)+/.exec(String(out))?.[0] ?? null));
+  });
 }
 
+/** Всё дерево: на Linux запуск — своя группа процессов. */
 export function killTree(pid: number): void {
   if (WIN) {
-    spawn("taskkill", ["/T", "/F", "/PID", String(pid)], { stdio: "ignore", windowsHide: true }).on("error", () => {});
+    execFile("taskkill", ["/T", "/F", "/PID", String(pid)], { timeout: KILL_MS, windowsHide: true }, () => {});
     return;
   }
   try {
     process.kill(-pid, "SIGKILL");
   } catch {
-    // группы уже нет: запуск кончился
+    // группа уже вышла
   }
 }

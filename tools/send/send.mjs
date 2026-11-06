@@ -27,7 +27,7 @@ export function send(callsign, text, { key, url, timeoutMs = LIMIT_MS } = {}) {
     let id; // есть — запрос ушёл; уникален: клиент флота ключует ожидание по id и отправителю
     const finish = (ok, error) => {
       clearTimeout(limit);
-      ws.onclose = null;
+      ws.onclose = ws.onmessage = null;
       ws.close(1000);
       resolve({ ok, error });
     };

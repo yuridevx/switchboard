@@ -1,21 +1,16 @@
-// Состояние модуля: неизменяемый снимок и правка черновиком.
+// Основа стора модуля: неизменяемый снимок, правка — черновиком; без изменения снимок тот же.
 import { freeze, produce, type Draft } from "immer";
 
-export type Store<S> = {
-  /** снимок: менять нельзя, читать можно где угодно */
-  get(): S;
-  /** правка снимка; ничего не изменилось — notify не зовётся */
-  set(change: (draft: Draft<S>) => void): void;
-};
+export type Store<T> = { get(): T; set(fn: (draft: Draft<T>) => void): void };
 
-export function createStore<S>(initial: S, notify?: () => void): Store<S> {
-  let state = freeze(initial, true);
+export function createStore<T>(initial: T, notify?: () => void): Store<T> {
+  let snapshot = freeze(initial, true);
   return {
-    get: () => state,
-    set(change) {
-      const next = produce(state, change);
-      if (next === state) return;
-      state = next;
+    get: () => snapshot,
+    set(fn) {
+      const next = produce(snapshot, fn);
+      if (next === snapshot) return;
+      snapshot = next;
       notify?.();
     },
   };

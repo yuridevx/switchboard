@@ -1,97 +1,93 @@
+// Remote Control у каждой сессии. Привязка к сессии claude.ai живёт в файле разговора: чужому аккаунту её надо снять до resume.
 import { appendFileSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { claudeDir } from "@switchboard/host";
 import type { Host, Module, Session } from "@switchboard/host";
 
-/** Раздел сессии. account — кто был в слоте, когда мост включился. */
-type Bridge = { url?: string; bridge?: string; account?: string | null };
-type Binding = { type?: string; sessionId?: string; bridgeSessionId?: string };
+/** Раздел сессии: account — кто был в слоте, когда мост включился. */
+type Part = { url?: string; bridge?: string; account: string | null };
+type Bridge = { sessionId?: string; bridgeSessionId?: string };
 
 const accountOf = (s: Session) => (s.field("account") as string | undefined) ?? null;
 
-/** Файл разговора: папку проекта называет сам claude. */
-function transcriptOf(root: string, sessionId: string): string | null {
-  const projects = join(root, "projects");
-  if (!existsSync(projects)) return null;
-  return readdirSync(projects).map((d) => join(projects, d, `${sessionId}.jsonl`)).find((f) => existsSync(f)) ?? null;
+function transcriptOf(dir: string, sessionId: string): string | undefined {
+  const projects = join(dir, "projects");
+  if (!existsSync(projects)) return undefined;
+  return readdirSync(projects).map((d) => join(projects, d, `${sessionId}.jsonl`)).find(existsSync);
 }
 
-/** Последняя запись привязки в файле — так её прочитает claude. Недописанная строка — не запись. */
-function lastBridge(file: string): Binding | null {
-  const lines = readFileSync(file, "utf8").split("\n");
+/** Последняя целая запись привязки: claude читает файл так же. */
+function lastBridge(text: string): Bridge | undefined {
+  const lines = text.split("\n");
   for (let i = lines.length - 1; i >= 0; i--) {
     if (!lines[i].includes('"bridge-session"')) continue;
     try {
-      const rec = JSON.parse(lines[i]) as Binding;
+      const rec = JSON.parse(lines[i]);
       if (rec.type === "bridge-session") return rec;
     } catch {
-      // claude ещё пишет эту строку
+      // недописанная строка — не запись
     }
   }
-  return null;
+  return undefined;
 }
 
-export function make(o: { claudeDir?: string } = {}): Module {
+export function make({ claudeDir: dir }: { claudeDir?: string } = {}): Module {
   let host: Host;
-  /** Отказ claude в этом процессе Host: в раздел не идёт. */
-  const refused = new Map<string, string>();
+  /** отказ claude в этом подъёме: виден в поле, пока следующий не удался */
+  const refused = new WeakMap<Session, string>();
 
-  /** Разговор привязан к сессии claude.ai другого входа или старого состояния — новый мост заведёт свою привязку. */
-  function unbind(s: Session): void {
-    const { callsign, session_id: sessionId, start } = s.info;
-    const file = transcriptOf(o.claudeDir ?? claudeDir(), sessionId);
-    if (!file) return;
-    const bound = lastBridge(file);
-    if (!bound?.bridgeSessionId) return;
-    const account = s.store<Bridge>().get()?.account;
+  /** Почему привязку надо снять; undefined — та же учётная запись продолжает. */
+  function reasonOf(s: Session): string | undefined {
+    if (s.info.start === "point") return "старт из точки";
+    const part = s.store<Part>().get();
+    if (!part) return "записи нет";
     const now = accountOf(s);
-    const reason = start === "point" ? "старт из точки" : account === undefined ? "записи нет" : account !== now ? `${account} → ${now}` : null;
-    if (!reason) return;
-    // не вышло записать — исключение: ядро выключит модуль в сессии
-    appendFileSync(file, JSON.stringify({ type: "bridge-session", sessionId: bound.sessionId ?? sessionId, bridgeSessionId: "", lastSequenceNum: 0 }) + "\n");
-    host.log({ ev: "unbind", callsign, why: `привязка снята: ${reason} · ${bound.bridgeSessionId}` });
+    return part.account === now ? undefined : `${part.account ?? "—"} → ${now ?? "—"}`;
+  }
+
+  function unbind(s: Session): void {
+    const { callsign, session_id: sessionId } = s.info;
+    const file = transcriptOf(dir ?? claudeDir(), sessionId);
+    if (!file) return;
+    const text = readFileSync(file, "utf8");
+    const bound = lastBridge(text);
+    const why = bound?.bridgeSessionId && reasonOf(s);
+    if (!why) return;
+    // файл кончается обрывком упавшего процесса: запись — своей строкой, иначе claude её не прочтёт
+    appendFileSync(file, `${text.endsWith("\n") ? "" : "\n"}${JSON.stringify({ type: "bridge-session", sessionId: bound!.sessionId ?? sessionId, bridgeSessionId: "", lastSequenceNum: 0 })}\n`);
+    host.log({ ev: "unbind", callsign, why: `привязка снята: ${why} · ${bound!.bridgeSessionId}` });
   }
 
   async function enable(s: Session): Promise<void> {
     const { callsign, start } = s.info;
-    let r: { session_url?: string; bridge_session_id?: string } | undefined;
+    const before = s.store<Part>().get();
+    const account = start === "attach" && before ? before.account : accountOf(s);
     try {
-      r = (await s.sdk("enableRemoteControl", true)) as typeof r;
+      const r = (await s.sdk("enableRemoteControl", true)) as { session_url?: string; bridge_session_id?: string };
+      refused.delete(s);
+      s.store<Part>().set({ url: r.session_url, bridge: r.bridge_session_id, account });
+      host.log({ ev: "remote", callsign, why: `Remote Control включён: ${r.session_url ?? "—"} · ${account ?? "—"}` });
     } catch (e) {
-      const why = e instanceof Error ? e.message : String(e);
-      refused.set(callsign, why);
-      host.log({ kind: "stop", ev: "remote", callsign, why });
-      s.refresh();
-      return;
+      refused.set(s, (e as Error).message);
+      host.log({ kind: "stop", ev: "remote", callsign, why: (e as Error).message });
     }
-    refused.delete(callsign);
-    const store = s.store<Bridge>();
-    // attach: мост живёт в процессе с прежним аккаунтом
-    const before = store.get()?.account;
-    const account = start === "attach" && before !== undefined ? before : accountOf(s);
-    store.set({ url: r?.session_url, bridge: r?.bridge_session_id, account });
-    host.log({ ev: "remote", callsign, why: `Remote Control включён: ${r?.session_url ?? "—"} · ${account ?? "—"}` });
     s.refresh();
   }
 
   return {
-    start(h) {
-      host = h;
+    start: (h) => void (host = h),
+    fields: {
+      remote(s) {
+        const error = refused.get(s);
+        if (error) return { error };
+        const url = s.store<Part>().get()?.url;
+        return url ? { url } : undefined;
+      },
     },
     session(s) {
       if (s.info.start === "resume" || s.info.start === "point") unbind(s);
       return undefined;
     },
-    fields: {
-      remote(s) {
-        const error = refused.get(s.info.callsign);
-        if (error) return { error };
-        const url = s.store<Bridge>().get()?.url;
-        return url ? { url } : undefined;
-      },
-    },
-    on: {
-      open: (s) => enable(s),
-    },
+    on: { open: (s) => enable(s) },
   };
 }
