@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 )
@@ -234,7 +235,7 @@ func (k *Keeper) actor() {
 	}
 }
 
-// execute — план целиком: убранные части сняты, остальные по порядку, запись keeper — последним шагом. true — keeper подменил себя.
+// execute — план целиком: записи по порядку, затем убранные части сняты, запись keeper — последним шагом. true — keeper подменил себя.
 func (k *Keeper) execute(p plan) bool {
 	b, _ := json.Marshal(p)
 	if err := writeFile(filepath.Join(k.home, "plan.json"), b); err != nil {
@@ -252,8 +253,16 @@ func (k *Keeper) execute(p plan) bool {
 		want[e.Part] = true
 		order = append(order, e.Part)
 	}
+	k.locked(func() { k.order = order })
+	for _, e := range p.Parts {
+		if k.ctx.Err() != nil {
+			return false
+		}
+		if e.Part != "keeper" {
+			k.apply(e)
+		}
+	}
 	k.mu.Lock()
-	k.order = order
 	var gone []*part
 	for name, q := range k.parts {
 		if !want[name] {
@@ -262,15 +271,10 @@ func (k *Keeper) execute(p plan) bool {
 	}
 	k.mu.Unlock()
 	for _, q := range gone {
-		k.remove(q)
-	}
-	for _, e := range p.Parts {
 		if k.ctx.Err() != nil {
 			return false
 		}
-		if e.Part != "keeper" {
-			k.apply(e)
-		}
+		k.remove(q)
 	}
 	return k.ctx.Err() == nil && k.selfUpdate(self)
 }
@@ -294,7 +298,7 @@ type partState struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// State — ответ keeper.state v1.
+// State — ответ keeper.state v1: части по имени; убранная из плана видна, пока не снята.
 func (k *Keeper) State() map[string]any {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -302,14 +306,13 @@ func (k *Keeper) State() map[string]any {
 	view := func(p *part) partState {
 		return partState{Part: p.name, Version: p.version, State: p.state, Pid: p.pid, Restarts: p.restarts, Error: p.err}
 	}
-	for _, name := range k.order {
-		if p := k.parts[name]; p != nil {
-			parts = append(parts, view(p))
-		}
+	for _, p := range k.parts {
+		parts = append(parts, view(p))
 	}
 	if k.self != nil {
 		parts = append(parts, view(k.self))
 	}
+	sort.Slice(parts, func(i, j int) bool { return parts[i].Part < parts[j].Part })
 	return map[string]any{"keeper": version(), "rev": k.plan.Rev, "os": osName(), "parts": parts}
 }
 
