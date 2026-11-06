@@ -76,7 +76,7 @@ func grantServiceLogon(sid *windows.SID) error {
 	var policy uintptr
 	const createAccount, lookupNames = 0x10, 0x800
 	if st, _, _ := advapi.NewProc("LsaOpenPolicy").Call(0, uintptr(unsafe.Pointer(&attrs)), createAccount|lookupNames, uintptr(unsafe.Pointer(&policy))); st != 0 {
-		return fmt.Errorf("LsaOpenPolicy: 0x%x", st)
+		return fmt.Errorf("LsaOpenPolicy: %w", windows.NTStatus(st).Errno())
 	}
 	defer advapi.NewProc("LsaClose").Call(policy)
 	name, _ := windows.UTF16FromString("SeServiceLogonRight")
@@ -85,7 +85,7 @@ func grantServiceLogon(sid *windows.SID) error {
 		Buffer                *uint16
 	}{uint16((len(name) - 1) * 2), uint16(len(name) * 2), &name[0]}
 	if st, _, _ := advapi.NewProc("LsaAddAccountRights").Call(policy, uintptr(unsafe.Pointer(sid)), uintptr(unsafe.Pointer(&right)), 1); st != 0 {
-		return fmt.Errorf("LsaAddAccountRights: 0x%x", st)
+		return fmt.Errorf("LsaAddAccountRights: %w", windows.NTStatus(st).Errno())
 	}
 	return nil
 }
