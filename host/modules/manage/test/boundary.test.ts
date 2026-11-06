@@ -673,6 +673,16 @@ describe("session.stop, start, remove", () => {
     expect(await req({ type: "session.remove", callsign: "wiki@laptop", after_turn: "yes" })).toMatchObject({ ok: false, error: "bad_spec", why: "session.remove wiki@laptop: after_turn" });
     expect(st.kernel.sessions.has("wiki@laptop")).toBe(true);
   });
+
+  it.each(["session.update", "session.call", "session.spec", "session.stop", "session.start", "session.remove"])("%s без callsign — bad_spec словом; manage не выключен ни на машине, ни в сессии", async (type) => {
+    // источник: устав — ошибки словами; кадр приходит с любого пропуска флота: relay доставляет его по machine или to, поля не читает
+    const { st, req } = await bench();
+    await st.open("wiki@laptop");
+    expect(await req({ type, machine: "laptop", method: "getStatus" })).toMatchObject({ ok: false, error: "bad_spec", why: `${type}: нет callsign` });
+    expect(await req({ type, to: "wiki@laptop", method: "getStatus" })).toMatchObject({ ok: false, error: "bad_spec", why: `${type}: нет callsign` });
+    expect(await req({ type: "session.spec", callsign: "wiki@laptop" })).toMatchObject({ ok: true });
+    expect(st.journal().some((l) => l.ev === "module_failed")).toBe(false);
+  });
 });
 
 describe("machine.dirs", () => {
