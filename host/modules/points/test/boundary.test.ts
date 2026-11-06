@@ -835,6 +835,25 @@ describe("папка подъёма и git", () => {
     expect(b.manage).toEqual([]);
   });
 
+  it("git add не взял всю папку (вложенный репозиторий без коммитов): точка разговора всё равно снята, снимок — с тем, что встало", async () => {
+    // чьё: код — прежний снимок не смотрел на код выхода add; разговор важнее файла, который git не берёт
+    const origin = join(home, "origin.git");
+    mkdirSync(origin);
+    git(origin, "init", "-q", "--bare");
+    const work = join(home, "work", "site");
+    repoAt(work, origin);
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    writeFileSync(join(work, "a"), "2");
+    mkdirSync(join(work, "sub"));
+    git(join(work, "sub"), "init", "-q");
+    writeFileSync(join(work, "sub", "x"), "1");
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
+    write(work, s.info.session_id, conv(5));
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: expect.any(Number) } });
+    expect(puts("save").at(-1)!.git).toMatchObject({ state: "dirty", snap: expect.any(String) });
+  });
+
   it("неотправленный коммит без правок: state clean, unpushed, снимок — пакет; файлы папки не тронуты", async () => {
     const origin = join(home, "origin.git");
     mkdirSync(origin);
