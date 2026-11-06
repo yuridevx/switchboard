@@ -1047,6 +1047,24 @@ describe("сверка со старым кодом", () => {
     await result(req(s, "~x", "releases.deploy", { part: "pult", latest: true }));
     expect((await built("test/pult/1.0.0+2.tgz")).modules).toEqual([{ name: "web-core", version: "1.0.0" }]);
   });
+
+  it("проверка набора: приложение ОС — той версии, что в планах машин, а не новейшей из каталога (чьё: код)", async () => {
+    const s = fresh();
+    cloudflare({}, { any: true });
+    await inCatalog("host", "1.2.0", { type: "sdk-core", provides: { "host.module": 1 }, uses: {}, config: {} });
+    await inCatalog("keeper", "1.0.0", { type: "os", provides: { "keeper.state": 1 }, uses: {}, config: {} });
+    await inCatalog("keeper", "2.0.0", { type: "os", provides: { "keeper.state": 2 }, uses: {}, config: {} });
+    await req(s, "~x", "releases.deploy", { part: "keeper", version: "1.0.0" });
+    const mod = (v: string, state: number) => inCatalog("host-x", v, { type: "sdk", into: ["host"], provides: {}, uses: { "host.module@host": 1, "keeper.state@keeper": state }, config: {} });
+    // новый keeper только загружен: на машинах прежний контракт
+    await mod("1.0.0", 2);
+    expect((await req(s, "~x", "releases.deploy", { part: "host-x" }))[0]).toMatchObject({ ok: false, error: "check_failed", why: expect.stringContaining("keeper.state@keeper v2 — у владельца v1") });
+    await mod("1.0.1", 1);
+    expect((await result(req(s, "~x", "releases.deploy", { part: "host-x", version: "1.0.1" }))).parts.host.to).toBe("1.2.0+1");
+    // закрепление на машине — тоже планы
+    await set(s, { part: "keeper", pin: "2.0.0" });
+    expect((await req(s, "~x", "releases.deploy", { part: "host-x", version: "1.0.1" }))[0]).toMatchObject({ ok: false, error: "check_failed" });
+  });
 });
 
 describe("releases.fetch", () => {

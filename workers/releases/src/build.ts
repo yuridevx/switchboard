@@ -42,11 +42,16 @@ async function draftOf(cat: Catalog, parts: Part[], app: string, change: Change)
   return { app, root, modules: order([...modules.values()]) };
 }
 
-/** Набор флота: новые списки, выложенные сборки остальных, прочие части на новейших; приложение ОС — только из планов. Модуль в двух версиях — отказ проверки. */
+/** Версия приложения ОС на машинах: запись плана, иначе stable у частей каждой машины. В планах нет — undefined. */
+function plannedVersion(row: Row, name: string): string | undefined {
+  const entry = Object.values(row.plans).flatMap((plan) => plan[name] ?? []).at(-1);
+  return entry || EVERYWHERE.includes(name) ? (entry?.pin ?? row.stable[name]) : undefined;
+}
+
+/** Набор флота: новые списки, выложенные сборки остальных, прочие части на новейших; приложение ОС — той версии, что в планах. Модуль в двух версиях — отказ проверки. */
 async function fleetSet(cat: Catalog, row: Row, parts: Part[], drafts: Draft[]): Promise<ModuleManifest[]> {
   const set = new Map<string, ModuleManifest>();
   const add = (m: ModuleManifest) => set.set(`${m.name}@${m.version}`, m);
-  const inPlan = (name: string) => EVERYWHERE.includes(name) || Object.values(row.plans).some((plan) => plan[name]);
   for (const d of drafts) [d.root, ...d.modules].forEach(add);
   for (const p of parts) {
     if (!p.manifest || p.manifest.into || drafts.some((d) => d.app === p.name)) continue;
@@ -54,7 +59,11 @@ async function fleetSet(cat: Catalog, row: Row, parts: Part[], drafts: Draft[]):
     if (built) {
       add((await cat.manifest(p.name, built.version.split("+")[0]))!);
       (await Promise.all(built.modules.map((m) => cat.manifest(m.name, m.version)))).forEach((m) => add(m!));
-    } else if (p.manifest.type !== "os" || inPlan(p.name)) add(p.manifest);
+    } else if (p.manifest.type !== "os") add(p.manifest);
+    else {
+      const version = plannedVersion(row, p.name);
+      if (version) add((await cat.manifest(p.name, version)) ?? refuse("no_release", `у ${p.name} нет версии ${version}`));
+    }
   }
   return [...set.values()];
 }
