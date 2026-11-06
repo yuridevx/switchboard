@@ -41,7 +41,7 @@ async function work(f: Frame, db: D1Database): Promise<object> {
 
 async function serve(f: Frame, db: D1Database): Promise<Response> {
   const { id } = f;
-  if (id === undefined) return refuseFrame(BAD_FRAME, 400);
+  if (!id) return refuseFrame(BAD_FRAME, 400);
   const no = accepts(f, CONTRACT);
   if (no) {
     console.log(`${no.word} ${no.why}`);
