@@ -58,8 +58,9 @@ export const claudeCli =
       const p = spawn(bin, args, { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       let out = "";
       const timer = setTimeout(() => {
-        out += `claude не ответил за ${ms / 1000} с`;
         p.kill("SIGKILL");
+        // ответ сейчас: close ждёт и потомков, которые держат вывод
+        resolve({ code: null, out: `${out}claude не ответил за ${ms / 1000} с` });
       }, ms);
       p.stdout.on("data", (d) => (out += d));
       p.stderr.on("data", (d) => (out += d));
