@@ -1,6 +1,6 @@
 // Инструменты сноса: одна мера и одна сверка на все границы. Запуск — из корня репо границы.
 //   size <старый> <новый> [пути…]        токены, сложность, строки и случаи тестов; десять худших функций
-//   lost <старый> <пути…>                строки и литералы старого кода, которых нет в HEAD
+//   lost <старый> [--comments] <пути…>   строки и литералы старого кода, которых нет в HEAD; --comments — его комментарии: причина правила живёт в них
 //   shots-pair <папка старых> <папка новых> [порог %]    снимки: доля отличающихся точек
 //   dom-diff <старый.json> <новый.json> [фильтр] [--nosize]    деревья DOM из SHOTS_DOM=<файл> npm run shots
 //   mutate <таблица.json> -- <команда>   падают ли леса от поломки: [{ file, from, to }]
@@ -8,7 +8,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
-import { casesOf, CODE, functionsOf, TEST, tokensOf, type Fn } from "./measure.ts";
+import { TEST } from "../manifest-gate/contract.ts";
+import { casesOf, CODE, functionsOf, tokensOf, type Fn } from "./measure.ts";
 
 const MUTANT_MS = 600_000;
 const BROWSER_MS = 60_000;
@@ -68,8 +69,10 @@ function literalsOf(text: string): string[] {
 }
 
 function lost(args: string[]) {
-  const [rev, ...paths] = args;
-  if (!rev || !paths.length) usage("lost <старый> <пути…>");
+  const comments = args.includes("--comments");
+  const [rev, ...paths] = args.filter((a) => a !== "--comments");
+  if (!rev || !paths.length) usage("lost <старый> [--comments] <пути…>");
+  const isComment = (l: string) => l.startsWith("//") || l.startsWith("/*") || l.startsWith("*");
   const code = (r: string) => filesAt(r, paths).filter((f) => !TEST.test(f));
   const fresh = code("HEAD").map((f) => textAt("HEAD", f));
   const lines = new Set(fresh.flatMap((t) => t.split("\n").map((l) => l.trim())));
@@ -78,13 +81,14 @@ function lost(args: string[]) {
   let gone = 0;
   for (const file of code(rev)) {
     const text = textAt(rev, file);
-    const candidates = [...new Set([...text.split("\n").map((l) => l.trim()).filter((l) => l.length > 3 && !l.startsWith("//") && !l.startsWith("*")), ...literalsOf(text)])];
+    const rows = text.split("\n").map((l) => l.trim()).filter((l) => l.length > 3 && isComment(l) === comments);
+    const candidates = [...new Set(comments ? rows : [...rows, ...literalsOf(text)])];
     const missing = candidates.filter((l) => !lines.has(l) && !whole.includes(l));
     total += candidates.length;
     gone += missing.length;
     if (missing.length) console.log(`\n=== ${file}: ${missing.length}\n${missing.map((l) => l.slice(0, 200)).join("\n")}`);
   }
-  console.log(`\nстрок и литералов старого кода ${total}, пропало ${gone}`);
+  console.log(`\n${comments ? "комментариев" : "строк и литералов"} старого кода ${total}, пропало ${gone}`);
 }
 
 async function shotsPair(args: string[]) {

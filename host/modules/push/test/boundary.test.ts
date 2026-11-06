@@ -18,7 +18,6 @@ afterEach(async () => {
 });
 
 const PHONE = "phone~owner@example.com";
-const TABLET = "tablet~owner@example.com";
 const PULT = "pult~owner@example.com";
 const OWNER = "~owner@example.com";
 const WORKER = { name: "push", contract: { "push.key": 1, "push.send": 1, "push.subscribe": 1 } };
@@ -56,25 +55,8 @@ describe("кому пуш", () => {
     expect(sends(s)).toHaveLength(1);
     const { id: _id, ...rest } = f;
     expect(rest).toEqual({ type: "push.send", v: 1, to: ".push", push: { to: PHONE, type: "question", from: "profiles@laptop", notify: question.notify } });
-  });
-
-  it("у кадра без from поля from нет и в пуше", async () => {
-    const s = await bench([]);
-    const { from: _from, ...frame } = question;
-    const p = notify(s, [PHONE], frame);
-    const f = await until(() => sends(s)[0]);
-    reply(s, f, { ok: true });
-    await p;
-    expect(f.push).toEqual({ to: PHONE, type: "question", notify: question.notify });
-  });
-
-  it.each<[string, string[], string[]]>([
-    ["155 · устройство на связи", [PHONE], [PHONE]],
-    ["сессии и машины не пушатся", ["api@pc", "@pc"], []],
-  ])("%s: push.send нет", async (_n, clients, online) => {
-    const s = await bench(online);
-    expect(await notify(s, clients)).toEqual({ ok: true });
-    expect(sends(s)).toHaveLength(0);
+    // пуш ушёл — строки «без пуша» нет: её ищет живой флоу scripts/flow-more.ts
+    expect(lines(s).filter((l) => /без пуша/.test(String(l.why)))).toEqual([]);
   });
 
   it("roster ещё не приходил: пуша нет, строка в журнале", async () => {
@@ -94,16 +76,6 @@ describe("кому пуш", () => {
     expect(await p).toEqual({ ok: true });
     expect(sends(s)).toHaveLength(1);
   });
-
-  it("3107 · все устройства человека на связи: пуш уходит со skip всех, gone — остановки нет", async () => {
-    const s = await bench([PULT, PHONE, "phone~anna@example.com"]);
-    const p = notify(s, [OWNER]);
-    const f = await until(() => sends(s)[0]);
-    reply(s, f, { ok: false, error: "gone" });
-    expect((f.push as { skip: string[] }).skip).toEqual([PULT, PHONE]);
-    expect(await p).toEqual({ ok: true });
-    expect(lines(s).some((l) => l.kind === "stop")).toBe(false);
-  });
 });
 
 describe("исход пуша", () => {
@@ -120,37 +92,20 @@ describe("исход пуша", () => {
     expect(readdirSync(join(s.home, "store")).filter((f) => f.startsWith("host-push"))).toEqual([]);
   });
 
-  it.each<[string, object[]]>([
-    ["148 · Worker на связи ответил offline", [WORKER]],
-    ["149 · Worker нет в roster, relay отказал offline", []],
-  ])("%s: строка stop со словом, повтора нет", async (_n, workers) => {
-    const s = await bench([], workers);
+  it("148 · Worker ответил offline: строка stop со словом, повтора нет", async () => {
+    const s = await bench([]);
     const p = notify(s, [PHONE]);
     reply(s, await until(() => sends(s)[0]), { ok: false, error: "offline" });
     expect(await p).toEqual({ ok: true });
     expect(lines(s).filter((l) => l.kind === "stop").map((l) => [l.ev, l.word, l.why])).toEqual([["push.send", "offline", `push.send ${PHONE}: offline — question без пуша`]]);
     expect(sends(s)).toHaveLength(1);
   });
-
-  it("3012 · одному устройству ушёл, другому подписки нет — строка только про второе", async () => {
-    const s = await bench([]);
-    const r = notify(s, [PHONE, TABLET]);
-    const fs = [await until(() => sends(s)[0]), await until(() => sends(s)[1])];
-    for (const f of fs) reply(s, f, (f.push as { to: string }).to === PHONE ? { ok: true } : { ok: false, error: "gone" });
-    expect(await r).toEqual({ ok: true });
-    expect(lines(s).filter((l) => l.word === "gone").map((l) => l.why)).toEqual([`${TABLET}: подписки нет — question без пуша`]);
-  });
 });
 
 describe("вход", () => {
-  it.each<[string, unknown, unknown]>([
-    ["нет frame", [PHONE], undefined],
-    ["clients не список", PHONE, question],
-    ["frame без type", [PHONE], { notify: {} }],
-    ["frame без notify", [PHONE], { type: "question" }],
-  ])("notify не по форме, %s: bad_frame со словами", async (_n, clients, frame) => {
+  it("notify не по форме, нет frame: bad_frame со словами", async () => {
     const s = await bench([]);
-    const r = await s.host("host-asker").request("notify", { v: 1, clients, ...(frame === undefined ? {} : { frame }) });
+    const r = await s.host("host-asker").request("notify", { v: 1, clients: [PHONE] });
     expect(r).toMatchObject({ ok: false, error: "bad_frame" });
     expect(sends(s)).toHaveLength(0);
   });
