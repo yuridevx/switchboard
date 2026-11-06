@@ -24,7 +24,7 @@
         { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
         { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Relay" }
       ],
-      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-fleetkeys-prod", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }]
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-fleetkeys-prod", "database_id": "3a045e8a-7c3d-412d-afff-c256bef7220b", "migrations_dir": "migrations" }]
     }
   }
 }
