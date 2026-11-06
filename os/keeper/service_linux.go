@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strings"
 )
@@ -43,12 +44,18 @@ func register(dst string, _ bool, _ *bufio.Reader) error {
 	if err := writeFile(path, []byte(unit)); err != nil {
 		return err
 	}
-	exec.Command("loginctl", "enable-linger").Run()
 	unitName := serviceName() + ".service"
 	for _, a := range [][]string{{"daemon-reload"}, {"enable", unitName}, {"restart", unitName}} {
 		if err := systemctl(a...); err != nil {
 			return err
 		}
+	}
+	u, err := user.Current()
+	if err != nil {
+		return err
+	}
+	if out, err := exec.Command("loginctl", "enable-linger", u.Username).CombinedOutput(); err != nil {
+		return fmt.Errorf("loginctl enable-linger %s: %v: %s", u.Username, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
