@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Host, Result } from "@switchboard/host";
 import { kindOf } from "@switchboard/protocol";
-import { addProject, labelOf, LABELS, NONE, placeSessions, projectByName, projectIdOf, PROJECTS, setLabel } from "@switchboard/records";
+import { addProject, labelOf, LABELS, NONE, placeSessions, PROFILE_REPOS, projectByName, projectIdOf, PROJECTS, setLabel } from "@switchboard/records";
 import type { Labels, ProjectRec, Settings } from "@switchboard/records";
 import { z } from "zod";
 
@@ -24,6 +24,35 @@ function refusal(to: string, r: Refused): string {
 
 /** Необязательные поля запроса: пустое — как не названное. */
 const filled = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v));
+
+/** owner/name репозитория GitHub. */
+const REPO = /^[\w.-]+\/[\w.-]+$/;
+/** Переменная модели alias: остальное в env ключа агенту не показывается. */
+const MODEL_ENV = /^ANTHROPIC_DEFAULT_(.+)_MODEL$/;
+
+/** Ключ флота глазами агента: только модели. Значение и адрес заводит человек на пульте. */
+const modelsOf = (env: Record<string, string> = {}) => Object.fromEntries(Object.entries(env).flatMap(([k, v]) => {
+  const m = MODEL_ENV.exec(k);
+  return m ? [[m[1].toLowerCase(), v]] : [];
+}));
+
+/** Что есть на машине: кусочки, слоты, ключи флота, клоны. Одно не ответило — остальное всё равно видно. */
+async function machineView({ host }: Env, machine: string) {
+  const [pieces, accounts, keys] = await Promise.all([host.read("machine.profiles", { machine }), host.read("machine.accounts", { machine }), host.read("fleetkeys.list", {})]);
+  const said = (r: Result) => (r.ok ? null : r.error);
+  const { profiles = {}, repos = {} } = (pieces.ok ? pieces.result : {}) as { profiles?: Record<string, { about?: string; kind?: string }>; repos?: Record<string, { state: string; dir?: string }> };
+  const { slots = {} } = (accounts.ok ? accounts.result : {}) as { slots?: Record<string, { account: string | null; wait: number | null }> };
+  const fleetKeys = ((keys.ok ? keys.result : {}) as { keys?: Record<string, { env?: Record<string, string> }> }).keys ?? {};
+  const meta = [["кусочки", said(pieces)], ["слоты", said(accounts)], ["ключи флота", said(keys)]].filter(([, w]) => w).map(([n, w]) => `${n} недоступны: ${w}`);
+  return {
+    machine,
+    pieces: Object.fromEntries(Object.entries(profiles).map(([id, p]) => [id, { kind: p.kind, ...(p.about ? { about: p.about } : {}) }])),
+    slots: Object.fromEntries(Object.entries(slots).map(([s, v]) => [s, { account: v.account, wait: v.wait }])),
+    keys: Object.fromEntries(Object.entries(fleetKeys).map(([n, k]) => [n, { models: modelsOf(k.env) }])),
+    clones: repos,
+    ...(meta.length ? { meta: meta.join("; ") } : {}),
+  };
+}
 
 /** Каждый блок текста и каждый вызов инструмента — строкой; остальное модели не нужно. */
 function historyLines(messages: Record_[]): string {
@@ -59,7 +88,16 @@ async function fleetList(me: string, { host, records }: Env) {
   };
   const list = {
     me,
-    sessions: roster.sessions.map(({ callsign, state, parent, model }) => ({ callsign, state: state ?? null, parent: parent ?? null, model: model ?? null, label: labelOf(labels, callsign) ?? null, project: projectName(callsign) })),
+    sessions: roster.sessions.map(({ callsign, state, parent, model, profile, slot }) => ({
+      callsign,
+      state: state ?? null,
+      parent: parent ?? null,
+      model: model ?? null,
+      profile: ((profile ?? []) as Array<{ id: string }>).map((p) => p.id),
+      slot: (slot as { name?: string } | undefined)?.name ?? null,
+      label: labelOf(labels, callsign) ?? null,
+      project: projectName(callsign),
+    })),
     machines: roster.machines.map(({ machine }) => ({ machine, label: labelOf(labels, `@${machine}`) ?? null })),
     projects: (recs ?? []).filter((r) => r.id !== NONE).map((r) => r.name),
     clients: roster.clients,
@@ -72,7 +110,7 @@ async function fleetList(me: string, { host, records }: Env) {
 export function toolsOf(me: string, env: () => Env) {
   const ok = (to: string, text: string) => (r: Result) => (r.ok ? say(text) : fail(refusal(to, r)));
   return [
-    tool("list", "Кто на связи: сессии флота с состоянием, родителем, моделью, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}, () => fleetList(me, env())),
+    tool("list", "Кто на связи: сессии флота с состоянием, родителем, моделью, профилем, слотом, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}, () => fleetList(me, env())),
 
     tool(
       "send",
@@ -110,7 +148,7 @@ export function toolsOf(me: string, env: () => Env) {
         profile: z.array(z.string()).optional().describe("кусочки профиля сессии по порядку: нижний выигрывает"),
         model: z.string().optional(),
         effort: z.string().optional(),
-        slot: z.string().optional().describe("имя слота машины"),
+        slot: z.string().optional().describe("имя слота машины или ключа флота"),
         project: z.string().optional().describe("имя проекта: сессия встанет в его конец, нет такого — создастся; без него — в проект открывшей"),
       },
       async ({ name, dir, text, machine, profile, model, effort, slot, project }) => {
@@ -139,22 +177,28 @@ export function toolsOf(me: string, env: () => Env) {
 
     tool(
       "update",
-      "Сменить сессии слот, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот — перезапуском между ходами. Слот меняется первым: его отказ не меняет остального.",
+      "Сменить сессии слот, профиль, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот и профиль — перезапуском между ходами, разговор продолжается. Слот меняется первым, профиль вторым: отказ не меняет остального.",
       {
         callsign: z.string(),
-        slot: z.string().optional().describe("имя слота машины этой сессии"),
+        slot: z.string().optional().describe("имя слота машины этой сессии или ключа флота"),
+        profile: z.array(z.string()).optional().describe("заменить список кусочков: нижний выигрывает, пустой — без кусочков"),
         model: z.string().optional(),
         effort: z.string().optional(),
         title: z.string().optional(),
         project: z.string().optional().describe("имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта"),
       },
-      async ({ callsign, slot, model, effort, title, project }) => {
+      async ({ callsign, slot, profile, model, effort, title, project }) => {
         const { host, records } = env();
         const done: string[] = [];
         if (slot !== undefined) {
           const r = await host.request("session.slot", { callsign, slot, from: me });
           if (!r.ok) return fail(refusal(callsign, r));
           done.push((r.result as { restart?: boolean } | undefined)?.restart ? `слот ${slot}; перезапуск между ходами` : `слот ${slot}`);
+        }
+        if (profile !== undefined) {
+          const r = await host.request("session.profile", { callsign, profile, from: me });
+          if (!r.ok) return fail([...done, refusal(callsign, r)].join("; "));
+          done.push((r.result as { restart?: boolean } | undefined)?.restart ? "профиль сменён; перезапуск между ходами" : "профиль сменён");
         }
         if (project !== undefined) {
           const word = await place(records, callsign, project);
@@ -167,6 +211,43 @@ export function toolsOf(me: string, env: () => Env) {
           done.push(`сразу: ${(r.result as { now: string[] }).now.join(", ") || "—"}`);
         }
         return say(done.join("; "));
+      },
+    ),
+
+    tool(
+      "profile",
+      "Что получит сессия с этим списком кусочков — тот же ответ, что на экране профилей. Без списка — кусочки и наборы машины, её слоты, ключи флота с моделями и клоны репозиториев. Новый кусочек пишется файлами в клоне: отправит сведение.",
+      {
+        machine: z.string().optional().describe("машина; по умолчанию — твоя"),
+        profile: z.array(z.string()).optional().describe("кусочки по порядку"),
+      },
+      async ({ machine, profile }) => {
+        const e = env();
+        const where = machine ?? e.host.machine;
+        if (!profile) return say(JSON.stringify(await machineView(e, where)));
+        const r = await e.host.read("profile.view", { machine: where, profile });
+        return r.ok ? say(JSON.stringify(r.result)) : fail(refusal(where, r));
+      },
+    ),
+
+    tool(
+      "repos",
+      "Подключить и убрать репозитории кусочков: один список на весь флот. Машины сами клонируют, сводят и убирают клоны. Без параметров — нынешний список.",
+      {
+        add: z.array(z.string()).optional().describe("подключить: владелец/имя"),
+        remove: z.array(z.string()).optional().describe("убрать: владелец/имя"),
+      },
+      async ({ add = [], remove = [] }) => {
+        const { records } = env();
+        const bad = add.find((r) => !REPO.test(r));
+        if (bad) return fail(`Не выполнено: ${bad} — нужно владелец/имя`);
+        if (!add.length && !remove.length) {
+          const word = await records.read();
+          return word ? fail(`Не выполнено: список репозиториев — ${word}`) : say(JSON.stringify(records.get<string[]>(PROFILE_REPOS) ?? []));
+        }
+        const word = await records.edit<string[]>(PROFILE_REPOS, (old = []) => [...new Set([...old.filter((r) => !remove.includes(r)), ...add])]);
+        if (word) return fail(`Не выполнено: список репозиториев — ${word}`);
+        return say(JSON.stringify(records.get<string[]>(PROFILE_REPOS)));
       },
     ),
 

@@ -31,9 +31,13 @@ export type Piece = {
 /** Значение настройки: кто выиграл и кто проиграл. */
 export type Won = { value: unknown; from: string; lost: Array<{ value: unknown; from: string }> };
 
+/** Узел развёртки: набор и его состав как выбраны; повтор — без состава, он виден у первого вхождения. */
+export type TreeNode = { id: string; set: boolean; children?: TreeNode[] };
+
 export type Assembly = {
   /** плоский список: наборы развёрнуты, порядок — порядок силы */
   pieces: Piece[];
+  tree: TreeNode[];
   env: Record<string, Won>;
   settings: Record<string, Won>;
   /** домашняя память — нижняя; папка Claude у сессии одна */
@@ -99,19 +103,21 @@ export function readPiece(id: string, dir: string): Piece {
 }
 
 /** Набор разворачивается на месте, сам он — после своего состава; повтор — первое вхождение; кольцо — отказ. */
-function flatten(list: string[], folderOf: (id: string) => string | null): Piece[] {
+function flatten(list: string[], folderOf: (id: string) => string | null): { pieces: Piece[]; tree: TreeNode[] } {
   const out = new Map<string, Piece>();
-  const walk = (id: string, path: string[]) => {
+  const walk = (id: string, path: string[]): TreeNode => {
     if (path.includes(id)) throw bad(`кольцо наборов: ${[...path, id].join(" → ")}`);
-    if (out.has(id)) return;
+    const known = out.get(id);
+    if (known) return { id, set: !!known.use };
     const dir = folderOf(id);
     if (!dir) throw new BadPieces("no_profile", `${id}: такой папки нет в клонах`);
     const piece = readPiece(id, dir);
-    for (const u of piece.use ?? []) walk(u, [...path, id]);
+    const children = (piece.use ?? []).map((u) => walk(u, [...path, id]));
     out.set(id, piece);
+    return { id, set: !!piece.use, ...(piece.use ? { children } : {}) };
   };
-  for (const id of list) walk(id, []);
-  return [...out.values()];
+  const tree = list.map((id) => walk(id, []));
+  return { pieces: [...out.values()], tree };
 }
 
 function won(pieces: Piece[], of: (p: Piece) => Record<string, unknown>): Record<string, Won> {
@@ -127,7 +133,7 @@ function won(pieces: Piece[], of: (p: Piece) => Record<string, unknown>): Record
 
 /** То, что получит сессия с этим списком. Один код на запуск и просмотр. Отказ — BadPieces. */
 export function assemble(list: string[], folderOf: (id: string) => string | null): Assembly {
-  const pieces = flatten(list, folderOf);
+  const { pieces, tree } = flatten(list, folderOf);
   const names = new Map<string, string>();
   for (const p of pieces) {
     const first = names.get(p.name);
@@ -135,7 +141,7 @@ export function assemble(list: string[], folderOf: (id: string) => string | null
     names.set(p.name, p.id);
   }
   const memories = pieces.filter((p) => p.memory);
-  return { pieces, env: won(pieces, (p) => p.env), settings: won(pieces, (p) => p.settings), home: memories.at(-1), near: memories.slice(0, -1) };
+  return { pieces, tree, env: won(pieces, (p) => p.env), settings: won(pieces, (p) => p.settings), home: memories.at(-1), near: memories.slice(0, -1) };
 }
 
 export const valuesOf = (m: Record<string, Won>): Record<string, unknown> => Object.fromEntries(Object.entries(m).map(([k, w]) => [k, w.value]));

@@ -1,6 +1,6 @@
 // Профиль сессии — список кусочков из git-репозиториев; каждая часть кусочка идёт в Claude штатным путём. Файлы читаются на каждом старте, копий нет.
 // Состояние репозитория живёт в памяти Host: следующее сведение узнает его заново. Список репозиториев — настройка флота; машина её не хранит.
-import { existsSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
 import { join, resolve, sep } from "node:path";
 import type { Host, Module, QueryPart, Session } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
@@ -8,6 +8,7 @@ import { FLEET_PREFIX, PROFILE_REPOS, settings, type Settings } from "@switchboa
 import { splitId } from "./folder.ts";
 import { assemble, BadPieces, kindOf, namesIn, nearMemory, readPiece, valuesOf, type Assembly } from "./pieces.ts";
 import { realGit, syncRepo, type Git, type RepoState } from "./sync.ts";
+import { FILE_MAX, insideFile, viewOf } from "./view.ts";
 
 export type { Git, RepoState };
 
@@ -140,9 +141,9 @@ export function make(o: { git?: Git } = {}): Module {
   }
 
   /** Запрос просит собрать список сейчас: не собрался — отказ словом. */
-  function check(list: string[]): void {
+  function check(list: string[]): Assembly {
     try {
-      assemble(list, folderOf);
+      return assemble(list, folderOf);
     } catch (e) {
       throw e instanceof BadPieces ? refuse(e.word, e.message) : e;
     }
@@ -191,6 +192,17 @@ export function make(o: { git?: Git } = {}): Module {
         if (s.state === "stopped" || s.state === "failed") return { restart: false };
         void s.restart();
         return { restart: true };
+      },
+      "profile.view": (req) => viewOf(check(listOf(req.profile, "profile.view"))),
+      "profile.file"(req) {
+        const { id, path } = req;
+        if (typeof id !== "string" || typeof path !== "string") throw refuse("bad_frame", "profile.file: нужны id и path");
+        const dir = folderOf(id);
+        if (!dir) throw refuse("no_profile", `${id}: такой папки нет в клонах`);
+        const file = insideFile(dir, path);
+        if (!file) throw refuse("bad_frame", `${id}: файла ${path} в кусочке нет`);
+        if (statSync(file).size > FILE_MAX) throw refuse("too_large", `${path}: больше ${FILE_MAX / 1024} КБ`);
+        return { text: readFileSync(file, "utf8") };
       },
       async "machine.profiles"(req) {
         if (req.sync === true) await tick();

@@ -148,7 +148,8 @@ async function bench(o: { git: Git; manage?: Module; extra?: Array<{ manifest: M
 const chosen = new Map<string, string[]>();
 const pick = (callsign: string, ...list: string[]) => chosen.set(callsign, list);
 
-const ask = async (f: Record<string, unknown>) => (await st!.relay.request({ v: 2, machine: "laptop", ...f } as Frame)) as Frame & { ok: boolean; result: any; error?: string; why?: string };
+const V1 = new Set(["profile.view", "profile.file"]);
+const ask = async (f: Record<string, unknown>) => (await st!.relay.request({ v: V1.has(String(f.type)) ? 1 : 2, machine: "laptop", ...f } as Frame)) as Frame & { ok: boolean; result: any; error?: string; why?: string };
 const last = (cs: string) => st!.states(cs).at(-1)!;
 const options = (cs: string) => st!.query(cs).options as Record<string, any>;
 const sync = () => ask({ type: "machine.profiles", sync: true });
@@ -895,5 +896,105 @@ describe("сверка строк: чего леса не держали", () =>
     await st!.open("site@laptop");
     const hooks = (st!.query("site@laptop").options as { hooks: Record<string, Array<{ matcher?: string }>> }).hooks;
     expect(hooks.PostToolUse[0].matcher).toBe("Write|Edit|MultiEdit");
+  });
+
+  it("8021 · стиль полным именем найден, коротким — просмотр называет его ненайденным; выбранный стиль не в «других файлах»", async () => {
+    piece(OPS, { ...plugin({ name: "ops" }), "output-styles/terse.md": "---\nname: terse\n---\nКоротко.", "settings.json": JSON.stringify({ outputStyle: "ops:terse" }) });
+    await bench({ git: fakeGit().git });
+    const full = await ask({ type: "profile.view", profile: [OPS] });
+    expect(full.result.prompt.style).toEqual({ name: "ops:terse", from: OPS, found: true, path: "output-styles/terse.md" });
+    expect(full.result.other).toEqual([]);
+    piece(OPS, { "settings.json": JSON.stringify({ outputStyle: "terse" }) });
+    const short = await ask({ type: "profile.view", profile: [OPS] });
+    expect(short.result.prompt.style).toEqual({ name: "terse", from: OPS, found: false, path: "output-styles/terse.md" });
+  });
+
+  it("8022 · набор из трёх кусочков: состав, настройки с источником, скилы, память и промпт равны тому, что ушло в запуск", async () => {
+    const A = `${REPO}/a`;
+    const B = `${REPO}/b`;
+    const SET = `${REPO}/set`;
+    piece(A, { ...plugin({ name: "a" }), ...skill("one"), "settings.json": JSON.stringify({ model: "opus", effortLevel: "high", env: { MODE: "a" } }), "memory/MEMORY.md": "- индекс a", "CLAUDE.md": "инструкция a" });
+    piece(B, { ...plugin({ name: "b" }), ...skill("two"), "agents/lead.md": "---\nname: lead\ndescription: Ведёт\nmodel: opus\n---\nТекст агента", "settings.json": JSON.stringify({ model: "sonnet", agent: "b:lead", env: { MODE: "b" } }), "memory/MEMORY.md": "- индекс b", "memory/x.md": "---\nname: x\nmetadata:\n  type: project\n---\nтело" , ".claude/rules/t.md": "---\npaths: \"**/*.ts\"\n---\nПравило" });
+    piece(SET, plugin({ name: "set", description: "обычная работа", metadata: { use: [A, B] } }));
+    await bench({ git: fakeGit().git });
+    pick("job@laptop", SET);
+    await st!.open("job@laptop");
+    const o = options("job@laptop");
+    const v = (await ask({ type: "profile.view", profile: [SET] })).result;
+    expect(o.plugins.map((p: { path: string }) => p.path)).toEqual(v.pieces.map((id: string) => join(clone(), id.split("/")[2])));
+    expect(v.pieces).toEqual([A, B, SET]);
+    expect(v.tree).toEqual([{ id: SET, set: true, children: [{ id: A, set: false }, { id: B, set: false }] }]);
+    expect(v.settings.model).toEqual({ value: "sonnet", from: B, lost: [{ value: "opus", from: A }] });
+    expect(o.settings.model).toBe(v.settings.model.value);
+    expect(o.settings.effortLevel).toBe(v.settings.effortLevel.value);
+    expect(o.settings.agent).toBe(v.prompt.agent.name);
+    expect(o.env.MODE).toBe(v.settings["env.MODE"].value);
+    expect(v.skills.map((s: { name: string }) => s.name)).toEqual(["a:one", "b:two"]);
+    expect(v.agents).toEqual([{ from: B, name: "b:lead", description: "Ведёт", path: "agents/lead.md", model: "opus", main: true }]);
+    expect(v.prompt.agent).toEqual({ name: "b:lead", from: B, path: "agents/lead.md" });
+    expect(v.instructions).toEqual([{ from: A, path: "CLAUDE.md", head: "инструкция a", rule: false }, { from: B, path: ".claude/rules/t.md", head: "Правило", rule: true, paths: "**/*.ts" }]);
+    expect(o.settings.autoMemoryDirectory).toBe(join(clone(), "b", "memory"));
+    expect(v.memory.home).toMatchObject({ from: B, files: 2, types: { project: 1 } });
+    expect(v.memory.near.map((m: { from: string }) => m.from)).toEqual([A]);
+    expect(o.systemPrompt.append).toContain(join(clone(), "a", "memory"));
+  });
+
+  it("набор с повтором: дерево показывает повтор без состава; кольцо — bad_profile у просмотра; пустой список — пустой итог", async () => {
+    const SET = `${REPO}/set`;
+    const IN = `${REPO}/inner`;
+    piece(OPS);
+    piece(IN, plugin({ name: "inner", metadata: { use: [OPS] } }));
+    piece(SET, plugin({ name: "set", metadata: { use: [IN, OPS] } }));
+    await bench({ git: fakeGit().git });
+    const v = await ask({ type: "profile.view", profile: [SET] });
+    expect(v.result.tree).toEqual([{ id: SET, set: true, children: [{ id: IN, set: true, children: [{ id: OPS, set: false }] }, { id: OPS, set: false }] }]);
+    piece(OPS, plugin({ name: "ops", metadata: { use: [SET] } }));
+    expect(await ask({ type: "profile.view", profile: [SET] })).toMatchObject({ ok: false, error: "bad_profile" });
+    expect(await ask({ type: "profile.view", profile: [] })).toMatchObject({ ok: true, result: { pieces: [], tree: [] } });
+    expect(await ask({ type: "profile.view", profile: "строка" })).toMatchObject({ ok: false, error: "bad_frame" });
+  });
+
+  it("серверы, хуки и другие файлы: запись как в кусочке; файлы, которых Claude не читает, названы", async () => {
+    piece(OPS, {
+      ".mcp.json": JSON.stringify({ mcpServers: { grafana: { command: "grafana-mcp" } } }),
+      "hooks/hooks.json": JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "check.sh" }] }] } }),
+      "notes/todo.txt": "вне штатных путей",
+    });
+    await bench({ git: fakeGit().git });
+    const v = (await ask({ type: "profile.view", profile: [OPS] })).result;
+    expect(v.mcp).toEqual([
+      { from: OPS, kind: "server", name: "grafana", detail: "grafana-mcp", config: { command: "grafana-mcp" } },
+      { from: OPS, kind: "hook", name: "PreToolUse", detail: "Bash → check.sh", config: { matcher: "Bash", hooks: [{ type: "command", command: "check.sh" }] } },
+    ]);
+    expect(v.other).toEqual([{ from: OPS, path: "notes/todo.txt" }]);
+  });
+
+  it("8028 · кусочек с 191 файлом памяти: в просмотре текстов 0, размеры есть; текст — profile.file; предел и выход из папки — отказ", async () => {
+    const files: Record<string, string> = { "memory/MEMORY.md": "- индекс" };
+    for (let i = 0; i < 190; i++) files[`memory/note${i}.md`] = `---\nname: note${i}\ndescription: Заметка\ntype: project\n---\nТЕЛО-ЗАМЕТКИ-${i}`;
+    piece(OPS, { ...files, "big.md": "x".repeat(256 * 1024 + 1) });
+    await bench({ git: fakeGit().git });
+    const v = await ask({ type: "profile.view", profile: [OPS] });
+    expect(JSON.stringify(v.result)).not.toContain("ТЕЛО-ЗАМЕТКИ");
+    expect(v.result.files[OPS].filter((f: { path: string }) => f.path.startsWith("memory/"))).toHaveLength(191);
+    expect(v.result.files[OPS].find((f: { path: string }) => f.path === "memory/note7.md")).toMatchObject({ size: expect.any(Number), meta: { type: "project", description: "Заметка" } });
+    expect(v.result.memory.home).toMatchObject({ from: OPS, files: 191, indexLines: 1, types: { project: 190 } });
+    expect(await ask({ type: "profile.file", id: OPS, path: "memory/note7.md" })).toMatchObject({ ok: true, result: { text: expect.stringContaining("ТЕЛО-ЗАМЕТКИ-7") } });
+    expect(await ask({ type: "profile.file", id: OPS, path: "big.md" })).toMatchObject({ ok: false, error: "too_large" });
+    expect(await ask({ type: "profile.file", id: OPS, path: "../writer/CLAUDE.md" })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await ask({ type: "profile.file", id: OPS, path: "нет.md" })).toMatchObject({ ok: false, error: "bad_frame" });
+    expect(await ask({ type: "profile.file", id: `${REPO}/none`, path: "a.md" })).toMatchObject({ ok: false, error: "no_profile" });
+  });
+
+  it("8029 · имя скила, которого нет в названии кусочка: кусочек находится по names, текстов в ответе нет", async () => {
+    piece(OPS, { ...skill("restart-gateway"), "agents/night.md": "x", ".claude/rules/deep/style.md": "ТЕКСТ-ПРАВИЛА", "memory/deploy.md": "ТЕКСТ-ПАМЯТИ" });
+    await bench({ git: fakeGit().git });
+    fleet.repos = [REPO];
+    await sync();
+    const r = await ask({ type: "machine.profiles" });
+    const found = Object.entries(r.result.profiles as Record<string, { names: Array<{ name: string }> }>).filter(([, p]) => p.names.some((n) => n.name.includes("gateway")));
+    expect(found.map(([id]) => id)).toEqual([OPS]);
+    expect(r.result.profiles[OPS].names.map((n: { kind: string }) => n.kind).sort()).toEqual(["agent", "memory", "rule", "skill"]);
+    expect(JSON.stringify(r.result)).not.toContain("ТЕКСТ-");
   });
 });

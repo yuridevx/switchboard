@@ -11,6 +11,7 @@ import { refuse, stand } from "@switchboard/host";
 import type { Frame, Manifest } from "@switchboard/host";
 import managePkg, { make as makeManage } from "../contract.ts";
 import fleetPkg, { make as makeFleet, prompt } from "../../fleet/contract.ts";
+import { make as makeProfiles } from "../../profiles/contract.ts";
 import remotePkg, { make as makeRemote } from "../../remote/contract.ts";
 import machinePkg, { make as makeMachine } from "../../machine/contract.ts";
 import { make as makeChat, task, wrap } from "../../chat/contract.ts";
@@ -47,7 +48,7 @@ type World = {
 const world = (o: Partial<World> = {}): World => ({ seen: [], account: () => undefined, slotReply: () => ({ restart: false }), opening: () => {}, ...o });
 
 /** Host с настоящими manage, chat, fleet и machine; remote и push — по просьбе. */
-async function bench(o: { machine?: string; stateHome?: string; home?: string; holders?: stand.FakeHolders; holdRoster?: boolean; remote?: string; push?: boolean; w?: World; start?: boolean } = {}) {
+async function bench(o: { machine?: string; stateHome?: string; home?: string; holders?: stand.FakeHolders; holdRoster?: boolean; remote?: string; push?: boolean; w?: World; start?: boolean; profiles?: boolean } = {}) {
   const w = o.w ?? world();
   const home = o.home ?? temp();
   const fleet = makeFleet();
@@ -66,16 +67,30 @@ async function bench(o: { machine?: string; stateHome?: string; home?: string; h
         const slot = typeof f.slot === "string" ? f.slot : w.autoSlot;
         if (slot) s.store().set({ slot });
       },
-      requests: { "session.slot": (r) => (w.seen.push(["session.slot", r]), w.slotReply() as never) },
+      requests: {
+        "session.slot": (r) => (w.seen.push(["session.slot", r]), w.slotReply() as never),
+        "machine.accounts": () => ({ accounts: {}, slots: { main: { account: "a@x", order: ["a@x"], wait: null } } }),
+      },
     },
-    { provides: { "session.slot": 2, slot: 1, account: 2 } },
+    { provides: { "session.slot": 2, slot: 1, account: 2, "machine.accounts": 2 } },
   );
-  const profiles = module("host-profiles", {
-    opening: (_s, f) => {
-      w.seen.push(["profile", f]);
-      w.opening(f);
-    },
-  });
+  const profiles = o.profiles
+    ? { manifest: manifestOf("profiles"), module: makeProfiles({ git: async () => ({ code: 0, out: "" }) }) }
+    : module(
+        "host-profiles",
+        {
+          opening: (_s, f) => {
+            w.seen.push(["profile", f]);
+            w.opening(f);
+          },
+          requests: {
+            "session.profile": () => ({ restart: false }),
+            "machine.profiles": () => ({ profiles: { "team/p/ops": { kind: "piece", about: "серверы", names: [] } }, repos: { "team/p": { state: "ok", dir: "/x/team__p" } } }),
+            "profile.view": (r) => ({ pieces: r.profile }),
+          },
+        },
+        { provides: { "session.profile": 2, "machine.profiles": 2, "profile.view": 1 } },
+      );
   const relay = new FakeRelay();
   relay.holdRoster = !!o.holdRoster;
   const st = await standHost({
@@ -120,14 +135,14 @@ describe("контракт: пакеты и вклад в query()", () => {
     expect(prompt("me@pc")).toBe(
       'Ты во флоте как me@pc. Кто на связи — fleet.list; написать сессии или человеку — fleet.send. ' +
         'Открыть сессию с задачей — fleet.open: она твоя дочь, итог каждого её хода, начатого тобой, придёт сам тегом <fleet-message from="…">. ' +
-        "Проект сессии — параметр project у fleet.open и fleet.update, имя в интерфейсе — fleet.label. Что делала сессия — fleet.history; модель, усилие, заголовок — fleet.update; закрыть — fleet.remove (без callsign — себя, после этого хода). " +
+        "Проект сессии — параметр project у fleet.open и fleet.update, имя в интерфейсе — fleet.label. Профиль — параметр profile там же; что в нём, какие кусочки, слоты и ключи есть — fleet.profile; репозитории кусочков — fleet.repos. Что делала сессия — fleet.history; модель, усилие, заголовок — fleet.update; закрыть — fleet.remove (без callsign — себя, после этого хода). " +
         'Сообщения флота приходят во ввод тегом <fleet-message from="…">; вопрос другой сессии — тегом <fleet-question>, ответ на него — fleet.answer. ' +
         "Если тебя открыла другая сессия, итог твоего хода, начатого ею, уйдёт ей сам — отвечать ей отдельно не нужно.",
     );
     const tools = makeFleet().tools("me@pc") as Array<{ name: string; description: string; inputSchema: Record<string, { description?: string }> }>;
     const params = (t: (typeof tools)[number]) => Object.fromEntries(Object.entries(t.inputSchema).map(([k, v]) => [k, v.description ?? null]));
     expect(tools.map((t) => [t.name, t.description, params(t)])).toEqual([
-      ["list", "Кто на связи: сессии флота с состоянием, родителем, моделью, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}],
+      ["list", "Кто на связи: сессии флота с состоянием, родителем, моделью, профилем, слотом, именем и проектом; машины с именами; проекты; клиенты (телефон, пульт).", {}],
       ["send", "Написать сессии флота (callsign имя@машина) или человеку: всем его устройствам ~email или одному устройство~email. Ответа адресата не ждёт.", { to: "callsign сессии, ~email человека или устройство~email", text: "текст сообщения" }],
       ["answer", "Ответить на вопрос другой сессии (тег <fleet-question>), которой эта сессия дала задачу.", { to: "callsign сессии, задавшей вопрос", question: "id вопроса из тега", answers: "текст вопроса → ответ; несколько вариантов — через запятую" }],
       [
@@ -141,15 +156,25 @@ describe("контракт: пакеты и вклад в query()", () => {
           profile: "кусочки профиля сессии по порядку: нижний выигрывает",
           model: null,
           effort: null,
-          slot: "имя слота машины",
+          slot: "имя слота машины или ключа флота",
           project: "имя проекта: сессия встанет в его конец, нет такого — создастся; без него — в проект открывшей",
         },
       ],
       ["history", "Что делала сессия: последние записи разговора — ввод, ответы, вызванные инструменты.", { callsign: null, limit: "сколько записей; по умолчанию 20" }],
       [
         "update",
-        "Сменить сессии слот, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот — перезапуском между ходами. Слот меняется первым: его отказ не меняет остального.",
-        { callsign: null, slot: "имя слота машины этой сессии", model: null, effort: null, title: null, project: "имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта" },
+        "Сменить сессии слот, профиль, модель, усилие, заголовок разговора или проект. Живой сессии модель и усилие — сразу, слот и профиль — перезапуском между ходами, разговор продолжается. Слот меняется первым, профиль вторым: отказ не меняет остального.",
+        { callsign: null, slot: "имя слота машины этой сессии или ключа флота", profile: "заменить список кусочков: нижний выигрывает, пустой — без кусочков", model: null, effort: null, title: null, project: "имя проекта: конец его списка, нет такого — создастся; пустая строка — без проекта" },
+      ],
+      [
+        "profile",
+        "Что получит сессия с этим списком кусочков — тот же ответ, что на экране профилей. Без списка — кусочки и наборы машины, её слоты, ключи флота с моделями и клоны репозиториев. Новый кусочек пишется файлами в клоне: отправит сведение.",
+        { machine: "машина; по умолчанию — твоя", profile: "кусочки по порядку" },
+      ],
+      [
+        "repos",
+        "Подключить и убрать репозитории кусочков: один список на весь флот. Машины сами клонируют, сводят и убирают клоны. Без параметров — нынешний список.",
+        { add: "подключить: владелец/имя", remove: "убрать: владелец/имя" },
       ],
       ["label", "Имя в интерфейсе: сессии (site@laptop) или машины (@laptop); адрес остаётся адресом. Пустой текст снимает имя.", { to: "callsign сессии или @машина", text: "имя; пустое — снять" }],
       ["remove", "Закрыть сессию: она забыта, разговор остаётся на диске машины. Другую — сразу; без callsign — себя, после этого хода.", { callsign: null }],
@@ -800,6 +825,74 @@ describe("fleet: переписка", () => {
   });
 });
 
+describe("fleet: профиль и репозитории", () => {
+  /** Клон на диске Host стенда: настоящий модуль профилей читает папки. */
+  function clone(home: string, repo: string, folder: string, files: Record<string, string> = {}) {
+    const dir = join(home, "profiles", repo.replace("/", "__"), folder);
+    mkdirSync(dir, { recursive: true });
+    for (const [p, text] of Object.entries(files)) {
+      mkdirSync(join(dir, p, ".."), { recursive: true });
+      writeFileSync(join(dir, p), text);
+    }
+  }
+
+  it("8023 · инструмент update { profile } живой сессии: перезапуск, разговор продолжается, новый список в записи", async () => {
+    const stateHome = temp();
+    clone(stateHome, "team/p", "base", { "CLAUDE.md": "база" });
+    clone(stateHome, "team/p", "dev", { "CLAUDE.md": "разработка" });
+    const { st, call, field, req, home } = await bench({ stateHome, profiles: true });
+    const dir = mkdtempSync(join(home, "d-"));
+    const opened = (await req({ type: "session.open", v: 2, machine: "laptop", name: "job", dir, profile: ["team/p/base"] })) as Frame & { ok: boolean };
+    expect(opened.ok).toBe(true);
+    await until(() => field("job@laptop", "state") === "idle");
+    const before = st.query("job@laptop").options as { resume?: string; sessionId?: string };
+    const r = await call("me@laptop", "update", { callsign: "job@laptop", profile: ["team/p/base", "team/p/dev"] });
+    expect(r).toEqual(toolText("профиль сменён; перезапуск между ходами"));
+    await until(() => st.holders.spawns.filter((x) => x.id === "job@laptop").length === 2 && st.holders.procs.get("job@laptop")?.initializes === 1);
+    const after = st.query("job@laptop").options as { resume?: string; plugins: Array<{ path: string }> };
+    expect(after.resume).toBe(before.sessionId ?? before.resume);
+    expect(after.plugins.map((p) => p.path.split(/[\\/]/).at(-1))).toEqual(["base", "dev"]);
+    await until(() => JSON.stringify(field("job@laptop", "profile")) === JSON.stringify([{ id: "team/p/base", state: "ok" }, { id: "team/p/dev", state: "ok" }]));
+  });
+
+  it("update { profile }: отказ называет слово и не трогает остального", async () => {
+    const stateHome = temp();
+    const { call, req, home, field } = await bench({ stateHome, profiles: true });
+    const dir = mkdtempSync(join(home, "d-"));
+    await req({ type: "session.open", v: 2, machine: "laptop", name: "job", dir });
+    await until(() => field("job@laptop", "state") === "idle");
+    const r = await call("me@laptop", "update", { callsign: "job@laptop", profile: ["team/p/none"], title: "новый" });
+    expect(r.isError).toBe(true);
+    expect(text(r)).toContain("no_profile");
+  });
+
+  it("8028 · fleet.prompt: текст добавки флота с именем-примером", async () => {
+    const { req } = await bench();
+    expect(await req({ type: "fleet.prompt", machine: "laptop" })).toMatchObject({ ok: true, result: { text: prompt("сессия@laptop") } });
+  });
+
+  it("инструмент profile без списка: кусочки, слоты, ключи только с моделями, клоны", async () => {
+    const { st, call } = await bench();
+    const asked = call("me@laptop", "profile");
+    const f = await until(() => st.relay.frames("fleetkeys.list")[0]);
+    st.relay.deliver({ type: "reply", id: f.id as string, ok: true, result: { keys: { orca: { env: { ANTHROPIC_BASE_URL: "https://x", ANTHROPIC_DEFAULT_OPUS_MODEL: "orcarouter/auto", CUSTOM: "tajna" }, settings: {} } } } } as Frame);
+    const shown = JSON.parse(text(await asked));
+    expect(shown).toEqual({
+      machine: "laptop",
+      pieces: { "team/p/ops": { kind: "piece", about: "серверы" } },
+      slots: { main: { account: "a@x", wait: null } },
+      keys: { orca: { models: { opus: "orcarouter/auto" } } },
+      clones: { "team/p": { state: "ok", dir: "/x/team__p" } },
+    });
+    expect(text(await Promise.resolve({ content: [{ text: JSON.stringify(shown) }] }))).not.toContain("tajna");
+  });
+
+  it("инструмент profile со списком — тот же ответ, что экран: запрос profile.view", async () => {
+    const { call } = await bench();
+    expect(JSON.parse(text(await call("me@laptop", "profile", { profile: ["team/p/ops"] })))).toEqual({ pieces: ["team/p/ops"] });
+  });
+});
+
 describe("fleet: сессия ведёт другие сессии", () => {
   it("296 · open дочери на другой машине — session.open от родителя, затем задача message от него; ответ — callsign", async () => {
     const { st, call } = await bench({ machine: "win" });
@@ -1199,6 +1292,23 @@ describe("fleet: проекты и имена", () => {
   const REC = [{ id: "shop", name: "Магазин", sessions: ["site@win"] }];
   const SESSIONS = [{ callsign: "site@win", state: "busy", model: "m", cost: 1 }, { callsign: "kid@win", state: "idle", parent: "site@win" }, { callsign: "free@win", state: "idle", parent: "pult~a@b.c" }];
 
+  it("repos: добавить и убрать — цикл записей читает сам ключ; не владелец/имя — отказ, запись не идёт; без параметров — список", async () => {
+    const { svc, call } = await meta();
+    svc.values["fleet.profiles.repos"] = ["team/p", "old/one"];
+    expect(JSON.parse(text(await call("site@win", "repos", { add: ["team/notes"], remove: ["old/one"] })))).toEqual(["team/p", "team/notes"]);
+    expect(svc.values["fleet.profiles.repos"]).toEqual(["team/p", "team/notes"]);
+    expect(JSON.parse(text(await call("site@win", "repos")))).toEqual(["team/p", "team/notes"]);
+    const bad = await call("site@win", "repos", { add: ["просто-имя"] });
+    expect(bad.isError).toBe(true);
+    expect(svc.values["fleet.profiles.repos"]).toEqual(["team/p", "team/notes"]);
+  });
+
+  it("repos: ключа ещё нет — первая запись создаёт список", async () => {
+    const { svc, call } = await meta();
+    expect(JSON.parse(text(await call("site@win", "repos", { add: ["team/p"] })))).toEqual(["team/p"]);
+    expect(svc.values["fleet.profiles.repos"]).toEqual(["team/p"]);
+  });
+
   it("302 · 6301 · list: сессии с состоянием, родителем, моделью, именем и проектом; дочерняя — в проекте родителя; машины с именами; проекты; клиенты; область — только флот", async () => {
     const { svc, call, roster } = await meta();
     svc.values["fleet.projects"] = REC;
@@ -1209,9 +1319,9 @@ describe("fleet: проекты и имена", () => {
     expect(r).toEqual({
       me: "site@win",
       sessions: [
-        { callsign: "site@win", state: "busy", parent: null, model: "m", label: "Витрина", project: "Магазин" },
-        { callsign: "kid@win", state: "idle", parent: "site@win", model: null, label: null, project: "Магазин" },
-        { callsign: "free@win", state: "idle", parent: "pult~a@b.c", model: null, label: null, project: null },
+        { callsign: "site@win", state: "busy", parent: null, model: "m", profile: [], slot: null, label: "Витрина", project: "Магазин" },
+        { callsign: "kid@win", state: "idle", parent: "site@win", model: null, profile: [], slot: null, label: null, project: "Магазин" },
+        { callsign: "free@win", state: "idle", parent: "pult~a@b.c", model: null, profile: [], slot: null, label: null, project: null },
       ],
       machines: [{ machine: "win", label: "Домашний ПК" }],
       projects: ["Магазин"],
@@ -1714,7 +1824,7 @@ describe("fleet: остальные формы", () => {
     expect(new Set(Object.values(types("open")))).toEqual(new Set(["string", "array"]));
     expect(schema.history).toMatchObject({ required: ["callsign"], properties: { limit: { type: "integer", minimum: 1 } } });
     expect(schema.update.required).toEqual(["callsign"]);
-    expect(new Set(Object.values(types("update")))).toEqual(new Set(["string"]));
+    expect(new Set(Object.values(types("update")))).toEqual(new Set(["string", "array"]));
     expect(schema.label.required).toEqual(["to", "text"]);
     expect(schema.remove.required).toBeUndefined();
   });

@@ -8,7 +8,9 @@
   "provides": {
     "session.profile": 2,
     "machine.profiles": 2,
-    "profile": 2
+    "profile": 2,
+    "profile.view": 1,
+    "profile.file": 1
   },
   "uses": {
     "host.module@host": 1,
