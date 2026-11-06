@@ -113,7 +113,7 @@ export const createMachines = ((app) => {
           </div>
         )}
         {note && <Note>{note}</Note>}
-        {online && (
+        {online && app.wide && (
           <Opts>
             <Btn onClick={() => app.open("settings", { tab: "releases", machine })}>План в «Выпусках»</Btn>
           </Opts>

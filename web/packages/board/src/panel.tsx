@@ -70,7 +70,7 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
     const machines = [...new Set([...(app.roster()?.machines ?? []).map((m) => m.machine), ...sessions.map((x) => machineOf(x.callsign)!)])];
     return {
       who: [{ value: "mine", text: "моё" }, ...owners.map((o) => ({ value: o, text: o.slice(1) }))],
-      projects: s.shown({}).map((x) => ({ value: x.id, text: x.name })).sort((a, b) => a.text.localeCompare(b.text)),
+      projects: s.shown({}).map((x) => ({ value: x.id, text: x.name })),
       machines: machines.sort().map((m) => ({ value: m, text: machineLabel(app, m).text })),
       profiles: profiles.map((p) => ({ value: p, text: p })),
       states: STATES.map((x) => ({ value: x, text: stateLabel(x).text })),
