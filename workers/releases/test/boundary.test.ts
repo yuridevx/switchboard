@@ -1077,6 +1077,17 @@ describe("сверка со старым кодом", () => {
     await E.DB.exec("UPDATE fleet SET stable = '{}' WHERE one = 1");
     expect((await result(req(s, "~x", "releases.deploy", { part: "host" }))).parts.host).toEqual({ from: null, to: "1.2.0" });
   });
+
+  it("«*» у оболочки — новейшая метка Cloudflare: сборка, которую Cloudflare не принял, выкладку не держит (чьё: код)", async () => {
+    const s = fresh();
+    await put("pult", "1.0.0", { type: "web-app", workers: { test: "switchboard-pult" } }, [["index.html", "<!doctype html>"]]);
+    const { sent } = cloudflare({ "switchboard-pult": { tags: ["1.0.0+1", "1.0.0+2"], live: "1.0.0+1" } });
+    // сборка лежит, выкладка оборвалась: метки 1.0.0+3 в Cloudflare нет
+    await env.BUCKET.put("test/pult/1.0.0+3.tgz", "x");
+    await env.BUCKET.put("test/pult/1.0.0+3.sha256", shaLine(sha256hex("x"), "1.0.0+3"));
+    expect((await result(req(s, "~x", "releases.deploy", { part: "*" }))).parts.pult).toEqual({ from: "1.0.0+1", to: "1.0.0+2" });
+    expect(sent.live.get("switchboard-pult")).toBe("switchboard-pult-v1.0.0+2");
+  });
 });
 
 describe("releases.fetch", () => {

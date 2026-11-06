@@ -23,7 +23,7 @@ function validate(f: Frame) {
 /** Часть Cloudflare на версию с меткой; уже выложена — без перемен. */
 async function deployCloud(env: Env, cat: Catalog, p: Part, version: string | undefined, by: unknown) {
   const state = await cat.cloud(p.script!);
-  const to = version ?? (p.root ? (await cat.builds(p.name)).at(-1) : state.tags.at(-1));
+  const to = version ?? state.tags.at(-1);
   const id = to ? state.idOf(to) : undefined;
   if (!to || !id) return refuse("no_release", `у ${p.name} нет версии${version ? ` ${version}` : ""} с меткой`);
   if (state.live !== id) {
