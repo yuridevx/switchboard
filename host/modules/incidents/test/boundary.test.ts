@@ -70,11 +70,12 @@ const logins = (list: string[]) =>
       if (list.length === 1) s.store<{ slot: string }>().set({ slot: list[0] });
     },
   });
-const profiles = () =>
+const profiles = (hold?: Promise<void>) =>
   module("host-profiles", {
     openingReads: ["profile"],
-    opening(s, req) {
+    async opening(s, req) {
       if (typeof req.profile !== "string") return;
+      await hold;
       if (req.profile.endsWith("/missing")) throw refuse("no_profile", `профиля ${req.profile} нет`);
       s.store<{ id: string }>().set({ id: req.profile });
     },
@@ -86,7 +87,7 @@ const profiles = () =>
 const push = () => module("host-push", { requests: { notify: () => ({ pushed: [] }) } });
 
 /** Host win: incidents с типами disk-full, build-red, nodir (папки нет), noprof (профиля нет), named (слот), plain. */
-async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number; start?: boolean; slots?: string[] } = {}) {
+async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: number; start?: boolean; slots?: string[]; hold?: Promise<void> } = {}) {
   const port = o.port ?? (await freePort());
   const work = mkdtempSync(join(tmpdir(), "switchboard-incidents-"));
   const st = await standHost({
@@ -112,7 +113,7 @@ async function bench(o: { home?: string; holders?: stand.FakeHolders; port?: num
     },
     modules: [
       logins(o.slots ?? []),
-      profiles(),
+      profiles(o.hold),
       push(),
       { manifest: json("manage"), module: manage },
       { manifest: json("chat"), module: makeChat() },
@@ -633,6 +634,22 @@ describe("инцидент: доставка хотя бы раз", () => {
     await pause();
     expect(lines()).toHaveLength(1);
     expect(disk()).toEqual(was);
+  });
+
+  it("обращение с отказом: обращение другого типа или ключа его не повторяет", async () => {
+    // старый код: новое обращение пробует ожидающие только своего типа и ключа; экран показывает время последнего отказа
+    const { st, post, disk } = await bench();
+    const a = await post({ type: "noprof", text: "x" });
+    const lines = (id: unknown) => st.journal().filter((l) => l.ev === "incident" && l.kind === "refuse" && l.id === id);
+    await until(() => lines(a.body.id).length === 1);
+    const was = disk();
+    await post({ type: "disk-full", key: "C:", text: "другой тип" });
+    await inputOf(st, "disk-full-1@win");
+    const other = await post({ type: "noprof", key: "k", text: "другой ключ" });
+    await until(() => lines(other.body.id).length === 1);
+    await pause();
+    expect(lines(a.body.id)).toHaveLength(1);
+    expect(disk().find((x) => x.id === a.body.id)).toEqual(was[0]);
   });
 
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {

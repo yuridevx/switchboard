@@ -128,7 +128,8 @@ export function make(): Module {
       const a: Appeal = { id: randomUUID(), ...parse(await body(req), cfg.types ?? {}) };
       disk().update((all = []) => [...all, a]);
       answer(202, { id: a.id });
-      drain();
+      // новое обращение пробует и ждущие своего типа и ключа; чужие ждут своего
+      drain((x) => x.type === a.type && x.key === a.key);
     } catch (e) {
       if (isRefusal(e)) {
         host.log({ kind: "refuse", ev: "incident", word: e.word, why: e.message });
