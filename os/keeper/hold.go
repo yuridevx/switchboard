@@ -129,14 +129,15 @@ func runHold(args []string) int {
 	return 0
 }
 
-// line — строка журнала под тем, чей процесс держатель держит: часть машины — её именем, сессия Host — host и callsign.
-func (h *holder) line(kind, ev string, kv ...any) {
+// record — строка журнала под тем, чей процесс держатель держит: часть машины — её именем, сессия Host — host и callsign.
+func (h *holder) record(kind, ev string, kv ...any) []byte {
 	if h.spec.owner == "host" {
-		h.j.add("holder", "host", kind, ev, append(kv, "callsign", h.spec.id)...)
-		return
+		return h.j.record("holder", "host", kind, ev, append(kv, "callsign", h.spec.id)...)
 	}
-	h.j.add("holder", h.spec.id, kind, ev, append(kv, "id", h.spec.id)...)
+	return h.j.record("holder", h.spec.id, kind, ev, append(kv, "id", h.spec.id)...)
 }
+
+func (h *holder) line(kind, ev string, kv ...any) { h.j.write(h.record(kind, ev, kv...)) }
 
 func (h *holder) serve() error {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -303,25 +304,33 @@ func (h *holder) writeInput(w *os.File) {
 	}
 }
 
-// readOut — stdout: хозяину кадрами, вывод части машины — ещё и в журнал. Без хозяина копит: процесс не ждёт упавшего keeper.
+// readOut — stdout: хозяину кадрами, вывод части машины — ещё и в журнал, кусок одной записью: файл на строку держал бы чтение трубы, и процесс ждал бы
+// диск. Без хозяина копит: процесс не ждёт упавшего keeper.
 func (h *holder) readOut(r *os.File) {
+	var batch []byte
 	lines := lineSplitter(func(l string) {
 		if h.spec.owner == "keeper" {
-			h.line("note", "out", "line", l)
+			batch = append(batch, h.record("note", "out", "line", l)...)
 		}
 	})
+	flush := func() {
+		h.j.write(batch)
+		batch = nil
+	}
 	buf := make([]byte, 32<<10)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
-			lines(buf[:n])
 			h.mu.Lock()
 			h.out = append(h.out, buf[:n]...)
 			h.cond.Broadcast()
 			h.mu.Unlock()
+			lines(buf[:n])
+			flush()
 		}
 		if err != nil {
 			lines(nil)
+			flush()
 			return
 		}
 	}

@@ -47,7 +47,7 @@ export async function snapshot(cwd: string): Promise<{ summary: Summary; bundle?
 async function commitOfChanges(cwd: string, head: string, index: string): Promise<string> {
   const env = { GIT_INDEX_FILE: index };
   await git(cwd, ["read-tree", head], env);
-  await git(cwd, ["add", "-A"], env);
+  await git(cwd, ["add", "-A"], env).catch(() => {}); // файл, который git не берёт, не держит точку разговора: в снимке то, что встало
   const tree = (await git(cwd, ["write-tree"], env)).trim();
   return (await git(cwd, ["-c", "user.name=points", "-c", "user.email=points@switchboard", "commit-tree", tree, "-p", head, "-m", "снимок точки"])).trim();
 }

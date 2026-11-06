@@ -212,6 +212,25 @@ func TestEtOSStopIsNotCrash(t *testing.T) {
 	}
 }
 
+// Часть, снятая остановкой ОС, ждёт следующего плана: keeper жив, запись плана велит работать — план с той же записью её поднимает, счёт падений не
+// растёт (чьё: код — незапущенная часть по записи с on ставится; rev один на флот, новый план доходит при подключении; сигнал держателям без остановки
+// keeper — выход пользователя из системы у службы Windows).
+func TestEtOSStopNextPlanStarts(t *testing.T) {
+	s := newStand(t)
+	capture := func() map[string]any { return s.links.part("capture", "1.3.2", appFiles(""), on) }
+	s.relay.setPlan(plan1(1, capture()))
+	k := s.start()
+	waitFor(t, "running", running(k, "capture", ""))
+	syscall.Kill(heldOf(s.home, "capture").Holder, syscall.SIGTERM)
+	waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+	s.relay.push(planMsg(2, capture()))
+	waitFor(t, "план rev 2", func() bool { return stateOf(k).Rev == 2 })
+	waitFor(t, "часть поднята планом", running(k, "capture", "1.3.2"))
+	if p := partOf(k, "capture"); p.Restarts != 0 || s.relay.ledgerHas("part.failed") {
+		t.Fatalf("подъём по плану принят за падение: %+v", p)
+	}
+}
+
 // alive — процесс жив и не зомби.
 func alive(pid int) bool {
 	if syscall.Kill(pid, 0) != nil {

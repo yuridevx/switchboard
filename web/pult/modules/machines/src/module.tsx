@@ -83,8 +83,8 @@ export const createMachines = ((app) => {
           <span className={failed ? "v bad" : "v"} data-part={part.part} data-state={part.state}>
             {[part.version, part.state, part.pid && `pid ${part.pid}`].filter(Boolean).join(" · ")}
           </span>
+          {part.error && <div className="e">{part.error}</div>}
         </span>
-        {part.error && <div className="e">{part.error}</div>}
         {failed && part.part !== "keeper" && (
           <Btn className="r" onClick={() => void restart(machine, part.part)}>
             Перезапустить

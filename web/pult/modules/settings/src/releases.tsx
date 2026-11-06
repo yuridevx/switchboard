@@ -127,7 +127,11 @@ function MachinePlan({ machine, online, catalog, plan, k, set, close }: { machin
           </div>
         );
       })}
-      {word && <Note tone="bad">{word}</Note>}
+      {word && (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      )}
     </Sec>
   );
 }
@@ -347,8 +351,16 @@ export function ReleasesTab({ machine }: { machine?: string }) {
           Каталог и сборки
         </Btn>
       </div>
-      {list.error && <Note tone="bad">{`releases.list: ${list.error}`}</Note>}
-      {hosts.error && <Note tone="bad">{`keys.list: ${hosts.error}`}</Note>}
+      {list.error && (
+        <Note tone="bad" role="alert">
+          {`releases.list: ${list.error}`}
+        </Note>
+      )}
+      {hosts.error && (
+        <Note tone="bad" role="alert">
+          {`keys.list: ${hosts.error}`}
+        </Note>
+      )}
       {local.deployed && (
         <Note tone={local.deployed.tone} role={local.deployed.tone === "bad" ? "alert" : "status"}>
           {local.deployed.text}

@@ -138,7 +138,11 @@ function ControlSec({ callsign, removable }: { callsign: string; removable: bool
           </div>
         </div>
       )}
-      {word && <span className="cw-note bad">{word}</span>}
+      {word && (
+        <span className="cw-note bad" role="alert">
+          {word}
+        </span>
+      )}
     </div>
   );
 }

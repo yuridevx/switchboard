@@ -1,7 +1,7 @@
 {
   "name": "pult-machines",
   "type": "web",
-  "version": "5.1.0",
+  "version": "5.1.1",
   "into": [
     "pult",
     "phone"

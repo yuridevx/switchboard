@@ -23,7 +23,7 @@ function validate(f: Frame) {
 /** Часть Cloudflare на версию с меткой; уже выложена — без перемен. */
 async function deployCloud(env: Env, cat: Catalog, p: Part, version: string | undefined, by: unknown) {
   const state = await cat.cloud(p.script!);
-  const to = version ?? (p.root ? (await cat.builds(p.name)).at(-1) : state.tags.at(-1));
+  const to = version ?? state.tags.at(-1);
   const id = to ? state.idOf(to) : undefined;
   if (!to || !id) return refuse("no_release", `у ${p.name} нет версии${version ? ` ${version}` : ""} с меткой`);
   if (state.live !== id) {
@@ -33,10 +33,8 @@ async function deployCloud(env: Env, cat: Catalog, p: Part, version: string | un
   return { from: state.stable, to };
 }
 
-const edgeOf = async (cat: Catalog, p: Part) => (p.root ? (await cat.builds(p.name)).at(-1) : p.versions.at(-1));
-
 async function machineMove(cat: Catalog, row: Row, p: Part, version?: string): Promise<Move> {
-  const to = version ?? (await edgeOf(cat, p));
+  const to = version ?? (await cat.onMachine(p)).at(-1);
   if (!to) return refuse("no_release", `у ${p.name} нет версии в каталоге`);
   if (!(await cat.sha(p.name, to))) refuse("no_release", `у ${p.name} нет версии ${to}`);
   return { part: p.name, from: row.stable[p.name] ?? null, to };
@@ -57,8 +55,8 @@ async function deployAll(env: Env, cat: Catalog, row: Row, by: unknown): Promise
 async function deployModule(env: Env, cat: Catalog, row: Row, p: Part, f: Frame) {
   const without = (f.without ?? []) as string[];
   const checkWith = (f.check_with ?? []) as string[];
-  for (const name of without) if ((await cat.part(name)).kind !== "module") refuse("bad_frame", "without — модули сборки");
-  for (const app of checkWith) if (!(await cat.part(app)).root) refuse("no_build", `${app} — не приложение каталога`);
+  for (const name of without) if (name === p.name || (await cat.part(name)).kind !== "module") refuse("bad_frame", "without — модули сборки, не корень и не выкладываемая часть");
+  for (const app of [...checkWith, ...(p.manifest!.into ?? [])]) if (!(await cat.part(app)).root) refuse("no_build", `${app} — не приложение каталога`);
   const gone = without.length ? `; сняты ${without.join(", ")}` : "";
   const latest = !!f.latest;
   if (p.root) {

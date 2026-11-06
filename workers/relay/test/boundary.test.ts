@@ -158,6 +158,24 @@ describe("hello", () => {
     expect(await phone.quiet()).toEqual([]);
   });
 
+  it("открытая дверь: key объектом, который не приводится к строке, — 1008 bad_key, как чужой пропуск; Host машины на связи", async () => {
+    // источник: устав — ошибка словом; слово пользователя 6 нояб. — вход без пропуска реален, отказ словом обязателен
+    const a = await laptop();
+    const x = await open();
+    x.send({ type: "hello", proto: 1, key: { toString: 1 } });
+    expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
+    expect(await a.quiet()).toEqual([]);
+    expect(a.closed).toBeNull();
+  });
+
+  it("открытая дверь: журнал берёт из пропуска не больше 80 знаков, сколько бы ни прислал чужой", async () => {
+    const x = await open();
+    x.send({ type: "hello", proto: 1, key: `${"a".repeat(1000)}.секрет` });
+    expect(await x.waitClose()).toEqual({ code: 1008, reason: "bad_key" });
+    expect(logged("bad_key", "a".repeat(80))).toBeDefined();
+    expect(logged("bad_key", "a".repeat(81))).toBeUndefined();
+  });
+
   it.each([
     // сбой под нагрузкой может опоздать за предел стенда: причина тогда — предел
     ["throw", "gate "],
@@ -183,6 +201,7 @@ describe("hello", () => {
     ["в hello сессия чужой машины", { sessions: [{ callsign: "wiki@pc" }] }, "bad_from", "callsign"],
     ["голое имя машины вместо сессии", { sessions: [{ callsign: "@laptop" }] }, "bad_from", "callsign"],
     ["часть не keeper", { part: "capture" }, "bad_frame", "capture"],
+    ["часть объектом, который не приводится к строке", { part: { toString: 1 } }, "bad_frame", "toString"],
   ])("33 · 34 · hello Host машины: %s — закрыт, слово и причина в журнале; прежний Host не тронут, в roster не попал", async (_n, extra, word, why) => {
     const panel = await hello("client", "panel-desk");
     const x = await open();
@@ -385,6 +404,8 @@ describe("кадр после hello: доставка по адресу", () => 
     expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-8", ok: false, error: "bad_from" });
     expect(logged("bad_from", dev("phone"), "message", "site@laptop")).toBeDefined();
     expect(await b.quiet()).toEqual([]);
+    phone.send({ type: "message", id: "m-9", from: { toString: 1 }, to: "poe-bot@pc" });
+    expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-9", ok: false, error: "bad_from" });
     for (const [who, from] of [[a, "poe-bot@pc"], [a, ".keeper@laptop"], [b, "site@laptop"], [k, "@laptop"]] as Array<[Peer, string]>) {
       who.send({ type: "message", id: "m-1", from, to: dev("phone") });
       expect(await who.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-1", ok: false, error: "bad_from" });
@@ -396,6 +417,8 @@ describe("кадр после hello: доставка по адресу", () => 
     ["to списком у кадра с id", { type: "question", id: "q", to: [dev("phone"), dev("panel-desk")] }, "списком"],
     ["в списке не адрес", { type: "question", to: [dev("phone"), "голое"] }, "голое"],
     ["голое имя", { type: "message", id: "q", to: "phone" }, "phone"],
+    ["to объектом, который не приводится к строке", { type: "message", id: "q", to: { toString: 1 } }, "toString"],
+    ["в списке объект, который не приводится к строке", { type: "question", to: [dev("phone"), { toString: 1 }] }, "toString"],
     ["нет адреса", { type: "message", id: "q" }, "нет адреса"],
     ["callsign без машины", { type: "budget.set", id: "q", callsign: "wiki", machine: "laptop" }, "wiki"],
     ["имя relay roster", { type: "roster", id: "q", machines: [] }, "имя relay"],

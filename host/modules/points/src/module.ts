@@ -1,7 +1,7 @@
 // Модуль точек Host: пометка «в R2», когда снимать точку и запросы контракта.
 import { existsSync } from "node:fs";
 import { isRefusal, refuse } from "@switchboard/host";
-import type { Host, Module, Session } from "@switchboard/host";
+import type { Frame, Host, Module, Session } from "@switchboard/host";
 import { raise } from "./raise.ts";
 import { conversationOf, snap, type PointExtra, type Why } from "./snap.ts";
 
@@ -67,7 +67,7 @@ export function make(): Module {
     const mark = markOf(s).get();
     // до точки старта правило молчит: первая точка после перезапуска Host — она
     if (down || leaving.has(s.info.callsign) || !mark || (!started && why === "rule") || !existsSync(conversationOf(s))) return;
-    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).set({ r2: true }));
+    const first = mark.base === undefined ? save(s, why) : save(s, "raise", { base: mark.base }).then(() => markOf(s).update((m) => m && { r2: true }));
     void first.catch((e) => (isRefusal(e) && e.word === "not_owner" ? leave(s) : undefined)).catch(() => {});
   }
 
@@ -113,6 +113,13 @@ export function make(): Module {
     });
   }
 
+  /** Сессия запроса: кадр без callsign ядро не отсеивает, он доходит по machine. */
+  function sessionOf(req: Frame) {
+    const s = host.session(req.callsign as string);
+    if (!s) throw refuse("offline", `${String(req.callsign)}: сессии нет на этой машине`);
+    return s;
+  }
+
   return {
     fields: {
       r2: (s) => (marked(s) ? (errors.get(s.info.callsign) ?? {}) : undefined),
@@ -138,7 +145,7 @@ export function make(): Module {
     },
     requests: {
       async "session.r2"(req, ctx) {
-        const s = ctx.host.session(req.callsign as string)!;
+        const s = sessionOf(req);
         if (req.on === true) {
           markOf(s).update((m) => m ?? { r2: true });
           s.refresh();
@@ -157,7 +164,7 @@ export function make(): Module {
       },
 
       async "points.save"(req, ctx) {
-        const s = ctx.host.session(req.callsign as string)!;
+        const s = sessionOf(req);
         if (!marked(s)) throw refuse("not_r2", `${s.info.callsign} не в R2`);
         if (req.stop === true) {
           if (req.interrupt !== true) {

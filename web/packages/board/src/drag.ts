@@ -203,7 +203,9 @@ export function sorting(o: SortOptions, from: Point): Gesture {
   return {
     move(p) {
       now = p;
-      place(p.x - from.x, p.y - from.y);
+      // копия не сходит с ряда
+      if (o.axis === "y") place(0, p.y - from.y);
+      else place(p.x - from.x, 0);
       layout();
     },
     drop: () => land(to, true),
@@ -286,7 +288,7 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
   return {
     move(p) {
       now = p;
-      place(p.x - from.x, p.y - from.y);
+      place(0, p.y - from.y);
       locate();
     },
     drop() {

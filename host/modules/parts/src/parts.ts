@@ -54,8 +54,8 @@ export function make() {
     const found = got.result as { version: string; url: string };
     const tgz = await download(net, found.url, (why) => `fetch_failed: ${why} на ${part} ${found.version}`, signal);
     const target = join(resolve(cwd, dir), "vendor", part);
-    rmSync(target, { recursive: true, force: true });
     const files = entries(tgz).filter((e) => e.data);
+    rmSync(target, { recursive: true, force: true });
     for (const f of files) {
       mkdirSync(dirname(join(target, f.path)), { recursive: true });
       writeFileSync(join(target, f.path), f.data!);
@@ -66,13 +66,13 @@ export function make() {
   const tools = (cwd: string) => [
     tool(
       "list",
-      "Каталог частей (edge, stable) и состояние каждой машины от её keeper; закреплённая часть — с pin. error: timeout у машины значит: она не ответила, остальные верны, повтори вызов.",
+      "Каталог частей (edge, stable) и состояние каждой машины от её keeper; закреплённая часть — с pin. error: timeout у машины значит: она не ответила, остальные верны, повтори вызов. Каталог не ответил — вместо parts стоит error, машины показаны без закреплений.",
       { part: z.string().optional() },
       guarded(list),
     ),
     tool(
       "upload",
-      "Упаковать модуль из папки с module.json (относительная — от рабочей папки сессии) и загрузить в каталог. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists.",
+      "Упаковать модуль из папки с module.json (относительная — от рабочей папки сессии) и загрузить в каталог; stable не трогает: модуль выкладывает deploy. Версия загружается один раз: тот же архив второй раз — same, другой — version_exists.",
       { dir: z.string() },
       guarded(async ({ dir }, extra) => {
         const m = packModule(resolve(cwd, dir));
@@ -88,22 +88,22 @@ export function make() {
     ),
     tool(
       "deploy",
-      "Выложить часть: stable на версию, без version — edge; part * — части Cloudflare, keeper и host на edge. Модуль сборки — новая сборка его приложений, version null — снять модуль, latest — все модули на новейшие одной проверкой. Откат — тот же вызов со старой версией.",
+      "Выложить часть: stable на версию, без version — edge; part * — части Cloudflare, keeper и host на edge. Части машины — план keeper'ам, у которых он поменялся; машина не на связи возьмёт его при подключении. Модуль сборки — новая сборка его приложений, version null — снять модуль, latest — все модули на новейшие одной проверкой. Откат — тот же вызов со старой версией.",
       { part: z.string(), version: z.string().nullable().optional(), latest: z.literal(true).optional(), without: z.array(z.string()).optional(), check_with: z.array(z.string()).optional() },
       guarded(async (args) => answer("releases.deploy", await net.ask("releases.deploy", args) as Result)),
     ),
     tool(
       "set",
-      "Правка плана машины: pin (null — снять), on, force, env, remove; у keeper — только pin. Чистый перезапуск части: чистый перезапуск — on: false, затем on: true.",
+      "Единственная правка плана машины. pin — закрепить версию или снять (null). on — включить или выключить часть: выключенную keeper не поднимает и после перезагрузки; чистый перезапуск — on: false, затем on: true. force с on: false — убить дерево процесса, не дожидаясь выхода. env — окружение части. remove — убрать часть из плана (data/ остаётся). Новая часть — первый set с ней. У keeper — только pin. Уже так — ok.",
       { machine: z.string(), part: z.string(), pin: z.string().nullable().optional(), on: z.boolean().optional(), force: z.boolean().optional(), env: z.record(z.string(), z.string()).optional(), remove: z.boolean().optional() },
       guarded(async (args) => answer("releases.set", await net.ask("releases.set", args) as Result)),
     ),
     tool(
       "log",
       "Журнал части на машине; по умолчанию — последний час и 50 строк. Host машины мёртв — причину даёт list (keeper.state).",
-      { machine: z.string(), part: z.string(), since: z.string().optional(), limit: z.number().optional() },
+      { machine: z.string(), part: z.string().optional(), since: z.string().optional(), limit: z.number().optional() },
       guarded(async ({ machine, part, since, limit = LOG_LINES }) =>
-        answer("machine.journal", await host.request("machine.journal", { v: 2, machine, part, since: since ?? new Date(Date.now() - HOUR_MS).toISOString(), limit })),
+        answer("machine.journal", await host.read("machine.journal", { v: 2, machine, ...(part && { part }), since: since ?? new Date(Date.now() - HOUR_MS).toISOString(), limit })),
       ),
     ),
   ];

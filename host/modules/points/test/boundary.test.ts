@@ -630,6 +630,42 @@ describe("points: покрытие плана host-modules", () => {
     expect(existsSync(fileOf(s.info.cwd, open.resume as string))).toBe(false);
   });
 
+  it.each(["points.save", "session.r2"])("%s без callsign: отказ offline, модуль на машине работает дальше", async (type) => {
+    // чьё: код — прежний sessionOf: сессии нет — offline; вход рации: кадр доходит по machine от любого пропуска
+    b = await bench({ home });
+    await marked();
+    expect(await ask({ type, machine: "laptop" })).toMatchObject({ ok: false, error: "offline" });
+    expect(await ask({ type: "points.save", callsign: "site@laptop" })).toMatchObject({ ok: true });
+  });
+
+  it("копию убрали, пока её первая точка в пути: пометка убранной не возвращается и не ждёт новую сессию с этим именем", async () => {
+    // чьё: код — прежний auto: снимал base только у пометки, которая ещё есть
+    b = await bench({ home });
+    const s = await marked("site@laptop", conv(10));
+    const sv = await ask({ type: "points.save", callsign: "site@laptop", stop: true });
+    const dir = join(home, "Projects", "site2");
+    await ask({ type: "points.raise", machine: "laptop", sid: s.info.session_id, point: sv.result.point, copy: true, dir, files: "keep" });
+    const c = b.st.session("host-points", "site2@laptop")!;
+    writeFileSync(fileOf(dir, c.info.session_id), conv(11));
+    let open = () => {};
+    const held = new Promise<void>((r) => (open = r));
+    const r2 = b.reg.fetch;
+    b.reg.fetch = (async (...a: Parameters<typeof fetch>) => {
+      await held;
+      return r2(...a);
+    }) as typeof fetch;
+    b.st.proc("site2@laptop").send(msg.state("running"));
+    await until(() => c.state === "busy");
+    b.st.proc("site2@laptop").send(msg.state("idle"));
+    await until(() => b!.reg.puts.some((p) => p.why === "raise" && p.result === "missing"));
+    await ask({ type: "session.remove", callsign: "site2@laptop" });
+    open();
+    const { st } = b;
+    b = null;
+    await st.close();
+    expect(JSON.parse(readFileSync(join(home, "store", "host-points.json"), "utf8")).sessions["site2@laptop"]).toBeUndefined();
+  });
+
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {
     // источник: чьё: код (points.ts:322-331)
     b = await bench({ home });
@@ -797,6 +833,25 @@ describe("папка подъёма и git", () => {
     expect(existsSync(fileOf(dir, SID))).toBe(false);
     expect(b.reg.puts).toEqual([]);
     expect(b.manage).toEqual([]);
+  });
+
+  it("git add не взял всю папку (вложенный репозиторий без коммитов): точка разговора всё равно снята, снимок — с тем, что встало", async () => {
+    // чьё: код — прежний снимок не смотрел на код выхода add; разговор важнее файла, который git не берёт
+    const origin = join(home, "origin.git");
+    mkdirSync(origin);
+    git(origin, "init", "-q", "--bare");
+    const work = join(home, "work", "site");
+    repoAt(work, origin);
+    git(work, "push", "-q", "origin", "HEAD:refs/heads/main");
+    writeFileSync(join(work, "a"), "2");
+    mkdirSync(join(work, "sub"));
+    git(join(work, "sub"), "init", "-q");
+    writeFileSync(join(work, "sub", "x"), "1");
+    b = await bench({ home });
+    const s = await b.st.open("site@laptop", { module: "host-points", cwd: work });
+    write(work, s.info.session_id, conv(5));
+    expect(await ask({ type: "session.r2", callsign: "site@laptop", on: true })).toMatchObject({ ok: true, result: { point: expect.any(Number) } });
+    expect(puts("save").at(-1)!.git).toMatchObject({ state: "dirty", snap: expect.any(String) });
   });
 
   it("неотправленный коммит без правок: state clean, unpushed, снимок — пакет; файлы папки не тронуты", async () => {
