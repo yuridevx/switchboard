@@ -1,36 +1,35 @@
-// Разговор с сессией: ввод, чтение, лента и вопросы человеку. Состояния на диске нет: зрители и вопросы живут в памяти Host.
+// Разговор с сессией на Host: ввод человека и других сессий, история, файлы для «@», живая лента зрителям и вопросы человеку.
 import { execFile } from "node:child_process";
-import { opendir } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
+import { opendir } from "node:fs/promises";
 import { join, relative, sep } from "node:path";
-import { content, refuse, type Attachment, type Frame, type Host, type Module, type Roster, type Session } from "@switchboard/host";
+import { content, refuse, type Attachment, type Frame, type Host, type Module, type Session } from "@switchboard/host";
 import { questions } from "./ask.ts";
-import { feeds } from "./feed.ts";
 
-/** Что видит модель адресата: сообщение другой сессии. */
-export const wrap = (from: string, body: string) => `<fleet-message from="${from}">\n${body}\n</fleet-message>`;
-/** То же от родителя: итог этого хода уходит ему сам. */
-export const task = (from: string, body: string) => `${wrap(from, body)}\n(Задача от родителя ${from}: итог этого хода уйдёт ему сам — fleet.send ему не нужен.)`;
-
-/** Предел поиска файлов для «@». */
+/** Окно пачки ленты. */
+const WINDOW_MS = 100;
+/** Предел обхода папки для «@». */
 const FILES_MS = 5000;
-
 const down = (s: Session) => s.state === "stopped" || s.state === "failed" || s.state === "stopping";
 
-function gitFiles(cwd: string, signal: AbortSignal): Promise<string[] | null> {
-  return new Promise((resolve) => {
-    execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, signal, timeout: FILES_MS, maxBuffer: 64 * 1024 * 1024 }, (e, out) => resolve(e ? null : out.split("\n").filter(Boolean)));
-  });
-}
+/** Что видит модель адресата: сообщение другой сессии. */
+export const wrap = (from: string, text: string): string => `<fleet-message from="${from}">\n${text}\n</fleet-message>`;
+/** Задача от родителя: итог хода уйдёт ему сам. */
+export const task = (from: string, text: string): string => `${wrap(from, text)}\n(Задача от родителя ${from}: итог этого хода уйдёт ему сам — fleet.send ему не нужен.)`;
 
-/** Файлы папки сессии, путь содержит query: в git — без скрытого .gitignore; иначе обход папки. Предел — limit и время. */
-async function findFiles(cwd: string, query: string, limit: number, signal: AbortSignal): Promise<string[]> {
-  const q = query.toLowerCase();
-  const fit = (path: string) => path.toLowerCase().includes(q);
-  const git = await gitFiles(cwd, signal);
-  if (git) return git.filter(fit).slice(0, limit);
-  const found: string[] = [];
+const need = (ok: unknown, why: string) => {
+  if (!ok) throw refuse("bad_frame", why);
+};
+
+/** Файлы папки, путь содержит query: в git — без скрытого .gitignore, иначе обход; предел — limit, FILES_MS и остановка Host. */
+async function files(cwd: string, query: string, limit: number, signal: AbortSignal): Promise<string[]> {
+  const fit = (f: string) => f.toLowerCase().includes(query);
+  const listed = await new Promise<string[] | null>((done) =>
+    execFile("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd, timeout: FILES_MS, maxBuffer: 1 << 26, signal }, (e, out) => done(e ? null : out.split("\n").filter(Boolean))),
+  );
+  if (listed) return listed.filter(fit).slice(0, limit);
   const until = Date.now() + FILES_MS;
+  const found: string[] = [];
   for await (const e of await opendir(cwd, { recursive: true })) {
     if (signal.aborted) throw refuse("shutting_down", "обход папки остановлен");
     if (Date.now() > until) throw refuse("timeout", `список файлов не собран за ${FILES_MS} мс`);
@@ -41,94 +40,97 @@ async function findFiles(cwd: string, query: string, limit: number, signal: Abor
   return found;
 }
 
-function session(host: Host, req: Frame): Session {
-  const s = host.session(String(req.callsign));
-  if (!s) throw refuse("offline", `${String(req.callsign)}: сессии нет на этой машине`);
-  return s;
-}
-
-/** Страница записей перед before: стык в стык, начиная с конца разговора. */
-function page(all: Array<{ uuid?: string }>, before: unknown, limit: number) {
-  const end = before === null ? all.length : all.findIndex((m) => m.uuid === before);
-  if (end < 0) throw refuse("bad_frame", `session.history: записи ${String(before)} в разговоре нет`);
-  const start = Math.max(0, end - limit);
-  return { messages: all.slice(start, end), more: start > 0 };
-}
-
 export function make(): Module {
-  let host!: Host;
-  const feed = feeds(() => host);
-  const ask = questions(() => host, feed.viewers);
+  let host: Host;
+  const viewers = new Map<string, Set<string>>();
+  const batches = new Map<string, { events: unknown[]; timer: ReturnType<typeof setTimeout> }>();
+  const seqs = new Map<string, number>();
+  const ask = questions(() => host, (cs) => [...(viewers.get(cs) ?? [])]);
 
-  /** Запись этой сессии и зрителя; без отправителя кадр не по контракту. */
-  const viewerOf = (req: Frame, from?: string) => {
-    if (!from) throw refuse("bad_frame", `${req.type}: нет from`);
-    session(host, req);
-    return from;
+  const session = (req: Frame, cs = String(req.callsign)): Session => {
+    const s = host.session(cs);
+    if (!s) throw refuse("offline", `${cs}: сессии нет на этой машине`);
+    return s;
   };
+  const viewer = (req: Frame, ctx: { from?: string }) => {
+    need(ctx.from, "без from");
+    const cs = session(req).info.callsign;
+    return viewers.get(cs) ?? viewers.set(cs, new Set()).get(cs)!;
+  };
+
+  function flush(cs: string) {
+    const b = batches.get(cs)!;
+    batches.delete(cs);
+    clearTimeout(b.timer);
+    const to = [...(viewers.get(cs) ?? [])];
+    if (!to.length) return;
+    const seq = (seqs.get(cs) ?? 0) + 1;
+    seqs.set(cs, seq);
+    host.emit({ type: "session.events", from: cs, to, seq, events: b.events });
+  }
 
   return {
     start(h) {
       host = h;
     },
-    stop: feed.flushAll,
+    stop() {
+      for (const cs of [...batches.keys()]) flush(cs);
+    },
     session: () => ({ promptSuggestions: true, includePartialMessages: true }),
     requests: {
-      "session.prompt"(req, { from }) {
-        const s = session(host, req);
+      "session.prompt"(req, ctx) {
+        const s = session(req);
         const { text, attachments = [], uuid = randomUUID() } = req;
-        if (typeof text !== "string" || !Array.isArray(attachments)) throw refuse("bad_frame", "session.prompt: text — строка, attachments — список");
+        need(typeof text === "string" && Array.isArray(attachments), "session.prompt: text — строка, attachments — список");
         if (down(s)) throw refuse("stopped", `${s.info.callsign}: сессия ${s.state} — поднимает session.start`);
-        s.input(content(text, attachments as Attachment[]), { from, priority: "next", uuid: uuid as string, origin: { kind: "human" } });
+        s.input(content(text as string, attachments as Attachment[]), { from: ctx.from, priority: "next", uuid: uuid as string, origin: { kind: "human" } });
         return { uuid };
       },
-
-      message(req, { from = "" }) {
-        if (typeof req.text !== "string") throw refuse("bad_frame", "message: нужны to — callsign и text");
-        const s = host.session(String(req.to));
-        if (!s || down(s)) throw refuse("offline", `${String(req.to)}: ${s ? `сессия ${s.state}` : "сессии нет на этой машине"}`);
-        const body = !req.report && s.field("parent") === from ? task(from, req.text) : wrap(from, req.text);
-        s.input(body, { ...(req.report ? {} : { from }), priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
+      message(req, ctx) {
+        need(typeof req.text === "string", "message: нужны to — callsign и text");
+        const s = session(req, String(req.to));
+        if (down(s)) throw refuse("offline", `${s.info.callsign}: сессия ${s.state}`);
+        const from = String(ctx.from);
+        const text = s.field("parent") === from && !req.report ? task(from, req.text as string) : wrap(from, req.text as string);
+        s.input(text, { from: req.report ? undefined : from, priority: "next", uuid: randomUUID(), origin: { kind: "peer", from, name: from } });
+        return undefined;
       },
-
       async "session.history"(req) {
-        const s = session(host, req);
-        const { before, limit } = req;
-        if (typeof limit !== "number" || limit < 1 || (before !== null && typeof before !== "string")) throw refuse("bad_frame", "session.history: нужны limit ≥ 1 и before — uuid или null");
+        const { before = undefined, limit } = req;
+        need(typeof limit === "number" && limit >= 1 && (before === null || typeof before === "string"), "session.history: нужны limit ≥ 1 и before — uuid или null");
+        const s = session(req);
         const all = (await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string }>;
-        return page(all, before, limit);
+        const end = before === null ? all.length : all.findIndex((m) => m.uuid === before);
+        need(end >= 0, `session.history: записи ${String(before)} в разговоре нет`);
+        const start = Math.max(0, end - (limit as number));
+        return { messages: all.slice(start, end), more: start > 0 };
       },
-
-      "session.files"(req, { signal }) {
-        const s = session(host, req);
-        if (typeof req.limit !== "number" || req.limit < 1) throw refuse("bad_frame", "session.files: нужны query — строка и limit ≥ 1");
-        return findFiles(s.info.cwd, String(req.query ?? ""), req.limit, signal);
+      "session.files"(req, ctx) {
+        need(typeof req.limit === "number" && req.limit >= 1, "session.files: нужны query — строка и limit ≥ 1");
+        return files(session(req).info.cwd, String(req.query ?? "").toLowerCase(), req.limit as number, ctx.signal);
       },
-
-      "session.watch"(req, { from }) {
-        feed.watch(String(req.callsign), viewerOf(req, from));
+      "session.watch"(req, ctx) {
+        viewer(req, ctx).add(ctx.from!);
+        return undefined;
       },
-      "session.unwatch"(req, { from }) {
-        feed.unwatch(String(req.callsign), viewerOf(req, from));
+      "session.unwatch"(req, ctx) {
+        viewer(req, ctx).delete(ctx.from!);
+        return undefined;
       },
-
-      answer(req, { from = "" }) {
-        ask.answer(req, from);
-      },
-      "question.list": (req) => ask.list(String(req.callsign)),
+      ...ask.requests,
     },
-    frames: {
-      question: (f) => ask.intoInput(f),
-    },
-    decide: {
-      AskUserQuestion: ask.askUser,
-      "*": ask.permission,
-    },
-    elicit: ask.form,
+    frames: { question: (f) => ask.frame(f) },
+    decide: ask.decide,
+    elicit: ask.elicit,
     on: {
-      event: feed.event,
+      event(s, msg) {
+        const cs = s.info.callsign;
+        const b = batches.get(cs) ?? batches.set(cs, { events: [], timer: setTimeout(() => flush(cs), WINDOW_MS) }).get(cs)!;
+        b.events.push(msg);
+      },
       frame(f) {
-        if (f.type === "roster") feed.present((f as unknown as Roster).clients ?? []);
+        const here = new Set((f.clients ?? []) as string[]);
+        for (const set of viewers.values()) for (const v of set) if (!here.has(v)) set.delete(v);
       },
     },
   };

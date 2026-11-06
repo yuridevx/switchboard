@@ -1,11 +1,13 @@
 // Экран вопроса: AskUserQuestion, запрос разрешения, план и форма MCP. На весь экран — в обёртке страницы; в чужом месте (над вводом, в «Вам») — только вопрос.
 import { useEffect, useState, type ReactNode } from "react";
-import type { ScreenProps } from "@switchboard/web-core";
-import { Area, BadCard, Btn, Cta, In, Markdown, OkCard, Pad, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, WaitCard } from "@switchboard/web-ui";
-import type { AskStore, Entry, Question } from "./store.ts";
+import { Area, BadCard, Btn, Cta, In, Markdown, OkCard, Pad, PERM_PLACES, permModeName, RowBtn, Sel, useApp, useModule, WaitCard, type Params } from "@switchboard/web-ui";
+import { subjectOf, type AskStore, type Entry, type Question } from "./store.ts";
 
 type Reply = (reply: Record<string, unknown>, text: string) => void;
 type Props = { q: Question; sending: boolean; closed: boolean; reply: Reply };
+
+const LATE = "Первый ответ выигрывает — ваш не отправлен повторно.";
+const APP_NAMES: Record<string, string> = { pult: "пульт", phone: "телефон" };
 
 /** Варианты вопроса: один или несколько, свой ответ. */
 function AskQuestions({ q, sending, closed, reply }: Props) {
@@ -64,7 +66,8 @@ function AskQuestions({ q, sending, closed, reply }: Props) {
 /** Строка «что ляжет навсегда»: правило и место, одной строкой на предложение. */
 function suggestionLine(s: Record<string, unknown>): string {
   const place = PERM_PLACES[String(s.destination)] ?? String(s.destination ?? "");
-  const what = s.type === "setMode" ? (permModeName(String(s.mode)) ?? String(s.mode)) : s.type === "addDirectories" ? ((s.directories ?? []) as string[]).join(", ") : ((s.rules ?? []) as Array<{ toolName?: string; ruleContent?: string }>).map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : String(r.toolName))).join(", ");
+  const rules = (s.rules ?? []) as Array<{ toolName?: string; ruleContent?: string }>;
+  const what = s.type === "setMode" ? (permModeName(String(s.mode)) ?? String(s.mode)) : s.type === "addDirectories" ? ((s.directories ?? []) as string[]).join(", ") : rules.map((r) => (r.ruleContent ? `${r.toolName}(${r.ruleContent})` : String(r.toolName))).join(", ");
   return [what, place].filter(Boolean).join(" · ");
 }
 
@@ -72,13 +75,13 @@ function suggestionLine(s: Record<string, unknown>): string {
 const planText = (input?: Record<string, unknown>) => String(input?.plan ?? "").replace(/^\s*#+\s*План\s*\n+/, "");
 
 function PermQuestion({ q, sending, closed, reply }: Props) {
-  const plan = q.tool === "ExitPlanMode";
   const [deny, setDeny] = useState<string | null>(null);
+  const plan = q.tool === "ExitPlanMode";
   const input = q.input ?? {};
-  const subject = String(input.command ?? input.file_path ?? input.url ?? input.pattern ?? "");
+  const subject = subjectOf(q);
   const notes = [...new Set([q.title, q.description, q.reason])].filter(Boolean) as string[];
-  const send = (text: string, extra: Record<string, unknown>) => reply(extra, text);
   const wordDeny = plan ? "Вернуть" : "Отклонить";
+  const note = plan ? "Замечания" : "Причина";
   return (
     <>
       <div className="ask-q">
@@ -89,9 +92,7 @@ function PermQuestion({ q, sending, closed, reply }: Props) {
           </div>
         ) : (
           <>
-            <div className="ask-qh">
-              <span className="ask-chip">{q.tool}</span>
-            </div>
+            <span className="ask-chip">{q.tool}</span>
             {subject ? <code className="ask-subject">{subject}</code> : null}
             {notes.map((n) => (
               <div key={n} className="ask-note">
@@ -106,16 +107,18 @@ function PermQuestion({ q, sending, closed, reply }: Props) {
           </>
         )}
       </div>
-      {!plan && q.suggestions?.length && !closed && deny === null ? q.suggestions.map((s, i) => (
-        <div key={i} className="ask-note">
-          {suggestionLine(s)}
-        </div>
-      )) : null}
+      {!plan && q.suggestions?.length && !closed && deny === null
+        ? q.suggestions.map((s, i) => (
+            <div key={i} className="ask-note">
+              {suggestionLine(s)}
+            </div>
+          ))
+        : null}
       {closed ? null : deny !== null ? (
         <>
-          <Area className="ask-own" rows={2} placeholder={plan ? "Замечания" : "Причина"} aria-label={plan ? "Замечания" : "Причина"} value={deny} onInput={(e) => setDeny(e.currentTarget.value)} />
+          <Area className="ask-own" rows={2} placeholder={note} aria-label={note} value={deny} onInput={(e) => setDeny(e.currentTarget.value)} />
           <div className="ask-acts">
-            <Cta disabled={sending} onClick={() => send(wordDeny, { action: "deny", ...(deny.trim() ? { message: deny.trim() } : {}) })}>
+            <Cta disabled={sending} onClick={() => reply({ action: "deny", ...(deny.trim() ? { message: deny.trim() } : {}) }, wordDeny)}>
               {wordDeny}
             </Cta>
             <Btn type="button" className="ask-decline" onClick={() => setDeny(null)}>
@@ -125,15 +128,15 @@ function PermQuestion({ q, sending, closed, reply }: Props) {
         </>
       ) : (
         <div className="ask-acts">
-          <Cta disabled={sending} onClick={() => send(plan ? "Одобрить" : "Разрешить", { action: "allow" })}>
+          <Cta disabled={sending} onClick={() => reply({ action: "allow" }, plan ? "Одобрить" : "Разрешить")}>
             {plan ? "Одобрить" : "Разрешить"}
           </Cta>
           {plan ? (
-            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => send("Одобрить и разрешать правки", { action: "allow", always: true })}>
+            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => reply({ action: "allow", always: true }, "Одобрить и разрешать правки")}>
               Одобрить и разрешать правки
             </Btn>
           ) : q.suggestions?.length ? (
-            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => send("Разрешать всегда", { action: "allow", always: true })}>
+            <Btn type="button" className="ask-decline" disabled={sending} onClick={() => reply({ action: "allow", always: true }, "Разрешать всегда")}>
               Разрешать всегда
             </Btn>
           ) : null}
@@ -206,30 +209,27 @@ function Outcome({ e, callsign }: { e: Entry; callsign: string }) {
       {tail ? <span>{tail}</span> : null}
     </Card>
   );
-  if (e.word) {
+  if (e.word)
     return (
       <BadCard role="alert">
         <b>{`Не отправлено: ${e.word}`}</b>
         <span>Ответ не дошёл — можно отправить ещё раз.</span>
       </BadCard>
     );
-  }
   if (!d) return null;
   switch (d.how) {
     case "mine":
       return two(d.text ? `Ответ «${d.text}» принят.` : "Ответ принят.", `${callsign} продолжила работу.`, OkCard);
     case "already":
-      return two("Уже ответили.", "Первый ответ выигрывает — ваш не отправлен повторно.");
+      return two("Уже ответили.", LATE);
     case "other":
-      return two(`Уже ответили с ${d.by}${d.text ? `: «${d.text}»` : ""}.`, "Первый ответ выигрывает — ваш не отправлен повторно.");
+      return two(`Уже ответили с ${d.by}${d.text ? `: «${d.text}»` : ""}.`, LATE);
     case "cancelled":
       return two("Вопрос снят.", "Ход прервали — ответ больше не нужен.");
     case "gone":
       return two("Вопроса больше нет.", `${callsign} его не ждёт: ${d.word}.`);
   }
 }
-
-const APP_NAMES: Record<string, string> = { pult: "пульт", phone: "телефон" };
 
 function Audience({ q }: { q: Question }) {
   const app = useApp();
@@ -238,30 +238,23 @@ function Audience({ q }: { q: Question }) {
   return <div className="ask-hint">{`Вопрос видят: вы${others.length ? ` и ${others.map((n) => APP_NAMES[n] ?? n).join(", ")}` : ""}`}</div>;
 }
 
-export function AskScreen({ params }: ScreenProps) {
+export function AskScreen({ params }: { params: Params }) {
   const app = useApp();
   const asks = useModule<AskStore>();
-  const callsign = params.callsign;
+  const { callsign } = params;
   useEffect(() => asks.mount(callsign), [callsign]); // eslint-disable-line react-hooks/exhaustive-deps
   const e = app.use(() => asks.shown(callsign));
   const loading = app.use(() => asks.asks(callsign).loading);
   const word = app.use(() => asks.asks(callsign).word);
   const inPlace = app.current()?.screen !== "ask";
   if (!e && inPlace) return null;
-
-  if (!e) {
+  if (!e)
     return (
       <Pad>
         <div className="ask-empty">{word || (loading ? "Загружаю вопросы…" : `У ${callsign} нет ждущих вопросов.`)}</div>
       </Pad>
     );
-  }
-  const props: Props = {
-    q: e.q,
-    sending: e.sending,
-    closed: !!e.done,
-    reply: (reply, text) => void asks.answer(callsign, e.q.question, reply, text),
-  };
+  const props: Props = { q: e.q, sending: e.sending, closed: !!e.done, reply: (reply, text) => void asks.answer(callsign, e.q.question, reply, text) };
   return (
     <Pad className="ask">
       {e.q.kind === "ask" ? <AskQuestions key={e.q.question} {...props} /> : e.q.kind === "perm" ? <PermQuestion key={e.q.question} {...props} /> : <FormQuestion key={e.q.question} {...props} />}
