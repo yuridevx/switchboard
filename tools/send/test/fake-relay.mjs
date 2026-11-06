@@ -1,6 +1,6 @@
 // Поддельный relay для тестов send: глобальный WebSocket подменяется до запуска send.mjs (node --import).
-// Режим — FAKE_RELAY: ok | offline | refuse | drop | noise | silent. Что ушло к relay — строками JSON в файл FAKE_LOG.
-// silent — запрос принят, ответа нет.
+// Режим — FAKE_RELAY: ok | offline | refuse | drop | noise | silent | late. Что ушло к relay — строками JSON в файл FAKE_LOG.
+// silent — запрос принят, ответа нет; late — roster приходит через 200 мс, позже предела 100 мс в тесте.
 import { appendFileSync } from "node:fs";
 
 const mode = process.env.FAKE_RELAY ?? "ok";
@@ -13,6 +13,7 @@ const ROSTER = JSON.stringify({ type: "roster", machines: [], sessions: [], clie
 class FakeWebSocket {
   #open = false;
   constructor(url) {
+    if (process.env.FAKE_FAST === "socket") fast();
     note(JSON.stringify({ url }));
     setTimeout(() => {
       this.#open = true;
@@ -34,6 +35,7 @@ class FakeWebSocket {
     const reply = (x) => JSON.stringify({ type: "reply", id: f.id, ...x });
     if (f.type === "hello") {
       if (mode === "refuse") return this.#lost(1008, "bad_key");
+      if (mode === "late") return void setTimeout(() => this.onmessage?.({ data: ROSTER }), 200);
       if (mode === "noise") return this.#say("pong", new ArrayBuffer(1), "{не JSON", ROSTER, ROSTER);
       this.#say(ROSTER);
     } else if (f.type === "session.prompt") {
@@ -52,8 +54,10 @@ class FakeWebSocket {
 
 globalThis.WebSocket = FakeWebSocket;
 
-// FAKE_FAST: сроки процесса идут в сто раз быстрее, слова о сроке те же
-if (process.env.FAKE_FAST) {
+// FAKE_FAST: сроки идут в сто раз быстрее, слова о сроке те же. start — с начала процесса, для предела stdin; socket — с начала разговора:
+// предел stdin остаётся настоящим, иначе под нагрузкой 300 мс не хватает на чтение stdin.
+function fast() {
   const real = globalThis.setTimeout;
   globalThis.setTimeout = (f, ms, ...rest) => real(f, ms / 100, ...rest);
 }
+if (process.env.FAKE_FAST === "start") fast();

@@ -1,122 +1,108 @@
-// Разделы: колонка широкого вида, вкладки и лента узкого.
-import { useEffect, useRef } from "react";
-import { Badge, Pill, RowBtn, TextBtn } from "@switchboard/web-ui";
-import type { Modules } from "../modules.ts";
-import type { Page } from "./shell.tsx";
+// Разделы: колонка широкого вида, вкладки и лента группы узкого.
+import { useEffect, useRef, type ComponentProps } from "react";
+import { Badge, RowBtn, TextBtn } from "@switchboard/web-ui";
+import { ConnPill } from "./bar.tsx";
+import { useCore } from "./place.tsx";
 
-type Row = { name: string; nav: string; group?: string; narrow?: string; count: number };
+type Item = { name: string; label: string; group?: string; narrow?: string; count: number };
 
-/** Разделы с метками: выборка вида. */
-export function sectionRows(m: Modules): Row[] {
-  return m.sections().map((name) => {
-    const [e, s] = m.screenOf(name)!;
-    const n = s.mark && Object.hasOwn(e.def.marks ?? {}, s.mark) ? m.markOf(e, s.mark) : 0;
-    return { name, nav: s.nav!, group: s.group, narrow: s.narrowGroup ?? s.group, count: typeof n === "number" ? n : 0 };
+/** Разделы со счётчиками и открытый раздел; до первого экрана и после остановки — ничего. */
+function useSections() {
+  const { page, mods } = useCore();
+  return page.use<{ items: Item[]; on: string } | null>(() => {
+    if (!page.current || page.stop) return null;
+    const items = mods.sections.map((s) => {
+      const n = s.def.mark ? mods.mark(s.def.mark, []) : 0;
+      return { name: s.name, label: s.label, group: s.def.group, narrow: s.def.narrowGroup ?? s.def.group, count: typeof n === "number" ? n : 0 };
+    });
+    return { items, on: page.current.master ?? page.current.screen };
   });
 }
 
-/** Сначала разделы без группы, затем группы: [имя группы или null, разделы]. */
-function grouped(rows: Row[], of: (r: Row) => string | undefined): Array<[string | null, Row[]]> {
-  const groups = new Map<string, Row[]>();
-  for (const r of rows) {
-    const g = of(r);
-    if (g) groups.set(g, [...(groups.get(g) ?? []), r]);
-  }
-  return [[null, rows.filter((r) => !of(r))], ...groups];
+/** Сначала разделы без группы, затем группы. */
+function grouped(items: Item[], of: (x: Item) => string | undefined) {
+  const groups = new Map<string, Item[]>();
+  for (const x of items) if (of(x)) groups.set(of(x)!, [...(groups.get(of(x)!) ?? []), x]);
+  return { alone: items.filter((x) => !of(x)), groups: [...groups] };
 }
 
 const Count = ({ n }: { n: number }) => (n > 0 ? <Badge wait>{n}</Badge> : null);
 
-function Item({ page, row, on }: { page: Page; row: Row; on: boolean }) {
+function Section({ x, on }: { x: Item; on: boolean }) {
+  const { route } = useCore();
   const self = useRef<HTMLButtonElement>(null);
-  // открытый раздел виден в прокрутке ленты и колонки
   useEffect(() => {
     if (on) self.current?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
   }, [on]);
   return (
-    <RowBtn ref={self} className="sb-nv" data-screen={row.name} aria-current={on ? "page" : undefined} onClick={() => page.open(row.name)}>
-      <span>{row.nav}</span>
-      <Count n={row.count} />
+    <RowBtn ref={self} className="sb-nv" data-screen={x.name} aria-current={on ? "page" : undefined} onClick={() => route.open(x.name)}>
+      <span>{x.label}</span>
+      <Count n={x.count} />
     </RowBtn>
   );
 }
 
-/** Слова связи для пилюли: одна подпись на шапку и колонку. */
-export const linkPill = (link: string) => (link === "open" ? { tone: "ok" as const, text: "на связи" } : link === "closed" ? { tone: "bad" as const, text: "нет связи" } : { tone: "wait" as const, text: "подключаюсь" });
-
-/** Колонка разделов широкого вида. */
-export function Column({ page }: { page: Page }) {
-  const { core, bus, modules, wide } = page;
-  const view = bus.use(() => (wide && core.current ? { rows: sectionRows(modules), on: core.current.master ?? core.current.screen, link: core.link } : null));
-  const hidden = bus.use(() => !wide || core.stopped !== null);
-  const pill = view && linkPill(view.link);
+export function Column() {
+  const { page } = useCore();
+  const v = useSections();
+  if (!page.wide || !v) return <nav className="sb-navcol" hidden />;
+  const { alone, groups } = grouped(v.items, (x) => x.group);
   return (
-    <nav className="sb-navcol" hidden={hidden}>
-      {view && pill && (
-        <>
-          <div className="sb-brand">
-            <b>{page.brand ?? "Switchboard"}</b>
-            <Pill tone={pill.tone} conn title={pill.text} aria-label={pill.text} />
-          </div>
-          <TextBtn className="sb-goto" onClick={page.search}>
-            <span>Перейти…</span>
-            <kbd>Ctrl K</kbd>
-          </TextBtn>
-          {grouped(view.rows, (r) => r.group).map(([group, rows]) => (
-            <GroupRows key={group ?? ""} page={page} group={group} rows={rows} on={view.on} />
-          ))}
-        </>
-      )}
+    <nav className="sb-navcol">
+      <div className="sb-brand">
+        <b>{page.o.brand ?? "Switchboard"}</b>
+        <ConnPill bare />
+      </div>
+      <TextBtn className="sb-goto" onClick={page.toggleSearch}>
+        <span>Перейти…</span>
+        <kbd>Ctrl K</kbd>
+      </TextBtn>
+      {alone.map((x) => (
+        <Section key={x.name} x={x} on={x.name === v.on} />
+      ))}
+      {groups.flatMap(([group, members]) => [
+        <div key={group} className="sb-grp">
+          {group}
+        </div>,
+        ...members.map((x) => <Section key={x.name} x={x} on={x.name === v.on} />),
+      ])}
     </nav>
   );
 }
 
-function GroupRows({ page, group, rows, on }: { page: Page; group: string | null; rows: Row[]; on: string }) {
-  return (
-    <>
-      {group && <div className="sb-grp">{group}</div>}
-      {rows.map((r) => (
-        <Item key={r.name} page={page} row={r} on={r.name === on} />
-      ))}
-    </>
-  );
-}
-
 /** Вкладки узкого вида: разделы без группы и по одной на группу. */
-export function Tabs({ page }: { page: Page }) {
-  const { core, bus, modules, wide } = page;
-  const view = bus.use(() => (!wide && core.current ? { rows: sectionRows(modules), on: core.current.screen } : null));
-  const tabs: Array<[string | null, Row[]]> = view ? grouped(view.rows, (r) => r.narrow).flatMap(([group, rows]): Array<[string | null, Row[]]> => (group ? [[group, rows]] : rows.map((r) => [null, [r]]))) : [];
+export function Tabs() {
+  const { page, route } = useCore();
+  const v = useSections();
+  const { alone, groups } = grouped(v?.items ?? [], (x) => x.narrow);
+  const shown = !page.wide && alone.length + groups.length > 1;
   return (
-    <nav className="sb-tabs" aria-label="Разделы" hidden={tabs.length < 2}>
-      {tabs.length >= 2 &&
-        tabs.map(([group, rows]) =>
-          group ? (
-            <RowBtn key={group} className="sb-nv" data-group={group} aria-current={rows.some((r) => r.name === view!.on) ? "page" : undefined} onClick={() => !rows.some((r) => r.name === view!.on) && page.open(rows[0].name)}>
+    <nav className="sb-tabs" aria-label="Разделы" hidden={!shown}>
+      {shown && alone.map((x) => <Section key={x.name} x={x} on={x.name === v!.on} />)}
+      {shown &&
+        groups.map(([group, members]) => {
+          const inside = members.some((x) => x.name === v!.on);
+          return (
+            <RowBtn key={group} className="sb-nv" data-group={group} aria-current={inside ? "page" : undefined} onClick={() => inside || route.open(members[0].name)}>
               <span>{group}</span>
-              <Count n={rows.reduce((sum, r) => sum + r.count, 0)} />
+              <Count n={members.reduce((n, x) => n + x.count, 0)} />
             </RowBtn>
-          ) : (
-            <Item key={rows[0].name} page={page} row={rows[0]} on={rows[0].name === view!.on} />
-          ),
-        )}
+          );
+        })}
     </nav>
   );
 }
 
 /** Лента над экраном: соседи раздела открытой группы. */
-export function Ribbon({ page }: { page: Page }) {
-  const { core, bus, modules, wide } = page;
-  const view = bus.use(() => {
-    if (wide || !core.current) return null;
-    const rows = sectionRows(modules);
-    const group = rows.find((r) => r.name === core.current!.screen)?.narrow;
-    return group ? { rows: rows.filter((r) => r.narrow === group), on: core.current.screen } : null;
-  });
+export function Ribbon() {
+  const { page } = useCore();
+  const v = useSections();
+  const group = v?.items.find((x) => x.name === v.on)?.narrow;
+  const row: ComponentProps<typeof Section>["x"][] = page.wide || !group ? [] : v!.items.filter((x) => x.narrow === group);
   return (
-    <nav className="sb-navrow" hidden={!view}>
-      {view?.rows.map((r) => (
-        <Item key={r.name} page={page} row={r} on={r.name === view.on} />
+    <nav className="sb-navrow" hidden={!row.length}>
+      {row.map((x) => (
+        <Section key={x.name} x={x} on={x.name === v!.on} />
       ))}
     </nav>
   );
