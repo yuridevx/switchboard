@@ -14,7 +14,7 @@
   ],
   "preview_urls": false,
   "observability": { "enabled": true },
-  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-fleetkeys", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }],
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-fleetkeys", "database_id": "efbf0845-1196-42c1-ae91-e96a633a314c", "migrations_dir": "migrations" }],
   "env": {
     "prod": {
       // свой домен прода: адрес Worker'а в сборках страниц
