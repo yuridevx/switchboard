@@ -237,7 +237,9 @@ func (k *Keeper) actor() {
 // execute — план целиком: убранные части сняты, остальные по порядку, запись keeper — последним шагом. true — keeper подменил себя.
 func (k *Keeper) execute(p plan) bool {
 	b, _ := json.Marshal(p)
-	writeFile(filepath.Join(k.home, "plan.json"), b)
+	if err := writeFile(filepath.Join(k.home, "plan.json"), b); err != nil {
+		k.fault("plan", "why", "plan.json не записан — после перезапуска keeper исполнит прежний: "+err.Error())
+	}
 	k.note("plan", "rev", p.Rev)
 	var self *entry
 	want := map[string]bool{}
