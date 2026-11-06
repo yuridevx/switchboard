@@ -83,7 +83,7 @@ for (const key of cand) {
   for (const s of x.sh) if (y.sh.has(s)) c++;
   const j = c / (x.sh.size + y.sh.size - c);
   if (j < 0.5) continue;
-  const row = { j: +j.toFixed(2), a: `${x.mod} ${x.name ?? "?"} ${x.file}:${x.line}`, b: `${y.mod} ${y.name ?? "?"} ${y.file}:${y.line}`, toks: Math.min(x.toks.length, y.toks.length) };
+  const row = { ka: `${x.mod}:${x.name ?? x.file}`, kb: `${y.mod}:${y.name ?? y.file}`, j: +j.toFixed(2), a: `${x.mod} ${x.name ?? "?"} ${x.file}:${x.line}`, b: `${y.mod} ${y.name ?? "?"} ${y.file}:${y.line}`, toks: Math.min(x.toks.length, y.toks.length) };
   (x.mod === y.mod ? nearIn : near).push(row);
 }
 near.sort((p, q) => q.toks * q.j - p.toks * p.j);
