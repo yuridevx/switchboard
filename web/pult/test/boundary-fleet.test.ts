@@ -775,6 +775,23 @@ describe("Настройки", () => {
       expect(t2.text()).toContain("keys.list: denied");
     });
 
+    it("новая попытка отзыва снимает прошлый отказ: слово не висит над успехом (чьё: код)", async () => {
+      const t = await settings({ url: "/#settings?tab=passes" });
+      const fine = t.relay.handlers["keys.revoke"];
+      const revoke = async () => {
+        await t.click(t.btn("Отозвать…", t.$('tr[data-pass="kc2"]')!));
+        await t.click(t.btn("Отозвать", t.$('tr[data-pass="kc2"]')!));
+        await flush(5);
+      };
+      t.relay.handlers["keys.revoke"] = () => ({ ok: false, error: "unknown_key" });
+      await revoke();
+      expect(t.text()).toContain("phone~you@mail: такого пропуска нет");
+      t.relay.handlers["keys.revoke"] = fine;
+      await revoke();
+      expect(t.$(".sb-toast")!.textContent).toBe("phone~you@mail отозван — соединения закрыты");
+      expect(t.text()).not.toContain("такого пропуска нет");
+    });
+
     it("6989 · уведомления на устройстве: подписан — «включены»; браузер не умеет — своё слово, ошибок нет", async () => {
       // источник: факт — off: браузер не умеет; разрешение спрашивается только по нажатию
       const sub = fakeBrowser("granted");

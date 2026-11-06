@@ -98,6 +98,7 @@ function PassRow({ pass, me, reload, say }: { pass: Pass; me: boolean; reload():
   const [asking, setAsking] = useState(false);
   async function revoke() {
     setAsking(false);
+    say("");
     const r = await app.request("keys.revoke", { kid: pass.id });
     if (!r.ok) return say(`${pass.addr}: ${wordFor(r.error)}`);
     app.toast(`${pass.addr} отозван — соединения закрыты`, "ok");
