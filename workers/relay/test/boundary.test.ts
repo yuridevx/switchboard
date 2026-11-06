@@ -404,6 +404,8 @@ describe("кадр после hello: доставка по адресу", () => 
     expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-8", ok: false, error: "bad_from" });
     expect(logged("bad_from", dev("phone"), "message", "site@laptop")).toBeDefined();
     expect(await b.quiet()).toEqual([]);
+    phone.send({ type: "message", id: "m-9", from: { toString: 1 }, to: "poe-bot@pc" });
+    expect(await phone.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-9", ok: false, error: "bad_from" });
     for (const [who, from] of [[a, "poe-bot@pc"], [a, ".keeper@laptop"], [b, "site@laptop"], [k, "@laptop"]] as Array<[Peer, string]>) {
       who.send({ type: "message", id: "m-1", from, to: dev("phone") });
       expect(await who.next((f) => f.type === "reply")).toEqual({ type: "reply", id: "m-1", ok: false, error: "bad_from" });

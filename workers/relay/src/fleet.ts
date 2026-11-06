@@ -163,7 +163,7 @@ export class Fleet extends DurableObject<Env> {
     if (f.type === "session.state") return this.onSessionState(ws, card, f, no);
     if (f.type === "hello" || f.type === "roster") return no(BAD_FRAME, "имя relay");
     const from = f.from ?? card.addr;
-    if (from !== card.addr && !(isSession(from) && hostAddress(from) === card.addr)) return no("bad_from", `from ${from}`);
+    if (from !== card.addr && !(isSession(from) && hostAddress(from) === card.addr)) return no("bad_from", `from ${JSON.stringify(from)}`);
     const to = addressesOf(f);
     if (typeof to === "string") return no(BAD_FRAME, to);
     if (!this.send({ ...f, from }, to)) this.refuse(ws, f.id, "offline", `${from} ${f.type} → ${to}`);
