@@ -7,7 +7,7 @@
 //   census.ts stop                           идти дальше или остановиться
 import { execFileSync, execSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { availableParallelism, homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,7 +16,7 @@ export const home = () => process.env.SLOPIK_HOME ?? join(homedir(), ".slopik");
 const git = (root: string, ...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
 
 /** Привязка проекта: .claude/slopik/config.json — houses: команда, печатает JSON [{name, dir}]; ignore: выражение путей вне счёта. */
-export function config(root: string): { houses: string; ignore?: string } {
+export function config(root: string): { houses: string; ignore?: string; slots?: number } {
   return JSON.parse(readFileSync(join(root, ".claude/slopik/config.json"), "utf8"));
 }
 const housesOf = (root: string): Array<{ name: string; dir: string }> => JSON.parse(execSync(config(root).houses, { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 }));
@@ -171,6 +171,22 @@ export function traces(root: string, before: string, after: string): Trace {
   return { copies, lost, control };
 }
 
+export type Target = { id: string; houses: string[] };
+
+/**
+ * Волны из очереди: в волне цели без общих домов, не больше slots. Порядок очереди — приоритет.
+ * Слотов по умолчанию — половина ядер: каждый слопик гоняет тесты, а тесты падают от нагрузки, которую создали мы; Летописец правит slots в config.json.
+ */
+export function waves(targets: Target[], slots: number): Target[][] {
+  const out: Target[][] = [];
+  for (const t of targets) {
+    const free = out.find((w) => w.length < slots && !w.some((o) => o.houses.some((h) => t.houses.includes(h))));
+    if (free) free.push(t);
+    else out.push([t]);
+  }
+  return out;
+}
+
 type Pass = { confirmed: number; rejected: number; queue: number; waiting?: number; failed?: number };
 export const journalFile = () => join(home(), "journal.jsonl");
 
@@ -215,7 +231,8 @@ function main(argv: string[]): void {
     say(fate(before, after, defined, traces(root, before.sha, after.sha)));
   } else if (command === "pass") pass(JSON.parse(rest[0]), git(root, "rev-parse", "HEAD").trim(), housesOf(root).map((h) => h.name));
   else if (command === "stop") say(stop());
-  else throw new Error("census | snapshot <имя> | fate <до> <после> | pass <json> | stop");
+  else if (command === "waves") say(waves(JSON.parse(rest[0]), config(root).slots ?? Math.max(1, Math.floor(availableParallelism() / 2))).map((w) => w.map((t) => t.id)));
+  else throw new Error("census | snapshot <имя> | fate <до> <после> | pass <json> | waves <json> | stop");
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) main(process.argv.slice(2));

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, it } from "node:test";
-import { census, fate, pass, stop, traces } from "./census.ts";
+import { census, fate, pass, stop, traces, waves } from "./census.ts";
 
 let root = "";
 const git = (...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8" }).trim();
@@ -129,6 +129,12 @@ it("следы считаются по дереву: тест без expect, п�
   assert.deepEqual(t.control, [".claude/slopik/registry.md"]);
   assert.equal(t.copies(a, ["Удалить насовсем"]), 1);
   assert.equal(t.copies(b, ["Удалить насовсем"]), 2);
+});
+
+it("волны: общий дом разводит цели, порядок очереди сохраняется, слотов не больше заданного", () => {
+  const t = (id: string, ...houses: string[]) => ({ id, houses });
+  const w = waves([t("1", "a"), t("2", "b"), t("3", "a", "c"), t("4", "d"), t("5", "e")], 3);
+  assert.deepEqual(w.map((x) => x.map((y) => y.id)), [["1", "2", "4"], ["3", "5"]]);
 });
 
 it("смена конфигурации и рост мелких функций — следы обхода", () => {
