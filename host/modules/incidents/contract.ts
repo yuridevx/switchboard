@@ -12,6 +12,4 @@
 import { make } from "./src/incidents.ts";
 
 export { make };
-export { rule, wrap } from "./src/incidents.ts";
-export type { Config, IncidentType } from "./src/incidents.ts";
 export default make();

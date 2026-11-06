@@ -1,8 +1,4 @@
+// Привязки Worker'а ledger: база записей и gate для прямого входа.
 import type { GateApi } from "@switchboard/gate";
 
-export interface Env {
-  /** журнал: одна таблица events */
-  DB: D1Database;
-  /** пропуск прямого запроса */
-  GATE: GateApi;
-}
+export type Env = { DB: D1Database; GATE: GateApi };
