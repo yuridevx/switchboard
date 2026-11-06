@@ -1,7 +1,7 @@
 // Вопросы человеку: AskUserQuestion, запрос разрешения и формы MCP. Вопрос ждёт ответа без предела; первый ответ выигрывает.
 import type { DecideOpts, ElicitationRequest, ElicitationResult, Frame, Host, PermissionResult, Session } from "@switchboard/host";
 import { refuse } from "@switchboard/host";
-import { kindOf } from "@switchboard/protocol";
+import { isPerson, kindOf } from "@switchboard/protocol";
 
 const REFUSAL = "The user doesn't want to proceed with this tool use.";
 const PLAN_ALWAYS = [{ type: "setMode", mode: "acceptEdits", destination: "session" }];
@@ -11,7 +11,6 @@ type Answer = { by: string; body: Frame };
 type Pending = { id: string; kind: Kind; fields: Record<string, unknown>; to: string[]; clients: string[]; settle(a: Answer): void };
 type Q = { questions?: Array<{ question?: string; multiSelect?: boolean; options?: Array<{ label?: string; description?: string }> }> };
 
-const isClient = (a: string) => kindOf(a) === "device" || kindOf(a) === "user";
 const defined = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
 
 /** Вопросы и варианты строками. */
@@ -30,7 +29,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
   const done = (cs: string) => closed.get(cs) ?? closed.set(cs, new Set()).get(cs)!;
 
   /** Кому: давший задачу и зрители сейчас; разрешение и форму решает только человек. */
-  const audience = (s: Session, kind: Kind) => [...new Set([s.info.from, ...viewers(s.info.callsign)])].filter((a): a is string => !!a && (isClient(a) || (kind === "ask" && kindOf(a) === "session")));
+  const audience = (s: Session, kind: Kind) => [...new Set([s.info.from, ...viewers(s.info.callsign)])].filter((a): a is string => !!a && (isPerson(a) || (kind === "ask" && kindOf(a) === "session")));
 
   function notify(s: Session, p: Pending, notify: Record<string, unknown>, type: string) {
     if (p.clients.length) void host().request("notify", { clients: p.clients, frame: { type, from: s.info.callsign, question: p.id, notify: { ...notify, tag: p.id } } });
@@ -42,13 +41,13 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
     const to = audience(s, kind);
     host().log({ kind: "note", ev: "question", callsign: cs, question: id, asked: kind, to, ...(to.length ? {} : { why: "адресатов нет: ждёт question.list" }) });
     return new Promise<T>((resolve) => {
-      const p: Pending = { id, kind, fields: defined(fields), to, clients: to.filter(isClient), settle: () => {} };
+      const p: Pending = { id, kind, fields: defined(fields), to, clients: to.filter(isPerson), settle: () => {} };
       const close = (frame: Record<string, unknown>) => {
         of(cs).delete(id);
         done(cs).add(id);
         signal.removeEventListener("abort", abort);
         p.to = audience(s, kind);
-        p.clients = p.to.filter(isClient);
+        p.clients = p.to.filter(isPerson);
         if (p.to.length) host().emit({ type: "answered", from: cs, to: p.to, question: id, ...frame });
       };
       p.settle = (a) => {
@@ -114,7 +113,7 @@ export function questions(host: () => Host, viewers: (callsign: string) => strin
         if (p.kind === "ask") {
           if (!answers || typeof answers !== "object") throw refuse("bad_frame", "answer: answers — «текст вопроса → ответ»");
         } else if (p.kind === "perm") {
-          if (!isClient(from)) throw refuse("not_client", `${id}: разрешение решает человек, а не ${from}`);
+          if (!isPerson(from)) throw refuse("not_client", `${id}: разрешение решает человек, а не ${from}`);
           if (action !== "allow" && action !== "deny") throw refuse("bad_frame", `answer: action ${String(action)} — allow или deny`);
           if (message !== undefined && typeof message !== "string") throw refuse("bad_frame", "answer: message — строка");
         } else if (!["accept", "decline", "cancel"].includes(String(action ?? "accept")) || (content !== undefined && typeof content !== "object")) throw refuse("bad_frame", "answer: action формы и content — объект формы");

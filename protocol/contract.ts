@@ -98,6 +98,9 @@ export function userOf(address: string): string | null {
 /** Доходит ли адрес to до устройства: адрес человека ~email — до всех его устройств x~email, адрес устройства — только до него самого. */
 export const reaches = (to: string, device: string): boolean => to === device || to === userOf(device);
 
+/** Адрес человека: он сам или его устройство. */
+export const isPerson = (a: unknown): boolean => kindOf(a) === "user" || kindOf(a) === "device";
+
 /**
  * Машина, чьему Host адресован кадр: по to, иначе по callsign, иначе по machine — одно правило для рации, Host и веба.
  * to — не Host машины (служба, часть машины, человек, устройство) — null; callsign не адрес сессии — null; адреса нет — undefined.

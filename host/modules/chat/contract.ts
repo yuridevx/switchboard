@@ -4,7 +4,7 @@
 //   session.prompt { callsign, uuid?, text, attachments?: [{ name, media_type, data(base64) }] } → { uuid }; слова: bad_attachment, stopped
 //   message { to, text, report? } — сообщение другой сессии во ввод тегом <fleet-message>; report — итог хода дочери, кто дал задачу, остаётся прежним; слово offline
 // Чтение:
-//   session.history { callsign, before: uuid | null, limit } → { messages: SessionMessage[], more }
+//   session.history { callsign, before: uuid | null, limit } → { messages: SessionMessage[], more }; запись с тегом <fleet-message> несёт peer: { from, text }
 //   session.files { callsign, query, limit } → ["src/worker.ts", …] — пути от папки сессии; слово timeout
 // Лента:
 //   session.watch / session.unwatch { callsign } — зритель — from запроса; ответ ok

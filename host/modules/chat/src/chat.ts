@@ -14,6 +14,12 @@ const down = (s: Session) => s.state === "stopped" || s.state === "failed" || s.
 
 /** Что видит модель адресата: сообщение другой сессии. */
 export const wrap = (from: string, text: string): string => `<fleet-message from="${from}">\n${text}\n</fleet-message>`;
+const WRAPPED = /^<fleet-message from="([^"]+)">\n([\s\S]*)\n<\/fleet-message>$/;
+/** Запись разговора с тегом несёт разобранное: адрес больше нигде не хранится, поля origin в файле разговора нет. */
+function withPeer<T extends { message?: { content?: unknown } }>(m: T): T | (T & { peer: { from: string; text: string } }) {
+  const tag = typeof m.message?.content === "string" ? m.message.content.match(WRAPPED) : null;
+  return tag ? { ...m, peer: { from: tag[1], text: tag[2] } } : m;
+}
 /** Задача от родителя: итог хода уйдёт ему сам. */
 export const task = (from: string, text: string): string => `${wrap(from, text)}\n(Задача от родителя ${from}: итог этого хода уйдёт ему сам — fleet.send ему не нужен.)`;
 
@@ -112,11 +118,11 @@ export function make(): Module {
         const { before = undefined, limit } = req;
         need(typeof limit === "number" && limit >= 1 && (before === null || typeof before === "string"), "session.history: нужны limit ≥ 1 и before — uuid или null");
         const s = session(req);
-        const all = (await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string }>;
+        const all = (await s.sdk("getSessionMessages", { includeSystemMessages: true })) as Array<{ uuid?: string; message?: { content?: unknown } }>;
         const end = before === null ? all.length : all.findIndex((m) => m.uuid === before);
         need(end >= 0, `session.history: записи ${String(before)} в разговоре нет`);
         const start = Math.max(0, end - (limit as number));
-        return { messages: all.slice(start, end), more: start > 0 };
+        return { messages: all.slice(start, end).map(withPeer), more: start > 0 };
       },
       "session.files"(req, ctx) {
         need(typeof req.limit === "number" && req.limit >= 1, "session.files: нужны query — строка и limit ≥ 1");

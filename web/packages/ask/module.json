@@ -1,7 +1,7 @@
 {
   "name": "web-ask",
   "type": "web",
-  "version": "2.2.10",
+  "version": "2.2.11",
   "into": [
     "pult",
     "phone"

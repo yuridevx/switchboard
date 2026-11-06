@@ -1888,9 +1888,8 @@ describe("fleet: остальные формы", () => {
   describe("history с people", () => {
     const TG = "telegram~ann@x.y";
     const t = "2026-11-06T17:40:12.000Z";
-    const tag = (from: string, text: string) => `<fleet-message from="${from}">\n${text}\n</fleet-message>`;
-    // форма настоящей записи: content — строка с тегом, поля origin нет
-    const said = (from: string, text: string, uuid = "u") => ({ type: "user", uuid, timestamp: t, message: { content: tag(from, text) } });
+    // разобранный тег отдаёт session.history; разбор проверен в тестах chat на настоящем wrap
+    const said = (from: string, text: string) => ({ type: "user", uuid: "u", timestamp: t, peer: { from, text }, message: { content: "тег" } });
     const used = (name: string, input: unknown, id = "t1") => ({ type: "assistant", uuid: "a", timestamp: t, message: { content: [{ type: "tool_use", id, name, input }] } });
     const result = (id: string, content: string) => ({ type: "user", uuid: "r", timestamp: t, message: { content: [{ type: "tool_result", tool_use_id: id, content }] } });
     const read = async (messages: unknown[], o: Record<string, unknown> = { people: true }) => {
@@ -1926,26 +1925,15 @@ describe("fleet: остальные формы", () => {
       expect(await read([used("AskUserQuestion", { questions: [{ question: "Куда?" }] }, "q1"), result("q1", answer), result("чужой", "вывод Bash")])).toBe(`2026-11-06 17:40 ? Куда?\n2026-11-06 17:40 ← ${answer}`);
     });
 
-    it("5 · limit — последние строки: страницы с конца, пока строк не хватит, с пределом", async () => {
-      // источник: устав — у всех операций лимит
+    it("5 · limit — последние строки, одно чтение всего разговора", async () => {
+      // источник: устав — у всех операций лимит; факт — чтение и так берёт файл целиком
       const { st, call } = await bench({ machine: "win" });
       await st.open("lead@win");
       const h = call("lead@win", "history", { callsign: "x@wsl", people: true, limit: 2 });
-      const first = await replyTo(st, "session.history", { ok: true, result: { messages: [said(TG, "три", "u3")], more: true } });
-      expect(first).toMatchObject({ limit: 500, before: null, from: "lead@win" });
-      const second = await replyTo(st, "session.history", { ok: true, result: { messages: [said(TG, "один", "u1"), said(TG, "два", "u2")], more: true } }, 1);
-      expect(second).toMatchObject({ before: "u3" });
+      const f = await replyTo(st, "session.history", { ok: true, result: { messages: [said(TG, "один"), said(TG, "два"), said(TG, "три")], more: false } });
+      expect(f).toMatchObject({ limit: Number.MAX_SAFE_INTEGER, before: null, from: "lead@win" });
       expect(text(await h)).toBe(`2026-11-06 17:40 ← ${TG}: два\n2026-11-06 17:40 ← ${TG}: три`);
-      expect(st.relay.frames("session.history")).toHaveLength(2);
-    });
-
-    it("вопрос и ответ на разных страницах остаются парой", async () => {
-      const { st, call } = await bench({ machine: "win" });
-      await st.open("lead@win");
-      const h = call("lead@win", "history", { callsign: "x@wsl", people: true, limit: 5 });
-      await replyTo(st, "session.history", { ok: true, result: { messages: [{ ...result("q1", "выбрано"), uuid: "r1" }], more: true } });
-      await replyTo(st, "session.history", { ok: true, result: { messages: [{ ...used("AskUserQuestion", { questions: [{ question: "Куда?" }] }, "q1"), uuid: "a1" }], more: false } }, 1);
-      expect(text(await h)).toBe("2026-11-06 17:40 ? Куда?\n2026-11-06 17:40 ← выбрано");
+      expect(st.relay.frames("session.history")).toHaveLength(1);
     });
 
     it("6 · без callsign — своя сессия, читается на месте; отказ чтения — словом", async () => {

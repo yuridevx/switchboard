@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { tool } from "@anthropic-ai/claude-agent-sdk";
 import type { Host, Result } from "@switchboard/host";
-import { kindOf, machineOf } from "@switchboard/protocol";
+import { isPerson, kindOf, machineOf } from "@switchboard/protocol";
 import { addProject, labelOf, LABELS, NONE, placeSessions, PROFILE_REPOS, projectByName, projectIdOf, PROJECTS, setLabel } from "@switchboard/records";
 import type { Labels, ProjectRec, Settings } from "@switchboard/records";
 import { z } from "zod";
@@ -9,7 +9,7 @@ import { z } from "zod";
 type Env = { host: Host; records: Settings };
 type Refused = Extract<Result, { ok: false }>;
 type Block = { type?: string; text?: string; name?: string; id?: string; tool_use_id?: string; content?: unknown; input?: { to?: string; text?: string; questions?: Array<{ question?: string }> } };
-type Record_ = { type?: string; uuid?: string; timestamp?: string; message?: { content?: string | Block[] } };
+type Record_ = { type?: string; timestamp?: string; peer?: { from: string; text: string }; message?: { content?: string | Block[] } };
 type Row = NonNullable<ReturnType<Host["roster"]>>["sessions"][number];
 
 const say = (text: string, isError = false) => ({ content: [{ type: "text" as const, text }], ...(isError ? { isError: true } : {}) });
@@ -71,40 +71,32 @@ async function machineView({ host }: Env, machine: string) {
 
 /** Каждый блок текста и каждый вызов инструмента — строкой; остальное модели не нужно. */
 function historyLines(messages: Record_[]): string {
-  const lines = messages.flatMap(({ type, message }) => {
+  const lines = messages.flatMap((r) => {
+    const { type } = r;
     if (type !== "user" && type !== "assistant") return [];
-    const content = message?.content ?? [];
-    const blocks: Block[] = typeof content === "string" ? [{ type: "text", text: content }] : content;
-    return blocks.flatMap((b) => (b.type === "text" && b.text ? [`${type}: ${b.text}`] : b.type === "tool_use" && b.name ? [`tool: ${b.name}`] : []));
+    return blocksOf(r).flatMap((b) => (b.type === "text" && b.text ? [`${type}: ${b.text}`] : b.type === "tool_use" && b.name ? [`tool: ${b.name}`] : []));
   });
   return lines.join("\n") || "записей нет";
 }
 
 const SEND = "mcp__fleet__send";
 const ASK = "AskUserQuestion";
-/** Переписка читается страницами с конца; предел: разговор может быть любой длины. */
-const PAGE = 500;
-const PAGES = 40;
 
-const person = (a: unknown) => kindOf(a) === "user" || kindOf(a) === "device";
 const blocksOf = ({ message }: Record_): Block[] => {
   const content = message?.content ?? [];
   return typeof content === "string" ? [{ type: "text", text: content }] : content;
 };
 /** Время записи: дата и минуты, UTC. */
 const when = (r: Record_) => (r.timestamp ?? "").slice(0, 16).replace("T", " ");
-/** Сообщение флота в разговоре: тег из договора chat. Адреса нигде больше нет: поле origin в файл разговора не пишется. */
-const TAG = /^<fleet-message from="([^"]+)">\n([\s\S]*)\n<\/fleet-message>$/;
 
 /** Разговор с людьми строками: ← от человека, → человеку, ? вопрос; ответ на вопрос — отдельной строкой ←. */
 function peopleLines(records: Record_[]): string[] {
   const questions = new Set<string>();
   return records.flatMap((r) => {
     if (r.type !== "user" && r.type !== "assistant") return [];
+    if (r.peer) return isPerson(r.peer.from) ? [`${when(r)} ← ${r.peer.from}: ${r.peer.text}`] : [];
     return blocksOf(r).flatMap((b) => {
-      const tag = b.type === "text" ? b.text?.match(TAG) : null;
-      if (tag && person(tag[1])) return [`${when(r)} ← ${tag[1]}: ${tag[2]}`];
-      if (b.type === "tool_use" && b.name === SEND && person(b.input?.to)) return [`${when(r)} → ${b.input?.to}: ${b.input?.text}`];
+      if (b.type === "tool_use" && b.name === SEND && isPerson(b.input?.to)) return [`${when(r)} → ${b.input?.to}: ${b.input?.text}`];
       if (b.type === "tool_use" && b.name === ASK) {
         questions.add(b.id ?? "");
         return [`${when(r)} ? ${(b.input?.questions ?? []).map((q) => q.question).join(" · ")}`];
@@ -115,23 +107,12 @@ function peopleLines(records: Record_[]): string[] {
   });
 }
 
-/** Последние limit строк переписки: страницы с конца, пока строк не хватит. Записи копятся целиком: вопрос и ответ бывают на разных страницах. */
+/** Последние limit строк переписки. Весь разговор одним чтением: чтение и так берёт файл целиком. */
 async function dialog(host: Host, me: string, callsign: string, limit: number) {
-  let records: Record_[] = [];
-  let before: string | null = null;
-  let more = false;
-  for (let page = 0; page < PAGES; page++) {
-    const r = await host.request("session.history", { callsign, limit: PAGE, before, from: me });
-    if (!r.ok) return fail(refusal(callsign, r));
-    const got = r.result as { messages: Record_[]; more?: boolean };
-    records = [...got.messages, ...records];
-    more = !!got.more;
-    before = got.messages[0]?.uuid ?? null;
-    if (!more || before === null || peopleLines(records).length >= limit) break;
-  }
-  const lines = peopleLines(records);
-  if (!lines.length) return say(more ? `переписки с людьми нет в последних ${records.length} записях` : "переписки с людьми нет");
-  return say([...(more && lines.length < limit ? [`старше не читалось: ${records.length} записей`] : []), ...lines.slice(-limit)].join("\n"));
+  const r = await host.read("session.history", { callsign, limit: Number.MAX_SAFE_INTEGER, before: null, from: me });
+  if (!r.ok) return fail(refusal(callsign, r));
+  const lines = peopleLines((r.result as { messages: Record_[] }).messages).slice(-limit);
+  return say(lines.join("\n") || "переписки с людьми нет");
 }
 
 /** Поставить сессию в конец проекта: нет такого имени — создать; пустое имя — без проекта. null или слово отказа. */

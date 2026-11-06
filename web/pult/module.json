@@ -1,7 +1,7 @@
 {
   "name": "pult",
   "type": "web-app",
-  "version": "2.2.6",
+  "version": "2.2.7",
   "provides": {},
   "uses": {
     "app@web-core": 2

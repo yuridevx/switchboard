@@ -9,6 +9,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { stand } from "@switchboard/host";
 import type { Frame, Manifest, Module } from "@switchboard/host";
 import { parts } from "./parts.ts";
+import { wrap } from "../contract.ts";
 
 const { FakeHolders, module, msg, standHost, turn, until } = stand;
 type Stand = stand.Stand;
@@ -621,6 +622,18 @@ describe("вопрос человеку", () => {
 </fleet-message>`);
     st.relay.deliver({ type: "rooms.message", v: 1, from: TG, to: "нет@laptop", text: "x" });
     await until(() => st.journal().find((l) => l.ev === "rooms.message"));
+  });
+
+  it("session.history: запись с тегом несёт разобранное — адрес нигде больше не хранится", async () => {
+    // источник: факт — поля origin у записей с тегом в файле разговора нет, живая сверка дала 0 из 13
+    const m = { type: "user", uuid: "u1", message: { content: wrap(TG, "да\nбез миграции") } };
+    const plain = { type: "user", uuid: "u2", message: { content: "обычный ввод" } };
+    const b = await bench();
+    await b.st.open(CS);
+    b.st.sdk.functions = conversation(async () => [m, plain]);
+    const r = await request(b.st, "session.history", { before: null, limit: 10 });
+    expect(r).toMatchObject({ ok: true, result: { messages: [{ uuid: "u1", peer: { from: TG, text: "да\nбез миграции" } }, { uuid: "u2" }] } });
+    expect((r as unknown as { result: { messages: object[] } }).result.messages[1]).not.toHaveProperty("peer");
   });
 
   it("15 · остановленная сессия отвечает в тот же чат: иначе человек видит только 👀", async () => {
