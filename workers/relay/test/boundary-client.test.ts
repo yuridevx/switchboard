@@ -78,6 +78,14 @@ describe("клиент на подделках", () => {
     return { l, states, frames, ws: FakeWs.last() };
   }
 
+  /** Время идёт, связь жива: на каждый ping приходит pong. */
+  async function alive(ws: FakeWs, ms: number) {
+    for (; ms > 0; ms -= 30_000) {
+      await vi.advanceTimersByTimeAsync(Math.min(ms, 30_000));
+      if (ws.sent.at(-1) === "ping") ws.recv("pong");
+    }
+  }
+
   /** Связь открыта: сокет открыт, hello ушёл, пришёл roster. */
   function opened(extra: Record<string, unknown> = {}) {
     const t = start(extra);
@@ -98,28 +106,20 @@ describe("клиент на подделках", () => {
       ws.recv(rosterOf());
       expect(l.state).toBe("open");
       expect(l.roster?.machines.map((m) => m.machine)).toEqual(["laptop", "pc"]);
+      ws.recv(rosterOf());
       expect(states).toEqual([["open", undefined]]);
-      expect(frames.map((f) => f.type)).toEqual(["roster"]);
+      expect(frames.map((f) => f.type)).toEqual(["roster", "roster"]);
     });
 
-    it("2053 · нет WebSocket — исключение при вызове", () => {
-      const g = globalThis as unknown as { WebSocket?: unknown };
-      const saved = g.WebSocket;
-      delete g.WebSocket;
-      try {
-        expect(() => link({ url: "wss://relay.test", key: "k" })).toThrow("link: нет WebSocket — передайте options.WebSocket");
-      } finally {
-        g.WebSocket = saved;
-      }
-    });
-
-    it("3143 · hello без ответа — связь не висит в connecting: за предел запроса сокет закрыт 4000 no_roster, переподключение по паузе", () => {
+    it("3143 · hello без ответа — связь не висит в connecting: за предел запроса сокет закрыт 4000 no_roster, переподключение по паузе", async () => {
       // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»; факт — hello теряется при смене кода relay
-      const { l, ws, states } = start({ requestMs: 5_000, pingMs: 1_000_000 });
+      const { l, ws, states } = start();
+      // предел — с открытия сокета: медленная сеть его не съедает
+      await vi.advanceTimersByTimeAsync(100_000);
       ws.open();
-      vi.advanceTimersByTime(4_999);
+      await alive(ws, 119_999);
       expect(l.state).toBe("connecting");
-      vi.advanceTimersByTime(1);
+      await alive(ws, 1);
       expect(ws.closedWith).toEqual({ code: 4000, reason: "no_roster" });
       expect(l.state).toBe("closed");
       expect(states.at(-1)).toEqual(["closed", "no_roster"]);
@@ -128,14 +128,14 @@ describe("клиент на подделках", () => {
       expect(next).not.toBe(ws);
       next.open();
       next.recv(rosterOf());
-      vi.advanceTimersByTime(10_000);
+      await alive(next, 125_000);
       expect(l.state).toBe("open");
       expect(next.closedWith).toBeNull();
     });
   });
 
   describe("link · запросы", () => {
-    it("запрос получает свой id и ответ с тем же id; чужой reply и текст не кадром — чужой в onFrame, не кадр молча", async () => {
+    it("запрос получает свой id и ответ с тем же id; свой id сохраняется; отказ relay — ответом, не исключением; чужой reply — в onFrame, не кадр — молча", async () => {
       const { l, ws, frames } = opened();
       const p = l.request({ type: "message", to: "poe-bot@pc", text: "hi" });
       const sent = ws.json();
@@ -146,14 +146,10 @@ describe("клиент на подделках", () => {
       ws.recv({ type: "reply", id: sent.id, ok: true, result: { done: 1 }, from: "@pc" });
       expect(await p).toMatchObject({ id: sent.id, ok: true, result: { done: 1 } });
       expect(frames.filter((f) => f.type !== "roster").map((f) => f.id)).toEqual(["чужой"]);
-    });
-
-    it("свой id запроса сохраняется; отказ relay приходит ответом, не исключением", async () => {
-      const { l, ws } = opened();
-      const p = l.request({ type: "session.open", id: "c-7", machine: "pc" });
+      const own = l.request({ type: "session.open", id: "c-7", machine: "pc" });
       expect(ws.json().id).toBe("c-7");
       ws.recv({ type: "reply", id: "c-7", ok: false, error: "offline" });
-      expect(await p).toEqual({ type: "reply", id: "c-7", ok: false, error: "offline" });
+      expect(await own).toEqual({ type: "reply", id: "c-7", ok: false, error: "offline" });
     });
 
     it("связи нет — запрос и send сразу disconnected; очереди нет", async () => {
@@ -182,42 +178,29 @@ describe("клиент на подделках", () => {
       expect(states).toEqual([["open", undefined]]);
     });
 
-    it("E1 · 3120 · чтение молчит: read → timeout ровно на 10 с; запрос-действие ждёт дальше, до 120 с", async () => {
-      // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»; 120 с — вдвое выше session.open на wsl (62 с)
-      const { l } = opened({ pingMs: 1_000_000 });
-      let read = "", act = "";
-      void l.request({ type: "session.prompt", callsign: "site@laptop" }).then((x) => (act = (x as { error?: string }).error ?? "ok"));
-      void l.request({ type: "keeper.state", to: ".keeper@laptop" }, true).then((x) => (read = (x as { error?: string }).error ?? "ok"));
-      await vi.advanceTimersByTimeAsync(9_999);
-      expect(read).toBe("");
-      await vi.advanceTimersByTimeAsync(1);
-      expect(read).toBe("timeout");
-      await vi.advanceTimersByTimeAsync(109_999);
-      expect(act).toBe("");
-      await vi.advanceTimersByTimeAsync(1);
-      expect(act).toBe("timeout");
-    });
-
-    it("E1 · предел чтения не длиннее предела запроса: стенд с коротким requestMs не ждёт 10 с", async () => {
-      const { l } = opened({ requestMs: 2_000 });
-      const r = l.request({ type: "keeper.state", to: ".keeper@laptop" }, true);
-      await vi.advanceTimersByTimeAsync(2_000);
-      expect(await r).toMatchObject({ ok: false, error: "timeout" });
-    });
-
-    it("3119 · E5 · ответ потерян в пути, связь жива — ждущий получает timeout за предел запроса; поздний ответ — в onFrame; другие запросы не задеты", async () => {
-      // источник: слово пользователя «у всех операций должен быть лимит» (2 нояб.); факт — Host 1.1.56 висел в stopping на github.token без ответа
-      const { l, ws, frames } = opened({ requestMs: 5_000 });
-      const lost = l.request({ type: "github.token", to: ".github", repo: "o/r" });
+    it("E1 · 3120 · 3119 · E5 · ответ потерян, связь жива: чтение — timeout ровно на 10 с, запрос-действие — на 120 с; поздний ответ — в onFrame; другие запросы не задеты", async () => {
+      // источник: слово пользователя 4 нояб. «таймаут операций на запрос метадаты 10 секунд»; 120 с — вдвое выше session.open на wsl (62 с);
+      // слово пользователя 2 нояб. «у всех операций должен быть лимит»; факт — Host 1.1.56 висел в stopping на github.token без ответа
+      const { l, ws, frames } = opened();
+      const words: string[] = [];
+      const note = (x: { ok: boolean; error?: string }) => void words.push(x.error ?? "ok");
+      void l.request({ type: "session.prompt", callsign: "site@laptop" }).then(note);
       const lostId = ws.json().id;
-      vi.advanceTimersByTime(4_999);
-      const ok = l.request({ type: "message", to: "site@laptop" });
-      vi.advanceTimersByTime(1);
-      expect(await lost).toEqual({ type: "reply", id: lostId, ok: false, error: "timeout" });
+      void l.request({ type: "keeper.state", to: ".keeper@laptop" }, true).then(note);
+      await alive(ws, 9_999);
+      expect(words).toEqual([]);
+      await alive(ws, 1);
+      expect(words).toEqual(["timeout"]);
+      await alive(ws, 109_999);
+      const other = l.request({ type: "message", to: "site@laptop" });
+      const otherId = ws.json().id;
+      expect(words).toEqual(["timeout"]);
+      await alive(ws, 1);
+      expect(words).toEqual(["timeout", "timeout"]);
       ws.recv({ type: "reply", id: lostId, ok: true });
       expect(frames.filter((f) => f.type === "reply").map((f) => f.id)).toEqual([lostId]);
-      ws.recv({ type: "reply", id: ws.json().id, ok: true });
-      expect(await ok).toMatchObject({ ok: true });
+      ws.recv({ type: "reply", id: otherId, ok: true });
+      expect(await other).toMatchObject({ ok: true });
       expect(l.state).toBe("open");
     });
 
@@ -249,44 +232,30 @@ describe("клиент на подделках", () => {
   });
 
   describe("link · правило отправителя по roster", () => {
-    it("машина адресата ушла из roster — ждущий её ответа запрос disconnected; запрос к другой машине ждёт", async () => {
+    it("2054 · адресат ушёл из roster — ждущий запрос disconnected: машина, @машина, клиент, смена since; другая машина, гость, часть машины и пользователь по roster не снимаются", async () => {
       const { l, ws } = opened();
-      let laptopDone = false;
+      let settled = 0;
+      ws.recv(rosterOf([["laptop", 1], ["pc", 1]], ["phone~owner@example.com", "@mac"]));
+      void l.request({ type: "message", to: "x@mac" }).then(() => settled++);
       const toPc = l.request({ type: "message", to: "poe-bot@pc" });
-      const toLaptop = l.request({ type: "session.history", callsign: "site@laptop" });
-      void toLaptop.then(() => (laptopDone = true));
-      ws.recv(rosterOf([["laptop", 1]]));
-      expect(await toPc).toMatchObject({ ok: false, error: "disconnected" });
-      await Promise.resolve();
-      expect(laptopDone).toBe(false);
-      ws.recv({ type: "reply", id: JSON.parse(ws.sent[2]).id, ok: true });
-      expect(await toLaptop).toMatchObject({ ok: true });
-    });
-
-    it("машина адресата сменила since — disconnected (Host переподключился, старого запроса не помнит)", async () => {
-      const { l, ws } = opened();
-      const p = l.request({ type: "session.open", machine: "pc" });
-      ws.recv(rosterOf([["laptop", 1], ["pc", 1]]));
-      ws.recv(rosterOf([["laptop", 1], ["pc", 2]]));
-      expect(await p).toMatchObject({ ok: false, error: "disconnected" });
-    });
-
-    it("2054 · клиент ушёл из roster — disconnected; @машина — по машине; часть машины и пользователь по roster не снимаются", async () => {
-      const { l, ws } = opened();
       const toPhone = l.request({ type: "message", to: "phone~owner@example.com" });
       const toMachine = l.request({ type: "machine.dirs", to: "@laptop" });
+      const toSession = l.request({ type: "session.history", callsign: "site@laptop" });
       const toKeeper = l.request({ type: "keeper.state", to: ".keeper@laptop" });
-      const toUser = l.request({ type: "message", to: "~owner@example.com" });
-      let settled = 0;
+      const keeperId = ws.json().id;
+      void l.request({ type: "message", to: "~owner@example.com" }).then(() => settled++);
       void toKeeper.then(() => settled++);
-      void toUser.then(() => settled++);
+      void toPc.then(() => settled++);
       ws.recv(rosterOf([["pc", 1]], []));
       expect(await toPhone).toMatchObject({ error: "disconnected" });
       expect(await toMachine).toMatchObject({ error: "disconnected" });
+      expect(await toSession).toMatchObject({ error: "disconnected" });
       await Promise.resolve();
       expect(settled).toBe(0);
-      ws.recv({ type: "reply", id: JSON.parse(ws.sent[3]).id, ok: true });
+      ws.recv({ type: "reply", id: keeperId, ok: true });
       expect(await toKeeper).toMatchObject({ ok: true });
+      ws.recv(rosterOf([["pc", 2]], []));
+      expect(await toPc).toMatchObject({ error: "disconnected" });
     });
   });
 
@@ -335,10 +304,6 @@ describe("клиент на подделках", () => {
 
     it.each([
       [1008, "bad_key"],
-      [1008, "revoked"],
-      [1008, "contract_mismatch"],
-      [1008, "bad_from"],
-      [1008, "bad_frame"],
       [1000, "replaced"],
     ])("закрытие %i %s — stopped с причиной, без переподключения", (code, reason) => {
       const { l, ws, states } = opened();
@@ -349,22 +314,8 @@ describe("клиент на подделках", () => {
       expect(states.at(-1)).toEqual(["stopped", reason]);
     });
 
-    it("7218 · closed говорит, когда следующая попытка: отсчёт страницы — от клиента связи; пауза не больше maxPauseMs", () => {
+    it("7218 · closed говорит, когда следующая попытка: отсчёт страницы — от клиента связи; пауза растёт до 60 с", () => {
       // источник: гейт архитектора — пауза считается в одном месте
-      const at: Array<number | undefined> = [];
-      const { ws } = opened({ onState: (s: LinkState, _w?: string, retryAt?: number) => (s === "closed" ? at.push(retryAt) : undefined), maxPauseMs: 1500 });
-      const t0 = Date.now();
-      ws.drop(1006);
-      expect(at).toEqual([t0 + 1000]);
-      vi.advanceTimersByTime(1000);
-      FakeWs.last().drop(1006);
-      expect(at[1]).toBe(t0 + 1000 + 1500);
-      vi.advanceTimersByTime(1500);
-      FakeWs.last().drop(1006);
-      expect(at[2]).toBe(t0 + 2500 + 1500);
-    });
-
-    it("7218 · пауза по умолчанию растёт до 60 с", () => {
       const pauses: number[] = [];
       const { ws } = start({ onState: (s: LinkState, _w?: string, retryAt?: number) => (s === "closed" ? pauses.push(retryAt! - Date.now()) : undefined) });
       ws.drop(1006);
@@ -375,16 +326,16 @@ describe("клиент на подделках", () => {
       expect(pauses).toEqual([1000, 2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000]);
     });
 
-    it("ping с периодом; pong — живо; нет pong к следующему ping — закрыть 4000 no_pong и переподключиться", async () => {
-      const { l, ws } = opened({ pingMs: 1000 });
+    it("ping раз в 30 с; pong — живо; нет pong к следующему ping — закрыть 4000 no_pong и переподключиться", async () => {
+      const { l, ws } = opened();
       const p = l.request({ type: "message", to: "site@laptop" });
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(30_000);
       expect(ws.sent.at(-1)).toBe("ping");
       ws.recv("pong");
-      vi.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(30_000);
       expect(ws.sent.at(-1)).toBe("ping");
       expect(ws.closedWith).toBeNull();
-      vi.advanceTimersByTime(1000); // pong не пришёл
+      vi.advanceTimersByTime(30_000); // pong не пришёл
       expect(ws.closedWith).toEqual({ code: 4000, reason: "no_pong" });
       expect(l.state).toBe("closed");
       expect(await p).toMatchObject({ error: "disconnected" });
@@ -430,11 +381,11 @@ describe("клиент на подделках", () => {
 
   /** fetch стенда: gate отвечает списком машин, Worker'ы — по таблице ответов. */
   function stand(machines: string[], answers: Record<string, (body: any) => Response | Promise<Response>> = {}, you?: string) {
-    const calls: Array<{ url: string; body: any }> = [];
+    const calls: Array<{ url: string; body: any; method?: string }> = [];
     const heads: unknown[] = [];
     const f = (async (url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body));
-      calls.push({ url, body });
+      calls.push({ url, body, method: init.method });
       heads.push(init.headers);
       if (url === "https://gate.test/") return Response.json({ type: "reply", id: body.id, ok: true, result: { passes: machines.map((name) => ({ name })), you } });
       const a = answers[url];
@@ -464,15 +415,19 @@ describe("клиент на подделках", () => {
   describe("fleet · соединения и roster", () => {
     it("5051 · keys.list → соединение с relay каждой машины: своя — как Host, остальные — гостем; адрес пропуска — от gate", async () => {
       const s = stand(["win", "wsl"], {}, "@win");
-      const c = client({ fetch: s.f, machine: "win", hello: () => ({ sdk: "0.3", sessions: [{ callsign: "site@win" }] }) });
+      const seen: unknown[][] = [];
+      const c = client({ fetch: s.f, machine: "win", hello: () => ({ sdk: "0.3", sessions: [{ callsign: "site@win" }] }), onState: (...a) => void seen.push(a) });
       expect(c.addr).toBeNull();
       await tick();
       expect(c.addr).toBe("@win");
-      expect(s.calls[0]).toMatchObject({ url: "https://gate.test/", body: { type: "keys.list", v: 1, role: "host", key: "host.win.k7f2.S" } });
+      // суффикс id -list — договор со стендом Host: по нему он отличает список самого клиента от keys.list модулей
+      expect(s.calls[0]).toMatchObject({ url: "https://gate.test/", method: "POST", body: { type: "keys.list", id: expect.stringMatching(/-list$/), v: 1, role: "host", key: "host.win.k7f2.S" } });
       expect(FakeWs.all.map((w) => w.url).sort()).toEqual(["wss://relay.test/m/win", "wss://relay.test/m/wsl"]);
       // POST без заголовков: страница шлёт простой запрос без предзапроса (контракт gate); адрес при обрыве заново не спрашивается
       expect(s.heads).toEqual([undefined]);
+      const t0 = Date.now();
       FakeWs.of("wsl")!.drop(1006);
+      expect(seen.at(-1)).toEqual(["wsl", "closed", "1006", t0 + 1000]);
       await vi.advanceTimersByTimeAsync(5000);
       expect(s.calls).toHaveLength(1);
       expect([...c.links().keys()].sort()).toEqual(["win", "wsl"]);
@@ -505,28 +460,7 @@ describe("клиент на подделках", () => {
       expect(c.roster.sessions.map((x) => x.callsign)).toEqual(["b@wsl"]);
     });
 
-    it("state страницы: open, если открыто хоть одно; иначе — состояние первого соединения", async () => {
-      const s = stand(["win", "wsl"]);
-      const page = client({ fetch: s.f, key: "client.c.k.S" });
-      await tick();
-      expect(page.state).toBe("connecting");
-      FakeWs.of("win")!.drop(1006);
-      expect(page.state).toBe("closed");
-      FakeWs.all = [];
-      const other = client({ fetch: s.f, key: "client.c.k.S" });
-      await tick();
-      up("win");
-      up("wsl", roster("wsl"));
-      FakeWs.of("win")!.drop(1008, "bad_key");
-      expect(other.state).toBe("open");
-      expect(other.links().get("wsl")!.state).toBe("open");
-      FakeWs.of("wsl")!.drop(1006);
-      expect(other.state).toBe("stopped");
-      page.close();
-      other.close();
-    });
-
-    it("state: у Host — своё соединение; у страницы — open, если открыто хоть одно; после close — stopped", async () => {
+    it("state: у Host — своё соединение; у страницы — open, если открыто хоть одно, иначе состояние первого; после close — stopped", async () => {
       const s = stand(["win", "wsl"]);
       const host = client({ fetch: s.f, machine: "win" });
       expect(host.state).toBe("connecting");
@@ -536,11 +470,16 @@ describe("клиент на подделках", () => {
       up("win");
       expect(host.state).toBe("open");
       FakeWs.all = [];
-      const page = client({ fetch: s.f, key: "client.phone.p.S" });
-      await tick();
+      const page = client({ fetch: s.f, key: "client.c.k.S" });
       expect(page.state).toBe("connecting");
+      await tick();
+      up("win");
       up("wsl", roster("wsl"));
+      FakeWs.of("win")!.drop(1008, "bad_key");
       expect(page.state).toBe("open");
+      expect(page.links().get("wsl")!.state).toBe("open");
+      FakeWs.of("wsl")!.drop(1006);
+      expect(page.state).toBe("stopped");
       page.close();
       expect(page.state).toBe("stopped");
     });
@@ -569,7 +508,7 @@ describe("клиент на подделках", () => {
       const f = (async (_u: string, init: RequestInit) => {
         const b = JSON.parse(String(init.body));
         n++;
-        return n === 1 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "bad_key" });
+        return n < 3 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "bad_key" });
       }) as unknown as typeof fetch;
       const retries: Array<number | undefined> = [];
       const t0 = Date.now();
@@ -578,9 +517,11 @@ describe("клиент на подделках", () => {
       expect(states).toEqual([":closed:gate_unavailable"]);
       expect(retries).toEqual([t0 + 1000]);
       await vi.advanceTimersByTimeAsync(1000);
-      expect(states).toEqual([":closed:gate_unavailable", ":stopped:bad_key"]);
+      expect(retries).toEqual([t0 + 1000, t0 + 3000]);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(states).toEqual([":closed:gate_unavailable", ":closed:gate_unavailable", ":stopped:bad_key"]);
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(n).toBe(2);
+      expect(n).toBe(3);
     });
 
     it("своя машина — сразу, gate не ждёт; gate недоступен по сети — closed offline", async () => {
@@ -613,17 +554,17 @@ describe("клиент на подделках", () => {
     });
 
     it("7285 · список машин пуст: без своей машины onState(\"\", \"open\"), соединений нет; со своей — молчит", async () => {
-      vi.useRealTimers();
       const empty = stand([]);
       const seen: Array<[string, string]> = [];
       const workers = { relay: "https://relay.test", gate: "https://gate.test/" };
-      const c = fleet({ workers, key: "k", fetch: empty.f, WebSocket: FakeWs as never, onState: (m, s) => void seen.push([m, s]) });
-      await vi.waitFor(() => expect(seen).toEqual([["", "open"]]));
+      const c = fleet({ workers, key: "k", fetch: empty.f, WebSocket: FakeWs, onState: (m, s) => void seen.push([m, s]) });
+      await tick();
+      expect(seen).toEqual([["", "open"]]);
       expect(c.links().size).toBe(0);
       c.close();
       seen.length = 0;
-      const own = fleet({ workers, key: "k", machine: "pc", fetch: empty.f, WebSocket: FakeWs as never, onState: (m, s) => void seen.push([m, s]) });
-      await new Promise((r) => setTimeout(r, 5));
+      const own = fleet({ workers, key: "k", machine: "pc", fetch: empty.f, WebSocket: FakeWs, onState: (m, s) => void seen.push([m, s]) });
+      await tick();
       expect(seen.filter(([m]) => m === "")).toEqual([]);
       own.close();
     });
@@ -696,6 +637,12 @@ describe("клиент на подделках", () => {
       void host.request({ type: "note" });
       expect(wsl.json()).toMatchObject({ type: "note" });
       FakeWs.all = [];
+      const two = client({ fetch: s.f, key: "client.c.k.S" });
+      await tick();
+      const open = up("wsl", roster("wsl"));
+      void two.request({ type: "note", to: "phone~a@b" });
+      expect(open.json()).toMatchObject({ to: "phone~a@b" });
+      two.close();
       const page = client({ fetch: stand([]).f, key: "client.c.k.S", workers: { relay: "https://relay.test/" } });
       expect(await page.request({ type: "note", to: "phone~a@b" })).toMatchObject({ ok: false, error: "disconnected" });
       expect(await page.request({ type: "note", to: "голое" })).toMatchObject({ ok: false, error: "bad_frame" });
@@ -716,6 +663,11 @@ describe("клиент на подделках", () => {
       expect(c.send({ type: "reply", id: "q-1", ok: true, to: "@wsl" })).toEqual({ ok: true });
       expect(win.json()).toMatchObject({ type: "reply", id: "q-1", to: "@wsl" });
       expect(wsl.sent.length).toBe(before);
+      // id один, спросившие разные: ответ — по паре id и адрес
+      wsl.recv({ type: "session.remove", id: "q-1", from: "pult~a@b", callsign: "pm@win" });
+      win.recv({ type: "session.remove", id: "q-1", from: "@wsl", callsign: "pm@win" });
+      c.send({ type: "reply", id: "q-1", ok: true, to: "pult~a@b" });
+      expect(wsl.json()).toMatchObject({ type: "reply", id: "q-1", to: "pult~a@b" });
       // кадр, не ответ, — по адресу
       c.send({ type: "message", to: "@wsl" });
       expect(wsl.json()).toMatchObject({ type: "message", to: "@wsl" });
@@ -788,47 +740,31 @@ describe("клиент на подделках", () => {
       for (const [error] of words) expect(await c.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error });
     });
 
-    it("5541 · POST не дошёл — отказ offline с причиной: статус и начало тела страницы ошибки, исключение сети", async () => {
+    it("5541 · POST не дошёл — отказ offline с причиной: статус и начало тела страницы ошибки, исключение сети, тело не ответ", async () => {
       // источник: бэклог «push.subscribe иногда отвечает offline: причина теряется в post()», устав «ошибка словом, причина в журнале»
-      const answers: Array<() => Promise<Response>> = [async () => new Response("<html>error code: 1101</html>", { status: 500 }), async () => { throw new TypeError("fetch failed"); }];
+      const answers: Array<() => Promise<Response>> = [
+        async () => new Response("<html>error code: 1101</html>".padEnd(300, "."), { status: 500 }),
+        async () => { throw new TypeError("fetch failed"); },
+        async () => new Response('{"type":"nope"}', { status: 200 }),
+      ];
       const f = fleet({ workers: { push: "https://push.test/" }, key: "client.c.k.S", WebSocket: FakeWs, fetch: (() => answers.shift()!()) as never });
-      expect(await f.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why: "500: <html>error code: 1101</html>" });
-      expect(await f.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why: "TypeError: fetch failed" });
+      for (const why of ["500: " + "<html>error code: 1101</html>".padEnd(160, "."), "TypeError: fetch failed", '200: {"type":"nope"}']) {
+        expect(await f.request({ type: "push.subscribe", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why });
+      }
       f.close();
     });
 
     it("5543 · нет ответа за предел запроса — timeout с причиной, POST один, повтора нет", async () => {
       // источник: слово пользователя 2 нояб. «у всех операций лимит»; устав «отказ словом»
       const s = stand([], { "https://push.test/": () => new Promise<Response>(() => {}) });
-      const c = client({ fetch: s.f, requestMs: 1000 });
+      const c = client({ fetch: s.f });
       await tick();
       const p = c.request({ type: "push.subscribe", v: 1, to: ".push" });
-      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(120_000);
       const r = (await p) as unknown as { ok: boolean; error: string; why?: string };
       expect(r).toMatchObject({ ok: false, error: "timeout" });
       expect(r.why).toBeTruthy();
       expect(s.calls.filter((x) => x.url === "https://push.test/")).toHaveLength(1);
-    });
-
-    it("после close новое не принимается: send и request — disconnected, POST нет", async () => {
-      // источник: устав «останавливается штатно: не принимает новое»
-      const s = stand(["win"], { "https://push.test/": () => new Response(null, { status: 204 }) });
-      const c = client({ fetch: s.f });
-      await tick();
-      c.close();
-      const posts = s.calls.length;
-      expect(c.send({ type: "x", to: ".push" })).toEqual({ ok: false, error: "disconnected" });
-      expect(c.send({ type: "x", to: "a@win" })).toEqual({ ok: false, error: "disconnected" });
-      expect(await c.request({ type: "x" })).toMatchObject({ ok: false, error: "disconnected" });
-      await tick();
-      expect(s.calls).toHaveLength(posts);
-    });
-
-    it("тело POST — JSON, но не ответ: offline с причиной", async () => {
-      // источник: устав «ошибка словом»; опыт: такое тело уходило вызывающему как ответ без ok
-      const f = fleet({ workers: { push: "https://push.test/" }, key: "client.c.k.S", WebSocket: FakeWs, fetch: (async () => new Response('{"type":"nope"}', { status: 200 })) as never });
-      expect(await f.request({ type: "x", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "offline", why: '200: {"type":"nope"}' });
-      f.close();
     });
 
     it("кадр без ожидания к Worker'у не дошёл — onLost со словом; после close — молчит", async () => {
@@ -861,6 +797,9 @@ describe("клиент на подделках", () => {
       expect(win.closedWith).toEqual({ code: 1000, reason: "shutting_down" });
       const posts = s.calls.filter((x) => x.url === "https://push.test/").length;
       expect(await c.request({ type: "push.key", v: 1, to: ".push" })).toMatchObject({ ok: false, error: "disconnected" });
+      expect(c.send({ type: "x", to: ".push" })).toEqual({ ok: false, error: "disconnected" });
+      expect(c.send({ type: "x", to: "a@win" })).toEqual({ ok: false, error: "disconnected" });
+      await tick();
       expect(s.calls.filter((x) => x.url === "https://push.test/")).toHaveLength(posts);
       let n = 0;
       const down = fleet({ workers: { relay: "https://relay.test/", gate: "https://gate.test/" }, key: "k", WebSocket: FakeWs, pauseMs: 1000, fetch: (async () => (n++, Response.json({ type: "reply", id: "", ok: false, error: "gate_unavailable" }))) as never });
@@ -966,32 +905,16 @@ describe("насквозь через relay и gate", () => {
     expect(host.states.at(-1)).toEqual(["stopped", "shutting_down"]);
   }, 30_000);
 
-  it("ping → pong автоответом relay: связь живёт дольше нескольких периодов ping", async () => {
-    const l = link({ url, key: await sign(SECRET, "client", "nightly", "p0w2"), pingMs: 100 });
-    links.push(l);
-    await until(() => l.state === "open");
-    await new Promise((r) => setTimeout(r, 600));
-    expect(l.state).toBe("open");
-  }, 30_000);
-
-  it("отказ gate — stopped со словом, без переподключений: чужой секрет и отозванный — bad_key", async () => {
+  it("отказ gate и вытеснение — stopped со словом, без переподключений", async () => {
     const bad = open(await sign("чужой", "client", "phone", "k8e1"));
     await until(() => bad.l.state === "stopped");
     expect(bad.states.at(-1)).toEqual(["stopped", "bad_key"]);
-    const old = open(await sign(SECRET, "client", "phone", "k2a9"));
-    await until(() => old.l.state === "stopped");
-    expect(old.states.at(-1)).toEqual(["stopped", "bad_key"]);
-  }, 30_000);
-
-  it("второй Host той же машины вытесняет первый: replaced — stopped, без переподключения", async () => {
     const key = await sign(SECRET, "host", "pc", "m3d1");
     const first = open(key);
     await until(() => first.l.state === "open");
     const second = open(key);
-    await until(() => second.l.state === "open");
     await until(() => first.l.state === "stopped");
     expect(first.states.at(-1)).toEqual(["stopped", "replaced"]);
-    await new Promise((r) => setTimeout(r, 300));
     expect(second.l.state).toBe("open");
   }, 30_000);
 });

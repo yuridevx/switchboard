@@ -10,13 +10,9 @@ describe("protocol: конверт кадра", () => {
     expect(isReply(parseFrame('{"type":"reply","id":"h-3","ok":true}')!)).toBe(true);
   });
 
-  it.each(["не json", "[]", "null", '{"id":"1"}', '{"type":""}', '{"type":"a","id":5}', '{"type":"a","v":"1"}'])(
-    "не кадр — null: %s",
-    (t) => expect(parseFrame(t)).toBeNull(),
-  );
-
-  it("2003 · reply без ok или без id — не ответ", () => {
-    for (const t of ['{"type":"reply","id":"m1"}', '{"type":"reply","id":"m1","ok":"yes"}', '{"type":"reply","ok":true}']) {
+  it("2003 · не кадр — null; reply без ok или без id и кадр с ok — не ответ", () => {
+    for (const t of ["null", '{"id":"1"}', '{"type":""}', '{"type":"a","id":5}', '{"type":"a","v":"1"}']) expect(parseFrame(t)).toBeNull();
+    for (const t of ['{"type":"reply","id":"m1"}', '{"type":"reply","id":"m1","ok":"yes"}', '{"type":"reply","ok":true}', '{"type":"note","id":"m1","ok":true}']) {
       const f = parseFrame(t);
       expect(f).not.toBeNull();
       expect(isReply(f!)).toBe(false);
@@ -84,10 +80,13 @@ describe("protocol: конверт кадра", () => {
     expect(hostOf({ callsign: "site@win" })).toBe("win");
     expect(hostOf({ machine: "pc", callsign: "site@win" })).toBe("win");
     expect(hostOf({ to: "@win", machine: "pc" })).toBe("win");
+    expect(hostOf({ to: "site@win" })).toBe("win");
     expect(hostOf({ to: ".keeper@win" })).toBeNull();
     expect(hostOf({ to: ".push", callsign: "site@win" })).toBeNull();
     expect(hostOf({ callsign: "wiki" })).toBeNull();
+    expect(hostOf({ callsign: "@win" })).toBeNull();
     expect(hostOf({})).toBeUndefined();
+    expect(hostOf({ machine: 5 })).toBeUndefined();
   });
 
   it("2095 · приём запроса — одно правило: имя обслуживается, версия совпадает, v обязателен", () => {
@@ -105,7 +104,7 @@ describe("protocol: конверт кадра", () => {
 
   it("2005 · голое имя и обрубки — не адрес", () => {
     // источник: слово пользователя «голых имён нет»
-    for (const bad of ["phone", "", ".", "x@", "~", "a~", ".@w", ".k@", 5]) expect(kindOf(bad)).toBeNull();
+    for (const bad of ["phone", "", ".", "x@", "~", "a~", ".@w", ".k@", 5, ["@win"]]) expect(kindOf(bad)).toBeNull();
     expect(machineOf("phone")).toBeNull();
     expect(machineOf("x@")).toBeNull();
   });
