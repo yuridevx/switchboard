@@ -41,7 +41,7 @@ func (k *Keeper) selfUpdate(e *entry) bool {
 	if late {
 		return failed(fmt.Sprintf("check_failed: новый файл не ответил за %v", k.o.Stop))
 	}
-	if got := strings.TrimSpace(string(out)); got != e.Version {
+	if got := strings.TrimSpace(string(out)); err != nil || got != e.Version {
 		return failed(fmt.Sprintf("check_failed: новый файл ответил «%s» (%v), а в плане %s", got, err, e.Version))
 	}
 	target, err := k.o.Self()
