@@ -44,7 +44,14 @@ export const createSettings = ((app) => {
   return {
     css,
     state,
-    on: { link: (s, machine) => state.answers.onLink(s, machine) },
+    on: {
+      link(s, machine) {
+        state.answers.onLink(s, machine);
+        state.repos.onLink(s, machine);
+        return state.fleet.onLink(s, machine);
+      },
+    },
+    stop: state.fleet.stop,
     // GitHub вернул человека на корень страницы: экран знает свой адрес сам
     start() {
       if (githubCode() && !location.hash) history.replaceState(null, "", `${location.pathname}${location.search}#settings?tab=general`);

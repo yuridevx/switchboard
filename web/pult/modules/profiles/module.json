@@ -15,9 +15,10 @@
     "app@web-core": 2,
     "roster@relay": 1,
     "machine.profiles@host-profiles": 2,
-    "card@web-card": 1,
-    "label.session@web-labels": 1,
-    "label.machine@web-labels": 1
+    "profile.view@host-profiles": 1,
+    "profile.file@host-profiles": 1,
+    "fleet.prompt@host-fleet": 1,
+    "settings@pult-settings": 1
   },
   "config": {}
 }

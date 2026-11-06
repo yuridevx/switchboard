@@ -1,6 +1,7 @@
-// «GitHub и устройство»: приложение GitHub флота и это устройство.
+// «GitHub и устройство»: приложение GitHub флота, один список репозиториев и это устройство.
 import { useState } from "react";
-import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp, useLoad } from "@switchboard/web-ui";
+import { Btn, In, LinkBtn, M, Note, PageHead, Row, Sec, useApp, useLoad } from "@switchboard/web-ui";
+import { ProfileRepos } from "./repos.tsx";
 import { isMine, wordFor } from "./rules.ts";
 
 type GithubAnswer = { app: { slug: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: unknown } };
@@ -26,26 +27,6 @@ function submit(form: NonNullable<GithubAnswer["form"]>) {
   el.append(field);
   document.body.append(el);
   el.submit();
-}
-
-function Repos({ repos }: { repos: string[] }) {
-  const [q, setQ] = useState("");
-  const list = repos.filter((r) => r.toLowerCase().includes(q.trim().toLowerCase()));
-  return (
-    <>
-      <Opts className="st-nowrap">
-        <In className="st-grow" data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
-      </Opts>
-      <div className="st-repos">
-        {list.map((r) => (
-          <div key={r} className="st-repo" data-repo={r}>
-            <M className="st-grow">{r}</M>
-          </div>
-        ))}
-        {!list.length && <Note className="st-repo">Таких нет</Note>}
-      </div>
-    </>
-  );
 }
 
 function Github() {
@@ -75,8 +56,8 @@ function Github() {
     setSaved(true);
     gh.reload();
   }
-  const repos = gh.data?.repos ?? [];
   return (
+    <>
     <Sec data-github="">
       <b>Приложение GitHub флота</b>
       {gh.error && <Note tone="bad">{`github.app: ${gh.error}`}</Note>}
@@ -95,7 +76,6 @@ function Github() {
               </LinkBtn>
             )}
           </PageHead>
-          {repos.length > 0 && <Repos repos={repos} />}
         </>
       )}
       {gh.data && !gh.data.app && !code && (
@@ -117,6 +97,8 @@ function Github() {
         </Note>
       )}
     </Sec>
+    <ProfileRepos github={gh.data?.repos ?? []} ready={!gh.loading || !!gh.data} />
+    </>
   );
 }
 

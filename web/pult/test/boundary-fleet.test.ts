@@ -602,12 +602,10 @@ describe("Настройки", () => {
       expect(t.sent("keys.revoke").at(-1)).toMatchObject({ kid: "kc2", to: ".relay" });
     });
 
-    it("5505 · GitHub и устройство: репозитории приложения с поиском, профилей на экране нет; устройство — адрес, пропуск, уведомления; телефон — только устройство", async () => {
+    it("5505 · GitHub и устройство: репозитории — список флота и видимые приложению; устройство — адрес, пропуск, уведомления; телефон — только устройство", async () => {
       const t = await settings({ url: "/#settings?tab=general" });
-      expect(t.$$("[data-github] .st-repo").map((r) => r.dataset.repo)).toEqual(["you/switchboard", "you/profiles", "you/site"]);
-      expect(t.$("[data-profiles]")).toBeNull();
-      expect(t.btn("Синхронизировать")).toBeNull();
-      expect(t.sent("machine.profiles")).toHaveLength(0);
+      expect(t.$$("[data-profile-repos] [data-repo]").map((r) => r.dataset.repo)).toEqual(["you/switchboard", "you/profiles", "you/site"]);
+      expect(t.$("[data-github] [data-repo]")).toBeNull();
       const dev = t.$("[data-device]")!;
       expect(dev.textContent).toContain("pult~you@mail");
       expect(dev.textContent).toContain("действует");
@@ -977,7 +975,7 @@ describe("Настройки", () => {
       q.value = "нет такого";
       q.dispatchEvent(new Event("input", { bubbles: true }));
       await flush();
-      expect(t.$("[data-github]")!.textContent).toContain("Таких нет");
+      expect(t.$("[data-profile-repos]")!.textContent).toContain("Таких нет");
 
       const t2 = await settings({ url: "/#settings?tab=general", hooks: (r) => void (r.handlers["github.app"] = (f: Frame) => (f.org ? { ok: false, error: "app_exists" } : { ok: true, result: { app: null } })) });
       const org = t2.$<HTMLInputElement>('[data-f="org"]')!;

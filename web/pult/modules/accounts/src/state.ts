@@ -49,6 +49,8 @@ export function createAccountsState(app: App) {
   const known: Record<string, string> = {};
 
   return {
+    /** вкладка, которую открыли последней: заход без адреса вкладки возвращает на неё */
+    seen: { tab: "logins" },
     answers,
     logins: () => logins.get(),
     mount() {
