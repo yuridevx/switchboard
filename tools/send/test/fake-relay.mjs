@@ -13,6 +13,7 @@ const ROSTER = JSON.stringify({ type: "roster", machines: [], sessions: [], clie
 class FakeWebSocket {
   #open = false;
   constructor(url) {
+    if (process.env.FAKE_FAST === "socket") fast();
     note(JSON.stringify({ url }));
     setTimeout(() => {
       this.#open = true;
@@ -53,8 +54,10 @@ class FakeWebSocket {
 
 globalThis.WebSocket = FakeWebSocket;
 
-// FAKE_FAST: сроки процесса идут в сто раз быстрее, слова о сроке те же
-if (process.env.FAKE_FAST) {
+// FAKE_FAST: сроки идут в сто раз быстрее, слова о сроке те же. start — с начала процесса, для предела stdin; socket — с начала разговора:
+// предел stdin остаётся настоящим, иначе под нагрузкой 300 мс не хватает на чтение stdin.
+function fast() {
   const real = globalThis.setTimeout;
   globalThis.setTimeout = (f, ms, ...rest) => real(f, ms / 100, ...rest);
 }
+if (process.env.FAKE_FAST === "start") fast();

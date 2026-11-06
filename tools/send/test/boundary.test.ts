@@ -27,11 +27,11 @@ function framesOf(log: string): Frame[] {
   }
 }
 
-function fakeEnv(mode: string, log: string, fast: boolean) {
-  return { ...process.env, FAKE_RELAY: mode, FAKE_LOG: log, ...(fast ? { FAKE_FAST: "1" } : {}) };
+function fakeEnv(mode: string, log: string, fast = "") {
+  return { ...process.env, FAKE_RELAY: mode, FAKE_LOG: log, FAKE_FAST: fast };
 }
 
-function run(args: string[], input: string, mode = "ok", { fast = false, file = SEND, cwd }: { fast?: boolean; file?: string; cwd?: string } = {}) {
+function run(args: string[], input: string, mode = "ok", { fast = "", file = SEND, cwd }: { fast?: string; file?: string; cwd?: string } = {}) {
   const log = join(scratch(), "frames.jsonl");
   const r = spawnSync(process.execPath, ["--import", FAKE, file, ...args], { input, cwd, encoding: "utf8", timeout: LIMIT, env: fakeEnv(mode, log, fast) });
   const frames = framesOf(log);
@@ -81,7 +81,7 @@ describe("командная строка", () => {
   });
 
   it("2081 · предел всего разговора: запрос принят, ответа нет — отказ словом, выход 1, сокет закрыт", () => {
-    const r = run(["site@laptop", ...URL_ARG], `${KEY}\nтекст`, "silent", { fast: true });
+    const r = run(["site@laptop", ...URL_ARG], `${KEY}\nтекст`, "silent", { fast: "socket" });
     expect([r.status, r.stdout]).toEqual([1, "нет ответа за 30000 мс\n"]);
     expect(r.frames.at(-1)).toEqual({ close: 1000 });
     expect(r.frames.filter((f) => "close" in f)).toHaveLength(1);
@@ -126,7 +126,7 @@ describe("командная строка", () => {
 
   it("stdin не закрыли: отказ словом за предел, выход 1, relay не звали (устав: у всех операций предел)", async () => {
     const log = join(scratch(), "frames.jsonl");
-    const c = spawn(process.execPath, ["--import", FAKE, SEND, "site@laptop", ...URL_ARG], { env: fakeEnv("ok", log, true) });
+    const c = spawn(process.execPath, ["--import", FAKE, SEND, "site@laptop", ...URL_ARG], { env: fakeEnv("ok", log, "start") });
     c.stdin.write(`${KEY}\nтекст`);
     let out = "";
     c.stdout.on("data", (d) => (out += d));
@@ -145,7 +145,7 @@ describe("импорт", () => {
     const log = join(scratch(), "frames.jsonl");
     const code = `import { send, RELAY } from ${JSON.stringify(pathToFileURL(SEND).href)};
       console.log(JSON.stringify({ RELAY, result: await send("site@laptop", "текст", ${JSON.stringify(options)}) }));`;
-    const r = spawnSync(process.execPath, ["--import", FAKE, "--input-type=module", "-e", code, "--", "--zip"], { encoding: "utf8", timeout: LIMIT, env: fakeEnv(mode, log, false) });
+    const r = spawnSync(process.execPath, ["--import", FAKE, "--input-type=module", "-e", code, "--", "--zip"], { encoding: "utf8", timeout: LIMIT, env: fakeEnv(mode, log) });
     expect([r.status, r.stderr]).toEqual([0, ""]);
     return { ...(JSON.parse(r.stdout) as { RELAY: string; result: unknown }), frames: framesOf(log) };
   }
