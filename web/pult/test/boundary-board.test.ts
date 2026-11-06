@@ -75,7 +75,7 @@ describe("Работа", () => {
     /** refactor@laptop — ведущий, его ведомый ждёт ответа на своём ключе флота. */
     const paired = () => {
       const relay = relayWith();
-      relay.roster.sessions.push({ callsign: "refactor-wing@laptop", state: "waiting", dir: "~/Projects/switchboard", parent: "refactor@laptop", wing: true, model: "haiku", slot: { name: "orca" }, profile: { id: "you/profiles/ci", state: "ok" } });
+      relay.roster.sessions.push({ callsign: "refactor-wing@laptop", state: "waiting", dir: "~/Projects/switchboard", parent: "refactor@laptop", wing: true, model: "haiku", slot: { name: "orca" }, profile: [{ id: "you/profiles/ci", state: "ok" }] });
       return relay;
     };
     const row = (t: T) => t.$('[data-callsign="refactor@laptop"]')!;
