@@ -18,7 +18,8 @@
     "test": "npm run gate && vitest run",
     "test:workers": "node scripts/test-packages.mjs",
     "shots": "node scripts/shots/run.mjs",
-    "drag": "node scripts/shots/drag.mjs"
+    "drag": "node scripts/shots/drag.mjs",
+    "front": "node scripts/design/serve.mjs --fleet"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.23.0",

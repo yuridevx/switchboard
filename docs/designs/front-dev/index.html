@@ -1,0 +1,421 @@
+<title>Фронт на живом флоте</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&family=Unbounded:wght@500;600&display=swap">
+<style>
+/* Раскладка: колонка 1040px, блоки дизайна; цвета и шрифты — как у других дизайнов Switchboard. */
+:root{
+  --bg:#F2F4F8; --surface:#FFFFFF; --surface2:#E8ECF2; --ink:#131A25; --muted:#576377; --line:#D2D9E3; --line2:#E3E8EF;
+  --accent:#1E4ED0; --accent-weak:#E2E9FB; --on-accent:#FFFFFF;
+  --ok:#1C7548; --ok-weak:#DBF0E4; --wait:#955700; --wait-weak:#FAEACD; --bad:#B0222E; --bad-weak:#F7DDE0;
+  --chg-bg:#FFF5C2; --chg-edge:#D9B400;
+  --disp:"Unbounded","Golos Text",system-ui,sans-serif;
+  --body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --surface2:#1C2531; --ink:#E5EAF1; --muted:#98A4B6; --line:#2A3543; --line2:#222C38;
+  --accent:#86A8FF; --accent-weak:#1B2A4C; --on-accent:#0A1020;
+  --ok:#5FCB93; --ok-weak:#143224; --wait:#E8B55E; --wait-weak:#3A2C12; --bad:#FF8189; --bad-weak:#3C191D;
+  --chg-bg:#2D2910; --chg-edge:#C4A300;
+  color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:400 15.5px/1.55 var(--body);
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px;overflow-wrap:break-word}
+.wrap{max-width:1040px;margin:0 auto;display:flex;flex-direction:column;gap:22px;min-width:0}
+h1,h2,h3{text-wrap:balance;margin:0}
+h1{font:600 clamp(26px,4.6vw,40px)/1.12 var(--disp);letter-spacing:-.01em}
+h2{font:600 19px/1.25 var(--disp)}
+p{margin:0;max-width:72ch}
+code,.mono{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}
+button{font:500 13.5px var(--body);color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:9px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.top{display:flex;flex-direction:column;gap:14px;padding-block:8px 6px}
+.lede{font-size:17.5px;max-width:72ch}
+.lede.chg{border:1px solid var(--chg-edge);border-radius:10px;padding:10px 14px}
+.lede.chg.read{border-color:var(--line)}
+.howto{font-size:13px;color:var(--muted)}
+.howto kbd{font:600 12px var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--surface);color:var(--ink)}
+.blk{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.chg{background:var(--chg-bg);border-color:var(--chg-edge)}
+.chg.read{background:var(--surface);border-color:var(--line)}
+.blk-h{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.tag{font:600 10.5px/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;border-radius:999px;padding:4px 8px;background:var(--chg-edge);color:#1E1A00}
+.tag::after{content:"новое"}
+.chg.read .tag{background:var(--ok-weak);color:var(--ok)}
+.chg.read .tag::after{content:"прочитано ✓"}
+.inner{background:var(--surface);border:1px solid var(--line);border-radius:10px;min-width:0}
+.chg.read .inner{background:var(--surface2);border-color:var(--line2)}
+.pad{padding:14px;display:flex;flex-direction:column;gap:10px}
+.seg{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.seg .lbl{font-size:13px;color:var(--muted);min-width:64px}
+.fact{font-size:12.5px;border-left:2px solid var(--ok);padding-left:9px}
+.fact b{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.mark-banner{position:fixed;left:max(16px,env(safe-area-inset-left,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);font-size:13px;padding:8px 12px;border-radius:9px;z-index:5}
+.fig{overflow-x:auto}
+svg.d{display:block;width:100%;min-width:640px;height:auto}
+.d .box{fill:var(--surface);stroke:var(--line);stroke-width:1.5;transition:fill .15s,stroke .15s}
+.d .on .box{fill:var(--accent-weak);stroke:var(--accent)}
+.d .stop .box{fill:var(--bad-weak);stroke:var(--bad)}
+.d .done .box{fill:var(--ok-weak);stroke:var(--ok)}
+.d .off{opacity:.38}
+.d .bt{fill:var(--ink);font:600 13px var(--body)}
+.d .bs{fill:var(--muted);font:400 11.5px var(--body)}
+.d .ln{stroke:var(--muted);stroke-width:1.6;fill:none}
+.d .ah{fill:var(--muted)}
+.d .dot{fill:var(--accent)}
+.out{min-height:48px;display:flex;flex-direction:column;gap:2px;border-left:3px solid var(--accent);padding:4px 0 4px 12px}
+.out.bad{border-left-color:var(--bad)}
+.out.ok{border-left-color:var(--ok)}
+.out b{font-weight:600}
+.term{font:400 12.5px/1.7 var(--mono);background:var(--surface2);border-radius:9px;padding:12px 14px;overflow-x:auto;white-space:pre;color:var(--ink)}
+.term .p{color:var(--accent)}
+.term .m{color:var(--muted)}
+.bars{display:flex;flex-direction:column;gap:12px}
+.bar{display:grid;grid-template-columns:minmax(0,230px) minmax(0,1fr);gap:12px;align-items:center;font-size:13.5px}
+.track{display:flex;align-items:center;gap:8px;min-width:0}
+.span{display:flex;height:20px;border-radius:4px;overflow:hidden}
+.span i{display:block;height:100%}
+.span .a{background:var(--accent)}
+.span .b{background:var(--ok)}
+.val{font:600 12.5px var(--mono);white-space:nowrap}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px}
+@media (max-width:560px){.bar{grid-template-columns:minmax(0,1fr)}}
+.rail{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.rail li{border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--surface);display:flex;flex-direction:column;gap:6px;min-width:0}
+.chg.read .rail li{background:var(--surface2);border-color:var(--line2)}
+.rail .n{font:600 11px var(--mono);color:var(--muted)}
+.rail b{font-weight:600;font-size:14px;line-height:1.3}
+.chip{align-self:flex-start;font:600 11px/1.2 var(--mono);border-radius:6px;padding:3px 7px;background:var(--surface2);color:var(--muted)}
+.chip.new{background:var(--accent-weak);color:var(--accent)}
+.chip.ok{background:var(--ok-weak);color:var(--ok)}
+.chip.w{background:var(--wait-weak);color:var(--wait)}
+.chip.bad{background:var(--bad-weak);color:var(--bad)}
+.grid2{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(0,1fr);gap:6px;align-items:stretch;font-size:14px}
+.grid2 .h{font:600 12px var(--mono);color:var(--muted);padding:4px 8px}
+.cell{border-radius:8px;padding:10px 12px;min-width:0}
+.cell.ok{background:var(--ok-weak)}
+.cell.w{background:var(--wait-weak)}
+.cell.bad{background:var(--bad-weak)}
+.ports{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.port{border:1px solid var(--line);border-radius:9px;padding:9px 11px;background:var(--surface);min-width:0}
+.chg.read .port{background:var(--surface2)}
+.port b{font:600 15px var(--mono);display:block}
+.port span{font-size:13px;color:var(--muted)}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:560px;font-size:14px}
+th{font:600 11.5px var(--mono);color:var(--muted);text-align:left;padding:7px 10px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line2);vertical-align:top}
+tr:last-child td{border-bottom:0}
+td.n{font:600 12.5px var(--mono);color:var(--muted);white-space:nowrap}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.gate{font:400 13px/1.8 var(--mono)}
+@media (prefers-reduced-motion: reduce){.d .box{transition:none}}
+</style>
+
+<div class="wrap">
+<header class="top">
+  <h1>Фронт на живом флоте</h1>
+  <p class="lede chg" data-chg="fd-lede">Страница собирается из рабочего дерева на вашей машине и работает с настоящим флотом: тестовым или продом. Правка кода видна на экране примерно через 2 секунды, запись доходит до флота по-настоящему. Это тот же локальный сервер, что показывает прототипы дизайна, с одним новым ключом.</p>
+  <p class="howto"><kbd>A</kbd> прочитал · <kbd>Z</kbd> снять метку · наведите на блок</p>
+</header>
+
+<section class="blk chg" data-chg="fd-sim" id="sim">
+  <div class="blk-h"><span class="tag"></span><h2>Что куда доходит</h2></div>
+  <div class="inner pad">
+    <div class="seg" role="group" aria-label="Режим"><span class="lbl">режим</span>
+      <button data-mode="proto">Прототип</button><button data-mode="test">Разработка · тест</button><button data-mode="prod">Разработка · прод</button></div>
+    <div class="seg" role="group" aria-label="Кто за страницей"><span class="lbl">кто</span>
+      <button data-who="human">Человек</button><button data-who="agent">Агент</button></div>
+    <div class="seg" role="group" aria-label="Действие"><span class="lbl">действие</span>
+      <button data-act="read">Чтение</button><button data-act="write">Запись</button><button data-act="new">Новый запрос</button><button data-act="edit">Правка файла</button></div>
+    <div class="fig">
+      <svg class="d" id="map" viewBox="0 0 860 214" role="img" aria-label="Путь запроса от кода к флоту">
+        <defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0 0L8 4L0 8z"/></marker></defs>
+        <path class="ln" marker-end="url(#ar)" d="M136 60H168"/><path class="ln" marker-end="url(#ar)" d="M292 60H324"/><path class="ln" marker-end="url(#ar)" d="M474 60H506"/><path class="ln" marker-end="url(#ar)" d="M634 60H666"/><path class="ln" id="toMock" marker-end="url(#ar)" d="M571 96V136"/>
+        <g id="n-code"><rect class="box" x="10" y="24" width="126" height="72" rx="9"/><text class="bt" x="24" y="54">Код в дереве</text><text class="bs" x="24" y="74">ваши правки</text></g>
+        <g id="n-build"><rect class="box" x="170" y="24" width="122" height="72" rx="9"/><text class="bt" x="184" y="54">Сборка</text><text class="bs" x="184" y="74">видит правку</text></g>
+        <g id="n-page"><rect class="box" x="326" y="24" width="148" height="72" rx="9"/><text class="bt" x="340" y="54">Страница</text><text class="bs" id="t-page" x="340" y="74">localhost:4801</text></g>
+        <g id="n-filter"><rect class="box" x="508" y="24" width="126" height="72" rx="9"/><text class="bt" x="522" y="54">Фильтр записей</text><text class="bs" id="t-filter" x="522" y="74">выключен</text></g>
+        <g id="n-fleet"><rect class="box" x="668" y="24" width="182" height="72" rx="9"/><text class="bt" id="t-fleet" x="682" y="54">Тестовый флот</text><text class="bs" x="682" y="74">службы и машины</text></g>
+        <g id="n-mock"><rect class="box" x="508" y="138" width="126" height="60" rx="9"/><text class="bt" x="522" y="164">Мок дизайна</text><text class="bs" x="522" y="182">у прототипа</text></g>
+        <circle class="dot" id="dot" r="7" cx="-20" cy="60"/>
+      </svg>
+    </div>
+    <div class="out ok" id="out" role="status" aria-live="polite"></div>
+  </div>
+</section>
+
+<section class="blk chg" data-chg="fd-use" id="use">
+  <div class="blk-h"><span class="tag"></span><h2>Как это выглядит</h2></div>
+  <div class="term"><span class="p">$ npm run front test</span>
+<span class="m">фронт: тест · заметки: dist/front-test-4801/notes.json</span>
+в чат:  http://localhost:4801/app/pult/#invite=k2a9…
+снимки: http://localhost:4801/app/pult/#invite=p7c1…
+
+<span class="p">$ npm run front prod</span>
+<span class="m">фронт: прод · заметки: dist/front-prod-4802/notes.json</span>
+в чат:  http://localhost:4802/app/pult/#invite=m4d0…
+
+<span class="p">$ npm run front test -- --app pult,phone --port 4811</span>   <span class="m"># вторая сессия рядом</span></div>
+  <p>Клавиша <code>C</code> и клик по элементу оставляют комментарий, агент получает его и правит код, страница обновляется сама. Вкладка подписана флотом: «pult · тест», «pult · прод».</p>
+</section>
+
+<section class="blk chg" data-chg="fd-loop" id="loop">
+  <div class="blk-h"><span class="tag"></span><h2>Скорость цикла</h2></div>
+  <div class="bars">
+    <div class="bar"><span>Запуск сервера</span><div class="track"><div class="span" style="width:81%"><i class="a" style="width:100%"></i></div><span class="val">6,5 с</span></div></div>
+    <div class="bar"><span>Правка → новый экран с флотом</span><div class="track"><div class="span" style="width:27.5%"><i class="a" style="width:64%"></i><i class="b" style="width:36%"></i></div><span class="val">2,2 с</span></div></div>
+    <div class="bar"><span>Обновление страницы → флот на экране</span><div class="track"><div class="span" style="width:10%"><i class="b" style="width:100%"></i></div><span class="val">0,8 с</span></div></div>
+  </div>
+  <div class="legend"><span><i style="background:var(--accent)"></i>заметить правку и собрать</span><span><i style="background:var(--ok)"></i>загрузить страницу и подключиться</span></div>
+  <p class="fact">Опыт на тестовом флоте: страница из дерева с localhost, Chromium, машины win и wsl, 7 сессий. Правка → экран <b>2,08–2,76 с</b> на 6 правках из 9, первая правка после запуска <b>2,4–5,8 с</b>. Обновление страницы <b>0,73–0,80 с</b>. Пересборка <b>0,2 с</b>, файл страницы <b>10,6 МБ</b>. Запись настройки дошла и прочиталась обратно.</p>
+</section>
+
+<section class="blk chg" data-chg="fd-flow" id="flow">
+  <div class="blk-h"><span class="tag"></span><h2>Где это в работе</h2></div>
+  <ol class="rail">
+    <li><span class="n">1</span><b>Дизайн</b><span class="chip">прототип</span><span class="chip w">прод, только чтение</span></li>
+    <li><span class="n">2</span><b>Бекенд на тест</b><span class="chip">выкладка</span><span class="chip ok">тест</span></li>
+    <li><span class="n">3</span><b>Фронт локально</b><span class="chip new">npm run front test</span><span class="chip ok">тест, запись</span></li>
+    <li><span class="n">4</span><b>Снимки, жесты, выпуск страниц</b><span class="chip">выкладка</span><span class="chip ok">тест</span></li>
+    <li><span class="n">5</span><b>Бекенд на прод</b><span class="chip">по вашему слову</span><span class="chip bad">прод</span></li>
+    <li><span class="n">6</span><b>Смотрите на своих данных</b><span class="chip new">npm run front prod</span><span class="chip bad">прод, запись</span></li>
+    <li><span class="n">7</span><b>Выпуск страниц</b><span class="chip">по вашему слову</span><span class="chip bad">прод</span></li>
+  </ol>
+  <p>Страница из дерева может обгонять флот. Запрос, которого флот ещё не знает, получает отказ словом на экране, поэтому бекенд идёт на флот раньше фронта.</p>
+</section>
+
+<section class="blk chg" data-chg="fd-who" id="who">
+  <div class="blk-h"><span class="tag"></span><h2>Кто где пишет</h2></div>
+  <div class="grid2">
+    <span></span><span class="h">тест</span><span class="h">прод</span>
+    <span class="h">человек</span><div class="cell ok">пишет</div><div class="cell w">пишет, как на своём пульте</div>
+    <span class="h">агент</span><div class="cell ok">пишет: своя ссылка «снимки»</div><div class="cell bad">ссылки нет; читает только через прототип</div>
+  </div>
+</section>
+
+<section class="blk chg" data-chg="fd-pass" id="pass">
+  <div class="blk-h"><span class="tag"></span><h2>Один адрес, один пропуск</h2></div>
+  <div class="ports">
+    <div class="port"><b>:4800</b><span>прототип дизайна</span></div>
+    <div class="port"><b>:4801</b><span>разработка на тесте</span></div>
+    <div class="port"><b>:4802</b><span>разработка на проде</span></div>
+    <div class="port"><b>:4811</b><span>вторая сессия, порт явно</span></div>
+  </div>
+  <p>Браузер хранит пропуск отдельно для каждого адреса, поэтому тест и прод не смешиваются. Пропуск живёт, пока работает сервер: запуск отзывает старый и выдаёт приглашение, остановка отзывает. После перезапуска ссылка покажет экран «Заменить пропуск», это один клик.</p>
+  <p>Порт занимается раньше, чем трогаются пропуска. Запуск на занятом порту заканчивается отказом словом, чужая работающая страница не теряет вход.</p>
+</section>
+
+<section class="blk chg" data-chg="fd-et" id="et">
+  <div class="blk-h"><span class="tag"></span><h2>Эталоны</h2></div>
+  <div class="tbl"><table>
+    <thead><tr><th>№</th><th>вход</th><th>свойство</th><th>чьё</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td>нет мока, флот не назван</td><td>сервер не стартует, отказ словом</td><td>код</td></tr>
+      <tr><td class="n">2</td><td>тест, мока нет, запись с экрана</td><td>запись дошла до поддельного флота, ответ на экране</td><td>слово пользователя 6 нояб.</td></tr>
+      <tr><td class="n">3</td><td>тест, мок есть, запись</td><td>запись не ушла, тост</td><td>слово пользователя 6 нояб.</td></tr>
+      <tr><td class="n">4</td><td>правка файла; затем файл с ошибкой</td><td>страница получает «обновись»; при ошибке причина на экране и прежняя сборка</td><td>факт опыта</td></tr>
+      <tr><td class="n">5</td><td>порт занят</td><td>отказ словом, запросов к выдаче пропусков 0</td><td>факт: сейчас порядок обратный</td></tr>
+      <tr><td class="n">6</td><td>прод, мока нет</td><td>ссылка человеку есть, ссылки агенту нет</td><td>устав: живой флот не стенд</td></tr>
+      <tr><td class="n">7</td><td>настройка приложения</td><td>пишется в область этого приложения</td><td>факт: сейчас имя приложения не передаётся</td></tr>
+      <tr><td class="n">8</td><td>телефон</td><td>разделы те же, что в настоящей сборке</td><td>факт: сейчас разделы не передаются</td></tr>
+      <tr><td class="n">9</td><td>сигнал остановки при открытой странице</td><td>сборки закрыты, пропуска отозваны, выход за предел</td><td>устав: штатная остановка</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="blk chg" data-chg="fd-gate" id="gate">
+  <div class="blk-h"><span class="tag"></span><h2>Гейт</h2></div>
+  <div class="gate inner pad">
+    <div>Работа: маленькая. Контракты частей и протокол не меняются, только инструмент разработки.</div>
+    <div>Гейт: дубликаты ответственности 0 → 0 · состояния 0 → 0 · логики 2 → 0 · смысла 0 → 0 · других 0 → 0 · лишние коммуникации 0 → 0 · циклы 0 → 0</div>
+    <div>Числа: серверы фронта 1 → 1 · способы входа 1 → 1 · новых модулей продукта 0 · новых имён контракта 0 · новых секретов 0 · ключи сервера 1 → 3 · адреса сервера +1 · команды +1</div>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>что сведено</th><th>решение</th><th>выигрыш</th></tr></thead>
+    <tbody>
+      <tr><td>адрес страницы флота и файл пропуска агента считаются в двух скриптах</td><td>один небольшой общий файл, оба зовут его</td><td class="num">логики 2 → 0</td></tr>
+      <tr><td>второй сервер для разработки</td><td>не строится: разница только в ключе флота и в выключенном фильтре записей</td><td class="num">серверы 1 → 1</td></tr>
+      <tr><td>своя слежка за файлами</td><td>слежка сборщика: он сам знает файлы страницы; событие вместо опроса</td><td class="num">своего кода слежки 0</td></tr>
+      <tr><td>долгоживущий пропуск разработки</td><td>приглашения и отзыв как у прототипа; цена — один клик после перезапуска</td><td class="num">способы входа 1 → 1</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="blk chg" data-chg="fd-order" id="order">
+  <div class="blk-h"><span class="tag"></span><h2>Порядок реализации</h2></div>
+  <div class="tbl"><table>
+    <thead><tr><th>шаг</th><th>что</th><th>готово</th></tr></thead>
+    <tbody>
+      <tr><td class="n">1</td><td>Адрес страницы флота и файл пропуска в одном месте</td><td>мест 2 → 1; состояние тестового флота читается как до правки</td></tr>
+      <tr><td class="n">2</td><td>Ключ флота: настоящая страница без фильтра, команда <code>npm run front</code>, имя приложения, разделы телефона, порт раньше пропусков, ссылки по таблице «Кто где пишет»</td><td>эталоны 1, 2, 3, 5, 6, 7, 8, 9: 8 из 8</td></tr>
+      <tr><td class="n">3</td><td>Обновление страницы при правке, ошибка сборки на экране, в прототипе тоже</td><td>эталон 4: 1 из 1</td></tr>
+      <tr><td class="n">4</td><td>Живой прогон на тесте в Chromium: вход, запись настройки, правка, остановка</td><td>машин на экране 2; запись прочитана 1 из 1; правка → экран числом; пропусков после остановки 0</td></tr>
+      <tr><td class="n">5</td><td>Инструкция сервера, устав, шаг «код» в процессе реализации: фронт проверяется локально на тесте</td><td>устаревших упоминаний 0</td></tr>
+      <tr><td class="n">6</td><td>Запуск на проде вместе с вами, по вашему слову: вход и чтение, записей агента 0</td><td>машины прода на экране; пропусков после остановки 0</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section class="blk chg" data-chg="fd-fork" id="fork">
+  <div class="blk-h"><span class="tag"></span><h2>Развилка</h2></div>
+  <div class="tbl"><table>
+    <thead><tr><th>вопрос</th><th>рекомендую</th><th>иначе</th><th>не скажете иначе</th></tr></thead>
+    <tbody>
+      <tr><td>Человек на проде с локальным кодом пишет по-настоящему?</td><td>Да: вы нажимаете сами, как на своём пульте, вкладка подписана</td><td>На проде только чтение, через прототип с пустым моком</td><td>Да</td></tr>
+    </tbody>
+  </table></div>
+</section>
+</div>
+
+<script>
+/* Что куда доходит: режим × кто × действие → путь точки и исход. */
+(function(){
+  const $ = s => document.querySelector(s), all = s => [...document.querySelectorAll(s)];
+  const at = { code:[73,60], build:[231,60], page:[400,60], filter:[571,60], fleet:[759,60], mock:[571,168] };
+  const state = { mode:"test", who:"human", act:"write" };
+  const name = { test:"Тестовый флот", prod:"Прод", proto:"Прод" };
+  const port = { test:"localhost:4801", prod:"localhost:4802", proto:"localhost:4800" };
+  function scenario(){
+    const { mode, who, act } = state;
+    if (mode === "prod" && who === "agent") return { path:[], end:null, tone:"bad", title:"Страницы нет", text:"На проде агент не получает ссылку разработки. Читать данные прода он может только через прототип." };
+    if (act === "edit") return { path:["code","build","page"], end:"page", tone:"ok", title:"Страница обновилась сама", text:"Сборка заметила правку, новый экран с флотом примерно через 2,2 с." };
+    if (mode === "proto"){
+      if (act === "read") return { path:["page","filter","fleet"], end:"fleet", tone:"ok", title:"Ответ прода", text:"Чтения идут в прод как есть." };
+      if (act === "write") return { path:["page","filter"], end:"filter", tone:"bad", title:"Не отправлено", text:"Запись остановлена, на странице тост с телом запроса. Прод не меняется." };
+      return { path:["page","filter","mock"], end:"mock", tone:"ok", title:"Ответил мок", text:"Запрос из договора дизайна в прод не уходит. Запись меняет состояние мока, экран показывает итог." };
+    }
+    const fleet = mode === "prod" ? "проде" : "тестовом флоте";
+    if (act === "read") return { path:["page","fleet"], end:"fleet", tone:"ok", title:"Ответ флота", text:"Фильтра нет, страница говорит с флотом напрямую." };
+    if (act === "write") return { path:["page","fleet"], end:"fleet", tone:"ok", title:`Записано на ${fleet}`, text: mode === "prod" ? "То же, что нажать кнопку на своём пульте, только код новее." : "Сессии, настройки, машины меняются по-настоящему." };
+    return { path:["page","fleet"], end:"fleet", tone:"bad", title:"Отказ словом, если флот не знает запрос", text:"Мока здесь нет. Сначала бекенд на этот флот, потом фронт." };
+  }
+  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let run = 0;
+  function paint(sc, done){
+    all("#map g").forEach(g => g.classList.remove("on","stop","done"));
+    sc.path.forEach(n => $("#n-"+n).classList.add("on"));
+    if (done && sc.end) $("#n-"+sc.end).classList.add(sc.tone === "bad" ? "stop" : "done");
+  }
+  function fly(sc){
+    const id = ++run, dot = $("#dot"), pts = sc.path.map(n => at[n]);
+    if (still || pts.length < 2){ dot.setAttribute("cx",-20); paint(sc,true); return; }
+    const per = 420; let t0 = null;
+    const step = t => {
+      if (id !== run) return;
+      t0 ??= t;
+      const k = (t - t0) / per, i = Math.min(Math.floor(k), pts.length - 2), f = Math.min(k - i, 1);
+      dot.setAttribute("cx", pts[i][0] + (pts[i+1][0] - pts[i][0]) * f);
+      dot.setAttribute("cy", pts[i][1] + (pts[i+1][1] - pts[i][1]) * f);
+      if (k >= pts.length - 1){ dot.setAttribute("cx",-20); paint(sc,true); return; }
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  function render(animate){
+    const { mode, who, act } = state, sc = scenario();
+    all("[data-mode]").forEach(b => b.setAttribute("aria-pressed", b.dataset.mode === mode));
+    all("[data-who]").forEach(b => b.setAttribute("aria-pressed", b.dataset.who === who));
+    all("[data-act]").forEach(b => b.setAttribute("aria-pressed", b.dataset.act === act));
+    $("#t-fleet").textContent = name[mode];
+    $("#t-page").textContent = port[mode];
+    $("#t-filter").textContent = mode === "proto" ? "включён" : "выключен";
+    $("#n-filter").classList.toggle("off", mode !== "proto");
+    $("#n-mock").classList.toggle("off", mode !== "proto");
+    $("#toMock").classList.toggle("off", mode !== "proto");
+    const out = $("#out");
+    out.className = "out " + sc.tone;
+    out.replaceChildren();
+    const b = document.createElement("b"); b.textContent = sc.title;
+    const s = document.createElement("span"); s.textContent = sc.text;
+    out.append(b, s);
+    paint(sc, !animate);
+    if (animate) fly(sc);
+  }
+  document.addEventListener("click", e => {
+    const b = e.target.closest && e.target.closest("[data-mode],[data-who],[data-act]");
+    if (!b) return;
+    if (b.dataset.mode) state.mode = b.dataset.mode;
+    if (b.dataset.who) state.who = b.dataset.who;
+    if (b.dataset.act) state.act = b.dataset.act;
+    render(true);
+  });
+  render(false);
+})();
+</script>
+
+<script>
+/* ===== Метки «прочитал» (устав): A — прочитал, Z — снять ===== */
+(function(){
+  let hovered = null, coll = null, ready = false;
+  const queue = [];
+  const blockOf = t => (t && t.closest) ? t.closest("[data-chg]") : null;
+  document.addEventListener("pointerover", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("pointerdown", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  document.addEventListener("focusin", e => { const b = blockOf(e.target); if (b) hovered = b; });
+  function paint(id, on){ document.querySelectorAll('[data-chg="' + id + '"]').forEach(b => b.classList.toggle("read", on)); }
+  function idsOf(b){ const ids = [b.getAttribute("data-chg")]; b.querySelectorAll("[data-chg]").forEach(n => ids.push(n.getAttribute("data-chg"))); return ids; }
+  async function mark(ids, on){
+    ids.forEach(id => paint(id, on));
+    if (!coll) return;
+    for (const id of ids){
+      try { if (on) await coll.doc(id).set({read:true, at:Date.now()}); else await coll.doc(id).delete(); }
+      catch (_) { banner("Метка не сохранилась — обновите страницу"); }
+    }
+  }
+  function act(on){ if (!hovered) return; const ids = idsOf(hovered); if (ready) mark(ids, on); else queue.push([ids, on]); }
+  const A = new Set(["a","A","а","А"]), Z = new Set(["z","Z","я","Я"]);
+  document.addEventListener("keydown", e => {
+    const t = e.target;
+    if (t && t.matches && t.matches("input:not([type=range]):not([type=checkbox]),textarea,select,[contenteditable],[contenteditable=true]")) return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (A.has(e.key) || e.code === "KeyA"){ e.preventDefault(); act(true); }
+    else if (Z.has(e.key) || e.code === "KeyZ"){ e.preventDefault(); act(false); }
+  });
+  let bannerEl = null;
+  function banner(text){
+    if (!bannerEl){ bannerEl = document.createElement("div"); bannerEl.className = "mark-banner"; bannerEl.setAttribute("role","status"); document.body.appendChild(bannerEl); }
+    bannerEl.textContent = text;
+  }
+  // localhost: метки хранит локальный сервер страницы
+  if (location.protocol === "http:" && /^(localhost|127\.0\.0\.1)$/.test(location.hostname)){
+    coll = { doc: id => ({
+      set: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:true})}).then(r => { if (!r.ok) throw new Error(); }),
+      delete: () => fetch("/api/mark", {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify({id, on:false})}).then(r => { if (!r.ok) throw new Error(); }),
+    }) };
+    fetch("/api/state").then(r => r.json()).then(d => {
+      document.querySelectorAll("[data-chg]").forEach(b => b.classList.toggle("read", !!d.marks[b.getAttribute("data-chg")]));
+    }).catch(() => banner("Метки не загрузились — сервер страницы недоступен"));
+    ready = true;
+    return;
+  }
+  (async function init(){
+    let db = null;
+    try { db = (window.claude && window.claude.use) ? await window.claude.use("db") : null; } catch (_) { db = null; }
+    if (db){
+      try {
+        coll = db.collection("accepted");
+        coll.onSnapshot(snap => {
+          const on = new Set();
+          snap.docs.forEach(d => { const v = d.data(); if (v && v.read) on.add(d.id); });
+          document.querySelectorAll("[data-chg]").forEach(b => { const id = b.getAttribute("data-chg"); b.classList.toggle("read", on.has(id)); });
+        }, () => banner("Метки не загрузились — хранилище недоступно"));
+      } catch (_) { coll = null; }
+    }
+    ready = true;
+    if (!coll) banner("Метки «прочитал» не сохраняются — хранилище недоступно");
+    while (queue.length){ const [ids, on] = queue.shift(); mark(ids, on); }
+  })();
+})();
+</script>
