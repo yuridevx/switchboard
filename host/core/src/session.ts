@@ -169,12 +169,12 @@ export class Session {
 
   // ───────────────────────── запуск ─────────────────────────
 
-  /** Как начать разговор: resume — только если файл уже есть; до первого хода его нет, тогда тот же id заново или снова копия. */
+  /** Как начать разговор: resume — только если файл уже есть; до первого хода его нет, тогда тот же id заново или снова копия. Файл ищется без папки: resume claude находит его и в папке другого проекта. */
   private async plan(kind: Launch): Promise<{ start: Launch; options: Record<string, unknown> }> {
-    const { session_id: id, cwd, fork } = this.rec;
+    const { session_id: id, fork } = this.rec;
     if (kind === "spawn") return { start: kind, options: { sessionId: id } };
     if (kind === "fork") return { start: kind, options: { resume: fork, forkSession: true, sessionId: id } };
-    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo(id, { dir: cwd }), STEP_MS, () => ({})))) return { start: kind, options: { resume: id } };
+    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo(id), STEP_MS, () => ({})))) return { start: kind, options: { resume: id } };
     return this.plan(fork ? "fork" : "spawn");
   }
 

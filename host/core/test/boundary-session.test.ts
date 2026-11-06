@@ -129,6 +129,22 @@ describe("новая сессия", () => {
     expect(st.query("copy@laptop").options).toMatchObject({ resume: "orig-0001", forkSession: true, sessionId: copy.rec.session_id });
   });
 
+  it("разговор лежит в папке другого проекта: старт из точки и открытие с resume берут его, а не начинают новый", async () => {
+    // источник: опыт на настоящем claude и SDK 6 нояб.: --resume находит разговор и в папке другого проекта, getSessionInfo с dir его там не видит, без dir — видит;
+    // откат в окне точки: файл ложится в выбранную папку, прежняя копия уходит в сторону, сессия поднимается в своей папке
+    const st = await stand({ modules: [] });
+    const site = await st.open(CS);
+    const sid = site.info.session_id;
+    await site.stop();
+    const fns = st.sdk.functions;
+    st.sdk.functions = new Proxy(fns, { get: (real, name: string) => (name === "getSessionInfo" ? async (_id: string, o?: { dir?: string }) => (o?.dir ? undefined : {}) : real[name]) });
+    await site.start({ point: 7 });
+    expect(st.query(CS).options).toMatchObject({ resume: sid });
+    expect(st.query(CS).options.sessionId).toBeUndefined();
+    await st.kernel.open({ callsign: "other@laptop", cwd: st.home, resume: "orig-0001" });
+    expect(st.query("other@laptop").options.resume).toBe("orig-0001");
+  });
+
   it("запись ядра в core.json: поля и форк — формат заморожен: его читает следующий Host", async () => {
     // источник: устав «начинает с хранилища»; формат — живые данные на машинах; чьё: код
     const st = await stand({ modules: [] });
