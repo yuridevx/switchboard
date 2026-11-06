@@ -92,18 +92,14 @@ export function serviceWorker(scope: SwScope, o: SwOptions): void {
     if (!key) return "no_key";
     const machine = frame && hostOf(frame);
     if (!machine || !frame) return "bad_frame";
-    let url: string;
-    try {
-      url = await o.relayUrl;
-    } catch (e) {
-      return e instanceof Error ? e.message : String(e);
-    }
+    const url = await o.relayUrl;
     return send(`${url.replace(/\/$/, "")}/m/${machine}`, key, frame);
   }
 
   async function onClick(data: Shown, action: string) {
     if (!action) return open(data.id);
-    const word = await answer(data.frames[Number(action)]);
+    // человек нажал кнопку: любой сбой по дороге — отказ, который он увидит
+    const word = await answer(data.frames[Number(action)]).catch((e: unknown) => (e instanceof Error ? e.message : String(e)));
     if (!word) return;
     console.error(`switchboard: ответ из уведомления не отправлен — ${word}`);
     await show(`Ответ не отправлен: ${word}`, data);

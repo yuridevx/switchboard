@@ -47,7 +47,7 @@ type World = {
 const world = (o: Partial<World> = {}): World => ({ seen: [], account: () => undefined, slotReply: () => ({ restart: false }), opening: () => {}, ...o });
 
 /** Host с настоящими manage, chat, fleet и machine; remote и push — по просьбе. */
-async function bench(o: { machine?: string; stateHome?: string; home?: string; holders?: stand.FakeHolders; holdRoster?: boolean; remote?: string; push?: boolean; w?: World } = {}) {
+async function bench(o: { machine?: string; stateHome?: string; home?: string; holders?: stand.FakeHolders; holdRoster?: boolean; remote?: string; push?: boolean; w?: World; start?: boolean } = {}) {
   const w = o.w ?? world();
   const home = o.home ?? temp();
   const fleet = makeFleet();
@@ -82,6 +82,7 @@ async function bench(o: { machine?: string; stateHome?: string; home?: string; h
     machine: o.machine,
     home: o.stateHome,
     holders: o.holders,
+    start: o.start,
     relayStand: relay,
     modules: [
       logins,
@@ -631,6 +632,35 @@ describe("session.stop, start, remove", () => {
     p.send(msg.result({ result: "готово" }));
     p.send(msg.state("idle"));
     const b = await bench({ holders: k, home, stateHome: a.st.home });
+    await until(() => !b.st.kernel.sessions.has("wiki@laptop"));
+    expect(p.interrupts).toBe(0);
+    expect(b.st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: OWNER });
+  });
+
+  it("322 · remove after_turn, пока сессия поднимается после перезапуска Host: идущий ход не прерван, сессия убрана после его конца", async () => {
+    // источник: контракт — «after_turn: true посреди хода — убрать после его конца»; вызов инструмента, накопленный держателем, приходит до готовности; состояние starting — чьё: код
+    const k = new FakeHolders();
+    keepers.push(k);
+    const home = temp();
+    const a = await bench({ holders: k, home });
+    const s = await a.st.open("wiki@laptop");
+    const p = k.procs.get("wiki@laptop")!;
+    p.send(msg.state("running"));
+    await until(() => s.state === "busy");
+    await a.st.close();
+    stands.splice(stands.indexOf(a.st), 1);
+    await until(() => p.sock === null);
+    p.failInit = true;
+    const b = await bench({ holders: k, home, stateHome: a.st.home, start: false });
+    void b.st.start();
+    await until(() => p.initializes === 2 && b.st.relay.frames("hello").length);
+    expect(b.st.kernel.sessions.get("wiki@laptop")!.state).toBe("starting");
+    expect(await b.req({ type: "session.remove", callsign: "wiki@laptop", after_turn: true })).toMatchObject({ ok: true, result: { after_turn: true } });
+    p.send({ $: "initialized" });
+    await until(() => b.st.kernel.sessions.get("wiki@laptop")?.state === "busy");
+    expect(p.alive).toBe(true);
+    p.send(msg.result({ result: "готово" }));
+    p.send(msg.state("idle"));
     await until(() => !b.st.kernel.sessions.has("wiki@laptop"));
     expect(p.interrupts).toBe(0);
     expect(b.st.relay.frames("ledger.add").at(-1)).toMatchObject({ ev: "session.removed", callsign: "wiki@laptop", by: OWNER });

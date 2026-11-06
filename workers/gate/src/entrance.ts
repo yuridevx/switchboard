@@ -27,7 +27,7 @@ export function entrance(req: Request, gate: Pick<GateApi, "verify">, frame: (f:
     const refuse = (word: string, status?: number) => answer(id, fail(id!, word), status);
     let who;
     try {
-      who = await within(gate.verify(String(key ?? "")), "gate не ответил на verify");
+      who = await within(gate.verify(typeof key === "string" ? key : ""), "gate не ответил на verify");
     } catch (e) {
       log(`gate_unavailable ${type} · ${e}`);
       return refuse("gate_unavailable", 503);
