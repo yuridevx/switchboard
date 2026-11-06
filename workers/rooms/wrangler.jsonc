@@ -12,5 +12,17 @@
   ],
   "preview_urls": false,
   "observability": { "enabled": true },
-  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-rooms", "database_id": "0cf0fd91-f8b9-40d1-a04a-45bdd79d9c4f", "migrations_dir": "migrations" }]
+  "d1_databases": [{ "binding": "DB", "database_name": "switchboard-rooms", "database_id": "0cf0fd91-f8b9-40d1-a04a-45bdd79d9c4f", "migrations_dir": "migrations" }],
+  "env": {
+    "prod": {
+      // свой домен прода: адрес вебхука Telegram
+      "routes": [{ "pattern": "rooms.pfarm.app", "custom_domain": true }],
+      "workers_dev": false,
+      "services": [
+        { "binding": "GATE", "service": "switchboard-gate-prod", "entrypoint": "Gate" },
+        { "binding": "RELAY", "service": "switchboard-prod", "entrypoint": "Relay" }
+      ],
+      "d1_databases": [{ "binding": "DB", "database_name": "switchboard-rooms-prod", "database_id": "fa9fa749-8488-47aa-a0d1-91e0afacd386", "migrations_dir": "migrations" }]
+    }
+  }
 }
