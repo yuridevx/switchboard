@@ -1,89 +1,91 @@
-// Выпуск Worker-модулей. node scripts/deploy-workers.mjs [имена] [--env prod] — выкладка; --upload <номер> — загрузка версий всех Worker-модулей без выкладки.
-// Веб — только по имени: phone, pult. Токены и секреты — из окружения или файлов ~/.switchboard-dev (SWITCHBOARD_DEV_DIR); окружение важнее файла, файл прода — тестовых.
+// Выпуск Worker-модулей и страниц: wrangler с пределом, секреты только через stdin.
+//   node scripts/deploy-workers.mjs [имена] [--env prod]   выложить; без имён — все Worker-модули
+//   node scripts/deploy-workers.mjs --upload <номер> [--env prod]   загрузить версии без выкладки (CI)
+// Токены и секреты — окружение, затем файлы ~/.switchboard-dev (SWITCHBOARD_DEV_DIR); тестовый флот файла прода не читает.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseArgs } from "node:util";
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const WRANGLER = join(ROOT, "node_modules/wrangler/bin/wrangler.js");
-const DEV_DIR = process.env.SWITCHBOARD_DEV_DIR ?? join(homedir(), ".switchboard-dev");
-const STEP_S = 300; // при 45 с настоящая выкладка оборвалась на полпути: wrangler deploy под нагрузкой
-// relay последним: он смотрит привязками на остальных
+const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+const WRANGLER = path.join(ROOT, "node_modules", "wrangler", "bin", "wrangler.js");
+/** Настоящая выкладка 5 нояб.: при 45 с wrangler выложил prefs, но не завершился под нагрузкой. */
+const LIMIT_MS = 300_000;
+/** relay смотрит привязками на остальных — последним. */
 const WORKERS = ["gate", "push", "points", "ledger", "github", "prefs", "releases", "relay"];
 const WEB = ["phone", "pult"];
 
-const fail = (word) => {
+const stop = (word) => {
   console.error(`deploy: ${word}`);
   process.exit(1);
 };
 
-const { values: flags, positionals: names } = parseArgs({ strict: false, options: { upload: { type: "string" }, env: { type: "string" } } });
-if (flags.env !== undefined && flags.env !== "prod") fail("--env — только prod");
-const prod = flags.env === "prod";
+const args = process.argv.slice(2);
+const flag = (name) => {
+  const at = args.indexOf(name);
+  return at < 0 ? undefined : args.splice(at, 2)[1];
+};
+const env = flag("--env");
+const upload = flag("--upload");
+if (env !== undefined && env !== "prod") stop("--env — только prod");
+if (upload !== undefined && !/^\d+\.\d+\.\d+$/.test(upload)) stop("--upload <номер вида 1.1.58>");
+const prod = env === "prod";
 const envArgs = prod ? ["--env", "prod"] : [];
-if (flags.upload !== undefined && !/^\d+\.\d+\.\d+$/.test(flags.upload)) fail("--upload <номер вида 1.1.58>");
+const tail = prod ? " prod" : "";
 
-/** Значения файлов: раньше в списке — важнее. Прод читает свой файл, тест его не видит. */
-function fileValues() {
-  const values = {};
-  for (const name of [...(prod ? ["prod.env"] : []), "cf-deploy.env", "fleet-secrets.env", "r2-points.env"]) {
-    const file = join(DEV_DIR, name);
-    if (!existsSync(file)) continue;
-    for (const [, key, value] of readFileSync(file, "utf8").matchAll(/^([A-Z0-9_]+)=(.*?)\r?$/gm)) values[key] ??= value;
-  }
-  return values;
-}
+/** Значения из файлов: первый файл важнее следующих, окружение важнее файлов. */
+const dev = process.env.SWITCHBOARD_DEV_DIR ?? path.join(homedir(), ".switchboard-dev");
+const files = [...(prod ? ["prod.env"] : []), "cf-deploy.env", "fleet-secrets.env", "r2-points.env"].map((f) => path.join(dev, f)).filter(existsSync);
+const pairs = files.reverse().flatMap((f) => [...readFileSync(f, "utf8").matchAll(/^([A-Z0-9_]+)=(.*?)\r?$/gm)].map((m) => [m[1], m[2]]));
+const known = { ...Object.fromEntries(pairs), ...process.env };
+const { CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID } = known;
+if (!CLOUDFLARE_API_TOKEN || !CLOUDFLARE_ACCOUNT_ID) stop("нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
 
-const known = { ...fileValues(), ...process.env };
-if (!known.CLOUDFLARE_API_TOKEN || !known.CLOUDFLARE_ACCOUNT_ID) fail("нет CLOUDFLARE_API_TOKEN или CLOUDFLARE_ACCOUNT_ID");
-const childEnv = { ...process.env, CLOUDFLARE_API_TOKEN: known.CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID: known.CLOUDFLARE_ACCOUNT_ID };
-
-// секрет Worker'а → откуда значение; тестовая пара R2 прав на бакет точек прода не имеет
-const SECRETS = {
+/** Имя секрета Worker'а → значение. Тестовая пара прав на бакет прода не имеет: точки прода — свой секрет. */
+const secrets = {
   push: { VAPID_PRIVATE: "VAPID_PRIVATE" },
   points: { R2_KEY_SECRET: prod ? "PROD_R2_SECRET_ACCESS_KEY" : "R2_SECRET_ACCESS_KEY" },
   releases: { CLOUDFLARE_API_TOKEN: "CLOUDFLARE_API_TOKEN", R2_LINK_KEY_ID: "R2_ACCESS_KEY_ID", R2_LINK_SECRET: "R2_SECRET_ACCESS_KEY" },
 };
 
-/** Шаг с пределом: не вышло — отказ словами, дальше не идём. Секрет — только через stdin. */
-function step(what, cwd, args, input) {
-  const r = spawnSync(process.execPath, args, { cwd, env: childEnv, input, stdio: [input === undefined ? "inherit" : "pipe", "inherit", "inherit"], timeout: STEP_S * 1000 });
-  if (r.error?.code === "ETIMEDOUT") fail(`${what} — не завершился за ${STEP_S} с`);
-  if (r.status !== 0) fail(`${what} — выход ${r.status}`);
+const childEnv = { ...process.env, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID };
+function run(program, words, cwd, what, input) {
+  const r = spawnSync(process.execPath, [program, ...words], { cwd: path.join(ROOT, cwd), env: childEnv, input, stdio: ["pipe", "inherit", "inherit"], timeout: LIMIT_MS });
+  if (r.error?.code === "ETIMEDOUT") stop(`${what} в ${cwd} — не завершился за ${LIMIT_MS / 1000} с`);
+  return r.status;
+}
+function wrangler(cwd, words, after = [], input) {
+  const what = `wrangler ${words.slice(0, 2).join(" ")}`;
+  const status = run(WRANGLER, [...words, ...envArgs, ...after], cwd, what, input);
+  if (status !== 0) stop(`${what} в ${cwd} — выход ${status}`);
 }
 
-/** Команда wrangler в папке модуля; в отказе — её слова без флагов. */
-const wrangler = (folder, args, input) => step(`wrangler ${args.join(" ").split(" --")[0]} в ${folder}`, join(ROOT, folder), [WRANGLER, ...args], input);
-
-if (flags.upload) {
-  for (const w of WORKERS) {
-    console.log(`\n=== workers/${w} ${flags.upload}${prod ? " prod" : ""} ===`);
-    wrangler(`workers/${w}`, ["versions", "upload", ...envArgs, "--tag", flags.upload, "--message", flags.upload]);
+if (upload) {
+  for (const name of WORKERS) {
+    console.log(`=== workers/${name} ${upload}${tail} ===`);
+    wrangler(`workers/${name}`, ["versions", "upload"], ["--tag", upload, "--message", upload]);
   }
-  console.log(`\ndeploy: загружено ${flags.upload}, ничего не выложено`);
+  console.log(`deploy: загружено ${upload}, ничего не выложено`);
   process.exit(0);
 }
 
-const workers = WORKERS.filter((w) => !names.length || names.includes(w));
-const web = WEB.filter((w) => names.includes(w));
-const title = (name) => console.log(`\n=== ${name}${prod ? " prod" : ""} ===`);
-for (const w of workers) {
-  title(w);
-  const folder = `workers/${w}`;
-  if (existsSync(join(ROOT, folder, "migrations"))) wrangler(folder, ["d1", "migrations", "apply", "DB", "--remote", ...envArgs]);
-  wrangler(folder, ["deploy", ...envArgs]);
-  for (const [secret, source] of Object.entries(SECRETS[w] ?? {})) {
-    if (!known[source]) fail(`нет секрета ${source}`);
-    wrangler(folder, ["secret", "put", secret, ...envArgs], known[source]);
-  }
+const named = args.length ? args : WORKERS;
+const workers = WORKERS.filter((w) => named.includes(w));
+const web = WEB.filter((w) => named.includes(w));
+for (const w of workers) for (const from of Object.values(secrets[w] ?? {})) if (!known[from]) stop(`нет секрета ${from}`);
+
+for (const name of workers) {
+  const cwd = `workers/${name}`;
+  console.log(`=== ${name}${tail} ===`);
+  if (existsSync(path.join(ROOT, cwd, "migrations"))) wrangler(cwd, ["d1", "migrations", "apply", "DB", "--remote"]);
+  wrangler(cwd, ["deploy"]);
+  for (const [secret, from] of Object.entries(secrets[name] ?? {})) wrangler(cwd, ["secret", "put", secret], [], known[from]);
 }
-for (const w of web) {
-  title(w);
-  const folder = `web/${w}`;
-  step(`сборка ${folder} не прошла`, join(ROOT, folder), ["build.mjs"]);
-  wrangler(folder, ["deploy", ...envArgs]);
+for (const name of web) {
+  const cwd = `web/${name}`;
+  console.log(`=== ${name}${tail} ===`);
+  if (run("build.mjs", [], cwd, `сборка ${cwd}`) !== 0) stop(`сборка ${cwd} не прошла`);
+  wrangler(cwd, ["deploy"]);
 }
-console.log(`\ndeploy: ok · ${[...workers, ...web].join(", ")}`);
+console.log(`deploy: ok · ${[...workers, ...web].join(", ")}`);

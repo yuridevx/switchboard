@@ -1,112 +1,95 @@
-// Git точки: сводка папки и снимок своих правок пакетом; при подъёме — проба папки и ветка points-… . Индекс и файлы папки снимок не трогает.
+// Git точки: снимок папки в пакет и папка подъёма. Индекс и ссылки папки снимок не меняет; git не спрашивает пароль.
 import { execFile } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { CALL_MS } from "@switchboard/protocol";
 import { refuse } from "@switchboard/host";
+import { CALL_MS } from "@switchboard/protocol";
 
-export type GitSummary = { state: "clean" | "dirty"; files: number; unpushed: number; url?: string; branch?: string; commit: string; snap?: string };
-export type Probe = { folder: string; files: number; branch: string | null; sessions: string[] };
+/** Сводка git в строке точки. snap — коммит пакета: правки поверх commit или неотправленный commit. */
+export type Summary = { state: "clean" | "dirty"; files: number; unpushed: number; url?: string; branch?: string; commit: string; snap?: string };
+export type Folder = { folder: "nogit" | "empty" | "other" | "same" | "dirty" | "shared"; files: number; branch: string | null; sessions: string[] };
 
-/** Имя ссылки внутри пакета: пакеты лежат в R2, это формат хранилища. */
-const PACK_REF = "refs/points/snap";
-/** Git не спрашивает пароль: спросить некого, запрос только ждал бы предела. */
-const QUIET = { GIT_TERMINAL_PROMPT: "0", GCM_INTERACTIVE: "never" };
+export const BUNDLE = "git.bundle";
+const REF = "refs/points/snap";
 
-type Run = { code: number; out: string };
-const git = (cwd: string, args: string[], env: Record<string, string> = {}): Promise<Run> =>
-  new Promise((done) => {
-    execFile("git", args, { cwd, env: { ...process.env, ...QUIET, ...env }, windowsHide: true, timeout: CALL_MS, maxBuffer: 1 << 26 }, (e, out, err) => done({ code: e ? 1 : 0, out: e ? String(err) : String(out).trim() }));
+const git = (cwd: string, args: string[], env: Record<string, string> = {}) =>
+  new Promise<string>((done, fail) => {
+    execFile("git", args, { cwd, timeout: CALL_MS, maxBuffer: 1 << 26, windowsHide: true, env: { ...process.env, GCM_INTERACTIVE: "never", GIT_TERMINAL_PROMPT: "0", ...env } }, (e, out) => (e ? fail(e) : done(out)));
   });
+const quiet = (cwd: string, args: string[]) => git(cwd, args).then((x) => x.trim(), () => null);
+const changed = async (cwd: string) => (await git(cwd, ["status", "--porcelain"])).split("\n").filter(Boolean).length;
+const repoKey = (url: string) => url.replace(/\.git$/, "");
 
-const words = (s: string) => s.split("\n").filter(Boolean).length;
-const urlKey = (u: string) => u.replace(/\.git$/, "");
-
-function withTemp<T>(work: (dir: string) => Promise<T>): Promise<T> {
-  const dir = mkdtempSync(join(tmpdir(), "sb-points-"));
-  return work(dir).finally(() => rmSync(dir, { recursive: true, force: true }));
+/** Сводка папки и пакет, если в ней есть то, чего нет на remote; папка не под git — ничего. */
+export async function snapshot(cwd: string): Promise<{ summary: Summary; bundle?: Buffer } | undefined> {
+  const commit = await quiet(cwd, ["rev-parse", "HEAD"]);
+  if (!commit) return undefined;
+  const files = await changed(cwd);
+  const unpushed = Number(await git(cwd, ["rev-list", "--count", "HEAD", "--not", "--remotes"]));
+  const url = await quiet(cwd, ["remote", "get-url", "origin"]);
+  const branch = await quiet(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const summary: Summary = { state: files ? "dirty" : "clean", files, unpushed, ...(url === null ? {} : { url }), ...(branch === null ? {} : { branch }), commit };
+  if (!files && !unpushed) return { summary };
+  const tmp = mkdtempSync(join(tmpdir(), "sb-point-"));
+  try {
+    const snap = files ? await commitOfChanges(cwd, commit, join(tmp, "index")) : commit;
+    await git(cwd, ["update-ref", REF, snap]);
+    const file = join(tmp, BUNDLE);
+    await git(cwd, ["bundle", "create", file, REF, "--not", "--remotes"]).finally(() => git(cwd, ["update-ref", "-d", REF]));
+    return { summary: { ...summary, snap }, bundle: readFileSync(file) };
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
-/** Коммит со своими правками: временный индекс, индекс папки цел. */
-async function snapshot(cwd: string, head: string): Promise<string> {
-  return withTemp(async (dir) => {
-    const env = { GIT_INDEX_FILE: join(dir, "index") };
-    await git(cwd, ["read-tree", head], env);
-    await git(cwd, ["add", "-A"], env);
-    const tree = await git(cwd, ["write-tree"], env);
-    const commit = await git(cwd, ["-c", "user.name=points", "-c", "user.email=points@switchboard", "commit-tree", tree.out, "-p", head, "-m", "снимок точки"]);
-    if (commit.code) throw new Error(`снимок git: ${commit.out}`);
-    return commit.out;
-  });
+/** Коммит правок поверх HEAD из своего индекса: индекс папки не меняется. */
+async function commitOfChanges(cwd: string, head: string, index: string): Promise<string> {
+  const env = { GIT_INDEX_FILE: index };
+  await git(cwd, ["read-tree", head], env);
+  await git(cwd, ["add", "-A"], env);
+  const tree = (await git(cwd, ["write-tree"], env)).trim();
+  return (await git(cwd, ["-c", "user.name=points", "-c", "user.email=points@switchboard", "commit-tree", tree, "-p", head, "-m", "снимок точки"])).trim();
 }
 
-/** Пакет с тем, чего нет на remote: ссылка в refs/points живёт только на время сборки. */
-async function bundle(cwd: string, snap: string): Promise<Buffer> {
-  return withTemp(async (dir) => {
-    const file = join(dir, "git.bundle");
-    await git(cwd, ["update-ref", PACK_REF, snap]);
-    const made = await git(cwd, ["bundle", "create", file, PACK_REF, "--not", "--remotes"]);
-    await git(cwd, ["update-ref", "-d", PACK_REF]);
-    if (made.code) throw new Error(`пакет git: ${made.out}`);
-    return readFileSync(file);
-  });
-}
-
-/** Сводка папки сессии; не репозиторий или нет коммитов — точка без git. */
-export async function summarize(cwd: string): Promise<{ git: GitSummary; pack?: Buffer } | undefined> {
-  const head = await git(cwd, ["rev-parse", "HEAD"]);
-  if (head.code) return undefined;
-  const commit = head.out;
-  const files = words((await git(cwd, ["status", "--porcelain"])).out);
-  const unpushed = Number((await git(cwd, ["rev-list", "--count", "HEAD", "--not", "--remotes"])).out) || 0;
-  const remote = await git(cwd, ["remote", "get-url", "origin"]);
-  const branch = await git(cwd, ["rev-parse", "--abbrev-ref", "HEAD"]);
-  const summary: GitSummary = { state: files ? "dirty" : "clean", files, unpushed, ...(remote.code ? {} : { url: remote.out }), ...(branch.code ? {} : { branch: branch.out }), commit };
-  if (!files && !unpushed) return { git: summary };
-  const snap = files ? await snapshot(cwd, commit) : commit;
-  return { git: { ...summary, snap }, pack: await bundle(cwd, snap) };
-}
-
-const branchName = () => {
+const two = (n: number) => String(n).padStart(2, "0");
+function branchName(): string {
   const d = new Date();
-  const two = (n: number) => String(n).padStart(2, "0");
   return `points-${d.getFullYear()}-${two(d.getMonth() + 1)}-${two(d.getDate())}-${two(d.getHours())}${two(d.getMinutes())}`;
-};
-
-/** Что будет с папкой при подъёме. Только читает. */
-export async function probe(point: GitSummary | undefined, dir: string, sessions: string[]): Promise<Probe> {
-  const none = { files: 0, branch: null, sessions: [] as string[] };
-  if (!point) return { folder: "nogit", ...none };
-  if (!existsSync(dir)) return { folder: "empty", ...none };
-  const url = await git(dir, ["remote", "get-url", "origin"]);
-  if (url.code || !point.url || urlKey(url.out) !== urlKey(point.url)) return { folder: "other", ...none };
-  const files = words((await git(dir, ["status", "--porcelain"])).out);
-  if (sessions.length) return { folder: "shared", files, branch: branchName(), sessions };
-  return files ? { folder: "dirty", ...none, files } : { folder: "same", files, branch: branchName(), sessions };
 }
 
-/** Папка к подъёму: пустая — клон; свой репозиторий без правок и чужих сессий — ветка от точки с её правками. */
-export async function place(point: GitSummary, dir: string, folder: string, pack: Buffer | undefined): Promise<string | null> {
-  if (folder !== "empty" && folder !== "same") return null;
-  if (folder === "empty") {
-    mkdirSync(dirname(dir), { recursive: true });
-    const cloned = await git(dirname(dir), ["clone", "-q", point.url ?? "", dir]);
-    if (cloned.code) throw refuse("bad_point", `клон ${point.url}: ${cloned.out}`);
-  } else {
-    await git(dir, ["fetch", "-q", "origin"]);
-  }
-  const target = point.snap ?? point.commit;
-  if (pack) {
-    await withTemp(async (tmp) => {
-      const file = join(tmp, "git.bundle");
-      writeFileSync(file, pack);
-      const fetched = await git(dir, ["fetch", "-q", file, PACK_REF]);
-      if (fetched.code) throw refuse("bad_point", `пакет git: ${fetched.out}`);
-    });
-  }
+/** Что будет с папкой подъёма; sessions — другие сессии в ней. */
+export async function folderOf(dir: string, summary: Summary | undefined, sessions: string[]): Promise<Folder> {
+  const plain = { files: 0, branch: null, sessions: [] };
+  if (!summary) return { folder: "nogit", ...plain };
+  if (!existsSync(dir)) return { folder: "empty", ...plain };
+  const url = await quiet(dir, ["remote", "get-url", "origin"]);
+  if (url === null || !summary.url || repoKey(url) !== repoKey(summary.url)) return { folder: "other", ...plain };
+  const files = await changed(dir);
+  if (sessions.length) return { folder: "shared", files, branch: branchName(), sessions };
+  return files ? { folder: "dirty", ...plain, files } : { folder: "same", files, branch: branchName(), sessions };
+}
+
+/** Папка точки: клон в пустую, ветка от коммита точки в том же репозитории без правок и чужих сессий; пакет — поверх. Ответ — имя ветки. */
+export async function bring(dir: string, summary: Summary, folder: "empty" | "same", bundle: Buffer | undefined): Promise<string> {
   const branch = branchName();
-  const out = await git(dir, ["checkout", "-q", "-b", branch, target]);
-  if (out.code) throw refuse("bad_point", `ветка ${branch}: ${out.out}`);
-  return branch;
+  const tmp = mkdtempSync(join(tmpdir(), "sb-point-"));
+  try {
+    if (folder === "empty") {
+      mkdirSync(dirname(dir), { recursive: true });
+      await git(dirname(dir), ["clone", "-q", summary.url ?? "", dir]);
+    } else await quiet(dir, ["fetch", "-q", "origin"]); // нет связи с origin — коммит точки мог быть на месте: скажет checkout
+    const target = summary.snap ?? summary.commit;
+    if (bundle) {
+      const file = join(tmp, BUNDLE);
+      writeFileSync(file, bundle);
+      await git(dir, ["fetch", "-q", file, REF]);
+    }
+    await git(dir, ["checkout", "-q", "-b", branch, target]);
+    return branch;
+  } catch (e) {
+    throw refuse("bad_point", `папка ${dir}: ${e}`);
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
 }

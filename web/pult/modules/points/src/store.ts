@@ -1,45 +1,44 @@
-// Реестр глазами страницы: обзор флота читается один раз при первом roster и заново при открытии экрана и после действий.
-import type { Roster } from "@switchboard/web-core";
-import { type App, createStore } from "@switchboard/web-ui";
+// Реестр на странице: обзор флота читается на первом roster, на экране точек и после своих действий; своего состояния сверх ответа нет.
+import type { App } from "@switchboard/web-core";
+import { createStore } from "@switchboard/web-ui";
+import type { PointsListFleet } from "@switchboard/points";
 
-export type Listed = { sid: string; callsign?: string; dir?: string; owner: string; head: { id: number; at: number }; points: number; branches: number };
-export type Fleet = { sessions: Listed[]; r2: { bytes?: number; blocks?: number }; sweep?: { at: number; blocks: number; bytes: number } | null };
+export type Listed = PointsListFleet["sessions"][number];
 
-type State = { fleet?: Fleet; error: string; moving: boolean };
-
-export type PointsStore = ReturnType<typeof pointsStore>;
-
-export function pointsStore(app: App) {
-  const s = createStore<State>({ error: "", moving: false }, () => app.changed());
-  let turn = 0;
+export function createFleet(app: App) {
+  const data = createStore<{ fleet?: PointsListFleet; error: string; moving: boolean }>({ error: "", moving: false }, () => app.changed());
   let asked = false;
+  let turn = 0;
 
-  async function read(): Promise<void> {
+  async function read() {
     const mine = ++turn;
-    const r = await app.read<Fleet>("points.list");
-    if (mine !== turn) return;
-    s.set((d) => {
+    const r = await app.read<PointsListFleet>("points.list");
+    if (mine !== turn) return; // ответ опоздал: есть вопрос новее
+    data.set((d) => {
       d.error = r.ok ? "" : r.error;
       if (r.ok) d.fleet = r.result;
     });
   }
 
+  const online = () => new Set(app.roster()?.machines.map((m) => m.machine));
+
   return {
-    get: s.get,
+    get: data.get,
     read,
-    roster(_r: Roster): void {
-      if (!asked) {
-        asked = true;
-        void read();
-      }
-    },
-    moving(on: boolean): void {
-      s.set((d) => void (d.moving = on));
+    /** Идёт перенос «пожара»: второй не начать, пока страница открыта. */
+    moving: (on: boolean) => data.set((d) => void (d.moving = on)),
+    onRoster() {
+      if (asked) return;
+      asked = true;
+      void read();
     },
     /** Машины с сессиями в R2, которых нет в roster. */
     fire(): string[] {
-      const online = new Set((app.roster()?.machines ?? []).map((m) => m.machine));
-      return [...new Set((s.get().fleet?.sessions ?? []).map((x) => x.owner).filter((m) => !online.has(m)))];
+      const on = online();
+      return [...new Set((data.get().fleet?.sessions ?? []).map((s) => s.owner))].filter((m) => !on.has(m));
     },
+    sidOf: (callsign: string) => data.get().fleet?.sessions.find((s) => s.callsign === callsign),
   };
 }
+
+export type Fleet = ReturnType<typeof createFleet>;

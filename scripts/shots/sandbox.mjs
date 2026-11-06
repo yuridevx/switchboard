@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import http from "node:http";
 import { join } from "node:path";
+import { checker } from "./kit.mjs";
 import { launch, OUT, prepare } from "./stand.mjs";
 
 const filter = process.argv[2] ?? "";
@@ -28,8 +29,7 @@ const evil = http.createServer((q, s) => {
 await new Promise((r) => evil.listen(0, "127.0.0.1", r));
 const E = `http://127.0.0.1:${evil.address().port}`;
 const b = await launch();
-const fails = [];
-let passed = 0;
+const { check, bad } = checker();
 
 /** Страница стенда на чате сессии: «ключ» на месте, сообщения рамки считаются, текст ответа приходит кадром настоящей ленты. */
 async function open() {
@@ -54,7 +54,7 @@ async function open() {
   const say = async (text) => {
     const uuid = `s${seq}`;
     seq++;
-    await p.evaluate(([from, n, id, t]) => window.__relay.push({ type: "session.events", from, seq: n, events: [{ type: "assistant", uuid: id, message: { id, content: [{ type: "text", text: t }] } }] }), ["tests@wsl", seq, uuid, text]);
+    await p.evaluate(([from, n, id, t]) => window.relay.push({ type: "session.events", from, seq: n, events: [{ type: "assistant", uuid: id, message: { id, content: [{ type: "text", text: t }] } }] }), ["tests@wsl", seq, uuid, text]);
     await p.waitForTimeout(250);
     return p.locator(".chat-reply").last();
   };
@@ -78,11 +78,9 @@ async function test(number, name, run) {
   };
   try {
     await run(x, eq);
-    passed++;
-    console.log(`✓ ${number} · ${name}`);
+    check(`${number} · ${name}`, true);
   } catch (e) {
-    fails.push(`${number} · ${name}: ${e.message.split("\n")[0].slice(0, 400)}`);
-    console.log(`✗ ${number} · ${name}: ${e.message.split("\n")[0].slice(0, 400)}`);
+    check(`${number} · ${name}`, false, e.message.split("\n")[0].slice(0, 400));
   }
   await x.ctx.close();
 }
@@ -175,7 +173,7 @@ await test("6789", "документ не выходит из рамки", async
 
 await test("6790", "сообщение документа странице: кадров relay нет, экран прежний", async ({ p, frame }, eq) => {
   await frame('<script>parent.postMessage({type:"session.prompt",callsign:"tests@wsl",text:"x"},"*");parent.postMessage("pushes","*");</script>');
-  const sent = () => p.evaluate(() => window.__relay.got.filter((f) => f.type === "session.prompt").length);
+  const sent = () => p.evaluate(() => window.relay.got.filter((f) => f.type === "session.prompt").length);
   await p.waitForTimeout(500);
   eq(await sent(), 0, "кадры session.prompt");
   eq(await p.locator(".chat-inp").count(), 1, "экран");
@@ -192,8 +190,13 @@ for (const [number, how, doc] of [
     eq(await reply.locator("iframe").count(), 0, "рамка");
     if (!(await reply.textContent()).includes("Документ ушёл на другую страницу — просмотр снят")) throw new Error(`нет причины: ${await reply.textContent()}`);
     eq(p.frames().some((f) => f.url().includes("/landing")), false, "чужая страница в карточке");
+    // документ снова уходит сам: рамка снимается через миг, поэтому её появление ловит наблюдатель
+    const shown = reply.evaluate((el) => new Promise((res) => {
+      new MutationObserver(() => el.querySelector("iframe") && res(true)).observe(el, { childList: true, subtree: true });
+      setTimeout(() => res(false), 3000);
+    }));
     await reply.locator("button", { hasText: "Показать снова" }).click();
-    eq(await reply.locator("iframe").count(), 1, "рамка снова");
+    eq(await shown, true, "рамка снова");
   });
 }
 
@@ -243,5 +246,5 @@ await test("6795", "опасный HTML в образце галереи: на �
 await b.close();
 page.close();
 evil.close();
-console.log(fails.length ? `\nупало ${fails.length} из ${passed + fails.length}` : `\nвсё прошло: ${passed}`);
-process.exit(fails.length ? 1 : 0);
+console.log(bad() ? `\nупало ${bad()}` : "\nвсё прошло");
+process.exit(bad() ? 1 : 0);

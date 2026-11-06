@@ -1,7 +1,7 @@
 {
   "name": "host-points",
   "type": "sdk",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "into": ["host"],
   "provides": {
     "points.save": 1,

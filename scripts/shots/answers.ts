@@ -135,7 +135,7 @@ export function answerRequests(relay: FakeRelay, F: Fleet, roster: { sessions: A
   h["session.r2"] = () => ({ ok: true, result: { point: 1 } });
   h["keeper.state"] = (f) => ({ ok: true, result: { keeper: "1.1.3", rev: 9, os: String(f.to).includes("win") ? "windows" : "linux", parts: [{ part: "host", version: "1.2.9+4", state: "running", pid: 4120, restarts: 0 }, { part: "keeper", version: "1.1.3", state: "running" }] } });
   h["machine.journal"] = () => ({ ok: true, result: { more: false, records: [{ t: new Date().toISOString(), part: "host", who: "session", kind: "note", ev: "session.open", word: "ok" }, { t: new Date().toISOString(), part: "host", who: "slots", kind: "refuse", ev: "slot.wait", word: "limit", why: "у порога" }] } });
-  h["ledger.read"] = () => ({ ok: true, result: { more: false, events: [{ id: 1, t: Date.now() - 60000, ev: "machine.joined", from: ".relay", text: "win на связи" }, { id: 2, t: Date.now() - 30000, ev: "session.failed", from: "night@wsl", text: "слот main: все аккаунты у порога" }] } });
+  h["ledger.read"] = () => ({ ok: true, result: { more: false, events: [{ id: 2, t: Date.now() - 30000, ev: "session.failed", from: "night@wsl", text: "слот main: все аккаунты у порога" }, { id: 1, t: Date.now() - 60000, ev: "machine.joined", from: ".relay", text: "win на связи" }] } });
   h["points.list"] = (f) =>
     f.sid
       ? { ok: true, result: { owner: "win", head: 41, points: [{ id: 41, at: Date.now() - 60000, machine: "win", why: "rule", base: 40, dir: "~/Projects/switchboard", msgs: 212, git: { state: "clean", branch: "main" }, line: true }] } }

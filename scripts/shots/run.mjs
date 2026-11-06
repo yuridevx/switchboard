@@ -1,110 +1,107 @@
-// Обход экранов настоящего кода снимками: пульт и телефон, светлая и тёмная; замечания — выход за край и ошибки страницы. npm run shots [часть имени снимка]; снимки смотрит глазами тот, кто запустил.
+// Снимки экранов настоящего кода: npm run shots [часть имени]; SHOTS_DOM=<файл> — ещё и деревья DOM. Замечания — выход за край и ошибки страницы.
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { appContext, errorsOf, overflow, pause, treeOf } from "./kit.mjs";
+import { snap, treeOf } from "./kit.mjs";
 import { launch, OUT as ROOT, prepare, url } from "./stand.mjs";
 
 const OUT = path.join(ROOT, "shots");
+const WIDE = { width: 1280, height: 800 };
+const NARROW = { width: 390, height: 780 };
+const filter = process.argv[2] ?? "";
+
+const click = (sel) => (p) => p.click(sel);
+const steps = (...all) => async (p) => {
+  for (const step of all) {
+    await step(p);
+    await p.waitForTimeout(200);
+  }
+};
+const row = click(".bd-row");
+const place = click(".pj-add");
+const path_ = (p) => p.fill('[data-f="addr"]', "~/projects/new/deep");
+
+/** Снимок: имя, адрес, что сделать; only — только на этом флоте. */
+const OPEN = [
+  ["new", "#sessions", steps(click("[data-new]"))],
+  ["new-place", "#sessions", steps(place)],
+  ["new-prof", "#sessions", steps(place, click('[data-pop="prof"]'))],
+  ["new-model", "#sessions", steps(place, click('[data-pop="model"]'))],
+];
+const ACCOUNTS = (prefix) => [
+  [`${prefix}accounts`, "#accounts"],
+  [`${prefix}accounts-login`, "#accounts", steps(click("[data-login-start]"))],
+  [`${prefix}accounts-entry`, "#accounts", steps(click('[data-entry$=":night@x.io"]'))],
+  [`${prefix}accounts-diff`, "#accounts", steps(click(".ac-warn"))],
+  [`${prefix}accounts-machine`, "#accounts", steps(click(".ac-mname"))],
+  [`${prefix}profiles`, "#profiles"],
+  [`${prefix}profiles-open`, "#profiles", steps(click(".pf-w.cf .pf-r"))],
+];
+const BOTH = [
+  ["work", "#sessions"],
+  ["view", "#sessions", steps(click(".fc.vw"))],
+  ["filter-new", "#sessions", steps(click(".fc.add"))],
+];
+const PULT_SCREENS = [
+  ...BOTH,
+  ["work-card", "#sessions", steps(row)],
+  ...OPEN,
+  ["new-path", "#sessions", steps(place, path_)],
+  ...ACCOUNTS(""),
+  ["names", "#sessions", steps(row, click('[data-act="names"]')), "small"],
+  ["card-settings", "#sessions", steps(row, click('[data-tab="set"]')), "small"],
+  ["card-log", "#sessions", steps(row, click('[data-tab="log"]')), "small"],
+  ["inbox", "#inbox", null, "small"],
+  ["incidents", "#incidents", null, "small"],
+  ["journal", "#journal", null, "small"],
+  ["points", "#points", null, "small"],
+  ["settings", "#settings", null, "small"],
+  ["settings-passes", "#settings", steps(click('[data-tab="passes"]')), "small"],
+  ["settings-general", "#settings", steps(click('[data-tab="general"]')), "small"],
+];
+const PHONE_SCREENS = [
+  ...BOTH,
+  ["find", "#sessions", steps(click(".sb-find"))],
+  ...OPEN,
+  ["new-machines", "#sessions", steps(click("[data-new]"), click('[data-act="pick-machine"]'))],
+  ["new-path-m", "#sessions", steps(place, path_)],
+  ...ACCOUNTS("fleet-"),
+  ["card", "#sessions", steps(row), "small"],
+  ["card-more", "#sessions", steps(row, click('[data-tab="info"]')), "small"],
+  ["ask", `#ask?callsign=${encodeURIComponent("migrate@win")}`, null, "small"],
+  ["names", "#sessions", steps(row, click('[data-tab="info"]'), click('[data-act="names"]')), "small"],
+  ["inbox", "#inbox", null, "small"],
+  ["fleet-incidents", "#incidents", null, "small"],
+  ["fleet-settings", "#settings", null, "small"],
+];
+
 mkdirSync(OUT, { recursive: true });
 await prepare();
+const browser = await launch();
+const notes = [];
+const trees = {};
 
-const filter = process.argv[2] || "";
-
-async function go(p, hash) {
-  await p.evaluate((h) => (location.hash = h), hash);
-  await pause(p);
+async function shot(app, kind, scheme, [name, hash, act, only]) {
+  const id = `${app}-${kind}-${scheme}-${name}`;
+  if ((only && only !== kind) || !id.includes(filter)) return;
+  const open = async (p) => {
+    await p.goto(url(app, kind, "#sessions"));
+    await p.waitForSelector(".bd-list");
+    await p.waitForFunction(() => window.delivered);
+    await p.evaluate((h) => (location.hash = h), hash);
+    await p.waitForTimeout(400);
+    await act?.(p);
+    await p.waitForTimeout(150);
+  };
+  const after = async (p) => void (trees[id] = await treeOf(p));
+  await snap(browser, { id, app, viewport: app === "pult" ? WIDE : NARROW, scheme, dir: OUT, scope: "#app *", allowed: ".fscroll, .op-pre, .sb-navrow, .cw-tabs", open, after }, notes);
 }
 
-const PULT = [
-  ["work", async () => {}],
-  ["work-card", async (p) => { await p.click('.bd-row[data-callsign]'); await pause(p); }],
-  ["view", async (p) => { await p.click(".fc.vw"); await pause(p); }],
-  ["filter-new", async (p) => { await p.click(".fc.add"); await pause(p); }],
-  ["names", async (p) => { await p.click(".bd-row[data-callsign]"); await pause(p); await p.click('[data-act="names"]'); await pause(p); }],
-  ["card-settings", async (p) => { await p.click(".bd-row[data-callsign]"); await pause(p); await p.click('.cw-tabs [data-tab="set"]'); await pause(p); }],
-  ["card-log", async (p) => { await p.click(".bd-row[data-callsign]"); await pause(p); await p.click('.cw-tabs [data-tab="log"]'); await pause(p); }],
-  ["new", async (p) => { await p.click("[data-new]"); await pause(p); }],
-  ["new-place", async (p) => { await p.click(".pj-add"); await pause(p, 300); }],
-  ["new-prof", async (p) => { await p.click(".pj-add"); await pause(p, 300); await p.click('[data-pop="prof"]'); await pause(p); }],
-  ["new-model", async (p) => { await p.click(".pj-add"); await pause(p, 300); await p.click('[data-pop="model"]'); await pause(p); }],
-  ["new-path", async (p) => { await p.click(".pj-add"); await pause(p, 300); await p.fill('[data-f="addr"]', "~/projects/new/deep"); await pause(p, 300); }],
-  ["inbox", async (p) => { await go(p, "#inbox"); }],
-  ["incidents", async (p) => { await go(p, "#incidents"); }],
-  ["accounts", async (p) => { await go(p, "#accounts"); await pause(p, 300); }],
-  ["accounts-login", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click("[data-login-start]"); await pause(p, 300); }],
-  ["accounts-entry", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-entry.res"); await pause(p); }],
-  ["accounts-diff", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-warn"); await pause(p); }],
-  ["accounts-machine", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-mname"); await pause(p, 300); }],
-  ["profiles", async (p) => { await go(p, "#profiles"); await pause(p, 400); }],
-  ["profiles-open", async (p) => { await go(p, "#profiles"); await pause(p, 400); await p.click(".pf-w.cf .pf-r"); await pause(p); }],
-  ["journal", async (p) => { await go(p, "#journal"); await pause(p, 300); }],
-  ["points", async (p) => { await go(p, "#points"); await pause(p, 300); }],
-  ["settings", async (p) => { await go(p, "#settings"); await pause(p, 300); }],
-  ["settings-passes", async (p) => { await go(p, "#settings?tab=passes"); await pause(p, 300); }],
-  ["settings-general", async (p) => { await go(p, "#settings?tab=general"); await pause(p, 300); }],
-];
-const PHONE = [
-  ["work", async (p) => { await go(p, "#sessions"); }],
-  ["card", async (p) => { await go(p, "#sessions"); await p.click(".bd-row:not(:has(.sb-badge.wait))"); await pause(p); }],
-  ["card-more", async (p) => { await go(p, "#sessions"); await p.click(".bd-row:not(:has(.sb-badge.wait))"); await pause(p); await p.click('[data-tab="info"]'); await pause(p); }],
-  ["ask", async (p) => { await go(p, "#sessions"); await p.click(".bd-row:has(.sb-badge.wait)"); await pause(p, 300); }],
-  ["view", async (p) => { await go(p, "#sessions"); await p.click(".fc.vw"); await pause(p); }],
-  ["filter-new", async (p) => { await go(p, "#sessions"); await p.click(".fc.add"); await pause(p); }],
-  ["find", async (p) => { await go(p, "#sessions"); await p.click("[data-find]"); await pause(p); }],
-  ["names", async (p) => { await go(p, "#sessions"); await p.click(".bd-row:not(:has(.sb-badge.wait))"); await pause(p); await p.click('[data-tab="info"]'); await pause(p); await p.click('[data-act="names"]'); await pause(p); }],
-  ["new", async (p) => { await go(p, "#sessions"); await p.click("[data-new]"); await pause(p); }],
-  ["new-place", async (p) => { await go(p, "#sessions"); await p.click(".pj-add"); await pause(p, 300); }],
-  ["new-prof", async (p) => { await go(p, "#sessions"); await p.click(".pj-add"); await pause(p, 300); await p.click('[data-pop="prof"]'); await pause(p); }],
-  ["new-model", async (p) => { await go(p, "#sessions"); await p.click(".pj-add"); await pause(p, 300); await p.click('[data-pop="model"]'); await pause(p); }],
-  ["new-machines", async (p) => { await go(p, "#sessions"); await p.click("[data-new]"); await pause(p); await p.click('[data-act="pick-machine"]'); await pause(p, 300); }],
-  ["new-path-m", async (p) => { await go(p, "#sessions"); await p.click(".pj-add"); await pause(p, 300); await p.fill('[data-f="addr"]', "~/projects/new/deep"); await pause(p, 300); }],
-  ["inbox", async (p) => { await go(p, "#inbox"); }],
-  ["fleet-accounts", async (p) => { await go(p, "#accounts"); await pause(p, 300); }],
-  ["fleet-accounts-login", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click("[data-login-start]"); await pause(p, 300); }],
-  ["fleet-accounts-entry", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-entry.res"); await pause(p); }],
-  ["fleet-accounts-diff", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-warn"); await pause(p); }],
-  ["fleet-accounts-machine", async (p) => { await go(p, "#accounts"); await pause(p, 300); await p.click(".ac-mname"); await pause(p, 300); }],
-  ["fleet-profiles", async (p) => { await go(p, "#profiles"); await pause(p, 400); }],
-  ["fleet-profiles-open", async (p) => { await go(p, "#profiles"); await pause(p, 400); await p.click(".pf-w.cf .pf-r"); await pause(p); }],
-  ["fleet-incidents", async (p) => { await go(p, "#incidents"); }],
-  ["fleet-settings", async (p) => { await go(p, "#settings"); await pause(p, 300); }],
-];
-
-  const b = await launch();
-  const fails = [];
-  const trees = {};
-  for (const [app, list, viewport] of [["pult", PULT, { width: 1280, height: 800 }], ["phone", PHONE, { width: 390, height: 780 }]]) {
-    for (const kind of ["small", "big"]) {
-      for (const scheme of ["light", "dark"]) {
-        // тёмная — только малый флот: цвета те же
-        if (scheme === "dark" && kind === "big") continue;
-        for (const [name, act] of list) {
-          const id = `${app}-${kind}-${scheme}-${name}`;
-          if (filter && !id.includes(filter)) continue;
-          // большой флот — только там, где длина важна
-          if (kind === "big" && !/^(work|view|filter-new|new|profiles|fleet-profiles|find|accounts|fleet-accounts)/.test(name)) continue;
-          const ctx = await appContext(b, app, viewport, scheme);
-          const p = await ctx.newPage();
-          const errs = errorsOf(p, true);
-          try {
-            await p.goto(url(app, kind, app === "pult" ? "#sessions" : "#sessions"));
-            await p.waitForSelector(".bd-list .fbar .fc", { timeout: 4000 });
-            await pause(p, 250);
-            await act(p);
-            await p.screenshot({ path: path.join(OUT, id + ".png") });
-            if (process.env.SHOTS_DOM) trees[id] = await treeOf(p);
-            const over = await overflow(p, "body *", ".fscroll, .op-pre, .sb-navrow, .cw-tabs", true);
-            if (over.x > 0 || over.bad.length) fails.push(`${id}: выход за край ${over.x}px ${over.bad.join(" | ")}`);
-          } catch (e) {
-            fails.push(`${id}: ${e.message.split("\n")[0]}`);
-          }
-          if (errs.length) fails.push(`${id}: ошибки ${errs.slice(0, 2).join(" | ").slice(0, 200)}`);
-          await ctx.close();
-        }
-      }
-    }
+for (const [app, screens] of [["pult", PULT_SCREENS], ["phone", PHONE_SCREENS]]) {
+  for (const [kind, scheme] of [["small", "light"], ["small", "dark"], ["big", "light"]]) {
+    for (const screen of screens) await shot(app, kind, scheme, screen);
   }
-  await b.close();
-  if (process.env.SHOTS_DOM) writeFileSync(process.env.SHOTS_DOM, JSON.stringify(trees));
-  console.log(fails.length ? fails.join("\n") : `без замечаний · снимки в ${OUT}`);
-  process.exit(fails.length ? 1 : 0);
+}
+await browser.close();
+if (process.env.SHOTS_DOM) writeFileSync(process.env.SHOTS_DOM, JSON.stringify(trees));
+console.log(notes.length ? notes.join("\n") : `без замечаний · снимки в ${OUT}`);
+process.exit(notes.length ? 1 : 0);

@@ -1,61 +1,74 @@
-// Общее у браузерных проверок: строка проверки, окно приложения, ошибки страницы, выход за край.
-export const pause = (p, ms = 200) => p.waitForTimeout(ms);
+// Помощники проверок в браузере: что смотрит сценарий на странице стенда.
+import path from "node:path";
 
-/** Счётчик проверок: строка ✓ или ✗ на каждую; bad() — сколько не прошло. */
 export function checker() {
-  let bad = 0;
-  const check = (name, ok, extra = "") => {
-    console.log(`${ok ? "✓" : "✗"} ${name}${extra !== "" ? " · " + extra : ""}`);
-    if (!ok) bad++;
+  let failed = 0;
+  return {
+    check(name, ok, detail) {
+      if (!ok) failed++;
+      console.log(`${ok ? "✓" : "✗"} ${name}${detail === undefined || detail === "" ? "" : ` · ${detail}`}`);
+    },
+    bad: () => failed,
   };
-  return { check, bad: () => bad };
 }
 
-/** Дерево DOM приложения в строках: разметка, размеры, значения полей, фокус и адрес. Для tools/demolish dom-diff. */
-export const treeOf = (p) =>
-  p.evaluate(() => {
+/** Ошибки страницы; с console — и консоль, кроме шума. Список живой: растёт, пока страница работает. */
+export function errorsOf(page, console = false, noise = null) {
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  if (console) page.on("console", (m) => { if (m.type() === "error" && !noise?.test(m.text())) errors.push(m.text()); });
+  return errors;
+}
+
+function appContext(browser, app, viewport, colorScheme) {
+  const phone = app === "phone";
+  return browser.newContext({ viewport, colorScheme, deviceScaleFactor: phone ? 2 : 1, hasTouch: phone, isMobile: phone });
+}
+
+/** Вылет документа вправо и элементы за правым краем вне разрешённых мест. */
+const overflow = (page, selector, allowed) =>
+  page.evaluate(([sel, ok]) => {
+    const width = document.documentElement.clientWidth;
+    const out = [...document.querySelectorAll(sel)].filter((e) => {
+      const r = e.getBoundingClientRect();
+      return r.width > 0 && r.right > width + 1 && !e.closest(ok);
+    });
+    return { x: document.documentElement.scrollWidth - width, bad: out.map((e) => e.getAttribute("class") ?? e.tagName) };
+  }, [selector, allowed]);
+
+/** Снимок окна приложения: open доводит страницу, after смотрит её после снимка; замечания — ошибка шага, выход за край, ошибки страницы. */
+export async function snap(browser, { id, app, viewport, scheme, dir, scope, allowed, noise, open, after }, notes) {
+  const ctx = await appContext(browser, app, viewport, scheme);
+  const page = await ctx.newPage();
+  const errors = errorsOf(page, true, noise);
+  try {
+    await open(page);
+    await page.screenshot({ path: path.join(dir, `${id}.png`) });
+    await after?.(page);
+    const over = await overflow(page, scope, allowed);
+    if (over.x > 0 || over.bad.length) notes.push(`${id}: выход за край ${over.x} px ${over.bad.slice(0, 4).join(" | ")}`);
+  } catch (e) {
+    notes.push(`${id}: ${e.message.split("\n")[0]}`);
+  }
+  if (errors.length) notes.push(`${id}: ошибки ${errors.slice(0, 2).join(" | ").slice(0, 240)}`);
+  await ctx.close();
+}
+
+/** Дерево DOM приложения строками: разметка, размеры и адрес — вход dom-diff. */
+export const treeOf = (page) =>
+  page.evaluate(() => {
     const lines = [];
-    const walk = (el, depth) => {
-      if (el.tagName === "STYLE" || el.tagName === "SCRIPT") return;
-      const attrs = [...el.attributes].map((a) => `${a.name}="${a.value}"`).sort().join(" ");
-      const r = el.getBoundingClientRect();
-      const size = r.width || r.height ? ` [${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.x)},${Math.round(r.y)}]` : " [нет]";
-      lines.push(`${" ".repeat(depth)}<${el.tagName.toLowerCase()}${attrs ? " " + attrs : ""}>${size}`);
-      if (el.tagName === "INPUT" || el.tagName === "TEXTAREA") lines.push(`${" ".repeat(depth + 1)}value=${JSON.stringify(el.value)}`);
-      for (const c of el.childNodes) {
-        if (c.nodeType === 3 && c.textContent) lines.push(`${" ".repeat(depth + 1)}"${c.textContent}"`);
-        else if (c.nodeType === 1) walk(c, depth + 1);
-      }
+    const walk = (node, depth) => {
+      const pad = " ".repeat(depth);
+      if (node.nodeType === Node.TEXT_NODE) return void lines.push(`${pad}"${node.data}"`);
+      if (node.nodeType !== Node.ELEMENT_NODE || node.matches("script, style")) return;
+      const attrs = [...node.attributes].map((a) => ` ${a.name}="${a.value}"`).sort().join("");
+      const r = node.getBoundingClientRect();
+      const box = r.width || r.height ? `${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.x)},${Math.round(r.y)}` : "нет";
+      lines.push(`${pad}<${node.tagName.toLowerCase()}${attrs}> [${box}]`);
+      if (node.matches("input, textarea")) lines.push(`${pad} value="${node.value}"`);
+      for (const child of node.childNodes) walk(child, depth + 1);
     };
     walk(document.getElementById("app"), 0);
-    lines.push(`адрес: ${location.hash}`);
-    return lines.join("\n");
+    return `${lines.join("\n")}\nадрес: ${location.hash}`;
   });
-
-/** Окно приложения: телефон — двойная плотность и касания. */
-export const appContext = (b, app, viewport, colorScheme) => b.newContext({ viewport, colorScheme, deviceScaleFactor: app === "phone" ? 2 : 1, hasTouch: app === "phone", isMobile: app === "phone" });
-
-/** Что страница пишет об ошибках: исключения; console — если нужен и он (ignore — что в нём не считается). */
-export function errorsOf(p, console_ = false, ignore = null) {
-  const errs = [];
-  p.on("pageerror", (e) => errs.push(e.message));
-  if (console_) p.on("console", (m) => m.type() === "error" && !ignore?.test(m.text()) && errs.push(m.text()));
-  return errs;
-}
-
-/** Выход за правый край: прокрутка страницы и первые элементы внутри scope, кроме тех, кому это можно. */
-export const overflow = (p, scope, except, skipFixed) =>
-  p.evaluate(
-    ([scope, except, skipFixed]) => {
-      const de = document.documentElement;
-      const bad = [...document.querySelectorAll(scope)]
-        .filter((e) => {
-          const r = e.getBoundingClientRect();
-          return r.width > 0 && r.right > innerWidth + 1 && !(skipFixed && getComputedStyle(e).position === "fixed") && !e.closest(except);
-        })
-        .slice(0, 4)
-        .map((e) => e.className || e.tagName);
-      return { x: de.scrollWidth - de.clientWidth, bad };
-    },
-    [scope, except, skipFixed],
-  );
