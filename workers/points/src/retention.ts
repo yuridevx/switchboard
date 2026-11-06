@@ -13,7 +13,7 @@ const weekOf = (t: number) => Math.floor((Math.floor(t / DAY) + 3) / 7);
 export function lineOf(nodes: Node[], head: number): Set<number> {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const line = new Set<number>();
-  for (let n = byId.get(head); n; n = n.base === null ? undefined : byId.get(n.base)) line.add(n.id);
+  for (let n = byId.get(head); n; n = byId.get(n.base as number)) line.add(n.id);
   return line;
 }
 
@@ -42,7 +42,7 @@ export function expiries(nodes: Node[], head: number): Map<number, number | null
     const t = end.at + YEAR;
     hold(end.id, t);
     let n: Node | undefined = end;
-    while (n && !line.has(n.id)) n = n.base === null ? undefined : byId.get(n.base);
+    while (n && !line.has(n.id)) n = byId.get(n.base as number);
     if (n) hold(n.id, t);
   }
   until.set(head, null);

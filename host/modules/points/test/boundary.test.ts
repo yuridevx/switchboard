@@ -658,6 +658,12 @@ describe("points: покрытие плана host-modules", () => {
     // поднятая здесь лишняя: на закрытии точки нет
     await new Promise((r) => setTimeout(r, 50));
     expect(b.reg.puts.map((p) => p.why)).toEqual(["raise"]);
+    // другой отказ реестра поднятую не убирает
+    b.reg.refuseNext = { error: "disconnected" };
+    const other = "other-sid";
+    b.reg.seed(319, other, "laptop", { [`${other}.jsonl`]: conv(5) });
+    expect(await ask({ type: "points.raise", machine: "pc", sid: other, point: 319, name: "other", dir: join(home, "Projects", "other") })).toMatchObject({ ok: false, error: "disconnected" });
+    expect(b.manage.map((m) => m.type)).toEqual(["session.open", "session.remove", "session.open"]);
   });
 
   it("3091 · прежний хозяин недоступен — подъём удался, отказ remove в журнале", async () => {
@@ -695,8 +701,13 @@ describe("points: покрытие плана host-modules", () => {
     b = await bench({ home });
     const s = await marked();
     const n = puts("rule").length;
+    b.reg.refuseNext = { error: "disconnected" };
     await s.stop();
     await until(() => puts("rule").length === n + 1);
+    // отказ, кроме not_owner, сессию отсюда не уводит
+    await new Promise((r) => setTimeout(r, 30));
+    expect(puts("yield")).toHaveLength(0);
+    expect(b.manage).toEqual([]);
   });
 
   it("3095 · процесс claude умер — точка дописанного на закрытии, после resume точки старта нет", async () => {

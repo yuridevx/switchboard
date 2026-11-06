@@ -23,7 +23,6 @@ const sameRepo = (a: string, b: string) => a.replace(/(\.git)?\/?$/, "") === b.r
 
 /** Сводка папки и пакет, если в ней есть то, чего нет на remote; папка не под git — ничего. */
 export async function snapshot(cwd: string): Promise<{ summary: Summary; bundle?: Buffer } | undefined> {
-  if (!existsSync(cwd)) return undefined;
   const commit = await quiet(cwd, ["rev-parse", "HEAD"]);
   if (!commit) return undefined;
   const files = await changed(cwd);

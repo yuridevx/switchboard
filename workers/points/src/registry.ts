@@ -43,7 +43,7 @@ const pointOf = (db: D1Database, id: number) => db.prepare("SELECT * FROM points
 async function ledger(env: Env, row: { ev: string; text: string; machine: string; callsign?: string; by?: unknown }) {
   const { by, ...rest } = row;
   const line = { type: "ledger.add", v: 1, to: ".ledger", from: ".points", ...rest, ...(by ? { by } : {}) };
-  await within(env.LEDGER.frame(line), "журнал флота не ответил").catch((e) => log({ kind: "note", ev: "ledger", why: String(e) }));
+  await within(env.LEDGER.frame(line), "журнал флота не ответил").catch((e) => log({ kind: "refuse", ev: "ledger.add", word: "offline", why: `${row.text}: ${e}` }));
 }
 
 /** Блоки без единой ссылки уходят из R2 и из реестра; чужих объектов бакета уборка не знает. */
@@ -220,7 +220,7 @@ export async function sweep(env: Env): Promise<void> {
     for (const n of own) {
       let base = n.base;
       while (base !== null && dead.has(base)) base = dead.get(base)!.base;
-      if (!dead.has(n.id) && base !== n.base) moves.push(db.prepare("UPDATE points SET base = ? WHERE id = ?").bind(base, n.id));
+      if (base !== n.base) moves.push(db.prepare("UPDATE points SET base = ? WHERE id = ?").bind(base, n.id));
     }
   }
   const ids = JSON.stringify(gone);
