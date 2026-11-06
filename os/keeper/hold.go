@@ -31,7 +31,7 @@ import (
 var ownerWait = time.Minute
 
 const (
-	frameLimit = 4 << 20          // кадр хозяина и накопленный без хозяина вывод
+	frameLimit = 4 << 20          // кадр хозяина
 	keyWait    = 10 * time.Second // кадр ключа после соединения
 	drainWait  = 5 * time.Second  // дочитать трубы после выхода: потомок вне задания держит их открытыми
 	chunk      = 32 << 10         // вывод хозяину — кусками: кадр не больше предела
@@ -104,8 +104,8 @@ type holder struct {
 	input    [][]byte      // ввод в очереди; nil — закрыть ввод
 	gone     chan string   // хозяин забрал выход и закрыл соединение
 	osSignal chan struct{} // закрыт: сигнал остановки ОС получен
-	// killed — дерево убито по кадру хозяина; ended — процесс вышел; cut — трубы больше не дочитываются
-	killed, ended, cut bool
+	// killed — дерево убито по кадру хозяина; ended — процесс вышел
+	killed, ended bool
 }
 
 func runHold(args []string) int {
@@ -202,10 +202,6 @@ func (h *holder) serve() error {
 	case <-drained:
 	case <-time.After(drainWait):
 		h.line("stop", "held_drain", "why", fmt.Sprintf("труба вывода открыта и через %v после выхода процесса", drainWait))
-		h.mu.Lock()
-		h.cut = true
-		h.cond.Broadcast()
-		h.mu.Unlock()
 		outR.Close()
 		errR.Close()
 		<-drained
@@ -307,7 +303,7 @@ func (h *holder) writeInput(w *os.File) {
 	}
 }
 
-// readOut — stdout: хозяину кадрами, вывод части машины — ещё и в журнал. Без хозяина копит до frameLimit, дальше процесс ждёт.
+// readOut — stdout: хозяину кадрами, вывод части машины — ещё и в журнал. Без хозяина копит: процесс не ждёт упавшего keeper.
 func (h *holder) readOut(r *os.File) {
 	lines := lineSplitter(func(l string) {
 		if h.spec.owner == "keeper" {
@@ -320,9 +316,6 @@ func (h *holder) readOut(r *os.File) {
 		if n > 0 {
 			lines(buf[:n])
 			h.mu.Lock()
-			for len(h.out) >= frameLimit && !h.cut {
-				h.cond.Wait()
-			}
 			h.out = append(h.out, buf[:n]...)
 			h.cond.Broadcast()
 			h.mu.Unlock()
