@@ -1,5 +1,6 @@
 // Леса ключа флота на машине: настоящее ядро Host на поддельных SDK и relay, модуль ключей флота — участник рации. Папки — настоящие, во временной папке.
 // Что claude действительно читает команду токена и окно 200K — в live.test.ts. Номер эталона — номер теста.
+import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -277,7 +278,7 @@ describe("ключ флота на машине", () => {
     const calls: Array<{ args: string[]; env: Record<string, string | undefined>; helper: string }> = [];
     st!.sdk.cli = async (args, env) => {
       const settings = JSON.parse(args[args.indexOf("--settings") + 1]) as { apiKeyHelper: string };
-      calls.push({ args, env, helper: readFileSync(settings.apiKeyHelper.slice(5, -1), "utf8") });
+      calls.push({ args, env, helper: execSync(settings.apiKeyHelper, { encoding: "utf8", env: { PATH: "", ComSpec: process.env.ComSpec } }).trim() });
       return { code: 0, out: answer({ is_error: false, result: "ok" }) };
     };
     const r = await ask({ type: "machine.key_check", name: "orca" });

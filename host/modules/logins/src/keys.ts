@@ -8,6 +8,8 @@ export type KeyAnswer = KeyConfig & { key: string };
 
 const TOKEN = "token";
 const CONFIG = "key.json";
+/** Прямые косые: путь в команде токена читают и cmd, и bash, и JS-строка. */
+const posix = (p: string) => p.split("\\").join("/");
 
 export function keyFolders(home: string) {
   const root = join(home, "fleetkeys");
@@ -29,8 +31,8 @@ export function keyFolders(home: string) {
   const read = (name: string): KeyConfig | null => (has(name) ? (JSON.parse(readFileSync(join(dir(name), CONFIG), "utf8")) as KeyConfig) : null);
   const remove = (name: string) => rmSync(dir(name), { recursive: true, force: true, maxRetries: 3 });
   const names = () => (existsSync(root) ? readdirSync(root) : []);
-  /** Команда токена: cat в оболочке claude, на Windows это Git Bash — ей нужны прямые косые. */
-  const helper = (name: string) => `cat "${join(dir(name), TOKEN).replaceAll("\\", "/")}"`;
+  /** Команда токена: claude запускает её оболочкой системы, на Windows это cmd, а под службой cat в PATH нет. Тот же node, что у Host, и прямые косые — работает в обеих оболочках. */
+  const helper = (name: string) => `"${posix(process.execPath)}" -p "require('fs').readFileSync('${posix(join(dir(name), TOKEN))}','utf8')"`;
 
   return { dir, has, write, read, remove, names, helper };
 }
