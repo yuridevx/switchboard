@@ -60,12 +60,12 @@ it("след понятия вне владельца будит владель�
 });
 
 it("именной: не рождается и не снимается переписью, его дом помечается, исчезнувший дом — вопрос человеку", () => {
-  put(".claude/slopik/named/страж.md", "# Страж"+String.fromCharCode(92)+"n"+String.fromCharCode(92)+"nдом: `b`, `lost`"+String.fromCharCode(92)+"n");
+  put(".claude/slopik/named/страж.md", "# Страж"+String.fromCharCode(10)+String.fromCharCode(10)+"дом: `b`, `lost`"+String.fromCharCode(10));
   commit();
   const c = census(root);
   assert.deepEqual(c.born, []);
   assert.deepEqual(c.orphaned, [{ name: "страж", house: "lost" }]);
-  put("workers/b/src/index.ts", "export class Refusal {}"+String.fromCharCode(92)+"n");
+  put("workers/b/src/index.ts", "export class Refusal {}"+String.fromCharCode(10));
   commit();
   pass({ confirmed: 1, rejected: 0, queue: 0 }, git("rev-parse", "HEAD~1"));
   assert.equal(census(root).wake.find((w) => w.why === "правка")?.named, "страж");
