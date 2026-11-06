@@ -35,6 +35,7 @@ const (
 	keyWait    = 10 * time.Second // кадр ключа после соединения
 	drainWait  = 5 * time.Second  // дочитать трубы после выхода: потомок вне задания держит их открытыми
 	chunk      = 32 << 10         // вывод хозяину — кусками: кадр не больше предела
+	signalWait = time.Second      // процесс вышел по SIGTERM: столько ждать своего сигнала — ОС шлёт их всей группе без порядка
 )
 
 func writeFrame(w io.Writer, t byte, data []byte) error {
@@ -89,21 +90,22 @@ func parseHold(args []string) (holdSpec, bool) {
 }
 
 type holder struct {
-	spec   holdSpec
-	home   string
-	j      *journal
-	proc   *os.Process
-	tree   *tree
-	mu     sync.Mutex
-	cond   *sync.Cond
-	out    []byte   // stdout, ещё не отданный хозяину
-	owner  net.Conn // нынешний хозяин
-	exit   *exitInfo
-	sentTo net.Conn    // последний хозяин, которому отдан выход
-	input  [][]byte    // ввод в очереди; nil — закрыть ввод
-	gone   chan string // хозяин забрал выход и закрыл соединение
-	// osStop — ввод закрыт по сигналу ОС; killed — дерево убито по кадру хозяина; ended — процесс вышел; cut — трубы больше не дочитываются
-	osStop, killed, ended, cut bool
+	spec     holdSpec
+	home     string
+	j        *journal
+	proc     *os.Process
+	tree     *tree
+	mu       sync.Mutex
+	cond     *sync.Cond
+	out      []byte   // stdout, ещё не отданный хозяину
+	owner    net.Conn // нынешний хозяин
+	exit     *exitInfo
+	sentTo   net.Conn      // последний хозяин, которому отдан выход
+	input    [][]byte      // ввод в очереди; nil — закрыть ввод
+	gone     chan string   // хозяин забрал выход и закрыл соединение
+	osSignal chan struct{} // закрыт: сигнал остановки ОС получен
+	// killed — дерево убито по кадру хозяина; ended — процесс вышел; cut — трубы больше не дочитываются
+	killed, ended, cut bool
 }
 
 func runHold(args []string) int {
@@ -117,7 +119,7 @@ func runHold(args []string) int {
 		fmt.Fprintln(os.Stderr, "hold: "+err.Error())
 		return 1
 	}
-	h := &holder{spec: spec, home: home, j: newJournal(home, os.Getenv("SWITCHBOARD_MACHINE")), gone: make(chan string, 1)}
+	h := &holder{spec: spec, home: home, j: newJournal(home, os.Getenv("SWITCHBOARD_MACHINE")), gone: make(chan string, 1), osSignal: make(chan struct{})}
 	h.cond = sync.NewCond(&h.mu)
 	if err := h.serve(); err != nil {
 		h.line("stop", "hold_failed", "why", err.Error())
@@ -235,7 +237,6 @@ func (h *holder) serve() error {
 func (h *holder) exitOf(state *os.ProcessState, stderr string) exitInfo {
 	x := exitInfo{Stderr: stderr}
 	h.mu.Lock()
-	x.OSStop = h.osStop
 	killed := h.killed
 	h.mu.Unlock()
 	sig := ""
@@ -251,16 +252,26 @@ func (h *holder) exitOf(state *os.ProcessState, stderr string) exitInfo {
 		c := state.ExitCode()
 		x.Code = &c
 	}
+	if sig == "SIGTERM" {
+		select {
+		case <-h.osSignal:
+		case <-time.After(signalWait):
+		}
+	}
+	select {
+	case <-h.osSignal:
+		x.OSStop = true
+	default:
+	}
 	return x
 }
 
 // signals — сигнал остановки ОС: ввод процесса закрыт, выход отдаётся с os_stop; убивает процесс по-прежнему ОС.
 func (h *holder) signals(sig chan os.Signal) {
+	var once sync.Once
 	for s := range sig {
+		once.Do(func() { close(h.osSignal) }) // первым делом: процесс мог получить тот же сигнал и уже выходит
 		h.line("note", "hold_signal", "signal", s.String())
-		h.mu.Lock()
-		h.osStop = true
-		h.mu.Unlock()
 		h.queue(nil)
 	}
 }

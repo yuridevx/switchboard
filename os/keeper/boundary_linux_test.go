@@ -183,19 +183,27 @@ func TestEtNameGracefulStop(t *testing.T) {
 }
 
 // Остановка ОС: держатель закрыл ввод части по сигналу — выход не падение: без перезапуска и без part.failed, в том числе когда сигнал пришёл и
-// самому процессу (ВМ win11-2 1 нояб.: на перезагрузке держатель узнал об остановке на 5 с раньше службы; выключение шлёт SIGTERM всей cgroup).
+// самому процессу, и в любом порядке (ВМ win11-2 1 нояб.: на перезагрузке держатель узнал об остановке на 5 с раньше службы; выключение шлёт SIGTERM
+// всей cgroup, порядка нет; серия 6 нояб.: процесс вышел раньше, чем держатель отметил сигнал, — падение и перезапуск, 2 из 30 и на старом коде).
 func TestEtOSStopIsNotCrash(t *testing.T) {
-	for _, both := range []bool{false, true} {
+	for _, order := range []string{"держатель", "держатель и процесс", "процесс, затем держатель"} {
 		s := newStand(t)
 		s.relay.setPlan(plan1(1, s.links.part("capture", "1.3.2", appFiles(""), on)))
 		k := s.start()
 		waitFor(t, "running", running(k, "capture", ""))
 		hf := heldOf(s.home, "capture")
-		syscall.Kill(hf.Holder, syscall.SIGTERM)
-		if both {
+		switch order {
+		case "держатель":
+			syscall.Kill(hf.Holder, syscall.SIGTERM)
+		case "держатель и процесс":
+			syscall.Kill(hf.Holder, syscall.SIGTERM)
 			syscall.Kill(hf.Pid, syscall.SIGTERM)
+		default:
+			syscall.Kill(hf.Pid, syscall.SIGTERM)
+			time.Sleep(100 * time.Millisecond) // процесс вышел первым: держатель узнаёт об остановке позже
+			syscall.Kill(hf.Holder, syscall.SIGTERM)
 		}
-		waitFor(t, "stopped", func() bool { return partOf(k, "capture").State == "stopped" })
+		waitFor(t, "stopped: "+order, func() bool { return partOf(k, "capture").State == "stopped" })
 		time.Sleep(time.Second)
 		starts := count(s.home, J{"ev": "part_start"})
 		if p := partOf(k, "capture"); p.State != "stopped" || p.Restarts != 0 || starts != 1 || s.relay.ledgerHas("part.failed") || !has(s.home, J{"part": "capture", "ev": "part_exit", "why": sub("остановка ОС")}) {
