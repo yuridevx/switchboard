@@ -630,6 +630,14 @@ describe("points: покрытие плана host-modules", () => {
     expect(existsSync(fileOf(s.info.cwd, open.resume as string))).toBe(false);
   });
 
+  it.each(["points.save", "session.r2"])("%s без callsign: отказ offline, модуль на машине работает дальше", async (type) => {
+    // чьё: код — прежний sessionOf: сессии нет — offline; вход рации: кадр доходит по machine от любого пропуска
+    b = await bench({ home });
+    await marked();
+    expect(await ask({ type, machine: "laptop" })).toMatchObject({ ok: false, error: "offline" });
+    expect(await ask({ type: "points.save", callsign: "site@laptop" })).toMatchObject({ ok: true });
+  });
+
   it("3086 · points.save со стопом и interrupt — ход прерван, точка после остановки", async () => {
     // источник: чьё: код (points.ts:322-331)
     b = await bench({ home });
