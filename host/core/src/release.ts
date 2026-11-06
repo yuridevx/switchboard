@@ -15,8 +15,8 @@ export type Release = { version: string; sdk: string; modules: ModuleEntry[]; wo
 const json = <T>(path: string) => JSON.parse(readFileSync(path, "utf8")) as T;
 
 async function loadModule(dir: string, manifest: Manifest): Promise<ModuleEntry> {
-  const { exports } = json<{ exports?: Record<string, string> }>(join(dir, "package.json"));
   try {
+    const { exports } = json<{ exports?: Record<string, string> }>(join(dir, "package.json"));
     const { default: module } = (await import(pathToFileURL(join(dir, exports?.["."] ?? "contract.ts")).href)) as { default?: Module };
     return module ? { manifest, module } : { manifest, module: {}, failed: `${manifest.name}: импорт: нет default — объекта модуля` };
   } catch (e) {
@@ -58,8 +58,9 @@ export const claudeCli =
       const p = spawn(bin, args, { env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
       let out = "";
       const timer = setTimeout(() => {
-        out += `claude не ответил за ${ms / 1000} с`;
         p.kill("SIGKILL");
+        // ответ сейчас: close ждёт и потомков, которые держат вывод
+        resolve({ code: null, out: `${out}claude не ответил за ${ms / 1000} с` });
       }, ms);
       p.stdout.on("data", (d) => (out += d));
       p.stderr.on("data", (d) => (out += d));

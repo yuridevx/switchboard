@@ -479,6 +479,16 @@ describe("ловушка ошибок модуля", () => {
     expect(st.states(CS).at(-1)!.failed).toHaveProperty("host-a");
   });
 
+  it("ответ модуля не ложится в JSON: Host жив, причина в журнале, другие запросы отвечают", async () => {
+    // источник: устав «ошибка модуля — модуль выключен», Host не падает из-за модуля; строка журнала — «система ловит»
+    const st = await stand({ modules: [module("host-bad", { requests: { "bad.big": () => ({ n: 1n }), "bad.ok": () => "да" } })] });
+    void st.relay.request({ type: "bad.big", v: 1 });
+    await until(() => lines(st, "reply").length);
+    expect(lines(st, "reply")[0]).toMatchObject({ kind: "stop", word: "module_error" });
+    expect(String(lines(st, "reply")[0].why)).toContain("bad.big");
+    expect(await st.relay.request({ type: "bad.ok", v: 1 })).toMatchObject({ ok: true, result: "да" });
+  });
+
   it("317 · обработчик владельца упал — module_error, владелец выключен в сессии запроса, причина в журнале; дальше — module_error без вызова, другой модуль отвечает", async () => {
     // источник: устав — ошибка модуля: модуль выключен, в roster failed; слово module_error — чьё: код
     let calls = 0;

@@ -32,9 +32,9 @@ const reached = (c: Seated, to: string) => reaches(to, c.addr) || (isSession(to)
 function addressesOf(f: Frame): string[] | string {
   if (Array.isArray(f.to)) {
     if (f.id !== undefined || !f.to.length) return "to списком — только непустой и у кадра без id";
-    return f.to.every(kindOf) ? f.to : `не адрес: ${f.to}`;
+    return f.to.every(kindOf) ? f.to : `не адрес: ${JSON.stringify(f.to)}`;
   }
-  if (f.to !== undefined) return kindOf(f.to) ? [f.to] : `не адрес: ${f.to}`;
+  if (f.to !== undefined) return kindOf(f.to) ? [f.to] : `не адрес: ${JSON.stringify(f.to)}`;
   const machine = hostOf(f);
   if (machine === undefined) return "нет адреса";
   return machine === null ? `не адрес: ${f.callsign}` : [`@${machine}`];
@@ -163,7 +163,7 @@ export class Fleet extends DurableObject<Env> {
     if (f.type === "session.state") return this.onSessionState(ws, card, f, no);
     if (f.type === "hello" || f.type === "roster") return no(BAD_FRAME, "имя relay");
     const from = f.from ?? card.addr;
-    if (from !== card.addr && !(isSession(from) && hostAddress(from) === card.addr)) return no("bad_from", `from ${from}`);
+    if (from !== card.addr && !(isSession(from) && hostAddress(from) === card.addr)) return no("bad_from", `from ${JSON.stringify(from)}`);
     const to = addressesOf(f);
     if (typeof to === "string") return no(BAD_FRAME, to);
     if (!this.send({ ...f, from }, to)) this.refuse(ws, f.id, "offline", `${from} ${f.type} → ${to}`);
@@ -196,7 +196,7 @@ export class Fleet extends DurableObject<Env> {
   private seat(who: Verified, f: Frame): Seated | [string, string] {
     if (!this.env.PROTO.includes(f.proto as number)) return ["contract_mismatch", `proto ${JSON.stringify(f.proto)}`];
     const mine = who.addr === `@${this.machine}`;
-    if (f.part !== undefined && (f.part !== "keeper" || !mine)) return [BAD_FRAME, `part ${f.part} с пропуском ${who.addr}`];
+    if (f.part !== undefined && (f.part !== "keeper" || !mine)) return [BAD_FRAME, `part ${JSON.stringify(f.part)} с пропуском ${who.addr}`];
     const base = { ver: this.ver, kid: who.kid };
     if (f.part) return { ...base, addr: `.keeper@${this.machine}` };
     if (!mine) return { ...base, addr: who.addr };
@@ -212,9 +212,9 @@ export class Fleet extends DurableObject<Env> {
       return ws.close(1008, BAD_FRAME);
     }
     ws.serializeAttachment({ ...card, checking: true });
-    const key = String(f.key);
-    // в журнал — пропуск без секрета
-    const pass = key.split(".").slice(0, -1).join(".");
+    const key = typeof f.key === "string" ? f.key : "";
+    // в журнал — пропуск без секрета: прислать его может кто угодно, длину не выбирает он
+    const pass = key.split(".").slice(0, -1).join(".").slice(0, 80);
     const shut = (word: string, why: string) => {
       console.log(`${word} ${pass} · ${why}`);
       ws.close(1008, word);

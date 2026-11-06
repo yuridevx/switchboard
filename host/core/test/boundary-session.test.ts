@@ -129,6 +129,22 @@ describe("новая сессия", () => {
     expect(st.query("copy@laptop").options).toMatchObject({ resume: "orig-0001", forkSession: true, sessionId: copy.rec.session_id });
   });
 
+  it("разговор лежит в папке другого проекта: старт из точки и открытие с resume берут его, а не начинают новый", async () => {
+    // источник: опыт на настоящем claude и SDK 6 нояб.: --resume находит разговор и в папке другого проекта, getSessionInfo с dir его там не видит, без dir — видит;
+    // откат в окне точки: файл ложится в выбранную папку, прежняя копия уходит в сторону, сессия поднимается в своей папке
+    const st = await stand({ modules: [] });
+    const site = await st.open(CS);
+    const sid = site.info.session_id;
+    await site.stop();
+    const fns = st.sdk.functions;
+    st.sdk.functions = new Proxy(fns, { get: (real, name: string) => (name === "getSessionInfo" ? async (_id: string, o?: { dir?: string }) => (o?.dir ? undefined : {}) : real[name]) });
+    await site.start({ point: 7 });
+    expect(st.query(CS).options).toMatchObject({ resume: sid });
+    expect(st.query(CS).options.sessionId).toBeUndefined();
+    await st.kernel.open({ callsign: "other@laptop", cwd: st.home, resume: "orig-0001" });
+    expect(st.query("other@laptop").options.resume).toBe("orig-0001");
+  });
+
   it("запись ядра в core.json: поля и форк — формат заморожен: его читает следующий Host", async () => {
     // источник: устав «начинает с хранилища»; формат — живые данные на машинах; чьё: код
     const st = await stand({ modules: [] });
@@ -490,6 +506,23 @@ describe("сбой процесса", () => {
     expect(lines(st, "initialize_late")[0].why).toBe("процесс не ответил на initialize за 60 с — kill");
     await until(() => site.state === "failed");
     expect(st.sdk.of("site@laptop")).toHaveLength(2);
+  });
+
+  it("initialize отказан, процесс жив — kill; дальше ветка «умер»: отказ открытия с причиной, один resume", async () => {
+    // источник: устав «процесс claude умер — один resume», слово пользователя 2 нояб. «у всех операций должен быть лимит»;
+    // опыт: claude отвечает на негодный initialize отказом и ждёт следующего запроса (в файле claude: lt(q,"initialize: …");continue), сам не выходит
+    const st = await stand({ modules: [] });
+    const query = st.sdk.query;
+    let refused = 1;
+    st.sdk.query = ((p: never) => {
+      const q = query(p) as unknown as { initializationResult(): Promise<unknown> };
+      if (refused-- > 0) q.initializationResult = () => Promise.reject(new Error("initialize: отказ"));
+      return q as never;
+    }) as never;
+    await expect(st.open(CS)).rejects.toThrow("процесс вышел до initialize");
+    expect(st.holders.ops.filter((o) => o.op === "kill")).toHaveLength(1);
+    await until(() => st.kernel.sessions.get(CS)!.state === "idle");
+    expect(st.sdk.of(CS)).toHaveLength(2);
   });
 
   it("restart модуля без ожидания: процесс не поднялся — сессия ведёт свой сбой, Host не падает", async () => {
