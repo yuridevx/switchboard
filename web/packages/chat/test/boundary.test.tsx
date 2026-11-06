@@ -2850,4 +2850,14 @@ describe("сверка строк, второй проход", () => {
     await flush(5);
     expect(t.relay.sent("question.list").filter((x) => x.callsign === IDLE)).toHaveLength(0);
   });
+
+  it("экран вопроса без связи не говорит, что вопросов нет", async () => {
+    const relay = relayList();
+    const t = await stand(parts(), { relay, pauseMs: 60_000 });
+    relay.drop();
+    await flush();
+    await open(`/#ask?callsign=${encodeURIComponent(IDLE)}`);
+    expect(t.text()).not.toContain("нет ждущих вопросов");
+    expect(t.text()).toContain("question.list: disconnected");
+  });
 });

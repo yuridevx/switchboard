@@ -104,7 +104,7 @@ export function createAskStore(app: App) {
       const cs = String(f.from);
       if (typeof f.question !== "string") {
         wanted.add(cs);
-        if (app.link() === "open") void list(cs);
+        void list(cs);
       } else {
         known.add(cs);
         const { type: _t, from: _f, ...rest } = f;
@@ -151,7 +151,7 @@ export function createAskStore(app: App) {
     /** Экран открыт: список спрашивается, если ещё не спрошен. */
     mount(cs: string) {
       mounted.set(cs, (mounted.get(cs) ?? 0) + 1);
-      if (!known.has(cs) && app.link() === "open") void list(cs);
+      if (!known.has(cs)) void list(cs);
       return () => {
         const n = mounted.get(cs)! - 1;
         if (n) mounted.set(cs, n);
