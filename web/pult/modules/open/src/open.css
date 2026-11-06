@@ -41,15 +41,7 @@
 .op.wide .op-brw{grid-template-columns:150px minmax(0,1fr);min-height:150px}
 .op.wide .op-bl button{padding:4px 8px}
 .op-body{background:var(--surface)}
-/* настройки сессии на странице: подпись слева, выбор справа, высота рядов постоянна */
-.op-set{flex:none;display:grid;grid-template-columns:74px minmax(0,1fr);gap:6px 10px;align-items:baseline;padding-top:8px;border-top:1px solid var(--line2);margin-top:4px}
-.op-set>.lb{font:500 12.5px var(--body);color:var(--muted)}
-.op-set>.op-err{grid-column:1/-1}
-.op-opts{min-width:0}
-.op-slot{min-width:0;font:500 13px var(--body)}
-.op-slot .sb-row{display:block}
-.op-slot .sb-row>span:first-child{display:none}
-.op-flt{grid-column:2;font:400 13.5px var(--body);color:var(--ink);background:none;border:0;padding:2px 0;width:100%;box-sizing:border-box;min-width:0}
+.op .pt-grid{padding-top:6px;border-top:1px solid var(--line2);margin-top:4px}
 .op-sw{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
 .op-sw button{width:34px;height:20px;border-radius:999px;background:var(--line);border:0;padding:0;position:relative;flex:none}
 .op-sw button::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--surface);transition:left .15s}

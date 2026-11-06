@@ -76,25 +76,25 @@ describe("Новая сессия", () => {
       relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/reviewer": { model: "opus" } }, repos: {} } });
       const t = await openScreen(relay, "/#open?machine=laptop&dir=~%2Freviewer");
       expect(t.$<HTMLInputElement>('[data-f="name"]')!.value).toBe("");
-      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("без профиля");
+      expect(t.$("[data-chosen]")).toBeNull();
     });
 
     it("6503 · профиль подхватывается только от сессии в этой же папке", async () => {
       const r = projRoster();
-      r.sessions.find((s) => s.callsign === "site@laptop")!.profile = { id: "team/profiles/ops", state: "ok" };
+      r.sessions.find((s) => s.callsign === "site@laptop")!.profile = [{ id: "team/profiles/ops", state: "ok" }];
       const t = await openScreen(openRelay(r));
-      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
+      expect(t.$$("[data-chosen]").map((x) => x.dataset.chosen)).toEqual(["team/profiles/ops"]);
       await go(t, "~/Projects/other");
-      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("без профиля");
+      expect(t.$("[data-chosen]")).toBeNull();
     });
 
     it("6520 · профиль, выбранный вручную, переживает правку адреса", async () => {
       // источник: слепой архитектор 4 нояб.: поле profileSet в форме нигде не ставилось, адрес сбрасывал выбор человека
       const t = await openScreen();
-      await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
+      await t.click(t.$('[data-profile="team/profiles/writer"]'));
+      expect(t.$$("[data-chosen]").map((x) => x.dataset.chosen)).toEqual(["team/profiles/ops", "team/profiles/writer"]);
       await go(t, "~/Projects/other");
-      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
+      expect(t.$$("[data-chosen]").map((x) => x.dataset.chosen)).toEqual(["team/profiles/ops", "team/profiles/writer"]);
     });
 
     it("6504 · «Открыть» без имени: «нужно имя» у поля; 0 запросов к машине; кнопка не отключена", async () => {
@@ -224,16 +224,15 @@ describe("Новая сессия", () => {
       const relay = openRelay();
       relay.handlers["session.open"] = () => undefined;
       const t = await openScreen(relay);
-      expect(t.$$(".op-set [data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer", ""]);
-      await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
+      expect(t.$$("[data-chosen]").map((x) => x.dataset.chosen)).toEqual(["team/profiles/ops"]);
+      expect(t.$$('[data-side="Ведущий"] [data-profile]').map((b) => b.dataset.profile)).toEqual(["team/profiles/writer"]);
       await named(t, "a");
       await t.click(t.$('[data-act="open"]'));
       const b = t.$<HTMLButtonElement>('[data-act="open"]')!;
       expect(b.disabled).toBe(true);
       await t.click(b);
       expect(relay.sent("session.open")).toHaveLength(1);
-      expect(relay.sent("session.open")[0]).toMatchObject({ profile: "team/profiles/ops" });
+      expect(relay.sent("session.open")[0]).toMatchObject({ profile: ["team/profiles/ops"] });
     });
 
     it("4130 · «в R2» не включилось — тост со словом, карточка новой сессии открыта", async () => {
@@ -278,13 +277,13 @@ describe("Новая сессия", () => {
       expect(t.$(".op-bl")!.getAttribute("aria-label")).toBe("Машины");
       // слово пользователя 6 нояб.: без вложенности и окон — всё на странице
       expect(t.$(".op-pop, .op-shade, [role=dialog]")).toBeNull();
-      expect(t.$$(".op-set > .lb").map((x) => x.textContent)).toEqual(["Профиль", "Модель", "Усилие", "Слот"]);
-      const pq = t.$<HTMLInputElement>('[data-f="pq"]')!;
-      expect([pq.placeholder, pq.getAttribute("aria-label")]).toEqual(["Найти профиль", "Найти профиль"]);
+      expect(t.$$(".pt-k").map((x) => x.textContent).filter(Boolean)).toEqual(["Профиль", "Модель", "Слот", "Усилие"]);
+      const pq = t.$<HTMLInputElement>(".pt-flt")!;
+      expect([pq.placeholder, pq.getAttribute("aria-label")]).toEqual(["Найти профиль", "Найти профиль: сессия"]);
       await t.type(pq, "writer");
-      expect(t.$$(".op-set [data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/writer", ""]);
+      expect(t.$$('[data-side="Ведущий"] [data-profile]').map((b) => b.dataset.profile)).toEqual(["team/profiles/writer"]);
       await t.click(t.$('[data-profile="team/profiles/writer"]'));
-      expect(t.$('[data-profile="team/profiles/writer"]')!.getAttribute("aria-pressed")).toBe("true");
+      expect(t.$$("[data-chosen]").map((x) => x.dataset.chosen)).toEqual(["team/profiles/ops", "team/profiles/writer"]);
       expect(t.$(".op-sw")!.textContent).toContain("Точки в R2");
       expect(t.$("[data-r2]")!.getAttribute("aria-label")).toBe("Точки в R2");
       await t.click(t.$("[data-r2]"));
@@ -319,8 +318,8 @@ describe("Новая сессия: выбор и запуск", () => {
     return t;
   }
   const named = (t: T, v: string) => t.type(t.$('[data-f="name"]'), v);
-  const modelNow = (t: T) => t.$('.op-set [data-model][aria-pressed="true"]')?.textContent;
-  const chipProf = (t: T) => t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent;
+  const modelNow = (t: T) => t.$('[data-side="Ведущий"] [data-model][aria-pressed="true"]')?.textContent;
+  const chosenIds = (t: T) => t.$$("[data-chosen]").map((x) => x.dataset.chosen);
   const start = (t: T) => t.click(t.$('[data-act="open"]'));
 
   describe("новая сессия: выбор", () => {
@@ -349,18 +348,22 @@ describe("Новая сессия: выбор и запуск", () => {
       expect(t.$('[data-slot="night"]')!.getAttribute("aria-pressed")).toBe("true");
       await t.click(t.$('.op-bl [data-machine="pc"]'));
       await flush(5);
-      expect(chipProf(t)).toBe("без профиля");
+      expect(chosenIds(t)).toEqual([]);
       expect(t.$('[data-slot="night"]')?.getAttribute("aria-pressed") ?? "false").toBe("false");
     });
 
     it("6911 · модель выбрана человеком: не следует за профилем; не выбрана — следует", async () => {
       // источник: чьё: код
-      const t = await openScreen();
+      const relay = openRelay();
+      relay.handlers["profile.view"] = () => ({ ok: true, result: { pieces: ["team/profiles/ops"], tree: [{ id: "team/profiles/ops", set: false }], settings: { model: { value: "opus", from: "team/profiles/ops", lost: [] } } } });
+      const t = await openScreen(relay);
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
+      await flush(5);
       expect(modelNow(t)).toBe("opus");
       await t.click(t.$('[data-model="sonnet"]'));
-      await t.click(t.$('[data-profile=""]'));
+      await t.click(t.$('[aria-label="убрать: ops"]'));
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
+      await flush(5);
       expect(modelNow(t)).toBe("sonnet");
     });
 
@@ -370,8 +373,8 @@ describe("Новая сессия: выбор и запуск", () => {
       relay.handlers[SLOTS] = () => ({ ok: false, error: "offline" });
       relay.handlers["machine.profiles"] = () => ({ ok: false, error: "no_repo" });
       const t = await openScreen(relay);
-      expect(t.$(".op-set")!.textContent).toContain("machine.profiles: no_repo");
-      expect(t.$(".op-set")!.textContent).toContain("machine.accounts: offline");
+      expect(t.$(".pt-grid")!.textContent).toContain("machine.profiles: no_repo");
+      expect(t.$(".pt-grid")!.textContent).toContain("machine.accounts: offline");
       await named(t, "a");
       await start(t);
       expect(relay.sent("session.open")).toEqual([expect.objectContaining({ machine: "laptop", name: "a" })]);
@@ -384,7 +387,7 @@ describe("Новая сессия: выбор и запуск", () => {
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
       await named(t, "a");
       await start(t);
-      expect(first.sent("session.open")[0]).toMatchObject({ profile: "team/profiles/ops" });
+      expect(first.sent("session.open")[0]).toMatchObject({ profile: ["team/profiles/ops"] });
       expect(first.sent("session.open")[0]).not.toHaveProperty("model");
       expect(first.sent("session.open")[0]).not.toHaveProperty("effort");
       const second = openRelay();
@@ -401,7 +404,7 @@ describe("Новая сессия: выбор и запуск", () => {
       for (const n of ["machine.accounts", "machine.profiles", "session.r2"]) delete r.machines[0].contract![n];
       const relay = openRelay(r);
       const t = await openScreen(relay);
-      expect(t.$(".op-set .op-err")).toBeNull();
+      expect(t.$(".pt-grid .op-err")).toBeNull();
       expect(t.$<HTMLButtonElement>("[data-r2]")!.disabled).toBe(true);
       await named(t, "a");
       await start(t);
@@ -594,8 +597,6 @@ describe("Новая сессия и карточка с «Работы»", () =
     await t.click(t.$('[data-dir="Projects"]'));
     await t.click(t.$('[data-dir="switchboard"]'));
     await flush(5);
-    await t.click(t.$('[data-profile="team/profiles/ops"]'));
-    await t.click(t.$('[data-slot="main"]'));
     await t.type(t.$('[data-f="name"]'), name);
   }
 
@@ -610,7 +611,7 @@ describe("Новая сессия и карточка с «Работы»", () =
     expect(t.relay.sent("machine.mkdir")).toHaveLength(0);
     await t.click(t.$('[data-act="open"]'));
     expect(t.relay.sent("session.open")).toEqual([
-      expect.objectContaining({ v: 2, machine: "laptop", name: "board", dir: "~/Projects/switchboard", slot: "main", profile: "team/profiles/ops" }),
+      expect.objectContaining({ v: 2, machine: "laptop", name: "board", dir: "~/Projects/switchboard", profile: ["team/profiles/ops"] }),
     ]);
     expect(location.hash).toBe("#card?callsign=board%40laptop");
     expect(t.$(".cw-cs")!.textContent).toBe("board");
@@ -694,10 +695,10 @@ describe("Новая сессия: строка слота", () => {
     expect(relay.sent("session.open")).toHaveLength(0);
   });
 
-  it("E24 · форма: 1 слот — строки нет, запрос без поля", async () => {
+  it("E24 · форма: 1 слот — запрос без поля", async () => {
     const relay = openRelay({ main: slot() });
     const t = await openForm(relay);
-    expect(t.$("[data-slot-pick]")).toBeNull();
+    expect(t.$('[data-slot="main"]')!.getAttribute("aria-pressed")).toBe("true");
     await named(t, "a");
     await start(t);
     expect(relay.sent("session.open")[0]).not.toHaveProperty("slot");
@@ -717,7 +718,7 @@ describe("Новая сессия: строка слота", () => {
   it("E24 · единственный слот ждёт сброса: выбора нет, подпись в ряду слота", async () => {
     const relay = openRelay({ main: slot(1793666400) });
     const t = await openForm(relay);
-    expect(t.$("[data-slot-wait]")!.textContent).toContain("main · ждёт сброса");
+    expect(t.$('[data-slot="main"]')!.textContent).toContain("main · ждёт сброса");
   });
 
   it("E15 · список слотов не пришёл, машина с двумя слотами: запрос без поля, «Выберите слот», список перечитан один раз", async () => {

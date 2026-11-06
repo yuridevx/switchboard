@@ -61,6 +61,9 @@ export const LIMIT_NAMES: Record<string, string> = { five_hour: "5 ч", seven_da
 export const LIMIT_WARN = 70;
 export const LIMIT_BAD = 90;
 
+/** Переменная окружения, которой ключ флота задаёт модель вместо имени Claude. */
+export const modelEnv = (model: string) => `ANTHROPIC_DEFAULT_${model.toUpperCase()}_MODEL`;
+
 /** Отказ связи словами; слова владельца — как есть. */
 export function linkText(word: string, machine?: string | null) {
   if (word === "offline") return `${machine || "Машина"} не на связи`;

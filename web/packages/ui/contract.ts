@@ -15,7 +15,7 @@ export * from "./src/labels.ts";
 export { edgeScroll, holdTouch, track } from "./src/press.ts";
 export type { Axis, Gesture, Point } from "./src/press.ts";
 export * from "./src/sessions.ts";
-export { ago, at, day, duration, hhmm, midnight, plural } from "./src/time.ts";
+export { ago, at, day, duration, hhmm, midnight, plural, slotWaitText } from "./src/time.ts";
 export { personal } from "./src/personal.ts";
 export type { Personal, Scope } from "./src/personal.ts";
 export { AppCtx, useApp, useLoad, useMachineLoad, useModule, useNow, useOutcome } from "./src/hooks.ts";
@@ -24,7 +24,7 @@ export type { MachineAnswer, MachineAnswers } from "./src/machines.ts";
 export { createStore } from "./src/store.ts";
 export type { Store } from "./src/store.ts";
 export type { App, ConnState, Ctx, Marks, Params, Result, Section, SlotProps } from "./src/app.ts";
-export type { AccountInfo, AccountWindow, AccountsAnswer, JournalAnswer, JournalRecord, ModelInfo, ProfileInfo, ProfileRepo, ProfilesAnswer, SlotInfo } from "./src/answers.ts";
+export type { AccountInfo, AccountWindow, AccountsAnswer, FleetKey, FleetKeysAnswer, JournalAnswer, JournalRecord, ModelInfo, PieceFile, ProfileInfo, ProfileMemory, ProfileName, ProfileRepo, ProfilesAnswer, ProfileTreeNode, ProfileView, SlotInfo } from "./src/answers.ts";
 
 export const manifest = json;
 export default {};

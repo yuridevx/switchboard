@@ -60,8 +60,8 @@ async function browser(list: BuildList, relay = fleetRelay()) {
 
 describe("состав приложения", () => {
   it.each([
-    ["pult", pultParts, 17],
-    ["phone", phoneParts, 13],
+    ["pult", pultParts, 18],
+    ["phone", phoneParts, 14],
   ])("5138 5139 · модули стенда %s — те же, что в его into; набор проходит гейт ядра", (name, parts, count) => {
     // источник: дизайн «Открытый флот» (слово пользователя 2 нояб. «делай»): список сборки — единственная запись состава
     const want = loadRepo(root).filter((m) => m.into?.includes(name) && !["web-core", ...(name === "phone" ? ["web-view", "web-ui"] : [])].includes(m.name));
@@ -340,7 +340,7 @@ describe("статика и архив", () => {
       workers: { ...FakeRelay.WORKERS, relay: "https://relay.from-build/" },
     };
     const files = webBuild(shell.tgz, packed, list);
-    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(18);
+    expect(files.filter((f) => f.path.startsWith("m/")).length).toBe(19);
 
     // сборка на диске; m/<модуль>.<версия>.js — пакетом @switchboard/<модуль>, как import map страницы
     const dir = mkdtempSync(join(tmpdir(), "switchboard-pult-build-"));

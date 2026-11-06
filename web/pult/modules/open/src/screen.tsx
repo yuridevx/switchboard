@@ -1,11 +1,15 @@
-// Экран новой сессии: имя, машина и адрес, настройки на странице, задача. «Открыть» — один запрос: решает машина.
+// Экран новой сессии: имя, машина и адрес, таблица участников, задача. «Открыть» — запрос на участника: решает машина.
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import type { ScreenProps } from "@switchboard/web-core";
-import { Area, Btn, Chip, Chips, DisclosureBtn, EFFORTS, IconBtn, In, machineLabel, machinesWith, MODELS, profileName, RowBtn, slotChoice, SlotPick, Switch, useApp, useMachineLoad, useModule, type AccountsAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Area, Btn, Chip, Chips, DisclosureBtn, IconBtn, In, machineLabel, machinesWith, RowBtn, slotChoice, Switch, useApp, useLoad, useMachineLoad, useModule, type AccountsAnswer, type FleetKeysAnswer, type ProfilesAnswer } from "@switchboard/web-ui";
+import { PartyTable, type PartySide, type PartyValue } from "@switchboard/web-party";
 import { byLoad, dirOf, profileHere, pushRecent, refusal, shownDirs, splitAddress, startPlace, type Place } from "./form.ts";
 import type { OpenState } from "./module.tsx";
 
 const cx = (...names: unknown[]) => names.filter(Boolean).join(" ");
+/** Выбор участника: list — null, пока не тронут: как у этой папки. */
+type Pick = Omit<PartyValue, "list"> & { list: string[] | null };
+const EMPTY: Pick = { list: null, model: "", effort: "", slot: "" };
 
 export function OpenScreen({ params }: ScreenProps) {
   const app = useApp();
@@ -21,11 +25,9 @@ export function OpenScreen({ params }: ScreenProps) {
   const [name, setName] = useState("");
   const [text, setText] = useState("");
   const [picking, setPicking] = useState(false);
-  const [chosenProfile, setChosenProfile] = useState<string | null>(null);
-  const [pq, setPq] = useState("");
-  const [model, setModel] = useState("");
-  const [effort, setEffort] = useState("");
-  const [slot, setSlot] = useState("");
+  const [lead, setLead] = useState<Pick>(EMPTY);
+  const [wing, setWing] = useState<Pick>(EMPTY);
+  const [paired, setPaired] = useState(false);
   const [r2, setR2] = useState(false);
   const [busy, setBusy] = useState(false);
   const [nameErr, setNameErr] = useState("");
@@ -50,17 +52,17 @@ export function OpenScreen({ params }: ScreenProps) {
   const dirs = useMachineLoad<{ dirs: string[] }>(machine, "machine.dirs", { machine, path: parent }, here);
   const accounts = useMachineLoad<AccountsAnswer>(machine, "machine.accounts", { machine }, here);
   const profiles = useMachineLoad<ProfilesAnswer>(machine, "machine.profiles", { machine }, here);
+  const fleet = useLoad<FleetKeysAnswer>(() => app.read<FleetKeysAnswer>("fleetkeys.list", {}), []);
+  const keys = fleet.data?.keys ?? {};
+  const keyNames = Object.keys(keys);
   const slots = accounts.stale ? undefined : accounts.data?.slots;
   const profileList = profiles.stale ? undefined : profiles.data?.profiles;
   const slotNames = Object.keys(slots ?? {});
-  const noSlots = !!slots && !slotNames.length;
-  const slotNow = slotChoice(slotNames, slot) || slotNames[0] || "";
+  const noSlots = !!slots && !slotNames.length && !keyNames.length;
+  /** Слот участника: ключ флота — только названный; иначе правило слотов машины. */
+  const slotNow = (p: Pick) => (keyNames.includes(p.slot) ? p.slot : slotChoice(slotNames, p.slot) || slotNames[0] || "");
   const dir = dirOf(address);
-  const profile = chosenProfile ?? profileHere(sessions, machine, dir);
-  const profileOk = profile && profileList?.[profile] ? profile : "";
-  const info = profileOk ? profileList![profileOk] : undefined;
-  const modelShown = model || info?.model || "";
-  const effortShown = effort || info?.effort || "";
+  const listOf = (p: Pick) => (p.list ?? profileHere(sessions, machine, dir)).filter((id) => profileList?.[id]);
   const canR2 = canR2Of.includes(machine);
   const list = dirs.stale ? [] : shownDirs(dirs.data?.dirs ?? [], tail);
   const dirWord = dirs.stale ? "" : dirs.error;
@@ -71,8 +73,8 @@ export function OpenScreen({ params }: ScreenProps) {
     setMachine(m);
     setAddr("~");
     setPicking(false);
-    setSlot("");
-    setChosenProfile(null);
+    setLead(EMPTY);
+    setWing(EMPTY);
     setErr("");
   }
   function enter(sub: string) {
@@ -84,6 +86,17 @@ export function OpenScreen({ params }: ScreenProps) {
       e.preventDefault();
       enter(list[0]);
     }
+  }
+
+  /** Что уходит в запрос от участника: только выбранное; слот — если выбирать есть из чего. */
+  const sideBody = (p: Pick) => {
+    const slot = keyNames.includes(p.slot) ? p.slot : slotChoice(slotNames, p.slot);
+    return { ...(slot ? { slot } : {}), ...(listOf(p).length ? { profile: listOf(p) } : {}), ...(p.model ? { model: p.model } : {}), ...(p.effort ? { effort: p.effort } : {}) };
+  };
+  /** Включить пару: ведомый начинает со значений ведущего, дальше они независимы. */
+  function togglePair() {
+    if (!paired) setWing({ ...lead, list: listOf(lead), slot: slotNow(lead) });
+    setPaired(!paired);
   }
 
   async function open() {
@@ -98,10 +111,7 @@ export function OpenScreen({ params }: ScreenProps) {
       name: clean,
       dir,
       mkdir: true,
-      ...(slotChoice(slotNames, slot) ? { slot: slotChoice(slotNames, slot) } : {}),
-      ...(profileOk ? { profile: profileOk } : {}),
-      ...(model ? { model } : {}),
-      ...(effort ? { effort } : {}),
+      ...sideBody(lead),
     });
     if (!asked.ok) {
       setBusy(false);
@@ -112,6 +122,10 @@ export function OpenScreen({ params }: ScreenProps) {
       return;
     }
     const callsign = asked.result.callsign;
+    if (paired) {
+      const r = await app.request("session.open", { machine, wing_of: callsign, ...sideBody(wing) });
+      if (!r.ok) app.toast(`${callsign}: ведомый не открылся — ${r.error}`);
+    }
     recent.edit<Place[]>("recent", (old) => pushRecent(old, { m: machine, dir }));
     for (const p of app.placed("open.after", { ...params, callsign })) app.run(p.name, { ...params, callsign });
     if (r2 && canR2) {
@@ -186,47 +200,13 @@ export function OpenScreen({ params }: ScreenProps) {
       </div>
     </div>
   );
-  const needle = pq.trim().toLowerCase();
-  const profileRows = Object.entries(profileList ?? {}).filter(([id, p]) => `${profileName(id)} ${p.about ?? ""}`.toLowerCase().includes(needle));
+  const sideOf = (p: Pick, set: (p: Pick) => void): PartySide => ({ value: { ...p, list: listOf(p), slot: slotNow(p) }, set: (change) => set({ ...p, ...change }) });
   const settings = (
-    <div className="op-set">
-      <span className="lb">Профиль</span>
-      <Chips className="op-opts" aria-label="Профиль">
-        {profileRows.map(([id, p]) => (
-          <Chip key={id} on={profileOk === id} data-profile={id} title={p.about} onClick={() => setChosenProfile(id)}>
-            {profileName(id)}
-          </Chip>
-        ))}
-        <Chip on={!profileOk} data-profile="" onClick={() => setChosenProfile("")}>
-          без профиля
-        </Chip>
-      </Chips>
-      <In className="op-flt" data-f="pq" aria-label="Найти профиль" placeholder="Найти профиль" autoComplete="off" value={pq} onChange={() => {}} onInput={(e) => setPq(e.currentTarget.value)} />
-      {profiles.error && !profiles.stale ? <div className="op-err" role="alert">{`machine.profiles: ${profiles.error}`}</div> : null}
-      <span className="lb">Модель</span>
-      <Chips className="op-opts" aria-label="Модель">
-        {MODELS.map((m) => (
-          <Chip key={m} on={modelShown === m} data-model={m} onClick={() => setModel(m)}>
-            {m}
-          </Chip>
-        ))}
-      </Chips>
-      <span className="lb">Усилие</span>
-      <Chips className="op-opts" aria-label="Усилие">
-        {EFFORTS.map(([k, label]) => (
-          <Chip key={k} on={effortShown === k} data-effort={k} onClick={() => setEffort(k)}>
-            {label}
-          </Chip>
-        ))}
-      </Chips>
-      <span className="lb">Слот</span>
-      <div className="op-slot">
-        <SlotPick label="" slots={slots ?? {}} value={slotNow} on={setSlot} />
-        {slotNames.length === 1 && !slots?.[slotNow]?.wait ? <span>{slotNow}</span> : null}
-      </div>
-      {accounts.error && !accounts.stale ? <div className="op-err" role="alert">{`machine.accounts: ${accounts.error}`}</div> : null}
-      {noSlots ? <div className="op-err" role="alert" data-no-slots="">{`На ${machine} нет слотов: войдите в аккаунт на этой машине`}</div> : null}
-    </div>
+    <PartyTable lead={sideOf(lead, setLead)} wing={sideOf(wing, setWing)} paired={paired} togglePair={togglePair} data={{ machine, ready: here, profiles: profileList, slots, keys }}>
+      {profiles.error && !profiles.stale ? <div className="op-err all" role="alert">{`machine.profiles: ${profiles.error}`}</div> : null}
+      {accounts.error && !accounts.stale ? <div className="op-err all" role="alert">{`machine.accounts: ${accounts.error}`}</div> : null}
+      {noSlots ? <div className="op-err all" role="alert" data-no-slots="">{`На ${machine} нет слотов: войдите в аккаунт на этой машине`}</div> : null}
+    </PartyTable>
   );
 
   return (

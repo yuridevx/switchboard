@@ -1,7 +1,7 @@
 // Правила формы новой сессии: адрес и его родитель, с какого места начать, что уходит в session.open.
 import { machineOf } from "@switchboard/protocol";
 import type { SessionRecord } from "@switchboard/relay";
-import { profileIdOf } from "@switchboard/web-ui";
+import { profileIdsOf } from "@switchboard/web-ui";
 
 export type Place = { m: string; dir: string };
 export const RECENT_LIMIT = 5;
@@ -35,7 +35,7 @@ export function startPlace(machines: string[], sessions: SessionRecord[], recent
 }
 
 /** Профиль подхватывается только от сессии в этой же папке этой машины. */
-export const profileHere = (sessions: SessionRecord[], machine: string, dir: string) => profileIdOf(sessions.find((s) => machineOf(s.callsign) === machine && s.dir === dir && profileIdOf(s))) ?? "";
+export const profileHere = (sessions: SessionRecord[], machine: string, dir: string) => profileIdsOf(sessions.find((s) => machineOf(s.callsign) === machine && s.dir === dir && profileIdsOf(s).length));
 
 export const pushRecent = (old: Place[] | undefined, p: Place): Place[] => [p, ...(old ?? []).filter((x) => x.m !== p.m || x.dir !== p.dir)].slice(0, RECENT_LIMIT);
 

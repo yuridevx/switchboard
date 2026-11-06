@@ -8,6 +8,7 @@ import * as chat from "@switchboard/web-chat";
 import type { AppPart } from "@switchboard/web-core";
 import * as inbox from "@switchboard/web-inbox";
 import * as labels from "@switchboard/web-labels";
+import { manifest as party } from "@switchboard/web-party";
 import { manifest as ui } from "@switchboard/web-ui";
 import { manifest as view } from "@switchboard/web-view";
 import * as accounts from "../modules/accounts/contract.ts";
@@ -27,6 +28,7 @@ export function pultParts(browser?: BrowserPush): AppPart[] {
   return [
     { manifest: view, module: () => ({}) },
     { manifest: ui, module: () => ({}) },
+    { manifest: party, module: () => ({}) },
     ...MODULES.map((m) => ({ manifest: m.manifest, module: m.default })),
     { manifest: alerts.manifest, module: alerts.createAlerts(browser) },
   ];
