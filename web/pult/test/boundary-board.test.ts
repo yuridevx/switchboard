@@ -227,14 +227,19 @@ describe("Работа", () => {
         ],
       });
       const t = await start({ relay });
-      const n = (id: string) => t.$(`[data-fid="${id}"] .n`)!.textContent;
-      expect(n("a")).toBe("3");
-      expect(n("b")).toBe("2");
-      expect(n("c")).toBe("2");
-      expect(n("d")).toBe("1");
-      expect(n("e")).toBe("2");
-      expect(n("mine")).toBe("5");
-      expect(n("all")).toBe("7");
+      // числа в чипах нет (правило пользователя 6 нояб.): сколько сессий проходит — видно по списку
+      const count = async (id: string) => {
+        await t.click(t.$(`[data-fid="${id}"]`));
+        await t.expand();
+        return t.$$(".bd-row").length;
+      };
+      expect(await count("a")).toBe(3);
+      expect(await count("b")).toBe(2);
+      expect(await count("c")).toBe(2);
+      expect(await count("d")).toBe(1);
+      expect(await count("e")).toBe(2);
+      expect(await count("mine")).toBe(5);
+      expect(await count("all")).toBe(7);
       await t.click(t.$('[data-fid="c"]'));
       await t.expand();
       expect(rows(t).sort()).toEqual(["docs@pc", "note@pc"]);
@@ -469,7 +474,6 @@ describe("Работа", () => {
         ['[data-v="prof"]', ".bd-t2 .bd-pill"],
         ['[data-v="grip"]', ".grip"],
         ['[data-v="add"]', ".pj-add"],
-        ['[data-v="fcount"]', ".fc .n"],
         ['[data-v="badge"]', ".bd-row .sb-badge"],
       ];
       for (const [btn, sel] of units) {
@@ -553,9 +557,8 @@ describe("Работа", () => {
   describe("видимое (чьё: код)", () => {
     const UNITS: Array<[string, string, string]> = [
       ["projects", "По проектам", "Группировать по проектам"], ["group", "По машинам", "Группы по машинам в проекте"], ["tree", "Дочерние", "Дочерние под родителем"], ["dense", "В одну строку", "В одну строку"],
-      ["lamp", "Лампа", "Лампа состояния"], ["at", "Машина", "Машина"], ["owner", "Владелец", "Владелец чужой сессии"], ["pin", "Закрепление", "Значок закрепления"], ["inc", "Инцидент", "Инцидент"], ["badge", "«?» и число", "Значок вопроса и непрочитанного"], ["q", "Вопрос", "Текст вопроса"], ["unread", "Непрочитанное", "Текст непрочитанного"], ["fail", "Сбой", "Причина сбоя"], ["prof", "Профиль", "Профиль"], ["model", "Модель", "Модель"],
+      ["lamp", "Лампа", "Лампа состояния"], ["at", "Машина", "Машина"], ["owner", "Владелец", "Владелец чужой сессии"], ["pin", "Закрепление", "Значок закрепления"], ["inc", "Инцидент", "Инцидент"], ["badge", "Значок", "Значок вопроса и непрочитанного"], ["q", "Вопрос", "Текст вопроса"], ["unread", "Непрочитанное", "Текст непрочитанного"], ["fail", "Сбой", "Причина сбоя"], ["prof", "Профиль", "Профиль"], ["model", "Модель", "Модель"],
       ["pjlamps", "Лампы", "Лампы свёрнутого проекта"], ["grip", "Ручка", "Ручка перетаскивания"], ["add", "«+»", "Кнопка новой сессии"],
-      ["fcount", "Число", "Число сессий в фильтре"],
     ];
 
     it("V-B1 · панель вида: группы, подпись и полное название каждой единицы; телефон — «Готово» и нет «Шапки»; пульт — «✕» и группа шапки", async () => {
@@ -564,7 +567,8 @@ describe("Работа", () => {
       const panel = t.$(".bd-vw")!;
       expect([panel.getAttribute("role"), panel.getAttribute("aria-label")]).toEqual(["dialog", "Вид списка"]);
       expect(panel.querySelector(".vw-h b")!.textContent).toBe("Вид списка");
-      for (const title of ["Список", "Строка", "Проект", "Фильтры"]) expect(panel.textContent).toContain(title);
+      for (const title of ["Список", "Строка", "Проект"]) expect(panel.textContent).toContain(title);
+      expect(panel.textContent).not.toContain("Фильтры");
       for (const [k, label, full] of UNITS) {
         const b = t.$(`.bd-vw [data-v="${k}"]`)!;
         expect([b.textContent, b.getAttribute("aria-label")]).toEqual([label, full]);
@@ -576,7 +580,7 @@ describe("Работа", () => {
 
       const w = await start({ wide: true, options: { beside: { card: "board" } } });
       await w.click(w.$(".fc.vw"));
-      for (const [k, label, full] of [["haddr", "Адрес", "Адрес сессии"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"]]) {
+      for (const [k, label, full] of [["hat", "Машина", "Машина в шапке"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"], ["hacc", "Аккаунт", "Аккаунт и лимит в шапке"]]) {
         const b = w.$(`.bd-vw [data-v="${k}"]`)!;
         expect([b.textContent, b.getAttribute("aria-label")]).toEqual([label, full]);
       }
@@ -695,24 +699,22 @@ describe("Работа", () => {
       const open = w.$(".bd-lh [data-new]")!;
       expect(open.textContent).toBe("Новая");
       expect(w.$(".bd-lh b")!.textContent).toBe("Работа");
-      await w.click(open);
-      expect(location.hash).toBe("#open");
     });
 
-    it("V-B6 · шапка карточки настраивается в панели вида: адрес виден при имени, владелец и профиль прячутся", async () => {
+    it("V-B6 · шапка карточки настраивается в панели вида: машина, владелец, аккаунт прячутся", async () => {
       const relay = withLabels({ sessions: { "docs@pc": "Доки" } });
       relay.handlers["session.watch"] = () => ({ ok: true });
       relay.handlers["session.history"] = () => ({ ok: true, result: { messages: [] } });
       const store = memoryStore({ key: KEY });
       const t = await start({ relay, store, wide: true, options: { beside: { card: "board" } }, url: "/#card?callsign=docs%40pc" });
-      expect(t.$(".cw-real")).toBeNull();
-      expect(t.$(".cw-meta")!.textContent).toBe("anna@mail");
+      expect(t.$(".cw-at")).not.toBeNull();
+      expect(t.$$(".cw-pill").map((x) => x.textContent)).toContain("anna@mail");
       await t.click(t.$(".fc.vw"));
-      await t.click(t.$('.bd-vw [data-v="haddr"]'));
+      await t.click(t.$('.bd-vw [data-v="hat"]'));
       await t.click(t.$('.bd-vw [data-v="howner"]'));
-      expect(t.$(".cw-real")!.textContent).toBe("docs@pc");
-      expect(t.$(".cw-meta")!.textContent).toBe("");
-      expect(await store.get("card.head")).toMatchObject({ haddr: true, howner: false });
+      expect(t.$(".cw-at")).toBeNull();
+      expect(t.$$(".cw-pill").map((x) => x.textContent)).not.toContain("anna@mail");
+      expect(await store.get("card.head")).toMatchObject({ hat: false, howner: false });
     });
   });
 });
@@ -799,12 +801,12 @@ describe("Работа: открытая сессия и первый показ
       // источник: чьё: код
       const t = await start({ wide: true, options: { beside: { card: "board" } } });
       await t.go("#card?callsign=api%40pc");
-      await t.go("#sessions");
+      await t.go("#open");
       expect(t.current()).toBe("pfarm");
 
       const relay = relayWith();
       relay.handlers["prefs.get"] = () => undefined;
-      const t2 = await start({ relay, wide: true, options: { beside: { card: "board" } }, url: "/#card?callsign=api%40pc" });
+      const t2 = await start({ relay, url: "/#card?callsign=api%40pc" });
       await t2.go("#sessions");
       for (const f of relay.sent("prefs.get")) relay.reply(f.id!, { ok: true, result: { values: f.scope === "global" ? { "fleet.projects": PROJECTS() } : {} } });
       await flush(10);
@@ -973,12 +975,12 @@ describe("Работа: открытая сессия и первый показ
       expect(await store.get("view")).toMatchObject({ at: true });
       expect(t.$("[data-v-head]")).toBeNull();
 
-      const store2 = memoryStore({ key: KEY, "card.head": { haddr: true, howner: false, hprof: true, hmodel: true } });
+      const store2 = memoryStore({ key: KEY, "card.head": { hat: false, howner: false, hprof: true, hmodel: true, hacc: true } });
       const t2 = await start({ store: store2, wide: true, options: { beside: { card: "board" } } });
       await t2.click(t2.$(".fc.vw"));
       await t2.click(t2.$('[data-act="view-reset"]'));
       await flush(3);
-      expect(await store2.get("card.head")).toMatchObject({ haddr: false, howner: true });
+      expect(await store2.get("card.head")).toMatchObject({ hat: true, howner: true });
     });
   });
 });
@@ -986,8 +988,9 @@ describe("Работа: открытая сессия и первый показ
 describe("Раскладка и «Моё» на пульте", () => {
   it("6904 · карточка открывается справа от списка «Работы»: список остаётся слева с выбранной строкой", async () => {
     // источник: прототип «Пульт и телефон» (подписан 2 нояб.): список проекта слева, сессия справа
+    // слово пользователя 6 нояб.: «Работа» сразу открывает сессию — прежнюю или первую по отбору
     const t = await pult();
-    expect(t.$(".sb-split")).toBeNull();
+    expect(t.$(".sb-split .sb-detail .cw")).not.toBeNull();
     await t.expand();
     await t.click(t.$('[data-callsign="site@laptop"]'));
     expect(t.$(".sb-split .sb-master .bd-list")).not.toBeNull();
@@ -1060,11 +1063,11 @@ describe("Найдено сверкой деревьев", () => {
     expect(t.$$(".lamps .sb-dot").map((x) => x.className.split(" ")[1])).toEqual(["bad", "wait", "bad", "busy", "idle", "idle"]);
   });
 
-  it("окно фильтра: число выбранного у поля", async () => {
+  it("окно фильтра: числа выбранного у поля нет — выбранное видно само", async () => {
     const t = await pult();
     await t.click(t.$(".fc.add"));
-    expect(t.$('[data-field="who"] .fe-l span')).toBeNull();
     await t.click(t.$('[data-field="who"] [data-v="mine"]'));
-    expect(t.$('[data-field="who"] .fe-l span')!.textContent).toBe("1");
+    expect(t.$('[data-field="who"] [data-v="mine"]')!.getAttribute("aria-pressed")).toBe("true");
+    expect(t.$('[data-field="who"] .fe-l span')).toBeNull();
   });
 });

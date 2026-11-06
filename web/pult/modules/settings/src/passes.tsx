@@ -1,7 +1,7 @@
 // «Пропуска»: машины и клиенты флота, приглашение и отзыв.
 import { useState } from "react";
 import qrcode from "qrcode-generator";
-import { Btn, Chips, Cmd, CopyButton, day, In, M, Note, Opts, Pill, Sec, useApp, useLoad, useModule } from "@switchboard/web-ui";
+import { Btn, Chips, Cmd, Confirm, CopyButton, day, In, M, Note, Opts, Pill, Sec, useApp, useLoad, useModule } from "@switchboard/web-ui";
 import { isMine, wordFor } from "./rules.ts";
 import type { Invited, SettingsState } from "./state.ts";
 
@@ -121,14 +121,7 @@ function PassRow({ pass, me, reload, say }: { pass: Pass; me: boolean; reload():
       <td>
         {me && <Note>это устройство</Note>}
         {!me && !asking && <Btn bad onClick={() => setAsking(true)}>Отозвать…</Btn>}
-        {asking && (
-          <Opts className="st-nowrap">
-            <Btn bad onClick={() => void revoke()}>
-              Отозвать
-            </Btn>
-            <Btn onClick={() => setAsking(false)}>Отмена</Btn>
-          </Opts>
-        )}
+        {asking && <Confirm text="Отозвать пропуск?" act="Отозвать" run={() => void revoke()} cancel={() => setAsking(false)} />}
       </td>
     </tr>
   );

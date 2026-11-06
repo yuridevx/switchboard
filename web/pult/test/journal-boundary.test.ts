@@ -380,7 +380,7 @@ describe("инциденты", () => {
     expect(t.$('[data-f="open"]')!.getAttribute("aria-pressed")).toBe("false");
     expect(list(t)).toEqual(["build-red@laptop", "disk-old@pc"]);
     expect(t.$('[data-incident="disk-old@pc"] .s')!.textContent).toBe("закрыт");
-    expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты2");
+    expect(t.$('.sb-navcol [data-screen="incidents"]')!.querySelector(".sb-badge.dot")).not.toBeNull();
     await t.click(t.$('[data-f="open"]'));
     expect(list(t)).toEqual(["build-red@laptop"]);
     await t.click(t.$('[data-incident="build-red@laptop"]'));
@@ -397,7 +397,7 @@ describe("инциденты", () => {
     expect([t.$('[data-f="open"]')!.textContent, t.$('[data-f="all"]')!.textContent]).toEqual(["открытые", "все"]);
     expect(t.$('[data-incident="x@pc"] .k')).toBeNull();
     expect(t.$(".sb-ph h2")!.textContent).toBe("Инциденты");
-    expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты1");
+    expect(t.$('.sb-navcol [data-screen="incidents"]')!.querySelector(".sb-badge.dot")).not.toBeNull();
   });
 
   it("у строки — имя сессии и машины вместо адреса", async () => {
@@ -461,7 +461,7 @@ describe("инциденты", () => {
     expect(relay.sent("incident.pending").map((f) => f.machine)).toContain("pc");
     expect(t.$$("[data-lost]")).toHaveLength(0);
     expect(t.$$(".in-cap").map((x) => x.textContent)).toEqual(["В сессиях"]);
-    expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты1");
+    expect(t.$('.sb-navcol [data-screen="incidents"]')!.querySelector(".sb-badge.dot")).not.toBeNull();
   });
 
   it("обращение ждёт на диске без отказа: строка есть, в метке считается, тип и ключ вместо времени", async () => {
@@ -473,7 +473,7 @@ describe("инциденты", () => {
     expect(t.$('[data-lost="pc:a1"] .s.bad')!.textContent).toBe("ждёт");
     expect(t.$('[data-lost="pc:a1"] .t2')!.textContent).toBe("gpu-temp · gpu-b");
     expect(t.$('[data-lost="pc:a2"] .t2')!.textContent).toBe("disk");
-    expect(t.$('.sb-navcol [data-screen="incidents"]')!.textContent).toBe("Инциденты2");
+    expect(t.$('.sb-navcol [data-screen="incidents"]')!.querySelector(".sb-badge.dot")).not.toBeNull();
     await t.click(t.$('[data-lost="pc:a1"]'));
     expect(t.$('[data-why="pc:a1"]')!.textContent).toBe("Отказа не записано: причина — в журнале машины.");
   });
@@ -571,6 +571,6 @@ describe("инциденты", () => {
     // узкий вид: заголовок даёт оболочка
     expect(t.$(".sb-ph h2")).toBeNull();
     expect(relay.sent("incident.pending").length).toBeGreaterThan(0);
-    expect(t.$$(".sb-navrow .sb-nv").map((x) => x.textContent)).toContain("Инциденты1");
+    expect(t.$$(".sb-navrow .sb-nv").map((x) => x.textContent)).toContain("Инциденты");
   });
 });

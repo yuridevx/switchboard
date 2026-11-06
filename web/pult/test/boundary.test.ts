@@ -110,7 +110,7 @@ describe("оболочка страницы", () => {
       return { boot: (o: object) => boot({ ...o, load } as never) };
     });
     await import("../src/main.ts");
-    await vi.waitFor(() => expect(document.querySelector(".sb-brand b")?.textContent, document.body.textContent ?? "").toBe("Пульт"), { timeout: 15_000 });
+    await vi.waitFor(() => expect(document.querySelector(".sb-brand")?.getAttribute("title"), document.body.textContent ?? "").toBe("Пульт"), { timeout: 15_000 });
     await flush();
     expect(asked[0]).toEqual(["./build.json", { cache: "no-store" }]);
     expect(urls.length).toBeGreaterThan(0);
@@ -155,7 +155,8 @@ describe("оболочка страницы", () => {
     expect(t.$(".sb-navcol .sb-nv.sub")).toBeNull();
     expect(t.$(".sb-goto")).not.toBeNull();
     expect(t.$(".sb-nm, .sb-me")).toBeNull();
-    expect(t.$(".sb-brand b")!.textContent).toBe("Пульт");
+    expect(t.$(".sb-brand")!.getAttribute("title")).toBe("Пульт");
+    expect(t.$(".sb-brand .sb-logo")!.textContent).toBe("П");
   });
 
   it.each([
@@ -380,7 +381,7 @@ describe("статика и архив", () => {
     await flush();
     expect(run.stopped).toBeNull();
     expect(run.failed).toEqual({});
-    expect(document.querySelector(".sb-brand b")!.textContent).toBe("Пульт");
+    expect(document.querySelector(".sb-brand")!.getAttribute("title")).toBe("Пульт");
     expect(urls.length).toBeGreaterThan(0);
     expect(urls.every((u) => u.startsWith("wss://relay.from-build/m/"))).toBe(true);
     // поиск на порядке настоящей сборки: модули идут по order(), первым с разделом — Журнал; строки — в порядке оболочки

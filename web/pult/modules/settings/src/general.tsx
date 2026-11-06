@@ -89,7 +89,6 @@ function Github() {
             <M className="st-grow">
               <b>{gh.data.app.slug}</b>
             </M>
-            <Pill tone="ok">{`${repos.length} ${plural(repos.length, "репозиторий", "репозитория", "репозиториев")}`}</Pill>
             {gh.data.install && (
               <LinkBtn href={gh.data.install} target="_blank" rel="noopener">
                 Доступ на GitHub ↗

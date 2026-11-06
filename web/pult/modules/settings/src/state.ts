@@ -12,11 +12,13 @@ type Local = {
   deploying: string;
   deployed: { text: string; tone: "ok" | "bad" } | null;
   invited: Invited | null;
+  /** вкладка, которую открыли последней: заход без адреса вкладки возвращает на неё */
+  tab: string;
 };
 
 export function createState(app: App) {
   const answers = machineAnswers<KState>(app, (m) => app.read<KState>("keeper.state", { to: `.keeper@${m}` }));
-  const local = createStore<Local>({ checked: [], catalog: false, deploying: "", deployed: null, invited: null }, () => app.changed());
+  const local = createStore<Local>({ checked: [], catalog: false, deploying: "", deployed: null, invited: null, tab: "releases" }, () => app.changed());
   /** чужие экраны, которым нужны свежие ответы */
   const opened: Array<() => void> = [];
   return {

@@ -6,16 +6,15 @@ import { NarrowCard } from "./narrow.tsx";
 import { WideCard } from "./wide.tsx";
 import css from "./card.css";
 
-export const HEAD = { haddr: false, howner: true, hprof: true, hmodel: true };
+export const HEAD = { hat: true, howner: true, hprof: true, hmodel: true, hacc: true };
 export type HeadView = typeof HEAD;
-export type Device = { head: HeadView; info: boolean };
+export type Device = { head: HeadView };
 export type CardState = {
   device: Store<Device>;
   setHead(head: HeadView): void;
-  setInfo(on: boolean): void;
 };
 
-const UNITS: Array<[keyof HeadView, string, string]> = [["haddr", "Адрес", "Адрес сессии"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"]];
+const UNITS: Array<[keyof HeadView, string, string]> = [["hat", "Машина", "Машина в шапке"], ["howner", "Владелец", "Владелец в шапке"], ["hprof", "Профиль", "Профиль в шапке"], ["hmodel", "Модель", "Модель и усилие в шапке"], ["hacc", "Аккаунт", "Аккаунт и лимит в шапке"]];
 
 function HeadGroup() {
   const app = useApp();
@@ -33,26 +32,16 @@ function HeadGroup() {
 }
 
 export const createCard = ((app) => {
-  const device = createStore<Device>({ head: HEAD, info: false }, () => app.changed());
+  const device = createStore<Device>({ head: HEAD }, () => app.changed());
   const setHead = (head: HeadView) => {
     device.set((d) => void (d.head = head));
     void app.store("card.head").set(head);
   };
   async function load() {
-    const [head, info] = await Promise.all([app.store<Partial<HeadView>>("card.head").get(), app.store<boolean>("card.info").get()]);
-    device.set((d) => {
-      d.head = { ...HEAD, ...head };
-      d.info = !!info;
-    });
+    const head = await app.store<Partial<HeadView>>("card.head").get();
+    device.set((d) => void (d.head = { ...HEAD, ...head }));
   }
-  const state: CardState = {
-    device,
-    setHead,
-    setInfo(on) {
-      device.set((d) => void (d.info = on));
-      void app.store("card.info").set(on);
-    },
-  };
+  const state: CardState = { device, setHead };
   /** Шапка: имя; на телефоне — машина и папка, лампа — состояние; на пульте — модель и усилие. */
   function head({ callsign }: Params) {
     const s = sessionOf(app, callsign);
@@ -65,7 +54,7 @@ export const createCard = ((app) => {
   return {
     css,
     state,
-    store: ["card.head", "card.info"],
+    store: ["card.head"],
     start: load,
     on: { show: load },
     screens: {

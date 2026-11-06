@@ -63,7 +63,7 @@ describe("аккаунты", () => {
     const t = await accountsScreen(relay, "/#accounts");
     const open = relay.sent("machine.accounts").length;
     expect(open).toBeGreaterThan(0);
-    await t.go("#sessions");
+    await t.go("#inbox");
     const r = fleetRoster();
     r.sessions[0].account = "yurianrun";
     relay.setRoster(r);

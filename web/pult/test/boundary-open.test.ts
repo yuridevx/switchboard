@@ -76,26 +76,25 @@ describe("Новая сессия", () => {
       relay.handlers["machine.profiles"] = () => ({ ok: true, result: { profiles: { "team/profiles/reviewer": { model: "opus" } }, repos: {} } });
       const t = await openScreen(relay, "/#open?machine=laptop&dir=~%2Freviewer");
       expect(t.$<HTMLInputElement>('[data-f="name"]')!.value).toBe("");
-      expect(t.$('[data-pop="prof"] b')!.textContent).toBe("без профиля");
+      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("без профиля");
     });
 
     it("6503 · профиль подхватывается только от сессии в этой же папке", async () => {
       const r = projRoster();
       r.sessions.find((s) => s.callsign === "site@laptop")!.profile = { id: "team/profiles/ops", state: "ok" };
       const t = await openScreen(openRelay(r));
-      expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
       await go(t, "~/Projects/other");
-      expect(t.$('[data-pop="prof"] b')!.textContent).toBe("без профиля");
+      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("без профиля");
     });
 
     it("6520 · профиль, выбранный вручную, переживает правку адреса", async () => {
       // источник: слепой архитектор 4 нояб.: поле profileSet в форме нигде не ставилось, адрес сбрасывал выбор человека
       const t = await openScreen();
-      await t.click(t.$('[data-pop="prof"]'));
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
       await go(t, "~/Projects/other");
-      expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
     });
 
     it("6504 · «Открыть» без имени: «нужно имя» у поля; 0 запросов к машине; кнопка не отключена", async () => {
@@ -225,10 +224,9 @@ describe("Новая сессия", () => {
       const relay = openRelay();
       relay.handlers["session.open"] = () => undefined;
       const t = await openScreen(relay);
-      await t.click(t.$('[data-pop="prof"]'));
-      expect(t.$$(".op-pr[data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer", ""]);
+      expect(t.$$(".op-set [data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/ops", "team/profiles/writer", ""]);
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      expect(t.$('[data-pop="prof"] b')!.textContent).toBe("ops");
+      expect(t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent).toBe("ops");
       await named(t, "a");
       await t.click(t.$('[data-act="open"]'));
       const b = t.$<HTMLButtonElement>('[data-act="open"]')!;
@@ -243,7 +241,6 @@ describe("Новая сессия", () => {
       relay.handlers["session.r2"] = () => ({ ok: false, error: "offline" });
       const t = await openScreen(relay);
       await named(t, "a");
-      await t.click(t.$('[data-pop="model"]'));
       await t.click(t.$("[data-r2]"));
       await t.click(t.$('[data-act="open"]'));
       expect(t.$(".sb-toast")!.textContent).toBe("a@laptop: «в R2» не включилось — offline");
@@ -266,11 +263,10 @@ describe("Новая сессия", () => {
       expect(relay.scoped.global["fleet.projects"]).toEqual([{ id: "work", name: "Работа", sessions: ["site@laptop", "fresh@laptop"] }]);
       expect(relay.sent("session.open")[0]).not.toHaveProperty("project");
       const c = await pult({ relay: openRelay(), url: "/#card?callsign=site%40laptop" });
-      await c.click(c.$('[data-pop="menu"]'));
       expect(c.$('[data-screen="open.near"]')).toBeNull();
     });
 
-    it("V-O1 · подписи: поля, окна чипов, последние места; профиль — машина и число; поиск профиля; окно модели — подписи и «Точки в R2»", async () => {
+    it("V-O1 · подписи: поля, последние места; настройки на странице; поиск профиля; без окон — подписи и «Точки в R2»", async () => {
       const relay = openRelay();
       relay.values["pult-open.recent"] = [{ m: "pc", dir: "~/p" }];
       const t = await openScreen(relay);
@@ -280,25 +276,21 @@ describe("Новая сессия", () => {
       expect([text.placeholder, text.getAttribute("aria-label")]).toEqual(["Что сделать?", "Задача"]);
       expect(t.$('[data-place-machine="pc"]')!.textContent).toBe("@pc ~/p");
       expect(t.$(".op-bl")!.getAttribute("aria-label")).toBe("Машины");
-      await t.click(t.$('[data-pop="prof"]'));
-      expect(t.$(".op-pop")!.getAttribute("aria-label")).toBe("Выбор");
-      expect(t.$(".op-pop .lb")!.textContent).toBe("Профиль · @laptop · 2");
-      expect(t.$('[data-profile="team/profiles/ops"] .sp')!.textContent).toBe("opus · высокое");
+      // слово пользователя 6 нояб.: без вложенности и окон — всё на странице
+      expect(t.$(".op-pop, .op-shade, [role=dialog]")).toBeNull();
+      expect(t.$$(".op-set > .lb").map((x) => x.textContent)).toEqual(["Профиль", "Модель", "Усилие", "Слот"]);
       const pq = t.$<HTMLInputElement>('[data-f="pq"]')!;
       expect([pq.placeholder, pq.getAttribute("aria-label")]).toEqual(["Найти профиль", "Найти профиль"]);
       await t.type(pq, "writer");
-      expect(t.$$(".op-pr[data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/writer", ""]);
+      expect(t.$$(".op-set [data-profile]").map((b) => b.dataset.profile)).toEqual(["team/profiles/writer", ""]);
       await t.click(t.$('[data-profile="team/profiles/writer"]'));
-      expect(t.$('[data-pop="prof"] .k')!.textContent).toBe("Профиль");
-      await t.click(t.$('[data-pop="model"]'));
-      expect(t.$$(".op-pop .lb").map((x) => x.textContent).slice(0, 2)).toEqual(["Модель", "Усилие"]);
+      expect(t.$('[data-profile="team/profiles/writer"]')!.getAttribute("aria-pressed")).toBe("true");
       expect(t.$(".op-sw")!.textContent).toContain("Точки в R2");
       expect(t.$("[data-r2]")!.getAttribute("aria-label")).toBe("Точки в R2");
       await t.click(t.$("[data-r2]"));
-      expect(t.$('[data-pop="model"] .k')!.textContent).toContain("R2");
-      // без выбора — слово «Модель» на чипе; Ctrl Enter запускает
+      expect(t.$("[data-r2]")!.getAttribute("aria-checked")).toBe("true");
+      // Ctrl Enter запускает
       const t2 = await openScreen(openRelay(), "/#open?machine=laptop&dir=~%2Fzz");
-      expect(t2.$('[data-pop="model"] .k')!.textContent).toContain("Модель");
       await named(t2, "a");
       t2.$('[data-f="text"]')!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }));
       await flush(5);
@@ -327,12 +319,12 @@ describe("Новая сессия: выбор и запуск", () => {
     return t;
   }
   const named = (t: T, v: string) => t.type(t.$('[data-f="name"]'), v);
-  const chipModel = (t: T) => t.$('[data-pop="model"]')!;
-  const chipProf = (t: T) => t.$('[data-pop="prof"] b')!.textContent;
+  const modelNow = (t: T) => t.$('.op-set [data-model][aria-pressed="true"]')?.textContent;
+  const chipProf = (t: T) => t.$('.op-set [data-profile][aria-pressed="true"]')!.textContent;
   const start = (t: T) => t.click(t.$('[data-act="open"]'));
 
   describe("новая сессия: выбор", () => {
-    it("7254 · машина научилась точкам при открытом окне модели — переключатель появляется", async () => {
+    it("7254 · машина научилась точкам при открытой форме — переключатель становится доступен", async () => {
       // источник: чьё: код — переключатель виден, когда машина умеет session.r2; roster меняется и при открытом окне
       const relay = openRelay();
       const without = fleetRoster();
@@ -343,41 +335,33 @@ describe("Новая сессия: выбор и запуск", () => {
       });
       relay.setRoster(without);
       const t = await openScreen(relay);
-      await t.click(chipModel(t));
-      expect(t.$("[data-r2]")).toBeNull();
+      expect(t.$<HTMLButtonElement>("[data-r2]")!.disabled).toBe(true);
       relay.setRoster(fleetRoster());
       await flush(5);
-      expect(t.$("[data-r2]")).not.toBeNull();
+      expect(t.$<HTMLButtonElement>("[data-r2]")!.disabled).toBe(false);
     });
 
     it("6910 · другая машина: профиль и слот снова по умолчанию", async () => {
       // источник: чьё: код — выбранных там может не быть
       const t = await openScreen();
-      await t.click(t.$('[data-pop="prof"]'));
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      await t.click(chipModel(t));
       await t.click(t.$('[data-slot="night"]'));
-      expect(chipModel(t).textContent).toContain("night");
+      expect(t.$('[data-slot="night"]')!.getAttribute("aria-pressed")).toBe("true");
       await t.click(t.$('.op-bl [data-machine="pc"]'));
       await flush(5);
       expect(chipProf(t)).toBe("без профиля");
-      expect(chipModel(t).textContent).toContain("main");
-      expect(chipModel(t).textContent).not.toContain("night");
+      expect(t.$('[data-slot="night"]')?.getAttribute("aria-pressed") ?? "false").toBe("false");
     });
 
     it("6911 · модель выбрана человеком: не следует за профилем; не выбрана — следует", async () => {
       // источник: чьё: код
       const t = await openScreen();
-      await t.click(t.$('[data-pop="prof"]'));
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      expect(chipModel(t).querySelector("b")!.textContent).toBe("opus");
-      await t.click(chipModel(t));
+      expect(modelNow(t)).toBe("opus");
       await t.click(t.$('[data-model="sonnet"]'));
-      await t.click(t.$('[data-pop="prof"]'));
       await t.click(t.$('[data-profile=""]'));
-      await t.click(t.$('[data-pop="prof"]'));
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
-      expect(chipModel(t).querySelector("b")!.textContent).toBe("sonnet");
+      expect(modelNow(t)).toBe("sonnet");
     });
 
     it("6912 · slots и profiles отказали: слово в окне своего чипа; форма работает, запуск доступен", async () => {
@@ -386,10 +370,8 @@ describe("Новая сессия: выбор и запуск", () => {
       relay.handlers[SLOTS] = () => ({ ok: false, error: "offline" });
       relay.handlers["machine.profiles"] = () => ({ ok: false, error: "no_repo" });
       const t = await openScreen(relay);
-      await t.click(t.$('[data-pop="prof"]'));
-      expect(t.$(".op-pop")!.textContent).toContain("machine.profiles: no_repo");
-      await t.click(chipModel(t));
-      expect(t.$(".op-pop")!.textContent).toContain("machine.accounts: offline");
+      expect(t.$(".op-set")!.textContent).toContain("machine.profiles: no_repo");
+      expect(t.$(".op-set")!.textContent).toContain("machine.accounts: offline");
       await named(t, "a");
       await start(t);
       expect(relay.sent("session.open")).toEqual([expect.objectContaining({ machine: "laptop", name: "a" })]);
@@ -399,7 +381,6 @@ describe("Новая сессия: выбор и запуск", () => {
       // источник: факт — модель значит, когда выбрана человеком
       const first = openRelay();
       const t = await openScreen(first);
-      await t.click(t.$('[data-pop="prof"]'));
       await t.click(t.$('[data-profile="team/profiles/ops"]'));
       await named(t, "a");
       await start(t);
@@ -408,24 +389,20 @@ describe("Новая сессия: выбор и запуск", () => {
       expect(first.sent("session.open")[0]).not.toHaveProperty("effort");
       const second = openRelay();
       const t2 = await openScreen(second);
-      await t2.click(chipModel(t2));
       await t2.click(t2.$('[data-model="sonnet"]'));
       await named(t2, "b");
       await start(t2);
       expect(second.sent("session.open")[0]).toMatchObject({ model: "sonnet" });
     });
 
-    it("6918 · машина не умеет slots, profiles и r2: запросов нет, слов отказа нет, переключателя нет", async () => {
+    it("6918 · машина не умеет slots, profiles и r2: запросов нет, слов отказа нет, переключатель неактивен", async () => {
       // источник: факт — машина такого запроса не умеет: не спрашиваем, данных нет
       const r = fleetRoster();
       for (const n of ["machine.accounts", "machine.profiles", "session.r2"]) delete r.machines[0].contract![n];
       const relay = openRelay(r);
       const t = await openScreen(relay);
-      await t.click(t.$('[data-pop="prof"]'));
-      expect(t.$(".op-pop .op-err")).toBeNull();
-      await t.click(chipModel(t));
-      expect(t.$(".op-pop .op-err")).toBeNull();
-      expect(t.$("[data-r2]")).toBeNull();
+      expect(t.$(".op-set .op-err")).toBeNull();
+      expect(t.$<HTMLButtonElement>("[data-r2]")!.disabled).toBe(true);
       await named(t, "a");
       await start(t);
       expect(relay.sent("machine.accounts")).toHaveLength(0);
@@ -444,9 +421,7 @@ describe("Новая сессия: выбор и запуск", () => {
       const t = await openScreen(relay);
       await t.click(t.$('.op-bl [data-machine="pc"]'));
       await flush(5);
-      await t.click(chipModel(t));
       expect(t.$('[data-slot="main"]')).toBeNull();
-      await t.click(t.$('[data-pop="prof"]'));
       expect(t.$('[data-profile="team/profiles/ops"]')).toBeNull();
       await named(t, "a");
       await start(t);
@@ -524,7 +499,6 @@ describe("Новая сессия: выбор и запуск", () => {
       // источник: чьё: код
       const relay = openRelay();
       const t = await openScreen(relay);
-      await t.click(chipModel(t));
       await t.click(t.$("[data-r2]"));
       await named(t, "a");
       await t.type(t.$('[data-f="text"]'), "  почини сборку ");
@@ -620,11 +594,8 @@ describe("Новая сессия и карточка с «Работы»", () =
     await t.click(t.$('[data-dir="Projects"]'));
     await t.click(t.$('[data-dir="switchboard"]'));
     await flush(5);
-    await t.click(t.$('[data-pop="prof"]'));
     await t.click(t.$('[data-profile="team/profiles/ops"]'));
-    await t.click(t.$('[data-pop="model"]'));
     await t.click(t.$('[data-slot="main"]'));
-    await t.click(t.$('[data-pop="model"]'));
     await t.type(t.$('[data-f="name"]'), name);
   }
 
@@ -664,7 +635,6 @@ describe("Новая сессия и карточка с «Работы»", () =
 
     const t2 = await pult({ relay: openRelay() });
     await fillOpen(t2, "board");
-    await t2.click(t2.$('[data-pop="model"]'));
     await t2.click(t2.$("[data-r2]"));
     await t2.click(t2.$('[data-act="open"]'));
     const types = t2.relay.got.map((f) => f.type);
@@ -718,7 +688,6 @@ describe("Новая сессия: строка слота", () => {
     // источник: слово пользователя 5 нояб.: стандартная папка не используется, без слота сессии нет
     const relay = openRelay({});
     const t = await openForm(relay);
-    await t.click(t.$('[data-pop="model"]'));
     expect(t.$("[data-no-slots]")!.textContent).toBe("На laptop нет слотов: войдите в аккаунт на этой машине");
     await named(t, "a");
     expect(t.$('[data-act="open"]')!.hasAttribute("disabled")).toBe(true);
@@ -728,7 +697,6 @@ describe("Новая сессия: строка слота", () => {
   it("E24 · форма: 1 слот — строки нет, запрос без поля", async () => {
     const relay = openRelay({ main: slot() });
     const t = await openForm(relay);
-    await t.click(t.$('[data-pop="model"]'));
     expect(t.$("[data-slot-pick]")).toBeNull();
     await named(t, "a");
     await start(t);
@@ -738,7 +706,6 @@ describe("Новая сессия: строка слота", () => {
   it("E24 · форма: 2 слота, человек не менял выбор — отмечен первый, запрос с ним; выбрал другой — с другим", async () => {
     const relay = openRelay({ main: slot(), bot: slot() });
     const t = await openForm(relay);
-    await t.click(t.$('[data-pop="model"]'));
     expect(t.$('[data-slot="main"]')!.getAttribute("aria-pressed")).toBe("true");
     await t.click(t.$('[data-slot="bot"]'));
     expect(t.$('[data-slot="bot"]')!.getAttribute("aria-pressed")).toBe("true");
@@ -747,11 +714,9 @@ describe("Новая сессия: строка слота", () => {
     expect(relay.sent("session.open")[0]).toMatchObject({ slot: "bot" });
   });
 
-  it("E24 · единственный слот ждёт сброса: строки нет, подпись на чипе и в окне", async () => {
+  it("E24 · единственный слот ждёт сброса: выбора нет, подпись в ряду слота", async () => {
     const relay = openRelay({ main: slot(1793666400) });
     const t = await openForm(relay);
-    expect(t.$('[data-pop="model"]')!.textContent).toContain("main · ждёт сброса");
-    await t.click(t.$('[data-pop="model"]'));
     expect(t.$("[data-slot-wait]")!.textContent).toContain("main · ждёт сброса");
   });
 

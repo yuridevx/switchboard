@@ -1,6 +1,7 @@
-// Сведения сбоку: кто дал задачу, дерево, серверы MCP.
+// Вкладка «Сведения»: чья сессия, где она, аккаунт и лимиты, дерево, серверы MCP.
 import { useState } from "react";
-import { Btn, isLive, LinkBtn, Note, profileNameOf, remoteOf, sessionOf, useApp, useMachineLoad } from "@switchboard/web-ui";
+import { machineOf } from "@switchboard/protocol";
+import { Btn, effortName, incidentOf, isLive, LIMIT_NAMES, LimitRow, LinkBtn, Note, profileNameOf, remoteOf, sessionOf, slotOf, useApp, useMachineLoad, type AccountsAnswer } from "@switchboard/web-ui";
 
 type Server = { name: string; status: string };
 const STATUS: Record<string, string> = { pending: "подключается", disabled: "выключен", "needs-auth": "нужен вход", connected: "подключён", failed: "ошибка" };
@@ -68,43 +69,44 @@ function Servers({ callsign, machine }: { callsign: string; machine: string }) {
   );
 }
 
-export function Aside({ callsign, machine }: { callsign: string; machine: string }) {
+/** Значения есть не всегда: пустой ряд не рисуется. */
+const Facts = ({ rows }: { rows: Array<[string, unknown]> }) => <dl className="cw-kv">{rows.filter(([, v]) => v).flatMap(([k, v]) => [<dt key={k}>{k}</dt>, <dd key={`${k}=`}>{String(v)}</dd>])}</dl>;
+
+export function Aside({ callsign, machine, accounts, pick }: { callsign: string; machine: string; accounts: AccountsAnswer | undefined; pick(tab: string): void }) {
   const app = useApp();
   const s = app.use(() => sessionOf(app, callsign));
   const kids = app.use(() => (app.roster()?.sessions ?? []).filter((x) => x.parent === callsign).map((x) => x.callsign));
   if (!s) return <aside className="cw-info" aria-label="Сведения" />;
   const remote = remoteOf(s);
   const tree = !!s.parent || kids.length > 0;
+  const slot = slotOf(s);
+  const info = accounts?.accounts?.[String(s.account)];
+  const order = (slot?.name && accounts?.slots?.[slot.name]?.order) || [];
+  const incident = incidentOf(s);
   return (
     <aside className="cw-info" aria-label="Сведения">
       <section>
         <h4>Сведения</h4>
-        <dl className="cw-kv">
-          {s.by ? (
-            <>
-              <dt>задачу дал</dt>
-              <dd>{String(s.by)}</dd>
-            </>
-          ) : null}
-          {s.dir ? (
-            <>
-              <dt>папка</dt>
-              <dd>{String(s.dir)}</dd>
-            </>
-          ) : null}
-          {profileNameOf(s) ? (
-            <>
-              <dt>профиль</dt>
-              <dd>{profileNameOf(s)}</dd>
-            </>
-          ) : null}
-        </dl>
+        <Facts rows={[["задачу дал", s.by], ["модель", [s.model, effortName(s.effort)].filter(Boolean).join(" · ")], ["адрес", callsign], ["машина", `@${machineOf(callsign)}`], ["инцидент", incident && `${incident.type} · ${incident.key}`], ["папка", s.dir], ["профиль", profileNameOf(s)]]} />
         {remote && (
           <a className="cw-mi flat" href={remote} target="_blank" rel="noopener">
             Открыть в claude.ai ↗
           </a>
         )}
       </section>
+      {(s.account || slot) && (
+        <section data-sec="account">
+          <h4>Аккаунт</h4>
+          <Facts rows={[["аккаунт", [s.account, info?.plan].filter(Boolean).join(" · ")], ["слот", slot?.name]]} />
+          {Object.entries(info?.limits ?? {}).map(([k, w]) => (
+            <LimitRow key={k} className="cw-win" data-win={k} label={LIMIT_NAMES[k] ?? k} used={w.utilization} resets={w.resetsAt} />
+          ))}
+          {order.length > 0 && <div className="cw-note queue">{`очередь слота: ${order.join(" → ")}`}</div>}
+          <Btn ghost onClick={() => pick("set")}>
+            Сменить слот
+          </Btn>
+        </section>
+      )}
       {tree && (
         <section>
           <h4>Дерево</h4>

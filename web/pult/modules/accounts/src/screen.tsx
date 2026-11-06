@@ -23,8 +23,16 @@ function WindowLine({ w }: { w: Win }) {
       <span>{w.name}</span>
       <Meter value={Math.min(percent, 100)} warn={tone(percent) === "warn"} bad={tone(percent) === "over"} />
       <b>{`${percent} %`}</b>
-      <time>{w.resets ? resetText(w.resets) : ""}</time>
-      {w.at && nowS() - w.at > OLD_S ? <small data-age="">{`данные ${ago(w.at * 1000)}`}</small> : null}
+      <time title={w.at && nowS() - w.at > OLD_S ? `данные ${ago(w.at * 1000)}` : undefined}>
+        {w.resets ? resetText(w.resets) : ""}
+        {w.at && nowS() - w.at > OLD_S ? (
+          <small data-age="">
+            {" · "}
+            <span className="w">от </span>
+            {ago(w.at * 1000)}
+          </small>
+        ) : null}
+      </time>
     </div>
   );
 }

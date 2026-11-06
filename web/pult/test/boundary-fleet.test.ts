@@ -967,7 +967,6 @@ describe("Настройки", () => {
       const t = await settings({ url: "/#settings?tab=general" });
       expect(t.$("[data-github] > b")!.textContent).toBe("Приложение GitHub флота");
       expect(t.$("[data-github]")!.textContent).toContain("switchboard-fleet");
-      expect(t.$("[data-github]")!.textContent).toContain("3 репозитория");
       expect(t.$<HTMLAnchorElement>("[data-github] a")!.textContent).toBe("Доступ на GitHub ↗");
       const q = t.$<HTMLInputElement>('[data-f="gq"]')!;
       expect([q.placeholder, q.getAttribute("aria-label")]).toEqual(["Найти репозиторий", "Найти репозиторий"]);
