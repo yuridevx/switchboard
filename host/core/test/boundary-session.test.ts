@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getSessionInfo, getSessionMessages, importSessionToStore } from "@anthropic-ai/claude-agent-sdk";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { refuse } from "../contract.ts";
 import type { Module } from "../contract.ts";
 import { FakeRelay, msg, module, standHost, turn, until } from "../stand/index.ts";
 import type { FakeHolders, Stand } from "../stand/index.ts";
@@ -1172,5 +1173,32 @@ describe("сверка круга 3: правила из строк старог
     st.clock.advance(STOP_STEP);
     await starting;
     expect(st.query(CS).options.resume).toBe(s.info.session_id);
+  });
+});
+
+describe("раунд lost: сверка со старым кодом", () => {
+  it("запрос с адресом сессии в to — о ней: ошибка выключает модуль в этой сессии, отказ module_error только ей", async () => {
+    // источник: устав «Ошибку модуля ловит ядро: модуль выключается в этой сессии»; путь — message между сессиями: адрес в to, callsign нет
+    let broken = true;
+    const seen: string[] = [];
+    const peer = module("host-peer", {
+      requests: {
+        poke: (f) => {
+          if (broken) throw new Error("сломан");
+          seen.push(String(f.to));
+        },
+      },
+    });
+    const st = await stand({ modules: [peer] });
+    await st.open("a@laptop");
+    await st.open("b@laptop");
+    expect(await st.relay.request({ type: "poke", v: 1, to: "a@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(lines(st, "module_failed")[0]).toMatchObject({ module: "host-peer", callsign: "a@laptop" });
+    await until(() => st.states("a@laptop").at(-1)?.failed?.["host-peer"]);
+    broken = false;
+    expect(await st.relay.request({ type: "poke", v: 1, to: "a@laptop" })).toMatchObject({ ok: false, error: "module_error" });
+    expect(await st.relay.request({ type: "poke", v: 1, to: "b@laptop" })).toMatchObject({ ok: true });
+    expect(seen).toEqual(["b@laptop"]);
+    expect(st.states("b@laptop").at(-1)?.failed).toBeUndefined();
   });
 });
