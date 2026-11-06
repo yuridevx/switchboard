@@ -13,7 +13,6 @@ const put = (file: string, text: string) => {
   mkdirSync(join(root, file, ".."), { recursive: true });
   writeFileSync(join(root, file), text);
 };
-const module_ = (dir: string, name: string) => put(`${dir}/module.json`, JSON.stringify({ name, type: "worker", version: "1.0.0", provides: {}, uses: {}, config: {} }));
 const commit = () => {
   git("add", ".");
   git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x");
@@ -26,8 +25,8 @@ beforeEach(() => {
   process.env.SLOPIK_HOME = join(root, ".state");
   git("init", "-q");
   put(".gitignore", ".state\n");
-  module_("workers/a", "a");
-  module_("workers/b", "b");
+  put("houses.mjs", `console.log(JSON.stringify([{ name: "a", dir: "workers/a/" }, { name: "b", dir: "workers/b/" }]))`);
+  put(".claude/slopik/config.json", JSON.stringify({ houses: "node houses.mjs" }));
   put(".claude/slopik/registry.md", REGISTRY);
   put("workers/a/src/index.ts", "export class Refusal {}\n");
   put("workers/b/src/index.ts", "export const b = 1;\n");

@@ -1,20 +1,25 @@
 // Перепись слопиков: дома, события, снимки пар, судьбы, остановка. Только читает репо.
-// Состояние — вне дерева, в SLOPIK_HOME (по умолчанию ~/.switchboard-slopik): метрику считает старший, слопик её не видит.
+// Состояние — вне дерева, в SLOPIK_HOME (по умолчанию ~/.slopik): метрику считает старший, слопик её не видит.
 //   census.ts census [--root <repo>]        дома без хозяина и хозяева без дома, кого будить
 //   census.ts snapshot <имя> [--root <repo>] снимок пар
 //   census.ts fate <до> <после>              судьбы пар и следы обхода
 //   census.ts pass <json>                    запись прохода в журнал
 //   census.ts stop                           идти дальше или остановиться
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadRepo } from "../../../../tools/manifest-gate/contract.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
-export const home = () => process.env.SLOPIK_HOME ?? join(homedir(), ".switchboard-slopik");
+export const home = () => process.env.SLOPIK_HOME ?? join(homedir(), ".slopik");
 const git = (root: string, ...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 1 << 28 });
+
+/** Привязка проекта: .claude/slopik/config.json — houses: команда, печатает JSON [{name, dir}]; ignore: выражение путей вне счёта. */
+export function config(root: string): { houses: string; ignore?: string } {
+  return JSON.parse(readFileSync(join(root, ".claude/slopik/config.json"), "utf8"));
+}
+const housesOf = (root: string): Array<{ name: string; dir: string }> => JSON.parse(execSync(config(root).houses, { cwd: root, encoding: "utf8", maxBuffer: 1 << 26 }));
 
 type Pair = { ka: string; kb: string; j: number; toks: number };
 type Snapshot = { sha: string; functions: number; small: number; near: Pair[]; inside: Pair[]; config: string };
@@ -53,7 +58,9 @@ const lastPass = (): string | null => (existsSync(stateFile()) ? JSON.parse(read
 
 /** Кто родился, кто ушёл, кого будить. Спящий дом без события не будится: число проходов ни на что не влияет. */
 export function census(root: string) {
-  const mods = loadRepo(root).map((m) => ({ name: m.name, dir: m.dir.replaceAll("\\", "/") + "/" }));
+  const mods = housesOf(root);
+  const skip = config(root).ignore;
+  const ignore = skip ? new RegExp(skip) : null;
   const reg = registry(root);
   const people = named(root);
   const held = new Map(people.flatMap((p) => p.houses.map((h) => [h, p.name] as const)));
@@ -79,7 +86,7 @@ export function census(root: string) {
     if (!sign) continue;
     const hits = (() => {
       try {
-        return git(root, "grep", "-lE", sign, "--", ".", ":!*.test.*", ":!*/test/*", ":!*/stand/*", ":!.claude").split("\n").filter(Boolean);
+        return git(root, "grep", "-lE", sign, "--", ".", ":!*.test.*", ":!*/test/*", ":!.claude").split("\n").filter((f) => f && !ignore?.test(f));
       } catch {
         return []; // git grep без совпадений выходит с кодом 1
       }
@@ -95,10 +102,10 @@ export function census(root: string) {
 export function snapshot(root: string, name: string): Snapshot {
   mkdirSync(home(), { recursive: true });
   const out = join(home(), `scan-${name}.txt`);
-  execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: root, stdio: "pipe" });
+  execFileSync("node", [join(here, "scan.mjs"), root, out], { cwd: root, stdio: "pipe", env: { ...process.env, SLOPIK_HOUSES: JSON.stringify(housesOf(root)), SLOPIK_IGNORE: config(root).ignore ?? "" } });
   const scan = JSON.parse(readFileSync(`${out}.json`, "utf8"));
-  const config = git(root, "hash-object", join(here, "scan.mjs")).trim();
-  const snap: Snapshot = { sha: git(root, "rev-parse", "HEAD").trim(), config, ...scan };
+  const scanner = git(root, "hash-object", join(here, "scan.mjs")).trim();
+  const snap: Snapshot = { sha: git(root, "rev-parse", "HEAD").trim(), config: scanner, ...scan };
   writeFileSync(join(home(), `pairs-${name}.json`), JSON.stringify(snap));
   return snap;
 }

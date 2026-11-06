@@ -1,0 +1,4 @@
+{
+  "houses": "node .claude/skills/slopik-switchboard/scripts/houses.ts",
+  "ignore": "/stand/|^scripts/flow-|^scripts/live|^scripts/shots/"
+}

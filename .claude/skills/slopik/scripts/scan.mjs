@@ -1,4 +1,4 @@
-// Кандидаты для старшего: только читает. Из корня репо: node <скил>/scripts/scan.mjs <корень> <файл отчёта>
+// Кандидаты для старшего: только читает. Запускается через census.ts snapshot.
 import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -7,17 +7,12 @@ import { join } from "node:path";
 const [root, out] = process.argv.slice(2);
 const ts = createRequire(join(process.cwd(), "package.json"))("typescript");
 const git = (...a) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 1 << 29 });
-const TEST = /(\/test\/|\/tests\/|\/stand\/|\.test\.|\.spec\.|\.d\.ts$)/;
-const moduleOf = (f) => {
-  const p = f.split("/");
-  if (p[0] === "web" && p[1] === "packages") return `web/${p[2]}`;
-  if (p[0] === "web" && p[1] === "pult" && p[2] === "modules") return `pult/${p[3]}`;
-  if (p[0] === "host" && p[1] === "modules") return `host/${p[2]}`;
-  if (p[0] === "host") return "host/core";
-  if (["workers", "tools"].includes(p[0])) return `${p[0]}/${p[1]}`;
-  return p[0] === "web" ? `web/${p[1]}` : p[0];
-};
-const files = git("ls-files", "workers", "host", "web", "tools", "protocol", "scripts").split("\n").filter((f) => /\.(ts|tsx|mjs)$/.test(f) && !TEST.test(f) && !f.startsWith("scripts/flow-") && !f.startsWith("scripts/live"));
+const TEST = /(\/test\/|\/tests\/|\.test\.|\.spec\.|\.d\.ts$)/;
+// дома и исключения — от привязки проекта, через census.ts
+const houses = JSON.parse(process.env.SLOPIK_HOUSES ?? "[]").sort((a, b) => b.dir.length - a.dir.length);
+const IGNORE = process.env.SLOPIK_IGNORE ? new RegExp(process.env.SLOPIK_IGNORE) : null;
+const moduleOf = (f) => houses.find((h) => f.startsWith(h.dir))?.name ?? f.split("/")[0];
+const files = git("ls-files").split("\n").filter((f) => /\.(ts|tsx|mjs|js|jsx)$/.test(f) && !TEST.test(f) && !IGNORE?.test(f));
 
 const fns = [];
 const wrappers = [];
@@ -90,11 +85,11 @@ near.sort((p, q) => q.toks * q.j - p.toks * p.j);
 nearIn.sort((p, q) => q.toks * q.j - p.toks * p.j);
 
 // 3. совместные правки между модулями: коммиты до 12 файлов кода, без слияний
-const log = git("log", "--no-merges", "--name-only", "--format=@%h", "--since=2026-10-20", "--", "workers", "host", "web", "tools", "protocol");
+const log = git("log", "--no-merges", "--name-only", "--format=@%h", "--max-count=2000");
 const pairs = new Map();
 const revs = new Map();
 for (const block of log.split("@").slice(1)) {
-  const list = block.split("\n").slice(1).filter((f) => /\.(ts|tsx|go)$/.test(f) && !TEST.test(f));
+  const list = block.split("\n").slice(1).filter((f) => /\.(ts|tsx|mjs|js|jsx|go)$/.test(f) && !TEST.test(f) && !IGNORE?.test(f));
   if (list.length === 0 || list.length > 12) continue;
   const mods = [...new Set(list.map(moduleOf))].sort();
   for (const m of mods) revs.set(m, (revs.get(m) ?? 0) + 1);
