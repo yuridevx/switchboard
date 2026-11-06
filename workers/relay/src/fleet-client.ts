@@ -1,7 +1,7 @@
 // Клиент флота: соединение с relay каждой машины; кадр к машине — в её соединение, к Worker'у — POST с пропуском.
 import { CALL_MS, READ_MS, fail, hostOf, isReply, kindOf, machineOf, ok, parseFrame, type Frame, type Reply } from "@switchboard/protocol";
 import type { Roster } from "../contract.ts";
-import { link, type Link, type LinkState, type Sent, type WsCtor } from "./link.ts";
+import { link, newId, nextPause, type Link, type LinkState, type Sent, type WsCtor } from "./link.ts";
 
 export type FleetClient = {
   /** адрес пропуска, как его назвал gate */
@@ -38,12 +38,11 @@ const refused = (error: string) => ({ ok: false as const, error });
 export function fleet(o: FleetOptions): FleetClient {
   const { workers } = o;
   const relay = relayWs(workers);
-  const tag = Math.random().toString(36).slice(2, 8);
   const links = new Map<string, Link>();
   const posts = new Set<AbortController>();
-  /** соединение, которым пришёл запрос: ответ ждут там */
+  /** соединение, которым пришёл запрос «id|from»: ответ ждут там */
   const asked = new Map<string, Link>();
-  let seq = 0;
+  let pause = o.pauseMs ?? 1000;
   let addr: string | null = null;
   let closed = false;
   let retry: ReturnType<typeof setTimeout>;
@@ -59,7 +58,7 @@ export function fleet(o: FleetOptions): FleetClient {
       onState: (state, why, retryAt) => o.onState?.(machine, state, why, retryAt),
       onFrame(f) {
         if (f.type === "roster") for (const c of (f as unknown as Roster).clients) if (kindOf(c) === "machine") open(machineOf(c)!);
-        if (f.id && f.type !== "reply") asked.set(f.id, l);
+        if (f.id && f.type !== "reply") asked.set(`${f.id}|${f.from}`, l);
         o.onFrame?.(f);
       },
     });
@@ -93,18 +92,18 @@ export function fleet(o: FleetOptions): FleetClient {
   }
 
   async function listMachines() {
-    const r = await post(workers.gate, { type: "keys.list", id: `${tag}-list`, v: 1, role: "host" }, READ_MS);
+    const r = await post(workers.gate, { type: "keys.list", id: `${newId()}-list`, v: 1, role: "host" }, READ_MS);
     if (closed) return;
     if (r.ok) {
       const { passes, you } = r.result as { passes: Array<{ name: string }>; you?: string };
       addr = you ?? null;
       for (const p of passes) open(p.name);
-      if (!passes.length && !o.machine) o.onState?.("", "open");
+      if (!links.size) o.onState?.("", "open");
     } else if (r.error === "bad_key") o.onState?.("", "stopped", r.error);
     else {
-      const pause = o.pauseMs ?? 1000;
       retry = setTimeout(listMachines, pause);
       o.onState?.("", "closed", r.error, Date.now() + pause);
+      pause = nextPause(pause);
     }
   }
 
@@ -130,8 +129,9 @@ export function fleet(o: FleetOptions): FleetClient {
   function send(f: Frame): Sent {
     if (closed) return refused("disconnected");
     if (f.type === "reply" && f.id) {
-      const via = asked.get(f.id);
-      asked.delete(f.id);
+      const key = `${f.id}|${f.to}`;
+      const via = asked.get(key);
+      asked.delete(key);
       if (via?.state === "open") return via.send(f);
     }
     if (!Array.isArray(f.to)) {
@@ -151,8 +151,8 @@ export function fleet(o: FleetOptions): FleetClient {
   }
 
   function request(f: Omit<Frame, "id"> & { id?: string }, read = false): Promise<Reply> {
-    const frame = { ...f, id: f.id ?? `${tag}-${++seq}` } as Frame;
-    const id = frame.id!;
+    const id = f.id ?? newId();
+    const frame = { ...f, id } as Frame;
     if (closed) return Promise.resolve(fail(id, "disconnected"));
     const r = route(frame);
     if (typeof r === "string") return post(r, frame, read ? READ_MS : CALL_MS);

@@ -6,7 +6,14 @@ import type { Roster } from "../contract.ts";
 export const PROTO = 1;
 
 const PING_MS = 30_000;
-const MAX_PAUSE_MS = 60_000;
+const tag = Math.random().toString(36).slice(2, 8);
+let seq = 0;
+
+/** Свой на вкладку и соединение: ответ устройству приходит во все его соединения. */
+export const newId = () => `${tag}-${++seq}`;
+
+/** Следующая пауза попытки: одно правило для соединений и списка машин. */
+export const nextPause = (ms: number) => Math.min(ms * 2, 60_000);
 
 export type LinkState = "connecting" | "open" | "closed" | "stopped";
 
@@ -51,9 +58,7 @@ function presence(r: Roster, f: Frame): unknown {
 
 export function link(o: LinkOptions): Link {
   const firstPause = o.pauseMs ?? 1000;
-  const tag = Math.random().toString(36).slice(2, 8);
   const waiting = new Map<string, Waiter>();
-  let seq = 0;
   let pause = firstPause;
   let state: LinkState = "connecting";
   let roster: Roster | null = null;
@@ -94,7 +99,7 @@ export function link(o: LinkOptions): Link {
       become("connecting");
       connect();
     }, pause);
-    pause = Math.min(pause * 2, MAX_PAUSE_MS);
+    pause = nextPause(pause);
     become("closed", why, retryAt);
     return was;
   }
@@ -102,11 +107,10 @@ export function link(o: LinkOptions): Link {
   const cut = (why: string) => broken(why)?.close(4000, why);
 
   function onClose(code: number, reason: string) {
-    const why = reason || String(code);
     if ((code === 1008 && reason !== "gate_unavailable") || reason === "replaced") {
       detach();
-      become("stopped", why);
-    } else broken(why);
+      become("stopped", reason);
+    } else broken(reason || String(code));
   }
 
   function onMessage(text: string) {
@@ -134,7 +138,7 @@ export function link(o: LinkOptions): Link {
     noRoster = setTimeout(() => cut("no_roster"), CALL_MS);
     s.addEventListener("open", () => {
       if (s !== ws) return;
-      s.send(JSON.stringify({ type: "hello", key: o.key, proto: PROTO, ...o.hello?.() }));
+      s.send(JSON.stringify({ ...o.hello?.(), type: "hello", key: o.key, proto: PROTO }));
       beat = setInterval(() => {
         if (!alive) return cut("no_pong");
         alive = false;
@@ -160,7 +164,7 @@ export function link(o: LinkOptions): Link {
   }
 
   function request(f: Omit<Frame, "id"> & { id?: string }, read = false): Promise<Reply> {
-    const id = f.id ?? `${tag}-${++seq}`;
+    const id = f.id ?? newId();
     const frame = { ...f, id } as Frame;
     const sent = send(frame);
     if (!sent.ok) return Promise.resolve(Object.assign(fail(id, sent.error), { bytes: sent.bytes }));

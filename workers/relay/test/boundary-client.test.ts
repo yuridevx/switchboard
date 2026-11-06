@@ -504,7 +504,7 @@ describe("клиент на подделках", () => {
       const f = (async (_u: string, init: RequestInit) => {
         const b = JSON.parse(String(init.body));
         n++;
-        return n === 1 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "bad_key" });
+        return n < 3 ? Response.json({ type: "reply", id: b.id, ok: false, error: "gate_unavailable" }) : Response.json({ type: "reply", id: b.id, ok: false, error: "bad_key" });
       }) as unknown as typeof fetch;
       const retries: Array<number | undefined> = [];
       const t0 = Date.now();
@@ -513,9 +513,11 @@ describe("клиент на подделках", () => {
       expect(states).toEqual([":closed:gate_unavailable"]);
       expect(retries).toEqual([t0 + 1000]);
       await vi.advanceTimersByTimeAsync(1000);
-      expect(states).toEqual([":closed:gate_unavailable", ":stopped:bad_key"]);
+      expect(retries).toEqual([t0 + 1000, t0 + 3000]);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(states).toEqual([":closed:gate_unavailable", ":closed:gate_unavailable", ":stopped:bad_key"]);
       await vi.advanceTimersByTimeAsync(10_000);
-      expect(n).toBe(2);
+      expect(n).toBe(3);
     });
 
     it("своя машина — сразу, gate не ждёт; gate недоступен по сети — closed offline", async () => {
@@ -657,6 +659,11 @@ describe("клиент на подделках", () => {
       expect(c.send({ type: "reply", id: "q-1", ok: true, to: "@wsl" })).toEqual({ ok: true });
       expect(win.json()).toMatchObject({ type: "reply", id: "q-1", to: "@wsl" });
       expect(wsl.sent.length).toBe(before);
+      // id один, спросившие разные: ответ — по паре id и адрес
+      wsl.recv({ type: "session.remove", id: "q-1", from: "pult~a@b", callsign: "pm@win" });
+      win.recv({ type: "session.remove", id: "q-1", from: "@wsl", callsign: "pm@win" });
+      c.send({ type: "reply", id: "q-1", ok: true, to: "pult~a@b" });
+      expect(wsl.json()).toMatchObject({ type: "reply", id: "q-1", to: "pult~a@b" });
       // кадр, не ответ, — по адресу
       c.send({ type: "message", to: "@wsl" });
       expect(wsl.json()).toMatchObject({ type: "message", to: "@wsl" });

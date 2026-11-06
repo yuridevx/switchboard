@@ -34,14 +34,14 @@ async function revoke(f: Frame, env: Env): Promise<Frame[]> {
 export class Relay extends WorkerEntrypoint<Env> {
   async deliver(f: Frame): Promise<number> {
     const machine = typeof f.to === "string" ? machineOf(f.to) : null;
-    return machine ? objectOf(this.env, machine).deliver(f) : 0;
+    return machine ? within(objectOf(this.env, machine).deliver(f), `объект ${machine} не ответил`, callMs(this.env)) : 0;
   }
 }
 
 export default {
   fetch(req: Request, env: Env): Response | Promise<Response> {
     if (req.method === "POST") return entrance(req, env.GATE, (f) => revoke(f, env));
-    if (req.headers.get("Upgrade") !== "websocket") return new Response("switchboard relay: wss /m/<машина> или POST keys.revoke\n", { status: 426 });
+    if (req.headers.get("Upgrade")?.toLowerCase() !== "websocket") return new Response("switchboard relay: wss /m/<машина> или POST keys.revoke\n", { status: 426 });
     const machine = /^\/m\/([\w-]+)$/.exec(new URL(req.url).pathname)?.[1];
     return machine ? objectOf(env, machine).fetch(req) : new Response("switchboard relay: wss /m/<машина>\n", { status: 404 });
   },
