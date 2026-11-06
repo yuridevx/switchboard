@@ -11,7 +11,7 @@ export function run(cmd: string, args: string[], cwd: string, o: { limitMs?: num
   const { limitMs = LIMIT_MS, env } = o;
   return new Promise((done) => {
     // npm на Windows — файл .cmd: без оболочки он не запускается
-    const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], shell: cmd === "npm" && process.platform === "win32" });
+    const child = spawn(cmd, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"], shell: cmd === "npm" && process.platform === "win32", windowsHide: true });
     let out = "";
     const add = (chunk: Buffer) => void (out += chunk);
     child.stdout.on("data", add);
