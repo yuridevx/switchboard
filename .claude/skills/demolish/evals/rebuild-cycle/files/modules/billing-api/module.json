@@ -1,1 +1,0 @@
-{ "name": "billing-api", "provides": ["createInvoice", "getInvoice", "refund"], "uses": ["saveInvoice@billing-store", "loadInvoice@billing-store", "send@shared-http"] }
