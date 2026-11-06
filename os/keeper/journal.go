@@ -6,6 +6,7 @@ package main
 //   keeper.json — { node, workers: { <имя Worker'а>: адрес } } и незнакомые поля, они сохраняются как есть.
 //   machine.key — пропуск машины host.<машина>.<номер>.<секрет>.
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -30,7 +31,10 @@ func (j *journal) add(who, part, kind, ev string, kv ...any) {
 	for i := 0; i+1 < len(kv); i += 2 {
 		r[kv[i].(string)] = kv[i+1]
 	}
-	b, _ := json.Marshal(r)
+	var b bytes.Buffer
+	e := json.NewEncoder(&b) // перевод строки дописывает Encode
+	e.SetEscapeHTML(false)   // журнал читают люди
+	e.Encode(r)
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	os.MkdirAll(j.dir, 0o700)
@@ -38,7 +42,7 @@ func (j *journal) add(who, part, kind, ev string, kv ...any) {
 	if err != nil {
 		return
 	}
-	f.Write(append(b, '\n'))
+	f.Write(b.Bytes())
 	f.Close()
 }
 
