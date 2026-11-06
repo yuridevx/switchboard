@@ -1,6 +1,6 @@
 // Модуль карточки: экран сессии, группа «Шапка» для панели вида, настройки шапки на устройстве.
 import type { AppPart, Params } from "@switchboard/web-core";
-import { Chip, Choices, createStore, folderOf, lamp, linkText, machineLabel, sessionLabel, sessionOf, useApp, useModule, type Store } from "@switchboard/web-ui";
+import { Chip, Choices, createStore, effortName, folderOf, lamp, linkText, machineLabel, sessionLabel, sessionOf, useApp, useModule, type Store } from "@switchboard/web-ui";
 import { machineOf } from "@switchboard/protocol";
 import { NarrowCard } from "./narrow.tsx";
 import { WideCard } from "./wide.tsx";
@@ -55,12 +55,14 @@ export const createCard = ((app) => {
       void app.store("card.info").set(on);
     },
   };
-  /** Шапка узкого вида: имя, машина и папка; лампа — состояние. */
+  /** Шапка: имя; на телефоне — машина и папка, лампа — состояние; на пульте — модель и усилие. */
   function head({ callsign }: Params) {
     const s = sessionOf(app, callsign);
     const name = sessionLabel(app, callsign);
     const at = machineLabel(app, machineOf(callsign)!).text;
-    return { title: name.text, mono: !name.human, sub: s ? `${at} · папка ${folderOf(s.dir)}` : linkText("offline", at), ...(s ? { dot: lamp(s) } : {}) };
+    const title = { title: name.text, mono: !name.human };
+    if (!s) return { ...title, sub: linkText("offline", at) };
+    return app.wide ? { ...title, sub: [s.model, effortName(s.effort)].filter(Boolean).join(" · ") } : { ...title, sub: `${at} · папка ${folderOf(s.dir)}`, dot: lamp(s) };
   }
   return {
     css,

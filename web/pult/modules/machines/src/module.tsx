@@ -1,7 +1,7 @@
 // Машины флота: кто на связи и кто ушёл, части машины по ответу её keeper. Ответы keeper — у модуля настроек.
 import { useState } from "react";
 import type { AppPart, Roster, ScreenProps } from "@switchboard/web-core";
-import { Btn, Note, okOf, wordOf } from "@switchboard/web-ui";
+import { Btn, Dot, Note, okOf, Opts, wordOf } from "@switchboard/web-ui";
 import type { KeeperAnswers, KeeperPart, KeeperState } from "../../settings/contract.ts";
 import css from "./machines.css";
 
@@ -69,9 +69,12 @@ export const createMachines = ((app) => {
     const failed = part.state === "failed";
     return (
       <div className="mc-part">
-        <b>{part.part}</b>
-        <span className={failed ? "v bad" : "v"} data-part={part.part} data-state={part.state}>
-          {[part.version, part.state, part.pid && `pid ${part.pid}`].filter(Boolean).join(" · ")}
+        <Dot kind={failed ? "bad" : "idle"} />
+        <span>
+          <b>{part.part}</b>{" "}
+          <span className={failed ? "v bad" : "v"} data-part={part.part} data-state={part.state}>
+            {[part.version, part.state, part.pid && `pid ${part.pid}`].filter(Boolean).join(" · ")}
+          </span>
         </span>
         {part.error && <div className="e">{part.error}</div>}
         {failed && online && part.part !== "keeper" && (
@@ -110,7 +113,11 @@ export const createMachines = ((app) => {
           </div>
         )}
         {note && <Note>{note}</Note>}
-        {online && <Btn onClick={() => app.open("settings", { tab: "releases", machine })}>План в «Выпусках»</Btn>}
+        {online && (
+          <Opts>
+            <Btn onClick={() => app.open("settings", { tab: "releases", machine })}>План в «Выпусках»</Btn>
+          </Opts>
+        )}
       </div>
     );
   }

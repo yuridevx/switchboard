@@ -78,7 +78,6 @@ function Info({ callsign }: { callsign: string }) {
           </Opts>
         </div>
       )}
-      <Control className="card-act" kind={control} busy={busy} act={act} />
       {placed.map((p) => (
         <Btn key={p.name} className="card-act" data-screen={p.name} onClick={() => app.run(p.name, { callsign })}>
           {p.label}
@@ -87,6 +86,7 @@ function Info({ callsign }: { callsign: string }) {
       <Btn className="card-act" data-act="names" onClick={() => setNames(true)}>
         Имена
       </Btn>
+      <Control className="card-act" kind={control} busy={busy} act={act} />
       {word && (
         <BadCard>
           <b>Не вышло</b>

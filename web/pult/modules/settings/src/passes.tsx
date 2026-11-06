@@ -1,7 +1,7 @@
 // «Пропуска»: машины и клиенты флота, приглашение и отзыв.
 import { useState } from "react";
 import qrcode from "qrcode-generator";
-import { Btn, Chips, Cmd, CopyButton, day, In, M, Note, Opts, PageHead, Pill, Sec, useApp, useLoad, useModule } from "@switchboard/web-ui";
+import { Btn, Chips, Cmd, CopyButton, day, In, M, Note, Opts, Pill, Sec, useApp, useLoad, useModule } from "@switchboard/web-ui";
 import { isMine, wordFor } from "./rules.ts";
 import type { Invited, SettingsState } from "./state.ts";
 
@@ -171,11 +171,11 @@ export function PassesTab() {
   const list = passes.data?.passes ?? [];
   return (
     <>
-      <PageHead title="Пропуска">
+      <Opts>
         <Btn pri onClick={() => setForm(true)}>
           Пригласить
         </Btn>
-      </PageHead>
+      </Opts>
       {passes.error && <Note tone="bad">{`keys.list: ${passes.error}`}</Note>}
       {word && <Note tone="bad">{word}</Note>}
       {form && <InviteForm done={() => setForm(false)} reload={passes.reload} />}

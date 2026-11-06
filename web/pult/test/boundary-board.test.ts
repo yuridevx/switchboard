@@ -222,6 +222,8 @@ describe("Работа", () => {
           { id: "b", name: "Моё на pc", who: ["mine"], machines: ["pc"] },
           { id: "c", name: "Анна", who: ["~anna@mail"] },
           { id: "d", name: "Ждут", states: ["waiting", "failed"] },
+          // формат записи: в фильтре — имя профиля, а не номер
+          { id: "e", name: "ci", profiles: ["ci"] },
         ],
       });
       const t = await start({ relay });
@@ -230,6 +232,7 @@ describe("Работа", () => {
       expect(n("b")).toBe("2");
       expect(n("c")).toBe("2");
       expect(n("d")).toBe("1");
+      expect(n("e")).toBe("2");
       expect(n("mine")).toBe("5");
       expect(n("all")).toBe("7");
       await t.click(t.$('[data-fid="c"]'));

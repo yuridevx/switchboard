@@ -1,6 +1,6 @@
 // «Выпуски»: stable по машинам, матрица машина × часть, план машины, каталог и сборки.
 import { useEffect, useState } from "react";
-import { Btn, Dot, In, M, machineLabel, Meter, Note, okOf, Opts, plural, Sec, useApp, useLoad, useModule, wordOf, type Result } from "@switchboard/web-ui";
+import { Btn, Dot, In, M, machineLabel, Meter, Note, okOf, Opts, PageHead, plural, Sec, useApp, useLoad, useModule, wordOf, type Result } from "@switchboard/web-ui";
 import { cellOf, heldBy, older, others, short, wordFor, type Catalog, type KState, type Plan } from "./rules.ts";
 import type { KeeperAnswers, SettingsState } from "./state.ts";
 
@@ -50,9 +50,11 @@ function Stable({ catalog, answers, online, reload }: { catalog: Catalog; answer
         const back = older(p)[0];
         return (
           <div key={name} className="st-roll" data-roll={name}>
-            <span>{`${name} ${p.stable}`}</span>
+            <span className="st-grow">
+              <b>{name}</b> <M>{p.stable}</M>
+            </span>
             <Meter className="st-bar" value={online.length ? Math.round((100 * holding) / online.length) : 0} warn={holding < online.length} />
-            <span>{`${holding} из ${online.length}`}</span>
+            <Note>{`${holding} из ${online.length} машин`}</Note>
             {back && (
               <Btn disabled={!!busy} onClick={() => void deploy(name, back)}>
                 {`Вернуть ${short(back)}`}
@@ -160,20 +162,20 @@ function Matrix({ machines, online, catalog, answers, plans, picked, pick, query
   const toggle = (m: string) => s.local.set((l) => void (l.checked = checked.includes(m) ? checked.filter((x) => x !== m) : [...checked, m]));
   return (
     <Sec className="st-matrix">
-      <Opts>
+      <PageHead>
         <In className="st-rq" data-f="rq" placeholder="Найти машину" aria-label="Найти машину" value={query} onInput={(e) => setQuery(e.currentTarget.value)} />
         <Note className="st-end">{machinesWord(shown.length)}</Note>
-      </Opts>
+      </PageHead>
       <div className="st-scroll">
         <table className="st-mx">
           <thead>
             <tr>
               <th />
               <th>машина</th>
-              <th>план</th>
               {parts.map((p) => (
                 <th key={p}>{p}</th>
               ))}
+              <th>план</th>
             </tr>
           </thead>
           <tbody>
@@ -193,7 +195,6 @@ function Matrix({ machines, online, catalog, answers, plans, picked, pick, query
                       {labels[m]}
                     </button>
                   </td>
-                  <td>{online.includes(m) ? (k ? `rev ${k.rev}` : "") : "не на связи"}</td>
                   {parts.map((p) => {
                     const c = cellOf(k, online.includes(m), p, plans[m]?.[p], catalog?.parts[p]?.stable);
                     return (
@@ -206,6 +207,9 @@ function Matrix({ machines, online, catalog, answers, plans, picked, pick, query
                       </td>
                     );
                   })}
+                  <td>
+                    <Note>{online.includes(m) ? (k ? `rev ${k.rev}` : "") : "не на связи"}</Note>
+                  </td>
                 </tr>
               );
             })}
@@ -322,14 +326,14 @@ export function ReleasesTab({ machine }: { machine?: string }) {
   const set = usePlan(list.reload);
   if (!present) return <Note>«Выпусков» во флоте нет</Note>;
   const catalog = list.data ?? undefined;
-  const machines = [...new Set([...online, ...(hosts.data?.passes ?? []).map((p) => p.name)])];
+  const machines = [...new Set([...online, ...(hosts.data?.passes ?? []).map((p) => p.name)])].sort();
   const plans = Object.fromEntries((catalog?.machines ?? []).map((m) => [m.machine, m.plan]));
   const setCatalog = (on: boolean) => s.local.set((l) => void (l.catalog = on));
   return (
     <>
       <div className="st-tabs">
         <Btn aria-pressed={!local.catalog} onClick={() => setCatalog(false)}>
-          Машины
+          По машинам
         </Btn>
         <Btn aria-pressed={local.catalog} onClick={() => setCatalog(true)}>
           Каталог и сборки

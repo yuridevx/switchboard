@@ -30,9 +30,9 @@ const PIN = (
 );
 const SLIDERS = (
   <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-    <path d="M2 4.5h7M13 4.5h1M2 11.5h1M7 11.5h7" />
-    <circle cx="11" cy="4.5" r="2" />
-    <circle cx="5" cy="11.5" r="2" />
+    <path d="M2 4h7M13 4h1M2 12h1M7 12h7" />
+    <circle cx="11" cy="4" r="1.9" />
+    <circle cx="5" cy="12" r="1.9" />
   </svg>
 );
 
@@ -84,7 +84,7 @@ function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: bo
     track(e, true, (from) => rowDrag({ host: shared.host(), scroller: shared.body(), row, block: blockOf(callsign, s.sessions()), done: s.drop }, from));
   };
   return (
-    <RowBtn className={words("bd-row", depth > 0 && "kid")} style={depth > 0 ? { paddingLeft: `${10 + depth * 22}px` } : undefined} data-callsign={callsign} aria-current={r.current || undefined} onClick={open} onPointerDown={down}>
+    <RowBtn className={words("bd-row", depth > 0 && "kid")} style={depth > 0 ? { paddingLeft: `${10 + depth * 22}px` } : undefined} data-callsign={callsign} aria-current={r.current} onClick={open} onPointerDown={down}>
       {v.lamp && <Dot kind={r.dot} title={r.title} />}
       <span className="bd-rt">
         <span className="bd-t1">
@@ -190,7 +190,7 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
         <DisclosureBtn className="pj-t" data-proj={id} open={!folded} onClick={() => s.toggle(id, folded)}>
           <span className="car">▼</span>
           <span className="nm">{name}</span>
-          {v.pjlamps && lamps.length > 0 && (
+          {v.pjlamps && (
             <span className="lamps">
               {lamps.map((d, i) => (
                 <Dot key={i} kind={d} />
@@ -307,7 +307,7 @@ function FilterRow({ v, panel, setPanel, edit, shared }: { v: View; panel: boole
     <div className="fbar">
       <div className="fscroll" role="tablist" aria-label="Фильтры" ref={scroll}>
         {chips.map((c) => (
-          <button key={c.id} type="button" role="tab" className="fc" data-fid={c.id} aria-selected={c.id === selected} onKeyDown={(e) => keys(e, c.id)} onPointerDown={(e) => down(e, c.id)} onClick={() => (c.id === selected && own(c.id) ? edit(own(c.id)!) : s.pick(c.id))}>
+          <RowBtn key={c.id} role="tab" className="fc" data-fid={c.id} aria-selected={c.id === selected} onKeyDown={(e) => keys(e, c.id)} onPointerDown={(e) => down(e, c.id)} onClick={() => (c.id === selected && own(c.id) ? edit(own(c.id)!) : s.pick(c.id))}>
             {c.name}
             {v.fcount && <span className="n">{c.n}</span>}
             {c.id === selected && own(c.id) && (
@@ -315,7 +315,7 @@ function FilterRow({ v, panel, setPanel, edit, shared }: { v: View; panel: boole
                 ✎
               </span>
             )}
-          </button>
+          </RowBtn>
         ))}
       </div>
       <IconBtn className="fc add" aria-label="Новый фильтр" onClick={() => edit(null)}>
@@ -361,9 +361,9 @@ export function BoardScreen() {
           <Lists filter={filter} v={v} shared={shared} />
         </div>
         {panel && <ViewPanel v={v} close={() => setPanel(false)} />}
+        {editing !== undefined && <FilterEditor filter={editing} close={() => setEditing(undefined)} />}
       </div>
       {app.wide && <div className="bd-pick" />}
-      {editing !== undefined && <FilterEditor filter={editing} close={() => setEditing(undefined)} />}
     </div>
   );
 }

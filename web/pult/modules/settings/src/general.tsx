@@ -1,6 +1,6 @@
 // «GitHub и устройство»: приложение GitHub флота и это устройство.
 import { useState } from "react";
-import { Btn, In, LinkBtn, M, Note, Pill, plural, Row, Sec, useApp, useLoad } from "@switchboard/web-ui";
+import { Btn, In, LinkBtn, M, Note, Opts, PageHead, Pill, plural, Row, Sec, useApp, useLoad } from "@switchboard/web-ui";
 import { isMine, wordFor } from "./rules.ts";
 
 type GithubAnswer = { app: { slug: string } | null; repos?: string[]; install?: string; form?: { action: string; manifest: unknown } };
@@ -33,7 +33,9 @@ function Repos({ repos }: { repos: string[] }) {
   const list = repos.filter((r) => r.toLowerCase().includes(q.toLowerCase()));
   return (
     <>
-      <In className="st-grow" data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      <Opts className="st-nowrap">
+        <In className="st-grow" data-f="gq" placeholder="Найти репозиторий" aria-label="Найти репозиторий" value={q} onInput={(e) => setQ(e.currentTarget.value)} />
+      </Opts>
       <div className="st-repos">
         {list.map((r) => (
           <div key={r} className="st-repo" data-repo={r}>
@@ -82,15 +84,17 @@ function Github() {
       {saved && <Note tone="ok">Приложение сохранено — установите его на репозитории.</Note>}
       {gh.data?.app && (
         <>
-          <span className="sb-opts">
-            <M className="st-grow">{gh.data.app.slug}</M>
+          <PageHead>
+            <M className="st-grow">
+              <b>{gh.data.app.slug}</b>
+            </M>
             <Pill tone="ok">{`${repos.length} ${plural(repos.length, "репозиторий", "репозитория", "репозиториев")}`}</Pill>
-          </span>
-          {gh.data.install && (
-            <LinkBtn href={gh.data.install} target="_blank" rel="noreferrer">
-              Доступ на GitHub ↗
-            </LinkBtn>
-          )}
+            {gh.data.install && (
+              <LinkBtn href={gh.data.install} target="_blank" rel="noopener">
+                Доступ на GitHub ↗
+              </LinkBtn>
+            )}
+          </PageHead>
           <Repos repos={repos} />
         </>
       )}

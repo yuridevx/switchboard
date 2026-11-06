@@ -1,6 +1,6 @@
 // Вкладки широкой карточки: «Настройки» и «Журнал».
 import { useEffect, useRef, useState } from "react";
-import { Btn, CommitIn, midnight, Opts, profileIdOf, profileName, sessionOf, slotOf, useApp, useMachineLoad, type AccountsAnswer, type JournalAnswer, type JournalRecord, type ProfilesAnswer } from "@switchboard/web-ui";
+import { Btn, CommitIn, midnight, profileIdOf, profileName, sessionOf, slotOf, useApp, useMachineLoad, type AccountsAnswer, type JournalAnswer, type JournalRecord, type ProfilesAnswer } from "@switchboard/web-ui";
 import { Control, useAct, useControl } from "./narrow.tsx";
 
 const toldLater = (r: { ok: boolean; result?: unknown }) => (r.ok && (r.result as { restart?: boolean } | undefined)?.restart ? "после хода" : "");
@@ -143,13 +143,13 @@ export function LogTab({ callsign, machine }: { callsign: string; machine: strin
   useEffect(() => void read(midnight(days), []), [days, kind]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="cw-log">
-      <span className="cw-note">{`${machine} · ${days ? `с ${days} дн. назад` : "сегодня"}`}</span>
       <div className="cw-opts flat">
         {["", ...KINDS].map((k) => (
           <Btn key={k} aria-pressed={k === kind} onClick={() => setKind(k)}>
             {k || "все"}
           </Btn>
         ))}
+        <span className="cw-note">{`${machine} · ${days ? `с ${days} дн. назад` : "сегодня"}`}</span>
       </div>
       {page?.records.map((r, i) => (
         <div key={i} className="cw-lr">
@@ -165,10 +165,8 @@ export function LogTab({ callsign, machine }: { callsign: string; machine: strin
         </span>
       )}
       {page && !page.word && !page.records.length && <span className="cw-note">Записей нет.</span>}
-      <Opts>
-        {page?.more && page.records.length > 0 && <Btn onClick={() => void read(page.records.at(-1)?.t ?? midnight(days), page.records)}>дальше →</Btn>}
-        <Btn onClick={() => setDays(days + 1)}>Раньше</Btn>
-      </Opts>
+      {page?.more && page.records.length > 0 && <Btn onClick={() => void read(page.records.at(-1)?.t ?? midnight(days), page.records)}>дальше →</Btn>}
+      <Btn onClick={() => setDays(days + 1)}>Раньше</Btn>
     </div>
   );
 }

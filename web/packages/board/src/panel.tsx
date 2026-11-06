@@ -1,7 +1,7 @@
 // Окна «Работы»: панель вида и окно фильтра.
 import { useState, type KeyboardEvent } from "react";
 import { machineOf, userOf } from "@switchboard/protocol";
-import { Btn, Chip, Chips, Choices, In, machineLabel, profileIdOf, profileName, stateLabel, useApp, useModule } from "@switchboard/web-ui";
+import { Btn, Chip, Chips, Choices, In, machineLabel, profileNameOf, stateLabel, useApp, useModule } from "@switchboard/web-ui";
 import { fitLine, VIEW, type Filter, type FilterField, type View } from "./model.ts";
 import type { BoardState } from "./state.ts";
 
@@ -66,13 +66,13 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
     const sessions = s.sessions();
     const me = app.address() && userOf(app.address()!);
     const owners = [...new Set(sessions.map((x) => s.owner(x.callsign)))].filter((o): o is string => !!o && o !== me);
-    const profiles = [...new Set(sessions.map(profileIdOf))].filter((p): p is string => !!p);
+    const profiles = [...new Set(sessions.map(profileNameOf))].filter((p): p is string => !!p).sort();
     const machines = [...new Set([...(app.roster()?.machines ?? []).map((m) => m.machine), ...sessions.map((x) => machineOf(x.callsign)!)])];
     return {
       who: [{ value: "mine", text: "моё" }, ...owners.map((o) => ({ value: o, text: o.slice(1) }))],
-      projects: (s.records() ?? []).map((r) => ({ value: r.id, text: r.name })),
-      machines: machines.map((m) => ({ value: m, text: machineLabel(app, m).text })),
-      profiles: profiles.map((p) => ({ value: p, text: profileName(p) })),
+      projects: s.shown({}).map((x) => ({ value: x.id, text: x.name })).sort((a, b) => a.text.localeCompare(b.text)),
+      machines: machines.sort().map((m) => ({ value: m, text: machineLabel(app, m).text })),
+      profiles: profiles.map((p) => ({ value: p, text: p })),
       states: STATES.map((x) => ({ value: x, text: stateLabel(x).text })),
     };
   });
