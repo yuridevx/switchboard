@@ -1,14 +1,10 @@
-// Инструменты claude одной таблицей: подпись, значок, суть одной строкой, что раскрыто сразу и как рисовать тело.
-import { DENIED } from "./words.ts";
+// Инструменты claude одной таблицей: подпись, значок, суть одной строкой, что раскрыто сразу и как рисовать тело; состояние карточки.
 import type { Msg, Task, Tool } from "./fold.ts";
 
-export type ToolState = "running" | "ok" | "error" | "denied" | "bg" | "stopped" | "wait";
 export type Body = "command" | "diff" | "read" | "todos" | "ask" | "plan" | "agent" | "output" | "plain";
-/** keys — поля входа для сути; body — вид тела; open — раскрыто сразу. */
 type Kind = { word: string; icon: string; keys?: string[]; body?: Body; open?: boolean };
 
 const AGENT: Kind = { word: "Субагент", icon: "bot", keys: ["description"], body: "agent" };
-const SEARCH = { icon: "search", body: "output" as const };
 const TASKS: Kind = { word: "Задачи", icon: "list-checks", keys: ["subject", "taskId"] };
 const CRON: Kind = { word: "Расписание", icon: "calendar-clock", keys: ["reason", "prompt", "cron"] };
 const STOP_TASK: Kind = { word: "Остановка задачи", icon: "square", keys: ["task_id", "shell_id"] };
@@ -23,7 +19,7 @@ const KINDS: Record<string, Kind> = {
   Write: { word: "Запись файла", icon: "file-plus", keys: ["file_path"], body: "diff" },
   NotebookEdit: { word: "Ячейка блокнота", icon: "notebook-pen", keys: ["notebook_path"], body: "diff" },
   Read: { word: "Чтение", icon: "file-text", body: "read" },
-  Grep: { word: "Поиск", ...SEARCH, keys: ["pattern", "path", "glob"] },
+  Grep: { word: "Поиск", icon: "search", body: "output", keys: ["pattern", "path", "glob"] },
   Glob: { word: "Файлы по маске", icon: "folder-search", keys: ["pattern", "path"], body: "output" },
   WebFetch: { word: "Страница", icon: "globe", keys: ["url"], body: "output" },
   WebSearch: { word: "Поиск в сети", icon: "search", keys: ["query"], body: "output" },
@@ -53,7 +49,6 @@ const KINDS: Record<string, Kind> = {
 };
 
 const SUM_MAX = 140;
-
 /** Первая непустая строка, обрезанная по пределу. */
 function short(text: unknown): string {
   const first = String(text ?? "").split("\n").find((l) => l.trim()) ?? "";
@@ -63,7 +58,7 @@ function short(text: unknown): string {
 function summary(name: string, input: Msg, keys?: string[]): string {
   if (name === "Read") return [input.file_path, input.offset ? `с ${input.offset}` : "", input.limit ? `${input.limit} строк` : ""].filter(Boolean).join(" · ");
   if (name === "TodoWrite") {
-    const todos = (input.todos ?? []) as Array<{ status?: string }>;
+    const todos = (input.todos ?? []) as Msg[];
     return `${todos.filter((t) => t.status === "completed").length} из ${todos.length} готово`;
   }
   if (name === "AskUserQuestion") return short(input.questions?.[0]?.question);
@@ -85,14 +80,16 @@ export function toolLook(tool: Tool | undefined) {
   return { word, icon: known?.icon ?? "wrench", body: known?.body ?? "plain", open: !!known?.open, sum: summary(name, input, known ? (known.keys ?? []) : undefined) };
 }
 
-const SHELLS = new Set(["Bash", "PowerShell"]);
-export const isShell = (tool: Tool) => SHELLS.has(String(tool.name));
+const DENIED = /^(The user doesn't want to proceed with this tool use\.|User rejected|The user rejected)/;
+export const isShell = (tool: Tool) => tool.name === "Bash" || tool.name === "PowerShell";
 export const isAgent = (tool: Tool) => toolLook(tool).body === "agent";
 export const isDenied = (tool: Tool) => !!tool.result?.error && DENIED.test(tool.result.text);
 /** Причина отказа человека: текст после Reason:. */
 export const deniedWhy = (tool: Tool) => /Reason:\s*([\s\S]*)$/.exec(tool.result?.text ?? "")?.[1] ?? "";
 
-export function toolState(tool: Tool, task: Task | undefined, waiting: boolean): ToolState {
+const resultState = (tool: Tool) => (isDenied(tool) ? "denied" : tool.result?.error ? "error" : "ok");
+
+export function toolState(tool: Tool, task: Task | undefined, waiting: boolean): string {
   if (waiting) return "wait";
   if (task) {
     if (task.end === "stopped" || task.end === "killed") return "stopped";
@@ -101,8 +98,5 @@ export function toolState(tool: Tool, task: Task | undefined, waiting: boolean):
   return tool.result ? resultState(tool) : "running";
 }
 
-const resultState = (tool: Tool): ToolState => (isDenied(tool) ? "denied" : tool.result?.error ? "error" : "ok");
-
-/** Метка «в фоне» без задачи. */
+/** Метка «в фоне» без задачи или у кончившейся. */
 export const startedInBackground = (tool: Tool, task?: Task) => (task ? task.bg && !!task.end : tool.input?.run_in_background === true || /^Command running in background/.test(tool.result?.text ?? ""));
-

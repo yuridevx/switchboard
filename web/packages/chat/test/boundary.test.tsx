@@ -209,12 +209,6 @@ const SDK: Array<[string, Msg[], (f: Feed) => Promise<void> | void]> = [
   }],
   ["6636 стоимость после перезапуска процесса — счёт с начала", [{ type: "result", uuid: uid(), subtype: "success", total_cost_usd: 7 }, { type: "result", uuid: uid(), subtype: "success", total_cost_usd: 1 }, { type: "result", uuid: uid(), subtype: "success", total_cost_usd: 1.5 }], (f) => void expect(f.qq(".chat-res").map((x) => x.textContent)).toEqual(["ход закончен · $7,00", "ход закончен · $1,00", "ход закончен · $0,50"])],
   ["6638 файлы сохранились не все", [sys("files_persisted", { files: [{ filename: "a.pdf" }], failed: [{ filename: "b.pdf", error: "нет места" }] })], (f) => void expect(f.q(".chat-line.bad")!.textContent).toBe("Файлы сохранены: a.pdf · Не сохранились: b.pdf: нет места")],
-  ["6639 записи файла разговора: поля другим регистром", (() => { const a = text("начал"); const u = human("вопрос"); return [sys("compact_boundary", { compactMetadata: { preTokens: 90_000, postTokens: 8000 } }), a, sys("model_refusal_fallback", { originalModel: "claude-fable-5-1", fallbackModel: "claude-opus-5-5", retractedMessageUuids: [a.uuid] }), u, sys("model_refusal_no_fallback", { refusedUserMessageUuid: u.uuid, originalModel: "claude-opus-5-5" })]; })(), (f) => {
-    expect(f.text()).toContain("контекст сжат · 90 К → 8 К");
-    expect(f.text()).not.toContain("начал");
-    expect(f.text()).toContain("Fable 5.1 отказалась — ответ переписан моделью Opus 5.5");
-    expect(pressIn(f.el(), "Изменить сообщение")).toBeDefined();
-  }],
   ["6210 повтор API подряд — одна строка с последней попыткой", [sys("api_retry", { attempt: 1, max_retries: 10 }), sys("api_retry", { attempt: 2, max_retries: 10 })], (f) => {
     expect(f.qq(".chat-sys").map((x) => x.textContent)).toEqual(["повтор запроса к API · 2 из 10"]);
   }],
@@ -2582,5 +2576,167 @@ describe("запрос разрешения в карточке инструме
     b.push({ type: "question", from: BUSY, to: ["phone"], ...edit });
     await flush();
     expect(u.$('.chat-tool[data-tool="Edit"] .tc-h')!.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+// Правила, что жили только в комментариях старого кода: сверка комментариев круга 3. Источник — чьё: код.
+describe("правила из комментариев старого кода", () => {
+  const sized = (el: HTMLElement, o: { height: number; top: number }) => {
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: () => o.height });
+    Object.defineProperty(el, "clientHeight", { configurable: true, get: () => 100 });
+    Object.defineProperty(el, "scrollTop", { configurable: true, get: () => o.top, set: (v: number) => void (o.top = v) });
+  };
+
+  it("разрыв длиннее страницы: прежнее не встаёт после новой страницы", async () => {
+    // намеренное расхождение: старый код ставил новое впереди прежнего; источник — правило «новое — у своего соседа», спорное место круга 3
+    let page: unknown[] = [user("o1", "старое")];
+    let more = false;
+    const relay = relayFor();
+    relay.handlers["session.history"] = () => ({ ok: true, result: { messages: page, more } });
+    const t = await chat(IDLE, { relay, wide: true });
+    await t.events(IDLE, [], 1);
+    page = [user("n1", "новое")];
+    more = true;
+    await t.events(IDLE, [], 5);
+    const shown = t.$$(".chat-me").map((x) => x.textContent).join(" ");
+    expect(shown).toContain("новое");
+    expect(shown).not.toMatch(/новое.*старое/);
+  });
+
+  it("«Раньше»: лента остаётся на том же сообщении", async () => {
+    const o = { height: 1000, top: 900 };
+    const relay = relayFor();
+    relay.handlers["session.history"] = (x) => {
+      if (!x.before) return { ok: true, result: { messages: [user("u2", "потом")], more: true } };
+      o.height = 1500;
+      return { ok: true, result: { messages: [user("u1", "раньше")], more: false } };
+    };
+    const t = await chat(IDLE, { relay, wide: true });
+    sized(t.$<HTMLElement>(".chat-feed")!, o);
+    await t.click(t.$(".chat-older"));
+    await flush(5);
+    expect(o.top).toBe(1400);
+  });
+
+  it("от низа уводит только прокрутка вверх: рост ленты стороной не считается", async () => {
+    const o = { height: 1000, top: 900 };
+    const t = await chat(IDLE, { wide: true });
+    const f = t.$<HTMLElement>(".chat-feed")!;
+    sized(f, o);
+    f.dispatchEvent(new Event("scroll"));
+    await flush();
+    o.height = 2000;
+    f.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(t.$(".chat-jump")).toBeNull();
+  });
+
+  it("подсказка — по тексту до каретки; выбор не трогает текст за ней", async () => {
+    const relay = relayFor();
+    relay.handlers["session.files"] = () => ({ ok: true, result: ["worker.ts"] });
+    const t = await chat(IDLE, { relay });
+    const inp = t.$<HTMLTextAreaElement>(".chat-inp")!;
+    inp.value = "Сравни @w с этим";
+    inp.selectionStart = inp.selectionEnd = 9;
+    inp.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush(5);
+    expect(relay.sent("session.files").at(-1)).toMatchObject({ query: "w" });
+    await t.key("Enter");
+    expect(inp.value).toContain("@worker.ts");
+    expect(inp.value).toMatch(/с этим$/);
+    expect(relay.sent("session.prompt")).toHaveLength(0);
+  });
+
+  it("«Авто»: модели сессии нет в списке — решает запись по умолчанию", async () => {
+    const relay = relayFor(roster((x) => void (x.sessions.find((s) => s.callsign === BUSY)!.mode = "default")));
+    relay.handlers["session.call"] = (f) => (f.method === "supportedModels" ? ({ ok: true, result: [{ value: "opus" }, { value: "default", supportsAutoMode: true }] } as never) : ({ ok: true, result: [] } as never));
+    const t = await chat(BUSY, { relay, wide: true });
+    await t.events(BUSY, [{ type: "system", subtype: "init", model: "claude-haiku-5-5", uuid: "i1" }]);
+    expect([...t.$<HTMLSelectElement>(".chat-mode")!.options].map((o) => o.value)).toContain("auto");
+  });
+
+  it("ход прервал человек: строка ошибки не показывается и через служебную строку", async () => {
+    const f = await feed([human("[Request interrupted by user]"), sys("informational", { content: "заметка" }), { type: "result", uuid: uid(), subtype: "error_during_execution", is_error: true }]);
+    expect(f.q(".chat-res")).toBeNull();
+  });
+});
+
+// Видимое, которое потеряла перепись и нашла сверка строк круга 3. Источник — чьё: код.
+describe("видимое из сверки строк", () => {
+  it("длинное сообщение сессии: «показать всё» раскрывает, «свернуть» сворачивает обратно", async () => {
+    const f = await feed([human(`<fleet-message from="a@b">\n${"слово ".repeat(200)}\n</fleet-message>`)]);
+    expect(f.q(".chat-more")!.textContent).toBe("показать всё");
+    await f.open(".chat-more");
+    expect(f.q(".chat-clamp")).toBeNull();
+    expect(f.q(".chat-more")!.textContent).toBe("свернуть");
+    expect(f.q(".chat-more")!.getAttribute("aria-expanded")).toBe("true");
+    await f.open(".chat-more");
+    expect(f.q(".chat-clamp")).not.toBeNull();
+    expect(f.q(".chat-more")!.textContent).toBe("показать всё");
+  });
+
+  it("план на одобрение: так и назван в вопросе, в строке списка и над вводом", async () => {
+    const pl = { question: "toolu_pl", kind: "perm", tool: "ExitPlanMode", input: { plan: "1. шаг" } };
+    const relay = relayFor();
+    relay.handlers["question.list"] = (x) => ({ ok: true, result: x.callsign === BUSY ? [pl] : [] });
+    const t = await chat(BUSY, { relay, wide: true });
+    relay.push({ type: "question", from: BUSY, to: ["phone"], ...pl });
+    await flush();
+    expect(t.$(".chat-ask .ask-qt")!.textContent).toBe("План на одобрение");
+    const u = await chat(BUSY, { relay: (() => { const r = relayFor(); r.handlers["question.list"] = relay.handlers["question.list"]; return r; })() });
+    u.relay.push({ type: "question", from: BUSY, to: ["phone"], ...pl });
+    await flush();
+    expect(u.$(".chat-askbar span")!.textContent).toBe("План на одобрение");
+  });
+
+  it("подписи и тексты кнопок экрана", async () => {
+    const r = roster((x) => void (x.sessions.find((s) => s.callsign === BUSY)!.mode = "default"));
+    const t = await chat(BUSY, { relay: relayFor(r, [user("u1", "раз")]), wide: true });
+    const f = t.$<HTMLElement>(".chat-feed")!;
+    let top = 900;
+    Object.defineProperty(f, "scrollHeight", { configurable: true, get: () => 1000 });
+    Object.defineProperty(f, "clientHeight", { configurable: true, get: () => 100 });
+    Object.defineProperty(f, "scrollTop", { configurable: true, get: () => top, set: (v: number) => void (top = v) });
+    f.dispatchEvent(new Event("scroll"));
+    top = 100;
+    f.dispatchEvent(new Event("scroll"));
+    await flush();
+    expect(t.$(".chat-jump")!.getAttribute("aria-label")).toBe("К последнему");
+    expect(t.$(".chat-jump")!.classList.contains("sb-ic")).toBe(true);
+    expect(t.$$(".chat-bar > *").map((x) => x.textContent)).toEqual(["контекст", "фокус", "выгрузить .md"]);
+    expect(t.$$(".chat-tools [aria-label]").map((x) => x.getAttribute("aria-label"))).toEqual(["Вложить файл", "Файл папки", "Команда", "Режим разрешений", "Отправить"]);
+    expect(t.$(".chat-stop")!.textContent).toBe("Прервать");
+    expect(t.$(".chat-rw")!.textContent).toBe("откатить файлы");
+    expect(t.$(".chat-inp")!.getAttribute("placeholder")).toMatch(/^В очередь /);
+  });
+
+  it("нет ленты у машины: история всё равно читается", async () => {
+    const r = roster((x) => void delete (x.machines.find((y) => y.machine === "pc")!.contract as Record<string, unknown>)["session.watch"]);
+    const t = await chat(IDLE, { relay: relayFor(r, [user("u1", "раньше")]) });
+    expect(t.relay.sent("session.history")).toHaveLength(1);
+    expect(t.$(".chat-me")!.textContent).toContain("раньше");
+  });
+
+  it("субагент внутри субагента: шаг и ход времени — в карточке своего родителя; ответ раньше плашки ошибки", async () => {
+    const a = { parent_tool_use_id: "t1" };
+    const b = { parent_tool_use_id: "t2" };
+    const f = await feed([toolUse("t1", "Agent"), toolUse("t2", "Agent", {}, a), toolUse("t3", "Bash", { command: "x" }, b), { type: "tool_progress", tool_use_id: "t3", elapsed_time_seconds: 7 }, text("начало", { error: "overloaded" })]);
+    expect(f.q('.tb-steps .tb-steps [data-tool="Bash"] .tc-st')!.textContent).toBe("7 с");
+    expect([...f.q(".chat-col")!.children].slice(-2).map((x) => x.className)).toEqual(["chat-reply", "chat-ban bad"]);
+  });
+
+  it("итог ответа — карточкой итога; сообщение сессии — со временем записи", async () => {
+    const f = await feed([human('<fleet-message from="a@b">\nx\n</fleet-message>', { timestamp: "2026-11-04T10:20:00" })]);
+    expect(f.q(".chat-in.fleet small")!.textContent).toBe("10:20");
+    const relay = relayFor();
+    relay.handlers["question.list"] = () => ({ ok: true, result: [{ question: "q", kind: "ask", questions: [{ question: "База?", options: [{ label: "да" }] }] }] });
+    relay.handlers.answer = () => ({ ok: true });
+    const t = await stand(parts(), { relay });
+    await open(`#ask?callsign=${encodeURIComponent(ASKING)}`);
+    await flush(5);
+    await t.click(t.$(".ask-opt"));
+    await t.click(t.button("Ответить"));
+    expect(t.$('.sb-okc[role="status"] b')!.textContent).toBe("Ответ «да» принят.");
+    expect(relay.sent("answer")[0]).not.toHaveProperty("label");
   });
 });

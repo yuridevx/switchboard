@@ -7,6 +7,5 @@ import type { AppPart, Manifest } from "@switchboard/web-core";
 import json from "./module.json" with { type: "json" };
 import { createJournal } from "./src/module.tsx";
 
-export { createJournal };
 export const manifest: Manifest = json;
 export default createJournal satisfies AppPart["module"];

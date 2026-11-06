@@ -1,102 +1,96 @@
-// releases.deploy: stable на версию. Часть машины — строка флота и планы; часть Cloudflare — выкладка версии; модуль и корень сборки — новая сборка.
-import { isBuild, isVersion } from "@switchboard/release";
+// releases.deploy: «*», Worker, часть машины, сборка приложения.
 import type { Frame } from "@switchboard/protocol";
 import type { Deployed } from "../contract.ts";
-import { buildAndShip } from "./builds.ts";
-import { buildVersions, catalogVersions, isModule, isRoot, manifestAt, scan, scriptOf, shaOf, type Entry } from "./catalog.ts";
-import { deployVersion, versionsOf } from "./cloudflare.ts";
-import type { Env } from "./env.ts";
-import { ALWAYS, deployed, followers, machinesOf, readFleet, saveFleet, sendPlans, type Fleet } from "./fleet.ts";
-import { Refusal } from "./refusal.ts";
+import { deployBuilds } from "./build.ts";
+import { isBuild, isVersion, NAME, type Catalog, type ModuleManifest, type Part } from "./catalog.ts";
+import { release } from "./cloud.ts";
+import { refuse, type Env } from "./env.ts";
+import { advance, EVERYWHERE, journal, moved, type Move, type Row } from "./fleet.ts";
 
-export const NAME = /^[a-z0-9][a-z0-9-]*$/;
-const areNames = (x: unknown) => Array.isArray(x) && x.every((n) => typeof n === "string" && NAME.test(n));
-const arrow = (part: string, from: string | null, to: string) => `${part} ${from ?? "—"} → ${to}`;
+const LAST = "relay";
 
-function validate(f: Frame): void {
+function validate(f: Frame) {
   const { part, version, latest, without, check_with } = f;
-  if (typeof part !== "string" || (part !== "*" && !NAME.test(part))) throw new Refusal("bad_frame", "part — имя части или *");
-  if (version !== undefined && version !== null && !isVersion(version) && !isBuild(version)) throw new Refusal("bad_version", "версия — три числа, сборка «+n» или null — снять модуль");
-  if (part === "*" && version !== undefined) throw new Refusal("bad_frame", "у * версии нет: каждая часть — на свою edge");
-  if (!latest && (without !== undefined || check_with !== undefined)) throw new Refusal("bad_frame", "without и check_with — только вместе с latest: true");
-  if (without !== undefined && !areNames(without)) throw new Refusal("bad_frame", "without — список имён");
-  if (check_with !== undefined && !areNames(check_with)) throw new Refusal("bad_frame", "check_with — список имён");
-}
-
-/** Версия части машины: сборки флота, иначе каталог. */
-async function machineEdge(env: Env, part: string): Promise<string | undefined> {
-  return (await buildVersions(env, part)).at(-1) ?? (await catalogVersions(env, part)).at(-1);
-}
-
-/** Выложить версию Worker'а: только если выложена другая. */
-async function shipScript(env: Env, f: Frame, part: string, script: string, version?: string): Promise<{ from: string | null; to: string }> {
-  const v = await versionsOf(env, script);
-  const to = version ?? v.tags.at(-1);
-  if (!to || !v.idOf.has(to)) throw new Refusal("no_release", version ? `у ${part} нет версии ${version}` : `у ${part} нет версии с меткой`);
-  if (v.live !== to) {
-    await deployVersion(env, script, v.idOf.get(to)!);
-    await deployed(env, f.from, arrow(part, v.live, to));
+  if (part !== "*" && !(typeof part === "string" && NAME.test(part))) refuse("bad_frame", "part — имя части или *");
+  if (version !== undefined && version !== null && !isVersion(version) && !isBuild(version)) refuse("bad_version", "версия — три числа, сборка «+n» или null — снять модуль");
+  if (part === "*" && version !== undefined) refuse("bad_frame", "у * версии нет: каждая часть — на свою edge");
+  if (!latest && (without !== undefined || check_with !== undefined)) refuse("bad_frame", "without и check_with — только вместе с latest: true");
+  for (const [word, names] of [["without", without], ["check_with", check_with]] as const) {
+    if (names !== undefined && !(Array.isArray(names) && names.every((n) => typeof n === "string" && NAME.test(n)))) refuse("bad_frame", `${word} — список имён`);
   }
-  return { from: v.live, to };
 }
 
-/** Stable частей машины: одна правка, один план на машину. */
-async function moveStable(env: Env, f: Frame, row: Fleet, moves: Array<{ part: string; to: string }>): Promise<Deployed["parts"]> {
-  const changed = moves.filter((m) => row.stable[m.part] !== m.to);
-  const parts = Object.fromEntries(moves.map((m) => [m.part, { from: row.stable[m.part] ?? null, to: m.to }]));
-  if (!changed.length) return parts;
-  const machines = await machinesOf(env);
-  const next = await saveFleet(env, row, { stable: { ...row.stable, ...Object.fromEntries(changed.map((m) => [m.part, m.to])) }, plans: row.plans });
-  for (const m of changed) await deployed(env, f.from, arrow(m.part, row.stable[m.part] ?? null, m.to));
-  await sendPlans(env, next, [...new Set(changed.flatMap((m) => followers(next, machines, m.part)))]);
-  return parts;
-}
-
-/** «*»: части Cloudflare по имени, relay последним, затем части машины на edge. */
-async function deployAll(env: Env, f: Frame): Promise<Deployed> {
-  const catalog = await scan(env);
-  const row = await readFleet(env);
-  const scripts = [...catalog.values()].flatMap((e) => {
-    const script = scriptOf(env, e.manifest);
-    return script ? [{ part: e.name, script }] : [];
-  });
-  scripts.sort((a, b) => Number(a.part === "relay") - Number(b.part === "relay") || (a.part < b.part ? -1 : 1));
-  const cloud: Deployed["parts"] = {};
-  for (const { part, script } of scripts) cloud[part] = await shipScript(env, f, part, script);
-  const edges = await Promise.all(ALWAYS.map(async (part) => ({ part, to: await machineEdge(env, part) })));
-  const machine = await moveStable(env, f, row, edges.flatMap((e) => (e.to ? [{ part: e.part, to: e.to }] : [])));
-  return { parts: { ...machine, ...cloud } };
-}
-
-/** Часть машины на версию: готова — stable, планы тем, кто за ней следует. */
-async function deployMachine(env: Env, f: Frame, part: string, version?: string): Promise<Deployed> {
-  const to = version ?? (await machineEdge(env, part));
-  if (!to) throw new Refusal("no_release", `у ${part} нет версии`);
-  if (!(await shaOf(env, part, to))) throw new Refusal("no_release", `у ${part} нет версии ${to}`);
-  return { parts: await moveStable(env, f, await readFleet(env), [{ part, to }]) };
-}
-
-/** Что значит запрос для имени из каталога. */
-async function deployNamed(env: Env, f: Frame, part: string, entry: Entry | undefined, catalog: Map<string, Entry>): Promise<Deployed> {
-  const m = entry?.manifest ?? null;
-  const version = f.version as string | null | undefined;
-  const latest = f.latest === true;
-  if (latest && (version !== undefined || (!isRoot(m) && !isModule(m)))) throw new Refusal("bad_frame", "latest: true — только у корня сборки или модуля сборки и без version");
-  if (version === null && !isModule(m)) throw new Refusal("bad_frame", `${part} — не модуль сборки: снимать нечего`);
-  if (isModule(m)) {
-    if (typeof version === "string" && !isVersion(version)) throw new Refusal("bad_version", `${part} — модуль: версия каталога, без «+»`);
-    return buildAndShip(env, f, catalog, { kind: "module", name: part, version, latest });
+/** Часть Cloudflare на версию с меткой; уже выложена — без перемен. */
+async function deployCloud(env: Env, cat: Catalog, p: Part, version: string | undefined, by: unknown) {
+  const state = await cat.cloud(p.script!);
+  const to = version ?? (p.root ? (await cat.builds(p.name)).at(-1) : state.tags.at(-1));
+  const id = to ? state.idOf(to) : undefined;
+  if (!to || !id) return refuse("no_release", `у ${p.name} нет версии${version ? ` ${version}` : ""} с меткой`);
+  if (state.live !== id) {
+    await release(env, p.script!, id);
+    await journal(env, moved({ part: p.name, from: state.stable, to }), by);
   }
-  // корень с версией каталога — сборка с этим ядром; прежний архив без манифеста и сборка «+n» — откат прямо на неё
-  if (isRoot(m) && (latest || (isVersion(version) && (await manifestAt(env, part, version))))) return buildAndShip(env, f, catalog, { kind: "root", name: part, version: version ?? undefined, latest });
-  const script = scriptOf(env, m);
-  if (script) return { parts: { [part]: await shipScript(env, f, part, script, version ?? undefined) } };
-  return deployMachine(env, f, part, version ?? undefined);
+  return { from: state.stable, to };
 }
 
-export async function deploy(env: Env, f: Frame): Promise<Deployed> {
+const edgeOf = async (cat: Catalog, p: Part) => (p.root ? (await cat.builds(p.name)).at(-1) : p.versions.at(-1));
+
+async function machineMove(cat: Catalog, row: Row, p: Part, version?: string): Promise<Move> {
+  const to = version ?? (await edgeOf(cat, p));
+  if (!to) return refuse("no_release", `у ${p.name} нет версии в каталоге`);
+  if (!(await cat.sha(p.name, to))) refuse("no_release", `у ${p.name} нет версии ${to}`);
+  return { part: p.name, from: row.stable[p.name] ?? null, to };
+}
+
+async function deployAll(env: Env, cat: Catalog, row: Row, by: unknown): Promise<Deployed> {
+  const parts = await cat.all();
+  const onMachines = parts.filter((p) => EVERYWHERE.includes(p.name));
+  const moves = await Promise.all(onMachines.map((p) => machineMove(cat, row, p)));
+  const rank = (p: Part) => (p.name === LAST ? 1 : 0);
+  const clouds = parts.filter((p) => p.kind === "cloud").sort((a, b) => rank(a) - rank(b) || (a.name < b.name ? -1 : 1));
+  const result: Deployed["parts"] = Object.fromEntries(moves.map((m) => [m.part, { from: m.from, to: m.to }]));
+  for (const p of clouds) result[p.name] = await deployCloud(env, cat, p, undefined, by);
+  await advance(env, cat, row, moves, by);
+  return { parts: result };
+}
+
+async function deployModule(env: Env, cat: Catalog, row: Row, p: Part, f: Frame) {
+  const without = (f.without ?? []) as string[];
+  const checkWith = (f.check_with ?? []) as string[];
+  for (const name of without) if ((await cat.part(name)).kind !== "module") refuse("bad_frame", "without — модули сборки");
+  for (const app of checkWith) if (!(await cat.part(app)).root) refuse("no_build", `${app} — не приложение каталога`);
+  const gone = without.length ? `; сняты ${without.join(", ")}` : "";
+  const latest = !!f.latest;
+  if (p.root) {
+    const version = latest ? p.versions.at(-1)! : (f.version as string);
+    return deployBuilds(env, cat, row, [p.name], checkWith, { latest, root: version, without }, `${p.name} ${version}${gone}`, f.from);
+  }
+  if (isBuild(f.version)) refuse("bad_version", "версия модуля — три числа");
+  const into = p.manifest!.into!;
+  if (f.version === null) return deployBuilds(env, cat, row, into, checkWith, { remove: p.name, without }, `снят ${p.name}`, f.from);
+  const version = (f.version as string | undefined) ?? p.versions.at(-1)!;
+  const set = (await cat.manifest(p.name, version)) as ModuleManifest | null;
+  if (!set) return refuse("no_release", `у ${p.name} нет версии ${version}`);
+  return deployBuilds(env, cat, row, into, checkWith, { set, latest, without }, `${p.name} ${version}${gone}`, f.from);
+}
+
+export async function deploy(env: Env, cat: Catalog, row: Row, f: Frame): Promise<Deployed> {
   validate(f);
-  if (f.part === "*") return deployAll(env, f);
-  const catalog = await scan(env);
-  return deployNamed(env, f, f.part as string, catalog.get(f.part as string), catalog);
+  if (f.part === "*") return deployAll(env, cat, row, f.from);
+  return deployOne(env, cat, row, f);
+}
+
+async function deployOne(env: Env, cat: Catalog, row: Row, f: Frame): Promise<Deployed> {
+  const name = f.part as string;
+  const p = await cat.part(name);
+  const module = p.kind === "module";
+  if (f.latest && (f.version !== undefined || !(module || p.root))) refuse("bad_frame", "latest: true — только у корня сборки или модуля сборки и без version");
+  if (f.version === null && !module) refuse("bad_frame", `${name} — не модуль сборки: снимать нечего`);
+  const catalogRoot = p.root && isVersion(f.version) && (await cat.manifest(name, f.version));
+  if (module || f.latest || catalogRoot) return deployModule(env, cat, row, p, f);
+  const version = (f.version ?? undefined) as string | undefined;
+  if (p.kind === "cloud") return { parts: { [name]: await deployCloud(env, cat, p, version, f.from) } };
+  const move = await machineMove(cat, row, p, version);
+  await advance(env, cat, row, [move], f.from);
+  return { parts: { [name]: { from: move.from, to: move.to } } };
 }

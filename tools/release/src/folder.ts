@@ -1,85 +1,66 @@
-// Упаковка папки модуля в архив каталога: одна на CLI и инструмент сессии; вид архива задаёт тип модуля.
+// Папка модуля → архив каталога: одна упаковка у CLI и инструмента сессии, вид модуля решает, что в архив идёт.
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { MANIFEST, pack, type TarFile } from "./archive.ts";
-import { sha256hex } from "./layout.ts";
-import { WEB_FILE } from "./page.ts";
+import { WEB_FILE } from "./build.ts";
+import { sha256hex } from "./sign.ts";
+import { MANIFEST, pack, type TarFile } from "./tar.ts";
 
-export type ModuleJson = { name: string; version: string; type: string; workers?: Record<string, string>; [field: string]: unknown };
+export type ModuleJson = { name: string; type: string; version: string; workers?: Record<string, string> };
 export type PackedModule = { name: string; version: string; tgz: Buffer; sha: string };
 
+const NOT_PACKAGE = /^(\.|node_modules$|dist$|tests?$|tsconfig\.json$|vitest\.config\.ts$)|\.test\./;
 const WRANGLER = "wrangler.jsonc";
-const IS_TEST = /\.test\.|^tsconfig\.json$|^vitest\.config\.ts$/;
-const NEVER = new Set(["node_modules", "test", "tests", "dist", ".wrangler"]);
 
-/** Файлы папки от её корня, по именам. */
-function walk(dir: string, keep: (name: string, isDir: boolean) => boolean, at = ""): TarFile[] {
-  return readdirSync(join(dir, at), { withFileTypes: true }).flatMap((e) => {
+function walk(dir: string, keep: (name: string) => boolean = () => true, at = ""): TarFile[] {
+  return readdirSync(join(dir, at), { withFileTypes: true }).filter((e) => keep(e.name)).flatMap((e) => {
     const path = at ? `${at}/${e.name}` : e.name;
-    if (!keep(e.name, e.isDirectory())) return [];
-    if (e.isDirectory()) return walk(dir, keep, path);
-    const full = join(dir, path);
-    return [{ path, data: readFileSync(full), mode: statSync(full).mode & 0o111 ? 0o755 : 0o644 }];
+    return e.isDirectory() ? walk(dir, keep, path) : [{ path, data: readFileSync(join(dir, path)) }];
   });
 }
 
-/** Файлы пакета: всё, кроме тестов, настроек и собранного. */
-export const packageFiles = (dir: string): TarFile[] => walk(dir, (name, isDir) => (isDir ? !NEVER.has(name) : !IS_TEST.test(name)));
+/** Файлы пакета без тестов, настроек и собранного. */
+export const packageFiles = (dir: string): TarFile[] => walk(dir, (name) => !NOT_PACKAGE.test(name));
 
-const allFiles = (dir: string): TarFile[] => walk(dir, () => true);
-
-/** JSON с комментариями и висячими запятыми: строки остаются как есть. */
-function parseJsonc(text: string): Record<string, unknown> {
-  const plain = text.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (_all, str: string | undefined) => str ?? "");
-  return JSON.parse(plain.replace(/("(?:[^"\\]|\\.)*")|,(\s*[}\]])/g, (_all, str: string | undefined, end: string) => str ?? end)) as Record<string, unknown>;
+/** Имена Worker'а по флотам из настройки wrangler; тестовый флот — верхнее имя. */
+function workersOf(dir: string): Record<string, string> {
+  const keepStrings = (re: RegExp, text: string) => text.replace(re, (hit, str) => str ?? "");
+  const text = readFileSync(join(dir, WRANGLER), "utf8");
+  const json = keepStrings(/("(?:\\.|[^"\\])*")|,(?=\s*[}\]])/g, keepStrings(/("(?:\\.|[^"\\])*")|\/\/.*|\/\*[\s\S]*?\*\//g, text));
+  const { name, env = {} } = JSON.parse(json) as { name: string; env?: Record<string, { name?: string }> };
+  return { test: name, ...Object.fromEntries(Object.entries(env).map(([fleet, c]) => [fleet, c.name ?? `${name}-${fleet}`])) };
 }
 
-/** Имя Worker'а по флотам: основное имя — флот test, у прочих своё name или «имя-флот». */
-function workerNames(dir: string): Record<string, string> {
-  const w = parseJsonc(readFileSync(join(dir, WRANGLER), "utf8")) as { name: string; env?: Record<string, { name?: string }> };
-  return { test: w.name, ...Object.fromEntries(Object.entries(w.env ?? {}).map(([fleet, x]) => [fleet, x.name ?? `${w.name}-${fleet}`])) };
-}
-
-/** Манифест с именами Worker'а: их пишет упаковка, не рука. */
-function namedManifest(dir: string, m: ModuleJson): TarFile {
-  return { path: MANIFEST, data: Buffer.from(JSON.stringify({ ...m, workers: workerNames(dir) }, null, 2) + "\n") };
-}
-
-function needWrangler(dir: string, m: ModuleJson): void {
-  if (!existsSync(join(dir, WRANGLER))) throw new Error(`${m.name}: у модуля типа ${m.type} нет ${WRANGLER}`);
-}
-
-/** Архив модуля по его типу. raw — module.json байт в байт; bundle — один файл страницы от вызывающего. */
-function filesOf(dir: string, m: ModuleJson, raw: TarFile, bundle?: () => Uint8Array): TarFile[] {
-  const dist = join(dir, "dist");
-  switch (m.type) {
-    case "worker":
-      needWrangler(dir, m);
-      return [namedManifest(dir, m)];
-    case "web-app":
-      needWrangler(dir, m);
-      if (!existsSync(dist)) throw new Error(`${m.name}: у оболочки нет dist/ — собери её статику`);
-      return [namedManifest(dir, m), ...allFiles(dist)];
-    case "web": {
-      const file = bundle?.() ?? (existsSync(join(dir, WEB_FILE)) ? readFileSync(join(dir, WEB_FILE)) : null);
-      if (!file) throw new Error(`${m.name}: у модуля страницы нет ${WEB_FILE} — собери его одним файлом`);
-      return [raw, ...packageFiles(dir).filter((f) => f.path !== MANIFEST && f.path !== WEB_FILE), { path: WEB_FILE, data: file }];
-    }
-    case "os":
-      if (existsSync(join(dist, "app.json"))) return [raw, ...allFiles(dist)];
-      if (!existsSync(join(dir, "app.json"))) throw new Error(`no_app_json: у приложения ОС ${m.name} нет app.json — ни в dist/, ни в корне`);
-      return [raw, ...packageFiles(dir).filter((f) => f.path !== MANIFEST)];
-    default:
-      return [raw, ...packageFiles(dir).filter((f) => f.path !== MANIFEST)];
-  }
-}
-
-export function packModule(dir: string, o: { bundle?: () => Uint8Array } = {}): PackedModule {
-  const path = join(dir, MANIFEST);
-  if (!existsSync(path)) throw new Error(`no_module_json: в ${dir} нет ${MANIFEST}`);
-  const data = readFileSync(path);
-  const m = JSON.parse(data.toString("utf8")) as ModuleJson;
-  if (m.workers) throw new Error(`${m.name}: workers в ${MANIFEST} пишет упаковка из wrangler-настройки, не рука`);
-  const tgz = pack(filesOf(dir, m, { path: MANIFEST, data }, o.bundle));
+/** bundle — файл модуля страницы от вызывающего; без него у страницы должен быть готовый module.js. */
+export function packModule(dir: string, o: { bundle?: (dir: string) => Buffer } = {}): PackedModule {
+  if (!existsSync(join(dir, MANIFEST))) throw new Error(`no_module_json: в ${dir} нет module.json`);
+  const manifest = readFileSync(join(dir, MANIFEST));
+  const m = JSON.parse(manifest.toString("utf8")) as ModuleJson;
+  const stop = (why: string): never => {
+    throw new Error(`${m.name}: ${why}`);
+  };
+  if (m.workers) stop("workers в module.json пишет упаковка из wrangler-настройки, не рука");
+  const has = (path: string) => existsSync(join(dir, path));
+  const named = (): TarFile => {
+    if (!has(WRANGLER)) stop(`у модуля типа ${m.type} нет ${WRANGLER}`);
+    return { path: MANIFEST, data: Buffer.from(`${JSON.stringify({ ...m, workers: workersOf(dir) }, null, 2)}\n`) };
+  };
+  const os = (): TarFile[] => {
+    if (!has("dist/app.json") && !has("app.json")) throw new Error(`no_app_json: у приложения ОС ${m.name} нет app.json — ни в dist/, ни в корне`);
+    if (!has("dist")) return packageFiles(dir);
+    const mode = (f: TarFile) => (statSync(join(dir, "dist", f.path)).mode & 0o111 ? 0o755 : 0o644);
+    return [{ path: MANIFEST, data: manifest }, ...walk(join(dir, "dist")).map((f) => ({ ...f, mode: mode(f) }))];
+  };
+  const shell = (): TarFile[] => {
+    const head = named();
+    if (!has("dist")) stop("у оболочки нет dist/ — собери её статику");
+    return [head, ...walk(join(dir, "dist"))];
+  };
+  const page = (): TarFile[] => {
+    const files = packageFiles(dir).filter((f) => !o.bundle || f.path !== WEB_FILE);
+    if (o.bundle) return [...files, { path: WEB_FILE, data: o.bundle(dir) }];
+    return files.some((f) => f.path === WEB_FILE) ? files : stop(`у модуля страницы нет ${WEB_FILE} — собери его одним файлом`);
+  };
+  const by: Record<string, () => TarFile[]> = { worker: () => [named()], "web-app": shell, os, web: page };
+  const tgz = pack((by[m.type] ?? (() => packageFiles(dir)))());
   return { name: m.name, version: m.version, tgz, sha: sha256hex(tgz) };
 }
