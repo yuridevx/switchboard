@@ -1,7 +1,8 @@
 // Панель контекста: разделы из своих методов SDK, по одному запросу на открытие. Метода нет — раздела нет; другой отказ — слово в разделе.
 import { useEffect, useState, type ReactNode } from "react";
+import { machineOf } from "@switchboard/protocol";
 import { Btn, duration, LIMIT_BAD, LIMIT_NAMES, LIMIT_WARN, LimitRow, Meter, PERM_PLACES, useModule, type Result } from "@switchboard/web-ui";
-import { machineOf, type Talks } from "../talk.ts";
+import type { Talks } from "../talk.ts";
 import { CONTEXT_PARTS, kilo, sayWord, STATUS_LABELS } from "../words.ts";
 import { Icon } from "./icons.tsx";
 
@@ -84,7 +85,7 @@ function hooks(x: Any) {
 export function Panel({ cs, close }: { cs: string; close(): void }) {
   const talks = useModule<Talks>();
   const [got, setGot] = useState<Record<string, Result<Any>>>({});
-  const machine = machineOf(cs);
+  const machine = machineOf(cs)!;
   useEffect(() => {
     let live = true;
     for (const [m, args] of METHODS)

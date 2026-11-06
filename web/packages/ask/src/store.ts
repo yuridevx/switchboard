@@ -1,4 +1,5 @@
 // Вопросы сессий на странице: кадры question и answered, сверка с Host запросом question.list. Одно правило сверки: known — список этой сессии уже спрошен.
+import { machineOf } from "@switchboard/protocol";
 import { createStore, type App } from "@switchboard/web-ui";
 import type { Roster } from "@switchboard/web-core";
 
@@ -26,7 +27,6 @@ export type Entry = { q: Question; at: number; sending: boolean; word: string; d
 type Asks = { items: Entry[]; loading: boolean; word: string };
 
 const EMPTY: Asks = { items: [], loading: false, word: "" };
-const machineOf = (cs: string) => cs.slice(cs.lastIndexOf("@") + 1);
 const entry = (q: Question): Entry => ({ q, at: Date.now(), sending: false, word: "" });
 
 /** Суть входа инструмента одной строкой. */

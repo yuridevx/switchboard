@@ -1,4 +1,5 @@
 // Разговоры страницы: по сессии — сообщения SDK (история и живое), свои отправки, вопросы сбоку, поле ввода. Единственное место модуля, что говорит с Host.
+import { machineOf } from "@switchboard/protocol";
 import { accountChanges, createStore, isLive, plural, sessionOf, type App, type ModelInfo, type Result } from "@switchboard/web-ui";
 import type { Frame, Roster } from "@switchboard/web-core";
 import type { Msg } from "./fold.ts";
@@ -30,7 +31,6 @@ export type Talk = {
 const HISTORY = 50;
 const NOT_CONFIRMED = new Set(["timeout", "disconnected"]);
 const blank = (draft = ""): Talk => ({ msgs: [], more: false, loaded: false, refused: "", sends: [], sides: [], draft, files: [], unread: null, rewind: null, focus: false });
-export const machineOf = (cs: string) => cs.slice(cs.lastIndexOf("@") + 1);
 
 /** Страница истории: что уже есть, остаётся на месте; новое — у своего соседа; кусочки живого заменяет история. Разрыв длиннее страницы: прежнему соседа нет, «Раньше» доберёт его по порядку. */
 function merge(cur: readonly Msg[], page: readonly Msg[], more: boolean): Msg[] {
@@ -90,11 +90,11 @@ export function createTalks(app: App) {
     store.set((s) => {
       fn((s[cs] ??= blank(drafts[cs])) as Talk);
     });
-  const can = (cs: string, name: string) => app.can(machineOf(cs), name) === true;
+  const can = (cs: string, name: string) => app.can(machineOf(cs)!, name) === true;
   const canAct = (cs: string) => can(cs, "session.call") && isLive(sessionOf(app, cs)?.state);
   const call = (cs: string, method: string, args: unknown[] = []) => app.request("session.call", { callsign: cs, method, args });
   const read = <T = unknown>(cs: string, method: string, args: unknown[] = []): Promise<Result<T>> => app.read<T>("session.call", { callsign: cs, method, args });
-  const say = (cs: string, word: string) => sayWord(word, machineOf(cs));
+  const say = (cs: string, word: string) => sayWord(word, machineOf(cs)!);
 
   async function history(cs: string) {
     if (!can(cs, "session.history")) return edit(cs, (t) => void (t.loaded = true));
@@ -110,7 +110,7 @@ export function createTalks(app: App) {
 
   /** Подписка и история: при открытии, когда машина появилась, связь вернулась или Host поднялся заново. */
   async function watch(cs: string) {
-    if (watching.has(cs) || app.link() !== "open" || app.can(machineOf(cs), "session.watch") === null) return;
+    if (watching.has(cs) || app.link() !== "open" || app.can(machineOf(cs)!, "session.watch") === null) return;
     watching.add(cs);
     edit(cs, (t) => {
       t.refused = "";

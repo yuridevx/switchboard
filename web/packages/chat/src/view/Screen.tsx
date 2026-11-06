@@ -1,9 +1,10 @@
 // Экран разговора: полоса (широко), лента или фокус, док над вводом и ввод.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { machineOf } from "@switchboard/protocol";
 import { Btn, IconBtn, Pad, sessionLabel, sessionOf, useApp, useModule, type Params } from "@switchboard/web-ui";
 import { exportMd, focused, type Item } from "../focus.ts";
 import { fold, type View } from "../fold.ts";
-import { machineOf, type Talks } from "../talk.ts";
+import type { Talks } from "../talk.ts";
 import { Composer } from "./Composer.tsx";
 import { Dock } from "./Dock.tsx";
 import { EnvCtx, type Env } from "./env.ts";
@@ -88,7 +89,7 @@ function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
   const more = app.use(() => talks.get(cs).more);
   const loaded = app.use(() => talks.get(cs).loaded);
   const refused = app.use(() => talks.get(cs).refused);
-  const noFeed = app.use(() => app.can(machineOf(cs), "session.watch") === false);
+  const noFeed = app.use(() => app.can(machineOf(cs)!, "session.watch") === false);
   const items = useMemo(() => (focus ? focused(view) : view.rows), [focus, view]);
   const box = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
@@ -138,7 +139,7 @@ function Feed({ cs, view, focus }: { cs: string; view: View; focus: boolean }) {
         }}
       >
         <div className="chat-col">
-          {noFeed ? <div className="chat-note">{`${machineOf(cs)} не отдаёт ленту — только переписка и ввод`}</div> : null}
+          {noFeed ? <div className="chat-note">{`${machineOf(cs)!} не отдаёт ленту — только переписка и ввод`}</div> : null}
           {more ? (
             <Btn
               type="button"

@@ -1,8 +1,9 @@
 // Модуль разговора с сессией: стор разговоров, кадры ленты и сообщений, экран chat, метки unread и models.
+import { machineOf } from "@switchboard/protocol";
 import { isLive, sessionLabel, sessionLine, sessionOf, stateLabel, type App } from "@switchboard/web-ui";
 import type { AppModule } from "@switchboard/web-core";
 import css from "./chat.css";
-import { createTalks, machineOf } from "./talk.ts";
+import { createTalks } from "./talk.ts";
 import { ChatScreen } from "./view/Screen.tsx";
 
 export function createChat(app: App): AppModule {
@@ -18,7 +19,7 @@ export function createChat(app: App): AppModule {
         head({ callsign }) {
           const s = sessionOf(app, callsign);
           const st = stateLabel(s?.state);
-          return { title: sessionLabel(app, callsign).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(callsign)} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
+          return { title: sessionLabel(app, callsign).text, mono: true, sub: s ? sessionLine(s, true) : `${machineOf(callsign)!} не на связи`, ...(s ? { pill: { text: st.text, tone: st.tone } } : {}) };
         },
       },
     },
