@@ -1,6 +1,6 @@
 // Окна «Работы»: панель вида и окно фильтра.
 import { useState, type KeyboardEvent } from "react";
-import { machineOf, userOf } from "@switchboard/protocol";
+import { userOf } from "@switchboard/protocol";
 import { Btn, Chip, Chips, Choices, In, machineLabel, profileNameOf, stateLabel, useApp, useModule } from "@switchboard/web-ui";
 import { fitLine, VIEW, type Filter, type FilterField, type View } from "./model.ts";
 import type { BoardState } from "./state.ts";
@@ -65,9 +65,9 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
   const options = app.use((): Record<FilterField, Option[]> => {
     const sessions = s.sessions();
     const me = app.address() && userOf(app.address()!);
-    const owners = [...new Set(sessions.map((x) => s.owner(x.callsign)))].filter((o): o is string => !!o && o !== me);
+    const owners = [...new Set(sessions.map((x) => s.owner(x.callsign)))].filter((o): o is string => !!o && o !== me).sort();
     const profiles = [...new Set(sessions.map(profileNameOf))].filter((p): p is string => !!p).sort();
-    const machines = [...new Set([...(app.roster()?.machines ?? []).map((m) => m.machine), ...sessions.map((x) => machineOf(x.callsign)!)])];
+    const machines = (app.roster()?.machines ?? []).map((m) => m.machine);
     return {
       who: [{ value: "mine", text: "моё" }, ...owners.map((o) => ({ value: o, text: o.slice(1) }))],
       projects: s.shown({}).map((x) => ({ value: x.id, text: x.name })),
@@ -82,7 +82,9 @@ export function FilterEditor({ filter, close }: { filter: Filter | null; close()
   });
   const toggle = (field: FilterField, value: string) => {
     const was = draft[field] ?? [];
-    setDraft({ ...draft, [field]: was.includes(value) ? was.filter((x) => x !== value) : [...was, value] });
+    const next = was.includes(value) ? was.filter((x) => x !== value) : [...was, value];
+    const { [field]: _gone, ...rest } = draft;
+    setDraft(next.length ? { ...rest, [field]: next } : rest);
   };
   const needle = q.trim().toLowerCase();
   const fields = FIELDS.flatMap(([field, title]) => {

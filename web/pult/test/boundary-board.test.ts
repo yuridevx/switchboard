@@ -684,6 +684,10 @@ describe("Работа", () => {
       const down = new Event("pointerdown", { bubbles: true, cancelable: true });
       t.$('[data-act="project-remove"]')!.dispatchEvent(down);
       expect(down.defaultPrevented).toBe(true);
+      // фокус забирает нажатие мыши: без этого поле уходит раньше клика и меню закрывается
+      const mouse = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+      t.$('[data-act="project-remove"]')!.dispatchEvent(mouse);
+      expect(mouse.defaultPrevented).toBe(true);
       await t.click(t.$("[data-new]"));
       expect(location.hash).toBe("#open");
 

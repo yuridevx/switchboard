@@ -8,9 +8,6 @@ import { BUILT_IN, byUrgency, chipsOrder, matches, ownerOf, VIEW, whyMine, type 
 
 type Device = { flt: string; collapsed: Record<string, boolean>; view: View; current: string | null };
 
-/** Экраны сессии: открытая разворачивает свой проект. */
-const OF_SESSION = ["card", "chat", "ask"];
-
 export function createState(app: App) {
   const device = createStore<Device>({ flt: "mine", collapsed: {}, view: VIEW, current: null }, () => app.changed());
   const changed = () => {
@@ -48,6 +45,10 @@ export function createState(app: App) {
     });
   }
 
+  const needsYou = (callsigns: string[]) => callsigns.some((c) => ["waiting", "failed"].includes(sessions().find((s) => s.callsign === c)?.state as string));
+  /** Свёрнут ли проект: как оставил человек; ещё не решено — по первому показу. */
+  const folded = (id: string) => device.get().collapsed[id] ?? !needsYou(sections().find((s) => s.id === id)?.callsigns ?? []);
+
   function setCollapsed(changes: Record<string, boolean>) {
     device.set((d) => void Object.assign(d.collapsed, changes));
     void app.store("collapsed").set(device.get().collapsed);
@@ -65,9 +66,8 @@ export function createState(app: App) {
   /** Первый показ: проект развёрнут, если в нём ждут вас или сбой; дальше как оставил человек. */
   function firstShow(list: Section[]) {
     if (!ready()) return;
-    const urgent = (c: string) => ["waiting", "failed"].includes(sessions().find((s) => s.callsign === c)?.state as string);
     const fresh = list.filter((s) => s.callsigns.length && device.get().collapsed[s.id] === undefined);
-    if (fresh.length) setCollapsed(Object.fromEntries(fresh.map((s) => [s.id, !s.callsigns.some(urgent)])));
+    if (fresh.length) setCollapsed(Object.fromEntries(fresh.map((s) => [s.id, folded(s.id)])));
   }
 
   async function load() {
@@ -114,9 +114,10 @@ export function createState(app: App) {
     /** список рисуется, когда настройки ответили; связи нет — встроенное без ожидания */
     drawn: () => ready() || app.link() !== "open",
     owner: facts.owner,
-    toggle: (id: string, was: boolean) => setCollapsed({ [id]: !was }),
-    current(c: { screen: string; params: Params }) {
-      wanted = OF_SESSION.includes(c.screen) ? (c.params.callsign ?? null) : null;
+    folded,
+    toggle: (id: string) => setCollapsed({ [id]: !folded(id) }),
+    current(c: { params: Params }) {
+      wanted = c.params.callsign ?? null;
       reveal();
     },
     link(state: Parameters<typeof own.onLink>[0], machine?: string) {
@@ -137,7 +138,7 @@ export function createState(app: App) {
     },
     setRow: (ids: string[]) => own.edit<string[]>("row", () => ids),
     setPin(callsign: string, on: boolean) {
-      own.edit<string[]>("pins", (old = []) => (on ? [...old, callsign] : old.filter((c) => c !== callsign)));
+      own.edit<string[]>("pins", (old = []) => [...old.filter((c) => c !== callsign), ...(on ? [callsign] : [])]);
     },
 
     moveProject: (id: string, before?: string | null) => editFleet((r) => moveProject(r, id, before)),
@@ -145,9 +146,19 @@ export function createState(app: App) {
     addProject: (name: string) => editFleet((r) => addProject(r, name).recs),
     removeProject(id: string) {
       editFleet((r) => removeProject(r, id));
-      if (filters().some((f) => f.projects?.includes(id))) own.edit<Filter[]>("filters", (old = []) => old.map((f) => (f.projects ? { ...f, projects: f.projects.filter((p) => p !== id) } : f)));
+      own.edit<Filter[]>("filters", (old = []) => old.map((f) => (f.projects?.includes(id) ? { ...f, projects: f.projects.filter((p) => p !== id) } : f)));
     },
-    drop: (block: string[], project: string, before: string | null, rows: string[]) => editFleet((r) => dropSessions(r, block, project, before, rows)),
+    /** Бросок: строки проекта — под фильтром, и на свёрнутом их не видно. */
+    drop(block: string[], project: string, before: string | null) {
+      const rows = shown(conditions(selected())).find((s) => s.id === project)?.callsigns ?? [];
+      editFleet((r) => dropSessions(r, block, project, before, rows));
+    },
+    /** Место новой сессии у проекта: его верхняя сессия, если её машина открывает сессии. */
+    placeOf(id: string): Record<string, string> {
+      const top = sessions().find((s) => s.callsign === sections().find((x) => x.id === id)?.callsigns[0]);
+      const machine = top && machineOf(top.callsign);
+      return { ...(machine && app.can(machine, "session.open") ? { machine, dir: String(top.dir ?? "~") } : {}), ...(id === NONE ? {} : { project: id }) };
+    },
     assign: (callsign: string, project: string) => editFleet((r) => placeSessions(r, [callsign], project)),
 
     marks: {
@@ -163,8 +174,8 @@ export function createState(app: App) {
 
     /** Поиск: по имени, адресу и проекту; срочные сверху. */
     find(q: string) {
-      const name = (c: string) => records()?.find((r) => r.id === projectOf(c))?.name ?? "";
-      const hits = sessions().filter((s) => [s.callsign, sessionLabel(app, s.callsign).text, name(s.callsign)].some((x) => x.toLowerCase().includes(q)));
+      const project = (c: string) => sections().find((x) => x.callsigns.includes(c))?.name ?? "";
+      const hits = sessions().filter((s) => [s.callsign, sessionLabel(app, s.callsign).text, folderOf(s.dir), project(s.callsign)].some((x) => x.toLowerCase().includes(q)));
       return byUrgency(hits).map((s) => ({
         label: sessionLabel(app, s.callsign).text,
         hint: `${machineLabel(app, machineOf(s.callsign)!).text} · папка ${folderOf(s.dir)}`,

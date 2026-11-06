@@ -2,9 +2,7 @@
 import { useState } from "react";
 import { machineOf } from "@switchboard/protocol";
 import type { ScreenProps } from "@switchboard/web-core";
-import { BadCard, Btn, EFFORTS, failText, MODELS, Opts, Pad, profileIdOf, sessionOf, slotOf, Tabs, useApp, type Result } from "@switchboard/web-ui";
-
-const words = (s: { state?: unknown }) => (["stopped", "failed"].includes(s.state as string) ? ("start" as const) : ("stop" as const));
+import { BadCard, Btn, EFFORTS, failText, isLive, MODELS, Opts, Pad, profileIdOf, sessionOf, slotOf, Tabs, useApp, type Result } from "@switchboard/web-ui";
 
 /** Какая кнопка у сессии: запуск или стоп; машина не умеет — кнопки нет. */
 export function useControl(callsign: string) {
@@ -12,9 +10,8 @@ export function useControl(callsign: string) {
   const machine = machineOf(callsign)!;
   return app.use(() => {
     const s = sessionOf(app, callsign);
-    if (!s) return null;
-    const kind = words(s);
-    return app.can(machine, kind === "start" ? "session.start" : "session.stop") ? kind : null;
+    if (isLive(s?.state)) return app.can(machine, "session.stop") ? ("stop" as const) : null;
+    return (s?.state === "stopped" || s?.state === "failed") && app.can(machine, "session.start") ? ("start" as const) : null;
   });
 }
 
@@ -88,7 +85,7 @@ function Info({ callsign }: { callsign: string }) {
       </Btn>
       <Control className="card-act" kind={control} busy={busy} act={act} />
       {word && (
-        <BadCard>
+        <BadCard role="alert">
           <b>Не вышло</b>
           <code>{word}</code>
         </BadCard>

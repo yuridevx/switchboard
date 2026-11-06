@@ -1,6 +1,6 @@
 // Сведения сбоку: кто дал задачу, дерево, серверы MCP.
 import { useState } from "react";
-import { Btn, isLive, LinkBtn, profileNameOf, remoteOf, sessionOf, useApp, useMachineLoad } from "@switchboard/web-ui";
+import { Btn, isLive, LinkBtn, Note, profileNameOf, remoteOf, sessionOf, useApp, useMachineLoad } from "@switchboard/web-ui";
 
 type Server = { name: string; status: string };
 const STATUS: Record<string, string> = { pending: "подключается", disabled: "выключен", "needs-auth": "нужен вход", connected: "подключён", failed: "ошибка" };
@@ -8,7 +8,8 @@ const STATUS: Record<string, string> = { pending: "подключается", di
 function Servers({ callsign, machine }: { callsign: string; machine: string }) {
   const app = useApp();
   const live = app.use(() => isLive(sessionOf(app, callsign)?.state));
-  const list = useMachineLoad<Server[]>(machine, "session.call", { callsign, method: "mcpServerStatus" }, live);
+  const can = app.use(() => app.can(machine, "session.call") === true);
+  const list = useMachineLoad<Server[]>(machine, "session.call", { callsign, method: "mcpServerStatus", args: [] }, live);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const call = async <T,>(method: string, name: string, ...rest: unknown[]) => {
     const r = await app.request<T>("session.call", { callsign, method, args: [name, ...rest] });
@@ -24,14 +25,14 @@ function Servers({ callsign, machine }: { callsign: string; machine: string }) {
     if (r.result?.authUrl) setUrls({ ...urls, [name]: r.result.authUrl });
     else app.toast(`${callsign}: mcpAuthenticate: ссылки нет`);
   }
-  if (!live && !list.data) return null;
+  if (!live || !can) return null;
   return (
     <section data-sec="mcp">
       <h4>Серверы MCP</h4>
-      {!list.data && list.error && (
-        <span className="cw-note bad" data-refused="mcp">
+      {list.error && (
+        <Note tone="bad" data-refused="mcp">
           {list.error}
-        </span>
+        </Note>
       )}
       {list.data?.map(({ name, status }) => (
         <div key={name} className="cw-mcp">
@@ -85,8 +86,12 @@ export function Aside({ callsign, machine }: { callsign: string; machine: string
               <dd>{String(s.by)}</dd>
             </>
           ) : null}
-          <dt>папка</dt>
-          <dd>{String(s.dir ?? "—")}</dd>
+          {s.dir ? (
+            <>
+              <dt>папка</dt>
+              <dd>{String(s.dir)}</dd>
+            </>
+          ) : null}
           {profileNameOf(s) ? (
             <>
               <dt>профиль</dt>

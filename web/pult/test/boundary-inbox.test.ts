@@ -278,6 +278,11 @@ describe("Вам: виды карточек", () => {
       expect(card.textContent).toMatch(/не на связи с \d\d:\d\d/);
       expect(card.querySelector(".ib-tx")!.textContent).toBe("mine@pc");
       expect(card.textContent).toContain("Поднять из точки");
+      // модуля точек в сборке нет — поднимать некуда
+      const bare = await withRelay({ roster: fleet(), url: "/#inbox" });
+      bare.relay.setRoster(fleet((r) => without(r, "pc")));
+      await flush();
+      expect(bare.$('[data-kind="away"]')!.textContent).not.toContain("Поднять из точки");
     });
 
     it("6968 · ушла машина только с чужими сессиями — карточки нет", async () => {

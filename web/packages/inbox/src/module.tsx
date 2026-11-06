@@ -23,8 +23,8 @@ export const createInbox = ((app) => {
 
   function onRoster(r: NonNullable<ReturnType<App["roster"]>>) {
     for (const s of r.sessions) {
-      if (s.state !== "idle") finished.delete(s.callsign);
-      else if (WORKED.includes(states.get(s.callsign) as string) && opened() !== s.callsign) finished.add(s.callsign);
+      if (WORKED.includes(s.state as string)) finished.delete(s.callsign);
+      else if (s.state === "idle" && WORKED.includes(states.get(s.callsign) as string) && opened() !== s.callsign) finished.add(s.callsign);
       states.set(s.callsign, s.state);
     }
   }
@@ -72,12 +72,14 @@ export const createInbox = ((app) => {
   }
 
   function actions(c: Card, open: (params?: Record<string, string>) => void): ReactNode {
-    const up = (
-      <Btn pri onClick={() => app.open("points")}>
-        Поднять из точки
-      </Btn>
-    );
-    if (c.kind === "away" || c.kind === "fire") return up;
+    // поднимать некуда, если модуля точек в сборке нет
+    if (c.kind === "away" || c.kind === "fire") {
+      return app.mark("fire") ? (
+        <Btn pri onClick={() => app.open("points")}>
+          Поднять из точки
+        </Btn>
+      ) : null;
+    }
     if (c.kind === "msg") return <Btn pri onClick={() => open()}>Открыть</Btn>;
     if (c.kind === "wait") return <Btn onClick={() => open()}>Открыть</Btn>;
     if (c.kind === "done") {

@@ -30,7 +30,7 @@ function submit(form: NonNullable<GithubAnswer["form"]>) {
 
 function Repos({ repos }: { repos: string[] }) {
   const [q, setQ] = useState("");
-  const list = repos.filter((r) => r.toLowerCase().includes(q.toLowerCase()));
+  const list = repos.filter((r) => r.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <>
       <Opts className="st-nowrap">
@@ -61,8 +61,10 @@ function Github() {
     const r = await app.request<GithubAnswer>("github.app", { redirect: redirect(), ...(org ? { org } : {}) });
     if (!r.ok) return setWord(wordFor(r.error));
     if (r.result.form) submit(r.result.form);
+    else gh.reload();
   }
   async function save() {
+    if (saving) return;
     setWord("");
     setSaving(true);
     const r = await app.request("github.setup", { code });
@@ -79,10 +81,9 @@ function Github() {
       <b>Приложение GitHub флота</b>
       {gh.error && <Note tone="bad">{`github.app: ${gh.error}`}</Note>}
       {code && <span>GitHub вернул код нового приложения.</span>}
-      {code && <Btn pri disabled={saving} onClick={() => void save()}>Сохранить приложение</Btn>}
+      {code && <Btn pri onClick={() => void save()}>Сохранить приложение</Btn>}
       {saving && <Note role="status">Сохраняю приложение…</Note>}
-      {saved && <Note tone="ok">Приложение сохранено — установите его на репозитории.</Note>}
-      {gh.data?.app && (
+      {!code && gh.data?.app && (
         <>
           <PageHead>
             <M className="st-grow">
@@ -95,7 +96,7 @@ function Github() {
               </LinkBtn>
             )}
           </PageHead>
-          <Repos repos={repos} />
+          {repos.length > 0 && <Repos repos={repos} />}
         </>
       )}
       {gh.data && !gh.data.app && !code && (
@@ -106,7 +107,16 @@ function Github() {
           </Btn>
         </>
       )}
-      {word && <Note tone="bad">{word}</Note>}
+      {saved && (
+        <Note tone="ok" role="status">
+          Приложение сохранено — установите его на репозитории.
+        </Note>
+      )}
+      {word && (
+        <Note tone="bad" role="alert">
+          {word}
+        </Note>
+      )}
     </Sec>
   );
 }

@@ -511,6 +511,8 @@ describe("Настройки", () => {
       await t.click(t.btn("📌 +6", side.querySelector('[data-part="host"]')!));
       expect(t.sent("releases.set").at(-1)).toMatchObject({ machine: "laptop", part: "host", pin: "1.2.0+6", to: ".releases" });
       expect(t.plans.laptop.host.pin).toBe("1.2.0+6");
+      // план изменился: ответ keeper этой машины перечитан
+      expect(t.sent("keeper.state").filter((f) => f.to === ".keeper@laptop").length).toBeGreaterThan(1);
       // stable снимает закрепление
       await t.click(t.btn("stable 1.0.5", t.$('[data-plan="laptop"] [data-part="keeper"]')!));
       expect(t.sent("releases.set").at(-1)).toMatchObject({ machine: "laptop", part: "keeper", pin: null });
@@ -886,6 +888,7 @@ describe("Настройки", () => {
       await t.click(t.btn("Пригласить", t.$("[data-invite]")!));
       expect(t.$("[data-invited]")!.textContent).toContain("Приглашение для bot~you@mail");
       expect(t.$("[data-invited] code")!.textContent).toBe("k1.SECRET");
+      expect(t.btn("Копировать", t.$("[data-invited]")!)).not.toBeNull();
       expect(t.$("[data-qr]")).toBeNull();
       await t.click(t.btn("Готово"));
       await t.click(t.btn("Пригласить"));

@@ -20,7 +20,7 @@ function QR({ text }: { text: string }) {
 function Link({ title, url }: { title: string; url: string }) {
   return (
     <Opts data-link={title}>
-      <b className="st-lbl">{title}</b>
+      {title && <b className="st-lbl">{title}</b>}
       <Cmd className="st-link">{url}</Cmd>
       <CopyButton text={url} label="Копировать" />
     </Opts>
@@ -30,7 +30,8 @@ function Link({ title, url }: { title: string; url: string }) {
 function InvitedBox({ invited, done }: { invited: Invited; done(): void }) {
   const app = useApp();
   const { kind, addr, invite } = invited;
-  const phone = app.worker("phone");
+  const worker = app.worker("phone");
+  const phone = worker && `${worker.replace(/\/$/, "")}/`;
   return (
     <Sec tone="ok" data-invited="">
       <span>
@@ -40,13 +41,13 @@ function InvitedBox({ invited, done }: { invited: Invited; done(): void }) {
       {kind === "device" ? (
         <div className="st-inv">
           <div className="st-invl">
-            <Link title="Пульт" url={`${location.origin}/#invite=${invite}`} />
+            <Link title="Пульт" url={`${location.origin}${location.pathname}#invite=${invite}`} />
             {phone && <Link title="Телефон" url={`${phone}#invite=${invite}`} />}
           </div>
           {phone && <QR text={`${phone}#invite=${invite}`} />}
         </div>
       ) : (
-        <Cmd>{invite}</Cmd>
+        <Link title="" url={invite} />
       )}
       <Opts>
         <Btn onClick={done}>Готово</Btn>
@@ -171,17 +172,20 @@ export function PassesTab() {
   const list = passes.data?.passes ?? [];
   return (
     <>
-      <Opts>
-        <Btn pri onClick={() => setForm(true)}>
-          Пригласить
-        </Btn>
-      </Opts>
-      {passes.error && <Note tone="bad">{`keys.list: ${passes.error}`}</Note>}
-      {word && <Note tone="bad">{word}</Note>}
+      {!form && !invited && (
+        <Opts>
+          <Btn pri onClick={() => setForm(true)}>
+            Пригласить
+          </Btn>
+        </Opts>
+      )}
       {form && <InviteForm done={() => setForm(false)} reload={passes.reload} />}
       {invited && <InvitedBox invited={invited} done={() => s.local.set((l) => void (l.invited = null))} />}
-      <Table title="Машины" list={list.filter((p) => p.role === "host")} reload={passes.reload} say={setWord} />
-      <Table title="Устройства и программы" list={list.filter((p) => p.role !== "host")} reload={passes.reload} say={setWord} />
+      {passes.error && <Note tone="bad">{`keys.list: ${passes.error}`}</Note>}
+      {word && <Note tone="bad">{word}</Note>}
+      {passes.data && <Table title="Машины" list={list.filter((p) => p.role === "host")} reload={passes.reload} say={setWord} />}
+      {passes.data && <Table title="Устройства и программы" list={list.filter((p) => p.role !== "host")} reload={passes.reload} say={setWord} />}
+      {!passes.data && !passes.error && <Note>…</Note>}
     </>
   );
 }

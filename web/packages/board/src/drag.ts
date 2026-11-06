@@ -9,7 +9,7 @@ const STEP = 12;
 
 type Point = { x: number; y: number };
 type Gesture = { move(p: Point): void; drop(): void; cancel(): void };
-type Down = { pointerType: string; clientX: number; clientY: number; button: number };
+type Down = { pointerId: number; pointerType: string; clientX: number; clientY: number; button: number };
 
 /** Палец ведёт поднятое: прокрутку останавливает этот обработчик, он должен стоять до касания. */
 let lifted = false;
@@ -23,15 +23,16 @@ export function holdTouch(el: HTMLElement): () => void {
 function swallowClick() {
   const eat = (e: Event) => e.stopPropagation();
   window.addEventListener("click", eat, { capture: true, once: true });
-  setTimeout(() => window.removeEventListener("click", eat, { capture: true }), LAND_MS);
+  setTimeout(() => window.removeEventListener("click", eat, { capture: true }), 0);
 }
 
-/** Следить за указателем: мышь — с порога, палец — с удержания (hold) или с порога; ведение раньше удержания — прокрутка браузера. */
+/** Следить за указателем: мышь и ручка — с порога, палец — с удержания (hold) или с порога; ведение раньше удержания — прокрутка браузера. Второй палец жест не трогает. */
 export function track(down: Down, hold: boolean, begin: (from: Point) => Gesture) {
   if (down.button !== 0) return;
   const from = { x: down.clientX, y: down.clientY };
-  const finger = down.pointerType !== "mouse";
+  const finger = down.pointerType === "touch";
   const waits = finger && hold;
+  const other = (e: PointerEvent) => e.pointerId !== down.pointerId;
   let gesture: Gesture | null = null;
   let spent = false;
   const start = () => {
@@ -58,6 +59,7 @@ export function track(down: Down, hold: boolean, begin: (from: Point) => Gesture
     window.removeEventListener("contextmenu", noMenu);
   };
   function onMove(e: PointerEvent) {
+    if (other(e)) return;
     const p = { x: e.clientX, y: e.clientY };
     if (gesture) return gesture.move(p);
     if (spent) return;
@@ -68,17 +70,19 @@ export function track(down: Down, hold: boolean, begin: (from: Point) => Gesture
       gesture!.move(p);
     }
   }
-  function onUp() {
+  function onUp(e: PointerEvent) {
+    if (other(e)) return;
     if (gesture || spent) swallowClick();
     finish("drop");
     off();
   }
-  function onCancel() {
+  function onCancel(e: PointerEvent) {
+    if (other(e)) return;
     finish("cancel");
     off();
   }
   function onKey(e: KeyboardEvent) {
-    if (e.key === "Escape" && gesture) finish("cancel");
+    if (e.key === "Escape") finish("cancel");
   }
   window.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
@@ -95,9 +99,10 @@ function edgeScroll(scroller: HTMLElement, axis: Axis, at: () => number, tick: (
   let frame = requestAnimationFrame(function step() {
     const box = scroller.getBoundingClientRect();
     const [start, end] = axis === "y" ? [box.top, box.bottom] : [box.left, box.right];
-    const by = at() > end - EDGE ? STEP : at() < start + EDGE ? -STEP : 0;
-    if (by) {
-      scroller[prop] += by;
+    // чем ближе к краю, тем быстрее
+    const near = at() < start + EDGE ? at() - start - EDGE : at() > end - EDGE ? at() - end + EDGE : 0;
+    if (near) {
+      scroller[prop] += (near / EDGE) * STEP;
       tick();
     }
     frame = requestAnimationFrame(step);
@@ -115,6 +120,7 @@ function lift(grabbed: HTMLElement, host: HTMLElement, classes: string[]) {
   for (const x of [card, ...card.querySelectorAll("*")]) for (const name of ["data-proj", "data-fid", "data-callsign", "role", "tabindex"]) x.removeAttribute(name);
   card.querySelector(".pj-t")?.setAttribute("aria-expanded", "false");
   card.setAttribute("aria-hidden", "true");
+  card.setAttribute("inert", "");
   card.style.width = `${box.width}px`;
   host.append(card);
   // у поднятой копии свои отступы: содержимое остаётся там, где схватили
@@ -144,8 +150,14 @@ export function sorting(o: SortOptions, from: Point): Gesture {
   const dim = o.axis === "y" ? "height" : "width";
   const scrollOf = () => (o.axis === "y" ? o.scroller.scrollTop : o.scroller.scrollLeft);
   const at = o.items.indexOf(o.item);
-  const { card, box, place } = lift(o.grabbed, o.host, [o.look.card, o.look.up]);
+  const { card, box, place } = lift(o.grabbed, o.host, [o.look.card]);
+  requestAnimationFrame(() => card.classList.contains(o.look.land) || card.classList.add(o.look.up));
   o.host.classList.add("reordering");
+  // список не сжимается, пока поднятый проект сложен: прокрутка стоит на месте
+  if (o.axis === "y") {
+    o.list.style.minHeight = `${o.list.offsetHeight}px`;
+    o.item.style.height = `${o.grabbed.offsetHeight}px`;
+  }
   o.list.classList.add(o.look.on);
   o.item.classList.add(...o.look.slot);
   const boxes = o.items.map((el) => el.getBoundingClientRect());
@@ -179,6 +191,8 @@ export function sorting(o: SortOptions, from: Point): Gesture {
     setTimeout(() => {
       card.remove();
       for (const el of o.items) el.style.transform = "";
+      o.list.style.minHeight = "";
+      o.item.style.height = "";
       o.host.classList.remove("reordering");
       o.list.classList.remove(o.look.on);
       o.item.classList.remove(...o.look.slot);
@@ -201,10 +215,10 @@ export type RowOptions = {
   host: HTMLElement;
   scroller: HTMLElement;
   row: HTMLElement;
-  /** строки блока: родитель и потомки */
+  /** строки блока: родитель и дочерние на экране */
   block: string[];
-  /** брошена: блок в порядке экрана, проект, перед какой строкой, строки проекта на экране */
-  done(block: string[], project: string, before: string | null, rows: string[]): void;
+  /** брошена не на своё место: проект и перед какой строкой */
+  done(project: string, before: string | null): void;
 };
 
 /** Бросок строки: линия показывает место, свёрнутый проект принимает в конец. */
@@ -220,15 +234,18 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
   const rowsIn = (section: Element) => [...section.querySelectorAll<HTMLElement>(":scope > .bd-row")];
   const stay = (rows: HTMLElement[]) => rows.filter((r) => !o.block.includes(of(r)));
   for (const r of o.host.querySelectorAll<HTMLElement>(".bd-row")) if (o.block.includes(of(r))) r.classList.add("dnd-row-out");
+  const home = o.row.closest<HTMLElement>(".pjs")!;
+  const homeRows = rowsIn(home);
+  const after = homeRows[Math.max(...o.block.map((c) => homeRows.findIndex((r) => of(r) === c))) + 1];
   let now = from;
-  let target: { project: string; before: string | null; rows: string[] } | null = null;
+  let target: { project: string; before: string | null } | null = null;
   let into: Element | null = null;
 
   function mark(el: HTMLElement | null, y: number) {
     line.hidden = !el;
     if (!el) return;
     const box = el.getBoundingClientRect();
-    line.style.cssText = `left:${box.left - base.left}px;width:${box.width}px;top:${y - base.top - 1}px`;
+    line.style.cssText = `left:${box.left - base.left + 2}px;width:${box.width - 4}px;top:${y - base.top - 1}px`;
   }
 
   function locate() {
@@ -237,8 +254,7 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
     into?.classList.remove("dnd-into");
     into = null;
     if (!section) return;
-    const all = rowsIn(section);
-    const rows = stay(all);
+    const rows = stay(rowsIn(section));
     const project = section.dataset.proj!;
     const head = section.querySelector<HTMLElement>(".pj")!;
     const next = rows.find((r) => {
@@ -247,7 +263,7 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
     });
     // заголовок проекта — бросок в него
     const onHead = now.y < head.getBoundingClientRect().bottom;
-    target = { project, before: next && !onHead ? of(next) : null, rows: all.map(of) };
+    target = { project, before: next && !onHead ? of(next) : null };
     if (onHead || !rows.length) {
       into = head;
       into.classList.add("dnd-into");
@@ -274,9 +290,9 @@ export function rowDrag(o: RowOptions, from: Point): Gesture {
       locate();
     },
     drop() {
-      const shown = [...o.host.querySelectorAll<HTMLElement>(".lst .bd-row")].map(of).filter((c) => o.block.includes(c));
       clean();
-      if (target) o.done([...shown, ...o.block.filter((c) => !shown.includes(c))], target.project, target.before, target.rows);
+      const same = target?.project === home.dataset.proj && target?.before === (after ? of(after) : null);
+      if (target && !same) o.done(target.project, target.before);
     },
     cancel: clean,
   };

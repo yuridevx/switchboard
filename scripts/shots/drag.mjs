@@ -169,10 +169,53 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
     await p.waitForTimeout(100);
     check("Escape: порядок строк прежний", JSON.stringify(await rowsOf(p, "pfarm")) === JSON.stringify(r2));
 
+    // бросок на своё место: записи нет
+    const sets = () => p.evaluate(() => window.relay.sent("prefs.set").length);
+    const n0 = await sets();
+    const own = await rect(p, `[data-callsign="${r2[1]}"]`);
+    await dragRow(r2[1], own.y + own.h / 2);
+    check("бросок на своё место: записи нет", (await sets()) === n0, `${n0} → ${await sets()}`);
+
+    // «Дочерние» выключены: родитель едет один
+    const pfRows = await rowsOf(p, "pfarm");
+    const parent = await p.evaluate(() => window.relay.roster.sessions.find((s) => window.relay.roster.sessions.some((k) => k.parent === s.callsign))?.callsign);
+    const kids = await p.evaluate((c) => window.relay.roster.sessions.filter((s) => s.parent === c).map((s) => s.callsign), parent);
+    await p.click(".fc.vw");
+    await p.click('[data-v="tree"]');
+    await p.click('.bd-vw [aria-label="Закрыть"]');
+    await p.waitForTimeout(100);
+    const noneHead = await rect(p, '.pjs[data-proj="~"] > .pj');
+    await dragRow(parent, noneHead.y + 10);
+    const rec2 = await record(p);
+    check("без «Дочерних» строка едет одна", rec2.find((x) => x.id === "~").sessions.includes(parent) && !kids.some((k) => rec2.find((x) => x.id === "~").sessions.includes(k)), `${parent}, дочерние ${kids.join(", ")}, строк было ${pfRows.length}`);
+
     // обычный клик открывает
-    await p.click(`[data-callsign="${r2[0]}"]`);
+    const first = (await rowsOf(p, "pfarm"))[0];
+    await p.click(`[data-callsign="${first}"]`);
     await p.waitForTimeout(100);
     check("обычный клик открывает сессию", (await p.evaluate(() => location.hash)).startsWith("#card"));
+    check("ошибок страницы нет", errs.length === 0, errs.slice(0, 2).join(" | "));
+    await ctx.close();
+  }
+
+  // ───── открытая строка видна ─────
+  {
+    const ctx = await b.newContext({ viewport: { width: 1280, height: 420 } });
+    const p = await ctx.newPage();
+    const errs = errorsOf(p);
+    await p.goto(url("pult", "big", "#sessions"));
+    await p.waitForSelector(".bd-row");
+    await p.waitForTimeout(300);
+    const seen = (cs) => p.evaluate((c) => {
+      const row = document.querySelector(`.bd-row[data-callsign="${c}"]`)?.getBoundingClientRect();
+      const box = document.querySelector(".bd-body").getBoundingClientRect();
+      return !!row && row.top >= box.top && row.bottom <= box.bottom;
+    }, cs);
+    const far = await p.evaluate(() => [...document.querySelectorAll(".bd-row")].at(-1).dataset.callsign);
+    check("строка за краем списка", !(await seen(far)), far);
+    await p.evaluate((c) => (location.hash = `#card?callsign=${encodeURIComponent(c)}`), far);
+    await p.waitForTimeout(300);
+    check("открытая строка прокручена в окно", await seen(far));
     check("ошибок страницы нет", errs.length === 0, errs.slice(0, 2).join(" | "));
     await ctx.close();
   }
@@ -277,7 +320,10 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
     const r1b = await rect(p, `[data-callsign="${rr0[1]}"]`);
     const r0b = await rect(p, `[data-callsign="${rr0[0]}"]`);
     const hashR = await p.evaluate(() => location.hash);
+    const menu = () => p.evaluate((c) => document.querySelector(`[data-callsign="${c}"]`).dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })), rr0[1]);
+    check("без жеста меню браузера не тронуто", (await menu()) === true);
     await touch("touchStart", r1b.x + 60, r1b.y + 12);
+    check("удержание: меню браузера закрыто", (await menu()) === false);
     await p.waitForTimeout(360);
     check("палец: удержание поднимает строку", !!(await p.$(".dnd-row-card")));
     for (let i = 1; i <= 8; i++) {
@@ -289,6 +335,7 @@ const rowsOf = (p, id) => p.evaluate((x) => [...document.querySelectorAll(`.pjs[
     await p.waitForTimeout(200);
     check("палец: строка на месте броска", (await rowsOf(p, fid))[0] === rr0[1], (await rowsOf(p, fid)).slice(0, 3).join(", "));
     check("палец: сессия не открылась", (await p.evaluate(() => location.hash)) === hashR);
+    check("жест кончился: меню браузера снова его", (await menu()) === true);
 
     // чип: ведение — прокрутка ряда, чип не тронут
     const r0 = await chips(p);

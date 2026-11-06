@@ -17,37 +17,37 @@ export const BUILT_IN: Array<Pick<Filter, "id" | "name">> = [
 ];
 export const VIEW = { projects: true, group: false, tree: true, dense: false, lamp: true, at: true, owner: true, pin: true, inc: true, badge: true, q: true, unread: true, fail: true, prof: true, model: true, pjlamps: true, grip: true, add: true, fcount: true };
 
-const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" ? 1 : 2);
+const rank = (s: SessionRecord) => (s.state === "waiting" || s.state === "failed" ? 0 : s.state === "busy" || s.state === "starting" ? 1 : 2);
 /** Сначала ждущие вас и упавшие, потом занятые, остальные; внутри — по адресу. */
-export const byUrgency = (list: SessionRecord[]): SessionRecord[] => [...list].sort((a, b) => rank(a) - rank(b) || a.callsign.localeCompare(b.callsign));
+export const byUrgency = (list: SessionRecord[]): SessionRecord[] => [...list].sort((a, b) => rank(a) - rank(b) || (a.callsign < b.callsign ? -1 : 1));
 
 type Ctx = { sessions: SessionRecord[]; me: string | null; pins: string[] };
 const find = (sessions: SessionRecord[], callsign: unknown) => sessions.find((s) => s.callsign === callsign);
-const links = (s: SessionRecord) => [s.by, s.parent].filter((x): x is string => typeof x === "string");
+/** Адрес из поля, если это сессия. */
+const sessionIn = (v: unknown) => (kindOf(v) === "session" ? (v as string) : "");
 
 /** Почта владельца: устройство, давшее задачу, иначе сессия выше по цепочке. */
 export function ownerOf(sessions: SessionRecord[], callsign: string, seen = new Set<string>()): string | null {
   const s = find(sessions, callsign);
   if (!s || seen.has(callsign)) return null;
   seen.add(callsign);
-  for (const link of links(s)) {
-    const owner = kindOf(link) === "session" ? ownerOf(sessions, link, seen) : userOf(link);
-    if (owner) return owner;
-  }
-  return null;
+  if (kindOf(s.by) === "device") return userOf(s.by as string);
+  const above = sessionIn(s.by) || sessionIn(s.parent);
+  return above ? ownerOf(sessions, above, seen) : null;
 }
 
 /** Почему сессия моя; не моя — пусто. */
-export function whyMine({ sessions, me, pins }: Ctx, callsign: string, seen = new Set<string>()): string {
+export function whyMine(ctx: Ctx, callsign: string, seen = new Set<string>()): string {
+  const { sessions, me, pins } = ctx;
   if (pins.includes(callsign)) return "закреплена вами";
   const s = find(sessions, callsign);
   if (!s || !me || seen.has(callsign)) return "";
   seen.add(callsign);
-  const isMe = (a: unknown) => typeof a === "string" && kindOf(a) !== "session" && userOf(a) === me;
+  const isMe = (a: unknown) => kindOf(a) === "device" && userOf(a as string) === me;
   if (isMe(s.by)) return "задачу дали вы";
   if (isMe(s.parent)) return "открыли вы";
-  const mine = links(s).find((l) => kindOf(l) === "session" && whyMine({ sessions, me, pins: [] }, l, seen));
-  return mine ? `открыла ваша ${mine}` : "";
+  const above = [sessionIn(s.parent), sessionIn(s.by)].find((x) => x && whyMine(ctx, x, seen));
+  return above ? `открыла ваша ${above}` : "";
 }
 
 /** Совпала ли сессия с полем фильтра: внутри поля «или», пустое не сужает. */
@@ -82,10 +82,12 @@ export function tree(callsigns: string[], parentOf: (callsign: string) => unknow
   return lines;
 }
 
-/** Сессия и её потомки: едут блоком. */
-export function blockOf(callsign: string, sessions: SessionRecord[]): string[] {
-  const kids = sessions.filter((s) => s.parent === callsign).map((s) => s.callsign);
-  return [callsign, ...kids.flatMap((k) => blockOf(k, sessions))];
+/** Строка и её дочерние на экране: едут блоком. */
+export function blockIn(lines: Line[], callsign: string): string[] {
+  const at = lines.findIndex((l) => l.callsign === callsign);
+  const after = lines.slice(at + 1);
+  const stop = after.findIndex((l) => l.depth <= lines[at].depth);
+  return [callsign, ...(stop < 0 ? after : after.slice(0, stop)).map((l) => l.callsign)];
 }
 
 /** Ряд чипов: записанный порядок, ушедшие пропущены, новые в конец. */

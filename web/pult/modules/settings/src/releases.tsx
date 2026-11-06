@@ -1,7 +1,7 @@
 // «Выпуски»: stable по машинам, матрица машина × часть, план машины, каталог и сборки.
 import { useEffect, useState } from "react";
 import { Btn, Dot, In, M, machineLabel, Meter, Note, okOf, Opts, PageHead, plural, Sec, useApp, useLoad, useModule, wordOf, type Result } from "@switchboard/web-ui";
-import { cellOf, heldBy, older, others, short, wordFor, type Catalog, type KState, type Plan } from "./rules.ts";
+import { cellOf, older, runningOf, short, versionsOf, wordFor, type Catalog, type KState, type Plan } from "./rules.ts";
 import type { KeeperAnswers, SettingsState } from "./state.ts";
 
 const machinesWord = (n: number) => `${n} ${plural(n, "машина", "машины", "машин")}`;
@@ -9,9 +9,11 @@ const machinesWord = (n: number) => `${n} ${plural(n, "машина", "маши�
 /** Правка плана: releases.set у машины. */
 function usePlan(reload: () => void) {
   const app = useApp();
+  const s = useModule<SettingsState>();
   return async (machine: string, part: string, change: { pin?: string | null; on?: boolean }): Promise<Result<{ rev: number }>> => {
     const r = await app.request<{ rev: number }>("releases.set", { machine, part, ...change });
     reload();
+    await s.answers.reload(machine);
     return r;
   };
 }
@@ -32,6 +34,7 @@ function useDeploy(reload: () => void) {
       l.deployed = { text, tone: r.ok ? "ok" : "bad" };
     });
     reload();
+    if (r.ok) await Promise.all(Object.keys(s.answers.get()).map((m) => s.answers.reload(m)));
   };
 }
 
@@ -45,8 +48,7 @@ function Stable({ catalog, answers, online, reload }: { catalog: Catalog; answer
     <Sec>
       <b>Stable флота</b>
       {parts.map(([name, p]) => {
-        const k = (m: string) => okOf(answers[m]);
-        const holding = online.filter((m) => k(m) && heldBy(k(m)!, name) === p.stable).length;
+        const holding = online.filter((m) => runningOf(okOf(answers[m]), name)?.version === p.stable).length;
         const back = older(p)[0];
         return (
           <div key={name} className="st-roll" data-roll={name}>
@@ -54,7 +56,7 @@ function Stable({ catalog, answers, online, reload }: { catalog: Catalog; answer
               <b>{name}</b> <M>{p.stable}</M>
             </span>
             <Meter className="st-bar" value={online.length ? Math.round((100 * holding) / online.length) : 0} warn={holding < online.length} />
-            <Note>{`${holding} из ${online.length} машин`}</Note>
+            <Note>{`${holding} из ${online.length} ${plural(online.length, "машины", "машин", "машин")}`}</Note>
             {back && (
               <Btn disabled={!!busy} onClick={() => void deploy(name, back)}>
                 {`Вернуть ${short(back)}`}
@@ -72,21 +74,24 @@ function MachinePlan({ machine, online, catalog, plan, k, set, close }: { machin
   const [word, setWord] = useState("");
   const [typed, setTyped] = useState<Record<string, string>>({});
   const label = app.use(() => machineLabel(app, machine).text);
-  const parts = [...new Set([...Object.entries(catalog?.parts ?? {}).filter(([, p]) => p.where === "machine").map(([n]) => n), ...(k?.parts.map((p) => p.part) ?? [])])];
+  const parts = [...new Set([...Object.entries(catalog?.parts ?? {}).filter(([, p]) => p.where === "machine").map(([n]) => n), ...(k?.parts.map((p) => p.part) ?? []), ...Object.keys(plan)])];
   async function change(part: string, body: { pin?: string | null; on?: boolean }) {
     setWord("");
     const r = await set(machine, part, body);
-    if (r.ok) app.toast(`${label}: план rev ${r.result.rev}`, "ok");
-    else setWord(`${label} ${part}: ${wordFor(r.error)}`);
+    if (r.ok) app.toast(`@${machine}: план rev ${r.result.rev}`, "ok");
+    else setWord(`@${machine} ${part}: ${wordFor(r.error)}`);
   }
   return (
     <Sec className="st-side" data-plan={machine}>
       <Opts>
-        <M className="st-grow">{label}</M>
+        <M className="st-grow">
+          <b>{label}</b>
+        </M>
         <Btn aria-label="Закрыть" onClick={close}>
           ✕
         </Btn>
       </Opts>
+      {k?.os && <Note>{k.os}</Note>}
       <Note>{`план rev ${k?.rev ?? "—"}${online ? "" : " · не на связи"}`}</Note>
       {parts.map((part) => {
         const c = catalog?.parts[part];
@@ -94,6 +99,7 @@ function MachinePlan({ machine, online, catalog, plan, k, set, close }: { machin
         const entry = plan[part];
         const cell = cellOf(k, online, part, entry, c?.stable);
         const version = (typed[part] ?? "").trim();
+        const pins = c ? [...new Set([...versionsOf(c, 4), entry?.pin])].filter((v): v is string => !!v && v !== c.stable) : [];
         return (
           <div key={part} className="st-part" data-part={part}>
             <Opts>
@@ -108,8 +114,8 @@ function MachinePlan({ machine, online, catalog, plan, k, set, close }: { machin
             {held?.error && <Note tone="bad">{held.error}</Note>}
             {c && (
               <Opts>
-                <Btn aria-pressed={!entry?.pin} onClick={() => void change(part, { pin: null })}>{`stable ${c.stable}`}</Btn>
-                {others(c).map((v) => (
+                <Btn aria-pressed={!entry?.pin} onClick={() => void change(part, { pin: null })}>{`stable ${short(c.stable)}`}</Btn>
+                {pins.map((v) => (
                   <Btn key={v} aria-pressed={entry?.pin === v} onClick={() => void change(part, { pin: v })}>
                     {`📌 ${short(v)}`}
                   </Btn>
@@ -130,24 +136,25 @@ function Bulk({ checked, catalog, set }: { checked: string[]; catalog: Catalog |
   const app = useApp();
   const s = useModule<SettingsState>();
   const clear = () => s.local.set((l) => void (l.checked = []));
-  const host = catalog?.parts.host;
-  const back = host && older(host)[0];
-  const labels = app.use(() => checked.map((m) => machineLabel(app, m).text));
   async function apply(pin: string | null) {
     clear();
-    const results = await Promise.all(checked.map(async (m, i) => ({ label: labels[i], r: await set(m, "host", { pin }) })));
+    const results = await Promise.all(checked.map(async (m) => ({ m, r: await set(m, "host", { pin }) })));
     const done = results.filter((x) => x.r.ok).length;
-    const refused = results.flatMap(({ label, r }) => (r.ok ? [] : [`${label} host: ${wordFor(r.error)}`]));
+    const refused = results.flatMap(({ m, r }) => (r.ok ? [] : [`@${m} host: ${wordFor(r.error)}`]));
     app.toast([`${machinesWord(done)}: план изменён`, ...refused].join("; "), refused.length ? "bad" : "ok");
   }
   return (
     <div className="st-bulk" data-bulk="">
-      <span>{`Выбрано ${checked.length}: ${labels.join(", ")}`}</span>
-      {back && <Btn onClick={() => void apply(back)}>{`host: закрепить ${short(back)}`}</Btn>}
+      <b>{`Выбрано ${checked.length}`}</b>
+      <Note>{checked.map((m) => `@${m}`).join(", ")}</Note>
+      <span className="st-grow" />
+      {versionsOf(catalog?.parts.host, 3).map((v) => (
+        <Btn key={v} onClick={() => void apply(v)}>
+          {`host: закрепить ${short(v)}`}
+        </Btn>
+      ))}
       <Btn onClick={() => void apply(null)}>host: к stable</Btn>
-      <Btn className="st-end" ghost onClick={clear}>
-        Снять
-      </Btn>
+      <Btn onClick={clear}>Снять</Btn>
     </div>
   );
 }
@@ -182,6 +189,10 @@ function Matrix({ machines, online, catalog, answers, plans, picked, pick, query
             {shown.map((m) => {
               const k = okOf(answers[m]);
               const on = checked.includes(m);
+              const live = online.includes(m);
+              const word = wordOf(answers[m]);
+              const cells = parts.map((p) => cellOf(k, live, p, plans[m]?.[p], catalog?.parts[p]?.stable));
+              const trouble = word || cells.some((c, i) => parts[i] !== "keeper" && c && ["fail", "behind", "upd"].includes(c.tone));
               return (
                 <tr key={m} data-machine={m} aria-current={picked === m || undefined}>
                   <td>
@@ -191,24 +202,21 @@ function Matrix({ machines, online, catalog, answers, plans, picked, pick, query
                   </td>
                   <td>
                     <button type="button" className="sb-rw st-mn" onClick={() => pick(m)}>
-                      <Dot kind={!online.includes(m) ? "gone" : k?.parts.some((p) => p.state === "failed") ? "bad" : "idle"} />
+                      <Dot kind={!live ? "stop" : trouble ? "wait" : "idle"} />
                       {labels[m]}
                     </button>
                   </td>
-                  {parts.map((p) => {
-                    const c = cellOf(k, online.includes(m), p, plans[m]?.[p], catalog?.parts[p]?.stable);
-                    return (
-                      <td key={p} data-part={p}>
-                        {c && (
-                          <span className={`st-cell ${c.tone}`} title={c.title}>
-                            {c.text}
-                          </span>
-                        )}
-                      </td>
-                    );
-                  })}
+                  {parts.map((p, i) => (
+                    <td key={p} data-part={p}>
+                      {cells[i] && (
+                        <span className={`st-cell ${cells[i]!.tone}`} title={cells[i]!.title}>
+                          {cells[i]!.text}
+                        </span>
+                      )}
+                    </td>
+                  ))}
                   <td>
-                    <Note>{online.includes(m) ? (k ? `rev ${k.rev}` : "") : "не на связи"}</Note>
+                    <Note>{live ? (k ? `rev ${k.rev}` : word && `keeper: ${word}`) : "не на связи"}</Note>
                   </td>
                 </tr>
               );
@@ -296,7 +304,7 @@ function Build({ catalog, reload }: { catalog: Catalog; reload(): void }) {
                   </td>
                   <td>
                     {newer && (
-                      <Btn disabled={!!busy} onClick={() => void deploy(name, m.edge)}>
+                      <Btn pri disabled={!!busy} onClick={() => void deploy(name, m.edge)}>
                         {busy === `${name}:${m.edge}` ? "Выкладываю…" : `Выложить ${m.edge}`}
                       </Btn>
                     )}
@@ -341,7 +349,11 @@ export function ReleasesTab({ machine }: { machine?: string }) {
       </div>
       {list.error && <Note tone="bad">{`releases.list: ${list.error}`}</Note>}
       {hosts.error && <Note tone="bad">{`keys.list: ${hosts.error}`}</Note>}
-      {local.deployed && <Note tone={local.deployed.tone}>{local.deployed.text}</Note>}
+      {local.deployed && (
+        <Note tone={local.deployed.tone} role={local.deployed.tone === "bad" ? "alert" : "status"}>
+          {local.deployed.text}
+        </Note>
+      )}
       {local.catalog && catalog && <Build catalog={catalog} reload={list.reload} />}
       {!local.catalog && (
         <>
@@ -353,7 +365,6 @@ export function ReleasesTab({ machine }: { machine?: string }) {
           </div>
         </>
       )}
-      {wordOf(answers[picked]) ? <Note tone="bad">{`keeper.state: ${wordOf(answers[picked])}`}</Note> : null}
     </>
   );
 }

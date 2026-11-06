@@ -19,7 +19,7 @@ function SettingsScreen({ params }: ScreenProps) {
       </Page>
     );
   }
-  const tab = (params.tab as Tab | undefined) ?? (githubCode() ? "general" : "releases");
+  const tab: Tab = TABS.some(([k]) => k === params.tab) ? (params.tab as Tab) : "releases";
   return (
     <Page>
       <PageHead title="Настройки">
@@ -39,7 +39,9 @@ export const createSettings = ((app) => {
     state,
     on: { link: (s, machine) => state.answers.onLink(s, machine) },
     // GitHub вернул человека на корень страницы: экран знает свой адрес сам
-    start: () => (githubCode() && !location.hash ? app.open("settings", { tab: "general" }) : undefined),
+    start() {
+      if (githubCode() && !location.hash) history.replaceState(null, "", `${location.pathname}${location.search}#settings?tab=general`);
+    },
     screens: {
       settings: {
         nav: "Настройки",

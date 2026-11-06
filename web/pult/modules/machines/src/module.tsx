@@ -1,13 +1,13 @@
 // Машины флота: кто на связи и кто ушёл, части машины по ответу её keeper. Ответы keeper — у модуля настроек.
-import { useState } from "react";
 import type { AppPart, Roster, ScreenProps } from "@switchboard/web-core";
-import { Btn, Dot, Note, okOf, Opts, wordOf } from "@switchboard/web-ui";
+import { Btn, Dot, Note, okOf, Opts, Outcome, wordOf, type OutcomeNote } from "@switchboard/web-ui";
 import type { KeeperAnswers, KeeperPart, KeeperState } from "../../settings/contract.ts";
 import css from "./machines.css";
 
 export type MachineRowInfo = { machine: string; state: "ok" | "fail" | "gone"; at?: number };
 
 const failedIn = (k: KeeperState | undefined) => !!k?.parts.some((p) => p.state === "failed");
+const DOT: Record<string, string> = { running: "idle", failed: "bad" };
 
 export const createMachines = ((app) => {
   /** машины, которые страница видела на связи */
@@ -17,7 +17,8 @@ export const createMachines = ((app) => {
   /** ушедшие раньше: ответ журнала флота */
   const left = new Map<string, number | undefined>();
   /** итог перезапуска части: живёт у строки машины, свёртка его не теряет */
-  const notes = new Map<string, string>();
+  const notes = new Map<string, OutcomeNote>();
+  const restarting = new Set<string>();
 
   const answers = () => (app.mark("keeper.answers") ?? {}) as KeeperAnswers;
 
@@ -50,26 +51,33 @@ export const createMachines = ((app) => {
     app.changed();
   }
 
-  function Part({ machine, part, online }: { machine: string; part: KeeperPart; online: boolean }) {
-    const [busy, setBusy] = useState(false);
-    async function restart() {
-      setBusy(true);
-      for (const on of [false, true]) {
-        const r = await app.request("releases.set", { machine, part: part.part, on });
-        if (!r.ok) {
-          notes.set(machine, `releases.set: ${r.error}`);
-          setBusy(false);
-          return app.changed();
-        }
+  async function restart(machine: string, part: string) {
+    const key = `${machine}:${part}`;
+    if (restarting.has(key)) return;
+    restarting.add(key);
+    const say = (text: string, tone?: OutcomeNote["tone"]) => {
+      notes.set(key, { text, tone });
+      app.changed();
+    };
+    say("Перезапускаю…");
+    for (const on of [false, true]) {
+      const r = await app.request("releases.set", { machine, part, on });
+      if (!r.ok) {
+        restarting.delete(key);
+        return say(`releases.set: ${r.error}`, "bad");
       }
-      notes.set(machine, `${part.part} выключена и включена по плану`);
-      setBusy(false);
-      app.run("keeper.reload", { machine });
     }
+    restarting.delete(key);
+    say("выключена и включена по плану", "ok");
+    app.run("keeper.reload", { machine });
+  }
+
+  function Part({ machine, part }: { machine: string; part: KeeperPart }) {
+    const note = app.use(() => notes.get(`${machine}:${part.part}`));
     const failed = part.state === "failed";
     return (
       <div className="mc-part">
-        <Dot kind={failed ? "bad" : "idle"} />
+        <Dot kind={DOT[part.state] ?? "stop"} />
         <span>
           <b>{part.part}</b>{" "}
           <span className={failed ? "v bad" : "v"} data-part={part.part} data-state={part.state}>
@@ -77,11 +85,12 @@ export const createMachines = ((app) => {
           </span>
         </span>
         {part.error && <div className="e">{part.error}</div>}
-        {failed && online && part.part !== "keeper" && (
-          <Btn className="r" disabled={busy} onClick={() => void restart()}>
-            {busy ? "Перезапускаю…" : "Перезапустить"}
+        {failed && part.part !== "keeper" && (
+          <Btn className="r" onClick={() => void restart(machine, part.part)}>
+            Перезапустить
           </Btn>
         )}
+        <Outcome note={note} />
       </div>
     );
   }
@@ -90,7 +99,6 @@ export const createMachines = ((app) => {
     const { machine } = params;
     const answer = app.use(() => answers()[machine]);
     const online = app.use(() => !Object.hasOwn(gone, machine));
-    const note = app.use(() => notes.get(machine) ?? "");
     const k = okOf(answer);
     const word = wordOf(answer);
     return (
@@ -108,11 +116,10 @@ export const createMachines = ((app) => {
         {k && (
           <div className="mc-parts">
             {k.parts.map((p) => (
-              <Part key={p.part} machine={machine} part={p} online={online} />
+              <Part key={p.part} machine={machine} part={p} />
             ))}
           </div>
         )}
-        {note && <Note>{note}</Note>}
         {online && app.wide && (
           <Opts>
             <Btn onClick={() => app.open("settings", { tab: "releases", machine })}>План в «Выпусках»</Btn>

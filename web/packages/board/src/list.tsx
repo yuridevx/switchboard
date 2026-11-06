@@ -2,9 +2,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type PointerEvent, type ReactNode } from "react";
 import { machineOf } from "@switchboard/protocol";
 import { NONE } from "@switchboard/records";
-import { Badge, Btn, DisclosureBtn, Dot, failText, IconBtn, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, stateLabel, TextBtn, useApp, useModule, type App } from "@switchboard/web-ui";
+import { Badge, Btn, DisclosureBtn, Dot, failText, IconBtn, In, incidentOf, lamp, machineLabel, profileNameOf, RowBtn, sessionLabel, stateLabel, TextBtn, useApp, useModule, type App } from "@switchboard/web-ui";
 import { holdTouch, rowDrag, sorting, track } from "./drag.ts";
-import { beforeOf, blockOf, byUrgency, tree, type Filter, type Line, type Section, type View } from "./model.ts";
+import { beforeOf, blockIn, byUrgency, tree, type Filter, type Line, type Section, type View } from "./model.ts";
 import { FilterEditor, ViewPanel } from "./panel.tsx";
 import type { BoardState } from "./state.ts";
 
@@ -25,7 +25,7 @@ function useRefocus(root: () => HTMLElement | null) {
 
 const PIN = (
   <svg className="bd-pin" viewBox="0 0 16 16" role="img" aria-label="закреплена">
-    <path d="M9.8 1.5 14.5 6.2l-2 .6-2.9 2.9-.3 3-1.4 1.4-2.3-3.2L2 14l3-3.6-3.2-2.3 1.4-1.4 3-.3 2.9-2.9z" />
+    <path d="M6 2h4l-.5 4 2.5 2.5V10H8.6L8 14l-.6-4H4V8.5L6.5 6z" />
   </svg>
 );
 const SLIDERS = (
@@ -39,20 +39,19 @@ const SLIDERS = (
 /** Что показывает строка: данные выборки. */
 function rowOf(app: App, s: BoardState, callsign: string, project: boolean) {
   const r = s.sessions().find((x) => x.callsign === callsign);
-  const pinned = s.pins().includes(callsign);
   const owner = s.mine(callsign) ? null : s.owner(callsign);
   return {
     dot: r ? lamp(r) : "stop",
     title: stateLabel(r?.state).text,
     name: sessionLabel(app, callsign),
     at: machineLabel(app, machineOf(callsign)!),
-    owner: owner && !pinned ? owner.slice(1).split("@")[0] : null,
-    pinned,
+    owner: owner?.slice(1).split("@")[0],
+    pinned: s.pins().includes(callsign),
     incident: incidentOf(r)?.type,
     project: project ? (s.records()?.find((p) => p.id === s.projectOf(callsign))?.name ?? null) : null,
     asked: app.mark("asked", callsign) as string | undefined,
     unread: app.mark("unread", callsign) as { count: number; text: string } | undefined,
-    fail: r?.state === "failed" ? failText(r) : "",
+    fail: r ? failText(r) : "",
     profile: profileNameOf(r),
     model: r?.model as string | undefined,
     current: app.current()?.screen !== "board" && app.current()?.params.callsign === callsign,
@@ -63,7 +62,7 @@ function rowOf(app: App, s: BoardState, callsign: string, project: boolean) {
 function second(r: ReturnType<typeof rowOf>, v: View): ReactNode {
   if (v.q && r.asked) return <span className="tx q">{`? ${r.asked}`}</span>;
   if (v.fail && r.fail) return <span className="tx f">{r.fail}</span>;
-  if (v.unread && r.unread?.text) return <span className="tx">{r.unread.text}</span>;
+  if (v.unread && r.unread?.count) return <span className="tx">{r.unread.text}</span>;
   return (
     <>
       {v.prof && r.profile && <span className="bd-pill">{r.profile}</span>}
@@ -72,7 +71,7 @@ function second(r: ReturnType<typeof rowOf>, v: View): ReactNode {
   );
 }
 
-function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: boolean; grouped: boolean; shared: Shared }) {
+function Row({ line, lines, v, flat, grouped, shared }: { line: Line; lines: Line[]; v: View; flat: boolean; grouped: boolean; shared: Shared }) {
   const app = useApp();
   const s = useModule<BoardState>();
   const { callsign, depth } = line;
@@ -81,7 +80,8 @@ function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: bo
   const down = (e: PointerEvent<HTMLButtonElement>) => {
     if (flat) return;
     const row = e.currentTarget;
-    track(e, true, (from) => rowDrag({ host: shared.host(), scroller: shared.body(), row, block: blockOf(callsign, s.sessions()), done: s.drop }, from));
+    const block = blockIn(lines, callsign);
+    track(e, true, (from) => rowDrag({ host: shared.host(), scroller: shared.body(), row, block, done: (project, before) => s.drop(block, project, before) }, from));
   };
   return (
     <RowBtn className={words("bd-row", depth > 0 && "kid")} style={depth > 0 ? { paddingLeft: `${10 + depth * 22}px` } : undefined} data-callsign={callsign} aria-current={r.current} onClick={open} onPointerDown={down}>
@@ -111,13 +111,16 @@ function Row({ line, v, flat, grouped, shared }: { line: Line; v: View; flat: bo
 
 /** Поле имени проекта: Enter и уход с поля сохраняют, Esc — нет. Значение читается из поля: печатать может и автозаполнение. */
 function NameField({ value = "", save, close, ...input }: { value?: string; save(text: string): void; close(): void; className?: string; "data-f": string; "aria-label": string }) {
+  const done = useRef(false);
   const finish = (el: HTMLInputElement) => {
+    if (done.current) return;
+    done.current = true;
     const text = el.value.trim();
     if (text && text !== value) save(text);
     close();
   };
   return (
-    <input
+    <In
       {...input}
       autoFocus
       defaultValue={value}
@@ -134,12 +137,16 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
   const app = useApp();
   const s = useModule<BoardState>();
   const { id, name, callsigns } = section;
-  const folded = app.use(() => s.device.get().collapsed[id] === true);
+  const folded = app.use(() => s.folded(id));
   const lamps = app.use(() => (folded ? byUrgency(s.sessions().filter((x) => callsigns.includes(x.callsign))).slice(0, LAMPS).map(lamp) : []));
   const refocus = useRefocus(shared.host);
   const parentOf = (c: string) => s.sessions().find((x) => x.callsign === c)?.parent;
   const lines = (list: string[]) => (v.tree ? tree(list, parentOf) : list.map((callsign) => ({ callsign, depth: 0 })));
   const groups = v.group ? [...new Set(callsigns.map((c) => machineOf(c)!))].sort() : [];
+  const rows = (list: string[], grouped: boolean) => {
+    const placed = lines(list);
+    return placed.map((line) => <Row key={line.callsign} line={line} lines={placed} v={v} flat={false} grouped={grouped} shared={shared} />);
+  };
 
   const keys = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === "Enter" || e.key === " ") {
@@ -156,7 +163,7 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
   const down = (e: PointerEvent<HTMLElement>) => {
     const item = e.currentTarget.closest<HTMLElement>(".pjs")!;
     const list = item.parentElement!;
-    const items = [...list.querySelectorAll<HTMLElement>(":scope > .pjs")];
+    const items = [...list.querySelectorAll<HTMLElement>(":scope > .pjs")].filter((x) => x.dataset.proj !== NONE);
     track(e, false, (from) =>
       sorting(
         {
@@ -174,11 +181,6 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
       ),
     );
   };
-  const add = () => {
-    const top = s.sessions().find((x) => x.callsign === callsigns[0]);
-    app.open("open", { ...(top ? { machine: machineOf(top.callsign)!, dir: String(top.dir ?? "~") } : {}), project: id });
-  };
-
   return (
     <section className="pjs" data-proj={id}>
       <div className="pj">
@@ -187,7 +189,7 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
             ⠿
           </span>
         )}
-        <DisclosureBtn className="pj-t" data-proj={id} open={!folded} onClick={() => s.toggle(id, folded)}>
+        <DisclosureBtn className="pj-t" data-proj={id} open={!folded} onClick={() => s.toggle(id)}>
           <span className="car">▼</span>
           <span className="nm">{name}</span>
           {v.pjlamps && (
@@ -199,7 +201,7 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
           )}
         </DisclosureBtn>
         {v.add && (
-          <IconBtn className="pj-add" data-proj={id} aria-label={`Новая сессия в ${name}`} onClick={add}>
+          <IconBtn className="pj-add" data-proj={id} aria-label={`Новая сессия в ${name}`} onClick={() => app.open("open", s.placeOf(id))}>
             +
           </IconBtn>
         )}
@@ -207,21 +209,21 @@ function Project({ section, v, shared, menu, setMenu, order }: { section: Sectio
       {menu && (
         <div className="pj-menu" data-menu={id}>
           <NameField data-f="project-name" aria-label="Имя проекта" value={name} save={(text) => s.renameProject(id, text)} close={() => setMenu(false)} />
-          <Btn bad data-act="project-remove" onPointerDown={(e) => e.preventDefault()} onClick={() => (setMenu(false), s.removeProject(id))}>
+          <Btn bad data-act="project-remove" onPointerDown={(e) => e.preventDefault()} onMouseDown={(e) => e.preventDefault()} onClick={() => (setMenu(false), s.removeProject(id))}>
             Удалить
           </Btn>
         </div>
       )}
-      {!folded && !v.group && lines(callsigns).map((line) => <Row key={line.callsign} line={line} v={v} flat={false} grouped={false} shared={shared} />)}
+      {!folded && !v.group && rows(callsigns, false)}
       {!folded &&
         groups.flatMap((m) => {
           const here = callsigns.filter((c) => machineOf(c) === m);
           return [
             <div key={`@${m}`} className="mgrp" data-group={m}>
-              {machineLabel(app, m).text}
+              <span>{machineLabel(app, m).text}</span>
               <span className="n">{here.length}</span>
             </div>,
-            ...lines(here).map((line) => <Row key={line.callsign} line={line} v={v} flat={false} grouped shared={shared} />),
+            ...rows(here, true),
           ];
         })}
     </section>
@@ -251,7 +253,7 @@ function Lists({ filter, v, shared }: { filter: Filter; v: View; shared: Shared 
     return (
       <div ref={box} className="lst flat">
         {sections.flatMap((x) => x.callsigns).map((callsign) => (
-          <Row key={callsign} line={{ callsign, depth: 0 }} v={v} flat grouped={false} shared={shared} />
+          <Row key={callsign} line={{ callsign, depth: 0 }} lines={[]} v={v} flat grouped={false} shared={shared} />
         ))}
         {empty}
       </div>

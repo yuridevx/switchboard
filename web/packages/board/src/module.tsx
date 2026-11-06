@@ -25,7 +25,7 @@ export const createBoard = ((app) => {
       },
     },
     commands: {
-      "board.pin": { place: "card.menu", label: "Закрепить", show: (p) => !s.mine(p.callsign), run: (p) => s.setPin(p.callsign, true) },
+      "board.pin": { place: "card.menu", label: "Закрепить", show: (p) => s.sessions().some((x) => x.callsign === p.callsign) && !s.mine(p.callsign), run: (p) => s.setPin(p.callsign, true) },
       "board.unpin": { place: "card.menu", label: "Закреплена", show: (p) => pinned(p.callsign), run: (p) => s.setPin(p.callsign, false) },
       "board.assign": { place: "open.after", show: (p) => !!p.project, run: (p) => s.assign(p.callsign, p.project) },
     },
