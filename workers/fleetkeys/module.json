@@ -1,0 +1,22 @@
+{
+  "name": "fleetkeys",
+  "type": "worker",
+  "version": "1.0.0",
+  "provides": {
+    "fleetkeys.list": 1,
+    "fleetkeys.set": 1,
+    "fleetkeys.remove": 1,
+    "fleetkeys.key": 1,
+    "fleetkeys.changed": 1
+  },
+  "uses": {
+    "gate.verify@gate": 1,
+    "gate.list@gate": 1,
+    "relay.deliver@relay": 1
+  },
+  "config": {
+    "GATE": "binding",
+    "RELAY": "binding",
+    "DB": "binding"
+  }
+}
