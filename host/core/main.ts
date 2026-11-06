@@ -5,7 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import * as sdk from "@anthropic-ai/claude-agent-sdk";
 import { PROTO } from "@switchboard/relay";
-import { setProblems } from "./src/gate.ts";
+import { releaseProblems } from "./src/gate.ts";
 import { realHolders } from "./src/holders.ts";
 import { Kernel, StartError } from "./src/kernel.ts";
 import { claudeCli, claudePath, loadRelease } from "./src/release.ts";
@@ -23,12 +23,14 @@ const trap = (e: unknown) => {
 };
 process.on("uncaughtException", trap);
 process.on("unhandledRejection", trap);
+// раньше обработчика SDK: на выходе он закрывает ввод своим процессам, а процессы сессий живут дальше
+process.on("exit", () => kernel?.holders.close());
 
 /** Гейт выпуска: сборка загружается и набор годен. */
 async function check(): Promise<number> {
   try {
     const release = await loadRelease(root, dir);
-    const why = setProblems(core, release.modules, release.workers).join("; ");
+    const why = releaseProblems(core, release.modules).join("; ");
     console.log(JSON.stringify(why ? { ok: false, why } : { ok: true, version: release.version, sdk: release.sdk, proto: PROTO }));
     return why ? 1 : 0;
   } catch (e) {
@@ -58,6 +60,7 @@ async function main(): Promise<void> {
   process.on("SIGTERM", () => stop("SIGTERM"));
   process.on("SIGINT", () => stop("SIGINT"));
   process.stdin.on("end", () => stop("ввод закрыт"));
+  process.stdin.on("error", () => stop("ввод закрыт"));
   process.stdin.resume();
   await kernel.start();
 }

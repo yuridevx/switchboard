@@ -107,7 +107,7 @@ export class Session {
 
   /** Запись изменилась — кадр session.state. Не ушёл — уйдёт при следующей разнице или при открытии соединения. */
   sync(): void {
-    if (this.k.sessions.get(this.callsign) !== this) return;
+    if (!this.k.relay || this.k.sessions.get(this.callsign) !== this) return;
     const r = this.record();
     const text = JSON.stringify(r);
     if (text !== this.sent && this.k.send({ type: "session.state", ...r } as never)) this.sent = text;
@@ -174,7 +174,7 @@ export class Session {
     const { session_id: id, cwd, fork } = this.rec;
     if (kind === "spawn") return { start: kind, options: { sessionId: id } };
     if (kind === "fork") return { start: kind, options: { resume: fork, forkSession: true, sessionId: id } };
-    if (kind === "attach" || (await this.k.sdk.functions.getSessionInfo(id, { dir: cwd }))) return { start: kind, options: { resume: id } };
+    if (kind === "attach" || (await within(this.k.clock, this.k.sdk.functions.getSessionInfo(id, { dir: cwd }), STEP_MS, () => ({})))) return { start: kind, options: { resume: id } };
     return this.plan(fork ? "fork" : "spawn");
   }
 
@@ -215,7 +215,8 @@ export class Session {
         if (!run.closing) (await hold).destroy();
       }
     })();
-    run.done = hold.then((h) => h.exited).then(async (x) => (await read, x));
+    // выход — от держателя, дочитать остаток — не дольше ступени
+    run.done = hold.then((h) => h.exited).then(async (x) => (await within(k.clock, read, STEP_MS, () => undefined), x));
     void run.done.then((x) => this.ended(run, x));
 
     const late = k.clock.setTimeout(() => {
@@ -336,7 +337,7 @@ export class Session {
   }
 
   async start(o: { point?: number } = {}): Promise<void> {
-    if (this.run) return;
+    if (this.run || this.state === "starting") return;
     this.rec.stopped = false;
     this.falls = [];
     this.point = o.point;
@@ -345,7 +346,7 @@ export class Session {
 
   async restart(): Promise<void> {
     const run = this.run;
-    if (!run) return this.start();
+    if (!run) return this.state === "starting" ? undefined : this.start();
     if (isBusy(this.state) && !(await this.turn(RESTART_MS))) {
       this.k.log({ kind: "refuse", ev: "restart_late", callsign: this.callsign, why: `ход не кончился за ${RESTART_MS / 3_600_000} ч — перезапуск отменён` });
       return;

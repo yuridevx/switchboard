@@ -1144,3 +1144,33 @@ describe("история после сжатия", () => {
     expect(uuids(await whole({ limit: 2 }))).toEqual(["a0", "a1"]);
   });
 });
+
+describe("сверка круга 3: правила из строк старого кода", () => {
+  it("restart, пока процесс поднимается после сбоя: второго запуска нет", async () => {
+    // источник: контракт Session.restart; чьё: код — поднимается уже: запускать нечего
+    let release = () => {};
+    let slow = false;
+    const st = await stand({ modules: [module("host-slow", { session: () => (slow ? new Promise<undefined>((r) => (release = () => r(undefined))) : undefined) })] });
+    const s = await st.open(CS);
+    slow = true;
+    st.proc(CS).exit(1, "упал");
+    await until(() => s.state === "starting");
+    await s.restart();
+    release();
+    await until(() => s.state === "idle");
+    expect(st.sdk.of(CS)).toHaveLength(2);
+  });
+
+  it("проверка файла разговора молчит: за ступень запуск идёт дальше resume", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит»
+    const st = await stand({ modules: [] });
+    const s = await st.open(CS);
+    await s.stop();
+    st.sdk.functions = { getSessionInfo: () => new Promise(() => {}) } as never;
+    const starting = s.start();
+    await new Promise((r) => setTimeout(r, 20));
+    st.clock.advance(STOP_STEP);
+    await starting;
+    expect(st.query(CS).options.resume).toBe(s.info.session_id);
+  });
+});

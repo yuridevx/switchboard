@@ -1641,3 +1641,64 @@ describe("ввод и папки", () => {
     expect(clientPath("./x", home)).toBeNull();
   });
 });
+
+describe("сверка круга 3: упавшие отложенные и правила из строк старого кода", () => {
+  it("3173 · начатый запрос не отдаёт текущее — остановка не висит: за 30 с shutdown_late «ждёт начатые запросы», выход 1", async () => {
+    // источник: слово пользователя 2 нояб. «у всех операций должен быть лимит и поддержка graceful shutdown»; устав «не успела — жёсткий выход»
+    const slow = module("host-slow", { requests: { "slow.go": () => new Promise(() => {}) } }, { provides: { "slow.go": 1 } });
+    const st = await stand({ modules: [slow] });
+    void st.relay.request({ type: "slow.go", v: 1, machine: "laptop" });
+    await new Promise((r) => setTimeout(r, 30));
+    const down = st.kernel.shutdown("ввод закрыт");
+    st.clock.advance(30_000);
+    await down;
+    expect(st.exits).toEqual([1]);
+    expect(lines(st, "shutdown_late")[0].why).toBe("остановка не успела за 30 с: ждёт начатые запросы — жёсткий выход 1 · ввод закрыт");
+  });
+
+  it("поле-обещание в запись не идёт; разделы сессии стираются и у модуля, которого нет в сборке", async () => {
+    // источник: чьё: код — запись roster синхронна; контракт Session.remove «разделы этой сессии у всех модулей стёрты»
+    const st = await stand({ modules: [module("host-a", { fields: { later: (async () => 1) as never } })] });
+    const s = await st.open(CS);
+    writeFileSync(join(st.home, "store", "host-old.json"), JSON.stringify({ sessions: { [CS]: 1, "x@laptop": 2 } }));
+    expect(st.states(CS).at(-1)!.later).toBeUndefined();
+    await s.remove();
+    expect(JSON.parse(readFileSync(join(st.home, "store", "host-old.json"), "utf8")).sessions).toEqual({ "x@laptop": 2 });
+  });
+
+  it("поздний ответ на свой запрос: не запрос к модулю, отказа в журнале и кадра в relay нет", async () => {
+    // источник: протокол — reply не запрос; чьё: код — ждавшему уже ответил предел
+    const st = await stand({ modules: [] });
+    await until(() => st.relay.hellos.length === 1 && lines(st, "hello").length === 1);
+    st.relay.deliver({ type: "reply", id: "late-1", ok: true });
+    await st.relay.request({ type: "y.do", v: 1 });
+    expect(lines(st, "request").map((l) => l.word)).toEqual(["unknown_request"]);
+    expect(st.relay.frames("reply").map((f) => f.id)).not.toContain("late-1");
+  });
+
+  it("второе открытие того же имени, пока первое идёт: отказ, процесс один", async () => {
+    // источник: контракт host.open; чьё: код — запись появляется только после вкладов модулей
+    let release = () => {};
+    const st = await stand({ modules: [module("host-slow", { session: () => new Promise<undefined>((r) => (release = () => r(undefined))) })] });
+    const first = st.open(CS);
+    await until(() => release.toString().includes("r(undefined)"));
+    await expect(st.open(CS)).rejects.toThrow("имя занято");
+    release();
+    await first;
+    expect(st.sdk.of(CS)).toHaveLength(1);
+  });
+
+  it("module_failed несёт стек: журнал — то, по чему агент чинит модуль", async () => {
+    // источник: устав «система ловит, агент чинит»
+    const st = await stand({ modules: [module("host-a", { start: () => { throw new Error("бах"); } })] });
+    expect(lines(st, "module_failed")[0].why).toContain("boundary.test.ts");
+  });
+
+  it("start() модуля видит сессии из хранилища", async () => {
+    // источник: чьё: код — модули сверяют своё со списком сессий на старте
+    let seen: string[] = [];
+    const st = await stand({ sessions: [{ callsign: CS }], modules: [module("host-a", { start: (h) => void (seen = h.sessions().map((s) => s.callsign)) })] });
+    expect(seen).toEqual([CS]);
+    expect(st.startError).toBeNull();
+  });
+});

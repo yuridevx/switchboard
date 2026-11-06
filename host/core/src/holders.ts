@@ -17,7 +17,7 @@ export type Exit = { code: number | null; signal: string | null; stderr: string;
 
 /** Держатель читает кадр до 4 МиБ: длинный ввод идёт кусками. */
 const INPUT_CHUNK = 1 << 20;
-const SPAWN_MS = 10_000;
+const SPAWN_MS = 30_000;
 
 export function frame(type: string, data: string | Buffer = ""): Buffer {
   const body = Buffer.from(data);
@@ -75,8 +75,11 @@ export class Hold extends EventEmitter {
         this.signalCode = x.signal as NodeJS.Signals | null;
         this.stdout.end();
         this.sock?.destroy();
-        this.emit("exit", this.exitCode, x.signal); // код не null: иначе SDK ждёт выхода, который уже был
-        resolve(x);
+        // выход идёт после вывода: следующий тик отдаёт читателю всё, что он ещё не забрал. Код не null: иначе SDK ждёт выхода, который уже был
+        setImmediate(() => {
+          this.emit("exit", this.exitCode, x.signal);
+          resolve(x);
+        });
       };
     });
     file.then(
@@ -202,8 +205,12 @@ export function realHolders(home: string, bin: string | undefined): HolderApi {
           child.stdout.destroy();
           child.stderr.destroy();
           child.unref();
-          const { port, key, pid } = JSON.parse(out) as HoldFile;
-          resolve({ id: s.id, owner: "host", pid, port, key });
+          try {
+            const { port, key, pid } = JSON.parse(out) as HoldFile;
+            resolve({ id: s.id, owner: "host", pid, port, key });
+          } catch (e) {
+            reject(new Error(`строка держателя: ${(e as Error).message}`));
+          }
         });
       });
     },

@@ -22,4 +22,8 @@ export function tildePath(path: string, home = homedir()): string {
 }
 
 /** Своя папка Claude: её ставит ядро на старте, стандартной на Host нет. */
-export const claudeDir = (): string => process.env.CLAUDE_CONFIG_DIR!;
+export function claudeDir(): string {
+  const dir = process.env.CLAUDE_CONFIG_DIR;
+  if (!dir) throw new Error("CLAUDE_CONFIG_DIR не назначен: Host не стартовал");
+  return dir;
+}

@@ -272,6 +272,13 @@ describe("процесс Host", () => {
     expect(s.err).toContain("host-nope");
   }, 90_000);
 
+  it("--check: обработчик не из provides — ok:false с причиной: сборку с таким модулем не выпускают", async () => {
+    // источник: устав «модуль, который не пройдёт, ловится гейтом»; чьё: код — гейт выпуска видит и устройство модуля
+    const r = await run(release(["host-extra"], { "host-extra": { provides: {}, code: 'export default { requests: { "x.y": () => 1 } };\n' } }), ["--check"], {});
+    expect(r.code).toBe(1);
+    expect(JSON.parse(r.out.trim()).why).toContain("host-extra: requests.x.y — нет в provides");
+  }, 90_000);
+
   it("741 · Host без SWITCHBOARD_MACHINE — отказ словами в stderr, код 1", async () => {
     // источник: устав «Host… часть машины, её запускает keeper»; слова — чьё: код
     const r = await run(join(coreDir, "main.ts"), [], { SWITCHBOARD_HOME: home() });

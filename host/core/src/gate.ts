@@ -1,6 +1,7 @@
 // Правила набора на старте Host и склейка вкладов модулей в query(): у имени один владелец.
-import { nameOf, ownerOf } from "@switchboard/manifest-gate";
-import type { Manifest, Module, QueryPart } from "../contract.ts";
+import { check, nameOf, ownerOf } from "@switchboard/manifest-gate";
+import type { Manifest, QueryPart } from "../contract.ts";
+import type { ModuleEntry } from "./release.ts";
 
 /** Поля записи сессии, которые держит ядро. */
 const CORE_FIELDS = new Set(["callsign", "state", "failed", "sdk", "dir", "by"]);
@@ -24,26 +25,24 @@ const CORE_OPTIONS = new Set([
 
 type Entry = { manifest: Manifest };
 
-/** Ошибки набора: Host не стартует. */
-export function setProblems(core: Manifest, entries: Entry[], workers: Record<string, string>): string[] {
-  const here = new Set([core.name, ...entries.map((e) => e.manifest.name)]);
-  const owners = new Map<string, string>();
-  const out: string[] = [];
-  if (!workers.relay) {
-    for (const { manifest: m } of entries) for (const ref of Object.keys(m.uses)) if (!here.has(ownerOf(ref))) out.push(`${m.name}: ${ref} — нет relay в списке сборки`);
-  }
-  for (const { manifest: m } of entries) {
-    for (const name of Object.keys(m.provides)) {
-      const first = owners.get(name);
-      if (first) out.push(`${name}: два владельца — ${first} и ${m.name}`);
-      else owners.set(name, m.name);
-    }
-  }
-  return out;
+const names = (core: Manifest, entries: Entry[]) => new Set([core.name, ...entries.map((e) => e.manifest.name)]);
+
+/** Правила набора — гейт монорепо; владелец вне набора (Worker, keeper) ему не виден. */
+export function setProblems(core: Manifest, entries: Entry[]): string[] {
+  const here = names(core, entries);
+  const inSet = (m: Manifest) => ({ ...m, uses: Object.fromEntries(Object.entries(m.uses).filter(([ref]) => here.has(ownerOf(ref)))) });
+  return check([core, ...entries.map((e) => e.manifest)].map(inSet)).map((why) => why.replace(/^имя /, ""));
+}
+
+/** Имена, которые идут только через relay: без него в сборке им неоткуда взяться. */
+export function relayProblems(core: Manifest, entries: Entry[]): string[] {
+  const here = names(core, entries);
+  return entries.flatMap(({ manifest: m }) => Object.keys(m.uses).flatMap((ref) => (here.has(ownerOf(ref)) ? [] : [`${m.name}: ${ref} — нет relay в списке сборки`])));
 }
 
 /** Ошибки устройства одного модуля: выключен он, остальные работают. */
-export function moduleFlaws({ name, provides, calls = [] }: Manifest, mod: Module): string[] {
+export function moduleFlaws({ manifest: { name, provides, calls = [] }, module: mod, failed }: ModuleEntry): string[] {
+  if (failed) return [failed];
   const named = [
     ...Object.keys(mod.requests ?? {}).map((n) => [`requests.${n}`, n]),
     ...Object.keys(mod.frames ?? {}).map((n) => [`frames.${n}`, n]),
@@ -58,6 +57,9 @@ export function moduleFlaws({ name, provides, calls = [] }: Manifest, mod: Modul
     ...calls.filter((c) => !CORE_CALLS.has(c) && !CALLS.has(c) && !SESSION_FNS.has(c)).map((c) => `${name}: calls ${c} — такого метода нет в SDK`),
   ];
 }
+
+/** Гейт выпуска: всё, что не даст модулю или набору работать. */
+export const releaseProblems = (core: Manifest, entries: ModuleEntry[]): string[] => [...entries.flatMap(moduleFlaws), ...setProblems(core, entries)];
 
 export const usesName = (m: Manifest, name: string): string | undefined => Object.keys(m.uses).find((ref) => nameOf(ref) === name);
 

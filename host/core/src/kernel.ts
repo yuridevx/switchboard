@@ -4,14 +4,14 @@ import { randomUUID } from "node:crypto";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { ownerOf } from "@switchboard/manifest-gate";
-import { READ_MS, accepts, hostOf, machineOf, serviceAddress, type Frame } from "@switchboard/protocol";
+import { READ_MS, accepts, hostOf, kindOf, machineOf, serviceAddress, type Frame } from "@switchboard/protocol";
 import { fleet, type FleetClient, type Roster, type WsCtor } from "@switchboard/relay";
 import type { Host, LogRecord, Manifest, Module, OpenSpec, Probe, QueryPart, Result, Session as View } from "../contract.ts";
 import { realClock, within, type Clock } from "./clock.ts";
-import { coreOption, mergeParts, moduleFlaws, setProblems, usesName, type Merged } from "./gate.ts";
+import { coreOption, mergeParts, moduleFlaws, relayProblems, setProblems, usesName, type Merged } from "./gate.ts";
 import { Holders, type HolderApi, type HoldFile } from "./holders.ts";
 import { isRefusal, refuse } from "./refusal.ts";
-import type { ModuleEntry, Release } from "./release.ts";
+import type { Release } from "./release.ts";
 import { Session, quiet } from "./session.ts";
 import { Disk } from "./store.ts";
 
@@ -94,6 +94,8 @@ export class Kernel {
   private hosts = new Map<Mod, Host>();
   private seen = new WeakSet<object>();
   private roster: Roster | null = null;
+  /** имена сессий, которые открываются прямо сейчас */
+  private opened = new Set<string>();
   private o: KernelOptions;
 
   constructor(o: KernelOptions) {
@@ -124,7 +126,7 @@ export class Kernel {
   }
 
   log(r: LogRecord): void {
-    this.write("host", r);
+    this.write("core", r);
   }
 
   save(): void {
@@ -150,7 +152,8 @@ export class Kernel {
       this.seen.add(e);
     }
     if (isRefusal(e)) this.write(m.name, { kind: "refuse", ev: where, word: e.word, why: e.why, callsign: s?.callsign });
-    else this.switchOff(m, s, where, e instanceof Error ? e.message : String(e), String(e));
+    else if (e instanceof Error) this.switchOff(m, s, where, e.message, e.stack);
+    else this.switchOff(m, s, where, String(e));
   }
 
   /** Единственный вход в код модуля: контекст для ловушки; бросок — отказ словом в журнал или модуль выключен. */
@@ -202,7 +205,7 @@ export class Kernel {
       for (const [name, fn] of Object.entries(m.module.fields ?? {})) {
         if (this.off(m, s)) break;
         const v = this.run(m, s, `fields.${name}`, () => fn(s.facade(m)));
-        if (!this.off(m, s)) out[name] = v;
+        if (!this.off(m, s) && !(v instanceof Promise)) out[name] = v; // запись синхронна: обещание в неё не идёт
       }
     }
     return out;
@@ -311,15 +314,15 @@ export class Kernel {
     const { release, core } = this.o;
     this.log({ ev: "host_start", version: release.version, sdk: release.sdk, modules: this.mods.map((m) => `${m.name} ${m.manifest.version}`) });
     this.ownEnv();
-    this.refuseStart(setProblems(core, release.modules, release.workers));
-    release.modules.forEach((e: ModuleEntry, i) => {
-      const flaws = [...(e.failed ? [e.failed] : []), ...moduleFlaws(e.manifest, e.module)];
+    this.refuseStart([...(release.workers.relay ? [] : relayProblems(core, release.modules)), ...setProblems(core, release.modules)]);
+    release.modules.forEach((e, i) => {
+      const flaws = moduleFlaws(e);
       if (flaws.length) this.switchOff(this.mods[i], undefined, "гейт старта", flaws.join("; "));
     });
-    for (const m of this.mods) if (m.module.start && !this.off(m)) await this.bounded(m, undefined, "start", () => m.module.start!(this.facade(m)));
-
     const files = this.holders.files();
     for (const rec of this.disk.records()) this.sessions.set(rec.callsign, new Session(this, rec, !rec.stopped && files.some((f) => f.id === rec.callsign) ? "attach" : "resume"));
+    for (const m of this.mods) if (m.module.start && !this.off(m)) await this.bounded(m, undefined, "start", () => m.module.start!(this.facade(m)));
+
     const live = [...this.sessions.values()].filter((s) => !s.rec.stopped);
     const parts = await Promise.all(live.map((s) => this.parts(s)));
     this.refuseStart(parts.flatMap((p) => p.conflicts));
@@ -345,6 +348,7 @@ export class Kernel {
     h.destroy();
     const late = () => this.log({ kind: "stop", ev: "orphan_late", callsign: f.id, why: `держатель ${f.id} не вышел за ${KILL_MS / 1000} с после kill — старт идёт дальше` });
     await within<unknown>(this.clock, h.exited, KILL_MS, late);
+    h.detach();
   }
 
   // ───────────────────────── связь ─────────────────────────
@@ -388,6 +392,7 @@ export class Kernel {
   }
 
   private onFrame(f: Frame): void {
+    if (f.type === "reply") return; // поздний ответ: его ждавшему уже ответил предел
     if (f.id) {
       const work = this.serve(f).then((r) => void this.relay?.send({ ...r, type: "reply", id: f.id, to: f.from }));
       this.inflight.add(work);
@@ -396,14 +401,14 @@ export class Kernel {
     }
     if (f.type === "roster") this.roster = this.relay!.roster;
     const frame = f.type === "roster" ? (this.roster as unknown as Frame) : f;
-    const listeners = this.mods.filter((m) => m.module.on?.frame && usesName(m.manifest, f.type) && !this.off(m));
+    const listeners = this.mods.filter((m) => m.module.on?.frame && usesName(m.manifest, f.type));
     const owner = this.owners.get(f.type);
     const handler = owner?.module.frames?.[f.type];
     if (!handler && !listeners.length && f.type !== "roster") this.log({ kind: "refuse", ev: "frame", word: "unknown_request", why: `кадр ${f.type}: владельца нет` });
     if (this.shutting) return;
     const s = this.sessions.get(String(f.callsign ?? f.to));
     if (handler && !this.off(owner!, s)) this.run(owner!, s, `frames.${f.type}`, () => handler(f, this.ctx(owner!, f)));
-    for (const m of listeners) this.run(m, undefined, "on.frame", () => m.module.on!.frame!(frame));
+    for (const m of listeners) if (!this.off(m)) this.run(m, undefined, "on.frame", () => m.module.on!.frame!(frame));
   }
 
   private ctx(m: Mod, f: Frame) {
@@ -445,7 +450,7 @@ export class Kernel {
     const owner = own ? m.name : ownerOf(ref!);
     const target = hostOf(f);
     if (this.byName.has(owner) && !Array.isArray(f.to) && (target == null || target === this.machine)) {
-      const local = this.serve({ ...f, from: f.from ?? `@${this.machine}` });
+      const local = this.serve({ ...f, from: kindOf(f.from) ? f.from : `@${this.machine}` });
       return read ? within<Result>(this.clock, local, READ_MS, () => ({ ok: false, error: "timeout" })) : local;
     }
     if (!this.relay) return { ok: false, error: "disconnected" };
@@ -492,11 +497,12 @@ export class Kernel {
     const copy = spec.fork && resume;
     if (this.shutting) throw refuse("shutting_down");
     if (machineOf(callsign) !== this.machine) throw new Error(`${callsign}: callsign не этой машины`);
-    if (this.sessions.has(callsign)) throw new Error(`${callsign}: имя занято`);
+    if (this.sessions.has(callsign) || this.opened.has(callsign)) throw new Error(`${callsign}: имя занято`);
     const rec = { callsign, cwd, session_id: resume && !copy ? resume : randomUUID(), sdk: this.version, stopped: false, ...(copy ? { fork: copy } : {}) };
     const kind = copy ? "fork" : point !== undefined ? "point" : resume ? "resume" : "spawn";
     const s = new Session(this, rec, kind === "fork" ? "resume" : kind, point);
     let parts: Parts;
+    this.opened.add(callsign);
     try {
       await this.opening(s, spec.opening ?? {});
       parts = await this.parts(s);
@@ -509,6 +515,8 @@ export class Kernel {
     } catch (e) {
       this.disk.dropSession(callsign);
       throw e;
+    } finally {
+      this.opened.delete(callsign);
     }
     this.sessions.set(callsign, s);
     this.save();
@@ -545,7 +553,7 @@ export class Kernel {
     })();
     const q = this.sdk.query({ prompt, options: { env: this.env(o.env), permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true, pathToClaudeCodeExecutable: this.sdk.bin } });
     const probe: Probe = {
-      sdk: (name, ...args) => (m.manifest.calls?.includes(name) ? q[name](...args) : quiet(Promise.reject(this.violate(m, `${name} нет в calls`)))),
+      sdk: (name, ...args) => quiet(m.manifest.calls?.includes(name) ? q[name](...args) : Promise.reject(this.violate(m, `${name} нет в calls`))),
       close: () => {
         this.probes.delete(probe);
         finish();
@@ -593,7 +601,12 @@ export class Kernel {
 
   /** Штатная остановка: повторный сигнал получает ту же. */
   shutdown(why: string): Promise<void> {
-    return (this.shutting ??= Promise.resolve().then(() => this.down(why)));
+    if (!this.shutting) {
+      let done = () => {};
+      this.shutting = new Promise((r) => (done = r));
+      void this.down(why).then(done);
+    }
+    return this.shutting;
   }
 
   private async down(why: string): Promise<void> {

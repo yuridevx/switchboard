@@ -8,7 +8,8 @@ export type CoreRecord = { callsign: string; cwd: string; session_id: string; sd
 
 type Sections = { machine?: unknown; sessions?: Record<string, unknown> };
 
-const copy = <T>(v: T): T => (v === undefined ? v : structuredClone(v));
+/** Значение таким, каким его прочтёт следующий Host. */
+const copy = <T>(v: T): T => (v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
 
 export class Disk {
   private files = new Map<string, Sections>();
@@ -32,7 +33,7 @@ export class Disk {
 
   private write(name: string, value: unknown): void {
     const tmp = `${this.path(name)}.tmp`;
-    writeFileSync(tmp, JSON.stringify(value));
+    writeFileSync(tmp, JSON.stringify(value), { flush: true });
     renameSync(tmp, this.path(name));
   }
 
