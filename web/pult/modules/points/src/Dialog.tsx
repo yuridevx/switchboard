@@ -1,5 +1,6 @@
 // Окна вкладки: перенос, копия, смена папки и откат — шаги по порядку, каждый запрос после ответа предыдущего.
 import { useState } from "react";
+import { machineOf, nameOf } from "@switchboard/protocol";
 import { Btn, Check, CommitIn, H4, In, M, Note, OptsLabel, Opts, remoteOf, Row, Sec, sessionOf, slotChoice, slotOf, useApp } from "@switchboard/web-ui";
 import type { ListedPoint } from "@switchboard/points";
 import { CheckLine } from "./Overview.tsx";
@@ -24,7 +25,8 @@ const TITLES: Record<Kind, (callsign: string, point: number) => string> = {
 /** Шаги окна: слот копии → свежая точка → подъём → «Забыть» прежней. */
 function useSteps({ kind, callsign, sid, from, changed }: Props, f: Form) {
   const app = useApp();
-  const [name, here] = callsign.split("@");
+  const name = nameOf(callsign);
+  const here = machineOf(callsign)!;
   const [phase, setPhase] = useState<Phase | null>(null);
   const say = (k: Phase["kind"], text: string) => setPhase({ kind: k, text });
   const failed = (word: string) => say("err", refused(word, { who: name, target: f.machine, ...(kind === "move" ? { from: here } : {}) }));
@@ -182,7 +184,8 @@ const Buttons = ({ done, can, label, run, close }: { done: boolean; can: boolean
 export function Dialog(p: Props) {
   const { kind, callsign, sid, head, from, close } = p;
   const app = useApp();
-  const [name, here] = callsign.split("@");
+  const name = nameOf(callsign);
+  const here = machineOf(callsign)!;
   const session = sessionOf(app, callsign);
   const moving = kind === "move" || kind === "copy";
   const t = useTarget({ owner: here, near: [...nearOf(app, callsign), here], slot: slotOf(session)?.name });

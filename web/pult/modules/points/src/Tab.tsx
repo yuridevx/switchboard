@@ -1,5 +1,6 @@
 // Вкладка «Точки» карточки: пометка «в R2», линия и ветки, карточка точки, окна.
 import { Fragment, useEffect, useState } from "react";
+import { machineOf, nameOf } from "@switchboard/protocol";
 import { ago, Btn, Check, day, H4, hhmm, In, Note, Opts, OptsLabel, Outcome, type OutcomeNote, Page, PageHead, Row, RowBtn, Sec, sessionOf, useApp, useLoad, useModule } from "@switchboard/web-ui";
 import type { ScreenProps } from "@switchboard/web-core";
 import type { ListedPoint, Point, PointsListSession } from "@switchboard/points";
@@ -55,7 +56,8 @@ function PointCard({ p, head, words, act }: { p: ListedPoint; head: boolean; wor
 }
 
 function Unmark({ callsign, go, close }: { callsign: string; go(): void; close(): void }) {
-  const [name, machine] = callsign.split("@");
+  const name = nameOf(callsign);
+  const machine = machineOf(callsign)!;
   const [typed, setTyped] = useState("");
   return (
     <Sec dlg data-dlg="unmark">
@@ -80,7 +82,8 @@ type Noted = { callsign: string; note: OutcomeNote | null; say(text: string, ton
 function Marked({ callsign, note, say }: Noted) {
   const app = useApp();
   const fleet = useModule<Fleet>();
-  const [name, machine] = callsign.split("@");
+  const name = nameOf(callsign);
+  const machine = machineOf(callsign)!;
   const sid = app.use(() => fleet.sidOf(callsign)?.sid);
   const fleetError = app.use(() => fleet.get().error);
   // сессию только что пометили: обзор узнает её номер в реестре
