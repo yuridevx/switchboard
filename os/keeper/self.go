@@ -38,6 +38,9 @@ func (k *Keeper) selfUpdate(e *entry) bool {
 	out, err := check.Output()
 	late := ctx.Err() == context.DeadlineExceeded
 	cancel()
+	if k.ctx.Err() != nil {
+		return false // остановка прервала проверку: это не сбой подмены
+	}
 	if late {
 		return failed(fmt.Sprintf("check_failed: новый файл не ответил за %v", k.o.Stop))
 	}
