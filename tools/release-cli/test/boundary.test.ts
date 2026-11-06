@@ -840,4 +840,15 @@ describe("сверка со старым кодом", () => {
   it("--out без значения — незнакомый аргумент: архив не уходит молча во временную папку (чьё: код)", async () => {
     await expect(main(["release", "core", "--dry-run", "--out"], {}, execOk(), go, fakeFleet().f)).rejects.toThrow("незнакомый аргумент: --out");
   });
+
+  it("go build упал — временная папка сборки снята (чьё: код)", async () => {
+    const own = tmp();
+    for (const name of ["TMPDIR", "TMP", "TEMP"]) vi.stubEnv(name, own);
+    try {
+      await expect(main(["release", "keeper", "--dry-run"], {}, execOk(), async () => ({ code: 1, out: "syntax error\n" }), fakeFleet().f)).rejects.toThrow("go build");
+      expect(readdirSync(own)).toEqual([]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
