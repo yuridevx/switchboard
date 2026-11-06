@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stand } from "@switchboard/host";
-import type { Manifest } from "@switchboard/host";
+import type { Ctx, Host, Manifest } from "@switchboard/host";
 import { make } from "../contract.ts";
 
 const { msg, standHost, until } = stand;
@@ -199,6 +199,29 @@ describe("machine.journal", () => {
     expect(r).toMatchObject({ ok: true });
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).toContain("целая");
     expect((r.result as { records: Array<{ ev: string }> }).records.map((x) => x.ev)).not.toContain("недо");
+  });
+
+  describe("чтение файлов — работа Host, у которого на одном потоке все сессии", () => {
+    /** Запрос напрямую: сигнал остановки Host — вход контракта модуля. */
+    function direct() {
+      folder({ "host-2026-10-30.jsonl": [H({ t: "2026-10-30T10:00:00.000Z", ev: "строка" })] });
+      const m = make();
+      void m.start!({ dataDir: process.env.SWITCHBOARD_HOME! } as Host);
+      return (signal: AbortSignal) => m.requests!["machine.journal"]({ type: "machine.journal", since: "2026-10-30T00:00:00.000Z", limit: 5 }, { signal } as Ctx);
+    }
+
+    it("пока файл читается, цикл событий Host идёт", async () => {
+      const ask = direct();
+      let turned = false;
+      setImmediate(() => (turned = true));
+      await ask(new AbortController().signal);
+      expect(turned).toBe(true);
+    });
+
+    it("сигнал остановки Host обрывает чтение файлов", async () => {
+      const ask = direct();
+      await expect((async () => ask(AbortSignal.abort()))()).rejects.toMatchObject({ name: "AbortError" });
+    });
   });
 
   it.each([
