@@ -1008,6 +1008,15 @@ describe("сверка со старым кодом", () => {
     await set(s, { part: "capture", on: true, force: true });
     expect((await result(req(s, "~x", "releases.list", { part: "capture" }))).machines[0].plan.capture).toEqual({ force: true });
   });
+
+  it("снять закрепление у части без stable — no_release: запись без версии убрала бы часть с машины (чьё: код)", async () => {
+    const s = fresh();
+    await fakeCf(NONE);
+    await inR2("capture", "1.4.0");
+    await set(s, { part: "capture", pin: "1.4.0" });
+    expect((await set(s, { part: "capture", pin: null }))[0]).toMatchObject({ ok: false, error: "no_release", why: "у capture нет stable — закрепи версию" });
+    expect((await result(req(s, ".keeper@win", "releases.plan"))).parts.map((x: any) => [x.part, x.version])).toEqual([["capture", "1.4.0"]]);
+  });
 });
 
 describe("releases.fetch", () => {

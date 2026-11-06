@@ -94,7 +94,7 @@ async function set({ env, cat, row, f }: Asked) {
   if (f.remove && !was) refuse("no_part", `${part} нет в плане ${machine}`);
   if (typeof f.pin === "string" && !(await cat.sha(part, f.pin))) refuse("no_release", `у ${part} нет версии ${f.pin}`);
   const entry = f.remove ? undefined : entryOf(was, f);
-  if (entry && !was && !everywhere && !entry.pin && !row.stable[part]) refuse("no_release", `у ${part} нет stable — закрепи версию`);
+  if (entry && !entry.pin && !row.stable[part]) refuse("no_release", `у ${part} нет stable — закрепи версию`);
   const stored = entry && (Object.keys(entry).length || !everywhere) ? entry : undefined;
   if (JSON.stringify(stored) === JSON.stringify(was)) return { machine, rev: row.rev };
   const { [part]: _old, ...others } = row.plans[machine] ?? {};
