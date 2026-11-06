@@ -55,6 +55,8 @@ export function make(): Module {
   let stopping = false;
   /** Очередь на тип и ключ: обращения одного ключа открывают одну сессию, зависший тип не держит другие. */
   const chains = new Map<string, Promise<void>>();
+  /** Обращения в очередях: новый проход не ставит их второй раз, иначе каждое новое обращение открывало бы и за всех ждущих. */
+  const queued = new Set<string>();
 
   const disk = () => host.store<Appeal[]>();
   const appeals = () => disk().get() ?? [];
@@ -106,16 +108,19 @@ export function make(): Module {
   const drain = (only: (a: Appeal) => boolean = () => true) => {
     if (!ready) return;
     for (const { id, type, key } of appeals().filter(only)) {
+      if (queued.has(id)) continue;
+      queued.add(id);
       const queue = JSON.stringify([type, key]);
       const next = (chains.get(queue) ?? Promise.resolve())
         .then(async () => {
           const a = appeals().find((x) => x.id === id);
           if (!a || waits(a)) return;
-          // остановка: очередь дальше не идёт, но у каждого обращения в ней — отказ; один проход мог поставить его дважды
+          // остановка: очередь дальше не идёт, но у каждого обращения в ней — отказ; следующий проход его не повторяет
           if (stopping) return a.refused?.word === "shutting_down" ? undefined : refused(a, "доставка", { error: "shutting_down", why: "Host останавливается" });
           await deliver(a);
         })
-        .catch((e: unknown) => host.log({ kind: "stop", ev: "incident", word: "module_error", id, why: `доставка: ${String(e)}` }));
+        .catch((e: unknown) => host.log({ kind: "stop", ev: "incident", word: "module_error", id, why: `доставка: ${String(e)}` }))
+        .finally(() => void queued.delete(id));
       chains.set(queue, next);
     }
   };

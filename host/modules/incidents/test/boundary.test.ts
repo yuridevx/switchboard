@@ -652,6 +652,18 @@ describe("инцидент: доставка хотя бы раз", () => {
     expect(disk().find((x) => x.id === a.body.id)).toEqual(was[0]);
   });
 
+  it("обращение уже в очереди ключа: новые обращения не ставят его второй раз — по одному открытию на обращение", async () => {
+    // старый код: queued; иначе N обращений за одно открытие дают N·(N+1)/2 открытий и строк отказа
+    let go = () => {};
+    const { st, post } = await bench({ hold: new Promise<void>((r) => (go = r)) });
+    const ids = [(await post({ type: "noprof", text: "1" })).body.id, (await post({ type: "noprof", text: "2" })).body.id, (await post({ type: "noprof", text: "3" })).body.id];
+    const lines = () => st.journal().filter((l) => l.ev === "incident" && l.kind === "refuse");
+    go();
+    await until(() => lines().some((l) => l.id === ids[2]));
+    await pause();
+    expect(lines().map((l) => l.id)).toEqual(ids);
+  });
+
   it("обращение без сессии: следующее обращение пробует и его — оба во вводе по порядку", async () => {
     const { st, post, disk, work } = await bench();
     const a = await post({ type: "nodir", text: "первое" });
