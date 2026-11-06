@@ -118,11 +118,9 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
     if (typeof to !== "string" || typeof type !== "string" || !notify || typeof notify !== "object") return refuse("bad_frame", "в push нужны to, type и notify");
     if (!Array.isArray(skip)) return refuse("bad_frame", "skip — список адресов устройств");
     const line = { from, type };
-    const fitted = fit({ type, from: asker, notify }) ?? refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
     // SQL отбирает по концу адреса, правило «доходит ли» — у протокола
     const { results } = await env.DB.prepare("SELECT client, endpoint, p256dh, auth, kid FROM subs WHERE substr(client, -length(?1)) = ?1").bind(to).all<Sub>();
     const targets = results.filter((s) => reaches(to, s.client) && !skip.includes(s.client));
-    if (!targets.length) refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
     const kids = targets.flatMap((s) => (s.kid ? [s.kid] : []));
     const revoked = new Set(kids.length ? await within(env.GATE.revoked(kids), "gate не ответил на revoked") : []);
     for (const s of targets.filter((x) => x.kid && revoked.has(x.kid))) {
@@ -130,6 +128,8 @@ const HANDLERS: Record<keyof typeof CONTRACT, (f: Frame, env: Env) => Promise<un
       log({ kind: "refuse", ev: "push.send", word: "gone", why: `пропуск ${s.kid} отозван: подписка удалена`, client: s.client, type });
     }
     const live = targets.filter((s) => !(s.kid && revoked.has(s.kid)));
+    if (!live.length) refuse("gone", kindOf(to) === "user" ? "пушить некому: подписок нет или все на связи" : "подписки нет", { client: to, type });
+    const fitted = fit({ type, from: asker, notify }) ?? refuse("bad_frame", "уведомление не влезает в 4 096 Б и без notify.body", { client: to, type });
     const jwk = JSON.parse(env.VAPID_PRIVATE) as JsonWebKey;
     const outcomes = await Promise.all(live.map((s) => deliver(env, jwk, s, fitted.plain, { ...line, cut: fitted.cut })));
     if (outcomes.includes("sent")) return undefined;
